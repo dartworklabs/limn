@@ -33,12 +33,15 @@ from limn.build import (
     ViewOnlyNoRebuild,
 )
 from limn.documents import Doc, RunPaths
+from limn.features.builds import engine as build_engine, run as build_run
 from limn.features.builds.answer import finished_build_body, rebuild_answer, rebuild_started_answer
 from limn.web.errors import BUILD_FAILURES, HTTPError, build_failure_log
 
 from helpers import Base, blank_png, needs_tex, ps, req
 
 BUILD_PY = Path(build.__file__)
+RUN_PY = Path(build_run.__file__)
+ENGINE_PY = Path(build_engine.__file__)
 FILES_PY = Path(files.__file__)
 SERVER_GLOBALS = {"C", "cur_doc", "using_doc", "DOCS", "LEGACY_DOC", "BUILD_STATE", "BUILD_LOCK"}
 
@@ -107,14 +110,14 @@ class NoServerState(unittest.TestCase):
 
     def test_reads_no_server_global(self):
         """No name the server keeps as hidden state (C, cur_doc(), the document list, the legacy lock/state) appears."""
-        for path in (BUILD_PY, FILES_PY):
+        for path in (BUILD_PY, RUN_PY, ENGINE_PY, FILES_PY):
             tree = ast.parse(path.read_text(encoding="utf-8"))
             names = {n.id for n in ast.walk(tree) if isinstance(n, ast.Name)}
             self.assertEqual(names & SERVER_GLOBALS, set(), path.name)
 
     def test_never_imports_the_server(self):
         """The server is the composition root; the build depends on nothing above it."""
-        for path in (BUILD_PY, FILES_PY):
+        for path in (BUILD_PY, RUN_PY, ENGINE_PY, FILES_PY):
             tree = ast.parse(path.read_text(encoding="utf-8"))
             modules = {a.name for n in ast.walk(tree) if isinstance(n, ast.Import) for a in n.names}
             modules |= {n.module or "" for n in ast.walk(tree) if isinstance(n, ast.ImportFrom)}
@@ -122,9 +125,10 @@ class NoServerState(unittest.TestCase):
 
     def test_source_has_no_config_or_current_document_reference(self):
         """The plain-text proof of rule R5 (docs/handbook/code-style-roadmap.md §R5): no `C.` and no `cur_doc(`."""
-        source = BUILD_PY.read_text(encoding="utf-8")
-        self.assertNotIn("C.", source)
-        self.assertNotIn("cur_doc(", source)
+        for path in (BUILD_PY, RUN_PY, ENGINE_PY):
+            source = path.read_text(encoding="utf-8")
+            self.assertNotIn("C.", source, path.name)
+            self.assertNotIn("cur_doc(", source, path.name)
 
 
 class DocumentMemoOwnership(unittest.TestCase):
@@ -148,13 +152,13 @@ class LatexErrors(unittest.TestCase):
         """Each '! ' line is an error; the first following 'l.<n>' is its line."""
         log = "noise\n! Undefined control sequence.\nl.12 \\foo\n! Missing $ inserted.\nnothing here"
         self.assertEqual(
-            build.latex_errors(log),
+            build_engine.latex_errors(log),
             [{"line": 12, "msg": "Undefined control sequence."}, {"line": None, "msg": "Missing $ inserted."}],
         )
 
     def test_at_most_five_errors(self):
         """A runaway log is cut to five errors."""
-        self.assertEqual(len(build.latex_errors("! e\n" * 9)), 5)
+        self.assertEqual(len(build_engine.latex_errors("! e\n" * 9)), 5)
 
 
 class TwoDocumentsAtOnce(unittest.TestCase):
@@ -197,11 +201,11 @@ class TwoDocumentsAtOnce(unittest.TestCase):
 
         def tracked():
             """The tracked build of exactly D - no thread-local document involved."""
-            return build.run_tracked(
-                D, cfg.state, lambda: build.compile_tex(D, cfg, None), "2026-09-26 10:00:00", build_failure_log
+            return build_run.run_tracked(
+                D, cfg.state, lambda: build_engine.compile_tex(D, cfg, None), "2026-09-26 10:00:00", build_failure_log
             )
 
-        return build.build_in_background(D, tracked, "2026-09-26 10:00:00", build_failure_log)
+        return build_run.build_in_background(D, tracked, "2026-09-26 10:00:00", build_failure_log)
 
     def test_failed_thread_start_releases_lock_and_finishes_build(self):
         """A thread that cannot start leaves a failed build and releases the document for another attempt."""
@@ -209,7 +213,7 @@ class TwoDocumentsAtOnce(unittest.TestCase):
         cfg = build.BuildConfig(state=self.state, dpi=150, timeout=30)
         D.dir.mkdir(parents=True)
         with (
-            mock.patch.object(build.threading.Thread, "start", side_effect=RuntimeError("can't start")),
+            mock.patch.object(build_run.threading.Thread, "start", side_effect=RuntimeError("can't start")),
             self.assertRaisesRegex(RuntimeError, "can't start"),
         ):
             self.start(D, cfg)
@@ -242,8 +246,8 @@ class TwoDocumentsAtOnce(unittest.TestCase):
         D = self.docs["a"]
         cfg = build.BuildConfig(state=self.state, dpi=150, timeout=30)
         with (
-            mock.patch.object(build.threading.Thread, "start", side_effect=RuntimeError("can't start")),
-            mock.patch.object(build, "finish_build", side_effect=OSError("history failed")),
+            mock.patch.object(build_run.threading.Thread, "start", side_effect=RuntimeError("can't start")),
+            mock.patch.object(build_run, "finish_build", side_effect=OSError("history failed")),
             self.assertRaisesRegex(OSError, "history failed"),
         ):
             self.start(D, cfg)
@@ -262,10 +266,10 @@ class TwoDocumentsAtOnce(unittest.TestCase):
             worker_done.set()
 
         with (
-            mock.patch.object(build, "finish_build", side_effect=OSError("history failed")),
+            mock.patch.object(build_run, "finish_build", side_effect=OSError("history failed")),
             mock.patch.object(threading, "excepthook", side_effect=capture_error),
         ):
-            started = build.build_in_background(
+            started = build_run.build_in_background(
                 D, mock.Mock(side_effect=RuntimeError("build failed")), "t0", build_failure_log
             )
             self.assertEqual(started, BuildStarted())
@@ -376,7 +380,7 @@ class Outcomes(unittest.TestCase):
         """compile_tex of the LaTeX document with the fakes in the given modes."""
         env = dict(self.env, LIMN_TEST_LATEXMK=latexmk, LIMN_TEST_PDFTOPPM=pdftoppm)
         with mock.patch.dict(os.environ, env):
-            return build.compile_tex(self.D, self.cfg, pull)
+            return build_engine.compile_tex(self.D, self.cfg, pull)
 
     def test_ok_when_a_fresh_pdf_and_synctex_come_out(self):
         """A clean build is BuildOk naming its new page directory, which pages.cur now points at."""
@@ -427,7 +431,7 @@ class Outcomes(unittest.TestCase):
         pdf = self.D.src / "main.pdf"
         pdf.write_bytes(b"%PDF")
         with mock.patch.dict(os.environ, self.env):
-            out = build.render_pages(self.D, pdf, [self.D.src / "gone.synctex.gz"], 72)
+            out = build_engine.render_pages(self.D, pdf, [self.D.src / "gone.synctex.gz"], 72)
         self.assertIsInstance(out, PagesNotRendered)
         self.assertEqual(out.kind, "pdf_copy")
         self.assertIn("gone.synctex.gz", out.detail)
@@ -437,16 +441,16 @@ class Outcomes(unittest.TestCase):
         """A view-only render is BuildOk without log, pull or src_mtime; a failed one BuildFailed with no latexmk
         output; a missing PDF BuildAborted naming it."""
         with mock.patch.dict(os.environ, dict(self.env, LIMN_TEST_PDFTOPPM="ok")):
-            ok = build.render_pdf_doc(self.P, self.cfg)
+            ok = build_engine.render_pdf_doc(self.P, self.cfg)
         self.assertIsInstance(ok, BuildOk)
         self.assertEqual((ok.log, ok.pull, ok.src_mtime), ("", None, None))
         with mock.patch.dict(os.environ, dict(self.env, LIMN_TEST_PDFTOPPM="fail")):
-            failed = build.render_pdf_doc(self.P, self.cfg)
+            failed = build_engine.render_pdf_doc(self.P, self.cfg)
         self.assertIsInstance(failed, BuildFailed)
         self.assertEqual((failed.kind, failed.output, failed.src_mtime), ("render", None, None))
         self.assertEqual(build_failure_log(failed), BUILD_FAILURES["render"])
         self.P.main.unlink()
-        self.assertEqual(build.render_pdf_doc(self.P, self.cfg), BuildAborted("pdf_missing", str(self.P.main)))
+        self.assertEqual(build_engine.render_pdf_doc(self.P, self.cfg), BuildAborted("pdf_missing", str(self.P.main)))
 
     def test_tracked_failure_records_its_log_text(self):
         """run_tracked hands a failure to describe: the build state's log_tail and builds.json's last.log_tail hold
@@ -454,8 +458,8 @@ class Outcomes(unittest.TestCase):
         self.assertFalse(build.last_build_failed(self.D))
         env = dict(self.env, LIMN_TEST_LATEXMK="nopdf")
         with mock.patch.dict(os.environ, env):
-            res = build.run_tracked(
-                self.D, self.state, lambda: build.compile_tex(self.D, self.cfg, None), "t0", build_failure_log
+            res = build_run.run_tracked(
+                self.D, self.state, lambda: build_engine.compile_tex(self.D, self.cfg, None), "t0", build_failure_log
             )
         text = build_failure_log(res)
         self.assertTrue(text.startswith("새 PDF 가 나오지 않았습니다.\n"), text)
@@ -465,7 +469,7 @@ class Outcomes(unittest.TestCase):
 
     def test_a_crash_becomes_a_failed_build(self):
         """An exception in the compile step is BuildAborted crashed with its repr; the state is fail, not running."""
-        res = build.run_tracked(self.D, self.state, mock.Mock(side_effect=OSError("boom")), "t0", build_failure_log)
+        res = build_run.run_tracked(self.D, self.state, mock.Mock(side_effect=OSError("boom")), "t0", build_failure_log)
         self.assertEqual(res, BuildAborted("crashed", repr(OSError("boom"))))
         self.assertEqual(build.state_snapshot(self.D)["state"], "fail")
         self.assertEqual(build_failure_log(res), "빌드 중 예상 밖 예외가 났습니다: OSError('boom')")
@@ -474,9 +478,9 @@ class Outcomes(unittest.TestCase):
         """A failed source scan after entering running becomes a recorded failure, leaving the document reusable."""
         self.D.dir.mkdir(parents=True)
         with mock.patch.object(build, "src_mtime", side_effect=OSError("scan failed")):
-            res = build.build_now(
+            res = build_run.build_now(
                 self.D,
-                lambda: build.run_tracked(
+                lambda: build_run.run_tracked(
                     self.D, self.state, lambda: self.fail("compile ran"), "t0", build_failure_log
                 ),
             )
@@ -488,12 +492,12 @@ class Outcomes(unittest.TestCase):
     def test_finalization_error_clears_running_without_hiding_error(self):
         """If result recording unexpectedly fails, the synchronous build is reusable and the error reaches its caller."""
         with (
-            mock.patch.object(build, "finish_build", side_effect=OSError("record failed")),
+            mock.patch.object(build_run, "finish_build", side_effect=OSError("record failed")),
             self.assertRaisesRegex(OSError, "record failed"),
         ):
-            build.build_now(
+            build_run.build_now(
                 self.D,
-                lambda: build.run_tracked(
+                lambda: build_run.run_tracked(
                     self.D, self.state, lambda: BuildAborted("crashed", "step"), "t0", build_failure_log
                 ),
             )
@@ -516,9 +520,9 @@ class Outcomes(unittest.TestCase):
             mock.patch.object(build, "write_built_src_mtime", side_effect=RuntimeError("baseline failed")),
             self.assertRaisesRegex(RuntimeError, "baseline failed"),
         ):
-            build.build_now(
+            build_run.build_now(
                 self.D,
-                lambda: build.run_tracked(self.D, self.state, compile_and_remember, "t0", build_failure_log),
+                lambda: build_run.run_tracked(self.D, self.state, compile_and_remember, "t0", build_failure_log),
             )
         self.assertEqual(build.cur_pages(self.D).name, published[0])
         self.assertFalse(self.D.lock.locked())
@@ -618,7 +622,7 @@ class HistoryRestore(unittest.TestCase):
             errors = [{"line": 0, "msg": "first"}, {"line": None, "msg": "second"}]
             pull = {"state": "skipped", "reason": "dirty", "head_before": "a", "head_after": "a"}
             result = BuildFailed("no_pdf", "", "log", errors, 1.25, pull, 1.0, None)
-            build.finish_build(doc, result, 1.0, build_failure_log)
+            build_run.finish_build(doc, result, 1.0, build_failure_log)
             doc.bstate = {"state": "idle", "seq": 0}
 
             build.seed_builds(doc, state)
@@ -709,30 +713,30 @@ class RebuildRules(unittest.TestCase):
     def test_a_view_only_document_is_never_rebuilt_on_request(self):
         """The run is called only for a LaTeX document; a view-only one comes back as ViewOnlyNoRebuild."""
         runs = []
-        self.assertEqual(build.request_rebuild(self.pdf, runs.append), ViewOnlyNoRebuild("rv"))
+        self.assertEqual(build_run.request_rebuild(self.pdf, runs.append), ViewOnlyNoRebuild("rv"))
         self.assertEqual(runs, [])
-        self.assertIsNone(build.request_rebuild(self.tex, runs.append))
+        self.assertIsNone(build_run.request_rebuild(self.tex, runs.append))
         self.assertEqual(runs, [self.tex])
 
     def test_startup_builds_what_is_missing_or_changed(self):
         """LaTeX: always unless --no-build, then only without a PDF or pages. View-only: when its PDF changed or it
         has no pages, --no-build or not."""
-        self.assertTrue(build.needs_build(self.tex, False, 72))
-        self.assertTrue(build.needs_build(self.tex, True, 72))  # no PDF, no pages yet
-        self.assertTrue(build.needs_build(self.pdf, True, 72))  # never rendered
+        self.assertTrue(build_run.needs_build(self.tex, False, 72))
+        self.assertTrue(build_run.needs_build(self.tex, True, 72))  # no PDF, no pages yet
+        self.assertTrue(build_run.needs_build(self.pdf, True, 72))  # never rendered
         pages = self.tex.dir / "pages"
         pages.mkdir()
         (pages / "page-1.png").write_bytes(blank_png(10, 10))
         (pages / "main.pdf").write_bytes(b"%PDF")
-        self.assertFalse(build.needs_build(self.tex, True, 72))
-        self.assertTrue(build.needs_build(self.tex, False, 72))
+        self.assertFalse(build_run.needs_build(self.tex, True, 72))
+        self.assertTrue(build_run.needs_build(self.tex, False, 72))
         pdf_pages = self.pdf.dir / "pages"
         pdf_pages.mkdir()
         (pdf_pages / "page-1.png").write_bytes(blank_png(10, 10))
-        files.atomic_write(self.pdf.dir / "pdf_sig.txt", build.pdf_signature(self.pdf))
-        self.assertFalse(build.needs_build(self.pdf, False, 72))
+        files.atomic_write(self.pdf.dir / "pdf_sig.txt", build_engine.pdf_signature(self.pdf))
+        self.assertFalse(build_run.needs_build(self.pdf, False, 72))
         self.pdf.main.write_bytes(b"%PDF-1.4 changed, longer")
-        self.assertTrue(build.needs_build(self.pdf, True, 72))
+        self.assertTrue(build_run.needs_build(self.pdf, True, 72))
 
 
 # ---------------------------------------------------------------- through server.py's wiring

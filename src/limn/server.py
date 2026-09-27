@@ -82,6 +82,7 @@ from limn.documents import (
     DocumentFacts,
 )
 from limn.events import EVENTS_KEEP, EventType
+from limn.features.builds import engine as build_engine, run as build_run
 from limn.features.builds.service import BuildRequests
 from limn.features.pins.claims.service import PinClaims
 from limn.features.pins.editing.service import PinEditing
@@ -376,13 +377,13 @@ class ServerApplication:
         return BuildConfig(state=self.C.state, dpi=self.C.dpi, timeout=self.C.timeout)
 
     def _build_tracked(self, D: Doc) -> FinishedBuild:
-        """One tracked build of D: LaTeX (_build) or, for view-only, the page render (limn.build.render_pdf_doc)
-        (limn.build.run_tracked); a failure's log text is limn.web.errors.build_failure_log. The step is looked up when
+        """One tracked build of D: LaTeX (_build) or, for view-only, the page render (limn.features.builds.engine.render_pdf_doc)
+        (limn.features.builds.run.run_tracked); a failure's log text is limn.web.errors.build_failure_log. The step is looked up when
         the build runs, so a test that replaces _build sees it."""
         step: Callable[[], FinishedBuild] = (
-            (lambda: build.render_pdf_doc(D, self.build_config())) if D.is_pdf else (lambda: self._build(D))
+            (lambda: build_engine.render_pdf_doc(D, self.build_config())) if D.is_pdf else (lambda: self._build(D))
         )
-        return build.run_tracked(D, self.C.state, step, self.now_str(), build_failure_log)
+        return build_run.run_tracked(D, self.C.state, step, self.now_str(), build_failure_log)
 
     def revision_context(self) -> revisions.RevisionContext:
         """The revision services' view of this instance, made per request like pin_store(), so a test (or main()) that
@@ -429,8 +430,8 @@ class ServerApplication:
         )
 
     def _build(self, D: Doc) -> FinishedBuild:
-        """The LaTeX build of document D with this instance's settings; --git-pull pulls first (limn.build.compile_tex)."""
-        return build.compile_tex(D, self.build_config(), self.repo_pull if self.C.git_pull else None)
+        """The LaTeX build of document D with this instance's settings; --git-pull pulls first (limn.features.builds.engine.compile_tex)."""
+        return build_engine.compile_tex(D, self.build_config(), self.repo_pull if self.C.git_pull else None)
 
     def set_docs(self, docs: Iterable[Doc] | None = None) -> None:
         """Change the document list (prepare()/tests). With none, the single document of a run without --doc: legacy
@@ -799,7 +800,7 @@ class ServerApplication:
         if D.root:
             build.migrate_pages(D)
         build.seed_builds(D, self.C.state)
-        if not build.needs_build(D, no_build, self.C.dpi):
+        if not build_run.needs_build(D, no_build, self.C.dpi):
             return BuildSkipped()
         return self.build_requests.build_all(D) if wait else self.build_requests.build_async(D)
 
@@ -809,7 +810,7 @@ class ServerApplication:
             for D in list(self.docs):
                 if D.is_pdf:
                     try:
-                        build.refresh_pdf_doc(D, self.build_requests.build_async)
+                        build_engine.refresh_pdf_doc(D, self.build_requests.build_async)
                     except Exception:  # noqa: BLE001 — the watch thread must never die
                         traceback.print_exc(file=sys.stderr)
 
@@ -832,7 +833,7 @@ class ServerApplication:
             build.migrate_pages(D)
             # adds the current build (made by an earlier instance) to history if missing, and restores the last build result
             build.seed_builds(D, self.C.state)
-            if build.needs_build(D, no_build, self.C.dpi):
+            if build_run.needs_build(D, no_build, self.C.dpi):
                 built = self.build_requests.build_all(D)
                 if isinstance(built, FailedBuild):
                     return StartupRefused("Build failed:\n" + build_failure_log(built))

@@ -220,15 +220,15 @@ def parse_note(v: object) -> str | InputRejected:
 > 빌드 모듈은 문서와 설정을 인자로 받는다. 조립 지점은 이 인스턴스의 설정을 묶는 한 줄만 둔다.
 
 ```python
-# limn/build.py
+# features/builds/engine.py
 def compile_tex(D: BuildDoc, cfg: BuildConfig, pull: Callable[[], Json] | None) -> FinishedBuild:
     """Builds D with -synctex=1 from a copy, leaving the original untouched, then renders pages into a new directory and only swaps the pointer."""
 
 
 # server.py - the application binds this instance's settings
 def _build(self, D: Doc) -> FinishedBuild:
-    """The LaTeX build of document D with this instance's settings; --git-pull pulls first (limn.build.compile_tex)."""
-    return build.compile_tex(D, self.build_config(), self.repo_pull if self.C.git_pull else None)
+    """The LaTeX build of document D with this instance's settings; --git-pull pulls first (features.builds.engine.compile_tex)."""
+    return build_engine.compile_tex(D, self.build_config(), self.repo_pull if self.C.git_pull else None)
 ```
 
 뷰어의 현재 문서 방문은 페이지 전체가 공유하는 `DOC`·`SWITCHSEQ`로 확인하고, 초안 저장·빌드 폴링·편집 카드·변경 보기·새 핀 작성의 화면 상태는 각각 `DRAFT`·`BUILD`·`EDITOR`·`REV`·`COMPOSE`가 소유한다([viewer.md](viewer.md) §여러 문서). 문서 방문을 넘는 비동기 응답은 `captureVisit()`·`currentVisit()`으로 그 방문이 여전히 현재인지 확인한다. 작성 패널과 위치 다시 잡기는 PDF 드래그 요청을 한 번에 하나만 받을 수 있어 `PICKSEQ`를 함께 쓴다.

@@ -34,6 +34,7 @@ from unittest import mock
 from limn import build as limn_build, files, gitsync, startup
 from limn.access import LOCAL_ACTOR
 from limn.build import BuildAborted, BuildBusy, BuildOk, BuildOkWithErrors, BuildStarted
+from limn.features.builds import engine as build_engine
 from limn.features.builds.answer import diet_log
 from limn.features.pins.editing import input as editing_input
 from limn.features.pins.location import source as pick_source
@@ -1421,18 +1422,18 @@ class MultiDoc(Base):
     @needs_tex("pdftoppm")
     def test_view_only_pdf_renders_and_rerenders_on_change(self):
         rv = self.rv
-        self.assertTrue(limn_build.pdf_changed(rv))  # not rendered yet
+        self.assertTrue(build_engine.pdf_changed(rv))  # not rendered yet
         res = ps.APP._build_tracked(rv)
         self.assertIsInstance(res, BuildOk, res)
         first = limn_build.cur_pages(rv).name
         self.assertTrue((limn_build.cur_pages(rv) / "review.pdf").is_file())
-        self.assertFalse(limn_build.pdf_changed(rv))
+        self.assertFalse(build_engine.pdf_changed(rv))
         self.assertFalse(
-            limn_build.refresh_pdf_doc(rv, ps.APP.build_requests.build_async)
+            build_engine.refresh_pdf_doc(rv, ps.APP.build_requests.build_async)
         )  # unchanged, so it doesn't redraw
         self.pdf.write_bytes(MINI_PDF.replace(b"Reviewer one", b"Reviewer two"))
         os.utime(self.pdf, (time.time() + 3, time.time() + 3))
-        self.assertTrue(limn_build.pdf_changed(rv))
+        self.assertTrue(build_engine.pdf_changed(rv))
         # a render within the same second still gets a page directory of its own (test_build.Outcomes)
         res = ps.APP._build_tracked(rv)
         self.assertIsInstance(res, BuildOk)

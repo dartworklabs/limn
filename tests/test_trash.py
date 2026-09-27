@@ -320,7 +320,7 @@ class TrashRecovery(AccessBase):
         output = io.StringIO()
         with (
             mock.patch.object(limn_store.PinStore, "read_dropped", side_effect=OSError("unreadable")),
-            mock.patch.object(ps.build, "needs_build", return_value=False),
+            mock.patch.object(ps.build_run, "needs_build", return_value=False),
             redirect_stderr(output),
         ):
             self.assertIsNone(fresh.prepare(None, True))
@@ -433,7 +433,7 @@ class TrashRecovery(AccessBase):
         self.assertEqual(sum(row["id"] == pid for row in self.dropped_file()), 1)
         self.assertNotRegex(ps.APP.C.pins_md.read_text(encoding="utf-8"), r"\n\| %d[ ·|]" % pid)
         fresh = ps.ServerApplication(ps.APP.C, ps.new_runtime(ps.APP.RT.viewer))
-        with mock.patch.object(ps.build, "needs_build", return_value=False):
+        with mock.patch.object(ps.build_run, "needs_build", return_value=False):
             self.assertIsNone(fresh.prepare(None, True))
         self.assertEqual(fresh.read_dropped()[0], [])
         self.assertRegex(fresh.C.pins_md.read_text(encoding="utf-8"), r"\n\| %d[ ·|]" % pid)
@@ -450,7 +450,7 @@ class TrashRecovery(AccessBase):
         self.assertRegex(ps.APP.C.pins_md.read_text(encoding="utf-8"), r"\n\| %d[ ·|]" % pid)
         self.assertEqual(len(ps.APP._read_events()[0]), before_events)
         fresh = ps.ServerApplication(ps.APP.C, ps.new_runtime(ps.APP.RT.viewer))
-        with mock.patch.object(ps.build, "needs_build", return_value=False):
+        with mock.patch.object(ps.build_run, "needs_build", return_value=False):
             self.assertIsNone(fresh.prepare(None, True))
         self.assertNotRegex(fresh.C.pins_md.read_text(encoding="utf-8"), r"\n\| %d[ ·|]" % pid)
         self.assertEqual([row["id"] for row in fresh.pin_listing.dropped_payload()], [pid])
@@ -670,7 +670,7 @@ class ClearEndpoint(AccessBase):
         self.assertEqual(audit.read_bytes() if audit.exists() else b"", before_audit)
 
         fresh = ps.ServerApplication(ps.APP.C, ps.new_runtime(ps.APP.RT.viewer))
-        with mock.patch.object(ps.build, "needs_build", return_value=False):
+        with mock.patch.object(ps.build_run, "needs_build", return_value=False):
             self.assertIsNone(fresh.prepare(None, True))
         self.assertEqual(fresh.C.pins_md.read_text(encoding="utf-8"), fresh.pin_markdown.pins_md_text([]))
         self.assertEqual((fresh.C.state / archives[0]).read_bytes(), before_live)

@@ -21,6 +21,7 @@ from unittest import mock
 from limn import build as limn_build, locate
 from limn.access import LOCAL_ACTOR
 from limn.build import BuildFailed, BuildOk, BuildOkWithErrors
+from limn.features.builds import run as build_run
 from limn.features.pins.location import (
     input as location_input,
     range as source_range,
@@ -347,7 +348,7 @@ class Estimate(Base):
     def _fake_build(self, name, src_hash, src_mtime=None):
         (ps.APP.C.state / name).mkdir(exist_ok=True)
         ps.APP.C.pages_ptr.write_text(name)
-        limn_build.finish_build(
+        build_run.finish_build(
             ps.APP.docs[0],
             BuildOk("", 0.1, None, None, src_hash, "-", name, 1),
             src_mtime if src_mtime is not None else time.time(),
@@ -469,7 +470,7 @@ class Estimate(Base):
         m0 = ps.APP.meta(ps.APP.docs[0], dict(LOCAL_ACTOR), light=True)
         self.assertEqual(m0["build_seq"], 0)
         self._fake_build("pages-20260101000000", "h1")
-        limn_build.finish_build(
+        build_run.finish_build(
             ps.APP.docs[0],
             BuildFailed("no_pdf", "", "boom", [{"line": 3, "msg": "x"}], 0.1, None, 1.0, None),
             None,
@@ -488,7 +489,7 @@ class Estimate(Base):
 
     def test_seed_builds_restores_last_state_and_seq_after_restart(self):
         self._fake_build("pages-20260101000000", "h1")
-        limn_build.finish_build(
+        build_run.finish_build(
             ps.APP.docs[0],
             BuildOkWithErrors([{"line": 1, "msg": "m"}], "L", 0.1, None, 1.0, None, "-", "", 1),
             None,

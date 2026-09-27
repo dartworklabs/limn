@@ -20,9 +20,10 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from limn import build as limn_build, meta as limn_meta, scope as scoping
+from limn import meta as limn_meta, scope as scoping
 from limn.access import LOCAL_ACTOR
 from limn.documents import Doc
+from limn.features.builds import engine as build_engine
 from limn.features.pins.lifecycle import input as lifecycle_input
 from limn.features.revisions import (
     core as revisions,
@@ -581,7 +582,7 @@ class ManuscriptRevisions(Base):
             return subprocess.CompletedProcess(cmd, 0)
 
         with mock.patch.object(subprocess, "run", side_effect=render):
-            pages = limn_build.render_pages(ps.APP.docs[0], pdf, [aux], ps.APP.C.dpi)
+            pages = build_engine.render_pages(ps.APP.docs[0], pdf, [aux], ps.APP.C.dpi)
         self.assertIsInstance(pages, Path, pages)
         (ps.APP.C.state / "pages.cur").write_text(pages.name)
         aux.write_text("changed by a failed next build")

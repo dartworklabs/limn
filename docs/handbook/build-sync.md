@@ -4,7 +4,13 @@ Limn은 원고를 PDF로 빌드해 쪽 이미지로 보여 주고, 그 위에 �
 
 재빌드 흐름, 빌드 상태, 폴링 주기, 점선 마크(`est`) 판정을 바꿀 때 이 문서를 읽고 같은 diff에서 고친다. 엔드포인트 목록과 응답 필드 전체는 [api.md](api.md) 에 있다. 뷰어 조작 요약은 [viewer.md](viewer.md) §조작 한눈에가 맡는다.
 
-구현은 네 곳이다. 빌드 자체(원고 복사, latexmk, pdftoppm, 쪽 디렉토리 교체와 쪽 목록 `page_list`, 빌드 상태, 빌드 이력 `builds.json`, 원고 지문과 `src_mtime`, 보기 전용 PDF 다시 그리기 `render_pdf_doc`·`pdf_changed`, PDF가 바뀌었을 때 추적 빌드를 거는 `refresh_pdf_doc`, 보기 전용 문서는 요청으로 재빌드하지 않는 규칙 `request_rebuild`, 기동 때 빌드할지 정하는 `needs_build`)는 [`src/limn/build.py`](../../src/limn/build.py) 가 맡는다. 이 모듈은 문서와 설정(`BuildConfig`: 상태 폴더, dpi, 시간 제한)을 인자로 받고, 실행 인자 `C` 나 "지금 요청의 문서"(`cur_doc()`)를 읽지 않는다. 문서별 잠금·빌드 상태·이력 잠금·`src_mtime` 캐시는 문서 객체(`Doc`)가 갖고 있다. `--git-pull` 과 원격 main 감시는 둘로 나뉜다. [`src/limn/pull.py`](../../src/limn/pull.py) 는 순수 규칙이다. pull 결과 값(`Pulled`·`UpToDate`·`PullSkipped`·`PullFailed`)과 그것을 빌드의 `pull` 기록으로 쓰는 일(`pull_record`), git 답 읽기, 감시 상태와 다시 빌드할 문서, `updating` 이 끝나는 조건을 정한다. [`src/limn/gitsync.py`](../../src/limn/gitsync.py) 는 셸이다. git을 차례로 부르고(`pull`), 여러 문서의 pull을 나눠 쓰고(`PullShare`·`repo_pull`), 감시 한 바퀴와 상태·루프(`SyncWatch`)를 돈다. 둘 다 설정·문서·git 실행기·시계를 인자로 받고 서버를 모른다. [`src/limn/server.py`](../../src/limn/server.py) 는 문서를 받아 이 인스턴스의 설정으로 빌드를 묶는 연결(`_build_tracked(D)`·`_build(D)`)과, 런타임(`RT`)이 가진 pull 나눠 쓰기(`pull_share`)·감시 상태(`sync_watch`)를 `limn/gitsync.py` 에 넘기는 연결(`repo_pull`·`sync_status`·`sync_main_once`)을 맡고, 감시 스레드와 보기 전용 PDF 감시 스레드를 런타임의 스레드로 시작한다(`RT.stop()`이 둘을 끝낸다). `--git-pull` 과 보기 전용 그리기는 빌드에 단계로 넘겨진다. 폴링이 읽는 응답(`GET /api/meta`·`/api/docs`·`/api/outline-labels`)은 [`src/limn/meta.py`](../../src/limn/meta.py) 가 만든다. 문서·문서 목록·설정(`MetaSettings`)과 `--git-pull` 상태를 인자로 받고 아무것도 쓰지 않는다. 핀 개수(`n_open` 등)는 동기화 쓰기가 있는 `snapshot_pins()` 를 거치므로 조립 지점의 `server.meta()` 가 라이트가 아닐 때만 덧붙인다.
+빌드의 공통 사실(결과 타입·상태 이름, 쪽 디렉토리·쪽 목록, 빌드 이력 `builds.json`, 원고 지문과 `src_mtime`)은 [`src/limn/build.py`](../../src/limn/build.py)가 맡는다. 요청과 실행은 [`features/builds/`](../../src/limn/features/builds/service.py)에 있다. `service.py`가 동기·비동기를 고르고 `run.py`가 문서별 잠금·추적 상태·이력 기록, 기동 때 빌드할지(`needs_build`)와 보기 전용 재빌드 거절(`request_rebuild`)을 맡는다. `engine.py`는 원고 복사·latexmk·pdftoppm·쪽 교체와 보기 전용 PDF 다시 그리기(`render_pdf_doc`·`pdf_changed`·`refresh_pdf_doc`)를 맡는다. 문서별 잠금·빌드 상태·이력 잠금·`src_mtime` 캐시는 문서 객체(`Doc`)가 갖는다. 이 함수들은 실행 인자 `C`나 지금 요청의 문서를 읽지 않고 필요한 문서·설정을 인자로 받는다.
+
+`--git-pull` 과 원격 main 감시는 둘로 나뉜다. [`src/limn/pull.py`](../../src/limn/pull.py) 는 순수 규칙이다. pull 결과 값(`Pulled`·`UpToDate`·`PullSkipped`·`PullFailed`)과 그것을 빌드의 `pull` 기록으로 쓰는 일(`pull_record`), git 답 읽기, 감시 상태와 다시 빌드할 문서, `updating` 이 끝나는 조건을 정한다. [`src/limn/gitsync.py`](../../src/limn/gitsync.py) 는 셸이다. git을 차례로 부르고(`pull`), 여러 문서의 pull을 나눠 쓰고(`PullShare`·`repo_pull`), 감시 한 바퀴와 상태·루프(`SyncWatch`)를 돈다. 둘 다 설정·문서·git 실행기·시계를 인자로 받고 서버를 모른다.
+
+[`src/limn/server.py`](../../src/limn/server.py) 는 문서를 받아 이 인스턴스의 설정으로 빌드를 묶는 연결(`_build_tracked(D)`·`_build(D)`)과, 런타임(`RT`)이 가진 pull 나눠 쓰기(`pull_share`)·감시 상태(`sync_watch`)를 `limn/gitsync.py` 에 넘기는 연결(`repo_pull`·`sync_status`·`sync_main_once`)을 맡고, 감시 스레드와 보기 전용 PDF 감시 스레드를 런타임의 스레드로 시작한다(`RT.stop()`이 둘을 끝낸다). `--git-pull` 과 보기 전용 그리기는 빌드에 단계로 넘겨진다.
+
+폴링이 읽는 응답(`GET /api/meta`·`/api/docs`·`/api/outline-labels`)은 [`src/limn/meta.py`](../../src/limn/meta.py) 가 만든다. 문서·문서 목록·설정(`MetaSettings`)과 `--git-pull` 상태를 인자로 받고 아무것도 쓰지 않는다. 핀 개수(`n_open` 등)는 동기화 쓰기가 있는 `snapshot_pins()` 를 거치므로 조립 지점의 `server.meta()` 가 라이트가 아닐 때만 덧붙인다.
 
 > **한눈에**
 >
@@ -57,7 +63,7 @@ Limn은 원고를 PDF로 빌드해 쪽 이미지로 보여 주고, 그 위에 �
 
 실패 로그의 첫 문장은 빌드 모듈에 없다. [`src/limn/web/errors.py`](../../src/limn/web/errors.py) 의 `BUILD_FAILURES` 표가 `kind` 마다 한국어 문장 하나를 갖고, `build_failure_log` 가 그 문장에 세부(사본 오류, `OSError`, PDF 경로, 예외의 repr)를 채운 뒤 latexmk가 돌았으면 줄바꿈과 latexmk 마지막 줄을 붙인다. 조립 지점(`server.py`)이 이 함수를 추적 빌드(`run_tracked`)와 백그라운드 빌드(`build_in_background`)에 넘기므로, 응답의 `log`, `GET /api/build` 의 `log_tail`, `builds.json` 의 `last.log_tail`, 기동 거절 문구가 모두 같은 글이다. 비교 PDF의 `REVISION_FAILURES` 와 같은 방식이다.
 
-원격 main 감시(`limn/gitsync.py`)는 문서의 마지막 빌드가 실패했는지를 `last_build_failed` 로 읽는다. 빌드 상태 dict를 직접 들여다보지 않는다.
+원격 main 감시(`limn/gitsync.py`)는 문서의 마지막 빌드가 실패했는지를 공통 `build.py`의 `last_build_failed` 로 읽는다. 빌드 상태 dict를 직접 들여다보지 않는다.
 
 ### 응답
 
@@ -267,7 +273,7 @@ est = (pin.pdf_build ≠ 지금 빌드 그리고 두 빌드의 src_hash 가 다�
 
 `--doc` 으로 연 `.pdf` 문서는 LaTeX 빌드가 없다. 대신 감시 스레드가 3초마다 그 PDF의 `mtime:크기` 를 본다. 쪽을 그린 때의 값(`docs/<키>/pdf_sig.txt`)과 다르면 백그라운드로 쪽을 다시 그린다.
 
-- 다시 그리기(`limn/build.py` 의 `render_pdf_doc`)는 LaTeX 문서와 같은 빌드 경로(`run_tracked`)를 탄다. 그래서 `GET /api/build?doc=<키>` 의 `state`, `phase:"render"`, `build_seq`, 빌드 이력이 LaTeX 문서와 똑같이 움직인다. 뷰어도 재빌드가 끝난 것처럼 화면을 바꾼다.
+- 다시 그리기(`features/builds/engine.py` 의 `render_pdf_doc`)는 LaTeX 문서와 같은 빌드 경로(`run_tracked`)를 탄다. 그래서 `GET /api/build?doc=<키>` 의 `state`, `phase:"render"`, `build_seq`, 빌드 이력이 LaTeX 문서와 똑같이 움직인다. 뷰어도 재빌드가 끝난 것처럼 화면을 바꾼다.
 - 지문은 PDF 내용의 해시다. 그래서 바뀐 PDF 위의 옛 핀은 점선(추정)이 된다(§위치 추정 (`est`)).
 - 그리기가 실패해도 같은 파일로 되풀이하지 않는다. 파일이 바뀌면 다시 시도한다.
 - `stale_build` 는 늘 `false` 다.

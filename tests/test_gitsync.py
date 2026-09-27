@@ -26,6 +26,7 @@ from limn import build as limn_build, gitsync
 from limn.access import LOCAL_ACTOR
 from limn.build import BuildOk, BuildStarted
 from limn.documents import Doc
+from limn.features.builds import engine as build_engine
 from limn.features.revisions import core as revisions
 from limn.gitsync import PullShare, SyncWatch, pull, repo_pull
 from limn.pull import Pulled, PullFailed, PullSkipped, UpToDate
@@ -40,7 +41,7 @@ class ModuleBoundary(unittest.TestCase):
     """gitsync.py sits below the server: settings, documents, runner and clock come in as arguments."""
 
     def test_imports_no_server_or_http_layer(self):
-        """Of limn only limn.pull (the rules) and limn.build (a document's build state, read as the build defines it);
+        """Of limn only limn.pull (the rules) and common build state;
         no HTTP import. It runs git only through the runner it is given."""
         tree = ast.parse(GITSYNC_PY.read_text(encoding="utf-8"))
         modules = {a.name for n in ast.walk(tree) if isinstance(n, ast.Import) for a in n.names}
@@ -481,7 +482,7 @@ class GitPullBuildIntegration(Base):
         # source after copy (while latex is compiling) means that edit wasn't part of this build, so the
         # "manuscript modified" badge must still show.
         set_config(git_pull=True)
-        original_run_logged = limn_build.run_logged
+        original_run_logged = build_engine.run_logged
 
         def bump_then_run(cmd, cwd, timeout):
             """Change source mtime at the compile boundary, then run the real command."""
@@ -495,7 +496,7 @@ class GitPullBuildIntegration(Base):
 
         with (
             mock.patch.object(ps.APP, "repo_pull", side_effect=fake_pull),
-            mock.patch.object(limn_build, "run_logged", side_effect=bump_then_run),
+            mock.patch.object(build_engine, "run_logged", side_effect=bump_then_run),
         ):
             res = ps.APP.build_requests.build_all(ps.APP.docs[0])
         self.assertIsInstance(res, BuildOk)

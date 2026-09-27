@@ -21,7 +21,8 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
-from limn import build, cli, gitrun, gitsync, startup
+from limn import cli, gitrun, gitsync, startup
+from limn.features.builds import engine as build_engine
 from limn.features.revisions import core as revisions
 from limn.gitrun import KEPT_GIT_VARS, git_command, git_env
 from limn.pull import UpToDate
@@ -216,7 +217,8 @@ class CallSites(unittest.TestCase):
         state = Path(self.tmp.name) / "state"
         (state / "pages-1").mkdir(parents=True)
         head = self.assert_hygienic(
-            "build.commit_pages", lambda: build.commit_pages(SimpleNamespace(dir=state, src=repo), state / "pages-1")
+            "build_engine.commit_pages",
+            lambda: build_engine.commit_pages(SimpleNamespace(dir=state, src=repo), state / "pages-1"),
         )
         self.assertEqual(head, second[: len(head)])
         url = self.assert_hygienic("startup.git_remote_url", lambda: startup.git_remote_url(repo))
