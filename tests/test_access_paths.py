@@ -13,6 +13,7 @@ import os
 
 from limn import access, startup
 from limn.access import LOCAL_ACTOR
+from limn.pins.lifecycle import CloseRequest
 
 from helpers import ps
 from helpers_access import ALICE, BOB, CLEAR_BODY, TS_HOST, AccessBase, member_add, token_create
@@ -36,7 +37,7 @@ class PrincipalMatrix(AccessBase):
         code, d = self.call("POST", "/api/pins/%d/close" % pid, None, **kw)
         out["close"] = code if code != 200 else d["state"]
         pid = self.add()
-        ps.set_done(pid, True, dict(LOCAL_ACTOR))
+        ps.close_pin(pid, dict(LOCAL_ACTOR), CloseRequest())
         out["confirm"] = self.call("POST", "/api/pins/%d/confirm" % pid, None, **kw)[0]
         before = len(ps.snapshot_pins())
         out["clear"] = self.call("POST", "/api/clear", CLEAR_BODY, **kw)[0]

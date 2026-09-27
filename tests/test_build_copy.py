@@ -14,6 +14,8 @@ from pathlib import Path
 from unittest import mock
 
 from limn import build
+from limn.build import CopyFailed
+from limn.web.errors import build_failure_log
 
 from helpers import Base, ps
 
@@ -52,16 +54,17 @@ class ManuscriptCopy(Base):
         with mock.patch.object(build, "run_logged", return_value=NO_PDF) as compile_step:
             res = ps._build(ps.DOCS[0])
         compile_step.assert_not_called()
-        self.assertEqual(res["state"], "fail")
-        self.assertFalse(res["ok"])
-        self.assertTrue(res["log"].startswith("원고 사본을 만들지 못했습니다"), res["log"])
+        self.assertIsInstance(res, CopyFailed)
+        log = build_failure_log(res)
+        self.assertTrue(log.startswith("원고 사본을 만들지 못했습니다"), log)
 
     def test_copy_error_names_the_rsync_exit_and_its_last_message(self):
         """The build log shows why the copy failed so the owner can fix permissions or disk space."""
         with mock.patch.object(build, "run_logged", return_value=NO_PDF):
             res = ps._build(ps.DOCS[0])
-        self.assertIn("23", res["log"])
-        self.assertIn("some files/attrs were not transferred", res["log"])
+        self.assertIsInstance(res, CopyFailed)
+        self.assertIn("23", res.error)
+        self.assertIn("some files/attrs were not transferred", build_failure_log(res))
 
 
 def tree(root: Path) -> set[str]:

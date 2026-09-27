@@ -12,7 +12,7 @@ function saveView(){if(!DOC||!META||!$('#doc .pg'))return; const a=topAnchor();
 function loadViews(){if(!multiDoc())return; try{const a=JSON.parse(sessionStorage.getItem('pinDocView')||'[]');
   if(Array.isArray(a))a.forEach(x=>{if(Array.isArray(x)&&docInfo(x[0])&&x[1]&&typeof x[1]==='object')VIEW_BY.set(x[0],x[1]);});}catch(e){}}
 // The page width is decided first (buildDoc builds pages using W). Only a width viewed in the same layout is restored - so a width fit for a folded screen is never applied on desktop.
-function applyViewWidth(v){if(v&&typeof v.w==='number'&&v.lay===LAYOUT&&(LAYOUT==='wide'||v.zoomed)){W=v.w; ZOOMED=LAYOUT!=='wide'&&!!v.zoomed; return true;}
+function applyViewWidth(v){if(v&&typeof v.w==='number'&&v.lay===LAYOUT&&(LAYOUT===LAYOUT_MODE.WIDE||v.zoomed)){W=v.w; ZOOMED=LAYOUT!==LAYOUT_MODE.WIDE&&!!v.zoomed; return true;}
   ZOOMED=false; return false;}
 function restoreView(v){if(!v)return; restoreAnchor({page:v.page,frac:v.frac}); if(typeof v.sl==='number')$('#left').scrollLeft=v.sl;}
 addEventListener('pagehide',saveView);
@@ -20,7 +20,7 @@ addEventListener('pagehide',saveView);
 // If a meta cache exists, that document is drawn immediately without waiting, then the latest meta is fetched in the background, and pages are swapped only if the build changed.
 async function switchDoc(k){
   if(!k||k===DOC||!docInfo(k))return; const seq=++SWITCHSEQ;
-  if(document.body.classList.contains('revision-open'))setViewMode('manuscript');
+  if(document.body.classList.contains('revision-open'))setViewMode(VIEW_MODE.MANUSCRIPT);
   saveView(); cancelRepick(); if(CUR||!$('#composer').hidden)cancelSelection(false);
   if(EDIT&&!editDirty())cancelEdit();
   let m=META_BY.get(k),cached=!!m;

@@ -23,12 +23,13 @@ from limn import build as limn_build, meta as limn_meta, revisions, scope as sco
 from limn.access import LOCAL_ACTOR
 from limn.documents import Doc
 from limn.mapping import anchor_of
+from limn.pins.lifecycle import CloseRequest
 from limn.revisions import revision_history
 from limn.store import find_pin
 from limn.web import parse
 from limn.web.errors import InputRejected, scope_http_error
 
-from helpers import TEX, Base, extract_js_fn, minimal_pdf, ps, req, revision_spec, run_node, split_resp
+from helpers import TEX, Base, extract_js_fn, minimal_pdf, needs_tex, ps, req, revision_spec, run_node, split_resp
 from helpers_access import REPO_NEW as NEW, REPO_OLD as OLD, AccessBase, ScopedRepo, talk_to
 
 
@@ -390,15 +391,13 @@ class ManuscriptRevisions(Base):
             return subprocess.CompletedProcess(cmd, 0)
 
         with mock.patch.object(subprocess, "run", side_effect=render):
-            pages, error = limn_build.render_pages(ps.DOCS[0], pdf, [aux], ps.C.dpi)
-        self.assertIsNone(error)
+            pages = limn_build.render_pages(ps.DOCS[0], pdf, [aux], ps.C.dpi)
+        self.assertIsInstance(pages, Path, pages)
         (ps.C.state / "pages.cur").write_text(pages.name)
         aux.write_text("changed by a failed next build")
         self.assertEqual(limn_meta.outline_labels(ps.DOCS[0])["labels"][0]["title"], "Before")
 
-    @unittest.skipUnless(
-        all(shutil.which(t) for t in ("bwrap", "latexdiff", "latexmk", "pdftotext")), "TeX sandbox tools unavailable"
-    )
+    @needs_tex("bwrap", "latexdiff", "latexmk", "pdftotext")
     def test_actual_sandbox_build_tracks_changed_input_and_preserves_sources(self):
         self.main.write_text("\\documentclass{article}\n\\begin{document}\n\\input{section}\n\\end{document}\n")
         section = self.src / "section.tex"
@@ -504,12 +503,12 @@ class ScopedSourceDiff(ScopedRepo):
         chapter.write_text(chapter.read_text().replace("Part line 12.", "Part line twelve."), encoding="utf-8")
         self.write(self.main.read_text().replace("\\input{part}", "\\input{chapter}"))
         mv = self.commit("rename the part")
-        ps.set_done(old_pin, True, dict(LOCAL_ACTOR), ref=mv[:8])
+        ps.close_pin(old_pin, dict(LOCAL_ACTOR), CloseRequest(ref=mv[:8]))
         new_pin = self.add(lo=12, hi=12, note="chapter twelve")
         rows = ps.snapshot_pins()
         find_pin(rows, new_pin)["file"] = str(chapter)
         ps.write_pins(rows)
-        ps.set_done(new_pin, True, dict(LOCAL_ACTOR), ref=mv[:8])
+        ps.close_pin(new_pin, dict(LOCAL_ACTOR), CloseRequest(ref=mv[:8]))
         for pid in (old_pin, new_pin):  # the pin may name the file before or after the rename
             with self.subTest(pin=pid):
                 d = self.diff_ok(mv, pid)
@@ -851,9 +850,7 @@ class ScopedPdf(ScopedRepo):
             with self.subTest(bad=bad):
                 self.assertIn(self.call("POST", "/api/revision-build", bad)[0], (400, 404))
 
-    @unittest.skipUnless(
-        all(shutil.which(t) for t in ("bwrap", "latexdiff", "latexmk", "pdftotext")), "TeX sandbox tools unavailable"
-    )
+    @needs_tex("bwrap", "latexdiff", "latexmk", "pdftotext")
     def test_real_scoped_build_marks_only_the_pins_change(self):
         """With TeX: the sandboxed scoped PDF shows the pin's change and none of the others; the checkout is untouched."""
         dest = self.repo / "job-beta"
@@ -872,9 +869,7 @@ class ScopedPdf(ScopedRepo):
         self.assertIn("pears", subprocess.check_output(["pdftotext", str(whole / "revision.pdf"), "-"], text=True))
         self.assertEqual(self.main.read_text(encoding="utf-8"), NEW.replace("Filler two.", "Filler two, reworded."))
 
-    @unittest.skipUnless(
-        all(shutil.which(t) for t in ("bwrap", "latexdiff", "latexmk")), "TeX sandbox tools unavailable"
-    )
+    @needs_tex("bwrap", "latexdiff", "latexmk")
     def test_scoped_build_is_an_error_when_the_subset_does_not_compile(self):
         """With TeX: half of an environment fix alone does not compile; the error lets the viewer fall back."""
         # one commit opens an environment for one pin and closes it for another: each half alone does not compile
@@ -886,8 +881,10 @@ class ScopedPdf(ScopedRepo):
         )
         both = self.commit("wrap the fillers in a list")
         opener = self.add(lo=7, hi=7, note="open")
-        ps.set_done(
-            opener, True, dict(LOCAL_ACTOR), ref=both[:8], changes=(parse.CloseChange(str(self.main.resolve()), 7, 7),)
+        ps.close_pin(
+            opener,
+            dict(LOCAL_ACTOR),
+            CloseRequest(ref=both[:8], changes=(parse.CloseChange(str(self.main.resolve()), 7, 7).record(),)),
         )
         spec = revision_spec(both, opener)
         self.assertEqual(len(spec.scope), 1)

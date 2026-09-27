@@ -20,10 +20,13 @@ from unittest import mock
 
 from limn import build as limn_build, locate
 from limn.access import LOCAL_ACTOR
+from limn.build import BuildFailed, BuildOk, BuildOkWithErrors
 from limn.mapping import anchor_of
 from limn.pins import position
+from limn.web import parse
+from limn.web.errors import build_failure_log
 
-from helpers import TEX, Base, add_pin, edit_pin, ps, req
+from helpers import TEX, Base, add_pin, edit_pin, needs_tex, ps, req
 
 LOCATE_PY = Path(locate.__file__)
 SERVER_GLOBALS = {
@@ -258,6 +261,43 @@ class Anchor(Base):
         self.assertEqual((p["lo"], p["hi"]), (10, 11))
 
 
+class PickOutcomes(Base):
+    """locate.pick returns one value per outcome: a refusal type for each way a selection is not traced, else Picked.
+    SyncTeX and pdftotext are stubbed at the module's two subprocess functions; the rest is the server's context."""
+
+    def pick(self, synctex, text):
+        """pick on the first document for a box on page 1, SyncTeX answering synctex and pdftotext printing text."""
+        D = ps.DOCS[0]
+        request = parse.PickRequest(D.dir / "pages", 1, (10.0, 20.0, 150.0, 60.0), (600.0, 800.0), None)
+        with (
+            mock.patch.object(locate, "by_synctex", return_value=synctex),
+            mock.patch.object(locate, "region_text", return_value=text),
+        ):
+            return locate.pick(D, request, ps.pick_context())
+
+    def test_each_refusal_is_its_own_type_with_its_detail(self):
+        """A .bbl/.bib, a file outside the tree, an unreadable file and nothing traced are four refusal values."""
+        D = ps.DOCS[0]
+        (self.src / "bin.tex").write_bytes(b"\xff\xfe")
+        self.assertEqual(self.pick((str(D.build / "refs.bbl"), 1, 1), "x"), locate.GeneratedFile(".bbl"))
+        self.assertEqual(self.pick(("/elsewhere/x.tex", 3, 3), "x"), locate.SynctexOutside(Path("/elsewhere/x.tex")))
+        self.assertEqual(
+            self.pick((str(D.build / "bin.tex"), 1, 1), "x"), locate.SourceUnreadable(self.src / "bin.tex")
+        )
+        self.assertEqual(self.pick(None, ""), locate.NoSourceHere())
+
+    def test_a_traced_selection_carries_its_range_and_build_facts(self):
+        """SyncTeX's line in the build copy is traced back to the checkout; the facts the answer needs are values."""
+        got = self.pick((str(ps.DOCS[0].build / "main.tex"), 8, 8), "Body line seven betaunique.")
+        self.assertIsInstance(got, locate.Picked)
+        self.assertEqual(
+            (got.file, got.page, got.traced.via, got.traced.lo, got.traced.hi), (self.main, 1, "synctex", 8, 9)
+        )
+        self.assertEqual(
+            (got.n_lines, got.quote, got.pdf_build, got.building), (20, "Body line seven betaunique.", "pages", False)
+        )
+
+
 # ---------------------------------------------------------------- location estimation (.est) — server-side judgment
 
 
@@ -270,17 +310,9 @@ class Estimate(Base):
         ps.C.pages_ptr.write_text(name)
         limn_build.finish_build(
             ps.DOCS[0],
-            {
-                "ok": True,
-                "state": "ok",
-                "errors": [],
-                "log": "",
-                "elapsed_s": 0.1,
-                "pages": 1,
-                "build": name,
-                "src_hash": src_hash,
-            },
+            BuildOk("", 0.1, None, None, src_hash, "-", name, 1),
             src_mtime if src_mtime is not None else time.time(),
+            build_failure_log,
         )
         return name
 
@@ -400,8 +432,9 @@ class Estimate(Base):
         self._fake_build("pages-20260101000000", "h1")
         limn_build.finish_build(
             ps.DOCS[0],
-            {"ok": False, "state": "fail", "errors": [{"line": 3, "msg": "x"}], "log": "boom", "elapsed_s": 0.1},
+            BuildFailed("no_pdf", "", "boom", [{"line": 3, "msg": "x"}], 0.1, None, 1.0, None),
             None,
+            build_failure_log,
         )
         m = ps.meta(ps.DOCS[0], dict(LOCAL_ACTOR), light=True)
         self.assertEqual(m["build_seq"], 2)
@@ -418,8 +451,9 @@ class Estimate(Base):
         self._fake_build("pages-20260101000000", "h1")
         limn_build.finish_build(
             ps.DOCS[0],
-            {"ok": False, "state": "ok_errors", "errors": [{"line": 1, "msg": "m"}], "log": "L", "elapsed_s": 0.1},
+            BuildOkWithErrors([{"line": 1, "msg": "m"}], "L", 0.1, None, 1.0, None, "-", "", 1),
             None,
+            build_failure_log,
         )
         ps.BUILD_STATE.update(state="idle", seq=0, last=None, errors=[], log_tail="")  # simulate a restart
         limn_build.seed_builds(ps.DOCS[0], ps.C.state)
@@ -461,25 +495,22 @@ class Estimate(Base):
         st2 = ps.C.builds_file.stat()
         self.assertEqual((st.st_mtime_ns, st.st_size), (st2.st_mtime_ns, st2.st_size))
 
+    @needs_tex("latexmk", "pdftoppm")
     def test_real_build_est_end_to_end(self):
         """With the real latexmk: an unchanged rebuild -> no est, a rebuild after editing the manuscript -> est, and it stays after editing the note."""
-        import shutil as _sh
-
-        if not (_sh.which("latexmk") and _sh.which("pdftoppm")):
-            self.skipTest("latexmk/pdftoppm not available")
-        self.assertEqual(ps.build_all(ps.DOCS[0])["state"], "ok")
+        self.assertEqual(type(ps.build_all(ps.DOCS[0])), BuildOk)
         b1 = limn_build.cur_pages(ps.DOCS[0]).name
         pid = self.add()
         self.assertEqual(self.pin(pid)["pdf_build"], b1)
         time.sleep(1.1)  # build directory names are second-granularity
-        self.assertEqual(ps.build_all(ps.DOCS[0])["state"], "ok")
+        self.assertEqual(type(ps.build_all(ps.DOCS[0])), BuildOk)
         self.assertNotEqual(limn_build.cur_pages(ps.DOCS[0]).name, b1)
         self.assertIs(self.est_of(pid), False)
         self.main.write_text(
             TEX.replace("After table epsilonunique.", "After table epsilonunique longer."), encoding="utf-8"
         )
         time.sleep(1.1)
-        self.assertEqual(ps.build_all(ps.DOCS[0])["state"], "ok")
+        self.assertEqual(type(ps.build_all(ps.DOCS[0])), BuildOk)
         self.assertIs(self.est_of(pid), True)
         edit_pin(pid, {"note": "메모만", "base_rev": self.pin(pid)["rev"]}, dict(LOCAL_ACTOR))
         self.assertIs(self.est_of(pid), True)

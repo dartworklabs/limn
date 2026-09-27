@@ -56,7 +56,7 @@ function isDoubleTap(a,b){return !!a&&!!b&&b.t-a.t<=300&&Math.hypot(b.x-a.x,b.y-
 // The width a double tap goes to: 2x from fit width (within 5%), fit width from any other width.
 function doubleTapWidth(w,fit){return Math.abs(w-fit)<=fit*0.05?fit*2:fit;}
 // Zooms around (x, y) to doubleTapWidth(); landing on fit width, compact stops counting as zoomed (it re-fits again).
-function doubleTapZoom(x,y){const fit=fitWidth(),w=doubleTapWidth(W,fit); zoomTo(w,x,y); if(w===fit&&LAYOUT!=='wide')ZOOMED=false;}
+function doubleTapZoom(x,y){const fit=fitWidth(),w=doubleTapWidth(W,fit); zoomTo(w,x,y); if(w===fit&&LAYOUT!==LAYOUT_MODE.WIDE)ZOOMED=false;}
 // Quick selection: calls the existing /api/pick with a small box around the pressed point (page width +-7%, height
 // +-0.6% ~ one line). The server's default level is used as-is - 'paragraph' in body text, 'environment' inside a
 // figure/table - and then widened or narrowed via the range ladder.
@@ -73,9 +73,9 @@ function finishRect(pg,box,sx,sy,x,y){
   pick({page,x0:Math.min(sx,x)*p.pt_w,y0:Math.min(sy,y)*p.pt_h,x1:Math.max(sx,x)*p.pt_w,y1:Math.max(sy,y)*p.pt_h,
     frac:[Math.min(sx,x),Math.min(sy,y),w,h],pdf_build:META.pages_build||undefined,doc:DOC||undefined});}
 // If the sheet/panel covers the selection box, the body scrolls up until the box is visible (compact only).
-function revealBox(box){if(!box||LAYOUT==='wide'||!document.contains(box))return;
+function revealBox(box){if(!box||LAYOUT===LAYOUT_MODE.WIDE||!document.contains(box))return;
   const L=$('#left'),lr=L.getBoundingClientRect(),br=box.getBoundingClientRect();
-  let bottom=lr.bottom; if(LAYOUT==='narrow'&&SIDE_OPEN)bottom=Math.min(bottom,$('#right').getBoundingClientRect().top);
+  let bottom=lr.bottom; if(LAYOUT===LAYOUT_MODE.NARROW&&SIDE_OPEN)bottom=Math.min(bottom,$('#right').getBoundingClientRect().top);
   const top=lr.top+28; if(br.top>=top&&br.bottom<=bottom-8)return;
   L.scrollTop+=br.top-top-Math.max(0,(bottom-top-br.height)/3);}
 

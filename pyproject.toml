@@ -37,6 +37,9 @@ include = ["src/limn", "tests", "docs", "skill", "README.md", "README.ko.md", "L
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = [
+    "tex: runs real TeX-side tools (tests/helpers.py needs_tex); the CI tex job selects these with -m tex",
+]
 
 [tool.ruff]
 target-version = "py310"

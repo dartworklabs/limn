@@ -5,8 +5,8 @@ record in place only when the rule accepts (so the saved line keeps its field or
 write committed. Every outcome goes back unchanged for the HTTP layer to answer.
 """
 
-from collections.abc import Iterable, Mapping, Sequence
-from typing import Any, Protocol
+from collections.abc import Iterable, Mapping
+from typing import Any
 
 from limn.mentions import pin_mentions_all, resolve_mentions
 from limn.pins.lifecycle import (
@@ -28,17 +28,8 @@ from limn.pins.lifecycle import (
     reopen_request,
     reopens_on_reply,
 )
-from limn.pins.model import DonePin, OpenPin, Pin, PinNotFound, Record, ReviewPin, parse_pin
-from limn.service.context import Event, PinContext, Row, is_agent, typed_actor
-from limn.store import find_pin
-
-
-class CloseChange(Protocol):
-    """One changed range a close records, as limn.web.parse.parse_close_changes gives it."""
-
-    def record(self) -> Record:
-        """Its stored form in the pin's `changes`."""
-        ...
+from limn.pins.model import DonePin, OpenPin, Pin, PinNotFound, ReviewPin
+from limn.service.context import Event, PinContext, Row, is_agent, load_pin, typed_actor
 
 
 def reply_pin(
@@ -65,13 +56,13 @@ def reply_pin(
 
     def fn(rows: list[Row]) -> tuple[OpenPin | ReviewPin | DonePin | ThreadFull | PinNotFound, bool]:
         """The transact() step: decide the reply on pin pid and, unless the thread is full, write it and queue its notices."""
-        r = find_pin(rows, pid)
-        if r is None:
-            return PinNotFound(pid), False
+        found = load_pin(rows, pid)
+        if isinstance(found, PinNotFound):
+            return found, False
+        r, pin = found
         ment = resolve_mentions(text, ctx.known_people(rows), hints, exclude=(actor or {}).get("login"))
         # tagging an agent-role account is not asking a person
         persons = [lg for lg in ment if ctx.role_of(lg) != "agent"]
-        pin = parse_pin(r)
         event = decide_reply(
             pin,
             typed_actor(actor),
@@ -132,29 +123,6 @@ def _with_reply(pin: Pin, event: Replied) -> Pin:
             return evolve_reply(pin, event)
 
 
-def set_done(
-    ctx: PinContext,
-    pid: int,
-    done: bool,
-    actor: Mapping[str, Any],
-    reply: str | None = None,
-    ref: str | None = None,
-    review: bool | None = None,
-    reason: str | None = None,
-    hints: Iterable[str] | None = None,
-    changes: Sequence[CloseChange] | None = None,
-) -> OpenPin | ReviewPin | DonePin | AlreadyClosed | PinNotFound:
-    """Close (done=True) or reopen (done=False) - the single entry POST /close and /reopen and older callers use.
-
-    `reply`/`ref`/`changes` (already parsed by limn.web.parse.parse_close_body/parse_close_changes: changes is a
-    sequence of CloseChange, each giving its stored form by .record()) and `review` belong to a close; `reason` and
-    `hints` to a reopen. The rules are in limn.pins.lifecycle; see close_pin and reopen_pin.
-    """
-    if done:
-        return close_pin(ctx, pid, actor, CloseRequest(reply, ref, tuple(c.record() for c in changes or ()), review))
-    return reopen_pin(ctx, pid, actor, reason, hints)
-
-
 def close_pin(
     ctx: PinContext, pid: int, actor: Mapping[str, Any], request: CloseRequest
 ) -> ReviewPin | DonePin | AlreadyClosed | PinNotFound:
@@ -169,10 +137,10 @@ def close_pin(
 
     def fn(rows: list[Row]) -> tuple[ReviewPin | DonePin | AlreadyClosed | PinNotFound, bool]:
         """The transact() step: decide the close on pin pid and, if it was open, write it and queue review_requested."""
-        r = find_pin(rows, pid)
-        if r is None:
-            return PinNotFound(pid), False
-        pin = parse_pin(r)
+        found = load_pin(rows, pid)
+        if isinstance(found, PinNotFound):
+            return found, False
+        r, pin = found
         event = decide_close(pin, typed_actor(actor), ctx.now(), request)
         if isinstance(event, AlreadyClosed):
             return event, False
@@ -202,10 +170,11 @@ def reopen_pin(
 
     def fn(rows: list[Row]) -> tuple[OpenPin | PinNotFound, bool]:
         """The transact() step: reopen pin pid in place (always a write) and queue its notices."""
-        r = find_pin(rows, pid)
-        if r is None:
-            return PinNotFound(pid), False
-        opened = _reopen(ctx, r, rows, actor, reason, hints, evs)
+        found = load_pin(rows, pid)
+        if isinstance(found, PinNotFound):
+            return found, False
+        r, pin = found
+        opened = _reopen(ctx, r, pin, rows, actor, reason, hints, evs)
         return opened, True
 
     with ctx.store.lock:
@@ -217,6 +186,7 @@ def reopen_pin(
 def _reopen(
     ctx: PinContext,
     r: Row,
+    pin: Pin,
     rows: list[Row],
     actor: Mapping[str, Any],
     reason: str | None,
@@ -225,8 +195,7 @@ def _reopen(
 ) -> OpenPin:
     """POST /reopen's step: reopens r in place (inside transact) by limn.pins.lifecycle.reopen_request, rev bumped,
     and - if the pin was closed - queues a mention for everyone the reason @-tags and reopened for the author. A
-    reopening reply calls reopen_request itself in reply_pin. Returns the reopened pin."""
-    pin = parse_pin(r)
+    reopening reply calls reopen_request itself in reply_pin. pin is r's state type. Returns the reopened pin."""
     ment = (
         resolve_mentions(reason or "", ctx.known_people(rows), hints, exclude=(actor or {}).get("login"))
         if not isinstance(pin, OpenPin)
@@ -269,10 +238,11 @@ def confirm_pin(
 
     def fn(rows: list[Row]) -> tuple[DonePin | AlreadyDone | PinStillOpen | PinNotFound, bool]:
         """The transact() step: confirm pin pid; written only when it becomes done."""
-        r = find_pin(rows, pid)
-        if r is None:
-            return PinNotFound(pid), False
-        result = confirm(parse_pin(r), person, ctx.now())
+        found = load_pin(rows, pid)
+        if isinstance(found, PinNotFound):
+            return found, False
+        r, pin = found
+        result = confirm(pin, person, ctx.now())
         if isinstance(result, DonePin):
             r.clear()
             r.update(result.record)

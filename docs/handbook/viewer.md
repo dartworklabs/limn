@@ -21,7 +21,7 @@
 **조각은 책임별로 나누고, 순서는 `parts.txt` 하나가 정한다.** 2026-09-26 한 파일이던 `app.js`(2,985줄)와 `app.css`(902줄)를 변경 이유가 다른 조각 45개로 나눴다([code-style-roadmap.md](code-style-roadmap.md) R6). 나눈 자리는 원래 파일의 구역 배너와 같고, 나눌 때는 조각을 목록 순서대로 이으면 원래 파일과 바이트 단위로 같았다. 그래서 나누기 전후 `HTML`과 `build_html()` 결과의 sha256이 같았다. 조각마다 맡은 일은 `parts.txt`의 각 줄에 적혀 있고, 흐름은 이렇다.
 
 - 스타일(`css/`, 10개): 토큰(`tokens.css`) → 화면 틀 → 변경 보기 → 패널 틀·도구 막대 → 컴포넌트 → 작성 패널 → 카드 → 목록 → 떠 있는 층(알림·툴팁·대화상자) → 폭별 배치(`responsive.css`).
-- 스크립트(`js/`, 35개): 공용 바탕(`core.js`: DOM 도우미·아이콘·공유 상태) → 화면 언어(`i18n.js`)·설정 → `api()`와 알림 → 툴팁 → 여러 문서·변경 보기·문서 전환 → 시작(`boot.js`)·폴링·브라우저 알림·빌드 칩 → 패널 크기·쪽·PDF.js(`pdf-open.js` 열기, `outline.js` 목차, `pdf-draw.js` 그리기)·확대 → 배치·제스처 → 선택·범위 사다리·작성 패널·초안·저장 → 카드·목록·핀 조작 → @태그·답글·편집·위치 다시 잡기·재빌드 → 이벤트 위임과 `boot()` 호출(`events.js`).
+- 스크립트(`js/`, 35개): 공용 바탕(`core.js`: DOM 도우미·아이콘·닫힌 값 표·공유 상태) → 화면 언어(`i18n.js`)·설정 → `api()`와 알림 → 툴팁 → 여러 문서·변경 보기·문서 전환 → 시작(`boot.js`)·폴링·브라우저 알림·빌드 칩 → 패널 크기·쪽·PDF.js(`pdf-open.js` 열기, `outline.js` 목차, `pdf-draw.js` 그리기)·확대 → 배치·제스처 → 선택·범위 사다리·작성 패널·초안·저장 → 카드·목록·핀 조작 → @태그·답글·편집·위치 다시 잡기·재빌드 → 이벤트 위임과 `boot()` 호출(`events.js`).
 
 > **주의**
 >
@@ -45,11 +45,11 @@
 - 화면 언어는 `?lang=` 쿼리 → 저장한 선택(localStorage `limnLang`) → 브라우저 언어(`navigator.language`가 `ko`로 시작하면 한국어, 아니면 영어) 순으로 정한다. [더보기]의 `#m-lang`으로 바꾼다.
 - pins.md와 API는 번역하지 않는다. 에이전트가 읽는, 언어가 고정된 계약이기 때문이다.
 - API 오류는 `errText()` 한 함수를 거친다. 한국어 화면은 서버의 `error` 문장을 그대로 보인다. 영어 화면은 오류 본문의 `reason` 코드로 표의 `reason:<코드>` 영어 문장을 찾고, 없으면 서버 문장을 표로 옮긴다(`trMsg`). 알림(`api()`), 작성 패널과 위치 다시 잡기 배너의 pick 오류, 편집 카드의 원문 칸, 비교 PDF 상태 줄이 이 함수를 쓴다. 코드 목록은 [api.md](api.md) §오류 응답에 있다. 영어 문장은 거절을 가르는 값(한도·줄 수)을 싣지 않는다. 그 값은 한국어 `error` 문장에만 있다.
-- pick의 `warn`(작성 패널의 경고 한 줄, 오류 본문이 아니다)은 서버가 문장 한두 개를 공백으로 이어 보낸다. 영어 화면에서는 `warnText()` 가 문장마다 `PICK_WARNS` 의 한국어 틀(숫자 자리 `{x}`)과 맞춰 `tl()` 로 옮긴다. 한국어 화면은 서버 글 그대로다. 서버에 새 경고 문장을 더하면 `PICK_WARNS` 와 표에도 더한다(`test_i18n.PickWarnings` 가 `pick()`·`_pick_region()` 의 문장과 틀을 대조한다).
+- pick의 `warn`(작성 패널의 경고 한 줄, 오류 본문이 아니다)은 서버가 문장 한두 개를 공백으로 이어 보낸다. 영어 화면에서는 `warnText()` 가 문장마다 `PICK_WARNS` 의 한국어 틀(숫자 자리 `{x}`)과 맞춰 `tl()` 로 옮긴다. 한국어 화면은 서버 글 그대로다. 서버에 새 경고 문장을 더하면 `PICK_WARNS` 와 표에도 더한다(`test_i18n.PickWarnings` 가 `limn/web/answers.py` 의 `PICK_WARNINGS` 문장과 틀을 대조한다).
 
 [`tests/test_i18n.py`](../../tests/test_i18n.py)가 이 연결을 지킨다. 정적 마크업(`<body>`부터 첫 `<script>`까지)의 한국어 글자와 UI 속성은 전부 표에 있어야 한다. `trMsg()`처럼 ` — `·` · ` 조각 단위로 찾아도 된다. 표의 값에는 한글이 없어야 하고, 키에는 `__` 자리표가 없어야 한다. 0.1.1부터는 `tl()` 틀에 번역이 없으면 실패하고, 실제 뷰어를 영어로 띄워 사용자 글 밖에 한글이 남으면 실패하는 브라우저 테스트(데스크톱·폴더블·휴대폰)도 있다. 0.3.4부터 같은 브라우저 테스트가 흔한 거절(`403` 보기 권한, `409` `base_rev` 충돌, `400` 입력 검사, `404` 없는 핀, `422` 핀 단위 비교)의 오류 알림도 본다. 영어에서는 `reason` 의 영어 문장이고 한글이 없어야 하며, 한국어에서는 서버 문장 그대로여야 한다. [`tests/test_errors.py`](../../tests/test_errors.py)는 서버가 내는 코드마다 영어 문장이 있는지 본다. 그래도 `tl()`·`tr()`을 거치지 않은 JS 문구는 잡히지 않을 수 있으니, 새 문구는 늘 이 함수들을 거치고 `ui_en.json`에 추가한다.
 
-**가드는 [`tests/test_viewer.py`](../../tests/test_viewer.py)의 `Frontend*` 클래스다.** 대부분은 배포되는 `ps.HTML` 문자열에서 고친 패턴이 있고 옛 버그 패턴이 없는지를 본다. `...Logic` 클래스는 JS 함수를 node로 떼어 실행하며, node가 없으면 건너뛴다. `FrontendResponsiveBrowser`는 실제 Chromium으로 레이아웃·키보드 회귀를 잰다. `$LIMN_CHROMIUM` → 시스템 Chrome/Chromium → Playwright 번들 Chromium 순으로 찾고, 못 띄우면 건너뛴다(`LIMN_TEST_REQUIRE_BROWSER=1`인 CI에서는 실패). 조각과 조립은 [`tests/test_viewer_files.py`](../../tests/test_viewer_files.py)가 지킨다. 목록과 파일이 맞는지, 조립한 페이지가 조각을 이은 것과 같은지 본다. 내보내는 페이지(`build_html()`)의 인라인 스크립트마다 `node --check`를 돌려, 문법 오류를 조각 파일과 줄(예: `js/cards.js:41`)로 알린다. node가 없으면 건너뛰고, `LIMN_TEST_REQUIRE_NODE=1`인 CI에서는 실패한다.
+**가드는 [`tests/test_viewer.py`](../../tests/test_viewer.py)의 `Frontend*` 클래스다.** 대부분은 배포되는 `ps.HTML` 문자열에서 고친 패턴이 있고 옛 버그 패턴이 없는지를 본다. `...Logic` 클래스는 JS 함수를 node로 떼어 실행하며, node가 없으면 건너뛴다. 떼어 내는 `extract_js_fn()`은 스크립트를 토큰(문자열·템플릿·정규식·주석)으로 읽어([`tests/helpers_js.py`](../../tests/helpers_js.py)) 최상위 선언을 정확히 찾고, 그 함수가 읽는 닫힌 값 표(§닫힌 값 표)를 앞에 붙인다. `FrontendResponsiveBrowser`는 실제 Chromium으로 레이아웃·키보드 회귀를 잰다. `$LIMN_CHROMIUM` → 시스템 Chrome/Chromium → Playwright 번들 Chromium 순으로 찾고, 못 띄우면 건너뛴다(`LIMN_TEST_REQUIRE_BROWSER=1`인 CI에서는 실패). 조각과 조립은 [`tests/test_viewer_files.py`](../../tests/test_viewer_files.py)가 지킨다. 목록과 파일이 맞는지, 조립한 페이지가 조각을 이은 것과 같은지 본다. 내보내는 페이지(`build_html()`)의 인라인 스크립트마다 `node --check`를 돌려, 문법 오류를 조각 파일과 줄(예: `js/cards.js:41`)로 알린다. node가 없으면 건너뛰고, `LIMN_TEST_REQUIRE_NODE=1`인 CI에서는 실패한다. 스크립트를 토큰으로 읽는 검사는 [`tests/test_viewer_source.py`](../../tests/test_viewer_source.py)가 한다. 최상위 함수는 한 번만 선언되고 다른 코드가 부르거나 이유와 함께 진입점 목록(`ENTRY_POINTS`)에 있어야 하며, `//` 주석이 코드 문장을 삼키지 않아야 한다. 주석 뒤에 붙인 문장은 문법 오류 없이 돌지 않고, 그 문장만 부르던 함수는 아무도 부르지 않는 함수로 잡힌다.
 
 | 규칙(이 문서의 절) | 가드 클래스 |
 | --- | --- |
@@ -69,6 +69,7 @@
 | 한 겹 담기 | `FrontendNoNestedOutlines` |
 | 인스턴스 색 자리 | `BuildHtmlSubstitution` |
 | 조각과 조립, 스크립트 문법 | `ViewerFiles`, `ViewerScriptParses` (`tests/test_viewer_files.py`) |
+| 함수 떼어 내기, 죽은·겹친 함수, 주석에 삼켜진 문장, 닫힌 값 표 | `Tokenizer`, `FunctionExtraction`, `DeadAndDoubledFunctions`, `CommentsHoldNoCode`, `ClosedSets` (`tests/test_viewer_source.py`) |
 | 아이콘 | `FrontendIcons` |
 | 마크와 파비콘 | `test_brand.py`(`MarkRaster`·`MarkMarkup`·`FaviconRoutes`, 브라우저 `MarkInTheBrowser`) |
 | 벡터 렌더링 | `FrontendVector`, `FrontendVectorLogic` |
@@ -77,6 +78,32 @@
 | 패널 접기·레일·키보드, 겹친 패널 밀어 닫기, 시트 끌기, 뒤로 가기, 유령 클릭, 두 번 탭, 선택 되돌리기, 탭에 남는 초안, 누르는 넓이 | `tests/test_viewer_input.py` — 순수 판단 `PanelSnapLogic`·`GripKeyLogic`·`GestureLogic`·`DraftLogic`, 브라우저 `DesktopPanelCollapse`·`DesktopPersistence`·`DraftPersistence`·`FoldOverlay`·`PhoneSheet`·`DesktopMisc`·`ReviewRegressions` |
 
 **리터럴 예외를 바꾸면 두 곳을 고친다.** 토큰 밖에 리터럴을 허용하는 자리는 §리터럴 예외(허용 목록)의 표와 `tests/test_viewer.py`의 허용 목록 상수(`TOKEN_SELECTORS`·`INLINE_STYLE_OK`·`RADIUS_OK`)에 함께 있다. 한쪽만 고치면 문서와 가드가 어긋난다. JS가 재서 넣는 CSS 변수(`--kb`·`--side-w` 등)는 따로 적지 않는다. 가드가 코드의 `setProperty('--…')` 호출에서 목록을 뽑는다.
+
+### 닫힌 값 표
+
+뷰어가 상태·모드를 비교하는 값은 문자열 리터럴로 쓰지 않고 `core.js` 맨 앞의 얼린 표(`Object.freeze`) 멤버로 쓴다. 비교하는 자리(`b.state===BUILD_STATE.RUNNING`)도, 그 값을 만드는 자리(`return LAYOUT_MODE.NARROW`)도 같다. 핀의 상태는 `pinState(p)` 한 곳에서만 읽는다. API의 `state`가 있으면 그 값을, 없는 옛 응답이면 `done`·`review` 표시에서 서버와 같은 규칙으로 정한다. 다른 코드는 `done`·`review` 표시를 직접 읽지 않는다.
+
+| 표 | 값 | 출처 |
+| --- | --- | --- |
+| `PIN_STATE` | open · review · done | `pins.model.StateName` |
+| `BUILD_STATE` | idle · running · ok · ok_errors · fail | `GET /api/build`의 `state`(`build.BUILD_STATES`, 시작 값 idle 포함) |
+| `PULL_STATE` | ok · up_to_date · skipped · error | 빌드의 `pull.state`(`pull.pull_record()`) |
+| `SYNC_STATE` | disabled · checking · deferred · updating · updated · current · blocked · error | meta의 `sync.state`(`pull.SyncState`와 `pull`·`gitsync`가 쓰는 상태) |
+| `REVISION_STATE` | idle · running · ready · error | 비교 PDF 상태(`revisions.py`) |
+| `SCOPE_MODE`, `SCOPE_SOURCE` | pin · commit, changes · inferred · none | `scope.ScopeMode`, `scope.ScopeSource` |
+| `THREAD_EV` | close · reopen · confirm · assign | `pins.model.ThreadEv` |
+| `RANGE_REL` | equal · inside · contains · partial | `pins.position.selection_rel()` |
+| `KIND_REQ` | fix · question | `pins.model.KindReq` |
+| `ROLE` | owner · editor · viewer · agent | `access.ROLES` |
+| `EVENT_TYPE` | mention · review_requested · replied · reopened · assigned · dropped | `events.EventType` |
+| `LOCAL_LOGIN`, `ASSIGNEE_AGENT` | local, agent | `access.LOCAL_LOGIN`, `pins.edit.ASSIGNEE_AGENT` |
+| `LAYOUT_MODE` | wide · mid · narrow | 뷰어(창 폭, `layoutFor()`) |
+| `CARD_DOT` | open · claimed · review · lost | 뷰어(카드의 상태 점, CSS 클래스와 같다) |
+| `DIFF_FORMAT`, `VIEW_MODE` | pdf · source, manuscript · revisions | 뷰어(`index.html`의 `data-format`·`data-mode`) |
+| `UI_LANG` | ko · en | 뷰어(`LANG`) |
+| `NOTIFY_STATE` | on · off · blocked · unsupported · local | 뷰어(`notifyState()`) |
+
+서버에서 오는 표는 서버 문자열과 정확히 같아야 한다. [`tests/test_viewer_source.py`](../../tests/test_viewer_source.py)의 `ClosedSets`가 표마다 서버의 `Literal`·튜플·생성 함수와 대조한다. 부르는 멤버가 표에 있는지도 본다(`PIN_STATE.REVEIW` 같은 오타는 오류 없이 `undefined`가 된다). `done`·`review`를 직접 읽거나 `pinState()`를 문자열과 비교하는 곳이 없는지도 본다. 사람이 읽는 글, 사유 코드, 브라우저가 정한 이름(키, 태그, 이벤트 종류, 알림 권한)은 표에 두지 않는다. 목록 구획 이름(`SEC.open`)과 표의 값을 키로 쓰는 조회표(`ST_NAME`, `EV_LABEL`, 알림 문구)의 키도 글자 그대로 둔다. 새 표는 `core.js`의 닫힌 값 구획에 더하고, 같은 테스트의 서버 표(`SERVER_SETS`)나 뷰어 표(`VIEWER_SETS`)에 올린다. 어느 쪽에도 없으면 테스트가 실패한다.
 
 ## 레이아웃
 
@@ -578,7 +605,7 @@
 **입력 중 미리 보기.** textarea 안은 색을 칠할 수 없다. 그래서 메모·편집·답글 칸 바로 아래 한 줄(`.m-preview`, `#note-mentions`)에 두 가지를 보인다. 저장하면 알림이 갈 사람(`@ 알림  Bob Park`)과, 풀리지 않을 `@말`(점선 밑줄, `등록된 사람이 아님`)이다. 저장 전에 부른 것이 실제로 알림이 되는지 알 수 있다.
 
 - 미리 보기는 저장·보내기가 실어 보내는 힌트(`mentionHints`)로 푼다. 그래서 줄에 뜬 사람이 곧 서버가 적을 사람이다.
-- 쓰는 중인 `@말`(커서가 그 끝에 있다)은 아직 알리지 않는다. 커서가 떠나거나(방향키·누르기) 칸을 벗어나면 알린다(`mentionBadSettled`). 예전에는 `@Sa`를 치며 목록에서 고르는 동안 경고가 먼저 떴다(QA 2026-09-25). JS 조각의 주석 끝에 코드 문장이 붙지 않았는지 [`tests/test_viewer_files.py`](../../tests/test_viewer_files.py)가 확인한다.
+- 쓰는 중인 `@말`(커서가 그 끝에 있다)은 아직 알리지 않는다. 커서가 떠나거나(방향키·누르기) 칸을 벗어나면 알린다(`mentionBadSettled`). 예전에는 `@Sa`를 치며 목록에서 고르는 동안 경고가 먼저 떴다(QA 2026-09-25). JS 조각의 주석 끝에 코드 문장이 붙지 않았는지 [`tests/test_viewer_source.py`](../../tests/test_viewer_source.py)가 확인한다.
 - 나를 쓴 태그는 `(나 — 알림 없음)`이다.
 
 **`#번호` 링크.** 글 속 `#12`는 그 핀이 있으면(열림·검토 대기·완료·삭제) 링크(`.pin-ref`, 링크 한 벌)다. 누르면 그 카드나 보관함 행을 펴고 스크롤해 반짝인다. 다른 문서면 '모든 문서'를 켠다. 없는 번호와 `&#39;` 같은 이스케이프는 건드리지 않는다.

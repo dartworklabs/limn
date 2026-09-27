@@ -17,7 +17,6 @@ Run: uv run pytest tests/test_server.py
 import json
 import os
 import re
-import shutil
 import socket
 import tempfile
 import threading
@@ -28,7 +27,8 @@ from unittest import mock
 
 from limn import build as limn_build, files, gitsync, locate, startup
 from limn.access import LOCAL_ACTOR
-from limn.pins.lifecycle import AgentCannotConfirm
+from limn.build import BuildAborted, BuildBusy, BuildOk, BuildOkWithErrors, BuildStarted
+from limn.pins.lifecycle import AgentCannotConfirm, CloseRequest
 from limn.pins.view import pin_state
 from limn.pull import UpToDate
 from limn.startup import StartupRefused
@@ -48,6 +48,7 @@ from helpers import (
     add_pin,
     edit_pin,
     jreq,
+    needs_tex,
     pick,
     ps,
     record_of,
@@ -469,13 +470,12 @@ class PdfRoute(Base):
 
 
 class OverlapRoutes(Base):
+    @needs_tex("latexmk", "pdftoppm", "pdftotext", "synctex")
     def test_pick_end_to_end_includes_quote_and_overlaps(self):
-        import shutil as _sh
-
-        if not (_sh.which("latexmk") and _sh.which("pdftoppm") and _sh.which("pdftotext")):
-            self.skipTest("latex tools not available")
+        """With the real build: a pick over the first page's top returns the quote, the overlaps and the build it
+        resolved against, also for an older build still on screen; a vanished build is flagged, a bad name refused."""
         res = ps.build_all(ps.DOCS[0])
-        self.assertEqual(res["state"], "ok")
+        self.assertIsInstance(res, BuildOk)
         pages = limn_build.page_list(limn_build.cur_pages(ps.DOCS[0]), ps.C.dpi)
         self.assertTrue(pages)
         p = pages[0]
@@ -487,7 +487,7 @@ class OverlapRoutes(Base):
         # if the screen shows an old build, it's resolved against that build and its name is returned (a drag made right after a rebuild, before the screen updates).
         b1 = limn_build.cur_pages(ps.DOCS[0]).name
         time.sleep(1.1)
-        self.assertEqual(ps.build_all(ps.DOCS[0])["state"], "ok")
+        self.assertEqual(type(ps.build_all(ps.DOCS[0])), BuildOk)
         self.assertNotEqual(limn_build.cur_pages(ps.DOCS[0]).name, b1)
         d2 = pick({"page": 1, "x0": 0, "y0": 0, "x1": p["pt_w"], "y1": p["pt_h"] * 0.4, "pdf_build": b1})
         self.assertEqual(d2["pdf_build"], b1)
@@ -616,15 +616,7 @@ class RebuildLogDiet(Base):
 
     def test_sync_rebuild_ok_omits_log(self):
         def fake_build(D=None):
-            return {
-                "ok": True,
-                "state": "ok",
-                "errors": [],
-                "log": "font path\n" * 200,
-                "elapsed_s": 0.01,
-                "pages": 1,
-                "head": "abc1234",
-            }
+            return BuildOk("font path\n" * 200, 0.01, None, 1.0, None, "abc1234", "", 1)
 
         with mock.patch.object(ps, "_build", side_effect=fake_build):
             out = self.talk(req("POST", "/api/rebuild"))
@@ -635,14 +627,9 @@ class RebuildLogDiet(Base):
 
     def test_sync_rebuild_ok_errors_trims_log_to_40_lines(self):
         def fake_build(D=None):
-            return {
-                "ok": True,
-                "state": "ok_errors",
-                "errors": [{"line": 1, "msg": "x"}],
-                "log": "\n".join("l%d" % i for i in range(200)),
-                "elapsed_s": 0.01,
-                "pages": 1,
-            }
+            return BuildOkWithErrors(
+                [{"line": 1, "msg": "x"}], "\n".join("l%d" % i for i in range(200)), 0.01, None, 1.0, None, "-", "", 1
+            )
 
         with mock.patch.object(ps, "_build", side_effect=fake_build):
             out = self.talk(req("POST", "/api/rebuild"))
@@ -651,7 +638,7 @@ class RebuildLogDiet(Base):
 
     def test_sync_rebuild_log1_query_bypasses_diet(self):
         def fake_build(D=None):
-            return {"ok": True, "state": "ok", "errors": [], "log": "keep-full", "elapsed_s": 0.01, "pages": 1}
+            return BuildOk("keep-full", 0.01, None, 1.0, None, "-", "", 1)
 
         with mock.patch.object(ps, "_build", side_effect=fake_build):
             out = self.talk(req("POST", "/api/rebuild?log=1"))
@@ -660,7 +647,7 @@ class RebuildLogDiet(Base):
 
     def test_get_api_build_applies_same_diet_and_log1_bypasses(self):
         def fake_build(D=None):
-            return {"ok": True, "state": "ok", "errors": [], "log": "font path\n" * 200, "elapsed_s": 0.01, "pages": 1}
+            return BuildOk("font path\n" * 200, 0.01, None, 1.0, None, "-", "", 1)
 
         with mock.patch.object(ps, "_build", side_effect=fake_build):
             ps.build_all(ps.DOCS[0])
@@ -676,7 +663,7 @@ class RebuildLogDiet(Base):
         big_log = "font path\n" * 300
 
         def fake_build_before(D=None):
-            return {"ok": True, "state": "ok", "errors": [], "log": big_log, "elapsed_s": 0.01, "pages": 1}
+            return BuildOk(big_log, 0.01, None, 1.0, None, "-", "", 1)
 
         with mock.patch.object(ps, "_build", side_effect=fake_build_before):
             before = self.talk(req("POST", "/api/rebuild?log=1"))
@@ -1005,7 +992,7 @@ class MultiDoc(Base):
         )
         self.assertEqual((p["frac"][0], p["quote"], p["pdf_build"]), (0.3, "new", "pages-20260101000000"))
         self.assertTrue(ps.valid_rec(self.pin(pid)))
-        ps.set_done(pid, True, dict(LOCAL_ACTOR))  # close/drop are resolved by id, independent of document
+        ps.close_pin(pid, dict(LOCAL_ACTOR), CloseRequest())  # close/drop are resolved by id, independent of document
         self.assertTrue(self.pin(pid)["done"])
 
     def test_region_record_validation_is_by_shape(self):
@@ -1043,13 +1030,13 @@ class MultiDoc(Base):
 
         def slow_build(D=None):
             gate.wait(5)
-            return {"ok": False, "state": "fail", "errors": [], "log": "x", "elapsed_s": 0.0}
+            return BuildAborted("crashed", "x")
 
         with mock.patch.object(ps, "_build", side_effect=slow_build):
-            self.assertEqual(ps.build_async(self.ms), {"state": "running"})
-            self.assertTrue(ps.build_async(self.ms).get("busy"))  # the same document allows only one build at a time
-            self.assertTrue(ps.build_all(self.ms).get("busy"))
-            self.assertEqual(ps.build_async(self.rrd), {"state": "running"})  # different documents run concurrently
+            self.assertEqual(ps.build_async(self.ms), BuildStarted())
+            self.assertEqual(ps.build_async(self.ms), BuildBusy())  # the same document allows only one build at a time
+            self.assertEqual(ps.build_all(self.ms), BuildBusy())
+            self.assertEqual(ps.build_async(self.rrd), BuildStarted())  # different documents run concurrently
             self.assertTrue(self.ms.lock.locked() and self.rrd.lock.locked())
             self.assertFalse(ps.BUILD_LOCK.locked())  # the single-document global lock is left untouched
             gate.set()
@@ -1085,12 +1072,12 @@ class MultiDoc(Base):
             ps.repo_pull(), ps.repo_pull()
         self.assertEqual(len(calls), 3)  # single document: once per build (unchanged from before)
 
-    @unittest.skipUnless(shutil.which("pdftoppm"), "pdftoppm not available")
+    @needs_tex("pdftoppm")
     def test_view_only_pdf_renders_and_rerenders_on_change(self):
         rv = self.rv
         self.assertTrue(limn_build.pdf_changed(rv))  # not rendered yet
         res = ps._build_tracked(rv)
-        self.assertEqual(res["state"], "ok", res.get("log"))
+        self.assertIsInstance(res, BuildOk, res)
         first = limn_build.cur_pages(rv).name
         self.assertTrue((limn_build.cur_pages(rv) / "review.pdf").is_file())
         self.assertFalse(limn_build.pdf_changed(rv))
@@ -1100,7 +1087,7 @@ class MultiDoc(Base):
         self.assertTrue(limn_build.pdf_changed(rv))
         time.sleep(1.1)  # page directory names are second-granularity
         res = ps._build_tracked(rv)
-        self.assertEqual(res["state"], "ok")
+        self.assertIsInstance(res, BuildOk)
         self.assertNotEqual(limn_build.cur_pages(rv).name, first)
         self.assertEqual(limn_build.state_snapshot(rv)["seq"], 2)
         b = limn_build.load_builds(rv)["by"]
@@ -1258,7 +1245,7 @@ class KindAndThread(Base):
         self.assertEqual((code, d["pin"]["id"], d["pin"]["state"]), (200, pid, "open"))
         code, _, _ = split_resp(self.talk(req("GET", "/api/pins/999")))
         self.assertEqual(code, 404)
-        ps.set_done(pid, True, dict(self.S))
+        ps.close_pin(pid, dict(self.S), CloseRequest())
         rows = ps.pins_payload(ps.snapshot_pins(), True)
         self.assertEqual(rows[0]["state"], "done")
         self.assertNotIn("state", ps.read_pins()[0][0])  # a computed field — not stored
@@ -1299,7 +1286,7 @@ class ReviewState(Base):
 
     def test_confirm_and_idempotence(self):
         pid = self.add()
-        ps.set_done(pid, True, dict(LOCAL_ACTOR), "고침")
+        ps.close_pin(pid, dict(LOCAL_ACTOR), CloseRequest(reply="고침"))
         W = {"Tailscale-User-Login": self.W["login"], "Tailscale-User-Name": self.W["name"]}
         code, d = self.post("/api/pins/%d/confirm" % pid, None, W)
         self.assertEqual((code, d["state"]), (200, "done"))
@@ -1319,7 +1306,7 @@ class ReviewState(Base):
         # observed bug: a request without an identity header (agent/local curl) could succeed at /confirm —
         # awaiting review is a record that "a human saw this," so an agent confirming its own work defeats the purpose.
         pid = self.add()
-        ps.set_done(pid, True, dict(LOCAL_ACTOR), "고침")
+        ps.close_pin(pid, dict(LOCAL_ACTOR), CloseRequest(reply="고침"))
         code, d = self.post("/api/pins/%d/confirm" % pid)  # no header = agent
         self.assertEqual(code, 403)
         self.assertIn("확인은 사람이 합니다", d.get("error", ""))
@@ -1328,7 +1315,7 @@ class ReviewState(Base):
 
     def test_reopen_with_reason_appends_to_thread_and_clears_review(self):
         pid = self.add()
-        ps.set_done(pid, True, dict(LOCAL_ACTOR), "고침")
+        ps.close_pin(pid, dict(LOCAL_ACTOR), CloseRequest(reply="고침"))
         code, d = self.post(
             "/api/pins/%d/reopen" % pid,
             {"reason": "식 번호가 아직 틀림"},

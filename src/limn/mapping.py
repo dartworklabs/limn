@@ -10,6 +10,7 @@ themselves are described in docs/handbook/domain.md.
 
 import re
 from collections.abc import Callable, Mapping, Sequence
+from dataclasses import dataclass
 from typing import Any, Literal, TypeAlias
 
 from limn.pins.shapes import is_int
@@ -298,6 +299,69 @@ def compute_levels(lines: Sequence[str], raw_lo: int, raw_hi: int, envs: Sequenc
     if not default["level"].startswith("env") and kind != "paragraph":
         kind = "paragraph"
     return {"levels": levels, "default_level": default["level"], "lo": default["lo"], "hi": default["hi"], "kind": kind}
+
+
+# ---------------------------------------------------------------- Choosing a selection's range
+
+# How a selection's range was found: SyncTeX's answer for the box, or the rendered text's tokens (by_text).
+Via: TypeAlias = Literal["synctex", "text"]
+WEAK_SCORE = 0.3  # below this a weighed selection's best range is flagged as a weak match
+SPLIT_MARGIN = 0.12  # two paths scoring closer than this that land apart are flagged as disagreeing
+
+
+@dataclass(frozen=True)
+class Traced:
+    """The range a selection traces to (trace_range): the path that won, its raw lines and score (0-1), and the range
+    ladder around them (compute_levels: the default rung's lo/hi and kind, every rung, the default's name).
+
+    weak is set when the region's text was weighed but the best score is below WEAK_SCORE. split, only when not weak,
+    names the winner's and the loser's first lines when both paths scored within SPLIT_MARGIN and the loser's line lies
+    outside the chosen range - the two paths point at different places."""
+
+    via: Via
+    raw_lo: int
+    raw_hi: int
+    score: float
+    lo: int
+    hi: int
+    kind: str
+    levels: list[Level]
+    default_level: str
+    weak: bool
+    split: tuple[int, int] | None
+
+
+def trace_range(
+    tw: TokenWeights, lines: Sequence[str], synctex: tuple[int, int] | None, envs: Sequence[str]
+) -> Traced | None:
+    """Pit SyncTeX's range (lo, hi in lines, or None when it gave none) and the text's range (by_text, searched near
+    SyncTeX's line) against each other on equal footing and expand the better one into the range ladder. Treating
+    either as a conditional fallback would leave no way to catch SyncTeX being silently wrong (inside minipage/tabular).
+    On a tie SyncTeX wins - it is the only one that is right in a region with no text (a figure). None when neither
+    path gives a range."""
+    cands: list[tuple[Via, int, int, float]] = []
+    if synctex:
+        cands.append(("synctex", synctex[0], synctex[1], score_range(tw, lines, synctex[0], synctex[1])))
+    alt = by_text(tw, lines, synctex[0] if synctex else None)
+    if alt:
+        cands.append(("text", alt[0], alt[1], alt[2]))
+    if not cands:
+        return None
+    cands.sort(key=lambda c: (-c[3], c[0] != "synctex"))
+    via, raw_lo, raw_hi, best = cands[0]
+    weak = bool(tw) and best < WEAK_SCORE
+    lad = compute_levels(lines, raw_lo, raw_hi, envs)
+    lo, hi = lad["lo"], lad["hi"]
+    # If both expand into the same block, the two paths haven't actually diverged - no disagreement.
+    split = (
+        (cands[0][1], cands[1][1])
+        if not weak
+        and len(cands) == 2
+        and abs(cands[0][3] - cands[1][3]) < SPLIT_MARGIN
+        and not (lo <= cands[1][1] <= hi)
+        else None
+    )
+    return Traced(via, raw_lo, raw_hi, best, lo, hi, lad["kind"], lad["levels"], lad["default_level"], weak, split)
 
 
 # ---------------------------------------------------------------- Anchors

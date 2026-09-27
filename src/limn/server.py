@@ -32,7 +32,7 @@ import sys
 import threading
 import time
 import traceback
-from collections.abc import Collection, Iterable, Mapping, Sequence
+from collections.abc import Callable, Collection, Iterable, Mapping, Sequence
 from datetime import datetime
 from email.message import Message
 from pathlib import Path
@@ -77,8 +77,12 @@ from limn.access import (
 from limn.args import serve_parser
 from limn.audit import AuditAction, append_audit, audit_entry
 from limn.build import (
+    BuildBusy,
     BuildConfig,
-    BuildResult,
+    BuildSkipped,
+    BuildStarted,
+    FailedBuild,
+    FinishedBuild,
     build_pdf as build_pdf,
     cur_pages as cur_pages,
     pdf_changed,
@@ -90,6 +94,7 @@ from limn.documents import (
     Doc,
     DocNotFound,
     DocumentFacts,
+    fresh_build_state,
 )
 from limn.events import EVENTS_KEEP, EventType
 from limn.files import tex_lines, vendor_file as find_vendor_file
@@ -115,6 +120,7 @@ from limn.pins.lifecycle import (
     AlreadyLive,
     ClaimClosedPin,
     ClaimedByOther,
+    CloseRequest,
     NotClaimed,
     NotInTrash,
     PinStillOpen,
@@ -164,9 +170,8 @@ from limn.viewer.assemble import (
     service_worker,
     viewer_html,
 )
-from limn.web.errors import HTTPError as HTTPError, Messages, revision_failure_text
+from limn.web.errors import HTTPError as HTTPError, Messages, build_failure_log, revision_failure_text
 from limn.web.handler import Handler as WebHandler, Server, Server6
-from limn.web.parse import CloseChange
 
 build_state_snapshot = build.state_snapshot
 
@@ -191,22 +196,7 @@ BUILD_LOCK = threading.Lock()
 # Guards the BUILD_STATE dict (progress chip / error panel). Separate from BUILD_LOCK (only one build at
 # a time) - this lock exists just so that state doesn't race with the GET /api/build request that "reads" it.
 BUILD_STATE_LOCK = threading.Lock()
-BUILD_STATE: dict[str, Any] = {
-    "state": "idle",
-    "phase": None,
-    "started_at": None,
-    "start_ts": None,
-    "last_s": None,
-    "pages": 0,
-    "errors": [],
-    "log_tail": "",
-    "built_at": None,
-    "seq": 0,
-    "finished_at": None,
-    "last": None,
-    "head": None,
-    "pull": None,
-}
+BUILD_STATE: dict[str, Any] = fresh_build_state()
 # Bundles the read-modify-write of builds.json (build history).
 BUILDS_LOCK = threading.Lock()
 
@@ -277,23 +267,26 @@ def build_config() -> BuildConfig:
     return BuildConfig(state=C.state, dpi=C.dpi, timeout=C.timeout)
 
 
-def build_all(D: Doc) -> BuildResult:
-    """POST /api/rebuild for document D: build it now (synchronous). If it is already building, returns busy without
-    waiting (limn.build.build_now)."""
+def build_all(D: Doc) -> FinishedBuild | BuildBusy:
+    """POST /api/rebuild for document D: build it now (synchronous). If it is already building, returns BuildBusy
+    without waiting (limn.build.build_now)."""
     return build.build_now(D, lambda: _build_tracked(D))
 
 
-def build_async(D: Doc) -> Json:
+def build_async(D: Doc) -> BuildStarted | BuildBusy:
     """POST /api/rebuild?async=1 for document D: start the tracked build on a daemon thread
     (limn.build.build_in_background); the thread builds D itself."""
-    return build.build_in_background(D, lambda: _build_tracked(D), now_str())
+    return build.build_in_background(D, lambda: _build_tracked(D), now_str(), build_failure_log)
 
 
-def _build_tracked(D: Doc) -> BuildResult:
+def _build_tracked(D: Doc) -> FinishedBuild:
     """One tracked build of D: LaTeX (_build) or, for view-only, the page render (limn.build.render_pdf_doc)
-    (limn.build.run_tracked). The step is looked up when the build runs, so a test that replaces _build sees it."""
-    step = (lambda: build.render_pdf_doc(D, build_config())) if D.is_pdf else (lambda: _build(D))
-    return build.run_tracked(D, C.state, step, now_str())
+    (limn.build.run_tracked); a failure's log text is limn.web.errors.build_failure_log. The step is looked up when
+    the build runs, so a test that replaces _build sees it."""
+    step: Callable[[], FinishedBuild] = (
+        (lambda: build.render_pdf_doc(D, build_config())) if D.is_pdf else (lambda: _build(D))
+    )
+    return build.run_tracked(D, C.state, step, now_str(), build_failure_log)
 
 
 # ---------------------------------------------------------------- Manuscript history, pin-scoped changes, comparison PDFs
@@ -391,7 +384,7 @@ def sync_main_once() -> Json:
     )
 
 
-def _build(D: Doc) -> BuildResult:
+def _build(D: Doc) -> FinishedBuild:
     """The LaTeX build of document D with this instance's settings; --git-pull pulls first (limn.build.compile_tex)."""
     return build.compile_tex(D, build_config(), repo_pull if C.git_pull else None)
 
@@ -805,19 +798,18 @@ def reply_pin(
     return transitions.reply_pin(pin_context(), pid, text, actor, hints, reopen, human)
 
 
-def set_done(
-    pid: int,
-    done: bool,
-    actor: Json,
-    reply: str | None = None,
-    ref: str | None = None,
-    review: bool | None = None,
-    reason: str | None = None,
-    hints: list[str] | None = None,
-    changes: Sequence[CloseChange] | None = None,
-) -> OpenPin | ReviewPin | DonePin | AlreadyClosed | PinNotFound:
-    """POST /api/pins/{id}/close (done=True) and /reopen (done=False) (limn.service.transitions.set_done)."""
-    return transitions.set_done(pin_context(), pid, done, actor, reply, ref, review, reason, hints, changes)
+def close_pin(pid: int, actor: Json, request: CloseRequest) -> ReviewPin | DonePin | AlreadyClosed | PinNotFound:
+    """POST /api/pins/{id}/close with its parsed body (limn.web.parse.parse_close; CloseRequest() is a close with
+    no body) (limn.service.transitions.close_pin)."""
+    return transitions.close_pin(pin_context(), pid, actor, request)
+
+
+def reopen_pin(
+    pid: int, actor: Json, reason: str | None = None, hints: list[str] | None = None
+) -> OpenPin | PinNotFound:
+    """POST /api/pins/{id}/reopen with its reason and @-tag hints (limn.web.parse.parse_reopen)
+    (limn.service.transitions.reopen_pin)."""
+    return transitions.reopen_pin(pin_context(), pid, actor, reason, hints)
 
 
 def confirm_pin(pid: int, actor: Json) -> DonePin | AlreadyDone | PinStillOpen | AgentCannotConfirm | PinNotFound:
@@ -988,8 +980,9 @@ def pick_context() -> locate.PickContext:
     return locate.PickContext(C.src, C.envs, C.state, TOKEN_CACHE, overlaps_for_range)
 
 
-def pick(D: Doc, request: locate.Selection) -> Json:
-    """POST /api/pick: a selection of document D (parsed by limn.web.parse.parse_pick) -> source lines (limn.locate.pick)."""
+def pick(D: Doc, request: locate.Selection) -> locate.Picked | locate.PickedRegion | locate.PickRefusal:
+    """POST /api/pick: a selection of document D (parsed by limn.web.parse.parse_pick) -> source lines, a view-only
+    region, or why it cannot be traced (limn.locate.pick); limn.web.answers.pick_answer gives the body."""
     return locate.pick(D, request, pick_context())
 
 
@@ -1141,7 +1134,7 @@ if TYPE_CHECKING:
 # ---------------------------------------------------------------- Entry point
 
 
-def init_doc(D: Doc, no_build: bool, wait: bool) -> Json:
+def init_doc(D: Doc, no_build: bool, wait: bool) -> FinishedBuild | BuildStarted | BuildBusy | BuildSkipped:
     """Prepares one document at startup: legacy-layout migration, restoring build history, and building if needed. Builds in the background if wait=False."""
     D.dir.mkdir(parents=True, exist_ok=True)
     if D.root:
@@ -1151,7 +1144,7 @@ def init_doc(D: Doc, no_build: bool, wait: bool) -> Json:
     if not D.is_pdf:
         need = not no_build or not build.cur_pdf(D).exists() or not build.page_list(build.cur_pages(D), C.dpi)
     if not need:
-        return {"state": "skip"}
+        return BuildSkipped()
     return build_all(D) if wait else build_async(D)
 
 
@@ -1252,9 +1245,9 @@ def prepare(docs: list[Doc] | None, no_build: bool) -> StartupRefused | None:
         # adds the current build (made by an earlier instance) to history if missing, and restores the last build result
         build.seed_builds(D, C.state)
         if not no_build or not build.cur_pdf(D).exists() or not build.page_list(build.cur_pages(D), C.dpi):
-            r = build_all(D)
-            if r.get("state") == "fail":
-                return StartupRefused("Build failed:\n" + r.get("log", ""))
+            built = build_all(D)
+            if isinstance(built, FailedBuild):
+                return StartupRefused("Build failed:\n" + build_failure_log(built))
     else:
         # Multiple documents: each document's build runs in the background, and the server comes up right
         # away (never waits N documents x tens of seconds). A failure never blocks startup - that document's tab opens an error panel instead.
@@ -1266,7 +1259,7 @@ def prepare(docs: list[Doc] | None, no_build: bool) -> StartupRefused | None:
                     D.key,
                     "view-only" if D.is_pdf else "LaTeX   ",
                     D.rel_path(),
-                    "" if r.get("state") == "skip" else "  (build started)",
+                    "" if isinstance(r, BuildSkipped) else "  (build started)",
                 )
             )
         threading.Thread(target=watch_pdf_docs, args=(threading.Event(),), daemon=True).start()

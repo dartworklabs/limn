@@ -20,6 +20,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Protocol, TypeAlias, TypeVar
 
+from limn.build import last_build_failed
 from limn.pull import (
     Building,
     Built,
@@ -78,7 +79,7 @@ class SyncDoc(Protocol):
 
     @property
     def bstate(self) -> dict[str, Any]:
-        """The document's build state; its "state" is "fail" after a failed build."""
+        """The document's build state, read only through limn.build.last_build_failed."""
         ...
 
 
@@ -179,9 +180,7 @@ def _progress(D: SyncDoc) -> DocProgress:
     whether its last build failed."""
     if D.lock.locked():
         return Building()
-    built = _built_head(D)
-    with D.bstate_lock:
-        return Built(built, D.bstate.get("state") == "fail")
+    return Built(_built_head(D), last_build_failed(D))
 
 
 class SyncWatch:

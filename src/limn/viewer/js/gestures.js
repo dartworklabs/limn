@@ -14,7 +14,7 @@
     b.classList.toggle('side-snap-collapse',zone==='collapse'&&!rail); b.classList.toggle('side-snap-blocked',zone==='blocked'&&!rail);};
   // A drag from the rail shows the panel without deciding anything yet (the release does).
   const preview=on=>{document.body.classList.toggle('side-open',on);};
-  g.addEventListener('pointerdown',e=>{if(LAYOUT==='narrow'||(e.pointerType==='mouse'&&e.button!==0))return;
+  g.addEventListener('pointerdown',e=>{if(LAYOUT===LAYOUT_MODE.NARROW||(e.pointerType==='mouse'&&e.button!==0))return;
     e.preventDefault(); hideTip(); finishSideSlide();
     D={id:e.pointerId,x:e.clientX,w:SIDE_OPEN?curSideW():0,rail:!SIDE_OPEN,moved:false,mouse:e.pointerType==='mouse',zone:null};
     try{g.setPointerCapture(e.pointerId);}catch(_){}
@@ -38,7 +38,7 @@
     setSideWidth(curSideW());};
   g.addEventListener('pointerup',end); g.addEventListener('pointercancel',end);
   g.addEventListener('dblclick',()=>{if(SIDE_OPEN)cycleSideWidth(); else setSide(true,true,true);});
-  g.addEventListener('keydown',e=>{if(LAYOUT==='narrow')return; const k=gripKey(e.key,curSideW(),sideBounds(LAYOUT,innerWidth),!SIDE_OPEN);
+  g.addEventListener('keydown',e=>{if(LAYOUT===LAYOUT_MODE.NARROW)return; const k=gripKey(e.key,curSideW(),sideBounds(LAYOUT,innerWidth),!SIDE_OPEN);
     if(!k)return; e.preventDefault();
     if(k.act==='collapse'||k.act==='open')toggleSide();
     else if(k.act==='cycle')cycleSideWidth();
@@ -46,14 +46,14 @@
 })();
 // Outline width is independent of the right work panel's handle. While dragging, only the width changes; the PDF position is restored when it ends.
 (function(){const g=$('#outline-grip');let D=null;
-  g.addEventListener('pointerdown',e=>{if(LAYOUT==='narrow'||document.body.classList.contains('outline-collapsed')||(e.pointerType==='mouse'&&e.button!==0))return;
+  g.addEventListener('pointerdown',e=>{if(LAYOUT===LAYOUT_MODE.NARROW||document.body.classList.contains('outline-collapsed')||(e.pointerType==='mouse'&&e.button!==0))return;
     e.preventDefault();D={id:e.pointerId,x:e.clientX,w:Math.round($('#outline').getBoundingClientRect().width)};
     try{g.setPointerCapture(e.pointerId);}catch(_){}g.classList.add('on');document.body.classList.add('resizing');});
   g.addEventListener('pointermove',e=>{if(D&&e.pointerId===D.id)showOutlineWidth(D.w+e.clientX-D.x);});
   const end=e=>{if(!D||e.pointerId!==D.id)return;D=null;g.classList.remove('on');document.body.classList.remove('resizing');
     if(e.type==='pointercancel'){applyOutlineState();relayout();}else setOutlineWidth($('#outline').getBoundingClientRect().width);};
   g.addEventListener('pointerup',end);g.addEventListener('pointercancel',end);
-  g.addEventListener('keydown',e=>{if(LAYOUT==='narrow')return;const b=outlineBounds(),w=Math.round($('#outline').getBoundingClientRect().width);
+  g.addEventListener('keydown',e=>{if(LAYOUT===LAYOUT_MODE.NARROW)return;const b=outlineBounds(),w=Math.round($('#outline').getBoundingClientRect().width);
     const next={ArrowLeft:w-16,ArrowRight:w+16,Home:b.min,End:b.max}[e.key];
     if(next!==undefined){e.preventDefault();setOutlineWidth(next);}});
 })();
@@ -81,7 +81,7 @@ function dragSheetTo(h){document.documentElement.style.setProperty('--sheet-f',S
   // grab = the drag owns the pointer (capture, cues); down = the handle grabs at once, the tool bar only once the move is vertical
   // (lazy - its buttons keep their taps); end = settle by sheetRelease(), or a handle tap.
   const grab=e=>{try{D.el.setPointerCapture(e.pointerId);}catch(_){} D.el.classList.add('on'); document.body.classList.add('resizing');};
-  const down=(e,lazy)=>{if(LAYOUT!=='narrow'||!e.isPrimary||(e.pointerType==='mouse'&&e.button!==0))return;
+  const down=(e,lazy)=>{if(LAYOUT!==LAYOUT_MODE.NARROW||!e.isPrimary||(e.pointerType==='mouse'&&e.button!==0))return;
     if(lazy&&e.target.closest&&e.target.closest('input,textarea,select'))return;
     D={id:e.pointerId,x:e.clientX,y:e.clientY,h:$('#right').getBoundingClientRect().height,moved:false,lazy,el:lazy?bar:g,pts:[]};
     if(!lazy){e.preventDefault(); grab(e);}};
@@ -101,7 +101,7 @@ function dragSheetTo(h){document.documentElement.style.setProperty('--sheet-f',S
     if(!SIDE_OPEN){applySheet(); return;}
     settleSheet($('#right').getBoundingClientRect().height/innerHeight,e.clientY-d.y,dragSpeed(d.pts));};
   window.addEventListener('pointerup',end); window.addEventListener('pointercancel',end);
-  g.addEventListener('keydown',e=>{if(LAYOUT!=='narrow')return; const f=sheetF();
+  g.addEventListener('keydown',e=>{if(LAYOUT!==LAYOUT_MODE.NARROW)return; const f=sheetF();
     if(e.key==='ArrowUp'){e.preventDefault(); setSheetF(f+0.05);} else if(e.key==='ArrowDown'){e.preventDefault(); setSheetF(f-0.05);}
     else if(e.key==='Enter'||e.key===' '){e.preventDefault(); cycleSheet();}});
 })();
@@ -123,7 +123,7 @@ function pullDown(box,ok,onStart,onMove,onEnd){let P=null;
   box.addEventListener('touchend',end); box.addEventListener('touchcancel',end);}
 // The phone sheet: pulling its content down at the top lowers the sheet (nested scroll hand-off); the release is sheetRelease().
 (function(){let h=0;
-  pullDown($('#right'),e=>LAYOUT==='narrow'&&SIDE_OPEN&&!e.target.closest('#bar1,#sheet-grip'),
+  pullDown($('#right'),e=>LAYOUT===LAYOUT_MODE.NARROW&&SIDE_OPEN&&!e.target.closest('#bar1,#sheet-grip'),
     ()=>{h=$('#right').getBoundingClientRect().height; document.body.classList.add('resizing'); hideTip(); endPress();},
     dy=>dragSheetTo(h-dy),
     (dy,v)=>{document.body.classList.remove('resizing'); if(dy===null){applySheet(); return;}
@@ -156,7 +156,7 @@ function dismissOutcome(d,size,v){return d>=0.35*size||(d>24&&v>=0.5)?'close':'b
     const done=()=>{b.classList.remove('side-settling'); if(out==='close'){setSide(false,true); focusSideToggle();} setX(0);};
     if(!ms){done(); return;} b.classList.add('side-settling'); setX(out==='close'?curSideW():0); setTimeout(done,ms);};
   R.addEventListener('pointerdown',e=>{if(!e.isPrimary){if(S&&S.axis==='x')settle('back'); S=null; return;}   // a second finger ends the swipe
-    S=null; if(e.pointerType==='mouse'||!(LAYOUT==='mid'&&MID_OVERLAY&&SIDE_OPEN))return;
+    S=null; if(e.pointerType==='mouse'||!(LAYOUT===LAYOUT_MODE.MID&&MID_OVERLAY&&SIDE_OPEN))return;
     if(e.target.closest&&e.target.closest(SKIP))return;
     S={id:e.pointerId,x:e.clientX,y:e.clientY,t:performance.now(),axis:null,w:0,pts:[]};});
   window.addEventListener('pointermove',e=>{if(!S||e.pointerId!==S.id)return; const dx=e.clientX-S.x,dy=e.clientY-S.y,now=performance.now();
@@ -178,8 +178,8 @@ function dismissOutcome(d,size,v){return d>=0.35*size||(d>24&&v>=0.5)?'close':'b
 // switches never add entries (they replace the hash). Mouse devices have no system back, so nothing is registered there.
 let BACK=null,BACK_SKIP=false;
 // Which layer covers the document: the narrow sheet, the 701-900px overlay panel, or the mid outline overlay ('side'|'outline'|null).
-function backLayer(layout,overlay,sideOpen,outlineOpen){if(layout==='narrow')return sideOpen?'side':null;
-  if(layout==='mid'){if(outlineOpen)return 'outline'; if(overlay&&sideOpen)return 'side';} return null;}
+function backLayer(layout,overlay,sideOpen,outlineOpen){if(layout===LAYOUT_MODE.NARROW)return sideOpen?'side':null;
+  if(layout===LAYOUT_MODE.MID){if(outlineOpen)return 'outline'; if(overlay&&sideOpen)return 'side';} return null;}
 // Registers or removes the back layer to match the screen (called by applySide and applyOutlineState; idempotent).
 function syncBackLayer(){const want=MQ_COARSE.matches&&!!backLayer(LAYOUT,MID_OVERLAY,SIDE_OPEN,OUTLINE_MID_OPEN);
   if(want&&!BACK)armBack(); else if(!want&&BACK)disarmBack();}

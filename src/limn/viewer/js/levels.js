@@ -5,7 +5,7 @@ function kindFor(scope,env){if(!scope)return null; if(scope.startsWith('env'))re
 function scopeLabel(o){const lv=o.scope&&lvOf(o,o.scope); if(lv)return levelLabel(lv.label); if(o.scope==='lines')return tr('줄 직접 지정');
   return tr(({float:'그림/표',block:'환경 블록',paragraph:'문단',none:'생성 파일',lines:'줄'})[o.kind]||o.kind||'');}
 // Range-level labels come from the server in Korean ('드래그한 줄', '문단', '환경 table', '환경 table (바깥)').
-function levelLabel(s){s=String(s||''); if(LANG!=='en')return s; const m=/^환경 (.+?)( \(바깥( 2)?\))?$/.exec(s);
+function levelLabel(s){s=String(s||''); if(LANG!==UI_LANG.EN)return s; const m=/^환경 (.+?)( \(바깥( 2)?\))?$/.exec(s);
   return m?tl(m[3]?'환경 {env} (바깥 2)':m[2]?'환경 {env} (바깥)':'환경 {env}',{env:m[1]}):tr(s);}
 // Shows the level matching the current range as pressed. If scope is set, that level (when the range also matches); otherwise the first level whose lo/hi match
 // (shown as '지금 범위' on an edit card).

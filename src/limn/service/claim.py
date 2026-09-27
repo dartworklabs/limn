@@ -9,10 +9,9 @@ from collections.abc import Mapping
 from typing import Any
 
 from limn.pins.lifecycle import ClaimClosedPin, ClaimedByOther, ClaimRequest, NotClaimed, claim, unclaim
-from limn.pins.model import DonePin, OpenPin, PinNotFound, ReviewPin, parse_pin
+from limn.pins.model import DonePin, OpenPin, PinNotFound, ReviewPin
 from limn.pins.position import epoch
-from limn.service.context import PinContext, Row, typed_actor
-from limn.store import find_pin
+from limn.service.context import PinContext, Row, load_pin, typed_actor
 
 
 def claim_pin(
@@ -26,11 +25,12 @@ def claim_pin(
 
     def fn(rows: list[Row]) -> tuple[OpenPin | ClaimClosedPin | ClaimedByOther | PinNotFound, bool]:
         """The transact() step: claim pin pid for actor; written only when the claim is placed."""
-        r = find_pin(rows, pid)
-        if r is None:
-            return PinNotFound(pid), False
+        found = load_pin(rows, pid)
+        if isinstance(found, PinNotFound):
+            return found, False
+        r, pin = found
         result = claim(
-            parse_pin(r),
+            pin,
             typed_actor(actor),
             ctx.epoch(),
             ctx.now(),
@@ -53,10 +53,11 @@ def unclaim_pin(
 
     def fn(rows: list[Row]) -> tuple[OpenPin | NotClaimed | PinNotFound, bool]:
         """The transact() step: drop pin pid's claim fields, or NotClaimed with nothing written."""
-        r = find_pin(rows, pid)
-        if r is None:
-            return PinNotFound(pid), False
-        result = unclaim(parse_pin(r))
+        found = load_pin(rows, pid)
+        if isinstance(found, PinNotFound):
+            return found, False
+        r, pin = found
+        result = unclaim(pin)
         if isinstance(result, NotClaimed):
             return result, False
         r.clear()

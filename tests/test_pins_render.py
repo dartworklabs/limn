@@ -21,6 +21,7 @@ from pathlib import Path
 from limn import mapping
 from limn.access import LOCAL_ACTOR
 from limn.pins import render, render as md_render
+from limn.pins.lifecycle import CloseRequest
 from limn.pins.render import DocHeading, PinFacts, PinsMdInput, pins_md_text
 from limn.web import parse
 
@@ -448,7 +449,7 @@ class PinsMdV2(Base):
         for i in range(20):
             pid = self.add(4, 5, note="c%d" % i)
             # closed by a human = done (if an agent closes it, it stays in the table as awaiting review)
-            ps.set_done(pid, True, {"login": "a@example.com", "name": "A"})
+            ps.close_pin(pid, {"login": "a@example.com", "name": "A"}, CloseRequest())
         after = len(ps.C.pins_md.read_text(encoding="utf-8").splitlines())
         self.assertEqual(before, after)
         self.assertIn("닫힌 핀 20건", ps.C.pins_md.read_text(encoding="utf-8"))
@@ -678,7 +679,7 @@ class AuthorPrefixInPinsMd(Base):
     def test_closed_pins_excluded_from_author_count(self):
         # a closed pin's author isn't shown in the open table, so it must be excluded from the count too (judged by open pins only).
         pid = self.add(4, 5, note="n1", actor={"login": "alice@example.com", "name": "Wendy"})
-        ps.set_done(pid, True, dict(LOCAL_ACTOR))
+        ps.close_pin(pid, dict(LOCAL_ACTOR), CloseRequest())
         self.add(8, 8, note="n2", actor={"login": "bob@example.com", "name": "Bob"})
         md = ps.C.pins_md.read_text(encoding="utf-8")
         self.assertNotIn("[Bob]", md)
@@ -781,8 +782,8 @@ class QuestionsInPinsMd(Base):
         self.assertEqual(row.count("|") - row.count("\\|"), 6)  # still a 5-column table
         self.assertIn("/api/pins/N/reply", md)
         self.assertIn("'질문' = 고칠 곳이 아니라 물음이다", md)
-        ps.set_done(q, True, dict(self.S), "답했다")
-        ps.set_done(q, False, dict(self.S))
+        ps.close_pin(q, dict(self.S), CloseRequest(reply="답했다"))
+        ps.reopen_pin(q, dict(self.S))
         md = ps.C.pins_md.read_text(encoding="utf-8")
         row = next(ln for ln in md.splitlines() if ln.startswith("| %d " % q))
         self.assertNotIn("[스레드", row)  # messages from before the close aren't shown
@@ -798,7 +799,7 @@ class ReviewInPinsMd(Base):
             {"file": str(self.main), "lo": 4, "hi": 5, "page": 1, "note": "q", "kind_req": "question"}, dict(self.S)
         ).record["id"]
         b = self.add(8, 9)
-        ps.set_done(a, True, dict(LOCAL_ACTOR), "구간은 0 을 포함 | 유의하지 않음", "PR #12")
+        ps.close_pin(a, dict(LOCAL_ACTOR), CloseRequest(reply="구간은 0 을 포함 | 유의하지 않음", ref="PR #12"))
         md = ps.C.pins_md.read_text(encoding="utf-8")
         self.assertIn("열린 핀 1건  ·  검토 대기 1건(맨 아래, 처리하지 않는다)  ·  닫힌 핀 0건", md)
         sec = md[md.index("## 검토 대기 1건") :]

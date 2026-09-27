@@ -28,6 +28,7 @@ from unittest import mock
 from limn import access
 from limn.access import LOCAL_ACTOR, load_tokens
 from limn.pins import render as md_render
+from limn.pins.lifecycle import CloseRequest
 from limn.pins.view import pin_state
 from limn.service.context import is_agent
 from limn.startup import StartupRefused
@@ -120,7 +121,7 @@ class LocalProvider(AccessBase):
         code, d = self.call("POST", "/api/pins/%d/close" % pid)
         self.assertEqual((code, d["state"]), (200, "done"))
         rid = self.add(8, 9)
-        ps.set_done(rid, True, dict(LOCAL_ACTOR))  # an agent's close -> review
+        ps.close_pin(rid, dict(LOCAL_ACTOR), CloseRequest())  # an agent's close -> review
         code, d = self.call("POST", "/api/pins/%d/confirm" % rid)
         self.assertEqual((code, d["state"]), (200, "done"))
         self.assertEqual(self.pin(rid)["confirmed_by"]["login"], "alice")
@@ -488,13 +489,13 @@ class Roles(AccessBase):
             self.assertEqual(self.call("POST", "/api/pins/%d/reply" % pid, {"text": "x"}, h)[0], 200)
             self.assertEqual(self.call("POST", "/api/pins/%d/close" % pid, None, h)[1]["state"], "done")
             rid = self.add(8, 9)
-            ps.set_done(rid, True, dict(LOCAL_ACTOR))
+            ps.close_pin(rid, dict(LOCAL_ACTOR), CloseRequest())
             self.assertEqual(self.call("POST", "/api/pins/%d/confirm" % rid, None, h)[1]["state"], "done")
 
     def test_owner_person_can_confirm(self):
         self.set_people([{"login": "alice@example.com", "name": "Alice", "role": "owner"}])
         rid = self.add()
-        ps.set_done(rid, True, dict(LOCAL_ACTOR))
+        ps.close_pin(rid, dict(LOCAL_ACTOR), CloseRequest())
         self.assertEqual(self.call("POST", "/api/pins/%d/confirm" % rid, None, ALICE)[1]["state"], "done")
 
     def test_agent_role_person_closes_into_review_and_cannot_confirm(self):
@@ -511,7 +512,7 @@ class Roles(AccessBase):
 
     def test_loopback_agent_confirm_is_403(self):
         rid = self.add()
-        ps.set_done(rid, True, dict(LOCAL_ACTOR))
+        ps.close_pin(rid, dict(LOCAL_ACTOR), CloseRequest())
         code, d = self.call("POST", "/api/pins/%d/confirm" % rid)
         self.assertEqual(code, 403)
         self.assertEqual(d["error"], CONFIRM_BY_HUMAN)

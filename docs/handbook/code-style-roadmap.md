@@ -56,7 +56,7 @@
 
 **업계에서 부르는 이름.** Functional Core, Imperative Shell (Gary Bernhardt, "Boundaries" 발표). Mark Seemann은 같은 모양을 "impureim sandwich"라고 부른다.
 
-**지금 코드.** 핀 전이의 규칙은 [`limn/pins/lifecycle.py`](../../src/limn/pins/lifecycle.py)·[`limn/pins/edit.py`](../../src/limn/pins/edit.py)의 순수 함수다. 잠금 아래 불러오고 규칙에 묻고 받아들일 때만 쓰는 셸은 [`limn/service/`](../../src/limn/service/context.py)에 있다. 결과를 상태 코드와 본문으로 바꾸는 일은 [`limn/web/answers.py`](../../src/limn/web/answers.py)가 한다.
+**지금 코드.** 핀 전이의 규칙은 [`limn/pins/lifecycle.py`](../../src/limn/pins/lifecycle.py)·[`limn/pins/edit.py`](../../src/limn/pins/edit.py)의 순수 함수다. 잠금 아래 불러오고 규칙에 묻고 받아들일 때만 쓰는 셸은 [`limn/service/`](../../src/limn/service/context.py)에 있다. 결과를 상태 코드와 본문으로 바꾸는 일은 [`limn/web/answers.py`](../../src/limn/web/answers.py)가 한다. 빌드도 같다. 빌드는 결과 값(`BuildOk`·`BuildOkWithErrors`·`FailedBuild` 등)을 돌려주고, `POST /api/rebuild` 의 본문과 실패 로그의 문장은 HTTP 층이 만든다([build-sync.md](build-sync.md) §빌드 결과).
 
 > **예시**
 >
@@ -216,12 +216,12 @@ def parse_note(v: object) -> str | InputRejected:
 
 ```python
 # limn/build.py
-def compile_tex(D: BuildDoc, cfg: BuildConfig, pull: Callable[[], dict[str, Any]] | None) -> BuildResult:
+def compile_tex(D: BuildDoc, cfg: BuildConfig, pull: Callable[[], Json] | None) -> FinishedBuild:
     """Builds D with -synctex=1 from a copy, leaving the original untouched, then renders pages into a new directory and only swaps the pointer."""
 
 
 # server.py - the composition root binds this instance's settings
-def _build(D: Doc) -> BuildResult:
+def _build(D: Doc) -> FinishedBuild:
     """The LaTeX build of document D with this instance's settings; --git-pull pulls first (limn.build.compile_tex)."""
     return build.compile_tex(D, build_config(), repo_pull if C.git_pull else None)
 ```
@@ -336,9 +336,8 @@ def identify(headers: Message, peer: str, settings: AccessSettings, lookups: Acc
 
 1. **핀 레코드를 저장소까지 타입으로.** 저장소(`PinStore`)와 셸은 아직 레코드를 사전(`Row`)으로 주고받고, 전이 앞뒤에서 `parse_pin()`과 `.record`로 오간다. 상태 타입이 저장소 경계까지 가게 한다(R2).
 2. **실행 설정과 런타임을 값으로.** 전역 `C`와 프로세스 자원(잠금·캐시·작업 목록)을 조립 지점이 만드는 두 값, 곧 실행 설정(`RunConfig`)과 런타임(`Runtime`)으로 모은다(R5).
-3. **빌드 결과를 타입으로.** `BuildResult`는 아직 사전(`dict[str, Any]`)이다. 성공·LaTeX 오류·실패·바쁨을 경우별 타입으로 나누고, 응답 사전은 HTTP 층이 만든다(R1, R8).
-4. **처리기의 요청 해석을 파서로.** 처리기 안에서 쿼리 플래그(`?light=1`, `?log=1`, `?all=1` 등)와 경로 조각을 직접 읽는 곳을 `web/parse.py`의 파서로 옮긴다(R3).
-5. **뷰어 스크립트의 상태.** 뷰어 조각이 함께 쓰는 전역 상태를 명시적인 상태 객체로 모은다(R5, [viewer.md](viewer.md)).
+3. **처리기의 요청 해석을 파서로.** 처리기 안에서 쿼리 플래그(`?light=1`, `?log=1`, `?all=1` 등)와 경로 조각을 직접 읽는 곳을 `web/parse.py`의 파서로 옮긴다(R3).
+4. **뷰어 스크립트의 상태.** 뷰어 조각이 함께 쓰는 전역 상태를 명시적인 상태 객체로 모은다(R5, [viewer.md](viewer.md)).
 
 그 밖에 둘이 남았다.
 

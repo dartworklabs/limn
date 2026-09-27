@@ -17,14 +17,16 @@ module against this Protocol (the `if TYPE_CHECKING:` assignment after server.Ha
 binding is a type error. tests/test_web.py checks at run time that server.py provides every member.
 """
 
-from collections.abc import Collection, Sequence
+from collections.abc import Collection
 from email.message import Message
 from pathlib import Path
 from typing import Any, Protocol, TypeAlias
 
 from limn import access
+from limn.build import BuildBusy, BuildStarted, FinishedBuild
 from limn.config import Cfg
 from limn.documents import Doc, DocNotFound
+from limn.locate import Picked, PickedRegion, PickRefusal
 from limn.pins.edit import AddRequest, EditRefusal, EditRequest
 from limn.pins.lifecycle import (
     AgentCannotConfirm,
@@ -33,6 +35,7 @@ from limn.pins.lifecycle import (
     AlreadyLive,
     ClaimClosedPin,
     ClaimedByOther,
+    CloseRequest,
     NotClaimed,
     NotInTrash,
     PinStillOpen,
@@ -41,7 +44,7 @@ from limn.pins.lifecycle import (
 from limn.pins.model import DonePin, OpenPin, PinNotFound, Record, ReviewPin, TrashedPin
 from limn.revisions import DiffRefusal, PdfRefusal, StartRefusal, StatusRefusal
 from limn.web.errors import Messages
-from limn.web.parse import CloseChange, DocumentFacts, PickRequest, SourceRange
+from limn.web.parse import DocumentFacts, PickRequest, SourceRange
 
 Json: TypeAlias = dict[str, Any]  # a JSON object: request body, response payload, actor, stored pin record
 Query: TypeAlias = dict[str, list[str]]  # parse_qs() of the request's query string
@@ -264,19 +267,16 @@ class App(Protocol):
         """POST /api/pins/{id}/unclaim."""
         ...
 
-    def set_done(
-        self,
-        pid: int,
-        done: bool,
-        actor: Json,
-        reply: str | None = None,
-        ref: str | None = None,
-        review: bool | None = None,
-        reason: str | None = None,
-        hints: list[str] | None = None,
-        changes: Sequence[CloseChange] | None = None,
-    ) -> OpenPin | ReviewPin | DonePin | AlreadyClosed | PinNotFound:
-        """POST /api/pins/{id}/close (done) and /reopen."""
+    def close_pin(
+        self, pid: int, actor: Json, request: CloseRequest
+    ) -> ReviewPin | DonePin | AlreadyClosed | PinNotFound:
+        """POST /api/pins/{id}/close."""
+        ...
+
+    def reopen_pin(
+        self, pid: int, actor: Json, reason: str | None = None, hints: list[str] | None = None
+    ) -> OpenPin | PinNotFound:
+        """POST /api/pins/{id}/reopen."""
         ...
 
     def add_pin(self, D: Document, request: AddRequest, actor: Json) -> OpenPin:
@@ -287,7 +287,7 @@ class App(Protocol):
         """POST /api/clear."""
         ...
 
-    def pick(self, D: Document, request: PickRequest) -> Json:
+    def pick(self, D: Document, request: PickRequest) -> Picked | PickedRegion | PickRefusal:
         """POST /api/pick: a dragged region -> source lines."""
         ...
 
@@ -295,10 +295,11 @@ class App(Protocol):
         """POST /api/revision-build."""
         ...
 
-    def build_all(self, D: Document) -> Json:
-        """POST /api/rebuild: build document D now."""
+    def build_all(self, D: Document) -> FinishedBuild | BuildBusy:
+        """POST /api/rebuild: build document D now, or BuildBusy when it is already building."""
         ...
 
-    def build_async(self, D: Document) -> Json:
-        """POST /api/rebuild?async=1: start document D's build in the background."""
+    def build_async(self, D: Document) -> BuildStarted | BuildBusy:
+        """POST /api/rebuild?async=1: start document D's build in the background, or BuildBusy when it is already
+        building."""
         ...

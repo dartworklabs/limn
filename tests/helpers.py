@@ -11,6 +11,7 @@ fixtures only from these helpers, never from one another.
 
 import dataclasses
 import errno
+import functools
 import importlib.util
 import json
 import os
@@ -25,12 +26,16 @@ import unittest
 import zlib
 from pathlib import Path
 
+import pytest
+
 from limn import config, gitsync, revisions
 from limn.access import LOCAL_ACTOR
 from limn.store import find_pin
 from limn.viewer import assemble
 from limn.web import answers, parse
 from limn.web.errors import InputRejected
+
+import helpers_js
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parent
@@ -42,36 +47,21 @@ DOCS_DIR = ROOT / "docs" / "handbook"
 spec = importlib.util.spec_from_file_location("limn_server", PKG / "server.py")
 ps = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(ps)
+# The viewer's closed-set tables (core.js: PIN_STATE, BUILD_STATE, LOCAL_LOGIN, ...), which extract_js_fn brings along.
+VIEWER_CLOSED_SETS = helpers_js.closed_sets((PKG / "viewer" / "js" / "core.js").read_text(encoding="utf-8"))
 
 
 def extract_js_fn(name: str) -> str:
-    """Pull one 'function NAME(...){ ... }' definition out of ps.HTML, balancing braces as-is.
+    """The served page's top-level 'function NAME(...){...}' (with its 'async', if any), exactly as written, preceded by
+    the closed-set tables it names (PIN_STATE, LOCAL_LOGIN, ... from core.js) as `var` declarations.
 
-    This is only safe for functions whose string literals contain no braces (i.e. this
-    file's pure-logic functions — no DOM/CSS text inside them). Running the actual server
-    source pulled this way through node lets the regression test verify the real source,
-    not a copy the test happened to paste as a string.
-
-    Also matches 'async function NAME(' — matching only 'function NAME(' would drop the
-    leading 'async ', and node would then reject a function containing await with
-    'await is only valid in async functions'."""
-    src = ps.HTML
-    key = "function %s(" % name
-    i = src.index(key)
-    if i >= 6 and src[i - 6 : i] == "async ":
-        i -= 6
-    j = src.index("{", i)
-    depth = 0
-    k = j
-    while True:
-        if src[k] == "{":
-            depth += 1
-        elif src[k] == "}":
-            depth -= 1
-            if depth == 0:
-                break
-        k += 1
-    return src[i : k + 1]
+    Running the real source pulled this way through node lets a regression test verify the served code, not a copy the
+    test pasted. The declaration is found by tokens (helpers_js), so braces, quotes and '//' inside strings, regexes
+    and comments never cut it short; a name that no script declares at the top level, or declares twice, raises. The
+    tables come along because a pulled function reads them from the page's shared scope, which a node harness lacks.
+    """
+    fn = helpers_js.function_source(ps.HTML, name)
+    return helpers_js.closed_set_prelude(VIEWER_CLOSED_SETS, fn) + fn
 
 
 def js_icons() -> str:
@@ -144,8 +134,36 @@ def js_i18n(lang: str = "ko") -> str:
     )
 
 
+def needs_tex(*tools: str):
+    """Decorator for a test method that runs real TeX-side tools (latexmk, pdftoppm, pdftotext, latexdiff, bwrap...).
+
+    Before the test body runs, every name in tools must be on PATH. A missing one skips the test and names what is
+    missing, unless LIMN_TEST_REQUIRE_TEX=1 (the CI `tex` job), where it is a failure. The test also gets the pytest
+    marker `tex`, so that job selects exactly these tests with `pytest -m tex`."""
+
+    def wrap(fn):
+        """Guard fn with the PATH check and mark it `tex`."""
+
+        @functools.wraps(fn)
+        def guarded(self, *args, **kwargs):
+            """Skip (or fail under LIMN_TEST_REQUIRE_TEX=1) when a tool is missing; otherwise run the test."""
+            missing = [t for t in tools if not shutil.which(t)]
+            if missing:
+                if os.environ.get("LIMN_TEST_REQUIRE_TEX") == "1":
+                    self.fail("%s required (LIMN_TEST_REQUIRE_TEX=1) but not installed" % ", ".join(missing))
+                self.skipTest("%s not available" % ", ".join(missing))
+            return fn(self, *args, **kwargs)
+
+        return pytest.mark.tex(guarded)
+
+    return wrap
+
+
 def run_node(js: str, tz: str = None):
     """Run js under node and return stdout. Returns None if node is missing (handled on the test side).
+
+    The script goes to node on stdin (`node -`), not as an `-e` argument: Linux caps one argument at 128 KB
+    (MAX_ARG_STRLEN), and a harness that inlines a corpus passes that.
 
     If tz is given, run in that timezone — used to directly verify that isEstimated no
     longer reads the wall clock (the frac_build path). The Korean tr()/tl() are prepended unless the
@@ -158,7 +176,7 @@ def run_node(js: str, tz: str = None):
     env = dict(os.environ)
     if tz is not None:
         env["TZ"] = tz
-    r = subprocess.run([node, "-e", js], capture_output=True, text=True, timeout=15, env=env, check=False)
+    r = subprocess.run([node, "-"], input=js, capture_output=True, text=True, timeout=15, env=env, check=False)
     if r.returncode != 0:
         raise AssertionError("node execution failed:\n%s" % r.stderr)
     return r.stdout
@@ -207,15 +225,15 @@ def edit_pin(pid: int, d: dict, actor: dict, mod=None):
 
 
 def pick(d: dict, mod=None, doc=None):
-    """What POST /api/pick does below its HTTP answer for document doc (default the first): the selection parsed
-    (limn.web.parse.parse_pick), then resolved. A gone build gives the 200 body the handler sends; a refused field
-    raises the HTTPError the handler would answer with."""
+    """The body POST /api/pick answers for document doc (default the first), without the socket: the selection parsed
+    (limn.web.parse.parse_pick), resolved and answered (limn.web.answers.pick_answer). A gone build gives the 200 body
+    the handler sends; a refused field raises the HTTPError the handler would answer with."""
     mod = mod or ps
     D = doc or mod.DOCS[0]
     selection = parse.parse_pick(d, mod.document_facts(D))
     if isinstance(selection, parse.PickBuildGone):
         return answers.pick_build_gone()
-    return mod.pick(D, answers.accepted(selection))
+    return answers.pick_answer(mod.pick(D, answers.accepted(selection)))
 
 
 def revision_spec(commit: str, pin: int | None = None, mod=None, doc=None):
