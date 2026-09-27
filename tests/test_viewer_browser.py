@@ -31,7 +31,7 @@ from limn.web import parse
 
 from helpers import add_pin, blank_png, minimal_pdf, ps
 from helpers_access import ALICE, BOB, CAROL, REPO_NEW as NEW, REPO_OLD as OLD, actor
-from helpers_browser import BrowserBase
+from helpers_browser import BrowserBase, booted, settle, watch_idle
 
 HANGUL = re.compile(r"[가-힣]")
 A, B = actor(ALICE), actor(BOB)
@@ -119,23 +119,16 @@ class ViewerFlows(BrowserBase):
     def state(self, pid):
         return pin_state(find_pin(ps.snapshot_pins(), pid))
 
-    def pump(self):
-        """Wait a little while letting Playwright run - the in-process server answers routed requests on this thread, so a
-        plain time.sleep() would block the very request being waited for."""
-        self._page.wait_for_timeout(100)
-
-    def wait_state(self, pid, want, secs=8):
-        end = time.time() + secs
-        while time.time() < end:
-            if self.state(pid) == want:
-                return
-            self.pump()
+    def wait_state(self, pid, want):
+        """Let the page settle, so every request it has sent was answered by the in-process server (which serves routed
+        requests on this thread, only while Playwright runs), then check that pin pid is in state want on the server."""
+        settle(self._page)
         self.assertEqual(self.state(pid), want)
 
     def page_for(self, device, lang, n_open=1):
         page = self._page = self.open(n_open, lang=lang, **DEVICES[device])
         page.evaluate("setSide(true); OPEN_CARDS.add(%d); OPEN_CARDS.add(%d); drawPins()" % (self.open_id, self.rv))
-        page.wait_for_timeout(150)
+        settle(page)
         return page
 
     def toast(self, page, text):
@@ -184,7 +177,7 @@ class ViewerFlows(BrowserBase):
             tst.get_by_role("button", name=t["undo"]).click()
             page.wait_for_selector(card + " textarea.r-text")
             self.assertEqual(page.input_value(card + " textarea.r-text"), "식 번호가 아직 틀립니다")
-            page.wait_for_timeout(300)
+            settle(page)  # a request the undo failed to cancel would have been answered by now
             self.assertEqual(self.state(self.rv), "review")
             page.click(card + " [data-act=reply-send]")
             tst = self.toast(page, t["undo"])
@@ -208,9 +201,7 @@ class ViewerFlows(BrowserBase):
             self.assertEqual(page.inner_text(card + " .r-outcome .r-out-t"), t["keep"])
             page.click(card + " [data-act=reply-send]")
             self.toast(page, t["undo"]).locator("button.btn-icon").click()
-            end = time.time() + 8
-            while time.time() < end and "내일" not in find_pin(ps.snapshot_pins(), self.rv)["thread"][-1]["text"]:
-                self.pump()
+            settle(page)  # the reply the dismissed toast sends has been answered
             last = find_pin(ps.snapshot_pins(), self.rv)["thread"][-1]
             self.assertEqual((last.get("ev"), last["text"], self.state(self.rv)), (None, "내일 다시 볼게요", "review"))
 
@@ -222,7 +213,7 @@ class ViewerFlows(BrowserBase):
         page.click(card + " .acts [data-act=reply-open]")
         page.click(card + " textarea.r-text")
         page.keyboard.type("@Bob Park 이 수정 괜찮나요")
-        page.wait_for_timeout(100)
+        settle(page)
         self.assertEqual(page.inner_text(card + " .r-outcome .r-out-t"), TXT["ko"]["mention"])
         flip = page.locator(card + " [data-act=reply-flip]")  # the rare override is [다시 열기] here
         self.assertEqual((flip.inner_text(), flip.get_attribute("aria-checked")), ("다시 열기", "false"))
@@ -261,7 +252,7 @@ class ViewerFlows(BrowserBase):
         self.toast(page, "되돌리기").wait_for(state="visible")
         page.evaluate("window.dispatchEvent(new Event('pagehide'))")
         self.wait_state(self.rv, "open")
-        page.wait_for_timeout(200)
+        settle(page)
         self.assertEqual(self.toast(page, "되돌리기").count(), 0)  # an undo that could no longer work is gone
 
     def test_newer_toasts_pushing_it_out_send_it(self):
@@ -319,9 +310,7 @@ class ViewerFlows(BrowserBase):
             page.click('#pins .pin[data-id="%d"] [data-act=drop]' % self.open_id)
             page.wait_for_function("!document.querySelector('#pins .pin[data-id=\"%d\"]')" % self.open_id, timeout=3000)
             self.toast(page, t["undo"]).wait_for(state="visible")
-            end = time.time() + 5
-            while time.time() < end and find_pin(ps.snapshot_pins(), self.open_id) is not None:
-                self.pump()
+            settle(page)  # the drop has been answered
             self.assertIsNone(find_pin(ps.snapshot_pins(), self.open_id))
             page.wait_for_function("DROPPED.length===1", timeout=5000)
             self.assertFalse(page.locator("#sec-dropped").count())
@@ -362,13 +351,11 @@ class ViewerFlows(BrowserBase):
         page.click(row + " [data-act=purge]")
         tst = self.toast(page, "되돌리기")
         tst.get_by_role("button", name="되돌리기").click()
-        page.wait_for_timeout(300)
+        settle(page)
         self.assertEqual([r["id"] for r in ps.read_jsonl(ps.C.dropped)[0]], [self.open_id])
         page.click(row + " [data-act=purge]")
         self.toast(page, "되돌리기").locator("button.btn-icon").click()
-        end = time.time() + 5
-        while time.time() < end and ps.read_jsonl(ps.C.dropped)[0]:
-            self.pump()
+        settle(page)  # the permanent delete the dismissed toast sends has been answered
         self.assertEqual(ps.read_jsonl(ps.C.dropped)[0], [])
 
     def test_ref_to_deleted_pin_in_a_thread(self):
@@ -529,13 +516,11 @@ class PreviewEqualsServer(BrowserBase):
             page.wait_for_selector("#mention-pop:not([hidden])")
             page.click("#mention-pop button:has-text('%s')" % pick)
         page.fill(ta, text)
-        page.wait_for_timeout(100)
+        settle(page)
         preview = page.inner_text(card + " .r-outcome .r-out-t")
         page.click(card + " [data-act=reply-send]")
         page.locator("#toasts .toast").first.locator("button.btn-icon").click()
-        end = time.time() + 8
-        while time.time() < end and find_pin(ps.snapshot_pins(), pid)["thread"][-1].get("text") != text:
-            page.wait_for_timeout(100)
+        settle(page)  # the reply the dismissed toast sends has been answered
         r = find_pin(ps.snapshot_pins(), pid)
         last = r["thread"][-1]
         return preview, not r.get("done"), [ps.known_people()[lg]["name"] for lg in last.get("mentions") or []]
@@ -587,7 +572,7 @@ class ReplyKeyboardAndFailure(BrowserBase):
         page.keyboard.press("Enter")
         page.wait_for_selector(card + " textarea.r-text")
         self.assertEqual(page.input_value(card + " textarea.r-text"), "키보드로 보냄")
-        page.wait_for_timeout(300)
+        settle(page)
         self.assertEqual(pin_state(find_pin(ps.snapshot_pins(), self.rv)), "review")
 
     def test_offline_failure_reopens_the_box_with_the_draft_and_an_error(self):
@@ -622,6 +607,7 @@ class RestoreLinkRunsOnce(BrowserBase):
         ps.drop_pin(pid, B)
         context = self.browser.new_context(viewport={"width": 1400, "height": 850})
         self.addCleanup(context.close)
+        watch_idle(context)
         page = context.new_page()
         page.route("**/*", self.route)
         page.goto("http://viewer.test/?lang=ko#pin=%d&act=restore" % pid)
@@ -629,8 +615,9 @@ class RestoreLinkRunsOnce(BrowserBase):
         self.assertNotIn("act=restore", page.evaluate("location.href"))
         ps.drop_pin(pid, A)  # dropped again elsewhere
         page.reload()
-        page.wait_for_function("typeof OPEN_ALL!=='undefined'&&OPEN_ALL.some(p=>p.id===%d)&&META" % keep, timeout=20000)
-        page.wait_for_timeout(800)
+        # boot() ends by acting on a pin link (openPinFromLink); a second restore it sent would be answered by settle()
+        page.wait_for_function(booted(1) + "&&OPEN_ALL.some(p=>p.id===%d)" % keep, timeout=20000)
+        settle(page)
         self.assertIsNone(find_pin(ps.snapshot_pins(), pid))
 
 
@@ -718,7 +705,7 @@ class ScopedViewer(BrowserBase):
         page.wait_for_function(
             "REVISION_SOURCE_COMMIT&&document.querySelectorAll('#revision-diff .rd-line').length>0", timeout=15000
         )
-        page.wait_for_timeout(150)
+        settle(page)
         return page
 
     def visible(self, page, sel):
@@ -996,7 +983,7 @@ class ViewerRoleUi(BrowserBase):
             with self.subTest(device=name):
                 page = self.open(1, **device)
                 page.evaluate("setSide(true); OPEN_CARDS.add(1); drawPins()")
-                page.wait_for_timeout(200)
+                settle(page)
                 acts = self.visible_acts(page)
                 self.assertIn("view", acts)  # reading still works
                 self.assertEqual(sorted(set(acts) & set(self.STATE_CHANGING + ("rebuild",))), [], acts)
@@ -1008,7 +995,7 @@ class ViewerRoleUi(BrowserBase):
                 n = len(ps.snapshot_pins())
                 page.keyboard.press("Control+Enter")
                 page.evaluate("savePin()")
-                page.wait_for_timeout(300)
+                settle(page)
                 self.assertEqual(len(ps.snapshot_pins()), n)
 
     def test_viewer_notice_is_translated(self):

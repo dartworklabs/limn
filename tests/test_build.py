@@ -307,6 +307,14 @@ class Outcomes(unittest.TestCase):
         self.assertEqual(self.compile(pull=lambda: record).pull, record)
         self.assertEqual(self.compile("nopdf", pull=lambda: record).pull, record)
 
+    def test_a_rebuild_within_the_same_second_gets_a_page_directory_of_its_own(self):
+        """Page directories are named by the second (pages-<YYYYmmddHHMMSS>); a rebuild within the same second takes the
+        next free -<n> suffix, so every build has its own name and no test has to wait for the clock to tick over."""
+        with mock.patch.object(build.time, "strftime", return_value="20260927120000"):
+            names = [self.compile().build for _ in range(3)]
+        self.assertEqual(names, ["pages-20260927120000", "pages-20260927120000-1", "pages-20260927120000-2"])
+        self.assertEqual(build.cur_pages(self.D).name, names[-1])
+
     def test_pages_not_rendered_when_a_companion_cannot_be_copied(self):
         """render_pages answers pdf_copy with the OSError when a file to store next to the pages is missing."""
         pdf = self.D.src / "main.pdf"

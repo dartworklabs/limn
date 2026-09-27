@@ -502,14 +502,13 @@ class Estimate(Base):
         b1 = limn_build.cur_pages(ps.DOCS[0]).name
         pid = self.add()
         self.assertEqual(self.pin(pid)["pdf_build"], b1)
-        time.sleep(1.1)  # build directory names are second-granularity
+        # a rebuild within the same second still gets a page directory of its own (test_build.Outcomes)
         self.assertEqual(type(ps.build_all(ps.DOCS[0])), BuildOk)
         self.assertNotEqual(limn_build.cur_pages(ps.DOCS[0]).name, b1)
         self.assertIs(self.est_of(pid), False)
         self.main.write_text(
             TEX.replace("After table epsilonunique.", "After table epsilonunique longer."), encoding="utf-8"
         )
-        time.sleep(1.1)
         self.assertEqual(type(ps.build_all(ps.DOCS[0])), BuildOk)
         self.assertIs(self.est_of(pid), True)
         edit_pin(pid, {"note": "메모만", "base_rev": self.pin(pid)["rev"]}, dict(LOCAL_ACTOR))
