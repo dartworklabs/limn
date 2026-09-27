@@ -22,7 +22,7 @@ from unittest import mock
 
 from limn import build, build as limn_build, files, meta as limn_meta
 
-from helpers import Base, ps, req
+from helpers import Base, needs_tex, ps, req
 
 BUILD_PY = Path(build.__file__)
 FILES_PY = Path(files.__file__)
@@ -357,12 +357,9 @@ class AsyncBuild(Base):
         self.assertIn("phase", data)
         self.assertIn("log_tail", data)
 
+    @needs_tex("latexmk", "pdftoppm")
     def test_real_build_progresses_through_all_phases(self):
-        """Run once with the real latexmk/pdftoppm and observe the copy->latex->render order (only when the tools exist)."""
-        import shutil as _sh
-
-        if not (_sh.which("latexmk") and _sh.which("pdftoppm")):
-            self.skipTest("latexmk/pdftoppm not available")
+        """Run once with the real latexmk/pdftoppm and observe the copy->latex->render order."""
         seen = []
         stop = threading.Event()
 

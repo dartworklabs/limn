@@ -28,7 +28,7 @@ from limn.documents import Doc
 from limn.gitsync import PullShare, SyncWatch, pull, repo_pull
 from limn.pull import Pulled, PullFailed, PullSkipped, UpToDate
 
-from helpers import Base, ps
+from helpers import Base, needs_tex, ps
 
 GITSYNC_PY = Path(gitsync.__file__)
 A, B = "a" * 40, "b" * 40
@@ -412,9 +412,8 @@ class Watch(unittest.TestCase):
 
 
 class GitPullBuildIntegration(Base):
+    @needs_tex("latexmk", "pdftoppm")
     def test_pull_result_surfaces_in_build_response_and_state(self):
-        if not (shutil.which("latexmk") and shutil.which("pdftoppm")):
-            self.skipTest("latexmk/pdftoppm not available")
         ps.C.git_pull = True
         res = ps.build_all(ps.DOCS[0])
         self.assertEqual(res["state"], "ok")
@@ -427,20 +426,18 @@ class GitPullBuildIntegration(Base):
         self.assertEqual(snap.get("pull"), res["pull"])
         self.assertEqual(snap.get("head"), res["head"])
 
+    @needs_tex("latexmk", "pdftoppm")
     def test_pull_absent_when_flag_off(self):
-        if not (shutil.which("latexmk") and shutil.which("pdftoppm")):
-            self.skipTest("latexmk/pdftoppm not available")
         ps.C.git_pull = False
         res = ps.build_all(ps.DOCS[0])
         self.assertNotIn("pull", res)
 
+    @needs_tex("latexmk", "pdftoppm")
     def test_pull_bumped_mtime_does_not_falsely_mark_stale(self):
         # bug: _build_tracked() used to commit the pre-pull value (src_mtime_at_start) as built_src_mtime,
         # so when pull pushed the .tex mtime forward (as a real fast-forward merge does), the "manuscript
         # modified" badge kept showing even though the build had just finished with that new manuscript.
         # The measurement must happen after pull (before copy).
-        if not (shutil.which("latexmk") and shutil.which("pdftoppm")):
-            self.skipTest("latexmk/pdftoppm not available")
         ps.C.git_pull = True
 
         def fake_pull():
@@ -460,12 +457,11 @@ class GitPullBuildIntegration(Base):
             delta=1.0,
         )
 
+    @needs_tex("latexmk", "pdftoppm")
     def test_edit_after_copy_phase_still_marks_stale(self):
         # even when using the post-pull mtime (or the copy-start time when there's no pull), editing the
         # source after copy (while latex is compiling) means that edit wasn't part of this build, so the
         # "manuscript modified" badge must still show.
-        if not (shutil.which("latexmk") and shutil.which("pdftoppm")):
-            self.skipTest("latexmk/pdftoppm not available")
         ps.C.git_pull = True
         original_run_logged = limn_build.run_logged
 

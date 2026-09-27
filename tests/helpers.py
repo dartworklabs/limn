@@ -10,6 +10,7 @@ fixtures only from these helpers, never from one another.
 
 import dataclasses
 import errno
+import functools
 import importlib.util
 import json
 import os
@@ -23,6 +24,8 @@ import threading
 import unittest
 import zlib
 from pathlib import Path
+
+import pytest
 
 from limn import config, gitsync, revisions
 from limn.access import LOCAL_ACTOR
@@ -141,6 +144,31 @@ def js_i18n(lang: str = "ko") -> str:
             extract_js_fn("errText"),
         ]
     )
+
+
+def needs_tex(*tools: str):
+    """Decorator for a test method that runs real TeX-side tools (latexmk, pdftoppm, pdftotext, latexdiff, bwrap...).
+
+    Before the test body runs, every name in tools must be on PATH. A missing one skips the test and names what is
+    missing, unless LIMN_TEST_REQUIRE_TEX=1 (the CI `tex` job), where it is a failure. The test also gets the pytest
+    marker `tex`, so that job selects exactly these tests with `pytest -m tex`."""
+
+    def wrap(fn):
+        """Guard fn with the PATH check and mark it `tex`."""
+
+        @functools.wraps(fn)
+        def guarded(self, *args, **kwargs):
+            """Skip (or fail under LIMN_TEST_REQUIRE_TEX=1) when a tool is missing; otherwise run the test."""
+            missing = [t for t in tools if not shutil.which(t)]
+            if missing:
+                if os.environ.get("LIMN_TEST_REQUIRE_TEX") == "1":
+                    self.fail("%s required (LIMN_TEST_REQUIRE_TEX=1) but not installed" % ", ".join(missing))
+                self.skipTest("%s not available" % ", ".join(missing))
+            return fn(self, *args, **kwargs)
+
+        return pytest.mark.tex(guarded)
+
+    return wrap
 
 
 def run_node(js: str, tz: str = None):

@@ -22,7 +22,7 @@ from limn.access import LOCAL_ACTOR
 from limn.mapping import anchor_of
 from limn.pins import position
 
-from helpers import TEX, Base, add_pin, edit_pin, ps, req
+from helpers import TEX, Base, add_pin, edit_pin, needs_tex, ps, req
 
 LOCATE_PY = Path(locate.__file__)
 SERVER_GLOBALS = {
@@ -460,12 +460,9 @@ class Estimate(Base):
         st2 = ps.C.builds_file.stat()
         self.assertEqual((st.st_mtime_ns, st.st_size), (st2.st_mtime_ns, st2.st_size))
 
+    @needs_tex("latexmk", "pdftoppm")
     def test_real_build_est_end_to_end(self):
         """With the real latexmk: an unchanged rebuild -> no est, a rebuild after editing the manuscript -> est, and it stays after editing the note."""
-        import shutil as _sh
-
-        if not (_sh.which("latexmk") and _sh.which("pdftoppm")):
-            self.skipTest("latexmk/pdftoppm not available")
         self.assertEqual(ps.build_all(ps.DOCS[0])["state"], "ok")
         b1 = limn_build.cur_pages(ps.DOCS[0]).name
         pid = self.add()
