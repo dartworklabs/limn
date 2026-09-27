@@ -13,10 +13,8 @@ from limn import build
 from limn.documents import Doc
 from limn.files import tex_lines, tree_part
 from limn.mapping import (
-    compute_levels,
     norm,
     pin_rel_path,
-    snippet,
 )
 from limn.pins import position
 from limn.pins.model import DonePin, LineSpan, OpenPin, Pin, PinCore, ReviewPin
@@ -198,62 +196,3 @@ def est_context(D: Doc) -> EstContext:
     h = build.load_builds(D)
     cur = build.cur_pages(D).name
     return est_basis(cur, h["by"], build.read_built_src_mtime(D), epoch(build.read_built_at(D)))
-
-
-# ---------------------------------------------------------------- Selection resolution
-
-
-class SourceLines(Protocol):
-    """A validated range of a manuscript file (limn.web.parse.SourceRange): the file, its lines as read, and
-    1 <= lo <= hi <= len(lines)."""
-
-    @property
-    def file(self) -> Path:
-        """The file inside the manuscript tree."""
-        ...
-
-    @property
-    def lines(self) -> list[str]:
-        """Its lines (tex_lines)."""
-        ...
-
-    @property
-    def lo(self) -> int:
-        """First line, 1-based."""
-        ...
-
-    @property
-    def hi(self) -> int:
-        """Last line, inclusive."""
-        ...
-
-
-def overlaps_api(rng: SourceLines, overlaps: Callable[[str, int, int], list[dict[str, Any]]]) -> dict[str, Any]:
-    """GET /api/overlaps - asks about a not-yet-saved selection's overlap using only file/range (kept for
-    agent/legacy-viewer compatibility): {"overlaps": [...]}, the stored open pins' relationships as overlaps finds
-    them.
-
-    The current viewer instead recomputes the same rule (overlapsFor) locally against its own PINS on every
-    range change, with no round trip - because pressing [Save Pin] while a response is still in flight could
-    otherwise save a duplicate with no banner shown. rng is the range parsed by limn.web.parse.parse_source_range."""
-    return {"overlaps": overlaps(str(rng.file), rng.lo, rng.hi)}
-
-
-def snippet_api(rng: SourceLines, levels: bool, envs: Sequence[str]) -> dict[str, Any]:
-    """GET /api/snippet: the source lines lo..hi of a manuscript file (a range parsed by limn.web.parse.parse_snippet),
-    and with levels the range ladder around them for the float environments envs."""
-    f, lines, lo, hi = rng.file, rng.lines, rng.lo, rng.hi
-    out: dict[str, Any] = {
-        "file": str(f),
-        "name": f.name,
-        "lo": lo,
-        "hi": hi,
-        "n": hi - lo + 1,
-        "n_lines": len(lines),
-        "snippet": snippet(lines, lo, hi),
-    }
-    if levels:
-        lad = compute_levels(lines, lo, hi, envs)
-        out["levels"] = lad["levels"]
-        out["default_level"] = lad["default_level"]
-    return out

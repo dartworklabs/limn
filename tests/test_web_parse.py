@@ -660,17 +660,17 @@ class Locations(Tree):
 
     def test_source_range_reads_the_file_before_the_numbers(self):
         """A snippet's file is checked, then lo/hi as int() of the text, then the range against the lines read."""
-        rng = parse.parse_source_range({"file": ["main.tex"], "lo": ["2"], "hi": ["3"]}, self.facts)
+        rng = location_input.parse_source_range({"file": ["main.tex"], "lo": ["2"], "hi": ["3"]}, self.facts)
         self.assertEqual((rng.file, rng.lines[:2], rng.lo, rng.hi), (self.root / "main.tex", ["a", "b"], 2, 3))
         self.assertEqual(
-            parse.parse_source_range({"file": ["nope.tex"], "lo": ["x"]}, self.facts).reason, "file_not_found"
+            location_input.parse_source_range({"file": ["nope.tex"], "lo": ["x"]}, self.facts).reason, "file_not_found"
         )
         self.assertEqual(
-            parse.parse_source_range({"file": ["main.tex"], "lo": ["1.0"], "hi": ["2"]}, self.facts),
+            location_input.parse_source_range({"file": ["main.tex"], "lo": ["1.0"], "hi": ["2"]}, self.facts),
             InputRejected("lo·hi 는 정수여야 합니다.", "not_integer"),
         )
         self.assertEqual(
-            parse.parse_snippet({"file": ["main.tex"]}, Facts(self.root, is_pdf=True)),
+            location_input.parse_snippet({"file": ["main.tex"]}, Facts(self.root, is_pdf=True)),
             InputRejected("보기 전용 문서(rev)에는 원문 줄이 없습니다.", "no_source_lines"),
         )
 

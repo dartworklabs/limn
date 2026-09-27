@@ -21,7 +21,12 @@ from unittest import mock
 from limn import build as limn_build, locate
 from limn.access import LOCAL_ACTOR
 from limn.build import BuildFailed, BuildOk, BuildOkWithErrors
-from limn.features.pins.location import input as location_input, resolve as pick_resolve, source as pick_source
+from limn.features.pins.location import (
+    input as location_input,
+    range as source_range,
+    resolve as pick_resolve,
+    source as pick_source,
+)
 from limn.mapping import anchor_of
 from limn.pins import position
 from limn.pins.model import parse_pin
@@ -29,7 +34,12 @@ from limn.web.errors import build_failure_log
 
 from helpers import TEX, Base, add_pin, edit_pin, needs_tex, ps, records, req, write_records
 
-LOCATION_MODULES = (Path(locate.__file__), Path(pick_source.__file__), Path(pick_resolve.__file__))
+LOCATION_MODULES = (
+    Path(locate.__file__),
+    Path(pick_source.__file__),
+    Path(pick_resolve.__file__),
+    Path(source_range.__file__),
+)
 SERVER_GLOBALS = {
     "C",
     "cur_doc",
@@ -196,7 +206,7 @@ class Overlaps(unittest.TestCase):
 
         rng = type("Range", (), {"file": self.NEW, "lines": ["a"] * 9, "lo": 2, "hi": 3})()
         self.assertEqual(
-            locate.overlaps_api(rng, overlaps), {"overlaps": [{"id": 7, "lo": 2, "hi": 3, "rel": "equal"}]}
+            source_range.overlaps_api(rng, overlaps), {"overlaps": [{"id": 7, "lo": 2, "hi": 3, "rel": "equal"}]}
         )
         self.assertEqual(asked, [(str(self.NEW), 2, 3)])
 
@@ -300,7 +310,7 @@ class PickOutcomes(Base):
             mock.patch.object(pick_source, "by_synctex", return_value=synctex),
             mock.patch.object(pick_source, "region_text", return_value=text),
         ):
-            return pick_resolve.pick(D, request, ps.APP.pin_selection.context())
+            return pick_resolve.pick(D, request, ps.APP.location_service.context())
 
     def test_each_refusal_is_its_own_type_with_its_detail(self):
         """A .bbl/.bib, a file outside the tree, an unreadable file and nothing traced are four refusal values."""

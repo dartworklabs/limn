@@ -14,29 +14,41 @@ from limn.features.pins.location.resolve import (
     SourceUnreadable,
     SynctexOutside,
 )
-from limn.features.pins.location.service import PinSelection
+from limn.features.pins.location.service import PinLocationService
 from limn.web.answers import accepted
-from limn.web.parse import DocumentFacts
+from limn.web.parse import DocumentFacts, Query, parse_flag
 
 Body: TypeAlias = dict[str, object]
 
 
-class PickApp(Protocol):
-    """The document facts and resolver bound to one server run."""
+class LocationApp(Protocol):
+    """The document facts and location service bound to one server run."""
 
-    pin_selection: PinSelection
+    location_service: PinLocationService
 
     def document_facts(self, doc: Doc) -> DocumentFacts:
         """Read the selected document's build and page facts."""
         ...
 
 
-def pick(app: PickApp, doc: Doc, body: Mapping[str, Any]) -> Body:
+def pick(app: LocationApp, doc: Doc, body: Mapping[str, Any]) -> Body:
     """Parse one selection and return its contract body after common request guards."""
     selection = pick_input.parse_pick(body, app.document_facts(doc))
     if isinstance(selection, pick_input.PickBuildGone):
         return pick_build_gone()
-    return pick_answer(app.pin_selection.resolve(doc, accepted(selection)))
+    return pick_answer(app.location_service.resolve(doc, accepted(selection)))
+
+
+def snippet(app: LocationApp, doc: Doc, query: Query) -> Body:
+    """GET /api/snippet after the common request guards."""
+    rng = accepted(pick_input.parse_snippet(query, app.document_facts(doc)))
+    return app.location_service.snippet(rng, parse_flag(query, "levels"))
+
+
+def overlaps(app: LocationApp, doc: Doc, query: Query) -> Body:
+    """GET /api/overlaps after the common request guards."""
+    rng = accepted(pick_input.parse_source_range(query, app.document_facts(doc)))
+    return app.location_service.overlaps(rng)
 
 
 # The sentences a pick's `warn` is made of (a UI hint in a 200 body, not an error). The viewer translates each by its

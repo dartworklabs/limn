@@ -30,12 +30,12 @@ from limn.features.pins.editing.service import PinEditing
 from limn.features.pins.lifecycle.service import PinLifecycle
 from limn.features.pins.listing.markdown import PinMarkdown
 from limn.features.pins.listing.service import PinListing
-from limn.features.pins.location.service import PinSelection
+from limn.features.pins.location.service import PinLocationService
 from limn.features.pins.trash.service import PinTrash
 from limn.pins.model import Pin, Record
 from limn.revisions import DiffRefusal, PdfRefusal, StartRefusal, StatusRefusal
 from limn.viewer.assemble import ServedViewer
-from limn.web.parse import DocumentFacts, SourceRange
+from limn.web.parse import DocumentFacts
 
 Json: TypeAlias = dict[str, Any]  # a JSON object: request body, response payload, actor, stored pin record
 Query: TypeAlias = dict[str, list[str]]  # parse_qs() of the request's query string
@@ -58,7 +58,7 @@ class App(Protocol):
     pin_editing: PinEditing
     pin_listing: PinListing
     pin_markdown: PinMarkdown
-    pin_selection: PinSelection
+    location_service: PinLocationService
     APP_NAME: str
     DEFAULT_ROLE: access.Role  # the role of a person people.json gives none
 
@@ -181,14 +181,6 @@ class App(Protocol):
 
     def docs_payload(self) -> Json:
         """GET /api/docs."""
-        ...
-
-    def snippet_api(self, rng: SourceRange, levels: bool) -> Json:
-        """GET /api/snippet for a parsed range (with the range ladder when levels)."""
-        ...
-
-    def overlaps_api(self, rng: SourceRange) -> Json:
-        """GET /api/overlaps for a parsed range."""
         ...
 
     def vendor_file(self, name: str) -> Path | None:

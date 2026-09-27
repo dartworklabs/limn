@@ -5,8 +5,8 @@ agent contract (docs/handbook/api.md §오류 응답); the handler answers a ref
 never raise for bad input. When a request is refused for several fields, the first one in the order the server has
 always checked them is the one answered, so each parser keeps that order.
 
-Most parsers look at the request alone. The snippet parser checks that a named file lies in the tree and that lines lie in the
-file. The PDF selection parser lives in the location feature. Both read facts through DocumentFacts, which the composition root
+Most parsers look at the request alone. The PDF selection and source-range parsers live in the location feature. They
+read manuscript and build facts through DocumentFacts, which the composition root
 (server.document_facts) supplies for the request's document; nothing here reads a file itself, apart from resolving
 a named path against the tree (limn.files.file_in_tree). Close and reopen input belongs to the pin lifecycle feature.
 """
@@ -96,7 +96,7 @@ def _is_str_list(v: object) -> bool:
     return isinstance(v, list) and all(isinstance(x, str) for x in v)
 
 
-def _first(q: Query, key: str, default: str | None = None) -> str | None:
+def query_first(q: Query, key: str, default: str | None = None) -> str | None:
     """The first value of query parameter `key`, or default when the query has none."""
     values = q.get(key)
     return values[0] if values else default
@@ -105,7 +105,7 @@ def _first(q: Query, key: str, default: str | None = None) -> str | None:
 def parse_flag(q: Query, name: str) -> bool:
     """A query-string switch (?log=1, ?async=1, ?all=1, ?light=1, ?levels=1): on only when its first value is exactly
     "1"; absent, "0", "true" or anything else is off. Never refused."""
-    return _first(q, name, "0") == "1"
+    return query_first(q, name, "0") == "1"
 
 
 def int_field(v: object, what: str) -> int | InputRejected:
@@ -231,10 +231,10 @@ def parse_commit(v: object) -> str | InputRejected:
 
 def parse_revision_query(q: Query) -> RevisionQuery | InputRejected:
     """GET /api/revision-diff|-build|-pdf: the optional &pin= (parse_pin_param) first, then ?commit= (parse_commit)."""
-    pin = parse_pin_param(_first(q, "pin"))
+    pin = parse_pin_param(query_first(q, "pin"))
     if isinstance(pin, InputRejected):
         return pin
-    commit = parse_commit(_first(q, "commit", "") or "")
+    commit = parse_commit(query_first(q, "commit", "") or "")
     if isinstance(commit, InputRejected):
         return commit
     return RevisionQuery(commit, pin)
@@ -269,7 +269,7 @@ def parse_event_cursor(v: str | None) -> int | None | InputRejected:
 def parse_doc_key(q: Query | None, body: Json | None = None) -> str | None | InputRejected:
     """The document a request names: ?doc= or the body's doc - the two must agree, and the body's must be a string.
     None (or "") when neither names one; which document that means is the server's (server.request_doc)."""
-    key = _first(q, "doc") if q else None
+    key = query_first(q, "doc") if q else None
     bkey = body.get("doc") if isinstance(body, Mapping) else None
     if bkey is not None and not isinstance(bkey, str):
         return InputRejected("doc 은 문자열이어야 합니다.", "bad_doc")
@@ -303,7 +303,7 @@ def parse_doc_choice(q: Query | None, body: Json | None = None, new_pin: bool = 
 
 def parse_events_query(q: Query) -> int | None | InputRejected:
     """GET /api/meta's ?ev= (parse_event_cursor on its first value)."""
-    return parse_event_cursor(_first(q, "ev"))
+    return parse_event_cursor(query_first(q, "ev"))
 
 
 class RebuildQuery(NamedTuple):
@@ -321,7 +321,7 @@ def parse_rebuild_query(q: Query) -> RebuildQuery:
 def parse_build_name(q: Query) -> str:
     """GET /pdf's ?build= as sent, "" when absent (the build on screen). Never refused: a name that is not a page
     directory simply has no PDF (limn.build.build_pdf)."""
-    return _first(q, "build", "") or ""
+    return query_first(q, "build", "") or ""
 
 
 def source_file(p: object, root: Path, state: Path) -> Path | InputRejected:
@@ -337,36 +337,3 @@ def source_file(p: object, root: Path, state: Path) -> Path | InputRejected:
             return InputRejected("원고 디렉토리 밖의 파일입니다: %s" % p, "file_outside_manuscript")
         case NotAFile():
             return InputRejected("원고 안에 그런 파일이 없습니다: %s" % p, "file_not_found")
-
-
-class SourceRange(NamedTuple):
-    """A validated range of a manuscript file: the file, its lines as read, and 1 <= lo <= hi <= len(lines)."""
-
-    file: Path
-    lines: list[str]
-    lo: int
-    hi: int
-
-
-def parse_source_range(q: Query, facts: DocumentFacts) -> SourceRange | InputRejected:
-    """?file=&lo=&hi= of GET /api/snippet and /api/overlaps: a file in the tree (source_file), whose lines are read
-    before lo and hi are parsed as integers (int() of the text) and checked against them."""
-    f = source_file(_first(q, "file", ""), facts.root, facts.state)
-    if isinstance(f, InputRejected):
-        return f
-    lines = facts.lines(f)
-    try:
-        lo = int(_first(q, "lo", "") or "")
-        hi = int(_first(q, "hi", "") or "")
-    except ValueError:
-        return InputRejected("lo·hi 는 정수여야 합니다.", "not_integer")
-    if not 1 <= lo <= hi <= len(lines):
-        return InputRejected("줄 범위가 파일(%d줄) 밖입니다: L%d-L%d" % (len(lines), lo, hi), "range_outside_file")
-    return SourceRange(f, lines, lo, hi)
-
-
-def parse_snippet(q: Query, facts: DocumentFacts) -> SourceRange | InputRejected:
-    """GET /api/snippet: refused for a view-only document (it has no source lines), else parse_source_range."""
-    if facts.is_pdf:
-        return InputRejected("보기 전용 문서(%s)에는 원문 줄이 없습니다." % facts.key, "no_source_lines")
-    return parse_source_range(q, facts)

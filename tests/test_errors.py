@@ -19,6 +19,7 @@ from unittest import mock
 from limn import build, revisions
 from limn.features.pins.location import resolve as pick_resolve
 from limn.features.pins.location.http import PICK_REFUSALS
+from limn.features.pins.location.service import PinLocationService
 from limn.guidance import UNAUTHENTICATED
 from limn.pins.edit import NOTE_MAX
 from limn.web.errors import (
@@ -306,7 +307,7 @@ class RefusalBodies(AccessBase):
     def test_internal_error(self):
         """An unexpected exception is a 500 with the same text and reason internal."""
         with (
-            mock.patch.object(ps.APP, "overlaps_api", side_effect=RuntimeError("boom")),
+            mock.patch.object(PinLocationService, "overlaps", side_effect=RuntimeError("boom")),
             mock.patch.object(ps.traceback, "print_exc"),
         ):
             code, d = self.call("GET", "/api/overlaps?file=%s&lo=1&hi=2" % self.main)

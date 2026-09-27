@@ -368,10 +368,9 @@ class Handler(BaseHTTPRequestHandler):
         None for any other path."""
         app = self.app
         if path == "/api/snippet":
-            rng = accepted(parse.parse_snippet(q, app.document_facts(D)))
-            return _json_reply(app.snippet_api(rng, parse.parse_flag(q, "levels")))
+            return _json_reply(location_http.snippet(app, D, q))
         if path == "/api/overlaps":
-            return _json_reply(app.overlaps_api(accepted(parse.parse_source_range(q, app.document_facts(D)))))
+            return _json_reply(location_http.overlaps(app, D, q))
         return None
 
     def _get_files(self, path: str, q: Query, D: Document) -> Reply | None:

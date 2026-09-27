@@ -5,9 +5,10 @@ from pathlib import Path
 from typing import NamedTuple
 
 from limn.build import valid_build_name
+from limn.features.pins.location.range import SourceRange
 from limn.pins.shapes import is_finite_num
 from limn.web.errors import InputRejected
-from limn.web.parse import PDF_BUILD_REFUSAL, DocumentFacts, Json, int_field, num_field
+from limn.web.parse import PDF_BUILD_REFUSAL, DocumentFacts, Json, Query, int_field, num_field, query_first, source_file
 
 
 class PickRequest(NamedTuple):
@@ -55,3 +56,27 @@ def parse_pick(d: Json, facts: DocumentFacts) -> PickRequest | PickBuildGone | I
     if frac is not None and not (isinstance(frac, list) and len(frac) == 4 and all(is_finite_num(v) for v in frac)):
         return InputRejected("frac 은 숫자 4개 목록입니다.", "bad_frac")
     return PickRequest(pdir, page, (x0, y0, x1, y1), (pw, ph), frac)
+
+
+def parse_source_range(q: Query, facts: DocumentFacts) -> SourceRange | InputRejected:
+    """?file=&lo=&hi= of GET /api/snippet and /api/overlaps: a file in the tree (source_file), whose lines are read
+    before lo and hi are parsed as integers (int() of the text) and checked against them."""
+    f = source_file(query_first(q, "file", ""), facts.root, facts.state)
+    if isinstance(f, InputRejected):
+        return f
+    lines = facts.lines(f)
+    try:
+        lo = int(query_first(q, "lo", "") or "")
+        hi = int(query_first(q, "hi", "") or "")
+    except ValueError:
+        return InputRejected("lo·hi 는 정수여야 합니다.", "not_integer")
+    if not 1 <= lo <= hi <= len(lines):
+        return InputRejected("줄 범위가 파일(%d줄) 밖입니다: L%d-L%d" % (len(lines), lo, hi), "range_outside_file")
+    return SourceRange(f, lines, lo, hi)
+
+
+def parse_snippet(q: Query, facts: DocumentFacts) -> SourceRange | InputRejected:
+    """GET /api/snippet: refused for a view-only document (it has no source lines), else parse_source_range."""
+    if facts.is_pdf:
+        return InputRejected("보기 전용 문서(%s)에는 원문 줄이 없습니다." % facts.key, "no_source_lines")
+    return parse_source_range(q, facts)
