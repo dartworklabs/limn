@@ -23,17 +23,13 @@ from pathlib import Path
 from typing import Any, ClassVar
 from urllib.parse import parse_qs, urlparse
 
-from limn.features.pins.claims import http as claims_http
-from limn.features.pins.editing import http as editing_http
-from limn.features.pins.lifecycle import http as lifecycle_http
-from limn.features.pins.trash import http as trash_http
 from limn.mark import png as mark_png
 from limn.web import answers, parse
 from limn.web.answers import accepted
 from limn.web.app import App, Document, Json, Principal, Query
 from limn.web.errors import HTTPError, error_page_html, page_lang
 from limn.web.reply import Reply, json_reply as _json_reply
-from limn.web.routes import GetRequest, PostDocRequest
+from limn.web.routes import GetRequest, OtherPostRequest, PinActionRequest, PostDocRequest
 
 MAX_BODY = 1 << 20
 # The Content-Type of a file the /vendor/pdfjs/ route serves, by suffix (limn.files.vendor_file admits only .mjs).
@@ -329,35 +325,13 @@ class Handler(BaseHTTPRequestHandler):
         return self._post_other(actor, path, d)
 
     def _post_other(self, actor: Json, path: str, d: Json) -> None:
-        """POST routes that act on no one document: pin changes (_pin_action) and clear; anything else is 404. d is the
-        parsed JSON body; refusals propagate to _run."""
-        m = re.fullmatch(r"/api/pins/(\d+)/(close|reopen|drop|restore|purge|edit|claim|unclaim|reply|confirm)", path)
+        """Dispatch guarded POSTs by pin action or exact path; anything else is 404."""
+        m = re.fullmatch(r"/api/pins/(\d+)/([a-z]+)", path)
         if m:
-            return self._pin_action(actor, int(m.group(1)), m.group(2), d)
-        if path == "/api/clear":  # owner only (check_role), and only with the confirmation phrase
-            return self._json(trash_http.clear(self.app, actor, d))
+            action = self.app.pin_actions.get(m.group(2))
+            if action is not None:
+                return self._json(action(PinActionRequest(int(m.group(1)), actor, d, self.principal)))
+        other_post = self.app.other_posts.get(path)
+        if other_post is not None:
+            return self._json(other_post(OtherPostRequest(actor, d, self.principal)))
         raise HTTPError(404, "없는 경로입니다: %s" % path, reason="not_found")
-
-    def _pin_action(self, actor: Json, pid: int, act: str, d: Json) -> None:
-        """POST /api/pins/{pid}/{act}: parse the action's fields (in the order the server has always checked them), call
-        its service with the parsed values and answer its outcome. Refusals propagate to _run."""
-        app = self.app
-        if act == "reply":
-            return self._json(lifecycle_http.reply(app, pid, actor, d, self.principal.is_human))
-        if act == "confirm":
-            return self._json(lifecycle_http.confirm(app, pid, actor))
-        if act == "drop":
-            return self._json(trash_http.drop(app, pid, actor))
-        if act == "restore":
-            return self._json(trash_http.restore(app, pid, actor))
-        if act == "purge":  # owner only (check_role)
-            return self._json(trash_http.purge(app, pid, actor))
-        if act == "edit":
-            return self._json(editing_http.edit(app, pid, actor, d))
-        if act == "claim":
-            return self._json(claims_http.claim(app, pid, actor, d))
-        if act == "unclaim":
-            return self._json(claims_http.unclaim(app, pid, actor))
-        if act == "close":
-            return self._json(lifecycle_http.close(app, pid, actor, d, self.principal.review_on_close))
-        return self._json(lifecycle_http.reopen(app, pid, actor, d))

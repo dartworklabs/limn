@@ -1,4 +1,4 @@
-"""The common contracts for registered document-scoped HTTP routes."""
+"""The common contracts for registered HTTP routes."""
 
 from collections.abc import Callable
 from typing import Any, NamedTuple, TypeAlias
@@ -40,3 +40,26 @@ class PostDocRoute(NamedTuple):
     path: str
     action: Callable[[PostDocRequest], tuple[dict[str, object], int]]
     new_pin: bool = False
+
+
+class PinActionRequest(NamedTuple):
+    """A guarded action on one pin after parsing its JSON body."""
+
+    pid: int
+    actor: dict[str, Any]
+    body: dict[str, Any]
+    principal: access.Principal
+
+
+PinAction: TypeAlias = Callable[[PinActionRequest], dict[str, object]]
+
+
+class OtherPostRequest(NamedTuple):
+    """A guarded POST with no selected document or pin."""
+
+    actor: dict[str, Any]
+    body: dict[str, Any]
+    principal: access.Principal
+
+
+OtherPost: TypeAlias = Callable[[OtherPostRequest], dict[str, object]]

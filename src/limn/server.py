@@ -78,15 +78,18 @@ from limn.features.collaboration.notices import Notices
 from limn.features.document_views import routes as document_routes
 from limn.features.document_views.reads import MetaSettings
 from limn.features.document_views.service import DocumentViews
+from limn.features.pins.claims import routes as claims_routes
 from limn.features.pins.claims.service import PinClaims
 from limn.features.pins.editing import routes as editing_routes
 from limn.features.pins.editing.service import PinEditing
+from limn.features.pins.lifecycle import routes as lifecycle_routes
 from limn.features.pins.lifecycle.service import PinLifecycle
 from limn.features.pins.listing import routes as listing_routes
 from limn.features.pins.listing.markdown import PinMarkdown
 from limn.features.pins.listing.service import PinListing
 from limn.features.pins.location import resolve as pick_resolve, routes as location_routes, source as pick_source
 from limn.features.pins.location.service import PinLocationService
+from limn.features.pins.trash import routes as trash_routes
 from limn.features.pins.trash.service import PinTrash
 from limn.features.revisions import core as revisions, routes as revision_routes
 from limn.features.revisions.core import (
@@ -131,7 +134,7 @@ from limn.viewer.assemble import (
 from limn.web.app import App
 from limn.web.errors import HTTPError as HTTPError, build_failure_log, revision_failure_text
 from limn.web.handler import Handler as WebHandler, Server, Server6
-from limn.web.routes import GetRoute, PostDocRoute
+from limn.web.routes import GetRoute, OtherPost, PinAction, PostDocRoute
 
 DEFAULT_ENVS = "figure,table,algorithm,equation,align,itemize,enumerate,minipage"
 
@@ -336,6 +339,8 @@ class ServerApplication:
     revision_requests: RevisionRequests = field(init=False)
     get_routes: tuple[GetRoute, ...] = field(init=False)
     post_doc_routes: tuple[PostDocRoute, ...] = field(init=False)
+    pin_actions: dict[str, PinAction] = field(init=False)
+    other_posts: dict[str, OtherPost] = field(init=False)
 
     def __post_init__(self) -> None:
         """Bind pin features to this application's context factory."""
@@ -434,6 +439,18 @@ class ServerApplication:
                 new_pin=editing_routes.POST_NEW_PIN,
             ),
         )
+        self.pin_actions = {}
+        for group in (
+            lifecycle_routes.actions(self),
+            claims_routes.actions(self),
+            editing_routes.actions(self),
+            trash_routes.actions(self),
+        ):
+            for name, action in group.items():
+                if name in self.pin_actions:
+                    raise ValueError("duplicate pin action: %s" % name)
+                self.pin_actions[name] = action
+        self.other_posts = trash_routes.other_posts(self)
 
     APP_NAME = APP_NAME
     DEFAULT_ROLE = DEFAULT_ROLE

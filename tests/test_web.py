@@ -350,8 +350,8 @@ class GuardOrder(AccessBase):
             post_paths |= set(re.findall(r'^POST_PATH = "([^"]+)"', source, re.M))
         self.assertEqual(post_paths, {"/api/rebuild", "/api/revision-build", "/api/pick", "/api/pin"})
         self.assertTrue(post_paths <= set(POST_ROUTES))
-        acts = re.search(r"/api/pins/\(\\d\+\)/\(([a-z|]+)\)", HANDLER_SOURCE).group(1).split("|")
-        self.assertEqual(sorted(acts), sorted(PIN_ACTIONS))
+        self.assertEqual(sorted(ps.APP.pin_actions), sorted(PIN_ACTIONS))
+        self.assertEqual(set(ps.APP.other_posts), {"/api/clear"})
 
     def test_every_route_checks_host_identity_admission_and_role_first(self):
         """An admitted request reads C (origin check on), host_ok, [origin_ok], identify, admit and, for a POST,
