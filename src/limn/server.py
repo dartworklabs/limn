@@ -1375,15 +1375,19 @@ def start(a: argparse.Namespace) -> Server | StartupRefused:
 def main() -> None:
     """The composition root: parse the arguments, then start() makes and binds the run settings (C) and the process's
     resources (RT), the documents, prepares the pin store and the builds, starts the watch threads and opens the
-    server; serve until stopped, then stop the watch threads (RT.stop) - whatever ended serving (Ctrl-C) still
-    propagates. The one place the process exits on a refused start: the refusal's message on stderr, status 1."""
+    server; serve until stopped, then close the listening socket and stop the watch threads (RT.stop), even if
+    socket closure fails. Whatever ended serving (Ctrl-C) still propagates when cleanup succeeds. The one place
+    the process exits on a refused start: the refusal's message on stderr, status 1."""
     started = start(build_arg_parser().parse_args())
     if isinstance(started, StartupRefused):
         sys.exit(started.message)
     try:
         started.serve_forever()
     finally:
-        RT.stop()
+        try:
+            started.server_close()
+        finally:
+            RT.stop()
 
 
 if __name__ == "__main__":

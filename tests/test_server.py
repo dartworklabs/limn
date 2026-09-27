@@ -820,21 +820,58 @@ class ProcessRuntime(unittest.TestCase):
         self.assertFalse(rt.threads[0].is_alive())
 
     def test_main_stops_the_runtime_when_serving_ends(self):
-        """main() stops the Runtime whatever ends serve_forever (Ctrl-C here), and lets that end propagate."""
+        """An interrupted server closes its socket and stops the Runtime while preserving Ctrl-C."""
 
         class Served:
             """A started server whose serving is interrupted."""
+
+            closed = False
 
             def serve_forever(self):
                 """End like a Ctrl-C."""
                 raise KeyboardInterrupt
 
+            def server_close(self):
+                """Record that the listening socket would be released."""
+                self.closed = True
+
+        rt = self.runtime()
+        server = Served()
+        with (
+            mock.patch.object(ps, "build_arg_parser"),
+            mock.patch.object(ps, "start", return_value=server),
+            mock.patch.object(ps, "RT", rt, create=True),
+            self.assertRaises(KeyboardInterrupt),
+        ):
+            ps.main()
+        self.assertTrue(server.closed)
+        self.assertTrue(rt.stopping.is_set())
+
+    def test_main_closes_server_after_normal_serve_return(self):
+        """A server whose loop returns normally releases its socket and stops its Runtime."""
+
+        server = mock.Mock()
         rt = self.runtime()
         with (
             mock.patch.object(ps, "build_arg_parser"),
-            mock.patch.object(ps, "start", return_value=Served()),
+            mock.patch.object(ps, "start", return_value=server),
             mock.patch.object(ps, "RT", rt, create=True),
-            self.assertRaises(KeyboardInterrupt),
+        ):
+            ps.main()
+        server.server_close.assert_called_once_with()
+        self.assertTrue(rt.stopping.is_set())
+
+    def test_main_stops_runtime_even_when_server_close_fails(self):
+        """A socket-close failure cannot leave watch threads running after serving ends."""
+
+        server = mock.Mock()
+        server.server_close.side_effect = OSError("cannot close socket")
+        rt = self.runtime()
+        with (
+            mock.patch.object(ps, "build_arg_parser"),
+            mock.patch.object(ps, "start", return_value=server),
+            mock.patch.object(ps, "RT", rt, create=True),
+            self.assertRaisesRegex(OSError, "cannot close socket"),
         ):
             ps.main()
         self.assertTrue(rt.stopping.is_set())
