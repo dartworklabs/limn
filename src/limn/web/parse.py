@@ -161,7 +161,7 @@ def parse_assignee(v: object, known: Collection[str]) -> str | None | InputRejec
     """Assignee - "agent" or the login of a person this viewer knows. None if absent (not sent = unchanged).
 
     known is the logins of known_people(), which the caller reads only when the body names an assignee
-    (server.assignee_people)."""
+    (the editing request collaborators)."""
     if v is None:
         return None
     if v == ASSIGNEE_AGENT:

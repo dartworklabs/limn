@@ -29,12 +29,12 @@ import os
 import sys
 import threading
 import time
-from collections.abc import Callable, Collection, Iterable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime
 from email.message import Message
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, ClassVar
+from typing import TYPE_CHECKING, ClassVar
 
 if __package__ in (None, ""):
     # Run as a file (python .../limn/server.py, how instances start): make the sibling modules importable as limn.*.
@@ -81,7 +81,8 @@ from limn.features.document_views.service import DocumentViews
 from limn.features.pins.claims import routes as claims_routes
 from limn.features.pins.claims.service import PinClaims
 from limn.features.pins.editing import routes as editing_routes
-from limn.features.pins.editing.service import PinEditing
+from limn.features.pins.editing.http import EditingRequests
+from limn.features.pins.editing.service import EditScope, PinEditing
 from limn.features.pins.lifecycle import routes as lifecycle_routes
 from limn.features.pins.lifecycle.service import PinLifecycle
 from limn.features.pins.listing import routes as listing_routes
@@ -104,23 +105,17 @@ from limn.locate import PinLocation, est_context, locate_file
 from limn.mark import inline_svg
 from limn.people import is_actor as _is_actor
 from limn.pins import record, view
-from limn.pins.lifecycle import (
-    claim_holds,
-    reopens_on_reply,
-)
 from limn.pins.model import (
     Pin,
     Record,
-    Region,
     TrashedPin,
-    parse_pin,
 )
 from limn.pins.position import EstContext
 from limn.pins.record import Broken
 from limn.pins.view import pin_state as pin_state
 from limn.service.context import Json, PinContext, who
 from limn.startup import APP_NAME as APP_NAME, StartupRefused, app_version as app_version
-from limn.store import PinFiles, PinStore, Row, pin_index
+from limn.store import PinFiles, PinStore, Row
 from limn.viewer.assemble import (
     LUCIDE,
     PDFJS_VERSION,
@@ -329,6 +324,7 @@ class ServerApplication:
     pin_claims: PinClaims = field(init=False)
     pin_trash: PinTrash = field(init=False)
     pin_editing: PinEditing = field(init=False)
+    editing_requests: EditingRequests = field(init=False)
     pin_listing: PinListing = field(init=False)
     pin_markdown: PinMarkdown = field(init=False)
     location_service: PinLocationService = field(init=False)
@@ -370,6 +366,13 @@ class ServerApplication:
         self.pin_claims = PinClaims(self.pin_context)
         self.pin_trash = PinTrash(self.pin_context)
         self.pin_editing = PinEditing(self.pin_context)
+        self.editing_requests = EditingRequests(
+            self.pin_editing,
+            self.people_directory.known,
+            self.document_facts,
+            EditScope(self.read_pins, lambda: self.docs, self.pin_doc_key),
+            self.public,
+        )
         self.pin_listing = PinListing(self, TRASH_DAYS)
         self.pin_markdown = PinMarkdown(self, self.people_directory.known)
         self.location_service = PinLocationService(
@@ -437,7 +440,7 @@ class ServerApplication:
             PostDocRoute(location_routes.POST_PATH, lambda request: location_routes.post(request, self)),
             PostDocRoute(
                 editing_routes.POST_PATH,
-                lambda request: editing_routes.post(request, self),
+                lambda request: editing_routes.post(request, self.editing_requests),
                 new_pin=editing_routes.POST_NEW_PIN,
             ),
         )
@@ -445,7 +448,7 @@ class ServerApplication:
         for group in (
             lifecycle_routes.actions(self),
             claims_routes.actions(self),
-            editing_routes.actions(self),
+            editing_routes.actions(self.editing_requests),
             trash_routes.actions(self),
         ):
             for name, action in group.items():
@@ -600,11 +603,6 @@ class ServerApplication:
         """If pins.seq is missing, fill it once from the max id across the current, archived, and dropped records (PinStore.init_seq)."""
         self.pin_store().init_seq()
 
-    def assignee_people(self, d: Mapping[str, Any]) -> Collection[str]:
-        """The logins limn.web.parse.parse_assignee checks against: known_people() when the body names an assignee, else
-        none (no read)."""
-        return self.people_directory.known() if d.get("assignee") is not None else ()
-
     def _person_name(self, login: str) -> str:
         """A known person's display name, or the login itself for someone the viewer does not know."""
         return (self.people_directory.known().get(login) or {}).get("name") or login
@@ -645,25 +643,6 @@ class ServerApplication:
     def http_audit(self, action: AuditAction, by: Json, details: Json) -> bool:
         """Appends one audit.jsonl line for a change made over HTTP (limn.audit), stamped by the clock read now."""
         return append_audit(self.C.state, audit_entry(action, by, "http", details, time.time()))
-
-    def edit_scope(self, pid: int) -> tuple[bool, Doc]:
-        """(region, document) of an edit of pin pid, read without the lock before the edit (as always): whether it is a
-        view-only (region) pin, and the document its loc is checked against - the pin's own, else the first one."""
-        pins, _ = self.read_pins()
-        i = pin_index(pins, pid)
-        if i is None:
-            return False, self.docs[0]
-        pin = pins[i]
-        return isinstance(pin.core.place, Region), self.doc_by_key(self.pin_doc_key(pin.record)) or self.docs[0]
-
-    def reply_reopens(self, r: Record, human: bool, mentioned: Sequence[str], reopen: bool | None = None) -> bool:
-        """Does a reply reopen stored pin r? limn.pins.lifecycle.reopens_on_reply() on the record's state; the viewer's
-        preview (replyReopens) mirrors that rule."""
-        return reopens_on_reply(parse_pin(r), human, mentioned, reopen)
-
-    def claim_active(self, r: Record) -> bool:
-        """Does this pin have an unexpired claim now? limn.pins.lifecycle.claim_holds() at the current epoch."""
-        return claim_holds(r, time.time())
 
     def render_pins_md(self, pins: Sequence[Pin]) -> None:
         """Rewrites pins.md from pins alone (PinStore.render_md). Callers hold RT.pin_lock."""

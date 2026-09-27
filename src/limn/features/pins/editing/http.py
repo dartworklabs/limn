@@ -1,8 +1,8 @@
 """HTTP entry points and responses for pin creation and editing."""
 
 from collections.abc import Callable, Collection, Mapping
-from dataclasses import replace
-from typing import Any, Protocol, TypeAlias
+from dataclasses import dataclass, replace
+from typing import Any, TypeAlias
 
 from limn.documents import Doc
 from limn.features.pins.editing import input as editing_input
@@ -16,35 +16,28 @@ from limn.web.parse import DocumentFacts
 Body: TypeAlias = dict[str, object]
 
 
-class EditingApp(Protocol):
-    """Run-specific collaborators used by create and edit HTTP actions."""
+@dataclass(frozen=True)
+class EditingRequests:
+    """The run-specific collaborators used by pin create and edit requests."""
 
     pin_editing: PinEditing
+    known_people: Callable[[], Collection[str]]
+    document_facts: Callable[[Doc], DocumentFacts]
+    edit_scope: Callable[[int], tuple[bool, Doc]]
+    public: Callable[[Record], dict[str, Any]]
 
     def assignee_people(self, body: dict[str, Any]) -> Collection[str]:
-        """The known assignees if the body names one."""
-        ...
-
-    def document_facts(self, document: Doc) -> DocumentFacts:
-        """Current source and page facts for one document."""
-        ...
-
-    def edit_scope(self, pid: int) -> tuple[bool, Doc]:
-        """Whether a pin is a PDF region and which document owns it."""
-        ...
-
-    def public(self, record: Record) -> dict[str, Any]:
-        """Render one pin record for the API."""
-        ...
+        """Read known assignees only when the body names one."""
+        return self.known_people() if body.get("assignee") is not None else ()
 
 
-def add(app: EditingApp, document: Doc, actor: Mapping[str, Any], body: dict[str, Any]) -> Body:
+def add(app: EditingRequests, document: Doc, actor: Mapping[str, Any], body: dict[str, Any]) -> Body:
     """Parse and create one pin after shared guards and document selection."""
     request = accepted(editing_input.parse_add(body, app.assignee_people(body), app.document_facts(document)))
     return add_answer(app.pin_editing.add_pin(document, request, actor))
 
 
-def edit(app: EditingApp, pid: int, actor: Mapping[str, Any], body: dict[str, Any]) -> Body:
+def edit(app: EditingRequests, pid: int, actor: Mapping[str, Any], body: dict[str, Any]) -> Body:
     """Check edit fields before loading the pin's document, then validate its location."""
     parsed = accepted(editing_input.parse_edit(body, app.assignee_people(body)))
     region, document = app.edit_scope(pid)

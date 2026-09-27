@@ -303,7 +303,7 @@ def add_pin(d: dict, actor: dict, mod=None, doc=None):
     want = d.get("doc")
     if isinstance(want, str) and want != D.key:
         D = mod.request_doc(want)
-    request = editing_input.parse_add(d, mod.assignee_people(d), mod.document_facts(D))
+    request = editing_input.parse_add(d, mod.editing_requests.assignee_people(d), mod.document_facts(D))
     return request if isinstance(request, InputRejected) else mod.pin_editing.add_pin(D, request, actor)
 
 
@@ -311,10 +311,10 @@ def edit_pin(pid: int, d: dict, actor: dict, mod=None):
     """What POST /api/pins/{pid}/edit does below its HTTP answer: parse the body, place its loc against the pin's own
     document (edit_scope), then edit. Returns the edit's outcome, or the InputRejected of the first refused field."""
     mod = (mod or ps).APP
-    body = editing_input.parse_edit(d, mod.assignee_people(d))
+    body = editing_input.parse_edit(d, mod.editing_requests.assignee_people(d))
     if isinstance(body, InputRejected):
         return body
-    region, pdoc = mod.edit_scope(pid)
+    region, pdoc = mod.editing_requests.edit_scope(pid)
     place = editing_input.parse_edit_place(body, region, mod.document_facts(pdoc))
     if isinstance(place, InputRejected):
         return place

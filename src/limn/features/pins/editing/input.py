@@ -42,7 +42,7 @@ def parse_add(d: Json, known: Collection[str], facts: DocumentFacts) -> AddReque
     """A POST /api/pin body for the request's document -> the new pin's validated place and fields, or the first field
     refused, in the contract's order: the location first (parse_region on a view-only document, which refuses
     file/lo/hi/scope; parse_loc otherwise, which reads the named file), then note, kind_req, mention hints and
-    assignee (known: the logins from server.assignee_people())."""
+    assignee (known: the logins supplied by EditingRequests)."""
     place: Place
     if facts.is_pdf:
         region = parse_region({k: d[k] for k in REGION_FIELDS + ("file", "lo", "hi", "scope") if k in d}, facts)
@@ -83,7 +83,7 @@ def parse_edit(d: Json, known: Collection[str]) -> EditBody | InputRejected:
     """A POST /api/pins/{id}/edit body -> its checked fields, or the first one refused, in the contract's order.
 
     note (null is the empty note), note_append (a non-blank string of at most 2000 characters), loc (an object),
-    lo/hi (integers), scope, kind, kind_req, mention hints and assignee (known: the logins from assignee_people()).
+    lo/hi (integers), scope, kind, kind_req, mention hints and assignee (known: the logins from EditingRequests).
     base_rev is required unless the edit is a note_append, and something must be changed.
     """
     note: str | None = None

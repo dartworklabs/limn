@@ -2,8 +2,7 @@
 
 The HTTP contract of POST /api/pins/{id}/confirm (statuses, bodies, the stored line) is pinned in
 test_server.py; here the pure decisions are checked on their own (coding rule R1). ReplyRule at the end runs every
-row of the reply rule's table (helpers.RULE_CASES, v0.2.2) through server.py's reply_reopens(), which parses the
-stored record into its state first.
+row of the reply rule's table (helpers.RULE_CASES, v0.2.2) through the pure state parser and reply rule.
 
 Run: uv run pytest -q tests/test_pins_lifecycle.py
 """
@@ -52,7 +51,7 @@ from limn.pins.lifecycle import (
 )
 from limn.pins.model import Agent, Claim as ClaimValue, DonePin, OpenPin, Person, ReviewPin, TrashedPin, parse_pin
 
-from helpers import RULE_CASES, ps, rec_for
+from helpers import RULE_CASES, rec_for
 
 PINS_DIR = Path(limn.pins.__file__).parent
 # datetime only parses stored times (limn.pins.position.epoch - never now()); limn.mapping is pure (tests/test_mapping.py).
@@ -631,13 +630,12 @@ class ReopenedInRound(unittest.TestCase):
 
 
 class ReplyRule(unittest.TestCase):
-    """Every row of the reply rule table (helpers.RULE_CASES) through server.py's reply_reopens(), which parses the
-    stored record into its state and asks reopens_on_reply()."""
+    """Every row of the reply rule table through stored-state parsing and reopens_on_reply()."""
 
     def test_every_row_of_the_rule_table(self):
         for st, kind, human, ment, ov, want in RULE_CASES:
             with self.subTest(state=st, kind=kind, human=human, mentioned=ment, override=ov):
-                self.assertIs(ps.APP.reply_reopens(rec_for(st, kind), human, ment, ov), want)
+                self.assertIs(reopens_on_reply(parse_pin(rec_for(st, kind)), human, ment, ov), want)
 
 
 if __name__ == "__main__":

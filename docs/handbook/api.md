@@ -422,7 +422,7 @@ curl -s -X POST <base>/api/pins/12/reply -H 'Content-Type: application/json' -d 
 
 ### 답글이 핀을 다시 여는 규칙 (0.2.2)
 
-뷰어의 닫힌 핀에는 [답글] 하나만 있다. 답글이 핀을 다시 여는지는 서버가 정한다(`reply_reopens`, [ADR-0004](../adr/0004-one-reply-trash-sections.md)). 뷰어는 같은 규칙으로 답글 칸 아래 한 줄에 결과를 미리 보인다.
+뷰어의 닫힌 핀에는 [답글] 하나만 있다. 답글이 핀을 다시 여는지는 서버의 순수 규칙이 정한다(`pins/lifecycle.py`의 `reopens_on_reply`, [ADR-0004](../adr/0004-one-reply-trash-sections.md)). 뷰어는 같은 규칙으로 답글 칸 아래 한 줄에 결과를 미리 보인다.
 
 | 핀 상태 | 쓴 쪽 | 답글이 사람을 @태그하나 | 결과 |
 | --- | --- | --- | --- |

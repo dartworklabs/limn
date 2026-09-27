@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from limn import build
-from limn.documents import Doc
+from limn.documents import Doc, doc_by_key
 from limn.files import tex_lines
 from limn.locate import PinLocation
 from limn.mapping import anchor_of
@@ -32,8 +32,9 @@ from limn.pins.edit import (
     new_line_pin,
     new_region_pin,
 )
-from limn.pins.model import DonePin, OpenPin, Pin, PinNotFound, ReviewPin
+from limn.pins.model import DonePin, OpenPin, Pin, PinNotFound, Record, Region, ReviewPin
 from limn.service.context import Event, PinContext, load_pin, typed_actor
+from limn.store import pin_index
 
 
 def located(loc: PinLocation | None) -> Located | None:
@@ -94,7 +95,7 @@ def edit_pin(
     """Edits pin pid's note, range, location and note-level fields in place; id/at/done never change.
 
     request is the parsed body with its loc already placed against the pin's own document (limn.features.pins.editing.input.parse_edit
-    and parse_edit_place, with region and the document from server.edit_scope()); region says the pin is a view-only
+    and parse_edit_place, with region and the document from EditScope); region says the pin is a view-only
     one, whose file is never located. The 'HH:MM' an appended note is stamped with is read before the lock. Under the
     pin lock the shell reads where the pin's file will be and - for a lo/hi edit - its line count, and
     limn.pins.edit.decide_edit() refuses or accepts: a closed pin cannot be reshaped, a stale base_rev is a conflict
@@ -168,6 +169,25 @@ def _with_edit(
             return evolve_edit(pin, event, where, anchoring, mentions, assignee_name)
         case DonePin():
             return evolve_edit(pin, event, where, anchoring, mentions, assignee_name)
+
+
+@dataclass(frozen=True)
+class EditScope:
+    """Read a pin's region kind and owning document before parsing an edit's location."""
+
+    read_pins: Callable[[], tuple[list[Pin], list[int]]]
+    docs: Callable[[], Sequence[Doc]]
+    pin_doc_key: Callable[[Record], str]
+
+    def __call__(self, pid: int) -> tuple[bool, Doc]:
+        """Return the pin's region flag and document, falling back to the first document for an unknown id."""
+        pins, _ = self.read_pins()
+        docs = self.docs()
+        i = pin_index(pins, pid)
+        if i is None:
+            return False, docs[0]
+        pin = pins[i]
+        return isinstance(pin.core.place, Region), doc_by_key(docs, self.pin_doc_key(pin.record)) or docs[0]
 
 
 @dataclass(frozen=True)

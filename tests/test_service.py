@@ -44,6 +44,7 @@ from limn.pins.lifecycle import (
     NotClaimed,
     NotInTrash,
     ThreadFull,
+    claim_holds,
     pin_reopened_in_round,
 )
 from limn.pins.model import Agent, DonePin, OpenPin, Person, PinNotFound, ReviewPin, TrashedPin, parse_pin
@@ -652,7 +653,7 @@ class Claim(Base):
         p = record_of(ps.APP.pin_claims.claim_pin(pid, {"login": "alice@example.com", "name": "Wendy"}, 120))
         self.assertEqual(p["claimed_by"], {"login": "alice@example.com", "name": "Wendy"})
         self.assertEqual(p["rev"], 1)
-        self.assertTrue(ps.APP.claim_active(self.pin(pid)))
+        self.assertTrue(claim_holds(self.pin(pid), time.time()))
 
     def test_default_ttl_used_when_body_omits_it(self):
         """A claim body without ttl_min holds the pin for the default TTL from the moment of the claim (clock frozen)."""
@@ -711,7 +712,7 @@ class Claim(Base):
             if r["id"] == pid:
                 r["claim_until"] = time.time() - 10
         write_records(rows)
-        self.assertFalse(ps.APP.claim_active(self.pin(pid)))
+        self.assertFalse(claim_holds(self.pin(pid), time.time()))
         p = record_of(ps.APP.pin_claims.claim_pin(pid, {"login": "bob@example.com", "name": "Bob"}, 120))
         self.assertEqual(p["claimed_by"]["login"], "bob@example.com")
 
@@ -774,7 +775,7 @@ class Claim(Base):
         self.assertEqual(body["claimed_by"]["login"], "alice@example.com")
         out = self.talk(req("POST", "/api/pins/%d/unclaim" % pid))
         self.assertIn(b" 200 ", out)
-        self.assertFalse(ps.APP.claim_active(self.pin(pid)))
+        self.assertFalse(claim_holds(self.pin(pid), time.time()))
 
     def test_http_claim_bad_ttl_type_is_400(self):
         pid = self.add()
