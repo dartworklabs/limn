@@ -10,7 +10,8 @@ import secrets
 from datetime import datetime
 from pathlib import Path
 
-from limn.access import AuditSink, Json, load_tokens, token_hash
+from limn.access import Json, load_tokens, token_hash
+from limn.features.administration.targets import AuditSink
 from limn.files import atomic_write, store_lock
 
 TOKEN_PREFIX = "limn_"

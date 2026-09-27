@@ -18,9 +18,9 @@ from html.parser import HTMLParser
 from pathlib import Path
 from urllib.parse import urlparse
 
-from limn import access, config
+from limn import config
 from limn.access import LOCAL_ACTOR
-from limn.features.administration import serve_documents as startup_documents
+from limn.features.administration import member_state, serve_documents as startup_documents
 from limn.features.administration.targets import cli_audit
 from limn.features.pins.claims import input as claims_input
 from limn.features.pins.location import http as location_http
@@ -478,7 +478,7 @@ class EnglishChrome(ChromiumTestCase):
         agent = dict(LOCAL_ACTOR)
         for who in (ALICE_ACTOR, BOB_LEE, SEOJUN):
             ps.APP.people_directory.record(who)
-        access.member_add(C.state, VERA["login"], "viewer", VERA["name"], cli_audit(C.state))
+        member_state.member_add(C.state, VERA["login"], "viewer", VERA["name"], cli_audit(C.state))
         ms, rr = ps.APP.docs
 
         def add(lo, hi, note, actor, **kw):

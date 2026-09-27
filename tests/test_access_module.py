@@ -25,7 +25,7 @@ from unittest import mock
 
 from limn import access, files, guidance, people
 from limn.access import AccessLookups, AccessSettings, Principal
-from limn.features.administration import token_state
+from limn.features.administration import member_state, token_state
 from limn.web.answers import CONFIRM_BY_HUMAN
 from limn.web.errors import HTTPError
 
@@ -125,12 +125,13 @@ class ModuleBoundary(unittest.TestCase):
         self.assertFalse({n for n in self.imported(ACCESS_PY) if n and "server" in n})
         self.assertNotIn("limn.audit", self.imported(ACCESS_PY))  # the CLI's audit sink arrives as an argument
 
-    def test_the_people_format_access_imports_brings_no_server_store_or_notices(self):
-        """access.py takes people.json's entry check and text from limn.people; that module imports only the standard
-        library and limn.files (which access.py imports itself) - never the server, the pin store, notices or HTTP."""
+    def test_the_people_format_member_state_imports_brings_no_server_store_or_notices(self):
+        """member_state.py takes people.json's entry check and text from limn.people; that module imports only the standard
+        library and limn.files (which member_state.py imports itself) - never the server, the pin store, notices or HTTP."""
         self.assertIn("limn.people", self.imported(ACCESS_PY))
         self.assertEqual({n for n in self.imported(PEOPLE_PY) if n.startswith("limn")}, {"limn.files"})
-        self.assertIn("limn.files", self.imported(ACCESS_PY))
+        self.assertNotIn("limn.files", self.imported(ACCESS_PY))
+        self.assertIn("limn.files", self.imported(Path(member_state.__file__)))
         self.assertEqual({n for n in self.imported(Path(files.__file__)) if n.startswith("limn")}, set())
 
     def test_limn_member_writes_people_json_in_the_people_stores_format(self):
@@ -151,8 +152,8 @@ class ModuleBoundary(unittest.TestCase):
                 ),
                 encoding="utf-8",
             )
-            self.assertEqual(access.load_people_file(state), [{"login": "zed@example.com", "name": "Zed"}])
-            access.member_add(state, "amy@example.com", "viewer", None, lambda action, details: None)
+            self.assertEqual(member_state.load_people_file(state), [{"login": "zed@example.com", "name": "Zed"}])
+            member_state.member_add(state, "amy@example.com", "viewer", None, lambda action, details: None)
             rows = [
                 {"login": "amy@example.com", "name": "amy", "role": "viewer"},
                 {"login": "zed@example.com", "name": "Zed"},
@@ -607,7 +608,7 @@ class UnreadableRoles(RefusalCase):
             for raw in (b"{", b"[]", b'{"version": 1}', b""):
                 (state / "people.json").write_bytes(raw)
                 with self.assertRaises(ValueError) as cm:
-                    access.load_people_file(state)
+                    member_state.load_people_file(state)
                 self.assertEqual(str(cm.exception), people.load_people(state / "people.json").reason, raw)
 
 
@@ -757,18 +758,18 @@ class StateHelpers(unittest.TestCase):
         self.assertIsNone(token_state.token_revoke(self.state, "nope", self.audit))
         for login, role in (("local", "editor"), ("agent:ci", "editor"), ("a b", "editor"), ("c@example.com", "admin")):
             with self.assertRaises(ValueError):
-                access.member_add(self.state, login, role, None, self.audit)
+                member_state.member_add(self.state, login, role, None, self.audit)
         self.assertEqual((self.state / "tokens.json").read_bytes(), before)
         self.assertFalse((self.state / "people.json").exists())
         self.assertEqual(self.audits, [])
 
     def test_member_changes_are_audited_in_order(self):
         """add, a role change, a no-op role set (no audit) and a removal, each after its write."""
-        access.member_add(self.state, "bob@example.com", "editor", None, self.audit)
-        access.member_set_role(self.state, "bob@example.com", "viewer", self.audit)
-        access.member_set_role(self.state, "bob@example.com", "viewer", self.audit)
-        self.assertEqual(access.roles_of(access.load_people_file(self.state)), {"bob@example.com": "viewer"})
-        access.member_remove(self.state, "bob@example.com", self.audit)
+        member_state.member_add(self.state, "bob@example.com", "editor", None, self.audit)
+        member_state.member_set_role(self.state, "bob@example.com", "viewer", self.audit)
+        member_state.member_set_role(self.state, "bob@example.com", "viewer", self.audit)
+        self.assertEqual(access.roles_of(member_state.load_people_file(self.state)), {"bob@example.com": "viewer"})
+        member_state.member_remove(self.state, "bob@example.com", self.audit)
         self.assertEqual([a for a, _ in self.audits], ["member_added", "member_role", "member_removed"])
         self.assertEqual(stat.S_IMODE((self.state / "people.json").stat().st_mode), 0o600)
 
@@ -776,7 +777,7 @@ class StateHelpers(unittest.TestCase):
         """The CLI refuses to rewrite a people.json it could not read."""
         (self.state / "people.json").write_text("{broken", encoding="utf-8")
         with self.assertRaises(ValueError):
-            access.member_add(self.state, "bob@example.com", "editor", None, self.audit)
+            member_state.member_add(self.state, "bob@example.com", "editor", None, self.audit)
         self.assertEqual((self.state / "people.json").read_text(encoding="utf-8"), "{broken")
 
 

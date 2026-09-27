@@ -38,7 +38,7 @@ def is_audit_action(v: object) -> TypeGuard[AuditAction]:
 
 def audit_action(v: str) -> AuditAction:
     """The audit action v names, for a caller the type checker cannot vouch for: the CLI's audit sink receives the
-    action as a plain str (limn.access.AuditSink). ValueError for any other string - a programming error, never a
+    action as a plain str (limn.features.administration.targets.AuditSink). ValueError for any other string - a programming error, never a
     request error."""
     if not is_audit_action(v):
         raise ValueError("unknown audit action %r" % v)

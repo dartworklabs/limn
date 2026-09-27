@@ -21,7 +21,7 @@ from pathlib import Path
 
 from limn import access, config
 from limn.access import LOCAL_ACTOR
-from limn.features.administration import token_state
+from limn.features.administration import member_state, token_state
 from limn.features.administration.targets import cli_audit
 from limn.store import dump_jsonl
 from limn.viewer import assemble
@@ -96,22 +96,22 @@ def token_revoke(state, ref):
 
 def member_add(state, login, role=access.DEFAULT_ROLE, name=None):
     """`limn member add` on state as the CLI runs it, with targets.cli_audit -> the new entry."""
-    return access.member_add(state, login, role, name, cli_audit(state))
+    return member_state.member_add(state, login, role, name, cli_audit(state))
 
 
 def member_remove(state, login):
     """`limn member remove` on state as the CLI runs it -> the removed entry, or None."""
-    return access.member_remove(state, login, cli_audit(state))
+    return member_state.member_remove(state, login, cli_audit(state))
 
 
 def member_set_role(state, login, role):
     """`limn member role` on state as the CLI runs it -> the updated entry, or None."""
-    return access.member_set_role(state, login, role, cli_audit(state))
+    return member_state.member_set_role(state, login, role, cli_audit(state))
 
 
 def load_people_file(state, mod=ps):
     """people.json as `limn member list` reads it (strict: ValueError for an unreadable file)."""
-    return access.load_people_file(state)
+    return member_state.load_people_file(state)
 
 
 def talk_to(mod, raw: bytes, peer: str = "127.0.0.1") -> bytes:

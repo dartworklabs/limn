@@ -13,6 +13,10 @@ from limn.audit import append_audit, audit_action, audit_entry, os_actor
 INSTANCE_RE = re.compile(r"[a-z0-9][a-z0-9-]*")
 OptionSpec: TypeAlias = tuple[tuple[str, ...], dict[str, Any]]
 
+# One CLI state change audit: (action, details) -> append to audit.jsonl as the OS account.
+# The state writer calls it under its lock after the file change; I/O failure only warns.
+AuditSink: TypeAlias = Callable[[str, dict[str, Any]], object]
+
 
 class CliError(Exception):
     """A refusal of `limn token` / `limn member` the user can act on; main() prints its message as one
@@ -102,7 +106,7 @@ def split_target(
 
 
 def cli_audit(state: Path) -> Callable[[str, Mapping[str, Any]], bool]:
-    """The audit sink of `limn token` / `limn member` on state (limn.access.AuditSink): each change becomes one
+    """The audit sink of `limn token` / `limn member` on state (AuditSink): each change becomes one
     audit.jsonl line (limn.audit) as the OS account running the command (os_actor), via "cli", stamped with the clock
     when it is recorded. The action is narrowed by audit_action (ValueError for one limn.audit does not name - a
     defect of the caller). A failed write only warns on stderr and returns False, as append_audit does."""
