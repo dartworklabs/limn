@@ -166,8 +166,9 @@ function findAnyPin(id){return OPEN_ALL.find(p=>p.id===id)||REVIEW_ALL.find(p=>p
 let REV_BACK=null;   // the document being viewed when [변경 보기] was pressed - [원고로] returns to that document (QA: opening it from a cover-letter pin used to leave you stuck on the cover letter)
 // [원고로] and Esc in the changes view: back to the manuscript view, and to the document it was opened from.
 function revBack(){const b=REV_BACK; REV_BACK=null; setViewMode(VIEW_MODE.MANUSCRIPT); if(b&&b!==DOC&&docInfo(b))switchDoc(b);}
+// Opens a pin's change view only for the document visit that initiated the switch.
 async function showChange(id){const p=findAnyPin(id); if(!p)return; const k=pdoc(p); if(!document.body.classList.contains('revision-open'))REV_BACK=DOC;
-  if(k!==DOC&&docInfo(k)){await switchDoc(k); if(DOC!==k)return;}
+  if(k!==DOC&&docInfo(k)){const opening=switchDoc(k),visit=SWITCHSEQ; await opening; if(DOC!==k||visit!==SWITCHSEQ)return;}
   REV_TARGET={id:p.id,file:p.file||p.pdf||'',name:p.name||String(p.file||p.pdf||'').split('/').pop(),lo:p.lo,hi:p.hi,page:p.page,ref:p.close_ref||'',region:isRegion(p)};
   const m=/\b[0-9a-f]{7,40}\b/.exec(REV_TARGET.ref); REV_TARGET.tokOf=m?m[0]:'';
   if(LAYOUT===LAYOUT_MODE.NARROW)setSide(false);

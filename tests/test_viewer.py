@@ -1972,9 +1972,9 @@ class FrontendDocs(unittest.TestCase):
         js = "\n".join(
             [
                 r"""
-            const OPEN_ALL=[{id:1,doc:'ms'},{id:2,doc:'rr'},{id:3}]; let DOC='ms'; const DEFAULT_DOC='ms';
+            const OPEN_ALL=[{id:1,doc:'ms'},{id:2,doc:'rr'},{id:3}]; let DOC='ms',SWITCHSEQ=0; const DEFAULT_DOC='ms';
             const DOCS=[{key:'ms'},{key:'rr'}]; const seen=[];
-            function switchDoc(k){seen.push('switch:'+k); DOC=k; return Promise.resolve();}
+            function switchDoc(k){seen.push('switch:'+k); DOC=k; SWITCHSEQ++; return Promise.resolve();}
             """,
                 extract_js_fn("docInfo"),
                 extract_js_fn("pdoc"),
