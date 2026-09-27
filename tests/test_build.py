@@ -187,6 +187,78 @@ class TwoDocumentsAtOnce(unittest.TestCase):
 
         return build.build_in_background(D, tracked, "2026-09-26 10:00:00", build_failure_log)
 
+    def test_failed_thread_start_releases_lock_and_finishes_build(self):
+        """A thread that cannot start leaves a failed build and releases the document for another attempt."""
+        D = self.docs["a"]
+        cfg = build.BuildConfig(state=self.state, dpi=150, timeout=30)
+        D.dir.mkdir(parents=True)
+        with (
+            mock.patch.object(build.threading.Thread, "start", side_effect=RuntimeError("can't start")),
+            self.assertRaisesRegex(RuntimeError, "can't start"),
+        ):
+            self.start(D, cfg)
+        self.assertFalse(D.lock.locked())
+        state = build.state_snapshot(D)
+        self.assertEqual((state["state"], state["seq"]), ("fail", 1))
+        self.assertEqual(build.load_builds(D)["last"]["state"], "fail")
+
+    def test_failed_running_state_update_releases_lock(self):
+        """A partial running-state update cannot leave the document busy or apparently building."""
+        D = self.docs["a"]
+        cfg = build.BuildConfig(state=self.state, dpi=150, timeout=30)
+
+        def fail_after_update(doc, **kw):
+            """Simulate a state update that writes running before its caller sees failure."""
+            with doc.bstate_lock:
+                doc.bstate.update(kw)
+            raise OSError("state update failed")
+
+        with (
+            mock.patch.object(build, "state_update", side_effect=fail_after_update),
+            self.assertRaisesRegex(OSError, "state update failed"),
+        ):
+            self.start(D, cfg)
+        self.assertFalse(D.lock.locked())
+        self.assertEqual(build.state_snapshot(D)["state"], "fail")
+
+    def test_failed_start_recording_releases_lock_and_marks_failure(self):
+        """A failed history write during thread-start recovery still clears running and releases the lock."""
+        D = self.docs["a"]
+        cfg = build.BuildConfig(state=self.state, dpi=150, timeout=30)
+        with (
+            mock.patch.object(build.threading.Thread, "start", side_effect=RuntimeError("can't start")),
+            mock.patch.object(build, "finish_build", side_effect=OSError("history failed")),
+            self.assertRaisesRegex(OSError, "history failed"),
+        ):
+            self.start(D, cfg)
+        self.assertFalse(D.lock.locked())
+        self.assertEqual(build.state_snapshot(D)["state"], "fail")
+
+    def test_failed_worker_recording_clears_running_and_releases_lock(self):
+        """A worker error followed by failed history recording still ends its build and reports the recording error."""
+        D = self.docs["a"]
+        worker_done = threading.Event()
+        errors = []
+
+        def capture_error(args):
+            """Record the background thread's uncaught error without hiding it from the test."""
+            errors.append(args.exc_value)
+            worker_done.set()
+
+        with (
+            mock.patch.object(build, "finish_build", side_effect=OSError("history failed")),
+            mock.patch.object(threading, "excepthook", side_effect=capture_error),
+        ):
+            started = build.build_in_background(
+                D, mock.Mock(side_effect=RuntimeError("build failed")), "t0", build_failure_log
+            )
+            self.assertEqual(started, BuildStarted())
+            self.assertTrue(worker_done.wait(2), "worker did not report its error")
+        self.assertIsInstance(errors[0], OSError)
+        self.assertEqual(str(errors[0]), "history failed")
+        self.assertFalse(D.lock.locked())
+        self.assertEqual(build.state_snapshot(D)["state"], "fail")
+
     def test_both_build_at_once_into_their_own_folders(self):
         """Both compiles overlap (the fakes wait for each other), both succeed, and each result stays with its document."""
         cfg = build.BuildConfig(state=self.state, dpi=150, timeout=30)

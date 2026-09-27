@@ -130,9 +130,14 @@ def decide_close(pin: Pin, by: Actor, at: str, request: CloseRequest) -> PinClos
             return AlreadyClosed(pin)
 
 
-def evolve_close(pin: Pin, event: PinClosed) -> ReviewPin | DonePin:
-    """Apply a close: done, done_at, closed_by, reply/ref/changes when given, review when chosen, an ev=close
-    thread entry, the claim cleared, rev bumped. changes_at equals done_at, tying the changes to this close."""
+def evolve_close(pin: OpenPin, event: PinClosed) -> ReviewPin | DonePin:
+    """Apply a close only to an open pin; a second application is a caller defect.
+
+    Records done_at, closed_by, reply/ref/changes when given, review when chosen, an ev=close thread entry, clears
+    the claim, and bumps rev. changes_at equals done_at, tying the changes to this close.
+    """
+    if not isinstance(pin, OpenPin):
+        raise ValueError("a close event can only be applied to an open pin")
     record = dict(pin.record)
     record["done"] = True
     record["done_at"] = event.at
@@ -270,10 +275,20 @@ def replies(thread: Sequence[ThreadEntry] | None) -> list[ThreadEntry]:
 
 @dataclass(frozen=True)
 class ClaimRequest:
-    """A validated claim body: minutes until the marker lapses, and the optional estimate of the work."""
+    """A claim command with positive minute values, even when created outside HTTP.
+
+    The HTTP boundary clamps its separate ceiling; internal callers may use a longer positive lifetime.
+    """
 
     ttl_min: int
     eta_min: int | None = None
+
+    def __post_init__(self) -> None:
+        """Reject durations that would make a new marker expired or have a non-integer minute count."""
+        if type(self.ttl_min) is not int or self.ttl_min < 1:
+            raise ValueError("ttl_min must be a positive integer")
+        if self.eta_min is not None and (type(self.eta_min) is not int or self.eta_min < 1):
+            raise ValueError("eta_min must be a positive integer")
 
 
 @dataclass(frozen=True)

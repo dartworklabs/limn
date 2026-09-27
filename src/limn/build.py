@@ -504,23 +504,47 @@ def build_in_background(
     """POST /api/rebuild?async=1: if D's lock is free, runs the same tracked build on a daemon thread and returns
     BuildStarted at once; BuildBusy when D is already building.
 
-    The state turns running before the thread starts, so the next poll already sees it. If run itself dies,
-    the build is still finished as a failure (BuildAborted worker_crashed, its log text from describe) - the chip
-    must never stay at running."""
+    The state turns running before the thread starts, so the next poll already sees it. Failure to prepare that
+    state releases the lock. If the thread cannot start or run itself dies, the build is finished as a failure
+    (BuildAborted worker_crashed, its log text from describe) and its lock is released - the chip must never stay
+    at running."""
     if not D.lock.acquire(blocking=False):
         return BuildBusy()
-    state_update(D, state="running", phase="copy", started_at=started_at, start_ts=time.time())
+    try:
+        state_update(D, state="running", phase="copy", started_at=started_at, start_ts=time.time())
+    except BaseException:
+        try:
+            with D.bstate_lock:
+                D.bstate.update(state="fail", phase=None, start_ts=None)
+        finally:
+            D.lock.release()
+        raise
+
+    def finish_crash(error: Exception) -> None:
+        """Record a failed worker, and clear running even when recording itself fails."""
+        try:
+            finish_build(D, BuildAborted("worker_crashed", repr(error)), None, describe)
+        finally:
+            with D.bstate_lock:
+                D.bstate.update(state="fail", phase=None, start_ts=None)
 
     def worker() -> None:
         """Run the build, record an unexpected death as a failed build, and always release D's lock."""
         try:
             run()
         except Exception as e:  # noqa: BLE001 — must not stay stuck at running even if the tracked build itself dies
-            finish_build(D, BuildAborted("worker_crashed", repr(e)), None, describe)
+            finish_crash(e)
         finally:
             D.lock.release()
 
-    threading.Thread(target=worker, daemon=True).start()
+    try:
+        threading.Thread(target=worker, daemon=True).start()
+    except Exception as e:
+        try:
+            finish_crash(e)
+        finally:
+            D.lock.release()
+        raise
     return BuildStarted()
 
 

@@ -16,8 +16,9 @@ from pathlib import Path
 
 from limn.access import LOCAL_ACTOR
 from limn.files import BadPath, NotAFile, OutsideTree, file_in_tree
-from limn.pins.edit import LinePlace, RegionPlace
+from limn.pins.edit import LinePlace, PinEdited, RegionPlace, evolve_edit
 from limn.pins.lifecycle import CloseRequest
+from limn.pins.model import Agent, OpenPin
 from limn.web import parse
 from limn.web.errors import InputRejected
 
@@ -194,7 +195,7 @@ class Fields(unittest.TestCase):
     """The field parsers that read the request alone."""
 
     def test_numbers(self):
-        """An integral number (1.0 too) or a finite one; bools, strings, NaN and infinity are refused."""
+        """An integral number (1.0 too) or a finite one; invalid and oversized numbers get a refusal."""
         self.assertEqual(parse.int_field(3.0, "lo"), 3)
         self.assertEqual(parse.int_field(True, "lo"), InputRejected("lo 는 정수여야 합니다.", "not_integer"))
         self.assertEqual(parse.int_field(1.5, "lo"), InputRejected("lo 는 정수여야 합니다.", "not_integer"))
@@ -202,6 +203,9 @@ class Fields(unittest.TestCase):
             parse.num_field(float("inf"), "x0"), InputRejected("x0 는 유한한 숫자여야 합니다.", "not_number")
         )
         self.assertEqual(parse.num_field(2, "x0"), 2.0)
+        self.assertEqual(parse.int_field(10**400, "lo"), InputRejected("lo 는 정수여야 합니다.", "not_integer"))
+        self.assertEqual(parse.num_field(10**400, "x0"), InputRejected("x0 는 유한한 숫자여야 합니다.", "not_number"))
+        self.assertEqual(parse.parse_claim_body({"ttl_min": 10**400}).reason, "not_integer")
 
     def test_closed_sets_come_back_narrowed_or_refused(self):
         """kind_req and scope: a member of the set comes back as is (typed as its Literal), None when absent, and
@@ -601,6 +605,38 @@ class Locations(Tree):
         )
         self.assertNotIn("pdf_build", parse.parse_edit_place(body, False, self.facts).fields)
         self.assertIsNone(parse.parse_edit_place(parse.parse_edit({"note": "x", "base_rev": 0}, ()), False, self.facts))
+
+    def test_null_fraction_does_not_re_place_a_line_pin_fraction(self):
+        """A null frac is absent, so an edit keeps the stored coordinates and their build identity."""
+        body = parse.parse_edit({"loc": {"file": "main.tex", "lo": 1, "hi": 2, "frac": None}, "base_rev": 0}, ())
+        place = parse.parse_edit_place(body, False, self.facts)
+        self.assertIsInstance(place, LinePlace)
+        self.assertNotIn("frac", place.fields)
+        self.assertNotIn("frac", place.named)
+        self.assertNotIn("pdf_build", place.fields)
+
+        record = {
+            "file": str(self.root / "main.tex"),
+            "name": "main.tex",
+            "lo": 1,
+            "hi": 2,
+            "page": 1,
+            "frac": [0.1, 0.2, 0.3, 0.4],
+            "frac_build": "pages-20260101000000",
+            "id": 7,
+        }
+
+        def after(loc: dict) -> dict:
+            """Apply a parsed re-placement to the same pin, retaining record field order for comparison."""
+            edit = parse.parse_edit({"loc": loc, "base_rev": 0}, ())
+            replacement = parse.parse_edit_place(edit, False, self.facts)
+            event = PinEdited(Agent("local", "Local"), "now", None, replacement, None, True, None, None, None, None)
+            return evolve_edit(OpenPin.from_record(record), event, None, None, None, None).record
+
+        without = after({"file": "main.tex", "lo": 1, "hi": 2})
+        with_null = after({"file": "main.tex", "lo": 1, "hi": 2, "frac": None})
+        self.assertEqual(list(with_null.items()), list(without.items()))
+        self.assertEqual((with_null["frac"], with_null["frac_build"]), (record["frac"], record["frac_build"]))
 
     def test_source_range_reads_the_file_before_the_numbers(self):
         """A snippet's file is checked, then lo/hi as int() of the text, then the range against the lines read."""

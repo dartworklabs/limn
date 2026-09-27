@@ -8,7 +8,7 @@ import unittest
 from pathlib import Path
 
 from limn.pins import shapes
-from limn.pins.shapes import is_int, is_num
+from limn.pins.shapes import is_finite_num, is_int, is_num
 
 
 class Shapes(unittest.TestCase):
@@ -24,12 +24,17 @@ class Shapes(unittest.TestCase):
         self.assertEqual([is_num(v) for v in (0, 1.5, float("nan"), float("inf"))], [True] * 4)
         self.assertEqual([is_num(v) for v in (True, "1", None, [1])], [False] * 4)
 
-    def test_imports_nothing_but_typing(self):
-        """Any module may use it, so it may depend on nothing."""
+    def test_finite_number_refuses_an_integer_too_large_for_a_float(self):
+        """An untrusted JSON integer may exceed float range without crashing parsers or domain constructors."""
+        self.assertTrue(is_finite_num(2.5))
+        self.assertEqual([is_finite_num(v) for v in (True, float("inf"), float("nan"), 10**400)], [False] * 4)
+
+    def test_imports_only_pure_standard_library_modules(self):
+        """Any layer may use these shape predicates without importing I/O or application modules."""
         tree = ast.parse(Path(shapes.__file__).read_text(encoding="utf-8"))
         imported = {a.name for n in ast.walk(tree) if isinstance(n, ast.Import) for a in n.names}
         imported |= {n.module or "" for n in ast.walk(tree) if isinstance(n, ast.ImportFrom)}
-        self.assertEqual(imported, {"typing"})
+        self.assertEqual(imported, {"math", "typing"})
 
 
 if __name__ == "__main__":

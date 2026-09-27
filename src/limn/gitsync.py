@@ -229,8 +229,9 @@ class SyncWatch:
         shared-recorded (PullShare) like a build's. Returns the round's status; "updating" when builds were started."""
         if not enabled:
             return disabled()
+        latex_docs = [D for D in docs if not D.is_pdf]
         held: list[threading.Lock] = []
-        for D in [D for D in list(docs) if not D.is_pdf]:
+        for D in latex_docs:
             if not D.lock.acquire(blocking=False):
                 for lock in reversed(held):
                     lock.release()
@@ -253,7 +254,7 @@ class SyncWatch:
             self.record.update(out)
         if out["state"] in ("updated", "current"):
             head = out.get("head_after") or ""
-            for D in [D for D in list(docs) if not D.is_pdf]:  # the list as it is now, like the round's start
+            for D in latex_docs:
                 if needs_rebuild(outcome, head, _built_head(D)):
                     start_build(D)
                     out["state"] = "updating"

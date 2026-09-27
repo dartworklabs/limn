@@ -232,10 +232,14 @@ class Runtime:
     threads: list[threading.Thread] = field(default_factory=list)  # the long-lived threads start_thread() began
 
     def start_thread(self, target: Callable[..., object], *args: object) -> None:
-        """Start target(*args) on a daemon thread that stop() will join. target must return once `stopping` is set."""
+        """Start target(*args) on a daemon thread, registering only a thread stop() can join.
+
+        target must return once `stopping` is set. A failed Thread.start leaves the registry unchanged so partial
+        startup cleanup can stop earlier watches without masking the start error.
+        """
         t = threading.Thread(target=target, args=args, daemon=True)
-        self.threads.append(t)
         t.start()
+        self.threads.append(t)
 
     def stop(self, timeout: float = 5.0) -> None:
         """Ask the long-lived threads to end and wait up to timeout seconds for each. Idempotent: a second call, or one

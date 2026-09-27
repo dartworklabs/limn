@@ -115,6 +115,8 @@ HTTP 층의 `confirm_answer()`가 이 다섯 결과를 `match` 하나로 받아 
 
 **지금 코드.** 핀은 상태 타입의 합 `Pin = OpenPin | ReviewPin | DonePin`이고, 휴지통 사본은 `TrashedPin`이다([`limn/pins/model.py`](../../src/limn/pins/model.py)). 모든 상태가 함께 가진 필드는 `core: PinCore`로 타입이 있고, 전이·편집·위치 규칙은 `pin.core.rev`·`pin.core.thread`·`pin.core.place`처럼 이 속성을 읽는다. 그 상태에만 있는 필드는 타입의 속성이다. 열린 핀만 처리 중 표시(`Claim`)를, 닫힌 핀만 닫은 기록(`Close`)을, 완료 핀만 확인(`Confirmation`)을, 휴지통 사본만 삭제 기록(`Dropped`)을 가진다. 저장소는 레코드를 읽으며 핀으로 파싱해 서비스에 넘긴다. 저장 형식(`pins.jsonl`)과 API 모양은 그대로다([architecture.md](architecture.md) §불변식 3, 6). 비교 PDF 하나의 상태도 같은 방식으로 타입의 합(`IdleComparison | RunningComparison | ReadyComparison | FailedComparison`, [`limn/revisions.py`](../../src/limn/revisions.py))이다. 캐시를 읽는 쪽과 작업 목록이 이 타입을 내고, 캐시에서 답할지(`answered_from_cache`)와 응답 본문(`status_body`)은 타입으로 가른다. 저장된 `status.json`의 필드는 핀처럼 저장된 그대로 싣는다.
 
+새 핀의 위치 값(`LinePlace`·`RegionPlace`)은 직접 생성해도 필수 좌표와 필드 종류를 검사하고, 저장 필드의 불변 스냅숏을 가진다. HTTP 파서는 그 전에 파일 존재·줄 수·문서의 쪽 수처럼 외부 사실이 필요한 조건을 확인한다. `ClaimRequest`는 내부 생성에서도 양수 정수 시간을 요구하고, 닫기 이벤트의 적용 함수는 열린 핀만 받는다. HTTP의 시간 상한과 전이 허용 여부는 각각 경계와 판단 함수의 별도 책임이다.
+
 > **예시**
 >
 > "열린 핀의 `confirmed_by`"나 "닫힌 핀의 claim"을 담을 속성이 아예 없다.
@@ -147,7 +149,7 @@ def parse_pin(record: Record) -> Pin: ...  # by the one rule state_of(); never f
 
 한 상태에만 쓰는 전이는 그 상태 타입만 받는다(`confirm_review(pin: ReviewPin, ...)`). 어떤 상태든 올 수 있는 입구는 `match pin:`으로 타입을 나눈다. 상태 문자열을 비교하지 않는다.
 
-**확인하는 법.** 옛 레코드 모양을 읽어서 다시 쓰면 바이트 단위로 같아야 한다. [`tests/test_pins_model.py`](../../tests/test_pins_model.py)가 레코드 모양 말뭉치 [`tests/data/pin_records.jsonl`](../../tests/data/pin_records.jsonl)(테스트가 읽고 쓴 모양마다 하나, 그리고 옛 모양과 어긋난 값)으로 이것을 지킨다. 새 레코드 모양을 쓰는 코드를 더하면 말뭉치에도 그 모양을 더한다.
+**확인하는 법.** 옛 레코드 모양을 읽어서 다시 쓰면 바이트 단위로 같아야 한다. [`tests/test_pins_model.py`](../../tests/test_pins_model.py)가 레코드 모양 말뭉치 [`tests/data/pin_records.jsonl`](../../tests/data/pin_records.jsonl)(테스트가 읽고 쓴 모양마다 하나, 그리고 옛 모양과 어긋난 값)으로 이것을 지킨다. 새 레코드 모양을 쓰는 코드를 더하면 말뭉치에도 그 모양을 더한다. 새 명령 값은 HTTP를 거치지 않은 직접 생성에서도 잘못된 상태를 거절하는지 [`tests/test_pins_edit.py`](../../tests/test_pins_edit.py)와 [`tests/test_pins_lifecycle.py`](../../tests/test_pins_lifecycle.py)가 확인한다.
 
 > **참고**
 >
@@ -332,11 +334,16 @@ def identify(headers: Message, peer: str, settings: AccessSettings, lookups: Acc
 
 ## 다음
 
-아직 하지 않은 일이다. 위에서부터 한다. 각 일은 동작을 바꾸지 않는 구조 변경이라 [verification.md](verification.md) §구조 이동의 동작 불변 증명(차등 비교)으로 증명하고, 끝나면 해당 규칙 절의 "지금 코드"를 고친다.
+아래는 코드에서 확인한 위험을 낮추는 순서다. 코딩 스킬이 기준이고, 지금 코드의 모양은 예외 사유가 아니다. 각 단계는 동작을 바꾸지 않는 범위에서 작게 나누며, 해당 경계의 거절·저장 바이트·응답을 변경 전후에 비교한다([verification.md](verification.md) §구조 이동의 동작 불변 증명(차등 비교)). 저장 형식이나 보안 경계를 바꾸게 되면 [architecture.md](architecture.md) §멈춤 신호에 따라 설계 판단을 먼저 받는다. 끝낸 단계는 이 절에서 지우고 해당 규칙 절의 **지금 코드**를 고친다.
 
-1. **뷰어 스크립트의 상태.** 뷰어 조각이 함께 쓰는 전역 상태를 명시적인 상태 객체로 모은다(R5, [viewer.md](viewer.md)).
+1. **저장 핀의 타입 승격 이득을 먼저 증명한다(R1–R3, R8).** [`pins/model.py`](../../src/limn/pins/model.py)의 `PinCore`는 저장소가 레코드 모양을 검사한 뒤에도 `id`·위치를 선택 값으로 둔다. 자유로운 옛 레코드 파서를 유지하면서 저장소의 검증 결과를 내부 타입에 나타내면 어떤 위험 분기가 사라지는지 한 흐름에서 확인한다. 저장소 전체를 감싸는 새 타입이 변환 코드만 늘리면 도입하지 않고, 실제 호출부의 기본값 보정과 저장 경계 테스트를 바로잡는다. **합격:** 제거할 분기와 추가할 변환의 수, 유효·손상 레코드 경계, 레코드의 키·값·순서 왕복(`test_pins_model.py`), 손상 줄 보존(`test_store.py`), HTTP 거절 순서·`reason` 및 계약 스냅숏(`test_web_parse.py`, `test_contract_snapshot.py`)을 확인한다. 옛 레코드의 알 수 없는 필드는 버리지 않는다.
 
-그 밖에 둘이 남았다.
+2. **휴지통의 두 파일 쓰기는 설계 판단 뒤에 바꾼다(R1, R2, R6).** 현재 삭제는 휴지통 파일을 먼저, 되살리기는 핀 파일을 먼저 쓰며 중간 실패가 남기는 상태가 다르다([`service/trash.py`](../../src/limn/service/trash.py)). 새 원자성 방식이나 저장 형식은 복구·되돌리기 비용이 있으므로 기존 [ADR-0004](../adr/0004-one-reply-trash-sections.md)의 계약을 확인하고 후속 ADR에서 허용할 중간 상태와 복구 규칙을 정한다. 그 전에는 쓰기 순서를 임의로 바꾸지 않는다. **합격:** 첫 파일을 쓴 직후의 실패를 주입해 핀의 유실·중복, 복구 가능성, `pins.md`와 감사·알림의 결과를 확인하고 옛 상태 폴더를 그대로 읽는다.
 
-- **docstring 규칙 `D`.** 새 모듈부터 켜고, 손대는 모듈마다 넓힌다. 기존 코드에 docstring을 한꺼번에 채우지 않는다(R4, R7).
-- **명시적 `App` 객체.** 처리기는 `_ModuleApp`과 `server.py`의 한 줄 연결로 서비스에 닿는다. 실행 설정(`C`)과 런타임(`RT`)이 값이 되었으므로, 바꾼다면 그 둘과 문서 목록을 받는 객체가 된다. 바꿀지는 아직 정하지 않았다.
+3. **뷰어의 더 넓은 상태 소유자와 문서 전환 시점을 분명히 한다(R5–R6, R9).** [`viewer/js/core.js`](../../src/limn/viewer/js/core.js)와 여러 조각에 전역으로 흩어진 문서·선택·초안·리비전·빌드·타이머 상태를 수명에 따라 묶는다. 각 조각이 필요한 상태를 명시적으로 받게 하고, 문서 전환 뒤 완료되는 다른 비동기 작업도 이전 문서의 값을 새 화면에 쓰지 않도록 경계를 세운다. 조각의 빌드 없는 배포와 `parts.txt` 순서는 유지한다. **합격:** 문서 전환 중 비동기 완료, 초안 복원, 선택·재빌드·변경 보기 흐름을 실제 조립된 스크립트와 브라우저에서 관찰한다(`test_viewer_files.py`, `test_viewer_browser.py`). 문법 검사 외에 이름 오류를 잡는 개발용 정적 검사도 검토하되, 대표적인 오류가 실제로 검출되는지 먼저 확인한다.
+
+4. **서버의 명시적 `App`은 테스트 결합을 푼 뒤 옮긴다(R5–R6, R8).** 현재 처리기는 [`server.py`](../../src/limn/server.py)의 `_ModuleApp(globals())`을 통해 `web/app.py`의 서비스를 요청 때마다 읽는다. 파일 경로로 로드한 서버 사본과 테스트의 함수·`C`·`RT` 재바인딩도 이 동작에 기대므로, 메서드 일부만 감싸면 전역 의존과 객체 필드가 서로 다른 값을 가질 수 있다. 먼저 서버 사본별 격리와 조립·종료 순서, 테스트의 협력자 교체 지점을 고정한다. 그다음 설정·런타임·문서 목록의 소유자가 하나인 객체로 서비스 묶음을 옮기고 동적 전역 대리자를 제거한다. **합격:** 새 객체 자체가 `App` 프로토콜을 타입 검사로 만족하고, 파일 실행·패키지 실행·서버 사본 격리·시작 실패 시 자원 종료·모든 경로의 본문 읽기 → Host/Origin → 신원 → 입장 → 역할 검사 순서가 유지된다(`test_web.py`, `test_access.py`, `test_server.py`). HTTP 응답과 `pins.md`는 계약 스냅숏으로 비교한다.
+
+5. **새 경계를 기계적으로 지킨다(R4, R7–R9).** 고친 모듈의 계약 docstring을 코드·테스트와 대조하고, Ruff `D`는 적용할 범위를 정해 단계적으로 켠다. 테스트는 문자열 존재보다 요청·저장·화면에서 관찰한 결과를 우선한다. 정적 검사나 새 라이브러리는 실제 결함을 잡거나 코드를 줄이는 경우에만 더하고 대표 위반을 주입해 게이트가 실패하는지 확인한다. 런타임 의존성을 더하려면 표준 라이브러리 전용 불변식 때문에 먼저 설계 판단과 ADR이 필요하다([architecture.md](architecture.md) §멈춤 신호). **합격:** 로컬과 CI의 같은 명령이 같은 위반을 잡고, 영향을 받은 기능의 테스트와 타입 검사, 필요하면 전체 차등 비교가 통과한다.
+
+함수 추출은 길이보다 독립적인 규칙과 변화 이유를 기준으로 한다. `compile_tex()`·`revision_compile()`은 입출력을 순서대로 지휘할 수 있다. PDF·SyncTeX의 한 줄짜리 mtime 비교만 각각 감싸면 파일 관찰과 실패 우선순위의 책임은 그대로 남으므로, 그런 추출보다 오래된 산출물을 사용했을 때의 결과를 테스트로 지킨다.

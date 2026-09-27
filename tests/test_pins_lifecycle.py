@@ -300,6 +300,13 @@ class Close(unittest.TestCase):
         self.assertIs(closed.record["review"], True)
         self.assertNotIn("close_reply", closed.record)
 
+    def test_evolve_close_rejects_a_pin_already_closed(self):
+        """Applying a close event directly to a closed state cannot overwrite its first closer or time."""
+        event = PinClosed(ALICE_PERSON, AT, "again", None, (), review=False)
+        for pin in (ReviewPin.from_record(review_record()), DonePin.from_record({"id": 1, "done": True})):
+            with self.subTest(state=pin.state), self.assertRaises(ValueError):
+                evolve_close(pin, event)
+
 
 class Reopen(unittest.TestCase):
     """decide_reopen/evolve_reopen: a reopen forgets the last close; only a closed pin gets a thread entry."""
@@ -390,6 +397,18 @@ NOW = 1_790_000_000.0
 
 class ClaimTransitions(unittest.TestCase):
     """claim/unclaim: who holds the in-progress marker, for how long, and what a new claim forgets."""
+
+    def test_claim_request_rejects_invalid_ttl(self):
+        """A claim command made outside HTTP cannot carry an expired or non-integer lifetime."""
+        for ttl in (0, -1, True, 1.5):
+            with self.subTest(ttl=ttl), self.assertRaises(ValueError):
+                ClaimRequest(ttl)
+
+    def test_claim_request_rejects_invalid_estimate(self):
+        """A claim command cannot carry a non-positive or non-integer estimate."""
+        for eta in (0, -1, True, 1.5):
+            with self.subTest(eta=eta), self.assertRaises(ValueError):
+                ClaimRequest(30, eta)
 
     def test_closed_pin_cannot_be_claimed(self):
         """Claiming a review or done pin is refused with the pin."""
