@@ -18,7 +18,8 @@ async function pick(r){
   if(seq!==PICKSEQ)return;
   setBusy(false); if(!rp)PICKING=false;
   if(d.error){
-    if(d.pdf_build_gone){try{await refreshDoc();}catch(e){} if(rp&&rp.box){rp.box.remove();rp.box=null;} else if(!rp&&PENDING){PENDING.remove();PENDING=null;}}
+    if(d.pdf_build_gone){try{await refreshDoc();}catch(e){} if(seq!==PICKSEQ)return;
+      if(rp&&rp.box){rp.box.remove();rp.box=null;} else if(!rp&&PENDING){PENDING.remove();PENDING=null;}}
     if(rp){bannerRepick(errText(d));return;}
     // Even a pending save is never carried out if pick fails - only the existing error panel is shown (regression: prevents a silent save failure).
     CUR=null; clearPendingSave(); $('#c-err').textContent=errText(d); $('#c-err').hidden=false; $('#c-body').hidden=true; return;}
