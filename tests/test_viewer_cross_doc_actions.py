@@ -22,7 +22,7 @@ class CrossDocumentActionLifetime(unittest.TestCase):
                 """
                 let DOC='main',SWITCHSEQ=0,META=null,CUR=null,EDIT=null,REPICK=null;
                 let OPEN_ALL=[],REVIEW_ALL=[],DONE_ALL=[],PINS=[],DROPPED=[];
-                let LAYOUT='wide',scrolls=0,links=0,banners=0,cardJumps=0; const SMOOTH='smooth';
+                let LAYOUT='wide',scrolls=0,links=0,banners=0,cardJumps=0,restores=0,trashOpens=0; const SMOOTH='smooth';
                 const VIEW_BY=new Map(),META_BY=new Map([
                   ['other',{pages:[],pages_build:'same'}],['third',{pages:[],pages_build:'same'}]]);
                 const OPEN_CARDS=new Set(),SEC={done:false};
@@ -37,15 +37,15 @@ class CrossDocumentActionLifetime(unittest.TestCase):
                 function drawMeta(){} function refreshDoc(){} function isRegion(){return false;}
                 function setSide(){} function setSelMode(){} function drawPins(){}
                 function viaDoc(){return false;} function setViewMode(){}
-                function isViewer(){return false;} function restorePin(){} function openTrash(){}
+                function isViewer(){return false;} function restorePin(){restores++;} function openTrash(){trashOpens++;}
                 function jumpToCard(){cardJumps++;} function jumpPin(){links++;}
                 function findAnyPin(id){return OPEN_ALL.find(p=>p.id===id)||null;}
                 function pinState(){return 'open';}
                 function bannerRepick(){banners++;}
                 const frames=[]; function requestAnimationFrame(fn){frames.push(fn);}
                 const MQ_COARSE={matches:false};
-                let firstOtherResolve=null,otherReads=0,loadPinsResolve=null,holdPins=false;
-                function loadPins(){return holdPins?new Promise(resolve=>{loadPinsResolve=resolve;}):Promise.resolve(true);}
+                let firstOtherResolve=null,otherReads=0,loadPinsResolve=null,holdPins=false,loaded=true;
+                function loadPins(){return holdPins?new Promise(resolve=>{loadPinsResolve=resolve;}):Promise.resolve(loaded);}
                 function api(url){
                   if(url==='/api/meta?doc=other'){
                     otherReads++;
@@ -140,3 +140,17 @@ class CrossDocumentActionLifetime(unittest.TestCase):
             """,
         )
         self.assertEqual(result, {"doc": "third", "links": 1, "cardJumps": 0})
+
+    def test_failed_pin_snapshot_cannot_restore_from_old_trash(self):
+        """A failed pin or Trash read cannot restore a pin from an earlier snapshot."""
+        result = self._run(
+            ("openPinFromLink",),
+            """
+            (async()=>{
+              DROPPED=[{id:7,doc:'main'}];loaded=false;
+              await openPinFromLink('main',7,true);
+              console.log(JSON.stringify({restores,trashOpens,links}));
+            })();
+            """,
+        )
+        self.assertEqual(result, {"restores": 0, "trashOpens": 0, "links": 0})

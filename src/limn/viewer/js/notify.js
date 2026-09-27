@@ -78,7 +78,7 @@ function takeLinkHash(){const link={pin:hashPin(),doc:hashDoc(),restore:/(?:^#|[
 async function openPinFromLink(doc,pin,restore){if(!pin)return; if(doc&&doc!==DOC&&docInfo(doc)){
     const opening=switchDoc(doc),visit=SWITCHSEQ; await opening; if(DOC!==doc||visit!==SWITCHSEQ)return;}
   const visit=SWITCHSEQ,k=DOC;
-  await loadPins(); if(DOC!==k||visit!==SWITCHSEQ)return;
+  const applied=await loadPins(); if(!applied||DOC!==k||visit!==SWITCHSEQ)return;
   if(restore&&!isViewer()&&!findAnyPin(pin)&&DROPPED.some(x=>x.id===pin)){
     await restorePin(pin); if(DOC!==k||visit!==SWITCHSEQ)return;}
   const p=findAnyPin(pin); if(!p){if(DROPPED.some(x=>x.id===pin))openTrash(pin); return;} if(pinState(p)===PIN_STATE.DONE){SEC.done=true;}
