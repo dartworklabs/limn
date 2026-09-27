@@ -1,10 +1,12 @@
-"""The `limn` command surface: version, serve pass-through, help, and what `limn token` / `limn member` import."""
+"""The `limn` command surface: version, serve pass-through, help, what `limn token` / `limn member` import, and
+`limn update`'s default source (UpdateSource)."""
 
 import json
 import os
 import re
 import subprocess
 import sys
+import unittest
 from pathlib import Path
 
 import pytest
@@ -113,3 +115,16 @@ def test_token_and_member_commands_run_without_the_server(tmp_path):
     assert result == {"codes": [0] * 8, "loaded": []}
     actions = [json.loads(line)["action"] for line in (tmp_path / "state" / "audit.jsonl").read_text().splitlines()]
     assert actions == ["token_created", "token_revoked", "member_added", "member_role", "member_removed"]
+
+
+# ---------------------------------------------------------------- `limn update`'s default source (v0.2.1 QA)
+
+
+class UpdateSource(unittest.TestCase):
+    def test_default_is_https_everywhere(self):
+        sh = (SRC / "limn" / "instances.sh").read_text(encoding="utf-8")
+        self.assertIn('REPO="${LIMN_REPO:-git+https://github.com/dartworklabs/limn}"', sh)
+        text = (ROOT / "docs" / "handbook" / "instances.md").read_text(encoding="utf-8")
+        row = next(ln for ln in text.splitlines() if ln.startswith("| `LIMN_REPO`"))
+        self.assertIn("git+https://github.com/dartworklabs/limn", row)
+        self.assertIn("0.1.0의 기본값은 `git+ssh://", text)  # the note on the v0.1.0 ssh default

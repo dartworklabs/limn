@@ -1,10 +1,11 @@
 """limn.service - the pin service shells, driven directly with a real PinStore over a temp folder and recording sinks.
 
-The rules themselves are pinned in test_pins_lifecycle.py and test_pins_edit.py, and every HTTP flow in
-test_server.py, test_v022.py and test_v031.py; claims and closing with a reply also run through server.py's pin
-context at the end of this file (Claim, CloseReplyRef, CloseIdempotent). This file pins what the shells add around
-the rules: they write only
-when the rule accepts, notices are emitted only after the write and never for a refusal, the audit line is appended
+The rules themselves are pinned in test_pins_lifecycle.py and test_pins_edit.py, and the HTTP flows in
+test_server.py and the feature files (test_reply.py, test_trash.py, test_notifications.py). The pin actions also run
+through server.py's pin context at the end of this file: claims (Claim, ClaimEstimate), closing (CloseReplyRef,
+CloseIdempotent, and CloseChanges - the optional `changes` of v0.3, issue #9), note_append, kinds and threads,
+review and @-tags on edit. This file pins what the shells add around the rules: they write only when the rule
+accepts, notices are emitted only after the write and never for a refusal, the audit line is appended
 outside the pin lock, an agent's confirm never touches the store, and the package's import boundary.
 
 Run: uv run pytest -q tests/test_service.py
@@ -18,13 +19,15 @@ import time
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
+from unittest import mock
 
-from limn import service
+from limn import mentions, service
 from limn.access import LOCAL_ACTOR
 from limn.locate import PinLocation
 from limn.mentions import NoteTags
-from limn.pins.edit import AddRequest, EditRequest, LinePlace, StaleEdit
+from limn.pins.edit import NOTE_MAX, AddRequest, EditRequest, LinePlace, NoteTooLong, StaleEdit
 from limn.pins.lifecycle import (
+    CLAIM_FIELDS,
     AgentCannotConfirm,
     AlreadyClosed,
     AlreadyLive,
@@ -34,16 +37,18 @@ from limn.pins.lifecycle import (
     NotClaimed,
     NotInTrash,
     ThreadFull,
+    pin_reopened_in_round,
 )
 from limn.pins.model import Agent, DonePin, OpenPin, Person, PinNotFound, ReviewPin, TrashedPin
+from limn.pins.view import pin_state
 from limn.service import add_edit, claim, transitions, trash
 from limn.service.context import LoadedPin, PinContext, is_agent, load_pin, typed_actor, who
 from limn.store import PinFiles, PinStore, find_pin
 from limn.web import parse
 from limn.web.errors import InputRejected
 
-from helpers import Base, ps, record_of, req
-from helpers_access import ALICE_ACTOR, BOB_ACTOR
+from helpers import Base, add_pin, edit_pin, ps, record_of, req, split_resp
+from helpers_access import ALICE_ACTOR, BOB_ACTOR, AccessBase
 
 SERVICE_DIR = Path(service.__file__).parent
 T = 1790000000.0
@@ -720,6 +725,371 @@ class Who(unittest.TestCase):
         self.assertEqual(who({}), {"login": "local", "name": ""})
         actor = {"login": "agent:ci", "name": "ci"}
         self.assertIsNot(who(actor), actor)
+
+
+class NoteAppend(Base):
+    """An edit with note_append adds to the note in place (one line, undoable), needs no base_rev, and is refused
+    without a change when it is empty or would take the note over NOTE_MAX."""
+
+    def test_note_append_then_undo(self):
+        pid = self.add(note="원본")
+        p0 = self.pin(pid)
+        p1 = record_of(edit_pin(pid, {"note_append": "추가 텍스트"}, dict(LOCAL_ACTOR)))
+        self.assertIn("추가 텍스트", p1["note"])
+        self.assertIn("(추가 ", p1["note"])
+        self.assertEqual(len(ps.C.pins_jsonl.read_text().splitlines()), 1)  # line count unchanged
+        undone = record_of(edit_pin(pid, {"note": p0["note"], "base_rev": p1["rev"]}, dict(LOCAL_ACTOR)))
+        self.assertEqual(undone["note"], p0["note"])
+
+    def test_note_append_does_not_need_base_rev(self):
+        pid = self.add()
+        p = record_of(edit_pin(pid, {"note_append": "x"}, dict(LOCAL_ACTOR)))
+        self.assertIn("x", p["note"])
+
+    def test_note_append_empty_string_rejected(self):
+        """An empty note_append is refused (note_append_empty) and changes nothing."""
+        pid = self.add(note="원본")
+        empty = InputRejected("덧붙일 메모가 비어 있습니다.", "note_append_empty")
+        self.assertEqual(edit_pin(pid, {"note_append": ""}, dict(LOCAL_ACTOR)), empty)
+        self.assertEqual(edit_pin(pid, {"note_append": "   "}, dict(LOCAL_ACTOR)), empty)  # whitespace only too
+        self.assertEqual(self.pin(pid)["note"], "원본")  # unchanged since it was rejected
+
+    def test_note_append_over_note_max_combined_is_rejected(self):
+        pid = self.add(note="x" * (NOTE_MAX - 20))  # only 20 chars of headroom
+        # under the per-field cap (2000), over it once combined
+        refused = edit_pin(pid, {"note_append": "y" * 100}, dict(LOCAL_ACTOR))
+        self.assertIsInstance(refused, NoteTooLong)
+        self.assertEqual(refused.limit, NOTE_MAX)
+        self.assertEqual(len(self.pin(pid)["note"]), NOTE_MAX - 20)  # unchanged length since it was rejected
+        self.assertEqual(self.pin(pid)["rev"], 0)  # rev doesn't bump either
+
+
+class ClaimEstimate(Base):
+    """A claim with an estimate (eta_min) stores eta_ts and the start next to claim_until; the same identity extends it
+    keeping the start, another identity is refused with the holder's estimate, and every way of ending the claim
+    (close, drop, unclaim) clears all claim fields."""
+
+    A = {"login": "alice@example.com", "name": "Wendy"}
+
+    B = {"login": "bob@example.com", "name": "Bob"}
+
+    def test_claim_stores_eta_and_start(self):
+        pid = self.add()
+        t0 = time.time()
+        p = record_of(ps.claim_pin(pid, self.A, *parse.parse_claim_body({"eta_min": 15})))
+        self.assertAlmostEqual(p["eta_ts"], t0 + 15 * 60, delta=5)
+        self.assertAlmostEqual(p["claim_ts"], t0, delta=5)
+        self.assertAlmostEqual(p["claim_until"], t0 + 30 * 60, delta=5)
+        self.assertIsInstance(p["claimed_at"], str)
+        rows, _ = ps.read_pins()  # it's a stored value (not a computed field)
+        self.assertIn("eta_ts", find_pin(rows, pid))
+
+    def test_same_identity_reclaim_extends_and_updates_estimate(self):
+        pid = self.add()
+        first = record_of(ps.claim_pin(pid, self.A, *parse.parse_claim_body({"eta_min": 5})))
+        with ps.PIN_LOCK:  # move it back to having been claimed 10 minutes ago
+            rows, _ = ps.read_pins()
+            r = find_pin(rows, pid)
+            for k in ("claim_ts", "eta_ts", "claim_until"):
+                r[k] -= 600
+            ps.write_pins(rows)
+        second = record_of(ps.claim_pin(pid, self.A, *parse.parse_claim_body({"eta_min": 20})))
+        self.assertAlmostEqual(second["claim_ts"], first["claim_ts"] - 600, delta=1)  # the start time stays put
+        self.assertEqual(second["claimed_at"], first["claimed_at"])
+        self.assertAlmostEqual(second["eta_ts"], time.time() + 20 * 60, delta=5)  # the new estimate starts from now
+        self.assertAlmostEqual(second["claim_until"], time.time() + 40 * 60, delta=5)
+        # extending with no new estimate keeps the previous one
+        third = record_of(ps.claim_pin(pid, self.A, *parse.parse_claim_body({})))
+        self.assertEqual(third["eta_ts"], second["eta_ts"])
+        self.assertEqual(third["rev"], second["rev"] + 1)
+
+    def test_other_identity_conflict_reports_eta_and_new_claim_drops_old_eta(self):
+        pid = self.add()
+        ps.claim_pin(pid, self.A, *parse.parse_claim_body({"eta_min": 15}))
+        refused = ps.claim_pin(pid, self.B, *parse.parse_claim_body({"eta_min": 5}))  # answered 409 "claimed"
+        self.assertIsInstance(refused, ClaimedByOther)
+        self.assertIsNotNone(refused.eta_ts)
+        with ps.PIN_LOCK:  # A's claim has expired
+            rows, _ = ps.read_pins()
+            find_pin(rows, pid)["claim_until"] = time.time() - 1
+            ps.write_pins(rows)
+        p = record_of(ps.claim_pin(pid, self.B, *parse.parse_claim_body({})))
+        self.assertEqual(p["claimed_by"]["login"], "bob@example.com")
+        self.assertNotIn("eta_ts", p)  # doesn't inherit someone else's old estimate
+
+    def test_close_drop_unclaim_clear_all_claim_fields(self):
+        for how in ("close", "drop", "unclaim"):
+            pid = self.add()
+            ps.claim_pin(pid, self.A, *parse.parse_claim_body({"eta_min": 10}))
+            if how == "close":
+                rec = record_of(ps.close_pin(pid, self.A, CloseRequest()))
+            elif how == "unclaim":
+                rec = record_of(ps.unclaim_pin(pid, self.A))
+            else:
+                ps.drop_pin(pid, self.A)
+                rec = ps.read_jsonl(ps.C.dropped)[0][-1]
+            for k in CLAIM_FIELDS:
+                self.assertNotIn(k, rec, (how, k))
+
+
+class PinKindAndThread(Base):
+    """kind_req (fix request or question) is stored only when given and can be switched on a closed pin; the thread is
+    capped except for status records, and a close reply enters it once."""
+
+    S = {"login": "bob@example.com", "name": "Bob Park"}
+
+    def test_kind_req_stored_only_when_given_and_validated(self):
+        """kind_req is stored only when given, and an unknown value is refused (bad_kind_req)."""
+        q = add_pin(
+            {"file": str(self.main), "lo": 4, "hi": 5, "page": 1, "note": "구간의 정의는?", "kind_req": "question"},
+            dict(self.S),
+        ).record["id"]
+        f = self.add()
+        self.assertEqual(self.pin(q)["kind_req"], "question")
+        self.assertNotIn("kind_req", self.pin(f))  # an old-style call (agent curl) has no field = fix request
+        self.assertEqual(
+            add_pin({"file": str(self.main), "lo": 4, "hi": 5, "kind_req": "ask"}, dict(self.S)),
+            InputRejected("kind_req 는 fix|question 중 하나입니다.", "bad_kind_req"),
+        )
+
+    def test_edit_switches_kind_even_on_closed_pin(self):
+        pid = self.add()
+        p = record_of(edit_pin(pid, {"kind_req": "question", "base_rev": 0}, dict(self.S)))
+        self.assertEqual(p["kind_req"], "question")
+        ps.close_pin(pid, dict(self.S), CloseRequest())
+        p = record_of(edit_pin(pid, {"kind_req": "fix", "base_rev": self.pin(pid)["rev"]}, dict(self.S)))
+        self.assertEqual(p["kind_req"], "fix")
+
+    def test_thread_is_capped(self):
+        pid = self.add()
+        with mock.patch.object(ps, "THREAD_MAX", 2):
+            ps.reply_pin(pid, "1", dict(self.S))
+            ps.reply_pin(pid, "2", dict(self.S))
+            self.assertEqual(ps.reply_pin(pid, "3", dict(self.S)), ThreadFull(2))  # answered 409 "full" over HTTP
+            # a status-transition record is exempt from the cap
+            ps.close_pin(pid, dict(self.S), CloseRequest(reply="닫음"))
+        self.assertEqual([m.get("ev") for m in self.pin(pid)["thread"]], [None, None, "close"])
+
+    def test_close_reply_is_appended_to_thread_once(self):
+        pid = self.add()
+        ps.reply_pin(pid, "질문이 있어요", dict(self.S))
+        ps.close_pin(pid, dict(self.S), CloseRequest(reply="제목을 고침", ref="PR #227"))
+        ps.close_pin(pid, dict(self.S), CloseRequest(reply="두 번째 닫기"))  # already closed — nothing gets appended
+        th = self.pin(pid)["thread"]
+        self.assertEqual(
+            [(m["id"], m.get("ev"), m["text"], m.get("ref")) for m in th],
+            [(1, None, "질문이 있어요", None), (2, "close", "제목을 고침", "PR #227")],
+        )
+        # the old field is left in place too (compat with old viewers/agents)
+        self.assertEqual(self.pin(pid)["close_reply"], "제목을 고침")
+
+
+class ReviewTransitions(Base):
+    """A pin awaiting review is not open work for agents (not listed, not claimable, counted apart), and reopening a
+    confirmed pin drops the confirmation."""
+
+    S = {"login": "bob@example.com", "name": "Bob Park"}
+
+    def test_review_pins_are_not_open_for_agents(self):
+        pid = self.add()
+        ps.close_pin(pid, dict(LOCAL_ACTOR), CloseRequest(reply="고침"))
+        _, _, raw = split_resp(self.talk(req("GET", "/api/pins")))
+        self.assertEqual(json.loads(raw), [])  # not in the open-pin list (legacy contract)
+        self.assertIsInstance(ps.claim_pin(pid, dict(LOCAL_ACTOR), 30), ClaimClosedPin)  # 409 "done"
+        m = ps.meta(ps.DOCS[0], dict(LOCAL_ACTOR))
+        self.assertEqual((m["n_open"], m["n_review"], m["n_done"]), (0, 1, 0))
+
+    def test_reopen_after_confirm_drops_confirmation(self):
+        pid = self.add()
+        ps.close_pin(pid, dict(LOCAL_ACTOR), CloseRequest())
+        ps.confirm_pin(pid, dict(self.S))
+        ps.reopen_pin(pid, dict(self.S), reason="다시")
+        p = self.pin(pid)
+        self.assertNotIn("confirmed_by", p)
+        self.assertEqual(pin_state(p), "open")
+
+
+class MentionsOnEdit(Base):
+    """An edit notifies only newly tagged people, a self-tag is never stored or addressed, and a reopen after a confirm
+    still marks the pin reopened."""
+
+    S = {"login": "bob@example.com", "name": "Bob Park"}
+
+    W = {"login": "wendy@example.com", "name": "Wendy Kim"}
+
+    def setUp(self):
+        super().setUp()
+        ps._PEOPLE_SEEN.clear()
+        ps._EVENTS_CACHE.clear()
+
+    def events(self):
+        return ps._read_events()[0]
+
+    def test_edit_adds_mention_event_only_for_new_names(self):
+        ps.record_person(dict(self.W))
+        ps.record_person(dict(self.S))
+        pid = add_pin(
+            {"file": str(self.main), "lo": 4, "hi": 5, "note": "@Wendy Kim 봐 주세요"}, dict(LOCAL_ACTOR)
+        ).record["id"]
+        edit_pin(pid, {"note": "@Wendy Kim @Bob Park 봐 주세요", "base_rev": 0}, dict(LOCAL_ACTOR))
+        self.assertEqual(
+            [(e["type"], e["to"]) for e in self.events()],
+            [("mention", [self.W["login"]]), ("mention", [self.S["login"]])],
+        )
+        edit_pin(pid, {"note": "그냥 메모", "base_rev": 1}, dict(LOCAL_ACTOR))
+        self.assertNotIn("mentions", self.pin(pid))
+
+    def test_reopen_after_confirm_marks_reopened_symbol_not_just_first_round_msg(self):
+        # observed bug: reopening after a confirm made the round start with [confirm, reopen, ...], so the
+        # "reopened" marker was missing (the old check only looked at "is the round's first message a
+        # reopen?"). pin_reopened_in_round() now skips over confirm.
+        pid = self.add()
+        ps.close_pin(pid, dict(LOCAL_ACTOR), CloseRequest(reply="고침"))
+        ps.confirm_pin(pid, dict(self.S))
+        ps.reopen_pin(pid, dict(self.S), reason="다시 봐 주세요")
+        self.assertTrue(pin_reopened_in_round(self.pin(pid)))
+        md = ps.C.pins_md.read_text(encoding="utf-8")
+        row = next(ln for ln in md.splitlines() if ln.startswith("| %d " % pid))
+        self.assertIn("다시 열림", row)
+
+    def test_self_mention_never_becomes_addressed(self):
+        ps.record_person(dict(self.W))
+        ps.record_person(dict(self.S))
+        pid = add_pin(
+            {"file": str(self.main), "lo": 4, "hi": 5, "note": "@Wendy Kim 셀프 태그", "kind_req": "question"},
+            dict(self.W),
+        ).record["id"]
+        p = self.pin(pid)
+        self.assertNotIn("mentions", p)  # a self-@mention isn't stored
+        self.assertEqual(mentions.addressed_to(p), [])
+        msg = ps.reply_pin(pid, "@Bob Park 님 확인 부탁드립니다 @Wendy Kim", dict(self.W)).record["thread"][-1]
+        self.assertEqual(msg["mentions"], [self.S["login"]])  # the reply's own author (W) is excluded
+
+
+# ---------------------------------------------------------------- the close contract's optional `changes` (v0.3, issue #9)
+
+
+class CloseChanges(AccessBase):
+    """The optional `changes` on POST /api/pins/{id}/close: validation, storage, reopen, pins.md."""
+
+    def setUp(self):
+        super().setUp()
+        (self.src / "sec").mkdir()
+        (self.src / "sec" / "a.tex").write_text("x\n" * 30)
+        self.pid = self.add()
+
+    def close(self, body):
+        return self.call("POST", "/api/pins/%d/close" % self.pid, body)
+
+    def test_valid_changes_are_stored_as_absolute_paths_and_exposed(self):
+        """A valid changes list is stored resolved and absolute on the first close and appears in the pins API."""
+        code, d = self.close(
+            {
+                "reply": "fixed",
+                "ref": "abc1234",
+                "changes": [
+                    {"file": "main.tex", "lo": 4, "hi": 5},
+                    {"file": str(self.src / "sec" / "a.tex"), "lo": 7, "hi": 7},
+                ],
+            }
+        )
+        self.assertEqual(code, 200, d)
+        want = [
+            {"file": str(self.main.resolve()), "lo": 4, "hi": 5},
+            {"file": str((self.src / "sec" / "a.tex").resolve()), "lo": 7, "hi": 7},
+        ]
+        self.assertEqual(d["pin"]["changes"], want)
+        code, d = self.call("GET", "/api/pins/%d" % self.pid)
+        self.assertEqual(d["pin"]["changes"], want)
+        code, d = self.call("GET", "/api/pins?all=1")
+        self.assertEqual([p.get("changes") for p in d if p["id"] == self.pid], [want])
+        self.assertTrue(ps.valid_rec(self.pin(self.pid)))
+
+    def test_invalid_changes_are_rejected_with_400_and_change_nothing(self):
+        """Each malformed changes item or list is a 400 and leaves the pin open (boundary validation)."""
+        bad = [
+            {"file": "main.tex", "lo": 5, "hi": 4},
+            {"file": "main.tex", "lo": 0, "hi": 1},
+            {"file": "main.tex", "lo": 1.5, "hi": 2},
+            {"file": "main.tex", "lo": True, "hi": 2},
+            {"file": "main.tex", "lo": "1", "hi": 2},
+            {"file": "main.tex", "lo": 1},
+            {"file": "", "lo": 1, "hi": 1},
+            {"file": 3, "lo": 1, "hi": 1},
+            {"file": "../outside.tex", "lo": 1, "hi": 1},
+            {"file": "/etc/passwd", "lo": 1, "hi": 1},
+            {"file": "main.tex", "lo": 1, "hi": 1, "extra": 1},
+            {"file": "main.tex", "lo": 1, "hi": 10**7},
+            {"file": "a\x00b", "lo": 1, "hi": 1},
+            "main.tex:1-2",
+        ]
+        for item in bad:
+            with self.subTest(item=item):
+                code, d = self.close({"changes": [item]})
+                self.assertEqual(code, 400, d)
+                self.assertFalse(self.pin(self.pid).get("done"))
+        for whole in (
+            {"file": "main.tex", "lo": 1, "hi": 1},
+            "x",
+            [{"file": "main.tex", "lo": 1, "hi": 1}] * (parse.CLOSE_CHANGES_MAX + 1),
+        ):
+            with self.subTest(whole=str(whole)[:40]):
+                code, d = self.close({"changes": whole})
+                self.assertEqual(code, 400, d)
+        self.assertFalse(self.pin(self.pid).get("done"))
+
+    def test_absent_or_empty_changes_close_like_0_2_2(self):
+        """Old agents: a close without changes (or with []) stores nothing new."""
+        code, d = self.close({"changes": []})
+        self.assertEqual(code, 200)
+        self.assertNotIn("changes", d["pin"])
+        other = self.add(lo=8, hi=9)
+        code, d = self.call("POST", "/api/pins/%d/close" % other)
+        self.assertEqual((code, "changes" in d["pin"]), (200, False))
+
+    def test_reclose_keeps_and_reopen_clears_changes(self):
+        """Changes follow close_reply/close_ref: the first close wins, a reopen clears them."""
+        self.close({"changes": [{"file": "main.tex", "lo": 4, "hi": 5}]})
+        self.close({"changes": [{"file": "main.tex", "lo": 9, "hi": 9}]})
+        self.assertEqual(self.pin(self.pid)["changes"][0]["lo"], 4)
+        self.call("POST", "/api/pins/%d/reopen" % self.pid, {})
+        self.assertNotIn("changes", self.pin(self.pid))
+
+    def test_a_malformed_stored_changes_field_marks_the_line_broken(self):
+        """valid_rec() rejects a record whose stored changes have the wrong shape."""
+        r = dict(self.pin(self.pid), changes=[{"file": 3, "lo": 1, "hi": 2}])
+        self.assertFalse(ps.valid_rec(r))
+        self.assertTrue(ps.valid_rec(dict(r, changes=[{"file": "/a.tex", "lo": 1, "hi": 2}])))
+
+    def test_pins_md_close_instruction_line_asks_for_changes_and_the_merged_commit(self):
+        """Owner decision (review of #13): the close line asks for changes and ref = PR #N (hash); the rest of the line is 0.2.2's."""
+        # decided after review (ADR-0005, accepted): paper repos squash-merge and agents close after the merge, so the
+        # line asks for `changes` in the numbering of the commit `ref` names, and ref = "PR #N (<hash>)"; per-pin commits
+        # help but are optional
+        text = ps.pins_md_text(ps.snapshot_pins())
+        line = next(ln for ln in text.splitlines() if ln.startswith("처리한 핀은 닫는다"))
+        self.assertTrue(
+            line.startswith(
+                "처리한 핀은 닫는다 — 닫을 때 `changes` 에 이 핀 때문에 바꾼 줄 범위를, `ref` 에 `PR #번호 (커밋 해시)` 를 적는다: `curl"
+            ),
+            line,
+        )
+        self.assertIn(
+            '"ref":"PR #12 (커밋 해시)","changes":[{"file":"main.tex","lo":12,"hi":14}]}'
+            + "' http://127.0.0.1:18999/api/pins/N/close`",
+            line,
+        )
+        self.assertIn(
+            "(본문 생략 가능, 그러면 옛 방식처럼 사유 없이 닫힘. `changes` 의 줄 번호는 `ref` 의 커밋이 만든 판 기준 — 스쿼시 머지 뒤 닫으면 머지된 main 기준, 경로는 위치 칸 기준. 핀마다 커밋을 나누면 더 좋지만 필수는 아니다)"
+            + " · 줄 번호는 갱신 시각 기준이니 원문을 다시 읽고 고친다 · '질문' 핀은 원고를 고치지 말고",
+            line,
+        )
+        self.assertNotIn("스쿼시하지", line)
+        self.assertTrue(
+            line.endswith(
+                "에이전트는 확인(confirm)하지 않는다 — `/api/pins/N/confirm` 은 사람 신원(테일넷 헤더)이 없으면 403"
+            )
+        )
 
 
 if __name__ == "__main__":

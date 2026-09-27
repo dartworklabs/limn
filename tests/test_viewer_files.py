@@ -4,7 +4,8 @@ index.html carries one __APP_CSS__ and one __APP_JS__ marker. parts.txt lists, p
 files under css/ and js/; the server joins each list byte for byte into the marker's place, so the stylesheet is one
 <style> and the script one classic <script> sharing a single scope - no bundler, no module loader. GET / must stay a
 single response, byte for byte what the parts joined in that order produce. The page's inline scripts must parse:
-node --check runs on each of them (skipped without node, required where LIMN_TEST_REQUIRE_NODE=1, as in CI).
+node --check runs on each of them (skipped without node, required where LIMN_TEST_REQUIRE_NODE=1, as in CI). The
+notification service worker is its own file, served at GET /sw.js (ServiceWorkerRoute).
 
 Run: uv run pytest -q tests/test_viewer_files.py
 """
@@ -19,7 +20,7 @@ from pathlib import Path
 
 from limn.viewer import assemble
 
-from helpers import VIEWER, ps, viewer_text
+from helpers import VIEWER, Base, ps, req, split_resp, viewer_text
 from helpers_js import inline_scripts
 
 EXT = {"__APP_CSS__": ".css", "__APP_JS__": ".js"}
@@ -202,6 +203,35 @@ class ViewerScriptParses(unittest.TestCase):
             check=False,
         )
         self.assertEqual(r.returncode, 0, r.stderr)
+
+
+class ServiceWorkerRoute(Base):
+    """GET /sw.js serves the notification service worker: JavaScript, not cached, host-checked, no app-data cache."""
+
+    def setUp(self):
+        super().setUp()
+        ps._EVENTS_CACHE.clear()
+
+    def get(self, path, headers=None):
+        code, h, raw = split_resp(self.talk(req("GET", path, headers=headers)))
+        return code, h, raw
+
+    def test_service_worker_route(self):
+        code, h, raw = self.get("/sw.js")
+        self.assertEqual(code, 200)
+        self.assertEqual(h["content-type"], "text/javascript; charset=utf-8")
+        self.assertEqual(h["cache-control"], "no-cache")
+        js = raw.decode()
+        self.assertIn("notificationclick", js)
+        self.assertIn("clients.openWindow", js)
+        # v0.2.2: [되살리기] on a 'dropped' notification
+        self.assertIn("postMessage({type:e.action==='restore'?'restore-pin':'open-pin'", js)
+        self.assertNotIn("'fetch'", js)  # doesn't cache app data
+        code, _, _ = self.get("/sw.js", {"Host": "evil.example"})
+        self.assertEqual(code, 403)
+        if shutil.which("node"):
+            r = subprocess.run(["node", "--check", "-"], input=js, capture_output=True, text=True, check=False)
+            self.assertEqual(r.returncode, 0, r.stderr)
 
 
 if __name__ == "__main__":

@@ -3,7 +3,8 @@
 The store is built here from its explicit parts: a temp state directory, a fresh lock, a small record check, a fake
 re-sync and a fake renderer. These tests pin the durable invariants of docs/handbook/architecture.md (불변식 4, 6)
 and domain.md §저장소 안전성 at the store itself; the same behaviour through server.py (render failure, restore order,
-concurrent saves, quarantined lines) is Store at the end of this file.
+concurrent saves, quarantined lines) is Store at the end of this file, and after it the reads that must never
+rewrite a legacy record (LegacyPinsNotRewritten, LegacyMentionsNotRewritten).
 
 Run: uv run pytest -q tests/test_store.py
 """
@@ -18,13 +19,13 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from limn import build as limn_build, store
+from limn import build as limn_build, files, mapping, store
 from limn.access import LOCAL_ACTOR
 from limn.pins.edit import PinOutsideTree
 from limn.store import PinFiles, PinStore, dump_jsonl, find_pin
 from limn.web.errors import InputRejected
 
-from helpers import TEX, Base, add_pin, edit_pin, ps, record_of
+from helpers import TEX, Base, add_pin, edit_pin, ps, record_of, req
 
 STORE_PY = Path(store.__file__)
 
@@ -595,6 +596,65 @@ class Store(Base):
     def test_meta_exposes_pages_build(self):
         d = ps.meta(ps.DOCS[0], dict(LOCAL_ACTOR), light=True)
         self.assertEqual(d["pages_build"], limn_build.cur_pages(ps.DOCS[0]).name)
+
+
+class LegacyPinsNotRewritten(Base):
+    """A record from before kinds and threads is read as it is: reads (the payload, GET /api/pins, GET /pins.md)
+    never rewrite pins.jsonl."""
+
+    def test_legacy_records_are_not_rewritten_by_reads(self):
+        legacy = {
+            "id": 7,
+            "file": str(self.main),
+            "name": "main.tex",
+            "lo": 4,
+            "hi": 5,
+            "page": 1,
+            "note": "옛 핀",
+            "at": "2026-09-21 20:00:00",
+            "done": True,
+            "done_at": "2026-09-21 21:00:00",
+            "close_reply": "고침",
+            "anchor": mapping.anchor_of(files.tex_lines(self.main), 4, 5),
+            "synced_at": self.main.stat().st_mtime + 10,
+        }
+        ps.C.pins_jsonl.write_text(json.dumps(legacy, ensure_ascii=False) + "\n", encoding="utf-8")
+        before = ps.C.pins_jsonl.read_bytes()
+        mtime = ps.C.pins_jsonl.stat().st_mtime_ns
+        rows = ps.pins_payload(ps.snapshot_pins(), True)
+        self.talk(req("GET", "/api/pins?all=1"))
+        self.talk(req("GET", "/pins.md"))
+        self.assertEqual(ps.C.pins_jsonl.read_bytes(), before)
+        self.assertEqual(ps.C.pins_jsonl.stat().st_mtime_ns, mtime)
+        self.assertEqual(rows[0]["state"], "done")
+        self.assertNotIn("thread", rows[0])
+
+
+class LegacyMentionsNotRewritten(Base):
+    """A pin stored without mentions or assignee is read as it is: reads never rewrite pins.jsonl to add them."""
+
+    S = {"login": "bob@example.com", "name": "Bob Park"}
+
+    W = {"login": "wendy@example.com", "name": "Wendy Kim"}
+
+    def setUp(self):
+        super().setUp()
+        ps._PEOPLE_SEEN.clear()
+        ps._EVENTS_CACHE.clear()
+
+    def test_legacy_pins_read_without_rewrite(self):
+        ps.record_person(dict(self.S))
+        pid = add_pin({"file": str(self.main), "lo": 4, "hi": 5, "note": "@Bob Park 확인 부탁"}, dict(self.W)).record[
+            "id"
+        ]
+        f = ps.C.pins_jsonl
+        before = f.read_bytes()
+        for _ in range(2):
+            ps.pins_payload(ps.snapshot_pins(), True)
+            self.talk(req("GET", "/api/pins?all=1"))
+            self.talk(req("GET", "/pins.md"))
+        self.assertEqual(f.read_bytes(), before)
+        self.assertNotIn("assignee", self.pin(pid))
 
 
 if __name__ == "__main__":

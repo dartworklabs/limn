@@ -2,8 +2,7 @@
 
 These tests call the module directly with values: no server, files, clock or subprocess. The same rules are also
 pinned through the server in test_locate.py (GET /api/pins's est, re-sync after an edit of the manuscript) and
-test_server.py (rel);
-here each rule's own contract is checked, and that the module stays pure.
+test_server.py (rel); here each rule's own contract is checked, and that the module stays pure.
 
 Run: uv run pytest -q tests/test_pins_position.py
 """
@@ -248,6 +247,17 @@ class AnchorResync(unittest.TestCase):
         new = position.resync(self.pin(), shifted, [norm(t) for t in shifted], 50.0, "/new/main.tex")
         self.assertEqual((new["lo"], new["file"], new["synced_at"]), (3, "/new/main.tex", 50.0))
         self.assertNotIn("file_rel", new)
+
+
+class SelectionRelation(unittest.TestCase):
+    """selection_rel() names how a selected range relates to a pin's: equal, inside, contains, partial, or None."""
+
+    def test_selection_rel_all_four_relations(self):
+        self.assertEqual(position.selection_rel(4, 9, 4, 9), "equal")
+        self.assertEqual(position.selection_rel(5, 6, 4, 9), "inside")
+        self.assertEqual(position.selection_rel(3, 10, 4, 9), "contains")
+        self.assertEqual(position.selection_rel(8, 12, 4, 9), "partial")
+        self.assertIsNone(position.selection_rel(10, 12, 4, 9))
 
 
 if __name__ == "__main__":

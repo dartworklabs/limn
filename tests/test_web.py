@@ -1,7 +1,7 @@
 """limn.web - the HTTP layer on its own: how the handler is bound to server.py, and the answers and error pages.
 
 Every route's statuses, headers and bodies are pinned end to end through the handler in test_server.py, test_access.py
-and the version suites. Here: the binding contract (server.py provides everything limn.web.app.App names, and the
+and the feature files. Here: the binding contract (server.py provides everything limn.web.app.App names, and the
 handler sees a name rebound on the server module), the import direction (limn.web never imports server.py), the
 package name (server.py still runs as a file), and the answers and error pages as plain functions.
 

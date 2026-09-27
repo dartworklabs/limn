@@ -3,8 +3,8 @@ state helpers (tokens, members), a socketpair request from a chosen TCP peer, an
 AccessBase, ScopedRepo (a git repository with pin-scoped commits) and MovedManuscriptBase (a checkout renamed between
 two server runs).
 
-They lived in test_access.py, test_qa_021.py, test_v03.py and test_v032.py and were imported from there; a test module
-is not a fixture library (importing one runs its module code and couples the files), so they are here. None of the
+A test module is not a fixture library (importing one runs its module code and couples the files), so what more
+than one test file uses is here. None of the
 classes holds a test, so importing one never collects a test twice.
 """
 
@@ -42,6 +42,11 @@ ALICE_ACTOR = actor(ALICE)
 BOB_ACTOR = actor(BOB)
 # The body POST /api/clear requires.
 CLEAR_BODY = {"confirm": "clear all pins"}
+# Their logins, as events and people.json name people.
+A_LOGIN, B_LOGIN, C_LOGIN = (h["Tailscale-User-Login"] for h in (ALICE, BOB, CAROL))
+# A fourth person (the agent-role member where a test gives roles) and a tailnet host name as `tailscale serve` sends it.
+DAVE = {"Tailscale-User-Login": "dave@example.com", "Tailscale-User-Name": "Dave Choi"}
+TS_HOST = "box.tail1234.ts.net"
 
 
 ACCESS_DEFAULTS = dict(

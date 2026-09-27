@@ -1,7 +1,8 @@
 """limn.locate - the effectful half of the position rules, driven by the arguments it is given (coding rule R5).
 
-Re-sync and estimation are pinned through server.py at the end of this file (Anchor, Estimate); picking and overlaps
-through the server in test_server.py (OverlapRoutes), test_v032.py and test_moved_paths.py. The classes above call the
+Re-sync, estimation and overlaps are pinned through server.py at the end of this file (Anchor, Estimate,
+ServerOverlaps); picking and the overlap routes through the handler in test_server.py (OverlapRoutes) and
+test_moved_paths.py. The classes above call the
 module directly, with no server and no run arguments: it must not read them, and its re-sync and token weights work
 on the files and cache they are handed.
 
@@ -513,6 +514,46 @@ class Estimate(Base):
         self.assertIs(self.est_of(pid), True)
         edit_pin(pid, {"note": "메모만", "base_rev": self.pin(pid)["rev"]}, dict(LOCAL_ACTOR))
         self.assertIs(self.est_of(pid), True)
+
+
+class ServerOverlaps(Base):
+    """Overlaps as server.py wires them on the fixture manuscript: overlaps_by_id over the pins, overlaps_for_range for a
+    range that is not a pin yet (the pick's banner)."""
+
+    def test_inside_and_contains_pair(self):
+        # the first two paragraphs (not blank-line-free — lo/hi adjusted to overlap generously)
+        p1 = self.add(4, 9, note="outer")
+        p2 = self.add(4, 5, note="inner")
+        rows = ps.snapshot_pins()
+        rel = ps.overlaps_by_id(rows)
+        self.assertEqual(rel[p2], [{"id": p1, "rel": "inside"}])
+        self.assertEqual(rel[p1], [{"id": p2, "rel": "contains"}])
+
+    def test_partial_overlap(self):
+        p1 = self.add(4, 5)
+        p2 = self.add(5, 6)
+        rel = ps.overlaps_by_id(ps.snapshot_pins())
+        self.assertEqual(rel[p1], [{"id": p2, "rel": "partial"}])
+        self.assertEqual(rel[p2], [{"id": p1, "rel": "partial"}])
+
+    def test_no_overlap_is_empty(self):
+        p1 = self.add(4, 5)
+        p2 = self.add(8, 9)
+        rel = ps.overlaps_by_id(ps.snapshot_pins())
+        self.assertEqual(rel[p1], [])
+        self.assertEqual(rel[p2], [])
+
+    def test_overlaps_for_range_matches_pick_semantics(self):
+        self.add(4, 9, note="outer")
+        ov = ps.overlaps_for_range(str(self.main), 4, 5)
+        self.assertEqual(len(ov), 1)
+        self.assertEqual(ov[0]["rel"], "inside")
+
+    def test_overlaps_for_range_same_range_is_equal(self):
+        # design 2: an identical range is reported separately as 'equal' — the viewer states "same range" and shows a banner.
+        pid = self.add(4, 9, note="first")
+        ov = ps.overlaps_for_range(str(self.main), 4, 9)
+        self.assertEqual(ov, [{"id": pid, "lo": 4, "hi": 9, "rel": "equal"}])
 
 
 if __name__ == "__main__":

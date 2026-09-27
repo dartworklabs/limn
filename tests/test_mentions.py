@@ -1,7 +1,8 @@
 """limn.mentions - the pure @-tag rules, driven directly with no server, no file and no clock.
 
-The HTTP flows that use them (notices on add/edit/reply/reopen) are covered in test_server.py, test_v022.py,
-test_qa_021.py and test_v031.py; this file pins the rules themselves and the module's import boundary.
+The flows that use them (notices on add/edit/reply/reopen) run through the server in test_notifications.py,
+test_reply.py and test_service.py; this file pins the rules themselves - including the note-mention cooldown of
+v0.3.1 (issue #10 L3) - and the module's import boundary.
 
 Run: uv run pytest -q tests/test_mentions.py
 """
@@ -164,6 +165,130 @@ class NoteTagging(unittest.TestCase):
         self.assertEqual(note_mention_targets([B], recent, "someone-else", 3, 101.0), [B])
         self.assertEqual(note_mention_targets([B], [dict(recent[0], msg=1)], A, 3, 101.0), [B])  # a reply's mention
         self.assertEqual(note_mention_targets([B], [dict(recent[0], ts=True)], A, 3, 101.0), [B])  # not a number
+
+
+class MentionsOnPins(unittest.TestCase):
+    """resolve_mentions() on people records, and who a pin addresses (the current round only, question pins only)."""
+
+    S = {"login": "bob@example.com", "name": "Bob Park"}
+
+    W = {"login": "wendy@example.com", "name": "Wendy Kim"}
+
+    def people(self, extra=()):
+        d = {p["login"]: dict(p) for p in (self.S, self.W) + tuple(extra)}
+        return d
+
+    def test_resolve_mentions_rules(self):
+        ppl = self.people(
+            ({"login": "wlee@example.com", "name": "Wendy Lee"}, {"login": "sy@example.com", "name": "박서준"})
+        )
+        R = mentions.resolve_mentions
+        self.assertEqual(R("@Bob Park 확인 부탁", ppl), [self.S["login"]])
+        self.assertEqual(R("@bob park님 이거요", ppl), [self.S["login"]])  # case-insensitive, Korean particle attached
+        self.assertEqual(R("@Bob 봐 주세요", ppl), [self.S["login"]])  # first word of the name (only one match)
+        self.assertEqual(R("@Wendy 어때요", ppl), [])  # two candidates share the first word — ambiguous, don't resolve
+        # resolved via the viewer's chosen hint
+        self.assertEqual(R("@Wendy 어때요", ppl, [self.W["login"]]), [self.W["login"]])
+        self.assertEqual(R("메일 bob@example.com 로", ppl), [])  # an email address is not a mention
+        self.assertEqual(R("@Bobx", ppl), [])  # letters right after an English name = a different word
+        self.assertEqual(R("@박서준님 @Wendy Kim @박서준", ppl), ["sy@example.com", self.W["login"]])
+        self.assertEqual(R("@nobody", ppl), [])
+
+    def test_addressed_counts_current_round_only_and_needs_question_kind(self):
+        r = {
+            "kind_req": "question",
+            "mentions": [],
+            "thread": [
+                {"id": 1, "mentions": ["a"], "text": "", "at": "", "by": {}},
+                {"id": 2, "ev": "close", "text": "", "at": "", "by": {}},
+                {"id": 3, "ev": "reopen", "mentions": ["b"], "text": "", "at": "", "by": {}},
+            ],
+        }
+        self.assertEqual(mentions.addressed_to(r), ["b"])
+        self.assertEqual(mentions.pin_mentions_all(r), ["a", "b"])
+        self.assertEqual(mentions.fyi_mentions_to(r), [])  # a question pin isn't fyi — it's captured only as addressed
+        fix = dict(r, kind_req="fix")
+        self.assertEqual(mentions.addressed_to(fix), [])  # a fix-request pin isn't skipped even with an @-mention
+        self.assertEqual(mentions.fyi_mentions_to(fix), ["b"])  # it's captured only as fyi instead
+
+
+# ---------------------------------------------------------------- note-mention cooldown (v0.3.1, issue #10 L3): the decision
+
+
+# The logins of the test identities (helpers_access.ALICE, BOB, CAROL).
+A_LOGIN, B_LOGIN, C_LOGIN = "alice@example.com", "bob@example.com", "carol@example.com"
+
+
+def note_ev(by, to, pin, ts, **extra):
+    """An events.jsonl mention record as a note save writes it (no `msg`: it did not come from a thread post)."""
+    return dict(
+        {
+            "type": "mention",
+            "pin": pin,
+            "doc": "main",
+            "to": list(to),
+            "by": {"login": by, "name": by},
+            "seq": 1,
+            "at": "2026-09-26 10:00:00",
+            "ts": ts,
+        },
+        **extra,
+    )
+
+
+class NoteMentionCooldownRule(unittest.TestCase):
+    """note_mention_targets() decides which newly tagged people a note save notifies, from the recent events and a clock
+    reading passed in - no file, no clock of its own."""
+
+    def targets(self, recent, now, added=(B_LOGIN,), by=A_LOGIN, pin=7):
+        return note_mention_targets(list(added), recent, by, pin, now)
+
+    def test_everyone_added_is_notified_when_there_is_no_recent_note_mention(self):
+        """With an empty log every newly tagged person gets a mention, in the order given."""
+        self.assertEqual(self.targets([], 1000.0, added=(B_LOGIN, C_LOGIN)), [B_LOGIN, C_LOGIN])
+
+    def test_same_actor_target_and_pin_is_suppressed_within_the_window(self):
+        """A note mention from the same actor to the same person about the same pin inside ten minutes suppresses the next."""
+        recent = [note_ev(A_LOGIN, [B_LOGIN], 7, ts=1000.0)]
+        self.assertEqual(self.targets(recent, 1000.0 + 1), [])
+        self.assertEqual(self.targets(recent, 1000.0 + NOTE_MENTION_COOLDOWN_S - 0.001), [])
+
+    def test_a_mention_is_sent_again_once_the_window_has_passed(self):
+        """Exactly NOTE_MENTION_COOLDOWN_S (ten minutes) after the last sent note mention, the tag notifies again."""
+        self.assertEqual(NOTE_MENTION_COOLDOWN_S, 600)
+        recent = [note_ev(A_LOGIN, [B_LOGIN], 7, ts=1000.0)]
+        self.assertEqual(self.targets(recent, 1000.0 + NOTE_MENTION_COOLDOWN_S), [B_LOGIN])
+
+    def test_each_key_part_keeps_its_own_cooldown(self):
+        """The key is (actor login, target login, pin id): changing any one of them is not suppressed."""
+        recent = [note_ev(A_LOGIN, [B_LOGIN], 7, ts=1000.0)]
+        self.assertEqual(self.targets(recent, 1001.0, by=C_LOGIN), [B_LOGIN])  # another actor
+        self.assertEqual(self.targets(recent, 1001.0, pin=8), [B_LOGIN])  # another pin
+        self.assertEqual(self.targets(recent, 1001.0, added=(B_LOGIN, C_LOGIN)), [C_LOGIN])  # another target
+
+    def test_reply_and_reopen_mentions_never_start_a_note_cooldown(self):
+        """Mentions from thread posts (they carry `msg`) and other event types do not count - replies notify every time."""
+        recent = [
+            note_ev(A_LOGIN, [B_LOGIN], 7, ts=1000.0, msg=3),
+            dict(note_ev(A_LOGIN, [B_LOGIN], 7, ts=1000.0), type="assigned"),
+            dict(note_ev(A_LOGIN, [B_LOGIN], 7, ts=1000.0), type="replied"),
+        ]
+        self.assertEqual(self.targets(recent, 1001.0), [B_LOGIN])
+
+    def test_records_without_a_usable_time_or_far_from_now_are_ignored(self):
+        """A record the rule cannot place in time (missing, non-numeric, boolean) or more than the window away from now on
+        either side (the clock stepped back) suppresses nothing."""
+        recent = [
+            note_ev(A_LOGIN, [B_LOGIN], 7, ts=None),
+            note_ev(A_LOGIN, [B_LOGIN], 7, ts="1000"),
+            note_ev(A_LOGIN, [B_LOGIN], 7, ts=True),
+            note_ev(A_LOGIN, [B_LOGIN], 7, ts=5000.0),
+        ]
+        self.assertEqual(self.targets(recent, 1001.0), [B_LOGIN])
+
+    def test_a_record_rounded_just_past_now_still_counts(self):
+        """events.jsonl stores ts rounded to milliseconds, so the previous mention may read as slightly after `now`."""
+        self.assertEqual(self.targets([note_ev(A_LOGIN, [B_LOGIN], 7, ts=1001.0005)], 1001.0), [])
 
 
 if __name__ == "__main__":

@@ -5,9 +5,11 @@ favicon_href, valid_rec - the store's record check as server.py binds it, defaul
 the build response's log diet the handler applies (ResponseDiet: limn.web.answers.diet_log, kept here beside the
 rebuild route's RebuildLogDiet), the requests end to end through the handler and the server's
 wiring (smuggling and origin checks, the static routes, /pins.md, the build responses, several documents), and the
-feature classes whose tests span the API, pins.md and the viewer together (claims with an estimate, pin kinds and
-threads, review, @-tags and notices, overlaps). A test whose subject is one module lives in that module's file
-(tests/test_<module>.py); the viewer's scripts and page are tests/test_viewer.py. The shared fixtures are tests/helpers.py.
+HTTP routes of claims with an estimate, pin kinds and threads, review and overlaps (their rules, stored fields and
+pins.md lines are tested in the modules' files). A test whose subject is one module lives in that module's file
+(tests/test_<module>.py), a feature that crosses modules in the feature's file (test_reply.py, test_trash.py,
+test_notifications.py, test_access_paths.py); the viewer's scripts and page are tests/test_viewer.py. The shared
+fixtures are tests/helpers.py.
 
 Run: uv run pytest tests/test_server.py
 """
@@ -15,9 +17,7 @@ Run: uv run pytest tests/test_server.py
 import json
 import os
 import re
-import shutil
 import socket
-import subprocess
 import tempfile
 import threading
 import time
@@ -25,25 +25,13 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from limn import build as limn_build, files, gitsync, locate, mapping, mentions, startup
+from limn import build as limn_build, files, gitsync, locate, startup
 from limn.access import LOCAL_ACTOR
 from limn.build import BuildAborted, BuildBusy, BuildOk, BuildOkWithErrors, BuildStarted
-from limn.events import NOTIFY_TYPES
-from limn.pins import position, render as md_render
-from limn.pins.edit import NOTE_MAX, NoteTooLong
-from limn.pins.lifecycle import (
-    CLAIM_FIELDS,
-    AgentCannotConfirm,
-    ClaimClosedPin,
-    ClaimedByOther,
-    CloseRequest,
-    ThreadFull,
-    pin_reopened_in_round,
-)
+from limn.pins.lifecycle import AgentCannotConfirm, CloseRequest
 from limn.pins.view import pin_state
 from limn.pull import UpToDate
 from limn.startup import StartupRefused
-from limn.store import find_pin
 from limn.viewer import assemble as viewer_assemble
 from limn.web import parse
 from limn.web.answers import diet_log
@@ -59,15 +47,12 @@ from helpers import (
     Base,
     add_pin,
     edit_pin,
-    extract_js_fn,
     jreq,
-    js_i18n,
     needs_tex,
     pick,
     ps,
     record_of,
     req,
-    run_node,
     shut_wr,
     split_resp,
 )
@@ -481,52 +466,10 @@ class PdfRoute(Base):
         self.assertEqual(self.get("/pdf?build=%s" % m["pages_build"])[2], b"%PDF-new")
 
 
-# ---------------------------------------------------------------- overlaps and note_append (docs/handbook/api.md §겹친 핀과 덧붙이기)
+# ---------------------------------------------------------------- overlaps over HTTP (docs/handbook/api.md §겹친 핀과 덧붙이기)
 
 
 class OverlapRoutes(Base):
-    def test_inside_and_contains_pair(self):
-        # the first two paragraphs (not blank-line-free — lo/hi adjusted to overlap generously)
-        p1 = self.add(4, 9, note="outer")
-        p2 = self.add(4, 5, note="inner")
-        rows = ps.snapshot_pins()
-        rel = ps.overlaps_by_id(rows)
-        self.assertEqual(rel[p2], [{"id": p1, "rel": "inside"}])
-        self.assertEqual(rel[p1], [{"id": p2, "rel": "contains"}])
-
-    def test_partial_overlap(self):
-        p1 = self.add(4, 5)
-        p2 = self.add(5, 6)
-        rel = ps.overlaps_by_id(ps.snapshot_pins())
-        self.assertEqual(rel[p1], [{"id": p2, "rel": "partial"}])
-        self.assertEqual(rel[p2], [{"id": p1, "rel": "partial"}])
-
-    def test_no_overlap_is_empty(self):
-        p1 = self.add(4, 5)
-        p2 = self.add(8, 9)
-        rel = ps.overlaps_by_id(ps.snapshot_pins())
-        self.assertEqual(rel[p1], [])
-        self.assertEqual(rel[p2], [])
-
-    def test_overlaps_for_range_matches_pick_semantics(self):
-        self.add(4, 9, note="outer")
-        ov = ps.overlaps_for_range(str(self.main), 4, 5)
-        self.assertEqual(len(ov), 1)
-        self.assertEqual(ov[0]["rel"], "inside")
-
-    def test_overlaps_for_range_same_range_is_equal(self):
-        # design 2: an identical range is reported separately as 'equal' — the viewer states "same range" and shows a banner.
-        pid = self.add(4, 9, note="first")
-        ov = ps.overlaps_for_range(str(self.main), 4, 9)
-        self.assertEqual(ov, [{"id": pid, "lo": 4, "hi": 9, "rel": "equal"}])
-
-    def test_selection_rel_all_four_relations(self):
-        self.assertEqual(position.selection_rel(4, 9, 4, 9), "equal")
-        self.assertEqual(position.selection_rel(5, 6, 4, 9), "inside")
-        self.assertEqual(position.selection_rel(3, 10, 4, 9), "contains")
-        self.assertEqual(position.selection_rel(8, 12, 4, 9), "partial")
-        self.assertIsNone(position.selection_rel(10, 12, 4, 9))
-
     @needs_tex("latexmk", "pdftoppm", "pdftotext", "synctex")
     def test_pick_end_to_end_includes_quote_and_overlaps(self):
         """With the real build: a pick over the first page's top returns the quote, the overlaps and the build it
@@ -552,38 +495,6 @@ class OverlapRoutes(Base):
         self.assertTrue(gone.get("pdf_build_gone"))
         with self.assertRaises(HTTPError):
             pick({"page": 1, "x0": 0, "y0": 0, "x1": 10, "y1": 10, "pdf_build": "../x"})
-
-    def test_note_append_then_undo(self):
-        pid = self.add(note="원본")
-        p0 = self.pin(pid)
-        p1 = record_of(edit_pin(pid, {"note_append": "추가 텍스트"}, dict(LOCAL_ACTOR)))
-        self.assertIn("추가 텍스트", p1["note"])
-        self.assertIn("(추가 ", p1["note"])
-        self.assertEqual(len(ps.C.pins_jsonl.read_text().splitlines()), 1)  # line count unchanged
-        undone = record_of(edit_pin(pid, {"note": p0["note"], "base_rev": p1["rev"]}, dict(LOCAL_ACTOR)))
-        self.assertEqual(undone["note"], p0["note"])
-
-    def test_note_append_does_not_need_base_rev(self):
-        pid = self.add()
-        p = record_of(edit_pin(pid, {"note_append": "x"}, dict(LOCAL_ACTOR)))
-        self.assertIn("x", p["note"])
-
-    def test_note_append_empty_string_rejected(self):
-        """An empty note_append is refused (note_append_empty) and changes nothing."""
-        pid = self.add(note="원본")
-        empty = InputRejected("덧붙일 메모가 비어 있습니다.", "note_append_empty")
-        self.assertEqual(edit_pin(pid, {"note_append": ""}, dict(LOCAL_ACTOR)), empty)
-        self.assertEqual(edit_pin(pid, {"note_append": "   "}, dict(LOCAL_ACTOR)), empty)  # whitespace only too
-        self.assertEqual(self.pin(pid)["note"], "원본")  # unchanged since it was rejected
-
-    def test_note_append_over_note_max_combined_is_rejected(self):
-        pid = self.add(note="x" * (NOTE_MAX - 20))  # only 20 chars of headroom
-        # under the per-field cap (2000), over it once combined
-        refused = edit_pin(pid, {"note_append": "y" * 100}, dict(LOCAL_ACTOR))
-        self.assertIsInstance(refused, NoteTooLong)
-        self.assertEqual(refused.limit, NOTE_MAX)
-        self.assertEqual(len(self.pin(pid)["note"]), NOTE_MAX - 20)  # unchanged length since it was rejected
-        self.assertEqual(self.pin(pid)["rev"], 0)  # rev doesn't bump either
 
     def test_get_pins_includes_rel_field(self):
         p1 = self.add(4, 9)
@@ -1193,78 +1104,6 @@ class ClaimEta(Base):
     A = {"login": "alice@example.com", "name": "Wendy"}
     B = {"login": "bob@example.com", "name": "Bob"}
 
-    def test_body_validation_and_derived_ttl(self):
-        self.assertEqual(parse.parse_claim_body({}), (parse.CLAIM_TTL_DEFAULT, None))
-        for eta, ttl in ((1, 30), (5, 30), (15, 30), (20, 40), (45, 90), (60, 120), (90, 120), (240, 120)):
-            self.assertEqual(parse.parse_claim_body({"eta_min": eta}), (ttl, eta), eta)
-        # supplying ttl passes it through unchanged
-        self.assertEqual(parse.parse_claim_body({"eta_min": 15, "ttl_min": 10}), (10, 15))
-        for bad in (0, "15", 1.5, True, None, -5):  # refused: answered 400 by the handler
-            self.assertIsInstance(parse.parse_claim_body({"eta_min": bad}), InputRejected, bad)
-        self.assertIsInstance(parse.parse_claim_body({"eta_min": 15, "ttl_min": 0}), InputRejected)
-        # exceeding the cap clamps instead of 400ing — so an agent that claimed via the old procedure (ttl_min 480) doesn't break when extending
-        self.assertEqual(parse.parse_claim_body({"eta_min": 241}), (120, 240))
-        self.assertEqual(parse.parse_claim_body({"eta_min": 15, "ttl_min": 480}), (120, 15))
-        self.assertEqual(parse.parse_claim_body({"ttl_min": 480}), (120, None))
-
-    def test_claim_stores_eta_and_start(self):
-        pid = self.add()
-        t0 = time.time()
-        p = record_of(ps.claim_pin(pid, self.A, *parse.parse_claim_body({"eta_min": 15})))
-        self.assertAlmostEqual(p["eta_ts"], t0 + 15 * 60, delta=5)
-        self.assertAlmostEqual(p["claim_ts"], t0, delta=5)
-        self.assertAlmostEqual(p["claim_until"], t0 + 30 * 60, delta=5)
-        self.assertIsInstance(p["claimed_at"], str)
-        rows, _ = ps.read_pins()  # it's a stored value (not a computed field)
-        self.assertIn("eta_ts", find_pin(rows, pid))
-
-    def test_same_identity_reclaim_extends_and_updates_estimate(self):
-        pid = self.add()
-        first = record_of(ps.claim_pin(pid, self.A, *parse.parse_claim_body({"eta_min": 5})))
-        with ps.PIN_LOCK:  # move it back to having been claimed 10 minutes ago
-            rows, _ = ps.read_pins()
-            r = find_pin(rows, pid)
-            for k in ("claim_ts", "eta_ts", "claim_until"):
-                r[k] -= 600
-            ps.write_pins(rows)
-        second = record_of(ps.claim_pin(pid, self.A, *parse.parse_claim_body({"eta_min": 20})))
-        self.assertAlmostEqual(second["claim_ts"], first["claim_ts"] - 600, delta=1)  # the start time stays put
-        self.assertEqual(second["claimed_at"], first["claimed_at"])
-        self.assertAlmostEqual(second["eta_ts"], time.time() + 20 * 60, delta=5)  # the new estimate starts from now
-        self.assertAlmostEqual(second["claim_until"], time.time() + 40 * 60, delta=5)
-        # extending with no new estimate keeps the previous one
-        third = record_of(ps.claim_pin(pid, self.A, *parse.parse_claim_body({})))
-        self.assertEqual(third["eta_ts"], second["eta_ts"])
-        self.assertEqual(third["rev"], second["rev"] + 1)
-
-    def test_other_identity_conflict_reports_eta_and_new_claim_drops_old_eta(self):
-        pid = self.add()
-        ps.claim_pin(pid, self.A, *parse.parse_claim_body({"eta_min": 15}))
-        refused = ps.claim_pin(pid, self.B, *parse.parse_claim_body({"eta_min": 5}))  # answered 409 "claimed"
-        self.assertIsInstance(refused, ClaimedByOther)
-        self.assertIsNotNone(refused.eta_ts)
-        with ps.PIN_LOCK:  # A's claim has expired
-            rows, _ = ps.read_pins()
-            find_pin(rows, pid)["claim_until"] = time.time() - 1
-            ps.write_pins(rows)
-        p = record_of(ps.claim_pin(pid, self.B, *parse.parse_claim_body({})))
-        self.assertEqual(p["claimed_by"]["login"], "bob@example.com")
-        self.assertNotIn("eta_ts", p)  # doesn't inherit someone else's old estimate
-
-    def test_close_drop_unclaim_clear_all_claim_fields(self):
-        for how in ("close", "drop", "unclaim"):
-            pid = self.add()
-            ps.claim_pin(pid, self.A, *parse.parse_claim_body({"eta_min": 10}))
-            if how == "close":
-                rec = record_of(ps.close_pin(pid, self.A, CloseRequest()))
-            elif how == "unclaim":
-                rec = record_of(ps.unclaim_pin(pid, self.A))
-            else:
-                ps.drop_pin(pid, self.A)
-                rec = ps.read_jsonl(ps.C.dropped)[0][-1]
-            for k in CLAIM_FIELDS:
-                self.assertNotIn(k, rec, (how, k))
-
     def test_http_claim_with_eta(self):
         pid = self.add()
         hj = {"Content-Type": "application/json"}
@@ -1299,35 +1138,6 @@ class ClaimEta(Base):
         got = json.loads(body)
         self.assertEqual((got["ttl_min_applied"], got["eta_min_applied"]), (120, 240))
         self.assertAlmostEqual(got["pin"]["eta_ts"], time.time() + 240 * 60, delta=5)
-
-    def test_pins_payload_fills_start_for_legacy_claims(self):
-        pid = self.add()
-        with ps.PIN_LOCK:  # a claim shape written by a pre-eta server
-            rows, _ = ps.read_pins()
-            r = find_pin(rows, pid)
-            r.update(claimed_by=dict(self.A), claimed_at="2026-09-23 20:02:00", claim_until=time.time() + 3600)
-            ps.write_pins(rows)
-        rec = [x for x in ps.pins_payload(ps.snapshot_pins(), False) if x["id"] == pid][0]
-        self.assertAlmostEqual(rec["claim_ts"], position.epoch("2026-09-23 20:02:00"), delta=0.01)
-        self.assertNotIn("claim_ts", find_pin(ps.read_pins()[0], pid))  # a computed field — not stored
-
-    def test_pins_md_claim_text(self):
-        now = 1_790_000_000.0
-        r = {"claimed_by": {"name": "Kim"}}
-        self.assertEqual(md_render.claim_md(dict(r), now), "처리 중(Kim)")
-        for left_s, want in (
-            (14 * 60 + 10, "약 15분"),
-            (3 * 60, "약 5분"),
-            (15 * 60, "약 15분"),
-            (16 * 60, "약 20분"),
-            (-60, "예상 초과"),
-        ):
-            self.assertEqual(md_render.claim_md(dict(r, eta_ts=now + left_s), now), "처리 중(Kim, %s)" % want)
-        self.assertEqual([md_render.ceil5(m) for m in (0, 0.2, 5, 5.01, 14.9, 23)], [5, 5, 5, 10, 15, 25])
-        pid = self.add()
-        ps.claim_pin(pid, {"login": "k", "name": "에이전트 A"}, *parse.parse_claim_body({"eta_min": 15}))
-        md = ps.C.pins_md.read_text(encoding="utf-8")
-        self.assertIn("처리 중(에이전트 A, 약 15분)", md)
 
 
 class ClaimEtaDocs(unittest.TestCase):
@@ -1373,150 +1183,6 @@ class ClaimEtaDocs(unittest.TestCase):
         self.assertFalse(ps.valid_rec(dict(base, claim_ts="20:02")))
 
 
-# ---------------------------------------------------------------- badge wording: self-explanatory phrases (overlap/location match rate) · pins.md display
-# '#20 안', '일치 100%', '⊂#N' were unreadable without context (author feedback 2026-09-23). Overlaps now
-# read '#20 범위 안' / '#20과 같은 범위' / '#20과 일부 겹침'; the location match rate is hidden at 90%+ and
-# shows '위치 불확실' only when low. The pins.md number column joins the same phrases with ' · '.
-class BadgeWording(Base):
-    NUMS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 15, 19, 20, 100, 1000, 21, 32]
-
-    def test_josa_follows_korean_reading(self):
-        got = [md_render.josa(n, "과", "와") for n in self.NUMS]
-        self.assertEqual(
-            got,
-            [
-                "과",
-                "와",
-                "과",
-                "와",
-                "와",
-                "과",
-                "과",
-                "과",
-                "와",
-                "과",
-                "과",
-                "와",
-                "와",
-                "와",
-                "과",
-                "과",
-                "과",
-                "과",
-                "와",
-            ],
-        )
-        if shutil.which("node"):
-            js = extract_js_fn("josa") + "\nconsole.log(JSON.stringify(%s.map(n=>josa(n,'과','와'))));" % json.dumps(
-                self.NUMS
-            )
-            self.assertEqual(json.loads(run_node(js)), got)
-
-    def test_rel_badge_prefers_same_range_then_inside_then_partial(self):
-        by_id = {1: {"lo": 4, "hi": 9}, 2: {"lo": 4, "hi": 9}, 3: {"lo": 5, "hi": 6}, 20: {"lo": 8, "hi": 12}}
-        self.assertEqual(
-            md_render.rel_badge([{"id": 1, "rel": "contains"}], by_id, {"id": 2, "lo": 4, "hi": 9}), "#1과 같은 범위"
-        )
-        self.assertEqual(
-            md_render.rel_badge([{"id": 2, "rel": "inside"}], by_id, {"id": 1, "lo": 4, "hi": 9}), "#2와 같은 범위"
-        )
-        self.assertEqual(
-            md_render.rel_badge(
-                [{"id": 1, "rel": "inside"}, {"id": 2, "rel": "inside"}], by_id, {"id": 3, "lo": 5, "hi": 6}
-            ),
-            "#1 범위 안",
-        )
-        self.assertEqual(
-            md_render.rel_badge([{"id": 20, "rel": "partial"}], by_id, {"id": 3, "lo": 5, "hi": 9}), "#20과 일부 겹침"
-        )
-        self.assertEqual(
-            md_render.rel_badge([{"id": 2, "rel": "partial"}], by_id, {"id": 9, "lo": 8, "hi": 12}), "#2와 일부 겹침"
-        )
-        self.assertEqual(md_render.rel_badge([{"id": 3, "rel": "contains"}], by_id, {"id": 1, "lo": 4, "hi": 9}), "")
-
-    def test_js_rel_badge_matches_server(self):
-        if not shutil.which("node"):
-            self.skipTest("node not available")
-        js = "\n".join(
-            [
-                extract_js_fn("josa"),
-                extract_js_fn("relBadge"),
-                r"""
-            const PINS=[{id:1,lo:4,hi:9},{id:2,lo:4,hi:9},{id:3,lo:5,hi:6},{id:20,lo:8,hi:12}];
-            console.log(JSON.stringify([relBadge([{id:1,rel:'contains'}],{id:2,lo:4,hi:9}).label,
-              relBadge([{id:1,rel:'inside'},{id:2,rel:'inside'}],{id:3,lo:5,hi:6}).label,
-              relBadge([{id:20,rel:'partial'}],{id:3,lo:5,hi:9}).label, relBadge([{id:3,rel:'contains'}],{id:1,lo:4,hi:9})]));
-            """,
-            ]
-        )
-        self.assertEqual(json.loads(run_node(js)), ["#1과 같은 범위", "#1 범위 안", "#20과 일부 겹침", None])
-        self.assertIn("const rb=closedCard?null:relBadge(p.rel,p);", extract_js_fn("card"))
-
-    def test_overlap_banner_verbs(self):
-        if not shutil.which("node"):
-            self.skipTest("node not available")
-        cases = r"""
-            console.log(JSON.stringify([['equal',4],['inside',20],['contains',4],['contains',20],['partial',2]].map(a=>overlapText(a[0],a[1]))));
-            """
-        js = "\n".join([extract_js_fn("josa"), extract_js_fn("overlapText"), cases])
-        self.assertEqual(
-            json.loads(run_node(js)),
-            [
-                "열린 핀 #4와 같은 범위입니다",
-                "열린 핀 #20 범위 안입니다",
-                "열린 핀 #4를 감쌉니다",
-                "열린 핀 #20을 감쌉니다",
-                "열린 핀 #2와 일부 겹칩니다",
-            ],
-        )
-        self.assertEqual(
-            json.loads(run_node(js_i18n("en") + "\n" + js)),
-            [
-                "Same range as open pin #4",
-                "Inside open pin #20's range",
-                "Encloses open pin #4",
-                "Encloses open pin #20",
-                "Partially overlaps open pin #2",
-            ],
-        )
-
-    def test_pins_md_number_column_uses_words(self):
-        a = self.add(4, 9)
-        b = self.add(4, 9)
-        c = self.add(5, 6)
-        edit_pin(c, {"note": "고침", "base_rev": self.pin(c)["rev"]}, dict(LOCAL_ACTOR))
-        ps.claim_pin(c, {"login": "k", "name": "Kim"}, *parse.parse_claim_body({"eta_min": 10}))
-        md = ps.C.pins_md.read_text(encoding="utf-8")
-        self.assertIn("| %d · #%d와 같은 범위 |" % (a, b), md)
-        self.assertIn("| %d · #%d과 같은 범위 |" % (b, a), md)
-        self.assertIn("| %d · #%d 범위 안 · 처리 중(Kim, 약 10분) · 수정됨 |" % (c, a), md)
-        for sym in ("⊂", "∩", "⏳", "✎", "⚠"):
-            self.assertNotIn(sym, md)
-        self.assertIn("표시: '#N 범위 안'·'#N과 같은 범위' = N과 한 번에 고치고 둘 다 닫는다", md)
-
-    def test_skill_symbol_table_uses_words(self):
-        # pins.md markers are a language-stable contract: both procedures quote them verbatim.
-        for path, head, end in (
-            (SKILL_MD, "### Markers in the number column", "### Rules"),
-            (SKILL_KO, "### 번호 칸의 표시", "### 규칙"),
-        ):
-            skill = path.read_text(encoding="utf-8")
-            table = skill[skill.index(head) : skill.index(end)]
-            for row in (
-                "| `#N 범위 안` |",
-                "| `#N과 같은 범위` |",
-                "| `#N과 일부 겹침` |",
-                "| `처리 중(<이름>, 약 N분)` |",
-                "| `수정됨` |",
-                "| `위치 잃음` |",
-            ):
-                self.assertIn(row, table)
-            self.assertNotRegex(
-                table,
-                r"^\| `[⊂∩⏳✎⚠]",
-            )
-
-
 # ---------------------------------------------------------------- pin kind (fix request / question) · thread · reply (docs/handbook/api.md §스레드)
 # 10 of 42 pins (24%) in A-DEMO were questions rather than fix requests (#30 "what does it mean for the
 # interval to include 0?", etc.). With only a single close-reason field to answer in, there was no way to
@@ -1531,28 +1197,6 @@ class KindAndThread(Base):
         out = self.talk(req("POST", path, json.dumps(body).encode(), h))
         code, _, raw = split_resp(out)
         return code, json.loads(raw)
-
-    def test_kind_req_stored_only_when_given_and_validated(self):
-        """kind_req is stored only when given, and an unknown value is refused (bad_kind_req)."""
-        q = add_pin(
-            {"file": str(self.main), "lo": 4, "hi": 5, "page": 1, "note": "구간의 정의는?", "kind_req": "question"},
-            dict(self.S),
-        ).record["id"]
-        f = self.add()
-        self.assertEqual(self.pin(q)["kind_req"], "question")
-        self.assertNotIn("kind_req", self.pin(f))  # an old-style call (agent curl) has no field = fix request
-        self.assertEqual(
-            add_pin({"file": str(self.main), "lo": 4, "hi": 5, "kind_req": "ask"}, dict(self.S)),
-            InputRejected("kind_req 는 fix|question 중 하나입니다.", "bad_kind_req"),
-        )
-
-    def test_edit_switches_kind_even_on_closed_pin(self):
-        pid = self.add()
-        p = record_of(edit_pin(pid, {"kind_req": "question", "base_rev": 0}, dict(self.S)))
-        self.assertEqual(p["kind_req"], "question")
-        ps.close_pin(pid, dict(self.S), CloseRequest())
-        p = record_of(edit_pin(pid, {"kind_req": "fix", "base_rev": self.pin(pid)["rev"]}, dict(self.S)))
-        self.assertEqual(p["kind_req"], "fix")
 
     def test_reply_endpoint_appends_message_with_header_identity(self):
         pid = self.add()
@@ -1587,32 +1231,6 @@ class KindAndThread(Base):
         # a nonexistent id follows the same convention as other routes
         self.assertEqual((code, d["ok"], d["pin"]), (200, False, None))
 
-    def test_control_characters_are_stripped_but_newlines_kept(self):
-        self.assertEqual(parse.parse_thread_text("a\x00b\x1b[31m\tc\nd"), "ab[31m\tc\nd")
-
-    def test_thread_is_capped(self):
-        pid = self.add()
-        with mock.patch.object(ps, "THREAD_MAX", 2):
-            ps.reply_pin(pid, "1", dict(self.S))
-            ps.reply_pin(pid, "2", dict(self.S))
-            self.assertEqual(ps.reply_pin(pid, "3", dict(self.S)), ThreadFull(2))  # answered 409 "full" over HTTP
-            # a status-transition record is exempt from the cap
-            ps.close_pin(pid, dict(self.S), CloseRequest(reply="닫음"))
-        self.assertEqual([m.get("ev") for m in self.pin(pid)["thread"]], [None, None, "close"])
-
-    def test_close_reply_is_appended_to_thread_once(self):
-        pid = self.add()
-        ps.reply_pin(pid, "질문이 있어요", dict(self.S))
-        ps.close_pin(pid, dict(self.S), CloseRequest(reply="제목을 고침", ref="PR #227"))
-        ps.close_pin(pid, dict(self.S), CloseRequest(reply="두 번째 닫기"))  # already closed — nothing gets appended
-        th = self.pin(pid)["thread"]
-        self.assertEqual(
-            [(m["id"], m.get("ev"), m["text"], m.get("ref")) for m in th],
-            [(1, None, "질문이 있어요", None), (2, "close", "제목을 고침", "PR #227")],
-        )
-        # the old field is left in place too (compat with old viewers/agents)
-        self.assertEqual(self.pin(pid)["close_reply"], "제목을 고침")
-
     def test_bodyless_close_still_works_and_records_event(self):
         pid = self.add()
         out = self.talk(req("POST", "/api/pins/%d/close" % pid))
@@ -1631,85 +1249,6 @@ class KindAndThread(Base):
         rows = ps.pins_payload(ps.snapshot_pins(), True)
         self.assertEqual(rows[0]["state"], "done")
         self.assertNotIn("state", ps.read_pins()[0][0])  # a computed field — not stored
-
-    def test_malformed_thread_is_a_broken_line(self):
-        for th in (
-            "x",
-            [{"id": "1", "text": "a", "at": "t", "by": {}}],
-            [{"id": 1, "text": 3, "at": "t", "by": {}}],
-            [{"id": 1, "text": "a", "at": "t", "by": {"name": 3}}],
-            [{"id": 1, "text": "a", "at": "t", "by": {}, "ev": "boom"}],
-        ):
-            r = {"id": 1, "file": str(self.main), "lo": 1, "hi": 1, "thread": th}
-            self.assertFalse(ps.valid_rec(r), th)
-        ok = {
-            "id": 1,
-            "file": str(self.main),
-            "lo": 1,
-            "hi": 1,
-            "kind_req": "question",
-            "thread": [
-                {
-                    "id": 1,
-                    "text": "a",
-                    "at": "2026-09-24 10:00:00",
-                    "by": {"login": "x", "name": "X"},
-                    "ev": "close",
-                    "ref": "PR #1",
-                }
-            ],
-        }
-        self.assertTrue(ps.valid_rec(ok))
-        self.assertFalse(ps.valid_rec(dict(ok, kind_req="Q")))
-
-    def test_legacy_records_are_not_rewritten_by_reads(self):
-        legacy = {
-            "id": 7,
-            "file": str(self.main),
-            "name": "main.tex",
-            "lo": 4,
-            "hi": 5,
-            "page": 1,
-            "note": "옛 핀",
-            "at": "2026-09-21 20:00:00",
-            "done": True,
-            "done_at": "2026-09-21 21:00:00",
-            "close_reply": "고침",
-            "anchor": mapping.anchor_of(files.tex_lines(self.main), 4, 5),
-            "synced_at": self.main.stat().st_mtime + 10,
-        }
-        ps.C.pins_jsonl.write_text(json.dumps(legacy, ensure_ascii=False) + "\n", encoding="utf-8")
-        before = ps.C.pins_jsonl.read_bytes()
-        mtime = ps.C.pins_jsonl.stat().st_mtime_ns
-        rows = ps.pins_payload(ps.snapshot_pins(), True)
-        self.talk(req("GET", "/api/pins?all=1"))
-        self.talk(req("GET", "/pins.md"))
-        self.assertEqual(ps.C.pins_jsonl.read_bytes(), before)
-        self.assertEqual(ps.C.pins_jsonl.stat().st_mtime_ns, mtime)
-        self.assertEqual(rows[0]["state"], "done")
-        self.assertNotIn("thread", rows[0])
-
-    def test_pins_md_marks_questions_and_shows_current_round_of_thread(self):
-        q = add_pin(
-            {"file": str(self.main), "lo": 4, "hi": 5, "page": 1, "note": "구간의 정의는?", "kind_req": "question"},
-            dict(self.S),
-        ).record["id"]
-        for i in range(5):
-            ps.reply_pin(q, "답글 %d\n둘째 줄 | 파이프" % i, dict(self.S))
-        md = ps.C.pins_md.read_text(encoding="utf-8")
-        row = next(ln for ln in md.splitlines() if ln.startswith("| %d " % q))
-        self.assertIn("| %d · 질문 |" % q, row)
-        self.assertIn("[스레드 5건, 앞 2건은 GET /api/pins/%d]" % q, row)
-        self.assertIn("Bob Park: 답글 4 둘째 줄 \\| 파이프", row)  # a newline collapses, | gets escaped
-        self.assertNotIn("답글 1", row)
-        self.assertEqual(row.count("|") - row.count("\\|"), 6)  # still a 5-column table
-        self.assertIn("/api/pins/N/reply", md)
-        self.assertIn("'질문' = 고칠 곳이 아니라 물음이다", md)
-        ps.close_pin(q, dict(self.S), CloseRequest(reply="답했다"))
-        ps.reopen_pin(q, dict(self.S))
-        md = ps.C.pins_md.read_text(encoding="utf-8")
-        row = next(ln for ln in md.splitlines() if ln.startswith("| %d " % q))
-        self.assertNotIn("[스레드", row)  # messages from before the close aren't shown
 
 
 # ---------------------------------------------------------------- awaiting review (docs/handbook/api.md §검토 대기)
@@ -1744,15 +1283,6 @@ class ReviewState(Base):
         self.assertEqual(d["state"], "done")
         code, d = self.post("/api/pins/%d/close" % self.add(), {"review": "yes"})
         self.assertEqual(code, 400)
-
-    def test_review_pins_are_not_open_for_agents(self):
-        pid = self.add()
-        ps.close_pin(pid, dict(LOCAL_ACTOR), CloseRequest(reply="고침"))
-        _, _, raw = split_resp(self.talk(req("GET", "/api/pins")))
-        self.assertEqual(json.loads(raw), [])  # not in the open-pin list (legacy contract)
-        self.assertIsInstance(ps.claim_pin(pid, dict(LOCAL_ACTOR), 30), ClaimClosedPin)  # 409 "done"
-        m = ps.meta(ps.DOCS[0], dict(LOCAL_ACTOR))
-        self.assertEqual((m["n_open"], m["n_review"], m["n_done"]), (0, 1, 0))
 
     def test_confirm_and_idempotence(self):
         pid = self.add()
@@ -1807,421 +1337,6 @@ class ReviewState(Base):
         code, d = self.post("/api/pins/%d/reopen" % pid)
         self.assertEqual(code, 200)
         self.assertEqual(len(self.pin(pid)["thread"]), 2)
-
-    def test_reopen_after_confirm_drops_confirmation(self):
-        pid = self.add()
-        ps.close_pin(pid, dict(LOCAL_ACTOR), CloseRequest())
-        ps.confirm_pin(pid, dict(self.S))
-        ps.reopen_pin(pid, dict(self.S), reason="다시")
-        p = self.pin(pid)
-        self.assertNotIn("confirmed_by", p)
-        self.assertEqual(pin_state(p), "open")
-
-    def test_legacy_done_is_done_not_review(self):
-        self.assertEqual(pin_state({"done": True}), "done")
-        self.assertEqual(pin_state({"done": True, "review": False}), "done")
-        self.assertEqual(pin_state({"done": True, "review": True}), "review")
-        self.assertEqual(pin_state({"review": True}), "open")  # a review flag left on an open pin is meaningless
-        self.assertFalse(ps.valid_rec({"id": 1, "file": str(self.main), "lo": 1, "hi": 1, "review": "y"}))
-
-    def test_pins_md_review_section_and_header(self):
-        a = add_pin(
-            {"file": str(self.main), "lo": 4, "hi": 5, "page": 1, "note": "q", "kind_req": "question"}, dict(self.S)
-        ).record["id"]
-        b = self.add(8, 9)
-        ps.close_pin(a, dict(LOCAL_ACTOR), CloseRequest(reply="구간은 0 을 포함 | 유의하지 않음", ref="PR #12"))
-        md = ps.C.pins_md.read_text(encoding="utf-8")
-        self.assertIn("열린 핀 1건  ·  검토 대기 1건(맨 아래, 처리하지 않는다)  ·  닫힌 핀 0건", md)
-        sec = md[md.index("## 검토 대기 1건") :]
-        self.assertIn("| # | 위치 | 확인할 사람 | 닫을 때 남긴 답 |", sec)
-        self.assertIn(
-            "| %d · 질문 | `main.tex L4-L5` | Bob Park | 구간은 0 을 포함 \\| 유의하지 않음 (PR #12) |" % a, sec
-        )
-        opn = md[: md.index("## 검토 대기")]
-        starts = [
-            ln.split("|")[1].strip() for ln in opn.splitlines() if ln.startswith("| ") and not ln.startswith("| #")
-        ]
-        self.assertEqual(starts, [str(b)])  # only open pins appear in the open table
-        self.assertIn('`"review":true`', md)
-        self.assertIn("검토 대기 핀은 다시 처리하지 않는다", md)
-        ps.confirm_pin(a, dict(self.S))
-        md = ps.C.pins_md.read_text(encoding="utf-8")
-        self.assertNotIn("## 검토 대기", md)
-        # with nothing awaiting review, the header line reverts to the old look
-        self.assertIn("열린 핀 1건  ·  닫힌 핀 1건", md)
-
-
-# ---------------------------------------------------------------- @-mentions · people.json · events.jsonl (docs/handbook/api.md §@태그·사람·이벤트)
-class MentionsPeopleEvents(Base):
-    S = {"login": "bob@example.com", "name": "Bob Park"}
-    W = {"login": "wendy@example.com", "name": "Wendy Kim"}
-    HS = {"Tailscale-User-Login": "bob@example.com", "Tailscale-User-Name": "Bob Park"}
-    HW = {"Tailscale-User-Login": "wendy@example.com", "Tailscale-User-Name": "Wendy Kim"}
-
-    def setUp(self):
-        super().setUp()
-        ps._PEOPLE_SEEN.clear()
-        ps._EVENTS_CACHE.clear()
-
-    def events(self):
-        return ps._read_events()[0]
-
-    def post(self, path, body=None, headers=None):
-        h = {"Content-Type": "application/json"} if body is not None else {}
-        h.update(headers or {})
-        code, _, raw = split_resp(
-            self.talk(req("POST", path, json.dumps(body).encode() if body is not None else b"", h))
-        )
-        return code, json.loads(raw)
-
-    def people(self, extra=()):
-        d = {p["login"]: dict(p) for p in (self.S, self.W) + tuple(extra)}
-        return d
-
-    def test_resolve_mentions_rules(self):
-        ppl = self.people(
-            ({"login": "wlee@example.com", "name": "Wendy Lee"}, {"login": "sy@example.com", "name": "박서준"})
-        )
-        R = mentions.resolve_mentions
-        self.assertEqual(R("@Bob Park 확인 부탁", ppl), [self.S["login"]])
-        self.assertEqual(R("@bob park님 이거요", ppl), [self.S["login"]])  # case-insensitive, Korean particle attached
-        self.assertEqual(R("@Bob 봐 주세요", ppl), [self.S["login"]])  # first word of the name (only one match)
-        self.assertEqual(R("@Wendy 어때요", ppl), [])  # two candidates share the first word — ambiguous, don't resolve
-        # resolved via the viewer's chosen hint
-        self.assertEqual(R("@Wendy 어때요", ppl, [self.W["login"]]), [self.W["login"]])
-        self.assertEqual(R("메일 bob@example.com 로", ppl), [])  # an email address is not a mention
-        self.assertEqual(R("@Bobx", ppl), [])  # letters right after an English name = a different word
-        self.assertEqual(R("@박서준님 @Wendy Kim @박서준", ppl), ["sy@example.com", self.W["login"]])
-        self.assertEqual(R("@nobody", ppl), [])
-
-    def test_people_json_records_humans_only_and_throttles(self):
-        self.assertFalse(ps.record_person(dict(LOCAL_ACTOR)))
-        self.assertFalse(ps.C.people_file.exists())
-        self.assertTrue(ps.record_person(dict(self.S, pic="https://p/s.png"), now=1000))
-        # same value within 10 minutes — not written
-        self.assertFalse(ps.record_person(dict(self.S, pic="https://p/s.png"), now=1100))
-        self.assertTrue(ps.record_person(dict(self.S, name="Bob P."), now=1101))  # written when the name changes
-        self.assertTrue(ps.record_person(dict(self.W), now=2000))
-        d = json.loads(ps.C.people_file.read_text(encoding="utf-8"))
-        self.assertEqual(d["version"], 1)
-        self.assertEqual([p["login"] for p in d["people"]], [self.S["login"], self.W["login"]])
-        s = d["people"][0]
-        self.assertEqual((s["name"], s["pic"]), ("Bob P.", "https://p/s.png"))
-        self.assertTrue(s["first_seen"] <= s["last_seen"])
-
-    def test_people_json_write_is_atomic(self):
-        ps.record_person(dict(self.S), now=1000)
-        before = ps.C.people_file.read_bytes()
-        with mock.patch.object(os, "replace", side_effect=OSError("disk full")):
-            self.assertFalse(ps.record_person(dict(self.W), now=2000))
-        self.assertEqual(ps.C.people_file.read_bytes(), before)  # the old file is unchanged (no half-written file)
-        with mock.patch.object(os, "replace", side_effect=OSError("disk full")):
-            ps.emit_events([{"type": "mention", "pin": 1, "to": ["x"]}])
-        self.assertFalse(ps.C.events_file.exists())
-
-    def test_viewer_open_records_person_and_people_api_merges_pin_actors(self):
-        self.talk(req("GET", "/", headers=self.HW))
-        self.talk(req("GET", "/api/meta?light=1", headers=self.HS))  # polling doesn't count
-        self.assertEqual([p["login"] for p in ps.load_people()], [self.W["login"]])
-        add_pin({"file": str(self.main), "lo": 4, "hi": 5, "note": "x"}, dict(self.S)).record["id"]
-        code, _, raw = split_resp(self.talk(req("GET", "/api/people", headers=self.HW)))
-        d = json.loads(raw)
-        self.assertEqual(sorted(p["login"] for p in d["people"]), sorted([self.S["login"], self.W["login"]]))
-        self.assertEqual(d["me"]["login"], self.W["login"])
-        self.assertNotIn("local", [p["login"] for p in d["people"]])
-
-    def test_mentions_stored_on_pin_and_message_with_events(self):
-        ps.record_person(dict(self.W))
-        code, d = self.post(
-            "/api/pin",
-            {
-                "file": str(self.main),
-                "lo": 4,
-                "hi": 5,
-                "page": 1,
-                "kind_req": "question",
-                "note": "@Wendy Kim 구간의 정의는?",
-            },
-            self.HS,
-        )
-        pid = d["id"]
-        p = self.pin(pid)
-        self.assertEqual(p["mentions"], [self.W["login"]])
-        self.assertEqual(p["note"], "@Wendy Kim 구간의 정의는?")  # the text is unchanged
-        ev = self.events()
-        self.assertEqual(
-            [(e["type"], e["pin"], e["to"], e["by"]["login"]) for e in ev],
-            [("mention", pid, [self.W["login"]], self.S["login"])],
-        )
-        self.assertEqual(ev[0]["kind_req"], "question")
-        self.assertEqual(ev[0]["seq"], 1)
-        self.assertIn("구간의 정의는?", ev[0]["excerpt"])
-        # agent reply -> replied goes to the author and the mentioned person
-        self.post("/api/pins/%d/reply" % pid, {"text": "구간은 95% 신뢰구간입니다"})
-        e = self.events()[-1]
-        self.assertEqual(
-            (e["type"], sorted(e["to"]), e["msg"]), ("replied", sorted([self.S["login"], self.W["login"]]), 1)
-        )
-        # when the mentioned person replies, they're excluded from the recipients themselves
-        self.post("/api/pins/%d/reply" % pid, {"text": "@Bob Park 맞아요"}, self.HW)
-        types = [(x["type"], x["to"]) for x in self.events()[2:]]
-        # the author, mentioned by this message, gets only one mention (doesn't overlap with replied)
-        self.assertEqual(types, [("mention", [self.S["login"]])])
-        self.assertEqual(self.pin(pid)["thread"][-1]["mentions"], [self.S["login"]])
-        # when an agent closes it, review_requested goes to the author; when the author reopens with a reason, reopened is skipped since it's themself
-        self.post("/api/pins/%d/close" % pid, {"reply": "답함"})
-        self.assertEqual(self.events()[-1]["type"], "review_requested")
-        self.assertEqual(self.events()[-1]["to"], [self.S["login"]])
-        n = len(self.events())
-        self.post("/api/pins/%d/reopen" % pid, {"reason": "@Wendy Kim 한 번 더 봐 주세요"}, self.HS)
-        tail = self.events()[n:]
-        # v0.2.1: every @-tag in a reopen reason notifies, even someone tagged before; the author reopened it themself
-        self.assertEqual([(x["type"], x["to"]) for x in tail], [("mention", [self.W["login"]])])
-        self.post("/api/pins/%d/close" % pid, {"reply": "다시 답함"})
-        self.post("/api/pins/%d/reopen" % pid, {"reason": "아직"}, self.HW)
-        self.assertEqual((self.events()[-1]["type"], self.events()[-1]["to"]), ("reopened", [self.S["login"]]))
-        seqs = [x["seq"] for x in self.events()]
-        self.assertEqual(seqs, list(range(1, len(seqs) + 1)))
-
-    def test_edit_adds_mention_event_only_for_new_names(self):
-        ps.record_person(dict(self.W))
-        ps.record_person(dict(self.S))
-        pid = add_pin(
-            {"file": str(self.main), "lo": 4, "hi": 5, "note": "@Wendy Kim 봐 주세요"}, dict(LOCAL_ACTOR)
-        ).record["id"]
-        edit_pin(pid, {"note": "@Wendy Kim @Bob Park 봐 주세요", "base_rev": 0}, dict(LOCAL_ACTOR))
-        self.assertEqual(
-            [(e["type"], e["to"]) for e in self.events()],
-            [("mention", [self.W["login"]]), ("mention", [self.S["login"]])],
-        )
-        edit_pin(pid, {"note": "그냥 메모", "base_rev": 1}, dict(LOCAL_ACTOR))
-        self.assertNotIn("mentions", self.pin(pid))
-
-    def test_pins_md_marks_human_addressed_pins_and_tells_agents_to_skip(self):
-        ps.record_person(dict(self.W))
-        a = add_pin(
-            {"file": str(self.main), "lo": 4, "hi": 5, "note": "@Wendy Kim 이 구간 맞나요?", "kind_req": "question"},
-            dict(self.S),
-        ).record["id"]
-        self.add(8, 9)
-        md = ps.C.pins_md.read_text(encoding="utf-8")
-        row = next(ln for ln in md.splitlines() if ln.startswith("| %d " % a))
-        self.assertIn("| %d · → @Wendy Kim · 질문 |" % a, row)  # priority: reopened > -> @ > question
-        self.assertIn("`→ @이름` 이 붙은 핀 1건은 담당이 사람인", md)
-        self.assertIn("명시적으로 시키지 않으면 건너뛴다", md)
-        rows = ps.pins_payload(ps.snapshot_pins(), True)
-        self.assertEqual(next(r for r in rows if r["id"] == a)["addressed"], [self.W["login"]])
-
-    # ---- assignee — docs/handbook/api.md §담당. Guessing the skip rule from free text was ambiguous (A-DEMO #43).
-    def test_assignee_person_is_addressed_agent_is_fyi_and_legacy_falls_back(self):
-        ps.record_person(dict(self.W))
-        ps.record_person(dict(self.S))
-        note = "이거 콜링 제대로 작동하나 @Bob Park 확인 부탁합니다"
-        legacy = add_pin({"file": str(self.main), "lo": 4, "hi": 5, "note": note}, dict(self.W)).record["id"]
-        person = add_pin(
-            {"file": str(self.main), "lo": 8, "hi": 9, "note": note, "assignee": self.S["login"]}, dict(self.W)
-        ).record["id"]
-        agent = add_pin(
-            {
-                "file": str(self.main),
-                "lo": 2,
-                "hi": 3,
-                "note": "@Bob Park 질문 참고",
-                "kind_req": "question",
-                "assignee": "agent",
-            },
-            dict(self.W),
-        ).record["id"]
-        rows = {r["id"]: r for r in ps.pins_payload(ps.snapshot_pins(), True)}
-        self.assertNotIn("assignee", rows[legacy])  # legacy pin: no field -> inferred per #87 (fix request = fyi)
-        self.assertEqual((rows[legacy]["addressed"], rows[legacy]["fyi"]), ([], [self.S["login"]]))
-        self.assertEqual((rows[person]["addressed"], rows[person]["fyi"]), ([self.S["login"]], []))
-        # even a question is fyi if the assignee is an agent
-        self.assertEqual((rows[agent]["addressed"], rows[agent]["fyi"]), ([], [self.S["login"]]))
-        md = ps.C.pins_md.read_text(encoding="utf-8")
-
-        def line(pid):
-            """The pins.md table row for pin pid."""
-            return next(ln for ln in md.splitlines() if ln.startswith("| %d " % pid))
-
-        self.assertIn("| %d · 참고 @Bob Park |" % legacy, line(legacy))
-        self.assertIn("| %d · → @Bob Park |" % person, line(person))
-        self.assertIn("| %d · 참고 @Bob Park · 질문 |" % agent, line(agent))
-        self.assertIn("`→ @이름` 이 붙은 핀 1건은 담당이 사람인", md)
-        self.assertIn("'→ @이름' = 담당이 사람인 핀", md)
-
-    def test_assignee_validation_and_events(self):
-        ps.record_person(dict(self.W))
-        ps.record_person(dict(self.S))
-        base = {"file": str(self.main), "lo": 4, "hi": 5, "page": 1, "note": "@Bob Park 봐 주세요"}
-        for bad in ("nobody@example.com", "local", 3, ""):
-            code, d = self.post("/api/pin", dict(base, assignee=bad), self.HW)
-            self.assertEqual(code, 400, bad)
-            self.assertTrue("assignee" in d["error"] or "담당" in d["error"], d)
-        code, d = self.post("/api/pin", dict(base, assignee=self.S["login"]), self.HW)
-        self.assertEqual(code, 200)
-        pid = d["id"]
-        self.assertEqual(self.pin(pid)["assignee"], self.S["login"])
-        self.assertEqual(
-            sorted((e["type"], tuple(e["to"])) for e in self.events()),
-            [("assigned", (self.S["login"],)), ("mention", (self.S["login"],))],
-        )  # the mentioned person also gets a notification
-        self.assertNotIn("thread", self.pin(pid))  # the assignee set at creation isn't a thread record
-        # switching the assignee to an agent leaves an ev=assign entry with no event. Switching back to a person emits assigned.
-        n = len(self.events())
-        code, d = self.post("/api/pins/%d/edit" % pid, {"assignee": "agent", "base_rev": 0}, self.HW)
-        self.assertEqual(code, 200)
-        p = self.pin(pid)
-        self.assertEqual(
-            (p["assignee"], p["thread"][-1]["ev"], p["thread"][-1]["text"]), ("agent", "assign", "담당: 에이전트")
-        )
-        self.assertEqual(self.events()[n:], [])
-        code, d = self.post("/api/pins/%d/edit" % pid, {"assignee": self.S["login"], "base_rev": 1}, self.HW)
-        self.assertEqual(self.pin(pid)["thread"][-1]["text"], "담당: @Bob Park")
-        self.assertEqual([(e["type"], e["to"]) for e in self.events()[n:]], [("assigned", [self.S["login"]])])
-        code, d = self.post("/api/pins/%d/edit" % pid, {"assignee": "ghost", "base_rev": 2}, self.HW)
-        self.assertEqual(code, 400)
-        md = ps.C.pins_md.read_text(encoding="utf-8")
-        self.assertIn("담당 바꿈(Wendy Kim): 담당: @Bob Park", md)
-        self.assertIn("assigned", NOTIFY_TYPES)
-
-    def test_legacy_pins_read_without_rewrite(self):
-        ps.record_person(dict(self.S))
-        pid = add_pin({"file": str(self.main), "lo": 4, "hi": 5, "note": "@Bob Park 확인 부탁"}, dict(self.W)).record[
-            "id"
-        ]
-        f = ps.C.pins_jsonl
-        before = f.read_bytes()
-        for _ in range(2):
-            ps.pins_payload(ps.snapshot_pins(), True)
-            self.talk(req("GET", "/api/pins?all=1"))
-            self.talk(req("GET", "/pins.md"))
-        self.assertEqual(f.read_bytes(), before)
-        self.assertNotIn("assignee", self.pin(pid))
-
-    def test_addressed_counts_current_round_only_and_needs_question_kind(self):
-        r = {
-            "kind_req": "question",
-            "mentions": [],
-            "thread": [
-                {"id": 1, "mentions": ["a"], "text": "", "at": "", "by": {}},
-                {"id": 2, "ev": "close", "text": "", "at": "", "by": {}},
-                {"id": 3, "ev": "reopen", "mentions": ["b"], "text": "", "at": "", "by": {}},
-            ],
-        }
-        self.assertEqual(mentions.addressed_to(r), ["b"])
-        self.assertEqual(mentions.pin_mentions_all(r), ["a", "b"])
-        self.assertEqual(mentions.fyi_mentions_to(r), [])  # a question pin isn't fyi — it's captured only as addressed
-        fix = dict(r, kind_req="fix")
-        self.assertEqual(mentions.addressed_to(fix), [])  # a fix-request pin isn't skipped even with an @-mention
-        self.assertEqual(mentions.fyi_mentions_to(fix), ["b"])  # it's captured only as fyi instead
-
-    def test_reopen_after_confirm_marks_reopened_symbol_not_just_first_round_msg(self):
-        # observed bug: reopening after a confirm made the round start with [confirm, reopen, ...], so the
-        # "reopened" marker was missing (the old check only looked at "is the round's first message a
-        # reopen?"). pin_reopened_in_round() now skips over confirm.
-        pid = self.add()
-        ps.close_pin(pid, dict(LOCAL_ACTOR), CloseRequest(reply="고침"))
-        ps.confirm_pin(pid, dict(self.S))
-        ps.reopen_pin(pid, dict(self.S), reason="다시 봐 주세요")
-        self.assertTrue(pin_reopened_in_round(self.pin(pid)))
-        md = ps.C.pins_md.read_text(encoding="utf-8")
-        row = next(ln for ln in md.splitlines() if ln.startswith("| %d " % pid))
-        self.assertIn("다시 열림", row)
-
-    def test_self_mention_never_becomes_addressed(self):
-        ps.record_person(dict(self.W))
-        ps.record_person(dict(self.S))
-        pid = add_pin(
-            {"file": str(self.main), "lo": 4, "hi": 5, "note": "@Wendy Kim 셀프 태그", "kind_req": "question"},
-            dict(self.W),
-        ).record["id"]
-        p = self.pin(pid)
-        self.assertNotIn("mentions", p)  # a self-@mention isn't stored
-        self.assertEqual(mentions.addressed_to(p), [])
-        msg = ps.reply_pin(pid, "@Bob Park 님 확인 부탁드립니다 @Wendy Kim", dict(self.W)).record["thread"][-1]
-        self.assertEqual(msg["mentions"], [self.S["login"]])  # the reply's own author (W) is excluded
-
-    def test_mention_hints_validated(self):
-        self.assertIsInstance(parse.parse_mention_hints("x"), InputRejected)
-        self.assertIsInstance(parse.parse_mention_hints(["a"] * (parse.MENTION_MAX + 1)), InputRejected)
-        self.assertEqual(parse.parse_mention_hints(None), [])
-
-    def test_events_are_capped_but_seq_keeps_rising(self):
-        with mock.patch.object(ps, "EVENTS_KEEP", 3):
-            for i in range(5):
-                ps.emit_events([{"type": "mention", "pin": i, "to": ["x"]}])
-        self.assertEqual([e["seq"] for e in self.events()], [3, 4, 5])
-
-
-class NotifyServer(Base):
-    HS = {"Tailscale-User-Login": "bob@example.com", "Tailscale-User-Name": "Bob Park"}
-    HW = {"Tailscale-User-Login": "wendy@example.com", "Tailscale-User-Name": "Wendy Kim"}
-
-    def setUp(self):
-        super().setUp()
-        ps._EVENTS_CACHE.clear()
-
-    def get(self, path, headers=None):
-        code, h, raw = split_resp(self.talk(req("GET", path, headers=headers)))
-        return code, h, raw
-
-    def test_service_worker_route(self):
-        code, h, raw = self.get("/sw.js")
-        self.assertEqual(code, 200)
-        self.assertEqual(h["content-type"], "text/javascript; charset=utf-8")
-        self.assertEqual(h["cache-control"], "no-cache")
-        js = raw.decode()
-        self.assertIn("notificationclick", js)
-        self.assertIn("clients.openWindow", js)
-        # v0.2.2: [되살리기] on a 'dropped' notification
-        self.assertIn("postMessage({type:e.action==='restore'?'restore-pin':'open-pin'", js)
-        self.assertNotIn("'fetch'", js)  # doesn't cache app data
-        code, _, _ = self.get("/sw.js", {"Host": "evil.example"})
-        self.assertEqual(code, 403)
-        if shutil.which("node"):
-            r = subprocess.run(["node", "--check", "-"], input=js, capture_output=True, text=True, check=False)
-            self.assertEqual(r.returncode, 0, r.stderr)
-
-    def test_event_cursor_in_light_meta(self):
-        ps.emit_events(
-            [
-                {
-                    "type": "mention",
-                    "pin": 1,
-                    "doc": "main",
-                    "to": ["wendy@example.com"],
-                    "by": {"login": "bob@example.com"},
-                },
-                {"type": "replied", "pin": 1, "doc": "main", "to": ["bob@example.com"], "by": {"login": "local"}},
-                {
-                    "type": "mention",
-                    "pin": 2,
-                    "doc": "main",
-                    "to": ["wendy@example.com"],
-                    "by": {"login": "wendy@example.com"},
-                },
-            ]
-        )
-        _, _, raw = self.get("/api/meta?light=1", self.HW)
-        d = json.loads(raw)
-        self.assertEqual(d["ev_seq"], 3)
-        self.assertNotIn("events", d)  # not included without a cursor
-        _, _, raw = self.get("/api/meta?light=1&ev=0", self.HW)
-        self.assertEqual(
-            [(e["seq"], e["type"], e["doc_name"]) for e in json.loads(raw)["events"]], [(1, "mention", "본문")]
-        )
-        _, _, raw = self.get("/api/meta?light=1&ev=1", self.HW)
-        self.assertEqual(json.loads(raw)["events"], [])  # something you did yourself (seq 3) doesn't come back
-        _, _, raw = self.get("/api/meta?light=1&ev=0", self.HS)
-        self.assertEqual([e["seq"] for e in json.loads(raw)["events"]], [2])
-        _, _, raw = self.get("/api/meta?light=1&ev=0")
-        self.assertEqual(json.loads(raw)["events"], [])  # not included for local/agent
-        code, _, _ = self.get("/api/meta?light=1&ev=x", self.HW)
-        self.assertEqual(code, 400)
-        before = sorted(p.name for p in ps.C.state.iterdir())
-        self.get("/api/meta?light=1&ev=0", self.HW)
-        self.assertEqual(sorted(p.name for p in ps.C.state.iterdir()), before)  # polling doesn't count
 
 
 class SocketHarness(unittest.TestCase):

@@ -1,9 +1,9 @@
 """limn.pins.record - the store's record check, called directly with the two shapes the composition root passes in.
 
 The check as the store gets it (server.valid_rec, with limn.documents.DOC_KEY_RE and limn.people.is_actor) is driven
-end to end in test_server.py and test_v03.py; the purity of the module is in test_pins_lifecycle.py (Purity). Here
-the document key and actor rules are stand-ins, so each test also sees that the check asks them - and only them - for
-those two shapes.
+end to end in test_server.py and test_service.py (CloseChanges), and on malformed threads in ThreadShape at the end
+of this file; the purity of the module is in test_pins_lifecycle.py (Purity). Above it the document key and actor
+rules are stand-ins, so each test also sees that the check asks them - and only them - for those two shapes.
 
 Run: uv run pytest -q tests/test_pins_record.py
 """
@@ -11,6 +11,8 @@ Run: uv run pytest -q tests/test_pins_record.py
 import unittest
 
 from limn.pins.record import THREAD_EVENTS, is_int, valid_rec
+
+from helpers import Base, ps
 
 ALICE_ACTOR = {"login": "alice@example.com", "name": "Alice Kim"}
 LINE = {
@@ -208,6 +210,40 @@ class IsInt(unittest.TestCase):
         """1 and 0 are integers; True, 1.0 and "1" are not."""
         self.assertTrue(is_int(1) and is_int(0))
         self.assertFalse(is_int(True) or is_int(1.0) or is_int("1"))
+
+
+class ThreadShape(Base):
+    """The record check as server.py binds it (valid_rec): a malformed thread or kind_req makes the line broken."""
+
+    def test_malformed_thread_is_a_broken_line(self):
+        for th in (
+            "x",
+            [{"id": "1", "text": "a", "at": "t", "by": {}}],
+            [{"id": 1, "text": 3, "at": "t", "by": {}}],
+            [{"id": 1, "text": "a", "at": "t", "by": {"name": 3}}],
+            [{"id": 1, "text": "a", "at": "t", "by": {}, "ev": "boom"}],
+        ):
+            r = {"id": 1, "file": str(self.main), "lo": 1, "hi": 1, "thread": th}
+            self.assertFalse(ps.valid_rec(r), th)
+        ok = {
+            "id": 1,
+            "file": str(self.main),
+            "lo": 1,
+            "hi": 1,
+            "kind_req": "question",
+            "thread": [
+                {
+                    "id": 1,
+                    "text": "a",
+                    "at": "2026-09-24 10:00:00",
+                    "by": {"login": "x", "name": "X"},
+                    "ev": "close",
+                    "ref": "PR #1",
+                }
+            ],
+        }
+        self.assertTrue(ps.valid_rec(ok))
+        self.assertFalse(ps.valid_rec(dict(ok, kind_req="Q")))
 
 
 if __name__ == "__main__":

@@ -1,9 +1,10 @@
 """limn.pins.render - pins.md from one explicit input, tested directly with records and no server, files or clock.
 
 The whole-server contract (pins.md on disk after a write, GET /pins.md, the guidance lines agents match) is pinned
-through server.py at the end of this file (PinsMdV2, BuildHeadInPinsMd, AuthorPrefixInPinsMd, InstanceIdInPinsMd), and
-in test_server.py, test_access.py, test_token_file.py and the version suites. The classes above feed the renderer
-PinsMdInput values and check its output on its own (coding rule R1).
+through server.py at the end of this file (PinsMdV2 to PinsMdInstructions: claims, badges, questions, review,
+people addressed, the agents' instructions), and in test_server.py, test_access.py, test_token_file.py and the
+feature files. The classes above feed the renderer PinsMdInput values and check its output on its own (coding rule
+R1).
 
 Run: uv run pytest -q tests/test_pins_render.py
 """
@@ -11,7 +12,9 @@ Run: uv run pytest -q tests/test_pins_render.py
 import ast
 import copy
 import dataclasses
+import json
 import re
+import shutil
 import unittest
 from pathlib import Path
 
@@ -20,9 +23,10 @@ from limn.access import LOCAL_ACTOR
 from limn.pins import render, render as md_render
 from limn.pins.lifecycle import CloseRequest
 from limn.pins.render import DocHeading, PinFacts, PinsMdInput, pins_md_text
+from limn.web import parse
 
-from helpers import Base, add_pin, ps, req
-from helpers_access import ALICE_ACTOR, BOB_ACTOR
+from helpers import SKILL_KO, SKILL_MD, Base, add_pin, edit_pin, extract_js_fn, ps, req, run_node
+from helpers_access import ALICE_ACTOR, BOB_ACTOR, TS_HOST, AccessBase, token_create
 
 RENDER_PY = Path(render.__file__)
 T = 1_790_000_000.0
@@ -332,6 +336,89 @@ class RenderHelpers(unittest.TestCase):
         self.assertEqual(render.region_text_of({}), "쪽 ?, 영역 가로 0–0% 세로 0–0%")
 
 
+class BadgeWords(unittest.TestCase):
+    """The overlap badges read as words ('#20 범위 안', '#20과 같은 범위', '#20과 일부 겹침') with the particle the
+    number takes when read in Korean, and both skill procedures quote the pins.md markers verbatim."""
+
+    NUMS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 15, 19, 20, 100, 1000, 21, 32]
+
+    def test_josa_follows_korean_reading(self):
+        got = [md_render.josa(n, "과", "와") for n in self.NUMS]
+        self.assertEqual(
+            got,
+            [
+                "과",
+                "와",
+                "과",
+                "와",
+                "와",
+                "과",
+                "과",
+                "과",
+                "와",
+                "과",
+                "과",
+                "와",
+                "와",
+                "와",
+                "과",
+                "과",
+                "과",
+                "과",
+                "와",
+            ],
+        )
+        if shutil.which("node"):
+            js = extract_js_fn("josa") + "\nconsole.log(JSON.stringify(%s.map(n=>josa(n,'과','와'))));" % json.dumps(
+                self.NUMS
+            )
+            self.assertEqual(json.loads(run_node(js)), got)
+
+    def test_rel_badge_prefers_same_range_then_inside_then_partial(self):
+        by_id = {1: {"lo": 4, "hi": 9}, 2: {"lo": 4, "hi": 9}, 3: {"lo": 5, "hi": 6}, 20: {"lo": 8, "hi": 12}}
+        self.assertEqual(
+            md_render.rel_badge([{"id": 1, "rel": "contains"}], by_id, {"id": 2, "lo": 4, "hi": 9}), "#1과 같은 범위"
+        )
+        self.assertEqual(
+            md_render.rel_badge([{"id": 2, "rel": "inside"}], by_id, {"id": 1, "lo": 4, "hi": 9}), "#2와 같은 범위"
+        )
+        self.assertEqual(
+            md_render.rel_badge(
+                [{"id": 1, "rel": "inside"}, {"id": 2, "rel": "inside"}], by_id, {"id": 3, "lo": 5, "hi": 6}
+            ),
+            "#1 범위 안",
+        )
+        self.assertEqual(
+            md_render.rel_badge([{"id": 20, "rel": "partial"}], by_id, {"id": 3, "lo": 5, "hi": 9}), "#20과 일부 겹침"
+        )
+        self.assertEqual(
+            md_render.rel_badge([{"id": 2, "rel": "partial"}], by_id, {"id": 9, "lo": 8, "hi": 12}), "#2와 일부 겹침"
+        )
+        self.assertEqual(md_render.rel_badge([{"id": 3, "rel": "contains"}], by_id, {"id": 1, "lo": 4, "hi": 9}), "")
+
+    def test_skill_symbol_table_uses_words(self):
+        # pins.md markers are a language-stable contract: both procedures quote them verbatim.
+        for path, head, end in (
+            (SKILL_MD, "### Markers in the number column", "### Rules"),
+            (SKILL_KO, "### 번호 칸의 표시", "### 규칙"),
+        ):
+            skill = path.read_text(encoding="utf-8")
+            table = skill[skill.index(head) : skill.index(end)]
+            for row in (
+                "| `#N 범위 안` |",
+                "| `#N과 같은 범위` |",
+                "| `#N과 일부 겹침` |",
+                "| `처리 중(<이름>, 약 N분)` |",
+                "| `수정됨` |",
+                "| `위치 잃음` |",
+            ):
+                self.assertIn(row, table)
+            self.assertNotRegex(
+                table,
+                r"^\| `[⊂∩⏳✎⚠]",
+            )
+
+
 # ---------------------------------------------------------------- through server.py's wiring
 #
 # Pins.md as the server writes it after a pin write. These classes load server.py (helpers.ps) and drive the module
@@ -632,6 +719,197 @@ class InstanceIdInPinsMd(Base):
         out = self.talk(req("GET", "/pins.md"))
         body = out.split(b"\r\n\r\n", 1)[1].decode("utf-8")
         self.assertIn("논문: A-DEMO · 저장소: git@github.com:example-lab/paper-a.git", body)
+
+
+class ClaimText(Base):
+    """pins.md shows a claim as '처리 중(<name>, 약 N분)', the estimate rounded up to 5 minutes, or '예상 초과'."""
+
+    def test_pins_md_claim_text(self):
+        now = 1_790_000_000.0
+        r = {"claimed_by": {"name": "Kim"}}
+        self.assertEqual(md_render.claim_md(dict(r), now), "처리 중(Kim)")
+        for left_s, want in (
+            (14 * 60 + 10, "약 15분"),
+            (3 * 60, "약 5분"),
+            (15 * 60, "약 15분"),
+            (16 * 60, "약 20분"),
+            (-60, "예상 초과"),
+        ):
+            self.assertEqual(md_render.claim_md(dict(r, eta_ts=now + left_s), now), "처리 중(Kim, %s)" % want)
+        self.assertEqual([md_render.ceil5(m) for m in (0, 0.2, 5, 5.01, 14.9, 23)], [5, 5, 5, 10, 15, 25])
+        pid = self.add()
+        ps.claim_pin(pid, {"login": "k", "name": "에이전트 A"}, *parse.parse_claim_body({"eta_min": 15}))
+        md = ps.C.pins_md.read_text(encoding="utf-8")
+        self.assertIn("처리 중(에이전트 A, 약 15분)", md)
+
+
+class BadgeWordsInPinsMd(Base):
+    """pins.md's number column joins the badge words with ' · ' and uses no symbols."""
+
+    def test_pins_md_number_column_uses_words(self):
+        a = self.add(4, 9)
+        b = self.add(4, 9)
+        c = self.add(5, 6)
+        edit_pin(c, {"note": "고침", "base_rev": self.pin(c)["rev"]}, dict(LOCAL_ACTOR))
+        ps.claim_pin(c, {"login": "k", "name": "Kim"}, *parse.parse_claim_body({"eta_min": 10}))
+        md = ps.C.pins_md.read_text(encoding="utf-8")
+        self.assertIn("| %d · #%d와 같은 범위 |" % (a, b), md)
+        self.assertIn("| %d · #%d과 같은 범위 |" % (b, a), md)
+        self.assertIn("| %d · #%d 범위 안 · 처리 중(Kim, 약 10분) · 수정됨 |" % (c, a), md)
+        for sym in ("⊂", "∩", "⏳", "✎", "⚠"):
+            self.assertNotIn(sym, md)
+        self.assertIn("표시: '#N 범위 안'·'#N과 같은 범위' = N과 한 번에 고치고 둘 다 닫는다", md)
+
+
+class QuestionsInPinsMd(Base):
+    """pins.md marks question pins and shows only the current round of a pin's thread, escaped into the table."""
+
+    S = {"login": "bob@example.com", "name": "Bob Park"}
+
+    def test_pins_md_marks_questions_and_shows_current_round_of_thread(self):
+        q = add_pin(
+            {"file": str(self.main), "lo": 4, "hi": 5, "page": 1, "note": "구간의 정의는?", "kind_req": "question"},
+            dict(self.S),
+        ).record["id"]
+        for i in range(5):
+            ps.reply_pin(q, "답글 %d\n둘째 줄 | 파이프" % i, dict(self.S))
+        md = ps.C.pins_md.read_text(encoding="utf-8")
+        row = next(ln for ln in md.splitlines() if ln.startswith("| %d " % q))
+        self.assertIn("| %d · 질문 |" % q, row)
+        self.assertIn("[스레드 5건, 앞 2건은 GET /api/pins/%d]" % q, row)
+        self.assertIn("Bob Park: 답글 4 둘째 줄 \\| 파이프", row)  # a newline collapses, | gets escaped
+        self.assertNotIn("답글 1", row)
+        self.assertEqual(row.count("|") - row.count("\\|"), 6)  # still a 5-column table
+        self.assertIn("/api/pins/N/reply", md)
+        self.assertIn("'질문' = 고칠 곳이 아니라 물음이다", md)
+        ps.close_pin(q, dict(self.S), CloseRequest(reply="답했다"))
+        ps.reopen_pin(q, dict(self.S))
+        md = ps.C.pins_md.read_text(encoding="utf-8")
+        row = next(ln for ln in md.splitlines() if ln.startswith("| %d " % q))
+        self.assertNotIn("[스레드", row)  # messages from before the close aren't shown
+
+
+class ReviewInPinsMd(Base):
+    """pins.md lists pins awaiting review in their own section at the bottom and counts them in the header line."""
+
+    S = {"login": "bob@example.com", "name": "Bob Park"}
+
+    def test_pins_md_review_section_and_header(self):
+        a = add_pin(
+            {"file": str(self.main), "lo": 4, "hi": 5, "page": 1, "note": "q", "kind_req": "question"}, dict(self.S)
+        ).record["id"]
+        b = self.add(8, 9)
+        ps.close_pin(a, dict(LOCAL_ACTOR), CloseRequest(reply="구간은 0 을 포함 | 유의하지 않음", ref="PR #12"))
+        md = ps.C.pins_md.read_text(encoding="utf-8")
+        self.assertIn("열린 핀 1건  ·  검토 대기 1건(맨 아래, 처리하지 않는다)  ·  닫힌 핀 0건", md)
+        sec = md[md.index("## 검토 대기 1건") :]
+        self.assertIn("| # | 위치 | 확인할 사람 | 닫을 때 남긴 답 |", sec)
+        self.assertIn(
+            "| %d · 질문 | `main.tex L4-L5` | Bob Park | 구간은 0 을 포함 \\| 유의하지 않음 (PR #12) |" % a, sec
+        )
+        opn = md[: md.index("## 검토 대기")]
+        starts = [
+            ln.split("|")[1].strip() for ln in opn.splitlines() if ln.startswith("| ") and not ln.startswith("| #")
+        ]
+        self.assertEqual(starts, [str(b)])  # only open pins appear in the open table
+        self.assertIn('`"review":true`', md)
+        self.assertIn("검토 대기 핀은 다시 처리하지 않는다", md)
+        ps.confirm_pin(a, dict(self.S))
+        md = ps.C.pins_md.read_text(encoding="utf-8")
+        self.assertNotIn("## 검토 대기", md)
+        # with nothing awaiting review, the header line reverts to the old look
+        self.assertIn("열린 핀 1건  ·  닫힌 핀 1건", md)
+
+
+class AddressedInPinsMd(Base):
+    """pins.md marks pins addressed to a person ('→ @이름') and tells agents to skip them; an agent assignee makes the
+    tag 'fyi', and a pin without the assignee field falls back to the kind rule."""
+
+    S = {"login": "bob@example.com", "name": "Bob Park"}
+
+    W = {"login": "wendy@example.com", "name": "Wendy Kim"}
+
+    def setUp(self):
+        super().setUp()
+        ps._PEOPLE_SEEN.clear()
+        ps._EVENTS_CACHE.clear()
+
+    def test_pins_md_marks_human_addressed_pins_and_tells_agents_to_skip(self):
+        ps.record_person(dict(self.W))
+        a = add_pin(
+            {"file": str(self.main), "lo": 4, "hi": 5, "note": "@Wendy Kim 이 구간 맞나요?", "kind_req": "question"},
+            dict(self.S),
+        ).record["id"]
+        self.add(8, 9)
+        md = ps.C.pins_md.read_text(encoding="utf-8")
+        row = next(ln for ln in md.splitlines() if ln.startswith("| %d " % a))
+        self.assertIn("| %d · → @Wendy Kim · 질문 |" % a, row)  # priority: reopened > -> @ > question
+        self.assertIn("`→ @이름` 이 붙은 핀 1건은 담당이 사람인", md)
+        self.assertIn("명시적으로 시키지 않으면 건너뛴다", md)
+        rows = ps.pins_payload(ps.snapshot_pins(), True)
+        self.assertEqual(next(r for r in rows if r["id"] == a)["addressed"], [self.W["login"]])
+
+    # ---- assignee — docs/handbook/api.md §담당. Guessing the skip rule from free text was ambiguous (A-DEMO #43).
+    def test_assignee_person_is_addressed_agent_is_fyi_and_legacy_falls_back(self):
+        ps.record_person(dict(self.W))
+        ps.record_person(dict(self.S))
+        note = "이거 콜링 제대로 작동하나 @Bob Park 확인 부탁합니다"
+        legacy = add_pin({"file": str(self.main), "lo": 4, "hi": 5, "note": note}, dict(self.W)).record["id"]
+        person = add_pin(
+            {"file": str(self.main), "lo": 8, "hi": 9, "note": note, "assignee": self.S["login"]}, dict(self.W)
+        ).record["id"]
+        agent = add_pin(
+            {
+                "file": str(self.main),
+                "lo": 2,
+                "hi": 3,
+                "note": "@Bob Park 질문 참고",
+                "kind_req": "question",
+                "assignee": "agent",
+            },
+            dict(self.W),
+        ).record["id"]
+        rows = {r["id"]: r for r in ps.pins_payload(ps.snapshot_pins(), True)}
+        self.assertNotIn("assignee", rows[legacy])  # legacy pin: no field -> inferred per #87 (fix request = fyi)
+        self.assertEqual((rows[legacy]["addressed"], rows[legacy]["fyi"]), ([], [self.S["login"]]))
+        self.assertEqual((rows[person]["addressed"], rows[person]["fyi"]), ([self.S["login"]], []))
+        # even a question is fyi if the assignee is an agent
+        self.assertEqual((rows[agent]["addressed"], rows[agent]["fyi"]), ([], [self.S["login"]]))
+        md = ps.C.pins_md.read_text(encoding="utf-8")
+
+        def line(pid):
+            """The pins.md table row for pin pid."""
+            return next(ln for ln in md.splitlines() if ln.startswith("| %d " % pid))
+
+        self.assertIn("| %d · 참고 @Bob Park |" % legacy, line(legacy))
+        self.assertIn("| %d · → @Bob Park |" % person, line(person))
+        self.assertIn("| %d · 참고 @Bob Park · 질문 |" % agent, line(agent))
+        self.assertIn("`→ @이름` 이 붙은 핀 1건은 담당이 사람인", md)
+        self.assertIn("'→ @이름' = 담당이 사람인 핀", md)
+
+
+# ---------------------------------------------------------------- pins.md's claim and remote-agent token instructions (v0.2.1 QA)
+
+
+class PinsMdInstructions(AccessBase):
+    def test_claim_instruction_next_to_close(self):
+        self.add()
+        lines = ps.C.pins_md.read_text(encoding="utf-8").splitlines()
+        i = next(k for k, ln in enumerate(lines) if ln.startswith("처리한 핀은 닫는다"))
+        self.assertIn("/api/pins/N/claim", lines[i + 1])
+        self.assertIn('"eta_min"', lines[i + 1])
+        self.assertEqual(lines[i + 1], md_render.claim_guidance("http://127.0.0.1:18999"))
+        self.assertEqual(lines[i + 2], md_render.TOKEN_GUIDANCE)
+
+    def test_remote_agents_are_told_to_use_a_token(self):
+        self.add()
+        _, tok = token_create(ps.C.state, "ci")
+        code, md = self.call("GET", "/pins.md", token=tok, headers={"Host": TS_HOST})
+        self.assertEqual(code, 200)
+        self.assertIn("https://%s/api/pins/N/claim" % TS_HOST, md)
+        self.assertIn("테일넷 주소", md_render.TOKEN_GUIDANCE)
+        self.assertIn("403", md_render.TOKEN_GUIDANCE)
+        self.assertEqual(md.splitlines().count(md_render.TOKEN_GUIDANCE), 1)
 
 
 if __name__ == "__main__":
