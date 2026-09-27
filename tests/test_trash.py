@@ -1,4 +1,4 @@
-"""The Trash and the bulk clear through server.py (limn.service.trash): delete, restore, purge, expiry, clear.
+"""The Trash and bulk clear through the feature slice: delete, restore, purge, expiry, clear.
 
 v0.2.2 (issue #8) replaced the dropped section with a Trash: a deleted pin is kept 30 days, then purged - on startup,
 on a drop, and on normal reads at most once an hour (never on a light poll). Someone else's delete notifies the
@@ -69,7 +69,7 @@ class TrashApi(AccessBase):
 
     def test_iso_timestamps_with_an_offset_expire_too(self):
         self.put_dropped(71, None, dropped_at="2026-01-01T10:00:00+09:00")
-        self.assertEqual(ps.APP.purge_trash(), 1)
+        self.assertEqual(ps.APP.pin_trash.purge_trash(), 1)
 
     def test_unreadable_trash_lines_are_kept_in_a_backup(self):
         """A later drop saves unreadable original Trash bytes before replacing the file."""
@@ -87,9 +87,9 @@ class TrashApi(AccessBase):
         self.put_dropped(72, 40)
         ps.APP.RT.trash_checked[0] = 0
         with mock.patch.object(limn_store, "atomic_write", side_effect=OSError("read-only")):  # the Trash writer's
-            self.assertEqual(ps.APP.maybe_purge_trash(), 0)
+            self.assertEqual(ps.APP.pin_trash.maybe_purge_trash(), 0)
         self.assertEqual(ps.APP.RT.trash_checked[0], 0)
-        self.assertEqual(ps.APP.maybe_purge_trash(), 1)
+        self.assertEqual(ps.APP.pin_trash.maybe_purge_trash(), 1)
         self.assertEqual(self.dropped_file(), [])
 
     def test_someone_elses_delete_notifies_the_author(self):
@@ -129,9 +129,11 @@ class TrashApi(AccessBase):
         ids = sorted(r["id"] for r in ps.APP.dropped_payload())
         self.assertEqual(ids, [51, 52])  # a read never shows an expired pin...
         self.assertEqual(sorted(r["id"] for r in self.dropped_file()), [50, 51, 52])  # ...and never writes
-        self.assertEqual(ps.APP.purge_trash(), 1)
+        self.assertEqual(ps.APP.pin_trash.purge_trash(), 1)
         self.assertEqual(sorted(r["id"] for r in self.dropped_file()), [51, 52])
-        self.assertEqual(ps.APP.purge_trash(now=time.time() + 2 * 86400), 1)  # two days later #51 is 31 days old
+        self.assertEqual(
+            ps.APP.pin_trash.purge_trash(now=time.time() + 2 * 86400), 1
+        )  # two days later #51 is 31 days old
         self.assertEqual([r["id"] for r in self.dropped_file()], [52])
 
     def test_a_drop_purges_expired_pins(self):
@@ -290,7 +292,7 @@ class TrashRecovery(AccessBase):
 
         output = io.StringIO()
         with redirect_stderr(output):
-            self.assertEqual(ps.APP.purge_trash(), 0)
+            self.assertEqual(ps.APP.pin_trash.purge_trash(), 0)
         self.assertNotIn("trash: purged", output.getvalue())
         self.assertIn("trash: reconciled 1 live shadow(s)", output.getvalue())
         self.assertEqual(self.dropped_file(), [])
@@ -306,7 +308,7 @@ class TrashRecovery(AccessBase):
         self.put_dropped(900, 31)
         output = io.StringIO()
         with redirect_stderr(output):
-            self.assertEqual(ps.APP.purge_trash(), 1)
+            self.assertEqual(ps.APP.pin_trash.purge_trash(), 1)
         self.assertIn("trash: purged 1 pin(s)", output.getvalue())
         self.assertIn("trash: reconciled 1 live shadow(s)", output.getvalue())
         self.assertEqual(self.dropped_file(), [])
@@ -331,9 +333,9 @@ class TrashRecovery(AccessBase):
         self.put_dropped(pid, 31)
         ps.APP.RT.trash_checked[0] = 0
         with mock.patch.object(limn_store.PinStore, "read_dropped", side_effect=OSError("unreadable")):
-            self.assertEqual(ps.APP.maybe_purge_trash(), 0)
+            self.assertEqual(ps.APP.pin_trash.maybe_purge_trash(), 0)
         self.assertEqual(ps.APP.RT.trash_checked[0], 0)
-        self.assertEqual(ps.APP.maybe_purge_trash(), 0)
+        self.assertEqual(ps.APP.pin_trash.maybe_purge_trash(), 0)
         self.assertEqual(self.dropped_file(), [])
 
     def test_drop_and_restore_render_before_the_first_file_replacement(self):
@@ -344,17 +346,17 @@ class TrashRecovery(AccessBase):
             mock.patch.object(ps.APP, "pins_md_text", side_effect=RuntimeError("render failed")),
             self.assertRaisesRegex(RuntimeError, "render failed"),
         ):
-            ps.APP.drop_pin(pid, B)
+            ps.APP.pin_trash.drop_pin(pid, B)
         self.assertEqual(ps.APP.C.pins_jsonl.read_bytes(), before_live)
         self.assertEqual(self.dropped_file(), [])
 
-        ps.APP.drop_pin(pid, B)
+        ps.APP.pin_trash.drop_pin(pid, B)
         before_trash = ps.APP.C.dropped.read_bytes()
         with (
             mock.patch.object(ps.APP, "pins_md_text", side_effect=RuntimeError("render failed")),
             self.assertRaisesRegex(RuntimeError, "render failed"),
         ):
-            ps.APP.restore_pin(pid, A)
+            ps.APP.pin_trash.restore_pin(pid, A)
         self.assertEqual(ps.APP.C.dropped.read_bytes(), before_trash)
         self.assertFalse(any(pin.core.id == pid for pin in ps.APP.read_pins()[0]))
 
@@ -376,7 +378,7 @@ class TrashRecovery(AccessBase):
             mock.patch.object(limn_store, "dump_jsonl", side_effect=fail_live),
             self.assertRaisesRegex(TypeError, "cannot serialize live pins"),
         ):
-            ps.APP.drop_pin(pid, B)
+            ps.APP.pin_trash.drop_pin(pid, B)
         self.assertEqual(ps.APP.C.pins_jsonl.read_bytes(), before_live)
         self.assertEqual(self.dropped_file(), [])
 
@@ -388,7 +390,7 @@ class TrashRecovery(AccessBase):
                 before_events = len(ps.APP._read_events()[0])
                 before_md = ps.APP.C.pins_md.read_bytes()
                 with self.fail_after_write(stage), self.assertRaises(OSError):
-                    ps.APP.drop_pin(pid, B)
+                    ps.APP.pin_trash.drop_pin(pid, B)
                 live = any(pin.core.id == pid for pin in ps.APP.read_pins()[0])
                 self.assertEqual(live, stage == "pins.dropped.jsonl")
                 self.assertEqual(sum(row["id"] == pid for row in self.dropped_file()), 1)
@@ -399,9 +401,9 @@ class TrashRecovery(AccessBase):
                 if stage == "pins.jsonl":
                     self.assertEqual(ps.APP.C.pins_md.read_bytes(), before_md)
                 if live:
-                    self.assertNotIsInstance(ps.APP.drop_pin(pid, B), PinNotFound)
+                    self.assertNotIsInstance(ps.APP.pin_trash.drop_pin(pid, B), PinNotFound)
                 else:
-                    self.assertIsInstance(ps.APP.drop_pin(pid, B), PinNotFound)
+                    self.assertIsInstance(ps.APP.pin_trash.drop_pin(pid, B), PinNotFound)
                 self.assertEqual(sum(row["id"] == pid for row in self.dropped_file()), 1)
 
     def test_restore_failure_after_each_write_and_retry(self):
@@ -409,24 +411,24 @@ class TrashRecovery(AccessBase):
         for stage in ("pins.jsonl", "pins.md", "pins.dropped.jsonl"):
             with self.subTest(stage=stage):
                 pid = self.pin_id(ALICE)
-                ps.APP.drop_pin(pid, A)
+                ps.APP.pin_trash.drop_pin(pid, A)
                 before_md = ps.APP.C.pins_md.read_bytes()
                 with self.fail_after_write(stage), self.assertRaises(OSError):
-                    ps.APP.restore_pin(pid, A)
+                    ps.APP.pin_trash.restore_pin(pid, A)
                 self.assertIsNotNone(self.pin(pid))
                 self.assertEqual(ps.APP.dropped_payload(), [])
                 if stage == "pins.jsonl":
                     self.assertEqual(ps.APP.C.pins_md.read_bytes(), before_md)
-                refusal = ps.APP.restore_pin(pid, A)
+                refusal = ps.APP.pin_trash.restore_pin(pid, A)
                 self.assertIsInstance(refusal, NotInTrash if stage == "pins.dropped.jsonl" else AlreadyLive)
                 self.assertEqual(sum(row["id"] == pid for row in self.dropped_file()), 0)
 
     def test_restart_recovers_shadow_and_stale_md(self):
         """Startup prunes a shadow and rerenders pins.md after a committed live write fails next."""
         pid = self.pin_id(ALICE)
-        ps.APP.drop_pin(pid, A)
+        ps.APP.pin_trash.drop_pin(pid, A)
         with self.fail_after_write("pins.jsonl"), self.assertRaises(OSError):
-            ps.APP.restore_pin(pid, A)
+            ps.APP.pin_trash.restore_pin(pid, A)
         self.assertEqual(sum(row["id"] == pid for row in self.dropped_file()), 1)
         self.assertNotRegex(ps.APP.C.pins_md.read_text(encoding="utf-8"), r"\n\| %d[ ·|]" % pid)
         fresh = ps.ServerApplication(ps.APP.C, ps.new_runtime(ps.APP.RT.viewer))
@@ -434,15 +436,15 @@ class TrashRecovery(AccessBase):
             self.assertIsNone(fresh.prepare(None, True))
         self.assertEqual(fresh.read_dropped()[0], [])
         self.assertRegex(fresh.C.pins_md.read_text(encoding="utf-8"), r"\n\| %d[ ·|]" % pid)
-        self.assertIsInstance(fresh.restore_pin(pid, A), NotInTrash)
-        self.assertIsInstance(fresh.purge_pin(pid, A), NotInTrash)
+        self.assertIsInstance(fresh.pin_trash.restore_pin(pid, A), NotInTrash)
+        self.assertIsInstance(fresh.pin_trash.purge_pin(pid, A), NotInTrash)
 
     def test_restart_repairs_md_after_drop_commit_without_a_notice(self):
         """The live file remains authoritative if the drop commits before pins.md fails."""
         pid = self.pin_id(ALICE)
         before_events = len(ps.APP._read_events()[0])
         with self.fail_after_write("pins.jsonl"), self.assertRaises(OSError):
-            ps.APP.drop_pin(pid, B)
+            ps.APP.pin_trash.drop_pin(pid, B)
         self.assertIsNone(next((pin for pin in ps.APP.read_pins()[0] if pin.core.id == pid), None))
         self.assertRegex(ps.APP.C.pins_md.read_text(encoding="utf-8"), r"\n\| %d[ ·|]" % pid)
         self.assertEqual(len(ps.APP._read_events()[0]), before_events)
@@ -510,7 +512,7 @@ class TrashClockStart(Base):
     """Startup Trash cleanup starts the hourly retention clock."""
 
     def test_startup_purge_starts_the_hourly_clock(self):
-        ps.APP.purge_trash()
+        ps.APP.pin_trash.purge_trash()
         self.assertGreater(ps.APP.RT.trash_checked[0], time.time() - 5)
 
 
@@ -582,7 +584,7 @@ class ClearEndpoint(AccessBase):
         """Archived live pins cannot reappear in Trash while unrelated deleted pins stay restorable."""
         live_id = 1
         dropped_id = 2
-        ps.APP.drop_pin(dropped_id, dict(A))
+        ps.APP.pin_trash.drop_pin(dropped_id, dict(A))
         old, _ = ps.APP.read_dropped()
         shadow = dict(ps.APP.read_pins()[0][0].record)
         shadow.update(dropped_by=B, dropped_at=time.strftime("%Y-%m-%d %H:%M:%S"))
@@ -610,7 +612,7 @@ class ClearEndpoint(AccessBase):
             mock.patch.object(limn_store.PinStore, "write_dropped", side_effect=OSError("read-only")),
             self.assertRaises(OSError),
         ):
-            ps.APP.clear_pins(dict(A))
+            ps.APP.pin_trash.clear_pins(dict(A))
         self.assertEqual(ps.APP.C.pins_jsonl.read_bytes(), before_live)
         self.assertEqual(ps.APP.C.pins_md.read_bytes(), before_md)
         self.assertEqual([row["id"] for row in trash_records()], [live_id])
@@ -629,7 +631,7 @@ class ClearEndpoint(AccessBase):
             mock.patch.object(ps.APP, "pins_md_text", side_effect=RuntimeError("render failed")),
             self.assertRaisesRegex(RuntimeError, "render failed"),
         ):
-            ps.APP.clear_pins(dict(A))
+            ps.APP.pin_trash.clear_pins(dict(A))
         self.assertEqual(ps.APP.C.dropped.read_bytes(), before_trash)
         self.assertEqual(ps.APP.C.pins_jsonl.read_bytes(), before_live)
         self.assertEqual(self.backups(), [])
@@ -656,7 +658,7 @@ class ClearEndpoint(AccessBase):
             mock.patch.object(limn_store, "atomic_write", side_effect=fail_markdown),
             self.assertRaisesRegex(OSError, "markdown unavailable"),
         ):
-            ps.APP.clear_pins(dict(A))
+            ps.APP.pin_trash.clear_pins(dict(A))
         self.assertFalse(ps.APP.C.pins_jsonl.exists())
         archives = self.backups()
         self.assertEqual(len(archives), 1)

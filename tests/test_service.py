@@ -27,6 +27,8 @@ from limn.features.pins.claims import input as claims_input
 from limn.features.pins.claims.service import PinClaims
 from limn.features.pins.lifecycle import input as lifecycle_input
 from limn.features.pins.lifecycle.service import PinLifecycle
+from limn.features.pins.trash import service as trash
+from limn.features.pins.trash.service import PinTrash
 from limn.locate import PinLocation
 from limn.mentions import NoteTags
 from limn.pins.edit import NOTE_MAX, AddRequest, EditRequest, LinePlace, NoteTooLong, StaleEdit
@@ -46,7 +48,7 @@ from limn.pins.lifecycle import (
 from limn.pins.model import Agent, DonePin, OpenPin, Person, PinNotFound, ReviewPin, TrashedPin, parse_pin
 from limn.pins.record import Broken
 from limn.pins.view import pin_state
-from limn.service import add_edit, trash
+from limn.service import add_edit
 from limn.service.context import LoadedPin, PinContext, is_agent, load_pin, typed_actor, who
 from limn.store import PinFiles, PinStore, find_pin
 from limn.web.errors import InputRejected
@@ -451,14 +453,14 @@ class Trash(ServiceBase):
         """drop takes the pin out of pins.jsonl into the Trash and tells its author; restore puts it back, removes it
         from the Trash, and refuses a second restore (NotInTrash) without touching the Trash file."""
         pid = self.add()
-        self.assertIsInstance(trash.drop_pin(self.ctx, pid, BOB_ACTOR), TrashedPin)
+        self.assertIsInstance(PinTrash(lambda: self.ctx).drop_pin(pid, BOB_ACTOR), TrashedPin)
         self.assertIsNone(self.pin(pid))
         self.assertEqual([e.pin.core.id for e in self.store.read_dropped()[0]], [pid])
         self.assertEqual(self.rec.emitted[-1], [{"type": "dropped", "pin": pid, "to": ["alice@example.com"]}])
-        self.assertIsInstance(trash.restore_pin(self.ctx, pid, ALICE_ACTOR), OpenPin)
+        self.assertIsInstance(PinTrash(lambda: self.ctx).restore_pin(pid, ALICE_ACTOR), OpenPin)
         self.assertEqual(self.store.read_dropped()[0], [])
         trash_before = self.store.files.dropped.read_bytes()
-        self.assertEqual(trash.restore_pin(self.ctx, pid, ALICE_ACTOR), NotInTrash(pid))
+        self.assertEqual(PinTrash(lambda: self.ctx).restore_pin(pid, ALICE_ACTOR), NotInTrash(pid))
         self.assertEqual(self.store.files.dropped.read_bytes(), trash_before)
 
     def test_restore_of_a_pin_that_is_live_again_is_refused(self):
@@ -466,7 +468,7 @@ class Trash(ServiceBase):
         pid = self.add()
         self.store.write_dropped([TrashedPin.from_record(dict(self.pin(pid), dropped_at=STAMP))])
         pins = self.pins_bytes()
-        self.assertEqual(trash.restore_pin(self.ctx, pid, ALICE_ACTOR), AlreadyLive(pid))
+        self.assertEqual(PinTrash(lambda: self.ctx).restore_pin(pid, ALICE_ACTOR), AlreadyLive(pid))
         self.assertEqual(self.pins_bytes(), pins)
         self.assertEqual(self.store.read_dropped()[0], [])
 
@@ -476,32 +478,32 @@ class Trash(ServiceBase):
         self.store.write_dropped(
             [TrashedPin.from_record(self.old_entry(1, 31)), TrashedPin.from_record(self.old_entry(2, 1))]
         )
-        self.assertEqual(trash.purge_trash(self.ctx), 1)
+        self.assertEqual(PinTrash(lambda: self.ctx).purge_trash(), 1)
         self.assertEqual([e.pin.core.id for e in self.store.read_dropped()[0]], [2])
         self.assertEqual(self.checked, [T])
-        self.assertEqual(trash.maybe_purge_trash(self.ctx), 0)
+        self.assertEqual(PinTrash(lambda: self.ctx).maybe_purge_trash(), 0)
         later = self.context(epoch=lambda: T + trash.TRASH_CHECK_EVERY_S + 2 * 86400 * 30)
-        self.assertEqual(trash.maybe_purge_trash(later), 1)
+        self.assertEqual(PinTrash(lambda: later).maybe_purge_trash(), 1)
 
     def test_purge_pin_is_audited_outside_the_pin_lock(self):
         """A permanent delete removes the entry, emits `purged` and appends the audit line after releasing the lock;
         a pin not in the Trash is NotInTrash with no audit."""
         pid = self.add()
-        trash.drop_pin(self.ctx, pid, ALICE_ACTOR)
-        self.assertIsInstance(trash.purge_pin(self.ctx, pid, ALICE_ACTOR), TrashedPin)
+        PinTrash(lambda: self.ctx).drop_pin(pid, ALICE_ACTOR)
+        self.assertIsInstance(PinTrash(lambda: self.ctx).purge_pin(pid, ALICE_ACTOR), TrashedPin)
         self.assertEqual(self.store.read_dropped()[0], [])
         self.assertEqual(
             self.rec.emitted[-1], [{"type": "purged", "to": [], "pin": pid, "by": {"login": "alice@example.com"}}]
         )
         self.assertEqual(self.rec.audits, [("purged", "alice@example.com", {"pin": pid}, True)])
-        self.assertEqual(trash.purge_pin(self.ctx, pid, ALICE_ACTOR), NotInTrash(pid))
+        self.assertEqual(PinTrash(lambda: self.ctx).purge_pin(pid, ALICE_ACTOR), NotInTrash(pid))
         self.assertEqual(len(self.rec.audits), 1)
 
     def test_clear_archives_and_is_audited_as_the_agent_without_an_actor(self):
         """clear_pins archives pins.jsonl, emits `cleared` and audits it outside the lock - by the headerless agent
         when no actor is given."""
         self.add()
-        out = trash.clear_pins(self.ctx)
+        out = PinTrash(lambda: self.ctx).clear_pins()
         self.assertEqual(out["cleared"], 1)
         self.assertTrue((self.state / out["archive"]).exists())
         self.assertFalse(self.store.files.pins_jsonl.exists())
@@ -734,7 +736,7 @@ class Claim(Base):
     def test_drop_clears_claim_even_in_dropped_record(self):
         pid = self.add()
         ps.APP.pin_claims.claim_pin(pid, dict(LOCAL_ACTOR), 120)
-        ps.APP.drop_pin(pid, dict(LOCAL_ACTOR))
+        ps.APP.pin_trash.drop_pin(pid, dict(LOCAL_ACTOR))
         dropped = ps.APP.dropped_payload()
         self.assertEqual(len(dropped), 1)
         self.assertNotIn("claimed_by", dropped[0])
@@ -913,7 +915,7 @@ class ClaimEstimate(Base):
             elif how == "unclaim":
                 rec = record_of(ps.APP.pin_claims.unclaim_pin(pid, self.A))
             else:
-                ps.APP.drop_pin(pid, self.A)
+                ps.APP.pin_trash.drop_pin(pid, self.A)
                 rec = trash_records()[-1]
             for k in CLAIM_FIELDS:
                 self.assertNotIn(k, rec, (how, k))

@@ -11,7 +11,8 @@ notice, an audit.jsonl line and a log line; the audit line is appended outside t
 """
 
 import sys
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
+from dataclasses import dataclass
 from typing import Any
 
 from limn.access import LOCAL_ACTOR
@@ -215,3 +216,36 @@ def clear_pins(ctx: PinContext, actor: Mapping[str, Any] | None = None) -> Json:
     )
     sys.stderr.flush()
     return {"cleared": n, "archive": archive}
+
+
+@dataclass(frozen=True)
+class PinTrash:
+    """Trash operations bound to one application's context factory."""
+
+    context: Callable[[], PinContext]
+
+    def drop_pin(self, pid: int, actor: Mapping[str, Any]) -> TrashedPin | PinNotFound:
+        """Move one pin to the Trash under the store lock."""
+        return drop_pin(self.context(), pid, actor)
+
+    def restore_pin(
+        self, pid: int, actor: Mapping[str, Any]
+    ) -> OpenPin | ReviewPin | DonePin | NotInTrash | AlreadyLive:
+        """Restore one Trash entry under the store lock."""
+        return restore_pin(self.context(), pid, actor)
+
+    def purge_pin(self, pid: int, actor: Mapping[str, Any]) -> TrashedPin | NotInTrash:
+        """Permanently delete one Trash entry and audit it."""
+        return purge_pin(self.context(), pid, actor)
+
+    def clear_pins(self, actor: Mapping[str, Any] | None = None) -> Json:
+        """Archive and clear all live pins, preserving the audit trail."""
+        return clear_pins(self.context(), actor)
+
+    def purge_trash(self, now: float | None = None) -> int:
+        """Prune expired Trash entries and live shadow copies."""
+        return purge_trash(self.context(), now)
+
+    def maybe_purge_trash(self) -> int:
+        """Prune at most hourly after a successful check."""
+        return maybe_purge_trash(self.context())

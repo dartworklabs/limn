@@ -498,7 +498,7 @@ class EnglishChrome(ChromiumTestCase):
         done = add(26, 27, "Fix the unit", ALICE_ACTOR)
         ps.APP.pin_lifecycle.close_pin(done, ALICE_ACTOR, CloseRequest())
         dropped = add(28, 29, "Wrong spot", ALICE_ACTOR)
-        ps.APP.drop_pin(dropped, ALICE_ACTOR)
+        ps.APP.pin_trash.drop_pin(dropped, ALICE_ACTOR)
         add_pin(
             dict(file=str(src / "reply.tex"), lo=4, hi=5, page=1, note="Reply letter wording"), ALICE_ACTOR, ps, doc=rr
         ).record["id"]

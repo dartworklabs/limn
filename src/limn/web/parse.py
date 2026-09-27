@@ -68,7 +68,6 @@ REGION_EDIT_REFUSAL = "보기 전용 문서의 핀에는 줄 범위가 없습니
 PDF_BUILD_REFUSAL = "pdf_build 는 쪽 디렉토리 이름(pages 또는 pages-<시각>)이어야 합니다."
 REVISION_BUILD_FIELDS = frozenset({"commit", "doc", "pin"})
 # The phrase POST /api/clear must carry as its body's `confirm` before every pin is archived and cleared.
-CLEAR_CONFIRM = "clear all pins"
 
 Frac: TypeAlias = tuple[float, float, float, float]  # a selection's [x, y, w, h] as fractions of its page
 Via: TypeAlias = Literal["synctex", "text"]  # how the viewer traced a line pin's range
@@ -366,23 +365,6 @@ def parse_build_name(q: Query) -> str:
     """GET /pdf's ?build= as sent, "" when absent (the build on screen). Never refused: a name that is not a page
     directory simply has no PDF (limn.build.build_pdf)."""
     return _first(q, "build", "") or ""
-
-
-@dataclass(frozen=True)
-class ClearConfirmed:
-    """A POST /api/clear body that carries the confirmation phrase (CLEAR_CONFIRM)."""
-
-
-def parse_clear(d: Json) -> ClearConfirmed | InputRejected:
-    """A POST /api/clear body: its confirm must be exactly CLEAR_CONFIRM, else 400 confirm_required naming the phrase
-    and the archive left behind. Any other field is ignored."""
-    if d.get("confirm") != CLEAR_CONFIRM:
-        return InputRejected(
-            '모든 핀을 지우려면 본문에 {"confirm": "%s"} 를 보내세요(보관본 pins_<시각>.jsonl.bak 이 남습니다).'
-            % CLEAR_CONFIRM,
-            "confirm_required",
-        )
-    return ClearConfirmed()
 
 
 def source_file(p: object, root: Path, state: Path) -> Path | InputRejected:

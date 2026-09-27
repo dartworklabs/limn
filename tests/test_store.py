@@ -517,9 +517,9 @@ class Store(Base):
     def test_two_clears_same_second_keep_both(self):
         """Archive names remain unique when two clear operations share one timestamp."""
         self.add(note="FIRST")
-        ps.APP.clear_pins()
+        ps.APP.pin_trash.clear_pins()
         self.add(note="SECOND")
-        ps.APP.clear_pins()
+        ps.APP.pin_trash.clear_pins()
         baks = list(ps.APP.C.state.glob("pins_*.jsonl.bak"))
         self.assertEqual(len(baks), 2)
         blob = "".join(p.read_text() for p in baks)
@@ -529,15 +529,15 @@ class Store(Base):
     def test_restore_survives_failed_pins_write(self):
         """A failed live write keeps the Trash copy available for a later restore."""
         pid = self.add()
-        ps.APP.drop_pin(pid, dict(LOCAL_ACTOR))
+        ps.APP.pin_trash.drop_pin(pid, dict(LOCAL_ACTOR))
         # the transaction's own write
         with (
             mock.patch.object(PinStore, "write_prepared", side_effect=OSError("disk full")),
             self.assertRaises(OSError),
         ):
-            ps.APP.restore_pin(pid, dict(LOCAL_ACTOR))
+            ps.APP.pin_trash.restore_pin(pid, dict(LOCAL_ACTOR))
         self.assertIn(pid, [r["id"] for r in trash_records()])
-        self.assertEqual(record_of(ps.APP.restore_pin(pid, dict(LOCAL_ACTOR)))["id"], pid)
+        self.assertEqual(record_of(ps.APP.pin_trash.restore_pin(pid, dict(LOCAL_ACTOR)))["id"], pid)
         self.assertEqual(trash_records(), [])
 
     def test_edit_loc_keeps_page_frac_and_defaults_kind(self):

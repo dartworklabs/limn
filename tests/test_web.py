@@ -28,6 +28,7 @@ from limn import locate, mapping
 from limn.documents import DocNotFound
 from limn.features.pins.claims import http as claims_http
 from limn.features.pins.lifecycle import http as lifecycle_http
+from limn.features.pins.trash import http as trash_http
 from limn.pins.edit import StaleEdit
 from limn.pins.lifecycle import AgentCannotConfirm, ClaimedByOther, NotInTrash, PinStillOpen, ThreadFull
 from limn.pins.model import DonePin, OpenPin, PinNotFound, ReviewPin, TrashedPin
@@ -378,15 +379,15 @@ class Answers(unittest.TestCase):
             lambda: answers.pin_answer(PinNotFound(4)), 404, {"error": "핀 #4 이 없습니다.", "reason": "pin_not_found"}
         )
         trashed = TrashedPin.from_record({"id": 4})
-        self.assertEqual(answers.drop_answer(trashed), {"ok": True})
-        self.assertEqual(answers.drop_answer(PinNotFound(4)), {"ok": False})
-        self.assertEqual(answers.purge_answer(trashed, 4), {"ok": True, "purged": 4})
+        self.assertEqual(trash_http.drop_answer(trashed), {"ok": True})
+        self.assertEqual(trash_http.drop_answer(PinNotFound(4)), {"ok": False})
+        self.assertEqual(trash_http.purge_answer(trashed, 4), {"ok": True, "purged": 4})
         self.assert_refused(
-            lambda: answers.purge_answer(NotInTrash(4), 4),
+            lambda: trash_http.purge_answer(NotInTrash(4), 4),
             404,
             {"error": "휴지통에 핀 #4 이 없습니다.", "reason": "not_in_trash"},
         )
-        self.assertEqual(answers.clear_answer({"cleared": 2}), {"cleared": 2, "ok": True})
+        self.assertEqual(trash_http.clear_answer({"cleared": 2}), {"cleared": 2, "ok": True})
 
     def test_a_build_pdf_that_cannot_be_served(self):
         """A named build is pdf_build_gone, no name is pdf_missing; the body names the build on screen."""

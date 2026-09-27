@@ -17,6 +17,7 @@ from pathlib import Path
 from limn.access import LOCAL_ACTOR
 from limn.features.pins.claims import input as claims_input
 from limn.features.pins.lifecycle import input as lifecycle_input
+from limn.features.pins.trash import input as trash_input
 from limn.files import BadPath, NotAFile, OutsideTree, file_in_tree
 from limn.pins.edit import LinePlace, PinEdited, RegionPlace, evolve_edit
 from limn.pins.lifecycle import CloseRequest
@@ -451,11 +452,11 @@ class RouteRequests(unittest.TestCase):
 
     def test_clear_needs_the_exact_phrase(self):
         """Only confirm == CLEAR_CONFIRM clears; anything else is the contract's 400 naming the phrase."""
-        self.assertEqual(parse.parse_clear({"confirm": "clear all pins", "x": 1}), parse.ClearConfirmed())
+        self.assertEqual(trash_input.parse_clear({"confirm": "clear all pins", "x": 1}), trash_input.ClearConfirmed())
         for body in ({}, {"confirm": "Clear all pins"}, {"confirm": ["clear all pins"]}):
             with self.subTest(body=body):
                 self.assertEqual(
-                    parse.parse_clear(body),
+                    trash_input.parse_clear(body),
                     InputRejected(
                         '모든 핀을 지우려면 본문에 {"confirm": "clear all pins"} 를 보내세요'
                         "(보관본 pins_<시각>.jsonl.bak 이 남습니다).",

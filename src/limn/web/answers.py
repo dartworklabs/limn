@@ -36,11 +36,7 @@ from limn.locate import (
     SynctexOutside,
 )
 from limn.pins.edit import ClosedPinReshaped, EditRefusal, NoteTooLong, PinOutsideTree, RangeOutsideFile, StaleEdit
-from limn.pins.lifecycle import (
-    AlreadyLive,
-    NotInTrash,
-)
-from limn.pins.model import DonePin, OpenPin, PinNotFound, Record, ReviewPin, TrashedPin
+from limn.pins.model import DonePin, OpenPin, PinNotFound, Record, ReviewPin
 from limn.revisions import (
     AllSlotsBusy,
     CommitNotRecent,
@@ -115,11 +111,6 @@ def build_pdf_gone(name: str, pages_build: str, text: Text) -> NoReturn:
         pages_build=pages_build,
         reason="pdf_build_gone" if name else "pdf_missing",
     )
-
-
-def clear_answer(result: dict[str, Any]) -> Body:
-    """POST /api/clear: what the clear reports (the archive and how many pins it held) with ok true."""
-    return dict(result, ok=True)
 
 
 def pick_build_gone() -> Body:
@@ -216,35 +207,6 @@ def _region_body(r: PickedRegion) -> Body:
         "overlaps": [],
         "pdf_build": r.pdf_build,
     }
-
-
-def restore_answer(result: OpenPin | ReviewPin | DonePin | NotInTrash | AlreadyLive, show: Show) -> Body:
-    """POST /api/pins/{id}/restore: the pin back in the list, or 404/409 with the old messages."""
-    match result:
-        case OpenPin(record=record) | ReviewPin(record=record) | DonePin(record=record):
-            return {"ok": True, "pin": show(record)}
-        case NotInTrash(pid=pid):
-            raise HTTPError(404, "삭제 기록에 핀 #%d 이 없습니다." % pid, reason="not_in_trash")
-        case AlreadyLive(pid=pid):
-            raise HTTPError(409, "핀 #%d 이 이미 있습니다." % pid, reason="pin_exists")
-
-
-def drop_answer(result: TrashedPin | PinNotFound) -> Body:
-    """POST /api/pins/{id}/drop: ok true when the pin went to the Trash, ok false (still a 200) when there was none."""
-    match result:
-        case TrashedPin():
-            return {"ok": True}
-        case PinNotFound():
-            return {"ok": False}
-
-
-def purge_answer(result: TrashedPin | NotInTrash, pid: int) -> Body:
-    """POST /api/pins/{id}/purge: the Trash copy of pin pid deleted for good, or 404 not_in_trash."""
-    match result:
-        case TrashedPin():
-            return {"ok": True, "purged": pid}
-        case NotInTrash():
-            raise HTTPError(404, "휴지통에 핀 #%d 이 없습니다." % pid, reason="not_in_trash")
 
 
 def add_answer(result: OpenPin) -> Body:

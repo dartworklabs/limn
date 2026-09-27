@@ -89,6 +89,8 @@ from limn.documents import (
 from limn.events import EVENTS_KEEP, EventType
 from limn.features.pins.claims.service import PinClaims
 from limn.features.pins.lifecycle.service import PinLifecycle
+from limn.features.pins.trash import service as trash_service
+from limn.features.pins.trash.service import PinTrash
 from limn.files import tex_lines, vendor_file as find_vendor_file
 from limn.guidance import shell_path
 from limn.locate import PinLocation, est_context, locate_file
@@ -106,8 +108,6 @@ from limn.people import is_actor as _is_actor
 from limn.pins import record, view
 from limn.pins.edit import AddRequest, EditRefusal, EditRequest
 from limn.pins.lifecycle import (
-    AlreadyLive,
-    NotInTrash,
     claim_holds,
     pin_reopened_in_round,
     reopens_on_reply,
@@ -144,7 +144,7 @@ from limn.revisions import (
     git as _git,
     revision_history as revision_history,
 )
-from limn.service import add_edit, trash
+from limn.service import add_edit
 from limn.service.context import Event, Json, PinContext, is_agent, who
 from limn.startup import APP_NAME as APP_NAME, StartupRefused, app_version as app_version
 from limn.store import PinFiles, PinStore, Row, pin_index
@@ -354,11 +354,13 @@ class ServerApplication:
     docs: list[Doc] = field(default_factory=list)
     pin_lifecycle: PinLifecycle = field(init=False)
     pin_claims: PinClaims = field(init=False)
+    pin_trash: PinTrash = field(init=False)
 
     def __post_init__(self) -> None:
         """Bind pin features to this application's context factory."""
         self.pin_lifecycle = PinLifecycle(self.pin_context)
         self.pin_claims = PinClaims(self.pin_context)
+        self.pin_trash = PinTrash(self.pin_context)
 
     APP_NAME = APP_NAME
     DEFAULT_ROLE = DEFAULT_ROLE
@@ -624,8 +626,12 @@ class ServerApplication:
         with self.RT.pin_lock:
             pins = self.read_pins()[0]
             entries = self.read_dropped()[0]
-        visible = trash.without_live_shadows(entries, pins)
-        return view.dropped_payload(self._unexpired(visible, now), self.public, self.trash_expires_ts)
+        visible = trash_service.without_live_shadows(entries, pins)
+        return view.dropped_payload(
+            trash_service.unexpired(visible, TRASH_DAYS, time.time() if now is None else now),
+            self.public,
+            lambda entry: trash_service.expires_ts(entry, TRASH_DAYS),
+        )
 
     def overlaps_by_id(self, pins: Sequence[Pin]) -> dict[int, list[Json]]:
         """The relationship of every pair of open line pins on the same file, each counted where pin_location() places it
@@ -808,45 +814,9 @@ class ServerApplication:
         preview (replyReopens) mirrors that rule."""
         return reopens_on_reply(parse_pin(r), human, mentioned, reopen)
 
-    def drop_pin(self, pid: int, actor: Json) -> TrashedPin | PinNotFound:
-        """POST /api/pins/{id}/drop: the pin moves to the Trash (limn.service.trash.drop_pin)."""
-        return trash.drop_pin(self.pin_context(), pid, actor)
-
-    def trash_expires_ts(self, entry: TrashedPin) -> float | None:
-        """Epoch seconds at which a Trash entry expires (dropped_at + TRASH_DAYS), or None if dropped_at is unreadable."""
-        return trash.expires_ts(entry, TRASH_DAYS)
-
-    def trash_expired(self, entry: TrashedPin, now: float | None = None) -> bool:
-        """Is a Trash entry past TRASH_DAYS at now (default: the clock)? An entry of unknown age never is."""
-        return trash.expired(entry, TRASH_DAYS, time.time() if now is None else now)
-
-    def _unexpired(self, entries: Sequence[TrashedPin], now: float | None = None) -> list[TrashedPin]:
-        """The Trash entries still restorable at now (default: the clock)."""
-        return trash.unexpired(entries, TRASH_DAYS, time.time() if now is None else now)
-
-    def purge_trash(self, now: float | None = None) -> int:
-        """Prunes expired Trash and live shadows; returns expired count (limn.service.trash.purge_trash)."""
-        return trash.purge_trash(self.pin_context(), now)
-
-    def maybe_purge_trash(self) -> int:
-        """The hourly lazy expiry on the reads that already write (limn.service.trash.maybe_purge_trash)."""
-        return trash.maybe_purge_trash(self.pin_context())
-
-    def purge_pin(self, pid: int, actor: Json) -> TrashedPin | NotInTrash:
-        """POST /api/pins/{id}/purge: the owner's permanent delete (limn.service.trash.purge_pin)."""
-        return trash.purge_pin(self.pin_context(), pid, actor)
-
     def claim_active(self, r: Record) -> bool:
         """Does this pin have an unexpired claim now? limn.pins.lifecycle.claim_holds() at the current epoch."""
         return claim_holds(r, time.time())
-
-    def restore_pin(self, pid: int, actor: Json) -> OpenPin | ReviewPin | DonePin | NotInTrash | AlreadyLive:
-        """POST /api/pins/{id}/restore: the pin comes back from the Trash (limn.service.trash.restore_pin)."""
-        return trash.restore_pin(self.pin_context(), pid, actor)
-
-    def clear_pins(self, actor: Json | None = None) -> Json:
-        """POST /api/clear: archive and clear every pin, with its notice and audit line (limn.service.trash.clear_pins)."""
-        return trash.clear_pins(self.pin_context(), actor)
 
     def render_pins_md(self, pins: Sequence[Pin]) -> None:
         """Rewrites pins.md from pins alone (PinStore.render_md). Callers hold RT.pin_lock."""
@@ -1034,7 +1004,7 @@ class ServerApplication:
         Runtime's, so RT.stop() ends them)."""
         self.set_docs(docs)
         self.init_seq()
-        self.purge_trash()  # Expired Trash and live shadows go at startup, and hourly on reads that already write
+        self.pin_trash.purge_trash()  # Expired Trash and live shadows go at startup, and hourly on reads that already write
         if not docs:
             D = self.docs[0]
             build.migrate_pages(D)

@@ -33,7 +33,7 @@ limn serve  ──(1)──▶  <manuscript_dir> 사본을 별도 빌드 디렉�
 
 ## 현재 구조
 
-Limn은 **하나의 배포 단위(`dartwork-limn` 패키지) 안에서 표준 라이브러리만 쓰는 모듈**로 나뉜다. 닫기·다시 열기·확인·답글은 `features/pins/lifecycle/`, 처리 중 표시·해제는 `features/pins/claims/`가 입력·HTTP 응답·트랜잭션을 소유한다. 나머지는 아직 책임별 모듈에 있다. 경로마다의 책임과 함께 볼 topic은 [index.md](index.md) §파일 지도가 정본이다.
+Limn은 **하나의 배포 단위(`dartwork-limn` 패키지) 안에서 표준 라이브러리만 쓰는 모듈**로 나뉜다. 닫기·다시 열기·확인·답글은 `features/pins/lifecycle/`, 처리 중 표시·해제는 `features/pins/claims/`, 휴지통 변경·정리는 `features/pins/trash/`가 입력·HTTP 응답·트랜잭션을 소유한다. 나머지는 아직 책임별 모듈에 있다. 경로마다의 책임과 함께 볼 topic은 [index.md](index.md) §파일 지도가 정본이다.
 
 | 층 | 모듈 | 하는 일 | 모르는 것 |
 | --- | --- | --- | --- |
@@ -41,8 +41,9 @@ Limn은 **하나의 배포 단위(`dartwork-limn` 패키지) 안에서 표준 �
 | 부수효과 셸 | `service/`(남은 핀 서비스), `store.py`, `build.py`, `locate.py`, `revisions.py`, `gitsync.py`, `gitrun.py`, `documents.py`, `meta.py`, `people.py`, `events.py`, `audit.py`, `files.py`, `access.py`, `startup.py`·`args.py`·`config.py` | 파일·git·SyncTeX·빌드 도구를 다루고, 순수 규칙에 묻고, 결과를 쓴다. 문서·설정·협력자를 인자로 받는다 | 실행 설정 `C`, `server.py`, HTTP 층 |
 | 기능 슬라이스 | `features/pins/lifecycle/`의 `input.py`·`http.py`·`service.py` | 닫기·다시 열기·확인·답글의 입력 검사, 응답, 잠금 아래 전이와 알림. 순수 전이 규칙은 아직 claim·휴지통 등과 함께 쓰는 `pins/lifecycle.py`에 있다 | `server.py`. 실행별 문맥은 조립 지점이 묶는다 |
 | 기능 슬라이스 | `features/pins/claims/`의 `input.py`·`http.py`·`service.py` | 처리 중 표시·해제의 시간 입력, 409 응답, 잠금 아래 claim 기록. 순수 규칙은 공통 `pins/lifecycle.py`가 소유한다 | `server.py`. 실행별 문맥은 조립 지점이 묶는다 |
+| 기능 슬라이스 | `features/pins/trash/`의 `input.py`·`http.py`·`service.py` | 삭제·복원·영구 삭제·전체 비우기의 입력·응답, 잠금 아래 휴지통 변경과 기동·주기 정리. 순수 핀 전이는 공통 `pins/lifecycle.py`가 소유한다 | `server.py`. 실행별 문맥은 조립 지점이 묶는다 |
 | 공통 HTTP | `web/`(`handler.py`·`parse.py`·`answers.py`·`errors.py`·`app.py`) | 본문 읽기·접근 검사·경로 분기와 아직 옮기지 않은 경로의 파싱·응답. 옮긴 핀 경로는 각 기능 패키지의 HTTP 입구를 부른다 | `server.py`. 앱 계약은 `web/app.py`의 `App` 프로토콜이다 |
-| 조립 지점 | `server.py` | 시작 단계를 차례로 불러 실행 설정 `C`, 실행별 런타임 `RT`, 문서 목록을 `ServerApplication` 하나에 묶는다. 실행별 `PinLifecycle`과 `PinClaims`에 `pin_context` 생성 함수를 묶는다 | — |
+| 조립 지점 | `server.py` | 시작 단계를 차례로 불러 실행 설정 `C`, 실행별 런타임 `RT`, 문서 목록을 `ServerApplication` 하나에 묶는다. 실행별 `PinLifecycle`·`PinClaims`·`PinTrash`에 `pin_context` 생성 함수를 묶는다 | — |
 
 층 밖에 나란히 있는 것이 둘이다.
 

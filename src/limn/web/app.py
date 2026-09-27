@@ -27,13 +27,10 @@ from limn.config import RunConfig
 from limn.documents import Doc, DocNotFound
 from limn.features.pins.claims.service import PinClaims
 from limn.features.pins.lifecycle.service import PinLifecycle
+from limn.features.pins.trash.service import PinTrash
 from limn.locate import Picked, PickedRegion, PickRefusal
 from limn.pins.edit import AddRequest, EditRefusal, EditRequest
-from limn.pins.lifecycle import (
-    AlreadyLive,
-    NotInTrash,
-)
-from limn.pins.model import DonePin, OpenPin, Pin, PinNotFound, Record, ReviewPin, TrashedPin
+from limn.pins.model import DonePin, OpenPin, Pin, PinNotFound, Record, ReviewPin
 from limn.revisions import DiffRefusal, PdfRefusal, StartRefusal, StatusRefusal
 from limn.viewer.assemble import ServedViewer
 from limn.web.parse import DocumentFacts, PickRequest, SourceRange
@@ -55,6 +52,7 @@ class App(Protocol):
     C: Config
     pin_lifecycle: PinLifecycle
     pin_claims: PinClaims
+    pin_trash: PinTrash
     APP_NAME: str
     DEFAULT_ROLE: access.Role  # the role of a person people.json gives none
 
@@ -171,10 +169,6 @@ class App(Protocol):
         """GET /api/build for document D (limn.build.state_snapshot)."""
         ...
 
-    def maybe_purge_trash(self) -> int:
-        """The hourly lazy expiry of the Trash."""
-        ...
-
     def remote_base_for(self, host_raw: str) -> str:
         """The base URL for GET /pins.md's guidance."""
         ...
@@ -225,18 +219,6 @@ class App(Protocol):
 
     # ---- changes
 
-    def drop_pin(self, pid: int, actor: Json) -> TrashedPin | PinNotFound:
-        """POST /api/pins/{id}/drop."""
-        ...
-
-    def restore_pin(self, pid: int, actor: Json) -> OpenPin | ReviewPin | DonePin | NotInTrash | AlreadyLive:
-        """POST /api/pins/{id}/restore."""
-        ...
-
-    def purge_pin(self, pid: int, actor: Json) -> TrashedPin | NotInTrash:
-        """POST /api/pins/{id}/purge."""
-        ...
-
     def edit_pin(
         self, pid: int, request: EditRequest, actor: Json, region: bool = False
     ) -> OpenPin | ReviewPin | DonePin | EditRefusal | PinNotFound:
@@ -245,10 +227,6 @@ class App(Protocol):
 
     def add_pin(self, D: Document, request: AddRequest, actor: Json) -> OpenPin:
         """POST /api/pin."""
-        ...
-
-    def clear_pins(self, actor: Json | None = None) -> Json:
-        """POST /api/clear."""
         ...
 
     def pick(self, D: Document, request: PickRequest) -> Picked | PickedRegion | PickRefusal:

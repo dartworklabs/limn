@@ -27,6 +27,7 @@ from urllib.parse import parse_qs, urlparse
 
 from limn.features.pins.claims import http as claims_http
 from limn.features.pins.lifecycle import http as lifecycle_http
+from limn.features.pins.trash import http as trash_http
 from limn.mark import png as mark_png
 from limn.web import answers, parse
 from limn.web.answers import accepted
@@ -344,12 +345,12 @@ class Handler(BaseHTTPRequestHandler):
         app = self.app
         # a remote agent's entry point, the same sync path as GET /api/pins (docs/handbook/api.md §원격 에이전트 진입점)
         if path == "/pins.md":
-            app.maybe_purge_trash()
+            app.pin_trash.maybe_purge_trash()
             base = app.remote_base_for(self.headers.get("Host") or "")
             text = app.pins_md_text(app.snapshot_pins(), base=base)
             return Reply(200, text.encode("utf-8"), "text/markdown; charset=utf-8")
         if path == "/api/pins":
-            app.maybe_purge_trash()  # hourly Trash expiry on a long-running server (this path already writes)
+            app.pin_trash.maybe_purge_trash()  # hourly Trash expiry on a long-running server (this path already writes)
             pins = parse.parse_pins_query(q)
             rows = app.pins_payload(app.snapshot_pins(), pins.all)
             if pins.doc_scoped:  # only that document's pins (overlap/estimation stay computed globally)
@@ -444,8 +445,7 @@ class Handler(BaseHTTPRequestHandler):
         if m:
             return self._pin_action(actor, int(m.group(1)), m.group(2), d)
         if path == "/api/clear":  # owner only (check_role), and only with the confirmation phrase
-            accepted(parse.parse_clear(d))
-            return self._json(answers.clear_answer(self.app.clear_pins(actor)))
+            return self._json(trash_http.clear(self.app, actor, d))
         raise HTTPError(404, "없는 경로입니다: %s" % path, reason="not_found")
 
     def _post_doc(self, actor: Json, path: str, q: Query, d: Json, D: Document) -> None:
@@ -479,11 +479,11 @@ class Handler(BaseHTTPRequestHandler):
         if act == "confirm":
             return self._json(lifecycle_http.confirm(app, pid, actor))
         if act == "drop":
-            return self._json(answers.drop_answer(app.drop_pin(pid, actor)))
+            return self._json(trash_http.drop(app, pid, actor))
         if act == "restore":
-            return self._json(answers.restore_answer(app.restore_pin(pid, actor), app.public))
+            return self._json(trash_http.restore(app, pid, actor))
         if act == "purge":  # owner only (check_role)
-            return self._json(answers.purge_answer(app.purge_pin(pid, actor), pid))
+            return self._json(trash_http.purge(app, pid, actor))
         if act == "edit":
             # loc is checked against the pin's own document, found before the edit is decided (as always)
             body = accepted(parse.parse_edit(d, app.assignee_people(d)))

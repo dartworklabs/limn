@@ -180,7 +180,7 @@ class DroppedList(Base):
 
     def test_dropped_payload_includes_dropped_at_and_by(self):
         pid = self.add(note="oops")
-        ps.APP.drop_pin(pid, {"login": "alice", "name": "Wendy"})
+        ps.APP.pin_trash.drop_pin(pid, {"login": "alice", "name": "Wendy"})
         out = ps.APP.dropped_payload()
         self.assertEqual(len(out), 1)
         self.assertEqual(out[0]["id"], pid)
@@ -193,13 +193,13 @@ class DroppedList(Base):
 
     def test_dropped_payload_excludes_restored_pins(self):
         pid = self.add()
-        ps.APP.drop_pin(pid, dict(LOCAL_ACTOR))
-        ps.APP.restore_pin(pid, dict(LOCAL_ACTOR))
+        ps.APP.pin_trash.drop_pin(pid, dict(LOCAL_ACTOR))
+        ps.APP.pin_trash.restore_pin(pid, dict(LOCAL_ACTOR))
         self.assertEqual(ps.APP.dropped_payload(), [])
 
     def test_get_pins_dropped_endpoint_http(self):
         pid = self.add(note="secret-drop-note")
-        ps.APP.drop_pin(pid, {"login": "alice", "name": "Wendy"})
+        ps.APP.pin_trash.drop_pin(pid, {"login": "alice", "name": "Wendy"})
         out = self.talk(req("GET", "/api/pins/dropped"))
         self.assertIn(b" 200 ", out)
         payload = json.loads(out.split(b"\r\n\r\n", 1)[1])
@@ -209,7 +209,7 @@ class DroppedList(Base):
 
     def test_get_pins_dropped_respects_origin_check(self):
         pid = self.add()
-        ps.APP.drop_pin(pid, dict(LOCAL_ACTOR))
+        ps.APP.pin_trash.drop_pin(pid, dict(LOCAL_ACTOR))
         out = self.talk(req("GET", "/api/pins/dropped", headers={"Host": "evil.example"}))
         self.assertIn(b" 403 ", out)
 

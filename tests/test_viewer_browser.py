@@ -347,7 +347,7 @@ class ViewerFlows(BrowserBase):
             ),
             encoding="utf-8",
         )
-        ps.APP.drop_pin(self.open_id, B)
+        ps.APP.pin_trash.drop_pin(self.open_id, B)
         page = self.page_for("desktop", "ko", n_open=0)
         page.click("#trash-link")
         row = '#trash .arc-row[data-id="%d"]' % self.open_id
@@ -364,7 +364,7 @@ class ViewerFlows(BrowserBase):
 
     def test_ref_to_deleted_pin_in_a_thread(self):
         ps.APP.pin_lifecycle.reply_pin(self.open_id, "#%d 와 같은 문제" % self.dn, B)
-        ps.APP.drop_pin(self.dn, A)
+        ps.APP.pin_trash.drop_pin(self.dn, A)
         for lang in ("ko", "en"):
             with self.subTest(lang=lang):
                 page = self.page_for("desktop", lang)
@@ -444,7 +444,7 @@ class ColdDeepLink(BrowserBase):
         self.gone = add_pin(
             {"file": str(src / "hl.tex"), "lo": 32, "hi": 33, "page": 2, "note": "되살릴 핀"}, A, doc=hl
         ).record["id"]
-        ps.APP.drop_pin(self.gone, B)
+        ps.APP.pin_trash.drop_pin(self.gone, B)
         self.addCleanup(ps.APP.set_docs, None)
 
     def cold(self, hash_, device):
@@ -986,7 +986,7 @@ class RestoreLinkRunsOnce(BrowserBase):
         ps.APP.record_person(A)
         pid = add_pin({"file": str(self.main), "lo": 8, "hi": 9, "page": 1, "note": "지운 핀"}, A).record["id"]
         keep = add_pin({"file": str(self.main), "lo": 12, "hi": 13, "page": 1, "note": "남은 핀"}, A).record["id"]
-        ps.APP.drop_pin(pid, B)
+        ps.APP.pin_trash.drop_pin(pid, B)
         context = self.browser.new_context(viewport={"width": 1400, "height": 850})
         self.addCleanup(context.close)
         watch_idle(context)
@@ -995,7 +995,7 @@ class RestoreLinkRunsOnce(BrowserBase):
         page.goto("http://viewer.test/?lang=ko#pin=%d&act=restore" % pid)
         page.wait_for_function("typeof OPEN_ALL!=='undefined'&&OPEN_ALL.some(p=>p.id===%d)" % pid, timeout=20000)
         self.assertNotIn("act=restore", page.evaluate("location.href"))
-        ps.APP.drop_pin(pid, A)  # dropped again elsewhere
+        ps.APP.pin_trash.drop_pin(pid, A)  # dropped again elsewhere
         page.reload()
         # boot() ends by acting on a pin link (openPinFromLink); a second restore it sent would be answered by settle()
         page.wait_for_function(booted(1) + "&&OPEN_ALL.some(p=>p.id===%d)" % keep, timeout=20000)
@@ -1277,7 +1277,7 @@ class ViewerTrashControls(BrowserBase):
         )
         add_pin({"file": str(self.main), "lo": 4, "hi": 5, "page": 1, "note": "남은 핀"}, A).record["id"]
         self.gone = add_pin({"file": str(self.main), "lo": 8, "hi": 9, "page": 1, "note": "지운 핀"}, A).record["id"]
-        ps.APP.drop_pin(self.gone, A)
+        ps.APP.pin_trash.drop_pin(self.gone, A)
 
     def test_viewer_role_sees_no_restore_or_purge_in_the_trash(self):
         """E2E finding: a viewer reads the Trash but gets no [Restore]/[Delete forever] (server refuses with 403 anyway)."""

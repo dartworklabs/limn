@@ -1,4 +1,4 @@
-"""Shared pin services still behind editing and trash changes (docs/handbook/architecture.md §현재 구조).
+"""Shared pin services still behind editing changes (docs/handbook/architecture.md §현재 구조).
 
 Each service loads the pins under the store's lock (PinStore.transact), asks the pure rules in limn.pins (lifecycle,
 edit) what happens, writes only when the rule accepts, and then emits the notices and - for the irreversible ones -
@@ -9,9 +9,8 @@ Modules, one per group of intents that change together:
 
     context.py      PinContext - what a service needs from the instance - and the typed actor of a request
     add_edit.py     a new pin (line or region) and an edit in place
-    trash.py        drop, restore, the Trash's expiry and permanent delete, and clear
 
-Pin lifecycle actions live in features/pins/lifecycle; claim and unclaim live in features/pins/claims.
+Pin lifecycle, claim, and Trash actions live in features/pins/.
 
 Nothing here imports server.py or reads its run settings: the composition root (server.pin_context()) makes a
 PinContext per call from the store, the clock, the notice and audit sinks, the @-tag lookups, the file locator and
