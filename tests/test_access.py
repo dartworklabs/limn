@@ -422,21 +422,21 @@ class Tokens(AccessBase):
         self.assertIn("no config found", r.stderr)
 
     def test_cli_env_parsing_matches_instances_sh(self):
-        """cli.env_get reads a config line exactly as instances.sh's env_get does (last line wins, whitespace, quotes),
+        """targets.env_get reads a config line exactly as instances.sh's env_get does (last line wins, whitespace, quotes),
         checked against the shell function itself with whatever bash is first on PATH (3.2 on stock macOS)."""
         from importlib import import_module
 
         sys.path.insert(0, str(SRC))
         try:
-            cli = import_module("limn.cli")
+            targets = import_module("limn.features.administration.targets")
         finally:
             sys.path.remove(str(SRC))
         f = Path(self.tmp.name) / "x.env"
         f.write_text("# STATE_DIR=/no\n  STATE_DIR='/a b'  \r\nOTHER=1\nSTATE_DIR=\"/c\"\n", encoding="utf-8")
-        self.assertEqual(cli.env_get(f, "STATE_DIR"), "/c")  # the last line wins
+        self.assertEqual(targets.env_get(f, "STATE_DIR"), "/c")  # the last line wins
         f.write_text("STATE_DIR='/a b'  \r\n", encoding="utf-8")
-        self.assertEqual(cli.env_get(f, "STATE_DIR"), "/a b")
-        self.assertIsNone(cli.env_get(f, "NOPE"))
+        self.assertEqual(targets.env_get(f, "STATE_DIR"), "/a b")
+        self.assertIsNone(targets.env_get(f, "NOPE"))
         bash = shutil.which("bash")
         if bash:  # the same answer as instances.sh's env_get
             # eval, not `source <(...)`: bash 3.2 (macOS /bin/bash) sources nothing from a process substitution

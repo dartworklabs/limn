@@ -20,7 +20,7 @@ from unittest import mock
 from urllib.parse import quote
 
 from limn import access
-from limn.cli import cli_audit
+from limn.features.administration.targets import cli_audit
 
 from helpers import DEFAULT_ACCESS, ps, req, set_config, split_resp
 from helpers_access import ALICE, BOB, CAROL, AccessBase, talk_to

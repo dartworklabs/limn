@@ -74,7 +74,8 @@ catalog_schema: 1
 | `src/limn/args.py` | `limn serve` 명령줄 파서(`serve_parser`): 옵션·기본값·도움말 | 인자 추가나 변경 | operations.md, instances.md |
 | `src/limn/config.py` | 실행 설정의 얼린 타입 `RunConfig`(필드와 상태 파일 경로)와 그 안의 접근 옵션 `AccessOptions`, 강조색 표 | 실행 설정 추가나 변경 | architecture.md |
 | `src/limn/ui_en.json` | 뷰어 영어 문자열 | UI 문자열 추가·변경 | viewer.md |
-| `src/limn/instances.sh`, `src/limn/cli.py`, `src/limn/systemd/*` | 인스턴스 관리자와 limn 명령 | 명령·설정 키·유닛 템플릿 변경 | instances.md, operations.md |
+| `src/limn/features/administration/*` | 인스턴스 대상·감사 싱크(`targets.py`), 토큰 파일 안전 읽기·쓰기(`token_files.py`), 토큰·멤버 명령(`tokens.py`·`members.py`) | 토큰·멤버 명령, 파일 보호·대상 해석 변경 | instances.md, api.md §인증, architecture.md |
+| `src/limn/instances.sh`, `src/limn/cli.py`, `src/limn/systemd/*` | 인스턴스 관리자와 `limn` 명령 선택·전달 | 명령·설정 키·유닛 템플릿 변경 | instances.md, operations.md |
 | `src/limn/migrate.py` | 옛 설치에서 옮기기 | 이전 절차 변경 | instances.md |
 | `src/limn/vendor/**` | 번들한 PDF.js와 Lucide | 버전 교체나 파일 추가 | viewer.md, 해당 vendor README |
 | `pyproject.toml`, `uv.lock` | 의존성과 지원 파이썬 | 의존성·파이썬 범위 변경 | architecture.md 불변식 2, verification.md |

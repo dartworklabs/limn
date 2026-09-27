@@ -20,7 +20,7 @@ from urllib.parse import urlparse
 
 from limn import access, config, startup
 from limn.access import LOCAL_ACTOR
-from limn.cli import cli_audit
+from limn.features.administration.targets import cli_audit
 from limn.features.pins.claims import input as claims_input
 from limn.features.pins.location import http as location_http
 from limn.pins.lifecycle import CloseRequest
