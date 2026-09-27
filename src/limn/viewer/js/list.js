@@ -148,7 +148,8 @@ function gotoPinRef(id){const p=findAnyPin(id); if(!p){if(DROPPED.some(x=>x.id==
     el.scrollIntoView({behavior:SMOOTH,block:'nearest'}); el.classList.remove('flash'); void el.offsetWidth; el.classList.add('flash');
     clearTimeout(el._flT); el._flT=setTimeout(()=>el.classList.remove('flash'),1200);});}
 function jumpPin(id){if(viaDoc(id,jumpPin))return; const p=PINS.find(x=>x.id===id)||REVIEW_ALL.find(x=>x.id===id&&pdoc(x)===DOC);
-  if(!p){const q=REVIEW_ALL.find(x=>x.id===id); if(q&&docInfo(pdoc(q)))switchDoc(pdoc(q)).then(()=>{if(DOC===pdoc(q))jumpPin(id);}); return;}
+  if(!p){const q=REVIEW_ALL.find(x=>x.id===id); if(q&&docInfo(pdoc(q))){const k=pdoc(q),opening=switchDoc(k),visit=SWITCHSEQ;
+    opening.then(()=>{if(DOC===k&&visit===SWITCHSEQ)jumpPin(id);});} return;}
   if(document.body.classList.contains('revision-open'))setViewMode(VIEW_MODE.MANUSCRIPT);
   if(LAYOUT===LAYOUT_MODE.NARROW)setSide(false);   // collapsed first so the sheet doesn't cover the page, then measured
   const m=document.querySelector('.mark[data-pin="'+id+'"]');

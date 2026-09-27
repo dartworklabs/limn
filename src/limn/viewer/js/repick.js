@@ -10,7 +10,8 @@ function bannerCompare(){const c=REPICK.cand,lv=lvOf(c,c.default_level)||c,rg=is
     '<button class="btn-sm" data-act="rp-cancel" data-tip="위치 다시 잡기를 그만둡니다 (Esc)">취소</button>');}
 // On touch, selection mode is turned on during a re-place, and narrow collapses the sheet to reveal the page (the banner stays visible even on the collapsed sheet).
 async function startRepick(){if(!EDIT)return;
-  if(EDIT.doc&&EDIT.doc!==DOC){const E=EDIT; await switchDoc(E.doc); if(DOC!==E.doc||EDIT!==E)return;}   // selection happens on that pin's document
+  if(EDIT.doc&&EDIT.doc!==DOC){const E=EDIT,opening=switchDoc(E.doc),visit=SWITCHSEQ;
+    await opening; if(DOC!==E.doc||EDIT!==E||visit!==SWITCHSEQ)return;}   // selection happens on that pin's document
   REPICK={id:EDIT.id,from:{lo:EDIT.lo,hi:EDIT.hi,page:EDIT.page},box:null,cand:null}; bannerRepick();
   if(MQ_COARSE.matches)setSelMode(true); if(LAYOUT===LAYOUT_MODE.NARROW)setSide(false);}
 // Cancelling also invalidates an in-flight /api/pick; its continuation must not render a banner for the cleared re-place.

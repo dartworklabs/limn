@@ -75,12 +75,15 @@ function takeLinkHash(){const link={pin:hashPin(),doc:hashDoc(),restore:/(?:^#|[
   if(link.pin)history.replaceState(history.state,'',location.pathname+location.search+(link.doc?'#doc='+link.doc:''));
   return link;}
 // restore = the [되살리기] action of a 'dropped' notification: bring the pin back from the Trash first (never for a viewer).
-async function openPinFromLink(doc,pin,restore){if(!pin)return; if(doc&&doc!==DOC&&docInfo(doc)){await switchDoc(doc); if(DOC!==doc)return;}
-  await loadPins(); if(restore&&!isViewer()&&!findAnyPin(pin)&&DROPPED.some(x=>x.id===pin))await restorePin(pin);
+async function openPinFromLink(doc,pin,restore){if(!pin)return; if(doc&&doc!==DOC&&docInfo(doc)){
+    const opening=switchDoc(doc),visit=SWITCHSEQ; await opening; if(DOC!==doc||visit!==SWITCHSEQ)return;}
+  const visit=SWITCHSEQ,k=DOC;
+  await loadPins(); if(DOC!==k||visit!==SWITCHSEQ)return;
+  if(restore&&!isViewer()&&!findAnyPin(pin)&&DROPPED.some(x=>x.id===pin)){
+    await restorePin(pin); if(DOC!==k||visit!==SWITCHSEQ)return;}
   const p=findAnyPin(pin); if(!p){if(DROPPED.some(x=>x.id===pin))openTrash(pin); return;} if(pinState(p)===PIN_STATE.DONE){SEC.done=true;}
   OPEN_CARDS.add(pin); setSide(true); drawPins(); if(pinState(p)!==PIN_STATE.DONE)jumpPin(pin);
-  requestAnimationFrame(()=>jumpToCard(pin));}
+  requestAnimationFrame(()=>{if(DOC===k&&visit===SWITCHSEQ)jumpToCard(pin);});}
 if('serviceWorker' in navigator)navigator.serviceWorker.addEventListener('message',e=>{const d=e.data||{};
   if(d.type==='open-pin')openPinFromLink(d.doc,+d.pin); else if(d.type==='restore-pin'&&!isViewer())restorePin(+d.pin);});
 window.addEventListener('hashchange',()=>{const l=takeLinkHash(); if(l.pin)openPinFromLink(l.doc,l.pin,l.restore);});
-
