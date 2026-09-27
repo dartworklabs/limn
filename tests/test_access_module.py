@@ -2,8 +2,9 @@
 
 identify, admit and check_role are called with explicit AccessSettings and AccessLookups, the way server.py's
 composition root calls them. Each refusal must raise HTTPError with the same status, reason and browser page as it
-did in server.py. The file-backed lookups (FileCache) and the CLI state helpers get their own direct tests. The
-end-to-end paths through the HTTP handler are tested in test_access.py and test_access_paths.py.
+did in server.py. The file-backed lookups (FileCache) and administration CLI state
+helpers get direct tests. The end-to-end paths through the HTTP handler are tested
+in test_access.py and test_access_paths.py.
 
 Run: uv run pytest -q tests/test_access_module.py
 """
@@ -24,6 +25,7 @@ from unittest import mock
 
 from limn import access, files, guidance, people
 from limn.access import AccessLookups, AccessSettings, Principal
+from limn.features.administration import token_state
 from limn.web.answers import CONFIRM_BY_HUMAN
 from limn.web.errors import HTTPError
 
@@ -736,7 +738,7 @@ class StateHelpers(unittest.TestCase):
 
     def test_a_token_is_stored_hashed_0600_and_audited_without_the_secret(self):
         """The plaintext is returned once; the file and the audit line never carry it or its hash."""
-        entry, plain = access.token_create(self.state, None, self.audit)
+        entry, plain = token_state.token_create(self.state, None, self.audit)
         raw = (self.state / "tokens.json").read_text(encoding="utf-8")
         self.assertNotIn(plain, raw)
         self.assertEqual(stat.S_IMODE((self.state / "tokens.json").stat().st_mode), 0o600)
@@ -746,13 +748,13 @@ class StateHelpers(unittest.TestCase):
 
     def test_a_refused_token_or_member_change_writes_and_audits_nothing(self):
         """A bad name, a taken name, an unknown ref, a bad login or role: no file change, no audit line."""
-        access.token_create(self.state, "ci", self.audit)
+        token_state.token_create(self.state, "ci", self.audit)
         before = (self.state / "tokens.json").read_bytes()
         self.audits.clear()
         for name in ("ci", "bad name", "-x"):
             with self.assertRaises(ValueError):
-                access.token_create(self.state, name, self.audit)
-        self.assertIsNone(access.token_revoke(self.state, "nope", self.audit))
+                token_state.token_create(self.state, name, self.audit)
+        self.assertIsNone(token_state.token_revoke(self.state, "nope", self.audit))
         for login, role in (("local", "editor"), ("agent:ci", "editor"), ("a b", "editor"), ("c@example.com", "admin")):
             with self.assertRaises(ValueError):
                 access.member_add(self.state, login, role, None, self.audit)

@@ -265,7 +265,10 @@ class SaveTokenFileReview(SandboxTest):
         with (
             mock.patch.dict(os.environ, env),
             mock.patch.object(token_files, "write_token_file", side_effect=PermissionError(13, "Permission denied")),
-            mock.patch("limn.access.token_revoke", side_effect=OSError(28, "No space left on device")),
+            mock.patch(
+                "limn.features.administration.token_state.token_revoke",
+                side_effect=OSError(28, "No space left on device"),
+            ),
             mock.patch.object(sys, "stderr", new_callable=lambda: open(os.devnull, "w")) as err,
         ):
             self.addCleanup(err.close)

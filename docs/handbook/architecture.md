@@ -58,7 +58,7 @@ Limn은 **하나의 배포 단위(`dartwork-limn` 패키지) 안에서 표준 �
 층 밖에 나란히 있는 것이 둘이다.
 
 - **뷰어** `viewer/`: 빌드 단계 없는 정적 파일(`index.html`, 스타일 조각 `css/`, 스크립트 조각 `js/`, 순서 목록 `parts.txt`, 서비스 워커 `sw.js`)과 그것을 한 장의 HTML로 잇는 `assemble.py`. 규칙은 [viewer.md](viewer.md)에 있다.
-- **명령과 인스턴스 관리자** `cli.py`는 명령을 선택한다. `token`·`member`·`migrate`는 `features/administration/`의 각 명령으로 가고, 대상 해석·감사 싱크(`targets.py`)와 토큰 파일 안전 규칙(`token_files.py`)을 쓴다. 상태 파일의 신원·역할 규칙은 `access.py`가 소유한다. `serve`는 `server.main`으로, 나머지 인스턴스 명령은 `instances.sh`로 간다. `token`·`member`는 `server.py`를 가져오지 않으므로 뷰어 조각이 깨져 서버가 뜨지 못해도 토큰을 취소할 수 있다. 규칙은 [instances.md](instances.md)에 있다.
+- **명령과 인스턴스 관리자** `cli.py`는 명령을 선택한다. `token`·`member`·`migrate`는 `features/administration/`의 각 명령으로 가고, 대상 해석·감사 싱크(`targets.py`)와 토큰 파일 안전 규칙(`token_files.py`)을 쓴다. 토큰 발급·취소의 잠금·쓰기·감사는 `token_state.py`가, 요청 인증에 필요한 토큰 읽기·신원·역할 규칙과 아직 옮기지 않은 멤버 쓰기는 `access.py`가 소유한다. `serve`는 `server.main`으로, 나머지 인스턴스 명령은 `instances.sh`로 간다. `token`·`member`는 `server.py`를 가져오지 않으므로 뷰어 조각이 깨져 서버가 뜨지 못해도 토큰을 취소할 수 있다. 규칙은 [instances.md](instances.md)에 있다.
 
 `server.py`는 `limn serve`로는 패키지 모듈(`limn.server`)로, 인스턴스(`limn run` → `instances.sh`)에서는 파일 경로(`python …/limn/server.py`)로 실행된다. 파일로 실행될 때도 옆 모듈을 `limn.*`으로 가져올 수 있도록, `server.py`는 시작할 때 자기 폴더의 부모를 `sys.path` 앞에 넣는다. 그래서 `limn.*` import가 그 준비 뒤에 온다(Ruff `E402`를 이 파일에서만 끈다).
 

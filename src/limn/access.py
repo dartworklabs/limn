@@ -15,10 +15,9 @@ Nothing here reads the run settings or imports server.py. The composition root (
   loopback-agent warning. server.py owns the process's FileCache for each file and the WarnOnce. An unusable
   people.json reaches here as PeopleUnreadable and grants nothing (person_role, is_member), as an unusable tokens.json
   accepts no token.
-The state helpers behind `limn token` / `limn member` (token_create, member_add, ...) take the state folder and an
-audit sink (AuditSink), which the CLI gets from the composition root. people.json's entry check and stored text are
-the people store's own (limn.people.load_people, people_text), imported from there - one format and one
-judgement of an unusable file for the running server and `limn member`.
+The `limn member` state helpers take the state folder and an audit sink (AuditSink) from the CLI. The people store
+owns people.json's entry check and stored text (limn.people.load_people, people_text), so the server and CLI share
+one format and one judgement of an unusable file.
 """
 
 from __future__ import annotations
@@ -30,12 +29,10 @@ import ipaddress
 import json
 import os
 import re
-import secrets
 import sys
 import threading
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
-from datetime import datetime
 from email.header import decode_header, make_header
 from email.message import Message
 from pathlib import Path
@@ -70,8 +67,6 @@ DEFAULT_ROLE: Role = "editor"  # a person without a role field - every v0.1 pers
 # people.json as a role lookup reads it: {login: role} of everyone listed, or why the file cannot be used (fail closed)
 PeopleRoles: TypeAlias = Mapping[str, Role] | PeopleUnreadable
 VIEWER_POSTS = ("/api/pick", "/api/revision-build")  # computations a viewer may still run (no state change)
-TOKEN_PREFIX = "limn_"
-TOKEN_NAME_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,39}")
 HEADER_NAME_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9-]{0,63}")
 LOGIN_MAX = 200
 NAME_MAX = 100
@@ -632,65 +627,6 @@ def load_tokens(state: Path, strict: bool = False) -> list[Json]:
     if strict and not (isinstance(d, dict) and isinstance(d.get("tokens"), list)):
         raise ValueError("%s is not a Limn token file" % p)
     return _valid_tokens(d)
-
-
-def _write_tokens(state: Path, rows: list[Json]) -> None:
-    """Replace <state>/tokens.json with rows (atomically, mode 0600)."""
-    atomic_write(
-        Path(state) / "tokens.json",
-        json.dumps({"version": 1, "tokens": rows}, ensure_ascii=False, indent=1) + "\n",
-        mode=0o600,
-    )
-
-
-def now_str() -> str:
-    """The local wall-clock time as every *_at / created field records it ('YYYY-MM-DD HH:MM:SS')."""
-    return datetime.now().astimezone().strftime("%Y-%m-%d %H:%M:%S")
-
-
-def token_create(state: Path, name: str | None, audit: AuditSink) -> tuple[Json, str]:
-    """Creates a token -> (entry, plaintext). Only the hash is stored; the plaintext is returned once and never again.
-    Records `token_created` {id, name} through audit - never the token or its hash. Raises ValueError for a bad or
-    taken name, or an unreadable tokens.json (nothing is written then)."""
-    state = Path(state)
-    if name is not None and not TOKEN_NAME_RE.fullmatch(name):
-        raise ValueError("token name must match [A-Za-z0-9][A-Za-z0-9._-]{0,39}: %r" % name)
-    state.mkdir(parents=True, exist_ok=True)
-    with store_lock(state, "tokens"):
-        rows = load_tokens(state, strict=True)
-        names = {t["name"] for t in rows}
-        if name is None:
-            name, n = "agent", 1
-            while name in names:
-                n += 1
-                name = "agent-%d" % n
-        elif name in names:
-            raise ValueError("a token named %r already exists (revoke it first, or pick another --name)" % name)
-        ids = {t["id"] for t in rows}
-        tid = secrets.token_hex(4)
-        while tid in ids:
-            tid = secrets.token_hex(4)
-        plain = TOKEN_PREFIX + secrets.token_urlsafe(32)
-        entry = {"id": tid, "name": name, "hash": token_hash(plain), "created": now_str()}
-        _write_tokens(state, rows + [entry])
-        audit("token_created", {"id": tid, "name": name})
-    return entry, plain
-
-
-def token_revoke(state: Path, ref: str, audit: AuditSink) -> Json | None:
-    """Removes the token whose id or name is ref -> the removed entry, or None if there is none. A removal records
-    `token_revoked` {id, name} through audit; None writes nothing."""
-    state = Path(state)
-    if not (state / "tokens.json").exists():
-        return None
-    with store_lock(state, "tokens"):
-        rows = load_tokens(state, strict=True)
-        hit = [t for t in rows if t["id"] == ref] or [t for t in rows if t["name"] == ref]
-        if not hit:
-            return None
-        _write_tokens(state, [t for t in rows if t is not hit[0]])
-        audit("token_revoked", {"id": hit[0]["id"], "name": hit[0]["name"]})
-    return hit[0]
 
 
 def token_lookup(token: str, rows: Sequence[Json]) -> Json | None:

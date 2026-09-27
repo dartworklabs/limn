@@ -21,6 +21,7 @@ from pathlib import Path
 
 from limn import access, config
 from limn.access import LOCAL_ACTOR
+from limn.features.administration import token_state
 from limn.features.administration.targets import cli_audit
 from limn.store import dump_jsonl
 from limn.viewer import assemble
@@ -85,12 +86,12 @@ def reset_access(mod=ps):
 
 def token_create(state, name=None):
     """`limn token create` on state as the CLI runs it: limn.access with targets.cli_audit -> (entry, plaintext)."""
-    return access.token_create(state, name, cli_audit(state))
+    return token_state.token_create(state, name, cli_audit(state))
 
 
 def token_revoke(state, ref):
     """`limn token revoke` on state as the CLI runs it -> the removed entry, or None."""
-    return access.token_revoke(state, ref, cli_audit(state))
+    return token_state.token_revoke(state, ref, cli_audit(state))
 
 
 def member_add(state, login, role=access.DEFAULT_ROLE, name=None):

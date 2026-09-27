@@ -5,7 +5,7 @@ import sys
 from collections.abc import Sequence
 from pathlib import Path
 
-from limn.features.administration import token_files
+from limn.features.administration import token_files, token_state
 from limn.features.administration.targets import CliError, cli_audit, split_target
 
 
@@ -26,12 +26,12 @@ def create_saved_token(state: Path, ns: argparse.Namespace) -> int:
     refusal = token_files.save_refusal(token_files.inspect_save_target(path), path, ns.force)
     if refusal:
         raise CliError(refusal)
-    entry, plain = access.token_create(state, ns.name, cli_audit(state))
+    entry, plain = token_state.token_create(state, ns.name, cli_audit(state))
     try:
         token_files.write_token_file(path, plain, replace=ns.force)
     except OSError as e:
         try:
-            access.token_revoke(state, entry["id"], cli_audit(state))
+            token_state.token_revoke(state, entry["id"], cli_audit(state))
         except (OSError, ValueError) as undo:
             raise CliError(
                 "could not write %s: %s - and could not revoke the new token (%s), so it is still valid; "
@@ -62,9 +62,11 @@ def create_saved_token(state: Path, ns: argparse.Namespace) -> int:
 
 
 def cmd_token(argv: Sequence[str]) -> int:
-    """`limn token create|path|list|revoke ...` -> exit status. Edits <state>/tokens.json through the state helpers in
-    limn.access (audited through cli_audit) and, for an instance, its token file (ADR-0007). Refusals
-    raise CliError; main() prints them."""
+    """`limn token create|path|list|revoke ...` -> exit status.
+
+    Edit <state>/tokens.json through token_state, with cli_audit, and an instance's
+    token file as specified by ADR-0007. Refusals raise CliError for main() to print.
+    """
     sub = argv[0] if argv else ""
     rest = argv[1:]
     from limn import access
@@ -91,7 +93,7 @@ def cmd_token(argv: Sequence[str]) -> int:
             return create_saved_token(state, ns)
         if ns.force or ns.print:
             raise CliError("--force and --print only go with --save")
-        entry, plain = access.token_create(state, ns.name, cli_audit(state))
+        entry, plain = token_state.token_create(state, ns.name, cli_audit(state))
         print(plain)
         sys.stdout.flush()
         print(
@@ -132,7 +134,7 @@ def cmd_token(argv: Sequence[str]) -> int:
         return 0
     if sub in ("revoke", "rm"):
         state, pos, ns = split_target("limn token revoke", rest, 1)
-        revoked = access.token_revoke(state, pos[0], cli_audit(state))
+        revoked = token_state.token_revoke(state, pos[0], cli_audit(state))
         if revoked is None:
             raise CliError("no token with id or name %r in %s" % (pos[0], state))
         print(
