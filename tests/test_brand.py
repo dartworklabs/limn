@@ -16,8 +16,9 @@ import zlib
 from urllib.parse import unquote
 
 from limn import mark
+from limn.viewer import assemble
 
-from helpers import ps, req, split_resp, viewer_text
+from helpers import page_for, ps, req, set_config, split_resp, viewer_text
 from helpers_access import AccessBase, talk_to
 from helpers_browser import ChromiumTestCase
 
@@ -113,7 +114,7 @@ class MarkMarkup(unittest.TestCase):
 
     def test_favicon_is_the_mark_in_the_accent(self):
         """The SVG favicon is the tile in the accent with the white dot and stroke - no label letter any more."""
-        out = ps.favicon_href(ACCENT)
+        out = assemble.favicon_href(ACCENT)
         self.assertTrue(out.startswith("data:image/svg+xml,"))
         svg = unquote(out)
         self.assertIn('fill="%s"' % ACCENT, svg)
@@ -146,7 +147,7 @@ class MarkMarkup(unittest.TestCase):
 
     def test_viewer_places_the_mark_by_the_label_and_in_the_help_header(self):
         """Top bar (next to the label), the [더보기] label chip and the help dialog header each have the mark once."""
-        out = ps.build_html("A-DEMO", ACCENT)
+        out = page_for("A-DEMO", ACCENT)
         ident = out[out.index('id="paper-identity"') : out.index('id="doc-select-wrap"')]
         self.assertIn('<svg class="limn-mark"', ident)
         self.assertIn("<span>A-DEMO</span>", ident)
@@ -159,7 +160,7 @@ class MarkMarkup(unittest.TestCase):
 
     def test_favicon_links_svg_first_class_with_png_fallbacks(self):
         """The page links the SVG favicon plus 32px PNG and apple-touch-icon fallbacks, cache-keyed by the accent."""
-        out = ps.build_html("A-DEMO", ACCENT)
+        out = page_for("A-DEMO", ACCENT)
         head = out[: out.index("</head>")]
         self.assertIn('<link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png?c=1d4ed8">', head)
         self.assertRegex(head, r'<link rel="icon" type="image/svg\+xml" href="data:image/svg\+xml,[^"]+">')
@@ -176,7 +177,7 @@ class FaviconRoutes(AccessBase):
 
     def test_png_routes_draw_the_instance_accent(self):
         """Both routes answer image/png of their size, in C.accent, cacheable; the query only busts caches."""
-        ps.C.accent = "#be123c"
+        set_config(accent="#be123c")
         for path, size in (("/favicon-32.png", 32), ("/apple-touch-icon.png", 180), ("/favicon-32.png?c=be123c", 32)):
             with self.subTest(path=path):
                 code, hdrs, body = self.get(path)
@@ -199,7 +200,7 @@ class MarkInTheBrowser(ChromiumTestCase):
     def setUpClass(cls):
         """Start Chromium once (skip without Playwright or a browser, fail if LIMN_TEST_REQUIRE_BROWSER=1)."""
         super().setUpClass()
-        cls.html = ps.build_html("A-DEMO", ACCENT).replace("\nboot();", "\n")
+        cls.html = page_for("A-DEMO", ACCENT).replace("\nboot();", "\n")
 
     def page(self, theme):
         """The viewer markup alone (boot() off), desktop width, in theme."""

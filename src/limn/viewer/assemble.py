@@ -3,7 +3,9 @@
 viewer_html() is the whole assembly. It reads index.html and the parts parts.txt lists from the viewer folder and
 fills the page's build-time placeholders from its arguments - nothing else (no settings, no clock, no process state),
 so the same folder and arguments give the same string, byte for byte. The run-time placeholders (__LABEL__,
-__ACCENT__, __ACCENT_KEY__, __FAVICON_HREF__) are left for server.py's build_html(), which knows the run arguments.
+__ACCENT__, __ACCENT_KEY__, __FAVICON_HREF__) are left for run_page(), which the composition root calls with the run's
+label and accent once they are known (server.start): the template (ViewerFiles) and the served page (ServedViewer)
+are separate values, and nothing here runs at import.
 
 Placeholders filled here:
 - __APP_CSS__ / __APP_JS__: the parts listed under each marker in parts.txt, joined in order (load_viewer_html).
@@ -16,15 +18,20 @@ Placeholders filled here:
 The service worker (sw.js, GET /sw.js) is read from the same folder by service_worker(); it is served on its own,
 not inlined.
 
-A missing or malformed viewer file is a packaging defect and raises (OSError / ValueError): the server fails at import
+A missing or malformed viewer file is a packaging defect and raises (OSError / ValueError): the server fails at startup
 rather than serve a broken page.
 """
 
+import html
 import json
 import re
 from collections.abc import Mapping
+from dataclasses import dataclass
 from pathlib import Path
 from typing import TypeAlias
+from urllib.parse import quote
+
+from limn.mark import favicon_svg
 
 # One entry of the message table: an English string, or plural forms {"one": ..., "other": ...} for a key with {n}.
 Message: TypeAlias = str | dict[str, str]
@@ -213,3 +220,52 @@ def viewer_html(
     table = json.dumps(dict(messages), ensure_ascii=False, sort_keys=True).replace("</", "<\\/")
     page = page.replace("__UI_EN_JSON__", table)
     return ICON_TOKEN_RE.sub(lambda m: icon_svg(m.group(1), icons), page)
+
+
+# ---------------------------------------------------------------- what one run serves
+
+
+@dataclass(frozen=True)
+class ViewerFiles:
+    """The viewer package as read from disk once per process: the page template (viewer_html, the run-time
+    placeholders still in it), the service worker (service_worker) and the ko -> en message table (load_ui_messages).
+    The composition root reads it at startup (server.read_viewer), never at import."""
+
+    template: str
+    service_worker: str
+    messages: dict[str, Message]
+
+
+@dataclass(frozen=True)
+class ServedViewer:
+    """What the viewer routes of one run answer: the page GET / serves (the template with the run's label and accent,
+    run_page), the service worker GET /sw.js serves and the message table a refused browser's page reads."""
+
+    page: str
+    service_worker: str
+    messages: dict[str, Message]
+
+
+def favicon_href(accent: str) -> str:
+    """The Limn mark (limn.mark) as an SVG data URL: the tile in the instance accent (#rrggbb), the glyph white. The
+    accent tells tabs of different instances apart; the tab title carries the label. Quote-encoded for data:."""
+    return "data:image/svg+xml," + quote(favicon_svg(accent), safe="")
+
+
+def run_page(template: str, label: str, accent: str) -> str:
+    """The page GET / serves: template (viewer_html) with the run-time placeholders filled in.
+
+    __LABEL__ becomes the HTML-escaped label, __ACCENT_KEY__ the accent's hex digits in lower case (it keys the PNG
+    favicon URLs, so a new accent is never served from a cache), __ACCENT__ the accent and __FAVICON_HREF__ its SVG
+    data URL (favicon_href), in that order."""
+    out = template.replace("__LABEL__", html.escape(label, quote=True))
+    out = out.replace("__ACCENT_KEY__", accent.lstrip("#").lower())
+    out = out.replace("__ACCENT__", accent)
+    out = out.replace("__FAVICON_HREF__", favicon_href(accent))
+    return out
+
+
+def serve_viewer(files: ViewerFiles, label: str, accent: str) -> ServedViewer:
+    """What a run labelled `label` in `accent` serves from the viewer files: the filled page (run_page), the service
+    worker and the message table as read."""
+    return ServedViewer(run_page(files.template, label, accent), files.service_worker, files.messages)

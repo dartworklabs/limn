@@ -211,7 +211,7 @@ class Handler(BaseHTTPRequestHandler):
         if self._wants_page():
             lang = page_lang(self.headers, parse_qs(urlparse(self.path).query))
             return self._send(
-                e.code, error_page_html(e, lang, self.app.UI_EN).encode("utf-8"), "text/html; charset=utf-8"
+                e.code, error_page_html(e, lang, self.app.viewer().messages).encode("utf-8"), "text/html; charset=utf-8"
             )
         self._json(e.body, e.code)
 
@@ -282,7 +282,7 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/":
             # the tailnet person who opened this viewer (@-tag candidate) - local/agent is never recorded
             self._record(actor)
-            return Reply(200, app.HTML.encode(), "text/html; charset=utf-8")
+            return Reply(200, app.viewer().page.encode(), "text/html; charset=utf-8")
         if path == "/api/people":  # @-tag autocomplete candidates (no write), each with its people.json role
             return _json_reply({"people": app.people_payload(), "me": self._me(actor)})
         if path == "/favicon.ico":
@@ -302,7 +302,7 @@ class Handler(BaseHTTPRequestHandler):
             out.update(app.events_since(actor, accepted(parse.parse_events_query(q))))
             return _json_reply(out)
         if path == "/sw.js":  # the service worker for browser notifications (app data is never cached)
-            return Reply(200, app.SW_JS.encode(), "text/javascript; charset=utf-8", "no-cache")
+            return Reply(200, app.viewer().service_worker.encode(), "text/javascript; charset=utf-8", "no-cache")
         return None
 
     def _get_document(self, path: str, q: Query, D: Document) -> Reply | None:

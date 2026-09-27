@@ -221,8 +221,6 @@ class EventLogCap(Base):
 
     def setUp(self):
         super().setUp()
-        ps._PEOPLE_SEEN.clear()
-        ps._EVENTS_CACHE.clear()
 
     def events(self):
         return ps._read_events()[0]
@@ -305,7 +303,6 @@ class ReplyReopenEvents(unittest.TestCase):
         state.mkdir()
         configure(mod, src, main, state)
         reset_access(mod)
-        mod._PEOPLE_SEEN.clear()
 
         def call(method, path, body=None, headers=None):
             h, raw = dict(headers or {}), b""

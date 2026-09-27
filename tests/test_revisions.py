@@ -41,6 +41,7 @@ from helpers import (
     req,
     revision_spec,
     run_node,
+    set_config,
     split_resp,
     write_records,
 )
@@ -115,7 +116,7 @@ class ManuscriptRevisions(Base):
                 ["git", "commit", "--quiet", "-m", key + " update"], cwd=self.repo, check=True, capture_output=True
             )
             heads[key] = path
-        docs = [Doc(k, k, src=self.repo, main=path, paths=ps.C) for k, path in heads.items()]
+        docs = [Doc(k, k, src=self.repo, main=path, paths=ps.C.paths) for k, path in heads.items()]
         for d in docs:
             history = revisions.revision_history(d)
             self.assertTrue(history["available"])
@@ -126,11 +127,11 @@ class ManuscriptRevisions(Base):
         self.assertEqual(ps.revision_diff(docs[0], hl_head), revisions.CommitNotRecent())
 
     def test_main_path_outside_document_source_is_unavailable(self):
-        bad = Doc("bad", "bad", src=self.src, main=self.secret, paths=ps.C)
+        bad = Doc("bad", "bad", src=self.src, main=self.secret, paths=ps.C.paths)
         self.assertFalse(revisions.revision_history(bad)["available"])
         link = self.src / "linked.tex"
         link.symlink_to(self.secret)
-        linked = Doc("linked", "linked", src=self.src, main=link, paths=ps.C)
+        linked = Doc("linked", "linked", src=self.src, main=link, paths=ps.C.paths)
         self.assertFalse(revisions.revision_history(linked)["available"])
 
     def test_caps_large_diff(self):
@@ -213,7 +214,7 @@ class ManuscriptRevisions(Base):
         original = self.main.read_bytes()
         marker = ps.C.state / "pages.cur"
         marker.write_text("pages-20260924000000")
-        before = dict(ps.BUILD_STATE)
+        before = dict(ps.DOCS[0].bstate)
         calls = []
 
         def compile(spec, jobdir, timeout):
@@ -244,7 +245,7 @@ class ManuscriptRevisions(Base):
         self.assertEqual((code, headers["content-type"], pdf), (200, "application/pdf", b"%PDF-1.4\nrevision"))
         self.assertEqual(self.main.read_bytes(), original)
         self.assertEqual(marker.read_text(), "pages-20260924000000")
-        self.assertEqual(ps.BUILD_STATE, before)
+        self.assertEqual(ps.DOCS[0].bstate, before)
         with mock.patch.object(revisions, "revision_history", return_value={"available": True, "revisions": []}):
             self.assertEqual(split_resp(self.talk(req("GET", "/api/revision-pdf?commit=" + self.latest)))[0], 404)
             self.assertEqual(ps.revision_status(ps.DOCS[0], self.latest), revisions.CommitNotRecent())
@@ -261,7 +262,7 @@ class ManuscriptRevisions(Base):
 
     def test_revision_requests_enforce_origin_allowlist_and_field_validation(self):
         body = json.dumps({"commit": self.latest}).encode()
-        ps.C.allow = frozenset({"allowed@example.com"})
+        set_config(allow=frozenset({"allowed@example.com"}))
         code, _, _ = split_resp(
             self.talk(
                 req(
@@ -273,7 +274,7 @@ class ManuscriptRevisions(Base):
             )
         )
         self.assertEqual(code, 403)
-        ps.C.allow = frozenset()
+        set_config(allow=frozenset())
         code, _, _ = split_resp(
             self.talk(
                 req(
@@ -313,7 +314,7 @@ class ManuscriptRevisions(Base):
         )
 
     def test_revision_jobs_are_bounded_and_cache_expires(self):
-        with mock.patch.object(ps.REVISION_JOBS, "slots", threading.BoundedSemaphore(0)):
+        with mock.patch.object(ps.RT.revision_jobs, "slots", threading.BoundedSemaphore(0)):
             self.assertEqual(ps.revision_start(ps.DOCS[0], self.latest), revisions.AllSlotsBusy())
         spec = revision_spec(self.latest)
         root = revisions.revision_cache_root(ps.DOCS[0])
@@ -327,7 +328,7 @@ class ManuscriptRevisions(Base):
         self.assertEqual(ps.revision_status(ps.DOCS[0], self.latest)["state"], "idle")
         for i in range(8):
             (root / ("%064x" % i)).mkdir()
-        revisions.revision_prune(root, spec.key, ps.REVISION_JOBS.active)
+        revisions.revision_prune(root, spec.key, ps.RT.revision_jobs.active)
         self.assertLessEqual(sum(p.is_dir() for p in root.iterdir()), revisions.REVISION_CACHE_KEEP)
 
     def test_corrupt_revision_cache_is_a_miss(self):
@@ -460,7 +461,7 @@ class ManuscriptRevisions(Base):
     def assert_claims_freed(self):
         """No job is registered, both build slots are free, and nothing holds the document's build lock (a lock the
         server still held would refuse this second open file of the same process)."""
-        jobs = ps.REVISION_JOBS
+        jobs = ps.RT.revision_jobs
         self.assertEqual(jobs.active, {})
         got = [jobs.slots.acquire(blocking=False) for _ in range(2)]
         for held in got:
@@ -611,7 +612,7 @@ class ScopedSourceDiff(ScopedRepo):
         """Review finding: a user's diff.interHunkContext must not glue two pins' blocks together."""
         # diff.interHunkContext would glue nearby -U0 hunks together and give both pins both edits
         self.git("config", "diff.interHunkContext", "10")
-        ps.SCOPE_CACHE.clear()
+        ps.RT.scope_cache.clear()
         d = self.diff_ok(self.fix, self.p2)
         self.assertEqual((d["scope"]["hunks"], d["scope"]["other"]), (1, 2))
         self.assertNotIn("pears", d["scope"]["diff"])
@@ -1053,7 +1054,6 @@ class ScopeReviewRegressions(AccessBase):
         for args in (("init", "--quiet"), ("config", "user.email", "t@example.com"), ("config", "user.name", "T")):
             self.git(*args)
         self.commit("first")
-        ps.SCOPE_CACHE.clear()
 
     def git(self, *args):
         """Run git in the fixture repository and return its stdout."""
@@ -1134,7 +1134,7 @@ class ScopeReviewRegressions(AccessBase):
         )
         s = self.scope(X, pa)
         self.assertEqual((s["mode"], s["other_truncated"]), ("pin", True))
-        sc = next(iter(ps.SCOPE_CACHE.values()))
+        sc = next(iter(ps.RT.scope_cache.values()))
         self.assertLessEqual(max(len(sc.diff), len(sc.other_diff)), scoping.REVISION_DIFF_MAX + 1)
 
     def test_scope_computations_run_at_most_two_at_a_time(self):
@@ -1212,7 +1212,7 @@ class ScopeReviewRegressions(AccessBase):
                 (d / revisions.SCOPED_MARK).write_text("")
             t = time.time() - 1000 + (i if d in whole else 500 + i)  # every scoped entry is newer
             os.utime(d, (t, t))
-        revisions.revision_prune(root, "f" * 64, ps.REVISION_JOBS.active)
+        revisions.revision_prune(root, "f" * 64, ps.RT.revision_jobs.active)
         self.assertTrue(all(d.exists() for d in whole))
         self.assertEqual(sum(d.exists() for d in scoped), revisions.REVISION_SCOPED_KEEP)
 

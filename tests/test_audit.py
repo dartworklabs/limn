@@ -102,7 +102,6 @@ class AuditLogServer(AccessBase):
 
     def setUp(self):
         super().setUp()
-        ps._EVENTS_CACHE.clear()
         self.set_people(
             [{"login": A_LOGIN, "name": "Alice Kim", "role": "owner"}, {"login": B_LOGIN, "name": "Bob Park"}]
         )

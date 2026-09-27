@@ -34,7 +34,7 @@ from limn.access import LOCAL_ACTOR
 from limn.locate import locate_file
 from limn.store import dump_jsonl
 
-from helpers import ROOT, add_pin, edit_stored, ps, records, req, split_resp
+from helpers import ROOT, add_pin, edit_stored, ps, records, req, set_config, split_resp
 from helpers_access import MOVED_X as X, AccessBase, MovedManuscriptBase, ScopedRepo, configure, mask, talk_to
 
 MS_MAIN = (
@@ -124,8 +124,8 @@ class MultiDocMoved(AccessBase):
 
     def serve(self, root: Path, rr_main: str):
         """Point the server at a manuscript root with the two documents, as a restart with --doc would."""
-        ps.C.src, ps.C.main = root, root / "manuscript" / "main.tex"
-        ps.set_docs(startup.make_docs(["ms=본문:manuscript/main.tex", "rr=답변서:%s" % rr_main], root, ps.C))
+        set_config(src=root, main=root / "manuscript" / "main.tex")
+        ps.set_docs(startup.make_docs(["ms=본문:manuscript/main.tex", "rr=답변서:%s" % rr_main], root, ps.C.paths))
 
     def pins(self):
         """GET /api/pins?all=1 as {id: pin}."""
@@ -177,7 +177,7 @@ class ChangesAfterAClone(ScopedRepo):
         """Clone the ADR-0005 fixture repository to another path and serve its manuscript folder from there."""
         clone = Path(self.tmp.name) / "clone"
         subprocess.run(["git", "clone", "--quiet", str(self.repo), str(clone)], check=True, capture_output=True)
-        ps.C.src, ps.C.main = clone / "ms", clone / "ms" / "main.tex"
+        set_config(src=clone / "ms", main=clone / "ms" / "main.tex")
         return clone
 
     def test_recorded_changes_still_count_in_a_clone(self):
@@ -471,7 +471,7 @@ class ScopedChangesAfterAClone(ScopedRepo):
         """The ADR-0005 repository cloned to another path: beta's pin still gets only its own hunk (was the whole commit)."""
         clone = Path(self.tmp.name) / "clone"
         subprocess.run(["git", "clone", "--quiet", str(self.repo), str(clone)], check=True, capture_output=True)
-        ps.C.src, ps.C.main = clone / "ms", clone / "ms" / "main.tex"
+        set_config(src=clone / "ms", main=clone / "ms" / "main.tex")
         code, d = self.diff(self.fix, self.p2)
         self.assertEqual(code, 200, d)
         s = d["scope"]

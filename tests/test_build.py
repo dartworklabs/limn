@@ -521,9 +521,9 @@ def ok_build(elapsed_s: float = 0.0) -> BuildOk:
 
 class AsyncBuild(Base):
     def tearDown(self):
-        if ps.BUILD_LOCK.locked():
-            ps.BUILD_LOCK.release()
-        ps.BUILD_STATE.update(state="idle", phase=None, started_at=None, start_ts=None)
+        if ps.DOCS[0].lock.locked():
+            ps.DOCS[0].lock.release()
+        ps.DOCS[0].bstate.update(state="idle", phase=None, started_at=None, start_ts=None)
         super().tearDown()
 
     def test_async_returns_running_then_409_while_busy(self):
@@ -541,10 +541,10 @@ class AsyncBuild(Base):
             self.assertEqual(r2, BuildBusy())
             ev.set()
             for _ in range(200):
-                if not ps.BUILD_LOCK.locked():
+                if not ps.DOCS[0].lock.locked():
                     break
                 time.sleep(0.02)
-        self.assertFalse(ps.BUILD_LOCK.locked())
+        self.assertFalse(ps.DOCS[0].lock.locked())
         self.assertEqual(limn_build.state_snapshot(ps.DOCS[0])["state"], "ok")
 
     def test_phase_copy_observed_before_build_runs(self):
@@ -612,21 +612,21 @@ class AsyncBuild(Base):
             r = ps.build_async(ps.DOCS[0])
             self.assertEqual(r, BuildStarted())
             for _ in range(200):
-                if not ps.BUILD_LOCK.locked():
+                if not ps.DOCS[0].lock.locked():
                     break
                 time.sleep(0.02)
-        self.assertFalse(ps.BUILD_LOCK.locked())
+        self.assertFalse(ps.DOCS[0].lock.locked())
         st = limn_build.state_snapshot(ps.DOCS[0])
         self.assertEqual(st["state"], "fail")
         self.assertIn("boom", st.get("log_tail") or "")
 
     def test_rebuild_async_endpoint_202_then_409(self):
-        ps.BUILD_LOCK.acquire()
+        ps.DOCS[0].lock.acquire()
         try:
             out = self.talk(req("POST", "/api/rebuild?async=1"))
             self.assertIn(b" 409 ", out)
         finally:
-            ps.BUILD_LOCK.release()
+            ps.DOCS[0].lock.release()
 
     def test_get_api_build_reports_known_state(self):
         out = self.talk(req("GET", "/api/build"))

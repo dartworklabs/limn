@@ -20,7 +20,7 @@ import unittest
 from limn.access import LOCAL_ACTOR
 from limn.pins.lifecycle import CloseRequest
 
-from helpers import add_pin, extract_js_fn, ps, run_node
+from helpers import HTML, add_pin, extract_js_fn, ps, run_node
 from helpers_access import ALICE, actor
 from helpers_browser import BrowserBase, booted, nothing_follows, settle, watch_idle
 
@@ -219,7 +219,7 @@ class GestureLogic(unittest.TestCase):
 
     def test_sheet_release_collapses_low_or_flung_down_and_steps_up_on_an_upward_fling(self):
         """Below 25% or a downward fling collapses (30% while composing); an upward fling goes to the next stop."""
-        pre = re.search(r"const SHEET_F=\[[^\]]*\],SHEET_MIN_F=[\d.]+,SHEET_CLOSE_F=[\d.]+;", ps.HTML).group(0)
+        pre = re.search(r"const SHEET_F=\[[^\]]*\],SHEET_MIN_F=[\d.]+,SHEET_CLOSE_F=[\d.]+;", HTML).group(0)
         got = self.run_js(
             ["sheetRelease"],
             "[sheetRelease(0.2,300,0.1,false),sheetRelease(0.2,300,0.1,true),"

@@ -15,7 +15,7 @@ from limn import access, startup
 from limn.access import LOCAL_ACTOR
 from limn.pins.lifecycle import CloseRequest
 
-from helpers import ps
+from helpers import ps, set_config
 from helpers_access import ALICE, BOB, CLEAR_BODY, TS_HOST, AccessBase, member_add, token_create
 
 
@@ -100,24 +100,24 @@ class PrincipalMatrix(AccessBase):
         )
 
     def test_opt_in_with_an_allowlist_refuses_forwarded_requests_too(self):
-        ps.C.tailnet_agent = True
+        set_config(tailnet_agent=True)
         self.assertEqual(
             self.call("GET", "/pins.md", headers={"Host": "localhost", "X-Forwarded-For": "100.64.0.9"})[0], 200
         )
-        ps.C.allow = frozenset({"alice@example.com"})
+        set_config(allow=frozenset({"alice@example.com"}))
         self.assertEqual(
             self.call("GET", "/pins.md", headers={"Host": "localhost", "X-Forwarded-For": "100.64.0.9"})[0], 403
         )
         self.assertEqual(self.call("GET", "/pins.md")[0], 200)  # a real local agent is still fine
 
     def test_public_host_headerless_is_refused(self):
-        ps.C.public_hosts = access.parse_public_hosts(["limn.example.com"])
+        set_config(public_hosts=access.parse_public_hosts(["limn.example.com"]))
         self.expect(self.run_ops(headers={"Host": "limn.example.com"}), **self.REFUSED_403)
 
     def test_tailnet_headerless_opt_in_is_the_agent_again(self):
-        ps.C.tailnet_agent = True
+        set_config(tailnet_agent=True)
         self.expect(self.run_ops(headers={"Host": TS_HOST}), **self.AGENT)
-        ps.C.allow = frozenset({"alice@example.com"})  # an allowlist still refuses it, as in v0.1
+        set_config(allow=frozenset({"alice@example.com"}))  # an allowlist still refuses it, as in v0.1
         self.assertEqual(self.call("GET", "/pins.md", headers={"Host": TS_HOST})[0], 403)
 
     def test_bearer_token_over_loopback_and_tailnet(self):
@@ -126,8 +126,8 @@ class PrincipalMatrix(AccessBase):
         self.expect(self.run_ops(token=tok, headers={"Host": TS_HOST}), **self.AGENT)
 
     def test_trusted_proxy_peer_and_non_peer(self):
-        ps.C.auth, ps.C.agent_loopback = "trusted-proxy", False
-        ps.C.trusted_proxies = access.parse_networks("10.0.0.1")
+        set_config(auth="trusted-proxy", agent_loopback=False)
+        set_config(trusted_proxies=access.parse_networks("10.0.0.1"))
         h = {"X-Forwarded-User": "bob@example.com"}
         self.expect(self.run_ops(headers=h, peer="10.0.0.1"), **self.EDITOR)
         self.set_people([{"login": "alice@example.com", "name": "Alice", "role": "owner"}])
@@ -136,7 +136,7 @@ class PrincipalMatrix(AccessBase):
         self.expect(self.run_ops(peer="10.0.0.1"), **self.REFUSED_401)  # the proxy without a user header
 
     def test_loopback_agent_off_is_401_even_on_loopback(self):
-        ps.C.agent_loopback = False
+        set_config(agent_loopback=False)
         self.expect(self.run_ops(), **self.REFUSED_401)
 
 
@@ -157,7 +157,7 @@ class ProxyHardening(AccessBase):
         self.assertEqual(self.call("GET", "/pins.md")[0], 200)  # a real local agent
 
     def test_local_auth_refuses_proxied_requests(self):
-        ps.C.auth, ps.C.agent_loopback, ps.C.local_user = "local", False, "alice"
+        set_config(auth="local", agent_loopback=False, local_user="alice")
         self.add()
         for h in (
             {"Host": TS_HOST, "X-Forwarded-For": "100.64.0.9"},
@@ -176,7 +176,7 @@ class ProxyHardening(AccessBase):
         )
 
     def test_people_json_is_written_0600(self):
-        ps._PEOPLE_SEEN.clear()
+        ps.RT.people_seen.clear()
         ps.record_person({"login": "bob@example.com", "name": "Bob"})
         self.assertEqual(ps.C.people_file.stat().st_mode & 0o777, 0o600)
         os.chmod(ps.C.people_file, 0o644)

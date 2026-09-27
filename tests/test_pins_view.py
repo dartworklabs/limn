@@ -239,7 +239,7 @@ class LegacyClaimStart(Base):
 
     def test_pins_payload_fills_start_for_legacy_claims(self):
         pid = self.add()
-        with ps.PIN_LOCK:  # a claim shape written by a pre-eta server
+        with ps.RT.pin_lock:  # a claim shape written by a pre-eta server
             rows = records(ps.read_pins()[0])
             r = find_pin(rows, pid)
             r.update(claimed_by=dict(self.A), claimed_at="2026-09-23 20:02:00", claim_until=time.time() + 3600)

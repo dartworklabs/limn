@@ -25,7 +25,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from limn import access
+from limn import access, startup
 from limn.access import LOCAL_ACTOR, load_tokens
 from limn.pins import render as md_render
 from limn.pins.lifecycle import CloseRequest
@@ -34,7 +34,7 @@ from limn.service.context import is_agent
 from limn.startup import StartupRefused
 from limn.web.answers import CONFIRM_BY_HUMAN
 
-from helpers import extract_js_fn, ps, run_node
+from helpers import extract_js_fn, ps, run_node, set_config
 from helpers_access import (
     ALICE,
     BOB,
@@ -94,7 +94,7 @@ class TailscaleProvider(AccessBase):
         self.assertIn("limn token create", err.getvalue())
 
     def test_agent_loopback_off_is_401(self):
-        ps.C.agent_loopback = False
+        set_config(agent_loopback=False)
         code, d = self.call("GET", "/api/pins")
         self.assertEqual(code, 401)
         self.assertIn("Bearer", d["error"])
@@ -109,7 +109,7 @@ class TailscaleProvider(AccessBase):
 class LocalProvider(AccessBase):
     def setUp(self):
         super().setUp()
-        ps.C.auth, ps.C.agent_loopback, ps.C.local_user = "local", False, "alice"
+        set_config(auth="local", agent_loopback=False, local_user="alice")
 
     def test_loopback_is_the_owner_and_tailscale_headers_are_ignored(self):
         code, d = self.call("GET", "/api/meta?light=1", headers=BOB)
@@ -137,18 +137,18 @@ class LocalProvider(AccessBase):
         self.assertEqual((code, d["me"]["login"], d["me"]["role"]), (200, "agent:bot", "agent"))
 
     def test_default_owner_login_from_user(self):
-        ps.C.local_user = None
+        set_config(local_user=None)
         with mock.patch.dict(os.environ, {"USER": "dana"}):
-            self.assertEqual(access.local_owner_actor(ps.C.local_user)["login"], "dana")
+            self.assertEqual(access.local_owner_actor(ps.C.access.local_user)["login"], "dana")
         with mock.patch.dict(os.environ, {}, clear=True):
-            self.assertEqual(access.local_owner_actor(ps.C.local_user)["login"], "owner")
+            self.assertEqual(access.local_owner_actor(ps.C.access.local_user)["login"], "owner")
 
 
 class TrustedProxyProvider(AccessBase):
     def setUp(self):
         super().setUp()
-        ps.C.auth, ps.C.agent_loopback = "trusted-proxy", False
-        ps.C.trusted_proxies = access.parse_networks("10.0.0.1,192.168.5.0/24")
+        set_config(auth="trusted-proxy", agent_loopback=False)
+        set_config(trusted_proxies=access.parse_networks("10.0.0.1,192.168.5.0/24"))
 
     def test_header_trusted_from_configured_proxy(self):
         h = {"X-Forwarded-User": "alice", "X-Forwarded-Preferred-Username": "Alice K"}
@@ -168,11 +168,7 @@ class TrustedProxyProvider(AccessBase):
         self.assertEqual(self.call("GET", "/api/pins", headers=ALICE, peer="127.0.0.1")[0], 401)
 
     def test_custom_header_names_and_email_as_login(self):
-        ps.C.proxy_user_header, ps.C.proxy_name_header, ps.C.proxy_email_header = (
-            "X-Auth-User",
-            "X-Auth-Name",
-            "X-Auth-Email",
-        )
+        set_config(proxy_user_header="X-Auth-User", proxy_name_header="X-Auth-Name", proxy_email_header="X-Auth-Email")
         h = {
             "X-Auth-User": "u123",
             "X-Auth-Name": "Alice",
@@ -194,7 +190,7 @@ class TrustedProxyProvider(AccessBase):
         self.assertEqual([p["login"] for p in self.people_file()], ["alice@example.com"])
 
     def test_members_only_applies_to_proxy_users(self):
-        ps.C.members_only = True
+        set_config(members_only=True)
         self.set_people([{"login": "alice@example.com", "name": "Alice"}])
         self.assertEqual(
             self.call("GET", "/api/pins", headers={"X-Forwarded-User": "alice@example.com"}, peer="10.0.0.1")[0], 200
@@ -214,15 +210,18 @@ class TrustedProxyProvider(AccessBase):
 
 class StartupRules(AccessBase):
     def configure(self, *args):
-        """Apply the access options of a `limn serve` command line; a refusal fails the test."""
+        """Apply the access options of a `limn serve` command line as start() does (limn.startup.access_options, bound
+        into C); a refusal fails the test."""
         a = ps.build_arg_parser().parse_args(["--manuscript", "x", *args])
-        self.assertIsNone(ps.configure_access(a))
+        opts = startup.access_options(a)
+        self.assertNotIsInstance(opts, StartupRefused)
+        set_config(access=opts)
         return ps.access_log_lines()
 
     def refused(self, *args):
         """The message a refused command line gets; main() prints it and exits with status 1."""
         a = ps.build_arg_parser().parse_args(["--manuscript", "x", *args])
-        refused = ps.configure_access(a)
+        refused = startup.access_options(a)
         self.assertIsInstance(refused, StartupRefused)
         self.assertIsInstance(refused.message, str)  # a message, not a bare exit code
         return refused.message
@@ -230,7 +229,8 @@ class StartupRules(AccessBase):
     def test_defaults_are_v01(self):
         log = self.configure()
         self.assertEqual(
-            (ps.C.auth, ps.C.agent_loopback, ps.C.bind, ps.C.members_only), ("tailscale", True, "127.0.0.1", False)
+            (ps.C.access.auth, ps.C.access.agent_loopback, ps.C.access.bind, ps.C.access.members_only),
+            ("tailscale", True, "127.0.0.1", False),
         )
         self.assertEqual(
             log[0],
@@ -240,21 +240,21 @@ class StartupRules(AccessBase):
 
     def test_no_agent_loopback(self):
         self.configure("--no-agent-loopback")
-        self.assertFalse(ps.C.agent_loopback)
+        self.assertFalse(ps.C.access.agent_loopback)
         self.assertIn("loopback agent off", self.configure("--no-agent-loopback")[0])
 
     def test_loopback_agent_forced_off_and_explicit_request_refused(self):
         self.configure("--auth", "trusted-proxy")
-        self.assertFalse(ps.C.agent_loopback)
+        self.assertFalse(ps.C.access.agent_loopback)
         self.configure("--auth", "local")
-        self.assertFalse(ps.C.agent_loopback)
+        self.assertFalse(ps.C.access.agent_loopback)
         self.assertIn("--agent-loopback", self.refused("--auth", "trusted-proxy", "--agent-loopback"))
         self.assertIn("--agent-loopback", self.refused("--auth", "local", "--agent-loopback"))
         self.assertIn(
             "--agent-loopback", self.refused("--bind", "0.0.0.0", "--i-know-this-is-insecure", "--agent-loopback")
         )
         self.configure("--agent-loopback")
-        self.assertTrue(ps.C.agent_loopback)
+        self.assertTrue(ps.C.access.agent_loopback)
 
     def test_non_loopback_bind_refused_unless_trusted_proxy_or_insecure(self):
         for auth in ("tailscale", "local"):
@@ -264,14 +264,14 @@ class StartupRules(AccessBase):
         self.assertTrue(any(ln.startswith("warning     bound to 0.0.0.0") and "trusted-proxy" in ln for ln in log), log)
         self.assertFalse(any("!!!" in ln for ln in log))
         log = self.configure("--bind", "0.0.0.0", "--i-know-this-is-insecure")
-        self.assertFalse(ps.C.agent_loopback)  # forced off on a non-loopback bind
+        self.assertFalse(ps.C.access.agent_loopback)  # forced off on a non-loopback bind
         self.assertTrue(any("!!!" in ln and "--i-know-this-is-insecure" in ln for ln in log), log)
         self.assertTrue(any(ln.startswith("warning     bound to 0.0.0.0") and "tailscale" in ln for ln in log))
 
     def test_loopback_binds_are_fine(self):
         for b in ("127.0.0.1", "127.0.0.2", "::1", "localhost"):
             self.configure("--bind", b)
-            self.assertTrue(ps.C.agent_loopback, b)
+            self.assertTrue(ps.C.access.agent_loopback, b)
         self.refused("--bind", "example.com")
 
     def test_invalid_values_refused(self):
@@ -281,7 +281,7 @@ class StartupRules(AccessBase):
         self.refused("--local-user", "agent:me")
 
     def test_auth_line_counts_tokens_and_members_only(self):
-        ps.C.state = Path(self.tmp.name) / "state"
+        set_config(state=Path(self.tmp.name) / "state")
         token_create(ps.C.state, "a")
         token_create(ps.C.state, "b")
         log = self.configure("--auth", "local", "--local-user", "alice", "--members-only")
@@ -638,7 +638,7 @@ class Admission(AccessBase):
         self.assertEqual(ps.role_of("carol@example.com"), "editor")
 
     def test_members_only_admits_listed_people(self):
-        ps.C.members_only = True
+        set_config(members_only=True)
         self.set_people([{"login": "alice@example.com", "name": "Alice"}])
         self.assertEqual(self.call("GET", "/", headers=ALICE)[0], 200)
         code, d = self.call("GET", "/", headers=CAROL)
@@ -646,7 +646,7 @@ class Admission(AccessBase):
         self.assertIn("limn member add", d["error"])
         self.assertEqual(self.call("POST", "/api/pin", {"file": str(self.main), "lo": 4, "hi": 4}, CAROL)[0], 403)
         self.assertEqual([p["login"] for p in self.people_file()], ["alice@example.com"])  # not recorded
-        ps.C.allow = frozenset({"carol@example.com"})  # --allow logins are admitted too
+        set_config(allow=frozenset({"carol@example.com"}))  # --allow logins are admitted too
         self.assertEqual(self.call("GET", "/", headers=CAROL)[0], 200)
         member_add(ps.C.state, "bob@example.com")  # a new member is admitted on the next request
         self.assertEqual(self.call("GET", "/api/pins", headers=BOB)[0], 200)
@@ -654,7 +654,7 @@ class Admission(AccessBase):
         self.assertEqual(self.call("GET", "/api/pins", headers=BOB)[0], 403)
 
     def test_members_only_keeps_agents(self):
-        ps.C.members_only = True
+        set_config(members_only=True)
         self.assertEqual(self.call("GET", "/api/pins")[0], 200)  # loopback agent
         _, tok = token_create(ps.C.state, "ci")
         self.assertEqual(self.call("GET", "/api/pins", token=tok)[0], 200)
@@ -662,7 +662,7 @@ class Admission(AccessBase):
         self.assertEqual(code, 403)
 
     def test_allow_keeps_v01_semantics(self):
-        ps.C.allow = frozenset({"alice@example.com"})
+        set_config(allow=frozenset({"alice@example.com"}))
         self.set_people([{"login": "bob@example.com", "name": "Bob"}])
         self.assertEqual(self.call("GET", "/api/pins", headers=ALICE)[0], 200)
         code, d = self.call("GET", "/api/pins", headers=BOB)  # in people.json but not in --allow
@@ -678,10 +678,10 @@ class Admission(AccessBase):
 class PublicHost(AccessBase):
     def setUp(self):
         super().setUp()
-        ps.C.public_hosts = access.parse_public_hosts(["limn.example.com", "alt.example.com:8443"])
+        set_config(public_hosts=access.parse_public_hosts(["limn.example.com", "alt.example.com:8443"]))
 
     def test_parse(self):
-        self.assertEqual(ps.C.public_hosts, (("limn.example.com", None), ("alt.example.com", 8443)))
+        self.assertEqual(ps.C.access.public_hosts, (("limn.example.com", None), ("alt.example.com", 8443)))
         self.assertEqual(
             access.parse_public_hosts(["a.example.com,B.example.com:9000", "a.example.com"]),
             (("a.example.com", None), ("b.example.com", 9000)),
@@ -1112,24 +1112,25 @@ def cli(*args, env=None):
 
 class TailnetAgentStartup(AccessBase):
     def configure(self, *args):
-        ps.configure_access(ps.build_arg_parser().parse_args(["--manuscript", "x", *args]))
+        """Apply the access options of a `limn serve` command line as start() does and return the startup log lines."""
+        set_config(access=startup.access_options(ps.build_arg_parser().parse_args(["--manuscript", "x", *args])))
         return ps.access_log_lines()
 
     def test_default_off_and_logged(self):
         log = self.configure()
-        self.assertFalse(ps.C.tailnet_agent)
+        self.assertFalse(ps.C.access.tailnet_agent)
         self.assertIn("tailnet agent off", log[0])
 
     def test_opt_in_needs_the_loopback_agent(self):
         log = self.configure("--tailnet-agent")
-        self.assertTrue(ps.C.tailnet_agent)
+        self.assertTrue(ps.C.access.tailnet_agent)
         self.assertIn("tailnet agent on (deprecated)", log[0])
         for args in (
             ("--tailnet-agent", "--no-agent-loopback"),
             ("--tailnet-agent", "--auth", "local"),
             ("--tailnet-agent", "--auth", "trusted-proxy"),
         ):
-            refused = ps.configure_access(ps.build_arg_parser().parse_args(["--manuscript", "x", *args]))
+            refused = startup.access_options(ps.build_arg_parser().parse_args(["--manuscript", "x", *args]))
             self.assertIsInstance(refused, StartupRefused)
             self.assertIn("--tailnet-agent", refused.message)
 

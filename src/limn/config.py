@@ -1,16 +1,21 @@
-"""The run settings of one `limn serve` process: the Cfg type and the accent palette its default comes from.
+"""The run settings of one `limn serve` process: RunConfig, the access options it holds, and the accent palette.
 
-The composition root (server.py) makes the one instance (`C = Cfg()`) and fills it in at startup from the rules in
-limn/startup.py; the modules it wires receive the values (or C itself, typed by a Protocol such as
-limn.documents.RunPaths) as arguments. Nothing here reads the command line, the environment or the disk.
+The startup steps (server.start over the rules in limn/startup.py) make one RunConfig from the command line, and the
+composition root binds it once, as `C`, before the server listens. It is frozen: no setting changes while the server
+runs, and a test that needs other settings makes another value (dataclasses.replace) and binds that. The modules the
+composition root wires receive what they read as values - a document the frozen RunPaths (RunConfig.paths), identify()
+and admit() the AccessSettings (RunConfig.access_settings). Nothing here reads the command line, the environment or
+the disk.
 """
 
-import ipaddress
+from dataclasses import dataclass
+from functools import cached_property
 from pathlib import Path
 
 from limn import events, people
-from limn.access import AuthProvider, HostEntry, IPNetwork
+from limn.access import AccessSettings, AuthProvider, HostEntry, IPNetwork
 from limn.audit import AUDIT_FILE
+from limn.documents import RunPaths
 from limn.store import PinFiles
 
 # A high-saturation "700-level" palette with enough contrast on both the dark and light theme backgrounds
@@ -19,41 +24,78 @@ from limn.store import PinFiles
 ACCENT_PALETTE = ("#1d4ed8", "#047857", "#be123c", "#6d28d9", "#0e7490", "#c2410c", "#a21caf", "#4d7c0f")
 
 
-class Cfg:
-    """Holds the run arguments. Every project-specific value passes through here."""
+@dataclass(frozen=True)
+class AccessOptions:
+    """The access settings a command line starts with (limn.startup.access_options decides them; a security boundary,
+    docs/adr/0002-access-control.md). RunConfig holds them as one value, and the startup log (access_log_lines) reads
+    the same value."""
 
-    src: Path
-    main: Path
-    state: Path
-    build: Path
+    auth: AuthProvider  # identity provider
+    bind: str  # the listen address
+    agent_loopback: bool  # a headerless loopback request is the agent (deprecated)
+    tailnet_agent: bool  # ...also one through tailscale serve (opt-in, deprecated)
+    public_hosts: tuple[HostEntry, ...]  # --public-host entries
+    trusted_proxies: tuple[IPNetwork, ...]  # --trusted-proxies networks
+    proxy_user_header: str  # the header carrying the user under --auth trusted-proxy
+    proxy_name_header: str  # ...the display name
+    proxy_email_header: str | None  # ...the e-mail (None = not configured)
+    members_only: bool  # admit only logins in people.json or --allow
+    local_user: str | None  # the owner's login under --auth local (None = $USER, then "owner")
+    insecure: bool  # a non-loopback bind allowed only by --i-know-this-is-insecure
+    agent_token_file: Path | None  # where this machine's agents keep the token (ADR-0007); never read
+
+
+@dataclass(frozen=True)
+class RunConfig:
+    """The settings of one run, fixed at startup. Every project-specific value passes through here.
+
+    No field has a default: the startup steps state every one (server.configure_run), so a setting added later can
+    never fall back silently at a place that did not think about it."""
+
+    src: Path  # --manuscript: the manuscript tree
+    main: Path  # the main .tex (the first LaTeX --doc document's, else --main's or the detected one)
+    state: Path  # the instance state folder
     port: int
     dpi: int
-    envs: tuple[str, ...]
-    timeout: int
-    allow: frozenset[str]
-    origin_check: bool = True
-    git_pull: bool = False
-    pdfjs_dir: Path | None = None  # None = server.default_pdfjs_dir()
-    label: str = "원고"  # label distinguishing multiple instances (§Running multiple manuscript instances at once). Filled in by main()
-    accent: str = ACCENT_PALETTE[0]  # the label's accent color (#rrggbb)
-    repo: str | None = None  # git origin URL of --manuscript. None if absent
-    # Access control (v0.2). The defaults are exactly the v0.1 behaviour: tailscale headers, headerless loopback = agent.
-    # The names from auth on are also limn.startup.AccessOptions' fields: configure_access copies them over by name.
-    auth: AuthProvider = "tailscale"  # identity provider
-    agent_loopback: bool = True  # headerless loopback request = the agent (deprecated; tailscale + loopback bind only)
-    tailnet_agent: bool = False  # ...also when it came through tailscale serve (Host not loopback) - opt-in, deprecated
-    bind: str = "127.0.0.1"
-    # ((name, port or None), ...) accepted as Host/Origin besides loopback and *.ts.net
-    public_hosts: tuple[HostEntry, ...] = ()
-    trusted_proxies: tuple[IPNetwork, ...] = (ipaddress.ip_network("127.0.0.1/32"), ipaddress.ip_network("::1/128"))
-    proxy_user_header: str = "X-Forwarded-User"
-    proxy_name_header: str = "X-Forwarded-Preferred-Username"
-    proxy_email_header: str | None = None
-    members_only: bool = False  # admit only logins in people.json (or --allow)
-    local_user: str | None = None  # the owner's login under --auth local (None = $USER, then "owner")
-    insecure: bool = False  # a non-loopback bind allowed by --i-know-this-is-insecure
-    # where agents on this machine keep this instance's token (ADR-0007); never read
-    agent_token_file: Path | None = None
+    envs: tuple[str, ...]  # --float-envs
+    timeout: int  # --build-timeout, seconds
+    allow: frozenset[str]  # --allow: the logins admitted when set
+    origin_check: bool  # False under --no-origin-check
+    git_pull: bool
+    pdfjs_dir: Path | None  # None = server.default_pdfjs_dir()
+    label: str  # label distinguishing multiple instances (§Running multiple manuscript instances at once)
+    accent: str  # the label's accent color (#rrggbb)
+    repo: str | None  # git origin URL of --manuscript. None if absent
+    access: AccessOptions  # --auth, --bind and the other access options
+
+    @property
+    def paths(self) -> RunPaths:
+        """The run paths a document reads (limn.documents.RunPaths): a frozen value, like this one."""
+        return RunPaths(self.src, self.main, self.state)
+
+    @cached_property
+    def access_settings(self) -> AccessSettings:
+        """What identify() and admit() read of this run: the access options and --allow as limn.access's value. Made
+        once per RunConfig (never per request); a replaced RunConfig makes its own."""
+        a = self.access
+        return AccessSettings(
+            auth=a.auth,
+            agent_loopback=a.agent_loopback,
+            tailnet_agent=a.tailnet_agent,
+            trusted_proxies=a.trusted_proxies,
+            proxy_user_header=a.proxy_user_header,
+            proxy_name_header=a.proxy_name_header,
+            proxy_email_header=a.proxy_email_header,
+            members_only=a.members_only,
+            allow=self.allow,
+            local_user=a.local_user,
+            agent_token_file=a.agent_token_file,
+        )
+
+    @property
+    def build(self) -> Path:
+        """The build copy of an instance started without --doc."""
+        return self.paths.build
 
     @property
     def pins_jsonl(self) -> Path:

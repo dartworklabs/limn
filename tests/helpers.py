@@ -4,7 +4,7 @@ the viewer's source text and page images, and the test data more than one module
 RULE_CASES with rec_for, a minimal PDF for the browser's comparison view).
 
 Every test module that drives server.py imports from here, so the process holds a single server copy (loading it twice
-would give two sets of module globals: two C, two DOCS, two locks). The access fixtures (identities, AccessBase) are in
+would give two sets of module globals: two C, two RT, two DOCS). The access fixtures (identities, AccessBase) are in
 helpers_access.py and the browser ones (the Chromium launcher, BrowserBase) in helpers_browser.py. Test modules import
 fixtures only from these helpers, never from one another.
 """
@@ -13,6 +13,7 @@ import dataclasses
 import errno
 import functools
 import importlib.util
+import ipaddress
 import json
 import os
 import re
@@ -28,8 +29,9 @@ from pathlib import Path
 
 import pytest
 
-from limn import config, gitsync, revisions
+from limn import config, revisions
 from limn.access import LOCAL_ACTOR
+from limn.config import AccessOptions, RunConfig
 from limn.pins.model import parse_pin
 from limn.pins.record import Broken
 from limn.store import find_pin
@@ -49,6 +51,13 @@ DOCS_DIR = ROOT / "docs" / "handbook"
 spec = importlib.util.spec_from_file_location("limn_server", PKG / "server.py")
 ps = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(ps)
+# The viewer package, read once for every test: server.py reads it at startup (start), never at import. HTML is the page
+# template - the viewer's source as the tests read it, run-time placeholders (__LABEL__, __ACCENT__...) still in it;
+# UI_EN its ko -> en message table and SW_JS the service worker GET /sw.js serves.
+VIEWER_FILES = ps.read_viewer()
+HTML = VIEWER_FILES.template
+UI_EN = VIEWER_FILES.messages
+SW_JS = VIEWER_FILES.service_worker
 # The viewer's closed-set tables (core.js: PIN_STATE, BUILD_STATE, LOCAL_LOGIN, ...), which extract_js_fn brings along.
 VIEWER_CLOSED_SETS = helpers_js.closed_sets((PKG / "viewer" / "js" / "core.js").read_text(encoding="utf-8"))
 
@@ -62,27 +71,27 @@ def extract_js_fn(name: str) -> str:
     and comments never cut it short; a name that no script declares at the top level, or declares twice, raises. The
     tables come along because a pulled function reads them from the page's shared scope, which a node harness lacks.
     """
-    fn = helpers_js.function_source(ps.HTML, name)
+    fn = helpers_js.function_source(HTML, name)
     return helpers_js.closed_set_prelude(VIEWER_CLOSED_SETS, fn) + fn
 
 
 def js_icons() -> str:
     """The viewer's Lucide icon table (ICONS) and ic() — included together when running icon-drawing functions like card()/archiveRow() under node."""
-    m = re.search(r"const ICONS=\{.*?\};", ps.HTML)
+    m = re.search(r"const ICONS=\{.*?\};", HTML)
     return m.group(0) + "\n" + extract_js_fn("ic")
 
 
 def js_esc() -> str:
     """The viewer's own esc() (HTML-escapes &<>"' and turns null into ''), as the page defines it - for node harnesses
     that run functions building markup, so they escape exactly as the viewer does instead of with a pasted copy."""
-    return re.search(r"^const esc=.*;$", ps.HTML, re.M).group(0)
+    return re.search(r"^const esc=.*;$", HTML, re.M).group(0)
 
 
 def js_thread() -> str:
     """The functions that render a thread (called by card()/doneCard()). Callers must set up who·avatar·esc·arcTime·ic·THREAD_OPEN·REPLY."""
-    ev = re.search(r"^const EV_LABEL=.*;$", ps.HTML, re.M).group(0)
-    st = re.search(r"^const ST_NAME=.*;$", ps.HTML, re.M).group(0)
-    mo = re.search(r"^const MSG_OPEN=.*;$", ps.HTML, re.M).group(0)
+    ev = re.search(r"^const EV_LABEL=.*;$", HTML, re.M).group(0)
+    st = re.search(r"^const ST_NAME=.*;$", HTML, re.M).group(0)
+    mo = re.search(r"^const MSG_OPEN=.*;$", HTML, re.M).group(0)
     return "\n".join(
         [ev, st, mo, "let PEOPLE=[];", extract_js_fn("hasRef")]
         + [
@@ -127,13 +136,97 @@ def js_i18n(lang: str = "ko") -> str:
     them for every UI string and API error, so a node harness needs them. Korean (the source) unless lang='en'."""
     return "\n".join(
         [
-            "var LANG=%s,I18N_EN=%s;" % (json.dumps(lang), json.dumps(ps.UI_EN, ensure_ascii=False)),
+            "var LANG=%s,I18N_EN=%s;" % (json.dumps(lang), json.dumps(UI_EN, ensure_ascii=False)),
             extract_js_fn("tr"),
             extract_js_fn("tl"),
             extract_js_fn("trMsg"),
             extract_js_fn("errText"),
         ]
     )
+
+
+# The access options of a command line with no access flags (limn.startup.access_options' answer): tailscale identities,
+# a loopback bind, the deprecated headerless loopback agent on - the v0.1-equivalent behaviour. Stated in full, so a
+# change of a default shows up as a failing comparison in test_startup.
+DEFAULT_ACCESS = AccessOptions(
+    auth="tailscale",
+    bind="127.0.0.1",
+    agent_loopback=True,
+    tailnet_agent=False,
+    public_hosts=(),
+    trusted_proxies=(ipaddress.ip_network("127.0.0.1/32"), ipaddress.ip_network("::1/128")),
+    proxy_user_header="X-Forwarded-User",
+    proxy_name_header="X-Forwarded-Preferred-Username",
+    proxy_email_header=None,
+    members_only=False,
+    local_user=None,
+    insecure=False,
+    agent_token_file=None,
+)
+ACCESS_FIELDS = frozenset(f.name for f in dataclasses.fields(AccessOptions))
+
+
+def run_config(src: Path, main: Path, state: Path, **over) -> RunConfig:
+    """The run settings Base serves with (manuscript src, main file main, state folder state; port 18999, 150 dpi, a
+    60-second build timeout, the default float environments, label 원고 in the first accent, no origin URL, access
+    options at their defaults), with `over` replacing settings by name - an access option's name (auth, bind, ...)
+    replaces that field of .access."""
+    base = RunConfig(
+        src=src,
+        main=main,
+        state=state,
+        port=18999,
+        dpi=150,
+        envs=tuple(ps.DEFAULT_ENVS.split(",")),
+        timeout=60,
+        allow=frozenset(),
+        origin_check=True,
+        git_pull=False,
+        pdfjs_dir=None,
+        label="원고",
+        accent=config.ACCENT_PALETTE[0],
+        repo=None,
+        access=DEFAULT_ACCESS,
+    )
+    return with_settings(base, **over)
+
+
+def with_settings(c: RunConfig, **over) -> RunConfig:
+    """c with `over` replacing settings by name (dataclasses.replace); an access option's name replaces that field of
+    c.access."""
+    acc = {k: over.pop(k) for k in list(over) if k in ACCESS_FIELDS}
+    if acc:
+        over["access"] = dataclasses.replace(over.get("access", c.access), **acc)
+    return dataclasses.replace(c, **over)
+
+
+def set_config(mod=None, **over) -> None:
+    """Bind the server copy (default ps) to its run settings with `over` replaced (with_settings), as a restart with
+    those options would. When a run path (src, main, state) changes and the copy serves the single document, that
+    document is made again over the new paths (set_docs), as start() would make it."""
+    mod = mod or ps
+    old = mod.C
+    mod.C = with_settings(old, **over)
+    if mod.C.paths != old.paths and len(mod.DOCS) == 1 and mod.DOCS[0].legacy:
+        mod.set_docs(None)
+
+
+def page_for(label: str, accent: str) -> str:
+    """The page GET / serves on a run labelled `label` in `accent` (limn.viewer.assemble.run_page over HTML)."""
+    return assemble.run_page(HTML, label, accent)
+
+
+def fresh_runtime(mod=None) -> None:
+    """Bind a fresh Runtime (new_runtime) on the server copy (default ps), as a restarted process has: new locks,
+    empty caches and registries, no threads, serving the viewer for its run's label and accent."""
+    mod = mod or ps
+    mod.RT = mod.new_runtime(assemble.serve_viewer(VIEWER_FILES, mod.C.label, mod.C.accent))
+
+
+def serve_viewer(label: str, accent: str, mod=None) -> None:
+    """Make the server copy (default ps) serve the viewer of a run labelled `label` in `accent`, as start() does."""
+    mod = mod or ps
+    mod.RT = dataclasses.replace(mod.RT, viewer=assemble.serve_viewer(VIEWER_FILES, label, accent))
 
 
 def needs_tex(*tools: str):
@@ -322,39 +415,17 @@ class Base(unittest.TestCase):
     idle build, default run settings. Tests drive it through ps's functions or the handler (talk)."""
 
     def setUp(self):
-        """Reset the server copy's run settings, build state, remote-main watch and document list for this test."""
+        """Bind the server copy's run settings and a fresh Runtime (as a restarted process has) for this test, and the
+        single document with its idle build."""
         self.tmp = tempfile.TemporaryDirectory()
         root = Path(self.tmp.name)
         self.src = root / "ms"
         self.src.mkdir()
         self.main = self.src / "main.tex"
         self.main.write_text(TEX, encoding="utf-8")
-        C = ps.C
-        C.src, C.main = self.src, self.main
-        C.state = root / "state"
-        C.state.mkdir()
-        C.build = C.state / "build"
-        C.port, C.dpi, C.timeout = 18999, 150, 60
-        C.envs = tuple(ps.DEFAULT_ENVS.split(","))
-        C.allow = frozenset()
-        C.origin_check = True
-        C.git_pull = False
-        ps.SYNC_WATCH = gitsync.SyncWatch()  # a fresh remote-main watch status ("checking")
-        C.pdfjs_dir = None
-        C.label, C.accent, C.repo = "원고", config.ACCENT_PALETTE[0], None
-        ps.BUILD_STATE.update(
-            state="idle",
-            phase=None,
-            started_at=None,
-            start_ts=None,
-            seq=0,
-            finished_at=None,
-            last=None,
-            errors=[],
-            log_tail="",
-            head=None,
-            pull=None,
-        )
+        (root / "state").mkdir()
+        ps.C = run_config(self.src, self.main, root / "state")
+        fresh_runtime()  # new locks, empty caches, a "checking" remote-main watch, the viewer for 원고
         ps.set_docs(None)  # start as a single document (no --doc) — clears the list left over from multi-doc tests
         ps.init_seq()
 

@@ -23,11 +23,11 @@ from urllib.parse import urlparse
 
 import pytest
 
-from limn import config, mapping
+from limn import mapping
 from limn.build import cur_pages
 from limn.files import tex_lines
 
-from helpers import blank_png, ps, split_resp
+from helpers import blank_png, ps, run_config, serve_viewer, split_resp
 from helpers_access import ALICE, reset_access, talk_to
 
 # The timers settle() waits for: the viewer's debounces, slides and long-press timers run 0-1000ms. Longer ones are
@@ -154,37 +154,19 @@ class BrowserBase(ChromiumTestCase):
 
     WHO = ALICE
 
-    @classmethod
-    def setUpClass(cls):
-        """Start Chromium and serve the viewer page built for the "Demo" paper for the whole class."""
-        super().setUpClass()
-        cls.saved_html = ps.HTML
-        ps.HTML = ps.build_html("Demo", "#2563eb")
-
-    @classmethod
-    def tearDownClass(cls):
-        """Put the server copy's page back, then close Chromium."""
-        ps.HTML = cls.saved_html
-        super().tearDownClass()
-
     def setUp(self):
-        """A fresh 37-line manuscript with a finished two-page build (blank page images), default access settings."""
+        """A fresh 37-line manuscript with a finished two-page build (blank page images), default access settings, and
+        a fresh Runtime serving the viewer page built for the "Demo" paper."""
         self.tmp = tempfile.TemporaryDirectory()
         root = Path(self.tmp.name)
         src = root / "ms"
         src.mkdir()
         (src / "main.tex").write_text(DEMO_TEX, encoding="utf-8")
+        (root / "state").mkdir()
+        ps.C = run_config(src, src / "main.tex", root / "state", label="Demo")
         C = ps.C
-        C.src, C.main = src, src / "main.tex"
-        C.state = root / "state"
-        C.state.mkdir()
-        C.build = C.state / "build"
-        C.port, C.dpi, C.timeout = 18999, 150, 60
-        C.envs = tuple(ps.DEFAULT_ENVS.split(","))
-        C.allow, C.origin_check, C.git_pull, C.pdfjs_dir = frozenset(), True, False, None
-        C.label, C.accent, C.repo = "Demo", config.ACCENT_PALETTE[0], None
-        reset_access()
-        ps._PEOPLE_SEEN.clear()
+        reset_access()  # the access defaults and a fresh Runtime
+        serve_viewer("Demo", "#2563eb", ps)
         ps.set_docs(None)
         ps.init_seq()
         pages = C.state / "pages-20260925100000"
