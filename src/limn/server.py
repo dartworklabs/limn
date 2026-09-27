@@ -46,7 +46,7 @@ if __package__ in (None, ""):
 # wired by pin_context(); pins.md's renderer gets its input from pins_md_input(); the run settings' type, the startup
 # rules and the command line fill in C (main() -> start() below). `X as X` marks a name this module exports as an App
 # member (web/app.py) - mypy's explicit re-export, so the App check at the Handler sees it: the page directory on screen
-# and a build's PDF (limn.build's own functions, bound here without a shell), is_agent, outline_labels, pin_state,
+# and a build's PDF (limn.build's own functions, bound here without a shell), outline_labels, pin_state,
 # revision_history, hdr_text (the handler quotes a refused Host/Origin/document key through it), APP_NAME and
 # app_version. The build state is bound by assignment below the imports, because an import under another name is
 # never an export. meta_reads is the module; meta() below is the App member that binds it. record is the store's
@@ -153,7 +153,7 @@ from limn.revisions import (
     revision_history as revision_history,
 )
 from limn.service import add_edit, claim, transitions, trash
-from limn.service.context import Event, Json, PinContext, is_agent as is_agent, who
+from limn.service.context import Event, Json, PinContext, is_agent, who
 from limn.startup import APP_NAME as APP_NAME, StartupRefused, app_version as app_version
 from limn.store import PinFiles, PinStore, Row, find_pin
 from limn.viewer.assemble import (
@@ -311,11 +311,11 @@ REVISION_JOBS = revisions.RevisionJobs()  # the process's running comparison bui
 def revision_context() -> revisions.RevisionContext:
     """The revision services' view of this instance, made per request like pin_store(), so a test (or main()) that
     changes C is seen at once."""
-    root = C.src
+    root, state = C.src, C.state
 
     def locate(file: str, D: revisions.RevisionDoc) -> Path | None:
         """Where a recorded change's path of document D is under the manuscript root now (locate_file, issue #24)."""
-        loc = locate_file(file, None, root, D)
+        loc = locate_file(file, None, root, state, D)
         return loc.path if loc is not None else None
 
     return revisions.RevisionContext(
@@ -482,21 +482,21 @@ def valid_rec(r: object) -> bool:
     return record.valid_rec(r, DOC_KEY_RE.fullmatch, _is_actor)
 
 
-def pin_location(r: Record, root: Path) -> PinLocation | None:
+def pin_location(r: Record, root: Path, state: Path) -> PinLocation | None:
     """Where line pin r's file is under the manuscript root on this machine now (limn.locate.pin_location, the tail
-    guess limited to the folder of the pin's own document), or None."""
-    return locate.pin_location(r, root, doc_by_key(pin_doc_key(r)))
+    guess limited to the folder of the pin's own document, never in the state folder), or None."""
+    return locate.pin_location(r, root, state, doc_by_key(pin_doc_key(r)))
 
 
-def stamp_location(r: Row, root: Path) -> PinLocation | None:
+def stamp_location(r: Row, root: Path, state: Path) -> PinLocation | None:
     """Records in r where its file is now (limn.locate.stamp_location, the pin's own document). Mutates r."""
-    return locate.stamp_location(r, root, doc_by_key(pin_doc_key(r)))
+    return locate.stamp_location(r, root, state, doc_by_key(pin_doc_key(r)))
 
 
 def pin_locator() -> locate.Locator:
-    """pin_location() bound to this instance's manuscript root, read now."""
-    root = C.src
-    return lambda r: pin_location(r, root)
+    """pin_location() bound to this instance's manuscript root and state folder, read now."""
+    root, state = C.src, C.state
+    return lambda r: pin_location(r, root, state)
 
 
 def sync_all(rows: list[Row]) -> bool:
@@ -542,7 +542,7 @@ def public(r: Record) -> Json:
     """A record as the API returns it (limn.pins.view.public_record), placed where pin_location() finds its file under
     the manuscript root now: `file` the absolute path on this machine, `rel_path` relative to the root (ADR-0006).
     Never changes r."""
-    loc = pin_location(r, C.src)
+    loc = pin_location(r, C.src, C.state)
     return view.public_record(r, None if loc is None else (str(loc.path), loc.rel))
 
 
@@ -623,9 +623,9 @@ def request_doc(key: str | None, file_hint: object | None = None) -> Doc | DocNo
 
 
 def document_facts(D: Doc) -> DocumentFacts:
-    """The parsing facts of document D (limn.documents.DocumentFacts) with this instance's manuscript root and dpi -
-    made per request like pin_store(), so a test (or main()) that changes C is seen at once."""
-    return DocumentFacts(D, C.src, C.dpi)
+    """The parsing facts of document D (limn.documents.DocumentFacts) with this instance's manuscript root, state
+    folder and dpi - made per request like pin_store(), so a test (or main()) that changes C is seen at once."""
+    return DocumentFacts(D, C.src, C.state, C.dpi)
 
 
 # ---------------------------------------------------------------- Pin operations
@@ -653,7 +653,7 @@ def pin_context() -> PinContext:
         role_of=role_of,
         person_name=_person_name,
         locate=pin_locator(),
-        stamp=lambda r: stamp_location(r, C.src),
+        stamp=lambda r: stamp_location(r, C.src, C.state),
         thread_max=THREAD_MAX,
         trash_days=TRASH_DAYS,
         trash_checked=_TRASH_CHECKED,
@@ -713,7 +713,7 @@ def load_people() -> list[Row] | people.PeopleUnreadable:
     return rows
 
 
-def record_person(actor: Json, now: float | None = None, role: str | None = None) -> bool:
+def record_person(actor: Json, now: float | None = None, role: access.Role | None = None) -> bool:
     """Records a tailnet person into people.json (limn.people.record_person: a new person, a name/picture change, or
     last_seen stale past PEOPLE_TOUCH_S). Local/agent and an actor without a login are never recorded. The request
     continues even if the write fails (only a warning). Returns True if it wrote. A person seen for the first time gets
@@ -930,7 +930,7 @@ def pins_md_input(rows: list[Row], base: str | None = None) -> PinsMdInput:
             continue
         location, line_len = "", None
         if not is_region_pin(r):
-            loc = pin_location(r, C.src)  # ADR-0006: still relative after the checkout moved
+            loc = pin_location(r, C.src, C.state)  # ADR-0006: still relative after the checkout moved
             location = loc.rel if loc is not None else (Path(str(r.get("file", ""))).name or str(r.get("name") or ""))
             lo, hi = r.get("lo"), r.get("hi")
             if loc is not None and state_of(r) is OpenPin and r.get("quote") and is_int(lo) and is_int(hi) and lo == hi:
@@ -1048,7 +1048,7 @@ def people_roles() -> access.PeopleRoles:
     return ROLES_CACHE.get(C.people_file, lambda: people_roles_of(load_people()), {})
 
 
-def role_of(login: str) -> str:
+def role_of(login: str) -> access.Role:
     """The people.json role of login (limn.access.person_role): editor for someone people.json does not list, viewer
     for everyone while it cannot be used."""
     return person_role(people_roles(), login)
@@ -1195,8 +1195,9 @@ def access_log_lines() -> list[str]:
 
 def configure_run(a: argparse.Namespace) -> list[Doc] | None | StartupRefused:
     """The run settings from the arguments into C, in the order that decides which refusal a bad command line gets:
-    the manuscript, the documents (--doc, returned; None without it) or the main file, the state folder (created
-    here, before the label and accent are checked), build settings, the port, access lists, the label and accent -
+    the manuscript, the documents (--doc, returned; None without it) or the main file, the state folder (refused when
+    it holds a served document, warned about on stderr when it lies inside the manuscript, and created here, before
+    the label and accent are checked), build settings, the port, access lists, the label and accent -
     and the viewer page they fill in (HTML). The rules are limn.startup's; this applies their answers."""
     global HTML
     C.src = Path(a.manuscript).expanduser().resolve()
@@ -1204,7 +1205,14 @@ def configure_run(a: argparse.Namespace) -> list[Doc] | None | StartupRefused:
     if isinstance(picked, StartupRefused):
         return picked
     C.main = picked.main
-    C.state = startup.state_dir(a.state_dir, C.src, Path(os.environ.get("XDG_DATA_HOME", Path.home() / ".local/share")))
+    state = startup.state_dir(a.state_dir, C.src, Path(os.environ.get("XDG_DATA_HOME", Path.home() / ".local/share")))
+    served = [d.main for d in picked.docs] if picked.docs else [picked.main]
+    placed = startup.state_placement(state, C.src, served)
+    if isinstance(placed, StartupRefused):
+        return placed
+    if isinstance(placed, startup.StateInManuscript):
+        print(placed.warning(), file=sys.stderr)
+    C.state = state
     C.state.mkdir(parents=True, exist_ok=True)
     C.build = C.state / "build"
     C.dpi = a.dpi
