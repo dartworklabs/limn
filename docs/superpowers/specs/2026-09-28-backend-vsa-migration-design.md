@@ -51,7 +51,8 @@ src/limn/
   files.py, documents.py    여러 기능이 실제로 함께 쓰는 파일·문서 기본 규칙
   pins/model.py             여러 핀 슬라이스가 함께 쓰는 상태 타입과 옛 레코드 왕복
   features/
-    pins/lifecycle/         닫기·다시 열기·확인·답글·claim
+    pins/lifecycle/         닫기·다시 열기·확인·답글
+    pins/claims/            처리 중 표시·해제
     pins/editing/           만들기·편집·담당·메모
     pins/location/          PDF 역변환·위치 선택·anchor 재동기화
     pins/listing/           핀 조회·pins.md·겹침 표시

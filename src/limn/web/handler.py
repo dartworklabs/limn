@@ -25,6 +25,7 @@ from pathlib import Path
 from typing import Any, ClassVar, NamedTuple
 from urllib.parse import parse_qs, urlparse
 
+from limn.features.pins.claims import http as claims_http
 from limn.features.pins.lifecycle import http as lifecycle_http
 from limn.mark import png as mark_png
 from limn.web import answers, parse
@@ -492,10 +493,9 @@ class Handler(BaseHTTPRequestHandler):
                 answers.edit_answer(app.edit_pin(pid, replace(body.request, place=place), actor, region), app.public)
             )
         if act == "claim":
-            ttl, eta = accepted(parse.parse_claim_body(d))
-            return self._json(answers.claim_answer(app.claim_pin(pid, actor, ttl, eta), ttl, eta, app.public))
+            return self._json(claims_http.claim(app, pid, actor, d))
         if act == "unclaim":
-            return self._json(answers.unclaim_answer(app.unclaim_pin(pid, actor), app.public))
+            return self._json(claims_http.unclaim(app, pid, actor))
         if act == "close":
             return self._json(lifecycle_http.close(app, pid, actor, d, self.principal.review_on_close))
         return self._json(lifecycle_http.reopen(app, pid, actor, d))

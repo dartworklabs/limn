@@ -25,14 +25,12 @@ from limn import access
 from limn.build import BuildBusy, BuildStarted, FinishedBuild, ViewOnlyNoRebuild
 from limn.config import RunConfig
 from limn.documents import Doc, DocNotFound
+from limn.features.pins.claims.service import PinClaims
 from limn.features.pins.lifecycle.service import PinLifecycle
 from limn.locate import Picked, PickedRegion, PickRefusal
 from limn.pins.edit import AddRequest, EditRefusal, EditRequest
 from limn.pins.lifecycle import (
     AlreadyLive,
-    ClaimClosedPin,
-    ClaimedByOther,
-    NotClaimed,
     NotInTrash,
 )
 from limn.pins.model import DonePin, OpenPin, Pin, PinNotFound, Record, ReviewPin, TrashedPin
@@ -56,6 +54,7 @@ class App(Protocol):
 
     C: Config
     pin_lifecycle: PinLifecycle
+    pin_claims: PinClaims
     APP_NAME: str
     DEFAULT_ROLE: access.Role  # the role of a person people.json gives none
 
@@ -242,16 +241,6 @@ class App(Protocol):
         self, pid: int, request: EditRequest, actor: Json, region: bool = False
     ) -> OpenPin | ReviewPin | DonePin | EditRefusal | PinNotFound:
         """POST /api/pins/{id}/edit."""
-        ...
-
-    def claim_pin(
-        self, pid: int, actor: Json, ttl_min: int, eta_min: int | None = None
-    ) -> OpenPin | ClaimClosedPin | ClaimedByOther | PinNotFound:
-        """POST /api/pins/{id}/claim."""
-        ...
-
-    def unclaim_pin(self, pid: int, actor: Json) -> OpenPin | ReviewPin | DonePin | NotClaimed | PinNotFound:
-        """POST /api/pins/{id}/unclaim."""
         ...
 
     def add_pin(self, D: Document, request: AddRequest, actor: Json) -> OpenPin:

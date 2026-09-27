@@ -38,9 +38,6 @@ from limn.locate import (
 from limn.pins.edit import ClosedPinReshaped, EditRefusal, NoteTooLong, PinOutsideTree, RangeOutsideFile, StaleEdit
 from limn.pins.lifecycle import (
     AlreadyLive,
-    ClaimClosedPin,
-    ClaimedByOther,
-    NotClaimed,
     NotInTrash,
 )
 from limn.pins.model import DonePin, OpenPin, PinNotFound, Record, ReviewPin, TrashedPin
@@ -248,35 +245,6 @@ def purge_answer(result: TrashedPin | NotInTrash, pid: int) -> Body:
             return {"ok": True, "purged": pid}
         case NotInTrash():
             raise HTTPError(404, "휴지통에 핀 #%d 이 없습니다." % pid, reason="not_in_trash")
-
-
-def claim_answer(
-    result: OpenPin | ClaimClosedPin | ClaimedByOther | PinNotFound, ttl: int, eta: int | None, show: Show
-) -> Body:
-    """POST /api/pins/{id}/claim: the pin and the ttl/eta actually applied (clamped values), or a 409."""
-    match result:
-        case OpenPin(record=record):
-            out: Body = {"ok": True, "pin": show(record), "ttl_min_applied": ttl}
-        case PinNotFound():
-            out = {"ok": False, "pin": None, "ttl_min_applied": ttl}
-        case ClaimClosedPin(pin=ReviewPin(record=record) | DonePin(record=record)):
-            raise HTTPError(409, "done", pin=show(record), reason="done")
-        case ClaimedByOther(claimed_by=holder, claim_until=until, eta_ts=eta_ts):
-            raise HTTPError(409, "claimed", claimed_by=holder, claim_until=until, eta_ts=eta_ts, reason="claimed")
-    if eta is not None:
-        out["eta_min_applied"] = eta  # the clamped value, if sent above the ceiling (240)
-    return out
-
-
-def unclaim_answer(result: OpenPin | ReviewPin | DonePin | NotClaimed | PinNotFound, show: Show) -> Body:
-    """POST /api/pins/{id}/unclaim: the pin as it stands (no claim), or ok:false for an unknown id."""
-    match result:
-        case OpenPin(record=record) | ReviewPin(record=record) | DonePin(record=record):
-            return {"ok": True, "pin": show(record)}
-        case NotClaimed(pin=OpenPin(record=record) | ReviewPin(record=record) | DonePin(record=record)):
-            return {"ok": True, "pin": show(record)}
-        case PinNotFound():
-            return {"ok": False, "pin": None}
 
 
 def add_answer(result: OpenPin) -> Body:

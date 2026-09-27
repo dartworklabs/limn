@@ -20,11 +20,11 @@ from pathlib import Path
 
 from limn import mapping
 from limn.access import LOCAL_ACTOR
+from limn.features.pins.claims import input as claims_input
 from limn.pins import render, render as md_render
 from limn.pins.lifecycle import CloseRequest
 from limn.pins.model import ThreadEntry
 from limn.pins.render import DocHeading, PinFacts, PinsMdInput, pins_md_text
-from limn.web import parse
 
 from helpers import (
     SKILL_KO,
@@ -761,7 +761,9 @@ class ClaimText(Base):
             self.assertEqual(md_render.claim_md(dict(r, eta_ts=now + left_s), now), "처리 중(Kim, %s)" % want)
         self.assertEqual([md_render.ceil5(m) for m in (0, 0.2, 5, 5.01, 14.9, 23)], [5, 5, 5, 10, 15, 25])
         pid = self.add()
-        ps.APP.claim_pin(pid, {"login": "k", "name": "에이전트 A"}, *parse.parse_claim_body({"eta_min": 15}))
+        ps.APP.pin_claims.claim_pin(
+            pid, {"login": "k", "name": "에이전트 A"}, *claims_input.parse_claim_body({"eta_min": 15})
+        )
         md = ps.APP.C.pins_md.read_text(encoding="utf-8")
         self.assertIn("처리 중(에이전트 A, 약 15분)", md)
 
@@ -774,7 +776,7 @@ class BadgeWordsInPinsMd(Base):
         b = self.add(4, 9)
         c = self.add(5, 6)
         edit_pin(c, {"note": "고침", "base_rev": self.pin(c)["rev"]}, dict(LOCAL_ACTOR))
-        ps.APP.claim_pin(c, {"login": "k", "name": "Kim"}, *parse.parse_claim_body({"eta_min": 10}))
+        ps.APP.pin_claims.claim_pin(c, {"login": "k", "name": "Kim"}, *claims_input.parse_claim_body({"eta_min": 10}))
         md = ps.APP.C.pins_md.read_text(encoding="utf-8")
         self.assertIn("| %d · #%d와 같은 범위 |" % (a, b), md)
         self.assertIn("| %d · #%d과 같은 범위 |" % (b, a), md)

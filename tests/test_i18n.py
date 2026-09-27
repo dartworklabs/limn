@@ -21,10 +21,11 @@ from urllib.parse import urlparse
 from limn import access, config, startup
 from limn.access import LOCAL_ACTOR
 from limn.cli import cli_audit
+from limn.features.pins.claims import input as claims_input
 from limn.pins.lifecycle import CloseRequest
 from limn.scope import ScopeUnreadable
 from limn.viewer import assemble
-from limn.web import answers, parse
+from limn.web import answers
 from limn.web.errors import scope_http_error
 
 from helpers import (
@@ -484,7 +485,7 @@ class EnglishChrome(ChromiumTestCase):
             return add_pin(d, actor, ps).record["id"]
 
         claimed = add(4, 5, "Tighten this sentence", ALICE_ACTOR)
-        ps.APP.claim_pin(claimed, agent, *parse.parse_claim_body({"eta_min": 10}))
+        ps.APP.pin_claims.claim_pin(claimed, agent, *claims_input.parse_claim_body({"eta_min": 10}))
         korean = add(8, 9, "이 문장을 다듬어 주세요", SEOJUN)
         ps.APP.pin_lifecycle.reply_pin(korean, "Working on it", ALICE_ACTOR)
         add(12, 16, "Is this the right table? @Bob Lee", ALICE_ACTOR, kind_req="question", mentions=[BOB_LEE["login"]])

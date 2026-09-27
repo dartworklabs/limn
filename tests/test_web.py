@@ -26,6 +26,7 @@ from unittest import mock
 
 from limn import locate, mapping
 from limn.documents import DocNotFound
+from limn.features.pins.claims import http as claims_http
 from limn.features.pins.lifecycle import http as lifecycle_http
 from limn.pins.edit import StaleEdit
 from limn.pins.lifecycle import AgentCannotConfirm, ClaimedByOther, NotInTrash, PinStillOpen, ThreadFull
@@ -442,11 +443,11 @@ class Answers(unittest.TestCase):
         """The applied (clamped) eta is added only for a claim that sent one; a held claim is 409 claimed."""
         pin = OpenPin.from_record({"id": 5})
         self.assertEqual(
-            answers.claim_answer(pin, 30, None, show), {"ok": True, "pin": {"id": 5}, "ttl_min_applied": 30}
+            claims_http.claim_answer(pin, 30, None, show), {"ok": True, "pin": {"id": 5}, "ttl_min_applied": 30}
         )
-        self.assertEqual(answers.claim_answer(pin, 30, 240, show)["eta_min_applied"], 240)
+        self.assertEqual(claims_http.claim_answer(pin, 30, 240, show)["eta_min_applied"], 240)
         self.assert_refused(
-            lambda: answers.claim_answer(ClaimedByOther("bob", 1.0, None), 30, None, show),
+            lambda: claims_http.claim_answer(ClaimedByOther("bob", 1.0, None), 30, None, show),
             409,
             {"error": "claimed", "reason": "claimed", "claimed_by": "bob", "claim_until": 1.0, "eta_ts": None},
         )

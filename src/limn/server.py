@@ -87,6 +87,7 @@ from limn.documents import (
     DocumentFacts,
 )
 from limn.events import EVENTS_KEEP, EventType
+from limn.features.pins.claims.service import PinClaims
 from limn.features.pins.lifecycle.service import PinLifecycle
 from limn.files import tex_lines, vendor_file as find_vendor_file
 from limn.guidance import shell_path
@@ -106,9 +107,6 @@ from limn.pins import record, view
 from limn.pins.edit import AddRequest, EditRefusal, EditRequest
 from limn.pins.lifecycle import (
     AlreadyLive,
-    ClaimClosedPin,
-    ClaimedByOther,
-    NotClaimed,
     NotInTrash,
     claim_holds,
     pin_reopened_in_round,
@@ -146,7 +144,7 @@ from limn.revisions import (
     git as _git,
     revision_history as revision_history,
 )
-from limn.service import add_edit, claim, trash
+from limn.service import add_edit, trash
 from limn.service.context import Event, Json, PinContext, is_agent, who
 from limn.startup import APP_NAME as APP_NAME, StartupRefused, app_version as app_version
 from limn.store import PinFiles, PinStore, Row, pin_index
@@ -355,10 +353,12 @@ class ServerApplication:
     RT: Runtime
     docs: list[Doc] = field(default_factory=list)
     pin_lifecycle: PinLifecycle = field(init=False)
+    pin_claims: PinClaims = field(init=False)
 
     def __post_init__(self) -> None:
-        """Bind the lifecycle feature to this application's context factory."""
+        """Bind pin features to this application's context factory."""
         self.pin_lifecycle = PinLifecycle(self.pin_context)
+        self.pin_claims = PinClaims(self.pin_context)
 
     APP_NAME = APP_NAME
     DEFAULT_ROLE = DEFAULT_ROLE
@@ -839,16 +839,6 @@ class ServerApplication:
     def claim_active(self, r: Record) -> bool:
         """Does this pin have an unexpired claim now? limn.pins.lifecycle.claim_holds() at the current epoch."""
         return claim_holds(r, time.time())
-
-    def claim_pin(
-        self, pid: int, actor: Json, ttl_min: int, eta_min: int | None = None
-    ) -> OpenPin | ClaimClosedPin | ClaimedByOther | PinNotFound:
-        """POST /api/pins/{id}/claim: place or extend the in-progress marker (limn.service.claim.claim_pin)."""
-        return claim.claim_pin(self.pin_context(), pid, actor, ttl_min, eta_min)
-
-    def unclaim_pin(self, pid: int, actor: Json) -> OpenPin | ReviewPin | DonePin | NotClaimed | PinNotFound:
-        """POST /api/pins/{id}/unclaim (limn.service.claim.unclaim_pin)."""
-        return claim.unclaim_pin(self.pin_context(), pid, actor)
 
     def restore_pin(self, pid: int, actor: Json) -> OpenPin | ReviewPin | DonePin | NotInTrash | AlreadyLive:
         """POST /api/pins/{id}/restore: the pin comes back from the Trash (limn.service.trash.restore_pin)."""

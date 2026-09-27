@@ -15,6 +15,7 @@ import unittest
 from pathlib import Path
 
 from limn.access import LOCAL_ACTOR
+from limn.features.pins.claims import input as claims_input
 from limn.features.pins.lifecycle import input as lifecycle_input
 from limn.files import BadPath, NotAFile, OutsideTree, file_in_tree
 from limn.pins.edit import LinePlace, PinEdited, RegionPlace, evolve_edit
@@ -206,7 +207,7 @@ class Fields(unittest.TestCase):
         self.assertEqual(parse.num_field(2, "x0"), 2.0)
         self.assertEqual(parse.int_field(10**400, "lo"), InputRejected("lo 는 정수여야 합니다.", "not_integer"))
         self.assertEqual(parse.num_field(10**400, "x0"), InputRejected("x0 는 유한한 숫자여야 합니다.", "not_number"))
-        self.assertEqual(parse.parse_claim_body({"ttl_min": 10**400}).reason, "not_integer")
+        self.assertEqual(claims_input.parse_claim_body({"ttl_min": 10**400}).reason, "not_integer")
 
     def test_closed_sets_come_back_narrowed_or_refused(self):
         """kind_req and scope: a member of the set comes back as is (typed as its Literal), None when absent, and
@@ -362,11 +363,11 @@ class Fields(unittest.TestCase):
     def test_claim_body_checks_eta_first_and_clamps(self):
         """eta_min is refused before ttl_min; values above the ceiling are clamped; ttl follows eta when absent."""
         self.assertEqual(
-            parse.parse_claim_body({"eta_min": 0, "ttl_min": "x"}),
+            claims_input.parse_claim_body({"eta_min": 0, "ttl_min": "x"}),
             InputRejected("eta_min 은 1 이상이어야 합니다(상한 240 를 넘으면 240 로 깎아 받습니다).", "too_small"),
         )
-        self.assertEqual(parse.parse_claim_body({"eta_min": 10}), parse.ClaimBody(30, 10))
-        self.assertEqual(parse.parse_claim_body({"ttl_min": 480, "eta_min": 241}), (120, 240))
+        self.assertEqual(claims_input.parse_claim_body({"eta_min": 10}), claims_input.ClaimBody(30, 10))
+        self.assertEqual(claims_input.parse_claim_body({"ttl_min": 480, "eta_min": 241}), (120, 240))
 
     def test_revision_parameters(self):
         """The pin is parsed before the commit; POST names only commit, doc and pin, pin is a JSON integer, and the commit
@@ -688,18 +689,18 @@ class ClaimBody(unittest.TestCase):
     a malformed value is refused, and an over-limit value is clamped so old agents' ttl_min 480 keeps working."""
 
     def test_body_validation_and_derived_ttl(self):
-        self.assertEqual(parse.parse_claim_body({}), (parse.CLAIM_TTL_DEFAULT, None))
+        self.assertEqual(claims_input.parse_claim_body({}), (claims_input.CLAIM_TTL_DEFAULT, None))
         for eta, ttl in ((1, 30), (5, 30), (15, 30), (20, 40), (45, 90), (60, 120), (90, 120), (240, 120)):
-            self.assertEqual(parse.parse_claim_body({"eta_min": eta}), (ttl, eta), eta)
+            self.assertEqual(claims_input.parse_claim_body({"eta_min": eta}), (ttl, eta), eta)
         # supplying ttl passes it through unchanged
-        self.assertEqual(parse.parse_claim_body({"eta_min": 15, "ttl_min": 10}), (10, 15))
+        self.assertEqual(claims_input.parse_claim_body({"eta_min": 15, "ttl_min": 10}), (10, 15))
         for bad in (0, "15", 1.5, True, None, -5):  # refused: answered 400 by the handler
-            self.assertIsInstance(parse.parse_claim_body({"eta_min": bad}), InputRejected, bad)
-        self.assertIsInstance(parse.parse_claim_body({"eta_min": 15, "ttl_min": 0}), InputRejected)
+            self.assertIsInstance(claims_input.parse_claim_body({"eta_min": bad}), InputRejected, bad)
+        self.assertIsInstance(claims_input.parse_claim_body({"eta_min": 15, "ttl_min": 0}), InputRejected)
         # exceeding the cap clamps instead of 400ing — so an agent that claimed via the old procedure (ttl_min 480) doesn't break when extending
-        self.assertEqual(parse.parse_claim_body({"eta_min": 241}), (120, 240))
-        self.assertEqual(parse.parse_claim_body({"eta_min": 15, "ttl_min": 480}), (120, 15))
-        self.assertEqual(parse.parse_claim_body({"ttl_min": 480}), (120, None))
+        self.assertEqual(claims_input.parse_claim_body({"eta_min": 241}), (120, 240))
+        self.assertEqual(claims_input.parse_claim_body({"eta_min": 15, "ttl_min": 480}), (120, 15))
+        self.assertEqual(claims_input.parse_claim_body({"ttl_min": 480}), (120, None))
 
 
 class ThreadText(unittest.TestCase):
