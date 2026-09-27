@@ -30,10 +30,10 @@ function applyPinLists(rows,dropped,lists){
 async function loadPins(){const seq=++PINS_LOAD_SEQ; let d;
   try{d=(await api('/api/pins?all=1',{what:'핀 읽기'})).data;}catch(e){return false;}
   if(seq<PINS_APPLIED_SEQ)return false;
-  loadPeople();
   let dropped=[];
-  try{dropped=(await api('/api/pins/dropped',{what:'삭제한 핀',silent:true})).data.dropped||[];}catch(e){}
+  try{dropped=(await api('/api/pins/dropped',{what:'삭제한 핀',silent:true})).data.dropped||[];}catch(e){return false;}
   if(seq<PINS_APPLIED_SEQ)return false;
+  loadPeople();
   // All-document lists drive notices; only the current document's open and done pins drive its marks and rows.
   applyPinLists(d,dropped,derivePinLists(d,DOC,DEFAULT_DOC));
   PINS_APPLIED_SEQ=seq;

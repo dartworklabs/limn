@@ -175,6 +175,60 @@ class PinListLoading(unittest.TestCase):
             {"open": [1], "rev": "old", "src": "old-src", "drawn": [[1]]},
         )
 
+    def test_failed_trash_read_preserves_snapshot_and_retries_revision(self):
+        """A partial pin refresh keeps the old coherent view and retries the same meta revision."""
+        js = "\n".join(
+            [
+                extract_js_fn("pinState"),
+                extract_js_fn("derivePinLists"),
+                extract_js_fn("applyPinLists"),
+                extract_js_fn("loadPins"),
+                extract_js_fn("pollLightOnce"),
+                """
+                let DOC='main',SWITCHSEQ=0,DEFAULT_DOC='main',OPEN_ALL=[{id:1}],REVIEW_ALL=[],DONE_ALL=[],PINS=OPEN_ALL,DONE=[],DROPPED=[{id:9}];
+                let EDIT=null,REPLY=null,CUR=null,PINS_LOAD_SEQ=0,PINS_APPLIED_SEQ=0;
+                let LAST_PINS_REV='old',LAST_SRC_MTIME='old-src',LAST_BUILD_SEQ=0,BUILD_TIMER=null,POLL_FAILS=0;
+                const SEC_SEEN={open:new Set(),review:new Set(),done:new Set()},drawn=[];
+                const document={hidden:false};let pinReads=0,trashReads=0;
+                function api(url){
+                  if(url==='/api/meta?light=1')return Promise.resolve({data:{pins_rev:'new',src_sig:'new-src',build_seq:0}});
+                  if(url==='/api/pins?all=1'){pinReads++;return Promise.resolve({data:[{id:2}]});}
+                  if(url==='/api/pins/dropped'){
+                    trashReads++;
+                    return trashReads===1?Promise.reject(Error('temporary')):Promise.resolve({data:{dropped:[{id:10}]}});
+                  }
+                  throw Error(url);
+                }
+                function dq(url){return url;} function notifyQuery(){return '';}
+                function notifyHandle(){} function updateStaleBadge(){} function updateSyncBadge(){}
+                function noteOtherDocs(){} function loadPeople(){} function pollBuild(){}
+                function $(sel){return {hidden:true};}
+                function diffToast(){} function reviewToast(){}
+                function drawPins(){drawn.push(OPEN_ALL.map(p=>p.id));}
+                function marks(){} function drawDocTabs(){} function docTitle(){}
+                function recomputeOverlap(){} function renderOverlapBanner(){} function closeReply(){}
+                (async()=>{
+                  await pollLightOnce();
+                  const first={open:OPEN_ALL.map(p=>p.id),dropped:DROPPED.map(p=>p.id),
+                    rev:LAST_PINS_REV,src:LAST_SRC_MTIME,drawn:drawn.slice()};
+                  await pollLightOnce();
+                  console.log(JSON.stringify({first,after:{open:OPEN_ALL.map(p=>p.id),
+                    dropped:DROPPED.map(p=>p.id),rev:LAST_PINS_REV,src:LAST_SRC_MTIME,
+                    drawn},pinReads,trashReads}));
+                })();
+                """,
+            ]
+        )
+        self.assertEqual(
+            json.loads(run_node(js)),
+            {
+                "first": {"open": [1], "dropped": [9], "rev": "old", "src": "old-src", "drawn": []},
+                "after": {"open": [2], "dropped": [10], "rev": "new", "src": "new-src", "drawn": [[2]]},
+                "pinReads": 2,
+                "trashReads": 2,
+            },
+        )
+
     def test_failed_boot_pin_read_is_retried_by_first_light_poll(self):
         """A failed first pin fetch leaves no revision baseline, so the next light poll loads the missing rows."""
         js = "\n".join(
