@@ -30,11 +30,12 @@ from limn.build import (
     BuildStarted,
     CopyFailed,
     PagesNotRendered,
+    ViewOnlyNoRebuild,
 )
 from limn.web.answers import finished_build_body, rebuild_answer, rebuild_started_answer
-from limn.web.errors import BUILD_FAILURES, build_failure_log
+from limn.web.errors import BUILD_FAILURES, HTTPError, build_failure_log
 
-from helpers import Base, needs_tex, ps, req
+from helpers import Base, blank_png, needs_tex, ps, req
 
 BUILD_PY = Path(build.__file__)
 FILES_PY = Path(files.__file__)
@@ -400,6 +401,22 @@ class RebuildAnswer(unittest.TestCase):
         self.assertEqual(rebuild_started_answer(BuildStarted()), ({"state": "running"}, 202))
         self.assertEqual(rebuild_started_answer(BuildBusy()), ({"state": "running", "busy": True}, 409))
 
+    def test_a_view_only_document_is_refused_by_both_answers(self):
+        """ViewOnlyNoRebuild is 400 view_only_no_rebuild naming the document, synchronous or ?async=1."""
+        for answer in (lambda r: rebuild_answer(r, full=True), rebuild_started_answer):
+            with self.subTest(answer=answer), self.assertRaises(HTTPError) as e:
+                answer(ViewOnlyNoRebuild("rv"))
+            self.assertEqual(
+                (e.exception.code, e.exception.body),
+                (
+                    400,
+                    {
+                        "error": "보기 전용 문서(rv)는 재빌드하지 않습니다 — PDF 파일이 바뀌면 쪽을 저절로 다시 그립니다.",
+                        "reason": "view_only_no_rebuild",
+                    },
+                ),
+            )
+
     def test_failure_log_texts(self):
         """Each failure's log opens with its kind's text, the detail filled in."""
         self.assertEqual(
@@ -415,6 +432,51 @@ class RebuildAnswer(unittest.TestCase):
             build_failure_log(BuildAborted("worker_crashed", "RuntimeError('boom')")),
             "빌드 스레드에서 예상 밖 예외가 났습니다: RuntimeError('boom')",
         )
+
+
+class RebuildRules(unittest.TestCase):
+    """request_rebuild (POST /api/rebuild) and needs_build (startup) decide on the document alone."""
+
+    def setUp(self):
+        """A LaTeX and a view-only document over one temporary tree, neither built yet."""
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        root = Path(tmp.name)
+        (root / "main.tex").write_text("x", encoding="utf-8")
+        (root / "review.pdf").write_bytes(b"%PDF-1.4 x")
+        self.tex = PlainDoc(root, root / "main.tex", root / "state-tex")
+        self.pdf = PlainDoc(root, root / "review.pdf", root / "state-pdf", is_pdf=True)
+        for D in (self.tex, self.pdf):
+            D.dir.mkdir()
+            D.key = "rv" if D.is_pdf else "ms"
+
+    def test_a_view_only_document_is_never_rebuilt_on_request(self):
+        """The run is called only for a LaTeX document; a view-only one comes back as ViewOnlyNoRebuild."""
+        runs = []
+        self.assertEqual(build.request_rebuild(self.pdf, runs.append), ViewOnlyNoRebuild("rv"))
+        self.assertEqual(runs, [])
+        self.assertIsNone(build.request_rebuild(self.tex, runs.append))
+        self.assertEqual(runs, [self.tex])
+
+    def test_startup_builds_what_is_missing_or_changed(self):
+        """LaTeX: always unless --no-build, then only without a PDF or pages. View-only: when its PDF changed or it
+        has no pages, --no-build or not."""
+        self.assertTrue(build.needs_build(self.tex, False, 72))
+        self.assertTrue(build.needs_build(self.tex, True, 72))  # no PDF, no pages yet
+        self.assertTrue(build.needs_build(self.pdf, True, 72))  # never rendered
+        pages = self.tex.dir / "pages"
+        pages.mkdir()
+        (pages / "page-1.png").write_bytes(blank_png(10, 10))
+        (pages / "main.pdf").write_bytes(b"%PDF")
+        self.assertFalse(build.needs_build(self.tex, True, 72))
+        self.assertTrue(build.needs_build(self.tex, False, 72))
+        pdf_pages = self.pdf.dir / "pages"
+        pdf_pages.mkdir()
+        (pdf_pages / "page-1.png").write_bytes(blank_png(10, 10))
+        files.atomic_write(self.pdf.dir / "pdf_sig.txt", build.pdf_signature(self.pdf))
+        self.assertFalse(build.needs_build(self.pdf, False, 72))
+        self.pdf.main.write_bytes(b"%PDF-1.4 changed, longer")
+        self.assertTrue(build.needs_build(self.pdf, True, 72))
 
 
 # ---------------------------------------------------------------- through server.py's wiring

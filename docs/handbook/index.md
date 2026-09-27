@@ -21,10 +21,10 @@ catalog_schema: 1
 | purpose | [purpose.md](purpose.md) | Limn이 줄이는 비용, 사용자, 범위, 영역별 진실 소스 | 처음 읽을 때, 현재값의 정본 위치가 헷갈릴 때 / 제품 범위나 정본 위치가 바뀔 때 |
 | architecture | [architecture.md](architecture.md) | 현재 구조(모듈의 층), 의존 방향, 채택한 설계 축, 불변식, 멈춤 신호 | 코드를 놓을 자리를 고르거나 의존성·저장·보안 경계를 건드리기 전 / 구조 단위·불변식·채택값이 바뀔 때 |
 |  | [domain.md](domain.md) | 핀 용어, 상태와 전이, 역변환·범위 사다리·anchor 재동기화, 저장소 안전성, 작성자 귀속, 여러 문서 서버 규칙, 알려진 제약 | 핀 규칙이나 위치 계산을 고치기 전 / 상태·전이·위치 규칙·한도가 바뀔 때 |
-|  | [viewer.md](viewer.md) | 뷰어 레이아웃, 패널, 상태 표시, 협업 UI, 디자인 토큰·컴포넌트, 벡터 렌더링·확대, 화면 쪽 제약 | 뷰어 HTML·CSS·JS를 고치기 전 / 화면 규칙이나 가드 테스트가 바뀔 때 |
+|  | [viewer.md](viewer.md) | 뷰어 조작 요약, 레이아웃, 패널, 상태 표시, 협업 UI, 디자인 토큰·컴포넌트, 벡터 렌더링·확대, 화면 쪽 제약 | 뷰어 HTML·CSS·JS를 고치기 전 / 화면 규칙이나 가드 테스트가 바뀔 때 |
 |  | [build-sync.md](build-sync.md) | 동기·비동기 재빌드, git pull, 자동 동기화 폴링, 위치 추정 est, 응답 다이어트, 보기 전용 PDF 감시 | 빌드·동기화·추정 코드를 고치기 전 / 빌드 상태나 폴링 규칙이 바뀔 때 |
 |  | [api.md](api.md) | 에이전트 계약: HTTP API 전체, 요청 경계, 핀 레코드 스키마, pins.md 형식 | 에이전트 연동을 만들거나 요청 처리를 고치기 전 / 경로·필드·상태·pins.md 형식이 바뀔 때 |
-|  | [operations.md](operations.md) | 서버 하나 실행: 요구 환경, 실행 인자, 포트, 보안 제약, tailscale serve, systemd, 상태 파일, 뷰어 사용법 | 서버를 띄우거나 운영 문제를 볼 때 / 실행 인자·상태 파일·보안 제약이 바뀔 때 |
+|  | [operations.md](operations.md) | 서버 하나 실행: 요구 환경, 실행 인자, 포트, 보안 제약, tailscale serve, systemd, 상태 파일 | 서버를 띄우거나 운영 문제를 볼 때 / 실행 인자·상태 파일·보안 제약이 바뀔 때 |
 |  | [instances.md](instances.md) | 원고별 인스턴스 관리자: limn 명령, 설정 키, 문서 탭, 업데이트·되돌리기, 포트, 환경 변수 | 인스턴스를 추가·업데이트·제거할 때 / limn 명령·설정 키·유닛 템플릿이 바뀔 때 |
 | verification | [verification.md](verification.md) | 게이트별 측정 대상·적용 조건·실행·합격 기준·보장 범위, 없는 게이트 | PR 전과 리뷰할 때 / 테스트·CI 단계·합격 기준이 바뀔 때 |
 |  | [workflow.md](workflow.md) | 설계에서 릴리스까지의 변경 흐름, 예외 경로, ADR 규칙, PR·CLA, 릴리스 | 작업을 시작하거나 PR·릴리스를 할 때 / 절차나 기여 조건이 바뀔 때 |
@@ -61,7 +61,7 @@ catalog_schema: 1
 | `src/limn/documents.py` | 문서(`Doc`: 빌드 루트·메인·문서별 상태 폴더와 빌드 잠금·상태), 문서 키 규칙, 문서 목록을 인자로 받는 조회(`request_doc`·`doc_for_file`·`pin_doc_key`)와 조회 결과 값(`DocNotFound`), 파서가 읽는 원고 사실(`DocumentFacts`), `to_source` | 문서 경로·키 규칙 변경 | domain.md §여러 문서, build-sync.md |
 | `src/limn/mark.py` | Limn 마크: 기하 하나, 뷰어 인라인 SVG·파비콘 SVG·PNG | 마크 모양·크기·색 규칙 변경 | viewer.md §마크와 파비콘 |
 | `src/limn/viewer/*` | 뷰어 화면: `index.html`, 스타일 조각 `css/*.css`, 스크립트 조각 `js/*.js`, 조각 순서 `parts.txt`, 브라우저 알림의 서비스 워커 `sw.js`(`GET /sw.js`, `service_worker()`가 읽는다). 조립은 `assemble.py`(`viewer_html`: 조각을 순서대로 이어 한 장의 HTML로 만들고 PDF.js 버전·마크·Lucide 아이콘 표·영어 메시지 표를 채운다) | 레이아웃·토큰·컴포넌트·상호작용 변경, 조각 추가(`parts.txt`에 줄을 더한다), 아이콘 추가(`assemble.py`의 `LUCIDE`), PDF.js 버전 변경(`PDFJS_VERSION`) | viewer.md, verification.md |
-| `src/limn/web/*` | HTTP 층: 처리기와 서버 클래스·본문 읽기와 한도·경로 분기와 경로만 쓰는 상수(`handler.py`), 요청 본문·쿼리 파서(`parse.py`), 핀 조작과 빌드 결과마다의 응답과 빌드 응답의 로그 다이어트(`answers.py`), 오류 형식·거절 표·빌드 실패 문장 표·거부된 첫 화면(`errors.py`), 처리기가 부르는 서비스 목록(`app.py`) | 경로·응답·오류 문구 추가나 변경, 처리기가 부르는 서비스 변경 | api.md, architecture.md, verification.md |
+| `src/limn/web/*` | HTTP 층: 처리기와 서버 클래스·본문 읽기와 한도·경로 분기와 경로만 쓰는 상수(`handler.py`), 경로마다의 요청 본문·쿼리 파서와 요청 타입(`parse.py`), 경로가 받는 결과(문서 조회·핀 조작·빌드 등)마다의 응답과 빌드 응답의 로그 다이어트(`answers.py`), 오류 형식·거절 표·빌드 실패 문장 표·거부된 첫 화면(`errors.py`), 처리기가 부르는 서비스 목록(`app.py`) | 경로·응답·오류 문구 추가나 변경, 처리기가 부르는 서비스 변경 | api.md, architecture.md, verification.md |
 | `src/limn/access.py` | 접근 제어: 신원·입장·역할·Host/Origin 판단, `tokens.json`·`people.json` 캐시, `limn token`·`limn member`의 상태 도우미(`people.json` 형식은 `people.py`의 것). 토큰 파일 안내 문구는 위의 `guidance.py` | 신원 방식·토큰·역할·Host/Origin 규칙 변경(보안 경계, architecture.md §멈춤 신호) | api.md §인증, architecture.md 불변식 1, operations.md, verification.md |
 | `src/limn/startup.py` | `limn serve` 시작 규칙: 접근 설정 판단(`access_options`, 보안 경계)과 시작 로그, `--port` 확인, `--doc` 해석·메인 파일·상태 폴더, `people.json` 권한 조이기, 라벨·색, 시작 요약 줄, 패키지 버전(`app_version`). 거절은 `StartupRefused` 값(`--doc`의 거절은 먼저 `DocsRefusal` 값) | 시작 거절·바인드 규칙·요약 줄 변경(바인드 규칙은 architecture.md §멈춤 신호) | architecture.md 불변식 1, operations.md, verification.md |
 | `src/limn/args.py` | `limn serve` 명령줄 파서(`serve_parser`): 옵션·기본값·도움말 | 인자 추가나 변경 | operations.md, instances.md |

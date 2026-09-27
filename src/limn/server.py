@@ -83,9 +83,9 @@ from limn.build import (
     BuildStarted,
     FailedBuild,
     FinishedBuild,
+    ViewOnlyNoRebuild,
     build_pdf as build_pdf,
     cur_pages as cur_pages,
-    pdf_changed,
 )
 from limn.config import Cfg
 from limn.documents import (
@@ -277,6 +277,16 @@ def build_async(D: Doc) -> BuildStarted | BuildBusy:
     """POST /api/rebuild?async=1 for document D: start the tracked build on a daemon thread
     (limn.build.build_in_background); the thread builds D itself."""
     return build.build_in_background(D, lambda: _build_tracked(D), now_str(), build_failure_log)
+
+
+def rebuild(D: Doc) -> FinishedBuild | BuildBusy | ViewOnlyNoRebuild:
+    """POST /api/rebuild for document D: build_all, or ViewOnlyNoRebuild for a view-only one (limn.build.request_rebuild)."""
+    return build.request_rebuild(D, build_all)
+
+
+def rebuild_async(D: Doc) -> BuildStarted | BuildBusy | ViewOnlyNoRebuild:
+    """POST /api/rebuild?async=1 for document D: build_async, or ViewOnlyNoRebuild for a view-only one."""
+    return build.request_rebuild(D, build_async)
 
 
 def _build_tracked(D: Doc) -> FinishedBuild:
@@ -553,6 +563,13 @@ def pins_payload(rows: list[Row], allp: bool) -> list[Json]:
     return view.pins_payload(rows, allp, overlaps_by_id(rows), public, pin_doc_key, _doc_est_context, time.time())
 
 
+def pin_payload(pid: int) -> Json | PinNotFound:
+    """GET /api/pins/{id}: pin pid as GET /api/pins?all=1 lists it (the pins re-synced and saved first), or
+    PinNotFound."""
+    rec = next((r for r in pins_payload(snapshot_pins(), True) if r["id"] == pid), None)
+    return PinNotFound(pid) if rec is None else rec
+
+
 def _doc_est_context(key: str) -> EstContext | None:
     """What estimation reads of the builds of the document key names (limn.locate.est_context), or None when this
     instance no longer serves that document."""
@@ -715,6 +732,13 @@ def record_person(actor: Json, now: float | None = None, role: access.Role | Non
     if not login or is_agent(actor):
         return False
     return people.record_person(people_book(), actor, time.time() if now is None else now, role, DEFAULT_ROLE)
+
+
+def people_payload() -> list[Json]:
+    """GET /api/people's candidates (limn.people.candidates): people.json's roles read first, then the known people
+    over the pins re-synced and saved (snapshot_pins), each with its role (limn.access.person_role)."""
+    roles = people_roles()
+    return people.candidates(known_people(snapshot_pins()), lambda login: person_role(roles, login))
 
 
 def known_people(rows: list[Row] | None = None) -> dict[str, Row]:
@@ -1140,10 +1164,7 @@ def init_doc(D: Doc, no_build: bool, wait: bool) -> FinishedBuild | BuildStarted
     if D.root:
         build.migrate_pages(D)
     build.seed_builds(D, C.state)
-    need = D.is_pdf and (pdf_changed(D) or not build.page_list(build.cur_pages(D), C.dpi))
-    if not D.is_pdf:
-        need = not no_build or not build.cur_pdf(D).exists() or not build.page_list(build.cur_pages(D), C.dpi)
-    if not need:
+    if not build.needs_build(D, no_build, C.dpi):
         return BuildSkipped()
     return build_all(D) if wait else build_async(D)
 
@@ -1244,7 +1265,7 @@ def prepare(docs: list[Doc] | None, no_build: bool) -> StartupRefused | None:
         build.migrate_pages(D)
         # adds the current build (made by an earlier instance) to history if missing, and restores the last build result
         build.seed_builds(D, C.state)
-        if not no_build or not build.cur_pdf(D).exists() or not build.page_list(build.cur_pages(D), C.dpi):
+        if build.needs_build(D, no_build, C.dpi):
             built = build_all(D)
             if isinstance(built, FailedBuild):
                 return StartupRefused("Build failed:\n" + build_failure_log(built))

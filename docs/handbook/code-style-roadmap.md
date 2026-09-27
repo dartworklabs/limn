@@ -159,7 +159,7 @@ def parse_pin(record: Record) -> Pin: ...  # by the one rule state_of(); never f
 
 **업계에서 부르는 이름.** Parse, don't validate (Alexis King).
 
-**지금 코드.** 요청 본문과 쿼리의 파서는 [`limn/web/parse.py`](../../src/limn/web/parse.py)에 있다. 처리기는 파서가 돌려준 거절을 `accepted()`로 400 문장 그대로 답하고, 서비스에는 파싱된 값(`AddRequest`, `EditRequest` 등)만 넘긴다. 모든 거절 본문에는 안정 코드 `reason`이 붙는다([api.md](api.md) §오류 응답). `HTTPError`를 만드는 곳은 HTTP 층(`web/`)과 신원·입장·역할 판단([`limn/access.py`](../../src/limn/access.py), R10)뿐이다. 시작 단계의 거절은 `StartupRefused` 값이고 `sys.exit`은 `server.main()` 한 곳에만 있다([`limn/startup.py`](../../src/limn/startup.py)).
+**지금 코드.** 요청 본문과 쿼리의 파서는 [`limn/web/parse.py`](../../src/limn/web/parse.py)에 있다. 처리기의 경로는 본문과 쿼리를 통째로 파서에 넘기고 필드를 직접 읽지 않는다. 경로마다 요청 타입(`ReplyRequest`, `DocChoice`, `RebuildQuery` 등)이 있고, 쿼리 스위치는 `parse_flag` 하나가 읽는다. 핀 위치도 사전이 아니라 타입(`LineLoc`, `RegionLoc`)이고, 저장할 때 `to_record()`가 늘 쓰던 키 순서로 바꾼다. 처리기는 파서가 돌려준 거절을 `accepted()`로 400 문장 그대로 답하고, 서비스에는 파싱된 값(`AddRequest`, `EditRequest` 등)만 넘긴다. 모든 거절 본문에는 안정 코드 `reason`이 붙는다([api.md](api.md) §오류 응답). `HTTPError`를 만드는 곳은 HTTP 층(`web/`)과 신원·입장·역할 판단([`limn/access.py`](../../src/limn/access.py), R10)뿐이다. 시작 단계의 거절은 `StartupRefused` 값이고 `sys.exit`은 `server.main()` 한 곳에만 있다([`limn/startup.py`](../../src/limn/startup.py)).
 
 > **예시**
 >
@@ -336,8 +336,7 @@ def identify(headers: Message, peer: str, settings: AccessSettings, lookups: Acc
 
 1. **핀 레코드를 저장소까지 타입으로.** 저장소(`PinStore`)와 셸은 아직 레코드를 사전(`Row`)으로 주고받고, 전이 앞뒤에서 `parse_pin()`과 `.record`로 오간다. 상태 타입이 저장소 경계까지 가게 한다(R2).
 2. **실행 설정과 런타임을 값으로.** 전역 `C`와 프로세스 자원(잠금·캐시·작업 목록)을 조립 지점이 만드는 두 값, 곧 실행 설정(`RunConfig`)과 런타임(`Runtime`)으로 모은다(R5).
-3. **처리기의 요청 해석을 파서로.** 처리기 안에서 쿼리 플래그(`?light=1`, `?log=1`, `?all=1` 등)와 경로 조각을 직접 읽는 곳을 `web/parse.py`의 파서로 옮긴다(R3).
-4. **뷰어 스크립트의 상태.** 뷰어 조각이 함께 쓰는 전역 상태를 명시적인 상태 객체로 모은다(R5, [viewer.md](viewer.md)).
+3. **뷰어 스크립트의 상태.** 뷰어 조각이 함께 쓰는 전역 상태를 명시적인 상태 객체로 모은다(R5, [viewer.md](viewer.md)).
 
 그 밖에 둘이 남았다.
 
