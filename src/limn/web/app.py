@@ -34,7 +34,6 @@ from limn.pins.lifecycle import (
     ClaimedByOther,
     NotClaimed,
     NotInTrash,
-    ThreadFull,
 )
 from limn.pins.model import DonePin, OpenPin, Pin, PinNotFound, Record, ReviewPin, TrashedPin
 from limn.revisions import DiffRefusal, PdfRefusal, StartRefusal, StatusRefusal
@@ -226,18 +225,6 @@ class App(Protocol):
         ...
 
     # ---- changes
-
-    def reply_pin(
-        self,
-        pid: int,
-        text: str,
-        actor: Json,
-        hints: list[str] | None = None,
-        reopen: bool | None = None,
-        human: bool | None = None,
-    ) -> OpenPin | ReviewPin | DonePin | ThreadFull | PinNotFound:
-        """POST /api/pins/{id}/reply."""
-        ...
 
     def drop_pin(self, pid: int, actor: Json) -> TrashedPin | PinNotFound:
         """POST /api/pins/{id}/drop."""

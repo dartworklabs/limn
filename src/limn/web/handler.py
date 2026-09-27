@@ -474,15 +474,7 @@ class Handler(BaseHTTPRequestHandler):
         its service with the parsed values and answer its outcome. Refusals propagate to _run."""
         app = self.app
         if act == "reply":
-            reply = accepted(parse.parse_reply(d))
-            human = self.principal.is_human()
-            return self._json(
-                answers.reply_answer(
-                    app.reply_pin(pid, reply.text, actor, reply.hints, reopen=reply.reopen, human=human),
-                    app.public,
-                    app.pin_state,
-                )
-            )
+            return self._json(lifecycle_http.reply(app, pid, actor, d, self.principal.is_human))
         if act == "confirm":
             return self._json(lifecycle_http.confirm(app, pid, actor))
         if act == "drop":

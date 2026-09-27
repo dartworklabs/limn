@@ -44,7 +44,7 @@ from limn.pins.lifecycle import (
 from limn.pins.model import Agent, DonePin, OpenPin, Person, PinNotFound, ReviewPin, TrashedPin, parse_pin
 from limn.pins.record import Broken
 from limn.pins.view import pin_state
-from limn.service import add_edit, claim, transitions, trash
+from limn.service import add_edit, claim, trash
 from limn.service.context import LoadedPin, PinContext, is_agent, load_pin, typed_actor, who
 from limn.store import PinFiles, PinStore, find_pin
 from limn.web import parse
@@ -350,7 +350,7 @@ class Transitions(ServiceBase):
         """A person's untagged reply on a done pin is a reopen: the pin is open again and the author hears reopened."""
         pid = self.add()
         PinLifecycle(lambda: self.ctx).close_pin(pid, ALICE_ACTOR, CloseRequest())
-        out = transitions.reply_pin(self.ctx, pid, "redo please", BOB_ACTOR)
+        out = PinLifecycle(lambda: self.ctx).reply_pin(pid, "redo please", BOB_ACTOR)
         self.assertIsInstance(out, OpenPin)
         self.assertEqual(self.pin(pid)["thread"][-1]["ev"], "reopen")
         self.assertIn({"type": "reopened", "pin": pid, "to": ["alice@example.com"]}, self.rec.emitted[-1])
@@ -359,9 +359,9 @@ class Transitions(ServiceBase):
         """With thread_max replies already there the next is ThreadFull and pins.jsonl is unchanged."""
         pid = self.add()
         self.ctx = self.context(thread_max=1)
-        self.assertIsInstance(transitions.reply_pin(self.ctx, pid, "one", BOB_ACTOR), OpenPin)
+        self.assertIsInstance(PinLifecycle(lambda: self.ctx).reply_pin(pid, "one", BOB_ACTOR), OpenPin)
         before = self.pins_bytes()
-        self.assertIsInstance(transitions.reply_pin(self.ctx, pid, "two", BOB_ACTOR), ThreadFull)
+        self.assertIsInstance(PinLifecycle(lambda: self.ctx).reply_pin(pid, "two", BOB_ACTOR), ThreadFull)
         self.assertEqual(self.pins_bytes(), before)
 
     def test_close_or_reopen_of_a_missing_pin_is_a_named_miss(self):
@@ -943,16 +943,18 @@ class PinKindAndThread(Base):
     def test_thread_is_capped(self):
         pid = self.add()
         with mock.patch.object(ps, "THREAD_MAX", 2):
-            ps.APP.reply_pin(pid, "1", dict(self.S))
-            ps.APP.reply_pin(pid, "2", dict(self.S))
-            self.assertEqual(ps.APP.reply_pin(pid, "3", dict(self.S)), ThreadFull(2))  # answered 409 "full" over HTTP
+            ps.APP.pin_lifecycle.reply_pin(pid, "1", dict(self.S))
+            ps.APP.pin_lifecycle.reply_pin(pid, "2", dict(self.S))
+            self.assertEqual(
+                ps.APP.pin_lifecycle.reply_pin(pid, "3", dict(self.S)), ThreadFull(2)
+            )  # answered 409 "full" over HTTP
             # a status-transition record is exempt from the cap
             ps.APP.pin_lifecycle.close_pin(pid, dict(self.S), CloseRequest(reply="닫음"))
         self.assertEqual([m.get("ev") for m in self.pin(pid)["thread"]], [None, None, "close"])
 
     def test_close_reply_is_appended_to_thread_once(self):
         pid = self.add()
-        ps.APP.reply_pin(pid, "질문이 있어요", dict(self.S))
+        ps.APP.pin_lifecycle.reply_pin(pid, "질문이 있어요", dict(self.S))
         ps.APP.pin_lifecycle.close_pin(pid, dict(self.S), CloseRequest(reply="제목을 고침", ref="PR #227"))
         ps.APP.pin_lifecycle.close_pin(
             pid, dict(self.S), CloseRequest(reply="두 번째 닫기")
@@ -1042,7 +1044,9 @@ class MentionsOnEdit(Base):
         p = self.pin(pid)
         self.assertNotIn("mentions", p)  # a self-@mention isn't stored
         self.assertEqual(mentions.addressed_to(parse_pin(p)), [])
-        msg = ps.APP.reply_pin(pid, "@Bob Park 님 확인 부탁드립니다 @Wendy Kim", dict(self.W)).record["thread"][-1]
+        msg = ps.APP.pin_lifecycle.reply_pin(pid, "@Bob Park 님 확인 부탁드립니다 @Wendy Kim", dict(self.W)).record[
+            "thread"
+        ][-1]
         self.assertEqual(msg["mentions"], [self.S["login"]])  # the reply's own author (W) is excluded
 
 

@@ -486,7 +486,7 @@ class EnglishChrome(ChromiumTestCase):
         claimed = add(4, 5, "Tighten this sentence", ALICE_ACTOR)
         ps.APP.claim_pin(claimed, agent, *parse.parse_claim_body({"eta_min": 10}))
         korean = add(8, 9, "이 문장을 다듬어 주세요", SEOJUN)
-        ps.APP.reply_pin(korean, "Working on it", ALICE_ACTOR)
+        ps.APP.pin_lifecycle.reply_pin(korean, "Working on it", ALICE_ACTOR)
         add(12, 16, "Is this the right table? @Bob Lee", ALICE_ACTOR, kind_req="question", mentions=[BOB_LEE["login"]])
         add(4, 5, "Same spot again", BOB_LEE)
         add(20, 21, "Ask Bob about the wording", ALICE_ACTOR, assignee=BOB_LEE["login"])

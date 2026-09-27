@@ -204,11 +204,11 @@ class ReplyApi(AccessBase):
     def test_python_api_returns_the_pin_with_its_new_entry_last(self):
         """reply_pin() returns the pin as it now stands (its state type); the reply's entry is the thread's last."""
         pid = self.review_pin()
-        pin = ps.APP.reply_pin(pid, "사람 답글", B)
+        pin = ps.APP.pin_lifecycle.reply_pin(pid, "사람 답글", B)
         self.assertIsInstance(pin, OpenPin)  # a person's reply reopened it
         self.assertEqual(pin.record["thread"][-1]["ev"], "reopen")
         pid = self.review_pin()
-        pin = ps.APP.reply_pin(pid, "에이전트 답글", dict(LOCAL_ACTOR))
+        pin = ps.APP.pin_lifecycle.reply_pin(pid, "에이전트 답글", dict(LOCAL_ACTOR))
         self.assertIsInstance(pin, ReviewPin)  # an agent's reply leaves it for review
         self.assertNotIn("ev", pin.record["thread"][-1])
 

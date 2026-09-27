@@ -56,7 +56,7 @@
 
 **업계에서 부르는 이름.** Functional Core, Imperative Shell (Gary Bernhardt, "Boundaries" 발표). Mark Seemann은 같은 모양을 "impureim sandwich"라고 부른다.
 
-**지금 코드.** 핀 전이의 규칙은 [`limn/pins/lifecycle.py`](../../src/limn/pins/lifecycle.py)·[`limn/pins/edit.py`](../../src/limn/pins/edit.py)의 순수 함수다. 닫기·다시 열기·확인의 잠금과 쓰기는 [`features/pins/lifecycle/service.py`](../../src/limn/features/pins/lifecycle/service.py), 결과의 HTTP 변환은 같은 기능의 [`http.py`](../../src/limn/features/pins/lifecycle/http.py)에 있다. 나머지 핀 동작은 아직 [`limn/service/`](../../src/limn/service/context.py)와 [`limn/web/answers.py`](../../src/limn/web/answers.py)를 쓴다. 빌드도 같다. 빌드는 결과 값(`BuildOk`·`BuildOkWithErrors`·`FailedBuild` 등)을 돌려주고, `POST /api/rebuild` 의 본문과 실패 로그의 문장은 HTTP 층이 만든다([build-sync.md](build-sync.md) §빌드 결과).
+**지금 코드.** 핀 전이의 규칙은 [`limn/pins/lifecycle.py`](../../src/limn/pins/lifecycle.py)·[`limn/pins/edit.py`](../../src/limn/pins/edit.py)의 순수 함수다. 닫기·다시 열기·확인·답글의 잠금과 쓰기는 [`features/pins/lifecycle/service.py`](../../src/limn/features/pins/lifecycle/service.py), 결과의 HTTP 변환은 같은 기능의 [`http.py`](../../src/limn/features/pins/lifecycle/http.py)에 있다. 나머지 핀 동작은 아직 [`limn/service/`](../../src/limn/service/context.py)와 [`limn/web/answers.py`](../../src/limn/web/answers.py)를 쓴다. 빌드도 같다. 빌드는 결과 값(`BuildOk`·`BuildOkWithErrors`·`FailedBuild` 등)을 돌려주고, `POST /api/rebuild` 의 본문과 실패 로그의 문장은 HTTP 층이 만든다([build-sync.md](build-sync.md) §빌드 결과).
 
 > **예시**
 >
@@ -164,7 +164,7 @@ def parse_pin(record: Record) -> Pin: ...  # by the one rule state_of(); never f
 
 **업계에서 부르는 이름.** Parse, don't validate (Alexis King).
 
-**지금 코드.** 아직 옮기지 않은 요청 본문과 쿼리의 파서는 [`limn/web/parse.py`](../../src/limn/web/parse.py)에 있고, 닫기·다시 열기 입력은 [`features/pins/lifecycle/input.py`](../../src/limn/features/pins/lifecycle/input.py)에 있다. 처리기의 경로는 본문과 쿼리를 통째로 파서에 넘기고 필드를 직접 읽지 않는다. 경로마다 요청 타입(`ReplyRequest`, `DocChoice`, `RebuildQuery` 등)이 있고, 쿼리 스위치는 `parse_flag` 하나가 읽는다. 핀 위치도 사전이 아니라 타입(`LineLoc`, `RegionLoc`)이고, 저장할 때 `to_record()`가 늘 쓰던 키 순서로 바꾼다. 처리기는 파서가 돌려준 거절을 `accepted()`로 400 문장 그대로 답하고, 서비스에는 파싱된 값(`AddRequest`, `EditRequest` 등)만 넘긴다. 모든 거절 본문에는 안정 코드 `reason`이 붙는다([api.md](api.md) §오류 응답). `HTTPError`를 만드는 곳은 HTTP 경계(`web/`과 기능별 `http.py`) 및 신원·입장·역할 판단([`limn/access.py`](../../src/limn/access.py), R10)뿐이다. 시작 단계의 거절은 `StartupRefused` 값이고 `sys.exit`은 `server.main()` 한 곳에만 있다([`limn/startup.py`](../../src/limn/startup.py)).
+**지금 코드.** 아직 옮기지 않은 요청 본문과 쿼리의 파서는 [`limn/web/parse.py`](../../src/limn/web/parse.py)에 있고, 닫기·다시 열기·답글 입력은 [`features/pins/lifecycle/input.py`](../../src/limn/features/pins/lifecycle/input.py)에 있다. 처리기의 경로는 본문과 쿼리를 통째로 파서에 넘기고 필드를 직접 읽지 않는다. 경로마다 요청 타입(`ReplyRequest`, `DocChoice`, `RebuildQuery` 등)이 있고, 쿼리 스위치는 `parse_flag` 하나가 읽는다. 핀 위치도 사전이 아니라 타입(`LineLoc`, `RegionLoc`)이고, 저장할 때 `to_record()`가 늘 쓰던 키 순서로 바꾼다. 처리기는 파서가 돌려준 거절을 `accepted()`로 400 문장 그대로 답하고, 서비스에는 파싱된 값(`AddRequest`, `EditRequest` 등)만 넘긴다. 모든 거절 본문에는 안정 코드 `reason`이 붙는다([api.md](api.md) §오류 응답). `HTTPError`를 만드는 곳은 HTTP 경계(`web/`과 기능별 `http.py`) 및 신원·입장·역할 판단([`limn/access.py`](../../src/limn/access.py), R10)뿐이다. 시작 단계의 거절은 `StartupRefused` 값이고 `sys.exit`은 `server.main()` 한 곳에만 있다([`limn/startup.py`](../../src/limn/startup.py)).
 
 > **예시**
 >
@@ -241,7 +241,7 @@ def _build(self, D: Doc) -> FinishedBuild:
 
 **업계에서 부르는 이름.** 단일 책임 원칙(Robert C. Martin의 "변경 이유는 하나"). 더 오래된 뿌리는 David Parnas의 논문 "On the Criteria To Be Used in Decomposing Systems into Modules"다.
 
-**지금 코드.** 닫기·다시 열기·확인은 기능 슬라이스이고, 남은 경로는 순수 도메인·부수효과 셸·HTTP 층·조립 지점의 책임별 모듈에 있다([architecture.md](architecture.md) §현재 구조, §의존 방향). 경로마다의 책임은 [index.md](index.md) §파일 지도가 정본이다. 뷰어는 빌드 단계 없는 정적 파일이고, 스크립트와 스타일은 변경 이유가 다른 조각 파일로 나뉜다. 조각의 순서는 `viewer/parts.txt` 하나가 정하고, 서버는 그 순서대로 이어 붙이기만 한다([viewer.md](viewer.md) §뷰어 규칙을 바꿀 때).
+**지금 코드.** 닫기·다시 열기·확인·답글은 기능 슬라이스이고, 남은 경로는 순수 도메인·부수효과 셸·HTTP 층·조립 지점의 책임별 모듈에 있다([architecture.md](architecture.md) §현재 구조, §의존 방향). 경로마다의 책임은 [index.md](index.md) §파일 지도가 정본이다. 뷰어는 빌드 단계 없는 정적 파일이고, 스크립트와 스타일은 변경 이유가 다른 조각 파일로 나뉜다. 조각의 순서는 `viewer/parts.txt` 하나가 정하고, 서버는 그 순서대로 이어 붙이기만 한다([viewer.md](viewer.md) §뷰어 규칙을 바꿀 때).
 
 > **예시**
 >

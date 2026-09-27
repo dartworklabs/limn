@@ -234,11 +234,11 @@ class Fields(unittest.TestCase):
             parse.parse_thread_text("x" * 1001, "reason"),
             InputRejected("reason 가 너무 깁니다(1000자 이하).", "text_too_long"),
         )
-        self.assertEqual(parse.parse_reply_text(3), InputRejected("text 는 문자열이어야 합니다.", "bad_text"))
+        self.assertEqual(lifecycle_input.parse_reply_text(3), InputRejected("text 는 문자열이어야 합니다.", "bad_text"))
 
     def test_flags_and_hints(self):
         """reopen/review are true, false or absent; hints are at most MENTION_MAX strings."""
-        self.assertIsNone(parse.parse_reopen_flag({}))
+        self.assertIsNone(lifecycle_input.parse_reopen_flag({}))
         self.assertEqual(
             lifecycle_input.parse_review_flag({"review": 1}),
             InputRejected("review 는 true/false 입니다.", "bad_review"),
@@ -437,15 +437,16 @@ class RouteRequests(unittest.TestCase):
     def test_reply_checks_text_then_mentions_then_reopen(self):
         """The first refused field of a reply is answered, in the order the server has always checked them."""
         self.assertEqual(
-            parse.parse_reply({"text": "  hi\r\n", "mentions": ["bob@example.com"], "reopen": False}),
-            parse.ReplyRequest("hi", ["bob@example.com"], False),
+            lifecycle_input.parse_reply({"text": "  hi\r\n", "mentions": ["bob@example.com"], "reopen": False}),
+            lifecycle_input.ReplyRequest("hi", ["bob@example.com"], False),
         )
-        self.assertEqual(parse.parse_reply({"text": "hi"}), parse.ReplyRequest("hi", [], None))
+        self.assertEqual(lifecycle_input.parse_reply({"text": "hi"}), lifecycle_input.ReplyRequest("hi", [], None))
         self.assertEqual(
-            parse.parse_reply({"mentions": 1, "reopen": 1}), InputRejected("text 가 필요합니다.", "text_required")
+            lifecycle_input.parse_reply({"mentions": 1, "reopen": 1}),
+            InputRejected("text 가 필요합니다.", "text_required"),
         )
-        self.assertEqual(parse.parse_reply({"text": "x", "mentions": 1, "reopen": 1}).reason, "bad_mentions")
-        self.assertEqual(parse.parse_reply({"text": "x", "reopen": 1}).reason, "bad_reopen")
+        self.assertEqual(lifecycle_input.parse_reply({"text": "x", "mentions": 1, "reopen": 1}).reason, "bad_mentions")
+        self.assertEqual(lifecycle_input.parse_reply({"text": "x", "reopen": 1}).reason, "bad_reopen")
 
     def test_clear_needs_the_exact_phrase(self):
         """Only confirm == CLEAR_CONFIRM clears; anything else is the contract's 400 naming the phrase."""

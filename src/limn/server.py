@@ -110,7 +110,6 @@ from limn.pins.lifecycle import (
     ClaimedByOther,
     NotClaimed,
     NotInTrash,
-    ThreadFull,
     claim_holds,
     pin_reopened_in_round,
     reopens_on_reply,
@@ -147,7 +146,7 @@ from limn.revisions import (
     git as _git,
     revision_history as revision_history,
 )
-from limn.service import add_edit, claim, transitions, trash
+from limn.service import add_edit, claim, trash
 from limn.service.context import Event, Json, PinContext, is_agent, who
 from limn.startup import APP_NAME as APP_NAME, StartupRefused, app_version as app_version
 from limn.store import PinFiles, PinStore, Row, pin_index
@@ -808,18 +807,6 @@ class ServerApplication:
         """Does a reply reopen stored pin r? limn.pins.lifecycle.reopens_on_reply() on the record's state; the viewer's
         preview (replyReopens) mirrors that rule."""
         return reopens_on_reply(parse_pin(r), human, mentioned, reopen)
-
-    def reply_pin(
-        self,
-        pid: int,
-        text: str,
-        actor: Json,
-        hints: list[str] | None = None,
-        reopen: bool | None = None,
-        human: bool | None = None,
-    ) -> OpenPin | ReviewPin | DonePin | ThreadFull | PinNotFound:
-        """POST /api/pins/{id}/reply (limn.service.transitions.reply_pin)."""
-        return transitions.reply_pin(self.pin_context(), pid, text, actor, hints, reopen, human)
 
     def drop_pin(self, pid: int, actor: Json) -> TrashedPin | PinNotFound:
         """POST /api/pins/{id}/drop: the pin moves to the Trash (limn.service.trash.drop_pin)."""

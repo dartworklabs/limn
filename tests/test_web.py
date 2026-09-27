@@ -454,10 +454,10 @@ class Answers(unittest.TestCase):
     def test_reply_says_whether_it_reopened_and_refuses_a_full_thread(self):
         """reopened follows the new thread entry's ev; a full thread is 409 full with the limit in the detail."""
         record = {"id": 2, "thread": [{"text": "again", "ev": "reopen"}]}
-        body = answers.reply_answer(OpenPin.from_record(record), show, lambda r: "open")
+        body = lifecycle_http.reply_answer(OpenPin.from_record(record), show, lambda r: "open")
         self.assertEqual((body["msg"], body["state"], body["reopened"]), (record["thread"][-1], "open", True))
         self.assert_refused(
-            lambda: answers.reply_answer(ThreadFull(200), show, lambda r: "open"),
+            lambda: lifecycle_http.reply_answer(ThreadFull(200), show, lambda r: "open"),
             409,
             {"error": "full", "reason": "full", "detail": "스레드가 가득 찼습니다(답글 200건). 새 핀으로 이어 가세요."},
         )

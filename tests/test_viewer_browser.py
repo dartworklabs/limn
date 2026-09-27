@@ -363,7 +363,7 @@ class ViewerFlows(BrowserBase):
         self.assertEqual(trash_records(), [])
 
     def test_ref_to_deleted_pin_in_a_thread(self):
-        ps.APP.reply_pin(self.open_id, "#%d 와 같은 문제" % self.dn, B)
+        ps.APP.pin_lifecycle.reply_pin(self.open_id, "#%d 와 같은 문제" % self.dn, B)
         ps.APP.drop_pin(self.dn, A)
         for lang in ("ko", "en"):
             with self.subTest(lang=lang):
@@ -1355,7 +1355,7 @@ class ViewerRoleUi(BrowserBase):
         pid = add_pin(
             {"file": str(self.main), "lo": 4, "hi": 5, "page": 1, "note": "문단 줄이기"}, actor(ALICE)
         ).record["id"]
-        ps.APP.reply_pin(pid, "답글", actor(ALICE))
+        ps.APP.pin_lifecycle.reply_pin(pid, "답글", actor(ALICE))
         rid = add_pin({"file": str(self.main), "lo": 8, "hi": 9, "page": 1, "note": "검토할 핀"}, actor(ALICE)).record[
             "id"
         ]

@@ -240,44 +240,6 @@ def parse_thread_text(v: object, what: str = "text", required: bool = True) -> s
     return v
 
 
-def parse_reply_text(v: object) -> str | InputRejected:
-    """A reply's required text (parse_thread_text with required=True, which never gives None)."""
-    text = parse_thread_text(v)
-    return "" if text is None else text
-
-
-def parse_reopen_flag(d: Json) -> bool | None | InputRejected:
-    """The reply body's optional reopen - true/false overrides the rule, absent (None) lets the server decide."""
-    v = d.get("reopen")
-    if v is not None and not isinstance(v, bool):
-        return InputRejected("reopen 은 true/false 입니다(없으면 서버 규칙을 따릅니다).", "bad_reopen")
-    return v
-
-
-class ReplyRequest(NamedTuple):
-    """A POST /api/pins/{id}/reply body: the cleaned text, the viewer's @-tag hints and the optional reopen override
-    (None lets the server decide)."""
-
-    text: str
-    hints: list[str]
-    reopen: bool | None
-
-
-def parse_reply(d: Json) -> ReplyRequest | InputRejected:
-    """A POST /api/pins/{id}/reply body, in the order the server has always checked it: text (parse_reply_text),
-    mentions (parse_mention_hints), then reopen (parse_reopen_flag). Any other field is ignored."""
-    text = parse_reply_text(d.get("text"))
-    if isinstance(text, InputRejected):
-        return text
-    hints = parse_mention_hints(d.get("mentions"))
-    if isinstance(hints, InputRejected):
-        return hints
-    reopen = parse_reopen_flag(d)
-    if isinstance(reopen, InputRejected):
-        return reopen
-    return ReplyRequest(text, hints, reopen)
-
-
 class ClaimBody(NamedTuple):
     """A claim's minutes until the marker lapses (clamped) and its optional estimate (clamped)."""
 

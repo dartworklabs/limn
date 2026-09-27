@@ -45,40 +45,40 @@ class MentionRules(Base):
     def test_first_mention_in_a_reply(self):
         pid = self.add(actor=self.A)
         n = self.n()
-        ps.APP.reply_pin(pid, "@Bob Park 봐 주세요", self.A)
+        ps.APP.pin_lifecycle.reply_pin(pid, "@Bob Park 봐 주세요", self.A)
         self.assertEqual(self.events_after(n), [("mention", ["bob@example.com"])])
 
     def test_re_mention_in_a_second_reply_notifies_again(self):
         pid = self.add(actor=self.A)
-        ps.APP.reply_pin(pid, "@Bob Park 봐 주세요", self.A)
+        ps.APP.pin_lifecycle.reply_pin(pid, "@Bob Park 봐 주세요", self.A)
         n = self.n()
-        ps.APP.reply_pin(pid, "@Bob Park 다시 부름", self.A)
+        ps.APP.pin_lifecycle.reply_pin(pid, "@Bob Park 다시 부름", self.A)
         self.assertEqual(self.events_after(n), [("mention", ["bob@example.com"])])
         n = self.n()
-        ps.APP.reply_pin(pid, "태그 없는 답글", self.A)  # no tag: Bob (mentioned before) gets replied
+        ps.APP.pin_lifecycle.reply_pin(pid, "태그 없는 답글", self.A)  # no tag: Bob (mentioned before) gets replied
         self.assertEqual(self.events_after(n), [("replied", ["bob@example.com"])])
 
     def test_note_mention_then_reply_mention(self):
         pid = add_pin({"file": str(self.main), "lo": 4, "hi": 5, "note": "@Bob Park 이 문단"}, self.A).record["id"]
         n = self.n()
-        ps.APP.reply_pin(pid, "@Bob Park 이것도 봐 주세요", self.C)
+        ps.APP.pin_lifecycle.reply_pin(pid, "@Bob Park 이것도 봐 주세요", self.C)
         self.assertEqual(self.events_after(n), [("mention", ["bob@example.com"]), ("replied", ["alice@example.com"])])
 
     def test_self_mention_never_notifies_the_author(self):
         pid = self.add(actor=self.A)
-        ps.APP.reply_pin(pid, "@Bob Park 확인", self.A)
+        ps.APP.pin_lifecycle.reply_pin(pid, "@Bob Park 확인", self.A)
         n = self.n()
-        ps.APP.reply_pin(pid, "@Bob Park 제가 스스로 부름", self.B)  # Bob tags himself: nothing for Bob
+        ps.APP.pin_lifecycle.reply_pin(pid, "@Bob Park 제가 스스로 부름", self.B)  # Bob tags himself: nothing for Bob
         self.assertEqual(self.events_after(n), [("replied", ["alice@example.com"])])
         n = self.n()
-        ps.APP.reply_pin(pid, "@Alice Kim 나", self.A)  # the pin author tags herself
+        ps.APP.pin_lifecycle.reply_pin(pid, "@Alice Kim 나", self.A)  # the pin author tags herself
         self.assertEqual(self.events_after(n), [("replied", ["bob@example.com"])])
 
     def test_mention_plus_other_participants_nobody_gets_both(self):
         pid = add_pin({"file": str(self.main), "lo": 4, "hi": 5, "note": "@Carol Lee 참고"}, self.A).record["id"]
-        ps.APP.reply_pin(pid, "@Bob Park 의견?", self.A)
+        ps.APP.pin_lifecycle.reply_pin(pid, "@Bob Park 의견?", self.A)
         n = self.n()
-        ps.APP.reply_pin(pid, "@Bob Park @Carol Lee 둘 다 봐 주세요", self.D)
+        ps.APP.pin_lifecycle.reply_pin(pid, "@Bob Park @Carol Lee 둘 다 봐 주세요", self.D)
         evs = ps.APP._read_events()[0][n:]
         self.assertEqual(
             [(e["type"], sorted(e["to"])) for e in evs],
@@ -194,8 +194,8 @@ class NoteMentionCooldown(Base):
         """Explicit messages are not rate-limited: every reply or reopen reason that tags Bob is a mention."""
         with mock.patch.object(ps.time, "time", return_value=self.t0):
             pid = add_pin({"file": str(self.main), "lo": 4, "hi": 5, "note": "@Bob Park 메모"}, self.A).record["id"]
-            ps.APP.reply_pin(pid, "@Bob Park 하나", self.A)
-            ps.APP.reply_pin(pid, "@Bob Park 둘", self.A)
+            ps.APP.pin_lifecycle.reply_pin(pid, "@Bob Park 하나", self.A)
+            ps.APP.pin_lifecycle.reply_pin(pid, "@Bob Park 둘", self.A)
             ps.APP.pin_lifecycle.close_pin(pid, dict(LOCAL_ACTOR), CloseRequest())
             ps.APP.pin_lifecycle.reopen_pin(pid, self.A, reason="@Bob Park 다시")
         self.assertEqual(len(self.mentions_to_bob()), 4)
@@ -204,7 +204,7 @@ class NoteMentionCooldown(Base):
         """The cooldown counts note mentions only: a reply that tagged Bob does not stop the next note tag."""
         with mock.patch.object(ps.time, "time", return_value=self.t0):
             pid = self.add(actor=self.A)
-            ps.APP.reply_pin(pid, "@Bob Park 답글", self.A)
+            ps.APP.pin_lifecycle.reply_pin(pid, "@Bob Park 답글", self.A)
             self.edit_note(pid, "@Bob Park 메모에서도", self.A)
         self.assertEqual(len(self.mentions_to_bob()), 2)
 

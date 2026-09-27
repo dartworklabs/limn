@@ -795,7 +795,7 @@ class QuestionsInPinsMd(Base):
             dict(self.S),
         ).record["id"]
         for i in range(5):
-            ps.APP.reply_pin(q, "답글 %d\n둘째 줄 | 파이프" % i, dict(self.S))
+            ps.APP.pin_lifecycle.reply_pin(q, "답글 %d\n둘째 줄 | 파이프" % i, dict(self.S))
         md = ps.APP.C.pins_md.read_text(encoding="utf-8")
         row = next(ln for ln in md.splitlines() if ln.startswith("| %d " % q))
         self.assertIn("| %d · 질문 |" % q, row)

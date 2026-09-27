@@ -1,15 +1,15 @@
-"""The pin services: the imperative shells behind every change to a pin (docs/handbook/architecture.md §현재 구조).
+"""Shared pin services still behind editing, claim, and trash changes (docs/handbook/architecture.md §현재 구조).
 
 Each service loads the pins under the store's lock (PinStore.transact), asks the pure rules in limn.pins (lifecycle,
 edit) what happens, writes only when the rule accepts, and then emits the notices and - for the irreversible ones -
 the audit line. The outcome goes back as a typed value (a pin state, or the refusal / PinNotFound the HTTP layer
-answers in limn.web.answers); nothing here maps an outcome to HTTP.
+answers in limn.web.answers or a feature HTTP module); nothing here maps an outcome to HTTP.
 
 Modules, one per group of intents that change together:
 
     context.py      PinContext - what a service needs from the instance - and the typed actor of a request
     add_edit.py     a new pin (line or region) and an edit in place
-    transitions.py  reply, close, reopen and confirm
+    Pin close, reopen, confirm and reply live in features/pins/lifecycle.
     claim.py        the in-progress marker
     trash.py        drop, restore, the Trash's expiry and permanent delete, and clear
 

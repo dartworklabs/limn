@@ -42,8 +42,6 @@ from limn.pins.lifecycle import (
     ClaimedByOther,
     NotClaimed,
     NotInTrash,
-    ThreadFull,
-    last_entry,
 )
 from limn.pins.model import DonePin, OpenPin, PinNotFound, Record, ReviewPin, TrashedPin
 from limn.revisions import (
@@ -279,28 +277,6 @@ def unclaim_answer(result: OpenPin | ReviewPin | DonePin | NotClaimed | PinNotFo
             return {"ok": True, "pin": show(record)}
         case PinNotFound():
             return {"ok": False, "pin": None}
-
-
-def reply_answer(
-    result: OpenPin | ReviewPin | DonePin | ThreadFull | PinNotFound, show: Show, state_of: StateOf
-) -> Body:
-    """POST /api/pins/{id}/reply: the pin, its new thread entry, its state and whether the reply reopened it."""
-    match result:
-        case OpenPin() | ReviewPin() | DonePin():
-            record, entry = result.record, last_entry(result)
-            return {
-                "ok": True,
-                "pin": show(record),
-                "msg": entry.record,
-                "state": state_of(record),
-                "reopened": entry.ev == "reopen",
-            }
-        case ThreadFull(limit=limit):
-            raise HTTPError(
-                409, "full", detail="스레드가 가득 찼습니다(답글 %d건). 새 핀으로 이어 가세요." % limit, reason="full"
-            )
-        case PinNotFound():
-            return {"ok": False, "pin": None, "msg": None, "state": None, "reopened": False}
 
 
 def add_answer(result: OpenPin) -> Body:

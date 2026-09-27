@@ -7,7 +7,7 @@ from typing import Any, Protocol, TypeAlias
 from limn.config import RunConfig
 from limn.features.pins.lifecycle import input as lifecycle_input
 from limn.features.pins.lifecycle.service import PinLifecycle
-from limn.pins.lifecycle import AgentCannotConfirm, AlreadyClosed, AlreadyDone, PinStillOpen
+from limn.pins.lifecycle import AgentCannotConfirm, AlreadyClosed, AlreadyDone, PinStillOpen, ThreadFull, last_entry
 from limn.pins.model import DonePin, OpenPin, PinNotFound, Record, ReviewPin
 from limn.web.answers import CONFIRM_BY_HUMAN, accepted
 from limn.web.errors import HTTPError
@@ -20,7 +20,7 @@ CONFIRM_OPEN_DETAIL = "열린 핀은 확인할 것이 없습니다 — 닫힌 �
 
 
 class LifecycleApp(Protocol):
-    """Only the run-specific collaborators these three routes use."""
+    """Only the run-specific collaborators these lifecycle routes use."""
 
     C: RunConfig
     pin_lifecycle: PinLifecycle
@@ -32,6 +32,23 @@ class LifecycleApp(Protocol):
     def pin_state(self, record: Record) -> str:
         """Return the public state name of one pin."""
         ...
+
+
+def reply(
+    app: LifecycleApp,
+    pid: int,
+    actor: dict[str, Any],
+    body: dict[str, Any],
+    is_human: Callable[[], bool],
+) -> Body:
+    """Parse, decide, and answer POST /api/pins/{id}/reply after shared guards."""
+    request = accepted(lifecycle_input.parse_reply(body))
+    human = is_human()
+    return reply_answer(
+        app.pin_lifecycle.reply_pin(pid, request.text, actor, request.hints, reopen=request.reopen, human=human),
+        app.public,
+        app.pin_state,
+    )
 
 
 def close(
@@ -84,3 +101,25 @@ def confirm_answer(result: DonePin | AlreadyDone | PinStillOpen | AgentCannotCon
             raise HTTPError(403, CONFIRM_BY_HUMAN, reason="confirm_by_human")
         case PinStillOpen(pin=OpenPin(record=record)):
             raise HTTPError(409, "open", pin=show(record), detail=CONFIRM_OPEN_DETAIL, reason="open")
+
+
+def reply_answer(
+    result: OpenPin | ReviewPin | DonePin | ThreadFull | PinNotFound, show: Show, state_of: StateOf
+) -> Body:
+    """POST /api/pins/{id}/reply: the pin, its new thread entry, its state and whether the reply reopened it."""
+    match result:
+        case OpenPin() | ReviewPin() | DonePin():
+            record, entry = result.record, last_entry(result)
+            return {
+                "ok": True,
+                "pin": show(record),
+                "msg": entry.record,
+                "state": state_of(record),
+                "reopened": entry.ev == "reopen",
+            }
+        case ThreadFull(limit=limit):
+            raise HTTPError(
+                409, "full", detail="스레드가 가득 찼습니다(답글 %d건). 새 핀으로 이어 가세요." % limit, reason="full"
+            )
+        case PinNotFound():
+            return {"ok": False, "pin": None, "msg": None, "state": None, "reopened": False}
