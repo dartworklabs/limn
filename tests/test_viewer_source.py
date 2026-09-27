@@ -20,7 +20,8 @@ import unittest
 from pathlib import Path
 from typing import get_args
 
-from limn import access, build, events, pull, scope
+from limn import access, build, events, scope
+from limn.features.sync import rules as pull
 from limn.pins import edit, model, position
 from limn.pins.view import pin_state
 from limn.viewer import assemble
@@ -271,10 +272,14 @@ def written_states(path: Path) -> set[str]:
 
 def sync_states() -> set[str]:
     """Every value GET /api/meta's `sync.state` can hold: the watch's pull outcomes (pull.SyncState), the statuses the
-    pure producers in limn.pull give, and the one the watch writes itself when it starts builds (limn/gitsync.py)."""
+    pure producers in limn.features.sync.rules give, and the one the watch writes itself when it starts builds (limn/gitsync.py)."""
     produced = [pull.initial_status(), pull.disabled(), pull.deferred(""), pull.unexpected("")]
     produced += [pull.settled("h", [pull.Built("h", False)]), pull.settled("h", [pull.Built("g", True)])]
-    return set(get_args(pull.SyncState)) | {s["state"] for s in produced} | written_states(PKG / "gitsync.py")
+    return (
+        set(get_args(pull.SyncState))
+        | {s["state"] for s in produced}
+        | written_states(PKG / "features" / "sync" / "run.py")
+    )
 
 
 def pull_states() -> set[str]:

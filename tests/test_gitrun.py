@@ -21,11 +21,12 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
-from limn import cli, gitrun, gitsync, startup
+from limn import cli, gitrun, startup
 from limn.features.builds import engine as build_engine
 from limn.features.revisions import core as revisions
+from limn.features.sync import run as gitsync
+from limn.features.sync.rules import UpToDate
 from limn.gitrun import KEPT_GIT_VARS, git_command, git_env
-from limn.pull import UpToDate
 
 SRC = Path(gitrun.__file__).resolve().parent
 

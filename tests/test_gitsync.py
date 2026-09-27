@@ -1,4 +1,4 @@
-"""limn.gitsync - the --git-pull and remote-main watch shell: the pull against real temporary repositories, the shared
+"""limn.features.sync.run - the --git-pull and remote-main watch shell: the pull against real temporary repositories, the shared
 pull of several documents, and the watch's rounds and status, driven with no server.
 
 The pure rules it applies are tests/test_pull.py. The server's wiring (a build's `pull`, GET /api/meta's sync, the
@@ -22,14 +22,15 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from limn import build as limn_build, gitsync
+from limn import build as limn_build
 from limn.access import LOCAL_ACTOR
 from limn.build import BuildOk, BuildStarted
 from limn.documents import Doc
 from limn.features.builds import engine as build_engine
 from limn.features.revisions import core as revisions
-from limn.gitsync import PullShare, SyncWatch, pull, repo_pull
-from limn.pull import Pulled, PullFailed, PullSkipped, UpToDate
+from limn.features.sync import run as gitsync
+from limn.features.sync.rules import Pulled, PullFailed, PullSkipped, UpToDate
+from limn.features.sync.run import PullShare, SyncWatch, pull, repo_pull
 
 from helpers import Base, needs_tex, ps, set_config
 
@@ -41,12 +42,12 @@ class ModuleBoundary(unittest.TestCase):
     """gitsync.py sits below the server: settings, documents, runner and clock come in as arguments."""
 
     def test_imports_no_server_or_http_layer(self):
-        """Of limn only limn.pull (the rules) and common build state;
+        """Of limn only limn.features.sync.rules (the rules) and common build state;
         no HTTP import. It runs git only through the runner it is given."""
         tree = ast.parse(GITSYNC_PY.read_text(encoding="utf-8"))
         modules = {a.name for n in ast.walk(tree) if isinstance(n, ast.Import) for a in n.names}
         modules |= {n.module or "" for n in ast.walk(tree) if isinstance(n, ast.ImportFrom)}
-        self.assertEqual({m for m in modules if m.startswith("limn")}, {"limn.pull", "limn.build"})
+        self.assertEqual({m for m in modules if m.startswith("limn")}, {"limn.features.sync.rules", "limn.build"})
         self.assertFalse({"http", "http.server", "urllib", "subprocess"} & modules)
 
     def test_reads_no_server_global(self):
@@ -506,7 +507,7 @@ class GitPullBuildIntegration(Base):
 
 
 class AutomaticMainSync(Base):
-    """The remote-main watch as the server wires it: sync_main_once() and sync_status() over limn.gitsync, with the
+    """The remote-main watch as the server wires it: sync_main_once() and sync_status() over limn.features.sync.run, with the
     pull stubbed by its outcome value."""
 
     def test_new_head_schedules_each_tex_document_once(self):

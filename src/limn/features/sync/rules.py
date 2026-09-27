@@ -8,7 +8,7 @@ outcome as the {"state", "reason", "head_before", "head_after"} object the agent
 
 The remote-main watch keeps one status object for GET /api/meta's `sync`. What the watch does after a pull, which
 documents it rebuilds and when an "updating" status settles are decided here too; the git calls, locks, clock and
-threads are limn.gitsync's.
+threads are limn.features.sync.run's.
 """
 
 from collections.abc import Sequence

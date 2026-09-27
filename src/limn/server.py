@@ -47,7 +47,6 @@ from limn import (
     build,
     documents,
     events,
-    gitsync,
     locate,
     meta as meta_reads,
     people,
@@ -97,6 +96,7 @@ from limn.features.revisions.core import (
     git as _git,
 )
 from limn.features.revisions.service import RevisionRequests
+from limn.features.sync import run as gitsync
 from limn.files import vendor_file as find_vendor_file
 from limn.locate import PinLocation, est_context, locate_file
 from limn.mark import inline_svg
@@ -406,18 +406,18 @@ class ServerApplication:
         )
 
     def repo_pull(self) -> Json:
-        """A build's --git-pull, as its `pull` record (limn.gitsync.repo_pull): one document pulls on every build; several
-        share one pull per repository within limn.gitsync.PULL_SHARE_S."""
+        """A build's --git-pull, as its `pull` record (limn.features.sync.run.repo_pull): one document pulls on every build; several
+        share one pull per repository within limn.features.sync.run.PULL_SHARE_S."""
         return gitsync.repo_pull(
             self.RT.pull_share, self.multi_doc(), lambda: gitsync.pull(self.C.src, main_only=False, git=_git), time.time
         )
 
     def sync_status(self) -> Json:
-        """GET /api/meta's `sync` - the remote-main watch status (limn.gitsync.SyncWatch.status)."""
+        """GET /api/meta's `sync` - the remote-main watch status (limn.features.sync.run.SyncWatch.status)."""
         return self.RT.sync_watch.status(self.docs, self.C.git_pull)
 
     def sync_main_once(self) -> Json:
-        """One remote-main round (limn.gitsync.SyncWatch.once): pull main, then start the builds of the documents the
+        """One remote-main round (limn.features.sync.run.SyncWatch.once): pull main, then start the builds of the documents the
         pull left behind. The watch thread runs it, and a --no-build startup through it."""
         return self.RT.sync_watch.once(
             self.docs,

@@ -1,4 +1,4 @@
-"""limn.pull - the pure rules of --git-pull and the remote-main watch, driven with plain values.
+"""limn.features.sync.rules - the pure rules of --git-pull and the remote-main watch, driven with plain values.
 
 The pull against real repositories is tests/test_gitsync.py, and so is the server wiring (GET /api/meta's sync, a
 build's pull) at its end. This file pins each rule, the outcome records of the agent contract, and the import boundary.
@@ -11,8 +11,8 @@ import typing
 import unittest
 from pathlib import Path
 
-from limn import pull
-from limn.pull import (
+from limn.features.sync import rules as pull
+from limn.features.sync.rules import (
     Building,
     Built,
     Pulled,
@@ -39,7 +39,7 @@ A, B = "a" * 40, "b" * 40
 
 
 class ModuleBoundary(unittest.TestCase):
-    """limn.pull decides; it runs nothing."""
+    """limn.features.sync.rules decides; it runs nothing."""
 
     def test_imports_nothing_effectful(self):
         """Only typing, dataclasses and collections.abc: no subprocess, file, clock, thread or HTTP import, no limn."""

@@ -4,7 +4,7 @@
 A pull fast-forwards the manuscript repository to its upstream before a build copies it (pull), a rebuild of one
 document pulls once per build and several documents share one pull per repository (repo_pull with a PullShare), and
 the watch checks remote main right after startup and every SYNC_EVERY_S, rebuilding the LaTeX documents that fell
-behind (SyncWatch). What git's answers mean and what the watch does next are limn.pull's pure rules; this module runs
+behind (SyncWatch). What git's answers mean and what the watch does next are limn.features.sync.rules's pure rules; this module runs
 git and keeps the process's state.
 
 Nothing here reads server.py's settings or document list: the composition root passes the manuscript folder, the
@@ -21,7 +21,7 @@ from pathlib import Path
 from typing import Any, Protocol, TypeAlias, TypeVar
 
 from limn.build import last_build_failed
-from limn.pull import (
+from limn.features.sync.rules import (
     Building,
     Built,
     DocProgress,

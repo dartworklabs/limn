@@ -176,7 +176,7 @@ class PagesNotRendered:
 
 
 class BuildStateHolder(Protocol):
-    """A document's build state as a reader outside the build sees it (the remote-main watch, limn.gitsync)."""
+    """A document's build state as a reader outside the build sees it (the remote-main watch, limn.features.sync.run)."""
 
     @property
     def bstate(self) -> dict[str, Any]:
