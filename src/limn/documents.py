@@ -269,12 +269,13 @@ def to_source(D: Doc, path: str) -> Path:
 
 class DocumentFacts:
     """limn.web.parse.DocumentFacts for document D: what the location parsers read from this machine's disk - the
-    manuscript tree root, a file's lines, the pages of a build of D (sized at dpi). The composition root makes one per
+    manuscript tree root and the state folder the tree never includes, a file's lines, the pages of a build of D
+    (sized at dpi). The composition root makes one per
     request (server.document_facts); every method reads at call time."""
 
-    def __init__(self, D: Doc, root: Path, dpi: int) -> None:
-        """Bind the document, the manuscript root and the dpi the page images were rendered at."""
-        self._doc, self._root, self._dpi = D, root, dpi
+    def __init__(self, D: Doc, root: Path, state: Path, dpi: int) -> None:
+        """Bind the document, the manuscript root, the state folder and the dpi the page images were rendered at."""
+        self._doc, self._root, self._state, self._dpi = D, root, state, dpi
 
     @property
     def key(self) -> str:
@@ -295,6 +296,11 @@ class DocumentFacts:
     def root(self) -> Path:
         """The manuscript tree."""
         return self._root
+
+    @property
+    def state(self) -> Path:
+        """The instance's state folder (never part of the tree, limn.files.tree_part)."""
+        return self._state
 
     def lines(self, path: Path) -> list[str]:
         """The file's lines (limn.files.tex_lines: [] when unreadable)."""

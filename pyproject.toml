@@ -71,5 +71,8 @@ files = ["src/limn"]
 mypy_path = "src"
 python_version = "3.10"
 strict = true
+# strict turns on strict_equality: == or != between types that cannot overlap is an error, so a typo in a closed
+# security value (limn.access Role, Via, AuthProvider) fails the check. Stated again so it stays on without strict.
+strict_equality = true
 # A `match` over a union that misses a case is an error, not just a missing return (docs/handbook/verification.md §9).
 enable_error_code = ["exhaustive-match"]

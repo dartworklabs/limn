@@ -1,10 +1,12 @@
-"""Security hardening through the real handler: dot-named files stay out of every route that reads a named manuscript
-file, an unusable people.json fails closed, and every response forbids framing.
+"""Security hardening through the real handler: dot-named files and a state folder placed inside the manuscript stay
+out of every route that reads a named manuscript file, an unusable people.json fails closed, and every response forbids
+framing.
 
 Each class drives the request handler over a socketpair as a tailnet person or the agent (helpers_access.AccessBase),
 so what is pinned is what a client sees: status, reason and body, the response headers, and the bytes left on disk.
-The module rules underneath are pinned on their own in test_web_parse.py (FileInTree), test_locate.py (DotPaths),
-test_people.py (Unreadable) and test_access_module.py (UnreadableRoles).
+The module rules underneath are pinned on their own in test_web_parse.py (FileInTree), test_locate.py (DotPaths,
+StateFolderPaths), test_build_copy.py (StateFolderCopy), test_startup.py (StatePlacement), test_people.py (Unreadable)
+and test_access_module.py (UnreadableRoles).
 
 Run: uv run pytest -q tests/test_security.py
 """
@@ -16,6 +18,9 @@ import unittest
 from pathlib import Path
 from unittest import mock
 from urllib.parse import quote
+
+from limn import access
+from limn.cli import cli_audit
 
 from helpers import ps, req, split_resp
 from helpers_access import ALICE, BOB, CAROL, AccessBase, talk_to
@@ -84,6 +89,103 @@ class DotPaths(AccessBase):
             code, d = self.call("POST", "/api/pins/%d/close" % pid, {"changes": [{"file": name, "lo": 1, "hi": 1}]})
             self.refused(code, d, "change_outside_manuscript", name)
         self.assertFalse(self.pin(pid).get("done"))
+
+
+STATE_FILES = ("people.json", "tokens.json", "audit.jsonl", "events.jsonl", "pins.jsonl", "pins.md")
+
+
+class StateFolderInManuscript(AccessBase):
+    """--state-dir inside the manuscript under a normal (non-dot) name: every route that reads a named manuscript file
+    refuses the state files (people.json, tokens.json's hashes, audit.jsonl, events.jsonl, the pin store) with the
+    reason it gives for a file outside the tree, and never quotes them; the manuscript's own files still read."""
+
+    def setUp(self):
+        """The state folder is <manuscript>/limn-state and holds every state file: people.json (Bob a viewer), a token
+        (tokens.json and its audit line), a pin by Alice (pins.jsonl, pins.md) and events.jsonl. notes.tex is a
+        normal-looking link into it."""
+        super().setUp()
+        ps.C.state = self.src / "limn-state"
+        ps.C.state.mkdir()
+        ps.C.build = ps.C.state / "build"
+        ps.init_seq()
+        self.set_people([{"login": "bob@example.com", "name": "Bob Park", "role": "viewer"}])
+        access.token_create(ps.C.state, "ci", cli_audit(ps.C.state))
+        self.pid = self.pin_id(ALICE)
+        if not ps.C.events_file.exists():
+            ps.C.events_file.write_text('{"id": 1, "kind": "mention"}\n', encoding="utf-8")
+        for name in STATE_FILES:
+            self.assertTrue((ps.C.state / name).is_file(), name)
+        (self.src / "notes.tex").symlink_to(ps.C.state / "people.json")
+        self.names = tuple("limn-state/" + n for n in STATE_FILES) + (
+            str(ps.C.state / "tokens.json"),
+            "limn-state/../limn-state/audit.jsonl",
+            "notes.tex",
+        )
+
+    def refused(self, code, d, reason, name):
+        """The answer is a 400 with reason and quotes nothing of a state file (no token hash, no audit line)."""
+        self.assertEqual((code, d.get("reason")), (400, reason), name)
+        self.assertNotIn("sha256:", json.dumps(d), name)
+        self.assertNotIn("token_created", json.dumps(d), name)
+
+    def test_a_viewer_cannot_read_a_state_file_through_snippet_or_overlaps(self):
+        """Both GET routes answer 400 file_outside_manuscript for every state file, by relative or absolute name or
+        through a link; main.tex still reads."""
+        for route in ("/api/snippet", "/api/overlaps"):
+            for name in self.names:
+                code, d = self.call("GET", "%s?file=%s&lo=1&hi=2" % (route, quote(name)), headers=BOB)
+                self.refused(code, d, "file_outside_manuscript", (route, name))
+            code, _ = self.call("GET", "%s?file=main.tex&lo=1&hi=2" % route, headers=BOB)
+            self.assertEqual(code, 200, route)
+
+    def test_a_new_pin_or_an_edit_cannot_name_a_state_file(self):
+        """POST /api/pin and an edit's loc answer 400 file_outside_manuscript; no pin is added and Alice's pin keeps
+        its place on main.tex."""
+        for name in self.names:
+            code, d = self.call("POST", "/api/pin", {"file": name, "lo": 1, "hi": 1, "page": 1, "note": "n"}, ALICE)
+            self.refused(code, d, "file_outside_manuscript", name)
+            code, d = self.call(
+                "POST",
+                "/api/pins/%d/edit" % self.pid,
+                {"loc": {"file": name, "lo": 1, "hi": 1}, "base_rev": self.pin(self.pid)["rev"]},
+                ALICE,
+            )
+            self.refused(code, d, "file_outside_manuscript", name)
+        self.assertEqual([r["id"] for r in ps.snapshot_pins()], [self.pid])
+        self.assertEqual(Path(self.pin(self.pid)["file"]).name, "main.tex")
+
+    def test_a_close_cannot_record_a_state_file_as_a_change(self):
+        """A close whose changes name a state file is 400 change_outside_manuscript and leaves the pin open."""
+        for name in self.names:
+            code, d = self.call(
+                "POST", "/api/pins/%d/close" % self.pid, {"changes": [{"file": name, "lo": 1, "hi": 1}]}
+            )
+            self.refused(code, d, "change_outside_manuscript", name)
+        self.assertFalse(self.pin(self.pid).get("done"))
+
+    def test_startup_warns_about_the_folder_and_refuses_one_holding_the_document(self):
+        """configure_run with --state-dir inside the manuscript starts and prints the one warning on stderr; with the
+        manuscript folder itself as --state-dir it refuses before creating or using anything."""
+        src = self.src.resolve()
+        self.addCleanup(setattr, ps, "HTML", ps.HTML)  # configure_run rebuilds the viewer page for its label
+
+        def configure(state):
+            """configure_run for `limn serve --manuscript <src> --state-dir <state>` -> (answer, stderr)."""
+            a = ps.build_arg_parser().parse_args(["--manuscript", str(src), "--state-dir", str(state), "--no-build"])
+            with mock.patch("sys.stderr", io.StringIO()) as err:
+                return ps.configure_run(a), err.getvalue()
+
+        got, err = configure(src / "st2")
+        self.assertIsNone(got)
+        self.assertEqual((ps.C.state, ps.C.build), (src / "st2", src / "st2" / "build"))
+        self.assertEqual(err.count("warning:"), 1, err)
+        self.assertIn("warning: the state folder %s is inside the manuscript %s" % (src / "st2", src), err)
+        got, err = configure(src)
+        self.assertIsInstance(got, ps.StartupRefused)
+        self.assertIn("holds %s, a document this run serves" % (src / "main.tex"), got.message)
+        self.assertEqual(ps.C.state, src / "st2")  # the refused run changed nothing
+        got, err = configure(src.parent / "beside")
+        self.assertEqual((got, err), (None, ""))
 
 
 GOOD = [
