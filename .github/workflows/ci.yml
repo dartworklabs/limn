@@ -125,10 +125,22 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             latexmk texlive-latex-base texlive-plain-generic latexdiff poppler-utils bubblewrap
-      - name: Probe bwrap (temporary)
+      - name: Let bwrap create user namespaces
+        # Ubuntu 24.04 (kernel.apparmor_restrict_unprivileged_userns=1) denies unprivileged user namespaces to any
+        # program without an AppArmor profile that grants them, and bwrap then fails at its first step ("loopback:
+        # Failed RTM_NEWADDR"). This grants userns to /usr/bin/bwrap only, the way Ubuntu does for other sandboxing
+        # programs; the sysctl and bwrap's own arguments stay as they are.
         run: |
-          sysctl kernel.apparmor_restrict_unprivileged_userns kernel.unprivileged_userns_clone || true
-          bwrap --unshare-all --ro-bind / / true && echo "bwrap ok" || echo "bwrap failed"
+          sudo tee /etc/apparmor.d/bwrap >/dev/null <<'PROFILE'
+          abi <abi/4.0>,
+          include <tunables/global>
+          profile bwrap /usr/bin/bwrap flags=(unconfined) {
+            userns,
+          }
+          PROFILE
+          sudo apparmor_parser -r /etc/apparmor.d/bwrap
+          sysctl kernel.apparmor_restrict_unprivileged_userns
+          bwrap --unshare-all --ro-bind / / true
       - name: Install dev dependencies
         run: uv sync --group dev --locked
       - name: TeX tests
