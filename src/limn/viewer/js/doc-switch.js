@@ -57,4 +57,5 @@ window.addEventListener('hashchange',()=>{const k=hashDoc(); if(k&&k!==DOC&&docI
 // A #number/[보기]/[수정] on another document's pin: switches to that document, then calls then again (used by jumpPin/openEdit at the very top). Returns true if it switched.
 function viaDoc(id,then){const p=OPEN_ALL.find(x=>x.id===id);
   if(!p||pdoc(p)===DOC||!docInfo(pdoc(p)))return false;
-  const k=pdoc(p); switchDoc(k).then(()=>{if(DOC===k)then(id);}); return true;}
+  const k=pdoc(p),opening=switchDoc(k),visit=SWITCHSEQ;
+  opening.then(()=>{if(DOC===k&&visit===SWITCHSEQ)then(id);}); return true;}

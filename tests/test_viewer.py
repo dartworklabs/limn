@@ -1641,7 +1641,7 @@ class FrontendSemanticAudit(unittest.TestCase):
     def test_revision_note_wraps_and_returns_to_previous_doc(self):
         self.assertIn("#revision-pin button{flex:none;margin-left:auto}", self.css)
         self.assertIn('data-act="rev-back"', extract_js_fn("revTargetNote"))
-        self.assertIn("REV_BACK=DOC", extract_js_fn("showChange"))
+        self.assertIn("if(fromManuscript)REV_BACK=back", extract_js_fn("showChange"))
         self.assertIn("case 'rev-back':", HTML)
 
     def test_source_diff_wrap_toggle_defaults_on_touch(self):
@@ -1972,9 +1972,9 @@ class FrontendDocs(unittest.TestCase):
         js = "\n".join(
             [
                 r"""
-            const OPEN_ALL=[{id:1,doc:'ms'},{id:2,doc:'rr'},{id:3}]; let DOC='ms'; const DEFAULT_DOC='ms';
+            const OPEN_ALL=[{id:1,doc:'ms'},{id:2,doc:'rr'},{id:3}]; let DOC='ms',SWITCHSEQ=0; const DEFAULT_DOC='ms';
             const DOCS=[{key:'ms'},{key:'rr'}]; const seen=[];
-            function switchDoc(k){seen.push('switch:'+k); DOC=k; return Promise.resolve();}
+            function switchDoc(k){seen.push('switch:'+k); DOC=k; SWITCHSEQ++; return Promise.resolve();}
             """,
                 extract_js_fn("docInfo"),
                 extract_js_fn("pdoc"),
