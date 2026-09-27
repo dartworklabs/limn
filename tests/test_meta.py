@@ -25,7 +25,7 @@ from limn.access import LOCAL_ACTOR
 from limn.documents import Doc, DocNotFound
 from limn.meta import MetaSettings
 
-from helpers import Base, ps, req
+from helpers import Base, ps, req, set_config
 
 PKG = Path(meta.__file__).parent
 SERVER_GLOBALS = {"C", "cur_doc", "using_doc", "DOCS", "LEGACY_DOC", "BUILD_STATE", "BUILD_LOCK"}
@@ -405,19 +405,19 @@ class LightMeta(Base):
 
 class InstanceMeta(Base):
     def test_meta_exposes_label_accent_repo(self):
-        ps.C.label, ps.C.accent, ps.C.repo = "A-DEMO", "#1d4ed8", "git@example.com:org/a-demo.git"
+        set_config(label="A-DEMO", accent="#1d4ed8", repo="git@example.com:org/a-demo.git")
         d = ps.meta(ps.DOCS[0], dict(LOCAL_ACTOR))
         self.assertEqual(d["label"], "A-DEMO")
         self.assertEqual(d["accent"], "#1d4ed8")
         self.assertEqual(d["repo"], "git@example.com:org/a-demo.git")
 
     def test_meta_repo_is_none_without_remote(self):
-        ps.C.repo = None
+        set_config(repo=None)
         d = ps.meta(ps.DOCS[0], dict(LOCAL_ACTOR), light=True)
         self.assertIsNone(d["repo"])
 
     def test_meta_endpoint_serves_new_fields(self):
-        ps.C.label, ps.C.accent = "A-DEMO", "#1d4ed8"
+        set_config(label="A-DEMO", accent="#1d4ed8")
         out = self.talk(req("GET", "/api/meta"))
         data = json.loads(out.split(b"\r\n\r\n", 1)[1])
         self.assertEqual(data["label"], "A-DEMO")

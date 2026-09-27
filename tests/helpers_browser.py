@@ -27,7 +27,7 @@ from limn import config, mapping
 from limn.build import cur_pages
 from limn.files import tex_lines
 
-from helpers import blank_png, ps, serve_viewer, split_resp
+from helpers import blank_png, ps, run_config, serve_viewer, split_resp
 from helpers_access import ALICE, reset_access, talk_to
 
 # The timers settle() waits for: the viewer's debounces, slides and long-press timers run 0-1000ms. Longer ones are
@@ -173,15 +173,9 @@ class BrowserBase(ChromiumTestCase):
         src = root / "ms"
         src.mkdir()
         (src / "main.tex").write_text(DEMO_TEX, encoding="utf-8")
+        (root / "state").mkdir()
+        ps.C = run_config(src, src / "main.tex", root / "state", label="Demo")
         C = ps.C
-        C.src, C.main = src, src / "main.tex"
-        C.state = root / "state"
-        C.state.mkdir()
-        C.build = C.state / "build"
-        C.port, C.dpi, C.timeout = 18999, 150, 60
-        C.envs = tuple(ps.DEFAULT_ENVS.split(","))
-        C.allow, C.origin_check, C.git_pull, C.pdfjs_dir = frozenset(), True, False, None
-        C.label, C.accent, C.repo = "Demo", config.ACCENT_PALETTE[0], None
         reset_access()
         ps._PEOPLE_SEEN.clear()
         ps.set_docs(None)

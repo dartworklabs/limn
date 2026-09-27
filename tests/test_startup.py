@@ -3,8 +3,8 @@
 The composition (server.start: configure_access, the --port probe, configure_run, prepare, report, listen) runs in
 tests/test_access.py (StartupRules, TailnetAgentStartup) and as a real process in tests/test_access.py (ServeBusyPort)
 and tests/test_token_file.py. This file pins each rule, every access refusal's exact message (a security
-boundary, docs/adr/0002-access-control.md) and the module boundary. DocArgs hands make_docs the server copy's run
-settings (helpers.ps.C) as the documents' paths, as server.py does.
+boundary, docs/adr/0002-access-control.md) and the module boundary. DocArgs hands make_docs a frozen RunPaths of its
+own, as server.configure_run does once the state folder is known.
 
 Run: uv run pytest -q tests/test_startup.py
 """
@@ -25,7 +25,7 @@ from unittest import mock
 
 from limn import args, config, startup
 from limn.access import LOOPBACK_AGENT_DEPRECATION
-from limn.documents import DOCS_MAX
+from limn.documents import DOCS_MAX, RunPaths
 from limn.startup import (
     AccessOptions,
     DocExtendedMalformed,
@@ -48,7 +48,7 @@ from limn.startup import (
     TooManyDocs,
 )
 
-from helpers import MINI_PDF, TEX as FIXTURE_TEX, ps
+from helpers import DEFAULT_ACCESS, MINI_PDF, TEX as FIXTURE_TEX, run_config
 
 SRC = Path(__file__).resolve().parent.parent / "src" / "limn"
 TEX = "\\documentclass{article}\n\\begin{document}\nx\n\\end{document}\n"
@@ -94,14 +94,15 @@ class ModuleBoundary(unittest.TestCase):
                 self.assertEqual(exits, [])
 
     def test_access_options_are_run_settings_of_the_same_name(self):
-        """Every AccessOptions field is a Cfg setting (configure_access copies them by name), and a command line with no
-        access flags starts with exactly Cfg's defaults - the v0.1-equivalent behaviour."""
+        """The access options are one field of the run settings (RunConfig.access, what start() binds), and a command
+        line with no access flags starts with exactly the v0.1-equivalent defaults (helpers.DEFAULT_ACCESS)."""
         fields = [f.name for f in dataclasses.fields(AccessOptions)]
-        self.assertLessEqual(set(fields), set(config.Cfg.__annotations__))
+        self.assertIs(config.AccessOptions, AccessOptions)
+        self.assertIs({f.name: f.type for f in dataclasses.fields(config.RunConfig)}["access"], AccessOptions)
         defaults = options()
         for name in fields:
             with self.subTest(name):
-                self.assertEqual(getattr(defaults, name), getattr(config.Cfg, name))
+                self.assertEqual(getattr(defaults, name), getattr(DEFAULT_ACCESS, name))
 
 
 class AccessRefusals(unittest.TestCase):
@@ -351,7 +352,6 @@ class Documents(unittest.TestCase):
         (self.ms / "main.tex").write_text(TEX, encoding="utf-8")
         (self.ms / "sub" / "r.tex").write_text(TEX, encoding="utf-8")
         (self.ms / "view.pdf").write_bytes(b"%PDF-1.4\n")
-        self.paths = config.Cfg()
 
     def tearDown(self):
         """Remove the manuscript."""
@@ -361,37 +361,34 @@ class Documents(unittest.TestCase):
         """A missing folder first, then --doc with --main, a bad --doc, a missing --main."""
         missing = self.ms / "nope"
         self.assertEqual(
-            startup.pick_documents(missing, ["x=y:main.tex"], "main.tex", self.paths),
+            startup.pick_documents(missing, ["x=y:main.tex"], "main.tex"),
             StartupRefused("Manuscript directory does not exist: %s" % missing),
         )
         self.assertEqual(
-            startup.pick_documents(self.ms, ["x=y:bad.tex"], "main.tex", self.paths),
+            startup.pick_documents(self.ms, ["x=y:bad.tex"], "main.tex"),
             StartupRefused("--doc and --main are not used together - the main file is set via the --doc path."),
         )
         self.assertEqual(
-            startup.pick_documents(self.ms, ["x=y:none.tex"], None, self.paths),
+            startup.pick_documents(self.ms, ["x=y:none.tex"], None),
             StartupRefused("--doc x: 파일이 없습니다: %s" % (self.ms / "none.tex")),
         )
         self.assertEqual(
-            startup.pick_documents(self.ms, [], "none.tex", self.paths),
+            startup.pick_documents(self.ms, [], "none.tex"),
             StartupRefused("Top-level .tex does not exist: %s" % (self.ms / "none.tex")),
         )
 
     def test_main_is_the_first_latex_document_or_the_detected_one(self):
         """Under --doc the run's main is the first LaTeX document's (a PDF listed first is skipped); without --doc it
         is --main or the single top-level .tex, and there are no --doc documents."""
-        got = startup.pick_documents(self.ms, ["rv=View:view.pdf", "rr=R:sub/r.tex"], None, self.paths)
+        got = startup.pick_documents(self.ms, ["rv=View:view.pdf", "rr=R:sub/r.tex"], None)
         assert isinstance(got, RunDocuments)
-        self.assertEqual(([d.key for d in got.docs or []], got.main), (["rv", "rr"], self.ms / "sub" / "r.tex"))
-        self.assertIs(got.docs[0].paths, self.paths)
-        only_pdf = startup.pick_documents(self.ms, ["rv=View:view.pdf"], None, self.paths)
+        self.assertEqual(([d["key"] for d in got.docs or []], got.main), (["rv", "rr"], self.ms / "sub" / "r.tex"))
+        only_pdf = startup.pick_documents(self.ms, ["rv=View:view.pdf"], None)
         assert isinstance(only_pdf, RunDocuments)
         self.assertEqual(only_pdf.main, self.ms / "view.pdf")
+        self.assertEqual(startup.pick_documents(self.ms, [], None), RunDocuments(None, self.ms / "main.tex"))
         self.assertEqual(
-            startup.pick_documents(self.ms, [], None, self.paths), RunDocuments(None, self.ms / "main.tex")
-        )
-        self.assertEqual(
-            startup.pick_documents(self.ms, [], "sub/r.tex", self.paths), RunDocuments(None, self.ms / "sub" / "r.tex")
+            startup.pick_documents(self.ms, [], "sub/r.tex"), RunDocuments(None, self.ms / "sub" / "r.tex")
         )
 
     def test_state_dir(self):
@@ -500,9 +497,7 @@ class Summary(unittest.TestCase):
 
     def test_single_document_on_loopback(self):
         """The main file for a single document, the loopback address note, access lines as given, pdf.js found."""
-        c = config.Cfg()
-        c.src, c.main, c.state, c.port, c.allow = Path("/m"), Path("/m/main.tex"), Path("/s"), 18300, frozenset()
-        c.pdfjs_dir = Path("/p")
+        c = run_config(Path("/m"), Path("/m/main.tex"), Path("/s"), port=18300, pdfjs_dir=Path("/p"))
         self.assertEqual(
             startup.summary_lines(c, False, ["auth        x"], True),
             [
@@ -517,16 +512,18 @@ class Summary(unittest.TestCase):
 
     def test_documents_ipv6_and_optional_features(self):
         """The folder under --doc, a bracketed IPv6 address, allow, --no-origin-check, --git-pull, missing pdf.js."""
-        c = config.Cfg()
-        c.src, c.main, c.state, c.port = Path("/m"), Path("/m/main.tex"), Path("/s"), 18301
-        c.bind, c.repo, c.allow, c.origin_check, c.git_pull = (
-            "::",
-            "git@example.com:y.git",
-            frozenset({"b", "a"}),
-            False,
-            True,
+        c = run_config(
+            Path("/m"),
+            Path("/m/main.tex"),
+            Path("/s"),
+            port=18301,
+            bind="::",
+            repo="git@example.com:y.git",
+            allow=frozenset({"b", "a"}),
+            origin_check=False,
+            git_pull=True,
+            agent_loopback=False,
         )
-        c.agent_loopback = False
         self.assertEqual(
             startup.summary_lines(c, True, [], False),
             [
@@ -666,6 +663,7 @@ class DocArgs(unittest.TestCase):
         (self.ms / "sub" / "review.pdf").write_bytes(MINI_PDF)
         (self.ms / "notes.txt").write_text("x")
         (Path(self.tmp.name) / "outside.tex").write_text(FIXTURE_TEX)
+        self.paths = RunPaths(self.ms, self.ms / "main.tex", Path(self.tmp.name) / "st")
 
     def tearDown(self):
         self.tmp.cleanup()
@@ -680,11 +678,10 @@ class DocArgs(unittest.TestCase):
         d = startup.parse_doc_arg("ms=본문:manuscript::2nd/m.tex", self.ms)
         self.assertEqual(d["src"], (self.ms / "manuscript").resolve())
         self.assertEqual(d["main"], (self.ms / "manuscript" / "2nd" / "m.tex").resolve())
-        doc = startup.make_docs(["ms=본문:manuscript::2nd/m.tex"], self.ms, ps.C)[0]
+        doc = startup.make_docs(["ms=본문:manuscript::2nd/m.tex"], self.ms, self.paths)[0]
         self.assertEqual(doc.main_rel, Path("2nd/m.tex"))
-        ps.C.state = Path(self.tmp.name) / "st"
         # latexmk runs from the folder that holds the main file
-        self.assertEqual(doc.out, ps.C.state / "docs" / "ms" / "build" / "2nd")
+        self.assertEqual(doc.out, self.paths.state / "docs" / "ms" / "build" / "2nd")
 
     def test_pdf_is_view_only(self):
         d = startup.parse_doc_arg("rv=리뷰어 코멘트:sub/review.pdf", self.ms)
@@ -782,19 +779,23 @@ class DocArgs(unittest.TestCase):
         """make_docs returns the list's own refusals (a repeated key; more than DOCS_MAX values, counted before any is
         parsed) and passes a value's refusal on unchanged; a LaTeX document keyed main sits at the state-folder root."""
         self.assertEqual(
-            startup.make_docs(["rr=a:sub/rr/rr.tex", "rr=b:sub/rr/rr.tex"], self.ms, ps.C), DocKeyRepeated("rr")
+            startup.make_docs(["rr=a:sub/rr/rr.tex", "rr=b:sub/rr/rr.tex"], self.ms, self.paths), DocKeyRepeated("rr")
         )
         self.assertEqual(startup.doc_refusal_message(DocKeyRepeated("rr")), "--doc 키가 겹칩니다: rr")
-        self.assertEqual(startup.make_docs(["rr=a:sub/rr/rr.tex", "RR=b:x.tex"], self.ms, ps.C), DocKeyInvalid("RR"))
+        self.assertEqual(
+            startup.make_docs(["rr=a:sub/rr/rr.tex", "RR=b:x.tex"], self.ms, self.paths), DocKeyInvalid("RR")
+        )
         docs = startup.make_docs(
-            ["main=본문:manuscript/2nd/m.tex", "rr=답변서:sub/rr/rr.tex", "rv=코멘트:sub/review.pdf"], self.ms, ps.C
+            ["main=본문:manuscript/2nd/m.tex", "rr=답변서:sub/rr/rr.tex", "rv=코멘트:sub/review.pdf"],
+            self.ms,
+            self.paths,
         )
         assert isinstance(docs, list)
         # only the LaTeX document keyed main is placed at the state-folder root
         self.assertEqual([d.root for d in docs], [True, False, False])
         self.assertEqual([d.kind for d in docs], ["tex", "tex", "pdf"])
         too_many = ["d%d=x:missing.tex" % i for i in range(DOCS_MAX + 1)]
-        self.assertEqual(startup.make_docs(too_many, self.ms, ps.C), TooManyDocs(DOCS_MAX + 1))
+        self.assertEqual(startup.make_docs(too_many, self.ms, self.paths), TooManyDocs(DOCS_MAX + 1))
         self.assertEqual(
             startup.doc_refusal_message(TooManyDocs(DOCS_MAX + 1)),
             "--doc 는 %d개까지입니다(지금 %d개)" % (DOCS_MAX, DOCS_MAX + 1),

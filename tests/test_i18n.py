@@ -27,7 +27,18 @@ from limn.viewer import assemble
 from limn.web import answers, parse
 from limn.web.errors import scope_http_error
 
-from helpers import HTML, UI_EN, add_pin, blank_png, extract_js_fn, page_for, run_node, serve_viewer, shut_wr
+from helpers import (
+    HTML,
+    UI_EN,
+    add_pin,
+    blank_png,
+    extract_js_fn,
+    page_for,
+    run_config,
+    run_node,
+    serve_viewer,
+    shut_wr,
+)
 from helpers_access import ALICE_ACTOR
 from helpers_browser import ChromiumTestCase, booted, settle, watch_idle
 
@@ -435,16 +446,10 @@ class EnglishChrome(ChromiumTestCase):
         src.mkdir()
         for name in ("main.tex", "reply.tex"):
             (src / name).write_text(TEX, encoding="utf-8")
+        (root / "state").mkdir()
+        ps.C = run_config(src, src / "main.tex", root / "state", label="Demo")
         C = ps.C
-        C.src, C.main = src, src / "main.tex"
-        C.state = root / "state"
-        C.state.mkdir()
-        C.build = C.state / "build"
-        C.port, C.dpi, C.timeout = 18999, 150, 60
-        C.envs = tuple(ps.DEFAULT_ENVS.split(","))
-        C.allow, C.origin_check, C.git_pull, C.pdfjs_dir = frozenset(), True, False, None
-        C.label, C.accent, C.repo = "Demo", config.ACCENT_PALETTE[0], None
-        ps.set_docs(startup.make_docs(["ms=본문:main.tex", "rr=답변서:reply.tex"], src, ps.C))
+        ps.set_docs(startup.make_docs(["ms=본문:main.tex", "rr=답변서:reply.tex"], src, ps.C.paths))
         ps.init_seq()
         page = blank_png(1275, 1650)  # a letter page at 150 dpi
         for D in ps.DOCS:

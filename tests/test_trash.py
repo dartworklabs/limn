@@ -19,7 +19,7 @@ from limn.files import atomic_write
 from limn.pins import position
 from limn.store import dump_jsonl
 
-from helpers import Base, ps
+from helpers import Base, ps, set_config
 from helpers_access import ALICE, BOB, CAROL, CLEAR_BODY, DAVE, TS_HOST, AccessBase, actor, token_create
 
 A, B = actor(ALICE), actor(BOB)
@@ -302,6 +302,6 @@ class ClearEndpoint(AccessBase):
         self.assertEqual(self.add(), 3)  # ids keep counting
 
     def test_local_owner_may_clear(self):
-        ps.C.auth, ps.C.agent_loopback, ps.C.local_user = "local", False, "alice"
+        set_config(auth="local", agent_loopback=False, local_user="alice")
         code, d = self.call("POST", "/api/clear", CLEAR_BODY)
         self.assertEqual((code, d.get("cleared")), (200, 2), d)

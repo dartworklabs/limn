@@ -13,6 +13,7 @@ import dataclasses
 import errno
 import functools
 import importlib.util
+import ipaddress
 import json
 import os
 import re
@@ -30,6 +31,7 @@ import pytest
 
 from limn import config, gitsync, revisions
 from limn.access import LOCAL_ACTOR
+from limn.config import AccessOptions, RunConfig
 from limn.store import find_pin
 from limn.viewer import assemble
 from limn.web import answers, parse
@@ -139,6 +141,72 @@ def js_i18n(lang: str = "ko") -> str:
             extract_js_fn("errText"),
         ]
     )
+
+
+# The access options of a command line with no access flags (limn.startup.access_options' answer): tailscale identities,
+# a loopback bind, the deprecated headerless loopback agent on - the v0.1-equivalent behaviour. Stated in full, so a
+# change of a default shows up as a failing comparison in test_startup.
+DEFAULT_ACCESS = AccessOptions(
+    auth="tailscale",
+    bind="127.0.0.1",
+    agent_loopback=True,
+    tailnet_agent=False,
+    public_hosts=(),
+    trusted_proxies=(ipaddress.ip_network("127.0.0.1/32"), ipaddress.ip_network("::1/128")),
+    proxy_user_header="X-Forwarded-User",
+    proxy_name_header="X-Forwarded-Preferred-Username",
+    proxy_email_header=None,
+    members_only=False,
+    local_user=None,
+    insecure=False,
+    agent_token_file=None,
+)
+ACCESS_FIELDS = frozenset(f.name for f in dataclasses.fields(AccessOptions))
+
+
+def run_config(src: Path, main: Path, state: Path, **over) -> RunConfig:
+    """The run settings Base serves with (manuscript src, main file main, state folder state; port 18999, 150 dpi, a
+    60-second build timeout, the default float environments, label 원고 in the first accent, no origin URL, access
+    options at their defaults), with `over` replacing settings by name - an access option's name (auth, bind, ...)
+    replaces that field of .access."""
+    base = RunConfig(
+        src=src,
+        main=main,
+        state=state,
+        port=18999,
+        dpi=150,
+        envs=tuple(ps.DEFAULT_ENVS.split(",")),
+        timeout=60,
+        allow=frozenset(),
+        origin_check=True,
+        git_pull=False,
+        pdfjs_dir=None,
+        label="원고",
+        accent=config.ACCENT_PALETTE[0],
+        repo=None,
+        access=DEFAULT_ACCESS,
+    )
+    return with_settings(base, **over)
+
+
+def with_settings(c: RunConfig, **over) -> RunConfig:
+    """c with `over` replacing settings by name (dataclasses.replace); an access option's name replaces that field of
+    c.access."""
+    acc = {k: over.pop(k) for k in list(over) if k in ACCESS_FIELDS}
+    if acc:
+        over["access"] = dataclasses.replace(over.get("access", c.access), **acc)
+    return dataclasses.replace(c, **over)
+
+
+def set_config(mod=None, **over) -> None:
+    """Bind the server copy (default ps) to its run settings with `over` replaced (with_settings), as a restart with
+    those options would. When a run path (src, main, state) changes and the copy serves the single document, that
+    document is made again over the new paths (set_docs), as start() would make it."""
+    mod = mod or ps
+    old = mod.C
+    mod.C = with_settings(old, **over)
+    if mod.C.paths != old.paths and len(mod.DOCS) == 1 and mod.DOCS[0].legacy:
+        mod.set_docs(None)
 
 
 def page_for(label: str, accent: str) -> str:
@@ -303,20 +371,10 @@ class Base(unittest.TestCase):
         self.src.mkdir()
         self.main = self.src / "main.tex"
         self.main.write_text(TEX, encoding="utf-8")
-        C = ps.C
-        C.src, C.main = self.src, self.main
-        C.state = root / "state"
-        C.state.mkdir()
-        C.build = C.state / "build"
-        C.port, C.dpi, C.timeout = 18999, 150, 60
-        C.envs = tuple(ps.DEFAULT_ENVS.split(","))
-        C.allow = frozenset()
-        C.origin_check = True
-        C.git_pull = False
+        (root / "state").mkdir()
+        ps.C = run_config(self.src, self.main, root / "state")
         ps.SYNC_WATCH = gitsync.SyncWatch()  # a fresh remote-main watch status ("checking")
-        C.pdfjs_dir = None
-        C.label, C.accent, C.repo = "원고", config.ACCENT_PALETTE[0], None
-        serve_viewer(C.label, C.accent)
+        serve_viewer(ps.C.label, ps.C.accent)
         ps.BUILD_STATE.update(
             state="idle",
             phase=None,

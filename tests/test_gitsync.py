@@ -29,7 +29,7 @@ from limn.documents import Doc
 from limn.gitsync import PullShare, SyncWatch, pull, repo_pull
 from limn.pull import Pulled, PullFailed, PullSkipped, UpToDate
 
-from helpers import Base, needs_tex, ps
+from helpers import Base, needs_tex, ps, set_config
 
 GITSYNC_PY = Path(gitsync.__file__)
 A, B = "a" * 40, "b" * 40
@@ -416,7 +416,7 @@ class Watch(unittest.TestCase):
 class GitPullBuildIntegration(Base):
     @needs_tex("latexmk", "pdftoppm")
     def test_pull_result_surfaces_in_build_response_and_state(self):
-        ps.C.git_pull = True
+        set_config(git_pull=True)
         res = ps.build_all(ps.DOCS[0])
         self.assertIsInstance(res, BuildOk)
         # the temporary manuscript from Base.setUp() isn't a git repo — verify not_git actually triggers.
@@ -428,7 +428,7 @@ class GitPullBuildIntegration(Base):
 
     @needs_tex("latexmk", "pdftoppm")
     def test_pull_absent_when_flag_off(self):
-        ps.C.git_pull = False
+        set_config(git_pull=False)
         res = ps.build_all(ps.DOCS[0])
         self.assertIsInstance(res, BuildOk)
         self.assertIsNone(res.pull)
@@ -439,7 +439,7 @@ class GitPullBuildIntegration(Base):
         # so when pull pushed the .tex mtime forward (as a real fast-forward merge does), the "manuscript
         # modified" badge kept showing even though the build had just finished with that new manuscript.
         # The measurement must happen after pull (before copy).
-        ps.C.git_pull = True
+        set_config(git_pull=True)
 
         def fake_pull():
             # simulate a git fast-forward — pushes the .tex mtime forward like a real merge would.
@@ -463,7 +463,7 @@ class GitPullBuildIntegration(Base):
         # even when using the post-pull mtime (or the copy-start time when there's no pull), editing the
         # source after copy (while latex is compiling) means that edit wasn't part of this build, so the
         # "manuscript modified" badge must still show.
-        ps.C.git_pull = True
+        set_config(git_pull=True)
         original_run_logged = limn_build.run_logged
 
         def bump_then_run(cmd, cwd, timeout):
@@ -492,12 +492,12 @@ class AutomaticMainSync(Base):
     def test_new_head_schedules_each_tex_document_once(self):
         """A fast-forward starts one build per LaTeX document (never the view-only PDF), pulling main only."""
         docs = [
-            Doc("ms", "본문", src=self.src, main=self.main, paths=ps.C),
-            Doc("hl", "하이라이트", src=self.src, main=self.main, paths=ps.C),
-            Doc("pdf", "참고", kind="pdf", src=self.src, main=self.src / "ref.pdf", paths=ps.C),
+            Doc("ms", "본문", src=self.src, main=self.main, paths=ps.C.paths),
+            Doc("hl", "하이라이트", src=self.src, main=self.main, paths=ps.C.paths),
+            Doc("pdf", "참고", kind="pdf", src=self.src, main=self.src / "ref.pdf", paths=ps.C.paths),
         ]
         ps.set_docs(docs)
-        ps.C.git_pull = True
+        set_config(git_pull=True)
         with (
             mock.patch.object(gitsync, "pull", return_value=Pulled("a" * 40, "b" * 40)) as git_pull,
             mock.patch.object(ps, "build_async", return_value=BuildStarted()) as build,
@@ -509,7 +509,7 @@ class AutomaticMainSync(Base):
 
     def test_current_head_still_rebuilds_old_pdf_on_startup(self):
         """Nothing new upstream, but the PDF was built from another commit: it is rebuilt (a restart after a move)."""
-        ps.C.git_pull = True
+        set_config(git_pull=True)
         (ps.C.state / "head.txt").write_text("aaaaaaa", encoding="utf-8")
         with (
             mock.patch.object(gitsync, "pull", return_value=UpToDate("b" * 40)),
@@ -521,7 +521,7 @@ class AutomaticMainSync(Base):
 
     def test_dirty_checkout_is_visible_and_never_rebuilt(self):
         """A refused pull is shown as blocked with its reason in GET /api/meta's sync, and builds nothing."""
-        ps.C.git_pull = True
+        set_config(git_pull=True)
         with (
             mock.patch.object(gitsync, "pull", return_value=PullSkipped("dirty", "a" * 40)),
             mock.patch.object(ps, "build_async") as build,
@@ -533,7 +533,7 @@ class AutomaticMainSync(Base):
 
     def test_updating_clears_when_pdf_reaches_synced_head(self):
         """An "updating" status turns "current" once the PDF was built from the pulled commit."""
-        ps.C.git_pull = True
+        set_config(git_pull=True)
         with ps.SYNC_WATCH.lock:
             ps.SYNC_WATCH.record.update(state="updating", reason=None, head_after="b" * 40)
         (ps.C.state / "head.txt").write_text("bbbbbbb", encoding="utf-8")
@@ -541,7 +541,7 @@ class AutomaticMainSync(Base):
 
     def test_failed_pdf_build_reports_error(self):
         """An "updating" status turns error/build_failed when a document still behind the commit failed its build."""
-        ps.C.git_pull = True
+        set_config(git_pull=True)
         with ps.SYNC_WATCH.lock:
             ps.SYNC_WATCH.record.update(state="updating", reason=None, head_after="b" * 40)
         (ps.C.state / "head.txt").write_text("aaaaaaa", encoding="utf-8")

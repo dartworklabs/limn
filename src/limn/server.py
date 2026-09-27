@@ -25,13 +25,13 @@ Python 3.10 standard library only.
 """
 
 import argparse
-import dataclasses
 import os
 import sys
 import threading
 import time
 import traceback
 from collections.abc import Callable, Collection, Iterable, Mapping, Sequence
+from dataclasses import dataclass
 from datetime import datetime
 from email.message import Message
 from pathlib import Path
@@ -42,7 +42,7 @@ if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 # The limn.* modules this composition root wires together. The pin services (add_edit, claim, trash, transitions) are
 # wired by pin_context(); pins.md's renderer gets its input from pins_md_input(); the run settings' type, the startup
-# rules and the command line fill in C (main() -> start() below). `X as X` marks a name this module exports as an App
+# rules and the command line make C, bound once (main() -> start() below). `X as X` marks a name this module exports as an App
 # member (web/app.py) - mypy's explicit re-export, so the App check at the Handler sees it: the page directory on screen
 # and a build's PDF (limn.build's own functions, bound here without a shell), outline_labels, pin_state,
 # revision_history, hdr_text (the handler quotes a refused Host/Origin/document key through it), APP_NAME and
@@ -85,7 +85,7 @@ from limn.build import (
     build_pdf as build_pdf,
     cur_pages as cur_pages,
 )
-from limn.config import Cfg
+from limn.config import AccessOptions, RunConfig
 from limn.documents import (
     DEFAULT_DOC_KEY,
     DOC_KEY_RE,
@@ -198,15 +198,16 @@ BUILD_STATE: dict[str, Any] = fresh_build_state()
 # Bundles the read-modify-write of builds.json (build history).
 BUILDS_LOCK = threading.Lock()
 
-
-C = Cfg()
+# The run settings (limn.config.RunConfig): made by the startup steps from the command line and bound once, by start(),
+# before the server listens. Frozen - a test binds another value (tests/helpers.py set_config) rather than changing it.
+C: RunConfig
 
 
 # ---------------------------------------------------------------- Documents (§Multiple documents, docs/handbook/domain.md §여러 문서)
 #
 # A document (limn.documents.Doc) is always an argument: the handler finds the request's (request_doc) and passes it
 # on, a build thread gets its own, and startup walks the list. The list itself (DOCS, the first document is the
-# default) is this composition root's; a Doc reads the run paths through the C it is given at construction.
+# default) is this composition root's, filled by prepare(); a Doc holds the frozen run paths (C.paths) it was made with.
 
 
 def now_str() -> str:
@@ -239,7 +240,7 @@ def vendor_file(name: str) -> Path | None:
 
 
 def build_config() -> BuildConfig:
-    """The build settings from the run arguments. Made per build, so a test (or main()) that changes C is seen at once."""
+    """The build settings from the run arguments. Made per build, so a test that binds another C is seen at once."""
     return BuildConfig(state=C.state, dpi=C.dpi, timeout=C.timeout)
 
 
@@ -338,8 +339,8 @@ def revision_pdf(D: Doc, commit: str, pin: int | None = None) -> bytes | PdfRefu
 # The pull and the watch are limn/gitsync.py (the git calls, locks and watch loop) over limn/pull.py (what git's
 # answers mean and what the watch does next). The process's one pull share and watch status are made here; the
 # bindings below hand them the manuscript folder, the documents, --git-pull, the git runner (limn.revisions.git
-# imported above as _git: no shell, 30 seconds per call), the clock and the build starter, read per call so a test (or
-# main()) that changes C or rebinds build_async is seen at once. prepare() starts the watch thread.
+# imported above as _git: no shell, 30 seconds per call), the clock and the build starter, read per call so a test
+# that binds another C or rebinds build_async is seen at once. prepare() starts the watch thread.
 
 PULL_SHARE = gitsync.PullShare()  # the process's one pull per repository and its last result
 SYNC_WATCH = gitsync.SyncWatch()  # the remote-main watch status GET /api/meta shows as `sync`
@@ -383,25 +384,29 @@ def _build(D: Doc) -> FinishedBuild:
 
 # [C.src string, value, measured-at time] - a 2-second cache (for a single document)
 _SRC_MTIME_CACHE: list[Any] = [None, 0.0, 0.0]
-# Single document (no --doc). Holds the module-global lock/state as-is, so the object the legacy code paths
-# and regression tests see is exactly this document's.
-LEGACY_DOC = Doc(
-    DEFAULT_DOC_KEY,
-    "본문",
-    legacy=True,
-    lock=BUILD_LOCK,
-    bstate=BUILD_STATE,
-    bstate_lock=BUILD_STATE_LOCK,
-    builds_lock=BUILDS_LOCK,
-    mcache=_SRC_MTIME_CACHE,
-    paths=C,
-)
-DOCS: list[Doc] = [LEGACY_DOC]
+DOCS: list[Doc] = []  # the documents this run serves, the first is the default; filled by prepare() (set_docs)
 
 
 def set_docs(docs: Iterable[Doc] | None = None) -> None:
-    """Change the document list (main()/tests). Reverts to a single document when empty."""
-    DOCS[:] = list(docs) if docs else [LEGACY_DOC]
+    """Change the document list (prepare()/tests). With none, the single document of a run without --doc: legacy
+    (the manuscript and main file are C's) over C.paths, holding the module-global build lock and state."""
+    DOCS[:] = (
+        list(docs)
+        if docs
+        else [
+            Doc(
+                DEFAULT_DOC_KEY,
+                "본문",
+                legacy=True,
+                lock=BUILD_LOCK,
+                bstate=BUILD_STATE,
+                bstate_lock=BUILD_STATE_LOCK,
+                builds_lock=BUILDS_LOCK,
+                mcache=_SRC_MTIME_CACHE,
+                paths=C.paths,
+            )
+        ]
+    )
 
 
 def multi_doc() -> bool:
@@ -420,7 +425,7 @@ def pin_doc_key(r: Record) -> str:
 
 
 def meta_settings() -> MetaSettings:
-    """The run settings GET /api/meta reads, made per request like pin_store(), so a test (or main()) that changes C is
+    """The run settings GET /api/meta reads, made per request like pin_store(), so a test that binds another C is
     seen at once."""
     return MetaSettings(
         state=C.state,
@@ -487,7 +492,7 @@ def sync_all(rows: list[Row]) -> bool:
 def pin_store() -> PinStore:
     """The pin store (limn.store) over the current run arguments - where the composition root wires it.
 
-    Made per call, like build_config(), so a test or main() that changes C.state is seen at once; the lock is the one
+    Made per call, like build_config(), so a test that binds another C is seen at once; the lock is the one
     process-wide PIN_LOCK. The collaborators are looked up at call time: the record check valid_rec, the anchor re-sync
     sync_all (reads the .tex files under C.src) and the renderer pins_md_text."""
     return PinStore(PinFiles(C.state), PIN_LOCK, valid_rec, sync_all, pins_md_text)
@@ -610,7 +615,7 @@ def request_doc(key: str | None, file_hint: object | None = None) -> Doc | DocNo
 
 def document_facts(D: Doc) -> DocumentFacts:
     """The parsing facts of document D (limn.documents.DocumentFacts) with this instance's manuscript root, state
-    folder and dpi - made per request like pin_store(), so a test (or main()) that changes C is seen at once."""
+    folder and dpi - made per request like pin_store(), so a test that binds another C is seen at once."""
     return DocumentFacts(D, C.src, C.state, C.dpi)
 
 
@@ -624,7 +629,7 @@ def document_facts(D: Doc) -> DocumentFacts:
 
 def pin_context() -> PinContext:
     """The pin services' view of this instance (limn.service.context.PinContext), made per call like pin_store(), so a
-    test (or main()) that changes C, THREAD_MAX or TRASH_DAYS, or freezes now_str or time.time, is seen at once."""
+    test that binds another C, patches THREAD_MAX or TRASH_DAYS, or freezes now_str or time.time, is seen at once."""
     return PinContext(
         store=pin_store(),
         now=now_str,
@@ -687,7 +692,7 @@ _EVENTS_CACHE: events.ReadCache = {}  # events.jsonl as last read, keyed by its 
 
 def people_book() -> people.PeopleBook:
     """people.json of the current run (limn.people.PeopleBook): C.state with the process's lock, last-written memo and
-    unreadable-file warning. Made per call, like pin_store(), so a test or main() that changes C.state is seen at once."""
+    unreadable-file warning. Made per call, like pin_store(), so a test that binds another C is seen at once."""
     return people.PeopleBook(C.state, PEOPLE_LOCK, _PEOPLE_SEEN, PEOPLE_WARNING)
 
 
@@ -955,7 +960,7 @@ def pins_md_input(rows: list[Row], base: str | None = None) -> PinsMdInput:
         people=known_people(rows),
         now=time.time(),
         updated=datetime.now().astimezone().strftime("%Y-%m-%d %H:%M"),
-        token_file=existing_token_file_shown(C.agent_token_file),
+        token_file=existing_token_file_shown(C.access.agent_token_file),
     )
 
 
@@ -1000,7 +1005,7 @@ def overlaps_api(rng: locate.SourceLines) -> Json:
 #
 # Who a request is (identify), whether it may use this instance (admit), what it may change (check_role) and the
 # Host/Origin rules live in limn/access.py, which never reads C. Here the composition root binds them to this instance:
-# the settings value from C (made per call like build_config(), so a test or main() that changes C is seen at once),
+# the settings value C makes once (C.access_settings; a test that binds another C is seen at once),
 # the file-backed lookups, and the resources this process owns for them - one cache per file (tokens.json and
 # people.json are re-read when they change on disk, so `limn token` / `limn member` edits take effect on the next
 # request without a restart) and the one-time loopback-agent warning. The refusals raise HTTPError (fail closed).
@@ -1013,20 +1018,8 @@ LOOPBACK_WARNING = access.WarnOnce(LOOPBACK_AGENT_DEPRECATION)
 
 
 def access_settings() -> access.AccessSettings:
-    """The access options of this run (C) as the value identify() and admit() read."""
-    return access.AccessSettings(
-        auth=C.auth,
-        agent_loopback=C.agent_loopback,
-        tailnet_agent=C.tailnet_agent,
-        trusted_proxies=C.trusted_proxies,
-        proxy_user_header=C.proxy_user_header,
-        proxy_name_header=C.proxy_name_header,
-        proxy_email_header=C.proxy_email_header,
-        members_only=C.members_only,
-        allow=C.allow,
-        local_user=C.local_user,
-        agent_token_file=C.agent_token_file,
-    )
+    """The access options of this run as the value identify() and admit() read (C.access_settings, made once per C)."""
+    return C.access_settings
 
 
 def current_tokens() -> list[Json]:
@@ -1070,17 +1063,17 @@ def check_role(p: access.Principal, path: str) -> None:
 
 def host_ok(host: str) -> bool:
     """Is Host a loopback name, *.ts.net or one of this run's --public-host names (limn.access.host_ok)?"""
-    return access.host_ok(host, C.public_hosts)
+    return access.host_ok(host, C.access.public_hosts)
 
 
 def origin_ok(origin: str, host: str | None) -> bool:
     """Is Origin on the same side as the Host the request arrived on (limn.access.origin_ok)?"""
-    return access.origin_ok(origin, host, C.public_hosts)
+    return access.origin_ok(origin, host, C.access.public_hosts)
 
 
 def remote_base_for(host_raw: str) -> str:
     """The base URL of GET /pins.md's guidance for this Host (limn.access.remote_base_for, loopback on C.port)."""
-    return access.remote_base_for(host_raw, C.public_hosts, C.port)
+    return access.remote_base_for(host_raw, C.access.public_hosts, C.port)
 
 
 # ---------------------------------------------------------------- Viewer
@@ -1178,69 +1171,67 @@ def build_arg_parser() -> argparse.ArgumentParser:
     return serve_parser(__doc__.splitlines()[0], "%s %s" % (APP_NAME, app_version()), DEFAULT_ENVS)
 
 
-def access_options() -> startup.AccessOptions:
-    """The access settings of this run as the startup rules' value: C's fields of the same names."""
-    return startup.AccessOptions(**{f.name: getattr(C, f.name) for f in dataclasses.fields(startup.AccessOptions)})
-
-
-def configure_access(a: argparse.Namespace) -> StartupRefused | None:
-    """Applies the access options of the command line (limn.startup.access_options) to C, or returns the refusal with
-    nothing applied - main() stops before any build, so a misconfigured unit fails fast."""
-    opts = startup.access_options(a)
-    if isinstance(opts, StartupRefused):
-        return opts
-    for f in dataclasses.fields(opts):
-        setattr(C, f.name, getattr(opts, f.name))
-    return None
-
-
 def access_log_lines() -> list[str]:
-    """The startup log lines about access (limn.startup.access_log_lines) for C, its tokens.json and token file."""
-    return startup.access_log_lines(access_options(), len(load_tokens(C.state)), file_present(C.agent_token_file))
+    """The startup log lines about access (limn.startup.access_log_lines) for C.access, its tokens.json and token file."""
+    return startup.access_log_lines(C.access, len(load_tokens(C.state)), file_present(C.access.agent_token_file))
 
 
-def configure_run(a: argparse.Namespace) -> list[Doc] | None | StartupRefused:
-    """The run settings from the arguments into C, in the order that decides which refusal a bad command line gets:
-    the manuscript, the documents (--doc, returned; None without it) or the main file, the state folder (refused when
-    it holds a served document, warned about on stderr when it lies inside the manuscript, and created here, before
-    the label and accent are checked), build settings, the port, access lists, the label and accent. The rules are
-    limn.startup's; this applies their answers."""
-    C.src = Path(a.manuscript).expanduser().resolve()
-    picked = startup.pick_documents(C.src, a.doc, a.main, C)
+@dataclass(frozen=True)
+class RunStart:
+    """A command line configure_run lets start: its run settings and the --doc documents over their paths (None
+    without --doc: prepare() makes the single document)."""
+
+    config: RunConfig
+    docs: list[Doc] | None
+
+
+def configure_run(a: argparse.Namespace, access_opts: AccessOptions) -> RunStart | StartupRefused:
+    """The run settings of the arguments, with the access options the access step decided, in the order that decides
+    which refusal a bad command line gets: the manuscript, the documents (--doc) or the main file, the state folder
+    (refused when it holds a served document, warned about on stderr when it lies inside the manuscript, and created
+    here, before the label and accent are checked), build settings, the port, access lists, the label and accent. The
+    rules are limn.startup's; this applies their answers and makes the --doc documents once the paths are known.
+    """
+    src = Path(a.manuscript).expanduser().resolve()
+    picked = startup.pick_documents(src, a.doc, a.main)
     if isinstance(picked, StartupRefused):
         return picked
-    C.main = picked.main
-    state = startup.state_dir(a.state_dir, C.src, Path(os.environ.get("XDG_DATA_HOME", Path.home() / ".local/share")))
-    served = [d.main for d in picked.docs] if picked.docs else [picked.main]
-    placed = startup.state_placement(state, C.src, served)
+    state = startup.state_dir(a.state_dir, src, Path(os.environ.get("XDG_DATA_HOME", Path.home() / ".local/share")))
+    served = [d["main"] for d in picked.docs] if picked.docs else [picked.main]
+    placed = startup.state_placement(state, src, served)
     if isinstance(placed, StartupRefused):
         return placed
     if isinstance(placed, startup.StateInManuscript):
         print(placed.warning(), file=sys.stderr)
-    C.state = state
-    C.state.mkdir(parents=True, exist_ok=True)
-    C.build = C.state / "build"
-    C.dpi = a.dpi
-    C.envs = tuple(e.strip() for e in a.float_envs.split(",") if e.strip())
-    C.timeout = a.build_timeout
+    state.mkdir(parents=True, exist_ok=True)
     port = a.port or startup.free_port()
     if isinstance(port, StartupRefused):
         return port
-    C.port = port
-    C.allow = frozenset(x.strip() for x in a.allow.split(",") if x.strip())
-    C.origin_check = not a.no_origin_check
-    C.git_pull = a.git_pull
-    C.pdfjs_dir = Path(a.pdfjs_dir).expanduser().resolve() if a.pdfjs_dir else default_pdfjs_dir()
-    C.repo = startup.git_remote_url(C.src)
-    label = startup.run_label(a.label, C.src, C.repo)
+    repo = startup.git_remote_url(src)
+    label = startup.run_label(a.label, src, repo)
     if isinstance(label, StartupRefused):
         return label
-    C.label = label
-    accent = startup.run_accent(a.accent, C.label)
+    accent = startup.run_accent(a.accent, label)
     if isinstance(accent, StartupRefused):
         return accent
-    C.accent = accent
-    return picked.docs
+    config = RunConfig(
+        src=src,
+        main=picked.main,
+        state=state,
+        port=port,
+        dpi=a.dpi,
+        envs=tuple(e.strip() for e in a.float_envs.split(",") if e.strip()),
+        timeout=a.build_timeout,
+        allow=frozenset(x.strip() for x in a.allow.split(",") if x.strip()),
+        origin_check=not a.no_origin_check,
+        git_pull=a.git_pull,
+        pdfjs_dir=Path(a.pdfjs_dir).expanduser().resolve() if a.pdfjs_dir else default_pdfjs_dir(),
+        label=label,
+        accent=accent,
+        repo=repo,
+        access=access_opts,
+    )
+    return RunStart(config, startup.docs_of(picked.docs, config.paths) if picked.docs else None)
 
 
 def prepare(docs: list[Doc] | None, no_build: bool) -> StartupRefused | None:
@@ -1299,34 +1290,38 @@ def listen() -> Server | StartupRefused:
     """The HTTP server on --bind/--port with this module's Handler (Server6 for an IPv6 address), or the refusal when
     the port was taken during the build (the probe before it passed) or cannot be listened on."""
     try:
-        return (Server6 if ":" in C.bind else Server)((C.bind, C.port), Handler)
+        return (Server6 if ":" in C.access.bind else Server)((C.access.bind, C.port), Handler)
     except OSError as e:
-        return startup.listen_refusal(C.bind, C.port, e)
+        return startup.listen_refusal(C.access.bind, C.port, e)
 
 
 def start(a: argparse.Namespace) -> Server | StartupRefused:
-    """Every startup step, in order, until one refuses: access settings, the --port probe, the run settings and
-    documents, the viewer page for the run's label and accent (the viewer package is read here, not at import), the
-    store and builds, the summary, then the listening server."""
-    global VIEWER
-    refused = configure_access(a)
-    if refused is None and a.port:
-        refused = startup.probe_port(C.bind, a.port)
-    if refused is not None:
-        return refused
-    docs = configure_run(a)
-    if isinstance(docs, StartupRefused):
-        return docs
+    """Every startup step, in order, until one refuses: the access options (limn.startup.access_options: main() stops
+    before any build, so a misconfigured unit fails fast), the --port probe, the run settings and documents - bound
+    once, here, as C - the viewer page for the run's label and accent (the viewer package is read here, not at
+    import), the store and builds, the summary, then the listening server."""
+    global C, VIEWER
+    access_opts = startup.access_options(a)
+    if isinstance(access_opts, StartupRefused):
+        return access_opts
+    if a.port:
+        refused = startup.probe_port(access_opts.bind, a.port)
+        if refused is not None:
+            return refused
+    run = configure_run(a, access_opts)
+    if isinstance(run, StartupRefused):
+        return run
+    C = run.config
     VIEWER = serve_viewer(read_viewer(), C.label, C.accent)
-    refused = prepare(docs, a.no_build)
+    refused = prepare(run.docs, a.no_build)
     if refused is not None:
         return refused
-    report(docs)
+    report(run.docs)
     return listen()
 
 
 def main() -> None:
-    """The composition root: parse the arguments, then start() settles the run settings (C), makes the documents,
+    """The composition root: parse the arguments, then start() makes and binds the run settings (C), the documents,
     prepares the pin store and the builds, starts the watch threads and opens the server; serve until stopped. The
     one place the process exits on a refused start: the refusal's message on stderr, status 1."""
     started = start(build_arg_parser().parse_args())

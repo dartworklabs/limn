@@ -414,7 +414,7 @@ class ColdDeepLink(BrowserBase):
         super().setUp()
         src = ps.C.src
         (src / "hl.tex").write_text((src / "main.tex").read_text(encoding="utf-8"), encoding="utf-8")
-        ps.set_docs(startup.make_docs(["ms=본문:main.tex", "hl=하이라이트:hl.tex"], src, ps.C))
+        ps.set_docs(startup.make_docs(["ms=본문:main.tex", "hl=하이라이트:hl.tex"], src, ps.C.paths))
         for D in ps.DOCS:
             pages = D.dir / "pages-20260925100000"
             pages.mkdir(parents=True, exist_ok=True)

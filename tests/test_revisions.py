@@ -30,7 +30,19 @@ from limn.store import find_pin
 from limn.web import parse
 from limn.web.errors import InputRejected, scope_http_error
 
-from helpers import TEX, Base, extract_js_fn, minimal_pdf, needs_tex, ps, req, revision_spec, run_node, split_resp
+from helpers import (
+    TEX,
+    Base,
+    extract_js_fn,
+    minimal_pdf,
+    needs_tex,
+    ps,
+    req,
+    revision_spec,
+    run_node,
+    set_config,
+    split_resp,
+)
 from helpers_access import REPO_NEW as NEW, REPO_OLD as OLD, AccessBase, ScopedRepo, talk_to
 
 
@@ -102,7 +114,7 @@ class ManuscriptRevisions(Base):
                 ["git", "commit", "--quiet", "-m", key + " update"], cwd=self.repo, check=True, capture_output=True
             )
             heads[key] = path
-        docs = [Doc(k, k, src=self.repo, main=path, paths=ps.C) for k, path in heads.items()]
+        docs = [Doc(k, k, src=self.repo, main=path, paths=ps.C.paths) for k, path in heads.items()]
         for d in docs:
             history = revisions.revision_history(d)
             self.assertTrue(history["available"])
@@ -113,11 +125,11 @@ class ManuscriptRevisions(Base):
         self.assertEqual(ps.revision_diff(docs[0], hl_head), revisions.CommitNotRecent())
 
     def test_main_path_outside_document_source_is_unavailable(self):
-        bad = Doc("bad", "bad", src=self.src, main=self.secret, paths=ps.C)
+        bad = Doc("bad", "bad", src=self.src, main=self.secret, paths=ps.C.paths)
         self.assertFalse(revisions.revision_history(bad)["available"])
         link = self.src / "linked.tex"
         link.symlink_to(self.secret)
-        linked = Doc("linked", "linked", src=self.src, main=link, paths=ps.C)
+        linked = Doc("linked", "linked", src=self.src, main=link, paths=ps.C.paths)
         self.assertFalse(revisions.revision_history(linked)["available"])
 
     def test_caps_large_diff(self):
@@ -248,7 +260,7 @@ class ManuscriptRevisions(Base):
 
     def test_revision_requests_enforce_origin_allowlist_and_field_validation(self):
         body = json.dumps({"commit": self.latest}).encode()
-        ps.C.allow = frozenset({"allowed@example.com"})
+        set_config(allow=frozenset({"allowed@example.com"}))
         code, _, _ = split_resp(
             self.talk(
                 req(
@@ -260,7 +272,7 @@ class ManuscriptRevisions(Base):
             )
         )
         self.assertEqual(code, 403)
-        ps.C.allow = frozenset()
+        set_config(allow=frozenset())
         code, _, _ = split_resp(
             self.talk(
                 req(

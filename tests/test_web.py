@@ -32,7 +32,7 @@ from limn.web import answers
 from limn.web.app import App
 from limn.web.errors import PICK_REFUSALS, HTTPError, InputRejected, error_page_html, page_lang, ui_text
 
-from helpers import ps
+from helpers import Base, ps
 from helpers_access import AccessBase, member_add, talk_to
 
 SRC = Path(__file__).resolve().parent.parent / "src"
@@ -50,8 +50,9 @@ def show(record):
     return dict(record)
 
 
-class Binding(unittest.TestCase):
-    """server.Handler is limn.web.handler.Handler bound to the live globals of its own server module."""
+class Binding(Base):
+    """server.Handler is limn.web.handler.Handler bound to the live globals of its own server module - checked on a
+    configured copy (Base), since start() binds the run settings C before the server listens."""
 
     def test_server_module_provides_every_app_member(self):
         """A service the handler calls through App but server.py no longer defines would fail only when a request

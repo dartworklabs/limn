@@ -53,7 +53,7 @@ Limn은 **하나의 배포 단위(`dartwork-limn` 패키지) 안에서 표준 �
 
 ### 상태를 주고받는 방식
 
-1. **실행 설정 `C = Cfg()`는 조립 지점에만 있다.** 타입은 `limn/config.py`에 있고, 시작할 때 `limn/startup.py`의 규칙이 낸 값을 `server.py`가 채운다. 옮긴 모듈은 `C`를 읽지 않고, 필요한 값을 작은 설정 값(`BuildConfig`, `AccessSettings`, `MetaSettings`, `PickContext` 등)으로 받는다. HTTP 처리기는 `app.C`로 몇 개의 설정(Origin 검사 여부, 강조색, 원고 폴더)을 읽는다.
+1. **실행 설정 `C`는 얼린 값 하나이고 조립 지점에만 있다.** 타입은 `limn/config.py`의 `RunConfig`(접근 옵션 `AccessOptions`, 경로, 빌드 설정, 라벨·강조색)다. `start()`가 `limn/startup.py`의 규칙이 낸 답으로 이 값을 만들어(`configure_run`) 서버가 듣기 전에 한 번 묶고, 그 뒤로는 아무도 바꾸지 않는다. import만으로는 `C`가 없다. 옮긴 모듈은 `C`를 읽지 않고, 필요한 값을 작은 설정 값(`BuildConfig`, `AccessSettings`, `MetaSettings`, `PickContext` 등)으로 받는다. `identify()`·`admit()`이 읽는 `AccessSettings`는 `C`마다 한 번 만든다(`C.access_settings`). 문서는 시작할 때 고정한 경로 값(`C.paths`, `limn.documents.RunPaths`)을 받는다. HTTP 처리기는 `app.C`로 몇 개의 설정(Origin 검사 여부, 강조색, 원고 폴더)을 읽는다. 다른 설정이 필요한 테스트는 값을 바꾸지 않고 새 값을 만들어 묶는다(`tests/helpers.py`의 `set_config`).
 2. **문서는 인자다.** 처리기가 요청의 문서를 찾아(`request_doc`) 서비스마다 넘기고, 빌드 스레드는 자기 문서를 갖고 시작하며, 기동은 문서 목록을 돈다. "지금 문서" 같은 스레드 지역 값은 없다.
 3. **잠금과 상태는 주인이 하나다.** 핀 잠금 `PIN_LOCK`은 `server.py`가 프로세스에 하나 만들어 `pin_store()`로 저장소(`limn/store.py`)에 넘긴다. 저장소 자신은 잠금을 만들지 않는다. 문서마다의 빌드 잠금과 빌드 상태는 문서 객체(`limn/documents.py`의 `Doc`)가 갖는다.
 

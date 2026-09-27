@@ -22,7 +22,7 @@ from urllib.parse import quote
 from limn import access
 from limn.cli import cli_audit
 
-from helpers import ps, req, split_resp
+from helpers import DEFAULT_ACCESS, ps, req, set_config, split_resp
 from helpers_access import ALICE, BOB, CAROL, AccessBase, talk_to
 
 SECRET = "url = https://alice:hunter2@example.com/repo.git"
@@ -104,9 +104,8 @@ class StateFolderInManuscript(AccessBase):
         (tokens.json and its audit line), a pin by Alice (pins.jsonl, pins.md) and events.jsonl. notes.tex is a
         normal-looking link into it."""
         super().setUp()
-        ps.C.state = self.src / "limn-state"
+        set_config(state=self.src / "limn-state")
         ps.C.state.mkdir()
-        ps.C.build = ps.C.state / "build"
         ps.init_seq()
         self.set_people([{"login": "bob@example.com", "name": "Bob Park", "role": "viewer"}])
         access.token_create(ps.C.state, "ci", cli_audit(ps.C.state))
@@ -165,26 +164,29 @@ class StateFolderInManuscript(AccessBase):
 
     def test_startup_warns_about_the_folder_and_refuses_one_holding_the_document(self):
         """configure_run with --state-dir inside the manuscript starts and prints the one warning on stderr; with the
-        manuscript folder itself as --state-dir it refuses before creating or using anything."""
+        manuscript folder itself as --state-dir it refuses before creating or using anything. It answers a value and
+        binds nothing (start() binds C)."""
         src = self.src.resolve()
 
         def configure(state):
             """configure_run for `limn serve --manuscript <src> --state-dir <state>` -> (answer, stderr)."""
             a = ps.build_arg_parser().parse_args(["--manuscript", str(src), "--state-dir", str(state), "--no-build"])
             with mock.patch("sys.stderr", io.StringIO()) as err:
-                return ps.configure_run(a), err.getvalue()
+                return ps.configure_run(a, DEFAULT_ACCESS), err.getvalue()
 
+        before = ps.C
         got, err = configure(src / "st2")
-        self.assertIsNone(got)
-        self.assertEqual((ps.C.state, ps.C.build), (src / "st2", src / "st2" / "build"))
+        self.assertIsInstance(got, ps.RunStart)
+        self.assertEqual((got.config.state, got.config.build, got.docs), (src / "st2", src / "st2" / "build", None))
         self.assertEqual(err.count("warning:"), 1, err)
         self.assertIn("warning: the state folder %s is inside the manuscript %s" % (src / "st2", src), err)
         got, err = configure(src)
         self.assertIsInstance(got, ps.StartupRefused)
         self.assertIn("holds %s, a document this run serves" % (src / "main.tex"), got.message)
-        self.assertEqual(ps.C.state, src / "st2")  # the refused run changed nothing
+        self.assertIs(ps.C, before)  # configure_run changed nothing
         got, err = configure(src.parent / "beside")
-        self.assertEqual((got, err), (None, ""))
+        self.assertIsInstance(got, ps.RunStart)
+        self.assertEqual(err, "")
 
 
 GOOD = [
@@ -280,13 +282,13 @@ class UnreadablePeople(AccessBase):
     def test_members_only_admits_nobody_from_an_unreadable_file(self):
         """Under --members-only, listed people are refused 403 not_member while the file is broken; a login given
         with --allow does not depend on the file and is still admitted, as a viewer; fixed, Alice is back in."""
-        ps.C.members_only = True
+        set_config(members_only=True)
         ps.C.people_file.write_bytes(b"{not json\n")
         with mock.patch("sys.stderr", io.StringIO()):
             for h in (ALICE, BOB, CAROL):
                 code, d = self.call("GET", "/api/meta?light=1", headers=h)
                 self.assertEqual((code, d.get("reason")), (403, "not_member"), h)
-            ps.C.allow = frozenset({"carol@example.com"})
+            set_config(allow=frozenset({"carol@example.com"}))
             code, d = self.call("GET", "/api/meta?light=1", headers=CAROL)
         self.assertEqual((code, d["me"]["role"]), (200, "viewer"))
         self.assertEqual(ps.C.people_file.read_bytes(), b"{not json\n")

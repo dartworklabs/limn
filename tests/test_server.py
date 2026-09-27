@@ -57,6 +57,7 @@ from helpers import (
     ps,
     record_of,
     req,
+    set_config,
     shut_wr,
     split_resp,
 )
@@ -66,7 +67,7 @@ from helpers_access import BOB_ACTOR
 class Smuggling(Base):
     def test_403_body_is_not_parsed_as_next_request(self):
         pid = self.add()
-        ps.C.allow = frozenset({"ok@example.com"})
+        set_config(allow=frozenset({"ok@example.com"}))
         inner = req("POST", "/api/pins/%d/close" % pid)
         out = self.talk(
             req(
@@ -269,7 +270,7 @@ class CrossOrigin(Base):
         self.assertIsNotNone(self.pin(pid))
 
     def test_no_origin_check_switch(self):
-        ps.C.origin_check = False
+        set_config(origin_check=False)
         out = self.talk(
             req("GET", "/api/meta", headers={"Host": "box.example.com", "Tailscale-User-Login": "ok@example.com"})
         )
@@ -278,7 +279,7 @@ class CrossOrigin(Base):
         self.assertIn(b" 403 ", self.talk(req("GET", "/api/meta", headers={"Host": "box.example.com"})))
 
     def test_allow_rejects_headerless_tailnet_request(self):
-        ps.C.allow = frozenset({"ok@example.com"})
+        set_config(allow=frozenset({"ok@example.com"}))
         out = self.talk(req("GET", "/api/meta", headers={"Host": "box.tail1234.ts.net"}))  # tag-device shape
         self.assertIn(b" 403 ", out)
         out = self.talk(req("GET", "/api/meta"))  # loopback curl
@@ -361,14 +362,14 @@ class VendorPdfjs(Base):
         secret.write_text("secret-module", encoding="utf-8")
         (d / "evil.mjs").symlink_to(secret)
         (d / "ok.mjs").write_text("export const ok=1;", encoding="utf-8")
-        ps.C.pdfjs_dir = d
+        set_config(pdfjs_dir=d)
         self.assertEqual(self.get("/vendor/pdfjs/ok.mjs")[0], 200)
         code, _h, body = self.get("/vendor/pdfjs/evil.mjs")
         self.assertEqual(code, 404)
         self.assertNotIn(b"secret-module", body)
 
     def test_missing_vendor_dir_is_404_not_500(self):
-        ps.C.pdfjs_dir = Path(self.tmp.name) / "nowhere"
+        set_config(pdfjs_dir=Path(self.tmp.name) / "nowhere")
         code, h, _ = self.get("/vendor/pdfjs/pdf.min.mjs")
         self.assertEqual(code, 404)  # the viewer sees this and falls back to PNG
 
@@ -818,11 +819,12 @@ class MultiDoc(Base):
     def test_single_doc_mode_keeps_legacy_paths(self):
         ps.set_docs(None)
         self.assertFalse(ps.multi_doc())
-        self.assertIs(ps.DOCS[0], ps.LEGACY_DOC)
+        self.assertTrue(ps.DOCS[0].legacy)
         self.assertEqual(limn_build.cur_pages(ps.DOCS[0]), ps.C.state / "pages")
-        self.assertEqual(ps.LEGACY_DOC.build, ps.C.build)
-        self.assertIs(ps.LEGACY_DOC.lock, ps.BUILD_LOCK)  # the old global lock/state IS this document's
-        self.assertIs(ps.LEGACY_DOC.bstate, ps.BUILD_STATE)
+        self.assertEqual(ps.DOCS[0].build, ps.C.build)
+        self.assertEqual(ps.DOCS[0].paths, ps.C.paths)  # the frozen run paths it was made with
+        self.assertIs(ps.DOCS[0].lock, ps.BUILD_LOCK)  # the old global lock/state IS this document's
+        self.assertIs(ps.DOCS[0].bstate, ps.BUILD_STATE)
         pid = self.add()
         self.assertEqual(self.pin(pid)["doc"], "main")
         md = ps.pins_md_text(ps.snapshot_pins())

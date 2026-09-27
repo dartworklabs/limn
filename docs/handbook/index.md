@@ -65,7 +65,7 @@ catalog_schema: 1
 | `src/limn/access.py` | 접근 제어: 신원·입장·역할·Host/Origin 판단, `tokens.json`·`people.json` 캐시, `limn token`·`limn member`의 상태 도우미(`people.json` 형식은 `people.py`의 것). 토큰 파일 안내 문구는 위의 `guidance.py` | 신원 방식·토큰·역할·Host/Origin 규칙 변경(보안 경계, architecture.md §멈춤 신호) | api.md §인증, architecture.md 불변식 1, operations.md, verification.md |
 | `src/limn/startup.py` | `limn serve` 시작 규칙: 접근 설정 판단(`access_options`, 보안 경계)과 시작 로그, `--port` 확인, `--doc` 해석·메인 파일·상태 폴더, `people.json` 권한 조이기, 라벨·색, 시작 요약 줄, 패키지 버전(`app_version`). 거절은 `StartupRefused` 값(`--doc`의 거절은 먼저 `DocsRefusal` 값) | 시작 거절·바인드 규칙·요약 줄 변경(바인드 규칙은 architecture.md §멈춤 신호) | architecture.md 불변식 1, operations.md, verification.md |
 | `src/limn/args.py` | `limn serve` 명령줄 파서(`serve_parser`): 옵션·기본값·도움말 | 인자 추가나 변경 | operations.md, instances.md |
-| `src/limn/config.py` | 실행 설정의 타입 `Cfg`(필드와 상태 파일 경로)와 강조색 표 | 실행 설정 추가나 변경 | architecture.md |
+| `src/limn/config.py` | 실행 설정의 얼린 타입 `RunConfig`(필드와 상태 파일 경로)와 그 안의 접근 옵션 `AccessOptions`, 강조색 표 | 실행 설정 추가나 변경 | architecture.md |
 | `src/limn/ui_en.json` | 뷰어 영어 문자열 | UI 문자열 추가·변경 | viewer.md |
 | `src/limn/instances.sh`, `src/limn/cli.py`, `src/limn/systemd/*` | 인스턴스 관리자와 limn 명령 | 명령·설정 키·유닛 템플릿 변경 | instances.md, operations.md |
 | `src/limn/migrate.py` | 옛 설치에서 옮기기 | 이전 절차 변경 | instances.md |

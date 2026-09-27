@@ -8,6 +8,7 @@ than one test file uses is here. None of the
 classes holds a test, so importing one never collects a test twice.
 """
 
+import dataclasses
 import json
 import os
 import re
@@ -21,10 +22,9 @@ from pathlib import Path
 from limn import access, config
 from limn.access import LOCAL_ACTOR
 from limn.cli import cli_audit
-from limn.config import Cfg
 from limn.store import dump_jsonl
 
-from helpers import Base, add_pin, ps, req, shut_wr, split_resp
+from helpers import DEFAULT_ACCESS, Base, add_pin, ps, req, run_config, set_config, shut_wr, split_resp
 
 # Tailnet identities as the request headers `tailscale serve` adds. Every server-level module uses these three.
 ALICE = {"Tailscale-User-Login": "alice@example.com", "Tailscale-User-Name": "Alice Kim"}
@@ -49,28 +49,19 @@ DAVE = {"Tailscale-User-Login": "dave@example.com", "Tailscale-User-Name": "Dave
 TS_HOST = "box.tail1234.ts.net"
 
 
-ACCESS_DEFAULTS = dict(
-    auth="tailscale",
-    agent_loopback=True,
-    tailnet_agent=False,
-    bind="127.0.0.1",
-    public_hosts=(),
-    trusted_proxies=Cfg.trusted_proxies,
-    proxy_user_header="X-Forwarded-User",
-    proxy_name_header="X-Forwarded-Preferred-Username",
-    proxy_email_header=None,
-    members_only=False,
-    local_user=None,
-    insecure=False,
-    agent_token_file=None,
-)
+# The default access options by name (helpers.DEFAULT_ACCESS), for an older server copy whose settings are attributes.
+ACCESS_DEFAULTS = {f.name: getattr(DEFAULT_ACCESS, f.name) for f in dataclasses.fields(DEFAULT_ACCESS)}
 
 
 def reset_access(mod=ps):
-    """Access settings back to the v0.1-equivalent defaults (the Cfg object is shared by every test module)."""
-    for k, v in ACCESS_DEFAULTS.items():
-        setattr(mod.C, k, v)
-    mod.C.allow = frozenset()
+    """Access settings back to the v0.1-equivalent defaults and no --allow. The current server binds a RunConfig with
+    them (set_config); an older copy (tests/data) has them set on its mutable Cfg."""
+    if hasattr(mod, "RunConfig"):
+        set_config(mod, access=DEFAULT_ACCESS, allow=frozenset())
+    else:
+        for k, v in ACCESS_DEFAULTS.items():
+            setattr(mod.C, k, v)
+        mod.C.allow = frozenset()
     mod.LOOPBACK_WARNING = access.WarnOnce(access.LOOPBACK_AGENT_DEPRECATION)  # a fresh process: warns again
     mod.TOKENS_CACHE = access.FileCache()
     mod.ROLES_CACHE = access.FileCache()
@@ -192,14 +183,18 @@ class AccessBase(Base):
 
 
 def configure(mod, src: Path, main: Path, state: Path) -> None:
-    """The same run configuration Base uses, applied to any server module (v0.1 or current)."""
-    C = mod.C
-    C.src, C.main, C.state, C.build = src, main, state, state / "build"
-    C.port, C.dpi, C.timeout = 18999, 150, 60
-    C.envs = tuple(mod.DEFAULT_ENVS.split(","))
-    C.allow = frozenset()
-    C.origin_check, C.git_pull, C.pdfjs_dir = True, False, None
-    C.label, C.accent, C.repo = "원고", config.ACCENT_PALETTE[0], None
+    """The same run configuration Base uses, applied to any server module (v0.1 or current): the current one binds a
+    RunConfig (run_config), an older copy has its mutable Cfg filled in."""
+    if hasattr(mod, "RunConfig"):
+        mod.C = run_config(src, main, state)
+    else:
+        C = mod.C
+        C.src, C.main, C.state, C.build = src, main, state, state / "build"
+        C.port, C.dpi, C.timeout = 18999, 150, 60
+        C.envs = tuple(mod.DEFAULT_ENVS.split(","))
+        C.allow = frozenset()
+        C.origin_check, C.git_pull, C.pdfjs_dir = True, False, None
+        C.label, C.accent, C.repo = "원고", config.ACCENT_PALETTE[0], None
     mod.BUILD_STATE.update(
         state="idle",
         phase=None,
@@ -372,7 +367,7 @@ class MovedManuscriptBase(AccessBase):
 
     def use_root(self, root: Path):
         """Point the server at a manuscript root, as `limn serve --manuscript <root>` would."""
-        ps.C.src, ps.C.main = root, root / "main.tex"
+        set_config(src=root, main=root / "main.tex")
 
     def pin_at(self, rel, lo, hi, note="n"):
         """Add a line pin on the manuscript file rel (relative to the current root); returns its id."""

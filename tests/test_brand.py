@@ -18,7 +18,7 @@ from urllib.parse import unquote
 from limn import mark
 from limn.viewer import assemble
 
-from helpers import page_for, ps, req, split_resp, viewer_text
+from helpers import page_for, ps, req, set_config, split_resp, viewer_text
 from helpers_access import AccessBase, talk_to
 from helpers_browser import ChromiumTestCase
 
@@ -177,7 +177,7 @@ class FaviconRoutes(AccessBase):
 
     def test_png_routes_draw_the_instance_accent(self):
         """Both routes answer image/png of their size, in C.accent, cacheable; the query only busts caches."""
-        ps.C.accent = "#be123c"
+        set_config(accent="#be123c")
         for path, size in (("/favicon-32.png", 32), ("/apple-touch-icon.png", 180), ("/favicon-32.png?c=be123c", 32)):
             with self.subTest(path=path):
                 code, hdrs, body = self.get(path)

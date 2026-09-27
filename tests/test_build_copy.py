@@ -17,7 +17,7 @@ from limn import build
 from limn.build import CopyFailed
 from limn.web.errors import build_failure_log
 
-from helpers import Base, ps
+from helpers import Base, ps, set_config
 
 # run_logged's result if latexmk ran and produced nothing - keeps a regressed build on the assertion path.
 NO_PDF = (1, "", False)
@@ -154,9 +154,8 @@ class StateFolderBuild(Base):
 
     def test_a_build_leaves_the_state_folder_out_of_its_copy(self):
         """With C.state = <ms>/limn-state (people.json in it), the build copy holds main.tex and no state file."""
-        ps.C.state = self.src / "limn-state"
+        set_config(state=self.src / "limn-state")
         ps.C.state.mkdir()
-        ps.C.build = ps.C.state / "build"
         (ps.C.state / "people.json").write_text("{}\n", encoding="utf-8")
         with mock.patch.object(build, "run_logged", return_value=NO_PDF):
             ps._build(ps.DOCS[0])

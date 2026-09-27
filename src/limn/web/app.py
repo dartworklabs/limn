@@ -8,10 +8,11 @@ rebind on their server copy (mock.patch.object(ps, "build_async")) is the one th
 
 The members are server.py's services and wirings. The handler finds the request's document (request_doc) and passes
 it to every member that acts on one - there is no "current document" - and it parses what a route takes from the
-request (limn.web.parse) and passes the parsed values. Some members still read the run settings C themselves; making
-the run settings and the application explicit values is open work (docs/handbook/code-style-roadmap.md §다음).
+request (limn.web.parse) and passes the parsed values. Some members read the run settings C themselves: a frozen
+value (limn.config.RunConfig) the composition root binds once at startup. Making the application itself an explicit
+value is open work (docs/handbook/code-style-roadmap.md §다음).
 
-The run settings, a document and a principal are server.py's own types (limn.config.Cfg, limn.documents.Doc,
+The run settings, a document and a principal are server.py's own types (limn.config.RunConfig, limn.documents.Doc,
 limn.access.Principal), not narrower views of them: server.py's members take those types, and mypy checks server.py's
 module against this Protocol (the `if TYPE_CHECKING:` assignment after server.Handler), so a missing or wrongly typed
 binding is a type error. tests/test_web.py checks at run time that server.py provides every member.
@@ -24,7 +25,7 @@ from typing import Any, Protocol, TypeAlias
 
 from limn import access
 from limn.build import BuildBusy, BuildStarted, FinishedBuild, ViewOnlyNoRebuild
-from limn.config import Cfg
+from limn.config import RunConfig
 from limn.documents import Doc, DocNotFound
 from limn.locate import Picked, PickedRegion, PickRefusal
 from limn.pins.edit import AddRequest, EditRefusal, EditRequest
@@ -52,7 +53,7 @@ Query: TypeAlias = dict[str, list[str]]  # parse_qs() of the request's query str
 
 # The run settings the handler reads (C: origin_check, src, state, accent), a document a request acts on (key, is_pdf) and
 # who a request is (actor, role, via) - server.py's own types, so its members type-check against App.
-Config: TypeAlias = Cfg
+Config: TypeAlias = RunConfig
 Document: TypeAlias = Doc
 Principal: TypeAlias = access.Principal
 

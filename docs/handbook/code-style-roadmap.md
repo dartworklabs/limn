@@ -208,7 +208,7 @@ def parse_note(v: object) -> str | InputRejected:
 
 **업계에서 부르는 이름.** 명시적 의존성 주입과 composition root (Mark Seemann, *Dependency Injection Principles, Practices, and Patterns*).
 
-**지금 코드.** 실행 설정 `C = Cfg()`와 문서 목록 `DOCS`, 프로세스에 하나인 잠금·캐시는 조립 지점 `server.py`에만 있다. 다른 모듈은 서버를 가져오지 않고, HTTP 처리기가 `app.C`로 읽는 설정 몇 개를 빼면 `C`를 읽지 않는다. 설정은 작은 값(`BuildConfig`, `AccessSettings`, `MetaSettings`, `PickContext` 등)으로, 협력자는 `PinContext` 같은 값으로 받는다. 문서는 언제나 인자다. 처리기가 요청의 문서를 찾아 서비스마다 넘기고, 빌드 스레드는 자기 문서로 시작한다.
+**지금 코드.** 실행 설정 `C`(얼린 `RunConfig`, `start()`가 한 번 묶는다)와 문서 목록 `DOCS`, 프로세스에 하나인 잠금·캐시는 조립 지점 `server.py`에만 있다. 다른 모듈은 서버를 가져오지 않고, HTTP 처리기가 `app.C`로 읽는 설정 몇 개를 빼면 `C`를 읽지 않는다. 설정은 작은 값(`BuildConfig`, `AccessSettings`, `MetaSettings`, `PickContext` 등)으로, 협력자는 `PinContext` 같은 값으로 받는다. 문서는 언제나 인자다. 처리기가 요청의 문서를 찾아 서비스마다 넘기고, 빌드 스레드는 자기 문서로 시작한다.
 
 > **예시**
 >
