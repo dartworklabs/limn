@@ -162,7 +162,7 @@ def confirm_answer(result: DonePin | AlreadyDone | PinStillOpen | AgentCannotCon
 
 def add_answer(result: OpenPin) -> Body:
     """POST /api/pin: the new pin's id (a refused field was answered by accepted() before the pin was made)."""
-    return {"id": result.record["id"]}
+    return {"id": result.core.id}
 
 
 def edit_answer(result: OpenPin | ReviewPin | DonePin | EditRefusal | PinNotFound, show: Show) -> Body:
