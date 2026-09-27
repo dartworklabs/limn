@@ -334,6 +334,15 @@ class Watch(unittest.TestCase):
         self.once(SyncWatch(), Pulled(A, B))
         self.assertEqual(self.started, [self.ms, self.hl])
 
+    def test_one_pass_documents_rebuild_after_pull(self):
+        """An iterable consumed while claiming locks still supplies documents for rebuild decisions."""
+        watch = SyncWatch()
+        out = watch.once(
+            iter(self.docs), True, lambda: Pulled(A, B), PullShare(), self.started.append, lambda: "T", FakeClock(5.0)
+        )
+        self.assertEqual(self.started, [self.ms, self.hl])
+        self.assertEqual(out["state"], "updating")
+
     def test_refusal_is_recorded_and_builds_nothing(self):
         """A refused pull replaces the status with blocked/error and its reason."""
         watch = SyncWatch()

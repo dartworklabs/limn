@@ -144,6 +144,8 @@ def close_pin(
         event = decide_close(pin, typed_actor(actor), ctx.now(), request)
         if isinstance(event, AlreadyClosed):
             return event, False
+        if not isinstance(pin, OpenPin):
+            raise AssertionError("decide_close accepted a pin that was already closed")
         closed = evolve_close(pin, event)
         pins[i] = closed
         r = closed.record

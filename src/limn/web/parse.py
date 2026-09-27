@@ -841,7 +841,7 @@ def parse_add(d: Json, known: Collection[str], facts: DocumentFacts) -> AddReque
         line = parse_loc(named, facts)
         if isinstance(line, InputRejected):
             return line
-        place = LinePlace(line.to_record(), frozenset(named))
+        place = LinePlace(line.to_record(), frozenset(key for key, value in named.items() if value is not None))
     note = parse_note(d.get("note"))
     if isinstance(note, InputRejected):
         return note
@@ -958,13 +958,16 @@ def parse_edit_place(body: EditBody, region: bool, facts: DocumentFacts) -> Plac
     line = parse_loc(loc, facts)
     if isinstance(line, InputRejected):
         return line
-    return LinePlace(replace(line, pdf_build=_placed_build(loc, line.pdf_build, facts)).to_record(), frozenset(loc))
+    return LinePlace(
+        replace(line, pdf_build=_placed_build(loc, line.pdf_build, facts)).to_record(),
+        frozenset(key for key, value in loc.items() if value is not None),
+    )
 
 
 def _placed_build(loc: Json, sent: str | None, facts: DocumentFacts) -> str | None:
     """The pdf_build an edit's re-placement records: the one sent, else the build on screen, when loc re-places frac
     (its coordinates belong to that build); None - the pin's own is kept - when loc sends no frac."""
-    if "frac" not in loc:
+    if loc.get("frac") is None:
         return None
     current = facts.current_build()  # read even when one was sent, as it always has been
     return sent if sent is not None else current

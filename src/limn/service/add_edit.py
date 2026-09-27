@@ -60,7 +60,7 @@ def _add_line_pin(ctx: PinContext, place: LinePlace, request: AddRequest, actor:
     and limn.pins.edit.new_line_pin() builds the record. The notices are made from the finished record, so they name
     the pin's own document D.
     """
-    f = Path(place.fields["file"])
+    f = Path(place.file)
     lines = tex_lines(f)
     evs: list[Event | None] = []
 
@@ -69,9 +69,7 @@ def _add_line_pin(ctx: PinContext, place: LinePlace, request: AddRequest, actor:
         at = ctx.now()
         pid = ctx.store.next_id(pins)
         tags = ctx.note_tags(request.note, "", pins, request.hints, actor, pid)
-        anchoring = Anchoring(
-            anchor_of(lines, place.fields["lo"], place.fields["hi"]), f.stat().st_mtime if f.exists() else 0
-        )
+        anchoring = Anchoring(anchor_of(lines, place.lo, place.hi), f.stat().st_mtime if f.exists() else 0)
         # Pins down which build's layout coordinates frac belongs to, by build identity (§Position estimation): the
         # viewer echoes pdf_build from the pick response; a call without it (agent curl) takes the current build.
         pin = new_line_pin(
@@ -84,7 +82,7 @@ def _add_line_pin(ctx: PinContext, place: LinePlace, request: AddRequest, actor:
             anchoring,
             build.cur_pages(D).name,
             D.key,
-            located(ctx.locate({"file": place.fields["file"]})),
+            located(ctx.locate({"file": place.file})),
         )
         pins.append(pin)
         evs.append(ctx.make_event("mention", pin.record, actor, tags.notify, text=request.note))

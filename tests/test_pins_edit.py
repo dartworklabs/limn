@@ -74,6 +74,48 @@ def edited(**fields):
     return PinEdited(ALICE_PERSON, AT, **base)
 
 
+class PlaceInvariants(unittest.TestCase):
+    """A place constructed inside the application must carry the fields its consumers read without further checks."""
+
+    def test_line_place_rejects_missing_or_invalid_required_fields(self):
+        """File, name, ordered positive lines and page are required even when a caller bypasses HTTP parsing."""
+        valid = {"file": "/ms/main.tex", "name": "main.tex", "lo": 2, "hi": 3, "page": 1}
+        for bad in ({"file": None}, {"lo": None}, {"lo": 0}, {"hi": 1}, {"page": True}, {"name": ""}):
+            with self.subTest(bad=bad), self.assertRaises(ValueError):
+                LinePlace({**valid, **bad}, frozenset())
+
+    def test_region_place_rejects_missing_or_invalid_required_fields(self):
+        """A region always has an absolute PDF, page and a positive area inside that page."""
+        valid = {"pdf": "/ms/r.pdf", "name": "r.pdf", "kind": "region", "page": 2, "frac": [0.1, 0.1, 0.2, 0.2]}
+        for bad in ({"pdf": None}, {"page": 0}, {"frac": [0, 0, 0, 1]}, {"frac": [0, 0, 2, 1]}):
+            with self.subTest(bad=bad), self.assertRaises(ValueError):
+                RegionPlace({**valid, **bad})
+
+    def test_place_records_are_snapshots(self):
+        """Mutating either the input or an exposed record cannot change a validated place later used for a write."""
+        line_fields = {"file": "/ms/main.tex", "name": "main.tex", "lo": 2, "hi": 3, "page": 1}
+        line = LinePlace(line_fields, frozenset())
+        line_fields["lo"] = 99
+        line.fields["hi"] = 99
+        self.assertEqual((line.lo, line.hi, line.fields["lo"], line.fields["hi"]), (2, 3, 2, 3))
+
+        region_fields = {"pdf": "/ms/r.pdf", "name": "r.pdf", "kind": "region", "page": 1, "frac": [0, 0, 1, 1]}
+        region = RegionPlace(region_fields)
+        region_fields["frac"][2] = 0
+        region.fields["frac"][2] = 0
+        self.assertEqual(region.fields["frac"], [0, 0, 1, 1])
+
+    def test_places_reject_state_fields_and_malformed_optional_values(self):
+        """A caller cannot put state or malformed coordinate fields into a location later copied to a pin record."""
+        line = {"file": "/ms/main.tex", "name": "main.tex", "lo": 2, "hi": 3, "page": 1}
+        for extra in ({"done": True}, {"frac": [0, 0, float("inf"), 1]}, {"via": "unknown"}):
+            with self.subTest(extra=extra), self.assertRaises(ValueError):
+                LinePlace({**line, **extra}, frozenset())
+        region = {"pdf": "/ms/r.pdf", "name": "r.pdf", "kind": "region", "page": 1, "frac": [0, 0, 1, 1]}
+        with self.assertRaises(ValueError):
+            RegionPlace({**region, "thread": []})
+
+
 class DecideEdit(unittest.TestCase):
     """What an edit may do, checked before anything changes; refusals are returned values."""
 
@@ -86,7 +128,14 @@ class DecideEdit(unittest.TestCase):
             self.assertEqual(decide(pin, base_rev=2, lo=4), ClosedPinReshaped(pin))
             self.assertEqual(decide(pin, base_rev=2, scope="para"), ClosedPinReshaped(pin))
             self.assertEqual(
-                decide(pin, base_rev=2, place=LinePlace({"file": "/ms/main.tex"}, frozenset())), ClosedPinReshaped(pin)
+                decide(
+                    pin,
+                    base_rev=2,
+                    place=LinePlace(
+                        {"file": "/ms/main.tex", "name": "main.tex", "lo": 4, "hi": 5, "page": 2}, frozenset()
+                    ),
+                ),
+                ClosedPinReshaped(pin),
             )
             self.assertIsInstance(decide(pin, base_rev=2, note="n", kind_req="question", assignee="agent"), PinEdited)
 
@@ -141,7 +190,10 @@ class DecideEdit(unittest.TestCase):
 
     def test_a_line_re_placement_always_changes_the_range(self):
         """place replaces the location, so its lines are re-anchored; lo/hi alongside it are ignored."""
-        place = LinePlace({"file": "/ms/main.tex", "lo": 8, "hi": 9}, frozenset({"file", "lo", "hi"}))
+        place = LinePlace(
+            {"file": "/ms/main.tex", "name": "main.tex", "lo": 8, "hi": 9, "page": 1},
+            frozenset({"file", "lo", "hi"}),
+        )
         event = decide(OpenPin.from_record(line_record()), base_rev=2, place=place, lo=1)
         self.assertEqual((event.lines, event.range_changed, event.span()), (None, True, (8, 9)))
 
@@ -169,7 +221,7 @@ class EvolveEdit(unittest.TestCase):
     def test_line_re_placement_with_frac_forgets_frac_build_and_takes_scope_and_kind_from_the_request(self):
         """A named frac replaces the stored one and drops the legacy frac_build; scope/kind fill in what place lacks."""
         place = LinePlace(
-            {"file": "/ms/main.tex", "lo": 4, "hi": 5, "page": 3, "frac": [0, 0, 1, 1]},
+            {"file": "/ms/main.tex", "name": "main.tex", "lo": 4, "hi": 5, "page": 3, "frac": [0, 0, 1, 1]},
             frozenset({"file", "lo", "hi", "page", "frac"}),
         )
         out = evolve_edit(
@@ -186,7 +238,16 @@ class EvolveEdit(unittest.TestCase):
     def test_region_re_placement_sets_the_region_and_drops_an_unsent_quote(self):
         """A view-only pin's page, frac and pdf_build are replaced; a quote not sent is removed."""
         record = {"pdf": "/ms/r.pdf", "page": 1, "frac": [0, 0, 1, 1], "kind": "region", "quote": "old", "rev": 0}
-        place = RegionPlace({"pdf": "/ms/r.pdf", "page": 2, "frac": [0.1, 0.1, 0.2, 0.2], "pdf_build": "pages"})
+        place = RegionPlace(
+            {
+                "pdf": "/ms/r.pdf",
+                "name": "r.pdf",
+                "kind": "region",
+                "page": 2,
+                "frac": [0.1, 0.1, 0.2, 0.2],
+                "pdf_build": "pages",
+            }
+        )
         out = evolve_edit(OpenPin.from_record(record), edited(place=place), None, None, None, None).record
         self.assertEqual((out["page"], out["frac"], out["pdf_build"]), (2, [0.1, 0.1, 0.2, 0.2], "pages"))
         self.assertNotIn("quote", out)
@@ -277,10 +338,10 @@ class Helpers(unittest.TestCase):
     def test_file_after_takes_a_line_places_file_and_keeps_file_rel(self):
         """Only a line re-placement changes the file the shell locates; file_rel always goes along."""
         record = line_record(file_rel="main.tex")
-        place = LinePlace({"file": "/ms/b.tex"}, frozenset({"file"}))
+        place = LinePlace({"file": "/ms/b.tex", "name": "b.tex", "lo": 4, "hi": 5, "page": 1}, frozenset({"file"}))
         self.assertEqual(file_after(record, EditRequest(place=place)), {"file": "/ms/b.tex", "file_rel": "main.tex"})
         self.assertEqual(file_after(record, EditRequest(note="n")), {"file": "/ms/main.tex", "file_rel": "main.tex"})
-        region = RegionPlace({"page": 1})
+        region = RegionPlace({"pdf": "/r.pdf", "name": "r.pdf", "kind": "region", "page": 1, "frac": [0, 0, 1, 1]})
         self.assertEqual(file_after({"pdf": "/r.pdf"}, EditRequest(place=region)), {"file": None, "file_rel": None})
 
     def test_assignment_text_names_the_agent_or_the_person(self):
@@ -294,7 +355,12 @@ class Helpers(unittest.TestCase):
         self.assertFalse(EditRequest(note="n", kind_req="fix", assignee="agent").reshapes())
         self.assertTrue(EditRequest(kind="env").reshapes())
         self.assertTrue(EditRequest(hi=3).sets_lines())
-        self.assertFalse(EditRequest(hi=3, place=LinePlace({}, frozenset())).sets_lines())
+        self.assertFalse(
+            EditRequest(
+                hi=3,
+                place=LinePlace({"file": "/ms/main.tex", "name": "main.tex", "lo": 4, "hi": 5, "page": 1}, frozenset()),
+            ).sets_lines()
+        )
 
 
 class NewPins(unittest.TestCase):
@@ -352,7 +418,16 @@ class NewPins(unittest.TestCase):
     def test_new_line_pin_keeps_a_sent_build_and_kind_and_omits_empty_fields(self):
         """pdf_build the viewer sent wins over the current build; no kind_req, tags or assignee means no such fields."""
         place = LinePlace(
-            {"file": "/ms/main.tex", "lo": 4, "hi": 5, "kind": "env", "pdf_build": "pages-1"}, frozenset()
+            {
+                "file": "/ms/main.tex",
+                "name": "main.tex",
+                "lo": 4,
+                "hi": 5,
+                "page": 1,
+                "kind": "env",
+                "pdf_build": "pages-1",
+            },
+            frozenset(),
         )
         pin = new_line_pin(
             place, AddRequest(place, ""), 1, AT, {"login": "local"}, (), Anchoring({}, 0), "pages", "ms", None

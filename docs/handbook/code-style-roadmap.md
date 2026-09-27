@@ -115,6 +115,8 @@ HTTP 층의 `confirm_answer()`가 이 다섯 결과를 `match` 하나로 받아 
 
 **지금 코드.** 핀은 상태 타입의 합 `Pin = OpenPin | ReviewPin | DonePin`이고, 휴지통 사본은 `TrashedPin`이다([`limn/pins/model.py`](../../src/limn/pins/model.py)). 모든 상태가 함께 가진 필드는 `core: PinCore`로 타입이 있고, 전이·편집·위치 규칙은 `pin.core.rev`·`pin.core.thread`·`pin.core.place`처럼 이 속성을 읽는다. 그 상태에만 있는 필드는 타입의 속성이다. 열린 핀만 처리 중 표시(`Claim`)를, 닫힌 핀만 닫은 기록(`Close`)을, 완료 핀만 확인(`Confirmation`)을, 휴지통 사본만 삭제 기록(`Dropped`)을 가진다. 저장소는 레코드를 읽으며 핀으로 파싱해 서비스에 넘긴다. 저장 형식(`pins.jsonl`)과 API 모양은 그대로다([architecture.md](architecture.md) §불변식 3, 6). 비교 PDF 하나의 상태도 같은 방식으로 타입의 합(`IdleComparison | RunningComparison | ReadyComparison | FailedComparison`, [`limn/revisions.py`](../../src/limn/revisions.py))이다. 캐시를 읽는 쪽과 작업 목록이 이 타입을 내고, 캐시에서 답할지(`answered_from_cache`)와 응답 본문(`status_body`)은 타입으로 가른다. 저장된 `status.json`의 필드는 핀처럼 저장된 그대로 싣는다.
 
+새 핀의 위치 값(`LinePlace`·`RegionPlace`)은 직접 생성해도 필수 좌표와 필드 종류를 검사하고, 저장 필드의 불변 스냅숏을 가진다. HTTP 파서는 그 전에 파일 존재·줄 수·문서의 쪽 수처럼 외부 사실이 필요한 조건을 확인한다. `ClaimRequest`는 내부 생성에서도 양수 정수 시간을 요구하고, 닫기 이벤트의 적용 함수는 열린 핀만 받는다. HTTP의 시간 상한과 전이 허용 여부는 각각 경계와 판단 함수의 별도 책임이다.
+
 > **예시**
 >
 > "열린 핀의 `confirmed_by`"나 "닫힌 핀의 claim"을 담을 속성이 아예 없다.
@@ -147,7 +149,7 @@ def parse_pin(record: Record) -> Pin: ...  # by the one rule state_of(); never f
 
 한 상태에만 쓰는 전이는 그 상태 타입만 받는다(`confirm_review(pin: ReviewPin, ...)`). 어떤 상태든 올 수 있는 입구는 `match pin:`으로 타입을 나눈다. 상태 문자열을 비교하지 않는다.
 
-**확인하는 법.** 옛 레코드 모양을 읽어서 다시 쓰면 바이트 단위로 같아야 한다. [`tests/test_pins_model.py`](../../tests/test_pins_model.py)가 레코드 모양 말뭉치 [`tests/data/pin_records.jsonl`](../../tests/data/pin_records.jsonl)(테스트가 읽고 쓴 모양마다 하나, 그리고 옛 모양과 어긋난 값)으로 이것을 지킨다. 새 레코드 모양을 쓰는 코드를 더하면 말뭉치에도 그 모양을 더한다.
+**확인하는 법.** 옛 레코드 모양을 읽어서 다시 쓰면 바이트 단위로 같아야 한다. [`tests/test_pins_model.py`](../../tests/test_pins_model.py)가 레코드 모양 말뭉치 [`tests/data/pin_records.jsonl`](../../tests/data/pin_records.jsonl)(테스트가 읽고 쓴 모양마다 하나, 그리고 옛 모양과 어긋난 값)으로 이것을 지킨다. 새 레코드 모양을 쓰는 코드를 더하면 말뭉치에도 그 모양을 더한다. 새 명령 값은 HTTP를 거치지 않은 직접 생성에서도 잘못된 상태를 거절하는지 [`tests/test_pins_edit.py`](../../tests/test_pins_edit.py)와 [`tests/test_pins_lifecycle.py`](../../tests/test_pins_lifecycle.py)가 확인한다.
 
 > **참고**
 >

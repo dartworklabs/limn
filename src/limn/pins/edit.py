@@ -8,10 +8,13 @@ a returned value in the annotation, never an exception (docs/handbook/code-style
 
 from collections.abc import Sequence
 from dataclasses import dataclass
+from math import isfinite
+from posixpath import isabs
 from typing import Any, Literal, TypeAlias, TypeGuard, get_args
 
 from limn.pins.lifecycle import PinT, author, rev_after, signature, thread_message, with_entry
 from limn.pins.model import Actor, DonePin, KindReq, LineSpan, OpenPin, Pin, Record, ReviewPin
+from limn.pins.shapes import is_int, is_num
 
 # The assignee value that hands a pin to the agent rather than to a person (docs/handbook/api.md §담당).
 ASSIGNEE_AGENT = "agent"
@@ -32,28 +35,135 @@ LOC_FIELDS = ("file", "name", "page", "lo", "hi", "raw_lo", "raw_hi", "kind", "v
 REGION_PLACE_FIELDS = ("page", "frac", "quote", "pdf_build")
 
 
+def _place_record(items: tuple[tuple[str, object], ...]) -> Record:
+    """Rebuild ordered JSON fields, exposing a new list for a frozen place's fractional coordinates."""
+    return {key: list(value) if key == "frac" and isinstance(value, tuple) else value for key, value in items}
+
+
+def _place_items(fields: Record) -> tuple[tuple[str, object], ...]:
+    """Freeze the known nested JSON list as well as a place's outer record while retaining its field order."""
+    return tuple(
+        (key, tuple(value) if key == "frac" and isinstance(value, list) else value) for key, value in fields.items()
+    )
+
+
 def is_scope(v: object) -> TypeGuard[Scope]:
     """Is v one of SCOPES? The check the add and edit parsers share."""
     return v in SCOPES
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, init=False)
 class LinePlace:
-    """A line pin's location, validated against its file (file, name, lo, hi, page and the optional fields).
+    """A line pin's location with required local fields; the boundary also checks file existence and line count.
 
     named is the set of fields the request itself sent. An edit keeps the pin's page and frac when the request did
-    not name them, and forgets the legacy frac_build only when it re-placed frac.
+    not name them, and forgets the legacy frac_build only when it re-placed frac. The record snapshot cannot be
+    changed through the caller's dict or the fields property after construction.
     """
 
-    fields: Record
+    _items: tuple[tuple[str, object], ...]
     named: frozenset[str]
+    file: str
+    lo: int
+    hi: int
+
+    def __init__(self, fields: Record, named: frozenset[str]) -> None:
+        """Keep the field order and reject a place that would fail the service's required field reads."""
+        if not isinstance(fields, dict):
+            raise ValueError("line place fields must be a record")
+        if not fields.keys() <= set(LOC_FIELDS + ("pdf_build",)):
+            raise ValueError("line place contains fields outside its location")
+        file, name, lo, hi, page = (fields.get(key) for key in ("file", "name", "lo", "hi", "page"))
+        if not (
+            isinstance(file, str)
+            and isabs(file)
+            and isinstance(name, str)
+            and bool(name)
+            and is_int(lo)
+            and is_int(hi)
+            and 1 <= lo <= hi
+            and is_int(page)
+            and page >= 1
+        ):
+            raise ValueError("line place requires an absolute file, name, ordered positive lines and page")
+        for key in ("raw_lo", "raw_hi"):
+            if key in fields and not is_int(fields[key]):
+                raise ValueError(f"line place {key} must be an integer")
+        if "kind" in fields and (not isinstance(fields["kind"], str) or len(fields["kind"]) > 80):
+            raise ValueError("line place kind must be a short string")
+        if "via" in fields and fields["via"] not in ("synctex", "text"):
+            raise ValueError("line place via must name a location method")
+        if "score" in fields and not (is_num(fields["score"]) and isfinite(fields["score"])):
+            raise ValueError("line place score must be a finite number")
+        if "frac" in fields:
+            frac = fields["frac"]
+            if not (isinstance(frac, list) and len(frac) == 4 and all(is_num(x) and isfinite(x) for x in frac)):
+                raise ValueError("line place frac must contain four finite numbers")
+        if "scope" in fields and not is_scope(fields["scope"]):
+            raise ValueError("line place scope must name a range level")
+        if "quote" in fields and (not isinstance(fields["quote"], str) or len(fields["quote"]) > 60):
+            raise ValueError("line place quote must be a short string")
+        if "pdf_build" in fields and (not isinstance(fields["pdf_build"], str) or not fields["pdf_build"]):
+            raise ValueError("line place pdf_build must be a nonempty string")
+        object.__setattr__(self, "_items", _place_items(fields))
+        object.__setattr__(self, "named", frozenset(named))
+        object.__setattr__(self, "file", file)
+        object.__setattr__(self, "lo", lo)
+        object.__setattr__(self, "hi", hi)
+
+    @property
+    def fields(self) -> Record:
+        """A fresh stored-shape record, preserving field order without exposing mutable request state."""
+        return _place_record(self._items)
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, init=False)
 class RegionPlace:
-    """A view-only PDF pin's region, validated against the document's pages: page, frac, optional quote and pdf_build."""
+    """A view-only PDF pin's locally valid region; the boundary also checks the document's page count."""
 
-    fields: Record
+    _items: tuple[tuple[str, object], ...]
+
+    def __init__(self, fields: Record) -> None:
+        """Reject missing PDF coordinates and keep an isolated snapshot of the ordered record fields."""
+        if not isinstance(fields, dict):
+            raise ValueError("region place fields must be a record")
+        if not fields.keys() <= {"pdf", "name", "kind", "page", "frac", "quote", "pdf_build"}:
+            raise ValueError("region place contains fields outside its location")
+        pdf, name, page, frac = (fields.get(key) for key in ("pdf", "name", "page", "frac"))
+        if not (
+            isinstance(pdf, str)
+            and isabs(pdf)
+            and isinstance(name, str)
+            and bool(name)
+            and is_int(page)
+            and page >= 1
+            and fields.get("kind") == "region"
+            and isinstance(frac, list)
+            and len(frac) == 4
+            and all(is_num(value) and isfinite(value) for value in frac)
+        ):
+            raise ValueError("region place requires an absolute PDF, name, page and four finite coordinates")
+        x, y, w, h = frac
+        eps = 1e-6
+        if not (
+            0 <= x <= 1
+            and 0 <= y <= 1
+            and 0 < w <= 1 + eps
+            and 0 < h <= 1 + eps
+            and x + w <= 1 + eps
+            and y + h <= 1 + eps
+        ):
+            raise ValueError("region place must have positive area inside the page")
+        if "quote" in fields and (not isinstance(fields["quote"], str) or len(fields["quote"]) > PDF_QUOTE_MAX):
+            raise ValueError("region place quote must be a short string")
+        if "pdf_build" in fields and (not isinstance(fields["pdf_build"], str) or not fields["pdf_build"]):
+            raise ValueError("region place pdf_build must be a nonempty string")
+        object.__setattr__(self, "_items", _place_items(fields))
+
+    @property
+    def fields(self) -> Record:
+        """A fresh stored-shape record, preserving field order without exposing mutable request state."""
+        return _place_record(self._items)
 
 
 Place: TypeAlias = LinePlace | RegionPlace
@@ -159,7 +269,7 @@ class PinEdited:
         if not self.range_changed:
             return None
         if isinstance(self.place, LinePlace):
-            return self.place.fields["lo"], self.place.fields["hi"]
+            return self.place.lo, self.place.hi
         return self.lines
 
 
@@ -185,7 +295,7 @@ def file_after(record: Record, request: EditRequest) -> Record:
     A line re-placement brings its own file; every other edit keeps the stored one. file_rel is never replaced here
     (it is not a location field), so the stored value goes along.
     """
-    file = request.place.fields["file"] if isinstance(request.place, LinePlace) else record.get("file")
+    file = request.place.file if isinstance(request.place, LinePlace) else record.get("file")
     return {"file": file, "file_rel": record.get("file_rel")}
 
 
@@ -249,20 +359,22 @@ def evolve_edit(
     record = dict(pin.record)
     place = event.place
     if isinstance(place, RegionPlace):
+        fields = place.fields
         for key in REGION_PLACE_FIELDS:
-            if key in place.fields:
-                record[key] = place.fields[key]
+            if key in fields:
+                record[key] = fields[key]
             elif key == "quote":
                 record.pop("quote", None)
     elif isinstance(place, LinePlace):
+        fields = place.fields
         keep = {key: record[key] for key in ("page", "frac") if key not in place.named and key in record}
         for key in LOC_FIELDS:
             record.pop(key, None)
-        record.update(place.fields)
+        record.update(fields)
         record.update(keep)
-        if "kind" not in place.fields:
+        if "kind" not in fields:
             record["kind"] = event.kind if event.kind is not None else "lines"
-        if event.scope is not None and "scope" not in place.fields:
+        if event.scope is not None and "scope" not in fields:
             record["scope"] = event.scope
         if "frac" in place.named:  # build identity changes only when frac was re-placed
             record.pop("frac_build", None)  # legacy field name, superseded by pdf_build
