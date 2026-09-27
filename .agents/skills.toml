@@ -1,6 +1,10 @@
 version = 1
 
 [[repo]]
+name = "agent-chat"
+remote = "git@github.com:dartworklabs/skills-agent-chat.git"
+
+[[repo]]
 name = "architecting"
 remote = "git@github.com:dartworklabs/skills-architecting.git"
 
@@ -55,6 +59,10 @@ repo = "architecting"
 [[skill]]
 name = "arch-spec"
 repo = "architecting"
+
+[[skill]]
+name = "chat-room"
+repo = "agent-chat"
 
 [[skill]]
 name = "code-implement"
