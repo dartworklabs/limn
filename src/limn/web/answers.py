@@ -1,4 +1,4 @@
-"""The HTTP answer to every outcome a route gets back: one function per route, one `match` per function.
+"""HTTP answers for routes still owned by web: one function per route, one `match` per function.
 
 Each function takes the outcome value a server.py shell returned (limn.pins types, PinNotFound, the revision
 services' values, limn.build's outcomes, a document lookup's DocNotFound) or a request parser returned (InputRejected,
@@ -37,15 +37,11 @@ from limn.locate import (
 )
 from limn.pins.edit import ClosedPinReshaped, EditRefusal, NoteTooLong, PinOutsideTree, RangeOutsideFile, StaleEdit
 from limn.pins.lifecycle import (
-    AgentCannotConfirm,
-    AlreadyClosed,
-    AlreadyDone,
     AlreadyLive,
     ClaimClosedPin,
     ClaimedByOther,
     NotClaimed,
     NotInTrash,
-    PinStillOpen,
     ThreadFull,
     last_entry,
 )
@@ -84,7 +80,6 @@ PICK_WARNINGS = {
     "redrawing": "PDF 가 바뀌어 쪽을 다시 그리는 중입니다 — 끝나면 다시 고르세요.",
 }
 CONFIRM_BY_HUMAN = "확인은 사람이 합니다 — 테일넷 신원으로 접속해 뷰어에서 [확인]을 누르세요."
-CONFIRM_OPEN_DETAIL = "열린 핀은 확인할 것이 없습니다 — 닫힌 뒤 검토 대기일 때 확인합니다."
 # The log lines an agent response keeps for a non-successful build (docs/handbook/build-sync.md §에이전트 응답 다이어트).
 LOG_TAIL_LINES = 40
 
@@ -306,32 +301,6 @@ def reply_answer(
             )
         case PinNotFound():
             return {"ok": False, "pin": None, "msg": None, "state": None, "reopened": False}
-
-
-def state_answer(
-    result: OpenPin | ReviewPin | DonePin | AlreadyClosed | PinNotFound, show: Show, state_of: StateOf
-) -> Body:
-    """POST /api/pins/{id}/close and /reopen: the pin as it stands now and its state, or ok:false."""
-    match result:
-        case OpenPin(record=record) | ReviewPin(record=record) | DonePin(record=record):
-            return {"ok": True, "pin": show(record), "state": state_of(record)}
-        case AlreadyClosed(pin=ReviewPin(record=record) | DonePin(record=record)):
-            return {"ok": True, "pin": show(record), "state": state_of(record)}
-        case PinNotFound():
-            return {"ok": False, "pin": None, "state": None}
-
-
-def confirm_answer(result: DonePin | AlreadyDone | PinStillOpen | AgentCannotConfirm | PinNotFound, show: Show) -> Body:
-    """POST /api/pins/{id}/confirm for every outcome, with the statuses and bodies of the agent contract."""
-    match result:
-        case DonePin(record=record) | AlreadyDone(pin=DonePin(record=record)):
-            return {"ok": True, "pin": show(record), "state": "done"}
-        case PinNotFound():
-            return {"ok": False, "pin": None, "state": None}
-        case AgentCannotConfirm():
-            raise HTTPError(403, CONFIRM_BY_HUMAN, reason="confirm_by_human")
-        case PinStillOpen(pin=OpenPin(record=record)):
-            raise HTTPError(409, "open", pin=show(record), detail=CONFIRM_OPEN_DETAIL, reason="open")
 
 
 def add_answer(result: OpenPin) -> Body:

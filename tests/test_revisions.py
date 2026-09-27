@@ -23,6 +23,7 @@ from unittest import mock
 from limn import build as limn_build, meta as limn_meta, revisions, scope as scoping
 from limn.access import LOCAL_ACTOR
 from limn.documents import Doc
+from limn.features.pins.lifecycle import input as lifecycle_input
 from limn.mapping import anchor_of
 from limn.pins.lifecycle import CloseRequest
 from limn.revisions import revision_history
@@ -679,12 +680,12 @@ class ScopedSourceDiff(ScopedRepo):
         chapter.write_text(chapter.read_text().replace("Part line 12.", "Part line twelve."), encoding="utf-8")
         self.write(self.main.read_text().replace("\\input{part}", "\\input{chapter}"))
         mv = self.commit("rename the part")
-        ps.APP.close_pin(old_pin, dict(LOCAL_ACTOR), CloseRequest(ref=mv[:8]))
+        ps.APP.pin_lifecycle.close_pin(old_pin, dict(LOCAL_ACTOR), CloseRequest(ref=mv[:8]))
         new_pin = self.add(lo=12, hi=12, note="chapter twelve")
         rows = records(ps.APP.snapshot_pins())
         find_pin(rows, new_pin)["file"] = str(chapter)
         write_records(rows)
-        ps.APP.close_pin(new_pin, dict(LOCAL_ACTOR), CloseRequest(ref=mv[:8]))
+        ps.APP.pin_lifecycle.close_pin(new_pin, dict(LOCAL_ACTOR), CloseRequest(ref=mv[:8]))
         for pid in (old_pin, new_pin):  # the pin may name the file before or after the rename
             with self.subTest(pin=pid):
                 d = self.diff_ok(mv, pid)
@@ -1057,10 +1058,10 @@ class ScopedPdf(ScopedRepo):
         )
         both = self.commit("wrap the fillers in a list")
         opener = self.add(lo=7, hi=7, note="open")
-        ps.APP.close_pin(
+        ps.APP.pin_lifecycle.close_pin(
             opener,
             dict(LOCAL_ACTOR),
-            CloseRequest(ref=both[:8], changes=(parse.CloseChange(str(self.main.resolve()), 7, 7).record(),)),
+            CloseRequest(ref=both[:8], changes=(lifecycle_input.CloseChange(str(self.main.resolve()), 7, 7).record(),)),
         )
         spec = revision_spec(both, opener)
         self.assertEqual(len(spec.scope), 1)

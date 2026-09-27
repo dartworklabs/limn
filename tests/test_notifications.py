@@ -89,14 +89,14 @@ class MentionRules(Base):
 
     def test_reopen_reason_re_mention_notifies(self):
         pid = add_pin({"file": str(self.main), "lo": 4, "hi": 5, "note": "@Bob Park 부탁"}, self.A).record["id"]
-        ps.APP.close_pin(pid, dict(LOCAL_ACTOR), CloseRequest())
+        ps.APP.pin_lifecycle.close_pin(pid, dict(LOCAL_ACTOR), CloseRequest())
         n = self.n()
-        ps.APP.reopen_pin(pid, self.C, reason="@Bob Park 다시 봐 주세요")
+        ps.APP.pin_lifecycle.reopen_pin(pid, self.C, reason="@Bob Park 다시 봐 주세요")
         self.assertEqual(self.events_after(n), [("mention", ["bob@example.com"]), ("reopened", ["alice@example.com"])])
-        ps.APP.close_pin(pid, dict(LOCAL_ACTOR), CloseRequest())
+        ps.APP.pin_lifecycle.close_pin(pid, dict(LOCAL_ACTOR), CloseRequest())
         n = self.n()
         # the author tagged: mention only, not also reopened
-        ps.APP.reopen_pin(pid, self.C, reason="@Alice Kim 확인 부탁")
+        ps.APP.pin_lifecycle.reopen_pin(pid, self.C, reason="@Alice Kim 확인 부탁")
         self.assertEqual(self.events_after(n), [("mention", ["alice@example.com"])])
 
     def test_note_edit_that_tags_again_notifies_but_a_typo_fix_does_not(self):
@@ -196,8 +196,8 @@ class NoteMentionCooldown(Base):
             pid = add_pin({"file": str(self.main), "lo": 4, "hi": 5, "note": "@Bob Park 메모"}, self.A).record["id"]
             ps.APP.reply_pin(pid, "@Bob Park 하나", self.A)
             ps.APP.reply_pin(pid, "@Bob Park 둘", self.A)
-            ps.APP.close_pin(pid, dict(LOCAL_ACTOR), CloseRequest())
-            ps.APP.reopen_pin(pid, self.A, reason="@Bob Park 다시")
+            ps.APP.pin_lifecycle.close_pin(pid, dict(LOCAL_ACTOR), CloseRequest())
+            ps.APP.pin_lifecycle.reopen_pin(pid, self.A, reason="@Bob Park 다시")
         self.assertEqual(len(self.mentions_to_bob()), 4)
 
     def test_a_reply_mention_does_not_silence_a_following_note_tag(self):

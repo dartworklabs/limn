@@ -25,19 +25,15 @@ from limn import access
 from limn.build import BuildBusy, BuildStarted, FinishedBuild, ViewOnlyNoRebuild
 from limn.config import RunConfig
 from limn.documents import Doc, DocNotFound
+from limn.features.pins.lifecycle.service import PinLifecycle
 from limn.locate import Picked, PickedRegion, PickRefusal
 from limn.pins.edit import AddRequest, EditRefusal, EditRequest
 from limn.pins.lifecycle import (
-    AgentCannotConfirm,
-    AlreadyClosed,
-    AlreadyDone,
     AlreadyLive,
     ClaimClosedPin,
     ClaimedByOther,
-    CloseRequest,
     NotClaimed,
     NotInTrash,
-    PinStillOpen,
     ThreadFull,
 )
 from limn.pins.model import DonePin, OpenPin, Pin, PinNotFound, Record, ReviewPin, TrashedPin
@@ -60,6 +56,7 @@ class App(Protocol):
     """The server application as the handler sees it, with the services and their typed contracts."""
 
     C: Config
+    pin_lifecycle: PinLifecycle
     APP_NAME: str
     DEFAULT_ROLE: access.Role  # the role of a person people.json gives none
 
@@ -242,12 +239,6 @@ class App(Protocol):
         """POST /api/pins/{id}/reply."""
         ...
 
-    def confirm_pin(
-        self, pid: int, actor: Json
-    ) -> DonePin | AlreadyDone | PinStillOpen | AgentCannotConfirm | PinNotFound:
-        """POST /api/pins/{id}/confirm."""
-        ...
-
     def drop_pin(self, pid: int, actor: Json) -> TrashedPin | PinNotFound:
         """POST /api/pins/{id}/drop."""
         ...
@@ -274,18 +265,6 @@ class App(Protocol):
 
     def unclaim_pin(self, pid: int, actor: Json) -> OpenPin | ReviewPin | DonePin | NotClaimed | PinNotFound:
         """POST /api/pins/{id}/unclaim."""
-        ...
-
-    def close_pin(
-        self, pid: int, actor: Json, request: CloseRequest
-    ) -> ReviewPin | DonePin | AlreadyClosed | PinNotFound:
-        """POST /api/pins/{id}/close."""
-        ...
-
-    def reopen_pin(
-        self, pid: int, actor: Json, reason: str | None = None, hints: list[str] | None = None
-    ) -> OpenPin | PinNotFound:
-        """POST /api/pins/{id}/reopen."""
         ...
 
     def add_pin(self, D: Document, request: AddRequest, actor: Json) -> OpenPin:

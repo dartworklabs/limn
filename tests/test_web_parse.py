@@ -15,6 +15,7 @@ import unittest
 from pathlib import Path
 
 from limn.access import LOCAL_ACTOR
+from limn.features.pins.lifecycle import input as lifecycle_input
 from limn.files import BadPath, NotAFile, OutsideTree, file_in_tree
 from limn.pins.edit import LinePlace, PinEdited, RegionPlace, evolve_edit
 from limn.pins.lifecycle import CloseRequest
@@ -239,26 +240,27 @@ class Fields(unittest.TestCase):
         """reopen/review are true, false or absent; hints are at most MENTION_MAX strings."""
         self.assertIsNone(parse.parse_reopen_flag({}))
         self.assertEqual(
-            parse.parse_review_flag({"review": 1}), InputRejected("review 는 true/false 입니다.", "bad_review")
+            lifecycle_input.parse_review_flag({"review": 1}),
+            InputRejected("review 는 true/false 입니다.", "bad_review"),
         )
         self.assertEqual(parse.parse_mention_hints(["a"] * parse.MENTION_MAX), ["a"] * parse.MENTION_MAX)
         self.assertIsInstance(parse.parse_mention_hints(["a"] * (parse.MENTION_MAX + 1)), InputRejected)
 
     def test_close_body_blank_is_none(self):
         """reply/ref blank or absent are None; a CloseBody unpacks like the old (reply, ref) pair."""
-        reply, ref = parse.parse_close_body({"reply": " ", "ref": "PR #1"})
+        reply, ref = lifecycle_input.parse_close_body({"reply": " ", "ref": "PR #1"})
         self.assertEqual((reply, ref), (None, "PR #1"))
 
     def test_close_changes_resolve_inside_the_root(self):
         """Paths are resolved against the root and must stay in it; the first bad item is named."""
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp).resolve()
-            got = parse.parse_close_changes([{"file": "a.tex", "lo": 1, "hi": 2}], root, NO_STATE)
-            self.assertEqual(got, (parse.CloseChange(str(root / "a.tex"), 1, 2),))
+            got = lifecycle_input.parse_close_changes([{"file": "a.tex", "lo": 1, "hi": 2}], root, NO_STATE)
+            self.assertEqual(got, (lifecycle_input.CloseChange(str(root / "a.tex"), 1, 2),))
             self.assertEqual(got[0].record(), {"file": str(root / "a.tex"), "lo": 1, "hi": 2})
-            self.assertIsNone(parse.parse_close_changes([], root, NO_STATE))
+            self.assertIsNone(lifecycle_input.parse_close_changes([], root, NO_STATE))
             self.assertEqual(
-                parse.parse_close_changes(
+                lifecycle_input.parse_close_changes(
                     [{"file": "a.tex", "lo": 1, "hi": 1}, {"file": "../b", "lo": 1, "hi": 1}], root, NO_STATE
                 ),
                 InputRejected(
@@ -273,7 +275,7 @@ class Fields(unittest.TestCase):
             root = Path(tmp).resolve()
             for name in (".env", "sub/.git/config", str(root / ".git" / "HEAD")):
                 self.assertEqual(
-                    parse.parse_close_changes([{"file": name, "lo": 1, "hi": 1}], root, NO_STATE),
+                    lifecycle_input.parse_close_changes([{"file": name, "lo": 1, "hi": 1}], root, NO_STATE),
                     InputRejected(
                         "changes[0].file 은 원고 폴더(--manuscript) 안의 파일이어야 합니다.",
                         "change_outside_manuscript",
@@ -292,16 +294,16 @@ class Fields(unittest.TestCase):
             bad_mentions = InputRejected("mentions 는 로그인 문자열 목록(10개 이하)입니다.", "bad_mentions")
             everything = {"reply": 1, "changes": 1, "review": 1, "mentions": 1}
             self.assertEqual(
-                parse.parse_close(everything, root, NO_STATE),
+                lifecycle_input.parse_close(everything, root, NO_STATE),
                 InputRejected("reply 는 문자열이어야 합니다.", "bad_reply"),
             )
-            self.assertEqual(parse.parse_close(dict(everything, reply="x"), root, NO_STATE), bad_changes)
+            self.assertEqual(lifecycle_input.parse_close(dict(everything, reply="x"), root, NO_STATE), bad_changes)
             self.assertEqual(
-                parse.parse_close({"changes": None, "review": 1, "mentions": 1}, root, NO_STATE), bad_review
+                lifecycle_input.parse_close({"changes": None, "review": 1, "mentions": 1}, root, NO_STATE), bad_review
             )
-            self.assertEqual(parse.parse_close({"review": True, "mentions": 1}, root, NO_STATE), bad_mentions)
+            self.assertEqual(lifecycle_input.parse_close({"review": True, "mentions": 1}, root, NO_STATE), bad_mentions)
             self.assertEqual(
-                parse.parse_close(
+                lifecycle_input.parse_close(
                     {
                         "reply": " fixed ",
                         "ref": " ",
@@ -315,24 +317,25 @@ class Fields(unittest.TestCase):
                 ),
                 CloseRequest(" fixed ", None, ({"file": str(root / "a.tex"), "lo": 2, "hi": 3},), False),
             )
-            self.assertEqual(parse.parse_close({}, root, NO_STATE), CloseRequest())
+            self.assertEqual(lifecycle_input.parse_close({}, root, NO_STATE), CloseRequest())
 
     def test_reopen_body_checks_reason_then_mentions_and_ignores_the_rest(self):
         """parse_reopen refuses the reason before mentions; a blank reason is None; a close's reply, review or
         changes sent to reopen are ignored, however malformed."""
         self.assertEqual(
-            parse.parse_reopen({"reason": 3, "mentions": 1}),
+            lifecycle_input.parse_reopen({"reason": 3, "mentions": 1}),
             InputRejected("reason 는 문자열이어야 합니다.", "bad_text"),
         )
         self.assertEqual(
-            parse.parse_reopen({"reason": "again", "mentions": "bob"}),
+            lifecycle_input.parse_reopen({"reason": "again", "mentions": "bob"}),
             InputRejected("mentions 는 로그인 문자열 목록(10개 이하)입니다.", "bad_mentions"),
         )
         self.assertEqual(
-            parse.parse_reopen({"reason": " \n", "reply": 1, "review": "x", "changes": 7}), parse.ReopenBody(None, [])
+            lifecycle_input.parse_reopen({"reason": " \n", "reply": 1, "review": "x", "changes": 7}),
+            lifecycle_input.ReopenBody(None, []),
         )
         self.assertEqual(
-            parse.parse_reopen({"reason": "look @Bob", "mentions": ["bob@example.com"]}),
+            lifecycle_input.parse_reopen({"reason": "look @Bob", "mentions": ["bob@example.com"]}),
             ("look @Bob", ["bob@example.com"]),
         )
 
@@ -344,7 +347,7 @@ class Fields(unittest.TestCase):
             state = root / "limn-state"
             for name in ("limn-state/people.json", str(state / "audit.jsonl")):
                 self.assertEqual(
-                    parse.parse_close_changes([{"file": name, "lo": 1, "hi": 1}], root, state),
+                    lifecycle_input.parse_close_changes([{"file": name, "lo": 1, "hi": 1}], root, state),
                     InputRejected(
                         "changes[0].file 은 원고 폴더(--manuscript) 안의 파일이어야 합니다.",
                         "change_outside_manuscript",
@@ -352,8 +355,8 @@ class Fields(unittest.TestCase):
                     name,
                 )
             self.assertEqual(
-                parse.parse_close_changes([{"file": "a.tex", "lo": 1, "hi": 1}], root, state),
-                (parse.CloseChange(str(root / "a.tex"), 1, 1),),
+                lifecycle_input.parse_close_changes([{"file": "a.tex", "lo": 1, "hi": 1}], root, state),
+                (lifecycle_input.CloseChange(str(root / "a.tex"), 1, 1),),
             )
 
     def test_claim_body_checks_eta_first_and_clamps(self):
@@ -790,7 +793,7 @@ class EditAddParsing(Base):
         self.assertEqual((code, json.loads(body)["error"], json.loads(body)["pin"]["id"]), (409, "conflict", pid))
         code, _, body = split_resp(self.talk(jreq("POST", "/api/pins/999/edit", {"note": "x", "base_rev": 0})))
         self.assertEqual((code, json.loads(body)), (404, {"error": "핀 #999 이 없습니다.", "reason": "pin_not_found"}))
-        ps.APP.close_pin(pid, dict(LOCAL_ACTOR), CloseRequest())
+        ps.APP.pin_lifecycle.close_pin(pid, dict(LOCAL_ACTOR), CloseRequest())
         code, _, body = split_resp(
             self.talk(jreq("POST", "/api/pins/%d/edit" % pid, {"lo": 4, "hi": 6, "base_rev": 1}))
         )

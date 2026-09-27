@@ -26,6 +26,7 @@ from unittest import mock
 
 from limn import locate, mapping
 from limn.documents import DocNotFound
+from limn.features.pins.lifecycle import http as lifecycle_http
 from limn.pins.edit import StaleEdit
 from limn.pins.lifecycle import AgentCannotConfirm, ClaimedByOther, NotInTrash, PinStillOpen, ThreadFull
 from limn.pins.model import DonePin, OpenPin, PinNotFound, ReviewPin, TrashedPin
@@ -423,18 +424,18 @@ class Answers(unittest.TestCase):
         """done (also when already done) -> ok; unknown id -> ok:false; an agent -> 403; an open pin -> 409 open."""
         done = {"id": 3, "done": True}
         self.assertEqual(
-            answers.confirm_answer(DonePin.from_record(done), show), {"ok": True, "pin": done, "state": "done"}
+            lifecycle_http.confirm_answer(DonePin.from_record(done), show), {"ok": True, "pin": done, "state": "done"}
         )
-        self.assertEqual(answers.confirm_answer(PinNotFound(3), show), {"ok": False, "pin": None, "state": None})
+        self.assertEqual(lifecycle_http.confirm_answer(PinNotFound(3), show), {"ok": False, "pin": None, "state": None})
         self.assert_refused(
-            lambda: answers.confirm_answer(AgentCannotConfirm(), show),
+            lambda: lifecycle_http.confirm_answer(AgentCannotConfirm(), show),
             403,
             {"error": answers.CONFIRM_BY_HUMAN, "reason": "confirm_by_human"},
         )
         self.assert_refused(
-            lambda: answers.confirm_answer(PinStillOpen(OpenPin.from_record({"id": 3})), show),
+            lambda: lifecycle_http.confirm_answer(PinStillOpen(OpenPin.from_record({"id": 3})), show),
             409,
-            {"error": "open", "reason": "open", "pin": {"id": 3}, "detail": answers.CONFIRM_OPEN_DETAIL},
+            {"error": "open", "reason": "open", "pin": {"id": 3}, "detail": lifecycle_http.CONFIRM_OPEN_DETAIL},
         )
 
     def test_claim_reports_the_applied_eta_only_when_sent(self):

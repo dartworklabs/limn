@@ -37,7 +37,7 @@ class PrincipalMatrix(AccessBase):
         code, d = self.call("POST", "/api/pins/%d/close" % pid, None, **kw)
         out["close"] = code if code != 200 else d["state"]
         pid = self.add()
-        ps.APP.close_pin(pid, dict(LOCAL_ACTOR), CloseRequest())
+        ps.APP.pin_lifecycle.close_pin(pid, dict(LOCAL_ACTOR), CloseRequest())
         out["confirm"] = self.call("POST", "/api/pins/%d/confirm" % pid, None, **kw)[0]
         before = len(ps.APP.snapshot_pins())
         out["clear"] = self.call("POST", "/api/clear", CLEAR_BODY, **kw)[0]

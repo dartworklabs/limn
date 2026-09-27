@@ -1,6 +1,6 @@
 # 핀 닫기·다시 열기·확인 VSA 첫 슬라이스 설계
 
-> **상태: 서면 검토 요청.** [백엔드 VSA 점진 이행 설계](2026-09-28-backend-vsa-migration-design.md)의 첫 구현 묶음이다. 이 문서가 승인되면 이 묶음만의 구현 계획을 쓴다. 나머지 백엔드 슬라이스는 별도 설계·계획으로 진행한다.
+> **상태: 구현·검증 완료.** [백엔드 VSA 점진 이행 설계](2026-09-28-backend-vsa-migration-design.md)의 첫 구현 묶음이다. 나머지 백엔드 슬라이스는 별도 설계·계획으로 진행한다.
 
 ## 의도와 범위
 
@@ -16,7 +16,7 @@
 | 응답 | `web/answers.py`의 `state_answer`·`confirm_answer` | 같은 슬라이스의 HTTP 코드 |
 | 실행별 연결 | `ServerApplication.close_pin`·`reopen_pin`·`confirm_pin`, `pin_context()` | `ServerApplication`이 구성한 좁은 수명 주기 협력자. 기존 세 전달 메서드는 삭제 |
 | 저장·알림 | `service/transitions.py`의 세 동작 | `features/pins/lifecycle/service.py` |
-| 순수 판단 | `pins/lifecycle.py`의 닫기·다시 열기·확인 규칙 | 슬라이스의 순수 규칙. 아직 옮기지 않은 답글이 공유하는 규칙은 한 소유자에 두고 중복하지 않음 |
+| 순수 판단 | `pins/lifecycle.py`의 닫기·다시 열기·확인 규칙 | 답글·claim 등도 쓰는 순수 파일의 공통 헬퍼와 얽혀 있으므로 현재는 한 소유자(`pins/lifecycle.py`)에 유지. 후속 핀 슬라이스에서 규칙까지 함께 옮김 |
 | 핀 상태·저장 | `pins/model.py`·`store.py` | 여러 핀 슬라이스가 쓰는 공통 핵심으로 유지 |
 
 `web/handler.py`가 먼저 본문을 끝까지 읽고 Host/Origin·신원·입장·역할을 확인하는 순서는 동일하다. 그 뒤 이 세 동작의 HTTP 입구를 호출한다. 그 입구는 이미 검사된 요청자와 파싱에 필요한 원고·상태 경로, 핀 번호와 본문을 받는다. 내부 판단·저장 실패는 현재와 같은 성공 값 또는 거절 값으로 돌려주며, HTTP 입구가 기존 응답 모양으로 바꾼다. `HTTPError`는 현재처럼 HTTP 표현과 접근 제어에서만 사용한다.

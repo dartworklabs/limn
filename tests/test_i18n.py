@@ -493,9 +493,9 @@ class EnglishChrome(ChromiumTestCase):
         add(22, 23, "Agent note", agent)
         for author in (ALICE_ACTOR, BOB_LEE):
             pid = add(24, 25, "Shorten the caption", author)
-            ps.APP.close_pin(pid, agent, CloseRequest(reply="표 설명을 줄였습니다", ref="PR #7"))
+            ps.APP.pin_lifecycle.close_pin(pid, agent, CloseRequest(reply="표 설명을 줄였습니다", ref="PR #7"))
         done = add(26, 27, "Fix the unit", ALICE_ACTOR)
-        ps.APP.close_pin(done, ALICE_ACTOR, CloseRequest())
+        ps.APP.pin_lifecycle.close_pin(done, ALICE_ACTOR, CloseRequest())
         dropped = add(28, 29, "Wrong spot", ALICE_ACTOR)
         ps.APP.drop_pin(dropped, ALICE_ACTOR)
         add_pin(

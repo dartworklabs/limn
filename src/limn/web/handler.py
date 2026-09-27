@@ -25,6 +25,7 @@ from pathlib import Path
 from typing import Any, ClassVar, NamedTuple
 from urllib.parse import parse_qs, urlparse
 
+from limn.features.pins.lifecycle import http as lifecycle_http
 from limn.mark import png as mark_png
 from limn.web import answers, parse
 from limn.web.answers import accepted
@@ -483,7 +484,7 @@ class Handler(BaseHTTPRequestHandler):
                 )
             )
         if act == "confirm":
-            return self._json(answers.confirm_answer(app.confirm_pin(pid, actor), app.public))
+            return self._json(lifecycle_http.confirm(app, pid, actor))
         if act == "drop":
             return self._json(answers.drop_answer(app.drop_pin(pid, actor)))
         if act == "restore":
@@ -504,13 +505,5 @@ class Handler(BaseHTTPRequestHandler):
         if act == "unclaim":
             return self._json(answers.unclaim_answer(app.unclaim_pin(pid, actor), app.public))
         if act == "close":
-            close = accepted(parse.parse_close(d, app.C.src, app.C.state))
-            review = self.principal.review_on_close(close.review)
-            return self._json(
-                answers.state_answer(
-                    app.close_pin(pid, actor, replace(close, review=review)), app.public, app.pin_state
-                )
-            )
-        # reopen - optional body {"reason"}: the reopen reason (recorded in the thread)
-        reason, hints = accepted(parse.parse_reopen(d))
-        return self._json(answers.state_answer(app.reopen_pin(pid, actor, reason, hints), app.public, app.pin_state))
+            return self._json(lifecycle_http.close(app, pid, actor, d, self.principal.review_on_close))
+        return self._json(lifecycle_http.reopen(app, pid, actor, d))

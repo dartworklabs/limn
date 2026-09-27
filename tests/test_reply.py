@@ -41,13 +41,13 @@ class ReplyApi(AccessBase):
         pid = add_pin(
             {"file": str(self.main), "lo": 4, "hi": 5, "page": 1, "note": "문단 줄이기", "kind_req": kind}, author
         ).record["id"]
-        ps.APP.close_pin(pid, dict(LOCAL_ACTOR), CloseRequest(reply="줄였습니다", ref="PR #9"))
+        ps.APP.pin_lifecycle.close_pin(pid, dict(LOCAL_ACTOR), CloseRequest(reply="줄였습니다", ref="PR #9"))
         self.assertEqual(pin_state(self.pin(pid)), "review")
         return pid
 
     def done_pin(self):
         pid = add_pin({"file": str(self.main), "lo": 8, "hi": 9, "page": 1, "note": "오타"}, A).record["id"]
-        ps.APP.close_pin(pid, A, CloseRequest(reply="고침"))
+        ps.APP.pin_lifecycle.close_pin(pid, A, CloseRequest(reply="고침"))
         self.assertEqual(pin_state(self.pin(pid)), "done")
         return pid
 
@@ -93,12 +93,12 @@ class ReplyApi(AccessBase):
         pid = add_pin(
             {"file": str(self.main), "lo": 4, "hi": 5, "page": 1, "note": "@Carol Lee 참고로 봐 주세요"}, A
         ).record["id"]
-        ps.APP.close_pin(pid, dict(LOCAL_ACTOR), CloseRequest(reply="고침"))
+        ps.APP.pin_lifecycle.close_pin(pid, dict(LOCAL_ACTOR), CloseRequest(reply="고침"))
         n = len(self.events())
         code, d = self.reply(pid, {"text": "아직 틀립니다"}, BOB)
         self.assertEqual(d["reopened"], True)
         self.assertEqual(self.events()[n:], [("reopened", ["alice@example.com"]), ("replied", ["carol@example.com"])])
-        ps.APP.close_pin(pid, dict(LOCAL_ACTOR), CloseRequest(reply="다시 고침"))
+        ps.APP.pin_lifecycle.close_pin(pid, dict(LOCAL_ACTOR), CloseRequest(reply="다시 고침"))
         n = len(self.events())
         self.reply(pid, {"text": "제가 다시 엽니다"}, ALICE)  # the author: only Carol hears of it
         self.assertEqual(self.events()[n:], [("replied", ["carol@example.com"])])
@@ -222,7 +222,7 @@ class AgentAsPerson(AccessBase):
         set_config(auth="local")
         set_config(agent_loopback=False)
         pid = add_pin({"file": str(self.main), "lo": 4, "hi": 5, "page": 1, "note": "n"}, A).record["id"]
-        ps.APP.close_pin(pid, dict(LOCAL_ACTOR), CloseRequest(reply="고침"))
+        ps.APP.pin_lifecycle.close_pin(pid, dict(LOCAL_ACTOR), CloseRequest(reply="고침"))
         self.pid = pid
 
     def test_headerless_local_curl_reopens_unless_it_says_reopen_false(self):

@@ -38,8 +38,9 @@ catalog_schema: 1
 <!-- handbook-filemap:start -->
 | 경로 패턴 | 책임 | 수정 trigger | 갱신 주체 |
 | --- | --- | --- | --- |
-| `src/limn/server.py` | 조립 지점: 실행 설정 `RunConfig`, 실행별 자원 소유자 `Runtime`(핀 잠금, 신원·사람 캐시, pull 나눠 쓰기, 감시 상태, 작업 목록, 뷰어, 감시 스레드와 `stop()`), 문서 목록을 `ServerApplication` 하나에 묶는다. 앱 메서드가 옮긴 모듈에 이 실행의 설정과 협력자를 넘기고 `web/app.py`의 `App` 프로토콜을 구현한다. `start()`는 실행 전용 처리기에 앱을 묶고 `StartedServer`로 소켓과 앱을 함께 돌려준다 | 시작·종료 순서, 앱이 넘기는 설정·협력자, `App`에 든 서비스의 이름·인자 변경 | architecture.md, operations.md, 연결된 모듈의 topic |
-| `src/limn/service/*` | 핀 서비스(가장자리 셸): 추가·편집(`add_edit.py`), 답글·닫기·다시 열기·확인(`transitions.py`), 처리 중 표시(`claim.py`), 휴지통·영구 삭제·clear(`trash.py`). 잠금 아래 읽고 `limn.pins` 규칙에 묻고 받아들일 때만 쓴 뒤 알림·감사를 남긴다. 협력자는 `PinContext`(`context.py`)로 받는다 | 핀 조작의 쓰기·알림·감사 순서 변경, 서비스가 받는 협력자 변경 | domain.md, api.md, architecture.md 불변식 4 |
+| `src/limn/server.py` | 조립 지점: 실행 설정 `RunConfig`, 실행별 자원 소유자 `Runtime`(핀 잠금, 신원·사람 캐시, pull 나눠 쓰기, 감시 상태, 작업 목록, 뷰어, 감시 스레드와 `stop()`), 문서 목록을 `ServerApplication` 하나에 묶는다. 앱 메서드가 옮긴 모듈에 이 실행의 설정과 협력자를 넘기고, `PinLifecycle`에 실행별 문맥 생성 함수를 묶으며 `web/app.py`의 `App` 프로토콜을 구현한다. `start()`는 실행 전용 처리기에 앱을 묶고 `StartedServer`로 소켓과 앱을 함께 돌려준다 | 시작·종료 순서, 앱이 넘기는 설정·협력자, `App`에 든 서비스의 이름·인자 변경 | architecture.md, operations.md, 연결된 모듈의 topic |
+| `src/limn/service/*` | 핀 서비스(가장자리 셸): 추가·편집(`add_edit.py`), 답글(`transitions.py`), 처리 중 표시(`claim.py`), 휴지통·영구 삭제·clear(`trash.py`). 잠금 아래 읽고 `limn.pins` 규칙에 묻고 받아들일 때만 쓴 뒤 알림·감사를 남긴다. 협력자는 `PinContext`(`context.py`)로 받는다 | 핀 조작의 쓰기·알림·감사 순서 변경, 서비스가 받는 협력자 변경 | domain.md, api.md, architecture.md 불변식 4 |
+| `src/limn/features/pins/lifecycle/*` | 닫기·다시 열기·확인의 입력(`input.py`), HTTP 응답(`http.py`), 실행별 문맥을 받는 잠금·전이·알림(`service.py`). 답글과 함께 쓰는 순수 규칙은 현재 `pins/lifecycle.py`가 소유한다 | 세 경로의 파싱·응답·쓰기·알림·권한 흐름 변경 | api.md, domain.md, architecture.md, code-style-roadmap.md |
 | `src/limn/store.py` | 핀 저장소: 잠금 아래 쓰기 순서(`transact`), `pins.jsonl`·`pins.md`·휴지통 쓰기, 손상 줄 보존, 핀 번호(`pins.seq`), 보관(clear). 서버를 모르고 협력자를 인자로 받는다 | 저장 순서·파일 이름·보존 규칙 변경 | domain.md §저장소 안전성, architecture.md 불변식 4 |
 | `src/limn/pins/*` | 핀 도메인의 순수 코드: 상태 타입, 행위자 타입, 저장소가 믿는 레코드 모양 검사(`record.py`), 옮겨진 전이와 `pins.md`의 다시 열림 판단(`lifecycle.py`), 편집 판단과 새 핀 레코드, 핀 위치 규칙(`position.py`: 위치 추정·겹침·anchor 재동기화), JSON 정수·숫자 판정(`shapes.py`), `pins.md` 렌더(`render.py`: 입력 값 → 문자열, 겹침 배지), API가 레코드를 보이는 모양과 계산 필드(`view.py`: `public_record`·`state`·`GET /api/pins`·휴지통 본문) | 저장 레코드 필드 추가(`record.py`의 검사도 함께), 상태·전이·거절 규칙, 추정·겹침·줄 맞춤 규칙 변경, `pins.md` 열·표시·머리말 변경(계약) | domain.md, build-sync.md §위치 추정 (`est`), api.md §pins.md 형식, code-style-roadmap.md |
 | `src/limn/guidance.py` | 에이전트가 읽는 토큰 파일 문구(`UNAUTHENTICATED`, `shell_path`, `token_file_curl`, `loopback_refused_text`) — 순수. `pins.md` 인증 줄과 헤더 없는 로컬 요청의 401이 같이 쓴다 | 인증 안내·401 문구 변경(계약) | api.md §인증, ADR-0007 |
@@ -61,7 +62,7 @@ catalog_schema: 1
 | `src/limn/documents.py` | 문서(`Doc`: 빌드 루트·메인·문서별 상태 폴더와 빌드 잠금·상태), 문서 키 규칙, 문서 목록을 인자로 받는 조회(`request_doc`·`doc_for_file`·`pin_doc_key`)와 조회 결과 값(`DocNotFound`), 파서가 읽는 원고 사실(`DocumentFacts`), `to_source` | 문서 경로·키 규칙 변경 | domain.md §여러 문서, build-sync.md |
 | `src/limn/mark.py` | Limn 마크: 기하 하나, 뷰어 인라인 SVG·파비콘 SVG·PNG | 마크 모양·크기·색 규칙 변경 | viewer.md §마크와 파비콘 |
 | `src/limn/viewer/*` | 뷰어 화면: `index.html`, 스타일 조각 `css/*.css`, 스크립트 조각 `js/*.js`, 조각 순서 `parts.txt`, 브라우저 알림의 서비스 워커 `sw.js`(`GET /sw.js`, `service_worker()`가 읽는다). 조립은 `assemble.py`(`viewer_html`: 조각을 순서대로 이어 한 장의 HTML로 만들고 PDF.js 버전·마크·Lucide 아이콘 표·영어 메시지 표를 채운다) | 레이아웃·토큰·컴포넌트·상호작용 변경, 조각 추가(`parts.txt`에 줄을 더한다), 아이콘 추가(`assemble.py`의 `LUCIDE`), PDF.js 버전 변경(`PDFJS_VERSION`) | viewer.md, verification.md |
-| `src/limn/web/*` | HTTP 층: 처리기와 서버 클래스·본문 읽기와 한도·경로 분기와 경로만 쓰는 상수(`handler.py`), 경로마다의 요청 본문·쿼리 파서와 요청 타입(`parse.py`), 경로가 받는 결과(문서 조회·핀 조작·빌드 등)마다의 응답과 빌드 응답의 로그 다이어트(`answers.py`), 오류 형식·거절 표·빌드 실패 문장 표·거부된 첫 화면(`errors.py`), 처리기가 부르는 서비스 목록(`app.py`) | 경로·응답·오류 문구 추가나 변경, 처리기가 부르는 서비스 변경 | api.md, architecture.md, verification.md |
+| `src/limn/web/*` | HTTP 층: 처리기와 서버 클래스·본문 읽기와 한도·경로 분기와 경로만 쓰는 상수(`handler.py`), 아직 옮기지 않은 경로의 요청 본문·쿼리 파서와 요청 타입(`parse.py`), 아직 옮기지 않은 결과의 응답과 빌드 응답의 로그 다이어트(`answers.py`), 오류 형식·거절 표·빌드 실패 문장 표·거부된 첫 화면(`errors.py`), 처리기가 부르는 서비스 목록(`app.py`) | 경로·응답·오류 문구 추가나 변경, 처리기가 부르는 서비스 변경 | api.md, architecture.md, verification.md |
 | `src/limn/access.py` | 접근 제어: 신원·입장·역할·Host/Origin 판단, `tokens.json`·`people.json` 캐시, `limn token`·`limn member`의 상태 도우미(`people.json` 형식은 `people.py`의 것). 토큰 파일 안내 문구는 위의 `guidance.py` | 신원 방식·토큰·역할·Host/Origin 규칙 변경(보안 경계, architecture.md §멈춤 신호) | api.md §인증, architecture.md 불변식 1, operations.md, verification.md |
 | `src/limn/startup.py` | `limn serve` 시작 규칙: 접근 설정 판단(`access_options`, 보안 경계)과 시작 로그, `--port` 확인, `--doc` 해석·메인 파일·상태 폴더, `people.json` 권한 조이기, 라벨·색, 시작 요약 줄, 패키지 버전(`app_version`). 거절은 `StartupRefused` 값(`--doc`의 거절은 먼저 `DocsRefusal` 값) | 시작 거절·바인드 규칙·요약 줄 변경(바인드 규칙은 architecture.md §멈춤 신호) | architecture.md 불변식 1, operations.md, verification.md |
 | `src/limn/args.py` | `limn serve` 명령줄 파서(`serve_parser`): 옵션·기본값·도움말 | 인자 추가나 변경 | operations.md, instances.md |
@@ -90,7 +91,7 @@ catalog_schema: 1
 | [ADR-0006](../adr/0006-relative-pin-paths.md) | 핀의 파일을 원고 폴더 기준 상대 경로(`file_rel`)로도 적고, 옛 레코드는 읽을 때 해석한다(쓰기 마이그레이션 없음) — 옮긴 원고에서도 핀이 따라온다 | 확정·구현 (0.3.2), 후속 읽기 규칙 (0.3.4, 이슈 #24) |
 | [ADR-0007](../adr/0007-agent-token-file.md) | 서버 머신의 에이전트는 인스턴스별 토큰 파일(`~/.config/limn/<인스턴스>.token`, `0600`)로 인증하고, 그 뒤 인스턴스마다 `AGENT_LOOPBACK=0` | 확정 (2026-09-26) |
 | [ADR-0008](../adr/0008-trash-live-reconciliation.md) | 휴지통과 살아 있는 핀의 두 파일 쓰기가 중단되면 살아 있는 핀을 우선하고 그림자 사본을 정리한다 | 확정·구현 (2026-09-27) |
-| [ADR-0009](../adr/0009-backend-vertical-slices.md) | 백엔드를 기능별 세로 슬라이스로 점진 이행하는 제안. 현재 구조는 계속 책임별 모듈이다 | 제안 (2026-09-28) |
+| [ADR-0009](../adr/0009-backend-vertical-slices.md) | 백엔드를 기능별 세로 슬라이스로 점진 이행. 닫기·다시 열기·확인을 옮겼다 | 확정·점진 구현 중 (2026-09-28) |
 
 ## 알려진 공백
 

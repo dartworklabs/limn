@@ -1334,7 +1334,7 @@ class MultiDoc(Base):
         )
         self.assertEqual((p["frac"][0], p["quote"], p["pdf_build"]), (0.3, "new", "pages-20260101000000"))
         self.assertTrue(fits(self.pin(pid)))
-        ps.APP.close_pin(
+        ps.APP.pin_lifecycle.close_pin(
             pid, dict(LOCAL_ACTOR), CloseRequest()
         )  # close/drop are resolved by id, independent of document
         self.assertTrue(self.pin(pid)["done"])
@@ -1594,7 +1594,7 @@ class KindAndThread(Base):
         self.assertEqual((code, d["pin"]["id"], d["pin"]["state"]), (200, pid, "open"))
         code, _, _ = split_resp(self.talk(req("GET", "/api/pins/999")))
         self.assertEqual(code, 404)
-        ps.APP.close_pin(pid, dict(self.S), CloseRequest())
+        ps.APP.pin_lifecycle.close_pin(pid, dict(self.S), CloseRequest())
         rows = ps.APP.pins_payload(ps.APP.snapshot_pins(), True)
         self.assertEqual(rows[0]["state"], "done")
         self.assertNotIn("state", records(ps.APP.read_pins()[0])[0])  # a computed field — not stored
@@ -1637,7 +1637,7 @@ class ReviewState(Base):
 
     def test_confirm_and_idempotence(self):
         pid = self.add()
-        ps.APP.close_pin(pid, dict(LOCAL_ACTOR), CloseRequest(reply="고침"))
+        ps.APP.pin_lifecycle.close_pin(pid, dict(LOCAL_ACTOR), CloseRequest(reply="고침"))
         W = {"Tailscale-User-Login": self.W["login"], "Tailscale-User-Name": self.W["name"]}
         code, d = self.post("/api/pins/%d/confirm" % pid, None, W)
         self.assertEqual((code, d["state"]), (200, "done"))
@@ -1657,18 +1657,18 @@ class ReviewState(Base):
         # observed bug: a request without an identity header (agent/local curl) could succeed at /confirm —
         # awaiting review is a record that "a human saw this," so an agent confirming its own work defeats the purpose.
         pid = self.add()
-        ps.APP.close_pin(pid, dict(LOCAL_ACTOR), CloseRequest(reply="고침"))
+        ps.APP.pin_lifecycle.close_pin(pid, dict(LOCAL_ACTOR), CloseRequest(reply="고침"))
         code, d = self.post("/api/pins/%d/confirm" % pid)  # no header = agent
         self.assertEqual(code, 403)
         self.assertIn("확인은 사람이 합니다", d.get("error", ""))
         self.assertEqual(pin_state(self.pin(pid)), "review")  # the status doesn't change
         self.assertEqual(
-            ps.APP.confirm_pin(pid, dict(LOCAL_ACTOR)), AgentCannotConfirm()
+            ps.APP.pin_lifecycle.confirm_pin(pid, dict(LOCAL_ACTOR)), AgentCannotConfirm()
         )  # a value, answered 403 above
 
     def test_reopen_with_reason_appends_to_thread_and_clears_review(self):
         pid = self.add()
-        ps.APP.close_pin(pid, dict(LOCAL_ACTOR), CloseRequest(reply="고침"))
+        ps.APP.pin_lifecycle.close_pin(pid, dict(LOCAL_ACTOR), CloseRequest(reply="고침"))
         code, d = self.post(
             "/api/pins/%d/reopen" % pid,
             {"reason": "식 번호가 아직 틀림"},

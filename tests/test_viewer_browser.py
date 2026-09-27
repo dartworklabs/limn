@@ -24,9 +24,9 @@ from unittest import mock
 
 from limn import revisions, startup
 from limn.access import LOCAL_ACTOR
+from limn.features.pins.lifecycle import input as lifecycle_input
 from limn.pins.lifecycle import CloseRequest
 from limn.pins.view import pin_state
-from limn.web import parse
 
 from helpers import SW_JS, add_pin, blank_png, find_record, minimal_pdf, ps, records, trash_records
 from helpers_access import ALICE, BOB, CAROL, REPO_NEW as NEW, REPO_OLD as OLD, actor
@@ -92,7 +92,7 @@ class BrowserOpenWaitsForPins(BrowserBase):
     def test_a_done_pin_is_known_when_open_returns_even_if_the_pin_list_is_slow(self):
         """With the pin list 1.5s late, the done pin is already in the viewer's lists when open(0) returns."""
         pid = add_pin({"file": str(self.main), "lo": 4, "hi": 4, "page": 1, "note": "done"}, actor(ALICE)).record["id"]
-        ps.APP.close_pin(pid, dict(LOCAL_ACTOR), CloseRequest(reply="fixed"))
+        ps.APP.pin_lifecycle.close_pin(pid, dict(LOCAL_ACTOR), CloseRequest(reply="fixed"))
         page = self.open(0, init=SLOW_PIN_LIST)
         self.assertTrue(page.evaluate("findAnyPin(%d)!==null" % pid))
 
@@ -113,9 +113,11 @@ class ViewerFlows(BrowserBase):
             "id"
         ]
         self.rv = add_pin({"file": str(self.main), "lo": 8, "hi": 9, "page": 1, "note": "식 번호 확인"}, A).record["id"]
-        ps.APP.close_pin(self.rv, dict(LOCAL_ACTOR), CloseRequest(reply="식 번호를 고쳤습니다", ref="PR #9"))
+        ps.APP.pin_lifecycle.close_pin(
+            self.rv, dict(LOCAL_ACTOR), CloseRequest(reply="식 번호를 고쳤습니다", ref="PR #9")
+        )
         self.dn = add_pin({"file": str(self.main), "lo": 12, "hi": 13, "page": 2, "note": "오타"}, A).record["id"]
-        ps.APP.close_pin(self.dn, A, CloseRequest(reply="고침"))
+        ps.APP.pin_lifecycle.close_pin(self.dn, A, CloseRequest(reply="고침"))
 
     def state(self, pid):
         return pin_state(find_record(ps.APP.snapshot_pins(), pid))
@@ -271,7 +273,7 @@ class ViewerFlows(BrowserBase):
         page.click(card + " .acts [data-act=reply-open]")
         page.fill("textarea.r-text", "이 문장도 봐 주세요")
         self.assertFalse(page.is_visible(".r-outcome"))  # open pin: a reply never changes it
-        ps.APP.close_pin(
+        ps.APP.pin_lifecycle.close_pin(
             self.open_id, dict(LOCAL_ACTOR), CloseRequest(reply="줄였습니다")
         )  # the agent closes it meanwhile
         page.evaluate("loadPins()")
@@ -878,7 +880,7 @@ class PreviewEqualsServer(BrowserBase):
             pid = add_pin(
                 {"file": str(self.main), "lo": 4 + 2 * i, "hi": 5 + 2 * i, "page": 1, "note": "검토 %d" % i}, A
             ).record["id"]
-            ps.APP.close_pin(pid, dict(LOCAL_ACTOR), CloseRequest(reply="고침 %d" % i))
+            ps.APP.pin_lifecycle.close_pin(pid, dict(LOCAL_ACTOR), CloseRequest(reply="고침 %d" % i))
             self.pins.append(pid)
 
     def run_case(self, page, pid, pick, text):
@@ -930,7 +932,7 @@ class ReplyKeyboardAndFailure(BrowserBase):
         super().setUp()
         ps.APP.record_person(A)
         self.rv = add_pin({"file": str(self.main), "lo": 8, "hi": 9, "page": 1, "note": "식"}, A).record["id"]
-        ps.APP.close_pin(self.rv, dict(LOCAL_ACTOR), CloseRequest(reply="고침"))
+        ps.APP.pin_lifecycle.close_pin(self.rv, dict(LOCAL_ACTOR), CloseRequest(reply="고침"))
 
     def box(self, page):
         card = '#review-pins .pin[data-id="%d"]' % self.rv
@@ -1045,19 +1047,21 @@ class ScopedViewer(BrowserBase):
         self.write(NEW)
         self.fix = self.commit("fix three pins")
         loc = dict(LOCAL_ACTOR)
-        ps.APP.close_pin(
+        ps.APP.pin_lifecycle.close_pin(
             self.p1,
             loc,
             CloseRequest(
-                reply="alpha", ref=self.fix[:8], changes=(parse.CloseChange(str(self.main.resolve()), 4, 5).record(),)
+                reply="alpha",
+                ref=self.fix[:8],
+                changes=(lifecycle_input.CloseChange(str(self.main.resolve()), 4, 5).record(),),
             ),
         )
-        ps.APP.close_pin(self.p2, loc, CloseRequest(reply="beta", ref=self.fix[:8]))
-        ps.APP.close_pin(self.p3, loc, CloseRequest(reply="gamma", ref=self.fix[:8]))
+        ps.APP.pin_lifecycle.close_pin(self.p2, loc, CloseRequest(reply="beta", ref=self.fix[:8]))
+        ps.APP.pin_lifecycle.close_pin(self.p3, loc, CloseRequest(reply="gamma", ref=self.fix[:8]))
         self.p4 = add_pin({"file": str(self.main), "lo": 8, "hi": 8, "page": 1, "note": "filler"}, A).record["id"]
         self.write(NEW.replace("Filler two.", "Filler two, reworded."))
         self.solo = self.commit("fix the filler pin")
-        ps.APP.close_pin(self.p4, loc, CloseRequest(reply="filler", ref=self.solo[:8]))
+        ps.APP.pin_lifecycle.close_pin(self.p4, loc, CloseRequest(reply="filler", ref=self.solo[:8]))
         self.builds = []
         self.fail_scoped = False
         patcher = mock.patch.object(revisions, "revision_compile", side_effect=self.fake_compile)
@@ -1355,7 +1359,7 @@ class ViewerRoleUi(BrowserBase):
         rid = add_pin({"file": str(self.main), "lo": 8, "hi": 9, "page": 1, "note": "검토할 핀"}, actor(ALICE)).record[
             "id"
         ]
-        ps.APP.close_pin(rid, dict(LOCAL_ACTOR), CloseRequest(reply="고침"))
+        ps.APP.pin_lifecycle.close_pin(rid, dict(LOCAL_ACTOR), CloseRequest(reply="고침"))
 
     def visible_acts(self, page):
         return page.evaluate(

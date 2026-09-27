@@ -36,11 +36,12 @@ from helpers_access import BOB, CAROL, AccessBase, talk_to
 # comparison worker's own "build_failed" status; limn/scope.py, limn/documents.py: the refusal values; limn/locate.py:
 # the 200 error bodies of a pick that cannot be traced to a source line), the access boundary (limn/access.py: identify,
 # admit, check_role and bearer_of raise their refusals) and the HTTP layer (limn/web: the handler, the parsers, the
-# answers, the refusal tables). Every static guard below reads all of them, keyed by file name; the two tables
+# answers, the refusal tables), plus feature-owned HTTP and input modules. Every static guard below reads all of them;
+# the two tables
 # (SCOPE_REJECTIONS, REVISION_FAILURES) are read as data.
 PKG = Path(ps.__file__).parent
 SOURCES = {
-    p.name if p.parent.name != "web" else "web/" + p.name: p.read_text(encoding="utf-8")
+    p.relative_to(PKG).as_posix(): p.read_text(encoding="utf-8")
     for p in [
         Path(ps.__file__),
         PKG / "revisions.py",
@@ -50,6 +51,7 @@ SOURCES = {
         PKG / "access.py",
     ]
     + sorted((PKG / "web").glob("*.py"))
+    + sorted((PKG / "features").rglob("*.py"))
 }
 
 
@@ -135,7 +137,7 @@ def emitted_reasons():
 
 
 class EveryErrorHasAReason(unittest.TestCase):
-    """Static guard over server.py and limn/web: no refusal can be written without a stable reason code."""
+    """Static guard over server, shared HTTP, and feature routes: every refusal has a stable reason code."""
 
     def test_every_http_error_names_a_reason_code(self):
         """Each HTTPError(...) passes reason=, a snake_case literal (or a conditional of two) - except where it passes

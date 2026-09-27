@@ -33,14 +33,15 @@ limn serve  ──(1)──▶  <manuscript_dir> 사본을 별도 빌드 디렉�
 
 ## 현재 구조
 
-Limn은 **하나의 배포 단위(`dartwork-limn` 패키지) 안에서 표준 라이브러리만 쓰는 책임별 모듈**로 나뉜다. 모듈은 네 층을 이루고, 안쪽 층은 바깥 층을 모른다. 경로마다의 책임과 함께 볼 topic은 [index.md](index.md) §파일 지도가 정본이다. 이 절은 층과 그 사이의 약속만 설명한다.
+Limn은 **하나의 배포 단위(`dartwork-limn` 패키지) 안에서 표준 라이브러리만 쓰는 모듈**로 나뉜다. 닫기·다시 열기·확인은 기능 패키지 `features/pins/lifecycle/`이 입력·HTTP 응답·트랜잭션을 소유한다. 나머지는 아직 책임별 모듈에 있다. 경로마다의 책임과 함께 볼 topic은 [index.md](index.md) §파일 지도가 정본이다.
 
 | 층 | 모듈 | 하는 일 | 모르는 것 |
 | --- | --- | --- | --- |
 | 순수 도메인 | `pins/`(상태 타입·레코드 검사·전이·편집·위치 규칙·API 모양·`pins.md` 렌더), `mapping.py`, `scope.py`, `pull.py`, `mentions.py`, `outline.py`, `guidance.py`, `mark.py` | 핀 수명 주기와 위치 계산의 규칙. 입력 값에서 결과 값이나 거절 값을 낸다 | 파일, subprocess, 시계, HTTP. 모듈마다 import 검사가 지킨다 |
-| 부수효과 셸 | `service/`(핀 서비스), `store.py`, `build.py`, `locate.py`, `revisions.py`, `gitsync.py`, `gitrun.py`, `documents.py`, `meta.py`, `people.py`, `events.py`, `audit.py`, `files.py`, `access.py`, `startup.py`·`args.py`·`config.py` | 파일·git·SyncTeX·빌드 도구를 다루고, 순수 규칙에 묻고, 결과를 쓴다. 문서·설정·협력자를 인자로 받는다 | 실행 설정 `C`, `server.py`, HTTP 층 |
-| HTTP 층 | `web/`(`handler.py`·`parse.py`·`answers.py`·`errors.py`·`app.py`) | 요청을 읽고, 경로마다의 파서(`parse.py`)로 본문과 쿼리를 값으로 바꾸고, 서비스를 부르고, 결과마다의 상태 코드와 본문(`answers.py`)으로 답한다 | `server.py`. 서비스 목록은 `web/app.py`의 `App` 프로토콜로만 안다 |
-| 조립 지점 | `server.py` | 시작 단계를 차례로 불러 실행 설정 `C`, 실행별 런타임 `RT`, 문서 목록을 `ServerApplication` 하나에 묶는다. 그 메서드가 옮긴 모듈에 이 실행의 설정과 협력자를 넘긴다 | — |
+| 부수효과 셸 | `service/`(남은 핀 서비스), `store.py`, `build.py`, `locate.py`, `revisions.py`, `gitsync.py`, `gitrun.py`, `documents.py`, `meta.py`, `people.py`, `events.py`, `audit.py`, `files.py`, `access.py`, `startup.py`·`args.py`·`config.py` | 파일·git·SyncTeX·빌드 도구를 다루고, 순수 규칙에 묻고, 결과를 쓴다. 문서·설정·협력자를 인자로 받는다 | 실행 설정 `C`, `server.py`, HTTP 층 |
+| 기능 슬라이스 | `features/pins/lifecycle/`의 `input.py`·`http.py`·`service.py` | 닫기·다시 열기·확인의 입력 검사, 응답, 잠금 아래 전이와 알림. 순수 전이 규칙은 아직 답글 등과 함께 쓰는 `pins/lifecycle.py`에 있다 | `server.py`. 실행별 문맥은 조립 지점이 묶는다 |
+| 공통 HTTP | `web/`(`handler.py`·`parse.py`·`answers.py`·`errors.py`·`app.py`) | 본문 읽기·접근 검사·경로 분기와 아직 옮기지 않은 경로의 파싱·응답. 세 수명 주기 경로는 기능 패키지의 HTTP 입구를 부른다 | `server.py`. 앱 계약은 `web/app.py`의 `App` 프로토콜이다 |
+| 조립 지점 | `server.py` | 시작 단계를 차례로 불러 실행 설정 `C`, 실행별 런타임 `RT`, 문서 목록을 `ServerApplication` 하나에 묶는다. 핀 수명 주기는 실행별 `PinLifecycle` 하나에 `pin_context` 생성 함수를 묶는다 | — |
 
 층 밖에 나란히 있는 것이 둘이다.
 
@@ -59,7 +60,7 @@ Limn은 **하나의 배포 단위(`dartwork-limn` 패키지) 안에서 표준 �
 
 `Runtime.start_thread()`는 실제 시작에 성공한 감시 스레드만 종료 대상에 등록한다. 기동 도중 다음 스레드 시작이 실패해도 `stop()`은 먼저 시작한 스레드를 끝내고 원래의 시작 오류를 가리지 않는다.
 
-핀 레코드는 저장소와 셸에서 파이썬 `dict` 그대로 다닌다. 전이 앞에서 [`limn/pins/model.py`](../../src/limn/pins/model.py)가 레코드를 상태 타입(`OpenPin`·`ReviewPin`·`DonePin`)으로 파싱하고, 모든 상태가 함께 가진 필드(`id`·위치·`note`·`rev`·`thread` 등)를 `core`(`PinCore`)로, 그 상태에만 있는 필드(열림의 처리 중 표시, 닫힘의 닫은 기록, 완료의 확인)를 타입의 속성으로 올린다. 나머지 필드는 저장된 그대로 두고, 다시 쓸 때 순서까지 지킨다. 상태를 정하는 규칙은 `state_of` 하나이고, API의 `state` 이름은 그 상태 타입의 이름이다. 전이는 그 타입을 받아 결과를 반환값으로 돌려준다. 잠금 아래 레코드를 읽어 파싱하고 전이를 부르고 결과를 다시 쓰는 셸은 [`limn/service/`](../../src/limn/service/context.py)에 있다.
+핀 레코드는 저장소와 셸에서 파이썬 `dict` 그대로 다닌다. 전이 앞에서 [`limn/pins/model.py`](../../src/limn/pins/model.py)가 레코드를 상태 타입(`OpenPin`·`ReviewPin`·`DonePin`)으로 파싱하고, 모든 상태가 함께 가진 필드(`id`·위치·`note`·`rev`·`thread` 등)를 `core`(`PinCore`)로, 그 상태에만 있는 필드(열림의 처리 중 표시, 닫힘의 닫은 기록, 완료의 확인)를 타입의 속성으로 올린다. 나머지 필드는 저장된 그대로 두고, 다시 쓸 때 순서까지 지킨다. 상태를 정하는 규칙은 `state_of` 하나이고, API의 `state` 이름은 그 상태 타입의 이름이다. 전이는 그 타입을 받아 결과를 반환값으로 돌려준다. 잠금 아래 레코드를 읽어 파싱하고 전이를 부르고 결과를 다시 쓰는 셸은 닫기·다시 열기·확인에 대해 [`features/pins/lifecycle/service.py`](../../src/limn/features/pins/lifecycle/service.py), 나머지 핀 동작에 대해 [`limn/service/`](../../src/limn/service/context.py)에 있다.
 
 > **참고**
 >
@@ -69,20 +70,20 @@ Limn은 **하나의 배포 단위(`dartwork-limn` 패키지) 안에서 표준 �
 
 층의 이름보다 지켜야 하는 것은 import 방향이다. 방향이 깨지면 순수 규칙을 서버 없이 테스트할 수 없고, 한 프로세스에 여러 벌 올라온 서버 사본이 서로의 설정과 잠금에 닿는다.
 
-- **순수 도메인은 부수효과를 가져오지 않는다.** `pins/`·`mapping.py` 등은 파일·subprocess·HTTP 타입을 가져오지 않는다. `store`·`service`·`build`·`web`이 그 순수 모듈을 불러 쓴다. `service`는 `store`를 쓴다.
-- **`web/`은 `server.py`를 가져오지 않는다.** `server.py`는 한 프로세스에 여러 벌 올라올 수 있다(`limn.server`, 파일로 실행한 `__main__`, 테스트가 경로로 올린 사본). 한 모듈 사본 안에서도 두 서버를 시작할 수 있다. 가져오면 지금 요청을 받는 실행이 아닌 다른 실행의 설정·문서·잠금에 닿는다. 그래서 조립 지점이 각 실행의 처리기 하위 클래스에 해당 앱을 묶고, 처리기는 요청 때 그 클래스의 `app`을 읽는다. 처리기는 서비스를 직접 가져오지 않고 조립 지점이 묶은 `App`을 거친다. `tests/test_web.py`와 `tests/test_server.py`가 이 방향과 실제 HTTP 격리를 검사한다.
-- **안쪽은 HTTP를 모른다.** 요청 파싱은 처리기 쪽(`web/parse.py`)이라 서비스는 파싱된 값만 받는다. 서비스와 원고 이력·문서 조회는 결과 값(`CommitNotRecent`·`DocNotFound`·`ViewOnlyNoRebuild` 등)을 돌려주고 `web/answers.py`가 답한다. 처리기의 경로는 본문 필드나 쿼리 매개변수를 직접 읽지 않고(경로마다의 요청 타입과 `parse_flag`), 판단(보기 전용 문서의 재빌드 거절, 사람 목록의 순서와 역할)은 주인 모듈(`build.py`·`people.py`)에 있다. 처리기가 스스로 내는 거절은 자기 것뿐이다. 본문을 읽지 못함(틀·크기·형식·JSON), 받지 않는 Host/Origin, 어느 경로도 받지 않는 주소다. 모든 경로는 같은 순서로 본문 읽기 → Host/Origin → 신원 → 입장 → (POST) 역할 검사를 지난 뒤에 돈다. `tests/test_web.py`가 처리기 소스와 경로마다 읽는 `App` 멤버의 순서로 이것을 검사한다. 조립 지점은 비교 PDF 워커에 실패 문구 함수(`web/errors.py`의 `revision_failure_text`)를 넘기려고 `web/errors.py`를 가져온다. 이 문구는 HTTP 응답과 같은 표에서 나와야 하고 서비스는 `web/`을 가져오지 않기 때문이다.
+- **순수 도메인은 부수효과를 가져오지 않는다.** `pins/`·`mapping.py` 등은 파일·subprocess·HTTP 타입을 가져오지 않는다. `store`·`service`·`features`·`build`·`web`이 그 순수 모듈을 불러 쓴다. 핀 서비스는 `store`의 트랜잭션 경계를 쓴다.
+- **`web/`과 `features/`는 `server.py`를 가져오지 않는다.** `server.py`는 한 프로세스에 여러 벌 올라올 수 있다(`limn.server`, 파일로 실행한 `__main__`, 테스트가 경로로 올린 사본). 한 모듈 사본 안에서도 두 서버를 시작할 수 있다. 가져오면 지금 요청을 받는 실행이 아닌 다른 실행의 설정·문서·잠금에 닿는다. 그래서 조립 지점이 각 실행의 처리기 하위 클래스에 해당 앱을 묶고, 처리기는 요청 때 그 클래스의 `app`을 읽는다. 처리기는 서비스를 직접 가져오지 않고 조립 지점이 묶은 `App`을 거친다. `tests/test_web.py`와 `tests/test_server.py`가 이 방향과 실제 HTTP 격리를 검사한다.
+- **안쪽은 HTTP를 모른다.** 요청 파싱은 HTTP 경계(`web/parse.py` 또는 `features/pins/lifecycle/input.py`)에 있어 서비스는 파싱된 값만 받는다. 서비스와 원고 이력·문서 조회는 결과 값(`CommitNotRecent`·`DocNotFound`·`ViewOnlyNoRebuild` 등)을 돌려주고 `web/answers.py` 또는 기능별 `http.py`가 답한다. 처리기의 경로는 본문 필드나 쿼리 매개변수를 직접 읽지 않고(경로마다의 요청 타입과 `parse_flag`), 판단(보기 전용 문서의 재빌드 거절, 사람 목록의 순서와 역할)은 주인 모듈(`build.py`·`people.py`)에 있다. 처리기가 스스로 내는 거절은 자기 것뿐이다. 본문을 읽지 못함(틀·크기·형식·JSON), 받지 않는 Host/Origin, 어느 경로도 받지 않는 주소다. 모든 경로는 같은 순서로 본문 읽기 → Host/Origin → 신원 → 입장 → (POST) 역할 검사를 지난 뒤에 돈다. `tests/test_web.py`가 처리기의 공통 검사 순서와 앱 바인딩을 검사한다. 조립 지점은 비교 PDF 워커에 실패 문구 함수(`web/errors.py`의 `revision_failure_text`)를 넘기려고 `web/errors.py`를 가져온다. 이 문구는 HTTP 응답과 같은 표에서 나와야 하고 서비스는 `web/`을 가져오지 않기 때문이다.
 - **접근 제어는 거절을 던진다(fail closed).** 신원·입장·역할 판단(`limn/access.py`)은 거절로 `HTTPError`를 던지고 확인 거절 문구(`CONFIRM_BY_HUMAN`)를 `web/`에서 가져온다. 새로 짠 호출자가 거절을 놓쳐도 요청이 통과하지 않게 하려는 것으로, "거절은 값"이라는 코딩 규칙의 유일한 예외다([code-style-roadmap.md](code-style-roadmap.md) §R10). `server.py`를 가져오지 않으므로 처리기와 같은 방향이다.
 - **HTTP 층의 이름은 `http/`가 아니라 `web/`이다.** 파일로 실행될 때 `limn/` 폴더 자체도 `sys.path` 맨 앞에 온다. 표준 라이브러리 모듈과 이름이 같은 패키지(`limn/http/` 등)를 두면 표준 모듈(`http.server`)이 가려져 서버가 뜨지 않는다.
 - **조립 지점이 실행별 자원을 만들고 끝낸다.** `start()`가 실행 설정·런타임·문서 목록을 가진 `ServerApplication`을 만들고 그 실행 전용 처리기 하위 클래스에 묶는다. `StartedServer`가 소켓과 앱을 함께 돌려줘 종료 대상을 보존한다. 같은 모듈에서 다음 실행을 시작해도 앞선 처리기의 앱은 바뀌지 않는다. `web/`은 조립 지점을 가져오지 않는다.
 
 ## 채택한 설계 축
 
-설계 축은 프로젝트가 기본 청사진에서 어디가 달라지는지를 묻는 질문 목록이다. 아래 값이 **현재 채택값**이고, 채택한 이유와 버린 대안은 [ADR-0001](../adr/0001-blueprint.md)에 남긴다. 표에 없는 축(경제·비용 게이트, 외부 검수 권위)은 Limn에서 달라지지 않아 따로 정하지 않았다.
+설계 축은 프로젝트가 기본 청사진에서 어디가 달라지는지를 묻는 질문 목록이다. 아래 값이 **현재 채택값**이고, 채택한 이유와 버린 대안은 [ADR-0001](../adr/0001-blueprint.md)과 1차 구조를 부분 대체한 [ADR-0009](../adr/0009-backend-vertical-slices.md)에 남긴다. 표에 없는 축(경제·비용 게이트, 외부 검수 권위)은 Limn에서 달라지지 않아 따로 정하지 않았다.
 
 | 축 | 채택값 | 근거와 적용 |
 | --- | --- | --- |
-| 1차 구조 | **작은 단일 배포 + 책임별 모듈.** 순수 도메인·부수효과 셸·HTTP 층·조립 지점(§현재 구조) | 배포 단위·런타임이 하나다. 서버·인스턴스 관리자·migrate의 수명 주기만 다르다 |
+| 1차 구조 | **작은 단일 배포 + 기능별 세로 슬라이스로 점진 이행.** 닫기·다시 열기·확인은 이행했고 다른 동작은 책임별 모듈에 있다(§현재 구조) | [ADR-0009](../adr/0009-backend-vertical-slices.md)가 ADR-0001의 축 1을 부분 대체한다. 배포 단위·런타임은 하나다 |
 | 도메인 정체 | **핀의 수명 주기와 위치 규칙.** 상태 전이, 역변환·범위 사다리·anchor 재동기화 | [domain.md](domain.md) |
 | 함수형 DDD 범위 | **실용적 함수형.** 판단은 순수 함수, 부수효과(파일·git·subprocess·HTTP)는 가장자리. 의미 있는 수명 주기(핀 상태)에만 상태별 타입과 전이 함수를 쓰고, 계산·파싱은 평범한 함수로 둔다. 예상된 거절은 예외가 아니라 반환 타입의 거절 값으로 돌려준다(`confirm() -> DonePin \| AlreadyDone \| PinStillOpen`, `confirmer() -> Person \| AgentCannotConfirm`) | 우리 코딩 스킬 `code-implement`의 기본값. 규칙과 예는 [code-style-roadmap.md](code-style-roadmap.md) |
 | 검수 진실원 | **자동 테스트 녹색 + 에이전트 계약 불변 + 화면 실측.** pytest·셸 테스트·Playwright 레이아웃 테스트가 통과하고, `pins.md`·HTTP API가 호환을 지키며, 화면 규칙은 실측 스크린샷으로 확인한다 | [verification.md](verification.md) |

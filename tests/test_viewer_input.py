@@ -308,7 +308,7 @@ class ViewerBase(BrowserBase):
             {"file": str(self.main), "lo": 20, "hi": 21, "page": 2, "note": "검토할 핀", "frac": [0.2, 0.3, 0.4, 0.04]},
             actor(ALICE),
         ).record["id"]  # add_pin returns the new OpenPin (limn.pins.edit)
-        ps.APP.close_pin(rid, dict(LOCAL_ACTOR), CloseRequest(reply="고침"))
+        ps.APP.pin_lifecycle.close_pin(rid, dict(LOCAL_ACTOR), CloseRequest(reply="고침"))
 
     def view(self, device, lang="ko", prefs=None, reduced=False, init=None, dark=False, hash_=""):
         """Open the viewer on a device preset and return the page once boot() has finished and the page has settled.

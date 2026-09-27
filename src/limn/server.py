@@ -87,6 +87,7 @@ from limn.documents import (
     DocumentFacts,
 )
 from limn.events import EVENTS_KEEP, EventType
+from limn.features.pins.lifecycle.service import PinLifecycle
 from limn.files import tex_lines, vendor_file as find_vendor_file
 from limn.guidance import shell_path
 from limn.locate import PinLocation, est_context, locate_file
@@ -104,16 +105,11 @@ from limn.people import is_actor as _is_actor
 from limn.pins import record, view
 from limn.pins.edit import AddRequest, EditRefusal, EditRequest
 from limn.pins.lifecycle import (
-    AgentCannotConfirm,
-    AlreadyClosed,
-    AlreadyDone,
     AlreadyLive,
     ClaimClosedPin,
     ClaimedByOther,
-    CloseRequest,
     NotClaimed,
     NotInTrash,
-    PinStillOpen,
     ThreadFull,
     claim_holds,
     pin_reopened_in_round,
@@ -359,6 +355,11 @@ class ServerApplication:
     C: RunConfig
     RT: Runtime
     docs: list[Doc] = field(default_factory=list)
+    pin_lifecycle: PinLifecycle = field(init=False)
+
+    def __post_init__(self) -> None:
+        """Bind the lifecycle feature to this application's context factory."""
+        self.pin_lifecycle = PinLifecycle(self.pin_context)
 
     APP_NAME = APP_NAME
     DEFAULT_ROLE = DEFAULT_ROLE
@@ -819,26 +820,6 @@ class ServerApplication:
     ) -> OpenPin | ReviewPin | DonePin | ThreadFull | PinNotFound:
         """POST /api/pins/{id}/reply (limn.service.transitions.reply_pin)."""
         return transitions.reply_pin(self.pin_context(), pid, text, actor, hints, reopen, human)
-
-    def close_pin(
-        self, pid: int, actor: Json, request: CloseRequest
-    ) -> ReviewPin | DonePin | AlreadyClosed | PinNotFound:
-        """POST /api/pins/{id}/close with its parsed body (limn.web.parse.parse_close; CloseRequest() is a close with
-        no body) (limn.service.transitions.close_pin)."""
-        return transitions.close_pin(self.pin_context(), pid, actor, request)
-
-    def reopen_pin(
-        self, pid: int, actor: Json, reason: str | None = None, hints: list[str] | None = None
-    ) -> OpenPin | PinNotFound:
-        """POST /api/pins/{id}/reopen with its reason and @-tag hints (limn.web.parse.parse_reopen)
-        (limn.service.transitions.reopen_pin)."""
-        return transitions.reopen_pin(self.pin_context(), pid, actor, reason, hints)
-
-    def confirm_pin(
-        self, pid: int, actor: Json
-    ) -> DonePin | AlreadyDone | PinStillOpen | AgentCannotConfirm | PinNotFound:
-        """POST /api/pins/{id}/confirm (limn.service.transitions.confirm_pin)."""
-        return transitions.confirm_pin(self.pin_context(), pid, actor)
 
     def drop_pin(self, pid: int, actor: Json) -> TrashedPin | PinNotFound:
         """POST /api/pins/{id}/drop: the pin moves to the Trash (limn.service.trash.drop_pin)."""
