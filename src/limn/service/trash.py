@@ -17,7 +17,7 @@ from limn.access import LOCAL_ACTOR
 from limn.pins.lifecycle import AlreadyLive, NotInTrash, drop, find_trashed, restore
 from limn.pins.model import DonePin, OpenPin, PinNotFound, ReviewPin, TrashedPin, parse_pin
 from limn.pins.position import epoch as parse_epoch
-from limn.service.context import Event, Json, PinContext, Row, typed_actor
+from limn.service.context import Event, Json, PinContext, Row, load_pin, typed_actor
 from limn.store import find_pin
 
 # a long-running server also drops expired Trash entries during normal reads, at most this often
@@ -55,11 +55,12 @@ def drop_pin(ctx: PinContext, pid: int, actor: Mapping[str, Any]) -> TrashedPin 
 
     def fn(rows: list[Row]) -> tuple[TrashedPin | PinNotFound, bool]:
         """The transact() step: take pin pid out of rows, append it to the Trash and queue its `dropped` notice."""
-        r = find_pin(rows, pid)
-        if r is None:
-            return PinNotFound(pid), False
+        found = load_pin(rows, pid)
+        if isinstance(found, PinNotFound):
+            return found, False
+        r, pin = found
         rows.remove(r)
-        trashed = drop(parse_pin(r), typed_actor(actor), ctx.now())
+        trashed = drop(pin, typed_actor(actor), ctx.now())
         old, bad = ctx.store.read_dropped()
         ctx.store.write_dropped(_live_trash(ctx, old) + [dict(trashed.record)], bad)
         evs.append(ctx.make_event("dropped", r, actor, [(r.get("author") or {}).get("login")], text=r.get("note")))

@@ -31,9 +31,8 @@ from limn.pins.edit import (
     new_line_pin,
     new_region_pin,
 )
-from limn.pins.model import DonePin, OpenPin, Pin, PinNotFound, ReviewPin, parse_pin
-from limn.service.context import Event, PinContext, Row, typed_actor
-from limn.store import find_pin
+from limn.pins.model import DonePin, OpenPin, Pin, PinNotFound, ReviewPin
+from limn.service.context import Event, PinContext, Row, load_pin, typed_actor
 
 
 def located(loc: PinLocation | None) -> Located | None:
@@ -144,10 +143,10 @@ def edit_pin(
 
     def fn(rows: list[Row]) -> tuple[OpenPin | ReviewPin | DonePin | EditRefusal | PinNotFound, bool]:
         """The transact() step: decide the edit on pin pid and, if accepted, write it in place and queue its notices."""
-        r = find_pin(rows, pid)
-        if r is None:
-            return PinNotFound(pid), False
-        pin = parse_pin(r)
+        found = load_pin(rows, pid)
+        if isinstance(found, PinNotFound):
+            return found, False
+        r, pin = found
         # ADR-0006: an edit records where the file is now
         where = None if region else ctx.locate(file_after(r, request))
         count = len(tex_lines(where.path)) if where is not None and request.sets_lines() else None

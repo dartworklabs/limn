@@ -8,15 +8,15 @@ run settings and a frozen clock or a patched setting in a test reaches them.
 
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
-from typing import Any, Protocol, TypeAlias
+from typing import Any, NamedTuple, Protocol, TypeAlias
 
 from limn.access import AGENT_LOGIN_PREFIX, LOCAL_ACTOR
 from limn.audit import AuditAction
 from limn.events import EventType
 from limn.locate import PinLocation
 from limn.mentions import NoteTags
-from limn.pins.model import Actor, Agent, Person
-from limn.store import PinStore
+from limn.pins.model import Actor, Agent, Person, Pin, PinNotFound, parse_pin
+from limn.store import PinStore, find_pin
 
 Json: TypeAlias = dict[str, Any]  # a request's actor, a stored pin record, a notice
 Row: TypeAlias = dict[str, Any]  # one stored pin as the store reads and writes it (limn.store.Row)
@@ -108,3 +108,20 @@ def typed_actor(actor: Mapping[str, Any]) -> Actor:
         return Agent(login, name)
     pic = actor.get("pic")
     return Person(login, name, pic if isinstance(pic, str) and pic else None)
+
+
+class LoadedPin(NamedTuple):
+    """Pin pid as a transact() step loaded it: the stored row itself, which the step changes in place when it writes
+    (so the saved line keeps its field order), and the row's state type (parse_pin) the rules decide on."""
+
+    row: Row
+    pin: Pin
+
+
+def load_pin(rows: list[Row], pid: int) -> LoadedPin | PinNotFound:
+    """Pin pid among the rows a transact() step was given, with its state type, or PinNotFound when no row has that
+    id - the named miss every pin action answers (ok:false, or its own refusal) and writes nothing for."""
+    r = find_pin(rows, pid)
+    if r is None:
+        return PinNotFound(pid)
+    return LoadedPin(r, parse_pin(r))

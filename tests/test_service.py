@@ -37,7 +37,7 @@ from limn.pins.lifecycle import (
 )
 from limn.pins.model import Agent, DonePin, OpenPin, Person, PinNotFound, ReviewPin, TrashedPin
 from limn.service import add_edit, claim, transitions, trash
-from limn.service.context import PinContext, is_agent, typed_actor, who
+from limn.service.context import LoadedPin, PinContext, is_agent, load_pin, typed_actor, who
 from limn.store import PinFiles, PinStore, find_pin
 from limn.web import parse
 from limn.web.errors import InputRejected
@@ -218,6 +218,25 @@ class Actors(unittest.TestCase):
             Person("alice@example.com", "Alice Kim", "https://example.com/a.png"),
         )
         self.assertEqual(typed_actor(dict(ALICE_ACTOR, pic="")), Person("alice@example.com", "Alice Kim", None))
+
+
+class LoadPin(unittest.TestCase):
+    """load_pin: the one lookup by id every pin action's transact() step starts with."""
+
+    def test_a_found_pin_is_the_stored_row_itself_with_its_state_type(self):
+        """The row comes back by identity (a step changes it in place), with parse_pin's state type beside it."""
+        rows = [{"id": 1, "done": False}, {"id": 2, "done": True, "review": True}]
+        found = load_pin(rows, 2)
+        self.assertIsInstance(found, LoadedPin)
+        self.assertIs(found.row, rows[1])
+        self.assertIsInstance(found.pin, ReviewPin)
+        row, pin = found
+        self.assertEqual((row, pin), (rows[1], found.pin))
+
+    def test_a_missing_id_is_a_named_miss(self):
+        """No row with the id is PinNotFound carrying that id, never None."""
+        self.assertEqual(load_pin([{"id": 1}], 3), PinNotFound(3))
+        self.assertEqual(load_pin([], 1), PinNotFound(1))
 
 
 class AddAndEdit(ServiceBase):
