@@ -9,8 +9,8 @@ StartupRefused instead of ending the process - server.main() is the one place th
   trusted-proxy or an explicit --i-know-this-is-insecure; the deprecated headerless loopback agent only under tailscale
   on a loopback bind. access_log_lines() is the startup log about the result.
 - Documents and files: the --doc specs (parse_doc_arg, make_docs; a refusal is a DocsRefusal value, worded by
-  doc_refusal_message), the main .tex without --doc (detect_main,
-  pick_documents), the state folder (state_dir), and people.json's permissions (tighten_state_perms).
+  doc_refusal_message), the main .tex without --doc (detect_main, pick_documents), the state folder (state_dir,
+  state_placement), and people.json's permissions (tighten_state_perms).
 - The port: a free one (free_port), whether --port can be listened on (probe_port), and the one line for one that
   cannot (listen_refusal).
 - The instance label and accent (default_label, clean_label, run_label, run_accent), and the startup summary.
@@ -24,6 +24,7 @@ tighten_state_perms) touch only what their arguments name.
 from __future__ import annotations
 
 import argparse
+import contextlib
 import errno
 import hashlib
 import os
@@ -38,10 +39,13 @@ from pathlib import Path
 from typing import Literal, NamedTuple, TypeAlias, TypedDict
 
 from limn.access import (
+    AUTH_PROVIDERS,
     HEADER_NAME_RE,
     LOOPBACK_AGENT_DEPRECATION,
+    AuthProvider,
     HostEntry,
     IPNetwork,
+    is_auth_provider,
     is_loopback_bind,
     local_owner_actor,
     parse_networks,
@@ -89,7 +93,7 @@ class AccessOptions:
     """The access settings a command line starts with. Every field is also a run setting of the same name (Cfg), which
     the composition root sets from this value; the startup log (access_log_lines) reads the same value back."""
 
-    auth: str  # identity provider: one of limn.access.AUTH_PROVIDERS
+    auth: AuthProvider  # identity provider
     bind: str  # the listen address
     agent_loopback: bool  # a headerless loopback request is the agent (deprecated)
     tailnet_agent: bool  # ...also one through tailscale serve (opt-in, deprecated)
@@ -108,12 +112,15 @@ def access_options(a: argparse.Namespace) -> AccessOptions | StartupRefused:
     """The access options (--auth, tokens/loopback agent, --bind, proxy, members) of a parsed `limn serve` command
     line, or the refusal with a clear message for a refused combination - main() stops before any build, so a
     misconfigured unit fails fast. The checks run in a fixed order, which decides the message of a line with several
-    faults: --bind, the non-loopback bind, --agent-loopback, --tailnet-agent, --public-host/--trusted-proxies, the
+    faults: --auth (argparse's choices already hold it to AUTH_PROVIDERS; checked again here, where the text becomes an
+    AuthProvider, for a namespace built some other way), --bind, the non-loopback bind, --agent-loopback, --tailnet-agent, --public-host/--trusted-proxies, the
     proxy header names, --local-user.
 
     Rules: a non-loopback --bind needs --auth trusted-proxy or --i-know-this-is-insecure. The headerless loopback agent
     exists only under tailscale on a loopback bind; asking for it (--agent-loopback) anywhere else refuses to start."""
     auth = a.auth or "tailscale"
+    if not is_auth_provider(auth):
+        return StartupRefused("--auth takes one of %s: %r" % (", ".join(AUTH_PROVIDERS), auth))
     bind = a.bind or "127.0.0.1"
     try:
         loop_bind = is_loopback_bind(bind)
@@ -174,7 +181,7 @@ def access_log_lines(s: AccessOptions, tokens: int, token_file_present: bool) ->
     """Startup log lines about access: the provider line, and warnings for a non-loopback bind / the deprecated
     loopback agent. tokens is the number of valid entries in tokens.json; token_file_present whether
     s.agent_token_file exists (only shown when one is configured)."""
-    parts = [s.auth]
+    parts: list[str] = [s.auth]
     if s.auth == "local":
         parts.append("owner %s" % local_owner_actor(s.local_user)["login"])
     if s.auth == "trusted-proxy":
@@ -618,6 +625,48 @@ def state_dir(state_dir_arg: str | None, src: Path, data_home: Path) -> Path:
     return (
         Path(state_dir_arg).expanduser().resolve() if state_dir_arg else data_home / "limn" / "serve" / state_slug(src)
     )
+
+
+@dataclass(frozen=True)
+class StateInManuscript:
+    """The state folder lies inside the manuscript folder and holds none of the served documents: the run starts, the
+    manuscript tree (limn.files.tree_part) and the build copy leave the folder out, and main() prints warning() on
+    stderr - the folder holds people.json, tokens.json (hashes), audit.jsonl and events.jsonl, which git or a file
+    sync of the manuscript would otherwise carry along."""
+
+    state: Path
+    manuscript: Path
+
+    def warning(self) -> str:
+        """The one stderr line about it."""
+        return (
+            "warning: the state folder %s is inside the manuscript %s - Limn leaves it out of the manuscript tree "
+            "(snippets, pins, the build copy), but it holds people.json, tokens.json (hashes), audit.jsonl and "
+            "events.jsonl: keep it out of git (.gitignore) and file sync, or give a --state-dir outside the manuscript"
+            % (self.state, self.manuscript)
+        )
+
+
+def state_placement(state: Path, src: Path, served: Sequence[Path]) -> StateInManuscript | StartupRefused | None:
+    """Where the state folder lies against the manuscript folder src, both with symlinks resolved: None outside it
+    (the default place, or a folder that holds the manuscript), StateInManuscript inside it, and a refusal when it
+    also holds a file of `served` (the documents' main files) - the tree rule never reads a file of the state
+    folder, so such a document could take no pin (a state folder that is the manuscript folder itself is one)."""
+    try:
+        held, base = state.resolve(), src.resolve()
+    except (OSError, RuntimeError):
+        return None
+    if not held.is_relative_to(base):
+        return None
+    for f in served:
+        with contextlib.suppress(OSError, RuntimeError):
+            if f.resolve().is_relative_to(held):
+                return StartupRefused(
+                    "The state folder %s holds %s, a document this run serves: Limn never reads a file of its state "
+                    "folder as manuscript, so that document could take no pin. Give a --state-dir outside the "
+                    "manuscript (the default) or a folder of its own." % (held, f)
+                )
+    return StateInManuscript(held, base)
 
 
 def tighten_state_perms(people_file: Path) -> None:

@@ -201,10 +201,10 @@ class BuildRoot(Protocol):
         ...
 
 
-def _within(p: Path, root: Path) -> bool:
-    """Does p, symlinks resolved, belong to the tree root (limn.files.tree_part: inside root and under no dot-named
-    part such as .git)? False when either cannot be resolved."""
-    return tree_part(p, root) is not None
+def _within(p: Path, root: Path, state: Path) -> bool:
+    """Does p, symlinks resolved, belong to the tree root (limn.files.tree_part: inside root, under no dot-named part
+    such as .git and not in the state folder `state`)? False when a path cannot be resolved."""
+    return tree_part(p, root, state) is not None
 
 
 def doc_scope(D: BuildRoot | None, root: Path) -> str:
@@ -222,7 +222,7 @@ def doc_scope(D: BuildRoot | None, root: Path) -> str:
     return "" if rel == "." else rel
 
 
-def locate_file(file: object, file_rel: object, root: Path, doc: BuildRoot | None) -> PinLocation | None:
+def locate_file(file: object, file_rel: object, root: Path, state: Path, doc: BuildRoot | None) -> PinLocation | None:
     """Where a stored absolute path is under the manuscript root on this machine now, by the one rule of ADR-0006
     (pin_rel_path) - a pin's own `file` (with its file_rel) or a path in its `changes` (none), the tail guess searched
     in the folder of doc (doc_scope). None for a missing path or one the rule cannot place inside root.
@@ -231,8 +231,8 @@ def locate_file(file: object, file_rel: object, root: Path, doc: BuildRoot | Non
     in_tree() did - and never file contents: a line read from outside the tree would leak into the anchor and out
     through GET /api/pins. The result is checked once more after resolving symlinks against the tree rule
     (limn.files.tree_part), so a link inside the tree cannot lead outside, and a path under a dot-named part (.git,
-    .env) is never located - a pin recorded there before that rule is outside the tree (a tail through such a link or
-    part is skipped for the next one)."""
+    .env) or in the state folder `state` is never located - a pin recorded there before that rule is outside the tree
+    (a tail through such a link or part is skipped for the next one)."""
     if not isinstance(file, str) or not file:
         return None
     try:
@@ -240,26 +240,26 @@ def locate_file(file: object, file_rel: object, root: Path, doc: BuildRoot | Non
     except (ValueError, OSError, RuntimeError):
         under = None
     scope = doc_scope(doc, root) if under is None else ""  # only a moved record needs its document folder
-    rel = pin_rel_path(file, file_rel, under, lambda t: (root / t).is_file() and _within(root / t, root), scope)
+    rel = pin_rel_path(file, file_rel, under, lambda t: (root / t).is_file() and _within(root / t, root, state), scope)
     if rel is None:
         return None
     path = root / rel
-    return PinLocation(rel, path) if _within(path, root) else None
+    return PinLocation(rel, path) if _within(path, root, state) else None
 
 
-def pin_location(r: Mapping[str, Any], root: Path, doc: Doc | None) -> PinLocation | None:
+def pin_location(r: Mapping[str, Any], root: Path, state: Path, doc: Doc | None) -> PinLocation | None:
     """Where line pin r's file is under the manuscript root on this machine now (locate_file, the tail guess limited to
     the folder of doc - the pin's own document, None when it is no longer configured), or None: a view-only PDF pin,
-    or a file the rule cannot place inside root."""
-    return locate_file(r.get("file"), r.get("file_rel"), root, doc)
+    or a file the rule cannot place inside the tree (root minus the state folder `state`)."""
+    return locate_file(r.get("file"), r.get("file_rel"), root, state, doc)
 
 
-def stamp_location(r: Row, root: Path, doc: Doc | None) -> PinLocation | None:
+def stamp_location(r: Row, root: Path, state: Path, doc: Doc | None) -> PinLocation | None:
     """Records where line pin r's file is now (ADR-0006 §1): `file` becomes the current absolute path and `file_rel` the
     path relative to root. Only for a write to this very pin (create, edit, restore) - other writes keep the stored
     record, so there is no write migration. A pin that cannot be located, or a view-only PDF pin, is left as it is.
     Mutates r and returns its location (or None)."""
-    loc = pin_location(r, root, doc)
+    loc = pin_location(r, root, state, doc)
     if loc is not None:
         r["file"], r["file_rel"] = str(loc.path), loc.rel
     return loc
@@ -400,7 +400,7 @@ class SourceLines(Protocol):
 class PickContext:
     """What resolving a selection needs from the instance: the manuscript root (a SyncTeX answer outside it is
     refused), the float environments of the range ladder (--float-envs), the state folder (for the "PDF older than the
-    manuscript" check), the process's token-weight cache, and the overlaps of a range with the stored open pins
+    manuscript" check, and never part of the tree), the process's token-weight cache, and the overlaps of a range with the stored open pins
     (file, lo, hi) -> [{"id", "lo", "hi", "rel"}]."""
 
     root: Path
@@ -503,7 +503,7 @@ def pick(D: Doc, request: Selection, ctx: PickContext) -> Picked | PickedRegion 
     src = to_source(D, sy[0]) if sy else D.main
     if src.suffix in (".bbl", ".bib"):
         return GeneratedFile(src.suffix)
-    found = file_in_tree(str(src), ctx.root)
+    found = file_in_tree(str(src), ctx.root, ctx.state)
     if not isinstance(found, Path):
         return SynctexOutside(src)
     lines = tex_lines(found)

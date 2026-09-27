@@ -110,6 +110,11 @@ class DocumentFacts(Protocol):
         """The manuscript tree (--manuscript) a pin's or snippet's file must lie in."""
         ...
 
+    @property
+    def state(self) -> Path:
+        """The instance's state folder, never part of the tree even when it lies inside root (limn.files.tree_part)."""
+        ...
+
     def lines(self, path: Path) -> list[str]:
         """The lines of a manuscript file; [] when it cannot be read as UTF-8."""
         ...
@@ -299,9 +304,10 @@ class CloseChange(NamedTuple):
         return {"file": self.file, "lo": self.lo, "hi": self.hi}
 
 
-def parse_close_changes(v: object, root: Path) -> tuple[CloseChange, ...] | None | InputRejected:
+def parse_close_changes(v: object, root: Path, state: Path) -> tuple[CloseChange, ...] | None | InputRejected:
     """The close body's optional `changes`: [{file, lo, hi}] - the new-side lines the agent changed for this pin. file is
-    a path in the tree root (the manuscript folder; limn.files.tree_part, so never under a dot-named part such as .env),
+    a path in the tree root (the manuscript folder; limn.files.tree_part, so never under a dot-named part such as .env
+    nor in the state folder `state`),
     absolute or relative to it (the pins.md location column), and need not exist; the result carries it resolved and
     absolute, like a pin's file. Absent or [] -> None (the pre-0.3 close). A refusal names the
     offending item - the messages are part of the agent contract."""
@@ -323,7 +329,7 @@ def parse_close_changes(v: object, root: Path) -> tuple[CloseChange, ...] | None
             return InputRejected(
                 "%s 의 lo·hi 는 1 ≤ lo ≤ hi ≤ %d 인 정수여야 합니다." % (what, CHANGE_LINE_MAX), "bad_changes"
             )
-        rel = tree_part(Path(f) if os.path.isabs(f) else base / f, base)
+        rel = tree_part(Path(f) if os.path.isabs(f) else base / f, base, state)
         if rel is None:
             return InputRejected(
                 "%s.file 은 원고 폴더(--manuscript) 안의 파일이어야 합니다." % what, "change_outside_manuscript"
@@ -332,15 +338,16 @@ def parse_close_changes(v: object, root: Path) -> tuple[CloseChange, ...] | None
     return tuple(out) or None
 
 
-def parse_close(d: Json, root: Path) -> CloseRequest | InputRejected:
+def parse_close(d: Json, root: Path, state: Path) -> CloseRequest | InputRejected:
     """A POST /api/pins/{id}/close body, in the order the server has always checked it: reply and ref
-    (parse_close_body), changes against the manuscript tree root (parse_close_changes), review (parse_review_flag),
+    (parse_close_body), changes against the manuscript tree root and outside the state folder (parse_close_changes),
+    review (parse_review_flag),
     then mentions. A close tags nobody, so its `mentions` is dropped - but a malformed one has always been refused with
     400 bad_mentions, and still is. Any other field is ignored. The result carries each change in its stored form."""
     body = parse_close_body(d)
     if isinstance(body, InputRejected):
         return body
-    changes = parse_close_changes(d.get("changes"), root)
+    changes = parse_close_changes(d.get("changes"), root, state)
     if isinstance(changes, InputRejected):
         return changes
     review = parse_review_flag(d)
@@ -493,10 +500,11 @@ def parse_doc_key(q: Query | None, body: Json | None = None) -> str | None | Inp
     return key or bkey
 
 
-def source_file(p: object, root: Path) -> Path | InputRejected:
+def source_file(p: object, root: Path, state: Path) -> Path | InputRejected:
     """The real file inside the manuscript tree root that p names (absolute, or relative to the tree), or why not
-    (limn.files.file_in_tree): a bad value, a file outside the tree, or no such file."""
-    match file_in_tree(p, root):
+    (limn.files.file_in_tree): a bad value, a file outside the tree (the state folder `state` included), or no such
+    file."""
+    match file_in_tree(p, root, state):
         case Path() as f:
             return f
         case BadPath():
@@ -515,7 +523,7 @@ def parse_loc(d: Json, facts: DocumentFacts) -> dict[str, Any] | InputRejected:
     (truncated to 60 characters) and pdf_build (a page directory name) are kept when sent.
     """
     out: dict[str, Any] = {}
-    f = source_file(d.get("file"), facts.root)
+    f = source_file(d.get("file"), facts.root, facts.state)
     if isinstance(f, InputRejected):
         return f
     n = len(facts.lines(f))
@@ -782,7 +790,7 @@ class SourceRange(NamedTuple):
 def parse_source_range(q: Query, facts: DocumentFacts) -> SourceRange | InputRejected:
     """?file=&lo=&hi= of GET /api/snippet and /api/overlaps: a file in the tree (source_file), whose lines are read
     before lo and hi are parsed as integers (int() of the text) and checked against them."""
-    f = source_file(_first(q, "file", ""), facts.root)
+    f = source_file(_first(q, "file", ""), facts.root, facts.state)
     if isinstance(f, InputRejected):
         return f
     lines = facts.lines(f)

@@ -477,7 +477,9 @@ class CloseReplyRef(Base):
         pid = self.add()
         p = record_of(
             ps.close_pin(
-                pid, dict(LOCAL_ACTOR), parse.parse_close({"reply": "제목을 고침", "ref": "PR #227"}, ps.C.src)
+                pid,
+                dict(LOCAL_ACTOR),
+                parse.parse_close({"reply": "제목을 고침", "ref": "PR #227"}, ps.C.src, ps.C.state),
             )
         )
         self.assertEqual(p["close_reply"], "제목을 고침")
@@ -538,18 +540,24 @@ class CloseIdempotent(Base):
 
     def test_second_close_with_reply_does_not_apply(self):
         pid = self.add()
-        ps.close_pin(pid, dict(LOCAL_ACTOR), parse.parse_close({"reply": "first"}, ps.C.src))
-        again = record_of(ps.close_pin(pid, dict(LOCAL_ACTOR), parse.parse_close({"reply": "second"}, ps.C.src)))
+        ps.close_pin(pid, dict(LOCAL_ACTOR), parse.parse_close({"reply": "first"}, ps.C.src, ps.C.state))
+        again = record_of(
+            ps.close_pin(pid, dict(LOCAL_ACTOR), parse.parse_close({"reply": "second"}, ps.C.src, ps.C.state))
+        )
         self.assertEqual(again["close_reply"], "first")
 
     def test_reopen_then_close_allows_new_reply(self):
         pid = self.add()
-        ps.close_pin(pid, dict(LOCAL_ACTOR), parse.parse_close({"reply": "first", "ref": "PR #1"}, ps.C.src))
+        ps.close_pin(
+            pid, dict(LOCAL_ACTOR), parse.parse_close({"reply": "first", "ref": "PR #1"}, ps.C.src, ps.C.state)
+        )
         ps.reopen_pin(pid, dict(LOCAL_ACTOR))
         reopened = self.pin(pid)
         self.assertNotIn("close_reply", reopened)
         self.assertNotIn("close_ref", reopened)
-        closed_again = record_of(ps.close_pin(pid, dict(LOCAL_ACTOR), parse.parse_close({"reply": "second"}, ps.C.src)))
+        closed_again = record_of(
+            ps.close_pin(pid, dict(LOCAL_ACTOR), parse.parse_close({"reply": "second"}, ps.C.src, ps.C.state))
+        )
         self.assertEqual(closed_again["close_reply"], "second")
         self.assertNotIn("close_ref", closed_again)
 

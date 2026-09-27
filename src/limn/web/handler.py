@@ -478,7 +478,7 @@ class Handler(BaseHTTPRequestHandler):
             text = accepted(parse.parse_reply_text(d.get("text")))
             hints = accepted(parse.parse_mention_hints(d.get("mentions")))
             reopen = accepted(parse.parse_reopen_flag(d))
-            human = not app.is_agent(actor) and self.principal.role != "agent"
+            human = self.principal.is_human()
             return self._json(
                 answers.reply_answer(
                     app.reply_pin(pid, text, actor, hints, reopen=reopen, human=human), app.public, app.pin_state
@@ -508,10 +508,8 @@ class Handler(BaseHTTPRequestHandler):
         if act == "unclaim":
             return self._json(answers.unclaim_answer(app.unclaim_pin(pid, actor), app.public))
         if act == "close":
-            close = accepted(parse.parse_close(d, app.C.src))
-            review = close.review
-            if review is None and self.principal.role == "agent":
-                review = True  # a person with the agent role closes into review like any agent
+            close = accepted(parse.parse_close(d, app.C.src, app.C.state))
+            review = self.principal.review_on_close(close.review)
             return self._json(
                 answers.state_answer(
                     app.close_pin(pid, actor, replace(close, review=review)), app.public, app.pin_state

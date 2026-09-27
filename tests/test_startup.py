@@ -185,6 +185,15 @@ class AccessRefusals(unittest.TestCase):
             with self.subTest(argv):
                 self.assertEqual(refusal(*argv), message)
 
+    def test_an_auth_name_outside_the_providers_is_refused_first(self):
+        """argparse's choices keep --auth to the providers; a namespace built another way is still parsed here, before
+        any other rule, so no unknown provider reaches the run settings."""
+        a = argparse.Namespace(**dict(vars(parse("--bind", "0.0.0.0")), auth="Tailscale"))
+        self.assertEqual(
+            startup.access_options(a),
+            StartupRefused("--auth takes one of tailscale, local, trusted-proxy: 'Tailscale'"),
+        )
+
     def test_the_first_fault_in_rule_order_is_the_one_reported(self):
         """bind, then the loopback agent, then hosts/networks, then headers, then --local-user."""
         self.assertTrue(refusal("--bind", "0.0.0.0", "--local-user", "agent:x").startswith("Refusing to bind"))
@@ -405,6 +414,64 @@ class Documents(unittest.TestCase):
         with mock.patch.object(startup.sys, "stderr"):
             startup.tighten_state_perms(p)
         self.assertEqual(p.stat().st_mode & 0o777, 0o600)
+
+
+class StatePlacement(unittest.TestCase):
+    """state_placement(): a state folder inside the manuscript starts with a warning, one that holds a served document
+    is refused, and one elsewhere is none of its business."""
+
+    def setUp(self):
+        """A manuscript with main.tex and sub/r.tex, and a folder beside it."""
+        self.tmp = tempfile.TemporaryDirectory()
+        self.ms = Path(self.tmp.name).resolve() / "ms"
+        (self.ms / "sub").mkdir(parents=True)
+        (self.ms / "main.tex").write_text(TEX, encoding="utf-8")
+        (self.ms / "sub" / "r.tex").write_text(TEX, encoding="utf-8")
+        self.served = [self.ms / "main.tex"]
+
+    def tearDown(self):
+        """Remove the manuscript."""
+        self.tmp.cleanup()
+
+    def test_outside_the_manuscript_is_fine(self):
+        """The default place, a folder beside the manuscript and a folder that holds it are all None."""
+        for state in (
+            Path(self.tmp.name) / "data" / "limn" / "serve" / "ms-1",
+            Path(self.tmp.name) / "st",
+            self.ms.parent,
+        ):
+            self.assertIsNone(startup.state_placement(state, self.ms, self.served), state)
+
+    def test_inside_the_manuscript_warns_and_names_both_folders(self):
+        """<ms>/limn-state (not yet created) and <ms>/.limn are StateInManuscript; the warning names the state folder,
+        the manuscript, what the folder holds and what to do."""
+        for rel in ("limn-state", ".limn", "sub/state"):
+            got = startup.state_placement(self.ms / rel, self.ms, self.served)
+            self.assertEqual(got, startup.StateInManuscript(self.ms / rel, self.ms), rel)
+        line = startup.StateInManuscript(self.ms / "limn-state", self.ms).warning()
+        self.assertTrue(
+            line.startswith(
+                "warning: the state folder %s is inside the manuscript %s" % (self.ms / "limn-state", self.ms)
+            )
+        )
+        for word in ("people.json", "tokens.json", ".gitignore", "--state-dir"):
+            self.assertIn(word, line)
+
+    def test_a_state_folder_holding_a_served_document_is_refused(self):
+        """The manuscript folder itself, or a sub-folder holding a --doc's main file, would leave that document no
+        file a pin may name - refused with a message naming both; a sub-folder of a document that is not served warns."""
+        self.assertEqual(
+            startup.state_placement(self.ms, self.ms, self.served),
+            StartupRefused(
+                "The state folder %s holds %s, a document this run serves: Limn never reads a file of its state folder "
+                "as manuscript, so that document could take no pin. Give a --state-dir outside the manuscript (the "
+                "default) or a folder of its own." % (self.ms, self.ms / "main.tex")
+            ),
+        )
+        got = startup.state_placement(self.ms / "sub", self.ms, [self.ms / "main.tex", self.ms / "sub" / "r.tex"])
+        self.assertIsInstance(got, StartupRefused)
+        self.assertIn(str(self.ms / "sub" / "r.tex"), got.message)
+        self.assertIsInstance(startup.state_placement(self.ms / "sub", self.ms, self.served), startup.StateInManuscript)
 
 
 class LabelAndAccent(unittest.TestCase):

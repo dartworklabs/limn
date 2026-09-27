@@ -10,7 +10,7 @@ from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any, NamedTuple, Protocol, TypeAlias
 
-from limn.access import AGENT_LOGIN_PREFIX, LOCAL_ACTOR
+from limn.access import Role, is_agent_actor
 from limn.audit import AuditAction
 from limn.events import EventType
 from limn.locate import PinLocation
@@ -77,7 +77,7 @@ class PinContext:
     audit: Callable[[AuditAction, Json, Json], object]
     known_people: Callable[[list[Row]], Mapping[str, Json]]  # @-tag candidates: people.json plus the people on rows
     note_tags: NoteTagger
-    role_of: Callable[[str], str]  # a login's people.json role
+    role_of: Callable[[str], Role]  # a login's people.json role
     person_name: Callable[[str], str]  # a known person's display name, else the login
     locate: Callable[[Mapping[str, Any]], PinLocation | None]  # where a record's file is under the manuscript root now
     stamp: Callable[[Row], PinLocation | None]  # records that location in the row (file, file_rel)
@@ -89,9 +89,9 @@ class PinContext:
 def is_agent(actor: Mapping[str, Any] | None) -> bool:
     """An agent actor: a headerless loopback request (LOCAL_ACTOR, login "local") or an API-token principal (login
     "agent:<name>"). Picks defaults (a close goes to review, never recorded in people.json) and refuses confirm; the
-    role check in the handler (check_role) additionally covers people whose people.json role is agent."""
-    login = (actor or {}).get("login", "local")
-    return bool(login == LOCAL_ACTOR["login"] or str(login).startswith(AGENT_LOGIN_PREFIX))
+    role check in the handler (check_role) additionally covers people whose people.json role is agent. The rule is
+    limn.access.is_agent_actor, which the principal's own questions (Principal.is_human) use too."""
+    return is_agent_actor(actor)
 
 
 def who(actor: Mapping[str, Any]) -> Json:
