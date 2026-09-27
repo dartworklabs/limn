@@ -199,16 +199,6 @@ def parse_thread_text(v: object, what: str = "text", required: bool = True) -> s
     return v
 
 
-def parse_event_cursor(v: str | None) -> int | None | InputRejected:
-    """GET /api/meta's ?ev= - the last event seq the viewer saw, or None when absent."""
-    if v is None:
-        return None
-    try:
-        return int(v)
-    except (TypeError, ValueError):
-        return InputRejected("ev 는 정수(마지막으로 본 이벤트 seq)입니다.", "bad_event_cursor")
-
-
 def parse_doc_key(q: Query | None, body: Json | None = None) -> str | None | InputRejected:
     """The document a request names: ?doc= or the body's doc - the two must agree, and the body's must be a string.
     None (or "") when neither names one; which document that means is the server's (server.request_doc)."""
@@ -242,11 +232,6 @@ def parse_doc_choice(q: Query | None, body: Json | None = None, new_pin: bool = 
         return DocChoice(key)
     want = body.get("doc")
     return DocChoice(key, body.get("file"), want if isinstance(want, str) else None)
-
-
-def parse_events_query(q: Query) -> int | None | InputRejected:
-    """GET /api/meta's ?ev= (parse_event_cursor on its first value)."""
-    return parse_event_cursor(query_first(q, "ev"))
 
 
 def source_file(p: object, root: Path, state: Path) -> Path | InputRejected:

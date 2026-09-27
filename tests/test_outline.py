@@ -1,6 +1,6 @@
 """limn.outline - the pure parser of the outline labels a LaTeX build writes to its .aux.
 
-Reading the .aux of the build on screen (which file, symlinks, size cap) is limn.meta.outline_labels, tested in
+Reading the .aux of the build on screen (which file, symlinks, size cap) is document_views.reads.outline_labels, tested in
 test_meta.py and through the server in test_build.py and test_revisions.py. Here the parser is called directly on
 text: it stays pure
 (no file, process, clock or HTTP import), and each rule of the display conversion and the row extraction holds.

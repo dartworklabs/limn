@@ -26,6 +26,7 @@ from limn.config import RunConfig
 from limn.documents import Doc, DocNotFound
 from limn.features.builds.service import BuildRequests
 from limn.features.collaboration.service import PeopleList
+from limn.features.document_views.service import DocumentViews
 from limn.features.pins.claims.service import PinClaims
 from limn.features.pins.editing.service import PinEditing
 from limn.features.pins.lifecycle.service import PinLifecycle
@@ -62,6 +63,7 @@ class App(Protocol):
     location_service: PinLocationService
     build_requests: BuildRequests
     people_list: PeopleList
+    document_views: DocumentViews
     revision_requests: RevisionRequests
     APP_NAME: str
     DEFAULT_ROLE: access.Role  # the role of a person people.json gives none
@@ -139,24 +141,12 @@ class App(Protocol):
         """The pins, parsed, re-synced and saved under the pin lock."""
         ...
 
-    def meta(self, D: Document, actor: Json, light: bool = False) -> Json:
-        """GET /api/meta for document D."""
-        ...
-
     def events_since(self, actor: Json, cursor: int | None) -> Json:
         """Browser notification material after cursor."""
         ...
 
-    def outline_labels(self, D: Document) -> Json:
-        """GET /api/outline-labels."""
-        ...
-
     def remote_base_for(self, host_raw: str) -> str:
         """The base URL for GET /pins.md's guidance."""
-        ...
-
-    def docs_payload(self) -> Json:
-        """GET /api/docs."""
         ...
 
     def vendor_file(self, name: str) -> Path | None:

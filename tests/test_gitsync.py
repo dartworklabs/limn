@@ -468,7 +468,7 @@ class GitPullBuildIntegration(Base):
             res = ps.APP.build_requests.build_all(ps.APP.docs[0])
         self.assertIsInstance(res, BuildOk)
         ps.APP.docs[0].mcache[2] = 0.0
-        m = ps.APP.meta(ps.APP.docs[0], dict(LOCAL_ACTOR), light=True)
+        m = ps.APP.document_views.meta(ps.APP.docs[0], dict(LOCAL_ACTOR), light=True)
         self.assertIs(m["stale_build"], False)
         self.assertAlmostEqual(
             limn_build.read_built_src_mtime(ps.APP.docs[0]),
@@ -502,7 +502,7 @@ class GitPullBuildIntegration(Base):
             res = ps.APP.build_requests.build_all(ps.APP.docs[0])
         self.assertIsInstance(res, BuildOk)
         ps.APP.docs[0].mcache[2] = 0.0
-        m = ps.APP.meta(ps.APP.docs[0], dict(LOCAL_ACTOR), light=True)
+        m = ps.APP.document_views.meta(ps.APP.docs[0], dict(LOCAL_ACTOR), light=True)
         self.assertIs(m["stale_build"], True)
 
 
@@ -550,7 +550,9 @@ class AutomaticMainSync(Base):
             out = ps.APP.sync_service.once()
         build.assert_not_called()
         self.assertEqual(out["state"], "blocked")
-        self.assertEqual(ps.APP.meta(ps.APP.docs[0], dict(LOCAL_ACTOR), light=True)["sync"]["reason"], "dirty")
+        self.assertEqual(
+            ps.APP.document_views.meta(ps.APP.docs[0], dict(LOCAL_ACTOR), light=True)["sync"]["reason"], "dirty"
+        )
 
     def test_updating_clears_when_pdf_reaches_synced_head(self):
         """An "updating" status turns "current" once the PDF was built from the pulled commit."""

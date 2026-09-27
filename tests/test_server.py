@@ -480,7 +480,7 @@ class PdfRoute(Base):
         self.assertEqual((code, body), (200, b"%PDF-new"))
 
     def test_pages_build_in_meta_matches_pdf_route(self):
-        m = ps.APP.meta(ps.APP.docs[0], dict(LOCAL_ACTOR), light=True)
+        m = ps.APP.document_views.meta(ps.APP.docs[0], dict(LOCAL_ACTOR), light=True)
         self.assertEqual(m["pages_build"], self.new)
         self.assertEqual(self.get("/pdf?build=%s" % m["pages_build"])[2], b"%PDF-new")
 
@@ -1165,7 +1165,7 @@ class MultiDoc(Base):
         rows = ps.APP.pin_listing.pins_payload(ps.APP.read_pins()[0], True)
         self.assertEqual(rows[0]["doc"], "ms")  # the first document
         self.assertNotIn('"doc"', ps.APP.C.pins_jsonl.read_text(encoding="utf-8"))  # no migration write occurs
-        self.assertEqual(ps.APP.docs_payload()["docs"][0]["n_open"], 1)
+        self.assertEqual(ps.APP.document_views.docs_payload()["docs"][0]["n_open"], 1)
 
     def test_api_docs_lists_kind_and_counts(self):
         add_pin({"file": str(self.rr), "lo": 4, "hi": 5, "page": 1, "doc": "rr"}, dict(LOCAL_ACTOR)).record["id"]

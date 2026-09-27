@@ -20,10 +20,11 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from limn import meta as limn_meta, scope as scoping
+from limn import scope as scoping
 from limn.access import LOCAL_ACTOR
 from limn.documents import Doc
 from limn.features.builds import engine as build_engine
+from limn.features.document_views import reads as limn_meta
 from limn.features.pins.lifecycle import input as lifecycle_input
 from limn.features.revisions import (
     core as revisions,

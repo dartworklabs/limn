@@ -467,7 +467,7 @@ class Estimate(Base):
         self.assertNotEqual(limn_build.source_fingerprint(ps.APP.docs[0], self.src, ps.APP.C.state), h0)
 
     def test_build_history_and_seq_in_meta(self):
-        m0 = ps.APP.meta(ps.APP.docs[0], dict(LOCAL_ACTOR), light=True)
+        m0 = ps.APP.document_views.meta(ps.APP.docs[0], dict(LOCAL_ACTOR), light=True)
         self.assertEqual(m0["build_seq"], 0)
         self._fake_build("pages-20260101000000", "h1")
         build_run.finish_build(
@@ -476,7 +476,7 @@ class Estimate(Base):
             None,
             build_failure_log,
         )
-        m = ps.APP.meta(ps.APP.docs[0], dict(LOCAL_ACTOR), light=True)
+        m = ps.APP.document_views.meta(ps.APP.docs[0], dict(LOCAL_ACTOR), light=True)
         self.assertEqual(m["build_seq"], 2)
         self.assertEqual(m["last_build"]["state"], "fail")
         self.assertEqual(m["last_build"]["errors"], [{"line": 3, "msg": "x"}])

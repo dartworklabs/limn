@@ -645,7 +645,7 @@ class Store(Base):
         self.assertEqual(p["pdf_build"], old_build)
 
     def test_meta_exposes_pages_build(self):
-        d = ps.APP.meta(ps.APP.docs[0], dict(LOCAL_ACTOR), light=True)
+        d = ps.APP.document_views.meta(ps.APP.docs[0], dict(LOCAL_ACTOR), light=True)
         self.assertEqual(d["pages_build"], limn_build.cur_pages(ps.APP.docs[0]).name)
 
 

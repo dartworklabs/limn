@@ -48,7 +48,6 @@ from limn import (
     documents,
     events,
     locate,
-    meta as meta_reads,
     people,
     startup,
 )
@@ -84,6 +83,8 @@ from limn.events import EVENTS_KEEP, EventType
 from limn.features.builds import engine as build_engine, run as build_run
 from limn.features.builds.service import BuildRequests
 from limn.features.collaboration.service import PeopleList
+from limn.features.document_views.reads import MetaSettings
+from limn.features.document_views.service import DocumentViews
 from limn.features.pins.claims.service import PinClaims
 from limn.features.pins.editing.service import PinEditing
 from limn.features.pins.lifecycle.service import PinLifecycle
@@ -107,7 +108,6 @@ from limn.mentions import (
     note_mention_targets,
     tag_note,
 )
-from limn.meta import MetaSettings, outline_labels as outline_labels
 from limn.people import is_actor as _is_actor
 from limn.pins import record, view
 from limn.pins.lifecycle import (
@@ -339,6 +339,7 @@ class ServerApplication:
     location_service: PinLocationService = field(init=False)
     build_requests: BuildRequests = field(init=False)
     people_list: PeopleList = field(init=False)
+    document_views: DocumentViews = field(init=False)
     sync_service: SyncService = field(init=False)
     revision_requests: RevisionRequests = field(init=False)
 
@@ -372,13 +373,30 @@ class ServerApplication:
                 stamp=gitsync.local_stamp,
             )
         )
+        self.document_views = DocumentViews(
+            settings=lambda: MetaSettings(
+                state=self.C.state,
+                pins_md=self.C.pins_md,
+                pins_jsonl=self.C.pins_jsonl,
+                label=self.C.label,
+                accent=self.C.accent,
+                repo=self.C.repo,
+                dpi=self.C.dpi,
+            ),
+            docs=self.docs,
+            sync_status=self.sync_service.status,
+            read_pins=self.read_pins,
+            snapshot_pins=self.snapshot_pins,
+            pin_doc_key=self.pin_doc_key,
+            events_since=self.events_since,
+            now=lambda: time.time(),
+        )
         self.revision_requests = RevisionRequests(self.revision_context)
 
     APP_NAME = APP_NAME
     DEFAULT_ROLE = DEFAULT_ROLE
     hdr_text = staticmethod(hdr_text)
     app_version = staticmethod(app_version)
-    outline_labels = staticmethod(outline_labels)
     pin_state = staticmethod(pin_state)
 
     def now_str(self) -> str:
@@ -442,33 +460,6 @@ class ServerApplication:
         """The document key a pin belongs to; a legacy record without a doc field is the first document's
         (limn.documents.pin_doc_key)."""
         return documents.pin_doc_key(r, self.docs)
-
-    def meta_settings(self) -> MetaSettings:
-        """The run settings GET /api/meta reads, made per request like pin_store(), so a test that replaces this application's C is
-        seen at once."""
-        return MetaSettings(
-            state=self.C.state,
-            pins_md=self.C.pins_md,
-            pins_jsonl=self.C.pins_jsonl,
-            label=self.C.label,
-            accent=self.C.accent,
-            repo=self.C.repo,
-            dpi=self.C.dpi,
-        )
-
-    def docs_payload(self) -> Json:
-        """GET /api/docs — the document list and open-pin counts per document. Pins are only read (no sync write)."""
-        pins, _ = self.read_pins()
-        return meta_reads.docs_payload(self.docs, [pin.record for pin in pins], self.pin_doc_key, self.C.state)
-
-    def meta(self, D: Doc, actor: Json, light: bool = False) -> Json:
-        """GET /api/meta for document D: its pages, builds, staleness and settings for the viewer (limn.meta.meta); with
-        light (polling) the pin counts are left out, and with them the sync write of snapshot_pins()."""
-        out = meta_reads.meta(D, actor, self.meta_settings(), self.docs, self.sync_service.status(), time.time())
-        if light:  # polling only - skips the sync write in snapshot_pins()
-            return out
-        out.update(meta_reads.pin_counts([pin.state for pin in self.snapshot_pins()]))
-        return out
 
     def parse_record(self, r: object) -> Pin | Broken:
         """The store's parse of a pins.jsonl line (limn.pins.record.parse_record) with DOC_KEY_RE and

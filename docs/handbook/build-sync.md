@@ -10,7 +10,7 @@ Limn은 원고를 PDF로 빌드해 쪽 이미지로 보여 주고, 그 위에 �
 
 [`features/sync/service.py`](../../src/limn/features/sync/service.py)는 호출할 때마다 현재 설정·문서·실행별 `pull_share`·`sync_watch`를 받아 빌드의 pull, meta의 sync 상태, 감시 한 바퀴와 감시 루프를 연결한다. [`src/limn/server.py`](../../src/limn/server.py)는 문서를 받아 이 인스턴스의 설정으로 빌드를 묶는 `_build_tracked(D)`·`_build(D)`를 맡고, 동기화 서비스와 보기 전용 PDF 감시를 런타임의 스레드로 시작한다(`RT.stop()`이 둘을 끝낸다). `--git-pull`과 보기 전용 그리기는 빌드에 단계로 넘겨진다.
 
-폴링이 읽는 응답(`GET /api/meta`·`/api/docs`·`/api/outline-labels`)은 [`src/limn/meta.py`](../../src/limn/meta.py) 가 만든다. 문서·문서 목록·설정(`MetaSettings`)과 `--git-pull` 상태를 인자로 받고 아무것도 쓰지 않는다. 핀 개수(`n_open` 등)는 동기화 쓰기가 있는 `snapshot_pins()` 를 거치므로 조립 지점의 `server.meta()` 가 라이트가 아닐 때만 덧붙인다.
+폴링이 읽는 응답(`GET /api/meta`·`/api/docs`·`/api/outline-labels`)은 [`features/document_views/`](../../src/limn/features/document_views/http.py)가 소유한다. `reads.py`는 문서·문서 목록·설정(`MetaSettings`)과 `--git-pull` 상태를 인자로 받고 쓰지 않는다. `service.py`는 라이트 meta에서 핀 동기화 쓰기를 건너뛰고, 전체 meta의 핀 개수(`n_open` 등)에만 `snapshot_pins()`를 거친다. `http.py`는 기본 상태를 만든 뒤 이벤트 커서를 검사하고 이벤트·역할을 덧붙인다.
 
 > **한눈에**
 >
@@ -198,7 +198,7 @@ Limn이 띄우는 git은 모두 [`src/limn/gitrun.py`](../../src/limn/gitrun.py)
 
 폴링에는 `GET /api/meta?light=1` 을 쓴다. 라이트 meta는 `n_open`·`n_done` 이 빠지고 `snapshot_pins()`(sync 쓰기)를 부르지 않는다. 뷰어는 응답의 두 값이 **바뀌었을 때만** `GET /api/pins`(sync 있음)를 불러 목록을 다시 그린다. 첫 핀 읽기가 실패했거나 이후 핀·휴지통 읽기가 실패·무효화됐으면 읽은 기준값을 갱신하지 않아 다음 폴링에서 재시도한다.
 
-- `pins_rev`: `pins.jsonl` 의 `f"{mtime_ns}:{size}"`. 파일이 없으면 `"0"`(`limn.meta.pins_rev`).
+- `pins_rev`: `pins.jsonl` 의 `f"{mtime_ns}:{size}"`. 파일이 없으면 `"0"`(`features/document_views/reads.py`의 `pins_rev`).
 - `src_mtime`: 아래에서 설명한다.
 
 그래서 변화는 몇 초 안에 화면에 들어오고, 아무 변화가 없는 동안은 `pins.jsonl` 을 건드리지 않는다.

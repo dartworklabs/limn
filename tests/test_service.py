@@ -989,7 +989,7 @@ class ReviewTransitions(Base):
         _, _, raw = split_resp(self.talk(req("GET", "/api/pins")))
         self.assertEqual(json.loads(raw), [])  # not in the open-pin list (legacy contract)
         self.assertIsInstance(ps.APP.pin_claims.claim_pin(pid, dict(LOCAL_ACTOR), 30), ClaimClosedPin)  # 409 "done"
-        m = ps.APP.meta(ps.APP.docs[0], dict(LOCAL_ACTOR))
+        m = ps.APP.document_views.meta(ps.APP.docs[0], dict(LOCAL_ACTOR))
         self.assertEqual((m["n_open"], m["n_review"], m["n_done"]), (0, 1, 0))
 
     def test_reopen_after_confirm_drops_confirmation(self):

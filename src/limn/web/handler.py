@@ -25,6 +25,7 @@ from urllib.parse import parse_qs, urlparse
 
 from limn.features.builds import http as builds_http
 from limn.features.collaboration import http as collaboration_http
+from limn.features.document_views import http as document_views_http
 from limn.features.pins.claims import http as claims_http
 from limn.features.pins.editing import http as editing_http
 from limn.features.pins.lifecycle import http as lifecycle_http
@@ -199,10 +200,6 @@ class Handler(BaseHTTPRequestHandler):
         """people.json for a person who opened the viewer or wrote something (agents never). The local owner is recorded as owner."""
         self.app.record_person(actor, role="owner" if self.principal.via == "local-owner" else None)
 
-    def _me(self, actor: Json) -> Json:
-        """The actor as the viewer shows "me": plus the principal's role."""
-        return dict(actor, role=self.principal.role)
-
     def _wants_page(self) -> bool:
         """A browser opening the viewer itself (GET / for HTML) - it gets a readable page on a refusal, not JSON."""
         return (
@@ -298,14 +295,11 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/version":  # the installed Limn version - no write
             return _json_reply({"name": app.APP_NAME, "version": app.app_version()})
         if path == "/api/meta":
-            light = parse.parse_flag(q, "light")
-            if not light:
-                self._record(actor)
-            out = app.meta(D, actor, light=light)
-            out["me"] = self._me(actor)  # + role (additive)
-            # browser notifications - no write. ?ev= is parsed only now: a bad cursor is refused after meta, as always
-            out.update(app.events_since(actor, accepted(parse.parse_events_query(q))))
-            return _json_reply(out)
+            return _json_reply(
+                document_views_http.meta(
+                    app.document_views, D, actor, self.principal.role, q, lambda: self._record(actor)
+                )
+            )
         if path == "/sw.js":  # the service worker for browser notifications (app data is never cached)
             return Reply(200, app.viewer().service_worker.encode(), "text/javascript; charset=utf-8", "no-cache")
         return None
@@ -319,7 +313,7 @@ class Handler(BaseHTTPRequestHandler):
         if path in ("/api/revision-diff", "/api/revision-build", "/api/revision-pdf"):
             return self._get_revision(path, D, q)
         if path == "/api/outline-labels":
-            return _json_reply(app.outline_labels(D))
+            return _json_reply(document_views_http.outline(app.document_views, D))
         if path == "/api/build":
             return _json_reply(builds_http.status(D, q))
         return None
@@ -353,7 +347,7 @@ class Handler(BaseHTTPRequestHandler):
             app.pin_trash.maybe_purge_trash()  # hourly Trash expiry on a long-running server (this path already writes)
             return _json_reply(listing_http.pins(app, q, D.key))
         if path == "/api/docs":
-            return _json_reply(app.docs_payload())
+            return _json_reply(document_views_http.docs(app.document_views))
         if path == "/api/pins/dropped":
             return _json_reply(listing_http.dropped(app))
         m = re.fullmatch(r"/api/pins/(\d+)", path)

@@ -20,7 +20,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from unittest import mock
 
-from limn import build, build as limn_build, files, meta as limn_meta
+from limn import build, build as limn_build, files
 from limn.build import (
     BuildAborted,
     BuildBusy,
@@ -35,6 +35,7 @@ from limn.build import (
 from limn.documents import Doc, RunPaths
 from limn.features.builds import engine as build_engine, run as build_run
 from limn.features.builds.answer import finished_build_body, rebuild_answer, rebuild_started_answer
+from limn.features.document_views import reads as limn_meta
 from limn.web.errors import BUILD_FAILURES, HTTPError, build_failure_log
 
 from helpers import Base, blank_png, needs_tex, ps, req

@@ -16,6 +16,7 @@ from pathlib import Path
 
 from limn.access import LOCAL_ACTOR
 from limn.features.builds import input as builds_input
+from limn.features.document_views import input as document_input
 from limn.features.pins.claims import input as claims_input
 from limn.features.pins.editing import input as editing_input, location as editing_location
 from limn.features.pins.lifecycle import input as lifecycle_input
@@ -402,9 +403,9 @@ class Fields(unittest.TestCase):
 
     def test_event_cursor_and_doc_key(self):
         """?ev= is int() of the text; ?doc= and the body's doc must agree, and the body's must be a string."""
-        self.assertEqual(parse.parse_event_cursor(" 7 "), 7)
-        self.assertIsNone(parse.parse_event_cursor(None))
-        self.assertIsInstance(parse.parse_event_cursor("1.5"), InputRejected)
+        self.assertEqual(document_input.parse_event_cursor(" 7 "), 7)
+        self.assertIsNone(document_input.parse_event_cursor(None))
+        self.assertIsInstance(document_input.parse_event_cursor("1.5"), InputRejected)
         self.assertEqual(parse.parse_doc_key({"doc": ["rev"]}, {"doc": "rev"}), "rev")
         self.assertEqual(parse.parse_doc_key({}, {"doc": ""}), "")
         self.assertIsNone(parse.parse_doc_key(None, None))
@@ -439,10 +440,10 @@ class RouteRequests(unittest.TestCase):
         )
         self.assertEqual(builds_input.parse_build_name({"build": ["pages-x", "y"]}), "pages-x")
         self.assertEqual(builds_input.parse_build_name({}), "")
-        self.assertEqual(parse.parse_events_query({"ev": ["4"]}), 4)
-        self.assertIsNone(parse.parse_events_query({}))
+        self.assertEqual(document_input.parse_events_query({"ev": ["4"]}), 4)
+        self.assertIsNone(document_input.parse_events_query({}))
         self.assertEqual(
-            parse.parse_events_query({"ev": ["x"]}),
+            document_input.parse_events_query({"ev": ["x"]}),
             InputRejected("ev 는 정수(마지막으로 본 이벤트 seq)입니다.", "bad_event_cursor"),
         )
 
