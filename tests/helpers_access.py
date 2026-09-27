@@ -3,8 +3,8 @@ state helpers (tokens, members), a socketpair request from a chosen TCP peer, an
 AccessBase, ScopedRepo (a git repository with pin-scoped commits) and MovedManuscriptBase (a checkout renamed between
 two server runs).
 
-They lived in test_access.py, test_qa_021.py, test_v03.py and test_v032.py and were imported from there; a test module
-is not a fixture library (importing one runs its module code and couples the files), so they are here. None of the
+A test module is not a fixture library (importing one runs its module code and couples the files), so what more
+than one test file uses is here. None of the
 classes holds a test, so importing one never collects a test twice.
 """
 

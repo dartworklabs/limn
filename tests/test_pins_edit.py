@@ -1,7 +1,7 @@
 """limn.pins.edit - the edit rules and the new-pin records, tested directly with records and no store, clock or HTTP.
 
 The HTTP contract of POST /api/pin and /api/pins/{id}/edit (statuses, messages, stored lines, notices) is pinned in
-test_server.py and the other version suites; here the pure decisions and records are checked on their own (rule R1).
+test_server.py, test_service.py and the feature files; here the pure decisions and records are checked on their own (rule R1).
 
 Run: uv run pytest -q tests/test_pins_edit.py
 """

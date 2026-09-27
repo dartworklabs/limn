@@ -5,7 +5,7 @@ The owner-approved findings of the 2026-09-26 input review (docs/handbook/viewer
 
 - ``...Logic`` classes run the pure decision functions of ``app.js`` under node (skipped without node), in the style of
   ``test_viewer.FrontendPanelWidthLogic``: where a handle drag lands, which keys do what, how a swipe or a sheet drag ends.
-- The browser classes drive the real viewer against the in-process server (``test_qa_021.BrowserBase``) at desktop
+- The browser classes drive the real viewer against the in-process server (``helpers_browser.BrowserBase``) at desktop
   1400x850 and 1280x720 (mouse), an unfolded Fold 842x758 and a phone 384x832 (touch, CDP touch events), in Korean and
   English, light and dark, and with reduced motion.
 

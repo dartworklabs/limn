@@ -1,7 +1,8 @@
 """limn.mentions - the pure @-tag rules, driven directly with no server, no file and no clock.
 
-The HTTP flows that use them (notices on add/edit/reply/reopen) are covered in test_server.py, test_v022.py,
-test_qa_021.py and test_v031.py; this file pins the rules themselves and the module's import boundary.
+The flows that use them (notices on add/edit/reply/reopen) run through the server in test_notifications.py,
+test_reply.py and test_service.py; this file pins the rules themselves - including the note-mention cooldown of
+v0.3.1 (issue #10 L3) - and the module's import boundary.
 
 Run: uv run pytest -q tests/test_mentions.py
 """

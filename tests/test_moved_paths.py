@@ -1,4 +1,13 @@
-"""ADR-0006 follow-ups (issue #24): the two paths a moved manuscript still lost.
+"""A moved manuscript: pins follow the checkout to a new path (v0.3.2, issue #7, docs/adr/0006-relative-pin-paths.md).
+
+Pins stored the manuscript file only as an absolute path, so moving the checkout left every pin outside the tree: no
+line re-sync, no range edit, no «…» quote, and a bare file name in pins.md. Records now also store `file_rel`
+(relative to --manuscript) when the server writes that pin, and every record - old ones included - is located on
+read by one rule (mapping.pin_rel_path, tested on its own in test_mapping.PinRelPathRule). MovedManuscript,
+OutsideTheTree and ScopedChangesAfterAClone pin that; RollbackToV030 and RollbackToV031 check that the released
+0.3.0 and 0.3.1 servers read this version's state (skipped in a shallow clone).
+
+The ADR-0006 follow-ups (issue #24), the two paths a moved manuscript still lost:
 
 1. The paths in a closed pin's `changes` (ADR-0005) are absolute. After the checkout moves they are now located on read
    by the same rule as the pin's own file (mapping.pin_rel_path), so pin-scoped [View changes] still uses the lines the
@@ -6,7 +15,7 @@
 2. In a multi-document instance, the tail guess for a moved legacy record is searched in the pin's own document folder
    (its build root), so a same-named file of another document is never picked; a renamed document folder is followed.
 
-No stored field is added or changes meaning: this is read-side resolution only.
+The follow-ups add no stored field and change no field's meaning: they are read-side resolution only.
 
 Run: uv run pytest -q tests/test_moved_paths.py
 """

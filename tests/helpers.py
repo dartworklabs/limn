@@ -1,6 +1,7 @@
 """Shared fixtures of the server-level tests: the one loaded copy of server.py (ps), the Base fixture that points it at a
 temporary manuscript and state folder, the socketpair request helpers, the node harness for the viewer's scripts, and
-the viewer's source text and page images.
+the viewer's source text and page images, and the test data more than one module checks (the reply rule's table
+RULE_CASES with rec_for, a minimal PDF for the browser's comparison view).
 
 Every test module that drives server.py imports from here, so the process holds a single server copy (loading it twice
 would give two sets of module globals: two C, two DOCS, two locks). The access fixtures (identities, AccessBase) are in

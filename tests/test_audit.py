@@ -1,7 +1,8 @@
 """limn.audit - the audit log module on its own: its import boundary and the writer called with a state dir only.
 
-The behaviour through the server and the CLI (clear, purge, tokens, members, mode 0600, append-only, symlink refusal,
-concurrent appends) is covered in test_v031.py; this file checks that the module stands without the server.
+The first classes check that the module stands without the server. The ones after them are the append-only audit
+log of v0.3.1 (issue #10 L5) through the server and the CLI: clear, purge, tokens and members are audited; the file
+is mode 0600, append-only, never followed through a symlink, and whole under concurrent appends.
 
 Run: uv run pytest -q tests/test_audit.py
 """

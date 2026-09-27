@@ -1,10 +1,11 @@
 """limn.service - the pin service shells, driven directly with a real PinStore over a temp folder and recording sinks.
 
-The rules themselves are pinned in test_pins_lifecycle.py and test_pins_edit.py, and every HTTP flow in
-test_server.py, test_v022.py and test_v031.py; claims and closing with a reply also run through server.py's pin
-context at the end of this file (Claim, CloseReplyRef, CloseIdempotent). This file pins what the shells add around
-the rules: they write only
-when the rule accepts, notices are emitted only after the write and never for a refusal, the audit line is appended
+The rules themselves are pinned in test_pins_lifecycle.py and test_pins_edit.py, and the HTTP flows in
+test_server.py and the feature files (test_reply.py, test_trash.py, test_notifications.py). The pin actions also run
+through server.py's pin context at the end of this file: claims (Claim, ClaimEstimate), closing (CloseReplyRef,
+CloseIdempotent, and CloseChanges - the optional `changes` of v0.3, issue #9), note_append, kinds and threads,
+review and @-tags on edit. This file pins what the shells add around the rules: they write only when the rule
+accepts, notices are emitted only after the write and never for a refusal, the audit line is appended
 outside the pin lock, an agent's confirm never touches the store, and the package's import boundary.
 
 Run: uv run pytest -q tests/test_service.py

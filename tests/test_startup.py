@@ -1,8 +1,8 @@
 """limn.startup, limn.args and limn.config - the startup rules of `limn serve`, driven directly with plain values.
 
 The composition (server.start: configure_access, the --port probe, configure_run, prepare, report, listen) runs in
-tests/test_access.py (StartupRules, TailnetAgentStartup) and as a real process in tests/test_access.py (serve on a busy
-port) and tests/test_token_file.py. This file pins each rule, every access refusal's exact message (a security
+tests/test_access.py (StartupRules, TailnetAgentStartup) and as a real process in tests/test_access.py (ServeBusyPort)
+and tests/test_token_file.py. This file pins each rule, every access refusal's exact message (a security
 boundary, docs/adr/0002-access-control.md) and the module boundary. DocArgs hands make_docs the server copy's run
 settings (helpers.ps.C) as the documents' paths, as server.py does.
 

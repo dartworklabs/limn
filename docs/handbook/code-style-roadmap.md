@@ -290,7 +290,7 @@ if TYPE_CHECKING:
 
 **업계에서 부르는 이름.** 실패하는 테스트부터 쓰는 것은 TDD의 red-green(Kent Beck, *Test-Driven Development: By Example*). 조건과 기대를 이름에 담는 방식은 Roy Osherove의 *The Art of Unit Testing*이 정리했다.
 
-**지금 코드.** 순수 판단은 서버 없이 값으로 직접 테스트하고, 처리기 테스트는 소켓 쌍으로 경계를 확인한다. 한 모듈을 지키는 테스트는 그 모듈 이름의 파일(`tests/test_<모듈>.py`)에 있다. 테스트 파일의 배치 규칙은 [verification.md](verification.md) §1에 있다.
+**지금 코드.** 순수 판단은 서버 없이 값으로 직접 테스트하고, 처리기 테스트는 소켓 쌍으로 경계를 확인한다. 한 모듈을 지키는 테스트는 그 모듈 이름의 파일(`tests/test_<모듈>.py`)에, 여러 모듈을 건너는 기능은 기능 이름의 파일(`tests/test_reply.py` 등)에 있다. 릴리스·이슈 이름의 테스트 파일은 없다. 테스트 파일의 배치 규칙은 [verification.md](verification.md) §1에 있다.
 
 > **예시**
 >
@@ -337,8 +337,7 @@ def identify(headers: Message, peer: str, settings: AccessSettings, lookups: Acc
 2. **실행 설정과 런타임을 값으로.** 전역 `C`와 프로세스 자원(잠금·캐시·작업 목록)을 조립 지점이 만드는 두 값, 곧 실행 설정(`RunConfig`)과 런타임(`Runtime`)으로 모은다(R5).
 3. **빌드 결과를 타입으로.** `BuildResult`는 아직 사전(`dict[str, Any]`)이다. 성공·LaTeX 오류·실패·바쁨을 경우별 타입으로 나누고, 응답 사전은 HTTP 층이 만든다(R1, R8).
 4. **처리기의 요청 해석을 파서로.** 처리기 안에서 쿼리 플래그(`?light=1`, `?log=1`, `?all=1` 등)와 경로 조각을 직접 읽는 곳을 `web/parse.py`의 파서로 옮긴다(R3).
-5. **테스트를 모듈별로.** 버전 이름의 테스트 파일(`test_v022.py`, `test_v03.py`, `test_v031.py`, `test_v032.py`, `test_qa_021.py`)의 클래스를 지키는 모듈의 파일로 옮긴다(R9).
-6. **뷰어 스크립트의 상태.** 뷰어 조각이 함께 쓰는 전역 상태를 명시적인 상태 객체로 모은다(R5, [viewer.md](viewer.md)).
+5. **뷰어 스크립트의 상태.** 뷰어 조각이 함께 쓰는 전역 상태를 명시적인 상태 객체로 모은다(R5, [viewer.md](viewer.md)).
 
 그 밖에 둘이 남았다.
 

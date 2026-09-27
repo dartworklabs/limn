@@ -1,7 +1,8 @@
 """limn.people - people.json's record check, stored text and write, and the @-tag candidates, with no server.
 
-The HTTP side (people recorded on a visit, GET /api/people, roles) is covered in test_server.py and test_access.py;
-this file pins the module's own contracts and its import boundary.
+This file pins the module's own contracts and its import boundary; PeopleOnTheServer at the end records people
+through server.py (only people, throttled, atomic) and checks the HTTP side (a visit records the person, GET
+/api/people). Roles are test_access.py.
 
 Run: uv run pytest -q tests/test_people.py
 """

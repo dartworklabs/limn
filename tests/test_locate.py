@@ -1,7 +1,8 @@
 """limn.locate - the effectful half of the position rules, driven by the arguments it is given (coding rule R5).
 
-Re-sync and estimation are pinned through server.py at the end of this file (Anchor, Estimate); picking and overlaps
-through the server in test_server.py (OverlapRoutes), test_v032.py and test_moved_paths.py. The classes above call the
+Re-sync, estimation and overlaps are pinned through server.py at the end of this file (Anchor, Estimate,
+ServerOverlaps); picking and the overlap routes through the handler in test_server.py (OverlapRoutes) and
+test_moved_paths.py. The classes above call the
 module directly, with no server and no run arguments: it must not read them, and its re-sync and token weights work
 on the files and cache they are handed.
 

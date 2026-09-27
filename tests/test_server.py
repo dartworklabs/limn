@@ -5,9 +5,11 @@ favicon_href, valid_rec - the store's record check as server.py binds it, defaul
 the build response's log diet the handler applies (ResponseDiet: limn.web.answers.diet_log, kept here beside the
 rebuild route's RebuildLogDiet), the requests end to end through the handler and the server's
 wiring (smuggling and origin checks, the static routes, /pins.md, the build responses, several documents), and the
-feature classes whose tests span the API, pins.md and the viewer together (claims with an estimate, pin kinds and
-threads, review, @-tags and notices, overlaps). A test whose subject is one module lives in that module's file
-(tests/test_<module>.py); the viewer's scripts and page are tests/test_viewer.py. The shared fixtures are tests/helpers.py.
+HTTP routes of claims with an estimate, pin kinds and threads, review and overlaps (their rules, stored fields and
+pins.md lines are tested in the modules' files). A test whose subject is one module lives in that module's file
+(tests/test_<module>.py), a feature that crosses modules in the feature's file (test_reply.py, test_trash.py,
+test_notifications.py, test_access_paths.py); the viewer's scripts and page are tests/test_viewer.py. The shared
+fixtures are tests/helpers.py.
 
 Run: uv run pytest tests/test_server.py
 """
@@ -26,9 +28,7 @@ from unittest import mock
 
 from limn import build as limn_build, files, gitsync, locate, startup
 from limn.access import LOCAL_ACTOR
-from limn.pins.lifecycle import (
-    AgentCannotConfirm,
-)
+from limn.pins.lifecycle import AgentCannotConfirm
 from limn.pins.view import pin_state
 from limn.pull import UpToDate
 from limn.startup import StartupRefused
@@ -465,7 +465,7 @@ class PdfRoute(Base):
         self.assertEqual(self.get("/pdf?build=%s" % m["pages_build"])[2], b"%PDF-new")
 
 
-# ---------------------------------------------------------------- overlaps and note_append (docs/handbook/api.md §겹친 핀과 덧붙이기)
+# ---------------------------------------------------------------- overlaps over HTTP (docs/handbook/api.md §겹친 핀과 덧붙이기)
 
 
 class OverlapRoutes(Base):

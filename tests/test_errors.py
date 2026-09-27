@@ -2,7 +2,8 @@
 
 The Korean `error` text is part of the agent contract and must not change by a byte; `reason` is additive
 (docs/handbook/api.md §오류 응답). The viewer shows English in en mode by looking the reason up in its message
-table (`reason:<code>` in src/limn/ui_en.json) and falls back to the server text (docs/handbook/viewer.md).
+table (`reason:<code>` in src/limn/ui_en.json) and falls back to the server text (docs/handbook/viewer.md). A
+person who is not a member gets a readable HTML page instead of JSON (ErrorPage, v0.2.1 QA).
 
 Run: uv run pytest -q tests/test_errors.py
 """

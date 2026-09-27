@@ -5,7 +5,8 @@ Most classes check the served page for the fixed pattern and the absence of the 
 pull pure functions out of the page with extract_js_fn and run them under node (skipped without node).
 FrontendResponsiveBrowser drives Chromium ($LIMN_CHROMIUM, then a system Chrome/Chromium, then Playwright's bundled one;
 skipped when none starts, a failure under LIMN_TEST_REQUIRE_BROWSER=1). How the page is assembled from its parts is
-tests/test_viewer_files.py and tests/test_viewer_assemble.py; input and gestures are tests/test_viewer_input.py.
+tests/test_viewer_files.py and tests/test_viewer_assemble.py; input and gestures are tests/test_viewer_input.py;
+whole feature flows in a real browser are tests/test_viewer_browser.py.
 
 Run: uv run pytest tests/test_viewer.py
 """
@@ -2891,7 +2892,7 @@ class FrontendReview(unittest.TestCase):
     def test_review_card_reply_hint_says_what_a_reply_does(self):
         # observed bug (v0.2.0): a review card's reply field used the same hint text as a normal reply, so it wasn't clear what
         # a reply would do. v0.2.2: on a closed pin the placeholder says a reply reopens it, and the outcome line under the
-        # box previews the server rule (tests/test_v022.py covers every row).
+        # box previews the server rule (FrontendReplyRule checks every row of helpers.RULE_CASES).
         body = extract_js_fn("replyEl")
         # from the same outcome as the line below
         self.assertIn("placeholder=\"'+esc(replyPlaceholder(p,isHuman(),false))+'\"", body)

@@ -1,8 +1,10 @@
 """limn.mapping - the pure half of the position rules (range ladder, block expansion, anchors).
 
 These tests call the module directly: no server, state directory, files or subprocess - that it stays pure, and
-that the float environments come in as an argument (coding rule R5). The one exception is Ladder at the end: the
-ladder on the fixture manuscript with the float environments server.py runs with.
+that the float environments come in as an argument (coding rule R5). The one exception is Ladder: the ladder on the
+fixture manuscript with the float environments server.py runs with. PinRelPathRule at the end is the rule that
+follows a moved manuscript (v0.3.2, docs/adr/0006-relative-pin-paths.md); test_moved_paths.py runs it through the
+server.
 
 Run: uv run pytest -q tests/test_mapping.py
 """

@@ -1,9 +1,9 @@
 """limn.revisions through the server: manuscript history, the pin-scoped diff, comparison builds in the sandbox, and
 the outline of a revision's snapshot, over the server's revision context and its HTTP routes.
 
-The module's boundaries and the refusal values of pin scoping are tests/test_scope.py; the attribution rules are
-tests/test_v03.py. Here the revision services run against a real temporary git repository wired as server.py wires
-them (revision_context), and the routes are driven through the handler.
+The module's boundaries, the refusal values and the attribution rules of pin scoping are tests/test_scope.py. Here the revision services run against a real temporary git repository wired as server.py wires
+them (revision_context), and the routes are driven through the handler; the classes at the end are the pin-scoped
+source diff and comparison PDF of v0.3 (issue #9, docs/adr/0005-pin-scoped-changes.md).
 
 Run: uv run pytest tests/test_revisions.py
 """

@@ -1,9 +1,12 @@
 """limn.scope and limn.revisions on their own: which module may do what, and the refusal values of pin scoping.
 
-The attribution rules themselves (blocks, hunks, the synthetic tree) are tested in test_v03.py, and every revision
-route end to end through the handler in test_revisions.py and test_v03.py. Here: limn.scope stays pure (no file, process,
-clock or HTTP import), neither module reads the server's globals or imports server.py or the HTTP layer, and a
-refusal is a returned value of the ScopeRefusal set.
+Every revision route runs end to end through the handler in test_revisions.py. Here: limn.scope stays pure (no file,
+process, clock or HTTP import), neither module reads the server's globals or imports server.py or the HTTP layer,
+and a refusal is a returned value of the ScopeRefusal set. The classes after them are the attribution rules of
+pin-scoped [View changes] (v0.3, issue #9, docs/adr/0005-pin-scoped-changes.md): git's -U0 output read into blocks,
+which blocks of a commit belong to a pin (recorded changes, else the pin's range mapped through the commit), the
+pin's patch with git's own line numbers, and the synthetic new version (old + only the pin's blocks), checked
+against real git.
 
 Run: uv run pytest -q tests/test_scope.py
 """
@@ -46,11 +49,11 @@ class Boundaries(unittest.TestCase):
 
     def test_scope_imports_only_pure_modules(self):
         """A file, subprocess or HTTP import in limn.scope would put an effect inside the decision (R1)."""
-        self.assertLessEqual(imports_of(PKG / "scoping.py"), PURE_IMPORTS)
+        self.assertLessEqual(imports_of(PKG / "scope.py"), PURE_IMPORTS)
 
     def test_neither_module_reads_server_globals(self):
         """The document and the instance's settings arrive as arguments (R5): no C., no cur_doc()."""
-        for name in ("scoping.py", "revisions.py", "documents.py"):
+        for name in ("scope.py", "revisions.py", "documents.py"):
             with self.subTest(module=name):
                 source = (PKG / name).read_text(encoding="utf-8")
                 self.assertNotRegex(source, r"(?<![\w.])C\.[a-z_]")

@@ -1,7 +1,9 @@
 """limn.pins - pin states and the confirm transition, tested directly with records and no store, clock or HTTP.
 
 The HTTP contract of POST /api/pins/{id}/confirm (statuses, bodies, the stored line) is pinned in
-test_server.py; here the pure decisions are checked on their own (coding rule R1).
+test_server.py; here the pure decisions are checked on their own (coding rule R1). ReplyRule at the end runs every
+row of the reply rule's table (helpers.RULE_CASES, v0.2.2) through server.py's reply_reopens(), which parses the
+stored record into its state first.
 
 Run: uv run pytest -q tests/test_pins_lifecycle.py
 """

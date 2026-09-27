@@ -1,4 +1,5 @@
-"""The `limn` command surface: version, serve pass-through, help, and what `limn token` / `limn member` import."""
+"""The `limn` command surface: version, serve pass-through, help, what `limn token` / `limn member` import, and
+`limn update`'s default source (UpdateSource)."""
 
 import json
 import os

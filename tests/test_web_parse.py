@@ -2,7 +2,7 @@
 the server has always checked them, with the exact 400 message and reason of the agent contract.
 
 Every route's statuses and bodies are also pinned end to end through the handler (test_server.py, test_access.py and
-the version suites). Here the parsers are called directly; the manuscript facts a location parser reads come from a
+the feature files). Here the parsers are called directly; the manuscript facts a location parser reads come from a
 fake DocumentFacts, so each rule is seen without a server, a build or a real page image. EditAddParsing at the end
 feeds them server.py's document facts instead, and checks the statuses the handler answers them with.
 

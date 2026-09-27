@@ -3,7 +3,7 @@
 identify, admit and check_role are called with explicit AccessSettings and AccessLookups, the way server.py's
 composition root calls them. Each refusal must raise HTTPError with the same status, reason and browser page as it
 did in server.py. The file-backed lookups (FileCache) and the CLI state helpers get their own direct tests. The
-end-to-end paths through the HTTP handler are tested in test_access.py and test_qa_021.py.
+end-to-end paths through the HTTP handler are tested in test_access.py and test_access_paths.py.
 
 Run: uv run pytest -q tests/test_access_module.py
 """

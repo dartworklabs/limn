@@ -3,7 +3,8 @@
 The store is built here from its explicit parts: a temp state directory, a fresh lock, a small record check, a fake
 re-sync and a fake renderer. These tests pin the durable invariants of docs/handbook/architecture.md (불변식 4, 6)
 and domain.md §저장소 안전성 at the store itself; the same behaviour through server.py (render failure, restore order,
-concurrent saves, quarantined lines) is Store at the end of this file.
+concurrent saves, quarantined lines) is Store at the end of this file, and after it the reads that must never
+rewrite a legacy record (LegacyPinsNotRewritten, LegacyMentionsNotRewritten).
 
 Run: uv run pytest -q tests/test_store.py
 """

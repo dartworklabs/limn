@@ -1,9 +1,9 @@
 """limn.pins.record - the store's record check, called directly with the two shapes the composition root passes in.
 
 The check as the store gets it (server.valid_rec, with limn.documents.DOC_KEY_RE and limn.people.is_actor) is driven
-end to end in test_server.py and test_v03.py; the purity of the module is in test_pins_lifecycle.py (Purity). Here
-the document key and actor rules are stand-ins, so each test also sees that the check asks them - and only them - for
-those two shapes.
+end to end in test_server.py and test_service.py (CloseChanges), and on malformed threads in ThreadShape at the end
+of this file; the purity of the module is in test_pins_lifecycle.py (Purity). Above it the document key and actor
+rules are stand-ins, so each test also sees that the check asks them - and only them - for those two shapes.
 
 Run: uv run pytest -q tests/test_pins_record.py
 """

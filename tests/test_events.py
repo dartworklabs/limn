@@ -1,7 +1,8 @@
 """limn.events - building notices, picking a poll's events, and the events.jsonl log, driven with no server.
 
-The HTTP flows (every notice type, the /api/meta?ev= cursor) are covered in test_server.py, test_v022.py and
-test_v031.py; this file pins the module's own contracts and its import boundary.
+The HTTP flows (every notice type, the /api/meta?ev= cursor) are covered in test_notifications.py, test_reply.py and
+test_trash.py; this file pins the module's own contracts and its import boundary. At the end, through the server:
+the log's cap (EventLogCap), and a reopening reply's events compared with the released v0.2.2 (ReplyReopenEvents).
 
 Run: uv run pytest -q tests/test_events.py
 """

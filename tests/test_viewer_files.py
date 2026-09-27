@@ -4,7 +4,8 @@ index.html carries one __APP_CSS__ and one __APP_JS__ marker. parts.txt lists, p
 files under css/ and js/; the server joins each list byte for byte into the marker's place, so the stylesheet is one
 <style> and the script one classic <script> sharing a single scope - no bundler, no module loader. GET / must stay a
 single response, byte for byte what the parts joined in that order produce. The page's inline scripts must parse:
-node --check runs on each of them (skipped without node, required where LIMN_TEST_REQUIRE_NODE=1, as in CI).
+node --check runs on each of them (skipped without node, required where LIMN_TEST_REQUIRE_NODE=1, as in CI). The
+notification service worker is its own file, served at GET /sw.js (ServiceWorkerRoute).
 
 Run: uv run pytest -q tests/test_viewer_files.py
 """

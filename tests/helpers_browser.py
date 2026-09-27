@@ -1,9 +1,9 @@
 """Shared fixtures of the real-browser tests: one Chromium launcher for every browser test class, and BrowserBase -
 the real viewer against the in-process server.
 
-The launcher was pasted into five classes (test_brand, test_i18n twice, test_qa_021, test_viewer) and BrowserBase was
-imported from test_qa_021.py; both are here now. Chromium is $LIMN_CHROMIUM, a system Chrome/Chromium, or Playwright's
-bundled one (`playwright install chromium`), in that order. Without Playwright or a browser the class is skipped, unless
+Every browser test class uses them (test_brand, test_i18n, test_viewer, test_viewer_input, test_viewer_browser).
+Chromium is $LIMN_CHROMIUM, a system Chrome/Chromium, or Playwright's bundled one (`playwright install chromium`), in
+that order. Without Playwright or a browser the class is skipped, unless
 LIMN_TEST_REQUIRE_BROWSER=1 (CI), where that is a failure.
 """
 

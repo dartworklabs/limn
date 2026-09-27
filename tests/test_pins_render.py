@@ -1,9 +1,10 @@
 """limn.pins.render - pins.md from one explicit input, tested directly with records and no server, files or clock.
 
 The whole-server contract (pins.md on disk after a write, GET /pins.md, the guidance lines agents match) is pinned
-through server.py at the end of this file (PinsMdV2, BuildHeadInPinsMd, AuthorPrefixInPinsMd, InstanceIdInPinsMd), and
-in test_server.py, test_access.py, test_token_file.py and the version suites. The classes above feed the renderer
-PinsMdInput values and check its output on its own (coding rule R1).
+through server.py at the end of this file (PinsMdV2 to PinsMdInstructions: claims, badges, questions, review,
+people addressed, the agents' instructions), and in test_server.py, test_access.py, test_token_file.py and the
+feature files. The classes above feed the renderer PinsMdInput values and check its output on its own (coding rule
+R1).
 
 Run: uv run pytest -q tests/test_pins_render.py
 """

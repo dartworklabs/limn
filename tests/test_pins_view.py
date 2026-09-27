@@ -1,7 +1,8 @@
 """limn.pins.view - the computed fields of GET /api/pins and the Trash list, called directly with explicit collaborators.
 
-The answers through the HTTP handler are pinned in test_server.py, test_v022.py and, for the Trash list, DroppedList at
-the end of this file (through server.py). Above it the pure functions get their record display, documents, estimation
+The answers through the HTTP handler are pinned in test_server.py, test_reply.py and test_trash.py; at the end of
+this file, through server.py: the Trash list (DroppedList), a legacy claim's start (LegacyClaimStart) and a legacy
+done pin's state (LegacyDoneState). Above it the pure functions get their record display, documents, estimation
 facts and clock as arguments, and must never call a collaborator they do not need.
 
 Run: uv run pytest -q tests/test_pins_view.py
