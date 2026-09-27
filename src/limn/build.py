@@ -553,14 +553,14 @@ def run_tracked(
     """Wraps one build (compile_step) to fill in D's build state (progress chip / error panel) and the build history.
 
     compile_step is compile_tex for a LaTeX document or the view-only PDF render, bound to D by the caller.
-    Even if the source-mtime scan or compile step raises an unexpected exception (e.g. an OSError near an
-    rsync/latexmk call), the build state is
-    never left stuck at running - if this function died inside an async worker, the next poll would show
-    "building" forever; the exception becomes BuildAborted crashed. built_src_mtime is fixed to the mtime of
+    An unexpected source-mtime scan or compile error becomes BuildAborted crashed, so the build state does not stay
+    running. An unexpected final persistence error propagates, marks the in-memory state fail, and does not roll back
+    published pages. built_src_mtime is fixed to the mtime of
     "the manuscript this build actually compiled" - with --git-pull that's after the pull (fast-forward can bump
     the .tex mtime); otherwise compile_tex measures it right before the copy and returns it as the outcome's
     src_mtime (force=True, skipping the 2-second cache). Only when the outcome has no such value (a PDF document,
-    or a build that stopped before measuring) does the build start time (src_mtime_at_start) stand in instead.
+    or a build that stopped before measuring) does the build start time
+    (src_mtime_at_start) stand in instead.
     It's only committed to file on a successful build - on failure the screen still shows the old PDF, so the
     "manuscript modified" badge must not turn off. describe gives a failure its log text (build state, history)."""
     with D.bstate_lock:
@@ -585,9 +585,15 @@ def run_tracked(
     compiled = compiled_mtime(res)
     # fallback for outcomes without one - a PDF document, or a build that stopped before measuring
     src_mtime_for_build = src_mtime_at_start if compiled is None else compiled
-    if isinstance(res, BuildOk | BuildOkWithErrors):
-        write_built_src_mtime(D, state_dir, src_mtime_for_build)
-    finish_build(D, res, src_mtime_for_build, describe)
+    try:
+        if isinstance(res, BuildOk | BuildOkWithErrors):
+            write_built_src_mtime(D, state_dir, src_mtime_for_build)
+        finish_build(D, res, src_mtime_for_build, describe)
+    except BaseException:
+        # Keep the original persistence error and published pages, but clear the in-memory running state.
+        with D.bstate_lock:
+            D.bstate.update(state="fail", phase=None, start_ts=None)
+        raise
     return res
 
 

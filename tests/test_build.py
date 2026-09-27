@@ -485,6 +485,45 @@ class Outcomes(unittest.TestCase):
         self.assertEqual(build.state_snapshot(self.D)["state"], "fail")
         self.assertEqual(build.load_builds(self.D)["last"]["state"], "fail")
 
+    def test_finalization_error_clears_running_without_hiding_error(self):
+        """If result recording unexpectedly fails, the synchronous build is reusable and the error reaches its caller."""
+        with (
+            mock.patch.object(build, "finish_build", side_effect=OSError("record failed")),
+            self.assertRaisesRegex(OSError, "record failed"),
+        ):
+            build.build_now(
+                self.D,
+                lambda: build.run_tracked(
+                    self.D, self.state, lambda: BuildAborted("crashed", "step"), "t0", build_failure_log
+                ),
+            )
+        self.assertFalse(self.D.lock.locked())
+        state = build.state_snapshot(self.D)
+        self.assertEqual((state["state"], state["phase"], self.D.bstate["start_ts"]), ("fail", None, None))
+
+    def test_baseline_write_error_keeps_published_pages_and_clears_running(self):
+        """If baseline persistence fails after page publication, keep the page pointer and report a failed state."""
+        published = []
+
+        def compile_and_remember() -> BuildOk:
+            """Run the real fake-tool compile and remember the directory it published."""
+            result = self.compile()
+            self.assertIsInstance(result, BuildOk)
+            published.append(result.build)
+            return result
+
+        with (
+            mock.patch.object(build, "write_built_src_mtime", side_effect=RuntimeError("baseline failed")),
+            self.assertRaisesRegex(RuntimeError, "baseline failed"),
+        ):
+            build.build_now(
+                self.D,
+                lambda: build.run_tracked(self.D, self.state, compile_and_remember, "t0", build_failure_log),
+            )
+        self.assertEqual(build.cur_pages(self.D).name, published[0])
+        self.assertFalse(self.D.lock.locked())
+        self.assertEqual(build.state_snapshot(self.D)["state"], "fail")
+
 
 class RebuildAnswer(unittest.TestCase):
     """POST /api/rebuild's body is written once, at the web edge, in the key order and statuses of the agent contract
