@@ -697,7 +697,7 @@ class ScopedViewer(BrowserBase):
         if spec.scope and self.fail_scoped:
             return revisions.StepFailed("compile_failed")
         (jobdir / "revision.pdf").write_bytes(minimal_pdf("pin" if spec.scope else "whole"))
-        return {"state": "ready", "warnings": [], "error": None, "reason": None}
+        return revisions.ComparisonBuilt([])
 
     def git(self, *args):
         return subprocess.run(["git", *args], cwd=self.repo, check=True, capture_output=True, text=True).stdout
