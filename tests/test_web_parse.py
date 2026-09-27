@@ -22,6 +22,7 @@ from limn.features.pins.lifecycle import input as lifecycle_input
 from limn.features.pins.listing import input as listing_input
 from limn.features.pins.location import input as location_input
 from limn.features.pins.trash import input as trash_input
+from limn.features.revisions import input as revision_input
 from limn.files import BadPath, NotAFile, OutsideTree, file_in_tree
 from limn.pins.edit import LinePlace, PinEdited, RegionPlace, evolve_edit
 from limn.pins.lifecycle import CloseRequest
@@ -379,24 +380,25 @@ class Fields(unittest.TestCase):
         is a full lowercase SHA-1."""
         sha = "0123456789abcdef0123456789abcdef01234567"
         bad_commit = InputRejected("올바른 커밋 ID가 아닙니다.", "bad_commit")
-        self.assertEqual(parse.parse_revision_query({"commit": [sha], "pin": ["12"]}), (sha, 12))
-        self.assertEqual(parse.parse_revision_query({"commit": ["abc"], "pin": ["12"]}), bad_commit)
-        self.assertEqual(parse.parse_revision_query({}), bad_commit)
+        self.assertEqual(revision_input.parse_revision_query({"commit": [sha], "pin": ["12"]}), (sha, 12))
+        self.assertEqual(revision_input.parse_revision_query({"commit": ["abc"], "pin": ["12"]}), bad_commit)
+        self.assertEqual(revision_input.parse_revision_query({}), bad_commit)
         self.assertEqual(
-            parse.parse_revision_query({"pin": ["0"]}),
+            revision_input.parse_revision_query({"pin": ["0"]}),
             InputRejected("pin 은 핀 번호(양의 정수)여야 합니다.", "bad_pin"),
         )
-        self.assertEqual(parse.parse_revision_build({"commit": sha.upper(), "pin": 3}), bad_commit)
-        self.assertEqual(parse.parse_revision_build({"commit": 5}), bad_commit)
-        self.assertEqual(parse.parse_revision_build({"commit": sha, "pin": 3}), (sha, 3))
+        self.assertEqual(revision_input.parse_revision_build({"commit": sha.upper(), "pin": 3}), bad_commit)
+        self.assertEqual(revision_input.parse_revision_build({"commit": 5}), bad_commit)
+        self.assertEqual(revision_input.parse_revision_build({"commit": sha, "pin": 3}), (sha, 3))
         self.assertEqual(
-            parse.parse_revision_build({"x": 1, "pin": "1"}),
+            revision_input.parse_revision_build({"x": 1, "pin": "1"}),
             InputRejected("허용되지 않는 비교 PDF 요청 필드입니다.", "unknown_fields"),
         )
         self.assertEqual(
-            parse.parse_revision_build({"pin": True}), InputRejected("pin 은 핀 번호(양의 정수)여야 합니다.", "bad_pin")
+            revision_input.parse_revision_build({"pin": True}),
+            InputRejected("pin 은 핀 번호(양의 정수)여야 합니다.", "bad_pin"),
         )
-        self.assertIsInstance(parse.parse_revision_build({"pin": 10**9}), InputRejected)
+        self.assertIsInstance(revision_input.parse_revision_build({"pin": 10**9}), InputRejected)
 
     def test_event_cursor_and_doc_key(self):
         """?ev= is int() of the text; ?doc= and the body's doc must agree, and the body's must be a string."""

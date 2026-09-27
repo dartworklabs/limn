@@ -92,6 +92,7 @@ from limn.features.pins.listing.service import PinListing
 from limn.features.pins.location import resolve as pick_resolve, source as pick_source
 from limn.features.pins.location.service import PinLocationService
 from limn.features.pins.trash.service import PinTrash
+from limn.features.revisions.service import RevisionRequests
 from limn.files import vendor_file as find_vendor_file
 from limn.locate import PinLocation, est_context, locate_file
 from limn.mark import inline_svg
@@ -118,12 +119,7 @@ from limn.pins.position import EstContext
 from limn.pins.record import Broken
 from limn.pins.view import pin_state as pin_state
 from limn.revisions import (
-    DiffRefusal,
-    PdfRefusal,
-    StartRefusal,
-    StatusRefusal,
     git as _git,
-    revision_history as revision_history,
 )
 from limn.service.context import Event, Json, PinContext, is_agent, who
 from limn.startup import APP_NAME as APP_NAME, StartupRefused, app_version as app_version
@@ -339,6 +335,7 @@ class ServerApplication:
     pin_markdown: PinMarkdown = field(init=False)
     location_service: PinLocationService = field(init=False)
     build_requests: BuildRequests = field(init=False)
+    revision_requests: RevisionRequests = field(init=False)
 
     def __post_init__(self) -> None:
         """Bind pin features to this application's context factory."""
@@ -356,12 +353,12 @@ class ServerApplication:
         self.build_requests = BuildRequests(
             lambda doc: self._build_tracked(doc), lambda: self.now_str(), build_failure_log
         )
+        self.revision_requests = RevisionRequests(self.revision_context)
 
     APP_NAME = APP_NAME
     DEFAULT_ROLE = DEFAULT_ROLE
     hdr_text = staticmethod(hdr_text)
     app_version = staticmethod(app_version)
-    revision_history = staticmethod(revision_history)
     outline_labels = staticmethod(outline_labels)
     pin_state = staticmethod(pin_state)
 
@@ -406,22 +403,6 @@ class ServerApplication:
             jobs=self.RT.revision_jobs,
             describe=revision_failure_text,
         )
-
-    def revision_diff(self, D: Doc, commit: str, pin: int | None = None) -> Json | DiffRefusal:
-        """GET /api/revision-diff for document D (limn.revisions.revision_diff with this instance's context)."""
-        return revisions.revision_diff(D, commit, pin, self.revision_context())
-
-    def revision_status(self, D: Doc, commit: str, pin: int | None = None) -> Json | StatusRefusal:
-        """GET /api/revision-build for document D (limn.revisions.revision_status)."""
-        return revisions.revision_status(D, commit, pin, self.revision_context())
-
-    def revision_start(self, D: Doc, commit: str, pin: int | None = None) -> Json | StartRefusal:
-        """POST /api/revision-build for document D (limn.revisions.revision_start)."""
-        return revisions.revision_start(D, commit, pin, self.revision_context())
-
-    def revision_pdf(self, D: Doc, commit: str, pin: int | None = None) -> bytes | PdfRefusal:
-        """GET /api/revision-pdf for document D (limn.revisions.revision_pdf)."""
-        return revisions.revision_pdf(D, commit, pin, self.revision_context())
 
     def repo_pull(self) -> Json:
         """A build's --git-pull, as its `pull` record (limn.gitsync.repo_pull): one document pulls on every build; several

@@ -30,6 +30,7 @@ from limn.features.pins.lifecycle import http as lifecycle_http
 from limn.features.pins.listing import http as listing_http
 from limn.features.pins.location import http as location_http
 from limn.features.pins.trash import http as trash_http
+from limn.features.revisions import http as revisions_http
 from limn.mark import png as mark_png
 from limn.web import answers, parse
 from limn.web.answers import accepted
@@ -313,7 +314,7 @@ class Handler(BaseHTTPRequestHandler):
         and its build state. None for any other path."""
         app = self.app
         if path == "/api/revisions":
-            return _json_reply(app.revision_history(D))
+            return _json_reply(revisions_http.history(app.revision_requests, D))
         if path in ("/api/revision-diff", "/api/revision-build", "/api/revision-pdf"):
             return self._get_revision(path, D, q)
         if path == "/api/outline-labels":
@@ -324,17 +325,15 @@ class Handler(BaseHTTPRequestHandler):
 
     def _get_revision(self, path: str, D: Document, q: Query) -> Reply:
         """The three read routes of a commit's changes for document D (api.md §변경 보기와 비교 PDF). An optional &pin=
-        scopes them to one pin (§핀 단위 변경 보기); the pin is parsed before the commit is checked, and every refusal
-        is answered through answers.revision_answer (HTTPError to _run)."""
+        scopes them to one pin (§핀 단위 변경 보기); the feature parses the pin before the commit."""
         app = self.app
-        commit, pin = accepted(parse.parse_revision_query(q))
         if path == "/api/revision-diff":
-            return _json_reply(answers.revision_answer(app.revision_diff(D, commit, pin)))
+            return _json_reply(revisions_http.diff(app.revision_requests, D, q))
         if path == "/api/revision-build":
-            return _json_reply(answers.revision_answer(app.revision_status(D, commit, pin)))
+            return _json_reply(revisions_http.status(app.revision_requests, D, q))
         return Reply(
             200,
-            answers.revision_pdf_answer(app.revision_pdf(D, commit, pin)),
+            revisions_http.pdf(app.revision_requests, D, q),
             "application/pdf",
             "private, max-age=600",
         )
@@ -447,8 +446,7 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/pin":
             return self._json(editing_http.add(app, D, actor, d))
         if path == "/api/revision-build":
-            commit, pin = accepted(parse.parse_revision_build(d))
-            return self._json(*answers.revision_start_answer(app.revision_start(D, commit, pin)))
+            return self._json(*revisions_http.start(app.revision_requests, D, d))
         # /api/rebuild (the only route left; _post sends only these four here)
         return self._json(*builds_http.rebuild(app.build_requests, D, q))
 

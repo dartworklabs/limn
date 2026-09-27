@@ -32,8 +32,8 @@ from limn.features.pins.listing.markdown import PinMarkdown
 from limn.features.pins.listing.service import PinListing
 from limn.features.pins.location.service import PinLocationService
 from limn.features.pins.trash.service import PinTrash
+from limn.features.revisions.service import RevisionRequests
 from limn.pins.model import Pin, Record
-from limn.revisions import DiffRefusal, PdfRefusal, StartRefusal, StatusRefusal
 from limn.viewer.assemble import ServedViewer
 from limn.web.parse import DocumentFacts
 
@@ -60,6 +60,7 @@ class App(Protocol):
     pin_markdown: PinMarkdown
     location_service: PinLocationService
     build_requests: BuildRequests
+    revision_requests: RevisionRequests
     APP_NAME: str
     DEFAULT_ROLE: access.Role  # the role of a person people.json gives none
 
@@ -148,22 +149,6 @@ class App(Protocol):
         """Browser notification material after cursor."""
         ...
 
-    def revision_history(self, D: Document) -> Json:
-        """GET /api/revisions."""
-        ...
-
-    def revision_diff(self, D: Document, commit: str, pin: int | None = None) -> Json | DiffRefusal:
-        """GET /api/revision-diff for a commit id the parser checked."""
-        ...
-
-    def revision_status(self, D: Document, commit: str, pin: int | None = None) -> Json | StatusRefusal:
-        """GET /api/revision-build."""
-        ...
-
-    def revision_pdf(self, D: Document, commit: str, pin: int | None = None) -> bytes | PdfRefusal:
-        """GET /api/revision-pdf."""
-        ...
-
     def outline_labels(self, D: Document) -> Json:
         """GET /api/outline-labels."""
         ...
@@ -189,7 +174,3 @@ class App(Protocol):
         ...
 
     # ---- changes
-
-    def revision_start(self, D: Document, commit: str, pin: int | None = None) -> Json | StartRefusal:
-        """POST /api/revision-build."""
-        ...

@@ -4,7 +4,7 @@ comparison PDFs built from two versions of the manuscript (docs/handbook/api.md 
 This is the git edge: it runs git and the TeX sandbox, reads and writes the comparison cache under the document's
 state folder, and runs one build per job in a worker thread. Which hunks belong to a pin is decided by the pure
 limn.scope. Everything a request can be refused for is a returned value (the refusal sets below); the HTTP layer
-answers each (limn.web.answers.revision_answer). A failed comparison build is recorded in its cache as an "error"
+answers each (limn.features.revisions.answer.revision_answer). A failed comparison build is recorded in its cache as an "error"
 status with the text the RevisionContext's describe() gives - the texts are the agent contract's, kept in
 limn.web.errors next to the HTTP answers. The status of one comparison is a type (IdleComparison, RunningComparison,
 ReadyComparison, FailedComparison); the pure answered_from_cache decides when a request is answered from the cache,

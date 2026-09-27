@@ -33,6 +33,7 @@ from limn.features.pins.lifecycle import http as lifecycle_http
 from limn.features.pins.listing import http as listing_http
 from limn.features.pins.location import http as location_http, resolve as pick_resolve
 from limn.features.pins.trash import http as trash_http
+from limn.features.revisions import answer as revision_answer
 from limn.pins.edit import StaleEdit
 from limn.pins.lifecycle import AgentCannotConfirm, ClaimedByOther, NotInTrash, PinStillOpen, ThreadFull
 from limn.pins.model import DonePin, OpenPin, PinNotFound, ReviewPin, TrashedPin
@@ -420,10 +421,10 @@ class Answers(unittest.TestCase):
 
     def test_a_revision_build_is_202_while_running(self):
         """POST /api/revision-build: 202 for running, 200 for any other state, a refusal through its table."""
-        self.assertEqual(answers.revision_start_answer({"state": "running"}), ({"state": "running"}, 202))
-        self.assertEqual(answers.revision_start_answer({"state": "ready"}), ({"state": "ready"}, 200))
+        self.assertEqual(revision_answer.revision_start_answer({"state": "running"}), ({"state": "running"}, 202))
+        self.assertEqual(revision_answer.revision_start_answer({"state": "ready"}), ({"state": "ready"}, 200))
         self.assert_refused(
-            lambda: answers.revision_start_answer(DocumentBusy()),
+            lambda: revision_answer.revision_start_answer(DocumentBusy()),
             409,
             {"error": "이 문서의 비교 PDF를 만드는 중입니다.", "reason": "busy"},
         )

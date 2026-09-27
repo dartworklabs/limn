@@ -1,4 +1,4 @@
-"""limn.web.answers.revision_refused - the HTTP answer to every refusal of the revision routes, as one table.
+"""limn.features.revisions.answer.revision_refused - the HTTP answer to every refusal of the revision routes, as one table.
 
 GET /api/revision-diff|-build|-pdf and POST /api/revision-build answer each refusal value of limn.revisions (and the
 pin-scoping refusals of limn.scope) with a fixed status, the Korean `error` text agents read and a stable `reason`
@@ -15,6 +15,7 @@ import typing
 import unittest
 
 from limn import revisions
+from limn.features.revisions import answer as revision_answer
 from limn.revisions import (
     AllSlotsBusy,
     CommitNotRecent,
@@ -29,7 +30,6 @@ from limn.revisions import (
     UnsafeCache,
 )
 from limn.scope import PinNotInDoc, ScopeMismatch, ScopeRefusal, ScopeUnreadable, ScopeUnwritable, UnsafePath
-from limn.web import answers
 from limn.web.errors import HTTPError
 
 from helpers import Base, req, split_resp
@@ -72,7 +72,7 @@ def refusal_types() -> set[type]:
 def answer_of(refusal) -> HTTPError:
     """The HTTPError revision_refused raises for refusal (it never returns)."""
     try:
-        answers.revision_refused(refusal)
+        revision_answer.revision_refused(refusal)
     except HTTPError as e:
         return e
     raise AssertionError("revision_refused returned for %r" % (refusal,))
@@ -97,9 +97,9 @@ class RevisionRefusalTable(unittest.TestCase):
     def test_both_route_answers_refuse_through_the_same_table(self):
         """revision_answer (JSON routes) and revision_pdf_answer (the PDF route) pass a result through and answer a
         refusal exactly as revision_refused does."""
-        self.assertEqual(answers.revision_answer({"state": "ready"}), {"state": "ready"})
-        self.assertEqual(answers.revision_pdf_answer(b"%PDF-1.4"), b"%PDF-1.4")
-        for route in (answers.revision_answer, answers.revision_pdf_answer):
+        self.assertEqual(revision_answer.revision_answer({"state": "ready"}), {"state": "ready"})
+        self.assertEqual(revision_answer.revision_pdf_answer(b"%PDF-1.4"), b"%PDF-1.4")
+        for route in (revision_answer.revision_answer, revision_answer.revision_pdf_answer):
             for kind, (status, text, reason) in REFUSALS.items():
                 with self.subTest(route=route.__name__, refusal=kind.__name__), self.assertRaises(HTTPError) as cm:
                     route(kind())

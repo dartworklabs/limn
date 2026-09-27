@@ -24,11 +24,11 @@ from limn import build as limn_build, meta as limn_meta, revisions, scope as sco
 from limn.access import LOCAL_ACTOR
 from limn.documents import Doc
 from limn.features.pins.lifecycle import input as lifecycle_input
+from limn.features.revisions import input as revision_input
 from limn.mapping import anchor_of
 from limn.pins.lifecycle import CloseRequest
 from limn.revisions import revision_history
 from limn.store import find_pin
-from limn.web import parse
 from limn.web.errors import InputRejected, scope_http_error
 
 from helpers import (
@@ -82,7 +82,7 @@ class ManuscriptRevisions(Base):
         history = revisions.revision_history(ps.APP.docs[0])
         self.assertTrue(history["available"])
         self.assertEqual(history["revisions"][0]["id"], self.latest)
-        d = ps.APP.revision_diff(ps.APP.docs[0], self.latest)
+        d = ps.APP.revision_requests.diff(ps.APP.docs[0], self.latest)
         self.assertIn("New manuscript sentence.", d["diff"])
         self.assertNotIn("hidden change", d["diff"])
         self.assertNotIn("other/private.tex", d["diff"])
@@ -102,9 +102,11 @@ class ManuscriptRevisions(Base):
         """Only a full SHA-1 parses (400 bad_commit otherwise), and only a commit in the document's recent list is read:
         even a name that got past the parser is never handed to git."""
         for commit in ("HEAD", "--help"):
-            self.assertEqual(parse.parse_commit(commit), InputRejected("올바른 커밋 ID가 아닙니다.", "bad_commit"))
+            self.assertEqual(
+                revision_input.parse_commit(commit), InputRejected("올바른 커밋 ID가 아닙니다.", "bad_commit")
+            )
         for commit in ("HEAD", "a" * 40, "--help"):
-            self.assertEqual(ps.APP.revision_diff(ps.APP.docs[0], commit), revisions.CommitNotRecent())
+            self.assertEqual(ps.APP.revision_requests.diff(ps.APP.docs[0], commit), revisions.CommitNotRecent())
 
     def test_shared_build_root_keeps_document_histories_separate(self):
         heads = {"ms": self.main}
@@ -127,7 +129,7 @@ class ManuscriptRevisions(Base):
                 history["revisions"][0]["subject"], "manuscript update" if d.key == "ms" else d.key + " update"
             )
         hl_head = revisions.revision_history(docs[1])["revisions"][0]["id"]
-        self.assertEqual(ps.APP.revision_diff(docs[0], hl_head), revisions.CommitNotRecent())
+        self.assertEqual(ps.APP.revision_requests.diff(docs[0], hl_head), revisions.CommitNotRecent())
 
     def test_main_path_outside_document_source_is_unavailable(self):
         bad = Doc("bad", "bad", src=self.src, main=self.secret, paths=ps.APP.C.paths)
@@ -141,7 +143,7 @@ class ManuscriptRevisions(Base):
         old = scoping.REVISION_DIFF_MAX
         scoping.REVISION_DIFF_MAX = 50
         try:
-            d = ps.APP.revision_diff(ps.APP.docs[0], self.latest)
+            d = ps.APP.revision_requests.diff(ps.APP.docs[0], self.latest)
         finally:
             scoping.REVISION_DIFF_MAX = old
         self.assertTrue(d["truncated"])
@@ -153,7 +155,7 @@ class ManuscriptRevisions(Base):
             mock.patch.object(scoping, "REVISION_DIFF_MAX", 50),
             mock.patch.object(revisions.os, "killpg", wraps=os.killpg) as kill_group,
         ):
-            result = ps.APP.revision_diff(ps.APP.docs[0], self.latest)
+            result = ps.APP.revision_requests.diff(ps.APP.docs[0], self.latest)
 
         self.assertTrue(result["truncated"])
         kill_group.assert_called_once()
@@ -176,7 +178,7 @@ class ManuscriptRevisions(Base):
             mock.patch.object(revisions, "open_git", side_effect=silent_git),
             mock.patch.object(revisions.os, "killpg", wraps=os.killpg) as kill_group,
         ):
-            result = ps.APP.revision_diff(ps.APP.docs[0], self.latest)
+            result = ps.APP.revision_requests.diff(ps.APP.docs[0], self.latest)
 
         self.assertEqual(result, revisions.DiffUnavailable())
         kill_group.assert_called_once()
@@ -240,7 +242,7 @@ class ManuscriptRevisions(Base):
     def _wait_revision(self):
         deadline = time.monotonic() + 5
         while time.monotonic() < deadline:
-            status = ps.APP.revision_status(ps.APP.docs[0], self.latest)
+            status = ps.APP.revision_requests.status(ps.APP.docs[0], self.latest)
             if status["state"] != "running":
                 return status
             time.sleep(0.01)
@@ -285,15 +287,15 @@ class ManuscriptRevisions(Base):
         self.assertEqual(ps.APP.docs[0].bstate, before)
         with mock.patch.object(revisions, "revision_history", return_value={"available": True, "revisions": []}):
             self.assertEqual(split_resp(self.talk(req("GET", "/api/revision-pdf?commit=" + self.latest)))[0], 404)
-            self.assertEqual(ps.APP.revision_status(ps.APP.docs[0], self.latest), revisions.CommitNotRecent())
+            self.assertEqual(ps.APP.revision_requests.status(ps.APP.docs[0], self.latest), revisions.CommitNotRecent())
 
     def test_revision_failure_has_no_pdf_and_can_retry(self):
         with mock.patch.object(revisions, "revision_compile", return_value=revisions.StepFailed("timeout")) as run:
-            ps.APP.revision_start(ps.APP.docs[0], self.latest)
+            ps.APP.revision_requests.start(ps.APP.docs[0], self.latest)
             status = self._wait_revision()
             self.assertEqual((status["state"], status["reason"]), ("error", "timeout"))
-            self.assertEqual(ps.APP.revision_pdf(ps.APP.docs[0], self.latest), revisions.RevisionNotReady())
-            ps.APP.revision_start(ps.APP.docs[0], self.latest)
+            self.assertEqual(ps.APP.revision_requests.pdf(ps.APP.docs[0], self.latest), revisions.RevisionNotReady())
+            ps.APP.revision_requests.start(ps.APP.docs[0], self.latest)
             self._wait_revision()
             self.assertEqual(run.call_count, 2)
 
@@ -352,7 +354,7 @@ class ManuscriptRevisions(Base):
 
     def test_revision_jobs_are_bounded_and_cache_expires(self):
         with mock.patch.object(ps.APP.RT.revision_jobs, "slots", threading.BoundedSemaphore(0)):
-            self.assertEqual(ps.APP.revision_start(ps.APP.docs[0], self.latest), revisions.AllSlotsBusy())
+            self.assertEqual(ps.APP.revision_requests.start(ps.APP.docs[0], self.latest), revisions.AllSlotsBusy())
         spec = revision_spec(self.latest)
         root = revisions.revision_cache_root(ps.APP.docs[0])
         jobdir = root / spec.key
@@ -360,9 +362,9 @@ class ManuscriptRevisions(Base):
         (jobdir / "revision.pdf").write_bytes(b"%PDF-1.4")
         status = jobdir / "status.json"
         status.write_text(json.dumps({"state": "ready"}))
-        self.assertEqual(ps.APP.revision_status(ps.APP.docs[0], self.latest)["state"], "ready")
+        self.assertEqual(ps.APP.revision_requests.status(ps.APP.docs[0], self.latest)["state"], "ready")
         os.utime(status, (1, 1))
-        self.assertEqual(ps.APP.revision_status(ps.APP.docs[0], self.latest)["state"], "idle")
+        self.assertEqual(ps.APP.revision_requests.status(ps.APP.docs[0], self.latest)["state"], "idle")
         for i in range(8):
             (root / ("%064x" % i)).mkdir()
         revisions.revision_prune(root, spec.key, ps.APP.RT.revision_jobs.active)
@@ -375,7 +377,7 @@ class ManuscriptRevisions(Base):
         jobdir.mkdir()
         for content in ("[]", "null", "1", "bad JSON", '{"state":"running"}', '{"state":"ready"}'):
             (jobdir / "status.json").write_text(content)
-            self.assertEqual(ps.APP.revision_status(ps.APP.docs[0], self.latest)["state"], "idle")
+            self.assertEqual(ps.APP.revision_requests.status(ps.APP.docs[0], self.latest)["state"], "idle")
 
     def test_sandbox_is_required_and_has_no_unsandboxed_fallback(self):
         with mock.patch.object(shutil, "which", return_value=None):
@@ -516,24 +518,24 @@ class ManuscriptRevisions(Base):
         root = revisions.revision_cache_root(ps.APP.docs[0])
         with (root / "build.lock").open("a") as other:
             fcntl.flock(other, fcntl.LOCK_EX | fcntl.LOCK_NB)
-            self.assertEqual(ps.APP.revision_start(ps.APP.docs[0], self.latest), revisions.DocumentBusy())
+            self.assertEqual(ps.APP.revision_requests.start(ps.APP.docs[0], self.latest), revisions.DocumentBusy())
         self.assert_claims_freed()
         jobdir = root / revision_spec(self.latest).key
         jobdir.symlink_to(self.repo)
-        self.assertEqual(ps.APP.revision_start(ps.APP.docs[0], self.latest), revisions.UnsafeCache())
+        self.assertEqual(ps.APP.revision_requests.start(ps.APP.docs[0], self.latest), revisions.UnsafeCache())
         self.assert_claims_freed()
         jobdir.unlink()
         with mock.patch.object(revisions, "revision_prune", side_effect=OSError("disk")), self.assertRaises(OSError):
-            ps.APP.revision_start(ps.APP.docs[0], self.latest)
+            ps.APP.revision_requests.start(ps.APP.docs[0], self.latest)
         self.assert_claims_freed()
         with (
             mock.patch.object(revisions.threading.Thread, "start", side_effect=RuntimeError("can't start")),
             self.assertRaises(RuntimeError),
         ):
-            ps.APP.revision_start(ps.APP.docs[0], self.latest)
+            ps.APP.revision_requests.start(ps.APP.docs[0], self.latest)
         self.assert_claims_freed()
         with mock.patch.object(revisions, "revision_compile", return_value=revisions.StepFailed("timeout")):
-            self.assertEqual(ps.APP.revision_start(ps.APP.docs[0], self.latest)["state"], "running")
+            self.assertEqual(ps.APP.revision_requests.start(ps.APP.docs[0], self.latest)["state"], "running")
             self.assertEqual(self._wait_revision()["reason"], "timeout")
         self.assert_claims_freed()
 
@@ -871,10 +873,10 @@ class ScopedErrorBodies(ScopedRepo):
 
     def build_status(self, pid):
         """Start the scoped build for pid on self.fix and wait for its final status."""
-        ps.APP.revision_start(ps.APP.docs[0], self.fix, pid)
+        ps.APP.revision_requests.start(ps.APP.docs[0], self.fix, pid)
         end = time.time() + 30
         while time.time() < end:
-            st = ps.APP.revision_status(ps.APP.docs[0], self.fix, pid)
+            st = ps.APP.revision_requests.status(ps.APP.docs[0], self.fix, pid)
             if st["state"] != "running":
                 return st
             time.sleep(0.05)

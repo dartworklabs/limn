@@ -61,7 +61,7 @@ class InputRejected(NamedTuple):
 
 
 # Expected refusals of pin scoping (limn.scope.ScopeRefusal, one type each) -> (status, message, API reason). The one
-# place they become responses - the revision answers for requests (answers.revision_answer), and through
+# place they become responses - the revision answers for requests (features.revisions.answer.revision_answer), and through
 # revision_failure_text() the status a failed comparison build stores. The messages and reasons are part of the agent
 # contract (api.md §핀 단위 변경 보기); tests pin every body and check that every refusal type has its row.
 SCOPE_REJECTIONS: dict[type[ScopeRefusal], tuple[int, str, str]] = {
