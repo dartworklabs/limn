@@ -25,6 +25,7 @@ from limn.access import LOCAL_ACTOR
 from limn.events import NOTIFY_TYPES
 from limn.files import atomic_write
 from limn.pins import position, render as md_render
+from limn.pins.lifecycle import CloseRequest
 from limn.pins.model import OpenPin, ReviewPin
 from limn.pins.view import pin_state
 from limn.store import dump_jsonl, find_pin
@@ -97,13 +98,13 @@ class ReplyApi(AccessBase):
         pid = add_pin(
             {"file": str(self.main), "lo": 4, "hi": 5, "page": 1, "note": "문단 줄이기", "kind_req": kind}, author
         ).record["id"]
-        ps.set_done(pid, True, dict(LOCAL_ACTOR), reply="줄였습니다", ref="PR #9")
+        ps.close_pin(pid, dict(LOCAL_ACTOR), CloseRequest(reply="줄였습니다", ref="PR #9"))
         self.assertEqual(pin_state(self.pin(pid)), "review")
         return pid
 
     def done_pin(self):
         pid = add_pin({"file": str(self.main), "lo": 8, "hi": 9, "page": 1, "note": "오타"}, A).record["id"]
-        ps.set_done(pid, True, A, reply="고침")
+        ps.close_pin(pid, A, CloseRequest(reply="고침"))
         self.assertEqual(pin_state(self.pin(pid)), "done")
         return pid
 
@@ -149,12 +150,12 @@ class ReplyApi(AccessBase):
         pid = add_pin(
             {"file": str(self.main), "lo": 4, "hi": 5, "page": 1, "note": "@Carol Lee 참고로 봐 주세요"}, A
         ).record["id"]
-        ps.set_done(pid, True, dict(LOCAL_ACTOR), reply="고침")
+        ps.close_pin(pid, dict(LOCAL_ACTOR), CloseRequest(reply="고침"))
         n = len(self.events())
         code, d = self.reply(pid, {"text": "아직 틀립니다"}, BOB)
         self.assertEqual(d["reopened"], True)
         self.assertEqual(self.events()[n:], [("reopened", ["alice@example.com"]), ("replied", ["carol@example.com"])])
-        ps.set_done(pid, True, dict(LOCAL_ACTOR), reply="다시 고침")
+        ps.close_pin(pid, dict(LOCAL_ACTOR), CloseRequest(reply="다시 고침"))
         n = len(self.events())
         self.reply(pid, {"text": "제가 다시 엽니다"}, ALICE)  # the author: only Carol hears of it
         self.assertEqual(self.events()[n:], [("replied", ["carol@example.com"])])
@@ -663,9 +664,9 @@ class ViewerFlows(BrowserBase):
             "id"
         ]
         self.rv = add_pin({"file": str(self.main), "lo": 8, "hi": 9, "page": 1, "note": "식 번호 확인"}, A).record["id"]
-        ps.set_done(self.rv, True, dict(LOCAL_ACTOR), reply="식 번호를 고쳤습니다", ref="PR #9")
+        ps.close_pin(self.rv, dict(LOCAL_ACTOR), CloseRequest(reply="식 번호를 고쳤습니다", ref="PR #9"))
         self.dn = add_pin({"file": str(self.main), "lo": 12, "hi": 13, "page": 2, "note": "오타"}, A).record["id"]
-        ps.set_done(self.dn, True, A, reply="고침")
+        ps.close_pin(self.dn, A, CloseRequest(reply="고침"))
 
     def state(self, pid):
         return pin_state(find_pin(ps.snapshot_pins(), pid))
@@ -830,7 +831,7 @@ class ViewerFlows(BrowserBase):
         page.click(card + " .acts [data-act=reply-open]")
         page.fill("textarea.r-text", "이 문장도 봐 주세요")
         self.assertFalse(page.is_visible(".r-outcome"))  # open pin: a reply never changes it
-        ps.set_done(self.open_id, True, dict(LOCAL_ACTOR), reply="줄였습니다")  # the agent closes it meanwhile
+        ps.close_pin(self.open_id, dict(LOCAL_ACTOR), CloseRequest(reply="줄였습니다"))  # the agent closes it meanwhile
         page.evaluate("loadPins()")
         page.wait_for_selector('#review-pins .pin[data-id="%d"] .r-outcome:not([hidden])' % self.open_id)
         self.assertEqual(page.inner_text(".r-outcome .r-out-t"), TXT["ko"]["reopen"])
@@ -1130,7 +1131,7 @@ class AgentAsPerson(AccessBase):
         ps.C.auth = "local"
         ps.C.agent_loopback = False
         pid = add_pin({"file": str(self.main), "lo": 4, "hi": 5, "page": 1, "note": "n"}, A).record["id"]
-        ps.set_done(pid, True, dict(LOCAL_ACTOR), reply="고침")
+        ps.close_pin(pid, dict(LOCAL_ACTOR), CloseRequest(reply="고침"))
         self.pid = pid
 
     def test_headerless_local_curl_reopens_unless_it_says_reopen_false(self):
@@ -1288,7 +1289,7 @@ class PreviewEqualsServer(BrowserBase):
             pid = add_pin(
                 {"file": str(self.main), "lo": 4 + 2 * i, "hi": 5 + 2 * i, "page": 1, "note": "검토 %d" % i}, A
             ).record["id"]
-            ps.set_done(pid, True, dict(LOCAL_ACTOR), reply="고침 %d" % i)
+            ps.close_pin(pid, dict(LOCAL_ACTOR), CloseRequest(reply="고침 %d" % i))
             self.pins.append(pid)
 
     def run_case(self, page, pid, pick, text):
@@ -1340,7 +1341,7 @@ class ReplyKeyboardAndFailure(BrowserBase):
         super().setUp()
         ps.record_person(A)
         self.rv = add_pin({"file": str(self.main), "lo": 8, "hi": 9, "page": 1, "note": "식"}, A).record["id"]
-        ps.set_done(self.rv, True, dict(LOCAL_ACTOR), reply="고침")
+        ps.close_pin(self.rv, dict(LOCAL_ACTOR), CloseRequest(reply="고침"))
 
     def box(self, page):
         card = '#review-pins .pin[data-id="%d"]' % self.rv

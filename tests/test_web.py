@@ -8,19 +8,22 @@ package name (server.py still runs as a file), and the answers and error pages a
 Run: uv run pytest -q tests/test_web.py
 """
 
+import dataclasses
 import subprocess
 import sys
+import typing
 import unittest
 from email.message import Message
 from pathlib import Path
 from unittest import mock
 
+from limn import locate, mapping
 from limn.pins.edit import StaleEdit
 from limn.pins.lifecycle import AgentCannotConfirm, ClaimedByOther, PinStillOpen, ThreadFull
 from limn.pins.model import DonePin, OpenPin, PinNotFound, ReviewPin
 from limn.web import answers
 from limn.web.app import App
-from limn.web.errors import HTTPError, InputRejected, error_page_html, page_lang, ui_text
+from limn.web.errors import PICK_REFUSALS, HTTPError, InputRejected, error_page_html, page_lang, ui_text
 
 from helpers import ps
 
@@ -153,6 +156,58 @@ class Answers(unittest.TestCase):
             409,
             {"error": "full", "reason": "full", "detail": "스레드가 가득 찼습니다(답글 200건). 새 핀으로 이어 가세요."},
         )
+
+    def test_pick_answers_every_refusal_with_its_200_body(self):
+        """Each PickRefusal has one row in PICK_REFUSALS and answers the contract's 200 {"error", "reason"} body, the
+        message filled with the refusal's detail."""
+        self.assertEqual(set(PICK_REFUSALS), set(typing.get_args(locate.PickRefusal)))
+        self.assertEqual(
+            [
+                answers.pick_answer(r)
+                for r in (
+                    locate.GeneratedFile(".bbl"),
+                    locate.SynctexOutside(Path("/elsewhere/x.tex")),
+                    locate.SourceUnreadable(Path("/ms/bin.tex")),
+                    locate.NoSourceHere(),
+                )
+            ],
+            [
+                {
+                    "error": "여기는 생성 파일(.bbl)입니다. 참고문헌은 .bib 나 본문 \\cite 를 고쳐야 합니다.",
+                    "reason": "generated_file",
+                },
+                {
+                    "error": "SyncTeX 가 원고 밖 파일을 가리킵니다(/elsewhere/x.tex). PDF 재빌드 뒤 다시 골라 보세요.",
+                    "reason": "synctex_outside",
+                },
+                {"error": "원문 파일을 읽지 못했습니다: /ms/bin.tex", "reason": "source_unreadable"},
+                {
+                    "error": "그 자리에서 원문을 되짚지 못했습니다. 글자가 있는 쪽으로 조금 넓게 잡아 보세요.",
+                    "reason": "no_source_here",
+                },
+            ],
+        )
+
+    def test_pick_warning_joins_its_sentences_in_order(self):
+        """stale first, then weak (or else split), then building, one space apart; a region: blank, then redrawing."""
+        traced = mapping.Traced("synctex", 8, 8, 0.23, 8, 9, "paragraph", [], "para", True, None)
+        picked = locate.Picked(Path("/ms/main.tex"), 1, traced, 20, "", None, "", [], "pages", True, True)
+        w = answers.PICK_WARNINGS
+        self.assertEqual(answers.pick_warning(picked), " ".join([w["stale"], w["weak"] % 23.0, w["building"]]))
+        split = dataclasses.replace(traced, weak=False, split=(8, 4))
+        self.assertEqual(
+            answers.pick_warning(dataclasses.replace(picked, traced=split, stale=False, building=False)),
+            "두 경로가 다른 곳을 가리킵니다(L8 / L4). 확인이 필요합니다.",
+        )
+        body = answers.pick_answer(dataclasses.replace(picked, stale=False, building=False))
+        self.assertEqual(
+            list(body)[:11], ["file", "name", "page", "lo", "hi", "raw_lo", "raw_hi", "kind", "via", "score", "warn"]
+        )
+        self.assertEqual(
+            (body["score"], body["warn"]), (0.23, "이 영역은 원문 대조가 약합니다(23%). 줄 범위를 눈으로 확인하세요.")
+        )
+        region = locate.PickedRegion("rv", 1, [0.1, 0.1, 0.2, 0.2], "review.pdf", "review.pdf", "", 0, True, True, "p")
+        self.assertEqual(answers.pick_answer(region)["warn"], w["blank"] + " " + w["redrawing"])
 
     def test_add_and_edit_answer_a_rejected_field_with_its_message(self):
         """A parser's InputRejected is a 400 whose error is the message, word for word, next to its reason code; a stale

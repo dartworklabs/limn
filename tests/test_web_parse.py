@@ -17,6 +17,7 @@ from pathlib import Path
 from limn.access import LOCAL_ACTOR
 from limn.files import BadPath, NotAFile, OutsideTree, file_in_tree
 from limn.pins.edit import LinePlace, RegionPlace
+from limn.pins.lifecycle import CloseRequest
 from limn.web import parse
 from limn.web.errors import InputRejected
 
@@ -276,6 +277,61 @@ class Fields(unittest.TestCase):
                     name,
                 )
 
+    def test_close_request_checks_its_fields_in_order_and_ignores_the_rest(self):
+        """parse_close refuses reply/ref, then changes, then review, then mentions - the first bad one is answered.
+        Mentions are checked but not carried (a close tags nobody); a reopen's reason is not a close field and is
+        ignored. Changes come back in their stored form."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            bad_changes = InputRejected('changes 는 [{"file", "lo", "hi"}] 목록이어야 합니다.', "bad_changes")
+            bad_review = InputRejected("review 는 true/false 입니다.", "bad_review")
+            bad_mentions = InputRejected("mentions 는 로그인 문자열 목록(10개 이하)입니다.", "bad_mentions")
+            everything = {"reply": 1, "changes": 1, "review": 1, "mentions": 1}
+            self.assertEqual(
+                parse.parse_close(everything, root, NO_STATE),
+                InputRejected("reply 는 문자열이어야 합니다.", "bad_reply"),
+            )
+            self.assertEqual(parse.parse_close(dict(everything, reply="x"), root, NO_STATE), bad_changes)
+            self.assertEqual(
+                parse.parse_close({"changes": None, "review": 1, "mentions": 1}, root, NO_STATE), bad_review
+            )
+            self.assertEqual(parse.parse_close({"review": True, "mentions": 1}, root, NO_STATE), bad_mentions)
+            self.assertEqual(
+                parse.parse_close(
+                    {
+                        "reply": " fixed ",
+                        "ref": " ",
+                        "changes": [{"file": "a.tex", "lo": 2, "hi": 3}],
+                        "review": False,
+                        "mentions": ["bob@example.com"],
+                        "reason": 5,
+                    },
+                    root,
+                    NO_STATE,
+                ),
+                CloseRequest(" fixed ", None, ({"file": str(root / "a.tex"), "lo": 2, "hi": 3},), False),
+            )
+            self.assertEqual(parse.parse_close({}, root, NO_STATE), CloseRequest())
+
+    def test_reopen_body_checks_reason_then_mentions_and_ignores_the_rest(self):
+        """parse_reopen refuses the reason before mentions; a blank reason is None; a close's reply, review or
+        changes sent to reopen are ignored, however malformed."""
+        self.assertEqual(
+            parse.parse_reopen({"reason": 3, "mentions": 1}),
+            InputRejected("reason 는 문자열이어야 합니다.", "bad_text"),
+        )
+        self.assertEqual(
+            parse.parse_reopen({"reason": "again", "mentions": "bob"}),
+            InputRejected("mentions 는 로그인 문자열 목록(10개 이하)입니다.", "bad_mentions"),
+        )
+        self.assertEqual(
+            parse.parse_reopen({"reason": " \n", "reply": 1, "review": "x", "changes": 7}), parse.ReopenBody(None, [])
+        )
+        self.assertEqual(
+            parse.parse_reopen({"reason": "look @Bob", "mentions": ["bob@example.com"]}),
+            ("look @Bob", ["bob@example.com"]),
+        )
+
     def test_close_changes_refuse_a_path_in_the_state_folder(self):
         """A recorded change in a state folder inside the manuscript is refused like one outside the folder; a
         change beside it is recorded."""
@@ -530,7 +586,7 @@ class EditAddParsing(Base):
         self.assertEqual((code, json.loads(body)["error"], json.loads(body)["pin"]["id"]), (409, "conflict", pid))
         code, _, body = split_resp(self.talk(jreq("POST", "/api/pins/999/edit", {"note": "x", "base_rev": 0})))
         self.assertEqual((code, json.loads(body)), (404, {"error": "핀 #999 이 없습니다.", "reason": "pin_not_found"}))
-        ps.set_done(pid, True, dict(LOCAL_ACTOR))
+        ps.close_pin(pid, dict(LOCAL_ACTOR), CloseRequest())
         code, _, body = split_resp(
             self.talk(jreq("POST", "/api/pins/%d/edit" % pid, {"lo": 4, "hi": 6, "base_rev": 1}))
         )

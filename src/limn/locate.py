@@ -25,13 +25,13 @@ from limn.documents import Doc, to_source
 from limn.files import file_in_tree, tex_lines, tree_part
 from limn.mapping import (
     TokenWeights,
-    by_text,
+    Traced,
     compute_levels,
     densest,
     norm,
     pin_rel_path,
-    score_range,
     snippet,
+    trace_range,
     truncate_quote,
 )
 from limn.pins import position
@@ -410,13 +410,84 @@ class PickContext:
     overlaps: Callable[[str, int, int], list[dict[str, Any]]]
 
 
-def pick(D: Doc, request: Selection, ctx: PickContext) -> dict[str, Any]:
-    """Dragged region -> source line range + range ladder, for document D and a selection parsed by
-    limn.web.parse.parse_pick. The answer is always a 200 body: the resolved range, or {"error", "reason"} when the
-    region cannot be traced to a manuscript line.
+@dataclass(frozen=True)
+class Picked:
+    """A selection traced to lines of a manuscript file: the file (inside the tree), the page, the range the paths
+    agreed on (limn.mapping.Traced), the file's line count and the chosen range's text, the viewer's frac as sent, the
+    region's printed text as a short quote, the stored open pins that range overlaps, and the page directory it was
+    traced in. stale: the manuscript is newer than that build's PDF (by more than 2 s); building: a LaTeX build is
+    running now. The HTTP answer (limn.web.answers.pick_answer) turns this into the pick body."""
 
-    Pits the SyncTeX candidate and the text candidate against each other on equal footing. Treating either
-    as a conditional fallback leaves no way to catch SyncTeX being silently wrong (inside minipage/tabular).
+    file: Path
+    page: int
+    traced: Traced
+    n_lines: int
+    snippet: str
+    frac: list[float] | None
+    quote: str
+    overlaps: list[dict[str, Any]]
+    pdf_build: str
+    stale: bool
+    building: bool
+
+
+@dataclass(frozen=True)
+class PickedRegion:
+    """A selection on a view-only PDF document: its key, the page and page-relative box (frac), the PDF's path from
+    the manuscript root and file name, the region's printed text as a quote and its length, and the page directory.
+    blank: the region has no printed text (a figure or scan); redrawing: the pages are being redrawn now."""
+
+    doc: str
+    page: int
+    frac: list[float]
+    pdf: str
+    name: str
+    quote: str
+    n_chars: int
+    blank: bool
+    redrawing: bool
+    pdf_build: str
+
+
+@dataclass(frozen=True)
+class GeneratedFile:
+    """SyncTeX points into a generated file (a .bbl or .bib, by its suffix): the fix belongs in the .bib or the text."""
+
+    suffix: str
+
+
+@dataclass(frozen=True)
+class SynctexOutside:
+    """SyncTeX points at a file that is not in the manuscript tree (path as mapped back from the build copy)."""
+
+    path: Path
+
+
+@dataclass(frozen=True)
+class SourceUnreadable:
+    """The source file the selection lands in has no readable UTF-8 lines."""
+
+    path: Path
+
+
+@dataclass(frozen=True)
+class NoSourceHere:
+    """Neither SyncTeX nor the region's text leads to a line of the file."""
+
+
+# Why a selection is not traced to manuscript lines; each is answered with its own 200 {"error", "reason"} body
+# (limn.web.errors.PICK_REFUSALS).
+PickRefusal: TypeAlias = GeneratedFile | SynctexOutside | SourceUnreadable | NoSourceHere
+
+
+def pick(D: Doc, request: Selection, ctx: PickContext) -> Picked | PickedRegion | PickRefusal:
+    """Dragged region -> source line range + range ladder, for document D and a selection parsed by
+    limn.web.parse.parse_pick: a view-only document's region (PickedRegion), the traced range (Picked), or why the
+    region cannot be traced to a manuscript line (PickRefusal).
+
+    This is the shell: it runs pdftotext and SyncTeX on the build's PDF, maps SyncTeX's file back to the checkout,
+    reads the file and weighs the region's tokens, then lets limn.mapping.trace_range choose between the two paths.
+    The build facts (a manuscript newer than the PDF, a running LaTeX build) and the overlaps are read after that.
 
     The page directory is the build on screen at drag time (pdf_build, META.pages_build). A drag made after a rebuild
     finishes but before the viewer switches pages uses coordinates from the old layout, so it's traced back
@@ -431,77 +502,33 @@ def pick(D: Doc, request: Selection, ctx: PickContext) -> dict[str, Any]:
 
     src = to_source(D, sy[0]) if sy else D.main
     if src.suffix in (".bbl", ".bib"):
-        return {
-            "error": "여기는 생성 파일(%s)입니다. 참고문헌은 .bib 나 본문 \\cite 를 고쳐야 합니다." % src.suffix,
-            "reason": "generated_file",
-        }
+        return GeneratedFile(src.suffix)
     found = file_in_tree(str(src), ctx.root, ctx.state)
     if not isinstance(found, Path):
-        return {
-            "error": "SyncTeX 가 원고 밖 파일을 가리킵니다(%s). PDF 재빌드 뒤 다시 골라 보세요." % src,
-            "reason": "synctex_outside",
-        }
-    src = found
-
-    lines = tex_lines(src)
+        return SynctexOutside(src)
+    lines = tex_lines(found)
     if not lines:
-        return {"error": "원문 파일을 읽지 못했습니다: %s" % src, "reason": "source_unreadable"}
-    tw = ctx.tokens.weights(rtext, lines, file_key(src))
+        return SourceUnreadable(found)
+    tw = ctx.tokens.weights(rtext, lines, file_key(found))
+    traced = trace_range(tw, lines, (sy[1], sy[2]) if sy else None, ctx.envs)
+    if traced is None:
+        return NoSourceHere()
 
-    cands = []
-    if sy:
-        cands.append(("synctex", sy[1], sy[2], score_range(tw, lines, sy[1], sy[2])))
-    alt = by_text(tw, lines, sy[1] if sy else None)
-    if alt:
-        cands.append(("text", alt[0], alt[1], alt[2]))
-    if not cands:
-        return {
-            "error": "그 자리에서 원문을 되짚지 못했습니다. 글자가 있는 쪽으로 조금 넓게 잡아 보세요.",
-            "reason": "no_source_here",
-        }
-
-    # On a tie, SyncTeX wins - it's the only one that's right in a region with no text (a figure).
-    cands.sort(key=lambda c: (-c[3], c[0] != "synctex"))
-    via, raw_lo, raw_hi, best = cands[0]
-    warn = ""
-    if tw and best < 0.3:
-        warn = "이 영역은 원문 대조가 약합니다(%.0f%%). 줄 범위를 눈으로 확인하세요." % (best * 100)
-
-    lad = compute_levels(lines, raw_lo, raw_hi, ctx.envs)
-    lo, hi = lad["lo"], lad["hi"]
-    # If both expand into the same block, the two paths haven't actually diverged - don't warn.
-    if not warn and len(cands) == 2 and abs(cands[0][3] - cands[1][3]) < 0.12 and not (lo <= cands[1][1] <= hi):
-        warn = "두 경로가 다른 곳을 가리킵니다(L%d / L%d). 확인이 필요합니다." % (cands[0][1], cands[1][1])
-
-    if build.source_newer(D, ctx.state, pdir.name) > 2:
-        stale_note = "화면의 PDF 가 지금 원고보다 낡았습니다 — [PDF 재빌드] 뒤에 다시 고르세요."
-        warn = stale_note + (" " + warn if warn else "")
+    stale = build.source_newer(D, ctx.state, pdir.name) > 2
     bstate = build.state_snapshot(D)
-    if bstate["state"] == "running" and bstate["phase"] == "latex":
-        warn = (warn + " " if warn else "") + "빌드 중이라 결과가 흔들릴 수 있습니다."
-
-    quote = truncate_quote(norm(rtext), 60)
-    return {
-        "file": str(src),
-        "name": src.name,
-        "page": page,
-        "lo": lo,
-        "hi": hi,
-        "raw_lo": raw_lo,
-        "raw_hi": raw_hi,
-        "kind": lad["kind"],
-        "via": via,
-        "score": round(best, 2),
-        "warn": warn,
-        "n_lines": len(lines),
-        "snippet": snippet(lines, lo, hi),
-        "frac": frac,
-        "quote": quote,
-        "levels": lad["levels"],
-        "default_level": lad["default_level"],
-        "overlaps": ctx.overlaps(str(src), lo, hi),
-        "pdf_build": pdir.name,
-    }
+    return Picked(
+        file=found,
+        page=page,
+        traced=traced,
+        n_lines=len(lines),
+        snippet=snippet(lines, traced.lo, traced.hi),
+        frac=frac,
+        quote=truncate_quote(norm(rtext), 60),
+        overlaps=ctx.overlaps(str(found), traced.lo, traced.hi),
+        pdf_build=pdir.name,
+        stale=stale,
+        building=bstate["state"] == "running" and bstate["phase"] == "latex",
+    )
 
 
 def _pick_region(
@@ -512,34 +539,27 @@ def _pick_region(
     size: tuple[float, float],
     frac: list[float] | None,
     rtext: str,
-) -> dict[str, Any]:
-    """pick for a view-only document - returns only page/region and the region's text (pdftotext), no SyncTeX.
+) -> PickedRegion:
+    """pick for a view-only document - only page/region and the region's text (pdftotext), no SyncTeX.
     If frac wasn't sent (agent curl), it's built from the coordinates - for a view-only pin, the region is the whole location."""
     x0, y0, x1, y1 = box
     pw, ph = size
     if frac is None:
         frac = [x0 / pw, y0 / ph, (x1 - x0) / pw, (y1 - y0) / ph]
     text = norm(rtext)
-    warn = ""
-    if not text:
-        warn = "이 영역에는 글자가 없습니다(그림·스캔본). 메모에 무엇을 가리키는지 적어 주세요."
     bstate = build.state_snapshot(D)
-    if bstate["state"] == "running":
-        warn = (warn + " " if warn else "") + "PDF 가 바뀌어 쪽을 다시 그리는 중입니다 — 끝나면 다시 고르세요."
-    return {
-        "doc": D.key,
-        "kind": "region",
-        "view_only": True,
-        "page": page,
-        "frac": frac,
-        "pdf": D.rel_path(),
-        "name": D.main.name,
-        "quote": truncate_quote(text, PDF_QUOTE_MAX),
-        "n_chars": len(text),
-        "warn": warn,
-        "overlaps": [],
-        "pdf_build": pdir.name,
-    }
+    return PickedRegion(
+        doc=D.key,
+        page=page,
+        frac=frac,
+        pdf=D.rel_path(),
+        name=D.main.name,
+        quote=truncate_quote(text, PDF_QUOTE_MAX),
+        n_chars=len(text),
+        blank=not text,
+        redrawing=bstate["state"] == "running",
+        pdf_build=pdir.name,
+    )
 
 
 def overlaps_api(rng: SourceLines, ctx: PickContext) -> dict[str, Any]:

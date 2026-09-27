@@ -15,11 +15,12 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from limn import build, revisions
+from limn import build, locate, revisions
 from limn.guidance import UNAUTHENTICATED
 from limn.pins.edit import NOTE_MAX
 from limn.web.errors import (
     BUILD_FAILURES,
+    PICK_REFUSALS,
     REVISION_FAILURES,
     SCOPE_REJECTIONS,
     HTTPError,
@@ -117,10 +118,12 @@ def input_rejections(tree):
 
 def emitted_reasons():
     """Every reason code the server can put in an error body or error status: HTTPError reason= literals, the
-    InputRejected reasons, the SCOPE_REJECTIONS and REVISION_FAILURES tables and error dict literals."""
-    codes = {reason for _, _, reason in SCOPE_REJECTIONS.values()} | {
-        reason for _, reason in REVISION_FAILURES.values()
-    }
+    InputRejected reasons, the SCOPE_REJECTIONS, REVISION_FAILURES and PICK_REFUSALS tables and error dict literals."""
+    codes = (
+        {reason for _, _, reason in SCOPE_REJECTIONS.values()}
+        | {reason for _, reason in REVISION_FAILURES.values()}
+        | {reason for _, reason in PICK_REFUSALS.values()}
+    )
     for _, tree in parsed():
         codes |= {c for _, r in http_error_calls(tree) + input_rejections(tree) for c in _codes(r)}
         for d in error_dicts(tree):
@@ -186,6 +189,16 @@ class EveryErrorHasAReason(unittest.TestCase):
             with self.subTest(kind=kind):
                 self.assertTrue(HANGUL.search(msg))
                 self.assertTrue(CODE.fullmatch(reason), reason)
+
+    def test_the_pick_table_names_a_reason_for_every_refusal(self):
+        """PICK_REFUSALS gives every way a selection is not traced (limn.locate.PickRefusal) its Korean text and a
+        snake_case reason; the texts take exactly the refusal's own fields as their placeholders."""
+        self.assertEqual(set(PICK_REFUSALS), set(typing.get_args(locate.PickRefusal)))
+        for kind, (msg, reason) in PICK_REFUSALS.items():
+            with self.subTest(kind=kind.__name__):
+                self.assertTrue(HANGUL.search(msg))
+                self.assertTrue(CODE.fullmatch(reason), reason)
+                self.assertEqual(msg.count("%s"), len(kind.__dataclass_fields__))
 
     def test_the_document_build_failure_table_has_a_text_for_every_kind(self):
         """BUILD_FAILURES gives every kind of a failed document build (limn.build.BuildFailureKind) its Korean text, and

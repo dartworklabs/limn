@@ -27,6 +27,7 @@ from limn.access import LOCAL_ACTOR
 from limn.audit import append_audit, audit_entry
 from limn.events import EVENTS_KEEP
 from limn.mentions import NOTE_MENTION_COOLDOWN_S, note_mention_targets
+from limn.pins.lifecycle import CloseRequest
 from limn.store import find_pin
 
 from helpers import Base, add_pin, edit_pin, ps
@@ -189,8 +190,8 @@ class NoteMentionCooldown(Base):
             pid = add_pin({"file": str(self.main), "lo": 4, "hi": 5, "note": "@Bob Park 메모"}, self.A).record["id"]
             ps.reply_pin(pid, "@Bob Park 하나", self.A)
             ps.reply_pin(pid, "@Bob Park 둘", self.A)
-            ps.set_done(pid, True, dict(LOCAL_ACTOR))
-            ps.set_done(pid, False, self.A, reason="@Bob Park 다시")
+            ps.close_pin(pid, dict(LOCAL_ACTOR), CloseRequest())
+            ps.reopen_pin(pid, self.A, reason="@Bob Park 다시")
         self.assertEqual(len(self.mentions_to_bob()), 4)
 
     def test_a_reply_mention_does_not_silence_a_following_note_tag(self):

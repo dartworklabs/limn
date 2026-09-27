@@ -18,6 +18,7 @@ from pathlib import Path
 from limn import mapping
 from limn.access import LOCAL_ACTOR
 from limn.pins import render, render as md_render
+from limn.pins.lifecycle import CloseRequest
 from limn.pins.render import DocHeading, PinFacts, PinsMdInput, pins_md_text
 
 from helpers import Base, add_pin, ps, req
@@ -361,7 +362,7 @@ class PinsMdV2(Base):
         for i in range(20):
             pid = self.add(4, 5, note="c%d" % i)
             # closed by a human = done (if an agent closes it, it stays in the table as awaiting review)
-            ps.set_done(pid, True, {"login": "a@example.com", "name": "A"})
+            ps.close_pin(pid, {"login": "a@example.com", "name": "A"}, CloseRequest())
         after = len(ps.C.pins_md.read_text(encoding="utf-8").splitlines())
         self.assertEqual(before, after)
         self.assertIn("닫힌 핀 20건", ps.C.pins_md.read_text(encoding="utf-8"))
@@ -591,7 +592,7 @@ class AuthorPrefixInPinsMd(Base):
     def test_closed_pins_excluded_from_author_count(self):
         # a closed pin's author isn't shown in the open table, so it must be excluded from the count too (judged by open pins only).
         pid = self.add(4, 5, note="n1", actor={"login": "alice@example.com", "name": "Wendy"})
-        ps.set_done(pid, True, dict(LOCAL_ACTOR))
+        ps.close_pin(pid, dict(LOCAL_ACTOR), CloseRequest())
         self.add(8, 8, note="n2", actor={"login": "bob@example.com", "name": "Bob"})
         md = ps.C.pins_md.read_text(encoding="utf-8")
         self.assertNotIn("[Bob]", md)

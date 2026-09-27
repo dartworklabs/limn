@@ -28,6 +28,7 @@ from unittest import mock
 from limn import revisions, scope as scoping
 from limn.access import LOCAL_ACTOR
 from limn.mapping import anchor_of
+from limn.pins.lifecycle import CloseRequest
 from limn.revisions import revision_history
 from limn.store import find_pin
 from limn.web import parse
@@ -775,12 +776,12 @@ class ScopedSourceDiff(ScopedRepo):
         chapter.write_text(chapter.read_text().replace("Part line 12.", "Part line twelve."), encoding="utf-8")
         self.write(self.main.read_text().replace("\\input{part}", "\\input{chapter}"))
         mv = self.commit("rename the part")
-        ps.set_done(old_pin, True, dict(LOCAL_ACTOR), ref=mv[:8])
+        ps.close_pin(old_pin, dict(LOCAL_ACTOR), CloseRequest(ref=mv[:8]))
         new_pin = self.add(lo=12, hi=12, note="chapter twelve")
         rows = ps.snapshot_pins()
         find_pin(rows, new_pin)["file"] = str(chapter)
         ps.write_pins(rows)
-        ps.set_done(new_pin, True, dict(LOCAL_ACTOR), ref=mv[:8])
+        ps.close_pin(new_pin, dict(LOCAL_ACTOR), CloseRequest(ref=mv[:8]))
         for pid in (old_pin, new_pin):  # the pin may name the file before or after the rename
             with self.subTest(pin=pid):
                 d = self.diff_ok(mv, pid)
@@ -1153,8 +1154,10 @@ class ScopedPdf(ScopedRepo):
         )
         both = self.commit("wrap the fillers in a list")
         opener = self.add(lo=7, hi=7, note="open")
-        ps.set_done(
-            opener, True, dict(LOCAL_ACTOR), ref=both[:8], changes=(parse.CloseChange(str(self.main.resolve()), 7, 7),)
+        ps.close_pin(
+            opener,
+            dict(LOCAL_ACTOR),
+            CloseRequest(ref=both[:8], changes=(parse.CloseChange(str(self.main.resolve()), 7, 7).record(),)),
         )
         spec = revision_spec(both, opener)
         self.assertEqual(len(spec.scope), 1)
@@ -1436,20 +1439,19 @@ class ScopedViewer(BrowserBase):
         self.write(NEW)
         self.fix = self.commit("fix three pins")
         loc = dict(LOCAL_ACTOR)
-        ps.set_done(
+        ps.close_pin(
             self.p1,
-            True,
             loc,
-            reply="alpha",
-            ref=self.fix[:8],
-            changes=(parse.CloseChange(str(self.main.resolve()), 4, 5),),
+            CloseRequest(
+                reply="alpha", ref=self.fix[:8], changes=(parse.CloseChange(str(self.main.resolve()), 4, 5).record(),)
+            ),
         )
-        ps.set_done(self.p2, True, loc, reply="beta", ref=self.fix[:8])
-        ps.set_done(self.p3, True, loc, reply="gamma", ref=self.fix[:8])
+        ps.close_pin(self.p2, loc, CloseRequest(reply="beta", ref=self.fix[:8]))
+        ps.close_pin(self.p3, loc, CloseRequest(reply="gamma", ref=self.fix[:8]))
         self.p4 = add_pin({"file": str(self.main), "lo": 8, "hi": 8, "page": 1, "note": "filler"}, A).record["id"]
         self.write(NEW.replace("Filler two.", "Filler two, reworded."))
         self.solo = self.commit("fix the filler pin")
-        ps.set_done(self.p4, True, loc, reply="filler", ref=self.solo[:8])
+        ps.close_pin(self.p4, loc, CloseRequest(reply="filler", ref=self.solo[:8]))
         self.builds = []
         self.fail_scoped = False
         patcher = mock.patch.object(revisions, "revision_compile", side_effect=self.fake_compile)

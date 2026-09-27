@@ -120,6 +120,7 @@ from limn.pins.lifecycle import (
     AlreadyLive,
     ClaimClosedPin,
     ClaimedByOther,
+    CloseRequest,
     NotClaimed,
     NotInTrash,
     PinStillOpen,
@@ -171,7 +172,6 @@ from limn.viewer.assemble import (
 )
 from limn.web.errors import HTTPError as HTTPError, Messages, build_failure_log, revision_failure_text
 from limn.web.handler import Handler as WebHandler, Server, Server6
-from limn.web.parse import CloseChange
 
 build_state_snapshot = build.state_snapshot
 
@@ -798,19 +798,18 @@ def reply_pin(
     return transitions.reply_pin(pin_context(), pid, text, actor, hints, reopen, human)
 
 
-def set_done(
-    pid: int,
-    done: bool,
-    actor: Json,
-    reply: str | None = None,
-    ref: str | None = None,
-    review: bool | None = None,
-    reason: str | None = None,
-    hints: list[str] | None = None,
-    changes: Sequence[CloseChange] | None = None,
-) -> OpenPin | ReviewPin | DonePin | AlreadyClosed | PinNotFound:
-    """POST /api/pins/{id}/close (done=True) and /reopen (done=False) (limn.service.transitions.set_done)."""
-    return transitions.set_done(pin_context(), pid, done, actor, reply, ref, review, reason, hints, changes)
+def close_pin(pid: int, actor: Json, request: CloseRequest) -> ReviewPin | DonePin | AlreadyClosed | PinNotFound:
+    """POST /api/pins/{id}/close with its parsed body (limn.web.parse.parse_close; CloseRequest() is a close with
+    no body) (limn.service.transitions.close_pin)."""
+    return transitions.close_pin(pin_context(), pid, actor, request)
+
+
+def reopen_pin(
+    pid: int, actor: Json, reason: str | None = None, hints: list[str] | None = None
+) -> OpenPin | PinNotFound:
+    """POST /api/pins/{id}/reopen with its reason and @-tag hints (limn.web.parse.parse_reopen)
+    (limn.service.transitions.reopen_pin)."""
+    return transitions.reopen_pin(pin_context(), pid, actor, reason, hints)
 
 
 def confirm_pin(pid: int, actor: Json) -> DonePin | AlreadyDone | PinStillOpen | AgentCannotConfirm | PinNotFound:
@@ -981,8 +980,9 @@ def pick_context() -> locate.PickContext:
     return locate.PickContext(C.src, C.envs, C.state, TOKEN_CACHE, overlaps_for_range)
 
 
-def pick(D: Doc, request: locate.Selection) -> Json:
-    """POST /api/pick: a selection of document D (parsed by limn.web.parse.parse_pick) -> source lines (limn.locate.pick)."""
+def pick(D: Doc, request: locate.Selection) -> locate.Picked | locate.PickedRegion | locate.PickRefusal:
+    """POST /api/pick: a selection of document D (parsed by limn.web.parse.parse_pick) -> source lines, a view-only
+    region, or why it cannot be traced (limn.locate.pick); limn.web.answers.pick_answer gives the body."""
     return locate.pick(D, request, pick_context())
 
 

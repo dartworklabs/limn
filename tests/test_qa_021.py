@@ -25,6 +25,7 @@ from limn import access, startup
 from limn.access import LOCAL_ACTOR
 from limn.mentions import NOTE_MENTION_COOLDOWN_S
 from limn.pins import render as md_render
+from limn.pins.lifecycle import CloseRequest
 from limn.startup import StartupRefused
 from limn.store import find_pin
 
@@ -106,14 +107,14 @@ class MentionRules(Base):
 
     def test_reopen_reason_re_mention_notifies(self):
         pid = add_pin({"file": str(self.main), "lo": 4, "hi": 5, "note": "@Bob Park 부탁"}, self.A).record["id"]
-        ps.set_done(pid, True, dict(LOCAL_ACTOR))
+        ps.close_pin(pid, dict(LOCAL_ACTOR), CloseRequest())
         n = self.n()
-        ps.set_done(pid, False, self.C, reason="@Bob Park 다시 봐 주세요")
+        ps.reopen_pin(pid, self.C, reason="@Bob Park 다시 봐 주세요")
         self.assertEqual(self.events_after(n), [("mention", ["bob@example.com"]), ("reopened", ["alice@example.com"])])
-        ps.set_done(pid, True, dict(LOCAL_ACTOR))
+        ps.close_pin(pid, dict(LOCAL_ACTOR), CloseRequest())
         n = self.n()
         # the author tagged: mention only, not also reopened
-        ps.set_done(pid, False, self.C, reason="@Alice Kim 확인 부탁")
+        ps.reopen_pin(pid, self.C, reason="@Alice Kim 확인 부탁")
         self.assertEqual(self.events_after(n), [("mention", ["alice@example.com"])])
 
     def test_note_edit_that_tags_again_notifies_but_a_typo_fix_does_not(self):
@@ -226,7 +227,7 @@ class PrincipalMatrix(AccessBase):
         code, d = self.call("POST", "/api/pins/%d/close" % pid, None, **kw)
         out["close"] = code if code != 200 else d["state"]
         pid = self.add()
-        ps.set_done(pid, True, dict(LOCAL_ACTOR))
+        ps.close_pin(pid, dict(LOCAL_ACTOR), CloseRequest())
         out["confirm"] = self.call("POST", "/api/pins/%d/confirm" % pid, None, **kw)[0]
         before = len(ps.snapshot_pins())
         out["clear"] = self.call("POST", "/api/clear", CLEAR_BODY, **kw)[0]
@@ -643,7 +644,7 @@ class BrowserOpenWaitsForPins(BrowserBase):
     def test_a_done_pin_is_known_when_open_returns_even_if_the_pin_list_is_slow(self):
         """With the pin list 1.5s late, the done pin is already in the viewer's lists when open(0) returns."""
         pid = add_pin({"file": str(self.main), "lo": 4, "hi": 4, "page": 1, "note": "done"}, actor(ALICE)).record["id"]
-        ps.set_done(pid, True, dict(LOCAL_ACTOR), reply="fixed")
+        ps.close_pin(pid, dict(LOCAL_ACTOR), CloseRequest(reply="fixed"))
         page = self.open(0, init=SLOW_PIN_LIST)
         self.assertTrue(page.evaluate("findAnyPin(%d)!==null" % pid))
 
@@ -699,7 +700,7 @@ class ViewerRoleUi(BrowserBase):
         rid = add_pin({"file": str(self.main), "lo": 8, "hi": 9, "page": 1, "note": "검토할 핀"}, actor(ALICE)).record[
             "id"
         ]
-        ps.set_done(rid, True, dict(LOCAL_ACTOR), reply="고침")
+        ps.close_pin(rid, dict(LOCAL_ACTOR), CloseRequest(reply="고침"))
 
     def visible_acts(self, page):
         return page.evaluate(
