@@ -1,7 +1,7 @@
 """server.py - the composition root and the wired handler, driven over a socketpair (no port is opened).
 
 What stays here is what only server.py can answer: its own functions and bindings (app_version, build_html,
-favicon_href, valid_rec - the store's record check as server.py binds it, default_pdfjs_dir, main() as the one exit),
+favicon_href, parse_record - the store's record parse as server.py binds it, default_pdfjs_dir, main() as the one exit),
 the build response's log diet the handler applies (ResponseDiet: limn.web.answers.diet_log, kept here beside the
 rebuild route's RebuildLogDiet), the requests end to end through the handler and the server's
 wiring (smuggling and origin checks, the static routes, /pins.md, the build responses, several documents), and the
@@ -47,11 +47,13 @@ from helpers import (
     Base,
     add_pin,
     edit_pin,
+    fits,
     jreq,
     needs_tex,
     pick,
     ps,
     record_of,
+    records,
     req,
     shut_wr,
     split_resp,
@@ -130,7 +132,7 @@ class CrossOrigin(Base):
             req("POST", "/api/pin", body, {"Origin": "http://127.0.0.1:18999", "Content-Type": "application/json"})
         )
         self.assertIn(b" 200 ", out)
-        pid = ps.snapshot_pins()[0]["id"]
+        pid = ps.snapshot_pins()[0].core.id
         out = self.talk(req("POST", "/api/pins/%d/close" % pid))  # curl-shaped: no body, no Origin
         self.assertIn(b" 200 ", out)
         out = self.talk(
@@ -941,7 +943,7 @@ class MultiDoc(Base):
         )
         self.assertNotIn("file", rec)
         self.assertNotIn("lo", rec)
-        self.assertTrue(ps.valid_rec(rec))
+        self.assertTrue(fits(rec))
         for bad in (
             {"lo": 3, "hi": 4},
             {"file": "main.tex"},
@@ -991,17 +993,17 @@ class MultiDoc(Base):
             )
         )
         self.assertEqual((p["frac"][0], p["quote"], p["pdf_build"]), (0.3, "new", "pages-20260101000000"))
-        self.assertTrue(ps.valid_rec(self.pin(pid)))
+        self.assertTrue(fits(self.pin(pid)))
         ps.close_pin(pid, dict(LOCAL_ACTOR), CloseRequest())  # close/drop are resolved by id, independent of document
         self.assertTrue(self.pin(pid)["done"])
 
     def test_region_record_validation_is_by_shape(self):
         base = {"id": 1, "pdf": str(self.pdf), "page": 1, "frac": [0, 0, 0.5, 0.5], "kind": "region", "doc": "gone"}
-        self.assertTrue(ps.valid_rec(base))  # even a document removed from config isn't a broken row
-        self.assertFalse(ps.valid_rec(dict(base, lo=1, hi=2)))
-        self.assertFalse(ps.valid_rec(dict(base, frac=None)))
-        self.assertFalse(ps.valid_rec(dict(base, pdf="review.pdf")))  # relative path
-        self.assertFalse(ps.valid_rec(dict(base, doc="Bad Key")))
+        self.assertTrue(fits(base))  # even a document removed from config isn't a broken row
+        self.assertFalse(fits(dict(base, lo=1, hi=2)))
+        self.assertFalse(fits(dict(base, frac=None)))
+        self.assertFalse(fits(dict(base, pdf="review.pdf")))  # relative path
+        self.assertFalse(fits(dict(base, doc="Bad Key")))
         # a pin for a document not in config surfaces separately in pins.md (it's not hidden)
         ps.C.pins_jsonl.write_text(json.dumps(base) + "\n")
         md = ps.pins_md_text(ps.read_pins()[0])
@@ -1178,9 +1180,9 @@ class ClaimEtaDocs(unittest.TestCase):
 
     def test_epoch_claim_fields_are_valid_record_fields(self):
         base = {"id": 1, "file": "/x.tex", "lo": 1, "hi": 2, "claim_ts": 1.5, "eta_ts": 2.5, "claim_until": 3.0}
-        self.assertTrue(ps.valid_rec(base))
-        self.assertFalse(ps.valid_rec(dict(base, eta_ts="soon")))
-        self.assertFalse(ps.valid_rec(dict(base, claim_ts="20:02")))
+        self.assertTrue(fits(base))
+        self.assertFalse(fits(dict(base, eta_ts="soon")))
+        self.assertFalse(fits(dict(base, claim_ts="20:02")))
 
 
 # ---------------------------------------------------------------- pin kind (fix request / question) · thread · reply (docs/handbook/api.md §스레드)
@@ -1248,7 +1250,7 @@ class KindAndThread(Base):
         ps.close_pin(pid, dict(self.S), CloseRequest())
         rows = ps.pins_payload(ps.snapshot_pins(), True)
         self.assertEqual(rows[0]["state"], "done")
-        self.assertNotIn("state", ps.read_pins()[0][0])  # a computed field — not stored
+        self.assertNotIn("state", records(ps.read_pins()[0])[0])  # a computed field — not stored
 
 
 # ---------------------------------------------------------------- awaiting review (docs/handbook/api.md §검토 대기)

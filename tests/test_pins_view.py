@@ -14,12 +14,12 @@ import unittest
 
 from limn.access import LOCAL_ACTOR
 from limn.pins import position
-from limn.pins.model import parse_pin
+from limn.pins.model import TrashedPin, parse_pin
 from limn.pins.position import EstContext
 from limn.pins.view import dropped_payload, pin_state, pin_view, pins_payload, public_record
 from limn.store import find_pin
 
-from helpers import Base, ps, req
+from helpers import Base, find_record, fits, ps, records, req, write_records
 
 NOW = 1790000000.0
 CUR = EstContext("b2", {"b1": {"build": "b1", "src_hash": "h1"}, "b2": {"build": "b2", "src_hash": "h2"}}, None, None)
@@ -161,7 +161,8 @@ class DroppedPayload(unittest.TestCase):
             {"id": 4, "dropped_at": "2026-09-25 09:00:00"},
         ]
         expiry = {1: 100.12345, 3: 50.0, 4: None}
-        out = dropped_payload(rows, shown, lambda r: expiry.get(r["id"]))
+        entries = [TrashedPin.from_record(r) for r in rows]
+        out = dropped_payload(entries, shown, lambda e: expiry.get(e.pin.core.id))
         self.assertEqual([r["id"] for r in out], [2, 3, 4, 1])
         self.assertEqual([r.get("expires_ts") for r in out], [None, 50.0, None, 100.123])
         self.assertTrue(all(r["shown"] for r in out))
@@ -239,13 +240,13 @@ class LegacyClaimStart(Base):
     def test_pins_payload_fills_start_for_legacy_claims(self):
         pid = self.add()
         with ps.PIN_LOCK:  # a claim shape written by a pre-eta server
-            rows, _ = ps.read_pins()
+            rows = records(ps.read_pins()[0])
             r = find_pin(rows, pid)
             r.update(claimed_by=dict(self.A), claimed_at="2026-09-23 20:02:00", claim_until=time.time() + 3600)
-            ps.write_pins(rows)
+            write_records(rows)
         rec = [x for x in ps.pins_payload(ps.snapshot_pins(), False) if x["id"] == pid][0]
         self.assertAlmostEqual(rec["claim_ts"], position.epoch("2026-09-23 20:02:00"), delta=0.01)
-        self.assertNotIn("claim_ts", find_pin(ps.read_pins()[0], pid))  # a computed field — not stored
+        self.assertNotIn("claim_ts", find_record(ps.read_pins()[0], pid))  # a computed field — not stored
 
 
 class LegacyDoneState(Base):
@@ -256,7 +257,7 @@ class LegacyDoneState(Base):
         self.assertEqual(pin_state({"done": True, "review": False}), "done")
         self.assertEqual(pin_state({"done": True, "review": True}), "review")
         self.assertEqual(pin_state({"review": True}), "open")  # a review flag left on an open pin is meaningless
-        self.assertFalse(ps.valid_rec({"id": 1, "file": str(self.main), "lo": 1, "hi": 1, "review": "y"}))
+        self.assertFalse(fits({"id": 1, "file": str(self.main), "lo": 1, "hi": 1, "review": "y"}))
 
 
 if __name__ == "__main__":

@@ -23,7 +23,7 @@ from limn.pins.model import OpenPin, ReviewPin
 from limn.pins.view import pin_state
 from limn.store import find_pin
 
-from helpers import ROOT, add_pin, ps
+from helpers import ROOT, add_pin, ps, records, write_records
 from helpers_access import ALICE, BOB, CAROL, AccessBase, actor, token_create
 
 A, B = actor(ALICE), actor(BOB)
@@ -186,12 +186,12 @@ class ReplyApi(AccessBase):
 
     def test_full_thread_still_reopens(self):
         pid = self.review_pin()
-        rows = ps.read_pins()[0]
+        rows = records(ps.read_pins()[0])
         r = find_pin(rows, pid)
         r["thread"] = r["thread"] + [
             {"id": 100 + i, "by": A, "at": "2026-09-25 10:00:00", "text": "x"} for i in range(ps.THREAD_MAX)
         ]
-        ps.write_pins(rows)
+        write_records(rows)
         code, d = self.reply(pid, {"text": "다시"}, BOB)
         self.assertEqual((code, d["reopened"]), (200, True))
         code, d = self.reply(pid, {"text": "이제는 가득"}, BOB)

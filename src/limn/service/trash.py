@@ -15,35 +15,40 @@ from typing import Any
 
 from limn.access import LOCAL_ACTOR
 from limn.pins.lifecycle import AlreadyLive, NotInTrash, drop, find_trashed, restore
-from limn.pins.model import DonePin, OpenPin, PinNotFound, ReviewPin, TrashedPin, parse_pin
+from limn.pins.model import DonePin, OpenPin, Pin, PinNotFound, ReviewPin, TrashedPin, parse_pin
 from limn.pins.position import epoch as parse_epoch
-from limn.service.context import Event, Json, PinContext, Row, load_pin, typed_actor
-from limn.store import find_pin
+from limn.service.context import Event, Json, PinContext, load_pin, typed_actor
+from limn.store import pin_index
 
 # a long-running server also drops expired Trash entries during normal reads, at most this often
 TRASH_CHECK_EVERY_S = 3600
 
 
-def expires_ts(r: Mapping[str, Any], days: int) -> float | None:
-    """Epoch seconds at which a Trash entry expires (dropped_at + days), or None if dropped_at is unreadable."""
-    t = parse_epoch(r.get("dropped_at"))
+def expires_ts(entry: TrashedPin, days: int) -> float | None:
+    """Epoch seconds at which a Trash entry expires (dropped_at + days), or None if it has no readable dropped_at."""
+    t = parse_epoch(entry.dropped.at if entry.dropped is not None else None)
     return None if t is None else t + days * 86400
 
 
-def expired(r: Mapping[str, Any], days: int, now: float) -> bool:
-    """Is Trash entry r past its expiry at epoch now? An entry whose age cannot be read never expires."""
-    t = expires_ts(r, days)
+def expired(entry: TrashedPin, days: int, now: float) -> bool:
+    """Is Trash entry past its expiry at epoch now? An entry whose age cannot be read never expires."""
+    t = expires_ts(entry, days)
     return t is not None and now > t
 
 
-def unexpired(rows: Sequence[Row], days: int, now: float) -> list[Row]:
+def unexpired(entries: Sequence[TrashedPin], days: int, now: float) -> list[TrashedPin]:
     """The Trash entries still restorable at epoch now, in their order."""
-    return [r for r in rows if not expired(r, days, now)]
+    return [entry for entry in entries if not expired(entry, days, now)]
 
 
-def _live_trash(ctx: PinContext, rows: Sequence[Row], now: float | None = None) -> list[Row]:
-    """The entries of rows unexpired at now, or - when now is None - at the clock read now."""
-    return unexpired(rows, ctx.trash_days, ctx.epoch() if now is None else now)
+def _live_trash(ctx: PinContext, entries: Sequence[TrashedPin], now: float | None = None) -> list[TrashedPin]:
+    """The entries unexpired at now, or - when now is None - at the clock read now."""
+    return unexpired(entries, ctx.trash_days, ctx.epoch() if now is None else now)
+
+
+def _without(entries: Sequence[TrashedPin], pid: int) -> list[TrashedPin]:
+    """The Trash entries that are not a copy of pin pid, in their order."""
+    return [entry for entry in entries if entry.pin.core.id != pid]
 
 
 def drop_pin(ctx: PinContext, pid: int, actor: Mapping[str, Any]) -> TrashedPin | PinNotFound:
@@ -53,17 +58,18 @@ def drop_pin(ctx: PinContext, pid: int, actor: Mapping[str, Any]) -> TrashedPin 
     Trash entries are purged in the same write."""
     evs: list[Event | None] = []
 
-    def fn(rows: list[Row]) -> tuple[TrashedPin | PinNotFound, bool]:
-        """The transact() step: take pin pid out of rows, append it to the Trash and queue its `dropped` notice."""
-        found = load_pin(rows, pid)
+    def fn(pins: list[Pin]) -> tuple[TrashedPin | PinNotFound, bool]:
+        """The transact() step: take pin pid out of pins, append it to the Trash and queue its `dropped` notice."""
+        found = load_pin(pins, pid)
         if isinstance(found, PinNotFound):
             return found, False
-        r, pin = found
-        rows.remove(r)
+        i, pin = found
+        del pins[i]
         trashed = drop(pin, typed_actor(actor), ctx.now())
         old, bad = ctx.store.read_dropped()
-        ctx.store.write_dropped(_live_trash(ctx, old) + [dict(trashed.record)], bad)
-        evs.append(ctx.make_event("dropped", r, actor, [(r.get("author") or {}).get("login")], text=r.get("note")))
+        ctx.store.write_dropped(_live_trash(ctx, old) + [trashed], bad)
+        r = pin.record
+        evs.append(ctx.make_event("dropped", r, actor, [(pin.core.author or {}).get("login")], text=r.get("note")))
         return trashed, True
 
     with ctx.store.lock:
@@ -80,33 +86,34 @@ def restore_pin(
     Reversing the order means a crash between the two writes makes the pin vanish from both files (observed).
     With this order, the worst case is "present in both", which is recoverable."""
     with ctx.store.lock:  # re-entrant - bundles transact and cleaning up the dropped record
-        result = ctx.store.transact(lambda rows: _restore(ctx, rows, pid, actor))[1]
+        result = ctx.store.transact(lambda pins: _restore(ctx, pins, pid, actor))[1]
         if isinstance(result, (NotInTrash, AlreadyLive)):
             return result  # refused: the Trash file is left as it was
         old, bad = ctx.store.read_dropped()
-        ctx.store.write_dropped(_live_trash(ctx, [r for r in old if r.get("id") != pid]), bad)
+        ctx.store.write_dropped(_live_trash(ctx, _without(old, pid)), bad)
         return result
 
 
 def _restore(
-    ctx: PinContext, rows: list[Row], pid: int, actor: Mapping[str, Any]
+    ctx: PinContext, pins: list[Pin], pid: int, actor: Mapping[str, Any]
 ) -> tuple[OpenPin | ReviewPin | DonePin | NotInTrash | AlreadyLive, bool]:
-    """The transact() step of restore_pin: puts the newest unexpired Trash copy of pin pid back into rows, re-synced and
-    with rel_path and the current file recorded (ADR-0006). The rule is limn.pins.lifecycle.restore(); NotInTrash
-    (404) and AlreadyLive (409) leave rows unchanged."""
+    """The transact() step of restore_pin: puts the newest unexpired Trash copy of pin pid back into pins (kept in id
+    order) with its file and file_rel recorded where the file is now (ADR-0006). Its lines are not re-matched here:
+    the next transaction's sync does that, as for every pin. The rule is limn.pins.lifecycle.restore(); NotInTrash
+    (404) and AlreadyLive (409) leave pins unchanged."""
     old, _ = ctx.store.read_dropped()
     trashed = find_trashed(_live_trash(ctx, old), pid)
     if isinstance(trashed, NotInTrash):
         return trashed, False
-    result = restore(trashed, find_pin(rows, pid) is not None, typed_actor(actor), ctx.now())
+    result = restore(trashed, pin_index(pins, pid) is not None, typed_actor(actor), ctx.now())
     if isinstance(result, AlreadyLive):
         return result, False
     rec = dict(result.record)
-    ctx.store.sync([rec])
     ctx.stamp(rec)  # ADR-0006: a restored pin records where its file is now
-    rows.append(rec)
-    rows.sort(key=lambda r: r["id"])
-    return parse_pin(rec), True
+    restored = parse_pin(rec)
+    pins.append(restored)
+    pins.sort(key=lambda pin: pin.core.id or 0)
+    return restored, True
 
 
 def purge_trash(ctx: PinContext, now: float | None = None) -> int:
@@ -115,9 +122,9 @@ def purge_trash(ctx: PinContext, now: float | None = None) -> int:
     every check (startup, drop, restore) restarts the hourly clock of maybe_purge_trash."""
     ctx.trash_checked[0] = ctx.epoch() if now is None else now
     with ctx.store.lock:
-        rows, bad = ctx.store.read_dropped()
-        keep = _live_trash(ctx, rows, now)
-        n = len(rows) - len(keep)
+        entries, bad = ctx.store.read_dropped()
+        keep = _live_trash(ctx, entries, now)
+        n = len(entries) - len(keep)
         if n:
             try:
                 ctx.store.write_dropped(keep, bad)
@@ -147,11 +154,11 @@ def purge_pin(ctx: PinContext, pid: int, actor: Mapping[str, Any]) -> TrashedPin
     must be dropped first; the handler answers that with 404. Leaves a `purged` audit event (to: [], like `cleared`), a
     `purged` line in audit.jsonl (never rotated out) and a log line, since it cannot be undone."""
     with ctx.store.lock:
-        rows, bad = ctx.store.read_dropped()
-        found = find_trashed(_live_trash(ctx, rows), pid)
+        entries, bad = ctx.store.read_dropped()
+        found = find_trashed(_live_trash(ctx, entries), pid)
         if isinstance(found, NotInTrash):
             return found
-        ctx.store.write_dropped(_live_trash(ctx, [r for r in rows if r.get("id") != pid]), bad)
+        ctx.store.write_dropped(_live_trash(ctx, _without(entries, pid)), bad)
         ctx.emit_events([{"type": "purged", "to": [], "pin": pid, "by": ctx.who(actor)}])
     ctx.audit("purged", ctx.who(actor), {"pin": pid})  # outside the lock: it flocks and fsyncs
     print("trash: pin #%d deleted permanently by %s" % (pid, (actor or {}).get("login")), file=sys.stderr)

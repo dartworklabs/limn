@@ -27,7 +27,7 @@ from limn.viewer import assemble
 from limn.web import answers, parse
 from limn.web.errors import scope_http_error
 
-from helpers import add_pin, blank_png, extract_js_fn, run_node, shut_wr
+from helpers import add_pin, blank_png, edit_stored, extract_js_fn, run_node, shut_wr
 from helpers_access import ALICE_ACTOR
 from helpers_browser import ChromiumTestCase
 
@@ -490,9 +490,8 @@ class EnglishChrome(ChromiumTestCase):
                 r["at"] = "2026-09-2%d 09:%02d:00" % (3 + i % 2, i)
                 for m in r.get("thread") or []:
                     m["at"] = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(time.time() - 3 * 3600))
-            return None, True
 
-        ps.pin_store().transact(age)
+        edit_stored(age, ps)
 
     def talk(self, raw):
         a, b = socket.socketpair()

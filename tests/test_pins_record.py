@@ -1,6 +1,8 @@
-"""limn.pins.record - the store's record check, called directly with the two shapes the composition root passes in.
+"""limn.pins.record - the store's record parse, called directly with the two shapes the composition root passes in.
 
-The check as the store gets it (server.valid_rec, with limn.documents.DOC_KEY_RE and limn.people.is_actor) is driven
+A record passes the check (fits_record) or is Broken; one that passes is parsed into its state type (parse_record) or,
+for a Trash line, its TrashedPin (parse_trashed) - Parse below. The parse as the store gets it (server.parse_record,
+with limn.documents.DOC_KEY_RE and limn.people.is_actor) is driven
 end to end in test_server.py and test_service.py (CloseChanges), and on malformed threads in ThreadShape at the end
 of this file; the purity of the module is in test_pins_lifecycle.py (Purity). Above it the document key and actor
 rules are stand-ins, so each test also sees that the check asks them - and only them - for those two shapes.
@@ -10,7 +12,8 @@ Run: uv run pytest -q tests/test_pins_record.py
 
 import unittest
 
-from limn.pins.record import THREAD_EVENTS, is_int, valid_rec
+from limn.pins.model import DonePin, OpenPin, Region, TrashedPin
+from limn.pins.record import THREAD_EVENTS, Broken, fits_record, is_int, parse_record, parse_trashed
 
 from helpers import Base, ps
 
@@ -38,8 +41,8 @@ def actor(v):
 
 
 def check(r):
-    """valid_rec with the stand-in rules."""
-    return valid_rec(r, doc_key, actor)
+    """fits_record with the stand-in rules."""
+    return fits_record(r, doc_key, actor)
 
 
 class Location(unittest.TestCase):
@@ -91,7 +94,7 @@ class Collaborators(unittest.TestCase):
     def test_doc_is_checked_by_the_given_key_rule(self):
         """A string doc passes when the rule says so - even a document no longer configured; otherwise broken."""
         seen = []
-        self.assertTrue(valid_rec(dict(LINE, doc="gone"), lambda s: seen.append(s) or True, actor))
+        self.assertTrue(fits_record(dict(LINE, doc="gone"), lambda s: seen.append(s) or True, actor))
         self.assertEqual(seen, ["gone"])
         self.assertFalse(check(dict(LINE, doc="Bad Key")))
         self.assertFalse(check(dict(LINE, doc=7)))
@@ -103,7 +106,7 @@ class Collaborators(unittest.TestCase):
             self.assertFalse(check(dict(LINE, **{key: {"login": 1}})), key)
             self.assertTrue(check(dict(LINE, **{key: None})), key)
         asked = []
-        valid_rec(dict(LINE, edited_by={"login": "b"}), doc_key, lambda v: asked.append(v) or True)
+        fits_record(dict(LINE, edited_by={"login": "b"}), doc_key, lambda v: asked.append(v) or True)
         self.assertEqual(asked, [ALICE_ACTOR, {"login": "b"}])
 
 
@@ -212,8 +215,36 @@ class IsInt(unittest.TestCase):
         self.assertFalse(is_int(True) or is_int(1.0) or is_int("1"))
 
 
+class Parse(unittest.TestCase):
+    """What passes the check comes back parsed into its state; what does not comes back Broken, with nothing lifted."""
+
+    def test_a_fitting_record_is_parsed_into_its_state_and_written_back_unchanged(self):
+        """A line pin is an OpenPin (a closed one a DonePin), a region pin's place is its Region, and each record
+        written back is the record, field order included."""
+        for r, state in ((LINE, OpenPin), (dict(LINE, done=True), DonePin), (REGION, OpenPin)):
+            pin = parse_record(r, doc_key, actor)
+            self.assertIsInstance(pin, state)
+            self.assertEqual(list(pin.record.items()), list(r.items()))
+        self.assertEqual(parse_record(REGION, doc_key, actor).core.place, Region("/ms/review.pdf", 2, REGION["frac"]))
+
+    def test_a_record_the_check_refuses_is_broken(self):
+        """Not an object, or a field of the wrong shape: Broken, for a live line and a Trash line alike."""
+        for bad in (None, [LINE], dict(LINE, lo="4"), dict(LINE, dropped_by="alice")):
+            self.assertEqual(parse_record(bad, doc_key, actor), Broken())
+            self.assertEqual(parse_trashed(bad, doc_key, actor), Broken())
+
+    def test_a_trash_line_is_parsed_into_its_copy_with_the_drop_lifted(self):
+        """dropped_at/dropped_by become the copy's drop, the rest the pin it was; written back unchanged."""
+        entry = dict(LINE, dropped_at="2026-09-26 11:00:00", dropped_by=ALICE_ACTOR)
+        trashed = parse_trashed(entry, doc_key, actor)
+        self.assertIsInstance(trashed, TrashedPin)
+        self.assertEqual((trashed.dropped.at, trashed.dropped.by), ("2026-09-26 11:00:00", ALICE_ACTOR))
+        self.assertEqual(trashed.pin.core.id, 3)
+        self.assertEqual(list(trashed.record.items()), list(entry.items()))
+
+
 class ThreadShape(Base):
-    """The record check as server.py binds it (valid_rec): a malformed thread or kind_req makes the line broken."""
+    """The record parse as server.py binds it (parse_record): a malformed thread or kind_req makes the line broken."""
 
     def test_malformed_thread_is_a_broken_line(self):
         for th in (
@@ -224,7 +255,7 @@ class ThreadShape(Base):
             [{"id": 1, "text": "a", "at": "t", "by": {}, "ev": "boom"}],
         ):
             r = {"id": 1, "file": str(self.main), "lo": 1, "hi": 1, "thread": th}
-            self.assertFalse(ps.valid_rec(r), th)
+            self.assertEqual(ps.parse_record(r), Broken(), th)
         ok = {
             "id": 1,
             "file": str(self.main),
@@ -242,8 +273,8 @@ class ThreadShape(Base):
                 }
             ],
         }
-        self.assertTrue(ps.valid_rec(ok))
-        self.assertFalse(ps.valid_rec(dict(ok, kind_req="Q")))
+        self.assertIsInstance(ps.parse_record(ok), OpenPin)
+        self.assertEqual(ps.parse_record(dict(ok, kind_req="Q")), Broken())
 
 
 if __name__ == "__main__":

@@ -297,9 +297,12 @@ class Lifting(unittest.TestCase):
         trashed = TrashedPin.from_record(LEGACY["Trash copy"])
         self.assertEqual(trashed.dropped, Dropped("2026-09-26 10:00:00", BY))
         self.assertEqual(trashed.pin, DonePin(PinCore(id=20, note="n"), Close("t", BY), None, {"done": True}))
-        for name in ("Trash copy without dropped_by", "Trash copy with an unreadable dropped_at"):
-            with self.subTest(name):
-                self.assertIsNone(TrashedPin.from_record(LEGACY[name]).dropped)
+        without_by = TrashedPin.from_record(LEGACY["Trash copy without dropped_by"])
+        self.assertEqual(without_by.dropped, Dropped("2026-09-26 10:00:00"))  # its dropped_at still dates it
+        self.assertEqual(without_by.pin.fields, {})
+        unreadable = TrashedPin.from_record(LEGACY["Trash copy with an unreadable dropped_at"])
+        self.assertIsNone(unreadable.dropped)
+        self.assertEqual(unreadable.pin.fields, {"dropped_at": 5, "dropped_by": BY})
 
 
 class Core(unittest.TestCase):

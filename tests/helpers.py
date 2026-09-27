@@ -30,6 +30,8 @@ import pytest
 
 from limn import config, gitsync, revisions
 from limn.access import LOCAL_ACTOR
+from limn.pins.model import parse_pin
+from limn.pins.record import Broken
 from limn.store import find_pin
 from limn.viewer import assemble
 from limn.web import answers, parse
@@ -249,6 +251,47 @@ def record_of(outcome) -> dict:
     return ps.public(pin.record)
 
 
+def fits(r, mod=None) -> bool:
+    """Does the server copy's record parse (parse_record) let r through - a record the store trusts?"""
+    return not isinstance((mod or ps).parse_record(r), Broken)
+
+
+def records(parsed) -> list:
+    """The stored records of parsed pins or Trash entries (what the store hands out), each as it is written."""
+    return [p.record for p in parsed]
+
+
+def find_record(parsed, pid: int) -> dict | None:
+    """The stored record of the first parsed pin whose id is pid, or None."""
+    return find_pin(records(parsed), pid)
+
+
+def trash_records(mod=None) -> list:
+    """The Trash entries of the server copy's state folder as stored (every readable line, expired ones too)."""
+    return records((mod or ps).read_dropped()[0])
+
+
+def edit_stored(fn, mod=None) -> None:
+    """Hand-edit the live pins in one transaction of the server copy's store, as a person editing pins.jsonl would:
+    fn(records) changes the stored records in place (it may also append or remove); each is parsed back into its
+    state and the file is rewritten."""
+
+    def step(pins):
+        """The transact() step: the records edited by fn replace the pins."""
+        rows = records(pins)
+        fn(rows)
+        pins[:] = [parse_pin(r) for r in rows]
+        return None, True
+
+    (mod or ps).pin_store().transact(step)
+
+
+def write_records(rows, bad=None, mod=None) -> None:
+    """Rewrite pins.jsonl (and pins.md) of the server copy with these stored records, parsed into their states. The
+    caller holds no lock: this is a test's hand edit."""
+    (mod or ps).write_pins([parse_pin(r) for r in rows], bad)
+
+
 # The fixture manuscript Base writes as main.tex: a section, comments, a table float and a subsection, with a rare word
 # on most lines so a test can find the line a pick or a quote came from.
 TEX = """\\documentclass{article}
@@ -327,7 +370,7 @@ class Base(unittest.TestCase):
 
     def pin(self, pid):
         """The stored record of pin pid after a synced read, or None."""
-        return find_pin(ps.snapshot_pins(), pid)
+        return find_record(ps.snapshot_pins(), pid)
 
     def talk(self, raw: bytes, shut=True) -> bytes:
         """Send raw over one connection and collect response bytes until the server closes it."""

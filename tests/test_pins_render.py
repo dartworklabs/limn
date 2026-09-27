@@ -25,7 +25,19 @@ from limn.pins.lifecycle import CloseRequest
 from limn.pins.render import DocHeading, PinFacts, PinsMdInput, pins_md_text
 from limn.web import parse
 
-from helpers import SKILL_KO, SKILL_MD, Base, add_pin, edit_pin, extract_js_fn, ps, req, run_node
+from helpers import (
+    SKILL_KO,
+    SKILL_MD,
+    Base,
+    add_pin,
+    edit_pin,
+    extract_js_fn,
+    ps,
+    records,
+    req,
+    run_node,
+    write_records,
+)
 from helpers_access import ALICE_ACTOR, BOB_ACTOR, TS_HOST, AccessBase, token_create
 
 RENDER_PY = Path(render.__file__)
@@ -496,13 +508,13 @@ class PinsMdV2(Base):
         md = ps.C.pins_md.read_text(encoding="utf-8")
         self.assertIn("«짧은 인용»", md)
         # a short line (<=600 chars) doesn't get a quote attached even if one is present
-        rows = ps.snapshot_pins()
+        rows = records(ps.snapshot_pins())
         for r in rows:
             if r["id"] == pid:
                 r["lo"] = r["hi"] = 4
                 r["quote"] = "안 보여야 함"
                 r["file"] = str(self.main)
-        ps.write_pins(rows)
+        write_records(rows)
         md2 = ps.C.pins_md.read_text(encoding="utf-8")
         self.assertNotIn("«안 보여야 함»", md2)
 
@@ -665,11 +677,11 @@ class AuthorPrefixInPinsMd(Base):
         pid1 = add_pin(
             {"file": str(self.main), "lo": 4, "hi": 5, "page": 1, "note": "legacy"}, dict(LOCAL_ACTOR)
         ).record["id"]
-        rows = ps.snapshot_pins()
+        rows = records(ps.snapshot_pins())
         for r in rows:
             if r["id"] == pid1:
                 r.pop("author", None)
-        ps.write_pins(rows)
+        write_records(rows)
         self.add(8, 8, note="n2", actor={"login": "bob@example.com", "name": "Bob"})
         md = ps.C.pins_md.read_text(encoding="utf-8")
         self.assertIn("[Bob] n2", md)

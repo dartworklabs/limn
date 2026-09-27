@@ -19,7 +19,7 @@ from limn.files import atomic_write
 from limn.pins import position
 from limn.store import dump_jsonl
 
-from helpers import Base, ps
+from helpers import Base, ps, trash_records
 from helpers_access import ALICE, BOB, CAROL, CLEAR_BODY, DAVE, TS_HOST, AccessBase, actor, token_create
 
 A, B = actor(ALICE), actor(BOB)
@@ -33,7 +33,7 @@ class TrashApi(AccessBase):
             ps.record_person(actor(h))
 
     def dropped_file(self):
-        return ps.read_jsonl(ps.C.dropped)[0]
+        return trash_records()
 
     def put_dropped(self, pid, days_ago, **extra):
         rec = {
@@ -58,7 +58,7 @@ class TrashApi(AccessBase):
         self.put_dropped(70, 10)
         rec = ps.dropped_payload()[0]
         self.assertAlmostEqual(rec["expires_ts"], position.epoch(rec["dropped_at"]) + 30 * 86400, delta=1)
-        self.assertNotIn("expires_ts", ps.read_jsonl(ps.C.dropped)[0][0])  # computed, never stored
+        self.assertNotIn("expires_ts", trash_records()[0])  # computed, never stored
 
     def test_iso_timestamps_with_an_offset_expire_too(self):
         self.put_dropped(71, None, dropped_at="2026-01-01T10:00:00+09:00")
@@ -196,10 +196,10 @@ class LazyTrashExpiry(AccessBase):
             "note": "old",
             "dropped_at": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(dropped_epoch)),
         }
-        atomic_write(ps.C.dropped, dump_jsonl(ps.read_jsonl(ps.C.dropped)[0] + [rec]))
+        atomic_write(ps.C.dropped, dump_jsonl(trash_records() + [rec]))
 
     def ids(self):
-        return sorted(r["id"] for r in ps.read_jsonl(ps.C.dropped)[0])
+        return sorted(r["id"] for r in trash_records())
 
     def test_hourly_purge_on_reads_with_a_fake_clock(self):
         from unittest import mock

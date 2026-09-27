@@ -22,10 +22,12 @@ from unittest import mock
 from limn import build as limn_build, files, mapping, store
 from limn.access import LOCAL_ACTOR
 from limn.pins.edit import PinOutsideTree
+from limn.pins.model import TrashedPin, parse_pin
+from limn.pins.record import Broken
 from limn.store import PinFiles, PinStore, dump_jsonl, find_pin
 from limn.web.errors import InputRejected
 
-from helpers import TEX, Base, add_pin, edit_pin, ps, record_of, req
+from helpers import TEX, Base, add_pin, edit_pin, ps, record_of, records, req, trash_records, write_records
 
 STORE_PY = Path(store.__file__)
 
@@ -35,9 +37,19 @@ def valid(r: object) -> bool:
     return isinstance(r, dict) and isinstance(r.get("id"), int) and not isinstance(r.get("id"), bool)
 
 
-def render(rows: list) -> str:
-    """A stand-in pins.md: one line per pin id, so the file shows exactly which rows it was rendered from."""
-    return "".join("#%d\n" % r["id"] for r in rows)
+def parse_rec(r: object):
+    """The test's record parse: a record valid() lets through, parsed into its state; anything else Broken."""
+    return parse_pin(r) if valid(r) else Broken()
+
+
+def parse_trash(r: object):
+    """The test's Trash parse: a record valid() lets through, parsed into its Trash copy; anything else Broken."""
+    return TrashedPin.from_record(r) if valid(r) else Broken()
+
+
+def render(pins: list) -> str:
+    """A stand-in pins.md: one line per pin id, so the file shows exactly which pins it was rendered from."""
+    return "".join("#%d\n" % p.core.id for p in pins)
 
 
 class StoreBase(unittest.TestCase):
@@ -50,15 +62,20 @@ class StoreBase(unittest.TestCase):
         self.state = Path(self.tmp.name)
         self.sync_result = False
         self.sync_calls = 0
-        self.store = PinStore(PinFiles(self.state), threading.RLock(), valid, self.sync, render)
+        self.store = PinStore(PinFiles(self.state), threading.RLock(), parse_rec, parse_trash, self.sync, render)
 
-    def sync(self, rows: list) -> bool:
-        """Fake anchor re-sync: marks every row synced when self.sync_result is true, and says so."""
+    def sync(self, pins: list) -> bool:
+        """Fake anchor re-sync: replaces every pin with one marked synced when self.sync_result is true, and says so."""
         self.sync_calls += 1
         if self.sync_result:
-            for r in rows:
-                r["synced"] = True
+            for i, pin in enumerate(pins):
+                pins[i] = parse_pin(dict(pin.record, synced=True))
         return self.sync_result
+
+    def read(self):
+        """(stored records, broken line numbers) of pins.jsonl as the store reads it."""
+        pins, bad = self.store.read_pins()
+        return records(pins), bad
 
     def put(self, text: str) -> None:
         """Writes pins.jsonl's raw text."""
@@ -67,9 +84,9 @@ class StoreBase(unittest.TestCase):
     def add(self, pid: int):
         """A transaction step that appends pin pid -> (pid, True)."""
 
-        def fn(rows):
-            """Appends {id: pid} and reports a change."""
-            rows.append({"id": pid})
+        def fn(pins):
+            """Appends the pin {id: pid} and reports a change."""
+            pins.append(parse_pin({"id": pid}))
             return pid, True
 
         return fn
@@ -79,19 +96,20 @@ class ModuleBoundaryTest(unittest.TestCase):
     """The store is below the server: it must not reach back into server.py or the HTTP layer."""
 
     def test_imports_only_the_standard_library_and_limn_files(self):
-        """store.py imports stdlib modules and limn.files only - its collaborators arrive as PinStore fields."""
+        """store.py imports stdlib modules, limn.files and the pin types it hands out (limn.pins.model, and Broken from
+        limn.pins.record) - its collaborators arrive as PinStore fields."""
         tree = ast.parse(STORE_PY.read_text(encoding="utf-8"))
         modules = {a.name for n in ast.walk(tree) if isinstance(n, ast.Import) for a in n.names}
         modules |= {n.module or "" for n in ast.walk(tree) if isinstance(n, ast.ImportFrom)}
         limn = {m for m in modules if m == "limn" or m.startswith("limn.")}
-        self.assertEqual(limn, {"limn.files"})
+        self.assertEqual(limn, {"limn.files", "limn.pins.model", "limn.pins.record"})
         self.assertFalse({"http", "http.server", "urllib", "subprocess"} & modules)
 
     def test_reads_no_server_global(self):
         """No name of the server's run arguments or lock appears in store.py (they come in as fields)."""
         tree = ast.parse(STORE_PY.read_text(encoding="utf-8"))
         names = {n.id for n in ast.walk(tree) if isinstance(n, ast.Name)}
-        self.assertFalse(names & {"C", "PIN_LOCK", "HTTPError", "sync_all", "pins_md_text", "valid_rec", "cur_doc"})
+        self.assertFalse(names & {"C", "PIN_LOCK", "HTTPError", "sync_all", "pins_md_text", "parse_record", "cur_doc"})
 
 
 class WriteOrderTest(StoreBase):
@@ -118,7 +136,7 @@ class WriteOrderTest(StoreBase):
         self.put('{"id": 1}\n')
         self.sync_result = True
         seen = []
-        self.store.transact(lambda rows: (seen.append(dict(rows[0])), False))
+        self.store.transact(lambda pins: (seen.append(pins[0].record), False))
         self.assertEqual(seen, [{"id": 1, "synced": True}])
 
     def test_failed_render_writes_nothing(self):
@@ -130,7 +148,7 @@ class WriteOrderTest(StoreBase):
             """A renderer that fails."""
             raise RuntimeError("boom")
 
-        broken = PinStore(self.store.files, self.store.lock, valid, self.sync, boom)
+        broken = PinStore(self.store.files, self.store.lock, parse_rec, parse_trash, self.sync, boom)
         with self.assertRaises(RuntimeError):
             broken.transact(self.add(2))
         self.assertEqual(self.store.files.pins_jsonl.read_text(encoding="utf-8"), '{"id": 1}\n')
@@ -139,7 +157,7 @@ class WriteOrderTest(StoreBase):
     def test_returns_the_rows_and_the_step_result(self):
         """transact returns (rows as written, fn's result)."""
         rows, result = self.store.transact(self.add(7))
-        self.assertEqual((rows, result), ([{"id": 7}], 7))
+        self.assertEqual((records(rows), result), ([{"id": 7}], 7))
 
 
 class WhenWrittenTest(StoreBase):
@@ -150,7 +168,7 @@ class WhenWrittenTest(StoreBase):
         self.put('{"id": 1}\n')
         before = self.store.files.pins_jsonl.stat().st_mtime_ns
         rows, result = self.store.transact(lambda rows: ("r", False))
-        self.assertEqual((rows, result), ([{"id": 1}], "r"))
+        self.assertEqual((records(rows), result), ([{"id": 1}], "r"))
         self.assertEqual(self.store.files.pins_jsonl.stat().st_mtime_ns, before)
         self.assertFalse(self.store.files.pins_md.exists())
         self.assertEqual(self.sync_calls, 1)
@@ -159,7 +177,7 @@ class WhenWrittenTest(StoreBase):
         """(result, False) after a re-sync that moved rows writes the re-synced rows and pins.md."""
         self.put('{"id": 1}\n')
         self.sync_result = True
-        self.assertEqual(self.store.snapshot(), [{"id": 1, "synced": True}])
+        self.assertEqual(records(self.store.snapshot()), [{"id": 1, "synced": True}])
         self.assertEqual(self.store.files.pins_jsonl.read_text(encoding="utf-8"), '{"id": 1, "synced": true}\n')
         self.assertEqual(self.store.files.pins_md.read_text(encoding="utf-8"), "#1\n")
 
@@ -198,7 +216,7 @@ class WhenWrittenTest(StoreBase):
 
         def defect(rows):
             """Half-changes rows, then fails."""
-            rows[0]["half"] = True
+            rows[0] = parse_pin(dict(rows[0].record, half=True))
             raise KeyError("bug")
 
         with self.assertRaises(KeyError):
@@ -214,7 +232,7 @@ class CorruptLineTest(StoreBase):
     def test_read_skips_bad_lines_and_numbers_them(self):
         """Unparseable and invalid lines are skipped with their 1-based numbers; blank lines are not counted as bad."""
         self.put(self.CORRUPT)
-        self.assertEqual(self.store.read_pins(), ([{"id": 1}, {"id": 3}], [2, 3]))
+        self.assertEqual(self.read(), ([{"id": 1}, {"id": 3}], [2, 3]))
 
     def test_rewrite_backs_up_the_original_bytes(self):
         """The first write after a corrupt read copies the original file to pins.jsonl.corrupt-<time>.bak, byte for
@@ -250,7 +268,7 @@ class CorruptLineTest(StoreBase):
         """write_dropped keeps a corrupt Trash as pins.dropped.jsonl.corrupt-<time>.bak before rewriting it."""
         self.store.files.dropped.write_text('{"id": 1}\nbroken\n', encoding="utf-8")
         rows, bad = self.store.read_dropped()
-        self.assertEqual((rows, bad), ([{"id": 1}], [2]))
+        self.assertEqual((records(rows), bad), ([{"id": 1}], [2]))
         with mock.patch("time.strftime", return_value="20260926-100000"):
             self.store.write_dropped(rows, bad)
         self.assertEqual(
@@ -260,7 +278,7 @@ class CorruptLineTest(StoreBase):
 
     def test_missing_file_reads_empty(self):
         """No pins.jsonl yet is an empty store, not an error."""
-        self.assertEqual(self.store.read_pins(), ([], []))
+        self.assertEqual(self.read(), ([], []))
 
 
 class LockTest(StoreBase):
@@ -271,7 +289,7 @@ class LockTest(StoreBase):
         with self.store.lock:
             self.store.transact(self.add(1))
             self.store.write_dropped([])
-        self.assertEqual(self.store.read_pins()[0], [{"id": 1}])
+        self.assertEqual(records(self.store.read_pins()[0]), [{"id": 1}])
 
     def test_other_thread_waits_for_the_holder(self):
         """While one caller holds the lock, another thread's transaction does not read or write until it is
@@ -290,10 +308,10 @@ class LockTest(StoreBase):
             t.start()
             self.assertTrue(started.wait(5))
             self.assertFalse(done.wait(0.3))  # blocked on the lock
-            self.assertEqual(self.store.read_pins()[0], [{"id": 1}])
+            self.assertEqual(records(self.store.read_pins()[0]), [{"id": 1}])
         t.join(5)
         self.assertTrue(done.is_set())
-        self.assertEqual(self.store.read_pins()[0], [{"id": 1}, {"id": 2}])
+        self.assertEqual(records(self.store.read_pins()[0]), [{"id": 1}, {"id": 2}])
 
     def test_concurrent_saves_all_survive_with_unique_ids(self):
         """30 threads each add a pin with next_id at once: all 30 are kept with ids 1..30 (without the lock, 2 of
@@ -303,14 +321,14 @@ class LockTest(StoreBase):
         def save():
             """Waits for the others, then appends one pin with a fresh id."""
             barrier.wait(5)
-            self.store.transact(lambda rows: (rows.append({"id": self.store.next_id(rows)}), True))
+            self.store.transact(lambda pins: (pins.append(parse_pin({"id": self.store.next_id(pins)})), True))
 
         threads = [threading.Thread(target=save) for _ in range(30)]
         for t in threads:
             t.start()
         for t in threads:
             t.join(10)
-        self.assertEqual(sorted(r["id"] for r in self.store.read_pins()[0]), list(range(1, 31)))
+        self.assertEqual(sorted(p.core.id for p in self.store.read_pins()[0]), list(range(1, 31)))
         self.assertEqual(self.store.files.seq.read_text(), "30")
 
 
@@ -320,14 +338,14 @@ class IdTest(StoreBase):
     def test_next_id_is_past_both_seq_and_rows(self):
         """next_id is one more than the larger of pins.seq and the largest id in rows, and is recorded."""
         self.store.files.seq.write_text("9")
-        self.assertEqual(self.store.next_id([{"id": 3}]), 10)
-        self.assertEqual(self.store.next_id([{"id": 20}]), 21)
+        self.assertEqual(self.store.next_id([parse_pin({"id": 3})]), 10)
+        self.assertEqual(self.store.next_id([parse_pin({"id": 20})]), 21)
         self.assertEqual(self.store.files.seq.read_text(), "21")
 
     def test_unreadable_seq_counts_as_zero(self):
         """A garbled pins.seq falls back to the rows' largest id."""
         self.store.files.seq.write_text("x")
-        self.assertEqual(self.store.next_id([{"id": 4}]), 5)
+        self.assertEqual(self.store.next_id([parse_pin({"id": 4})]), 5)
 
     def test_init_seq_takes_the_max_over_live_archived_and_dropped(self):
         """A state directory without pins.seq gets it once from the largest id anywhere; an existing one is kept."""
@@ -343,7 +361,7 @@ class IdTest(StoreBase):
     def test_clear_archives_and_keeps_the_seq(self):
         """clear moves pins.jsonl to pins_<time>.jsonl.bak (a second one the same second gets -1), renders an empty
         pins.md and leaves pins.seq alone, so ids keep going up."""
-        self.store.transact(lambda rows: (rows.append({"id": self.store.next_id(rows)}), True))
+        self.store.transact(lambda pins: (pins.append(parse_pin({"id": self.store.next_id(pins)})), True))
         with mock.patch("time.strftime", return_value="260926_100000"):
             self.assertEqual(self.store.clear(), (1, "pins_260926_100000.jsonl.bak"))
             self.store.transact(self.add(9))
@@ -401,8 +419,7 @@ class Store(Base):
         with open(ps.C.pins_jsonl, "a", encoding="utf-8") as fh:
             fh.write(json.dumps({"id": 900, "file": str(self.main), "lo": "5", "hi": None}) + "\n")
             fh.write(json.dumps({"id": 950, "lo": 3, "hi": 3}) + "\n")
-        rows = ps.snapshot_pins()
-        self.assertEqual([r["id"] for r in rows], [1])
+        self.assertEqual([p.core.id for p in ps.snapshot_pins()], [1])
         nid = self.add()
         self.assertEqual(nid, 2)
         self.assertEqual(len(list(ps.C.state.glob("pins.jsonl.corrupt-*.bak"))), 1)
@@ -426,7 +443,7 @@ class Store(Base):
             for r in bad:
                 fh.write(json.dumps(r) + "\n")
         os.utime(self.main, (time.time() + 5, time.time() + 5))  # so sync_all compares synced_at
-        self.assertEqual([r["id"] for r in ps.snapshot_pins()], [1])
+        self.assertEqual([p.core.id for p in ps.snapshot_pins()], [1])
         self.assertEqual(len(list(ps.C.state.glob("pins.jsonl.corrupt-*.bak"))), 1)
 
     def test_out_of_tree_file_is_not_read(self):
@@ -435,7 +452,7 @@ class Store(Base):
         with open(ps.C.pins_jsonl, "a", encoding="utf-8") as fh:
             fh.write(json.dumps({"id": 970, "file": str(outside), "lo": 1, "hi": 1, "anchor": {}}) + "\n")
         self.assertEqual(edit_pin(970, {"lo": 1, "hi": 2, "base_rev": 0}, dict(LOCAL_ACTOR)), PinOutsideTree())
-        self.assertNotIn("outsidesecret", json.dumps(ps.snapshot_pins()))
+        self.assertNotIn("outsidesecret", json.dumps(records(ps.snapshot_pins())))
 
     def test_lines_edit_drops_via_score(self):
         pid = add_pin(
@@ -484,10 +501,9 @@ class Store(Base):
         # the transaction's own write
         with mock.patch.object(PinStore, "write_pins", side_effect=OSError("disk full")), self.assertRaises(OSError):
             ps.restore_pin(pid, dict(LOCAL_ACTOR))
-        dropped, _ = ps.read_jsonl(ps.C.dropped)
-        self.assertIn(pid, [r["id"] for r in dropped])
+        self.assertIn(pid, [r["id"] for r in trash_records()])
         self.assertEqual(record_of(ps.restore_pin(pid, dict(LOCAL_ACTOR)))["id"], pid)
-        self.assertEqual(ps.read_jsonl(ps.C.dropped)[0], [])
+        self.assertEqual(trash_records(), [])
 
     def test_edit_loc_keeps_page_frac_and_defaults_kind(self):
         pid = add_pin(
@@ -555,10 +571,10 @@ class Store(Base):
 
     def test_edit_loc_replaces_legacy_frac_build_field(self):
         pid = self.add()
-        rows, _ = ps.read_pins()
+        rows = records(ps.read_pins()[0])
         rows[0].pop("pdf_build")
         rows[0]["frac_build"] = "pages"
-        ps.write_pins(rows)
+        write_records(rows)
         nb = self._new_build()
         p = record_of(
             edit_pin(

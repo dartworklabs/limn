@@ -1,8 +1,8 @@
 """Replying to, closing, reopening and confirming a pin (docs/handbook/api.md §스레드 (답글), §닫을 때 사유 남기기, §검토 대기).
 
-Each shell loads the pin under the pin lock (PinStore.transact), asks limn.pins.lifecycle what happens, rewrites the
-record in place only when the rule accepts (so the saved line keeps its field order) and emits the notices after the
-write committed. Every outcome goes back unchanged for the HTTP layer to answer.
+Each shell loads the pin under the pin lock (PinStore.transact), asks limn.pins.lifecycle what happens, puts the pin's
+next state in its place only when the rule accepts (its record keeps the stored field order, so the saved line changes
+only where the transition changed it) and emits the notices after the write committed. Every outcome goes back unchanged for the HTTP layer to answer.
 """
 
 from collections.abc import Iterable, Mapping
@@ -54,13 +54,13 @@ def reply_pin(
     evs: list[Event | None] = []
     human = (not is_agent(actor)) if human is None else human
 
-    def fn(rows: list[Row]) -> tuple[OpenPin | ReviewPin | DonePin | ThreadFull | PinNotFound, bool]:
+    def fn(pins: list[Pin]) -> tuple[OpenPin | ReviewPin | DonePin | ThreadFull | PinNotFound, bool]:
         """The transact() step: decide the reply on pin pid and, unless the thread is full, write it and queue its notices."""
-        found = load_pin(rows, pid)
+        found = load_pin(pins, pid)
         if isinstance(found, PinNotFound):
             return found, False
-        r, pin = found
-        ment = resolve_mentions(text, ctx.known_people(rows), hints, exclude=(actor or {}).get("login"))
+        i, pin = found
+        ment = resolve_mentions(text, ctx.known_people(pins), hints, exclude=(actor or {}).get("login"))
         # tagging an agent-role account is not asking a person
         persons = [lg for lg in ment if ctx.role_of(lg) != "agent"]
         event = decide_reply(
@@ -72,16 +72,16 @@ def reply_pin(
             reopens_on_reply(pin, human, persons, reopen),
             ctx.thread_max,
         )
-        author = (r.get("author") or {}).get("login")
-        before = pin_mentions_all(r)
+        author = (pin.core.author or {}).get("login")
+        before = pin_mentions_all(pin.record)
         replied: OpenPin | ReviewPin | DonePin
         match event:
             case ThreadFull():
                 return event, False
             case PinReopened():
                 replied = reopen_request(pin, event)
-                r.clear()
-                r.update(replied.record)
+                pins[i] = replied
+                r = replied.record
                 msg = r["thread"][-1]
                 _reopen_notices(ctx, r, actor, ment, msg, evs)
                 # Everyone else tagged on the pin earlier would have heard of a plain reply (replied) - reopening must
@@ -93,8 +93,8 @@ def reply_pin(
                 )
             case Replied():
                 replied = _with_reply(pin, event)
-                r.clear()
-                r.update(replied.record)
+                pins[i] = replied
+                r = replied.record
                 msg = r["thread"][-1]
                 # Every @-tag in this reply is a mention, even for someone tagged earlier on the pin - otherwise a
                 # second "@Bob ..." reaches nobody (observed). Everyone else involved gets replied - never both.
@@ -135,18 +135,18 @@ def close_pin(
     """
     evs: list[Event | None] = []
 
-    def fn(rows: list[Row]) -> tuple[ReviewPin | DonePin | AlreadyClosed | PinNotFound, bool]:
+    def fn(pins: list[Pin]) -> tuple[ReviewPin | DonePin | AlreadyClosed | PinNotFound, bool]:
         """The transact() step: decide the close on pin pid and, if it was open, write it and queue review_requested."""
-        found = load_pin(rows, pid)
+        found = load_pin(pins, pid)
         if isinstance(found, PinNotFound):
             return found, False
-        r, pin = found
+        i, pin = found
         event = decide_close(pin, typed_actor(actor), ctx.now(), request)
         if isinstance(event, AlreadyClosed):
             return event, False
         closed = evolve_close(pin, event)
-        r.clear()
-        r.update(closed.record)
+        pins[i] = closed
+        r = closed.record
         if isinstance(closed, ReviewPin):
             evs.append(
                 ctx.make_event(
@@ -168,13 +168,14 @@ def reopen_pin(
     even for a pin that was already open."""
     evs: list[Event | None] = []
 
-    def fn(rows: list[Row]) -> tuple[OpenPin | PinNotFound, bool]:
+    def fn(pins: list[Pin]) -> tuple[OpenPin | PinNotFound, bool]:
         """The transact() step: reopen pin pid in place (always a write) and queue its notices."""
-        found = load_pin(rows, pid)
+        found = load_pin(pins, pid)
         if isinstance(found, PinNotFound):
             return found, False
-        r, pin = found
-        opened = _reopen(ctx, r, pin, rows, actor, reason, hints, evs)
+        i, pin = found
+        opened = _reopen(ctx, pin, pins, actor, reason, hints, evs)
+        pins[i] = opened
         return opened, True
 
     with ctx.store.lock:
@@ -185,27 +186,26 @@ def reopen_pin(
 
 def _reopen(
     ctx: PinContext,
-    r: Row,
     pin: Pin,
-    rows: list[Row],
+    pins: list[Pin],
     actor: Mapping[str, Any],
     reason: str | None,
     hints: Iterable[str] | None,
     evs: list[Event | None],
 ) -> OpenPin:
-    """POST /reopen's step: reopens r in place (inside transact) by limn.pins.lifecycle.reopen_request, rev bumped,
-    and - if the pin was closed - queues a mention for everyone the reason @-tags and reopened for the author. A
-    reopening reply calls reopen_request itself in reply_pin. pin is r's state type. Returns the reopened pin."""
+    """POST /reopen's step (inside transact): the pin reopened by limn.pins.lifecycle.reopen_request, rev bumped, and
+    - if it was closed - a mention queued for everyone the reason @-tags and reopened for the author (the @-tags are
+    resolved against the people on pins). A reopening reply calls reopen_request itself in reply_pin. Returns the
+    reopened pin; the caller puts it in pin's place."""
     ment = (
-        resolve_mentions(reason or "", ctx.known_people(rows), hints, exclude=(actor or {}).get("login"))
+        resolve_mentions(reason or "", ctx.known_people(pins), hints, exclude=(actor or {}).get("login"))
         if not isinstance(pin, OpenPin)
         else []
     )
     event = decide_reopen(pin, typed_actor(actor), ctx.now(), reason, tuple(ment))
     opened = reopen_request(pin, event)
-    r.clear()
-    r.update(opened.record)
     if event.was_closed:
+        r = opened.record
         _reopen_notices(ctx, r, actor, ment, r["thread"][-1], evs)
     return opened
 
@@ -228,7 +228,7 @@ def confirm_pin(
     """Awaiting review -> done, by a person only (docs/handbook/api.md §검토 대기).
 
     An agent is refused before the store is touched. Otherwise the pin is loaded under the pin lock
-    (transact) and lifecycle.confirm() decides; only a new DonePin is written, in place, so the saved line
+    (transact) and lifecycle.confirm() decides; only a new DonePin is written, in the pin's place, so the saved line
     keeps its field order. Every other outcome is returned unchanged for the HTTP layer to answer. No notice.
     """
     by = confirmer(typed_actor(actor))
@@ -236,16 +236,15 @@ def confirm_pin(
         return by
     person = by
 
-    def fn(rows: list[Row]) -> tuple[DonePin | AlreadyDone | PinStillOpen | PinNotFound, bool]:
+    def fn(pins: list[Pin]) -> tuple[DonePin | AlreadyDone | PinStillOpen | PinNotFound, bool]:
         """The transact() step: confirm pin pid; written only when it becomes done."""
-        found = load_pin(rows, pid)
+        found = load_pin(pins, pid)
         if isinstance(found, PinNotFound):
             return found, False
-        r, pin = found
+        i, pin = found
         result = confirm(pin, person, ctx.now())
         if isinstance(result, DonePin):
-            r.clear()
-            r.update(result.record)
+            pins[i] = result
             return result, True
         return result, False
 

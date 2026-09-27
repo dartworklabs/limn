@@ -151,7 +151,7 @@ class StateFolderInManuscript(AccessBase):
                 ALICE,
             )
             self.refused(code, d, "file_outside_manuscript", name)
-        self.assertEqual([r["id"] for r in ps.snapshot_pins()], [self.pid])
+        self.assertEqual([p.core.id for p in ps.snapshot_pins()], [self.pid])
         self.assertEqual(Path(self.pin(self.pid)["file"]).name, "main.tex")
 
     def test_a_close_cannot_record_a_state_file_as_a_change(self):

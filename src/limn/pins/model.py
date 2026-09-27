@@ -161,10 +161,11 @@ CONFIRMATION_SHAPES: Shapes = {"confirmed_by": ("by", _is_signature), "confirmed
 
 @dataclass(frozen=True)
 class Dropped:
-    """Who deleted a pin into the Trash, and when (dropped_by, dropped_at); dropped_at also dates the copy's expiry."""
+    """When a pin was deleted into the Trash, and by whom (dropped_at, dropped_by); dropped_at also dates the copy's
+    expiry. by is None for a hand-written copy without dropped_by - its dropped_at still dates it."""
 
     at: str
-    by: Signature
+    by: Signature | None = None
 
 
 DROPPED_SHAPES: Shapes = {"dropped_at": ("at", _is_text), "dropped_by": ("by", _is_signature)}
@@ -531,7 +532,8 @@ def parse_pin(record: Record) -> Pin:
 class TrashedPin:
     """A deleted pin in the Trash (pins.dropped.jsonl): the pin as it was, and who dropped it when - restorable by id.
 
-    dropped is lifted only whole (dropped_at a string and dropped_by an object), as drop() always writes it.
+    dropped is lifted when dropped_at is a string (drop() always writes it with dropped_by, an object); a dropped_by
+    that is not an object, or one without a dropped_at string, stays among the pin's kept fields as stored.
     """
 
     pin: Pin
@@ -547,7 +549,7 @@ class TrashedPin:
     @classmethod
     def from_record(cls, record: Record) -> TrashedPin:
         """The Trash copy a stored entry describes: the drop lifted, the rest parsed as the pin it was."""
-        dropped = _lift(record, DROPPED_SHAPES, Dropped, required=("at", "by"))
+        dropped = _lift(record, DROPPED_SHAPES, Dropped, required=("at",))
         return cls(parse_pin(_others(record, _stored(dropped, DROPPED_SHAPES))), dropped, tuple(record))
 
     @property

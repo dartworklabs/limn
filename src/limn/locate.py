@@ -36,7 +36,7 @@ from limn.mapping import (
 )
 from limn.pins import position
 from limn.pins.edit import PDF_QUOTE_MAX
-from limn.pins.model import OpenPin, is_region_pin, state_of
+from limn.pins.model import OpenPin, Pin, is_region_pin, parse_pin, state_of
 from limn.pins.position import EstContext, epoch, est_basis, resync
 
 # One stored pin as the store reads it: a JSON object (limn.store.Row).
@@ -294,17 +294,18 @@ def overlaps_for_range(file: str, lo: int, hi: int, rows: Sequence[Row], locate:
 # ---------------------------------------------------------------- Anchors and re-syncing
 
 
-def sync_all(rows: list[Row], locate: Locator) -> bool:
+def sync_all(pins: list[Pin], locate: Locator) -> bool:
     """If the manuscript is newer than a pin, re-match its line numbers via the anchor (limn.pins.position.resync).
-    A changed record replaces its row in rows; returns whether any row changed. The pin store calls this under its lock
-    before every transaction (limn.store.PinStore.sync).
+    A re-matched pin replaces its old state in pins; returns whether any pin changed. The pin store calls this under
+    its lock before every transaction (limn.store.PinStore.sync).
 
     Open line pins only (a view-only PDF's pin has no lines). The pin's file is the one locate finds (ADR-0006: a moved
     checkout is followed; outside the tree is never read); a pin whose file cannot be located or is not a file now is
     left alone. Each file is read once per call."""
     changed = False
     cache: dict[Path, tuple[list[str], list[str], float]] = {}
-    for i, r in enumerate(rows):
+    for i, pin in enumerate(pins):
+        r = pin.record
         if state_of(r) is not OpenPin or is_region_pin(r):  # a view-only PDF's pin has no lines - nothing to re-match
             continue
         loc = locate(r)
@@ -322,7 +323,7 @@ def sync_all(rows: list[Row], locate: Locator) -> bool:
         lines, nlines, mtime = cache[f]
         new = resync(r, lines, nlines, mtime, str(f))
         if new is not None:
-            rows[i] = new
+            pins[i] = parse_pin(new)
             changed = True
     return changed
 

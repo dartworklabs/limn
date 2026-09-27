@@ -32,7 +32,7 @@ from limn.pins.edit import (
     new_region_pin,
 )
 from limn.pins.model import DonePin, OpenPin, Pin, PinNotFound, ReviewPin
-from limn.service.context import Event, PinContext, Row, load_pin, typed_actor
+from limn.service.context import Event, PinContext, load_pin, typed_actor
 
 
 def located(loc: PinLocation | None) -> Located | None:
@@ -64,11 +64,11 @@ def _add_line_pin(ctx: PinContext, place: LinePlace, request: AddRequest, actor:
     lines = tex_lines(f)
     evs: list[Event | None] = []
 
-    def fn(rows: list[Row]) -> tuple[OpenPin, bool]:
+    def fn(pins: list[Pin]) -> tuple[OpenPin, bool]:
         """The transact() step: builds the pin, appends it and queues its notices -> (pin, True)."""
         at = ctx.now()
-        pid = ctx.store.next_id(rows)
-        tags = ctx.note_tags(request.note, "", rows, request.hints, actor, pid)
+        pid = ctx.store.next_id(pins)
+        tags = ctx.note_tags(request.note, "", pins, request.hints, actor, pid)
         anchoring = Anchoring(
             anchor_of(lines, place.fields["lo"], place.fields["hi"]), f.stat().st_mtime if f.exists() else 0
         )
@@ -86,7 +86,7 @@ def _add_line_pin(ctx: PinContext, place: LinePlace, request: AddRequest, actor:
             D.key,
             located(ctx.locate({"file": place.fields["file"]})),
         )
-        rows.append(dict(pin.record))
+        pins.append(pin)
         evs.append(ctx.make_event("mention", pin.record, actor, tags.notify, text=request.note))
         if request.assignee is not None and request.assignee != ASSIGNEE_AGENT:
             evs.append(ctx.make_event("assigned", pin.record, actor, [request.assignee], text=request.note))
@@ -105,13 +105,13 @@ def _add_region_pin(
     kind: 'region', quote?, note, pdf_build}, built by limn.pins.edit.new_region_pin(). No lines, no anchor."""
     evs: list[Event | None] = []
 
-    def fn(rows: list[Row]) -> tuple[OpenPin, bool]:
+    def fn(pins: list[Pin]) -> tuple[OpenPin, bool]:
         """The transact() step: builds the pin, appends it and queues its notices -> (pin, True)."""
         at = ctx.now()
-        pid = ctx.store.next_id(rows)
-        tags = ctx.note_tags(request.note, "", rows, request.hints, actor, pid)
+        pid = ctx.store.next_id(pins)
+        tags = ctx.note_tags(request.note, "", pins, request.hints, actor, pid)
         pin = new_region_pin(place, request, pid, at, actor, tags.mentions, build.cur_pages(D).name, D.key)
-        rows.append(dict(pin.record))
+        pins.append(pin)
         evs.append(ctx.make_event("mention", pin.record, actor, tags.notify, text=request.note))
         if request.assignee is not None and request.assignee != ASSIGNEE_AGENT:
             evs.append(ctx.make_event("assigned", pin.record, actor, [request.assignee], text=request.note))
@@ -141,14 +141,15 @@ def edit_pin(
     clock = ctx.hm() if request.note_append is not None else ""
     evs: list[Event | None] = []
 
-    def fn(rows: list[Row]) -> tuple[OpenPin | ReviewPin | DonePin | EditRefusal | PinNotFound, bool]:
-        """The transact() step: decide the edit on pin pid and, if accepted, write it in place and queue its notices."""
-        found = load_pin(rows, pid)
+    def fn(pins: list[Pin]) -> tuple[OpenPin | ReviewPin | DonePin | EditRefusal | PinNotFound, bool]:
+        """The transact() step: decide the edit on pin pid and, if accepted, put the edited pin in its place and queue
+        its notices."""
+        found = load_pin(pins, pid)
         if isinstance(found, PinNotFound):
             return found, False
-        r, pin = found
+        i, pin = found
         # ADR-0006: an edit records where the file is now
-        where = None if region else ctx.locate(file_after(r, request))
+        where = None if region else ctx.locate(file_after(pin.record, request))
         count = len(tex_lines(where.path)) if where is not None and request.sets_lines() else None
         event = decide_edit(pin, request, typed_actor(actor), ctx.now(), clock, count, NOTE_MAX)
         if not isinstance(event, PinEdited):
@@ -161,9 +162,9 @@ def edit_pin(
         tags = (
             None
             if event.note is None
-            else ctx.note_tags(event.note, str(r.get("note") or ""), rows, request.hints, actor, pid)
+            else ctx.note_tags(event.note, pin.core.note or "", pins, request.hints, actor, pid)
         )
-        assigns = request.assignee not in (None, ASSIGNEE_AGENT) and r.get("assignee") != request.assignee
+        assigns = request.assignee not in (None, ASSIGNEE_AGENT) and pin.core.assignee != request.assignee
         edited = _with_edit(
             pin,
             event,
@@ -172,12 +173,12 @@ def edit_pin(
             None if tags is None else tags.mentions,
             ctx.person_name(request.assignee) if assigns and request.assignee is not None else None,
         )
-        r.clear()
-        r.update(edited.record)
+        pins[i] = edited
+        rec = edited.record
         if tags is not None:
-            evs.append(ctx.make_event("mention", r, actor, tags.notify, text=r.get("note")))
+            evs.append(ctx.make_event("mention", rec, actor, tags.notify, text=rec.get("note")))
         if assigns:
-            evs.append(ctx.make_event("assigned", r, actor, [request.assignee], text=r.get("note")))
+            evs.append(ctx.make_event("assigned", rec, actor, [request.assignee], text=rec.get("note")))
         return edited, True
 
     with ctx.store.lock:

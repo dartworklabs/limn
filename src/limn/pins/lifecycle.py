@@ -390,10 +390,10 @@ def drop(pin: Pin, by: Actor, at: str) -> TrashedPin:
     return TrashedPin.from_record(record)
 
 
-def find_trashed(trash: Sequence[Record], pid: int) -> TrashedPin | NotInTrash:
+def find_trashed(trash: Sequence[TrashedPin], pid: int) -> TrashedPin | NotInTrash:
     """The newest copy of pin pid among the Trash entries given (the caller passes only unexpired ones)."""
-    hits = [record for record in trash if record.get("id") == pid]
-    return TrashedPin.from_record(hits[-1]) if hits else NotInTrash(pid)
+    hits = [entry for entry in trash if entry.pin.core.id == pid]
+    return hits[-1] if hits else NotInTrash(pid)
 
 
 def restore(trashed: TrashedPin, live: bool, by: Actor, at: str) -> Pin | AlreadyLive:

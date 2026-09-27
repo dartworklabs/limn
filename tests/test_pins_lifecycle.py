@@ -487,8 +487,8 @@ class TrashTransitions(unittest.TestCase):
 
     def test_find_trashed_takes_the_newest_copy(self):
         """A pin deleted twice comes back as its last copy; an id with no copy is NotInTrash."""
-        trash = [{"id": 3, "note": "old"}, {"id": 4}, {"id": 3, "note": "new"}]
-        self.assertEqual(find_trashed(trash, 3), TrashedPin.from_record({"id": 3, "note": "new"}))
+        trash = [TrashedPin.from_record(r) for r in ({"id": 3, "note": "old"}, {"id": 4}, {"id": 3, "note": "new"})]
+        self.assertIs(find_trashed(trash, 3), trash[2])
         self.assertEqual(find_trashed(trash, 9), NotInTrash(9))
 
     def test_restore_brings_back_the_state_and_bumps_rev(self):

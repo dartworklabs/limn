@@ -26,10 +26,9 @@ from limn import access, revisions, startup
 from limn.access import LOCAL_ACTOR
 from limn.pins.lifecycle import CloseRequest
 from limn.pins.view import pin_state
-from limn.store import find_pin
 from limn.web import parse
 
-from helpers import add_pin, blank_png, minimal_pdf, ps
+from helpers import add_pin, blank_png, find_record, minimal_pdf, ps, records, trash_records
 from helpers_access import ALICE, BOB, CAROL, REPO_NEW as NEW, REPO_OLD as OLD, actor
 from helpers_browser import BrowserBase
 
@@ -117,7 +116,7 @@ class ViewerFlows(BrowserBase):
         ps.close_pin(self.dn, A, CloseRequest(reply="고침"))
 
     def state(self, pid):
-        return pin_state(find_pin(ps.snapshot_pins(), pid))
+        return pin_state(find_record(ps.snapshot_pins(), pid))
 
     def pump(self):
         """Wait a little while letting Playwright run - the in-process server answers routed requests on this thread, so a
@@ -191,7 +190,7 @@ class ViewerFlows(BrowserBase):
             tst.wait_for(state="visible")
             tst.locator("button.btn-icon").click()  # dismissing the toast sends at once
             self.wait_state(self.rv, "open")
-            last = find_pin(ps.snapshot_pins(), self.rv)["thread"][-1]
+            last = find_record(ps.snapshot_pins(), self.rv)["thread"][-1]
             self.assertEqual((last.get("ev"), last["text"]), ("reopen", "식 번호가 아직 틀립니다"))
             page.wait_for_function("OPEN_ALL.some(p=>p.id===%d)" % self.rv, timeout=8000)
 
@@ -209,9 +208,9 @@ class ViewerFlows(BrowserBase):
             page.click(card + " [data-act=reply-send]")
             self.toast(page, t["undo"]).locator("button.btn-icon").click()
             end = time.time() + 8
-            while time.time() < end and "내일" not in find_pin(ps.snapshot_pins(), self.rv)["thread"][-1]["text"]:
+            while time.time() < end and "내일" not in find_record(ps.snapshot_pins(), self.rv)["thread"][-1]["text"]:
                 self.pump()
-            last = find_pin(ps.snapshot_pins(), self.rv)["thread"][-1]
+            last = find_record(ps.snapshot_pins(), self.rv)["thread"][-1]
             self.assertEqual((last.get("ev"), last["text"], self.state(self.rv)), (None, "내일 다시 볼게요", "review"))
 
         self.run_matrix(flow)
@@ -300,8 +299,8 @@ class ViewerFlows(BrowserBase):
         page.click('#pins .pin[data-id="%d"] [data-act=drop]' % self.open_id)
         self.toast(page, "되돌리기").get_by_role("button", name="되돌리기").click()
         page.wait_for_function("OPEN_ALL.some(p=>p.id===%d)" % self.open_id, timeout=5000)
-        self.assertIsNotNone(find_pin(ps.snapshot_pins(), self.open_id))
-        self.assertEqual(ps.read_jsonl(ps.C.dropped)[0], [])
+        self.assertIsNotNone(find_record(ps.snapshot_pins(), self.open_id))
+        self.assertEqual(trash_records(), [])
 
     # -- 2. Trash
 
@@ -320,9 +319,9 @@ class ViewerFlows(BrowserBase):
             page.wait_for_function("!document.querySelector('#pins .pin[data-id=\"%d\"]')" % self.open_id, timeout=3000)
             self.toast(page, t["undo"]).wait_for(state="visible")
             end = time.time() + 5
-            while time.time() < end and find_pin(ps.snapshot_pins(), self.open_id) is not None:
+            while time.time() < end and find_record(ps.snapshot_pins(), self.open_id) is not None:
                 self.pump()
-            self.assertIsNone(find_pin(ps.snapshot_pins(), self.open_id))
+            self.assertIsNone(find_record(ps.snapshot_pins(), self.open_id))
             page.wait_for_function("DROPPED.length===1", timeout=5000)
             self.assertFalse(page.locator("#sec-dropped").count())
             if device == "desktop":
@@ -336,7 +335,7 @@ class ViewerFlows(BrowserBase):
                     self.english_only(page, sel)
             page.click(row + " [data-act=restore]")
             page.wait_for_function("OPEN_ALL.some(p=>p.id===%d)" % self.open_id, timeout=5000)
-            self.assertIsNotNone(find_pin(ps.snapshot_pins(), self.open_id))
+            self.assertIsNotNone(find_record(ps.snapshot_pins(), self.open_id))
 
         self.run_matrix(flow)
 
@@ -363,13 +362,13 @@ class ViewerFlows(BrowserBase):
         tst = self.toast(page, "되돌리기")
         tst.get_by_role("button", name="되돌리기").click()
         page.wait_for_timeout(300)
-        self.assertEqual([r["id"] for r in ps.read_jsonl(ps.C.dropped)[0]], [self.open_id])
+        self.assertEqual([r["id"] for r in trash_records()], [self.open_id])
         page.click(row + " [data-act=purge]")
         self.toast(page, "되돌리기").locator("button.btn-icon").click()
         end = time.time() + 5
-        while time.time() < end and ps.read_jsonl(ps.C.dropped)[0]:
+        while time.time() < end and trash_records():
             self.pump()
-        self.assertEqual(ps.read_jsonl(ps.C.dropped)[0], [])
+        self.assertEqual(trash_records(), [])
 
     def test_ref_to_deleted_pin_in_a_thread(self):
         ps.reply_pin(self.open_id, "#%d 와 같은 문제" % self.dn, B)
@@ -491,7 +490,7 @@ class ColdDeepLink(BrowserBase):
     def test_cold_restore_link_restores_and_opens(self):
         page = self.cold("#doc=hl&pin=%d&act=restore" % self.gone, "desktop")
         page.wait_for_function("OPEN_ALL.some(p=>p.id===%d)" % self.gone, timeout=8000)
-        self.assertIsNotNone(find_pin(ps.snapshot_pins(), self.gone))
+        self.assertIsNotNone(find_record(ps.snapshot_pins(), self.gone))
         self.assert_card_shown(page, self.gone, "desktop")
         self.assertEqual(page.evaluate("location.hash"), "#doc=hl")
 
@@ -534,9 +533,9 @@ class PreviewEqualsServer(BrowserBase):
         page.click(card + " [data-act=reply-send]")
         page.locator("#toasts .toast").first.locator("button.btn-icon").click()
         end = time.time() + 8
-        while time.time() < end and find_pin(ps.snapshot_pins(), pid)["thread"][-1].get("text") != text:
+        while time.time() < end and find_record(ps.snapshot_pins(), pid)["thread"][-1].get("text") != text:
             page.wait_for_timeout(100)
-        r = find_pin(ps.snapshot_pins(), pid)
+        r = find_record(ps.snapshot_pins(), pid)
         last = r["thread"][-1]
         return preview, not r.get("done"), [ps.known_people()[lg]["name"] for lg in last.get("mentions") or []]
 
@@ -588,7 +587,7 @@ class ReplyKeyboardAndFailure(BrowserBase):
         page.wait_for_selector(card + " textarea.r-text")
         self.assertEqual(page.input_value(card + " textarea.r-text"), "키보드로 보냄")
         page.wait_for_timeout(300)
-        self.assertEqual(pin_state(find_pin(ps.snapshot_pins(), self.rv)), "review")
+        self.assertEqual(pin_state(find_record(ps.snapshot_pins(), self.rv)), "review")
 
     def test_offline_failure_reopens_the_box_with_the_draft_and_an_error(self):
         page = self.open(0)
@@ -599,7 +598,7 @@ class ReplyKeyboardAndFailure(BrowserBase):
         page.locator("#toasts .toast").first.locator("button.btn-icon").click()
         page.wait_for_selector(card + " .reply-box .r-err:not([hidden])", timeout=5000)
         self.assertEqual(page.input_value(card + " textarea.r-text"), "오프라인에서 쓴 글")
-        self.assertEqual(pin_state(find_pin(ps.snapshot_pins(), self.rv)), "review")
+        self.assertEqual(pin_state(find_record(ps.snapshot_pins(), self.rv)), "review")
 
     def test_override_is_a_switch(self):
         page = self.open(0)
@@ -631,7 +630,7 @@ class RestoreLinkRunsOnce(BrowserBase):
         page.reload()
         page.wait_for_function("typeof OPEN_ALL!=='undefined'&&OPEN_ALL.some(p=>p.id===%d)&&META" % keep, timeout=20000)
         page.wait_for_timeout(800)
-        self.assertIsNone(find_pin(ps.snapshot_pins(), pid))
+        self.assertIsNone(find_record(ps.snapshot_pins(), pid))
 
 
 class TrashOfAnotherDocument(ColdDeepLink):
@@ -941,7 +940,7 @@ class QuestionNudgeFocus(BrowserBase):
         self.assertEqual(page.evaluate("KIND_NEW"), "question")
         page.keyboard.press("Control+Enter")
         page.wait_for_function("OPEN_ALL.length===1", timeout=8000)
-        rows = ps.snapshot_pins()
+        rows = records(ps.snapshot_pins())
         self.assertEqual([(r["note"], r.get("kind_req")) for r in rows], [("이 값은 어디서 왔나요?", "question")])
 
     def test_ctrl_enter_from_the_kind_buttons_still_saves(self):
