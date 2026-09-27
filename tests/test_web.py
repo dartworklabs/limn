@@ -13,6 +13,7 @@ Run: uv run pytest -q tests/test_web.py
 import ast
 import dataclasses
 import importlib.util
+import json
 import re
 import subprocess
 import sys
@@ -100,22 +101,30 @@ class Binding(Base):
             spec.loader.exec_module(mod)
             return mod
 
-        first, second = load_copy("limn_server_first"), load_copy("limn_server_second")
+        # Running server.py by path prepends src/ to sys.path; restore the test process's import path afterward.
+        with mock.patch.object(sys, "path", sys.path.copy()):
+            first, second = load_copy("limn_server_first"), load_copy("limn_server_second")
         for mod, label in ((first, "First"), (second, "Second")):
             mod.C = run_config(self.src, self.main, self.src.parent / label, label=label)
             mod.RT = mod.new_runtime(ServedViewer(f"<p>{label}</p>", "", {}))
-            mod.set_docs(None)
+            mod.set_docs([mod.Doc(label.lower(), label, legacy=True, paths=mod.C.paths)])
 
-        request = b"GET / HTTP/1.1\r\nHost: 127.0.0.1:18999\r\n\r\n"
-
-        def page(mod):
-            """The response body served by this copy's actual HTTP handler."""
+        def get(mod, path):
+            """One successful GET body from this copy's actual HTTP handler."""
+            request = f"GET {path} HTTP/1.1\r\nHost: 127.0.0.1:18999\r\n\r\n".encode()
             response = talk_to(mod, request)
             self.assertTrue(response.startswith(b"HTTP/1.1 200"), response[:200])
             return response.split(b"\r\n\r\n", 1)[1]
 
-        self.assertEqual(page(first), b"<p>First</p>")
-        self.assertEqual(page(second), b"<p>Second</p>")
+        def docs(mod):
+            """The document key and name exposed by this copy's GET /api/docs."""
+            response = json.loads(get(mod, "/api/docs"))
+            return response["default"], response["docs"][0]["name"]
+
+        self.assertEqual(get(first, "/"), b"<p>First</p>")
+        self.assertEqual(get(second, "/"), b"<p>Second</p>")
+        self.assertEqual(docs(first), ("first", "First"))
+        self.assertEqual(docs(second), ("second", "Second"))
         self.assertEqual(first.Handler.app.C.label, "First")
         self.assertEqual(second.Handler.app.C.label, "Second")
         self.assertIs(first.Handler.app.request_doc(None), first.DOCS[0])
@@ -125,9 +134,11 @@ class Binding(Base):
 
         first.C = run_config(self.src, self.main, self.src.parent / "Restarted", label="Restarted")
         first.RT = first.new_runtime(ServedViewer("<p>Restarted</p>", "", {}))
-        first.set_docs(None)
-        self.assertEqual(page(first), b"<p>Restarted</p>")
-        self.assertEqual(page(second), b"<p>Second</p>")
+        first.set_docs([first.Doc("restarted", "Restarted", legacy=True, paths=first.C.paths)])
+        self.assertEqual(get(first, "/"), b"<p>Restarted</p>")
+        self.assertEqual(get(second, "/"), b"<p>Second</p>")
+        self.assertEqual(docs(first), ("restarted", "Restarted"))
+        self.assertEqual(docs(second), ("second", "Second"))
         self.assertEqual(second.Handler.app.C.label, "Second")
         self.assertIs(second.Handler.app.request_doc(None), second.DOCS[0])
 
