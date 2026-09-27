@@ -65,7 +65,7 @@ Json: TypeAlias = dict[str, Any]
 # ---------------------------------------------------------------- Build outcomes
 #
 # A build ends in one of these values; nothing here writes their JSON or their failure texts. The HTTP answer of POST
-# /api/rebuild is written once, at the web edge (limn.web.answers.rebuild_answer), and a failure's log text comes from
+# /api/rebuild is written once, at the build feature edge (limn.features.builds.answer.rebuild_answer), and a failure's log text comes from
 # the web layer's table (limn.web.errors.BUILD_FAILURES) through the `describe` function the composition root passes
 # to the calls that record a finished build. Where a field is "None: no key", the answer leaves that key out - the
 # answer has always carried only what the build got as far as.

@@ -73,7 +73,6 @@ from limn.build import (
     BuildStarted,
     FailedBuild,
     FinishedBuild,
-    ViewOnlyNoRebuild,
 )
 from limn.config import AccessOptions, RunConfig
 from limn.documents import (
@@ -84,6 +83,7 @@ from limn.documents import (
     DocumentFacts,
 )
 from limn.events import EVENTS_KEEP, EventType
+from limn.features.builds.service import BuildRequests
 from limn.features.pins.claims.service import PinClaims
 from limn.features.pins.editing.service import PinEditing
 from limn.features.pins.lifecycle.service import PinLifecycle
@@ -338,6 +338,7 @@ class ServerApplication:
     pin_listing: PinListing = field(init=False)
     pin_markdown: PinMarkdown = field(init=False)
     location_service: PinLocationService = field(init=False)
+    build_requests: BuildRequests = field(init=False)
 
     def __post_init__(self) -> None:
         """Bind pin features to this application's context factory."""
@@ -351,6 +352,9 @@ class ServerApplication:
             lambda: pick_resolve.PickContext(
                 self.C.src, self.C.envs, self.C.state, self.RT.token_cache, self.overlaps_for_range
             )
+        )
+        self.build_requests = BuildRequests(
+            lambda doc: self._build_tracked(doc), lambda: self.now_str(), build_failure_log
         )
 
     APP_NAME = APP_NAME
@@ -373,24 +377,6 @@ class ServerApplication:
     def build_config(self) -> BuildConfig:
         """The build settings from the run arguments. Made per build, so a test that replaces this application's C is seen at once."""
         return BuildConfig(state=self.C.state, dpi=self.C.dpi, timeout=self.C.timeout)
-
-    def build_all(self, D: Doc) -> FinishedBuild | BuildBusy:
-        """POST /api/rebuild for document D: build it now (synchronous). If it is already building, returns BuildBusy
-        without waiting (limn.build.build_now)."""
-        return build.build_now(D, lambda: self._build_tracked(D))
-
-    def build_async(self, D: Doc) -> BuildStarted | BuildBusy:
-        """POST /api/rebuild?async=1 for document D: start the tracked build on a daemon thread
-        (limn.build.build_in_background); the thread builds D itself."""
-        return build.build_in_background(D, lambda: self._build_tracked(D), self.now_str(), build_failure_log)
-
-    def rebuild(self, D: Doc) -> FinishedBuild | BuildBusy | ViewOnlyNoRebuild:
-        """POST /api/rebuild for document D: build_all, or ViewOnlyNoRebuild for a view-only one (limn.build.request_rebuild)."""
-        return build.request_rebuild(D, self.build_all)
-
-    def rebuild_async(self, D: Doc) -> BuildStarted | BuildBusy | ViewOnlyNoRebuild:
-        """POST /api/rebuild?async=1 for document D: build_async, or ViewOnlyNoRebuild for a view-only one."""
-        return build.request_rebuild(D, self.build_async)
 
     def _build_tracked(self, D: Doc) -> FinishedBuild:
         """One tracked build of D: LaTeX (_build) or, for view-only, the page render (limn.build.render_pdf_doc)
@@ -456,7 +442,7 @@ class ServerApplication:
             self.C.git_pull,
             lambda: gitsync.pull(self.C.src, main_only=True, git=_git),
             self.RT.pull_share,
-            self.build_async,
+            self.build_requests.build_async,
             gitsync.local_stamp,
             time.time,
         )
@@ -834,7 +820,7 @@ class ServerApplication:
         build.seed_builds(D, self.C.state)
         if not build.needs_build(D, no_build, self.C.dpi):
             return BuildSkipped()
-        return self.build_all(D) if wait else self.build_async(D)
+        return self.build_requests.build_all(D) if wait else self.build_requests.build_async(D)
 
     def watch_pdf_docs(self, stop: threading.Event, every: float = 3.0) -> None:
         """Re-renders pages when a view-only PDF changes (mtime/size). Stands in for a rebuild button."""
@@ -842,7 +828,7 @@ class ServerApplication:
             for D in list(self.docs):
                 if D.is_pdf:
                     try:
-                        build.refresh_pdf_doc(D, self.build_async)
+                        build.refresh_pdf_doc(D, self.build_requests.build_async)
                     except Exception:  # noqa: BLE001 — the watch thread must never die
                         traceback.print_exc(file=sys.stderr)
 
@@ -866,7 +852,7 @@ class ServerApplication:
             # adds the current build (made by an earlier instance) to history if missing, and restores the last build result
             build.seed_builds(D, self.C.state)
             if build.needs_build(D, no_build, self.C.dpi):
-                built = self.build_all(D)
+                built = self.build_requests.build_all(D)
                 if isinstance(built, FailedBuild):
                     return StartupRefused("Build failed:\n" + build_failure_log(built))
         else:

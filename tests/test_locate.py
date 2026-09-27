@@ -539,18 +539,18 @@ class Estimate(Base):
     @needs_tex("latexmk", "pdftoppm")
     def test_real_build_est_end_to_end(self):
         """With the real latexmk: an unchanged rebuild -> no est, a rebuild after editing the manuscript -> est, and it stays after editing the note."""
-        self.assertEqual(type(ps.APP.build_all(ps.APP.docs[0])), BuildOk)
+        self.assertEqual(type(ps.APP.build_requests.build_all(ps.APP.docs[0])), BuildOk)
         b1 = limn_build.cur_pages(ps.APP.docs[0]).name
         pid = self.add()
         self.assertEqual(self.pin(pid)["pdf_build"], b1)
         # a rebuild within the same second still gets a page directory of its own (test_build.Outcomes)
-        self.assertEqual(type(ps.APP.build_all(ps.APP.docs[0])), BuildOk)
+        self.assertEqual(type(ps.APP.build_requests.build_all(ps.APP.docs[0])), BuildOk)
         self.assertNotEqual(limn_build.cur_pages(ps.APP.docs[0]).name, b1)
         self.assertIs(self.est_of(pid), False)
         self.main.write_text(
             TEX.replace("After table epsilonunique.", "After table epsilonunique longer."), encoding="utf-8"
         )
-        self.assertEqual(type(ps.APP.build_all(ps.APP.docs[0])), BuildOk)
+        self.assertEqual(type(ps.APP.build_requests.build_all(ps.APP.docs[0])), BuildOk)
         self.assertIs(self.est_of(pid), True)
         edit_pin(pid, {"note": "메모만", "base_rev": self.pin(pid)["rev"]}, dict(LOCAL_ACTOR))
         self.assertIs(self.est_of(pid), True)

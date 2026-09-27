@@ -3,7 +3,7 @@
 What stays here is what only server.py can answer: its own functions and bindings (app_version, the page it serves
 and its favicon, an import that reads no file, parse_record - the store's record parser as server.py binds it,
 default_pdfjs_dir, main() as the one exit),
-the build response's log diet the handler applies (ResponseDiet: limn.web.answers.diet_log, kept here beside the
+the build response's log diet the handler applies (ResponseDiet: limn.features.builds.answer.diet_log, kept here beside the
 rebuild route's RebuildLogDiet), the requests end to end through the handler and the server's
 wiring (smuggling and origin checks, the static routes, /pins.md, the build responses, several documents), and the
 HTTP routes of claims with an estimate, pin kinds and threads, review and overlaps (their rules, stored fields and
@@ -34,6 +34,7 @@ from unittest import mock
 from limn import build as limn_build, files, gitsync, startup
 from limn.access import LOCAL_ACTOR
 from limn.build import BuildAborted, BuildBusy, BuildOk, BuildOkWithErrors, BuildStarted
+from limn.features.builds.answer import diet_log
 from limn.features.pins.editing import input as editing_input
 from limn.features.pins.location import source as pick_source
 from limn.pins.lifecycle import AgentCannotConfirm, CloseRequest
@@ -42,7 +43,6 @@ from limn.pull import UpToDate
 from limn.startup import StartupRefused
 from limn.viewer import assemble as viewer_assemble
 from limn.web import parse
-from limn.web.answers import diet_log
 from limn.web.errors import HTTPError, InputRejected
 
 from helpers import (
@@ -493,7 +493,7 @@ class OverlapRoutes(Base):
     def test_pick_end_to_end_includes_quote_and_overlaps(self):
         """With the real build: a pick over the first page's top returns the quote, the overlaps and the build it
         resolved against, also for an older build still on screen; a vanished build is flagged, a bad name refused."""
-        res = ps.APP.build_all(ps.APP.docs[0])
+        res = ps.APP.build_requests.build_all(ps.APP.docs[0])
         self.assertIsInstance(res, BuildOk)
         pages = limn_build.page_list(limn_build.cur_pages(ps.APP.docs[0]), ps.APP.C.dpi)
         self.assertTrue(pages)
@@ -506,7 +506,7 @@ class OverlapRoutes(Base):
         # if the screen shows an old build, it's resolved against that build and its name is returned (a drag made right after a rebuild, before the screen updates).
         b1 = limn_build.cur_pages(ps.APP.docs[0]).name
         # a rebuild within the same second still gets a page directory of its own (test_build.Outcomes)
-        self.assertEqual(type(ps.APP.build_all(ps.APP.docs[0])), BuildOk)
+        self.assertEqual(type(ps.APP.build_requests.build_all(ps.APP.docs[0])), BuildOk)
         self.assertNotEqual(limn_build.cur_pages(ps.APP.docs[0]).name, b1)
         d2 = pick({"page": 1, "x0": 0, "y0": 0, "x1": p["pt_w"], "y1": p["pt_h"] * 0.4, "pdf_build": b1})
         self.assertEqual(d2["pdf_build"], b1)
@@ -675,7 +675,7 @@ class RebuildLogDiet(Base):
             return BuildOk("font path\n" * 200, 0.01, None, 1.0, None, "-", "", 1)
 
         with mock.patch.object(ps.APP, "_build", side_effect=fake_build):
-            ps.APP.build_all(ps.APP.docs[0])
+            ps.APP.build_requests.build_all(ps.APP.docs[0])
         out = self.talk(req("GET", "/api/build"))
         body = json.loads(out.split(b"\r\n\r\n", 1)[1])
         self.assertNotIn("log_tail", body)
@@ -1379,12 +1379,14 @@ class MultiDoc(Base):
             return BuildAborted("crashed", "x")
 
         with mock.patch.object(ps.APP, "_build", side_effect=slow_build):
-            self.assertEqual(ps.APP.build_async(self.ms), BuildStarted())
+            self.assertEqual(ps.APP.build_requests.build_async(self.ms), BuildStarted())
             self.assertEqual(
-                ps.APP.build_async(self.ms), BuildBusy()
+                ps.APP.build_requests.build_async(self.ms), BuildBusy()
             )  # the same document allows only one build at a time
-            self.assertEqual(ps.APP.build_all(self.ms), BuildBusy())
-            self.assertEqual(ps.APP.build_async(self.rrd), BuildStarted())  # different documents run concurrently
+            self.assertEqual(ps.APP.build_requests.build_all(self.ms), BuildBusy())
+            self.assertEqual(
+                ps.APP.build_requests.build_async(self.rrd), BuildStarted()
+            )  # different documents run concurrently
             self.assertTrue(self.ms.lock.locked() and self.rrd.lock.locked())
             gate.set()
             for _ in range(100):
@@ -1425,7 +1427,9 @@ class MultiDoc(Base):
         first = limn_build.cur_pages(rv).name
         self.assertTrue((limn_build.cur_pages(rv) / "review.pdf").is_file())
         self.assertFalse(limn_build.pdf_changed(rv))
-        self.assertFalse(limn_build.refresh_pdf_doc(rv, ps.APP.build_async))  # unchanged, so it doesn't redraw
+        self.assertFalse(
+            limn_build.refresh_pdf_doc(rv, ps.APP.build_requests.build_async)
+        )  # unchanged, so it doesn't redraw
         self.pdf.write_bytes(MINI_PDF.replace(b"Reviewer one", b"Reviewer two"))
         os.utime(self.pdf, (time.time() + 3, time.time() + 3))
         self.assertTrue(limn_build.pdf_changed(rv))

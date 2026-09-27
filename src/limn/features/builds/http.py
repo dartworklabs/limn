@@ -6,15 +6,23 @@ from typing import Any, NoReturn
 
 from limn import build
 from limn.documents import Doc
-from limn.features.builds import input as build_input
-from limn.web.answers import diet_log
+from limn.features.builds import answer, input as build_input
+from limn.features.builds.service import BuildRequests
 from limn.web.errors import HTTPError
 from limn.web.parse import Query, parse_flag
 
 
 def status(doc: Doc, query: Query) -> dict[str, Any]:
     """The current build state, with the existing agent log diet unless ?log=1."""
-    return diet_log(build.state_snapshot(doc), parse_flag(query, "log"))
+    return answer.diet_log(build.state_snapshot(doc), parse_flag(query, "log"))
+
+
+def rebuild(requests: BuildRequests, doc: Doc, query: Query) -> tuple[answer.Body, int]:
+    """Build this source document now or in the background, and answer its outcome."""
+    switches = build_input.parse_rebuild_query(query)
+    if switches.background:
+        return answer.rebuild_started_answer(requests.rebuild_async(doc))
+    return answer.rebuild_answer(requests.rebuild(doc), switches.full_log)
 
 
 def _read(path: Path) -> bytes | None:

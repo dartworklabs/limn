@@ -306,18 +306,6 @@ def parse_events_query(q: Query) -> int | None | InputRejected:
     return parse_event_cursor(query_first(q, "ev"))
 
 
-class RebuildQuery(NamedTuple):
-    """POST /api/rebuild's switches: keep the whole log in the answer (?log=1), and build in the background (?async=1)."""
-
-    full_log: bool
-    background: bool
-
-
-def parse_rebuild_query(q: Query) -> RebuildQuery:
-    """POST /api/rebuild's switches (parse_flag); never refused."""
-    return RebuildQuery(parse_flag(q, "log"), parse_flag(q, "async"))
-
-
 def source_file(p: object, root: Path, state: Path) -> Path | InputRejected:
     """The real file inside the manuscript tree root that p names (absolute, or relative to the tree), or why not
     (limn.files.file_in_tree): a bad value, a file outside the tree (the state folder `state` included), or no such

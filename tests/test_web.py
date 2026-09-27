@@ -77,10 +77,10 @@ class Binding(Base):
 
     def test_handler_sees_a_service_rebound_on_its_application(self):
         """The handler calls the application's current service and viewer after either is replaced."""
-        original = ps.APP.build_async
-        with mock.patch.object(ps.APP, "build_async", return_value={"sentinel": 1}) as fake:
-            self.assertIs(ps.Handler.app.build_async, fake)
-        self.assertEqual(ps.Handler.app.build_async, original)
+        original = ps.APP.build_requests
+        with mock.patch.object(ps.APP, "build_requests", {"sentinel": 1}) as fake:
+            self.assertIs(ps.Handler.app.build_requests, fake)
+        self.assertEqual(ps.Handler.app.build_requests, original)
         rebound = ps.new_runtime(ServedViewer("<p>rebound</p>", "", {}))
         with mock.patch.object(ps.APP, "RT", rebound):
             self.assertEqual(ps.Handler.app.viewer().page, "<p>rebound</p>")

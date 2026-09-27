@@ -22,9 +22,9 @@ from pathlib import Path
 from typing import Any, Protocol, TypeAlias
 
 from limn import access
-from limn.build import BuildBusy, BuildStarted, FinishedBuild, ViewOnlyNoRebuild
 from limn.config import RunConfig
 from limn.documents import Doc, DocNotFound
+from limn.features.builds.service import BuildRequests
 from limn.features.pins.claims.service import PinClaims
 from limn.features.pins.editing.service import PinEditing
 from limn.features.pins.lifecycle.service import PinLifecycle
@@ -59,6 +59,7 @@ class App(Protocol):
     pin_listing: PinListing
     pin_markdown: PinMarkdown
     location_service: PinLocationService
+    build_requests: BuildRequests
     APP_NAME: str
     DEFAULT_ROLE: access.Role  # the role of a person people.json gives none
 
@@ -191,14 +192,4 @@ class App(Protocol):
 
     def revision_start(self, D: Document, commit: str, pin: int | None = None) -> Json | StartRefusal:
         """POST /api/revision-build."""
-        ...
-
-    def rebuild(self, D: Document) -> FinishedBuild | BuildBusy | ViewOnlyNoRebuild:
-        """POST /api/rebuild: build document D now, BuildBusy when it is already building, or ViewOnlyNoRebuild for a
-        view-only document."""
-        ...
-
-    def rebuild_async(self, D: Document) -> BuildStarted | BuildBusy | ViewOnlyNoRebuild:
-        """POST /api/rebuild?async=1: start document D's build in the background, BuildBusy when it is already
-        building, or ViewOnlyNoRebuild for a view-only document."""
         ...

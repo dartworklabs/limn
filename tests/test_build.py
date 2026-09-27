@@ -33,7 +33,7 @@ from limn.build import (
     ViewOnlyNoRebuild,
 )
 from limn.documents import Doc, RunPaths
-from limn.web.answers import finished_build_body, rebuild_answer, rebuild_started_answer
+from limn.features.builds.answer import finished_build_body, rebuild_answer, rebuild_started_answer
 from limn.web.errors import BUILD_FAILURES, HTTPError, build_failure_log
 
 from helpers import Base, blank_png, needs_tex, ps, req
@@ -526,7 +526,7 @@ class Outcomes(unittest.TestCase):
 
 
 class RebuildAnswer(unittest.TestCase):
-    """POST /api/rebuild's body is written once, at the web edge, in the key order and statuses of the agent contract
+    """POST /api/rebuild's body is written once, at the build feature edge, in the key order and statuses of the agent contract
     (docs/handbook/build-sync.md §응답)."""
 
     PULL = {"state": "ok", "reason": None, "head_before": "a", "head_after": "b"}
@@ -790,10 +790,10 @@ class AsyncBuild(Base):
             return ok_build(elapsed_s=0.01)
 
         with mock.patch.object(ps.APP, "_build", side_effect=fake_build):
-            r1 = ps.APP.build_async(ps.APP.docs[0])
+            r1 = ps.APP.build_requests.build_async(ps.APP.docs[0])
             self.assertEqual(r1, BuildStarted())
             self.assertEqual(limn_build.state_snapshot(ps.APP.docs[0])["state"], "running")
-            r2 = ps.APP.build_async(ps.APP.docs[0])
+            r2 = ps.APP.build_requests.build_async(ps.APP.docs[0])
             self.assertEqual(r2, BuildBusy())
             ev.set()
             for _ in range(200):
@@ -813,7 +813,7 @@ class AsyncBuild(Base):
             return ok_build()
 
         with mock.patch.object(ps.APP, "_build", side_effect=fake_build):
-            ps.APP.build_all(ps.APP.docs[0])
+            ps.APP.build_requests.build_all(ps.APP.docs[0])
         self.assertEqual(seen, ["copy"])
         self.assertEqual(limn_build.state_snapshot(ps.APP.docs[0])["phase"], None)  # phase is cleared when it finishes
 
@@ -827,7 +827,7 @@ class AsyncBuild(Base):
             )
 
         with mock.patch.object(ps.APP, "_build", side_effect=fake_build):
-            ps.APP.build_all(ps.APP.docs[0])
+            ps.APP.build_requests.build_all(ps.APP.docs[0])
         st = limn_build.state_snapshot(ps.APP.docs[0])
         self.assertEqual(st["state"], "ok_errors")
         self.assertEqual(st["errors"][0]["line"], 412)
@@ -840,7 +840,7 @@ class AsyncBuild(Base):
             return BuildOkWithErrors([{"line": 1, "msg": "x"}], "", 0.0, None, 1.0, None, "-", "", 1)
 
         with mock.patch.object(ps.APP, "_build", side_effect=fake_build):
-            ps.APP.build_all(ps.APP.docs[0])
+            ps.APP.build_requests.build_all(ps.APP.docs[0])
         self.assertIsNotNone(limn_build.read_built_src_mtime(ps.APP.docs[0]))
 
     def test_failed_build_does_not_commit_built_src_mtime(self):
@@ -855,7 +855,7 @@ class AsyncBuild(Base):
             return BuildAborted("crashed", "boom")
 
         with mock.patch.object(ps.APP, "_build", side_effect=fake_build_fail):
-            ps.APP.build_all(ps.APP.docs[0])
+            ps.APP.build_requests.build_all(ps.APP.docs[0])
         self.assertIsNone(limn_build.read_built_src_mtime(ps.APP.docs[0]))  # still None because it failed
         self.assertEqual(limn_build.state_snapshot(ps.APP.docs[0])["state"], "fail")
 
@@ -864,12 +864,12 @@ class AsyncBuild(Base):
             return ok_build(elapsed_s=0.1)
 
         with mock.patch.object(ps.APP, "_build", side_effect=fake_build_ok):
-            ps.APP.build_all(ps.APP.docs[0])
+            ps.APP.build_requests.build_all(ps.APP.docs[0])
         first_ok = limn_build.read_built_src_mtime(ps.APP.docs[0])
         self.assertIsNotNone(first_ok)  # only committed once it succeeds
 
         with mock.patch.object(ps.APP, "_build", side_effect=fake_build_fail):
-            ps.APP.build_all(ps.APP.docs[0])
+            ps.APP.build_requests.build_all(ps.APP.docs[0])
         # a subsequent failure doesn't touch the committed value
         self.assertEqual(limn_build.read_built_src_mtime(ps.APP.docs[0]), first_ok)
 
@@ -877,7 +877,7 @@ class AsyncBuild(Base):
         """An uncaught worker exception records failure and frees the lock instead of leaving running forever."""
         # bug: an exception in the async build worker used to leave BUILD_STATE stuck on running forever.
         with mock.patch.object(ps.APP, "_build", side_effect=RuntimeError("boom")):
-            r = ps.APP.build_async(ps.APP.docs[0])
+            r = ps.APP.build_requests.build_async(ps.APP.docs[0])
             self.assertEqual(r, BuildStarted())
             for _ in range(200):
                 if not ps.APP.docs[0].lock.locked():
@@ -899,7 +899,7 @@ class AsyncBuild(Base):
 
     def test_rebuild_async_endpoint_returns_202_when_started(self):
         """The HTTP route returns 202 and a running body for a newly scheduled document build."""
-        with mock.patch.object(ps.APP, "rebuild_async", return_value=BuildStarted()) as start:
+        with mock.patch.object(ps.APP.build_requests, "rebuild_async", return_value=BuildStarted()) as start:
             out = self.talk(req("POST", "/api/rebuild?async=1"))
         start.assert_called_once_with(ps.APP.docs[0])
         self.assertIn(b" 202 ", out.split(b"\r\n", 1)[0])
@@ -930,7 +930,7 @@ class AsyncBuild(Base):
 
         t = threading.Thread(target=poll, daemon=True)
         t.start()
-        res = ps.APP.build_all(ps.APP.docs[0])
+        res = ps.APP.build_requests.build_all(ps.APP.docs[0])
         stop.set()
         t.join(2)
         self.assertIsInstance(res, BuildOk)

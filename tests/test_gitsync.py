@@ -429,7 +429,7 @@ class GitPullBuildIntegration(Base):
     def test_pull_result_surfaces_in_build_response_and_state(self):
         """A non-repository pull refusal appears in the build result and persisted build state with the same head."""
         set_config(git_pull=True)
-        res = ps.APP.build_all(ps.APP.docs[0])
+        res = ps.APP.build_requests.build_all(ps.APP.docs[0])
         self.assertIsInstance(res, BuildOk)
         # the temporary manuscript from Base.setUp() isn't a git repo — verify not_git actually triggers.
         self.assertEqual(res.pull, {"state": "skipped", "reason": "not_git", "head_before": None, "head_after": None})
@@ -442,7 +442,7 @@ class GitPullBuildIntegration(Base):
     def test_pull_absent_when_flag_off(self):
         """A build without --git-pull carries no pull record even when LaTeX succeeds."""
         set_config(git_pull=False)
-        res = ps.APP.build_all(ps.APP.docs[0])
+        res = ps.APP.build_requests.build_all(ps.APP.docs[0])
         self.assertIsInstance(res, BuildOk)
         self.assertIsNone(res.pull)
 
@@ -462,7 +462,7 @@ class GitPullBuildIntegration(Base):
             return {"state": "ok", "head_before": "aaa1111", "head_after": "bbb2222"}
 
         with mock.patch.object(ps.APP, "repo_pull", side_effect=fake_pull):
-            res = ps.APP.build_all(ps.APP.docs[0])
+            res = ps.APP.build_requests.build_all(ps.APP.docs[0])
         self.assertIsInstance(res, BuildOk)
         ps.APP.docs[0].mcache[2] = 0.0
         m = ps.APP.meta(ps.APP.docs[0], dict(LOCAL_ACTOR), light=True)
@@ -496,7 +496,7 @@ class GitPullBuildIntegration(Base):
             mock.patch.object(ps.APP, "repo_pull", side_effect=fake_pull),
             mock.patch.object(limn_build, "run_logged", side_effect=bump_then_run),
         ):
-            res = ps.APP.build_all(ps.APP.docs[0])
+            res = ps.APP.build_requests.build_all(ps.APP.docs[0])
         self.assertIsInstance(res, BuildOk)
         ps.APP.docs[0].mcache[2] = 0.0
         m = ps.APP.meta(ps.APP.docs[0], dict(LOCAL_ACTOR), light=True)
@@ -518,7 +518,7 @@ class AutomaticMainSync(Base):
         set_config(git_pull=True)
         with (
             mock.patch.object(gitsync, "pull", return_value=Pulled("a" * 40, "b" * 40)) as git_pull,
-            mock.patch.object(ps.APP, "build_async", return_value=BuildStarted()) as build,
+            mock.patch.object(ps.APP.build_requests, "build_async", return_value=BuildStarted()) as build,
         ):
             out = ps.APP.sync_main_once()
         git_pull.assert_called_once_with(self.src, main_only=True, git=revisions.git)
@@ -531,7 +531,7 @@ class AutomaticMainSync(Base):
         (ps.APP.C.state / "head.txt").write_text("aaaaaaa", encoding="utf-8")
         with (
             mock.patch.object(gitsync, "pull", return_value=UpToDate("b" * 40)),
-            mock.patch.object(ps.APP, "build_async", return_value=BuildStarted()) as build,
+            mock.patch.object(ps.APP.build_requests, "build_async", return_value=BuildStarted()) as build,
         ):
             out = ps.APP.sync_main_once()
         build.assert_called_once()
@@ -542,7 +542,7 @@ class AutomaticMainSync(Base):
         set_config(git_pull=True)
         with (
             mock.patch.object(gitsync, "pull", return_value=PullSkipped("dirty", "a" * 40)),
-            mock.patch.object(ps.APP, "build_async") as build,
+            mock.patch.object(ps.APP.build_requests, "build_async") as build,
         ):
             out = ps.APP.sync_main_once()
         build.assert_not_called()

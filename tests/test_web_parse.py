@@ -431,8 +431,10 @@ class RouteRequests(unittest.TestCase):
             listing_input.parse_pins_query({"all": ["1"], "doc": ["rev"]}), listing_input.PinsQuery(True, True)
         )
         self.assertEqual(listing_input.parse_pins_query({}), listing_input.PinsQuery(False, False))
-        self.assertEqual(parse.parse_rebuild_query({"async": ["1"]}), parse.RebuildQuery(False, True))
-        self.assertEqual(parse.parse_rebuild_query({"log": ["1"], "async": ["0"]}), parse.RebuildQuery(True, False))
+        self.assertEqual(builds_input.parse_rebuild_query({"async": ["1"]}), builds_input.RebuildQuery(False, True))
+        self.assertEqual(
+            builds_input.parse_rebuild_query({"log": ["1"], "async": ["0"]}), builds_input.RebuildQuery(True, False)
+        )
         self.assertEqual(builds_input.parse_build_name({"build": ["pages-x", "y"]}), "pages-x")
         self.assertEqual(builds_input.parse_build_name({}), "")
         self.assertEqual(parse.parse_events_query({"ev": ["4"]}), 4)

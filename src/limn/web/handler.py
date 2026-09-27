@@ -450,10 +450,7 @@ class Handler(BaseHTTPRequestHandler):
             commit, pin = accepted(parse.parse_revision_build(d))
             return self._json(*answers.revision_start_answer(app.revision_start(D, commit, pin)))
         # /api/rebuild (the only route left; _post sends only these four here)
-        rebuild = parse.parse_rebuild_query(q)
-        if rebuild.background:
-            return self._json(*answers.rebuild_started_answer(app.rebuild_async(D)))
-        return self._json(*answers.rebuild_answer(app.rebuild(D), rebuild.full_log))
+        return self._json(*builds_http.rebuild(app.build_requests, D, q))
 
     def _pin_action(self, actor: Json, pid: int, act: str, d: Json) -> None:
         """POST /api/pins/{pid}/{act}: parse the action's fields (in the order the server has always checked them), call
