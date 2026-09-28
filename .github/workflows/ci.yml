@@ -53,7 +53,7 @@ jobs:
       - name: Install Playwright Chromium
         run: uv run playwright install --with-deps chromium
       - name: Python tests
-        run: uv run pytest -q -rs
+        run: uv run pytest -q -rs -n 4 --dist loadscope
       - name: Instance manager tests
         run: bash tests/test_instances.sh
 
@@ -83,7 +83,7 @@ jobs:
           command -v timeout || echo "no timeout(1)"
           stat -f %Lp README.md
       - name: Python tests
-        run: uv run pytest -q -rs
+        run: uv run pytest -q -rs -n 2 --dist loadscope
       - name: Instance manager tests
         run: bash tests/test_instances.sh
 
@@ -146,4 +146,4 @@ jobs:
       - name: Install dev dependencies
         run: uv sync --group dev --locked
       - name: TeX tests
-        run: uv run pytest -q -rs -m tex
+        run: uv run pytest -q -rs -n 2 --dist loadscope -m tex

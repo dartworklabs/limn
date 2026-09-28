@@ -7,7 +7,7 @@ Thanks for helping with Limn.
 ```bash
 uv sync --group dev
 uv run playwright install chromium        # browser layout tests; skipped if no Chromium is found
-uv run pytest -q                          # Python tests (server, CLI, migrate, naming)
+uv run pytest -q -n 4 --dist loadscope    # Python tests (server, CLI, migrate, naming)
 bash tests/test_instances.sh              # instance manager (stubs systemd/tailscale; touches nothing)
 uv run ruff check                         # lint (the rules in pyproject.toml)
 uv run ruff format --check                # formatting; `uv run ruff format` applies it
@@ -37,8 +37,8 @@ dates, before/after numbers and progress notes go in the pull request, the CHANG
   **English**. The Handbook is Korean. `README.md`/`README.ko.md` and `skill/SKILL.md`/`skill/SKILL.ko.md`
   are pairs; keep both in sync when you change one.
 - Coding rules come from our coding skills (`code-implement`, `code-testing`, `code-security`) and take
-  precedence over conventions found in the existing code. How each rule (R1–R10) shows in this code, with
-  an example, and the open work are in [docs/handbook/code-style-roadmap.md](docs/handbook/code-style-roadmap.md).
+  precedence over conventions found in the existing code. Their Limn boundaries and verification coverage
+  are in [docs/handbook/code-style-roadmap.md](docs/handbook/code-style-roadmap.md).
 - UI strings go through the viewer's message table (Korean and English, `src/limn/ui_en.json`). The Korean
   text in the template is the key. Strings built at run time use `tl('<Korean template>', {params})` with
   `{name}` slots, e.g. `tl('{n}쪽', {n: 3})`; the English value may be plural forms `{"one": ..., "other": ...}`

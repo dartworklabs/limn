@@ -777,6 +777,7 @@ class StartedServer:
 if TYPE_CHECKING:
 
     def _app_contract(app: ServerApplication) -> App:
+        """Ask mypy to check that the assembled application satisfies the web boundary."""
         return app
 
 

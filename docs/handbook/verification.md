@@ -23,13 +23,20 @@ Limn에서 "테스트가 녹색"은 합격의 필요조건이지 충분조건이
 
 게이트는 머지 전에 막는다. CI([`.github/workflows/ci.yml`](../../.github/workflows/ci.yml))가 `main` 푸시, `v*` 태그, 모든 PR에서 돈다.
 
+### 검증 시간과 병렬 실행
+
+- 수정 중에는 바뀐 동작을 직접 보는 테스트와 관련 정적 검사부터 돌린다. 전체 게이트는 완료 전 한 번 돌리고, 같은 입력으로 반복하지 않는다. 실패 원인을 고친 뒤에는 영향을 받는 게이트만 다시 돌린다.
+- 서로 독립인 게이트는 함께 실행한다. 로컬에서는 파이썬 테스트, 인스턴스 셸 테스트, 정적 검사를 병렬로 돌릴 수 있다. CI의 `lint`, `test` 행렬, `macos`, `install`, `tex` 작업도 서로 독립이다.
+- 전체 파이썬 게이트는 `pytest-xdist`의 `--dist loadscope`로 클래스·모듈 범위를 같은 worker에 묶어 병렬 실행한다. 로컬과 CI Linux 일반 테스트는 worker 4개, CI macOS·TeX 테스트는 2개다. 새 테스트의 임시 파일·포트·서버·브라우저·상태 폴더가 worker 사이에 격리되는지 확인한다. 같은 자원을 다투거나 재시도를 늘리면 격리 문제를 고치거나 worker 수를 줄인다.
+- 새 테스트·CI 작업·행렬을 더하기 전에는 기존 게이트가 같은 계약을 이미 검증하는지 확인한다. 필요한 검증 범위를 유지하면서 실행 시간과 러너 사용량을 재고, 중복 실행이나 준비 비용이 큰 작업을 늘리지 않는다. 느린 게이트가 병목이면 소요 시간을 확인하고 원인을 고친다.
+
 ## 1. 파이썬 테스트
 
 | 항목 | 내용 |
 | --- | --- |
 | 측정 대상 | 서버 동작(저장소·역변환·빌드·API 경계·보안 검사·접근 제어), CLI, migrate, 뷰어 정적 구조와 JS 순수 함수, 디자인 토큰 가드, UI 영어 대응표, 이름·개인정보 위생, Handbook 참조 |
 | 적용 조건 | `src/`, `tests/`, `docs/`, `skill/`, `README*.md`를 건드리는 모든 변경 |
-| 실행 | `uv sync --group dev` 뒤 `uv run pytest -q -rs`. 브라우저 테스트까지 돌리려면 먼저 `uv run playwright install chromium`. Chromium을 띄우는 테스트(`browser` 마커)를 빼고 빠르게 돌리려면 `uv run pytest -q -m "not browser"`, 그것만 돌리려면 `uv run pytest -q -m browser` |
+| 실행 | `uv sync --group dev` 뒤 `uv run pytest -q -rs -n 4 --dist loadscope`. 브라우저 테스트까지 돌리려면 먼저 `uv run playwright install chromium`. Chromium을 띄우는 테스트(`browser` 마커)를 빼고 빠르게 돌리려면 `uv run pytest -q -m "not browser"`, 그것만 돌리려면 `uv run pytest -q -m browser` |
 | 합격 기준 | 실패 0. CI에서는 `LIMN_TEST_REQUIRE_BROWSER=1`이라 Chromium을 못 띄우면 건너뛰지 않고 **실패**다. 같은 작업에 `LIMN_TEST_REQUIRE_NODE=1`도 있어서, node가 없으면 뷰어 스크립트 문법 검사(`test_viewer_files`)도 **실패**다. Python 3.10과 3.12 두 행렬 모두 통과해야 한다. CI `macos` 작업이 macOS에서도 같은 테스트를 돌린다. 거기서는 TeX·Chromium 테스트가 건너뛰어지고, `/bin/bash` 3.2가 PATH 맨 앞이다. 실제 TeX 도구가 필요한 테스트(`tex` 마커)는 CI `tex` 작업이 따로 돌린다. 그 작업에서는 `LIMN_TEST_REQUIRE_TEX=1`이라 도구가 없으면 **실패**다 |
 | 보장 범위 | 테스트가 고정한 동작만 보장한다. CI의 테스트 작업은 전체 이력(`fetch-depth: 0`)을 받아, 옛 릴리스를 `git show` 로 불러 비교하는 테스트(v0.1.0 이관, v0.2.2 이벤트 대조)도 돈다. 얕은 클론에서는 건너뛴다. `test`·`macos` 작업에는 TeX와 Poppler가 없어서 실제 빌드가 필요한 테스트는 거기서 `skipped`로 남는다. `-rs`가 건너뛴 이유를 출력하니 확인한다. 그 테스트는 CI `tex` 작업이 돌린다(아래) |
 
@@ -50,7 +57,7 @@ Limn에서 "테스트가 녹색"은 합격의 필요조건이지 충분조건이
 
 | 항목 | 내용 |
 | --- | --- |
-| 실행 | CI `tex` 작업(Ubuntu 24.04, Python 3.12)이 apt로 `latexmk`, `texlive-latex-base`, `texlive-plain-generic`(latexdiff 출력이 쓰는 `ulem`), `latexdiff`, `poppler-utils`, `bubblewrap`을 `--no-install-recommends`로 설치하고 `uv run pytest -q -rs -m tex`를 돌린다. 로컬에서는 같은 도구가 있으면 `uv run pytest -q -rs -m tex` |
+| 실행 | CI `tex` 작업(Ubuntu 24.04, Python 3.12)이 apt로 `latexmk`, `texlive-latex-base`, `texlive-plain-generic`(latexdiff 출력이 쓰는 `ulem`), `latexdiff`, `poppler-utils`, `bubblewrap`을 `--no-install-recommends`로 설치하고 `uv run pytest -q -rs -n 2 --dist loadscope -m tex`를 돌린다. 로컬에서는 같은 도구가 있으면 이 명령을 쓴다 |
 | 격리 준비 | 러너는 AppArmor가 권한 없는 사용자 네임스페이스를 막는다(`kernel.apparmor_restrict_unprivileged_userns=1`). 작업은 `/usr/bin/bwrap`에만 `userns`를 허용하는 AppArmor 프로필을 설치한다. sysctl과 bwrap 인자는 그대로다 |
 | 합격 기준 | 실패 0, 건너뜀 0 |
 | 보장 범위 | Ubuntu 패키지 TeX Live의 pdfLaTeX로 짧은 픽스처 원고를 빌드하는 경로만 본다. macOS·MacTeX, 다른 엔진, 큰 원고, 원고 패키지는 보지 않는다 |
@@ -74,7 +81,9 @@ Limn에서 "테스트가 녹색"은 합격의 필요조건이지 충분조건이
 
 테스트 파일 이름에 릴리스·이슈 번호를 쓰지 않는다. 릴리스나 결함의 회귀 테스트도 지키는 모듈이나 기능의 파일에 두고, 그 출처(릴리스·이슈·QA 결함)는 절 주석과 클래스 docstring에 남긴다. 옛 릴리스와의 호환을 보는 테스트는 이름에 그 릴리스를 적는다(`RollbackToV030`, `test_reopening_reply_events_equal_the_released_v0_2_2`).
 
-테스트 파일은 서로를 픽스처로 가져오지 않는다. 공용 도구는 [`tests/helpers.py`](../../tests/helpers.py)(서버 사본, `Base`, 뷰어 원문 `viewer_text`, 쪽 그림 `blank_png`, 뷰어의 `esc`를 그대로 꺼내는 `js_esc`, 뷰어 함수를 떼어 내는 `extract_js_fn`, 답글 규칙 표 `RULE_CASES`, 비교 보기용 `minimal_pdf`), [`tests/helpers_js.py`](../../tests/helpers_js.py)(JS 토크나이저와 최상위 함수·닫힌 값 표 찾기), [`tests/helpers_access.py`](../../tests/helpers_access.py)(신원 `ALICE`·`BOB`·`CAROL`·`DAVE`, `AccessBase`, 토큰·멤버 도우미, `ScopedRepo`, `MovedManuscriptBase`), [`tests/helpers_browser.py`](../../tests/helpers_browser.py)(Chromium 실행기 `ChromiumTestCase`와 `browser` 마커, `BrowserBase`, 기다림 도우미 `watch_idle`·`settle`·`nothing_follows`)에만 둔다. 테스트를 파일 사이로 옮기거나 클래스 이름을 바꾸는 변경은 [`tools/test_id_map.py`](../../tools/test_id_map.py)로 잃은 테스트가 없음을 보인다: `uv run python tools/test_id_map.py --ref origin/main --map <이름표>`가 수집한 테스트 ID를 파일을 뺀 (클래스, 테스트) 키로 맞춰 보고, 이름표(옛 이름 -> 새 이름, `+` 새 테스트)에 없는 잃음·중복·새 테스트가 하나라도 있으면 0이 아닌 값으로 끝난다. `--results`에 두 실행의 JUnit XML과 `-rA` 출력을 주면 통과·건너뜀·subtest 수도 맞춰 본다.
+테스트 파일은 서로를 픽스처로 가져오지 않는다. 서버·접근 제어·브라우저·JavaScript 실행에 필요한 공용 도구만 [`tests/helpers.py`](../../tests/helpers.py), [`helpers_access.py`](../../tests/helpers_access.py), [`helpers_browser.py`](../../tests/helpers_browser.py), [`helpers_js.py`](../../tests/helpers_js.py)에 둔다. 테스트마다 새 앱과 상태 폴더를 쓰는 경계는 `helpers.py`의 `Base`가 만든다.
+
+테스트 파일 이동이나 클래스 이름 변경은 [`test_id_map.py`](../../tools/test_id_map.py)로 수집된 테스트 ID를 변경 전후에 맞춘다. 이름을 바꾼 경우 `--map`에 옛 이름과 새 이름을 적고 잃은 테스트·중복·새 테스트가 설명 없이 남지 않아야 한다. 필요하면 두 실행의 JUnit 결과로 통과·건너뜀·subtest 수까지 대조한다.
 
 > **주의**
 >
@@ -124,13 +133,13 @@ Limn에서 "테스트가 녹색"은 합격의 필요조건이지 충분조건이
 
 아래는 자동 게이트가 없거나 일부만 있다. 통과라고 추정하지 말고 "확인하지 않음"으로 보고한다.
 
-| 영역 | 현재 상태 | 계획 |
+| 영역 | 현재 증거 | 보장하지 않는 것 |
 | --- | --- | --- |
-| docstring | 프로덕션 파이썬의 공개 항목은 Ruff `D100`–`D107`, 테스트 모듈·클래스는 `D100`·`D101`이 검사한다. private 도우미·테스트 함수와 메서드의 누락 및 계약 내용의 정확성은 정량 검사가 없다 (§8) | [code-style-roadmap.md](code-style-roadmap.md) §다음: 테스트 함수·메서드의 누락을 정리하며 검사 범위를 넓힌다 |
-| 테스트 파일의 타입 | `tests/`는 타입 검사 대상이 아니다. 패키지(`src/limn/`)는 전부 §9가 검사한다 | 테스트가 타입으로 잡을 결함을 놓치는 일이 생기면 대상에 더하는 것을 검토 |
-| 실제 LaTeX 빌드 | CI `tex` 작업이 Ubuntu 패키지 TeX Live의 pdfLaTeX로 픽스처 원고만 빌드한다 (§1). macOS·MacTeX와 다른 엔진은 로컬에서만 돈다 | 그 환경의 결함이 나오면 해당 러너·엔진을 `tex` 작업에 더하는 것을 검토 |
-| Handbook 형식 | §7 출판기 `check`가 검사하지만 CI에서는 돌리지 않는다. 파일 사이의 `§절 제목` 참조, topic이 적은 경로, topic 산문의 날짜는 §1의 `tests/test_handbook_refs.py`가 CI에서 본다 | 폰트를 CI에 준비할 방법을 정한 뒤 출판 검사를 CI에 추가 검토 |
-| 스냅숏 흐름 밖의 계약 | 경로별 테스트가 필드 일부를 고정하지만, 응답 전체를 바이트 단위로 비교하지는 않는다 (§4) | 계약을 더하는 PR이 스냅숏 흐름에도 그 경로를 더한다 |
+| docstring | Ruff가 프로덕션 공개 항목과 테스트 모듈·클래스의 누락을 검사한다(§8). 새로 쓰거나 고친 선언은 [code-style-roadmap.md](code-style-roadmap.md) §R7과 §R9에 따라 리뷰한다 | private 도우미·테스트 함수·메서드의 누락과 계약 내용의 정확성은 자동으로 보장하지 않는다 |
+| 테스트 파일의 타입 | mypy는 `src/limn/` 전체를 검사한다(§9) | `tests/`의 타입 오류는 검사하지 않는다 |
+| 실제 LaTeX 빌드 | CI `tex` 작업이 Ubuntu TeX Live의 pdfLaTeX로 픽스처 원고를 빌드한다(§1) | macOS·MacTeX와 다른 엔진의 동작은 보장하지 않는다 |
+| Handbook 형식 | 출판기 `check`는 §7의 로컬 절차다. CI는 절 참조·경로·날짜를 `test_handbook_refs.py`로 본다 | CI는 출판기 형식과 HTML 출력을 검사하지 않는다 |
+| 스냅숏 흐름 밖의 계약 | 경로별 테스트가 응답의 관련 필드를 확인한다(§4) | 스냅숏에 없는 경로의 응답 전체 바이트는 비교하지 않는다 |
 
 ## 7. Handbook 출판
 

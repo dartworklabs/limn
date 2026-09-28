@@ -1,6 +1,6 @@
 # 운영 — 서버 하나 띄우기, 보안, 배포
 
-이 문서는 연구실 머신에서 Limn 서버를 띄우고 테일넷에 노출하고 상시로 돌리는 운영자가 읽는다. 실행 인자 전체, 접근 제어(신원 방식·토큰·역할), 포트 충돌 회피, 보안 제약, `tailscale serve`, systemd 사용자 유닛, 상태 파일 배치를 다룬다. 공저자에게 안내할 뷰어 사용법은 [viewer.md](viewer.md) §조작 한눈에가 맡는다. 서버 CLI 플래그, 인스턴스 설정 키, 유닛 템플릿, 상태 파일 배치 가운데 하나라도 바뀌면 이 문서를 같은 변경에서 고친다.
+이 문서는 연구실 머신에서 Limn 서버를 띄우고 테일넷에 노출하고 상시로 돌리는 운영자가 읽는다. 실행에 필요한 경계와 핵심 값, 접근 제어(신원 방식·토큰·역할), 포트 충돌 회피, 보안 제약, `tailscale serve`, systemd 사용자 유닛, 상태 파일 배치를 다룬다. 공저자에게 안내할 뷰어 사용법은 [viewer.md](viewer.md) §조작 한눈에가 맡는다. 서버 CLI 플래그, 인스턴스 설정 키, 유닛 템플릿, 상태 파일 배치 가운데 하나라도 바뀌면 이 문서를 같은 변경에서 고친다.
 
 원고마다 상시 인스턴스를 두고 관리하는 절차(`limn add` 등)는 [instances.md](instances.md)가 맡는다. 이 문서는 그 인스턴스 안에서 도는 서버 프로세스 하나의 계약이다.
 
@@ -28,50 +28,20 @@ uv run python3 -m unittest discover -s tests
 
 ## 실행 인자
 
-```bash
-limn serve \
-  --manuscript <manuscript_dir> \
-  [--main <main-file>.tex] \
-  [--port <port>] \
-  [--state-dir <state_dir>] \
-  [--dpi 150] \
-  [--float-envs figure,table,algorithm,equation,align,itemize,enumerate,minipage] \
-  [--build-timeout 900] \
-  [--no-build] \
-  [--allow <login>,<login>] \
-  [--no-origin-check] \
-  [--git-pull] \
-  [--pdfjs-dir <dir>] \
-  [--label <이름표>] \
-  [--accent <#rrggbb>] \
-  [--doc <키>=<표시 이름>:<경로> ...] \
-  [--auth tailscale|local|trusted-proxy] [--no-agent-loopback | --agent-loopback] [--tailnet-agent] \
-  [--bind <주소>] [--i-know-this-is-insecure] [--public-host <이름[:포트]>,...] \
-  [--trusted-proxies <ip/cidr>,...] [--proxy-user-header <h>] [--proxy-name-header <h>] [--proxy-email-header <h>] \
-  [--members-only] [--local-user <로그인>] \
-  [--version]
-```
+전체 인자와 기본값은 `limn serve --help`와 [`args.py`](../../src/limn/args.py)의 `serve_parser`가 정한다. 공통 인자의 거절은 [`startup.py`](../../src/limn/startup.py), 문서 선택의 거절은 [`features/administration/serve_documents.py`](../../src/limn/features/administration/serve_documents.py)가 정한다. 운영과 안전에 영향을 주는 값은 다음과 같다.
 
-실행 인자의 정본은 [`src/limn/args.py`](../../src/limn/args.py)의 argparse 정의(`serve_parser`)다. 접근·포트·상태 등 공통 인자의 거절은 [`src/limn/startup.py`](../../src/limn/startup.py), `--doc`·`--main`의 문서 선택과 거절은 [`features/administration/serve_documents.py`](../../src/limn/features/administration/serve_documents.py)가 정한다.
-
-| 인자 | 필수 | 기본값 | 설명 |
-| --- | --- | --- | --- |
-| `--manuscript` | 예 | — | LaTeX 소스 루트 디렉토리(`<manuscript_dir>`). 프로젝트마다 다르므로 하드코딩하지 않는다. 핀이 가리킬 수 있는 파일은 이 트리 안으로 제한된다 |
-| `--main` | 아니오 | 자동 탐지 | 빌드할 최상위 `.tex` 파일명. 생략하면 `--manuscript` 안에서 `\documentclass`를 포함한 `.tex` 파일을 찾는다. 후보가 0개나 2개 이상이면 후보 목록을 출력하고 에러로 끝난다. 추측하지 않는다. `--doc`과 함께 쓰면 기동에 실패한다 |
-| `--doc` | 아니오 | 없음(= 단일 문서) | 뷰어에서 고를 문서. 여러 번 줄 수 있고 첫 문서가 기본이다. 형식과 규칙은 아래 '여러 문서' 절 |
-| `--port` | 아니오 | 자동 선택 | 생략하면 `127.0.0.1`의 18300–18399에서 비어 있는 첫 포트를 골라 쓰고, 고른 포트를 기동 로그에 출력한다. 그 대역이 다 차 있으면 `--port`를 달라며 멈춘다. 절차는 아래 '포트 충돌 회피' 절 |
-| `--state-dir` | 아니오 | `${XDG_DATA_HOME:-~/.local/share}/limn/serve/<slug>` | `<slug>`는 `<원고 폴더 이름>-<원고 절대경로의 SHA-1 앞 8자>`다. 같은 머신에서 원고 A와 B를 동시에 열어도 상태가 섞이지 않게 하려는 것이다(여러 원고·여러 worktree에 안전). 상시(systemd) 인스턴스는 `limn add`가 대신 `~/.local/share/limn/<이름>`을 기본으로 쓴다([instances.md](instances.md)). 원고 안을 가리키면 아래 '상태 파일 배치' 절의 규칙을 따른다 |
-| `--dpi` | 아니오 | `150` | 페이지 PNG 렌더 해상도. 뷰어는 PDF를 벡터로 그리므로([viewer.md](viewer.md) §벡터 렌더링) PNG는 첫 화면과 폴백에만 쓴다 |
-| `--float-envs` | 아니오 | `figure,table,algorithm,equation,align,itemize,enumerate,minipage` | 기본 범위 단계를 '환경'으로 둘 `\begin{...}` 이름 목록. 범위 사다리 자체는 모든 환경을 본다([domain.md](domain.md) §범위 사다리) |
-| `--build-timeout` | 아니오 | `900` | `latexmk` 빌드 타임아웃(초). 넘으면 프로세스 그룹째 종료하고 `fail`로 판정한다 |
-| `--no-build` | 아니오 | 꺼짐 | 기동 때 재빌드를 건너뛴다. 산출물이 이미 있을 때 서버만 빨리 올리는 용도다. PDF나 쪽 이미지가 없으면 이 플래그와 무관하게 빌드한다 |
-| `--allow` | 아니오 | 비움(= 전원 허용) | 허용할 tailscale 로그인 목록(쉼표 구분). 자세한 규칙은 표 아래 설명 |
-| `--no-origin-check` | 아니오 | 꺼짐 | `Host`·`Origin` 검사(DNS rebinding·CSRF 방어, 아래 'Host·Origin 검사' 절)를 끈다. 탈출구 전용이다. 켜면 기동 로그에 경고가 찍힌다 |
-| `--git-pull` | 아니오 | 꺼짐 | 기동 직후와 60초마다 원격 main을 확인해 fast-forward하고, 새 커밋이면 LaTeX PDF를 다시 빌드한다. 수동 재빌드도 복사 전에 업스트림을 `--ff-only`로 pull한다. 자세한 규칙은 [build-sync.md](build-sync.md) §재빌드 전 원격 main 당겨오기 (`--git-pull`). git은 사람에게 묻지 않으므로(비밀번호·암호 문구·호스트 키) 원격 인증은 ssh 에이전트나 git 자격 증명 도우미로 미리 준비한다([build-sync.md](build-sync.md) §git 프로세스) |
-| `--pdfjs-dir` | 아니오 | 패키지 내장 `src/limn/vendor/pdfjs/` | 뷰어가 벡터로 그릴 때 받는 PDF.js 디렉토리(`pdf.min.mjs`·`pdf.worker.min.mjs`)를 다른 경로로 바꿀 때만 쓴다. 지정한 경로에 파일이 없으면 기동 로그에 경고가 찍히고 뷰어는 PNG로 보인다. 그 밖의 동작은 같다 |
-| `--label` | 아니오 | `--manuscript`의 git origin 저장소 이름. git 저장소가 아니면 폴더 이름 | 여러 논문 뷰어를 동시에 열었을 때 구분할 이름표. 기본 이름표는 40자를 넘으면 잘라 `…`를 붙인다. 직접 줄 때는 40자 이하여야 하고, 넘으면 기동에 실패한다. HTML 이스케이프된다. 쓰이는 자리는 아래 '`--label`·`--accent`' 절 |
-| `--accent` | 아니오 | 이름표 문자열의 해시로 고른 고정 팔레트 색 | 이름표의 강조색. `#rrggbb` 형식만 받고, 형식이 아니면 기동에 실패한다. 직접 지정하지 않으면 같은 `--label`은 항상 같은 기본색이 된다 |
-| `--version` | 아니오 | — | 설치된 버전을 출력하고 끝난다. `GET /api/version`과 같은 값이다 |
+| 선택 | 현재 동작과 이유 |
+| --- | --- |
+| `--manuscript`, `--main`, `--doc` | 원고 루트를 지정한다. `--main`을 생략하면 `\documentclass`가 있는 최상위 `.tex`를 찾고 후보가 모호하면 멈춘다. 여러 문서는 `--doc`을 쓰며 `--main`과 함께 쓰지 않는다(§여러 문서 (`--doc`)) |
+| `--port` | 생략하면 loopback의 18300–18399에서 비어 있는 첫 포트를 고른다. 대역이 다 차거나 명시한 포트가 사용 중이면 멈춘다(§포트 충돌 회피 (강제)) |
+| `--state-dir` | 기본은 `${XDG_DATA_HOME:-~/.local/share}/limn/serve/<slug>`이고 slug에는 원고 경로의 해시가 들어간다. 서로 다른 원고와 worktree의 상태가 섞이지 않게 한다. 상시 인스턴스의 기본 위치는 [instances.md](instances.md)가 정한다 |
+| `--build-timeout` | `latexmk`는 기본 900초 뒤 프로세스 그룹째 종료하고 빌드를 `fail`로 기록한다 |
+| `--dpi` | 기본 150이다. PDF 벡터 렌더링 전의 첫 화면과 폴백 PNG에 쓰인다([viewer.md](viewer.md) §벡터 렌더링) |
+| `--float-envs` | 기본은 `figure,table,algorithm,equation,align,itemize,enumerate,minipage`다. 이 환경 안의 선택은 범위 사다리의 기본 단계를 환경으로 둔다([domain.md](domain.md) §범위 사다리) |
+| `--no-build` | 기동 재빌드를 건너뛰되 PDF나 쪽 이미지가 없으면 빌드한다. 없는 산출물로 화면을 열지 않기 위해서다 |
+| `--git-pull` | 원격 main을 fast-forward로 확인하고 빌드 전에 당긴다. 실패·인증·감시 조건은 [build-sync.md](build-sync.md) §재빌드 전 원격 main 당겨오기 (`--git-pull`)가 정한다 |
+| `--pdfjs-dir` | 패키지에 든 PDF.js를 다른 디렉터리로 바꾼다. 필수 파일이 없으면 기동 때 경고하고 뷰어는 PNG를 쓴다. 허용된 파일 경로는 [api.md](api.md) §화면·PDF·정적 파일이 정한다 |
+| `--allow`, `--no-origin-check` | 사람 입장 목록을 좁히거나 Host·Origin 검사를 끈다. 우회 범위와 경고는 아래에서 설명한다 |
 
 `--allow`를 지정하면 `Tailscale-User-Login` 헤더가 **있는데** 목록 밖인 요청은 `403`을 받는다. 신원 헤더 없이 루프백 `Host`로 온 요청(에이전트의 `curl`)은 목록을 거치지 않고, loopback 에이전트가 켜져 있을 때만 들어온다(아래 '접근 제어 인자' 소절). 토큰을 단 요청도 목록을 거치지 않는다. 신원 헤더 없이 `*.ts.net` `Host`로 온 요청은 `--allow`·`--members-only` 설정과 무관하게 `403`이다. tailscale은 **태그 장치**와 funnel 요청에 신원 헤더를 붙이지 않으므로, 이런 요청을 로컬로 치면 목록을 우회할 수 있기 때문이다. `--tailnet-agent`는 이런 요청을 `로컬/에이전트`로 받게 하지만, 목록이 있으면 여전히 막힌다.
 

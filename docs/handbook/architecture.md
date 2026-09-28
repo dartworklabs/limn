@@ -1,6 +1,6 @@
 # 구조와 불변식
 
-이 topic은 Limn이 지금 어떤 구조로 짜여 있는지, 모듈이 어느 방향으로 의존하는지, 그리고 구조가 바뀌어도 반드시 지켜야 하는 규칙이 무엇인지를 설명한다. 코드를 새로 놓을 자리를 고르거나, 모듈을 나누거나, 의존성·저장 파일·보안 경계를 건드리기 전에 읽는다. 구조 단위나 불변식이 바뀌면 같은 변경에서 이 파일을 고친다.
+이 topic은 모듈의 의존 방향과 구조 불변식을 설명한다. 코드의 위치나 의존성·저장·보안 경계를 바꾸기 전에 읽는다.
 
 > **한눈에**
 >
@@ -13,7 +13,7 @@
 
 ## 한 요청이 지나가는 길
 
-Limn은 원고 PDF에서 드래그한 영역을 `.tex` 파일과 줄 범위로 되돌려 주는 서버다. 사용자는 브라우저 뷰어에서 영역을 고르고 메모를 붙여 **핀**으로 저장한다. 에이전트는 `pins.md`나 HTTP API로 핀을 읽고 원고를 고친다.
+사용자는 뷰어에서 고른 PDF 영역을 **핀**으로 저장한다. 에이전트는 `pins.md`나 HTTP API로 핀을 읽고 원고를 고친다.
 
 ```text
 브라우저 (영역 드래그)
@@ -68,7 +68,7 @@ Limn은 **하나의 배포 단위(`dartwork-limn` 패키지) 안에서 표준 �
 
 1. **실행 설정 `C`는 얼린 값 하나이고 조립 지점의 앱이 갖는다.** 타입은 `limn/config.py`의 `RunConfig`(접근 옵션 `AccessOptions`, 경로, 빌드 설정, 라벨·강조색)다. `start()`가 `limn/startup.py`와 `features/administration/serve_documents.py`의 규칙이 낸 답으로 이 값을 만들어(`configure_run`) 서버가 듣기 전에 `ServerApplication.C`에 묶고, 실행 중에는 바꾸지 않는다. import만으로는 앱이나 `C`가 없다. 옮긴 모듈은 `C`를 읽지 않고, 앱 메서드가 필요한 값을 작은 설정 값(`BuildConfig`, `AccessSettings`, `MetaSettings`, `PickContext` 등)으로 넘긴다. `identify()`·`admit()`이 읽는 `AccessSettings`는 `C`마다 한 번 만든다(`C.access_settings`). 문서는 시작할 때 고정한 경로 값(`C.paths`, `limn.documents.RunPaths`)을 받는다. HTTP 처리기는 `app.C`로 Origin 검사 여부를 읽고 뷰어 셸 경로는 조립 지점에서 받은 강조색을 읽는다. 다른 설정이 필요한 테스트는 새 값을 만들어 앱에 묶는다(`tests/helpers.py`의 `set_config`).
 2. **문서는 인자다.** 처리기가 요청의 문서를 찾아(`request_doc`) 서비스마다 넘기고, 빌드 스레드는 자기 문서를 갖고 시작하며, 기동은 문서 목록을 돈다. "지금 문서" 같은 스레드 지역 값은 없다.
-3. **한 실행의 자원은 그 런타임 값 하나가 갖는다.** 요청 사이에 서버 실행이 들고 있는 것 - 핀 잠금, `people.json`·`events.jsonl` 잠금과 캐시, `tokens.json`·`people.json` 역할 캐시, loopback 에이전트 경고, 휴지통 정리 시계, 커밋 범위 캐시와 비교 PDF 작업 목록, pull 나눠 쓰기와 원격 main 감시 상태, 단어 가중치 캐시, 내보내는 뷰어 페이지, 오래 사는 스레드 둘(보기 전용 PDF 감시, 원격 main 감시)과 그 멈춤 신호 - 는 `server.py`의 `Runtime` 값 하나에 있다. `start()`가 실행 설정을 만든 뒤 `new_runtime()`으로 자원을 만들고 둘을 `ServerApplication(C, RT, docs)`에 묶는다. import만으로는 아무 자원도 생기지 않는다. `start()`는 소켓과 앱을 `StartedServer`로 함께 돌려주고, `main()`은 서버가 멈추면 그 소켓을 닫고 `started.app.RT.stop()`으로 그 실행의 두 스레드를 끝낸다. 저장소(`limn/store.py`)는 잠금을 만들지 않고 앱의 `pin_store()`가 넘기는 `RT.pin_lock`을 쓴다. 문서마다의 빌드 잠금과 빌드 상태는 단일 문서까지 모두 문서 객체(`limn/documents.py`의 `Doc`)가 갖는다. 테스트는 매번 새 앱과 런타임을 묶는다(`tests/helpers.py`의 `Base`).
+3. **한 실행의 자원은 `Runtime` 하나가 갖는다.** `server.py`의 `new_runtime()`이 잠금, 캐시, 작업 목록, 감시 상태와 스레드 종료 신호를 만들고 `ServerApplication(C, RT, docs)`에 묶는다. import만으로 자원은 생기지 않는다. `start()`는 소켓과 앱을 `StartedServer`로 함께 반환한다. `main()`은 소켓을 닫고 `RT.stop()`으로 감시 스레드를 끝낸다. 핀 저장소는 `RT.pin_lock`을 받아 쓰며, 문서별 빌드 잠금과 상태는 `Doc`이 갖는다. 테스트도 실행마다 새 앱과 런타임을 만든다.
 
 `Runtime.start_thread()`는 실제 시작에 성공한 감시 스레드만 종료 대상에 등록한다. 기동 도중 다음 스레드 시작이 실패해도 `stop()`은 먼저 시작한 스레드를 끝내고 원래의 시작 오류를 가리지 않는다.
 
@@ -76,7 +76,7 @@ Limn은 **하나의 배포 단위(`dartwork-limn` 패키지) 안에서 표준 �
 
 > **참고**
 >
-> 이 구조의 장점은 배포가 `uv tool install` 한 번으로 끝나고, 테스트가 포트를 열지 않고 처리기를 소켓 쌍으로 직접 몰 수 있다는 것이다. 코드를 쓸 때 지키는 규칙과 아직 남은 구조 작업은 [code-style-roadmap.md](code-style-roadmap.md)에 있다.
+> 이 구조에서는 `uv tool install` 한 번으로 배포하고, 테스트가 포트를 열지 않고 처리기를 소켓 쌍으로 직접 몰 수 있다. 팀 코딩 스킬의 Limn 적용 경계는 [code-style-roadmap.md](code-style-roadmap.md)에 있다.
 
 ## 의존 방향
 

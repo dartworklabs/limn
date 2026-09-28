@@ -9,7 +9,7 @@
 1. **관련 규칙 읽기.** [index.md](index.md) 목록에서 작업과 관련된 topic만 골라 읽는다. 구조를 건드리면 [architecture.md](architecture.md), 핀 규칙이면 [domain.md](domain.md), 화면이면 [viewer.md](viewer.md)다.
 2. **설계.** 새 기능이나 동작 변경이면 요구사항·범위·비범위를 먼저 정리한다. 무엇을 만들지 합의되기 전에는 구현하지 않는다.
 3. **계획.** 설계가 승인되면 검증 지점이 붙은 작업 단위로 나눈다.
-4. **구현.** 우리 코딩 스킬(`code-implement`, 테스트는 `code-testing`, 신뢰 경계는 `code-security`)을 따른다. 기존 코드의 관례와 스킬이 부딪히면 **스킬이 우선**이다. 이 저장소에서 규칙이 지켜지는 모양과 예는 [code-style-roadmap.md](code-style-roadmap.md)에 있다.
+4. **구현.** 팀 코딩 스킬(`code-implement`, 테스트는 `code-testing`, 신뢰 경계는 `code-security`)을 따른다. 기존 코드의 관례와 스킬이 부딪히면 **스킬이 우선**이다. Limn의 적용 경계와 검증 범위는 [code-style-roadmap.md](code-style-roadmap.md)에 있다.
 5. **위반 검사.** 구현 중이나 직후에 diff가 [architecture.md](architecture.md) §멈춤 신호에 걸리는지 본다. 걸리면 멈추고 설계 판단을 받는다.
 6. **검수.** [verification.md](verification.md)의 해당 게이트를 돌리고, 설계 의도대로 됐는지 확인한다. 테스트 녹색만으로 합격이 아니다.
 7. **문서 동기화.** 시스템의 현재 상태가 바뀌었으면 해당 Handbook topic을 같은 PR에서 고친다(§문서 동기화).
@@ -41,7 +41,7 @@
 > - 되돌리기 어려운 결정과 그 이유: `docs/adr/`의 새 ADR
 > - 그 밖의 경위: git 이력
 
-규칙의 근거가 과거의 결함이면 날짜 없이 결함 자체를 적는다(예: "잠금 없이 핀 30개를 동시에 저장하면 2개만 남았다"). [`tests/test_handbook_refs.py`](../../tests/test_handbook_refs.py)가 topic 산문의 ISO 날짜와 깨진 `§절 제목` 참조를 잡는다.
+결함을 막는 현재 규칙은 실패 조건과 이유로 설명한다(예: "핀 쓰기는 잠금 아래에서 한다. 동시 요청이 서로의 변경을 덮어쓰지 않게 하기 위해서다"). 사건의 경위와 수치는 PR·커밋 기록에 둔다. [`tests/test_handbook_refs.py`](../../tests/test_handbook_refs.py)는 topic 산문의 ISO 날짜와 깨진 `§절 제목` 참조를 잡는다.
 
 ## ADR을 쓰는 때
 
