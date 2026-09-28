@@ -56,7 +56,7 @@
 
 **업계에서 부르는 이름.** Functional Core, Imperative Shell (Gary Bernhardt, "Boundaries" 발표). Mark Seemann은 같은 모양을 "impureim sandwich"라고 부른다.
 
-**지금 코드.** 핀 전이의 규칙은 [`limn/pins/lifecycle.py`](../../src/limn/pins/lifecycle.py)·[`limn/pins/edit.py`](../../src/limn/pins/edit.py)의 순수 함수다. 닫기·다시 열기·확인·답글의 잠금과 쓰기는 [`features/pins/lifecycle/service.py`](../../src/limn/features/pins/lifecycle/service.py), 결과의 HTTP 변환은 같은 기능의 [`http.py`](../../src/limn/features/pins/lifecycle/http.py)에 있다. claim·unclaim은 [`features/pins/claims/service.py`](../../src/limn/features/pins/claims/service.py)에 있고, 나머지 핀 동작은 아직 [`limn/service/`](../../src/limn/service/context.py)와 [`limn/web/answers.py`](../../src/limn/web/answers.py)를 쓴다. 빌드도 같다. 빌드는 결과 값(`BuildOk`·`BuildOkWithErrors`·`FailedBuild` 등)을 돌려주고, `POST /api/rebuild` 의 본문은 [`features/builds/answer.py`](../../src/limn/features/builds/answer.py)가, 실패 로그의 문장은 HTTP 경계가 만든다([build-sync.md](build-sync.md) §빌드 결과).
+**지금 코드.** 핀 전이의 규칙은 [`limn/pins/lifecycle.py`](../../src/limn/pins/lifecycle.py)·[`limn/pins/edit.py`](../../src/limn/pins/edit.py)의 순수 함수다. 닫기·다시 열기·확인·답글의 잠금과 쓰기는 [`features/pins/lifecycle/service.py`](../../src/limn/features/pins/lifecycle/service.py), 결과의 HTTP 변환은 같은 기능의 [`http.py`](../../src/limn/features/pins/lifecycle/http.py)에 있다. claim·unclaim은 [`features/pins/claims/service.py`](../../src/limn/features/pins/claims/service.py), 삭제·복원은 [`features/pins/trash/service.py`](../../src/limn/features/pins/trash/service.py), 만들기·편집은 [`features/pins/editing/service.py`](../../src/limn/features/pins/editing/service.py)에 있다. `limn/service/context.py`는 여러 핀 셸의 공통 문맥이고 `web/answers.py`는 공통 HTTP 거절 형식만 맡는다. 빌드도 같다. 빌드는 결과 값(`BuildOk`·`BuildOkWithErrors`·`FailedBuild` 등)을 돌려주고, `POST /api/rebuild` 의 본문은 [`features/builds/answer.py`](../../src/limn/features/builds/answer.py)가, 실패 로그의 문장은 HTTP 경계가 만든다([build-sync.md](build-sync.md) §빌드 결과).
 
 > **예시**
 >
@@ -241,7 +241,7 @@ def compile(self, doc: Doc) -> FinishedBuild:
 
 **업계에서 부르는 이름.** 단일 책임 원칙(Robert C. Martin의 "변경 이유는 하나"). 더 오래된 뿌리는 David Parnas의 논문 "On the Criteria To Be Used in Decomposing Systems into Modules"다.
 
-**지금 코드.** 핀·빌드·동기화·원고 이력·협업·문서 조회·뷰어 셸의 HTTP 경로와 토큰·멤버·이전 명령은 기능 슬라이스가 맡는다. 공통 `web/`은 요청 가드·문서 선택·등록 경로 호출을 맡고, `server.py`는 실행별 협력자를 조립한다. 저장·신원·문서 등 여러 기능이 함께 쓰는 규칙과 아직 옮기지 않은 운영 명령은 기본 모듈에 있다([architecture.md](architecture.md) §현재 구조, §의존 방향). 경로마다의 책임은 [index.md](index.md) §파일 지도가 정본이다. 뷰어는 빌드 단계 없는 정적 파일이고, 스크립트와 스타일은 변경 이유가 다른 조각 파일로 나뉜다. 조각의 순서는 `viewer/parts.txt` 하나가 정하고, 서버는 그 순서대로 이어 붙이기만 한다([viewer.md](viewer.md) §뷰어 규칙을 바꿀 때).
+**지금 코드.** 핀·빌드·동기화·원고 이력·협업·문서 조회·뷰어 셸의 HTTP 경로와 토큰·멤버·이전 명령은 기능 슬라이스가 맡는다. 공통 `web/`은 요청 가드·문서 선택·등록 경로 호출을 맡고, `server.py`는 실행별 협력자를 조립한다. 저장·신원·문서 등 여러 기능이 함께 쓰는 규칙은 기본 모듈에, 사용자 운영 명령은 `features/administration/`에 있다([architecture.md](architecture.md) §현재 구조, §의존 방향). 경로마다의 책임은 [index.md](index.md) §파일 지도가 정본이다. 뷰어는 빌드 단계 없는 정적 파일이고, 스크립트와 스타일은 변경 이유가 다른 조각 파일로 나뉜다. 조각의 순서는 `viewer/parts.txt` 하나가 정하고, 서버는 그 순서대로 이어 붙이기만 한다([viewer.md](viewer.md) §뷰어 규칙을 바꿀 때).
 
 > **예시**
 >

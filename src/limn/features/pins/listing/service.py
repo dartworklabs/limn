@@ -5,10 +5,10 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any, Protocol
 
-from limn.features.pins.trash import service as trash_service
 from limn.pins import view
 from limn.pins.model import Pin, PinNotFound, Record
 from limn.pins.position import EstContext
+from limn.pins.trash import expires_ts, unexpired, without_live_shadows
 from limn.store import PinStore
 
 Json = dict[str, Any]
@@ -78,9 +78,9 @@ class PinListing:
         with store.lock:
             pins = store.read_pins()[0]
             entries = store.read_dropped()[0]
-        visible = trash_service.without_live_shadows(entries, pins)
+        visible = without_live_shadows(entries, pins)
         return view.dropped_payload(
-            trash_service.unexpired(visible, self.trash_days, time.time() if now is None else now),
+            unexpired(visible, self.trash_days, time.time() if now is None else now),
             self.deps.public,
-            lambda entry: trash_service.expires_ts(entry, self.trash_days),
+            lambda entry: expires_ts(entry, self.trash_days),
         )

@@ -18,29 +18,12 @@ from typing import Any
 from limn.access import LOCAL_ACTOR
 from limn.pins.lifecycle import AlreadyLive, NotInTrash, drop, find_trashed, restore
 from limn.pins.model import DonePin, OpenPin, Pin, PinNotFound, ReviewPin, TrashedPin, parse_pin
-from limn.pins.position import epoch as parse_epoch
+from limn.pins.trash import unexpired, without_live_shadows
 from limn.service.context import Event, Json, PinContext, load_pin, typed_actor
 from limn.store import pin_index
 
 # a long-running server also drops expired Trash entries during normal reads, at most this often
 TRASH_CHECK_EVERY_S = 3600
-
-
-def expires_ts(entry: TrashedPin, days: int) -> float | None:
-    """Epoch seconds at which a Trash entry expires (dropped_at + days), or None if it has no readable dropped_at."""
-    t = parse_epoch(entry.dropped.at if entry.dropped is not None else None)
-    return None if t is None else t + days * 86400
-
-
-def expired(entry: TrashedPin, days: int, now: float) -> bool:
-    """Is Trash entry past its expiry at epoch now? An entry whose age cannot be read never expires."""
-    t = expires_ts(entry, days)
-    return t is not None and now > t
-
-
-def unexpired(entries: Sequence[TrashedPin], days: int, now: float) -> list[TrashedPin]:
-    """The Trash entries still restorable at epoch now, in their order."""
-    return [entry for entry in entries if not expired(entry, days, now)]
 
 
 def _live_trash(ctx: PinContext, entries: Sequence[TrashedPin], now: float | None = None) -> list[TrashedPin]:
@@ -51,12 +34,6 @@ def _live_trash(ctx: PinContext, entries: Sequence[TrashedPin], now: float | Non
 def _without(entries: Sequence[TrashedPin], pid: int) -> list[TrashedPin]:
     """The Trash entries that are not a copy of pin pid, in their order."""
     return [entry for entry in entries if entry.pin.core.id != pid]
-
-
-def without_live_shadows(entries: Sequence[TrashedPin], pins: Sequence[Pin]) -> list[TrashedPin]:
-    """Trash entries whose ids have no authoritative live pin, in their stored order."""
-    live_ids = {pin.core.id for pin in pins}
-    return [entry for entry in entries if entry.pin.core.id not in live_ids]
 
 
 def drop_pin(ctx: PinContext, pid: int, actor: Mapping[str, Any]) -> TrashedPin | PinNotFound:

@@ -33,7 +33,7 @@ limn serve  ──(1)──▶  <manuscript_dir> 사본을 별도 빌드 디렉�
 
 ## 현재 구조
 
-Limn은 **하나의 배포 단위(`dartwork-limn` 패키지) 안에서 표준 라이브러리만 쓰는 모듈**로 나뉜다. 핀 수명 주기, 처리 중 표시, 휴지통, 만들기·편집, JSON 조회와 PDF 선택은 `features/pins/`의 각 기능 패키지가 입력·HTTP 응답·실행별 협력자를 소유한다. 빌드 상태·PDF·쪽 이미지 읽기와 재빌드 요청은 `features/builds/`가, 원격 Git 동기화와 감시는 `features/sync/`가, Git 이력·비교 PDF의 요청·응답은 `features/revisions/`가, 사람 파일·멘션 알림의 실행별 연결과 목록 조회는 `features/collaboration/`이, 문서 상태·목차 조회는 `features/document_views/`가 소유한다. 나머지는 아직 책임별 모듈에 있다. 경로마다의 책임과 함께 볼 topic은 [index.md](index.md) §파일 지도가 정본이다.
+Limn은 **하나의 배포 단위(`dartwork-limn` 패키지) 안에서 표준 라이브러리만 쓰는 모듈**로 나뉜다. 핀 수명 주기, 처리 중 표시, 휴지통, 만들기·편집, JSON 조회와 PDF 선택은 `features/pins/`의 각 기능 패키지가 입력·HTTP 응답·실행별 협력자를 소유한다. 빌드 상태·PDF·쪽 이미지 읽기와 재빌드 요청은 `features/builds/`가, 원격 Git 동기화와 감시는 `features/sync/`가, Git 이력·비교 PDF의 요청·응답은 `features/revisions/`가, 사람 파일·멘션 알림의 실행별 연결과 목록 조회는 `features/collaboration/`이, 문서 상태·목차 조회는 `features/document_views/`가 소유한다. 명령줄 사용자 동작은 `features/administration/`이 소유하고, 저장·신원·문서·실행 수명은 여러 기능의 공통 경계에 남는다. 경로마다의 책임과 함께 볼 topic은 [index.md](index.md) §파일 지도가 정본이다.
 
 | 층 | 모듈 | 하는 일 | 모르는 것 |
 | --- | --- | --- | --- |
@@ -41,9 +41,9 @@ Limn은 **하나의 배포 단위(`dartwork-limn` 패키지) 안에서 표준 �
 | 부수효과 셸 | `service/context.py`(공통 핀 문맥), `store.py`, `build.py`, `locate.py`, `gitrun.py`, `documents.py`, `people.py`, `events.py`, `audit.py`, `files.py`, `access.py`, `startup.py`·`args.py`·`config.py` | 파일·git·SyncTeX·빌드 도구를 다루고, 순수 규칙에 묻고, 결과를 쓴다. 문서·설정·협력자를 인자로 받는다 | 실행 설정 `C`, `server.py`, HTTP 층 |
 | 기능 슬라이스 | `features/pins/lifecycle/`의 `input.py`·`http.py`·`routes.py`·`service.py` | 닫기·다시 열기·확인·답글의 입력 검사, POST 동작 이름·응답, 잠금 아래 전이와 알림. 순수 전이 규칙은 아직 claim·휴지통 등과 함께 쓰는 `pins/lifecycle.py`에 있다 | `server.py`. 실행별 문맥은 조립 지점이 묶는다 |
 | 기능 슬라이스 | `features/pins/claims/`의 `input.py`·`http.py`·`routes.py`·`service.py` | 처리 중 표시·해제의 시간 입력, POST 동작 이름·409 응답, 잠금 아래 claim 기록. 순수 규칙은 공통 `pins/lifecycle.py`가 소유한다 | `server.py`. 실행별 문맥은 조립 지점이 묶는다 |
-| 기능 슬라이스 | `features/pins/trash/`의 `input.py`·`http.py`·`routes.py`·`service.py` | 삭제·복원·영구 삭제·전체 비우기의 입력·응답·POST 경로, 잠금 아래 휴지통 변경과 기동·주기 정리. 순수 핀 전이는 공통 `pins/lifecycle.py`가 소유한다 | `server.py`. 실행별 문맥은 조립 지점이 묶는다 |
+| 기능 슬라이스 | `features/pins/trash/`의 `input.py`·`http.py`·`routes.py`·`service.py` | 삭제·복원·영구 삭제·전체 비우기의 입력·응답·POST 경로, 잠금 아래 휴지통 변경과 기동·주기 정리. 순수 핀 전이는 공통 `pins/lifecycle.py`, 조회와 공유하는 만료·그림자 항목 판정은 `pins/trash.py`가 소유한다 | `server.py`. 실행별 문맥은 조립 지점이 묶는다 |
 | 기능 슬라이스 | `features/pins/editing/`의 `location.py`·`input.py`·`http.py`·`routes.py`·`service.py` | 핀 만들기·편집의 POST 경로와 위치·본문 검사, 요청별 담당자·문서 문맥, 응답, 저장과 알림. 순수 편집 규칙은 `pins/edit.py`가 소유한다 | `server.py`. 실행별 협력자는 조립 지점이 묶는다 |
-| 기능 슬라이스 | `features/pins/listing/`의 `input.py`·`http.py`·`routes.py`·`service.py`·`markdown.py` | 핀 목록·한 핀·휴지통·`pins.md`의 GET 경로와 JSON/텍스트 조회, 요청·저장 렌더 입력 조립. 순수 필드·문장 규칙은 `pins/view.py`·`pins/render.py`가 소유한다 | `server.py`. 필요한 조회·휴지통 정리·원격 주소 사실은 좁은 계약으로 받는다 |
+| 기능 슬라이스 | `features/pins/listing/`의 `input.py`·`http.py`·`routes.py`·`service.py`·`markdown.py` | 핀 목록·한 핀·휴지통·`pins.md`의 GET 경로와 JSON/텍스트 조회, 요청·저장 렌더 입력 조립. 순수 필드·문장 규칙은 `pins/view.py`·`pins/render.py`, 휴지통 가시성은 `pins/trash.py`가 소유한다 | `server.py`. 필요한 조회·휴지통 정리·원격 주소 사실은 좁은 계약으로 받는다 |
 | 기능 슬라이스 | `features/pins/location/`의 `input.py`·`http.py`·`routes.py`·`service.py`·`resolve.py`·`source.py`·`range.py` | PDF 선택 POST와 원문 구간·겹침 GET 경로의 입력 검사·응답·실행별 협력자, SyncTeX·텍스트 역변환과 토큰 캐시. 저장된 핀의 공통 위치 규칙은 `locate.py`에 남는다 | `server.py`. 실행별 문맥은 조립 지점이 묶는다 |
 | 기능 슬라이스 | `features/builds/`의 `input.py`·`answer.py`·`http.py`·`routes.py`·`service.py`·`run.py`·`engine.py` | 빌드 조회·재빌드 요청의 입력·응답(`input.py`·`answer.py`·`http.py`), 세 GET 경로와 재빌드 POST의 매칭·응답(`routes.py`), 실행별 설정·동기화 pull·컴파일·기동 빌드·PDF 감시(`service.py`), 잠금·상태·이력 기록(`run.py`), 원고 복사·컴파일·PDF 렌더(`engine.py`). 공통 산출물·원본 지문·이력 사실은 `build.py`가 소유한다 | `server.py`. 문서와 실행 함수를 명시적으로 받는다 |
 | 기능 슬라이스 | `features/sync/`의 `rules.py`·`run.py`·`service.py` | `--git-pull`과 원격 main 감시의 순수 판단·상태 값(`rules.py`), Git 호출·pull 공유 잠금·감시 루프(`run.py`), 실행별 설정·문서·빌드 시작 연결(`service.py`) | `server.py`. 현재 문맥을 호출 시점에 받고 감시 자원은 런타임이 소유한다 |
@@ -52,7 +52,7 @@ Limn은 **하나의 배포 단위(`dartwork-limn` 패키지) 안에서 표준 �
 | 기능 슬라이스 | `features/revisions/`의 `input.py`·`answer.py`·`http.py`·`routes.py`·`service.py`·`core.py`·`execution.py`·`jobs.py` | Git 이력·비교 PDF의 요청 검사, 거절·성공 응답과 실행별 비교 문맥 연결. 네 GET 경로와 비교 작업 시작 POST의 매칭·응답은 `routes.py`, Git 이력·diff와 공통 결과 타입은 `core.py`, 스냅숏·격리 실행은 `execution.py`, 비교 캐시·작업 상태는 `jobs.py`가 소유한다 | `server.py`. 실행별 문맥을 함수로 받는다 |
 | 기능 슬라이스 | `features/viewer_shell/`의 `routes.py` | 뷰어 첫 화면·파비콘·버전·서비스 워커·PDF.js 파일의 GET 경로, 응답과 캐시 정책. 화면 조각·번들 파일 자체는 `viewer/`·`vendor/`에 있다 | `server.py`. 실행별 뷰어·파일·색 값을 좁은 계약으로 받는다 |
 | 기능 슬라이스 | `features/administration/serve_documents.py` | 서버 기동의 `--doc`·`--main` 파싱, 문서 선택·거절과 실행 문서 값 구성 | `server.py`. 원고 경로와 상태 경로를 인자로 받는다 |
-| 공통 HTTP | `web/`(`handler.py`·`reply.py`·`routes.py`·`parse.py`·`answers.py`·`errors.py`·`app.py`) | 본문 읽기·접근 검사, 요청별 `GetRequest`·`PostDocRequest`·`PinActionRequest`와 등록 경로 호출, 공통 응답 형식, 아직 옮기지 않은 요청·결과의 파싱·응답. 모든 GET 및 문서 POST·핀 ID POST는 기능 패키지가 경로를 등록한다 | `server.py`. `web/app.py`의 `App`은 처리기 자신의 가드·문서 선택·경로 등록 의존성만 선언하고 기능별 협력자 계약은 각 기능에 있다 |
+| 공통 HTTP | `web/`(`handler.py`·`reply.py`·`routes.py`·`parse.py`·`answers.py`·`errors.py`·`app.py`) | 본문 읽기·접근 검사, 요청별 `GetRequest`·`PostDocRequest`·`PinActionRequest`와 등록 경로 호출, 공통 응답 형식과 여러 기능이 함께 쓰는 요청·결과의 파싱·응답. 모든 GET 및 문서 POST·핀 ID POST는 기능 패키지가 경로를 등록한다 | `server.py`. `web/app.py`의 `App`은 처리기 자신의 가드·문서 선택·경로 등록 의존성만 선언하고 기능별 협력자 계약은 각 기능에 있다 |
 | 조립 지점 | `server.py` | 시작 단계를 차례로 불러 실행 설정 `C`, 실행별 런타임 `RT`, 문서 목록을 `ServerApplication` 하나에 묶는다. 실행별 핀 변경 협력자에 `pin_context` 생성 함수를, `PinListing`·`PinMarkdown`에 필요한 조회 사실을 묶는다 | — |
 
 층 밖에 나란히 있는 것이 둘이다.
@@ -72,7 +72,7 @@ Limn은 **하나의 배포 단위(`dartwork-limn` 패키지) 안에서 표준 �
 
 `Runtime.start_thread()`는 실제 시작에 성공한 감시 스레드만 종료 대상에 등록한다. 기동 도중 다음 스레드 시작이 실패해도 `stop()`은 먼저 시작한 스레드를 끝내고 원래의 시작 오류를 가리지 않는다.
 
-핀 레코드는 저장소와 셸에서 파이썬 `dict` 그대로 다닌다. 전이 앞에서 [`limn/pins/model.py`](../../src/limn/pins/model.py)가 레코드를 상태 타입(`OpenPin`·`ReviewPin`·`DonePin`)으로 파싱하고, 모든 상태가 함께 가진 필드(`id`·위치·`note`·`rev`·`thread` 등)를 `core`(`PinCore`)로, 그 상태에만 있는 필드(열림의 처리 중 표시, 닫힘의 닫은 기록, 완료의 확인)를 타입의 속성으로 올린다. 나머지 필드는 저장된 그대로 두고, 다시 쓸 때 순서까지 지킨다. 상태를 정하는 규칙은 `state_of` 하나이고, API의 `state` 이름은 그 상태 타입의 이름이다. 전이는 그 타입을 받아 결과를 반환값으로 돌려준다. 잠금 아래 레코드를 읽어 파싱하고 전이를 부르고 결과를 다시 쓰는 셸은 닫기·다시 열기·확인·답글에 대해 [`features/pins/lifecycle/service.py`](../../src/limn/features/pins/lifecycle/service.py), claim·unclaim에 대해 [`features/pins/claims/service.py`](../../src/limn/features/pins/claims/service.py), 나머지 핀 동작에 대해 [`limn/service/`](../../src/limn/service/context.py)에 있다.
+핀 레코드는 저장소와 셸에서 파이썬 `dict` 그대로 다닌다. 전이 앞에서 [`limn/pins/model.py`](../../src/limn/pins/model.py)가 레코드를 상태 타입(`OpenPin`·`ReviewPin`·`DonePin`)으로 파싱하고, 모든 상태가 함께 가진 필드(`id`·위치·`note`·`rev`·`thread` 등)를 `core`(`PinCore`)로, 그 상태에만 있는 필드(열림의 처리 중 표시, 닫힘의 닫은 기록, 완료의 확인)를 타입의 속성으로 올린다. 나머지 필드는 저장된 그대로 두고, 다시 쓸 때 순서까지 지킨다. 상태를 정하는 규칙은 `state_of` 하나이고, API의 `state` 이름은 그 상태 타입의 이름이다. 전이는 그 타입을 받아 결과를 반환값으로 돌려준다. 잠금 아래 레코드를 읽어 파싱하고 전이를 부르고 결과를 다시 쓰는 셸은 닫기·다시 열기·확인·답글에 대해 [`features/pins/lifecycle/service.py`](../../src/limn/features/pins/lifecycle/service.py), claim·unclaim에 대해 [`features/pins/claims/service.py`](../../src/limn/features/pins/claims/service.py), 삭제·복원·영구 삭제·전체 비우기에 대해 [`features/pins/trash/service.py`](../../src/limn/features/pins/trash/service.py), 만들기·편집에 대해 [`features/pins/editing/service.py`](../../src/limn/features/pins/editing/service.py)에 있다. `limn/service/context.py`는 이 셸들이 함께 쓰는 `PinContext`를 제공한다.
 
 > **참고**
 >

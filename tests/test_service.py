@@ -1,4 +1,4 @@
-"""limn.service - the pin service shells, driven directly with a real PinStore over a temp folder and recording sinks.
+"""Pin feature service shells, driven with a real PinStore over a temp folder and recording sinks.
 
 The rules themselves are pinned in test_pins_lifecycle.py and test_pins_edit.py, and the HTTP flows in
 test_server.py and the feature files (test_reply.py, test_trash.py, test_notifications.py). The pin actions also run
@@ -32,6 +32,7 @@ from limn.features.pins.trash import service as trash
 from limn.features.pins.trash.service import PinTrash
 from limn.locate import PinLocation
 from limn.mentions import NoteTags
+from limn.pins import trash as trash_rules
 from limn.pins.edit import NOTE_MAX, AddRequest, EditRequest, LinePlace, NoteTooLong, StaleEdit
 from limn.pins.lifecycle import (
     CLAIM_FIELDS,
@@ -446,9 +447,9 @@ class Trash(ServiceBase):
         fresh, old, unknown = (
             TrashedPin.from_record(r) for r in (self.old_entry(1, 29), self.old_entry(2, 31), {"id": 3})
         )
-        self.assertEqual(trash.unexpired([fresh, old, unknown], 30, T), [fresh, unknown])
-        self.assertIsNone(trash.expires_ts(unknown, 30))
-        self.assertFalse(trash.expired(unknown, 30, T + 10**9))
+        self.assertEqual(trash_rules.unexpired([fresh, old, unknown], 30, T), [fresh, unknown])
+        self.assertIsNone(trash_rules.expires_ts(unknown, 30))
+        self.assertFalse(trash_rules.expired(unknown, 30, T + 10**9))
 
     def test_drop_moves_the_pin_to_the_trash_and_restore_brings_it_back(self):
         """drop takes the pin out of pins.jsonl into the Trash and tells its author; restore puts it back, removes it
