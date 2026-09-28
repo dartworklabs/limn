@@ -104,6 +104,7 @@ jobs:
           # Each missing file fails the step (a `find | grep -q . && echo` line only fails it when it is the last one).
           for f in vendor/pdfjs/pdf.min.mjs systemd/limn@.service instances.sh \
                    features/administration/instance_update.sh features/administration/instance_documents.sh \
+                   features/administration/instance_lifecycle.sh features/administration/instance_inspection.sh \
                    viewer/index.html viewer/parts.txt viewer/css/tokens.css viewer/js/events.js; do
             find "$python_dir" -path "*limn/$f" | grep -q . || { echo "not packaged: $f"; exit 1; }
             echo "packaged: $f"

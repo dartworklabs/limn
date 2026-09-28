@@ -97,7 +97,7 @@ Limn에서 "테스트가 녹색"은 합격의 필요조건이지 충분조건이
 | 측정 대상 | 패키지가 `uv tool install`로 설치되고, 실행 파일과 번들 자산이 들어가는지 |
 | 적용 조건 | `pyproject.toml`, 패키지 데이터(`vendor/`, `systemd/`, `instances.sh`, `features/administration/instance_*.sh`, `ui_en.json`, `viewer/`)를 바꿀 때. CI `install` 작업이 항상 돈다 |
 | 실행 | `uv tool install .` 뒤 `limn version`, `limn serve --help`, `limn serve --version`, `limn help` |
-| 합격 기준 | 명령이 모두 성공하고 PDF.js 번들, `limn@.service` 템플릿, `instances.sh`와 `instance_update.sh`·`instance_documents.sh`, 뷰어 `viewer/index.html`·`viewer/parts.txt`와 조각 `viewer/css/tokens.css`·`viewer/js/events.js`가 설치 경로에 있다. 파일 하나라도 없으면 그 자리에서 실패한다 |
+| 합격 기준 | 명령이 모두 성공하고 PDF.js 번들, `limn@.service` 템플릿, `instances.sh`와 `instance_update.sh`·`instance_documents.sh`·`instance_lifecycle.sh`·`instance_inspection.sh`, 뷰어 `viewer/index.html`·`viewer/parts.txt`와 조각 `viewer/css/tokens.css`·`viewer/js/events.js`가 설치 경로에 있다. 파일 하나라도 없으면 그 자리에서 실패한다 |
 | 보장 범위 | 설치와 실행 입구까지다. 실제 원고 빌드는 확인하지 않는다 |
 
 ## 4. 에이전트 계약 호환
