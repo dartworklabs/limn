@@ -1,5 +1,7 @@
-"""limn.web.parse on its own: each request parser returns the parsed value or the first refused field, in the order
-the server has always checked them, with the exact 400 message and reason of the agent contract.
+"""Shared web and feature input parsers return the parsed value or first refusal.
+
+They preserve the server's field order and the agent contract's exact 400 message
+and reason.
 
 Every route's statuses and bodies are also pinned end to end through the handler (test_server.py, test_access.py and
 the feature files). Here the parsers are called directly; the manuscript facts a location parser reads come from a
@@ -18,7 +20,7 @@ from limn.access import LOCAL_ACTOR
 from limn.features.builds import input as builds_input
 from limn.features.document_views import input as document_input
 from limn.features.pins.claims import input as claims_input
-from limn.features.pins.editing import input as editing_input, location as editing_location
+from limn.features.pins.editing import fields as editing_fields, input as editing_input, location as editing_location
 from limn.features.pins.lifecycle import input as lifecycle_input
 from limn.features.pins.listing import input as listing_input
 from limn.features.pins.location import input as location_input
@@ -219,15 +221,16 @@ class Fields(unittest.TestCase):
     def test_closed_sets_come_back_narrowed_or_refused(self):
         """kind_req and scope: a member of the set comes back as is (typed as its Literal), None when absent, and
         anything else is the contract's 400 naming the whole set."""
-        self.assertEqual(parse.parse_kind_req("question"), "question")
-        self.assertIsNone(parse.parse_kind_req(None))
+        self.assertEqual(editing_fields.parse_kind_req("question"), "question")
+        self.assertIsNone(editing_fields.parse_kind_req(None))
         self.assertEqual(
-            parse.parse_kind_req("Question"), InputRejected("kind_req 는 fix|question 중 하나입니다.", "bad_kind_req")
+            editing_fields.parse_kind_req("Question"),
+            InputRejected("kind_req 는 fix|question 중 하나입니다.", "bad_kind_req"),
         )
-        self.assertEqual(parse.parse_scope("env2"), "env2")
-        self.assertIsNone(parse.parse_scope(None))
+        self.assertEqual(editing_fields.parse_scope("env2"), "env2")
+        self.assertIsNone(editing_fields.parse_scope(None))
         self.assertEqual(
-            parse.parse_scope(["raw"]),
+            editing_fields.parse_scope(["raw"]),
             InputRejected("scope 는 raw|para|env|env2|env3|lines 중 하나입니다.", "bad_scope"),
         )
 
@@ -791,14 +794,14 @@ class EditAddParsing(Base):
 
     def test_parse_assignee_checks_known_people_only_for_a_person(self):
         """ "agent" needs no lookup; a person must be among the known logins; local is never an assignee."""
-        self.assertEqual(parse.parse_assignee("agent", ()), "agent")
-        self.assertEqual(parse.parse_assignee("bob@example.com", {"bob@example.com"}), "bob@example.com")
-        self.assertIsInstance(parse.parse_assignee("bob@example.com", ()), InputRejected)
+        self.assertEqual(editing_fields.parse_assignee("agent", ()), "agent")
+        self.assertEqual(editing_fields.parse_assignee("bob@example.com", {"bob@example.com"}), "bob@example.com")
+        self.assertIsInstance(editing_fields.parse_assignee("bob@example.com", ()), InputRejected)
         self.assertEqual(
-            parse.parse_assignee("local", {"local"}),
+            editing_fields.parse_assignee("local", {"local"}),
             InputRejected("assignee 는 'agent' 또는 사람의 로그인(문자열)입니다.", "bad_assignee"),
         )
-        self.assertIsNone(parse.parse_assignee(None, ()))
+        self.assertIsNone(editing_fields.parse_assignee(None, ()))
 
     def test_parse_add_checks_the_location_first(self):
         """A bad location is reported before a bad note; a valid body carries the place and the fields it named."""

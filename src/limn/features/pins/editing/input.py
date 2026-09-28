@@ -3,6 +3,7 @@
 from collections.abc import Collection
 from dataclasses import dataclass, replace
 
+from limn.features.pins.editing.fields import parse_assignee, parse_kind_req, parse_note, parse_scope
 from limn.features.pins.editing.location import parse_loc, parse_region
 from limn.pins.edit import AddRequest, EditRequest, LinePlace, Place, RegionPlace
 from limn.web.errors import InputRejected
@@ -10,11 +11,7 @@ from limn.web.parse import (
     DocumentFacts,
     Json,
     int_field,
-    parse_assignee,
-    parse_kind_req,
     parse_mention_hints,
-    parse_note,
-    parse_scope,
 )
 
 ADD_FIELDS = (

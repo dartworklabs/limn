@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from limn.build import valid_build_name
+from limn.features.pins.editing.fields import parse_scope
 from limn.mapping import norm, truncate_quote
 from limn.pins.edit import PDF_QUOTE_MAX, Scope
 from limn.pins.model import Record
@@ -16,7 +17,6 @@ from limn.web.parse import (
     Via,
     int_field,
     num_field,
-    parse_scope,
     source_file,
 )
 
