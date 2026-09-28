@@ -22,11 +22,12 @@ import subprocess
 import time
 from unittest import mock
 
-from limn import revisions, startup
 from limn.access import LOCAL_ACTOR
+from limn.features.administration import serve_documents as startup_documents
+from limn.features.pins.lifecycle import input as lifecycle_input
+from limn.features.revisions import core as revisions, execution as revision_execution
 from limn.pins.lifecycle import CloseRequest
 from limn.pins.view import pin_state
-from limn.web import parse
 
 from helpers import SW_JS, add_pin, blank_png, find_record, minimal_pdf, ps, records, trash_records
 from helpers_access import ALICE, BOB, CAROL, REPO_NEW as NEW, REPO_OLD as OLD, actor
@@ -92,7 +93,7 @@ class BrowserOpenWaitsForPins(BrowserBase):
     def test_a_done_pin_is_known_when_open_returns_even_if_the_pin_list_is_slow(self):
         """With the pin list 1.5s late, the done pin is already in the viewer's lists when open(0) returns."""
         pid = add_pin({"file": str(self.main), "lo": 4, "hi": 4, "page": 1, "note": "done"}, actor(ALICE)).record["id"]
-        ps.APP.close_pin(pid, dict(LOCAL_ACTOR), CloseRequest(reply="fixed"))
+        ps.APP.pin_lifecycle.close_pin(pid, dict(LOCAL_ACTOR), CloseRequest(reply="fixed"))
         page = self.open(0, init=SLOW_PIN_LIST)
         self.assertTrue(page.evaluate("findAnyPin(%d)!==null" % pid))
 
@@ -108,14 +109,16 @@ class ViewerFlows(BrowserBase):
     def setUp(self):
         super().setUp()
         for h in (ALICE, BOB, CAROL):
-            ps.APP.record_person(actor(h))
+            ps.APP.people_directory.record(actor(h))
         self.open_id = add_pin({"file": str(self.main), "lo": 4, "hi": 5, "page": 1, "note": "문단 줄이기"}, A).record[
             "id"
         ]
         self.rv = add_pin({"file": str(self.main), "lo": 8, "hi": 9, "page": 1, "note": "식 번호 확인"}, A).record["id"]
-        ps.APP.close_pin(self.rv, dict(LOCAL_ACTOR), CloseRequest(reply="식 번호를 고쳤습니다", ref="PR #9"))
+        ps.APP.pin_lifecycle.close_pin(
+            self.rv, dict(LOCAL_ACTOR), CloseRequest(reply="식 번호를 고쳤습니다", ref="PR #9")
+        )
         self.dn = add_pin({"file": str(self.main), "lo": 12, "hi": 13, "page": 2, "note": "오타"}, A).record["id"]
-        ps.APP.close_pin(self.dn, A, CloseRequest(reply="고침"))
+        ps.APP.pin_lifecycle.close_pin(self.dn, A, CloseRequest(reply="고침"))
 
     def state(self, pid):
         return pin_state(find_record(ps.APP.snapshot_pins(), pid))
@@ -271,7 +274,7 @@ class ViewerFlows(BrowserBase):
         page.click(card + " .acts [data-act=reply-open]")
         page.fill("textarea.r-text", "이 문장도 봐 주세요")
         self.assertFalse(page.is_visible(".r-outcome"))  # open pin: a reply never changes it
-        ps.APP.close_pin(
+        ps.APP.pin_lifecycle.close_pin(
             self.open_id, dict(LOCAL_ACTOR), CloseRequest(reply="줄였습니다")
         )  # the agent closes it meanwhile
         page.evaluate("loadPins()")
@@ -345,7 +348,7 @@ class ViewerFlows(BrowserBase):
             ),
             encoding="utf-8",
         )
-        ps.APP.drop_pin(self.open_id, B)
+        ps.APP.pin_trash.drop_pin(self.open_id, B)
         page = self.page_for("desktop", "ko", n_open=0)
         page.click("#trash-link")
         row = '#trash .arc-row[data-id="%d"]' % self.open_id
@@ -361,8 +364,8 @@ class ViewerFlows(BrowserBase):
         self.assertEqual(trash_records(), [])
 
     def test_ref_to_deleted_pin_in_a_thread(self):
-        ps.APP.reply_pin(self.open_id, "#%d 와 같은 문제" % self.dn, B)
-        ps.APP.drop_pin(self.dn, A)
+        ps.APP.pin_lifecycle.reply_pin(self.open_id, "#%d 와 같은 문제" % self.dn, B)
+        ps.APP.pin_trash.drop_pin(self.dn, A)
         for lang in ("ko", "en"):
             with self.subTest(lang=lang):
                 page = self.page_for("desktop", lang)
@@ -416,7 +419,7 @@ class ColdDeepLink(BrowserBase):
         super().setUp()
         src = ps.APP.C.src
         (src / "hl.tex").write_text((src / "main.tex").read_text(encoding="utf-8"), encoding="utf-8")
-        ps.APP.set_docs(startup.make_docs(["ms=본문:main.tex", "hl=하이라이트:hl.tex"], src, ps.APP.C.paths))
+        ps.APP.set_docs(startup_documents.make_docs(["ms=본문:main.tex", "hl=하이라이트:hl.tex"], src, ps.APP.C.paths))
         for D in ps.APP.docs:
             pages = D.dir / "pages-20260925100000"
             pages.mkdir(parents=True, exist_ok=True)
@@ -442,7 +445,7 @@ class ColdDeepLink(BrowserBase):
         self.gone = add_pin(
             {"file": str(src / "hl.tex"), "lo": 32, "hi": 33, "page": 2, "note": "되살릴 핀"}, A, doc=hl
         ).record["id"]
-        ps.APP.drop_pin(self.gone, B)
+        ps.APP.pin_trash.drop_pin(self.gone, B)
         self.addCleanup(ps.APP.set_docs, None)
 
     def cold(self, hash_, device):
@@ -872,13 +875,13 @@ class PreviewEqualsServer(BrowserBase):
     def setUp(self):
         super().setUp()
         for p in (A, self.LEE, self.PARK):
-            ps.APP.record_person(p)
+            ps.APP.people_directory.record(p)
         self.pins = []
         for i in range(5):
             pid = add_pin(
                 {"file": str(self.main), "lo": 4 + 2 * i, "hi": 5 + 2 * i, "page": 1, "note": "검토 %d" % i}, A
             ).record["id"]
-            ps.APP.close_pin(pid, dict(LOCAL_ACTOR), CloseRequest(reply="고침 %d" % i))
+            ps.APP.pin_lifecycle.close_pin(pid, dict(LOCAL_ACTOR), CloseRequest(reply="고침 %d" % i))
             self.pins.append(pid)
 
     def run_case(self, page, pid, pick, text):
@@ -899,7 +902,11 @@ class PreviewEqualsServer(BrowserBase):
         settle(page)  # the reply the dismissed toast sends has been answered
         r = find_record(ps.APP.snapshot_pins(), pid)
         last = r["thread"][-1]
-        return preview, not r.get("done"), [ps.APP.known_people()[lg]["name"] for lg in last.get("mentions") or []]
+        return (
+            preview,
+            not r.get("done"),
+            [ps.APP.people_directory.known()[lg]["name"] for lg in last.get("mentions") or []],
+        )
 
     def test_preview_matches_the_server_for_ambiguous_partial_and_edited_names(self):
         page = self.open(0)
@@ -928,9 +935,9 @@ class ReplyKeyboardAndFailure(BrowserBase):
 
     def setUp(self):
         super().setUp()
-        ps.APP.record_person(A)
+        ps.APP.people_directory.record(A)
         self.rv = add_pin({"file": str(self.main), "lo": 8, "hi": 9, "page": 1, "note": "식"}, A).record["id"]
-        ps.APP.close_pin(self.rv, dict(LOCAL_ACTOR), CloseRequest(reply="고침"))
+        ps.APP.pin_lifecycle.close_pin(self.rv, dict(LOCAL_ACTOR), CloseRequest(reply="고침"))
 
     def box(self, page):
         card = '#review-pins .pin[data-id="%d"]' % self.rv
@@ -981,10 +988,10 @@ class RestoreLinkRunsOnce(BrowserBase):
     WHO = ALICE
 
     def test_reload_does_not_restore_again(self):
-        ps.APP.record_person(A)
+        ps.APP.people_directory.record(A)
         pid = add_pin({"file": str(self.main), "lo": 8, "hi": 9, "page": 1, "note": "지운 핀"}, A).record["id"]
         keep = add_pin({"file": str(self.main), "lo": 12, "hi": 13, "page": 1, "note": "남은 핀"}, A).record["id"]
-        ps.APP.drop_pin(pid, B)
+        ps.APP.pin_trash.drop_pin(pid, B)
         context = self.browser.new_context(viewport={"width": 1400, "height": 850})
         self.addCleanup(context.close)
         watch_idle(context)
@@ -993,7 +1000,7 @@ class RestoreLinkRunsOnce(BrowserBase):
         page.goto("http://viewer.test/?lang=ko#pin=%d&act=restore" % pid)
         page.wait_for_function("typeof OPEN_ALL!=='undefined'&&OPEN_ALL.some(p=>p.id===%d)" % pid, timeout=20000)
         self.assertNotIn("act=restore", page.evaluate("location.href"))
-        ps.APP.drop_pin(pid, A)  # dropped again elsewhere
+        ps.APP.pin_trash.drop_pin(pid, A)  # dropped again elsewhere
         page.reload()
         # boot() ends by acting on a pin link (openPinFromLink); a second restore it sent would be answered by settle()
         page.wait_for_function(booted(1) + "&&OPEN_ALL.some(p=>p.id===%d)" % keep, timeout=20000)
@@ -1033,7 +1040,7 @@ class ScopedViewer(BrowserBase):
         super().setUp()
         if not shutil.which("git"):
             self.skipTest("git not available")
-        ps.APP.record_person(A)
+        ps.APP.people_directory.record(A)
         self.repo = self.main.parent.parent
         self.main.write_text(OLD, encoding="utf-8")
         for args in (("init", "--quiet"), ("config", "user.email", "t@example.com"), ("config", "user.name", "T")):
@@ -1045,22 +1052,24 @@ class ScopedViewer(BrowserBase):
         self.write(NEW)
         self.fix = self.commit("fix three pins")
         loc = dict(LOCAL_ACTOR)
-        ps.APP.close_pin(
+        ps.APP.pin_lifecycle.close_pin(
             self.p1,
             loc,
             CloseRequest(
-                reply="alpha", ref=self.fix[:8], changes=(parse.CloseChange(str(self.main.resolve()), 4, 5).record(),)
+                reply="alpha",
+                ref=self.fix[:8],
+                changes=(lifecycle_input.CloseChange(str(self.main.resolve()), 4, 5).record(),),
             ),
         )
-        ps.APP.close_pin(self.p2, loc, CloseRequest(reply="beta", ref=self.fix[:8]))
-        ps.APP.close_pin(self.p3, loc, CloseRequest(reply="gamma", ref=self.fix[:8]))
+        ps.APP.pin_lifecycle.close_pin(self.p2, loc, CloseRequest(reply="beta", ref=self.fix[:8]))
+        ps.APP.pin_lifecycle.close_pin(self.p3, loc, CloseRequest(reply="gamma", ref=self.fix[:8]))
         self.p4 = add_pin({"file": str(self.main), "lo": 8, "hi": 8, "page": 1, "note": "filler"}, A).record["id"]
         self.write(NEW.replace("Filler two.", "Filler two, reworded."))
         self.solo = self.commit("fix the filler pin")
-        ps.APP.close_pin(self.p4, loc, CloseRequest(reply="filler", ref=self.solo[:8]))
+        ps.APP.pin_lifecycle.close_pin(self.p4, loc, CloseRequest(reply="filler", ref=self.solo[:8]))
         self.builds = []
         self.fail_scoped = False
-        patcher = mock.patch.object(revisions, "revision_compile", side_effect=self.fake_compile)
+        patcher = mock.patch.object(revision_execution, "revision_compile", side_effect=self.fake_compile)
         patcher.start()
         self.addCleanup(patcher.stop)
 
@@ -1258,7 +1267,7 @@ class ViewerTrashControls(BrowserBase):
 
     def setUp(self):
         super().setUp()
-        ps.APP.record_person(A)
+        ps.APP.people_directory.record(A)
         ps.APP.C.people_file.write_text(
             json.dumps(
                 {
@@ -1273,7 +1282,7 @@ class ViewerTrashControls(BrowserBase):
         )
         add_pin({"file": str(self.main), "lo": 4, "hi": 5, "page": 1, "note": "남은 핀"}, A).record["id"]
         self.gone = add_pin({"file": str(self.main), "lo": 8, "hi": 9, "page": 1, "note": "지운 핀"}, A).record["id"]
-        ps.APP.drop_pin(self.gone, A)
+        ps.APP.pin_trash.drop_pin(self.gone, A)
 
     def test_viewer_role_sees_no_restore_or_purge_in_the_trash(self):
         """E2E finding: a viewer reads the Trash but gets no [Restore]/[Delete forever] (server refuses with 403 anyway)."""
@@ -1335,7 +1344,7 @@ class ViewerRoleUi(BrowserBase):
 
     def setUp(self):
         super().setUp()
-        ps.APP.record_person(actor(ALICE))
+        ps.APP.people_directory.record(actor(ALICE))
         ps.APP.C.people_file.write_text(
             json.dumps(
                 {
@@ -1351,11 +1360,11 @@ class ViewerRoleUi(BrowserBase):
         pid = add_pin(
             {"file": str(self.main), "lo": 4, "hi": 5, "page": 1, "note": "문단 줄이기"}, actor(ALICE)
         ).record["id"]
-        ps.APP.reply_pin(pid, "답글", actor(ALICE))
+        ps.APP.pin_lifecycle.reply_pin(pid, "답글", actor(ALICE))
         rid = add_pin({"file": str(self.main), "lo": 8, "hi": 9, "page": 1, "note": "검토할 핀"}, actor(ALICE)).record[
             "id"
         ]
-        ps.APP.close_pin(rid, dict(LOCAL_ACTOR), CloseRequest(reply="고침"))
+        ps.APP.pin_lifecycle.close_pin(rid, dict(LOCAL_ACTOR), CloseRequest(reply="고침"))
 
     def visible_acts(self, page):
         return page.evaluate(

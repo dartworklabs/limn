@@ -112,14 +112,14 @@ class AuditLogServer(AccessBase):
         """Issue #10 L5: after EVENTS_KEEP + 1 other events the `cleared` record is gone from events.jsonl but kept in audit.jsonl."""
         code, d = self.call("POST", "/api/clear", CLEAR_BODY, ALICE)
         self.assertEqual(code, 200, d)
-        self.assertEqual(ps.APP._read_events()[0][-1]["type"], "cleared")  # still written for compatibility
-        ps.APP.emit_events(
+        self.assertEqual(ps.APP.notices.read()[0][-1]["type"], "cleared")  # still written for compatibility
+        ps.APP.notices.emit_events(
             [
                 {"type": "mention", "pin": 1, "to": [B_LOGIN], "by": {"login": A_LOGIN, "name": "Alice Kim"}}
                 for _ in range(EVENTS_KEEP + 1)
             ]
         )
-        self.assertNotIn("cleared", {e["type"] for e in ps.APP._read_events()[0]})
+        self.assertNotIn("cleared", {e["type"] for e in ps.APP.notices.read()[0]})
         rows = audit_rows()
         self.assertEqual(len(rows), 1)
         self.assertEqual(set(rows[0]), {"at", "ts", "action", "by", "via", "details"})
@@ -132,7 +132,7 @@ class AuditLogServer(AccessBase):
 
     def test_purge_is_audited(self):
         """The owner's permanent delete from the Trash leaves an audit line naming the pin."""
-        ps.APP.drop_pin(1, dict(LOCAL_ACTOR))
+        ps.APP.pin_trash.drop_pin(1, dict(LOCAL_ACTOR))
         code, d = self.call("POST", "/api/pins/1/purge", None, ALICE)
         self.assertEqual(code, 200, d)
         self.assertEqual(
@@ -143,7 +143,7 @@ class AuditLogServer(AccessBase):
         """Nothing that did not happen is audited: a clear without the phrase, a non-owner's clear or purge, a missing pin."""
         self.assertEqual(self.call("POST", "/api/clear", {"confirm": "yes"}, ALICE)[0], 400)
         self.assertEqual(self.call("POST", "/api/clear", CLEAR_BODY, BOB)[0], 403)
-        ps.APP.drop_pin(1, dict(LOCAL_ACTOR))
+        ps.APP.pin_trash.drop_pin(1, dict(LOCAL_ACTOR))
         self.assertEqual(self.call("POST", "/api/pins/1/purge", None, BOB)[0], 403)
         self.assertEqual(self.call("POST", "/api/pins/99/purge", None, ALICE)[0], 404)
         self.assertEqual(audit_rows(), [])

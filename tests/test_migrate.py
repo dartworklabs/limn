@@ -1,6 +1,6 @@
 """`limn migrate`: moving instances from the old pin-viewer install to Limn, in a sandbox.
 
-This file and src/limn/migrate.py are the only places allowed to use the old name.
+This file and src/limn/features/administration/migrate.py are the only places allowed to use the old name.
 """
 
 import os

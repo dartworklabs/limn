@@ -3,7 +3,7 @@
 The viewer's outline comes from the PDF's own bookmarks; LaTeX's numbering and page labels (``2.1``, ``iv``) are not in
 there, so the server reads them from the ``\\@writefile{toc}{\\contentsline ...}`` lines of the .aux that the same page
 build published (GET /api/outline-labels, docs/handbook/viewer.md). This module is the pure parser of that text:
-no files, no clock. Reading the .aux of the build on screen is limn.meta.outline_labels.
+no files, no clock. Reading the .aux of the build on screen is limn.features.document_views.reads.outline_labels.
 
 The title conversion is deliberately conservative - a display conversion of a few text macros, never a TeX
 evaluator. A title it cannot convert keeps a placeholder row with empty number and title, so the viewer can never

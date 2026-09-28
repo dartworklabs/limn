@@ -16,12 +16,16 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from limn import build, locate, revisions
+from limn import build
+from limn.features.pins.location import resolve as pick_resolve
+from limn.features.pins.location.http import PICK_REFUSALS
+from limn.features.pins.location.service import PinLocationService
+from limn.features.revisions import core as revisions
 from limn.guidance import UNAUTHENTICATED
 from limn.pins.edit import NOTE_MAX
+from limn.web import handler as web_handler
 from limn.web.errors import (
     BUILD_FAILURES,
-    PICK_REFUSALS,
     REVISION_FAILURES,
     SCOPE_REJECTIONS,
     HTTPError,
@@ -32,24 +36,27 @@ from limn.web.errors import (
 from helpers import UI_EN, extract_js_fn, ps, req, run_node, set_config, split_resp
 from helpers_access import BOB, CAROL, AccessBase, talk_to
 
-# The modules that build error bodies or statuses: server.py, the services moved out of it (limn/revisions.py: the
-# comparison worker's own "build_failed" status; limn/scope.py, limn/documents.py: the refusal values; limn/locate.py:
-# the 200 error bodies of a pick that cannot be traced to a source line), the access boundary (limn/access.py: identify,
+# The modules that build error bodies or statuses: server.py, the services moved out of it (limn/features/revisions/core.py: the
+# comparison worker's own "build_failed" status; limn/scope.py, limn/documents.py: the refusal values), the access boundary (limn/access.py: identify,
 # admit, check_role and bearer_of raise their refusals) and the HTTP layer (limn/web: the handler, the parsers, the
-# answers, the refusal tables). Every static guard below reads all of them, keyed by file name; the two tables
+# answers, the refusal tables), plus feature-owned HTTP and input modules. Every static guard below reads all of them;
+# the two tables
 # (SCOPE_REJECTIONS, REVISION_FAILURES) are read as data.
 PKG = Path(ps.__file__).parent
 SOURCES = {
-    p.name if p.parent.name != "web" else "web/" + p.name: p.read_text(encoding="utf-8")
+    p.relative_to(PKG).as_posix(): p.read_text(encoding="utf-8")
     for p in [
         Path(ps.__file__),
-        PKG / "revisions.py",
+        PKG / "features/revisions/core.py",
+        PKG / "features/revisions/execution.py",
+        PKG / "features/revisions/jobs.py",
         PKG / "scope.py",
         PKG / "documents.py",
         PKG / "locate.py",
         PKG / "access.py",
     ]
     + sorted((PKG / "web").glob("*.py"))
+    + sorted((PKG / "features").rglob("*.py"))
 }
 
 
@@ -135,7 +142,7 @@ def emitted_reasons():
 
 
 class EveryErrorHasAReason(unittest.TestCase):
-    """Static guard over server.py and limn/web: no refusal can be written without a stable reason code."""
+    """Static guard over server, shared HTTP, and feature routes: every refusal has a stable reason code."""
 
     def test_every_http_error_names_a_reason_code(self):
         """Each HTTPError(...) passes reason=, a snake_case literal (or a conditional of two) - except where it passes
@@ -183,7 +190,7 @@ class EveryErrorHasAReason(unittest.TestCase):
                 self.assertEqual((e.code, e.body), (status, {"error": msg, "reason": reason}))
 
     def test_the_build_failure_table_names_a_reason_for_every_kind(self):
-        """REVISION_FAILURES gives every kind of a failed comparison step (limn.revisions.FailureKind) its Korean text
+        """REVISION_FAILURES gives every kind of a failed comparison step (limn.features.revisions.core.FailureKind) its Korean text
         and a snake_case reason."""
         self.assertEqual(set(REVISION_FAILURES), set(typing.get_args(revisions.FailureKind)))
         for kind, (msg, reason) in REVISION_FAILURES.items():
@@ -192,9 +199,9 @@ class EveryErrorHasAReason(unittest.TestCase):
                 self.assertTrue(CODE.fullmatch(reason), reason)
 
     def test_the_pick_table_names_a_reason_for_every_refusal(self):
-        """PICK_REFUSALS gives every way a selection is not traced (limn.locate.PickRefusal) its Korean text and a
+        """PICK_REFUSALS gives every way a selection is not traced (limn.pick_resolve.PickRefusal) its Korean text and a
         snake_case reason; the texts take exactly the refusal's own fields as their placeholders."""
-        self.assertEqual(set(PICK_REFUSALS), set(typing.get_args(locate.PickRefusal)))
+        self.assertEqual(set(PICK_REFUSALS), set(typing.get_args(pick_resolve.PickRefusal)))
         for kind, (msg, reason) in PICK_REFUSALS.items():
             with self.subTest(kind=kind.__name__):
                 self.assertTrue(HANGUL.search(msg))
@@ -304,8 +311,8 @@ class RefusalBodies(AccessBase):
     def test_internal_error(self):
         """An unexpected exception is a 500 with the same text and reason internal."""
         with (
-            mock.patch.object(ps.APP, "overlaps_api", side_effect=RuntimeError("boom")),
-            mock.patch.object(ps.traceback, "print_exc"),
+            mock.patch.object(PinLocationService, "overlaps", side_effect=RuntimeError("boom")),
+            mock.patch.object(web_handler.traceback, "print_exc"),
         ):
             code, d = self.call("GET", "/api/overlaps?file=%s&lo=1&hi=2" % self.main)
         self.assertEqual((code, d), (500, {"error": "서버 내부 오류: boom", "reason": "internal"}))

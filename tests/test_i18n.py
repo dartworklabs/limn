@@ -18,13 +18,15 @@ from html.parser import HTMLParser
 from pathlib import Path
 from urllib.parse import urlparse
 
-from limn import access, config, startup
+from limn import config
 from limn.access import LOCAL_ACTOR
-from limn.cli import cli_audit
+from limn.features.administration import member_state, serve_documents as startup_documents
+from limn.features.administration.targets import cli_audit
+from limn.features.pins.claims import input as claims_input
+from limn.features.pins.location import http as location_http
 from limn.pins.lifecycle import CloseRequest
 from limn.scope import ScopeUnreadable
 from limn.viewer import assemble
-from limn.web import answers, parse
 from limn.web.errors import scope_http_error
 
 from helpers import (
@@ -329,9 +331,9 @@ class ComposedMessages(unittest.TestCase):
 
 
 def pick_warning_sentences():
-    """The Korean sentences a pick's `warn` is made of (limn.web.answers.PICK_WARNINGS), as templates: each %d / %.0f
+    """The Korean sentences a pick's `warn` is made of (location_http.PICK_WARNINGS), as templates: each %d / %.0f
     becomes {x}."""
-    return {re.sub(r"%(?:\.0f|d)", "{x}", s).replace("%%", "%") for s in answers.PICK_WARNINGS.values()}
+    return {re.sub(r"%(?:\.0f|d)", "{x}", s).replace("%%", "%") for s in location_http.PICK_WARNINGS.values()}
 
 
 class PickWarnings(unittest.TestCase):
@@ -357,7 +359,7 @@ class PickWarnings(unittest.TestCase):
         return json.loads(run_node(js))
 
     def test_every_server_sentence_has_a_template_with_english(self):
-        """Each warning sentence of answers.PICK_WARNINGS is in PICK_WARNS (placeholders aside) and in the table."""
+        """Each warning sentence of location_http.PICK_WARNINGS is in PICK_WARNS (placeholders aside) and in the table."""
         table = re.search(r"const PICK_WARNS=\[(.*?)\];", HTML, re.S)
         self.assertIsNotNone(table)
         templates = re.findall(r"'((?:[^'\\]|\\.)*)'", table.group(1))
@@ -462,7 +464,7 @@ class EnglishChrome(ChromiumTestCase):
         ps.Handler.app = ps.APP
         fresh_runtime(ps)
         C = ps.APP.C
-        ps.APP.set_docs(startup.make_docs(["ms=본문:main.tex", "rr=답변서:reply.tex"], src, ps.APP.C.paths))
+        ps.APP.set_docs(startup_documents.make_docs(["ms=본문:main.tex", "rr=답변서:reply.tex"], src, ps.APP.C.paths))
         ps.APP.init_seq()
         page = blank_png(1275, 1650)  # a letter page at 150 dpi
         for D in ps.APP.docs:
@@ -475,8 +477,8 @@ class EnglishChrome(ChromiumTestCase):
             (D.dir / "head.txt").write_text("abc1234")
         agent = dict(LOCAL_ACTOR)
         for who in (ALICE_ACTOR, BOB_LEE, SEOJUN):
-            ps.APP.record_person(who)
-        access.member_add(C.state, VERA["login"], "viewer", VERA["name"], cli_audit(C.state))
+            ps.APP.people_directory.record(who)
+        member_state.member_add(C.state, VERA["login"], "viewer", VERA["name"], cli_audit(C.state))
         ms, rr = ps.APP.docs
 
         def add(lo, hi, note, actor, **kw):
@@ -484,20 +486,20 @@ class EnglishChrome(ChromiumTestCase):
             return add_pin(d, actor, ps).record["id"]
 
         claimed = add(4, 5, "Tighten this sentence", ALICE_ACTOR)
-        ps.APP.claim_pin(claimed, agent, *parse.parse_claim_body({"eta_min": 10}))
+        ps.APP.pin_claims.claim_pin(claimed, agent, *claims_input.parse_claim_body({"eta_min": 10}))
         korean = add(8, 9, "이 문장을 다듬어 주세요", SEOJUN)
-        ps.APP.reply_pin(korean, "Working on it", ALICE_ACTOR)
+        ps.APP.pin_lifecycle.reply_pin(korean, "Working on it", ALICE_ACTOR)
         add(12, 16, "Is this the right table? @Bob Lee", ALICE_ACTOR, kind_req="question", mentions=[BOB_LEE["login"]])
         add(4, 5, "Same spot again", BOB_LEE)
         add(20, 21, "Ask Bob about the wording", ALICE_ACTOR, assignee=BOB_LEE["login"])
         add(22, 23, "Agent note", agent)
         for author in (ALICE_ACTOR, BOB_LEE):
             pid = add(24, 25, "Shorten the caption", author)
-            ps.APP.close_pin(pid, agent, CloseRequest(reply="표 설명을 줄였습니다", ref="PR #7"))
+            ps.APP.pin_lifecycle.close_pin(pid, agent, CloseRequest(reply="표 설명을 줄였습니다", ref="PR #7"))
         done = add(26, 27, "Fix the unit", ALICE_ACTOR)
-        ps.APP.close_pin(done, ALICE_ACTOR, CloseRequest())
+        ps.APP.pin_lifecycle.close_pin(done, ALICE_ACTOR, CloseRequest())
         dropped = add(28, 29, "Wrong spot", ALICE_ACTOR)
-        ps.APP.drop_pin(dropped, ALICE_ACTOR)
+        ps.APP.pin_trash.drop_pin(dropped, ALICE_ACTOR)
         add_pin(
             dict(file=str(src / "reply.tex"), lo=4, hi=5, page=1, note="Reply letter wording"), ALICE_ACTOR, ps, doc=rr
         ).record["id"]

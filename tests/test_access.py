@@ -21,13 +21,14 @@ import stat
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from unittest import mock
 
 from limn import access, startup
 from limn.access import LOCAL_ACTOR, load_tokens
-from limn.pins import render as md_render
+from limn.pins import render as md_render, trash as trash_rules
 from limn.pins.lifecycle import CloseRequest
 from limn.pins.view import pin_state
 from limn.service.context import is_agent
@@ -125,7 +126,7 @@ class LocalProvider(AccessBase):
         code, d = self.call("POST", "/api/pins/%d/close" % pid)
         self.assertEqual((code, d["state"]), (200, "done"))
         rid = self.add(8, 9)
-        ps.APP.close_pin(rid, dict(LOCAL_ACTOR), CloseRequest())  # an agent's close -> review
+        ps.APP.pin_lifecycle.close_pin(rid, dict(LOCAL_ACTOR), CloseRequest())  # an agent's close -> review
         code, d = self.call("POST", "/api/pins/%d/confirm" % rid)
         self.assertEqual((code, d["state"]), (200, "done"))
         self.assertEqual(self.pin(rid)["confirmed_by"]["login"], "alice")
@@ -420,21 +421,21 @@ class Tokens(AccessBase):
         self.assertIn("no config found", r.stderr)
 
     def test_cli_env_parsing_matches_instances_sh(self):
-        """cli.env_get reads a config line exactly as instances.sh's env_get does (last line wins, whitespace, quotes),
+        """targets.env_get reads a config line exactly as instances.sh's env_get does (last line wins, whitespace, quotes),
         checked against the shell function itself with whatever bash is first on PATH (3.2 on stock macOS)."""
         from importlib import import_module
 
         sys.path.insert(0, str(SRC))
         try:
-            cli = import_module("limn.cli")
+            targets = import_module("limn.features.administration.targets")
         finally:
             sys.path.remove(str(SRC))
         f = Path(self.tmp.name) / "x.env"
         f.write_text("# STATE_DIR=/no\n  STATE_DIR='/a b'  \r\nOTHER=1\nSTATE_DIR=\"/c\"\n", encoding="utf-8")
-        self.assertEqual(cli.env_get(f, "STATE_DIR"), "/c")  # the last line wins
+        self.assertEqual(targets.env_get(f, "STATE_DIR"), "/c")  # the last line wins
         f.write_text("STATE_DIR='/a b'  \r\n", encoding="utf-8")
-        self.assertEqual(cli.env_get(f, "STATE_DIR"), "/a b")
-        self.assertIsNone(cli.env_get(f, "NOPE"))
+        self.assertEqual(targets.env_get(f, "STATE_DIR"), "/a b")
+        self.assertIsNone(targets.env_get(f, "NOPE"))
         bash = shutil.which("bash")
         if bash:  # the same answer as instances.sh's env_get
             # eval, not `source <(...)`: bash 3.2 (macOS /bin/bash) sources nothing from a process substitution
@@ -501,13 +502,13 @@ class Roles(AccessBase):
             self.assertEqual(self.call("POST", "/api/pins/%d/reply" % pid, {"text": "x"}, h)[0], 200)
             self.assertEqual(self.call("POST", "/api/pins/%d/close" % pid, None, h)[1]["state"], "done")
             rid = self.add(8, 9)
-            ps.APP.close_pin(rid, dict(LOCAL_ACTOR), CloseRequest())
+            ps.APP.pin_lifecycle.close_pin(rid, dict(LOCAL_ACTOR), CloseRequest())
             self.assertEqual(self.call("POST", "/api/pins/%d/confirm" % rid, None, h)[1]["state"], "done")
 
     def test_owner_person_can_confirm(self):
         self.set_people([{"login": "alice@example.com", "name": "Alice", "role": "owner"}])
         rid = self.add()
-        ps.APP.close_pin(rid, dict(LOCAL_ACTOR), CloseRequest())
+        ps.APP.pin_lifecycle.close_pin(rid, dict(LOCAL_ACTOR), CloseRequest())
         self.assertEqual(self.call("POST", "/api/pins/%d/confirm" % rid, None, ALICE)[1]["state"], "done")
 
     def test_agent_role_person_closes_into_review_and_cannot_confirm(self):
@@ -524,7 +525,7 @@ class Roles(AccessBase):
 
     def test_loopback_agent_confirm_is_403(self):
         rid = self.add()
-        ps.APP.close_pin(rid, dict(LOCAL_ACTOR), CloseRequest())
+        ps.APP.pin_lifecycle.close_pin(rid, dict(LOCAL_ACTOR), CloseRequest())
         code, d = self.call("POST", "/api/pins/%d/confirm" % rid)
         self.assertEqual(code, 403)
         self.assertEqual(d["error"], CONFIRM_BY_HUMAN)
@@ -555,7 +556,7 @@ class Roles(AccessBase):
                 }
             ]
         )
-        self.assertTrue(ps.APP.record_person({"login": "bob@example.com", "name": "Bob P."}, now=10**9 * 2))
+        self.assertTrue(ps.APP.people_directory.record({"login": "bob@example.com", "name": "Bob P."}, now=10**9 * 2))
         p = self.people_file()[0]
         self.assertEqual((p["role"], p["name"], p["first_seen"]), ("viewer", "Bob P.", "2026-09-01 10:00:00"))
 
@@ -1039,7 +1040,7 @@ class Migration(AccessBase):
             if path == "/api/pins/dropped":  # v0.2.2: the Trash adds a computed expires_ts
                 for r in new["dropped"]:  # and hides entries older than TRASH_DAYS
                     self.assertIsInstance(r.pop("expires_ts", 0), (int, float))
-                old["dropped"] = [r for r in old["dropped"] if not ps.APP.trash_expired(r)]
+                old["dropped"] = [r for r in old["dropped"] if not trash_rules.expired(r, ps.TRASH_DAYS, time.time())]
             recs = new["dropped"] if path == "/api/pins/dropped" else [new["pin"]] if path == "/api/pins/4" else new
             for r in recs:  # v0.3.2 (ADR-0006): an additive rel_path on line pins
                 rel = r.pop("rel_path", None)

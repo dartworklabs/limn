@@ -1,6 +1,6 @@
-"""limn.web.answers.revision_refused - the HTTP answer to every refusal of the revision routes, as one table.
+"""limn.features.revisions.answer.revision_refused - the HTTP answer to every refusal of the revision routes, as one table.
 
-GET /api/revision-diff|-build|-pdf and POST /api/revision-build answer each refusal value of limn.revisions (and the
+GET /api/revision-diff|-build|-pdf and POST /api/revision-build answer each refusal value of limn.features.revisions.core (and the
 pin-scoping refusals of limn.scope) with a fixed status, the Korean `error` text agents read and a stable `reason`
 (docs/handbook/api.md §변경 보기와 비교 PDF, §오류 응답). Most of these refusals need a git failure, a symlinked cache, a
 held lock or a vanished file to reach through a route, so the table builds each value directly and checks the whole
@@ -14,8 +14,8 @@ import json
 import typing
 import unittest
 
-from limn import revisions
-from limn.revisions import (
+from limn.features.revisions import answer as revision_answer, core as revisions
+from limn.features.revisions.core import (
     AllSlotsBusy,
     CommitNotRecent,
     DiffFailed,
@@ -29,7 +29,6 @@ from limn.revisions import (
     UnsafeCache,
 )
 from limn.scope import PinNotInDoc, ScopeMismatch, ScopeRefusal, ScopeUnreadable, ScopeUnwritable, UnsafePath
-from limn.web import answers
 from limn.web.errors import HTTPError
 
 from helpers import Base, req, split_resp
@@ -56,7 +55,7 @@ REFUSALS = {
 
 
 def refusal_types() -> set[type]:
-    """Every member of limn.revisions.RevisionRefusal, its nested unions flattened."""
+    """Every member of limn.features.revisions.core.RevisionRefusal, its nested unions flattened."""
     seen: set[type] = set()
     todo = list(typing.get_args(revisions.RevisionRefusal))
     while todo:
@@ -72,7 +71,7 @@ def refusal_types() -> set[type]:
 def answer_of(refusal) -> HTTPError:
     """The HTTPError revision_refused raises for refusal (it never returns)."""
     try:
-        answers.revision_refused(refusal)
+        revision_answer.revision_refused(refusal)
     except HTTPError as e:
         return e
     raise AssertionError("revision_refused returned for %r" % (refusal,))
@@ -85,7 +84,7 @@ class RevisionRefusalTable(unittest.TestCase):
         """A refusal type added to RevisionRefusal (or to the scoping refusals revision_refused also answers) without
         a row here would go unpinned: the sets must agree."""
         self.assertEqual(refusal_types() | set(typing.get_args(ScopeRefusal)), set(REFUSALS))
-        self.assertEqual(len([t for t in REFUSALS if t.__module__ == "limn.revisions"]), 11)
+        self.assertEqual(len([t for t in REFUSALS if t.__module__ == "limn.features.revisions.core"]), 11)
 
     def test_each_refusal_gets_its_status_reason_and_text(self):
         """revision_refused raises HTTPError(status, text, reason) and nothing more: no extra body field, no page."""
@@ -97,9 +96,9 @@ class RevisionRefusalTable(unittest.TestCase):
     def test_both_route_answers_refuse_through_the_same_table(self):
         """revision_answer (JSON routes) and revision_pdf_answer (the PDF route) pass a result through and answer a
         refusal exactly as revision_refused does."""
-        self.assertEqual(answers.revision_answer({"state": "ready"}), {"state": "ready"})
-        self.assertEqual(answers.revision_pdf_answer(b"%PDF-1.4"), b"%PDF-1.4")
-        for route in (answers.revision_answer, answers.revision_pdf_answer):
+        self.assertEqual(revision_answer.revision_answer({"state": "ready"}), {"state": "ready"})
+        self.assertEqual(revision_answer.revision_pdf_answer(b"%PDF-1.4"), b"%PDF-1.4")
+        for route in (revision_answer.revision_answer, revision_answer.revision_pdf_answer):
             for kind, (status, text, reason) in REFUSALS.items():
                 with self.subTest(route=route.__name__, refusal=kind.__name__), self.assertRaises(HTTPError) as cm:
                     route(kind())

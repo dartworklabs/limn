@@ -20,11 +20,11 @@ from pathlib import Path
 
 from limn import mapping
 from limn.access import LOCAL_ACTOR
+from limn.features.pins.claims import input as claims_input
 from limn.pins import render, render as md_render
 from limn.pins.lifecycle import CloseRequest
 from limn.pins.model import ThreadEntry
 from limn.pins.render import DocHeading, PinFacts, PinsMdInput, pins_md_text
-from limn.web import parse
 
 from helpers import (
     SKILL_KO,
@@ -466,7 +466,7 @@ class PinsMdV2(Base):
         for i in range(20):
             pid = self.add(4, 5, note="c%d" % i)
             # closed by a human = done (if an agent closes it, it stays in the table as awaiting review)
-            ps.APP.close_pin(pid, {"login": "a@example.com", "name": "A"}, CloseRequest())
+            ps.APP.pin_lifecycle.close_pin(pid, {"login": "a@example.com", "name": "A"}, CloseRequest())
         after = len(ps.APP.C.pins_md.read_text(encoding="utf-8").splitlines())
         self.assertEqual(before, after)
         self.assertIn("닫힌 핀 20건", ps.APP.C.pins_md.read_text(encoding="utf-8"))
@@ -649,10 +649,10 @@ class BuildHeadInPinsMd(Base):
         self.assertNotIn("기준:", md)
 
     def test_head_block_adds_at_most_two_lines(self):
-        without = ps.APP.pins_md_text([]).splitlines()
+        without = ps.APP.pin_markdown.pins_md_text([]).splitlines()
         (ps.APP.C.state / "head.txt").write_text("abc1234", encoding="utf-8")
         (ps.APP.C.state / "built_at.txt").write_text("2026-09-22 10:00:00", encoding="utf-8")
-        withit = ps.APP.pins_md_text([]).splitlines()
+        withit = ps.APP.pin_markdown.pins_md_text([]).splitlines()
         self.assertLessEqual(len(withit) - len(without), 2)
 
 
@@ -700,7 +700,7 @@ class AuthorPrefixInPinsMd(Base):
     def test_closed_pins_excluded_from_author_count(self):
         # a closed pin's author isn't shown in the open table, so it must be excluded from the count too (judged by open pins only).
         pid = self.add(4, 5, note="n1", actor={"login": "alice@example.com", "name": "Wendy"})
-        ps.APP.close_pin(pid, dict(LOCAL_ACTOR), CloseRequest())
+        ps.APP.pin_lifecycle.close_pin(pid, dict(LOCAL_ACTOR), CloseRequest())
         self.add(8, 8, note="n2", actor={"login": "bob@example.com", "name": "Bob"})
         md = ps.APP.C.pins_md.read_text(encoding="utf-8")
         self.assertNotIn("[Bob]", md)
@@ -761,7 +761,9 @@ class ClaimText(Base):
             self.assertEqual(md_render.claim_md(dict(r, eta_ts=now + left_s), now), "처리 중(Kim, %s)" % want)
         self.assertEqual([md_render.ceil5(m) for m in (0, 0.2, 5, 5.01, 14.9, 23)], [5, 5, 5, 10, 15, 25])
         pid = self.add()
-        ps.APP.claim_pin(pid, {"login": "k", "name": "에이전트 A"}, *parse.parse_claim_body({"eta_min": 15}))
+        ps.APP.pin_claims.claim_pin(
+            pid, {"login": "k", "name": "에이전트 A"}, *claims_input.parse_claim_body({"eta_min": 15})
+        )
         md = ps.APP.C.pins_md.read_text(encoding="utf-8")
         self.assertIn("처리 중(에이전트 A, 약 15분)", md)
 
@@ -774,7 +776,7 @@ class BadgeWordsInPinsMd(Base):
         b = self.add(4, 9)
         c = self.add(5, 6)
         edit_pin(c, {"note": "고침", "base_rev": self.pin(c)["rev"]}, dict(LOCAL_ACTOR))
-        ps.APP.claim_pin(c, {"login": "k", "name": "Kim"}, *parse.parse_claim_body({"eta_min": 10}))
+        ps.APP.pin_claims.claim_pin(c, {"login": "k", "name": "Kim"}, *claims_input.parse_claim_body({"eta_min": 10}))
         md = ps.APP.C.pins_md.read_text(encoding="utf-8")
         self.assertIn("| %d · #%d와 같은 범위 |" % (a, b), md)
         self.assertIn("| %d · #%d과 같은 범위 |" % (b, a), md)
@@ -795,7 +797,7 @@ class QuestionsInPinsMd(Base):
             dict(self.S),
         ).record["id"]
         for i in range(5):
-            ps.APP.reply_pin(q, "답글 %d\n둘째 줄 | 파이프" % i, dict(self.S))
+            ps.APP.pin_lifecycle.reply_pin(q, "답글 %d\n둘째 줄 | 파이프" % i, dict(self.S))
         md = ps.APP.C.pins_md.read_text(encoding="utf-8")
         row = next(ln for ln in md.splitlines() if ln.startswith("| %d " % q))
         self.assertIn("| %d · 질문 |" % q, row)
@@ -805,8 +807,8 @@ class QuestionsInPinsMd(Base):
         self.assertEqual(row.count("|") - row.count("\\|"), 6)  # still a 5-column table
         self.assertIn("/api/pins/N/reply", md)
         self.assertIn("'질문' = 고칠 곳이 아니라 물음이다", md)
-        ps.APP.close_pin(q, dict(self.S), CloseRequest(reply="답했다"))
-        ps.APP.reopen_pin(q, dict(self.S))
+        ps.APP.pin_lifecycle.close_pin(q, dict(self.S), CloseRequest(reply="답했다"))
+        ps.APP.pin_lifecycle.reopen_pin(q, dict(self.S))
         md = ps.APP.C.pins_md.read_text(encoding="utf-8")
         row = next(ln for ln in md.splitlines() if ln.startswith("| %d " % q))
         self.assertNotIn("[스레드", row)  # messages from before the close aren't shown
@@ -822,7 +824,9 @@ class ReviewInPinsMd(Base):
             {"file": str(self.main), "lo": 4, "hi": 5, "page": 1, "note": "q", "kind_req": "question"}, dict(self.S)
         ).record["id"]
         b = self.add(8, 9)
-        ps.APP.close_pin(a, dict(LOCAL_ACTOR), CloseRequest(reply="구간은 0 을 포함 | 유의하지 않음", ref="PR #12"))
+        ps.APP.pin_lifecycle.close_pin(
+            a, dict(LOCAL_ACTOR), CloseRequest(reply="구간은 0 을 포함 | 유의하지 않음", ref="PR #12")
+        )
         md = ps.APP.C.pins_md.read_text(encoding="utf-8")
         self.assertIn("열린 핀 1건  ·  검토 대기 1건(맨 아래, 처리하지 않는다)  ·  닫힌 핀 0건", md)
         sec = md[md.index("## 검토 대기 1건") :]
@@ -837,7 +841,7 @@ class ReviewInPinsMd(Base):
         self.assertEqual(starts, [str(b)])  # only open pins appear in the open table
         self.assertIn('`"review":true`', md)
         self.assertIn("검토 대기 핀은 다시 처리하지 않는다", md)
-        ps.APP.confirm_pin(a, dict(self.S))
+        ps.APP.pin_lifecycle.confirm_pin(a, dict(self.S))
         md = ps.APP.C.pins_md.read_text(encoding="utf-8")
         self.assertNotIn("## 검토 대기", md)
         # with nothing awaiting review, the header line reverts to the old look
@@ -856,7 +860,7 @@ class AddressedInPinsMd(Base):
         super().setUp()
 
     def test_pins_md_marks_human_addressed_pins_and_tells_agents_to_skip(self):
-        ps.APP.record_person(dict(self.W))
+        ps.APP.people_directory.record(dict(self.W))
         a = add_pin(
             {"file": str(self.main), "lo": 4, "hi": 5, "note": "@Wendy Kim 이 구간 맞나요?", "kind_req": "question"},
             dict(self.S),
@@ -867,13 +871,13 @@ class AddressedInPinsMd(Base):
         self.assertIn("| %d · → @Wendy Kim · 질문 |" % a, row)  # priority: reopened > -> @ > question
         self.assertIn("`→ @이름` 이 붙은 핀 1건은 담당이 사람인", md)
         self.assertIn("명시적으로 시키지 않으면 건너뛴다", md)
-        rows = ps.APP.pins_payload(ps.APP.snapshot_pins(), True)
+        rows = ps.APP.pin_listing.pins_payload(ps.APP.snapshot_pins(), True)
         self.assertEqual(next(r for r in rows if r["id"] == a)["addressed"], [self.W["login"]])
 
     # ---- assignee — docs/handbook/api.md §담당. Guessing the skip rule from free text was ambiguous (A-DEMO #43).
     def test_assignee_person_is_addressed_agent_is_fyi_and_legacy_falls_back(self):
-        ps.APP.record_person(dict(self.W))
-        ps.APP.record_person(dict(self.S))
+        ps.APP.people_directory.record(dict(self.W))
+        ps.APP.people_directory.record(dict(self.S))
         note = "이거 콜링 제대로 작동하나 @Bob Park 확인 부탁합니다"
         legacy = add_pin({"file": str(self.main), "lo": 4, "hi": 5, "note": note}, dict(self.W)).record["id"]
         person = add_pin(
@@ -890,7 +894,7 @@ class AddressedInPinsMd(Base):
             },
             dict(self.W),
         ).record["id"]
-        rows = {r["id"]: r for r in ps.APP.pins_payload(ps.APP.snapshot_pins(), True)}
+        rows = {r["id"]: r for r in ps.APP.pin_listing.pins_payload(ps.APP.snapshot_pins(), True)}
         self.assertNotIn("assignee", rows[legacy])  # legacy pin: no field -> inferred per #87 (fix request = fyi)
         self.assertEqual((rows[legacy]["addressed"], rows[legacy]["fyi"]), ([], [self.S["login"]]))
         self.assertEqual((rows[person]["addressed"], rows[person]["fyi"]), ([self.S["login"]], []))

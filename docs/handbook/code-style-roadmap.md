@@ -56,7 +56,7 @@
 
 **업계에서 부르는 이름.** Functional Core, Imperative Shell (Gary Bernhardt, "Boundaries" 발표). Mark Seemann은 같은 모양을 "impureim sandwich"라고 부른다.
 
-**지금 코드.** 핀 전이의 규칙은 [`limn/pins/lifecycle.py`](../../src/limn/pins/lifecycle.py)·[`limn/pins/edit.py`](../../src/limn/pins/edit.py)의 순수 함수다. 잠금 아래 불러오고 규칙에 묻고 받아들일 때만 쓰는 셸은 [`limn/service/`](../../src/limn/service/context.py)에 있다. 결과를 상태 코드와 본문으로 바꾸는 일은 [`limn/web/answers.py`](../../src/limn/web/answers.py)가 한다. 빌드도 같다. 빌드는 결과 값(`BuildOk`·`BuildOkWithErrors`·`FailedBuild` 등)을 돌려주고, `POST /api/rebuild` 의 본문과 실패 로그의 문장은 HTTP 층이 만든다([build-sync.md](build-sync.md) §빌드 결과).
+**지금 코드.** 핀 전이의 규칙은 [`limn/pins/lifecycle.py`](../../src/limn/pins/lifecycle.py)·[`limn/pins/edit.py`](../../src/limn/pins/edit.py)의 순수 함수다. 닫기·다시 열기·확인·답글의 잠금과 쓰기는 [`features/pins/lifecycle/service.py`](../../src/limn/features/pins/lifecycle/service.py), 결과의 HTTP 변환은 같은 기능의 [`http.py`](../../src/limn/features/pins/lifecycle/http.py)에 있다. claim·unclaim은 [`features/pins/claims/service.py`](../../src/limn/features/pins/claims/service.py), 삭제·복원은 [`features/pins/trash/service.py`](../../src/limn/features/pins/trash/service.py), 만들기·편집은 [`features/pins/editing/service.py`](../../src/limn/features/pins/editing/service.py)에 있다. `limn/service/context.py`는 여러 핀 셸의 공통 문맥이고 `web/answers.py`는 공통 HTTP 거절 형식만 맡는다. 빌드도 같다. 빌드는 결과 값(`BuildOk`·`BuildOkWithErrors`·`FailedBuild` 등)을 돌려주고, `POST /api/rebuild` 의 본문은 [`features/builds/answer.py`](../../src/limn/features/builds/answer.py)가, 실패 로그의 문장은 HTTP 경계가 만든다([build-sync.md](build-sync.md) §빌드 결과).
 
 > **예시**
 >
@@ -78,18 +78,19 @@ def confirm(pin: Pin, by: Person, at: str) -> DonePin | AlreadyDone | PinStillOp
             return PinStillOpen(pin)
 
 
-# limn/service/transitions.py - the shell: refuse an agent before the store, load, decide, write only a new DonePin
+# limn/features/pins/lifecycle/service.py - refuse an agent before the store
 def confirm_pin(
-    ctx: PinContext, pid: int, actor: Mapping[str, Any]
+    self, pid: int, actor: Mapping[str, Any]
 ) -> DonePin | AlreadyDone | PinStillOpen | AgentCannotConfirm | PinNotFound:
     by = confirmer(typed_actor(actor))
     if isinstance(by, AgentCannotConfirm):
         return by
+    ctx = self.context()
     ...
-    result = confirm(parse_pin(r), person, ctx.now())  # inside ctx.store.transact(...)
+    result = confirm(pin, person, ctx.now())  # inside ctx.store.transact(...)
 ```
 
-HTTP 층의 `confirm_answer()`가 이 다섯 결과를 `match` 하나로 받아 에이전트 계약의 상태 코드와 본문(200, `403 confirm_by_human`, `409 open`)으로 답한다.
+같은 기능의 `http.py`에 있는 `confirm_answer()`가 이 다섯 결과를 `match` 하나로 받아 에이전트 계약의 상태 코드와 본문(200, `403 confirm_by_human`, `409 open`)으로 답한다.
 
 **거절을 값으로 돌려주는 이유.** `raise`를 쓰면 서명은 `-> Pin`이라서, 호출하는 쪽은 docstring을 읽어야 거절이 있다는 걸 안다. 잊고 `try`를 빠뜨리면 거절이 처리기 밖까지 새어 500이 된다. 반환 타입에 결과가 모두 드러나면 타입 검사기와 `match`가 처리하지 않은 경우를 드러낸다. 예외는 결함(호출자가 전제를 어김)과 인프라 장애(파일·시간 초과)에만 쓴다. 일반 Result 라이브러리는 들이지 않는다. 보안 경계의 거절은 예외다(R10).
 
@@ -113,7 +114,7 @@ HTTP 층의 `confirm_answer()`가 이 다섯 결과를 `match` 하나로 받아 
 
 **업계에서 부르는 이름.** Make illegal states unrepresentable (Yaron Minsky, "Effective ML"). Scott Wlaschin의 책 *Domain Modeling Made Functional*이 같은 방법을 자세히 다룬다.
 
-**지금 코드.** 핀은 상태 타입의 합 `Pin = OpenPin | ReviewPin | DonePin`이고, 휴지통 사본은 `TrashedPin`이다([`limn/pins/model.py`](../../src/limn/pins/model.py)). 모든 상태가 함께 가진 필드는 `core: PinCore`로 타입이 있고, 전이·편집·위치 규칙은 `pin.core.rev`·`pin.core.thread`·`pin.core.place`처럼 이 속성을 읽는다. 그 상태에만 있는 필드는 타입의 속성이다. 열린 핀만 처리 중 표시(`Claim`)를, 닫힌 핀만 닫은 기록(`Close`)을, 완료 핀만 확인(`Confirmation`)을, 휴지통 사본만 삭제 기록(`Dropped`)을 가진다. 저장소는 레코드를 읽으며 핀으로 파싱해 서비스에 넘긴다. 저장 형식(`pins.jsonl`)과 API 모양은 그대로다([architecture.md](architecture.md) §불변식 3, 6). 비교 PDF 하나의 상태도 같은 방식으로 타입의 합(`IdleComparison | RunningComparison | ReadyComparison | FailedComparison`, [`limn/revisions.py`](../../src/limn/revisions.py))이다. 캐시를 읽는 쪽과 작업 목록이 이 타입을 내고, 캐시에서 답할지(`answered_from_cache`)와 응답 본문(`status_body`)은 타입으로 가른다. 저장된 `status.json`의 필드는 핀처럼 저장된 그대로 싣는다.
+**지금 코드.** 핀은 상태 타입의 합 `Pin = OpenPin | ReviewPin | DonePin`이고, 휴지통 사본은 `TrashedPin`이다([`limn/pins/model.py`](../../src/limn/pins/model.py)). 모든 상태가 함께 가진 필드는 `core: PinCore`로 타입이 있고, 전이·편집·위치 규칙은 `pin.core.rev`·`pin.core.thread`·`pin.core.place`처럼 이 속성을 읽는다. 그 상태에만 있는 필드는 타입의 속성이다. 열린 핀만 처리 중 표시(`Claim`)를, 닫힌 핀만 닫은 기록(`Close`)을, 완료 핀만 확인(`Confirmation`)을, 휴지통 사본만 삭제 기록(`Dropped`)을 가진다. 저장소는 레코드를 읽으며 핀으로 파싱해 서비스에 넘긴다. 저장 형식(`pins.jsonl`)과 API 모양은 그대로다([architecture.md](architecture.md) §불변식 3, 6). 비교 PDF 하나의 상태도 같은 방식으로 타입의 합(`IdleComparison | RunningComparison | ReadyComparison | FailedComparison`, [`features/revisions/jobs.py`](../../src/limn/features/revisions/jobs.py))이다. 캐시를 읽는 쪽과 작업 목록이 이 타입을 내고, 캐시에서 답할지(`answered_from_cache`)와 응답 본문(`status_body`)은 타입으로 가른다. 저장된 `status.json`의 필드는 핀처럼 저장된 그대로 싣는다.
 
 새 핀의 위치 값(`LinePlace`·`RegionPlace`)은 직접 생성해도 필수 좌표와 필드 종류를 검사하고, 저장 필드의 불변 스냅숏을 가진다. `AddRequest`·`EditRequest`는 내부 생성에서도 메모 길이와 필드 종류를 검사하고, `CloseRequest`는 변경 범위의 모양을 검사해 불변 사본으로 보관한다. HTTP 파서는 파일 존재·줄 수·문서의 쪽 수·담당자 신원처럼 외부 사실이 필요한 조건을 먼저 확인한다. `ClaimRequest`는 내부 생성에서도 양수 정수 시간을 요구하고, 닫기 이벤트의 적용 함수는 열린 핀만 받는다. HTTP의 시간 상한과 전이 허용 여부는 각각 경계와 판단 함수의 별도 책임이다.
 
@@ -163,7 +164,7 @@ def parse_pin(record: Record) -> Pin: ...  # by the one rule state_of(); never f
 
 **업계에서 부르는 이름.** Parse, don't validate (Alexis King).
 
-**지금 코드.** 요청 본문과 쿼리의 파서는 [`limn/web/parse.py`](../../src/limn/web/parse.py)에 있다. 처리기의 경로는 본문과 쿼리를 통째로 파서에 넘기고 필드를 직접 읽지 않는다. 경로마다 요청 타입(`ReplyRequest`, `DocChoice`, `RebuildQuery` 등)이 있고, 쿼리 스위치는 `parse_flag` 하나가 읽는다. 핀 위치도 사전이 아니라 타입(`LineLoc`, `RegionLoc`)이고, 저장할 때 `to_record()`가 늘 쓰던 키 순서로 바꾼다. 처리기는 파서가 돌려준 거절을 `accepted()`로 400 문장 그대로 답하고, 서비스에는 파싱된 값(`AddRequest`, `EditRequest` 등)만 넘긴다. 모든 거절 본문에는 안정 코드 `reason`이 붙는다([api.md](api.md) §오류 응답). `HTTPError`를 만드는 곳은 HTTP 층(`web/`)과 신원·입장·역할 판단([`limn/access.py`](../../src/limn/access.py), R10)뿐이다. 시작 단계의 거절은 `StartupRefused` 값이고 `sys.exit`은 `server.main()` 한 곳에만 있다([`limn/startup.py`](../../src/limn/startup.py)).
+**지금 코드.** 공통 문서 선택과 여러 기능이 함께 쓰는 요청 파서는 [`limn/web/parse.py`](../../src/limn/web/parse.py)에 있고, 닫기·다시 열기·답글 입력은 [`features/pins/lifecycle/input.py`](../../src/limn/features/pins/lifecycle/input.py), claim 입력은 [`features/pins/claims/input.py`](../../src/limn/features/pins/claims/input.py), 전체 비우기 확인 입력은 [`features/pins/trash/input.py`](../../src/limn/features/pins/trash/input.py), 핀 만들기·편집의 필드 검사·본문 입력·위치 검사는 [`features/pins/editing/fields.py`](../../src/limn/features/pins/editing/fields.py)·[`input.py`](../../src/limn/features/pins/editing/input.py)·[`location.py`](../../src/limn/features/pins/editing/location.py)에 있다. PDF 선택과 원문 구간·겹침 조회의 입력과 응답은 [`features/pins/location/`](../../src/limn/features/pins/location/input.py)이 소유한다. 빌드 조회와 재빌드의 이름·스위치 검사와 응답은 [`features/builds/`](../../src/limn/features/builds/input.py)이, Git 이력·비교 PDF의 입력·응답은 [`features/revisions/`](../../src/limn/features/revisions/input.py)이 소유한다. 기능 경로는 본문과 쿼리를 파서에 넘기고 필드를 직접 읽지 않는다. 경로마다 요청 타입(`ReplyRequest`, `DocChoice`, `RebuildQuery` 등)이 있고, 쿼리 스위치는 `parse_flag` 하나가 읽는다. 핀 위치도 사전이 아니라 타입(`LineLoc`, `RegionLoc`)이고, 저장할 때 `to_record()`가 늘 쓰던 키 순서로 바꾼다. 기능별 HTTP 입구는 파서가 돌려준 거절을 `accepted()`로 400 문장 그대로 답하고, 서비스에는 파싱된 값(`AddRequest`, `EditRequest` 등)만 넘긴다. 모든 거절 본문에는 안정 코드 `reason`이 붙는다([api.md](api.md) §오류 응답). `HTTPError`를 만드는 곳은 HTTP 경계(`web/`과 기능별 `http.py`) 및 신원·입장·역할 판단([`limn/access.py`](../../src/limn/access.py), R10)뿐이다. 시작 단계의 거절은 `StartupRefused` 값이고 `sys.exit`은 `server.main()` 한 곳에만 있다([`limn/startup.py`](../../src/limn/startup.py)).
 
 > **예시**
 >
@@ -212,22 +213,22 @@ def parse_note(v: object) -> str | InputRejected:
 
 **업계에서 부르는 이름.** 명시적 의존성 주입과 composition root (Mark Seemann, *Dependency Injection Principles, Practices, and Patterns*).
 
-**지금 코드.** `server.py`의 `ServerApplication`이 얼린 실행 설정 `C`(`RunConfig`), 실행별 자원 `RT`(`Runtime`), 문서 목록을 함께 갖는다. `start()`가 앱 하나와 그 앱에만 묶인 처리기 하위 클래스를 만들고 `StartedServer`로 소켓과 앱을 함께 돌려준다. import만으로는 앱이나 자원이 생기지 않는다. 같은 모듈에서 다음 실행을 시작해도 앞선 처리기의 앱과 런타임은 바뀌지 않는다. 다른 모듈은 서버를 가져오지 않고, HTTP 처리기가 `app.C`로 읽는 설정 몇 개를 빼면 `C`를 읽지 않는다. 앱 메서드는 설정을 작은 값(`BuildConfig`, `AccessSettings`, `MetaSettings`, `PickContext` 등)으로, 협력자를 `PinContext` 같은 값으로 넘긴다. 문서는 언제나 인자다. 처리기가 요청의 문서를 찾아 서비스마다 넘기고, 빌드 스레드는 자기 문서로 시작한다.
+**지금 코드.** `server.py`의 `ServerApplication`이 얼린 실행 설정 `C`(`RunConfig`), 실행별 자원 `RT`(`Runtime`), 문서 목록을 함께 갖는다. `start()`가 앱 하나와 그 앱에만 묶인 처리기 하위 클래스를 만들고 `StartedServer`로 소켓과 앱을 함께 돌려준다. import만으로는 앱이나 자원이 생기지 않는다. 같은 모듈에서 다음 실행을 시작해도 앞선 처리기의 앱과 런타임은 바뀌지 않는다. 다른 모듈은 서버를 가져오지 않고, HTTP 처리기가 `app.C`로 읽는 설정 몇 개를 빼면 `C`를 읽지 않는다. 앱은 현재 설정을 기능 서비스에 전달하고, 기능은 `BuildConfig`·`MetaSettings`·`PickContext` 같은 작은 값이나 `PinContext` 같은 협력자로 내부 실행 함수에 넘긴다. 문서는 언제나 인자다. 처리기가 요청의 문서를 찾아 서비스마다 넘기고, 빌드 스레드는 자기 문서로 시작한다.
 
 > **예시**
 >
 > 빌드 모듈은 문서와 설정을 인자로 받는다. 조립 지점은 이 인스턴스의 설정을 묶는 한 줄만 둔다.
 
 ```python
-# limn/build.py
+# features/builds/engine.py
 def compile_tex(D: BuildDoc, cfg: BuildConfig, pull: Callable[[], Json] | None) -> FinishedBuild:
     """Builds D with -synctex=1 from a copy, leaving the original untouched, then renders pages into a new directory and only swaps the pointer."""
 
 
-# server.py - the application binds this instance's settings
-def _build(self, D: Doc) -> FinishedBuild:
-    """The LaTeX build of document D with this instance's settings; --git-pull pulls first (limn.build.compile_tex)."""
-    return build.compile_tex(D, self.build_config(), self.repo_pull if self.C.git_pull else None)
+# features/builds/service.py - the service reads current settings at call time
+def compile(self, doc: Doc) -> FinishedBuild:
+    """Compile one LaTeX document, pulling its repository first when configured."""
+    return engine.compile_tex(doc, self.config(), self.pull if self.settings().git_pull else None)
 ```
 
 뷰어의 현재 문서 방문은 페이지 전체가 공유하는 `DOC`·`SWITCHSEQ`로 확인하고, 초안 저장·빌드 폴링·편집 카드·변경 보기·새 핀 작성의 화면 상태는 각각 `DRAFT`·`BUILD`·`EDITOR`·`REV`·`COMPOSE`가 소유한다([viewer.md](viewer.md) §여러 문서). 문서 방문을 넘는 비동기 응답은 `captureVisit()`·`currentVisit()`으로 그 방문이 여전히 현재인지 확인한다. 작성 패널과 위치 다시 잡기는 PDF 드래그 요청을 한 번에 하나만 받을 수 있어 `PICKSEQ`를 함께 쓴다.
@@ -240,7 +241,7 @@ def _build(self, D: Doc) -> FinishedBuild:
 
 **업계에서 부르는 이름.** 단일 책임 원칙(Robert C. Martin의 "변경 이유는 하나"). 더 오래된 뿌리는 David Parnas의 논문 "On the Criteria To Be Used in Decomposing Systems into Modules"다.
 
-**지금 코드.** 패키지는 순수 도메인, 부수효과 셸, HTTP 층, 조립 지점의 층으로 나뉜다([architecture.md](architecture.md) §현재 구조, §의존 방향). 경로마다의 책임은 [index.md](index.md) §파일 지도가 정본이다. 뷰어는 빌드 단계 없는 정적 파일이고, 스크립트와 스타일은 변경 이유가 다른 조각 파일로 나뉜다. 조각의 순서는 `viewer/parts.txt` 하나가 정하고, 서버는 그 순서대로 이어 붙이기만 한다([viewer.md](viewer.md) §뷰어 규칙을 바꿀 때).
+**지금 코드.** 핀·빌드·동기화·원고 이력·협업·문서 조회·뷰어 셸의 HTTP 경로와 토큰·멤버·이전 명령은 기능 슬라이스가 맡는다. 공통 `web/`은 요청 가드·문서 선택·등록 경로 호출을 맡고, `server.py`는 실행별 협력자를 조립한다. 저장·신원·문서 등 여러 기능이 함께 쓰는 규칙은 기본 모듈에, 사용자 운영 명령은 `features/administration/`에 있다([architecture.md](architecture.md) §현재 구조, §의존 방향). 경로마다의 책임은 [index.md](index.md) §파일 지도가 정본이다. 뷰어는 빌드 단계 없는 정적 파일이고, 스크립트와 스타일은 변경 이유가 다른 조각 파일로 나뉜다. 조각의 순서는 `viewer/parts.txt` 하나가 정하고, 서버는 그 순서대로 이어 붙이기만 한다([viewer.md](viewer.md) §뷰어 규칙을 바꿀 때).
 
 > **예시**
 >

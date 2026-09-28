@@ -12,7 +12,7 @@ Two parts:
 - Pure: make_event() builds one notice and decides who it goes to; events_since() picks what one person's poll
   returns. They read no file and no clock.
 - The file: EventLog appends notices (emit) and reads the records back (read, cached by the file's mtime/size).
-  The composition root (server.event_log()) passes the path, the process's lock and cache, and the clock.
+  The collaboration notice service binds the path, the process's lock and cache, and the clock.
 
 The module knows no run arguments, no HTTP and no server.
 """

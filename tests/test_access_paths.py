@@ -37,7 +37,7 @@ class PrincipalMatrix(AccessBase):
         code, d = self.call("POST", "/api/pins/%d/close" % pid, None, **kw)
         out["close"] = code if code != 200 else d["state"]
         pid = self.add()
-        ps.APP.close_pin(pid, dict(LOCAL_ACTOR), CloseRequest())
+        ps.APP.pin_lifecycle.close_pin(pid, dict(LOCAL_ACTOR), CloseRequest())
         out["confirm"] = self.call("POST", "/api/pins/%d/confirm" % pid, None, **kw)[0]
         before = len(ps.APP.snapshot_pins())
         out["clear"] = self.call("POST", "/api/clear", CLEAR_BODY, **kw)[0]
@@ -177,7 +177,7 @@ class ProxyHardening(AccessBase):
 
     def test_people_json_is_written_0600(self):
         ps.APP.RT.people_seen.clear()
-        ps.APP.record_person({"login": "bob@example.com", "name": "Bob"})
+        ps.APP.people_directory.record({"login": "bob@example.com", "name": "Bob"})
         self.assertEqual(ps.APP.C.people_file.stat().st_mode & 0o777, 0o600)
         os.chmod(ps.APP.C.people_file, 0o644)
         member_add(ps.APP.C.state, "carol@example.com")

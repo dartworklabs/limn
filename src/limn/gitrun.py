@@ -14,7 +14,7 @@ process gets:
   name a deploy key there. Everything else - HOME, PATH, SSH_AUTH_SOCK, the locale, proxy settings - passes unchanged.
 
 run_git() is the one call for commands whose whole output is read; open_git() starts one whose output is streamed;
-git_command() and git_env() are for limn.revisions' bounded reader, which runs git and the comparison-build sandbox
+git_command() and git_env() are for limn.features.revisions.core' bounded reader, which runs git and the comparison-build sandbox
 through the same pipe loop. Credential helpers configured in git keep working; only prompts are off.
 """
 

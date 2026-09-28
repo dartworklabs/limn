@@ -24,22 +24,49 @@ from email.message import Message
 from pathlib import Path
 from unittest import mock
 
-from limn import locate, mapping
+from limn import mapping
 from limn.documents import DocNotFound
+from limn.features.builds import http as builds_http
+from limn.features.pins.claims import http as claims_http
+from limn.features.pins.editing import http as editing_http
+from limn.features.pins.lifecycle import http as lifecycle_http
+from limn.features.pins.listing import http as listing_http
+from limn.features.pins.location import http as location_http, resolve as pick_resolve
+from limn.features.pins.trash import http as trash_http
+from limn.features.revisions import answer as revision_answer
+from limn.features.revisions.core import DocumentBusy
+from limn.features.viewer_shell import routes as viewer_shell_routes
 from limn.pins.edit import StaleEdit
 from limn.pins.lifecycle import AgentCannotConfirm, ClaimedByOther, NotInTrash, PinStillOpen, ThreadFull
 from limn.pins.model import DonePin, OpenPin, PinNotFound, ReviewPin, TrashedPin
-from limn.revisions import DocumentBusy
 from limn.viewer.assemble import ServedViewer
 from limn.web import answers
 from limn.web.app import App
-from limn.web.errors import PICK_REFUSALS, HTTPError, InputRejected, error_page_html, page_lang, ui_text
+from limn.web.errors import HTTPError, InputRejected, error_page_html, page_lang, ui_text
 
 from helpers import Base, ps, run_config
 from helpers_access import AccessBase, member_add, talk_to
 
 SRC = Path(__file__).resolve().parent.parent / "src"
 HANDLER_SOURCE = (SRC / "limn" / "web" / "handler.py").read_text(encoding="utf-8")
+BUILD_ROUTES_SOURCE = (SRC / "limn" / "features" / "builds" / "routes.py").read_text(encoding="utf-8")
+REVISION_ROUTES_SOURCE = (SRC / "limn" / "features" / "revisions" / "routes.py").read_text(encoding="utf-8")
+DOCUMENT_ROUTES_SOURCE = (SRC / "limn" / "features" / "document_views" / "routes.py").read_text(encoding="utf-8")
+COLLABORATION_ROUTES_SOURCE = (SRC / "limn" / "features" / "collaboration" / "routes.py").read_text(encoding="utf-8")
+LISTING_ROUTES_SOURCE = (SRC / "limn" / "features" / "pins" / "listing" / "routes.py").read_text(encoding="utf-8")
+LOCATION_ROUTES_SOURCE = (SRC / "limn" / "features" / "pins" / "location" / "routes.py").read_text(encoding="utf-8")
+EDITING_ROUTES_SOURCE = (SRC / "limn" / "features" / "pins" / "editing" / "routes.py").read_text(encoding="utf-8")
+VIEWER_SHELL_ROUTES_SOURCE = (SRC / "limn" / "features" / "viewer_shell" / "routes.py").read_text(encoding="utf-8")
+GET_ROUTE_SOURCES = (
+    HANDLER_SOURCE,
+    VIEWER_SHELL_ROUTES_SOURCE,
+    BUILD_ROUTES_SOURCE,
+    REVISION_ROUTES_SOURCE,
+    DOCUMENT_ROUTES_SOURCE,
+    COLLABORATION_ROUTES_SOURCE,
+    LISTING_ROUTES_SOURCE,
+    LOCATION_ROUTES_SOURCE,
+)
 
 
 def app_members() -> list:
@@ -70,10 +97,10 @@ class Binding(Base):
 
     def test_handler_sees_a_service_rebound_on_its_application(self):
         """The handler calls the application's current service and viewer after either is replaced."""
-        original = ps.APP.build_async
-        with mock.patch.object(ps.APP, "build_async", return_value={"sentinel": 1}) as fake:
-            self.assertIs(ps.Handler.app.build_async, fake)
-        self.assertEqual(ps.Handler.app.build_async, original)
+        original = ps.APP.build_requests
+        with mock.patch.object(ps.APP, "build_requests", {"sentinel": 1}) as fake:
+            self.assertIs(ps.Handler.app.build_requests, fake)
+        self.assertEqual(ps.Handler.app.build_requests, original)
         rebound = ps.new_runtime(ServedViewer("<p>rebound</p>", "", {}))
         with mock.patch.object(ps.APP, "RT", rebound):
             self.assertEqual(ps.Handler.app.viewer().page, "<p>rebound</p>")
@@ -84,6 +111,7 @@ class Binding(Base):
         for label in ("First", "Second"):
             app = mock.Mock(wraps=ps.Handler.app)
             app.viewer.return_value = ServedViewer(f"<p>{label}</p>", "", {})
+            app.get_routes = (lambda request, bound=app: viewer_shell_routes.get(request, bound),)
             handler = type(f"{label}Handler", (ps.Handler,), {"app": app})
             pages.append(talk_to(types.SimpleNamespace(Handler=handler), b"GET / HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n"))
 
@@ -158,6 +186,7 @@ class Binding(Base):
 
         replacement = mock.Mock(wraps=first.Handler.app)
         replacement.viewer.return_value = ServedViewer("<p>Replacement</p>", "", {})
+        replacement.get_routes = (lambda request: viewer_shell_routes.get(request, replacement),)
         with mock.patch.object(first.Handler, "app", replacement):
             self.assertEqual(get(first, "/"), b"<p>Replacement</p>")
             self.assertEqual(get(second, "/"), b"<p>Second</p>")
@@ -202,7 +231,8 @@ class HandlerStructure(unittest.TestCase):
         boundary."""
         raw = [
             "%d: %s" % (n.lineno, ast.unparse(n))
-            for n in ast.walk(ast.parse(HANDLER_SOURCE))
+            for source in GET_ROUTE_SOURCES
+            for n in ast.walk(ast.parse(source))
             if (
                 isinstance(n, ast.Call)
                 and isinstance(n.func, ast.Attribute)
@@ -231,8 +261,8 @@ class HandlerStructure(unittest.TestCase):
                 self.assertIn("reason='not_found'", exc)
 
 
-# One request per route of the handler (a /pages/ and a /vendor/pdfjs/ name stand for their prefixes, pin 1 for an
-# id). GuardOrder checks the lists against the handler's source, so a route added without a guard test fails there.
+# One request per route of the handler and registered feature routes (a /pages/ and a /vendor/pdfjs/ name stand for
+# their prefixes, pin 1 for an id). GuardOrder checks these lists against the route sources.
 PIN_ACTIONS = ("close", "reopen", "drop", "restore", "purge", "edit", "claim", "unclaim", "reply", "confirm")
 GET_ROUTES = (
     "/",
@@ -308,18 +338,25 @@ class GuardOrder(AccessBase):
         return [("GET", p) for p in GET_ROUTES] + [("POST", p) for p in POST_ROUTES]
 
     def test_the_route_lists_cover_the_handler(self):
-        """Every path the handler compares against, every prefix it serves and every pin action is in the lists."""
-        literals = set(re.findall(r'path == "([^"]+)"', HANDLER_SOURCE))
-        literals |= set(re.findall(r'path\.startswith\("([^"]+)"\)', HANDLER_SOURCE))
-        for group in re.findall(r"path in \(([^)]*)\)", HANDLER_SOURCE):
-            literals |= set(re.findall(r'"([^"]+)"', group))
+        """Every path the handler or registered feature route matches, and every pin action, is in the lists."""
+        literals = set()
+        for source in GET_ROUTE_SOURCES:
+            literals |= set(re.findall(r'path == "([^"]+)"', source))
+            literals |= set(re.findall(r'path\.startswith\("([^"]+)"\)', source))
+            for group in re.findall(r"path in \(([^)]*)\)", source):
+                literals |= set(re.findall(r'"([^"]+)"', group))
         self.assertGreater(len(literals), 20)
         routes = GET_ROUTES + POST_ROUTES
         for literal in sorted(literals):
             with self.subTest(literal=literal):
                 self.assertTrue(any(r == literal or (literal.endswith("/") and r.startswith(literal)) for r in routes))
-        acts = re.search(r"/api/pins/\(\\d\+\)/\(([a-z|]+)\)", HANDLER_SOURCE).group(1).split("|")
-        self.assertEqual(sorted(acts), sorted(PIN_ACTIONS))
+        post_paths = set()
+        for source in (BUILD_ROUTES_SOURCE, REVISION_ROUTES_SOURCE, LOCATION_ROUTES_SOURCE, EDITING_ROUTES_SOURCE):
+            post_paths |= set(re.findall(r'^POST_PATH = "([^"]+)"', source, re.M))
+        self.assertEqual(post_paths, {"/api/rebuild", "/api/revision-build", "/api/pick", "/api/pin"})
+        self.assertTrue(post_paths <= set(POST_ROUTES))
+        self.assertEqual(sorted(ps.APP.pin_actions), sorted(PIN_ACTIONS))
+        self.assertEqual(set(ps.APP.other_posts), {"/api/clear"})
 
     def test_every_route_checks_host_identity_admission_and_role_first(self):
         """An admitted request reads C (origin check on), host_ok, [origin_ok], identify, admit and, for a POST,
@@ -371,25 +408,27 @@ class Answers(unittest.TestCase):
 
     def test_one_pin_drop_purge_and_clear(self):
         """GET /api/pins/{id}, drop, purge and clear: their bodies, and the 404s of an unknown pin or Trash entry."""
-        self.assertEqual(answers.pin_answer({"id": 4}), {"pin": {"id": 4}})
+        self.assertEqual(listing_http.pin_answer({"id": 4}), {"pin": {"id": 4}})
         self.assert_refused(
-            lambda: answers.pin_answer(PinNotFound(4)), 404, {"error": "핀 #4 이 없습니다.", "reason": "pin_not_found"}
+            lambda: listing_http.pin_answer(PinNotFound(4)),
+            404,
+            {"error": "핀 #4 이 없습니다.", "reason": "pin_not_found"},
         )
         trashed = TrashedPin.from_record({"id": 4})
-        self.assertEqual(answers.drop_answer(trashed), {"ok": True})
-        self.assertEqual(answers.drop_answer(PinNotFound(4)), {"ok": False})
-        self.assertEqual(answers.purge_answer(trashed, 4), {"ok": True, "purged": 4})
+        self.assertEqual(trash_http.drop_answer(trashed), {"ok": True})
+        self.assertEqual(trash_http.drop_answer(PinNotFound(4)), {"ok": False})
+        self.assertEqual(trash_http.purge_answer(trashed, 4), {"ok": True, "purged": 4})
         self.assert_refused(
-            lambda: answers.purge_answer(NotInTrash(4), 4),
+            lambda: trash_http.purge_answer(NotInTrash(4), 4),
             404,
             {"error": "휴지통에 핀 #4 이 없습니다.", "reason": "not_in_trash"},
         )
-        self.assertEqual(answers.clear_answer({"cleared": 2}), {"cleared": 2, "ok": True})
+        self.assertEqual(trash_http.clear_answer({"cleared": 2}), {"cleared": 2, "ok": True})
 
     def test_a_build_pdf_that_cannot_be_served(self):
         """A named build is pdf_build_gone, no name is pdf_missing; the body names the build on screen."""
         self.assert_refused(
-            lambda: answers.build_pdf_gone("pages-1", "pages-2", str),
+            lambda: builds_http.pdf_gone("pages-1", "pages-2", str),
             404,
             {
                 "error": "그 빌드의 PDF 가 없습니다: pages-1",
@@ -399,7 +438,7 @@ class Answers(unittest.TestCase):
             },
         )
         self.assert_refused(
-            lambda: answers.build_pdf_gone("", "pages-2", str),
+            lambda: builds_http.pdf_gone("", "pages-2", str),
             404,
             {
                 "error": "그 빌드의 PDF 가 없습니다: ",
@@ -411,10 +450,10 @@ class Answers(unittest.TestCase):
 
     def test_a_revision_build_is_202_while_running(self):
         """POST /api/revision-build: 202 for running, 200 for any other state, a refusal through its table."""
-        self.assertEqual(answers.revision_start_answer({"state": "running"}), ({"state": "running"}, 202))
-        self.assertEqual(answers.revision_start_answer({"state": "ready"}), ({"state": "ready"}, 200))
+        self.assertEqual(revision_answer.revision_start_answer({"state": "running"}), ({"state": "running"}, 202))
+        self.assertEqual(revision_answer.revision_start_answer({"state": "ready"}), ({"state": "ready"}, 200))
         self.assert_refused(
-            lambda: answers.revision_start_answer(DocumentBusy()),
+            lambda: revision_answer.revision_start_answer(DocumentBusy()),
             409,
             {"error": "이 문서의 비교 PDF를 만드는 중입니다.", "reason": "busy"},
         )
@@ -423,29 +462,29 @@ class Answers(unittest.TestCase):
         """done (also when already done) -> ok; unknown id -> ok:false; an agent -> 403; an open pin -> 409 open."""
         done = {"id": 3, "done": True}
         self.assertEqual(
-            answers.confirm_answer(DonePin.from_record(done), show), {"ok": True, "pin": done, "state": "done"}
+            lifecycle_http.confirm_answer(DonePin.from_record(done), show), {"ok": True, "pin": done, "state": "done"}
         )
-        self.assertEqual(answers.confirm_answer(PinNotFound(3), show), {"ok": False, "pin": None, "state": None})
+        self.assertEqual(lifecycle_http.confirm_answer(PinNotFound(3), show), {"ok": False, "pin": None, "state": None})
         self.assert_refused(
-            lambda: answers.confirm_answer(AgentCannotConfirm(), show),
+            lambda: lifecycle_http.confirm_answer(AgentCannotConfirm(), show),
             403,
             {"error": answers.CONFIRM_BY_HUMAN, "reason": "confirm_by_human"},
         )
         self.assert_refused(
-            lambda: answers.confirm_answer(PinStillOpen(OpenPin.from_record({"id": 3})), show),
+            lambda: lifecycle_http.confirm_answer(PinStillOpen(OpenPin.from_record({"id": 3})), show),
             409,
-            {"error": "open", "reason": "open", "pin": {"id": 3}, "detail": answers.CONFIRM_OPEN_DETAIL},
+            {"error": "open", "reason": "open", "pin": {"id": 3}, "detail": lifecycle_http.CONFIRM_OPEN_DETAIL},
         )
 
     def test_claim_reports_the_applied_eta_only_when_sent(self):
         """The applied (clamped) eta is added only for a claim that sent one; a held claim is 409 claimed."""
         pin = OpenPin.from_record({"id": 5})
         self.assertEqual(
-            answers.claim_answer(pin, 30, None, show), {"ok": True, "pin": {"id": 5}, "ttl_min_applied": 30}
+            claims_http.claim_answer(pin, 30, None, show), {"ok": True, "pin": {"id": 5}, "ttl_min_applied": 30}
         )
-        self.assertEqual(answers.claim_answer(pin, 30, 240, show)["eta_min_applied"], 240)
+        self.assertEqual(claims_http.claim_answer(pin, 30, 240, show)["eta_min_applied"], 240)
         self.assert_refused(
-            lambda: answers.claim_answer(ClaimedByOther("bob", 1.0, None), 30, None, show),
+            lambda: claims_http.claim_answer(ClaimedByOther("bob", 1.0, None), 30, None, show),
             409,
             {"error": "claimed", "reason": "claimed", "claimed_by": "bob", "claim_until": 1.0, "eta_ts": None},
         )
@@ -453,26 +492,26 @@ class Answers(unittest.TestCase):
     def test_reply_says_whether_it_reopened_and_refuses_a_full_thread(self):
         """reopened follows the new thread entry's ev; a full thread is 409 full with the limit in the detail."""
         record = {"id": 2, "thread": [{"text": "again", "ev": "reopen"}]}
-        body = answers.reply_answer(OpenPin.from_record(record), show, lambda r: "open")
+        body = lifecycle_http.reply_answer(OpenPin.from_record(record), show, lambda r: "open")
         self.assertEqual((body["msg"], body["state"], body["reopened"]), (record["thread"][-1], "open", True))
         self.assert_refused(
-            lambda: answers.reply_answer(ThreadFull(200), show, lambda r: "open"),
+            lambda: lifecycle_http.reply_answer(ThreadFull(200), show, lambda r: "open"),
             409,
             {"error": "full", "reason": "full", "detail": "스레드가 가득 찼습니다(답글 200건). 새 핀으로 이어 가세요."},
         )
 
     def test_pick_answers_every_refusal_with_its_200_body(self):
-        """Each PickRefusal has one row in PICK_REFUSALS and answers the contract's 200 {"error", "reason"} body, the
+        """Each PickRefusal has one row in location_http.PICK_REFUSALS and answers the contract's 200 {"error", "reason"} body, the
         message filled with the refusal's detail."""
-        self.assertEqual(set(PICK_REFUSALS), set(typing.get_args(locate.PickRefusal)))
+        self.assertEqual(set(location_http.PICK_REFUSALS), set(typing.get_args(pick_resolve.PickRefusal)))
         self.assertEqual(
             [
-                answers.pick_answer(r)
+                location_http.pick_answer(r)
                 for r in (
-                    locate.GeneratedFile(".bbl"),
-                    locate.SynctexOutside(Path("/elsewhere/x.tex")),
-                    locate.SourceUnreadable(Path("/ms/bin.tex")),
-                    locate.NoSourceHere(),
+                    pick_resolve.GeneratedFile(".bbl"),
+                    pick_resolve.SynctexOutside(Path("/elsewhere/x.tex")),
+                    pick_resolve.SourceUnreadable(Path("/ms/bin.tex")),
+                    pick_resolve.NoSourceHere(),
                 )
             ],
             [
@@ -495,28 +534,30 @@ class Answers(unittest.TestCase):
     def test_pick_warning_joins_its_sentences_in_order(self):
         """stale first, then weak (or else split), then building, one space apart; a region: blank, then redrawing."""
         traced = mapping.Traced("synctex", 8, 8, 0.23, 8, 9, "paragraph", [], "para", True, None)
-        picked = locate.Picked(Path("/ms/main.tex"), 1, traced, 20, "", None, "", [], "pages", True, True)
-        w = answers.PICK_WARNINGS
-        self.assertEqual(answers.pick_warning(picked), " ".join([w["stale"], w["weak"] % 23.0, w["building"]]))
+        picked = pick_resolve.Picked(Path("/ms/main.tex"), 1, traced, 20, "", None, "", [], "pages", True, True)
+        w = location_http.PICK_WARNINGS
+        self.assertEqual(location_http.pick_warning(picked), " ".join([w["stale"], w["weak"] % 23.0, w["building"]]))
         split = dataclasses.replace(traced, weak=False, split=(8, 4))
         self.assertEqual(
-            answers.pick_warning(dataclasses.replace(picked, traced=split, stale=False, building=False)),
+            location_http.pick_warning(dataclasses.replace(picked, traced=split, stale=False, building=False)),
             "두 경로가 다른 곳을 가리킵니다(L8 / L4). 확인이 필요합니다.",
         )
-        body = answers.pick_answer(dataclasses.replace(picked, stale=False, building=False))
+        body = location_http.pick_answer(dataclasses.replace(picked, stale=False, building=False))
         self.assertEqual(
             list(body)[:11], ["file", "name", "page", "lo", "hi", "raw_lo", "raw_hi", "kind", "via", "score", "warn"]
         )
         self.assertEqual(
             (body["score"], body["warn"]), (0.23, "이 영역은 원문 대조가 약합니다(23%). 줄 범위를 눈으로 확인하세요.")
         )
-        region = locate.PickedRegion("rv", 1, [0.1, 0.1, 0.2, 0.2], "review.pdf", "review.pdf", "", 0, True, True, "p")
-        self.assertEqual(answers.pick_answer(region)["warn"], w["blank"] + " " + w["redrawing"])
+        region = pick_resolve.PickedRegion(
+            "rv", 1, [0.1, 0.1, 0.2, 0.2], "review.pdf", "review.pdf", "", 0, True, True, "p"
+        )
+        self.assertEqual(location_http.pick_answer(region)["warn"], w["blank"] + " " + w["redrawing"])
 
     def test_add_and_edit_answer_a_rejected_field_with_its_message(self):
         """A parser's InputRejected is a 400 whose error is the message, word for word, next to its reason code; a stale
         edit is 409 conflict."""
-        self.assertEqual(answers.add_answer(OpenPin.from_record({"id": 9})), {"id": 9})
+        self.assertEqual(editing_http.add_answer(OpenPin.from_record({"id": 9})), {"id": 9})
         self.assertEqual(answers.accepted(9), 9)
         self.assert_refused(
             lambda: answers.accepted(InputRejected("lo 는 정수여야 합니다.", "not_integer")),
@@ -524,12 +565,12 @@ class Answers(unittest.TestCase):
             {"error": "lo 는 정수여야 합니다.", "reason": "not_integer"},
         )
         self.assert_refused(
-            lambda: answers.edit_answer(PinNotFound(4), show),
+            lambda: editing_http.edit_answer(PinNotFound(4), show),
             404,
             {"error": "핀 #4 이 없습니다.", "reason": "pin_not_found"},
         )
         self.assert_refused(
-            lambda: answers.edit_answer(
+            lambda: editing_http.edit_answer(
                 StaleEdit(ReviewPin.from_record({"id": 4, "done": True, "review": True})), show
             ),
             409,

@@ -1,4 +1,4 @@
-"""limn.meta and the document lookups of limn.documents, called directly - no server, no run arguments.
+"""Document view reads and the document lookups of limn.documents, called directly - no server globals.
 
 GET /api/meta, /api/docs and /api/outline-labels are pinned end to end through the server in test_server.py
 (MultiDoc) and, for the light polling and the instance label, at the end of this file through server.py (LightMeta,
@@ -20,14 +20,15 @@ import unittest
 from dataclasses import dataclass
 from pathlib import Path
 
-from limn import build as limn_build, documents, meta, meta as limn_meta
+from limn import build as limn_build, documents
 from limn.access import LOCAL_ACTOR
 from limn.documents import Doc, DocNotFound
-from limn.meta import MetaSettings
+from limn.features.document_views import reads as meta
+from limn.features.document_views.reads import MetaSettings
 
 from helpers import Base, ps, req, set_config
 
-PKG = Path(meta.__file__).parent
+PKG = Path(documents.__file__).parent
 SERVER_GLOBALS = {"C", "cur_doc", "using_doc", "DOCS", "LEGACY_DOC", "BUILD_STATE", "BUILD_LOCK"}
 PNG = (
     b"\x89PNG\r\n\x1a\n"
@@ -127,9 +128,9 @@ class NoServerState(unittest.TestCase):
 
     def test_reads_no_server_global_and_never_imports_the_server(self):
         """No name the server keeps as hidden state appears, no `C.` is read, and nothing imports server.py."""
-        for name in ("meta.py", "documents.py", "outline.py"):
-            with self.subTest(module=name):
-                source = (PKG / name).read_text(encoding="utf-8")
+        for path in (Path(meta.__file__), PKG / "documents.py", PKG / "outline.py"):
+            with self.subTest(module=path.name):
+                source = path.read_text(encoding="utf-8")
                 tree = ast.parse(source)
                 names = {n.id for n in ast.walk(tree) if isinstance(n, ast.Name)}
                 self.assertEqual(names & SERVER_GLOBALS, set())
@@ -325,7 +326,7 @@ class LightMeta(Base):
         self.add()
         before = ps.APP.C.pins_jsonl.stat().st_mtime_ns
         for _ in range(5):
-            d = ps.APP.meta(ps.APP.docs[0], dict(LOCAL_ACTOR), light=True)
+            d = ps.APP.document_views.meta(ps.APP.docs[0], dict(LOCAL_ACTOR), light=True)
         after = ps.APP.C.pins_jsonl.stat().st_mtime_ns
         self.assertEqual(before, after)
         self.assertNotIn("n_open", d)
@@ -333,11 +334,11 @@ class LightMeta(Base):
             self.assertIn(k, d)
 
     def test_pins_rev_changes_only_when_file_changes(self):
-        rev0 = limn_meta.pins_rev(ps.APP.C.pins_jsonl)
+        rev0 = meta.pins_rev(ps.APP.C.pins_jsonl)
         self.add()
-        rev1 = limn_meta.pins_rev(ps.APP.C.pins_jsonl)
+        rev1 = meta.pins_rev(ps.APP.C.pins_jsonl)
         self.assertNotEqual(rev0, rev1)
-        rev2 = limn_meta.pins_rev(ps.APP.C.pins_jsonl)
+        rev2 = meta.pins_rev(ps.APP.C.pins_jsonl)
         self.assertEqual(rev1, rev2)  # unchanged if nothing changed
 
     def test_src_mtime_ignores_main_pdf_and_build_dir(self):
@@ -372,7 +373,7 @@ class LightMeta(Base):
 
     def test_built_src_mtime_file_missing_is_fine(self):
         self.assertIsNone(limn_build.read_built_src_mtime(ps.APP.docs[0]))
-        d = ps.APP.meta(ps.APP.docs[0], dict(LOCAL_ACTOR), light=True)
+        d = ps.APP.document_views.meta(ps.APP.docs[0], dict(LOCAL_ACTOR), light=True)
         self.assertIsNone(d["build_src_mtime"])
 
     def test_src_mtime_force_bypasses_cache(self):
@@ -412,14 +413,14 @@ class InstanceMeta(Base):
 
     def test_meta_exposes_label_accent_repo(self):
         set_config(label="A-DEMO", accent="#1d4ed8", repo="git@example.com:org/a-demo.git")
-        d = ps.APP.meta(ps.APP.docs[0], dict(LOCAL_ACTOR))
+        d = ps.APP.document_views.meta(ps.APP.docs[0], dict(LOCAL_ACTOR))
         self.assertEqual(d["label"], "A-DEMO")
         self.assertEqual(d["accent"], "#1d4ed8")
         self.assertEqual(d["repo"], "git@example.com:org/a-demo.git")
 
     def test_meta_repo_is_none_without_remote(self):
         set_config(repo=None)
-        d = ps.APP.meta(ps.APP.docs[0], dict(LOCAL_ACTOR), light=True)
+        d = ps.APP.document_views.meta(ps.APP.docs[0], dict(LOCAL_ACTOR), light=True)
         self.assertIsNone(d["repo"])
 
     def test_meta_endpoint_serves_new_fields(self):

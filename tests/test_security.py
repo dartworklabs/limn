@@ -19,8 +19,8 @@ from pathlib import Path
 from unittest import mock
 from urllib.parse import quote
 
-from limn import access
-from limn.cli import cli_audit
+from limn.features.administration import token_state
+from limn.features.administration.targets import cli_audit
 
 from helpers import DEFAULT_ACCESS, ps, req, set_config, split_resp
 from helpers_access import ALICE, BOB, CAROL, AccessBase, talk_to
@@ -108,7 +108,7 @@ class StateFolderInManuscript(AccessBase):
         ps.APP.C.state.mkdir()
         ps.APP.init_seq()
         self.set_people([{"login": "bob@example.com", "name": "Bob Park", "role": "viewer"}])
-        access.token_create(ps.APP.C.state, "ci", cli_audit(ps.APP.C.state))
+        token_state.token_create(ps.APP.C.state, "ci", cli_audit(ps.APP.C.state))
         self.pid = self.pin_id(ALICE)
         if not ps.APP.C.events_file.exists():
             ps.APP.C.events_file.write_text('{"id": 1, "kind": "mention"}\n', encoding="utf-8")

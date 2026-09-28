@@ -1,4 +1,4 @@
-"""limn.startup, limn.args and limn.config - the startup rules of `limn serve`, driven directly with plain values.
+"""The serve startup rules, arguments, and config, driven directly with plain values.
 
 The composition (server.start: configure_access, the --port probe, configure_run, prepare, report, listen) runs in
 tests/test_access.py (StartupRules, TailnetAgentStartup) and as a real process in tests/test_access.py (ServeBusyPort)
@@ -26,8 +26,8 @@ from unittest import mock
 from limn import args, config, startup
 from limn.access import LOOPBACK_AGENT_DEPRECATION
 from limn.documents import DOCS_MAX, RunPaths
-from limn.startup import (
-    AccessOptions,
+from limn.features.administration import serve_documents as startup_documents
+from limn.features.administration.serve_documents import (
     DocExtendedMalformed,
     DocExtendedNotTex,
     DocFileMissing,
@@ -44,9 +44,9 @@ from limn.startup import (
     DocPathEmpty,
     DocRootMissing,
     RunDocuments,
-    StartupRefused,
     TooManyDocs,
 )
+from limn.startup import AccessOptions, StartupRefused
 
 from helpers import DEFAULT_ACCESS, MINI_PDF, TEX as FIXTURE_TEX, run_config
 
@@ -78,7 +78,7 @@ class ModuleBoundary(unittest.TestCase):
 
     def test_no_server_import_no_run_settings_global_no_exit(self):
         """Neither imports limn.server, names the global C, or calls sys.exit (R3: only server.main exits)."""
-        for name in ("startup.py", "args.py", "config.py"):
+        for name in ("startup.py", "args.py", "config.py", "features/administration/serve_documents.py"):
             tree = ast.parse((SRC / name).read_text(encoding="utf-8"))
             with self.subTest(name):
                 modules = {a.name for n in ast.walk(tree) if isinstance(n, ast.Import) for a in n.names}
@@ -361,34 +361,34 @@ class Documents(unittest.TestCase):
         """A missing folder first, then --doc with --main, a bad --doc, a missing --main."""
         missing = self.ms / "nope"
         self.assertEqual(
-            startup.pick_documents(missing, ["x=y:main.tex"], "main.tex"),
+            startup_documents.pick_documents(missing, ["x=y:main.tex"], "main.tex"),
             StartupRefused("Manuscript directory does not exist: %s" % missing),
         )
         self.assertEqual(
-            startup.pick_documents(self.ms, ["x=y:bad.tex"], "main.tex"),
+            startup_documents.pick_documents(self.ms, ["x=y:bad.tex"], "main.tex"),
             StartupRefused("--doc and --main are not used together - the main file is set via the --doc path."),
         )
         self.assertEqual(
-            startup.pick_documents(self.ms, ["x=y:none.tex"], None),
+            startup_documents.pick_documents(self.ms, ["x=y:none.tex"], None),
             StartupRefused("--doc x: 파일이 없습니다: %s" % (self.ms / "none.tex")),
         )
         self.assertEqual(
-            startup.pick_documents(self.ms, [], "none.tex"),
+            startup_documents.pick_documents(self.ms, [], "none.tex"),
             StartupRefused("Top-level .tex does not exist: %s" % (self.ms / "none.tex")),
         )
 
     def test_main_is_the_first_latex_document_or_the_detected_one(self):
         """Under --doc the run's main is the first LaTeX document's (a PDF listed first is skipped); without --doc it
         is --main or the single top-level .tex, and there are no --doc documents."""
-        got = startup.pick_documents(self.ms, ["rv=View:view.pdf", "rr=R:sub/r.tex"], None)
+        got = startup_documents.pick_documents(self.ms, ["rv=View:view.pdf", "rr=R:sub/r.tex"], None)
         assert isinstance(got, RunDocuments)
         self.assertEqual(([d["key"] for d in got.docs or []], got.main), (["rv", "rr"], self.ms / "sub" / "r.tex"))
-        only_pdf = startup.pick_documents(self.ms, ["rv=View:view.pdf"], None)
+        only_pdf = startup_documents.pick_documents(self.ms, ["rv=View:view.pdf"], None)
         assert isinstance(only_pdf, RunDocuments)
         self.assertEqual(only_pdf.main, self.ms / "view.pdf")
-        self.assertEqual(startup.pick_documents(self.ms, [], None), RunDocuments(None, self.ms / "main.tex"))
+        self.assertEqual(startup_documents.pick_documents(self.ms, [], None), RunDocuments(None, self.ms / "main.tex"))
         self.assertEqual(
-            startup.pick_documents(self.ms, [], "sub/r.tex"), RunDocuments(None, self.ms / "sub" / "r.tex")
+            startup_documents.pick_documents(self.ms, [], "sub/r.tex"), RunDocuments(None, self.ms / "sub" / "r.tex")
         )
 
     def test_state_dir(self):
@@ -679,27 +679,27 @@ class DocArgs(unittest.TestCase):
         self.tmp.cleanup()
 
     def test_simple_tex_uses_its_folder_as_build_root(self):
-        d = startup.parse_doc_arg("rr=답변서:sub/rr/rr.tex", self.ms)
+        d = startup_documents.parse_doc_arg("rr=답변서:sub/rr/rr.tex", self.ms)
         self.assertEqual((d["key"], d["name"], d["kind"]), ("rr", "답변서", "tex"))
         self.assertEqual(d["src"], (self.ms / "sub" / "rr").resolve())
         self.assertEqual(d["main"], (self.ms / "sub" / "rr" / "rr.tex").resolve())
 
     def test_extended_form_sets_build_root_separately(self):
-        d = startup.parse_doc_arg("ms=본문:manuscript::2nd/m.tex", self.ms)
+        d = startup_documents.parse_doc_arg("ms=본문:manuscript::2nd/m.tex", self.ms)
         self.assertEqual(d["src"], (self.ms / "manuscript").resolve())
         self.assertEqual(d["main"], (self.ms / "manuscript" / "2nd" / "m.tex").resolve())
-        doc = startup.make_docs(["ms=본문:manuscript::2nd/m.tex"], self.ms, self.paths)[0]
+        doc = startup_documents.make_docs(["ms=본문:manuscript::2nd/m.tex"], self.ms, self.paths)[0]
         self.assertEqual(doc.main_rel, Path("2nd/m.tex"))
         # latexmk runs from the folder that holds the main file
         self.assertEqual(doc.out, self.paths.state / "docs" / "ms" / "build" / "2nd")
 
     def test_pdf_is_view_only(self):
-        d = startup.parse_doc_arg("rv=리뷰어 코멘트:sub/review.pdf", self.ms)
+        d = startup_documents.parse_doc_arg("rv=리뷰어 코멘트:sub/review.pdf", self.ms)
         self.assertEqual(d["kind"], "pdf")
         self.assertEqual(d["name"], "리뷰어 코멘트")  # a space inside the name is kept as-is
 
     def test_absolute_path_inside_manuscript_is_accepted(self):
-        d = startup.parse_doc_arg("rr=답변서:%s" % (self.ms / "sub" / "rr" / "rr.tex"), self.ms)
+        d = startup_documents.parse_doc_arg("rr=답변서:%s" % (self.ms / "sub" / "rr" / "rr.tex"), self.ms)
         self.assertEqual(d["kind"], "tex")
 
     def test_rejects_bad_specs(self):
@@ -780,22 +780,23 @@ class DocArgs(unittest.TestCase):
         ]
         for spec, refusal, message in cases:
             with self.subTest(spec):
-                got = startup.parse_doc_arg(spec, self.ms)
+                got = startup_documents.parse_doc_arg(spec, self.ms)
                 self.assertEqual(got, refusal)
-                self.assertEqual(startup.doc_refusal_message(refusal), message)
+                self.assertEqual(startup_documents.doc_refusal_message(refusal), message)
         self.assertTrue((m2 / "2nd" / "m.tex").is_file())  # the '::' cases above fail on their rule, not a missing file
 
     def test_make_docs_rejects_duplicate_keys_and_marks_main_root(self):
         """make_docs returns the list's own refusals (a repeated key; more than DOCS_MAX values, counted before any is
         parsed) and passes a value's refusal on unchanged; a LaTeX document keyed main sits at the state-folder root."""
         self.assertEqual(
-            startup.make_docs(["rr=a:sub/rr/rr.tex", "rr=b:sub/rr/rr.tex"], self.ms, self.paths), DocKeyRepeated("rr")
+            startup_documents.make_docs(["rr=a:sub/rr/rr.tex", "rr=b:sub/rr/rr.tex"], self.ms, self.paths),
+            DocKeyRepeated("rr"),
         )
-        self.assertEqual(startup.doc_refusal_message(DocKeyRepeated("rr")), "--doc 키가 겹칩니다: rr")
+        self.assertEqual(startup_documents.doc_refusal_message(DocKeyRepeated("rr")), "--doc 키가 겹칩니다: rr")
         self.assertEqual(
-            startup.make_docs(["rr=a:sub/rr/rr.tex", "RR=b:x.tex"], self.ms, self.paths), DocKeyInvalid("RR")
+            startup_documents.make_docs(["rr=a:sub/rr/rr.tex", "RR=b:x.tex"], self.ms, self.paths), DocKeyInvalid("RR")
         )
-        docs = startup.make_docs(
+        docs = startup_documents.make_docs(
             ["main=본문:manuscript/2nd/m.tex", "rr=답변서:sub/rr/rr.tex", "rv=코멘트:sub/review.pdf"],
             self.ms,
             self.paths,
@@ -805,9 +806,9 @@ class DocArgs(unittest.TestCase):
         self.assertEqual([d.root for d in docs], [True, False, False])
         self.assertEqual([d.kind for d in docs], ["tex", "tex", "pdf"])
         too_many = ["d%d=x:missing.tex" % i for i in range(DOCS_MAX + 1)]
-        self.assertEqual(startup.make_docs(too_many, self.ms, self.paths), TooManyDocs(DOCS_MAX + 1))
+        self.assertEqual(startup_documents.make_docs(too_many, self.ms, self.paths), TooManyDocs(DOCS_MAX + 1))
         self.assertEqual(
-            startup.doc_refusal_message(TooManyDocs(DOCS_MAX + 1)),
+            startup_documents.doc_refusal_message(TooManyDocs(DOCS_MAX + 1)),
             "--doc 는 %d개까지입니다(지금 %d개)" % (DOCS_MAX, DOCS_MAX + 1),
         )
 

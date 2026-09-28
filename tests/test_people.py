@@ -282,13 +282,15 @@ class PeopleOnTheServer(Base):
         super().setUp()
 
     def test_people_json_records_humans_only_and_throttles(self):
-        self.assertFalse(ps.APP.record_person(dict(LOCAL_ACTOR)))
+        self.assertFalse(ps.APP.people_directory.record(dict(LOCAL_ACTOR)))
         self.assertFalse(ps.APP.C.people_file.exists())
-        self.assertTrue(ps.APP.record_person(dict(self.S, pic="https://p/s.png"), now=1000))
+        self.assertTrue(ps.APP.people_directory.record(dict(self.S, pic="https://p/s.png"), now=1000))
         # same value within 10 minutes — not written
-        self.assertFalse(ps.APP.record_person(dict(self.S, pic="https://p/s.png"), now=1100))
-        self.assertTrue(ps.APP.record_person(dict(self.S, name="Bob P."), now=1101))  # written when the name changes
-        self.assertTrue(ps.APP.record_person(dict(self.W), now=2000))
+        self.assertFalse(ps.APP.people_directory.record(dict(self.S, pic="https://p/s.png"), now=1100))
+        self.assertTrue(
+            ps.APP.people_directory.record(dict(self.S, name="Bob P."), now=1101)
+        )  # written when the name changes
+        self.assertTrue(ps.APP.people_directory.record(dict(self.W), now=2000))
         d = json.loads(ps.APP.C.people_file.read_text(encoding="utf-8"))
         self.assertEqual(d["version"], 1)
         self.assertEqual([p["login"] for p in d["people"]], [self.S["login"], self.W["login"]])
@@ -297,19 +299,19 @@ class PeopleOnTheServer(Base):
         self.assertTrue(s["first_seen"] <= s["last_seen"])
 
     def test_people_json_write_is_atomic(self):
-        ps.APP.record_person(dict(self.S), now=1000)
+        ps.APP.people_directory.record(dict(self.S), now=1000)
         before = ps.APP.C.people_file.read_bytes()
         with mock.patch.object(os, "replace", side_effect=OSError("disk full")):
-            self.assertFalse(ps.APP.record_person(dict(self.W), now=2000))
+            self.assertFalse(ps.APP.people_directory.record(dict(self.W), now=2000))
         self.assertEqual(ps.APP.C.people_file.read_bytes(), before)  # the old file is unchanged (no half-written file)
         with mock.patch.object(os, "replace", side_effect=OSError("disk full")):
-            ps.APP.emit_events([{"type": "mention", "pin": 1, "to": ["x"]}])
+            ps.APP.notices.emit_events([{"type": "mention", "pin": 1, "to": ["x"]}])
         self.assertFalse(ps.APP.C.events_file.exists())
 
     def test_viewer_open_records_person_and_people_api_merges_pin_actors(self):
         self.talk(req("GET", "/", headers=self.HW))
         self.talk(req("GET", "/api/meta?light=1", headers=self.HS))  # polling doesn't count
-        self.assertEqual([p["login"] for p in ps.APP.load_people()], [self.W["login"]])
+        self.assertEqual([p["login"] for p in ps.APP.people_directory.load()], [self.W["login"]])
         add_pin({"file": str(self.main), "lo": 4, "hi": 5, "note": "x"}, dict(self.S)).record["id"]
         code, _, raw = split_resp(self.talk(req("GET", "/api/people", headers=self.HW)))
         d = json.loads(raw)

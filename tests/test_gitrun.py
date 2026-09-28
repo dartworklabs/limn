@@ -21,9 +21,13 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
-from limn import build, cli, gitrun, gitsync, revisions, startup
+from limn import gitrun, startup
+from limn.features.administration import token_files
+from limn.features.builds import engine as build_engine
+from limn.features.revisions import core as revisions
+from limn.features.sync import run as gitsync
+from limn.features.sync.rules import UpToDate
 from limn.gitrun import KEPT_GIT_VARS, git_command, git_env
-from limn.pull import UpToDate
 
 SRC = Path(gitrun.__file__).resolve().parent
 
@@ -215,17 +219,22 @@ class CallSites(unittest.TestCase):
         state = Path(self.tmp.name) / "state"
         (state / "pages-1").mkdir(parents=True)
         head = self.assert_hygienic(
-            "build.commit_pages", lambda: build.commit_pages(SimpleNamespace(dir=state, src=repo), state / "pages-1")
+            "build_engine.commit_pages",
+            lambda: build_engine.commit_pages(SimpleNamespace(dir=state, src=repo), state / "pages-1"),
         )
         self.assertEqual(head, second[: len(head)])
         url = self.assert_hygienic("startup.git_remote_url", lambda: startup.git_remote_url(repo))
         self.assertEqual(url, str(self.origin))
-        held = self.assert_hygienic("cli.git_tree_holding", lambda: cli.git_tree_holding(repo / "cfg" / "x.token"))
+        held = self.assert_hygienic(
+            "token_files.git_tree_holding", lambda: token_files.git_tree_holding(repo / "cfg" / "x.token")
+        )
         self.assertEqual(held, (str(repo), None))
 
     def test_the_token_file_check_reads_messages_in_the_c_locale(self):
         """git_tree_holding still reads git's messages in the C locale (LC_ALL=C on top of the clean environment)."""
-        self.assert_hygienic("cli.git_tree_holding", lambda: cli.git_tree_holding(self.repo / "x.token"))
+        self.assert_hygienic(
+            "token_files.git_tree_holding", lambda: token_files.git_tree_holding(self.repo / "x.token")
+        )
         self.assertEqual(self.records()[-1]["env"]["LC_ALL"], "C")
 
 

@@ -3,8 +3,8 @@
 Everything here takes lines of text, numbers and path strings and returns values: no files, clock, subprocess, HTTP
 or module state (coding rule R1, docs/handbook/code-style-roadmap.md). That includes finding a stored pin's file
 under a moved manuscript (pin_rel_path), whose existence checks come in as a callback. The effectful half - running
-SyncTeX and pdftotext, reading .tex files, the token-weight cache, re-syncing stored pins, resolving paths - is
-limn/locate.py, which calls into this module (and into limn.pins.position for the rules about stored pins). The rules
+SyncTeX and pdftotext, reading .tex files, the token-weight cache, re-syncing stored pins, resolving paths - is in
+features/pins/location and limn/locate.py. Both call into this module; stored pin rules also use limn.pins.position. The rules
 themselves are described in docs/handbook/domain.md.
 """
 
@@ -20,7 +20,7 @@ FLOAT_KINDS = ("figure", "table", "algorithm")
 
 ENV_TOK_RE = re.compile(r"\\(begin|end)\{([^{}]+)\}")
 
-# A word token of the selected text and its rarity weight (limn.locate.TokenCache.weights()).
+# A word token of the selected text and its rarity weight (features.pins.location.source.TokenCache.weights()).
 TokenWeights: TypeAlias = Sequence[tuple[str, float]]
 # One rung of the range ladder: level, lo, hi, label, n, snippet, and env/merged when present (compute_levels()).
 Level: TypeAlias = dict[str, Any]

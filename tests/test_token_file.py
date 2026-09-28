@@ -258,29 +258,33 @@ class SaveTokenFileReview(SandboxTest):
 
     def test_a_failed_revoke_after_a_failed_write_names_the_live_token(self):
         """If even the rollback fails, the error names the token still valid and the command that revokes it."""
-        from limn import cli
+        from limn.features.administration import token_files, tokens
+        from limn.features.administration.targets import CliError
 
         env = {k: v for k, v in self.box.env.items() if k.startswith(("LIMN_", "XDG_", "HOME"))}
         with (
             mock.patch.dict(os.environ, env),
-            mock.patch.object(cli, "write_token_file", side_effect=PermissionError(13, "Permission denied")),
-            mock.patch("limn.access.token_revoke", side_effect=OSError(28, "No space left on device")),
+            mock.patch.object(token_files, "write_token_file", side_effect=PermissionError(13, "Permission denied")),
+            mock.patch(
+                "limn.features.administration.token_state.token_revoke",
+                side_effect=OSError(28, "No space left on device"),
+            ),
             mock.patch.object(sys, "stderr", new_callable=lambda: open(os.devnull, "w")) as err,
         ):
             self.addCleanup(err.close)
-            with self.assertRaises(cli.CliError) as cm:
-                cli.cmd_token(["create", "paper", "--save"])
+            with self.assertRaises(CliError) as cm:
+                tokens.cmd_token(["create", "paper", "--save"])
         [entry] = self.box.tokens()
         self.assertIn("still valid", str(cm.exception))
         self.assertIn("limn token revoke paper %s" % entry["id"], str(cm.exception))
 
     def test_a_failed_replace_leaves_no_copy_of_the_token_behind(self):
         """--force writes a temp file first; when the swap fails the temp file (holding the token) is removed."""
-        from limn import cli
+        from limn.features.administration import token_files
 
         self.box.token_file.write_text("limn_old\n", encoding="utf-8")
         with mock.patch("os.replace", side_effect=OSError(18, "Invalid cross-device link")), self.assertRaises(OSError):
-            cli.write_token_file(self.box.token_file, "limn_new", replace=True)
+            token_files.write_token_file(self.box.token_file, "limn_new", replace=True)
         self.assertEqual(sorted(p.name for p in self.box.cfg.iterdir()), ["paper.env", "paper.token"])
         self.assertEqual(self.box.token_file.read_text(encoding="utf-8"), "limn_old\n")
 

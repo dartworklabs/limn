@@ -2,10 +2,10 @@
 // Only one input field is ever open. Its DOM is held on REPLY.el, and when drawPins() redraws cards, it's re-inserted
 // into .reply-slot - so the 5-second auto-sync redrawing the list never loses the draft text or cursor (focus is
 // restored too). There is one [답글] for every state: on a closed pin (awaiting review or done) the server decides whether the
-// reply reopens it (reply_reopens), and the line under the box (.r-outcome) previews that decision with the same rule
+// reply reopens it (reopens_on_reply), and the line under the box (.r-outcome) previews that decision with the same rule
 // (replyReopens) - [상태 유지] (REPLY.keep) overrides it with reopen:false. Sending is deferred behind an undo toast.
 function isHuman(){const me=typeof META!=='undefined'&&META&&META.me; return !!(me&&me.login&&me.login!==LOCAL_LOGIN&&!String(me.login).startsWith('agent:')&&me.role!==ROLE.AGENT);}
-// Mirrors the server's reply_reopens(): an open pin never changes; an explicit override (true/false) wins; otherwise a person's reply
+// Mirrors limn.pins.lifecycle.reopens_on_reply(): an open pin never changes; an explicit override (true/false) wins; otherwise a person's reply
 // on a closed pin reopens it unless it tags a person or the pin is a question. mentioned = the post's resolved @-tags without me.
 function replyReopens(p,human,mentioned,override){if(pinState(p)===PIN_STATE.OPEN)return false;
   if(override!==undefined&&override!==null)return !!override;
@@ -82,4 +82,3 @@ function sendReply(){const R=REPLY; if(!R||viewerBlocked())return; const ta=R.el
     ()=>back(null));
   // Keyboard users (Ctrl+Enter) land on [되돌리기], so Enter undoes; the toast still commits when it goes away.
   const b=d.toast&&d.toast.querySelector('.t-acts button'); if(b)b.focus({preventScroll:true});}
-

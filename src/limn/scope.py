@@ -6,7 +6,7 @@ change belonged to which pin. The commit's -U0 hunks ("blocks") are attributed t
 does. The source diff then shows only those blocks, and the comparison PDF compiles old + only those blocks.
 
 Everything here is pure (coding rule R1): bytes and records in, values out - no file, clock, git or HTTP. The git
-edge that reads a commit into FileChange values, and the comparison build, are in limn/revisions.py. An expected
+edge that reads a commit into FileChange values, and the comparison build, are in limn/features/revisions/core.py. An expected
 refusal is a returned value of the ScopeRefusal set; limn.web.errors.SCOPE_REJECTIONS is the one table that turns
 each into a status, a Korean message and an API reason.
 """

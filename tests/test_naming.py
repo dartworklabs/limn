@@ -1,7 +1,7 @@
 """Repository hygiene: one name for the app, and no personal data.
 
 1. The app is called Limn everywhere. Its former names may appear only in the README "History"
-   sections, in `limn migrate` (src/limn/migrate.py) and its tests, and in a CHANGELOG.
+   sections, in `limn migrate` (src/limn/features/administration/migrate.py) and its tests, and in a CHANGELOG.
 2. No personal data: real e-mail domains, home paths, tailnet/machine names, avatar URLs, or the
    names of the papers the app was first used on. The patterns are assembled from pieces so this
    file does not contain them literally.
@@ -69,7 +69,7 @@ PERSONAL = re.compile(
     re.I,
 )
 
-ALLOWED_OLD_NAME_FILES = {"src/limn/migrate.py", "tests/test_migrate.py", "CHANGELOG.md"}
+ALLOWED_OLD_NAME_FILES = {"src/limn/features/administration/migrate.py", "tests/test_migrate.py", "CHANGELOG.md"}
 HISTORY_READMES = {"README.md", "README.ko.md"}
 HISTORY_HEADING = re.compile(r"^## (History|출처|이력)", re.M)
 

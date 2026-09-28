@@ -10,8 +10,8 @@ one"), the warning about such a file (UnreadableWarning), the running server's w
 PeopleBook; never over an unusable file), the @-tag candidates made from people.json rows and the pins
 (known_people, pure) and their order and roles as GET /api/people lists them (candidates, pure).
 
-The module knows no run arguments, no HTTP and no server. The composition root (server.people_book()) passes where the
-file is, the process's lock and its last-written memo, the clock, and the rule that tells an agent from a person.
+The module knows no run arguments, no HTTP and no server. The collaboration directory binds the file path, process
+lock, last-written memo, clock, and the rule that tells an agent from a person.
 """
 
 from __future__ import annotations

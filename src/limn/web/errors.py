@@ -4,8 +4,8 @@ HTTPError is the one exception the handler turns into an error response ({"error
 <code>, ...extra}); the messages and reason codes are part of the agent contract (docs/handbook/api.md §오류 응답) and
 the messages are never reworded - the viewer shows English by the reason (ui_en.json `reason:<code>`). InputRejected is the value a
 boundary parser returns instead of raising. The tables below give the pin-scoping refusals (limn.scope) and the
-failed steps of a comparison build (limn.revisions.StepFailed) their texts, and PICK_REFUSALS the selections that
-cannot be traced to a manuscript line (limn.locate.PickRefusal): the HTTP answers read them, and the
+failed steps of a comparison build (limn.features.revisions.core.StepFailed) their texts. Pick refusals live with the location
+feature. The HTTP answers read these tables, and the
 composition root hands revision_failure_text() to the comparison worker, which records the same texts in its status.
 BUILD_FAILURES gives a failed document build (limn.build.FailedBuild) the text its log opens with;
 build_failure_log() is handed to the build the same way.
@@ -20,8 +20,7 @@ from email.message import Message
 from typing import NamedTuple, TypeAlias
 
 from limn.build import BuildAborted, BuildFailed, BuildFailureKind, CopyFailed, FailedBuild
-from limn.locate import GeneratedFile, NoSourceHere, PickRefusal, SourceUnreadable, SynctexOutside
-from limn.revisions import BuildFailure, FailureKind, StepFailed
+from limn.features.revisions.core import BuildFailure, FailureKind, StepFailed
 from limn.scope import PinNotInDoc, ScopeMismatch, ScopeRefusal, ScopeUnreadable, ScopeUnwritable, UnsafePath
 
 # A page-kind error's (kind, params): kind is a key of ERROR_PAGE_TEXT, params fill its {placeholders}.
@@ -62,7 +61,7 @@ class InputRejected(NamedTuple):
 
 
 # Expected refusals of pin scoping (limn.scope.ScopeRefusal, one type each) -> (status, message, API reason). The one
-# place they become responses - the revision answers for requests (answers.revision_answer), and through
+# place they become responses - the revision answers for requests (features.revisions.answer.revision_answer), and through
 # revision_failure_text() the status a failed comparison build stores. The messages and reasons are part of the agent
 # contract (api.md §핀 단위 변경 보기); tests pin every body and check that every refusal type has its row.
 SCOPE_REJECTIONS: dict[type[ScopeRefusal], tuple[int, str, str]] = {
@@ -80,19 +79,7 @@ def scope_http_error(e: ScopeRefusal) -> HTTPError:
     return HTTPError(code, msg, reason=reason)
 
 
-# Why a selection is not traced to manuscript lines (limn.locate.PickRefusal, one type each) -> (message, API reason).
-# POST /api/pick answers each with a 200 {"error", "reason"} body (answers.pick_answer), the message filled with the
-# refusal's detail: the generated file's suffix, the path SyncTeX named, the unreadable file. The messages and reasons
-# are part of the agent contract (api.md §오류 응답); tests pin every body and check that every refusal type has its row.
-PICK_REFUSALS: dict[type[PickRefusal], tuple[str, str]] = {
-    GeneratedFile: ("여기는 생성 파일(%s)입니다. 참고문헌은 .bib 나 본문 \\cite 를 고쳐야 합니다.", "generated_file"),
-    SynctexOutside: ("SyncTeX 가 원고 밖 파일을 가리킵니다(%s). PDF 재빌드 뒤 다시 골라 보세요.", "synctex_outside"),
-    SourceUnreadable: ("원문 파일을 읽지 못했습니다: %s", "source_unreadable"),
-    NoSourceHere: ("그 자리에서 원문을 되짚지 못했습니다. 글자가 있는 쪽으로 조금 넓게 잡아 보세요.", "no_source_here"),
-}
-
-
-# A failed step of a comparison build (limn.revisions.StepFailed.kind) -> (message, API reason) its "error" status
+# A failed step of a comparison build (limn.features.revisions.core.StepFailed.kind) -> (message, API reason) its "error" status
 # carries (api.md §변경 보기와 비교 PDF). These never become an HTTP status of their own: the build runs in the
 # background and GET /api/revision-build reports the stored status. tests check that every kind has its row.
 REVISION_FAILURES: dict[FailureKind, tuple[str, str]] = {

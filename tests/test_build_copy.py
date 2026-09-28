@@ -15,6 +15,7 @@ from unittest import mock
 
 from limn import build
 from limn.build import CopyFailed
+from limn.features.builds import engine as build_engine
 from limn.web.errors import build_failure_log
 
 from helpers import Base, ps, set_config
@@ -30,7 +31,7 @@ exit 23
 
 
 class ManuscriptCopy(Base):
-    """What _build() (limn.build.compile_tex) does when copying the manuscript into the build folder goes wrong."""
+    """What compile_tex does when copying the manuscript into the build folder goes wrong."""
 
     def setUp(self):
         """Put an rsync on PATH that fails the way a partial transfer does (exit 23)."""
@@ -51,8 +52,8 @@ class ManuscriptCopy(Base):
 
     def test_build_stops_before_latexmk_when_rsync_fails(self):
         """A non-zero rsync exit fails the build with the copy error and never compiles the partial copy."""
-        with mock.patch.object(build, "run_logged", return_value=NO_PDF) as compile_step:
-            res = ps.APP._build(ps.APP.docs[0])
+        with mock.patch.object(build_engine, "run_logged", return_value=NO_PDF) as compile_step:
+            res = ps.APP.build_requests.compile(ps.APP.docs[0])
         compile_step.assert_not_called()
         self.assertIsInstance(res, CopyFailed)
         log = build_failure_log(res)
@@ -60,8 +61,8 @@ class ManuscriptCopy(Base):
 
     def test_copy_error_names_the_rsync_exit_and_its_last_message(self):
         """The build log shows why the copy failed so the owner can fix permissions or disk space."""
-        with mock.patch.object(build, "run_logged", return_value=NO_PDF):
-            res = ps.APP._build(ps.APP.docs[0])
+        with mock.patch.object(build_engine, "run_logged", return_value=NO_PDF):
+            res = ps.APP.build_requests.compile(ps.APP.docs[0])
         self.assertIsInstance(res, CopyFailed)
         self.assertIn("23", res.error)
         self.assertIn("some files/attrs were not transferred", build_failure_log(res))
@@ -108,8 +109,8 @@ class StateFolderCopy(unittest.TestCase):
             shutil.rmtree(dest, ignore_errors=True)
             dest.mkdir(parents=True)
             with mock.patch.object(build.shutil, "which", return_value=rsync):
-                build.copy_manuscript(self.src, dest, state)
-                build.copy_manuscript(self.src, dest, state)
+                build_engine.copy_manuscript(self.src, dest, state)
+                build_engine.copy_manuscript(self.src, dest, state)
             out.append((how, tree(dest)))
         return out
 
@@ -157,8 +158,8 @@ class StateFolderBuild(Base):
         set_config(state=self.src / "limn-state")
         ps.APP.C.state.mkdir()
         (ps.APP.C.state / "people.json").write_text("{}\n", encoding="utf-8")
-        with mock.patch.object(build, "run_logged", return_value=NO_PDF):
-            ps.APP._build(ps.APP.docs[0])
+        with mock.patch.object(build_engine, "run_logged", return_value=NO_PDF):
+            ps.APP.build_requests.compile(ps.APP.docs[0])
         files = tree(ps.APP.docs[0].build)
         self.assertIn("main.tex", files)
         self.assertFalse([f for f in files if "people.json" in f or f.startswith("limn-state")], files)

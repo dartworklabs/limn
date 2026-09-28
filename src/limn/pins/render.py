@@ -4,7 +4,7 @@ pins.md is an agent contract (docs/handbook/api.md §pins.md): its columns, mark
 by agents in other repositories, so the bytes this module produces must only ever grow. Everything here is pure.
 What the text needs from outside the records - the run settings, the documents and their build stamps, the clock,
 this machine's token file, and what other parts decide about each pin (where its file is, its overlap badge, who it
-is addressed to, its current thread round) - arrives as values in PinsMdInput, built by server.pins_md_input().
+is addressed to, its current thread round) - arrives as values in PinsMdInput, built by the pin listing feature.
 """
 
 import math

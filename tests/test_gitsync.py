@@ -1,4 +1,4 @@
-"""limn.gitsync - the --git-pull and remote-main watch shell: the pull against real temporary repositories, the shared
+"""limn.features.sync.run - the --git-pull and remote-main watch shell: the pull against real temporary repositories, the shared
 pull of several documents, and the watch's rounds and status, driven with no server.
 
 The pure rules it applies are tests/test_pull.py. The server's wiring (a build's `pull`, GET /api/meta's sync, the
@@ -22,12 +22,15 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from limn import build as limn_build, gitsync, revisions
+from limn import build as limn_build
 from limn.access import LOCAL_ACTOR
 from limn.build import BuildOk, BuildStarted
 from limn.documents import Doc
-from limn.gitsync import PullShare, SyncWatch, pull, repo_pull
-from limn.pull import Pulled, PullFailed, PullSkipped, UpToDate
+from limn.features.builds import engine as build_engine
+from limn.features.revisions import core as revisions
+from limn.features.sync import run as gitsync
+from limn.features.sync.rules import Pulled, PullFailed, PullSkipped, UpToDate
+from limn.features.sync.run import PullShare, SyncWatch, pull, repo_pull
 
 from helpers import Base, needs_tex, ps, set_config
 
@@ -39,12 +42,12 @@ class ModuleBoundary(unittest.TestCase):
     """gitsync.py sits below the server: settings, documents, runner and clock come in as arguments."""
 
     def test_imports_no_server_or_http_layer(self):
-        """Of limn only limn.pull (the rules) and limn.build (a document's build state, read as the build defines it);
+        """Of limn only limn.features.sync.rules (the rules) and common build state;
         no HTTP import. It runs git only through the runner it is given."""
         tree = ast.parse(GITSYNC_PY.read_text(encoding="utf-8"))
         modules = {a.name for n in ast.walk(tree) if isinstance(n, ast.Import) for a in n.names}
         modules |= {n.module or "" for n in ast.walk(tree) if isinstance(n, ast.ImportFrom)}
-        self.assertEqual({m for m in modules if m.startswith("limn")}, {"limn.pull", "limn.build"})
+        self.assertEqual({m for m in modules if m.startswith("limn")}, {"limn.features.sync.rules", "limn.build"})
         self.assertFalse({"http", "http.server", "urllib", "subprocess"} & modules)
 
     def test_reads_no_server_global(self):
@@ -54,7 +57,7 @@ class ModuleBoundary(unittest.TestCase):
         self.assertFalse(names & {"C", "DOCS", "cur_doc", "build_async", "multi_doc", "now_str", "_git"})
 
     def test_git_runs_without_a_shell(self):
-        """The runner the server passes (limn.revisions.git) goes through limn.gitrun.run_git, which takes a list and
+        """The runner the server passes (limn.features.revisions.core.git) goes through limn.gitrun.run_git, which takes a list and
         never a shell - the security contract of every pull step, whose arguments hold no request input
         (tests/test_gitrun.py pins run_git itself)."""
         src = inspect.getsource(revisions.git)
@@ -429,7 +432,7 @@ class GitPullBuildIntegration(Base):
     def test_pull_result_surfaces_in_build_response_and_state(self):
         """A non-repository pull refusal appears in the build result and persisted build state with the same head."""
         set_config(git_pull=True)
-        res = ps.APP.build_all(ps.APP.docs[0])
+        res = ps.APP.build_requests.build_all(ps.APP.docs[0])
         self.assertIsInstance(res, BuildOk)
         # the temporary manuscript from Base.setUp() isn't a git repo — verify not_git actually triggers.
         self.assertEqual(res.pull, {"state": "skipped", "reason": "not_git", "head_before": None, "head_after": None})
@@ -442,14 +445,14 @@ class GitPullBuildIntegration(Base):
     def test_pull_absent_when_flag_off(self):
         """A build without --git-pull carries no pull record even when LaTeX succeeds."""
         set_config(git_pull=False)
-        res = ps.APP.build_all(ps.APP.docs[0])
+        res = ps.APP.build_requests.build_all(ps.APP.docs[0])
         self.assertIsInstance(res, BuildOk)
         self.assertIsNone(res.pull)
 
     @needs_tex("latexmk", "pdftoppm")
     def test_pull_bumped_mtime_does_not_falsely_mark_stale(self):
         """A fast-forward's new source mtime becomes the build baseline, leaving a fresh PDF unmarked."""
-        # bug: _build_tracked() used to commit the pre-pull value (src_mtime_at_start) as built_src_mtime,
+        # bug: BuildRequests.tracked() used to commit the pre-pull value (src_mtime_at_start) as built_src_mtime,
         # so when pull pushed the .tex mtime forward (as a real fast-forward merge does), the "manuscript
         # modified" badge kept showing even though the build had just finished with that new manuscript.
         # The measurement must happen after pull (before copy).
@@ -461,11 +464,11 @@ class GitPullBuildIntegration(Base):
             os.utime(self.main, (time.time() + 50, time.time() + 50))
             return {"state": "ok", "head_before": "aaa1111", "head_after": "bbb2222"}
 
-        with mock.patch.object(ps.APP, "repo_pull", side_effect=fake_pull):
-            res = ps.APP.build_all(ps.APP.docs[0])
+        with mock.patch.object(ps.APP.sync_service, "repo_pull", side_effect=fake_pull):
+            res = ps.APP.build_requests.build_all(ps.APP.docs[0])
         self.assertIsInstance(res, BuildOk)
         ps.APP.docs[0].mcache[2] = 0.0
-        m = ps.APP.meta(ps.APP.docs[0], dict(LOCAL_ACTOR), light=True)
+        m = ps.APP.document_views.meta(ps.APP.docs[0], dict(LOCAL_ACTOR), light=True)
         self.assertIs(m["stale_build"], False)
         self.assertAlmostEqual(
             limn_build.read_built_src_mtime(ps.APP.docs[0]),
@@ -480,7 +483,7 @@ class GitPullBuildIntegration(Base):
         # source after copy (while latex is compiling) means that edit wasn't part of this build, so the
         # "manuscript modified" badge must still show.
         set_config(git_pull=True)
-        original_run_logged = limn_build.run_logged
+        original_run_logged = build_engine.run_logged
 
         def bump_then_run(cmd, cwd, timeout):
             """Change source mtime at the compile boundary, then run the real command."""
@@ -493,18 +496,18 @@ class GitPullBuildIntegration(Base):
             return {"state": "up_to_date", "head_before": "aaa1111", "head_after": "aaa1111"}
 
         with (
-            mock.patch.object(ps.APP, "repo_pull", side_effect=fake_pull),
-            mock.patch.object(limn_build, "run_logged", side_effect=bump_then_run),
+            mock.patch.object(ps.APP.sync_service, "repo_pull", side_effect=fake_pull),
+            mock.patch.object(build_engine, "run_logged", side_effect=bump_then_run),
         ):
-            res = ps.APP.build_all(ps.APP.docs[0])
+            res = ps.APP.build_requests.build_all(ps.APP.docs[0])
         self.assertIsInstance(res, BuildOk)
         ps.APP.docs[0].mcache[2] = 0.0
-        m = ps.APP.meta(ps.APP.docs[0], dict(LOCAL_ACTOR), light=True)
+        m = ps.APP.document_views.meta(ps.APP.docs[0], dict(LOCAL_ACTOR), light=True)
         self.assertIs(m["stale_build"], True)
 
 
 class AutomaticMainSync(Base):
-    """The remote-main watch as the server wires it: sync_main_once() and sync_status() over limn.gitsync, with the
+    """The remote-main watch as the server wires it: the sync service's once() and status(), with the
     pull stubbed by its outcome value."""
 
     def test_new_head_schedules_each_tex_document_once(self):
@@ -518,9 +521,9 @@ class AutomaticMainSync(Base):
         set_config(git_pull=True)
         with (
             mock.patch.object(gitsync, "pull", return_value=Pulled("a" * 40, "b" * 40)) as git_pull,
-            mock.patch.object(ps.APP, "build_async", return_value=BuildStarted()) as build,
+            mock.patch.object(ps.APP.build_requests, "build_async", return_value=BuildStarted()) as build,
         ):
-            out = ps.APP.sync_main_once()
+            out = ps.APP.sync_service.once()
         git_pull.assert_called_once_with(self.src, main_only=True, git=revisions.git)
         self.assertEqual(build.call_count, 2)
         self.assertEqual(out["state"], "updating")
@@ -531,9 +534,9 @@ class AutomaticMainSync(Base):
         (ps.APP.C.state / "head.txt").write_text("aaaaaaa", encoding="utf-8")
         with (
             mock.patch.object(gitsync, "pull", return_value=UpToDate("b" * 40)),
-            mock.patch.object(ps.APP, "build_async", return_value=BuildStarted()) as build,
+            mock.patch.object(ps.APP.build_requests, "build_async", return_value=BuildStarted()) as build,
         ):
-            out = ps.APP.sync_main_once()
+            out = ps.APP.sync_service.once()
         build.assert_called_once()
         self.assertEqual(out["state"], "updating")
 
@@ -542,12 +545,14 @@ class AutomaticMainSync(Base):
         set_config(git_pull=True)
         with (
             mock.patch.object(gitsync, "pull", return_value=PullSkipped("dirty", "a" * 40)),
-            mock.patch.object(ps.APP, "build_async") as build,
+            mock.patch.object(ps.APP.build_requests, "build_async") as build,
         ):
-            out = ps.APP.sync_main_once()
+            out = ps.APP.sync_service.once()
         build.assert_not_called()
         self.assertEqual(out["state"], "blocked")
-        self.assertEqual(ps.APP.meta(ps.APP.docs[0], dict(LOCAL_ACTOR), light=True)["sync"]["reason"], "dirty")
+        self.assertEqual(
+            ps.APP.document_views.meta(ps.APP.docs[0], dict(LOCAL_ACTOR), light=True)["sync"]["reason"], "dirty"
+        )
 
     def test_updating_clears_when_pdf_reaches_synced_head(self):
         """An "updating" status turns "current" once the PDF was built from the pulled commit."""
@@ -555,7 +560,7 @@ class AutomaticMainSync(Base):
         with ps.APP.RT.sync_watch.lock:
             ps.APP.RT.sync_watch.record.update(state="updating", reason=None, head_after="b" * 40)
         (ps.APP.C.state / "head.txt").write_text("bbbbbbb", encoding="utf-8")
-        self.assertEqual(ps.APP.sync_status()["state"], "current")
+        self.assertEqual(ps.APP.sync_service.status()["state"], "current")
 
     def test_failed_pdf_build_reports_error(self):
         """An "updating" status turns error/build_failed when a document still behind the commit failed its build."""
@@ -565,7 +570,7 @@ class AutomaticMainSync(Base):
         (ps.APP.C.state / "head.txt").write_text("aaaaaaa", encoding="utf-8")
         with ps.APP.docs[0].bstate_lock:
             ps.APP.docs[0].bstate["state"] = "fail"
-        status = ps.APP.sync_status()
+        status = ps.APP.sync_service.status()
         self.assertEqual((status["state"], status["reason"]), ("error", "build_failed"))
 
 

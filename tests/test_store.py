@@ -508,7 +508,7 @@ class Store(Base):
         self.add()
         before = ps.APP.C.pins_jsonl.read_text()
         with (
-            mock.patch.object(ps.APP, "pins_md_text", side_effect=RuntimeError("boom")),
+            mock.patch.object(ps.APP.pin_markdown, "pins_md_text", side_effect=RuntimeError("boom")),
             self.assertRaises(RuntimeError),
         ):
             self.add(note="x")
@@ -517,9 +517,9 @@ class Store(Base):
     def test_two_clears_same_second_keep_both(self):
         """Archive names remain unique when two clear operations share one timestamp."""
         self.add(note="FIRST")
-        ps.APP.clear_pins()
+        ps.APP.pin_trash.clear_pins()
         self.add(note="SECOND")
-        ps.APP.clear_pins()
+        ps.APP.pin_trash.clear_pins()
         baks = list(ps.APP.C.state.glob("pins_*.jsonl.bak"))
         self.assertEqual(len(baks), 2)
         blob = "".join(p.read_text() for p in baks)
@@ -529,15 +529,15 @@ class Store(Base):
     def test_restore_survives_failed_pins_write(self):
         """A failed live write keeps the Trash copy available for a later restore."""
         pid = self.add()
-        ps.APP.drop_pin(pid, dict(LOCAL_ACTOR))
+        ps.APP.pin_trash.drop_pin(pid, dict(LOCAL_ACTOR))
         # the transaction's own write
         with (
             mock.patch.object(PinStore, "write_prepared", side_effect=OSError("disk full")),
             self.assertRaises(OSError),
         ):
-            ps.APP.restore_pin(pid, dict(LOCAL_ACTOR))
+            ps.APP.pin_trash.restore_pin(pid, dict(LOCAL_ACTOR))
         self.assertIn(pid, [r["id"] for r in trash_records()])
-        self.assertEqual(record_of(ps.APP.restore_pin(pid, dict(LOCAL_ACTOR)))["id"], pid)
+        self.assertEqual(record_of(ps.APP.pin_trash.restore_pin(pid, dict(LOCAL_ACTOR)))["id"], pid)
         self.assertEqual(trash_records(), [])
 
     def test_edit_loc_keeps_page_frac_and_defaults_kind(self):
@@ -645,7 +645,7 @@ class Store(Base):
         self.assertEqual(p["pdf_build"], old_build)
 
     def test_meta_exposes_pages_build(self):
-        d = ps.APP.meta(ps.APP.docs[0], dict(LOCAL_ACTOR), light=True)
+        d = ps.APP.document_views.meta(ps.APP.docs[0], dict(LOCAL_ACTOR), light=True)
         self.assertEqual(d["pages_build"], limn_build.cur_pages(ps.APP.docs[0]).name)
 
 
@@ -673,7 +673,7 @@ class LegacyPinsNotRewritten(Base):
         ps.APP.C.pins_jsonl.write_text(json.dumps(legacy, ensure_ascii=False) + "\n", encoding="utf-8")
         before = ps.APP.C.pins_jsonl.read_bytes()
         mtime = ps.APP.C.pins_jsonl.stat().st_mtime_ns
-        rows = ps.APP.pins_payload(ps.APP.snapshot_pins(), True)
+        rows = ps.APP.pin_listing.pins_payload(ps.APP.snapshot_pins(), True)
         self.talk(req("GET", "/api/pins?all=1"))
         self.talk(req("GET", "/pins.md"))
         self.assertEqual(ps.APP.C.pins_jsonl.read_bytes(), before)
@@ -694,14 +694,14 @@ class LegacyMentionsNotRewritten(Base):
 
     def test_legacy_pins_read_without_rewrite(self):
         """Mention inference on old records remains a read-time view, not a stored migration."""
-        ps.APP.record_person(dict(self.S))
+        ps.APP.people_directory.record(dict(self.S))
         pid = add_pin({"file": str(self.main), "lo": 4, "hi": 5, "note": "@Bob Park 확인 부탁"}, dict(self.W)).record[
             "id"
         ]
         f = ps.APP.C.pins_jsonl
         before = f.read_bytes()
         for _ in range(2):
-            ps.APP.pins_payload(ps.APP.snapshot_pins(), True)
+            ps.APP.pin_listing.pins_payload(ps.APP.snapshot_pins(), True)
             self.talk(req("GET", "/api/pins?all=1"))
             self.talk(req("GET", "/pins.md"))
         self.assertEqual(f.read_bytes(), before)

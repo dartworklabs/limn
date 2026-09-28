@@ -180,8 +180,8 @@ class DroppedList(Base):
 
     def test_dropped_payload_includes_dropped_at_and_by(self):
         pid = self.add(note="oops")
-        ps.APP.drop_pin(pid, {"login": "alice", "name": "Wendy"})
-        out = ps.APP.dropped_payload()
+        ps.APP.pin_trash.drop_pin(pid, {"login": "alice", "name": "Wendy"})
+        out = ps.APP.pin_listing.dropped_payload()
         self.assertEqual(len(out), 1)
         self.assertEqual(out[0]["id"], pid)
         self.assertEqual(out[0]["dropped_by"]["login"], "alice")
@@ -189,17 +189,17 @@ class DroppedList(Base):
 
     def test_dropped_payload_empty_when_nothing_dropped(self):
         self.add()
-        self.assertEqual(ps.APP.dropped_payload(), [])
+        self.assertEqual(ps.APP.pin_listing.dropped_payload(), [])
 
     def test_dropped_payload_excludes_restored_pins(self):
         pid = self.add()
-        ps.APP.drop_pin(pid, dict(LOCAL_ACTOR))
-        ps.APP.restore_pin(pid, dict(LOCAL_ACTOR))
-        self.assertEqual(ps.APP.dropped_payload(), [])
+        ps.APP.pin_trash.drop_pin(pid, dict(LOCAL_ACTOR))
+        ps.APP.pin_trash.restore_pin(pid, dict(LOCAL_ACTOR))
+        self.assertEqual(ps.APP.pin_listing.dropped_payload(), [])
 
     def test_get_pins_dropped_endpoint_http(self):
         pid = self.add(note="secret-drop-note")
-        ps.APP.drop_pin(pid, {"login": "alice", "name": "Wendy"})
+        ps.APP.pin_trash.drop_pin(pid, {"login": "alice", "name": "Wendy"})
         out = self.talk(req("GET", "/api/pins/dropped"))
         self.assertIn(b" 200 ", out)
         payload = json.loads(out.split(b"\r\n\r\n", 1)[1])
@@ -209,7 +209,7 @@ class DroppedList(Base):
 
     def test_get_pins_dropped_respects_origin_check(self):
         pid = self.add()
-        ps.APP.drop_pin(pid, dict(LOCAL_ACTOR))
+        ps.APP.pin_trash.drop_pin(pid, dict(LOCAL_ACTOR))
         out = self.talk(req("GET", "/api/pins/dropped", headers={"Host": "evil.example"}))
         self.assertIn(b" 403 ", out)
 
@@ -244,7 +244,7 @@ class LegacyClaimStart(Base):
             r = find_pin(rows, pid)
             r.update(claimed_by=dict(self.A), claimed_at="2026-09-23 20:02:00", claim_until=time.time() + 3600)
             write_records(rows)
-        rec = [x for x in ps.APP.pins_payload(ps.APP.snapshot_pins(), False) if x["id"] == pid][0]
+        rec = [x for x in ps.APP.pin_listing.pins_payload(ps.APP.snapshot_pins(), False) if x["id"] == pid][0]
         self.assertAlmostEqual(rec["claim_ts"], position.epoch("2026-09-23 20:02:00"), delta=0.01)
         self.assertNotIn("claim_ts", find_record(ps.APP.read_pins()[0], pid))  # a computed field — not stored
 

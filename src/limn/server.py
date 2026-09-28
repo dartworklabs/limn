@@ -29,13 +29,12 @@ import os
 import sys
 import threading
 import time
-import traceback
-from collections.abc import Callable, Collection, Iterable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime
 from email.message import Message
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, ClassVar
+from typing import TYPE_CHECKING, ClassVar
 
 if __package__ in (None, ""):
     # Run as a file (python .../limn/server.py, how instances start): make the sibling modules importable as limn.*.
@@ -47,37 +46,22 @@ from limn import (
     build,
     documents,
     events,
-    gitsync,
     locate,
-    meta as meta_reads,
     people,
-    revisions,
     startup,
 )
 from limn.access import (
     DEFAULT_ROLE as DEFAULT_ROLE,
-    LOCAL_ACTOR,
     LOOPBACK_AGENT_DEPRECATION,
     file_present,
     hdr_text as hdr_text,
-    home_or_none,
     load_tokens,
     people_roles_of,
     person_role,
 )
 from limn.args import serve_parser
 from limn.audit import AuditAction, append_audit, audit_entry
-from limn.build import (
-    BuildBusy,
-    BuildConfig,
-    BuildSkipped,
-    BuildStarted,
-    FailedBuild,
-    FinishedBuild,
-    ViewOnlyNoRebuild,
-    build_pdf as build_pdf,
-    cur_pages as cur_pages,
-)
+from limn.build import BuildSkipped, FailedBuild
 from limn.config import AccessOptions, RunConfig
 from limn.documents import (
     DEFAULT_DOC_KEY,
@@ -86,75 +70,53 @@ from limn.documents import (
     DocNotFound,
     DocumentFacts,
 )
-from limn.events import EVENTS_KEEP, EventType
-from limn.files import tex_lines, vendor_file as find_vendor_file
-from limn.guidance import shell_path
+from limn.features.administration import serve_documents as startup_documents
+from limn.features.builds import routes as build_routes, run as build_run
+from limn.features.builds.service import BuildRequests
+from limn.features.collaboration import routes as collaboration_routes
+from limn.features.collaboration.directory import PeopleDirectory
+from limn.features.collaboration.notices import Notices
+from limn.features.document_views import routes as document_routes
+from limn.features.document_views.reads import MetaSettings
+from limn.features.document_views.service import DocumentViews
+from limn.features.pins.claims import routes as claims_routes
+from limn.features.pins.claims.service import PinClaims
+from limn.features.pins.editing import routes as editing_routes
+from limn.features.pins.editing.http import EditingRequests
+from limn.features.pins.editing.service import EditScope, PinEditing
+from limn.features.pins.lifecycle import routes as lifecycle_routes
+from limn.features.pins.lifecycle.service import PinLifecycle
+from limn.features.pins.listing import routes as listing_routes
+from limn.features.pins.listing.markdown import PinMarkdown
+from limn.features.pins.listing.service import PinListing
+from limn.features.pins.location import resolve as pick_resolve, routes as location_routes, source as pick_source
+from limn.features.pins.location.service import PinLocationService
+from limn.features.pins.trash import routes as trash_routes
+from limn.features.pins.trash.service import PinTrash
+from limn.features.revisions import core as revisions, routes as revision_routes
+from limn.features.revisions.core import (
+    git as _git,
+)
+from limn.features.revisions.service import RevisionRequests
+from limn.features.sync import run as gitsync
+from limn.features.sync.service import SyncContext, SyncService
+from limn.features.viewer_shell import routes as viewer_shell_routes
+from limn.files import vendor_file as find_vendor_file
 from limn.locate import PinLocation, est_context, locate_file
 from limn.mark import inline_svg
-from limn.mentions import (
-    NoteTags,
-    addressed_to,
-    fyi_mentions_to,
-    note_mention_targets,
-    tag_note,
-    thread_round,
-)
-from limn.meta import MetaSettings, outline_labels as outline_labels
 from limn.people import is_actor as _is_actor
 from limn.pins import record, view
-from limn.pins.edit import AddRequest, EditRefusal, EditRequest
-from limn.pins.lifecycle import (
-    AgentCannotConfirm,
-    AlreadyClosed,
-    AlreadyDone,
-    AlreadyLive,
-    ClaimClosedPin,
-    ClaimedByOther,
-    CloseRequest,
-    NotClaimed,
-    NotInTrash,
-    PinStillOpen,
-    ThreadFull,
-    claim_holds,
-    pin_reopened_in_round,
-    reopens_on_reply,
-)
 from limn.pins.model import (
-    DonePin,
-    OpenPin,
     Pin,
-    PinNotFound,
     Record,
-    Region,
-    ReviewPin,
     TrashedPin,
-    is_region_pin,
-    parse_pin,
-    state_of,
 )
 from limn.pins.position import EstContext
 from limn.pins.record import Broken
-from limn.pins.render import (
-    DocHeading,
-    PinFacts,
-    PinsMdInput,
-    pins_md_text as render_pins_md_text,
-    rel_badge,
-)
-from limn.pins.shapes import is_int
 from limn.pins.view import pin_state as pin_state
-from limn.revisions import (
-    DiffRefusal,
-    PdfRefusal,
-    StartRefusal,
-    StatusRefusal,
-    git as _git,
-    revision_history as revision_history,
-)
-from limn.service import add_edit, claim, transitions, trash
-from limn.service.context import Event, Json, PinContext, is_agent, who
+from limn.service.context import Json, PinContext, who
 from limn.startup import APP_NAME as APP_NAME, StartupRefused, app_version as app_version
-from limn.store import PinFiles, PinStore, Row, pin_index
+from limn.store import PinFiles, PinStore, Row
 from limn.viewer.assemble import (
     LUCIDE,
     PDFJS_VERSION,
@@ -169,9 +131,7 @@ from limn.viewer.assemble import (
 from limn.web.app import App
 from limn.web.errors import HTTPError as HTTPError, build_failure_log, revision_failure_text
 from limn.web.handler import Handler as WebHandler, Server, Server6
-
-build_state_snapshot = build.state_snapshot
-
+from limn.web.routes import GetRoute, OtherPost, PinAction, PostDocRoute
 
 DEFAULT_ENVS = "figure,table,algorithm,equation,align,itemize,enumerate,minipage"
 
@@ -216,7 +176,9 @@ class Runtime:
     # --git-pull: one pull per repository and its last result; the remote-main watch status (GET /api/meta `sync`)
     pull_share: gitsync.PullShare = field(default_factory=gitsync.PullShare)
     sync_watch: gitsync.SyncWatch = field(default_factory=gitsync.SyncWatch)
-    token_cache: locate.TokenCache = field(default_factory=locate.TokenCache)  # word weights of the last file weighed
+    token_cache: pick_source.TokenCache = field(
+        default_factory=pick_source.TokenCache
+    )  # word weights of the last file weighed
     # tokens.json's valid entries and people.json's {login: role} (or PeopleUnreadable) as last read - re-read when
     # the file changes on disk, so `limn token` / `limn member` edits take effect on the next request
     tokens_cache: access.FileCache[list[Json]] = field(default_factory=access.FileCache)
@@ -307,7 +269,7 @@ def configure_run(a: argparse.Namespace, access_opts: AccessOptions) -> RunStart
     rules are limn.startup's; this applies their answers and makes the --doc documents once the paths are known.
     """
     src = Path(a.manuscript).expanduser().resolve()
-    picked = startup.pick_documents(src, a.doc, a.main)
+    picked = startup_documents.pick_documents(src, a.doc, a.main)
     if isinstance(picked, StartupRefused):
         return picked
     state = startup.state_dir(a.state_dir, src, Path(os.environ.get("XDG_DATA_HOME", Path.home() / ".local/share")))
@@ -345,7 +307,7 @@ def configure_run(a: argparse.Namespace, access_opts: AccessOptions) -> RunStart
         repo=repo,
         access=access_opts,
     )
-    return RunStart(config, startup.docs_of(picked.docs, config.paths) if picked.docs else None)
+    return RunStart(config, startup_documents.docs_of(picked.docs, config.paths) if picked.docs else None)
 
 
 @dataclass
@@ -359,16 +321,147 @@ class ServerApplication:
     C: RunConfig
     RT: Runtime
     docs: list[Doc] = field(default_factory=list)
+    pin_lifecycle: PinLifecycle = field(init=False)
+    pin_claims: PinClaims = field(init=False)
+    pin_trash: PinTrash = field(init=False)
+    pin_editing: PinEditing = field(init=False)
+    editing_requests: EditingRequests = field(init=False)
+    pin_listing: PinListing = field(init=False)
+    pin_markdown: PinMarkdown = field(init=False)
+    location_service: PinLocationService = field(init=False)
+    build_requests: BuildRequests = field(init=False)
+    people_directory: PeopleDirectory = field(init=False)
+    notices: Notices = field(init=False)
+    document_views: DocumentViews = field(init=False)
+    sync_service: SyncService = field(init=False)
+    revision_requests: RevisionRequests = field(init=False)
+    get_routes: tuple[GetRoute, ...] = field(init=False)
+    post_doc_routes: tuple[PostDocRoute, ...] = field(init=False)
+    pin_actions: dict[str, PinAction] = field(init=False)
+    other_posts: dict[str, OtherPost] = field(init=False)
+
+    def __post_init__(self) -> None:
+        """Bind pin features to this application's context factory."""
+        self.people_directory = PeopleDirectory(
+            state=lambda: self.C.state,
+            people_file=lambda: self.C.people_file,
+            lock=lambda: self.RT.people_lock,
+            seen=lambda: self.RT.people_seen,
+            warning=lambda: self.RT.people_warning,
+            read_pins=self.read_pins,
+            snapshot_pins=self.snapshot_pins,
+            roles=self.people_roles,
+            clock=lambda: time.time(),
+        )
+        self.notices = Notices(
+            path=lambda: self.C.events_file,
+            lock=lambda: self.RT.events_lock,
+            cache=lambda: self.RT.events_cache,
+            clock=lambda: time.time(),
+            stamp=lambda: self.now_str(),
+            pin_doc_key=self.pin_doc_key,
+            docs=lambda: self.docs,
+            known_people=self.people_directory.known,
+        )
+        self.pin_lifecycle = PinLifecycle(self.pin_context)
+        self.pin_claims = PinClaims(self.pin_context)
+        self.pin_trash = PinTrash(self.pin_context)
+        self.pin_editing = PinEditing(self.pin_context)
+        self.editing_requests = EditingRequests(
+            self.pin_editing,
+            self.people_directory.known,
+            self.document_facts,
+            EditScope(self.read_pins, lambda: self.docs, self.pin_doc_key),
+            self.public,
+        )
+        self.pin_listing = PinListing(self, TRASH_DAYS)
+        self.pin_markdown = PinMarkdown(self, self.people_directory.known)
+        self.location_service = PinLocationService(
+            lambda: pick_resolve.PickContext(
+                self.C.src, self.C.envs, self.C.state, self.RT.token_cache, self.overlaps_for_range
+            )
+        )
+        self.build_requests = BuildRequests(
+            settings=lambda: self.C,
+            pull=lambda: self.sync_service.repo_pull(),
+            docs=lambda: self.docs,
+            now=lambda: self.now_str(),
+            describe=build_failure_log,
+        )
+        self.sync_service = SyncService(
+            lambda: SyncContext(
+                manuscript=self.C.src,
+                enabled=self.C.git_pull,
+                docs=self.docs,
+                share=self.RT.pull_share,
+                watch=self.RT.sync_watch,
+                start_build=self.build_requests.build_async,
+                git=_git,
+                clock=time.time,
+                stamp=gitsync.local_stamp,
+            )
+        )
+        self.document_views = DocumentViews(
+            settings=lambda: MetaSettings(
+                state=self.C.state,
+                pins_md=self.C.pins_md,
+                pins_jsonl=self.C.pins_jsonl,
+                label=self.C.label,
+                accent=self.C.accent,
+                repo=self.C.repo,
+                dpi=self.C.dpi,
+            ),
+            docs=self.docs,
+            sync_status=self.sync_service.status,
+            read_pins=self.read_pins,
+            snapshot_pins=self.snapshot_pins,
+            pin_doc_key=self.pin_doc_key,
+            events_since=self.notices.since,
+            now=lambda: time.time(),
+        )
+        self.revision_requests = RevisionRequests(self.revision_context)
+        self.get_routes = (
+            lambda request: viewer_shell_routes.get(request, self),
+            lambda request: build_routes.get(request.path, request.query, request.doc, self.hdr_text),
+            lambda request: revision_routes.get(request.path, request.query, request.doc, self.revision_requests),
+            lambda request: document_routes.get(request, self.document_views),
+            lambda request: collaboration_routes.get(request, self.people_directory),
+            lambda request: listing_routes.get(request, self, self.pin_trash.maybe_purge_trash, self.remote_base_for),
+            lambda request: location_routes.get(request, self),
+        )
+        self.post_doc_routes = (
+            PostDocRoute(
+                build_routes.POST_PATH,
+                lambda request: build_routes.post(request.query, request.body, request.doc, self.build_requests),
+            ),
+            PostDocRoute(
+                revision_routes.POST_PATH,
+                lambda request: revision_routes.post(request.query, request.body, request.doc, self.revision_requests),
+            ),
+            PostDocRoute(location_routes.POST_PATH, lambda request: location_routes.post(request, self)),
+            PostDocRoute(
+                editing_routes.POST_PATH,
+                lambda request: editing_routes.post(request, self.editing_requests),
+                new_pin=editing_routes.POST_NEW_PIN,
+            ),
+        )
+        self.pin_actions = {}
+        for group in (
+            lifecycle_routes.actions(self),
+            claims_routes.actions(self),
+            editing_routes.actions(self.editing_requests),
+            trash_routes.actions(self),
+        ):
+            for name, action in group.items():
+                if name in self.pin_actions:
+                    raise ValueError("duplicate pin action: %s" % name)
+                self.pin_actions[name] = action
+        self.other_posts = trash_routes.other_posts(self)
 
     APP_NAME = APP_NAME
     DEFAULT_ROLE = DEFAULT_ROLE
     hdr_text = staticmethod(hdr_text)
-    cur_pages = staticmethod(cur_pages)
     app_version = staticmethod(app_version)
-    revision_history = staticmethod(revision_history)
-    outline_labels = staticmethod(outline_labels)
-    build_state_snapshot = staticmethod(build_state_snapshot)
-    build_pdf = staticmethod(build_pdf)
     pin_state = staticmethod(pin_state)
 
     def now_str(self) -> str:
@@ -379,37 +472,6 @@ class ServerApplication:
         """The file GET /vendor/pdfjs/<name> serves from this instance's PDF.js directory (--pdfjs-dir, else the bundled
         one), or None (limn.files.vendor_file: a single .mjs name that stays inside the directory)."""
         return find_vendor_file(self.C.pdfjs_dir or default_pdfjs_dir(), name)
-
-    def build_config(self) -> BuildConfig:
-        """The build settings from the run arguments. Made per build, so a test that replaces this application's C is seen at once."""
-        return BuildConfig(state=self.C.state, dpi=self.C.dpi, timeout=self.C.timeout)
-
-    def build_all(self, D: Doc) -> FinishedBuild | BuildBusy:
-        """POST /api/rebuild for document D: build it now (synchronous). If it is already building, returns BuildBusy
-        without waiting (limn.build.build_now)."""
-        return build.build_now(D, lambda: self._build_tracked(D))
-
-    def build_async(self, D: Doc) -> BuildStarted | BuildBusy:
-        """POST /api/rebuild?async=1 for document D: start the tracked build on a daemon thread
-        (limn.build.build_in_background); the thread builds D itself."""
-        return build.build_in_background(D, lambda: self._build_tracked(D), self.now_str(), build_failure_log)
-
-    def rebuild(self, D: Doc) -> FinishedBuild | BuildBusy | ViewOnlyNoRebuild:
-        """POST /api/rebuild for document D: build_all, or ViewOnlyNoRebuild for a view-only one (limn.build.request_rebuild)."""
-        return build.request_rebuild(D, self.build_all)
-
-    def rebuild_async(self, D: Doc) -> BuildStarted | BuildBusy | ViewOnlyNoRebuild:
-        """POST /api/rebuild?async=1 for document D: build_async, or ViewOnlyNoRebuild for a view-only one."""
-        return build.request_rebuild(D, self.build_async)
-
-    def _build_tracked(self, D: Doc) -> FinishedBuild:
-        """One tracked build of D: LaTeX (_build) or, for view-only, the page render (limn.build.render_pdf_doc)
-        (limn.build.run_tracked); a failure's log text is limn.web.errors.build_failure_log. The step is looked up when
-        the build runs, so a test that replaces _build sees it."""
-        step: Callable[[], FinishedBuild] = (
-            (lambda: build.render_pdf_doc(D, self.build_config())) if D.is_pdf else (lambda: self._build(D))
-        )
-        return build.run_tracked(D, self.C.state, step, self.now_str(), build_failure_log)
 
     def revision_context(self) -> revisions.RevisionContext:
         """The revision services' view of this instance, made per request like pin_store(), so a test (or main()) that
@@ -431,58 +493,10 @@ class ServerApplication:
             describe=revision_failure_text,
         )
 
-    def revision_diff(self, D: Doc, commit: str, pin: int | None = None) -> Json | DiffRefusal:
-        """GET /api/revision-diff for document D (limn.revisions.revision_diff with this instance's context)."""
-        return revisions.revision_diff(D, commit, pin, self.revision_context())
-
-    def revision_status(self, D: Doc, commit: str, pin: int | None = None) -> Json | StatusRefusal:
-        """GET /api/revision-build for document D (limn.revisions.revision_status)."""
-        return revisions.revision_status(D, commit, pin, self.revision_context())
-
-    def revision_start(self, D: Doc, commit: str, pin: int | None = None) -> Json | StartRefusal:
-        """POST /api/revision-build for document D (limn.revisions.revision_start)."""
-        return revisions.revision_start(D, commit, pin, self.revision_context())
-
-    def revision_pdf(self, D: Doc, commit: str, pin: int | None = None) -> bytes | PdfRefusal:
-        """GET /api/revision-pdf for document D (limn.revisions.revision_pdf)."""
-        return revisions.revision_pdf(D, commit, pin, self.revision_context())
-
-    def repo_pull(self) -> Json:
-        """A build's --git-pull, as its `pull` record (limn.gitsync.repo_pull): one document pulls on every build; several
-        share one pull per repository within limn.gitsync.PULL_SHARE_S."""
-        return gitsync.repo_pull(
-            self.RT.pull_share, self.multi_doc(), lambda: gitsync.pull(self.C.src, main_only=False, git=_git), time.time
-        )
-
-    def sync_status(self) -> Json:
-        """GET /api/meta's `sync` - the remote-main watch status (limn.gitsync.SyncWatch.status)."""
-        return self.RT.sync_watch.status(self.docs, self.C.git_pull)
-
-    def sync_main_once(self) -> Json:
-        """One remote-main round (limn.gitsync.SyncWatch.once): pull main, then start the builds of the documents the
-        pull left behind. The watch thread runs it, and a --no-build startup through it."""
-        return self.RT.sync_watch.once(
-            self.docs,
-            self.C.git_pull,
-            lambda: gitsync.pull(self.C.src, main_only=True, git=_git),
-            self.RT.pull_share,
-            self.build_async,
-            gitsync.local_stamp,
-            time.time,
-        )
-
-    def _build(self, D: Doc) -> FinishedBuild:
-        """The LaTeX build of document D with this instance's settings; --git-pull pulls first (limn.build.compile_tex)."""
-        return build.compile_tex(D, self.build_config(), self.repo_pull if self.C.git_pull else None)
-
     def set_docs(self, docs: Iterable[Doc] | None = None) -> None:
         """Change the document list (prepare()/tests). With none, the single document of a run without --doc: legacy
         (the manuscript and main file are C's) over C.paths, with its own build lock and state like any document."""
         self.docs[:] = list(docs) if docs else [Doc(DEFAULT_DOC_KEY, "본문", legacy=True, paths=self.C.paths)]
-
-    def multi_doc(self) -> bool:
-        """Whether this server instance exposes more than one document."""
-        return len(self.docs) > 1
 
     def doc_by_key(self, key: object) -> Doc | None:
         """The document of this instance whose key is `key`, or None (limn.documents.doc_by_key)."""
@@ -492,33 +506,6 @@ class ServerApplication:
         """The document key a pin belongs to; a legacy record without a doc field is the first document's
         (limn.documents.pin_doc_key)."""
         return documents.pin_doc_key(r, self.docs)
-
-    def meta_settings(self) -> MetaSettings:
-        """The run settings GET /api/meta reads, made per request like pin_store(), so a test that replaces this application's C is
-        seen at once."""
-        return MetaSettings(
-            state=self.C.state,
-            pins_md=self.C.pins_md,
-            pins_jsonl=self.C.pins_jsonl,
-            label=self.C.label,
-            accent=self.C.accent,
-            repo=self.C.repo,
-            dpi=self.C.dpi,
-        )
-
-    def docs_payload(self) -> Json:
-        """GET /api/docs — the document list and open-pin counts per document. Pins are only read (no sync write)."""
-        pins, _ = self.read_pins()
-        return meta_reads.docs_payload(self.docs, [pin.record for pin in pins], self.pin_doc_key, self.C.state)
-
-    def meta(self, D: Doc, actor: Json, light: bool = False) -> Json:
-        """GET /api/meta for document D: its pages, builds, staleness and settings for the viewer (limn.meta.meta); with
-        light (polling) the pin counts are left out, and with them the sync write of snapshot_pins()."""
-        out = meta_reads.meta(D, actor, self.meta_settings(), self.docs, self.sync_status(), time.time())
-        if light:  # polling only - skips the sync write in snapshot_pins()
-            return out
-        out.update(meta_reads.pin_counts([pin.state for pin in self.snapshot_pins()]))
-        return out
 
     def parse_record(self, r: object) -> Pin | Broken:
         """The store's parse of a pins.jsonl line (limn.pins.record.parse_record) with DOC_KEY_RE and
@@ -562,7 +549,7 @@ class ServerApplication:
     def pin_store(self) -> PinStore:
         """The pin store (limn.store) over the current run arguments - where the composition root wires it.
 
-        Made per call, like build_config(), so a test that replaces this application's C is seen at once; the lock is the one
+        Made per call, like the build service's config(), so a test that replaces this application's C is seen at once; the lock is the one
         application-wide RT.pin_lock. The collaborators are looked up at call time: parse_record and parse_trashed read stored
         records into pins, sync_all re-matches their anchors, and pins_md_text renders the result."""
         return PinStore(
@@ -571,7 +558,7 @@ class ServerApplication:
             self.parse_record,
             self.parse_trashed,
             self.sync_all,
-            self.pins_md_text,
+            self.pin_markdown.pins_md_text,
         )
 
     def read_pins(self) -> tuple[list[Pin], list[int]]:
@@ -597,35 +584,11 @@ class ServerApplication:
         loc = self.pin_location(r, self.C.src, self.C.state)
         return view.public_record(r, None if loc is None else (str(loc.path), loc.rel))
 
-    def pins_payload(self, pins: Sequence[Pin], allp: bool) -> list[Json]:
-        """GET /api/pins response (limn.pins.view.pins_payload): stored records + the computed fields rel (overlap), est
-        (location estimated), doc, state, addressed, fyi. None of these are stored."""
-        rows = [pin.record for pin in pins]
-        return view.pins_payload(
-            rows, allp, self.overlaps_by_id(pins), self.public, self.pin_doc_key, self._doc_est_context, time.time()
-        )
-
-    def pin_payload(self, pid: int) -> Json | PinNotFound:
-        """GET /api/pins/{id}: pin pid as GET /api/pins?all=1 lists it (the pins re-synced and saved first), or
-        PinNotFound."""
-        rec = next((r for r in self.pins_payload(self.snapshot_pins(), True) if r["id"] == pid), None)
-        return PinNotFound(pid) if rec is None else rec
-
     def _doc_est_context(self, key: str) -> EstContext | None:
         """What estimation reads of the builds of the document key names (limn.locate.est_context), or None when this
         instance no longer serves that document."""
         D = self.doc_by_key(key)
         return None if D is None else est_context(D)
-
-    def dropped_payload(self, now: float | None = None) -> list[Json]:
-        """GET /api/pins/dropped response - the Trash (limn.pins.view.dropped_payload): pins.dropped.jsonl ordered by
-        dropped_at, each entry with `expires_ts`, without expired entries or copies of live pins. Read-only, but reads
-        both files under one lock so a concurrent drop or restore cannot mix two moments of state."""
-        with self.RT.pin_lock:
-            pins = self.read_pins()[0]
-            entries = self.read_dropped()[0]
-        visible = trash.without_live_shadows(entries, pins)
-        return view.dropped_payload(self._unexpired(visible, now), self.public, self.trash_expires_ts)
 
     def overlaps_by_id(self, pins: Sequence[Pin]) -> dict[int, list[Json]]:
         """The relationship of every pair of open line pins on the same file, each counted where pin_location() places it
@@ -641,14 +604,9 @@ class ServerApplication:
         """If pins.seq is missing, fill it once from the max id across the current, archived, and dropped records (PinStore.init_seq)."""
         self.pin_store().init_seq()
 
-    def assignee_people(self, d: Mapping[str, Any]) -> Collection[str]:
-        """The logins limn.web.parse.parse_assignee checks against: known_people() when the body names an assignee, else
-        none (no read)."""
-        return self.known_people() if d.get("assignee") is not None else ()
-
     def _person_name(self, login: str) -> str:
         """A known person's display name, or the login itself for someone the viewer does not know."""
-        return (self.known_people().get(login) or {}).get("name") or login
+        return (self.people_directory.known().get(login) or {}).get("name") or login
 
     def request_doc(self, key: str | None, file_hint: object | None = None) -> Doc | DocNotFound:
         """The document of this instance that key names, else the one holding file_hint, else the first; DocNotFound for a
@@ -668,12 +626,12 @@ class ServerApplication:
             now=self.now_str,
             epoch=time.time,
             hm=lambda: datetime.now().astimezone().strftime("%H:%M"),
-            make_event=self.make_event,
-            emit_events=self.emit_events,
+            make_event=self.notices.make_event,
+            emit_events=self.notices.emit_events,
             who=who,
             audit=self.http_audit,
-            known_people=self.known_people,
-            note_tags=self.note_tags,
+            known_people=self.people_directory.known,
+            note_tags=self.notices.note_tags,
             role_of=self.role_of,
             person_name=self._person_name,
             locate=self.record_locator(),
@@ -687,306 +645,9 @@ class ServerApplication:
         """Appends one audit.jsonl line for a change made over HTTP (limn.audit), stamped by the clock read now."""
         return append_audit(self.C.state, audit_entry(action, by, "http", details, time.time()))
 
-    def add_pin(self, D: Doc, request: AddRequest, actor: Json) -> OpenPin:
-        """POST /api/pin: a new pin in document D (limn.service.add_edit.add_pin)."""
-        return add_edit.add_pin(self.pin_context(), D, request, actor)
-
-    def edit_scope(self, pid: int) -> tuple[bool, Doc]:
-        """(region, document) of an edit of pin pid, read without the lock before the edit (as always): whether it is a
-        view-only (region) pin, and the document its loc is checked against - the pin's own, else the first one."""
-        pins, _ = self.read_pins()
-        i = pin_index(pins, pid)
-        if i is None:
-            return False, self.docs[0]
-        pin = pins[i]
-        return isinstance(pin.core.place, Region), self.doc_by_key(self.pin_doc_key(pin.record)) or self.docs[0]
-
-    def edit_pin(
-        self, pid: int, request: EditRequest, actor: Json, region: bool = False
-    ) -> OpenPin | ReviewPin | DonePin | EditRefusal | PinNotFound:
-        """POST /api/pins/{id}/edit: pin pid edited in place (limn.service.add_edit.edit_pin); region and the placed loc
-        come from edit_scope()."""
-        return add_edit.edit_pin(self.pin_context(), pid, request, actor, region)
-
-    def people_book(self) -> people.PeopleBook:
-        """people.json of the current run (limn.people.PeopleBook): C.state with the Runtime's lock, last-written memo and
-        unreadable-file warning. Made per call, like pin_store(), so a test that replaces this application's C is seen at once."""
-        return people.PeopleBook(self.C.state, self.RT.people_lock, self.RT.people_seen, self.RT.people_warning)
-
-    def load_people(self) -> list[Row] | people.PeopleUnreadable:
-        """The valid entries of this run's people.json (limn.people.load_people); [] when it is missing, PeopleUnreadable
-        (warned about once, RT.people_warning) when it exists but cannot be used."""
-        rows = people.load_people(self.C.people_file)
-        self.RT.people_warning.note(self.C.people_file, rows)
-        return rows
-
-    def record_person(self, actor: Json, now: float | None = None, role: access.Role | None = None) -> bool:
-        """Records a tailnet person into people.json (limn.people.record_person: a new person, a name/picture change, or
-        last_seen stale past PEOPLE_TOUCH_S). Local/agent and an actor without a login are never recorded. The request
-        continues even if the write fails (only a warning). Returns True if it wrote. A person seen for the first time gets
-        no role field (= DEFAULT_ROLE) unless `role` is given (the local owner is recorded as owner)."""
-        login = (actor or {}).get("login")
-        if not login or is_agent(actor):
-            return False
-        return people.record_person(self.people_book(), actor, time.time() if now is None else now, role, DEFAULT_ROLE)
-
-    def people_payload(self) -> list[Json]:
-        """GET /api/people's candidates (limn.people.candidates): people.json's roles read first, then the known people
-        over the pins re-synced and saved (snapshot_pins), each with its role (limn.access.person_role)."""
-        roles = self.people_roles()
-        return people.candidates(self.known_people(self.snapshot_pins()), lambda login: person_role(roles, login))
-
-    def known_people(self, pins: Sequence[Pin] | None = None) -> dict[str, Row]:
-        """@-tag candidates {login: {login,name,pic?,last_seen?}} - people.json plus the people on the pins (pins, or the
-        stored pins when None), agents excluded (limn.people.known_people, which scans each pin's stored actor fields in
-        stored order - the first one seen names a login). An unusable people.json adds no one: the candidates are then
-        the people on the pins."""
-        ppl = self.load_people()
-        listed = [] if isinstance(ppl, people.PeopleUnreadable) else ppl
-        on = pins if pins is not None else self.read_pins()[0]
-        return people.known_people(listed, (pin.record for pin in on), is_agent)
-
-    def event_log(self) -> events.EventLog:
-        """events.jsonl of the current run (limn.events.EventLog) with the Runtime's lock and read cache, stamped by
-        time.time() and now_str() - looked up when the value is made, so a test that freezes either reaches the records."""
-        return events.EventLog(self.C.events_file, self.RT.events_lock, self.RT.events_cache, time.time, self.now_str)
-
-    def make_event(
-        self,
-        typ: EventType,
-        r: Mapping[str, Any],
-        actor: Mapping[str, Any],
-        to: Iterable[str | None] | None,
-        msg: Mapping[str, Any] | None = None,
-        text: str | None = None,
-    ) -> Event | None:
-        """One events.jsonl line about pin r by actor (limn.events.make_event; seq/at are filled in by emit_events). The
-        actor themselves and local are removed from to - None (not recorded) if that leaves it empty."""
-        return events.make_event(typ, r, actor, to, who, self.pin_doc_key, LOCAL_ACTOR["login"], msg, text)
-
-    def emit_events(self, evs: list[Event | None]) -> None:
-        """Appends notices to events.jsonl, keeping the newest EVENTS_KEEP (limn.events.EventLog.emit). Only called after
-        the pin write has committed (prevents phantom events); a failure is just a warning."""
-        self.event_log().emit(evs, EVENTS_KEEP)
-
-    def _read_events(self) -> tuple[list[Row], events.Signature | None]:
-        """(event list, file signature) of events.jsonl, cached by mtime/size (limn.events.EventLog.read)."""
-        return self.event_log().read()
-
-    def note_tags(
-        self,
-        note: str,
-        old_note: str,
-        pins: Sequence[Pin],
-        hints: Sequence[str] | None,
-        actor: Mapping[str, Any],
-        pid: object,
-    ) -> NoteTags:
-        """Resolve the saved note's @-tags and decide who gets a mention event for pin pid.
-
-        Everyone this save newly @-tags (limn.mentions.tag_note against old_note, the note before this edit; empty for a
-        new pin) is notified - unless this actor's note already notified them about this pin within
-        NOTE_MENTION_COOLDOWN_S (note_mention_targets over events.jsonl, read only when someone is newly tagged). Runs
-        inside transact(): the caller emits the event under the same RT.pin_lock, so the next save sees it."""
-        me = (actor or {}).get("login")
-        tags = tag_note(note, old_note, self.known_people(pins), hints, me)
-        if not tags.notify:
-            return tags
-        return tags._replace(notify=note_mention_targets(tags.notify, self._read_events()[0], me, pid, time.time()))
-
-    def events_since(self, actor: Json, cursor: int | None) -> Json:
-        """Notification material carried in /api/meta polling (limn.events.events_since): ev_seq always, and with a cursor
-        the events after it addressed to the requester's tailnet login - nothing for local/agent. Read-only."""
-        rows, _ = self._read_events()
-        me = (actor or {}).get("login")
-        return events.events_since(
-            rows, None if not me or is_agent(actor) else me, cursor, {d.key: d.name for d in self.docs}
-        )
-
-    def reply_reopens(self, r: Record, human: bool, mentioned: Sequence[str], reopen: bool | None = None) -> bool:
-        """Does a reply reopen stored pin r? limn.pins.lifecycle.reopens_on_reply() on the record's state; the viewer's
-        preview (replyReopens) mirrors that rule."""
-        return reopens_on_reply(parse_pin(r), human, mentioned, reopen)
-
-    def reply_pin(
-        self,
-        pid: int,
-        text: str,
-        actor: Json,
-        hints: list[str] | None = None,
-        reopen: bool | None = None,
-        human: bool | None = None,
-    ) -> OpenPin | ReviewPin | DonePin | ThreadFull | PinNotFound:
-        """POST /api/pins/{id}/reply (limn.service.transitions.reply_pin)."""
-        return transitions.reply_pin(self.pin_context(), pid, text, actor, hints, reopen, human)
-
-    def close_pin(
-        self, pid: int, actor: Json, request: CloseRequest
-    ) -> ReviewPin | DonePin | AlreadyClosed | PinNotFound:
-        """POST /api/pins/{id}/close with its parsed body (limn.web.parse.parse_close; CloseRequest() is a close with
-        no body) (limn.service.transitions.close_pin)."""
-        return transitions.close_pin(self.pin_context(), pid, actor, request)
-
-    def reopen_pin(
-        self, pid: int, actor: Json, reason: str | None = None, hints: list[str] | None = None
-    ) -> OpenPin | PinNotFound:
-        """POST /api/pins/{id}/reopen with its reason and @-tag hints (limn.web.parse.parse_reopen)
-        (limn.service.transitions.reopen_pin)."""
-        return transitions.reopen_pin(self.pin_context(), pid, actor, reason, hints)
-
-    def confirm_pin(
-        self, pid: int, actor: Json
-    ) -> DonePin | AlreadyDone | PinStillOpen | AgentCannotConfirm | PinNotFound:
-        """POST /api/pins/{id}/confirm (limn.service.transitions.confirm_pin)."""
-        return transitions.confirm_pin(self.pin_context(), pid, actor)
-
-    def drop_pin(self, pid: int, actor: Json) -> TrashedPin | PinNotFound:
-        """POST /api/pins/{id}/drop: the pin moves to the Trash (limn.service.trash.drop_pin)."""
-        return trash.drop_pin(self.pin_context(), pid, actor)
-
-    def trash_expires_ts(self, entry: TrashedPin) -> float | None:
-        """Epoch seconds at which a Trash entry expires (dropped_at + TRASH_DAYS), or None if dropped_at is unreadable."""
-        return trash.expires_ts(entry, TRASH_DAYS)
-
-    def trash_expired(self, entry: TrashedPin, now: float | None = None) -> bool:
-        """Is a Trash entry past TRASH_DAYS at now (default: the clock)? An entry of unknown age never is."""
-        return trash.expired(entry, TRASH_DAYS, time.time() if now is None else now)
-
-    def _unexpired(self, entries: Sequence[TrashedPin], now: float | None = None) -> list[TrashedPin]:
-        """The Trash entries still restorable at now (default: the clock)."""
-        return trash.unexpired(entries, TRASH_DAYS, time.time() if now is None else now)
-
-    def purge_trash(self, now: float | None = None) -> int:
-        """Prunes expired Trash and live shadows; returns expired count (limn.service.trash.purge_trash)."""
-        return trash.purge_trash(self.pin_context(), now)
-
-    def maybe_purge_trash(self) -> int:
-        """The hourly lazy expiry on the reads that already write (limn.service.trash.maybe_purge_trash)."""
-        return trash.maybe_purge_trash(self.pin_context())
-
-    def purge_pin(self, pid: int, actor: Json) -> TrashedPin | NotInTrash:
-        """POST /api/pins/{id}/purge: the owner's permanent delete (limn.service.trash.purge_pin)."""
-        return trash.purge_pin(self.pin_context(), pid, actor)
-
-    def claim_active(self, r: Record) -> bool:
-        """Does this pin have an unexpired claim now? limn.pins.lifecycle.claim_holds() at the current epoch."""
-        return claim_holds(r, time.time())
-
-    def claim_pin(
-        self, pid: int, actor: Json, ttl_min: int, eta_min: int | None = None
-    ) -> OpenPin | ClaimClosedPin | ClaimedByOther | PinNotFound:
-        """POST /api/pins/{id}/claim: place or extend the in-progress marker (limn.service.claim.claim_pin)."""
-        return claim.claim_pin(self.pin_context(), pid, actor, ttl_min, eta_min)
-
-    def unclaim_pin(self, pid: int, actor: Json) -> OpenPin | ReviewPin | DonePin | NotClaimed | PinNotFound:
-        """POST /api/pins/{id}/unclaim (limn.service.claim.unclaim_pin)."""
-        return claim.unclaim_pin(self.pin_context(), pid, actor)
-
-    def restore_pin(self, pid: int, actor: Json) -> OpenPin | ReviewPin | DonePin | NotInTrash | AlreadyLive:
-        """POST /api/pins/{id}/restore: the pin comes back from the Trash (limn.service.trash.restore_pin)."""
-        return trash.restore_pin(self.pin_context(), pid, actor)
-
-    def clear_pins(self, actor: Json | None = None) -> Json:
-        """POST /api/clear: archive and clear every pin, with its notice and audit line (limn.service.trash.clear_pins)."""
-        return trash.clear_pins(self.pin_context(), actor)
-
     def render_pins_md(self, pins: Sequence[Pin]) -> None:
         """Rewrites pins.md from pins alone (PinStore.render_md). Callers hold RT.pin_lock."""
         self.pin_store().render_md(pins)
-
-    def pins_md_text(self, pins: Sequence[Pin], base: str | None = None) -> str:
-        """pins.md's text for pins: limn.pins.render.pins_md_text over pins_md_input(pins, base). The store renders with
-        this after every write (base None: the file on disk) and GET /pins.md with the request's base."""
-        return render_pins_md_text(self.pins_md_input(pins, base))
-
-    def pins_md_input(self, pins: Sequence[Pin], base: str | None = None) -> PinsMdInput:
-        """Everything one rendering of pins.md reads, gathered at the edge: this application's run settings, the documents and their
-        build stamps, the clock, this machine's token file, people.json, and per pin what the overlap, @-tag, thread and
-        file-location rules decide. base is GET /pins.md's request base, None for the file written to disk.
-
-        Reads files (people.json, the build stamps, whether the token file exists, and the source file of each open
-        one-line pin that carries a quote - each file read at most once per call) but writes nothing."""
-        rows = [pin.record for pin in pins]
-        rel = self.overlaps_by_id(pins)
-        by_id = {r["id"]: r for r in rows}
-        sources: dict[Path, list[str]] = {}
-        facts: dict[int, PinFacts] = {}
-        for pin in pins:
-            r = pin.record
-            if state_of(r) is DonePin:
-                continue
-            location, line_len = "", None
-            if not is_region_pin(r):
-                loc = self.pin_location(
-                    r, self.C.src, self.C.state
-                )  # ADR-0006: still relative after the checkout moved
-                location = (
-                    loc.rel if loc is not None else (Path(str(r.get("file", ""))).name or str(r.get("name") or ""))
-                )
-                lo, hi = r.get("lo"), r.get("hi")
-                if (
-                    loc is not None
-                    and state_of(r) is OpenPin
-                    and r.get("quote")
-                    and is_int(lo)
-                    and is_int(hi)
-                    and lo == hi
-                ):
-                    if loc.path not in sources:  # outside the tree (loc None) is never read
-                        sources[loc.path] = tex_lines(loc.path)
-                    lines = sources[loc.path]
-                    line_len = len(lines[lo - 1]) if 1 <= lo <= len(lines) else None
-            facts[r["id"]] = PinFacts(
-                doc_key=self.pin_doc_key(r),
-                location=location,
-                line_len=line_len,
-                badge=rel_badge(rel.get(r["id"], []), by_id, r),
-                reopened=pin_reopened_in_round(pin.core.thread),
-                addressed=tuple(addressed_to(pin)),
-                fyi=tuple(fyi_mentions_to(pin)),
-                round=tuple(thread_round(pin.core.thread)),
-            )
-        docs = tuple(
-            DocHeading(d.key, d.name, d.rel_path(), d.is_pdf, build.read_head(d), build.read_built_at(d))
-            for d in self.docs
-        )
-        return PinsMdInput(
-            rows=rows,
-            facts=facts,
-            base=base,
-            port=self.C.port,
-            manuscript=str(self.C.src),
-            label=self.C.label,
-            repo=self.C.repo,
-            docs=docs,
-            people=self.known_people(pins),
-            now=time.time(),
-            updated=datetime.now().astimezone().strftime("%Y-%m-%d %H:%M"),
-            token_file=self.existing_token_file_shown(self.C.access.agent_token_file),
-        )
-
-    def existing_token_file_shown(self, f: Path | None) -> str | None:
-        """The shell path of token file f when it exists, else None - the edge half of
-        limn.pins.render.token_guidance_line(): one stat per render, never a read of the file."""
-        return shell_path(f, home_or_none()) if file_present(f) else None
-
-    def pick_context(self) -> locate.PickContext:
-        """What resolving a selection needs from this instance: the manuscript root, --float-envs, the state folder, the
-        process's token-weight cache and the overlaps of a range with the stored pins."""
-        return locate.PickContext(self.C.src, self.C.envs, self.C.state, self.RT.token_cache, self.overlaps_for_range)
-
-    def pick(self, D: Doc, request: locate.Selection) -> locate.Picked | locate.PickedRegion | locate.PickRefusal:
-        """POST /api/pick: a selection of document D (parsed by limn.web.parse.parse_pick) -> source lines, a view-only
-        region, or why it cannot be traced (limn.locate.pick); limn.web.answers.pick_answer gives the body."""
-        return locate.pick(D, request, self.pick_context())
-
-    def snippet_api(self, rng: locate.SourceLines, levels: bool) -> Json:
-        """GET /api/snippet: a parsed range's lines, with levels the range ladder under --float-envs (limn.locate.snippet_api)."""
-        return locate.snippet_api(rng, levels, self.C.envs)
-
-    def overlaps_api(self, rng: locate.SourceLines) -> Json:
-        """GET /api/overlaps: a parsed range's overlaps with the stored open pins (limn.locate.overlaps_api)."""
-        return locate.overlaps_api(rng, self.pick_context())
 
     def access_settings(self) -> access.AccessSettings:
         """The access options of this run as the value identify() and admit() read (C.access_settings, made once per C)."""
@@ -1000,7 +661,7 @@ class ServerApplication:
         """{login: role} for everyone in people.json, or PeopleUnreadable while it cannot be used, re-read whenever the
         file changes - so `limn member role` and `limn member remove`, and a repaired file, take effect on the running
         server's next request."""
-        return self.RT.roles_cache.get(self.C.people_file, lambda: people_roles_of(self.load_people()), {})
+        return self.RT.roles_cache.get(self.C.people_file, lambda: people_roles_of(self.people_directory.load()), {})
 
     def role_of(self, login: str) -> access.Role:
         """The people.json role of login (limn.access.person_role): editor for someone people.json does not list, viewer
@@ -1043,26 +704,6 @@ class ServerApplication:
         call time so a test that binds its own is seen at once."""
         return self.RT.viewer
 
-    def init_doc(self, D: Doc, no_build: bool, wait: bool) -> FinishedBuild | BuildStarted | BuildBusy | BuildSkipped:
-        """Prepares one document at startup: legacy-layout migration, restoring build history, and building if needed. Builds in the background if wait=False."""
-        D.dir.mkdir(parents=True, exist_ok=True)
-        if D.root:
-            build.migrate_pages(D)
-        build.seed_builds(D, self.C.state)
-        if not build.needs_build(D, no_build, self.C.dpi):
-            return BuildSkipped()
-        return self.build_all(D) if wait else self.build_async(D)
-
-    def watch_pdf_docs(self, stop: threading.Event, every: float = 3.0) -> None:
-        """Re-renders pages when a view-only PDF changes (mtime/size). Stands in for a rebuild button."""
-        while not stop.wait(every):
-            for D in list(self.docs):
-                if D.is_pdf:
-                    try:
-                        build.refresh_pdf_doc(D, self.build_async)
-                    except Exception:  # noqa: BLE001 — the watch thread must never die
-                        traceback.print_exc(file=sys.stderr)
-
     def access_log_lines(self) -> list[str]:
         """The startup log lines about access (limn.startup.access_log_lines) for C.access, its tokens.json and token file."""
         return startup.access_log_lines(
@@ -1076,21 +717,21 @@ class ServerApplication:
         Runtime's, so RT.stop() ends them)."""
         self.set_docs(docs)
         self.init_seq()
-        self.purge_trash()  # Expired Trash and live shadows go at startup, and hourly on reads that already write
+        self.pin_trash.purge_trash()  # Expired Trash and live shadows go at startup, and hourly on reads that already write
         if not docs:
             D = self.docs[0]
             build.migrate_pages(D)
             # adds the current build (made by an earlier instance) to history if missing, and restores the last build result
             build.seed_builds(D, self.C.state)
-            if build.needs_build(D, no_build, self.C.dpi):
-                built = self.build_all(D)
+            if build_run.needs_build(D, no_build, self.C.dpi):
+                built = self.build_requests.build_all(D)
                 if isinstance(built, FailedBuild):
                     return StartupRefused("Build failed:\n" + build_failure_log(built))
         else:
             # Multiple documents: each document's build runs in the background, and the server comes up right
             # away (never waits N documents x tens of seconds). A failure never blocks startup - that document's tab opens an error panel instead.
             for D in self.docs:
-                r = self.init_doc(D, no_build, wait=False)
+                r = self.build_requests.init_doc(D, no_build, wait=False)
                 print(
                     "doc    %-10s %s %s%s"
                     % (
@@ -1100,15 +741,9 @@ class ServerApplication:
                         "" if isinstance(r, BuildSkipped) else "  (build started)",
                     )
                 )
-            self.RT.start_thread(self.watch_pdf_docs, self.RT.stopping)
+            self.RT.start_thread(self.build_requests.watch_pdf_docs, self.RT.stopping)
         if self.C.git_pull:
-            self.RT.start_thread(
-                self.RT.sync_watch.watch,
-                self.RT.stopping,
-                gitsync.SYNC_EVERY_S,
-                self.sync_main_once,
-                gitsync.local_stamp,
-            )
+            self.RT.start_thread(self.sync_service.watch, self.RT.stopping)
         with self.RT.pin_lock:
             self.render_pins_md(self.read_pins()[0])
         startup.tighten_state_perms(self.C.people_file)

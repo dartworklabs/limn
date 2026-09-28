@@ -1,4 +1,4 @@
-"""limn.scope and limn.revisions on their own: which module may do what, and the refusal values of pin scoping.
+"""limn.scope and limn.features.revisions.core on their own: which module may do what, and the refusal values of pin scoping.
 
 Every revision route runs end to end through the handler in test_revisions.py. Here: limn.scope stays pure (no file,
 process, clock or HTTP import), neither module reads the server's globals or imports server.py or the HTTP layer,
@@ -22,7 +22,8 @@ import typing
 import unittest
 from pathlib import Path
 
-from limn import revisions, scope as scoping
+from limn import scope as scoping
+from limn.features.revisions import core as revisions
 from limn.mapping import anchor_of
 from limn.web.errors import SCOPE_REJECTIONS, scope_http_error
 
@@ -53,7 +54,13 @@ class Boundaries(unittest.TestCase):
 
     def test_neither_module_reads_server_globals(self):
         """The document and the instance's settings arrive as arguments (R5): no C., no cur_doc()."""
-        for name in ("scope.py", "revisions.py", "documents.py"):
+        for name in (
+            "scope.py",
+            "features/revisions/core.py",
+            "features/revisions/execution.py",
+            "features/revisions/jobs.py",
+            "documents.py",
+        ):
             with self.subTest(module=name):
                 source = (PKG / name).read_text(encoding="utf-8")
                 self.assertNotRegex(source, r"(?<![\w.])C\.[a-z_]")
@@ -68,11 +75,17 @@ class Boundaries(unittest.TestCase):
                     self.assertNotIn(name, source)
 
     def test_revisions_loads_without_server_or_the_http_layer(self):
-        """limn.revisions answers with values; the HTTP layer imports it, never the other way round."""
-        self.assertFalse(
-            {n for n in imports_of(PKG / "revisions.py") if n.startswith("limn.web") or n == "limn.server"}
-        )
-        code = "import sys, limn.revisions; print(sorted(m for m in sys.modules if m.startswith('limn.web') or 'server' in m))"
+        """The revision core answers with values; the HTTP layer imports it, never the other way round."""
+        for name in ("core.py", "execution.py", "jobs.py"):
+            with self.subTest(module=name):
+                self.assertFalse(
+                    {
+                        n
+                        for n in imports_of(PKG / "features/revisions" / name)
+                        if n.startswith("limn.web") or n == "limn.server"
+                    }
+                )
+        code = "import sys, limn.features.revisions.core; print(sorted(m for m in sys.modules if m.startswith('limn.web') or 'server' in m))"
         r = subprocess.run(
             [sys.executable, "-c", code], capture_output=True, text=True, timeout=60, check=False, cwd=str(PKG.parent)
         )

@@ -85,7 +85,7 @@ Limn에서 "테스트가 녹색"은 합격의 필요조건이지 충분조건이
 | 항목 | 내용 |
 | --- | --- |
 | 측정 대상 | `limn add`·`start`·`stop`·`update`·`list`·`status`·`url`·`snippet`·`doc`·`remove`·`run`의 동작과 출력 |
-| 적용 조건 | [`src/limn/instances.sh`](../../src/limn/instances.sh), [`src/limn/cli.py`](../../src/limn/cli.py), systemd 유닛 템플릿을 바꿀 때. CI는 항상 돌린다 |
+| 적용 조건 | [`src/limn/instances.sh`](../../src/limn/instances.sh), [`src/limn/cli.py`](../../src/limn/cli.py), [`features/administration/`](../../src/limn/features/administration/tokens.py), systemd 유닛 템플릿을 바꿀 때. CI는 항상 돌린다 |
 | 실행 | `bash tests/test_instances.sh`. 파이썬은 `LIMN_TEST_PYTHON`, 그다음 PATH의 3.10 이상 `python3`·`python3.1x`, 그다음 이 체크아웃의 `.venv`를 쓴다(macOS의 `/usr/bin/python3`은 3.9라 건너뛴다) |
 | 합격 기준 | 스크립트가 0으로 끝난다. CI는 Linux(bash 5)와 macOS(`/bin/bash` 3.2, BSD 명령) 두 곳에서 돌린다 |
 | 보장 범위 | systemctl·tailscale·ss·uv를 가짜로 바꿔 호스트를 건드리지 않고 확인한다. 실제 systemd·tailscale과의 상호작용은 보장하지 않는다. BSD `stat`은 가짜 명령으로도 한 번 흉내 낸다. 토큰 파일과 실제 서버의 상호작용은 [`tests/test_token_file.py`](../../tests/test_token_file.py)가 맡는다 |
@@ -95,9 +95,9 @@ Limn에서 "테스트가 녹색"은 합격의 필요조건이지 충분조건이
 | 항목 | 내용 |
 | --- | --- |
 | 측정 대상 | 패키지가 `uv tool install`로 설치되고, 실행 파일과 번들 자산이 들어가는지 |
-| 적용 조건 | `pyproject.toml`, 패키지 데이터(`vendor/`, `systemd/`, `instances.sh`, `ui_en.json`, `viewer/`)를 바꿀 때. CI `install` 작업이 항상 돈다 |
+| 적용 조건 | `pyproject.toml`, 패키지 데이터(`vendor/`, `systemd/`, `instances.sh`, `features/administration/instance_*.sh`, `ui_en.json`, `viewer/`)를 바꿀 때. CI `install` 작업이 항상 돈다 |
 | 실행 | `uv tool install .` 뒤 `limn version`, `limn serve --help`, `limn serve --version`, `limn help` |
-| 합격 기준 | 명령이 모두 성공하고 PDF.js 번들, `limn@.service` 템플릿, `instances.sh`, 뷰어 `viewer/index.html`·`viewer/parts.txt`와 조각 `viewer/css/tokens.css`·`viewer/js/events.js`가 설치 경로에 있다. 파일 하나라도 없으면 그 자리에서 실패한다 |
+| 합격 기준 | 명령이 모두 성공하고 PDF.js 번들, `limn@.service` 템플릿, `instances.sh`와 `instance_update.sh`·`instance_documents.sh`·`instance_lifecycle.sh`·`instance_inspection.sh`, 뷰어 `viewer/index.html`·`viewer/parts.txt`와 조각 `viewer/css/tokens.css`·`viewer/js/events.js`가 설치 경로에 있다. 파일 하나라도 없으면 그 자리에서 실패한다 |
 | 보장 범위 | 설치와 실행 입구까지다. 실제 원고 빌드는 확인하지 않는다 |
 
 ## 4. 에이전트 계약 호환
@@ -146,9 +146,9 @@ Limn에서 "테스트가 녹색"은 합격의 필요조건이지 충분조건이
 
 | 항목 | 내용 |
 | --- | --- |
-| 측정 대상 | 파이썬: 문법 오류, 쓰지 않는 import, 정의되지 않은 이름, 흔한 버그 패턴(`B`), 종료 코드를 정하지 않은 `subprocess.run`(`PLW1510`), 스타일 규칙(`E`·`W`, import 순서 `I`, 옛 문법 `UP`, 단순화 `SIM`), 프로덕션 공개 항목의 docstring 누락(`D100`–`D107`)과 테스트 모듈·클래스의 누락(`D100`·`D101`), 그리고 코드 모양이 `ruff format`의 출력과 같은지. 셸: `instances.sh`와 `test_instances.sh`의 ShellCheck 경고 |
+| 측정 대상 | 파이썬: 문법 오류, 쓰지 않는 import, 정의되지 않은 이름, 흔한 버그 패턴(`B`), 종료 코드를 정하지 않은 `subprocess.run`(`PLW1510`), 스타일 규칙(`E`·`W`, import 순서 `I`, 옛 문법 `UP`, 단순화 `SIM`), 프로덕션 공개 항목의 docstring 누락(`D100`–`D107`)과 테스트 모듈·클래스의 누락(`D100`·`D101`), 그리고 코드 모양이 `ruff format`의 출력과 같은지. 셸: `instances.sh`·`instance_*.sh`·`test_instances.sh`의 ShellCheck 경고 |
 | 적용 조건 | 모든 변경. CI `lint` 작업이 항상 돈다 |
-| 실행 | `uv sync --group dev` 뒤 `uv run ruff check`, `uv run ruff format --check`, `uv run shellcheck src/limn/instances.sh tests/test_instances.sh`. 포매팅이 어긋나면 `uv run ruff format`이 고친다. 두 도구 모두 개발 의존성이라 로컬과 CI가 `uv.lock`의 같은 버전을 쓴다 |
+| 실행 | `uv sync --group dev` 뒤 `uv run ruff check`, `uv run ruff format --check`, `uv run shellcheck src/limn/instances.sh src/limn/features/administration/instance_*.sh tests/test_instances.sh`. 포매팅이 어긋나면 `uv run ruff format`이 고친다. 두 도구 모두 개발 의존성이라 로컬과 CI가 `uv.lock`의 같은 버전을 쓴다 |
 | 합격 기준 | 세 명령이 0으로 끝난다. 규칙을 끄려면 그 줄에 이유를 적은 주석과 함께 끈다 (예: `# shellcheck disable=SC2016` 위에 이유 한 줄). 포매터를 `# fmt: off`로 끄는 것은 정말 표 모양인 데이터에만 쓴다 |
 | 보장 범위 | 켠 규칙만이다. 규칙 목록과 끈 규칙은 `pyproject.toml`의 `[tool.ruff.lint]`가 정본이고, 끈 이유는 [code-style-roadmap.md](code-style-roadmap.md) §R4에 있다. docstring은 프로덕션 공개 항목과 테스트 모듈·클래스의 누락을 검사하며 private 도우미·테스트 함수·메서드는 제외한다 (§6). 타입은 §9가 본다. 뷰어 JS에는 린터가 없고, §1의 `test_viewer_files`가 node로 문법을, `test_viewer_source`가 토큰으로 죽은 함수·주석에 삼켜진 문장·닫힌 값 표를 본다 |
 
