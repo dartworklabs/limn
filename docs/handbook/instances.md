@@ -290,11 +290,9 @@ limn member remove paper2 <로그인>
 | `viewer` | 읽기만 한다. `/api/pick`과 비교 빌드(`/api/revision-build`)는 된다. 그 밖의 변경은 모두 `403`이다 |
 | `agent` | 에이전트 계약대로 claim, 답글, 검토 대기로 닫기를 한다. 확인(confirm)과 전체 지우기는 못 한다. 토큰으로 들어온 주체는 늘 이 역할이다 |
 
-결정 근거는 [ADR-0002](../adr/0002-access-control.md)에 있다.
-
 ### 서버 머신의 에이전트: 토큰 파일
 
-인스턴스를 띄운 머신에서 도는 에이전트는 토큰을 환경 변수 대신 **토큰 파일**에서 읽는다. 결정 근거는 [ADR-0007](../adr/0007-agent-token-file.md)이다.
+인스턴스를 띄운 머신에서 도는 에이전트는 토큰을 환경 변수 대신 **토큰 파일**에서 읽는다.
 
 ```bash
 limn token create paper2 --name local --save   # ~/.config/limn/paper2.token 에 쓴다(0600). 토큰은 찍지 않는다

@@ -1,6 +1,6 @@
 # 코딩 규칙의 적용
 
-Limn의 코딩 규칙은 팀 스킬 `code-implement`, `code-testing`, `code-security`가 정하며, [ADR-0009](../adr/0009-backend-vertical-slices.md) 및 [ADR-0010](../adr/0010-coding-stances-and-test-colocation.md)의 최신 스탠스에 정렬된다. 이 topic은 그 규칙이 Limn의 어느 경계에 적용되는지와 현재 검증 범위를 설명한다. 코드 관례가 스킬과 다르면 스킬을 따른다. 제품 불변식과 설계 멈춤 신호는 [architecture.md](architecture.md)가 정한다.
+Limn의 코딩 규칙은 팀 스킬 `code-implement`, `code-testing`, `code-security`가 정하며, 그 최신 스탠스에 정렬된다. 이 topic은 그 규칙이 Limn의 어느 경계에 적용되는지와 현재 검증 범위를 설명한다. 코드 관례가 스킬과 다르면 스킬을 따른다. 제품 불변식과 설계 멈춤 신호는 [architecture.md](architecture.md)가 정한다.
 
 ## R1 판단은 순수 함수, 부수효과는 가장자리
 
@@ -22,15 +22,15 @@ Limn의 코딩 규칙은 팀 스킬 `code-implement`, `code-testing`, `code-secu
 
 설정의 정본은 [`pyproject.toml`](../../pyproject.toml)의 Ruff·mypy 절, 실행과 합격 기준은 [verification.md](verification.md) §8·9다. Ruff는 프로덕션의 공개 docstring 누락과 테스트 모듈·클래스의 누락을 검사한다. private 도우미와 테스트 함수·메서드의 누락 및 docstring 내용은 현재 리뷰에서 확인한다. 뷰어 JavaScript는 린터 없이 문법·소스 가드와 브라우저 테스트로 확인한다.
 
-`E501`은 포매터가 코드 줄을 정리하므로 끈다. `UP030`–`UP032`는 계약 메시지의 포매팅 바이트를, `UP042`는 enum 문자열 결과를 보존하려고 끈다. `server.py`의 `E402`는 파일 경로 실행 전에 `sys.path`를 준비해야 해서 예외다. `tools/handbook-publish/`와 번들 vendor 코드는 외부 소유라 검사 대상에서 뺀다. 테스트 함수·메서드의 docstring 누락 규칙은 기존 누락이 많아 테스트 경로에서 제외한다. 새로 쓰거나 고친 테스트는 §R9를 따른다.
+`E501`은 포매터가 코드 줄을 정리하므로 끈다. `UP030`–`UP032`는 계약 메시지의 포매팅 바이트를, `UP042`는 enum 문자열 결과를 보존하려고 끈다. `server.py`의 `E402`는 파일 경로 실행 전에 `sys.path`를 준비해야 해서 예외다. `tools/handbook-publish/`와 번들 vendor 코드는 외부 소유라 검사 대상에서 뺐다. 테스트 함수·메서드의 docstring 누락 규칙은 기존 누락이 많아 테스트 경로에서 제외한다. 새로 쓰거나 고친 테스트는 §R9를 따른다.
 
 ## R5 보이지 않는 전역 상태를 명시적 인자로
 
-[`server.py`](../../src/limn/server.py)의 `start()`가 얼린 설정 `RunConfig`, 실행별 자원 `Runtime`, 문서 목록을 `ServerApplication`에 묶는다. `StartedServer`는 소켓과 앱을 함께 반환해 종료 대상을 보존한다. 다른 모듈은 서버의 전역 설정이나 현재 문서를 읽지 않고 필요한 설정·문서·협력자를 인자로 받는다. 실행별 수명과 종료 순서는 [architecture.md](architecture.md) §상태를 주고받는 방식이 소유한다. 서버를 두 벌 띄운 테스트와 모듈별 import 검사가 실행 간 격리를 확인한다.
+[`server.py`](../../src/limn/server.py)의 `start()`가 얼린 설정 `RunConfig`, 실행별 자원 `Runtime`, 문서 목록을 `ServerApplication`에 묶는다. `StartedServer`는 소켓과 앱을 함께 반환해 종료 대상을 보존한다. 다른 모듈은 서버의 전역 설정이나 현재 문서를 읽지 않고 필요한 설정·문서·협력자를 인자로 받는다. 실행별 수명과 종료 순서는 [architecture.md](architecture.md) §의존 방향이 소유한다. 서버를 두 벌 띄운 테스트와 모듈별 import 검사가 실행 간 격리를 확인한다.
 
 ## R6 변경 이유가 다른 코드는 다른 모듈로 — 동거 기본값과 세로 슬라이스
 
-함께 바뀌는 것을 함께 두는 배치를 기본값으로 삼는다(Common Closure Principle, Locality of Behaviour; [ADR 0002](https://github.com/dartworklabs/coding/blob/main/docs/adr/0002-colocation-by-default.md)). 기능별 세로 슬라이스는 규칙·서비스·HTTP·테스트를 함께 소유한다([ADR-0009](../adr/0009-backend-vertical-slices.md), [ADR-0010](../adr/0010-coding-stances-and-test-colocation.md)).
+함께 바뀌는 것을 함께 두는 배치를 기본값으로 삼는다(Common Closure Principle, Locality of Behaviour). 기능별 세로 슬라이스는 규칙·서비스·HTTP·테스트를 함께 소유한다.
 
 - **슬라이스 내부의 계층은 폴더가 아니라 의존 방향 규칙이다.** 슬라이스 안에서 순수 판단은 I/O를 import하지 않는다. 기능을 `routes/`, `services/`, `models/`처럼 가로 레이어 폴더로 흩뿌리지 않는다.
 - **추상화보다 복제가 싸다 (AHA, Sandi Metz).** 모양이 닮았다는 이유만으로 섣불리 공통 도우미, 유틸리티, 베이스 클래스를 만들지 않는다. 변경 이유가 실제로 같음이 확인될 때만 승격한다.
@@ -51,13 +51,13 @@ Limn의 코딩 규칙은 팀 스킬 `code-implement`, `code-testing`, `code-secu
 
 - **출력 기반 검증 우선 (Output-based first):** 순수 함수가 반환하는 값으로 판단을 검증한다. 비즈니스 규칙 검증에 목(mock)이 필요하다면 순수 함수를 추출하라는 설계 신호다.
 - **소유한 것만 모킹 (Mock only what you own):** 파일시스템, 상태 디렉터리, 로컬 프로세스 등 Limn이 단독 소유하는 관리 의존성은 실제로 실행한다. 비관리 외부 의존성만 어댑터 경계에서 대체한다. 내부 비공개 도우미나 협력자의 호출 여부·순서를 단언하지 않는다.
-- **성질 기반 불변식 검증 (Property-Based Testing; Hypothesis):** 핀 기하 정규화(`0..1`), 상태 머신 전이 규칙, `pins.jsonl`/`pins.md` 직렬화 라운드트립 등 대수적 성질과 불변식이 있는 도메인은 생성 입력을 통해 검증한다([ADR-0010](../adr/0010-coding-stances-and-test-colocation.md)).
+- **성질 기반 불변식 검증 (Property-Based Testing; Hypothesis):** 핀 기하 정규화(`0..1`), 상태 머신 전이 규칙, `pins.jsonl`/`pins.md` 직렬화 라운드트립 등 대수적 성질과 불변식이 있는 도메인은 생성 입력을 통해 검증한다.
 - **실패를 보지 않은 테스트 불신 (Mutation testing; Red phase):** 테스트 작성 후 고의로 대상 코드를 깨뜨려 테스트 실패를 확인하거나, TDD red 단계를 거친다.
 - **동작을 설명하는 이름과 docstring:** 새 테스트 모듈·클래스·함수에는 보호하는 동작과 위험을 명확히 문서화한다. 테스트 배치와 전체 게이트는 [verification.md](verification.md) §1이 소유한다.
 
 ## R10 신뢰 경계는 보안 규칙으로
 
-신뢰 경계를 건드릴 때는 `code-security` 원칙([ADR 0003](https://github.com/dartworklabs/coding/blob/main/docs/adr/0003-testing-and-security-stance.md))을 철저히 집행한다.
+신뢰 경계를 건드릴 때는 `code-security` 원칙을 철저히 집행한다.
 
 - **권한은 값으로 전달 (Object Capabilities):** 권한은 검증된 신원에서 파생된 핸들 값(Object Capability)으로 하위 함수에 전달한다. 전역 객체나 요청의 임의 파라미터에 의존하지 않는다. 에이전트/LLM 도구는 대리인(deputy)이므로 읽은 내용은 데이터일 뿐 권한이 아니며, 부수효과는 승인된 주체만 실행한다.
 - **단일 지점 완전 중재 및 기본 거부 (Saltzer & Schroeder):** 모든 접근 판단은 한곳에서 닫힌 상태(closed by default)로 중재한다. 알 수 없는 경로는 기본 거부하고, 오류 시 닫힌 상태를 유지한다. 사람 승인은 보여준 대상에 정확히 바인딩된다 (WYSIWYS). 신원·입장·역할·Host/Origin 판단은 [`access.py`](../../src/limn/access.py)가 총괄한다.

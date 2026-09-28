@@ -5,7 +5,7 @@ catalog_schema: 1
 
 # Limn System Handbook
 
-이 Handbook은 Limn의 설계 교과서다. 사람은 처음부터 순서대로 읽을 수 있고, 에이전트는 작업에 맞는 topic만 골라 읽는다. Limn의 모든 문서는 여기에 모여 있다. 저장소 밖 사용자를 위한 첫 안내는 [README.ko.md](../../README.ko.md)와 [README.md](../../README.md), 에이전트 작업 절차는 [SKILL.ko.md](../../skill/SKILL.ko.md)다. 결정 기록은 `docs/adr/`에 있다 (§결정 기록).
+이 Handbook은 Limn의 설계 교과서다. 사람은 처음부터 순서대로 읽을 수 있고, 에이전트는 작업에 맞는 topic만 골라 읽는다. Limn의 모든 문서는 여기에 모여 있다. 저장소 밖 사용자를 위한 첫 안내는 [README.ko.md](../../README.ko.md)와 [README.md](../../README.md), 에이전트 작업 절차는 [SKILL.ko.md](../../skill/SKILL.ko.md)다.
 
 > **핵심**
 >
@@ -27,7 +27,7 @@ catalog_schema: 1
 |  | [operations.md](operations.md) | 서버 하나 실행: 요구 환경, 실행 인자, 포트, 보안 제약, tailscale serve, systemd, 상태 파일 | 서버를 띄우거나 운영 문제를 볼 때 / 실행 인자·상태 파일·보안 제약이 바뀔 때 |
 |  | [instances.md](instances.md) | 원고별 인스턴스 관리자: limn 명령, 설정 키, 문서 탭, 업데이트·되돌리기, 포트, 환경 변수 | 인스턴스를 추가·업데이트·제거할 때 / limn 명령·설정 키·유닛 템플릿이 바뀔 때 |
 | verification | [verification.md](verification.md) | 게이트별 측정 대상·적용 조건·실행·합격 기준·보장 범위, 없는 게이트 | PR 전과 리뷰할 때 / 테스트·CI 단계·합격 기준이 바뀔 때 |
-|  | [workflow.md](workflow.md) | 설계에서 릴리스까지의 변경 흐름, 예외 경로, ADR 규칙, PR·CLA, 릴리스 | 작업을 시작하거나 PR·릴리스를 할 때 / 절차나 기여 조건이 바뀔 때 |
+|  | [workflow.md](workflow.md) | 설계에서 릴리스까지의 변경 흐름, 예외 경로, PR·CLA, 릴리스 | 작업을 시작하거나 PR·릴리스를 할 때 / 절차나 기여 조건이 바뀔 때 |
 |  | [code-style-roadmap.md](code-style-roadmap.md) | 팀 코딩 스킬의 Limn 적용 경계와 현재 검증 범위 | 코드를 쓰거나 리뷰하기 전 / 적용 경계나 검증 범위가 바뀔 때 |
 <!-- handbook-catalog:end -->
 
@@ -50,10 +50,10 @@ catalog_schema: 1
 | `src/limn/features/sync/*` | `--git-pull`·원격 main 감시: 결과·감시 상태와 순수 판정(`rules.py`), Git 순서·여러 문서의 pull 공유·감시 실행(`run.py`), 실행별 문맥과 빌드·meta·감시 연결(`service.py`) | pull 거절·fast-forward, 감시 상태·재빌드 선택·실행별 연결 변경 | build-sync.md, api.md, architecture.md |
 | `src/limn/features/collaboration/*` | 사람 파일·후보·기록(`directory.py`), `/api/people` 본문(`http.py`)과 경로(`routes.py`), 이벤트 파일·멘션 재알림·폴링의 실행별 연결(`notices.py`). 공통 파일 형식·순수 규칙은 `people.py`·`events.py`·`mentions.py`에 있다 | 사람 후보·이벤트 순서, 파일 읽기·쓰기 연결 변경 | api.md §@태그·사람·이벤트, architecture.md |
 | `src/limn/features/document_views/*` | `GET /api/meta`·`/api/docs`·`/api/outline-labels`: 이벤트 커서 입력(`input.py`), 문서·빌드·쪽·목차 사실(`reads.py`), 실행별 핀·동기화·이벤트 조합(`service.py`), HTTP 응답(`http.py`)과 경로(`routes.py`) | meta·docs·목차 응답, 폴링 순서와 쪽 파일 읽기 변경 | api.md, build-sync.md, architecture.md |
-| `src/limn/features/revisions/*` | Git 이력·비교 PDF의 입력 검사(`input.py`), 성공·거절 응답(`answer.py`), HTTP 입구(`http.py`), 네 GET 경로와 비교 시작 POST의 매칭·응답(`routes.py`), 실행별 비교 문맥·요청 실행(`service.py`). Git 이력·diff와 공통 타입(`core.py`), 스냅숏·격리 PDF 실행(`execution.py`), 비교 캐시·작업 상태(`jobs.py`)가 같은 기능에 있다 | 커밋·핀 검사 순서, 비교 응답·문맥 연결과 실행·캐시 규칙 변경 | api.md, architecture.md |
+| `src/limn/features/revisions/*` | Git 이력·비교 PDF의 입력 검사(`input.py`), 성공·거절 응답(`answer.py`), HTTP 입구(`http.py`), 네 GET 경로와 비교 시작 POST의 매칭·응답(`routes.py`), 실행별 비교 문맥·요청 실행(`service.py`). Git 이력·diff와 공통 타입(`core.py`), 스냅샷·격리 PDF 실행(`execution.py`), 비교 캐시·작업 상태(`jobs.py`)가 같은 기능에 있다 | 커밋·핀 검사 순서, 비교 응답·문맥 연결과 실행·캐시 규칙 변경 | api.md, architecture.md |
 | `src/limn/store.py` | 핀 저장소: 잠금 아래 쓰기 순서(`transact`), `pins.jsonl`·`pins.md`·휴지통 쓰기, 손상 줄 보존, 핀 번호(`pins.seq`), 보관(clear). 서버를 모르고 협력자를 인자로 받는다 | 저장 순서·파일 이름·보존 규칙 변경 | domain.md §저장소 안전성, architecture.md 불변식 4 |
 | `src/limn/pins/*` | 핀 도메인의 순수 코드: 상태 타입, 행위자 타입, 저장소가 믿는 레코드 모양 검사(`record.py`), 옮겨진 전이와 `pins.md`의 다시 열림 판단(`lifecycle.py`), 편집 판단과 새 핀 레코드, 휴지통의 만료·그림자 항목 판정(`trash.py`), 핀 위치 규칙(`position.py`: 위치 추정·겹침·anchor 재동기화), JSON 정수·숫자 판정(`shapes.py`), `pins.md` 렌더(`render.py`: 입력 값 → 문자열, 겹침 배지), API가 레코드를 보이는 모양과 계산 필드(`view.py`: `public_record`·`state`·`GET /api/pins`·휴지통 본문) | 저장 레코드 필드 추가(`record.py`의 검사도 함께), 상태·전이·거절 규칙, 휴지통 만료·가시성, 추정·겹침·줄 맞춤 규칙 변경, `pins.md` 열·표시·머리말 변경(계약) | domain.md, build-sync.md §위치 추정 (`est`), api.md §pins.md 형식, code-style-roadmap.md |
-| `src/limn/guidance.py` | 에이전트가 읽는 토큰 파일 문구(`UNAUTHENTICATED`, `shell_path`, `token_file_curl`, `loopback_refused_text`) — 순수. `pins.md` 인증 줄과 헤더 없는 로컬 요청의 401이 같이 쓴다 | 인증 안내·401 문구 변경(계약) | api.md §인증, ADR-0007 |
+| `src/limn/guidance.py` | 에이전트가 읽는 토큰 파일 문구(`UNAUTHENTICATED`, `shell_path`, `token_file_curl`, `loopback_refused_text`) — 순수. `pins.md` 인증 줄과 헤더 없는 로컬 요청의 401이 같이 쓴다 | 인증 안내·401 문구 변경(계약) | api.md §인증 |
 | `src/limn/mapping.py` | 위치 계산의 순수한 절반: SyncTeX 표본에서 파일·줄 범위 선택(`synctex_range`), 범위 사다리, 블록 확장, 점수, anchor 찾기, 한 줄 줄이기(`flat`: `pins.md`와 알림 `excerpt`), 핀 파일 찾기(`pin_rel_path`) | 점수·단계·anchor·핀 파일 위치 규칙 변경 | domain.md, api.md §핀 파일의 위치 |
 | `src/limn/locate.py` | 여러 핀 경로의 공통 위치: 핀 파일 찾기(`pin_location`), 저장된 핀 재동기화(`sync_all`), 겹침(`overlaps_by_id`·`overlaps_for_range`), 빌드 이력 읽기(`est_context`). 문서와 설정을 인자로 받는다 | 재동기화·핀 파일 위치·겹침 변경 | domain.md, build-sync.md, api.md §핀 파일의 위치 |
 | `src/limn/build.py` | 빌드의 공통 사실: 쪽 디렉터리와 쪽 목록, 빌드 결과 값(`BuildOk`·`FailedBuild` 등)과 빌드 상태 이름(`BuildState`), 빌드 상태, 빌드 이력, 원고 지문과 `src_mtime`. 문서를 인자로 받으며 빌드 기능과 핀·문서 조회가 함께 읽는다 | 공통 빌드 상태·이력·지문·산출물 규칙 변경 | build-sync.md, architecture.md |
@@ -64,7 +64,7 @@ catalog_schema: 1
 | `src/limn/mentions.py` | @태그의 순수 규칙: `@이름` 풀기, 지금 차례, `addressed`·`fyi`, 메모 태그와 재알림 간격 | 태그 해석·addressed·재알림 규칙 변경 | api.md §@태그·사람·이벤트, viewer.md §스레드와 검토 |
 | `src/limn/events.py` | 알림 한 건과 받는 사람, 폴링이 고르는 이벤트(순수), `events.jsonl` 쓰기·읽기(`EventLog`) | 이벤트 종류·필드·받는 사람·보관 건수 변경 | api.md §이벤트 (`events.jsonl`), §브라우저 알림 커서 |
 | `src/limn/audit.py` | `audit.jsonl` 한 줄과 추가 전용 쓰기, CLI 행위자 | 감사 항목·쓰기 방식 변경 | api.md §감사 기록 (`audit.jsonl`), SECURITY.md |
-| `src/limn/scope.py` | 핀 단위 변경(0.3)의 순수 판단: hunk 블록 귀속, 핀 hunk diff, 합성 판, 거절 값 | 귀속 순서·`scope` 필드·`changes` 검사 변경 | api.md §핀 단위 변경 보기, ADR-0005 |
+| `src/limn/scope.py` | 핀 단위 변경(0.3)의 순수 판단: hunk 블록 귀속, 핀 hunk diff, 합성 판, 거절 값 | 귀속 순서·`scope` 필드·`changes` 검사 변경 | api.md §핀 단위 변경 보기 |
 | `src/limn/documents.py` | 문서(`Doc`: 빌드 루트·메인·문서별 상태 폴더와 빌드 잠금·상태), 문서 키 규칙, 문서 목록을 인자로 받는 조회(`request_doc`·`doc_for_file`·`pin_doc_key`)와 조회 결과 값(`DocNotFound`), 파서가 읽는 원고 사실(`DocumentFacts`), `to_source` | 문서 경로·키 규칙 변경 | domain.md §여러 문서, build-sync.md |
 | `src/limn/mark.py` | Limn 마크: 기하 하나, 뷰어 인라인 SVG·파비콘 SVG·PNG | 마크 모양·크기·색 규칙 변경 | viewer.md §마크와 파비콘 |
 | `src/limn/viewer/*` | 뷰어 화면: `index.html`, 스타일 조각 `css/*.css`, 스크립트 조각 `js/*.js`, 조각 순서 `parts.txt`, 브라우저 알림의 서비스 워커 `sw.js`(`GET /sw.js`, `service_worker()`가 읽는다). 조립은 `assemble.py`(`viewer_html`: 조각을 순서대로 이어 한 장의 HTML로 만들고 PDF.js 버전·마크·Lucide 아이콘 표·영어 메시지 표를 채운다) | 레이아웃·토큰·컴포넌트·상호작용 변경, 조각 추가(`parts.txt`에 줄을 더한다), 아이콘 추가(`assemble.py`의 `LUCIDE`), PDF.js 버전 변경(`PDFJS_VERSION`) | viewer.md, verification.md |
@@ -82,24 +82,8 @@ catalog_schema: 1
 | `tests/**` | 자동 게이트 | 테스트 추가·이동·합격 기준 변경 | verification.md |
 | `.github/workflows/*` | CI | 작업·행렬·단계 변경 | verification.md, workflow.md |
 | `skill/*` | 에이전트 절차 | 에이전트 행동 규칙 변경 | api.md와 함께, 영어·한국어 두 벌 |
-| `docs/adr/*` | 결정 기록 | 새 결정 | index.md §결정 기록, workflow.md §ADR을 쓰는 때 |
 | `docs/handbook/book.json`, `tools/handbook-publish/*` | Handbook 출판 설정과 출판기 | 폰트·도구 버전·출판기 교체 | verification.md |
 <!-- handbook-filemap:end -->
-
-## 결정 기록
-
-| ADR | 내용 | 상태 |
-| --- | --- | --- |
-| [ADR-0001](../adr/0001-blueprint.md) | 청사진: 설계 축 채택값과 이유 | 확정 (2026-09-26) |
-| [ADR-0002](../adr/0002-access-control.md) | 접근 제어·협업 경계·동기화 | v0.2 확정·구현, 이후 제안 |
-| [ADR-0003](../adr/0003-tailnet-headerless-and-owner-clear.md) | 테일넷의 헤더 없는 요청 거부와 소유자 전용 전체 지우기 | 확정·구현 (0.2.1) |
-| [ADR-0004](../adr/0004-one-reply-trash-sections.md) | 답글 하나와 서버 규칙, 휴지통, 접는 목록 구획 | 확정·구현 (0.2.2) |
-| [ADR-0005](../adr/0005-pin-scoped-changes.md) | 핀 단위 [변경 보기]: 닫을 때의 `changes`와 `PR #번호 (커밋 해시)`, 서버 추정(겹침만), 핀의 hunk만 담은 소스 diff·비교 PDF | 확정·구현 (0.3.0) |
-| [ADR-0006](../adr/0006-relative-pin-paths.md) | 핀의 파일을 원고 폴더 기준 상대 경로(`file_rel`)로도 적고, 옛 레코드는 읽을 때 해석한다(쓰기 마이그레이션 없음) — 옮긴 원고에서도 핀이 따라온다 | 확정·구현 (0.3.2), 후속 읽기 규칙 (0.3.4, 이슈 #24) |
-| [ADR-0007](../adr/0007-agent-token-file.md) | 서버 머신의 에이전트는 인스턴스별 토큰 파일(`~/.config/limn/<인스턴스>.token`, `0600`)로 인증하고, 그 뒤 인스턴스마다 `AGENT_LOOPBACK=0` | 확정 (2026-09-26) |
-| [ADR-0008](../adr/0008-trash-live-reconciliation.md) | 휴지통과 살아 있는 핀의 두 파일 쓰기가 중단되면 살아 있는 핀을 우선하고 그림자 사본을 정리한다 | 확정·구현 (2026-09-27) |
-| [ADR-0009](../adr/0009-backend-vertical-slices.md) | 백엔드를 기능별 세로 슬라이스로 점진 이행. 핀 수명 주기·처리 중 표시·휴지통·만들기·편집·JSON 조회를 옮겼다 | 확정·점진 구현 중 (2026-09-28) |
-| [ADR-0010](../adr/0010-coding-stances-and-test-colocation.md) | 팀 코딩 스킬 최신 스탠스 채택 및 테스트 동거·불변식 검증 이행 | 확정·점진 구현 중 (2026-09-28) |
 
 ## 알려진 공백
 
