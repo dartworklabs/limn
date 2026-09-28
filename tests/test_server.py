@@ -38,6 +38,7 @@ from limn.features.administration import serve_documents as startup_documents
 from limn.features.builds import engine as build_engine
 from limn.features.builds.answer import diet_log
 from limn.features.pins.editing import input as editing_input
+from limn.features.pins.lifecycle import input as lifecycle_input
 from limn.features.pins.location import source as pick_source
 from limn.features.sync import run as gitsync
 from limn.features.sync.rules import UpToDate
@@ -45,7 +46,6 @@ from limn.pins.lifecycle import AgentCannotConfirm, CloseRequest
 from limn.pins.view import pin_state
 from limn.startup import StartupRefused
 from limn.viewer import assemble as viewer_assemble
-from limn.web import parse
 from limn.web.errors import HTTPError, InputRejected
 
 from helpers import (
@@ -1579,11 +1579,17 @@ class KindAndThread(Base):
 
     def test_reply_validation(self):
         pid = self.add()
-        for body in ({}, {"text": ""}, {"text": "   "}, {"text": 5}, {"text": "x" * (parse.THREAD_TEXT_MAX + 1)}):
+        for body in (
+            {},
+            {"text": ""},
+            {"text": "   "},
+            {"text": 5},
+            {"text": "x" * (lifecycle_input.THREAD_TEXT_MAX + 1)},
+        ):
             code, d = self.post("/api/pins/%d/reply" % pid, body)
             self.assertEqual(code, 400, body)
         self.assertNotIn("thread", self.pin(pid))
-        code, d = self.post("/api/pins/%d/reply" % pid, {"text": "x" * parse.THREAD_TEXT_MAX})
+        code, d = self.post("/api/pins/%d/reply" % pid, {"text": "x" * lifecycle_input.THREAD_TEXT_MAX})
         self.assertEqual(code, 200)
         code, d = self.post("/api/pins/999/reply", {"text": "없음"})
         # a nonexistent id follows the same convention as other routes
@@ -1693,7 +1699,7 @@ class ReviewState(Base):
         row = next(ln for ln in md.splitlines() if ln.startswith("| %d " % pid))
         self.assertIn("다시 열림", row)
         self.assertIn("다시 연 이유(Bob Park): 식 번호가 아직 틀림", row)
-        code, d = self.post("/api/pins/%d/reopen" % pid, {"reason": "x" * (parse.THREAD_TEXT_MAX + 1)})
+        code, d = self.post("/api/pins/%d/reopen" % pid, {"reason": "x" * (lifecycle_input.THREAD_TEXT_MAX + 1)})
         self.assertEqual(code, 400)
         # a body-less legacy reopen still works too (already open — thread unchanged)
         code, d = self.post("/api/pins/%d/reopen" % pid)

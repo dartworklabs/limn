@@ -9,7 +9,7 @@ from limn.files import tree_part
 from limn.pins.lifecycle import CloseRequest
 from limn.pins.shapes import is_int
 from limn.web.errors import InputRejected
-from limn.web.parse import parse_mention_hints, parse_thread_text
+from limn.web.parse import parse_mention_hints
 
 Json = Mapping[str, Any]
 
@@ -18,6 +18,29 @@ CLOSE_REF_MAX = 80  # reference (e.g. PR number) - matching values let the UI gr
 # v0.3: ranges in one close body's optional changes (the new-side lines the agent changed for the pin)
 CLOSE_CHANGES_MAX = 50
 CHANGE_LINE_MAX = 1_000_000  # a line number past this is not a manuscript line
+THREAD_TEXT_MAX = 1000  # one reply or reopen reason
+
+
+def parse_thread_text(v: object, what: str = "text", required: bool = True) -> str | None | InputRejected:
+    """One reply or reopen reason. Like a note, only string type and length are checked (the screen renders via esc()).
+    Newlines are normalized to \\n and control characters (other than newline/tab) are stripped - so the pins.md table
+    and notification bodies don't break. Empty after trimming whitespace is refused when required, else None; so is
+    an absent value. `what` names the field in the refusal."""
+    if v is None:
+        if required:
+            return InputRejected("%s 가 필요합니다." % what, "text_required")
+        return None
+    if not isinstance(v, str):
+        return InputRejected("%s 는 문자열이어야 합니다." % what, "bad_text")
+    v = v.replace("\r\n", "\n").replace("\r", "\n")
+    v = "".join(ch for ch in v if ch in "\n\t" or not (ord(ch) < 32 or 127 <= ord(ch) < 160)).strip()
+    if len(v) > THREAD_TEXT_MAX:
+        return InputRejected("%s 가 너무 깁니다(%d자 이하)." % (what, THREAD_TEXT_MAX), "text_too_long")
+    if not v:
+        if required:
+            return InputRejected("%s 가 비어 있습니다." % what, "text_empty")
+        return None
+    return v
 
 
 def parse_review_flag(d: Json) -> bool | None | InputRejected:

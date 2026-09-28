@@ -236,13 +236,15 @@ class Fields(unittest.TestCase):
 
     def test_thread_text_is_cleaned_then_checked(self):
         """Newlines are normalised and control characters dropped before the length and emptiness checks."""
-        self.assertEqual(parse.parse_thread_text("a\r\nb\x00\x1b[1m\tc "), "a\nb[1m\tc")
-        self.assertEqual(parse.parse_thread_text(None), InputRejected("text 가 필요합니다.", "text_required"))
-        self.assertIsNone(parse.parse_thread_text(None, "reason", required=False))
-        self.assertIsNone(parse.parse_thread_text(" \n", "reason", required=False))
-        self.assertEqual(parse.parse_thread_text(" \n"), InputRejected("text 가 비어 있습니다.", "text_empty"))
+        self.assertEqual(lifecycle_input.parse_thread_text("a\r\nb\x00\x1b[1m\tc "), "a\nb[1m\tc")
+        self.assertEqual(lifecycle_input.parse_thread_text(None), InputRejected("text 가 필요합니다.", "text_required"))
+        self.assertIsNone(lifecycle_input.parse_thread_text(None, "reason", required=False))
+        self.assertIsNone(lifecycle_input.parse_thread_text(" \n", "reason", required=False))
         self.assertEqual(
-            parse.parse_thread_text("x" * 1001, "reason"),
+            lifecycle_input.parse_thread_text(" \n"), InputRejected("text 가 비어 있습니다.", "text_empty")
+        )
+        self.assertEqual(
+            lifecycle_input.parse_thread_text("x" * 1001, "reason"),
             InputRejected("reason 가 너무 깁니다(1000자 이하).", "text_too_long"),
         )
         self.assertEqual(lifecycle_input.parse_reply_text(3), InputRejected("text 는 문자열이어야 합니다.", "bad_text"))
@@ -737,7 +739,7 @@ class ThreadText(unittest.TestCase):
     """parse_thread_text() strips control characters but keeps newlines and tabs."""
 
     def test_control_characters_are_stripped_but_newlines_kept(self):
-        self.assertEqual(parse.parse_thread_text("a\x00b\x1b[31m\tc\nd"), "ab[31m\tc\nd")
+        self.assertEqual(lifecycle_input.parse_thread_text("a\x00b\x1b[31m\tc\nd"), "ab[31m\tc\nd")
 
 
 class MentionHints(unittest.TestCase):
