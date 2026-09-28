@@ -56,7 +56,7 @@ catalog_schema: 1
 | `src/limn/guidance.py` | 에이전트가 읽는 토큰 파일 문구(`UNAUTHENTICATED`, `shell_path`, `token_file_curl`, `loopback_refused_text`) — 순수. `pins.md` 인증 줄과 헤더 없는 로컬 요청의 401이 같이 쓴다 | 인증 안내·401 문구 변경(계약) | api.md §인증, ADR-0007 |
 | `src/limn/mapping.py` | 위치 계산의 순수한 절반: SyncTeX 표본에서 파일·줄 범위 선택(`synctex_range`), 범위 사다리, 블록 확장, 점수, anchor 찾기, 한 줄 줄이기(`flat`: `pins.md`와 알림 `excerpt`), 핀 파일 찾기(`pin_rel_path`) | 점수·단계·anchor·핀 파일 위치 규칙 변경 | domain.md, api.md §핀 파일의 위치 |
 | `src/limn/locate.py` | 여러 핀 경로의 공통 위치: 핀 파일 찾기(`pin_location`), 저장된 핀 재동기화(`sync_all`), 겹침(`overlaps_by_id`·`overlaps_for_range`), 빌드 이력 읽기(`est_context`). 문서와 설정을 인자로 받는다 | 재동기화·핀 파일 위치·겹침 변경 | domain.md, build-sync.md, api.md §핀 파일의 위치 |
-| `src/limn/build.py` | 빌드의 공통 사실: 쪽 디렉토리와 쪽 목록, 빌드 결과 값(`BuildOk`·`FailedBuild` 등)과 빌드 상태 이름(`BuildState`), 빌드 상태, 빌드 이력, 원고 지문과 `src_mtime`. 문서를 인자로 받으며 빌드 기능과 핀·문서 조회가 함께 읽는다 | 공통 빌드 상태·이력·지문·산출물 규칙 변경 | build-sync.md, architecture.md |
+| `src/limn/build.py` | 빌드의 공통 사실: 쪽 디렉터리와 쪽 목록, 빌드 결과 값(`BuildOk`·`FailedBuild` 등)과 빌드 상태 이름(`BuildState`), 빌드 상태, 빌드 이력, 원고 지문과 `src_mtime`. 문서를 인자로 받으며 빌드 기능과 핀·문서 조회가 함께 읽는다 | 공통 빌드 상태·이력·지문·산출물 규칙 변경 | build-sync.md, architecture.md |
 | `src/limn/gitrun.py` | git 프로세스를 띄우는 방식: 인자 목록, stdin·터미널 없음, `GIT_TERMINAL_PROMPT=0`, 서버의 `GIT_*` 변수 빼기, 시간 제한 | git 호출 방식이나 넘기는 환경 변경 | build-sync.md §git 프로세스, verification.md |
 | `src/limn/outline.py` | `.aux` 목차 줄의 순수 파서(번호·제목·인쇄 쪽 번호·계층) | 목차 라벨 변환 규칙 변경 | api.md, viewer.md |
 | `src/limn/files.py` | 원자적 파일 교체(`atomic_write`): 상태 폴더의 모든 쓰기가 공유. 상태 파일의 프로세스 간 잠금(`store_lock`). 무엇이 원고 트리인지(`tree_part`: 점으로 시작하는 이름 아래와 원고 안에 둔 상태 폴더 아래는 트리가 아니다)와 경로가 그 안의 파일인지 보는 규칙(`file_in_tree`), 원고 줄 세기(`tex_lines`), PDF.js 파일 이름 검사(`vendor_file`) | 쓰기 방식·트리 경로 규칙 변경 | domain.md, architecture.md |
@@ -99,6 +99,7 @@ catalog_schema: 1
 | [ADR-0007](../adr/0007-agent-token-file.md) | 서버 머신의 에이전트는 인스턴스별 토큰 파일(`~/.config/limn/<인스턴스>.token`, `0600`)로 인증하고, 그 뒤 인스턴스마다 `AGENT_LOOPBACK=0` | 확정 (2026-09-26) |
 | [ADR-0008](../adr/0008-trash-live-reconciliation.md) | 휴지통과 살아 있는 핀의 두 파일 쓰기가 중단되면 살아 있는 핀을 우선하고 그림자 사본을 정리한다 | 확정·구현 (2026-09-27) |
 | [ADR-0009](../adr/0009-backend-vertical-slices.md) | 백엔드를 기능별 세로 슬라이스로 점진 이행. 핀 수명 주기·처리 중 표시·휴지통·만들기·편집·JSON 조회를 옮겼다 | 확정·점진 구현 중 (2026-09-28) |
+| [ADR-0010](../adr/0010-coding-stances-and-test-colocation.md) | 팀 코딩 스킬 최신 스탠스 채택 및 테스트 동거·불변식 검증 이행 | 확정·점진 구현 중 (2026-09-28) |
 
 ## 알려진 공백
 

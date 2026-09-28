@@ -33,7 +33,7 @@ limn serve  ──(1)──▶  <manuscript_dir> 사본을 별도 빌드 디렉�
 
 ## 현재 구조
 
-Limn은 **하나의 배포 단위(`dartwork-limn` 패키지) 안에서 표준 라이브러리만 쓰는 모듈**로 나뉜다. 핀 수명 주기, 처리 중 표시, 휴지통, 만들기·편집, JSON 조회와 PDF 선택은 `features/pins/`의 각 기능 패키지가 입력·HTTP 응답·실행별 협력자를 소유한다. 빌드 상태·PDF·쪽 이미지 읽기와 재빌드 요청은 `features/builds/`가, 원격 Git 동기화와 감시는 `features/sync/`가, Git 이력·비교 PDF의 요청·응답은 `features/revisions/`가, 사람 파일·멘션 알림의 실행별 연결과 목록 조회는 `features/collaboration/`이, 문서 상태·목차 조회는 `features/document_views/`가 소유한다. 명령줄 사용자 동작은 `features/administration/`이 소유하고, 저장·신원·문서·실행 수명은 여러 기능의 공통 경계에 남는다. 경로마다의 책임과 함께 볼 topic은 [index.md](index.md) §파일 지도가 정본이다.
+Limn은 **하나의 배포 단위(`dartwork-limn` 패키지) 안에서 표준 라이브러리만 쓰는 모듈**로 나눈다. 핀 수명 주기, 처리 중 표시, 휴지통, 만들기·편집, JSON 조회와 PDF 선택은 `features/pins/`의 각 기능 패키지가 입력·HTTP 응답·실행별 협력자를 소유한다. 빌드 상태·PDF·쪽 이미지 읽기와 재빌드 요청은 `features/builds/`가, 원격 Git 동기화와 감시는 `features/sync/`가, Git 이력·비교 PDF의 요청·응답은 `features/revisions/`가, 사람 파일·멘션 알림의 실행별 연결과 목록 조회는 `features/collaboration/`이, 문서 상태·목차 조회는 `features/document_views/`가 소유한다. 명령줄 사용자 동작은 `features/administration/`이 소유하고, 저장·신원·문서·실행 수명은 여러 기능의 공통 경계에 남는다. 경로마다의 책임과 함께 볼 topic은 [index.md](index.md) §파일 지도가 정본이다.
 
 | 층 | 모듈 | 하는 일 | 모르는 것 |
 | --- | --- | --- | --- |
@@ -91,14 +91,14 @@ Limn은 **하나의 배포 단위(`dartwork-limn` 패키지) 안에서 표준 �
 
 ## 채택한 설계 축
 
-설계 축은 프로젝트가 기본 청사진에서 어디가 달라지는지를 묻는 질문 목록이다. 아래 값이 **현재 채택값**이고, 채택한 이유와 버린 대안은 [ADR-0001](../adr/0001-blueprint.md)과 1차 구조를 부분 대체한 [ADR-0009](../adr/0009-backend-vertical-slices.md)에 남긴다. 표에 없는 축(경제·비용 게이트, 외부 검수 권위)은 Limn에서 달라지지 않아 따로 정하지 않았다.
+설계 축은 프로젝트가 기본 청사진에서 어디가 달라지는지를 묻는 질문 목록이다. 아래 값이 **현재 채택값**이고, 채택한 이유와 버린 대안은 [ADR-0001](../adr/0001-blueprint.md), [ADR-0009](../adr/0009-backend-vertical-slices.md), [ADR-0010](../adr/0010-coding-stances-and-test-colocation.md)에 남긴다. 표에 없는 축(경제·비용 게이트, 외부 검수 권위)은 Limn에서 달라지지 않아 따로 정하지 않았다.
 
 | 축 | 채택값 | 근거와 적용 |
 | --- | --- | --- |
-| 1차 구조 | **작은 단일 배포 + 기능별 세로 슬라이스로 점진 이행.** 닫기·다시 열기·확인·답글·claim·unclaim은 이행했고 다른 동작은 책임별 모듈에 있다(§현재 구조) | [ADR-0009](../adr/0009-backend-vertical-slices.md)가 ADR-0001의 축 1을 부분 대체한다. 배포 단위·런타임은 하나다 |
+| 1차 구조 | **작은 단일 배포 + 기능별 세로 슬라이스와 테스트 동거로 점진 이행.** 닫기·다시 열기·확인·답글·claim·unclaim은 이행했고 다른 동작은 책임별 모듈에 있다(§현재 구조) | [ADR-0009](../adr/0009-backend-vertical-slices.md) 및 [ADR-0010](../adr/0010-coding-stances-and-test-colocation.md)가 ADR-0001의 축 1을 부분 대체한다. 배포 단위·런타임은 하나이며, 슬라이스는 코드와 테스트를 함께 소유한다 |
 | 도메인 정체 | **핀의 수명 주기와 위치 규칙.** 상태 전이, 역변환·범위 사다리·anchor 재동기화 | [domain.md](domain.md) |
-| 함수형 DDD 범위 | **실용적 함수형.** 판단은 순수 함수, 부수효과(파일·git·subprocess·HTTP)는 가장자리. 의미 있는 수명 주기(핀 상태)에만 상태별 타입과 전이 함수를 쓰고, 계산·파싱은 평범한 함수로 둔다. 예상된 거절은 예외가 아니라 반환 타입의 거절 값으로 돌려준다(`confirm() -> DonePin \| AlreadyDone \| PinStillOpen`, `confirmer() -> Person \| AgentCannotConfirm`) | 우리 코딩 스킬 `code-implement`의 기본값. 규칙과 예는 [code-style-roadmap.md](code-style-roadmap.md) |
-| 검수 진실원 | **자동 테스트 녹색 + 에이전트 계약 불변 + 화면 실측.** pytest·셸 테스트·Playwright 레이아웃 테스트가 통과하고, `pins.md`·HTTP API가 호환을 지키며, 화면 규칙은 실측 스크린샷으로 확인한다 | [verification.md](verification.md) |
+| 함수형 DDD 범위 | **실용적 함수형 + 객체 권한(Object capabilities).** 판단은 순수 함수, 부수효과(파일·git·subprocess·HTTP)는 가장자리. 권한은 검증된 신원에서 값으로 전달하고 신뢰 경계는 닫힌 상태를 유지한다. 의미 있는 수명 주기(핀 상태)에만 상태별 타입과 전이 함수를 쓰고, 계산·파싱은 평범한 함수로 둔다. 예상된 거절은 예외가 아니라 반환 타입의 거절 값으로 돌려준다(`confirm() -> DonePin \| AlreadyDone \| PinStillOpen`, `confirmer() -> Person \| AgentCannotConfirm`) | 우리 코딩 스킬 `code-implement`·`code-security`의 기본값. 규칙과 예는 [code-style-roadmap.md](code-style-roadmap.md) |
+| 검수 진실원 | **동작 중심 테스트(리팩토링 내성) + 도메인 불변식 PBT + 에이전트 계약 불변 + 화면 실측.** 자동 테스트 녹색은 필요조건일 뿐이며, 구조가 아닌 관찰 가능한 동작 검증(출력 기반, 성질 기반 PBT, Red 단계)이 진실원이다. pytest·셸 테스트·Playwright 레이아웃 테스트가 통과하고, `pins.md`·HTTP API가 호환을 지키며, 화면 규칙은 실측 스크린샷으로 확인한다 | [ADR-0010](../adr/0010-coding-stances-and-test-colocation.md), [verification.md](verification.md) |
 | 검수 시점 | **머지 전 게이트.** CI가 막는다 | [verification.md](verification.md) |
 | HARD-GATE | **행동 계약 변경 전.** 에이전트 계약·보안 경계·저장 형식을 바꾸는 변경은 설계 승인 뒤 구현한다 | [workflow.md](workflow.md) |
 | 정본 매체 | 동작은 **코드**, 에이전트 계약은 **[api.md](api.md)와 [SKILL.ko.md](../../skill/SKILL.ko.md)**, 데이터는 **상태 디렉터리 파일**. Handbook은 설계 교과서이자 안내판 | [purpose.md](purpose.md) §진실 소스 |
@@ -113,11 +113,11 @@ Limn은 **하나의 배포 단위(`dartwork-limn` 패키지) 안에서 표준 �
 
 기본 바인드 주소는 `127.0.0.1`이다. `--bind`로 다른 주소를 줄 수 있지만, loopback이 아닌 주소는 신원을 프록시가 보증하는 `--auth trusted-proxy`일 때만 받는다. 그 밖에는 서버가 시작을 거부한다. `--i-know-this-is-insecure`로 넘길 수는 있지만 크게 경고한다. 테일넷 노출은 `tailscale serve`, 그 밖의 노출은 인증 리버스 프록시가 맡고, `tailscale funnel`은 쓰지 않는다. 이 규칙이 깨지면 포트에 닿는 누구나 원고를 읽고 핀을 바꿀 수 있다. 근거와 위협 모델은 [SECURITY.md](../../SECURITY.md), 운영 상세는 [operations.md](operations.md) §보안 제약, 설계와 이후 단계는 [ADR-0002](../adr/0002-access-control.md)에 있다.
 
-신원은 인스턴스마다 방식 하나(`tailscale`·`local`·`trusted-proxy`)로 정하고, 에이전트는 API 토큰으로 인증한다. 서버 머신의 에이전트는 토큰 원문을 설정 폴더의 토큰 파일(`<이름>.token`, `0600`, 저장소 밖)에서 읽고, 서버는 그 파일을 읽지 않는다([ADR-0007](../adr/0007-agent-token-file.md)). 권한은 `people.json`의 역할(owner·editor·viewer·agent)이 정하고, 처리기 한 곳에서 집행한다. 역할·신원 방식·신원 경로는 닫힌 `Literal` 타입(`Role`·`AuthProvider`·`Via`)이라 이 값과의 비교에 오타가 있으면 타입 검사(`strict_equality`)에서 실패한다. 밖에서 온 글자(`people.json`의 `role`, 명령줄)는 경계에서 한 번만 이 타입으로 바뀌고, 알 수 없는 역할 값은 `viewer`가 된다. 처리기가 행동마다 묻는 역할 질문(답글이 사람의 것인가, `review` 없는 닫기가 검토 대기로 가는가)도 `Principal`이 답하므로 역할 비교는 `access.py` 밖에 없다. 신원·입장·역할 판단과 Host/Origin 규칙의 코드는 [`limn/access.py`](../../src/limn/access.py) 한 곳에 있다. 이 모듈은 실행 설정(`C`)을 읽지 않는다. 조립 지점(`server.py`)이 요청마다 실행 설정 값(`AccessSettings`)과 파일 사실(`AccessLookups`: `tokens.json`·`people.json`을 파일이 바뀔 때만 다시 읽는 캐시, 실행마다 하나씩)을 넘긴다. 이 경계의 거절은 값으로 돌려주지 않고 `HTTPError`를 던진다(§의존 방향). 파일 사실도 같은 쪽으로 닫는다. 쓸 수 없는 `tokens.json`은 토큰을 하나도 받지 않고, 쓸 수 없는 `people.json`은 헤더로 들어온 모든 사람을 `viewer`로 두고 멤버 자격을 주지 않으며 다시 쓰이지 않는다. 헤더 없는 요청을 에이전트로 보는 것은 이 기기를 부른 요청(루프백 `Host`)뿐이고, 모든 핀을 지우는 일은 소유자만 한다([ADR-0003](../adr/0003-tailnet-headerless-and-owner-clear.md)). 상세는 [api.md](api.md) §인증이다.
+신원은 인스턴스마다 방식 하나(`tailscale`·`local`·`trusted-proxy`)로 정하고, 에이전트는 API 토큰으로 인증한다. 서버 머신의 에이전트는 토큰 원문을 설정 폴더의 토큰 파일(`<이름>.token`, `0600`, 저장소 밖)에서 읽고, 서버는 그 파일을 읽지 않는다([ADR-0007](../adr/0007-agent-token-file.md)). 권한은 `people.json`의 역할(owner·editor·viewer·agent)이 정하고, 처리기 한 곳에서 집행한다. 접근 제어는 단일 지점 완전 중재(Saltzer & Schroeder Complete Mediation)와 닫힌 기본 상태(closed by default)를 따른다. 모든 경로는 검증된 신원에서 파생된 권한 값(Object capability)으로 처리하며, 외부 입력은 경계에서 완전한 타입으로 파싱(`parse, don't validate`)한다. 역할·신원 방식·신원 경로는 닫힌 `Literal` 타입(`Role`·`AuthProvider`·`Via`)이라 이 값과의 비교에 오타가 있으면 타입 검사(`strict_equality`)에서 실패한다. 밖에서 온 글자(`people.json`의 `role`, 명령줄)는 경계에서 한 번만 이 타입으로 바뀌고, 알 수 없는 역할 값은 `viewer`가 된다. 처리기가 행동마다 묻는 역할 질문(답글이 사람의 것인가, `review` 없는 닫기가 검토 대기로 가는가)도 `Principal`이 답하므로 역할 비교는 `access.py` 밖에 없다. 신원·입장·역할 판단과 Host/Origin 규칙의 코드는 [`limn/access.py`](../../src/limn/access.py) 한 곳에 있다. 이 모듈은 실행 설정(`C`)을 읽지 않는다. 조립 지점(`server.py`)이 요청마다 실행 설정 값(`AccessSettings`)과 파일 사실(`AccessLookups`: `tokens.json`·`people.json`을 파일이 바뀔 때만 다시 읽는 캐시, 실행마다 하나씩)을 넘긴다. 이 경계의 거절은 값으로 돌려주지 않고 `HTTPError`를 던진다(§의존 방향). 파일 사실도 같은 쪽으로 닫는다. 쓸 수 없는 `tokens.json`은 토큰을 하나도 받지 않고, 쓸 수 없는 `people.json`은 헤더로 들어온 모든 사람을 `viewer`로 두고 멤버 자격을 주지 않으며 다시 쓰이지 않는다. 헤더 없는 요청을 에이전트로 보는 것은 이 기기를 부른 요청(루프백 `Host`)뿐이고, 모든 핀을 지우는 일은 소유자만 한다([ADR-0003](../adr/0003-tailnet-headerless-and-owner-clear.md)). 상세는 [api.md](api.md) §인증이다.
 
 ### 2. 서버 런타임은 표준 라이브러리만 쓴다
 
-`pyproject.toml`의 `dependencies = []`가 이 규칙의 실행 정본이다. Python 3.10 이상에서 돈다. 뷰어도 React·Tailwind·빌드 단계·CDN 없이 번들한 PDF.js와 Lucide만 쓴다. 뷰어의 CSS·JS가 여러 조각 파일이어도 번들러나 모듈 로더를 들이지 않는다. 서버가 `parts.txt` 순서대로 조각을 이어 인라인 `<style>`·`<script>` 하나씩으로 내보낸다. 배포가 패키지 설치 하나로 끝나야 연구실 머신에서 유지할 수 있기 때문이다. 개발 의존성(pytest, Playwright, Ruff, ShellCheck, mypy)은 이 규칙과 무관하다.
+`pyproject.toml`의 `dependencies = []`가 이 규칙의 실행 정본이다. Python 3.10 이상에서 돈다. 뷰어도 React·Tailwind·빌드 단계·CDN 없이 번들한 PDF.js와 Lucide만 쓴다. 뷰어의 CSS·JS가 여러 조각 파일이어도 번들러나 모듈 로더를 들이지 않는다. 서버가 `parts.txt` 순서대로 조각을 이어 인라인 `<style>`·`<script>` 하나씩으로 내보낸다. 배포가 패키지 설치 하나로 끝나야 연구실 머신에서 유지할 수 있기 때문이다. 개발 의존성(pytest, pytest-xdist, hypothesis, Playwright, Ruff, ShellCheck, mypy)은 이 규칙과 무관하다.
 
 ### 3. 에이전트 계약은 호환을 깨지 않는다
 
