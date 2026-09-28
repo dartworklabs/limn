@@ -4,7 +4,7 @@
 
 `limn serve`는 서버 하나를 앞(foreground)에서 띄운다. 몇 주씩 다루는 원고는 **인스턴스**로 띄운다. 인스턴스는 systemd 사용자 유닛 `limn@<이름>` 하나이고, 포트·상태 폴더·journal이 인스턴스마다 따로다. 논문마다 저장소가 따로이고 동시에 작업하는 일이 잦아서 원고마다 인스턴스를 하나씩 둔다. 설치된 `limn` 패키지 하나를 모든 인스턴스가 함께 쓴다.
 
-서버 프로세스 하나의 계약(실행 인자, `--doc` 규칙, Host·Origin 검사, 상태 파일 배치)은 [operations.md](operations.md)가 맡는다. 인스턴스 관리자의 공통 셸 환경·도구·명령 선택은 [`src/limn/instances.sh`](../../src/limn/instances.sh), 설치·되돌리기와 재시작은 [`instance_update.sh`](../../src/limn/features/administration/instance_update.sh)가 구현한다. `limn` 명령이 셸로 넘기는 부분은 [`src/limn/cli.py`](../../src/limn/cli.py)다. 토큰·멤버 명령과 토큰 파일 보호는 [`features/administration/`](../../src/limn/features/administration/tokens.py)이 맡는다.
+서버 프로세스 하나의 계약(실행 인자, `--doc` 규칙, Host·Origin 검사, 상태 파일 배치)은 [operations.md](operations.md)가 맡는다. 인스턴스 관리자의 공통 셸 환경·도구·명령 선택은 [`src/limn/instances.sh`](../../src/limn/instances.sh), 설치·되돌리기와 재시작은 [`instance_update.sh`](../../src/limn/features/administration/instance_update.sh), `doc` 명령과 `add`가 공유하는 문서 검사·자동 탐지는 [`instance_documents.sh`](../../src/limn/features/administration/instance_documents.sh)가 구현한다. `limn` 명령이 셸로 넘기는 부분은 [`src/limn/cli.py`](../../src/limn/cli.py)다. 토큰·멤버 명령과 토큰 파일 보호는 [`features/administration/`](../../src/limn/features/administration/tokens.py)이 맡는다.
 
 > **한눈에**
 >
