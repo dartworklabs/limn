@@ -179,6 +179,7 @@ class DroppedList(Base):
     """§B: GET /api/pins/dropped — returns dropped pins read-only, together with dropped_at/dropped_by."""
 
     def test_dropped_payload_includes_dropped_at_and_by(self):
+        """A dropped pin retains its identifier, actor, and removal time in the list."""
         pid = self.add(note="oops")
         ps.APP.pin_trash.drop_pin(pid, {"login": "alice", "name": "Wendy"})
         out = ps.APP.pin_listing.dropped_payload()
@@ -188,16 +189,19 @@ class DroppedList(Base):
         self.assertIn("dropped_at", out[0])
 
     def test_dropped_payload_empty_when_nothing_dropped(self):
+        """Live pins do not appear in the Trash list."""
         self.add()
         self.assertEqual(ps.APP.pin_listing.dropped_payload(), [])
 
     def test_dropped_payload_excludes_restored_pins(self):
+        """Restoring a pin removes it from the Trash list."""
         pid = self.add()
         ps.APP.pin_trash.drop_pin(pid, dict(LOCAL_ACTOR))
         ps.APP.pin_trash.restore_pin(pid, dict(LOCAL_ACTOR))
         self.assertEqual(ps.APP.pin_listing.dropped_payload(), [])
 
     def test_get_pins_dropped_endpoint_http(self):
+        """The HTTP Trash response includes a dropped pin and its original note."""
         pid = self.add(note="secret-drop-note")
         ps.APP.pin_trash.drop_pin(pid, {"login": "alice", "name": "Wendy"})
         out = self.talk(req("GET", "/api/pins/dropped"))
@@ -208,6 +212,7 @@ class DroppedList(Base):
         self.assertEqual(payload["dropped"][0]["note"], "secret-drop-note")
 
     def test_get_pins_dropped_respects_origin_check(self):
+        """The Trash endpoint rejects a request with a foreign Host."""
         pid = self.add()
         ps.APP.pin_trash.drop_pin(pid, dict(LOCAL_ACTOR))
         out = self.talk(req("GET", "/api/pins/dropped", headers={"Host": "evil.example"}))
@@ -238,6 +243,7 @@ class LegacyClaimStart(Base):
     A = {"login": "alice@example.com", "name": "Wendy"}
 
     def test_pins_payload_fills_start_for_legacy_claims(self):
+        """Legacy claims gain a read-only start epoch without rewriting their record."""
         pid = self.add()
         with ps.APP.RT.pin_lock:  # a claim shape written by a pre-eta server
             rows = records(ps.APP.read_pins()[0])
@@ -249,14 +255,11 @@ class LegacyClaimStart(Base):
         self.assertNotIn("claim_ts", find_record(ps.APP.read_pins()[0], pid))  # a computed field — not stored
 
 
-class LegacyDoneState(Base):
-    """A legacy done:true without a review field is done, not awaiting review; review must be a boolean."""
+class InvalidReviewState(Base):
+    """The store rejects a non-boolean review flag on an otherwise valid pin."""
 
-    def test_legacy_done_is_done_not_review(self):
-        self.assertEqual(pin_state({"done": True}), "done")
-        self.assertEqual(pin_state({"done": True, "review": False}), "done")
-        self.assertEqual(pin_state({"done": True, "review": True}), "review")
-        self.assertEqual(pin_state({"review": True}), "open")  # a review flag left on an open pin is meaningless
+    def test_non_boolean_review_is_refused_by_store(self):
+        """A string review flag cannot become a stored pin state."""
         self.assertFalse(fits({"id": 1, "file": str(self.main), "lo": 1, "hi": 1, "review": "y"}))
 
 

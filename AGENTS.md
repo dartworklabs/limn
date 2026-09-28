@@ -10,7 +10,7 @@ Limn은 LaTeX 원고 PDF에서 드래그한 영역을 `.tex` 파일·줄 범위�
 | --- | --- |
 | 무엇이든 처음 | [purpose.md](docs/handbook/purpose.md) — 목적과 영역별 진실 소스 |
 | 코드를 놓을 자리, 의존성·저장·보안 경계 | [architecture.md](docs/handbook/architecture.md) — 불변식과 멈춤 신호 |
-| 코드를 쓰거나 리뷰 | [code-style-roadmap.md](docs/handbook/code-style-roadmap.md) — 코딩 규칙 (R1–R10)과 지금 코드의 예 |
+| 코드를 쓰거나 리뷰 | [code-style-roadmap.md](docs/handbook/code-style-roadmap.md) — 코딩 스킬의 Limn 적용 경계와 검증 범위 |
 | 핀 규칙·위치 계산 | [domain.md](docs/handbook/domain.md) |
 | 뷰어 화면 | [viewer.md](docs/handbook/viewer.md) |
 | 빌드·동기화 | [build-sync.md](docs/handbook/build-sync.md) |
@@ -34,7 +34,7 @@ Limn은 LaTeX 원고 PDF에서 드래그한 영역을 `.tex` 파일·줄 범위�
 
 ```bash
 uv sync --group dev
-uv run pytest -q -rs
+uv run pytest -q -rs -n 4 --dist loadscope
 bash tests/test_instances.sh
 uv run ruff check
 uv run ruff format --check

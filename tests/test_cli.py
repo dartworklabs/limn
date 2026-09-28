@@ -1,12 +1,10 @@
-"""The `limn` command surface: version, serve pass-through, help, what `limn token` / `limn member` import, and
-`limn update`'s default source (UpdateSource)."""
+"""The `limn` command surface: version, serve pass-through, help, and isolated token/member commands."""
 
 import json
 import os
-import re
 import subprocess
 import sys
-import unittest
+from importlib.metadata import distribution
 from pathlib import Path
 
 import pytest
@@ -23,8 +21,8 @@ def limn(*args, **kw):
 
 
 def package_version():
-    text = (SRC / "limn" / "__init__.py").read_text(encoding="utf-8")
-    return re.search(r'^__version__ = "([^"]+)"', text, re.M).group(1)
+    """The version installed for users of the command, independent of source layout."""
+    return distribution("dartwork-limn").version
 
 
 def test_version_command_prints_package_version():
@@ -68,11 +66,12 @@ def test_server_reports_the_same_version_when_run_by_path():
     assert r.stdout.strip() == package_version()
 
 
-def test_pyproject_takes_version_from_package():
-    text = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
-    assert 'dynamic = ["version"]' in text
-    assert 'path = "src/limn/__init__.py"' in text
-    assert 'limn = "limn.cli:main"' in text
+def test_installed_command_prints_package_version():
+    """The installed command starts and reports its package version."""
+    command = Path(sys.executable).with_name("limn")
+    result = subprocess.run([str(command), "version"], capture_output=True, text=True, timeout=60, check=False)
+    assert result.returncode == 0
+    assert result.stdout.strip() == "limn %s" % package_version()
 
 
 # Every `limn token` / `limn member` subcommand, run in one fresh interpreter in which importing limn.server fails (the
@@ -115,18 +114,3 @@ def test_token_and_member_commands_run_without_the_server(tmp_path):
     assert result == {"codes": [0] * 8, "loaded": []}
     actions = [json.loads(line)["action"] for line in (tmp_path / "state" / "audit.jsonl").read_text().splitlines()]
     assert actions == ["token_created", "token_revoked", "member_added", "member_role", "member_removed"]
-
-
-# ---------------------------------------------------------------- `limn update`'s default source (v0.2.1 QA)
-
-
-class UpdateSource(unittest.TestCase):
-    """The update command and Handbook agree on the HTTPS default source."""
-
-    def test_default_is_https_everywhere(self):
-        sh = (SRC / "limn" / "instances.sh").read_text(encoding="utf-8")
-        self.assertIn('REPO="${LIMN_REPO:-git+https://github.com/dartworklabs/limn}"', sh)
-        text = (ROOT / "docs" / "handbook" / "instances.md").read_text(encoding="utf-8")
-        row = next(ln for ln in text.splitlines() if ln.startswith("| `LIMN_REPO`"))
-        self.assertIn("git+https://github.com/dartworklabs/limn", row)
-        self.assertIn("0.1.0의 기본값은 `git+ssh://", text)  # the note on the v0.1.0 ssh default

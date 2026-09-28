@@ -104,7 +104,7 @@ Limn이 다루는 대상은 핀 하나다. 사람이 PDF에서 영역을 고르�
 
 stale은 이 전이와 별개다. 줄 맞춤이 머리 줄을 잃으면 열린 핀에 `stale: true`가 붙는다. 상태는 열림 그대로다. stale 핀을 어떻게 다룰지는 §줄 번호 재동기화 (`anchor`)에 있다.
 
-전이의 순수 규칙은 [`limn/pins/lifecycle.py`](../../src/limn/pins/lifecycle.py)에 있다. 닫기(`decide_close`·`evolve_close`), 다시 열기(`decide_reopen`·`evolve_reopen`), 답글(`reopens_on_reply`·`decide_reply`·`evolve_reply`), 확인(`confirmer`·`confirm`), 처리 중 표시(`claim`·`claim_open`·`unclaim`·`claim_holds`), 휴지통(`drop`·`find_trashed`·`restore`)이 같은 상태 타입과 공통 기록 헬퍼를 쓴다.
+전이·답글·처리 중 표시·휴지통의 순수 판단은 [`pins/lifecycle.py`](../../src/limn/pins/lifecycle.py)에 있다. 각 기능의 입력·응답·쓰기는 아래 기능별 세로 슬라이스가 맡는다.
 
 닫기·다시 열기·답글의 본문 파서는 [`features/pins/lifecycle/input.py`](../../src/limn/features/pins/lifecycle/input.py), 네 경로의 응답은 [`features/pins/lifecycle/http.py`](../../src/limn/features/pins/lifecycle/http.py)가 소유한다. 잠금 아래 저장하고 알림을 내는 `PinLifecycle`은 같은 기능의 [`service.py`](../../src/limn/features/pins/lifecycle/service.py)에 있다. `ServerApplication`은 실행별 `pin_context()` 생성 함수 하나를 이 서비스에 묶는다. 답글을 다시 여는 순수 규칙 `reopens_on_reply`는 [`pins/lifecycle.py`](../../src/limn/pins/lifecycle.py)에 있다.
 
@@ -213,7 +213,7 @@ section 단계는 두지 않는다. 절 전체를 범위로 잡으면 수백 줄
 
 `pins.jsonl` 쓰기 뒤 `pins.md` 쓰기가 실패하면 살아 있는 상태만 먼저 바뀌고 `pins.md`는 오래된 내용일 수 있다. 기동할 때 살아 있는 파일로 다시 렌더한다. 이 구간에서 실패한 요청의 알림은 남지 않을 수 있다. 파일 셋과 알림의 원자적 완료까지는 현재 저장 형식의 보장이 아니다.
 
-실행 정본은 [`src/limn/store.py`](../../src/limn/store.py)의 `PinStore`(`transact`의 잠금·순서, `prepare_pins`의 사전 렌더·직렬화와 `write_prepared`의 손상 원본 보존, `read_jsonl`, `next_id`·`init_seq`, `clear`, `write_dropped`)와 [`src/limn/files.py`](../../src/limn/files.py)의 `atomic_write`(임시 파일 뒤 `os.replace`), 그리고 저장소를 조립하는 [`src/limn/server.py`](../../src/limn/server.py)의 `pin_store`·`RT.pin_lock`(실행별 런타임이 갖는다), [`features/pins/listing/service.py`](../../src/limn/features/pins/listing/service.py)의 `dropped_payload`(잠근 일관된 조회), 레코드 검사 `valid_rec`(규칙은 순수 모듈 [`limn/pins/record.py`](../../src/limn/pins/record.py)이고, `server.py`는 문서 키 규칙과 행위자 모양을 묶어 넘긴다), 두 파일을 순서대로 쓰고 그림자 사본을 정리하는 [`features/pins/trash/service.py`](../../src/limn/features/pins/trash/service.py)의 `drop_pin`·`restore_pin`·`purge_trash`·`purge_pin`·`clear_pins`이다. 저장소는 서버를 모르고, 파일 위치·잠금·레코드 검사·줄 맞춤(`sync_all`)·`pins.md` 렌더(`pins_md_text`)를 `pin_store()`에게서 인자로 받는다. 렌더는 [`limn/pins/render.py`](../../src/limn/pins/render.py)의 순수 함수이고, 읽는 것(실행 설정, 문서와 빌드 도장, 시계, 토큰 파일, 핀마다의 파일 위치·겹침·@태그·스레드)은 [`features/pins/listing/markdown.py`](../../src/limn/features/pins/listing/markdown.py)의 `PinMarkdown.pins_md_input`이 값(`PinsMdInput`)으로 모아 넘긴다. 이 순서와 보존 규칙은 [`tests/test_store.py`](../../tests/test_store.py)와 [`tests/test_trash.py`](../../tests/test_trash.py)가 지킨다. 파일 배치는 [operations.md](operations.md) §상태 파일 배치에 있다.
+쓰기의 잠금·순서는 [`store.py`](../../src/limn/store.py)의 `PinStore.transact()`가 정하고, 원자적 교체는 [`files.py`](../../src/limn/files.py)의 `atomic_write()`가 맡는다. [`server.py`](../../src/limn/server.py)는 실행별 잠금과 레코드 검사·렌더 협력자를 저장소에 넘긴다. 휴지통 변경과 그림자 정리는 [`features/pins/trash/service.py`](../../src/limn/features/pins/trash/service.py), 잠근 조회는 [`features/pins/listing/service.py`](../../src/limn/features/pins/listing/service.py)가 맡는다. `pins.md`의 순수 렌더는 [`pins/render.py`](../../src/limn/pins/render.py), 조회 사실의 수집은 [`features/pins/listing/markdown.py`](../../src/limn/features/pins/listing/markdown.py)가 맡는다. 보존 규칙은 [`test_store.py`](../../tests/test_store.py)와 [`test_trash.py`](../../tests/test_trash.py)가 확인한다. 파일 배치는 [operations.md](operations.md) §상태 파일 배치에 있다.
 
 ## 작성자 귀속
 

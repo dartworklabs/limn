@@ -4,13 +4,13 @@ Limn은 원고를 PDF로 빌드해 쪽 이미지로 보여 주고, 그 위에 �
 
 재빌드 흐름, 빌드 상태, 폴링 주기, 점선 마크(`est`) 판정을 바꿀 때 이 문서를 읽고 같은 diff에서 고친다. 엔드포인트 목록과 응답 필드 전체는 [api.md](api.md) 에 있다. 뷰어 조작 요약은 [viewer.md](viewer.md) §조작 한눈에가 맡는다.
 
-빌드의 공통 사실(결과 타입·상태 이름, 쪽 디렉토리·쪽 목록, 빌드 이력 `builds.json`, 원고 지문과 `src_mtime`)은 [`src/limn/build.py`](../../src/limn/build.py)가 맡는다. 요청과 실행은 [`features/builds/`](../../src/limn/features/builds/service.py)에 있다. `routes.py`가 빌드 상태·쪽 이미지·PDF의 GET과 재빌드 POST 경로를 고르고 응답을 만들며 `http.py`의 입력·파일 읽기를 쓴다. `service.py`가 실행별 설정·동기화 pull·시계를 받아 컴파일·추적 빌드·기동 빌드·보기 전용 PDF 감시와 동기·비동기를 연결한다. `run.py`는 문서별 잠금·추적 상태·이력 기록, 기동 때 빌드할지(`needs_build`)와 보기 전용 재빌드 거절(`request_rebuild`)을 맡는다. `engine.py`는 원고 복사·latexmk·pdftoppm·쪽 교체와 보기 전용 PDF 다시 그리기(`render_pdf_doc`·`pdf_changed`·`refresh_pdf_doc`)를 맡는다. 문서별 잠금·빌드 상태·이력 잠금·`src_mtime` 캐시는 문서 객체(`Doc`)가 갖는다. 실행 설정은 서비스가 호출 시점에 받고, 내부 실행 함수는 문서·빌드 설정을 인자로 받는다.
+빌드의 공통 결과·상태·이력·지문은 [`build.py`](../../src/limn/build.py)가 정의한다. 요청 경로와 HTTP 응답은 [`features/builds/routes.py`](../../src/limn/features/builds/routes.py)·[`http.py`](../../src/limn/features/builds/http.py)가, 실행 연결은 [`service.py`](../../src/limn/features/builds/service.py)가 맡는다. 같은 기능의 [`run.py`](../../src/limn/features/builds/run.py)는 문서별 잠금·추적·이력을, [`engine.py`](../../src/limn/features/builds/engine.py)는 원고 복사·컴파일·쪽 교체·보기 전용 PDF 렌더를 맡는다. 잠금·상태·mtime 캐시는 `Doc`이 갖고, 실행 설정은 서비스가 호출 시점에 받는다.
 
-`--git-pull` 과 원격 main 감시는 둘로 나뉜다. [`features/sync/rules.py`](../../src/limn/features/sync/rules.py) 는 순수 규칙이다. pull 결과 값(`Pulled`·`UpToDate`·`PullSkipped`·`PullFailed`)과 그것을 빌드의 `pull` 기록으로 쓰는 일(`pull_record`), git 답 읽기, 감시 상태와 다시 빌드할 문서, `updating` 이 끝나는 조건을 정한다. [`features/sync/run.py`](../../src/limn/features/sync/run.py) 는 셸이다. git을 차례로 부르고(`pull`), 여러 문서의 pull을 나눠 쓰고(`PullShare`·`repo_pull`), 감시 한 바퀴와 상태·루프(`SyncWatch`)를 돈다. `rules.py`는 값만 읽고, `run.py`는 원고 경로·문서·Git 실행기·시계를 인자로 받으며 서버를 모른다.
+`--git-pull`의 판단은 순수 [`features/sync/rules.py`](../../src/limn/features/sync/rules.py)가, git 호출과 원격 감시는 [`run.py`](../../src/limn/features/sync/run.py)가 맡는다. 규칙은 pull 결과와 다시 빌드할 문서를 정하고, 실행은 원고 경로·문서·Git 실행기·시계를 인자로 받는다.
 
-[`features/sync/service.py`](../../src/limn/features/sync/service.py)는 호출할 때마다 현재 설정·문서·실행별 `pull_share`·`sync_watch`를 받아 빌드의 pull, meta의 sync 상태, 감시 한 바퀴와 감시 루프를 연결한다. [`features/builds/service.py`](../../src/limn/features/builds/service.py)는 문서를 이 인스턴스의 설정으로 빌드하고 보기 전용 PDF 변화를 감시한다. [`server.py`](../../src/limn/server.py)는 동기화 서비스와 PDF 감시를 런타임의 스레드로 시작한다(`RT.stop()`이 둘을 끝낸다). `--git-pull`과 보기 전용 그리기는 빌드에 단계로 넘겨진다.
+[`features/sync/service.py`](../../src/limn/features/sync/service.py)는 실행별 pull·감시 상태를 받아 빌드와 meta에 연결한다. [`server.py`](../../src/limn/server.py)는 동기화와 PDF 감시를 런타임 스레드로 시작하고 `RT.stop()`으로 끝낸다. `--git-pull`과 보기 전용 렌더는 빌드 단계로 넘긴다.
 
-폴링이 읽는 응답(`GET /api/meta`·`/api/docs`·`/api/outline-labels`)은 [`features/document_views/`](../../src/limn/features/document_views/http.py)가 소유한다. `reads.py`는 문서·문서 목록·설정(`MetaSettings`)과 `--git-pull` 상태를 인자로 받고 쓰지 않는다. `service.py`는 라이트 meta에서 핀 동기화 쓰기를 건너뛰고, 전체 meta의 핀 개수(`n_open` 등)에만 `snapshot_pins()`를 거친다. `http.py`는 기본 상태를 만든 뒤 이벤트 커서를 검사하고 이벤트·역할을 덧붙인다.
+폴링 응답(`GET /api/meta`·`/api/docs`·`/api/outline-labels`)은 [`features/document_views/`](../../src/limn/features/document_views/http.py)가 소유한다. 순수 읽기는 문서·설정·동기화 상태를 인자로 받는다. 라이트 meta는 핀 동기화 쓰기를 건너뛰고, 전체 meta의 핀 개수만 `snapshot_pins()`를 거친다.
 
 > **한눈에**
 >
@@ -90,7 +90,7 @@ Limn은 원고를 PDF로 빌드해 쪽 이미지로 보여 주고, 그 위에 �
 
 - 뷰어는 자기가 처리한 seq를 기억한다. 라이트 meta의 `build_seq` 가 그와 다르면 상세를 받는다. 그래서 5초 폴링 틈새에 시작부터 끝까지 끝나 `running` 을 한 번도 못 본 빌드도 알아챈다.
 - 완료 처리(화면 교체, 토스트)는 seq 하나당 한 번이다.
-- `GET /api/build` 조회는 **단일 비행**이다. 1초 타이머, `visibilitychange`, `focus`, 라이트 폴링이 한꺼번에 불러도 요청은 하나만 나간다. 고치기 전에는 숨은 탭이 돌아올 때 토스트가 두 번 떴다.
+- `GET /api/build` 조회는 **단일 비행**이다. 1초 타이머, `visibilitychange`, `focus`, 라이트 폴링이 한꺼번에 불러도 요청은 하나만 나간다. 겹친 조회가 같은 완료를 중복 처리하지 않게 하기 위해서다.
 - 새로 연 탭은 마지막 빌드가 `ok_errors`·`fail` 이면 토스트 없이 오류 패널을 연다.
 
 ### 진행 폴링

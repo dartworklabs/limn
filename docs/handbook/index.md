@@ -9,7 +9,7 @@ catalog_schema: 1
 
 > **핵심**
 >
-> 무엇의 현재값이 어디에 있는지 모르겠으면 [purpose.md](purpose.md) §진실 소스부터 본다. 구조를 바꾸기 전에는 [architecture.md](architecture.md) §멈춤 신호를 확인한다. 코드를 쓰기 전에는 [code-style-roadmap.md](code-style-roadmap.md)의 코딩 규칙을 따른다.
+> 무엇의 현재값이 어디에 있는지 모르겠으면 [purpose.md](purpose.md) §진실 소스부터 본다. 구조를 바꾸기 전에는 [architecture.md](architecture.md) §멈춤 신호를 확인한다. 코드를 쓰기 전에는 팀 코딩 스킬과 [code-style-roadmap.md](code-style-roadmap.md)의 Limn 적용 경계를 확인한다.
 
 ## 목록
 
@@ -28,7 +28,7 @@ catalog_schema: 1
 |  | [instances.md](instances.md) | 원고별 인스턴스 관리자: limn 명령, 설정 키, 문서 탭, 업데이트·되돌리기, 포트, 환경 변수 | 인스턴스를 추가·업데이트·제거할 때 / limn 명령·설정 키·유닛 템플릿이 바뀔 때 |
 | verification | [verification.md](verification.md) | 게이트별 측정 대상·적용 조건·실행·합격 기준·보장 범위, 없는 게이트 | PR 전과 리뷰할 때 / 테스트·CI 단계·합격 기준이 바뀔 때 |
 |  | [workflow.md](workflow.md) | 설계에서 릴리스까지의 변경 흐름, 예외 경로, ADR 규칙, PR·CLA, 릴리스 | 작업을 시작하거나 PR·릴리스를 할 때 / 절차나 기여 조건이 바뀔 때 |
-|  | [code-style-roadmap.md](code-style-roadmap.md) | 코딩 규칙 (R1–R10): 규칙 우선순위, 용어, 규칙마다 업계 이름·지금 코드의 예·확인하는 법, 남은 일 | 코드를 쓰거나 리뷰하기 전 / 규칙이 코드에서 지켜지는 모양이 바뀌거나 남은 일을 끝낼 때 |
+|  | [code-style-roadmap.md](code-style-roadmap.md) | 팀 코딩 스킬의 Limn 적용 경계와 현재 검증 범위 | 코드를 쓰거나 리뷰하기 전 / 적용 경계나 검증 범위가 바뀔 때 |
 <!-- handbook-catalog:end -->
 
 ## 파일 지도
@@ -38,7 +38,7 @@ catalog_schema: 1
 <!-- handbook-filemap:start -->
 | 경로 패턴 | 책임 | 수정 trigger | 갱신 주체 |
 | --- | --- | --- | --- |
-| `src/limn/server.py` | 조립 지점: 실행 설정 `RunConfig`, 실행별 자원 소유자 `Runtime`(핀 잠금, 신원·사람 캐시, pull 나눠 쓰기, 감시 상태, 작업 목록, 뷰어, 감시 스레드와 `stop()`), 문서 목록을 `ServerApplication` 하나에 묶는다. 앱 메서드가 옮긴 모듈에 이 실행의 설정과 협력자를 넘기고, 핀 변경 협력자에 실행별 문맥 생성 함수를, `PinListing`·`PinMarkdown`에 조회 사실을, `PinLocationService`에 원고·캐시·겹침 조회 문맥을 묶으며 `web/app.py`의 `App` 프로토콜을 구현한다. `start()`는 실행 전용 처리기에 앱을 묶고 `StartedServer`로 소켓과 앱을 함께 돌려준다 | 시작·종료 순서, 앱이 넘기는 설정·협력자, `App`에 든 서비스의 이름·인자 변경 | architecture.md, operations.md, 연결된 모듈의 topic |
+| `src/limn/server.py` | 실행 설정·자원·문서·기능 서비스를 묶는 조립 지점. `Runtime`이 실행별 잠금·캐시·감시 스레드를 소유하고, `ServerApplication`이 기능 서비스에 문맥과 협력자를 넘겨 `web/app.py`의 `App` 계약을 구현한다 | 시작·종료 순서, 앱이 넘기는 설정·협력자, 서비스 인터페이스 변경 | architecture.md, operations.md, 연결된 기능의 topic |
 | `src/limn/service/context.py` | 여러 핀 기능이 쓰는 `PinContext`: 저장소·시계·알림·감사·파일 위치 협력자 | 기능이 받는 협력자와 저장·알림 경계 변경 | domain.md, api.md, architecture.md 불변식 4 |
 | `src/limn/features/pins/lifecycle/*` | 닫기·다시 열기·확인·답글의 입력과 답글·다시 열기 사유 검사(`input.py`), HTTP 응답(`http.py`)과 POST 동작 이름(`routes.py`), 실행별 문맥을 받는 잠금·전이·알림(`service.py`). 다른 핀 동작과 함께 쓰는 순수 규칙은 현재 `pins/lifecycle.py`가 소유한다 | 네 경로의 파싱·응답·쓰기·알림·권한 흐름 변경 | api.md, domain.md, architecture.md, code-style-roadmap.md |
 | `src/limn/features/pins/claims/*` | claim·unclaim의 시간 입력과 상한(`input.py`), 성공·409 응답(`http.py`)과 POST 동작 이름(`routes.py`), 실행별 문맥으로 저장하는 `PinClaims`(`service.py`). 순수 claim 규칙은 공통 `pins/lifecycle.py`에 있다 | 시간 검사·응답·저장 순서 변경 | api.md, domain.md, architecture.md |
