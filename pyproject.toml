@@ -39,12 +39,13 @@ path = "src/limn/__init__.py"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/limn"]
+exclude = ["**/test_*.py"]
 
 [tool.hatch.build.targets.sdist]
 include = ["src/limn", "tests", "docs", "skill", "README.md", "README.ko.md", "LICENSE", "NOTICE", "THIRD_PARTY_NOTICES.md"]
 
 [tool.pytest.ini_options]
-testpaths = ["tests"]
+testpaths = ["tests", "src/limn/features"]
 markers = [
     "tex: runs real TeX-side tools (tests/helpers.py needs_tex); the CI tex job selects these with -m tex",
     "browser: launches Chromium (every tests/helpers_browser.py ChromiumTestCase class); -m 'not browser' runs the rest",
@@ -72,6 +73,7 @@ ignore = [
 "src/limn/server.py" = ["E402"]
 # Every test module and class has a docstring; function and method coverage still has legacy gaps.
 "tests/*.py" = ["D102", "D103", "D104", "D105", "D106", "D107"]
+"src/limn/features/**/test_*.py" = ["D102", "D103", "D104", "D105", "D106", "D107"]
 
 [tool.ruff.lint.isort]
 combine-as-imports = true               # `from limn import access, server as ps` stays one line, as the code writes it
