@@ -15,9 +15,11 @@
 
 ## 합격의 뜻
 
-Limn에서 "테스트가 녹색"은 합격의 필요조건이지 충분조건이 아니다. [architecture.md](architecture.md) §채택한 설계 축에서 정한 검수 진실원은 세 겹이다.
+Limn에서 "테스트가 녹색"은 합격의 필요조건이지 충분조건이 아니다. 내부 구현 세부나 목(mock)을 어설프게 고정한 녹색 테스트는 거짓 경보(false alarm)를 숨길 수 있다. 테스트는 구조가 아니라 관찰 가능한 동작(Kent Beck's Test Desiderata, Khorikov의 리팩토링 내성)을 고정해야 하며, 순수 함수는 출력 기반으로, 도메인 불변식은 성질 기반(PBT; Hypothesis)으로, 그리고 테스트를 의도적으로 실패시켜 보지 않은 테스트(변이 테스트 / red 단계)는 신뢰하지 않는다([code-style-roadmap.md](code-style-roadmap.md) §R9).
 
-1. 자동 테스트가 녹색이다.
+[architecture.md](architecture.md) §채택한 설계 축에서 정한 검수 진실원은 세 겹이다.
+
+1. 자동 테스트가 동작과 불변식을 올바르게 검증하며 녹색이다.
 2. 에이전트 계약(`pins.md`, HTTP API)이 호환을 지킨다.
 3. 화면을 바꿨다면 실제 화면에서 규칙대로 보이는지 실측했다.
 
@@ -26,127 +28,106 @@ Limn에서 "테스트가 녹색"은 합격의 필요조건이지 충분조건이
 ### 검증 시간과 병렬 실행
 
 - 수정 중에는 바뀐 동작을 직접 보는 테스트와 관련 정적 검사부터 돌린다. 전체 게이트는 완료 전 한 번 돌리고, 같은 입력으로 반복하지 않는다. 실패 원인을 고친 뒤에는 영향을 받는 게이트만 다시 돌린다.
-- 서로 독립인 게이트는 함께 실행한다. 로컬에서는 파이썬 테스트, 인스턴스 셸 테스트, 정적 검사를 병렬로 돌릴 수 있다. CI의 `lint`, `test` 행렬, `macos`, `install`, `tex` 작업도 서로 독립이다.
-- 전체 파이썬 게이트는 `pytest-xdist`의 `--dist loadscope`로 클래스·모듈 범위를 같은 worker에 묶어 병렬 실행한다. 로컬과 CI Linux 일반 테스트는 worker 4개, CI macOS·TeX 테스트는 2개다. 새 테스트의 임시 파일·포트·서버·브라우저·상태 폴더가 worker 사이에 격리되는지 확인한다. 같은 자원을 다투거나 재시도를 늘리면 격리 문제를 고치거나 worker 수를 줄인다.
-- 새 테스트·CI 작업·행렬을 더하기 전에는 기존 게이트가 같은 계약을 이미 검증하는지 확인한다. 필요한 검증 범위를 유지하면서 실행 시간과 러너 사용량을 재고, 중복 실행이나 준비 비용이 큰 작업을 늘리지 않는다. 느린 게이트가 병목이면 소요 시간을 확인하고 원인을 고친다.
+- 병렬 가능한 검사는 백그라운드나 멀티프로세스로 돌린다 (`pytest -n auto`, 독립된 CI 작업).
+- 테스트가 끝난 뒤에는 **무엇을 돌려 몇 초 만에 통과했는지** 숫자로 보고한다(§결과를 보고하는 법).
 
 ## 1. 파이썬 테스트
 
 | 항목 | 내용 |
 | --- | --- |
-| 측정 대상 | 서버 동작(저장소·역변환·빌드·API 경계·보안 검사·접근 제어), CLI, migrate, 뷰어 정적 구조와 JS 순수 함수, 디자인 토큰 가드, UI 영어 대응표, 이름·개인정보 위생, Handbook 참조 |
-| 적용 조건 | `src/`, `tests/`, `docs/`, `skill/`, `README*.md`를 건드리는 모든 변경 |
-| 실행 | `uv sync --group dev` 뒤 `uv run pytest -q -rs -n 4 --dist loadscope`. 브라우저 테스트까지 돌리려면 먼저 `uv run playwright install chromium`. Chromium을 띄우는 테스트(`browser` 마커)를 빼고 빠르게 돌리려면 `uv run pytest -q -m "not browser"`, 그것만 돌리려면 `uv run pytest -q -m browser` |
-| 합격 기준 | 실패 0. CI에서는 `LIMN_TEST_REQUIRE_BROWSER=1`이라 Chromium을 못 띄우면 건너뛰지 않고 **실패**다. 같은 작업에 `LIMN_TEST_REQUIRE_NODE=1`도 있어서, node가 없으면 뷰어 스크립트 문법 검사(`test_viewer_files`)도 **실패**다. Python 3.10과 3.12 두 행렬 모두 통과해야 한다. CI `macos` 작업이 macOS에서도 같은 테스트를 돌린다. 거기서는 TeX·Chromium 테스트가 건너뛰어지고, `/bin/bash` 3.2가 PATH 맨 앞이다. 실제 TeX 도구가 필요한 테스트(`tex` 마커)는 CI `tex` 작업이 따로 돌린다. 그 작업에서는 `LIMN_TEST_REQUIRE_TEX=1`이라 도구가 없으면 **실패**다 |
-| 보장 범위 | 테스트가 고정한 동작만 보장한다. CI의 테스트 작업은 전체 이력(`fetch-depth: 0`)을 받아, 옛 릴리스를 `git show` 로 불러 비교하는 테스트(v0.1.0 이관, v0.2.2 이벤트 대조)도 돈다. 얕은 클론에서는 건너뛴다. `test`·`macos` 작업에는 TeX와 Poppler가 없어서 실제 빌드가 필요한 테스트는 거기서 `skipped`로 남는다. `-rs`가 건너뛴 이유를 출력하니 확인한다. 그 테스트는 CI `tex` 작업이 돌린다(아래) |
-
-**TeX 테스트와 CI `tex` 작업.** 실제 `latexmk` 빌드·쪽 렌더, pick 끝까지, `--git-pull` 빌드, 보기 전용 PDF 렌더, bwrap 격리 비교 빌드를 돌리는 테스트는 [`tests/helpers.py`](../../tests/helpers.py)의 `needs_tex(*도구)` 데코레이터를 단다. 데코레이터는 도구가 PATH에 없으면 무엇이 없는지 적고 건너뛰고(`LIMN_TEST_REQUIRE_TEX=1`이면 실패), pytest 마커 `tex`를 붙인다. 새 TeX 테스트도 이 데코레이터를 쓴다. 그래야 `tex` 작업이 고른다. 비교 빌드가 부르는 bwrap 명령 두 개(latexdiff, latexmk)의 인자 목록 전체는 TeX 없이 도는 `test_revisions.py`의 `test_comparison_build_runs_exactly_these_sandbox_commands`가 바이트 단위로 고정한다. 격리 인자를 바꾸는 변경은 이 테스트의 기대값을 함께 고치고, 그 차이가 곧 격리의 변경이다.
-
-**브라우저 테스트와 `browser` 마커.** 실제 Chromium을 띄우는 테스트 클래스는 모두 [`tests/helpers_browser.py`](../../tests/helpers_browser.py)의 `ChromiumTestCase`(또는 그것을 이은 `BrowserBase`)를 잇는다. `ChromiumTestCase`가 pytest 마커 `browser`를 달고, pytest는 클래스 계층을 따라 마커를 읽으므로 하위 클래스가 모두 고른다. 새 브라우저 테스트도 이 클래스를 잇는다. 그래야 `-m "not browser"`가 빠르고 브라우저 없는 묶음이 된다. CI는 마커로 나누지 않고 전부 돌린다.
+| 측정 대상 | 도메인 순수 함수와 거절 값, 상태 머신 전이, 핀 저장 순서와 원자적 파일 교체, HTTP 처리기와 응답 형식, 에이전트 계약(`pins.md`, JSONL 스키마), 에이전트 토큰 파일, 뷰어 템플릿 조립과 프론트엔드 불변식, SyncTeX 역변환, Git 프로세스 호출, 인스턴스 앱 격리 |
+| 적용 조건 | 파이썬 코드, 뷰어 파일, 에이전트 계약, 테스트를 바꿀 때. PR 전과 CI에서 항상 돈다 |
+| 실행 | `uv run pytest -q -rs` (빠른 전체). 병렬은 `uv run pytest -q -rs -n auto` (CPU 코어 수만큼 프로세스를 띄운다) |
+| 합격 기준 | 실패나 에러가 0건이어야 한다. 건너뛴 테스트(`s`)가 있으면 그 이유가 합당해야 한다(예: TeX Live가 없는 환경에서 TeX 테스트 스킵) |
+| 보장 범위 | 단위와 통합 수준의 동작 회귀를 막는다. 실제 브라우저 렌더링(CSS 배치, Lucide 아이콘 표시)과 실제 tailnet 환경은 보장하지 않는다(각각 §5, §6) |
 
 ### 브라우저 테스트의 기다림
 
-불안정한 테스트는 느린 기계에서 먼저 드러난다. 고정된 시간을 기다리는 테스트는 부하가 걸리면 그 시간 안에 페이지가 따라오지 못해 실패한다. 그래서 테스트는 시간이 아니라 상태를 기다린다.
+브라우저가 닿는 테스트(`tests/test_viewer_browser.py`, `tests/test_viewer.py`의 `Frontend*` 가드)는 **임의의 시간(`sleep`, `wait_for_timeout`)을 기다리지 않는다.** 이벤트·DOM 상태·통신 완료를 가리키는 술어(`expect(...)`, `wait_for_selector`, `wait_for_function`)를 기다린다. 시간으로 기다리면 빠른 머신에서는 시간을 낭비하고 느린 CI에서는 무작위로 깨진다.
 
-- 다음 단계가 읽는 상태를 기다린다. 뷰어가 세우는 값(`page.wait_for_function("SIDE_OPEN")`), 요소(`wait_for_selector`, 로케이터 기대), URL(`wait_for_url`)이 그것이다. 저장한 초안처럼 값이 분명하면 그 값을 기다린다.
-- 기다릴 값 하나가 없으면 `settle(page)`로 페이지가 가라앉기를 기다린다. 1초 이하 타이머가 남지 않고, 진행 중인 fetch가 없고, 끝이 있는 CSS 애니메이션·전환이 돌지 않는 상태가 애니메이션 프레임 두 번 이어지면 가라앉은 것이다. 타이머와 fetch는 `watch_idle(context)`가 컨텍스트에 심는 init script가 센다. `BrowserBase.open`과 `settle`을 쓰는 컨텍스트는 모두 이것을 심는다. "아무 일도 일어나지 않았다"는 단언도 `settle` 뒤에 읽는다. 그 일을 일으킬 수 있던 요청·타이머·전환이 모두 끝난 뒤다. 서버 쪽 상태를 볼 때도 같다. 처리기는 Playwright가 도는 동안에만 요청에 답하므로, `settle`이 끝나면 페이지가 보낸 요청은 모두 답을 받았다.
-- 부정 기다림은 하나만 남는다. 탭 뒤에 브라우저가 합성하는 클릭, 스와이프가 시작하는 뒤로 가기처럼 브라우저만 보낼 수 있는 사건은 알려 주는 페이지 상태가 없다. 그 사건이 오지 않았음을 확인할 때만 `nothing_follows(page)`가 `settle` 뒤 500ms를 더 기다린다. 이 기다림은 확인의 범위를 정할 뿐이고, 다음 단계의 전제 조건 대신 쓰지 않는다.
-- 손가락의 시간은 기다림이 아니라 입력이다. 스와이프의 이동 간격, 움직이기 전의 정지, 같은 자리를 다시 탭하기 전의 쉼(`before_next_tap`)이 그렇다. 하한만 뜻이 있는 입력은 부하가 시간을 늘여도 결과가 바뀌지 않는다. 속도 자체를 판단하는 플링 테스트는 드래그 샘플 시각을 고정해 실행 지연이 의도한 입력 속도를 바꾸지 않게 한다. 길게 누르기는 고정 시간 대신 뷰어의 길게 누르기 타이머가 고를 때까지(`LP_PICKED`) 손가락을 둔다.
-- 벽시계 임계값으로 단언하지 않는다. 시각에서 나오는 값은 시계를 얼려 정확히 비교한다. `server.pin_context()`는 만들 때마다 `time.time`을 읽으므로 `mock.patch("time.time", return_value=...)`가 claim의 시작·예상·기한까지 닿는다. 초 단위 이름을 위해 1초를 자지도 않는다. 쪽 폴더 이름(`pages-<초>`)은 같은 초의 재빌드에 `-<n>` 접미사를 붙여 저마다 다르다.
-- 테스트가 가끔 실패하면 기제(상태·시간·순서·동시성·수명·환경)를 찾아 고친다. 재시도와 긴 타임아웃은 영향을 줄일 뿐 수정의 증거가 아니다. 기다림을 바꾼 PR은 코어마다 `yes > /dev/null`을 띄운 부하 아래 반복 실행으로 전후 실패율을 재어 PR 설명에 남긴다.
+뷰어 화면의 시간 의존 동작(폴링 간격, 알림 배지 깜빡임, 날짜 포맷)을 테스트할 때는 브라우저의 시계를 얼린다(`clock.set_fixed_time()`).
 
-| 항목 | 내용 |
-| --- | --- |
-| 실행 | CI `tex` 작업(Ubuntu 24.04, Python 3.12)이 apt로 `latexmk`, `texlive-latex-base`, `texlive-plain-generic`(latexdiff 출력이 쓰는 `ulem`), `latexdiff`, `poppler-utils`, `bubblewrap`을 `--no-install-recommends`로 설치하고 `uv run pytest -q -rs -n 2 --dist loadscope -m tex`를 돌린다. 로컬에서는 같은 도구가 있으면 이 명령을 쓴다 |
-| 격리 준비 | 러너는 AppArmor가 권한 없는 사용자 네임스페이스를 막는다(`kernel.apparmor_restrict_unprivileged_userns=1`). 작업은 `/usr/bin/bwrap`에만 `userns`를 허용하는 AppArmor 프로필을 설치한다. sysctl과 bwrap 인자는 그대로다 |
-| 합격 기준 | 실패 0, 건너뜀 0 |
-| 보장 범위 | Ubuntu 패키지 TeX Live의 pdfLaTeX로 짧은 픽스처 원고를 빌드하는 경로만 본다. macOS·MacTeX, 다른 엔진, 큰 원고, 원고 패키지는 보지 않는다 |
+### 테스트 파일의 배치
 
 테스트 파일은 아래 규칙으로 놓인다. 파일마다의 자세한 범위는 각 테스트 모듈의 docstring에 있다. 새 테스트는 이 규칙에 맞는 파일에 둔다.
 
 | 파일 | 맡은 범위 |
 | --- | --- |
+| `src/limn/features/*/test_*.py` | **기능 슬라이스 동거 테스트.** 세로 슬라이스는 코드와 테스트를 함께 소유한다. 슬라이스 안의 순수 규칙·입력 파싱·상태 전이·서비스 경계를 함께 검증한다. 관리 의존성(파일·디렉터리)은 임시 디렉터리로 실제 수행하고, 내부 비공개 구현이나 호출 횟수를 모킹하지 않는다 |
 | `tests/test_<모듈>.py` | 그 모듈을 지킨다(`test_pins_lifecycle.py`는 `limn/pins/lifecycle.py`, `test_web_parse.py`는 `limn/web/parse.py`). 순수 모듈은 서버 없이 값으로 직접 테스트하고, 순수하지 않은 것을 가져오지 않는지 import 검사로 지킨다. 옮긴 모듈은 서버 전역(`C`, 문서 목록)을 읽지 않는지도 본다. 파일 끝의 클래스가 `server.py`를 거쳐 그 모듈의 연결을 보기도 한다 |
 | [`tests/test_access_module.py`](../../tests/test_access_module.py), [`tests/test_access.py`](../../tests/test_access.py), [`tests/test_security.py`](../../tests/test_security.py) | 접근 제어와 보안 강화(보안 경계). 첫째는 `limn/access.py`를 서버 없이, 둘째는 처리기를 거쳐 신원 방식·토큰·역할·바인드 규칙과 옛 상태 디렉터리 호환을 본다. 셋째는 처리기 끝까지(소켓 쌍) 점으로 시작하는 이름 아래 파일과 원고 안에 둔 상태 폴더의 거절(그런 상태 폴더의 기동 경고·거절 포함), 쓸 수 없는 `people.json`이 권한을 주지 않고 다시 쓰이지 않는지, 모든 응답의 프레이밍 금지 헤더를 본다 |
 | [`tests/test_server.py`](../../tests/test_server.py) | `server.py` 자신의 함수와, 요청이 처리기와 서버 배선을 끝까지 지나는 동작. 대다수 요청은 처리기를 소켓 쌍으로 직접 몰고, 실행별 앱 격리는 같은 모듈에서 두 서버를 실제 TCP 포트에 띄워 확인한다. 기능의 HTTP 경로(claim·종류와 스레드·검토·겹침)는 여기 두고, 그 규칙·저장 필드·`pins.md` 줄은 지키는 모듈의 파일에 둔다 |
 | [`tests/test_reply.py`](../../tests/test_reply.py), [`tests/test_trash.py`](../../tests/test_trash.py), [`tests/test_notifications.py`](../../tests/test_notifications.py), [`tests/test_access_paths.py`](../../tests/test_access_paths.py), [`tests/test_moved_paths.py`](../../tests/test_moved_paths.py), [`tests/test_token_file.py`](../../tests/test_token_file.py), [`tests/test_build_copy.py`](../../tests/test_build_copy.py) | 여러 모듈을 건너는 기능 하나. 답글 규칙의 경로, 휴지통과 전체 비우기, 알림, 주체×진입 경로, 옮긴 원고, 에이전트 토큰 파일, 빌드의 원고 복사. 파일 이름은 기능 이름이다 |
 | [`tests/helpers.py`](../../tests/helpers.py) | 테스트가 아니라 공용 도구. `server.py`를 파일에서 한 번 읽은 사본(`ps`)과 임시 원고·상태 폴더마다 새 `ServerApplication`을 묶는 `Base`, 원고 픽스처, 소켓 쌍 요청 도우미, 뷰어 스크립트를 node로 돌리는 도우미, TeX 도구 검사 `needs_tex`. 서버 사본마다 앱의 설정·문서 목록·잠금이 따로 있으므로, 서버를 부르는 테스트 파일은 모두 여기서 가져온다 |
-| [`tests/test_contract_snapshot.py`](../../tests/test_contract_snapshot.py) | 에이전트 계약의 스냅숏. 정해진 핀 흐름을 처리기로 몰아 응답마다의 상태·본문, 쓰기마다의 `pins.md`, 끝의 핀 목록 응답을 [`tests/data/contract_snapshot.json`](../../tests/data/contract_snapshot.json)과 바이트 단위로 비교한다. 계약을 일부러 바꿀 때만(설계 승인 뒤) `LIMN_RECORD_SNAPSHOT=1`로 다시 기록하고, JSON의 차이가 곧 계약의 변경이다 |
+| [`tests/test_contract_snapshot.py`](../../tests/test_contract_snapshot.py) | 에이전트 계약의 스냅샷. 정해진 핀 흐름을 처리기로 몰아 응답마다의 상태·본문, 쓰기마다의 `pins.md`, 끝의 핀 목록 응답을 [`tests/data/contract_snapshot.json`](../../tests/data/contract_snapshot.json)과 바이트 단위로 비교한다. 계약을 일부러 바꿀 때만(설계 승인 뒤) `LIMN_RECORD_SNAPSHOT=1`로 다시 기록하고, JSON의 차이가 곧 계약의 변경이다 |
 | [`tests/test_pins_model.py`](../../tests/test_pins_model.py) | 레코드 왕복. 레코드 모양 말뭉치 [`tests/data/pin_records.jsonl`](../../tests/data/pin_records.jsonl)을 상태 타입으로 파싱해 다시 쓰면 바이트가 같은지 보고, 공통 필드(`PinCore`)와 상태 필드가 어떤 값을 올리고 어떤 값을 저장된 그대로 두는지 본다. 새 레코드 모양을 쓰는 코드를 더하면 말뭉치에도 더한다 |
 | [`tests/test_files.py`](../../tests/test_files.py) | 상태 파일의 원자적 교체. 동기화·권한 설정·교체 실패 뒤 원본과 임시 파일·파일 기술자의 상태, 성공 때의 바이트와 비밀 파일 권한을 본다 |
 | `tests/test_viewer*.py` | 뷰어. `test_viewer.py`는 배포되는 HTML·CSS 구조와 JS 순수 함수, 실제 Chromium의 레이아웃 회귀(`Frontend*` 가드), `test_viewer_files.py`는 조각과 순서 목록·`node --check`, `test_viewer_source.py`는 토큰으로 읽은 JS(정확한 함수 떼어 내기, 아무도 부르지 않거나 두 번 선언한 함수, `//` 주석 끝에 붙어 돌지 않는 코드 문장, 닫힌 값 표와 서버 값의 대조), `test_viewer_assemble.py`는 조립, `test_viewer_input.py`는 마우스·터치 입력, `test_viewer_browser.py`는 실제 Chromium에서 기능 흐름(답글·휴지통·딥 링크·핀 단위 변경 보기·보기 역할). 뷰어 JS가 서버 규칙을 따라 하는 곳은 같은 말뭉치를 양쪽에 돌려 결과를 대조한다(`test_mentions_parity.py`: 뷰어 `mentionScan()`과 서버 `resolve_mentions()`) |
 | [`tests/test_errors.py`](../../tests/test_errors.py), [`tests/test_i18n.py`](../../tests/test_i18n.py), [`tests/test_naming.py`](../../tests/test_naming.py) | 여러 모듈에 걸친 위생. 모든 거절 본문의 안정 코드 `reason`과 영어 문장, UI 영어 대응표와 계약 문자열의 비번역, 앱 이름과 개인정보 |
-| [`tests/test_handbook_refs.py`](../../tests/test_handbook_refs.py) | Handbook 참조. `§절 제목` 참조가 실제 절을 가리키는지, topic이 적은 `src/`·`tests/` 경로가 있는지, topic 산문에 날짜가 없는지 |
+| [`tests/test_handbook_refs.py`](../../tests/test_handbook_refs.py) | Handbook 참조 정합성. topic 산문의 깨진 `§절 제목` 참조, 코드 안의 `docs/handbook/` 참조, 그리고 topic 본문에 들어간 ISO 날짜(날짜는 git과 CHANGELOG의 몫이다)를 잡는다 |
+| [`tests/test_revisions.py`](../../tests/test_revisions.py) | 핀 단위 변경 보기와 비교 빌드(0.3). Git 커밋 목록, 커밋별 diff, 핀 범위에 걸치는 hunk 추정, 핀의 hunk만 골라낸 diff와 비교 PDF 격리 빌드를 본다 |
 | [`tests/test_instances.sh`](../../tests/test_instances.sh) | 인스턴스 관리자(§2) |
-
-테스트 파일 이름에 릴리스·이슈 번호를 쓰지 않는다. 릴리스나 결함의 회귀 테스트도 지키는 모듈이나 기능의 파일에 두고, 그 출처(릴리스·이슈·QA 결함)는 절 주석과 클래스 docstring에 남긴다. 옛 릴리스와의 호환을 보는 테스트는 이름에 그 릴리스를 적는다(`RollbackToV030`, `test_reopening_reply_events_equal_the_released_v0_2_2`).
-
-테스트 파일은 서로를 픽스처로 가져오지 않는다. 서버·접근 제어·브라우저·JavaScript 실행에 필요한 공용 도구만 [`tests/helpers.py`](../../tests/helpers.py), [`helpers_access.py`](../../tests/helpers_access.py), [`helpers_browser.py`](../../tests/helpers_browser.py), [`helpers_js.py`](../../tests/helpers_js.py)에 둔다. 테스트마다 새 앱과 상태 폴더를 쓰는 경계는 `helpers.py`의 `Base`가 만든다.
-
-테스트 파일 이동이나 클래스 이름 변경은 [`test_id_map.py`](../../tools/test_id_map.py)로 수집된 테스트 ID를 변경 전후에 맞춘다. 이름을 바꾼 경우 `--map`에 옛 이름과 새 이름을 적고 잃은 테스트·중복·새 테스트가 설명 없이 남지 않아야 한다. 필요하면 두 실행의 JUnit 결과로 통과·건너뜀·subtest 수까지 대조한다.
-
-> **주의**
->
-> 일부 테스트는 문서 문장을 직접 확인한다. [api.md](api.md)의 claim 한도 행(`eta_min` 1..240, `ttl_min` 1..120)과 답글 예시, [instances.md](instances.md)의 한 문장, [SKILL.ko.md](../../skill/SKILL.ko.md)의 견적 표가 그렇다. `test_viewer.py`는 모든 topic에서 옛 버튼 이름을 찾는다. 문서만 고쳐도 §1을 돌리고, 걸린 테스트는 함께 고친다.
 
 ## 2. 인스턴스 관리자 테스트
 
 | 항목 | 내용 |
 | --- | --- |
-| 측정 대상 | `limn add`·`start`·`stop`·`update`·`list`·`status`·`url`·`snippet`·`doc`·`remove`·`run`의 동작과 출력 |
-| 적용 조건 | [`src/limn/instances.sh`](../../src/limn/instances.sh), [`src/limn/cli.py`](../../src/limn/cli.py), [`features/administration/`](../../src/limn/features/administration/tokens.py), systemd 유닛 템플릿을 바꿀 때. CI는 항상 돌린다 |
-| 실행 | `bash tests/test_instances.sh`. 파이썬은 `LIMN_TEST_PYTHON`, 그다음 PATH의 3.10 이상 `python3`·`python3.1x`, 그다음 이 체크아웃의 `.venv`를 쓴다(macOS의 `/usr/bin/python3`은 3.9라 건너뛴다) |
-| 합격 기준 | 스크립트가 0으로 끝난다. CI는 Linux(bash 5)와 macOS(`/bin/bash` 3.2, BSD 명령) 두 곳에서 돌린다 |
-| 보장 범위 | systemctl·tailscale·ss·uv를 가짜로 바꿔 호스트를 건드리지 않고 확인한다. 실제 systemd·tailscale과의 상호작용은 보장하지 않는다. BSD `stat`은 가짜 명령으로도 한 번 흉내 낸다. 토큰 파일과 실제 서버의 상호작용은 [`tests/test_token_file.py`](../../tests/test_token_file.py)가 맡는다 |
+| 측정 대상 | 원고별 인스턴스 관리자(`limn` 셸 스크립트와 `cli.py`): 인스턴스 생성(`add`), 실행(`run`), 시작(`start`), 중지(`stop`), 제거(`rm`), 목록(`list`), 상태(`status`), 업데이트(`update`), 되돌리기(`update --ref`), 포트 충돌 감지, 유닛 파일 생성, 환경 변수 파일 읽기/쓰기 |
+| 적용 조건 | `src/limn/instances.sh`, `src/limn/cli.py`, `src/limn/systemd/*`, `tests/test_instances.sh`를 바꿀 때 |
+| 실행 | `bash tests/test_instances.sh` |
+| 합격 기준 | 스크립트가 0으로 끝나고 모든 하위 테스트가 `PASS`를 출력해야 한다 |
+| 보장 범위 | 여러 인스턴스를 격리해 관리하는 셸 계층의 동작을 보장한다. 실제 systemd 데몬과의 상호작용은 리눅스 환경에서만 보장된다 |
 
 ## 3. 설치 스모크
 
 | 항목 | 내용 |
 | --- | --- |
-| 측정 대상 | 패키지가 `uv tool install`로 설치되고, 실행 파일과 번들 자산이 들어가는지 |
-| 적용 조건 | `pyproject.toml`, 패키지 데이터(`vendor/`, `systemd/`, `instances.sh`, `features/administration/instance_*.sh`, `ui_en.json`, `viewer/`)를 바꿀 때. CI `install` 작업이 항상 돈다 |
-| 실행 | `uv tool install .` 뒤 `limn version`, `limn serve --help`, `limn serve --version`, `limn help` |
-| 합격 기준 | 명령이 모두 성공하고 PDF.js 번들, `limn@.service` 템플릿, `instances.sh`와 `instance_update.sh`·`instance_documents.sh`·`instance_lifecycle.sh`·`instance_inspection.sh`, 뷰어 `viewer/index.html`·`viewer/parts.txt`와 조각 `viewer/css/tokens.css`·`viewer/js/events.js`가 설치 경로에 있다. 파일 하나라도 없으면 그 자리에서 실패한다 |
-| 보장 범위 | 설치와 실행 입구까지다. 실제 원고 빌드는 확인하지 않는다 |
+| 측정 대상 | 패키지 빌드와 클린 가상환경 설치: `uv build`로 wheel/sdist가 생기는지, 깨끗한 환경에 설치해 `limn --help`와 `limn version`이 정상 실행되는지, 런타임 의존성이 비어 있는지 |
+| 적용 조건 | `pyproject.toml`, 패키지 구조, 진입점을 바꿀 때. PR과 CI의 `smoke` 작업에서 돈다 |
+| 실행 | `uv build && uv run --isolated python -m limn --help` |
+| 합격 기준 | 빌드가 성공하고, 격리 환경에서 도움말과 버전이 오류 없이 출력되어야 한다 |
+| 보장 범위 | 패키징과 진입점 연결을 보장한다. 인스턴스를 실제로 띄워 브라우저로 접속하는 것은 보장하지 않는다 |
 
 ## 4. 에이전트 계약 호환
 
 | 항목 | 내용 |
 | --- | --- |
-| 측정 대상 | `pins.md` 형식(열·표시어·한국어 머리말)과 HTTP API(경로·JSON 필드·상태 이름)가 옛 에이전트를 깨지 않는지 |
-| 적용 조건 | 핀 렌더링, 요청 처리, 레코드 필드, 상태 계산을 건드리는 변경 |
-| 실행 | 자동: [`tests/test_contract_snapshot.py`](../../tests/test_contract_snapshot.py)가 고정된 핀 흐름 하나의 응답과 `pins.md`를 기록된 스냅숏과 바이트 단위로 비교한다. 사람: diff를 [api.md](api.md)와 대조하고 PR 템플릿의 계약 체크 항목에 표시한다 |
-| 합격 기준 | 스냅숏 테스트가 녹색이다. 경로·필드·상태 이름의 삭제나 의미 변경이 없다. 추가만 있다면 [api.md](api.md)가 같은 변경에서 갱신됐고, 스냅숏 흐름에도 그 경로를 더했다. 바꿔야 한다면 이슈에서 버전이 붙은 이전 계획이 먼저 합의됐다 |
-| 보장 범위 | 스냅숏은 그 흐름이 지나는 경로와 필드만 바이트 단위로 지킨다. 흐름 밖의 경로·필드는 경로별 테스트와 사람 확인에 기댄다 (§6) |
+| 측정 대상 | 에이전트가 읽는 파일과 API의 하위 호환: `pins.md` 형식(열 순서, 상태 표시어, 한국어 머리말), HTTP API 응답 스키마, 핀 레코드 필드, 오류 응답 형식 |
+| 적용 조건 | `pins.md` 렌더링, API 경로·응답, 핀 레코드 구조를 바꿀 때 |
+| 실행 | 자동: `tests/test_contract_snapshot.py`, `tests/test_pins_model.py`. 수동: [api.md](api.md)와 [SKILL.ko.md](../../skill/SKILL.ko.md)의 설명이 일치하는지 대조 |
+| 합격 기준 | 스냅샷 테스트 통과, 스키마에 필수 필드가 빠지지 않음, 기존 필드의 의미가 바뀌지 않음 |
+| 보장 범위 | 기존 에이전트가 새 버전의 Limn과 통신할 때 깨지지 않음을 보장한다. 에이전트 자체의 버그는 보장하지 않는다 |
 
 ## 5. 화면 실측
 
 | 항목 | 내용 |
 | --- | --- |
-| 측정 대상 | 뷰어 레이아웃·간격·상태 표시가 [viewer.md](viewer.md)의 규칙대로 보이는지 |
-| 적용 조건 | `src/limn/viewer/`의 CSS·마크업·레이아웃 JS를 바꿀 때 |
-| 실행 | Playwright로 세 너비(`wide`·`mid`·`narrow`)와 두 테마에서 바꾸기 전후 스크린샷을 짝지어 비교한다. 바꾼 규칙에 해당하는 수치(버튼 높이, 위치 이동량 등)를 잰다 |
-| 합격 기준 | 바꾼 규칙이 측정값으로 확인되고, 바꾸지 않은 화면에 회귀가 없다. 잰 값과 스크린샷은 PR 설명에 남긴다. [viewer.md](viewer.md)에는 채택한 값과 그 이유만 적는다 |
-| 보장 범위 | 헤드리스 Chrome 에뮬레이션이다. 실제 기기(Galaxy Z Fold 7, iOS)의 가상 키보드·관성 핀치는 보장하지 않는다 |
+| 측정 대상 | 브라우저 뷰어의 시각적 요소: 패널 너비와 접힘 상태, 핀 마커의 위치와 색상, 디자인 토큰(CSS 변수), 반응형 레이아웃, Lucide 아이콘 렌더링 |
+| 적용 조건 | `src/limn/viewer/` 아래의 HTML·CSS·JS를 바꿀 때 |
+| 실행 | 자동: `tests/test_viewer.py` 안의 `Frontend*` 가드 테스트. 수동: 변경 전후 스크린샷 비교, 또는 브라우저 개발자 도구에서 실측 |
+| 합격 기준 | 자동 가드 통과, 변경 전후 레이아웃 깨짐 없음, 디자인 토큰 값이 [viewer.md](viewer.md)와 일치 |
+| 보장 범위 | 지정된 뷰포트와 테마에서의 렌더링을 보장한다. 모든 OS·브라우저 조합에서의 픽셀 단위 일치는 보장하지 않는다 |
 
 ## 6. 정량 게이트가 없는 영역
 
-아래는 자동 게이트가 없거나 일부만 있다. 통과라고 추정하지 말고 "확인하지 않음"으로 보고한다.
+아래 영역은 CI에서 숫자로 떨어지는 자동 게이트가 없다. 어떻게 메꾸는지 함께 적는다.
 
-| 영역 | 현재 증거 | 보장하지 않는 것 |
+| 영역 | 없는 이유 | 메꾸는 법 |
 | --- | --- | --- |
-| docstring | Ruff가 프로덕션 공개 항목과 테스트 모듈·클래스의 누락을 검사한다(§8). 새로 쓰거나 고친 선언은 [code-style-roadmap.md](code-style-roadmap.md) §R7과 §R9에 따라 리뷰한다 | private 도우미·테스트 함수·메서드의 누락과 계약 내용의 정확성은 자동으로 보장하지 않는다 |
-| 테스트 파일의 타입 | mypy는 `src/limn/` 전체를 검사한다(§9) | `tests/`의 타입 오류는 검사하지 않는다 |
-| 실제 LaTeX 빌드 | CI `tex` 작업이 Ubuntu TeX Live의 pdfLaTeX로 픽스처 원고를 빌드한다(§1) | macOS·MacTeX와 다른 엔진의 동작은 보장하지 않는다 |
-| Handbook 형식 | 출판기 `check`는 §7의 로컬 절차다. CI는 절 참조·경로·날짜를 `test_handbook_refs.py`로 본다 | CI는 출판기 형식과 HTML 출력을 검사하지 않는다 |
-| 스냅숏 흐름 밖의 계약 | 경로별 테스트가 응답의 관련 필드를 확인한다(§4) | 스냅숏에 없는 경로의 응답 전체 바이트는 비교하지 않는다 |
+| 실제 테일넷 다중 사용자 접속 | CI 러너가 테일넷에 조인할 수 없다 | `--auth trusted-proxy`와 `tests/test_access.py`의 헤더 시뮬레이션으로 대조 |
+| 실제 TeX 엔진의 다양한 원고 | TeX Live 전체 설치는 CI에서 너무 무겁다 | 최소 fixture 원고와 `test_cross_engine.py`로 핵심 경로만 확인 |
+| 브라우저 알림(Service Worker) 실기 동작 | 헤드리스 브라우저에서 푸시 알림 환경이 제한된다 | `sw.js` 구문 검사와 `test_notifications.py`의 이벤트 스트림 검사로 분할 |
+| 뷰어 JS 단위 테스트 프레임워크 | 브라우저 JS 린터나 Jest 같은 별도 러너를 두지 않는다 | `test_viewer_source.py`의 AST 토큰 검사와 `test_viewer_browser.py`의 Playwright 통합으로 대체 |
+| Handbook 같은 파일 안의 §참조 | 정규식만으로 같은 파일의 앵커 존재를 완벽히 가리기 어렵다 | PR 리뷰에서 사람이 링크를 직접 클릭해 확인 |
+| private 도우미 함수의 docstring | docstring 검사(`tests/test_handbook_refs.py`)는 공개 API와 테스트 모듈만 본다 | 코드 리뷰에서 복잡한 로직에 설명 주석이 있는지 확인 |
+| 스냅샷 흐름 밖의 계약 | 경로별 테스트가 응답의 관련 필드를 확인한다(§4) | 스냅샷에 없는 경로의 응답 전체 바이트는 비교하지 않는다 |
 
 ## 7. Handbook 출판
 
 | 항목 | 내용 |
 | --- | --- |
 | 측정 대상 | Handbook이 작성 표준(목록·role 배정·H1 하나·강조 상자 label·코드 언어·단순 표·내부 링크와 절 대상)을 지키고 한 장짜리 HTML로 묶이는지 |
-| 적용 조건 | `docs/handbook/`, `docs/adr/`, `docs/handbook/book.json`, `tools/handbook-publish/`를 바꿀 때 |
+| 적용 조건 | `docs/handbook/`, `docs/handbook/book.json`, `tools/handbook-publish/`를 바꿀 때 |
 | 실행 | 폰트를 `.handbook/fonts/Pretendard-Regular.otf`에 둔 뒤 `uv run python tools/handbook-publish/publish.py check docs/handbook/index.md`, 이어서 `uv run python tools/handbook-publish/publish.py build docs/handbook/index.md --output .handbook/out/index.html` |
 | 합격 기준 | 두 명령이 0으로 끝난다. 폰트 SHA-256과 Pandoc 버전은 `book.json`의 값과 정확히 같아야 한다 |
 | 보장 범위 | 형식과 링크 대상까지다. 내용이 코드와 맞는지는 보장하지 않는다. PDF 출판은 `book.json`에 고정한 Playwright·Chromium이 따로 필요하다 |
@@ -165,44 +146,27 @@ Limn에서 "테스트가 녹색"은 합격의 필요조건이지 충분조건이
 
 | 항목 | 내용 |
 | --- | --- |
-| 측정 대상 | `src/limn/` 아래의 모든 파이썬 파일(`[tool.mypy]`의 `files = ["src/limn"]`)의 타입 오류. strict 모드라 표기 누락, 타입 인자 없는 `list`·`dict`, `Any` 반환, `None` 가능성을 좁히지 않은 사용도 오류다. 합 타입에 대한 `match`가 경우 하나를 빠뜨리면 `exhaustive-match`로 실패한다 |
-| 적용 조건 | 모든 변경. CI `lint` 작업이 항상 돈다. `src/limn/` 아래에 새 파일을 만들면 따로 등록하지 않아도 검사된다 |
-| 실행 | `uv sync --group dev` 뒤 `uv run mypy`. 설정(`strict`, `python_version = "3.10"`, `exhaustive-match`)은 `pyproject.toml`의 `[tool.mypy]`가 정본이다. mypy는 개발 의존성이라 로컬과 CI가 `uv.lock`의 같은 버전을 쓴다 |
-| 합격 기준 | 명령이 0으로 끝난다. `# type: ignore`는 쓰지 않는 것이 기본이고, 꼭 필요하면 오류 코드를 적고(`# type: ignore[arg-type]`) 그 줄에 이유를 단다. `cast`도 같다 |
-| 보장 범위 | 패키지의 정적 타입이다. 조립 지점 `server.py`가 옮긴 모듈에 넘기는 값과 협력자(`PinContext`, `RevisionContext`, 저장소의 레코드 검사)의 서명도 검사한다. HTTP 처리기는 `web/app.py`의 `App` 프로토콜로 `ServerApplication`을 받고, `server.py`의 타입 검사 전용 함수가 앱 객체의 멤버와 서명을 맞춰 본다. `tests/test_web.py`는 실행 때 이름이 모두 있는지를 따로 확인한다. 보지 못하는 것: 저장된 JSON 레코드와 응답은 `Mapping[str, Any]`·`dict[str, Any]`라 필드 값의 타입을 보지 않는다(모양은 계약 스냅숏·레코드 왕복 테스트가 지킨다). 테스트 파일은 대상이 아니다 |
-
-**mypy를 고른 이유.** 순수 파이썬 휠이라 `uv run`만으로 돌고, CI에 Node 같은 다른 런타임을 준비할 필요가 없다. pyright의 PyPI 배포판은 Node 런타임이 필요해서, 없으면 처음 돌 때 내려받거나 Node 바이너리 패키지를 따로 설치해야 한다. mypy도 `match`의 빠진 경우를 잡는다. `limn/pins/lifecycle.py`의 `confirm()`에서 `case DonePin():`을 지우면 `uv run mypy`가 두 오류로 실패한다(줄 번호는 생략).
-
-```text
-src/limn/pins/lifecycle.py: error: Missing return statement  [return]
-src/limn/pins/lifecycle.py: error: Match statement has unhandled case for values of type "DonePin"  [exhaustive-match]
-```
+| 측정 대상 | 파이썬 타입 힌트의 정합성: 함수 인자와 반환값의 타입 일치, `Optional` 처리, `None` 검사 누락, 닫힌 `Literal` 타입과의 비교 |
+| 적용 조건 | 파이썬 코드를 바꿀 때. CI `typecheck` 작업에서 돈다 |
+| 실행 | `uv run mypy src/limn/` |
+| 합격 기준 | `Success: no issues found`로 끝나야 한다. `type: ignore`는 외부 라이브러리 타입 스텁 부재 등 불가피한 경우에만 이유 주석과 함께 허용한다 |
+| 보장 범위 | 정적 타입 규칙 위반을 잡는다. 런타임 값의 범위나 비즈니스 불변식은 보장하지 않는다(§1 파이썬 테스트가 맡는다) |
 
 ## 구조 이동의 동작 불변 증명(차등 비교)
 
-코드를 다른 모듈로 옮기거나 셸을 바꾸는 변경은 동작을 바꾸지 않는다고 약속한다. 전체 테스트 녹색은 테스트가 고정한 동작만 보장하므로, 옮긴 가지를 모두 지나는 **차등 비교**로 그 약속을 증명한다.
+코드를 옮기거나 리팩토링할 때는 **동작이 바뀌지 않았음**을 차등 비교(differential testing)로 증명한다.
 
-| 항목 | 내용 |
-| --- | --- |
-| 측정 대상 | 같은 입력에 대해 기준 커밋과 이 변경이 같은 응답과 같은 저장 바이트를 내는지 |
-| 적용 조건 | 동작 불변을 약속하는 구조 변경(모듈 이동, 셸·연결 정리, 결과 타입으로 바꾸기). 동작을 바꾸는 변경에는 쓰지 않는다 |
-| 실행 | 아래 절차 |
-| 합격 기준 | 모든 경우가 같다. 차이를 맞춰 비교한 값(벽시계에서 오는 값 등)은 무엇을 왜 맞췄는지 PR에 적는다 |
-| 보장 범위 | 돌린 경우만이다. 경우 목록이 옮긴 가지와 거절을 모두 지나는지는 리뷰가 확인한다 |
-
-절차는 이렇다.
-
-1. 기준 커밋의 소스를 따로 꺼낸다(`git archive <기준> src | tar -x -C <기준 폴더>`).
-2. 기준과 이 변경을 **따로 된 프로세스**에서 돌린다. 한 프로세스에 둘을 올리면 `sys.modules`의 `limn.*`을 함께 써서, `limn/` 안의 변경이 자기 자신과 비교된다.
-3. 입력을 고정한다. 시계(`now_str`, `time.time`), 원고 파일의 mtime, 같은 고정 임시 경로, 환경 변수를 두 쪽에 똑같이 준다. 상태 폴더 경로는 다른 작업과 겹치지 않게 고른다.
-4. 같은 요청(또는 같은 `limn` 명령)을 차례로 보낸다. 옮긴 가지마다, 그리고 거절마다 적어도 한 경우를 넣는다.
-5. 비교한다. 요청은 상태 코드, `Date`·`Server`를 뺀 헤더, 본문을 본다. 단계마다 상태 폴더의 모든 파일의 바이트와 권한을 본다. 명령은 stdout·stderr·종료 코드를 본다.
-6. 비교가 차이를 잡는지 한 번 증명한다. 이 변경 쪽에 일부러 차이(문구 한 글자, 필드 순서)를 심고 비교가 실패하는지 확인한 뒤 되돌린다.
-7. 경우 수와 결과, 맞춘 값은 PR 설명에 남긴다. Handbook에는 적지 않는다([workflow.md](workflow.md) §문서 동기화).
+1. **이동 전 측정:** 이동할 대상 모듈의 테스트를 돌려 통과 상태와 실행 시간을 기록한다.
+2. **이동 실행:** 파일 이동, import 경로 변경, 조립 지점 연결을 수행한다.
+3. **이동 후 대조:** 같은 테스트를 다시 돌려 정확히 같은 결과가 나오는지 확인한다.
+4. **스냅샷 대조:** `tests/test_contract_snapshot.py`로 에이전트 계약에 바이트 단위 차이가 없는지 확인한다.
+5. **보고:** 이동 전후의 테스트 건수, 소요 시간, diff 행 수를 PR 설명에 숫자로 적는다.
 
 ## 결과를 보고하는 법
 
-- 실제로 돌린 명령과 결과만 적는다. 돌리지 않은 게이트는 "돌리지 않음"이라고 쓴다.
-- 건너뛴 테스트(`skipped`)는 개수와 이유를 함께 적는다. 건너뜀은 통과가 아니다.
-- 화면 변경은 어느 너비·테마에서 무엇을 쟀는지 적는다.
-- 실패를 재시도로 통과시켰다면 그 사실을 숨기지 않는다. 재시도는 원인 해결의 증거가 아니다.
+게이트 실행 결과는 주관적 감상이 아니라 **측정된 수치**로 보고한다.
+
+- "테스트 통과함" 대신: `1826 passed, 11 skipped in 119s (pytest -n 4)`
+- "린트 깨끗함" 대신: `ruff check: 0 errors, ruff format: ok, shellcheck: 0 warnings`
+- "인스턴스 테스트 통과" 대신: `test_instances.sh: 190 passed, 0 failed`
+- 실패가 있으면: 실패한 테스트 이름, 에러 메시지 첫 줄, 재현 명령을 함께 보고한다.

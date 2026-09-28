@@ -51,7 +51,7 @@ uv run python3 -m unittest discover -s tests
 
 ### 접근 제어 인자
 
-서버는 요청한 사람이 누구인지 가리는 방법을 인스턴스마다 하나 고른다. 이 방법을 **신원 방식**이라 부른다. 에이전트는 API 토큰으로 자신을 밝히고, 사람은 멤버 목록과 역할로 들어올 수 있는 범위와 바꿀 수 있는 일을 좁힌다. 아래 인자를 하나도 주지 않으면 `tailscale` 방식의 기본 동작이다. 테일넷에서 닿는 사람은 누구나 들어와 `editor`가 되고, 헤더 없는 루프백 요청은 에이전트다. 결정 근거는 [ADR-0002](../adr/0002-access-control.md)에 있고, 실행 정본은 [`src/limn/args.py`](../../src/limn/args.py)의 인자 정의, [`src/limn/startup.py`](../../src/limn/startup.py)의 `access_options`, [`src/limn/access.py`](../../src/limn/access.py)의 `identify`·`admit`·`check_role`이다.
+서버는 요청한 사람이 누구인지 가리는 방법을 인스턴스마다 하나 고른다. 이 방법을 **신원 방식**이라 부른다. 에이전트는 API 토큰으로 자신을 밝히고, 사람은 멤버 목록과 역할로 들어올 수 있는 범위와 바꿀 수 있는 일을 좁힌다. 아래 인자를 하나도 주지 않으면 `tailscale` 방식의 기본 동작이다. 테일넷에서 닿는 사람은 누구나 들어와 `editor`가 되고, 헤더 없는 루프백 요청은 에이전트다. 실행 정본은 [`src/limn/args.py`](../../src/limn/args.py)의 인자 정의, [`src/limn/startup.py`](../../src/limn/startup.py)의 `access_options`, [`src/limn/access.py`](../../src/limn/access.py)의 `identify`·`admit`·`check_role`이다.
 
 | 인자 | 기본값 | 설명 |
 | --- | --- | --- |
@@ -65,7 +65,7 @@ uv run python3 -m unittest discover -s tests
 | `--proxy-user-header` / `--proxy-name-header` / `--proxy-email-header` | `X-Forwarded-User` / `X-Forwarded-Preferred-Username` / 없음 | `trusted-proxy` 방식이 읽는 헤더 이름. 사용자 헤더는 필수다. 이메일 헤더를 주면 값이 있을 때 이메일이 로그인이 된다 |
 | `--members-only` | 꺼짐 | `people.json`(`limn member add`)이나 `--allow`에 있는 사람만 들인다. 나머지는 `403`이고 `people.json`에 기록하지 않는다. 토큰과 로컬 소유자는 늘 들어온다. `people.json`을 쓸 수 없는 동안은 `--allow`에 있는 사람만 들인다(아래 '상태 파일 배치') |
 | `--local-user` | `$USER`, 없으면 `owner` | `--auth local`에서 소유자의 로그인 |
-| `--agent-token-file` | `$LIMN_AGENT_TOKEN_FILE`, 없으면 없음 | 이 머신의 에이전트가 이 인스턴스의 토큰을 두는 파일. `limn run`이 `<설정 폴더>/<이름>.token`을 환경 변수로 넘긴다. 서버는 **읽지 않고** 있는지만 본다. 파일이 있으면 `pins.md` 인증 안내 줄과, 헤더 없는 loopback 에이전트가 꺼졌을 때 이 기기의 헤더 없는 요청이 받는 `401` 메시지가 그 파일을 쓰라고 알려 준다([api.md](api.md) §인증, [ADR-0007](../adr/0007-agent-token-file.md)). 기동 로그의 `auth` 줄에 경로와 `present`·`absent`가 찍힌다 |
+| `--agent-token-file` | `$LIMN_AGENT_TOKEN_FILE`, 없으면 없음 | 이 머신의 에이전트가 이 인스턴스의 토큰을 두는 파일. `limn run`이 `<설정 폴더>/<이름>.token`을 환경 변수로 넘긴다. 서버는 **읽지 않고** 있는지만 본다. 파일이 있으면 `pins.md` 인증 안내 줄과, 헤더 없는 loopback 에이전트가 꺼졌을 때 이 기기의 헤더 없는 요청이 받는 `401` 메시지가 그 파일을 쓰라고 알려 준다([api.md](api.md) §인증). 기동 로그의 `auth` 줄에 경로와 `present`·`absent`가 찍힌다 |
 
 세 신원 방식은 신원을 읽는 곳과 그 밖의 요청을 다루는 방식이 다르다.
 

@@ -40,7 +40,7 @@ Limn 서버(`limn serve`, 구현은 [`src/limn/server.py`](../../src/limn/server
 | 묶음 | 상태 | 코드 |
 | --- | --- | --- |
 | 요청 경계 | `400`·`403`·`413`·`415` | `transfer_encoding`·`bad_content_length`·`body_truncated`·`body_too_large`·`bad_content_type`·`bad_json`·`bad_host`·`bad_origin` |
-| 인증·입장·역할 | `401`·`403` | `unauthenticated`·`loopback_agent_off`(루프백 에이전트를 끈 인스턴스에 헤더 없는 로컬 요청, ADR-0007)·`headerless`·`bad_bearer`·`bad_token`·`not_member`·`not_allowed`·`viewer_only`·`owner_only`·`confirm_by_human` |
+| 인증·입장·역할 | `401`·`403` | `unauthenticated`·`loopback_agent_off`(루프백 에이전트를 끈 인스턴스에 헤더 없는 로컬 요청)·`headerless`·`bad_bearer`·`bad_token`·`not_member`·`not_allowed`·`viewer_only`·`owner_only`·`confirm_by_human` |
 | 경로 | `404` | `not_found`(없는 경로·vendor 파일), `pdf_build_gone`(`?build=` 의 빌드가 없음, pick 의 옛 빌드), `pdf_missing`(`?build=` 없이 지금 빌드의 PDF 가 없음) |
 | 문서 | `400`·`404` | `bad_doc`·`doc_mismatch`·`unknown_doc`·`no_source_lines`(보기 전용 문서에 줄을 보냄)·`view_only_no_rebuild` |
 | 핀 | `404`·`409` | `pin_not_found`·`not_in_trash`·`pin_exists`, `409` 코드 `done`·`conflict`·`open`·`full`·`claimed` |
@@ -55,7 +55,7 @@ Limn 서버(`limn serve`, 구현은 [`src/limn/server.py`](../../src/limn/server
 
 ## 인증
 
-모든 요청은 처리되기 전에 "이 요청은 누구인가"부터 정한다. 이 신원은 핀에 누가 했는지 적는 데 쓰고, 설정하면 들어올 수 있는 사람과 바꿀 수 있는 일도 가른다. 설계와 단계 계획은 [ADR-0002](../adr/0002-access-control.md), 신원·역할의 뜻은 [domain.md](domain.md) §작성자 귀속에 있다. 서버 인자는 [operations.md](operations.md) §실행 인자, 인스턴스 설정 키와 `limn token`·`limn member` 명령은 [instances.md](instances.md) 에서 다룬다.
+모든 요청은 처리되기 전에 "이 요청은 누구인가"부터 정한다. 이 신원은 핀에 누가 했는지 적는 데 쓰고, 설정하면 들어올 수 있는 사람과 바꿀 수 있는 일도 가른다. 신원·역할의 뜻은 [domain.md](domain.md) §작성자 귀속에 있다. 서버 인자는 [operations.md](operations.md) §실행 인자, 인스턴스 설정 키와 `limn token`·`limn member` 명령은 [instances.md](instances.md) 에서 다룬다.
 
 > **핵심**
 >
@@ -69,7 +69,7 @@ Limn 서버(`limn serve`, 구현은 [`src/limn/server.py`](../../src/limn/server
 2. 토큰이 없으면 인스턴스의 **신원 방식**(`--auth`)이 정한다. 아래 표를 본다.
 3. 신원 방식이 `tailscale` 일 때만, 헤더도 토큰도 없는 루프백 요청은 에이전트 `{"login":"local","name":"로컬/에이전트"}` 다. **폐지 예정**인 동작이다(§헤더 없는 루프백 에이전트). 이 기기를 부른 요청(`Host` 가 루프백 이름이거나 없고, `X-Forwarded-*`·`Forwarded` 헤더가 없는 요청)에만 해당한다. `tailscale serve` 를 거친 헤더 없는 요청(태그 장치 등)은 토큰을 쓰라는 메시지와 함께 `403` 이다.
 
-어느 단계에서도 정해지지 않으면 `401 {"error": …}` 이고 응답 헤더 `WWW-Authenticate: Bearer realm="limn"` 이 붙는다. 오류 메시지는 에이전트에게 `limn token create <인스턴스>` 로 토큰을 받으라고 알려 준다. 헤더 없는 루프백 에이전트가 꺼진 `tailscale` 인스턴스에서, 이 기기가 보낸 헤더 없는 요청(프록시 표시 헤더 없음)의 `401` 메시지는 그 문구 뒤에 토큰 파일 안내를 더한다(0.3.3+, [ADR-0007](../adr/0007-agent-token-file.md)): 서버가 아는 토큰 파일 경로로 쓴 `curl -H "Authorization: Bearer $(cat <파일>)" …` 형식, 그리고 파일이 아직 없으면 `limn token create <인스턴스> --save`. 기존 문구는 그대로 앞에 둔다.
+어느 단계에서도 정해지지 않으면 `401 {"error": …}` 이고 응답 헤더 `WWW-Authenticate: Bearer realm="limn"` 이 붙는다. 오류 메시지는 에이전트에게 `limn token create <인스턴스>` 로 토큰을 받으라고 알려 준다. 헤더 없는 루프백 에이전트가 꺼진 `tailscale` 인스턴스에서, 이 기기가 보낸 헤더 없는 요청(프록시 표시 헤더 없음)의 `401` 메시지는 그 문구 뒤에 토큰 파일 안내를 더한다(0.3.3+): 서버가 아는 토큰 파일 경로로 쓴 `curl -H "Authorization: Bearer $(cat <파일>)" …` 형식, 그리고 파일이 아직 없으면 `limn token create <인스턴스> --save`. 기존 문구는 그대로 앞에 둔다.
 
 | 신원 방식 | 신원을 읽는 곳 | 그 밖의 요청 |
 | --- | --- | --- |
@@ -98,7 +98,7 @@ curl -s -H "Authorization: Bearer $(cat ~/.config/limn/<인스턴스>.token)" ht
 - **어디서나 같다**: 토큰은 루프백 밖에서 와도, 프록시 뒤에서 와도 같은 에이전트다.
 - **물러서지 않는다**: 모르는 토큰, 폐기된 토큰, 빈 Bearer 헤더, Bearer 헤더가 두 번 온 요청은 `401` 이다. 다른 신원으로 물러서지 않는다. 물러서면 폐기한 토큰을 든 에이전트가 사람이나 로컬 에이전트로 조용히 통과한다.
 - **다른 방식은 무시한다**: `Basic` 처럼 `Bearer` 가 아닌 `Authorization` 방식은 Limn의 것이 아니므로 읽지 않는다.
-- **서버 머신의 에이전트는 토큰 파일**(0.3.3+, [ADR-0007](../adr/0007-agent-token-file.md)): 소유자가 `limn token create <인스턴스> --save` 로 `~/.config/limn/<인스턴스>.token`(권한 `0600`, 저장소 밖)에 토큰을 둔다. 에이전트는 요청마다 `-H "Authorization: Bearer $(cat ~/.config/limn/<인스턴스>.token)"` 로 그 파일을 읽어 보낸다. 파일 내용을 화면에 찍거나 저장소에 옮기지 않는다. `$(cat …)` 로 펼친 값은 그 `curl` 이 도는 동안 명령줄(`ps`)에 보이므로, 여러 계정이 쓰는 머신에서는 `printf 'Authorization: Bearer %s\n' "$(cat <파일>)" | curl -H @- …` 처럼 표준 입력으로 넘긴다(`printf` 는 셸 내장이다). 원격 에이전트는 지금처럼 건네받은 토큰(`$LIMN_TOKEN`)을 쓴다. 파일 규칙과 CLI는 [instances.md](instances.md) §서버 머신의 에이전트: 토큰 파일에 있다.
+- **서버 머신의 에이전트는 토큰 파일**(0.3.3+): 소유자가 `limn token create <인스턴스> --save` 로 `~/.config/limn/<인스턴스>.token`(권한 `0600`, 저장소 밖)에 토큰을 둔다. 에이전트는 요청마다 `-H "Authorization: Bearer $(cat ~/.config/limn/<인스턴스>.token)"` 로 그 파일을 읽어 보낸다. 파일 내용을 화면에 찍거나 저장소에 옮기지 않는다. `$(cat …)` 로 펼친 값은 그 `curl` 이 도는 동안 명령줄(`ps`)에 보이므로, 여러 계정이 쓰는 머신에서는 `printf 'Authorization: Bearer %s\n' "$(cat <파일>)" | curl -H @- …` 처럼 표준 입력으로 넘긴다(`printf` 는 셸 내장이다). 원격 에이전트는 지금처럼 건네받은 토큰(`$LIMN_TOKEN`)을 쓴다. 파일 규칙과 CLI는 [instances.md](instances.md) §서버 머신의 에이전트: 토큰 파일에 있다.
 
 ### 입장 — `--allow` 와 `--members-only`
 
@@ -127,7 +127,7 @@ curl -s -H "Authorization: Bearer $(cat ~/.config/limn/<인스턴스>.token)" ht
 - 알 수 없는 `role` 값을 `viewer` 로 보는 것은 일부러다. 오타 난 역할이 전권이 되지 않고 가장 좁은 권한으로 닫힌다.
 - **`people.json` 을 쓸 수 없으면 닫힌다(fail closed).** 파일은 있는데 읽을 수 없거나(권한), UTF-8 JSON이 아니거나(잘림, 빈 파일, 깨진 JSON), `{"people": [...]}` 모양이 아니면, 그동안 헤더로 들어온 사람은 명단에 있든 없든 모두 `viewer` 이고 `--members-only` 는 `people.json` 으로는 아무도 들이지 않는다. 서버는 그 파일을 다시 쓰지 않고(§사람 목록) stderr에 경고를 한 번 남긴다. 파일이 없을 때(아무도 적히지 않은 새 인스턴스)는 모두 `editor` 다. 전에 읽은 역할을 계속 쓰지 않는 것은 답이 프로세스의 이력에 따라 달라지기 때문이다(재시작하면 바뀐다). 같은 원리로 `tokens.json` 을 못 읽으면 토큰을 하나도 받지 않는다. 토큰과 `local` 방식의 소유자는 이 파일을 읽지 않으므로 그대로다. 파일을 고치면(내용이든 권한이든) 재시작 없이 다음 요청부터 원래 역할이 돌아온다.
 - 역할은 `limn member role` 로 바꾸고, 재시작 없이 다음 요청부터 적용된다. 서버가 사람 항목을 다시 쓸 때도 `role` 은 그대로 둔다.
-- 소유자만 부를 수 있는 HTTP 경로는 둘이다. `POST /api/clear`(0.2.1+, `OWNER_POSTS`)는 모든 핀을 한꺼번에 지우는 유일한 경로라서 확인 본문도 요구한다. `POST /api/pins/{id}/purge`(0.2.2+, `OWNER_POST_RE`)는 휴지통의 핀 하나를 영구 삭제한다(§엔드포인트, [ADR-0004](../adr/0004-one-reply-trash-sections.md)). 나머지 소유자 동작(멤버, 토큰, 설정)은 CLI와 파일 수준이다(`limn member`, `limn token`).
+- 소유자만 부를 수 있는 HTTP 경로는 둘이다. `POST /api/clear`(0.2.1+, `OWNER_POSTS`)는 모든 핀을 한꺼번에 지우는 유일한 경로라서 확인 본문도 요구한다. `POST /api/pins/{id}/purge`(0.2.2+, `OWNER_POST_RE`)는 휴지통의 핀 하나를 영구 삭제한다(§엔드포인트). 나머지 소유자 동작(멤버, 토큰, 설정)은 CLI와 파일 수준이다(`limn member`, `limn token`).
 
 `/api/meta` 와 `/api/people` 의 `me`, 그리고 `/api/people` 의 각 항목에 `role` 필드가 덧붙는다. `people.json` 에 없는 사람(예: 옛 핀의 작성자)은 `editor` 로 나온다. `people.json` 을 쓸 수 없는 동안은 모두 `viewer` 로 나온다.
 
@@ -151,7 +151,7 @@ curl -s -H "Authorization: Bearer $(cat ~/.config/limn/<인스턴스>.token)" ht
 - `--no-agent-loopback`(인스턴스 설정 `AGENT_LOOPBACK=0`)을 주면 이런 요청은 `401` 이다. 에이전트가 토큰을 쓰기 시작하면 끈다. 이 `401` 메시지는 서버 머신 에이전트의 토큰 파일을 알려 준다(0.3.3+, §신원을 정하는 순서). 끄는 순서는 [instances.md](instances.md) §서버 머신의 에이전트: 토큰 파일이다.
 - `local`, `trusted-proxy` 방식이나 루프백이 아닌 `--bind` 에서는 늘 꺼져 있다. 거기서 `--agent-loopback` 을 요구하면 서버가 기동을 거부한다.
 - 같은 머신의 로컬 프로세스는 헤더를 빼서 에이전트를, 헤더를 붙여 사람을 흉내 낼 수 있다. 여러 사람이 쓰는 머신이면 에이전트에게 토큰을 주고, 이 동작을 끄고, `--members-only` 나 역할로 좁힌다.
-- **이 기기를 부른 요청에만 해당한다.** `tailscale serve` 도 루프백에서 붙으므로 TCP 피어만으로는 구별되지 않는다. `Host` 만으로도 구별되지 않는다. `tailscale serve` 는 TLS 이름으로 경로를 고르고 클라이언트가 보낸 `Host` 를 그대로 넘기므로, 태그 장치가 `Host: localhost` 를 보낼 수 있다. 대신 `tailscale serve` 는 `X-Forwarded-For`·`X-Forwarded-Host`·`X-Forwarded-Proto` 를 늘 스스로 채운다(클라이언트가 보낸 값은 덮어쓴다). 그래서 이런 전달 헤더(`X-Forwarded-Port`·`X-Real-IP`·`Forwarded`·`Via` 포함)가 하나라도 있거나 `Host` 가 루프백 이름이 아니면(`*.ts.net`, `--public-host`) 프록시를 거친 요청으로 보고, 신원 헤더가 없으면 에이전트로 받지 않는다(`came_through_proxy`). 로컬 에이전트의 curl 은 둘 다 보내지 않는다. `--auth local` 에서도 프록시를 거친 요청은 소유자가 아니라 `403` 이다. 헤더를 더하지 않는 원시 TCP 전달(`tailscale serve --tcp`, `ssh -L`/`-R`, 단순 포트 포워딩)은 로컬 요청과 구별되지 않는다. 그런 설정에서는 토큰을 쓰고 `AGENT_LOOPBACK=0` 을 둔다([ADR-0003](../adr/0003-tailnet-headerless-and-owner-clear.md) §남는 한계). 프록시를 거친 헤더 없는 요청은 `403` 이고 메시지가 토큰을 쓰라고 알려 준다. 에이전트로 받으면 태그 장치나 공용 CI 노드가 핀을 닫을 수 있기 때문이다.
+- **이 기기를 부른 요청에만 해당한다.** `tailscale serve` 도 루프백에서 붙으므로 TCP 피어만으로는 구별되지 않는다. `Host` 만으로도 구별되지 않는다. `tailscale serve` 는 TLS 이름으로 경로를 고르고 클라이언트가 보낸 `Host` 를 그대로 넘기므로, 태그 장치가 `Host: localhost` 를 보낼 수 있다. 대신 `tailscale serve` 는 `X-Forwarded-For`·`X-Forwarded-Host`·`X-Forwarded-Proto` 를 늘 스스로 채운다(클라이언트가 보낸 값은 덮어쓴다). 그래서 이런 전달 헤더(`X-Forwarded-Port`·`X-Real-IP`·`Forwarded`·`Via` 포함)가 하나라도 있거나 `Host` 가 루프백 이름이 아니면(`*.ts.net`, `--public-host`) 프록시를 거친 요청으로 보고, 신원 헤더가 없으면 에이전트로 받지 않는다(`came_through_proxy`). 로컬 에이전트의 curl 은 둘 다 보내지 않는다. `--auth local` 에서도 프록시를 거친 요청은 소유자가 아니라 `403` 이다. 헤더를 더하지 않는 원시 TCP 전달(`tailscale serve --tcp`, `ssh -L`/`-R`, 단순 포트 포워딩)은 로컬 요청과 구별되지 않는다. 그런 설정에서는 토큰을 쓰고 `AGENT_LOOPBACK=0` 을 둔다. 프록시를 거친 헤더 없는 요청은 `403` 이고 메시지가 토큰을 쓰라고 알려 준다. 에이전트로 받으면 태그 장치나 공용 CI 노드가 핀을 닫을 수 있기 때문이다.
 - `--tailnet-agent`(인스턴스 설정 `TAILNET_AGENT=1`)는 이런 요청을 일부러 에이전트로 받는다. 헤더 없는 루프백 에이전트가 켜져 있어야 하고(`--no-agent-loopback`, `local`, `trusted-proxy`, 루프백이 아닌 `--bind` 와 함께 주면 기동을 거부한다), 기동 로그에 폐지 예정 경고가 남는다. 허용 목록(`--allow`, `--members-only`)은 여전히 이런 요청을 막는다.
 
 ### pins.md 안내 줄
@@ -323,7 +323,7 @@ latexmk -norc -pdf -no-shell-escape -interaction=nonstopmode -halt-on-error
 
 ## 핀 단위 변경 보기
 
-변경 보기의 세 경로(`/api/revision-diff`, `/api/revision-build`, `/api/revision-pdf`)는 선택 `pin`(0.3+)을 받는다. 한 커밋이 핀 여럿을 고쳤을 때 그 핀의 변경만 보이기 위해서다. 결정과 버린 대안은 [ADR-0005](../adr/0005-pin-scoped-changes.md)에 있다. `pin` 이 없는 요청은 커밋 전체를 다룬다.
+변경 보기의 세 경로(`/api/revision-diff`, `/api/revision-build`, `/api/revision-pdf`)는 선택 `pin`(0.3+)을 받는다. 한 커밋이 핀 여럿을 고쳤을 때 그 핀의 변경만 보이기 위해서다. `pin` 이 없는 요청은 커밋 전체를 다룬다.
 
 ### 핀의 hunk를 고르는 순서
 
@@ -398,7 +398,7 @@ curl -s -X POST http://127.0.0.1:<port>/api/pins/3/close \
 ```
 
 - **에이전트는 무엇을 고쳤는지와 커밋을 남긴다.** `reply` 에는 고친 내용(≤500자), `ref` 에는 참조(≤80자)를 적는다. 서버에는 둘 다 선택이다. 나중에 공저자가 닫힌 핀을 볼 때 원고를 다시 뒤지지 않고도 왜 닫혔는지 알 수 있다.
-- **에이전트 규칙.** 에이전트는 닫을 때 늘 `changes` 를 보내고 `ref` 에 `PR #번호 (커밋 해시)` 를 적는다. 해시는 그 수정이 들어간 커밋이다. 원고 저장소가 PR을 스쿼시 머지하고 에이전트가 머지 뒤에 닫으면 `main` 의 머지 커밋이고, `changes` 의 번호도 그 커밋이 만든 판(머지된 `main`) 기준이다. 뷰어는 `ref` 의 해시로 커밋을 찾고, 그 커밋 안에서 `changes` 로 핀의 hunk를 고른다. 핀마다 커밋을 나누면 커밋이 곧 핀이라 더 좋지만 필수는 아니다. 서버가 강제하지는 않는다([ADR-0005](../adr/0005-pin-scoped-changes.md)).
+- **에이전트 규칙.** 에이전트는 닫을 때 늘 `changes` 를 보내고 `ref` 에 `PR #번호 (커밋 해시)` 를 적는다. 해시는 그 수정이 들어간 커밋이다. 원고 저장소가 PR을 스쿼시 머지하고 에이전트가 머지 뒤에 닫으면 `main` 의 머지 커밋이고, `changes` 의 번호도 그 커밋이 만든 판(머지된 `main`) 기준이다. 뷰어는 `ref` 의 해시로 커밋을 찾고, 그 커밋 안에서 `changes` 로 핀의 hunk를 고른다. 핀마다 커밋을 나누면 커밋이 곧 핀이라 더 좋지만 필수는 아니다. 서버가 강제하지는 않는다.
 - **`changes`(0.3+, 서버에는 선택).** `[{file, lo, hi}]` 는 `ref` 의 커밋에서 **이 핀 때문에** 바꾼 줄 범위다. 줄 번호는 그 커밋 뒤(새 쪽) 기준이고, `file` 은 `pins.md` 위치 칸처럼 `--manuscript` 기준 상대 경로이거나 그 안의 절대 경로다. 목록이고 50개(`CLOSE_CHANGES_MAX`) 이하, 항목마다 `file`·`lo`·`hi` 세 필드만, `lo`·`hi` 는 `1 ≤ lo ≤ hi ≤ 1,000,000` 인 정수(불리언 아님), `file` 은 비어 있지 않고 1,024자 이하이며 NUL이 없고 풀어 쓴 경로가 원고 트리 안(원고 폴더 안이고 점으로 시작하는 이름 아래도, 원고 안에 둔 상태 폴더 아래도 아닌 곳, §요청 형식과 경계)이어야 한다. 어기면 `400` 이고 아무것도 바뀌지 않는다. 빈 목록은 없는 것과 같다. 첫 닫기에만 절대 경로로 풀어 `changes` 에 저장하고(그 닫기의 `done_at` 을 `changes_at` 에 함께), 다시 열기가 지운다. `GET /api/pins`·`/api/pins/{id}` 에 그대로 나오고 `pins.md` 에는 싣지 않는다.
 - 본문이 없거나 비어 있으면(빈 문자열·공백만) 사유 없이 닫는다. 본문 없는 `curl -X POST …/close` 도 통과한다.
 - 문자열이 아니거나 상한을 넘으면 `400` 이고 아무것도 바뀌지 않는다. 값은 다른 필드처럼 뷰어에서 `esc()` 로 이스케이프해 렌더한다.
@@ -426,7 +426,7 @@ curl -s -X POST <base>/api/pins/12/reply -H 'Content-Type: application/json' -d 
 
 ### 답글이 핀을 다시 여는 규칙 (0.2.2)
 
-뷰어의 닫힌 핀에는 [답글] 하나만 있다. 답글이 핀을 다시 여는지는 서버의 순수 규칙이 정한다(`pins/lifecycle.py`의 `reopens_on_reply`, [ADR-0004](../adr/0004-one-reply-trash-sections.md)). 뷰어는 같은 규칙으로 답글 칸 아래 한 줄에 결과를 미리 보인다.
+뷰어의 닫힌 핀에는 [답글] 하나만 있다. 답글이 핀을 다시 여는지는 서버의 순수 규칙이 정한다(`pins/lifecycle.py`의 `reopens_on_reply`). 뷰어는 같은 규칙으로 답글 칸 아래 한 줄에 결과를 미리 보인다.
 
 | 핀 상태 | 쓴 쪽 | 답글이 사람을 @태그하나 | 결과 |
 | --- | --- | --- | --- |
@@ -684,7 +684,7 @@ curl -s -X POST http://127.0.0.1:<port>/api/pins/3/unclaim
 
 ## 휴지통
 
-삭제(`/drop`)한 핀은 휴지통에 30일(`TRASH_DAYS`) 동안 머문다(0.2.2+, [ADR-0004](../adr/0004-one-reply-trash-sections.md)). 저장은 `pins.dropped.jsonl` 이고 레코드는 핀 레코드에 `dropped_at`·`dropped_by` 를 더한 모양이다.
+삭제(`/drop`)한 핀은 휴지통에 30일(`TRASH_DAYS`) 동안 머문다(0.2.2+). 저장은 `pins.dropped.jsonl` 이고 레코드는 핀 레코드에 `dropped_at`·`dropped_by` 를 더한 모양이다.
 
 | 동작 | 규칙 |
 | --- | --- |
@@ -718,7 +718,7 @@ curl -s -X POST http://127.0.0.1:<port>/api/pins/3/unclaim
 | 필드 | 뜻 |
 | --- | --- |
 | `file` | 핀이 가리키는 원고 파일의 **이 서버 머신 절대 경로**다. 저장값은 마지막으로 그 핀을 쓰거나 줄을 다시 맞춘 때의 경로다. 응답의 값은 §핀 파일의 위치로 찾은 **지금 경로**(0.3.2+)이고, 찾지 못하면 저장값 그대로다 |
-| `file_rel` | (0.3.2+, [ADR-0006](../adr/0006-relative-pin-paths.md)) 저장 전용. 원고 폴더(`--manuscript`) 기준 POSIX 상대 경로다(`sections/introduction.tex`). 서버가 **그 핀을** 만들거나 고치거나(`/edit`, 위치 다시 잡기 포함) 되살릴 때 `file` 과 함께 적는다. 옛 레코드에는 없고, 채우려고 다시 쓰지 않는다. 응답에는 싣지 않는다(대신 `rel_path`). 문자열이 아니면 그 줄은 깨진 줄이다 |
+| `file_rel` | (0.3.2+) 저장 전용. 원고 폴더(`--manuscript`) 기준 POSIX 상대 경로다(`sections/introduction.tex`). 서버가 **그 핀을** 만들거나 고치거나(`/edit`, 위치 다시 잡기 포함) 되살릴 때 `file` 과 함께 적는다. 옛 레코드에는 없고, 채우려고 다시 쓰지 않는다. 응답에는 싣지 않는다(대신 `rel_path`). 문자열이 아니면 그 줄은 깨진 줄이다 |
 | `doc` | 핀이 속한 문서 키(§문서 매개변수 (`doc=`)). 없는 옛 레코드는 첫 문서로 **읽는다**. 이관 쓰기를 하지 않는다. `GET /api/pins` 응답에는 늘 채워진다(계산) |
 | `pdf` | 보기 전용 PDF 문서의 핀에만 있다. 그 PDF의 절대경로다. 이 필드가 있고 `file` 이 없으면 보기 전용 핀으로 검증한다(`page`·`frac` 필수, `lo`·`hi` 없음). 문서 키가 지금 설정에 없어도 깨진 줄로 치지 않는다 |
 | `rev` | 레코드 내용이 바뀌는 모든 쓰기(줄 이동·stale, 수정, 닫기, 다시 열기, 되살리기)에서 +1. 없으면 0 |
@@ -745,7 +745,7 @@ curl -s -X POST http://127.0.0.1:<port>/api/pins/3/unclaim
 
 ### 핀 파일의 위치
 
-원고 체크아웃을 옮기면(이름 바꾸기, 새 클론 위치, 다른 머신, 상태 디렉터리 복원) 저장된 절대 경로 `file` 이 옛 위치를 가리킨다. 그래도 그 핀이 원고 밖으로 보여 줄 맞춤·범위 수정·인용이 멈추지 않게, 서버는 읽을 때마다 아래 순서로 핀의 파일을 지금 원고 폴더에서 찾는다(`pin_rel_path`, 0.3.2+, [ADR-0006](../adr/0006-relative-pin-paths.md)). 먼저 맞는 것을 쓴다.
+원고 체크아웃을 옮기면(이름 바꾸기, 새 클론 위치, 다른 머신, 상태 디렉터리 복원) 저장된 절대 경로 `file` 이 옛 위치를 가리킨다. 그래도 그 핀이 원고 밖으로 보여 줄 맞춤·범위 수정·인용이 멈추지 않게, 서버는 읽을 때마다 아래 순서로 핀의 파일을 지금 원고 폴더에서 찾는다(`pin_rel_path`, 0.3.2+). 먼저 맞는 것을 쓴다.
 
 1. 저장된 `file` 이 지금 원고 폴더 안이면(심볼릭 링크를 푼 뒤) 그 경로다. 파일이 지워졌어도 그렇다.
 2. `file_rel` 이 비어 있지 않은 상대 경로이고 `..` 조각이 없으며 저장된 `file` 이 그 경로로 끝나면 `<원고 폴더>/<file_rel>` 이다. 다만 `file` 의 꼬리 가운데 `file_rel` 보다 긴 것이 원고 안에 있으면 그것이다(원고 폴더를 넓힌 경우). `file_rel` 을 모르는 이전 버전이 위치를 다시 잡으면 `file` 만 바뀌어 둘이 어긋나므로, 그렇게 어긋난 `file_rel` 은 버린다.
@@ -781,7 +781,7 @@ curl -s -X POST http://127.0.0.1:<port>/api/pins/3/unclaim
 
 ### 닫기 안내 줄
 
-안내 문단은 닫기 안내로 시작한다. 줄은 `처리한 핀은 닫는다` 로 시작하고, 닫을 때 `changes` 와 `ref` = `PR #번호 (커밋 해시)` 를 보내라고 하며, 핀별 커밋은 권하되 요구하지 않는다([ADR-0005](../adr/0005-pin-scoped-changes.md)). `<base>` 는 base URL이다.
+안내 문단은 닫기 안내로 시작한다. 줄은 `처리한 핀은 닫는다` 로 시작하고, 닫을 때 `changes` 와 `ref` = `PR #번호 (커밋 해시)` 를 보내라고 하며, 핀별 커밋은 권하되 요구하지 않는다. `<base>` 는 base URL이다.
 
 ```text
 처리한 핀은 닫는다 — 닫을 때 `changes` 에 이 핀 때문에 바꾼 줄 범위를, `ref` 에 `PR #번호 (커밋 해시)` 를 적는다: `curl -X POST -H 'Content-Type: application/json' -d '{"reply":"무엇을 고쳤는지(≤500자)","ref":"PR #12 (커밋 해시)","changes":[{"file":"main.tex","lo":12,"hi":14}]}' <base>/api/pins/N/close`(본문 생략 가능, 그러면 옛 방식처럼 사유 없이 닫힘. `changes` 의 줄 번호는 `ref` 의 커밋이 만든 판 기준 — 스쿼시 머지 뒤 닫으면 머지된 main 기준, 경로는 위치 칸 기준. 핀마다 커밋을 나누면 더 좋지만 필수는 아니다) · 줄 번호는 갱신 시각 기준이니 원문을 다시 읽고 고친다 · …
