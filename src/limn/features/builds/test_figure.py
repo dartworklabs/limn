@@ -283,6 +283,22 @@ class Deferral(FigureTree):
         (self.figs / "out" / "current.pdf").symlink_to(v1)
         self.assertIsInstance(self.pending(), figure.FigureImport)
 
+    def test_a_pdf_over_the_size_cap_is_deferred_before_it_is_hashed(self):
+        """A PDF bigger than PDF_MAX_BYTES is deferred pdf_too_large: logged once, settled from its real size so an
+        unchanged oversized file is not re-checked on the next tick, no page directory, no builds.json - all without
+        ever holding the file whole in memory (the cap is patched small here so the test does not write real
+        megabytes)."""
+        with mock.patch.object(figure, "PDF_MAX_BYTES", 16):
+            self.producer.write(self.pdf, MINI_PDF)
+            self.producer.write(self.map, map_bytes(figure_map(MINI_PDF)))
+            err = io.StringIO()
+            with contextlib.redirect_stderr(err):
+                self.assertIsNone(figure.pending_import(self.doc, self.looks, 72, first=True))
+                self.assertIsNone(figure.pending_import(self.doc, self.looks, 72, first=False))
+            self.assertEqual(err.getvalue().count("pdf_too_large"), 1)
+            self.assertEqual(list(self.doc.dir.glob("pages-*")), [])
+            self.assertFalse((self.doc.dir / "builds.json").exists())
+
 
 class Render(FigureTree):
     """render_figure_doc and import_now: the pages, the PDF copy and the map copy land together."""

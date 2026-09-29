@@ -32,8 +32,14 @@ from limn.files import atomic_write
 SIG_FILE = "pdf_sig.txt"  # the watch's signature file, shared with view-only PDFs (engine.render_pdf_doc)
 STAGE_DIR = "figure-import"  # private staging folder in the document's state folder; never a page directory name
 NO_FILE = "-"  # the PDF half of a signature when there is no PDF to look at
+# The most a figure's PDF is ever read into memory, capped like its map (limn.figmap.MAP_MAX_BYTES): the map names
+# the file, so any non-dot file in the folder could otherwise be read whole before its hash is even checked. Read at
+# most PDF_MAX_BYTES + 1 bytes (read_figure_import); a PDF over the cap is deferred pdf_too_large, never hashed.
+PDF_MAX_BYTES = 64 * 1024 * 1024
 
-DeferReason: TypeAlias = Literal["map_missing", "map_rejected", "pdf_outside", "pdf_missing", "pdf_mismatch"]
+DeferReason: TypeAlias = Literal[
+    "map_missing", "map_rejected", "pdf_outside", "pdf_missing", "pdf_too_large", "pdf_mismatch"
+]
 
 
 @dataclass(frozen=True)
@@ -170,9 +176,12 @@ def accept_pdf(map_read: FileRead, figure_map: FigureMap, pdf_read: FileRead) ->
 def read_figure_import(D: BuildDoc) -> FigureImport | ImportDeferred:
     """Read figure document D's map and the PDF it names once each, and check them in this order: the map is a
     readable regular file (map_missing); it parses with D's source check (map_rejected: the parser's reason and
-    detail); it names a PDF inside D.src (pdf_outside); that PDF is a readable regular file (pdf_missing); its SHA-256
-    is the map's pdf_sha256 (pdf_mismatch, accept_pdf). Every deferral but map_missing carries the signature of what
-    was read, with NO_FILE for a PDF that was not read."""
+    detail); it names a PDF inside D.src (pdf_outside); that PDF is a readable regular file (pdf_missing); it is at
+    most PDF_MAX_BYTES (pdf_too_large - the map chooses the file, so it is never read whole before this check: at most
+    PDF_MAX_BYTES + 1 bytes are read); its SHA-256 is the map's pdf_sha256 (pdf_mismatch, accept_pdf). Every deferral
+    but map_missing carries the signature of what was read: NO_FILE for a PDF that was not read, else the PDF's own -
+    including pdf_too_large, whose signature is real (from the same read) so an unchanged oversized file is not
+    re-read on the next tick."""
     got = _read_file(D.main, MAP_MAX_BYTES)
     if got is None:
         return ImportDeferred("map_missing", str(D.main), None)
@@ -183,9 +192,15 @@ def read_figure_import(D: BuildDoc) -> FigureImport | ImportDeferred:
     pdf = build.figure_pdf(D, parsed)
     if pdf is None:
         return ImportDeferred("pdf_outside", parsed.pdf, no_pdf)
-    pdf_read = _read_file(pdf, None)
+    pdf_read = _read_file(pdf, PDF_MAX_BYTES)
     if pdf_read is None:
         return ImportDeferred("pdf_missing", str(pdf), no_pdf)
+    if len(pdf_read.raw) > PDF_MAX_BYTES:
+        return ImportDeferred(
+            "pdf_too_large",
+            "%d bytes > %d" % (len(pdf_read.raw), PDF_MAX_BYTES),
+            got.signature + "|" + pdf_read.signature,
+        )
     return accept_pdf(got, parsed, pdf_read)
 
 
