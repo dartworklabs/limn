@@ -11,7 +11,7 @@ from typing import Any, NamedTuple, Protocol, TypeAlias
 
 from limn import build
 from limn.documents import Doc
-from limn.files import tex_lines, tree_part
+from limn.files import ManuscriptFile, file_in_tree, tree_part
 from limn.mapping import (
     norm,
     pin_rel_path,
@@ -30,7 +30,12 @@ class PinLocation(NamedTuple):
     """Where a line pin's file is on this machine now (pin_location, docs/adr/0006-relative-pin-paths.md)."""
 
     rel: str  # POSIX path relative to the manuscript root (--manuscript)
-    path: Path  # root / rel - the absolute path the API returns as `file`
+    source: ManuscriptFile
+
+    @property
+    def path(self) -> Path:
+        """Expose the checked name for API projection; content reads use source."""
+        return self.source.path
 
 
 # Where a stored pin's file is now, as the composition root binds pin_file to its root and the pin's document.
@@ -90,7 +95,8 @@ def locate_file(file: object, file_rel: object, root: Path, state: Path, doc: Bu
     if rel is None:
         return None
     path = root / rel
-    return PinLocation(rel, path) if _within(path, root, state) else None
+    source = file_in_tree(str(path), root, state)
+    return PinLocation(rel, source) if isinstance(source, ManuscriptFile) else None
 
 
 def pin_location(r: Mapping[str, Any], root: Path, state: Path, doc: Doc | None) -> PinLocation | None:
@@ -172,14 +178,9 @@ def sync_all(pins: list[Pin], locate: Locator) -> bool:
         if loc is None:
             continue
         f = loc.path
-        try:
-            if not f.is_file():
-                continue
-        except OSError:
-            continue
         if f not in cache:
-            ls = tex_lines(f)
-            cache[f] = (ls, [norm(t) for t in ls], f.stat().st_mtime)
+            ls, mtime = loc.source.snapshot()
+            cache[f] = (ls, [norm(t) for t in ls], mtime)
         lines, nlines, mtime = cache[f]
         new = resync(pin, span, lines, nlines, mtime, str(f))
         if new is not None:

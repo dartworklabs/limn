@@ -72,7 +72,7 @@ def parse_source_range(q: Query, facts: DocumentFacts) -> SourceRange | InputRej
         return InputRejected("lo·hi 는 정수여야 합니다.", "not_integer")
     if not 1 <= lo <= hi <= len(lines):
         return InputRejected("줄 범위가 파일(%d줄) 밖입니다: L%d-L%d" % (len(lines), lo, hi), "range_outside_file")
-    return SourceRange(f, lines, lo, hi)
+    return SourceRange(f.path, lines, lo, hi)
 
 
 def parse_snippet(q: Query, facts: DocumentFacts) -> SourceRange | InputRejected:

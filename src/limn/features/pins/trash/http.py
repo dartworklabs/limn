@@ -3,6 +3,7 @@
 from collections.abc import Callable, Mapping
 from typing import Any, Protocol, TypeAlias
 
+from limn.access import PostAuthority
 from limn.features.pins.trash import input as trash_input
 from limn.features.pins.trash.rules import AlreadyLive, NotInTrash
 from limn.features.pins.trash.service import PinTrash
@@ -24,22 +25,22 @@ class TrashApp(Protocol):
         ...
 
 
-def drop(app: TrashApp, pid: int, actor: Mapping[str, Any]) -> Body:
+def drop(app: TrashApp, pid: int, actor: PostAuthority) -> Body:
     """Answer POST /api/pins/{id}/drop after shared guards."""
     return drop_answer(app.pin_trash.drop_pin(pid, actor))
 
 
-def restore(app: TrashApp, pid: int, actor: Mapping[str, Any]) -> Body:
+def restore(app: TrashApp, pid: int, actor: PostAuthority) -> Body:
     """Answer POST /api/pins/{id}/restore after shared guards."""
     return restore_answer(app.pin_trash.restore_pin(pid, actor), app.public)
 
 
-def purge(app: TrashApp, pid: int, actor: Mapping[str, Any]) -> Body:
+def purge(app: TrashApp, pid: int, actor: PostAuthority) -> Body:
     """Answer owner-only POST /api/pins/{id}/purge after shared role checking."""
     return purge_answer(app.pin_trash.purge_pin(pid, actor), pid)
 
 
-def clear(app: TrashApp, actor: Mapping[str, Any], body: Mapping[str, Any]) -> Body:
+def clear(app: TrashApp, actor: PostAuthority, body: Mapping[str, Any]) -> Body:
     """Check the confirmation phrase and answer owner-only POST /api/clear."""
     accepted(trash_input.parse_clear(body))
     return clear_answer(app.pin_trash.clear_pins(actor))

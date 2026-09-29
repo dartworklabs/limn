@@ -1,9 +1,9 @@
 """Claim and unclaim transactions for the in-progress marker."""
 
-from collections.abc import Callable, Mapping
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any
 
+from limn.access import PostAuthority, require_authority
 from limn.features.pins.claims.rules import ClaimClosedPin, ClaimedByOther, ClaimRequest, NotClaimed, claim, unclaim
 from limn.pins.model import DonePin, OpenPin, Pin, PinNotFound, ReviewPin
 from limn.pins.position import epoch
@@ -17,7 +17,7 @@ class PinClaims:
     context: Callable[[], PinContext]
 
     def claim_pin(
-        self, pid: int, actor: Mapping[str, Any], ttl_min: int, eta_min: int | None = None
+        self, pid: int, actor: PostAuthority, ttl_min: int, eta_min: int | None = None
     ) -> OpenPin | ClaimClosedPin | ClaimedByOther | PinNotFound:
         """Place or extend the in-progress marker under the pin lock; written only when the claim is placed.
 
@@ -25,8 +25,8 @@ class PinClaims:
         the same identity extends. The context supplies epoch time for expiry and a separate display timestamp
         for the stored claim; each is read once when evaluating the request.
         """
-
         ctx = self.context()
+        require_authority(actor, ctx.authority_scope, "claim", pid)
 
         def fn(pins: list[Pin]) -> tuple[OpenPin | ClaimClosedPin | ClaimedByOther | PinNotFound, bool]:
             """The transact() step: claim pin pid for actor; written only when the claim is placed."""
@@ -50,12 +50,10 @@ class PinClaims:
 
         return ctx.store.transact(fn)[1]
 
-    def unclaim_pin(
-        self, pid: int, actor: Mapping[str, Any]
-    ) -> OpenPin | ReviewPin | DonePin | NotClaimed | PinNotFound:
+    def unclaim_pin(self, pid: int, actor: PostAuthority) -> OpenPin | ReviewPin | DonePin | NotClaimed | PinNotFound:
         """Clear the in-progress marker, whoever asks (actor is not checked); written only when there was a claim."""
-
         ctx = self.context()
+        require_authority(actor, ctx.authority_scope, "unclaim", pid)
 
         def fn(pins: list[Pin]) -> tuple[OpenPin | NotClaimed | PinNotFound, bool]:
             """The transact() step: drop pin pid's claim fields, or NotClaimed with nothing written."""

@@ -15,7 +15,7 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 
-from limn.access import LOCAL_ACTOR
+from limn.access import PostAuthority, require_authority
 from limn.features.pins.trash.rules import AlreadyLive, NotInTrash, drop, find_trashed, restore
 from limn.pins.model import DonePin, OpenPin, Pin, PinNotFound, ReviewPin, TrashedPin, parse_pin
 from limn.pins.trash import unexpired, without_live_shadows
@@ -36,11 +36,12 @@ def _without(entries: Sequence[TrashedPin], pid: int) -> list[TrashedPin]:
     return [entry for entry in entries if entry.pin.core.id != pid]
 
 
-def drop_pin(ctx: PinContext, pid: int, actor: Mapping[str, Any]) -> TrashedPin | PinNotFound:
+def drop_pin(ctx: PinContext, pid: int, actor: PostAuthority) -> TrashedPin | PinNotFound:
     """Removes a pin from pins.jsonl and moves it to the Trash (pins.dropped.jsonl). restore brings the same id back.
 
     The author is told when someone else deletes their pin (a `dropped` event, with [Restore] in the viewer). Expired
     Trash entries are purged in the same write."""
+    require_authority(actor, ctx.authority_scope, "drop", pid)
     evs: list[Event | None] = []
 
     def fn(pins: list[Pin]) -> tuple[TrashedPin | PinNotFound, bool]:
@@ -69,10 +70,11 @@ def drop_pin(ctx: PinContext, pid: int, actor: Mapping[str, Any]) -> TrashedPin 
 
 
 def restore_pin(
-    ctx: PinContext, pid: int, actor: Mapping[str, Any]
+    ctx: PinContext, pid: int, actor: PostAuthority
 ) -> OpenPin | ReviewPin | DonePin | NotInTrash | AlreadyLive:
     """Writes to pins.jsonl first, then removes its Trash copy. An interrupted restore may leave both copies;
     retry returns AlreadyLive as before and removes that shadow copy."""
+    require_authority(actor, ctx.authority_scope, "restore", pid)
     with ctx.store.lock:  # re-entrant - bundles transact and cleaning up the dropped record
         result = ctx.store.transact(lambda pins: _restore(ctx, pins, pid, actor))[1]
         if isinstance(result, NotInTrash):
@@ -149,11 +151,12 @@ def maybe_purge_trash(ctx: PinContext) -> int:
     return purge_trash(ctx, now)
 
 
-def purge_pin(ctx: PinContext, pid: int, actor: Mapping[str, Any]) -> TrashedPin | NotInTrash:
+def purge_pin(ctx: PinContext, pid: int, actor: PostAuthority) -> TrashedPin | NotInTrash:
     """The owner's permanent delete from the Trash (POST /api/pins/{id}/purge; check_role refuses everyone else).
     Returns the purged entry, or NotInTrash (nothing written) if the pin is not in the Trash - an open or closed pin
     must be dropped first; the handler answers that with 404. Leaves a `purged` audit event (to: [], like `cleared`), a
     `purged` line in audit.jsonl (never rotated out) and a log line, since it cannot be undone."""
+    require_authority(actor, ctx.authority_scope, "purge", pid)
     with ctx.store.lock:
         if pin_index(ctx.store.read_pins()[0], pid) is not None:
             return NotInTrash(pid)
@@ -164,17 +167,18 @@ def purge_pin(ctx: PinContext, pid: int, actor: Mapping[str, Any]) -> TrashedPin
         ctx.store.write_dropped(_live_trash(ctx, _without(entries, pid)), bad)
         ctx.emit_events([{"type": "purged", "to": [], "pin": pid, "by": ctx.who(actor)}])
     ctx.audit("purged", ctx.who(actor), {"pin": pid})  # outside the lock: it flocks and fsyncs
-    print("trash: pin #%d deleted permanently by %s" % (pid, (actor or {}).get("login")), file=sys.stderr)
+    print("trash: pin #%d deleted permanently by %s" % (pid, actor.get("login")), file=sys.stderr)
     sys.stderr.flush()
     return found
 
 
-def clear_pins(ctx: PinContext, actor: Mapping[str, Any] | None = None) -> Json:
+def clear_pins(ctx: PinContext, actor: PostAuthority) -> Json:
     """Archives everything to pins_<ts>.jsonl.bak and clears it. pins.seq is untouched, so ids keep incrementing.
     Records a `cleared` event (who, how many, which archive), a `cleared` line in audit.jsonl (the event can rotate
     out of events.jsonl, the audit line does not) and a log line - the only bulk-destructive operation, so it
-    always leaves a trace. No actor means the headerless agent. Returns {"cleared": n, "archive": <file name or None>}."""
-    by = ctx.who(actor or LOCAL_ACTOR)
+    always leaves a trace. Returns {"cleared": n, "archive": <file name or None>}."""
+    require_authority(actor, ctx.authority_scope, "clear", None)
+    by = ctx.who(actor)
 
     def remove_shadows(pins: Sequence[Pin]) -> None:
         """Remove only verified live IDs from Trash after clear's Markdown has rendered, before its archive move."""
@@ -188,7 +192,7 @@ def clear_pins(ctx: PinContext, actor: Mapping[str, Any] | None = None) -> Json:
         ctx.emit_events([{"type": "cleared", "to": [], "by": by, "n": n, "archive": archive}])
     ctx.audit("cleared", by, {"n": n, "archive": archive})  # outside the lock: it flocks and fsyncs
     print(
-        "clear: %d pin(s) archived to %s by %s" % (n, archive or "-", (actor or LOCAL_ACTOR).get("login")),
+        "clear: %d pin(s) archived to %s by %s" % (n, archive or "-", actor.get("login")),
         file=sys.stderr,
     )
     sys.stderr.flush()
@@ -201,23 +205,29 @@ class PinTrash:
 
     context: Callable[[], PinContext]
 
-    def drop_pin(self, pid: int, actor: Mapping[str, Any]) -> TrashedPin | PinNotFound:
+    def drop_pin(self, pid: int, actor: PostAuthority) -> TrashedPin | PinNotFound:
         """Move one pin to the Trash under the store lock."""
-        return drop_pin(self.context(), pid, actor)
+        ctx = self.context()
+        require_authority(actor, ctx.authority_scope, "drop", pid)
+        return drop_pin(ctx, pid, actor)
 
-    def restore_pin(
-        self, pid: int, actor: Mapping[str, Any]
-    ) -> OpenPin | ReviewPin | DonePin | NotInTrash | AlreadyLive:
+    def restore_pin(self, pid: int, actor: PostAuthority) -> OpenPin | ReviewPin | DonePin | NotInTrash | AlreadyLive:
         """Restore one Trash entry under the store lock."""
-        return restore_pin(self.context(), pid, actor)
+        ctx = self.context()
+        require_authority(actor, ctx.authority_scope, "restore", pid)
+        return restore_pin(ctx, pid, actor)
 
-    def purge_pin(self, pid: int, actor: Mapping[str, Any]) -> TrashedPin | NotInTrash:
+    def purge_pin(self, pid: int, actor: PostAuthority) -> TrashedPin | NotInTrash:
         """Permanently delete one Trash entry and audit it."""
-        return purge_pin(self.context(), pid, actor)
+        ctx = self.context()
+        require_authority(actor, ctx.authority_scope, "purge", pid)
+        return purge_pin(ctx, pid, actor)
 
-    def clear_pins(self, actor: Mapping[str, Any] | None = None) -> Json:
+    def clear_pins(self, actor: PostAuthority) -> Json:
         """Archive and clear all live pins, preserving the audit trail."""
-        return clear_pins(self.context(), actor)
+        ctx = self.context()
+        require_authority(actor, ctx.authority_scope, "clear", None)
+        return clear_pins(ctx, actor)
 
     def purge_trash(self, now: float | None = None) -> int:
         """Prune expired Trash entries and live shadow copies."""

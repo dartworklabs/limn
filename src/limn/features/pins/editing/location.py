@@ -168,7 +168,7 @@ def parse_loc(d: Json, facts: DocumentFacts) -> LineLoc | InputRejected:
         return InputRejected(PDF_BUILD_REFUSAL, "bad_pdf_build")
     return LineLoc(
         file=str(f),
-        name=f.name,
+        name=f.path.name,
         lo=lo,
         hi=hi,
         page=page,

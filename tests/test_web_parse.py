@@ -28,12 +28,13 @@ from limn.features.pins.listing import input as listing_input
 from limn.features.pins.location import input as location_input
 from limn.features.pins.trash import input as trash_input
 from limn.features.revisions import input as revision_input
-from limn.files import BadPath, NotAFile, OutsideTree, file_in_tree
+from limn.files import BadPath, ManuscriptFile, NotAFile, OutsideTree, file_in_tree, tex_lines
 from limn.pins.model import Agent, OpenPin
 from limn.web import parse
 from limn.web.errors import InputRejected
 
 from helpers import Base, jreq, ps, split_resp
+from helpers_authority import post_authority
 
 # A state folder outside every temporary tree here: the tree rule then takes nothing away for it.
 NO_STATE = Path("/nonexistent-limn-state")
@@ -49,12 +50,9 @@ class Facts:
         self._pages = pages if pages is not None else {"pages": [(600.0, 800.0), (600.0, 800.0)]}
         self._current = current
 
-    def lines(self, path: Path) -> list:
-        """The file's lines, [] when it cannot be read as UTF-8."""
-        try:
-            return path.read_text(encoding="utf-8").splitlines()
-        except (OSError, UnicodeDecodeError):
-            return []
+    def lines(self, path: ManuscriptFile) -> list:
+        """Read through the real checked sink; missing or non-UTF-8 sources give no lines."""
+        return tex_lines(path)
 
     def page_count(self, build: str | None) -> int:
         """Pages of build (the one on screen for None or a gone build)."""
@@ -93,8 +91,8 @@ class FileInTree(Tree):
 
     def test_a_file_in_the_tree_or_why_not(self):
         """Absolute and relative names give root/<rel>; a bad value, a path outside and a missing file are refused apart."""
-        self.assertEqual(file_in_tree("main.tex", self.root, NO_STATE), self.root / "main.tex")
-        self.assertEqual(file_in_tree(str(self.root / "main.tex"), self.root, NO_STATE), self.root / "main.tex")
+        self.assertEqual(file_in_tree("main.tex", self.root, NO_STATE).path, self.root / "main.tex")
+        self.assertEqual(file_in_tree(str(self.root / "main.tex"), self.root, NO_STATE).path, self.root / "main.tex")
         for bad in (None, 3, "", "a\x00b", "x" * 4097):
             self.assertEqual(file_in_tree(bad, self.root, NO_STATE), BadPath(), bad)
         self.assertEqual(file_in_tree("/etc/passwd", self.root, NO_STATE), OutsideTree())
@@ -128,11 +126,11 @@ class FileInTree(Tree):
         """Only a part below the root is judged: a dotted file name (a.b.tex) and a root that itself lies under a
         dot folder (~/.local/paper) still name files in the tree."""
         (self.root / "a.b.tex").write_text("x\n", encoding="utf-8")
-        self.assertEqual(file_in_tree("a.b.tex", self.root, NO_STATE), self.root / "a.b.tex")
+        self.assertEqual(file_in_tree("a.b.tex", self.root, NO_STATE).path, self.root / "a.b.tex")
         hidden_root = self.root / ".local" / "paper"
         hidden_root.mkdir(parents=True)
         (hidden_root / "main.tex").write_text("x\n", encoding="utf-8")
-        self.assertEqual(file_in_tree("main.tex", hidden_root, NO_STATE), hidden_root / "main.tex")
+        self.assertEqual(file_in_tree("main.tex", hidden_root, NO_STATE).path, hidden_root / "main.tex")
 
     def test_the_state_folder_inside_the_tree_is_outside_it(self):
         """--state-dir inside the manuscript under a normal name: every path in that folder (by relative or absolute
@@ -158,8 +156,8 @@ class FileInTree(Tree):
             "limn-state",
         ):
             self.assertEqual(file_in_tree(name, self.root, state), OutsideTree(), name)
-        self.assertEqual(file_in_tree("main.tex", self.root, state), self.root / "main.tex")
-        self.assertEqual(file_in_tree("limn-state2/a.tex", self.root, state), self.root / "limn-state2" / "a.tex")
+        self.assertEqual(file_in_tree("main.tex", self.root, state).path, self.root / "main.tex")
+        self.assertEqual(file_in_tree("limn-state2/a.tex", self.root, state).path, self.root / "limn-state2" / "a.tex")
         self.assertEqual(
             parse.source_file("limn-state/people.json", self.root, state),
             InputRejected("원고 디렉토리 밖의 파일입니다: limn-state/people.json", "file_outside_manuscript"),
@@ -183,8 +181,8 @@ class FileInTree(Tree):
         elsewhere = tempfile.TemporaryDirectory()
         self.addCleanup(elsewhere.cleanup)
         beside = Path(elsewhere.name)
-        self.assertEqual(file_in_tree("main.tex", self.root, beside), self.root / "main.tex")
-        self.assertEqual(file_in_tree("main.tex", self.root, self.root.parent), self.root / "main.tex")
+        self.assertEqual(file_in_tree("main.tex", self.root, beside).path, self.root / "main.tex")
+        self.assertEqual(file_in_tree("main.tex", self.root, self.root.parent).path, self.root / "main.tex")
         self.assertEqual(file_in_tree("main.tex", self.root, self.root), OutsideTree())
 
     def test_source_file_answers_each_refusal_with_its_message(self):
@@ -424,11 +422,10 @@ class Fields(unittest.TestCase):
 class RouteRequests(unittest.TestCase):
     """The per-route request parsers the handler calls instead of reading a body field or a query parameter itself."""
 
-    def test_a_flag_is_on_only_for_a_first_value_of_one(self):
-        """parse_flag keeps the old `(q.get(x) or ["0"])[0] == "1"`: "1" first is on; absent, "0", "true", "" or a
-        later "1" are off."""
-        self.assertTrue(parse.parse_flag({"log": ["1", "0"]}, "log"))
-        for q in ({}, {"log": ["0"]}, {"log": ["true"]}, {"log": [""]}, {"log": ["0", "1"]}, {"all": ["1"]}):
+    def test_a_flag_is_on_only_for_a_single_value_of_one(self):
+        """After transport rejects repeated keys, only a singleton literal 1 enables a flag."""
+        self.assertTrue(parse.parse_flag({"log": ["1"]}, "log"))
+        for q in ({}, {"log": ["0"]}, {"log": ["true"]}, {"log": [""]}, {"all": ["1"]}):
             with self.subTest(q=q):
                 self.assertFalse(parse.parse_flag(q, "log"))
 
@@ -829,7 +826,9 @@ class EditAddParsing(Base):
         self.assertEqual((code, json.loads(body)["error"], json.loads(body)["pin"]["id"]), (409, "conflict", pid))
         code, _, body = split_resp(self.talk(jreq("POST", "/api/pins/999/edit", {"note": "x", "base_rev": 0})))
         self.assertEqual((code, json.loads(body)), (404, {"error": "핀 #999 이 없습니다.", "reason": "pin_not_found"}))
-        ps.APP.pin_lifecycle.close_pin(pid, dict(LOCAL_ACTOR), CloseRequest())
+        ps.APP.pin_lifecycle.close_pin(
+            pid, post_authority(ps.APP.pin_lifecycle.context().store, dict(LOCAL_ACTOR), "close", pid), CloseRequest()
+        )
         code, _, body = split_resp(
             self.talk(jreq("POST", "/api/pins/%d/edit" % pid, {"lo": 4, "hi": 6, "base_rev": 1}))
         )

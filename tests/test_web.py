@@ -249,7 +249,7 @@ class HandlerStructure(unittest.TestCase):
     def test_the_handler_raises_only_its_own_refusals(self):
         """Every other refusal is an answer's (limn.web.answers) or an access check's: the handler raises HTTPError
         only while reading the body, checking Host/Origin, and for a path no route serves (not_found)."""
-        own = {"_read_raw", "_check_origin", "_body"}
+        own = {"_read_raw", "_check_singleton_headers", "_check_origin", "_body"}
         raised = [
             (fn.name, ast.unparse(n.exc))
             for fn in ast.walk(ast.parse(HANDLER_SOURCE))

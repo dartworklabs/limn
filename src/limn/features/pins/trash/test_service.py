@@ -7,6 +7,7 @@ from limn.pins import trash as trash_rules
 from limn.pins.model import OpenPin, TrashedPin
 
 from helpers_access import ALICE_ACTOR, BOB_ACTOR
+from helpers_authority import post_authority
 from helpers_pin_service import STAMP, ServiceBase, T
 
 
@@ -38,14 +39,29 @@ class Trash(ServiceBase):
         """drop takes the pin out of pins.jsonl into the Trash and tells its author; restore puts it back, removes it
         from the Trash, and refuses a second restore (NotInTrash) without touching the Trash file."""
         pid = self.add()
-        self.assertIsInstance(PinTrash(lambda: self.ctx).drop_pin(pid, BOB_ACTOR), TrashedPin)
+        self.assertIsInstance(
+            PinTrash(lambda: self.ctx).drop_pin(
+                pid, post_authority(PinTrash(lambda: self.ctx).context().store, BOB_ACTOR, "drop", pid)
+            ),
+            TrashedPin,
+        )
         self.assertIsNone(self.pin(pid))
         self.assertEqual([e.pin.core.id for e in self.store.read_dropped()[0]], [pid])
         self.assertEqual(self.rec.emitted[-1], [{"type": "dropped", "pin": pid, "to": ["alice@example.com"]}])
-        self.assertIsInstance(PinTrash(lambda: self.ctx).restore_pin(pid, ALICE_ACTOR), OpenPin)
+        self.assertIsInstance(
+            PinTrash(lambda: self.ctx).restore_pin(
+                pid, post_authority(PinTrash(lambda: self.ctx).context().store, ALICE_ACTOR, "restore", pid)
+            ),
+            OpenPin,
+        )
         self.assertEqual(self.store.read_dropped()[0], [])
         trash_before = self.store.files.dropped.read_bytes()
-        self.assertEqual(PinTrash(lambda: self.ctx).restore_pin(pid, ALICE_ACTOR), NotInTrash(pid))
+        self.assertEqual(
+            PinTrash(lambda: self.ctx).restore_pin(
+                pid, post_authority(PinTrash(lambda: self.ctx).context().store, ALICE_ACTOR, "restore", pid)
+            ),
+            NotInTrash(pid),
+        )
         self.assertEqual(self.store.files.dropped.read_bytes(), trash_before)
 
     def test_restore_of_a_pin_that_is_live_again_is_refused(self):
@@ -53,7 +69,12 @@ class Trash(ServiceBase):
         pid = self.add()
         self.store.write_dropped([TrashedPin.from_record(dict(self.pin(pid), dropped_at=STAMP))])
         pins = self.pins_bytes()
-        self.assertEqual(PinTrash(lambda: self.ctx).restore_pin(pid, ALICE_ACTOR), AlreadyLive(pid))
+        self.assertEqual(
+            PinTrash(lambda: self.ctx).restore_pin(
+                pid, post_authority(PinTrash(lambda: self.ctx).context().store, ALICE_ACTOR, "restore", pid)
+            ),
+            AlreadyLive(pid),
+        )
         self.assertEqual(self.pins_bytes(), pins)
         self.assertEqual(self.store.read_dropped()[0], [])
 
@@ -74,21 +95,40 @@ class Trash(ServiceBase):
         """A permanent delete removes the entry, emits `purged` and appends the audit line after releasing the lock;
         a pin not in the Trash is NotInTrash with no audit."""
         pid = self.add()
-        PinTrash(lambda: self.ctx).drop_pin(pid, ALICE_ACTOR)
-        self.assertIsInstance(PinTrash(lambda: self.ctx).purge_pin(pid, ALICE_ACTOR), TrashedPin)
+        PinTrash(lambda: self.ctx).drop_pin(
+            pid, post_authority(PinTrash(lambda: self.ctx).context().store, ALICE_ACTOR, "drop", pid)
+        )
+        self.assertIsInstance(
+            PinTrash(lambda: self.ctx).purge_pin(
+                pid, post_authority(PinTrash(lambda: self.ctx).context().store, ALICE_ACTOR, "purge", pid)
+            ),
+            TrashedPin,
+        )
         self.assertEqual(self.store.read_dropped()[0], [])
         self.assertEqual(
             self.rec.emitted[-1], [{"type": "purged", "to": [], "pin": pid, "by": {"login": "alice@example.com"}}]
         )
         self.assertEqual(self.rec.audits, [("purged", "alice@example.com", {"pin": pid}, True)])
-        self.assertEqual(PinTrash(lambda: self.ctx).purge_pin(pid, ALICE_ACTOR), NotInTrash(pid))
+        self.assertEqual(
+            PinTrash(lambda: self.ctx).purge_pin(
+                pid, post_authority(PinTrash(lambda: self.ctx).context().store, ALICE_ACTOR, "purge", pid)
+            ),
+            NotInTrash(pid),
+        )
         self.assertEqual(len(self.rec.audits), 1)
 
-    def test_clear_archives_and_is_audited_as_the_agent_without_an_actor(self):
-        """clear_pins archives pins.jsonl, emits `cleared` and audits it outside the lock - by the headerless agent
-        when no actor is given."""
+    def test_clear_archives_and_is_audited_as_the_authorized_owner(self):
+        """clear_pins archives pins.jsonl, emits `cleared` and audits it outside the lock with an explicit owner capability."""
         self.add()
-        out = PinTrash(lambda: self.ctx).clear_pins()
+        out = PinTrash(lambda: self.ctx).clear_pins(
+            post_authority(
+                PinTrash(lambda: self.ctx).context().store,
+                {"login": "local", "name": "Owner"},
+                "clear",
+                None,
+                role="owner",
+            )
+        )
         self.assertEqual(out["cleared"], 1)
         self.assertTrue((self.state / out["archive"]).exists())
         self.assertFalse(self.store.files.pins_jsonl.exists())

@@ -24,7 +24,8 @@ from pathlib import Path
 from typing import Any
 
 from limn import build
-from limn.files import tex_lines
+from limn.access_values import AuthorityScope
+from limn.files import ManuscriptFile, tex_lines
 
 DOC_KEY_RE = re.compile(r"[a-z0-9-]{1,24}")
 DOC_NAME_MAX = 40
@@ -294,7 +295,7 @@ class DocumentFacts:
         """The instance's state folder (never part of the tree, limn.files.tree_part)."""
         return self._state
 
-    def lines(self, path: Path) -> list[str]:
+    def lines(self, path: ManuscriptFile) -> list[str]:
         """The file's lines (limn.files.tex_lines: [] when unreadable)."""
         return tex_lines(path)
 
@@ -313,3 +314,22 @@ class DocumentFacts:
             return None
         pdir = build.pages_dir_for(self._doc, name) if name is not None else build.cur_pages(self._doc)
         return pdir, [(p["pt_w"], p["pt_h"]) for p in build.page_list(pdir, self._dpi)]
+
+
+def document_authority_target(doc: Doc) -> AuthorityScope:
+    """Snapshot the selected document's identity and filesystem destinations.
+
+    A mutable document cannot redirect an issued request by replacing paths while
+    retaining the same object or key. Build status and locks are not destinations.
+    """
+    return AuthorityScope(
+        doc,
+        (
+            doc.key,
+            doc.kind,
+            str(doc.src.resolve()),
+            str(doc.main.resolve()),
+            str(doc.dir.resolve()),
+            str(doc.build.resolve()),
+        ),
+    )

@@ -2,6 +2,7 @@
 
 from collections.abc import Callable
 
+from limn.access import PostAuthority
 from limn.documents import Doc
 from limn.features.builds import http
 from limn.features.builds.service import BuildRequests
@@ -24,6 +25,8 @@ def get(path: str, query: Query, doc: Doc, text: Callable[[object], str]) -> Rep
     return None
 
 
-def post(query: Query, _body: Json, doc: Doc, requests: BuildRequests) -> tuple[dict[str, object], int]:
+def post(
+    query: Query, _body: Json, doc: Doc, requests: BuildRequests, authority: PostAuthority
+) -> tuple[dict[str, object], int]:
     """Answer the registered rebuild POST route for this document."""
-    return http.rebuild(requests, doc, query)
+    return http.rebuild(requests, doc, query, authority)

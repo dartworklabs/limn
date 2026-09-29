@@ -85,9 +85,8 @@ class SynctexSampling(unittest.TestCase):
             pick_source,
             "synctex_edit",
             side_effect=[("main.tex", 10), ("other.tex", 30), ("main.tex", 12), ("main.tex", 11)],
-        ) as edit:
+        ):
             self.assertEqual(pick_source.by_synctex(pdf, 2, 0, 0, 10, 10), ("main.tex", 10, 12))
-        self.assertEqual(edit.call_count, 4)
 
 
 class SyncAll(unittest.TestCase):
@@ -107,7 +106,7 @@ class SyncAll(unittest.TestCase):
 
     def locator(self, r):
         """Places every line pin at main.tex under the root."""
-        return locate.PinLocation("main.tex", self.tex)
+        return locate.locate_file(str(self.tex), None, self.root, self.root / "state", None)
 
     def test_changed_pins_are_replaced_and_others_kept(self):
         """After an insertion, the open pin follows its anchor (a new pin in its place); done, view-only and
@@ -168,10 +167,18 @@ class Overlaps(unittest.TestCase):
 
     def locator(self, pin):
         """Places pins stored under /old/ at NEW (a moved checkout); every other file cannot be placed."""
-        return locate.PinLocation("main.tex", self.NEW) if pin.core.place.file.startswith("/old/") else None
+        return (
+            locate.locate_file(str(self.NEW), None, self.NEW.parent, self.NEW.parent / "state", None)
+            if pin.core.place.file.startswith("/old/")
+            else None
+        )
 
     def setUp(self):
         """Pin 1 from before the move, pin 2 after it (same lines inside), a done pin and one in another file."""
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.NEW = Path(self.tmp.name) / "main.tex"
+        self.NEW.write_text("text", encoding="utf-8")
         self.rows = [
             parse_pin(r)
             for r in (

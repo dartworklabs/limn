@@ -25,6 +25,7 @@ from limn.access import LOCAL_ACTOR
 from limn.documents import Doc, DocNotFound
 from limn.features.document_views import reads as meta
 from limn.features.document_views.reads import MetaSettings
+from limn.files import file_in_tree
 
 from helpers import Base, ps, req, set_config
 
@@ -281,7 +282,7 @@ class DocumentFactsReads(Fixture):
     """DocumentFacts reads a document's lines and pages at call time."""
 
     def test_pages_of_the_build_on_screen_or_a_named_one(self):
-        """page_count and pick_pages use the named build, the one on screen for None, and refuse a vanished name."""
+        """Document facts select current/named pages and read only checked sources, returning no lines after deletion."""
         old = self.pages(self.ms, "pages-20260101000000")
         new = self.pages(self.ms, "pages-20260102000000")
         (new / "page-2.png").write_bytes(PNG)
@@ -289,8 +290,14 @@ class DocumentFactsReads(Fixture):
         self.assertEqual((facts.current_build(), facts.page_count(None), facts.page_count(old.name)), (new.name, 2, 1))
         self.assertEqual(facts.pick_pages(None), (new, [(144.0, 72.0), (144.0, 72.0)]))
         self.assertIsNone(facts.pick_pages("pages-20250101000000"))
-        self.assertEqual(facts.lines(self.src / "main.tex"), ["\\documentclass{article}"])
-        self.assertEqual(facts.lines(self.src / "missing.tex"), [])
+        self.assertEqual(
+            facts.lines(file_in_tree(str(self.src / "main.tex"), self.src, self.state)), ["\\documentclass{article}"]
+        )
+        missing = self.src / "missing.tex"
+        missing.write_text("temporary", encoding="utf-8")
+        checked = file_in_tree(str(missing), self.src, self.state)
+        missing.unlink()
+        self.assertEqual(facts.lines(checked), [])
         self.assertEqual(
             (facts.key, facts.is_pdf, facts.root, facts.pdf), ("ms", False, self.src, self.src / "main.tex")
         )

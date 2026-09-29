@@ -44,6 +44,7 @@ from helpers import (
     shut_wr,
 )
 from helpers_access import ALICE_ACTOR
+from helpers_authority import post_authority
 from helpers_browser import ChromiumTestCase, booted, settle, watch_idle
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -452,6 +453,7 @@ class EnglishChrome(ChromiumTestCase):
 
     @classmethod
     def make_state(cls, root):
+        """Build a two-document instance with mixed identities, roles, pin states, and ages for localized viewer checks."""
         src = root / "ms"
         src.mkdir()
         for name in ("main.tex", "reply.tex"):
@@ -486,20 +488,34 @@ class EnglishChrome(ChromiumTestCase):
             return add_pin(d, actor, ps).record["id"]
 
         claimed = add(4, 5, "Tighten this sentence", ALICE_ACTOR)
-        ps.APP.pin_claims.claim_pin(claimed, agent, *claims_input.parse_claim_body({"eta_min": 10}))
+        ps.APP.pin_claims.claim_pin(
+            claimed,
+            post_authority(ps.APP.pin_claims.context().store, agent, "claim", claimed),
+            *claims_input.parse_claim_body({"eta_min": 10}),
+        )
         korean = add(8, 9, "이 문장을 다듬어 주세요", SEOJUN)
-        ps.APP.pin_lifecycle.reply_pin(korean, "Working on it", ALICE_ACTOR)
+        ps.APP.pin_lifecycle.reply_pin(
+            korean, "Working on it", post_authority(ps.APP.pin_lifecycle.context().store, ALICE_ACTOR, "reply", korean)
+        )
         add(12, 16, "Is this the right table? @Bob Lee", ALICE_ACTOR, kind_req="question", mentions=[BOB_LEE["login"]])
         add(4, 5, "Same spot again", BOB_LEE)
         add(20, 21, "Ask Bob about the wording", ALICE_ACTOR, assignee=BOB_LEE["login"])
         add(22, 23, "Agent note", agent)
         for author in (ALICE_ACTOR, BOB_LEE):
             pid = add(24, 25, "Shorten the caption", author)
-            ps.APP.pin_lifecycle.close_pin(pid, agent, CloseRequest(reply="표 설명을 줄였습니다", ref="PR #7"))
+            ps.APP.pin_lifecycle.close_pin(
+                pid,
+                post_authority(ps.APP.pin_lifecycle.context().store, agent, "close", pid),
+                CloseRequest(reply="표 설명을 줄였습니다", ref="PR #7"),
+            )
         done = add(26, 27, "Fix the unit", ALICE_ACTOR)
-        ps.APP.pin_lifecycle.close_pin(done, ALICE_ACTOR, CloseRequest())
+        ps.APP.pin_lifecycle.close_pin(
+            done, post_authority(ps.APP.pin_lifecycle.context().store, ALICE_ACTOR, "close", done), CloseRequest()
+        )
         dropped = add(28, 29, "Wrong spot", ALICE_ACTOR)
-        ps.APP.pin_trash.drop_pin(dropped, ALICE_ACTOR)
+        ps.APP.pin_trash.drop_pin(
+            dropped, post_authority(ps.APP.pin_trash.context().store, ALICE_ACTOR, "drop", dropped)
+        )
         add_pin(
             dict(file=str(src / "reply.tex"), lo=4, hi=5, page=1, note="Reply letter wording"), ALICE_ACTOR, ps, doc=rr
         ).record["id"]

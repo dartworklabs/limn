@@ -30,7 +30,7 @@ class PostDocRequest(NamedTuple):
     query: Query
     body: dict[str, Any]
     doc: Doc
-    actor: dict[str, Any]
+    actor: access.PostAuthority
     principal: access.Principal
 
 
@@ -46,7 +46,7 @@ class PinActionRequest(NamedTuple):
     """A guarded action on one pin after parsing its JSON body."""
 
     pid: int
-    actor: dict[str, Any]
+    actor: access.PostAuthority
     body: dict[str, Any]
     principal: access.Principal
 
@@ -57,7 +57,7 @@ PinAction: TypeAlias = Callable[[PinActionRequest], dict[str, object]]
 class OtherPostRequest(NamedTuple):
     """A guarded POST with no selected document or pin."""
 
-    actor: dict[str, Any]
+    actor: access.PostAuthority
     body: dict[str, Any]
     principal: access.Principal
 

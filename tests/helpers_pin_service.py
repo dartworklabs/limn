@@ -4,11 +4,12 @@ import tempfile
 import threading
 import unittest
 from pathlib import Path
-from types import SimpleNamespace
 
 from limn.access import LOCAL_ACTOR
+from limn.documents import Doc, RunPaths
 from limn.features.pins.editing import service as add_edit
 from limn.features.pins.editing.rules import AddRequest, LinePlace
+from limn.files import ManuscriptFile, file_in_tree
 from limn.locate import PinLocation
 from limn.mentions import NoteTags
 from limn.pins.model import TrashedPin, parse_pin
@@ -20,6 +21,7 @@ from helpers import (
     find_record,
 )
 from helpers_access import ALICE_ACTOR, BOB_ACTOR
+from helpers_authority import post_authority
 
 T = 1790000000.0
 STAMP = "2026-09-26 10:00:00"
@@ -90,7 +92,7 @@ class ServiceBase(unittest.TestCase):
         self.people = {"alice@example.com": ALICE_ACTOR, "bob@example.com": BOB_ACTOR}
         self.checked = [0.0]
         self.ctx = self.context()
-        self.doc = SimpleNamespace(key="main", dir=self.state)
+        self.doc = Doc("main", "Main", paths=RunPaths(self.ms, self.tex, self.state), legacy=True)
 
     def tearDown(self):
         """Remove the temp folder."""
@@ -123,7 +125,8 @@ class ServiceBase(unittest.TestCase):
     def locate(self, r):
         """Where a record's file is: under the manuscript folder, else None (outside the tree)."""
         p = Path(str(r.get("file") or ""))
-        return PinLocation(p.relative_to(self.ms).as_posix(), p) if p.is_relative_to(self.ms) else None
+        source = file_in_tree(str(p), self.ms, self.state)
+        return PinLocation(p.relative_to(self.ms).as_posix(), source) if isinstance(source, ManuscriptFile) else None
 
     def add(self, actor=ALICE_ACTOR, note="n", lo=1, hi=2):
         """A new open line pin by actor in main.tex -> its id."""
@@ -131,7 +134,9 @@ class ServiceBase(unittest.TestCase):
             {"file": str(self.tex), "name": "main.tex", "lo": lo, "hi": hi, "page": 1},
             frozenset({"file", "lo", "hi", "page"}),
         )
-        return add_edit.add_pin(self.ctx, self.doc, AddRequest(place, note), actor).record["id"]
+        return add_edit.add_pin(
+            self.ctx, self.doc, AddRequest(place, note), post_authority(self.ctx.store, actor, "add", self.doc)
+        ).record["id"]
 
     def pins_bytes(self):
         """pins.jsonl as stored now (b'' when missing)."""

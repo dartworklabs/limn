@@ -30,7 +30,7 @@ import os
 import re
 import sys
 import threading
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from email.header import decode_header, make_header
 from email.message import Message
@@ -38,6 +38,7 @@ from pathlib import Path
 from typing import Any, Generic, Literal, NamedTuple, TypeAlias, TypeGuard, TypeVar, get_args
 from urllib.parse import urlparse
 
+from limn.access_values import AuthorityScope as AuthorityScope
 from limn.guidance import UNAUTHENTICATED, loopback_refused_text
 from limn.people import PeopleUnreadable
 from limn.pins.edit import LOCAL_LOGIN
@@ -561,7 +562,7 @@ def admit(
 
 def check_role(p: Principal, path: str, trash_days: int) -> None:
     """Role rule for state-changing (POST) requests, applied once in the handler before dispatch. A viewer may only
-    run computations (/api/pick, /api/revision-build); an agent may do everything but confirm; editor and owner may
+    run computations (/api/pick, /api/revision-build); an agent may use declared actions except confirm; editor and owner may
     do everything a person could in v0.1, except the bulk-destructive OWNER_POSTS (/api/clear, v0.2.1) and the permanent
     delete from the Trash (OWNER_POST_RE, v0.2.2), which only the owner may call; that refusal quotes trash_days, how
     long the Trash keeps a pin. Other owner-only operations - members, tokens, settings - are CLI/file level. A refusal
@@ -584,6 +585,152 @@ def check_role(p: Principal, path: str, trash_days: int) -> None:
             "휴지통에서 영구 삭제는 소유자(owner)만 합니다 — 삭제한 핀은 %d일 뒤 저절로 지워집니다." % trash_days,
             reason="owner_only",
         )
+
+    post_operation(path)
+
+
+# Issuance is confined to the composition root; tests enforce that production imports
+# cannot acquire the private constructor key or mint an authority in a feature.
+_AUTHORITY_KEY = object()
+PIN_OPERATIONS = frozenset(
+    {"reply", "close", "reopen", "confirm", "edit", "claim", "unclaim", "drop", "restore", "purge"}
+)
+DOCUMENT_OPERATIONS = {
+    "/api/pin": "add",
+    "/api/pick": "pick",
+    "/api/rebuild": "rebuild",
+    "/api/revision-build": "revision-build",
+}
+READ_PATHS = frozenset(
+    {
+        "/",
+        "/favicon.ico",
+        "/favicon-32.png",
+        "/apple-touch-icon.png",
+        "/api/version",
+        "/sw.js",
+        "/api/build",
+        "/pdf",
+        "/api/revisions",
+        "/api/revision-diff",
+        "/api/revision-build",
+        "/api/revision-pdf",
+        "/api/meta",
+        "/api/docs",
+        "/api/outline-labels",
+        "/api/people",
+        "/pins.md",
+        "/api/pins",
+        "/api/pins/dropped",
+        "/api/snippet",
+        "/api/overlaps",
+    }
+)
+
+
+def post_operation(path: str) -> tuple[str, int | None]:
+    """Recognize only declared POST operations; unknown registrations remain denied."""
+    if path in DOCUMENT_OPERATIONS:
+        return DOCUMENT_OPERATIONS[path], None
+    if path == "/api/clear":
+        return "clear", None
+    match = re.fullmatch(r"/api/pins/(\d+)/([a-z]+)", path)
+    if match and match[2] in PIN_OPERATIONS:
+        return match[2], int(match[1])
+    raise HTTPError(404, "없는 경로입니다: %s" % path, reason="not_found")
+
+
+def check_read(path: str) -> None:
+    """Admitted principals may read declared paths; new registrations start denied."""
+    if path in READ_PATHS or re.fullmatch(r"/api/pins/\d+", path):
+        return
+    if path.startswith(("/pages/", "/vendor/pdfjs/")):
+        return  # These declared resource families validate their leaf names at their sink.
+    raise HTTPError(404, "없는 경로입니다: %s" % path, reason="not_found")
+
+
+def _same_scope(left: object, right: object) -> bool:
+    """Compare scoped resources by owner identity and namespace; other owners by identity."""
+    if isinstance(left, AuthorityScope) and isinstance(right, AuthorityScope):
+        return (
+            left.owner is right.owner
+            and left.namespace == right.namespace
+            and len(left.resources) == len(right.resources)
+            and all(a is b for a, b in zip(left.resources, right.resources, strict=True))
+        )
+    return left is right
+
+
+@dataclass(frozen=True, init=False)
+class PostAuthority(Mapping[str, Any]):
+    """Immutable attribution and authority for one operation, target and instance.
+
+    Only the authorization issuer constructs this value. Mapping access is a copy-free
+    attribution projection for existing record writers; it never grants another action.
+    Python cannot seal constructors, so an independent source guard limits issuance.
+    """
+
+    _scope: object
+    _operation: str
+    _target: object
+    _actor: tuple[tuple[str, str], ...]
+    _role: Role
+    _via: Via
+
+    def __init__(self, key: object, scope: object, operation: str, target: object, principal: Principal) -> None:
+        """Snapshot a verified principal only when the private issuer key is supplied."""
+        if key is not _AUTHORITY_KEY:
+            raise HTTPError(403, "요청 권한이 올바르지 않습니다.", reason="invalid_authority")
+        object.__setattr__(self, "_scope", scope)
+        object.__setattr__(self, "_operation", operation)
+        object.__setattr__(self, "_target", target)
+        object.__setattr__(self, "_actor", tuple((k, v) for k, v in principal.actor.items() if isinstance(v, str)))
+        object.__setattr__(self, "_role", principal.role)
+        object.__setattr__(self, "_via", principal.via)
+
+    def __getitem__(self, key: str) -> Any:
+        """Read an attribution field without exposing mutable identity storage."""
+        return dict(self._actor)[key]
+
+    def __iter__(self) -> Iterator[str]:
+        """Iterate only recorded attribution keys, never scope or role metadata."""
+        return (key for key, _ in self._actor)
+
+    def __len__(self) -> int:
+        """Return the number of attribution fields."""
+        return len(self._actor)
+
+    @property
+    def principal(self) -> Principal:
+        """Return a detached identity projection for human/review decisions."""
+        return Principal(dict(self._actor), self._role, self._via)
+
+
+def require_authority(authority: PostAuthority, scope: object, operation: str, target: object) -> None:
+    """Refuse forged attribution or reuse for another effect before touching resources."""
+    if (
+        not isinstance(authority, PostAuthority)
+        or not _same_scope(authority._scope, scope)
+        or authority._operation != operation
+        or (
+            not _same_scope(authority._target, target)
+            if operation in DOCUMENT_OPERATIONS.values()
+            else authority._target != target
+        )
+    ):
+        raise HTTPError(403, "요청 권한이 올바르지 않습니다.", reason="invalid_authority")
+
+
+def _authorize_post(
+    principal: Principal, path: str, scope: object, document: object | None, trash_days: int
+) -> PostAuthority:
+    """Issue authority after admission, role policy and final document selection."""
+    check_role(principal, path, trash_days)
+    operation, pin = post_operation(path)
+    target = document if path in DOCUMENT_OPERATIONS else pin
+    if path in DOCUMENT_OPERATIONS and document is None:
+        raise HTTPError(403, "요청 권한이 올바르지 않습니다.", reason="invalid_authority")
+    return PostAuthority(_AUTHORITY_KEY, scope, operation, target, principal)
 
 
 # ---------------------------------------------------------------- agent API tokens (<state>/tokens.json, hashed at rest)
@@ -637,6 +784,8 @@ def bearer_of(headers: Message) -> str | None:
     are not Limn's and are ignored. An empty or repeated Bearer header raises HTTPError 401 bad_bearer - it is never
     read as "no token"."""
     vals = headers.get_all("Authorization") or []
+    if len(vals) > 1:
+        raise HTTPError(401, "Authorization: Bearer 헤더가 올바르지 않습니다.", reason="bad_bearer")
     bearer = [v for v in vals if v.strip().split(" ", 1)[0].lower() == "bearer"]
     if not bearer:
         return None

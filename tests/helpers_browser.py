@@ -25,7 +25,7 @@ import pytest
 
 from limn import mapping
 from limn.build import cur_pages
-from limn.files import tex_lines
+from limn.files import file_in_tree, tex_lines
 
 from helpers import blank_png, ps, run_config, serve_viewer, split_resp
 from helpers_access import ALICE, reset_access, talk_to
@@ -199,7 +199,7 @@ class BrowserBase(ChromiumTestCase):
         if u.netloc != "viewer.test":
             return route.abort()
         if u.path == "/api/pick":
-            lines = tex_lines(self.main)
+            lines = tex_lines(file_in_tree(str(self.main), self.main.parent, self.main.parent / "state"))
             lad = mapping.compute_levels(lines, 5, 5, ps.APP.C.envs)
             d = {
                 "file": str(self.main),

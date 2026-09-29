@@ -42,6 +42,7 @@ from limn.viewer import assemble
 from limn.web.errors import InputRejected
 
 import helpers_js
+from helpers_authority import post_authority
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parent
@@ -304,7 +305,11 @@ def add_pin(d: dict, actor: dict, mod=None, doc=None):
     if isinstance(want, str) and want != D.key:
         D = mod.request_doc(want)
     request = editing_input.parse_add(d, mod.editing_requests.assignee_people(d), mod.document_facts(D))
-    return request if isinstance(request, InputRejected) else mod.pin_editing.add_pin(D, request, actor)
+    return (
+        request
+        if isinstance(request, InputRejected)
+        else mod.pin_editing.add_pin(D, request, post_authority(mod.pin_editing.context().store, actor, "add", D))
+    )
 
 
 def edit_pin(pid: int, d: dict, actor: dict, mod=None):
@@ -318,7 +323,12 @@ def edit_pin(pid: int, d: dict, actor: dict, mod=None):
     place = editing_input.parse_edit_place(body, region, mod.document_facts(pdoc))
     if isinstance(place, InputRejected):
         return place
-    return mod.pin_editing.edit_pin(pid, dataclasses.replace(body.request, place=place), actor, region)
+    return mod.pin_editing.edit_pin(
+        pid,
+        dataclasses.replace(body.request, place=place),
+        post_authority(mod.pin_editing.context().store, actor, "edit", pid),
+        region,
+    )
 
 
 def pick(d: dict, mod=None, doc=None):

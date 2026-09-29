@@ -20,6 +20,7 @@ from limn.pins.view import dropped_payload, pin_state, pin_view, pins_payload, p
 from limn.store import find_pin
 
 from helpers import Base, find_record, fits, ps, records, req, write_records
+from helpers_authority import post_authority
 
 NOW = 1790000000.0
 CUR = EstContext("b2", {"b1": {"build": "b1", "src_hash": "h1"}, "b2": {"build": "b2", "src_hash": "h2"}}, None, None)
@@ -181,7 +182,9 @@ class DroppedList(Base):
     def test_dropped_payload_includes_dropped_at_and_by(self):
         """A dropped pin retains its identifier, actor, and removal time in the list."""
         pid = self.add(note="oops")
-        ps.APP.pin_trash.drop_pin(pid, {"login": "alice", "name": "Wendy"})
+        ps.APP.pin_trash.drop_pin(
+            pid, post_authority(ps.APP.pin_trash.context().store, {"login": "alice", "name": "Wendy"}, "drop", pid)
+        )
         out = ps.APP.pin_listing.dropped_payload()
         self.assertEqual(len(out), 1)
         self.assertEqual(out[0]["id"], pid)
@@ -196,14 +199,18 @@ class DroppedList(Base):
     def test_dropped_payload_excludes_restored_pins(self):
         """Restoring a pin removes it from the Trash list."""
         pid = self.add()
-        ps.APP.pin_trash.drop_pin(pid, dict(LOCAL_ACTOR))
-        ps.APP.pin_trash.restore_pin(pid, dict(LOCAL_ACTOR))
+        ps.APP.pin_trash.drop_pin(pid, post_authority(ps.APP.pin_trash.context().store, dict(LOCAL_ACTOR), "drop", pid))
+        ps.APP.pin_trash.restore_pin(
+            pid, post_authority(ps.APP.pin_trash.context().store, dict(LOCAL_ACTOR), "restore", pid)
+        )
         self.assertEqual(ps.APP.pin_listing.dropped_payload(), [])
 
     def test_get_pins_dropped_endpoint_http(self):
         """The HTTP Trash response includes a dropped pin and its original note."""
         pid = self.add(note="secret-drop-note")
-        ps.APP.pin_trash.drop_pin(pid, {"login": "alice", "name": "Wendy"})
+        ps.APP.pin_trash.drop_pin(
+            pid, post_authority(ps.APP.pin_trash.context().store, {"login": "alice", "name": "Wendy"}, "drop", pid)
+        )
         out = self.talk(req("GET", "/api/pins/dropped"))
         self.assertIn(b" 200 ", out)
         payload = json.loads(out.split(b"\r\n\r\n", 1)[1])
@@ -214,7 +221,7 @@ class DroppedList(Base):
     def test_get_pins_dropped_respects_origin_check(self):
         """The Trash endpoint rejects a request with a foreign Host."""
         pid = self.add()
-        ps.APP.pin_trash.drop_pin(pid, dict(LOCAL_ACTOR))
+        ps.APP.pin_trash.drop_pin(pid, post_authority(ps.APP.pin_trash.context().store, dict(LOCAL_ACTOR), "drop", pid))
         out = self.talk(req("GET", "/api/pins/dropped", headers={"Host": "evil.example"}))
         self.assertIn(b" 403 ", out)
 

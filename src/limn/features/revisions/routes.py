@@ -1,5 +1,6 @@
 """HTTP paths and complete replies for reading Git history and comparison artifacts."""
 
+from limn.access import PostAuthority
 from limn.documents import Doc
 from limn.features.revisions import http
 from limn.features.revisions.service import RevisionRequests
@@ -22,6 +23,8 @@ def get(path: str, query: Query, doc: Doc, requests: RevisionRequests) -> Reply 
     return None
 
 
-def post(_query: Query, body: Json, doc: Doc, requests: RevisionRequests) -> tuple[dict[str, object], int]:
+def post(
+    _query: Query, body: Json, doc: Doc, requests: RevisionRequests, authority: PostAuthority
+) -> tuple[dict[str, object], int]:
     """Answer the registered comparison-build POST route for this document."""
-    return http.start(requests, doc, body)
+    return http.start(requests, doc, body, authority)

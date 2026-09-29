@@ -52,6 +52,7 @@ from helpers_access import (
     token_create,
     token_revoke,
 )
+from helpers_authority import post_authority
 
 ROOT = Path(__file__).resolve().parent.parent
 SRC = ROOT / "src"
@@ -122,11 +123,14 @@ class LocalProvider(AccessBase):
         self.assertEqual((d["me"]["login"], d["me"]["name"], d["me"]["role"]), ("alice", "alice", "owner"))
 
     def test_owner_closes_as_done_and_can_confirm(self):
+        """The configured local owner closes directly to done and can approve an agent-created review."""
         pid = self.pin_id()
         code, d = self.call("POST", "/api/pins/%d/close" % pid)
         self.assertEqual((code, d["state"]), (200, "done"))
         rid = self.add(8, 9)
-        ps.APP.pin_lifecycle.close_pin(rid, dict(LOCAL_ACTOR), CloseRequest())  # an agent's close -> review
+        ps.APP.pin_lifecycle.close_pin(
+            rid, post_authority(ps.APP.pin_lifecycle.context().store, dict(LOCAL_ACTOR), "close", rid), CloseRequest()
+        )  # an agent's close -> review
         code, d = self.call("POST", "/api/pins/%d/confirm" % rid)
         self.assertEqual((code, d["state"]), (200, "done"))
         self.assertEqual(self.pin(rid)["confirmed_by"]["login"], "alice")
@@ -491,6 +495,7 @@ class Roles(AccessBase):
         self.assertNotEqual(code, 403, d)
 
     def test_editor_and_missing_role_can_do_everything(self):
+        """Explicit editors and legacy people without a role retain reply, human-close, and confirmation permissions."""
         self.set_people(
             [
                 {"login": "alice@example.com", "name": "Alice"},
@@ -502,13 +507,20 @@ class Roles(AccessBase):
             self.assertEqual(self.call("POST", "/api/pins/%d/reply" % pid, {"text": "x"}, h)[0], 200)
             self.assertEqual(self.call("POST", "/api/pins/%d/close" % pid, None, h)[1]["state"], "done")
             rid = self.add(8, 9)
-            ps.APP.pin_lifecycle.close_pin(rid, dict(LOCAL_ACTOR), CloseRequest())
+            ps.APP.pin_lifecycle.close_pin(
+                rid,
+                post_authority(ps.APP.pin_lifecycle.context().store, dict(LOCAL_ACTOR), "close", rid),
+                CloseRequest(),
+            )
             self.assertEqual(self.call("POST", "/api/pins/%d/confirm" % rid, None, h)[1]["state"], "done")
 
     def test_owner_person_can_confirm(self):
+        """An owner arriving as a verified person may confirm an agent-closed review pin."""
         self.set_people([{"login": "alice@example.com", "name": "Alice", "role": "owner"}])
         rid = self.add()
-        ps.APP.pin_lifecycle.close_pin(rid, dict(LOCAL_ACTOR), CloseRequest())
+        ps.APP.pin_lifecycle.close_pin(
+            rid, post_authority(ps.APP.pin_lifecycle.context().store, dict(LOCAL_ACTOR), "close", rid), CloseRequest()
+        )
         self.assertEqual(self.call("POST", "/api/pins/%d/confirm" % rid, None, ALICE)[1]["state"], "done")
 
     def test_agent_role_person_closes_into_review_and_cannot_confirm(self):
@@ -524,8 +536,11 @@ class Roles(AccessBase):
         self.assertEqual(d["state"], "done")
 
     def test_loopback_agent_confirm_is_403(self):
+        """Loopback agent identity cannot approve its own work and receives the human-confirmation refusal."""
         rid = self.add()
-        ps.APP.pin_lifecycle.close_pin(rid, dict(LOCAL_ACTOR), CloseRequest())
+        ps.APP.pin_lifecycle.close_pin(
+            rid, post_authority(ps.APP.pin_lifecycle.context().store, dict(LOCAL_ACTOR), "close", rid), CloseRequest()
+        )
         code, d = self.call("POST", "/api/pins/%d/confirm" % rid)
         self.assertEqual(code, 403)
         self.assertEqual(d["error"], CONFIRM_BY_HUMAN)

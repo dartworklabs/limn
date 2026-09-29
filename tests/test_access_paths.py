@@ -17,6 +17,7 @@ from limn.features.pins.lifecycle.rules import CloseRequest
 
 from helpers import ps, set_config
 from helpers_access import ALICE, BOB, CLEAR_BODY, TS_HOST, AccessBase, member_add, token_create
+from helpers_authority import post_authority
 
 
 class PrincipalMatrix(AccessBase):
@@ -37,7 +38,9 @@ class PrincipalMatrix(AccessBase):
         code, d = self.call("POST", "/api/pins/%d/close" % pid, None, **kw)
         out["close"] = code if code != 200 else d["state"]
         pid = self.add()
-        ps.APP.pin_lifecycle.close_pin(pid, dict(LOCAL_ACTOR), CloseRequest())
+        ps.APP.pin_lifecycle.close_pin(
+            pid, post_authority(ps.APP.pin_lifecycle.context().store, dict(LOCAL_ACTOR), "close", pid), CloseRequest()
+        )
         out["confirm"] = self.call("POST", "/api/pins/%d/confirm" % pid, None, **kw)[0]
         before = len(ps.APP.snapshot_pins())
         out["clear"] = self.call("POST", "/api/clear", CLEAR_BODY, **kw)[0]
