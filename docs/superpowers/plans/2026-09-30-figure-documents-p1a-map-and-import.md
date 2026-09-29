@@ -85,7 +85,7 @@ grep -n "CAPABILITY_TABLE = {" src/limn/features/document_views/test_meta.py
 test -f docs/adr/0011-figure-documents.md && echo "ADR-0011 present"
 ```
 
-Expected: the first command prints nothing. The second prints the `DocKind` line, `kind_builds_from_source` and the five capability properties (7 lines). The third and fourth print one line each. The last prints `ADR-0011 present`. If any expectation fails, stop: this plan assumes P0 has landed.
+Expected: the first command prints nothing. The second prints the `DocKind` line, `kind_builds_from_source`, the five `Doc` capability properties and `DocumentFacts.view_only` (8 lines; `def view_only` matches both classes). The third and fourth print one line each. The last prints `ADR-0011 present`. If any expectation fails, stop: this plan assumes P0 has landed.
 
 - [ ] **Step 3: Record the baseline**
 
