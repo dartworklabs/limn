@@ -1,5 +1,8 @@
 # Figure Documents P1b — Map Pick and Element Pins Implementation Plan
 
+<!-- Code blocks here are transcribed into the repository and formatted there; ruff leaves them as written. -->
+<!-- fmt: off -->
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** A drag on a figure document is traced through its build's element map to the element and the lines of code that drew it, saved as a line pin with an optional `el`, followed across re-renders at read time, and presented to agents in `pins.md` and SKILL.

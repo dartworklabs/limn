@@ -1,5 +1,8 @@
 # Figure Documents P1a: Map Parser, Registration and Import Build Implementation Plan
 
+<!-- Code blocks here are transcribed into the repository and formatted there; ruff leaves them as written. -->
+<!-- fmt: off -->
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** A `--doc`/`DOCS=` entry ending in `.limnmap.json` serves a figure document whose PDF and element map are imported (never built), kept per build, watched like a view-only PDF, and picked and pinned as regions.

@@ -1,5 +1,8 @@
 # Figure Documents P1c — Viewer Implementation Plan
 
+<!-- Code blocks here are transcribed into the repository and formatted there; ruff leaves them as written. -->
+<!-- fmt: off -->
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Make figure documents usable in the browser viewer: a `그림` tab without rebuild, a drag that snaps the pending box onto the element the map chose and names its path and code lines, a range ladder that moves between elements without a request, figure pins saved with their element, marks that follow the element across re-renders (or say `요소 잃음`), and `지도로 찾음` in the location-uncertain badge.

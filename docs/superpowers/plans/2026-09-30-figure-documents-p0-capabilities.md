@@ -1,5 +1,8 @@
 # Figure Documents P0: Document Capabilities Implementation Plan
 
+<!-- Code blocks here are transcribed into the repository and formatted there; ruff leaves them as written. -->
+<!-- fmt: off -->
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Replace the boolean `Doc.is_pdf` with the five capability properties of the shared contract and type `Doc.kind` as `DocKind`, with no observable behaviour change for LaTeX and view-only PDF documents.

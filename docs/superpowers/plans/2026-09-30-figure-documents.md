@@ -1,5 +1,8 @@
 # Figure Documents Implementation Plan (index and shared contract)
 
+<!-- Code blocks here are transcribed into the repository and formatted there; ruff leaves them as written. -->
+<!-- fmt: off -->
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement the phase plans task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Let a person drag on a figure (a vector graphic delivered as PDF) and get the element and the lines of the code that drew it, handled as an ordinary Limn pin.
