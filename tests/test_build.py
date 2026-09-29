@@ -72,7 +72,9 @@ cp "$4" "$5-1.png"
 
 @dataclass
 class PlainDoc:
-    """A LaTeX document as the build sees it (the BuildDoc protocol), with every path given - nothing global."""
+    """A document as the build sees it (the BuildDoc protocol), with every path given - nothing global. LaTeX by
+    default; a view-only PDF sets builds_from_source=False and watches_files=True, as limn.documents.Doc answers for
+    kind "pdf"."""
 
     src: Path
     main: Path
@@ -83,7 +85,8 @@ class PlainDoc:
     builds_lock: threading.Lock = field(default_factory=threading.Lock)
     mcache: list = field(default_factory=lambda: [None, 0.0, 0.0])
     mcache_lock: threading.Lock = field(default_factory=threading.Lock)
-    is_pdf: bool = False
+    builds_from_source: bool = True
+    watches_files: bool = False
 
     @property
     def build(self) -> Path:
@@ -368,7 +371,9 @@ class Outcomes(unittest.TestCase):
         self.D = PlainDoc(src=src, main=main, dir=self.state / "docs" / "ms")
         pdf = src / "review.pdf"
         pdf.write_bytes(b"%PDF-1.4 review")
-        self.P = PlainDoc(src=src, main=pdf, dir=self.state / "docs" / "rv", is_pdf=True)
+        self.P = PlainDoc(
+            src=src, main=pdf, dir=self.state / "docs" / "rv", builds_from_source=False, watches_files=True
+        )
         self.cfg = build.BuildConfig(state=self.state, dpi=72, timeout=1)
         bin_dir = root / "bin"
         bin_dir.mkdir()
@@ -706,10 +711,10 @@ class RebuildRules(unittest.TestCase):
         (root / "main.tex").write_text("x", encoding="utf-8")
         (root / "review.pdf").write_bytes(b"%PDF-1.4 x")
         self.tex = PlainDoc(root, root / "main.tex", root / "state-tex")
-        self.pdf = PlainDoc(root, root / "review.pdf", root / "state-pdf", is_pdf=True)
+        self.pdf = PlainDoc(root, root / "review.pdf", root / "state-pdf", builds_from_source=False, watches_files=True)
         for D in (self.tex, self.pdf):
             D.dir.mkdir()
-            D.key = "rv" if D.is_pdf else "ms"
+            D.key = "ms" if D.builds_from_source else "rv"
 
     def test_a_view_only_document_is_never_rebuilt_on_request(self):
         """The run is called only for a LaTeX document; a view-only one comes back as ViewOnlyNoRebuild."""
@@ -738,6 +743,44 @@ class RebuildRules(unittest.TestCase):
         self.assertFalse(build_run.needs_build(self.pdf, False, 72))
         self.pdf.main.write_bytes(b"%PDF-1.4 changed, longer")
         self.assertTrue(build_run.needs_build(self.pdf, True, 72))
+
+
+class ReadsBeforeAndBetweenBuilds(unittest.TestCase):
+    """What the build reads of a document, by whether it builds from source: the PDF before any page copy and the
+    manuscript's newest modification time."""
+
+    def setUp(self):
+        """A LaTeX body, a view-only PDF and a second .tex in one folder, 100 s apart in that order; no build yet."""
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.root = Path(tmp.name) / "ms"
+        self.root.mkdir()
+        self.state = Path(tmp.name) / "state"
+        self.t = time.time() - 1000
+        for name, at in (("main.tex", self.t), ("review.pdf", self.t + 100), ("other.tex", self.t + 200)):
+            path = self.root / name
+            path.write_bytes(b"%PDF-1.4 x" if name.endswith(".pdf") else b"x")
+            os.utime(path, (at, at))
+        self.tex = PlainDoc(self.root, self.root / "main.tex", self.state / "docs" / "ms")
+        self.pdf = PlainDoc(
+            self.root,
+            self.root / "review.pdf",
+            self.state / "docs" / "rv",
+            builds_from_source=False,
+            watches_files=True,
+        )
+
+    def test_a_document_built_from_source_reads_latexmk_output_and_any_other_its_own_file(self):
+        """No page copy yet: a LaTeX document's PDF is where latexmk writes it in the build copy, even before it
+        exists; a view-only document's PDF is its main file."""
+        self.assertEqual(build.cur_pdf(self.tex), self.tex.out / "main.pdf")
+        self.assertEqual(build.cur_pdf(self.pdf), self.pdf.main)
+
+    def test_src_mtime_scans_the_tree_only_for_a_document_built_from_source(self):
+        """A LaTeX document's manuscript time is its newest source file (other.tex); a view-only document's is its PDF
+        alone, however new the .tex files beside it."""
+        self.assertAlmostEqual(build.src_mtime(self.tex, self.state, force=True), self.t + 200, places=3)
+        self.assertAlmostEqual(build.src_mtime(self.pdf, self.state, force=True), self.t + 100, places=3)
 
 
 # ---------------------------------------------------------------- through server.py's wiring

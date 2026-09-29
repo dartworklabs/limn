@@ -111,8 +111,12 @@ class BuildDoc(BuildStateHolder, Protocol):
         """Name of the PDF copy inside the page directory."""
 
     @property
-    def is_pdf(self) -> bool:
-        """A view-only PDF document (no LaTeX source)."""
+    def builds_from_source(self) -> bool:
+        """latexmk builds it from the tree under src (limn.documents.Doc.builds_from_source); False: main is the PDF."""
+
+    @property
+    def watches_files(self) -> bool:
+        """The watch re-renders its pages when its file changes (limn.documents.Doc.watches_files)."""
 
     @property
     def lock(self) -> threading.Lock:
@@ -224,14 +228,16 @@ def page_list(pdir: Path, dpi: int) -> list[dict[str, Any]]:
 
 
 def cur_pdf(D: BuildDoc, pdir: Path | None = None) -> Path:
-    """The PDF matched to the page images. Uses the copy in the version directory if present, otherwise (legacy layout) the one in build/.
+    """The PDF matched to the page images. Uses the copy in the version directory if present; otherwise a document
+    built from source reads latexmk's output in its build copy (the legacy layout's build/), and any other document
+    its own main file (a view-only PDF before its first render).
 
     Why matching matters: even if a build fails, the screen still shows the old PDF - if pick read the
     newly broken PDF instead, it would point at a different spot than what's visible."""
     f = (pdir or cur_pages(D)) / D.pdf_name
     if f.exists():
         return f
-    if D.is_pdf:  # view-only: the original PDF if pages haven't been rendered yet
+    if not D.builds_from_source:  # nothing compiles it: its own file until pages are rendered
         return D.main
     return D.out / D.pdf_name
 
@@ -271,8 +277,9 @@ def migrate_pages(D: BuildDoc) -> None:
     """Turns the legacy layout (<state>/pages/ + build/<main>.pdf) into a version directory.
 
     The PDF/synctex copies must sit in pages/ so pick reads the same PDF as the on-screen pages - the one
-    in build/ gets overwritten in place by a rebuild (and drifts if a build is in progress or fails partway)."""
-    if D.is_pdf:
+    in build/ gets overwritten in place by a rebuild (and drifts if a build is in progress or fails partway). Only a
+    document built from source has that layout; any other returns at once."""
+    if not D.builds_from_source:  # only latexmk output has the legacy layout
         return
     legacy = D.dir / "pages"
     if not legacy.is_dir():
@@ -546,8 +553,9 @@ def iter_sources(D: BuildDoc, root: Path, state_dir: Path) -> Iterator[tuple[str
 
 
 def doc_fingerprint(D: BuildDoc, state_dir: Path) -> str:
-    """The document's manuscript fingerprint. For view-only, this is the hash of the PDF file's contents."""
-    if D.is_pdf:
+    """The document's manuscript fingerprint: its source tree's (source_fingerprint) for a document built from source,
+    else the hash of its main file's contents (a view-only PDF)."""
+    if not D.builds_from_source:  # one file, hashed whole
         h = hashlib.sha256()
         with open(D.main, "rb") as fh:
             for chunk in iter(lambda: fh.read(1 << 20), b""):
@@ -572,6 +580,7 @@ def source_fingerprint(D: BuildDoc, root: Path, state_dir: Path) -> str:
 
 def src_mtime(D: BuildDoc, state_dir: Path, force: bool = False) -> float:
     """Max mtime over manuscript/figure extensions under D.src (2-second memo in D.mcache). Build artifacts and the main PDF are excluded (iter_sources).
+    A document not built from source measures its main file alone.
 
     D.build, which the build populates via rsync, is normally under the state folder (i.e. outside D.src), but
     it is also excluded by name so that even the rare layout with the state directory inside the manuscript
@@ -592,7 +601,7 @@ def src_mtime(D: BuildDoc, state_dir: Path, force: bool = False) -> float:
             if ckey == key and time.time() - at < 2.0:
                 return val
     newest = 0.0
-    if D.is_pdf:  # view-only: that one PDF file is the manuscript
+    if not D.builds_from_source:  # not built from a tree: that one file is the manuscript
         with contextlib.suppress(OSError):
             newest = D.main.stat().st_mtime
     else:

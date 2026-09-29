@@ -24,15 +24,15 @@ from limn.features.builds.completion import compiled_mtime, project_completion
 
 
 class Rebuildable(Protocol):
-    """What request_rebuild reads of a document: its key and whether it is a view-only PDF."""
+    """What request_rebuild reads of a document: its key and whether it builds from source."""
 
     @property
     def key(self) -> str:
         """The document key (?doc=), which the view-only refusal names."""
 
     @property
-    def is_pdf(self) -> bool:
-        """A view-only PDF document (no LaTeX source)."""
+    def builds_from_source(self) -> bool:
+        """latexmk builds it (limn.documents.Doc.builds_from_source); only such a document is rebuilt on request."""
 
 
 R = TypeVar("R")
@@ -40,20 +40,20 @@ Target = TypeVar("Target", bound=Rebuildable)
 
 
 def request_rebuild(D: Target, run: Callable[[Target], R]) -> R | ViewOnlyNoRebuild:
-    """POST /api/rebuild's rule: a LaTeX document is built by run (the composition root's synchronous or background
-    build) and its outcome returned; a view-only document is never rebuilt on request (ViewOnlyNoRebuild) - its pages
-    follow the PDF file (refresh_pdf_doc)."""
-    if D.is_pdf:
+    """POST /api/rebuild's rule: a document built from source is built by run (the composition root's synchronous or
+    background build) and its outcome returned; any other (a view-only PDF) is never rebuilt on request
+    (ViewOnlyNoRebuild) - its pages follow its file (refresh_pdf_doc)."""
+    if not D.builds_from_source:
         return ViewOnlyNoRebuild(D.key)
     return run(D)
 
 
 def needs_build(D: BuildDoc, no_build: bool, dpi: int) -> bool:
-    """Whether startup builds D: a view-only document when its PDF changed since its pages were rendered or it has no
-    page images at dpi (--no-build does not apply to it); a LaTeX document unless no_build (--no-build), and even then
-    when its PDF or its page images are missing. Reads the page directory on screen and, for a view-only document,
-    its PDF signature."""
-    if D.is_pdf:
+    """Whether startup builds D: a watched document (D.watches_files - a view-only PDF) when its file changed since its
+    pages were rendered or it has no page images at dpi (--no-build does not apply to it); a LaTeX document unless
+    no_build (--no-build), and even then when its PDF or its page images are missing. Reads the page directory on
+    screen and, for a watched document, its file's signature."""
+    if D.watches_files:
         return engine.pdf_changed(D) or not build.page_list(build.cur_pages(D), dpi)
     return not no_build or not build.cur_pdf(D).exists() or not build.page_list(build.cur_pages(D), dpi)
 
