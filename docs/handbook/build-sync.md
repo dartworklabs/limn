@@ -4,7 +4,7 @@ Limn은 원고를 PDF로 빌드해 쪽 이미지로 보여 주고, 그 위에 �
 
 재빌드 흐름, 빌드 상태, 폴링 주기, 점선 마크(`est`) 판정을 바꿀 때 이 문서를 읽고 같은 diff에서 고친다. 엔드포인트 목록과 응답 필드 전체는 [api.md](api.md) 에 있다. 뷰어 조작 요약은 [viewer.md](viewer.md) §조작 한눈에가 맡는다.
 
-빌드의 공통 결과·상태·이력·지문은 [`build.py`](../../src/limn/build.py)가 정의한다. 요청 경로와 HTTP 응답은 [`features/builds/routes.py`](../../src/limn/features/builds/routes.py)·[`http.py`](../../src/limn/features/builds/http.py)가, 실행 연결은 [`service.py`](../../src/limn/features/builds/service.py)가 맡는다. 같은 기능의 [`run.py`](../../src/limn/features/builds/run.py)는 문서별 잠금·추적·이력을, [`engine.py`](../../src/limn/features/builds/engine.py)는 원고 복사·컴파일·쪽 교체·보기 전용 PDF 렌더를 맡는다. 잠금·상태·mtime 캐시는 `Doc`이 갖고, 실행 설정은 서비스가 호출 시점에 받는다.
+빌드의 순수 결과 타입·상태 이름은 [`build_values.py`](../../src/limn/build_values.py), 공통 상태·이력·지문은 [`build.py`](../../src/limn/build.py)가 소유한다. `build.py`의 결과 타입 import도 같은 타입을 가리킨다. 요청 경로와 HTTP 응답은 [`features/builds/routes.py`](../../src/limn/features/builds/routes.py)·[`http.py`](../../src/limn/features/builds/http.py)가, 실행 연결은 [`service.py`](../../src/limn/features/builds/service.py)가 맡는다. 같은 기능의 [`completion.py`](../../src/limn/features/builds/completion.py)는 주어진 결과·시각·원본 기준에서 이력과 화면 상태를 계산한다. [`run.py`](../../src/limn/features/builds/run.py)는 문서별 잠금·추적·이력을, [`engine.py`](../../src/limn/features/builds/engine.py)는 원고 복사·컴파일·쪽 교체·보기 전용 PDF 렌더를 맡는다. 잠금·상태·mtime 캐시는 `Doc`이 갖고, 실행 설정은 서비스가 호출 시점에 받는다.
 
 `--git-pull`의 판단은 순수 [`features/sync/rules.py`](../../src/limn/features/sync/rules.py)가, git 호출과 원격 감시는 [`run.py`](../../src/limn/features/sync/run.py)가 맡는다. 규칙은 pull 결과와 다시 빌드할 문서를 정하고, 실행은 원고 경로·문서·Git 실행기·시계를 인자로 받는다.
 
@@ -45,11 +45,11 @@ Limn은 원고를 PDF로 빌드해 쪽 이미지로 보여 주고, 그 위에 �
 | `ok_errors` | 새 PDF는 나왔지만 `! ` 줄이 있다(nonstopmode의 `\undefinedmacro` 등) | 새 쪽으로 교체 + 오류 알림 |
 | `fail` | 원고 사본을 못 믿거나, 새 PDF가 없거나(PDF mtime < 시작 시각), 시간 초과, SyncTeX 파일이 없거나, 쪽을 못 그렸다 | **이전 쪽 그대로** |
 
-비동기 조회(`GET /api/build`)에는 빌드 전의 `idle` 과 진행 중인 `running` 이 더 있다(§비동기 재빌드). 다섯 이름은 `limn/build.py` 의 `BuildState`(`BUILD_STATES`)다.
+비동기 조회(`GET /api/build`)에는 빌드 전의 `idle` 과 진행 중인 `running` 이 더 있다(§비동기 재빌드). 다섯 이름은 `limn/build_values.py` 의 `BuildState`(`BUILD_STATES`)다.
 
 ### 빌드 결과
 
-빌드 한 번은 값 하나로 끝난다. 상태 문자열이 든 dict를 돌려주지 않는다. 경우마다 frozen dataclass가 따로 있고, 코드는 `match` 로 타입을 가른다(mypy `exhaustive-match` 가 빠진 경우를 잡는다). 모두 [`src/limn/build.py`](../../src/limn/build.py) 에 있다.
+빌드 한 번은 값 하나로 끝난다. 상태 문자열이 든 dict를 돌려주지 않는다. 경우마다 frozen dataclass가 따로 있고, 코드는 `match` 로 타입을 가른다(mypy `exhaustive-match` 가 빠진 경우를 잡는다). 모두 [`src/limn/build_values.py`](../../src/limn/build_values.py)에 있다.
 
 | 값 | 뜻 | `state` |
 | --- | --- | --- |
@@ -170,7 +170,7 @@ git 호출이 어떤 환경에서 도는지는 §git 프로세스에 있다.
 
 ### git 프로세스
 
-Limn이 띄우는 git은 모두 [`src/limn/gitrun.py`](../../src/limn/gitrun.py)를 거친다. `--git-pull`의 fetch·merge, 변경 보기의 이력·diff·스냅샷, 빌드의 `head`, 시작 때 라벨을 정하는 origin URL, `limn token create --save`의 저장소 확인이 모두 그렇다. git 명령줄을 다른 모듈이 직접 만들지 않는다(`tests/test_gitrun.py`가 검사).
+Limn이 띄우는 git은 모두 [`src/limn/gitrun.py`](../../src/limn/gitrun.py)를 거친다. `--git-pull`의 fetch·merge, 변경 보기의 이력·diff·스냅샷, 빌드의 `head`, 시작 때 라벨을 정하는 origin URL, `limn token create --save`의 저장소 확인이 모두 그렇다. git 명령줄을 다른 모듈이 직접 만들지 않는다(`tests/test_gitrun.py`가 검사). 동기화와 비교 기능은 같은 모듈의 `git()` 어댑터를 공유한다. 이 어댑터는 종료 코드·표준 출력·표준 오류를 돌려주고, 시간 초과와 실행 실패는 `(None, "", "")`로 돌려준다.
 
 - 인자는 목록으로만 넘기고 셸을 쓰지 않는다. 사용자 입력은 인자에 넣지 않는다. 호출마다 시간 제한이 있다.
 - stdin은 `/dev/null`이고 새 세션에서 돈다. 제어 터미널이 없으므로 git도, fetch가 부르는 ssh도 `/dev/tty`로 비밀번호·암호 문구·호스트 키를 묻지 못한다.

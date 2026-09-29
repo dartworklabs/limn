@@ -5,8 +5,8 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any, NamedTuple
 
+from limn.features.pins.lifecycle.rules import CloseRequest
 from limn.files import tree_part
-from limn.pins.lifecycle import CloseRequest
 from limn.pins.shapes import is_int
 from limn.web.errors import InputRejected
 from limn.web.parse import parse_mention_hints

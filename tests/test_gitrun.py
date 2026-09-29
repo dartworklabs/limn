@@ -92,14 +92,45 @@ class Environment(unittest.TestCase):
             git_command("log -1")
 
 
+class GitOutcome(unittest.TestCase):
+    """The tuple adapter preserves process output and normalizes execution failures."""
+
+    def test_success_preserves_stdout_and_stderr(self):
+        """A real successful Git command retains text output including its newline."""
+        with tempfile.TemporaryDirectory() as directory:
+            self.assertEqual(gitrun.git(["rev-parse", "--sq-quote", "a b"], directory), (0, " 'a b'\n", ""))
+
+    def test_nonzero_preserves_stdout_and_stderr(self):
+        """A real failed Git command keeps its exit code and diagnostic text."""
+        with tempfile.TemporaryDirectory() as directory:
+            args = ["--no-pager", "-c", "alias.fail=!printf out; printf err >&2; exit 7", "fail"]
+            self.assertEqual(gitrun.git(args, directory), (7, "out", "err"))
+
+    def test_start_failure_returns_empty_execution_failure(self):
+        """An absent working directory produces the same empty outcome as a missing executable."""
+        with tempfile.TemporaryDirectory() as directory:
+            self.assertEqual(gitrun.git(["status"], Path(directory) / "missing"), (None, "", ""))
+
+    def test_timeout_discards_partial_output(self):
+        """Timed-out processes expose no partial output through the outcome adapter."""
+        error = subprocess.TimeoutExpired(["git", "status"], 30, output="partial", stderr="partial error")
+        with mock.patch.object(gitrun.subprocess, "run", side_effect=error):
+            self.assertEqual(gitrun.git(["status"], Path.cwd()), (None, "", ""))
+
+    def test_invalid_command_remains_a_programming_error(self):
+        """The execution-failure outcome must not swallow command-shape defects."""
+        with self.assertRaises(TypeError):
+            gitrun.git("status", Path.cwd())
+
+
 class NoOtherGitCall(unittest.TestCase):
-    """Nothing in the package starts git except through limn.gitrun."""
+    """Production modules start git only through limn.gitrun; repository setup in tests is outside this guard."""
 
     def test_no_module_but_gitrun_spells_a_git_command(self):
-        """No list literal starting with "git" outside gitrun.py - a git command line is always git_command(...)."""
+        """Production modules outside gitrun.py build git commands through git_command(...), never list literals."""
         found = []
         for path in sorted(SRC.rglob("*.py")):
-            if path.name == "gitrun.py":
+            if path.name == "gitrun.py" or path.match("test_*.py"):
                 continue
             for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
                 first = node.elts[0] if isinstance(node, ast.List) and node.elts else None
@@ -191,7 +222,7 @@ class CallSites(unittest.TestCase):
         return result
 
     def test_every_call_site_runs_a_clean_git(self):
-        """run_git, revisions.git and git_exec, the history and the streamed diff, the --git-pull steps, the build's
+        """run_git, gitrun.git and git_exec, the history and the streamed diff, the --git-pull steps, the build's
         head, the startup label's origin URL and the token file's repository check each start git cleanly - and,
         despite GIT_DIR pointing nowhere, read the right repository."""
         repo, (first, second) = self.repo, self.commits
@@ -199,7 +230,7 @@ class CallSites(unittest.TestCase):
 
         done = self.assert_hygienic("run_git", lambda: gitrun.run_git(["rev-parse", "--show-toplevel"], repo, 10))
         self.assertEqual(done.stdout.strip(), str(repo))
-        rc, out, _ = self.assert_hygienic("revisions.git", lambda: revisions.git(["rev-parse", "HEAD"], repo))
+        rc, out, _ = self.assert_hygienic("gitrun.git", lambda: gitrun.git(["rev-parse", "HEAD"], repo))
         self.assertEqual((rc, out.strip()), (0, second))
         ran = self.assert_hygienic("git_exec", lambda: revisions.git_exec(["cat-file", "-t", first], repo, 10, 4096))
         self.assertEqual(ran[:2], (0, b"commit\n"))
@@ -213,7 +244,7 @@ class CallSites(unittest.TestCase):
         )
         self.assertEqual([c.new_path for c in changes], ["main.tex"])
 
-        outcome = self.assert_hygienic("gitsync.pull", lambda: gitsync.pull(repo, False, revisions.git))
+        outcome = self.assert_hygienic("gitsync.pull", lambda: gitsync.pull(repo, False, gitrun.git))
         self.assertEqual(outcome, UpToDate(second))
 
         state = Path(self.tmp.name) / "state"

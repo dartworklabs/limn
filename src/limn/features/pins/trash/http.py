@@ -4,8 +4,8 @@ from collections.abc import Callable, Mapping
 from typing import Any, Protocol, TypeAlias
 
 from limn.features.pins.trash import input as trash_input
+from limn.features.pins.trash.rules import AlreadyLive, NotInTrash
 from limn.features.pins.trash.service import PinTrash
-from limn.pins.lifecycle import AlreadyLive, NotInTrash
 from limn.pins.model import DonePin, OpenPin, PinNotFound, Record, ReviewPin, TrashedPin
 from limn.web.answers import accepted
 from limn.web.errors import HTTPError

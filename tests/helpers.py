@@ -537,7 +537,7 @@ def jreq(method, path, obj=None, headers=None):
 
 
 # The reply rule as a table (docs/handbook/domain.md §전이와 할 수 있는 쪽): every (state, kind_req, human, mentioned,
-# override) with whether a reply reopens the pin. The server's rule (test_pins_lifecycle.ReplyRule) and the viewer's
+# override) with whether a reply reopens the pin. The server's rule (limn.features.pins.lifecycle.test_rules.ReplyRule) and the viewer's
 # preview of it (test_viewer.FrontendReplyRule) are both checked against every row.
 # (state, kind_req, human, mentioned, override) -> reopens?
 RULE_CASES = []

@@ -18,7 +18,7 @@ import time
 import unittest
 
 from limn.access import LOCAL_ACTOR
-from limn.pins.lifecycle import CloseRequest
+from limn.features.pins.lifecycle.rules import CloseRequest
 
 from helpers import HTML, add_pin, extract_js_fn, ps, run_node
 from helpers_access import ALICE, actor
@@ -307,7 +307,7 @@ class ViewerBase(BrowserBase):
         rid = add_pin(
             {"file": str(self.main), "lo": 20, "hi": 21, "page": 2, "note": "검토할 핀", "frac": [0.2, 0.3, 0.4, 0.04]},
             actor(ALICE),
-        ).record["id"]  # add_pin returns the new OpenPin (limn.pins.edit)
+        ).record["id"]  # add_pin returns the new OpenPin (limn.features.pins.editing.rules)
         ps.APP.pin_lifecycle.close_pin(rid, dict(LOCAL_ACTOR), CloseRequest(reply="고침"))
 
     def view(self, device, lang="ko", prefs=None, reduced=False, init=None, dark=False, hash_=""):

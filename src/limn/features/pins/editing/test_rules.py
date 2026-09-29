@@ -1,15 +1,14 @@
-"""limn.pins.edit - the edit rules and the new-pin records, tested directly with records and no store, clock or HTTP.
+"""Editing rules - the edit rules and the new-pin records, tested directly with records and no store, clock or HTTP.
 
 The HTTP contract of POST /api/pin and /api/pins/{id}/edit (statuses, messages, stored lines, notices) is pinned in
 test_server.py, test_service.py and the feature files; here the pure decisions and records are checked on their own (rule R1).
 
-Run: uv run pytest -q tests/test_pins_edit.py
+Run: uv run pytest -q src/limn/features/pins/editing/test_rules.py
 """
 
 import unittest
 
-from limn.pins.edit import (
-    ASSIGNEE_AGENT,
+from limn.features.pins.editing.rules import (
     AddRequest,
     Anchoring,
     ClosedPinReshaped,
@@ -29,6 +28,7 @@ from limn.pins.edit import (
     new_line_pin,
     new_region_pin,
 )
+from limn.pins.edit import ASSIGNEE_AGENT
 from limn.pins.model import Agent, DonePin, OpenPin, Person, ReviewPin
 
 ALICE_PERSON = Person("alice@example.com", "Alice Kim", "https://example.com/a.png")

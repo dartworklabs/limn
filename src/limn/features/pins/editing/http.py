@@ -6,8 +6,15 @@ from typing import Any, TypeAlias
 
 from limn.documents import Doc
 from limn.features.pins.editing import input as editing_input
+from limn.features.pins.editing.rules import (
+    ClosedPinReshaped,
+    EditRefusal,
+    NoteTooLong,
+    PinOutsideTree,
+    RangeOutsideFile,
+    StaleEdit,
+)
 from limn.features.pins.editing.service import PinEditing
-from limn.pins.edit import ClosedPinReshaped, EditRefusal, NoteTooLong, PinOutsideTree, RangeOutsideFile, StaleEdit
 from limn.pins.model import DonePin, OpenPin, PinNotFound, Record, ReviewPin
 from limn.web.answers import accepted
 from limn.web.errors import HTTPError

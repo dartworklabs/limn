@@ -13,7 +13,7 @@ import pytest
 
 from limn.features.pins.trash import http, input as trash_input
 from limn.features.pins.trash.input import CLEAR_CONFIRM, ClearConfirmed
-from limn.pins.lifecycle import AlreadyLive, NotInTrash
+from limn.features.pins.trash.rules import AlreadyLive, NotInTrash
 from limn.pins.model import OpenPin, PinNotFound, Record, TrashedPin
 from limn.web.errors import HTTPError, InputRejected
 

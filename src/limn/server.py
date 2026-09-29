@@ -94,14 +94,12 @@ from limn.features.pins.location.service import PinLocationService
 from limn.features.pins.trash import routes as trash_routes
 from limn.features.pins.trash.service import PinTrash
 from limn.features.revisions import core as revisions, routes as revision_routes
-from limn.features.revisions.core import (
-    git as _git,
-)
 from limn.features.revisions.service import RevisionRequests
 from limn.features.sync import run as gitsync
 from limn.features.sync.service import SyncContext, SyncService
 from limn.features.viewer_shell import routes as viewer_shell_routes
 from limn.files import vendor_file as find_vendor_file
+from limn.gitrun import git as _git
 from limn.locate import PinLocation, est_context, locate_file
 from limn.mark import inline_svg
 from limn.people import is_actor as _is_actor

@@ -9,16 +9,16 @@ The rule (docs/handbook/domain.md §전이와 할 수 있는 쪽, api.md §스�
 | question pin         | anyone | -                    | recorded as an answer, state unchanged   |
 
 An optional "reopen": true/false on the request overrides the rule ([Keep state] sends false). Every row of the table
-is test_pins_lifecycle.ReplyRule (the server's rule) and test_viewer.FrontendReplyRule (the viewer's preview); here
+is limn.features.pins.lifecycle.test_rules.ReplyRule (the server's rule) and test_viewer.FrontendReplyRule (the viewer's preview); here
 the route applies it and answers `reopened` and `state` (ReplyApi), and an agent that sends as a person is a person
 to the rule (AgentAsPerson). The route's plain thread behaviour is test_server.KindAndThread.
 
-Run: uv run pytest -q tests/test_reply.py
+Run: uv run pytest -q src/limn/features/pins/lifecycle/test_reply.py
 """
 
 from limn.access import LOCAL_ACTOR
+from limn.features.pins.lifecycle.rules import CloseRequest
 from limn.pins import render as md_render
-from limn.pins.lifecycle import CloseRequest
 from limn.pins.model import OpenPin, ReviewPin
 from limn.pins.view import pin_state
 from limn.store import find_pin

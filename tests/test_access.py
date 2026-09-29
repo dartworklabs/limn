@@ -28,8 +28,8 @@ from unittest import mock
 
 from limn import access, startup
 from limn.access import LOCAL_ACTOR, load_tokens
+from limn.features.pins.lifecycle.rules import CloseRequest
 from limn.pins import render as md_render, trash as trash_rules
-from limn.pins.lifecycle import CloseRequest
 from limn.pins.view import pin_state
 from limn.service.context import is_agent
 from limn.startup import StartupRefused

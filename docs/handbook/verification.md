@@ -49,15 +49,16 @@ Limn에서 "테스트가 녹색"은 합격의 필요조건이지 충분조건이
 
 ### 테스트 파일의 배치
 
-테스트 파일은 아래 규칙으로 놓인다. 파일마다의 자세한 범위는 각 테스트 모듈의 docstring에 있다. 새 테스트는 이 규칙에 맞는 파일에 둔다.
+테스트 파일은 아래 규칙으로 놓인다. 파일마다의 자세한 범위는 각 테스트 모듈의 docstring에 있다. 새 테스트는 이 규칙에 맞는 파일에 둔다. 기능 테스트만 직접 실행해도 공용 `helpers`를 찾도록 pytest의 `pythonpath`에 `tests`를 둔다. 테스트 클래스·메서드를 옮길 때는 `tools/test_id_map.py`로 수집 목록의 누락·중복을 대조한다.
 
 | 파일 | 맡은 범위 |
 | --- | --- |
-| `src/limn/features/*/test_*.py` | **기능 슬라이스 동거 테스트.** 세로 슬라이스는 코드와 테스트를 함께 소유한다. 슬라이스 안의 순수 규칙·입력 파싱·상태 전이·서비스 경계를 함께 검증한다. 관리 의존성(파일·디렉터리)은 임시 디렉터리로 실제 수행하고, 내부 비공개 구현이나 호출 횟수를 모킹하지 않는다 |
+| `src/limn/features/*/test_*.py` | **기능 슬라이스 동거 테스트.** 세로 슬라이스는 코드와 테스트를 함께 소유한다. 슬라이스 안의 순수 규칙·입력 파싱·상태 전이·서비스 경계를 함께 검증한다. 동기화·원격 pull은 `sync/`, 비교 이력은 `revisions/`, 문서 meta·목차는 `document_views/`, 답글은 `pins/lifecycle/`, 원고 복사는 `builds/`에서 검증한다. 관리 의존성(파일·디렉터리)은 임시 디렉터리로 실제 수행하고, 내부 비공개 구현이나 호출 횟수를 모킹하지 않는다 |
 | `tests/test_<모듈>.py` | 그 모듈을 지킨다(`test_pins_lifecycle.py`는 `limn/pins/lifecycle.py`, `test_web_parse.py`는 `limn/web/parse.py`). 순수 모듈은 서버 없이 값으로 직접 테스트하고, 순수하지 않은 것을 가져오지 않는지 import 검사로 지킨다. 옮긴 모듈은 서버 전역(`C`, 문서 목록)을 읽지 않는지도 본다. 파일 끝의 클래스가 `server.py`를 거쳐 그 모듈의 연결을 보기도 한다 |
 | [`tests/test_access_module.py`](../../tests/test_access_module.py), [`tests/test_access.py`](../../tests/test_access.py), [`tests/test_security.py`](../../tests/test_security.py) | 접근 제어와 보안 강화(보안 경계). 첫째는 `limn/access.py`를 서버 없이, 둘째는 처리기를 거쳐 신원 방식·토큰·역할·바인드 규칙과 옛 상태 디렉터리 호환을 본다. 셋째는 처리기 끝까지(소켓 쌍) 점으로 시작하는 이름 아래 파일과 원고 안에 둔 상태 폴더의 거절(그런 상태 폴더의 기동 경고·거절 포함), 쓸 수 없는 `people.json`이 권한을 주지 않고 다시 쓰이지 않는지, 모든 응답의 프레이밍 금지 헤더를 본다 |
 | [`tests/test_server.py`](../../tests/test_server.py) | `server.py` 자신의 함수와, 요청이 처리기와 서버 배선을 끝까지 지나는 동작. 대다수 요청은 처리기를 소켓 쌍으로 직접 몰고, 실행별 앱 격리는 같은 모듈에서 두 서버를 실제 TCP 포트에 띄워 확인한다. 기능의 HTTP 경로(claim·종류와 스레드·검토·겹침)는 여기 두고, 그 규칙·저장 필드·`pins.md` 줄은 지키는 모듈의 파일에 둔다 |
-| [`tests/test_reply.py`](../../tests/test_reply.py), [`tests/test_trash.py`](../../tests/test_trash.py), [`tests/test_notifications.py`](../../tests/test_notifications.py), [`tests/test_access_paths.py`](../../tests/test_access_paths.py), [`tests/test_moved_paths.py`](../../tests/test_moved_paths.py), [`tests/test_token_file.py`](../../tests/test_token_file.py), [`tests/test_build_copy.py`](../../tests/test_build_copy.py) | 여러 모듈을 건너는 기능 하나. 답글 규칙의 경로, 휴지통과 전체 비우기, 알림, 주체×진입 경로, 옮긴 원고, 에이전트 토큰 파일, 빌드의 원고 복사. 파일 이름은 기능 이름이다 |
+| [`features/pins/lifecycle/test_reply.py`](../../src/limn/features/pins/lifecycle/test_reply.py), [`tests/test_trash.py`](../../tests/test_trash.py), [`tests/test_notifications.py`](../../tests/test_notifications.py), [`tests/test_access_paths.py`](../../tests/test_access_paths.py), [`tests/test_moved_paths.py`](../../tests/test_moved_paths.py), [`tests/test_token_file.py`](../../tests/test_token_file.py), [`features/builds/test_build_copy.py`](../../src/limn/features/builds/test_build_copy.py) | 여러 모듈을 건너는 기능 하나. 답글 규칙의 경로, 휴지통과 전체 비우기, 알림, 주체×진입 경로, 옮긴 원고, 에이전트 토큰 파일, 빌드의 원고 복사. 파일 이름은 기능 이름이다 |
+| `features/pins/*/test_service.py`, [`tests/helpers_pin_service.py`](../../tests/helpers_pin_service.py) | 핀 기능별 서비스·HTTP 동작과 공유 실파일 저장소 fixture. `tests/test_service.py`는 공통 문맥·행위자·조회·import 경계만 검증한다. 규칙 테스트의 공통 레코드는 `tests/helpers_pin_rules.py`가 제공한다 |
 | [`tests/helpers.py`](../../tests/helpers.py) | 테스트가 아니라 공용 도구. `server.py`를 파일에서 한 번 읽은 사본(`ps`)과 임시 원고·상태 폴더마다 새 `ServerApplication`을 묶는 `Base`, 원고 픽스처, 소켓 쌍 요청 도우미, 뷰어 스크립트를 node로 돌리는 도우미, TeX 도구 검사 `needs_tex`. 서버 사본마다 앱의 설정·문서 목록·잠금이 따로 있으므로, 서버를 부르는 테스트 파일은 모두 여기서 가져온다 |
 | [`tests/test_contract_snapshot.py`](../../tests/test_contract_snapshot.py) | 에이전트 계약의 스냅샷. 정해진 핀 흐름을 처리기로 몰아 응답마다의 상태·본문, 쓰기마다의 `pins.md`, 끝의 핀 목록 응답을 [`tests/data/contract_snapshot.json`](../../tests/data/contract_snapshot.json)과 바이트 단위로 비교한다. 계약을 일부러 바꿀 때만(설계 승인 뒤) `LIMN_RECORD_SNAPSHOT=1`로 다시 기록하고, JSON의 차이가 곧 계약의 변경이다 |
 | [`tests/test_pins_model.py`](../../tests/test_pins_model.py) | 레코드 왕복. 레코드 모양 말뭉치 [`tests/data/pin_records.jsonl`](../../tests/data/pin_records.jsonl)을 상태 타입으로 파싱해 다시 쓰면 바이트가 같은지 보고, 공통 필드(`PinCore`)와 상태 필드가 어떤 값을 올리고 어떤 값을 저장된 그대로 두는지 본다. 새 레코드 모양을 쓰는 코드를 더하면 말뭉치에도 더한다 |
@@ -66,7 +67,7 @@ Limn에서 "테스트가 녹색"은 합격의 필요조건이지 충분조건이
 | `tests/test_viewer*.py` | 뷰어. `test_viewer.py`는 배포되는 HTML·CSS 구조와 JS 순수 함수, 실제 Chromium의 레이아웃 회귀(`Frontend*` 가드), `test_viewer_files.py`는 조각과 순서 목록·`node --check`, `test_viewer_source.py`는 토큰으로 읽은 JS(정확한 함수 떼어 내기, 아무도 부르지 않거나 두 번 선언한 함수, `//` 주석 끝에 붙어 돌지 않는 코드 문장, 닫힌 값 표와 서버 값의 대조), `test_viewer_assemble.py`는 조립, `test_viewer_input.py`는 마우스·터치 입력, `test_viewer_browser.py`는 실제 Chromium에서 기능 흐름(답글·휴지통·딥 링크·핀 단위 변경 보기·보기 역할). 뷰어 JS가 서버 규칙을 따라 하는 곳은 같은 말뭉치를 양쪽에 돌려 결과를 대조한다(`test_mentions_parity.py`: 뷰어 `mentionScan()`과 서버 `resolve_mentions()`) |
 | [`tests/test_errors.py`](../../tests/test_errors.py), [`tests/test_i18n.py`](../../tests/test_i18n.py), [`tests/test_naming.py`](../../tests/test_naming.py) | 여러 모듈에 걸친 위생. 모든 거절 본문의 안정 코드 `reason`과 영어 문장, UI 영어 대응표와 계약 문자열의 비번역, 앱 이름과 개인정보 |
 | [`tests/test_handbook_refs.py`](../../tests/test_handbook_refs.py) | Handbook 참조 정합성. topic 산문의 깨진 `§절 제목` 참조, 코드 안의 `docs/handbook/` 참조, 그리고 topic 본문에 들어간 ISO 날짜(날짜는 git과 CHANGELOG의 몫이다)를 잡는다 |
-| [`tests/test_revisions.py`](../../tests/test_revisions.py) | 핀 단위 변경 보기와 비교 빌드(0.3). Git 커밋 목록, 커밋별 diff, 핀 범위에 걸치는 hunk 추정, 핀의 hunk만 골라낸 diff와 비교 PDF 격리 빌드를 본다 |
+| [`features/revisions/test_revisions.py`](../../src/limn/features/revisions/test_revisions.py) | 핀 단위 변경 보기와 비교 빌드(0.3). Git 커밋 목록, 커밋별 diff, 핀 범위에 걸치는 hunk 추정, 핀의 hunk만 골라낸 diff와 비교 PDF 격리 빌드를 본다 |
 | [`tests/test_instances.sh`](../../tests/test_instances.sh) | 인스턴스 관리자(§2) |
 
 ## 2. 인스턴스 관리자 테스트

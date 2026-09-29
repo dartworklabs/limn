@@ -21,14 +21,14 @@ from limn.features.builds import input as builds_input
 from limn.features.document_views import input as document_input
 from limn.features.pins.claims import input as claims_input
 from limn.features.pins.editing import fields as editing_fields, input as editing_input, location as editing_location
+from limn.features.pins.editing.rules import LinePlace, PinEdited, RegionPlace, evolve_edit
 from limn.features.pins.lifecycle import input as lifecycle_input
+from limn.features.pins.lifecycle.rules import CloseRequest
 from limn.features.pins.listing import input as listing_input
 from limn.features.pins.location import input as location_input
 from limn.features.pins.trash import input as trash_input
 from limn.features.revisions import input as revision_input
 from limn.files import BadPath, NotAFile, OutsideTree, file_in_tree
-from limn.pins.edit import LinePlace, PinEdited, RegionPlace, evolve_edit
-from limn.pins.lifecycle import CloseRequest
 from limn.pins.model import Agent, OpenPin
 from limn.web import parse
 from limn.web.errors import InputRejected

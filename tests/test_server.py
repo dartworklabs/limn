@@ -39,10 +39,10 @@ from limn.features.builds import engine as build_engine
 from limn.features.builds.answer import diet_log
 from limn.features.pins.editing import input as editing_input
 from limn.features.pins.lifecycle import input as lifecycle_input
+from limn.features.pins.lifecycle.rules import AgentCannotConfirm, CloseRequest
 from limn.features.pins.location import source as pick_source
 from limn.features.sync import run as gitsync
 from limn.features.sync.rules import UpToDate
-from limn.pins.lifecycle import AgentCannotConfirm, CloseRequest
 from limn.pins.view import pin_state
 from limn.startup import StartupRefused
 from limn.viewer import assemble as viewer_assemble

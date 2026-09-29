@@ -39,7 +39,8 @@ from helpers_access import BOB, CAROL, AccessBase, talk_to
 # The modules that build error bodies or statuses: server.py, the services moved out of it (limn/features/revisions/core.py: the
 # comparison worker's own "build_failed" status; limn/scope.py, limn/documents.py: the refusal values), the access boundary (limn/access.py: identify,
 # admit, check_role and bearer_of raise their refusals) and the HTTP layer (limn/web: the handler, the parsers, the
-# answers, the refusal tables), plus feature-owned HTTP and input modules. Every static guard below reads all of them;
+# answers, the refusal tables), plus feature-owned production modules, excluding colocated tests.
+# Every static guard below reads all of them;
 # the two tables
 # (SCOPE_REJECTIONS, REVISION_FAILURES) are read as data.
 PKG = Path(ps.__file__).parent
@@ -57,6 +58,7 @@ SOURCES = {
     ]
     + sorted((PKG / "web").glob("*.py"))
     + sorted((PKG / "features").rglob("*.py"))
+    if not p.match("test_*.py")
 }
 
 

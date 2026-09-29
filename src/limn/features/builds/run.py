@@ -12,19 +12,15 @@ from limn.build import (
     BuildAborted,
     BuildBusy,
     BuildDoc,
-    BuildFailed,
     BuildOk,
     BuildOkWithErrors,
     BuildStarted,
-    CopyFailed,
     Describe,
     FinishedBuild,
-    FinishedState,
-    Json,
-    LatexError,
     ViewOnlyNoRebuild,
 )
 from limn.features.builds import engine
+from limn.features.builds.completion import compiled_mtime, project_completion
 
 
 class Rebuildable(Protocol):
@@ -176,54 +172,6 @@ def run_tracked(
     return res
 
 
-def compiled_mtime(res: FinishedBuild) -> float | None:
-    """The mtime of the manuscript the build compiled (measured after the pull, before the copy), or None when the
-    build never measured it (a view-only render, or a build that stopped first)."""
-    match res:
-        case BuildOk(src_mtime=m) | BuildOkWithErrors(src_mtime=m) | CopyFailed(src_mtime=m) | BuildFailed(src_mtime=m):
-            return m
-        case BuildAborted():
-            return None
-
-
-def finished_state(res: FinishedBuild) -> FinishedState:
-    """The build state name of a finished build: ok, ok_errors (new pages, LaTeX errors) or fail."""
-    match res:
-        case BuildOk():
-            return "ok"
-        case BuildOkWithErrors():
-            return "ok_errors"
-        case CopyFailed() | BuildFailed() | BuildAborted():
-            return "fail"
-
-
-def build_errors(res: FinishedBuild) -> list[LatexError]:
-    """The LaTeX errors a finished build reports ([] when it has none or never ran latexmk)."""
-    match res:
-        case BuildOkWithErrors(errors=errors) | BuildFailed(errors=errors):
-            return errors
-        case BuildOk() | CopyFailed() | BuildAborted():
-            return []
-
-
-def build_elapsed(res: FinishedBuild) -> float:
-    """How long the build took in seconds (rounded to 0.1); 0.0 for a build that stopped before measuring."""
-    match res:
-        case BuildOk(elapsed_s=s) | BuildOkWithErrors(elapsed_s=s) | CopyFailed(elapsed_s=s) | BuildFailed(elapsed_s=s):
-            return s
-        case BuildAborted():
-            return 0.0
-
-
-def build_pull(res: FinishedBuild) -> Json | None:
-    """The --git-pull record of the build, or None when no pull ran."""
-    match res:
-        case BuildOk(pull=p) | BuildOkWithErrors(pull=p) | CopyFailed(pull=p) | BuildFailed(pull=p):
-            return p
-        case BuildAborted():
-            return None
-
-
 def finish_build(D: BuildDoc, res: FinishedBuild, src_mtime_for_build: float | None, describe: Describe) -> None:
     """A build finished (success or failure either way) - record it in history, bump build_seq, then update D's build state.
 
@@ -236,53 +184,10 @@ def finish_build(D: BuildDoc, res: FinishedBuild, src_mtime_for_build: float | N
     this value changed - even a build that starts and finishes inside a single 5-second polling gap (never
     observed as running) still bumps seq. seq and the final state are changed together (so there's never a
     visible moment where the state is final but seq is still the old value)."""
-    state = finished_state(res)
-    new_pages: BuildOk | BuildOkWithErrors | None
-    if isinstance(res, BuildOk | BuildOkWithErrors):
-        new_pages, log = res, res.log
-    else:
-        new_pages, log = None, describe(res)
-    last = {
-        "state": state,
-        "errors": list(build_errors(res))[:5],
-        "finished_at": datetime.now().astimezone().isoformat(timespec="seconds"),
-        "elapsed_s": build_elapsed(res),
-        "log_tail": log[-4000:],
-        "head": None if new_pages is None else new_pages.head,
-        "pull": build_pull(res),
-    }
+    log = res.log if isinstance(res, BuildOk | BuildOkWithErrors) else describe(res)
+    finished_at = datetime.now().astimezone().isoformat(timespec="seconds")
     with D.bstate_lock:
-        last["started_at"] = D.bstate.get("started_at")
-    ent = None
-    if new_pages is not None and new_pages.build:
-        ent = {
-            "build": new_pages.build,
-            "src_mtime": src_mtime_for_build,
-            "src_hash": new_pages.src_hash,
-            "finished_at": last["finished_at"],
-        }
-    seq = build.record_build(D, last, ent)
-    build.state_update(
-        D,
-        state=state,
-        phase=None,
-        start_ts=None,
-        seq=seq,
-        finished_at=last["finished_at"],
-        elapsed_s=last["elapsed_s"],
-        last_s=last["elapsed_s"],
-        pages=0 if new_pages is None else new_pages.pages,
-        errors=last["errors"],
-        head=last["head"],
-        pull=last["pull"],
-        log_tail=log,
-        built_at=build.read_built_at(D),
-        last={
-            "state": state,
-            "errors": last["errors"],
-            "finished_at": last["finished_at"],
-            "seq": seq,
-            "head": last["head"],
-            "pull": last["pull"],
-        },
-    )
+        started_at = D.bstate.get("started_at")
+    completion = project_completion(res, finished_at, started_at, src_mtime_for_build, log)
+    seq = build.record_build(D, completion.last, completion.entry)
+    build.state_update(D, **completion.publication(seq, build.read_built_at(D)))

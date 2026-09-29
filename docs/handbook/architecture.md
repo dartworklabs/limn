@@ -23,8 +23,8 @@ Limn은 **하나의 배포 단위(`dartwork-limn` 패키지) 안에서 표준 �
 
 | 층 | 모듈 | 하는 일 | 모르는 것 |
 | --- | --- | --- | --- |
-| 순수 도메인 | `pins/`(상태 타입·레코드 검사·전이·편집·위치 규칙·API 모양·`pins.md` 렌더), `mapping.py`, `scope.py`, `mentions.py`, `outline.py`, `guidance.py`, `mark.py` | 핀 수명 주기와 위치 계산의 규칙. 입력 값에서 결과 값이나 거절 값을 낸다 | 파일, subprocess, 시계, HTTP. 모듈마다 import 검사가 지킨다 |
-| 기능(세로 슬라이스) | `features/pins/lifecycle/*`, `features/pins/claims/*`, `features/pins/trash/*`, `features/pins/editing/*`, `features/pins/listing/*`, `features/pins/location/*`, `features/builds/*`, `features/sync/*`, `features/collaboration/*`, `features/document_views/*`, `features/revisions/*`, `features/viewer_shell/*`, `features/administration/*` | 각 기능의 입력 검사, HTTP 라우팅·응답 매핑, 실행별 문맥 조립과 서비스 로직 | 다른 슬라이스의 비공개 세부. 공통 도메인 규칙이나 공통 저장소 협력자를 통해서만 소통한다 |
+| 순수 도메인 | `pins/`(상태 타입·레코드 검사·공유 스레드·편집 상수·위치 규칙·API 모양·`pins.md` 렌더), `build_values.py`, `mapping.py`, `scope.py`, `mentions.py`, `guidance.py`, `mark.py` | 핀 수명 주기와 위치 계산의 규칙. 입력 값에서 결과 값이나 거절 값을 낸다 | 파일, subprocess, 시계, HTTP. 모듈마다 import 검사가 지킨다 |
+| 기능(세로 슬라이스) | `features/pins/lifecycle/*`, `features/pins/claims/*`, `features/pins/trash/*`, `features/pins/editing/*`, `features/pins/listing/*`, `features/pins/location/*`, `features/builds/*`, `features/sync/*`, `features/collaboration/*`, `features/document_views/*`, `features/revisions/*`, `features/viewer_shell/*`, `features/administration/*` | 각 기능의 순수 판단, 입력 검사, HTTP 라우팅·응답 매핑, 실행별 문맥 조립과 서비스 로직 | 다른 슬라이스의 비공개 세부. 공통 도메인 규칙이나 공통 저장소 협력자를 통해서만 소통한다 |
 | 서비스 협력자 | `service/context.py`(`PinContext`), `store.py`(`PinStore`), `locate.py`(`est_context`·`sync_all`), `build.py`(`BuildArtifacts`·`BuildHistory`), `documents.py`(`Doc`·`DocumentFacts`), `gitrun.py`, `files.py` | 실행별 자원·잠금·파일 읽기/쓰기를 기능에 주입하기 쉬운 협력자로 감싼다 | HTTP 요청/응답 형식 |
 | 인프라 | `files.py`(`atomic_write`·`store_lock`), `gitrun.py`, `people.py`, `events.py`, `audit.py`, `args.py`, `config.py`, `startup.py`, `access.py` | 운영체제·외부 도구와의 경계. 신원 방식·역할·Host 검사 | 핀 수명 주기와 계산 규칙 |
 | HTTP | `web/`(`handler.py`, `reply.py`, `routes.py`, `parse.py`, `answers.py`, `errors.py`, `app.py`) | 순수 HTTP 뼈대. 처리기, 디스패치 계약, 공통 오류 형식과 거절 표 | 구체 서비스 구현 세부 |
@@ -37,7 +37,7 @@ Limn은 **하나의 배포 단위(`dartwork-limn` 패키지) 안에서 표준 �
 규칙은 단순하다. **안쪽(도메인)은 바깥쪽(인프라·HTTP·뷰어)을 모른다.**
 
 ```text
-순수 도메인 (pins/, mapping, scope, mentions, outline, guidance, mark)
+순수 도메인 (pins/, build_values, mapping, scope, mentions, guidance, mark)
    ▲
    │
 기능 슬라이스 (features/*) + 서비스 협력자 (service/context, store, locate, build, documents)
@@ -54,6 +54,7 @@ HTTP 계층 (web/)
 
 - `pins/` 아래의 어떤 모듈도 `web/`·`server.py`·`features/`를 import하지 않는다.
 - `features/*`는 순수 도메인과 필요한 서비스 협력자/인프라 타입을 가져오되 다른 기능 슬라이스의 내부 구현을 직접 import하지 않는다.
+- 수명 주기·만들기·편집·claim·unclaim·삭제·복원의 순수 변경 규칙은 각 기능의 `rules.py`, 목차 파서는 `features/document_views/outline.py`가 소유한다. 기능 안의 순수 코드도 I/O·HTTP를 import하지 않는다. 여러 기능이 읽는 claim 유효 시간과 휴지통 가시성은 공통 핀 도메인에 남는다.
 - 기능 서비스는 외부 자원(파일 시스템, git, 시계, 외부 프로세스)에 직접 닿지 않고 협력자(`PinStore`, `Runtime`, `Doc` 등)를 주입받는다.
 - 거절은 예외가 아니라 결과 값(합 타입)으로 돌려주고, HTTP 층이 이를 상태 코드로 바꾼다. 단, `access.py`의 인증·인가 실패와 `handler.py`의 요청 크기 초과는 경계에서 바로 `HTTPError`를 던진다.
 - **조립 지점이 실행별 자원을 만들고 끝낸다.** `start()`가 실행 설정·런타임·문서 목록을 가진 `ServerApplication`을 만들고 그 실행 전용 처리기 하위 클래스에 묶는다. `StartedServer`가 소켓과 앱을 함께 돌려줘 종료 대상을 보존한다. 같은 모듈에서 다음 실행을 시작해도 앞선 처리기의 앱은 바뀌지 않는다. `web/`은 조립 지점을 가져오지 않는다.

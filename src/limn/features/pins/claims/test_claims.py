@@ -7,7 +7,8 @@ Colocated feature tests verifying:
 """
 
 import threading
-from collections.abc import Callable
+from collections.abc import Sequence
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -24,30 +25,35 @@ from limn.features.pins.claims.service import PinClaims
 from limn.mentions import NoteTags
 from limn.pins.model import OpenPin, Pin, PinNotFound, Record
 from limn.service.context import PinContext
+from limn.store import PinFiles, PinStore
 from limn.web.errors import HTTPError, InputRejected
 
+from helpers_pin_service import parse_rec, parse_trash
+
 # ---------------------------------------------------------------------------
-# Test Fixtures & In-Memory Fake Context
+# Real temporary storage and explicit context
 # ---------------------------------------------------------------------------
 
 
-class FakePinStore:
-    """In-memory pin store for slice tests without file system access."""
+def make_test_store(state: Path, initial_pins: Sequence[Pin]) -> PinStore:
+    """Seed real JSONL/Markdown storage so claim tests exercise persistence as well as returned records."""
+    store = PinStore(
+        PinFiles(state), threading.RLock(), parse_rec, parse_trash, lambda pins: False, lambda pins: "md\n"
+    )
 
-    def __init__(self, initial_pins: list[Pin]) -> None:
-        self.pins: list[Pin] = list(initial_pins)
-        self.lock = threading.RLock()
+    def seed(pins: list[Pin]) -> tuple[None, bool]:
+        """Install the initial records under the same transaction lock used by the tested service."""
+        pins.extend(initial_pins)
+        return None, bool(initial_pins)
 
-    def transact(self, fn: Callable[[list[Pin]], tuple[Any, bool]]) -> tuple[bool, Any]:
-        with self.lock:
-            result, changed = fn(self.pins)
-            return changed, result
+    store.transact(seed)
+    return store
 
 
-def make_test_context(store: FakePinStore, now_epoch: float = 1790000000.0) -> PinContext:
-    """Build a minimal PinContext for unit testing PinClaims."""
+def make_test_context(store: PinStore, now_epoch: float = 1790000000.0) -> PinContext:
+    """Bind a real store to fixed time and inert notification sinks for claim service checks."""
     return PinContext(
-        store=store,  # type: ignore[arg-type]
+        store=store,
         now=lambda: "2026-09-28 12:00:00",
         epoch=lambda: now_epoch,
         hm=lambda: "12:00",
@@ -68,12 +74,14 @@ def make_test_context(store: FakePinStore, now_epoch: float = 1790000000.0) -> P
 
 
 class FakeClaimsApp:
-    """Collaborator implementing ClaimsApp protocol."""
+    """HTTP projection adapter around real claim transactions; it owns no state or persistence."""
 
     def __init__(self, pin_claims: PinClaims) -> None:
+        """Bind the service used by both HTTP actions."""
         self.pin_claims = pin_claims
 
     def public(self, record: Record) -> dict[str, Any]:
+        """Return a detached visible record without altering the stored value."""
         return dict(record)
 
 
@@ -139,9 +147,10 @@ class TestClaimInputParsing:
 class TestPinClaimsService:
     """State transition tests on PinClaims service."""
 
-    def test_claim_open_pin_succeeds(self) -> None:
+    def test_claim_open_pin_succeeds(self, tmp_path: Path) -> None:
+        """A successful claim returns and persists the same ownership, lifetime and estimate."""
         initial_pin = OpenPin.from_record({"id": 1, "file": "main.tex", "lo": 1, "hi": 2, "note": "test"})
-        store = FakePinStore([initial_pin])
+        store = make_test_store(tmp_path, [initial_pin])
         ctx = make_test_context(store, now_epoch=1000.0)
         claims = PinClaims(lambda: ctx)
 
@@ -153,16 +162,20 @@ class TestPinClaimsService:
         assert result.record["claim_ts"] == 1000.0
         assert result.record["claim_until"] == 1000.0 + 30 * 60
         assert result.record["eta_ts"] == 1000.0 + 15 * 60
+        assert store.read_pins()[0][0].record == result.record
 
-    def test_claim_pin_not_found(self) -> None:
-        store = FakePinStore([])
+    def test_claim_pin_not_found(self, tmp_path: Path) -> None:
+        """A missing pin returns a named miss without creating a pin file."""
+        store = make_test_store(tmp_path, [])
         ctx = make_test_context(store)
         claims = PinClaims(lambda: ctx)
 
         result = claims.claim_pin(999, {"login": "alice"}, ttl_min=30)
         assert isinstance(result, PinNotFound)
+        assert not store.files.pins_jsonl.exists()
 
-    def test_unclaim_clears_claim_marker(self) -> None:
+    def test_unclaim_clears_claim_marker(self, tmp_path: Path) -> None:
+        """Unclaim persists removal of ownership and lifetime while increasing the revision."""
         initial_pin = OpenPin.from_record(
             {
                 "id": 1,
@@ -174,7 +187,7 @@ class TestPinClaimsService:
                 "rev": 1,
             }
         )
-        store = FakePinStore([initial_pin])
+        store = make_test_store(tmp_path, [initial_pin])
         ctx = make_test_context(store)
         claims = PinClaims(lambda: ctx)
 
@@ -183,6 +196,7 @@ class TestPinClaimsService:
         assert "claimed_by" not in result.record
         assert "claim_until" not in result.record
         assert result.record["rev"] == 2
+        assert store.read_pins()[0][0].record == result.record
 
 
 # ---------------------------------------------------------------------------
@@ -193,9 +207,10 @@ class TestPinClaimsService:
 class TestClaimHttpAdapter:
     """HTTP endpoint logic tests using ClaimsApp protocol."""
 
-    def test_http_claim_and_unclaim_flow(self) -> None:
+    def test_http_claim_and_unclaim_flow(self, tmp_path: Path) -> None:
+        """The HTTP adapter returns the same records that the real transaction persists."""
         initial_pin = OpenPin.from_record({"id": 1, "file": "main.tex", "lo": 1, "hi": 2})
-        store = FakePinStore([initial_pin])
+        store = make_test_store(tmp_path, [initial_pin])
         ctx = make_test_context(store, now_epoch=1000.0)
         claims = PinClaims(lambda: ctx)
         app = FakeClaimsApp(claims)
@@ -215,8 +230,10 @@ class TestClaimHttpAdapter:
         pin_unclaimed = unclaim_resp["pin"]
         assert isinstance(pin_unclaimed, dict)
         assert "claimed_by" not in pin_unclaimed
+        assert store.read_pins()[0][0].record == pin_unclaimed
 
-    def test_http_claim_conflict_raises_409(self) -> None:
+    def test_http_claim_conflict_raises_409(self, tmp_path: Path) -> None:
+        """A live claim rejects another person with 409 and leaves stored bytes intact."""
         initial_pin = OpenPin.from_record(
             {
                 "id": 1,
@@ -227,12 +244,13 @@ class TestClaimHttpAdapter:
                 "claim_until": 2000.0,
             }
         )
-        store = FakePinStore([initial_pin])
+        store = make_test_store(tmp_path, [initial_pin])
         ctx = make_test_context(store, now_epoch=1000.0)
         claims = PinClaims(lambda: ctx)
         app = FakeClaimsApp(claims)
 
         # Bob attempts claim while Alice holds it
+        before = store.files.pins_jsonl.read_bytes()
         with pytest.raises(HTTPError) as exc_info:
             http.claim(app, 1, {"login": "bob@example.com"}, {"ttl_min": 30})
 
@@ -240,3 +258,4 @@ class TestClaimHttpAdapter:
         assert err.code == 409
         assert err.body["reason"] == "claimed"
         assert err.body["claimed_by"] == {"login": "alice@example.com"}
+        assert store.files.pins_jsonl.read_bytes() == before

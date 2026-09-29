@@ -21,7 +21,7 @@ from unittest import mock
 
 from limn import build as limn_build, files, mapping, store
 from limn.access import LOCAL_ACTOR
-from limn.pins.edit import PinOutsideTree
+from limn.features.pins.editing.rules import PinOutsideTree
 from limn.pins.model import TrashedPin, parse_pin
 from limn.pins.record import Broken
 from limn.store import PinFiles, PinStore, dump_jsonl, find_pin

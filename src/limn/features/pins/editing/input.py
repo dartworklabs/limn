@@ -5,7 +5,7 @@ from dataclasses import dataclass, replace
 
 from limn.features.pins.editing.fields import parse_assignee, parse_kind_req, parse_note, parse_scope
 from limn.features.pins.editing.location import parse_loc, parse_region
-from limn.pins.edit import AddRequest, EditRequest, LinePlace, Place, RegionPlace
+from limn.features.pins.editing.rules import AddRequest, EditRequest, LinePlace, Place, RegionPlace
 from limn.web.errors import InputRejected
 from limn.web.parse import (
     DocumentFacts,

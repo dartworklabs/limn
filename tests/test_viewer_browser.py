@@ -25,8 +25,8 @@ from unittest import mock
 from limn.access import LOCAL_ACTOR
 from limn.features.administration import serve_documents as startup_documents
 from limn.features.pins.lifecycle import input as lifecycle_input
+from limn.features.pins.lifecycle.rules import CloseRequest
 from limn.features.revisions import core as revisions, execution as revision_execution
-from limn.pins.lifecycle import CloseRequest
 from limn.pins.view import pin_state
 
 from helpers import SW_JS, add_pin, blank_png, find_record, minimal_pdf, ps, records, trash_records

@@ -4,7 +4,7 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from typing import Any
 
-from limn.pins.lifecycle import ClaimClosedPin, ClaimedByOther, ClaimRequest, NotClaimed, claim, unclaim
+from limn.features.pins.claims.rules import ClaimClosedPin, ClaimedByOther, ClaimRequest, NotClaimed, claim, unclaim
 from limn.pins.model import DonePin, OpenPin, Pin, PinNotFound, ReviewPin
 from limn.pins.position import epoch
 from limn.service.context import PinContext, load_pin, typed_actor
@@ -21,8 +21,9 @@ class PinClaims:
     ) -> OpenPin | ClaimClosedPin | ClaimedByOther | PinNotFound:
         """Place or extend the in-progress marker under the pin lock; written only when the claim is placed.
 
-        The rule is limn.pins.lifecycle.claim(): a closed pin or another identity's live claim is refused (409 over HTTP),
-        the same identity extends. The clock is read once here - epoch and store string of the same moment.
+        The rule is limn.features.pins.claims.rules.claim(): a closed pin or another identity's live claim is refused (409 over HTTP),
+        the same identity extends. The context supplies epoch time for expiry and a separate display timestamp
+        for the stored claim; each is read once when evaluating the request.
         """
 
         ctx = self.context()

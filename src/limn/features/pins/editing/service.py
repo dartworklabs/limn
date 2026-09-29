@@ -1,7 +1,7 @@
 """Adding a pin and editing one in place (docs/handbook/api.md §핀 만들기와 상태 바꾸기, §핀 수정).
 
 The handler parses the body (limn.features.pins.editing.input); these shells read what only
-the disk and the clock know under the pin lock, and leave the rules and the record to limn.pins.edit. Each returns an
+the disk and the clock know under the pin lock, and leave the rules and the record to limn.features.pins.editing.rules. Each returns an
 outcome value that the HTTP layer answers (limn.features.pins.editing.http).
 """
 
@@ -12,12 +12,7 @@ from typing import Any
 
 from limn import build
 from limn.documents import Doc, doc_by_key
-from limn.files import tex_lines
-from limn.locate import PinLocation
-from limn.mapping import anchor_of
-from limn.pins.edit import (
-    ASSIGNEE_AGENT,
-    NOTE_MAX,
+from limn.features.pins.editing.rules import (
     AddRequest,
     Anchoring,
     EditRefusal,
@@ -32,13 +27,17 @@ from limn.pins.edit import (
     new_line_pin,
     new_region_pin,
 )
+from limn.files import tex_lines
+from limn.locate import PinLocation
+from limn.mapping import anchor_of
+from limn.pins.edit import ASSIGNEE_AGENT, NOTE_MAX
 from limn.pins.model import DonePin, OpenPin, Pin, PinNotFound, Record, Region, ReviewPin
 from limn.service.context import Event, PinContext, load_pin, typed_actor
 from limn.store import pin_index
 
 
 def located(loc: PinLocation | None) -> Located | None:
-    """A pin location found on disk (PinContext.locate) as the value limn.pins.edit records: absolute path and rel."""
+    """A pin location found on disk (PinContext.locate) as the value limn.features.pins.editing.rules records: absolute path and rel."""
     return None if loc is None else Located(str(loc.path), loc.rel)
 
 
@@ -98,7 +97,7 @@ def edit_pin(
     and parse_edit_place, with region and the document from EditScope); region says the pin is a view-only
     one, whose file is never located. The 'HH:MM' an appended note is stamped with is read before the lock. Under the
     pin lock the shell reads where the pin's file will be and - for a lo/hi edit - its line count, and
-    limn.pins.edit.decide_edit() refuses or accepts: a closed pin cannot be reshaped, a stale base_rev is a conflict
+    limn.features.pins.editing.rules.decide_edit() refuses or accepts: a closed pin cannot be reshaped, a stale base_rev is a conflict
     (so a pin the agent closed, or one line matching moved, is never silently overwritten with stale lo/hi), a merged
     note_append must fit NOTE_MAX, lo/hi must fit the file. Refusals write nothing of their own. An accepted edit gets
     a new anchor when its range changed, the note's @-tags, edited_at/by and rev (evolve_edit); mention/assigned

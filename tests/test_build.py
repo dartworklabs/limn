@@ -903,12 +903,34 @@ class AsyncBuild(Base):
             ps.APP.docs[0].lock.release()
 
     def test_rebuild_async_endpoint_returns_202_when_started(self):
-        """The HTTP route returns 202 and a running body for a newly scheduled document build."""
-        with mock.patch.object(ps.APP.build_requests, "rebuild_async", return_value=BuildStarted()) as start:
-            out = self.talk(req("POST", "/api/rebuild?async=1"))
-        start.assert_called_once_with(ps.APP.docs[0])
-        self.assertIn(b" 202 ", out.split(b"\r\n", 1)[0])
-        self.assertEqual(json.loads(out.split(b"\r\n\r\n", 1)[1]), {"state": "running"})
+        """The real scheduler returns 202 while compiling, then persists its result and releases the lock."""
+        doc = ps.APP.docs[0]
+        entered, release = threading.Event(), threading.Event()
+
+        def controlled_compile(cmd, cwd, timeout):
+            """Hold the external compiler boundary until the HTTP running response is observed."""
+            entered.set()
+            if not release.wait(10):
+                raise TimeoutError("test did not release compiler")
+            return 1, "controlled compiler failure", False
+
+        with mock.patch.object(build_engine, "run_logged", side_effect=controlled_compile):
+            try:
+                out = self.talk(req("POST", "/api/rebuild?async=1"))
+                self.assertIn(b" 202 ", out.split(b"\r\n", 1)[0])
+                self.assertEqual(json.loads(out.split(b"\r\n\r\n", 1)[1]), {"state": "running"})
+                self.assertTrue(entered.wait(10), "scheduled build did not reach compilation")
+                self.assertEqual(limn_build.state_snapshot(doc)["state"], "running")
+                self.assertTrue(doc.lock.locked())
+            finally:
+                release.set()
+                acquired = doc.lock.acquire(timeout=10)
+                if acquired:
+                    doc.lock.release()
+                self.assertTrue(acquired, "build worker did not release its document")
+        self.assertEqual(limn_build.state_snapshot(doc)["state"], "fail")
+        self.assertEqual(limn_build.load_builds(doc)["seq"], 1)
+        self.assertEqual((doc.dir / "build.log").read_text(), "controlled compiler failure")
 
     def test_get_api_build_reports_known_state(self):
         """The build endpoint returns a known state with phase and log fields for the progress viewer."""

@@ -15,17 +15,16 @@ from collections.abc import Sequence
 
 from hypothesis import given, strategies as st
 
-from limn.mapping import densest, flat, norm, truncate_quote
-from limn.pins.lifecycle import (
-    CLAIM_FIELDS,
+from limn.features.pins.lifecycle.rules import (
     AlreadyDone,
     PinClosed,
     PinStillOpen,
     confirm,
     evolve_close,
     reopens_on_reply,
-    rev_after,
 )
+from limn.mapping import densest, flat, norm, truncate_quote
+from limn.pins.lifecycle import CLAIM_FIELDS, rev_after
 from limn.pins.model import (
     Actor,
     Agent,

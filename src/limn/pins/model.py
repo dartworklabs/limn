@@ -35,8 +35,8 @@ Shapes: TypeAlias = Mapping[str, tuple[str, Callable[[object], bool]]]
 # kind_req: what a pin asks for - a fix (the default; every legacy pin is one) or an answer (docs/handbook/api.md §스레드).
 KindReq: TypeAlias = Literal["fix", "question"]
 KIND_REQS: tuple[KindReq, ...] = get_args(KindReq)
-# The mark a thread entry may carry (ev): the close, reopen and confirm transitions (limn.pins.lifecycle) and an
-# assignee change (limn.pins.edit). A reply has none. limn.pins.record accepts no other stored value.
+# The mark a thread entry may carry (ev): the close, reopen and confirm transitions (limn.features.pins.lifecycle.rules) and an
+# assignee change (limn.features.pins.editing.rules). A reply has none. limn.pins.record accepts no other stored value.
 ThreadEv: TypeAlias = Literal["close", "reopen", "confirm", "assign"]
 THREAD_EVENTS: tuple[ThreadEv, ...] = get_args(ThreadEv)
 

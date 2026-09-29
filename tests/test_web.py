@@ -28,16 +28,18 @@ from limn import mapping
 from limn.documents import DocNotFound
 from limn.features.builds import http as builds_http
 from limn.features.pins.claims import http as claims_http
+from limn.features.pins.claims.rules import ClaimedByOther
 from limn.features.pins.editing import http as editing_http
+from limn.features.pins.editing.rules import StaleEdit
 from limn.features.pins.lifecycle import http as lifecycle_http
+from limn.features.pins.lifecycle.rules import AgentCannotConfirm, PinStillOpen, ThreadFull
 from limn.features.pins.listing import http as listing_http
 from limn.features.pins.location import http as location_http, resolve as pick_resolve
 from limn.features.pins.trash import http as trash_http
+from limn.features.pins.trash.rules import NotInTrash
 from limn.features.revisions import answer as revision_answer
 from limn.features.revisions.core import DocumentBusy
 from limn.features.viewer_shell import routes as viewer_shell_routes
-from limn.pins.edit import StaleEdit
-from limn.pins.lifecycle import AgentCannotConfirm, ClaimedByOther, NotInTrash, PinStillOpen, ThreadFull
 from limn.pins.model import DonePin, OpenPin, PinNotFound, ReviewPin, TrashedPin
 from limn.viewer.assemble import ServedViewer
 from limn.web import answers

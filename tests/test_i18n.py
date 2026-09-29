@@ -23,8 +23,8 @@ from limn.access import LOCAL_ACTOR
 from limn.features.administration import member_state, serve_documents as startup_documents
 from limn.features.administration.targets import cli_audit
 from limn.features.pins.claims import input as claims_input
+from limn.features.pins.lifecycle.rules import CloseRequest
 from limn.features.pins.location import http as location_http
-from limn.pins.lifecycle import CloseRequest
 from limn.scope import ScopeUnreadable
 from limn.viewer import assemble
 from limn.web.errors import scope_http_error

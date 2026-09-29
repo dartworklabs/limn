@@ -4,8 +4,7 @@ from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
 from typing import Any
 
-from limn.mentions import pin_mentions_all, resolve_mentions
-from limn.pins.lifecycle import (
+from limn.features.pins.lifecycle.rules import (
     AgentCannotConfirm,
     AlreadyClosed,
     AlreadyDone,
@@ -24,6 +23,7 @@ from limn.pins.lifecycle import (
     reopen_request,
     reopens_on_reply,
 )
+from limn.mentions import pin_mentions_all, resolve_mentions
 from limn.pins.model import DonePin, OpenPin, Pin, PinNotFound, ReviewPin
 from limn.service.context import Event, PinContext, Row, is_agent, load_pin, typed_actor
 
@@ -137,7 +137,7 @@ class PinLifecycle:
     ) -> OpenPin | ReviewPin | DonePin | ThreadFull | PinNotFound:
         """One reply (from a person or an agent); the pin as it stands after it is returned, its new entry last in the thread.
 
-        Whether it also reopens the pin is decided by limn.pins.lifecycle.reopens_on_reply() - the viewer only previews it.
+        Whether it also reopens the pin is decided by limn.features.pins.lifecycle.rules.reopens_on_reply() - the viewer only previews it.
         `human` is whether the poster is a person (the handler also counts a person with the agent role as an agent); None
         means "not an agent actor". A reopening reply is recorded exactly like POST /reopen with the reply as its reason
         (ev=reopen, the same notices), so the pin returns to the open table of pins.md with that reason. Otherwise it is a
@@ -220,7 +220,7 @@ def _reopen(
     hints: Iterable[str] | None,
     evs: list[Event | None],
 ) -> OpenPin:
-    """POST /reopen's step (inside transact): the pin reopened by limn.pins.lifecycle.reopen_request, rev bumped, and
+    """POST /reopen's step (inside transact): the pin reopened by limn.features.pins.lifecycle.rules.reopen_request, rev bumped, and
     - if it was closed - a mention queued for everyone the reason @-tags and reopened for the author (the @-tags are
     resolved against the people on pins). A reopening reply calls reopen_request itself in reply_pin. Returns the
     reopened pin; the caller puts it in pin's place."""

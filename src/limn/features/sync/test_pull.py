@@ -1,9 +1,9 @@
 """limn.features.sync.rules - the pure rules of --git-pull and the remote-main watch, driven with plain values.
 
-The pull against real repositories is tests/test_gitsync.py, and so is the server wiring (GET /api/meta's sync, a
+The pull against real repositories is src/limn/features/sync/test_gitsync.py, and so is the server wiring (GET /api/meta's sync, a
 build's pull) at its end. This file pins each rule, the outcome records of the agent contract, and the import boundary.
 
-Run: uv run pytest -q tests/test_pull.py
+Run: uv run pytest -q src/limn/features/sync/test_pull.py
 """
 
 import ast

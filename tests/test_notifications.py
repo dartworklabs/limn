@@ -19,8 +19,8 @@ from unittest import mock
 
 from limn.access import LOCAL_ACTOR
 from limn.events import NOTIFY_TYPES
+from limn.features.pins.lifecycle.rules import CloseRequest
 from limn.mentions import NOTE_MENTION_COOLDOWN_S
-from limn.pins.lifecycle import CloseRequest
 
 from helpers import Base, add_pin, edit_pin, find_record, ps, req, split_resp
 from helpers_access import A_LOGIN, ALICE, B_LOGIN, BOB, C_LOGIN, CAROL, DAVE, actor

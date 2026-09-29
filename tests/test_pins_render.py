@@ -21,8 +21,8 @@ from pathlib import Path
 from limn import mapping
 from limn.access import LOCAL_ACTOR
 from limn.features.pins.claims import input as claims_input
+from limn.features.pins.lifecycle.rules import CloseRequest
 from limn.pins import render, render as md_render
-from limn.pins.lifecycle import CloseRequest
 from limn.pins.model import ThreadEntry
 from limn.pins.render import DocHeading, PinFacts, PinsMdInput, pins_md_text
 
