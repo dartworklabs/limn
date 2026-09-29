@@ -7,18 +7,28 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal, TypeAlias, TypedDict
 
-from limn.documents import DEFAULT_DOC_KEY, DOC_KEY_RE, DOC_NAME_MAX, DOCS_MAX, Doc, RunPaths
+from limn.documents import (
+    DEFAULT_DOC_KEY,
+    DOC_KEY_RE,
+    DOC_NAME_MAX,
+    DOCS_MAX,
+    Doc,
+    DocKind,
+    RunPaths,
+    kind_builds_from_source,
+)
 from limn.startup import APP_NAME, StartupRefused
 
 # ---------------------------------------------------------------- document selection (§Multiple documents)
 
 
 class DocSpec(TypedDict):
-    """One parsed --doc: key, display name, kind ('tex' or 'pdf'), build root (src) and main file, both resolved."""
+    """One parsed --doc: key, display name, kind (the DocKind its path's suffix names), build root (src) and main
+    file, both resolved."""
 
     key: str
     name: str
-    kind: str
+    kind: DocKind
     src: Path
     main: Path
 
@@ -236,6 +246,7 @@ def parse_doc_arg(spec: str, ms: Path) -> DocSpec | DocSpecRefusal:
     if not main.is_file():
         return DocFileMissing(key, main)
     suf = main.suffix.lower()
+    kind: DocKind
     if suf == ".tex":
         kind = "tex"
     elif suf == ".pdf":
@@ -303,7 +314,8 @@ def parse_docs(specs: Sequence[str], ms: Path) -> list[DocSpec] | DocsRefusal:
 
 def docs_of(specs: Sequence[DocSpec], paths: RunPaths) -> list[Doc]:
     """The documents of parsed --doc specs over the run's paths (the frozen value the composition root made once the
-    state folder was known). A LaTeX document keyed main uses the state-folder-root layout (root)."""
+    state folder was known). A document keyed main whose kind builds from source (kind_builds_from_source) uses the
+    state-folder-root layout (root), so it continues a single-document instance's build history."""
     return [
         Doc(
             p["key"],
@@ -311,7 +323,7 @@ def docs_of(specs: Sequence[DocSpec], paths: RunPaths) -> list[Doc]:
             p["kind"],
             src=p["src"],
             main=p["main"],
-            root=(p["key"] == DEFAULT_DOC_KEY and p["kind"] == "tex"),
+            root=(p["key"] == DEFAULT_DOC_KEY and kind_builds_from_source(p["kind"])),
             paths=paths,
         )
         for p in specs
@@ -343,8 +355,9 @@ def detect_main(src: Path) -> Path | StartupRefused:
 @dataclass(frozen=True)
 class RunDocuments:
     """What the command line serves: the parsed --doc documents (None without --doc: the single document of --main) and
-    the main .tex of the run (the first LaTeX --doc document's, else the first document's; else --main's or the
-    detected one). The documents are made over the run's paths (docs_of) once the state folder is known."""
+    the main .tex of the run (the first --doc document whose kind builds from source, else the first document's; else
+    --main's or the detected one). The documents are made over the run's paths (docs_of) once the state folder is
+    known."""
 
     docs: list[DocSpec] | None
     main: Path
@@ -353,7 +366,8 @@ class RunDocuments:
 def pick_documents(src: Path, specs: Sequence[str], main: str | None) -> RunDocuments | StartupRefused:
     """The documents of a command line with manuscript folder src (already resolved), or the refusal, in this order: a
     missing manuscript folder, --doc together with --main, a bad --doc, no or several top-level .tex files, a --main
-    that does not exist."""
+    that does not exist. The run's main file is the first --doc document whose kind builds from source, else the
+    first document's."""
     if not src.is_dir():
         return StartupRefused("Manuscript directory does not exist: %s" % src)
     if specs:
@@ -362,8 +376,8 @@ def pick_documents(src: Path, specs: Sequence[str], main: str | None) -> RunDocu
         docs = parse_docs(specs, src)
         if not isinstance(docs, list):
             return StartupRefused(doc_refusal_message(docs))
-        first_tex = next((d for d in docs if d["kind"] != "pdf"), docs[0])
-        return RunDocuments(docs, first_tex["main"])
+        first_built = next((d for d in docs if kind_builds_from_source(d["kind"])), docs[0])
+        return RunDocuments(docs, first_built["main"])
     main_file = (src / main) if main else detect_main(src)
     if isinstance(main_file, StartupRefused):
         return main_file
