@@ -241,9 +241,9 @@ def pin_doc_key(r: Mapping[str, Any], docs: Sequence[Doc]) -> str:
 
 
 def doc_for_file(docs: Sequence[Doc], root: Path, path: object) -> Doc:
-    """Which LaTeX document of docs a request that only gave a file (agent curl) belongs to: the one whose build root
-    most deeply contains it (a relative path is taken under the manuscript root), or the first document if none does
-    or the path cannot be resolved. View-only documents never match."""
+    """Which document of docs that takes line pins a request that only gave a file (agent curl) belongs to: the one
+    whose build root most deeply contains it (a relative path is taken under the manuscript root), or the first
+    document if none does or the path cannot be resolved. A document without line pins (view-only) never matches."""
     try:
         p = Path(str(path)) if os.path.isabs(str(path)) else root / str(path)
         p = p.resolve()
@@ -251,7 +251,7 @@ def doc_for_file(docs: Sequence[Doc], root: Path, path: object) -> Doc:
         return docs[0]
     best, depth = None, -1
     for d in docs:
-        if d.is_pdf:
+        if not d.takes_line_pins:
             continue
         try:
             p.relative_to(d.src.resolve())
@@ -321,9 +321,9 @@ class DocumentFacts:
         return self._doc.key
 
     @property
-    def is_pdf(self) -> bool:
-        """True for a view-only PDF document."""
-        return self._doc.is_pdf
+    def view_only(self) -> bool:
+        """True when D's pins are page regions only (Doc.view_only): the parsers refuse file/lo/hi and snippets."""
+        return self._doc.view_only
 
     @property
     def pdf(self) -> Path:

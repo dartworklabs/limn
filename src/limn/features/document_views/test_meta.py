@@ -356,7 +356,13 @@ class DocumentFactsReads(Fixture):
         missing.unlink()
         self.assertEqual(facts.lines(checked), [])
         self.assertEqual(
-            (facts.key, facts.is_pdf, facts.root, facts.pdf), ("ms", False, self.src, self.src / "main.tex")
+            (facts.key, facts.view_only, facts.root, facts.pdf), ("ms", False, self.src, self.src / "main.tex")
+        )
+
+    def test_view_only_is_the_document_capability(self):
+        """A view-only PDF's facts are view_only and a LaTeX document's are not: the pin parsers branch on this alone."""
+        self.assertEqual(
+            [documents.DocumentFacts(D, self.src, self.state, 150).view_only for D in (self.ms, self.rv)], [False, True]
         )
 
 
