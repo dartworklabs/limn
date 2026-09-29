@@ -29,7 +29,7 @@
 >
 > 화면 규칙을 바꾸면 세 곳을 같은 diff에서 맞춘다: `src/limn/viewer/`의 파일, `tests/test_viewer.py`의 `Frontend*` 가드, 그리고 이 문서의 해당 절.
 
-**CSS는 조각 여러 개지만, 페이지에는 인라인 `<style>` 하나로 들어간다.** 그 맨 앞, 첫 조각 `css/tokens.css`에 토큰 블록 세 개가 있다. 다크 테마 `:root`, 라이트 테마 `:root[data-theme=light]`, 테마와 무관한 척도 `:root`이다. 색 리터럴은 앞의 두 블록 안 변수 정의에만 둘 수 있다. 나머지 규칙은 모두 `var(--…)`를 쓴다(§토큰).
+**CSS는 조각 여러 개지만, 페이지에는 인라인 `<style>` 하나로 들어간다.** 그 맨 앞, 첫 조각 `css/tokens.css`에 토큰 블록 세 개가 있다. 다크 테마 `:root`, 라이트 테마 `:root[data-theme=light]`, 테마와 무관한 척도 `:root`이다. 테마 색 리터럴은 앞의 두 테마 블록 안 변수 정의에만, 테마와 무관한 색(브랜드 색 `--limn-*`, 이름표 위 글자 `--brand-foreground`)은 척도 블록에만 둘 수 있다. 나머지 규칙은 모두 `var(--…)`를 쓴다(§토큰).
 
 **UI 문자열은 한국어가 원본이고, 영어는 메시지 표로 바꾼다.** 템플릿과 JS에 적힌 한국어 문자열이 정본이다. 영어 화면에서는 [`src/limn/ui_en.json`](../../src/limn/ui_en.json)의 "한국어 → 영어" 표를 찾아 바꾼다. 동작 방식은 이렇다.
 
@@ -721,7 +721,7 @@
 
 ### 토큰
 
-색 리터럴은 **두 토큰 블록**(`:root` = 다크, `:root[data-theme=light]` = 라이트) 안의 변수 정의에만 있다. 규칙은 모두 `var(--…)`를 쓴다. 옅은 채움(선택 상자·마크·위험 버튼 바탕 등)은 `color-mix(in srgb, var(--토큰) N%, transparent)`로 만든다. 중립색은 zinc 계열이다.
+테마 색 리터럴은 **두 테마 블록**(`:root` = 다크, `:root[data-theme=light]` = 라이트) 안의 변수 정의에만 있다. 테마와 무관한 색 — 브랜드 색 `--limn-*`과 이름표 위 글자 `--brand-foreground` — 은 세 번째 척도 블록에만 있다. 가드가 블록을 가려 본다(`FrontendDesignTokens.test_a_colour_in_the_wrong_block_is_caught`). 규칙은 모두 `var(--…)`를 쓴다. 옅은 채움(선택 상자·마크·위험 버튼 바탕 등)은 `color-mix(in srgb, var(--토큰) N%, transparent)`로 만든다. 중립색은 zinc 계열이다.
 
 | 묶음 | 토큰 | 쓰임 |
 | --- | --- | --- |
@@ -740,7 +740,7 @@
 | 상태 | `--status-open`·`--status-claimed`·`--status-review`·`--status-closed`·`--status-dropped`·`--status-warning` | 마크·열림 점 / 처리 중 점 / 검토 대기 점 / 완료 아이콘 / 삭제 아이콘 / 위치 잃음·늦어짐·다시 열림(§상태 표현) |
 | 기타 | `--tooltip`·`--tooltip-foreground`·`--shadow-color`·`--shadow-page` | 툴팁·그림자 색·쪽 그림자 |
 | 인스턴스 | `--brand`·`--brand-foreground` | 이름표 색(`--accent` 인자로 서버가 채움, 테마와 무관)·그 위 흰 글자 |
-| 브랜드 | `--limn-ink`·`--limn-ver`·`--limn-bone`·`--limn-cream`·`--limn-paper` | Limn 브랜드 색. `limn-brand.js`의 `COLOR`과 같은 값이다(먹·주·뼈종이·미색·종이). 테마와 무관해 세 번째 `:root` 블록에 있다. 주는 로고의 점에만 쓴다 |
+| 브랜드 | `--limn-ink`·`--limn-ver`·`--limn-bone`·`--limn-cream` | Limn 브랜드 색. `limn-brand.js`의 `COLOR`과 같은 값이다(먹·주·뼈종이·미색). 테마와 무관해 세 번째 `:root` 블록에 있다. 주는 로고의 점에만 쓴다 |
 | 브랜드 | `--mark-tile`·`--mark-stroke` | 로고의 타일·획. 라이트는 뼈종이·먹, 다크는 먹·미색이다(§마크와 파비콘) |
 
 테마와 무관한 척도는 세 번째 `:root` 블록에 있다.

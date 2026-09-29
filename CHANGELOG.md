@@ -24,7 +24,7 @@ reasons, the responses gain two headers and page images change their `Cache-Cont
 - **In the viewer** the top bar (16 px) and the [More] label chip (14 px) show the icon, the help header shows the
   wordmark 20 px tall in place of the word Limn. 뼈종이 tile and 먹 strokes in the light theme, 먹 tile and 미색 strokes
   in the dark theme, the pin 주 in both, from new brand tokens (`--limn-ink`, `--limn-ver`, `--limn-bone`,
-  `--limn-cream`, `--limn-paper`, `--mark-tile`, `--mark-stroke`).
+  `--limn-cream`, `--mark-tile`, `--mark-stroke`).
 - Rolling back to 0.3.5 is safe: nothing is stored; 0.3.5 serves its own page and icons again.
 
 ### Security

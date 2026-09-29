@@ -8,8 +8,9 @@ brand source, copied byte for byte; `src/limn/mark.py` maps them to routes and i
 | Item | Value |
 | --- | --- |
 | Source | <https://github.com/dartworklabs/limn-sans> - `site/limn-brand.js` (`LIMN.icon`, `LIMN.wordmark`) |
-| Commit | `f110bb8211c1cc404eced7d56af6f82fd7856edf` (branch `feat/app-icon-set`) |
+| Commit | dartworklabs/limn-sans `main`, commit `f110bb8211c1cc404eced7d56af6f82fd7856edf` (PR #18, merge `ce9288b`) |
 | Built by | `make font` once (it writes `site/limn-font.js`), then `make icons`, which runs `cd site && uv run --no-project --with playwright --with pillow python3 tools/build_icons.py` and writes `site/icons/` with its checks passed |
+| Tools | Playwright 1.63.0 with Chromium 153.0.8010.12, Pillow 12.3.0 (as `uv run --with` resolved them); a rebuild with these gives the same bytes |
 | Copied | the ten files below from `site/icons/`, unchanged; `SHA256SUMS` here is their ten lines of `site/icons/SHA256SUMS` |
 | Check | `sha256sum -c SHA256SUMS` in this folder; `tests/test_brand.py` checks the hashes, that the favicons are the pixel drawings and that each SVG parses |
 
@@ -30,7 +31,9 @@ Only the light SVGs are vendored: the viewer takes their shapes and replaces eac
 Rebuild in limn-sans with `make icons`, copy the ten files, replace `SHA256SUMS` with their lines from the build's
 `SHA256SUMS`, update the commit above, and run `uv run pytest -q tests/test_brand.py`. Do not edit a file here by hand;
 the test fails on any byte that differs from `SHA256SUMS`. A new file needs a line in `limn.mark` (`ICON_ROUTES` or
-`MARK_SLOTS`) and one in `SHA256SUMS`.
+`MARK_SLOTS`) and one in `SHA256SUMS`. A new icon route also needs its path in `access.READ_PATHS` (new paths are
+refused by default), a `<link>` in `src/limn/viewer/index.html` (and a `media=` for its colour scheme) and a line in
+`tests/test_web.py` `GET_ROUTES`; a new inline slot needs its placeholder in `index.html`.
 
 ## Trademark
 
