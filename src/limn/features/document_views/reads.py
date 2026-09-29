@@ -50,18 +50,19 @@ def pins_rev(pins_jsonl: Path) -> str:
 
 
 def doc_brief(D: Doc, state_dir: Path) -> dict[str, Any]:
-    """A summary of document D - an entry of /api/docs and (with several documents) of /api/meta's docs: kind, path,
-    staleness against its manuscript, build in progress and last result, the page directory on screen and its page
-    count. Never writes (called from polling)."""
+    """A summary of document D - an entry of /api/docs and (with several documents) of /api/meta's docs: kind, whether
+    its pins are regions only (view_only), path, staleness against its manuscript (only for a document built from
+    source), build in progress and last result, the page directory on screen and its page count. Never writes (called
+    from polling)."""
     b = build.state_snapshot(D)
-    stale = (not D.is_pdf) and build.source_newer(D, state_dir) > 2
+    stale = D.builds_from_source and build.source_newer(D, state_dir) > 2
     pdir = build.cur_pages(D)
     n_pages = sum(1 for _ in pdir.glob("page-*.png")) if pdir.is_dir() else 0
     return {
         "key": D.key,
         "name": D.name,
         "kind": D.kind,
-        "view_only": D.is_pdf,
+        "view_only": D.view_only,
         "path": D.rel_path(),
         "main": D.main.name,
         "stale_build": stale,
@@ -99,9 +100,10 @@ def meta(
     D: Doc, actor: Mapping[str, Any], settings: MetaSettings, docs: Sequence[Doc], sync: Mapping[str, Any], now: float
 ) -> dict[str, Any]:
     """GET /api/meta for document D without the pin counts - exactly the light poll's body: its pages (sized at
-    settings.dpi), build markers, staleness, the build in progress and the last finished one, the instance settings,
-    who is asking (actor) and the --git-pull status (sync). With several documents, each one's summary (docs) and a
-    signature of their manuscript mtimes (src_sig). now is the clock the manuscript age is measured against."""
+    settings.dpi), build markers, staleness (only for a document built from source), the build in progress and the
+    last finished one, the instance settings, who is asking (actor) and the --git-pull status (sync). With several
+    documents, each one's summary (docs) and a signature of their manuscript mtimes (src_sig). now is the clock the
+    manuscript age is measured against."""
 
     def read(f: str) -> str:
         """A build marker file of D (built_at.txt, head.txt), or "?" when it cannot be read."""
@@ -112,8 +114,8 @@ def meta(
 
     bstate = build.state_snapshot(D)
     sm = build.src_mtime(D, settings.state)
-    # view-only: the server re-renders on its own when the PDF changes
-    newer = 0.0 if D.is_pdf else build.source_newer(D, settings.state)
+    # not built from source: the server re-renders on its own when the watched file changes
+    newer = build.source_newer(D, settings.state) if D.builds_from_source else 0.0
     multi = len(docs) > 1
     out = {
         "pages": build.page_list(build.cur_pages(D), settings.dpi),
@@ -131,7 +133,7 @@ def meta(
         "doc": D.key,
         "doc_name": D.name,
         "kind": D.kind,
-        "view_only": D.is_pdf,
+        "view_only": D.view_only,
         "multi": multi,
         # Is the manuscript newer than the PDF on screen - the server judges this numerically (independent of browser clock/timezone).
         "stale_build": newer > 2,
@@ -161,11 +163,12 @@ def pin_counts(states: Sequence[str]) -> dict[str, int]:
 def outline_labels(D: Doc) -> dict[str, Any]:
     """GET /api/outline-labels for document D: {build, labels} - the name of the page directory on screen and the
     outline rows (limn.features.document_views.outline.toc_labels) of the .aux that same build published next to its PDF. Never the .aux in
-    the mutable build copy, which a later failed build may have overwritten. No labels for a view-only document, a
-    build without an .aux, an .aux that is a symlink or larger than AUX_MAX_BYTES, or one that cannot be read."""
+    the mutable build copy, which a later failed build may have overwritten. No labels for a document not built from
+    source (it publishes no .aux), a build without an .aux, an .aux that is a symlink or larger than AUX_MAX_BYTES, or
+    one that cannot be read."""
     pages = build.cur_pages(D)
     result: dict[str, Any] = {"build": pages.name, "labels": []}
-    if D.is_pdf:
+    if not D.builds_from_source:
         return result
     aux = pages / (D.main.stem + ".aux")
     try:

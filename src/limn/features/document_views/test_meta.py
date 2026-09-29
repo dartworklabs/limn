@@ -268,6 +268,25 @@ class Meta(Fixture):
         self.assertEqual(out["src_sig"], ",".join("%s=%.3f" % (d["key"], d["src_mtime"]) for d in out["docs"]))
         self.assertTrue(out["docs"][2]["view_only"])
 
+    def test_staleness_and_view_only_follow_the_document_capabilities(self):
+        """A .tex saved after the build on screen makes the LaTeX document stale in /api/docs and /api/meta; the
+        view-only PDF in the same folder is never stale, however new its file, and is the one marked view_only."""
+        for D in (self.ms, self.rv):
+            self.pages(D)
+            (D.dir / "built_src_mtime.txt").write_text("1.0", encoding="utf-8")
+        later = time.time() + 30
+        for name in ("main.tex", "review.pdf"):
+            os.utime(self.src / name, (later, later))
+        docs = [self.ms, self.rv]
+        briefs = meta.docs_payload(docs, [], lambda r: "ms", self.state)["docs"]
+        self.assertEqual(
+            [(b["key"], b["stale_build"], b["view_only"]) for b in briefs], [("ms", True, False), ("rv", False, True)]
+        )
+        light = [meta.meta(D, {}, self.settings, docs, {}, later) for D in docs]
+        self.assertEqual(
+            [(m["doc"], m["stale_build"], m["view_only"]) for m in light], [("ms", True, False), ("rv", False, True)]
+        )
+
     def test_pin_counts_in_order(self):
         """open, done (review excluded) and review, each counted once."""
         self.assertEqual(
