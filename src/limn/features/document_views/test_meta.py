@@ -6,7 +6,9 @@ InstanceMeta); their bodies were compared byte for byte with the code they came 
 read is called
 with the document, the document list and the settings as arguments: the modules must not read the server's globals
 or import it, and each rule holds on its own - which .aux the outline reads, what the light meta body carries, how
-open pins are counted per document, which document a request or a pin belongs to.
+open pins are counted per document, which document a request or a pin belongs to, which capabilities each document
+kind answers (Capabilities), and that the retired is_pdf flag never reappears in the package or its tests
+(RetiredKindFlag).
 
 Run: uv run pytest -q src/limn/features/document_views/test_meta.py
 """
@@ -71,7 +73,7 @@ LIGHT_KEYS = [
     "build",
 ]
 
-# The capability table of the shared contract (docs/superpowers/plans/2026-09-30-figure-documents.md, Shared contract).
+# The capability table of the shared contract (docs/handbook/domain.md §여러 문서).
 # A new DocKind value adds its row here before any branch can serve it.
 CAPABILITY_TABLE = {
     "tex": {

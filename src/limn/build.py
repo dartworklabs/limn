@@ -112,7 +112,8 @@ class BuildDoc(BuildStateHolder, Protocol):
 
     @property
     def builds_from_source(self) -> bool:
-        """latexmk builds it from the tree under src (limn.documents.Doc.builds_from_source); False: main is the PDF."""
+        """latexmk builds it from the tree under src; False: its pages come from a file Limn only reads, not built
+        from source (limn.documents.Doc.builds_from_source)."""
 
     @property
     def watches_files(self) -> bool:

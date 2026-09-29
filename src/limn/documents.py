@@ -181,7 +181,7 @@ class Doc:
     @property
     def watches_files(self) -> bool:
         """The view-only watch thread re-renders its pages when its file changes, and startup renders them when the
-        file changed since the last render (--no-build or not)."""
+        file changed since the last render or no page images exist at the current dpi (--no-build or not)."""
         return self.kind == "pdf"
 
     @property
