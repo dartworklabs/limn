@@ -95,6 +95,10 @@ reasons, the responses gain two headers and page images change their `Cache-Cont
 
 ### Internal
 
+- **Internal: document kinds are read through capabilities.** `Doc.kind` is the closed type `DocKind` (`"tex"`,
+  `"pdf"`) and the boolean `is_pdf` is gone: every branch asks what a document can do - `builds_from_source`,
+  `watches_files`, `takes_line_pins`, `shows_revisions`, `view_only`. No change to the HTTP API, `pins.md`, the state
+  directory or the command line; the move was checked by a differential run against the code before it.
 - **Internal: the server is split into modules.** No change to the HTTP API, `pins.md`, the state directory or the
   command line; each move was checked by a differential run against the code before it, in a separate process.
   - `src/limn/server.py` is only the composition root: the run settings, the document list, the per-process locks and

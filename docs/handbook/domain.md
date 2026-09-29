@@ -306,6 +306,24 @@ section 단계는 두지 않는다. 절 전체를 범위로 잡으면 수백 줄
 
 `--doc` 인자의 형식은 [operations.md](operations.md) §여러 문서 (`--doc`)에, 뷰어의 문서 전환은 [viewer.md](viewer.md)에 있다.
 
+### 문서 종류와 능력
+
+문서 종류(`Doc.kind`)는 `tex`(LaTeX 원고)와 `pdf`(보기 전용 PDF) 둘이다. 종류는 기동할 때 `--doc` 경로의 확장자에서 한 번 정한다(`parse_doc_arg`). 대소문자는 가리지 않는다. 그 뒤로는 닫힌 타입 `DocKind`로 다닌다. `--doc` 없이 띄운 단일 문서는 `tex`다.
+
+분기는 종류 이름을 묻지 않고 **능력**을 묻는다. 능력은 `Doc`의 속성이고, 종류에서 능력을 정하는 규칙은 [`limn/documents.py`](../../src/limn/documents.py) 한 곳에 있다. 그래서 종류가 늘어도 분기마다 종류 목록을 고치지 않는다.
+
+| 능력 | 뜻 | `tex` | `pdf` |
+| --- | --- | --- | --- |
+| `builds_from_source` | 원고에서 빌드한다. latexmk, `--git-pull` 뒤 재빌드, `POST /api/rebuild`, 원고가 더 새롭다는 `stale_build`, `.aux` 목차, 원고 트리의 지문과 `src_mtime`이 여기에 걸린다 | 예 | 아니요 |
+| `watches_files` | 감시 스레드가 파일이 바뀌면 쪽을 다시 그린다. 기동 때도 파일이 바뀌었으면 `--no-build`와 상관없이 그린다 | 아니요 | 예 |
+| `takes_line_pins` | 줄 핀(`file`·`lo`·`hi`)과 anchor 재동기화를 받는다. 파일만 준 요청은 이 능력이 있는 문서 가운데서 찾는다(`doc_for_file`) | 예 | 아니요 |
+| `shows_revisions` | 변경 보기가 있다. 원고 Git 이력과 latexdiff 비교다 | 예 | 아니요 |
+| `view_only` | 핀이 쪽·영역뿐이다. 늘 `takes_line_pins`의 반대이며, API의 `view_only`가 이 값이다 | 아니요 | 예 |
+
+기동 때 `--doc` 값을 파싱한 뒤, 아직 `Doc`을 만들기 전에 두 가지를 정한다. 키가 `main`인 문서가 상태 폴더 루트를 쓰는지와 실행의 메인 파일이 무엇인지다. 둘 다 같은 규칙(`kind_builds_from_source`)을 쓴다.
+
+종류 자체를 알리는 곳만 `kind`를 읽는다. API의 `kind`, 권한 대상의 문서 신원, 기동 로그의 문서 줄(`doc_start_line`)이 그렇다. 기동 로그는 종류마다 이름을 고르는 `match`라서, 종류가 늘면 타입 검사가 빠진 이름을 잡는다. 종류를 더할 때는 [`test_meta.py`](../../src/limn/features/document_views/test_meta.py)의 능력 표에 그 종류의 행을 먼저 적는다. 행이 없으면 테스트가 실패한다.
+
 ### 서버
 
 | 결정 | 이유 |
