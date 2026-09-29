@@ -16,7 +16,7 @@ import struct
 import sys
 import threading
 import time
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Protocol, TypeGuard, TypeVar
@@ -45,7 +45,8 @@ from limn.build_values import (
     RenderFailureKind as RenderFailureKind,
     ViewOnlyNoRebuild as ViewOnlyNoRebuild,
 )
-from limn.files import atomic_write
+from limn.figmap import MAP_MAX_BYTES, FigureMap, MapRejected, parse_map
+from limn.files import PATH_MAX_CHARS, atomic_write
 from limn.pins.shapes import is_finite_num, is_int, is_num
 
 PAGES_DIR_RE = re.compile(r"pages(-\d{14}(-\d+)?)?")
@@ -60,6 +61,8 @@ SRC_FIG_EXTS = (".png", ".jpg", ".jpeg", ".pdf", ".eps", ".svg")
 SRC_MTIME_EXTS = SRC_TEX_EXTS + SRC_FIG_EXTS
 # Build artifact directories (in case the state directory is placed inside the manuscript) + directories the build rsync excludes.
 BUILD_OUTDIRS = ("build", "out") + BUILD_EXCLUDE_DIRS
+
+FIGMAP_NAME = "figmap.json"  # a figure document's element map, copied into every page directory next to its PDF
 
 
 class BuildStateHolder(Protocol):
@@ -205,6 +208,83 @@ def build_pdf(D: BuildDoc, name: object) -> Path | None:
         return None
     f = pdir / D.pdf_name
     return f if f.is_file() else None
+
+
+# ---------------------------------------------------------------- Figure documents: map paths and the per-build map
+#
+# A figure document's import (limn.features.builds.figure) publishes the map next to the PDF copy in every page
+# directory. The pick and the pin input read it back per build; these readers live here, with the other shared build
+# artifacts, so no feature imports another.
+
+
+def _inside_folder(base: Path, start: Path, rel: str) -> Path | None:
+    """rel - a path a figure map names, POSIX separators - resolved from the folder start, when it lies strictly inside
+    base (already resolved) and no part below base starts with '.', the manuscript tree's rule for dot names
+    (limn.files.tree_part). None for an empty, absolute or over-long path, one holding a backslash or a NUL, the folder
+    base itself, or a path that cannot be resolved. Symlinks are resolved, so a link that leads out of base is outside.
+    The file need not exist; only metadata is read."""
+    if not rel or len(rel) > PATH_MAX_CHARS or rel.startswith("/") or "\\" in rel or "\x00" in rel:
+        return None
+    try:
+        real = (start / rel).resolve()
+        below = real.relative_to(base)
+    except (ValueError, OSError, RuntimeError):
+        return None
+    if not below.parts or any(part.startswith(".") for part in below.parts):
+        return None
+    return real
+
+
+def figure_source_check(root: Path) -> Callable[[str], bool]:
+    """The source_inside limn.figmap.parse_map takes for a figure document whose folder (Doc.src) is root: a map's
+    src.file or impl.file passes when _inside_folder finds it inside root, resolved from root itself. Answers are kept
+    per path for the life of the returned check, so a map naming one script for many elements resolves it once. A
+    root that cannot be resolved lets nothing pass."""
+    try:
+        base = root.resolve()
+    except (OSError, RuntimeError):
+        return lambda rel: False
+    known: dict[str, bool] = {}
+
+    def inside(rel: str) -> bool:
+        """Whether rel lies inside the figure document's folder (remembered per path)."""
+        if rel not in known:
+            known[rel] = _inside_folder(base, base, rel) is not None
+        return known[rel]
+
+    return inside
+
+
+def figure_pdf(doc: BuildDoc, figure_map: FigureMap) -> Path | None:
+    """The PDF figure_map names, resolved from the folder holding doc's map (doc.main) and kept only when it lies inside
+    doc.src (_inside_folder): the one path the import may read, or None. The file need not exist."""
+    try:
+        base = doc.src.resolve()
+    except (OSError, RuntimeError):
+        return None
+    return _inside_folder(base, doc.main.parent, figure_map.pdf)
+
+
+def load_build_map(doc: BuildDoc, build: str) -> FigureMap | MapRejected | None:
+    """The element map published with page directory `build` of figure document doc (<doc.dir>/<build>/figmap.json),
+    parsed with doc's own source check (figure_source_check of doc.src), so a copy is judged by today's folder. None
+    when build is not a page directory name or that directory has no readable copy. Reads at most MAP_MAX_BYTES + 1
+    bytes; a larger copy is MapRejected too_large."""
+    if not valid_build_name(build):
+        return None
+    try:
+        with open(doc.dir / build / FIGMAP_NAME, "rb") as fh:
+            raw = fh.read(MAP_MAX_BYTES + 1)
+    except OSError:
+        return None
+    return parse_map(raw, source_inside=figure_source_check(doc.src))
+
+
+def build_figure_pdf(doc: BuildDoc, build: str) -> Path | None:
+    """The source PDF named by the map published with page directory `build` of figure document doc (load_build_map,
+    then figure_pdf), or None when that build has no loadable map or its pdf lies outside doc.src."""
+    found = load_build_map(doc, build)
+    return figure_pdf(doc, found) if isinstance(found, FigureMap) else None
 
 
 def png_size(path: Path) -> tuple[int, int]:
