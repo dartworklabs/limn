@@ -279,11 +279,12 @@ class SharedPull(unittest.TestCase):
 
 
 class FakeDoc:
-    """A document as the watch reads it: a state folder, a build lock, a build state."""
+    """A document as the watch reads it: a state folder, a build lock, a build state, and whether it builds from source
+    (only such a document is pulled for and rebuilt)."""
 
-    def __init__(self, folder, is_pdf=False, built=None, state="idle"):
-        """built: head.txt's text, or None for no head.txt."""
-        self.dir, self.is_pdf = Path(folder), is_pdf
+    def __init__(self, folder, builds_from_source=True, built=None, state="idle"):
+        """builds_from_source: False for a view-only PDF; built: head.txt's text, or None for no head.txt."""
+        self.dir, self.builds_from_source = Path(folder), builds_from_source
         self.lock, self.bstate_lock = threading.Lock(), threading.Lock()
         self.bstate = {"state": state}
         self.dir.mkdir(parents=True, exist_ok=True)
@@ -300,7 +301,7 @@ class Watch(unittest.TestCase):
         root = Path(self.tmp.name)
         self.ms = FakeDoc(root / "ms", built="aaaaaaa")
         self.hl = FakeDoc(root / "hl", built="bbbbbbb")
-        self.pdf = FakeDoc(root / "pdf", is_pdf=True)
+        self.pdf = FakeDoc(root / "pdf", builds_from_source=False)
         self.docs = [self.ms, self.hl, self.pdf]
         self.started = []
 
