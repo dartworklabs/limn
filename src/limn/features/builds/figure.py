@@ -69,12 +69,15 @@ class ImportDeferred:
 @dataclass
 class MapLooks:
     """What the watch last learned from each figure document's map, keyed by the map's path: the map's signature and
-    the PDF it names (None when the map is rejected or names a PDF outside the document's folder). One per run
-    (features.builds.service.BuildRequests): a tick stats both files and reads the map again only when its signature
-    changed. Startup and the watch thread never look at one document at the same time; a lost update would only cost
-    one extra read."""
+    its parsed map (None when the map is rejected). Only the map itself is memoised - the PDF it names is resolved
+    fresh (build.figure_pdf) on every tick, even when the map is unchanged, because it can name a symlink inside the
+    folder: the same map can be made to point at a different target, or start pointing at one that did not exist
+    before, without the map's own bytes (and so its signature) ever changing. Caching the once-resolved path would
+    miss both. One per run (features.builds.service.BuildRequests): a tick stats the map and reads it again only when
+    its signature changed. Startup and the watch thread never look at one document at the same time; a lost update
+    would only cost one extra read."""
 
-    seen: dict[str, tuple[str, Path | None]] = field(default_factory=dict)
+    seen: dict[str, tuple[str, FigureMap | None]] = field(default_factory=dict)
 
 
 def stat_signature(st: os.stat_result) -> str:
@@ -116,30 +119,35 @@ def _read_file(path: Path, limit: int | None) -> FileRead | None:
     return FileRead(raw, stat_signature(st))
 
 
-def _named_pdf(D: BuildDoc, raw: bytes) -> Path | None:
-    """The PDF the map bytes raw name inside D's folder (limn.build.figure_pdf), or None when the map is rejected or
-    names a PDF outside that folder."""
+def _parsed_map(D: BuildDoc, raw: bytes) -> FigureMap | None:
+    """D's map bytes raw, parsed with D's own source check (limn.figmap.parse_map): the map when it is one, else None
+    when it is rejected. Does not resolve the PDF the map names - watch_signature does that itself, every time, since
+    the target can change (a repointed symlink) without these bytes changing."""
     parsed = parse_map(raw, source_inside=build.figure_source_check(D.src))
-    return build.figure_pdf(D, parsed) if isinstance(parsed, FigureMap) else None
+    return parsed if isinstance(parsed, FigureMap) else None
 
 
 def watch_signature(D: BuildDoc, looks: MapLooks) -> str | None:
     """ "<map mtime_ns>:<map size>|<pdf mtime_ns>:<pdf size>" of figure document D now, or None when its map is missing
     (or not a regular file). The PDF half is NO_FILE when the map is rejected, names a PDF outside D's folder, or that
-    PDF is missing. The map is read only when its own signature differs from the one looks remembers for it."""
+    PDF is missing. The map is read again only when its own signature differs from the one looks remembers for it, but
+    the PDF path is resolved from the (possibly memoised) parsed map on every call (build.figure_pdf) rather than
+    memoised itself - the map may name a symlink inside the folder, and it can be repointed, or start existing, without
+    the map's own signature moving; only a fresh resolve sees that."""
     key = str(D.main)
     map_sig = _file_signature(D.main)
     if map_sig == NO_FILE:
         return None
     known = looks.seen.get(key)
     if known is not None and known[0] == map_sig:
-        pdf = known[1]
+        fm = known[1]
     else:
         got = _read_file(D.main, MAP_MAX_BYTES)
         if got is None:
             return None
-        map_sig, pdf = got.signature, _named_pdf(D, got.raw)
-        looks.seen[key] = (map_sig, pdf)
+        map_sig, fm = got.signature, _parsed_map(D, got.raw)
+        looks.seen[key] = (map_sig, fm)
+    pdf = build.figure_pdf(D, fm) if fm is not None else None
     return map_sig + "|" + _file_signature(pdf)
 
 

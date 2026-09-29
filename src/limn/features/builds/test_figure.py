@@ -248,6 +248,41 @@ class Deferral(FigureTree):
         self.assertIsNone(self.pending(first=True))
         self.assertIsNone(figure.settled_signature(self.doc))
 
+    def test_a_symlinked_pdf_repointed_to_a_new_target_is_seen_without_a_map_change(self):
+        """The map names current.pdf, a symlink first pointing at v1.pdf (whose bytes do not match the map's declared
+        hash - deferred pdf_mismatch). Repointing the same symlink to v2.pdf, whose bytes do match, is picked up on
+        the next tick even though the map's own bytes never change: the resolved target must be recomputed on every
+        tick, not cached from the first look - a cached target would report pdf_mismatch, or nothing, forever."""
+        v1, v2 = self.figs / "out" / "v1.pdf", self.figs / "out" / "v2.pdf"
+        self.producer.write(v1, MINI_PDF)
+        self.producer.write(v2, OTHER_PDF)
+        link = self.figs / "out" / "current.pdf"
+        link.symlink_to(v1)
+        self.producer.write(self.map, map_bytes(figure_map(OTHER_PDF, "current.pdf")))
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            self.assertIsNone(figure.pending_import(self.doc, self.looks, 72, first=True))
+        self.assertIn("pdf_mismatch", err.getvalue())
+        link.unlink()
+        link.symlink_to(v2)
+        self.assertIsInstance(self.pending(), figure.FigureImport)
+
+    def test_a_pdf_that_becomes_a_symlink_after_the_map_named_it_is_still_found(self):
+        """The map names current.pdf before that path exists at all (deferred pdf_missing - there is nothing yet for
+        figure_pdf's resolve to follow, so it reports the literal, nonexistent path). Once current.pdf appears as a
+        symlink to a real PDF matching the map's hash, the pair is ready on the next tick: the target must be
+        resolved again then, not reused from the earlier look, which could not have resolved through a symlink that
+        did not exist yet."""
+        v1 = self.figs / "out" / "v1.pdf"
+        self.producer.write(v1, MINI_PDF)
+        self.producer.write(self.map, map_bytes(figure_map(MINI_PDF, "current.pdf")))
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            self.assertIsNone(figure.pending_import(self.doc, self.looks, 72, first=True))
+        self.assertIn("pdf_missing", err.getvalue())
+        (self.figs / "out" / "current.pdf").symlink_to(v1)
+        self.assertIsInstance(self.pending(), figure.FigureImport)
+
 
 class Render(FigureTree):
     """render_figure_doc and import_now: the pages, the PDF copy and the map copy land together."""
