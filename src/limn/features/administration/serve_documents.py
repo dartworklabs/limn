@@ -336,6 +336,18 @@ def make_docs(specs: Sequence[str], ms: Path, paths: RunPaths) -> list[Doc] | Do
     return docs_of(parsed, paths) if isinstance(parsed, list) else parsed
 
 
+def doc_start_line(key: str, kind: DocKind, path: str, build_started: bool) -> str:
+    """The startup line naming one --doc document: its key padded to ten, its kind's label, its path relative to
+    --manuscript and, when startup began its build, "  (build started)". The label is chosen by an exhaustive match on
+    kind, so a new DocKind fails the type check until it has a label (mypy exhaustive-match)."""
+    match kind:
+        case "tex":
+            label = "LaTeX   "
+        case "pdf":
+            label = "view-only"
+    return "doc    %-10s %s %s%s" % (key, label, path, "  (build started)" if build_started else "")
+
+
 def detect_main(src: Path) -> Path | StartupRefused:
     """Find the top-level .tex. If it's ambiguous, don't guess - refuse with the candidates."""
     cands = [

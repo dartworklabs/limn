@@ -73,3 +73,21 @@ class BuildsFromSourceAtStartup(StartupTree):
         )
         self.assertIsInstance(got, RunDocuments)
         self.assertEqual(got.main, self.ms / "main.tex")
+
+
+class DocStartLine(unittest.TestCase):
+    """doc_start_line is the stdout line server.prepare prints per --doc document, byte for byte as operators see it."""
+
+    def test_a_latex_document_with_a_started_build_reads_latex(self):
+        """tex prints 'LaTeX' and three spaces after the key padded to ten, then the path and the build note."""
+        self.assertEqual(
+            serve_documents.doc_start_line("ms", "tex", "main.tex", True),
+            "doc    ms         LaTeX    main.tex  (build started)",
+        )
+
+    def test_a_view_only_document_without_a_build_reads_view_only(self):
+        """pdf prints 'view-only'; a document whose startup build was skipped carries no note."""
+        self.assertEqual(
+            serve_documents.doc_start_line("rv", "pdf", "sub/review.pdf", False),
+            "doc    rv         view-only sub/review.pdf",
+        )
