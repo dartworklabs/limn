@@ -1,7 +1,7 @@
 """Shared fixtures of the server-level tests: the one loaded copy of server.py (ps), the Base fixture that points it at a
 temporary manuscript and state folder, the socketpair request helpers, the node harness for the viewer's scripts, and
 the viewer's source text and page images, and the test data more than one module checks (the reply rule's table
-RULE_CASES with rec_for, a minimal PDF for the browser's comparison view).
+RULE_CASES with rec_for, a minimal PDF for the browser's comparison view, a figure's element map).
 
 Every test module that drives server.py imports from here, so the process holds a single server copy with a fresh
 application per Base test. The access fixtures (identities, AccessBase) are in
@@ -12,6 +12,7 @@ fixtures only from these helpers, never from one another.
 import dataclasses
 import errno
 import functools
+import hashlib
 import importlib.util
 import ipaddress
 import json
@@ -593,3 +594,47 @@ def minimal_pdf(label: str = "") -> bytes:
     out += b"xref\n0 %d\n0000000000 65535 f \n" % (len(objs) + 1) + b"".join(b"%010d 00000 n \n" % o for o in offs)
     out += b"trailer\n<< /Size %d /Root 1 0 R >>\nstartxref\n%d\n%%%%EOF\n" % (len(objs) + 1, x)
     return bytes(out)
+
+
+def figure_map(pdf: bytes, pdf_name: str = "figures.pdf") -> dict:
+    """The element map (limn-figure-map/1) of the design's example - one page, figure B2 with a calendar strip and its
+    July cell, whose code lines are in src/B2_calendar.py and whose shared component is in lib/components.py - that
+    describes the PDF bytes pdf and names that PDF pdf_name, relative to the map's folder."""
+    return {
+        "format": "limn-figure-map/1",
+        "pdf": pdf_name,
+        "pdf_sha256": hashlib.sha256(pdf).hexdigest(),
+        "pages": [
+            {
+                "page": 1,
+                "figure": "B2",
+                "title": "Deployment calendar",
+                "elements": [
+                    {"id": "B2", "frac": [0, 0, 1, 1], "src": {"file": "src/B2_calendar.py", "lo": 12, "hi": 140}},
+                    {
+                        "id": "B2/calendar",
+                        "parent": "B2",
+                        "part": "CalendarStrip",
+                        "label": "달력",
+                        "frac": [0.06, 0.18, 0.88, 0.12],
+                        "src": {"file": "src/B2_calendar.py", "lo": 80, "hi": 97},
+                    },
+                    {
+                        "id": "B2/calendar/m07",
+                        "parent": "B2/calendar",
+                        "part": "MonthCell",
+                        "label": "7월",
+                        "frac": [0.47, 0.18, 0.07, 0.12],
+                        "src": {"file": "src/B2_calendar.py", "lo": 88, "hi": 95},
+                        "impl": {"file": "lib/components.py", "lo": 410, "hi": 470},
+                    },
+                ],
+            }
+        ],
+    }
+
+
+def map_bytes(m: dict) -> bytes:
+    """The bytes a producer writes for map m: its JSON text with non-ASCII escaped, so a lone surrogate stays
+    expressible for the tests that need one."""
+    return json.dumps(m).encode("ascii")
