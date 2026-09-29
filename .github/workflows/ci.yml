@@ -105,10 +105,15 @@ jobs:
           for f in vendor/pdfjs/pdf.min.mjs systemd/limn@.service instances.sh \
                    features/administration/instance_update.sh features/administration/instance_documents.sh \
                    features/administration/instance_lifecycle.sh features/administration/instance_inspection.sh \
-                   viewer/index.html viewer/parts.txt viewer/css/tokens.css viewer/js/events.js; do
+                   viewer/index.html viewer/parts.txt viewer/css/tokens.css viewer/js/events.js \
+                   brand/SHA256SUMS brand/favicon.ico brand/favicon-dark.ico brand/apple-touch-icon.png \
+                   brand/limn-wordmark-light-20.svg; do
             find "$python_dir" -path "*limn/$f" | grep -q . || { echo "not packaged: $f"; exit 1; }
             echo "packaged: $f"
           done
+          # What start() reads before it serves: the viewer package and every brand file limn.mark names. A file the
+          # wheel dropped fails here instead of on every instance's restart after `limn update`.
+          "$python_dir/bin/python" -c "from limn import mark, server; v = server.read_viewer(); assert sorted(v.icons) == sorted(mark.ICON_ROUTES), sorted(v.icons); print('startup read:', len(v.icons), 'icons,', len(v.template), 'bytes of page')"
 
   tex:
     # The tests that run real TeX-side tools (the `tex` marker, tests/helpers.py needs_tex): real latexmk builds and

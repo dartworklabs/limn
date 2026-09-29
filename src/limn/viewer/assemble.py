@@ -3,14 +3,16 @@
 viewer_html() is the whole assembly. It reads index.html and the parts parts.txt lists from the viewer folder and
 fills the page's build-time placeholders from its arguments - nothing else (no settings, no clock, no process state),
 so the same folder and arguments give the same string, byte for byte. The run-time placeholders (__LABEL__,
-__ACCENT__, __ACCENT_KEY__, __FAVICON_HREF__) are left for run_page(), which the composition root calls with the run's
-label and accent once they are known (server.start): the template (ViewerFiles) and the served page (ServedViewer)
-are separate values, and nothing here runs at import.
+__ACCENT__) are left for run_page(), which the composition root calls with the run's label and accent once they are
+known (server.start): the template (ViewerFiles) and the served page (ServedViewer) are separate values, and nothing
+here runs at import.
 
 Placeholders filled here:
 - __APP_CSS__ / __APP_JS__: the parts listed under each marker in parts.txt, joined in order (load_viewer_html).
 - __PDFJS_VERSION__: the vendored PDF.js version, the ?v= that busts the browser cache for /vendor/pdfjs/.
-- __LIMN_MARK__: the Limn mark's inline SVG (limn.mark), by the label and in the help header.
+- __LIMN_MARK_16__ / __LIMN_MARK_14__ / __LIMN_WORDMARK__: the Limn logo's inline SVGs (limn.mark.MARK_SLOTS) - the
+  icon by the label in the top bar and in the [더보기] label chip, the wordmark in the help header.
+- __ICON_KEY__: the content key of the icon files (limn.mark.Brand.key), the ?v= of the favicon links.
 - __LUCIDE_JSON__: the icon table, for the viewer's JS ic().
 - __UI_EN_JSON__: the ko -> en message table (ui_en.json), for the viewer's I18N_EN.
 - {{ic:<name>}}: one icon as an inline <svg> (icon_svg), the same markup the JS ic() builds.
@@ -26,12 +28,11 @@ import html
 import json
 import re
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TypeAlias
-from urllib.parse import quote
 
-from limn.mark import favicon_svg
+from limn.mark import Icon
 
 # One entry of the message table: an English string, or plural forms {"one": ..., "other": ...} for a key with {n}.
 Message: TypeAlias = str | dict[str, str]
@@ -203,11 +204,18 @@ def service_worker(directory: Path) -> str:
 
 
 def viewer_html(
-    directory: Path, messages: Mapping[str, Message], *, pdfjs_version: str, mark: str, icons: Mapping[str, str]
+    directory: Path,
+    messages: Mapping[str, Message],
+    *,
+    pdfjs_version: str,
+    marks: Mapping[str, str],
+    icon_key: str,
+    icons: Mapping[str, str],
 ) -> str:
-    """The viewer page served at GET /, before the run-time placeholders: build_html() fills those per instance.
+    """The viewer page served at GET /, before the run-time placeholders: run_page() fills those per instance.
 
-    The page and its parts come from directory (load_viewer_html); pdfjs_version, the mark's SVG, the icon table and
+    The page and its parts come from directory (load_viewer_html); pdfjs_version, the logo's inline SVGs (marks:
+    placeholder -> markup, limn.mark.Brand.marks, in placeholder order), the favicon links' icon_key, the icon table and
     the message table fill their placeholders, in that order, and every {{ic:<name>}} token becomes its icon's <svg>.
     The JSON forms are sorted by key so the page does not depend on the table's order; the message table's "</" is
     escaped so a string can never close the <script> it sits in. Raises like load_viewer_html, and KeyError for an
@@ -215,7 +223,9 @@ def viewer_html(
     """
     page = load_viewer_html(directory)
     page = page.replace("__PDFJS_VERSION__", pdfjs_version)
-    page = page.replace("__LIMN_MARK__", mark)
+    for placeholder in sorted(marks):
+        page = page.replace(placeholder, marks[placeholder])
+    page = page.replace("__ICON_KEY__", icon_key)
     page = page.replace("__LUCIDE_JSON__", json.dumps(dict(icons), sort_keys=True))
     table = json.dumps(dict(messages), ensure_ascii=False, sort_keys=True).replace("</", "<\\/")
     page = page.replace("__UI_EN_JSON__", table)
@@ -228,44 +238,37 @@ def viewer_html(
 @dataclass(frozen=True)
 class ViewerFiles:
     """The viewer package as read from disk once per process: the page template (viewer_html, the run-time
-    placeholders still in it), the service worker (service_worker) and the ko -> en message table (load_ui_messages).
-    The composition root reads it at startup (server.read_viewer), never at import."""
+    placeholders still in it), the service worker (service_worker), the ko -> en message table (load_ui_messages)
+    and the icon each favicon route serves (limn.mark.Brand.icons, by GET path; empty serves none). The composition
+    root reads it at startup (server.read_viewer), never at import."""
 
     template: str
     service_worker: str
     messages: dict[str, Message]
+    icons: Mapping[str, Icon] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
 class ServedViewer:
     """What the viewer routes of one run answer: the page GET / serves (the template with the run's label and accent,
-    run_page), the service worker GET /sw.js serves and the message table a refused browser's page reads."""
+    run_page), the service worker GET /sw.js serves, the message table a refused browser's page reads and the icon
+    each favicon route serves (by GET path; the same for every run - the tile is never the instance colour)."""
 
     page: str
     service_worker: str
     messages: dict[str, Message]
-
-
-def favicon_href(accent: str) -> str:
-    """The Limn mark (limn.mark) as an SVG data URL: the tile in the instance accent (#rrggbb), the glyph white. The
-    accent tells tabs of different instances apart; the tab title carries the label. Quote-encoded for data:."""
-    return "data:image/svg+xml," + quote(favicon_svg(accent), safe="")
+    icons: Mapping[str, Icon] = field(default_factory=dict)
 
 
 def run_page(template: str, label: str, accent: str) -> str:
-    """The page GET / serves: template (viewer_html) with the run-time placeholders filled in.
-
-    __LABEL__ becomes the HTML-escaped label, __ACCENT_KEY__ the accent's hex digits in lower case (it keys the PNG
-    favicon URLs, so a new accent is never served from a cache), __ACCENT__ the accent and __FAVICON_HREF__ its SVG
-    data URL (favicon_href), in that order."""
+    """The page GET / serves: template (viewer_html) with the run-time placeholders filled in - __LABEL__ with the
+    HTML-escaped label, then __ACCENT__ with the accent (#rrggbb, startup.run_accent checks it), for the stripe and the
+    label chip. The favicons do not depend on the run: tabs of different instances are told apart by their title."""
     out = template.replace("__LABEL__", html.escape(label, quote=True))
-    out = out.replace("__ACCENT_KEY__", accent.lstrip("#").lower())
-    out = out.replace("__ACCENT__", accent)
-    out = out.replace("__FAVICON_HREF__", favicon_href(accent))
-    return out
+    return out.replace("__ACCENT__", accent)
 
 
 def serve_viewer(files: ViewerFiles, label: str, accent: str) -> ServedViewer:
-    """What a run labelled `label` in `accent` serves from the viewer files: the filled page (run_page), the service
-    worker and the message table as read."""
-    return ServedViewer(run_page(files.template, label, accent), files.service_worker, files.messages)
+    """What a run labelled `label` in `accent` serves from the viewer files: the filled page (run_page), and the
+    service worker, the message table and the icons as read."""
+    return ServedViewer(run_page(files.template, label, accent), files.service_worker, files.messages, files.icons)

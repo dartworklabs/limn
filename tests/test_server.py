@@ -741,7 +741,7 @@ class StartupRefusals(unittest.TestCase):
 
 
 class BuildHtmlSubstitution(unittest.TestCase):
-    """Viewer HTML substitutes escaped branding and a matching favicon."""
+    """Viewer HTML substitutes escaped branding next to the Limn logo."""
 
     def test_label_and_accent_appear_in_output(self):
         """The served page (limn.viewer.assemble.run_page over the template) fills the label (title, identity crumb
@@ -754,26 +754,20 @@ class BuildHtmlSubstitution(unittest.TestCase):
         self.assertNotIn('id="brand-chip"', out)
         self.assertIn('id="brand-stripe" style="background:#1d4ed8"', out)
         self.assertNotIn("__LABEL__", out)
-        self.assertNotIn("__LIMN_MARK__", out)
-        self.assertNotIn("__ACCENT_KEY__", out)
+        self.assertNotIn("__LIMN_", out)
+        self.assertNotIn("__ICON_KEY__", out)
         self.assertNotIn("__ACCENT__", out)
-        self.assertNotIn("__FAVICON_HREF__", out)
 
     def test_label_is_html_escaped(self):
         out = page_for("<script>alert(1)</script>", "#1d4ed8")
         self.assertNotIn("<script>alert(1)</script>", out)
         self.assertIn("&lt;script&gt;", out)
 
-    def test_favicon_is_data_svg_of_the_mark_in_the_accent(self):
-        """The favicon is the Limn mark in the accent (since 0.3.4; it used to be the label's first letter). The label
-        never reaches the SVG, so no label character can break it; a non-#rrggbb accent is refused."""
-        out = viewer_assemble.favicon_href("#1d4ed8")
-        self.assertTrue(out.startswith("data:image/svg+xml,"))
-        from urllib.parse import unquote
-
-        self.assertIn('fill="#1d4ed8"', unquote(out))
-        with self.assertRaises(ValueError):
-            viewer_assemble.favicon_href('#1d4ed8"/><script>')
+    def test_the_label_never_reaches_the_favicon_links(self):
+        """The favicons are the vendored brand files (test_brand.py): the <head> links are the same bytes for any
+        label or accent, so no label character can break them."""
+        links = lambda page: page[page.index("<title>") : page.index("<style>")].split("</title>", 1)[1]  # noqa: E731
+        self.assertEqual(links(page_for('<a href="x">', "#1d4ed8")), links(page_for("A-DEMO", "#be123c")))
 
 
 class ImportReadsNoFile(unittest.TestCase):

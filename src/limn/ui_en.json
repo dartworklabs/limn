@@ -71,7 +71,7 @@
  "Git 저장소가 아닙니다": "Not a Git repository",
  "LaTeX 소스가 없는 PDF입니다 — 줄 번호 없이 쪽·영역과 영역 글자로 핀을 남깁니다": "This PDF has no LaTeX source — pins are left by page, region, and the text in that region, without line numbers",
  "LaTeX 컴파일 중": "Compiling LaTeX…",
- "Limn — 사용법": "Limn — How to use",
+ "— 사용법": "— How to use",
  "N분 전": "N min ago",
  "N시간 전": "N hr ago",
  "N일 전": "N days ago",
