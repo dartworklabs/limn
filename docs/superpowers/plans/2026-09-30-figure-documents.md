@@ -17,12 +17,7 @@ This file is the index. It fixes the order of the phase plans and the names and 
 
 ## Before execution — owner confirmations
 
-The plans are written on these premises. Confirm them before P1a starts, or change ADR-0011 and this index first.
-
-- ADR-0011 D2, D3, D4, D6, D7 (recorded as plan premises; D1 and D5 are decided).
-- The `bad_scope`/`bad_via` error sentences list the grown values (their `reason` codes stay).
-
-P0 has no open premise and can start now.
+All confirmed (ADR-0011): D1 and D5 by the owner; D2–D4, D6, D7 and the grown `bad_scope`/`bad_via` sentences by diagnosis under the owner's delegation. D6's thresholds stay provisional until the first map-producing figure tool is measured. P0 shipped in 0.3.7.
 
 ## Phase plans
 

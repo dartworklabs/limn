@@ -4155,7 +4155,7 @@ I agree to the Limn CLA (CLA.md)."
   Expected: the count prints N, the `## 설정에 없는 문서 · \`fig\`` subsection is present, and `FIGURE-RECORDS-UNCHANGED` prints.
 - [ ] Manual: on a real figure set, drag a point, a small box and a box across two cells. Each answer is the expected element. Record whether `COVER_MIN`/`FILL_MIN` (D6) feel right in the PR, and change nothing without a measured reason.
 - [ ] The PR description lists the §Contract issues (already in the index, checked in Task 11, Step 7) and the value-list growth (ADR-0011 D5).
-- [ ] owner confirmed the grown bad_scope/bad_via sentences
+- [x] owner confirmed the grown bad_scope/bad_via sentences (ADR-0011, by delegated diagnosis)
 
 ## Self-review
 
