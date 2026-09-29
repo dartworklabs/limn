@@ -11,7 +11,7 @@
 > - 알림·상태 점·배지·링크 모양: §상태와 표시
 > - 스레드·검토·변경 보기·@태그·담당·브라우저 알림: §협업 UI
 > - 한 뷰어에서 문서 여러 개 전환: §여러 문서 전환
-> - 색·radius·글자·간격 토큰, 컴포넌트, 아이콘, Limn 마크·파비콘: §디자인 토큰과 컴포넌트
+> - 색·radius·글자·간격 토큰, 컴포넌트, 아이콘, Limn 로고·파비콘: §디자인 토큰과 컴포넌트
 > - PDF.js 벡터 렌더링과 PDF 영역 확대: §렌더링과 확대
 > - 재지 못한 것과 화면·입력의 한계: §알려진 제약
 
@@ -674,7 +674,7 @@
 - `tag` = `pin-<번호>`라 같은 핀의 알림은 한 칸으로 겹친다. 에이전트가 답글과 닫기를 5초 틈을 두고 하면 두 번 오지만, 화면에는 나중 것(`검토 대기`)만 남는다.
 - 제목은 `핀 #N · <문서 이름>`이다.
 - 본문은 `Bob Park님이 불렀습니다: <80자>`(부른 사람의 `name` 그대로 + '님') 또는 `검토 대기: <답 첫 줄>`이다.
-- 아이콘은 180px 마크 PNG(`apple-touch-icon`)다. 없으면 첫 파비콘이다. 안드로이드 알림은 SVG 아이콘을 그리지 않는다.
+- 아이콘은 180px 앱 아이콘 PNG(`apple-touch-icon`, 뼈종이)다. 없으면 첫 파비콘이다. 안드로이드 알림은 SVG 아이콘을 그리지 않는다.
 - 탭이 보이고 포커스가 있으면 알림 대신 토스트([열기])를 띄운다.
 - 탭이 **숨어** 있어도 알림이 켜져 있으면 느린(20초) 이벤트 전용 폴링이 계속 돈다. 이 폴링은 목록을 다시 그리지 않는다.
 
@@ -740,6 +740,8 @@
 | 상태 | `--status-open`·`--status-claimed`·`--status-review`·`--status-closed`·`--status-dropped`·`--status-warning` | 마크·열림 점 / 처리 중 점 / 검토 대기 점 / 완료 아이콘 / 삭제 아이콘 / 위치 잃음·늦어짐·다시 열림(§상태 표현) |
 | 기타 | `--tooltip`·`--tooltip-foreground`·`--shadow-color`·`--shadow-page` | 툴팁·그림자 색·쪽 그림자 |
 | 인스턴스 | `--brand`·`--brand-foreground` | 이름표 색(`--accent` 인자로 서버가 채움, 테마와 무관)·그 위 흰 글자 |
+| 브랜드 | `--limn-ink`·`--limn-ver`·`--limn-bone`·`--limn-cream`·`--limn-paper` | Limn 브랜드 색. `limn-brand.js`의 `COLOR`과 같은 값이다(먹·주·뼈종이·미색·종이). 테마와 무관해 세 번째 `:root` 블록에 있다. 주는 로고의 점에만 쓴다 |
+| 브랜드 | `--mark-tile`·`--mark-stroke` | 로고의 타일·획. 라이트는 뼈종이·먹, 다크는 먹·미색이다(§마크와 파비콘) |
 
 테마와 무관한 척도는 세 번째 `:root` 블록에 있다.
 
@@ -792,7 +794,7 @@
 | --- | --- | --- |
 | 토큰 블록 세 개(`:root`·`:root[data-theme=light]`·척도 블록) | 색·px 값 | 정의하는 자리다 |
 | `#brand-stripe`·`#brand-chip`의 `style="background:__ACCENT__"` | 인스턴스 색 | 서버가 `--accent` 값으로 채운다. 테마가 바뀌어도 그대로여야 하고 회귀 테스트(`BuildHtmlSubstitution`)가 이 모양을 본다 |
-| 파비콘 SVG(`limn.mark.favicon_svg`)와 PNG(`limn.mark.png`) | 인스턴스 색, `#ffffff` | CSS 밖의 이미지다. 뷰어 안의 인라인 마크는 예외가 아니다 — 클래스만 달고 색은 토큰으로 칠한다(§마크와 파비콘) |
+| `src/limn/brand/`의 그림 파일(파비콘·홈 화면 아이콘·로고 SVG) | 브랜드 색 | CSS 밖의 이미지이고 브랜드 원본의 바이트 그대로다. 뷰어 안의 인라인 로고는 예외가 아니다 — `parse_svg`가 색을 역할 클래스로 바꾸고 토큰이 칠한다(§마크와 파비콘) |
 | PDF 쪽(PNG·PDF.js 캔버스) | 종이 색 | 원고 PDF의 색이다. 테마는 종이 색을 바꾸지 않는다 |
 | `src/limn/vendor/pdfjs`·Lucide 원본 | — | 외부 코드다(Lucide는 `currentColor`라 글자색을 따른다) |
 | 크기의 자리 값(폭·높이, 음수 margin, 위치 좌표, `calc`) | px | 척도로 반올림하면 레이아웃이 움직인다. 간격(padding·margin·gap)은 예외가 아니다 — 1–2px만 둔다 |
@@ -822,33 +824,51 @@
 
 ### 마크와 파비콘
 
-뷰어의 브랜드는 Limn 마크 하나다.
+뷰어의 브랜드는 확정된 Limn 로고 하나다. 로고는 앱 아이콘과 워드마크로 되어 있다. 그림은 모두 브랜드 원본 저장소 [dartworklabs/limn-sans](https://github.com/dartworklabs/limn-sans)가 그린다(`site/limn-brand.js`, `make icons`). 이 저장소는 결과 파일을 바이트 그대로 [`src/limn/brand/`](../../src/limn/brand/README.md)에 담고 다시 그리지 않는다. 표준 라이브러리만 쓴다는 불변식([architecture.md](architecture.md) §불변식 2)에 맞게, 서버는 시작할 때 이 파일을 읽어 그대로 내보낸다.
 
-**모양.** 작은 점(핀)에서 시작한 한 획이 아래로 내려가 한 번 꺾이고, 오른쪽으로 줄(원고의 소스 줄)이 되어 뻗는다. PDF의 한 점을 `.tex` 줄로 되돌린다는 Limn의 일을 그대로 그린 것이다. Lucide와 같은 24 격자에 둥근 끝, 한 굵기(2.4)이고, 점 지름(5.2)은 획의 두 배가 조금 넘어 16px에서도 점으로 읽힌다. 그라데이션·그림자·마스코트·글자는 없다.
+**모양.** 앱 아이콘은 연속 곡률 사각형(squircle) 타일 위의 글자 i다. i는 획 하나와 그 위의 점(핀)으로 되어 있다. 워드마크는 Limn 서체로 쓴 소문자 `limn`이다. 그라데이션·그림자·효과는 없다.
 
-| 요소 | 값(24 격자) |
-| --- | --- |
-| 타일 | 24×24, 모서리 5.5 |
-| 점 | 중심 (8, 8), 반지름 2.6 |
-| 획 | `M8 8V13.5a3.75 3.75 0 0 0 3.75 3.75H17.2`, 굵기 2.4, 둥근 끝 |
+| 요소 | 라이트 | 다크 |
+| --- | --- | --- |
+| 타일 | 뼈종이 `#fbf1e6` | 먹 `#15161a` |
+| 획(아이콘의 i, 워드마크 글자) | 먹 | 미색 `#f4ede1` |
+| 점(핀) | 주 `#e8452c` | 주 |
 
-기하는 [`src/limn/mark.py`](../../src/limn/mark.py) 한 곳에 있고 세 모양을 그 값에서 만든다. 뷰어 인라인 SVG(`inline_svg`), 파비콘 SVG(`favicon_svg`), PNG(`png`)다. 빌드 단계도, 저장소에 넣은 그림 파일도 없다.
+주는 점에만 쓴다. 다른 색의 점, 주색 획, 늘이기, 다른 서체나 대문자 L, 그림자·효과는 BI가 막는 사용이다. 주 바탕 아이콘은 홍보물용이라 앱에서 쓰지 않는다.
 
-**쓰는 곳과 색.** 인라인 SVG는 클래스만 달고(`limn-mark`·`limn-mark-tile`·`limn-mark-dot`·`limn-mark-line`) 색은 CSS 토큰으로 칠한다. 그냥 `.mark` 는 PDF 위 핀 상자라 `marks()` 가 지우고 다시 그린다. 같은 이름을 쓰면 핀을 그리는 순간 마크가 모두 사라진다(가드 `MarkMarkup.test_mark_classes_are_its_own`, 브라우저 `EnglishChrome.test_the_limn_mark_survives_boot_and_pin_marks`). 장식이라 `aria-hidden`이고, 이름은 옆 글자가 말한다.
+**쓰는 곳.** 뷰어 안의 로고는 인라인 SVG다.
 
-| 자리 | 크기 | 타일 | 점·획 |
-| --- | --- | --- | --- |
-| 탐색 줄의 이름표 앞(`#paper-identity-mark`, 데스크톱·펼친 폴드) | 16px | 인스턴스 색 `--brand` | `--brand-foreground`(흰색) |
-| [더보기] 첫 줄의 이름표 칩(`#more-label`, compact) | 14px | `--brand`(칩과 같은 색이라 획만 보인다) | 흰색 |
-| 도움말 머리(`#help-h`) | 20px | `--popover-foreground`(흑백) | `--popover` |
-| 파비콘 SVG(data URL) | — | `--accent` 값 | 흰색 |
-| `/favicon-32.png`, `/apple-touch-icon.png` | 32·180px | `--accent` 값(터치 아이콘은 네모, iOS가 깎는다) | 흰색 |
+| 자리 | 그림 | 크기 |
+| --- | --- | --- |
+| 탐색 줄의 이름표 앞(`#paper-identity-mark`, 데스크톱·펼친 폴드) | 아이콘 | 16px |
+| [더보기] 첫 줄의 이름표 칩(`#more-label`, compact) | 아이콘 | 14px |
+| 도움말 머리(`#help-h`) | 워드마크 + `— 사용법` | 높이 20px |
 
-- 타일 색은 두 테마에서 같다. 이름표 색이 테마와 무관하기 때문이다(§토큰의 `--brand`). 흑백 도움말 마크만 테마를 따라 뒤집힌다.
-- 파비콘에는 이름표 글자를 넣지 않는다. 탭 사이의 구분은 타일 색과 탭 제목의 이름표가 맡는다. 16px에서는 글자보다 색이 먼저 보이기 때문이다.
-- `<head>`는 PNG(`sizes="32x32"`) → SVG(`type="image/svg+xml"`) → `apple-touch-icon` 순으로 잇는다. SVG를 아는 브라우저는 SVG를, 모르는 브라우저·홈 화면은 PNG를 고른다. PNG 주소의 `?c=<색>`은 색이 바뀌었을 때 옛 그림이 캐시에서 나오지 않게 한다.
-- PNG는 부호 있는 거리로 그린다. 픽셀마다 한 번, 타일과 글리프 가장자리까지의 거리로 덮인 비율을 정하고 zlib으로 쓴다. 표준 라이브러리만 쓴다는 불변식([architecture.md](architecture.md) §불변식 2)을 지키려는 것이다. 180px 한 장이 수십 ms이고 크기·색마다 한 번만 그린다(메모리 캐시).
-- 16px에서 점과 줄이 따로 읽혀야 한다(가드 `MarkRaster.test_glyph_reads_at_16px`).
+- 아이콘 SVG는 그 크기의 광학 보정을 한 벡터 그림이다. 20px 이하에서는 획이 1.45s로 굵고 핀 아래 틈이 0.75(획 기준)로 넓다. 화면 배율과 무관하게 같은 그림을 쓴다.
+- 도움말 머리는 워드마크를 쓴다. 제목 줄 상자가 24.8px라 BI의 광학 보정 없는 최소 높이(19px)를 넘는 20px이 들어간다. 보호 여백(x높이의 절반, 이 크기에서 약 7px)도 옆 글자와의 8px 간격과 대화상자 여백 안에 든다. 이름표 앞 두 자리는 정사각 16·14px라 아이콘을 쓴다.
+- 워드마크는 제목의 `Limn` 자리에 서므로 `role="img"`·`aria-label="Limn"`이다. 대화상자 이름은 `Limn — 사용법`으로 읽힌다. 두 아이콘은 장식이라 `aria-hidden`이고, 이름은 옆 이름표가 말한다.
+
+**색은 토큰이 칠한다.** [`src/limn/mark.py`](../../src/limn/mark.py)의 `parse_svg`가 SVG를 닫힌 어휘로 읽는다. `svg`·`g`·`path`·`circle`과 그 기하 속성만 받고, 브랜드 색을 역할로 바꾼다(뼈종이 → 타일, 먹 → 획, 주 → 점). 그 밖의 요소·속성·색·DOCTYPE이 있으면 거절하고, 그러면 서버가 시작하지 않는다. `inline_svg`는 클래스만 달고 색을 넣지 않는다.
+
+- 전체: `limn-mark`(아이콘), `limn-mark-word`(워드마크)
+- 부분: `limn-mark-tile`·`limn-mark-stroke`·`limn-mark-pin`
+- 칠하는 토큰: 타일 `--mark-tile`, 획 `--mark-stroke`, 점 `--limn-ver`(§토큰)
+
+그냥 `.mark` 는 PDF 위 핀 상자라 `marks()` 가 지우고 다시 그린다. 같은 이름을 쓰면 핀을 그리는 순간 로고가 모두 사라진다(가드 `InlineMarkup.test_mark_classes_are_its_own`, 브라우저 `EnglishChrome.test_the_limn_mark_survives_boot_and_pin_marks`).
+
+**파비콘.** 탭 파비콘은 16·32px 픽셀 그림이다. 밝은 색 구성에서는 뼈종이, 어두운 색 구성에서는 먹이다. 홈 화면 아이콘(`apple-touch-icon`)은 180px 뼈종이이고 모서리까지 꽉 찬 네모다. iOS가 모서리를 깎고, 투명한 모서리는 검게 보이기 때문이다. 경로와 파일은 [api.md](api.md) §화면·PDF·정적 파일에 있다.
+
+- `<head>`는 라이트 묶음(`/favicon.ico`·`/favicon-16.png`·`/favicon-32.png`, `media="(prefers-color-scheme: light)"`)과 다크 묶음(`/favicon-dark…`, `media="(prefers-color-scheme: dark)"`), 그리고 `apple-touch-icon`을 잇는다. 탭은 16 CSS px라서 1× 화면은 16 그림을, 2× 화면은 32 그림을 고른다.
+- `media`를 무시하는 브라우저도 있다. 그래서 `<head>`의 작은 스크립트가 모든 아이콘 링크를 지금 색 구성의 파일(`/favicon…` 또는 `/favicon-dark…`)로 맞추고, `matchMedia`가 바뀔 때마다 다시 맞춘다. 어느 링크를 고르든 결과는 색 구성 하나로 정해진다.
+- 색 구성은 브라우저(운영체제)의 것이다. 뷰어의 테마 설정(`pinPrefs.theme`)은 인라인 로고의 색만 바꾸고 탭 파비콘은 바꾸지 않는다. 탭 막대는 브라우저가 그린다.
+- 주소의 `?v=<내용 키>`는 아이콘 파일 바이트에서 낸 sha256의 앞 12자리다(`limn.mark.content_key`). 그림이 바뀌면 주소도 바뀌어 옛 그림이 캐시에서 나오지 않는다.
+- 파비콘은 인스턴스와 무관하다. 여러 인스턴스의 탭은 제목의 이름표(`Limn · <이름표>`)로 가른다. 인스턴스 색(`--brand`)은 화면 맨 위 띠(`#brand-stripe`)와 이름표 칩에만 쓴다.
+
+**바꿀 때.** 그림은 브랜드 저장소에서 `make icons`로 다시 만들고, [`src/limn/brand/README.md`](../../src/limn/brand/README.md)의 절차대로 파일과 `SHA256SUMS` 줄을 옮긴다. 손으로 고치지 않는다. 가드는 셋이다.
+
+- `VendoredFiles.test_every_file_is_listed_in_sha256sums_with_its_hash`: 모든 파일이 `SHA256SUMS`와 맞는지
+- `VendoredFiles.test_tab_favicons_are_the_pixel_drawings_in_both_schemes`: 탭 파비콘이 두 색 구성의 픽셀 그림인지
+- `LogoInTheBrowser`: 실제 Chromium에서 크기·테마 색이 맞는지, 파비콘 링크가 색 구성을 따르는지
 
 ## 렌더링과 확대
 

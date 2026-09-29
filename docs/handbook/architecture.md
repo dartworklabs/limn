@@ -29,7 +29,7 @@ Limn은 **하나의 배포 단위(`dartwork-limn` 패키지) 안에서 표준 �
 | 인프라 | `files.py`(`atomic_write`·`store_lock`), `gitrun.py`, `people.py`, `events.py`, `audit.py`, `args.py`, `config.py`, `startup.py`, `access.py` | 운영체제·외부 도구와의 경계. 신원 방식·역할·Host 검사 | 핀 수명 주기와 계산 규칙 |
 | HTTP | `web/`(`handler.py`, `reply.py`, `routes.py`, `parse.py`, `answers.py`, `errors.py`, `app.py`) | 순수 HTTP 뼈대. 처리기, 디스패치 계약, 공통 오류 형식과 거절 표 | 구체 서비스 구현 세부 |
 | 조립 | `server.py`(`Runtime`, `ServerApplication`, `StartedServer`) | 런타임 자원과 문맥을 묶고 각 기능 서비스를 조립해 HTTP 처리기에 바인딩한다 | 뷰어 브라우저 세부 |
-| 프론트엔드 | `viewer/` (HTML·CSS·JS 조각, `parts.txt`, SVG 마크, 번들된 PDF.js·Lucide) | 브라우저 화면과 상호작용 | 파이썬 런타임 |
+| 프론트엔드 | `viewer/` (HTML·CSS·JS 조각, `parts.txt`, 번들된 PDF.js·Lucide), `brand/`(로고 파일, 시작 때 읽어 그대로 낸다) | 브라우저 화면과 상호작용 | 파이썬 런타임 |
 | 관리자 CLI | `cli.py`, `instances.sh`, `systemd/` | 원고별 인스턴스 관리, 포트 배정, 토큰 발급, systemd 서비스 등록 | 논문 원고의 세부 내용 |
 
 ## 의존 방향

@@ -1,10 +1,31 @@
 # Changelog
 
-## Unreleased
+## 0.3.6 — unreleased
 
-Security boundary hardening, closed security types, one documented trust assumption, server and viewer fixes and an internal
-restructuring. The HTTP API's paths, fields and `pins.md` are unchanged; ambiguous requests now receive explicit rejection reasons, the responses gain two headers
-and page images change their `Cache-Control`.
+The confirmed Limn logo, security boundary hardening, closed security types, one documented trust assumption, server and
+viewer fixes and an internal restructuring. `pins.md` and the HTTP API's fields are unchanged; the API adds four icon
+paths and `/favicon.ico` now answers an icon instead of `204`. Ambiguous requests now receive explicit rejection
+reasons, the responses gain two headers and page images change their `Cache-Control`.
+
+### Logo
+
+- **The confirmed Limn logo replaces the first-draft mark.** The app icon (the letter i, a stem and a vermilion pin, on
+  a squircle tile) and the wordmark "limn" come from the brand source (dartworklabs/limn-sans, `make icons`) and are
+  vendored byte for byte in `src/limn/brand/` with their `SHA256SUMS` and provenance; nothing is drawn at run time any
+  more, and the standard-library PNG drawer is gone. See `docs/handbook/viewer.md` §마크와 파비콘.
+- **Tab favicons follow the browser's colour scheme.** The 16 and 32 px pixel drawings, 뼈종이 in a light scheme and 먹
+  in a dark one: `GET /favicon.ico` and the new `GET /favicon-dark.ico` (16 + 32), `GET /favicon-16.png`,
+  `GET /favicon-32.png` and the new `GET /favicon-dark-16.png`, `GET /favicon-dark-32.png`. The links choose by
+  `media`, and a small head script points every icon link at the current scheme's file for browsers that ignore it.
+  `GET /apple-touch-icon.png` (also the browser notification icon) is the 180 px 뼈종이 icon, square to the edges. The
+  links carry `?v=<content key>` instead of `?c=<accent>`; the accent-coloured SVG favicon is gone.
+- **The favicon no longer carries the instance colour.** Tabs of different instances are told apart by their title
+  (`Limn · <label>`); the accent still colours the top stripe and the label chip.
+- **In the viewer** the top bar (16 px) and the [More] label chip (14 px) show the icon, the help header shows the
+  wordmark 20 px tall in place of the word Limn. 뼈종이 tile and 먹 strokes in the light theme, 먹 tile and 미색 strokes
+  in the dark theme, the pin 주 in both, from new brand tokens (`--limn-ink`, `--limn-ver`, `--limn-bone`,
+  `--limn-cream`, `--limn-paper`, `--mark-tile`, `--mark-stroke`).
+- Rolling back to 0.3.5 is safe: nothing is stored; 0.3.5 serves its own page and icons again.
 
 ### Security
 
