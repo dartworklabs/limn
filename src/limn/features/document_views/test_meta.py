@@ -6,7 +6,9 @@ InstanceMeta); their bodies were compared byte for byte with the code they came 
 read is called
 with the document, the document list and the settings as arguments: the modules must not read the server's globals
 or import it, and each rule holds on its own - which .aux the outline reads, what the light meta body carries, how
-open pins are counted per document, which document a request or a pin belongs to.
+open pins are counted per document, which document a request or a pin belongs to, which capabilities each document
+kind answers (Capabilities), and that the retired is_pdf flag never reappears in the package or its tests
+(RetiredKindFlag).
 
 Run: uv run pytest -q src/limn/features/document_views/test_meta.py
 """
@@ -16,13 +18,15 @@ import json
 import os
 import tempfile
 import time
+import tokenize
 import unittest
 from dataclasses import dataclass
 from pathlib import Path
+from typing import get_args
 
 from limn import build as limn_build, documents
 from limn.access import LOCAL_ACTOR
-from limn.documents import Doc, DocNotFound
+from limn.documents import Doc, DocKind, DocNotFound, kind_builds_from_source
 from limn.features.document_views import reads as meta
 from limn.features.document_views.reads import MetaSettings
 from limn.files import file_in_tree
@@ -68,6 +72,25 @@ LIGHT_KEYS = [
     "last_build",
     "build",
 ]
+
+# The capability table of the shared contract (docs/handbook/domain.md §여러 문서).
+# A new DocKind value adds its row here before any branch can serve it.
+CAPABILITY_TABLE = {
+    "tex": {
+        "builds_from_source": True,
+        "watches_files": False,
+        "takes_line_pins": True,
+        "shows_revisions": True,
+        "view_only": False,
+    },
+    "pdf": {
+        "builds_from_source": False,
+        "watches_files": True,
+        "takes_line_pins": False,
+        "shows_revisions": False,
+        "view_only": True,
+    },
+}
 
 
 @dataclass
@@ -122,6 +145,43 @@ class Fixture(unittest.TestCase):
             (d / (D.main.stem + ".aux")).write_text(aux, encoding="utf-8")
         (D.dir / "pages.cur").write_text(name, encoding="utf-8")
         return d
+
+
+class Capabilities(Fixture):
+    """What each document kind can do (docs/handbook/domain.md §여러 문서): branches read these, never the kind."""
+
+    def doc_of(self, kind: DocKind) -> Doc:
+        """A --doc document of this kind over the fixture's tree (its files need not exist to answer capabilities)."""
+        return Doc("k", "이름", kind, self.src, self.src / "main.tex", paths=self.paths)
+
+    def test_each_kind_has_exactly_the_capabilities_of_its_table_row(self):
+        """A LaTeX document builds from source, takes line pins and shows revisions; a view-only PDF is watched and
+        view-only - and nothing else."""
+        for kind, row in CAPABILITY_TABLE.items():
+            doc = self.doc_of(kind)
+            self.assertEqual({name: getattr(doc, name) for name in row}, row, msg=kind)
+
+    def test_the_table_has_a_row_for_every_document_kind(self):
+        """Adding a value to DocKind fails here until its row is written, so no branch has to guess a new kind."""
+        self.assertEqual(sorted(get_args(DocKind)), sorted(CAPABILITY_TABLE))
+
+    def test_view_only_is_the_absence_of_line_pins_for_every_kind(self):
+        """view_only is derived, never stated: True exactly when the kind takes no line pins."""
+        for kind in get_args(DocKind):
+            doc = self.doc_of(kind)
+            self.assertIs(doc.view_only, not doc.takes_line_pins, msg=kind)
+
+    def test_the_kind_level_build_rule_agrees_with_the_document_property(self):
+        """kind_builds_from_source, used on a parsed --doc before its Doc exists, answers what Doc.builds_from_source
+        answers for every kind."""
+        for kind in get_args(DocKind):
+            self.assertIs(kind_builds_from_source(kind), self.doc_of(kind).builds_from_source, msg=kind)
+
+    def test_the_single_legacy_document_is_a_latex_document(self):
+        """An instance started without --doc serves one document of kind tex with the LaTeX row's capabilities."""
+        self.assertEqual(self.legacy.kind, "tex")
+        row = CAPABILITY_TABLE["tex"]
+        self.assertEqual({name: getattr(self.legacy, name) for name in row}, row)
 
 
 class NoServerState(unittest.TestCase):
@@ -211,6 +271,25 @@ class Meta(Fixture):
         self.assertEqual(out["src_sig"], ",".join("%s=%.3f" % (d["key"], d["src_mtime"]) for d in out["docs"]))
         self.assertTrue(out["docs"][2]["view_only"])
 
+    def test_staleness_and_view_only_follow_the_document_capabilities(self):
+        """A .tex saved after the build on screen makes the LaTeX document stale in /api/docs and /api/meta; the
+        view-only PDF in the same folder is never stale, however new its file, and is the one marked view_only."""
+        for D in (self.ms, self.rv):
+            self.pages(D)
+            (D.dir / "built_src_mtime.txt").write_text("1.0", encoding="utf-8")
+        later = time.time() + 30
+        for name in ("main.tex", "review.pdf"):
+            os.utime(self.src / name, (later, later))
+        docs = [self.ms, self.rv]
+        briefs = meta.docs_payload(docs, [], lambda r: "ms", self.state)["docs"]
+        self.assertEqual(
+            [(b["key"], b["stale_build"], b["view_only"]) for b in briefs], [("ms", True, False), ("rv", False, True)]
+        )
+        light = [meta.meta(D, {}, self.settings, docs, {}, later) for D in docs]
+        self.assertEqual(
+            [(m["doc"], m["stale_build"], m["view_only"]) for m in light], [("ms", True, False), ("rv", False, True)]
+        )
+
     def test_pin_counts_in_order(self):
         """open, done (review excluded) and review, each counted once."""
         self.assertEqual(
@@ -299,7 +378,13 @@ class DocumentFactsReads(Fixture):
         missing.unlink()
         self.assertEqual(facts.lines(checked), [])
         self.assertEqual(
-            (facts.key, facts.is_pdf, facts.root, facts.pdf), ("ms", False, self.src, self.src / "main.tex")
+            (facts.key, facts.view_only, facts.root, facts.pdf), ("ms", False, self.src, self.src / "main.tex")
+        )
+
+    def test_view_only_is_the_document_capability(self):
+        """A view-only PDF's facts are view_only and a LaTeX document's are not: the pin parsers branch on this alone."""
+        self.assertEqual(
+            [documents.DocumentFacts(D, self.src, self.state, 150).view_only for D in (self.ms, self.rv)], [False, True]
         )
 
 
@@ -316,6 +401,28 @@ class ToSource(Fixture):
         """An old absolute build path whose tail is a real manuscript file maps to it; otherwise the path is unchanged."""
         self.assertEqual(documents.to_source(self.ms, "/old/state/build/rr/rr.tex"), self.src / "rr" / "rr.tex")
         self.assertEqual(documents.to_source(self.ms, "/old/state/build/none.tex"), Path("/old/state/build/none.tex"))
+
+
+class RetiredKindFlag(unittest.TestCase):
+    """The boolean that split documents into LaTeX and view-only is gone: every branch reads a capability of Doc."""
+
+    FLAG = "is_pdf"
+
+    def test_no_python_identifier_in_the_package_or_the_tests_is_the_retired_flag(self):
+        """No attribute, parameter, field or test double in src/limn or tests is named after the flag, so no branch can
+        read it and no double can stand in for a document by it."""
+        hits = []
+        for root in (PKG, PKG.parent.parent / "tests"):
+            for path in sorted(root.rglob("*.py")):
+                with tokenize.open(path) as fh:
+                    names = [t for t in tokenize.generate_tokens(fh.readline) if t.type == tokenize.NAME]
+                hits += ["%s:%d" % (path, t.start[0]) for t in names if t.string == self.FLAG]
+        self.assertEqual(hits, [])
+
+    def test_documents_and_their_facts_have_no_attribute_of_that_name(self):
+        """Doc and DocumentFacts answer capabilities only."""
+        self.assertFalse(hasattr(Doc, self.FLAG))
+        self.assertFalse(hasattr(documents.DocumentFacts, self.FLAG))
 
 
 # ---------------------------------------------------------------- through server.py's wiring

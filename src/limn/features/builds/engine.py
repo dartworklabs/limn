@@ -346,9 +346,9 @@ def pdf_changed(D: BuildDoc) -> bool:
 
 
 def refresh_pdf_doc(D: Doc, start: Callable[[Doc], BuildStarted | BuildBusy]) -> bool:
-    """If view-only document D's PDF changed (pdf_changed), start its tracked re-render with `start` (the composition
-    root's background build). True when a render started; False for a LaTeX document, an unchanged or missing PDF, or
-    a render already running (start answered BuildBusy)."""
-    if not D.is_pdf or not pdf_changed(D):
+    """If watched document D's PDF changed (pdf_changed), start its tracked re-render with `start` (the composition
+    root's background build). True when a render started; False for a document the watch does not follow (not
+    D.watches_files), an unchanged or missing PDF, or a render already running (start answered BuildBusy)."""
+    if not D.watches_files or not pdf_changed(D):
         return False
     return isinstance(start(D), BuildStarted)

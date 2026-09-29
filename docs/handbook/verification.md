@@ -53,7 +53,7 @@ Limn에서 "테스트가 녹색"은 합격의 필요조건이지 충분조건이
 
 | 파일 | 맡은 범위 |
 | --- | --- |
-| `src/limn/features/*/test_*.py` | **기능 슬라이스 동거 테스트.** 세로 슬라이스는 코드와 테스트를 함께 소유한다. 슬라이스 안의 순수 규칙·입력 파싱·상태 전이·서비스 경계를 함께 검증한다. 동기화·원격 pull은 `sync/`, 비교 이력은 `revisions/`, 문서 meta·목차는 `document_views/`, 답글은 `pins/lifecycle/`, 원고 복사는 `builds/`에서 검증한다. 관리 의존성(파일·디렉터리)은 임시 디렉터리로 실제 수행하고, 내부 비공개 구현이나 호출 횟수를 모킹하지 않는다 |
+| `src/limn/features/*/test_*.py` | **기능 슬라이스 동거 테스트.** 세로 슬라이스는 코드와 테스트를 함께 소유한다. 슬라이스 안의 순수 규칙·입력 파싱·상태 전이·서비스 경계를 함께 검증한다. 동기화·원격 pull은 `sync/`, 비교 이력은 `revisions/`, 문서 meta·목차는 `document_views/`, 답글은 `pins/lifecycle/`, 원고 복사와 보기 전용 문서의 감시 라운드(`test_watch.py`)는 `builds/`, 기동 문서 선택과 기동 로그의 문서 줄은 `administration/`에서 검증한다. 관리 의존성(파일·디렉터리)은 임시 디렉터리로 실제 수행하고, 내부 비공개 구현이나 호출 횟수를 모킹하지 않는다 |
 | `tests/test_<모듈>.py` | 그 모듈을 지킨다(`test_pins_lifecycle.py`는 `limn/pins/lifecycle.py`, `test_web_parse.py`는 `limn/web/parse.py`). 순수 모듈은 서버 없이 값으로 직접 테스트하고, 순수하지 않은 것을 가져오지 않는지 import 검사로 지킨다. 옮긴 모듈은 서버 전역(`C`, 문서 목록)을 읽지 않는지도 본다. 파일 끝의 클래스가 `server.py`를 거쳐 그 모듈의 연결을 보기도 한다 |
 | [`tests/test_access_module.py`](../../tests/test_access_module.py), [`tests/test_access.py`](../../tests/test_access.py), [`tests/test_security.py`](../../tests/test_security.py) | 접근 제어와 보안 강화(보안 경계). 첫째는 `limn/access.py`를 서버 없이, 둘째는 처리기를 거쳐 신원 방식·토큰·역할·바인드 규칙과 옛 상태 디렉터리 호환을 본다. 셋째는 처리기 끝까지(소켓 쌍) 점으로 시작하는 이름 아래 파일과 원고 안에 둔 상태 폴더의 거절(그런 상태 폴더의 기동 경고·거절 포함), 쓸 수 없는 `people.json`이 권한을 주지 않고 다시 쓰이지 않는지, 모든 응답의 프레이밍 금지 헤더를 본다 |
 | [`tests/test_server.py`](../../tests/test_server.py) | `server.py` 자신의 함수와, 요청이 처리기와 서버 배선을 끝까지 지나는 동작. 대다수 요청은 처리기를 소켓 쌍으로 직접 몰고, 실행별 앱 격리는 같은 모듈에서 두 서버를 실제 TCP 포트에 띄워 확인한다. 기능의 HTTP 경로(claim·종류와 스레드·검토·겹침)는 여기 두고, 그 규칙·저장 필드·`pins.md` 줄은 지키는 모듈의 파일에 둔다 |

@@ -90,7 +90,15 @@ class PinMarkdown:
                 round=tuple(thread_round(pin.core.thread)),
             )
         docs = tuple(
-            DocHeading(d.key, d.name, d.rel_path(), d.is_pdf, build.read_head(d), build.read_built_at(d))
+            DocHeading(
+                d.key,
+                d.name,
+                d.rel_path(),
+                view_only=d.view_only,
+                builds_from_source=d.builds_from_source,
+                head=build.read_head(d),
+                built_at=build.read_built_at(d),
+            )
             for d in self.deps.docs
         )
         return PinsMdInput(

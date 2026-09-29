@@ -765,15 +765,7 @@ class ServerApplication:
             # away (never waits N documents x tens of seconds). A failure never blocks startup - that document's tab opens an error panel instead.
             for D in self.docs:
                 r = self.build_requests.init_doc(D, no_build, wait=False)
-                print(
-                    "doc    %-10s %s %s%s"
-                    % (
-                        D.key,
-                        "view-only" if D.is_pdf else "LaTeX   ",
-                        D.rel_path(),
-                        "" if isinstance(r, BuildSkipped) else "  (build started)",
-                    )
-                )
+                print(startup_documents.doc_start_line(D.key, D.kind, D.rel_path(), not isinstance(r, BuildSkipped)))
             self.RT.start_thread(self.build_requests.watch_pdf_docs, self.RT.stopping)
         if self.C.git_pull:
             self.RT.start_thread(self.sync_service.watch, self.RT.stopping)

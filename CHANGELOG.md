@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.3.7 — unreleased
+
+One internal refactor; the HTTP API, `pins.md` and the state directory are unchanged.
+
+### Internal
+
+- **Internal: document kinds are read through capabilities.** `Doc.kind` is the closed type `DocKind` (`"tex"`,
+  `"pdf"`) and the boolean `is_pdf` is gone: every branch asks what a document can do - `builds_from_source`,
+  `watches_files`, `takes_line_pins`, `shows_revisions`, `view_only`. No change to the HTTP API, `pins.md`, the state
+  directory or the command line; the move was checked by a differential run against the code before it.
+
 ## 0.3.6 — unreleased
 
 The confirmed Limn logo, security boundary hardening, closed security types, one documented trust assumption, server and

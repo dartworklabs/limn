@@ -39,8 +39,9 @@ class DocumentFacts(Protocol):
         ...
 
     @property
-    def is_pdf(self) -> bool:
-        """True for a view-only PDF document: its pins are regions, it has no source lines."""
+    def view_only(self) -> bool:
+        """True when the document's pins are page regions only (limn.documents.Doc.view_only): it has no source
+        lines."""
         ...
 
     @property

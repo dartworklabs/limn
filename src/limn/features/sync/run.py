@@ -58,8 +58,8 @@ class SyncDoc(Protocol):
     """A document as the watch reads it (limn.documents.Doc)."""
 
     @property
-    def is_pdf(self) -> bool:
-        """A view-only PDF document is never pulled for or rebuilt."""
+    def builds_from_source(self) -> bool:
+        """Only a document built from source is pulled for and rebuilt (limn.documents.Doc.builds_from_source)."""
         ...
 
     @property
@@ -194,8 +194,8 @@ class SyncWatch:
 
     def status(self, docs: Iterable[SyncDoc], enabled: bool) -> Json:
         """The status for GET /api/meta: "disabled" without --git-pull. An "updating" status is settled here once every
-        LaTeX document was built from the pulled commit ("current"), or a document still behind it failed its build
-        ("error", build_failed). Returns a copy."""
+        document built from source was built from the pulled commit ("current"), or one still behind it failed its
+        build ("error", build_failed). Returns a copy."""
         if not enabled:
             return disabled()
         with self.lock:
@@ -203,7 +203,7 @@ class SyncWatch:
         if record.get("state") != "updating" or not record.get("head_after"):
             return record
         head = record["head_after"]
-        done = settled(head, [_progress(D) for D in list(docs) if not D.is_pdf])
+        done = settled(head, [_progress(D) for D in list(docs) if D.builds_from_source])
         if done is None:
             return record
         with self.lock:
@@ -221,17 +221,18 @@ class SyncWatch:
         stamp: Stamp,
         clock: Clock,
     ) -> Json:
-        """One round: pull remote main and start the build of each LaTeX document the pull left behind. Also run on a
-        --no-build startup.
+        """One round: pull remote main and start the build of each document built from source that the pull left
+        behind. Also run on a --no-build startup.
 
-        A round is deferred ("deferred", building) when any LaTeX document is building. Otherwise every document's
-        build lock is held during the pull, so a fast-forward never lands while a build is mid-copy. The pull is
-        shared-recorded (PullShare) like a build's. Returns the round's status; "updating" when builds were started."""
+        A round is deferred ("deferred", building) when any document built from source is building. Otherwise the
+        build lock of every such document is held during the pull, so a fast-forward never lands while a build is
+        mid-copy. The pull is shared-recorded (PullShare) like a build's. Returns the round's status; "updating" when
+        builds were started."""
         if not enabled:
             return disabled()
-        latex_docs = [D for D in docs if not D.is_pdf]
+        source_docs = [D for D in docs if D.builds_from_source]
         held: list[threading.Lock] = []
-        for D in latex_docs:
+        for D in source_docs:
             if not D.lock.acquire(blocking=False):
                 for lock in reversed(held):
                     lock.release()
@@ -254,7 +255,7 @@ class SyncWatch:
             self.record.update(out)
         if out["state"] in ("updated", "current"):
             head = out.get("head_after") or ""
-            for D in latex_docs:
+            for D in source_docs:
                 if needs_rebuild(outcome, head, _built_head(D)):
                     start_build(D)
                     out["state"] = "updating"

@@ -76,7 +76,8 @@ def parse_source_range(q: Query, facts: DocumentFacts) -> SourceRange | InputRej
 
 
 def parse_snippet(q: Query, facts: DocumentFacts) -> SourceRange | InputRejected:
-    """GET /api/snippet: refused for a view-only document (it has no source lines), else parse_source_range."""
-    if facts.is_pdf:
+    """GET /api/snippet: refused for a document whose pins are regions (facts.view_only - it has no source lines),
+    else parse_source_range."""
+    if facts.view_only:
         return InputRejected("보기 전용 문서(%s)에는 원문 줄이 없습니다." % facts.key, "no_source_lines")
     return parse_source_range(q, facts)

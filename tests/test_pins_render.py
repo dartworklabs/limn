@@ -45,7 +45,7 @@ from helpers_authority import post_authority
 
 RENDER_PY = Path(render.__file__)
 T = 1_790_000_000.0
-MAIN = DocHeading("main", "본문", "main.tex", False, None, None)
+MAIN = DocHeading("main", "본문", "main.tex", view_only=False, builds_from_source=True, head=None, built_at=None)
 
 
 def facts(**extra):
@@ -282,8 +282,16 @@ class DocumentSections(unittest.TestCase):
 
     def test_multi_document_sections_in_configured_order(self):
         """Each document with open pins gets '## name · key · path'; a view-only one says so; empty ones are skipped."""
-        rr = DocHeading("rr", "답변서", "rr/rr.tex", False, None, None)
-        rv = DocHeading("rv", "리뷰", "review.pdf", True, "bbb2222", "2026-09-25 08:00")
+        rr = DocHeading("rr", "답변서", "rr/rr.tex", view_only=False, builds_from_source=True, head=None, built_at=None)
+        rv = DocHeading(
+            "rv",
+            "리뷰",
+            "review.pdf",
+            view_only=True,
+            builds_from_source=False,
+            head="bbb2222",
+            built_at="2026-09-25 08:00",
+        )
         region = {"id": 2, "file": None, "pdf": "/ms/review.pdf", "page": 1, "frac": [0, 0, 1, 1], "note": "r"}
         rows = [line_pin(1), region]
         md = pins_md_text(
@@ -298,6 +306,23 @@ class DocumentSections(unittest.TestCase):
             ),
         )
 
+    def test_stamp_word_follows_builds_from_source_and_label_follows_view_only(self):
+        """The heading's two decisions read two capabilities: a document with line pins whose pages are read in, not
+        built, gets the '그림' stamp and no view-only label anywhere."""
+        fg = DocHeading(
+            "fg",
+            "도표",
+            "fig/figs.pdf",
+            view_only=False,
+            builds_from_source=False,
+            head="ccc3333",
+            built_at="2026-09-25 09:00",
+        )
+        md = pins_md_text(page([line_pin(1)], {1: facts(doc_key="fg", location="fig/make.py")}, docs=(MAIN, fg)))
+        self.assertIn("## 도표 · `fg` · `fig/figs.pdf`\n기준: ccc3333 · 그림 2026-09-25 09:00", md)
+        self.assertIn("문서: 본문(`main`) 0건 · 도표(`fg`) 1건", md)
+        self.assertNotIn("보기 전용", md)
+
     def test_unknown_document_key_is_its_own_section_even_with_one_document(self):
         """A pin under a key not in the configuration sections the sheet and asks to check with the user."""
         md = pins_md_text(page([line_pin(1)], {1: facts(doc_key="gone")}))
@@ -306,7 +331,7 @@ class DocumentSections(unittest.TestCase):
 
     def test_multi_document_without_open_pins(self):
         """Sectioned but nothing open: one '열린 핀 없음' line instead of tables."""
-        rr = DocHeading("rr", "답변서", "rr/rr.tex", False, None, None)
+        rr = DocHeading("rr", "답변서", "rr/rr.tex", view_only=False, builds_from_source=True, head=None, built_at=None)
         self.assertTrue(pins_md_text(page([], docs=(MAIN, rr))).endswith("\n\n열린 핀 없음\n"))
 
 
@@ -331,7 +356,7 @@ class ReviewTable(unittest.TestCase):
         """With subsections (two documents), the location starts with the document key; one document never does -
         the review rows alone do not section the sheet."""
         rows = [line_pin(1, done=True, review=True)]
-        rr = DocHeading("rr", "답변서", "rr/rr.tex", False, None, None)
+        rr = DocHeading("rr", "답변서", "rr/rr.tex", view_only=False, builds_from_source=True, head=None, built_at=None)
         md = pins_md_text(page(rows, {1: facts(doc_key="rr")}, docs=(MAIN, rr)))
         self.assertIn("| 1 | `rr` · `main.tex L4-L5` |", md)
         self.assertIn("| 1 | `main.tex L4-L5` |", pins_md_text(page(rows, {1: facts(doc_key="gone")})))

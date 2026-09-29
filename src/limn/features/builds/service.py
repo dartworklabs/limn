@@ -49,9 +49,12 @@ class BuildRequests:
         return engine.compile_tex(doc, self.config(), self.pull if self.settings().git_pull else None)
 
     def tracked(self, doc: Doc) -> FinishedBuild:
-        """Run the document's LaTeX or view-only PDF build and commit its status and page history."""
+        """Run the document's build - latexmk for a document built from source, else the render of its PDF - and
+        commit its status and page history."""
         step: Callable[[], FinishedBuild] = (
-            (lambda: engine.render_pdf_doc(doc, self.config())) if doc.is_pdf else (lambda: self.compile(doc))
+            (lambda: self.compile(doc))
+            if doc.builds_from_source
+            else (lambda: engine.render_pdf_doc(doc, self.config()))
         )
         return run.run_tracked(doc, self.settings().state, step, self.now(), self.describe)
 
@@ -84,10 +87,10 @@ class BuildRequests:
         return self.build_all(doc) if wait else self.build_async(doc)
 
     def watch_pdf_docs(self, stop: threading.Event, every: float = 3.0) -> None:
-        """Re-render changed view-only PDFs until this run's stop event is set."""
+        """Re-render every watched document (Doc.watches_files) whose file changed, until this run's stop event is set."""
         while not stop.wait(every):
             for doc in list(self.docs()):
-                if doc.is_pdf:
+                if doc.watches_files:
                     try:
                         engine.refresh_pdf_doc(doc, self.build_async)
                     except Exception:  # noqa: BLE001 — the watch thread must never die

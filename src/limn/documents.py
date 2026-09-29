@@ -21,7 +21,7 @@ import threading
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal, TypeAlias
 
 from limn import build
 from limn.access_values import AuthorityScope
@@ -31,6 +31,20 @@ DOC_KEY_RE = re.compile(r"[a-z0-9-]{1,24}")
 DOC_NAME_MAX = 40
 DOCS_MAX = 12
 DEFAULT_DOC_KEY = "main"
+
+# What a document is, read once from a --doc path's suffix (limn.features.administration.serve_documents.parse_doc_arg);
+# an instance started without --doc serves one "tex" document. Branches ask a capability of Doc - builds_from_source,
+# watches_files, takes_line_pins, shows_revisions, view_only - never the kind. Only what reports the kind itself reads
+# it: the API's kind, a document's authority identity, the startup line (docs/handbook/domain.md §여러 문서).
+DocKind: TypeAlias = Literal["tex", "pdf"]
+
+
+def kind_builds_from_source(kind: DocKind) -> bool:
+    """Whether documents of `kind` are built from their source by latexmk - "tex" only.
+
+    The one rule behind Doc.builds_from_source, for the startup decisions made on a parsed --doc
+    (serve_documents.DocSpec) before its Doc exists."""
+    return kind == "tex"
 
 
 @dataclass(frozen=True)
@@ -69,7 +83,9 @@ def fresh_build_state() -> dict[str, Any]:
 
 
 class Doc:
-    """One document. kind is 'tex' (LaTeX, lines traced back via SyncTeX) or 'pdf' (view-only - page/region only).
+    """One document of a kind (DocKind): 'tex' is LaTeX, lines traced back via SyncTeX; 'pdf' is a view-only PDF,
+    pinned by page and region. What it can do is read from its capability properties (builds_from_source,
+    watches_files, takes_line_pins, shows_revisions, view_only), never from kind.
 
     paths are the instance's run paths (RunPaths, a frozen value), given at construction by the composition root.
     legacy=True means a single document started without --doc: its manuscript and build folders are the run paths'
@@ -83,7 +99,7 @@ class Doc:
         self,
         key: str,
         name: str,
-        kind: str = "tex",
+        kind: DocKind = "tex",
         src: Path | None = None,
         main: Path | None = None,
         legacy: bool = False,
@@ -156,9 +172,33 @@ class Doc:
         return self.main.stem + ".pdf"
 
     @property
-    def is_pdf(self) -> bool:
-        """A view-only PDF document (no LaTeX source, no rebuild)."""
+    def builds_from_source(self) -> bool:
+        """latexmk builds it from its source tree: startup and POST /api/rebuild compile it, --git-pull rebuilds it,
+        stale_build and the .aux outline apply, and its fingerprint and src_mtime scan the tree. False: its pages come
+        from a file Limn only reads."""
+        return kind_builds_from_source(self.kind)
+
+    @property
+    def watches_files(self) -> bool:
+        """The view-only watch thread re-renders its pages when its file changes, and startup renders them when the
+        file changed since the last render or no page images exist at the current dpi (--no-build or not)."""
         return self.kind == "pdf"
+
+    @property
+    def takes_line_pins(self) -> bool:
+        """Its pins are file/lo/hi line ranges with anchor re-sync, and a request that names only a file can route to
+        it (doc_for_file)."""
+        return self.kind == "tex"
+
+    @property
+    def shows_revisions(self) -> bool:
+        """The changes view is available: the Git history of its manuscript files and the latexdiff comparison."""
+        return self.kind == "tex"
+
+    @property
+    def view_only(self) -> bool:
+        """Its pins are page regions only - the API's view_only. Exactly the absence of line pins."""
+        return not self.takes_line_pins
 
     def rel_path(self) -> str:
         """Path relative to --manuscript (for display / the pins.md header). Points at the main file."""
@@ -196,9 +236,9 @@ def pin_doc_key(r: Mapping[str, Any], docs: Sequence[Doc]) -> str:
 
 
 def doc_for_file(docs: Sequence[Doc], root: Path, path: object) -> Doc:
-    """Which LaTeX document of docs a request that only gave a file (agent curl) belongs to: the one whose build root
-    most deeply contains it (a relative path is taken under the manuscript root), or the first document if none does
-    or the path cannot be resolved. View-only documents never match."""
+    """Which document of docs that takes line pins a request that only gave a file (agent curl) belongs to: the one
+    whose build root most deeply contains it (a relative path is taken under the manuscript root), or the first
+    document if none does or the path cannot be resolved. A document without line pins (view-only) never matches."""
     try:
         p = Path(str(path)) if os.path.isabs(str(path)) else root / str(path)
         p = p.resolve()
@@ -206,7 +246,7 @@ def doc_for_file(docs: Sequence[Doc], root: Path, path: object) -> Doc:
         return docs[0]
     best, depth = None, -1
     for d in docs:
-        if d.is_pdf:
+        if not d.takes_line_pins:
             continue
         try:
             p.relative_to(d.src.resolve())
@@ -276,9 +316,9 @@ class DocumentFacts:
         return self._doc.key
 
     @property
-    def is_pdf(self) -> bool:
-        """True for a view-only PDF document."""
-        return self._doc.is_pdf
+    def view_only(self) -> bool:
+        """True when D's pins are page regions only (Doc.view_only): the parsers refuse file/lo/hi and snippets."""
+        return self._doc.view_only
 
     @property
     def pdf(self) -> Path:

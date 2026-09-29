@@ -36,12 +36,12 @@ REGION_EDIT_REFUSAL = "보기 전용 문서의 핀에는 줄 범위가 없습니
 
 
 def parse_add(d: Json, known: Collection[str], facts: DocumentFacts) -> AddRequest | InputRejected:
-    """A POST /api/pin body for the request's document -> the new pin's validated place and fields, or the first field
-    refused, in the contract's order: the location first (parse_region on a view-only document, which refuses
-    file/lo/hi/scope; parse_loc otherwise, which reads the named file), then note, kind_req, mention hints and
-    assignee (known: the logins supplied by EditingRequests)."""
+    """A POST /api/pin body for the request's document -> the new pin's validated place and fields, or the first
+    field refused, in the contract's order: the location first (parse_region when the document's pins are regions -
+    facts.view_only - which refuses file/lo/hi/scope; parse_loc otherwise, which reads the named file), then note,
+    kind_req, mention hints and assignee (known: the logins supplied by EditingRequests)."""
     place: Place
-    if facts.is_pdf:
+    if facts.view_only:
         region = parse_region({k: d[k] for k in REGION_FIELDS + ("file", "lo", "hi", "scope") if k in d}, facts)
         if isinstance(region, InputRejected):
             return region

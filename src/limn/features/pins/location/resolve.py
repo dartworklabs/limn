@@ -131,8 +131,8 @@ PickRefusal: TypeAlias = GeneratedFile | SynctexOutside | SourceUnreadable | NoS
 
 def pick(D: Doc, request: Selection, ctx: PickContext) -> Picked | PickedRegion | PickRefusal:
     """Dragged region -> source line range + range ladder, for document D and a selection parsed by
-    limn.features.pins.location.input.parse_pick: a view-only document's region (PickedRegion), the traced range (Picked), or why the
-    region cannot be traced to a manuscript line (PickRefusal).
+    limn.features.pins.location.input.parse_pick: the region of a document whose pins are regions (D.view_only;
+    PickedRegion), the traced range (Picked), or why the region cannot be traced to a manuscript line (PickRefusal).
 
     This is the shell: it runs pdftotext and SyncTeX on the build's PDF, maps SyncTeX's file back to the checkout,
     reads the file and weighs the region's tokens, then lets limn.mapping.trace_range choose between the two paths.
@@ -145,7 +145,7 @@ def pick(D: Doc, request: Selection, ctx: PickContext) -> Picked | PickedRegion 
     pdir, page, (x0, y0, x1, y1), (pw, ph), frac = request.pdir, request.page, request.box, request.size, request.frac
     pdf = build.cur_pdf(D, pdir)
     rtext = source.region_text(pdf, page, x0, y0, x1, y1)
-    if D.is_pdf:
+    if D.view_only:
         return _pick_region(D, pdir, page, (x0, y0, x1, y1), (pw, ph), frac, rtext)
     sy = source.by_synctex(pdf, page, x0, y0, x1, y1)
 

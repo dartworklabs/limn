@@ -43,9 +43,10 @@ NO_STATE = Path("/nonexistent-limn-state")
 class Facts:
     """A DocumentFacts over a real temporary manuscript tree, with the pages and builds given in memory."""
 
-    def __init__(self, root: Path, is_pdf: bool = False, pages: dict | None = None, current: str = "pages"):
-        """root is the tree; pages maps a build name to its page sizes; current names the build on screen."""
-        self.key, self.is_pdf, self.root, self.state = "rev" if is_pdf else "main", is_pdf, root, NO_STATE
+    def __init__(self, root: Path, view_only: bool = False, pages: dict | None = None, current: str = "pages"):
+        """root is the tree; view_only says the document's pins are regions (DocumentFacts.view_only); pages maps a
+        build name to its page sizes; current names the build on screen."""
+        self.key, self.view_only, self.root, self.state = "rev" if view_only else "main", view_only, root, NO_STATE
         self.pdf = root / "review.pdf"
         self._pages = pages if pages is not None else {"pages": [(600.0, 800.0), (600.0, 800.0)]}
         self._current = current
@@ -547,7 +548,7 @@ class Locations(Tree):
     def test_region_location_is_typed_and_stored_in_the_old_key_order(self):
         """parse_region gives a RegionLoc; its record is pdf, name, kind region, page, frac, then quote and pdf_build
         only when present."""
-        facts = Facts(self.root, is_pdf=True)
+        facts = Facts(self.root, view_only=True)
         loc = editing_location.parse_region({"frac": [0.1, 0.1, 0.2, 0.2], "page": 2}, facts)
         self.assertIsInstance(loc, editing_location.RegionLoc)
         self.assertEqual(list(loc.to_record()), ["pdf", "name", "kind", "page", "frac"])
@@ -582,7 +583,7 @@ class Locations(Tree):
 
     def test_region_add_on_a_view_only_document(self):
         """file/lo/hi/scope are refused naming the document; page is checked against the named build's pages."""
-        facts = Facts(self.root, is_pdf=True, pages={"pages": [(1, 1)] * 2, "pages-20260101000000": [(1, 1)] * 5})
+        facts = Facts(self.root, view_only=True, pages={"pages": [(1, 1)] * 2, "pages-20260101000000": [(1, 1)] * 5})
         self.assertEqual(
             editing_input.parse_add({"lo": 1, "page": 1, "frac": [0, 0, 1, 1]}, (), facts),
             InputRejected(
@@ -678,7 +679,7 @@ class Locations(Tree):
             InputRejected("lo·hi 는 정수여야 합니다.", "not_integer"),
         )
         self.assertEqual(
-            location_input.parse_snippet({"file": ["main.tex"]}, Facts(self.root, is_pdf=True)),
+            location_input.parse_snippet({"file": ["main.tex"]}, Facts(self.root, view_only=True)),
             InputRejected("보기 전용 문서(rev)에는 원문 줄이 없습니다.", "no_source_lines"),
         )
 

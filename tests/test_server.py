@@ -1321,6 +1321,25 @@ class MultiDoc(Base):
             if line.startswith("| ") and not line.startswith("|---"):
                 self.assertEqual(line.count(" | ") + 2, 6, line)  # still a 5-column table
 
+    def test_build_stamp_word_follows_builds_from_source_through_the_listing_path(self):
+        """The '기준: ... 빌드|그림' stamp for real Doc objects, not a hand-built DocHeading: with head.txt and
+        built_at.txt actually on disk, the LaTeX document's stamp says '빌드' and the view-only PDF's says '그림',
+        both read through the real listing path (PinMarkdown.pins_md_text -> pins_md_input -> DocHeading)."""
+        self.fake_pages(self.rv)
+        for D, head, built_at in ((self.ms, "aaa1111", "2026-09-25 08:00"), (self.rv, "bbb2222", "2026-09-25 09:00")):
+            D.dir.mkdir(parents=True, exist_ok=True)
+            (D.dir / "head.txt").write_text(head, encoding="utf-8")
+            (D.dir / "built_at.txt").write_text(built_at, encoding="utf-8")
+        add_pin({"file": str(self.main), "lo": 4, "hi": 5, "page": 1, "doc": "ms"}, dict(LOCAL_ACTOR))
+        add_pin({"page": 1, "frac": [0.1, 0.1, 0.2, 0.2], "note": "n"}, dict(LOCAL_ACTOR), doc=self.rv)
+        md = ps.APP.pin_markdown.pins_md_text(ps.APP.snapshot_pins())
+        self.assertIn("## 본문 · `ms` · `main.tex`\n기준: aaa1111 · 빌드 2026-09-25 08:00", md, msg=md)
+        self.assertIn(
+            "## 리뷰어 코멘트 · `rv` · `review.pdf` — 보기 전용 PDF(줄 번호 없음)\n기준: bbb2222 · 그림 2026-09-25 09:00",
+            md,
+            msg=md,
+        )
+
     def test_view_only_pin_edit_note_and_region_only(self):
         """A view-only document's pin takes a note and a region only; lines are refused (no_source_lines)."""
         self.fake_pages(self.rv)

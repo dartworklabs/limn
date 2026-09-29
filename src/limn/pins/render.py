@@ -23,13 +23,17 @@ from limn.pins.shapes import is_int, is_num
 class DocHeading:
     """One configured document as pins.md names it, with its build stamp as read from its build folder.
 
-    head is the short git hash the page images came from ('-' outside git) and built_at when they were committed;
-    either is None when the document was never built. path is the main file relative to --manuscript."""
+    view_only: its pins are page regions - the header says ", 보기 전용" and its section title "— 보기 전용 PDF(줄 번호
+    없음)". builds_from_source: its stamp reads "빌드" (latexmk built the pages); otherwise "그림" (the pages were
+    rendered from a file Limn only reads). head is the short git hash the page images came from ('-' outside git) and
+    built_at when they were committed; either is None when the document was never built. path is the main file
+    relative to --manuscript."""
 
     key: str
     name: str
     path: str
-    is_pdf: bool
+    view_only: bool
+    builds_from_source: bool
     head: str | None
     built_at: str | None
 
@@ -415,7 +419,7 @@ def pins_md_text(page: PinsMdInput) -> str:
         for d in docs:
             parts.append(
                 "%s(`%s`%s) %d건"
-                % (md_cell(d.name), d.key, ", 보기 전용" if d.is_pdf else "", len(rows_by_doc.get(d.key, [])))
+                % (md_cell(d.name), d.key, ", 보기 전용" if d.view_only else "", len(rows_by_doc.get(d.key, [])))
             )
         for k in rows_by_doc:
             if k not in known:
@@ -487,11 +491,11 @@ def pins_md_text(page: PinsMdInput) -> str:
             continue
         shown += 1
         title = "## %s · `%s` · `%s`" % (md_cell(d.name), d.key, md_cell(d.path))
-        if d.is_pdf:
+        if d.view_only:
             title += " — 보기 전용 PDF(줄 번호 없음)"
         out += ["", title]
         if d.head and d.head != "-" and d.built_at:
-            out.append("기준: %s · %s %s" % (d.head, "그림" if d.is_pdf else "빌드", d.built_at))
+            out.append("기준: %s · %s %s" % (d.head, "빌드" if d.builds_from_source else "그림", d.built_at))
         out += [""] + header + rs
     for k, rs in rows_by_doc.items():
         if k in known:

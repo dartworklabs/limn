@@ -96,6 +96,15 @@ class ManuscriptRevisions(Base):
         self.assertNotIn("other/private.tex", d["diff"])
         self.assertFalse(d["truncated"])
 
+    def test_a_view_only_document_has_no_history_even_beside_committed_sources(self):
+        """A PDF in the body's own folder shows no revisions: the changes view belongs to documents that show
+        revisions, not to any file that happens to sit in a Git repository."""
+        pdf = self.src / "review.pdf"
+        pdf.write_bytes(b"%PDF-1.4\n")
+        rv = Doc("rv", "리뷰", "pdf", src=self.src, main=pdf, paths=ps.APP.C.paths)
+        self.assertEqual(revisions.revision_history(rv), {"available": False, "revisions": []})
+        self.assertTrue(revisions.revision_history(ps.APP.docs[0])["available"])
+
     def test_http_revision_endpoints(self):
         code, _, raw = split_resp(self.talk(req("GET", "/api/revisions")))
         self.assertEqual(code, 200)
