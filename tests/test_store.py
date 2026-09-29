@@ -28,6 +28,7 @@ from limn.store import PinFiles, PinStore, dump_jsonl, find_pin
 from limn.web.errors import InputRejected
 
 from helpers import TEX, Base, add_pin, edit_pin, ps, record_of, records, req, trash_records, write_records
+from helpers_authority import post_authority
 
 STORE_PY = Path(store.__file__)
 
@@ -517,9 +518,17 @@ class Store(Base):
     def test_two_clears_same_second_keep_both(self):
         """Archive names remain unique when two clear operations share one timestamp."""
         self.add(note="FIRST")
-        ps.APP.pin_trash.clear_pins()
+        ps.APP.pin_trash.clear_pins(
+            post_authority(
+                ps.APP.pin_trash.context().store, {"login": "local", "name": "Owner"}, "clear", None, role="owner"
+            )
+        )
         self.add(note="SECOND")
-        ps.APP.pin_trash.clear_pins()
+        ps.APP.pin_trash.clear_pins(
+            post_authority(
+                ps.APP.pin_trash.context().store, {"login": "local", "name": "Owner"}, "clear", None, role="owner"
+            )
+        )
         baks = list(ps.APP.C.state.glob("pins_*.jsonl.bak"))
         self.assertEqual(len(baks), 2)
         blob = "".join(p.read_text() for p in baks)
@@ -529,15 +538,24 @@ class Store(Base):
     def test_restore_survives_failed_pins_write(self):
         """A failed live write keeps the Trash copy available for a later restore."""
         pid = self.add()
-        ps.APP.pin_trash.drop_pin(pid, dict(LOCAL_ACTOR))
+        ps.APP.pin_trash.drop_pin(pid, post_authority(ps.APP.pin_trash.context().store, dict(LOCAL_ACTOR), "drop", pid))
         # the transaction's own write
         with (
             mock.patch.object(PinStore, "write_prepared", side_effect=OSError("disk full")),
             self.assertRaises(OSError),
         ):
-            ps.APP.pin_trash.restore_pin(pid, dict(LOCAL_ACTOR))
+            ps.APP.pin_trash.restore_pin(
+                pid, post_authority(ps.APP.pin_trash.context().store, dict(LOCAL_ACTOR), "restore", pid)
+            )
         self.assertIn(pid, [r["id"] for r in trash_records()])
-        self.assertEqual(record_of(ps.APP.pin_trash.restore_pin(pid, dict(LOCAL_ACTOR)))["id"], pid)
+        self.assertEqual(
+            record_of(
+                ps.APP.pin_trash.restore_pin(
+                    pid, post_authority(ps.APP.pin_trash.context().store, dict(LOCAL_ACTOR), "restore", pid)
+                )
+            )["id"],
+            pid,
+        )
         self.assertEqual(trash_records(), [])
 
     def test_edit_loc_keeps_page_frac_and_defaults_kind(self):
@@ -667,7 +685,9 @@ class LegacyPinsNotRewritten(Base):
             "done": True,
             "done_at": "2026-09-21 21:00:00",
             "close_reply": "고침",
-            "anchor": mapping.anchor_of(files.tex_lines(self.main), 4, 5),
+            "anchor": mapping.anchor_of(
+                files.tex_lines(files.file_in_tree(str(self.main), self.main.parent, self.main.parent / "state")), 4, 5
+            ),
             "synced_at": self.main.stat().st_mtime + 10,
         }
         ps.APP.C.pins_jsonl.write_text(json.dumps(legacy, ensure_ascii=False) + "\n", encoding="utf-8")

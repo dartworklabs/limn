@@ -178,6 +178,8 @@ After the number, the number cell carries short plain-word markers joined by ` Â
 
 ## Common API
 
+Send each JSON key, query parameter and singleton security header once. Duplicate keys (including nested JSON), repeated query parameters, non-finite numbers and malformed encodings are rejected. Percent-encode non-ASCII URL text as UTF-8. Ordinary single-value requests are unchanged; see the [API contract](../docs/handbook/api.md).
+
 | Route | Meaning |
 | --- | --- |
 | `GET /api/version` | `{"name":"limn","version":...}` |

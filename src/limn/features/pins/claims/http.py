@@ -3,6 +3,7 @@
 from collections.abc import Callable
 from typing import Any, Protocol, TypeAlias
 
+from limn.access import PostAuthority
 from limn.features.pins.claims import input as claim_input
 from limn.features.pins.claims.rules import ClaimClosedPin, ClaimedByOther, NotClaimed
 from limn.features.pins.claims.service import PinClaims
@@ -24,13 +25,13 @@ class ClaimsApp(Protocol):
         ...
 
 
-def claim(app: ClaimsApp, pid: int, actor: dict[str, Any], body: dict[str, Any]) -> Body:
+def claim(app: ClaimsApp, pid: int, actor: PostAuthority, body: dict[str, Any]) -> Body:
     """Parse, decide, and answer POST /api/pins/{id}/claim after shared guards."""
     ttl, eta = accepted(claim_input.parse_claim_body(body))
     return claim_answer(app.pin_claims.claim_pin(pid, actor, ttl, eta), ttl, eta, app.public)
 
 
-def unclaim(app: ClaimsApp, pid: int, actor: dict[str, Any]) -> Body:
+def unclaim(app: ClaimsApp, pid: int, actor: PostAuthority) -> Body:
     """Decide and answer POST /api/pins/{id}/unclaim after shared guards."""
     return unclaim_answer(app.pin_claims.unclaim_pin(pid, actor), app.public)
 

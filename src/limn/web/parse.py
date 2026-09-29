@@ -15,7 +15,7 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any, Literal, NamedTuple, Protocol, TypeAlias
 
-from limn.files import BadPath, NotAFile, OutsideTree, file_in_tree
+from limn.files import BadPath, ManuscriptFile, NotAFile, OutsideTree, file_in_tree
 from limn.pins.shapes import is_finite_num
 from limn.web.errors import InputRejected
 
@@ -58,7 +58,7 @@ class DocumentFacts(Protocol):
         """The instance's state folder, never part of the tree even when it lies inside root (limn.files.tree_part)."""
         ...
 
-    def lines(self, path: Path) -> list[str]:
+    def lines(self, path: ManuscriptFile) -> list[str]:
         """The lines of a manuscript file; [] when it cannot be read as UTF-8."""
         ...
 
@@ -152,12 +152,12 @@ def parse_doc_choice(q: Query | None, body: Json | None = None, new_pin: bool = 
     return DocChoice(key, body.get("file"), want if isinstance(want, str) else None)
 
 
-def source_file(p: object, root: Path, state: Path) -> Path | InputRejected:
+def source_file(p: object, root: Path, state: Path) -> ManuscriptFile | InputRejected:
     """The real file inside the manuscript tree root that p names (absolute, or relative to the tree), or why not
     (limn.files.file_in_tree): a bad value, a file outside the tree (the state folder `state` included), or no such
     file."""
     match file_in_tree(p, root, state):
-        case Path() as f:
+        case ManuscriptFile() as f:
             return f
         case BadPath():
             return InputRejected("file 이 올바르지 않습니다.", "bad_file")

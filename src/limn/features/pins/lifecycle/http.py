@@ -4,6 +4,7 @@ from collections.abc import Callable
 from dataclasses import replace
 from typing import Any, Protocol, TypeAlias
 
+from limn.access import PostAuthority
 from limn.config import RunConfig
 from limn.features.pins.lifecycle import input as lifecycle_input
 from limn.features.pins.lifecycle.rules import (
@@ -44,15 +45,13 @@ class LifecycleApp(Protocol):
 def reply(
     app: LifecycleApp,
     pid: int,
-    actor: dict[str, Any],
+    actor: PostAuthority,
     body: dict[str, Any],
-    is_human: Callable[[], bool],
 ) -> Body:
     """Parse, decide, and answer POST /api/pins/{id}/reply after shared guards."""
     request = accepted(lifecycle_input.parse_reply(body))
-    human = is_human()
     return reply_answer(
-        app.pin_lifecycle.reply_pin(pid, request.text, actor, request.hints, reopen=request.reopen, human=human),
+        app.pin_lifecycle.reply_pin(pid, request.text, actor, request.hints, reopen=request.reopen),
         app.public,
         app.pin_state,
     )
@@ -61,7 +60,7 @@ def reply(
 def close(
     app: LifecycleApp,
     pid: int,
-    actor: dict[str, Any],
+    actor: PostAuthority,
     body: dict[str, Any],
     review_on_close: Callable[[bool | None], bool | None],
 ) -> Body:
@@ -73,13 +72,13 @@ def close(
     )
 
 
-def reopen(app: LifecycleApp, pid: int, actor: dict[str, Any], body: dict[str, Any]) -> Body:
+def reopen(app: LifecycleApp, pid: int, actor: PostAuthority, body: dict[str, Any]) -> Body:
     """Parse, decide, and answer POST /api/pins/{id}/reopen after shared guards."""
     reason, hints = accepted(lifecycle_input.parse_reopen(body))
     return state_answer(app.pin_lifecycle.reopen_pin(pid, actor, reason, hints), app.public, app.pin_state)
 
 
-def confirm(app: LifecycleApp, pid: int, actor: dict[str, Any]) -> Body:
+def confirm(app: LifecycleApp, pid: int, actor: PostAuthority) -> Body:
     """Decide and answer POST /api/pins/{id}/confirm after shared guards."""
     return confirm_answer(app.pin_lifecycle.confirm_pin(pid, actor), app.public)
 

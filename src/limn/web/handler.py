@@ -12,7 +12,6 @@ limn.web.errors. Statuses, headers and bodies are the agent contract (docs/handb
 
 from __future__ import annotations
 
-import json
 import re
 import socket
 import sys
@@ -20,12 +19,13 @@ import traceback
 from collections.abc import Callable
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any, ClassVar
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import urlparse
 
-from limn.web import answers, parse
+from limn.config import AccessOptions
+from limn.web import answers, parse, request_input
 from limn.web.answers import accepted
 from limn.web.app import App, Document, Json, Principal, Query
-from limn.web.errors import HTTPError, error_page_html, page_lang
+from limn.web.errors import HTTPError, InputRejected, error_page_html, page_lang
 from limn.web.reply import Reply, json_reply as _json_reply
 from limn.web.routes import GetRequest, OtherPostRequest, PinActionRequest, PostDocRequest
 
@@ -106,7 +106,7 @@ class Handler(BaseHTTPRequestHandler):
                 400, "Transfer-Encoding 은 받지 않습니다. Content-Length 로 보내세요.", reason="transfer_encoding"
             )
         cls = self.headers.get_all("Content-Length") or []
-        if len(set(v.strip() for v in cls)) > 1:
+        if len(cls) > 1:
             self.close_connection = True
             raise HTTPError(400, "Content-Length 가 여러 개입니다.", reason="bad_content_length")
         cl = cls[0].strip() if cls else ""
@@ -115,10 +115,12 @@ class Handler(BaseHTTPRequestHandler):
         if not re.fullmatch(r"[0-9]+", cl):  # isdigit() would also accept latin-1 digits like '²'
             self.close_connection = True
             raise HTTPError(400, "Content-Length 가 음이 아닌 정수가 아닙니다.", reason="bad_content_length")
-        n = int(cl)
-        if n > MAX_BODY:
+        digits = cl.lstrip("0") or "0"
+        maximum = str(MAX_BODY)
+        if len(digits) > len(maximum) or (len(digits) == len(maximum) and digits > maximum):
             self.close_connection = True
             raise HTTPError(413, "요청 본문이 너무 큽니다(1 MiB 이하).", reason="body_too_large")
+        n = int(digits)
         raw = self.rfile.read(n) if n else b""
         if len(raw) != n:  # a truncated request - never acted on (including /api/clear)
             self.close_connection = True
@@ -127,6 +129,29 @@ class Handler(BaseHTTPRequestHandler):
             )
         self._raw = raw
         return raw
+
+    def _check_singleton_headers(self, settings: AccessOptions) -> None:
+        """Reject ambiguous security headers before either value can become identity.
+
+        Forwarding lists and content negotiation headers retain their list semantics.
+        Configured proxy identities are checked only in their provider mode.
+        """
+        if len(self.headers.get_all("Authorization") or []) > 1:
+            raise HTTPError(401, "Authorization: Bearer 헤더가 올바르지 않습니다.", reason="bad_bearer")
+        names = [
+            "Host",
+            "Origin",
+            "Content-Type",
+            "Tailscale-User-Login",
+            "Tailscale-User-Name",
+            "Tailscale-User-Profile-Pic",
+        ]
+        if settings.auth == "trusted-proxy":
+            names.extend([settings.proxy_user_header, settings.proxy_name_header])
+            if settings.proxy_email_header:
+                names.append(settings.proxy_email_header)
+        if any(len(self.headers.get_all(name) or []) > 1 for name in names):
+            raise HTTPError(400, "보안 헤더는 한 번만 보내세요.", reason="duplicate_header")
 
     def _check_origin(self) -> None:
         """Blocks cross-origin requests (CSRF) and DNS rebinding.
@@ -137,7 +162,9 @@ class Handler(BaseHTTPRequestHandler):
           origin as that host when Host is *.ts.net (origin_ok).
           A browser always attaches Origin to a cross-origin POST. curl/agents send no Origin, so this has no effect on them."""
         # --no-origin-check: an escape hatch for when the observed path differs from expectations
-        if not self.app.C.origin_check:
+        config = self.app.C
+        self._check_singleton_headers(config.access)
+        if not config.origin_check:
             return
         host = self.headers.get("Host")
         # Checked independent of whether the Tailscale-User-* header is present. That header can also be
@@ -176,7 +203,8 @@ class Handler(BaseHTTPRequestHandler):
     def _refuse(self, e: HTTPError) -> None:
         """Send a refusal: the readable HTML page to a browser opening /, the JSON error body to everyone else."""
         if self._wants_page():
-            lang = page_lang(self.headers, parse_qs(urlparse(self.path).query))
+            query = request_input.query_values(urlparse(self.path).query)
+            lang = page_lang(self.headers, {} if isinstance(query, InputRejected) else query)
             return self._send(
                 e.code, error_page_html(e, lang, self.app.viewer().messages).encode("utf-8"), "text/html; charset=utf-8"
             )
@@ -211,7 +239,8 @@ class Handler(BaseHTTPRequestHandler):
         """A GET: the guard, then the route for the request's document (?doc=, the first document if absent)."""
         actor = self._guard()
         u = urlparse(self.path)
-        path, q = u.path, parse_qs(u.query)
+        path, q = u.path, accepted(request_input.query_values(u.query))
+        self.app.check_read(path)
         # A document-scoped path takes ?doc=<key> (the first document if absent) and is handled for that document (§Multiple documents).
         return self._get_doc(actor, path, q, self._request_doc(accepted(parse.parse_doc_choice(q))))
 
@@ -256,38 +285,35 @@ class Handler(BaseHTTPRequestHandler):
         if ctype != "application/json":
             # A cross-origin "simple request" (text/plain form) arrives with no preflight - accepting only JSON closes off that path.
             raise HTTPError(415, "본문은 Content-Type: application/json 으로 보내세요.", reason="bad_content_type")
-        try:
-            d = json.loads(raw)
-        except (ValueError, RecursionError):
-            raise HTTPError(400, "본문이 올바른 JSON 이 아닙니다.", reason="bad_json") from None
-        if not isinstance(d, dict):
-            raise HTTPError(400, "본문은 JSON 객체여야 합니다.", reason="bad_json")
-        return d
+        return accepted(request_input.json_object(raw))
 
     def _post(self) -> None:
-        """A POST: the guard, the role check (before any state change), the person record, the body, then the route -
+        """A POST: the guard, the role check (before any state change), the body/query, scoped authority, the person record, then the route -
         for the request's document when the route acts on one."""
         actor = self._guard()
         u = urlparse(self.path)
         path = u.path
         self.app.check_role(self.principal, path)  # the one place roles are enforced, before any state change
-        self._record(actor)
         d = self._body()
+        q = accepted(request_input.query_values(u.query))
         registered = next((route for route in self.app.post_doc_routes if route.path == path), None)
         if registered is not None:
-            q = parse_qs(u.query)
             D = self._request_doc(accepted(parse.parse_doc_choice(q, d, new_pin=registered.new_pin)))
-            return self._json(*registered.action(PostDocRequest(q, d, D, actor, self.principal)))
+            authority = self.app.authorize_post(self.principal, path, D)
+            self._record(dict(authority))
+            return self._json(*registered.action(PostDocRequest(q, d, D, authority, authority.principal)))
         return self._post_other(actor, path, d)
 
     def _post_other(self, actor: Json, path: str, d: Json) -> None:
         """Dispatch guarded POSTs by pin action or exact path; anything else is 404."""
+        authority = self.app.authorize_post(self.principal, path)
+        self._record(dict(authority))
         m = re.fullmatch(r"/api/pins/(\d+)/([a-z]+)", path)
         if m:
             action = self.app.pin_actions.get(m.group(2))
             if action is not None:
-                return self._json(action(PinActionRequest(int(m.group(1)), actor, d, self.principal)))
+                return self._json(action(PinActionRequest(int(m.group(1)), authority, d, authority.principal)))
         other_post = self.app.other_posts.get(path)
         if other_post is not None:
-            return self._json(other_post(OtherPostRequest(actor, d, self.principal)))
+            return self._json(other_post(OtherPostRequest(authority, d, authority.principal)))
         raise HTTPError(404, "없는 경로입니다: %s" % path, reason="not_found")

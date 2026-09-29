@@ -39,7 +39,7 @@ from limn.features.builds import engine as build_engine
 from limn.features.builds.answer import diet_log
 from limn.features.pins.editing import input as editing_input
 from limn.features.pins.lifecycle import input as lifecycle_input
-from limn.features.pins.lifecycle.rules import AgentCannotConfirm, CloseRequest
+from limn.features.pins.lifecycle.rules import CloseRequest
 from limn.features.pins.location import source as pick_source
 from limn.features.sync import run as gitsync
 from limn.features.sync.rules import UpToDate
@@ -73,6 +73,7 @@ from helpers import (
     split_resp,
 )
 from helpers_access import BOB_ACTOR
+from helpers_authority import post_authority
 
 
 class Smuggling(Base):
@@ -947,127 +948,137 @@ class ProcessRuntime(Base):
             finally:
                 apps[0].RT.stop()
 
-    def test_main_stops_the_runtime_when_serving_ends(self):
-        """An interrupted server closes its socket and stops the Runtime while preserving Ctrl-C."""
+    def cleanup_run(self, serving_error=None):
+        """Create a real listener/watch pair; stop serving normally or at its next poll.
 
-        class Served:
-            """A started server whose serving is interrupted."""
+        The faulting server still runs the standard library's real polling loop.
+        Cleanup callbacks bound all resources even if the behavior under test fails.
+        """
 
-            closed = False
+        class FaultingServer(ps.Server):
+            """Inject a serving failure after a real poll, without replacing cleanup."""
 
-            def serve_forever(self):
-                """End like a Ctrl-C."""
-                raise KeyboardInterrupt
+            def service_actions(self):
+                """End serving with the requested failure after the listener was polled."""
+                raise serving_error
 
-            def server_close(self):
-                """Record that the listening socket would be released."""
-                self.closed = True
-
+        server_type = ps.Server if serving_error is None else FaultingServer
+        server = server_type(("127.0.0.1", 0), ps.Handler)
         rt = self.runtime()
-        server = Served()
+        rt.start_thread(rt.stopping.wait)
+        self.addCleanup(server.server_close)
+        self.addCleanup(rt.stop)
+        if serving_error is None:
+            stopper = threading.Thread(target=server.shutdown, daemon=True)
+            stopper.start()
+            self.addCleanup(stopper.join, 5)
+        return ps.StartedServer(server, ps.ServerApplication(ps.APP.C, rt))
+
+    def assert_run_released(self, started):
+        """The listener descriptor and all real watch threads are released."""
+        self.assertEqual(started.server.socket.fileno(), -1)
+        self.assertTrue(started.app.RT.stopping.is_set())
+        self.assertTrue(all(not thread.is_alive() for thread in started.app.RT.threads))
+
+    def close_failure(self):
+        """Inject a socket API failure after its descriptor is actually released."""
+        close = socket.socket.close
+
+        def fail(sock):
+            """Release the OS resource before reporting the requested close failure."""
+            close(sock)
+            raise OSError("cannot close socket")
+
+        return mock.patch.object(socket.socket, "close", fail)
+
+    def join_failure(self):
+        """Inject a threading boundary failure after the watch actually terminates."""
+        join = threading.Thread.join
+
+        def fail(thread, timeout=None):
+            """Wait for real termination before reporting the requested join failure."""
+            join(thread, timeout)
+            raise OSError("cannot stop runtime")
+
+        return mock.patch.object(threading.Thread, "join", fail)
+
+    def test_main_stops_the_runtime_when_serving_ends(self):
+        """Ctrl-C propagates while the actual listener and its watch are released."""
+        started = self.cleanup_run(KeyboardInterrupt())
         fixture_runtime = ps.APP.RT
         with (
             mock.patch.object(ps, "build_arg_parser"),
-            mock.patch.object(ps, "start", return_value=ps.StartedServer(server, ps.ServerApplication(ps.APP.C, rt))),
+            mock.patch.object(ps, "start", return_value=started),
             self.assertRaises(KeyboardInterrupt),
         ):
             ps.main()
-        self.assertTrue(server.closed)
-        self.assertTrue(rt.stopping.is_set())
+        self.assert_run_released(started)
         self.assertFalse(fixture_runtime.stopping.is_set())
 
     def test_main_closes_server_after_normal_serve_return(self):
-        """A server whose loop returns normally closes its socket before stopping its Runtime."""
-
-        server = mock.Mock()
-        rt = self.runtime()
-        order = []
-        stop_runtime = ps.Runtime.stop
-
-        def close_socket():
-            """Record socket closure before the runtime's watches are stopped."""
-            order.append("socket")
-
-        def stop(runtime):
-            """Record and perform runtime cleanup so the ordering assertion observes both effects."""
-            order.append("runtime")
-            stop_runtime(runtime)
-
-        server.server_close.side_effect = close_socket
+        """Normal shutdown closes the real listener and joins its watch thread."""
+        started = self.cleanup_run()
         with (
             mock.patch.object(ps, "build_arg_parser"),
-            mock.patch.object(ps, "start", return_value=ps.StartedServer(server, ps.ServerApplication(ps.APP.C, rt))),
-            mock.patch.object(ps.Runtime, "stop", autospec=True, side_effect=stop),
+            mock.patch.object(ps, "start", return_value=started),
         ):
             ps.main()
-        server.server_close.assert_called_once_with()
-        self.assertEqual(order, ["socket", "runtime"])
-        self.assertTrue(rt.stopping.is_set())
+        self.assert_run_released(started)
 
     def test_main_stops_runtime_even_when_server_close_fails(self):
-        """A socket-close failure cannot leave watch threads running after serving ends."""
-
-        server = mock.Mock()
-        server.server_close.side_effect = OSError("cannot close socket")
-        rt = self.runtime()
+        """A socket API failure cannot leave the real watch running after serving ends."""
+        started = self.cleanup_run()
         with (
             mock.patch.object(ps, "build_arg_parser"),
-            mock.patch.object(ps, "start", return_value=ps.StartedServer(server, ps.ServerApplication(ps.APP.C, rt))),
+            mock.patch.object(ps, "start", return_value=started),
+            self.close_failure(),
             self.assertRaisesRegex(OSError, "cannot close socket"),
         ):
             ps.main()
-        self.assertTrue(rt.stopping.is_set())
+        self.assert_run_released(started)
 
     def test_main_preserves_serving_error_when_cleanup_also_fails(self):
-        """Both cleanup steps are attempted without replacing the error that ended serving."""
-
-        server = mock.Mock()
-        server.serve_forever.side_effect = RuntimeError("serving failed")
-        server.server_close.side_effect = OSError("cannot close socket")
-        rt = mock.Mock()
-        rt.stop.side_effect = OSError("cannot stop runtime")
+        """Serving failure wins over socket/join failures while both resources end."""
+        started = self.cleanup_run(RuntimeError("serving failed"))
         with (
             mock.patch.object(ps, "build_arg_parser"),
-            mock.patch.object(ps, "start", return_value=ps.StartedServer(server, ps.ServerApplication(ps.APP.C, rt))),
+            mock.patch.object(ps, "start", return_value=started),
+            self.close_failure(),
+            self.join_failure(),
             self.assertRaisesRegex(RuntimeError, "serving failed"),
         ):
             ps.main()
-        server.server_close.assert_called_once_with()
-        rt.stop.assert_called_once_with()
+        self.assert_run_released(started)
 
     def test_main_reports_secondary_cleanup_error_after_normal_return(self):
-        """If both cleanup steps fail after normal serving, the first error propagates and the second is reported."""
-
-        server = mock.Mock()
-        server.server_close.side_effect = OSError("cannot close socket")
-        rt = mock.Mock()
-        rt.stop.side_effect = OSError("cannot stop runtime")
+        """Socket failure propagates and the secondary join failure is reported."""
+        started = self.cleanup_run()
         with (
             mock.patch.object(ps, "build_arg_parser"),
-            mock.patch.object(ps, "start", return_value=ps.StartedServer(server, ps.ServerApplication(ps.APP.C, rt))),
+            mock.patch.object(ps, "start", return_value=started),
+            self.close_failure(),
+            self.join_failure(),
             mock.patch("sys.stderr", new_callable=io.StringIO) as stderr,
             self.assertRaisesRegex(OSError, "cannot close socket"),
         ):
             ps.main()
-        rt.stop.assert_called_once_with()
+        self.assert_run_released(started)
         self.assertIn("cannot stop runtime", stderr.getvalue())
 
     def test_main_does_not_treat_callers_error_as_serving_error(self):
-        """A caller handling an unrelated error does not hide a new server cleanup failure."""
-
-        server = mock.Mock()
-        server.server_close.side_effect = OSError("cannot close socket")
-        rt = self.runtime()
+        """An outer handled error cannot suppress a new cleanup failure or leak watches."""
+        started = self.cleanup_run()
         with (
             mock.patch.object(ps, "build_arg_parser"),
-            mock.patch.object(ps, "start", return_value=ps.StartedServer(server, ps.ServerApplication(ps.APP.C, rt))),
+            mock.patch.object(ps, "start", return_value=started),
+            self.close_failure(),
         ):
             try:
                 raise ValueError("outer error")
             except ValueError:
                 with self.assertRaisesRegex(OSError, "cannot close socket"):
                     ps.main()
-        self.assertTrue(rt.stopping.is_set())
+        self.assert_run_released(started)
 
     def test_start_stops_watch_when_listen_refuses(self):
         """A port lost after the probe cannot leave a watch thread running after startup refuses."""
@@ -1340,7 +1351,7 @@ class MultiDoc(Base):
         self.assertEqual((p["frac"][0], p["quote"], p["pdf_build"]), (0.3, "new", "pages-20260101000000"))
         self.assertTrue(fits(self.pin(pid)))
         ps.APP.pin_lifecycle.close_pin(
-            pid, dict(LOCAL_ACTOR), CloseRequest()
+            pid, post_authority(ps.APP.pin_lifecycle.context().store, dict(LOCAL_ACTOR), "close", pid), CloseRequest()
         )  # close/drop are resolved by id, independent of document
         self.assertTrue(self.pin(pid)["done"])
 
@@ -1603,13 +1614,16 @@ class KindAndThread(Base):
         self.assertEqual([(m.get("ev"), m["text"]) for m in th], [("close", "")])
 
     def test_single_pin_route_and_state_field(self):
+        """Single-pin responses expose computed state and missing-id status without storing the API-only state field."""
         pid = self.add()
         code, _, raw = split_resp(self.talk(req("GET", "/api/pins/%d" % pid)))
         d = json.loads(raw)
         self.assertEqual((code, d["pin"]["id"], d["pin"]["state"]), (200, pid, "open"))
         code, _, _ = split_resp(self.talk(req("GET", "/api/pins/999")))
         self.assertEqual(code, 404)
-        ps.APP.pin_lifecycle.close_pin(pid, dict(self.S), CloseRequest())
+        ps.APP.pin_lifecycle.close_pin(
+            pid, post_authority(ps.APP.pin_lifecycle.context().store, dict(self.S), "close", pid), CloseRequest()
+        )
         rows = ps.APP.pin_listing.pins_payload(ps.APP.snapshot_pins(), True)
         self.assertEqual(rows[0]["state"], "done")
         self.assertNotIn("state", records(ps.APP.read_pins()[0])[0])  # a computed field — not stored
@@ -1651,8 +1665,13 @@ class ReviewState(Base):
         self.assertEqual(code, 400)
 
     def test_confirm_and_idempotence(self):
+        """Human confirmation records attribution once, preserves revision on retries, and refuses still-open pins."""
         pid = self.add()
-        ps.APP.pin_lifecycle.close_pin(pid, dict(LOCAL_ACTOR), CloseRequest(reply="고침"))
+        ps.APP.pin_lifecycle.close_pin(
+            pid,
+            post_authority(ps.APP.pin_lifecycle.context().store, dict(LOCAL_ACTOR), "close", pid),
+            CloseRequest(reply="고침"),
+        )
         W = {"Tailscale-User-Login": self.W["login"], "Tailscale-User-Name": self.W["name"]}
         code, d = self.post("/api/pins/%d/confirm" % pid, None, W)
         self.assertEqual((code, d["state"]), (200, "done"))
@@ -1669,21 +1688,32 @@ class ReviewState(Base):
         self.assertEqual((code, d["ok"]), (200, False))
 
     def test_agent_cannot_confirm(self):
+        """Agents cannot obtain confirmation authority or mark their own work as human-reviewed."""
         # observed bug: a request without an identity header (agent/local curl) could succeed at /confirm —
         # awaiting review is a record that "a human saw this," so an agent confirming its own work defeats the purpose.
         pid = self.add()
-        ps.APP.pin_lifecycle.close_pin(pid, dict(LOCAL_ACTOR), CloseRequest(reply="고침"))
+        ps.APP.pin_lifecycle.close_pin(
+            pid,
+            post_authority(ps.APP.pin_lifecycle.context().store, dict(LOCAL_ACTOR), "close", pid),
+            CloseRequest(reply="고침"),
+        )
         code, d = self.post("/api/pins/%d/confirm" % pid)  # no header = agent
         self.assertEqual(code, 403)
         self.assertIn("확인은 사람이 합니다", d.get("error", ""))
         self.assertEqual(pin_state(self.pin(pid)), "review")  # the status doesn't change
-        self.assertEqual(
-            ps.APP.pin_lifecycle.confirm_pin(pid, dict(LOCAL_ACTOR)), AgentCannotConfirm()
-        )  # a value, answered 403 above
+        with self.assertRaises(HTTPError) as refused:
+            post_authority(ps.APP.pin_lifecycle.context().store, dict(LOCAL_ACTOR), "confirm", pid)
+        self.assertEqual((refused.exception.code, refused.exception.body["reason"]), (403, "confirm_by_human"))
+        self.assertEqual(pin_state(self.pin(pid)), "review")
 
     def test_reopen_with_reason_appends_to_thread_and_clears_review(self):
+        """Reopening records the reason and clears review; legacy repeats leave the thread unchanged."""
         pid = self.add()
-        ps.APP.pin_lifecycle.close_pin(pid, dict(LOCAL_ACTOR), CloseRequest(reply="고침"))
+        ps.APP.pin_lifecycle.close_pin(
+            pid,
+            post_authority(ps.APP.pin_lifecycle.context().store, dict(LOCAL_ACTOR), "close", pid),
+            CloseRequest(reply="고침"),
+        )
         code, d = self.post(
             "/api/pins/%d/reopen" % pid,
             {"reason": "식 번호가 아직 틀림"},

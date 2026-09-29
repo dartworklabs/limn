@@ -10,7 +10,7 @@ from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any, NamedTuple, Protocol, TypeAlias
 
-from limn.access import Role, is_agent_actor
+from limn.access import AuthorityScope, Role, is_agent_actor
 from limn.audit import AuditAction
 from limn.events import EventType
 from limn.locate import PinLocation
@@ -84,6 +84,11 @@ class PinContext:
     thread_max: int  # cap on one pin's replies
     trash_days: int  # how long a dropped pin stays restorable
     trash_checked: list[float]
+
+    @property
+    def authority_scope(self) -> AuthorityScope:
+        """Bind mutations to this run's lock and current resolved state directory."""
+        return AuthorityScope(self.store.lock, str(self.store.files.state.resolve()))
 
 
 def is_agent(actor: Mapping[str, Any] | None) -> bool:

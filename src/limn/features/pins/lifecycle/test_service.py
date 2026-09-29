@@ -6,12 +6,12 @@ from unittest import mock
 from limn.access import LOCAL_ACTOR
 from limn.features.pins.claims.rules import ClaimClosedPin
 from limn.features.pins.lifecycle import input as lifecycle_input
-from limn.features.pins.lifecycle.rules import AgentCannotConfirm, AlreadyClosed, CloseRequest, ThreadFull
+from limn.features.pins.lifecycle.rules import AlreadyClosed, CloseRequest, ThreadFull
 from limn.features.pins.lifecycle.service import PinLifecycle
 from limn.pins.model import DonePin, OpenPin, PinNotFound, ReviewPin
 from limn.pins.view import pin_state
 from limn.store import PinFiles, PinStore
-from limn.web.errors import InputRejected
+from limn.web.errors import HTTPError, InputRejected
 
 from helpers import (
     Base,
@@ -22,6 +22,7 @@ from helpers import (
     split_resp,
 )
 from helpers_access import ALICE_ACTOR, BOB_ACTOR, AccessBase
+from helpers_authority import post_authority
 from helpers_pin_service import AGENT, ServiceBase, parse_rec, parse_trash
 
 
@@ -32,18 +33,35 @@ class Transitions(ServiceBase):
         """An agent's close is a ReviewPin with a review_requested notice to the author; a second close is
         AlreadyClosed and leaves the file as it was."""
         pid = self.add()
-        out = PinLifecycle(lambda: self.ctx).close_pin(pid, AGENT, CloseRequest(reply="fixed"))
+        out = PinLifecycle(lambda: self.ctx).close_pin(
+            pid,
+            post_authority(PinLifecycle(lambda: self.ctx).context().store, AGENT, "close", pid),
+            CloseRequest(reply="fixed"),
+        )
         self.assertIsInstance(out, ReviewPin)
         self.assertEqual(self.rec.emitted[-1], [{"type": "review_requested", "pin": pid, "to": ["alice@example.com"]}])
         before = self.pins_bytes()
-        self.assertIsInstance(PinLifecycle(lambda: self.ctx).close_pin(pid, BOB_ACTOR, CloseRequest()), AlreadyClosed)
+        self.assertIsInstance(
+            PinLifecycle(lambda: self.ctx).close_pin(
+                pid,
+                post_authority(PinLifecycle(lambda: self.ctx).context().store, BOB_ACTOR, "close", pid),
+                CloseRequest(),
+            ),
+            AlreadyClosed,
+        )
         self.assertEqual(self.pins_bytes(), before)
 
     def test_a_person_reply_on_a_closed_pin_reopens_it(self):
         """A person's untagged reply on a done pin is a reopen: the pin is open again and the author hears reopened."""
         pid = self.add()
-        PinLifecycle(lambda: self.ctx).close_pin(pid, ALICE_ACTOR, CloseRequest())
-        out = PinLifecycle(lambda: self.ctx).reply_pin(pid, "redo please", BOB_ACTOR)
+        PinLifecycle(lambda: self.ctx).close_pin(
+            pid,
+            post_authority(PinLifecycle(lambda: self.ctx).context().store, ALICE_ACTOR, "close", pid),
+            CloseRequest(),
+        )
+        out = PinLifecycle(lambda: self.ctx).reply_pin(
+            pid, "redo please", post_authority(PinLifecycle(lambda: self.ctx).context().store, BOB_ACTOR, "reply", pid)
+        )
         self.assertIsInstance(out, OpenPin)
         self.assertEqual(self.pin(pid)["thread"][-1]["ev"], "reopen")
         self.assertIn({"type": "reopened", "pin": pid, "to": ["alice@example.com"]}, self.rec.emitted[-1])
@@ -52,9 +70,19 @@ class Transitions(ServiceBase):
         """With thread_max replies already there the next is ThreadFull and pins.jsonl is unchanged."""
         pid = self.add()
         self.ctx = self.context(thread_max=1)
-        self.assertIsInstance(PinLifecycle(lambda: self.ctx).reply_pin(pid, "one", BOB_ACTOR), OpenPin)
+        self.assertIsInstance(
+            PinLifecycle(lambda: self.ctx).reply_pin(
+                pid, "one", post_authority(PinLifecycle(lambda: self.ctx).context().store, BOB_ACTOR, "reply", pid)
+            ),
+            OpenPin,
+        )
         before = self.pins_bytes()
-        self.assertIsInstance(PinLifecycle(lambda: self.ctx).reply_pin(pid, "two", BOB_ACTOR), ThreadFull)
+        self.assertIsInstance(
+            PinLifecycle(lambda: self.ctx).reply_pin(
+                pid, "two", post_authority(PinLifecycle(lambda: self.ctx).context().store, BOB_ACTOR, "reply", pid)
+            ),
+            ThreadFull,
+        )
         self.assertEqual(self.pins_bytes(), before)
 
     def test_close_or_reopen_of_a_missing_pin_is_a_named_miss(self):
@@ -62,16 +90,26 @@ class Transitions(ServiceBase):
         pid = self.add()
         before = self.pins_bytes()
         self.assertEqual(
-            PinLifecycle(lambda: self.ctx).close_pin(pid + 6, ALICE_ACTOR, CloseRequest(reply="x")),
+            PinLifecycle(lambda: self.ctx).close_pin(
+                pid + 6,
+                post_authority(PinLifecycle(lambda: self.ctx).context().store, ALICE_ACTOR, "close", pid + 6),
+                CloseRequest(reply="x"),
+            ),
             PinNotFound(pid + 6),
         )
         self.assertEqual(
-            PinLifecycle(lambda: self.ctx).reopen_pin(pid + 6, ALICE_ACTOR, "why", None), PinNotFound(pid + 6)
+            PinLifecycle(lambda: self.ctx).reopen_pin(
+                pid + 6,
+                post_authority(PinLifecycle(lambda: self.ctx).context().store, ALICE_ACTOR, "reopen", pid + 6),
+                "why",
+                None,
+            ),
+            PinNotFound(pid + 6),
         )
         self.assertEqual(self.pins_bytes(), before)
 
     def test_an_agent_confirm_never_loads_the_store(self):
-        """AgentCannotConfirm comes back before the store is read: a store whose re-sync would fail is never asked."""
+        """An agent cannot acquire confirm authority; issuance refuses before reading or writing the store."""
 
         def boom(pins):
             """A re-sync that must not run."""
@@ -80,15 +118,31 @@ class Transitions(ServiceBase):
         ctx = self.context(
             store=PinStore(PinFiles(self.state), self.lock, parse_rec, parse_trash, boom, lambda pins: "")
         )
-        self.assertEqual(PinLifecycle(lambda: ctx).confirm_pin(1, AGENT), AgentCannotConfirm())
+        before = self.pins_bytes()
+        with self.assertRaises(HTTPError) as refused:
+            post_authority(ctx.store, AGENT, "confirm", 1)
+        self.assertEqual((refused.exception.code, refused.exception.body["reason"]), (403, "confirm_by_human"))
+        self.assertEqual(self.pins_bytes(), before)
 
     def test_a_person_confirms_a_pin_awaiting_review(self):
         """Review -> done by a person; confirming again is refused and writes nothing."""
         pid = self.add()
-        PinLifecycle(lambda: self.ctx).close_pin(pid, AGENT, CloseRequest())
-        self.assertIsInstance(PinLifecycle(lambda: self.ctx).confirm_pin(pid, ALICE_ACTOR), DonePin)
+        PinLifecycle(lambda: self.ctx).close_pin(
+            pid, post_authority(PinLifecycle(lambda: self.ctx).context().store, AGENT, "close", pid), CloseRequest()
+        )
+        self.assertIsInstance(
+            PinLifecycle(lambda: self.ctx).confirm_pin(
+                pid, post_authority(PinLifecycle(lambda: self.ctx).context().store, ALICE_ACTOR, "confirm", pid)
+            ),
+            DonePin,
+        )
         before = self.pins_bytes()
-        self.assertNotIsInstance(PinLifecycle(lambda: self.ctx).confirm_pin(pid, ALICE_ACTOR), DonePin)
+        self.assertNotIsInstance(
+            PinLifecycle(lambda: self.ctx).confirm_pin(
+                pid, post_authority(PinLifecycle(lambda: self.ctx).context().store, ALICE_ACTOR, "confirm", pid)
+            ),
+            DonePin,
+        )
         self.assertEqual(self.pins_bytes(), before)
 
 
@@ -96,11 +150,12 @@ class CloseReplyRef(Base):
     """§C: /close accepts optional {"reply","ref"} and stores them as close_reply/close_ref."""
 
     def test_close_with_reply_and_ref_is_stored(self):
+        """Parsed close text and reference survive persistence alongside the completed flag."""
         pid = self.add()
         p = record_of(
             ps.APP.pin_lifecycle.close_pin(
                 pid,
-                dict(LOCAL_ACTOR),
+                post_authority(ps.APP.pin_lifecycle.context().store, dict(LOCAL_ACTOR), "close", pid),
                 lifecycle_input.parse_close({"reply": "제목을 고침", "ref": "PR #227"}, ps.APP.C.src, ps.APP.C.state),
             )
         )
@@ -109,8 +164,15 @@ class CloseReplyRef(Base):
         self.assertTrue(p["done"])
 
     def test_close_without_body_behaves_as_before(self):
+        """Legacy bodyless close requests do not introduce optional reply or reference fields."""
         pid = self.add()
-        p = record_of(ps.APP.pin_lifecycle.close_pin(pid, dict(LOCAL_ACTOR), CloseRequest()))
+        p = record_of(
+            ps.APP.pin_lifecycle.close_pin(
+                pid,
+                post_authority(ps.APP.pin_lifecycle.context().store, dict(LOCAL_ACTOR), "close", pid),
+                CloseRequest(),
+            )
+        )
         self.assertNotIn("close_reply", p)
         self.assertNotIn("close_ref", p)
 
@@ -160,9 +222,21 @@ class CloseIdempotent(Base):
     def test_second_close_does_not_overwrite_closed_by_or_rev(self):
         """A repeated close preserves the first actor, timestamp, and revision."""
         pid = self.add()
-        first = record_of(ps.APP.pin_lifecycle.close_pin(pid, {"login": "alice", "name": "Wendy"}, CloseRequest()))
+        first = record_of(
+            ps.APP.pin_lifecycle.close_pin(
+                pid,
+                post_authority(ps.APP.pin_lifecycle.context().store, {"login": "alice", "name": "Wendy"}, "close", pid),
+                CloseRequest(),
+            )
+        )
         self.assertEqual(first["rev"], 1)
-        second = record_of(ps.APP.pin_lifecycle.close_pin(pid, {"login": "bob", "name": "Bob"}, CloseRequest()))
+        second = record_of(
+            ps.APP.pin_lifecycle.close_pin(
+                pid,
+                post_authority(ps.APP.pin_lifecycle.context().store, {"login": "bob", "name": "Bob"}, "close", pid),
+                CloseRequest(),
+            )
+        )
         self.assertEqual(second["closed_by"]["login"], "alice")
         self.assertEqual(second["rev"], first["rev"])
         self.assertEqual(second["done_at"], first["done_at"])
@@ -171,11 +245,15 @@ class CloseIdempotent(Base):
         """A reply on a repeated close cannot replace the first close reply."""
         pid = self.add()
         ps.APP.pin_lifecycle.close_pin(
-            pid, dict(LOCAL_ACTOR), lifecycle_input.parse_close({"reply": "first"}, ps.APP.C.src, ps.APP.C.state)
+            pid,
+            post_authority(ps.APP.pin_lifecycle.context().store, dict(LOCAL_ACTOR), "close", pid),
+            lifecycle_input.parse_close({"reply": "first"}, ps.APP.C.src, ps.APP.C.state),
         )
         again = record_of(
             ps.APP.pin_lifecycle.close_pin(
-                pid, dict(LOCAL_ACTOR), lifecycle_input.parse_close({"reply": "second"}, ps.APP.C.src, ps.APP.C.state)
+                pid,
+                post_authority(ps.APP.pin_lifecycle.context().store, dict(LOCAL_ACTOR), "close", pid),
+                lifecycle_input.parse_close({"reply": "second"}, ps.APP.C.src, ps.APP.C.state),
             )
         )
         self.assertEqual(again["close_reply"], "first")
@@ -185,16 +263,20 @@ class CloseIdempotent(Base):
         pid = self.add()
         ps.APP.pin_lifecycle.close_pin(
             pid,
-            dict(LOCAL_ACTOR),
+            post_authority(ps.APP.pin_lifecycle.context().store, dict(LOCAL_ACTOR), "close", pid),
             lifecycle_input.parse_close({"reply": "first", "ref": "PR #1"}, ps.APP.C.src, ps.APP.C.state),
         )
-        ps.APP.pin_lifecycle.reopen_pin(pid, dict(LOCAL_ACTOR))
+        ps.APP.pin_lifecycle.reopen_pin(
+            pid, post_authority(ps.APP.pin_lifecycle.context().store, dict(LOCAL_ACTOR), "reopen", pid)
+        )
         reopened = self.pin(pid)
         self.assertNotIn("close_reply", reopened)
         self.assertNotIn("close_ref", reopened)
         closed_again = record_of(
             ps.APP.pin_lifecycle.close_pin(
-                pid, dict(LOCAL_ACTOR), lifecycle_input.parse_close({"reply": "second"}, ps.APP.C.src, ps.APP.C.state)
+                pid,
+                post_authority(ps.APP.pin_lifecycle.context().store, dict(LOCAL_ACTOR), "close", pid),
+                lifecycle_input.parse_close({"reply": "second"}, ps.APP.C.src, ps.APP.C.state),
             )
         )
         self.assertEqual(closed_again["close_reply"], "second")
@@ -218,19 +300,36 @@ class ReviewTransitions(Base):
     S = {"login": "bob@example.com", "name": "Bob Park"}
 
     def test_review_pins_are_not_open_for_agents(self):
+        """Review pins disappear from the legacy open list, refuse claims, and retain their separate metadata count."""
         pid = self.add()
-        ps.APP.pin_lifecycle.close_pin(pid, dict(LOCAL_ACTOR), CloseRequest(reply="고침"))
+        ps.APP.pin_lifecycle.close_pin(
+            pid,
+            post_authority(ps.APP.pin_lifecycle.context().store, dict(LOCAL_ACTOR), "close", pid),
+            CloseRequest(reply="고침"),
+        )
         _, _, raw = split_resp(self.talk(req("GET", "/api/pins")))
         self.assertEqual(json.loads(raw), [])  # not in the open-pin list (legacy contract)
-        self.assertIsInstance(ps.APP.pin_claims.claim_pin(pid, dict(LOCAL_ACTOR), 30), ClaimClosedPin)  # 409 "done"
+        self.assertIsInstance(
+            ps.APP.pin_claims.claim_pin(
+                pid, post_authority(ps.APP.pin_claims.context().store, dict(LOCAL_ACTOR), "claim", pid), 30
+            ),
+            ClaimClosedPin,
+        )  # 409 "done"
         m = ps.APP.document_views.meta(ps.APP.docs[0], dict(LOCAL_ACTOR))
         self.assertEqual((m["n_open"], m["n_review"], m["n_done"]), (0, 1, 0))
 
     def test_reopen_after_confirm_drops_confirmation(self):
+        """Reopening a confirmed pin returns it to open and removes obsolete confirmation attribution."""
         pid = self.add()
-        ps.APP.pin_lifecycle.close_pin(pid, dict(LOCAL_ACTOR), CloseRequest())
-        ps.APP.pin_lifecycle.confirm_pin(pid, dict(self.S))
-        ps.APP.pin_lifecycle.reopen_pin(pid, dict(self.S), reason="다시")
+        ps.APP.pin_lifecycle.close_pin(
+            pid, post_authority(ps.APP.pin_lifecycle.context().store, dict(LOCAL_ACTOR), "close", pid), CloseRequest()
+        )
+        ps.APP.pin_lifecycle.confirm_pin(
+            pid, post_authority(ps.APP.pin_lifecycle.context().store, dict(self.S), "confirm", pid)
+        )
+        ps.APP.pin_lifecycle.reopen_pin(
+            pid, post_authority(ps.APP.pin_lifecycle.context().store, dict(self.S), "reopen", pid), reason="다시"
+        )
         p = self.pin(pid)
         self.assertNotIn("confirmed_by", p)
         self.assertEqual(pin_state(p), "open")
@@ -365,23 +464,44 @@ class PinKindAndThread(Base):
     S = {"login": "bob@example.com", "name": "Bob Park"}
 
     def test_thread_is_capped(self):
+        """A full message thread refuses another reply but still records a closing state transition."""
         pid = self.add()
         with mock.patch.object(ps, "THREAD_MAX", 2):
-            ps.APP.pin_lifecycle.reply_pin(pid, "1", dict(self.S))
-            ps.APP.pin_lifecycle.reply_pin(pid, "2", dict(self.S))
+            ps.APP.pin_lifecycle.reply_pin(
+                pid, "1", post_authority(ps.APP.pin_lifecycle.context().store, dict(self.S), "reply", pid)
+            )
+            ps.APP.pin_lifecycle.reply_pin(
+                pid, "2", post_authority(ps.APP.pin_lifecycle.context().store, dict(self.S), "reply", pid)
+            )
             self.assertEqual(
-                ps.APP.pin_lifecycle.reply_pin(pid, "3", dict(self.S)), ThreadFull(2)
+                ps.APP.pin_lifecycle.reply_pin(
+                    pid, "3", post_authority(ps.APP.pin_lifecycle.context().store, dict(self.S), "reply", pid)
+                ),
+                ThreadFull(2),
             )  # answered 409 "full" over HTTP
             # a status-transition record is exempt from the cap
-            ps.APP.pin_lifecycle.close_pin(pid, dict(self.S), CloseRequest(reply="닫음"))
+            ps.APP.pin_lifecycle.close_pin(
+                pid,
+                post_authority(ps.APP.pin_lifecycle.context().store, dict(self.S), "close", pid),
+                CloseRequest(reply="닫음"),
+            )
         self.assertEqual([m.get("ev") for m in self.pin(pid)["thread"]], [None, None, "close"])
 
     def test_close_reply_is_appended_to_thread_once(self):
+        """Repeated close requests append one transition only and preserve the legacy close_reply projection."""
         pid = self.add()
-        ps.APP.pin_lifecycle.reply_pin(pid, "질문이 있어요", dict(self.S))
-        ps.APP.pin_lifecycle.close_pin(pid, dict(self.S), CloseRequest(reply="제목을 고침", ref="PR #227"))
+        ps.APP.pin_lifecycle.reply_pin(
+            pid, "질문이 있어요", post_authority(ps.APP.pin_lifecycle.context().store, dict(self.S), "reply", pid)
+        )
         ps.APP.pin_lifecycle.close_pin(
-            pid, dict(self.S), CloseRequest(reply="두 번째 닫기")
+            pid,
+            post_authority(ps.APP.pin_lifecycle.context().store, dict(self.S), "close", pid),
+            CloseRequest(reply="제목을 고침", ref="PR #227"),
+        )
+        ps.APP.pin_lifecycle.close_pin(
+            pid,
+            post_authority(ps.APP.pin_lifecycle.context().store, dict(self.S), "close", pid),
+            CloseRequest(reply="두 번째 닫기"),
         )  # already closed — nothing gets appended
         th = self.pin(pid)["thread"]
         self.assertEqual(

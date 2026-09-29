@@ -5,13 +5,12 @@ the disk and the clock know under the pin lock, and leave the rules and the reco
 outcome value that the HTTP layer answers (limn.features.pins.editing.http).
 """
 
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
-from pathlib import Path
-from typing import Any
 
 from limn import build
-from limn.documents import Doc, doc_by_key
+from limn.access import PostAuthority, require_authority
+from limn.documents import Doc, doc_by_key, document_authority_target
 from limn.features.pins.editing.rules import (
     AddRequest,
     Anchoring,
@@ -41,14 +40,16 @@ def located(loc: PinLocation | None) -> Located | None:
     return None if loc is None else Located(str(loc.path), loc.rel)
 
 
-def add_pin(ctx: PinContext, D: Doc, request: AddRequest, actor: Mapping[str, Any]) -> OpenPin:
+def add_pin(ctx: PinContext, D: Doc, request: AddRequest, actor: PostAuthority) -> OpenPin:
     """Saves a new pin in document D from a parsed POST /api/pin body (limn.features.pins.editing.input.parse_add) -> the new open pin. A
     LaTeX document gets a line pin with its anchor, the author and - since 0.3.2 (ADR-0006) - file_rel next to the
     absolute file; a view-only document gets a region pin. Queues mention/assigned notices and emits them after the
     write."""
+    require_authority(actor, ctx.authority_scope, "add", document_authority_target(D))
     place = request.place
     # Manuscript text is read before taking the pin lock, as it was for line pins before this shared transaction.
-    lines = tex_lines(Path(place.file)) if isinstance(place, LinePlace) else None
+    location = ctx.locate({"file": place.file}) if isinstance(place, LinePlace) else None
+    lines, mtime = location.source.snapshot() if location is not None else ([], 0.0)
     evs: list[Event | None] = []
 
     def fn(pins: list[Pin]) -> tuple[OpenPin, bool]:
@@ -59,8 +60,7 @@ def add_pin(ctx: PinContext, D: Doc, request: AddRequest, actor: Mapping[str, An
         match place:
             case LinePlace():
                 assert lines is not None  # read before the lock for every LinePlace
-                f = Path(place.file)
-                anchoring = Anchoring(anchor_of(lines, place.lo, place.hi), f.stat().st_mtime if f.exists() else 0)
+                anchoring = Anchoring(anchor_of(lines, place.lo, place.hi), mtime)
                 # The viewer echoes pdf_build from pick; an agent request without it uses the current build.
                 pin = new_line_pin(
                     place,
@@ -89,7 +89,7 @@ def add_pin(ctx: PinContext, D: Doc, request: AddRequest, actor: Mapping[str, An
 
 
 def edit_pin(
-    ctx: PinContext, pid: int, request: EditRequest, actor: Mapping[str, Any], region: bool = False
+    ctx: PinContext, pid: int, request: EditRequest, actor: PostAuthority, region: bool = False
 ) -> OpenPin | ReviewPin | DonePin | EditRefusal | PinNotFound:
     """Edits pin pid's note, range, location and note-level fields in place; id/at/done never change.
 
@@ -103,6 +103,7 @@ def edit_pin(
     a new anchor when its range changed, the note's @-tags, edited_at/by and rev (evolve_edit); mention/assigned
     notices are emitted after the write.
     """
+    require_authority(actor, ctx.authority_scope, "edit", pid)
     clock = ctx.hm() if request.note_append is not None else ""
     evs: list[Event | None] = []
 
@@ -115,15 +116,15 @@ def edit_pin(
         i, pin = found
         # ADR-0006: an edit records where the file is now
         where = None if region else ctx.locate(file_after(pin.record, request))
-        count = len(tex_lines(where.path)) if where is not None and request.sets_lines() else None
+        count = len(tex_lines(where.source)) if where is not None and request.sets_lines() else None
         event = decide_edit(pin, request, typed_actor(actor), ctx.now(), clock, count, NOTE_MAX)
         if not isinstance(event, PinEdited):
             return event, False
         span = event.span()
         anchoring = None
         if span is not None and where is not None:
-            f = where.path
-            anchoring = Anchoring(anchor_of(tex_lines(f), *span), f.stat().st_mtime if f.exists() else 0)
+            lines, mtime = where.source.snapshot()
+            anchoring = Anchoring(anchor_of(lines, *span), mtime)
         tags = (
             None
             if event.note is None
@@ -195,12 +196,16 @@ class PinEditing:
 
     context: Callable[[], PinContext]
 
-    def add_pin(self, D: Doc, request: AddRequest, actor: Mapping[str, Any]) -> OpenPin:
+    def add_pin(self, D: Doc, request: AddRequest, actor: PostAuthority) -> OpenPin:
         """Create one pin and emit notices after its transaction."""
-        return add_pin(self.context(), D, request, actor)
+        ctx = self.context()
+        require_authority(actor, ctx.authority_scope, "add", document_authority_target(D))
+        return add_pin(ctx, D, request, actor)
 
     def edit_pin(
-        self, pid: int, request: EditRequest, actor: Mapping[str, Any], region: bool = False
+        self, pid: int, request: EditRequest, actor: PostAuthority, region: bool = False
     ) -> OpenPin | ReviewPin | DonePin | EditRefusal | PinNotFound:
         """Edit one pin under the store lock and emit accepted notices."""
-        return edit_pin(self.context(), pid, request, actor, region)
+        ctx = self.context()
+        require_authority(actor, ctx.authority_scope, "edit", pid)
+        return edit_pin(ctx, pid, request, actor, region)

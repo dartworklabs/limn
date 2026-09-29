@@ -3,7 +3,8 @@
 from collections.abc import Callable
 from typing import Any
 
-from limn.documents import Doc
+from limn.access import AuthorityScope, PostAuthority, require_authority
+from limn.documents import Doc, document_authority_target
 from limn.features.revisions import core as revisions, jobs
 from limn.features.revisions.core import DiffRefusal, PdfRefusal, StartRefusal, StatusRefusal
 
@@ -14,6 +15,12 @@ class RevisionRequests:
     def __init__(self, context: Callable[[], revisions.RevisionContext]) -> None:
         """Read the current instance settings and caches for each request."""
         self.context = context
+
+    @property
+    def authority_scope(self) -> AuthorityScope:
+        """Bind comparison requests to this service's current job and cache resources."""
+        context = self.context()
+        return AuthorityScope(self, "", (context.jobs, context.cache))
 
     def history(self, doc: Doc) -> dict[str, Any]:
         """List recent commits of this document."""
@@ -27,9 +34,18 @@ class RevisionRequests:
         """Read a comparison job or cached PDF state."""
         return jobs.revision_status(doc, commit, pin, self.context())
 
-    def start(self, doc: Doc, commit: str, pin: int | None = None) -> dict[str, Any] | StartRefusal:
+    def start(
+        self, doc: Doc, commit: str, pin: int | None = None, *, authority: PostAuthority
+    ) -> dict[str, Any] | StartRefusal:
         """Start a comparison PDF job using this instance's slots and cache."""
-        return jobs.revision_start(doc, commit, pin, self.context())
+        context = self.context()
+        require_authority(
+            authority,
+            AuthorityScope(self, "", (context.jobs, context.cache)),
+            "revision-build",
+            document_authority_target(doc),
+        )
+        return jobs.revision_start(doc, commit, pin, context)
 
     def pdf(self, doc: Doc, commit: str, pin: int | None = None) -> bytes | PdfRefusal:
         """Read the comparison PDF, or return the existing refusal outcome."""

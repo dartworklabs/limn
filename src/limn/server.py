@@ -430,11 +430,15 @@ class ServerApplication:
         self.post_doc_routes = (
             PostDocRoute(
                 build_routes.POST_PATH,
-                lambda request: build_routes.post(request.query, request.body, request.doc, self.build_requests),
+                lambda request: build_routes.post(
+                    request.query, request.body, request.doc, self.build_requests, request.actor
+                ),
             ),
             PostDocRoute(
                 revision_routes.POST_PATH,
-                lambda request: revision_routes.post(request.query, request.body, request.doc, self.revision_requests),
+                lambda request: revision_routes.post(
+                    request.query, request.body, request.doc, self.revision_requests, request.actor
+                ),
             ),
             PostDocRoute(location_routes.POST_PATH, lambda request: location_routes.post(request, self)),
             PostDocRoute(
@@ -684,6 +688,24 @@ class ServerApplication:
         """The role rule for a POST to path (limn.access.check_role; the owner-only purge refusal quotes TRASH_DAYS);
         raises HTTPError 403."""
         access.check_role(p, path, TRASH_DAYS)
+
+    def authorize_post(self, p: access.Principal, path: str, doc: Doc | None = None) -> access.PostAuthority:
+        """Bind an admitted request to this run's effect owner and final target."""
+        operation, _ = access.post_operation(path)
+        if doc is not None and not any(doc is served for served in self.docs):
+            raise HTTPError(403, "요청 권한이 올바르지 않습니다.", reason="invalid_authority")
+        scope: object = self.pin_context().authority_scope
+        if operation == "rebuild":
+            scope = self.build_requests.authority_scope
+        elif operation == "revision-build":
+            scope = self.revision_requests.authority_scope
+        return access._authorize_post(
+            p, path, scope, None if doc is None else documents.document_authority_target(doc), TRASH_DAYS
+        )
+
+    def check_read(self, path: str) -> None:
+        """Permit admitted reads only for explicitly declared route families."""
+        access.check_read(path)
 
     def host_ok(self, host: str) -> bool:
         """Is Host a loopback name, *.ts.net or one of this run's --public-host names (limn.access.host_ok)?"""

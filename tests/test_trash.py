@@ -27,6 +27,7 @@ from limn.store import dump_jsonl
 
 from helpers import Base, ps, set_config, trash_records
 from helpers_access import ALICE, BOB, CAROL, CLEAR_BODY, DAVE, TS_HOST, AccessBase, actor, token_create
+from helpers_authority import post_authority
 
 A, B = actor(ALICE), actor(BOB)
 
@@ -346,17 +347,17 @@ class TrashRecovery(AccessBase):
             mock.patch.object(ps.APP.pin_markdown, "pins_md_text", side_effect=RuntimeError("render failed")),
             self.assertRaisesRegex(RuntimeError, "render failed"),
         ):
-            ps.APP.pin_trash.drop_pin(pid, B)
+            ps.APP.pin_trash.drop_pin(pid, post_authority(ps.APP.pin_trash.context().store, B, "drop", pid))
         self.assertEqual(ps.APP.C.pins_jsonl.read_bytes(), before_live)
         self.assertEqual(self.dropped_file(), [])
 
-        ps.APP.pin_trash.drop_pin(pid, B)
+        ps.APP.pin_trash.drop_pin(pid, post_authority(ps.APP.pin_trash.context().store, B, "drop", pid))
         before_trash = ps.APP.C.dropped.read_bytes()
         with (
             mock.patch.object(ps.APP.pin_markdown, "pins_md_text", side_effect=RuntimeError("render failed")),
             self.assertRaisesRegex(RuntimeError, "render failed"),
         ):
-            ps.APP.pin_trash.restore_pin(pid, A)
+            ps.APP.pin_trash.restore_pin(pid, post_authority(ps.APP.pin_trash.context().store, A, "restore", pid))
         self.assertEqual(ps.APP.C.dropped.read_bytes(), before_trash)
         self.assertFalse(any(pin.core.id == pid for pin in ps.APP.read_pins()[0]))
 
@@ -378,7 +379,7 @@ class TrashRecovery(AccessBase):
             mock.patch.object(limn_store, "dump_jsonl", side_effect=fail_live),
             self.assertRaisesRegex(TypeError, "cannot serialize live pins"),
         ):
-            ps.APP.pin_trash.drop_pin(pid, B)
+            ps.APP.pin_trash.drop_pin(pid, post_authority(ps.APP.pin_trash.context().store, B, "drop", pid))
         self.assertEqual(ps.APP.C.pins_jsonl.read_bytes(), before_live)
         self.assertEqual(self.dropped_file(), [])
 
@@ -390,7 +391,7 @@ class TrashRecovery(AccessBase):
                 before_events = len(ps.APP.notices.read()[0])
                 before_md = ps.APP.C.pins_md.read_bytes()
                 with self.fail_after_write(stage), self.assertRaises(OSError):
-                    ps.APP.pin_trash.drop_pin(pid, B)
+                    ps.APP.pin_trash.drop_pin(pid, post_authority(ps.APP.pin_trash.context().store, B, "drop", pid))
                 live = any(pin.core.id == pid for pin in ps.APP.read_pins()[0])
                 self.assertEqual(live, stage == "pins.dropped.jsonl")
                 self.assertEqual(sum(row["id"] == pid for row in self.dropped_file()), 1)
@@ -402,9 +403,19 @@ class TrashRecovery(AccessBase):
                 if stage == "pins.jsonl":
                     self.assertEqual(ps.APP.C.pins_md.read_bytes(), before_md)
                 if live:
-                    self.assertNotIsInstance(ps.APP.pin_trash.drop_pin(pid, B), PinNotFound)
+                    self.assertNotIsInstance(
+                        ps.APP.pin_trash.drop_pin(
+                            pid, post_authority(ps.APP.pin_trash.context().store, B, "drop", pid)
+                        ),
+                        PinNotFound,
+                    )
                 else:
-                    self.assertIsInstance(ps.APP.pin_trash.drop_pin(pid, B), PinNotFound)
+                    self.assertIsInstance(
+                        ps.APP.pin_trash.drop_pin(
+                            pid, post_authority(ps.APP.pin_trash.context().store, B, "drop", pid)
+                        ),
+                        PinNotFound,
+                    )
                 self.assertEqual(sum(row["id"] == pid for row in self.dropped_file()), 1)
 
     def test_restore_failure_after_each_write_and_retry(self):
@@ -412,24 +423,28 @@ class TrashRecovery(AccessBase):
         for stage in ("pins.jsonl", "pins.md", "pins.dropped.jsonl"):
             with self.subTest(stage=stage):
                 pid = self.pin_id(ALICE)
-                ps.APP.pin_trash.drop_pin(pid, A)
+                ps.APP.pin_trash.drop_pin(pid, post_authority(ps.APP.pin_trash.context().store, A, "drop", pid))
                 before_md = ps.APP.C.pins_md.read_bytes()
                 with self.fail_after_write(stage), self.assertRaises(OSError):
-                    ps.APP.pin_trash.restore_pin(pid, A)
+                    ps.APP.pin_trash.restore_pin(
+                        pid, post_authority(ps.APP.pin_trash.context().store, A, "restore", pid)
+                    )
                 self.assertIsNotNone(self.pin(pid))
                 self.assertEqual(ps.APP.pin_listing.dropped_payload(), [])
                 if stage == "pins.jsonl":
                     self.assertEqual(ps.APP.C.pins_md.read_bytes(), before_md)
-                refusal = ps.APP.pin_trash.restore_pin(pid, A)
+                refusal = ps.APP.pin_trash.restore_pin(
+                    pid, post_authority(ps.APP.pin_trash.context().store, A, "restore", pid)
+                )
                 self.assertIsInstance(refusal, NotInTrash if stage == "pins.dropped.jsonl" else AlreadyLive)
                 self.assertEqual(sum(row["id"] == pid for row in self.dropped_file()), 0)
 
     def test_restart_recovers_shadow_and_stale_md(self):
         """Startup prunes a shadow and rerenders pins.md after a committed live write fails next."""
         pid = self.pin_id(ALICE)
-        ps.APP.pin_trash.drop_pin(pid, A)
+        ps.APP.pin_trash.drop_pin(pid, post_authority(ps.APP.pin_trash.context().store, A, "drop", pid))
         with self.fail_after_write("pins.jsonl"), self.assertRaises(OSError):
-            ps.APP.pin_trash.restore_pin(pid, A)
+            ps.APP.pin_trash.restore_pin(pid, post_authority(ps.APP.pin_trash.context().store, A, "restore", pid))
         self.assertEqual(sum(row["id"] == pid for row in self.dropped_file()), 1)
         self.assertNotRegex(ps.APP.C.pins_md.read_text(encoding="utf-8"), r"\n\| %d[ ·|]" % pid)
         fresh = ps.ServerApplication(ps.APP.C, ps.new_runtime(ps.APP.RT.viewer))
@@ -437,15 +452,20 @@ class TrashRecovery(AccessBase):
             self.assertIsNone(fresh.prepare(None, True))
         self.assertEqual(fresh.read_dropped()[0], [])
         self.assertRegex(fresh.C.pins_md.read_text(encoding="utf-8"), r"\n\| %d[ ·|]" % pid)
-        self.assertIsInstance(fresh.pin_trash.restore_pin(pid, A), NotInTrash)
-        self.assertIsInstance(fresh.pin_trash.purge_pin(pid, A), NotInTrash)
+        self.assertIsInstance(
+            fresh.pin_trash.restore_pin(pid, post_authority(fresh.pin_trash.context().store, A, "restore", pid)),
+            NotInTrash,
+        )
+        self.assertIsInstance(
+            fresh.pin_trash.purge_pin(pid, post_authority(fresh.pin_trash.context().store, A, "purge", pid)), NotInTrash
+        )
 
     def test_restart_repairs_md_after_drop_commit_without_a_notice(self):
         """The live file remains authoritative if the drop commits before pins.md fails."""
         pid = self.pin_id(ALICE)
         before_events = len(ps.APP.notices.read()[0])
         with self.fail_after_write("pins.jsonl"), self.assertRaises(OSError):
-            ps.APP.pin_trash.drop_pin(pid, B)
+            ps.APP.pin_trash.drop_pin(pid, post_authority(ps.APP.pin_trash.context().store, B, "drop", pid))
         self.assertIsNone(next((pin for pin in ps.APP.read_pins()[0] if pin.core.id == pid), None))
         self.assertRegex(ps.APP.C.pins_md.read_text(encoding="utf-8"), r"\n\| %d[ ·|]" % pid)
         self.assertEqual(len(ps.APP.notices.read()[0]), before_events)
@@ -585,7 +605,9 @@ class ClearEndpoint(AccessBase):
         """Archived live pins cannot reappear in Trash while unrelated deleted pins stay restorable."""
         live_id = 1
         dropped_id = 2
-        ps.APP.pin_trash.drop_pin(dropped_id, dict(A))
+        ps.APP.pin_trash.drop_pin(
+            dropped_id, post_authority(ps.APP.pin_trash.context().store, dict(A), "drop", dropped_id)
+        )
         old, _ = ps.APP.read_dropped()
         shadow = dict(ps.APP.read_pins()[0][0].record)
         shadow.update(dropped_by=B, dropped_at=time.strftime("%Y-%m-%d %H:%M:%S"))
@@ -613,7 +635,7 @@ class ClearEndpoint(AccessBase):
             mock.patch.object(limn_store.PinStore, "write_dropped", side_effect=OSError("read-only")),
             self.assertRaises(OSError),
         ):
-            ps.APP.pin_trash.clear_pins(dict(A))
+            ps.APP.pin_trash.clear_pins(post_authority(ps.APP.pin_trash.context().store, dict(A), "clear", None))
         self.assertEqual(ps.APP.C.pins_jsonl.read_bytes(), before_live)
         self.assertEqual(ps.APP.C.pins_md.read_bytes(), before_md)
         self.assertEqual([row["id"] for row in trash_records()], [live_id])
@@ -632,7 +654,7 @@ class ClearEndpoint(AccessBase):
             mock.patch.object(ps.APP.pin_markdown, "pins_md_text", side_effect=RuntimeError("render failed")),
             self.assertRaisesRegex(RuntimeError, "render failed"),
         ):
-            ps.APP.pin_trash.clear_pins(dict(A))
+            ps.APP.pin_trash.clear_pins(post_authority(ps.APP.pin_trash.context().store, dict(A), "clear", None))
         self.assertEqual(ps.APP.C.dropped.read_bytes(), before_trash)
         self.assertEqual(ps.APP.C.pins_jsonl.read_bytes(), before_live)
         self.assertEqual(self.backups(), [])
@@ -659,7 +681,7 @@ class ClearEndpoint(AccessBase):
             mock.patch.object(limn_store, "atomic_write", side_effect=fail_markdown),
             self.assertRaisesRegex(OSError, "markdown unavailable"),
         ):
-            ps.APP.pin_trash.clear_pins(dict(A))
+            ps.APP.pin_trash.clear_pins(post_authority(ps.APP.pin_trash.context().store, dict(A), "clear", None))
         self.assertFalse(ps.APP.C.pins_jsonl.exists())
         archives = self.backups()
         self.assertEqual(len(archives), 1)

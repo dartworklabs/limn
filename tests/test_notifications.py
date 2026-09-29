@@ -24,6 +24,7 @@ from limn.mentions import NOTE_MENTION_COOLDOWN_S
 
 from helpers import Base, add_pin, edit_pin, find_record, ps, req, split_resp
 from helpers_access import A_LOGIN, ALICE, B_LOGIN, BOB, C_LOGIN, CAROL, DAVE, actor
+from helpers_authority import post_authority
 
 
 class MentionRules(Base):
@@ -43,42 +44,73 @@ class MentionRules(Base):
         return len(ps.APP.notices.read()[0])
 
     def test_first_mention_in_a_reply(self):
+        """A first explicit reply mention emits one notification to the tagged person."""
         pid = self.add(actor=self.A)
         n = self.n()
-        ps.APP.pin_lifecycle.reply_pin(pid, "@Bob Park 봐 주세요", self.A)
+        ps.APP.pin_lifecycle.reply_pin(
+            pid, "@Bob Park 봐 주세요", post_authority(ps.APP.pin_lifecycle.context().store, self.A, "reply", pid)
+        )
         self.assertEqual(self.events_after(n), [("mention", ["bob@example.com"])])
 
     def test_re_mention_in_a_second_reply_notifies_again(self):
+        """Repeated explicit tags notify again; subsequent untagged replies notify the existing participant as replied."""
         pid = self.add(actor=self.A)
-        ps.APP.pin_lifecycle.reply_pin(pid, "@Bob Park 봐 주세요", self.A)
+        ps.APP.pin_lifecycle.reply_pin(
+            pid, "@Bob Park 봐 주세요", post_authority(ps.APP.pin_lifecycle.context().store, self.A, "reply", pid)
+        )
         n = self.n()
-        ps.APP.pin_lifecycle.reply_pin(pid, "@Bob Park 다시 부름", self.A)
+        ps.APP.pin_lifecycle.reply_pin(
+            pid, "@Bob Park 다시 부름", post_authority(ps.APP.pin_lifecycle.context().store, self.A, "reply", pid)
+        )
         self.assertEqual(self.events_after(n), [("mention", ["bob@example.com"])])
         n = self.n()
-        ps.APP.pin_lifecycle.reply_pin(pid, "태그 없는 답글", self.A)  # no tag: Bob (mentioned before) gets replied
+        ps.APP.pin_lifecycle.reply_pin(
+            pid, "태그 없는 답글", post_authority(ps.APP.pin_lifecycle.context().store, self.A, "reply", pid)
+        )  # no tag: Bob (mentioned before) gets replied
         self.assertEqual(self.events_after(n), [("replied", ["bob@example.com"])])
 
     def test_note_mention_then_reply_mention(self):
+        """Retagging a note recipient emits a mention while the untagged pin author receives a reply notice."""
         pid = add_pin({"file": str(self.main), "lo": 4, "hi": 5, "note": "@Bob Park 이 문단"}, self.A).record["id"]
         n = self.n()
-        ps.APP.pin_lifecycle.reply_pin(pid, "@Bob Park 이것도 봐 주세요", self.C)
+        ps.APP.pin_lifecycle.reply_pin(
+            pid,
+            "@Bob Park 이것도 봐 주세요",
+            post_authority(ps.APP.pin_lifecycle.context().store, self.C, "reply", pid),
+        )
         self.assertEqual(self.events_after(n), [("mention", ["bob@example.com"]), ("replied", ["alice@example.com"])])
 
     def test_self_mention_never_notifies_the_author(self):
+        """A self-tag never notifies its author, but other existing participants still receive reply notices."""
         pid = self.add(actor=self.A)
-        ps.APP.pin_lifecycle.reply_pin(pid, "@Bob Park 확인", self.A)
+        ps.APP.pin_lifecycle.reply_pin(
+            pid, "@Bob Park 확인", post_authority(ps.APP.pin_lifecycle.context().store, self.A, "reply", pid)
+        )
         n = self.n()
-        ps.APP.pin_lifecycle.reply_pin(pid, "@Bob Park 제가 스스로 부름", self.B)  # Bob tags himself: nothing for Bob
+        ps.APP.pin_lifecycle.reply_pin(
+            pid,
+            "@Bob Park 제가 스스로 부름",
+            post_authority(ps.APP.pin_lifecycle.context().store, self.B, "reply", pid),
+        )  # Bob tags himself: nothing for Bob
         self.assertEqual(self.events_after(n), [("replied", ["alice@example.com"])])
         n = self.n()
-        ps.APP.pin_lifecycle.reply_pin(pid, "@Alice Kim 나", self.A)  # the pin author tags herself
+        ps.APP.pin_lifecycle.reply_pin(
+            pid, "@Alice Kim 나", post_authority(ps.APP.pin_lifecycle.context().store, self.A, "reply", pid)
+        )  # the pin author tags herself
         self.assertEqual(self.events_after(n), [("replied", ["bob@example.com"])])
 
     def test_mention_plus_other_participants_nobody_gets_both(self):
+        """Explicitly tagged participants receive mention notices without duplicate replied delivery."""
         pid = add_pin({"file": str(self.main), "lo": 4, "hi": 5, "note": "@Carol Lee 참고"}, self.A).record["id"]
-        ps.APP.pin_lifecycle.reply_pin(pid, "@Bob Park 의견?", self.A)
+        ps.APP.pin_lifecycle.reply_pin(
+            pid, "@Bob Park 의견?", post_authority(ps.APP.pin_lifecycle.context().store, self.A, "reply", pid)
+        )
         n = self.n()
-        ps.APP.pin_lifecycle.reply_pin(pid, "@Bob Park @Carol Lee 둘 다 봐 주세요", self.D)
+        ps.APP.pin_lifecycle.reply_pin(
+            pid,
+            "@Bob Park @Carol Lee 둘 다 봐 주세요",
+            post_authority(ps.APP.pin_lifecycle.context().store, self.D, "reply", pid),
+        )
         evs = ps.APP.notices.read()[0][n:]
         self.assertEqual(
             [(e["type"], sorted(e["to"])) for e in evs],
@@ -88,15 +120,28 @@ class MentionRules(Base):
         self.assertEqual(len(to), len(set(to)))  # one event per person per reply
 
     def test_reopen_reason_re_mention_notifies(self):
+        """Reopening mentions notify tagged people and suppress duplicate reopened delivery to a tagged author."""
         pid = add_pin({"file": str(self.main), "lo": 4, "hi": 5, "note": "@Bob Park 부탁"}, self.A).record["id"]
-        ps.APP.pin_lifecycle.close_pin(pid, dict(LOCAL_ACTOR), CloseRequest())
+        ps.APP.pin_lifecycle.close_pin(
+            pid, post_authority(ps.APP.pin_lifecycle.context().store, dict(LOCAL_ACTOR), "close", pid), CloseRequest()
+        )
         n = self.n()
-        ps.APP.pin_lifecycle.reopen_pin(pid, self.C, reason="@Bob Park 다시 봐 주세요")
+        ps.APP.pin_lifecycle.reopen_pin(
+            pid,
+            post_authority(ps.APP.pin_lifecycle.context().store, self.C, "reopen", pid),
+            reason="@Bob Park 다시 봐 주세요",
+        )
         self.assertEqual(self.events_after(n), [("mention", ["bob@example.com"]), ("reopened", ["alice@example.com"])])
-        ps.APP.pin_lifecycle.close_pin(pid, dict(LOCAL_ACTOR), CloseRequest())
+        ps.APP.pin_lifecycle.close_pin(
+            pid, post_authority(ps.APP.pin_lifecycle.context().store, dict(LOCAL_ACTOR), "close", pid), CloseRequest()
+        )
         n = self.n()
         # the author tagged: mention only, not also reopened
-        ps.APP.pin_lifecycle.reopen_pin(pid, self.C, reason="@Alice Kim 확인 부탁")
+        ps.APP.pin_lifecycle.reopen_pin(
+            pid,
+            post_authority(ps.APP.pin_lifecycle.context().store, self.C, "reopen", pid),
+            reason="@Alice Kim 확인 부탁",
+        )
         self.assertEqual(self.events_after(n), [("mention", ["alice@example.com"])])
 
     def test_note_edit_that_tags_again_notifies_but_a_typo_fix_does_not(self):
@@ -194,17 +239,31 @@ class NoteMentionCooldown(Base):
         """Explicit messages are not rate-limited: every reply or reopen reason that tags Bob is a mention."""
         with mock.patch.object(ps.time, "time", return_value=self.t0):
             pid = add_pin({"file": str(self.main), "lo": 4, "hi": 5, "note": "@Bob Park 메모"}, self.A).record["id"]
-            ps.APP.pin_lifecycle.reply_pin(pid, "@Bob Park 하나", self.A)
-            ps.APP.pin_lifecycle.reply_pin(pid, "@Bob Park 둘", self.A)
-            ps.APP.pin_lifecycle.close_pin(pid, dict(LOCAL_ACTOR), CloseRequest())
-            ps.APP.pin_lifecycle.reopen_pin(pid, self.A, reason="@Bob Park 다시")
+            ps.APP.pin_lifecycle.reply_pin(
+                pid, "@Bob Park 하나", post_authority(ps.APP.pin_lifecycle.context().store, self.A, "reply", pid)
+            )
+            ps.APP.pin_lifecycle.reply_pin(
+                pid, "@Bob Park 둘", post_authority(ps.APP.pin_lifecycle.context().store, self.A, "reply", pid)
+            )
+            ps.APP.pin_lifecycle.close_pin(
+                pid,
+                post_authority(ps.APP.pin_lifecycle.context().store, dict(LOCAL_ACTOR), "close", pid),
+                CloseRequest(),
+            )
+            ps.APP.pin_lifecycle.reopen_pin(
+                pid,
+                post_authority(ps.APP.pin_lifecycle.context().store, self.A, "reopen", pid),
+                reason="@Bob Park 다시",
+            )
         self.assertEqual(len(self.mentions_to_bob()), 4)
 
     def test_a_reply_mention_does_not_silence_a_following_note_tag(self):
         """The cooldown counts note mentions only: a reply that tagged Bob does not stop the next note tag."""
         with mock.patch.object(ps.time, "time", return_value=self.t0):
             pid = self.add(actor=self.A)
-            ps.APP.pin_lifecycle.reply_pin(pid, "@Bob Park 답글", self.A)
+            ps.APP.pin_lifecycle.reply_pin(
+                pid, "@Bob Park 답글", post_authority(ps.APP.pin_lifecycle.context().store, self.A, "reply", pid)
+            )
             self.edit_note(pid, "@Bob Park 메모에서도", self.A)
         self.assertEqual(len(self.mentions_to_bob()), 2)
 

@@ -12,6 +12,10 @@ Limn 서버(`limn serve`, 구현은 [`src/limn/server.py`](../../src/limn/server
 
 요청 본문은 1 MiB 이하의 JSON 객체여야 하고 `Content-Type: application/json` 을 달아야 한다. 어기면 `400`·`413`·`415` 중 하나가 온다. 본문이 없는 POST는 헤더 없이도 통과한다. 에이전트의 `curl -X POST …/close` 가 이런 요청이다.
 
+JSON 객체는 중첩된 객체까지 키가 한 번만 나와야 한다. 같은 키의 반복, `NaN`·`Infinity`와 유한수 범위를 넘는 실수, 단독 surrogate 문자는 `400 bad_json`이다. 쿼리 키도 URL 디코딩 뒤 한 번만 나와야 한다. 같은 값의 반복과 빈 값이 섞인 반복도 `400 bad_query`이며, 잘못된 퍼센트 escape나 UTF-8도 같은 코드로 거부한다. URL의 비ASCII 문자는 UTF-8로 퍼센트 인코딩해야 한다. 한 번만 나온 빈 쿼리 값은 기존처럼 생략으로 읽는다. 정상적인 단일값 요청의 경로·필드·성공 응답은 그대로다.
+
+`Host`·`Origin`·`Content-Type`·Tailscale 신원 헤더와 trusted-proxy 방식의 설정된 신원 헤더는 같은 값이어도 중복이면 `400 duplicate_header`다. `Authorization` 중복은 `401 bad_bearer`, `Content-Length` 중복은 `400 bad_content_length`다. 목록형 전달·언어 협상 헤더에는 이 단일값 규칙을 적용하지 않는다. 본문·쿼리의 전송 형식 파싱이 거부된 요청은 사람 목록이나 핀을 기록하지 않는다. 기능별 필드 검사는 그 뒤에 수행한다.
+
 오류 응답은 항상 `{"error": "<한국어 메시지>", "reason": "<이유 코드>"}` JSON이다(§오류 응답). 예상 밖 예외도 연결을 끊지 않고 `500` JSON으로 돌려준다.
 
 - **본문을 먼저 끝까지 읽는다.** 서버는 어떤 응답보다 먼저 본문을 Content-Length 만큼 읽는다. 오류(`4xx`·`5xx`)를 보낸 뒤에는 연결을 닫는다. 읽지 않은 본문이 남으면 같은 keep-alive 연결의 다음 요청으로 해석된다. 그러면 신원 확인, `--allow`·`--members-only` 입장 검사, 작성자 기록을 우회할 수 있다. `tailscale serve` 는 백엔드 연결을 재사용하므로 이 틈이 실제로 열린다.
@@ -39,7 +43,7 @@ Limn 서버(`limn serve`, 구현은 [`src/limn/server.py`](../../src/limn/server
 
 | 묶음 | 상태 | 코드 |
 | --- | --- | --- |
-| 요청 경계 | `400`·`403`·`413`·`415` | `transfer_encoding`·`bad_content_length`·`body_truncated`·`body_too_large`·`bad_content_type`·`bad_json`·`bad_host`·`bad_origin` |
+| 요청 경계 | `400`·`403`·`413`·`415` | `transfer_encoding`·`bad_content_length`·`body_truncated`·`body_too_large`·`bad_content_type`·`bad_json`·`bad_query`·`duplicate_header`·`bad_host`·`bad_origin`·`invalid_authority` |
 | 인증·입장·역할 | `401`·`403` | `unauthenticated`·`loopback_agent_off`(루프백 에이전트를 끈 인스턴스에 헤더 없는 로컬 요청)·`headerless`·`bad_bearer`·`bad_token`·`not_member`·`not_allowed`·`viewer_only`·`owner_only`·`confirm_by_human` |
 | 경로 | `404` | `not_found`(없는 경로·vendor 파일), `pdf_build_gone`(`?build=` 의 빌드가 없음, pick 의 옛 빌드), `pdf_missing`(`?build=` 없이 지금 빌드의 PDF 가 없음) |
 | 문서 | `400`·`404` | `bad_doc`·`doc_mismatch`·`unknown_doc`·`no_source_lines`(보기 전용 문서에 줄을 보냄)·`view_only_no_rebuild` |
@@ -131,16 +135,19 @@ curl -s -H "Authorization: Bearer $(cat ~/.config/limn/<인스턴스>.token)" ht
 
 `/api/meta` 와 `/api/people` 의 `me`, 그리고 `/api/people` 의 각 항목에 `role` 필드가 덧붙는다. `people.json` 에 없는 사람(예: 옛 핀의 작성자)은 `editor` 로 나온다. `people.json` 을 쓸 수 없는 동안은 모두 `viewer` 로 나온다.
 
+등록된 읽기 경로와 변경 작업은 `access.py`의 명시적 허용 목록을 거친다. 새 경로를 디스패처에 등록하는 것만으로 권한이 생기지 않는다. 알려지지 않은 경로는 실행하지 않고 `404 not_found`로 답한다(POST의 기존 역할 거부가 먼저 적용될 수 있다). 변경 서비스는 요청에서 발급된 작업·대상·인스턴스 범위가 맞지 않으면 `403 invalid_authority`로 거부한다. 정상 HTTP 클라이언트가 권한 핸들을 보내는 필드는 없으며 서버가 신원·입장·역할 검사 뒤 내부에서 만든다.
+
 ### 검사 순서
 
 한 요청이 거치는 검사는 다음 순서다. 앞에서 걸리면 뒤는 보지 않는다.
 
 1. 본문 경계: `Transfer-Encoding`, Content-Length, 잘린 본문(`400`·`413`) — §요청 형식과 경계
-2. Host·Origin(`403`)
+2. 단일값 보안 헤더 중복(`400`·`401`), Host·Origin(`403`)
 3. 신원(`401`)
 4. 입장(`403`)
 5. 역할, POST만(`403`)
-6. 본문 형식: `Content-Type`, JSON 객체(`415`·`400`)
+6. 본문 형식과 쿼리: `Content-Type`, JSON 객체, 중복·인코딩 검사(`415`·`400`)
+7. 선택 대상에 묶인 변경 권한 발급·검사, 사람 기록과 기능 실행
 
 역할 검사가 본문 형식보다 앞이다. 그래서 `viewer` 가 틀린 본문으로 핀을 만들려 해도 `400` 이 아니라 `403` 을 받는다.
 

@@ -28,6 +28,7 @@ from limn.service.context import PinContext
 from limn.store import PinFiles, PinStore
 from limn.web.errors import HTTPError, InputRejected
 
+from helpers_authority import post_authority
 from helpers_pin_service import parse_rec, parse_trash
 
 # ---------------------------------------------------------------------------
@@ -155,7 +156,7 @@ class TestPinClaimsService:
         claims = PinClaims(lambda: ctx)
 
         actor = {"login": "alice@example.com", "name": "Alice"}
-        result = claims.claim_pin(1, actor, ttl_min=30, eta_min=15)
+        result = claims.claim_pin(1, post_authority(claims.context().store, actor, "claim", 1), ttl_min=30, eta_min=15)
 
         assert isinstance(result, OpenPin)
         assert result.record["claimed_by"]["login"] == "alice@example.com"
@@ -170,7 +171,9 @@ class TestPinClaimsService:
         ctx = make_test_context(store)
         claims = PinClaims(lambda: ctx)
 
-        result = claims.claim_pin(999, {"login": "alice"}, ttl_min=30)
+        result = claims.claim_pin(
+            999, post_authority(claims.context().store, {"login": "alice"}, "claim", 999), ttl_min=30
+        )
         assert isinstance(result, PinNotFound)
         assert not store.files.pins_jsonl.exists()
 
@@ -191,7 +194,7 @@ class TestPinClaimsService:
         ctx = make_test_context(store)
         claims = PinClaims(lambda: ctx)
 
-        result = claims.unclaim_pin(1, {"login": "bob"})
+        result = claims.unclaim_pin(1, post_authority(claims.context().store, {"login": "bob"}, "unclaim", 1))
         assert isinstance(result, OpenPin)
         assert "claimed_by" not in result.record
         assert "claim_until" not in result.record
@@ -216,7 +219,7 @@ class TestClaimHttpAdapter:
         app = FakeClaimsApp(claims)
 
         actor = {"login": "alice@example.com", "name": "Alice"}
-        resp = http.claim(app, 1, actor, {"eta_min": 15})
+        resp = http.claim(app, 1, post_authority(store, actor, "claim", 1), {"eta_min": 15})
 
         assert resp["ok"] is True
         assert resp["ttl_min_applied"] == 30
@@ -225,7 +228,7 @@ class TestClaimHttpAdapter:
         assert resp["pin"]["claimed_by"]["login"] == "alice@example.com"
 
         # Now unclaim
-        unclaim_resp = http.unclaim(app, 1, actor)
+        unclaim_resp = http.unclaim(app, 1, post_authority(store, actor, "unclaim", 1))
         assert unclaim_resp["ok"] is True
         pin_unclaimed = unclaim_resp["pin"]
         assert isinstance(pin_unclaimed, dict)
@@ -252,7 +255,7 @@ class TestClaimHttpAdapter:
         # Bob attempts claim while Alice holds it
         before = store.files.pins_jsonl.read_bytes()
         with pytest.raises(HTTPError) as exc_info:
-            http.claim(app, 1, {"login": "bob@example.com"}, {"ttl_min": 30})
+            http.claim(app, 1, post_authority(store, {"login": "bob@example.com"}, "claim", 1), {"ttl_min": 30})
 
         err = exc_info.value
         assert err.code == 409

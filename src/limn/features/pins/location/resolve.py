@@ -9,7 +9,7 @@ from limn import build
 from limn.documents import Doc, to_source
 from limn.features.pins.location import source
 from limn.features.pins.location.source import TokenCache
-from limn.files import file_in_tree, tex_lines
+from limn.files import ManuscriptFile, file_in_tree, tex_lines
 from limn.mapping import Traced, norm, snippet, trace_range, truncate_quote
 from limn.pins.edit import PDF_QUOTE_MAX
 
@@ -153,11 +153,11 @@ def pick(D: Doc, request: Selection, ctx: PickContext) -> Picked | PickedRegion 
     if src.suffix in (".bbl", ".bib"):
         return GeneratedFile(src.suffix)
     found = file_in_tree(str(src), ctx.root, ctx.state)
-    if not isinstance(found, Path):
+    if not isinstance(found, ManuscriptFile):
         return SynctexOutside(src)
     lines = tex_lines(found)
     if not lines:
-        return SourceUnreadable(found)
+        return SourceUnreadable(found.path)
     tw = ctx.tokens.weights(rtext, lines, source.file_key(found))
     traced = trace_range(tw, lines, (sy[1], sy[2]) if sy else None, ctx.envs)
     if traced is None:
@@ -166,7 +166,7 @@ def pick(D: Doc, request: Selection, ctx: PickContext) -> Picked | PickedRegion 
     stale = build.source_newer(D, ctx.state, pdir.name) > 2
     bstate = build.state_snapshot(D)
     return Picked(
-        file=found,
+        file=found.path,
         page=page,
         traced=traced,
         n_lines=len(lines),

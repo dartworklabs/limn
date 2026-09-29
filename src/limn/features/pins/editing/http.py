@@ -1,9 +1,10 @@
 """HTTP entry points and responses for pin creation and editing."""
 
-from collections.abc import Callable, Collection, Mapping
+from collections.abc import Callable, Collection
 from dataclasses import dataclass, replace
 from typing import Any, TypeAlias
 
+from limn.access import PostAuthority
 from limn.documents import Doc
 from limn.features.pins.editing import input as editing_input
 from limn.features.pins.editing.rules import (
@@ -38,13 +39,13 @@ class EditingRequests:
         return self.known_people() if body.get("assignee") is not None else ()
 
 
-def add(app: EditingRequests, document: Doc, actor: Mapping[str, Any], body: dict[str, Any]) -> Body:
+def add(app: EditingRequests, document: Doc, actor: PostAuthority, body: dict[str, Any]) -> Body:
     """Parse and create one pin after shared guards and document selection."""
     request = accepted(editing_input.parse_add(body, app.assignee_people(body), app.document_facts(document)))
     return add_answer(app.pin_editing.add_pin(document, request, actor))
 
 
-def edit(app: EditingRequests, pid: int, actor: Mapping[str, Any], body: dict[str, Any]) -> Body:
+def edit(app: EditingRequests, pid: int, actor: PostAuthority, body: dict[str, Any]) -> Body:
     """Check edit fields before loading the pin's document, then validate its location."""
     parsed = accepted(editing_input.parse_edit(body, app.assignee_people(body)))
     region, document = app.edit_scope(pid)

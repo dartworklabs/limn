@@ -75,6 +75,14 @@ class App(Protocol):
         """The role rule for a POST to path; raises HTTPError 403."""
         ...
 
+    def authorize_post(self, p: Principal, path: str, doc: Document | None = None) -> access.PostAuthority:
+        """Issue immutable authority for the selected target after admission and role checks."""
+        ...
+
+    def check_read(self, path: str) -> None:
+        """Refuse undeclared read routes before dispatch."""
+        ...
+
     # ---- the request's document
 
     def request_doc(self, key: str | None, file_hint: object = None) -> Document | DocNotFound:

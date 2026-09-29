@@ -2,11 +2,23 @@
 
 ## Unreleased
 
-Four security fixes, closed security types, one documented trust assumption, server and viewer fixes and an internal
-restructuring. The HTTP API's paths, fields and reason codes and `pins.md` are unchanged; the responses gain two headers
+Security boundary hardening, closed security types, one documented trust assumption, server and viewer fixes and an internal
+restructuring. The HTTP API's paths, fields and `pins.md` are unchanged; ambiguous requests now receive explicit rejection reasons, the responses gain two headers
 and page images change their `Cache-Control`.
 
 ### Security
+
+- **Ambiguous requests fail closed.** Duplicate JSON keys (including nested keys), non-finite numbers and lone
+  Unicode surrogates are rejected as `bad_json`. Repeated decoded query keys and malformed URL encodings are
+  rejected as `bad_query`. Duplicate singleton security headers are rejected as `duplicate_header`, while duplicate
+  Authorization and Content-Length retain `bad_bearer` and `bad_content_length`. Even identical duplicates are
+  rejected. Clients should send each key/header once; ordinary single-value requests and successful responses are
+  unchanged. Invalid transport input no longer records the person before rejection.
+- **Mutation authority is explicit.** Registered operations must be explicitly authorized; new routes cannot
+  inherit owner/editor/agent permissions accidentally. Services consume authority bound to the operation, target
+  and server instance, rather than treating an attribution dictionary as permission.
+- **Manuscript reads retain their checked scope.** Checked file handles enforce root, hidden-file and state-folder
+  exclusions at reads, including rejection of symlink replacement after validation.
 
 - **Dot-named files are not manuscript.** `GET /api/snippet`, `GET /api/overlaps`, `POST /api/pin`, an edit's `loc` and
   a close's `changes` accepted any regular file under `--manuscript`, so any admitted principal, a `viewer` too, could

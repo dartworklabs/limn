@@ -31,6 +31,7 @@ from limn.pins.view import pin_state
 
 from helpers import SW_JS, add_pin, blank_png, find_record, minimal_pdf, ps, records, trash_records
 from helpers_access import ALICE, BOB, CAROL, REPO_NEW as NEW, REPO_OLD as OLD, actor
+from helpers_authority import post_authority
 from helpers_browser import BrowserBase, booted, settle, watch_idle
 
 HANGUL = re.compile(r"[가-힣]")
@@ -93,7 +94,11 @@ class BrowserOpenWaitsForPins(BrowserBase):
     def test_a_done_pin_is_known_when_open_returns_even_if_the_pin_list_is_slow(self):
         """With the pin list 1.5s late, the done pin is already in the viewer's lists when open(0) returns."""
         pid = add_pin({"file": str(self.main), "lo": 4, "hi": 4, "page": 1, "note": "done"}, actor(ALICE)).record["id"]
-        ps.APP.pin_lifecycle.close_pin(pid, dict(LOCAL_ACTOR), CloseRequest(reply="fixed"))
+        ps.APP.pin_lifecycle.close_pin(
+            pid,
+            post_authority(ps.APP.pin_lifecycle.context().store, dict(LOCAL_ACTOR), "close", pid),
+            CloseRequest(reply="fixed"),
+        )
         page = self.open(0, init=SLOW_PIN_LIST)
         self.assertTrue(page.evaluate("findAnyPin(%d)!==null" % pid))
 
@@ -107,6 +112,7 @@ class ViewerFlows(BrowserBase):
     WHO = ALICE
 
     def setUp(self):
+        """Seed open, agent-review, and human-done pins with known participants for browser lifecycle flows."""
         super().setUp()
         for h in (ALICE, BOB, CAROL):
             ps.APP.people_directory.record(actor(h))
@@ -115,10 +121,16 @@ class ViewerFlows(BrowserBase):
         ]
         self.rv = add_pin({"file": str(self.main), "lo": 8, "hi": 9, "page": 1, "note": "식 번호 확인"}, A).record["id"]
         ps.APP.pin_lifecycle.close_pin(
-            self.rv, dict(LOCAL_ACTOR), CloseRequest(reply="식 번호를 고쳤습니다", ref="PR #9")
+            self.rv,
+            post_authority(ps.APP.pin_lifecycle.context().store, dict(LOCAL_ACTOR), "close", self.rv),
+            CloseRequest(reply="식 번호를 고쳤습니다", ref="PR #9"),
         )
         self.dn = add_pin({"file": str(self.main), "lo": 12, "hi": 13, "page": 2, "note": "오타"}, A).record["id"]
-        ps.APP.pin_lifecycle.close_pin(self.dn, A, CloseRequest(reply="고침"))
+        ps.APP.pin_lifecycle.close_pin(
+            self.dn,
+            post_authority(ps.APP.pin_lifecycle.context().store, A, "close", self.dn),
+            CloseRequest(reply="고침"),
+        )
 
     def state(self, pid):
         return pin_state(find_record(ps.APP.snapshot_pins(), pid))
@@ -269,13 +281,16 @@ class ViewerFlows(BrowserBase):
         self.wait_state(self.rv, "open")
 
     def test_outcome_line_follows_a_state_change_while_typing(self):
+        """A concurrent close updates the reply outcome preview without discarding the text being typed."""
         page = self.page_for("desktop", "ko")
         card = '#pins .pin[data-id="%d"]' % self.open_id
         page.click(card + " .acts [data-act=reply-open]")
         page.fill("textarea.r-text", "이 문장도 봐 주세요")
         self.assertFalse(page.is_visible(".r-outcome"))  # open pin: a reply never changes it
         ps.APP.pin_lifecycle.close_pin(
-            self.open_id, dict(LOCAL_ACTOR), CloseRequest(reply="줄였습니다")
+            self.open_id,
+            post_authority(ps.APP.pin_lifecycle.context().store, dict(LOCAL_ACTOR), "close", self.open_id),
+            CloseRequest(reply="줄였습니다"),
         )  # the agent closes it meanwhile
         page.evaluate("loadPins()")
         page.wait_for_selector('#review-pins .pin[data-id="%d"] .r-outcome:not([hidden])' % self.open_id)
@@ -336,6 +351,7 @@ class ViewerFlows(BrowserBase):
         self.run_matrix(flow)
 
     def test_owner_deletes_forever_with_undo(self):
+        """Trash purge stays undoable until the toast is dismissed, then removes the persisted trash record."""
         ps.APP.C.people_file.write_text(
             json.dumps(
                 {
@@ -348,7 +364,9 @@ class ViewerFlows(BrowserBase):
             ),
             encoding="utf-8",
         )
-        ps.APP.pin_trash.drop_pin(self.open_id, B)
+        ps.APP.pin_trash.drop_pin(
+            self.open_id, post_authority(ps.APP.pin_trash.context().store, B, "drop", self.open_id)
+        )
         page = self.page_for("desktop", "ko", n_open=0)
         page.click("#trash-link")
         row = '#trash .arc-row[data-id="%d"]' % self.open_id
@@ -364,8 +382,13 @@ class ViewerFlows(BrowserBase):
         self.assertEqual(trash_records(), [])
 
     def test_ref_to_deleted_pin_in_a_thread(self):
-        ps.APP.pin_lifecycle.reply_pin(self.open_id, "#%d 와 같은 문제" % self.dn, B)
-        ps.APP.pin_trash.drop_pin(self.dn, A)
+        """Thread references to deleted pins show localized gone text and navigate into the corresponding trash row."""
+        ps.APP.pin_lifecycle.reply_pin(
+            self.open_id,
+            "#%d 와 같은 문제" % self.dn,
+            post_authority(ps.APP.pin_lifecycle.context().store, B, "reply", self.open_id),
+        )
+        ps.APP.pin_trash.drop_pin(self.dn, post_authority(ps.APP.pin_trash.context().store, A, "drop", self.dn))
         for lang in ("ko", "en"):
             with self.subTest(lang=lang):
                 page = self.page_for("desktop", lang)
@@ -416,6 +439,7 @@ class ColdDeepLink(BrowserBase):
     WHO = ALICE
 
     def setUp(self):
+        """Create two paginated documents with distant live and deleted targets for cold deep-link navigation."""
         super().setUp()
         src = ps.APP.C.src
         (src / "hl.tex").write_text((src / "main.tex").read_text(encoding="utf-8"), encoding="utf-8")
@@ -445,7 +469,7 @@ class ColdDeepLink(BrowserBase):
         self.gone = add_pin(
             {"file": str(src / "hl.tex"), "lo": 32, "hi": 33, "page": 2, "note": "되살릴 핀"}, A, doc=hl
         ).record["id"]
-        ps.APP.pin_trash.drop_pin(self.gone, B)
+        ps.APP.pin_trash.drop_pin(self.gone, post_authority(ps.APP.pin_trash.context().store, B, "drop", self.gone))
         self.addCleanup(ps.APP.set_docs, None)
 
     def cold(self, hash_, device):
@@ -873,6 +897,7 @@ class PreviewEqualsServer(BrowserBase):
     PARK = {"login": "sp@example.com", "name": "Robin Park"}
 
     def setUp(self):
+        """Seed several review pins and known mention targets to compare browser outcome previews with server results."""
         super().setUp()
         for p in (A, self.LEE, self.PARK):
             ps.APP.people_directory.record(p)
@@ -881,7 +906,11 @@ class PreviewEqualsServer(BrowserBase):
             pid = add_pin(
                 {"file": str(self.main), "lo": 4 + 2 * i, "hi": 5 + 2 * i, "page": 1, "note": "검토 %d" % i}, A
             ).record["id"]
-            ps.APP.pin_lifecycle.close_pin(pid, dict(LOCAL_ACTOR), CloseRequest(reply="고침 %d" % i))
+            ps.APP.pin_lifecycle.close_pin(
+                pid,
+                post_authority(ps.APP.pin_lifecycle.context().store, dict(LOCAL_ACTOR), "close", pid),
+                CloseRequest(reply="고침 %d" % i),
+            )
             self.pins.append(pid)
 
     def run_case(self, page, pid, pick, text):
@@ -934,10 +963,15 @@ class ReplyKeyboardAndFailure(BrowserBase):
     WHO = ALICE
 
     def setUp(self):
+        """Prepare an attributed review pin for reply keyboard handling and failed-submit recovery."""
         super().setUp()
         ps.APP.people_directory.record(A)
         self.rv = add_pin({"file": str(self.main), "lo": 8, "hi": 9, "page": 1, "note": "식"}, A).record["id"]
-        ps.APP.pin_lifecycle.close_pin(self.rv, dict(LOCAL_ACTOR), CloseRequest(reply="고침"))
+        ps.APP.pin_lifecycle.close_pin(
+            self.rv,
+            post_authority(ps.APP.pin_lifecycle.context().store, dict(LOCAL_ACTOR), "close", self.rv),
+            CloseRequest(reply="고침"),
+        )
 
     def box(self, page):
         card = '#review-pins .pin[data-id="%d"]' % self.rv
@@ -988,10 +1022,11 @@ class RestoreLinkRunsOnce(BrowserBase):
     WHO = ALICE
 
     def test_reload_does_not_restore_again(self):
+        """A consumed restore fragment is removed so reloading cannot undo a later independent deletion."""
         ps.APP.people_directory.record(A)
         pid = add_pin({"file": str(self.main), "lo": 8, "hi": 9, "page": 1, "note": "지운 핀"}, A).record["id"]
         keep = add_pin({"file": str(self.main), "lo": 12, "hi": 13, "page": 1, "note": "남은 핀"}, A).record["id"]
-        ps.APP.pin_trash.drop_pin(pid, B)
+        ps.APP.pin_trash.drop_pin(pid, post_authority(ps.APP.pin_trash.context().store, B, "drop", pid))
         context = self.browser.new_context(viewport={"width": 1400, "height": 850})
         self.addCleanup(context.close)
         watch_idle(context)
@@ -1000,7 +1035,9 @@ class RestoreLinkRunsOnce(BrowserBase):
         page.goto("http://viewer.test/?lang=ko#pin=%d&act=restore" % pid)
         page.wait_for_function("typeof OPEN_ALL!=='undefined'&&OPEN_ALL.some(p=>p.id===%d)" % pid, timeout=20000)
         self.assertNotIn("act=restore", page.evaluate("location.href"))
-        ps.APP.pin_trash.drop_pin(pid, A)  # dropped again elsewhere
+        ps.APP.pin_trash.drop_pin(
+            pid, post_authority(ps.APP.pin_trash.context().store, A, "drop", pid)
+        )  # dropped again elsewhere
         page.reload()
         # boot() ends by acting on a pin link (openPinFromLink); a second restore it sent would be answered by settle()
         page.wait_for_function(booted(1) + "&&OPEN_ALL.some(p=>p.id===%d)" % keep, timeout=20000)
@@ -1037,6 +1074,7 @@ class ScopedViewer(BrowserBase):
     WHO = ALICE
 
     def setUp(self):
+        """Build real multi-pin Git revisions and a controlled compiler to exercise scoped comparison navigation."""
         super().setUp()
         if not shutil.which("git"):
             self.skipTest("git not available")
@@ -1054,19 +1092,31 @@ class ScopedViewer(BrowserBase):
         loc = dict(LOCAL_ACTOR)
         ps.APP.pin_lifecycle.close_pin(
             self.p1,
-            loc,
+            post_authority(ps.APP.pin_lifecycle.context().store, loc, "close", self.p1),
             CloseRequest(
                 reply="alpha",
                 ref=self.fix[:8],
                 changes=(lifecycle_input.CloseChange(str(self.main.resolve()), 4, 5).record(),),
             ),
         )
-        ps.APP.pin_lifecycle.close_pin(self.p2, loc, CloseRequest(reply="beta", ref=self.fix[:8]))
-        ps.APP.pin_lifecycle.close_pin(self.p3, loc, CloseRequest(reply="gamma", ref=self.fix[:8]))
+        ps.APP.pin_lifecycle.close_pin(
+            self.p2,
+            post_authority(ps.APP.pin_lifecycle.context().store, loc, "close", self.p2),
+            CloseRequest(reply="beta", ref=self.fix[:8]),
+        )
+        ps.APP.pin_lifecycle.close_pin(
+            self.p3,
+            post_authority(ps.APP.pin_lifecycle.context().store, loc, "close", self.p3),
+            CloseRequest(reply="gamma", ref=self.fix[:8]),
+        )
         self.p4 = add_pin({"file": str(self.main), "lo": 8, "hi": 8, "page": 1, "note": "filler"}, A).record["id"]
         self.write(NEW.replace("Filler two.", "Filler two, reworded."))
         self.solo = self.commit("fix the filler pin")
-        ps.APP.pin_lifecycle.close_pin(self.p4, loc, CloseRequest(reply="filler", ref=self.solo[:8]))
+        ps.APP.pin_lifecycle.close_pin(
+            self.p4,
+            post_authority(ps.APP.pin_lifecycle.context().store, loc, "close", self.p4),
+            CloseRequest(reply="filler", ref=self.solo[:8]),
+        )
         self.builds = []
         self.fail_scoped = False
         patcher = mock.patch.object(revision_execution, "revision_compile", side_effect=self.fake_compile)
@@ -1266,6 +1316,7 @@ class ViewerTrashControls(BrowserBase):
     WHO = CAROL
 
     def setUp(self):
+        """Prepare live and deleted pins with owner and viewer roles for trash visibility and action checks."""
         super().setUp()
         ps.APP.people_directory.record(A)
         ps.APP.C.people_file.write_text(
@@ -1282,7 +1333,7 @@ class ViewerTrashControls(BrowserBase):
         )
         add_pin({"file": str(self.main), "lo": 4, "hi": 5, "page": 1, "note": "남은 핀"}, A).record["id"]
         self.gone = add_pin({"file": str(self.main), "lo": 8, "hi": 9, "page": 1, "note": "지운 핀"}, A).record["id"]
-        ps.APP.pin_trash.drop_pin(self.gone, A)
+        ps.APP.pin_trash.drop_pin(self.gone, post_authority(ps.APP.pin_trash.context().store, A, "drop", self.gone))
 
     def test_viewer_role_sees_no_restore_or_purge_in_the_trash(self):
         """E2E finding: a viewer reads the Trash but gets no [Restore]/[Delete forever] (server refuses with 403 anyway)."""
@@ -1343,6 +1394,7 @@ class ViewerRoleUi(BrowserBase):
     STATE_CHANGING = ("edit", "drop", "close", "reply-open", "rv-reopen", "confirm", "reopen", "restore", "unclaim")
 
     def setUp(self):
+        """Seed editor/viewer identities plus open and review threads to verify role-specific browser controls."""
         super().setUp()
         ps.APP.people_directory.record(actor(ALICE))
         ps.APP.C.people_file.write_text(
@@ -1360,11 +1412,17 @@ class ViewerRoleUi(BrowserBase):
         pid = add_pin(
             {"file": str(self.main), "lo": 4, "hi": 5, "page": 1, "note": "문단 줄이기"}, actor(ALICE)
         ).record["id"]
-        ps.APP.pin_lifecycle.reply_pin(pid, "답글", actor(ALICE))
+        ps.APP.pin_lifecycle.reply_pin(
+            pid, "답글", post_authority(ps.APP.pin_lifecycle.context().store, actor(ALICE), "reply", pid)
+        )
         rid = add_pin({"file": str(self.main), "lo": 8, "hi": 9, "page": 1, "note": "검토할 핀"}, actor(ALICE)).record[
             "id"
         ]
-        ps.APP.pin_lifecycle.close_pin(rid, dict(LOCAL_ACTOR), CloseRequest(reply="고침"))
+        ps.APP.pin_lifecycle.close_pin(
+            rid,
+            post_authority(ps.APP.pin_lifecycle.context().store, dict(LOCAL_ACTOR), "close", rid),
+            CloseRequest(reply="고침"),
+        )
 
     def visible_acts(self, page):
         return page.evaluate(

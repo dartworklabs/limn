@@ -19,6 +19,7 @@ from helpers import (
     record_of,
 )
 from helpers_access import ALICE_ACTOR, BOB_ACTOR
+from helpers_authority import post_authority
 from helpers_pin_service import STAMP, ServiceBase
 
 
@@ -35,7 +36,10 @@ class AddAndEdit(ServiceBase):
             frozenset({"file", "lo", "hi", "page"}),
         )
         pin = add_edit.add_pin(
-            self.ctx, self.doc, AddRequest(place, "hi @Bob", assignee="bob@example.com"), ALICE_ACTOR
+            self.ctx,
+            self.doc,
+            AddRequest(place, "hi @Bob", assignee="bob@example.com"),
+            post_authority(self.ctx.store, ALICE_ACTOR, "add", self.doc),
         )
         self.assertIsInstance(pin, OpenPin)
         stored = self.pin(1)
@@ -59,7 +63,9 @@ class AddAndEdit(ServiceBase):
         pid = self.add()
         before = self.pins_bytes()
         self.rec.emitted.clear()
-        out = add_edit.edit_pin(self.ctx, pid, EditRequest(base_rev=5, note="new"), BOB_ACTOR)
+        out = add_edit.edit_pin(
+            self.ctx, pid, EditRequest(base_rev=5, note="new"), post_authority(self.ctx.store, BOB_ACTOR, "edit", pid)
+        )
         self.assertIsInstance(out, StaleEdit)
         self.assertEqual(self.pins_bytes(), before)
         self.assertEqual(self.rec.emitted, [[]])
@@ -67,7 +73,9 @@ class AddAndEdit(ServiceBase):
     def test_an_accepted_edit_is_written_in_place(self):
         """A note edit with the current base_rev rewrites the record, bumps rev and records who edited."""
         pid = self.add()
-        out = add_edit.edit_pin(self.ctx, pid, EditRequest(base_rev=0, note="new"), BOB_ACTOR)
+        out = add_edit.edit_pin(
+            self.ctx, pid, EditRequest(base_rev=0, note="new"), post_authority(self.ctx.store, BOB_ACTOR, "edit", pid)
+        )
         self.assertIsInstance(out, OpenPin)
         self.assertEqual(
             (self.pin(pid)["note"], self.pin(pid)["rev"], self.pin(pid)["edited_by"]["login"]),
@@ -76,7 +84,12 @@ class AddAndEdit(ServiceBase):
 
     def test_edit_of_a_missing_pin_is_a_named_miss(self):
         """No pin with the id: PinNotFound, nothing written."""
-        self.assertEqual(add_edit.edit_pin(self.ctx, 9, EditRequest(base_rev=0, note="x"), BOB_ACTOR), PinNotFound(9))
+        self.assertEqual(
+            add_edit.edit_pin(
+                self.ctx, 9, EditRequest(base_rev=0, note="x"), post_authority(self.ctx.store, BOB_ACTOR, "edit", 9)
+            ),
+            PinNotFound(9),
+        )
         self.assertEqual(self.pins_bytes(), b"")
 
 
@@ -146,19 +159,31 @@ class MentionsOnEdit(Base):
         self.assertNotIn("mentions", self.pin(pid))
 
     def test_reopen_after_confirm_marks_reopened_symbol_not_just_first_round_msg(self):
+        """A confirmation before reopening must not hide the reopened marker in the current thread round."""
         # observed bug: reopening after a confirm made the round start with [confirm, reopen, ...], so the
         # "reopened" marker was missing (the old check only looked at "is the round's first message a
         # reopen?"). pin_reopened_in_round() now skips over confirm.
         pid = self.add()
-        ps.APP.pin_lifecycle.close_pin(pid, dict(LOCAL_ACTOR), CloseRequest(reply="고침"))
-        ps.APP.pin_lifecycle.confirm_pin(pid, dict(self.S))
-        ps.APP.pin_lifecycle.reopen_pin(pid, dict(self.S), reason="다시 봐 주세요")
+        ps.APP.pin_lifecycle.close_pin(
+            pid,
+            post_authority(ps.APP.pin_lifecycle.context().store, dict(LOCAL_ACTOR), "close", pid),
+            CloseRequest(reply="고침"),
+        )
+        ps.APP.pin_lifecycle.confirm_pin(
+            pid, post_authority(ps.APP.pin_lifecycle.context().store, dict(self.S), "confirm", pid)
+        )
+        ps.APP.pin_lifecycle.reopen_pin(
+            pid,
+            post_authority(ps.APP.pin_lifecycle.context().store, dict(self.S), "reopen", pid),
+            reason="다시 봐 주세요",
+        )
         self.assertTrue(pin_reopened_in_round(parse_pin(self.pin(pid)).core.thread))
         md = ps.APP.C.pins_md.read_text(encoding="utf-8")
         row = next(ln for ln in md.splitlines() if ln.startswith("| %d " % pid))
         self.assertIn("다시 열림", row)
 
     def test_self_mention_never_becomes_addressed(self):
+        """Self-tags create no addressed recipient, while a reply still records tags of other people."""
         ps.APP.people_directory.record(dict(self.W))
         ps.APP.people_directory.record(dict(self.S))
         pid = add_pin(
@@ -168,9 +193,11 @@ class MentionsOnEdit(Base):
         p = self.pin(pid)
         self.assertNotIn("mentions", p)  # a self-@mention isn't stored
         self.assertEqual(mentions.addressed_to(parse_pin(p)), [])
-        msg = ps.APP.pin_lifecycle.reply_pin(pid, "@Bob Park 님 확인 부탁드립니다 @Wendy Kim", dict(self.W)).record[
-            "thread"
-        ][-1]
+        msg = ps.APP.pin_lifecycle.reply_pin(
+            pid,
+            "@Bob Park 님 확인 부탁드립니다 @Wendy Kim",
+            post_authority(ps.APP.pin_lifecycle.context().store, dict(self.W), "reply", pid),
+        ).record["thread"][-1]
         self.assertEqual(msg["mentions"], [self.S["login"]])
 
 
@@ -194,9 +221,12 @@ class PinKindAndThread(Base):
         )
 
     def test_edit_switches_kind_even_on_closed_pin(self):
+        """Changing request kind remains valid after closing and preserves the requested fix/question value."""
         pid = self.add()
         p = record_of(edit_pin(pid, {"kind_req": "question", "base_rev": 0}, dict(self.S)))
         self.assertEqual(p["kind_req"], "question")
-        ps.APP.pin_lifecycle.close_pin(pid, dict(self.S), CloseRequest())
+        ps.APP.pin_lifecycle.close_pin(
+            pid, post_authority(ps.APP.pin_lifecycle.context().store, dict(self.S), "close", pid), CloseRequest()
+        )
         p = record_of(edit_pin(pid, {"kind_req": "fix", "base_rev": self.pin(pid)["rev"]}, dict(self.S)))
         self.assertEqual(p["kind_req"], "fix")

@@ -21,6 +21,7 @@ import contextlib
 import fcntl
 import os
 import re
+import stat
 import threading
 from collections.abc import Iterator
 from dataclasses import dataclass
@@ -117,7 +118,7 @@ def tree_part(p: Path, root: Path, state: Path) -> Path | None:
     return rel
 
 
-def file_in_tree(p: object, root: Path, state: Path) -> Path | TreePathRefusal:
+def file_in_tree(p: object, root: Path, state: Path) -> ManuscriptFile | TreePathRefusal:
     """The real file inside the tree `root` that p names (absolute, or relative to root) as root / <relative path>, or
     why not. Anything outside the tree (tree_part: outside root, under a dot-named part or in the state folder `state`)
     is refused - its first line would otherwise leak into pins.md. Resolving symlinks and checking the file read file
@@ -131,18 +132,95 @@ def file_in_tree(p: object, root: Path, state: Path) -> Path | TreePathRefusal:
     if rel is None:
         return OutsideTree()
     out = root / rel
-    if not out.is_file():
-        return NotAFile()
-    return out
-
-
-def tex_lines(path: Path) -> list[str]:
-    """The lines of a manuscript file (str.splitlines, so line N is index N-1), or [] when it cannot be read or is
-    not UTF-8. Every line number a pin records counts lines this way."""
     try:
-        return path.read_text(encoding="utf-8").splitlines()
-    except (OSError, UnicodeDecodeError):
-        return []
+        resolved, base, held = out.resolve(), root.resolve(), state.resolve()
+        if tree_part(resolved, base, held) is None:
+            return OutsideTree()
+        if not resolved.is_file():
+            return NotAFile()
+    except (OSError, RuntimeError, ValueError):
+        return OutsideTree()
+    checked = object.__new__(ManuscriptFile)
+    object.__setattr__(checked, "path", out)
+    object.__setattr__(checked, "_resolved", resolved)
+    object.__setattr__(checked, "root", base)
+    object.__setattr__(checked, "state", held)
+    return checked
+
+
+@dataclass(frozen=True, init=False)
+class ManuscriptFile:
+    """A checked manuscript read capability; only file_in_tree creates instances.
+
+    The resolved path is a display value, not permission to open it. Each snapshot
+    walks from the filesystem root with no-follow descriptors, rejecting replaced
+    symlinks and non-regular files before reading. No descriptor survives the call.
+    """
+
+    path: Path
+    _resolved: Path
+    root: Path
+    state: Path
+
+    def __init__(self) -> None:
+        """Reject direct construction; use file_in_tree to establish manuscript scope."""
+        raise TypeError("use file_in_tree to obtain a manuscript file")
+
+    def __str__(self) -> str:
+        """Return the checked file name for persisted/API projections, never for opening."""
+        return str(self.path)
+
+    @contextlib.contextmanager
+    def _descriptor(self) -> Iterator[int]:
+        """Yield a regular no-follow descriptor and close every opened descriptor on exit.
+
+        The leaf is nonblocking so replacement with a FIFO cannot stall a request.
+        Policy and OS errors propagate to the read/stat methods, which fail closed.
+        """
+        if tree_part(self._resolved, self.root, self.state) is None:
+            raise OSError("manuscript path is no longer within scope")
+        directory = None
+        leaf = None
+        try:
+            directory = os.open(self._resolved.anchor, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+            for component in self._resolved.parts[1:-1]:
+                child = os.open(component, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=directory)
+                os.close(directory)
+                directory = child
+            leaf = os.open(self._resolved.name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=directory)
+            if not stat.S_ISREG(os.fstat(leaf).st_mode):
+                raise OSError("manuscript source is not a regular file")
+            yield leaf
+        finally:
+            if leaf is not None:
+                os.close(leaf)
+            if directory is not None:
+                os.close(directory)
+
+    def snapshot(self) -> tuple[list[str], float]:
+        """Read UTF-8 lines and mtime from one regular descriptor, or ([], 0) on refusal."""
+        try:
+            with self._descriptor() as descriptor:
+                metadata = os.fstat(descriptor)
+                with os.fdopen(descriptor, encoding="utf-8", closefd=False) as stream:
+                    return stream.read().splitlines(), metadata.st_mtime
+        except (OSError, UnicodeDecodeError, ValueError):
+            return [], 0.0
+
+    def metadata(self) -> os.stat_result | None:
+        """Stat the checked regular descriptor; never follow a replacement link for metadata."""
+        try:
+            with self._descriptor() as descriptor:
+                return os.fstat(descriptor)
+        except (OSError, ValueError):
+            return None
+
+
+def tex_lines(file: ManuscriptFile) -> list[str]:
+    """Read checked manuscript lines; raw paths cannot reach this content sink."""
+    if not isinstance(file, ManuscriptFile):
+        raise TypeError("manuscript reads require file_in_tree capability")
+    return file.snapshot()[0]
 
 
 VENDOR_FILE_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]*(\.[A-Za-z0-9_-]+)*\.mjs")

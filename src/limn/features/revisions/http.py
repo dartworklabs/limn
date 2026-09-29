@@ -2,6 +2,7 @@
 
 from typing import Any
 
+from limn.access import PostAuthority
 from limn.documents import Doc
 from limn.features.revisions import answer, input as revision_input
 from limn.features.revisions.service import RevisionRequests
@@ -32,7 +33,7 @@ def pdf(requests: RevisionRequests, doc: Doc, query: Query) -> bytes:
     return answer.revision_pdf_answer(requests.pdf(doc, commit, pin))
 
 
-def start(requests: RevisionRequests, doc: Doc, body: Json) -> tuple[dict[str, Any], int]:
+def start(requests: RevisionRequests, doc: Doc, body: Json, authority: PostAuthority) -> tuple[dict[str, Any], int]:
     """POST /api/revision-build after its body has passed the common JSON check."""
     commit, pin = accepted(revision_input.parse_revision_build(body))
-    return answer.revision_start_answer(requests.start(doc, commit, pin))
+    return answer.revision_start_answer(requests.start(doc, commit, pin, authority=authority))

@@ -54,6 +54,7 @@ from helpers import (
     write_records,
 )
 from helpers_access import REPO_NEW as NEW, REPO_OLD as OLD, AccessBase, ScopedRepo, talk_to
+from helpers_authority import post_authority
 
 
 class ManuscriptRevisions(Base):
@@ -297,16 +298,28 @@ class ManuscriptRevisions(Base):
             self.assertEqual(ps.APP.revision_requests.status(ps.APP.docs[0], self.latest), revisions.CommitNotRecent())
 
     def test_revision_failure_has_no_pdf_and_can_retry(self):
+        """A retry publishes its new compiler outcome instead of reusing a cached failure."""
         with mock.patch.object(
-            revision_execution, "revision_compile", return_value=revisions.StepFailed("timeout")
-        ) as run:
-            ps.APP.revision_requests.start(ps.APP.docs[0], self.latest)
+            revision_execution,
+            "revision_compile",
+            side_effect=[revisions.StepFailed("timeout"), revisions.StepFailed("size")],
+        ):
+            ps.APP.revision_requests.start(
+                ps.APP.docs[0],
+                self.latest,
+                authority=post_authority(ps.APP.revision_requests, dict(LOCAL_ACTOR), "revision-build", ps.APP.docs[0]),
+            )
             status = self._wait_revision()
             self.assertEqual((status["state"], status["reason"]), ("error", "timeout"))
             self.assertEqual(ps.APP.revision_requests.pdf(ps.APP.docs[0], self.latest), revisions.RevisionNotReady())
-            ps.APP.revision_requests.start(ps.APP.docs[0], self.latest)
-            self._wait_revision()
-            self.assertEqual(run.call_count, 2)
+            ps.APP.revision_requests.start(
+                ps.APP.docs[0],
+                self.latest,
+                authority=post_authority(ps.APP.revision_requests, dict(LOCAL_ACTOR), "revision-build", ps.APP.docs[0]),
+            )
+            retried = self._wait_revision()
+            self.assertEqual((retried["state"], retried["reason"]), ("error", "size_limit"))
+            self.assertEqual(ps.APP.revision_requests.pdf(ps.APP.docs[0], self.latest), revisions.RevisionNotReady())
 
     def test_revision_requests_enforce_origin_allowlist_and_field_validation(self):
         body = json.dumps({"commit": self.latest}).encode()
@@ -362,8 +375,18 @@ class ManuscriptRevisions(Base):
         )
 
     def test_revision_jobs_are_bounded_and_cache_expires(self):
+        """Exhausted job capacity refuses work; expired ready artifacts become idle and pruning bounds cache growth."""
         with mock.patch.object(ps.APP.RT.revision_jobs, "slots", threading.BoundedSemaphore(0)):
-            self.assertEqual(ps.APP.revision_requests.start(ps.APP.docs[0], self.latest), revisions.AllSlotsBusy())
+            self.assertEqual(
+                ps.APP.revision_requests.start(
+                    ps.APP.docs[0],
+                    self.latest,
+                    authority=post_authority(
+                        ps.APP.revision_requests, dict(LOCAL_ACTOR), "revision-build", ps.APP.docs[0]
+                    ),
+                ),
+                revisions.AllSlotsBusy(),
+            )
         spec = revision_spec(self.latest)
         root = revision_jobs.revision_cache_root(ps.APP.docs[0])
         jobdir = root / spec.key
@@ -528,27 +551,60 @@ class ManuscriptRevisions(Base):
         root = revision_jobs.revision_cache_root(ps.APP.docs[0])
         with (root / "build.lock").open("a") as other:
             fcntl.flock(other, fcntl.LOCK_EX | fcntl.LOCK_NB)
-            self.assertEqual(ps.APP.revision_requests.start(ps.APP.docs[0], self.latest), revisions.DocumentBusy())
+            self.assertEqual(
+                ps.APP.revision_requests.start(
+                    ps.APP.docs[0],
+                    self.latest,
+                    authority=post_authority(
+                        ps.APP.revision_requests, dict(LOCAL_ACTOR), "revision-build", ps.APP.docs[0]
+                    ),
+                ),
+                revisions.DocumentBusy(),
+            )
         self.assert_claims_freed()
         jobdir = root / revision_spec(self.latest).key
         jobdir.symlink_to(self.repo)
-        self.assertEqual(ps.APP.revision_requests.start(ps.APP.docs[0], self.latest), revisions.UnsafeCache())
+        self.assertEqual(
+            ps.APP.revision_requests.start(
+                ps.APP.docs[0],
+                self.latest,
+                authority=post_authority(ps.APP.revision_requests, dict(LOCAL_ACTOR), "revision-build", ps.APP.docs[0]),
+            ),
+            revisions.UnsafeCache(),
+        )
         self.assert_claims_freed()
         jobdir.unlink()
         with (
             mock.patch.object(revision_jobs, "revision_prune", side_effect=OSError("disk")),
             self.assertRaises(OSError),
         ):
-            ps.APP.revision_requests.start(ps.APP.docs[0], self.latest)
+            ps.APP.revision_requests.start(
+                ps.APP.docs[0],
+                self.latest,
+                authority=post_authority(ps.APP.revision_requests, dict(LOCAL_ACTOR), "revision-build", ps.APP.docs[0]),
+            )
         self.assert_claims_freed()
         with (
             mock.patch.object(revisions.threading.Thread, "start", side_effect=RuntimeError("can't start")),
             self.assertRaises(RuntimeError),
         ):
-            ps.APP.revision_requests.start(ps.APP.docs[0], self.latest)
+            ps.APP.revision_requests.start(
+                ps.APP.docs[0],
+                self.latest,
+                authority=post_authority(ps.APP.revision_requests, dict(LOCAL_ACTOR), "revision-build", ps.APP.docs[0]),
+            )
         self.assert_claims_freed()
         with mock.patch.object(revision_execution, "revision_compile", return_value=revisions.StepFailed("timeout")):
-            self.assertEqual(ps.APP.revision_requests.start(ps.APP.docs[0], self.latest)["state"], "running")
+            self.assertEqual(
+                ps.APP.revision_requests.start(
+                    ps.APP.docs[0],
+                    self.latest,
+                    authority=post_authority(
+                        ps.APP.revision_requests, dict(LOCAL_ACTOR), "revision-build", ps.APP.docs[0]
+                    ),
+                )["state"],
+                "running",
+            )
             self.assertEqual(self._wait_revision()["reason"], "timeout")
         self.assert_claims_freed()
 
@@ -695,12 +751,20 @@ class ScopedSourceDiff(ScopedRepo):
         chapter.write_text(chapter.read_text().replace("Part line 12.", "Part line twelve."), encoding="utf-8")
         self.write(self.main.read_text().replace("\\input{part}", "\\input{chapter}"))
         mv = self.commit("rename the part")
-        ps.APP.pin_lifecycle.close_pin(old_pin, dict(LOCAL_ACTOR), CloseRequest(ref=mv[:8]))
+        ps.APP.pin_lifecycle.close_pin(
+            old_pin,
+            post_authority(ps.APP.pin_lifecycle.context().store, dict(LOCAL_ACTOR), "close", old_pin),
+            CloseRequest(ref=mv[:8]),
+        )
         new_pin = self.add(lo=12, hi=12, note="chapter twelve")
         rows = records(ps.APP.snapshot_pins())
         find_pin(rows, new_pin)["file"] = str(chapter)
         write_records(rows)
-        ps.APP.pin_lifecycle.close_pin(new_pin, dict(LOCAL_ACTOR), CloseRequest(ref=mv[:8]))
+        ps.APP.pin_lifecycle.close_pin(
+            new_pin,
+            post_authority(ps.APP.pin_lifecycle.context().store, dict(LOCAL_ACTOR), "close", new_pin),
+            CloseRequest(ref=mv[:8]),
+        )
         for pid in (old_pin, new_pin):  # the pin may name the file before or after the rename
             with self.subTest(pin=pid):
                 d = self.diff_ok(mv, pid)
@@ -886,7 +950,12 @@ class ScopedErrorBodies(ScopedRepo):
 
     def build_status(self, pid):
         """Start the scoped build for pid on self.fix and wait for its final status."""
-        ps.APP.revision_requests.start(ps.APP.docs[0], self.fix, pid)
+        ps.APP.revision_requests.start(
+            ps.APP.docs[0],
+            self.fix,
+            pid,
+            authority=post_authority(ps.APP.revision_requests, dict(LOCAL_ACTOR), "revision-build", ps.APP.docs[0]),
+        )
         end = time.time() + 30
         while time.time() < end:
             st = ps.APP.revision_requests.status(ps.APP.docs[0], self.fix, pid)
@@ -1075,7 +1144,7 @@ class ScopedPdf(ScopedRepo):
         opener = self.add(lo=7, hi=7, note="open")
         ps.APP.pin_lifecycle.close_pin(
             opener,
-            dict(LOCAL_ACTOR),
+            post_authority(ps.APP.pin_lifecycle.context().store, dict(LOCAL_ACTOR), "close", opener),
             CloseRequest(ref=both[:8], changes=(lifecycle_input.CloseChange(str(self.main.resolve()), 7, 7).record(),)),
         )
         spec = revision_spec(both, opener)

@@ -25,6 +25,7 @@ from limn.store import find_pin
 
 from helpers import ROOT, add_pin, ps, records, set_config, write_records
 from helpers_access import ALICE, BOB, CAROL, AccessBase, actor, token_create
+from helpers_authority import post_authority
 
 A, B = actor(ALICE), actor(BOB)
 
@@ -38,16 +39,24 @@ class ReplyApi(AccessBase):
             ps.APP.people_directory.record(actor(h))
 
     def review_pin(self, kind="fix", author=A):
+        """Create a requested pin and close it as an agent, asserting the fixture enters review."""
         pid = add_pin(
             {"file": str(self.main), "lo": 4, "hi": 5, "page": 1, "note": "문단 줄이기", "kind_req": kind}, author
         ).record["id"]
-        ps.APP.pin_lifecycle.close_pin(pid, dict(LOCAL_ACTOR), CloseRequest(reply="줄였습니다", ref="PR #9"))
+        ps.APP.pin_lifecycle.close_pin(
+            pid,
+            post_authority(ps.APP.pin_lifecycle.context().store, dict(LOCAL_ACTOR), "close", pid),
+            CloseRequest(reply="줄였습니다", ref="PR #9"),
+        )
         self.assertEqual(pin_state(self.pin(pid)), "review")
         return pid
 
     def done_pin(self):
+        """Create a pin closed by its human author, asserting the fixture is already done."""
         pid = add_pin({"file": str(self.main), "lo": 8, "hi": 9, "page": 1, "note": "오타"}, A).record["id"]
-        ps.APP.pin_lifecycle.close_pin(pid, A, CloseRequest(reply="고침"))
+        ps.APP.pin_lifecycle.close_pin(
+            pid, post_authority(ps.APP.pin_lifecycle.context().store, A, "close", pid), CloseRequest(reply="고침")
+        )
         self.assertEqual(pin_state(self.pin(pid)), "done")
         return pid
 
@@ -89,16 +98,25 @@ class ReplyApi(AccessBase):
         self.assertEqual(self.events()[n:], [("mention", ["carol@example.com"]), ("replied", ["alice@example.com"])])
 
     def test_reopening_reply_still_tells_everyone_involved(self):
+        """A reopening reply still notifies tagged participants while avoiding a reopen notice to its own author."""
         # A reply on a closed pin used to reach everyone tagged on the pin (replied); reopening must not silence them.
         pid = add_pin(
             {"file": str(self.main), "lo": 4, "hi": 5, "page": 1, "note": "@Carol Lee 참고로 봐 주세요"}, A
         ).record["id"]
-        ps.APP.pin_lifecycle.close_pin(pid, dict(LOCAL_ACTOR), CloseRequest(reply="고침"))
+        ps.APP.pin_lifecycle.close_pin(
+            pid,
+            post_authority(ps.APP.pin_lifecycle.context().store, dict(LOCAL_ACTOR), "close", pid),
+            CloseRequest(reply="고침"),
+        )
         n = len(self.events())
         code, d = self.reply(pid, {"text": "아직 틀립니다"}, BOB)
         self.assertEqual(d["reopened"], True)
         self.assertEqual(self.events()[n:], [("reopened", ["alice@example.com"]), ("replied", ["carol@example.com"])])
-        ps.APP.pin_lifecycle.close_pin(pid, dict(LOCAL_ACTOR), CloseRequest(reply="다시 고침"))
+        ps.APP.pin_lifecycle.close_pin(
+            pid,
+            post_authority(ps.APP.pin_lifecycle.context().store, dict(LOCAL_ACTOR), "close", pid),
+            CloseRequest(reply="다시 고침"),
+        )
         n = len(self.events())
         self.reply(pid, {"text": "제가 다시 엽니다"}, ALICE)  # the author: only Carol hears of it
         self.assertEqual(self.events()[n:], [("replied", ["carol@example.com"])])
@@ -204,11 +222,15 @@ class ReplyApi(AccessBase):
     def test_python_api_returns_the_pin_with_its_new_entry_last(self):
         """reply_pin() returns the pin as it now stands (its state type); the reply's entry is the thread's last."""
         pid = self.review_pin()
-        pin = ps.APP.pin_lifecycle.reply_pin(pid, "사람 답글", B)
+        pin = ps.APP.pin_lifecycle.reply_pin(
+            pid, "사람 답글", post_authority(ps.APP.pin_lifecycle.context().store, B, "reply", pid)
+        )
         self.assertIsInstance(pin, OpenPin)  # a person's reply reopened it
         self.assertEqual(pin.record["thread"][-1]["ev"], "reopen")
         pid = self.review_pin()
-        pin = ps.APP.pin_lifecycle.reply_pin(pid, "에이전트 답글", dict(LOCAL_ACTOR))
+        pin = ps.APP.pin_lifecycle.reply_pin(
+            pid, "에이전트 답글", post_authority(ps.APP.pin_lifecycle.context().store, dict(LOCAL_ACTOR), "reply", pid)
+        )
         self.assertIsInstance(pin, ReviewPin)  # an agent's reply leaves it for review
         self.assertNotIn("ev", pin.record["thread"][-1])
 
@@ -218,11 +240,16 @@ class AgentAsPerson(AccessBase):
     through the tailnet address) is a person to the rule - its reply reopens a review pin unless it sends reopen:false."""
 
     def setUp(self):
+        """Prepare an agent-closed review pin under local authentication with loopback-agent fallback disabled."""
         super().setUp()
         set_config(auth="local")
         set_config(agent_loopback=False)
         pid = add_pin({"file": str(self.main), "lo": 4, "hi": 5, "page": 1, "note": "n"}, A).record["id"]
-        ps.APP.pin_lifecycle.close_pin(pid, dict(LOCAL_ACTOR), CloseRequest(reply="고침"))
+        ps.APP.pin_lifecycle.close_pin(
+            pid,
+            post_authority(ps.APP.pin_lifecycle.context().store, dict(LOCAL_ACTOR), "close", pid),
+            CloseRequest(reply="고침"),
+        )
         self.pid = pid
 
     def test_headerless_local_curl_reopens_unless_it_says_reopen_false(self):

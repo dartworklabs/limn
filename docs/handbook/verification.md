@@ -172,3 +172,7 @@ Limn에서 "테스트가 녹색"은 합격의 필요조건이지 충분조건이
 - "린트 깨끗함" 대신: `ruff check: 0 errors, ruff format: ok, shellcheck: 0 warnings`
 - "인스턴스 테스트 통과" 대신: `test_instances.sh: 190 passed, 0 failed`
 - 실패가 있으면: 실패한 테스트 이름, 에러 메시지 첫 줄, 재현 명령을 함께 보고한다.
+
+## 요청과 자원 권한 경계
+
+`tests/test_request_boundary.py`와 `tests/test_request_input.py`는 중복 키·헤더·잘못된 인코딩을 거부하고 연결을 닫으며 상태를 쓰지 않는지 확인한다. `tests/test_authority.py`는 역할별 기존 허용 동작, 새 경로 등록의 기본 거부, 작업·대상·인스턴스가 다른 권한의 거부와 신원 스냅샷을 검증한다. `tests/test_manuscript_files.py`는 원고 제외 경로, 검사 뒤 심볼릭 링크 교체, 일반 파일 제한과 디스크립터 정리를 실제 파일로 확인한다. `tests/test_pin_sequences.py`는 생성한 전이 시퀀스의 상태·식별자·revision·레코드 왕복을 확인한다.

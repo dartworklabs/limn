@@ -27,6 +27,7 @@ from limn.events import EVENTS_KEEP
 
 from helpers import ps
 from helpers_access import A_LOGIN, ALICE, B_LOGIN, BOB, CLEAR_BODY, AccessBase, member_add, token_create
+from helpers_authority import post_authority
 
 AUDIT_PY = Path(audit.__file__)
 
@@ -132,7 +133,7 @@ class AuditLogServer(AccessBase):
 
     def test_purge_is_audited(self):
         """The owner's permanent delete from the Trash leaves an audit line naming the pin."""
-        ps.APP.pin_trash.drop_pin(1, dict(LOCAL_ACTOR))
+        ps.APP.pin_trash.drop_pin(1, post_authority(ps.APP.pin_trash.context().store, dict(LOCAL_ACTOR), "drop", 1))
         code, d = self.call("POST", "/api/pins/1/purge", None, ALICE)
         self.assertEqual(code, 200, d)
         self.assertEqual(
@@ -143,7 +144,7 @@ class AuditLogServer(AccessBase):
         """Nothing that did not happen is audited: a clear without the phrase, a non-owner's clear or purge, a missing pin."""
         self.assertEqual(self.call("POST", "/api/clear", {"confirm": "yes"}, ALICE)[0], 400)
         self.assertEqual(self.call("POST", "/api/clear", CLEAR_BODY, BOB)[0], 403)
-        ps.APP.pin_trash.drop_pin(1, dict(LOCAL_ACTOR))
+        ps.APP.pin_trash.drop_pin(1, post_authority(ps.APP.pin_trash.context().store, dict(LOCAL_ACTOR), "drop", 1))
         self.assertEqual(self.call("POST", "/api/pins/1/purge", None, BOB)[0], 403)
         self.assertEqual(self.call("POST", "/api/pins/99/purge", None, ALICE)[0], 404)
         self.assertEqual(audit_rows(), [])

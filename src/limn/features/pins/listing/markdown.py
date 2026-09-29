@@ -121,7 +121,7 @@ class PinMarkdown:
         ):
             return location, None
         if loc.path not in sources:  # outside the tree (loc None) is never read
-            sources[loc.path] = tex_lines(loc.path)
+            sources[loc.path] = tex_lines(loc.source)
         lines = sources[loc.path]
         return location, len(lines[lo - 1]) if 1 <= lo <= len(lines) else None
 

@@ -8,6 +8,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from limn.files import ManuscriptFile
 from limn.mapping import TokenWeights, synctex_range
 
 # A word token worth weighting: a Hangul word of 2+ syllables, a Latin word of 4+ letters, or a decimal number.
@@ -95,13 +96,10 @@ def region_text(pdf: Path, page: int, x0: float, y0: float, x1: float, y1: float
         return ""
 
 
-def file_key(path: Path) -> tuple[str, int, int]:
-    """(path, mtime_ns, size) - identifies one version of a file for TokenCache; (path, 0, 0) when it cannot be stat'ed."""
-    try:
-        st = path.stat()
-        return (str(path), st.st_mtime_ns, st.st_size)
-    except OSError:
-        return (str(path), 0, 0)
+def file_key(path: ManuscriptFile) -> tuple[str, int, int]:
+    """Identify a checked source version without following replacement symlinks; zeros on refusal."""
+    metadata = path.metadata()
+    return (str(path), metadata.st_mtime_ns, metadata.st_size) if metadata is not None else (str(path), 0, 0)
 
 
 @dataclass

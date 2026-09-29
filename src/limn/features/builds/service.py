@@ -7,9 +7,10 @@ from collections.abc import Callable, Sequence
 from typing import Any
 
 from limn import build
+from limn.access import AuthorityScope, PostAuthority, require_authority
 from limn.build import BuildBusy, BuildConfig, BuildSkipped, BuildStarted, Describe, FinishedBuild, ViewOnlyNoRebuild
 from limn.config import RunConfig
-from limn.documents import Doc
+from limn.documents import Doc, document_authority_target
 from limn.features.builds import engine, run
 
 Json = dict[str, Any]
@@ -32,6 +33,11 @@ class BuildRequests:
         self.docs = docs
         self.now = now
         self.describe = describe
+
+    @property
+    def authority_scope(self) -> AuthorityScope:
+        """Snapshot this service and the current storage namespace before authorizing a build."""
+        return AuthorityScope(self, str(self.settings().state.resolve()))
 
     def config(self) -> BuildConfig:
         """Current state folder, dpi and timeout for one build."""
@@ -57,12 +63,14 @@ class BuildRequests:
         """Start a tracked build on a daemon thread, or return busy."""
         return run.build_in_background(doc, lambda: self.tracked(doc), self.now(), self.describe)
 
-    def rebuild(self, doc: Doc) -> FinishedBuild | BuildBusy | ViewOnlyNoRebuild:
+    def rebuild(self, doc: Doc, authority: PostAuthority) -> FinishedBuild | BuildBusy | ViewOnlyNoRebuild:
         """Refuse manual rebuild of a view-only document; otherwise build now."""
+        require_authority(authority, self.authority_scope, "rebuild", document_authority_target(doc))
         return run.request_rebuild(doc, self.build_all)
 
-    def rebuild_async(self, doc: Doc) -> BuildStarted | BuildBusy | ViewOnlyNoRebuild:
+    def rebuild_async(self, doc: Doc, authority: PostAuthority) -> BuildStarted | BuildBusy | ViewOnlyNoRebuild:
         """Refuse manual rebuild of a view-only document; otherwise start in the background."""
+        require_authority(authority, self.authority_scope, "rebuild", document_authority_target(doc))
         return run.request_rebuild(doc, self.build_async)
 
     def init_doc(self, doc: Doc, no_build: bool, wait: bool) -> FinishedBuild | BuildStarted | BuildBusy | BuildSkipped:

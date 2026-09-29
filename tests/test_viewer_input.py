@@ -22,6 +22,7 @@ from limn.features.pins.lifecycle.rules import CloseRequest
 
 from helpers import HTML, add_pin, extract_js_fn, ps, run_node
 from helpers_access import ALICE, actor
+from helpers_authority import post_authority
 from helpers_browser import BrowserBase, booted, nothing_follows, settle, watch_idle
 
 HANGUL = re.compile(r"[가-힣]")
@@ -291,6 +292,7 @@ class ViewerBase(BrowserBase):
     page 1 and one pin awaiting review, so the list, the marks and the review pill are all there."""
 
     def setUp(self):
+        """Place multiple page-one pins and a page-two review pin for spatial selection and input interactions."""
         super().setUp()
         for lo, y in ((4, 0.2), (8, 0.35), (12, 0.5)):
             add_pin(
@@ -308,7 +310,11 @@ class ViewerBase(BrowserBase):
             {"file": str(self.main), "lo": 20, "hi": 21, "page": 2, "note": "검토할 핀", "frac": [0.2, 0.3, 0.4, 0.04]},
             actor(ALICE),
         ).record["id"]  # add_pin returns the new OpenPin (limn.features.pins.editing.rules)
-        ps.APP.pin_lifecycle.close_pin(rid, dict(LOCAL_ACTOR), CloseRequest(reply="고침"))
+        ps.APP.pin_lifecycle.close_pin(
+            rid,
+            post_authority(ps.APP.pin_lifecycle.context().store, dict(LOCAL_ACTOR), "close", rid),
+            CloseRequest(reply="고침"),
+        )
 
     def view(self, device, lang="ko", prefs=None, reduced=False, init=None, dark=False, hash_=""):
         """Open the viewer on a device preset and return the page once boot() has finished and the page has settled.

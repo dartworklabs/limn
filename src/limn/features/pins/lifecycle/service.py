@@ -1,9 +1,10 @@
 """Pin lifecycle transactions owned by the feature."""
 
 from collections.abc import Callable, Iterable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any
 
+from limn.access import PostAuthority, require_authority
 from limn.features.pins.lifecycle.rules import (
     AgentCannotConfirm,
     AlreadyClosed,
@@ -25,7 +26,7 @@ from limn.features.pins.lifecycle.rules import (
 )
 from limn.mentions import pin_mentions_all, resolve_mentions
 from limn.pins.model import DonePin, OpenPin, Pin, PinNotFound, ReviewPin
-from limn.service.context import Event, PinContext, Row, is_agent, load_pin, typed_actor
+from limn.service.context import Event, PinContext, Row, load_pin, typed_actor
 
 
 @dataclass(frozen=True)
@@ -35,16 +36,18 @@ class PinLifecycle:
     context: Callable[[], PinContext]
 
     def close_pin(
-        self, pid: int, actor: Mapping[str, Any], request: CloseRequest
+        self, pid: int, actor: PostAuthority, request: CloseRequest
     ) -> ReviewPin | DonePin | AlreadyClosed | PinNotFound:
         """Close pin pid under the pin lock, then tell the author when it now awaits review (docs/handbook/api.md §닫을 때 사유 남기기).
 
         Re-closing a closed pin changes nothing (AlreadyClosed) - a second close must not overwrite done_at/closed_by
         and erase who closed it first (observed defect). An agent's close awaits review unless the request says:
         out of 42 observed cases an author reopened an agent-closed pin twice with no record that a person had looked.
-        A person with the agent role closes into review because the handler sets request.review for them.
+        A person with the agent role closes into review because the authority supplies that default.
         """
         ctx = self.context()
+        require_authority(actor, ctx.authority_scope, "close", pid)
+        request = replace(request, review=actor.principal.review_on_close(request.review))
         evs: list[Event | None] = []
 
         def fn(pins: list[Pin]) -> tuple[ReviewPin | DonePin | AlreadyClosed | PinNotFound, bool]:
@@ -75,11 +78,12 @@ class PinLifecycle:
         return out
 
     def reopen_pin(
-        self, pid: int, actor: Mapping[str, Any], reason: str | None = None, hints: Iterable[str] | None = None
+        self, pid: int, actor: PostAuthority, reason: str | None = None, hints: Iterable[str] | None = None
     ) -> OpenPin | PinNotFound:
         """Reopen pin pid under the pin lock; a closed pin records the reason and notifies (see _reopen). rev goes up
         even for a pin that was already open."""
         ctx = self.context()
+        require_authority(actor, ctx.authority_scope, "reopen", pid)
         evs: list[Event | None] = []
 
         def fn(pins: list[Pin]) -> tuple[OpenPin | PinNotFound, bool]:
@@ -98,7 +102,7 @@ class PinLifecycle:
         return out
 
     def confirm_pin(
-        self, pid: int, actor: Mapping[str, Any]
+        self, pid: int, actor: PostAuthority
     ) -> DonePin | AlreadyDone | PinStillOpen | AgentCannotConfirm | PinNotFound:
         """Awaiting review -> done, by a person only (docs/handbook/api.md §검토 대기).
 
@@ -106,11 +110,12 @@ class PinLifecycle:
         (transact) and lifecycle.confirm() decides; only a new DonePin is written, in the pin's place, so the saved line
         keeps its field order. Every other outcome is returned unchanged for the HTTP layer to answer. No notice.
         """
+        ctx = self.context()
+        require_authority(actor, ctx.authority_scope, "confirm", pid)
         by = confirmer(typed_actor(actor))
         if isinstance(by, AgentCannotConfirm):
             return by
         person = by
-        ctx = self.context()
 
         def fn(pins: list[Pin]) -> tuple[DonePin | AlreadyDone | PinStillOpen | PinNotFound, bool]:
             """The transact() step: confirm pin pid; written only when it becomes done."""
@@ -130,24 +135,24 @@ class PinLifecycle:
         self,
         pid: int,
         text: str,
-        actor: Mapping[str, Any],
+        actor: PostAuthority,
         hints: Iterable[str] | None = None,
         reopen: bool | None = None,
-        human: bool | None = None,
     ) -> OpenPin | ReviewPin | DonePin | ThreadFull | PinNotFound:
         """One reply (from a person or an agent); the pin as it stands after it is returned, its new entry last in the thread.
 
         Whether it also reopens the pin is decided by limn.features.pins.lifecycle.rules.reopens_on_reply() - the viewer only previews it.
-        `human` is whether the poster is a person (the handler also counts a person with the agent role as an agent); None
-        means "not an agent actor". A reopening reply is recorded exactly like POST /reopen with the reply as its reason
+        The verified authority decides whether the poster is a person; a person with the agent role
+        counts as an agent. Request fields cannot override that identity. A reopening reply is recorded exactly like POST /reopen with the reply as its reason
         (ev=reopen, the same notices), so the pin returns to the open table of pins.md with that reason. Otherwise it is a
         plain reply, refused as ThreadFull when the thread already holds ctx.thread_max replies; every @-tag in it is a
         mention (whether or not tagged before), and the author plus everyone previously tagged on this pin who is not
         tagged here gets a replied notice. The poster themself gets neither.
         """
         ctx = self.context()
+        require_authority(actor, ctx.authority_scope, "reply", pid)
         evs: list[Event | None] = []
-        human = (not is_agent(actor)) if human is None else human
+        human = actor.principal.is_human()
 
         def fn(pins: list[Pin]) -> tuple[OpenPin | ReviewPin | DonePin | ThreadFull | PinNotFound, bool]:
             """The transact() step: decide the reply on pin pid and, unless the thread is full, write it and queue its notices."""
@@ -155,7 +160,7 @@ class PinLifecycle:
             if isinstance(found, PinNotFound):
                 return found, False
             i, pin = found
-            ment = resolve_mentions(text, ctx.known_people(pins), hints, exclude=(actor or {}).get("login"))
+            ment = resolve_mentions(text, ctx.known_people(pins), hints, exclude=actor.get("login"))
             # tagging an agent-role account is not asking a person
             persons = [lg for lg in ment if ctx.role_of(lg) != "agent"]
             event = decide_reply(
@@ -225,7 +230,7 @@ def _reopen(
     resolved against the people on pins). A reopening reply calls reopen_request itself in reply_pin. Returns the
     reopened pin; the caller puts it in pin's place."""
     ment = (
-        resolve_mentions(reason or "", ctx.known_people(pins), hints, exclude=(actor or {}).get("login"))
+        resolve_mentions(reason or "", ctx.known_people(pins), hints, exclude=actor.get("login"))
         if not isinstance(pin, OpenPin)
         else []
     )
