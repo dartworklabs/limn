@@ -16,6 +16,7 @@ import json
 import os
 import tempfile
 import time
+import tokenize
 import unittest
 from dataclasses import dataclass
 from pathlib import Path
@@ -398,6 +399,28 @@ class ToSource(Fixture):
         """An old absolute build path whose tail is a real manuscript file maps to it; otherwise the path is unchanged."""
         self.assertEqual(documents.to_source(self.ms, "/old/state/build/rr/rr.tex"), self.src / "rr" / "rr.tex")
         self.assertEqual(documents.to_source(self.ms, "/old/state/build/none.tex"), Path("/old/state/build/none.tex"))
+
+
+class RetiredKindFlag(unittest.TestCase):
+    """The boolean that split documents into LaTeX and view-only is gone: every branch reads a capability of Doc."""
+
+    FLAG = "is_pdf"
+
+    def test_no_python_identifier_in_the_package_or_the_tests_is_the_retired_flag(self):
+        """No attribute, parameter, field or test double in src/limn or tests is named after the flag, so no branch can
+        read it and no double can stand in for a document by it."""
+        hits = []
+        for root in (PKG, PKG.parent.parent / "tests"):
+            for path in sorted(root.rglob("*.py")):
+                with tokenize.open(path) as fh:
+                    names = [t for t in tokenize.generate_tokens(fh.readline) if t.type == tokenize.NAME]
+                hits += ["%s:%d" % (path, t.start[0]) for t in names if t.string == self.FLAG]
+        self.assertEqual(hits, [])
+
+    def test_documents_and_their_facts_have_no_attribute_of_that_name(self):
+        """Doc and DocumentFacts answer capabilities only."""
+        self.assertFalse(hasattr(Doc, self.FLAG))
+        self.assertFalse(hasattr(documents.DocumentFacts, self.FLAG))
 
 
 # ---------------------------------------------------------------- through server.py's wiring

@@ -200,11 +200,6 @@ class Doc:
         """Its pins are page regions only - the API's view_only. Exactly the absence of line pins."""
         return not self.takes_line_pins
 
-    @property
-    def is_pdf(self) -> bool:
-        """A view-only PDF document (no LaTeX source, no rebuild)."""
-        return self.kind == "pdf"
-
     def rel_path(self) -> str:
         """Path relative to --manuscript (for display / the pins.md header). Points at the main file."""
         try:
