@@ -75,8 +75,8 @@ class RevisionDoc(Protocol):
         ...
 
     @property
-    def is_pdf(self) -> bool:
-        """A view-only PDF document has no manuscript history."""
+    def shows_revisions(self) -> bool:
+        """Whether it has a manuscript history to show (limn.documents.Doc.shows_revisions); a view-only PDF has none."""
         ...
 
     @property
@@ -293,11 +293,12 @@ class RevisionSpec(NamedTuple):
 
 
 def revision_scope(D: RevisionDoc) -> tuple[Path, list[str]] | None:
-    """Returns a Git pathspec scoped to just the manuscript text inside the chosen main .tex's folder.
+    """Returns a Git pathspec scoped to just the manuscript text inside the chosen main .tex's folder, or None for a
+    document without revisions (not D.shows_revisions), a main file outside its build root, or a folder outside Git.
 
     D.src is the build-copy scope, so multiple documents can share the same root. The change history must
     be filtered to D.main.parent, or commits from the body, highlights, and cover letter get mixed together."""
-    if D.is_pdf:
+    if not D.shows_revisions:
         return None
     root = D.main.resolve().parent
     try:

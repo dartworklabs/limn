@@ -226,7 +226,7 @@ class CallSites(unittest.TestCase):
         head, the startup label's origin URL and the token file's repository check each start git cleanly - and,
         despite GIT_DIR pointing nowhere, read the right repository."""
         repo, (first, second) = self.repo, self.commits
-        doc = SimpleNamespace(is_pdf=False, main=repo / "main.tex", src=repo)
+        doc = SimpleNamespace(shows_revisions=True, main=repo / "main.tex", src=repo)
 
         done = self.assert_hygienic("run_git", lambda: gitrun.run_git(["rev-parse", "--show-toplevel"], repo, 10))
         self.assertEqual(done.stdout.strip(), str(repo))
