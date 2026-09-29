@@ -25,6 +25,8 @@ import subprocess
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 
+GIT_TIMEOUT = 30  # seconds - one git call (a history read, a diff, a --git-pull fetch)
+
 # GIT_* variables of the server's environment that reach git: the ssh transport the operator chose.
 KEPT_GIT_VARS = frozenset({"GIT_SSH_COMMAND", "GIT_SSH", "GIT_SSH_VARIANT"})
 
@@ -64,6 +66,19 @@ def run_git(
         start_new_session=True,
         check=False,
     )
+
+
+def git(args: Sequence[str], cwd: Path | str, timeout: float = GIT_TIMEOUT) -> tuple[int | None, str, str]:
+    """Run trusted Git arguments without a shell or prompt and return (returncode, stdout, stderr).
+
+    Preserve output for any exit status; normalize timeout and startup failure to (None, "", "").
+    Callers own argument construction and repository scope; invalid argument types still raise TypeError.
+    """
+    try:
+        r = run_git(args, cwd, timeout)
+        return r.returncode, r.stdout, r.stderr
+    except (subprocess.TimeoutExpired, OSError):
+        return None, "", ""
 
 
 def open_git(args: Sequence[str], cwd: Path | str) -> subprocess.Popen[bytes]:

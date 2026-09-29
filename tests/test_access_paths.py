@@ -13,7 +13,7 @@ import os
 
 from limn import access, startup
 from limn.access import LOCAL_ACTOR
-from limn.pins.lifecycle import CloseRequest
+from limn.features.pins.lifecycle.rules import CloseRequest
 
 from helpers import ps, set_config
 from helpers_access import ALICE, BOB, CLEAR_BODY, TS_HOST, AccessBase, member_add, token_create

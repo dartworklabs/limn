@@ -1,11 +1,11 @@
 """limn.features.sync.run - the --git-pull and remote-main watch shell: the pull against real temporary repositories, the shared
 pull of several documents, and the watch's rounds and status, driven with no server.
 
-The pure rules it applies are tests/test_pull.py. The server's wiring (a build's `pull`, GET /api/meta's sync, the
+The pure rules it applies are src/limn/features/sync/test_pull.py. The server's wiring (a build's `pull`, GET /api/meta's sync, the
 builds a round starts) is pinned through server.py at the end of this file (GitPullBuildIntegration,
 AutomaticMainSync).
 
-Run: uv run pytest -q tests/test_gitsync.py
+Run: uv run pytest -q src/limn/features/sync/test_gitsync.py
 """
 
 import ast
@@ -22,12 +22,11 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from limn import build as limn_build
+from limn import build as limn_build, gitrun
 from limn.access import LOCAL_ACTOR
-from limn.build import BuildOk, BuildStarted
+from limn.build import BuildOk
 from limn.documents import Doc
 from limn.features.builds import engine as build_engine
-from limn.features.revisions import core as revisions
 from limn.features.sync import run as gitsync
 from limn.features.sync.rules import Pulled, PullFailed, PullSkipped, UpToDate
 from limn.features.sync.run import PullShare, SyncWatch, pull, repo_pull
@@ -57,10 +56,10 @@ class ModuleBoundary(unittest.TestCase):
         self.assertFalse(names & {"C", "DOCS", "cur_doc", "build_async", "multi_doc", "now_str", "_git"})
 
     def test_git_runs_without_a_shell(self):
-        """The runner the server passes (limn.features.revisions.core.git) goes through limn.gitrun.run_git, which takes a list and
+        """The runner the server passes (limn.gitrun.git) goes through limn.gitrun.run_git, which takes a list and
         never a shell - the security contract of every pull step, whose arguments hold no request input
         (tests/test_gitrun.py pins run_git itself)."""
-        src = inspect.getsource(revisions.git)
+        src = inspect.getsource(gitrun.git)
         # The calls are read from the AST, not the source text, so the check does not depend on the call's layout.
         calls = {ast.unparse(n.func) for n in ast.walk(ast.parse(src)) if isinstance(n, ast.Call)}
         self.assertIn("run_git", calls)
@@ -129,34 +128,34 @@ class RealRepository(unittest.TestCase):
         """A plain folder is skipped with no heads; its record is the contract's not_git object."""
         plain = self.root / "plain"
         plain.mkdir()
-        self.assertEqual(pull(plain, False, revisions.git), PullSkipped("not_git", None))
+        self.assertEqual(pull(plain, False, gitrun.git), PullSkipped("not_git", None))
 
     def test_pulled_when_upstream_advanced(self):
         """A new upstream commit is fast-forwarded: Pulled from the old HEAD to the pushed commit."""
         d = self._clone("c1")
         before = self._head(d)
         after = self._push_change("c2")
-        self.assertEqual(pull(d, False, revisions.git), Pulled(before, after))
+        self.assertEqual(pull(d, False, gitrun.git), Pulled(before, after))
         self.assertEqual(self._head(d), after)
 
     def test_up_to_date_when_no_new_commits(self):
         """Nothing new upstream: UpToDate at HEAD."""
         d = self._clone("c3")
-        self.assertEqual(pull(d, False, revisions.git), UpToDate(self._head(d)))
+        self.assertEqual(pull(d, False, gitrun.git), UpToDate(self._head(d)))
 
     def test_main_only_skips_a_feature_branch(self):
         """The watch (main_only) never fast-forwards another branch, even one with an upstream."""
         d = self._clone("feature")
         self._run(["git", "checkout", "--quiet", "-b", "feature"], d)
         self._run(["git", "push", "--quiet", "-u", "origin", "feature"], d)
-        self.assertEqual(pull(d, True, revisions.git), PullSkipped("not_main", self._head(d)))
+        self.assertEqual(pull(d, True, gitrun.git), PullSkipped("not_main", self._head(d)))
 
     def test_main_only_pulls_main(self):
         """On main tracking origin/main the watch fast-forwards like a build's pull."""
         d = self._clone("c9")
         before = self._head(d)
         after = self._push_change("c10")
-        self.assertEqual(pull(d, True, revisions.git), Pulled(before, after))
+        self.assertEqual(pull(d, True, gitrun.git), Pulled(before, after))
 
     def test_dirty_tree_is_skipped_and_left_alone(self):
         """A modified tracked file stops the pull before the merge; the file keeps its local text."""
@@ -164,7 +163,7 @@ class RealRepository(unittest.TestCase):
         self._push_change("c4b")
         (d / "f.txt").write_text("locally modified\n", encoding="utf-8")
         before = self._head(d)
-        self.assertEqual(pull(d, False, revisions.git), PullSkipped("dirty", before))
+        self.assertEqual(pull(d, False, gitrun.git), PullSkipped("dirty", before))
         self.assertEqual((d / "f.txt").read_text(encoding="utf-8"), "locally modified\n")
 
     def test_diverged_history_is_skipped(self):
@@ -175,27 +174,27 @@ class RealRepository(unittest.TestCase):
         self._run(["git", "commit", "--quiet", "-m", "local-only"], d)
         self._push_change("c6", "g.txt")
         before = self._head(d)
-        self.assertEqual(pull(d, False, revisions.git), PullSkipped("diverged", before))
+        self.assertEqual(pull(d, False, gitrun.git), PullSkipped("diverged", before))
         self.assertEqual(self._head(d), before)
 
     def test_no_upstream_is_skipped(self):
         """A branch without @{u} is skipped."""
         d = self._clone("c7")
         self._run(["git", "checkout", "--quiet", "-b", "untracked"], d)
-        self.assertEqual(pull(d, False, revisions.git), PullSkipped("no_upstream", self._head(d)))
+        self.assertEqual(pull(d, False, gitrun.git), PullSkipped("no_upstream", self._head(d)))
 
     def test_repo_root_found_from_a_subfolder(self):
         """--manuscript may be a folder inside the repository."""
         d = self._clone("c8")
         sub = d / "manuscript" / "1st"
         sub.mkdir(parents=True)
-        self.assertEqual(pull(sub, False, revisions.git), UpToDate(self._head(d)))
+        self.assertEqual(pull(sub, False, gitrun.git), UpToDate(self._head(d)))
 
     def test_fetch_failure_when_the_remote_is_gone(self):
         """An unreachable remote is error:fetch_failed, and nothing else is tried."""
         d = self._clone("c11")
         shutil.rmtree(self.bare)
-        self.assertEqual(pull(d, False, revisions.git), PullFailed("fetch_failed", self._head(d)))
+        self.assertEqual(pull(d, False, gitrun.git), PullFailed("fetch_failed", self._head(d)))
 
 
 class ScriptedGit:
@@ -422,7 +421,7 @@ class Watch(unittest.TestCase):
 
 # ---------------------------------------------------------------- --git-pull (docs/handbook/build-sync.md §재빌드 전 원격 main 당겨오기 (`--git-pull`))
 
-# The pull against real repositories (every outcome, main-only, a subfolder, no shell) is tests/test_gitsync.py.
+# The pull against real repositories (every outcome, main-only, a subfolder, no shell) is src/limn/features/sync/test_gitsync.py.
 
 
 class GitPullBuildIntegration(Base):
@@ -507,52 +506,126 @@ class GitPullBuildIntegration(Base):
 
 
 class AutomaticMainSync(Base):
-    """The remote-main watch as the server wires it: the sync service's once() and status(), with the
-    pull stubbed by its outcome value."""
+    """The server watch pulls a real local upstream and persists actual scheduled builds."""
+
+    def setUp(self):
+        """Track local main from the manuscript, with a second clone for upstream changes."""
+        super().setUp()
+        self.origin = Path(self.tmp.name) / "origin.git"
+        self.upstream = Path(self.tmp.name) / "upstream"
+        self._git(self.src, "init", "--quiet", "-b", "main")
+        self._git(self.src, "config", "user.email", "alice@example.com")
+        self._git(self.src, "config", "user.name", "Alice")
+        self._git(self.src, "add", "main.tex")
+        self._git(self.src, "commit", "--quiet", "-m", "Initial manuscript")
+        self._git(self.src, "clone", "--quiet", "--bare", str(self.src), str(self.origin))
+        self._git(self.src, "remote", "add", "origin", str(self.origin))
+        self._git(self.src, "push", "--quiet", "-u", "origin", "main")
+        self._git(self.src, "clone", "--quiet", str(self.origin), str(self.upstream))
+        self._git(self.upstream, "config", "user.email", "alice@example.com")
+        self._git(self.upstream, "config", "user.name", "Alice")
+        set_config(git_pull=True)
+
+    def _git(self, cwd, *args):
+        """Run fixture Git commands without involving a network or external manuscript."""
+        result = gitrun.run_git(args, cwd, 10)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        return result.stdout.strip()
+
+    def _advance_upstream(self):
+        """Publish a new manuscript commit while leaving the server checkout behind."""
+        (self.upstream / "main.tex").write_text(self.main.read_text() + "\n% Upstream change\n", encoding="utf-8")
+        self._git(self.upstream, "add", "main.tex")
+        self._git(self.upstream, "commit", "--quiet", "-m", "Update manuscript")
+        self._git(self.upstream, "push", "--quiet")
+        return self._git(self.upstream, "rev-parse", "HEAD")
+
+    @contextlib.contextmanager
+    def _held_compiler(self):
+        """Keep real workers running at the external compiler boundary, then await lock cleanup."""
+        release = threading.Event()
+
+        def compile_failure(cmd, cwd, timeout):
+            """Return a deterministic compiler failure once running state has been observed."""
+            if not release.wait(10):
+                raise TimeoutError("test did not release compiler")
+            return 1, "controlled compiler failure", False
+
+        with mock.patch.object(build_engine, "run_logged", side_effect=compile_failure):
+            try:
+                yield
+            finally:
+                release.set()
+                for doc in ps.APP.docs:
+                    acquired = doc.lock.acquire(timeout=10)
+                    if acquired:
+                        doc.lock.release()
+                    self.assertTrue(acquired, "build worker did not release its document")
 
     def test_new_head_schedules_each_tex_document_once(self):
-        """A fast-forward starts one build per LaTeX document (never the view-only PDF), pulling main only."""
+        """A real fast-forward schedules one persisted build per LaTeX document and none for the PDF."""
         docs = [
-            Doc("ms", "본문", src=self.src, main=self.main, paths=ps.APP.C.paths),
-            Doc("hl", "하이라이트", src=self.src, main=self.main, paths=ps.APP.C.paths),
-            Doc("pdf", "참고", kind="pdf", src=self.src, main=self.src / "ref.pdf", paths=ps.APP.C.paths),
+            Doc("ms", "Body", src=self.src, main=self.main, paths=ps.APP.C.paths),
+            Doc("hl", "Highlights", src=self.src, main=self.main, paths=ps.APP.C.paths),
+            Doc("pdf", "Reference", kind="pdf", src=self.src, main=self.src / "ref.pdf", paths=ps.APP.C.paths),
         ]
         ps.APP.set_docs(docs)
-        set_config(git_pull=True)
-        with (
-            mock.patch.object(gitsync, "pull", return_value=Pulled("a" * 40, "b" * 40)) as git_pull,
-            mock.patch.object(ps.APP.build_requests, "build_async", return_value=BuildStarted()) as build,
-        ):
+        head = self._advance_upstream()
+        with self._held_compiler():
             out = ps.APP.sync_service.once()
-        git_pull.assert_called_once_with(self.src, main_only=True, git=revisions.git)
-        self.assertEqual(build.call_count, 2)
-        self.assertEqual(out["state"], "updating")
+            self.assertEqual(out["state"], "updating")
+            self.assertEqual(self._git(self.src, "rev-parse", "HEAD"), head)
+            self.assertEqual(self.main.read_text(), (self.upstream / "main.tex").read_text())
+            self.assertEqual([limn_build.state_snapshot(d)["state"] for d in docs], ["running", "running", "idle"])
+        self.assertEqual([limn_build.load_builds(d)["seq"] for d in docs], [1, 1, 0])
+        for doc in docs[:2]:
+            self.assertEqual(limn_build.load_builds(doc)["last"]["state"], "fail")
+            self.assertEqual((doc.dir / "build.log").read_text(), "controlled compiler failure")
+        self.assertFalse((docs[2].dir / "builds.json").exists())
 
     def test_current_head_still_rebuilds_old_pdf_on_startup(self):
-        """Nothing new upstream, but the PDF was built from another commit: it is rebuilt (a restart after a move)."""
-        set_config(git_pull=True)
-        (ps.APP.C.state / "head.txt").write_text("aaaaaaa", encoding="utf-8")
-        with (
-            mock.patch.object(gitsync, "pull", return_value=UpToDate("b" * 40)),
-            mock.patch.object(ps.APP.build_requests, "build_async", return_value=BuildStarted()) as build,
-        ):
+        """A current checkout with an older built HEAD produces a new persisted build on startup."""
+        doc = ps.APP.docs[0]
+        (doc.dir / "head.txt").write_text("aaaaaaa", encoding="utf-8")
+        head = self._git(self.src, "rev-parse", "HEAD")
+        with self._held_compiler():
             out = ps.APP.sync_service.once()
-        build.assert_called_once()
-        self.assertEqual(out["state"], "updating")
+            self.assertEqual(out["state"], "updating")
+            self.assertEqual(limn_build.state_snapshot(doc)["state"], "running")
+            self.assertEqual(self._git(self.src, "rev-parse", "HEAD"), head)
+        self.assertEqual(limn_build.load_builds(doc)["seq"], 1)
+        self.assertEqual(limn_build.load_builds(doc)["last"]["state"], "fail")
 
     def test_dirty_checkout_is_visible_and_never_rebuilt(self):
-        """A refused pull is shown as blocked with its reason in GET /api/meta's sync, and builds nothing."""
-        set_config(git_pull=True)
-        with (
-            mock.patch.object(gitsync, "pull", return_value=PullSkipped("dirty", "a" * 40)),
-            mock.patch.object(ps.APP.build_requests, "build_async") as build,
-        ):
+        """A dirty checkout stays untouched, reports its refusal in meta, and creates no build history."""
+        head = self._git(self.src, "rev-parse", "HEAD")
+        self._advance_upstream()
+        content = self.main.read_text() + "\n% Uncommitted local change\n"
+        self.main.write_text(content, encoding="utf-8")
+        with self._held_compiler():
             out = ps.APP.sync_service.once()
-        build.assert_not_called()
-        self.assertEqual(out["state"], "blocked")
+            self.assertEqual(out["state"], "blocked")
+            self.assertEqual(limn_build.state_snapshot(ps.APP.docs[0])["state"], "idle")
+        self.assertEqual(self._git(self.src, "rev-parse", "HEAD"), head)
+        self.assertEqual(self.main.read_text(), content)
+        self.assertEqual(limn_build.load_builds(ps.APP.docs[0])["seq"], 0)
+        self.assertFalse((ps.APP.docs[0].dir / "builds.json").exists())
         self.assertEqual(
             ps.APP.document_views.meta(ps.APP.docs[0], dict(LOCAL_ACTOR), light=True)["sync"]["reason"], "dirty"
         )
+
+    def test_topic_branch_is_not_pulled_or_rebuilt(self):
+        """The watch's main-only policy leaves a clean topic branch and its build history untouched."""
+        self._git(self.src, "checkout", "--quiet", "-b", "topic")
+        self._git(self.src, "branch", "--set-upstream-to=origin/main", "topic")
+        head = self._git(self.src, "rev-parse", "HEAD")
+        self._advance_upstream()
+        with self._held_compiler():
+            out = ps.APP.sync_service.once()
+            self.assertEqual((out["state"], out["reason"]), ("blocked", "not_main"))
+            self.assertEqual(limn_build.state_snapshot(ps.APP.docs[0])["state"], "idle")
+        self.assertEqual(self._git(self.src, "rev-parse", "HEAD"), head)
+        self.assertEqual(limn_build.load_builds(ps.APP.docs[0])["seq"], 0)
 
     def test_updating_clears_when_pdf_reaches_synced_head(self):
         """An "updating" status turns "current" once the PDF was built from the pulled commit."""

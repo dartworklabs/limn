@@ -14,8 +14,8 @@ of its stored kind.
 
 Every optional field may be missing (a legacy record), and a field this version does not know passes untouched (an
 older server must not drop what a newer one wrote, docs/adr/0005-pin-scoped-changes.md, 0006). The check changes
-when a stored field is added or its shape changes - together with the records limn.pins.edit and
-limn.pins.lifecycle write.
+when a stored field is added or its shape changes - together with the records limn.features.pins.editing.rules and
+limn.features.pins.lifecycle.rules write.
 
 Pure. Two shapes it checks are owned by modules that are not: a document key (limn.documents.DOC_KEY_RE) and a
 recorded actor (limn.people.is_actor). The composition root passes both in (server.parse_record).

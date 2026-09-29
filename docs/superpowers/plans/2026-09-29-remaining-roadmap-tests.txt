@@ -1,0 +1,12 @@
+# New behavior/purity tests in the remaining-roadmap cleanup. No removals or renames.
++ test_completion_dependency_closure_has_no_io_imports[limn.build_values]
++ test_completion_dependency_closure_has_no_io_imports[limn.features.builds.completion]
++ test_completion_payloads_for_every_outcome[aborted]
++ test_completion_payloads_for_every_outcome[build_failed]
++ test_completion_payloads_for_every_outcome[copy_failed]
++ test_completion_payloads_for_every_outcome[ok]
++ test_completion_payloads_for_every_outcome[ok_errors_without_directory]
++ test_history_is_bounded_suffix_and_errors_are_stable_prefix
++ test_successful_history_uses_explicit_baseline_and_directory
++ AutomaticMainSync::test_topic_branch_is_not_pulled_or_rebuilt
++ GitOutcome

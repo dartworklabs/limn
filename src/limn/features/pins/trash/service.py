@@ -16,7 +16,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from limn.access import LOCAL_ACTOR
-from limn.pins.lifecycle import AlreadyLive, NotInTrash, drop, find_trashed, restore
+from limn.features.pins.trash.rules import AlreadyLive, NotInTrash, drop, find_trashed, restore
 from limn.pins.model import DonePin, OpenPin, Pin, PinNotFound, ReviewPin, TrashedPin, parse_pin
 from limn.pins.trash import unexpired, without_live_shadows
 from limn.service.context import Event, Json, PinContext, load_pin, typed_actor
@@ -92,7 +92,7 @@ def _restore(
 ) -> tuple[OpenPin | ReviewPin | DonePin | NotInTrash | AlreadyLive, bool]:
     """The transact() step of restore_pin: puts the newest unexpired Trash copy of pin pid back into pins (kept in id
     order) with its file and file_rel recorded where the file is now (ADR-0006). Its lines are not re-matched here:
-    the next transaction's sync does that, as for every pin. The rule is limn.pins.lifecycle.restore(); NotInTrash
+    the next transaction's sync does that, as for every pin. The rule is limn.features.pins.trash.rules.restore(); NotInTrash
     (404) and AlreadyLive (409) leave pins unchanged."""
     old, _ = ctx.store.read_dropped()
     trashed = find_trashed(_live_trash(ctx, old), pid)

@@ -145,7 +145,7 @@
 
 **지금 절 표시.** 목차 항목은 쪽 번호와 함께 그 쪽 안의 세로 위치(`frac`, PDF XYZ 목적지의 위쪽 좌표를 쪽 높이로 나눈 값, 없으면 0)를 가진다(`destFrac`). 절 표시줄 `#section-current`와 목차 강조는 화면 위에서 조금 내려온 읽는 선(보이는 높이의 1/4, 최대 160px)보다 위에서 시작한 마지막 제목을 고른다(`outlineIndexAt`). 첫 제목보다 위(제목 쪽, 1쪽 맨 위)에서는 첫 절을 보인다. 쪽 번호만 보면 1·1.1·1.2가 모두 1쪽에서 시작할 때 1쪽 맨 위에서 `1.2`를 보이기 때문이다. 목차에서 고른 항목은 그 쪽을 벗어날 때까지 그대로 강조한다.
 
-**번호와 인쇄 쪽 번호.** PDF outline에는 절 번호(`1.1`)와 인쇄 쪽 번호(`iv`)가 없다. 그래서 뷰어는 `GET /api/outline-labels`로 같은 빌드가 PDF와 함께 남긴 `.aux`의 목차 줄을 받아, 제목·계층·순서가 맞는 항목에만 붙인다(`mergeOutlineLabels`). 서버 쪽은 `.aux`를 읽는 일(`features/document_views/reads.py`의 `outline_labels`)과 목차 줄을 해석하는 순수 파서(`limn/outline.py`)로 나뉜다. 응답 형식은 [api.md](api.md)에 있다.
+**번호와 인쇄 쪽 번호.** PDF outline에는 절 번호(`1.1`)와 인쇄 쪽 번호(`iv`)가 없다. 그래서 뷰어는 `GET /api/outline-labels`로 같은 빌드가 PDF와 함께 남긴 `.aux`의 목차 줄을 받아, 제목·계층·순서가 맞는 항목에만 붙인다(`mergeOutlineLabels`). 서버 쪽은 `.aux`를 읽는 일(`features/document_views/reads.py`의 `outline_labels`)과 목차 줄을 해석하는 순수 파서(`features/document_views/outline.py`)로 나뉜다. 응답 형식은 [api.md](api.md)에 있다.
 
 **중간 폭의 패널 기억.** 중간 폭에서 사용자가 [핀]·손잡이·Esc·밀어 닫기·Ctrl+\로 직접 여닫으면 `pinPrefs.midClosed`에 기억하고, 폭이 바뀌어도 유지한다. 저장한 선택이 없으면 900px 경계를 넘을 때 위 표의 기본값을 적용한다. 작성·편집 중인 메모가 있으면 패널을 열어 둔다.
 

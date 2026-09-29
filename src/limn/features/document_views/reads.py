@@ -18,7 +18,7 @@ from typing import Any
 
 from limn import build
 from limn.documents import Doc
-from limn.outline import toc_labels
+from limn.features.document_views.outline import toc_labels
 from limn.pins.model import OpenPin, state_of
 
 AUX_MAX_BYTES = 4 * 1024 * 1024  # a larger .aux is not read for outline labels
@@ -160,7 +160,7 @@ def pin_counts(states: Sequence[str]) -> dict[str, int]:
 
 def outline_labels(D: Doc) -> dict[str, Any]:
     """GET /api/outline-labels for document D: {build, labels} - the name of the page directory on screen and the
-    outline rows (limn.outline.toc_labels) of the .aux that same build published next to its PDF. Never the .aux in
+    outline rows (limn.features.document_views.outline.toc_labels) of the .aux that same build published next to its PDF. Never the .aux in
     the mutable build copy, which a later failed build may have overwritten. No labels for a view-only document, a
     build without an .aux, an .aux that is a symlink or larger than AUX_MAX_BYTES, or one that cannot be read."""
     pages = build.cur_pages(D)

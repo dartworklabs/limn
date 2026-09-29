@@ -8,7 +8,7 @@ with the document, the document list and the settings as arguments: the modules 
 or import it, and each rule holds on its own - which .aux the outline reads, what the light meta body carries, how
 open pins are counted per document, which document a request or a pin belongs to.
 
-Run: uv run pytest -q tests/test_meta.py
+Run: uv run pytest -q src/limn/features/document_views/test_meta.py
 """
 
 import ast
@@ -128,7 +128,7 @@ class NoServerState(unittest.TestCase):
 
     def test_reads_no_server_global_and_never_imports_the_server(self):
         """No name the server keeps as hidden state appears, no `C.` is read, and nothing imports server.py."""
-        for path in (Path(meta.__file__), PKG / "documents.py", PKG / "outline.py"):
+        for path in (Path(meta.__file__), PKG / "documents.py", PKG / "features" / "document_views" / "outline.py"):
             with self.subTest(module=path.name):
                 source = path.read_text(encoding="utf-8")
                 tree = ast.parse(source)

@@ -8,7 +8,7 @@ behind (SyncWatch). What git's answers mean and what the watch does next are lim
 git and keeps the process's state.
 
 Nothing here reads server.py's settings or document list: the sync service passes the manuscript folder, the
-documents, whether --git-pull is on, the git runner (limn.features.revisions.core.git over limn.gitrun: no shell, no prompt, a
+documents, whether --git-pull is on, the git runner (limn.gitrun.git: no shell, no prompt, a
 timeout per call), the clock and the build starter on every call, and owns the one PullShare and SyncWatch of the process.
 """
 
@@ -49,7 +49,7 @@ PULL_SHARE_S = 20  # seconds - if another document already pulled within this wi
 SYNC_EVERY_S = 60  # interval for checking remote main. Checked even when no browser is open.
 DEFERRED_RETRY_S = 3.0  # a round deferred by a running build retries this soon (or at `every`, if sooner)
 
-Git: TypeAlias = Callable[[Sequence[str], Path | str], tuple[int | None, str, str]]  # limn.features.revisions.core.git
+Git: TypeAlias = Callable[[Sequence[str], Path | str], tuple[int | None, str, str]]  # limn.gitrun.git
 Clock: TypeAlias = Callable[[], float]
 Stamp: TypeAlias = Callable[[], str]
 

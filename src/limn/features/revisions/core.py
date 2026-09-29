@@ -20,7 +20,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, NamedTuple, Protocol, TypeAlias
 
 from limn import scope
-from limn.gitrun import git_command, git_env, open_git, run_git
+from limn.gitrun import GIT_TIMEOUT, git, git_command, git_env, open_git
 from limn.pins.model import is_region_pin
 from limn.scope import (
     FileChange,
@@ -48,7 +48,6 @@ if TYPE_CHECKING:
 Record: TypeAlias = Mapping[str, Any]
 Json: TypeAlias = dict[str, Any]
 
-GIT_TIMEOUT = 30  # seconds - one git call (a history read, a diff, a --git-pull fetch)
 REVISION_ID_RE = re.compile(r"[0-9a-f]{40}")
 SCOPE_FILES_MAX = 60  # a commit touching more manuscript files than this stays a whole-commit view
 SCOPE_BYTES_MAX = 16 * 1024 * 1024  # both sides of every changed file together
@@ -291,16 +290,6 @@ class RevisionSpec(NamedTuple):
 
 
 # ---------------------------------------------------------------- history and the source diff
-
-
-def git(args: Sequence[str], cwd: Path | str, timeout: float = GIT_TIMEOUT) -> tuple[int | None, str, str]:
-    """Run git (limn.gitrun.run_git: no shell, no prompt). Never puts user input into the args. Returns (returncode,
-    stdout, stderr). Timeout and exec failure are both distinguished by returncode=None."""
-    try:
-        r = run_git(args, cwd, timeout)
-        return r.returncode, r.stdout, r.stderr
-    except (subprocess.TimeoutExpired, OSError):
-        return None, "", ""
 
 
 def revision_scope(D: RevisionDoc) -> tuple[Path, list[str]] | None:

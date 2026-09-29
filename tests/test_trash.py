@@ -19,9 +19,9 @@ from unittest import mock
 
 from limn import store as limn_store
 from limn.events import NOTIFY_TYPES
+from limn.features.pins.trash.rules import AlreadyLive, NotInTrash
 from limn.files import atomic_write
 from limn.pins import position
-from limn.pins.lifecycle import AlreadyLive, NotInTrash
 from limn.pins.model import PinNotFound
 from limn.store import dump_jsonl
 

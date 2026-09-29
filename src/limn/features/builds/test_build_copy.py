@@ -3,7 +3,7 @@
 Compiling an incomplete or stale copy would publish a PDF that no longer matches the manuscript while
 reporting success, so a copy failure has to end the build before latexmk runs.
 
-Run: uv run pytest -q tests/test_build_copy.py
+Run: uv run pytest -q src/limn/features/builds/test_build_copy.py
 """
 
 import os

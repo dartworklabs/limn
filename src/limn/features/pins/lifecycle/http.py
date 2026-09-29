@@ -6,8 +6,15 @@ from typing import Any, Protocol, TypeAlias
 
 from limn.config import RunConfig
 from limn.features.pins.lifecycle import input as lifecycle_input
+from limn.features.pins.lifecycle.rules import (
+    AgentCannotConfirm,
+    AlreadyClosed,
+    AlreadyDone,
+    PinStillOpen,
+    ThreadFull,
+    last_entry,
+)
 from limn.features.pins.lifecycle.service import PinLifecycle
-from limn.pins.lifecycle import AgentCannotConfirm, AlreadyClosed, AlreadyDone, PinStillOpen, ThreadFull, last_entry
 from limn.pins.model import DonePin, OpenPin, PinNotFound, Record, ReviewPin
 from limn.web.answers import CONFIRM_BY_HUMAN, accepted
 from limn.web.errors import HTTPError

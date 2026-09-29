@@ -4,8 +4,8 @@ from collections.abc import Callable
 from typing import Any, Protocol, TypeAlias
 
 from limn.features.pins.claims import input as claim_input
+from limn.features.pins.claims.rules import ClaimClosedPin, ClaimedByOther, NotClaimed
 from limn.features.pins.claims.service import PinClaims
-from limn.pins.lifecycle import ClaimClosedPin, ClaimedByOther, NotClaimed
 from limn.pins.model import DonePin, OpenPin, PinNotFound, Record, ReviewPin
 from limn.web.answers import accepted
 from limn.web.errors import HTTPError

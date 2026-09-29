@@ -5,7 +5,7 @@ The module's boundaries, the refusal values and the attribution rules of pin sco
 them (revision_context), and the routes are driven through the handler; the classes at the end are the pin-scoped
 source diff and comparison PDF of v0.3 (issue #9, docs/adr/0005-pin-scoped-changes.md).
 
-Run: uv run pytest tests/test_revisions.py
+Run: uv run pytest src/limn/features/revisions/test_revisions.py
 """
 
 import errno
@@ -26,6 +26,7 @@ from limn.documents import Doc
 from limn.features.builds import engine as build_engine
 from limn.features.document_views import reads as limn_meta
 from limn.features.pins.lifecycle import input as lifecycle_input
+from limn.features.pins.lifecycle.rules import CloseRequest
 from limn.features.revisions import (
     core as revisions,
     execution as revision_execution,
@@ -34,7 +35,6 @@ from limn.features.revisions import (
 )
 from limn.features.revisions.core import revision_history
 from limn.mapping import anchor_of
-from limn.pins.lifecycle import CloseRequest
 from limn.store import find_pin
 from limn.web.errors import InputRejected, scope_http_error
 

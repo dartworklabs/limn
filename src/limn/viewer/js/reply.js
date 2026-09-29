@@ -5,7 +5,7 @@
 // reply reopens it (reopens_on_reply), and the line under the box (.r-outcome) previews that decision with the same rule
 // (replyReopens) - [상태 유지] (REPLY.keep) overrides it with reopen:false. Sending is deferred behind an undo toast.
 function isHuman(){const me=typeof META!=='undefined'&&META&&META.me; return !!(me&&me.login&&me.login!==LOCAL_LOGIN&&!String(me.login).startsWith('agent:')&&me.role!==ROLE.AGENT);}
-// Mirrors limn.pins.lifecycle.reopens_on_reply(): an open pin never changes; an explicit override (true/false) wins; otherwise a person's reply
+// Mirrors limn.features.pins.lifecycle.rules.reopens_on_reply(): an open pin never changes; an explicit override (true/false) wins; otherwise a person's reply
 // on a closed pin reopens it unless it tags a person or the pin is a question. mentioned = the post's resolved @-tags without me.
 function replyReopens(p,human,mentioned,override){if(pinState(p)===PIN_STATE.OPEN)return false;
   if(override!==undefined&&override!==null)return !!override;
