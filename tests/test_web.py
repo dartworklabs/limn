@@ -40,6 +40,7 @@ from limn.features.pins.trash.rules import NotInTrash
 from limn.features.revisions import answer as revision_answer
 from limn.features.revisions.core import DocumentBusy
 from limn.features.viewer_shell import routes as viewer_shell_routes
+from limn.mark import ICON_ROUTES
 from limn.pins.model import DonePin, OpenPin, PinNotFound, ReviewPin, TrashedPin
 from limn.viewer.assemble import ServedViewer
 from limn.web import answers
@@ -270,7 +271,11 @@ GET_ROUTES = (
     "/",
     "/api/people",
     "/favicon.ico",
+    "/favicon-dark.ico",
+    "/favicon-16.png",
     "/favicon-32.png",
+    "/favicon-dark-16.png",
+    "/favicon-dark-32.png",
     "/apple-touch-icon.png",
     "/api/version",
     "/api/meta",
@@ -347,6 +352,7 @@ class GuardOrder(AccessBase):
             literals |= set(re.findall(r'path\.startswith\("([^"]+)"\)', source))
             for group in re.findall(r"path in \(([^)]*)\)", source):
                 literals |= set(re.findall(r'"([^"]+)"', group))
+        literals |= set(ICON_ROUTES)  # viewer_shell answers the icon table's paths (limn.mark.ICON_ROUTES)
         self.assertGreater(len(literals), 20)
         routes = GET_ROUTES + POST_ROUTES
         for literal in sorted(literals):

@@ -101,7 +101,7 @@ from limn.features.viewer_shell import routes as viewer_shell_routes
 from limn.files import vendor_file as find_vendor_file
 from limn.gitrun import git as _git
 from limn.locate import PinLocation, est_context, locate_file
-from limn.mark import inline_svg
+from limn.mark import FILES as BRAND_FILES, Brand, brand
 from limn.people import is_actor as _is_actor
 from limn.pins import record, view
 from limn.pins.model import (
@@ -220,16 +220,29 @@ def default_pdfjs_dir() -> Path:
     return Path(__file__).resolve().parent / "vendor" / "pdfjs"
 
 
-# The viewer package is read at startup. Importing this module does not read it from disk.
+# The viewer package and the brand files are read at startup. Importing this module does not read them from disk.
+
+BRAND_DIR = Path(__file__).resolve().parent / "brand"  # the vendored logo files (src/limn/brand/README.md)
+
+
+def read_brand(directory: Path = BRAND_DIR) -> Brand:
+    """The Limn logo as the viewer serves it (limn.mark.brand), from the files limn.mark.FILES names in directory.
+    Reads those files and nothing else. Raises OSError for a missing file and ValueError for a malformed SVG (a
+    packaging defect: start() fails rather than serve a page without its logo)."""
+    return brand({name: (directory / name).read_bytes() for name in sorted(BRAND_FILES)})
 
 
 def read_viewer() -> ViewerFiles:
-    """The viewer package from disk: the page template (index.html, its parts, the icons, the mark, the PDF.js version
-    and ui_en.json's message table filled in), the service worker and the message table. Raises OSError / ValueError
-    for a missing or malformed file (a packaging defect)."""
+    """The viewer package from disk: the page template (index.html, its parts, the icons, the logo's inline SVGs and
+    icon key, the PDF.js version and ui_en.json's message table filled in), the service worker, the message table and
+    the favicon routes' icons (read_brand). Raises OSError / ValueError for a missing or malformed file (a packaging
+    defect)."""
     messages = load_ui_messages(Path(__file__).with_name("ui_en.json"))
-    template = viewer_html(VIEWER_DIR, messages, pdfjs_version=PDFJS_VERSION, mark=inline_svg(), icons=LUCIDE)
-    return ViewerFiles(template, service_worker(VIEWER_DIR), messages)
+    logo = read_brand()
+    template = viewer_html(
+        VIEWER_DIR, messages, pdfjs_version=PDFJS_VERSION, marks=logo.marks, icon_key=logo.key, icons=LUCIDE
+    )
+    return ViewerFiles(template, service_worker(VIEWER_DIR), messages, logo.icons)
 
 
 # ---------------------------------------------------------------- HTTP handler wiring (the handler is limn/web/handler.py)

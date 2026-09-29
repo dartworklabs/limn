@@ -185,13 +185,15 @@ class MessageTable(unittest.TestCase):
         self.assertEqual(missing, [])
 
     def test_chrome_strings_are_covered(self):
+        """The main chrome's Korean strings each have an English entry - the help title's text after the wordmark
+        ("— 사용법") among them, so the English help header never shows Hangul."""
         for s in (
             "PDF 재빌드",
             "도움말",
             "더보기",
             "선택",
             "닫힌 핀",
-            "Limn — 사용법",
+            "— 사용법",
             "화면 언어를 바꿉니다 (한국어 / English)",
         ):
             self.assertIn(s, UI_EN)
@@ -695,11 +697,14 @@ class EnglishChrome(ChromiumTestCase):
                 self.assertEqual(desc, server_text)
 
     def test_the_limn_mark_survives_boot_and_pin_marks(self):
-        """After boot has drawn the pins' boxes on the PDF (.mark, removed and redrawn by marks()), the three Limn marks
-        (top bar, [더보기] label, help header) are still in the page - a first cut shared the .mark class and lost them."""
+        """After boot has drawn the pins' boxes on the PDF (.mark, removed and redrawn by marks()), the Limn logo is
+        still in all three places (the icon in the top bar and the [더보기] label, the wordmark in the help header) - a
+        first cut shared the .mark class and lost them. The English help title keeps the wordmark before its text."""
         page = self.open("en", viewport={"width": 1400, "height": 850})
         page.evaluate("marks()")
-        self.assertEqual(page.evaluate("document.querySelectorAll('svg.limn-mark').length"), 3)
+        self.assertEqual(page.evaluate("document.querySelectorAll('svg.limn-mark').length"), 2)
+        self.assertEqual(page.evaluate("document.querySelectorAll('#help-h svg.limn-mark-word').length"), 1)
+        self.assertEqual(page.evaluate("document.querySelector('#help-h').textContent"), "— How to use")
         self.assertEqual(
             page.evaluate("document.querySelector('#paper-identity-mark svg').getBoundingClientRect().width"), 16
         )

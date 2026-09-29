@@ -605,7 +605,11 @@ READ_PATHS = frozenset(
     {
         "/",
         "/favicon.ico",
+        "/favicon-dark.ico",
+        "/favicon-16.png",
         "/favicon-32.png",
+        "/favicon-dark-16.png",
+        "/favicon-dark-32.png",
         "/apple-touch-icon.png",
         "/api/version",
         "/sw.js",

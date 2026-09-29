@@ -15,7 +15,8 @@
   --status-closed:var(--success);--status-dropped:#71717a;--status-warning:var(--warning);
   --status-review:#b197fc;--status-review-foreground:#1e1033;
   --tooltip:#09090b;--tooltip-foreground:#fafafa;
-  --shadow-color:#00000088;--shadow-page:0 2px 18px var(--shadow-color)}
+  --shadow-color:#00000088;--shadow-page:0 2px 18px var(--shadow-color);
+  --mark-tile:var(--limn-ink);--mark-stroke:var(--limn-cream)}
 :root[data-theme=light]{color-scheme:light;
   --background:#e4e4e7;--foreground:#09090b;
   --sidebar:#ffffff;--card:#fafafa;--card-foreground:#09090b;--popover:#ffffff;--popover-foreground:#09090b;
@@ -28,10 +29,15 @@
   --status-claimed:#b86e00;--status-dropped:#71717a;
   --status-review:#6d28d9;--status-review-foreground:#ffffff;
   --tooltip:#18181b;--tooltip-foreground:#fafafa;
-  --shadow-color:#00000022;--shadow-page:0 1px 6px var(--shadow-color)}
+  --shadow-color:#00000022;--shadow-page:0 1px 6px var(--shadow-color);
+  --mark-tile:var(--limn-bone);--mark-stroke:var(--limn-ink)}
 /* Theme-independent scales: radius in 3 steps (only circular dots/avatars use 50%), text in 5 steps, spacing in
-   6 steps, control heights. The label color (--brand) is filled in per instance by the server (--accent argument) and stays fixed across theme changes. */
+   6 steps, control heights. The label color (--brand) is filled in per instance by the server (--accent argument) and stays fixed across theme changes.
+   The Limn brand colours (--limn-*) are limn-brand.js COLOR's, the same in both themes: 먹 ink, 주 vermilion (the pin
+   only), 뼈종이 bone (the icon's light tile), 미색 cream (strokes on ink), 종이 paper; --mark-tile/--mark-stroke above pick
+   the icon's pair for the theme. */
 :root{--brand:__ACCENT__;--brand-foreground:#ffffff;
+  --limn-ink:#15161a;--limn-ver:#e8452c;--limn-bone:#fbf1e6;--limn-cream:#f4ede1;--limn-paper:#fbfaf7;
   --outline-width:240px;--doc-nav-h:44px;
   --radius-sm:4px;--radius:6px;--radius-lg:10px;
   --text-xs:11px;--text-sm:12px;--text-base:13px;--text-lg:14px;--text-xl:16px;

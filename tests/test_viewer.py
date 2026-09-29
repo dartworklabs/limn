@@ -1777,10 +1777,12 @@ class HtmlTemplateStructure(unittest.TestCase):
     def test_title_has_label_placeholder(self):
         self.assertIn("<title>Limn · __LABEL__</title>", HTML)
 
-    def test_favicon_placeholder(self):
-        """The SVG favicon placeholder, next to its PNG fallbacks keyed by the accent (test_brand.py)."""
-        self.assertIn('<link rel="icon" type="image/svg+xml" href="__FAVICON_HREF__">', HTML)
-        self.assertIn('href="/favicon-32.png?c=__ACCENT_KEY__"', HTML)
+    def test_favicon_links(self):
+        """The favicon links carry the icons' content key, filled at assembly - no accent key or accent-coloured
+        SVG is left for the run (test_brand.py)."""
+        self.assertRegex(HTML, r'<link rel="icon" href="/favicon\.ico\?v=[0-9a-f]{12}" sizes="16x16 32x32"')
+        for gone in ("__ICON_KEY__", "__FAVICON_HREF__", "__ACCENT_KEY__", "image/svg+xml"):
+            self.assertNotIn(gone, HTML[: HTML.index("</head>")])
 
     def test_brand_stripe_present(self):
         self.assertIn('id="brand-stripe"', HTML)

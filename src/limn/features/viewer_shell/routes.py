@@ -4,8 +4,7 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Protocol
 
-from limn.config import RunConfig
-from limn.mark import png as mark_png
+from limn.mark import ICON_ROUTES
 from limn.viewer.assemble import ServedViewer
 from limn.web.errors import HTTPError
 from limn.web.reply import Reply, json_reply
@@ -18,7 +17,6 @@ VENDOR_MIME: Mapping[str, str] = {".mjs": "text/javascript; charset=utf-8"}
 class ViewerShellApp(Protocol):
     """Run-specific values needed to serve the viewer shell."""
 
-    C: RunConfig
     APP_NAME: str
 
     def viewer(self) -> ServedViewer:
@@ -47,16 +45,19 @@ def _read(path: Path) -> bytes | None:
 
 
 def get(request: GetRequest, app: ViewerShellApp) -> Reply | None:
-    """Serve the viewer shell, icon fallbacks, version, worker, or PDF.js file."""
+    """Serve the viewer shell, its icons, version, worker, or PDF.js file; None for a path that is not one of them.
+
+    An ICON_ROUTES path answers the run's vendored icon file unchanged, publicly cacheable for a day (the page's links
+    carry a content key, so a new drawing gets a new URL); a run whose viewer holds no icon for it answers 404."""
     path = request.path
     if path == "/":
         request.record_person()
         return Reply(200, app.viewer().page.encode(), "text/html; charset=utf-8")
-    if path == "/favicon.ico":
-        return Reply(204, b"", "image/x-icon")
-    if path in ("/favicon-32.png", "/apple-touch-icon.png"):
-        size, rounded = (32, True) if path == "/favicon-32.png" else (180, False)
-        return Reply(200, mark_png(size, app.C.accent, rounded), "image/png", "public, max-age=86400")
+    if path in ICON_ROUTES:
+        icon = app.viewer().icons.get(path)
+        if icon is None:
+            raise HTTPError(404, "없는 아이콘입니다: %s" % app.hdr_text(path)[:100], reason="not_found")
+        return Reply(200, icon.body, icon.content_type, "public, max-age=86400")
     if path == "/api/version":
         return json_reply({"name": app.APP_NAME, "version": app.app_version()})
     if path == "/sw.js":

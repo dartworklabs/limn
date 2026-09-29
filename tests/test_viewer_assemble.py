@@ -1,8 +1,8 @@
 """limn/viewer/assemble.py: the viewer page as one string, from the viewer folder and the explicit inputs only.
 
-viewer_html() joins index.html with its parts and fills the build-time placeholders (PDF.js version, the mark, the
-icon table, the message table, {{ic:...}} tokens) from its arguments; the run-time ones (label, accent, favicon) are
-left for server.py's build_html(). These tests drive it with a small viewer folder of their own, so the contract is
+viewer_html() joins index.html with its parts and fills the build-time placeholders (PDF.js version, the logo's
+inline SVGs and icon key, the icon table, the message table, {{ic:...}} tokens) from its arguments; the run-time ones
+(label, accent) are left for run_page(). These tests drive it with a small viewer folder of their own, so the contract is
 checked apart from the real page; tests/test_viewer_files.py checks the packaged page itself.
 
 Run: uv run pytest -q tests/test_viewer_assemble.py
@@ -14,10 +14,14 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from limn import mark
 from limn.viewer import assemble
 
+BRAND_DIR = Path(mark.__file__).with_name("brand")  # the vendored logo files (server.BRAND_DIR)
+
 PAGE = (
-    "<html><style>__APP_CSS__</style><title>__LABEL__</title>{{ic:x}}<i>__LIMN_MARK__</i>"
+    "<html><style>__APP_CSS__</style><title>__LABEL__</title>{{ic:x}}<i>__LIMN_MARK_16__</i><b>__LIMN_WORDMARK__</b>"
+    '<link href="/favicon.ico?v=__ICON_KEY__">'
     "<script>const V='__PDFJS_VERSION__';const ICONS=__LUCIDE_JSON__;const I18N_EN=__UI_EN_JSON__;\n"
     "__APP_JS__</script></html>"
 )
@@ -37,7 +41,7 @@ def viewer_folder(root: Path, page: str = PAGE) -> Path:
 
 
 class ViewerHtml(unittest.TestCase):
-    """viewer_html(directory, messages, pdfjs_version=, mark=, icons=) -> the page before build_html()."""
+    """viewer_html(directory, messages, pdfjs_version=, marks=, icon_key=, icons=) -> the page before run_page()."""
 
     def setUp(self):
         """A fresh viewer folder per test."""
@@ -51,16 +55,19 @@ class ViewerHtml(unittest.TestCase):
             self.dir,
             {"가": "A"} if messages is None else messages,
             pdfjs_version="9.9.9",
-            mark="<svg id=m/>",
+            marks={"__LIMN_MARK_16__": "<svg id=m/>", "__LIMN_WORDMARK__": "<svg id=w/>"},
+            icon_key="0123456789ab",
             icons=icons,
         )
 
     def test_every_build_time_placeholder_is_filled_from_the_arguments(self):
-        """The exact page: parts joined in order, the version, the mark, both JSON tables (sorted), icon tokens in
-        the page and inside a part replaced - and the run-time __LABEL__ left for build_html()."""
+        """The exact page: parts joined in order, the version, each logo placeholder its markup, the icon key, both
+        JSON tables (sorted), icon tokens in the page and inside a part replaced - and the run-time __LABEL__ left for
+        run_page()."""
         svg = lambda name: assemble.icon_svg(name, ICONS)  # noqa: E731 - a local shorthand
         expected = (
-            "<html><style>b{}\n</style><title>__LABEL__</title>" + svg("x") + "<i><svg id=m/></i>"
+            "<html><style>b{}\n</style><title>__LABEL__</title>" + svg("x") + "<i><svg id=m/></i><b><svg id=w/></b>"
+            '<link href="/favicon.ico?v=0123456789ab">'
             "<script>const V='9.9.9';const ICONS="
             + json.dumps(ICONS, sort_keys=True)
             + ';const I18N_EN={"가": "A"};\nf();\ng('
@@ -95,26 +102,35 @@ class ViewerHtml(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             broken = viewer_folder(Path(d), PAGE.replace("__APP_JS__", ""))
             with self.assertRaises(ValueError):
-                assemble.viewer_html(broken, {}, pdfjs_version="1", mark="", icons=ICONS)
+                assemble.viewer_html(broken, {}, pdfjs_version="1", marks={}, icon_key="k", icons=ICONS)
 
     def test_the_packaged_page_keeps_only_the_run_time_placeholders(self):
-        """The real folder with the real tables: no build-time placeholder or icon token survives, and the four
-        placeholders build_html() fills are still there."""
+        """The real folder with the real tables and logo: no build-time placeholder or icon token survives, and the
+        two placeholders run_page() fills are still there."""
+        logo = mark.brand({name: (BRAND_DIR / name).read_bytes() for name in mark.FILES})
         out = assemble.viewer_html(
-            assemble.VIEWER_DIR, {}, pdfjs_version=assemble.PDFJS_VERSION, mark="<svg/>", icons=assemble.LUCIDE
+            assemble.VIEWER_DIR,
+            {},
+            pdfjs_version=assemble.PDFJS_VERSION,
+            marks=logo.marks,
+            icon_key=logo.key,
+            icons=assemble.LUCIDE,
         )
         for gone in (
             "__APP_CSS__",
             "__APP_JS__",
             "__PDFJS_VERSION__",
-            "__LIMN_MARK__",
+            "__LIMN_",
+            "__ICON_KEY__",
             "__LUCIDE_JSON__",
             "__UI_EN_JSON__",
             "{{ic:",
         ):
             self.assertNotIn(gone, out)
-        for kept in ("__LABEL__", "__ACCENT__", "__ACCENT_KEY__", "__FAVICON_HREF__"):
+        for kept in ("__LABEL__", "__ACCENT__"):
             self.assertIn(kept, out)
+        for gone in ("__ACCENT_KEY__", "__FAVICON_HREF__"):
+            self.assertNotIn(gone, out)
 
 
 class LoadUiMessages(unittest.TestCase):
@@ -149,14 +165,14 @@ class Independence(unittest.TestCase):
     """The assembly takes everything as arguments or from its own folder: no server state, no HTTP layer."""
 
     def test_imports_only_the_standard_library(self):
-        """assemble.py imports the standard library and the pure mark (limn.mark, for the favicon run_page fills in) -
-        never server.py, limn.web or settings."""
+        """assemble.py imports the standard library and the pure mark (limn.mark, for the served icons' type) - never
+        server.py, limn.web or settings."""
         tree = ast.parse(Path(assemble.__file__).read_text(encoding="utf-8"))
         modules = {a.name for n in ast.walk(tree) if isinstance(n, ast.Import) for a in n.names}
         modules |= {n.module or "" for n in ast.walk(tree) if isinstance(n, ast.ImportFrom)}
         self.assertEqual(
             modules,
-            {"html", "json", "re", "collections.abc", "dataclasses", "pathlib", "typing", "urllib.parse", "limn.mark"},
+            {"html", "json", "re", "collections.abc", "dataclasses", "pathlib", "typing", "limn.mark"},
         )
         names = {n.id for n in ast.walk(tree) if isinstance(n, ast.Name)}
         self.assertEqual(names & {"C", "cur_doc", "HTML", "UI_EN"}, set())
@@ -183,21 +199,29 @@ class ServiceWorker(unittest.TestCase):
 
 class ServedPage(unittest.TestCase):
     """serve_viewer / run_page: the page one run serves is the template with its label and accent filled in; the
-    template itself (ViewerFiles) stays as read."""
+    template itself (ViewerFiles) stays as read, and the icons pass through."""
 
     def test_the_served_page_fills_the_run_placeholders_and_leaves_the_template(self):
-        """Every run-time placeholder is filled (the label escaped, the accent key in lower case), the service worker
-        and the message table pass through, and the ViewerFiles template still holds the placeholders."""
-        template = '<title>__LABEL__</title><i s="__ACCENT__"></i><a href="?c=__ACCENT_KEY__" i="__FAVICON_HREF__">'
-        files = assemble.ViewerFiles(template, "sw", {"가": "A"})
+        """Both run-time placeholders are filled (the label escaped, the accent as given); the service worker, the
+        message table and the icons pass through unchanged, and the ViewerFiles template still holds the placeholders."""
+        template = '<title>__LABEL__</title><i s="__ACCENT__"></i><link href="/favicon.ico?v=0123456789ab">'
+        icons = {"/favicon.ico": mark.Icon(b"ico", "image/x-icon")}
+        files = assemble.ViewerFiles(template, "sw", {"가": "A"}, icons)
         served = assemble.serve_viewer(files, "<A&B>", "#BE123C")
         self.assertEqual(
-            served.page,
-            '<title>&lt;A&amp;B&gt;</title><i s="#BE123C"></i><a href="?c=be123c" i="%s">'
-            % assemble.favicon_href("#BE123C"),
+            served.page, '<title>&lt;A&amp;B&gt;</title><i s="#BE123C"></i><link href="/favicon.ico?v=0123456789ab">'
         )
-        self.assertEqual((served.service_worker, served.messages), ("sw", {"가": "A"}))
+        self.assertEqual((served.service_worker, served.messages, served.icons), ("sw", {"가": "A"}, icons))
         self.assertIn("__LABEL__", files.template)
+
+    def test_the_icons_are_the_same_for_every_label_and_accent(self):
+        """Two runs with different labels and accents serve the same icon values: the favicon is never the instance
+        colour (the tab title tells instances apart)."""
+        icons = {"/favicon.ico": mark.Icon(b"ico", "image/x-icon")}
+        files = assemble.ViewerFiles("<title>__LABEL__</title>", "sw", {}, icons)
+        a, b = assemble.serve_viewer(files, "A", "#1d4ed8"), assemble.serve_viewer(files, "B", "#be123c")
+        self.assertEqual(a.icons, b.icons)
+        self.assertNotEqual(a.page, b.page)
 
 
 if __name__ == "__main__":
