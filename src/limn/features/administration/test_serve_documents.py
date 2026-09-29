@@ -15,7 +15,16 @@ from pathlib import Path
 
 from limn.documents import RunPaths
 from limn.features.administration import serve_documents
-from limn.features.administration.serve_documents import DocKindUnknown, RunDocuments
+from limn.features.administration.serve_documents import (
+    DocExtendedWrongKind,
+    DocFileMissing,
+    DocKindUnknown,
+    DocMainOutsideRoot,
+    DocOutsideManuscript,
+    RunDocuments,
+)
+from limn.figmap import MAP_SUFFIX
+from limn.startup import StartupRefused
 
 TEX = "\\documentclass{article}\n\\begin{document}\nx\n\\end{document}\n"
 PDF = b"%PDF-1.4\n"
@@ -91,3 +100,126 @@ class DocStartLine(unittest.TestCase):
             serve_documents.doc_start_line("rv", "pdf", "sub/review.pdf", False),
             "doc    rv         view-only sub/review.pdf",
         )
+
+
+class FigureRegistration(unittest.TestCase):
+    """A --doc path ending in figmap.MAP_SUFFIX registers a figure document (docs/handbook/domain.md §여러 문서): its
+    folder is the root before '::' or the map's folder, and every other suffix stays refused."""
+
+    def setUp(self):
+        """A manuscript with a body, a view-only PDF, a figure map under figs/out, a plain .json beside it, an
+        upper-case map name in another folder, and a map outside the manuscript."""
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        root = Path(tmp.name).resolve()
+        self.ms = root / "repo"
+        (self.ms / "figs" / "out").mkdir(parents=True)
+        (self.ms / "figs" / "upper").mkdir()
+        (self.ms / "main.tex").write_text("\\documentclass{article}\n", encoding="utf-8")
+        (self.ms / "review.pdf").write_bytes(b"%PDF-1.4\n")
+        self.map = self.ms / "figs" / "out" / "figures.limnmap.json"
+        self.map.write_text("{}", encoding="utf-8")
+        (self.ms / "figs" / "out" / "figures.json").write_text("{}", encoding="utf-8")
+        (self.ms / "figs" / "upper" / "Figures.LIMNMAP.JSON").write_text("{}", encoding="utf-8")
+        (root / "outside.limnmap.json").write_text("{}", encoding="utf-8")
+        self.paths = RunPaths(self.ms, self.ms / "main.tex", root / "state")
+
+    def test_a_map_path_is_a_figure_document_rooted_at_the_maps_folder(self):
+        """Without '::' the document's folder - the base of the map's source paths - is the folder holding the map."""
+        d = serve_documents.parse_doc_arg("fig=그림:figs/out/figures.limnmap.json", self.ms)
+        self.assertEqual((d["kind"], d["src"], d["main"]), ("figure", self.ms / "figs" / "out", self.map))
+
+    def test_the_root_form_roots_a_figure_document_at_the_folder_before_the_separator(self):
+        """ROOT::REL/x.limnmap.json keeps the map as main and makes ROOT the document's folder."""
+        d = serve_documents.parse_doc_arg("fig=그림:figs::out/figures.limnmap.json", self.ms)
+        self.assertEqual((d["kind"], d["src"], d["main"]), ("figure", self.ms / "figs", self.map))
+
+    def test_a_missing_map_refuses_startup_like_a_missing_file(self):
+        """A map that does not exist is DocFileMissing, and the server refuses to start with the same words a missing
+        view-only PDF gets."""
+        missing = self.ms / "figs" / "out" / "none.limnmap.json"
+        self.assertEqual(
+            serve_documents.parse_doc_arg("fig=그림:figs/out/none.limnmap.json", self.ms),
+            DocFileMissing("fig", missing),
+        )
+        self.assertEqual(
+            serve_documents.pick_documents(self.ms, ["ms=본문:main.tex", "fig=그림:figs/out/none.limnmap.json"], None),
+            StartupRefused("--doc fig: 파일이 없습니다: %s" % missing),
+        )
+
+    def test_only_the_exact_map_suffix_names_a_figure(self):
+        """A plain .json and an upper-case suffix are unknown kinds, and the refusal lists every accepted suffix
+        (docs/handbook/code-style-roadmap.md §R10)."""
+        for rel in ("figs/out/figures.json", "figs/upper/Figures.LIMNMAP.JSON"):
+            with self.subTest(rel=rel):
+                got = serve_documents.parse_doc_arg("fig=그림:" + rel, self.ms)
+                self.assertEqual(got, DocKindUnknown("fig", self.ms / rel))
+                self.assertEqual(
+                    serve_documents.doc_refusal_message(got),
+                    "--doc fig: .tex(LaTeX), .pdf(보기 전용), .limnmap.json(그림)만 받습니다: %s" % (self.ms / rel),
+                )
+
+    def test_the_root_form_takes_latex_or_a_map_and_refuses_a_pdf(self):
+        """'::' is for a document with a folder of its own: a LaTeX main or a figure map, never a view-only PDF."""
+        got = serve_documents.parse_doc_arg("rv=코멘트:.::review.pdf", self.ms)
+        self.assertEqual(got, DocExtendedWrongKind("rv", self.ms / "review.pdf"))
+        self.assertEqual(
+            serve_documents.doc_refusal_message(got),
+            "--doc rv: '::' 표기는 LaTeX 문서(.tex)와 그림 지도(.limnmap.json)에만 씁니다: %s"
+            % (self.ms / "review.pdf"),
+        )
+
+    def test_a_map_outside_the_manuscript_or_its_root_is_refused(self):
+        """A map reached through ../ from the manuscript, or from the root of the '::' form, is refused before its
+        existence is checked."""
+        self.assertEqual(
+            serve_documents.parse_doc_arg("fig=그림:../outside.limnmap.json", self.ms),
+            DocOutsideManuscript("fig", "path", self.ms, self.ms.parent / "outside.limnmap.json"),
+        )
+        self.assertEqual(
+            serve_documents.parse_doc_arg("fig=그림:figs::../main.limnmap.json", self.ms),
+            DocMainOutsideRoot("fig", self.ms / "main.limnmap.json"),
+        )
+
+    def test_a_figure_document_is_watched_view_only_and_keeps_its_own_folder(self):
+        """Keyed main, a figure document still gets docs/main (only a document built from source takes the state
+        root); it is watched, view-only, has an element map, and its PDF copy is named after the map."""
+        docs = serve_documents.make_docs(
+            ["main=그림:figs::out/figures.limnmap.json", "ms=본문:main.tex"], self.ms, self.paths
+        )
+        fig = docs[0]
+        self.assertEqual(
+            (fig.kind, fig.root, fig.dir, fig.pdf_name),
+            ("figure", False, self.paths.state / "docs" / "main", "figures.pdf"),
+        )
+        self.assertEqual(
+            (
+                fig.builds_from_source,
+                fig.watches_files,
+                fig.takes_line_pins,
+                fig.shows_revisions,
+                fig.view_only,
+                fig.has_element_map,
+            ),
+            (False, True, False, False, True, True),
+        )
+
+    def test_the_run_main_is_never_a_figure_map(self):
+        """The run's main file is the first document built from source, even behind a figure document."""
+        got = serve_documents.pick_documents(
+            self.ms, ["fig=그림:figs/out/figures.limnmap.json", "ms=본문:main.tex"], None
+        )
+        self.assertIsInstance(got, RunDocuments)
+        self.assertEqual(got.main, self.ms / "main.tex")
+
+    def test_the_startup_line_names_a_figure(self):
+        """A figure document's startup line reads 'figure' in the label column, aligned with 'view-only'."""
+        self.assertEqual(
+            serve_documents.doc_start_line("fig", "figure", "figs/out/figures.limnmap.json", False),
+            "doc    fig        figure    figs/out/figures.limnmap.json",
+        )
+
+    def test_the_shell_mirror_accepts_the_same_suffix(self):
+        """instance_documents.sh names the Python suffix in both of its case patterns, so limn add and the server agree."""
+        sh = (Path(serve_documents.__file__).parent / "instance_documents.sh").read_text(encoding="utf-8")
+        self.assertEqual(sh.count("*" + MAP_SUFFIX), 2)

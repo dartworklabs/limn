@@ -17,13 +17,15 @@ from limn.documents import (
     RunPaths,
     kind_builds_from_source,
 )
+from limn.figmap import MAP_SUFFIX
 from limn.startup import APP_NAME, StartupRefused
 
 # ---------------------------------------------------------------- document selection (§Multiple documents)
 
 
 class DocSpec(TypedDict):
-    """One parsed --doc: key, display name, kind (the DocKind its path's suffix names), build root (src) and main
+    """One parsed --doc: key, display name, kind (the DocKind its path's suffix names: .tex, .pdf or
+    limn.figmap.MAP_SUFFIX), build root (src - for a figure document the base of its map's source paths) and main
     file, both resolved."""
 
     key: str
@@ -121,8 +123,9 @@ class DocMainOutsideRoot:
 
 
 @dataclass(frozen=True)
-class DocExtendedNotTex:
-    """The '::' form names a main file that is not .tex - the form is for LaTeX documents only."""
+class DocExtendedWrongKind:
+    """The '::' form names a main file that is neither .tex nor a figure map (MAP_SUFFIX) - the form gives a LaTeX or
+    a figure document a folder of its own, and a view-only PDF has none."""
 
     key: str
     main: Path
@@ -138,7 +141,7 @@ class DocFileMissing:
 
 @dataclass(frozen=True)
 class DocKindUnknown:
-    """The main file is neither .tex (LaTeX) nor .pdf (view-only)."""
+    """The main file is neither .tex (LaTeX), .pdf (view-only) nor a figure map (MAP_SUFFIX, exact case)."""
 
     key: str
     main: Path
@@ -172,7 +175,7 @@ DocSpecRefusal: TypeAlias = (
     | DocRootMissing
     | DocMainAbsolute
     | DocMainOutsideRoot
-    | DocExtendedNotTex
+    | DocExtendedWrongKind
     | DocFileMissing
     | DocKindUnknown
 )
@@ -187,6 +190,9 @@ def parse_doc_arg(spec: str, ms: Path) -> DocSpec | DocSpecRefusal:
       main is a/b/main.tex. The build runs in the folder holding main (a/b) - used when main reads another
       folder inside the build root via ../.
     - `<key>=<name>:x/review.pdf` - a view-only PDF (no rebuild, page/region pins).
+    - `<key>=<name>:x/figures.limnmap.json` - a figure document (limn.figmap.MAP_SUFFIX, exact case): its PDF and
+      element map are imported, never built; its folder, the base of the map's source paths, is x.
+    - `<key>=<name>:a::b/figures.limnmap.json` - a figure document whose folder is a; the map is a/b/figures.limnmap.json.
     key must be [a-z0-9-]{1,24}; name must be 40 characters or fewer with no ':'. The path must be inside
     --manuscript (a security constraint: a pin can only ever point at a file inside the manuscript tree).
     Returns the DocSpec, or the first rule the value breaks (DocSpecRefusal), checked in this order: form, key, name,
@@ -236,8 +242,8 @@ def parse_doc_arg(spec: str, ms: Path) -> DocSpec | DocSpecRefusal:
             main.relative_to(root)
         except ValueError:
             return DocMainOutsideRoot(key, main)
-        if main.suffix.lower() != ".tex":
-            return DocExtendedNotTex(key, main)
+        if main.suffix.lower() != ".tex" and not main.name.endswith(MAP_SUFFIX):
+            return DocExtendedWrongKind(key, main)
     else:
         found = inside(Path(path), "path")
         if isinstance(found, DocOutsideManuscript):
@@ -247,7 +253,9 @@ def parse_doc_arg(spec: str, ms: Path) -> DocSpec | DocSpecRefusal:
         return DocFileMissing(key, main)
     suf = main.suffix.lower()
     kind: DocKind
-    if suf == ".tex":
+    if main.name.endswith(MAP_SUFFIX):
+        kind = "figure"
+    elif suf == ".tex":
         kind = "tex"
     elif suf == ".pdf":
         kind = "pdf"
@@ -282,12 +290,12 @@ def doc_refusal_message(r: DocsRefusal) -> str:
             return "--doc %s: '::' 뒤 메인은 빌드 루트 기준 상대경로입니다: %s" % (key, main)
         case DocMainOutsideRoot(key=key, main=main):
             return "--doc %s: 메인 .tex 가 빌드 루트 밖입니다: %s" % (key, main)
-        case DocExtendedNotTex(key=key, main=main):
-            return "--doc %s: '::' 표기는 LaTeX 문서(.tex)에만 씁니다: %s" % (key, main)
+        case DocExtendedWrongKind(key=key, main=main):
+            return "--doc %s: '::' 표기는 LaTeX 문서(.tex)와 그림 지도(%s)에만 씁니다: %s" % (key, MAP_SUFFIX, main)
         case DocFileMissing(key=key, main=main):
             return "--doc %s: 파일이 없습니다: %s" % (key, main)
         case DocKindUnknown(key=key, main=main):
-            return "--doc %s: .tex(LaTeX) 또는 .pdf(보기 전용)만 받습니다: %s" % (key, main)
+            return "--doc %s: .tex(LaTeX), .pdf(보기 전용), %s(그림)만 받습니다: %s" % (key, MAP_SUFFIX, main)
         case TooManyDocs(count=count):
             return "--doc 는 %d개까지입니다(지금 %d개)" % (DOCS_MAX, count)
         case DocKeyRepeated(key=key):
@@ -345,6 +353,8 @@ def doc_start_line(key: str, kind: DocKind, path: str, build_started: bool) -> s
             label = "LaTeX   "
         case "pdf":
             label = "view-only"
+        case "figure":
+            label = "figure   "
     return "doc    %-10s %s %s%s" % (key, label, path, "  (build started)" if build_started else "")
 
 

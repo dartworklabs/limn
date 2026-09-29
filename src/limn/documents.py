@@ -25,6 +25,7 @@ from typing import Any, Literal, TypeAlias
 
 from limn import build
 from limn.access_values import AuthorityScope
+from limn.figmap import MAP_SUFFIX
 from limn.files import ManuscriptFile, tex_lines
 
 DOC_KEY_RE = re.compile(r"[a-z0-9-]{1,24}")
@@ -33,10 +34,11 @@ DOCS_MAX = 12
 DEFAULT_DOC_KEY = "main"
 
 # What a document is, read once from a --doc path's suffix (limn.features.administration.serve_documents.parse_doc_arg);
-# an instance started without --doc serves one "tex" document. Branches ask a capability of Doc - builds_from_source,
-# watches_files, takes_line_pins, shows_revisions, view_only - never the kind. Only what reports the kind itself reads
-# it: the API's kind, a document's authority identity, the startup line (docs/handbook/domain.md §여러 문서).
-DocKind: TypeAlias = Literal["tex", "pdf"]
+# an instance started without --doc serves one "tex" document; a path ending in limn.figmap.MAP_SUFFIX is a "figure".
+# Branches ask a capability of Doc - builds_from_source, watches_files, takes_line_pins, shows_revisions, view_only -
+# never the kind. Only what reports the kind itself reads it: the API's kind, a document's authority identity, the
+# startup line (docs/handbook/domain.md §여러 문서).
+DocKind: TypeAlias = Literal["tex", "pdf", "figure"]
 
 
 def kind_builds_from_source(kind: DocKind) -> bool:
@@ -84,7 +86,8 @@ def fresh_build_state() -> dict[str, Any]:
 
 class Doc:
     """One document of a kind (DocKind): 'tex' is LaTeX, lines traced back via SyncTeX; 'pdf' is a view-only PDF,
-    pinned by page and region. What it can do is read from its capability properties (builds_from_source,
+    pinned by page and region; 'figure' is a PDF a figure repository renders with its element map (limn.figmap),
+    imported rather than built. What it can do is read from its capability properties (builds_from_source,
     watches_files, takes_line_pins, shows_revisions, view_only), never from kind.
 
     paths are the instance's run paths (RunPaths, a frozen value), given at construction by the composition root.
@@ -127,7 +130,8 @@ class Doc:
 
     @property
     def src(self) -> Path:
-        """Build root - the scope copied into the build copy. For view-only, the folder holding the PDF."""
+        """Build root - the scope copied into the build copy. For view-only, the folder holding the PDF; for a figure
+        document, its folder - the base of the map's source paths (the root before '::', else the map's folder)."""
         if self.legacy:
             return self.paths.src
         assert self._src is not None, "a document started with --doc has its own src"
@@ -135,7 +139,7 @@ class Doc:
 
     @property
     def main(self) -> Path:
-        """The main .tex for LaTeX, or the PDF file for view-only."""
+        """The main .tex for LaTeX, the PDF file for view-only, the element map for a figure document."""
         if self.legacy:
             return self.paths.main
         assert self._main is not None, "a document started with --doc has its own main"
@@ -168,7 +172,10 @@ class Doc:
 
     @property
     def pdf_name(self) -> str:
-        """Name of the PDF copy inside the page directory."""
+        """Name of the PDF copy inside the page directory: the main file's stem + .pdf, and for a document with an
+        element map the map's name without MAP_SUFFIX + .pdf (figures.limnmap.json -> figures.pdf)."""
+        if self.has_element_map:
+            return self.main.name.removesuffix(MAP_SUFFIX) + ".pdf"
         return self.main.stem + ".pdf"
 
     @property
@@ -180,9 +187,10 @@ class Doc:
 
     @property
     def watches_files(self) -> bool:
-        """The view-only watch thread re-renders its pages when its file changes, and startup renders them when the
-        file changed since the last render or no page images exist at the current dpi (--no-build or not)."""
-        return self.kind == "pdf"
+        """The watch thread brings in new pages when its files change - a view-only PDF's file, a figure document's
+        map and the PDF the map names - and startup does so when they changed since the last time (--no-build or
+        not)."""
+        return self.kind in ("pdf", "figure")
 
     @property
     def takes_line_pins(self) -> bool:
@@ -199,6 +207,13 @@ class Doc:
     def view_only(self) -> bool:
         """Its pins are page regions only - the API's view_only. Exactly the absence of line pins."""
         return not self.takes_line_pins
+
+    @property
+    def has_element_map(self) -> bool:
+        """Its pages come with a producer-written element map (limn.figmap) - a figure document: the watch imports the
+        map with the PDF it names instead of rendering one file, and every page directory keeps the map it was
+        imported with."""
+        return self.kind == "figure"
 
     def rel_path(self) -> str:
         """Path relative to --manuscript (for display / the pins.md header). Points at the main file."""

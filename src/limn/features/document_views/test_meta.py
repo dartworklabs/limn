@@ -73,7 +73,7 @@ LIGHT_KEYS = [
     "build",
 ]
 
-# The capability table of the shared contract (docs/handbook/domain.md §여러 문서).
+# The capability table of the shared contract (docs/superpowers/plans/2026-09-30-figure-documents.md, Shared contract).
 # A new DocKind value adds its row here before any branch can serve it.
 CAPABILITY_TABLE = {
     "tex": {
@@ -82,6 +82,7 @@ CAPABILITY_TABLE = {
         "takes_line_pins": True,
         "shows_revisions": True,
         "view_only": False,
+        "has_element_map": False,
     },
     "pdf": {
         "builds_from_source": False,
@@ -89,6 +90,15 @@ CAPABILITY_TABLE = {
         "takes_line_pins": False,
         "shows_revisions": False,
         "view_only": True,
+        "has_element_map": False,
+    },
+    "figure": {
+        "builds_from_source": False,
+        "watches_files": True,
+        "takes_line_pins": False,
+        "shows_revisions": False,
+        "view_only": True,
+        "has_element_map": True,
     },
 }
 
@@ -386,6 +396,47 @@ class DocumentFactsReads(Fixture):
         self.assertEqual(
             [documents.DocumentFacts(D, self.src, self.state, 150).view_only for D in (self.ms, self.rv)], [False, True]
         )
+
+
+class FigureDocumentReads(Fixture):
+    """A figure document (a map under figs/out, the document's folder figs/) as the reads and lookups see it."""
+
+    def setUp(self):
+        """The fixture tree plus figs/out/figures.limnmap.json and the figure document fig."""
+        super().setUp()
+        (self.src / "figs" / "out").mkdir(parents=True)
+        self.map = self.src / "figs" / "out" / "figures.limnmap.json"
+        self.map.write_text("{}", encoding="utf-8")
+        self.fig = Doc("fig", "그림", "figure", self.src / "figs", self.map, paths=self.paths)
+
+    def test_the_copy_of_its_pdf_is_named_after_the_map(self):
+        """pages-<build>/ holds figures.pdf for figures.limnmap.json - never figures.limnmap.pdf."""
+        self.assertEqual(self.fig.pdf_name, "figures.pdf")
+
+    def test_its_brief_and_meta_report_kind_figure_view_only_and_never_stale(self):
+        """/api/docs and /api/meta say kind figure and view_only true; a map newer than the pages is not 'stale'
+        (only a document built from source is), and path and main name the map."""
+        self.pages(self.fig)
+        later = time.time() + 60
+        os.utime(self.map, (later, later))
+        brief = meta.doc_brief(self.fig, self.state)
+        self.assertEqual(
+            (brief["kind"], brief["view_only"], brief["stale_build"], brief["main"], brief["path"]),
+            ("figure", True, False, "figures.limnmap.json", "figs/out/figures.limnmap.json"),
+        )
+        out = meta.meta(self.fig, {}, self.settings, [self.ms, self.fig], {}, time.time())
+        self.assertEqual((out["kind"], out["view_only"], out["stale_build"]), ("figure", True, False))
+
+    def test_it_has_no_outline_labels(self):
+        """Nothing is compiled, so no .aux is read even if a file of that name sits in its page directory."""
+        d = self.pages(self.fig, aux=AUX)
+        self.assertEqual(meta.outline_labels(self.fig), {"build": d.name, "labels": []})
+
+    def test_a_file_under_a_figure_folder_routes_to_the_latex_document_around_it(self):
+        """The figure folder lies inside the body's build root and deeper: a file-only request (agent curl) still goes
+        to the LaTeX document, since a figure document takes no line pin."""
+        docs = [self.fig, self.ms]
+        self.assertIs(documents.doc_for_file(docs, self.src, "figs/src/B2_calendar.py"), self.ms)
 
 
 class ToSource(Fixture):

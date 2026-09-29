@@ -29,7 +29,9 @@ def serve_parser(description: str, version: str, default_envs: str) -> argparse.
         metavar="KEY=NAME:PATH",
         help="A document the viewer can switch to (repeatable). PATH is relative to --manuscript. "
         ".tex = LaTeX (build root is that folder), "
-        "<build root>::<main.tex> = build root given separately, .pdf = view-only. The first document is the default. "
+        "<build root>::<main.tex> = build root given separately, .pdf = view-only, "
+        ".limnmap.json = figure document (the PDF its element map names, imported; ROOT::map sets the map's source "
+        "folder). The first document is the default. "
         "If omitted, a single document (key main) built from --manuscript/--main",
     )
     ap.add_argument("--port", type=int, help="Picks a free port in 18300-18400 if omitted")

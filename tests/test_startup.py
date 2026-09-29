@@ -29,7 +29,7 @@ from limn.documents import DOCS_MAX, RunPaths
 from limn.features.administration import serve_documents as startup_documents
 from limn.features.administration.serve_documents import (
     DocExtendedMalformed,
-    DocExtendedNotTex,
+    DocExtendedWrongKind,
     DocFileMissing,
     DocKeyInvalid,
     DocKeyRepeated,
@@ -750,12 +750,13 @@ class DocArgs(unittest.TestCase):
             (
                 "rr=답변서:notes.txt",
                 DocKindUnknown("rr", ms / "notes.txt"),
-                "--doc rr: .tex(LaTeX) 또는 .pdf(보기 전용)만 받습니다: %s" % (ms / "notes.txt"),
+                "--doc rr: .tex(LaTeX), .pdf(보기 전용), .limnmap.json(그림)만 받습니다: %s" % (ms / "notes.txt"),
             ),
             (
                 "rv=코멘트:sub::review.pdf",
-                DocExtendedNotTex("rv", ms / "sub" / "review.pdf"),
-                "--doc rv: '::' 표기는 LaTeX 문서(.tex)에만 씁니다: %s" % (ms / "sub" / "review.pdf"),
+                DocExtendedWrongKind("rv", ms / "sub" / "review.pdf"),
+                "--doc rv: '::' 표기는 LaTeX 문서(.tex)와 그림 지도(.limnmap.json)에만 씁니다: %s"
+                % (ms / "sub" / "review.pdf"),
             ),
             (
                 "ms=본문:manuscript::../outside.tex",

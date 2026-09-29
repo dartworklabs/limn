@@ -265,6 +265,12 @@ chk "rejects a duplicate key" \
 chk "rejects a path outside the manuscript (../ is compared after normalization)" "! '$PV' add docs-x --manuscript '$ms' --doc 'out=밖:../outside.tex' --no-start >/dev/null 2>&1"
 chk "rejects an unsupported extension" "! '$PV' add docs-x --manuscript '$ms' --doc 'x=문서:readme.md' --no-start >/dev/null 2>&1"
 chk "rejects a nonexistent file" "! '$PV' add docs-x --manuscript '$ms' --doc 'x=문서:no-such.tex' --no-start >/dev/null 2>&1"
+mkdir -p "$ms/figs/out"
+printf '{"format": "limn-figure-map/1"}\n' > "$ms/figs/out/figures.limnmap.json"
+printf '{}\n' > "$ms/figs/out/figures.json"
+chk "rejects a .json that is not a figure map (.limnmap.json)" "! '$PV' add docs-x --manuscript '$ms' --doc 'x=그림:figs/out/figures.json' --no-start >/dev/null 2>&1"
+chk "rejects a figure map that does not exist" "! '$PV' add docs-x --manuscript '$ms' --doc 'x=그림:figs/out/none.limnmap.json' --no-start >/dev/null 2>&1"
+chk "the '::' form still rejects a view-only PDF" "! '$PV' add docs-x --manuscript '$ms' --doc 'x=제출본:submission::submission_ready/manuscript.pdf' --no-start >/dev/null 2>&1"
 chk "a rejected --doc add leaves no config behind" "[[ ! -e '$T/src/docs-x.env' ]]"
 
 docs13=()
@@ -287,6 +293,17 @@ chk "DOCS is stored joined by ';'" \
     "grep -qx 'DOCS=\"ms=본문:main.tex;rr=답변서:submission/review_response/review_response.tex;sub=제출본 PDF:submission/submission_ready/manuscript.pdf;wd=넓게:wide::deep/main2.tex\"' '$env_docs'"
 chk "no MAIN line when DOCS is used" "! grep -q '^MAIN=' '$env_docs'"
 chk "add output (snippet) shows the doc key list and the #doc= link" "grep -q 'Docs: ms,rr,sub,wd' <<< \"\$out\" && grep -q '#doc=<key>' <<< \"\$out\""
+
+out=$("$PV" add docs-fig --manuscript "$ms" --no-serve \
+    --doc 'ms=본문:main.tex' \
+    --doc 'fig=그림:figs::out/figures.limnmap.json' \
+    --doc 'fg=그림 폴더:figs/out/figures.limnmap.json' \
+    --no-start 2>&1)
+rc=$?
+chk "a figure map is accepted in the ROOT:: form and as a plain path" "[[ $rc -eq 0 ]]"
+chk "DOCS keeps the figure entries as given" \
+    "grep -qx 'DOCS=\"ms=본문:main.tex;fig=그림:figs::out/figures.limnmap.json;fg=그림 폴더:figs/out/figures.limnmap.json\"' '$T/src/docs-fig.env'"
+"$PV" remove docs-fig > /dev/null 2>&1
 
 echo "── 9. doc list/add/remove: single document ↔ multi-document switch ──"
 "$PV" add single-1 --manuscript "$ms" --main main.tex --no-serve --no-start > /dev/null 2>&1
