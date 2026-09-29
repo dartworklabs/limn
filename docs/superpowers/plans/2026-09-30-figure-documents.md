@@ -313,6 +313,7 @@ The phase plans raised these; they are folded into the sections above. Plans tha
 - `shows_revisions` true for figure docs. History pathspec = the distinct `src.file` and `impl.file` of the current build's map plus the map and PDF paths.
 - Comparison: no latexdiff. The viewer overlays the previous build's page image on the current one (both builds' page folders are kept: `pages.cur` and the previous). New read route only if the existing page routes cannot serve a named previous build.
 - Handbook `viewer.md` §변경 보기 and `api.md` §변경 보기와 비교 PDF gain the figure case.
+- Pull when a figure pin closes. The user should see the fixed figure by the time the "처리됨" notice arrives, not after up to 60 seconds. When an agent closes a pin on a `watches_files` document with a `close_ref`, run the sync check at once. The check is a fast-forward only, with the same safety rules as the periodic check.
 - `--git-pull` for figure documents. The 60-second fast-forward is what brings a merged figure change to the watched checkout, after which the watch imports it within seconds. P0 keeps the pull watch keyed on documents built from source, so check whether an instance whose only documents are figures still fast-forwards. If it does not, the pull must run for `watches_files` documents too, without a rebuild.
 
 ## Done (whole feature)
