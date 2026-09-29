@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.3.7 — unreleased
 
 One internal refactor; the HTTP API, `pins.md` and the state directory are unchanged.
 
