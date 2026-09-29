@@ -8,12 +8,14 @@ tokens for the theme (docs/handbook/viewer.md §마크와 파비콘). limn.mark 
 Run: uv run pytest -q tests/test_brand.py
 """
 
+import ast
 import hashlib
 import json
 import re
 import struct
 import unittest
 import zlib
+from pathlib import Path
 
 from limn import access, mark
 from limn.features.viewer_shell import routes as viewer_shell_routes
@@ -312,6 +314,40 @@ class BrandValue(unittest.TestCase):
         for bad in (b"\xff\xfe", b"<svg/>"):
             with self.subTest(bad=bad), self.assertRaises(ValueError):
                 mark.brand(dict(self.FILES, **{"limn-wordmark-light-20.svg": bad}))
+
+    def test_a_broken_svg_is_named_in_the_error(self):
+        """The startup error names the file that broke - an SVG that is not UTF-8, not XML or outside the vocabulary
+        raises ValueError whose message starts with that file's name, so a packaging defect points at its file."""
+        for name in sorted(s.file for s in mark.MARK_SLOTS.values()):
+            for bad in (b"\xff\xfe", b"<svg", b'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1 1"/>'):
+                with self.subTest(name=name, bad=bad), self.assertRaises(ValueError) as caught:
+                    mark.brand(dict(self.FILES, **{name: bad}))
+                self.assertTrue(str(caught.exception).startswith(name + ": "), str(caught.exception))
+
+
+class MarkPurity(unittest.TestCase):
+    """limn.mark is pure domain (docs/handbook/architecture.md, 순수 도메인): it turns bytes it is given into values and
+    never reaches files, processes, the network or the server's run state - server.read_brand reads the folder."""
+
+    SOURCE = Path(mark.__file__).read_text(encoding="utf-8")
+    PURE_IMPORTS = {"hashlib", "html", "re", "xml.etree.ElementTree", "collections.abc", "dataclasses", "typing"}
+
+    def test_imports_only_pure_standard_modules(self):
+        """Every import is one of the pure standard modules it uses; a file, subprocess, HTTP or limn import here
+        would put an effect or the server's state inside the domain (architecture.md 멈춤 신호)."""
+        imported = set()
+        for node in ast.walk(ast.parse(self.SOURCE)):
+            if isinstance(node, ast.Import):
+                imported |= {a.name for a in node.names}
+            elif isinstance(node, ast.ImportFrom):
+                imported.add(node.module or "")
+        self.assertLessEqual(imported, self.PURE_IMPORTS)
+
+    def test_reads_no_file_and_no_run_state(self):
+        """No open() or Path, and neither the run config (C.) nor the current document (cur_doc)."""
+        names = {n.id for n in ast.walk(ast.parse(self.SOURCE)) if isinstance(n, ast.Name)}
+        self.assertEqual(names & {"open", "Path", "C", "cur_doc", "__import__"}, set())
+        self.assertNotIn("cur_doc(", self.SOURCE)
 
 
 class PageLinks(unittest.TestCase):

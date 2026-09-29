@@ -42,7 +42,7 @@ packages = ["src/limn"]
 exclude = ["**/test_*.py"]
 
 [tool.hatch.build.targets.sdist]
-include = ["src/limn", "tests", "docs", "skill", "README.md", "README.ko.md", "LICENSE", "NOTICE", "THIRD_PARTY_NOTICES.md"]
+include = ["src/limn", "tests", "docs", "skill", "README.md", "README.ko.md", "LICENSE", "NOTICE", "THIRD_PARTY_NOTICES.md", "TRADEMARKS.md"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests", "src/limn/features"]

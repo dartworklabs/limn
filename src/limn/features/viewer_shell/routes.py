@@ -20,7 +20,7 @@ class ViewerShellApp(Protocol):
     APP_NAME: str
 
     def viewer(self) -> ServedViewer:
-        """Return the page and service worker bound to this run."""
+        """Return the page, service worker and icons (by GET path) bound to this run."""
         ...
 
     def app_version(self) -> str:
@@ -47,8 +47,10 @@ def _read(path: Path) -> bytes | None:
 def get(request: GetRequest, app: ViewerShellApp) -> Reply | None:
     """Serve the viewer shell, its icons, version, worker, or PDF.js file; None for a path that is not one of them.
 
-    An ICON_ROUTES path answers the run's vendored icon file unchanged, publicly cacheable for a day (the page's links
-    carry a content key, so a new drawing gets a new URL); a run whose viewer holds no icon for it answers 404."""
+    An ICON_ROUTES path answers the run's vendored icon file unchanged, publicly cacheable for a day. The page's links
+    carry a content key (?v=), so a new drawing gets a new URL there; only those linked URLs are busted - the bare
+    /favicon.ico and /apple-touch-icon.png a browser or iOS asks for on its own can stay cached for up to a day. A run
+    whose viewer holds no icon for the path answers 404."""
     path = request.path
     if path == "/":
         request.record_person()

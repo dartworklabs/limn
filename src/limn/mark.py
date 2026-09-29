@@ -243,13 +243,19 @@ def content_key(icons: Mapping[str, Icon]) -> str:
     return digest.hexdigest()[:12]
 
 
+def _slot_markup(slot: Slot, data: bytes) -> str:
+    """The inline markup for slot from its SVG file's bytes (UTF-8, parse_svg, inline_svg). ValueError for bytes that
+    are not UTF-8 or not a drawing in the vocabulary, its message starting with the file's name ("<file>: <reason>")."""
+    try:
+        return inline_svg(parse_svg(data.decode("utf-8")), slot.css_class, slot.label)
+    except ValueError as e:  # UnicodeDecodeError is a ValueError
+        raise ValueError("%s: %s" % (slot.file, e)) from e
+
+
 def brand(files: Mapping[str, bytes]) -> Brand:
     """The viewer's logo from the brand folder's bytes (files: name -> bytes, at least FILES): the icon for every
-    ICON_ROUTES path, the markup for every MARK_SLOTS placeholder (parse_svg, inline_svg) and their content key.
-    KeyError for a missing file, ValueError (UnicodeDecodeError among them) for a malformed SVG."""
+    ICON_ROUTES path, the markup for every MARK_SLOTS placeholder (_slot_markup) and their content key. KeyError for a
+    missing file, ValueError naming the file for a malformed SVG."""
     icons = {path: Icon(files[name], content_type) for path, (name, content_type) in ICON_ROUTES.items()}
-    marks = {
-        placeholder: inline_svg(parse_svg(files[slot.file].decode("utf-8")), slot.css_class, slot.label)
-        for placeholder, slot in MARK_SLOTS.items()
-    }
+    marks = {placeholder: _slot_markup(slot, files[slot.file]) for placeholder, slot in MARK_SLOTS.items()}
     return Brand(icons, marks, content_key(icons))

@@ -1306,7 +1306,11 @@ class FrontendPanelTidyStructure(unittest.TestCase):
 # Colors, radii, and font sizes used to vary per rule (54 color literals, 14 radii, 12 font sizes) — now
 # collected into a token layer. This blocks any rule from reintroducing a literal going forward. The one
 # exception is the allowlist below; if it grows, update design.md's table too.
-TOKEN_SELECTORS = (":root", ":root[data-theme=light]")  # the only place a color literal may live
+# The token blocks: the two theme blocks (:root dark, :root[data-theme=light] light - each declares color-scheme) hold
+# the theme colours; the scale block (the :root without color-scheme) holds only the theme-independent colours,
+# SCALE_COLOURS: the Limn brand colours (--limn-*) and the text on the instance label (--brand-foreground).
+TOKEN_SELECTORS = (":root", ":root[data-theme=light]")
+SCALE_COLOURS = re.compile(r"--limn-[a-z]+|--brand-foreground")
 
 
 COLOR_RE = re.compile(
@@ -1338,18 +1342,52 @@ def css_rules():
     return out
 
 
+def misplaced_colours(rules):
+    """Every colour literal of rules ((selector, [(property, value)]) as css_rules gives them) that is not where it
+    belongs, as "selector { property:value }": a theme colour is a custom property of a theme block (a TOKEN_SELECTORS
+    rule that declares color-scheme) other than a SCALE_COLOURS name; a theme-independent colour is a SCALE_COLOURS
+    property of the scale block (":root" without color-scheme). Any other colour literal - in a rule, in the scale
+    block under another name, a brand colour in a theme block - is misplaced."""
+    bad = []
+    for sel, decls in rules:
+        theme = sel in TOKEN_SELECTORS and any(k == "color-scheme" for k, _ in decls)
+        scale = sel == ":root" and not theme
+        for k, v in decls:
+            if not COLOR_RE.search(v):
+                continue
+            brand = SCALE_COLOURS.fullmatch(k) is not None
+            placed = (theme and k.startswith("--") and not brand) or (scale and brand)
+            if not placed:
+                bad.append("%s { %s:%s }" % (sel, k, v))
+    return bad
+
+
 class FrontendDesignTokens(unittest.TestCase):
     """Ensure both viewer themes use the documented token scales and no stray design literals."""
 
     def test_colour_literals_only_in_token_blocks(self):
-        bad = []
-        for sel, decls in css_rules():
-            for k, v in decls:
-                if sel in TOKEN_SELECTORS and k.startswith("--"):
-                    continue  # a token definition
-                if COLOR_RE.search(v):
-                    bad.append("%s { %s:%s }" % (sel, k, v))
-        self.assertEqual(bad, [])
+        """The page's CSS keeps theme colours in the two theme blocks and the brand colours (plus the label's text
+        colour) in the scale block - no colour literal anywhere else."""
+        self.assertEqual(misplaced_colours(css_rules()), [])
+
+    def test_a_colour_in_the_wrong_block_is_caught(self):
+        """The guard tells the blocks apart: a theme colour planted in the scale block, a brand colour in a theme
+        block, and a colour in an ordinary rule are each reported; the same tokens in their own blocks are not."""
+        dark = (":root", [("color-scheme", "dark"), ("--muted", "#27272a"), ("--mark-tile", "var(--limn-ink)")])
+        light = (":root[data-theme=light]", [("color-scheme", "light"), ("--muted", "#f4f4f5")])
+        scale = (":root", [("--brand-foreground", "#ffffff"), ("--limn-ink", "#15161a"), ("--radius", "6px")])
+        self.assertEqual(misplaced_colours([dark, light, scale]), [])
+        for planted, expect in (
+            ((":root", [("--limn-ink", "#15161a"), ("--muted", "#123456")]), ":root { --muted:#123456 }"),
+            (
+                (":root[data-theme=light]", [("color-scheme", "light"), ("--limn-ver", "#e8452c")]),
+                ":root[data-theme=light] { --limn-ver:#e8452c }",
+            ),
+            ((".limn-mark-pin", [("fill", "#e8452c")]), ".limn-mark-pin { fill:#e8452c }"),
+            ((":root", [("color", "white")]), ":root { color:white }"),
+        ):
+            with self.subTest(planted=planted):
+                self.assertEqual(misplaced_colours([dark, light, scale, planted]), [expect])
 
     def test_both_themes_define_every_colour_token(self):
         blocks = {
