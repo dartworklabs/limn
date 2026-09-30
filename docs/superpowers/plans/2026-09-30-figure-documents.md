@@ -304,6 +304,7 @@ The phase plans raised these; they are folded into the sections above. Plans tha
 | Orchestrator | `MAP_MAX_TEXT = 200`; `el` dropped by a `loc` without it |
 | P1b port | #114 moved the modules (figmap → builds/figure_map, build → builds/artifacts, documents → runtime/documents, mapping → pins/location/mapping, pins/render → pins/listing/render, pins/view → pins/listing/projection, features/<cap> → <cap>); contract names unchanged |
 | P1b final | `pins.md` on disk refreshed on figure import; non-finite numbers read null; release blocker until P1c |
+| P1c | `FIGMAP_NAME` on the `limn.builds` surface (tests take it from there); the viewer never invents a `lines` rung (the edit ladder is `raw` only); a figure region is labelled by what the map found; release blocker removed, version bump left to the release step |
 
 ## Intermediate states
 

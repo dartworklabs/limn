@@ -32,7 +32,8 @@ screenshot), edit the source, and close each pin with what they changed; a perso
 on the same private network pin too, and every pin records who left it.
 
 - Single stdlib-only Python server, browser viewer with vector PDF rendering (bundled PDF.js)
-- Several documents per manuscript (manuscript, response letter, view-only reviewer PDFs, and, in part, figure documents) as tabs
+- Several documents per manuscript (manuscript, response letter, view-only reviewer PDFs, figure documents) as tabs
+- Figure documents: a figure set drawn by code (one PDF page per figure plus a `limn-figure-map/1` element map) opens as a tab; a drag names the element and the script lines that drew it, and the pin's mark follows the element when the figure is rendered again
 - Rebuilds on demand or when the upstream branch moves (`--git-pull`)
 - Threads, questions, @mentions, assignees, review before done, a diff view per pin
 - One [Reply] on a closed pin: a person's reply sends it back to the agent (a line under the box says so first; undo after sending), and a 30-day Trash for deleted pins
