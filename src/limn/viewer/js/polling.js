@@ -77,6 +77,8 @@ const MY_ACTIONS=new Map();
 function markMine(id){MY_ACTIONS.set(id,Date.now()+10000);}
 function consumeMine(id){const until=MY_ACTIONS.get(id); if(until===undefined)return false;
   MY_ACTIONS.delete(id); return Date.now()<=until;}
+// Announces what changed between two list refreshes: pins closed, sent to review or dropped by someone else, and an open pin
+// whose location or figure element was lost or moved. An action this tab performed is swallowed (markMine).
 function diffToast(prev,d,dropped){
   // prev is only the "open pins" this tab saw last time (PINS never holds done ones). d is every open+closed
   // pin (all=1) from this GET - if an id that was in prev is also in d with done=true, it was completed; if it's
@@ -96,6 +98,7 @@ function diffToast(prev,d,dropped){
     toast(tl('#{id} 을 {name} 가 삭제함',{id,name:nm||tr('다른 세션')}),'warn',{label:'되살리기',fn:()=>restorePin(id)},{keys:[EVENT_TYPE.DROPPED+':'+id]});});
   (d||[]).filter(p=>pinState(p)===PIN_STATE.OPEN).forEach(p=>{const was=byId.get(p.id); if(!was)return;
     if(!was.stale&&p.stale){toast(tl('#{id} 위치를 잃었습니다',{id:p.id}),'warn');return;}
+    if(was.el_sync!==EL_SYNC.LOST&&p.el_sync===EL_SYNC.LOST){toast(tl('#{id} 요소를 잃었습니다',{id:p.id}),'warn');return;}   // a re-render lost a figure pin's element
     const m=/^moved ([+-]\d+)$/.exec(p.sync||''),wm=/^moved ([+-]\d+)$/.exec(was.sync||'');
     if(m&&(!wm||wm[1]!==m[1]))toast(tl('#{id} 줄 {delta} 이동',{id:p.id,delta:m[1]}),'ok');});
 }

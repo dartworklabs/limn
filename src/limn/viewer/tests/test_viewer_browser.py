@@ -1785,3 +1785,59 @@ class FigureDocuments(BrowserBase):
                 )
                 self.assertEqual((rec["scope"], rec["kind"], rec["lo"], rec["hi"]), want)
                 self.assertEqual(rec["el"]["id"], helpers_figure.CELL_ID)
+
+    def rerender_and_refresh(self, page, **july) -> None:
+        """The figure is rendered again into build BUILD2 (helpers_figure.viewer_rerender with july/july_page) and the
+        viewer takes it the way its poll does (refreshDoc: pages, then pins)."""
+        helpers_figure.viewer_rerender(self.fig, **july)
+        page.evaluate("async()=>await refreshDoc()")
+        page.wait_for_function("b=>META.pages_build===b", arg=helpers_figure.BUILD2, timeout=8000)
+        settle(page)
+
+    def test_a_saved_pins_mark_follows_its_element_after_a_re_render(self):
+        """The mark starts on the cell; after a re-render moves the cell it is drawn at the cell's new box, solid (a
+        placed element is no estimate)."""
+        page = self.open_fig()
+        pid = self.saved_cell_pin(page, "7월 칸 글자 키우기")
+        mark = '.mark[data-pin="%d"]' % pid
+        self.assert_box(page, mark, 1, helpers_figure.JULY)
+        moved = (0.30, 0.18, 0.07, 0.12)  # clear of the August cell
+        self.rerender_and_refresh(page, july=moved)
+        self.assert_box(page, mark, 1, moved)
+        self.assertEqual(page.evaluate("s=>[...document.querySelector(s).classList]", mark), ["mark"])
+
+    def test_a_mark_whose_element_moved_to_page_2_is_drawn_and_counted_there(self):
+        """The cell moves to page 2: its mark is drawn there, the card's page link says 2쪽, and [보기] brings the mark
+        on screen."""
+        page = self.open_fig()
+        pid = self.saved_cell_pin(page, "7월 칸 글자 키우기")
+        there = (0.30, 0.40, 0.10, 0.05)
+        self.rerender_and_refresh(page, july=there, july_page=2)
+        mark, card = '.mark[data-pin="%d"]' % pid, '.pin[data-id="%d"]' % pid
+        self.assert_box(page, mark, 2, there)
+        self.assertEqual(self.text(page, card + " .pg-link"), "2쪽")
+        page.click(card + " .pg-link")
+        settle(page)
+        self.assertTrue(
+            page.evaluate(
+                """s=>{const m=document.querySelector(s).getBoundingClientRect(),l=document.getElementById('left').getBoundingClientRect();
+                return m.top>=l.top&&m.bottom<=l.bottom;}""",
+                mark,
+            )
+        )
+
+    def test_a_lost_element_shows_element_lost_like_a_lost_line(self):
+        """The re-render drops the cell: the card gets '요소 잃음', the lost dot and the warning border, the mark stays
+        where the pin was placed in the warning colour, and one toast says so."""
+        page = self.open_fig()
+        pid = self.saved_cell_pin(page, "7월 칸 글자 키우기")
+        self.rerender_and_refresh(page, july=None)
+        card, mark = '.pin[data-id="%d"]' % pid, '.mark[data-pin="%d"]' % pid
+        self.assertIn("요소 잃음", self.text(page, card + " .tags"))
+        self.assertEqual(
+            page.evaluate("s=>[...document.querySelector(s).classList]", card + " .st-dot"), ["st-dot", "lost"]
+        )
+        self.assertTrue(page.evaluate("s=>document.querySelector(s).classList.contains('st')", card))
+        self.assertTrue(page.evaluate("s=>document.querySelector(s).classList.contains('st')", mark))
+        self.assert_box(page, mark, 1, helpers_figure.JULY)
+        self.assertEqual(page.locator("#toasts .toast").filter(has_text="#%d 요소를 잃었습니다" % pid).count(), 1)

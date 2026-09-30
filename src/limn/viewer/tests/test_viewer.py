@@ -1082,6 +1082,12 @@ class FrontendMobileLogic(unittest.TestCase):
                 extract_js_fn("locCopy"),
                 extract_js_fn("docChip"),
                 js_thread(),
+                extract_js_fn("isFrac"),
+                extract_js_fn("hasMark"),
+                extract_js_fn("pinPlace"),
+                extract_js_fn("elLost"),
+                extract_js_fn("elLostTag"),
+                extract_js_fn("figRegionBadge"),
                 extract_js_fn("card"),
                 js_icons(),
                 r"""
@@ -2327,6 +2333,115 @@ class FrontendFigure(unittest.TestCase):
         self.assertIsNone(off)
         self.assertIn("figRegionBadge(d.el,", extract_js_fn("renderRegionComposer"))
 
+    def test_a_figure_pins_mark_goes_to_its_element_and_otherwise_where_it_was_pinned(self):
+        """pinPlace uses the server's mark on mark_page when both are well formed, else the pin's page and frac; elLost
+        is true only for el_sync 'lost'."""
+        self.node()
+        js = "\n".join(
+            [extract_js_fn(n) for n in ("isFrac", "hasMark", "pinPlace", "elLost")]
+            + [
+                r"""
+            const P=[{page:1,frac:[0.1,0.1,0.1,0.1],mark:[0.55,0.2,0.07,0.12],mark_page:2,el_sync:'moved'},
+                     {page:1,frac:[0.1,0.1,0.1,0.1],el_sync:'lost'},
+                     {page:3,frac:[0.2,0.2,0.2,0.2]},
+                     {page:1,frac:[0.1,0.1,0.1,0.1],mark:[0.5,0.5],mark_page:1},
+                     {page:1,frac:[0.1,0.1,0.1,0.1],mark:[0.5,0.5,0.1,0.1],mark_page:0}];
+            console.log(JSON.stringify(P.map(p=>[pinPlace(p),elLost(p)])));"""
+            ]
+        )
+        pinned = {"page": 1, "frac": [0.1, 0.1, 0.1, 0.1]}
+        self.assertEqual(
+            json.loads(run_node(js)),
+            [
+                [{"page": 2, "frac": [0.55, 0.2, 0.07, 0.12]}, False],
+                [pinned, True],
+                [{"page": 3, "frac": [0.2, 0.2, 0.2, 0.2]}, False],
+                [pinned, False],
+                [pinned, False],
+            ],
+        )
+
+    def test_a_lost_element_badge_reads_element_lost_in_both_languages(self):
+        """The lost-element badge is the lost-line warning look with the text '요소 잃음' ('Element lost'); a moved or
+        plain pin has none."""
+        self.node()
+        for lang, word in (("ko", "요소 잃음"), ("en", "Element lost")):
+            with self.subTest(lang=lang):
+                js = "\n".join(
+                    [
+                        js_i18n(lang),
+                        js_esc(),
+                        js_icons(),
+                        js_tooltips(),
+                        extract_js_fn("elLost"),
+                        extract_js_fn("elLostTag"),
+                        "console.log(JSON.stringify([elLostTag({el_sync:'lost'}),elLostTag({el_sync:'moved'}),elLostTag({})]));",
+                    ]
+                )
+                tag, moved, plain = json.loads(run_node(js))
+                self.assertIn(word, tag)
+                self.assertIn('class="badge badge-warning"', tag)
+                self.assertIn("ic-triangle-alert", tag)
+                self.assertEqual((moved, plain), ("", ""))
+
+    def test_a_pin_that_loses_its_element_is_announced_once(self):
+        """The list refresh announces '#N 요소를 잃었습니다' when an open pin's element becomes lost, not when it already
+        was, and not for a move."""
+        self.node()
+        js = "\n".join(
+            [
+                r"""
+            function who(a){return (a&&(a.name||a.login))||'';}
+            const TOASTS=[]; function toast(m,k){TOASTS.push([m,k]);} function restorePin(){}
+            const MY_ACTIONS=new Map();""",
+                extract_js_fn("markMine"),
+                extract_js_fn("consumeMine"),
+                extract_js_fn("pinState"),
+                extract_js_fn("diffToast"),
+                r"""
+            diffToast([{id:1,el_sync:'ok'},{id:2,el_sync:'lost'},{id:3}],[{id:1,el_sync:'lost'},{id:2,el_sync:'lost'},{id:3,el_sync:'moved'}],[]);
+            console.log(JSON.stringify(TOASTS));""",
+            ]
+        )
+        self.assertEqual(json.loads(run_node(js)), [["#1 요소를 잃었습니다", "warn"]])
+
+    def test_marks_and_cards_place_a_figure_pin_where_its_element_is(self):
+        """marks() and the card's page link use pinPlace; a placed mark is not dashed; a lost element marks the card and
+        mark like a lost line; [보기] falls back to the mark's page; a figure region card is labelled by what the map
+        found."""
+        m = extract_js_fn("marks")
+        self.assertIn("const at=pinPlace(p),el=document.getElementById('p'+at.page);", m)
+        self.assertIn("if(!el||!isFrac(at.frac))return;", m)
+        self.assertIn("const est=isEstimated(p)&&!hasMark(p),lost=p.stale||elLost(p);", m)
+        c = extract_js_fn("card")
+        self.assertEqual(c.count("{page:pinPlace(p).page}"), 2)
+        self.assertEqual(c.count("p.stale||elLost(p)?CARD_DOT.LOST"), 2)
+        self.assertIn("const lostEl=elLostTag(p); if(lostEl)tags.push(lostEl);", c)
+        self.assertIn("figRegionBadge(p.el,(docInfo(pdoc(p))||{}).kind===DOC_KIND.FIGURE)", c)
+        self.assertIn("document.getElementById('p'+pinPlace(p).page)", extract_js_fn("jumpPin"))
+        self.assertIn("p.el_sync===EL_SYNC.LOST", extract_js_fn("diffToast"))
+
+    def test_null_boxes_and_a_null_claim_end_draw_nothing_and_claim_nothing(self):
+        """Whole-field null from the API (a stored non-finite frac, el.frac or claim_until reads null): a pin with a null
+        frac and no mark gets a place marks() skips, a mark that is not a box is no mark, a figure pick whose element box
+        is null saves el without frac and keeps the body's frac, a null claim_until is no active claim, and a hand-edited
+        list that is not four numbers is no box either."""
+        self.node()
+        js = "\n".join(
+            [extract_js_fn(n) for n in ("isFrac", "hasMark", "pinPlace", "elForSave", "figureFields", "claimActive")]
+            + [
+                r"""
+            const b=figureFields({frac:[0.1,0.1,0.2,0.2]},{id:'x',path:['x'],frac:null},null);
+            console.log(JSON.stringify([isFrac(pinPlace({page:1,frac:null,el:{id:'x',path:['x'],frac:null}}).frac),
+              hasMark({mark:null,mark_page:1}),b,claimActive({claim_until:null}),
+              isFrac(pinPlace({page:1,frac:[0.1,'x',0.2,0.2]}).frac)]));"""
+            ]
+        )
+        self.assertEqual(
+            json.loads(run_node(js)),
+            [False, False, {"frac": [0.1, 0.1, 0.2, 0.2], "el": {"id": "x", "path": ["x"]}}, False, False],
+        )
+
     def test_figure_fields_send_the_element_with_its_box_and_the_box_as_frac(self):
         """A pin body gets el with the record's fields only (id, path, label, part, impl, frac - no unknown keys), the
         element's box as its own frac too, and the element's kind when the range is that element's rung; nudged lines
@@ -2713,7 +2828,9 @@ class FrontendArchive(unittest.TestCase):
         self.assertEqual(css.count("--status-claimed:"), 2)  # both dark and light
         body = extract_js_fn("card")
         self.assertIn("(claimed?' claimed':'')", body)
-        self.assertIn("stDot(rv?CARD_DOT.REVIEW:p.stale?CARD_DOT.LOST:claimed?CARD_DOT.CLAIMED:CARD_DOT.OPEN)", body)
+        self.assertIn(
+            "stDot(rv?CARD_DOT.REVIEW:p.stale||elLost(p)?CARD_DOT.LOST:claimed?CARD_DOT.CLAIMED:CARD_DOT.OPEN)", body
+        )
         self.assertIn("tl('상태: {name}',{name:tr(ST_NAME[st])})", extract_js_fn("stDot"))
         self.assertIn('role="img" aria-label="\'+t+\'"', extract_js_fn("stDot"))  # not distinguished by color alone
         self.assertIn("ic('rotate-ccw')+'다시 열림", body)
@@ -3327,6 +3444,12 @@ class FrontendReview(unittest.TestCase):
                 extract_js_fn("docChip"),
                 extract_js_fn("arcTime"),
                 js_thread(),
+                extract_js_fn("isFrac"),
+                extract_js_fn("hasMark"),
+                extract_js_fn("pinPlace"),
+                extract_js_fn("elLost"),
+                extract_js_fn("elLostTag"),
+                extract_js_fn("figRegionBadge"),
                 extract_js_fn("card"),
                 js_icons(),
                 r"""

@@ -1100,5 +1100,8 @@
  "그림 지도를 읽지 못해 쪽·영역과 영역 글자로 핀을 남깁니다": "The figure map could not be read — the pin keeps its page, region and region text",
  "요소 {id}": "Element {id}",
  "코드 없는 요소": "Element without code",
- "이 자리는 지금 핀과 모양(줄/영역)이 달라 옮길 수 없습니다 — 다른 자리를 고르거나 새 핀을 남기세요": "This spot has a different shape (lines/region) from the pin, so the pin cannot move there — pick another spot or leave a new pin"
+ "이 자리는 지금 핀과 모양(줄/영역)이 달라 옮길 수 없습니다 — 다른 자리를 고르거나 새 핀을 남기세요": "This spot has a different shape (lines/region) from the pin, so the pin cannot move there — pick another spot or leave a new pin",
+ "요소 잃음": "Element lost",
+ "#{id} 요소를 잃었습니다": "#{id} lost its element",
+ "그림을 다시 그린 뒤 지도에서 이 요소를 찾지 못했습니다(요소 id가 바뀌었거나 지워짐). 표시는 핀을 찍은 때 자리에 그립니다. 이미 고쳐졌을 수 있으니 확인한 뒤 완료하거나 [수정] → 위치 다시 잡기를 하세요": "After the figure was redrawn, its map no longer has this element (its id changed or it was removed). The mark stays where the pin was placed. It may already be fixed — check, then mark it done, or use [Edit] → Relocate"
 }

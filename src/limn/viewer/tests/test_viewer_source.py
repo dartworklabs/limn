@@ -20,7 +20,7 @@ import unittest
 from pathlib import Path
 from typing import get_args
 
-from limn.builds import artifacts as build
+from limn.builds import artifacts as build, figure_map
 from limn.collaboration import events
 from limn.pins import model
 from limn.pins.editing import values as edit
@@ -311,6 +311,7 @@ SERVER_SETS = {
     "EVENT_TYPE": lambda: set(get_args(events.EventType)),
     "VIA": lambda: set(get_args(mapping.Via)),
     "DOC_KIND": lambda: set(get_args(documents.DocKind)),
+    "EL_SYNC": lambda: set(get_args(figure_map.ElSync)),
     "LOCAL_LOGIN": lambda: {access.LOCAL_LOGIN},
     "ASSIGNEE_AGENT": lambda: {edit.ASSIGNEE_AGENT},
 }
