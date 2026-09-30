@@ -12,6 +12,7 @@ Run: uv run pytest -q src/limn/features/builds/test_figure.py
 import ast
 import contextlib
 import io
+import json
 import os
 import tempfile
 import time
@@ -20,13 +21,14 @@ from pathlib import Path
 from unittest import mock
 
 from limn import build
-from limn.build import BuildConfig, BuildFailed, BuildOk
+from limn.build import BuildConfig, BuildFailed, BuildOk, BuildSkipped
 from limn.documents import Doc, RunPaths
+from limn.features.administration import serve_documents as startup_documents
 from limn.features.builds import figure
 from limn.figmap import FigureMap
 from limn.web.errors import build_failure_log
 
-from helpers import MINI_PDF, blank_png, figure_map, map_bytes
+from helpers import MINI_PDF, Base, blank_png, figure_map, map_bytes, ps, req, split_resp
 
 # pdftoppm stand-in (pdftoppm -r DPI -png PDF PREFIX): one page, the PNG named by LIMN_TEST_PAGE_PNG; exit 1 when
 # LIMN_TEST_PDFTOPPM is "fail".
@@ -389,3 +391,89 @@ class NoServerState(unittest.TestCase):
         modules = {n.module or "" for n in ast.walk(tree) if isinstance(n, ast.ImportFrom)}
         modules |= {a.name for n in ast.walk(tree) if isinstance(n, ast.Import) for a in n.names}
         self.assertFalse({m for m in modules if "server" in m or m.startswith("limn.web")})
+
+
+class FigureDocumentThroughTheServer(Base):
+    """A figure document served beside a LaTeX body, driven through server.py's build service and routes: startup
+    import, the watch tick, and the answers a figure document shares with a view-only PDF."""
+
+    def setUp(self):
+        """figs/out/figures.pdf with its map under the fixture manuscript, documents ms and fig (folder figs/), and the
+        fake pdftoppm on PATH."""
+        super().setUp()
+        self.figs = self.src / "figs"
+        (self.figs / "out").mkdir(parents=True)
+        self.pdf = self.figs / "out" / "figures.pdf"
+        self.map = self.figs / "out" / "figures.limnmap.json"
+        self.producer = Producer(self.pdf, self.map)
+        self.producer.render()
+        docs = startup_documents.make_docs(
+            ["ms=본문:main.tex", "fig=그림:figs::out/figures.limnmap.json"], self.src, ps.APP.C.paths
+        )
+        ps.APP.set_docs(docs)
+        self.fig = docs[1]
+        self.bin = tempfile.TemporaryDirectory()
+        self.addCleanup(self.bin.cleanup)
+        fake_pdftoppm(self, Path(self.bin.name))
+
+    def tearDown(self):
+        """Back to the single document before the fixture removes the manuscript."""
+        ps.APP.set_docs(None)
+        super().tearDown()
+
+    def test_startup_imports_a_figure_document_whose_files_agree(self):
+        """init_doc imports the pair even under --no-build; /pdf serves the checked PDF bytes, and /api/docs and
+        /api/meta report kind figure, view_only true, never stale, the map as main."""
+        self.assertIsInstance(ps.APP.build_requests.init_doc(self.fig, no_build=True, wait=True), BuildOk)
+        code, hdrs, body = split_resp(self.talk(req("GET", "/pdf?doc=fig")))
+        self.assertEqual((code, hdrs["content-type"], body), (200, "application/pdf", MINI_PDF))
+        code, _, body = split_resp(self.talk(req("GET", "/api/docs")))
+        brief = json.loads(body)["docs"][1]
+        self.assertEqual(
+            (brief["key"], brief["kind"], brief["view_only"], brief["stale_build"], brief["n_pages"]),
+            ("fig", "figure", True, False, 1),
+        )
+        code, _, body = split_resp(self.talk(req("GET", "/api/meta?doc=fig")))
+        m = json.loads(body)
+        self.assertEqual(
+            (m["kind"], m["view_only"], m["stale_build"], m["main"], m["build_seq"]),
+            ("figure", True, False, "figures.limnmap.json", 1),
+        )
+
+    def test_startup_leaves_a_figure_whose_files_disagree_unbuilt(self):
+        """A map describing a PDF not yet written: startup skips the document - no build state, no history."""
+        self.producer.write(self.map, map_bytes(figure_map(b"a pdf not written yet")))
+        with contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(ps.APP.build_requests.init_doc(self.fig, no_build=False, wait=True), BuildSkipped())
+        self.assertEqual(build.state_snapshot(self.fig)["state"], "idle")
+        self.assertEqual(build.load_builds(self.fig)["seq"], 0)
+
+    def test_the_watch_imports_a_figure_once_its_map_catches_up(self):
+        """A new PDF alone starts nothing and leaves build_seq; once its map lands, the tick starts a background
+        import that publishes the new PDF as the next build."""
+        ps.APP.build_requests.init_doc(self.fig, no_build=False, wait=True)
+        self.producer.write(self.pdf, OTHER_PDF)
+        with contextlib.redirect_stderr(io.StringIO()):
+            self.assertFalse(ps.APP.build_requests.refresh_watched(self.fig))
+        self.assertEqual(build.state_snapshot(self.fig)["seq"], 1)
+        self.producer.write(self.map, map_bytes(figure_map(OTHER_PDF)))
+        self.assertTrue(ps.APP.build_requests.refresh_watched(self.fig))
+        self.assertTrue(self.fig.lock.acquire(timeout=10))  # the background import holds the lock until it is done
+        self.fig.lock.release()
+        self.assertEqual(build.state_snapshot(self.fig)["seq"], 2)
+        self.assertEqual((build.cur_pages(self.fig) / "figures.pdf").read_bytes(), OTHER_PDF)
+
+    def test_a_latex_document_is_not_refreshed_by_the_watch(self):
+        """refresh_watched answers False for a document built from source and starts nothing."""
+        self.assertFalse(ps.APP.build_requests.refresh_watched(ps.APP.docs[0]))
+        self.assertEqual(build.state_snapshot(ps.APP.docs[0])["state"], "idle")
+
+    def test_rebuild_snippet_and_revisions_refuse_a_figure_document(self):
+        """POST /api/rebuild is 400 view_only_no_rebuild, a snippet is 400 no_source_lines, and the changes view is
+        unavailable - as for a view-only PDF."""
+        code, _, body = split_resp(self.talk(req("POST", "/api/rebuild?doc=fig")))
+        self.assertEqual((code, json.loads(body)["reason"]), (400, "view_only_no_rebuild"))
+        code, _, body = split_resp(self.talk(req("GET", "/api/snippet?doc=fig&file=main.tex&lo=1&hi=2")))
+        self.assertEqual((code, json.loads(body)["reason"]), (400, "no_source_lines"))
+        code, _, body = split_resp(self.talk(req("GET", "/api/revisions?doc=fig")))
+        self.assertEqual((code, json.loads(body)["available"]), (200, False))
