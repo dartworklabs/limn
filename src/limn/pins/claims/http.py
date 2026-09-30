@@ -7,6 +7,7 @@ from limn.pins.claims import input as claim_input
 from limn.pins.claims.rules import ClaimClosedPin, ClaimedByOther, NotClaimed
 from limn.pins.claims.service import PinClaims
 from limn.pins.model import DonePin, OpenPin, PinNotFound, Record, ReviewPin
+from limn.platform.values import wire_value
 from limn.security.access import PostAuthority
 from limn.web.answers import accepted
 from limn.web.errors import HTTPError
@@ -48,7 +49,14 @@ def claim_answer(
         case ClaimClosedPin(pin=ReviewPin(record=record) | DonePin(record=record)):
             raise HTTPError(409, "done", pin=show(record), reason="done")
         case ClaimedByOther(claimed_by=holder, claim_until=until, eta_ts=eta_ts):
-            raise HTTPError(409, "claimed", claimed_by=holder, claim_until=until, eta_ts=eta_ts, reason="claimed")
+            raise HTTPError(
+                409,
+                "claimed",
+                claimed_by=holder,
+                claim_until=wire_value(until),
+                eta_ts=wire_value(eta_ts),
+                reason="claimed",
+            )
     if eta is not None:
         out["eta_min_applied"] = eta  # the clamped value, if sent above the ceiling (240)
     return out

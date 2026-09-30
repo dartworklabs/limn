@@ -24,7 +24,7 @@ from limn.pins.location.position import EstContext, epoch, pin_est
 from limn.pins.mentions import addressed_to, fyi_mentions_to
 from limn.pins.model import OpenPin, StateName, TrashedPin, parse_pin, state_of
 from limn.pins.thread import claim_holds
-from limn.platform.values import is_finite_num, is_int, is_num
+from limn.platform.values import is_finite_num, is_int, is_num, wire_value
 
 # One stored pin (or Trash entry) as the store read it, and one record as the API returns it: JSON objects.
 Row: TypeAlias = Mapping[str, Any]
@@ -53,9 +53,12 @@ def public_record(r: Row, place: tuple[str, str] | None) -> Json:
     composition root finds a line pin's file under the manuscript root now - (absolute path, path relative to the
     root) - and becomes `file` and `rel_path`; with None (a region pin, or a file it cannot locate) the stored file
     stays and there is no rel_path. rel_path is always this server's answer, never a value an older version left
-    behind. A non-finite number of `frac` or of `el.frac` (NaN, an Infinity, an integer no float holds: shapes the
-    store keeps in a hand-edited or legacy line) is None, number by number, so the body is strict JSON; the stored
-    line is not touched. Never changes r."""
+    behind. The API never carries a NaN, an Infinity or an integer no float holds (the store keeps them in a
+    hand-edited or legacy line): a `frac` or `el.frac` with any such entry is None as a whole (a mark drawn from the
+    finite entries would sit at a made-up position; limn.pins.element.element_of and the viewer skip such a frac
+    too), and every other stored number - synced_at, score, claim_until, claim_ts, eta_ts, and any number inside an
+    anchor, a thread entry or a field this version does not know - is None. The stored line is not touched. Never
+    changes r."""
     out = dict(r)
     out["rev"] = out["rev"] if is_int(out.get("rev")) else 0
     out.pop("file_rel", None)
@@ -67,16 +70,19 @@ def public_record(r: Row, place: tuple[str, str] | None) -> Json:
     el = out.get("el")
     if isinstance(el, dict) and "frac" in el:
         out["el"] = {**el, "frac": _wire_frac(el["frac"])}
-    return out
+    return {k: wire_value(v) for k, v in out.items()}
 
 
 def _wire_frac(frac: object) -> object:
-    """A stored frac as the wire can carry it: a list with each non-finite number replaced by None (a copy), anything
-    else - a string, a missing value, a record the store keeps as it is - unchanged. Finite numbers, 0.0 and 1.0
-    included, pass exactly."""
+    """A stored frac as the wire can carry it: None when it is a list with any non-finite number (the whole field: a
+    box with one made-up coordinate would put the mark at a made-up position), else a copy of it. Anything that is
+    not a list - a string, a missing value, a record the store keeps as it is - is unchanged. Finite numbers, 0.0 and
+    1.0 included, pass exactly."""
     if not isinstance(frac, list):
         return frac
-    return [v if not is_num(v) or is_finite_num(v) else None for v in frac]
+    if any(is_num(v) and not is_finite_num(v) for v in frac):
+        return None
+    return list(frac)
 
 
 # The box compared with when neither the element nor the pin recorded one. Its origin is off the page (-1, -1), so no

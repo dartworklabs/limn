@@ -46,9 +46,13 @@ directory are unchanged for an instance without figure documents. The viewer sid
 
 ### Fixes
 
-- **No NaN or Infinity in a response.** A non-finite number in a stored `frac` or `el.frac` (a hand-edited or legacy
-  line) reads as `null` in every pin response, number by number; the stored line is untouched. `pins.md` no longer
-  fails for a region pin with such a `frac`, which had failed every later pin write.
+- **No NaN or Infinity in a pin response.** A stored number that is NaN, an Infinity or an integer no float holds (a
+  hand-edited or legacy line) reads as `null` in every pin response, including the `claim_until` and `eta_ts` of a
+  `409 claimed`. A `frac` or `el.frac` with any such entry is `null` as a whole, since a box built from the finite
+  entries would put the mark at a made-up position. Every other number (`synced_at`, `score`, `claim_until`,
+  `claim_ts`, `eta_ts`, and numbers inside `anchor`, `thread` or a field this version does not know) is `null` one by
+  one. The stored line is untouched. `pins.md` no longer fails for a region pin with such a `frac`, which had failed
+  every later pin write.
 
 ### Rollback
 

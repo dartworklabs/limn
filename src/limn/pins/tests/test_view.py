@@ -463,24 +463,62 @@ class PublicRecord(unittest.TestCase):
 
 
 class PublicRecordNumbers(unittest.TestCase):
-    """public_record never lets a NaN, an Infinity or an oversized integer of frac or el.frac reach the wire."""
+    """public_record never lets a NaN, an Infinity or an oversized integer of any stored number reach the wire."""
 
     NAN, INF = float("nan"), float("inf")
 
-    def test_a_non_finite_number_of_frac_and_of_el_frac_reads_as_null_one_by_one(self):
-        """Each non-finite number (NaN, both infinities, an integer no float holds) is None; its finite neighbours stay,
-        in both the pin's own frac and the element's."""
-        r = {"id": 1, "rev": 0, "frac": [self.NAN, 0.1, -self.INF, HUGE], "el": {**EL, "frac": [0.0, self.INF, 1, 0.5]}}
+    def test_a_frac_or_el_frac_with_any_non_finite_entry_reads_as_null_as_a_whole(self):
+        """One non-finite entry (NaN, both infinities, an integer no float holds) makes the whole frac None - in the
+        pin's own frac and in the element's - so no mark is drawn at a position made up from the finite entries; the
+        element's other keys stay, in order."""
+        for bad in (self.NAN, self.INF, -self.INF, HUGE):
+            with self.subTest(bad=bad):
+                r = {"id": 1, "rev": 0, "frac": [bad, 0.1, 0.2, 0.3], "el": {**EL, "frac": [0.0, 0.1, bad, 0.5]}}
+                out = public_record(r, None)
+                self.assertIsNone(out["frac"])
+                self.assertIsNone(out["el"]["frac"])
+                self.assertEqual(list(out["el"]), list(EL))
+
+    def test_each_number_field_a_record_stores_reads_as_null_when_it_is_non_finite(self):
+        """synced_at, score, claim_until, claim_ts and eta_ts (epoch seconds and scores the record check keeps as any
+        JSON number) read None when NaN, an Infinity or an oversized integer, and come back as stored when finite."""
+        for key in ("synced_at", "score", "claim_until", "claim_ts", "eta_ts"):
+            for bad in (self.NAN, self.INF, -self.INF, HUGE):
+                with self.subTest(key=key, bad=bad):
+                    self.assertIsNone(public_record({"id": 1, key: bad}, None)[key])
+            with self.subTest(key=key, finite=True):
+                self.assertEqual(public_record({"id": 1, key: 12.5}, None)[key], 12.5)
+                self.assertEqual(public_record({"id": 1, key: 0}, None)[key], 0)
+
+    def test_a_non_finite_number_nested_in_any_other_field_reads_as_null(self):
+        """A number the store keeps inside an anchor, a thread entry, a change or a field this version does not know
+        (every one passes the record check untouched) is None when non-finite; its neighbours stay as stored."""
+        r = {
+            "id": 1,
+            "anchor": {"score": self.NAN, "n": 3},
+            "thread": [{"at": "t", "x": [self.INF, 1.5]}],
+            "changes": [{"file": "a.tex", "lo": 1, "hi": 2, "w": -self.INF}],
+            "future": {"deep": [{"v": self.NAN}, 0.25]},
+        }
         out = public_record(r, None)
-        self.assertEqual(out["frac"], [None, 0.1, None, None])
-        self.assertEqual(out["el"]["frac"], [0.0, None, 1, 0.5])
-        self.assertEqual(list(out["el"]), list(EL))  # the element's other keys stay, in order
+        self.assertEqual(out["anchor"], {"score": None, "n": 3})
+        self.assertEqual(out["thread"], [{"at": "t", "x": [None, 1.5]}])
+        self.assertEqual(out["changes"], [{"file": "a.tex", "lo": 1, "hi": 2, "w": None}])
+        self.assertEqual(out["future"], {"deep": [{"v": None}, 0.25]})
 
     def test_the_answer_is_strict_json(self):
         """The encoded answer parses with a parser that refuses NaN and Infinity, as the browser's JSON.parse does."""
-        r = {"id": 1, "frac": [self.NAN, 0, 0, 0], "el": {**EL, "frac": [self.INF, 0, 0, 0]}}
+        r = {
+            "id": 1,
+            "frac": [self.NAN, 0, 0, 0],
+            "el": {**EL, "frac": [self.INF, 0, 0, 0]},
+            "score": self.NAN,
+            "claim_until": -self.INF,
+            "anchor": {"x": self.INF},
+        }
         strict = json.loads(json.dumps(public_record(r, None)), parse_constant=self.refuse)
-        self.assertEqual((strict["frac"][0], strict["el"]["frac"][0]), (None, None))
+        self.assertEqual((strict["frac"], strict["el"]["frac"], strict["score"]), (None, None, None))
+        self.assertEqual((strict["claim_until"], strict["anchor"]), (None, {"x": None}))
 
     @staticmethod
     def refuse(name):
@@ -503,10 +541,10 @@ class PublicRecordNumbers(unittest.TestCase):
         self.assertEqual(public_record({"id": 1, "el": {"id": "x"}}, None)["el"], {"id": "x"})
 
     def test_the_stored_record_is_not_changed(self):
-        """r keeps its NaN and its nested el: the read never writes back."""
-        r = {"id": 1, "frac": [self.NAN, 0, 0, 0], "el": {**EL, "frac": [self.INF, 0, 0, 0]}}
+        """r keeps its NaN, its nested el and its nested anchor number: the read never writes back."""
+        r = {"id": 1, "frac": [self.NAN, 0, 0, 0], "el": {**EL, "frac": [self.INF, 0, 0, 0]}, "anchor": {"x": self.NAN}}
         public_record(r, None)
-        self.assertTrue(math.isnan(r["frac"][0]) and math.isinf(r["el"]["frac"][0]))
+        self.assertTrue(math.isnan(r["frac"][0]) and math.isinf(r["el"]["frac"][0]) and math.isnan(r["anchor"]["x"]))
 
 
 class LegacyClaimStart(Base):

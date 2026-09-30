@@ -288,9 +288,9 @@ class HostileStoredPins(FigureBase):
 
 
 class NonFiniteNumbers(FigureBase):
-    """A hand-edited or legacy pins.jsonl that holds NaN or Infinity in frac or el.frac: every endpoint that echoes a
-    stored record answers strict JSON (what the browser's JSON.parse reads), with those numbers as null, and the stored
-    bytes stay as they were."""
+    """A hand-edited or legacy pins.jsonl that holds NaN or Infinity in a stored number: every endpoint that echoes a
+    stored record answers strict JSON (what the browser's JSON.parse reads). A frac or el.frac with any such entry reads
+    null as a whole, any other such number reads null, and the stored bytes stay as they were."""
 
     def setUp(self):
         """July (a line pin with el) gets a NaN in frac and an Infinity in el.frac; August (a region pin with el) a
@@ -327,20 +327,20 @@ class NonFiniteNumbers(FigureBase):
         self.assertIn(b"Infinity", self.stored)
 
     def test_the_list_answers_strict_json_with_null_and_leaves_the_file_alone(self):
-        """GET /api/pins?all=1: frac and el.frac of both pins read null where they were non-finite, their finite
-        numbers are echoed, and the read-time fields are still there; pins.jsonl is the same bytes."""
+        """GET /api/pins?all=1: frac and el.frac of both pins read null as a whole, and the read-time fields are
+        still there; pins.jsonl is the same bytes."""
         pins = {p["id"]: p for p in self.get("/api/pins?all=1")}
-        self.assertEqual(pins[self.july]["frac"], [None, 0.1, 0.2, 0.3])
-        self.assertEqual(pins[self.july]["el"]["frac"], [None, 0.1, 0.2, 0.3])
-        self.assertEqual(pins[self.august]["frac"], [None, 0.1, 0.2, 0.3])
-        self.assertEqual(pins[self.august]["el"]["frac"], [0.1, None, 0.2, 0.3])
+        self.assertEqual(pins[self.july]["frac"], None)
+        self.assertEqual(pins[self.july]["el"]["frac"], None)
+        self.assertEqual(pins[self.august]["frac"], None)
+        self.assertEqual(pins[self.august]["el"]["frac"], None)
         self.assertIn("el_sync", pins[self.july])
         self.assertEqual(ps.APP.C.pins_jsonl.read_bytes(), self.stored)
 
     def test_one_pin_by_id_answers_strict_json_with_null(self):
         """GET /api/pins/{id}: the same nulls in the single pin's frac and el.frac; the file is unchanged."""
         pin = self.get("/api/pins/%d" % self.july)["pin"]
-        self.assertEqual((pin["frac"], pin["el"]["frac"]), ([None, 0.1, 0.2, 0.3], [None, 0.1, 0.2, 0.3]))
+        self.assertEqual((pin["frac"], pin["el"]["frac"]), (None, None))
         self.assertEqual(ps.APP.C.pins_jsonl.read_bytes(), self.stored)
 
     def test_the_trash_list_answers_strict_json_with_null(self):
@@ -352,8 +352,8 @@ class NonFiniteNumbers(FigureBase):
         trash = ps.APP.C.state / "pins.dropped.jsonl"
         kept = trash.read_bytes()
         dropped = {p["id"]: p for p in self.get("/api/pins/dropped")["dropped"]}
-        self.assertEqual(dropped[self.august]["frac"], [None, 0.1, 0.2, 0.3])
-        self.assertEqual(dropped[self.august]["el"]["frac"], [0.1, None, 0.2, 0.3])
+        self.assertEqual(dropped[self.august]["frac"], None)
+        self.assertEqual(dropped[self.august]["el"]["frac"], None)
         self.assertIn(b"NaN", kept)
         self.assertEqual(trash.read_bytes(), kept)
 
@@ -362,7 +362,37 @@ class NonFiniteNumbers(FigureBase):
         code, _, body = split_resp(self.talk(jreq("POST", "/api/pins/%d/claim" % self.july, {})))
         self.assertEqual(code, 200, body)
         echoed = self.strict(body)["pin"]
-        self.assertEqual((echoed["frac"], echoed["el"]["frac"]), ([None, 0.1, 0.2, 0.3], [None, 0.1, 0.2, 0.3]))
+        self.assertEqual((echoed["frac"], echoed["el"]["frac"]), (None, None))
+
+    def test_every_other_stored_number_reads_null_in_the_list_and_the_file_is_unchanged(self):
+        """score, claim_ts, claim_until and eta_ts of a pin hold NaN and Infinity (a claim that never lapses): the list
+        answers strict JSON with null for each, and pins.jsonl keeps the stored numbers."""
+        nan, inf = float("nan"), float("inf")
+        bob = {"login": "bob@example.com", "name": "Bob"}
+        self.rewrite(
+            self.august,
+            lambda r: r.update(score=nan, claim_ts=nan, claim_until=inf, eta_ts=-inf, claimed_by=bob, claimed_at="t"),
+        )
+        stored = ps.APP.C.pins_jsonl.read_bytes()
+        pin = {p["id"]: p for p in self.get("/api/pins?all=1")}[self.august]
+        for key in ("score", "claim_ts", "claim_until", "eta_ts"):
+            self.assertIn(key, pin)
+            self.assertIsNone(pin[key], key)
+        self.assertEqual(ps.APP.C.pins_jsonl.read_bytes(), stored)
+
+    def test_a_refused_claim_answers_strict_json_when_the_holders_numbers_are_not_finite(self):
+        """Another identity holds a claim that never lapses (claim_until Infinity, eta_ts NaN): the 409 names the
+        holder and answers both numbers as null, so the body is strict JSON."""
+        bob = {"login": "bob@example.com", "name": "Bob"}
+        self.rewrite(
+            self.august,
+            lambda r: r.update(claim_until=float("inf"), eta_ts=float("nan"), claimed_by=bob, claimed_at="t"),
+        )
+        code, _, body = split_resp(self.talk(jreq("POST", "/api/pins/%d/claim" % self.august, {})))
+        self.assertEqual(code, 409, body)
+        refused = self.strict(body)
+        self.assertEqual((refused["reason"], refused["claimed_by"]), ("claimed", bob))
+        self.assertEqual((refused["claim_until"], refused["eta_ts"]), (None, None))
 
     def test_finite_bounds_are_echoed_unchanged(self):
         """frac and el.frac made of 0.0 and 1.0 (the page's corners) come back exactly as stored."""

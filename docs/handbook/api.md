@@ -252,7 +252,7 @@ curl -s -H "Authorization: Bearer $(cat ~/.config/limn/<인스턴스>.token)" ht
 
 | 메서드 | 경로 | 설명 |
 | --- | --- | --- |
-| `GET` | `/api/pins` | 열린 핀 목록(JSON). 레코드마다 `rev`, `rel`(§겹친 핀과 덧붙이기), `est`(불리언, [build-sync.md](build-sync.md) §위치 추정 (`est`)), `state`(§검토 대기)가 채워진다. `rel`·`est`·`state` 는 계산 필드라 저장하지 않는다. `el` 이 있는 그림 핀에는 `mark`·`mark_page`·`el_sync` 도 붙는다(§그림 문서의 pick·핀). 저장된 `frac`·`el.frac` 에 NaN·Infinity 가 있으면 그 숫자는 응답에서 `null` 이다(§핀 레코드 스키마). `?all=1` 이면 닫힌 핀까지 준다. 이 경로는 줄 맞춤(sync) 쓰기를 한다 |
+| `GET` | `/api/pins` | 열린 핀 목록(JSON). 레코드마다 `rev`, `rel`(§겹친 핀과 덧붙이기), `est`(불리언, [build-sync.md](build-sync.md) §위치 추정 (`est`)), `state`(§검토 대기)가 채워진다. `rel`·`est`·`state` 는 계산 필드라 저장하지 않는다. `el` 이 있는 그림 핀에는 `mark`·`mark_page`·`el_sync` 도 붙는다(§그림 문서의 pick·핀). 저장된 숫자에 NaN·Infinity 가 있으면 응답에서 `null` 이다. `frac`·`el.frac` 은 필드 전체가 그렇다(§핀 레코드 스키마). `?all=1` 이면 닫힌 핀까지 준다. 이 경로는 줄 맞춤(sync) 쓰기를 한다 |
 | `GET` | `/api/pins/{id}` | 핀 한 건 `{pin}`. `GET /api/pins?all=1` 의 한 항목과 같은 모양이다(스레드 전부와 계산 필드 포함). 없으면 `404` |
 | `GET` | `/api/pins/dropped` | 휴지통 → `{dropped: [...]}`. 잠금 아래 원본과 휴지통을 함께 읽고, `dropped_at` 순으로 유효한 휴지통 항목만 낸다(쓰기 부작용 없음). 살아 있는 원본과 번호가 겹치거나 30일(`TRASH_DAYS`)이 지난 항목은 싣지 않는다(§휴지통). 계산 필드는 `expires_ts`(지워질 시각, epoch 초, 0.2.2+) 하나다. 뷰어의 휴지통이 이것을 쓴다. 열린 목록에서 사라진 핀이 완료인지 삭제인지 가르는 알림도 이것을 쓴다([build-sync.md](build-sync.md) §자동 동기화 (가벼운 meta 폴링)) |
 | `GET` | `/pins.md` | 원격 에이전트 진입점. `<state_dir>/pins.md` 와 같은 내용을 `text/markdown; charset=utf-8` 로 낸다. `GET /api/pins` 와 같은 sync 경로를 탄 뒤 렌더한다. 안내 줄의 base URL만 요청 `Host` 에 맞춘다. `Host` 가 `*.ts.net` 이면 `https://<Host 그대로>`, `--public-host` 이름이면 `https://<이름>[:<포트>]`, 루프백이면 기존 `http://127.0.0.1:<port>` 다. 디스크의 `<state_dir>/pins.md` 는 항상 루프백 base다. Host·Origin 검사는 다른 `GET` 과 같다 — §원격 에이전트 진입점 (`GET /pins.md`) |
@@ -877,7 +877,7 @@ curl -s -X POST http://127.0.0.1:<port>/api/pins/3/unclaim
 
 `snippet`, `warn`, `levels`, `default_level`, `rel`, `rel_path`, `overlaps`, `est`, `state`, `addressed`, `mark`, `mark_page`, `el_sync` 는 응답에만 있고 저장하지 않는다(§겹친 핀과 덧붙이기, [build-sync.md](build-sync.md) §위치 추정 (`est`)). `rel_path`(0.3.2+)는 §핀 파일의 위치로 찾은 원고 폴더 기준 상대 경로이고, 옛 레코드에도 계산해서 싣는다. 찾지 못하면 없다. `rel`(겹침 관계)과는 다른 필드다.
 
-**응답에는 NaN·Infinity 가 없다.** 저장된 `frac` 이나 `el.frac` 에 NaN·Infinity(손으로 고친 줄이나 옛 줄에 생길 수 있다)가 있으면, 모든 핀 응답이 그 숫자를 `null` 로 준다. `GET /api/pins`, `GET /api/pins/{id}`, 휴지통 목록, 변경 요청의 응답 `pin` 이 모두 그렇다. 숫자마다 바꾸므로 나머지 숫자는 그대로다. 저장된 줄은 고치지 않는다.
+**응답에는 NaN·Infinity 가 없다.** 저장된 숫자에 NaN·Infinity·float 로 담을 수 없는 큰 정수(손으로 고친 줄이나 옛 줄에 생길 수 있다)가 있으면, 모든 핀 응답이 그 숫자를 `null` 로 준다. `GET /api/pins`, `GET /api/pins/{id}`, 휴지통 목록, 변경 요청의 응답 `pin`, 그리고 `409 claimed` 의 `claim_until`·`eta_ts` 가 모두 그렇다. `frac` 과 `el.frac` 은 원소 하나라도 그러면 필드 전체가 `null` 이다. 유한한 원소로 상자를 맞추면 지어낸 위치에 표시가 그려지기 때문이다. 그 밖의 숫자는(`synced_at`·`score`·`claim_until`·`claim_ts`·`eta_ts`, 그리고 `anchor`·`thread`·모르는 필드 안의 숫자) 하나씩 `null` 이다. 저장된 줄은 고치지 않는다.
 
 ### 핀 파일의 위치
 
