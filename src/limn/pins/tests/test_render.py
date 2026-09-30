@@ -503,10 +503,18 @@ class BadgeWords(unittest.TestCase):
 
     def test_skill_ko_shares_its_figure_literals_with_the_pins_md_guidance(self):
         """The Korean words pins.md's FIGURE_GUIDANCE teaches (the shared part, the lost marker, the figure repository,
-        asking a person, and not closing when the place cannot be found: 닫지 말고) also stand in SKILL.ko.md, so the two
-        cannot drift into contradiction unnoticed - a flip from "do not close" to "close" would drop the literal."""
+        asking a person, not closing when the place cannot be found: 닫지 말고, and reporting instead of editing an element
+        from a design tool) also stand in SKILL.ko.md, so the two cannot drift into contradiction unnoticed - a flip
+        from "do not close" to "close" would drop the literal."""
         skill = SKILL_KO.read_text(encoding="utf-8")
-        for literal in ("공통 부품", "요소 잃음", "그림 저장소", "사람에게 묻", "닫지 말고"):
+        for literal in (
+            "공통 부품",
+            "요소 잃음",
+            "그림 저장소",
+            "사람에게 묻",
+            "닫지 말고",
+            "디자인 도구에서 왔으면 고치지 말고 보고한다",
+        ):
             with self.subTest(literal=literal):
                 self.assertIn(literal, render.FIGURE_GUIDANCE)
                 self.assertIn(literal, skill)
@@ -868,6 +876,11 @@ class FigureGuidance(unittest.TestCase):
         """The drawn-without-code sentence says the element may come from a script or a design file, so an agent does not
         search scripts for a graphic a design tool made."""
         self.assertIn("스크립트나 디자인 파일", render.FIGURE_GUIDANCE)
+
+    def test_the_figure_clause_says_an_element_from_a_design_tool_is_reported_not_edited(self):
+        """An element that comes from a design file has no code to edit: the clause tells the agent to report it, in the
+        words SKILL.ko.md uses."""
+        self.assertIn("요소가 디자인 도구에서 왔으면 고치지 말고 보고한다", render.FIGURE_GUIDANCE)
 
     def test_a_region_pin_on_a_figure_document_without_an_element_takes_the_figure_clause(self):
         """A pick that fell back because the map could not be read leaves a region pin without el on a figure document: it

@@ -845,5 +845,6 @@ class FigureDocumentThroughTheServer(Base):
         line pins (see pins/editing/tests/test_figure_pins.py)."""
         code, _, body = split_resp(self.talk(req("POST", "/api/rebuild?doc=fig")))
         self.assertEqual((code, json.loads(body)["reason"]), (400, "view_only_no_rebuild"))
+        self.assertNotIn("보기 전용", json.loads(body)["error"])  # the sentence holds for a figure document too
         code, _, body = split_resp(self.talk(req("GET", "/api/revisions?doc=fig")))
         self.assertEqual((code, json.loads(body)["available"]), (200, False))

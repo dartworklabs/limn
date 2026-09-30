@@ -180,7 +180,7 @@ section 단계는 두지 않는다. 절 전체를 범위로 잡으면 수백 줄
 2. 그런 요소가 없으면 드래그가 여러 요소에 걸친 경우다. `fill ≥ 0.5`(`FILL_MIN`)인 요소들의 가장 가까운 공통 조상을 고른다. 넓이가 없는 드래그는 아무것도 덮지 못한다.
 3. 그것도 없으면 뿌리, 곧 그림 전체다.
 
-`score`는 고른 요소의 `cover`다. 답의 `score`는 소수 둘째 자리로 줄여 주고, 줄이기 전 값이 0.3(`WEAK_SCORE`) 미만이면 원고 pick처럼 약한 일치 경고를 붙인다. 판단은 파일을 모르는 [`builds/figure_map.py`](../../src/limn/builds/figure_map.py)의 `pick_element`가 한다. 지도 사본을 받고 코드 줄을 읽는 쪽은 [`pins/location/figure.py`](../../src/limn/pins/location/figure.py)다. 줄은 원고 트리 안이면서 문서 폴더 안인 파일에서만 읽는다(`file_in_tree`, `tree_part`). 지도 사본은 같은 사본이 바뀌지 않는 동안 한 번만 파싱한다([`builds/artifacts.py`](../../src/limn/builds/artifacts.py)의 `BuildMapCache`, 실행마다 하나, 사본은 문서 폴더·빌드 이름·수정 시각·크기로 구별하며 16개까지 둔다).
+`score`는 고른 요소의 `cover`다. 답의 `score`는 소수 둘째 자리로 줄여 주고, 줄이기 전 값이 0.3(`WEAK_SCORE`) 미만이면 원고 pick처럼 약한 일치 경고를 붙인다. 판단은 파일을 모르는 [`builds/figure_map.py`](../../src/limn/builds/figure_map.py)의 `pick_element`가 한다. 지도 사본을 받고 코드 줄을 읽는 쪽은 [`pins/location/figure.py`](../../src/limn/pins/location/figure.py)다. 줄은 원고 트리 안이면서 문서 폴더 안인 파일에서만 읽는다(`file_in_tree`, `tree_part`). 지도 사본은 같은 사본이 바뀌지 않는 동안 한 번만 파싱한다([`builds/artifacts.py`](../../src/limn/builds/artifacts.py)의 `BuildMapCache`, 실행마다 하나, 사본은 문서의 상태 폴더(`docs/<키>/`)·빌드 이름·수정 시각·크기로 구별하며 16개까지 둔다).
 
 **줄을 줄 수 없으면 영역으로 떨어진다.** 두 경우가 있다.
 

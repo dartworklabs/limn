@@ -121,7 +121,7 @@ def parse_el(v: object) -> PinElement | None | InputRejected:
 
     id is a non-empty string; path a list of 1..EL_PATH_MAX non-empty strings ending with id; label and part strings
     when sent (an empty one counts as not sent, as the pick leaves it out); impl, when sent, {file, lo, hi} with file a
-    canonical relative POSIX path of at most EL_FILE_MAX characters (figmap.is_canonical_path: no '..', '.' or empty
+    canonical relative POSIX path of at most EL_FILE_MAX characters (limn.builds.figure_map.is_canonical_path: no '..', '.' or empty
     part, no leading '/', backslash or NUL) and 1 <= lo <= hi <= EL_LINE_MAX; frac, when sent, four finite numbers
     inside the page with positive area (parse_frac); every other string at most EL_TEXT_MAX characters. Keys other than
     these are dropped, as unknown top-level fields are: the value is the canonical element, and is what is stored."""
@@ -281,7 +281,7 @@ def parse_region(d: Json, facts: DocumentFacts) -> RegionLoc | InputRejected:
     for k in ("file", "lo", "hi", "scope"):
         if d.get(k) is not None:
             return InputRejected(
-                "보기 전용 문서(%s)의 핀에는 %s 가 없습니다 — 쪽(page)과 영역(frac)만 받습니다." % (facts.key, k),
+                "줄이 없는 영역 핀(%s)에는 %s 가 없습니다 — 쪽(page)과 영역(frac)만 받습니다." % (facts.key, k),
                 "no_source_lines",
             )
     pdf = facts.pdf

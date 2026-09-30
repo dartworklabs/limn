@@ -28,7 +28,7 @@ ADD_FIELDS = (
     "el",
 )
 REGION_FIELDS = ("page", "frac", "note", "quote", "pdf_build", "el")
-REGION_EDIT_REFUSAL = "보기 전용 문서의 핀에는 줄 범위가 없습니다 — 메모(note)와 영역(loc: page, frac)만 고칩니다."
+REGION_EDIT_REFUSAL = "줄이 없는 영역 핀에는 줄 범위가 없습니다 — 메모(note)와 영역(loc: page, frac)만 고칩니다."
 
 
 def parse_add(d: Json, known: Collection[str], facts: DocumentFacts) -> AddRequest | InputRejected:

@@ -6,8 +6,11 @@
 
 Figure pins, server side: a drag on a figure document is traced to the lines of the script that drew the element, a
 pin records its element, and its position is followed across re-renders. The agent contract grows (new fields and new
-values in existing lists); one field changes its value for figure documents (below). `pins.md`, the API and the state
-directory are unchanged for an instance without figure documents. The viewer side ships in 0.4.0.
+values in existing lists); one field changes its value for figure documents (below). For an instance without figure
+documents `pins.md`, the API and the state directory are unchanged, with these exceptions: the grown value lists and the
+`bad_via` and `bad_scope` sentences that list them, the wording of the `no_source_lines` and `view_only_no_rebuild`
+refusal sentences (same reason codes), anchors of `.py` sources skipping `#` comment lines, and non-finite stored
+numbers reading as `null`. The viewer side ships in 0.4.0.
 
 ### Added
 
@@ -42,6 +45,9 @@ directory are unchanged for an instance without figure documents. The viewer sid
   when its picks and pins were regions. Figure documents now take line pins, and `view_only` is the absence of line
   pins. `kind` is still `"figure"`, `POST /api/rebuild` still answers `400`, and the region answer of a figure pick
   that finds no lines still carries `view_only: true` (it names that answer, not the document).
+- The refusal sentences of `no_source_lines` (lines sent with a region pin, in a new pin or an edit) and
+  `view_only_no_rebuild` no longer call the document "view-only", since a figure document meets them too. Their reason
+  codes are unchanged.
 - `GET /api/snippet` no longer refuses a figure document; with `levels=1` it gives the `raw` rung alone.
 
 ### Fixes

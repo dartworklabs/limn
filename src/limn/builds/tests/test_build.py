@@ -608,7 +608,7 @@ class RebuildAnswer(unittest.TestCase):
                 (
                     400,
                     {
-                        "error": "보기 전용 문서(rv)는 재빌드하지 않습니다 — PDF 파일이 바뀌면 쪽을 저절로 다시 그립니다.",
+                        "error": "재빌드하지 않는 문서(rv)입니다 — PDF 파일이 바뀌면 쪽을 저절로 다시 그립니다.",
                         "reason": "view_only_no_rebuild",
                     },
                 ),

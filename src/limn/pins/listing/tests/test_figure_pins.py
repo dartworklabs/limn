@@ -770,6 +770,14 @@ class FigureMarkdownSharedPart(FigureBase):
         self.assertIn("«7월»", row)
         self.assertIn("## 설정에 없는 문서 · `gone`", md)
 
+    def test_a_pin_whose_document_is_now_a_latex_document_prints_no_part(self):
+        """The key `fig` is reconfigured as a LaTeX document: its pins are served again, but a LaTeX document has no
+        element map, so the shared part's folder is unknown and the row prints no 공통 부품."""
+        latex = Doc("fig", "그림", "tex", self.src, self.main, paths=ps.APP.C.paths)
+        ps.APP.set_docs([Doc("ms", "본문", "tex", self.src, self.main, paths=ps.APP.C.paths), latex])
+        row = self.row(self.md(), self.july)
+        self.assertNotIn("공통 부품", row)
+
     def test_hostile_stored_records_render_and_change_nothing(self):
         """A NaN or oversized el.frac and reversed impl lines: pins.md answers 200, prints no part for the bad lines, and
         pins.jsonl is byte for byte as the hand edit wrote it."""

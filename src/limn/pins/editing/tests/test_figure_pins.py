@@ -10,7 +10,16 @@ import json
 import unittest
 
 from limn.builds import MAP_MAX_TEXT
-from limn.pins.editing.location import EL_FILE_MAX, EL_LINE_MAX, EL_PATH_MAX, EL_REFUSAL, EL_TEXT_MAX, parse_el
+from limn.pins.editing.input import REGION_EDIT_REFUSAL
+from limn.pins.editing.location import (
+    EL_FILE_MAX,
+    EL_LINE_MAX,
+    EL_PATH_MAX,
+    EL_REFUSAL,
+    EL_TEXT_MAX,
+    parse_el,
+    parse_region,
+)
 from limn.pins.element import ElementImpl, PinElement
 from limn.runtime.documents import Doc
 from limn.security.access import LOCAL_ACTOR
@@ -116,7 +125,7 @@ class ParseEl(unittest.TestCase):
         self.assertEqual((EL_TEXT_MAX, EL_PATH_MAX, EL_FILE_MAX, EL_LINE_MAX), (200, 64, 1024, 1_000_000))
 
     def test_an_impl_file_must_be_a_canonical_relative_path(self):
-        """The rule a map's src.file and impl.file are held to (figmap.is_canonical_path): a '..', '.' or empty part, a
+        """The rule a map's src.file and impl.file are held to (limn.builds.figure_map.is_canonical_path): a '..', '.' or empty part, a
         leading or trailing '/', a backslash, a NUL, nothing at all, and more than EL_FILE_MAX characters are bad_el."""
         for file in (
             "",
@@ -255,6 +264,18 @@ class FigurePins(Base):
         self.assertEqual((rec["kind"], rec["el"]["id"]), ("region", "B2/calendar/m08"))
         self.assertNotIn("file", rec)
         self.assertTrue(fits(rec))
+
+    def test_the_region_pin_refusals_do_not_call_a_figure_document_view_only(self):
+        """Lines sent with a region pin of a figure document are refused no_source_lines, and neither that sentence nor
+        the one for an edit's lines says view-only: the figure document is not view-only. The reason codes stay."""
+        facts = ps.APP.document_facts(self.fig)
+        self.assertFalse(facts.view_only)
+        refused = parse_region({"lo": 1, "page": 1, "frac": [0.1, 0.1, 0.2, 0.2]}, facts)
+        self.assertIsInstance(refused, InputRejected)
+        self.assertEqual(refused.reason, "no_source_lines")
+        self.assertIn("lo", refused.message)
+        self.assertNotIn("보기 전용", refused.message)
+        self.assertNotIn("보기 전용", REGION_EDIT_REFUSAL)
 
     def test_an_agent_curl_without_el_routes_by_file_and_is_a_plain_line_pin(self):
         """No doc, no el: the file under figs/ routes the pin to the figure document, where it is a plain line pin."""

@@ -221,9 +221,9 @@ def build_pdf(D: BuildDoc, name: object) -> Path | None:
 def _inside_folder(base: Path, start: Path, rel: str) -> Path | None:
     """rel - the PDF path a figure map names, POSIX separators - resolved from the folder start, when it lies strictly
     inside base (already resolved) and no part below base starts with '.', the manuscript tree's rule for dot names
-    (limn.files.tree_part). None for an empty, absolute or over-long path, one holding a backslash or a NUL, the folder
-    base itself, or a path that cannot be resolved. Symlinks are resolved, so a link that leads out of base is outside.
-    The file need not exist; only metadata is read."""
+    (limn.platform.files.tree_part). None for an empty, absolute or over-long path, one holding a backslash or a NUL,
+    the folder base itself, or a path that cannot be resolved. Symlinks are resolved, so a link that leads out of base
+    is outside. The file need not exist; only metadata is read."""
     if not rel or len(rel) > PATH_MAX_CHARS or rel.startswith("/") or "\\" in rel or "\x00" in rel:
         return None
     try:
@@ -278,11 +278,11 @@ MAP_CACHE_MAX = 16  # parsed maps kept per run: the current and previous builds 
 @dataclass
 class BuildMapCache:
     """The parsed maps of one run's figure builds, so a pick, GET /api/pins and every pins.md render do not parse the
-    same map copy again. An entry is keyed by the document's folder, the build name and the copy's (mtime_ns, size):
-    the import writes a build's copy once, so an entry stays right, and a copy written again misses. At most
-    MAP_CACHE_MAX entries, the oldest dropped first. What an entry holds is a function of the copy's bytes alone (the
-    parse reads no other file), so an entry can never be stale against the filesystem and a warm cache answers what a
-    cold one does. Whoever reads a file a map names decides then whether it may be read.
+    same map copy again. An entry is keyed by the document's state folder (Doc.dir, docs/<key>/), the build name and
+    the copy's (mtime_ns, size): the import writes a build's copy once, so an entry stays right, and a copy written
+    again misses. At most MAP_CACHE_MAX entries, the oldest dropped first. What an entry holds is a function of the
+    copy's bytes alone (the parse reads no other file), so an entry can never be stale against the filesystem and a
+    warm cache answers what a cold one does. Whoever reads a file a map names decides then whether it may be read.
 
     Request threads share it: every read and write of the entries is under the lock. The entries are frozen
     dataclasses that nothing changes once parsed (FigureMap, MapRejected), so a map handed out stays usable while

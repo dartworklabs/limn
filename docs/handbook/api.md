@@ -46,7 +46,7 @@ JSON 객체는 중첩된 객체까지 키가 한 번만 나와야 한다. 같은
 | 요청 경계 | `400`·`403`·`413`·`415` | `transfer_encoding`·`bad_content_length`·`body_truncated`·`body_too_large`·`bad_content_type`·`bad_json`·`bad_query`·`duplicate_header`·`bad_host`·`bad_origin`·`invalid_authority` |
 | 인증·입장·역할 | `401`·`403` | `unauthenticated`·`loopback_agent_off`(루프백 에이전트를 끈 인스턴스에 헤더 없는 로컬 요청)·`headerless`·`bad_bearer`·`bad_token`·`not_member`·`not_allowed`·`viewer_only`·`owner_only`·`confirm_by_human` |
 | 경로 | `404` | `not_found`(없는 경로·vendor 파일), `pdf_build_gone`(`?build=` 의 빌드가 없음, pick 의 옛 빌드), `pdf_missing`(`?build=` 없이 지금 빌드의 PDF 가 없음) |
-| 문서 | `400`·`404` | `bad_doc`·`doc_mismatch`·`unknown_doc`·`no_source_lines`(보기 전용 문서에 줄을 보냄)·`view_only_no_rebuild` |
+| 문서 | `400`·`404` | `bad_doc`·`doc_mismatch`·`unknown_doc`·`no_source_lines`(보기 전용 문서나 영역 핀에 줄을 보냄)·`view_only_no_rebuild` |
 | 핀 | `404`·`409` | `pin_not_found`·`not_in_trash`·`pin_exists`, `409` 코드 `done`·`conflict`·`open`·`full`·`claimed` |
 | 핀 입력 | `400` | `not_integer`·`not_number`·`too_small`·`bad_note`·`note_too_long`·`bad_note_append`·`note_append_empty`·`note_append_too_long`·`bad_reply`·`reply_too_long`·`bad_ref`·`ref_too_long`·`bad_changes`·`too_many_changes`·`change_outside_manuscript`·`bad_pin`·`bad_assignee`·`unknown_assignee`·`bad_kind_req`·`bad_kind`·`bad_via`·`bad_scope`·`bad_el`·`bad_quote`·`bad_loc`·`bad_mentions`·`bad_event_cursor`·`bad_reopen`·`bad_review`·`text_required`·`bad_text`·`text_too_long`·`text_empty`·`base_rev_required`·`nothing_to_change`·`unknown_fields`·`confirm_required` |
 | 위치 | `400` | `bad_file`·`file_outside_manuscript`·`file_not_found`·`range_outside_file`·`pin_outside_manuscript`·`bad_page`·`page_out_of_range`·`bad_frac`·`frac_outside_page`·`bad_pdf_build` |
@@ -256,7 +256,7 @@ curl -s -H "Authorization: Bearer $(cat ~/.config/limn/<인스턴스>.token)" ht
 | `GET` | `/api/pins/{id}` | 핀 한 건 `{pin}`. `GET /api/pins?all=1` 의 한 항목과 같은 모양이다(스레드 전부와 계산 필드 포함). 없으면 `404` |
 | `GET` | `/api/pins/dropped` | 휴지통 → `{dropped: [...]}`. 잠금 아래 원본과 휴지통을 함께 읽고, `dropped_at` 순으로 유효한 휴지통 항목만 낸다(쓰기 부작용 없음). 살아 있는 원본과 번호가 겹치거나 30일(`TRASH_DAYS`)이 지난 항목은 싣지 않는다(§휴지통). 계산 필드는 `expires_ts`(지워질 시각, epoch 초, 0.2.2+) 하나다. 뷰어의 휴지통이 이것을 쓴다. 열린 목록에서 사라진 핀이 완료인지 삭제인지 가르는 알림도 이것을 쓴다([build-sync.md](build-sync.md) §자동 동기화 (가벼운 meta 폴링)) |
 | `GET` | `/pins.md` | 원격 에이전트 진입점. `<state_dir>/pins.md` 와 같은 내용을 `text/markdown; charset=utf-8` 로 낸다. `GET /api/pins` 와 같은 sync 경로를 탄 뒤 렌더한다. 안내 줄의 base URL만 요청 `Host` 에 맞춘다. `Host` 가 `*.ts.net` 이면 `https://<Host 그대로>`, `--public-host` 이름이면 `https://<이름>[:<포트>]`, 루프백이면 기존 `http://127.0.0.1:<port>` 다. 디스크의 `<state_dir>/pins.md` 는 항상 루프백 base다. Host·Origin 검사는 다른 `GET` 과 같다 — §원격 에이전트 진입점 (`GET /pins.md`) |
-| `GET` | `/api/snippet?file=&lo=&hi=` | 원문 줄 스니펫(80줄 캡). `&levels=1` 이면 그 범위를 기준으로 한 범위 사다리도 준다(그림 문서의 파일이면 `raw` 단계 하나. §그림 문서의 pick·핀). 원고 트리 밖(점으로 시작하는 이름 아래와 원고 안에 둔 상태 폴더 포함, §요청 형식과 경계)이거나 범위가 틀리면 `400`. 보기 전용 문서면 `400` |
+| `GET` | `/api/snippet?file=&lo=&hi=` | 원문 줄 스니펫(80줄 캡). `&levels=1` 이면 그 범위를 기준으로 한 범위 사다리도 준다(그림 문서에 대한 요청이면 `raw` 단계 하나. §그림 문서의 pick·핀). 원고 트리 밖(점으로 시작하는 이름 아래와 원고 안에 둔 상태 폴더 포함, §요청 형식과 경계)이거나 범위가 틀리면 `400`. 보기 전용 문서면 `400` |
 | `GET` | `/api/overlaps?file=&lo=&hi=` | 그 범위(저장 전 선택)와 열린 핀의 겹침 `{overlaps}`. 뷰어는 쓰지 않고(§겹친 핀과 덧붙이기), 에이전트 호환용으로 남긴다 |
 
 ### 핀 만들기와 상태 바꾸기
@@ -856,7 +856,7 @@ curl -s -X POST http://127.0.0.1:<port>/api/pins/3/unclaim
 | `rev` | 레코드 내용이 바뀌는 모든 쓰기(줄 이동·stale, 수정, 닫기, 다시 열기, 되살리기)에서 +1. 없으면 0 |
 | `scope` | `raw\|para\|env\|env2\|env3\|lines`, 그림 핀은 `el\|el2\|…\|el8\|fig`. 저장할 때 고른 범위 사다리 단계다 |
 | `via` | 범위를 찾은 방법 `synctex\|text\|map`. `map` 은 그림 문서의 요소 지도다 |
-| `el` | 그림 핀만 가진다. 가리킨 요소 `{id, path, label?, part?, impl?: {file, lo, hi}, frac?}`(§그림 문서의 pick·핀)다. 모양이 틀리면 그 줄은 깨진 줄이다. 모양이 틀린 경우는 객체가 아니거나, `id` 가 빈 문자열이거나, `path` 가 문자열 목록이 아니거나, `label`·`part` 가 문자열이 아니거나, `impl` 이 `{file: 문자열, lo: 정수, hi: 정수}` 가 아니거나, `frac` 이 숫자 4개가 아닌 때다. 이 필드를 모르는 이전 서버(0.3.5, 0.3.7, 0.3.8로 확인했다)는 모르는 필드로 지나치고, 되쓸 때 그대로 둔다 |
+| `el` | 그림 핀만 가진다. 가리킨 요소 `{id, path, label?, part?, impl?: {file, lo, hi}, frac?}`(§그림 문서의 pick·핀)다. 모양이 틀리면 그 줄은 깨진 줄이다. 모양이 틀린 경우는 객체가 아니거나, `id` 가 없거나 문자열이 아니거나 빈 문자열이거나, `path` 가 문자열 목록이 아니거나, `label`·`part` 가 문자열이 아니거나, `impl` 이 `{file: 문자열, lo: 정수, hi: 정수}` 가 아니거나, `frac` 이 숫자 4개가 아닌 때다. 이 필드를 모르는 이전 서버(0.3.5, 0.3.7, 0.3.8에서 확인된다)는 모르는 필드로 지나치고, 되쓸 때 그대로 둔다 |
 | `quote` | 선택. 호출자가 붙인 짧은 인용이다(60자에서 자른다) |
 | `pdf_build` | `frac` 을 찍은 빌드 id(쪽 디렉토리 이름). 없으면 옛 핀이다. 옛 필드명 `frac_build` 도 같은 뜻으로 읽는다([build-sync.md](build-sync.md) §위치 추정 (`est`)) |
 | `anchor` | `{head, tail, head_off, tail_off}`. 줄 맞춤의 기준이다. `*_off` 가 없는 옛 앵커는 0으로 본다([domain.md](domain.md) §줄 번호 재동기화) |
@@ -989,7 +989,7 @@ curl -s -X POST http://127.0.0.1:<port>/api/pins/3/unclaim
 
 1. 머리에 `` 문서: 본문(`ms`) 3건 · … · 리뷰어 코멘트(`rv`, 보기 전용) 1건 `` 한 줄과 소절 안내를 둔다.
 2. 열린 핀이 있는 문서마다 소절 `` ## <이름> · `<키>` · `<--manuscript 기준 경로>` `` 를 둔다. 보기 전용이면 제목 끝에 `— 보기 전용 PDF(줄 번호 없음)` 이, 그림 문서면 `— 그림(요소 지도)` 가 붙는다.
-3. 소절 안에 그 문서의 `기준: <head> · 빌드 <built_at>` 줄이 온다. 원고에서 빌드하지 않는 문서(보기 전용 PDF와 그림 문서)는 `빌드` 대신 `그림` 이라서 `기준: <head> · 그림 <built_at>` 이다. 그 문서의 `head`(git 밖이면 `-`)와 `built_at` 이 모두 있을 때만 이 줄이 온다. 그 뒤에 5열 표가 온다.
+3. 소절 안에 그 문서의 `기준: <head> · 빌드 <built_at>` 줄이 온다. 원고에서 빌드하지 않는 문서(보기 전용 PDF와 그림 문서)는 `빌드` 대신 `그림` 이라서 `기준: <head> · 그림 <built_at>` 이다. 그 문서의 `head` 가 있고 `-` 가 아니며(git 밖이면 `-`) `built_at` 이 있을 때만 이 줄이 온다. `head` 가 `-` 이면 이 줄은 없다. 그 뒤에 5열 표가 온다.
 
 머리의 단일 `기준:` 줄은 소절로 옮겨 간다. 설정에 없는 문서 키의 핀은 `` ## 설정에 없는 문서 · `<키>` `` 소절로 드러난다. 단일 문서(그림 문서가 아닌)에는 문서 소절이 없다. 머리의 `문서:` 줄에는 보기 전용 문서만 `보기 전용` 이 붙고, 그림 문서에는 붙지 않는다.
 
@@ -1015,7 +1015,7 @@ curl -s -X POST http://127.0.0.1:<port>/api/pins/3/unclaim
 
   파일은 위치 칸처럼 `--manuscript` 기준 경로다. 경로는 글자로만 이어 붙이고 파일을 열지 않는다. 손으로 고친 `pins.jsonl` 이 `..`·절대 경로·점 폴더를 작업 목록에 올리지 못하게 하려는 것이다.
 - 요소를 잃은 핀(`el_sync` 가 `lost`)은 번호 칸에 `요소 잃음` 이 붙는다. 기준은 그 문서의 지금 화면 빌드의 지도다. 디스크의 `<state_dir>/pins.md` 는 핀을 쓸 때, 서버를 띄울 때, 그림 가져오기가 새 빌드를 화면에 올릴 때 다시 써서 이 기준을 따라간다. `GET /pins.md` 는 요청마다 렌더한다.
-- 그림 핀이 열려 있으면 안내 문단 끝에 그림 핀 안내가 붙는다. 지금 `el` 이 있는 열린 핀이나 그림 문서의 열린 영역 핀이 있을 때다. 안내는 다음을 알린다. `«요소 이름»` 이 앞에 붙은 핀의 위치 칸은 그 요소를 그린 코드 줄이니 그 줄을 고칠 것. `공통 부품: 파일:줄` 은 여러 그림이 함께 쓰는 정의라서, 요청이 공통 모양에 관한 것이면 한 그림만 덮어쓰지 말고 사람에게 물을 것. 닫기 전에 그림 저장소에서 그림을 다시 렌더할 것(그림 문서에는 `/api/rebuild` 가 없다). `요소 잃음` 은 추측해 닫지 말고 보고할 것. 위치 칸이 쪽·영역뿐인 그림 핀은 코드 줄이 없으니, 고칠 곳은 LaTeX 문서가 아니라 그림 저장소에서 쪽·영역·요소 이름·메모로 그 요소를 그린 곳(스크립트나 디자인 파일)을 찾을 것. 못 찾으면 닫지 말고 사람에게 묻거나 보고한다. 이 안내 문장은 계약이다. 범례는 이 안내를 대신하지 않는다(§번호 칸의 표시).
+- 그림 핀이 열려 있으면 안내 문단 끝에 그림 핀 안내가 붙는다. 지금 `el` 이 있는 열린 핀이나 그림 문서의 열린 영역 핀이 있을 때다. 안내는 다음을 알린다. `«요소 이름»` 이 앞에 붙은 핀의 위치 칸은 그 요소를 그린 코드 줄이니 그 줄을 고칠 것. `공통 부품: 파일:줄` 은 여러 그림이 함께 쓰는 정의라서, 요청이 공통 모양에 관한 것이면 한 그림만 덮어쓰지 말고 사람에게 물을 것. 닫기 전에 그림 저장소에서 그림을 다시 렌더할 것(그림 문서에는 `/api/rebuild` 가 없다). `요소 잃음` 은 추측해 닫지 말고 보고할 것. 위치 칸이 쪽·영역뿐인 그림 핀은 코드 줄이 없으니, 고칠 곳은 LaTeX 문서가 아니라 그림 저장소에서 쪽·영역·요소 이름·메모로 그 요소를 그린 곳(스크립트나 디자인 파일)을 찾을 것. 못 찾으면 닫지 말고 사람에게 묻거나 보고한다. 요소가 디자인 도구에서 왔으면 고치지 말고 보고할 것. 이 안내 문장은 계약이다. 범례는 이 안내를 대신하지 않는다(§번호 칸의 표시).
 
 ### 이스케이프
 

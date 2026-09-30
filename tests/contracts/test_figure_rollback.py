@@ -10,7 +10,7 @@ that types kind, via, scope and el only as opaque strings/objects and passes eve
 PinStore takes that predicate directly (files, lock, valid, sync, render, refusal). v0.3.7 and v0.3.8 already have
 typed parsing (limn.pins.record.parse_record/parse_trashed, the same module this version extends with the `el` check) and a
 PinStore built from those two callables (files, lock, parse, parse_trashed, sync, render) bound to
-limn.documents.DOC_KEY_RE and limn.people.is_actor, same as server.parse_record does now. Both keep every field
+limn.runtime.documents.DOC_KEY_RE and limn.security.people.is_actor, same as server.parse_record does now. Both keep every field
 this version does not know and write it back unchanged.
 
 This test runs each release's own store on the figure records of tests/data/pin_records.jsonl: the live figure

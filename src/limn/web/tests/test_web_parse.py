@@ -628,7 +628,7 @@ class Locations(Tree):
         self.assertEqual(
             editing_input.parse_add({"lo": 1, "page": 1, "frac": [0, 0, 1, 1]}, (), facts),
             InputRejected(
-                "보기 전용 문서(rev)의 핀에는 lo 가 없습니다 — 쪽(page)과 영역(frac)만 받습니다.", "no_source_lines"
+                "줄이 없는 영역 핀(rev)에는 lo 가 없습니다 — 쪽(page)과 영역(frac)만 받습니다.", "no_source_lines"
             ),
         )
         self.assertEqual(

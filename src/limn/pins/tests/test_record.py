@@ -259,7 +259,7 @@ class FigureElement(unittest.TestCase):
     def test_a_non_finite_frac_does_not_break_the_line(self):
         """A NaN, an Infinity or an oversized integer in el.frac is still a shape the check trusts (is_num asks
         only int-or-float): the line stays unbroken. element_of, not this check, is where such a frac is later
-        dropped (limn.pins.element.NonFiniteFrac)."""
+        dropped (limn.pins.element.element_of, tested by NonFiniteFrac in limn.pins.tests.test_element)."""
         for bad_frac in (
             [float("nan"), 0.1, 0.1, 0.1],
             [0.1, float("inf"), 0.1, 0.1],

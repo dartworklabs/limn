@@ -145,9 +145,10 @@ class PinMarkdown:
     ) -> tuple[str | None, str | None]:
         """A figure pin's facts for its row: el_sync on its document's current map (asked at most once per document per
         render, kept in maps) and impl_scope, the folder of its document relative to --manuscript (doc_scope) when the
-        element has a shared part - None when it has none or its document is no longer served. The edge only passes the
-        folder; whether and how the shared part's file is printed is the renderer's rule (limn.pins.listing.render.shared_part_md).
-        Nothing is opened. (None, None) for a pin without a well-formed el. Total: a hostile stored el gives facts, never
+        element has a shared part - None when it has none, or when its document is no longer served or is no longer a
+        figure document (not doc.has_element_map: the key was reconfigured, so the folder means nothing for an element).
+        The edge only passes the folder; whether and how the shared part's file is printed is the renderer's rule
+        (limn.pins.listing.render.shared_part_md). Nothing is opened. (None, None) for a pin without a well-formed el. Total: a hostile stored el gives facts, never
         an error."""
         el = element_of(r.get("el"))
         if el is None:
@@ -156,7 +157,7 @@ class PinMarkdown:
             maps[doc_key] = self.deps.doc_figure_map(doc_key)
         sync = element_marks(r, maps[doc_key]).get("el_sync")
         doc = doc_by_key(self.deps.docs, doc_key)
-        if el.impl is None or doc is None:
+        if el.impl is None or doc is None or not doc.has_element_map:
             return sync, None
         return sync, doc_scope(doc, self.deps.C.src)
 
