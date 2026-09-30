@@ -17,6 +17,7 @@ import shutil
 import unittest
 from pathlib import Path
 
+from limn.builds import figure_map
 from limn.collaboration.events import NOTIFY_TYPES
 from limn.pins.listing import render as md_render
 from limn.pins.location import position
@@ -2326,6 +2327,148 @@ class FrontendFigure(unittest.TestCase):
         self.assertIsNone(off)
         self.assertIn("figRegionBadge(d.el,", extract_js_fn("renderRegionComposer"))
 
+    def test_figure_fields_send_the_element_with_its_box_and_the_box_as_frac(self):
+        """A pin body gets el with the record's fields only (id, path, label, part, impl, frac - no unknown keys), the
+        element's box as its own frac too, and the element's kind when the range is that element's rung; nudged lines
+        keep the body's kind; a pick without an element is untouched."""
+        self.node()
+        js = "\n".join(
+            [extract_js_fn(n) for n in ("isFrac", "elForSave", "elKind", "figureFields")]
+            + [
+                r"""
+            const cell={id:'B2/c/m07',path:['B2','B2/c','B2/c/m07'],label:'7월',part:'MonthCell',
+              impl:{file:'lib/components.py',lo:1,hi:5,extra:1},frac:[0.47,0.18,0.07,0.12],unknown:'x'};
+            const root={id:'B2',path:['B2'],frac:[0,0,1,1]};
+            console.log(JSON.stringify([
+              figureFields({frac:[0.48,0.2,0.04,0.08],kind:'lines'},cell,{el:cell}),
+              figureFields({frac:[0.48,0.2,0.04,0.08],kind:'lines'},cell,null),
+              figureFields({frac:[0.1,0.1,0.1,0.1]},{id:'x',path:['B2','x']},null),
+              figureFields({kind:'lines'},root,{el:root}),
+              figureFields({kind:'paragraph'},null,null)]));"""
+            ]
+        )
+        cell = {
+            "id": "B2/c/m07",
+            "path": ["B2", "B2/c", "B2/c/m07"],
+            "label": "7월",
+            "part": "MonthCell",
+            "impl": {"file": "lib/components.py", "lo": 1, "hi": 5},
+            "frac": [0.47, 0.18, 0.07, 0.12],
+        }
+        got = json.loads(run_node(js))
+        self.assertEqual(
+            got,
+            [
+                {"frac": [0.47, 0.18, 0.07, 0.12], "kind": "el:MonthCell", "el": cell},
+                {"frac": [0.47, 0.18, 0.07, 0.12], "kind": "lines", "el": cell},
+                {"frac": [0.1, 0.1, 0.1, 0.1], "el": {"id": "x", "path": ["B2", "x"]}},
+                {"kind": "figure", "el": {"id": "B2", "path": ["B2"], "frac": [0, 0, 1, 1]}, "frac": [0, 0, 1, 1]},
+                {"kind": "paragraph"},
+            ],
+        )
+        self.assertEqual(list(got[0]["el"]), ["id", "path", "label", "part", "impl", "frac"])  # the record's key order
+
+    def test_a_null_element_box_is_kept_out_of_the_saved_el_and_the_pins_frac(self):
+        """An element whose frac is null (the whole-field null of P1b) or has a non-finite entry sends its id and path
+        without a box and leaves the body's own frac alone."""
+        self.node()
+        js = "\n".join(
+            [extract_js_fn(n) for n in ("isFrac", "elForSave", "elKind", "figureFields")]
+            + [
+                r"""
+            const out=[];
+            for(const f of [null,[0.1,0.2,null,0.4],[0.1,0.2,0.3],'x'])
+              out.push(figureFields({frac:[0.5,0.5,0.1,0.1]},{id:'x',path:['B2','x'],part:'P',frac:f},{el:{path:['B2','x'],part:'P'}}));
+            console.log(JSON.stringify(out));"""
+            ]
+        )
+        want = {"frac": [0.5, 0.5, 0.1, 0.1], "kind": "el:P", "el": {"id": "x", "path": ["B2", "x"], "part": "P"}}
+        self.assertEqual(json.loads(run_node(js)), [want] * 4)
+
+    def test_el_kind_names_elements_like_the_server(self):
+        """The viewer's elKind() and the server's limn.builds.figure_map.element_kind() name the same elements the same
+        way: 'figure' for a page's root (with or without a part), 'el:<part>' below it with the part cut to 77
+        characters, 'el:?' without a part."""
+        self.node()
+        src = figure_map.SourceRef(file="B2_calendar.py", lo=1, hi=40)
+
+        def element(eid: str, parent: str | None, part: str | None, label: str | None) -> figure_map.MapElement:
+            """A map element of the parity cases at a fixed box with the given names."""
+            return figure_map.MapElement(
+                id=eid, parent=parent, frac=(0.1, 0.1, 0.2, 0.2), src=src, impl=None, part=part, label=label
+            )
+
+        cases = [
+            (element("B2", None, None, None), True, {"id": "B2", "path": ["B2"]}),
+            (element("B2", None, "Figure", "그림"), True, {"id": "B2", "path": ["B2"], "part": "Figure"}),
+            (
+                element("B2/c", "B2", "CalendarStrip", "달력"),
+                False,
+                {"id": "B2/c", "path": ["B2", "B2/c"], "part": "CalendarStrip"},
+            ),
+            (element("B2/c/x", "B2/c", None, "7월"), False, {"id": "B2/c/x", "path": ["B2", "B2/c", "B2/c/x"]}),
+            (
+                element("B2/c/y", "B2/c", "P" * 100, None),
+                False,
+                {"id": "B2/c/y", "path": ["B2", "B2/c", "B2/c/y"], "part": "P" * 100},
+            ),
+        ]
+        js = extract_js_fn("elKind") + "\nconsole.log(JSON.stringify(%s.map(elKind)));" % json.dumps(
+            [c[2] for c in cases], ensure_ascii=False
+        )
+        self.assertEqual(json.loads(run_node(js)), [figure_map.element_kind(e, root) for e, root, _ in cases])
+
+    def test_saving_and_re_placing_send_the_figure_element(self):
+        """savePin adds the figure fields after the region shape is chosen; a re-place adds them to its loc and snaps
+        its '새 위치' box to the candidate's element; the edit card keeps the pin's element (and follows it after a
+        re-place or a 409) and sends a range only when the lines changed."""
+        save = extract_js_fn("savePin")
+        region = (
+            "if(isRegion(d))body={page:d.page,frac:d.frac,note:note,quote:d.quote,pdf_build:d.pdf_build||undefined};"
+        )
+        self.assertLess(save.index(region), save.index("figureFields(body,d.elSel,isRegion(d)?null:figRung(d));"))
+        rp = extract_js_fn("applyRepick")
+        self.assertLess(
+            rp.index("if(isRegion(c))loc="), rp.index("figureFields(loc,repickEl(c),isRegion(c)||!lv.el?null:lv);")
+        )
+        self.assertIn("snapBox(REPICK.box,repickEl(c));", extract_js_fn("bannerCompare"))
+        self.assertIn("region:!!EDITOR.current.region", extract_js_fn("startRepick"))
+        self.assertIn("pinEl:p.el||null", extract_js_fn("openEdit"))
+        self.assertIn("(!E.pinEl&&(E.scope||null)!==(E.orig.scope||null))", extract_js_fn("saveEdit"))
+        self.assertIn("pinEl:p.el||null", extract_js_fn("applyRepick"))
+        self.assertIn("E.pinEl=p.el||null;", extract_js_fn("saveEdit"))
+
+    def test_a_re_place_candidate_of_the_other_shape_is_not_offered(self):
+        """/edit never turns a line pin into a region pin or back, so a candidate of the other shape (a region answer for
+        a line pin, lines for a region pin) is dropped and the banner asks for another drag with the reason; a candidate
+        of the same shape gets [이 위치로 바꾸기]."""
+        self.node()
+        js = "\n".join(
+            [js_tooltips(), js_esc()]
+            + [
+                extract_js_fn(n)
+                for n in ("isRegion", "lvOf", "levelLabel", "isFrac", "drawBox", "snapBox", "repickEl", "bannerCompare")
+            ]
+            + [
+                r"""
+            const out=[]; let REPICK;
+            function banner(h){out.push(/data-act="rp-apply"/.test(h)?'apply':'banner');}
+            function bannerRepick(err){out.push(['again',err]);} function scopeLabel(){return '';}
+            const region={kind:'region',page:1,frac:[0.2,0.2,0.1,0.1],pdf:'x.pdf',quote:''};
+            const line={file:'/f.py',page:1,lo:20,hi:30,default_level:'el',
+              levels:[{level:'el',lo:20,hi:30,label:'달력',el:{id:'B2/c',path:['B2','B2/c']}}]};
+            for(const [fromRegion,cand] of [[false,region],[true,line],[false,line],[true,region]]){
+              REPICK={id:7,from:{lo:24,hi:26,page:1,region:fromRegion},box:null,cand};
+              bannerCompare(); out.push(REPICK.cand===null);}
+            console.log(JSON.stringify(out));"""
+            ]
+        )
+        shape = "이 자리는 지금 핀과 모양(줄/영역)이 달라 옮길 수 없습니다 — 다른 자리를 고르거나 새 핀을 남기세요"
+        self.assertEqual(
+            json.loads(run_node(js)),
+            [["again", shape], True, ["again", shape], True, "apply", False, "apply", False],
+        )
+
 
 # ---------------------------------------------------------------- icons: Lucide only, no emoji/symbol glyphs
 # Emoji/basic-character icons (⏳ ▾ ☾ ✎ etc.) looked ugly because they render differently per
@@ -2751,6 +2894,7 @@ class FrontendSaveWhilePicking(unittest.TestCase):
             function saveDraftSoon(){} function syncDraft(){} function savedDraftSnapshot(){return null;}
             function restoredDraftOwns(){return false;} function clearSavedDraft(){}
             async function loadPins(){} function useLevel(){} function isRegion(){return false;} function kindFor(){return 'line';}
+            function figureFields(b){return b;} function figRung(){return null;}
             function banner(){} function bannerRepick(){} function bannerCompare(){} function revealBox(){}
             async function refreshDoc(){} function setSide(){} function setSelMode(){} function toast(){} function dropPin(){}
             const apiCalls=[]; let pickResolve=null, pickReject=null, pinResolve=null;

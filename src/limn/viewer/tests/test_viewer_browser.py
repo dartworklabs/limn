@@ -1685,3 +1685,103 @@ class FigureDocuments(BrowserBase):
         settle(page)
         self.assertEqual(page.evaluate("COMPOSE.current.elSel&&COMPOSE.current.elSel.id"), helpers_figure.CELL_ID)
         self.assert_box(page, "#doc .sel", 1, helpers_figure.JULY)
+
+    def assert_frac(self, got, want):
+        """A stored frac equal to want within float noise."""
+        self.assertEqual(len(got), 4, got)
+        for g, w in zip(got, want, strict=True):
+            self.assertAlmostEqual(g, w, places=6)
+
+    def saved_cell_pin(self, page, note) -> int:
+        """Pick the July cell, write note, press [핀 저장], and return the new pin's id once the list shows it."""
+        self.drag(page, helpers_figure.CELL_DRAG)
+        page.locator("#note").fill(note)
+        page.click("#btn-save")
+        page.wait_for_function("n=>OPEN_ALL.some(p=>p.note===n)", arg=note, timeout=8000)
+        settle(page)
+        return page.evaluate("n=>OPEN_ALL.find(p=>p.note===n).id", note)
+
+    def test_saving_a_pick_stores_the_chosen_element_its_box_and_kind(self):
+        """[핀 저장] on the cell stores the cell with its box as el, the cell's box as frac too, el:MonthCell and its
+        lines; after pressing the strip rung, the strip with its box, kind and lines."""
+        page = self.open_fig()
+        pid = self.saved_cell_pin(page, "7월 칸 글자 키우기")
+        rec = find_record(ps.APP.snapshot_pins(), pid)
+        self.assertEqual(
+            (rec["doc"], rec["scope"], rec["kind"], rec["via"], rec["lo"], rec["hi"]),
+            ("fig", "el", "el:MonthCell", "map", 88, 95),
+        )
+        self.assertEqual(
+            {k: v for k, v in rec["el"].items() if k != "frac"},
+            {
+                "id": helpers_figure.CELL_ID,
+                "path": [helpers_figure.ROOT_ID, helpers_figure.STRIP_ID, helpers_figure.CELL_ID],
+                "label": "7월",
+                "part": "MonthCell",
+                "impl": {"file": "lib/components.py", "lo": 410, "hi": 470},
+            },
+        )
+        self.assert_frac(rec["el"]["frac"], helpers_figure.JULY)
+        self.assert_frac(rec["frac"], helpers_figure.JULY)
+        self.drag(page, helpers_figure.CELL_DRAG)
+        page.click('#c-levels [data-level="el2"]')
+        settle(page)
+        page.locator("#note").fill("달력 줄 간격")
+        page.click("#btn-save")
+        page.wait_for_function("OPEN_ALL.some(p=>p.note==='달력 줄 간격')", timeout=8000)
+        settle(page)
+        strip = find_record(ps.APP.snapshot_pins(), page.evaluate("OPEN_ALL.find(p=>p.note==='달력 줄 간격').id"))
+        self.assertEqual(
+            (strip["scope"], strip["kind"], strip["lo"], strip["hi"], strip["el"]["id"]),
+            ("el2", "el:CalendarStrip", 80, 97, helpers_figure.STRIP_ID),
+        )
+        self.assert_frac(strip["el"]["frac"], helpers_figure.STRIP_FRAC)
+        self.assert_frac(strip["frac"], helpers_figure.STRIP_FRAC)
+
+    def test_re_placing_a_cell_pin_on_the_strip_moves_its_element_box_and_lines(self):
+        """[위치 다시 잡기] on the strip: '새 위치' snaps to the strip before [이 위치로 바꾸기], and the pin then stores
+        the strip - its element, box, kind and lines."""
+        page = self.open_fig()
+        pid = self.saved_cell_pin(page, "7월 칸 글자 키우기")
+        page.evaluate("id=>openEdit(id)", pid)
+        page.wait_for_selector(".edit .b-repick", timeout=8000)
+        page.click(".edit .b-repick")
+        page.wait_for_function("REPICK!==null", timeout=8000)
+        self.drag(page, helpers_figure.STRIP_DRAG, ready="REPICK&&REPICK.cand")
+        self.assert_box(page, "#doc .sel", 1, helpers_figure.STRIP_FRAC)
+        page.click('#banner [data-act="rp-apply"]')
+        page.wait_for_function("REPICK===null", timeout=8000)
+        settle(page)
+        rec = find_record(ps.APP.snapshot_pins(), pid)
+        self.assertEqual(
+            (rec["lo"], rec["hi"], rec["kind"], rec["el"]["id"]), (80, 97, "el:CalendarStrip", helpers_figure.STRIP_ID)
+        )
+        self.assert_frac(rec["frac"], helpers_figure.STRIP_FRAC)
+
+    def test_the_edit_card_keeps_a_figure_pins_element_and_kind_unless_its_lines_change(self):
+        """The edit card's ladder is the snippet route's raw rung only (P1b): pressing '지금 범위' and saving sends
+        nothing; nudging a line saves the new lines with kind 'lines', and the pin keeps its el (a range edit is no
+        loc). No tooltip reads 'undefined'."""
+        page = self.open_fig()
+        pid = self.saved_cell_pin(page, "7월 칸 글자 키우기")
+        for step in ("press the current range", "nudge one line down"):
+            with self.subTest(step=step):
+                page.evaluate("id=>openEdit(id)", pid)
+                page.wait_for_function("EDITOR.current&&EDITOR.current.levels.length>0", timeout=8000)
+                settle(page)
+                tips = page.eval_on_selector_all(".edit .e-levels button", "bs=>bs.map(b=>b.dataset.tip)")
+                self.assertTrue(tips and all("undefined" not in t for t in tips), tips)
+                if step == "press the current range":
+                    page.click('.edit .e-levels [data-level="raw"]')
+                else:
+                    page.click('.edit [data-dir="down-grow"]')
+                settle(page)
+                page.click(".edit .b-esave")
+                page.wait_for_function("EDITOR.current===null", timeout=8000)
+                settle(page)
+                rec = find_record(ps.APP.snapshot_pins(), pid)
+                want = (
+                    ("el", "el:MonthCell", 88, 95) if step == "press the current range" else ("lines", "lines", 88, 96)
+                )
+                self.assertEqual((rec["scope"], rec["kind"], rec["lo"], rec["hi"]), want)
+                self.assertEqual(rec["el"]["id"], helpers_figure.CELL_ID)

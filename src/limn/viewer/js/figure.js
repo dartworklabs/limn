@@ -29,3 +29,25 @@ function renderElement(o,box){const line=$('#c-path'),el=o.elSel; line.hidden=!e
 // it has no code lines for, '영역' when the map could not be read; null off figure documents without an element - the
 // caller keeps its view-only wording.
 function figRegionBadge(el,figure){return el?{t:tr('코드 없는 요소'),tip:tr(T.elregion)}:figure?{t:tr('영역'),tip:tr(T.figregion)}:null;}
+// The `el` a pin stores (POST /api/pin, an edit's loc): the pick's element with only the fields the pin record defines, in
+// its order - id, path, label, part, impl and the element's box `frac` on the build it was picked on, which the server's
+// read-time follow compares with the current build. A box that is not four finite numbers is left out.
+function elForSave(el){const out={id:el.id,path:Array.isArray(el.path)?el.path.slice():[]};
+  for(const k of ['label','part'])if(typeof el[k]==='string')out[k]=el[k];
+  if(el.impl&&typeof el.impl==='object')out.impl={file:el.impl.file,lo:el.impl.lo,hi:el.impl.hi};
+  if(isFrac(el.frac))out.frac=el.frac.slice();
+  return out;}
+// The range kind of an element rung as the server names it (limn.builds.figure_map.element_kind): 'figure' for the page's
+// root (its path is itself), else 'el:<part>' with the part cut to 77 characters (a kind stays within 80), 'el:?' without a
+// part. src/limn/viewer/tests/test_viewer.py runs both on the same elements.
+function elKind(el){return Array.isArray(el.path)&&el.path.length<=1?'figure':'el:'+String(el.part||'?').slice(0,77);}
+// Adds a figure pick's fields to a pin body or a re-place loc and returns it: `el`, the element's box as the pin's own
+// `frac` too (a mark drawn without the current map then sits where the person saw the snapped box), and the element's
+// kind when the range is that element's rung (rung given). A pick without an element is left as it is; lines nudged by
+// hand keep the kind the body already has.
+function figureFields(body,el,rung){if(!el)return body; body.el=elForSave(el); if(isFrac(el.frac))body.frac=el.frac.slice();
+  if(rung&&rung.el)body.kind=elKind(el); return body;}
+// The rung the selection's scope names when it is a figure rung (it carries an element), else null.
+function figRung(o){const lv=o&&o.scope&&lvOf(o,o.scope); return lv&&lv.el?lv:null;}
+// The element a re-place candidate would move the pin to: its default rung's, else the answer's own (a region answer).
+function repickEl(c){const lv=lvOf(c,c.default_level); return (lv&&lv.el)||c.el||null;}

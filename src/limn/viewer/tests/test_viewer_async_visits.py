@@ -134,7 +134,7 @@ class VisitLocalContinuations(unittest.TestCase):
                 const SEC_SEEN={open:new Set()},ASSIGN_NEW={v:'agent'};
                 let finish,undo;
                 function $(name){return name==='#note'?{value:'note'}:{disabled:false};}
-                function isRegion(){return false;}function kindFor(){return 'line';}
+                function isRegion(){return false;}function kindFor(){return 'line';}function figureFields(b){return b;}function figRung(){return null;}
                 function mentionHints(){return [];}function renderAssignNew(){}
                 function selectionSnapshot(){return {};}
                 function cancelSelection(){clears++;COMPOSE.current=null;}
@@ -391,7 +391,7 @@ class VisitLocalContinuations(unittest.TestCase):
                 const prior={id:1,cand:{file:'a.tex',page:1,lo:2,hi:3,kind:'line'}};
                 let REPICK=prior,finish,loads=0,toasts=0,cancels=0,snips=0;
                 const EDITOR={current:{id:1,base_rev:1,orig:{lo:1,hi:1}},saving:false};
-                function lvOf(){return null;}function isRegion(){return false;}
+                function lvOf(){return null;}function isRegion(){return false;}function figureFields(b){return b;}function repickEl(){return null;}
                 function tl(s){return s;}function toast(){toasts++;}
                 function cancelRepick(){cancels++;REPICK=null;}
                 function editSnip(){snips++;}function loadPins(){loads++;return Promise.resolve();}
@@ -427,7 +427,7 @@ class VisitLocalContinuations(unittest.TestCase):
                         let REPICK=prior,finish,loads=0,toasts=0,cancels=0,snips=0;
                         const card={id:1,base_rev:1,lo:1,hi:1,orig:{lo:1,hi:1}};
                         const EDITOR={current:card,saving:false};
-                        function lvOf(){return null;}function isRegion(){return false;}
+                        function lvOf(){return null;}function isRegion(){return false;}function figureFields(b){return b;}function repickEl(){return null;}
                         function tl(s){return s;}function toast(){toasts++;}
                         function cancelRepick(){cancels++;REPICK=null;}
                         function editSnip(){snips++;}function loadPins(){loads++;return Promise.resolve();}
