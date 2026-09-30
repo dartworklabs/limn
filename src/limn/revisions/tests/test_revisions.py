@@ -23,7 +23,6 @@ from unittest import mock
 
 from limn.builds import engine as build_engine
 from limn.documents import reads as limn_meta
-from limn.pins import changes as scoping
 from limn.pins.lifecycle import input as lifecycle_input
 from limn.pins.lifecycle.rules import CloseRequest
 from limn.pins.location.mapping import anchor_of
@@ -33,6 +32,7 @@ from limn.revisions import (
     execution as revision_execution,
     input as revision_input,
     jobs as revision_jobs,
+    scope as scoping,
 )
 from limn.revisions.answer import scope_http_error
 from limn.revisions.core import revision_history

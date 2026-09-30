@@ -22,10 +22,11 @@ from typing import get_args
 
 from limn.builds import artifacts as build
 from limn.collaboration import events
-from limn.pins import changes as scope, model
+from limn.pins import model
 from limn.pins.editing import values as edit
 from limn.pins.listing.projection import pin_state
 from limn.pins.location import position
+from limn.revisions import scope
 from limn.security import access
 from limn.sync import rules as pull
 from limn.viewer import assemble

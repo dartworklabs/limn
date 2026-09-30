@@ -19,29 +19,25 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, NamedTuple, Protocol, TypeAlias
 
-from limn.pins import (
+from limn.pins import RevisionPin, revision_pin
+from limn.platform.git import GIT_TIMEOUT, git, git_command, git_env, open_git
+from limn.revisions.scope import (
     REVISION_DIFF_MAX as scope_REVISION_DIFF_MAX,
     Block as scope_Block,
     FileChange,
-    PinFacts,
     PinNotInDoc,
     PinScope,
     RepoRange,
     ScopeItem,
     ScopeMeta,
     ScopeRefusal,
-    find_pin,
     git_lines,
-    is_region_pin,
     parse_raw_entries,
     parse_u0_blocks,
-    pin_facts,
     pin_scope,
-    recorded_changes,
     scope_meta,
     scope_payload,
 )
-from limn.platform.git import GIT_TIMEOUT, git, git_command, git_env, open_git
 
 if TYPE_CHECKING:
     from limn.revisions.jobs import RunningComparison
@@ -506,7 +502,7 @@ def _repo_rel(repo: Path, path: str) -> str | None:
 def scope_pin_record(rows: list[Json], D: RevisionDoc, pid: int, doc_of: Callable[[Record], str]) -> Json | PinNotInDoc:
     """The pin a scoped request names, from rows (the pin records as the caller read them, without the sync write),
     or PinNotInDoc when there is no such pin or it belongs to another document than D (doc_of gives a record's)."""
-    r = find_pin(rows, pid)
+    r = next((row for row in rows if row.get("id") == pid), None)
     if r is None or doc_of(r) != D.key:
         return PinNotInDoc()
     return r
@@ -528,7 +524,7 @@ def revision_pin_scope(
     pin's close_ref names. Their absolute paths are located by ctx.locate - the same rule as the pin's own file
     (issue #24) - so a moved or cloned checkout keeps the agent's lines; a path the rule cannot place is dropped and
     the pin's hunks are inferred as before. Unless the same pin facts were decided for this commit before (ctx.cache),
-    reads the commit's files within one of the cache's slots and decides with limn.pins.changes.pin_scope(); an unreadable
+    reads the commit's files within one of the cache's slots and decides with revisions.scope.pin_scope(); an unreadable
     commit is mode "commit" and not stored."""
     r = scope_pin_record(rows, D, pid, ctx.doc_of)
     if isinstance(r, PinNotInDoc):
@@ -539,8 +535,14 @@ def revision_pin_scope(
         path = ctx.locate(file, D)
         return _repo_rel(repo, str(path)) if path is not None else None
 
-    changes = [RepoRange(repo_path(c["file"]), c["lo"], c["hi"]) for c in recorded_changes(r, head, revisions)]
-    pin: PinFacts = pin_facts(r, _repo_rel(repo, r["file"]) if not is_region_pin(r) else None)
+    stored_file = r.get("file")
+    pin: RevisionPin = revision_pin(
+        r,
+        relative_path=_repo_rel(repo, stored_file) if isinstance(stored_file, str) else None,
+        head=head,
+        revisions=revisions,
+    )
+    changes = [RepoRange(repo_path(change.file), change.lo, change.hi) for change in pin.changes]
     key = (str(repo), base, head, json.dumps([pin, changes], default=str))
     hit = ctx.cache.get(key)
     if hit is not None:

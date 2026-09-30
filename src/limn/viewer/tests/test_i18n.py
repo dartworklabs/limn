@@ -20,11 +20,11 @@ from urllib.parse import urlparse
 
 from limn.administration import member_state, serve_documents as startup_documents
 from limn.administration.targets import cli_audit
-from limn.pins.changes import ScopeUnreadable
 from limn.pins.claims import input as claims_input
 from limn.pins.lifecycle.rules import CloseRequest
 from limn.pins.location import http as location_http
 from limn.revisions.answer import scope_http_error
+from limn.revisions.scope import ScopeUnreadable
 from limn.runtime import config
 from limn.security.access import LOCAL_ACTOR
 from limn.viewer import assemble

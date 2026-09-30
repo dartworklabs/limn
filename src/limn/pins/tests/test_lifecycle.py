@@ -32,7 +32,7 @@ PURE_IMPORTS = {
     "limn.platform.text",
     "limn.security.values",
     "limn.pins.mentions",  # the @-tag rules view.py reads; pure (src/limn/collaboration/tests/test_mentions.py checks it)
-    "limn.pins.changes",  # the stored `changes` shape record.py checks; pure (src/limn/pins/tests/test_scope.py)
+    "limn.pins.revision",  # the stored `changes` shape record.py checks; pure (src/limn/pins/tests/test_scope.py)
     "posixpath",  # record.py's isabs: string work only (os.path is posixpath on POSIX)
     "types",  # MappingProxyType freezes a validated close command's changes without I/O.
     "limn.security.guidance",
@@ -66,7 +66,7 @@ class Purity(unittest.TestCase):
                     "model.py",
                     "record.py",
                     "thread.py",
-                    "changes.py",
+                    "revision.py",
                     "retention.py",
                     "mentions.py",
                     "location/position.py",

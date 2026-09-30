@@ -18,6 +18,25 @@ def test_repository_respects_all_feature_surfaces():
     assert checker.check(ROOT / "src" / "limn") == []
 
 
+def test_revisions_imports_only_the_pin_projection_contract():
+    """Revision algorithms cannot reach pin storage, models, or scope helpers."""
+    code = checker.sources(ROOT / "src" / "limn")
+    packages = {
+        name
+        for name in code
+        if (ROOT / "src" / "limn" / Path(*name.split(".")[1:]) / "__init__.py").is_file()
+    }
+    imported = {
+        symbol
+        for name, source in code.items()
+        if checker.owner(name) == "limn.revisions"
+        for base, symbol in checker.imports(name, checker.ast.parse(source), packages)
+        if base == "limn.pins"
+    }
+
+    assert imported <= {"RevisionPin", "revision_pin"}
+
+
 @pytest.mark.parametrize("statement", ["import limn.builds.private", "from limn.builds import private"])
 def test_private_import_is_rejected(statement):
     """Both Python import forms must reject another feature's internal module."""

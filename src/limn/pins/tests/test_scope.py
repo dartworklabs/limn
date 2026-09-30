@@ -1,6 +1,6 @@
-"""limn.pins.changes and limn.revisions.core on their own: which module may do what, and the refusal values of pin scoping.
+"""Pin revision projections and revision scoping on their own.
 
-Every revision route runs end to end through the handler in test_revisions.py. Here: limn.pins.changes stays pure (no file,
+Every revision route runs end to end through the handler in test_revisions.py. Here: limn.revisions.scope stays pure (no file,
 process, clock or HTTP import), neither module reads the server's globals or imports server.py or the HTTP layer,
 and a refusal is a returned value of the ScopeRefusal set. The classes after them are the attribution rules of
 pin-scoped [View changes] (v0.3, issue #9, docs/adr/0005-pin-scoped-changes.md): git's -U0 output read into blocks,
@@ -22,9 +22,9 @@ import typing
 import unittest
 from pathlib import Path
 
-from limn.pins import changes as scoping
 from limn.pins.location.mapping import anchor_of
-from limn.revisions import core as revisions
+from limn.pins.revision import revision_pin, valid_changes
+from limn.revisions import core as revisions, scope as scoping
 from limn.revisions.answer import SCOPE_REJECTIONS, scope_http_error
 
 from helpers import extract_js_fn, run_node
@@ -37,8 +37,8 @@ PURE_IMPORTS = {
     "collections.abc",
     "dataclasses",
     "typing",
+    "limn.pins",
     "limn.pins.location.mapping",
-    "limn.platform.values",
 }
 
 
@@ -57,13 +57,14 @@ class Boundaries(unittest.TestCase):
     """What each module may reach."""
 
     def test_scope_imports_only_pure_modules(self):
-        """A file, subprocess or HTTP import in limn.pins.changes would put an effect inside the decision (R1)."""
-        self.assertLessEqual(imports_of(PKG / "pins/changes.py"), PURE_IMPORTS)
+        """A file, subprocess or HTTP import in revisions.scope would put an effect inside the decision."""
+        self.assertLessEqual(imports_of(PKG / "revisions/scope.py"), PURE_IMPORTS)
 
     def test_neither_module_reads_server_globals(self):
         """The document and the instance's settings arrive as arguments (R5): no C., no cur_doc()."""
         for name in (
-            "pins/changes.py",
+            "pins/revision.py",
+            "revisions/scope.py",
             "revisions/core.py",
             "revisions/execution.py",
             "revisions/jobs.py",
@@ -94,6 +95,31 @@ class Boundaries(unittest.TestCase):
             [sys.executable, "-c", code], capture_output=True, text=True, timeout=60, check=False, cwd=str(PKG.parent)
         )
         self.assertEqual((r.returncode, r.stdout.strip()), (0, "[]"), r.stderr)
+
+
+class RevisionProjection(unittest.TestCase):
+    """Stored pin details cross into revision attribution as one immutable projection."""
+
+    def test_revision_pin_keeps_only_commit_scoping_facts(self):
+        """The projection binds current location and only the changes recorded for the requested commit."""
+        head = "a" * 40
+        record = {
+            "id": 7,
+            "file": "/old/paper/main.tex",
+            "lo": 4,
+            "hi": 6,
+            "done_at": "2026-09-30 10:00:00",
+            "changes_at": "2026-09-30 10:00:00",
+            "close_ref": head[:8],
+            "changes": [{"file": "paper/main.tex", "lo": 10, "hi": 12}],
+            "thread": [{"kind": "note", "body": "must not cross"}],
+        }
+
+        projection = revision_pin(record, relative_path="paper/main.tex", head=head, revisions=[{"id": head}])
+
+        self.assertEqual(projection.id, 7)
+        self.assertEqual(projection.changes, (("paper/main.tex", 10, 12),))
+        self.assertFalse(hasattr(projection, "thread"))
 
 
 class Refusals(unittest.TestCase):
@@ -146,6 +172,11 @@ def anchored(lo, hi, text=OLD, **extra):
     return dict({"id": 1, "file": "/x/ms/main.tex", "lo": lo, "hi": hi, "anchor": anchor_of(lines, lo, hi)}, **extra)
 
 
+def projected(record, rel="ms/main.tex", head="", revisions=()):
+    """Build the pin-owned projection used by pure attribution tests."""
+    return revision_pin(record, relative_path=rel, head=head, revisions=revisions)
+
+
 class BlockParsing(unittest.TestCase):
     """Reading git's -U0 output into blocks (pure)."""
 
@@ -177,7 +208,7 @@ class Attribution(unittest.TestCase):
         self.files = [fc()]
 
     def blocks_for(self, pin, rel="ms/main.tex", changes=None):
-        source, chosen = scoping.attribute_blocks(self.files, scoping.pin_facts(pin, rel), changes or [])
+        source, chosen = scoping.attribute_blocks(self.files, projected(pin, rel), changes or [])
         return source, sorted(tuple(self.files[fi].blocks[bi]) for fi, bi in chosen)
 
     def test_block_is_chosen_when_the_anchor_overlaps_it_on_the_new_side(self):
@@ -231,7 +262,7 @@ class Attribution(unittest.TestCase):
     def test_three_pins_in_one_commit_get_disjoint_hunks_that_cover_the_commit(self):
         """The issue #9 case: three pins fixed in one commit each get their own block, and together all of them."""
         pins = [anchored(4, 4), anchored(11, 11, stale=True), anchored(18, 18, stale=True)]
-        got = [set(scoping.attribute_blocks(self.files, scoping.pin_facts(p, "ms/main.tex"), [])[1]) for p in pins]
+        got = [set(scoping.attribute_blocks(self.files, projected(p), [])[1]) for p in pins]
         self.assertEqual([len(g) for g in got], [1, 1, 1])
         self.assertEqual(set.union(*got), {(0, 0), (0, 1), (0, 2)})
 
@@ -275,7 +306,7 @@ class ScopedPatch(unittest.TestCase):
         files = [f, fc()]
         sc = scoping.pin_scope(
             files,
-            scoping.pin_facts({"id": 1, "file": "/x", "lo": 2, "hi": 2}, "ms/main.tex"),
+            projected({"id": 1, "file": "/x", "lo": 2, "hi": 2}),
             [scoping.RepoRange("ms/main.tex", 12, 12)],
         )
         out = scoping.scope_payload(sc)
@@ -285,7 +316,7 @@ class ScopedPatch(unittest.TestCase):
         )
         sc = scoping.pin_scope(
             [f, fc()],
-            scoping.pin_facts({"id": 1, "file": "/x", "lo": 2, "hi": 2}, "ms/main.tex"),
+            projected({"id": 1, "file": "/x", "lo": 2, "hi": 2}),
             [scoping.RepoRange("ms/main.tex", 12, 12)],
         )
         out = scoping.scope_payload(sc)
@@ -376,8 +407,8 @@ class ScopeDecisions(unittest.TestCase):
         """The store rejects a list with one malformed range, while attribution keeps only valid items in that list."""
         good = {"file": "/m/main.tex", "lo": 3, "hi": 4, "future": "kept"}
         malformed = ({"file": 3, "lo": 1, "hi": 1}, {"file": "/m/main.tex", "lo": True, "hi": 2})
-        self.assertTrue(scoping.valid_changes([good]))
-        self.assertFalse(scoping.valid_changes([good, *malformed]))
+        self.assertTrue(valid_changes([good]))
+        self.assertFalse(valid_changes([good, *malformed]))
         head = "a" * 40
         pin = {
             "done_at": "2026-09-25 10:00:00",
@@ -385,7 +416,10 @@ class ScopeDecisions(unittest.TestCase):
             "close_ref": head[:7],
             "changes": [good, *malformed],
         }
-        self.assertEqual(scoping.recorded_changes(pin, head, [{"id": head, "subject": "fix"}]), (good,))
+        pin["id"] = 1
+        self.assertEqual(
+            projected(pin, head=head, revisions=[{"id": head, "subject": "fix"}]).changes, (("/m/main.tex", 3, 4),)
+        )
 
     def test_recorded_changes_count_only_for_their_close_and_their_commit(self):
         """changes_at must equal done_at, and the commit asked about must be the one close_ref names (review M1:
@@ -399,15 +433,20 @@ class ScopeDecisions(unittest.TestCase):
             "close_ref": "PR #7 (%s)" % X[:7],
             "changes": [good, {"file": 3, "lo": 1, "hi": 1}],
         }
-        self.assertEqual(scoping.recorded_changes(pin, X, revs), (good,))
-        self.assertEqual(scoping.recorded_changes(pin, Y, revs), ())  # another commit: inference decides
+        pin["id"] = 1
+        self.assertEqual(projected(pin, head=X, revisions=revs).changes, (("/m/main.tex", 3, 4),))
+        self.assertEqual(projected(pin, head=Y, revisions=revs).changes, ())  # another commit: inference decides
         # the squash commit by PR
-        self.assertEqual(scoping.recorded_changes(dict(pin, close_ref="PR #7"), X, revs), (good,))
-        self.assertEqual(scoping.recorded_changes(dict(pin, close_ref="PR #7 (cccc111)"), X, revs), (good,))
-        self.assertEqual(scoping.recorded_changes(dict(pin, close_ref=""), X, revs), ())
-        self.assertEqual(scoping.recorded_changes(dict(pin, done_at="2026-09-26 09:00:00"), X, revs), ())
-        self.assertEqual(scoping.recorded_changes({"done_at": "2026-09-25 10:00:00"}, X, revs), ())
-        self.assertEqual(scoping.recorded_changes({}, X, revs), ())
+        self.assertEqual(
+            projected(dict(pin, close_ref="PR #7"), head=X, revisions=revs).changes, (("/m/main.tex", 3, 4),)
+        )
+        self.assertEqual(
+            projected(dict(pin, close_ref="PR #7 (cccc111)"), head=X, revisions=revs).changes, (("/m/main.tex", 3, 4),)
+        )
+        self.assertEqual(projected(dict(pin, close_ref=""), head=X, revisions=revs).changes, ())
+        self.assertEqual(projected(dict(pin, done_at="2026-09-26 09:00:00"), head=X, revisions=revs).changes, ())
+        self.assertEqual(projected({"id": 1, "done_at": "2026-09-25 10:00:00"}, head=X, revisions=revs).changes, ())
+        self.assertEqual(projected({"id": 1}, head=X, revisions=revs).changes, ())
 
     def test_ref_commit_matches_the_viewers_match_revision(self):
         """The server binds changes with the same rule the viewer uses to pick the commit (matchRevision): hash prefix
@@ -430,7 +469,18 @@ class ScopeDecisions(unittest.TestCase):
             "PR #236 (deadbee)",
             None,
         ]
-        py = [scoping.ref_commit(r, revs) for r in refs]
+
+        def matched(ref):
+            record = {
+                "id": 1,
+                "done_at": "now",
+                "changes_at": "now",
+                "close_ref": ref,
+                "changes": [{"file": "/m.tex", "lo": 1, "hi": 1}],
+            }
+            return next((row["id"] for row in revs if projected(record, head=row["id"], revisions=revs).changes), None)
+
+        py = [matched(ref) for ref in refs]
         self.assertEqual(
             [x and x[:7] for x in py],
             ["f47c6bf", "2cb7240", "2cb7240", "1d422a6", None, None, None, "f47c6bf", "2cb7240", None],
@@ -499,7 +549,7 @@ class ScopeDecisions(unittest.TestCase):
 
     def test_every_rejection_maps_to_one_status_and_body(self):
         """The one SCOPE_REJECTIONS table: status, Korean message and API reason per refusal type (agent contract), one
-        row for every member of limn.pins.changes.ScopeRefusal. The 404 gained its reason in 0.3.4 (every refusal names one,
+        row for every member of limn.revisions.scope.ScopeRefusal. The 404 gained its reason in 0.3.4 (every refusal names one,
         src/limn/web/tests/test_errors.py); its text is unchanged."""
         want = {
             scoping.PinNotInDoc: (404, {"error": "이 문서의 핀이 아닙니다.", "reason": "pin_not_in_doc"}),
@@ -525,7 +575,7 @@ class ScopeDecisions(unittest.TestCase):
 
     def test_scope_meta_and_payload_have_their_documented_keys(self):
         """ScopeMeta has the five status fields; the payload adds the patches only in mode pin."""
-        sc = scoping.pin_scope([fc()], scoping.pin_facts(dict(anchored(4, 4), id=7), "ms/main.tex"), [])
+        sc = scoping.pin_scope([fc()], projected(dict(anchored(4, 4), id=7)), [])
         self.assertEqual(
             scoping.scope_meta(sc), {"scope": "pin", "pin": 7, "source": "inferred", "hunks": 1, "other": 2}
         )
@@ -533,7 +583,7 @@ class ScopeDecisions(unittest.TestCase):
             sorted(scoping.scope_payload(sc)),
             ["diff", "hunks", "mode", "other", "other_diff", "other_truncated", "pin", "source", "truncated"],
         )
-        whole = scoping.pin_scope(None, scoping.pin_facts(dict(anchored(4, 4), id=7), "ms/main.tex"), [])
+        whole = scoping.pin_scope(None, projected(dict(anchored(4, 4), id=7)), [])
         self.assertEqual(
             scoping.scope_payload(whole), {"pin": 7, "mode": "commit", "source": "none", "hunks": 0, "other": 0}
         )

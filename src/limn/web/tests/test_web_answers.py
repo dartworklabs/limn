@@ -1,7 +1,7 @@
 """limn.revisions.answer.revision_refused - the HTTP answer to every refusal of the revision routes, as one table.
 
 GET /api/revision-diff|-build|-pdf and POST /api/revision-build answer each refusal value of limn.revisions.core (and the
-pin-scoping refusals of limn.pins.changes) with a fixed status, the Korean `error` text agents read and a stable `reason`
+pin-scoping refusals of limn.revisions.scope) with a fixed status, the Korean `error` text agents read and a stable `reason`
 (docs/handbook/api.md §변경 보기와 비교 PDF, §오류 응답). Most of these refusals need a git failure, a symlinked cache, a
 held lock or a vanished file to reach through a route, so the table builds each value directly and checks the whole
 answer: status, reason, text and a body with nothing else in it. One route test shows a table row is what the handler
@@ -14,7 +14,6 @@ import json
 import typing
 import unittest
 
-from limn.pins.changes import PinNotInDoc, ScopeMismatch, ScopeRefusal, ScopeUnreadable, ScopeUnwritable, UnsafePath
 from limn.revisions import answer as revision_answer, core as revisions
 from limn.revisions.core import (
     AllSlotsBusy,
@@ -29,6 +28,7 @@ from limn.revisions.core import (
     RevisionPdfMissing,
     UnsafeCache,
 )
+from limn.revisions.scope import PinNotInDoc, ScopeMismatch, ScopeRefusal, ScopeUnreadable, ScopeUnwritable, UnsafePath
 from limn.web.errors import HTTPError
 
 from helpers import Base, req, split_resp

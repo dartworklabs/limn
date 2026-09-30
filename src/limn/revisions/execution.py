@@ -8,7 +8,6 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 
-from limn.pins import ScopeRefusal, ScopeUnwritable, UnsafePath, plan_scope_writes
 from limn.platform.files import atomic_write
 from limn.revisions import core
 from limn.revisions.core import (
@@ -21,6 +20,7 @@ from limn.revisions.core import (
     RevisionSpec,
     StepFailed,
 )
+from limn.revisions.scope import ScopeRefusal, ScopeUnwritable, UnsafePath, plan_scope_writes
 
 
 @dataclass(frozen=True)
@@ -126,7 +126,7 @@ def revision_snapshot(spec: RevisionSpec, commit: str, dest: Path) -> None | Ste
 
 def revision_apply_scope(spec: RevisionSpec, dest: Path) -> None | ScopeRefusal:
     """Turns dest (a fresh snapshot of the old side) into old + only spec.scope's blocks: re-reads the commit from git
-    (deterministic for two SHA-1s), lets limn.pins.changes.plan_scope_writes() decide, and writes or removes those files under
+    (deterministic for two SHA-1s), lets revisions.scope.plan_scope_writes() decide, and writes or removes those files under
     dest. Refused as ScopeUnreadable, ScopeMismatch, UnsafePath (also for a symlink or a parent outside dest) or
     ScopeUnwritable (an OSError while writing); the build worker records it like any other failure, and a pin's
     scope_failed is answered from the cache next time."""
