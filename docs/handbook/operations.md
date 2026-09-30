@@ -28,7 +28,7 @@ uv run python3 -m unittest discover -s tests
 
 ## 실행 인자
 
-전체 인자와 기본값은 `limn serve --help`와 [`args.py`](../../src/limn/args.py)의 `serve_parser`가 정한다. 공통 인자의 거절은 [`startup.py`](../../src/limn/startup.py), 문서 선택의 거절은 [`features/administration/serve_documents.py`](../../src/limn/features/administration/serve_documents.py)가 정한다. 운영과 안전에 영향을 주는 값은 다음과 같다.
+전체 인자와 기본값은 `limn serve --help`와 [`runtime/args.py`](../../src/limn/runtime/args.py)의 `serve_parser`가 정한다. 공통 인자의 거절은 [`runtime/startup.py`](../../src/limn/runtime/startup.py), 문서 선택의 거절은 [`administration/serve_documents.py`](../../src/limn/administration/serve_documents.py)가 정한다. 운영과 안전에 영향을 주는 값은 다음과 같다.
 
 | 선택 | 현재 동작과 이유 |
 | --- | --- |
@@ -51,7 +51,7 @@ uv run python3 -m unittest discover -s tests
 
 ### 접근 제어 인자
 
-서버는 요청한 사람이 누구인지 가리는 방법을 인스턴스마다 하나 고른다. 이 방법을 **신원 방식**이라 부른다. 에이전트는 API 토큰으로 자신을 밝히고, 사람은 멤버 목록과 역할로 들어올 수 있는 범위와 바꿀 수 있는 일을 좁힌다. 아래 인자를 하나도 주지 않으면 `tailscale` 방식의 기본 동작이다. 테일넷에서 닿는 사람은 누구나 들어와 `editor`가 되고, 헤더 없는 루프백 요청은 에이전트다. 실행 정본은 [`src/limn/args.py`](../../src/limn/args.py)의 인자 정의, [`src/limn/startup.py`](../../src/limn/startup.py)의 `access_options`, [`src/limn/access.py`](../../src/limn/access.py)의 `identify`·`admit`·`check_role`이다.
+서버는 요청한 사람이 누구인지 가리는 방법을 인스턴스마다 하나 고른다. 이 방법을 **신원 방식**이라 부른다. 에이전트는 API 토큰으로 자신을 밝히고, 사람은 멤버 목록과 역할로 들어올 수 있는 범위와 바꿀 수 있는 일을 좁힌다. 아래 인자를 하나도 주지 않으면 `tailscale` 방식의 기본 동작이다. 테일넷에서 닿는 사람은 누구나 들어와 `editor`가 되고, 헤더 없는 루프백 요청은 에이전트다. 실행 정본은 [`src/limn/runtime/args.py`](../../src/limn/runtime/args.py)의 인자 정의, [`src/limn/runtime/startup.py`](../../src/limn/runtime/startup.py)의 `access_options`, [`src/limn/security/access.py`](../../src/limn/security/access.py)의 `identify`·`admit`·`check_role`이다.
 
 | 인자 | 기본값 | 설명 |
 | --- | --- | --- |

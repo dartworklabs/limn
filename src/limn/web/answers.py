@@ -3,16 +3,12 @@
 from collections.abc import Callable
 from typing import TypeAlias, TypeVar
 
-from limn.documents import DocNotFound
-from limn.pins.model import Record
+from limn.runtime.documents import DocNotFound
+from limn.security.values import CONFIRM_BY_HUMAN as CONFIRM_BY_HUMAN
 from limn.web.errors import HTTPError, InputRejected
 
-Show: TypeAlias = Callable[[Record], object]
-StateOf: TypeAlias = Callable[[Record], str]
 Text: TypeAlias = Callable[[object], str]
 T = TypeVar("T")
-
-CONFIRM_BY_HUMAN = "확인은 사람이 합니다 — 테일넷 신원으로 접속해 뷰어에서 [확인]을 누르세요."
 
 
 def accepted(value: T | InputRejected) -> T:

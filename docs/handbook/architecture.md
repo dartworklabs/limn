@@ -15,49 +15,52 @@
 
 빌드를 원본 체크아웃이 아니라 rsync 사본에서 하는 이유는 동시에 편집 중인 원고를 빌드가 중간 상태로 붙잡지 않게 하려는 것이다. 빌드 사본 경로를 원본 경로로 되돌리는 일(`build_dir → manuscript_dir`)은 서버가 안에서 처리한다. 그래서 에이전트는 언제나 원본 경로만 받는다.
 
-상태 디렉터리를 옮기거나 복제해서 SyncTeX가 옛 빌드 경로를 가리키는 경우도 있다. 이때는 경로 꼬리가 원고 트리 안의 파일과 맞을 때만 경로를 고쳐 쓴다. 원고 체크아웃을 옮겨 핀에 저장된 절대 경로가 낡은 경우도 같은 규칙에 원고 폴더 기준 상대 경로 `file_rel` 을 더해 읽을 때 찾는다([api.md](api.md) §핀 파일의 위치). 원고 트리 밖의 파일은 절대 읽지 않는다. 원고 읽기는 `files.py`의 검사 생성자가 발급하는 `ManuscriptFile`을 통해서만 수행한다. 읽을 때 파일 디스크립터 기준으로 각 디렉터리와 파일을 no-follow로 열어 검사 뒤 심볼릭 링크 교체도 거부한다. 저장·응답에 쓰는 경로 문자열과 파일을 읽을 권한은 별개다. 원고 트리는 `--manuscript` 아래에서 점으로 시작하는 이름(`.git`·`.env` 등) 아래와, 원고 안에 둔 상태 폴더 아래를 뺀 곳이고, 규칙은 `limn/files.py`의 `tree_part` 하나다. 역변환·범위 사다리·줄 맞춤의 규칙은 [domain.md](domain.md)에 있다.
+상태 디렉터리를 옮기거나 복제해서 SyncTeX가 옛 빌드 경로를 가리키는 경우도 있다. 이때는 경로 꼬리가 원고 트리 안의 파일과 맞을 때만 경로를 고쳐 쓴다. 원고 체크아웃을 옮겨 핀에 저장된 절대 경로가 낡은 경우도 같은 규칙에 원고 폴더 기준 상대 경로 `file_rel` 을 더해 읽을 때 찾는다([api.md](api.md) §핀 파일의 위치). 원고 트리 밖의 파일은 절대 읽지 않는다. 원고 읽기는 `platform/files.py`의 검사 생성자가 발급하는 `ManuscriptFile`을 통해서만 수행한다. 읽을 때 파일 디스크립터 기준으로 각 디렉터리와 파일을 no-follow로 열어 검사 뒤 심볼릭 링크 교체도 거부한다. 저장·응답에 쓰는 경로 문자열과 파일을 읽을 권한은 별개다. 원고 트리는 `--manuscript` 아래에서 점으로 시작하는 이름(`.git`·`.env` 등) 아래와, 원고 안에 둔 상태 폴더 아래를 뺀 곳이고, 규칙은 `limn/platform/files.py`의 `tree_part` 하나다. 역변환·범위 사다리·줄 맞춤의 규칙은 [domain.md](domain.md)에 있다.
 
 ## 현재 구조
 
-Limn은 **하나의 배포 단위(`dartwork-limn` 패키지) 안에서 표준 라이브러리만 쓰는 모듈**로 나눈다. 핀 수명 주기, 처리 중 표시, 휴지통, 만들기·편집, JSON 조회와 PDF 선택은 `features/pins/`의 각 기능 패키지가 입력·HTTP 응답·실행별 협력자를 소유한다. 빌드 상태·PDF·쪽 이미지 읽기와 재빌드 요청은 `features/builds/`가, 원격 Git 동기화와 감시는 `features/sync/`가, Git 이력·비교 PDF의 요청·응답은 `features/revisions/`가, 사람 파일·멘션 알림의 실행별 연결과 목록 조회는 `features/collaboration/`이, 문서 상태·목차 조회는 `features/document_views/`가 소유한다. 명령줄 사용자 동작은 `features/administration/`이 소유하고, 저장·신원·문서·실행 수명은 여러 기능의 공통 경계에 남는다. 경로마다의 책임과 함께 볼 topic은 [index.md](index.md) §파일 지도가 정본이다.
+Limn은 하나의 `dartwork-limn` 배포 안에서 기능 소유권으로 나눈다. `src/limn/` 바로 아래에는 기능 패키지와 경계 패키지가 있고, Python 파일은 버전 선언과 CLI·서버 진입점만 둔다. 핀의 모델·저장·렌더·위치 계산·요청 처리는 모두 하나의 `pins/`가 소유한다. `features/`나 별도의 공통 핀 패키지를 두지 않는다. 여러 기능에서 읽는다는 이유로 코드를 공용으로 빼지 않고, 소유 기능의 공개 동작과 값으로 접근한다.
 
-| 층 | 모듈 | 하는 일 | 모르는 것 |
-| --- | --- | --- | --- |
-| 순수 도메인 | `pins/`(상태 타입·레코드 검사·공유 스레드·편집 상수·위치 규칙·API 모양·`pins.md` 렌더), `build_values.py`, `mapping.py`, `figmap.py`(그림 요소 지도 파서), `scope.py`, `mentions.py`, `guidance.py`, `mark.py` | 핀 수명 주기와 위치 계산의 규칙. 입력 값에서 결과 값이나 거절 값을 낸다 | 파일, subprocess, 시계, HTTP. 모듈마다 import 검사가 지킨다 |
-| 기능(세로 슬라이스) | `features/pins/lifecycle/*`, `features/pins/claims/*`, `features/pins/trash/*`, `features/pins/editing/*`, `features/pins/listing/*`, `features/pins/location/*`, `features/builds/*`, `features/sync/*`, `features/collaboration/*`, `features/document_views/*`, `features/revisions/*`, `features/viewer_shell/*`, `features/administration/*` | 각 기능의 순수 판단, 입력 검사, HTTP 라우팅·응답 매핑, 실행별 문맥 조립과 서비스 로직 | 다른 슬라이스의 비공개 세부. 공통 도메인 규칙이나 공통 저장소 협력자를 통해서만 소통한다 |
-| 서비스 협력자 | `service/context.py`(`PinContext`), `store.py`(`PinStore`), `locate.py`(`est_context`·`sync_all`), `build.py`(`BuildArtifacts`·`BuildHistory`), `documents.py`(`Doc`·`DocumentFacts`), `gitrun.py`, `files.py` | 실행별 자원·잠금·파일 읽기/쓰기를 기능에 주입하기 쉬운 협력자로 감싼다 | HTTP 요청/응답 형식 |
-| 인프라 | `files.py`(`atomic_write`·`store_lock`), `gitrun.py`, `people.py`, `events.py`, `audit.py`, `args.py`, `config.py`, `startup.py`, `access.py` | 운영체제·외부 도구와의 경계. 신원 방식·역할·Host 검사 | 핀 수명 주기와 계산 규칙 |
-| HTTP | `web/`(`handler.py`, `reply.py`, `routes.py`, `parse.py`, `answers.py`, `errors.py`, `app.py`) | 순수 HTTP 뼈대. 처리기, 디스패치 계약, 공통 오류 형식과 거절 표 | 구체 서비스 구현 세부 |
-| 조립 | `server.py`(`Runtime`, `ServerApplication`, `StartedServer`) | 런타임 자원과 문맥을 묶고 각 기능 서비스를 조립해 HTTP 처리기에 바인딩한다 | 뷰어 브라우저 세부 |
-| 프론트엔드 | `viewer/` (HTML·CSS·JS 조각, `parts.txt`, 번들된 PDF.js·Lucide), `brand/`(로고 파일, 시작 때 읽어 그대로 낸다) | 브라우저 화면과 상호작용 | 파이썬 런타임 |
-| 관리자 CLI | `cli.py`, `instances.sh`, `systemd/` | 원고별 인스턴스 관리, 포트 배정, 토큰 발급, systemd 서비스 등록 | 논문 원고의 세부 내용 |
+| 소유권 | 경로 | 함께 바뀌는 것 |
+| --- | --- | --- |
+| 핀 | `pins/` | `model.py`·`record.py`·`thread.py`·`changes.py`의 값·규칙, `store.py`의 트랜잭션, `context.py`의 실행 협력자. 만들기·편집은 `editing/`, 처리 중 표시는 `claims/`, 전이는 `lifecycle/`, 삭제·복원은 `trash/`, 조회·Markdown은 `listing/`, 원문·PDF 위치 계산은 `location/` |
+| 빌드 | `builds/` | 결과 값(`values.py`), 산출물·이력·원고 지문(`artifacts.py`), 요청 시점의 파일·쪽 사실(`document_facts.py`), 컴파일·재빌드·PDF 감시·그림 지도 파싱(`figure_map.py`)·PDF/지도 가져오기(`figure.py`)와 응답 |
+| 협업 | `collaboration/` | 사람 후보·방문 기록 연결, `events.jsonl`, 멘션 알림·폴링. 핀의 태그·차례 규칙은 핀 소유권에 남고 공개 값·동작으로 받는다 |
+| 문서 조회 | `documents/` | 문서 탭·meta·목차 응답과 파싱. 실행별 문서 자원은 `runtime/documents.py`가 소유한다 |
+| 비교 | `revisions/` | Git 이력·원고 diff·격리 비교 PDF·작업 캐시와 응답 |
+| 동기화 | `sync/` | 원격 main 감시·fast-forward·문서별 재빌드 선택 |
+| 관리 | `administration/` | 토큰·멤버 명령, 문서 실행 인자, 이관, 인스턴스 셸과 `systemd/` 템플릿 |
+| 뷰어 | `viewer/` | HTML·CSS·JS, `ui_en.json`, 마크·브랜드 파일(`brand/`), 페이지 조립과 제공 경로 |
+| 실행 자원 | `runtime/` | 시작 규칙·인자·얼린 설정, 실행별 문서와 잠금, 상태 파일의 고정 위치(`paths.py`) |
+| 보안 | `security/` | 신원·Host/Origin·역할·권한 발급, 사람 사실, 인증 안내, 감사 파일 |
+| 기능 독립 장치 | `platform/` | 원자적 파일 교체·검사된 원고 핸들(`files.py`), Git 프로세스(`git.py`), JSON 숫자 판정(`values.py`), 제한된 텍스트(`text.py`) |
+| HTTP 전송 | `web/` | 처리기·요청 파서·응답과 경로 등록 계약. 기능의 구체 서비스와 오류 표를 소유하지 않는다 |
+| 조립·진입점 | `server.py`, `cli.py`, `__main__.py` | 자원 생성과 기능 연결·명령 전달. `Runtime`과 `ServerApplication`은 서버 조립 지점에 있다 |
+
+각 기능의 테스트는 같은 패키지의 `tests/`에 있다. 루트 `tests/`에는 여러 기능을 관통하는 계약·아키텍처 검사와 공용 테스트 도우미·고정 입력만 둔다. 경로별 변경 trigger는 [index.md](index.md) §파일 지도에 있다.
 
 ## 의존 방향
 
-규칙은 단순하다. **안쪽(도메인)은 바깥쪽(인프라·HTTP·뷰어)을 모른다.**
+의존 방향은 폴더 깊이가 아니라 실제 import 그래프로 정한다. 기능은 다른 기능의 `__init__.py`에 선언된 값·동작만 사용한다. 핀의 여섯 동작 폴더는 서로 다른 공용 도메인을 가진 별도 슬라이스가 아니라 하나의 핀 소유권 안의 동작 묶음이다.
 
 ```text
-순수 도메인 (pins/, build_values, mapping, figmap, scope, mentions, guidance, mark)
-   ▲
-   │
-기능 슬라이스 (features/*) + 서비스 협력자 (service/context, store, locate, build, documents)
-   ▲
-   │
-인프라 (files, gitrun, people, events, audit, access, startup, args, config)
-   ▲
-   │
-HTTP 계층 (web/)
-   ▲
-   │
-조립 지점 (server.py)
+server.py / cli.py                 실행 자원 생성·기능 조립
+        │
+        ▼
+기능 패키지                       공개 동작·값으로만 기능 간 호출
+        │
+        ▼
+runtime/ · security/ · platform/ · web/   기능 구현을 import하지 않는 경계
 ```
 
-- `pins/` 아래의 어떤 모듈도 `web/`·`server.py`·`features/`를 import하지 않는다.
-- `features/*`는 순수 도메인과 필요한 서비스 협력자/인프라 타입을 가져오되 다른 기능 슬라이스의 내부 구현을 직접 import하지 않는다.
-- 수명 주기·만들기·편집·claim·unclaim·삭제·복원의 순수 변경 규칙은 각 기능의 `rules.py`, 목차 파서는 `features/document_views/outline.py`가 소유한다. 기능 안의 순수 코드도 I/O·HTTP를 import하지 않는다. 여러 기능이 읽는 claim 유효 시간과 휴지통 가시성은 공통 핀 도메인에 남는다.
-- 기능 서비스는 외부 자원(파일 시스템, git, 시계, 외부 프로세스)에 직접 닿지 않고 협력자(`PinStore`, `Runtime`, `Doc` 등)를 주입받는다.
-- 거절은 예외가 아니라 결과 값(합 타입)으로 돌려주고, HTTP 층이 이를 상태 코드로 바꾼다. 단, `access.py`의 인증·인가 실패와 `handler.py`의 요청 크기 초과는 경계에서 바로 `HTTPError`를 던진다.
-- **조립 지점이 실행별 자원을 만들고 끝낸다.** `start()`가 실행 설정·런타임·문서 목록을 가진 `ServerApplication`을 만들고 그 실행 전용 처리기 하위 클래스에 묶는다. `StartedServer`가 소켓과 앱을 함께 돌려줘 종료 대상을 보존한다. 같은 모듈에서 다음 실행을 시작해도 앞선 처리기의 앱은 바뀌지 않는다. `web/`은 조립 지점을 가져오지 않는다.
+- 기능의 공개 표면은 `__init__.py`의 `__all__`로 선언한다. 요청한 export만 지연 로드하므로 순수 값을 가져오는 일이 HTTP나 실행 자원을 초기화하지 않는다. 소유 기능 안에서는 내부 모듈을 직접 import할 수 있다.
+- `tools/check_boundaries.py`가 모든 기능의 비공개 접근·경계 코드의 기능 의존·기능 순환을 검사한다. 공용 모듈 여러 개를 거친 경로와 패키지 초기화도 계산한다([verification.md](verification.md) §10).
+- 핀 모델·레코드·스레드·변경·전이 규칙, 위치 계산과 순수 렌더는 I/O·HTTP를 import하지 않는다. 같은 `pins/` 안의 `store.py`·서비스·HTTP 어댑터는 부수효과를 담당한다. 패키지 전체를 순수 도메인이라고 부르지 않는다.
+- `runtime/documents.py`의 문서는 실행별 경로·잠금·상태를 가진다. 빌드 산출물을 읽는 `DocumentFacts`는 `builds/document_facts.py`에 있고, 실행 설정은 기능 구현을 import하지 않는다.
+- 빌드 실패 문구는 `builds/answer.py`, 비교·핀 범위 실패 문구는 `revisions/answer.py`가 소유한다. 공통 HTTP 오류 모듈은 이 기능들을 import하지 않는다.
+- 기능 서비스는 실행별 협력자·설정·문서를 인자로 받는다. 서버의 현재 문서·잠금·시계를 전역으로 읽지 않는다. `PinContext`는 저장·시계·알림·감사 협력자를 묶고 `PinStore.transact()`가 쓰기 순서를 집행한다.
+- 예상된 거절은 결과 값으로 전달하고 기능의 HTTP 입구가 상태 코드로 바꾼다. 신원·권한 실패와 요청 크기 초과는 `HTTPError`로 처리기에서 즉시 거부한다.
+- `Runtime`은 실행별 잠금·캐시·감시 스레드를 소유한다. 서버 두 벌의 상태는 서로 공유하지 않는다. 종료는 비교 작업 중단, 서버 종료, 감시 스레드 합류의 기존 순서를 유지한다.
 
 ## 채택한 설계 축
 
@@ -65,7 +68,7 @@ HTTP 계층 (web/)
 
 | 축 | 채택값 | 근거와 적용 |
 | --- | --- | --- |
-| 1차 구조 | **작은 단일 배포 + 기능별 세로 슬라이스와 테스트 동거로 점진 이행.** 닫기·다시 열기·확인·답글·claim·unclaim은 이행했고 다른 동작은 책임별 모듈에 있다(§현재 구조) | 배포 단위·런타임은 하나이며, 세로 슬라이스는 코드와 테스트를 함께 소유한다 |
+| 1차 구조 | **작은 단일 배포 + 기능별 세로 슬라이스와 테스트 동거.** 기능별 규칙·HTTP·실행 협력자는 §현재 구조의 슬라이스가 소유하고 공통 도메인·저장·신원·실행 수명은 공통 모듈이 소유한다 | 배포 단위·런타임은 하나이며, 세로 슬라이스는 코드와 `tests/`를 함께 소유하며, 공유 모듈·여러 기능의 검사는 루트 `tests/`에서 책임별로 모은다 |
 | 도메인 정체 | **핀의 수명 주기와 위치 규칙.** 상태 전이, 역변환·범위 사다리·anchor 재동기화 | [domain.md](domain.md) |
 | 함수형 DDD 범위 | **실용적 함수형 + 객체 권한(Object capabilities).** 판단은 순수 함수, 부수효과(파일·git·subprocess·HTTP)는 가장자리. 권한은 검증된 신원에서 값으로 전달하고 신뢰 경계는 닫힌 상태를 유지한다. 의미 있는 수명 주기(핀 상태)에만 상태별 타입과 전이 함수를 쓰고, 계산·파싱은 평범한 함수로 둔다. 예상된 거절은 예외가 아니라 반환 타입의 거절 값으로 돌려준다(`confirm() -> DonePin \| AlreadyDone \| PinStillOpen`, `confirmer() -> Person \| AgentCannotConfirm`) | 우리 코딩 스킬 `code-implement`·`code-security`의 기본값. 규칙과 예는 [code-style-roadmap.md](code-style-roadmap.md) |
 | 검수 진실원 | **동작 중심 테스트(리팩토링 내성) + 도메인 불변식 PBT + 에이전트 계약 불변 + 화면 실측.** 자동 테스트 녹색은 필요조건일 뿐이며, 구조가 아닌 관찰 가능한 동작 검증(출력 기반, 성질 기반 PBT, Red 단계)이 진실원이다. pytest·셸 테스트·Playwright 레이아웃 테스트가 통과하고, `pins.md`·HTTP API가 호환을 지키며, 화면 규칙은 실측 스크린샷으로 확인한다 | [verification.md](verification.md) |
@@ -83,7 +86,7 @@ HTTP 계층 (web/)
 
 기본 바인드 주소는 `127.0.0.1`이다. `--bind`로 다른 주소를 줄 수 있지만, loopback이 아닌 주소는 신원을 프록시가 보증하는 `--auth trusted-proxy`일 때만 받는다. 그 밖에는 서버가 시작을 거부한다. `--i-know-this-is-insecure`로 넘길 수는 있지만 크게 경고한다. 테일넷 노출은 `tailscale serve`, 그 밖의 노출은 인증 리버스 프록시가 맡고, `tailscale funnel`은 쓰지 않는다. 이 규칙이 깨지면 포트에 닿는 누구나 원고를 읽고 핀을 바꿀 수 있다. 근거와 위협 모델은 [SECURITY.md](../../SECURITY.md), 운영 상세는 [operations.md](operations.md) §보안 제약에 있다.
 
-신원은 인스턴스마다 방식 하나(`tailscale`·`local`·`trusted-proxy`)로 정하고, 에이전트는 API 토큰으로 인증한다. 서버 머신의 에이전트는 토큰 원문을 설정 폴더의 토큰 파일(`<이름>.token`, `0600`, 저장소 밖)에서 읽고, 서버는 그 파일을 읽지 않는다. 권한은 `people.json`의 역할(owner·editor·viewer·agent)이 정하고, 처리기 한 곳에서 집행한다. 접근 제어는 단일 지점 완전 중재(Saltzer & Schroeder Complete Mediation)와 닫힌 기본 상태(closed by default)를 따른다. 모든 경로는 검증된 신원에서 파생된 권한 값(Object capability)으로 처리하며, 외부 입력은 경계에서 완전한 타입으로 파싱(`parse, don't validate`)한다. `access.py`는 읽기 경로군과 변경 작업을 명시적으로 허용하며 새 등록은 기본 거부다. POST는 검증된 신원 스냅샷과 작업·대상·실행 범위를 묶은 `PostAuthority`를 만들고, 핀 변경·수동 재빌드·비교 빌드 진입점이 이를 소비한다. 핀 범위는 실행별 잠금 객체와 상태 경로로 구별하므로 매 호출마다 새 `PinStore`를 조립해도 같은 자원이며, 다른 실행이나 상태 폴더로 권한이 넘어가지 않는다. 문서는 이름만 같다고 같은 대상으로 취급하지 않는다. attribution mapping은 저장·알림용 투영이고 권한을 대신하지 않는다. 역할·신원 방식·신원 경로는 닫힌 `Literal` 타입(`Role`·`AuthProvider`·`Via`)이라 이 값과의 비교에 오타가 있으면 타입 검사(`strict_equality`)에서 실패한다. 밖에서 온 글자(`people.json`의 `role`, 명령줄)는 경계에서 한 번만 이 타입으로 바뀌고, 알 수 없는 역할 값은 `viewer`가 된다. 처리기가 행동마다 묻는 역할 질문(답글이 사람의 것인가, `review` 없는 닫기가 검토 대기로 가는가)도 `Principal`이 답하므로 역할 비교는 `access.py` 밖에 없다. 신원·입장·역할 판단과 Host/Origin 규칙의 코드는 [`limn/access.py`](../../src/limn/access.py) 한 곳에 있다. 이 모듈은 실행 설정(`C`)을 읽지 않는다. 조립 지점(`server.py`)이 요청마다 실행 설정 값(`AccessSettings`)과 파일 사실(`AccessLookups`: `tokens.json`·`people.json`을 파일이 바뀔 때만 다시 읽는 캐시, 실행마다 하나씩)을 넘긴다. 이 경계의 거절은 값으로 돌려주지 않고 `HTTPError`를 던진다(§의존 방향). 파일 사실도 같은 쪽으로 닫는다. 쓸 수 없는 `tokens.json`은 토큰을 하나도 받지 않고, 쓸 수 없는 `people.json`은 헤더로 들어온 모든 사람을 `viewer`로 두고 멤버 자격을 주지 않으며 다시 쓰이지 않는다. 헤더 없는 요청을 에이전트로 보는 것은 이 기기를 부른 요청(루프백 `Host`)뿐이고, 모든 핀을 지우는 일은 소유자만 한다. 상세는 [api.md](api.md) §인증이다.
+신원은 인스턴스마다 방식 하나(`tailscale`·`local`·`trusted-proxy`)로 정하고, 에이전트는 API 토큰으로 인증한다. 서버 머신의 에이전트는 토큰 원문을 설정 폴더의 토큰 파일(`<이름>.token`, `0600`, 저장소 밖)에서 읽고, 서버는 그 파일을 읽지 않는다. 권한은 `people.json`의 역할(owner·editor·viewer·agent)이 정하고, 처리기 한 곳에서 집행한다. 접근 제어는 단일 지점 완전 중재(Saltzer & Schroeder Complete Mediation)와 닫힌 기본 상태(closed by default)를 따른다. 모든 경로는 검증된 신원에서 파생된 권한 값(Object capability)으로 처리하며, 외부 입력은 경계에서 완전한 타입으로 파싱(`parse, don't validate`)한다. `security/access.py`는 읽기 경로군과 변경 작업을 명시적으로 허용하며 새 등록은 기본 거부다. POST는 검증된 신원 스냅샷과 작업·대상·실행 범위를 묶은 `PostAuthority`를 만들고, 핀 변경·수동 재빌드·비교 빌드 진입점이 이를 소비한다. 핀 범위는 실행별 잠금 객체와 상태 경로로 구별하므로 매 호출마다 새 `PinStore`를 조립해도 같은 자원이며, 다른 실행이나 상태 폴더로 권한이 넘어가지 않는다. 문서는 이름만 같다고 같은 대상으로 취급하지 않는다. attribution mapping은 저장·알림용 투영이고 권한을 대신하지 않는다. 역할·신원 방식·신원 경로는 닫힌 `Literal` 타입(`Role`·`AuthProvider`·`Via`)이라 이 값과의 비교에 오타가 있으면 타입 검사(`strict_equality`)에서 실패한다. 밖에서 온 글자(`people.json`의 `role`, 명령줄)는 경계에서 한 번만 이 타입으로 바뀌고, 알 수 없는 역할 값은 `viewer`가 된다. 처리기가 행동마다 묻는 역할 질문(답글이 사람의 것인가, `review` 없는 닫기가 검토 대기로 가는가)도 `Principal`이 답하므로 역할 비교는 `security/access.py` 밖에 없다. 신원·입장·역할 판단과 Host/Origin 규칙의 코드는 [`limn/security/access.py`](../../src/limn/security/access.py) 한 곳에 있다. 이 모듈은 실행 설정(`C`)을 읽지 않는다. 조립 지점(`server.py`)이 요청마다 실행 설정 값(`AccessSettings`)과 파일 사실(`AccessLookups`: `tokens.json`·`people.json`을 파일이 바뀔 때만 다시 읽는 캐시, 실행마다 하나씩)을 넘긴다. 이 경계의 거절은 값으로 돌려주지 않고 `HTTPError`를 던진다(§의존 방향). 파일 사실도 같은 쪽으로 닫는다. 쓸 수 없는 `tokens.json`은 토큰을 하나도 받지 않고, 쓸 수 없는 `people.json`은 헤더로 들어온 모든 사람을 `viewer`로 두고 멤버 자격을 주지 않으며 다시 쓰이지 않는다. 헤더 없는 요청을 에이전트로 보는 것은 이 기기를 부른 요청(루프백 `Host`)뿐이고, 모든 핀을 지우는 일은 소유자만 한다. 상세는 [api.md](api.md) §인증이다.
 
 ### 2. 서버 런타임은 표준 라이브러리만 쓴다
 
@@ -95,11 +98,11 @@ HTTP 계층 (web/)
 
 ### 4. 핀 파일은 한 잠금 아래 정해진 순서로만 쓴다
 
-핀 파일을 만지는 모든 경로는 해당 서버 실행의 핀 잠금(`RT.pin_lock`)을 잡는다. 살아 있는 핀을 변경하는 경로는 **읽기 → 재동기화 → 요청한 변경 적용 → 원본 JSONL·`pins.md` 바이트 준비 → 정해진 순서로 파일 교체**를 지키고, [`limn/store.py`](../../src/limn/store.py)의 `PinStore.transact()`가 이 순서를 강제한다. 삭제는 준비 뒤 휴지통 → 원본 → Markdown, 되살리기는 원본 → Markdown → 휴지통 순서다. 휴지통 정리와 전체 지우기도 같은 잠금 아래에서 파일을 읽고 쓰며, 전체 지우기는 빈 Markdown을 렌더하고 살아 있는 핀의 휴지통 사본을 정리한 뒤 원본을 보관한다. 핀 파일(`pins.jsonl`·`pins.md`·`pins.dropped.jsonl`·`pins.seq`)을 쓰는 코드는 모두 `store.py`에 있다. 잠금 없이 동시에 저장하면 앞선 쓰기가 사라진다(핀 30개를 동시에 저장해 2개만 남은 결함이 이 규칙의 근거다). 핀 번호는 `pins.seq`에서 발급하고 삭제 뒤에도 다시 쓰지 않는다. 상세는 [domain.md](domain.md) §저장소 안전성이다.
+핀 파일을 만지는 모든 경로는 해당 서버 실행의 핀 잠금(`RT.pin_lock`)을 잡는다. 살아 있는 핀을 변경하는 경로는 **읽기 → 재동기화 → 요청한 변경 적용 → 원본 JSONL·`pins.md` 바이트 준비 → 정해진 순서로 파일 교체**를 지키고, [`limn/pins/store.py`](../../src/limn/pins/store.py)의 `PinStore.transact()`가 이 순서를 강제한다. 삭제는 준비 뒤 휴지통 → 원본 → Markdown, 되살리기는 원본 → Markdown → 휴지통 순서다. 휴지통 정리와 전체 지우기도 같은 잠금 아래에서 파일을 읽고 쓰며, 전체 지우기는 빈 Markdown을 렌더하고 살아 있는 핀의 휴지통 사본을 정리한 뒤 원본을 보관한다. 핀 파일(`pins.jsonl`·`pins.md`·`pins.dropped.jsonl`·`pins.seq`)을 쓰는 코드는 모두 `pins/store.py`에 있다. 잠금 없이 동시에 저장하면 앞선 쓰기가 사라진다(핀 30개를 동시에 저장해 2개만 남은 결함이 이 규칙의 근거다). 핀 번호는 `pins.seq`에서 발급하고 삭제 뒤에도 다시 쓰지 않는다. 상세는 [domain.md](domain.md) §저장소 안전성이다.
 
 ### 5. 원본 원고는 서버가 고치지 않는다
 
-빌드는 사본에서 하고, `--git-pull`은 `main`에서 `--ff-only`만 한다. rebase나 merge 커밋을 대신 만들지 않는다. git 호출은 모두 `limn/gitrun.py`를 거친다. 셸 없이 인자 목록으로, stdin과 제어 터미널 없이, `GIT_TERMINAL_PROMPT=0`과 서버의 `GIT_*` 변수를 뺀 환경에서, 시간 제한을 두고 돈다. 사용자 입력은 인자에 끼워 넣지 않는다. 상세는 [build-sync.md](build-sync.md) §git 프로세스다.
+빌드는 사본에서 하고, `--git-pull`은 `main`에서 `--ff-only`만 한다. rebase나 merge 커밋을 대신 만들지 않는다. git 호출은 모두 `limn/platform/git.py`를 거친다. 셸 없이 인자 목록으로, stdin과 제어 터미널 없이, `GIT_TERMINAL_PROMPT=0`과 서버의 `GIT_*` 변수를 뺀 환경에서, 시간 제한을 두고 돈다. 사용자 입력은 인자에 끼워 넣지 않는다. 상세는 [build-sync.md](build-sync.md) §git 프로세스다.
 
 ### 6. 옛 상태 디렉터리는 쓰기 마이그레이션 없이 읽는다
 
@@ -107,11 +110,11 @@ HTTP 계층 (web/)
 
 ### 7. 앱 이름은 Limn 하나이고 개인정보를 넣지 않는다
 
-옛 이름은 README 역사 절, `limn migrate`, CHANGELOG에만 남는다. 실제 이메일·홈 경로·호스트 이름·논문 이름을 코드와 문서에 넣지 않는다. [`tests/test_naming.py`](../../tests/test_naming.py)가 이를 검사한다.
+옛 이름은 README 역사 절, `limn migrate`, CHANGELOG에만 남는다. 실제 이메일·홈 경로·호스트 이름·논문 이름을 코드와 문서에 넣지 않는다. [`tests/architecture/test_naming.py`](../../tests/architecture/test_naming.py)가 이를 검사한다.
 
 ### 8. 사람에게 보이는 문자열과 계약 문자열을 구분한다
 
-뷰어 UI 문자열의 원본은 템플릿 안 한국어이고, 영어 모드는 [`ui_en.json`](../../src/limn/ui_en.json) 대응표로 바꾼다. `pins.md`와 API 오류 문자열(`{"error": "<한국어>", "reason": "<코드>"}`)은 계약이라 번역하지 않는다. 뷰어의 영어 화면은 오류 문장을 옮기지 않고 안정 코드 `reason`으로 표의 영어 문장을 찾는다([api.md](api.md) §오류 응답). 코드·주석·docstring·테스트 이름·커밋 메시지·CLI 도움말은 영어로 쓴다.
+뷰어 UI 문자열의 원본은 템플릿 안 한국어이고, 영어 모드는 [`viewer/ui_en.json`](../../src/limn/viewer/ui_en.json) 대응표로 바꾼다. `pins.md`와 API 오류 문자열(`{"error": "<한국어>", "reason": "<코드>"}`)은 계약이라 번역하지 않는다. 뷰어의 영어 화면은 오류 문장을 옮기지 않고 안정 코드 `reason`으로 표의 영어 문장을 찾는다([api.md](api.md) §오류 응답). 코드·주석·docstring·테스트 이름·커밋 메시지·CLI 도움말은 영어로 쓴다.
 
 ## 멈춤 신호
 
@@ -123,5 +126,5 @@ HTTP 계층 (web/)
 | 새 저장 파일이나 저장 형식 변경 | 상태 디렉터리에 새 파일, 레코드 필드 의미 변경 | 불변식 4, 6. 옛 상태와의 호환을 설계해야 한다 |
 | 새 상태 기계·권한·비동기 흐름 | 핀 상태 추가, 역할 기반 권한, 새 백그라운드 스레드 | 수명 주기와 동시성 규칙이 바뀐다 |
 | 에이전트 계약 변경 | `pins.md` 열, API 필드·경로·상태 이름 | 불변식 3 |
-| 도메인에서 인프라로의 의존 역전 | `pins/`가 HTTP·파일·소켓·git을 직접 import | 의존 방향 위반 |
+| 도메인에서 인프라로의 의존 역전 | 핀의 순수 모델·판단 모듈이 HTTP·파일·소켓·git을 직접 import | 의존 방향 위반 |
 | 핵심 값이 코드에만 있음 | 핀 번호 체계, 신원 판단 규칙 | 불변식·설계 축 변경 |

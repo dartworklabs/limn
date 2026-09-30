@@ -34,11 +34,12 @@ Limn은 LaTeX 원고 PDF에서 드래그한 영역을 `.tex` 파일·줄 범위�
 
 ```bash
 uv sync --group dev
-uv run pytest -q -rs -n 4 --dist loadscope
-bash tests/test_instances.sh
+uv run pytest -q -rs
+bash src/limn/administration/tests/test_instances.sh
 uv run ruff check
 uv run ruff format --check
-uv run shellcheck src/limn/instances.sh src/limn/features/administration/instance_*.sh tests/test_instances.sh
+uv run shellcheck src/limn/administration/instances.sh src/limn/administration/instance_*.sh src/limn/administration/tests/test_instances.sh
+uv run python tools/check_boundaries.py
 uv run mypy
 ```
 

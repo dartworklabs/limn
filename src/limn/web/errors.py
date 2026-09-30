@@ -3,11 +3,9 @@
 HTTPError is the one exception the handler turns into an error response ({"error": <Korean message>, "reason":
 <code>, ...extra}); the messages and reason codes are part of the agent contract (docs/handbook/api.md §오류 응답) and
 the messages are never reworded - the viewer shows English by the reason (ui_en.json `reason:<code>`). InputRejected is the value a
-boundary parser returns instead of raising. The tables below give the pin-scoping refusals (limn.scope) and the
-failed steps of a comparison build (limn.features.revisions.core.StepFailed) their texts. Pick refusals live with the location
-feature. The HTTP answers read these tables, and the
-composition root hands revision_failure_text() to the comparison worker, which records the same texts in its status.
-BUILD_FAILURES gives a failed document build (limn.build.FailedBuild) the text its log opens with;
+boundary parser returns instead of raising. The tables below give pin-scoping refusals (limn.pins.changes) their texts.
+Pick refusals live with the location feature; comparison worker failures live with the revision feature.
+BUILD_FAILURES gives a failed document build (limn.builds.artifacts.FailedBuild) the text its log opens with;
 build_failure_log() is handed to the build the same way.
 
 A browser that opens the viewer (GET / asking for HTML) and is refused gets a short readable page instead of raw
@@ -18,10 +16,6 @@ import html
 from collections.abc import Mapping
 from email.message import Message
 from typing import NamedTuple, TypeAlias
-
-from limn.build import BuildAborted, BuildFailed, BuildFailureKind, CopyFailed, FailedBuild
-from limn.features.revisions.core import BuildFailure, FailureKind, StepFailed
-from limn.scope import PinNotInDoc, ScopeMismatch, ScopeRefusal, ScopeUnreadable, ScopeUnwritable, UnsafePath
 
 # A page-kind error's (kind, params): kind is a key of ERROR_PAGE_TEXT, params fill its {placeholders}.
 PageRef: TypeAlias = tuple[str, dict[str, object]]
@@ -60,91 +54,16 @@ class InputRejected(NamedTuple):
     reason: str
 
 
-# Expected refusals of pin scoping (limn.scope.ScopeRefusal, one type each) -> (status, message, API reason). The one
+# Expected refusals of pin scoping (limn.pins.changes.ScopeRefusal, one type each) -> (status, message, API reason). The one
 # place they become responses - the revision answers for requests (features.revisions.answer.revision_answer), and through
-# revision_failure_text() the status a failed comparison build stores. The messages and reasons are part of the agent
+# the comparison feature the status a failed build stores. The messages and reasons are part of the agent
 # contract (api.md §핀 단위 변경 보기); tests pin every body and check that every refusal type has its row.
-SCOPE_REJECTIONS: dict[type[ScopeRefusal], tuple[int, str, str]] = {
-    PinNotInDoc: (404, "이 문서의 핀이 아닙니다.", "pin_not_in_doc"),
-    ScopeUnreadable: (422, "이 핀의 변경만 골라 적용하지 못했습니다.", "scope_failed"),
-    ScopeMismatch: (422, "이 핀의 변경을 커밋에서 다시 찾지 못했습니다.", "scope_failed"),
-    UnsafePath: (422, "사본에 허용되지 않는 경로가 있습니다.", "unsafe_snapshot"),
-    ScopeUnwritable: (422, "이 핀의 변경만 넣은 사본을 쓰지 못했습니다.", "scope_failed"),
-}
 
 
-def scope_http_error(e: ScopeRefusal) -> HTTPError:
-    """The HTTP form of a pin-scoping refusal, from SCOPE_REJECTIONS."""
-    code, msg, reason = SCOPE_REJECTIONS[type(e)]
-    return HTTPError(code, msg, reason=reason)
-
-
-# A failed step of a comparison build (limn.features.revisions.core.StepFailed.kind) -> (message, API reason) its "error" status
-# carries (api.md §변경 보기와 비교 PDF). These never become an HTTP status of their own: the build runs in the
-# background and GET /api/revision-build reports the stored status. tests check that every kind has its row.
-REVISION_FAILURES: dict[FailureKind, tuple[str, str]] = {
-    "tool_start": ("비교 PDF 실행 도구를 시작하지 못했습니다.", "tool_unavailable"),
-    "timeout": ("비교 PDF 실행 시간이 초과됐습니다.", "timeout"),
-    "size": ("비교 입력 또는 실행 로그가 크기 제한을 넘었습니다.", "size_limit"),
-    "snapshot_read": ("Git 원고 사본을 읽지 못했습니다.", "snapshot_failed"),
-    "unsafe_snapshot": ("사본에 허용되지 않는 경로·심링크·하위 저장소가 있습니다.", "unsafe_snapshot"),
-    "snapshot_size": ("원고 사본이 파일 수·크기 제한을 넘었습니다.", "size_limit"),
-    "snapshot_timeout": ("Git 사본 생성 시간이 초과됐습니다.", "timeout"),
-    "snapshot_blob": ("Git 원고 파일을 읽지 못했습니다.", "snapshot_failed"),
-    "missing_main": ("해당 커밋에 현재 메인 원고 경로가 없습니다. 소스 변경사항을 확인하세요.", "missing_main"),
-    "sandbox_tools": ("비교 PDF에는 bwrap, latexdiff, latexmk가 필요합니다.", "tool_unavailable"),
-    "sandbox_system": ("비교 PDF 도구는 /usr 아래의 시스템 설치를 사용해야 합니다.", "tool_unavailable"),
-    "diff_failed": (
-        "latexdiff가 원고를 비교하지 못했습니다. 누락된 포함 파일 또는 실행 격리 설정을 확인하세요.",
-        "diff_failed",
-    ),
-    "compile_failed": (
-        "비교 PDF 컴파일에 실패했습니다. 이 뷰어는 pdfLaTeX를 사용합니다. 소스 변경사항을 확인하세요.",
-        "compile_failed",
-    ),
-    "invalid_pdf": ("비교 PDF 결과가 올바르지 않습니다.", "invalid_pdf"),
-}
-
-
-def revision_failure_text(failure: BuildFailure) -> tuple[str, str]:
-    """(message, API reason) a failed comparison build records: a step's from REVISION_FAILURES, a pin-scoping
-    refusal's from SCOPE_REJECTIONS (the same text its HTTP answer has)."""
-    if isinstance(failure, StepFailed):
-        return REVISION_FAILURES[failure.kind]
-    _, msg, reason = SCOPE_REJECTIONS[type(failure)]
-    return msg, reason
-
-
-# Why a document's build failed (limn.build.FailedBuild's kind) -> the text that opens its log; {detail} is the
+# Why a document's build failed (limn.builds.artifacts.FailedBuild's kind) -> the text that opens its log; {detail} is the
 # failure's detail (the copy error, the unwritable PDF copy's OSError, the missing PDF's path, the exception's repr).
 # The log carries it into POST /api/rebuild's answer, GET /api/build's log_tail, builds.json's last.log_tail and the
 # startup refusal (docs/handbook/build-sync.md §빌드 결과). tests check that every kind has its row.
-BUILD_FAILURES: dict[BuildFailureKind, str] = {
-    "copy": "원고 사본을 만들지 못했습니다: {detail}",
-    "timeout": "시간 초과로 멈췄습니다.",
-    "no_pdf": "새 PDF 가 나오지 않았습니다.",
-    "no_synctex": "synctex.gz 가 없습니다 — latexmk 가 -synctex=1 을 받았는지 확인하세요.",
-    "render": "쪽 이미지를 그리지 못했습니다(pdftoppm).",
-    "pdf_copy": "PDF 사본을 쪽 디렉토리에 두지 못했습니다: {detail}",
-    "pdf_missing": "PDF 가 없습니다: {detail}",
-    "figure_unready": "그림 PDF 와 지도를 가져오지 못했습니다: {detail}",
-    "crashed": "빌드 중 예상 밖 예외가 났습니다: {detail}",
-    "worker_crashed": "빌드 스레드에서 예상 밖 예외가 났습니다: {detail}",
-}
-
-
-def build_failure_log(failure: FailedBuild) -> str:
-    """The log of a failed build: its kind's text from BUILD_FAILURES with the detail filled in, then - when latexmk
-    ran - a newline and latexmk's last lines. The composition root passes this to the build (limn.build's describe),
-    which records it in the build state and history."""
-    match failure:
-        case CopyFailed(error=error):
-            return BUILD_FAILURES["copy"].format(detail=error)
-        case BuildFailed(kind=kind, detail=detail, output=output):
-            text = BUILD_FAILURES[kind].format(detail=detail)
-            return text if output is None else text + "\n" + output
-        case BuildAborted(kind=kind, detail=detail):
-            return BUILD_FAILURES[kind].format(detail=detail)
 
 
 # The page kinds identity refusals name (HTTPError page=(kind, params)) -> (heading, hint). The Korean text is the key

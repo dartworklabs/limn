@@ -53,7 +53,7 @@ def instances_env() -> dict[str, str]:
     env = dict(os.environ)
     env.setdefault("LIMN_PYTHON", sys.executable)
     env.setdefault("LIMN_SERVER", str(HERE / "server.py"))
-    env.setdefault("LIMN_UNIT_TEMPLATE", str(HERE / "systemd" / "limn@.service"))
+    env.setdefault("LIMN_UNIT_TEMPLATE", str(HERE / "administration" / "systemd" / "limn@.service"))
     env.setdefault("LIMN_BIN", limn_bin())
     env["LIMN_VERSION"] = __version__
     return env
@@ -67,7 +67,7 @@ def run_instances(args: Sequence[str]) -> int:
     if not bash:
         print("limn: bash is required", file=sys.stderr)
         return 1
-    os.execve(bash, [bash, str(HERE / "instances.sh"), *args], instances_env())
+    os.execve(bash, [bash, str(HERE / "administration" / "instances.sh"), *args], instances_env())
     return 1  # not reached
 
 
@@ -87,15 +87,14 @@ def main(argv: Sequence[str] | None = None) -> int:
         server.main()
         return 0
     if cmd == "migrate":
-        from limn.features.administration import migrate
+        from limn.administration import migrate_main
 
-        return migrate.main(args[1:])
+        return migrate_main(args[1:])
     if cmd in ("token", "member"):
-        from limn.features.administration import members, tokens
-        from limn.features.administration.targets import CliError
+        from limn.administration import CliError, cmd_member, cmd_token
 
         try:
-            return (tokens.cmd_token if cmd == "token" else members.cmd_member)(args[1:])
+            return (cmd_token if cmd == "token" else cmd_member)(args[1:])
         except (CliError, ValueError, OSError, subprocess.SubprocessError) as e:
             print("limn: %s" % e, file=sys.stderr)
             return 1

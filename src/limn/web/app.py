@@ -9,20 +9,19 @@ The handler finds a request's document and passes it to registered feature route
 narrow collaborator contract. This Protocol covers only guard, selection, registration, and refusal dependencies
 that the common handler itself reads.
 
-The run settings, a document and a principal are server.py's own types (limn.config.RunConfig, limn.documents.Doc,
-limn.access.Principal), not narrower views of them: ServerApplication's members take those types, and mypy checks
+The run settings, a document and a principal are server.py's own types (limn.runtime.config.RunConfig, limn.runtime.documents.Doc,
+limn.security.access.Principal), not narrower views of them: ServerApplication's members take those types, and mypy checks
 ServerApplication against this Protocol in server.py, so a missing or wrongly typed binding is a type error.
-tests/test_web.py checks at run time that the bound application provides every member.
+src/limn/web/tests/test_web.py checks at run time that the bound application provides every member.
 """
 
 from email.message import Message
 from typing import Any, Protocol, TypeAlias
 
-from limn import access
-from limn.config import RunConfig
-from limn.documents import Doc, DocNotFound
-from limn.features.collaboration.directory import PeopleDirectory
-from limn.viewer.assemble import ServedViewer
+from limn.runtime.config import RunConfig
+from limn.runtime.documents import Doc, DocNotFound
+from limn.security import access
+from limn.web.errors import Messages
 from limn.web.routes import GetRoute, OtherPost, PinAction, PostDocRoute
 
 Json: TypeAlias = dict[str, Any]  # a JSON object: request body, response payload, actor, stored pin record
@@ -35,21 +34,42 @@ Document: TypeAlias = Doc
 Principal: TypeAlias = access.Principal
 
 
+class PeopleRecorder(Protocol):
+    """The visit-recording operation needed by the common transport layer."""
+
+    def record(self, actor: Json, now: float | None = None, role: access.Role | None = None) -> bool:
+        """Record a human visit with the verified role; return whether the file changed."""
+        ...
+
+
+class ViewerMessages(Protocol):
+    """Messages needed to render an admission refusal without a viewer dependency."""
+
+    @property
+    def messages(self) -> Messages:
+        """Return the immutable view of this run's UI translation table."""
+        ...
+
+
 class App(Protocol):
     """The server application as the handler sees it, with the services and their typed contracts."""
 
     C: Config
-    people_directory: PeopleDirectory
     get_routes: tuple[GetRoute, ...]
     post_doc_routes: tuple[PostDocRoute, ...]
     pin_actions: dict[str, PinAction]
     other_posts: dict[str, OtherPost]
 
-    def viewer(self) -> ServedViewer:
+    @property
+    def people_directory(self) -> PeopleRecorder:
+        """Expose visit recording without depending on a feature implementation."""
+        ...
+
+    def viewer(self) -> ViewerMessages:
         """Return this run's viewer messages for a refused browser opening the first page."""
         ...
 
-    # ---- request guard: Host/Origin, identity, admission, roles (limn.access, bound to this run by server.py)
+    # ---- request guard: Host/Origin, identity, admission, roles (limn.security.access, bound to this run by server.py)
 
     def host_ok(self, host: str) -> bool:
         """Is Host a loopback name, *.ts.net or a --public-host?"""

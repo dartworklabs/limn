@@ -26,7 +26,7 @@ body:not(.lay-narrow) #doc-nav{display:flex}
   border-right:1px solid var(--border);color:var(--muted-foreground);font-size:var(--text-xs);font-weight:600;white-space:nowrap}
 #paper-identity-mark{display:grid;place-items:center;width:16px;height:16px}
 /* The Limn logo (docs/handbook/viewer.md §마크와 파비콘): the confirmed icon (the i on its tile) and wordmark, inline SVG from
-   limn.mark with classes only (limn-mark*: .mark is the pin box on the PDF, which marks() removes and redraws). The
+   limn.viewer.mark with classes only (limn-mark*: .mark is the pin box on the PDF, which marks() removes and redraws). The
    tile is 뼈종이 in the light theme and 먹 in the dark one, strokes 먹 or 미색 on it, the pin 주 in both. */
 .limn-mark{display:block;flex:none;width:16px;height:16px}
 .limn-mark-tile{fill:var(--mark-tile)}

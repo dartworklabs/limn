@@ -41,7 +41,7 @@
 > - 되돌리기 어려운 결정과 그 이유: 의사결정 기록
 > - 그 밖의 경위: git 이력
 
-결함을 막는 현재 규칙은 실패 조건과 이유로 설명한다(예: "핀 쓰기는 잠금 아래에서 한다. 동시 요청이 서로의 변경을 덮어쓰지 않게 하기 위해서다"). 사건의 경위와 수치는 PR·커밋 기록에 둔다. [`tests/test_handbook_refs.py`](../../tests/test_handbook_refs.py)는 topic 산문의 ISO 날짜와 깨진 `§절 제목` 참조를 잡는다.
+결함을 막는 현재 규칙은 실패 조건과 이유로 설명한다(예: "핀 쓰기는 잠금 아래에서 한다. 동시 요청이 서로의 변경을 덮어쓰지 않게 하기 위해서다"). 사건의 경위와 수치는 PR·커밋 기록에 둔다. [`tests/architecture/test_handbook_refs.py`](../../tests/architecture/test_handbook_refs.py)는 topic 산문의 ISO 날짜와 깨진 `§절 제목` 참조를 잡는다.
 
 ## PR과 기여 조건
 

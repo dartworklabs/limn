@@ -10,9 +10,9 @@ here runs at import.
 Placeholders filled here:
 - __APP_CSS__ / __APP_JS__: the parts listed under each marker in parts.txt, joined in order (load_viewer_html).
 - __PDFJS_VERSION__: the vendored PDF.js version, the ?v= that busts the browser cache for /vendor/pdfjs/.
-- __LIMN_MARK_16__ / __LIMN_MARK_14__ / __LIMN_WORDMARK__: the Limn logo's inline SVGs (limn.mark.MARK_SLOTS) - the
+- __LIMN_MARK_16__ / __LIMN_MARK_14__ / __LIMN_WORDMARK__: the Limn logo's inline SVGs (limn.viewer.mark.MARK_SLOTS) - the
   icon by the label in the top bar and in the [더보기] label chip, the wordmark in the help header.
-- __ICON_KEY__: the content key of the icon files (limn.mark.Brand.key), the ?v= of the favicon links.
+- __ICON_KEY__: the content key of the icon files (limn.viewer.mark.Brand.key), the ?v= of the favicon links.
 - __LUCIDE_JSON__: the icon table, for the viewer's JS ic().
 - __UI_EN_JSON__: the ko -> en message table (ui_en.json), for the viewer's I18N_EN.
 - {{ic:<name>}}: one icon as an inline <svg> (icon_svg), the same markup the JS ic() builds.
@@ -32,7 +32,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TypeAlias
 
-from limn.mark import Icon
+from limn.viewer.mark import Icon
 
 # One entry of the message table: an English string, or plural forms {"one": ..., "other": ...} for a key with {n}.
 Message: TypeAlias = str | dict[str, str]
@@ -215,7 +215,7 @@ def viewer_html(
     """The viewer page served at GET /, before the run-time placeholders: run_page() fills those per instance.
 
     The page and its parts come from directory (load_viewer_html); pdfjs_version, the logo's inline SVGs (marks:
-    placeholder -> markup, limn.mark.Brand.marks, in placeholder order), the favicon links' icon_key, the icon table and
+    placeholder -> markup, limn.viewer.mark.Brand.marks, in placeholder order), the favicon links' icon_key, the icon table and
     the message table fill their placeholders, in that order, and every {{ic:<name>}} token becomes its icon's <svg>.
     The JSON forms are sorted by key so the page does not depend on the table's order; the message table's "</" is
     escaped so a string can never close the <script> it sits in. Raises like load_viewer_html, and KeyError for an
@@ -239,7 +239,7 @@ def viewer_html(
 class ViewerFiles:
     """The viewer package as read from disk once per process: the page template (viewer_html, the run-time
     placeholders still in it), the service worker (service_worker), the ko -> en message table (load_ui_messages)
-    and the icon each favicon route serves (limn.mark.Brand.icons, by GET path; empty serves none). The composition
+    and the icon each favicon route serves (limn.viewer.mark.Brand.icons, by GET path; empty serves none). The composition
     root reads it at startup (server.read_viewer), never at import."""
 
     template: str

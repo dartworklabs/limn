@@ -15,8 +15,8 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any, Literal, NamedTuple, Protocol, TypeAlias
 
-from limn.files import BadPath, ManuscriptFile, NotAFile, OutsideTree, file_in_tree
-from limn.pins.shapes import is_finite_num
+from limn.platform.files import BadPath, ManuscriptFile, NotAFile, OutsideTree, file_in_tree
+from limn.platform.values import is_finite_num
 from limn.web.errors import InputRejected
 
 Json: TypeAlias = Mapping[str, Any]  # a request's JSON object
@@ -40,7 +40,7 @@ class DocumentFacts(Protocol):
 
     @property
     def view_only(self) -> bool:
-        """True when the document's pins are page regions only (limn.documents.Doc.view_only): it has no source
+        """True when the document's pins are page regions only (limn.runtime.documents.Doc.view_only): it has no source
         lines."""
         ...
 
@@ -57,7 +57,7 @@ class DocumentFacts(Protocol):
 
     @property
     def state(self) -> Path:
-        """The instance's state folder, never part of the tree even when it lies inside root (limn.files.tree_part)."""
+        """The instance's state folder, never part of the tree even when it lies inside root (limn.platform.files.tree_part)."""
         ...
 
     def lines(self, path: ManuscriptFile) -> list[str]:
@@ -156,7 +156,7 @@ def parse_doc_choice(q: Query | None, body: Json | None = None, new_pin: bool = 
 
 def source_file(p: object, root: Path, state: Path) -> ManuscriptFile | InputRejected:
     """The real file inside the manuscript tree root that p names (absolute, or relative to the tree), or why not
-    (limn.files.file_in_tree): a bad value, a file outside the tree (the state folder `state` included), or no such
+    (limn.platform.files.file_in_tree): a bad value, a file outside the tree (the state folder `state` included), or no such
     file."""
     match file_in_tree(p, root, state):
         case ManuscriptFile() as f:

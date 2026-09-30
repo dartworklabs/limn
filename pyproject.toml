@@ -39,17 +39,19 @@ path = "src/limn/__init__.py"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/limn"]
-exclude = ["**/test_*.py"]
+exclude = ["**/tests/**", "**/test_*.py"]
 
 [tool.hatch.build.targets.sdist]
-include = ["src/limn", "tests", "docs", "skill", "README.md", "README.ko.md", "LICENSE", "NOTICE", "THIRD_PARTY_NOTICES.md", "TRADEMARKS.md"]
+include = ["src/limn", "tests", "tools", "docs", "skill", "README.md", "README.ko.md", "LICENSE", "NOTICE", "THIRD_PARTY_NOTICES.md"]
 
 [tool.pytest.ini_options]
-testpaths = ["tests", "src/limn/features"]
-pythonpath = ["tests"]
+testpaths = ["tests", "src/limn"]
+pythonpath = ["tests/support"]
+# Keep class-scoped Chromium resources together; -n 0 remains available for debugging.
+addopts = "--import-mode=importlib -n 4 --dist loadscope"
 markers = [
-    "tex: runs real TeX-side tools (tests/helpers.py needs_tex); the CI tex job selects these with -m tex",
-    "browser: launches Chromium (every tests/helpers_browser.py ChromiumTestCase class); -m 'not browser' runs the rest",
+    "tex: runs real TeX-side tools (tests/support/helpers.py needs_tex); the CI tex job selects these with -m tex",
+    "browser: launches Chromium (every tests/support/helpers_browser.py ChromiumTestCase class); -m 'not browser' runs the rest",
 ]
 
 [tool.ruff]
@@ -73,8 +75,8 @@ ignore = [
 # The limn.* imports follow the sys.path bootstrap that lets an instance run the file directly.
 "src/limn/server.py" = ["E402"]
 # Every test module and class has a docstring; function and method coverage still has legacy gaps.
-"tests/*.py" = ["D102", "D103", "D104", "D105", "D106", "D107"]
-"src/limn/features/**/test_*.py" = ["D102", "D103", "D104", "D105", "D106", "D107"]
+"tests/**/*.py" = ["D102", "D103", "D104", "D105", "D106", "D107"]
+"src/limn/**/test_*.py" = ["D102", "D103", "D104", "D105", "D106", "D107"]
 
 [tool.ruff.lint.isort]
 combine-as-imports = true               # `from limn import access, server as ps` stays one line, as the code writes it
@@ -86,12 +88,12 @@ known-local-folder = ["helpers", "helpers_*", "test_*"]   # the tests' shared mo
 # and the `limn` command. A new module under src/limn is checked without being listed.
 files = ["src/limn"]
 # Exclude colocated tests from discovery while keeping every production module strict.
-exclude = ['^src/limn/(?:.*/)?test_[^/]*\.py$']
+exclude = ['^src/limn/(?:.*/)?(?:tests/|test_[^/]*\.py$)']
 mypy_path = "src"
 python_version = "3.10"
 strict = true
 # strict turns on strict_equality: == or != between types that cannot overlap is an error, so a typo in a closed
-# security value (limn.access Role, Via, AuthProvider) fails the check. Stated again so it stays on without strict.
+# security value (limn.security.access Role, Via, AuthProvider) fails the check. Stated again so it stays on without strict.
 strict_equality = true
 # A `match` over a union that misses a case is an error, not just a missing return (docs/handbook/verification.md §9).
 enable_error_code = ["exhaustive-match"]

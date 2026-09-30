@@ -19,7 +19,7 @@ catalog_schema: 1
 | role | file | responsibility | read or update when |
 | --- | --- | --- | --- |
 | purpose | [purpose.md](purpose.md) | Limn이 줄이는 비용, 사용자, 범위, 영역별 진실 소스 | 처음 읽을 때, 현재값의 정본 위치가 헷갈릴 때 / 제품 범위나 정본 위치가 바뀔 때 |
-| architecture | [architecture.md](architecture.md) | 현재 구조(모듈의 층), 의존 방향, 채택한 설계 축, 불변식, 멈춤 신호 | 코드를 놓을 자리를 고르거나 의존성·저장·보안 경계를 건드리기 전 / 구조 단위·불변식·채택값이 바뀔 때 |
+| architecture | [architecture.md](architecture.md) | 현재 구조(기능 소유권과 공통 경계), 의존 방향, 채택한 설계 축, 불변식, 멈춤 신호 | 코드를 놓을 자리를 고르거나 의존성·저장·보안 경계를 건드리기 전 / 구조 단위·불변식·채택값이 바뀔 때 |
 |  | [domain.md](domain.md) | 핀 용어, 상태와 전이, 역변환·범위 사다리·anchor 재동기화, 저장소 안전성, 작성자 귀속, 여러 문서 서버 규칙(보기 전용 PDF·그림 문서), 알려진 제약 | 핀 규칙이나 위치 계산을 고치기 전 / 상태·전이·위치 규칙·한도가 바뀔 때 |
 |  | [viewer.md](viewer.md) | 뷰어 조작 요약, 레이아웃, 패널, 상태 표시, 협업 UI, 디자인 토큰·컴포넌트, 벡터 렌더링·확대, 화면 쪽 제약 | 뷰어 HTML·CSS·JS를 고치기 전 / 화면 규칙이나 가드 테스트가 바뀔 때 |
 |  | [build-sync.md](build-sync.md) | 동기·비동기 재빌드, git pull, 자동 동기화 폴링, 위치 추정 est, 응답 다이어트, 보기 전용 PDF 감시, 그림 문서 가져오기 | 빌드·동기화·추정 코드를 고치기 전 / 빌드 상태나 폴링 규칙이 바뀔 때 |
@@ -38,57 +38,29 @@ catalog_schema: 1
 <!-- handbook-filemap:start -->
 | 경로 패턴 | 책임 | 수정 trigger | 갱신 주체 |
 | --- | --- | --- | --- |
-| `src/limn/server.py` | 실행 설정·자원·문서·기능 서비스를 묶는 조립 지점. `Runtime`이 실행별 잠금·캐시·감시 스레드를 소유하고, `ServerApplication`이 기능 서비스에 문맥과 협력자를 넘겨 `web/app.py`의 `App` 계약을 구현한다 | 시작·종료 순서, 앱이 넘기는 설정·협력자, 서비스 인터페이스 변경 | architecture.md, operations.md, 연결된 기능의 topic |
-| `src/limn/service/context.py` | 여러 핀 기능이 쓰는 `PinContext`: 저장소·시계·알림·감사·파일 위치 협력자 | 기능이 받는 협력자와 저장·알림 경계 변경 | domain.md, api.md, architecture.md 불변식 4 |
-| `src/limn/features/pins/lifecycle/*` | 닫기·다시 열기·확인·답글의 입력과 답글·다시 열기 사유 검사(`input.py`), HTTP 응답(`http.py`)과 POST 동작 이름(`routes.py`), 실행별 문맥을 받는 잠금·전이·알림(`service.py`). 순수 전이·명령·거절은 `rules.py`, 여러 기능이 함께 쓰는 스레드·리비전 보조 규칙은 공통 `pins/lifecycle.py`가 소유한다 | 네 경로의 파싱·응답·쓰기·알림·권한 흐름 변경 | api.md, domain.md, architecture.md, code-style-roadmap.md |
-| `src/limn/features/pins/claims/*` | claim·unclaim의 시간 입력과 상한(`input.py`), 성공·409 응답(`http.py`)과 POST 동작 이름(`routes.py`), 실행별 문맥으로 저장하는 `PinClaims`(`service.py`). claim·unclaim의 순수 판단은 같은 기능의 `rules.py`에 있고, 목록·렌더도 쓰는 claim 유효 시간 판정은 공통 `pins/lifecycle.py`에 있다 | 시간 검사·응답·저장 순서 변경 | api.md, domain.md, architecture.md |
-| `src/limn/features/pins/trash/*` | 전체 비우기 확인 입력(`input.py`), 삭제·복원·영구 삭제·전체 비우기의 HTTP 응답(`http.py`)과 POST 경로(`routes.py`), 실행별 문맥의 휴지통 변경·만료 정리(`service.py`). 삭제·복원의 순수 전이는 같은 기능의 `rules.py`, 목록과 함께 쓰는 가시성·만료 규칙은 공통 `pins/trash.py`에 있다 | 휴지통의 쓰기·알림·감사 순서, 보존 기한, 응답 변경 | api.md, domain.md, architecture.md |
-| `src/limn/features/pins/editing/*` | 만들기·편집의 `note`·`kind_req`·`scope`·`assignee` 필드 검사(`fields.py`), 줄·PDF 영역 위치 검사(`location.py`), 본문 입력(`input.py`), 요청별 담당자·문서 문맥과 응답(`http.py`), 두 POST 경로(`routes.py`), 편집 대상 범위·저장·알림(`service.py`). 순수 만들기·편집 명령과 판단은 같은 기능의 `rules.py`, 공유 상수·scope 값은 공통 `pins/edit.py`에 있다 | 위치·필드 검사 순서, 저장·알림·응답 변경 | api.md, domain.md, architecture.md |
-| `src/limn/features/pins/listing/*` | 핀 목록·한 핀·휴지통의 쿼리 입력(`input.py`), HTTP 응답(`http.py`)과 네 GET 경로(`routes.py`), 실행별 JSON 읽기(`service.py`), 요청·저장용 `pins.md` 입력 조립(`markdown.py`). 순수 응답·렌더 규칙은 `pins/view.py`·`pins/render.py`, 휴지통 가시성은 `pins/trash.py`에 있다 | 조회 순서, 필터, 계산 필드, 휴지통 가시성, `pins.md` 바이트 변경 | api.md, domain.md, architecture.md |
-| `src/limn/features/pins/location/*` | PDF 선택·원문 구간·겹침 조회의 입력(`input.py`), HTTP 응답·경고·거절 문장(`http.py`)과 선택 POST·두 조회 GET 경로(`routes.py`), 실행별 협력자(`service.py`), 역변환 결과와 판단(`resolve.py`), SyncTeX·pdftotext 및 토큰 캐시(`source.py`), 구간 렌더·겹침 조회(`range.py`) | 선택·구간 입력 순서, 위치 해석, 응답 변경 | api.md, domain.md, architecture.md |
-| `src/limn/features/builds/*` | 빌드 상태·PDF·쪽 이미지 읽기와 재빌드 요청: 이름·스위치 검사(`input.py`), 응답 키 순서·로그 다이어트(`answer.py`), HTTP 입구·파일 읽기(`http.py`), 세 GET 경로와 재빌드 POST의 매칭·응답(`routes.py`), 실행별 컴파일·추적 빌드·기동·PDF 감시와 동기·비동기 연결(`service.py`), 잠금·상태·이력 기록(`run.py`), 완료 이력·화면 상태의 순수 계산(`completion.py`), 원고 복사·LaTeX·PDF 렌더(`engine.py`), 그림 문서 가져오기(`figure.py`: 지도·PDF 검사, 지문, 미루기, 빌드별 지도 사본). 공통 산출물·원본 지문·이력 사실은 `build.py`에 있다 | 빌드 조회·재빌드 응답, 파일 선택, 실행 연결 변경 | api.md, build-sync.md, architecture.md |
-| `src/limn/features/sync/*` | `--git-pull`·원격 main 감시: 결과·감시 상태와 순수 판정(`rules.py`), Git 순서·여러 문서의 pull 공유·감시 실행(`run.py`), 실행별 문맥과 빌드·meta·감시 연결(`service.py`) | pull 거절·fast-forward, 감시 상태·재빌드 선택·실행별 연결 변경 | build-sync.md, api.md, architecture.md |
-| `src/limn/features/collaboration/*` | 사람 파일·후보·기록(`directory.py`), `/api/people` 본문(`http.py`)과 경로(`routes.py`), 이벤트 파일·멘션 재알림·폴링의 실행별 연결(`notices.py`). 공통 파일 형식·순수 규칙은 `people.py`·`events.py`·`mentions.py`에 있다 | 사람 후보·이벤트 순서, 파일 읽기·쓰기 연결 변경 | api.md §@태그·사람·이벤트, architecture.md |
-| `src/limn/features/document_views/*` | `GET /api/meta`·`/api/docs`·`/api/outline-labels`: 이벤트 커서 입력(`input.py`), 문서·빌드·쪽·목차 사실(`reads.py`)과 순수 목차 파서(`outline.py`), 실행별 핀·동기화·이벤트 조합(`service.py`), HTTP 응답(`http.py`)과 경로(`routes.py`) | meta·docs·목차 응답, 폴링 순서와 쪽 파일 읽기 변경 | api.md, build-sync.md, architecture.md |
-| `src/limn/features/revisions/*` | Git 이력·비교 PDF의 입력 검사(`input.py`), 성공·거절 응답(`answer.py`), HTTP 입구(`http.py`), 네 GET 경로와 비교 시작 POST의 매칭·응답(`routes.py`), 실행별 비교 문맥·요청 실행(`service.py`). Git 이력·diff와 공통 타입(`core.py`), 스냅샷·격리 PDF 실행(`execution.py`), 비교 캐시·작업 상태(`jobs.py`)가 같은 기능에 있다 | 커밋·핀 검사 순서, 비교 응답·문맥 연결과 실행·캐시 규칙 변경 | api.md, architecture.md |
-| `src/limn/store.py` | 핀 저장소: 잠금 아래 쓰기 순서(`transact`), `pins.jsonl`·`pins.md`·휴지통 쓰기, 손상 줄 보존, 핀 번호(`pins.seq`), 보관(clear). 서버를 모르고 협력자를 인자로 받는다 | 저장 순서·파일 이름·보존 규칙 변경 | domain.md §저장소 안전성, architecture.md 불변식 4 |
-| `src/limn/pins/*` | 핀 도메인의 순수 코드: 상태 타입, 행위자 타입, 저장소가 믿는 레코드 모양 검사(`record.py`), 스레드·리비전·claim 유효 시간과 `pins.md`의 다시 열림 판단(`lifecycle.py`), 편집·위치·접근 코드가 공유하는 상수·scope 값(`edit.py`), 휴지통의 만료·그림자 항목 판정(`trash.py`), 핀 위치 규칙(`position.py`: 위치 추정·겹침·anchor 재동기화), JSON 정수·숫자 판정(`shapes.py`), `pins.md` 렌더(`render.py`: 입력 값 → 문자열, 겹침 배지), API가 레코드를 보이는 모양과 계산 필드(`view.py`: `public_record`·`state`·`GET /api/pins`·휴지통 본문) | 저장 레코드 필드 추가(`record.py`의 검사도 함께), 상태·전이·거절 규칙, 휴지통 만료·가시성, 추정·겹침·줄 맞춤 규칙 변경, `pins.md` 열·표시·머리말 변경(계약) | domain.md, build-sync.md §위치 추정 (`est`), api.md §pins.md 형식, code-style-roadmap.md |
-| `src/limn/guidance.py` | 에이전트가 읽는 토큰 파일 문구(`UNAUTHENTICATED`, `shell_path`, `token_file_curl`, `loopback_refused_text`) — 순수. `pins.md` 인증 줄과 헤더 없는 로컬 요청의 401이 같이 쓴다 | 인증 안내·401 문구 변경(계약) | api.md §인증 |
-| `src/limn/mapping.py` | 위치 계산의 순수한 절반: SyncTeX 표본에서 파일·줄 범위 선택(`synctex_range`), 범위 사다리, 블록 확장, 점수, anchor 찾기, 한 줄 줄이기(`flat`: `pins.md`와 알림 `excerpt`), 핀 파일 찾기(`pin_rel_path`) | 점수·단계·anchor·핀 파일 위치 규칙 변경 | domain.md, api.md §핀 파일의 위치 |
-| `src/limn/figmap.py` | 그림 요소 지도(`limn-figure-map/1`)의 순수 파서: 상수, 값 타입(`FigureMap`·`MapPage`·`MapElement`), 거절 값(`MapRejected`)과 `parse_map` | 지도 형식·검사 규칙 변경(생산자 계약) | api.md §그림 요소 지도 (`limn-figure-map/1`), domain.md, build-sync.md |
-| `src/limn/locate.py` | 여러 핀 경로의 공통 위치: 핀 파일 찾기(`pin_location`), 저장된 핀 재동기화(`sync_all`), 겹침(`overlaps_by_id`·`overlaps_for_range`), 빌드 이력 읽기(`est_context`). 문서와 설정을 인자로 받는다 | 재동기화·핀 파일 위치·겹침 변경 | domain.md, build-sync.md, api.md §핀 파일의 위치 |
-| `src/limn/build_values.py` | 공유 빌드 결과 값과 상태 이름. 파일·시계·HTTP를 모르는 순수 타입이며 `build.py`도 같은 타입을 재노출한다 | 결과 타입·필드·상태 이름 변경 | build-sync.md, architecture.md |
-| `src/limn/build.py` | 빌드의 공통 사실: 쪽 디렉터리와 쪽 목록, 공유 결과 값의 공개 import 경로, 빌드 상태, 빌드 이력, 원고 지문과 `src_mtime`, 그림 문서의 지도 경로 검사(`figure_source_check`·`figure_pdf`)와 빌드별 지도 사본 읽기(`load_build_map`·`build_figure_pdf`). 문서를 인자로 받으며 빌드 기능과 핀·문서 조회가 함께 읽는다 | 공통 빌드 상태·이력·지문·산출물 규칙 변경 | build-sync.md, architecture.md |
-| `src/limn/gitrun.py` | git 프로세스를 띄우는 방식: 인자 목록, stdin·터미널 없음, `GIT_TERMINAL_PROMPT=0`, 서버의 `GIT_*` 변수 빼기, 시간 제한. 동기화와 비교 기능이 함께 쓰는 `git()`는 종료 코드·출력을 반환하고 시간 초과·실행 실패를 같은 결과로 정규화한다 | git 호출 방식이나 넘기는 환경 변경 | build-sync.md §git 프로세스, verification.md |
-| `src/limn/features/document_views/outline.py` | `.aux` 목차 줄의 순수 파서(번호·제목·인쇄 쪽 번호·계층) | 목차 라벨 변환 규칙 변경 | api.md, viewer.md |
-| `src/limn/files.py` | 원자적 파일 교체(`atomic_write`): 상태 폴더의 모든 쓰기가 공유. 상태 파일의 프로세스 간 잠금(`store_lock`). 무엇이 원고 트리인지(`tree_part`: 점으로 시작하는 이름 아래와 원고 안에 둔 상태 폴더 아래는 트리가 아니다)와 경로가 그 안의 파일인지 보는 규칙(`file_in_tree`), 검사된 원고 읽기 핸들(`ManuscriptFile`)과 줄 세기(`tex_lines`), PDF.js 파일 이름 검사(`vendor_file`) | 쓰기 방식·트리 경로 규칙 변경 | domain.md, architecture.md |
-| `src/limn/people.py` | `people.json`: 항목 검사, 저장 형식, 읽기(쓸 수 없는 파일은 `PeopleUnreadable`)와 그 경고, 실행 중 서버의 기록(`record_person`, 쓸 수 없는 파일은 다시 쓰지 않음), @태그 후보(`known_people`) | 사람 목록 필드·기록 간격·후보 규칙 변경 | api.md §@태그·사람·이벤트, §인증 |
-| `src/limn/mentions.py` | @태그의 순수 규칙: `@이름` 풀기, 지금 차례, `addressed`·`fyi`, 메모 태그와 재알림 간격 | 태그 해석·addressed·재알림 규칙 변경 | api.md §@태그·사람·이벤트, viewer.md §스레드와 검토 |
-| `src/limn/events.py` | 알림 한 건과 받는 사람, 폴링이 고르는 이벤트(순수), `events.jsonl` 쓰기·읽기(`EventLog`) | 이벤트 종류·필드·받는 사람·보관 건수 변경 | api.md §이벤트 (`events.jsonl`), §브라우저 알림 커서 |
-| `src/limn/audit.py` | `audit.jsonl` 한 줄과 추가 전용 쓰기, CLI 행위자 | 감사 항목·쓰기 방식 변경 | api.md §감사 기록 (`audit.jsonl`), SECURITY.md |
-| `src/limn/scope.py` | 핀 단위 변경(0.3)의 순수 판단: hunk 블록 귀속, 핀 hunk diff, 합성 판, 거절 값 | 귀속 순서·`scope` 필드·`changes` 검사 변경 | api.md §핀 단위 변경 보기 |
-| `src/limn/documents.py` | 문서(`Doc`: 종류 `DocKind`와 능력 속성 `builds_from_source`·`watches_files`·`takes_line_pins`·`shows_revisions`·`view_only`, 빌드 루트·메인·문서별 상태 폴더와 빌드 잠금·상태), 파싱한 `--doc`에 쓰는 종류 규칙(`kind_builds_from_source`), 문서 키 규칙, 문서 목록을 인자로 받는 조회(`request_doc`·`doc_for_file`·`pin_doc_key`)와 조회 결과 값(`DocNotFound`), 파서가 읽는 원고 사실(`DocumentFacts`), `to_source` | 문서 종류·능력 추가나 변경, 문서 경로·키 규칙 변경 | domain.md §여러 문서, build-sync.md |
-| `src/limn/mark.py` | Limn 로고(순수): 아이콘 경로와 파일 표(`ICON_ROUTES`), 인라인 자리와 SVG 표(`MARK_SLOTS`), 브랜드 SVG의 닫힌 어휘 파서(`parse_svg`)와 클래스만 단 인라인 마크업(`inline_svg`), 내용 키 | 로고 자리·크기·색 역할·아이콘 경로 변경 | viewer.md §마크와 파비콘, api.md |
-| `src/limn/brand/*` | 브랜드 저장소(limn-sans `make icons`)가 만든 로고 파일 그대로: 파비콘 `.ico`·PNG, `apple-touch-icon`, 인라인용 SVG, `SHA256SUMS`, 출처 README | 로고 그림 갱신(README 절차) | viewer.md §마크와 파비콘, TRADEMARKS.md |
-| `src/limn/viewer/*` | 뷰어 화면: `index.html`, 스타일 조각 `css/*.css`, 스크립트 조각 `js/*.js`, 조각 순서 `parts.txt`, 브라우저 알림의 서비스 워커 `sw.js`(`GET /sw.js`, `service_worker()`가 읽는다). 조립은 `assemble.py`(`viewer_html`: 조각을 순서대로 이어 한 장의 HTML로 만들고 PDF.js 버전·마크·Lucide 아이콘 표·영어 메시지 표를 채운다) | 레이아웃·토큰·컴포넌트·상호작용 변경, 조각 추가(`parts.txt`에 줄을 더한다), 아이콘 추가(`assemble.py`의 `LUCIDE`), PDF.js 버전 변경(`PDFJS_VERSION`) | viewer.md, verification.md |
-| `src/limn/features/viewer_shell/*` | 뷰어 첫 화면·파비콘·버전·서비스 워커·PDF.js 파일의 GET 경로와 응답·캐시 정책(`routes.py`). 화면 조각과 번들 파일은 기존 위치에 있다 | 화면 제공 경로·MIME·캐시·404 문구 변경 | api.md, viewer.md, architecture.md |
-| `src/limn/web/*` | HTTP 층: 처리기와 서버 클래스·본문 읽기와 한도·등록 경로 디스패치(`handler.py`), 공통 응답 형식(`reply.py`)·요청별 GET/POST 문맥과 등록 함수 계약(`routes.py`), 중복·인코딩을 거부하는 순수 요청 파서(`request_input.py`), 공통 문서 선택과 여러 기능이 함께 쓰는 필드·쿼리 파서(`parse.py`), 공통 결과 응답(`answers.py`), 오류 형식·거절 표·빌드 실패 문장 표·거부된 첫 화면(`errors.py`), 처리기의 가드·문서 선택·경로 등록 계약(`app.py`) | 경로·응답·오류 문구 추가나 변경, 처리기가 부르는 공통 의존성 변경 | api.md, architecture.md, verification.md |
-| `src/limn/access.py` | 접근 제어: 신원·입장·역할·Host/Origin 판단, 허용 경로와 범위가 묶인 변경 권한(`PostAuthority`, 공통 범위 값은 `access_values.py`), `tokens.json`의 인증용 읽기·해시와 `people.json` 역할 해석. `people.json` 형식은 `people.py`, 토큰 파일 안내 문구는 위의 `guidance.py` | 신원 방식·토큰·역할·Host/Origin 규칙 변경(보안 경계, architecture.md §멈춤 신호) | api.md §인증, architecture.md 불변식 1, operations.md, verification.md |
-| `src/limn/startup.py` | `limn serve` 공통 시작 규칙: 접근 설정 판단(`access_options`, 보안 경계)과 시작 로그, `--port` 확인, 상태 폴더·`people.json` 권한, 라벨·색, 시작 요약 줄, 패키지 버전(`app_version`). 공통 거절은 `StartupRefused` 값 | 시작 거절·바인드 규칙·요약 줄 변경(바인드 규칙은 architecture.md §멈춤 신호) | architecture.md 불변식 1, operations.md, verification.md |
-| `src/limn/args.py` | `limn serve` 명령줄 파서(`serve_parser`): 옵션·기본값·도움말 | 인자 추가나 변경 | operations.md, instances.md |
-| `src/limn/config.py` | 실행 설정의 얼린 타입 `RunConfig`(필드와 상태 파일 경로)와 그 안의 접근 옵션 `AccessOptions`, 강조색 표 | 실행 설정 추가나 변경 | architecture.md |
-| `src/limn/ui_en.json` | 뷰어 영어 문자열 | UI 문자열 추가·변경 | viewer.md |
-| `src/limn/features/administration/*` | 인스턴스 대상·감사 싱크(`targets.py`), 토큰 파일 안전 읽기·쓰기(`token_files.py`), 토큰 발급·취소 상태 쓰기(`token_state.py`), 멤버 파일 읽기·상태 쓰기(`member_state.py`), 토큰·멤버 명령(`tokens.py`·`members.py`), 설치·되돌리기와 실행 중 인스턴스 재시작(`instance_update.sh`), `limn doc` 명령과 `add`도 쓰는 문서 검사·자동 탐지(`instance_documents.sh`), 인스턴스 추가·실행·시작·중지·제거(`instance_lifecycle.sh`), 목록·상태·주소·에이전트 안내 조회(`instance_inspection.sh`), 옛 설치에서 옮기는 명령(`migrate.py`), 서버 기동의 문서 인자·선택 규칙과 기동 로그의 문서 줄(`serve_documents.py`) | 토큰·멤버·업데이트·문서·생명주기·조회·이전 명령, 문서 기동 거절, 파일 보호·대상 해석 변경 | instances.md, operations.md, api.md §인증, architecture.md |
-| `src/limn/instances.sh`, `src/limn/cli.py`, `src/limn/systemd/*` | 인스턴스 관리자의 공통 셸 환경·설정·포트·유닛·네트워크 도구와 명령 선택·전달. `stat_fmt`·`detect_main`은 여러 명령이 함께 쓴다 | 공통 도구·설정 키·유닛 템플릿 변경 | instances.md, operations.md |
-| `src/limn/vendor/**` | 번들한 PDF.js와 Lucide | 버전 교체나 파일 추가 | viewer.md, 해당 vendor README |
-| `pyproject.toml`, `uv.lock` | 의존성과 지원 파이썬 | 의존성·파이썬 범위 변경 | architecture.md 불변식 2, verification.md |
-| `tests/**` | 자동 게이트 | 테스트 추가·이동·합격 기준 변경 | verification.md |
-| `.github/workflows/*` | CI | 작업·행렬·단계 변경 | verification.md, workflow.md |
-| `skill/*` | 에이전트 절차 | 에이전트 행동 규칙 변경 | api.md와 함께, 영어·한국어 두 벌 |
+| `src/limn/pins/**` | 핀 값·전이·레코드·저장·문맥·멘션·변경 범위와 여섯 동작. 순수 판단과 I/O는 같은 기능 안에서 의존 방향으로 구별한다 | 상태·전이·위치·쓰기·알림·pins.md 변경 | domain.md, api.md, build-sync.md, architecture.md |
+| `src/limn/builds/**` | 빌드 결과·산출물·원고 지문·이력·DocumentFacts·컴파일·PDF 감시·그림 지도 파싱/가져오기와 요청 응답 | 빌드 상태·파일 선택·실행·실패 문구 변경 | build-sync.md, api.md, architecture.md |
+| `src/limn/collaboration/**` | 사람 후보·방문 연결, 이벤트 파일·멘션 알림·폴링 | 사람 조회·이벤트 순서·기록·알림 변경 | api.md, viewer.md, architecture.md |
+| `src/limn/documents/**` | 문서 탭·meta·목차 조회와 순수 목차 파서 | 문서 응답·폴링·목차 변경 | api.md, viewer.md, build-sync.md |
+| `src/limn/revisions/**` | Git 이력·diff·격리 비교 PDF·캐시·실패 응답 | 비교 실행·범위·응답·캐시 변경 | api.md, architecture.md |
+| `src/limn/sync/**` | 원격 main 감시·pull 순서·재빌드 선택 | 동기화 거절·감시·재빌드 변경 | build-sync.md, api.md |
+| `src/limn/administration/**` | 토큰·멤버·문서 인자·이관·인스턴스 셸·systemd 템플릿 | 명령·설정 키·유닛·업데이트 흐름 변경 | instances.md, operations.md, api.md |
+| `src/limn/viewer/**` | HTML·CSS·JS·번역·마크·브랜드 파일·조립·화면 제공 경로 | 화면 동작·조각 순서·번역·캐시 정책 변경 | viewer.md, api.md, verification.md |
+| `src/limn/runtime/**` | 시작·설정·실행별 문서와 잠금·고정 상태 경로 | 실행 수명·설정·문서 경로 변경 | architecture.md, operations.md, domain.md |
+| `src/limn/security/**` | 신원·Host/Origin·역할·권한 발급·사람 사실·감사·인증 안내 | 신뢰·권한·사람 기록·감사 변경 | architecture.md, api.md, operations.md, SECURITY.md |
+| `src/limn/platform/**` | 원고 핸들·원자적 쓰기·파일 잠금·Git 프로세스·숫자와 텍스트 장치 | 파일 접근·프로세스 인자/환경·JSON 값 판정 변경 | domain.md, build-sync.md, architecture.md |
+| `src/limn/web/**` | 공통 HTTP 처리기·요청 파서·응답·경로 계약 | 요청 한도·디스패치·공통 오류 형식 변경 | api.md, architecture.md |
+| `src/limn/server.py`, `src/limn/cli.py`, `src/limn/__main__.py` | 실행 자원 생성·기능 조립·명령 전달 | 시작/종료 연결·공개 서비스 인터페이스 변경 | architecture.md, operations.md, 연결된 기능 topic |
+| `src/limn/*/__init__.py` | 기능 공개 표면과 요청한 값만 불러오는 지연 export | 공개 동작·값·기능 소유권 변경 | architecture.md, code-style-roadmap.md, verification.md |
+| `tools/check_boundaries.py`, `tests/architecture/test_boundaries.py` | 기능 비공개 접근·경계 코드의 기능 의존·순환 검사 | import 해석·소유권·검증 규칙 변경 | verification.md, architecture.md |
+| `src/limn/vendor/**` | 번들한 PDF.js와 Lucide | 버전 교체·파일 추가 | viewer.md, 해당 vendor README |
+| `src/limn/**/tests/**`, `tests/**` | 소유 패키지의 동작과 교차 기능 계약·구조 게이트 | 검사 추가·이동·합격 기준 변경 | verification.md |
+| `pyproject.toml`, `uv.lock`, `.github/workflows/*` | 지원 Python·의존성·수집/패키징·병렬 실행·정적 게이트 | 실행 환경·검증 구성 변경 | architecture.md, verification.md, workflow.md |
+| `skill/*` | 에이전트 절차의 영어·한국어 계약 | 에이전트 행동 규칙 변경 | api.md와 함께 두 언어 |
 | `docs/handbook/book.json`, `tools/handbook-publish/*` | Handbook 출판 설정과 출판기 | 폰트·도구 버전·출판기 교체 | verification.md |
 <!-- handbook-filemap:end -->
 
 ## 알려진 공백
 
 - HTML 출판은 로컬 폰트(`.handbook/fonts/`, git 밖)에 기대고, CI에서 출판을 검사하지 않는다. 방법은 [verification.md](verification.md) §7 Handbook 출판에 있다.
-- Handbook 안의 `[파일](파일) §절 제목` 참조와 코드 주석의 `docs/handbook/파일 §절 제목` 참조는 [`tests/test_handbook_refs.py`](../../tests/test_handbook_refs.py)가 검사한다. 같은 파일 안의 `§절 제목`만 쓴 참조는 검사하지 않는다 ([verification.md](verification.md) §6).
+- Handbook 안의 `[파일](파일) §절 제목` 참조와 코드 주석의 `docs/handbook/파일 §절 제목` 참조는 [`tests/architecture/test_handbook_refs.py`](../../tests/architecture/test_handbook_refs.py)가 검사한다. 같은 파일 안의 `§절 제목`만 쓴 참조는 검사하지 않는다 ([verification.md](verification.md) §6).

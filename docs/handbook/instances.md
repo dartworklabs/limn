@@ -4,7 +4,7 @@
 
 `limn serve`는 서버 하나를 앞(foreground)에서 띄운다. 몇 주씩 다루는 원고는 **인스턴스**로 띄운다. 인스턴스는 systemd 사용자 유닛 `limn@<이름>` 하나이고, 포트·상태 폴더·journal이 인스턴스마다 따로다. 논문마다 저장소가 따로이고 동시에 작업하는 일이 잦아서 원고마다 인스턴스를 하나씩 둔다. 설치된 `limn` 패키지 하나를 모든 인스턴스가 함께 쓴다.
 
-서버 프로세스 하나의 계약(실행 인자, `--doc` 규칙, Host·Origin 검사, 상태 파일 배치)은 [operations.md](operations.md)가 맡는다. 인스턴스 관리자의 공통 셸 환경·도구·명령 선택은 [`src/limn/instances.sh`](../../src/limn/instances.sh), 설치·되돌리기와 재시작은 [`instance_update.sh`](../../src/limn/features/administration/instance_update.sh), `doc` 명령과 `add`가 공유하는 문서 검사·자동 탐지는 [`instance_documents.sh`](../../src/limn/features/administration/instance_documents.sh), 추가·실행·시작·중지·제거는 [`instance_lifecycle.sh`](../../src/limn/features/administration/instance_lifecycle.sh), 목록·상태·주소·안내 조각은 [`instance_inspection.sh`](../../src/limn/features/administration/instance_inspection.sh)가 구현한다. `limn` 명령이 셸로 넘기는 부분은 [`src/limn/cli.py`](../../src/limn/cli.py)다. 토큰·멤버 명령과 토큰 파일 보호는 [`features/administration/`](../../src/limn/features/administration/tokens.py)이 맡는다.
+서버 프로세스 하나의 계약(실행 인자, `--doc` 규칙, Host·Origin 검사, 상태 파일 배치)은 [operations.md](operations.md)가 맡는다. 인스턴스 관리자의 공통 셸 환경·도구·명령 선택은 [`src/limn/administration/instances.sh`](../../src/limn/administration/instances.sh), 설치·되돌리기와 재시작은 [`instance_update.sh`](../../src/limn/administration/instance_update.sh), `doc` 명령과 `add`가 공유하는 문서 검사·자동 탐지는 [`instance_documents.sh`](../../src/limn/administration/instance_documents.sh), 추가·실행·시작·중지·제거는 [`instance_lifecycle.sh`](../../src/limn/administration/instance_lifecycle.sh), 목록·상태·주소·안내 조각은 [`instance_inspection.sh`](../../src/limn/administration/instance_inspection.sh)가 구현한다. `limn` 명령이 셸로 넘기는 부분은 [`src/limn/cli.py`](../../src/limn/cli.py)다. 토큰·멤버 명령과 토큰 파일 보호는 [`administration/`](../../src/limn/administration/tokens.py)이 맡는다.
 
 > **한눈에**
 >
@@ -190,7 +190,7 @@ limn add paper2 --manuscript ~/papers/paper2        # 같은 결과를 설정에
 
 ## 유닛 템플릿
 
-유닛 파일은 패키지 안 템플릿 [`src/limn/systemd/limn@.service`](../../src/limn/systemd/limn@.service)를 채워 만든다. `limn add`, `limn start`, `limn update`가 `~/.config/systemd/user/limn@.service`(`LIMN_USER_UNIT_DIR`)에 쓴다. 심링크가 아니라 사본이다. uv가 도구를 다시 설치하면 패키지 경로가 바뀔 수 있기 때문이다.
+유닛 파일은 패키지 안 템플릿 [`src/limn/administration/systemd/limn@.service`](../../src/limn/administration/systemd/limn@.service)를 채워 만든다. `limn add`, `limn start`, `limn update`가 `~/.config/systemd/user/limn@.service`(`LIMN_USER_UNIT_DIR`)에 쓴다. 심링크가 아니라 사본이다. uv가 도구를 다시 설치하면 패키지 경로가 바뀔 수 있기 때문이다.
 
 채우는 자리는 셋이다.
 
@@ -356,7 +356,7 @@ curl -s -H "Authorization: Bearer $(cat ~/.config/limn/paper2.token)" http://127
 | `LIMN_TS_MIN`, `LIMN_TS_MAX`, `LIMN_LOCAL_OFFSET` | `18005`, `18099`, `100` | 자동 배정 대역 |
 | `LIMN_REPO`, `LIMN_UV` | `git+https://github.com/dartworklabs/limn`, `uv` | `limn update`가 설치할 원본과 쓸 `uv`. SSH로 받으려면 `LIMN_REPO`에 `git+ssh://git@github.com/dartworklabs/limn`을 준다(0.1.0의 기본값, 위 '업데이트와 되돌리기' 참고) |
 | `LIMN_WAIT` | `240` | 기동·재시작 뒤 HTTP 200을 기다리는 초 |
-| `LIMN_PYTHON` | `limn`이 도는 파이썬 | 인스턴스 관리자가 서버와 도우미를 돌리는 파이썬. `limn`이 넘긴다. 3.10 미만이거나 파이썬으로 돌지 않으면 PATH에 다른 파이썬이 있어도 대신 쓰지 않고 멈춘다. `limn`을 거치지 않고 `instances.sh`를 직접 부르면 PATH의 `python3`·`python3.1x` 가운데 3.10 이상인 첫 것을 쓴다(macOS의 `/usr/bin/python3`은 3.9다). 없으면 `help`를 뺀 모든 명령이 서버를 띄우기 전에 멈춘다. 이때 메시지 한 줄이 그 파이썬의 경로와 버전, 고치는 법(`limn`으로 부르거나 `LIMN_PYTHON`을 3.10 이상으로)을 알린다. 예: `limn: no Python >= 3.10 on PATH (/usr/bin/python3 is Python 3.9.6) — run it through the installed limn command, or set LIMN_PYTHON to a Python >= 3.10` |
+| `LIMN_PYTHON` | `limn`이 도는 파이썬 | 인스턴스 관리자가 서버와 도우미를 돌리는 파이썬. `limn`이 넘긴다. 3.10 미만이거나 파이썬으로 돌지 않으면 PATH에 다른 파이썬이 있어도 대신 쓰지 않고 멈춘다. `limn`을 거치지 않고 `administration/instances.sh`를 직접 부르면 PATH의 `python3`·`python3.1x` 가운데 3.10 이상인 첫 것을 쓴다(macOS의 `/usr/bin/python3`은 3.9다). 없으면 `help`를 뺀 모든 명령이 서버를 띄우기 전에 멈춘다. 이때 메시지 한 줄이 그 파이썬의 경로와 버전, 고치는 법(`limn`으로 부르거나 `LIMN_PYTHON`을 3.10 이상으로)을 알린다. 예: `limn: no Python >= 3.10 on PATH (/usr/bin/python3 is Python 3.9.6) — run it through the installed limn command, or set LIMN_PYTHON to a Python >= 3.10` |
 | `LIMN_AGENT_TOKEN_FILE` | `<설정 폴더>/<이름>.token` | `limn run`이 서버에 넘기는 토큰 파일 경로. 사용자가 두는 값이 아니다 |
 
 `XDG_CONFIG_HOME`이 없으면 `~/.config`, `XDG_DATA_HOME`이 없으면 `~/.local/share`를 쓴다.
