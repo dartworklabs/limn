@@ -27,7 +27,7 @@ from limn.pins.location.resolve import PickedRegion
 from limn.platform import files
 from limn.runtime.documents import Doc, RunPaths
 
-from helpers import Base, jreq, pick, ps, split_resp
+from helpers import Base, fresh_runtime, jreq, pick, ps, split_resp
 from helpers_figure import (
     AUGUST_BOX,
     BUILD1,
@@ -35,6 +35,7 @@ from helpers_figure import (
     EMPTY_BOX,
     JULY,
     JULY_BOX,
+    STRIP_BOX,
     b2_map,
     figure_doc,
     script_lines,
@@ -380,10 +381,12 @@ class FigurePick(Base):
         self.assertEqual((d["kind"], d["el"]["id"]), ("region", "B2/calendar/m07"))
         self.assertTrue(d["warn"].startswith(PICK_WARNINGS["element_without_source"]))
 
-    def test_a_script_outside_the_document_folder_is_not_read(self):
-        """The script is repointed, after a first drag cached the map, at a manuscript file outside figs/: the second
-        drag reads the cached map (one parse in all) but never opens the outside file - the region answers with the
-        element and its reason. The map's own path check ran at parse time, so this is read_source's re-check."""
+    def test_a_script_that_links_out_of_the_folder_answers_alike_from_a_warm_and_a_cold_cache(self):
+        """The July cell's script is a link out of figs/ to a manuscript file beside it. With the run's map cache warm (a
+        first drag parsed the map while the script was still inside) or cold (a restart: the link was already there
+        for the first drag), the answer is the same: the region body with the element B2/calendar/m07 and the
+        element_without_source sentence - never figure_map_unavailable - and the file the link leads to is never
+        opened. The folder is judged when the script is read, not when the map is parsed."""
         outside = self.src / "elsewhere.py"
         outside.write_text("\n".join(script_lines()) + "\n", encoding="utf-8")
         real, opened = files.ManuscriptFile.snapshot, []
@@ -393,33 +396,63 @@ class FigurePick(Base):
             opened.append(checked.path)
             return real(checked)
 
-        with (
-            mock.patch.object(files.ManuscriptFile, "snapshot", spy),
-            mock.patch.object(limn_build, "parse_map", wraps=figmap.parse_map) as parsed,
-        ):
-            first = self.drag(JULY_BOX)
-            self.assertEqual(
-                (first["kind"], first["el"]["id"], opened), ("el:MonthCell", "B2/calendar/m07", [self.script])
-            )
-            self.script.unlink()
-            os.symlink(outside, self.script)
-            d = self.drag(JULY_BOX)
-        self.assertEqual(parsed.call_count, 1)
-        self.assertEqual((d["kind"], d["el"]["id"]), ("region", "B2/calendar/m07"))
-        self.assertTrue(d["warn"].startswith(PICK_WARNINGS["element_without_source"]))
-        self.assertEqual(opened, [self.script])
+        for cache in ("warm", "cold"):
+            with (
+                self.subTest(cache=cache),
+                mock.patch.object(files.ManuscriptFile, "snapshot", spy),
+                mock.patch.object(limn_build, "parse_map", wraps=figmap.parse_map) as parsed,
+            ):
+                self.script.unlink(missing_ok=True)
+                self.script.write_text("\n".join(script_lines()) + "\n", encoding="utf-8")
+                fresh_runtime()
+                opened.clear()
+                if cache == "warm":
+                    first = self.drag(JULY_BOX)
+                    self.assertEqual(
+                        (first["kind"], first["el"]["id"], opened), ("el:MonthCell", "B2/calendar/m07", [self.script])
+                    )
+                self.script.unlink()
+                os.symlink(outside, self.script)
+                opened.clear()
+                d = self.drag(JULY_BOX)
+                self.assertEqual(parsed.call_count, 1)  # warm: the first drag's parse served both; cold: this one
+                self.assertEqual((d["kind"], d["el"]["id"]), ("region", "B2/calendar/m07"))
+                self.assertTrue(d["warn"].startswith(PICK_WARNINGS["element_without_source"]), d["warn"])
+                self.assertEqual(opened, [])
 
-    def test_a_script_that_is_a_link_out_of_the_folder_from_the_start_makes_the_map_unavailable(self):
-        """A copy whose script already leads outside figs/ is refused whole at parse time (path_outside): the region
-        with the map-unavailable sentence and no el - the outside file is not read either."""
+    def test_a_script_that_links_out_of_the_folder_costs_only_the_elements_drawn_by_it(self):
+        """The strip is drawn by src/B2_calendar.py, which is a link out of figs/, and the July cell by src/july.py,
+        which is inside. The map is one map: a drag on the July cell still answers its lines and its ladder (the strip
+        and the figure, drawn in the other file, are no rungs of it), while a drag on the strip alone answers the region
+        with the strip and the element_without_source sentence."""
+        fmap = b2_map()
+        july = next(e for e in fmap["pages"][0]["elements"] if e["id"] == "B2/calendar/m07")
+        july["src"]["file"] = "src/july.py"
+        july_script = self.fig.src / "src" / "july.py"
+        july_script.write_text("\n".join(script_lines()) + "\n", encoding="utf-8")
+        write_build(self.fig, BUILD1, fmap)
         outside = self.src / "elsewhere.py"
         outside.write_text("\n".join(script_lines()) + "\n", encoding="utf-8")
         self.script.unlink()
         os.symlink(outside, self.script)
-        with mock.patch.object(files.ManuscriptFile, "snapshot", side_effect=AssertionError("never read")):
-            d = self.drag(JULY_BOX)
-        self.assertTrue(d["warn"].startswith(PICK_WARNINGS["figure_map_unavailable"]), d)
-        self.assertNotIn("el", d)
+        real, opened = files.ManuscriptFile.snapshot, []
+
+        def spy(checked):
+            """Record the file read, then read it."""
+            opened.append(checked.path)
+            return real(checked)
+
+        with mock.patch.object(files.ManuscriptFile, "snapshot", spy):
+            cell = self.drag(JULY_BOX)
+            strip = self.drag(STRIP_BOX)
+        self.assertEqual(
+            (cell["kind"], cell["el"]["id"], cell["file"], cell["lo"], cell["hi"]),
+            ("el:MonthCell", "B2/calendar/m07", str(july_script), 88, 95),
+        )
+        self.assertEqual([lv["level"] for lv in cell["levels"]], ["el"])
+        self.assertEqual((strip["kind"], strip["el"]["id"]), ("region", "B2/calendar"))
+        self.assertTrue(strip["warn"].startswith(PICK_WARNINGS["element_without_source"]), strip["warn"])
+        self.assertEqual(opened, [july_script])
 
     def test_a_small_cover_warns_like_a_weak_match(self):
         """A tall drag across two cells and far past the strip picks the strip (their common ancestor) with a cover of

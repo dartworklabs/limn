@@ -7,14 +7,17 @@ parsed here once (coding rule R3) into frozen values, or into a MapRejected nami
 format grows additively, so unknown keys are ignored; a repeated key is refused, since which value a reader keeps
 would be a guess.
 
-Pure: no file, subprocess or HTTP. The caller reads the bytes and passes source_inside, the path check of its
-document's folder (limn.builds.artifacts.figure_source_check).
+Pure: no file, subprocess or HTTP. The caller reads the bytes; a map's validity is a function of those bytes alone.
+src.file and impl.file are judged by their shape only (canonical relative paths). Where a path leads - inside the
+document's folder or not, readable or not - is decided by whoever reads the script (read_source in
+limn.pins.location.figure), so a script that links out costs only its own elements. The top-level pdf is
+placed by the import (limn.builds.artifacts.figure_pdf).
 """
 
 from __future__ import annotations
 
 import json
-from collections.abc import Callable, Sequence
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from typing import Any, Literal, TypeAlias
 
@@ -35,6 +38,8 @@ FULL_PAGE: Frac = (0.0, 0.0, 1.0, 1.0)  # the root element's box: the whole page
 DETAIL_TEXT_MAX = 80  # how much of the map's own text a rejection's detail quotes
 _HEX = frozenset("0123456789abcdef")
 
+# path_outside: a src.file or impl.file that is not a canonical relative POSIX path (_canonical) - its shape, never where
+# a well-formed path leads. The name stays because the value list of a rejection's reason only grows.
 MapRejectReason: TypeAlias = Literal[
     "too_large",
     "not_json",
@@ -158,7 +163,7 @@ class FigureMap:
         return self._by_id.get(el_id)
 
 
-def parse_map(raw: bytes, *, source_inside: Callable[[str], bool]) -> FigureMap | MapRejected:
+def parse_map(raw: bytes) -> FigureMap | MapRejected:
     """The map raw holds, or the first rule it breaks, in this order: the size (at most MAP_MAX_BYTES, checked before
     decoding: too_large); UTF-8 JSON with no repeated key and no nesting deeper than the decoder's stack (not_json); a
     top-level object (bad_shape); format (bad_format); pdf a non-empty string of at most MAP_MAX_PATH characters and
@@ -167,8 +172,10 @@ def parse_map(raw: bytes, *, source_inside: Callable[[str], bool]) -> FigureMap 
     part, label - are at most MAP_MAX_TEXT characters (bad_shape), src and impl paths at most MAP_MAX_PATH characters
     and canonical, their lines at most MAP_MAX_LINE (_source), and an element at most MAP_MAX_DEPTH ids from its
     root (_tree_rejection). pdf is relative to the map's folder and may climb out of it with '..': where it lands is
-    the import's check (limn.builds.artifacts.figure_pdf), not the parser's. Unknown keys are ignored everywhere. Never raises.
-    source_inside is asked about every canonical src.file and impl.file and must not raise either."""
+    the import's check (limn.builds.artifacts.figure_pdf), not the parser's; likewise a canonical src.file or impl.file is kept
+    whatever it would lead to (a link out of the folder, a dot-named folder, a file that does not exist), because
+    whether a script may be read is decided when it is read. The verdict depends on raw alone. Unknown keys are
+    ignored everywhere. Never raises."""
     if len(raw) > MAP_MAX_BYTES:
         return MapRejected("too_large", "%d bytes > %d" % (len(raw), MAP_MAX_BYTES))
     try:
@@ -192,7 +199,7 @@ def parse_map(raw: bytes, *, source_inside: Callable[[str], bool]) -> FigureMap 
     numbers: set[int] = set()
     ids: set[str] = set()
     for i, p in enumerate(raw_pages):
-        page = _page(p, "pages[%d]" % i, numbers, ids, source_inside)
+        page = _page(p, "pages[%d]" % i, numbers, ids)
         if isinstance(page, MapRejected):
             return page
         pages.append(page)
@@ -255,9 +262,7 @@ def _int(v: object) -> int | None:
     return v if is_int(v) else None
 
 
-def _page(
-    v: object, where: str, numbers: set[int], ids: set[str], source_inside: Callable[[str], bool]
-) -> MapPage | MapRejected:
+def _page(v: object, where: str, numbers: set[int], ids: set[str]) -> MapPage | MapRejected:
     """One page, or the first rule it breaks: an object (bad_shape); page a JSON integer >= 1 no earlier page used
     (bad_page); figure a non-empty string and title absent or a string (bad_shape); elements a list (bad_shape) of at
     most MAP_MAX_ELEMENTS, counted before any is read (too_many_elements); each element (_element, ids unique across
@@ -289,7 +294,7 @@ def _page(
         )
     elements: list[MapElement] = []
     for j, e in enumerate(raw_elements):
-        el = _element(e, "%s.elements[%d]" % (where, j), ids, source_inside)
+        el = _element(e, "%s.elements[%d]" % (where, j), ids)
         if isinstance(el, MapRejected):
             return el
         elements.append(el)
@@ -302,11 +307,12 @@ def _page(
     return MapPage(number, figure, title, ordered)
 
 
-def _element(v: object, where: str, ids: set[str], source_inside: Callable[[str], bool]) -> MapElement | MapRejected:
+def _element(v: object, where: str, ids: set[str]) -> MapElement | MapRejected:
     """One element, or the first rule it breaks: an object (bad_shape); id a non-empty string of at most MAP_MAX_TEXT
     characters (bad_shape) not used earlier in the map (duplicate_id); parent absent, null or a non-empty string
-    (bad_shape); frac (_frac: bad_frac); src and impl (_source: bad_shape, path_outside); part and label absent or
-    strings of at most MAP_MAX_TEXT characters (bad_shape). The id is added to ids."""
+    (bad_shape); frac (_frac: bad_frac); src and impl (_source: bad_shape, path_outside for a path that is not
+    canonical); part and label absent or strings of at most MAP_MAX_TEXT characters (bad_shape). The id is added to
+    ids."""
     if not isinstance(v, dict):
         return MapRejected("bad_shape", "%s is not an object" % where)
     el_id = _name(v.get("id"))
@@ -325,10 +331,10 @@ def _element(v: object, where: str, ids: set[str], source_inside: Callable[[str]
     frac = _frac(v.get("frac"), where + ".frac")
     if isinstance(frac, MapRejected):
         return frac
-    src = _source(v.get("src"), where + ".src", source_inside)
+    src = _source(v.get("src"), where + ".src")
     if isinstance(src, MapRejected):
         return src
-    impl = _source(v.get("impl"), where + ".impl", source_inside)
+    impl = _source(v.get("impl"), where + ".impl")
     if isinstance(impl, MapRejected):
         return impl
     part = _opt_text(v.get("part"), where + ".part")
@@ -352,11 +358,11 @@ def _frac(v: object, where: str) -> Frac | MapRejected:
     return x, y, w, h
 
 
-def _source(v: object, where: str, source_inside: Callable[[str], bool]) -> SourceRef | None | MapRejected:
+def _source(v: object, where: str) -> SourceRef | None | MapRejected:
     """An optional {file, lo, hi}: None when absent or null (a vector graphic without code, ADR-0011 D7); bad_shape
     unless an object whose file is a non-empty string of at most MAP_MAX_PATH characters and lo, hi JSON integers with
-    1 <= lo <= hi <= MAP_MAX_LINE; path_outside when file is not a canonical relative path (_canonical - refused before
-    source_inside is asked) or source_inside refuses it."""
+    1 <= lo <= hi <= MAP_MAX_LINE; path_outside when file is not a canonical relative path (_canonical). Only the
+    shape is judged: where a canonical path leads is not asked."""
     if v is None:
         return None
     if not isinstance(v, dict):
@@ -372,10 +378,6 @@ def _source(v: object, where: str, source_inside: Callable[[str], bool]) -> Sour
     if not _canonical(file):
         return MapRejected(
             "path_outside", "%s.file %r is not a canonical relative path" % (where, file[:DETAIL_TEXT_MAX])
-        )
-    if not source_inside(file):
-        return MapRejected(
-            "path_outside", "%s.file %r is outside the figure's folder" % (where, file[:DETAIL_TEXT_MAX])
         )
     return SourceRef(file, lo, hi)
 
@@ -396,7 +398,8 @@ def _rooted(elements: list[MapElement], figure: str, where: str) -> tuple[MapEle
 
 def _canonical(path: str) -> bool:
     """Whether path is a canonical relative POSIX path, the only form a pin stores: no leading or trailing '/', no
-    empty, '.' or '..' part, and no backslash or NUL. Where it leads is not asked here (source_inside is)."""
+    empty, '.' or '..' part, and no backslash or NUL. Where it leads is not asked here: the reader of the script asks
+    (read_source in limn.pins.location.figure)."""
     return "\\" not in path and "\x00" not in path and all(part not in ("", ".", "..") for part in path.split("/"))
 
 

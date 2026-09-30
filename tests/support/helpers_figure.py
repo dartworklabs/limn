@@ -23,6 +23,7 @@ JULY = (0.47, 0.18, 0.07, 0.12)  # the July cell: x 338.4-388.8, y 86.4-144 poin
 AUGUST = (0.55, 0.18, 0.07, 0.12)  # the August cell, drawn without code (D7): x 396-446.4
 JULY_BOX = (345.0, 95.0, 380.0, 130.0)  # a drag inside the July cell
 AUGUST_BOX = (400.0, 95.0, 440.0, 130.0)  # a drag inside the August cell
+STRIP_BOX = (100.0, 95.0, 140.0, 130.0)  # a drag inside the calendar strip (x 43.2-676.8, y 86.4-144), over no cell
 EMPTY_BOX = (100.0, 300.0, 200.0, 400.0)  # a drag below the calendar strip, over no element but the figure
 SCRIPT = "figs/src/B2_calendar.py"  # the drawing script, relative to the manuscript
 

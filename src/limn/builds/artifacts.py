@@ -210,16 +210,17 @@ def build_pdf(D: BuildDoc, name: object) -> Path | None:
     return f if f.is_file() else None
 
 
-# ---------------------------------------------------------------- Figure documents: map paths and the per-build map
+# ---------------------------------------------------------------- Figure documents: the PDF and the per-build map
 #
 # A figure document's import (limn.builds.figure) publishes the map next to the PDF copy in every page
 # directory. The pick and the pin input read it back per build; these readers live here, with the other shared build
-# artifacts, so no feature imports another.
+# artifacts, so no feature imports another. Only the PDF a map names is placed here (figure_pdf: the import must know
+# which file to read). A script a map names is placed by whoever reads it, when it reads it.
 
 
 def _inside_folder(base: Path, start: Path, rel: str) -> Path | None:
-    """rel - a path a figure map names, POSIX separators - resolved from the folder start, when it lies strictly inside
-    base (already resolved) and no part below base starts with '.', the manuscript tree's rule for dot names
+    """rel - the PDF path a figure map names, POSIX separators - resolved from the folder start, when it lies strictly
+    inside base (already resolved) and no part below base starts with '.', the manuscript tree's rule for dot names
     (limn.files.tree_part). None for an empty, absolute or over-long path, one holding a backslash or a NUL, the folder
     base itself, or a path that cannot be resolved. Symlinks are resolved, so a link that leads out of base is outside.
     The file need not exist; only metadata is read."""
@@ -235,26 +236,6 @@ def _inside_folder(base: Path, start: Path, rel: str) -> Path | None:
     return real
 
 
-def figure_source_check(root: Path) -> Callable[[str], bool]:
-    """The source_inside limn.builds.figure_map.parse_map takes for a figure document whose folder (Doc.src) is root: a map's
-    src.file or impl.file passes when _inside_folder finds it inside root, resolved from root itself. Answers are kept
-    per path for the life of the returned check, so a map naming one script for many elements resolves it once. A
-    root that cannot be resolved lets nothing pass."""
-    try:
-        base = root.resolve()
-    except (OSError, RuntimeError):
-        return lambda rel: False
-    known: dict[str, bool] = {}
-
-    def inside(rel: str) -> bool:
-        """Whether rel lies inside the figure document's folder (remembered per path)."""
-        if rel not in known:
-            known[rel] = _inside_folder(base, base, rel) is not None
-        return known[rel]
-
-    return inside
-
-
 def figure_pdf(doc: BuildDoc, figure_map: FigureMap) -> Path | None:
     """The PDF figure_map names, resolved from the folder holding doc's map (doc.main) and kept only when it lies inside
     doc.src (_inside_folder): the one path the import may read, or None. The file need not exist."""
@@ -267,9 +248,9 @@ def figure_pdf(doc: BuildDoc, figure_map: FigureMap) -> Path | None:
 
 def load_build_map(doc: BuildDoc, build: str) -> FigureMap | MapRejected | None:
     """The element map published with page directory `build` of figure document doc (<doc.dir>/<build>/figmap.json),
-    parsed with doc's own source check (figure_source_check of doc.src), so a copy is judged by today's folder. None
-    when build is not a page directory name or that directory has no readable copy. Reads at most MAP_MAX_BYTES + 1
-    bytes; a larger copy is MapRejected too_large."""
+    parsed from the copy's bytes alone (limn.builds.figure_map.parse_map asks the filesystem nothing), so the same copy is the
+    same map on every read. None when build is not a page directory name or that directory has no readable copy. Reads
+    at most MAP_MAX_BYTES + 1 bytes; a larger copy is MapRejected too_large."""
     if not valid_build_name(build):
         return None
     try:
@@ -277,7 +258,7 @@ def load_build_map(doc: BuildDoc, build: str) -> FigureMap | MapRejected | None:
             raw = fh.read(MAP_MAX_BYTES + 1)
     except OSError:
         return None
-    return parse_map(raw, source_inside=figure_source_check(doc.src))
+    return parse_map(raw)
 
 
 def build_figure_pdf(
@@ -299,9 +280,9 @@ class BuildMapCache:
     """The parsed maps of one run's figure builds, so a pick, GET /api/pins and every pins.md render do not parse the
     same map copy again. An entry is keyed by the document's folder, the build name and the copy's (mtime_ns, size):
     the import writes a build's copy once, so an entry stays right, and a copy written again misses. At most
-    MAP_CACHE_MAX entries, the oldest dropped first. What an entry holds is decided when it is parsed - a map's
-    source paths were checked against the folder as it was then - so whoever reads a file a map names checks that
-    path again.
+    MAP_CACHE_MAX entries, the oldest dropped first. What an entry holds is a function of the copy's bytes alone (the
+    parse reads no other file), so an entry can never be stale against the filesystem and a warm cache answers what a
+    cold one does. Whoever reads a file a map names decides then whether it may be read.
 
     Request threads share it: every read and write of the entries is under the lock. The entries are frozen
     dataclasses that nothing changes once parsed (FigureMap, MapRejected), so a map handed out stays usable while

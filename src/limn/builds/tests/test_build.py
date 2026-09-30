@@ -802,8 +802,9 @@ class ReadsBeforeAndBetweenBuilds(unittest.TestCase):
 
 
 class FigureBuildFacts(unittest.TestCase):
-    """The figure build facts limn.builds.artifacts shares with the builds and pins slices: which map paths a figure document
-    accepts, the PDF a map names, and the map a published build kept (docs/handbook/code-style-roadmap.md §R10)."""
+    """The figure build facts limn.builds.artifacts shares with the builds and pins slices: the PDF a map names, kept only inside
+    the figure document's folder, and the map a published build kept, whose verdict depends on its bytes alone
+    (docs/handbook/code-style-roadmap.md §R10)."""
 
     def setUp(self):
         """A manuscript with a figure folder figs/ (out/, src/, a dot folder, a symlink src/out-link to a folder
@@ -818,7 +819,6 @@ class FigureBuildFacts(unittest.TestCase):
         (self.figs / "src" / "out-link").symlink_to(root / "elsewhere")
         paths = RunPaths(root / "ms", root / "ms" / "main.tex", root / "state")
         self.doc = Doc("fig", "그림", "figure", self.figs, self.figs / "out" / "figures.limnmap.json", paths=paths)
-        self.inside = build.figure_source_check(self.figs)
 
     def map_naming(self, pdf: str) -> figmap.FigureMap:
         """A map with no pages that names pdf."""
@@ -831,34 +831,29 @@ class FigureBuildFacts(unittest.TestCase):
         (pdir / build.FIGMAP_NAME).write_bytes(raw)
         return pdir
 
-    def test_a_source_path_is_accepted_only_inside_the_documents_folder(self):
-        """Relative paths that resolve inside figs/ pass, existing or not; empty, absolute, escaping, dot-named,
-        backslashed, NUL-holding, over-long and symlinked-out paths and the folder itself do not."""
-        for rel in ("src/B2_calendar.py", "lib/components.py", "./src/a.py", "src/../lib/b.py"):
-            self.assertTrue(self.inside(rel), rel)
-        for rel in (
-            "",
-            "/etc/passwd",
-            "../main.tex",
-            "src/../../main.tex",
-            ".cache/x.py",
-            "src/.hidden/x.py",
-            "src\\a.py",
-            "src/a\x00.py",
-            "src/out-link/x.py",
-            "a" * 5000,
-            ".",
-        ):
-            self.assertFalse(self.inside(rel), repr(rel[:40]))
-
     def test_the_pdf_a_map_names_is_resolved_from_the_maps_folder_inside_the_document(self):
-        """pdf is relative to the folder holding the map and may step up, but only to a path inside figs/."""
+        """pdf is relative to the folder holding the map and may step up, but only to a path strictly inside figs/ and
+        with no dot-named part: the folder itself, a path that climbs out, an absolute one, an empty, backslashed,
+        NUL-holding or over-long one, and one through a symlink that leads out are all None. This is the one folder
+        judgement a map still gets when it is imported: src and impl are judged when their script is read."""
         self.assertEqual(build.figure_pdf(self.doc, self.map_naming("figures.pdf")), self.figs / "out" / "figures.pdf")
         self.assertEqual(
             build.figure_pdf(self.doc, self.map_naming("../render/figures.pdf")), self.figs / "render" / "figures.pdf"
         )
-        for pdf in ("../../outside.pdf", "/srv/paper/figures.pdf", ".figures.pdf", "../src/out-link/f.pdf"):
-            self.assertIsNone(build.figure_pdf(self.doc, self.map_naming(pdf)), pdf)
+        for pdf in (
+            "../../outside.pdf",
+            "/srv/paper/figures.pdf",
+            ".figures.pdf",
+            "../src/out-link/f.pdf",
+            "",
+            "..",
+            "../.cache/x.pdf",
+            "../src/.hidden/x.pdf",
+            "src\\a.pdf",
+            "src/a\x00.pdf",
+            "a" * 5000,
+        ):
+            self.assertIsNone(build.figure_pdf(self.doc, self.map_naming(pdf)), repr(pdf[:40]))
 
     def test_a_published_build_map_is_read_back_or_absent(self):
         """A build with a map copy gives the map and the PDF it names; a build without one, a gone build and a name
@@ -873,16 +868,27 @@ class FigureBuildFacts(unittest.TestCase):
             self.assertIsNone(build.load_build_map(self.doc, name), name)
             self.assertIsNone(build.build_figure_pdf(self.doc, name), name)
 
-    def test_a_published_map_is_checked_again_when_read(self):
-        """The copy is parsed with the document's own source check: a source outside figs/ is path_outside, a copy
-        over the size cap is too_large, and neither names a PDF."""
-        m = figure_map(MINI_PDF)
-        m["pages"][0]["elements"][0]["src"]["file"] = "../../main.tex"
-        self.publish("pages-20260101000000", map_bytes(m))
-        self.assertEqual(build.load_build_map(self.doc, "pages-20260101000000").reason, "path_outside")
-        self.publish("pages-20260102000000", b" " * (figmap.MAP_MAX_BYTES + 10))
-        self.assertEqual(build.load_build_map(self.doc, "pages-20260102000000").reason, "too_large")
-        self.assertIsNone(build.build_figure_pdf(self.doc, "pages-20260101000000"))
+    def test_a_published_map_is_judged_by_its_bytes_alone(self):
+        """The copy is parsed as bytes: a source path through a symlink that leads out of figs/ is a map, and it stays the
+        same map after that link is replaced by a folder inside figs/ - the filesystem is never asked; a source path that
+        is not canonical is path_outside, a copy over the size cap is too_large, and neither names a PDF."""
+        linked = figure_map(MINI_PDF)
+        linked["pages"][0]["elements"][0]["src"]["file"] = "src/out-link/x.py"
+        self.publish("pages-20260101000000", map_bytes(linked))
+        first = build.load_build_map(self.doc, "pages-20260101000000")
+        self.assertIsInstance(first, figmap.FigureMap)
+        self.assertEqual(build.build_figure_pdf(self.doc, "pages-20260101000000"), self.figs / "out" / "figures.pdf")
+        (self.figs / "src" / "out-link").unlink()
+        (self.figs / "src" / "out-link").mkdir()
+        self.assertEqual(build.load_build_map(self.doc, "pages-20260101000000"), first)
+        climbing = figure_map(MINI_PDF)
+        climbing["pages"][0]["elements"][0]["src"]["file"] = "../../main.tex"
+        self.publish("pages-20260102000000", map_bytes(climbing))
+        self.assertEqual(build.load_build_map(self.doc, "pages-20260102000000").reason, "path_outside")
+        self.assertIsNone(build.build_figure_pdf(self.doc, "pages-20260102000000"))
+        self.publish("pages-20260103000000", b" " * (figmap.MAP_MAX_BYTES + 10))
+        self.assertEqual(build.load_build_map(self.doc, "pages-20260103000000").reason, "too_large")
+        self.assertIsNone(build.build_figure_pdf(self.doc, "pages-20260103000000"))
 
 
 class BuildMapCacheReads(unittest.TestCase):
@@ -915,6 +921,19 @@ class BuildMapCacheReads(unittest.TestCase):
         second = self.cache.get(self.fig, BUILD1)
         self.assertIsNot(second, first)
         self.assertEqual(second.find("B2/calendar/m07")[1].frac, (0.4, 0.18, 0.07, 0.12))
+
+    def test_a_warm_and_a_cold_cache_give_the_same_map_whatever_the_folder_holds(self):
+        """A script that becomes a link out of the folder after the map was cached changes nothing in what a cold cache
+        reads: both give the same FigureMap, so no answer built on the map depends on which cache state served it."""
+        warm = self.cache.get(self.fig, BUILD1)
+        self.assertIsInstance(warm, FigureMap)
+        outside = self.fig.src.parent / "elsewhere.py"
+        outside.write_text("x = 1\n", encoding="utf-8")
+        script = self.fig.src / "src" / "B2_calendar.py"
+        script.unlink()
+        script.symlink_to(outside)
+        self.assertEqual(self.cache.get(self.fig, BUILD1), warm)
+        self.assertEqual(BuildMapCache().get(self.fig, BUILD1), warm)
 
     def test_a_missing_copy_or_a_name_that_is_not_a_build_is_none(self):
         """No copy in that build, or a name no page directory can have (a path), gives None and reads nothing."""

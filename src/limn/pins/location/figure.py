@@ -128,9 +128,10 @@ def read_source(D: Doc, rel: str, root: Path, state: Path) -> tuple[ManuscriptFi
     None: not a regular file inside the manuscript tree (limn.platform.files.file_in_tree), not inside D.src once symlinks are
     resolved (tree_part, which also keeps the state folder and dot-named parts out), or no readable UTF-8 lines.
 
-    The folder check is made here, on every read, and not only when the map was parsed: the run keeps a parsed map
-    (limn.builds.BuildMapCache) whose source paths were judged then, so a script that became a link out of the folder
-    since is refused now."""
+    The folder check is made here, on every read, and nowhere earlier: the map's parse (limn.builds.figure_map.parse_map) judges a
+    source path by its shape only, so the run's cached map (limn.builds.BuildMapCache) says nothing about where a
+    script leads. A script that links out of the folder - from the start or since the map was written - is refused
+    now and costs only its own elements their lines; the answer is the same from a warm cache and a cold one."""
     found = file_in_tree(str(D.src / rel), root, state)
     if not isinstance(found, ManuscriptFile) or tree_part(found.path, D.src, state) is None:
         return None

@@ -1,16 +1,19 @@
 """limn.builds.figure_map - the element map a figure repository writes (limn-figure-map/1), parsed once at the boundary.
 
-The module is pure, so these tests hand it bytes and a path check and look only at the values it returns (coding rule
-R9). Every rejection reason has examples that break exactly that rule. The accepted edges are pinned too: unknown keys,
-elements drawn without code (ADR-0011 D7), a root listed last, rounding at the page edge, each bound a pin relies on
-(path length, line number, depth) at its limit, a file exactly at the size cap. Hypothesis checks that parse_map never raises, whatever bytes or JSON
-it gets, and that every map it accepts is one tree per page rooted at the page's figure.
+The module is pure, so these tests hand it bytes and look only at the values it returns (coding rule R9). Every
+rejection reason has examples that break exactly that rule. The accepted edges are pinned too: unknown keys, elements
+drawn without code (ADR-0011 D7), a root listed last, rounding at the page edge, each bound a pin relies on (path
+length, line number, depth) at its limit, a file exactly at the size cap, and a source path that would lead out of the
+figure's folder (only its shape is judged here; where it leads is decided when the script is read). Hypothesis checks
+that parse_map never raises, whatever bytes or JSON it gets, and that every map it accepts is one tree per page rooted
+at the page's figure.
 
 Run: uv run pytest -q src/limn/builds/tests/test_figure_map.py
 """
 
 import ast
 import copy
+import inspect
 import json
 import unittest
 from collections.abc import Callable
@@ -41,14 +44,9 @@ FIGMAP_PY = Path(figmap.__file__)
 PURE_IMPORTS = {"__future__", "json", "collections.abc", "dataclasses", "typing", "limn.platform.values"}
 
 
-def anywhere(path: str) -> bool:
-    """A source check that accepts every path: the rules under test are the map's own."""
-    return True
-
-
-def parse(m: dict, source_inside: Callable[[str], bool] = anywhere) -> FigureMap | MapRejected:
+def parse(m: dict) -> FigureMap | MapRejected:
     """parse_map of the bytes a producer writes for map m."""
-    return parse_map(map_bytes(m), source_inside=source_inside)
+    return parse_map(map_bytes(m))
 
 
 def page0(m: dict) -> dict:
@@ -90,8 +88,8 @@ def chain_of(depth: int) -> list[dict]:
     ]
 
 
-# Source paths that are not canonical relative POSIX paths, which a pin could not store: path_outside before the
-# document's folder is ever asked (index §Shared contract: canonical paths).
+# Source paths that are not canonical relative POSIX paths, which a pin could not store: path_outside (index §Shared
+# contract: canonical paths). Their shape is the whole judgement; where a canonical path leads is not asked at parse time.
 NOT_CANONICAL = {
     "absolute": "/src/B2_calendar.py",
     "climbing out": "../src/B2_calendar.py",
@@ -194,7 +192,10 @@ REJECTIONS = [
         ("src file with %s" % what, lambda m, path=path: elements0(m)[1]["src"].update(file=path), "path_outside")
         for what, path in NOT_CANONICAL.items()
     ),
-    ("impl file climbing out", lambda m: elements0(m)[2]["impl"].update(file="../lib/components.py"), "path_outside"),
+    *(
+        ("impl file with %s" % what, lambda m, path=path: elements0(m)[2]["impl"].update(file=path), "path_outside")
+        for what, path in NOT_CANONICAL.items()
+    ),
     (
         "an element MAP_MAX_DEPTH + 1 ids from its root",
         lambda m: page0(m).update(elements=chain_of(MAP_MAX_DEPTH + 1)),
@@ -346,19 +347,29 @@ class Accepted(unittest.TestCase):
         """MAP_MAX_BYTES bytes (a map padded with trailing whitespace) are still a map."""
         raw = map_bytes(figure_map(MINI_PDF))
         padded = raw + b" " * (MAP_MAX_BYTES - len(raw))
-        self.assertIsInstance(parse_map(padded, source_inside=anywhere), FigureMap)
+        self.assertIsInstance(parse_map(padded), FigureMap)
 
-    def test_every_source_path_is_put_to_the_check(self):
-        """source_inside is asked about each src.file and impl.file the map names."""
-        asked: list[str] = []
+    def test_a_canonical_source_path_is_accepted_wherever_it_would_lead(self):
+        """src.file and impl.file are judged by their shape alone: a path with a dot-named part, one through what may be
+        a link out of the folder, one to a file that does not exist and a bare file name are all kept as written. Where
+        the path leads is decided when the script is read (features.pins.location.figure.read_source), so the map is
+        accepted and an element whose script cannot be read degrades alone."""
+        for path in (".cache/x.py", "src/.hidden/x.py", "src/out-link/x.py", "no/such/script.py", "main.tex"):
+            for key, index in (("src", 1), ("impl", 2)):
+                with self.subTest(path=path, key=key):
+                    got = parse(
+                        changed(lambda m, path=path, key=key, index=index: elements0(m)[index][key].update(file=path))
+                    )
+                    self.assertIsInstance(got, FigureMap)
+                    self.assertEqual(getattr(got.page(1).elements[index], key).file, path)
 
-        def record(path: str) -> bool:
-            """Remember the path and accept it."""
-            asked.append(path)
-            return True
-
-        parse(figure_map(MINI_PDF), source_inside=record)
-        self.assertEqual(sorted(set(asked)), ["lib/components.py", "src/B2_calendar.py"])
+    def test_parse_map_takes_the_bytes_and_no_question_about_the_folder(self):
+        """The bytes are its only input: a caller that still hands a path check is refused, not ignored, so no caller
+        can believe the parse judges the folder."""
+        raw = map_bytes(figure_map(MINI_PDF))
+        self.assertEqual(list(inspect.signature(parse_map).parameters), ["raw"])
+        with self.assertRaises(TypeError):
+            parse_map(raw, source_inside=lambda path: True)
 
 
 class Rejected(unittest.TestCase):
@@ -403,7 +414,7 @@ class Rejected(unittest.TestCase):
 
     def test_a_file_over_the_size_cap_is_refused_before_it_is_decoded(self):
         """MAP_MAX_BYTES + 1 bytes are too_large even though they are not JSON: the size is checked first."""
-        self.assertEqual(parse_map(b" " * (MAP_MAX_BYTES + 1), source_inside=anywhere).reason, "too_large")
+        self.assertEqual(parse_map(b" " * (MAP_MAX_BYTES + 1)).reason, "too_large")
 
     def test_bytes_that_are_not_one_json_object_are_refused(self):
         """Broken JSON, bytes that are not UTF-8, a repeated key and nesting deeper than the parser's stack are
@@ -412,8 +423,8 @@ class Rejected(unittest.TestCase):
         deep = b"[" * 100_000 + b"]" * 100_000
         for raw in (b"{", b"\xff\xfe{}", repeated, deep):
             with self.subTest(raw=raw[:20]):
-                self.assertEqual(parse_map(raw, source_inside=anywhere).reason, "not_json")
-        self.assertEqual(parse_map(b"[]", source_inside=anywhere).reason, "bad_shape")
+                self.assertEqual(parse_map(raw).reason, "not_json")
+        self.assertEqual(parse_map(b"[]").reason, "bad_shape")
 
     def test_too_many_elements_on_a_page_is_refused_before_they_are_read(self):
         """A root and MAP_MAX_ELEMENTS children are one element over the cap."""
@@ -432,30 +443,21 @@ class Rejected(unittest.TestCase):
                 self.assertIsInstance(got, MapRejected)
                 self.assertEqual(got.reason, "bad_parent", got.detail)
 
-    def test_a_path_that_is_not_canonical_is_refused_before_the_folder_is_asked(self):
-        """The root's src.file set to each NOT_CANONICAL path: path_outside, and source_inside is never asked - the
-        root is the first element read, so no path was asked about before it."""
-        asked: list[str] = []
-
-        def record(path: str) -> bool:
-            """Remember the path and accept it."""
-            asked.append(path)
-            return True
-
+    def test_a_source_path_that_is_not_canonical_is_path_outside_and_the_detail_names_it(self):
+        """The root's src.file and the July cell's impl.file set to each NOT_CANONICAL path: path_outside - the reason
+        that now means "not a canonical relative path" and nothing about the folder - and the detail says which key
+        and quotes the path (the REJECTIONS table holds the same rows for every element)."""
         for what, path in NOT_CANONICAL.items():
-            with self.subTest(what):
-                got = parse(
-                    changed(lambda m, path=path: elements0(m)[0]["src"].update(file=path)), source_inside=record
-                )
-                self.assertIsInstance(got, MapRejected)
-                self.assertEqual((got.reason, asked), ("path_outside", []))
-
-    def test_a_source_path_the_document_does_not_hold_is_path_outside(self):
-        """source_inside decides for src.file and impl.file alike (docs/handbook/code-style-roadmap.md §R10)."""
-        for refused in ("src/B2_calendar.py", "lib/components.py"):
-            with self.subTest(refused):
-                got = parse(figure_map(MINI_PDF), source_inside=lambda f, refused=refused: f != refused)
-                self.assertEqual(got.reason, "path_outside")
+            for key, index in (("src", 0), ("impl", 2)):
+                with self.subTest(what, key=key):
+                    got = parse(
+                        changed(lambda m, path=path, key=key, index=index: elements0(m)[index][key].update(file=path))
+                    )
+                    self.assertIsInstance(got, MapRejected)
+                    self.assertEqual(got.reason, "path_outside")
+                    self.assertTrue(
+                        got.detail.startswith("pages[0].elements[%d].%s.file %r" % (index, key, path)), got.detail
+                    )
 
 
 LEAVES = st.none() | st.booleans() | st.integers() | st.floats() | st.text(max_size=12)
@@ -514,13 +516,13 @@ class NeverRaises(unittest.TestCase):
     @given(st.binary(max_size=512))
     def test_any_bytes_give_a_map_or_a_rejection(self, raw):
         """Arbitrary bytes, JSON or not, never raise."""
-        self.assertIsInstance(parse_map(raw, source_inside=anywhere), (FigureMap, MapRejected))
+        self.assertIsInstance(parse_map(raw), (FigureMap, MapRejected))
 
     @given(st.one_of(JSON_VALUES, MAP_LIKE))
     def test_any_json_gives_a_map_or_a_rejection(self, value):
         """Any JSON value - and objects shaped almost like a map whose keys hold anything - never raise."""
         raw = json.dumps(value).encode("ascii")
-        self.assertIsInstance(parse_map(raw, source_inside=anywhere), (FigureMap, MapRejected))
+        self.assertIsInstance(parse_map(raw), (FigureMap, MapRejected))
 
 
 class AcceptedMaps(unittest.TestCase):

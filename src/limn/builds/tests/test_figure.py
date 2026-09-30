@@ -163,6 +163,16 @@ class Signatures(FigureTree):
         self.assertNotEqual(now, first)
         self.assertTrue(now.endswith("|%d:%d" % (o.st_mtime_ns, o.st_size)))
 
+    def test_two_documents_registering_one_map_share_its_parse(self):
+        """The parse is the map's bytes alone, so the memo is keyed by the map's path: fig2, whose folder is the map's
+        own, finds the parse fig made and reads the map no more than once."""
+        self.producer.render()
+        fig2 = Doc("fig2", "그림 2", "figure", self.figs / "out", self.map, paths=self.doc.paths)
+        fig2.dir.mkdir(parents=True)
+        first = figure.watch_signature(self.doc, self.looks)
+        with mock.patch.object(figure, "parse_map", side_effect=AssertionError("the parse is shared, not made again")):
+            self.assertEqual(figure.watch_signature(fig2, self.looks), first)
+
 
 class ImportDue(unittest.TestCase):
     """import_due: the pure rule for when the files are read and checked."""
@@ -241,14 +251,43 @@ class Deferral(FigureTree):
                 self.assertIsNone(self.pending(first=True))
         self.assertEqual(list(self.doc.dir.glob("pages-*")), [])
 
-    def test_a_map_naming_a_source_outside_its_folder_is_rejected(self):
-        """A src.file that escapes figs/ rejects the whole map (path_outside), so the pair is not imported."""
+    def test_a_map_naming_a_path_that_is_not_canonical_is_rejected(self):
+        """A src.file that climbs out of figs/ by '..' is not a canonical relative path: the whole map is rejected
+        (path_outside), so the pair is not imported. Unchanged by where scripts are judged: it is the map's shape."""
         m = figure_map(MINI_PDF)
         m["pages"][0]["elements"][1]["src"]["file"] = "../../main.tex"
         self.producer.write(self.pdf, MINI_PDF)
         self.producer.write(self.map, map_bytes(m))
         got = figure.read_figure_import(self.doc)
         self.assertEqual((got.reason, got.detail.split(":")[0]), ("map_rejected", "path_outside"))
+
+    def test_a_map_whose_script_leads_out_of_the_folder_is_imported(self):
+        """figs/src is a symlink out of the folder, so the script src/B2_calendar.py the map names cannot be read
+        inside figs/. The map still describes its PDF: the pair is imported, nothing is deferred and nothing is logged.
+        Whether a script may be read is decided when a pick reads it (limn.pins.location.figure.read_source), so
+        one script that links out costs its own elements, not the whole figure."""
+        elsewhere = self.ms / "elsewhere"
+        elsewhere.mkdir()
+        (self.figs / "src").symlink_to(elsewhere)
+        self.producer.render()
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            ready = figure.pending_import(self.doc, self.looks, 72, first=True)
+        self.assertIsInstance(ready, figure.FigureImport)
+        self.assertEqual(err.getvalue(), "")
+        self.assertIsInstance(figure.render_figure_doc(self.doc, self.cfg, ready), BuildOk)
+
+    def test_a_script_that_becomes_a_link_out_after_an_import_does_not_hold_back_the_next_one(self):
+        """The map was imported, then lib/ became a symlink out of the folder and the producer wrote the PDF again with
+        the same map bytes: the new pair is imported. (Before, the same folder judgement was made again on the
+        unchanged map and deferred it map_rejected.)"""
+        self.producer.render()
+        self.imported()
+        elsewhere = self.ms / "elsewhere"
+        elsewhere.mkdir()
+        (self.figs / "lib").symlink_to(elsewhere)
+        self.producer.write(self.pdf, MINI_PDF)
+        self.assertIsInstance(self.pending(), figure.FigureImport)
 
     def test_a_missing_map_imports_nothing_and_records_nothing(self):
         """No map: no signature, no read, nothing settled - the last pages stay."""
@@ -341,15 +380,19 @@ class OneLookPerChange(FigureTree):
         self.producer.write(self.map, map_bytes(broken))
         return contextlib.nullcontext()
 
-    def judgement_flipped(self) -> contextlib.AbstractContextManager[object]:
-        """map_rejected: the map was accepted and imported, then lib/ became a symlink out of the folder and only the
-        PDF was written again - the map's bytes never changed, so the watch still remembers it as accepted."""
-        self.producer.render()
+    def pdf_flipped_out(self) -> contextlib.AbstractContextManager[object]:
+        """pdf_outside: the map names current.pdf, a symlink inside the folder that the watch has resolved and imported;
+        then the link is pointed at a matching PDF outside the folder and the PDF is written again - the map's
+        bytes never changed, so the watch still remembers it as accepted and must resolve the PDF afresh."""
+        inside = self.figs / "out" / "inside.pdf"
+        (self.figs / "out" / "current.pdf").symlink_to(inside)
+        self.producer.write(inside, MINI_PDF)
+        self.producer.write(self.map, map_bytes(figure_map(MINI_PDF, "current.pdf")))
         self.imported()
-        elsewhere = self.ms / "elsewhere"
-        elsewhere.mkdir()
-        (self.figs / "lib").symlink_to(elsewhere)
-        self.producer.write(self.pdf, MINI_PDF)
+        outside = self.ms / "elsewhere.pdf"
+        outside.write_bytes(MINI_PDF)
+        (self.figs / "out" / "current.pdf").unlink()
+        (self.figs / "out" / "current.pdf").symlink_to(outside)
         return contextlib.nullcontext()
 
     def pdf_up_and_out(self) -> contextlib.AbstractContextManager[object]:
@@ -407,7 +450,7 @@ class OneLookPerChange(FigureTree):
         file whatever its mode."""
         out: list[tuple[figure.DeferReason, Callable[[], contextlib.AbstractContextManager[object]]]] = [
             ("map_rejected", self.rule_broken),
-            ("map_rejected", self.judgement_flipped),
+            ("pdf_outside", self.pdf_flipped_out),
             ("pdf_outside", self.pdf_up_and_out),
             ("pdf_outside", self.pdf_linked_out),
             ("pdf_missing", self.pdf_absent),
@@ -430,9 +473,9 @@ class OneLookPerChange(FigureTree):
 
     def test_every_deferral_settles_the_signature_the_next_tick_computes(self):
         """For every reason a deferral can have (map_missing settles nothing), and for the cases where the files
-        and what the watch sees can drift apart - a PDF that can be stat'ed but not read, a map judged again with its
-        bytes unchanged: right after the deferring tick, watch_signature equals the settled signature, and the next
-        tick opens no file and logs nothing."""
+        and what the watch sees can drift apart - a PDF that can be stat'ed but not read, a PDF judged again after
+        its link was pointed out of the folder with the map's bytes unchanged: right after the deferring tick,
+        watch_signature equals the settled signature, and the next tick opens no file and logs nothing."""
         scenarios = self.scenarios()
         reasons = set(typing.get_args(figure.DeferReason)) - {"map_missing"}
         self.assertEqual({reason for reason, _ in scenarios}, reasons)
@@ -462,13 +505,13 @@ class OneLookPerChange(FigureTree):
         self.assertIsInstance(self.pending(), figure.FigureImport)
 
     def test_one_map_under_two_folders_is_judged_per_document_and_imported_once(self):
-        """The same map registered twice: fig with folder figs/, fig2 with the map's own folder figs/out/. figs/out/src
-        is a symlink to figs/src, so src/B2_calendar.py lies inside figs/ but leads out of figs/out/: fig2 rejects the
-        map (path_outside) and fig imports it. Over three rounds of ticks sharing one memo, fig imports once and fig2
-        logs once - a judgement is never borrowed from the other document."""
-        (self.figs / "src").mkdir()
-        (self.figs / "out" / "src").symlink_to(self.figs / "src")
-        self.producer.render()
+        """The same map registered twice: fig with folder figs/, fig2 with the map's own folder figs/out/. The map
+        names ../figures.pdf, a PDF inside figs/ but outside figs/out/, so fig imports it and fig2 defers it pdf_outside.
+        The parse is the map's bytes alone and is shared through one memo, while the PDF is judged per document
+        (build.figure_pdf): over three rounds of ticks, fig imports once and fig2 logs once - a judgement is never
+        borrowed from the other document."""
+        self.producer.write(self.figs / "figures.pdf", MINI_PDF)
+        self.producer.write(self.map, map_bytes(figure_map(MINI_PDF, "../figures.pdf")))
         fig2 = Doc("fig2", "그림 2", "figure", self.figs / "out", self.map, paths=self.doc.paths)
         fig2.dir.mkdir(parents=True)
         imports = {"fig": 0, "fig2": 0}
@@ -481,8 +524,23 @@ class OneLookPerChange(FigureTree):
                         imports[doc.key] += 1
                         self.assertIsInstance(figure.render_figure_doc(doc, self.cfg, ready), BuildOk)
         self.assertEqual(imports, {"fig": 1, "fig2": 0})
-        self.assertEqual(err.getvalue().count("map_rejected: path_outside"), 1, err.getvalue())
+        self.assertEqual(err.getvalue().count("pdf_outside"), 1, err.getvalue())
         self.assertEqual(len(list(self.doc.dir.glob("pages-*"))), 1)
+
+    def test_a_script_that_leads_out_of_one_documents_folder_is_imported_by_both_documents(self):
+        """The same map registered with folders figs/ and figs/out/, whose script src/B2_calendar.py lies inside figs/
+        but through a symlink that leads out of figs/out/: both documents import it. Before, fig2 rejected the map
+        (path_outside) for that script; now the script's folder is judged only when a pick reads it."""
+        (self.figs / "src").mkdir()
+        (self.figs / "out" / "src").symlink_to(self.figs / "src")
+        self.producer.render()
+        fig2 = Doc("fig2", "그림 2", "figure", self.figs / "out", self.map, paths=self.doc.paths)
+        fig2.dir.mkdir(parents=True)
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            got = [figure.pending_import(doc, self.looks, 72, first=False) for doc in (fig2, self.doc)]
+        self.assertTrue(all(isinstance(ready, figure.FigureImport) for ready in got), got)
+        self.assertEqual(err.getvalue(), "")
 
 
 class Render(FigureTree):
