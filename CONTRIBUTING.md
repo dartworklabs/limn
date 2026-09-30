@@ -7,11 +7,12 @@ Thanks for helping with Limn.
 ```bash
 uv sync --group dev
 uv run playwright install chromium        # browser layout tests; skipped if no Chromium is found
-uv run pytest -q -n 4 --dist loadscope    # Python tests (server, CLI, migrate, naming)
-bash tests/test_instances.sh              # instance manager (stubs systemd/tailscale; touches nothing)
+uv run pytest -q -rs    # Python tests (server, CLI, migrate, naming)
+bash src/limn/administration/tests/test_instances.sh              # instance manager (stubs systemd/tailscale; touches nothing)
 uv run ruff check                         # lint (the rules in pyproject.toml)
 uv run ruff format --check                # formatting; `uv run ruff format` applies it
-uv run shellcheck src/limn/instances.sh tests/test_instances.sh
+uv run shellcheck src/limn/administration/instances.sh src/limn/administration/instance_*.sh src/limn/administration/tests/test_instances.sh
+uv run python tools/check_boundaries.py    # public feature exports and import graph
 uv run mypy                               # strict type check of the package (files in pyproject.toml)
 git config blame.ignoreRevsFile .git-blame-ignore-revs   # once: git blame skips the whole-tree reformat
 ```
@@ -39,15 +40,15 @@ dates, before/after numbers and progress notes go in the pull request, the CHANG
 - Coding rules come from our coding skills (`code-implement`, `code-testing`, `code-security`) and take
   precedence over conventions found in the existing code. Their Limn boundaries and verification coverage
   are in [docs/handbook/code-style-roadmap.md](docs/handbook/code-style-roadmap.md).
-- UI strings go through the viewer's message table (Korean and English, `src/limn/ui_en.json`). The Korean
+- UI strings go through the viewer's message table (Korean and English, `src/limn/viewer/ui_en.json`). The Korean
   text in the template is the key. Strings built at run time use `tl('<Korean template>', {params})` with
   `{name}` slots, e.g. `tl('{n}쪽', {n: 3})`; the English value may be plural forms `{"one": ..., "other": ...}`
-  chosen by `n`. `tests/test_i18n.py` fails on a template without a translation and on Hangul left in the
+  chosen by `n`. `src/limn/viewer/tests/test_i18n.py` fails on a template without a translation and on Hangul left in the
   English chrome.
 - **The agent contract is stable.** `pins.md` (its columns, markers and Korean header words) and the
   HTTP API (paths, JSON field names, state names) are read by agents in other repositories. Do not
   change them without a versioned migration plan.
-- The app is called **Limn** everywhere. `tests/test_naming.py` fails on former names outside the
+- The app is called **Limn** everywhere. `tests/architecture/test_naming.py` fails on former names outside the
   README history section and `limn migrate`, and on personal data (real e-mails, home paths, host names).
   Use `alice@example.com` / `bob@example.com` style fixtures.
 - Security invariants (see SECURITY.md): bind `127.0.0.1` by default and refuse a non-loopback bind unless

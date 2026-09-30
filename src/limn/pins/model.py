@@ -1,7 +1,7 @@
 """What a pin and an actor can be: state types parsed from stored records, and the typed miss of a load.
 
 A stored pin is a JSON record (docs/handbook/api.md §핀 레코드). Its state is not a stored field; it follows
-from done/review (state_of), and the name the API shows for it is the state type's `state` (limn.pins.view.pin_state).
+from done/review (state_of), and the name the API shows for it is the state type's `state` (limn.pins.listing.projection.pin_state).
 Every state holds the fields all pins share as one typed `core` (PinCore: id, document, place, note, author, rev,
 kind_req, assignee, mentions, thread, and the line-matching state), and lifts the fields only that state has into
 typed attributes - an open pin's claim, a closed pin's close, a done pin's confirmation, a Trash copy's drop - so a
@@ -22,7 +22,7 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any, ClassVar, Literal, TypeAlias, TypeGuard, TypeVar, get_args
 
-from limn.pins.shapes import is_int, is_num
+from limn.platform.values import is_int, is_num
 
 Record: TypeAlias = Mapping[str, Any]
 # The name of a pin's state as the API and pins.md show it (GET /api/pins `state`, docs/handbook/api.md §검토 대기).
@@ -35,8 +35,8 @@ Shapes: TypeAlias = Mapping[str, tuple[str, Callable[[object], bool]]]
 # kind_req: what a pin asks for - a fix (the default; every legacy pin is one) or an answer (docs/handbook/api.md §스레드).
 KindReq: TypeAlias = Literal["fix", "question"]
 KIND_REQS: tuple[KindReq, ...] = get_args(KindReq)
-# The mark a thread entry may carry (ev): the close, reopen and confirm transitions (limn.features.pins.lifecycle.rules) and an
-# assignee change (limn.features.pins.editing.rules). A reply has none. limn.pins.record accepts no other stored value.
+# The mark a thread entry may carry (ev): the close, reopen and confirm transitions (limn.pins.lifecycle.rules) and an
+# assignee change (limn.pins.editing.rules). A reply has none. limn.pins.record accepts no other stored value.
 ThreadEv: TypeAlias = Literal["close", "reopen", "confirm", "assign"]
 THREAD_EVENTS: tuple[ThreadEv, ...] = get_args(ThreadEv)
 
@@ -63,7 +63,7 @@ def _is_signature(value: object) -> bool:
 
 
 def _is_object(value: object) -> bool:
-    """A JSON object of any fields - how a line pin's anchor is stored (its shape is limn.mapping's)."""
+    """A JSON object of any fields - how a line pin's anchor is stored (its shape is limn.pins.location.mapping's)."""
     return isinstance(value, Mapping)
 
 
@@ -340,7 +340,7 @@ class PinCore:
     id; doc, the document key (a pin from before several documents has none); place; note; at and author, when and
     by whom it was made; rev (a missing rev counts as 0 wherever a rev is compared or bumped); kind_req (none is a
     fix); assignee; mentions, the note's @-tags; thread; the line-matching state - anchor (the head/tail text a line
-    pin follows, kept as stored for limn.mapping), synced_at (epoch seconds), stale and sync; how the pin was placed -
+    pin follows, kept as stored for limn.pins.location.mapping), synced_at (epoch seconds), stale and sync; how the pin was placed -
     name (the file's name, or the PDF's), kind and scope (the rung of the range ladder), via and score (the path and
     score of the pick), raw_lo/raw_hi (the dragged lines before the ladder), a line pin's PDF mark (page and frac,
     the page and box it was dragged on - a region pin's are its place), pdf_build and the legacy frac_build (the build
@@ -566,7 +566,7 @@ Pin: TypeAlias = OpenPin | ReviewPin | DonePin
 def state_of(record: Record) -> type[OpenPin] | type[ReviewPin] | type[DonePin]:
     """The state type a stored record is in - the one rule of a pin's state, never stored: not done is open; done
     with review true is awaiting review; any other done (a legacy done:true without review too) is done. Reads only
-    done and review, so it is cheap enough for every pin of every read (limn.pins.view.pin_state)."""
+    done and review, so it is cheap enough for every pin of every read (limn.pins.listing.projection.pin_state)."""
     if not record.get("done"):
         return OpenPin
     if record.get("review") is True:
@@ -647,3 +647,6 @@ class PinNotFound:
     """No pin with this id is in the store; the API answers ok:false rather than an error."""
 
     pid: int
+
+
+EventType: TypeAlias = Literal["mention", "review_requested", "replied", "reopened", "assigned", "dropped"]

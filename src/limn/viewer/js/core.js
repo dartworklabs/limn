@@ -13,7 +13,7 @@ const MQ_REDUCED=matchMedia('(prefers-reduced-motion: reduce)');
 const MQ=matchMedia('(prefers-color-scheme: light)');
 // Closed sets (docs/handbook/viewer.md §닫힌 값 표): every value the viewer compares a state, status or mode against is a
 // member of one frozen table here, never a string literal at the comparison. The first group comes from the server and
-// must equal its strings exactly (tests/test_viewer_source.py compares each table with the server's Literal or producer);
+// must equal its strings exactly (tests/viewer/test_viewer_source.py compares each table with the server's Literal or producer);
 // the second is the viewer's own. Free text (messages, reasons, DOM and key names) is not tabled.
 const PIN_STATE=Object.freeze({OPEN:'open',REVIEW:'review',DONE:'done'});   // a pin's `state` (pins.model.StateName); read it with pinState()
 const BUILD_STATE=Object.freeze({IDLE:'idle',RUNNING:'running',OK:'ok',OK_ERRORS:'ok_errors',FAIL:'fail'});   // GET /api/build `state`, meta `last_state`

@@ -24,7 +24,7 @@ JSON 객체는 중첩된 객체까지 키가 한 번만 나와야 한다. 같은
 - **교차 출처 `Origin` 과 낯선 `Host` 는 `403`** 이다. 허용하는 Host는 루프백 이름, `*.ts.net`, 그리고 `--public-host` 로 준 이름이다. 규칙과 이유는 [operations.md](operations.md) §Host·Origin 검사에 있다.
 - **소켓 타임아웃은 30초**다. 본문을 보내다 멈춘 연결과 유휴 keep-alive 연결이 닫힌다. 재빌드처럼 오래 걸리는 처리 시간과는 관계없다.
 - **이 경계를 지난 요청은 신원 확인을 거친다.** 신원을 정하지 못하면 `401`, 들어올 수 없는 사람이면 `403`, 역할이 허락하지 않는 변경이면 `403` 이다. 순서와 규칙은 §인증에 있다.
-- **원고 트리는 `--manuscript` 아래에서 점으로 시작하는 이름 아래를 뺀 곳이다.** `.git`·`.env`·`.ssh`·`.latexmkrc` 같은 이름은 저장소나 기기의 비밀이지 원고가 아니다. 파일 이름을 받는 경로(`/api/snippet`·`/api/overlaps`·새 핀·편집의 `loc`·닫기의 `changes`)는 심볼릭 링크를 푼 경로의 `--manuscript` 아래 부분에 점으로 시작하는 칸이 있으면 트리 밖으로 보고 거절한다. 이유 코드는 트리 밖 파일에 쓰던 `file_outside_manuscript`·`change_outside_manuscript` 그대로이고 문장도 같다. `a.b.tex` 처럼 이름 중간의 점, `~/.local/paper` 처럼 `--manuscript` 자신이 점 폴더 아래 있는 것은 상관없다. 상태 폴더도 원고 트리가 아니다. `--state-dir` 이 `--manuscript` 안(점이 아닌 이름 아래 포함)을 가리키면 그 폴더 아래(`people.json`·`tokens.json`·`audit.jsonl`·`events.jsonl`·핀 파일)는 같은 거절과 같은 문장으로 트리 밖이 된다. 상태 폴더가 원고 옆이나 원고를 품은 위쪽에 있으면 트리에서 빠지는 것은 없다. 점 폴더나 상태 폴더를 가리키게 저장된 핀은 트리 밖 핀(`pin_outside_manuscript`)이다. 정본은 `src/limn/files.py` 의 `tree_part` 다.
+- **원고 트리는 `--manuscript` 아래에서 점으로 시작하는 이름 아래를 뺀 곳이다.** `.git`·`.env`·`.ssh`·`.latexmkrc` 같은 이름은 저장소나 기기의 비밀이지 원고가 아니다. 파일 이름을 받는 경로(`/api/snippet`·`/api/overlaps`·새 핀·편집의 `loc`·닫기의 `changes`)는 심볼릭 링크를 푼 경로의 `--manuscript` 아래 부분에 점으로 시작하는 칸이 있으면 트리 밖으로 보고 거절한다. 이유 코드는 트리 밖 파일에 쓰던 `file_outside_manuscript`·`change_outside_manuscript` 그대로이고 문장도 같다. `a.b.tex` 처럼 이름 중간의 점, `~/.local/paper` 처럼 `--manuscript` 자신이 점 폴더 아래 있는 것은 상관없다. 상태 폴더도 원고 트리가 아니다. `--state-dir` 이 `--manuscript` 안(점이 아닌 이름 아래 포함)을 가리키면 그 폴더 아래(`people.json`·`tokens.json`·`audit.jsonl`·`events.jsonl`·핀 파일)는 같은 거절과 같은 문장으로 트리 밖이 된다. 상태 폴더가 원고 옆이나 원고를 품은 위쪽에 있으면 트리에서 빠지는 것은 없다. 점 폴더나 상태 폴더를 가리키게 저장된 핀은 트리 밖 핀(`pin_outside_manuscript`)이다. 정본은 `src/limn/platform/files.py` 의 `tree_part` 다.
 - **모든 응답은 다른 페이지의 프레임에 담기지 않는다.** 서버가 내는 모든 응답(표준 라이브러리가 직접 내는 `501` 같은 오류 쪽도)에 `X-Frame-Options: DENY` 와 `Content-Security-Policy: frame-ancestors 'none'` 이 붙는다. CSP에는 이 지시어 하나뿐이라 뷰어의 인라인 스크립트는 제한하지 않는다. 다른 사이트가 뷰어를 투명한 틀에 넣어 클릭을 훔치는 일(클릭재킹)을 막는다.
 
 ### 오류 응답
@@ -39,7 +39,7 @@ JSON 객체는 중첩된 객체까지 키가 한 번만 나와야 한다. 같은
 - `reason`(0.3.4+) 은 같은 거절의 안정 코드다(영문 소문자·숫자·`_`). 모든 오류 본문에 붙고, 이 필드를 모르는 에이전트는 지나쳐도 된다. 있는 코드는 바꾸지 않고, 새 거절에는 새 코드를 더한다. `error` 가 이미 코드인 `409` 는 `reason` 도 같은 값이다.
 - 한 코드가 뜻이 같은 여러 문장을 묶을 수 있다. 예를 들어 `bad_changes` 는 `changes` 모양이 틀린 네 경우다. 거절을 가르는 값(필드 이름, 한도, 줄 수)은 `error` 문장에만 있다.
 - 비교 PDF 상태(`state:"error"`)의 `reason`(§상태와 캐시)과 `POST /api/pick` 이 `200` 으로 돌려주는 `{error, reason}` 도 같은 코드 집합이다.
-- 뷰어는 영어 화면에서 이 코드로 메시지 표(`ui_en.json` 의 `reason:<코드>`)를 찾는다([viewer.md](viewer.md) §뷰어 규칙을 바꿀 때). 서버가 내는 코드마다 영어 문장이 있어야 하고, 서버가 내지 않는 코드의 문장은 없어야 한다(`tests/test_errors.py`).
+- 뷰어는 영어 화면에서 이 코드로 메시지 표(`viewer/ui_en.json` 의 `reason:<코드>`)를 찾는다([viewer.md](viewer.md) §뷰어 규칙을 바꿀 때). 서버가 내는 코드마다 영어 문장이 있어야 하고, 서버가 내지 않는 코드의 문장은 없어야 한다(`src/limn/web/tests/test_errors.py`).
 
 | 묶음 | 상태 | 코드 |
 | --- | --- | --- |
@@ -55,7 +55,7 @@ JSON 객체는 중첩된 객체까지 키가 한 번만 나와야 한다. 같은
 | 비교 PDF | `409`·`422`·`503`, 상태 `error` | `no_parent`·`tool_unavailable`·`timeout`·`size_limit`·`snapshot_failed`·`unsafe_snapshot`·`missing_main`·`diff_failed`·`compile_failed`·`invalid_pdf`·`unsafe_cache`·`busy`·`build_failed`·`scope_failed` |
 | 예상 밖 예외 | `500` | `internal` |
 
-코드와 문장의 짝은 HTTP 층 `src/limn/web/`(공통 처리기·요청 파서·`SCOPE_REJECTIONS`·비교 PDF 실패 표 `REVISION_FAILURES`)과 기능별 `features/`의 입력·응답과 `src/limn/access.py`(신원·입장·역할 거절)가 정본이다. 비교 PDF 워커의 예상 밖 실패(`build_failed`)만 `src/limn/features/revisions/jobs.py` 에 있다. 문장마다 어느 코드인지는 `reason=` 을 찾으면 된다. 재빌드의 `409 {busy:true}`(§빌드)는 `error` 가 없는 상태 응답이라 이 모양이 아니다. 뷰어는 그 `409` 를 기다린 응답으로 받는다.
+코드와 문장의 짝은 HTTP 층 `src/limn/web/`(공통 처리기·요청 파서)과 각 기능의 입력·응답(`SCOPE_REJECTIONS`·`REVISION_FAILURES`는 `revisions/answer.py`, 빌드 실패 문구는 `builds/answer.py`)과 `src/limn/security/access.py`(신원·입장·역할 거절)가 정본이다. 비교 PDF 워커의 예상 밖 실패(`build_failed`)만 `src/limn/revisions/jobs.py` 에 있다. 문장마다 어느 코드인지는 `reason=` 을 찾으면 된다. 재빌드의 `409 {busy:true}`(§빌드)는 `error` 가 없는 상태 응답이라 이 모양이 아니다. 뷰어는 그 `409` 를 기다린 응답으로 받는다.
 
 ## 인증
 
@@ -135,7 +135,7 @@ curl -s -H "Authorization: Bearer $(cat ~/.config/limn/<인스턴스>.token)" ht
 
 `/api/meta` 와 `/api/people` 의 `me`, 그리고 `/api/people` 의 각 항목에 `role` 필드가 덧붙는다. `people.json` 에 없는 사람(예: 옛 핀의 작성자)은 `editor` 로 나온다. `people.json` 을 쓸 수 없는 동안은 모두 `viewer` 로 나온다.
 
-등록된 읽기 경로와 변경 작업은 `access.py`의 명시적 허용 목록을 거친다. 새 경로를 디스패처에 등록하는 것만으로 권한이 생기지 않는다. 알려지지 않은 경로는 실행하지 않고 `404 not_found`로 답한다(POST의 기존 역할 거부가 먼저 적용될 수 있다). 변경 서비스는 요청에서 발급된 작업·대상·인스턴스 범위가 맞지 않으면 `403 invalid_authority`로 거부한다. 정상 HTTP 클라이언트가 권한 핸들을 보내는 필드는 없으며 서버가 신원·입장·역할 검사 뒤 내부에서 만든다.
+등록된 읽기 경로와 변경 작업은 `security/access.py`의 명시적 허용 목록을 거친다. 새 경로를 디스패처에 등록하는 것만으로 권한이 생기지 않는다. 알려지지 않은 경로는 실행하지 않고 `404 not_found`로 답한다(POST의 기존 역할 거부가 먼저 적용될 수 있다). 변경 서비스는 요청에서 발급된 작업·대상·인스턴스 범위가 맞지 않으면 `403 invalid_authority`로 거부한다. 정상 HTTP 클라이언트가 권한 핸들을 보내는 필드는 없으며 서버가 신원·입장·역할 검사 뒤 내부에서 만든다.
 
 ### 검사 순서
 
@@ -178,7 +178,7 @@ curl -s -H "Authorization: Bearer $(cat ~/.config/limn/<인스턴스>.token)" ht
 
 경로는 홈 폴더 아래의 평범한 경로면 `~/…` 로, 아니면 셸 따옴표를 친 절대 경로로 쓴다(`shell_path`).
 
-실행 정본은 [`src/limn/access.py`](../../src/limn/access.py) 의 `identify`, `came_through_proxy`, `admit`, `check_role`, `OWNER_POSTS`, `bearer_of`, `token_lookup`, `pins.md` 의 안내 줄을 만드는 [`src/limn/pins/render.py`](../../src/limn/pins/render.py) 의 `claim_guidance`, `TOKEN_GUIDANCE`, `token_guidance_line`, 토큰 파일 문구를 만드는 [`src/limn/guidance.py`](../../src/limn/guidance.py) 의 `UNAUTHENTICATED`, `shell_path`, `token_file_curl`, `loopback_refused_text` 다. 실행 설정과 `tokens.json`·`people.json` 캐시는 `server.py`의 `access_settings`·`access_lookups`가 `access.py`에 넘긴다. 토큰 파일이 있는지와 홈 폴더는 `access.py`의 `file_present`·`home_or_none`으로 읽어 값으로 넘긴다.
+실행 정본은 [`src/limn/security/access.py`](../../src/limn/security/access.py) 의 `identify`, `came_through_proxy`, `admit`, `check_role`, `OWNER_POSTS`, `bearer_of`, `token_lookup`, `pins.md` 의 안내 줄을 만드는 [`src/limn/pins/listing/render.py`](../../src/limn/pins/listing/render.py) 의 `claim_guidance`, `TOKEN_GUIDANCE`, `token_guidance_line`, 토큰 파일 문구를 만드는 [`src/limn/security/guidance.py`](../../src/limn/security/guidance.py) 의 `UNAUTHENTICATED`, `shell_path`, `token_file_curl`, `loopback_refused_text` 다. 실행 설정과 `tokens.json`·`people.json` 캐시는 `server.py`의 `access_settings`·`access_lookups`가 `security/access.py`에 넘긴다. 토큰 파일이 있는지와 홈 폴더는 `security/access.py`의 `file_present`·`home_or_none`으로 읽어 값으로 넘긴다.
 
 ## 문서 매개변수 (`doc=`)
 
@@ -224,7 +224,7 @@ curl -s -H "Authorization: Bearer $(cat ~/.config/limn/<인스턴스>.token)" ht
 | `GET` | `/api/outline-labels?doc=<키>` | 현재 PDF와 함께 보존한 `.aux` 의 목차 → `{build,labels:[{number,title,page,level,anchor}]}`. PDF.js outline과 제목·계층·순서가 일치할 때만 번호를 붙인다. `page` 는 인쇄 쪽번호 문자열(로마 숫자 가능)이며 물리 PDF 페이지 인덱스가 아니다. `.aux` 가 없는 기존 빌드는 빈 배열이다. 지원하지 않는 복잡한 TeX 제목은 빈 `number`·`title` 자리표시자가 된다 |
 | `GET` | `/sw.js` | 브라우저 알림용 서비스 워커(`text/javascript; charset=utf-8`, `Cache-Control: no-cache`, 범위 `/`). `fetch` 처리기가 없어 앱 데이터를 캐시하지 않는다 |
 | `GET` | `/favicon.ico` | 탭 파비콘 `.ico`(`image/x-icon`). 먹 둥근 사각형 위 i의 16·32px 픽셀 그림 두 장이 들어 있다. 밝은 탭과 어두운 탭에 같은 그림이다. `Cache-Control: public, max-age=86400`. 뷰어의 링크는 `?v=<내용 키>` 를 붙여 그림이 바뀌면 캐시를 가른다. 브라우저가 링크 없이 스스로 묻는 `/favicon.ico` 는 쿼리가 없어 하루까지 캐시에 남을 수 있다. 0.3.5까지 `/favicon.ico` 는 빈 본문 `204` 였다 |
-| `GET` | `/favicon-16.png`, `/favicon-32.png`, `/apple-touch-icon.png` | 탭 파비콘 PNG(16·32px, 먹 픽셀 그림)와 홈 화면 아이콘(180×180 뼈종이 네모, iOS가 모서리를 깎는다). `-16` 경로는 0.3.6+다. 모두 패키지에 든 브랜드 파일(`src/limn/brand/`)을 바이트 그대로 준다([viewer.md](viewer.md) §마크와 파비콘). 인스턴스의 `--accent` 와 무관하다. `image/png`, `Cache-Control: public, max-age=86400`. 뷰어는 `?v=<내용 키>` 를 붙여 그림이 바뀌면 캐시를 가른다. 쿼리 없는 주소(iOS가 스스로 묻는 `/apple-touch-icon.png` 등)는 하루까지 캐시에 남을 수 있다. 쿼리는 그 밖의 뜻이 없다. 아이콘 경로 목록에 없는 이름(`/favicon-64.png` 등)은 아이콘이 아니다. Host·Origin·신원 검사는 이 행과 위아래 행 모두 다른 `GET` 과 같다 |
+| `GET` | `/favicon-16.png`, `/favicon-32.png`, `/apple-touch-icon.png` | 탭 파비콘 PNG(16·32px, 먹 픽셀 그림)와 홈 화면 아이콘(180×180 뼈종이 네모, iOS가 모서리를 깎는다). `-16` 경로는 0.3.6+다. 모두 패키지에 든 브랜드 파일(`src/limn/viewer/brand/`)을 바이트 그대로 준다([viewer.md](viewer.md) §마크와 파비콘). 인스턴스의 `--accent` 와 무관하다. `image/png`, `Cache-Control: public, max-age=86400`. 뷰어는 `?v=<내용 키>` 를 붙여 그림이 바뀌면 캐시를 가른다. 쿼리 없는 주소(iOS가 스스로 묻는 `/apple-touch-icon.png` 등)는 하루까지 캐시에 남을 수 있다. 쿼리는 그 밖의 뜻이 없다. 아이콘 경로 목록에 없는 이름(`/favicon-64.png` 등)은 아이콘이 아니다. Host·Origin·신원 검사는 이 행과 위아래 행 모두 다른 `GET` 과 같다 |
 | `GET` | `/favicon-dark.ico`, `/favicon-dark-16.png`, `/favicon-dark-32.png` | (0.3.6+, 폐지 예정) 0.3.8에서는 `/favicon.ico`·`/favicon-16.png`·`/favicon-32.png` 와 같은 바이트·타입·캐시를 준다. 0.3.6–0.3.7 페이지가 어두운 색 구성에서 이 주소를 쓰기 때문이다. 다음 릴리스에서 뺀다 |
 
 ### 빌드
@@ -372,7 +372,7 @@ latexmk -norc -pdf -no-shell-escape -interaction=nonstopmode -halt-on-error
 
 상태 응답에 `scope`(`pin`|`commit`)·`pin`·`source`·`hunks`·`other` 가 더해진다. 합성 판이 컴파일되지 않으면 그 비교는 `state:"error"` 이고, 뷰어가 커밋 전체 비교로 넘어간다. 두 SHA-1과 파이프라인이 같으면 결과도 같으므로, 핀 비교의 컴파일·diff 실패(`compile_failed`·`diff_failed`·`scope_failed`)는 캐시가 살아 있는 동안 POST에 다시 빌드하지 않고 그 오류를 돌려준다. 커밋 전체 비교는 POST마다 다시 시도한다. 상태 파일(`status.json`)에는 요청마다 다른 `scope`·`pin`·`source`·`hunks`·`other` 를 저장하지 않는다.
 
-이 절의 거부(이 문서의 핀이 아님, 핀의 블록을 다시 읽지 못함·찾지 못함·사본에 쓰지 못함, 허용되지 않는 경로)는 안쪽 코드(`limn/scope.py`·`features/revisions/core.py`·`execution.py`)가 경우마다 한 값(`ScopeRefusal`)으로 돌려준다. 상태 코드·한국어 문구·`reason` 은 한 표 `SCOPE_REJECTIONS` 가 정한다(요청은 `features/revisions/answer.py`의 `revision_answer`, 빌드 상태는 워커가 조립 지점에서 받은 `revision_failure_text`). 문구는 계약이라 `test_revisions.ScopedErrorBodies` 가 본문을 그대로 고정한다. 커밋 전체 비교를 여러 핀과 `pin` 없는 요청이 함께 쓰기 때문이다.
+이 절의 거부(이 문서의 핀이 아님, 핀의 블록을 다시 읽지 못함·찾지 못함·사본에 쓰지 못함, 허용되지 않는 경로)는 안쪽 코드(`limn/pins/changes.py`·`revisions/core.py`·`execution.py`)가 경우마다 한 값(`ScopeRefusal`)으로 돌려준다. 상태 코드·한국어 문구·`reason` 은 한 표 `SCOPE_REJECTIONS` 가 정한다(요청은 `revisions/answer.py`의 `revision_answer`, 빌드 상태는 워커가 조립 지점에서 받은 `revision_failure_text`). 문구는 계약이라 `test_revisions.ScopedErrorBodies` 가 본문을 그대로 고정한다. 커밋 전체 비교를 여러 핀과 `pin` 없는 요청이 함께 쓰기 때문이다.
 
 ## 핀 수정 (`/api/pins/{id}/edit`)
 
@@ -434,7 +434,7 @@ curl -s -X POST <base>/api/pins/12/reply -H 'Content-Type: application/json' -d 
 
 ### 답글이 핀을 다시 여는 규칙 (0.2.2)
 
-뷰어의 닫힌 핀에는 [답글] 하나만 있다. 답글이 핀을 다시 여는지는 서버의 순수 규칙이 정한다(`pins/lifecycle.py`의 `reopens_on_reply`). 뷰어는 같은 규칙으로 답글 칸 아래 한 줄에 결과를 미리 보인다.
+뷰어의 닫힌 핀에는 [답글] 하나만 있다. 답글이 핀을 다시 여는지는 서버의 순수 규칙이 정한다(`pins/thread.py`의 `reopens_on_reply`). 뷰어는 같은 규칙으로 답글 칸 아래 한 줄에 결과를 미리 보인다.
 
 | 핀 상태 | 쓴 쪽 | 답글이 사람을 @태그하나 | 결과 |
 | --- | --- | --- | --- |
@@ -478,7 +478,7 @@ curl -s -X POST <base>/api/pins/12/reply -H 'Content-Type: application/json' -d 
 
 @태그는 뷰어 안에서만 사람을 부른다. GitHub, Telegram, 메일 같은 바깥 알림은 보내지 않는다. 대신 나중에 붙일 수 있게 `events.jsonl` 에 적어 둔다.
 
-공통 사실은 세 모듈이 맡는다. [`src/limn/people.py`](../../src/limn/people.py) 가 `people.json` 의 항목 검사·저장 형식·기록(`record_person`)과 @태그 후보(`known_people`·`candidates`)를, [`src/limn/mentions.py`](../../src/limn/mentions.py) 가 `@이름` 풀기(`resolve_mentions`·`mention_hits`), 지금 차례(`thread_round`), `addressed`·`fyi`, 메모 태그와 재알림 간격(`tag_note`·`note_mention_targets`)을, [`src/limn/events.py`](../../src/limn/events.py) 가 이벤트 한 건과 받는 사람(`make_event`), 폴링이 고르는 이벤트(`events_since`), `events.jsonl` 쓰기·읽기(`EventLog`)를 맡는다. [`features/collaboration/`](../../src/limn/features/collaboration/directory.py)은 실행별 사람 파일·멘션 알림·이벤트 폴링과 `GET /api/people`의 역할·핀 스냅숏·응답을 연결한다. 파일 위치·잠금·시계는 `server.py` 가 넘긴다.
+공통 사실은 세 모듈이 맡는다. [`src/limn/security/people.py`](../../src/limn/security/people.py) 가 `people.json` 의 항목 검사·저장 형식·기록(`record_person`)과 @태그 후보(`known_people`·`candidates`)를, [`src/limn/pins/mentions.py`](../../src/limn/pins/mentions.py) 가 `@이름` 풀기(`resolve_mentions`·`mention_hits`), 지금 차례(`thread_round`), `addressed`·`fyi`, 메모 태그와 재알림 간격(`tag_note`·`note_mention_targets`)을, [`src/limn/collaboration/events.py`](../../src/limn/collaboration/events.py) 가 이벤트 한 건과 받는 사람(`make_event`), 폴링이 고르는 이벤트(`events_since`), `events.jsonl` 쓰기·읽기(`EventLog`)를 맡는다. [`collaboration/`](../../src/limn/collaboration/directory.py)은 실행별 사람 파일·멘션 알림·이벤트 폴링과 `GET /api/people`의 역할·핀 스냅숏·응답을 연결한다. 파일 위치·잠금·시계는 `server.py` 가 넘긴다.
 
 ### 사람 목록
 
@@ -553,7 +553,7 @@ curl -s -X POST <base>/api/pins/12/reply -H 'Content-Type: application/json' -d 
 
 ## 감사 기록 (`audit.jsonl`)
 
-`<state_dir>/audit.jsonl`(0.3.1+) 은 되돌릴 수 없는 일과 소유자·운영자의 일을 적는 추가 전용 기록이다. 실행 정본은 [`src/limn/audit.py`](../../src/limn/audit.py) 의 `audit_entry`·`append_audit`·`os_actor` 다. `events.jsonl` 은 최근 5000건만 남겨 알림이 쌓이면 누가 모든 핀을 지웠는지(`cleared`)가 밀려나므로, 이 파일은 Limn이 자르거나 다시 쓰지 않는다. 한 줄에 JSON 하나다.
+`<state_dir>/audit.jsonl`(0.3.1+) 은 되돌릴 수 없는 일과 소유자·운영자의 일을 적는 추가 전용 기록이다. 실행 정본은 [`src/limn/security/audit.py`](../../src/limn/security/audit.py) 의 `audit_entry`·`append_audit`·`os_actor` 다. `events.jsonl` 은 최근 5000건만 남겨 알림이 쌓이면 누가 모든 핀을 지웠는지(`cleared`)가 밀려나므로, 이 파일은 Limn이 자르거나 다시 쓰지 않는다. 한 줄에 JSON 하나다.
 
 ```json
 {"at": "2026-09-26 10:12:03", "ts": 1790392323.412, "action": "cleared", "by": {"login": "alice@example.com", "name": "Alice Kim"}, "via": "http", "details": {"n": 42, "archive": "pins_260926_101203.jsonl.bak"}}

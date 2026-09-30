@@ -49,7 +49,7 @@ Limn이 다루는 대상은 핀 하나다. 사람이 PDF에서 영역을 고르�
 
 ## 핀의 상태와 전이
 
-핀은 세 상태 중 하나에 있다. **열림**, **검토 대기**, **완료**다. 서버는 이 상태를 따로 저장하지 않고 레코드에서 계산해 응답의 `state` 필드(`open`|`review`|`done`)로 돌려준다. 계산 규칙은 [`limn/pins/model.py`](../../src/limn/pins/model.py)의 `state_of` 하나다. 전이가 레코드를 상태 타입으로 파싱할 때(`parse_pin`)도, API가 `state`를 낼 때도 이 규칙을 쓰고, `state` 값은 그 타입의 이름이다([`limn/pins/view.py`](../../src/limn/pins/view.py)의 `pin_state`). `GET /api/pins`의 다른 계산 필드(`rel`·`est`·`doc`·`addressed`·`fyi`, 옛 claim의 `claim_ts`)를 붙이는 것도 `view.py`의 순수 함수 `pins_payload`이고, 레코드를 이 머신의 경로로 보이는 법·핀의 문서·문서의 빌드 이력·겹침·시계는 조립 지점이 인자로 넘긴다.
+핀은 세 상태 중 하나에 있다. **열림**, **검토 대기**, **완료**다. 서버는 이 상태를 따로 저장하지 않고 레코드에서 계산해 응답의 `state` 필드(`open`|`review`|`done`)로 돌려준다. 계산 규칙은 [`limn/pins/model.py`](../../src/limn/pins/model.py)의 `state_of` 하나다. 전이가 레코드를 상태 타입으로 파싱할 때(`parse_pin`)도, API가 `state`를 낼 때도 이 규칙을 쓰고, `state` 값은 그 타입의 이름이다([`limn/pins/listing/projection.py`](../../src/limn/pins/listing/projection.py)의 `pin_state`). `GET /api/pins`의 다른 계산 필드(`rel`·`est`·`doc`·`addressed`·`fyi`, 옛 claim의 `claim_ts`)를 붙이는 것도 `view.py`의 순수 함수 `pins_payload`이고, 레코드를 이 머신의 경로로 보이는 법·핀의 문서·문서의 빌드 이력·겹침·시계는 조립 지점이 인자로 넘긴다.
 
 | 상태 | 레코드 모양 | 어디에 보이나 |
 | --- | --- | --- |
@@ -106,11 +106,11 @@ Limn이 다루는 대상은 핀 하나다. 사람이 PDF에서 영역을 고르�
 
 stale은 이 전이와 별개다. 줄 맞춤이 머리 줄을 잃으면 열린 핀에 `stale: true`가 붙는다. 상태는 열림 그대로다. stale 핀을 어떻게 다룰지는 §줄 번호 재동기화 (`anchor`)에 있다.
 
-닫기·다시 열기·확인·답글의 순수 판단은 [`lifecycle/rules.py`](../../src/limn/features/pins/lifecycle/rules.py)에 있다. 처리 중 표시의 변경은 [`claims/rules.py`](../../src/limn/features/pins/claims/rules.py), 삭제·복원은 [`trash/rules.py`](../../src/limn/features/pins/trash/rules.py)가 소유한다. 목록과 렌더도 쓰는 claim 유효 시간 판정은 공통 핀 도메인에 남는다. 각 기능의 입력·응답·쓰기는 아래 기능별 세로 슬라이스가 맡는다.
+닫기·다시 열기·확인·답글의 순수 판단은 [`lifecycle/rules.py`](../../src/limn/pins/lifecycle/rules.py)에 있다. 처리 중 표시의 변경은 [`claims/rules.py`](../../src/limn/pins/claims/rules.py), 삭제·복원은 [`trash/rules.py`](../../src/limn/pins/trash/rules.py)가 소유한다. 목록과 렌더도 쓰는 claim 유효 시간 판정은 공통 핀 도메인에 남는다. 각 기능의 입력·응답·쓰기는 아래 기능별 세로 슬라이스가 맡는다.
 
-닫기·다시 열기·답글의 본문 파서는 [`features/pins/lifecycle/input.py`](../../src/limn/features/pins/lifecycle/input.py), 네 경로의 응답은 [`features/pins/lifecycle/http.py`](../../src/limn/features/pins/lifecycle/http.py)가 소유한다. 잠금 아래 저장하고 알림을 내는 `PinLifecycle`은 같은 기능의 [`service.py`](../../src/limn/features/pins/lifecycle/service.py)에 있다. `ServerApplication`은 실행별 `pin_context()` 생성 함수 하나를 이 서비스에 묶는다. 답글을 다시 여는 순수 규칙 `reopens_on_reply`는 [`lifecycle/rules.py`](../../src/limn/features/pins/lifecycle/rules.py)에 있다.
+닫기·다시 열기·답글의 본문 파서는 [`pins/lifecycle/input.py`](../../src/limn/pins/lifecycle/input.py), 네 경로의 응답은 [`pins/lifecycle/http.py`](../../src/limn/pins/lifecycle/http.py)가 소유한다. 잠금 아래 저장하고 알림을 내는 `PinLifecycle`은 같은 기능의 [`service.py`](../../src/limn/pins/lifecycle/service.py)에 있다. `ServerApplication`은 실행별 `pin_context()` 생성 함수 하나를 이 서비스에 묶는다. 답글을 다시 여는 순수 규칙 `reopens_on_reply`는 [`lifecycle/rules.py`](../../src/limn/pins/lifecycle/rules.py)에 있다.
 
-처리 중 표시의 입력·응답·셸은 [`features/pins/claims/service.py`](../../src/limn/features/pins/claims/service.py)의 `input.py`·`http.py`·`PinClaims`가 소유한다. 휴지통의 입력·응답·셸과 만료 정리는 [`features/pins/trash/service.py`](../../src/limn/features/pins/trash/service.py)의 `input.py`·`http.py`·`PinTrash`가 소유하고, 휴지통 조회와 정리가 함께 쓰는 만료·그림자 항목 판정은 순수 [`pins/trash.py`](../../src/limn/pins/trash.py)에 있다. 편집 규칙은 [`editing/rules.py`](../../src/limn/features/pins/editing/rules.py)의 `decide_edit`·`evolve_edit`와 `new_line_pin`·`new_region_pin`이고, 입력·위치 검사·응답·셸은 [`features/pins/editing/service.py`](../../src/limn/features/pins/editing/service.py)의 `input.py`·`location.py`·`http.py`·`PinEditing`이 소유한다. 모든 핀 셸은 `server.py`를 모르고 저장소·시계·알림·감사·@태그 조회·파일 위치·설정 값을 호출마다 만들어지는 `PinContext`로 받는다. 요청·응답 필드는 [api.md](api.md) §검토 대기, §처리 중 표시, §닫을 때 사유 남기기, §핀 레코드 스키마를 본다.
+처리 중 표시의 입력·응답·셸은 [`pins/claims/service.py`](../../src/limn/pins/claims/service.py)의 `input.py`·`http.py`·`PinClaims`가 소유한다. 휴지통의 입력·응답·셸과 만료 정리는 [`pins/trash/service.py`](../../src/limn/pins/trash/service.py)의 `input.py`·`http.py`·`PinTrash`가 소유하고, 휴지통 조회와 정리가 함께 쓰는 만료·그림자 항목 판정은 순수 [`pins/retention.py`](../../src/limn/pins/retention.py)에 있다. 편집 규칙은 [`editing/rules.py`](../../src/limn/pins/editing/rules.py)의 `decide_edit`·`evolve_edit`와 `new_line_pin`·`new_region_pin`이고, 입력·위치 검사·응답·셸은 [`pins/editing/service.py`](../../src/limn/pins/editing/service.py)의 `input.py`·`location.py`·`http.py`·`PinEditing`이 소유한다. 모든 핀 셸은 `server.py`를 모르고 저장소·시계·알림·감사·@태그 조회·파일 위치·설정 값을 호출마다 만들어지는 `PinContext`로 받는다. 요청·응답 필드는 [api.md](api.md) §검토 대기, §처리 중 표시, §닫을 때 사유 남기기, §핀 레코드 스키마를 본다.
 
 ## 역변환이 두 경로인 이유
 
@@ -128,7 +128,7 @@ stale은 이 전이와 별개다. 줄 맞춤이 머리 줄을 잃으면 열린 �
 
 UI는 일치율이 90% 이상이면 아무것도 붙이지 않는다. 낮을 때만 위치 옆에 '위치 불확실' 배지를 달고, 30% 미만이면 경고 색을 쓴다. 찾은 방법(좌표/글자)·일치율·무엇을 확인할지는 배지 설명에 둔다. 배지 표현의 규칙은 [viewer.md](viewer.md) §상태 표현에 있다.
 
-실행 정본은 [`features/pins/location/resolve.py`](../../src/limn/features/pins/location/resolve.py)의 `pick`과 [`source.py`](../../src/limn/features/pins/location/source.py)의 SyncTeX·pdftotext 호출 및 `TokenCache.weights`, [`src/limn/mapping.py`](../../src/limn/mapping.py)의 `synctex_range`·`trace_range`·`score_range`·`by_text`(순수 계산: SyncTeX 표본의 후보 선택, 두 경로의 경쟁, 약한 일치와 두 경로가 갈린 경우의 판정)다. 원고 루트·`--float-envs`·캐시·겹침 조회는 조립 지점이 `PickContext`로 넘긴다. `pick`은 결과를 값으로 돌려준다 — 찾은 범위(`Picked`), 보기 전용 문서의 영역(`PickedRegion`), 되짚지 못한 이유 하나(`PickRefusal`: 생성 파일·원고 밖 파일·읽지 못한 파일·되짚을 곳 없음). 선택 본문 검사는 [`features/pins/location/input.py`](../../src/limn/features/pins/location/input.py), 응답 본문과 경고·거절 문장은 같은 기능의 [`http.py`](../../src/limn/features/pins/location/http.py)가 만든다. 실행별 `PinLocationService`는 조립 지점에서 `PickContext` 생성 함수를 받아 `resolve.pick`을 호출한다. 같은 기능의 원문 구간 조회(`GET /api/snippet`)와 겹침 조회(`GET /api/overlaps`)는 `input.py`가 파일·줄 범위를 검사하고 `range.py`가 원문·범위 사다리 또는 열린 핀의 겹침을 만든다. 원고 트리 파일 검사는 핀 편집도 쓰므로 공통 `web.parse.source_file`을 공유한다.
+실행 정본은 [`pins/location/resolve.py`](../../src/limn/pins/location/resolve.py)의 `pick`과 [`source.py`](../../src/limn/pins/location/source.py)의 SyncTeX·pdftotext 호출 및 `TokenCache.weights`, [`src/limn/pins/location/mapping.py`](../../src/limn/pins/location/mapping.py)의 `synctex_range`·`trace_range`·`score_range`·`by_text`(순수 계산: SyncTeX 표본의 후보 선택, 두 경로의 경쟁, 약한 일치와 두 경로가 갈린 경우의 판정)다. 원고 루트·`--float-envs`·캐시·겹침 조회는 조립 지점이 `PickContext`로 넘긴다. `pick`은 결과를 값으로 돌려준다 — 찾은 범위(`Picked`), 보기 전용 문서의 영역(`PickedRegion`), 되짚지 못한 이유 하나(`PickRefusal`: 생성 파일·원고 밖 파일·읽지 못한 파일·되짚을 곳 없음). 선택 본문 검사는 [`pins/location/input.py`](../../src/limn/pins/location/input.py), 응답 본문과 경고·거절 문장은 같은 기능의 [`http.py`](../../src/limn/pins/location/http.py)가 만든다. 실행별 `PinLocationService`는 조립 지점에서 `PickContext` 생성 함수를 받아 `resolve.pick`을 호출한다. 같은 기능의 원문 구간 조회(`GET /api/snippet`)와 겹침 조회(`GET /api/overlaps`)는 `input.py`가 파일·줄 범위를 검사하고 `range.py`가 원문·범위 사다리 또는 열린 핀의 겹침을 만든다. 원고 트리 파일 검사는 핀 편집도 쓰므로 공통 `web.parse.source_file`을 공유한다.
 
 ## 범위 사다리
 
@@ -154,7 +154,7 @@ UI는 일치율이 90% 이상이면 아무것도 붙이지 않는다. 낮을 때
 
 section 단계는 두지 않는다. 절 전체를 범위로 잡으면 수백 줄 범위가 쉽게 생긴다.
 
-실행 정본은 [`src/limn/mapping.py`](../../src/limn/mapping.py)의 `compute_levels`다. 어느 환경까지 넓힐지는 `--float-envs` 값을 인자로 받는다.
+실행 정본은 [`src/limn/pins/location/mapping.py`](../../src/limn/pins/location/mapping.py)의 `compute_levels`다. 어느 환경까지 넓힐지는 `--float-envs` 값을 인자로 받는다.
 
 ## 줄 번호 재동기화 (`anchor`)
 
@@ -180,7 +180,7 @@ section 단계는 두지 않는다. 절 전체를 범위로 잡으면 수백 줄
 >
 > 예외는 그 범위가 방금 자신이 고친 곳일 때다. 앞선 핀을 처리하면서 그 문장 자체를 갈아엎은 경우가 그렇다. 이때는 원문을 확인하고 닫아도 된다([SKILL.ko.md](../../skill/SKILL.ko.md) §규칙).
 
-실행 정본은 [`src/limn/mapping.py`](../../src/limn/mapping.py)의 `anchor_of`·`find_line`·`anchor_holds`와 [`src/limn/pins/position.py`](../../src/limn/pins/position.py)의 `follow_anchor`·`resync`(순수 계산: 열린 핀 하나를 지금 줄과 맞춰 바뀐 핀을 돌려준다), 그리고 [`src/limn/locate.py`](../../src/limn/locate.py)의 `sync_all`(핀 파일을 찾아 읽고 바뀐 핀으로 바꾸는 쪽)이다. 저장소는 `server.pin_store()`가 넘긴 `sync_all`을 트랜잭션마다 부른다.
+실행 정본은 [`src/limn/pins/location/mapping.py`](../../src/limn/pins/location/mapping.py)의 `anchor_of`·`find_line`·`anchor_holds`와 [`src/limn/pins/location/position.py`](../../src/limn/pins/location/position.py)의 `follow_anchor`·`resync`(순수 계산: 열린 핀 하나를 지금 줄과 맞춰 바뀐 핀을 돌려준다), 그리고 [`src/limn/pins/location/lookup.py`](../../src/limn/pins/location/lookup.py)의 `sync_all`(핀 파일을 찾아 읽고 바뀐 핀으로 바꾸는 쪽)이다. 저장소는 `server.pin_store()`가 넘긴 `sync_all`을 트랜잭션마다 부른다.
 
 ## 저장소 안전성
 
@@ -215,7 +215,7 @@ section 단계는 두지 않는다. 절 전체를 범위로 잡으면 수백 줄
 
 `pins.jsonl` 쓰기 뒤 `pins.md` 쓰기가 실패하면 살아 있는 상태만 먼저 바뀌고 `pins.md`는 오래된 내용일 수 있다. 기동할 때 살아 있는 파일로 다시 렌더한다. 이 구간에서 실패한 요청의 알림은 남지 않을 수 있다. 파일 셋과 알림의 원자적 완료까지는 현재 저장 형식의 보장이 아니다.
 
-쓰기의 잠금·순서는 [`store.py`](../../src/limn/store.py)의 `PinStore.transact()`가 정하고, 원자적 교체는 [`files.py`](../../src/limn/files.py)의 `atomic_write()`가 맡는다. [`server.py`](../../src/limn/server.py)는 실행별 잠금과 레코드 검사·렌더 협력자를 저장소에 넘긴다. 휴지통 변경과 그림자 정리는 [`features/pins/trash/service.py`](../../src/limn/features/pins/trash/service.py), 잠근 조회는 [`features/pins/listing/service.py`](../../src/limn/features/pins/listing/service.py)가 맡는다. `pins.md`의 순수 렌더는 [`pins/render.py`](../../src/limn/pins/render.py), 조회 사실의 수집은 [`features/pins/listing/markdown.py`](../../src/limn/features/pins/listing/markdown.py)가 맡는다. 보존 규칙은 [`test_store.py`](../../tests/test_store.py)와 [`test_trash.py`](../../tests/test_trash.py)가 확인한다. 파일 배치는 [operations.md](operations.md) §상태 파일 배치에 있다.
+쓰기의 잠금·순서는 [`pins/store.py`](../../src/limn/pins/store.py)의 `PinStore.transact()`가 정하고, 원자적 교체는 [`platform/files.py`](../../src/limn/platform/files.py)의 `atomic_write()`가 맡는다. [`server.py`](../../src/limn/server.py)는 실행별 잠금과 레코드 검사·렌더 협력자를 저장소에 넘긴다. 휴지통 변경과 그림자 정리는 [`pins/trash/service.py`](../../src/limn/pins/trash/service.py), 잠근 조회는 [`pins/listing/service.py`](../../src/limn/pins/listing/service.py)가 맡는다. `pins.md`의 순수 렌더는 [`pins/listing/render.py`](../../src/limn/pins/listing/render.py), 조회 사실의 수집은 [`pins/listing/markdown.py`](../../src/limn/pins/listing/markdown.py)가 맡는다. 보존 규칙은 [`test_store.py`](../../src/limn/pins/tests/test_store.py)와 [`test_trash.py`](../../src/limn/pins/tests/test_trash.py)가 확인한다. 파일 배치는 [operations.md](operations.md) §상태 파일 배치에 있다.
 
 ## 작성자 귀속
 
@@ -298,7 +298,7 @@ section 단계는 두지 않는다. 절 전체를 범위로 잡으면 수백 줄
 >
 > `tailscale` 방식에서 같은 머신의 로컬 프로세스는 헤더를 붙여 사람을, 헤더를 빼서 에이전트를 흉내 낼 수 있다. 헤더는 루프백 피어에서 오면 믿기 때문이다. 여러 사람이 쓰는 머신이면 에이전트에게 토큰을 주고, `--no-agent-loopback`으로 헤더 없는 에이전트를 끄고, `--members-only`나 역할로 좁힌다.
 
-실행 정본은 [`src/limn/access.py`](../../src/limn/access.py)의 `identify`, `admit`, `check_role`, `actor_of`, `LOCAL_ACTOR`, `is_agent_actor`, 처리기가 묻는 두 역할 질문 `Principal.is_human`(답글이 사람의 것인가)·`Principal.review_on_close`(`review` 없는 닫기가 검토 대기로 가는가)와 [`limn/service/context.py`](../../src/limn/service/context.py)의 `is_agent`·`typed_actor`·`who`, [`features/collaboration/directory.py`](../../src/limn/features/collaboration/directory.py)의 `record`다.
+실행 정본은 [`src/limn/security/access.py`](../../src/limn/security/access.py)의 `identify`, `admit`, `check_role`, `actor_of`, `LOCAL_ACTOR`, `is_agent_actor`, 처리기가 묻는 두 역할 질문 `Principal.is_human`(답글이 사람의 것인가)·`Principal.review_on_close`(`review` 없는 닫기가 검토 대기로 가는가)와 [`limn/pins/context.py`](../../src/limn/pins/context.py)의 `is_agent`·`typed_actor`·`who`, [`collaboration/directory.py`](../../src/limn/collaboration/directory.py)의 `record`다.
 
 ## 여러 문서
 
@@ -312,7 +312,7 @@ section 단계는 두지 않는다. 절 전체를 범위로 잡으면 수백 줄
 
 문서 종류(`Doc.kind`)는 `tex`(LaTeX 원고)와 `pdf`(보기 전용 PDF) 둘이다. 종류는 기동할 때 `--doc` 경로의 확장자에서 한 번 정한다(`parse_doc_arg`). 대소문자는 가리지 않는다. 그 뒤로는 닫힌 타입 `DocKind`로 다닌다. `--doc` 없이 띄운 단일 문서는 `tex`다.
 
-분기는 종류 이름을 묻지 않고 **능력**을 묻는다. 능력은 `Doc`의 속성이고, 종류에서 능력을 정하는 규칙은 [`limn/documents.py`](../../src/limn/documents.py) 한 곳에 있다. 그래서 종류가 늘어도 분기마다 종류 목록을 고치지 않는다.
+분기는 종류 이름을 묻지 않고 **능력**을 묻는다. 능력은 `Doc`의 속성이고, 종류에서 능력을 정하는 규칙은 [`limn/documents.py`](../../src/limn/runtime/documents.py) 한 곳에 있다. 그래서 종류가 늘어도 분기마다 종류 목록을 고치지 않는다.
 
 | 능력 | 뜻 | `tex` | `pdf` | `figure` |
 | --- | --- | --- | --- | --- |
@@ -325,7 +325,7 @@ section 단계는 두지 않는다. 절 전체를 범위로 잡으면 수백 줄
 
 기동 때 `--doc` 값을 파싱한 뒤, 아직 `Doc`을 만들기 전에 두 가지를 정한다. 키가 `main`인 문서가 상태 폴더 루트를 쓰는지와 실행의 메인 파일이 무엇인지다. 둘 다 같은 규칙(`kind_builds_from_source`)을 쓴다.
 
-종류 자체를 알리는 곳만 `kind`를 읽는다. API의 `kind`, 권한 대상의 문서 신원, 기동 로그의 문서 줄(`doc_start_line`)이 그렇다. 기동 로그는 종류마다 이름을 고르는 `match`라서, 종류가 늘면 타입 검사가 빠진 이름을 잡는다. 종류를 더할 때는 [`test_meta.py`](../../src/limn/features/document_views/test_meta.py)의 능력 표에 그 종류의 행을 먼저 적는다. 행이 없으면 테스트가 실패한다.
+종류 자체를 알리는 곳만 `kind`를 읽는다. API의 `kind`, 권한 대상의 문서 신원, 기동 로그의 문서 줄(`doc_start_line`)이 그렇다. 기동 로그는 종류마다 이름을 고르는 `match`라서, 종류가 늘면 타입 검사가 빠진 이름을 잡는다. 종류를 더할 때는 [`test_meta.py`](../../src/limn/documents/tests/test_meta.py)의 능력 표에 그 종류의 행을 먼저 적는다. 행이 없으면 테스트가 실패한다.
 
 ### 서버
 
@@ -334,7 +334,7 @@ section 단계는 두지 않는다. 절 전체를 범위로 잡으면 수백 줄
 | 핀 저장소는 하나(`pins.jsonl`·`pins.seq`)다 | 번호가 문서를 가로질러 유일해야 채팅의 `#12`가 모호하지 않다. 레코드에 `doc`을 더한다. `doc`이 없는 레코드는 첫 문서로 **읽을 때만** 본다. 이관 쓰기가 없으므로 이전 버전으로 되돌려도 상태 폴더가 그대로 동작한다 |
 | 레코드 검증은 모양으로 한다 | `file`이 있으면 LaTeX 핀이고 줄 핀의 검증(§저장소 안전성)을 받는다. `pdf`만 있으면 보기 전용 핀이다. 지금 설정에 없는 문서 키여도 깨진 줄로 보지 않는다. 깨진 줄로 치면 다음 쓰기가 그 핀을 지우고 백업만 남는다. pins.md는 그런 핀을 `## 설정에 없는 문서` 소절로 드러낸다 |
 | 빌드·쪽·이력은 문서별 폴더(`docs/<키>/`)에 둔다 | 쪽 이미지 버전(`pages.cur`), 빌드 이력(`builds.json`, 위치 추정의 원천), `built_at`이 문서마다 다르다. 키가 `main`인 LaTeX 문서만 상태 폴더 루트를 쓴다. 그래서 단일 문서 인스턴스에 `--doc main=…`으로 문서를 더해도 본문의 빌드 이력이 이어지고, 옛 핀이 전부 점선(추정)으로 바뀌지 않는다 |
-| 문서는 언제나 인자로 넘긴다 | 처리기가 요청의 문서를 찾아 서비스마다 넘긴다. 빌드 스레드가 '지금 문서'를 잃어 다른 문서의 빌드 폴더를 건드릴 길이 없다. 단일 문서는 시작할 때 고정한 실행 경로(`C.paths`)로 만든 문서(`limn.documents.Doc`, `legacy`)라서 옛 상태 폴더 배치가 그대로 돈다 |
+| 문서는 언제나 인자로 넘긴다 | 처리기가 요청의 문서를 찾아 서비스마다 넘긴다. 빌드 스레드가 '지금 문서'를 잃어 다른 문서의 빌드 폴더를 건드릴 길이 없다. 단일 문서는 시작할 때 고정한 실행 경로(`C.paths`)로 만든 문서(`limn.runtime.documents.Doc`, `legacy`)라서 옛 상태 폴더 배치가 그대로 돈다 |
 | 빌드 잠금은 문서마다 둔다 | 빌드 폴더가 문서마다 따로다. 그래서 서로 다른 문서는 동시에 빌드해도 `.aux`를 밟지 않는다. 같은 문서는 한 번에 하나만 빌드한다(`409`) |
 | `--git-pull`은 저장소 단위다 | 여러 문서면 잠금 하나로 줄 세운다. 20초 안에 다른 문서가 당긴 결과는 같이 쓴다(`pull.shared`). 동시에 fetch·merge하면 `.git/index.lock`이 부딪히고, 한 문서가 복사하는 중에 트리가 바뀐다 |
 | LaTeX 문서는 메인 `.tex`가 있는 폴더에서 빌드한다 | 평소 `cd <그 폴더> && latexmk` 하던 그대로다. `<빌드 루트>::<메인>`의 빌드 루트는 사본으로 복사할 범위일 뿐이다. 본문이 `\graphicspath{{../1st/images/}}`로 옆 폴더 그림을 읽으면, 메인 폴더 하나만 복사해서는 그림이 빠진다 |

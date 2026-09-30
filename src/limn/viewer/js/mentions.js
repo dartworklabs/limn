@@ -20,7 +20,7 @@ function mentionClose(){MENTION.ta=null; $('#mention-pop').hidden=true;}
 // The line below the input field: who will be notified on save (resolved @names) and any '@word' that won't resolve
 // ('not a registered person'). Since text can't be colored inside a textarea, this is previewed here instead - so it's
 // known before saving whether a tag will actually become a notification. It is the server's resolve_mentions() step for
-// step (tests/test_mentions_parity.py runs one corpus through both): hit is what the server records, in first-seen order.
+// step (tests/viewer/test_mentions_parity.py runs one corpus through both): hit is what the server records, in first-seen order.
 function mentionScan(text,hints){text=String(text||''); const toks=mentionTokens(PEOPLE);
   const hit=[],bad=[],low=text.toLowerCase(),hs=hints||new Set(); let first=null;
   for(let i=0;i<text.length;i++){if(text[i]!=='@'||mentionAfterWord(text,i))continue;

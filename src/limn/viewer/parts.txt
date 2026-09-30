@@ -7,7 +7,7 @@
 # listener, an immediately run function) runs in this order, so it can only use the let/const names of the parts
 # above it (and its own). Keep this order. New code goes into the part for its responsibility; a new part needs a
 # line here.
-# tests/test_viewer_files.py checks that every file under css/ and js/ is listed exactly once.
+# tests/viewer/test_viewer_files.py checks that every file under css/ and js/ is listed exactly once.
 #
 # Format: a marker line starts its list; each following line is a path relative to this folder. "#" starts a comment.
 

@@ -3,8 +3,8 @@
 from collections.abc import Callable
 from typing import Any, NamedTuple, TypeAlias
 
-from limn import access
-from limn.documents import Doc
+from limn.runtime.documents import Doc
+from limn.security import access
 from limn.web.parse import Query
 from limn.web.reply import Reply
 

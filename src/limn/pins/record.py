@@ -1,7 +1,7 @@
 """Which stored pin records the store accepts, parsed: one pins.jsonl or Trash line into its pin, or Broken
 (docs/handbook/api.md §핀 레코드).
 
-The store (limn.store.PinStore) trusts and indexes a few fields of every record - id, where the pin is, the thread
+The store (limn.pins.store.PinStore) trusts and indexes a few fields of every record - id, where the pin is, the thread
 the viewer renders as-is - so a line whose fields do not have their stored shape is treated as broken: kept aside
 with its original bytes, never served or rewritten. Checking id alone is not enough: a single record with a string
 lo or no file turns every GET/POST into a 500, and because the pins.jsonl write commits right before that 500, a
@@ -14,11 +14,11 @@ of its stored kind.
 
 Every optional field may be missing (a legacy record), and a field this version does not know passes untouched (an
 older server must not drop what a newer one wrote, docs/adr/0005-pin-scoped-changes.md, 0006). The check changes
-when a stored field is added or its shape changes - together with the records limn.features.pins.editing.rules and
-limn.features.pins.lifecycle.rules write.
+when a stored field is added or its shape changes - together with the records limn.pins.editing.rules and
+limn.pins.lifecycle.rules write.
 
-Pure. Two shapes it checks are owned by modules that are not: a document key (limn.documents.DOC_KEY_RE) and a
-recorded actor (limn.people.is_actor). The composition root passes both in (server.parse_record).
+Pure. Two shapes it checks are owned by modules that are not: a document key (limn.runtime.documents.DOC_KEY_RE) and a
+recorded actor (limn.security.people.is_actor). The composition root passes both in (server.parse_record).
 """
 
 from collections.abc import Callable
@@ -26,9 +26,9 @@ from dataclasses import dataclass
 from posixpath import isabs  # os.path.isabs on POSIX, the only platform Limn runs on - string work only
 from typing import TypeGuard
 
+from limn.pins.changes import valid_changes
 from limn.pins.model import THREAD_EVENTS, Pin, TrashedPin, is_kind_req, is_region_pin, parse_pin
-from limn.pins.shapes import is_int, is_num
-from limn.scope import valid_changes
+from limn.platform.values import is_int, is_num
 
 
 @dataclass(frozen=True)

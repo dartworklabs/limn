@@ -17,7 +17,7 @@
 
 ## 뷰어 규칙을 바꿀 때
 
-뷰어는 [`src/limn/viewer/`](../../src/limn/viewer/parts.txt)의 정적 파일을 서버가 한 장의 HTML로 조립한다. 번들러·모듈 로더·CDN은 쓰지 않는다. [`parts.txt`](../../src/limn/viewer/parts.txt)가 CSS·JS 조각의 실행 순서와 책임을 정한다. `start()`가 조각을 읽어 인스턴스 라벨·색·영어 메시지를 채우므로 import만으로 뷰어 자원이 생기지 않는다. 조각의 누락·중복이나 잘못된 자리 표시자는 서버 시작과 [`test_viewer_files.py`](../../tests/test_viewer_files.py)가 거절한다.
+뷰어는 [`src/limn/viewer/parts.txt`](../../src/limn/viewer/parts.txt)의 정적 파일을 서버가 한 장의 HTML로 조립한다. 번들러·모듈 로더·CDN은 쓰지 않는다. [`parts.txt`](../../src/limn/viewer/parts.txt)가 CSS·JS 조각의 실행 순서와 책임을 정한다. `start()`가 조각을 읽어 인스턴스 라벨·색·영어 메시지를 채우므로 import만으로 뷰어 자원이 생기지 않는다. 조각의 누락·중복이나 잘못된 자리 표시자는 서버 시작과 [`test_viewer_files.py`](../../src/limn/viewer/tests/test_viewer_files.py)가 거절한다.
 
 > **주의**
 >
@@ -27,11 +27,11 @@
 
 > **핵심**
 >
-> 화면 규칙을 바꾸면 세 곳을 같은 diff에서 맞춘다: `src/limn/viewer/`의 파일, `tests/test_viewer.py`의 `Frontend*` 가드, 그리고 이 문서의 해당 절.
+> 화면 규칙을 바꾸면 세 곳을 같은 diff에서 맞춘다: `src/limn/viewer/`의 파일, `src/limn/viewer/tests/test_viewer.py`의 `Frontend*` 가드, 그리고 이 문서의 해당 절.
 
 **CSS는 조각 여러 개지만, 페이지에는 인라인 `<style>` 하나로 들어간다.** 그 맨 앞, 첫 조각 `css/tokens.css`에 토큰 블록 세 개가 있다. 다크 테마 `:root`, 라이트 테마 `:root[data-theme=light]`, 테마와 무관한 척도 `:root`이다. 테마 색 리터럴은 앞의 두 테마 블록 안 변수 정의에만, 테마와 무관한 색(브랜드 색 `--limn-*`, 이름표 위 글자 `--brand-foreground`)은 척도 블록에만 둘 수 있다. 나머지 규칙은 모두 `var(--…)`를 쓴다(§토큰).
 
-**UI 문자열은 한국어가 원본이고, 영어는 메시지 표로 바꾼다.** 템플릿과 JS에 적힌 한국어 문자열이 정본이다. 영어 화면에서는 [`src/limn/ui_en.json`](../../src/limn/ui_en.json)의 "한국어 → 영어" 표를 찾아 바꾼다. 동작 방식은 이렇다.
+**UI 문자열은 한국어가 원본이고, 영어는 메시지 표로 바꾼다.** 템플릿과 JS에 적힌 한국어 문자열이 정본이다. 영어 화면에서는 [`src/limn/viewer/ui_en.json`](../../src/limn/viewer/ui_en.json)의 "한국어 → 영어" 표를 찾아 바꾼다. 동작 방식은 이렇다.
 
 - 서버가 시작할 때(`server.read_viewer()`) `load_ui_messages()`(`limn/viewer/assemble.py`)가 표를 읽고, `viewer_html()`이 `__UI_EN_JSON__` 자리를 JS 객체 `I18N_EN`으로 채운다. 거부된 첫 화면도 같은 표(`ServedViewer.messages`)를 읽는다.
 - 영어 모드에서 `tr()`·`trMsg()`가 표를 찾는다. `trMsg()`는 문자열 전체가 표에 없으면 ` — ` 또는 ` · `로 나눈 조각마다 다시 찾는다. 그래서 조합한 문구도 조각 단위로 번역된다.
@@ -43,11 +43,11 @@
 - API 오류는 `errText()` 한 함수를 거친다. 한국어 화면은 서버의 `error` 문장을 그대로 보인다. 영어 화면은 오류 본문의 `reason` 코드로 표의 `reason:<코드>` 영어 문장을 찾고, 없으면 서버 문장을 표로 옮긴다(`trMsg`). 알림(`api()`), 작성 패널과 위치 다시 잡기 배너의 pick 오류, 편집 카드의 원문 칸, 비교 PDF 상태 줄이 이 함수를 쓴다. 코드 목록은 [api.md](api.md) §오류 응답에 있다. 영어 문장은 거절을 가르는 값(한도·줄 수)을 싣지 않는다. 그 값은 한국어 `error` 문장에만 있다.
 - pick의 `warn`(작성 패널의 경고 한 줄, 오류 본문이 아니다)은 서버가 문장 한두 개를 공백으로 이어 보낸다. 영어 화면에서는 `warnText()` 가 문장마다 `PICK_WARNS` 의 한국어 틀(숫자 자리 `{x}`)과 맞춰 `tl()` 로 옮긴다. 한국어 화면은 서버 글 그대로다. 서버에 새 경고 문장을 더하면 `PICK_WARNS` 와 표에도 더한다(`test_i18n.PickWarnings` 가 `limn/web/answers.py` 의 `PICK_WARNINGS` 문장과 틀을 대조한다).
 
-[`tests/test_i18n.py`](../../tests/test_i18n.py)가 이 연결을 지킨다. 정적 마크업(`<body>`부터 첫 `<script>`까지)의 한국어 글자와 UI 속성은 전부 표에 있어야 한다. `trMsg()`처럼 ` — `·` · ` 조각 단위로 찾아도 된다. 표의 값에는 한글이 없어야 하고, 키에는 `__` 자리표가 없어야 한다. `tl()` 틀에 번역이 없어도 실패하고, 실제 뷰어를 영어로 띄워 사용자 글 밖에 한글이 남으면 실패하는 브라우저 테스트(데스크톱·폴더블·휴대폰)도 있다. 같은 브라우저 테스트가 흔한 거절(`403` 보기 권한, `409` `base_rev` 충돌, `400` 입력 검사, `404` 없는 핀, `422` 핀 단위 비교)의 오류 알림도 본다. 영어에서는 `reason` 의 영어 문장이고 한글이 없어야 하며, 한국어에서는 서버 문장 그대로여야 한다. [`tests/test_errors.py`](../../tests/test_errors.py)는 서버가 내는 코드마다 영어 문장이 있는지 본다. 그래도 `tl()`·`tr()`을 거치지 않은 JS 문구는 잡히지 않을 수 있으니, 새 문구는 늘 이 함수들을 거치고 `ui_en.json`에 추가한다.
+[`src/limn/viewer/tests/test_i18n.py`](../../src/limn/viewer/tests/test_i18n.py)가 이 연결을 지킨다. 정적 마크업(`<body>`부터 첫 `<script>`까지)의 한국어 글자와 UI 속성은 전부 표에 있어야 한다. `trMsg()`처럼 ` — `·` · ` 조각 단위로 찾아도 된다. 표의 값에는 한글이 없어야 하고, 키에는 `__` 자리표가 없어야 한다. `tl()` 틀에 번역이 없어도 실패하고, 실제 뷰어를 영어로 띄워 사용자 글 밖에 한글이 남으면 실패하는 브라우저 테스트(데스크톱·폴더블·휴대폰)도 있다. 같은 브라우저 테스트가 흔한 거절(`403` 보기 권한, `409` `base_rev` 충돌, `400` 입력 검사, `404` 없는 핀, `422` 핀 단위 비교)의 오류 알림도 본다. 영어에서는 `reason` 의 영어 문장이고 한글이 없어야 하며, 한국어에서는 서버 문장 그대로여야 한다. [`src/limn/web/tests/test_errors.py`](../../src/limn/web/tests/test_errors.py)는 서버가 내는 코드마다 영어 문장이 있는지 본다. 그래도 `tl()`·`tr()`을 거치지 않은 JS 문구는 잡히지 않을 수 있으니, 새 문구는 늘 이 함수들을 거치고 `viewer/ui_en.json`에 추가한다.
 
-화면 규칙은 [`test_viewer.py`](../../tests/test_viewer.py)의 구조·순수 판단 검사와 실제 Chromium 레이아웃 검사로 확인한다. [`test_viewer_files.py`](../../tests/test_viewer_files.py)는 조각 목록·조립 결과와 내보낸 스크립트의 `node --check`를, [`test_viewer_source.py`](../../tests/test_viewer_source.py)는 중복·죽은 함수와 주석에 삼켜진 코드를 본다. 브라우저·node 실행 조건과 합격 범위는 [verification.md](verification.md) §1이 정한다. 번역 대응과 영어 화면은 [`test_i18n.py`](../../tests/test_i18n.py)가 확인한다.
+화면 규칙은 [`test_viewer.py`](../../src/limn/viewer/tests/test_viewer.py)의 구조·순수 판단 검사와 실제 Chromium 레이아웃 검사로 확인한다. [`test_viewer_files.py`](../../src/limn/viewer/tests/test_viewer_files.py)는 조각 목록·조립 결과와 내보낸 스크립트의 `node --check`를, [`test_viewer_source.py`](../../src/limn/viewer/tests/test_viewer_source.py)는 중복·죽은 함수와 주석에 삼켜진 코드를 본다. 브라우저·node 실행 조건과 합격 범위는 [verification.md](verification.md) §1이 정한다. 번역 대응과 영어 화면은 [`test_i18n.py`](../../src/limn/viewer/tests/test_i18n.py)가 확인한다.
 
-**리터럴 예외를 바꾸면 두 곳을 고친다.** 토큰 밖에 리터럴을 허용하는 자리는 §리터럴 예외(허용 목록)의 표와 `tests/test_viewer.py`의 허용 목록 상수(`TOKEN_SELECTORS`·`INLINE_STYLE_OK`·`RADIUS_OK`)에 함께 있다. 한쪽만 고치면 문서와 가드가 어긋난다. JS가 재서 넣는 CSS 변수(`--kb`·`--side-w` 등)는 따로 적지 않는다. 가드가 코드의 `setProperty('--…')` 호출에서 목록을 뽑는다.
+**리터럴 예외를 바꾸면 두 곳을 고친다.** 토큰 밖에 리터럴을 허용하는 자리는 §리터럴 예외(허용 목록)의 표와 `src/limn/viewer/tests/test_viewer.py`의 허용 목록 상수(`TOKEN_SELECTORS`·`INLINE_STYLE_OK`·`RADIUS_OK`)에 함께 있다. 한쪽만 고치면 문서와 가드가 어긋난다. JS가 재서 넣는 CSS 변수(`--kb`·`--side-w` 등)는 따로 적지 않는다. 가드가 코드의 `setProperty('--…')` 호출에서 목록을 뽑는다.
 
 ### 닫힌 값 표
 
@@ -58,8 +58,8 @@
 | `PIN_STATE` | open · review · done | `pins.model.StateName` |
 | `BUILD_STATE` | idle · running · ok · ok_errors · fail | `GET /api/build`의 `state`(`build.BUILD_STATES`, 시작 값 idle 포함) |
 | `PULL_STATE` | ok · up_to_date · skipped · error | 빌드의 `pull.state`(`pull.pull_record()`) |
-| `SYNC_STATE` | disabled · checking · deferred · updating · updated · current · blocked · error | meta의 `sync.state`(`features/sync/rules.py`의 `SyncState`와 감시가 쓰는 상태) |
-| `REVISION_STATE` | idle · running · ready · error | 비교 PDF 상태(`features/revisions/jobs.py`) |
+| `SYNC_STATE` | disabled · checking · deferred · updating · updated · current · blocked · error | meta의 `sync.state`(`sync/rules.py`의 `SyncState`와 감시가 쓰는 상태) |
+| `REVISION_STATE` | idle · running · ready · error | 비교 PDF 상태(`revisions/jobs.py`) |
 | `SCOPE_MODE`, `SCOPE_SOURCE` | pin · commit, changes · inferred · none | `scope.ScopeMode`, `scope.ScopeSource` |
 | `THREAD_EV` | close · reopen · confirm · assign | `pins.model.ThreadEv` |
 | `RANGE_REL` | equal · inside · contains · partial | `pins.position.selection_rel()` |
@@ -73,7 +73,7 @@
 | `UI_LANG` | ko · en | 뷰어(`LANG`) |
 | `NOTIFY_STATE` | on · off · blocked · unsupported · local | 뷰어(`notifyState()`) |
 
-서버에서 오는 표는 서버 문자열과 정확히 같아야 한다. [`tests/test_viewer_source.py`](../../tests/test_viewer_source.py)의 `ClosedSets`가 표마다 서버의 `Literal`·튜플·생성 함수와 대조한다. 부르는 멤버가 표에 있는지도 본다(`PIN_STATE.REVEIW` 같은 오타는 오류 없이 `undefined`가 된다). `done`·`review`를 직접 읽거나 `pinState()`를 문자열과 비교하는 곳이 없는지도 본다. 사람이 읽는 글, 사유 코드, 브라우저가 정한 이름(키, 태그, 이벤트 종류, 알림 권한)은 표에 두지 않는다. 목록 구획 이름(`SEC.open`)과 표의 값을 키로 쓰는 조회표(`ST_NAME`, `EV_LABEL`, 알림 문구)의 키도 글자 그대로 둔다. 새 표는 `core.js`의 닫힌 값 구획에 더하고, 같은 테스트의 서버 표(`SERVER_SETS`)나 뷰어 표(`VIEWER_SETS`)에 올린다. 어느 쪽에도 없으면 테스트가 실패한다.
+서버에서 오는 표는 서버 문자열과 정확히 같아야 한다. [`src/limn/viewer/tests/test_viewer_source.py`](../../src/limn/viewer/tests/test_viewer_source.py)의 `ClosedSets`가 표마다 서버의 `Literal`·튜플·생성 함수와 대조한다. 부르는 멤버가 표에 있는지도 본다(`PIN_STATE.REVEIW` 같은 오타는 오류 없이 `undefined`가 된다). `done`·`review`를 직접 읽거나 `pinState()`를 문자열과 비교하는 곳이 없는지도 본다. 사람이 읽는 글, 사유 코드, 브라우저가 정한 이름(키, 태그, 이벤트 종류, 알림 권한)은 표에 두지 않는다. 목록 구획 이름(`SEC.open`)과 표의 값을 키로 쓰는 조회표(`ST_NAME`, `EV_LABEL`, 알림 문구)의 키도 글자 그대로 둔다. 새 표는 `core.js`의 닫힌 값 구획에 더하고, 같은 테스트의 서버 표(`SERVER_SETS`)나 뷰어 표(`VIEWER_SETS`)에 올린다. 어느 쪽에도 없으면 테스트가 실패한다.
 
 ## 조작 한눈에
 
@@ -145,7 +145,7 @@
 
 **지금 절 표시.** 목차 항목은 쪽 번호와 함께 그 쪽 안의 세로 위치(`frac`, PDF XYZ 목적지의 위쪽 좌표를 쪽 높이로 나눈 값, 없으면 0)를 가진다(`destFrac`). 절 표시줄 `#section-current`와 목차 강조는 화면 위에서 조금 내려온 읽는 선(보이는 높이의 1/4, 최대 160px)보다 위에서 시작한 마지막 제목을 고른다(`outlineIndexAt`). 첫 제목보다 위(제목 쪽, 1쪽 맨 위)에서는 첫 절을 보인다. 쪽 번호만 보면 1·1.1·1.2가 모두 1쪽에서 시작할 때 1쪽 맨 위에서 `1.2`를 보이기 때문이다. 목차에서 고른 항목은 그 쪽을 벗어날 때까지 그대로 강조한다.
 
-**번호와 인쇄 쪽 번호.** PDF outline에는 절 번호(`1.1`)와 인쇄 쪽 번호(`iv`)가 없다. 그래서 뷰어는 `GET /api/outline-labels`로 같은 빌드가 PDF와 함께 남긴 `.aux`의 목차 줄을 받아, 제목·계층·순서가 맞는 항목에만 붙인다(`mergeOutlineLabels`). 서버 쪽은 `.aux`를 읽는 일(`features/document_views/reads.py`의 `outline_labels`)과 목차 줄을 해석하는 순수 파서(`features/document_views/outline.py`)로 나뉜다. 응답 형식은 [api.md](api.md)에 있다.
+**번호와 인쇄 쪽 번호.** PDF outline에는 절 번호(`1.1`)와 인쇄 쪽 번호(`iv`)가 없다. 그래서 뷰어는 `GET /api/outline-labels`로 같은 빌드가 PDF와 함께 남긴 `.aux`의 목차 줄을 받아, 제목·계층·순서가 맞는 항목에만 붙인다(`mergeOutlineLabels`). 서버 쪽은 `.aux`를 읽는 일(`documents/reads.py`의 `outline_labels`)과 목차 줄을 해석하는 순수 파서(`documents/outline.py`)로 나뉜다. 응답 형식은 [api.md](api.md)에 있다.
 
 **중간 폭의 패널 기억.** 중간 폭에서 사용자가 [핀]·손잡이·Esc·밀어 닫기·Ctrl+\로 직접 여닫으면 `pinPrefs.midClosed`에 기억하고, 폭이 바뀌어도 유지한다. 저장한 선택이 없으면 900px 경계를 넘을 때 위 표의 기본값을 적용한다. 작성·편집 중인 메모가 있으면 패널을 열어 둔다.
 
@@ -604,7 +604,7 @@
 
 **태그 토큰.** 글 속의 풀린 `@이름`(그 글의 `mentions`에 든 사람)은 **태그 토큰**이다. Slack·GitHub처럼 주 색 글자에 옅은 주 색 틴트 알약(`.mention`)을 입히고, 설명은 `@태그 — <이름>에게 알림이 갑니다`다. 지금 신원을 부른 태그는 한 단계 진한 틴트(`.mention.me`, 설명 `나를 부름`)다. 메모, 스레드 글, 접힌 카드 요약(`.sum`), 보관함의 답 한 줄, 원래 요청, 삭제한 핀 메모에 똑같이 적용한다. 풀리지 않은 `@말`은 평문 그대로다. 부른 것처럼 보이면 안 되기 때문이다.
 
-**찾는 규칙.** 서버 `resolve_mentions()`가 정본이고 뷰어는 그것을 한 단계씩 따라 한다. 미리 보기 줄·답글 결과·담당 고르기가 쓰는 `mentionScan()`과 후보 목록 `mentionTokens()`는 서버의 `mention_hits()`·`mention_tokens()`와 같은 순서로 판단한다. 같은 말뭉치를 양쪽에 돌려 결과가 같은지 [`tests/test_mentions_parity.py`](../../tests/test_mentions_parity.py)가 확인한다.
+**찾는 규칙.** 서버 `resolve_mentions()`가 정본이고 뷰어는 그것을 한 단계씩 따라 한다. 미리 보기 줄·답글 결과·담당 고르기가 쓰는 `mentionScan()`과 후보 목록 `mentionTokens()`는 서버의 `mention_hits()`·`mention_tokens()`와 같은 순서로 판단한다. 같은 말뭉치를 양쪽에 돌려 결과가 같은지 [`src/limn/viewer/tests/test_mentions_parity.py`](../../src/limn/viewer/tests/test_mentions_parity.py)가 확인한다.
 
 - 이름 전체, 로그인, 로그인의 `@` 앞, 이름 첫 단어(이름이 두 단어 이상일 때)를 본다. 두 글자(코드 포인트) 미만은 후보가 아니다.
 - 긴 것부터, 대소문자 없이 찾는다.
@@ -617,7 +617,7 @@
 **입력 중 미리 보기.** textarea 안은 색을 칠할 수 없다. 그래서 메모·편집·답글 칸 바로 아래 한 줄(`.m-preview`, `#note-mentions`)에 두 가지를 보인다. 저장하면 알림이 갈 사람(`@ 알림  Bob Park`)과, 풀리지 않을 `@말`(점선 밑줄, `등록된 사람이 아님`)이다. 저장 전에 부른 것이 실제로 알림이 되는지 알 수 있다.
 
 - 미리 보기는 저장·보내기가 실어 보내는 힌트(`mentionHints`)로 푼다. 그래서 줄에 뜬 사람이 곧 서버가 적을 사람이다.
-- 쓰는 중인 `@말`(커서가 그 끝에 있다)은 아직 알리지 않는다. 커서가 떠나거나(방향키·누르기) 칸을 벗어나면 알린다(`mentionBadSettled`). `@Sa`를 치며 목록에서 고르는 동안 경고가 먼저 뜨지 않게 하려는 것이다. JS 조각의 주석 끝에 코드 문장이 붙지 않았는지 [`tests/test_viewer_source.py`](../../tests/test_viewer_source.py)가 확인한다.
+- 쓰는 중인 `@말`(커서가 그 끝에 있다)은 아직 알리지 않는다. 커서가 떠나거나(방향키·누르기) 칸을 벗어나면 알린다(`mentionBadSettled`). `@Sa`를 치며 목록에서 고르는 동안 경고가 먼저 뜨지 않게 하려는 것이다. JS 조각의 주석 끝에 코드 문장이 붙지 않았는지 [`src/limn/viewer/tests/test_viewer_source.py`](../../src/limn/viewer/tests/test_viewer_source.py)가 확인한다.
 - 나를 쓴 태그는 `(나 — 알림 없음)`이다.
 
 **`#번호` 링크.** 글 속 `#12`는 그 핀이 있으면(열림·검토 대기·완료·삭제) 링크(`.pin-ref`, 링크 한 벌)다. 누르면 그 카드나 보관함 행을 펴고 스크롤해 반짝인다. 다른 문서면 '모든 문서'를 켠다. 없는 번호와 `&#39;` 같은 이스케이프는 건드리지 않는다.
@@ -794,12 +794,12 @@
 | --- | --- | --- |
 | 토큰 블록 세 개(`:root`·`:root[data-theme=light]`·척도 블록) | 색·px 값 | 정의하는 자리다 |
 | `#brand-stripe`·`#brand-chip`의 `style="background:__ACCENT__"` | 인스턴스 색 | 서버가 `--accent` 값으로 채운다. 테마가 바뀌어도 그대로여야 하고 회귀 테스트(`BuildHtmlSubstitution`)가 이 모양을 본다 |
-| `src/limn/brand/`의 그림 파일(파비콘·홈 화면 아이콘·로고 SVG) | 브랜드 색 | CSS 밖의 이미지이고 브랜드 원본의 바이트 그대로다. 뷰어 안의 인라인 로고는 예외가 아니다 — `parse_svg`가 색을 역할 클래스로 바꾸고 토큰이 칠한다(§마크와 파비콘) |
+| `src/limn/viewer/brand/`의 그림 파일(파비콘·홈 화면 아이콘·로고 SVG) | 브랜드 색 | CSS 밖의 이미지이고 브랜드 원본의 바이트 그대로다. 뷰어 안의 인라인 로고는 예외가 아니다 — `parse_svg`가 색을 역할 클래스로 바꾸고 토큰이 칠한다(§마크와 파비콘) |
 | PDF 쪽(PNG·PDF.js 캔버스) | 종이 색 | 원고 PDF의 색이다. 테마는 종이 색을 바꾸지 않는다 |
 | `src/limn/vendor/pdfjs`·Lucide 원본 | — | 외부 코드다(Lucide는 `currentColor`라 글자색을 따른다) |
 | 크기의 자리 값(폭·높이, 음수 margin, 위치 좌표, `calc`) | px | 척도로 반올림하면 레이아웃이 움직인다. 간격(padding·margin·gap)은 예외가 아니다 — 1–2px만 둔다 |
 
-가드는 [`tests/test_viewer.py`](../../tests/test_viewer.py)의 `FrontendDesignTokens`다. 인라인 CSS를 파싱해 다음을 막는다.
+가드는 [`src/limn/viewer/tests/test_viewer.py`](../../src/limn/viewer/tests/test_viewer.py)의 `FrontendDesignTokens`다. 인라인 CSS를 파싱해 다음을 막는다.
 
 - 토큰 블록 밖의 색 리터럴
 - 척도 밖의 radius·font-size
@@ -824,7 +824,7 @@
 
 ### 마크와 파비콘
 
-뷰어의 브랜드는 확정된 Limn 로고 하나다. 로고는 앱 아이콘과 워드마크로 되어 있다. 그림은 모두 브랜드 원본 저장소 [dartworklabs/limn-sans](https://github.com/dartworklabs/limn-sans)가 그린다(`site/limn-brand.js`, `make icons`). 이 저장소는 결과 파일을 바이트 그대로 [`src/limn/brand/`](../../src/limn/brand/README.md)에 담고 다시 그리지 않는다. 표준 라이브러리만 쓴다는 불변식([architecture.md](architecture.md) §불변식 2)에 맞게, 서버는 시작할 때 이 파일을 읽어 그대로 내보낸다.
+뷰어의 브랜드는 확정된 Limn 로고 하나다. 로고는 앱 아이콘과 워드마크로 되어 있다. 그림은 모두 브랜드 원본 저장소 [dartworklabs/limn-sans](https://github.com/dartworklabs/limn-sans)가 그린다(`site/limn-brand.js`, `make icons`). 이 저장소는 결과 파일을 바이트 그대로 [`src/limn/viewer/brand/`](../../src/limn/viewer/brand/README.md)에 담고 다시 그리지 않는다. 표준 라이브러리만 쓴다는 불변식([architecture.md](architecture.md) §불변식 2)에 맞게, 서버는 시작할 때 이 파일을 읽어 그대로 내보낸다.
 
 **모양.** 앱 아이콘은 연속 곡률 사각형(squircle) 타일 위의 글자 i다. i는 획 하나와 그 위의 점(핀)으로 되어 있다. 워드마크는 Limn 서체로 쓴 소문자 `limn`이다. 그라데이션·그림자·효과는 없다.
 
@@ -848,7 +848,7 @@
 - 도움말 머리는 워드마크를 쓴다. 제목 줄 상자가 24.8px라 BI의 광학 보정 없는 최소 높이(19px)를 넘는 20px이 들어간다. 보호 여백(x높이의 절반, 이 크기에서 약 7px)도 옆 글자와의 8px 간격과 대화상자 여백 안에 든다. 이름표 앞 두 자리는 정사각 16·14px라 아이콘을 쓴다.
 - 워드마크는 제목의 `Limn` 자리에 서므로 `role="img"`·`aria-label="Limn"`이다. 대화상자 이름은 `Limn — 사용법`으로 읽힌다. 두 아이콘은 장식이라 `aria-hidden`이고, 이름은 옆 이름표가 말한다.
 
-**색은 토큰이 칠한다.** [`src/limn/mark.py`](../../src/limn/mark.py)의 `parse_svg`가 SVG를 닫힌 어휘로 읽는다. `svg`·`g`·`path`·`circle`과 그 기하 속성만 받고, 브랜드 색을 역할로 바꾼다(뼈종이 → 타일, 먹 → 획, 주 → 점). 그 밖의 요소·속성·색·DOCTYPE이 있으면 거절하고, 그러면 서버가 시작하지 않는다. `inline_svg`는 클래스만 달고 색을 넣지 않는다.
+**색은 토큰이 칠한다.** [`src/limn/viewer/mark.py`](../../src/limn/viewer/mark.py)의 `parse_svg`가 SVG를 닫힌 어휘로 읽는다. `svg`·`g`·`path`·`circle`과 그 기하 속성만 받고, 브랜드 색을 역할로 바꾼다(뼈종이 → 타일, 먹 → 획, 주 → 점). 그 밖의 요소·속성·색·DOCTYPE이 있으면 거절하고, 그러면 서버가 시작하지 않는다. `inline_svg`는 클래스만 달고 색을 넣지 않는다.
 
 - 전체: `limn-mark`(아이콘), `limn-mark-word`(워드마크)
 - 부분: `limn-mark-tile`·`limn-mark-stroke`·`limn-mark-pin`
@@ -860,11 +860,11 @@
 
 - `<head>`는 한 묶음(`/favicon.ico`·`/favicon-16.png`·`/favicon-32.png`, `apple-touch-icon`)만 잇는다. `media`도 색 구성 스크립트도 없다. 탭은 16 CSS px라서 1× 화면은 16 그림을, 2× 화면은 32 그림을 고른다.
 - 뷰어의 테마 설정(`pinPrefs.theme`)은 인라인 로고의 색만 바꾸고 탭 파비콘은 바꾸지 않는다. 탭 막대는 브라우저가 그린다.
-- `/favicon-dark.ico`·`/favicon-dark-16.png`·`/favicon-dark-32.png`는 0.3.8 한 릴리스 동안만 같은 파비콘을 준다(`limn.mark.RETIRED_ICON_ROUTES`). 0.3.6–0.3.7 페이지가 링크하고 그 스크립트가 어두운 탭을 그 주소로 돌리기 때문이다. HTTP API는 경로를 알린 릴리스 뒤에만 뺀다([architecture.md](architecture.md) §불변식 3).
-- 주소의 `?v=<내용 키>`는 아이콘 파일 바이트에서 낸 sha256의 앞 12자리다(`limn.mark.content_key`). 그림이 바뀌면 주소도 바뀌어 옛 그림이 캐시에서 나오지 않는다.
+- `/favicon-dark.ico`·`/favicon-dark-16.png`·`/favicon-dark-32.png`는 0.3.8 한 릴리스 동안만 같은 파비콘을 준다(`limn.viewer.mark.RETIRED_ICON_ROUTES`). 0.3.6–0.3.7 페이지가 링크하고 그 스크립트가 어두운 탭을 그 주소로 돌리기 때문이다. HTTP API는 경로를 알린 릴리스 뒤에만 뺀다([architecture.md](architecture.md) §불변식 3).
+- 주소의 `?v=<내용 키>`는 아이콘 파일 바이트에서 낸 sha256의 앞 12자리다(`limn.viewer.mark.content_key`). 그림이 바뀌면 주소도 바뀌어 옛 그림이 캐시에서 나오지 않는다.
 - 파비콘은 인스턴스와 무관하다. 여러 인스턴스의 탭은 제목의 이름표(`Limn · <이름표>`)로 가른다. 인스턴스 색(`--brand`)은 화면 맨 위 띠(`#brand-stripe`)와 이름표 칩에만 쓴다.
 
-**바꿀 때.** 그림은 브랜드 저장소에서 `make icons`로 다시 만들고, [`src/limn/brand/README.md`](../../src/limn/brand/README.md)의 절차대로 파일과 `SHA256SUMS` 줄을 옮긴다. 손으로 고치지 않는다. 가드는 셋이다.
+**바꿀 때.** 그림은 브랜드 저장소에서 `make icons`로 다시 만들고, [`src/limn/viewer/brand/README.md`](../../src/limn/viewer/brand/README.md)의 절차대로 파일과 `SHA256SUMS` 줄을 옮긴다. 손으로 고치지 않는다. 가드는 셋이다.
 
 - `VendoredFiles.test_every_file_is_listed_in_sha256sums_with_its_hash`: 모든 파일이 `SHA256SUMS`와 맞는지
 - `VendoredFiles.test_the_tab_favicon_is_the_ink_pixel_drawing`: 탭 파비콘이 정사각을 채운 먹 픽셀 그림인지
@@ -890,7 +890,7 @@
 | 폴백 | pdf.js를 못 불러오거나(`vendor` 404·네트워크), PDF를 못 열거나, 쪽 수가 다르거나, 그리다 실패하면 캔버스를 모두 걷는다. 밑에 늘 있는 PNG `<img>`가 그대로 보이고, 상태 칩 'PNG 보기'(`#vec-chip`)가 사유를 설명에 싣는다. 서버의 `pdftoppm` 렌더는 그대로 둔다(첫 화면·폴백) |
 | 텍스트 레이어 | 넣지 않는다. 드래그가 글자 선택이 아니라 영역 선택이라, 글자 선택 레이어가 있으면 끌기와 다툰다. 복사는 원문 스니펫(작성 패널)으로 한다 |
 
-**좌표 체계는 PNG와 같다.** 캔버스는 `pointer-events:none`이라 드래그와 길게 누르기는 쪽 상자(`.pg`)가 받는다. `frac`은 쪽 상자 대비 비율이다. 쪽 상자의 크기·비율은 PNG에서 정한다. `pt_w`·`pt_h`도 PNG에서 온다(서버의 `limn.build.page_list`가 PNG 머리의 픽셀 크기와 dpi로 계산한다).
+**좌표 체계는 PNG와 같다.** 캔버스는 `pointer-events:none`이라 드래그와 길게 누르기는 쪽 상자(`.pg`)가 받는다. `frac`은 쪽 상자 대비 비율이다. 쪽 상자의 크기·비율은 PNG에서 정한다. `pt_w`·`pt_h`도 PNG에서 온다(서버의 `limn.builds.artifacts.page_list`가 PNG 머리의 픽셀 크기와 dpi로 계산한다).
 
 ### PDF 영역 전용 확대
 
@@ -916,7 +916,7 @@ PDF 영역의 확대 입력을 가로채 쪽 폭(`W`)만 바꾼다. 가로채지
 
 서버는 `/api/meta`의 `me.role`로 역할을 알려 준다. `viewer` 역할이면 `body.role-viewer`가 붙고, 서버가 어차피 `403`으로 거절할 상태 변경 컨트롤을 숨긴다. 카드의 수정·답글·삭제·완료·확인·되살리기·영구 삭제·처리 중 풀기, 재빌드, 작성 패널의 메모·종류·담당·[핀 저장]이 그 대상이다. 읽기는 그대로다. 보기·쪽 이동, 스레드, 닫힌 핀, 그리고 작성 패널의 위치와 원문 줄은 보인다. 작성 패널에는 `#c-viewer` 안내(`보기 권한만 있습니다 — …`)가 뜨고, Ctrl+Enter 같은 키 입력으로 저장·답글·수정을 보내려 하면 요청을 보내지 않고 토스트로 알린다(`viewerBlocked`). 휴지통의 [되살리기]는 viewer에게 아예 그리지 않고(`droppedCard`), [영구 삭제]는 소유자에게만 그린다. 숨김 규칙만 쓰면 보이지 않는 버튼이 문서에 남기 때문이다(테스트 `test_viewer_browser.ViewerTrashControls`).
 
-**거부된 첫 화면.** 뷰어를 여는 `GET /`가 거부되면(`--members-only` 밖의 사람, `--allow` 밖의 사람, 테일넷의 헤더 없는 요청) 브라우저(`Accept: text/html`)는 JSON 대신 짧은 HTML 안내를 받는다(`limn/web/errors.py`의 `error_page_html`). 언어는 `?lang=`, 없으면 `Accept-Language`의 첫 태그(`ko*`면 한국어, 아니면 영어)로 정하고, 문구는 뷰어와 같은 메시지 표(`ui_en.json`)를 거친다. API 경로와 브라우저가 아닌 요청은 그대로 JSON이다.
+**거부된 첫 화면.** 뷰어를 여는 `GET /`가 거부되면(`--members-only` 밖의 사람, `--allow` 밖의 사람, 테일넷의 헤더 없는 요청) 브라우저(`Accept: text/html`)는 JSON 대신 짧은 HTML 안내를 받는다(`limn/web/errors.py`의 `error_page_html`). 언어는 `?lang=`, 없으면 `Accept-Language`의 첫 태그(`ko*`면 한국어, 아니면 영어)로 정하고, 문구는 뷰어와 같은 메시지 표(`viewer/ui_en.json`)를 거친다. API 경로와 브라우저가 아닌 요청은 그대로 JSON이다.
 
 ## 알려진 제약
 

@@ -22,9 +22,11 @@ jobs:
       - name: Ruff format
         run: uv run ruff format --check
       - name: ShellCheck
-        run: uv run shellcheck src/limn/instances.sh src/limn/features/administration/instance_*.sh tests/test_instances.sh
-      - name: Mypy (modules moved out of server.py)
+        run: uv run shellcheck src/limn/administration/instances.sh src/limn/administration/instance_*.sh src/limn/administration/tests/test_instances.sh
+      - name: Mypy
         run: uv run mypy
+      - name: Feature boundaries
+        run: uv run python tools/check_boundaries.py
 
   test:
     runs-on: ubuntu-latest
@@ -32,10 +34,17 @@ jobs:
       fail-fast: false
       matrix:
         python: ["3.10", "3.12"]
+        suite:
+          - name: core
+            markers: "not browser and not tex"
+            workers: 4
+          - name: browser
+            markers: "browser"
+            workers: 2
     env:
       # Browser layout tests must run here, not skip.
-      LIMN_TEST_REQUIRE_BROWSER: "1"
-      # So must the node --check of the served page's inline scripts (tests/test_viewer_files.py): node 22 is set up below.
+      LIMN_TEST_REQUIRE_BROWSER: ${{ matrix.suite.name == 'browser' && '1' || '0' }}
+      # So must the node --check of the served page's inline scripts (src/limn/viewer/tests/test_viewer_files.py): node 22 is set up below.
       LIMN_TEST_REQUIRE_NODE: "1"
     steps:
       - uses: actions/checkout@v4
@@ -51,14 +60,13 @@ jobs:
       - name: Install dev dependencies
         run: uv sync --group dev --locked
       - name: Install Playwright Chromium
+        if: matrix.suite.name == 'browser'
         run: uv run playwright install --with-deps chromium
       - name: Python tests
-        run: uv run pytest -q -rs -n 4 --dist loadscope
-      - name: Instance manager tests
-        run: bash tests/test_instances.sh
+        run: uv run pytest -q -rs -n ${{ matrix.suite.workers }} -m "${{ matrix.suite.markers }}"
 
   macos:
-    # macOS semantics for the instance manager and the tests that need no TeX or Chromium (those skip here): BSD
+    # macOS semantics for tests that need no TeX or Chromium: BSD
     # userland (stat -f, no timeout(1)), /bin/bash 3.2 as the bash limn and the tests find first, and a system
     # python3 older than requires-python (issue #12). The Linux jobs cover bash 5 and the browser tests.
     runs-on: macos-latest
@@ -83,9 +91,24 @@ jobs:
           command -v timeout || echo "no timeout(1)"
           stat -f %Lp README.md
       - name: Python tests
-        run: uv run pytest -q -rs -n 2 --dist loadscope
+        run: uv run pytest -q -rs -n 2 -m "not browser and not tex"
+
+  instances:
+    # Machine-wide dependencies are replaced at the owned shell adapter; each run has its own temporary tree.
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.12"
+      - name: Install dev dependencies
+        run: uv sync --group dev --locked
       - name: Instance manager tests
-        run: bash tests/test_instances.sh
+        run: bash src/limn/administration/tests/test_instances.sh
 
   install:
     runs-on: ubuntu-latest
@@ -102,21 +125,26 @@ jobs:
           limn help | head -5
           python_dir=$(uv tool dir)/dartwork-limn
           # Each missing file fails the step (a `find | grep -q . && echo` line only fails it when it is the last one).
-          for f in vendor/pdfjs/pdf.min.mjs systemd/limn@.service instances.sh \
-                   features/administration/instance_update.sh features/administration/instance_documents.sh \
-                   features/administration/instance_lifecycle.sh features/administration/instance_inspection.sh \
+          for f in vendor/pdfjs/pdf.min.mjs administration/systemd/limn@.service administration/instances.sh \
+                   administration/instance_update.sh administration/instance_documents.sh \
+                   administration/instance_lifecycle.sh administration/instance_inspection.sh \
                    viewer/index.html viewer/parts.txt viewer/css/tokens.css viewer/js/events.js \
-                   brand/SHA256SUMS brand/favicon.ico brand/favicon-16.png brand/favicon-32.png brand/apple-touch-icon.png \
-                   brand/limn-wordmark-light-20.svg; do
+                   viewer/brand/SHA256SUMS viewer/brand/favicon.ico viewer/brand/favicon-16.png viewer/brand/favicon-32.png viewer/brand/apple-touch-icon.png \
+                   viewer/brand/limn-wordmark-light-20.svg; do
             find "$python_dir" -path "*limn/$f" | grep -q . || { echo "not packaged: $f"; exit 1; }
             echo "packaged: $f"
           done
-          # What start() reads before it serves: the viewer package and every brand file limn.mark names. A file the
+          # What start() reads before it serves: the viewer package and every brand file limn.viewer.mark names. A file the
           # wheel dropped fails here instead of on every instance's restart after `limn update`.
-          "$python_dir/bin/python" -c "from limn import mark, server; v = server.read_viewer(); assert sorted(v.icons) == sorted(mark.ICON_ROUTES), sorted(v.icons); print('startup read:', len(v.icons), 'icons,', len(v.template), 'bytes of page')"
+          "$python_dir/bin/python" -c "from limn import server; from limn.viewer import mark; v = server.read_viewer(); assert sorted(v.icons) == sorted(mark.ICON_ROUTES), sorted(v.icons); print('startup read:', len(v.icons), 'icons,', len(v.template), 'bytes of page')"
+
+          if find "$python_dir" -path "*/limn/*" \( -path "*/tests/*" -o -name "test_*.py" \) | grep -q .; then
+            echo "test files leaked into the installed package"
+            exit 1
+          fi
 
   tex:
-    # The tests that run real TeX-side tools (the `tex` marker, tests/helpers.py needs_tex): real latexmk builds and
+    # The tests that run real TeX-side tools (the `tex` marker, tests/support/helpers.py needs_tex): real latexmk builds and
     # page renders, pick end to end, --git-pull builds and the bwrap-sandboxed comparison builds. The other jobs have no
     # TeX, so those tests skip there; here LIMN_TEST_REQUIRE_TEX=1 makes a missing tool a failure.
     runs-on: ubuntu-24.04
@@ -151,4 +179,4 @@ jobs:
       - name: Install dev dependencies
         run: uv sync --group dev --locked
       - name: TeX tests
-        run: uv run pytest -q -rs -n 2 --dist loadscope -m tex
+        run: uv run pytest -q -rs -n 2 -m tex

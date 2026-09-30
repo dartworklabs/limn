@@ -21,7 +21,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any, ClassVar
 from urllib.parse import urlparse
 
-from limn.config import AccessOptions
+from limn.runtime.config import AccessOptions
 from limn.web import answers, parse, request_input
 from limn.web.answers import accepted
 from limn.web.app import App, Document, Json, Principal, Query

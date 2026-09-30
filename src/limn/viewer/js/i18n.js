@@ -1,6 +1,6 @@
 // ------------------------------------------------ UI language (Korean source, English table)
 // UI language (window.LIMN_LANG from the head script). Korean strings in this file are the source; in English
-// mode tr()/trMsg() look them up in I18N_EN (src/limn/ui_en.json) and a MutationObserver translates text
+// mode tr()/trMsg() look them up in I18N_EN (src/limn/viewer/ui_en.json) and a MutationObserver translates text
 // nodes and UI attributes as they are rendered. Strings missing from the table stay Korean.
 const LANG=window.LIMN_LANG===UI_LANG.EN?UI_LANG.EN:UI_LANG.KO, I18N_EN=__UI_EN_JSON__, I18N_ATTRS=['data-tip','aria-label','title','placeholder'];
 function tr(s){if(LANG!==UI_LANG.EN||typeof s!=='string')return s; const t=s.trim();
