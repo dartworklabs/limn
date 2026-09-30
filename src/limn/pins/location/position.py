@@ -19,7 +19,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Literal, TypeAlias
 
-from limn.pins.location.mapping import anchor_holds, anchor_of, anchor_offset, find_line
+from limn.pins.location.mapping import anchor_holds, anchor_of, anchor_offset, comment_marker, find_line
 from limn.pins.model import LineSpan, OpenPin, Pin
 from limn.pins.thread import rev_after
 from limn.platform.values import is_num
@@ -270,8 +270,9 @@ def resync(
     Returns the pin re-matched (its record keeps the stored field order, new fields last) or None when nothing
     changes. A synced_at that is missing or null counts as 0 (never synced).
 
-    - A legacy pin saved without an anchor gets one from its current lines, once - never from a file the record does
-      not name (path differs from the stored file: it may be a guess).
+    - A legacy pin saved without an anchor gets one from its current lines, once (skipping the comment lines of that
+      file's kind, limn.pins.location.mapping.comment_marker) - never from a file the record does not name (path differs from the
+      stored file: it may be a guess).
     - A pin that selected only blank lines (empty anchor) has nothing to follow.
     - When the file is not newer than synced_at the pin is left alone - unless path is another file than the stored
       one (a moved checkout: synced_at was measured on the old file) and the anchor no longer holds at lo.
@@ -284,7 +285,7 @@ def resync(
         if moved:
             return None  # never from a file the record does not name (it may be a guess)
         out = dict(pin.record)
-        out["anchor"] = anchor_of(lines, span.lo, span.hi)
+        out["anchor"] = anchor_of(lines, span.lo, span.hi, comment_marker(span.file))
         out["synced_at"] = mtime
         return OpenPin.from_record(out)
     if not anchor:  # a pin that selected only blank lines has no anchor to follow

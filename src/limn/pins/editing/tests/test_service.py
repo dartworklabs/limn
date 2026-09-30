@@ -58,6 +58,52 @@ class AddAndEdit(ServiceBase):
         )
         self.assertEqual(self.add(), 2)
 
+    def python_script(self):
+        """A drawing script figs/a.py in the manuscript folder whose lines 2 and 4 are # comments -> its LinePlace
+        builder: place(lo, hi) is the place of lines lo..hi."""
+        script = self.ms / "figs" / "a.py"
+        script.parent.mkdir()
+        script.write_text("x = 0\n# July cell\ncell = month(7)\n# TODO bigger\n", encoding="utf-8")
+
+        def place(lo: int, hi: int) -> LinePlace:
+            """The place of lines lo..hi of the script."""
+            return LinePlace(
+                {"file": str(script), "name": "a.py", "lo": lo, "hi": hi, "page": 1},
+                frozenset({"file", "lo", "hi", "page"}),
+            )
+
+        return place
+
+    def test_a_pin_on_a_python_script_is_anchored_past_its_hash_comments(self):
+        """add_pin on lines 2-4 of a .py script, which open and close on # comments, anchors on the code between
+        them, with the offsets recorded."""
+        place = self.python_script()
+        pin = add_edit.add_pin(
+            self.ctx,
+            self.doc,
+            AddRequest(place(2, 4), "n"),
+            post_authority(self.ctx.store, ALICE_ACTOR, "add", self.doc),
+        )
+        self.assertEqual(
+            self.pin(pin.record["id"])["anchor"],
+            {"head": "cell = month(7)", "tail": "cell = month(7)", "head_off": 1, "tail_off": 1},
+        )
+
+    def test_an_edit_that_moves_a_python_pin_re_anchors_past_its_hash_comments(self):
+        """edit_pin moving a .py pin to lines 1-2 (code, then a # comment) anchors on the code line alone."""
+        place = self.python_script()
+        pid = add_edit.add_pin(
+            self.ctx,
+            self.doc,
+            AddRequest(place(3, 3), "n"),
+            post_authority(self.ctx.store, ALICE_ACTOR, "add", self.doc),
+        ).record["id"]
+        out = add_edit.edit_pin(
+            self.ctx, pid, EditRequest(base_rev=0, lo=1, hi=2), post_authority(self.ctx.store, ALICE_ACTOR, "edit", pid)
+        )
+        self.assertIsInstance(out, OpenPin)
+        self.assertEqual(self.pin(pid)["anchor"], {"head": "x = 0", "tail": "x = 0", "head_off": 0, "tail_off": 1})
+
     def test_an_edit_refusal_writes_nothing_and_notifies_nobody(self):
         """A stale base_rev comes back as StaleEdit; pins.jsonl keeps its bytes and the emit gets no notice."""
         pid = self.add()
