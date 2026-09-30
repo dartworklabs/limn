@@ -1,6 +1,28 @@
-[English](README.md) | 한국어
+<h1 align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/brand/wordmark-dark.svg">
+    <img src="docs/assets/brand/wordmark-light.svg" alt="Limn (림)" height="72">
+  </picture>
+</h1>
 
-# Limn (림)
+<p align="center"><strong>PDF 의 한 곳을 가리키면, 소스의 그 줄에 닿는다.</strong></p>
+
+<p align="center">
+  <a href="https://github.com/dartworklabs/limn/releases/latest"><img alt="최신 릴리스" src="https://img.shields.io/github/v/release/dartworklabs/limn?style=flat-square&amp;label=release&amp;labelColor=6b6a66&amp;color=3b3c42"></a>
+  <a href="LICENSE"><img alt="라이선스: AGPL-3.0" src="https://img.shields.io/github/license/dartworklabs/limn?style=flat-square&amp;labelColor=6b6a66&amp;color=3b3c42"></a>
+  <a href="https://github.com/dartworklabs/limn/actions/workflows/ci.yml"><img alt="CI 상태" src="https://img.shields.io/github/actions/workflow/status/dartworklabs/limn/ci.yml?branch=main&amp;style=flat-square&amp;label=CI&amp;labelColor=6b6a66"></a>
+</p>
+
+<p align="center"><a href="README.md">English</a> | 한국어</p>
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/app-dark.png">
+    <img src="docs/assets/app-light.png" alt="예시 논문을 연 Limn 뷰어: 열린 핀 셋과 각 핀이 닿는 소스 줄(L18, L20, L30)" width="880">
+  </picture>
+  <br>
+  <sub>뷰어에서 연 예시 논문: 핀 셋, 각각 소스의 어느 줄에 닿는지 함께 보인다.</sub>
+</p>
 
 **Limn**(림, "또렷이 그려 내다")은 LaTeX 원고를 사람과 에이전트가 함께 퇴고하는 사이클을 닫는다.
 PDF 에서 고칠 곳을 드래그하고 메모를 남기면 Limn 이 그것을 **핀**으로 만든다 — SyncTeX 로 되찾고
@@ -9,7 +31,7 @@ PDF 에서 고칠 곳을 드래그하고 메모를 남기면 Limn 이 그것을 
 사람이 확인하면 끝난다. 같은 사설망의 공저자도 핀을 남기고, 누가 남겼는지 기록된다.
 
 - 표준 라이브러리만 쓰는 Python 서버 하나, PDF 를 벡터로 그리는 브라우저 뷰어(PDF.js 동봉)
-- 원고 하나에 여러 문서(본문·답변서·보기 전용 리뷰어 PDF)를 탭으로
+- 원고 하나에 여러 문서(본문·답변서·보기 전용 리뷰어 PDF, 일부 지원하는 그림 문서)를 탭으로
 - 요청하거나 업스트림 브랜치가 움직이면 재빌드(`--git-pull`)
 - 스레드·질문·@태그·담당·완료 전 검토·핀별 변경 보기
 - 닫힌 핀에는 [답글] 하나: 사람이 단 답글은 핀을 에이전트에게 되돌린다(보내기 전 한 줄로 알리고, 보낸 뒤 되돌릴 수 있다). 삭제한 핀은 30일 동안 휴지통에
@@ -21,11 +43,11 @@ Python 3.10 이상, [uv](https://docs.astral.sh/uv/), SyncTeX 가 되는 TeX 배
 Poppler(`pdftoppm`)가 필요하다.
 
 ```bash
-uv tool install git+https://github.com/dartworklabs/limn@v0.2.2
+uv tool install git+https://github.com/dartworklabs/limn@v0.3.8
 limn version
 ```
 
-GitHub SSH 접근이 있으면 `git+ssh://git@github.com/dartworklabs/limn@v0.2.2` 도 된다.
+GitHub SSH 접근이 있으면 `git+ssh://git@github.com/dartworklabs/limn@v0.3.8` 도 된다.
 
 ## 서버 하나 띄우기
 
@@ -82,7 +104,7 @@ claim 한 뒤, `reply`(무엇을 고쳤는지)와 `ref`(커밋·PR)를 남겨 �
 | [docs/adr/](docs/adr/) | 설계 결정 기록(ADR) |
 | [SECURITY.md](SECURITY.md) · [CONTRIBUTING.md](CONTRIBUTING.md) · [CHANGELOG.md](CHANGELOG.md) | |
 
-접근 제어 계획: [ADR-0002 접근 제어·협업 경계·동기화](docs/adr/0002-access-control.md) (제안).
+접근 제어 설계: [ADR-0002 접근 제어·협업 경계·동기화](docs/adr/0002-access-control.md) (v0.2 단계는 구현됨, 이후 단계는 제안).
 
 ## 라이선스
 
@@ -102,7 +124,7 @@ Limn 은 2026-09-21 writing-agent-playbook 저장소의 `manuscript-pin-picker` 
 아무 것도 지우지 않는다. 포트·테일넷 주소·핀이 그대로 이어진다.
 
 ```bash
-uv tool install git+https://github.com/dartworklabs/limn@v0.2.2
+uv tool install git+https://github.com/dartworklabs/limn@v0.3.8
 limn migrate --dry-run            # 계획: ~/.config/pin-viewer/<이름>.env -> ~/.config/limn/<이름>.env
 limn migrate                      # 설정 복사(여러 번 불러도 같다, 옛 파일은 남는다)
 # 인스턴스마다:
