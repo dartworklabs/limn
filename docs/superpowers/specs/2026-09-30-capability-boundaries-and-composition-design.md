@@ -1,6 +1,6 @@
 # Capability Boundaries and Composition Design
 
-Status: awaiting written review
+Status: approved for implementation
 
 ## Intent
 
