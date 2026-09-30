@@ -61,5 +61,31 @@ class Shape(unittest.TestCase):
         self.assertEqual(element_of(rec), el)
 
 
+class NonFiniteFrac(unittest.TestCase):
+    """A stored frac the shape check accepts (is_num asks only int-or-float, not finite or in range) but that is
+    not a usable box: element_of must lift the rest of the element and drop frac, never raise. Task 8's
+    pins_payload and Task 9's render.py call element_of on every open row before any write, so a raise here would
+    break GET /api/pins and every pin write for an unrelated line."""
+
+    def test_a_frac_with_nan_is_dropped_without_raising(self):
+        """A NaN coordinate: is_element_record still trusts the shape; element_of lifts the element without frac."""
+        rec = {"id": "B2", "path": ["B2"], "frac": [float("nan"), 0.1, 0.1, 0.1]}
+        self.assertTrue(is_element_record(rec))
+        self.assertEqual(element_of(rec), PinElement("B2", ("B2",)))
+
+    def test_a_frac_with_infinity_is_dropped_without_raising(self):
+        """An Infinity coordinate: is_element_record still trusts the shape; element_of lifts without frac."""
+        rec = {"id": "B2", "path": ["B2"], "frac": [0.1, float("inf"), 0.1, 0.1]}
+        self.assertTrue(is_element_record(rec))
+        self.assertEqual(element_of(rec), PinElement("B2", ("B2",)))
+
+    def test_a_frac_with_an_oversized_integer_is_dropped_without_raising(self):
+        """A 400-digit int coordinate (is_num accepts any int, not just ones float() can hold): is_element_record
+        still trusts the shape; element_of lifts without frac instead of raising OverflowError."""
+        rec = {"id": "B2", "path": ["B2"], "frac": [0.1, 0.1, 10**400, 0.1]}
+        self.assertTrue(is_element_record(rec))
+        self.assertEqual(element_of(rec), PinElement("B2", ("B2",)))
+
+
 if __name__ == "__main__":
     unittest.main()

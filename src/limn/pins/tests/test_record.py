@@ -256,6 +256,19 @@ class FigureElement(unittest.TestCase):
                 self.assertFalse(check(dict(LINE, el=bad)))
                 self.assertFalse(check(dict(REGION, el=bad)))
 
+    def test_a_non_finite_frac_does_not_break_the_line(self):
+        """A NaN, an Infinity or an oversized integer in el.frac is still a shape the check trusts (is_num asks
+        only int-or-float): the line stays unbroken. element_of, not this check, is where such a frac is later
+        dropped (limn.pins.element.NonFiniteFrac)."""
+        for bad_frac in (
+            [float("nan"), 0.1, 0.1, 0.1],
+            [0.1, float("inf"), 0.1, 0.1],
+            [0.1, 0.1, 10**400, 0.1],
+        ):
+            with self.subTest(bad_frac=bad_frac):
+                self.assertTrue(check(dict(LINE, el={**self.EL, "frac": bad_frac})))
+                self.assertTrue(check(dict(REGION, el={**self.EL, "frac": bad_frac})))
+
     def test_every_figure_record_of_the_corpus_passes(self):
         """The corpus's figure records - open, awaiting review, region, Trash copy - are records the store trusts."""
         lines = [json.loads(t) for t in CORPUS.read_text(encoding="utf-8").splitlines() if '"el": ' in t]

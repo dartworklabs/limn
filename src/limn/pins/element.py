@@ -11,7 +11,7 @@ it with element_of; the pick and the request parsers write PinElement.to_record(
 from dataclasses import dataclass
 from typing import Any, TypeAlias, TypeGuard
 
-from limn.platform.values import is_int, is_num
+from limn.platform.values import is_finite_num, is_int, is_num
 
 # An element's box on its page: x, y, w, h in page fractions, origin top left (limn.builds.figure_map.Frac).
 ElementFrac: TypeAlias = tuple[float, float, float, float]
@@ -77,15 +77,24 @@ def is_element_record(v: object) -> TypeGuard[dict[str, Any]]:
 
 
 def element_of(v: object) -> PinElement | None:
-    """The element a stored `el` names, or None when v is missing, null or not a shape is_element_record accepts."""
+    """The element a stored `el` names, or None when v is missing, null or not a shape is_element_record accepts.
+
+    Total: is_element_record's frac check is shape-only (is_num, any int or float), so a stored frac may hold a
+    NaN, an Infinity or an integer too large for float() to hold - each a line the store still keeps. Such a frac
+    is dropped here (the rest of the element is still lifted) instead of raising, so a reader that calls this on
+    every open row (Task 8 pins_payload, Task 9 render.py, before any write) never turns one bad line into a
+    failed GET/POST for every pin."""
     if not is_element_record(v):
         return None
     impl, frac = v.get("impl"), v.get("frac")
+    safe_frac = None
+    if frac is not None and all(is_finite_num(x) for x in frac):
+        safe_frac = (float(frac[0]), float(frac[1]), float(frac[2]), float(frac[3]))
     return PinElement(
         v["id"],
         tuple(v["path"]),
         v.get("label"),
         v.get("part"),
         None if impl is None else ElementImpl(impl["file"], impl["lo"], impl["hi"]),
-        None if frac is None else (float(frac[0]), float(frac[1]), float(frac[2]), float(frac[3])),
+        safe_frac,
     )
