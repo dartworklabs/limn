@@ -21,6 +21,7 @@ from pathlib import Path
 from unittest import mock
 
 from limn.collaboration import events
+from limn.collaboration.contracts import Notice
 from limn.collaboration.events import EventLog, events_since, make_event
 from limn.pins.location import mapping
 
@@ -44,7 +45,20 @@ def doc_of(r):
 
 def notice(typ, r, actor, to, **kw):
     """make_event with this file's who/doc_of and the headerless agent's login 'local'."""
-    return make_event(typ, r, actor, to, who, doc_of, "local", **kw)
+    msg, text = kw.get("msg"), kw.get("text")
+    facts = Notice(
+        typ,
+        r.get("id"),
+        doc_of(r),
+        actor.get("login", "local"),
+        actor.get("name", ""),
+        tuple(to or ()),
+        r.get("kind_req"),
+        msg is not None,
+        None if msg is None else msg.get("id"),
+        text if text is not None else (msg or {}).get("text", ""),
+    )
+    return make_event(facts, "local")
 
 
 class ModuleBoundary(unittest.TestCase):
@@ -58,7 +72,13 @@ class ModuleBoundary(unittest.TestCase):
         modules |= {n.module or "" for n in ast.walk(tree) if isinstance(n, ast.ImportFrom)}
         self.assertEqual(
             {m for m in modules if m.startswith("limn")},
-            {"limn.platform.files", "limn.platform.text", "limn.platform.values", "limn.runtime.paths"},
+            {
+                "limn.platform.files",
+                "limn.platform.text",
+                "limn.platform.values",
+                "limn.runtime.paths",
+                "limn.collaboration.contracts",
+            },
         )
         self.assertFalse({"http", "http.server", "urllib", "subprocess", "time"} & modules)
 
@@ -96,7 +116,7 @@ class MakeEvent(unittest.TestCase):
             """A lookup that must not be called."""
             raise AssertionError("asked")
 
-        self.assertIsNone(make_event("mention", {}, ALICE_PICTURED, [], boom, boom, "local"))
+        self.assertIsNone(notice("mention", {}, ALICE_PICTURED, []))
 
     def test_a_post_gives_msg_and_its_text_the_excerpt(self):
         """msg is the post's id; the excerpt is text when given, else the post's text, whitespace collapsed."""

@@ -8,7 +8,7 @@ import unittest
 from pathlib import Path
 
 from limn.collaboration import PeopleView
-from limn.pins import PinReadView
+from limn.pins.application import PinReadView
 from limn.pins.model import parse_pin
 from limn.security import people
 
@@ -33,7 +33,7 @@ class PeopleViewTests(unittest.TestCase):
                 lock=lambda: threading.Lock(),
                 seen=lambda: people.SeenMemo(),
                 warning=lambda: people.UnreadableWarning(),
-                pins=pin_view,
+                participants=lambda refresh: pin_view.actors(refresh=refresh),
                 roles=lambda: {},
                 clock=lambda: 0.0,
             )

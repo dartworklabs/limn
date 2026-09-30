@@ -8,12 +8,13 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, TypeAlias
 
+from limn.pins.contracts import PinCountQueries, RevisionPinQuery
 from limn.pins.model import Pin
 from limn.pins.revision import RevisionPin, revision_pin as project_revision_pin
 
 if TYPE_CHECKING:
-    from limn.builds import BuildView
-    from limn.pins.context import MakeEvent
+    from limn.builds import PinBuildQueries
+    from limn.collaboration import Notice
     from limn.pins.editing.http import EditingRequests
     from limn.pins.location.source import TokenCache
     from limn.pins.runtime import PinCommands
@@ -34,7 +35,7 @@ def _stored_path(value: Record | str, _document: object) -> Path:
     return Path(file) if isinstance(file, str) else Path()
 
 
-def people_facts(record: Record) -> Json:
+def people_facts(record: Record) -> tuple[Json, ...]:
     """Project attribution for collaboration, detaching every actor and discarding other fields."""
 
     def actor(value: object) -> Json:
@@ -43,9 +44,18 @@ def people_facts(record: Record) -> Json:
             return {}
         return {key: deepcopy(value[key]) for key in ("login", "name", "pic") if key in value}
 
-    facts: Json = {key: actor(value) for key, value in record.items() if key == "author" or key.endswith("_by")}
-    facts["thread"] = [{"by": actor(post.get("by"))} for post in record.get("thread") or []]
-    return facts
+    actors = [actor(value) for key, value in record.items() if key == "author" or key.endswith("_by")]
+    actors.extend(actor(post.get("by")) for post in record.get("thread") or [])
+    return tuple(actors)
+
+
+def change_token(path: Path) -> str:
+    """Return the live-file polling signature, or '0' before any pins were written."""
+    try:
+        st = path.stat()
+        return "%d:%d" % (st.st_mtime_ns, st.st_size)
+    except OSError:
+        return "0"
 
 
 @dataclass(frozen=True)
@@ -76,10 +86,10 @@ class PinReadView:
             "n_review": states.count("review"),
         }
 
-    def people_records(self, *, refresh: bool = False) -> tuple[Json, ...]:
+    def actors(self, *, refresh: bool = False) -> tuple[Json, ...]:
         """Return only detached actor facts, never source locations or pin workflow data."""
         pins = self._snapshot() if refresh else self._read()[0]
-        return tuple(people_facts(pin.record) for pin in pins)
+        return tuple(actor for pin in pins for actor in people_facts(pin.record))
 
     def revision_pin(
         self,
@@ -87,8 +97,6 @@ class PinReadView:
         document_key: str,
         document: Any,
         relative: Callable[[Path], str | None],
-        head: str,
-        revisions: Sequence[Record],
     ) -> RevisionPin | None:
         """Return one document-bound projection with every stored path currently resolved."""
         record = next((pin.record for pin in self._read()[0] if pin.core.id == pin_id), None)
@@ -109,8 +117,6 @@ class PinReadView:
         projection = project_revision_pin(
             record,
             relative_path=resolve_pin(),
-            head=head,
-            revisions=revisions,
         )
         changes = tuple(
             change._replace(file=resolved)
@@ -132,7 +138,9 @@ class PinStartup:
 class PinSubsystem:
     """The pin capability values used by composition."""
 
-    view: PinReadView
+    counts: PinCountQueries
+    participants: Callable[[bool], Sequence[Json]]
+    revision: RevisionPinQuery
     commands: PinCommands
     routes: RouteBundle
     startup: PinStartup
@@ -143,9 +151,9 @@ def assemble_pins(
     settings: Callable[[], RunConfig],
     resources: Callable[[], RuntimeResources[object, object, object, object, object, TokenCache, object]],
     docs: list[Doc],
-    builds: BuildView,
+    builds: PinBuildQueries,
     known_people: Callable[[Sequence[Json] | None], dict[str, Json]],
-    make_event: MakeEvent,
+    notice_sink: Callable[[Notice], Json | None],
     emit_events: Callable[[list[Json | None]], None],
     recent_events: Callable[[], Sequence[Json]],
     role_of: Callable[[str], Role],
@@ -158,7 +166,7 @@ def assemble_pins(
     from limn.pins.runtime import PinCommands
 
     commands = PinCommands(
-        settings, resources, docs, builds, known_people, make_event, emit_events, recent_events, role_of, audit, now
+        settings, resources, docs, builds, known_people, notice_sink, emit_events, recent_events, role_of, audit, now
     )
 
     def locate(value: Record | str, document: Any) -> Path | None:
@@ -180,7 +188,15 @@ def assemble_pins(
 
     view = PinReadView(commands.read_pins, commands.snapshot_pins, commands.pin_doc_key, locate)
     startup = PinStartup(commands.init_seq, render)
-    return PinSubsystem(view, commands, pin_route_bundle(commands, commands.editing_requests, remote_base_for), startup)
+    counts = PinCountQueries(view.counts_by_document, view.state_counts, lambda: change_token(settings().pins_jsonl))
+    return PinSubsystem(
+        counts,
+        lambda refresh: view.actors(refresh=refresh),
+        view.revision_pin,
+        commands,
+        pin_route_bundle(commands, commands.editing_requests, remote_base_for),
+        startup,
+    )
 
 
 def pin_route_bundle(

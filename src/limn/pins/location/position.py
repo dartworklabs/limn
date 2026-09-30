@@ -4,14 +4,14 @@ Three rules, each a computation over values the caller has already read:
 
 - **Location estimation (`est`)** - whether a pin's mark may no longer match the PDF on screen (pin_est). Judged by
   build identity: the build the pin was placed on (pdf_build) against the current build, and whether the two came from
-  the same manuscript. The wall clock is never read; the facts arrive as an EstContext (est_basis).
+  the same manuscript. The wall clock is never read; the facts arrive as an EstContext from the build owner.
 - **Overlap** - how open line pins of one file relate to each other (overlaps_by_id) and to a not-yet-saved
   selection (selection_rel, overlaps_for_range). Computed on every read, never stored.
 - **Anchor re-sync** - where a pin's lines are after the manuscript was edited (follow_anchor), and the open pin
   that results (resync).
 
-Nothing here reads files, the clock, subprocesses or HTTP (coding rule R1). Reading the .tex files, the build history
-and where a pin's file is now is limn.pins.location.lookup's job; it passes the facts in and applies what comes back.
+Nothing here reads files, the clock, subprocesses or HTTP (coding rule R1). The build owner interprets build history. limn.pins.location.lookup reads checked source files, asks the build
+queries and applies the resulting position facts.
 """
 
 from collections.abc import Callable, Mapping, Sequence
@@ -22,7 +22,6 @@ from typing import Any, Literal, TypeAlias
 from limn.pins.location.mapping import anchor_holds, anchor_of, anchor_offset, comment_marker, find_line
 from limn.pins.model import LineSpan, OpenPin, Pin
 from limn.pins.thread import rev_after
-from limn.platform.values import is_num
 
 # One stored pin record as JSON gives it (estimation still reads the record).
 Row: TypeAlias = Mapping[str, Any]
@@ -70,43 +69,14 @@ def pin_build(r: Row) -> str | None:
 class EstContext:
     """What estimation needs to know about one document's builds, read once per request (limn.pins.location.lookup.est_context).
 
-    cur is the build on screen; by maps a build name to its history entry (builds.json, with an entry for cur even
-    before the history has one); built_at is when the current build finished and built_src_mtime the manuscript's
+    cur is the build on screen; exact_builds names builds sharing its source, already interpreted by the provider;
+    built_at is when the current build finished and built_src_mtime the manuscript's
     mtime when it started (both epoch seconds, None when unknown)."""
 
     cur: str
-    by: Mapping[str, Mapping[str, Any]]
+    exact_builds: frozenset[str]
     built_at: float | None
     built_src_mtime: float | None
-
-
-def est_basis(
-    cur: str, history: Mapping[str, Mapping[str, Any]], built_src_mtime: float | None, built_at: float | None
-) -> EstContext:
-    """The EstContext of a document from what was read of it: the current build's name, the build history by name,
-    the current build's recorded manuscript mtime (None if not recorded) and its finish time.
-
-    A current build missing from the history (before seed_builds(), or a rare race) is judged with what is known: an
-    entry with the recorded mtime and no hash. Without a recorded mtime, the history entry's src_mtime is used."""
-    by = dict(history)
-    if cur not in by:
-        by[cur] = {"build": cur, "src_mtime": built_src_mtime, "src_hash": None}
-    bsm = built_src_mtime
-    if bsm is None and is_num(by[cur].get("src_mtime")):
-        bsm = float(by[cur]["src_mtime"])
-    return EstContext(cur, by, built_at, bsm)
-
-
-def same_source(a: Mapping[str, Any] | None, b: Mapping[str, Any] | None) -> bool:
-    """Were two builds made from the same manuscript? By hash if both have one, otherwise by src_mtime at start.
-    False (treated as different) if neither is known - rendering it as "exact location" while actually unsure would
-    be worse."""
-    if not a or not b:
-        return False
-    if a.get("src_hash") and b.get("src_hash"):
-        return bool(a["src_hash"] == b["src_hash"])
-    ma, mb = a.get("src_mtime"), b.get("src_mtime")
-    return is_num(ma) and is_num(mb) and abs(float(ma) - float(mb)) < 0.01
 
 
 def legacy_est(r: Row, ctx: EstContext) -> bool:
@@ -123,7 +93,7 @@ def legacy_est(r: Row, ctx: EstContext) -> bool:
 
 def pin_est(r: Row, ctx: EstContext) -> bool:
     """Is pin r's mark only an estimate on the current PDF? True when its anchor moved or was lost (stale, or a sync
-    other than "ok"); otherwise by build identity (pdf_build against ctx.cur and same_source), or legacy_est for a pin
+    other than "ok"); otherwise by build identity (pdf_build against ctx.cur and ctx.exact_builds), or legacy_est for a pin
     that recorded no build."""
     sync = r.get("sync")
     if r.get("stale") or (isinstance(sync, str) and sync != "ok"):
@@ -133,7 +103,7 @@ def pin_est(r: Row, ctx: EstContext) -> bool:
         return legacy_est(r, ctx)
     if b == ctx.cur:
         return False
-    return not same_source(ctx.by.get(b), ctx.by.get(ctx.cur))
+    return b not in ctx.exact_builds
 
 
 # ---------------------------------------------------------------- Overlap - a computed field, never stored

@@ -10,7 +10,7 @@ from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any, NamedTuple, Protocol, TypeAlias
 
-from limn.builds import BuildView
+from limn.builds import PinBuildQueries, pin_build_queries
 from limn.pins.location.lookup import PinLocation
 from limn.pins.mentions import NoteTags
 from limn.pins.model import Actor, Agent, EventType, Person, Pin, PinNotFound
@@ -84,7 +84,7 @@ class PinContext:
     thread_max: int  # cap on one pin's replies
     trash_days: int  # how long a dropped pin stays restorable
     trash_checked: list[float]
-    builds: BuildView = BuildView()
+    builds: PinBuildQueries = pin_build_queries()
 
     @property
     def authority_scope(self) -> AuthorityScope:

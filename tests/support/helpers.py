@@ -433,8 +433,6 @@ class ApplicationFixture:
             "docs": app.environment.docs,
             "web": app.web,
             "build_requests": app.builds.commands._requests,
-            "build_view": app.builds.view,
-            "pin_view": app.pins.view,
             "people_directory": app.collaboration.people,
             "notices": app.collaboration.notices,
             "document_views": app.documents.views,

@@ -1,15 +1,17 @@
 """Pin-owned storage, location and command composition for one run."""
 
 import time
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
+from typing import Any
 
-from limn.builds import BuildView, FigureMap, MapRejected
+from limn.builds import ElementFollower, PinBuildQueries
+from limn.collaboration import Notice
 from limn.pins.application import people_facts
 from limn.pins.claims.service import PinClaims
-from limn.pins.context import Json, MakeEvent, PinContext, who
+from limn.pins.context import Json, PinContext, who
 from limn.pins.editing.http import EditingRequests
 from limn.pins.editing.service import EditScope, PinEditing
 from limn.pins.lifecycle.service import PinLifecycle
@@ -32,7 +34,7 @@ from limn.pins.location.resolve import PickContext
 from limn.pins.location.service import PinLocationService
 from limn.pins.location.source import TokenCache
 from limn.pins.mentions import note_tags as pin_note_tags
-from limn.pins.model import Pin, Record, TrashedPin
+from limn.pins.model import EventType, Pin, Record, TrashedPin
 from limn.pins.record import Broken, parse_record as record_parse_record, parse_trashed as record_parse_trashed
 from limn.pins.store import PinFiles, PinStore, Row
 from limn.pins.trash.service import PinTrash
@@ -56,9 +58,9 @@ class PinCommands:
     settings: Callable[[], RunConfig]
     resources: Callable[[], RuntimeResources[object, object, object, object, object, TokenCache, object]]
     docs: list[Doc]
-    build_view: BuildView
+    build_view: PinBuildQueries
     known_people: Callable[[Sequence[Json] | None], dict[str, Json]]
-    make_event: MakeEvent
+    notice_sink: Callable[[Notice], Json | None]
     emit_events: Callable[[list[Json | None]], None]
     recent_events: Callable[[], Sequence[Json]]
     role_of: Callable[[str], Role]
@@ -110,24 +112,16 @@ class PinCommands:
                 self.C.state,
                 self.RT.token_cache,
                 self.overlaps_for_range,
-                self.figure_map,
                 self.build_view,
             )
         )
 
     pin_state = staticmethod(pin_state)
 
-    def figure_map(self, doc: Doc, build: str) -> FigureMap | MapRejected | None:
-        """Read the map of a figure document through the build-owned run cache."""
-        return self.build_view.figure_map(doc, build)
-
-    def doc_figure_map(self, key: str) -> FigureMap | None:
-        """Read a served figure document's currently published map."""
+    def element_follower(self, key: str) -> ElementFollower | None:
+        """Query current element positions without exposing a map to pin services."""
         doc = self.doc_by_key(key)
-        if doc is None or not doc.has_element_map:
-            return None
-        result = self.figure_map(doc, self.build_view.current_pages(doc).name)
-        return result if isinstance(result, FigureMap) else None
+        return None if doc is None else self.build_view.elements(doc)
 
     def refresh_pins_md(self) -> None:
         """Refresh derived markdown after publication without resynchronizing pins."""
@@ -246,16 +240,43 @@ class PinCommands:
 
     def known_pin_people(self, pins: Sequence[Pin] | None = None) -> dict[str, Json]:
         """Return known people, optionally including actor facts from the supplied pins."""
-        return self.known_people(None if pins is None else [people_facts(pin.record) for pin in pins])
+        return self.known_people(
+            None if pins is None else [actor for pin in pins for actor in people_facts(pin.record)]
+        )
 
-    def known_record_people(self, records: Sequence[Mapping[str, object]]) -> dict[str, Json]:
+    def known_record_people(self, records: Sequence[Mapping[str, Any]]) -> dict[str, Json]:
         """Return known people with detached record facts for pin-owned policies."""
-        return self.known_people([people_facts(record) for record in records])
+        return self.known_people([actor for record in records for actor in people_facts(record)])
 
     def document_facts(self, D: Doc) -> DocumentFacts:
         """The parsing facts of document D (limn.runtime.documents.DocumentFacts) with this instance's manuscript root, state
         folder and dpi - made per request like pin_store(), so a test that replaces this application's C is seen at once."""
         return self.build_view.document_facts(D, self.C.src, self.C.state, self.C.dpi)
+
+    def make_event(
+        self,
+        typ: EventType,
+        r: Mapping[str, Any],
+        actor: Mapping[str, Any],
+        to: Iterable[str | None] | None,
+        msg: Mapping[str, Any] | None = None,
+        text: str | None = None,
+    ) -> Json | None:
+        """Extract pin/thread context here; collaboration receives only completed notice facts."""
+        return self.notice_sink(
+            Notice(
+                typ,
+                r.get("id"),
+                self.pin_doc_key(r),
+                actor.get("login", "local"),
+                actor.get("name", ""),
+                tuple(to or ()),
+                r.get("kind_req"),
+                msg is not None,
+                None if msg is None else msg.get("id"),
+                text if text is not None else (msg or {}).get("text", ""),
+            )
+        )
 
     def pin_context(self) -> PinContext:
         """The pin services' view of this instance (limn.pins.context.PinContext), made per call like pin_store(), so a

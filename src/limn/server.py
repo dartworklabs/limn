@@ -231,11 +231,9 @@ def assemble_application(config: RunConfig, runtime: RunResources) -> ServerAsse
         settings=settings,
         resources=resources,
         docs=docs,
-        builds=builds.view,
+        builds=builds.pins,
         known_people=lambda records: collaboration.people.known(records),
-        make_event=lambda typ, r, actor, to, msg=None, text=None: collaboration.notices.make_event(
-            typ, r, actor, to, msg, text
-        ),
+        notice_sink=lambda notice: collaboration.notices.make_event(notice),
         emit_events=lambda events: collaboration.notices.emit_events(events),
         recent_events=lambda: collaboration.notices.read()[0],
         role_of=lambda login: security.role_of(login),
@@ -249,14 +247,13 @@ def assemble_application(config: RunConfig, runtime: RunResources) -> ServerAsse
         people_lock=lambda: resources().people_lock,
         seen=lambda: resources().people_seen,
         warning=lambda: resources().people_warning,
-        pins=pins.view,
+        participants=pins.participants,
         roles=lambda: security.people_roles(),
         events_path=lambda: settings().events_file,
         events_lock=lambda: resources().events_lock,
         cache=lambda: resources().events_cache,
         clock=lambda: time.time(),
         stamp=lambda: pins.commands.now_str(),
-        document_key=pins.commands.pin_doc_key,
         docs=lambda: docs,
     )
     security = SecurityApplication(settings, resources, collaboration.people.load)
@@ -268,7 +265,7 @@ def assemble_application(config: RunConfig, runtime: RunResources) -> ServerAsse
             share=resources().pull_share,
             watch=resources().sync_watch,
             start_build=builds.commands.build_async,
-            last_failed=builds.view.last_failed,
+            last_failed=builds.last_failed,
             git=_git,
             clock=time.time,
         )
@@ -277,7 +274,6 @@ def assemble_application(config: RunConfig, runtime: RunResources) -> ServerAsse
         settings=lambda: MetaSettings(
             state=settings().state,
             pins_md=settings().pins_md,
-            pins_jsonl=settings().pins_jsonl,
             label=settings().label,
             accent=settings().accent,
             repo=settings().repo,
@@ -285,14 +281,14 @@ def assemble_application(config: RunConfig, runtime: RunResources) -> ServerAsse
         ),
         docs=docs,
         sync_status=sync.service.status,
-        pins=pins.view,
+        pins=pins.counts,
         events_since=collaboration.notices.since,
         now=lambda: time.time(),
-        builds=builds.view,
+        builds=builds.documents,
     )
     revisions = assemble_revisions(
         timeout=lambda: settings().timeout,
-        pins=pins.view,
+        pins=pins.revision,
         cache=lambda: resources().scope_cache,
         jobs=lambda: resources().revision_jobs,
     )

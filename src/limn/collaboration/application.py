@@ -1,15 +1,15 @@
 """Public collaboration reads, sinks, and capability assembly."""
 
 import threading
-from collections.abc import Callable, Iterable, Mapping, Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 from limn.collaboration import events
+from limn.collaboration.contracts import Notice
 from limn.collaboration.directory import PeopleDirectory
 from limn.collaboration.notices import Notices
-from limn.pins import PinReadView
 from limn.runtime.documents import Doc
 from limn.security import access, people
 from limn.web.routes import RouteBundle
@@ -32,12 +32,12 @@ class PeopleView:
         lock: Callable[[], threading.Lock],
         seen: Callable[[], people.SeenMemo],
         warning: Callable[[], people.UnreadableWarning],
-        pins: PinReadView,
+        participants: Callable[[bool], Sequence[people.Row]],
         roles: Callable[[], access.PeopleRoles],
         clock: Callable[[], float],
     ) -> "PeopleView":
         """Create a view from the run's people resources and pin facts."""
-        return cls(PeopleDirectory(state, people_file, lock, seen, warning, pins, roles, clock))
+        return cls(PeopleDirectory(state, people_file, lock, seen, warning, participants, roles, clock))
 
     def load(self) -> list[people.Row] | people.PeopleUnreadable:
         """Load the current people file fail-closed."""
@@ -66,17 +66,9 @@ class NoticeSink:
         """Read recent event rows and their signature."""
         return self._notices.read()
 
-    def make_event(
-        self,
-        typ: events.EventType,
-        r: Mapping[str, Any],
-        actor: Mapping[str, Any],
-        to: Iterable[str | None] | None,
-        msg: Mapping[str, Any] | None = None,
-        text: str | None = None,
-    ) -> Json | None:
-        """Create one event after applying recipient exclusions."""
-        return self._notices.make_event(typ, r, actor, to, msg, text)
+    def make_event(self, notice: Notice) -> Json | None:
+        """Create one event from completed input after applying recipient exclusions."""
+        return self._notices.make_event(notice)
 
     def emit_events(self, notices: list[Json | None]) -> None:
         """Persist events after their pin transaction committed."""
@@ -103,14 +95,13 @@ def assemble_collaboration(
     people_lock: Callable[[], threading.Lock],
     seen: Callable[[], people.SeenMemo],
     warning: Callable[[], people.UnreadableWarning],
-    pins: PinReadView,
+    participants: Callable[[bool], Sequence[people.Row]],
     roles: Callable[[], access.PeopleRoles],
     events_path: Callable[[], Path],
     events_lock: Callable[[], threading.Lock],
     cache: Callable[[], events.ReadCache],
     clock: Callable[[], float],
     stamp: Callable[[], str],
-    document_key: Callable[[Mapping[str, Any]], str],
     docs: Callable[[], Sequence[Doc]],
 ) -> CollaborationSubsystem:
     """Assemble people and notice ports without importing HTTP adapters."""
@@ -120,11 +111,11 @@ def assemble_collaboration(
         lock=people_lock,
         seen=seen,
         warning=warning,
-        pins=pins,
+        participants=participants,
         roles=roles,
         clock=clock,
     )
-    notices = Notices(events_path, events_lock, cache, clock, stamp, document_key, docs)
+    notices = Notices(events_path, events_lock, cache, clock, stamp, docs)
     from limn.collaboration.routes import get
 
     return CollaborationSubsystem(

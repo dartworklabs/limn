@@ -9,7 +9,6 @@ Run: uv run pytest -q src/limn/pins/editing/tests/test_figure_pins.py
 import json
 import unittest
 
-from limn.builds import MAP_MAX_TEXT
 from limn.pins.editing.input import REGION_EDIT_REFUSAL
 from limn.pins.editing.location import (
     EL_FILE_MAX,
@@ -20,7 +19,7 @@ from limn.pins.editing.location import (
     parse_el,
     parse_region,
 )
-from limn.pins.element import ElementImpl, PinElement
+from limn.pins.element import EL_TEXT_MAX as MAP_MAX_TEXT, ElementImpl, PinElement
 from limn.runtime.documents import Doc
 from limn.security.access import LOCAL_ACTOR
 from limn.web.errors import InputRejected

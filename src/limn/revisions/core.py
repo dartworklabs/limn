@@ -15,11 +15,11 @@ import subprocess
 import threading
 import time
 from collections.abc import Callable, Iterator, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, NamedTuple, Protocol, TypeAlias
 
-from limn.pins import PinReadView, RevisionPin
+from limn.pins import RevisionPin, RevisionPinQuery
 from limn.platform.git import GIT_TIMEOUT, git, git_command, git_env, open_git
 from limn.revisions.scope import (
     REVISION_DIFF_MAX as scope_REVISION_DIFF_MAX,
@@ -261,7 +261,7 @@ class RevisionContext:
     """What a revision service needs from the instance, made per request by the composition root."""
 
     timeout: int  # --build-timeout; a comparison is bounded by min(180, it)
-    pins: PinReadView
+    pins: RevisionPinQuery
     cache: ScopeCache
     jobs: RevisionJobs
     describe: Callable[[BuildFailure], tuple[str, str]]  # (message, API reason) a failed build records
@@ -401,14 +401,36 @@ def revision_diff(D: RevisionDoc, commit: str, pin: int | None, ctx: RevisionCon
         if base:
             sc = revision_pin_scope(D, repo, paths, base, commit, pin, revisions, ctx)
         else:
-            projection = ctx.pins.revision_pin(
-                pin, D.key, D, lambda path: _repo_rel(repo, str(path)), commit, revisions
-            )
+            projection = ctx.pins(pin, D.key, D, lambda path: _repo_rel(repo, str(path)))
             sc = PinNotInDoc() if projection is None else PinScope(projection.id, "commit", "none", 0, 0)
         if isinstance(sc, PinNotInDoc):
             return sc
         out["scope"] = scope_payload(sc)
     return out
+
+
+def matching_pin_changes(pin: RevisionPin, head: str, revisions: Sequence[Record]) -> RevisionPin:
+    """Apply revision-owned Git/PR reference resolution to detached pin change candidates."""
+    return pin if _ref_commit(pin.close_ref, revisions) == head else replace(pin, changes=())
+
+
+_REF_SHA_RE = re.compile(r"\b[0-9a-f]{7,40}\b", re.ASCII)
+_REF_PR_RE = re.compile(r"#(\d+)", re.ASCII)
+
+
+def _ref_commit(ref: object, revisions: Sequence[Record]) -> str | None:
+    """Return the recent commit named by a close reference."""
+    text = ref if isinstance(ref, str) else ""
+    for token in _REF_SHA_RE.findall(text):
+        for revision in revisions:
+            if str(revision["id"]).startswith(token):
+                return str(revision["id"])
+    for number in _REF_PR_RE.findall(text):
+        pattern = re.compile(r"\(#%s\)|pull request #%s\b|#%s\b" % (number, number, number), re.ASCII)
+        for revision in revisions:
+            if pattern.search(revision.get("subject") or ""):
+                return str(revision["id"])
+    return None
 
 
 # ---------------------------------------------------------------- the git edge of pin scoping
@@ -516,17 +538,15 @@ def revision_pin_scope(
     the pin's hunks are inferred as before. Unless the same pin facts were decided for this commit before (ctx.cache),
     reads the commit's files within one of the cache's slots and decides with revisions.scope.pin_scope(); an unreadable
     commit is mode "commit" and not stored."""
-    projected = ctx.pins.revision_pin(
+    projected = ctx.pins(
         pid,
         D.key,
         D,
         lambda path: _repo_rel(repo, str(path)),
-        head,
-        revisions,
     )
     if projected is None:
         return PinNotInDoc()
-    pin: RevisionPin = projected
+    pin: RevisionPin = matching_pin_changes(projected, head, revisions)
     changes = [RepoRange(change.file, change.lo, change.hi) for change in pin.changes]
     key = (str(repo), base, head, json.dumps([pin, changes], default=str))
     hit = ctx.cache.get(key)

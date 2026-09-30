@@ -18,6 +18,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
+from limn.pins.application import people_facts
 from limn.security import people
 from limn.security.access import LOCAL_ACTOR
 from limn.security.people import (
@@ -130,7 +131,7 @@ class Known(unittest.TestCase):
             }
         ]
         self.assertEqual(
-            known_people(rows, pins, agent),
+            known_people(rows, [actor for pin in pins for actor in people_facts(pin)], agent),
             {
                 "a@example.com": {"login": "a@example.com", "name": "A", "last_seen": "t1", "pic": "q"},
                 "b@example.com": {"login": "b@example.com", "name": "B", "pic": "p"},
@@ -140,7 +141,7 @@ class Known(unittest.TestCase):
     def test_a_name_falls_back_to_the_login(self):
         """An actor without a name is shown by login."""
         self.assertEqual(
-            known_people([], [{"author": {"login": "z@example.com"}}], agent),
+            known_people([], [{"login": "z@example.com"}], agent),
             {"z@example.com": {"login": "z@example.com", "name": "z@example.com"}},
         )
 

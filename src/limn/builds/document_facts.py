@@ -3,13 +3,10 @@
 from collections.abc import Callable
 from pathlib import Path
 
-from limn.builds import BuildView
 from limn.builds import artifacts as build
 from limn.builds.figure_map import FigureMap, MapRejected
 from limn.platform.files import ManuscriptFile, tex_lines
 from limn.runtime.documents import Doc
-
-_DEFAULT_BUILDS = BuildView()
 
 
 class DocumentFacts:
@@ -25,14 +22,11 @@ class DocumentFacts:
         state: Path,
         dpi: int,
         figure_map: Callable[[Doc, str], FigureMap | MapRejected | None] = build.load_build_map,
-        *,
-        builds: BuildView = _DEFAULT_BUILDS,
     ) -> None:
         """Bind the document, the manuscript root, the state folder and the dpi the page images were rendered at.
         figure_map reads the map of a build of a figure document by page directory name: the composition root hands in
         the run's cache (server.figure_map); the default parses the build's copy on every call."""
         self._doc, self._root, self._state, self._dpi, self._figure_map = D, root, state, dpi, figure_map
-        self._builds = builds
 
     @property
     def key(self) -> str:
@@ -78,20 +72,20 @@ class DocumentFacts:
 
     def page_count(self, name: str | None) -> int:
         """Pages of build `name` of D, or of the build on screen when name is None or gone (limn.builds.artifacts.pages_dir_for)."""
-        return len(self._builds.page_metadata(self._builds.pages_for(self._doc, name), self._dpi))
+        return len(build.page_list(build.pages_dir_for(self._doc, name), self._dpi))
 
     def current_build(self) -> str:
         """The name of D's page directory on screen."""
-        return self._builds.current_pages(self._doc).name
+        return build.cur_pages(self._doc).name
 
     def valid_build_name(self, value: object) -> bool:
         """Return whether ``value`` names a page directory."""
-        return self._builds.valid_name(value)
+        return build.valid_build_name(value)
 
     def pick_pages(self, name: str | None) -> tuple[Path, list[tuple[float, float]]] | None:
         """(page directory, [(width, height) in points]) of build `name` of D - or the one on screen for None - or None
         when name is a page directory of D that is gone."""
         if name is not None and not (self._doc.dir / name).is_dir():
             return None
-        pdir = self._builds.pages_for(self._doc, name) if name is not None else self._builds.current_pages(self._doc)
-        return pdir, [(p["pt_w"], p["pt_h"]) for p in self._builds.page_metadata(pdir, self._dpi)]
+        pdir = build.pages_dir_for(self._doc, name) if name is not None else build.cur_pages(self._doc)
+        return pdir, [(p["pt_w"], p["pt_h"]) for p in build.page_list(pdir, self._dpi)]

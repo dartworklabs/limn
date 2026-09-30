@@ -5,7 +5,6 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
-from limn.pins import PinReadView
 from limn.security import access, people
 from limn.security.access import is_agent_actor
 
@@ -19,7 +18,7 @@ class PeopleDirectory:
     lock: Callable[[], threading.Lock]
     seen: Callable[[], people.SeenMemo]
     warning: Callable[[], people.UnreadableWarning]
-    pins: PinReadView
+    participants: Callable[[bool], Sequence[people.Row]]
     roles: Callable[[], access.PeopleRoles]
     clock: Callable[[], float]
 
@@ -45,12 +44,10 @@ class PeopleDirectory:
         """People from people.json and pin actors, excluding agents."""
         listed = self.load()
         rows = [] if isinstance(listed, people.PeopleUnreadable) else listed
-        on = records if records is not None else self.pins.people_records()
+        on = records if records is not None else self.participants(False)
         return people.known_people(rows, on, is_agent_actor)
 
     def candidates(self) -> list[people.Row]:
         """Read roles first, then resynchronize pins and order the candidates."""
         roles = self.roles()
-        return people.candidates(
-            self.known(self.pins.people_records(refresh=True)), lambda login: access.person_role(roles, login)
-        )
+        return people.candidates(self.known(self.participants(True)), lambda login: access.person_role(roles, login))

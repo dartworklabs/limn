@@ -70,14 +70,12 @@ def add_pin(ctx: PinContext, D: Doc, request: AddRequest, actor: PostAuthority) 
                     actor,
                     tags.mentions,
                     anchoring,
-                    ctx.builds.current_pages(D).name,
+                    ctx.builds.heading(D).build,
                     D.key,
                     located(ctx.locate({"file": place.file})),
                 )
             case RegionPlace():
-                pin = new_region_pin(
-                    place, request, pid, at, actor, tags.mentions, ctx.builds.current_pages(D).name, D.key
-                )
+                pin = new_region_pin(place, request, pid, at, actor, tags.mentions, ctx.builds.heading(D).build, D.key)
         pins.append(pin)
         evs.append(ctx.make_event("mention", pin.record, actor, tags.notify, text=request.note))
         if request.assignee is not None and request.assignee != ASSIGNEE_AGENT:

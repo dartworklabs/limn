@@ -1127,13 +1127,16 @@ class FigureMapLookups(Base):
 
     def july(self, fmap):
         """The July cell's box of the parsed map fmap."""
-        return fmap.find("B2/calendar/m07")[1].frac
+        return fmap("B2/calendar/m07", 1, (0.47, 0.18, 0.07, 0.12)).frac
 
     def test_a_figure_builds_map_is_parsed_once_in_the_run_and_is_that_builds_own(self):
         """figure_map gives each build its own map, the same parsed value on a second ask, out of RT.figure_maps."""
-        first, second = ps.APP.figure_map(self.fig, BUILD1), ps.APP.figure_map(self.fig, BUILD2)
-        self.assertEqual((self.july(first), self.july(second)), ((0.47, 0.18, 0.07, 0.12), (0.4, 0.18, 0.07, 0.12)))
-        self.assertIs(ps.APP.figure_map(self.fig, BUILD1), first)
+        first, second = ps.APP.RT.figure_maps.get(self.fig, BUILD1), ps.APP.RT.figure_maps.get(self.fig, BUILD2)
+        self.assertEqual(
+            (first.find("B2/calendar/m07")[1].frac, second.find("B2/calendar/m07")[1].frac),
+            ((0.47, 0.18, 0.07, 0.12), (0.4, 0.18, 0.07, 0.12)),
+        )
+        self.assertIs(ps.APP.RT.figure_maps.get(self.fig, BUILD1), first)
         self.assertIs(ps.APP.RT.figure_maps.get(self.fig, BUILD1), first)
 
     def test_a_document_without_an_element_map_has_none_and_nothing_is_read(self):
@@ -1143,31 +1146,31 @@ class FigureMapLookups(Base):
         (self.ms.dir / "pages-20260926100000" / limn_build.FIGMAP_NAME).write_text(
             json.dumps(b2_map()), encoding="utf-8"
         )
-        self.assertIsNone(ps.APP.figure_map(self.ms, "pages-20260926100000"))
+        self.assertIsNone(ps.APP.assembly.builds.pins.elements(self.ms))
         self.assertEqual(ps.APP.RT.figure_maps.held(), 0)
 
     def test_a_build_without_a_copy_or_a_name_that_is_no_build_has_none(self):
         """A build the figure document does not have and a name that is a path answer None."""
-        self.assertIsNone(ps.APP.figure_map(self.fig, "pages-20990101000000"))
-        self.assertIsNone(ps.APP.figure_map(self.fig, "../state"))
+        self.assertIsNone(ps.APP.RT.figure_maps.get(self.fig, "pages-20990101000000"))
+        self.assertIsNone(ps.APP.RT.figure_maps.get(self.fig, "../state"))
 
     def test_the_map_of_the_build_on_screen_follows_the_pointer(self):
         """doc_figure_map gives the map of the build pages.cur names now: BUILD2's, then BUILD1's once the pointer
         moves back."""
-        self.assertEqual(self.july(ps.APP.doc_figure_map("fig")), (0.4, 0.18, 0.07, 0.12))
+        self.assertEqual(self.july(ps.APP.element_follower("fig")), (0.4, 0.18, 0.07, 0.12))
         files.atomic_write(self.fig.dir / "pages.cur", BUILD1)
-        self.assertEqual(self.july(ps.APP.doc_figure_map("fig")), (0.47, 0.18, 0.07, 0.12))
+        self.assertEqual(self.july(ps.APP.element_follower("fig")), (0.47, 0.18, 0.07, 0.12))
 
     def test_a_key_that_has_no_loadable_map_on_screen_has_none(self):
         """An unknown key, a LaTeX document, a figure whose build on screen has no copy and one whose copy the parser
         refuses all answer None (a refusal is not a map)."""
-        self.assertIsNone(ps.APP.doc_figure_map("nope"))
-        self.assertIsNone(ps.APP.doc_figure_map("ms"))
+        self.assertIsNone(ps.APP.element_follower("nope"))
+        self.assertIsNone(ps.APP.element_follower("ms"))
         write_build(self.fig, "pages-20260926120000", None)
-        self.assertIsNone(ps.APP.doc_figure_map("fig"))
+        self.assertIsNone(ps.APP.element_follower("fig"))
         (self.fig.dir / "pages-20260926120000" / limn_build.FIGMAP_NAME).write_text("not json", encoding="utf-8")
-        self.assertIsInstance(ps.APP.figure_map(self.fig, "pages-20260926120000"), MapRejected)
-        self.assertIsNone(ps.APP.doc_figure_map("fig"))
+        self.assertIsInstance(ps.APP.RT.figure_maps.get(self.fig, "pages-20260926120000"), MapRejected)
+        self.assertIsNone(ps.APP.element_follower("fig"))
 
     def test_the_pdf_a_region_pin_records_is_read_through_the_runs_cache(self):
         """Two document_facts of the figure document (one per request) name the map's PDF with one parse of the copy
@@ -1178,7 +1181,7 @@ class FigureMapLookups(Base):
         self.assertEqual(first, (self.src / "figs" / "out" / "figures.pdf").resolve())
         self.assertEqual(second, first)
         self.assertEqual(parsed.call_count, 1)
-        self.assertIsInstance(ps.APP.figure_map(self.fig, BUILD2), FigureMap)
+        self.assertIsInstance(ps.APP.RT.figure_maps.get(self.fig, BUILD2), FigureMap)
 
 
 class MultiDoc(Base):

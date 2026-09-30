@@ -38,11 +38,11 @@ catalog_schema: 1
 <!-- handbook-filemap:start -->
 | 경로 패턴 | 책임 | 수정 trigger | 갱신 주체 |
 | --- | --- | --- | --- |
-| `src/limn/pins/**` | 핀 값·전이·레코드·저장·문맥·멘션·변경 범위와 여섯 동작. 순수 판단과 I/O는 같은 기능 안에서 의존 방향으로 구별한다. 그림 문서의 요소 pick과 사다리 단계(`location/figure.py`), 그림 핀의 요소 필드 모양(`element.py`), 읽을 때 계산하는 `mark`·`el_sync`(`listing/projection.py`), pins.md의 그림 핀 행(`listing/render.py`), 파일 종류별 주석 줄(`location/mapping.py`의 `comment_marker`)을 포함한다 | 상태·전이·위치·쓰기·알림·pins.md 변경 | domain.md, api.md, build-sync.md, architecture.md |
-| `src/limn/builds/**` | 빌드 결과·산출물·원고 지문·이력·DocumentFacts·컴파일·PDF 감시·그림 지도 파싱/가져오기와 요청 응답. 지도 사본의 실행별 파싱 캐시(`artifacts.py`의 `BuildMapCache`)와 요소 고르기·사다리·따라가기 규칙(`figure_map.py`)을 포함한다 | 빌드 상태·파일 선택·실행·실패 문구 변경 | build-sync.md, api.md, architecture.md |
-| `src/limn/collaboration/**` | 사람 후보·방문 연결, 이벤트 파일·멘션 알림·폴링 | 사람 조회·이벤트 순서·기록·알림 변경 | api.md, viewer.md, architecture.md |
+| `src/limn/pins/**` | 핀 값·전이·레코드·저장·문맥·멘션·변경 범위와 여섯 동작. 순수 판단과 I/O는 같은 기능 안에서 의존 방향으로 구별한다. 빌드가 선택한 요소 사실의 pick 응답과 원고 사다리 단계(`location/figure.py`), 그림 핀의 요소 필드 모양(`element.py`), 읽을 때 계산하는 `mark`·`el_sync`(`listing/projection.py`), pins.md의 그림 핀 행(`listing/render.py`), 파일 종류별 주석 줄(`location/mapping.py`의 `comment_marker`)을 포함한다 | 상태·전이·위치·쓰기·알림·pins.md 변경 | domain.md, api.md, build-sync.md, architecture.md |
+| `src/limn/builds/**` | 빌드 결과·산출물·원고 지문·이력·DocumentFacts·컴파일·PDF 감시·그림 지도 파싱/가져오기와 요청 응답. 소비자별 완성 질의(`queries.py`·`contracts.py`), 지도 사본의 실행별 파싱 캐시(`artifacts.py`의 `BuildMapCache`)와 요소 고르기·사다리·따라가기 규칙(`figure_map.py`)을 포함한다 | 빌드 상태·파일 선택·실행·실패 문구 변경 | build-sync.md, api.md, architecture.md |
+| `src/limn/collaboration/**` | 평탄한 참여자 사실의 병합·후보 조회·방문 연결, `Notice`의 수신자 필터·직렬화·이벤트 파일·멘션 알림·폴링 | 사람 조회·이벤트 순서·기록·알림 변경 | api.md, viewer.md, architecture.md |
 | `src/limn/documents/**` | 문서 탭·meta·목차 조회와 순수 목차 파서 | 문서 응답·폴링·목차 변경 | api.md, viewer.md, build-sync.md |
-| `src/limn/revisions/**` | Git 이력·diff 파싱·핀 범위 귀속·격리 비교 PDF·캐시·실패 응답 | 비교 실행·범위·응답·캐시 변경 | api.md, architecture.md |
+| `src/limn/revisions/**` | Git 이력·핀 닫힘 참조 해석·변경 후보 선택·diff 파싱·핀 범위 귀속·격리 비교 PDF·캐시·실패 응답 | 비교 실행·범위·응답·캐시 변경 | api.md, architecture.md |
 | `src/limn/sync/**` | 원격 main 감시·pull 순서·재빌드 선택 | 동기화 거절·감시·재빌드 변경 | build-sync.md, api.md |
 | `src/limn/administration/**` | 토큰·멤버·문서 인자·이관·인스턴스 셸·systemd 템플릿 | 명령·설정 키·유닛·업데이트 흐름 변경 | instances.md, operations.md, api.md |
 | `src/limn/viewer/**` | HTML·CSS·JS·번역·마크·브랜드 파일·조립·화면 제공 경로 | 화면 동작·조각 순서·번역·캐시 정책 변경 | viewer.md, api.md, verification.md |

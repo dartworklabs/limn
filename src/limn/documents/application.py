@@ -4,10 +4,10 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 
-from limn.builds import BuildView
+from limn.builds import DocumentBuildQueries
 from limn.documents import reads
 from limn.documents.service import DocumentViews
-from limn.pins import PinReadView
+from limn.pins import PinCountQueries
 from limn.runtime.documents import Doc
 from limn.web.routes import RouteBundle
 
@@ -27,10 +27,10 @@ def assemble_documents(
     settings: Callable[[], reads.MetaSettings],
     docs: Sequence[Doc],
     sync_status: Callable[[], Mapping[str, Any]],
-    pins: PinReadView,
+    pins: PinCountQueries,
     events_since: Callable[[Json, int | None], Json],
     now: Callable[[], float],
-    builds: BuildView,
+    builds: DocumentBuildQueries,
 ) -> DocumentsSubsystem:
     """Assemble document views without importing HTTP adapters."""
     from limn.documents.routes import get

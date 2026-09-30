@@ -4,9 +4,9 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 
-from limn.builds import BuildView
+from limn.builds import DocumentBuildQueries, document_build_queries
 from limn.documents import reads
-from limn.pins import PinReadView
+from limn.pins import PinCountQueries
 from limn.runtime.documents import Doc
 
 Json = dict[str, Any]
@@ -19,14 +19,23 @@ class DocumentViews:
     settings: Callable[[], reads.MetaSettings]
     docs: Sequence[Doc]
     sync_status: Callable[[], Mapping[str, Any]]
-    pins: PinReadView
+    pins: PinCountQueries
     events_since: Callable[[Json, int | None], Json]
     now: Callable[[], float]
-    builds: BuildView = BuildView()
+    builds: DocumentBuildQueries = document_build_queries()
 
     def meta(self, doc: Doc, actor: Json, light: bool = False) -> Json:
         """The document's current viewer state; a full read also resynchronizes pin counts."""
-        out = reads.meta(doc, actor, self.settings(), self.docs, self.sync_status(), self.now(), self.builds)
+        out = reads.meta(
+            doc,
+            actor,
+            self.settings(),
+            self.docs,
+            self.sync_status(),
+            self.now(),
+            self.builds,
+            self.pins.change_token(),
+        )
         if not light:
             out.update(self.pins.state_counts())
         return out

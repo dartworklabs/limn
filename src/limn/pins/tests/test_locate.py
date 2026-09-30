@@ -426,13 +426,6 @@ class Estimate(Base):
         self.assertIs(self.est_of(pid), True)  # moved +1
         self.assertEqual(self.pin(pid)["sync"], "moved +1")
 
-    def test_same_source_falls_back_to_src_mtime_without_hash(self):
-        a = {"src_hash": None, "src_mtime": 100.0}
-        self.assertTrue(position.same_source(a, {"src_hash": None, "src_mtime": 100.0}))
-        self.assertFalse(position.same_source(a, {"src_hash": None, "src_mtime": 101.0}))
-        self.assertFalse(position.same_source(a, None))
-        self.assertFalse(position.same_source({"src_hash": "x"}, {"src_hash": "y", "src_mtime": 1}))
-
     def test_legacy_pin_uses_epoch_heuristic_on_server(self):
         # a legacy pin without pdf_build: the server resolves at (server local-time string) to epoch and compares against built_at / the build-start src_mtime.
         (ps.APP.C.state / "built_at.txt").write_text("2026-09-22T10:00:00+09:00")

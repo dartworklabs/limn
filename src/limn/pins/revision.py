@@ -1,7 +1,6 @@
 """Immutable pin facts exposed to the revisions capability."""
 
-import re
-from collections.abc import Mapping, Sequence
+from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any, NamedTuple, TypeAlias, TypedDict, TypeGuard
 
@@ -47,18 +46,13 @@ class RevisionPin:
     stale: bool
     anchor: RevisionAnchor | None
     changes: tuple[RevisionChange, ...]
-
-
-_REF_SHA_RE = re.compile(r"\b[0-9a-f]{7,40}\b", re.ASCII)
-_REF_PR_RE = re.compile(r"#(\d+)", re.ASCII)
+    close_ref: str | None = None
 
 
 def revision_pin(
     record: Record,
     *,
     relative_path: str | None,
-    head: str,
-    revisions: Sequence[Record],
 ) -> RevisionPin:
     """Project one accepted pin record for attribution against ``head``."""
     stored = record.get("anchor")
@@ -82,7 +76,7 @@ def revision_pin(
             for change in record.get("changes") or []
             if _valid_change(change)
         )
-        if record.get("changes_at") == record.get("done_at") and _ref_commit(record.get("close_ref"), revisions) == head
+        if record.get("changes_at") == record.get("done_at")
         else ()
     )
     return RevisionPin(
@@ -93,22 +87,8 @@ def revision_pin(
         stale=bool(record.get("stale")),
         anchor=anchor,
         changes=changes,
+        close_ref=record.get("close_ref") if isinstance(record.get("close_ref"), str) else None,
     )
-
-
-def _ref_commit(ref: object, revisions: Sequence[Record]) -> str | None:
-    """Return the recent commit named by a close reference."""
-    text = ref if isinstance(ref, str) else ""
-    for token in _REF_SHA_RE.findall(text):
-        for revision in revisions:
-            if str(revision["id"]).startswith(token):
-                return str(revision["id"])
-    for number in _REF_PR_RE.findall(text):
-        pattern = re.compile(r"\(#%s\)|pull request #%s\b|#%s\b" % (number, number, number), re.ASCII)
-        for revision in revisions:
-            if pattern.search(revision.get("subject") or ""):
-                return str(revision["id"])
-    return None
 
 
 def _valid_change(value: object) -> TypeGuard[ChangeRecord]:

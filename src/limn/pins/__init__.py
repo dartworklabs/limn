@@ -5,19 +5,29 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from .application import (
-        PinReadView as PinReadView,
         PinStartup as PinStartup,
         PinSubsystem as PinSubsystem,
         assemble_pins as assemble_pins,
     )
+    from .contracts import PinCountQueries as PinCountQueries, RevisionPinQuery as RevisionPinQuery
     from .location import TokenCache as TokenCache
     from .revision import RevisionPin as RevisionPin
     from .runtime import PinCommands as PinCommands
 
-__all__ = ["PinReadView", "RevisionPin", "PinCommands", "PinStartup", "PinSubsystem", "TokenCache", "assemble_pins"]
+__all__ = [
+    "PinCountQueries",
+    "RevisionPinQuery",
+    "RevisionPin",
+    "PinCommands",
+    "PinStartup",
+    "PinSubsystem",
+    "TokenCache",
+    "assemble_pins",
+]
 
 _EXPORTS = {
-    "PinReadView": ("application", "PinReadView"),
+    "PinCountQueries": ("contracts", "PinCountQueries"),
+    "RevisionPinQuery": ("contracts", "RevisionPinQuery"),
     "RevisionPin": ("revision", "RevisionPin"),
     "PinCommands": ("runtime", "PinCommands"),
     "PinStartup": ("application", "PinStartup"),

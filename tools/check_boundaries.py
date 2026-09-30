@@ -15,11 +15,19 @@ CrossingNames: TypeAlias = Mapping[CrossingKey, set[str]]
 EntrypointImports: TypeAlias = Mapping[str, set[str]]
 
 CROSSING_NAMES: CrossingNames = {
-    ("limn.collaboration", "limn.pins"): {"PinReadView"},
-    ("limn.documents", "limn.builds"): {"BuildView"},
-    ("limn.documents", "limn.pins"): {"PinReadView"},
-    ("limn.pins", "limn.builds"): {"BuildView"},
-    ("limn.revisions", "limn.pins"): {"PinReadView", "RevisionPin"},
+    ("limn.documents", "limn.builds"): {"DocumentBuildQueries", "document_build_queries"},
+    ("limn.documents", "limn.pins"): {"PinCountQueries"},
+    ("limn.pins", "limn.builds"): {
+        "PinBuildQueries",
+        "pin_build_queries",
+        "ElementFollower",
+        "ElementFact",
+        "ElementSelection",
+        "SelectionUnavailable",
+        "Publication",
+    },
+    ("limn.pins", "limn.collaboration"): {"Notice"},
+    ("limn.revisions", "limn.pins"): {"RevisionPinQuery", "RevisionPin"},
 }
 ENTRYPOINT_IMPORTS: EntrypointImports = {
     "limn.server": {
@@ -27,6 +35,7 @@ ENTRYPOINT_IMPORTS: EntrypointImports = {
         "docs_of",
         "pick_documents",
         "BuildSubsystem",
+        "BuildMapCache",
         "assemble_builds",
         "CollaborationSubsystem",
         "assemble_collaboration",

@@ -219,10 +219,10 @@ class FigureMapReads(FigureBase):
             mock.patch.object(cache, "get", wraps=cache.get) as asked,
             mock.patch.object(build, "cur_pages", wraps=build.cur_pages) as shown,
         ):
-            self.assertIsNone(ps.APP.doc_figure_map("ms"))
-            self.assertIsNone(ps.APP.doc_figure_map("gone"))
+            self.assertIsNone(ps.APP.element_follower("ms"))
+            self.assertIsNone(ps.APP.element_follower("gone"))
             self.assertEqual((asked.call_count, shown.call_count), (0, 0))
-            self.assertIsNotNone(ps.APP.doc_figure_map("fig"))
+            self.assertIsNotNone(ps.APP.element_follower("fig"))
             self.assertEqual((asked.call_count, shown.call_count), (1, 1))
 
     def test_a_listing_of_pins_without_a_figure_document_asks_no_map(self):

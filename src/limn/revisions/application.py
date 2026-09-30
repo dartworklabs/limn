@@ -3,7 +3,7 @@
 from collections.abc import Callable
 from dataclasses import dataclass
 
-from limn.pins import PinReadView
+from limn.pins import RevisionPinQuery
 from limn.revisions.answer import revision_failure_text
 from limn.revisions.core import RevisionContext, RevisionJobs, ScopeCache
 from limn.revisions.service import RevisionRequests
@@ -21,7 +21,7 @@ class RevisionSubsystem:
 def assemble_revisions(
     *,
     timeout: Callable[[], int],
-    pins: PinReadView,
+    pins: RevisionPinQuery,
     cache: Callable[[], ScopeCache],
     jobs: Callable[[], RevisionJobs],
 ) -> RevisionSubsystem:

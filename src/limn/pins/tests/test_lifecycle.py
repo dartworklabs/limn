@@ -117,7 +117,7 @@ class BuildsSurfacePurity(unittest.TestCase):
         """Every name the pure listing modules (projection.py, render.py) import from limn.builds is the same object in
         limn.builds.figure_map; at least one such name is imported, so the check is not vacuous."""
         import limn.builds
-        from limn.builds import figure_map
+        from limn.builds import contracts
 
         taken = []
         for path in (PINS_DIR / "listing/projection.py", PINS_DIR / "listing/render.py"):
@@ -127,7 +127,7 @@ class BuildsSurfacePurity(unittest.TestCase):
                     taken += [(path.name, alias.name) for alias in node.names]
         self.assertTrue(taken)
         for module, name in taken:
-            self.assertIs(getattr(limn.builds, name), getattr(figure_map, name, None), (module, name))
+            self.assertIs(getattr(limn.builds, name), getattr(contracts, name, None), (module, name))
 
 
 class States(unittest.TestCase):

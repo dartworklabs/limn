@@ -10,10 +10,12 @@ if TYPE_CHECKING:
         PeopleView as PeopleView,
         assemble_collaboration as assemble_collaboration,
     )
+    from .contracts import Notice as Notice
 
-__all__ = ["CollaborationSubsystem", "NoticeSink", "PeopleView", "assemble_collaboration"]
+__all__ = ["Notice", "CollaborationSubsystem", "NoticeSink", "PeopleView", "assemble_collaboration"]
 
 _EXPORTS = {
+    "Notice": ("contracts", "Notice"),
     "CollaborationSubsystem": ("application", "CollaborationSubsystem"),
     "NoticeSink": ("application", "NoticeSink"),
     "PeopleView": ("application", "PeopleView"),

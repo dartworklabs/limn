@@ -5,7 +5,7 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Protocol, TypeAlias
 
-from limn.builds import BuildView, FigureMap, MapRejected, build_figure_pdf
+from limn.builds import PinBuildQueries, Publication, pin_build_queries
 from limn.pins.editing.values import PDF_QUOTE_MAX
 from limn.pins.element import PinElement
 from limn.pins.location import figure, source
@@ -13,10 +13,6 @@ from limn.pins.location.mapping import Traced, norm, snippet, trace_range, trunc
 from limn.pins.location.source import TokenCache
 from limn.platform.files import ManuscriptFile, file_in_tree, tex_lines
 from limn.runtime.documents import Doc, to_source
-
-_DEFAULT_BUILDS = BuildView()
-# How the composition root reads the element map of a build (page directory name) of a figure document: the run's cache.
-FigureMapLookup: TypeAlias = Callable[[Doc, str], FigureMap | MapRejected | None]
 
 
 class Selection(Protocol):
@@ -55,17 +51,15 @@ class PickContext:
     """What resolving a selection needs from the instance: the manuscript root (a SyncTeX answer outside it is
     refused), the float environments of the range ladder (--float-envs), the state folder (for the "PDF older than the
     manuscript" check, and never part of the tree), the process's token-weight cache, the overlaps of a range with the
-    stored open pins (file, lo, hi) -> [{"id", "lo", "hi", "rel"}], and figure_map, the element map of a build of a
-    figure document by page directory name (the composition root's per-run cache: a map copy is parsed once per run, for
-    the pick and for the region it falls back to alike)."""
+    stored open pins (file, lo, hi) -> [{"id", "lo", "hi", "rel"}], and build-owned queries for the requested
+    publication's assets, status and detached figure selection."""
 
     root: Path
     envs: Sequence[str]
     state: Path
     tokens: TokenCache
     overlaps: Callable[[str, int, int], list[dict[str, Any]]]
-    figure_map: FigureMapLookup
-    builds: BuildView = BuildView()
+    builds: PinBuildQueries = pin_build_queries()
 
 
 @dataclass(frozen=True)
@@ -161,6 +155,7 @@ def pick(D: Doc, request: Selection, ctx: PickContext) -> Picked | figure.Picked
     through unchanged when saving the pin (/api/pin) to record "which build's coordinates these are" (§Position estimation)."""
     pdir, page, box, (pw, ph), frac = request.pdir, request.page, request.box, request.size, request.frac
     x0, y0, x1, y1 = box
+    publication = ctx.builds.publication(D, pdir.name, ctx.state)
     fallback: figure.FigureFallback | None = None
     if D.has_element_map:
         on_map = figure.pick_figure(
@@ -170,22 +165,22 @@ def pick(D: Doc, request: Selection, ctx: PickContext) -> Picked | figure.Picked
             (pw, ph),
             frac,
             pdir,
-            ctx.figure_map(D, pdir.name),
+            ctx.builds.selection(D, pdir.name, page, figure.drag_frac(box, (pw, ph))),
             ctx.root,
             ctx.state,
             ctx.overlaps,
-            ctx.builds.snapshot(D)["state"] == "running",
+            publication.running,
         )
         if isinstance(on_map, figure.PickedElement):
             return on_map
         fallback = on_map
-    pdf = ctx.builds.current_pdf(D, pdir)
+    pdf = publication.pdf
     rtext = source.region_text(pdf, page, x0, y0, x1, y1)
     if fallback is not None:
-        region = _pick_region(D, pdir, page, box, (pw, ph), frac, rtext, ctx.root, ctx.builds, ctx.figure_map)
+        region = _pick_region(D, pdir, page, box, (pw, ph), frac, rtext, ctx.root, publication)
         return replace(region, el=fallback.el, fallback=fallback.reason)
     if D.view_only:
-        return _pick_region(D, pdir, page, (x0, y0, x1, y1), (pw, ph), frac, rtext, ctx.root, ctx.builds, ctx.figure_map)
+        return _pick_region(D, pdir, page, (x0, y0, x1, y1), (pw, ph), frac, rtext, ctx.root, publication)
     sy = source.by_synctex(pdf, page, x0, y0, x1, y1)
 
     src = to_source(D, sy[0]) if sy else D.main
@@ -202,8 +197,6 @@ def pick(D: Doc, request: Selection, ctx: PickContext) -> Picked | figure.Picked
     if traced is None:
         return NoSourceHere()
 
-    stale = ctx.builds.source_newer(D, ctx.state, pdir.name) > 2
-    bstate = ctx.builds.snapshot(D)
     return Picked(
         file=found.path,
         page=page,
@@ -214,8 +207,8 @@ def pick(D: Doc, request: Selection, ctx: PickContext) -> Picked | figure.Picked
         quote=truncate_quote(norm(rtext), 60),
         overlaps=ctx.overlaps(str(found), traced.lo, traced.hi),
         pdf_build=pdir.name,
-        stale=stale,
-        building=bstate["state"] == "running" and bstate["phase"] == "latex",
+        stale=publication.stale,
+        building=publication.latex_running,
     )
 
 
@@ -228,20 +221,18 @@ def _pick_region(
     frac: list[float] | None,
     rtext: str,
     root: Path,
-    builds: BuildView,
-    figure_map: FigureMapLookup,
+    publication: Publication,
 ) -> PickedRegion:
     """pick for a document whose pins are regions - only page/region and the region's text (pdftotext), no SyncTeX.
     If frac wasn't sent (agent curl), it's built from the coordinates - for such a pin, the region is the whole
-    location. The PDF it names is _region_pdf's, relative to the manuscript root; figure_map is how a figure
-    document's map is read (the run's cache), so the map a pick just used is not parsed again for the PDF's name."""
+    location. The build owner supplies the display PDF, named relative to the manuscript root.
+    This function does not interpret a map or choose another publication."""
     x0, y0, x1, y1 = box
     pw, ph = size
     if frac is None:
         frac = [x0 / pw, y0 / ph, (x1 - x0) / pw, (y1 - y0) / ph]
     text = norm(rtext)
-    bstate = builds.snapshot(D)
-    pdf, name = _region_pdf(D, pdir, root, builds, figure_map)
+    pdf, name = _region_pdf(D, root, publication)
     return PickedRegion(
         doc=D.key,
         page=page,
@@ -251,21 +242,17 @@ def _pick_region(
         quote=truncate_quote(text, PDF_QUOTE_MAX),
         n_chars=len(text),
         blank=not text,
-        redrawing=bstate["state"] == "running",
+        redrawing=publication.running,
         pdf_build=pdir.name,
     )
 
 
-def _region_pdf(D: Doc, pdir: Path, root: Path, builds: BuildView, figure_map: FigureMapLookup) -> tuple[str, str]:
-    """The PDF a region pick names, as (path from the manuscript root, file name). A view-only PDF names itself
-    (Doc.rel_path). A document with an element map names the PDF the map of the drag's build (pdir) names
-    (limn.builds.build_figure_pdf, the map read through figure_map) - or its map file when that build has no loadable
-    map or the map's PDF lies outside the document's folder, so no path outside it is ever named."""
-    if D.has_element_map:
-        named = build_figure_pdf(D, pdir.name, figure_map)
-        if named is not None:
-            try:
-                return str(named.relative_to(root.resolve())), named.name
-            except (ValueError, OSError, RuntimeError):
-                return str(named), named.name
+def _region_pdf(D: Doc, root: Path, publication: Publication) -> tuple[str, str]:
+    """Display the selected publication's region PDF without deriving artifact names."""
+    named = publication.region_pdf
+    if D.has_element_map and named != D.main:
+        try:
+            return str(named.relative_to(root.resolve())), named.name
+        except (ValueError, OSError, RuntimeError):
+            return str(named), named.name
     return D.rel_path(), D.main.name

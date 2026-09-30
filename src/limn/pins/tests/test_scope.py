@@ -26,6 +26,7 @@ from limn.pins.location.mapping import anchor_of
 from limn.pins.revision import revision_pin, valid_changes
 from limn.revisions import core as revisions, scope as scoping
 from limn.revisions.answer import SCOPE_REJECTIONS, scope_http_error
+from limn.revisions.core import matching_pin_changes
 
 from helpers import extract_js_fn, run_node
 from helpers_access import REPO_NEW as NEW, REPO_OLD as OLD
@@ -115,7 +116,7 @@ class RevisionProjection(unittest.TestCase):
             "thread": [{"kind": "note", "body": "must not cross"}],
         }
 
-        projection = revision_pin(record, relative_path="paper/main.tex", head=head, revisions=[{"id": head}])
+        projection = revision_pin(record, relative_path="paper/main.tex")
 
         self.assertEqual(projection.id, 7)
         self.assertEqual(projection.changes, (("paper/main.tex", 10, 12),))
@@ -174,7 +175,7 @@ def anchored(lo, hi, text=OLD, **extra):
 
 def projected(record, rel="ms/main.tex", head="", revisions=()):
     """Build the pin-owned projection used by pure attribution tests."""
-    return revision_pin(record, relative_path=rel, head=head, revisions=revisions)
+    return matching_pin_changes(revision_pin(record, relative_path=rel), head, revisions)
 
 
 class BlockParsing(unittest.TestCase):

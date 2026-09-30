@@ -4,15 +4,13 @@ from __future__ import annotations
 
 import threading
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass, field
-from pathlib import Path
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 from limn.builds import artifacts
 from limn.builds.answer import build_failure_log
 from limn.builds.artifacts import (
     BuildBusy,
-    BuildDoc,
     BuildMapCache,
     BuildSkipped,
     BuildStarted,
@@ -22,7 +20,8 @@ from limn.builds.artifacts import (
     FinishedBuild,
     ViewOnlyNoRebuild,
 )
-from limn.builds.figure_map import FigureMap, MapRejected
+from limn.builds.contracts import DocumentBuildQueries, PinBuildQueries
+from limn.builds.queries import BuildQueries
 from limn.builds.service import BuildRequests
 from limn.runtime.config import RunConfig
 from limn.runtime.documents import Doc
@@ -30,7 +29,6 @@ from limn.runtime.startup import StartupRefused
 from limn.security.access import AuthorityScope, PostAuthority
 
 if TYPE_CHECKING:
-    from limn.web.parse import DocumentFacts
     from limn.web.routes import RouteBundle
 
 Json = dict[str, Any]
@@ -42,87 +40,6 @@ class BuildInitialization:
 
     started: bool
     refusal: StartupRefused | None = None
-
-
-@dataclass(frozen=True)
-class BuildView:
-    """Stateless access to published build artifacts and source facts."""
-
-    maps: BuildMapCache | Callable[[], BuildMapCache] = field(default_factory=BuildMapCache)
-
-    def _maps(self) -> BuildMapCache:
-        """Read the current run cache, including a replaced runtime."""
-        return self.maps() if callable(self.maps) else self.maps
-
-    def figure_map(self, doc: Doc, build: str) -> FigureMap | MapRejected | None:
-        """Read a figure map once per run, without granting source-read authority."""
-        return self._maps().get(doc, build) if doc.has_element_map else None
-
-    def current_pages(self, doc: BuildDoc) -> Path:
-        """Return the page directory currently published for ``doc``."""
-        return artifacts.cur_pages(doc)
-
-    def pages_for(self, doc: BuildDoc, name: object) -> Path:
-        """Return a valid historical page directory or the current directory."""
-        return artifacts.pages_dir_for(doc, name)
-
-    def page_metadata(self, pages: Path, dpi: int) -> list[dict[str, Any]]:
-        """Return published page sizes in points."""
-        return artifacts.page_list(pages, dpi)
-
-    def published_pdf(self, doc: BuildDoc, name: object) -> Path | None:
-        """Return the PDF paired with a named published build."""
-        return artifacts.build_pdf(doc, name)
-
-    def current_pdf(self, doc: BuildDoc, pages: Path | None = None) -> Path:
-        """Return the PDF paired with ``pages`` or the current page directory."""
-        return artifacts.cur_pdf(doc, pages)
-
-    def figure_pdf(self, doc: BuildDoc, build: str) -> Path | None:
-        """Return the source PDF named by a figure build's published map."""
-        return artifacts.build_figure_pdf(doc, build, lambda d, b: self._maps().get(d, b))
-
-    def snapshot(self, doc: BuildDoc) -> dict[str, Any]:
-        """Return a copy of the current build state."""
-        return artifacts.state_snapshot(doc)
-
-    def source_newer(self, doc: BuildDoc, state: Path, name: str | None = None) -> float:
-        """Return how many seconds the source is newer than a published build."""
-        return artifacts.source_newer(doc, state, name)
-
-    def source_mtime(self, doc: BuildDoc, state: Path, *, force: bool = False) -> float:
-        """Return the document source fingerprint time."""
-        return artifacts.src_mtime(doc, state, force)
-
-    def built_source_mtime(self, doc: BuildDoc) -> float | None:
-        """Return the source time recorded by the current build."""
-        return artifacts.read_built_src_mtime(doc)
-
-    def built_at(self, doc: BuildDoc) -> str | None:
-        """Return the current build's recorded timestamp."""
-        return artifacts.read_built_at(doc)
-
-    def head(self, doc: BuildDoc) -> str | None:
-        """Return the commit recorded by the current build."""
-        return artifacts.read_head(doc)
-
-    def history(self, doc: BuildDoc) -> dict[str, Any]:
-        """Return the document's bounded build history."""
-        return artifacts.load_builds(doc)
-
-    def last_failed(self, doc: BuildStateHolder) -> bool:
-        """Return whether the most recently finished build failed."""
-        return artifacts.last_build_failed(doc)
-
-    def valid_name(self, value: object) -> bool:
-        """Return whether ``value`` names a page directory."""
-        return artifacts.valid_build_name(value)
-
-    def document_facts(self, doc: Doc, root: Path, state: Path, dpi: int) -> DocumentFacts:
-        """Bind source and page parsing facts without exposing build implementation helpers."""
-        from limn.builds.document_facts import DocumentFacts
-
-        return DocumentFacts(doc, root, state, dpi, self.figure_map, builds=self)
 
 
 @dataclass(frozen=True)
@@ -165,7 +82,9 @@ class BuildCommands:
 class BuildSubsystem:
     """The build capability values used by composition."""
 
-    view: BuildView
+    documents: DocumentBuildQueries
+    pins: PinBuildQueries
+    last_failed: Callable[[BuildStateHolder], bool]
     commands: BuildCommands
     routes: RouteBundle
     startup: Callable[[Doc, bool, bool], BuildInitialization]
@@ -197,4 +116,8 @@ def assemble_builds(
             ),
         ),
     )
-    return BuildSubsystem(BuildView(maps or BuildMapCache()), commands, routes, commands.initialize)
+    owned_maps = maps or BuildMapCache()
+    queries = BuildQueries(lambda: owned_maps() if callable(owned_maps) else owned_maps)
+    return BuildSubsystem(
+        queries.documents(), queries.pins(), artifacts.last_build_failed, commands, routes, commands.initialize
+    )

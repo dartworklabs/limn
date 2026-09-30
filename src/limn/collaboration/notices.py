@@ -1,12 +1,13 @@
 """Bind events.jsonl and mention rules to one server run."""
 
 import threading
-from collections.abc import Callable, Iterable, Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 from limn.collaboration import events
+from limn.collaboration.contracts import Notice
 from limn.runtime.documents import Doc
 from limn.security import access
 from limn.security.access import is_agent_actor
@@ -23,7 +24,6 @@ class Notices:
     cache: Callable[[], events.ReadCache]
     clock: Callable[[], float]
     stamp: Callable[[], str]
-    pin_doc_key: Callable[[Mapping[str, Any]], str]
     docs: Callable[[], Sequence[Doc]]
 
     def log(self) -> events.EventLog:
@@ -34,19 +34,9 @@ class Notices:
         """Read the current event file through the run's cache."""
         return self.log().read()
 
-    def make_event(
-        self,
-        typ: events.EventType,
-        r: Mapping[str, Any],
-        actor: Mapping[str, Any],
-        to: Iterable[str | None] | None,
-        msg: Mapping[str, Any] | None = None,
-        text: str | None = None,
-    ) -> Json | None:
-        """Build one notice, excluding the actor and headerless local agent from recipients."""
-        return events.make_event(
-            typ, r, actor, to, _actor_record, self.pin_doc_key, access.LOCAL_ACTOR["login"], msg, text
-        )
+    def make_event(self, notice: Notice) -> Json | None:
+        """Filter and serialize a completed notice, without knowing pin/thread schemas."""
+        return events.make_event(notice, access.LOCAL_ACTOR["login"])
 
     def emit_events(self, notices: list[Json | None]) -> None:
         """Append committed pin notices and retain the configured recent window."""

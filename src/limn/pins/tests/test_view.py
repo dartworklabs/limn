@@ -14,6 +14,7 @@ import time
 import unittest
 
 from limn.builds.figure_map import FigureMap, MapElement, MapPage
+from limn.builds.queries import element_follower
 from limn.pins.listing.projection import (
     dropped_payload,
     element_marks,
@@ -32,7 +33,7 @@ from helpers import Base, find_record, fits, ps, records, req, write_records
 from helpers_authority import post_authority
 
 NOW = 1790000000.0
-CUR = EstContext("b2", {"b1": {"build": "b1", "src_hash": "h1"}, "b2": {"build": "b2", "src_hash": "h2"}}, None, None)
+CUR = EstContext("b2", frozenset({"b2"}), None, None)
 
 
 def shown(r):
@@ -204,28 +205,32 @@ class ElementMarks(unittest.TestCase):
     def test_an_element_where_it_was_pinned_is_ok_with_its_mark(self):
         """The same page and box as el.frac: ok, with the box as mark and the page."""
         r = {"id": 1, "page": 1, "frac": [0.48, 0.2, 0.04, 0.07], "el": EL}
-        self.assertEqual(element_marks(r, FIG), {"mark": [0.47, 0.18, 0.07, 0.12], "mark_page": 1, "el_sync": "ok"})
+        self.assertEqual(
+            element_marks(r, element_follower(FIG)), {"mark": [0.47, 0.18, 0.07, 0.12], "mark_page": 1, "el_sync": "ok"}
+        )
 
     def test_a_moved_element_gives_its_new_box_and_a_gone_one_only_lost(self):
         """Pinned at another box: moved, with the box it has now; an id the map lacks: lost and no mark."""
         r = {"id": 1, "page": 1, "el": {**EL, "frac": [0.4, 0.18, 0.07, 0.12]}}
-        self.assertEqual(element_marks(r, FIG)["el_sync"], "moved")
+        self.assertEqual(element_marks(r, element_follower(FIG))["el_sync"], "moved")
         self.assertEqual(
-            element_marks({"id": 1, "page": 1, "el": {"id": "B2/gone", "path": ["B2", "B2/gone"]}}, FIG),
+            element_marks(
+                {"id": 1, "page": 1, "el": {"id": "B2/gone", "path": ["B2", "B2/gone"]}}, element_follower(FIG)
+            ),
             {"el_sync": "lost"},
         )
 
     def test_without_the_elements_box_the_pins_own_frac_is_compared_and_never_ok_by_default(self):
         """An agent's el has no frac and its pin no frac either: the element is found, but never ok."""
         self.assertEqual(
-            element_marks({"id": 1, "el": {"id": "B2/m07", "path": ["B2", "B2/m07"]}}, FIG),
+            element_marks({"id": 1, "el": {"id": "B2/m07", "path": ["B2", "B2/m07"]}}, element_follower(FIG)),
             {"mark": [0.47, 0.18, 0.07, 0.12], "mark_page": 1, "el_sync": "moved"},
         )
 
     def test_nothing_without_a_well_formed_el_or_a_map(self):
         """No el, a malformed el or no loadable map: no fields at all."""
-        self.assertEqual(element_marks({"id": 1, "page": 1, "frac": [0, 0, 1, 1]}, FIG), {})
-        self.assertEqual(element_marks({"id": 1, "el": {"id": ""}}, FIG), {})
+        self.assertEqual(element_marks({"id": 1, "page": 1, "frac": [0, 0, 1, 1]}, element_follower(FIG)), {})
+        self.assertEqual(element_marks({"id": 1, "el": {"id": ""}}, element_follower(FIG)), {})
         self.assertEqual(element_marks({"id": 1, "el": EL}, None), {})
 
     def test_an_el_frac_that_is_not_usable_falls_back_to_the_pins_own_frac(self):
@@ -234,14 +239,20 @@ class ElementMarks(unittest.TestCase):
         own = [0.47, 0.18, 0.07, 0.12]
         for bad in ([float("nan"), 0.18, 0.07, 0.12], [float("inf"), 0, 1, 1], [HUGE, 0.18, 0.07, 0.12]):
             r = {"id": 1, "page": 1, "frac": own, "el": {**EL, "frac": bad}}
-            self.assertEqual(element_marks(r, FIG)["el_sync"], "ok", bad)
+            self.assertEqual(element_marks(r, element_follower(FIG))["el_sync"], "ok", bad)
 
     def test_an_el_frac_that_is_absent_falls_back_to_the_pins_own_frac(self):
         """el.frac missing: the pin's own frac decides - the element's box means ok, another box moved."""
         el = {"id": "B2/m07", "path": ["B2", "B2/m07"]}
         at = {"id": 1, "page": 1, "frac": [0.47, 0.18, 0.07, 0.12], "el": el}
         away = {"id": 1, "page": 1, "frac": [0.1, 0.1, 0.1, 0.1], "el": el}
-        self.assertEqual((element_marks(at, FIG)["el_sync"], element_marks(away, FIG)["el_sync"]), ("ok", "moved"))
+        self.assertEqual(
+            (
+                element_marks(at, element_follower(FIG))["el_sync"],
+                element_marks(away, element_follower(FIG))["el_sync"],
+            ),
+            ("ok", "moved"),
+        )
 
     def test_no_usable_frac_anywhere_is_moved_and_never_raises(self):
         """Neither el.frac nor the pin's frac is a usable box (NaN, an oversized integer, a wrong length, a string, a
@@ -249,7 +260,7 @@ class ElementMarks(unittest.TestCase):
         hostile = ([float("nan"), 0, 1, 1], [HUGE, 0, 1, 1], [0.47, 0.18, 0.07], "0.47,0.18,0.07,0.12", [True, 0, 1, 1])
         for bad in hostile:
             r = {"id": 1, "page": 1, "frac": bad, "el": {**EL, "frac": [float("nan"), 0, 1, 1]}}
-            self.assertEqual(element_marks(r, FIG)["el_sync"], "moved", bad)
+            self.assertEqual(element_marks(r, element_follower(FIG))["el_sync"], "moved", bad)
 
     def test_a_tiny_element_at_the_page_origin_is_never_ok_for_a_pin_without_any_frac(self):
         """A pin on page 1 with an el but no el.frac and no frac is compared with NO_FRAC: an element at the page origin
@@ -272,24 +283,27 @@ class ElementMarks(unittest.TestCase):
                     ),
                 )
                 r = {"id": 1, "page": 1, "el": {"id": "B2/dot", "path": ["B2", "B2/dot"]}}
-                self.assertEqual(element_marks(r, tiny), {"mark": [0.0, 0.0, w, w], "mark_page": 1, "el_sync": "moved"})
+                self.assertEqual(
+                    element_marks(r, element_follower(tiny)),
+                    {"mark": [0.0, 0.0, w, w], "mark_page": 1, "el_sync": "moved"},
+                )
 
     def test_a_page_that_is_not_an_integer_is_compared_as_page_zero_and_never_raises(self):
         """A missing, boolean, string or oversized page cannot be the element's page: moved, with the element's own."""
         for bad in (None, True, "1", HUGE, 1.0):
             r = {"id": 1, "page": bad, "el": EL}
-            got = element_marks(r, FIG)
+            got = element_marks(r, element_follower(FIG))
             self.assertEqual((got["el_sync"], got["mark_page"]), ("moved", 1), bad)
 
     def test_the_pin_on_another_page_than_its_element_is_moved(self):
         """The element is on page 1 now while the pin was placed on page 2 with the same box: moved."""
-        self.assertEqual(element_marks({"id": 1, "page": 2, "el": EL}, FIG)["el_sync"], "moved")
+        self.assertEqual(element_marks({"id": 1, "page": 2, "el": EL}, element_follower(FIG))["el_sync"], "moved")
 
     def test_the_record_and_the_element_are_not_changed(self):
         """element_marks is a read: neither r nor its el changes."""
         r = {"id": 1, "page": 1, "frac": [0.1, 0.1, 0.1, 0.1], "el": {"id": "B2/m07", "path": ["B2", "B2/m07"]}}
         before = json.dumps(r, sort_keys=True)
-        element_marks(r, FIG)
+        element_marks(r, element_follower(FIG))
         self.assertEqual(json.dumps(r, sort_keys=True), before)
 
 
@@ -309,7 +323,7 @@ class FigurePayload(unittest.TestCase):
         def figure_map(key):
             """Record the question; fig's map."""
             asked.append(key)
-            return FIG
+            return element_follower(FIG)
 
         out = pins_payload(rows, False, {}, shown, lambda r: r["doc"], lambda k: CUR, NOW, figure_map)
         self.assertEqual(asked, ["fig"])
@@ -331,7 +345,7 @@ class FigurePayload(unittest.TestCase):
         def figure_map(key):
             """Record the question; fig's map for fig, another figure's map (without the element) for fig2."""
             asked.append(key)
-            return FIG if key == "fig" else other
+            return element_follower(FIG if key == "fig" else other)
 
         out = pins_payload(rows, False, {}, shown, lambda r: r["doc"], lambda k: CUR, NOW, figure_map)
         self.assertEqual(asked, ["fig", "fig2"])
@@ -378,7 +392,7 @@ class FigurePayload(unittest.TestCase):
         r = {"id": 1, "page": 1, "el": {**EL, "frac": [0.4, 0.18, 0.07, 0.12]}}
         show = shown(r)
         before = (json.dumps(r, sort_keys=True), json.dumps(show, sort_keys=True))
-        rec = pin_view(r, show, [], False, "fig", NOW, FIG)
+        rec = pin_view(r, show, [], False, "fig", NOW, element_follower(FIG))
         self.assertEqual(rec["el_sync"], "moved")
         self.assertEqual((json.dumps(r, sort_keys=True), json.dumps(show, sort_keys=True)), before)
 

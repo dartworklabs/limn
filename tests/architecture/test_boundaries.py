@@ -19,6 +19,27 @@ def test_repository_respects_all_feature_surfaces():
     assert checker.check(ROOT / "src" / "limn") == []
 
 
+@pytest.mark.parametrize(
+    "provider,name",
+    [
+        ("builds", "BuildView"),
+        ("builds", "FigureMap"),
+        ("builds", "MapPage"),
+        ("builds", "MapElement"),
+        ("pins", "PinReadView"),
+    ],
+)
+def test_storage_shaped_public_contracts_cannot_return(provider, name):
+    """Re-exporting a retired broad contract must not let document consumers use it again."""
+    code = {
+        "limn.documents": '__all__ = ["act"]',
+        "limn.documents.reads": f"from limn.{provider} import {name}",
+        f"limn.{provider}": f'__all__ = ["{name}"]',
+    }
+    errors = checker.violations(code, {"limn.documents", f"limn.{provider}"}, checker.CROSSING_NAMES)
+    assert any("unapproved crossing" in error for error in errors)
+
+
 def test_server_has_no_application_service_locator():
     """The entrypoint composes ports and does not own a mega application class."""
     tree = ast.parse((ROOT / "src" / "limn" / "server.py").read_text(encoding="utf-8"))
@@ -35,11 +56,19 @@ def test_server_has_no_application_service_locator():
 def test_production_crossings_are_the_reviewed_query_contracts():
     """Public helpers cannot silently widen any current cross-capability dependency."""
     assert {
-        ("limn.collaboration", "limn.pins"): {"PinReadView"},
-        ("limn.documents", "limn.builds"): {"BuildView"},
-        ("limn.documents", "limn.pins"): {"PinReadView"},
-        ("limn.pins", "limn.builds"): {"BuildView"},
-        ("limn.revisions", "limn.pins"): {"PinReadView", "RevisionPin"},
+        ("limn.documents", "limn.builds"): {"DocumentBuildQueries", "document_build_queries"},
+        ("limn.documents", "limn.pins"): {"PinCountQueries"},
+        ("limn.pins", "limn.builds"): {
+            "PinBuildQueries",
+            "pin_build_queries",
+            "ElementFollower",
+            "ElementFact",
+            "ElementSelection",
+            "SelectionUnavailable",
+            "Publication",
+        },
+        ("limn.pins", "limn.collaboration"): {"Notice"},
+        ("limn.revisions", "limn.pins"): {"RevisionPinQuery", "RevisionPin"},
     } == checker.CROSSING_NAMES
 
 
@@ -55,7 +84,7 @@ def test_revisions_imports_only_the_pin_projection_contract():
         if base == "limn.pins"
     }
 
-    assert imported == {"RevisionPin", "PinReadView"}
+    assert imported == {"RevisionPin", "RevisionPinQuery"}
 
 
 @pytest.mark.parametrize("statement", ["import limn.builds.private", "from limn.builds import private"])
