@@ -16,19 +16,13 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from limn.builds import (
-    cur_pages as build_cur_pages,
-    page_list as build_page_list,
-    read_built_src_mtime as build_read_built_src_mtime,
-    source_newer as build_source_newer,
-    src_mtime as build_src_mtime,
-    state_snapshot as build_state_snapshot,
-)
+from limn.builds import BuildView
 from limn.documents.outline import toc_labels
 from limn.pins import OpenPin, state_of
 from limn.runtime.documents import Doc
 
 AUX_MAX_BYTES = 4 * 1024 * 1024  # a larger .aux is not read for outline labels
+_DEFAULT_BUILDS = BuildView()
 
 
 @dataclass(frozen=True)
@@ -56,14 +50,14 @@ def pins_rev(pins_jsonl: Path) -> str:
         return "0"
 
 
-def doc_brief(D: Doc, state_dir: Path) -> dict[str, Any]:
+def doc_brief(D: Doc, state_dir: Path, builds: BuildView = _DEFAULT_BUILDS) -> dict[str, Any]:
     """A summary of document D - an entry of /api/docs and (with several documents) of /api/meta's docs: kind, whether
     its pins are regions only (view_only), path, staleness against its manuscript (only for a document built from
     source), build in progress and last result, the page directory on screen and its page count. Never writes (called
     from polling)."""
-    b = build_state_snapshot(D)
-    stale = D.builds_from_source and build_source_newer(D, state_dir) > 2
-    pdir = build_cur_pages(D)
+    b = builds.snapshot(D)
+    stale = D.builds_from_source and builds.source_newer(D, state_dir) > 2
+    pdir = builds.current_pages(D)
     n_pages = sum(1 for _ in pdir.glob("page-*.png")) if pdir.is_dir() else 0
     return {
         "key": D.key,
@@ -73,7 +67,7 @@ def doc_brief(D: Doc, state_dir: Path) -> dict[str, Any]:
         "path": D.rel_path(),
         "main": D.main.name,
         "stale_build": stale,
-        "src_mtime": build_src_mtime(D, state_dir),
+        "src_mtime": builds.source_mtime(D, state_dir),
         "building": D.lock.locked(),
         "build": {"state": b["state"], "phase": b["phase"]},
         "build_seq": b.get("seq", 0),
@@ -84,7 +78,11 @@ def doc_brief(D: Doc, state_dir: Path) -> dict[str, Any]:
 
 
 def docs_payload(
-    docs: Sequence[Doc], rows: Iterable[Mapping[str, Any]], doc_of: Callable[[Mapping[str, Any]], str], state_dir: Path
+    docs: Sequence[Doc],
+    rows: Iterable[Mapping[str, Any]],
+    doc_of: Callable[[Mapping[str, Any]], str],
+    state_dir: Path,
+    builds: BuildView = _DEFAULT_BUILDS,
 ) -> dict[str, Any]:
     """GET /api/docs: every document of docs (the first is the default) with its open-pin count, from the pin records
     rows as read (doc_of says which document a record belongs to). Open pins of a key no document serves any more are
@@ -96,7 +94,7 @@ def docs_payload(
             counts[k] = counts.get(k, 0) + 1
     known = {d.key for d in docs}
     return {
-        "docs": [dict(doc_brief(d, state_dir), n_open=counts.get(d.key, 0)) for d in docs],
+        "docs": [dict(doc_brief(d, state_dir, builds), n_open=counts.get(d.key, 0)) for d in docs],
         "default": docs[0].key,
         "multi": len(docs) > 1,
         "other_open": sum(v for k, v in counts.items() if k not in known),
@@ -104,7 +102,13 @@ def docs_payload(
 
 
 def meta(
-    D: Doc, actor: Mapping[str, Any], settings: MetaSettings, docs: Sequence[Doc], sync: Mapping[str, Any], now: float
+    D: Doc,
+    actor: Mapping[str, Any],
+    settings: MetaSettings,
+    docs: Sequence[Doc],
+    sync: Mapping[str, Any],
+    now: float,
+    builds: BuildView = _DEFAULT_BUILDS,
 ) -> dict[str, Any]:
     """GET /api/meta for document D without the pin counts - exactly the light poll's body: its pages (sized at
     settings.dpi), build markers, staleness (only for a document built from source), the build in progress and the
@@ -119,13 +123,13 @@ def meta(
         except OSError:
             return "?"
 
-    bstate = build_state_snapshot(D)
-    sm = build_src_mtime(D, settings.state)
+    bstate = builds.snapshot(D)
+    sm = builds.source_mtime(D, settings.state)
     # not built from source: the server re-renders on its own when the watched file changes
-    newer = build_source_newer(D, settings.state) if D.builds_from_source else 0.0
+    newer = builds.source_newer(D, settings.state) if D.builds_from_source else 0.0
     multi = len(docs) > 1
     out = {
-        "pages": build_page_list(build_cur_pages(D), settings.dpi),
+        "pages": builds.page_metadata(builds.current_pages(D), settings.dpi),
         "built_at": read("built_at.txt"),
         "head": read("head.txt"),
         "main": D.main.name,
@@ -146,8 +150,8 @@ def meta(
         "stale_build": newer > 2,
         "src_age_s": round(max(0.0, now - sm), 1) if sm else None,
         "src_mtime": sm,
-        "build_src_mtime": build_read_built_src_mtime(D),
-        "pages_build": build_cur_pages(D).name,
+        "build_src_mtime": builds.built_source_mtime(D),
+        "pages_build": builds.current_pages(D).name,
         "pins_rev": pins_rev(settings.pins_jsonl),
         # build_seq = number of finished builds, last_build = the most recently finished build (kept regardless of any build in progress).
         "build_seq": bstate.get("seq", 0),
@@ -155,7 +159,7 @@ def meta(
         "build": {"state": bstate["state"], "phase": bstate["phase"], "started_at": bstate.get("started_at")},
     }
     if multi:  # staleness/build of other documents - the viewer shows a dot/progress marker on their tabs
-        briefs = [doc_brief(d, settings.state) for d in docs]
+        briefs = [doc_brief(d, settings.state, builds) for d in docs]
         out["docs"] = briefs
         out["src_sig"] = ",".join("%s=%.3f" % (d["key"], d["src_mtime"]) for d in briefs)
     return out
@@ -167,13 +171,13 @@ def pin_counts(states: Sequence[str]) -> dict[str, int]:
     return {"n_open": states.count("open"), "n_done": states.count("done"), "n_review": states.count("review")}
 
 
-def outline_labels(D: Doc) -> dict[str, Any]:
+def outline_labels(D: Doc, builds: BuildView = _DEFAULT_BUILDS) -> dict[str, Any]:
     """GET /api/outline-labels for document D: {build, labels} - the name of the page directory on screen and the
     outline rows (limn.documents.outline.toc_labels) of the .aux that same build published next to its PDF. Never the .aux in
     the mutable build copy, which a later failed build may have overwritten. No labels for a document not built from
     source (it publishes no .aux), a build without an .aux, an .aux that is a symlink or larger than AUX_MAX_BYTES, or
     one that cannot be read."""
-    pages = build_cur_pages(D)
+    pages = builds.current_pages(D)
     result: dict[str, Any] = {"build": pages.name, "labels": []}
     if not D.builds_from_source:
         return result

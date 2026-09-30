@@ -5,6 +5,12 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from .answer import build_failure_log as build_failure_log
+    from .application import (
+        BuildCommands as BuildCommands,
+        BuildSubsystem as BuildSubsystem,
+        BuildView as BuildView,
+        assemble_builds as assemble_builds,
+    )
     from .artifacts import (
         BuildSkipped as BuildSkipped,
         FailedBuild as FailedBuild,
@@ -30,9 +36,13 @@ if TYPE_CHECKING:
     from .service import BuildRequests as BuildRequests
 
 __all__ = [
+    "assemble_builds",
     "build_figure_pdf",
     "BuildRequests",
+    "BuildCommands",
     "BuildSkipped",
+    "BuildSubsystem",
+    "BuildView",
     "DocumentFacts",
     "FailedBuild",
     "REBUILD_PATH",
@@ -57,9 +67,13 @@ __all__ = [
 ]
 
 _EXPORTS = {
+    "assemble_builds": ("application", "assemble_builds"),
     "build_figure_pdf": ("artifacts", "build_figure_pdf"),
     "BuildRequests": ("service", "BuildRequests"),
+    "BuildCommands": ("application", "BuildCommands"),
     "BuildSkipped": ("artifacts", "BuildSkipped"),
+    "BuildSubsystem": ("application", "BuildSubsystem"),
+    "BuildView": ("application", "BuildView"),
     "DocumentFacts": ("document_facts", "DocumentFacts"),
     "FailedBuild": ("artifacts", "FailedBuild"),
     "REBUILD_PATH": ("routes", "POST_PATH"),

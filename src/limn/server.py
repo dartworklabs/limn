@@ -46,6 +46,7 @@ from limn.builds import (
     REBUILD_PATH,
     BuildRequests,
     BuildSkipped,
+    BuildView,
     DocumentFacts,
     FailedBuild,
     build_failure_log,
@@ -366,6 +367,7 @@ class ServerApplication:
     pin_markdown: PinMarkdown = field(init=False)
     location_service: PinLocationService = field(init=False)
     build_requests: BuildRequests = field(init=False)
+    build_view: BuildView = field(init=False)
     people_directory: PeopleDirectory = field(init=False)
     notices: Notices = field(init=False)
     document_views: DocumentViews = field(init=False)
@@ -399,6 +401,7 @@ class ServerApplication:
             docs=lambda: self.docs,
             known_people=self.people_directory.known,
         )
+        self.build_view = BuildView()
         self.pin_lifecycle = PinLifecycle(self.pin_context)
         self.pin_claims = PinClaims(self.pin_context)
         self.pin_trash = PinTrash(self.pin_context)
@@ -411,9 +414,11 @@ class ServerApplication:
             self.public,
         )
         self.pin_listing = PinListing(self, TRASH_DAYS)
-        self.pin_markdown = PinMarkdown(self, self.people_directory.known)
+        self.pin_markdown = PinMarkdown(self, self.people_directory.known, self.build_view)
         self.location_service = PinLocationService(
-            lambda: PickContext(self.C.src, self.C.envs, self.C.state, self.RT.token_cache, self.overlaps_for_range)
+            lambda: PickContext(
+                self.C.src, self.C.envs, self.C.state, self.RT.token_cache, self.overlaps_for_range, self.build_view
+            )
         )
         self.build_requests = BuildRequests(
             settings=lambda: self.C,
@@ -430,6 +435,7 @@ class ServerApplication:
                 share=self.RT.pull_share,
                 watch=self.RT.sync_watch,
                 start_build=self.build_requests.build_async,
+                last_failed=self.build_view.last_failed,
                 git=_git,
                 clock=time.time,
                 stamp=local_stamp,
@@ -452,6 +458,7 @@ class ServerApplication:
             pin_doc_key=self.pin_doc_key,
             events_since=self.notices.since,
             now=lambda: time.time(),
+            builds=self.build_view,
         )
         self.revision_requests = RevisionRequests(self.revision_context)
         self.get_routes = (
@@ -626,7 +633,7 @@ class ServerApplication:
         """What estimation reads of the builds of the document key names (limn.pins.location.lookup.est_context), or None when this
         instance no longer serves that document."""
         D = self.doc_by_key(key)
-        return None if D is None else est_context(D)
+        return None if D is None else est_context(D, self.build_view)
 
     def overlaps_by_id(self, pins: Sequence[Pin]) -> dict[int, list[Json]]:
         """The relationship of every pair of open line pins on the same file, each counted where pin_location() places it
@@ -654,7 +661,7 @@ class ServerApplication:
     def document_facts(self, D: Doc) -> DocumentFacts:
         """The parsing facts of document D (limn.runtime.documents.DocumentFacts) with this instance's manuscript root, state
         folder and dpi - made per request like pin_store(), so a test that replaces this application's C is seen at once."""
-        return DocumentFacts(D, self.C.src, self.C.state, self.C.dpi)
+        return DocumentFacts(D, self.C.src, self.C.state, self.C.dpi, self.build_view)
 
     def pin_context(self) -> PinContext:
         """The pin services' view of this instance (limn.pins.context.PinContext), made per call like pin_store(), so a
@@ -677,6 +684,7 @@ class ServerApplication:
             thread_max=THREAD_MAX,
             trash_days=TRASH_DAYS,
             trash_checked=self.RT.trash_checked,
+            builds=self.build_view,
         )
 
     def http_audit(self, action: AuditAction, by: Json, details: Json) -> bool:

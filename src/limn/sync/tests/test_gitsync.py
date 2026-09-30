@@ -46,7 +46,7 @@ class ModuleBoundary(unittest.TestCase):
         tree = ast.parse(GITSYNC_PY.read_text(encoding="utf-8"))
         modules = {a.name for n in ast.walk(tree) if isinstance(n, ast.Import) for a in n.names}
         modules |= {n.module or "" for n in ast.walk(tree) if isinstance(n, ast.ImportFrom)}
-        self.assertEqual({m for m in modules if m.startswith("limn")}, {"limn.sync.rules", "limn.builds"})
+        self.assertEqual({m for m in modules if m.startswith("limn")}, {"limn.sync.rules"})
         self.assertFalse({"http", "http.server", "urllib", "subprocess"} & modules)
 
     def test_reads_no_server_global(self):
@@ -304,6 +304,7 @@ class Watch(unittest.TestCase):
         self.pdf = FakeDoc(root / "pdf", builds_from_source=False)
         self.docs = [self.ms, self.hl, self.pdf]
         self.started = []
+        self.last_failed = limn_build.last_build_failed
 
     def tearDown(self):
         """Remove the folder."""
@@ -318,7 +319,7 @@ class Watch(unittest.TestCase):
     def test_disabled_without_git_pull(self):
         """Without --git-pull the status and a round are just "disabled"; nothing is pulled."""
         watch = SyncWatch()
-        self.assertEqual(watch.status(self.docs, False), {"state": "disabled"})
+        self.assertEqual(watch.status(self.docs, False, self.last_failed), {"state": "disabled"})
         self.assertEqual(watch.once(self.docs, False, None, PullShare(), None, None, None), {"state": "disabled"})
 
     def test_up_to_date_rebuilds_only_the_document_behind(self):
@@ -330,7 +331,7 @@ class Watch(unittest.TestCase):
             out, {"state": "updating", "reason": None, "head_before": B, "head_after": B, "checked_at": "T"}
         )
         self.assertEqual((share.last, share.at), (UpToDate(B), 5.0))
-        self.assertEqual(watch.status(self.docs, True)["state"], "updating")  # ms is still behind
+        self.assertEqual(watch.status(self.docs, True, self.last_failed)["state"], "updating")  # ms is still behind
 
     def test_fast_forward_rebuilds_every_latex_document(self):
         """After Pulled every LaTeX document is rebuilt, the view-only PDF never."""
@@ -351,7 +352,7 @@ class Watch(unittest.TestCase):
         watch = SyncWatch()
         out = self.once(watch, PullFailed("fetch_failed", A))
         self.assertEqual(self.started, [])
-        self.assertEqual(watch.status(self.docs, True), out)
+        self.assertEqual(watch.status(self.docs, True, self.last_failed), out)
         self.assertEqual((out["state"], out["reason"]), ("error", "fetch_failed"))
 
     def test_a_running_build_defers_the_round_and_keeps_the_heads(self):
@@ -364,7 +365,7 @@ class Watch(unittest.TestCase):
         finally:
             self.hl.lock.release()
         self.assertEqual(out, {"state": "deferred", "reason": "building", "checked_at": "T"})
-        self.assertEqual(watch.status(self.docs, True)["head_after"], A)
+        self.assertEqual(watch.status(self.docs, True, self.last_failed)["head_after"], A)
         self.assertFalse(self.ms.lock.locked())
 
     def test_status_settles_when_every_document_reached_the_commit(self):
@@ -372,14 +373,16 @@ class Watch(unittest.TestCase):
         watch = SyncWatch()
         self.once(watch, UpToDate(B))
         (self.ms.dir / "head.txt").write_text("bbbbbbb", encoding="utf-8")
-        self.assertEqual((watch.status(self.docs, True)["state"], watch.record["state"]), ("current", "current"))
+        self.assertEqual(
+            (watch.status(self.docs, True, self.last_failed)["state"], watch.record["state"]), ("current", "current")
+        )
 
     def test_status_reports_a_failed_build(self):
         """A document still behind whose build failed turns the status to error/build_failed."""
         watch = SyncWatch()
         self.once(watch, UpToDate(B))
         self.ms.bstate["state"] = "fail"
-        status = watch.status(self.docs, True)
+        status = watch.status(self.docs, True, self.last_failed)
         self.assertEqual((status["state"], status["reason"]), ("error", "build_failed"))
 
     def test_watch_survives_a_crashing_round(self):

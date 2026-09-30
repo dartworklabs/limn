@@ -73,6 +73,10 @@ class DocumentFacts(Protocol):
         """The name of the page directory on screen."""
         ...
 
+    def valid_build_name(self, value: object) -> bool:
+        """Whether ``value`` is a page directory name accepted by the build artifact boundary."""
+        ...
+
     def pick_pages(self, build: str | None) -> tuple[Path, list[tuple[float, float]]] | None:
         """The page directory a selection is traced in and each page's (width, height) in points: build's own (a valid
         name), or the one on screen for None. None when build names a page directory that is gone."""

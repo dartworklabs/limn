@@ -5,18 +5,15 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Protocol, TypeAlias
 
-from limn.builds import (
-    build_figure_pdf,
-    cur_pdf as build_cur_pdf,
-    source_newer as build_source_newer,
-    state_snapshot as build_state_snapshot,
-)
+from limn.builds import BuildView
 from limn.pins.editing.values import PDF_QUOTE_MAX
 from limn.pins.location import source
 from limn.pins.location.mapping import Traced, norm, snippet, trace_range, truncate_quote
 from limn.pins.location.source import TokenCache
 from limn.platform.files import ManuscriptFile, file_in_tree, tex_lines
 from limn.runtime.documents import Doc, to_source
+
+_DEFAULT_BUILDS = BuildView()
 
 
 class Selection(Protocol):
@@ -62,6 +59,7 @@ class PickContext:
     state: Path
     tokens: TokenCache
     overlaps: Callable[[str, int, int], list[dict[str, Any]]]
+    builds: BuildView = BuildView()
 
 
 @dataclass(frozen=True)
@@ -149,10 +147,10 @@ def pick(D: Doc, request: Selection, ctx: PickContext) -> Picked | PickedRegion 
     against that build's PDF and returned as pdf_build in the response - the viewer carries that value
     through unchanged when saving the pin (/api/pin) to record "which build's coordinates these are" (§Position estimation)."""
     pdir, page, (x0, y0, x1, y1), (pw, ph), frac = request.pdir, request.page, request.box, request.size, request.frac
-    pdf = build_cur_pdf(D, pdir)
+    pdf = ctx.builds.current_pdf(D, pdir)
     rtext = source.region_text(pdf, page, x0, y0, x1, y1)
     if D.view_only:
-        return _pick_region(D, pdir, page, (x0, y0, x1, y1), (pw, ph), frac, rtext, ctx.root)
+        return _pick_region(D, pdir, page, (x0, y0, x1, y1), (pw, ph), frac, rtext, ctx.root, ctx.builds)
     sy = source.by_synctex(pdf, page, x0, y0, x1, y1)
 
     src = to_source(D, sy[0]) if sy else D.main
@@ -169,8 +167,8 @@ def pick(D: Doc, request: Selection, ctx: PickContext) -> Picked | PickedRegion 
     if traced is None:
         return NoSourceHere()
 
-    stale = build_source_newer(D, ctx.state, pdir.name) > 2
-    bstate = build_state_snapshot(D)
+    stale = ctx.builds.source_newer(D, ctx.state, pdir.name) > 2
+    bstate = ctx.builds.snapshot(D)
     return Picked(
         file=found.path,
         page=page,
@@ -195,6 +193,7 @@ def _pick_region(
     frac: list[float] | None,
     rtext: str,
     root: Path,
+    builds: BuildView,
 ) -> PickedRegion:
     """pick for a document whose pins are regions - only page/region and the region's text (pdftotext), no SyncTeX.
     If frac wasn't sent (agent curl), it's built from the coordinates - for such a pin, the region is the whole
@@ -204,8 +203,8 @@ def _pick_region(
     if frac is None:
         frac = [x0 / pw, y0 / ph, (x1 - x0) / pw, (y1 - y0) / ph]
     text = norm(rtext)
-    bstate = build_state_snapshot(D)
-    pdf, name = _region_pdf(D, pdir, root)
+    bstate = builds.snapshot(D)
+    pdf, name = _region_pdf(D, pdir, root, builds)
     return PickedRegion(
         doc=D.key,
         page=page,
@@ -220,13 +219,13 @@ def _pick_region(
     )
 
 
-def _region_pdf(D: Doc, pdir: Path, root: Path) -> tuple[str, str]:
+def _region_pdf(D: Doc, pdir: Path, root: Path, builds: BuildView = _DEFAULT_BUILDS) -> tuple[str, str]:
     """The PDF a region pick names, as (path from the manuscript root, file name). A view-only PDF names itself
     (Doc.rel_path). A document with an element map names the PDF the map of the drag's build (pdir) names
     (limn.build_figure_pdf) - or its map file when that build has no loadable map or the map's PDF lies outside
     the document's folder, so no path outside it is ever named."""
     if D.has_element_map:
-        named = build_figure_pdf(D, pdir.name)
+        named = builds.figure_pdf(D, pdir.name)
         if named is not None:
             try:
                 return str(named.relative_to(root.resolve())), named.name

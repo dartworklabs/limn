@@ -17,11 +17,28 @@ from dataclasses import dataclass
 from typing import Literal, NamedTuple, TypeAlias, TypedDict
 
 from limn.pins import RevisionPin
-from limn.pins.location.mapping import find_line, norm
 
 SCOPE_CONTEXT = 3  # context lines around a scoped hunk, git's default
 REVISION_DIFF_MAX = 256 * 1024  # response/memory cap of a source diff. Review large changes in the repo instead.
 _U0_HUNK_RE = re.compile(rb"^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@", re.M)
+
+
+def _norm(line: str) -> str:
+    """Collapse whitespace exactly as stored pin anchors do."""
+    return " ".join(line.split())
+
+
+def _find_line(lines: Sequence[str], needle: object, near: int) -> int | None:
+    """Return the nearest one-based exact or stable-prefix anchor match."""
+    if not isinstance(needle, str) or not needle:
+        return None
+    candidates = [index for index, text in enumerate(lines) if text == needle]
+    key = needle[:40] if len(needle) >= 12 else None
+    if not candidates and key is not None:
+        candidates = [index for index, text in enumerate(lines) if key in text]
+    if not candidates:
+        return None
+    return min(candidates, key=lambda index: abs(index + 1 - near)) + 1
 
 
 @dataclass(frozen=True)
@@ -220,12 +237,12 @@ def pin_range_candidates(f: FileChange, pin: RevisionPin) -> list[Placement]:
             texts, to_git = sides[side]
             if not texts:
                 continue
-            nl = [norm(t) for t in texts]
-            head = find_line(nl, anc.head, lo + ho)
+            nl = [_norm(t) for t in texts]
+            head = _find_line(nl, anc.head, lo + ho)
             if head is None:
                 continue
             a = max(1, head - ho)
-            tail = find_line(nl, anc.tail, hi - to + (a - lo))
+            tail = _find_line(nl, anc.tail, hi - to + (a - lo))
             b = max(a, min(len(texts), tail + to if tail is not None and tail >= head else a + (hi - lo)))
             found.append((abs(a - lo), rank, Placement(side, to_git(a), to_git(b))))
     raw = "old" if pin.stale else "new"

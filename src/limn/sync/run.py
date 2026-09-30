@@ -20,7 +20,6 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Protocol, TypeAlias, TypeVar
 
-from limn.builds import last_build_failed
 from limn.sync.rules import (
     Building,
     Built,
@@ -175,12 +174,12 @@ def _built_head(D: SyncDoc) -> str:
         return ""
 
 
-def _progress(D: SyncDoc) -> DocProgress:
+def _progress(D: SyncDoc, last_failed: Callable[[SyncDoc], bool]) -> DocProgress:
     """Where LaTeX document D's build stands for the watch status: running, or at rest with its built commit and
     whether its last build failed."""
     if D.lock.locked():
         return Building()
-    return Built(_built_head(D), last_build_failed(D))
+    return Built(_built_head(D), last_failed(D))
 
 
 class SyncWatch:
@@ -192,7 +191,7 @@ class SyncWatch:
         self.lock = threading.Lock()
         self.record: Json = initial_status()
 
-    def status(self, docs: Iterable[SyncDoc], enabled: bool) -> Json:
+    def status(self, docs: Iterable[SyncDoc], enabled: bool, last_failed: Callable[[SyncDoc], bool]) -> Json:
         """The status for GET /api/meta: "disabled" without --git-pull. An "updating" status is settled here once every
         document built from source was built from the pulled commit ("current"), or one still behind it failed its
         build ("error", build_failed). Returns a copy."""
@@ -203,7 +202,7 @@ class SyncWatch:
         if record.get("state") != "updating" or not record.get("head_after"):
             return record
         head = record["head_after"]
-        done = settled(head, [_progress(D) for D in list(docs) if D.builds_from_source])
+        done = settled(head, [_progress(D, last_failed) for D in list(docs) if D.builds_from_source])
         if done is None:
             return record
         with self.lock:

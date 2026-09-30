@@ -7,7 +7,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Protocol
 
-from limn.builds import read_built_at as build_read_built_at, read_head as build_read_head
+from limn.builds import BuildView
 from limn.pins.listing.render import DocHeading, PinFacts, PinsMdInput, pins_md_text as render_pins_md_text, rel_badge
 from limn.pins.location.lookup import PinLocation
 from limn.pins.mentions import addressed_to, fyi_mentions_to, thread_round
@@ -52,6 +52,7 @@ class PinMarkdown:
 
     deps: MarkdownDeps
     known_people: Callable[[Sequence[Pin] | None], dict[str, Json]]
+    builds: BuildView = BuildView()
 
     def current_text(self, base: str) -> str:
         """GET /pins.md after its shared guards and remote base calculation."""
@@ -96,8 +97,8 @@ class PinMarkdown:
                 d.rel_path(),
                 view_only=d.view_only,
                 builds_from_source=d.builds_from_source,
-                head=build_read_head(d),
-                built_at=build_read_built_at(d),
+                head=self.builds.head(d),
+                built_at=self.builds.built_at(d),
             )
             for d in self.deps.docs
         )

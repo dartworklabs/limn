@@ -9,12 +9,7 @@ from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 from typing import Any, NamedTuple, Protocol, TypeAlias
 
-from limn.builds import (
-    cur_pages as build_cur_pages,
-    load_builds as build_load_builds,
-    read_built_at as build_read_built_at,
-    read_built_src_mtime as build_read_built_src_mtime,
-)
+from limn.builds import BuildView
 from limn.pins.location import position
 from limn.pins.location.mapping import norm, pin_rel_path
 from limn.pins.location.position import EstContext, epoch, est_basis, resync
@@ -24,6 +19,7 @@ from limn.runtime.documents import Doc
 
 # One stored pin as the store reads it: a JSON object (limn.pins.store.Row).
 Row: TypeAlias = dict[str, Any]
+_DEFAULT_BUILDS = BuildView()
 
 # ---------------------------------------------------------------- Where a pin's file is now (ADR-0006)
 
@@ -194,8 +190,8 @@ def sync_all(pins: list[Pin], locate: Locator) -> bool:
 # ---------------------------------------------------------------- Location estimation (.est)
 
 
-def est_context(D: Doc) -> EstContext:
+def est_context(D: Doc, builds: BuildView = _DEFAULT_BUILDS) -> EstContext:
     """What estimation needs to know about document D's builds (limn.pins.location.position.est_basis), its history read once."""
-    h = build_load_builds(D)
-    cur = build_cur_pages(D).name
-    return est_basis(cur, h["by"], build_read_built_src_mtime(D), epoch(build_read_built_at(D)))
+    history = builds.history(D)
+    current = builds.current_pages(D).name
+    return est_basis(current, history["by"], builds.built_source_mtime(D), epoch(builds.built_at(D)))

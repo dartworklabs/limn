@@ -8,7 +8,6 @@ outcome value that the HTTP layer answers (limn.pins.editing.http).
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 
-from limn.builds import cur_pages as build_cur_pages
 from limn.pins.context import Event, PinContext, load_pin, typed_actor
 from limn.pins.editing.rules import (
     AddRequest,
@@ -70,12 +69,14 @@ def add_pin(ctx: PinContext, D: Doc, request: AddRequest, actor: PostAuthority) 
                     actor,
                     tags.mentions,
                     anchoring,
-                    build_cur_pages(D).name,
+                    ctx.builds.current_pages(D).name,
                     D.key,
                     located(ctx.locate({"file": place.file})),
                 )
             case RegionPlace():
-                pin = new_region_pin(place, request, pid, at, actor, tags.mentions, build_cur_pages(D).name, D.key)
+                pin = new_region_pin(
+                    place, request, pid, at, actor, tags.mentions, ctx.builds.current_pages(D).name, D.key
+                )
         pins.append(pin)
         evs.append(ctx.make_event("mention", pin.record, actor, tags.notify, text=request.note))
         if request.assignee is not None and request.assignee != ASSIGNEE_AGENT:

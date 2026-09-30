@@ -4,6 +4,7 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 
+from limn.builds import BuildView
 from limn.documents import reads
 from limn.pins import Pin, Record
 from limn.runtime.documents import Doc
@@ -23,10 +24,11 @@ class DocumentViews:
     pin_doc_key: Callable[[Record], str]
     events_since: Callable[[Json, int | None], Json]
     now: Callable[[], float]
+    builds: BuildView = BuildView()
 
     def meta(self, doc: Doc, actor: Json, light: bool = False) -> Json:
         """The document's current viewer state; a full read also resynchronizes pin counts."""
-        out = reads.meta(doc, actor, self.settings(), self.docs, self.sync_status(), self.now())
+        out = reads.meta(doc, actor, self.settings(), self.docs, self.sync_status(), self.now(), self.builds)
         if not light:
             out.update(reads.pin_counts([pin.state for pin in self.snapshot_pins()]))
         return out
@@ -34,8 +36,10 @@ class DocumentViews:
     def docs_payload(self) -> Json:
         """The current document list and open-pin counts from a read without resynchronization."""
         pins, _ = self.read_pins()
-        return reads.docs_payload(self.docs, [pin.record for pin in pins], self.pin_doc_key, self.settings().state)
+        return reads.docs_payload(
+            self.docs, [pin.record for pin in pins], self.pin_doc_key, self.settings().state, self.builds
+        )
 
     def outline(self, doc: Doc) -> Json:
         """Labels from the .aux published with the page images on screen."""
-        return reads.outline_labels(doc)
+        return reads.outline_labels(doc, self.builds)

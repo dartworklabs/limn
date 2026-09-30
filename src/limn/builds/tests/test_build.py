@@ -12,6 +12,8 @@ Run: uv run pytest -q src/limn/builds/tests/test_build.py
 import ast
 import json
 import os
+import subprocess
+import sys
 import tempfile
 import threading
 import time
@@ -21,8 +23,10 @@ from pathlib import Path
 from unittest import mock
 
 from limn.builds import (
+    BuildView,
     artifacts as build,
     artifacts as limn_build,
+    assemble_builds,
     engine as build_engine,
     figure_map as figmap,
     run as build_run,
@@ -145,6 +149,23 @@ class NoServerState(unittest.TestCase):
             source = path.read_text(encoding="utf-8")
             self.assertNotIn("C.", source, path.name)
             self.assertNotIn("cur_doc(", source, path.name)
+
+    def test_importing_build_view_does_not_load_http_adapters(self):
+        """The cross-capability read contract must not initialize route or HTTP modules."""
+        code = (
+            "import sys; from limn.builds import BuildView; BuildView(); "
+            "print(sorted(n for n in sys.modules if n in {'limn.builds.http', 'limn.builds.routes'}))"
+        )
+        result = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, check=False)
+        self.assertEqual((result.returncode, result.stdout.strip()), (0, "[]"), result.stderr)
+
+    def test_assembler_returns_the_public_build_subsystem(self):
+        """Composition receives reads, commands, routes, and the startup operation as one subsystem."""
+        subsystem = assemble_builds(lambda: None, lambda: {}, lambda: [], lambda: "now")
+
+        self.assertIsInstance(subsystem.view, BuildView)
+        self.assertIs(subsystem.startup.__self__, subsystem.commands)
+        self.assertEqual(subsystem.routes.post_path, "/api/rebuild")
 
 
 class DocumentMemoOwnership(unittest.TestCase):
@@ -794,6 +815,33 @@ class ReadsBeforeAndBetweenBuilds(unittest.TestCase):
         self.assertAlmostEqual(build.src_mtime(self.tex, self.state, force=True), self.t + 200, places=3)
         self.assertAlmostEqual(build.src_mtime(self.pdf, self.state, force=True), self.t + 100, places=3)
 
+    def test_build_view_exposes_published_artifacts_freshness_state_and_stamps(self):
+        """Consumers can read every shared build fact through one stateless contract."""
+        view = BuildView()
+        current = self.tex.dir / "pages-20260930120000"
+        historical = self.tex.dir / "pages-20260929120000"
+        for pages in (current, historical):
+            pages.mkdir(parents=True)
+            (pages / "page-1.png").write_bytes(blank_png(300, 600))
+            (pages / "main.pdf").write_bytes(MINI_PDF)
+        (self.tex.dir / "pages.cur").write_text(current.name, encoding="utf-8")
+        (self.tex.dir / "built_at.txt").write_text("2026-09-30 12:00:00", encoding="utf-8")
+        (self.tex.dir / "head.txt").write_text("abc1234", encoding="utf-8")
+        (self.tex.dir / "built_src_mtime.txt").write_text(str(self.t), encoding="utf-8")
+        self.tex.bstate.update(state="fail", phase="done")
+
+        self.assertEqual(view.current_pages(self.tex), current)
+        self.assertEqual(view.page_metadata(current, 150), [{"name": "page-1.png", "pt_w": 144.0, "pt_h": 288.0}])
+        self.assertEqual(view.published_pdf(self.tex, historical.name), historical / "main.pdf")
+        self.assertEqual(view.snapshot(self.tex)["state"], "fail")
+        self.assertGreater(view.source_mtime(self.tex, self.state, force=True), self.t)
+        self.assertGreater(view.source_newer(self.tex, self.state), 0)
+        self.assertEqual(view.built_source_mtime(self.tex), self.t)
+        self.assertEqual((view.built_at(self.tex), view.head(self.tex)), ("2026-09-30 12:00:00", "abc1234"))
+        self.assertEqual(view.history(self.tex)["builds"], [])
+        self.assertTrue(view.last_failed(self.tex))
+        self.assertTrue(view.valid_name(current.name))
+
 
 class FigureBuildFacts(unittest.TestCase):
     """The figure build facts limn.builds.artifacts shares with the builds and pins slices: which map paths a figure document
@@ -813,6 +861,7 @@ class FigureBuildFacts(unittest.TestCase):
         paths = RunPaths(root / "ms", root / "ms" / "main.tex", root / "state")
         self.doc = Doc("fig", "그림", "figure", self.figs, self.figs / "out" / "figures.limnmap.json", paths=paths)
         self.inside = build.figure_source_check(self.figs)
+        self.view = BuildView()
 
     def map_naming(self, pdf: str) -> figmap.FigureMap:
         """A map with no pages that names pdf."""
@@ -866,6 +915,17 @@ class FigureBuildFacts(unittest.TestCase):
         for name in ("../pages-20260101000000", "pages-x", "", "figure-import", "pages-20260102000000"):
             self.assertIsNone(build.load_build_map(self.doc, name), name)
             self.assertIsNone(build.build_figure_pdf(self.doc, name), name)
+
+    def test_build_view_keeps_current_and_historical_figure_pdf_facts(self):
+        """The read contract resolves each build's published figure map, including the current pointer."""
+        current = self.publish("pages-20260101000000", map_bytes(figure_map(MINI_PDF)))
+        historical = self.publish("pages-20251231000000", map_bytes(figure_map(MINI_PDF)))
+        self.doc.dir.mkdir(parents=True, exist_ok=True)
+        (self.doc.dir / "pages.cur").write_text(current.name, encoding="utf-8")
+
+        self.assertEqual(self.view.current_pages(self.doc), current)
+        self.assertEqual(self.view.figure_pdf(self.doc, current.name), self.figs / "out" / "figures.pdf")
+        self.assertEqual(self.view.figure_pdf(self.doc, historical.name), self.figs / "out" / "figures.pdf")
 
     def test_a_published_map_is_checked_again_when_read(self):
         """The copy is parsed with the document's own source check: a source outside figs/ is path_outside, a copy

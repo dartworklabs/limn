@@ -3,7 +3,6 @@
 from dataclasses import dataclass
 from typing import Any
 
-from limn.builds import valid_build_name
 from limn.pins.editing.fields import parse_scope
 from limn.pins.editing.values import PDF_QUOTE_MAX, Scope
 from limn.pins.location.mapping import norm, truncate_quote
@@ -155,7 +154,7 @@ def parse_loc(d: Json, facts: DocumentFacts) -> LineLoc | InputRejected:
             return InputRejected("quote 는 문자열입니다.", "bad_quote")
         quote = truncate_quote(quote, 60)
     pdf_build = d.get("pdf_build")  # the build on screen at drag time (pdf_build from the pick response)
-    if pdf_build is not None and not valid_build_name(pdf_build):
+    if pdf_build is not None and not facts.valid_build_name(pdf_build):
         return InputRejected(PDF_BUILD_REFUSAL, "bad_pdf_build")
     return LineLoc(
         file=str(f),
@@ -208,7 +207,7 @@ def parse_region(d: Json, facts: DocumentFacts) -> RegionLoc | InputRejected:
     if isinstance(page, InputRejected):
         return page
     want = d.get("pdf_build")
-    if want is not None and not valid_build_name(want):
+    if want is not None and not facts.valid_build_name(want):
         return InputRejected(PDF_BUILD_REFUSAL, "bad_pdf_build")
     n = facts.page_count(want)
     if page < 1 or (n and page > n):
