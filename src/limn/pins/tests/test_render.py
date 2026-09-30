@@ -18,6 +18,7 @@ import shutil
 import unittest
 from pathlib import Path
 
+from limn.builds import figure_map as figmap
 from limn.pins.claims import input as claims_input
 from limn.pins.lifecycle.rules import CloseRequest
 from limn.pins.listing import render, render as md_render
@@ -458,6 +459,368 @@ class BadgeWords(unittest.TestCase):
                 table,
                 r"^\| `[⊂∩⏳✎⚠]",
             )
+
+
+EL7 = {
+    "id": "B2/calendar/m07",
+    "path": ["B2", "B2/calendar", "B2/calendar/m07"],
+    "label": "7월",
+    "part": "MonthCell",
+    "impl": {"file": "lib/components.py", "lo": 410, "hi": 470},
+    "frac": [0.47, 0.18, 0.07, 0.12],
+}
+FIG = DocHeading(
+    "fig", "그림", "figs/out/figures.limnmap.json", view_only=False, builds_from_source=False, head=None, built_at=None,
+    has_element_map=True,
+)  # fmt: skip
+PDF = DocHeading("rv", "리뷰", "review.pdf", view_only=True, builds_from_source=False, head=None, built_at=None)
+VIEW_ONLY_CLAUSE = "보기 전용 PDF 의 핀은 줄 번호가 없다"
+
+
+def guidance_line(md):
+    """The close-guidance paragraph of pins.md."""
+    return next(line for line in md.splitlines() if line.startswith("처리한 핀은 닫는다"))
+
+
+def el_with_impl(file, lo=410, hi=470):
+    """EL7 with its shared part at file, lo..hi."""
+    return dict(EL7, impl={"file": file, "lo": lo, "hi": hi})
+
+
+def region_pin(pid, doc_pdf="/ms/figs/out/figures.pdf", **extra):
+    """An open region pin on page 1 with a note - the shape of a pin on a view-only PDF or of a figure pick that fell
+    back to a region."""
+    r = {
+        "id": pid,
+        "pdf": doc_pdf,
+        "page": 1,
+        "frac": [0.55, 0.18, 0.07, 0.12],
+        "kind": "region",
+        "note": "note %d" % pid,
+    }
+    r.update(extra)
+    return r
+
+
+class FigureRows(unittest.TestCase):
+    """A figure pin's pins.md row: lines and kind as any line pin, the element's «label», its shared part and a lost
+    element, and one guidance clause while figure pins are open."""
+
+    def test_a_figure_pin_row_shows_its_lines_kind_label_and_shared_part(self):
+        """Location and range as the record says; «7월» before the note; the shared part after it, manuscript-relative."""
+        r = line_pin(
+            1,
+            file="/ms/figs/src/B2_calendar.py",
+            lo=88,
+            hi=95,
+            scope="el",
+            kind="el:MonthCell",
+            el=EL7,
+            note="글자를 키워 줘",
+        )
+        md = pins_md_text(
+            page([r], {1: facts(location="figs/src/B2_calendar.py", impl_location="figs/lib/components.py")})
+        )
+        self.assertIn(
+            "| 1 | 1 | `figs/src/B2_calendar.py L88-L95` | el:MonthCell | «7월» 글자를 키워 줘 ⏎ 공통 부품: figs/lib/components.py:410-470 |",
+            md,
+        )
+
+    def test_a_lost_element_is_marked_like_a_lost_location(self):
+        """el_sync lost: 요소 잃음 in the number cell."""
+        md = pins_md_text(page([line_pin(1, scope="el", kind="el:MonthCell", el=EL7)], {1: facts(el_sync="lost")}))
+        self.assertIn("| 1 · 요소 잃음 |", md)
+
+    def test_an_element_that_is_ok_or_moved_or_unknown_is_not_marked_lost(self):
+        """Only lost is a warning: ok, moved and no answer (the map did not load) leave the number cell as it was."""
+        for sync in ("ok", "moved", None):
+            with self.subTest(el_sync=sync):
+                md = pins_md_text(page([line_pin(1, el=EL7)], {1: facts(el_sync=sync)}))
+                self.assertNotIn("요소 잃음", md.replace(render.FIGURE_GUIDANCE, ""))
+                self.assertIn("| 1 |", md)
+
+    def test_a_lost_element_and_a_lost_location_are_both_named_in_the_row_order(self):
+        """The two warnings sit side by side in the number cell, the location's first (the stale rule is unchanged)."""
+        md = pins_md_text(page([line_pin(1, el=EL7, stale=True)], {1: facts(el_sync="lost")}))
+        self.assertIn("| 1 · 위치 잃음 · 요소 잃음 |", md)
+
+    def test_the_figure_clause_needs_an_element_pin(self):
+        """Without an element pin the guidance is as before; with one it gains exactly FIGURE_GUIDANCE."""
+        plain = guidance_line(pins_md_text(page([line_pin(1)])))
+        self.assertNotIn(render.FIGURE_GUIDANCE, plain)
+        self.assertEqual(guidance_line(pins_md_text(page([line_pin(1, el=EL7)]))), plain + render.FIGURE_GUIDANCE)
+
+    def test_a_region_pin_with_an_element_takes_the_figure_clause_not_the_view_only_one(self):
+        """An element drawn without code is a region pin: «label» before the note, the figure clause, no view-only one."""
+        r = region_pin(
+            1,
+            quote="8월",
+            note="색",
+            el={"id": "B2/calendar/m08", "path": ["B2", "B2/calendar", "B2/calendar/m08"], "label": "8월"},
+        )
+        md = pins_md_text(page([r]))
+        self.assertIn("| 영역 | «8월» 색 |", md)
+        self.assertIn(render.FIGURE_GUIDANCE, md)
+        self.assertNotIn(VIEW_ONLY_CLAUSE, md)
+
+    def test_an_element_without_a_label_keeps_the_usual_quote_rule(self):
+        """No label: the long-line quote rule applies as to any line pin."""
+        r = line_pin(1, lo=4, hi=4, quote="q", el={"id": "B2", "path": ["B2"]})
+        self.assertIn("«q» note 1", pins_md_text(page([r], {1: facts(line_len=700)})))
+
+    def test_a_label_with_a_pipe_or_a_newline_cannot_break_the_row(self):
+        """The «label» goes through md_cell: a pipe is escaped and a newline becomes a space, so the row keeps its 5 columns."""
+        el = dict(EL7, label="a|b\nc")
+        md = pins_md_text(page([line_pin(1, el=el)]))
+        row = next(line for line in md.splitlines() if line.startswith("| 1 |"))
+        self.assertIn("«a\\|b c» note 1", row)
+        self.assertEqual(len(re.split(r"(?<!\\)\|", row)), 5 + 2)
+
+    def test_an_element_with_a_label_takes_precedence_over_a_stored_quote_on_a_long_line(self):
+        """A figure pin's «label» is always shown and replaces the long-line quote: never two «…» before one note."""
+        r = line_pin(1, lo=4, hi=4, quote="the quote", el=EL7)
+        row = next(
+            line for line in pins_md_text(page([r], {1: facts(line_len=900)})).splitlines() if line.startswith("| 1 |")
+        )
+        self.assertIn("«7월» note 1", row)
+        self.assertNotIn("the quote", row)
+
+    def test_a_figure_label_alone_does_not_bring_the_legend(self):
+        """The legend explains «…» as rendered text; a figure's «label» does not switch it on (FIGURE_GUIDANCE explains it)."""
+        self.assertNotIn(render.LEGEND, pins_md_text(page([line_pin(1, el=EL7)])))
+
+    def test_a_malformed_el_is_no_figure_pin_and_never_raises(self):
+        """A stored el that is not a shape the store trusts (a number, a list, a path that is not strings) is ignored: no
+        «label», no clause, no part - the row and the guidance are the plain line pin's."""
+        plain = pins_md_text(page([line_pin(1)]))
+        for bad in (
+            5,
+            [],
+            "x",
+            {"id": "", "path": []},
+            {"id": "a", "path": [1]},
+            {"id": "a", "path": ["a"], "label": 3},
+        ):
+            with self.subTest(el=bad):
+                self.assertEqual(pins_md_text(page([line_pin(1, el=bad)])), plain)
+
+
+class SharedPart(unittest.TestCase):
+    """'공통 부품: <path>:<lo>-<hi>' is a line an agent acts on: printed only for a plain relative path (limn.builds.figure_map's
+    canonical rule, no dot-named part), never as the stored text alone."""
+
+    def part_of(self, el, impl_location):
+        """The note cell of a row for a pin with el whose shared part the edge placed at impl_location."""
+        md = pins_md_text(page([line_pin(1, el=el, note="n")], {1: facts(impl_location=impl_location)}))
+        return next(line for line in md.splitlines() if line.startswith("| 1 |"))
+
+    def test_the_part_is_printed_from_the_placed_location_and_the_stored_lines(self):
+        """impl_location (the edge's join) and el.impl.lo/hi: lib/components.py:410-470 under figs/."""
+        self.assertTrue(
+            self.part_of(EL7, "figs/lib/components.py").endswith("n ⏎ 공통 부품: figs/lib/components.py:410-470 |")
+        )
+
+    def test_an_element_without_a_note_shows_the_part_alone_after_its_label(self):
+        """No note: «label» then the part, with no stray separator."""
+        md = pins_md_text(page([line_pin(1, el=EL7, note="")], {1: facts(impl_location="figs/lib/components.py")}))
+        self.assertIn("| «7월» 공통 부품: figs/lib/components.py:410-470 |", md)
+
+    def test_no_placed_location_means_no_part_and_never_the_stored_file(self):
+        """Without impl_location the stored impl.file is not printed in its place (it is relative to the document's folder,
+        not to --manuscript): the row is as if the element had no shared part."""
+        row = self.part_of(EL7, None)
+        self.assertNotIn("공통 부품", row)
+        self.assertNotIn("lib/components.py", row)
+        self.assertTrue(row.endswith("| «7월» n |"))
+
+    def test_an_element_without_impl_has_no_part(self):
+        """el without impl: nothing to print even when a location was given."""
+        el = {k: v for k, v in EL7.items() if k != "impl"}
+        self.assertNotIn("공통 부품", self.part_of(el, "figs/lib/components.py"))
+
+    def test_a_stored_file_that_is_not_a_canonical_relative_path_is_omitted(self):
+        """A line that predates parse_el, or a hand edit: '..', '.', an empty part, a leading '/', a backslash, a NUL and a
+        path longer than the map's limit are each left out, whatever location the edge placed."""
+        too_long = "d/" * (figmap.MAP_MAX_PATH // 2) + "x.py"
+        for bad in (
+            "../secret.py",
+            "lib/../../secret.py",
+            "./a.py",
+            "lib/./a.py",
+            "lib//a.py",
+            "/etc/passwd",
+            "lib/a.py/",
+            "",
+            "lib\\a.py",
+            "a\x00.py",
+            too_long,
+        ):
+            with self.subTest(file=bad[:30]):
+                self.assertNotIn("공통 부품", self.part_of(el_with_impl(bad), "figs/" + bad))
+
+    def test_a_path_with_a_dot_named_part_is_omitted(self):
+        """.git, a hidden folder or a hidden file anywhere in the path stays out of an agent's work list."""
+        for bad in (".git/config", "lib/.env", ".hidden.py", "lib/..x/a.py", "a/.b"):
+            with self.subTest(file=bad):
+                self.assertNotIn("공통 부품", self.part_of(el_with_impl(bad), "figs/" + bad))
+
+    def test_a_placed_location_that_is_hostile_is_omitted_too(self):
+        """The renderer re-checks what it prints: an impl_location with '..', an absolute path or a dot part is dropped."""
+        for bad in ("../x.py", "/etc/passwd", "figs/.git/config", "figs//x.py", "figs\\x.py"):
+            with self.subTest(location=bad):
+                self.assertNotIn("공통 부품", self.part_of(EL7, bad))
+
+    def test_lines_outside_what_a_request_could_have_stored_are_omitted(self):
+        """1 <= lo <= hi <= MAP_MAX_LINE (parse_el's bound): zero, negative, reversed and huge ranges print nothing."""
+        for lo, hi in ((0, 5), (-3, 5), (9, 3), (1, figmap.MAP_MAX_LINE + 1), (1, 10**400)):
+            with self.subTest(lo=lo, hi=hi):
+                self.assertNotIn(
+                    "공통 부품", self.part_of(el_with_impl("lib/components.py", lo, hi), "figs/lib/components.py")
+                )
+        self.assertIn(
+            "공통 부품",
+            self.part_of(el_with_impl("lib/components.py", 1, figmap.MAP_MAX_LINE), "figs/lib/components.py"),
+        )
+
+    def test_a_pipe_in_the_path_cannot_add_a_column(self):
+        """The part goes through md_cell like every cell."""
+        row = self.part_of(el_with_impl("lib/a|b.py"), "figs/lib/a|b.py")
+        self.assertIn("공통 부품: figs/lib/a\\|b.py:410-470", row)
+
+    def test_the_join_is_text_only_under_the_document_folder(self):
+        """shared_part_path(scope, file): scope/file as text, file alone for the manuscript root, None for what may not
+        be printed."""
+        self.assertEqual(render.shared_part_path("figs", "lib/components.py"), "figs/lib/components.py")
+        self.assertEqual(render.shared_part_path("", "lib/components.py"), "lib/components.py")
+        self.assertEqual(render.shared_part_path("a/b", "c.py"), "a/b/c.py")
+        for scope, file in (
+            ("figs", "../x.py"),
+            ("figs", "/x.py"),
+            ("figs", ".git/x"),
+            (".figs", "x.py"),
+            ("fi\\gs", "x.py"),
+            ("figs", ""),
+        ):
+            with self.subTest(scope=scope, file=file):
+                self.assertIsNone(render.shared_part_path(scope, file))
+
+
+class FigureSections(unittest.TestCase):
+    """The section title and the document list say what a figure document is."""
+
+    def test_a_figure_section_is_titled_as_a_figure_and_the_view_only_title_is_unchanged(self):
+        """A document with an element map gets the title suffix — 그림(요소 지도) and keeps the stamp word 그림 (not
+        built from source); a view-only PDF keeps — 보기 전용 PDF(줄 번호 없음) exactly; a LaTeX section gets neither."""
+        fg = DocHeading(
+            "fig", "그림", "figs/out/figures.limnmap.json", view_only=False, builds_from_source=False,
+            head="abc1234", built_at="2026-09-26 10:00", has_element_map=True,
+        )  # fmt: skip
+        rv = DocHeading("rv", "리뷰", "review.pdf", view_only=True, builds_from_source=False, head=None, built_at=None)
+        region = {
+            "id": 2,
+            "pdf": "/ms/review.pdf",
+            "page": 1,
+            "frac": [0.1, 0.1, 0.2, 0.2],
+            "kind": "region",
+            "note": "r",
+        }
+        rows = [line_pin(1, el=EL7), region, line_pin(3)]
+        pin_facts = {1: facts(doc_key="fig"), 2: facts(doc_key="rv", location=""), 3: facts()}
+        lines = pins_md_text(page(rows, pin_facts, docs=(MAIN, fg, rv))).splitlines()
+        self.assertIn("## 그림 · `fig` · `figs/out/figures.limnmap.json` — 그림(요소 지도)", lines)
+        self.assertIn("기준: abc1234 · 그림 2026-09-26 10:00", lines)
+        self.assertIn("## 리뷰 · `rv` · `review.pdf` — 보기 전용 PDF(줄 번호 없음)", lines)
+        self.assertIn("## 본문 · `main` · `main.tex`", lines)
+
+    def test_a_heading_without_the_new_field_is_no_figure(self):
+        """has_element_map defaults to False: headings built before the field keep their titles."""
+        self.assertFalse(MAIN.has_element_map)
+        self.assertFalse(PDF.has_element_map)
+
+    def test_a_figure_document_is_not_labelled_view_only_in_the_document_list(self):
+        """Figure documents take line pins, so the list says '보기 전용' for the PDF document only - the figure's entry is
+        its name, key and count, as any document with line pins."""
+        rows = [line_pin(1, el=EL7), region_pin(2, doc_pdf="/ms/review.pdf")]
+        md = pins_md_text(
+            page(rows, {1: facts(doc_key="fig"), 2: facts(doc_key="rv", location="")}, docs=(MAIN, FIG, PDF))
+        )
+        self.assertIn("문서: 본문(`main`) 0건 · 그림(`fig`) 1건 · 리뷰(`rv`, 보기 전용) 1건", md)
+        self.assertNotIn("그림(`fig`, 보기 전용)", md)
+
+    def test_the_stamp_word_is_decided_by_builds_from_source_alone(self):
+        """A figure heading whose pages are read in says 그림; had it been built from source it would say 빌드 - has_element_map
+        changes the title and nothing else."""
+        for builds, word in ((False, "그림"), (True, "빌드")):
+            with self.subTest(builds_from_source=builds):
+                fg = dataclasses.replace(FIG, builds_from_source=builds, head="abc1234", built_at="2026-09-26 10:00")
+                md = pins_md_text(page([line_pin(1, el=EL7)], {1: facts(doc_key="fig")}, docs=(MAIN, fg)))
+                self.assertIn("기준: abc1234 · %s 2026-09-26 10:00" % word, md)
+                self.assertIn(" — 그림(요소 지도)", md)
+
+    def test_a_view_only_heading_that_also_says_element_map_keeps_the_view_only_title(self):
+        """view_only wins the title as before: the suffix a viewer-only PDF has is never replaced."""
+        both = dataclasses.replace(PDF, has_element_map=True)
+        md = pins_md_text(
+            page([region_pin(1, doc_pdf="/ms/review.pdf")], {1: facts(doc_key="rv", location="")}, docs=(MAIN, both))
+        )
+        self.assertIn("## 리뷰 · `rv` · `review.pdf` — 보기 전용 PDF(줄 번호 없음)", md)
+        self.assertNotIn("요소 지도", md)
+
+
+class FigureGuidance(unittest.TestCase):
+    """What the guidance says to do with a figure pin, a region pin on a figure, and a view-only PDF's pin."""
+
+    def test_the_figure_clause_points_at_the_figure_repository_not_the_latex_document(self):
+        """FIGURE_GUIDANCE says the fix is in the figure repository (or the person's answer) and never sends an agent to
+        the LaTeX document."""
+        self.assertIn("그림 저장소", render.FIGURE_GUIDANCE)
+        self.assertIn("사람에게 묻", render.FIGURE_GUIDANCE)
+        self.assertNotIn("LaTeX 문서에서 찾는다", render.FIGURE_GUIDANCE)
+
+    def test_a_region_pin_on_a_figure_document_without_an_element_takes_the_figure_clause(self):
+        """A pick that fell back because the map could not be read leaves a region pin without el on a figure document: it
+        has no lines either, and its fix is not in a LaTeX document, so it too gets the figure clause and not the view-only one."""
+        md = pins_md_text(page([region_pin(1)], {1: facts(doc_key="fig", location="")}, docs=(MAIN, FIG)))
+        self.assertIn(render.FIGURE_GUIDANCE, md)
+        self.assertNotIn(VIEW_ONLY_CLAUSE, md)
+        self.assertNotIn("LaTeX 문서에서 찾는다", md)
+
+    def test_a_view_only_pdfs_region_pin_keeps_its_clause_and_brings_no_figure_clause(self):
+        """The view-only guidance is as before for a PDF document; the figure clause stays out."""
+        md = pins_md_text(
+            page([region_pin(1, doc_pdf="/ms/review.pdf")], {1: facts(doc_key="rv", location="")}, docs=(MAIN, PDF))
+        )
+        self.assertIn("보기 전용 PDF 의 핀은 줄 번호가 없다", md)
+        self.assertIn("고칠 곳은 LaTeX 문서에서 찾는다", md)
+        self.assertNotIn(render.FIGURE_GUIDANCE, md)
+
+    def test_both_kinds_open_at_once_each_get_their_own_clause(self):
+        """A view-only PDF's pin and a figure's region pin: the sheet says both, the view-only one first."""
+        rows = [region_pin(1, doc_pdf="/ms/review.pdf"), region_pin(2)]
+        md = pins_md_text(
+            page(
+                rows, {1: facts(doc_key="rv", location=""), 2: facts(doc_key="fig", location="")}, docs=(MAIN, PDF, FIG)
+            )
+        )
+        line = guidance_line(md)
+        self.assertIn(VIEW_ONLY_CLAUSE, line)
+        self.assertTrue(line.endswith(render.FIGURE_GUIDANCE))
+
+    def test_a_region_pin_under_an_unknown_document_is_a_view_only_one(self):
+        """A region pin whose document is not configured is judged by its shape alone, as before: the view-only clause."""
+        md = pins_md_text(page([region_pin(1)], {1: facts(doc_key="gone", location="")}))
+        self.assertIn(VIEW_ONLY_CLAUSE, md)
+        self.assertNotIn(render.FIGURE_GUIDANCE, md)
+
+    def test_a_done_or_review_figure_pin_brings_no_clause(self):
+        """Only open pins are worked: a closed element pin does not add the clause."""
+        done = line_pin(1, el=EL7, done=True)
+        self.assertNotIn(render.FIGURE_GUIDANCE, pins_md_text(page([done, line_pin(2)])))
+
+    def test_two_element_pins_do_not_repeat_the_figure_clause(self):
+        """The clause is one sentence whatever the number of figure pins."""
+        md = pins_md_text(page([line_pin(1, el=EL7), line_pin(2, el=EL7)]))
+        self.assertEqual(md.count(render.FIGURE_GUIDANCE), 1)
 
 
 # ---------------------------------------------------------------- through server.py's wiring

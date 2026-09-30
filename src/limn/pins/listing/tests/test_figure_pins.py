@@ -1,15 +1,20 @@
 """Figure pins as the listing reads them through the server: GET /api/pins and /api/pins/{id} carry the read-time
 mark, mark_page and el_sync of each pin with an element, computed on the build on screen and never written - a
-re-render moves or loses the mark without touching pins.jsonl or rev (docs/handbook/api.md §핀 읽기).
+re-render moves or loses the mark without touching pins.jsonl or rev (docs/handbook/api.md §핀 읽기) - and pins.md
+shows the same pins as rows: the element's «label», its shared part and 요소 잃음, rendered on request through the
+same per-request map lookup (docs/handbook/api.md §pins.md 형식).
 
 Run: uv run pytest -q src/limn/pins/listing/tests/test_figure_pins.py
 """
 
+import contextlib
 import json
+import os
 from collections import Counter
 from unittest import mock
 
 from limn.builds import artifacts as build
+from limn.pins.listing import render
 from limn.runtime.documents import Doc
 from limn.security.access import LOCAL_ACTOR
 
@@ -313,3 +318,273 @@ class UnchangedPins(FigureBase):
         self.assertIn("el", dropped[0])
         for key in FIELDS:
             self.assertNotIn(key, dropped[0])
+
+
+class FigureMarkdown(FigureBase):
+    """pins.md for the three figure pins, rendered as the store writes it."""
+
+    def md(self, only=None):
+        """pins.md over the live pins (only those whose id is in only, when given) - a render, no write."""
+        pins = ps.APP.snapshot_pins()
+        return ps.APP.pin_markdown.pins_md_text([p for p in pins if only is None or p.core.pid in only])
+
+    def row(self, md, pid):
+        """The table row of pin pid."""
+        return next(
+            line for line in md.splitlines() if line.startswith("| %d |" % pid) or line.startswith("| %d · " % pid)
+        )
+
+    def test_the_figure_section_is_titled_as_a_figure(self):
+        """The figure document's subsection title ends with — 그림(요소 지도), never the view-only suffix."""
+        lines = self.md().splitlines()
+        self.assertIn("## 그림 · `fig` · `figs/out/figures.limnmap.json` — 그림(요소 지도)", lines)
+        self.assertFalse(any("보기 전용 PDF(줄 번호 없음)" in line for line in lines))
+
+    def test_the_document_list_does_not_call_the_figure_view_only(self):
+        """The figure takes line pins, so the list names it as any document with them: its key and its pin count."""
+        self.assertIn("문서: 본문(`ms`) 0건 · 그림(`fig`) 3건", self.md())
+        self.assertNotIn("보기 전용", self.md())
+
+    def test_rows_name_the_element_and_its_shared_part_manuscript_relative(self):
+        """The July row: the script lines, the kind, «7월» and the shared part under figs/; the clause is there."""
+        md = self.md()
+        row = self.row(md, self.july)
+        self.assertIn("| `%s L88-L95` | el:MonthCell | «7월» " % SCRIPT, row)
+        self.assertTrue(row.endswith("⏎ 공통 부품: figs/lib/components.py:410-470 |"), row)
+        self.assertIn(render.FIGURE_GUIDANCE, md)
+
+    def test_an_agent_pin_without_el_is_a_plain_row_and_brings_no_clause(self):
+        """The pin without el has no «…»; rendered alone, pins.md has no figure clause."""
+        self.assertNotIn("«", self.row(self.md(), self.plain))
+        self.assertNotIn(render.FIGURE_GUIDANCE, self.md(only={self.plain}))
+
+    def test_a_lost_element_is_marked_in_the_number_cell(self):
+        """After a re-render without the August cell its row says 요소 잃음."""
+        write_build(self.fig, BUILD2, b2_map(august=False))
+        self.assertIn("요소 잃음", self.row(self.md(), self.august))
+
+    def test_a_moved_element_is_not_marked_lost(self):
+        """The July cell moved and is still on the map: no 요소 잃음 in its row."""
+        write_build(self.fig, BUILD2, b2_map(july=(0.4, 0.18, 0.07, 0.12)))
+        self.assertNotIn("요소 잃음", self.row(self.md(), self.july))
+
+    def test_a_build_without_a_loadable_map_marks_nothing_lost(self):
+        """No map to follow the element on: not a loss - the row has no 요소 잃음, and the render still answers."""
+        write_build(self.fig, BUILD2, None)
+        md = self.md()
+        for pid in (self.july, self.august):
+            self.assertNotIn("요소 잃음", self.row(md, pid))
+
+    def test_get_pins_md_renders_on_request_while_the_file_waits_for_a_pin_write(self):
+        """A re-render writes no pin, so the pins.md file keeps its last render; GET /pins.md renders on request and
+        already says 요소 잃음 in the row (the known limit of the file, docs/handbook/domain.md §알려진 제약). The
+        guidance explains the word, so it is the pin's row that is compared, not the whole text."""
+        write_build(self.fig, BUILD2, b2_map(august=False))
+        code, _, body = split_resp(self.talk(req("GET", "/pins.md")))
+        self.assertEqual(code, 200)
+        self.assertIn("요소 잃음", self.row(body.decode("utf-8"), self.august))
+        self.assertNotIn("요소 잃음", self.row(ps.APP.C.pins_md.read_text(encoding="utf-8"), self.august))
+
+    def test_the_file_the_store_wrote_shows_the_same_rows(self):
+        """pins.md on disk (written after the last pin write in setUp) has the figure title, the part and the clause."""
+        text = ps.APP.C.pins_md.read_text(encoding="utf-8")
+        self.assertIn(" — 그림(요소 지도)", text)
+        self.assertIn("공통 부품: figs/lib/components.py:410-470", text)
+        self.assertIn(render.FIGURE_GUIDANCE, text)
+
+    def test_a_region_pin_on_the_figure_is_guided_to_the_figure_not_to_latex(self):
+        """The August cell (drawn without code) is a region pin with an element: «8월» before its note, the figure clause,
+        and no 'LaTeX 문서에서 찾는다' anywhere - the view-only clause is only for PDF documents."""
+        md = self.md()
+        self.assertIn("«8월» ", self.row(md, self.august))
+        self.assertIn("색을 바꿔 줘", self.row(md, self.august))
+        self.assertNotIn("보기 전용 PDF 의 핀은 줄 번호가 없다", md)
+        self.assertNotIn("LaTeX 문서에서 찾는다", md)
+
+    def test_a_region_pin_without_an_element_on_the_figure_is_guided_to_the_figure_too(self):
+        """A pick that fell back because the map could not be read leaves a region pin without el: with only that pin open,
+        the sheet still points at the figure repository, not at LaTeX."""
+        pid = add_pin(
+            {"doc": "fig", "page": 1, "frac": [0.1, 0.1, 0.2, 0.2], "note": "영역"}, dict(LOCAL_ACTOR)
+        ).core.pid
+        md = self.md(only={pid})
+        self.assertIn(render.FIGURE_GUIDANCE, md)
+        self.assertNotIn("LaTeX 문서에서 찾는다", md)
+
+    def test_a_view_only_pdf_document_keeps_its_own_clause(self):
+        """A region pin on a view-only PDF document beside the figure: its title, its clause, and the figure's own."""
+        (self.src / "review.pdf").write_bytes(b"%PDF-1.4\n%%EOF\n")
+        rv = Doc("rv", "리뷰", "pdf", self.src, self.src / "review.pdf", paths=ps.APP.C.paths)
+        ps.APP.set_docs([*ps.APP.docs, rv])
+        add_pin({"doc": "rv", "page": 1, "frac": [0.1, 0.1, 0.2, 0.2], "note": "쪽"}, dict(LOCAL_ACTOR))
+        md = self.md()
+        self.assertIn("## 리뷰 · `rv` · `review.pdf` — 보기 전용 PDF(줄 번호 없음)", md.splitlines())
+        self.assertIn("리뷰(`rv`, 보기 전용) 1건", md)
+        self.assertIn("고칠 곳은 LaTeX 문서에서 찾는다", md)
+        self.assertIn(render.FIGURE_GUIDANCE, md)
+
+
+class FigureMarkdownMapReads(FigureBase):
+    """A render looks up each document's current map once, through the run's cache, however many pins point into it."""
+
+    def render(self, base=None):
+        """pins.md over the live pins, as the store writes it (base None) or GET /pins.md renders it."""
+        return ps.APP.pin_markdown.pins_md_text(ps.APP.snapshot_pins(), base)
+
+    def test_a_render_asks_the_cache_once_and_parses_at_most_once(self):
+        """Eight element pins of fig on a build whose map is not cached yet: one render asks the cache for fig's map once
+        and parses it once; the next render asks once more and parses nothing."""
+        for i in range(6):
+            pin_from_pick(self.fig, JULY_BOX, ALICE_ACTOR, "다시 %d" % i)
+        write_build(self.fig, BUILD2, b2_map(july=(0.4, 0.18, 0.07, 0.12)))  # a copy the cache has not seen
+        cache = ps.APP.RT.figure_maps
+        with (
+            mock.patch.object(cache, "get", wraps=cache.get) as asked,
+            mock.patch.object(build, "parse_map", wraps=build.parse_map) as parsed,
+        ):
+            self.render()
+            self.assertEqual([c.args[1] for c in asked.call_args_list], [BUILD2])
+            self.assertEqual(parsed.call_count, 1)
+            self.render()
+            self.assertEqual(asked.call_count, 2)
+            self.assertEqual(parsed.call_count, 1)
+
+    def test_get_pins_md_asks_the_cache_once_too(self):
+        """GET /pins.md with many element pins: one lookup of fig's map, not one per pin."""
+        for i in range(4):
+            pin_from_pick(self.fig, JULY_BOX, ALICE_ACTOR, "다시 %d" % i)
+        cache = ps.APP.RT.figure_maps
+        with mock.patch.object(cache, "get", wraps=cache.get) as asked:
+            code, _, _ = split_resp(self.talk(req("GET", "/pins.md")))
+            self.assertEqual((code, asked.call_count), (200, 1))
+
+    def test_a_render_without_element_pins_asks_no_map(self):
+        """Only pins without el (a LaTeX pin, a figure line pin): the cache is never asked."""
+        write_records([r for r in records(ps.APP.read_pins()[0]) if "el" not in r])
+        cache = ps.APP.RT.figure_maps
+        with mock.patch.object(cache, "get", wraps=cache.get) as asked:
+            self.render()
+            self.assertEqual(asked.call_count, 0)
+
+    def test_a_pin_write_renders_pins_md_with_one_lookup(self):
+        """The render the store does after a pin write (the file on disk) is one lookup as well."""
+        cache = ps.APP.RT.figure_maps
+        with mock.patch.object(cache, "get", wraps=cache.get) as asked:
+            add_pin({"doc": "fig", "file": SCRIPT, "lo": 30, "hi": 31, "note": "또"}, dict(LOCAL_ACTOR))
+            self.assertEqual(asked.call_count, 1)
+
+    def test_a_render_never_writes_a_pin(self):
+        """pins.jsonl is the same bytes and every rev is still 0 after a render of a re-rendered figure, lost element included."""
+        write_build(self.fig, BUILD2, b2_map(july=(0.4, 0.18, 0.07, 0.12), august=False))
+        before = ps.APP.C.pins_jsonl.read_bytes()
+        md = self.render()
+        code, _, _ = split_resp(self.talk(req("GET", "/pins.md")))
+        self.assertEqual(code, 200)
+        self.assertIn("요소 잃음", md)
+        self.assertEqual(ps.APP.C.pins_jsonl.read_bytes(), before)
+        self.assertEqual([r.get("rev", 0) for r in records(ps.APP.read_pins()[0])], [0, 0, 0])
+
+
+class FigureMarkdownSharedPart(FigureBase):
+    """The shared part is text joined under the document's folder: nothing is opened, and only a plain path is printed."""
+
+    def md(self):
+        """GET /pins.md's text."""
+        code, _, body = split_resp(self.talk(req("GET", "/pins.md")))
+        self.assertEqual(code, 200, body)
+        return body.decode("utf-8")
+
+    def row(self, md, pid):
+        """The table row of pin pid."""
+        return next(
+            line for line in md.splitlines() if line.startswith("| %d |" % pid) or line.startswith("| %d · " % pid)
+        )
+
+    def set_impl_file(self, file):
+        """Hand-edit the July pin's stored el.impl.file (a line an older writer or a person left)."""
+        self.rewrite(self.july, lambda r: r["el"]["impl"].update(file=file))
+
+    def test_a_hostile_stored_file_is_left_out_and_the_rest_of_the_row_stays(self):
+        """'..', an absolute path, a dot folder, a backslash and an empty part in a stored impl.file: no 공통 부품, no '..'
+        and no absolute path in pins.md, and the row still has its lines, kind and «7월»."""
+        for bad in (
+            "../../secret.py",
+            "lib/../../secret.py",
+            "/etc/passwd",
+            ".git/config",
+            "lib/.env",
+            "lib\\a.py",
+            "lib//a.py",
+            "./a.py",
+            "",
+        ):
+            with self.subTest(file=bad):
+                self.set_impl_file(bad)
+                md = self.md()
+                row = self.row(md, self.july)
+                self.assertNotIn("공통 부품", row)
+                self.assertIn("| `%s L88-L95` | el:MonthCell | «7월» " % SCRIPT, row)
+                self.assertNotIn("secret.py", md)
+                self.assertNotIn("/etc/passwd", md)
+                self.assertNotIn("..", row.replace("...", ""))
+
+    def test_the_part_is_printed_without_opening_the_file_it_names(self):
+        """The shared file is gone (and lib/ itself a dangling link): the line is still printed, and no stat, open or
+        readlink is made on a path ending in the impl file."""
+        components = self.fig.src / "lib" / "components.py"
+        components.unlink()
+        seen = []
+        real = {name: getattr(os, name) for name in ("stat", "lstat", "readlink", "open", "scandir")}
+
+        def spy(name):
+            """The os function name, recording any path that names the shared file."""
+
+            def call(path, *a, **kw):
+                """Record path when it ends in lib/components.py, then do the real call."""
+                if isinstance(path, (str, bytes, os.PathLike)) and os.fsdecode(path).endswith("lib/components.py"):
+                    seen.append((name, os.fsdecode(path)))
+                return real[name](path, *a, **kw)
+
+            return call
+
+        with contextlib.ExitStack() as stack:
+            for name in real:
+                stack.enter_context(mock.patch.object(os, name, spy(name)))
+            md = self.md()
+        self.assertIn("공통 부품: figs/lib/components.py:410-470", self.row(md, self.july))
+        self.assertEqual(seen, [])
+
+    def test_a_shared_part_that_is_a_link_out_of_the_tree_is_printed_as_text_only(self):
+        """lib/components.py made a symlink to a file outside the manuscript: pins.md names it by its text and never
+        follows it."""
+        components = self.fig.src / "lib" / "components.py"
+        components.unlink()
+        outside = self.src.parent / "outside.py"
+        outside.write_text("x = 1\n", encoding="utf-8")
+        components.symlink_to(outside)
+        md = self.md()
+        self.assertIn("공통 부품: figs/lib/components.py:410-470", self.row(md, self.july))
+        self.assertNotIn("outside.py", md)
+
+    def test_a_pin_whose_document_is_no_longer_served_prints_no_part(self):
+        """The pin names a document the instance no longer has: the shared file's folder is unknown, so no part - the
+        row is under the unknown-document section with its «label»."""
+        self.rewrite(self.july, lambda r: r.update(doc="gone"))
+        md = self.md()
+        row = self.row(md, self.july)
+        self.assertNotIn("공통 부품", row)
+        self.assertIn("«7월»", row)
+        self.assertIn("## 설정에 없는 문서 · `gone`", md)
+
+    def test_hostile_stored_records_render_and_change_nothing(self):
+        """A NaN or oversized el.frac and reversed impl lines: pins.md answers 200, prints no part for the bad lines, and
+        pins.jsonl is byte for byte as the hand edit wrote it."""
+        self.rewrite(
+            self.july, lambda r: (r["el"].update(frac=[float("nan"), 0, 0, 0]), r["el"]["impl"].update(lo=9, hi=3))
+        )
+        self.rewrite(self.august, lambda r: r["el"].update(frac=[HUGE, 0.18, 0.07, 0.12]))
+        before = ps.APP.C.pins_jsonl.read_bytes()
+        md = self.md()
+        self.assertNotIn("공통 부품", self.row(md, self.july))
+        self.assertIn("«8월»", self.row(md, self.august))
+        self.assertEqual(ps.APP.C.pins_jsonl.read_bytes(), before)
