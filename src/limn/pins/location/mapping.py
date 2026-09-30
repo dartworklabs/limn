@@ -11,7 +11,7 @@ themselves are described in docs/handbook/domain.md.
 import re
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
-from typing import Any, Literal, TypeAlias
+from typing import Any, Literal, TypeAlias, get_args
 
 from limn.platform.text import flat as flat, truncate_quote as truncate_quote
 from limn.platform.values import is_int
@@ -299,8 +299,10 @@ def compute_levels(lines: Sequence[str], raw_lo: int, raw_hi: int, envs: Sequenc
 
 # ---------------------------------------------------------------- Choosing a selection's range
 
-# How a selection's range was found: SyncTeX's answer for the box, or the rendered text's tokens (by_text).
-Via: TypeAlias = Literal["synctex", "text"]
+# How a selection's range was found: SyncTeX's answer for the box, the rendered text's tokens (by_text), or - on a
+# figure document - its build's element map (limn.builds.figure_map, pins/location/figure.py).
+Via: TypeAlias = Literal["synctex", "text", "map"]
+VIAS: tuple[Via, ...] = get_args(Via)
 WEAK_SCORE = 0.3  # below this a weighed selection's best range is flagged as a weak match
 SPLIT_MARGIN = 0.12  # two paths scoring closer than this that land apart are flagged as disagreeing
 

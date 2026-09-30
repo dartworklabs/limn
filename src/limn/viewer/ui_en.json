@@ -150,7 +150,7 @@
  "reason:bad_scope": "scope is not one of the allowed range levels.",
  "reason:bad_text": "The text must be a string.",
  "reason:bad_token": "The token is invalid or has been revoked.",
- "reason:bad_via": "via must be synctex or text.",
+ "reason:bad_via": "via must be synctex, text or map.",
  "reason:base_rev_required": "base_rev is required (the rev you got when you opened the card).",
  "reason:body_too_large": "The request body is too large (1 MiB at most).",
  "reason:body_truncated": "The request body is shorter than Content-Length (the connection dropped).",

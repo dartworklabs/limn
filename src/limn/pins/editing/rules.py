@@ -9,6 +9,7 @@ from posixpath import isabs
 from typing import Any, TypeAlias
 
 from limn.pins.editing.values import ASSIGNEE_AGENT, NOTE_MAX, PDF_QUOTE_MAX, Scope, is_scope
+from limn.pins.location.mapping import VIAS
 from limn.pins.model import Actor, DonePin, KindReq, LineSpan, OpenPin, Pin, Record, ReviewPin, is_kind_req
 from limn.pins.thread import PinT, author, rev_after, signature, thread_message, with_entry
 from limn.platform.values import is_finite_num, is_int
@@ -49,7 +50,8 @@ class LinePlace:
     hi: int
 
     def __init__(self, fields: Record, named: frozenset[str]) -> None:
-        """Keep the field order and reject a place that would fail the service's required field reads."""
+        """Keep the field order and reject a place that would fail the service's required field reads (a via outside
+        mapping.VIAS or a scope outside edit.SCOPES included)."""
         if not isinstance(fields, dict):
             raise ValueError("line place fields must be a record")
         if not fields.keys() <= set(LOC_FIELDS + ("pdf_build",)):
@@ -74,7 +76,7 @@ class LinePlace:
                 raise ValueError(f"line place {key} must be an integer")
         if "kind" in fields and (not isinstance(fields["kind"], str) or len(fields["kind"]) > 80):
             raise ValueError("line place kind must be a short string")
-        if "via" in fields and fields["via"] not in ("synctex", "text"):
+        if "via" in fields and fields["via"] not in VIAS:
             raise ValueError("line place via must name a location method")
         if "score" in fields and not is_finite_num(fields["score"]):
             raise ValueError("line place score must be a finite number")

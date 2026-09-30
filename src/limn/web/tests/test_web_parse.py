@@ -17,10 +17,12 @@ import unittest
 from pathlib import Path
 
 from limn.builds import input as builds_input
+from limn.builds.figure_map import LADDER_MAX, MapElement, ladder_scopes
 from limn.documents import input as document_input
 from limn.pins.claims import input as claims_input
 from limn.pins.editing import fields as editing_fields, input as editing_input, location as editing_location
 from limn.pins.editing.rules import LinePlace, PinEdited, RegionPlace, evolve_edit
+from limn.pins.editing.values import SCOPES
 from limn.pins.lifecycle import input as lifecycle_input
 from limn.pins.lifecycle.rules import CloseRequest
 from limn.pins.listing import input as listing_input
@@ -230,7 +232,9 @@ class Fields(unittest.TestCase):
         self.assertIsNone(editing_fields.parse_scope(None))
         self.assertEqual(
             editing_fields.parse_scope(["raw"]),
-            InputRejected("scope 는 raw|para|env|env2|env3|lines 중 하나입니다.", "bad_scope"),
+            InputRejected(
+                "scope 는 raw|para|env|env2|env3|lines|el|el2|el3|el4|el5|el6|el7|el8|fig 중 하나입니다.", "bad_scope"
+            ),
         )
 
     def test_thread_text_is_cleaned_then_checked(self):
@@ -418,6 +422,34 @@ class Fields(unittest.TestCase):
             parse.parse_doc_key({"doc": ["a"]}, {"doc": "b"}),
             InputRejected("doc 이 주소(a)와 본문(b)에서 다릅니다.", "doc_mismatch"),
         )
+
+
+class FigureValueLists(Tree):
+    """The value lists ADR-0011 grows: via takes map and the scope list takes the figure ladder's names."""
+
+    def test_a_line_location_takes_via_map_and_the_figure_scopes(self):
+        """via map and the scopes el, el3 and fig are accepted on a line location."""
+        for scope in ("el", "el3", "fig"):
+            loc = editing_location.parse_loc(
+                {"file": "main.tex", "lo": 1, "hi": 2, "via": "map", "scope": scope}, Facts(self.root)
+            )
+            self.assertEqual((loc.via, loc.scope), ("map", scope))
+
+    def test_a_via_outside_the_list_names_the_whole_list(self):
+        """A via outside synctex|text|map is 400 bad_via, and the sentence lists the three values."""
+        self.assertEqual(
+            editing_location.parse_loc({"file": "main.tex", "lo": 1, "hi": 2, "via": "svg"}, Facts(self.root)),
+            InputRejected("via 는 synctex|text|map 입니다.", "bad_via"),
+        )
+
+    def test_a_scope_past_the_ladder_cap_is_refused(self):
+        """el9 is past LADDER_MAX: bad_scope."""
+        self.assertEqual(editing_fields.parse_scope("el9").reason, "bad_scope")
+
+    def test_every_ladder_name_is_a_scope_a_pin_may_store(self):
+        """The longest ladder's level names (el..el8, fig) are all pin scopes."""
+        root = MapElement("F", None, (0.0, 0.0, 1.0, 1.0), None, None, None, None)
+        self.assertLessEqual(set(ladder_scopes((root,) * (LADDER_MAX + 1))), set(SCOPES))
 
 
 class RouteRequests(unittest.TestCase):

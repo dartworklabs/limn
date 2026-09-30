@@ -6,10 +6,10 @@ from typing import Any
 from limn.builds import valid_build_name
 from limn.pins.editing.fields import parse_scope
 from limn.pins.editing.values import PDF_QUOTE_MAX, Scope
-from limn.pins.location.mapping import norm, truncate_quote
+from limn.pins.location.mapping import VIAS, Via, norm, truncate_quote
 from limn.pins.model import Record
 from limn.web.errors import InputRejected
-from limn.web.parse import PDF_BUILD_REFUSAL, DocumentFacts, Frac, Json, Via, int_field, num_field, source_file
+from limn.web.parse import PDF_BUILD_REFUSAL, DocumentFacts, Frac, Json, int_field, num_field, source_file
 
 
 @dataclass(frozen=True)
@@ -100,9 +100,10 @@ def parse_loc(d: Json, facts: DocumentFacts) -> LineLoc | InputRejected:
     """A line pin's location, or the first field refused.
 
     file must be a file inside the manuscript tree and 1 <= lo <= hi <= its line count, so this reads that file's
-    lines (facts.lines) before checking the range. page defaults to 1; raw_lo, raw_hi, kind, via, score, frac, scope,
-    quote (truncated to 60 characters) and pdf_build (a page directory name) are checked in that order when sent (a
-    null counts as not sent). The checked location is constructed only after every field has passed.
+    lines (facts.lines) before checking the range. page defaults to 1; raw_lo, raw_hi, kind, via (one of
+    mapping.VIAS), score, frac, scope (one of edit.SCOPES), quote (truncated to 60 characters) and pdf_build (a page
+    directory name) are checked in that order when sent (a null counts as not sent). The checked location is
+    constructed only after every field has passed.
     """
     f = source_file(d.get("file"), facts.root, facts.state)
     if isinstance(f, InputRejected):
@@ -132,8 +133,8 @@ def parse_loc(d: Json, facts: DocumentFacts) -> LineLoc | InputRejected:
     if kind is not None and (not isinstance(kind, str) or len(kind) > 80):
         return InputRejected("kind 가 올바르지 않습니다.", "bad_kind")
     via = d.get("via")
-    if via is not None and via not in ("synctex", "text"):
-        return InputRejected("via 는 synctex|text 입니다.", "bad_via")
+    if via is not None and via not in VIAS:
+        return InputRejected("via 는 %s 입니다." % "|".join(VIAS), "bad_via")
     score = d.get("score")
     if score is not None:
         score = num_field(score, "score")

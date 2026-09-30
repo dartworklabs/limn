@@ -84,6 +84,15 @@ class PlaceInvariants(unittest.TestCase):
             with self.subTest(bad=bad), self.assertRaises(ValueError):
                 LinePlace({**valid, **bad}, frozenset())
 
+    def test_a_line_place_takes_via_map_and_the_figure_scopes(self):
+        """A figure pin's line place carries via map, an el/el8/fig scope and an el:<part> kind."""
+        for scope in ("el", "el8", "fig"):
+            place = LinePlace(
+                {"file": "/ms/a.py", "name": "a.py", "lo": 2, "hi": 3, "page": 1, "via": "map", "scope": scope},
+                frozenset(),
+            )
+            self.assertEqual((place.fields["via"], place.fields["scope"]), ("map", scope))
+
     def test_line_place_requires_a_named_fraction_to_exist(self):
         """A direct caller cannot claim a replacement frac that would erase the old build identity without coordinates."""
         fields = {"file": "/ms/main.tex", "name": "main.tex", "lo": 2, "hi": 3, "page": 1}
