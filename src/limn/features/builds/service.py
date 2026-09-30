@@ -35,7 +35,7 @@ class BuildRequests:
         self.docs = docs
         self.now = now
         self.describe = describe
-        self.figure_looks = figure.MapLooks()  # this run's memo of each figure map's PDF (figure.watch_signature)
+        self.figure_looks = figure.MapLooks()  # this run's memo of each figure document's map parse (figure.MapLooks)
 
     @property
     def authority_scope(self) -> AuthorityScope:
@@ -122,12 +122,16 @@ class BuildRequests:
 
     def refresh_watched(self, doc: Doc) -> bool:
         """One watch tick for doc. A document with an element map imports its map and PDF once they agree
-        (figure.pending_import) and otherwise builds nothing and records no failure; a view-only PDF re-renders when
-        its file changed (engine.refresh_pdf_doc). True when a build started; False for a document whose files are not
-        watched."""
+        (figure.pending_import) and otherwise builds nothing and records no failure; while it is building (its lock
+        held) the tick looks at nothing - the running import settles its signature before it lets go of the lock, so
+        the next free tick sees exactly what it left, and no file is read or hashed meanwhile. A view-only PDF
+        re-renders when its file changed (engine.refresh_pdf_doc). True when a build started; False for a document
+        whose files are not watched, or a figure document that is building."""
         if not doc.watches_files:
             return False
         if doc.has_element_map:
+            if doc.lock.locked():
+                return False
             ready = figure.pending_import(doc, self.figure_looks, self.settings().dpi, first=False)
             return ready is not None and isinstance(self.import_figure(doc, ready, wait=False), BuildStarted)
         return engine.refresh_pdf_doc(doc, self.build_async)

@@ -16,7 +16,9 @@ import json
 import os
 import tempfile
 import time
+import typing
 import unittest
+from collections.abc import Callable
 from pathlib import Path
 from unittest import mock
 
@@ -88,22 +90,27 @@ class FigureTree(unittest.TestCase):
     folder figs/, a fake pdftoppm, and no server."""
 
     def setUp(self):
-        """The tree, the document (its state folder made), build settings at 72 dpi, a fresh map memo."""
+        """A temporary root holding the tree (use_tree), build settings at 72 dpi and the fake pdftoppm."""
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
-        root = Path(tmp.name).resolve()
-        self.ms = root / "ms"
+        self.root = Path(tmp.name).resolve()
+        self.use_tree(self.root)
+        self.cfg = BuildConfig(state=self.root / "state", dpi=72, timeout=5)
+        fake_pdftoppm(self, self.root)
+
+    def use_tree(self, base: Path) -> None:
+        """Make base/ms/figs/out and bind to it: the paths, document fig (state folder under base/state, made), a
+        fresh map memo and a producer. A test calls it again with a new base to start over on a tree of its own."""
+        self.ms = base / "ms"
         self.figs = self.ms / "figs"
         (self.figs / "out").mkdir(parents=True)
         self.pdf = self.figs / "out" / "figures.pdf"
         self.map = self.figs / "out" / "figures.limnmap.json"
-        paths = RunPaths(self.ms, self.ms / "main.tex", root / "state")
+        paths = RunPaths(self.ms, self.ms / "main.tex", base / "state")
         self.doc = Doc("fig", "그림", "figure", self.figs, self.map, paths=paths)
         self.doc.dir.mkdir(parents=True)
-        self.cfg = BuildConfig(state=root / "state", dpi=72, timeout=5)
         self.looks = figure.MapLooks()
         self.producer = Producer(self.pdf, self.map)
-        fake_pdftoppm(self, root)
 
     def pending(self, first: bool = False) -> figure.FigureImport | None:
         """figure.pending_import for the document, its stderr line swallowed."""
@@ -302,6 +309,163 @@ class Deferral(FigureTree):
             self.assertFalse((self.doc.dir / "builds.json").exists())
 
 
+class OneLookPerChange(FigureTree):
+    """A deferral settles the very signature the next tick's watch_signature computes, whatever its reason, so files
+    that do not agree are read and logged once per change and never on every tick. Each scenario below sets up one
+    way to defer on a tree of its own and returns what must stay active while the ticks run."""
+
+    def rule_broken(self) -> contextlib.AbstractContextManager[object]:
+        """map_rejected: the map breaks a rule of its own (a box of zero width)."""
+        broken = figure_map(MINI_PDF)
+        broken["pages"][0]["elements"][1]["frac"] = [0.1, 0.1, 0, 0.1]
+        self.producer.write(self.pdf, MINI_PDF)
+        self.producer.write(self.map, map_bytes(broken))
+        return contextlib.nullcontext()
+
+    def judgement_flipped(self) -> contextlib.AbstractContextManager[object]:
+        """map_rejected: the map was accepted and imported, then lib/ became a symlink out of the folder and only the
+        PDF was written again - the map's bytes never changed, so the watch still remembers it as accepted."""
+        self.producer.render()
+        self.imported()
+        elsewhere = self.ms / "elsewhere"
+        elsewhere.mkdir()
+        (self.figs / "lib").symlink_to(elsewhere)
+        self.producer.write(self.pdf, MINI_PDF)
+        return contextlib.nullcontext()
+
+    def pdf_up_and_out(self) -> contextlib.AbstractContextManager[object]:
+        """pdf_outside: the map names ../../elsewhere.pdf, a file that exists and matches the hash."""
+        (self.ms / "elsewhere.pdf").write_bytes(MINI_PDF)
+        self.producer.write(self.map, map_bytes(figure_map(MINI_PDF, "../../elsewhere.pdf")))
+        return contextlib.nullcontext()
+
+    def pdf_linked_out(self) -> contextlib.AbstractContextManager[object]:
+        """pdf_outside: the map names link.pdf, a symlink to a matching PDF outside the folder."""
+        (self.ms / "elsewhere.pdf").write_bytes(MINI_PDF)
+        (self.figs / "out" / "link.pdf").symlink_to(self.ms / "elsewhere.pdf")
+        self.producer.write(self.map, map_bytes(figure_map(MINI_PDF, "link.pdf")))
+        return contextlib.nullcontext()
+
+    def pdf_absent(self) -> contextlib.AbstractContextManager[object]:
+        """pdf_missing: the map names a PDF that does not exist."""
+        self.producer.write(self.map, map_bytes(figure_map(MINI_PDF, "absent.pdf")))
+        return contextlib.nullcontext()
+
+    def pdf_a_folder(self) -> contextlib.AbstractContextManager[object]:
+        """pdf_missing: the map names dir.pdf, which is a folder."""
+        (self.figs / "out" / "dir.pdf").mkdir()
+        self.producer.write(self.map, map_bytes(figure_map(MINI_PDF, "dir.pdf")))
+        return contextlib.nullcontext()
+
+    def pdf_unreadable(self) -> contextlib.AbstractContextManager[object]:
+        """pdf_missing: the PDF is there and can be stat'ed, but not opened (mode 000)."""
+        self.producer.render()
+        self.pdf.chmod(0)
+        self.addCleanup(self.pdf.chmod, 0o644)
+        return contextlib.nullcontext()
+
+    def pdf_over_cap(self) -> contextlib.AbstractContextManager[object]:
+        """pdf_too_large: the matching PDF is bigger than PDF_MAX_BYTES (patched small while the ticks run)."""
+        self.producer.render()
+        return mock.patch.object(figure, "PDF_MAX_BYTES", 16)
+
+    def pdf_newer(self) -> contextlib.AbstractContextManager[object]:
+        """pdf_mismatch: a new PDF has been written and its map not yet."""
+        self.producer.render()
+        self.producer.write(self.pdf, OTHER_PDF)
+        return contextlib.nullcontext()
+
+    def map_newer(self) -> contextlib.AbstractContextManager[object]:
+        """pdf_mismatch: a new map has been written and its PDF not yet."""
+        self.producer.render()
+        self.producer.write(self.map, map_bytes(figure_map(OTHER_PDF)))
+        return contextlib.nullcontext()
+
+    def scenarios(
+        self,
+    ) -> list[tuple[figure.DeferReason, Callable[[], contextlib.AbstractContextManager[object]]]]:
+        """Every scenario with the reason it defers for. pdf_unreadable is left out when running as root, who opens a
+        file whatever its mode."""
+        out: list[tuple[figure.DeferReason, Callable[[], contextlib.AbstractContextManager[object]]]] = [
+            ("map_rejected", self.rule_broken),
+            ("map_rejected", self.judgement_flipped),
+            ("pdf_outside", self.pdf_up_and_out),
+            ("pdf_outside", self.pdf_linked_out),
+            ("pdf_missing", self.pdf_absent),
+            ("pdf_missing", self.pdf_a_folder),
+            ("pdf_too_large", self.pdf_over_cap),
+            ("pdf_mismatch", self.pdf_newer),
+            ("pdf_mismatch", self.map_newer),
+        ]
+        if os.geteuid() != 0:
+            out.append(("pdf_missing", self.pdf_unreadable))
+        return out
+
+    def tick(self) -> tuple[figure.FigureImport | None, str, int]:
+        """One watch tick of the document: what pending_import returned, what it wrote to stderr, and how many files
+        it opened (figure._read_file)."""
+        err = io.StringIO()
+        with mock.patch.object(figure, "_read_file", wraps=figure._read_file) as reads, contextlib.redirect_stderr(err):
+            got = figure.pending_import(self.doc, self.looks, 72, first=False)
+        return got, err.getvalue(), reads.call_count
+
+    def test_every_deferral_settles_the_signature_the_next_tick_computes(self):
+        """For every reason a deferral can have (map_missing settles nothing), and for the cases where the files
+        and what the watch sees can drift apart - a PDF that can be stat'ed but not read, a map judged again with its
+        bytes unchanged: right after the deferring tick, watch_signature equals the settled signature, and the next
+        tick opens no file and logs nothing."""
+        scenarios = self.scenarios()
+        reasons = set(typing.get_args(figure.DeferReason)) - {"map_missing"}
+        self.assertEqual({reason for reason, _ in scenarios}, reasons)
+        for reason, setup in scenarios:
+            with self.subTest(reason=reason, scenario=setup.__name__):
+                self.use_tree(self.root / setup.__name__)
+                with setup():
+                    got, log, _ = self.tick()
+                    self.assertIsNone(got)
+                    self.assertEqual(log.count("(%s: " % reason), 1, log)
+                    self.assertEqual(figure.watch_signature(self.doc, self.looks), figure.settled_signature(self.doc))
+                    self.assertEqual(self.tick(), (None, "", 0))
+
+    @unittest.skipIf(os.geteuid() == 0, "root opens a file whatever its mode")
+    def test_an_unreadable_pdf_is_logged_once_and_imported_once_it_is_written_again(self):
+        """A PDF the server may stat but not open is pdf_missing: one log line, then ticks that open nothing - not a
+        line and a map read every 3 seconds. Its mode changing alone moves neither mtime nor size, so the pair waits
+        for the next write, which is imported."""
+        self.producer.render()
+        self.pdf.chmod(0)
+        self.addCleanup(self.pdf.chmod, 0o644)
+        ticks = [self.tick() for _ in range(3)]
+        self.assertEqual(ticks[0][1].count("(pdf_missing: "), 1)
+        self.assertEqual(ticks[1:], [(None, "", 0)] * 2)
+        self.pdf.chmod(0o644)
+        self.producer.render()
+        self.assertIsInstance(self.pending(), figure.FigureImport)
+
+    def test_one_map_under_two_folders_is_judged_per_document_and_imported_once(self):
+        """The same map registered twice: fig with folder figs/, fig2 with the map's own folder figs/out/. figs/out/src
+        is a symlink to figs/src, so src/B2_calendar.py lies inside figs/ but leads out of figs/out/: fig2 rejects the
+        map (path_outside) and fig imports it. Over three rounds of ticks sharing one memo, fig imports once and fig2
+        logs once - a judgement is never borrowed from the other document."""
+        (self.figs / "src").mkdir()
+        (self.figs / "out" / "src").symlink_to(self.figs / "src")
+        self.producer.render()
+        fig2 = Doc("fig2", "그림 2", "figure", self.figs / "out", self.map, paths=self.doc.paths)
+        fig2.dir.mkdir(parents=True)
+        imports = {"fig": 0, "fig2": 0}
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            for _ in range(3):
+                for doc in (fig2, self.doc):
+                    ready = figure.pending_import(doc, self.looks, 72, first=False)
+                    if ready is not None:
+                        imports[doc.key] += 1
+                        self.assertIsInstance(figure.render_figure_doc(doc, self.cfg, ready), BuildOk)
+        self.assertEqual(imports, {"fig": 1, "fig2": 0})
+        self.assertEqual(err.getvalue().count("map_rejected: path_outside"), 1, err.getvalue())
+        self.assertEqual(len(list(self.doc.dir.glob("pages-*"))), 1)
+
+
 class Render(FigureTree):
     """render_figure_doc and import_now: the pages, the PDF copy and the map copy land together."""
 
@@ -457,6 +621,24 @@ class FigureDocumentThroughTheServer(Base):
             self.assertFalse(ps.APP.build_requests.refresh_watched(self.fig))
         self.assertEqual(build.state_snapshot(self.fig)["seq"], 1)
         self.producer.write(self.map, map_bytes(figure_map(OTHER_PDF)))
+        self.assertTrue(ps.APP.build_requests.refresh_watched(self.fig))
+        self.assertTrue(self.fig.lock.acquire(timeout=10))  # the background import holds the lock until it is done
+        self.fig.lock.release()
+        self.assertEqual(build.state_snapshot(self.fig)["seq"], 2)
+        self.assertEqual((build.cur_pages(self.fig) / "figures.pdf").read_bytes(), OTHER_PDF)
+
+    def test_a_tick_while_the_figure_is_building_reads_nothing_and_starts_nothing(self):
+        """While fig's build lock is held (an import is running), a tick with a new agreeing pair on disk opens no
+        file, starts nothing, and moves neither build_seq nor the settled signature. Once the lock is free, the next
+        tick starts the import of the new pair."""
+        ps.APP.build_requests.init_doc(self.fig, no_build=False, wait=True)
+        settled = figure.settled_signature(self.fig)
+        self.producer.render(OTHER_PDF)
+        with self.fig.lock:
+            with mock.patch.object(figure, "_read_file", wraps=figure._read_file) as reads:
+                self.assertFalse(ps.APP.build_requests.refresh_watched(self.fig))
+            self.assertEqual(reads.call_count, 0)
+            self.assertEqual((build.state_snapshot(self.fig)["seq"], figure.settled_signature(self.fig)), (1, settled))
         self.assertTrue(ps.APP.build_requests.refresh_watched(self.fig))
         self.assertTrue(self.fig.lock.acquire(timeout=10))  # the background import holds the lock until it is done
         self.fig.lock.release()
