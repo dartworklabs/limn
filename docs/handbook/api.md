@@ -637,6 +637,7 @@ curl -s -X POST http://127.0.0.1:<port>/api/pins/3/unclaim
 이름이 `*_at` 이 아닌 것은 일부러다. 레코드 검증(`valid_rec`)은 `*_at` 을 문자열 시각으로 본다. 숫자인 `*_at` 필드를 쓰면, 이 필드를 모르는 이전 버전 서버가 그 레코드를 깨진 줄로 버린다.
 
 - 만료된 claim은 모든 표시에서 없는 것으로 본다. `<state_dir>/pins.md`, 뷰어 카드, 충돌 판정이 모두 그렇다. 저장값 자체는 다음 쓰기 때 정리될 뿐이다.
+- 저장된 `claim_until` 이 유한하지 않은 값(예: Infinity)이면 응답이 그 값을 `null` 로 주므로, 뷰어는 그 claim을 없는 것으로 보여 주지만 서버는 저장값을 그대로 쥐고 있다.
 - `claim_ts` 가 없는 옛 claim은 `GET /api/pins` 가 `claimed_at`(서버 현지 시각 문자열)을 epoch로 풀어 계산 필드 `claim_ts` 로 싣는다. 저장하지 않는다.
 
 ### 표시
