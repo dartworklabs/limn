@@ -59,7 +59,7 @@ Limn에서 "테스트가 녹색"은 합격의 필요조건이지 충분조건이
 | `tests/contracts/` | 여러 기능의 HTTP·`pins.md` 스냅샷과 성질 검증. 그림 문서 흐름(지도 pick, 요소 핀, 다시 렌더 뒤의 계산 필드)은 `test_contract_snapshot.py`가 [`tests/data/contract_snapshot_figure.json`](../../tests/data/contract_snapshot_figure.json)과 따로 비교한다. `test_figure_rollback.py`는 이전 릴리스가 그림 핀 레코드를 읽고 바이트 그대로 되쓰는지 본다 |
 | `tests/architecture/` | 공개 표면·import 경계, Handbook 참조, 이름·개인정보 규칙 |
 | `tests/tools/` | 테스트 식별자 이동 대조 도구 |
-| `tests/support/`, `tests/data/` | 수집하지 않는 공용 테스트 도우미와 고정 입력·스냅샷. 그림 문서 fixture(그림 스크립트·공통 부품·요소 지도·빌드 폴더와, pick 답을 뷰어처럼 저장하는 도우미)는 [`tests/support/helpers_figure.py`](../../tests/support/helpers_figure.py)에 있다 |
+| `tests/support/`, `tests/data/` | 수집하지 않는 공용 테스트 도우미와 고정 입력·스냅샷. 그림 문서 fixture(그림 스크립트·공통 부품·요소 지도·빌드 폴더와, pick 답을 뷰어처럼 저장하는 도우미, 뷰어 테스트가 쓰는 세 문서(원고·그림·보기 전용 PDF)의 등록과 다시 렌더)는 [`tests/support/helpers_figure.py`](../../tests/support/helpers_figure.py)에 있다 |
 
 pytest는 `tests`와 `src/limn`을 수집하고 `tests/support`에서 공용 도우미를 찾는다. `--import-mode=importlib`는 패키지마다 같은 테스트 파일 이름을 허용한다. 테스트용 `__init__.py`는 필요하지 않다. wheel은 모든 `tests/`를 제외하고 sdist는 검증 소스를 포함한다. mypy는 동거 테스트를 제외한 모든 프로덕션 모듈을 엄격히 검사한다.
 

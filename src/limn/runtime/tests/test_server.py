@@ -50,6 +50,7 @@ from limn.sync.rules import UpToDate
 from limn.viewer import assemble as viewer_assemble
 from limn.web.errors import HTTPError, InputRejected
 
+import helpers_figure
 from helpers import (
     DOCS_DIR,
     MINI_PDF,
@@ -1182,6 +1183,67 @@ class FigureMapLookups(Base):
         self.assertEqual(second, first)
         self.assertEqual(parsed.call_count, 1)
         self.assertIsInstance(ps.APP.RT.figure_maps.get(self.fig, BUILD2), FigureMap)
+
+
+class FigurePickFeedsTheViewer(Base):
+    """A figure document's pick carries what the viewer draws without asking again (index §Pick answer, P1c): the
+    chosen element and every rung's element with its box, so the composer snaps its pending box to the element and the
+    range ladder moves it client-side. The viewer's side of P1b's answer, run end to end through the handler."""
+
+    def setUp(self):
+        """The manuscript, the figure and the view-only PDF of helpers_figure.viewer_docs, each with a finished build."""
+        super().setUp()
+        self.ms, self.fig, self.rv = helpers_figure.viewer_docs(ps.APP, self.src)
+
+    def tearDown(self):
+        """Back to the single document the next test expects."""
+        ps.APP.set_docs(None)
+        super().tearDown()
+
+    def pick_figure(self, drag):
+        """POST /api/pick over drag [x, y, w, h] on page 1 of the figure's current build; the decoded 200 body."""
+        code, _, raw = split_resp(self.talk(req("GET", "/api/meta?doc=" + helpers_figure.FIG)))
+        self.assertEqual(code, 200, raw)
+        page = json.loads(raw)["pages"][0]
+        x, y, w, h = drag
+        body = {
+            "doc": helpers_figure.FIG,
+            "page": 1,
+            "x0": x * page["pt_w"],
+            "y0": y * page["pt_h"],
+            "x1": (x + w) * page["pt_w"],
+            "y1": (y + h) * page["pt_h"],
+            "frac": list(drag),
+            "pdf_build": helpers_figure.BUILD1,
+        }
+        code, _, raw = split_resp(self.talk(jreq("POST", "/api/pick", body)))
+        self.assertEqual(code, 200, raw)
+        return json.loads(raw)
+
+    def assert_box(self, got, want):
+        """A frac equal to want within float noise."""
+        self.assertEqual(len(got), 4, got)
+        for g, w in zip(got, want, strict=True):
+            self.assertAlmostEqual(g, w, places=6)
+
+    def test_a_drag_in_the_july_cell_answers_every_rung_with_its_element_box(self):
+        """The map chooses the cell; the rungs el/el2/fig carry the cell, the strip and the figure, each with its lines
+        and its box from the build's map, and the answer's own el is the cell with its box."""
+        d = self.pick_figure(helpers_figure.CELL_DRAG)
+        self.assertEqual((d["via"], d["default_level"], d["el"]["id"]), ("map", "el", helpers_figure.CELL_ID))
+        self.assertEqual(d["el"]["path"], [helpers_figure.ROOT_ID, helpers_figure.STRIP_ID, helpers_figure.CELL_ID])
+        self.assert_box(d["el"]["frac"], helpers_figure.JULY)
+        rungs = {lv["level"]: lv for lv in d["levels"]}
+        want = {
+            "el": (helpers_figure.CELL_ID, helpers_figure.JULY, 88, 95),
+            "el2": (helpers_figure.STRIP_ID, helpers_figure.STRIP_FRAC, 80, 97),
+            "fig": (helpers_figure.ROOT_ID, (0, 0, 1, 1), 12, 140),
+        }
+        self.assertEqual(sorted(rungs), sorted(want))
+        for level, (eid, box, lo, hi) in want.items():
+            with self.subTest(level=level):
+                self.assertEqual((rungs[level]["el"]["id"], rungs[level]["lo"], rungs[level]["hi"]), (eid, lo, hi))
+                self.assert_box(rungs[level]["el"]["frac"], box)
 
 
 class MultiDoc(Base):
