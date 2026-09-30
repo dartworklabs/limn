@@ -15,6 +15,15 @@ from limn.platform.values import is_finite_num, is_int, is_num
 
 # An element's box on its page: x, y, w, h in page fractions, origin top left (limn.builds.figure_map.Frac).
 ElementFrac: TypeAlias = tuple[float, float, float, float]
+EL_TEXT_MAX = 200
+EL_PATH_MAX = 64
+EL_FILE_MAX = 1024
+EL_LINE_MAX = 1_000_000
+
+
+def canonical_impl_path(path: str) -> bool:
+    """Accept only canonical relative display paths; this grants no permission to read them."""
+    return "\\" not in path and "\x00" not in path and all(part not in ("", ".", "..") for part in path.split("/"))
 
 
 @dataclass(frozen=True)

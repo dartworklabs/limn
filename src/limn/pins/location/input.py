@@ -4,7 +4,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import NamedTuple
 
-from limn.builds import valid_build_name
 from limn.pins.location.range import SourceRange
 from limn.platform.values import is_finite_num
 from limn.web.errors import InputRejected
@@ -32,7 +31,7 @@ def parse_pick(d: Json, facts: DocumentFacts) -> PickRequest | PickBuildGone | I
     time) must be a page directory name, and a gone one is answered at once; then page within that build's pages,
     x0, x1, y0, y1 as finite numbers (clamped to the page), and frac, when sent, as four finite numbers."""
     want = d.get("pdf_build")
-    if want is not None and not valid_build_name(want):
+    if want is not None and not facts.valid_build_name(want):
         return InputRejected(PDF_BUILD_REFUSAL, "bad_pdf_build")
     found = facts.pick_pages(want)
     if found is None:

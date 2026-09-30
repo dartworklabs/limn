@@ -12,6 +12,7 @@ Run: uv run pytest -q src/limn/builds/tests/test_build.py
 import ast
 import json
 import os
+import subprocess
 import sys
 import tempfile
 import threading
@@ -24,6 +25,7 @@ from unittest import mock
 from limn.builds import (
     artifacts as build,
     artifacts as limn_build,
+    assemble_builds,
     engine as build_engine,
     figure_map as figmap,
     run as build_run,
@@ -49,7 +51,9 @@ from limn.builds.artifacts import (
     PagesNotRendered,
     ViewOnlyNoRebuild,
 )
+from limn.builds.contracts import PinBuildQueries
 from limn.builds.figure_map import FigureMap, MapRejected
+from limn.builds.queries import BuildQueries
 from limn.documents import reads as limn_meta
 from limn.platform import files
 from limn.runtime.documents import Doc, RunPaths
@@ -151,6 +155,23 @@ class NoServerState(unittest.TestCase):
             source = path.read_text(encoding="utf-8")
             self.assertNotIn("C.", source, path.name)
             self.assertNotIn("cur_doc(", source, path.name)
+
+    def test_importing_build_view_does_not_load_http_adapters(self):
+        """The cross-capability read contract must not initialize route or HTTP modules."""
+        code = (
+            "import sys; from limn.builds import PinBuildQueries; "
+            "print(sorted(n for n in sys.modules if n in {'limn.builds.http', 'limn.builds.routes'}))"
+        )
+        result = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, check=False)
+        self.assertEqual((result.returncode, result.stdout.strip()), (0, "[]"), result.stderr)
+
+    def test_assembler_returns_the_public_build_subsystem(self):
+        """Composition receives reads, commands, routes, and the startup operation as one subsystem."""
+        subsystem = assemble_builds(lambda: None, lambda: {}, lambda: [], lambda: "now")
+
+        self.assertIsInstance(subsystem.pins, PinBuildQueries)
+        self.assertIs(subsystem.startup.__self__, subsystem.commands)
+        self.assertEqual(subsystem.routes.post_documents[0].path, "/api/rebuild")
 
 
 class DocumentMemoOwnership(unittest.TestCase):
@@ -800,9 +821,49 @@ class ReadsBeforeAndBetweenBuilds(unittest.TestCase):
         self.assertAlmostEqual(build.src_mtime(self.tex, self.state, force=True), self.t + 200, places=3)
         self.assertAlmostEqual(build.src_mtime(self.pdf, self.state, force=True), self.t + 100, places=3)
 
+    def test_build_queries_exposes_published_artifacts_freshness_state_and_stamps(self):
+        """Each consumer receives its purpose-specific, completed build facts."""
+        cache = BuildMapCache()
+        view = BuildQueries(lambda: cache)
+        current = self.tex.dir / "pages-20260930120000"
+        historical = self.tex.dir / "pages-20260929120000"
+        for pages in (current, historical):
+            pages.mkdir(parents=True)
+            (pages / "page-1.png").write_bytes(blank_png(300, 600))
+            (pages / "main.pdf").write_bytes(MINI_PDF)
+        (self.tex.dir / "pages.cur").write_text(current.name, encoding="utf-8")
+        (self.tex.dir / "built_at.txt").write_text("2026-09-30 12:00:00", encoding="utf-8")
+        (self.tex.dir / "head.txt").write_text("abc1234", encoding="utf-8")
+        (self.tex.dir / "built_src_mtime.txt").write_text(str(self.t), encoding="utf-8")
+        self.tex.bstate.update(state="fail", phase="done")
+
+        document = Doc(
+            "main",
+            "Main",
+            "tex",
+            self.tex.src,
+            self.tex.main,
+            root=True,
+            paths=RunPaths(self.tex.src, self.tex.main, self.tex.dir),
+            bstate=self.tex.bstate,
+        )
+        facts = view.summary(document, self.state, 150).meta
+        self.assertEqual(facts["pages_build"], current.name)
+        self.assertEqual(facts["pages"], [{"name": "page-1.png", "pt_w": 144.0, "pt_h": 288.0}])
+        self.assertEqual(view.publication(document, historical.name, self.state).pdf, historical / "main.pdf")
+        self.assertEqual(facts["build"]["state"], "fail")
+        self.assertGreater(facts["src_mtime"], self.t)
+        self.assertTrue(facts["stale_build"])
+        self.assertEqual(facts["build_src_mtime"], self.t)
+        self.assertEqual(
+            (view.heading(document).built_at, view.heading(document).head), ("2026-09-30 12:00:00", "abc1234")
+        )
+        self.assertEqual(view.position(document).cur, current.name)
+        self.assertTrue(build.last_build_failed(self.tex))
+
 
 class FigureBuildFacts(unittest.TestCase):
-    """The figure build facts limn.builds.artifacts shares with the builds and pins slices: the PDF a map names, kept
+    """Build-owned figure artifact facts: the PDF a map names, kept
     only inside the figure document's folder, and the map a published build kept, whose verdict depends on its bytes
     alone (docs/handbook/code-style-roadmap.md §R10)."""
 
@@ -867,6 +928,24 @@ class FigureBuildFacts(unittest.TestCase):
         for name in ("../pages-20260101000000", "pages-x", "", "figure-import", "pages-20260102000000"):
             self.assertIsNone(build.load_build_map(self.doc, name), name)
             self.assertIsNone(build.build_figure_pdf(self.doc, name), name)
+
+    def test_build_queries_keeps_current_and_historical_figure_pdf_facts(self):
+        """The read contract resolves each build's published figure map, including the current pointer."""
+        current = self.publish("pages-20260101000000", map_bytes(figure_map(MINI_PDF)))
+        historical = self.publish("pages-20251231000000", map_bytes(figure_map(MINI_PDF)))
+        self.doc.dir.mkdir(parents=True, exist_ok=True)
+        (self.doc.dir / "pages.cur").write_text(current.name, encoding="utf-8")
+
+        cache = BuildMapCache()
+        view = BuildQueries(lambda: cache)
+        self.assertEqual(Path(self.doc.dir / view.heading(self.doc).build), current)
+        self.assertEqual(
+            view.publication(self.doc, current.name, self.doc.paths.state).region_pdf, self.figs / "out" / "figures.pdf"
+        )
+        self.assertEqual(
+            view.publication(self.doc, historical.name, self.doc.paths.state).region_pdf,
+            self.figs / "out" / "figures.pdf",
+        )
 
     def test_a_published_map_is_judged_by_its_bytes_alone(self):
         """The copy is parsed as bytes: a source path through a symlink that leads out of figs/ is a map, and it stays

@@ -25,7 +25,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, TypeAlias, get_args
 
-from limn.pins import EventType as EventType
+from limn.collaboration.contracts import EventType as EventType, Notice
 from limn.platform.files import atomic_write
 from limn.platform.text import flat
 from limn.platform.values import is_int
@@ -49,34 +49,27 @@ EXCERPT_CHARS = 140  # a notice's excerpt, on one line (limn.pins.location.mappi
 # ---------------------------------------------------------------- Pure: building and picking notices
 
 
-def make_event(
-    typ: EventType,
-    r: Mapping[str, Any],
-    actor: Mapping[str, Any],
-    to: Iterable[str | None] | None,
-    who: Callable[[Mapping[str, Any]], Row],
-    doc_of: Callable[[Mapping[str, Any]], str],
-    local_login: str,
-    msg: Mapping[str, Any] | None = None,
-    text: str | None = None,
-) -> Row | None:
-    """One events.jsonl record of type typ about pin record r (seq/at/ts are filled in by EventLog.emit), or None.
-
-    to is deduplicated in order and loses empty logins, the actor themselves and local_login (the headerless agent);
-    None (not recorded) if that leaves it empty. who gives the actor as recorded ({login, name}) and doc_of the pin's
-    document; both are only asked when a notice is made. The record carries kind_req when the pin has one, msg (the
-    thread post's id) when a post is given, and an excerpt of text - or of the post's text - when not empty: on one
-    line, at most EXCERPT_CHARS characters (limn.pins.location.mapping.flat, the rule pins.md shows thread posts by)."""
-    me = (actor or {}).get("login")
-    rcpt = [lg for lg in dict.fromkeys(to or []) if lg and lg != me and lg != local_login]
+def make_event(notice: Notice, local_login: str) -> Row | None:
+    """Filter recipients and serialize completed facts; pin/thread extraction belongs to pins."""
+    rcpt = [
+        login
+        for login in dict.fromkeys(notice.recipients)
+        if login and login != notice.actor_login and login != local_login
+    ]
     if not rcpt:
         return None
-    ev: Row = {"type": typ, "pin": r.get("id"), "doc": doc_of(r), "to": rcpt, "by": who(actor)}
-    if r.get("kind_req"):
-        ev["kind_req"] = r["kind_req"]
-    if msg is not None:
-        ev["msg"] = msg.get("id")
-    ex = flat(text if text is not None else (msg or {}).get("text", ""), EXCERPT_CHARS)
+    ev: Row = {
+        "type": notice.type,
+        "pin": notice.pin,
+        "doc": notice.document,
+        "to": rcpt,
+        "by": {"login": notice.actor_login, "name": notice.actor_name},
+    }
+    if notice.kind:
+        ev["kind_req"] = notice.kind
+    if notice.has_message:
+        ev["msg"] = notice.message_id
+    ex = flat(notice.text, EXCERPT_CHARS)
     if ex:
         ev["excerpt"] = ex
     return ev

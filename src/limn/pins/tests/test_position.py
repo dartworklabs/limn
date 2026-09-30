@@ -12,9 +12,10 @@ import time
 import unittest
 from pathlib import Path
 
+from limn.builds.queries import position_basis
 from limn.pins.location import position
 from limn.pins.location.mapping import anchor_of, norm
-from limn.pins.location.position import AnchorLost, EstContext, Followed
+from limn.pins.location.position import AnchorLost, Followed
 from limn.pins.model import LineSpan, OpenPin, parse_pin
 
 POSITION_PY = Path(position.__file__)
@@ -35,7 +36,8 @@ LINES = ["\\section{Intro}", "alpha line one", "beta line two", "", "gamma line 
 
 def ctx(cur="pages-2", by=None, built_at=None, bsm=None):
     """An EstContext for the current build cur with the given history entries."""
-    return EstContext(cur, by or {}, built_at, bsm)
+    facts = position_basis(cur, by or {}, bsm, built_at)
+    return position.EstContext(facts.cur, facts.exact_builds, facts.built_at, facts.built_src_mtime)
 
 
 def parsed(rows):
@@ -107,25 +109,6 @@ class Estimation(unittest.TestCase):
         self.assertFalse(position.pin_est({"at": at}, ctx(built_at=placed + 3600, bsm=placed - 600)))
         self.assertFalse(position.pin_est({"at": at}, ctx(built_at=placed - 1, bsm=placed + 600)))
         self.assertFalse(position.pin_est({"at": "not a time"}, c))
-
-    def test_same_source_by_hash_else_mtime_else_different(self):
-        """Hashes decide when both exist; otherwise src_mtime within 0.01 s; a missing entry is a different source."""
-        self.assertTrue(position.same_source({"src_hash": "x", "src_mtime": 1}, {"src_hash": "x", "src_mtime": 9}))
-        self.assertTrue(position.same_source({"src_mtime": 100.0}, {"src_hash": "y", "src_mtime": 100.004}))
-        self.assertFalse(position.same_source({"src_mtime": True}, {"src_mtime": True}))
-        self.assertFalse(position.same_source(None, {"src_hash": "x"}))
-
-    def test_est_basis_fills_a_current_build_missing_from_history(self):
-        """Before the history has the current build, it is judged by the recorded mtime; without one, by history."""
-        c = position.est_basis("pages-2", {}, 50.0, 60.0)
-        self.assertEqual(
-            (c.by["pages-2"], c.built_src_mtime, c.built_at),
-            ({"build": "pages-2", "src_mtime": 50.0, "src_hash": None}, 50.0, 60.0),
-        )
-        self.assertEqual(position.est_basis("pages-2", {"pages-2": {"src_mtime": 7}}, None, None).built_src_mtime, 7.0)
-        history = {"pages-1": {}}
-        position.est_basis("pages-2", history, None, None)
-        self.assertEqual(history, {"pages-1": {}})  # the history read is not changed
 
     def test_epoch_reads_local_and_offset_times(self):
         """A local 'YYYY-MM-DD HH:MM:SS' is local time; an offset string is absolute; anything else is None."""

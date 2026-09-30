@@ -4,8 +4,9 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 
+from limn.builds import DocumentBuildQueries, document_build_queries
 from limn.documents import reads
-from limn.pins import Pin, Record
+from limn.pins import PinCountQueries
 from limn.runtime.documents import Doc
 
 Json = dict[str, Any]
@@ -18,24 +19,32 @@ class DocumentViews:
     settings: Callable[[], reads.MetaSettings]
     docs: Sequence[Doc]
     sync_status: Callable[[], Mapping[str, Any]]
-    read_pins: Callable[[], tuple[list[Pin], list[int]]]
-    snapshot_pins: Callable[[], list[Pin]]
-    pin_doc_key: Callable[[Record], str]
+    pins: PinCountQueries
     events_since: Callable[[Json, int | None], Json]
     now: Callable[[], float]
+    builds: DocumentBuildQueries = document_build_queries()
 
     def meta(self, doc: Doc, actor: Json, light: bool = False) -> Json:
         """The document's current viewer state; a full read also resynchronizes pin counts."""
-        out = reads.meta(doc, actor, self.settings(), self.docs, self.sync_status(), self.now())
+        out = reads.meta(
+            doc,
+            actor,
+            self.settings(),
+            self.docs,
+            self.sync_status(),
+            self.now(),
+            self.builds,
+            self.pins.change_token(),
+        )
         if not light:
-            out.update(reads.pin_counts([pin.state for pin in self.snapshot_pins()]))
+            out.update(self.pins.state_counts())
         return out
 
     def docs_payload(self) -> Json:
         """The current document list and open-pin counts from a read without resynchronization."""
-        pins, _ = self.read_pins()
-        return reads.docs_payload(self.docs, [pin.record for pin in pins], self.pin_doc_key, self.settings().state)
+        counts, other = self.pins.counts_by_document({doc.key for doc in self.docs})
+        return reads.docs_payload(self.docs, counts, other, self.settings().state, self.builds)
 
     def outline(self, doc: Doc) -> Json:
         """Labels from the .aux published with the page images on screen."""
-        return reads.outline_labels(doc)
+        return reads.outline_labels(doc, self.builds)

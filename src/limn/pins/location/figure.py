@@ -2,9 +2,9 @@
 lines of code that drew the element (the ladder: docs/handbook/domain.md §그림 문서의 요소 pick; the answers:
 docs/handbook/api.md §그림 문서의 pick·핀).
 
-resolve.pick sends a figure document here before anything else. The map comes from the composition root
-(PickContext.figure_map: the pick's own build's copy, parsed once per build); which element and which ladder are
-limn.builds.figure_map's pure rules (pick_element, ladder_scopes, element_kind) and element_rungs below. This module
+resolve.pick sends a figure document here before anything else. The build owner answers which element and ladder
+belong to the pick's selected publication. This module consumes detached selection facts, not a map graph,
+and turns their source spans into the current manuscript's range ladder. This module
 reads only the chosen element's source file, through the checked-file helpers and only inside the document's folder, and
 never the PDF. What it cannot answer with lines it answers with a FigureFallback, which resolve.pick turns into the
 region answer. No HTTP here: location.http shapes every body.
@@ -15,16 +15,7 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Literal, TypeAlias
 
-from limn.builds import (
-    ElementPick,
-    FigureMap,
-    MapElement,
-    MapPage,
-    MapRejected,
-    element_kind,
-    ladder_scopes,
-    pick_element,
-)
+from limn.builds import ElementFact, ElementSelection, SelectionUnavailable
 from limn.pins.element import ElementImpl, PinElement
 from limn.pins.location.mapping import snippet
 from limn.platform.files import ManuscriptFile, file_in_tree, tex_lines, tree_part
@@ -89,37 +80,35 @@ def drag_frac(box: tuple[float, float, float, float], size: tuple[float, float])
     return (x0 / pw, y0 / ph, (x1 - x0) / pw, (y1 - y0) / ph)
 
 
-def pin_element(page: MapPage, el: MapElement) -> PinElement:
-    """el of page as a pin records it (limn.pins.element): its id, the ids from the page root down to it, its label and
-    part, its shared implementation's file and lines when the map names them, and its box on this build. The parser
-    keeps an empty label or part as "" (limn.builds.figure_map.parse_map); a pin stores that as absent, like a name the
-    map does not give, so "" never reaches a record or an answer."""
-    chain = (el, *page.ancestors(el))
-    impl = None if el.impl is None else ElementImpl(el.impl.file, el.impl.lo, el.impl.hi)
-    return PinElement(el.id, tuple(e.id for e in reversed(chain)), el.label or None, el.part or None, impl, el.frac)
+def pin_element(el: ElementFact) -> PinElement:
+    """A detached selected element as a pin records it (limn.pins.element): its id, the ids from the page root down to it, its label and
+    part, its shared implementation's file and lines when the map names them, and its box on this build. The build owner has already
+    normalized absent display names; no parser representation enters the pin record."""
+    impl = None if el.impl is None else ElementImpl(*el.impl)
+    return PinElement(el.id, el.path, el.label, el.part, impl, el.frac)
 
 
-def element_rungs(page: MapPage, pick: ElementPick, lines: Sequence[str]) -> tuple[Rung, ...]:
+def element_rungs(pick: ElementSelection, lines: Sequence[str]) -> tuple[Rung, ...]:
     """The range ladder of a map pick in the chosen element's source file, whose current lines are `lines`: one rung per
-    ladder element (level names from ladder_scopes), nearest first, for each element whose src names that same file
+    ladder element (level names supplied by the build owner), nearest first, for each element whose src names that same file
     and fits in it (1 <= lo <= hi <= len(lines)). A rung with the same lines as an earlier one merges into it: the
     earlier, inner rung stays - its element is the more precise answer - and lists the later level name under merged.
     Empty when the chosen element itself has no src or its lines do not fit: the pick then falls back to the region."""
     chosen = pick.chosen
-    if chosen.src is None:
+    if chosen.source is None:
         return ()
-    file = chosen.src.file
+    file = chosen.source[0]
     out: list[Rung] = []
-    for level, el in zip(ladder_scopes(pick.ladder), pick.ladder, strict=True):
-        ref = el.src
-        if ref is None or ref.file != file or not 1 <= ref.lo <= ref.hi <= len(lines):
+    for level, el in pick.ladder:
+        ref = el.source
+        if ref is None or ref[0] != file or not 1 <= ref[1] <= ref[2] <= len(lines):
             continue
-        same = next((i for i, r in enumerate(out) if (r.lo, r.hi) == (ref.lo, ref.hi)), None)
+        same = next((i for i, r in enumerate(out) if (r.lo, r.hi) == (ref[1], ref[2])), None)
         if same is not None:
             out[same] = replace(out[same], merged=(*out[same].merged, level))
             continue
         name = el.label or el.part or el.id
-        out.append(Rung(level, ref.lo, ref.hi, name, snippet(lines, ref.lo, ref.hi), pin_element(page, el)))
+        out.append(Rung(level, ref[1], ref[2], name, snippet(lines, ref[1], ref[2]), pin_element(el)))
     return tuple(out) if out and out[0].el.id == chosen.id else ()
 
 
@@ -148,7 +137,7 @@ def pick_figure(
     size: tuple[float, float],
     frac: list[float] | None,
     pdir: Path,
-    fmap: FigureMap | MapRejected | None,
+    selection: ElementSelection | SelectionUnavailable,
     root: Path,
     state: Path,
     overlaps: Callable[[str, int, int], list[dict[str, Any]]],
@@ -160,17 +149,14 @@ def pick_figure(
     whose src is missing, unreadable, outside D.src or longer than its file now (element_without_source, with that
     element). overlaps gives the stored open pins the default rung overlaps; redrawing says the pages are being
     redrawn. Reads the chosen element's source file once; never the PDF."""
-    if not isinstance(fmap, FigureMap):
+    if isinstance(selection, SelectionUnavailable):
         return FigureFallback("figure_map_unavailable", None)
-    page = fmap.page(page_no)
-    if page is None:
-        return FigureFallback("figure_map_unavailable", None)
-    pick = pick_element(page, drag_frac(box, size))
+    pick = selection
     chosen = pick.chosen
-    source = read_source(D, chosen.src.file, root, state) if chosen.src is not None else None
-    rungs = element_rungs(page, pick, source[1]) if source is not None else ()
+    source = read_source(D, chosen.source[0], root, state) if chosen.source is not None else None
+    rungs = element_rungs(pick, source[1]) if source is not None else ()
     if source is None or not rungs:
-        return FigureFallback("element_without_source", pin_element(page, chosen))
+        return FigureFallback("element_without_source", pin_element(chosen))
     found, lines = source
     first = rungs[0]
     return PickedElement(
@@ -178,7 +164,7 @@ def pick_figure(
         n_lines=len(lines),
         page=page_no,
         frac=frac,
-        kind=element_kind(chosen, chosen.id == page.root().id),
+        kind=pick.kind,
         score=pick.score,
         rungs=rungs,
         quote=chosen.label or "",

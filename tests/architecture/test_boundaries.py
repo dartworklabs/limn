@@ -1,5 +1,6 @@
 """Feature boundaries reject private access, indirect dependency leaks and cycles."""
 
+import ast
 import importlib.util
 from pathlib import Path
 
@@ -16,6 +17,92 @@ SPEC.loader.exec_module(checker)
 def test_repository_respects_all_feature_surfaces():
     """Every production slice has exports and every dependency respects ownership."""
     assert checker.check(ROOT / "src" / "limn") == []
+
+
+@pytest.mark.parametrize("consumer", ["sync", "documents", "pins", "collaboration", "revisions"])
+@pytest.mark.parametrize("marker", ["head.txt", "built_at.txt", "built_src_mtime.txt", "pages.cur", "builds.json"])
+def test_foreign_build_marker_access_is_rejected(consumer, marker):
+    """Feature consumers cannot bypass the build owner by naming its marker or history files."""
+    code = {
+        f"limn.{consumer}": "__all__ = []",
+        f"limn.{consumer}.reads": f'answer = (doc.dir / "{marker}").read_text()',
+    }
+    errors = checker.violations(code, {f"limn.{consumer}"})
+    assert any("build storage leak" in error for error in errors)
+
+
+def test_build_owner_may_read_its_markers():
+    """The provider remains free to interpret its own publication layout."""
+    code = {"limn.builds": "__all__ = []", "limn.builds.queries": 'answer = (doc.dir / "head.txt").read_text()'}
+    assert checker.violations(code, {"limn.builds"}) == []
+
+
+@pytest.mark.parametrize(
+    "provider,name",
+    [
+        ("builds", "BuildView"),
+        ("builds", "FigureMap"),
+        ("builds", "MapPage"),
+        ("builds", "MapElement"),
+        ("pins", "PinReadView"),
+    ],
+)
+def test_storage_shaped_public_contracts_cannot_return(provider, name):
+    """Re-exporting a retired broad contract must not let document consumers use it again."""
+    code = {
+        "limn.documents": '__all__ = ["act"]',
+        "limn.documents.reads": f"from limn.{provider} import {name}",
+        f"limn.{provider}": f'__all__ = ["{name}"]',
+    }
+    errors = checker.violations(code, {"limn.documents", f"limn.{provider}"}, checker.CROSSING_NAMES)
+    assert any("unapproved crossing" in error for error in errors)
+
+
+def test_server_has_no_application_service_locator():
+    """The entrypoint composes ports and does not own a mega application class."""
+    tree = ast.parse((ROOT / "src" / "limn" / "server.py").read_text(encoding="utf-8"))
+    classes = {node.name for node in tree.body if isinstance(node, ast.ClassDef)}
+    assert classes == {"Handler", "RunStart", "RunEnvironment", "ServerAssembly", "StartedServer"}
+    assert not any(
+        isinstance(child, ast.FunctionDef | ast.AsyncFunctionDef)
+        for node in tree.body
+        if isinstance(node, ast.ClassDef)
+        for child in node.body
+    ), "Composition values cannot hide capability workflows in a renamed application class"
+
+
+def test_production_crossings_are_the_reviewed_query_contracts():
+    """Public helpers cannot silently widen any current cross-capability dependency."""
+    assert {
+        ("limn.documents", "limn.builds"): {"DocumentBuildQueries", "document_build_queries"},
+        ("limn.documents", "limn.pins"): {"PinCountQueries"},
+        ("limn.pins", "limn.builds"): {
+            "PinBuildQueries",
+            "pin_build_queries",
+            "ElementFollower",
+            "ElementFact",
+            "ElementSelection",
+            "SelectionUnavailable",
+            "Publication",
+        },
+        ("limn.pins", "limn.collaboration"): {"Notice"},
+        ("limn.revisions", "limn.pins"): {"RevisionPinQuery", "RevisionPin"},
+    } == checker.CROSSING_NAMES
+
+
+def test_revisions_imports_only_the_pin_projection_contract():
+    """Revision algorithms cannot reach pin storage, models, or scope helpers."""
+    code = checker.sources(ROOT / "src" / "limn")
+    packages = {name for name in code if (ROOT / "src" / "limn" / Path(*name.split(".")[1:]) / "__init__.py").is_file()}
+    imported = {
+        symbol
+        for name, source in code.items()
+        if checker.owner(name) == "limn.revisions"
+        for base, symbol in checker.imports(name, checker.ast.parse(source), packages)
+        if base == "limn.pins"
+    }
+
+    assert imported == {"RevisionPin", "RevisionPinQuery"}
 
 
 @pytest.mark.parametrize("statement", ["import limn.builds.private", "from limn.builds import private"])
@@ -78,6 +165,63 @@ def test_relative_import_inside_a_slice_is_allowed():
         "limn.pins.private": "",
     }
     assert checker.violations(code, {"limn.pins"}) == []
+
+
+def test_crossing_allowlist_rejects_an_unapproved_public_name():
+    """A public export cannot cross a capability boundary without explicit approval."""
+    code = {
+        "limn.pins": '__all__ = ["PinReadView", "PinStore"]\n',
+        "limn.pins.application": "class PinReadView: ...\n",
+        "limn.pins.store": "class PinStore: ...\n",
+        "limn.documents": '__all__ = ["DocumentViews"]\n',
+        "limn.documents.reads": "from limn.pins import PinStore\n",
+    }
+
+    errors = checker.violations(
+        code,
+        {"limn.pins", "limn.documents"},
+        {("limn.documents", "limn.pins"): {"PinReadView"}},
+    )
+
+    assert "limn.documents.reads: unapproved crossing limn.pins.PinStore" in errors
+
+
+def test_crossing_allowlist_accepts_the_approved_public_name():
+    """The exact public contract named for a capability pair remains importable."""
+    code = {
+        "limn.pins": '__all__ = ["PinReadView"]\n',
+        "limn.pins.application": "class PinReadView: ...\n",
+        "limn.documents": '__all__ = ["DocumentViews"]\n',
+        "limn.documents.reads": "from limn.pins import PinReadView\n",
+    }
+
+    assert (
+        checker.violations(
+            code,
+            {"limn.pins", "limn.documents"},
+            {("limn.documents", "limn.pins"): {"PinReadView"}},
+        )
+        == []
+    )
+
+
+def test_composition_import_allowlist_rejects_a_domain_helper():
+    """An entry point may import only the approved capability assembly names."""
+    code = {
+        "limn.pins": '__all__ = ["assemble_pins", "PinStore"]\n',
+        "limn.pins.application": "def assemble_pins(): ...\n",
+        "limn.pins.store": "class PinStore: ...\n",
+        "limn.server": "from limn.pins import PinStore\n",
+    }
+
+    errors = checker.violations(
+        code,
+        {"limn.pins"},
+        None,
+        {"limn.server": {"assemble_pins"}},
+    )
+
+    assert "limn.server: unapproved composition import limn.pins.PinStore" in errors
 
 
 def test_empty_discovery_fails(tmp_path):

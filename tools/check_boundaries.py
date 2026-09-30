@@ -4,10 +4,66 @@ import ast
 import sys
 from collections.abc import Mapping
 from pathlib import Path
+from typing import TypeAlias
 
 ENTRY_POINTS = {"limn.server", "limn.cli", "limn.__main__"}
 CAPABILITIES = {"administration", "builds", "collaboration", "documents", "pins", "revisions", "sync", "viewer"}
 BOUNDARIES = {"runtime", "security", "platform", "web"}
+BUILD_STORAGE_NAMES = {"head.txt", "built_at.txt", "built_src_mtime.txt", "pages.cur", "builds.json"}
+
+CrossingKey: TypeAlias = tuple[str, str]
+CrossingNames: TypeAlias = Mapping[CrossingKey, set[str]]
+EntrypointImports: TypeAlias = Mapping[str, set[str]]
+
+CROSSING_NAMES: CrossingNames = {
+    ("limn.documents", "limn.builds"): {"DocumentBuildQueries", "document_build_queries"},
+    ("limn.documents", "limn.pins"): {"PinCountQueries"},
+    ("limn.pins", "limn.builds"): {
+        "PinBuildQueries",
+        "pin_build_queries",
+        "ElementFollower",
+        "ElementFact",
+        "ElementSelection",
+        "SelectionUnavailable",
+        "Publication",
+    },
+    ("limn.pins", "limn.collaboration"): {"Notice"},
+    ("limn.revisions", "limn.pins"): {"RevisionPinQuery", "RevisionPin"},
+}
+ENTRYPOINT_IMPORTS: EntrypointImports = {
+    "limn.server": {
+        "doc_start_line",
+        "docs_of",
+        "pick_documents",
+        "BuildSubsystem",
+        "BuildMapCache",
+        "assemble_builds",
+        "CollaborationSubsystem",
+        "assemble_collaboration",
+        "DocumentsSubsystem",
+        "MetaSettings",
+        "assemble_documents",
+        "PinSubsystem",
+        "TokenCache",
+        "assemble_pins",
+        "RevisionJobs",
+        "RevisionSubsystem",
+        "ScopeCache",
+        "assemble_revisions",
+        "PullShare",
+        "SyncContext",
+        "SyncSubsystem",
+        "SyncWatch",
+        "assemble_sync",
+        "ServedViewer",
+        "assemble_viewer",
+        "default_pdfjs_dir",
+        "read_viewer",
+        "serve_viewer",
+    },
+    "limn.cli": {"CliError", "cmd_member", "cmd_token", "migrate_main"},
+    "limn.__main__": set(),
+}
 
 
 def owner(module: str) -> str | None:
@@ -58,7 +114,12 @@ def exports(tree: ast.Module) -> set[str] | None:
     return None
 
 
-def violations(code: Mapping[str, str], packages: set[str]) -> list[str]:
+def violations(
+    code: Mapping[str, str],
+    packages: set[str],
+    crossings: CrossingNames | None = None,
+    entrypoint_imports: EntrypointImports | None = None,
+) -> list[str]:
     """Report private imports, shared-to-feature paths and cycles across every slice.
 
     Entry points may compose public operations. Within a slice, modules may use
@@ -70,6 +131,11 @@ def violations(code: Mapping[str, str], packages: set[str]) -> list[str]:
     errors = [f"{name}: missing literal __all__" for name, surface in sorted(surfaces.items()) if surface is None]
     graph: dict[str, set[str]] = {name: set() for name in code}
     for name, tree in trees.items():
+        source_owner = owner(name)
+        if source_owner and source_owner != "limn.builds":
+            for node in ast.walk(tree):
+                if isinstance(node, ast.Constant) and isinstance(node.value, str) and node.value in BUILD_STORAGE_NAMES:
+                    errors.append(f"{name}:{node.lineno}: build storage leak {node.value}")
         for base, symbol in imports(name, tree, packages):
             target = f"{base}.{symbol}" if symbol and f"{base}.{symbol}" in code else base
             if base in code:
@@ -84,10 +150,18 @@ def violations(code: Mapping[str, str], packages: set[str]) -> list[str]:
                     if parent in packages and parent in code:
                         graph[name].add(parent)
             target_owner = owner(target)
-            if target_owner and owner(name) != target_owner:
+            if target_owner and source_owner != target_owner:
                 surface = surfaces.get(target_owner) or set()
                 if base != target_owner or symbol not in surface:
                     errors.append(f"{name}: private import {base}" + (f".{symbol}" if symbol else ""))
+                elif source_owner and crossings is not None:
+                    approved = crossings.get((source_owner, target_owner), set())
+                    if symbol not in approved:
+                        errors.append(f"{name}: unapproved crossing {target_owner}.{symbol}")
+                elif name in ENTRY_POINTS and entrypoint_imports is not None:
+                    approved = entrypoint_imports.get(name, set())
+                    if symbol not in approved:
+                        errors.append(f"{name}: unapproved composition import {target_owner}.{symbol}")
 
     def paths(start: str) -> dict[str, tuple[str, ...]]:
         """Find reachable modules with one finite witness per destination."""
@@ -139,7 +213,7 @@ def check(root: Path) -> list[str]:
         and name not in {f"limn.{package}" for package in CAPABILITIES | BOUNDARIES}
     ]
     packages = {name for name in code if (root / Path(*name.split(".")[1:]) / "__init__.py").is_file()}
-    return sorted([*unowned, *violations(code, packages)])
+    return sorted([*unowned, *violations(code, packages, CROSSING_NAMES, ENTRYPOINT_IMPORTS)])
 
 
 def main() -> int:

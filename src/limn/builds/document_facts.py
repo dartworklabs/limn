@@ -78,6 +78,10 @@ class DocumentFacts:
         """The name of D's page directory on screen."""
         return build.cur_pages(self._doc).name
 
+    def valid_build_name(self, value: object) -> bool:
+        """Return whether ``value`` names a page directory."""
+        return build.valid_build_name(value)
+
     def pick_pages(self, name: str | None) -> tuple[Path, list[tuple[float, float]]] | None:
         """(page directory, [(width, height) in points]) of build `name` of D - or the one on screen for None - or None
         when name is a page directory of D that is gone."""

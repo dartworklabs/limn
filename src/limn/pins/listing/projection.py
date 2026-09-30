@@ -18,7 +18,7 @@ already computed over all rows, when a Trash entry expires, and the clock.
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from typing import Any, TypeAlias
 
-from limn.builds import FigureMap, Frac, follow_element
+from limn.builds import ElementFollower
 from limn.pins.element import element_of
 from limn.pins.location.position import EstContext, epoch, pin_est
 from limn.pins.mentions import addressed_to, fyi_mentions_to
@@ -88,18 +88,18 @@ def _wire_frac(frac: object) -> object:
 # The box compared with when neither the element nor the pin recorded one. Its origin is off the page (-1, -1), so no
 # element's box - x and y in 0..1 - is within FOLLOW_EPS of it, however small the element or near the page origin:
 # such a pin is never "ok".
-NO_FRAC: Frac = (-1.0, -1.0, 0.0, 0.0)
+NO_FRAC: tuple[float, float, float, float] = (-1.0, -1.0, 0.0, 0.0)
 
 
 def no_figure_maps(key: str) -> None:
-    """The figure_map of an instance without figure documents: no document has a map."""
+    """No element-position lookup for an instance without figure documents."""
     return None
 
 
-def element_marks(r: Row, fmap: FigureMap | None) -> Json:
+def element_marks(r: Row, fmap: ElementFollower | None) -> Json:
     """The read-time position of pin r's element on its figure document's current map: {} unless r carries a well-formed
-    el (limn.pins.element) and fmap is that map; else el_sync (limn.builds.figure_map.follow_element) and, when the
-    element is on the map, mark ([x, y, w, h]) and mark_page before it. Where the element was when pinned is el.frac
+    el (limn.pins.element) and fmap answers its current position; else el_sync and, when the
+    element still exists, mark ([x, y, w, h]) and mark_page before it. Where the element was when pinned is el.frac
     (its box then); a pin without it is compared by its own frac, and a pin with neither by NO_FRAC, so it is never
     "ok". The page is the pin's page. Never stored; never changes r."""
     el = element_of(r.get("el"))
@@ -110,14 +110,14 @@ def element_marks(r: Row, fmap: FigureMap | None) -> Json:
     if then is None and isinstance(frac, list) and len(frac) == 4 and all(is_finite_num(v) for v in frac):
         then = (float(frac[0]), float(frac[1]), float(frac[2]), float(frac[3]))
     page = r.get("page")
-    got = follow_element(fmap, el.id, page if is_int(page) else 0, then or NO_FRAC)
+    got = fmap(el.id, page if is_int(page) else 0, then or NO_FRAC)
     if got.page is None or got.frac is None:
         return {"el_sync": got.sync}
     return {"mark": list(got.frac), "mark_page": got.page, "el_sync": got.sync}
 
 
 def pin_view(
-    r: Row, shown: Json, rel: list[Json], est: bool, doc: str, now: float, fmap: FigureMap | None = None
+    r: Row, shown: Json, rel: list[Json], est: bool, doc: str, now: float, fmap: ElementFollower | None = None
 ) -> Json:
     """One GET /api/pins record: shown (r as the API shows it) followed by rel, est, doc, state, addressed and fyi, in
     that order, then - for a figure pin with an element on fmap, its document's current map - mark, mark_page and
@@ -142,7 +142,7 @@ def pins_payload(
     doc_of: Callable[[Row], str],
     est_context: Callable[[str], EstContext | None],
     now: float,
-    figure_map: Callable[[str], FigureMap | None] = no_figure_maps,
+    figure_map: Callable[[str], ElementFollower | None] = no_figure_maps,
 ) -> list[Json]:
     """GET /api/pins: the open pins of rows in row order (every pin when allp), each as pin_view() gives it.
 
@@ -150,10 +150,10 @@ def pins_payload(
     doc_of names a pin's document and est_context gives the estimation facts of a document by key, or None when the
     instance no longer serves it - then est is True (placed on a PDF that is not on screen). est_context is asked
     once per document, and only for documents with a listed pin, since it reads that document's build history.
-    figure_map gives a figure document's current map by key (None for another document or one that does not load);
+    figure_map binds a build-owned element-position query by document key, never a parsed map;
     it is asked at most once per document, and only for a document with a listed pin that carries an el."""
     ctxs: dict[str, EstContext | None] = {}
-    maps: dict[str, FigureMap | None] = {}
+    maps: dict[str, ElementFollower | None] = {}
     out = []
     for r in rows:
         if not (allp or state_of(r) is OpenPin):

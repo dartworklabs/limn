@@ -18,9 +18,8 @@ import traceback
 from collections.abc import Callable, Iterable, Sequence
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Protocol, TypeAlias, TypeVar
+from typing import Protocol, TypeAlias, TypeVar
 
-from limn.builds import last_build_failed
 from limn.sync.rules import (
     Building,
     Built,
@@ -63,23 +62,8 @@ class SyncDoc(Protocol):
         ...
 
     @property
-    def dir(self) -> Path:
-        """The document's state folder; head.txt there names the commit its PDF was built from."""
-        ...
-
-    @property
     def lock(self) -> threading.Lock:
         """The document's build lock: held while it builds; the watch holds every one while it pulls."""
-        ...
-
-    @property
-    def bstate_lock(self) -> threading.Lock:
-        """Guards bstate."""
-        ...
-
-    @property
-    def bstate(self) -> dict[str, Any]:
-        """The document's build state, read only through limn.builds.artifacts.last_build_failed."""
         ...
 
 
@@ -167,20 +151,12 @@ def repo_pull(
 # ---------------------------------------------------------------- the remote-main watch
 
 
-def _built_head(D: SyncDoc) -> str:
-    """The commit document D's PDF was built from (head.txt, stripped), or "" when there is none to read."""
-    try:
-        return (D.dir / "head.txt").read_text(encoding="utf-8").strip()
-    except OSError:
-        return ""
-
-
-def _progress(D: SyncDoc) -> DocProgress:
+def _progress(D: Doc, last_failed: Callable[[Doc], bool], built_head: Callable[[Doc], str]) -> DocProgress:
     """Where LaTeX document D's build stands for the watch status: running, or at rest with its built commit and
     whether its last build failed."""
     if D.lock.locked():
         return Building()
-    return Built(_built_head(D), last_build_failed(D))
+    return Built(built_head(D), last_failed(D))
 
 
 class SyncWatch:
@@ -192,7 +168,13 @@ class SyncWatch:
         self.lock = threading.Lock()
         self.record: Json = initial_status()
 
-    def status(self, docs: Iterable[SyncDoc], enabled: bool) -> Json:
+    def status(
+        self,
+        docs: Iterable[Doc],
+        enabled: bool,
+        last_failed: Callable[[Doc], bool],
+        built_head: Callable[[Doc], str],
+    ) -> Json:
         """The status for GET /api/meta: "disabled" without --git-pull. An "updating" status is settled here once every
         document built from source was built from the pulled commit ("current"), or one still behind it failed its
         build ("error", build_failed). Returns a copy."""
@@ -203,7 +185,7 @@ class SyncWatch:
         if record.get("state") != "updating" or not record.get("head_after"):
             return record
         head = record["head_after"]
-        done = settled(head, [_progress(D) for D in list(docs) if D.builds_from_source])
+        done = settled(head, [_progress(D, last_failed, built_head) for D in list(docs) if D.builds_from_source])
         if done is None:
             return record
         with self.lock:
@@ -220,6 +202,7 @@ class SyncWatch:
         start_build: Callable[[Doc], object],
         stamp: Stamp,
         clock: Clock,
+        built_head: Callable[[Doc], str],
     ) -> Json:
         """One round: pull remote main and start the build of each document built from source that the pull left
         behind. Also run on a --no-build startup.
@@ -256,7 +239,7 @@ class SyncWatch:
         if out["state"] in ("updated", "current"):
             head = out.get("head_after") or ""
             for D in source_docs:
-                if needs_rebuild(outcome, head, _built_head(D)):
+                if needs_rebuild(outcome, head, built_head(D)):
                     start_build(D)
                     out["state"] = "updating"
             if out["state"] == "updating":

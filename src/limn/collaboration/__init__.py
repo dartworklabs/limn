@@ -1,26 +1,30 @@
-"""Public operations and values owned by the collaboration capability."""
+"""Declared query, command and assembly surface of the collaboration capability."""
 
 from importlib import import_module
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from .directory import PeopleDirectory as PeopleDirectory
-    from .events import ReadCache as ReadCache
-    from .notices import Notices as Notices
-    from .routes import get as get_route
+    from .application import (
+        CollaborationSubsystem as CollaborationSubsystem,
+        NoticeSink as NoticeSink,
+        PeopleView as PeopleView,
+        assemble_collaboration as assemble_collaboration,
+    )
+    from .contracts import Notice as Notice
 
-__all__ = ["Notices", "PeopleDirectory", "ReadCache", "get_route"]
+__all__ = ["Notice", "CollaborationSubsystem", "NoticeSink", "PeopleView", "assemble_collaboration"]
 
 _EXPORTS = {
-    "Notices": ("notices", "Notices"),
-    "PeopleDirectory": ("directory", "PeopleDirectory"),
-    "ReadCache": ("events", "ReadCache"),
-    "get_route": ("routes", "get"),
+    "Notice": ("contracts", "Notice"),
+    "CollaborationSubsystem": ("application", "CollaborationSubsystem"),
+    "NoticeSink": ("application", "NoticeSink"),
+    "PeopleView": ("application", "PeopleView"),
+    "assemble_collaboration": ("application", "assemble_collaboration"),
 }
 
 
 def __getattr__(name: str) -> object:
-    """Load only the requested public operation without initializing unrelated adapters."""
+    """Load one declared contract without initializing unrelated routes or runtime resources."""
     if name not in _EXPORTS:
         raise AttributeError(name)
     module, symbol = _EXPORTS[name]

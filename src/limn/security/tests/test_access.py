@@ -26,7 +26,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from limn.pins import retention as trash_rules
+from limn.pins import retention as trash_rules, runtime as pin_runtime
 from limn.pins.context import is_agent
 from limn.pins.lifecycle.rules import CloseRequest
 from limn.pins.listing import render as md_render
@@ -1057,7 +1057,9 @@ class Migration(AccessBase):
             if path == "/api/pins/dropped":  # v0.2.2: the Trash adds a computed expires_ts
                 for r in new["dropped"]:  # and hides entries older than TRASH_DAYS
                     self.assertIsInstance(r.pop("expires_ts", 0), (int, float))
-                old["dropped"] = [r for r in old["dropped"] if not trash_rules.expired(r, ps.TRASH_DAYS, time.time())]
+                old["dropped"] = [
+                    r for r in old["dropped"] if not trash_rules.expired(r, pin_runtime.TRASH_DAYS, time.time())
+                ]
             recs = new["dropped"] if path == "/api/pins/dropped" else [new["pin"]] if path == "/api/pins/4" else new
             for r in recs:  # v0.3.2 (ADR-0006): an additive rel_path on line pins
                 rel = r.pop("rel_path", None)

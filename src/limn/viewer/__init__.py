@@ -1,58 +1,41 @@
-"""Public operations and values owned by the viewer capability."""
+"""Declared query, command and assembly surface of the viewer capability."""
 
 from importlib import import_module
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    from .application import ViewerSubsystem as ViewerSubsystem, assemble_viewer as assemble_viewer
     from .assemble import (
-        LUCIDE as LUCIDE,
-        PDFJS_VERSION as PDFJS_VERSION,
-        VIEWER_DIR as VIEWER_DIR,
         ServedViewer as ServedViewer,
         ViewerFiles as ViewerFiles,
-        load_ui_messages as load_ui_messages,
+        default_pdfjs_dir as default_pdfjs_dir,
+        read_viewer as read_viewer,
         serve_viewer as serve_viewer,
-        service_worker as service_worker,
-        viewer_html as viewer_html,
     )
-    from .mark import FILES as BRAND_FILES, Brand as Brand, brand as brand
-    from .routes import get as get_route
 
 __all__ = [
-    "brand",
-    "Brand",
-    "BRAND_FILES",
-    "LUCIDE",
-    "PDFJS_VERSION",
     "ServedViewer",
-    "VIEWER_DIR",
     "ViewerFiles",
-    "get_route",
-    "load_ui_messages",
+    "ViewerSubsystem",
+    "assemble_viewer",
+    "default_pdfjs_dir",
+    "read_viewer",
     "serve_viewer",
-    "service_worker",
-    "viewer_html",
 ]
 
 _EXPORTS = {
-    "brand": ("mark", "brand"),
-    "Brand": ("mark", "Brand"),
-    "BRAND_FILES": ("mark", "FILES"),
-    "LUCIDE": ("assemble", "LUCIDE"),
-    "PDFJS_VERSION": ("assemble", "PDFJS_VERSION"),
     "ServedViewer": ("assemble", "ServedViewer"),
-    "VIEWER_DIR": ("assemble", "VIEWER_DIR"),
     "ViewerFiles": ("assemble", "ViewerFiles"),
-    "get_route": ("routes", "get"),
-    "load_ui_messages": ("assemble", "load_ui_messages"),
+    "ViewerSubsystem": ("application", "ViewerSubsystem"),
+    "assemble_viewer": ("application", "assemble_viewer"),
+    "default_pdfjs_dir": ("assemble", "default_pdfjs_dir"),
+    "read_viewer": ("assemble", "read_viewer"),
     "serve_viewer": ("assemble", "serve_viewer"),
-    "service_worker": ("assemble", "service_worker"),
-    "viewer_html": ("assemble", "viewer_html"),
 }
 
 
 def __getattr__(name: str) -> object:
-    """Load only the requested public operation without initializing unrelated adapters."""
+    """Load one declared contract without initializing unrelated routes or runtime resources."""
     if name not in _EXPORTS:
         raise AttributeError(name)
     module, symbol = _EXPORTS[name]

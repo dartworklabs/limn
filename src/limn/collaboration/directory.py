@@ -5,8 +5,8 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
-from limn.pins import Pin, is_agent
 from limn.security import access, people
+from limn.security.access import is_agent_actor
 
 
 @dataclass(frozen=True)
@@ -18,8 +18,7 @@ class PeopleDirectory:
     lock: Callable[[], threading.Lock]
     seen: Callable[[], people.SeenMemo]
     warning: Callable[[], people.UnreadableWarning]
-    read_pins: Callable[[], tuple[list[Pin], list[int]]]
-    snapshot_pins: Callable[[], list[Pin]]
+    participants: Callable[[bool], Sequence[people.Row]]
     roles: Callable[[], access.PeopleRoles]
     clock: Callable[[], float]
 
@@ -37,18 +36,18 @@ class PeopleDirectory:
     def record(self, actor: people.Row, now: float | None = None, role: access.Role | None = None) -> bool:
         """Record a human visit or change; local and token agents are never recorded."""
         login = (actor or {}).get("login")
-        if not login or is_agent(actor):
+        if not login or is_agent_actor(actor):
             return False
         return people.record_person(self.book(), actor, self.clock() if now is None else now, role, access.DEFAULT_ROLE)
 
-    def known(self, pins: Sequence[Pin] | None = None) -> dict[str, people.Row]:
+    def known(self, records: Sequence[people.Row] | None = None) -> dict[str, people.Row]:
         """People from people.json and pin actors, excluding agents."""
         listed = self.load()
         rows = [] if isinstance(listed, people.PeopleUnreadable) else listed
-        on = pins if pins is not None else self.read_pins()[0]
-        return people.known_people(rows, (pin.record for pin in on), is_agent)
+        on = records if records is not None else self.participants(False)
+        return people.known_people(rows, on, is_agent_actor)
 
     def candidates(self) -> list[people.Row]:
         """Read roles first, then resynchronize pins and order the candidates."""
         roles = self.roles()
-        return people.candidates(self.known(self.snapshot_pins()), lambda login: access.person_role(roles, login))
+        return people.candidates(self.known(self.participants(True)), lambda login: access.person_role(roles, login))

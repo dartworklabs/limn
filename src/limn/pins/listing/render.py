@@ -12,8 +12,12 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 
-from limn.builds import MAP_MAX_LINE, MAP_MAX_PATH, is_canonical_path
-from limn.pins.element import element_of
+from limn.pins.element import (
+    EL_FILE_MAX as MAP_MAX_PATH,
+    EL_LINE_MAX as MAP_MAX_LINE,
+    canonical_impl_path as is_canonical_path,
+    element_of,
+)
 from limn.pins.location.mapping import flat
 from limn.pins.model import OpenPin, Record, ReviewPin, ThreadEntry, is_region_pin, state_of
 from limn.pins.thread import claim_holds

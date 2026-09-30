@@ -176,9 +176,9 @@ def record_person(book: PeopleBook, actor: Mapping[str, Any], now: float, role: 
     return True
 
 
-def known_people(people: Iterable[Row], pins: Iterable[Row], is_agent: Callable[[Row], bool]) -> dict[str, Row]:
-    """@-tag candidates {login: {login,name,pic?,last_seen?}} - from people.json rows plus authors/actors (author and
-    every *_by field) and thread posters on the pin records. An actor is skipped when it is not a dict with a
+def known_people(people: Iterable[Row], actors: Iterable[Row], is_agent: Callable[[Row], bool]) -> dict[str, Row]:
+    """@-tag candidates {login: {login,name,pic?,last_seen?}} - from people.json rows plus flat actor facts.
+    The caller's owner extracts actors; this function never interprets their records. An actor is skipped when it is not a dict with a
     non-empty string login or when is_agent says it is an agent. The first entry seen for a login sets its name; a
     later one only fills a missing pic, and a people.json last_seen is kept. Pure: the caller reads the rows."""
     out: dict[str, Row] = {}
@@ -195,12 +195,8 @@ def known_people(people: Iterable[Row], pins: Iterable[Row], is_agent: Callable[
 
     for x in people:
         add(x, x.get("last_seen"))
-    for r in pins:
-        for k, v in r.items():
-            if k == "author" or k.endswith("_by"):
-                add(v)
-        for m in r.get("thread") or []:
-            add(m.get("by"))
+    for actor in actors:
+        add(actor)
     return out
 
 

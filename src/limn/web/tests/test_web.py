@@ -2,7 +2,7 @@
 
 Every route's statuses, headers and bodies are pinned end to end through the handler in test_server.py, test_access.py
 and the feature files. Here: the binding contract (server.py provides everything limn.web.app.App names, and the
-handler sees a service replaced on its bound application), the import direction (limn.web never imports server.py), the
+handler sees a route port replaced on its bound application), the import direction (limn.web never imports server.py), the
 package name (server.py still runs as a file), the handler's shape read from its source (no route reads the body or
 query itself; it raises only its own transport refusals), the order of the guard checks on every route, and the answers
 and error pages as plain functions.
@@ -39,14 +39,15 @@ from limn.pins.trash.rules import NotInTrash
 from limn.revisions import answer as revision_answer
 from limn.revisions.core import DocumentBusy
 from limn.runtime.documents import DocNotFound
-from limn.viewer import routes as viewer_shell_routes
 from limn.viewer.assemble import ServedViewer
 from limn.viewer.mark import ICON_ROUTES
 from limn.web import answers
-from limn.web.app import App
+from limn.web.app import RouteRegistry, WebApplication
 from limn.web.errors import HTTPError, InputRejected, error_page_html, page_lang, ui_text
+from limn.web.reply import Reply
+from limn.web.routes import RouteBundle
 
-from helpers import Base, ps, run_config
+from helpers import ApplicationFixture, Base, ps, run_config
 from helpers_access import AccessBase, member_add, talk_to
 
 SRC = Path(__file__).resolve().parents[4] / "src"
@@ -73,8 +74,10 @@ GET_ROUTE_SOURCES = (
 
 def app_members() -> list:
     """Include fields, read-only collaborators and operations required by the handler."""
-    methods = [n for n, v in vars(App).items() if (callable(v) or isinstance(v, property)) and not n.startswith("_")]
-    return sorted(set(App.__annotations__) | set(methods))
+    methods = [
+        n for n, v in vars(WebApplication).items() if (callable(v) or isinstance(v, property)) and not n.startswith("_")
+    ]
+    return sorted(set(WebApplication.__annotations__) | set(methods))
 
 
 def show(record):
@@ -92,34 +95,33 @@ class Binding(Base):
         self.assertEqual(missing, [])
         not_callable = [
             n
-            for n, v in vars(App).items()
+            for n, v in vars(WebApplication).items()
             if callable(v) and not n.startswith("_") and not callable(getattr(ps.Handler.app, n))
         ]
         self.assertEqual(not_callable, [])
 
-    def test_handler_sees_a_service_rebound_on_its_application(self):
-        """The handler calls the application's current service and viewer after either is replaced."""
-        original = ps.APP.build_requests
-        with mock.patch.object(ps.APP, "build_requests", {"sentinel": 1}) as fake:
-            self.assertIs(ps.Handler.app.build_requests, fake)
-        self.assertEqual(ps.Handler.app.build_requests, original)
+    def test_handler_has_no_capability_service_locator(self):
+        """The HTTP application exposes only its concrete request-boundary ports."""
+        self.assertEqual(
+            set(app_members()), {"settings", "guards", "selector", "routes", "recorder", "messages", "header_text"}
+        )
+        self.assertFalse(hasattr(ps.Handler.app, "build_requests"))
         rebound = ps.new_runtime(ServedViewer("<p>rebound</p>", "", {}))
         with mock.patch.object(ps.APP, "RT", rebound):
-            self.assertEqual(ps.Handler.app.viewer().page, "<p>rebound</p>")
+            response = self.talk(b"GET / HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n")
+            self.assertEqual(response.split(b"\r\n\r\n", 1)[1], b"<p>rebound</p>")
 
     def test_handler_subclasses_can_use_distinct_app_collaborators(self):
-        """Two handlers can serve separate app views without rebinding the server module or each other's app."""
+        """Two listeners can replace route ports without mutating each other's assembly."""
+        original = ps.Handler.app
         pages = []
         for label in ("First", "Second"):
-            app = mock.Mock(wraps=ps.Handler.app)
-            app.viewer.return_value = ServedViewer(f"<p>{label}</p>", "", {})
-            app.get_routes = (lambda request, bound=app: viewer_shell_routes.get(request, bound),)
+            routes = RouteBundle(get=(lambda request, page=label: Reply(200, f"<p>{page}</p>".encode(), "text/html"),))
+            app = dataclasses.replace(original, routes=RouteRegistry(routes))
             handler = type(f"{label}Handler", (ps.Handler,), {"app": app})
             pages.append(talk_to(types.SimpleNamespace(Handler=handler), b"GET / HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n"))
-
         self.assertEqual([reply.split(b"\r\n\r\n", 1)[1] for reply in pages], [b"<p>First</p>", b"<p>Second</p>"])
-        self.assertNotEqual(ps.Handler.app.viewer().page, "<p>First</p>")
-        self.assertNotEqual(ps.Handler.app.viewer().page, "<p>Second</p>")
+        self.assertIs(ps.Handler.app, original)
 
     def test_an_unknown_name_is_an_attribute_error(self):
         """The view answers like a module: a missing global is AttributeError, not KeyError."""
@@ -148,8 +150,8 @@ class Binding(Base):
             first, second = load_copy("limn_server_first"), load_copy("limn_server_second")
         for mod, label in ((first, "First"), (second, "Second")):
             config = run_config(self.src, self.main, self.src.parent / label, label=label)
-            mod.APP = mod.ServerApplication(config, mod.new_runtime(ServedViewer(f"<p>{label}</p>", "", {})))
-            mod.Handler.app = mod.APP
+            mod.APP = ApplicationFixture(config, mod.new_runtime(ServedViewer(f"<p>{label}</p>", "", {})), mod)
+            mod.Handler.app = mod.APP.web
             mod.APP.set_docs([mod.Doc(label.lower(), label, legacy=True, paths=config.paths)])
 
         def get(mod, path):
@@ -168,27 +170,28 @@ class Binding(Base):
         self.assertEqual(get(second, "/"), b"<p>Second</p>")
         self.assertEqual(docs(first), ("first", "First"))
         self.assertEqual(docs(second), ("second", "Second"))
-        self.assertEqual(first.Handler.app.C.label, "First")
-        self.assertEqual(second.Handler.app.C.label, "Second")
-        self.assertIs(first.Handler.app.request_doc(None), first.APP.docs[0])
-        self.assertIs(second.Handler.app.request_doc(None), second.APP.docs[0])
+        self.assertEqual(first.Handler.app.settings().label, "First")
+        self.assertEqual(second.Handler.app.settings().label, "Second")
+        self.assertIs(first.Handler.app.selector.select(None, None), first.APP.docs[0])
+        self.assertIs(second.Handler.app.selector.select(None, None), second.APP.docs[0])
         self.assertIsNot(first.APP.docs, second.APP.docs)
         self.assertIsNot(first.APP.RT.pin_lock, second.APP.RT.pin_lock)
 
         config = run_config(self.src, self.main, self.src.parent / "Restarted", label="Restarted")
-        first.APP = first.ServerApplication(config, first.new_runtime(ServedViewer("<p>Restarted</p>", "", {})))
-        first.Handler.app = first.APP
+        first.APP = ApplicationFixture(config, first.new_runtime(ServedViewer("<p>Restarted</p>", "", {})), first)
+        first.Handler.app = first.APP.web
         first.APP.set_docs([first.Doc("restarted", "Restarted", legacy=True, paths=config.paths)])
         self.assertEqual(get(first, "/"), b"<p>Restarted</p>")
         self.assertEqual(get(second, "/"), b"<p>Second</p>")
         self.assertEqual(docs(first), ("restarted", "Restarted"))
         self.assertEqual(docs(second), ("second", "Second"))
-        self.assertEqual(second.Handler.app.C.label, "Second")
-        self.assertIs(second.Handler.app.request_doc(None), second.APP.docs[0])
+        self.assertEqual(second.Handler.app.settings().label, "Second")
+        self.assertIs(second.Handler.app.selector.select(None, None), second.APP.docs[0])
 
-        replacement = mock.Mock(wraps=first.Handler.app)
-        replacement.viewer.return_value = ServedViewer("<p>Replacement</p>", "", {})
-        replacement.get_routes = (lambda request: viewer_shell_routes.get(request, replacement),)
+        replacement = dataclasses.replace(
+            first.Handler.app,
+            routes=RouteRegistry(RouteBundle(get=(lambda request: Reply(200, b"<p>Replacement</p>", "text/html"),))),
+        )
         with mock.patch.object(first.Handler, "app", replacement):
             self.assertEqual(get(first, "/"), b"<p>Replacement</p>")
             self.assertEqual(get(second, "/"), b"<p>Second</p>")
@@ -318,6 +321,8 @@ class Recorder:
 
     def __getattr__(self, name):
         """Log the member's name, then give the real member."""
+        if name == "guards":
+            return Recorder(self._inner.guards, self._log)
         self._log.append(name)
         return getattr(self._inner, name)
 
@@ -373,7 +378,7 @@ class GuardOrder(AccessBase):
                 with self.subTest(method=method, path=path, origin=origin):
                     headers = {"Origin": origin} if origin else {}
                     _, log = self.send(method, path, headers, b"{}" if method == "POST" else b"")
-                    first = ["C", "host_ok"] + (["origin_ok"] if origin else []) + ["identify", "admit"]
+                    first = ["settings", "host_ok"] + (["origin_ok"] if origin else []) + ["identify", "admit"]
                     first += ["check_role"] if method == "POST" else []
                     self.assertEqual(log[: len(first)], first)
 
@@ -385,12 +390,14 @@ class GuardOrder(AccessBase):
         for method, path in self.routes():
             with self.subTest(method=method, path=path):
                 self.assertEqual(self.send(method, path, {"Content-Length": str((1 << 20) + 1)}), (413, []))
-                self.assertEqual(self.send(method, path, {"Host": "evil.example"}), (403, ["C", "host_ok", "hdr_text"]))
-                self.assertEqual(self.send(method, path, peer="100.64.0.9"), (401, ["C", "host_ok", "identify"]))
+                self.assertEqual(
+                    self.send(method, path, {"Host": "evil.example"}), (403, ["settings", "host_ok", "header_text"])
+                )
+                self.assertEqual(self.send(method, path, peer="100.64.0.9"), (401, ["settings", "host_ok", "identify"]))
                 if method == "POST" and path not in ("/api/pick", "/api/revision-build"):
                     self.assertEqual(
                         self.send(method, path, carol, b"{}"),
-                        (403, ["C", "host_ok", "identify", "admit", "check_role"]),
+                        (403, ["settings", "host_ok", "identify", "admit", "check_role"]),
                     )
 
 

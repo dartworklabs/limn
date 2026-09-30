@@ -1,24 +1,23 @@
-"""Public operations and values owned by the documents capability."""
+"""Declared query, command and assembly surface of the documents capability."""
 
 from importlib import import_module
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    from .application import DocumentsSubsystem as DocumentsSubsystem, assemble_documents as assemble_documents
     from .reads import MetaSettings as MetaSettings
-    from .routes import get as get_route
-    from .service import DocumentViews as DocumentViews
 
-__all__ = ["DocumentViews", "MetaSettings", "get_route"]
+__all__ = ["DocumentsSubsystem", "MetaSettings", "assemble_documents"]
 
 _EXPORTS = {
-    "DocumentViews": ("service", "DocumentViews"),
+    "DocumentsSubsystem": ("application", "DocumentsSubsystem"),
     "MetaSettings": ("reads", "MetaSettings"),
-    "get_route": ("routes", "get"),
+    "assemble_documents": ("application", "assemble_documents"),
 }
 
 
 def __getattr__(name: str) -> object:
-    """Load only the requested public operation without initializing unrelated adapters."""
+    """Load one declared contract without initializing unrelated routes or runtime resources."""
     if name not in _EXPORTS:
         raise AttributeError(name)
     module, symbol = _EXPORTS[name]

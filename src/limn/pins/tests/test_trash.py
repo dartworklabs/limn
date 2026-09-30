@@ -19,7 +19,7 @@ from unittest import mock
 
 from limn.builds import artifacts as build
 from limn.collaboration.events import NOTIFY_TYPES
-from limn.pins import store as limn_store
+from limn.pins import runtime as pin_runtime, store as limn_store
 from limn.pins.location import position
 from limn.pins.model import PinNotFound
 from limn.pins.store import dump_jsonl
@@ -40,7 +40,9 @@ def restarted_application():
     pages.mkdir(parents=True, exist_ok=True)
     (pages / doc.pdf_name).write_bytes(minimal_pdf())
     (pages / "page-1.png").write_bytes(blank_png(10, 10))
-    return ps.ServerApplication(ps.APP.C, ps.new_runtime(ps.APP.RT.viewer))
+    from helpers import ApplicationFixture
+
+    return ApplicationFixture(ps.APP.C, ps.new_runtime(ps.APP.RT.viewer))
 
 
 class TrashApi(AccessBase):
@@ -71,7 +73,7 @@ class TrashApi(AccessBase):
         atomic_write(ps.APP.C.dropped, dump_jsonl(self.dropped_file() + [rec]))
 
     def test_retention_is_thirty_days(self):
-        self.assertEqual(ps.TRASH_DAYS, 30)
+        self.assertEqual(pin_runtime.TRASH_DAYS, 30)
 
     def test_trash_listing_carries_the_purge_time(self):
         self.put_dropped(70, 10)

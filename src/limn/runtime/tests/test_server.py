@@ -845,8 +845,12 @@ class ProcessRuntime(Base):
 
         def prepare(app, _docs, _no_build):
             """Give each real listener a document and a watch thread without building LaTeX."""
-            app.set_docs([ps.Doc(app.C.label.lower(), app.C.label, legacy=True, paths=app.C.paths)])
-            app.RT.start_thread(app.RT.stopping.wait)
+            app.environment.docs[:] = [
+                ps.Doc(
+                    app.environment.C.label.lower(), app.environment.C.label, legacy=True, paths=app.environment.C.paths
+                )
+            ]
+            app.environment.RT.start_thread(app.environment.RT.stopping.wait)
             return None
 
         def get(started, path):
@@ -874,8 +878,8 @@ class ProcessRuntime(Base):
                 "serve_viewer",
                 side_effect=lambda _, label, _accent: viewer_assemble.ServedViewer(f"<p>{label}</p>", "", {}),
             ),
-            mock.patch.object(ps.ServerApplication, "prepare", autospec=True, side_effect=prepare),
-            mock.patch.object(ps.ServerApplication, "report"),
+            mock.patch.object(ps, "prepare", autospec=True, side_effect=prepare),
+            mock.patch.object(ps, "report"),
         ):
             try:
                 for _ in range(2):
@@ -892,14 +896,14 @@ class ProcessRuntime(Base):
                 self.assertIs(first.server.RequestHandlerClass.app, first.app)
                 self.assertIs(second.server.RequestHandlerClass.app, second.app)
                 self.assertIs(ps.Handler.app, fixture_app)
-                self.assertIsNot(first.app.RT.pin_lock, second.app.RT.pin_lock)
+                self.assertIsNot(first.runtime.pin_lock, second.runtime.pin_lock)
                 self.assertEqual(get(first, "/"), b"<p>First</p>")
                 self.assertEqual(get(second, "/"), b"<p>Second</p>")
                 self.assertEqual(json.loads(get(first, "/api/docs"))["docs"][0]["name"], "First")
                 self.assertEqual(json.loads(get(second, "/api/docs"))["docs"][0]["name"], "Second")
-                self.assertFalse(first.app.RT.stopping.is_set())
-                first.app.RT.stop()
-                self.assertFalse(second.app.RT.stopping.is_set())
+                self.assertFalse(first.runtime.stopping.is_set())
+                first.runtime.stop()
+                self.assertFalse(second.runtime.stopping.is_set())
                 self.assertEqual(get(second, "/"), b"<p>Second</p>")
             finally:
                 for index, result in enumerate(started):
@@ -907,8 +911,8 @@ class ProcessRuntime(Base):
                     if index < len(threads):
                         server.shutdown()
                     server.server_close()
-                    app = result.app if hasattr(result, "app") else ps.APP
-                    app.RT.stop()
+                    runtime = result.runtime if hasattr(result, "runtime") else ps.APP.RT
+                    runtime.stop()
                 for thread in threads:
                     thread.join(5)
 
@@ -920,7 +924,7 @@ class ProcessRuntime(Base):
         def prepare(app, _docs, _no_build):
             """Register a real waiting thread in each app so cleanup has an observable target."""
             apps.append(app)
-            app.RT.start_thread(app.RT.stopping.wait)
+            app.environment.RT.start_thread(app.environment.RT.stopping.wait)
             return None
 
         with (
@@ -928,22 +932,22 @@ class ProcessRuntime(Base):
             mock.patch.object(ps, "configure_run", return_value=ps.RunStart(config, None)),
             mock.patch.object(ps, "read_viewer"),
             mock.patch.object(ps, "serve_viewer", return_value=viewer_assemble.ServedViewer("", "", {})),
-            mock.patch.object(ps.ServerApplication, "prepare", autospec=True, side_effect=prepare),
-            mock.patch.object(ps.ServerApplication, "report"),
-            mock.patch.object(ps.ServerApplication, "listen", side_effect=[mock.Mock(), OSError("listen failed")]),
+            mock.patch.object(ps, "prepare", autospec=True, side_effect=prepare),
+            mock.patch.object(ps, "report"),
+            mock.patch.object(ps, "listen", side_effect=[mock.Mock(), OSError("listen failed")]),
         ):
             first = ps.start(mock.Mock(port=0, no_build=True))
             try:
                 self.assertIsInstance(first, ps.StartedServer)
                 with self.assertRaisesRegex(OSError, "listen failed"):
                     ps.start(mock.Mock(port=0, no_build=True))
-                self.assertIs(first.app, apps[0])
-                self.assertFalse(apps[0].RT.stopping.is_set())
-                self.assertTrue(apps[0].RT.threads[0].is_alive())
-                self.assertTrue(apps[1].RT.stopping.is_set())
-                self.assertFalse(apps[1].RT.threads[0].is_alive())
+                self.assertIs(first.app, apps[0].web)
+                self.assertFalse(apps[0].environment.RT.stopping.is_set())
+                self.assertTrue(apps[0].environment.RT.threads[0].is_alive())
+                self.assertTrue(apps[1].environment.RT.stopping.is_set())
+                self.assertFalse(apps[1].environment.RT.threads[0].is_alive())
             finally:
-                apps[0].RT.stop()
+                apps[0].environment.RT.stop()
 
     def cleanup_run(self, serving_error=None):
         """Create a real listener/watch pair; stop serving normally or at its next poll.
@@ -969,13 +973,13 @@ class ProcessRuntime(Base):
             stopper = threading.Thread(target=server.shutdown, daemon=True)
             stopper.start()
             self.addCleanup(stopper.join, 5)
-        return ps.StartedServer(server, ps.ServerApplication(ps.APP.C, rt))
+        return ps.StartedServer(server, ps.assemble_application(ps.APP.C, rt).web, rt)
 
     def assert_run_released(self, started):
         """The listener descriptor and all real watch threads are released."""
         self.assertEqual(started.server.socket.fileno(), -1)
-        self.assertTrue(started.app.RT.stopping.is_set())
-        self.assertTrue(all(not thread.is_alive() for thread in started.app.RT.threads))
+        self.assertTrue(started.runtime.stopping.is_set())
+        self.assertTrue(all(not thread.is_alive() for thread in started.runtime.threads))
 
     def close_failure(self):
         """Inject a socket API failure after its descriptor is actually released."""
@@ -1090,11 +1094,9 @@ class ProcessRuntime(Base):
                 mock.patch.object(ps, "read_viewer"),
                 mock.patch.object(ps, "serve_viewer", return_value=rt.viewer),
                 mock.patch.object(ps, "new_runtime", return_value=rt),
-                mock.patch.object(
-                    ps.ServerApplication, "prepare", side_effect=lambda *_: rt.start_thread(rt.stopping.wait)
-                ),
-                mock.patch.object(ps.ServerApplication, "report"),
-                mock.patch.object(ps.ServerApplication, "listen", return_value=refusal),
+                mock.patch.object(ps, "prepare", side_effect=lambda *_: rt.start_thread(rt.stopping.wait)),
+                mock.patch.object(ps, "report"),
+                mock.patch.object(ps, "listen", return_value=refusal),
             ):
                 self.assertEqual(ps.start(mock.Mock(port=0, no_build=True)), refusal)
             self.assertTrue(rt.stopping.is_set())
@@ -1125,13 +1127,16 @@ class FigureMapLookups(Base):
 
     def july(self, fmap):
         """The July cell's box of the parsed map fmap."""
-        return fmap.find("B2/calendar/m07")[1].frac
+        return fmap("B2/calendar/m07", 1, (0.47, 0.18, 0.07, 0.12)).frac
 
     def test_a_figure_builds_map_is_parsed_once_in_the_run_and_is_that_builds_own(self):
         """figure_map gives each build its own map, the same parsed value on a second ask, out of RT.figure_maps."""
-        first, second = ps.APP.figure_map(self.fig, BUILD1), ps.APP.figure_map(self.fig, BUILD2)
-        self.assertEqual((self.july(first), self.july(second)), ((0.47, 0.18, 0.07, 0.12), (0.4, 0.18, 0.07, 0.12)))
-        self.assertIs(ps.APP.figure_map(self.fig, BUILD1), first)
+        first, second = ps.APP.RT.figure_maps.get(self.fig, BUILD1), ps.APP.RT.figure_maps.get(self.fig, BUILD2)
+        self.assertEqual(
+            (first.find("B2/calendar/m07")[1].frac, second.find("B2/calendar/m07")[1].frac),
+            ((0.47, 0.18, 0.07, 0.12), (0.4, 0.18, 0.07, 0.12)),
+        )
+        self.assertIs(ps.APP.RT.figure_maps.get(self.fig, BUILD1), first)
         self.assertIs(ps.APP.RT.figure_maps.get(self.fig, BUILD1), first)
 
     def test_a_document_without_an_element_map_has_none_and_nothing_is_read(self):
@@ -1141,31 +1146,31 @@ class FigureMapLookups(Base):
         (self.ms.dir / "pages-20260926100000" / limn_build.FIGMAP_NAME).write_text(
             json.dumps(b2_map()), encoding="utf-8"
         )
-        self.assertIsNone(ps.APP.figure_map(self.ms, "pages-20260926100000"))
+        self.assertIsNone(ps.APP.assembly.builds.pins.elements(self.ms))
         self.assertEqual(ps.APP.RT.figure_maps.held(), 0)
 
     def test_a_build_without_a_copy_or_a_name_that_is_no_build_has_none(self):
         """A build the figure document does not have and a name that is a path answer None."""
-        self.assertIsNone(ps.APP.figure_map(self.fig, "pages-20990101000000"))
-        self.assertIsNone(ps.APP.figure_map(self.fig, "../state"))
+        self.assertIsNone(ps.APP.RT.figure_maps.get(self.fig, "pages-20990101000000"))
+        self.assertIsNone(ps.APP.RT.figure_maps.get(self.fig, "../state"))
 
     def test_the_map_of_the_build_on_screen_follows_the_pointer(self):
         """doc_figure_map gives the map of the build pages.cur names now: BUILD2's, then BUILD1's once the pointer
         moves back."""
-        self.assertEqual(self.july(ps.APP.doc_figure_map("fig")), (0.4, 0.18, 0.07, 0.12))
+        self.assertEqual(self.july(ps.APP.element_follower("fig")), (0.4, 0.18, 0.07, 0.12))
         files.atomic_write(self.fig.dir / "pages.cur", BUILD1)
-        self.assertEqual(self.july(ps.APP.doc_figure_map("fig")), (0.47, 0.18, 0.07, 0.12))
+        self.assertEqual(self.july(ps.APP.element_follower("fig")), (0.47, 0.18, 0.07, 0.12))
 
     def test_a_key_that_has_no_loadable_map_on_screen_has_none(self):
         """An unknown key, a LaTeX document, a figure whose build on screen has no copy and one whose copy the parser
         refuses all answer None (a refusal is not a map)."""
-        self.assertIsNone(ps.APP.doc_figure_map("nope"))
-        self.assertIsNone(ps.APP.doc_figure_map("ms"))
+        self.assertIsNone(ps.APP.element_follower("nope"))
+        self.assertIsNone(ps.APP.element_follower("ms"))
         write_build(self.fig, "pages-20260926120000", None)
-        self.assertIsNone(ps.APP.doc_figure_map("fig"))
+        self.assertIsNone(ps.APP.element_follower("fig"))
         (self.fig.dir / "pages-20260926120000" / limn_build.FIGMAP_NAME).write_text("not json", encoding="utf-8")
-        self.assertIsInstance(ps.APP.figure_map(self.fig, "pages-20260926120000"), MapRejected)
-        self.assertIsNone(ps.APP.doc_figure_map("fig"))
+        self.assertIsInstance(ps.APP.RT.figure_maps.get(self.fig, "pages-20260926120000"), MapRejected)
+        self.assertIsNone(ps.APP.element_follower("fig"))
 
     def test_the_pdf_a_region_pin_records_is_read_through_the_runs_cache(self):
         """Two document_facts of the figure document (one per request) name the map's PDF with one parse of the copy
@@ -1176,7 +1181,7 @@ class FigureMapLookups(Base):
         self.assertEqual(first, (self.src / "figs" / "out" / "figures.pdf").resolve())
         self.assertEqual(second, first)
         self.assertEqual(parsed.call_count, 1)
-        self.assertIsInstance(ps.APP.figure_map(self.fig, BUILD2), FigureMap)
+        self.assertIsInstance(ps.APP.RT.figure_maps.get(self.fig, BUILD2), FigureMap)
 
 
 class MultiDoc(Base):

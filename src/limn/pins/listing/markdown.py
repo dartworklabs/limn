@@ -7,7 +7,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Protocol
 
-from limn.builds import FigureMap, read_built_at as build_read_built_at, read_head as build_read_head
+from limn.builds import ElementFollower, PinBuildQueries, pin_build_queries
 from limn.pins.element import element_of
 from limn.pins.listing.projection import element_marks
 from limn.pins.listing.render import (
@@ -34,8 +34,12 @@ Json = dict[str, Any]
 class MarkdownDeps(Protocol):
     """The run-specific facts and lookups needed to render pins.md."""
 
-    C: RunConfig
     docs: list[Doc]
+
+    @property
+    def C(self) -> RunConfig:
+        """Read the run settings used for this rendering."""
+        ...
 
     def snapshot_pins(self) -> list[Pin]:
         """The live pins after their usual resynchronization."""
@@ -53,7 +57,7 @@ class MarkdownDeps(Protocol):
         """The document that owns this pin."""
         ...
 
-    def doc_figure_map(self, key: str) -> FigureMap | None:
+    def element_follower(self, key: str) -> ElementFollower | None:
         """The loadable map of the build on screen of the figure document key names, or None."""
         ...
 
@@ -64,6 +68,7 @@ class PinMarkdown:
 
     deps: MarkdownDeps
     known_people: Callable[[Sequence[Pin] | None], dict[str, Json]]
+    builds: PinBuildQueries = pin_build_queries()
 
     def current_text(self, base: str) -> str:
         """GET /pins.md after its shared guards and remote base calculation."""
@@ -91,7 +96,7 @@ class PinMarkdown:
         rel = self.deps.overlaps_by_id(pins)
         by_id = {r["id"]: r for r in rows}
         sources: dict[Path, list[str]] = {}
-        maps: dict[str, FigureMap | None] = {}
+        maps: dict[str, ElementFollower | None] = {}
         facts: dict[int, PinFacts] = {}
         for pin in pins:
             r = pin.record
@@ -119,8 +124,8 @@ class PinMarkdown:
                 d.rel_path(),
                 view_only=d.view_only,
                 builds_from_source=d.builds_from_source,
-                head=build_read_head(d),
-                built_at=build_read_built_at(d),
+                head=self.builds.heading(d).head,
+                built_at=self.builds.heading(d).built_at,
                 has_element_map=d.has_element_map,
             )
             for d in self.deps.docs
@@ -141,7 +146,7 @@ class PinMarkdown:
         )
 
     def _element_facts(
-        self, r: Record, doc_key: str, maps: dict[str, FigureMap | None]
+        self, r: Record, doc_key: str, maps: dict[str, ElementFollower | None]
     ) -> tuple[str | None, str | None]:
         """A figure pin's facts for its row: el_sync on its document's current map (asked at most once per document per
         render, kept in maps) and impl_scope, the folder of its document relative to --manuscript (doc_scope) when the
@@ -154,7 +159,7 @@ class PinMarkdown:
         if el is None:
             return None, None
         if doc_key not in maps:
-            maps[doc_key] = self.deps.doc_figure_map(doc_key)
+            maps[doc_key] = self.deps.element_follower(doc_key)
         sync = element_marks(r, maps[doc_key]).get("el_sync")
         doc = doc_by_key(self.deps.docs, doc_key)
         if el.impl is None or doc is None or not doc.has_element_map:

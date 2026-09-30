@@ -20,9 +20,11 @@ class SyncContext:
     share: run.PullShare
     watch: run.SyncWatch
     start_build: Callable[[Doc], object]
+    last_failed: Callable[[Doc], bool]
+    built_head: Callable[[Doc], str]
     git: run.Git
     clock: run.Clock
-    stamp: run.Stamp
+    stamp: run.Stamp = run.local_stamp
 
 
 @dataclass
@@ -41,7 +43,7 @@ class SyncService:
     def status(self) -> Json:
         """The current remote main watch status for GET /api/meta."""
         c = self.context()
-        return c.watch.status(c.docs, c.enabled)
+        return c.watch.status(c.docs, c.enabled, c.last_failed, c.built_head)
 
     def once(self) -> Json:
         """Pull remote main once and start builds for documents left behind."""
@@ -54,6 +56,7 @@ class SyncService:
             c.start_build,
             c.stamp,
             c.clock,
+            c.built_head,
         )
 
     def watch(self, stop: threading.Event) -> None:

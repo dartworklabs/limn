@@ -2,7 +2,6 @@
 
 from typing import Any, NoReturn
 
-from limn.pins import PinNotInDoc, ScopeMismatch, ScopeRefusal, ScopeUnreadable, ScopeUnwritable, UnsafePath
 from limn.revisions.core import (
     AllSlotsBusy,
     BuildFailure,
@@ -20,6 +19,7 @@ from limn.revisions.core import (
     StepFailed,
     UnsafeCache,
 )
+from limn.revisions.scope import PinNotInDoc, ScopeMismatch, ScopeRefusal, ScopeUnreadable, ScopeUnwritable, UnsafePath
 from limn.web.errors import HTTPError
 
 

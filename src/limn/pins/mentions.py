@@ -9,7 +9,7 @@ Pure: no files, no clock, no HTTP, no server. Every fact (the people, the record
 """
 
 from collections import Counter
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from typing import Any, NamedTuple, TypeAlias
 
 from limn.pins.editing.values import ASSIGNEE_AGENT
@@ -194,3 +194,22 @@ def tag_note(
     new = list(dict.fromkeys(hits))
     counts = Counter(hits)
     return NoteTags(tuple(new), [lg for lg in new if counts[lg] > before[lg]])
+
+
+def note_tags(
+    note: str,
+    old_note: str,
+    pins: Sequence[Pin],
+    hints: Sequence[str] | None,
+    actor: Mapping[str, Any],
+    pin: object,
+    known_people: Callable[[Sequence[Row]], Mapping[str, Row]],
+    recent_events: Callable[[], Iterable[Row]],
+    now: Callable[[], float],
+) -> NoteTags:
+    """Resolve a saved note and apply the pin-owned notification cooldown."""
+    me = actor.get("login")
+    tags = tag_note(note, old_note, known_people([item.record for item in pins]), hints, me)
+    if not tags.notify:
+        return tags
+    return tags._replace(notify=note_mention_targets(tags.notify, recent_events(), me, pin, now()))

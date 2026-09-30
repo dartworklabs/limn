@@ -26,9 +26,9 @@ from dataclasses import dataclass
 from posixpath import isabs  # os.path.isabs on POSIX, the only platform Limn runs on - string work only
 from typing import TypeGuard
 
-from limn.pins.changes import valid_changes
 from limn.pins.element import is_element_record
 from limn.pins.model import THREAD_EVENTS, Pin, TrashedPin, is_kind_req, is_region_pin, parse_pin
+from limn.pins.revision import valid_changes
 from limn.platform.values import is_int, is_num
 
 

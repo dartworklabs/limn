@@ -30,6 +30,7 @@ from limn.viewer import assemble
 from helpers import (
     DEFAULT_ACCESS,
     VIEWER_FILES,
+    ApplicationFixture,
     Base,
     add_pin,
     fresh_runtime,
@@ -73,7 +74,7 @@ def reset_access(mod=ps):
     """Access settings back to the v0.1-equivalent defaults and no --allow, in a fresh process (the loopback-agent
     warning warns again, tokens.json and people.json are read again). The current server binds a RunConfig with them
     (set_config) and a fresh Runtime; an older copy (tests/data) has them set on its mutable Cfg and caches."""
-    if hasattr(mod, "ServerApplication"):
+    if hasattr(mod, "assemble_application"):
         set_config(mod, access=DEFAULT_ACCESS, allow=frozenset())
         fresh_runtime(mod)
         return
@@ -209,10 +210,10 @@ def configure(mod, src: Path, main: Path, state: Path) -> None:
     its build state reset and its people memo cleared."""
     if hasattr(mod, "RunConfig"):
         run_cfg = run_config(src, main, state)
-        mod.APP = mod.ServerApplication(
+        mod.APP = ApplicationFixture(
             run_cfg, mod.new_runtime(assemble.serve_viewer(VIEWER_FILES, run_cfg.label, run_cfg.accent))
         )
-        mod.Handler.app = mod.APP
+        mod.Handler.app = mod.APP.web
     else:
         C = mod.C
         C.src, C.main, C.state, C.build = src, main, state, state / "build"

@@ -3,10 +3,17 @@
 from dataclasses import dataclass
 from typing import Any
 
-from limn.builds import MAP_MAX_DEPTH, MAP_MAX_LINE, MAP_MAX_PATH, MAP_MAX_TEXT, is_canonical_path, valid_build_name
 from limn.pins.editing.fields import parse_scope
 from limn.pins.editing.values import PDF_QUOTE_MAX, Scope
-from limn.pins.element import ElementImpl, PinElement
+from limn.pins.element import (
+    EL_FILE_MAX,
+    EL_LINE_MAX,
+    EL_PATH_MAX,
+    EL_TEXT_MAX,
+    ElementImpl,
+    PinElement,
+    canonical_impl_path,
+)
 from limn.pins.location.mapping import VIAS, Via, norm, truncate_quote
 from limn.pins.model import Record
 from limn.platform.values import is_int
@@ -103,13 +110,7 @@ def _frac4(v: object, refusal: InputRejected) -> Frac | InputRejected:
     return nums[0], nums[1], nums[2], nums[3]
 
 
-# What a pin's el may hold. They are the limits a map is parsed by (limn.builds.figure_map), so every element a map
-# accepts can be pinned: a longer text, a deeper path or a higher line would make a pin the map itself could not have
-# described.
-EL_TEXT_MAX = MAP_MAX_TEXT  # characters of an element id, path entry, label or part
-EL_PATH_MAX = MAP_MAX_DEPTH  # ids from the page root down to the element
-EL_FILE_MAX = MAP_MAX_PATH  # characters of impl.file
-EL_LINE_MAX = MAP_MAX_LINE  # the highest impl line, as for a close's changes
+# The pin owner defines its stored element limits independently of the map parser.
 EL_REFUSAL = (
     "el 은 pick 이 준 요소 {id, path, label?, part?, impl?: {file, lo, hi}, frac?} 여야 합니다"
     "(문자열 %d자 이하, path 는 뿌리부터 그 요소까지의 id, impl.file 은 문서 폴더 기준 상대 경로)." % EL_TEXT_MAX
@@ -163,7 +164,7 @@ def _el_impl(v: object) -> ElementImpl | None | InputRejected:
     if not isinstance(v, dict):
         return bad
     file, lo, hi = v.get("file"), v.get("lo"), v.get("hi")
-    if not (isinstance(file, str) and 0 < len(file) <= EL_FILE_MAX and is_canonical_path(file)):
+    if not (isinstance(file, str) and 0 < len(file) <= EL_FILE_MAX and canonical_impl_path(file)):
         return bad
     if not (is_int(lo) and is_int(hi) and 1 <= lo <= hi <= EL_LINE_MAX):
         return bad
@@ -231,7 +232,7 @@ def parse_loc(d: Json, facts: DocumentFacts) -> LineLoc | InputRejected:
             return InputRejected("quote 는 문자열입니다.", "bad_quote")
         quote = truncate_quote(quote, 60)
     pdf_build = d.get("pdf_build")  # the build on screen at drag time (pdf_build from the pick response)
-    if pdf_build is not None and not valid_build_name(pdf_build):
+    if pdf_build is not None and not facts.valid_build_name(pdf_build):
         return InputRejected(PDF_BUILD_REFUSAL, "bad_pdf_build")
     # a figure pin's element (docs/handbook/api.md §그림 문서의 pick·핀)
     el = parse_el(d.get("el")) if facts.has_element_map else None
@@ -291,7 +292,7 @@ def parse_region(d: Json, facts: DocumentFacts) -> RegionLoc | InputRejected:
     if isinstance(page, InputRejected):
         return page
     want = d.get("pdf_build")
-    if want is not None and not valid_build_name(want):
+    if want is not None and not facts.valid_build_name(want):
         return InputRejected(PDF_BUILD_REFUSAL, "bad_pdf_build")
     n = facts.page_count(want)
     if page < 1 or (n and page > n):

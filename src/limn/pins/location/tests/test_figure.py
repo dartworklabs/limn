@@ -16,10 +16,11 @@ from pathlib import Path
 from unittest import mock
 
 from limn.builds import artifacts as limn_build, figure_map as figmap
-from limn.builds.figure_map import MapElement, MapPage, SourceRef, pick_element
+from limn.builds.figure_map import FigureMap, MapElement, MapPage, SourceRef
+from limn.builds.queries import _element, select_element
 from limn.pins.element import ElementImpl, PinElement
-from limn.pins.location import figure, resolve as pick_resolve, source as pick_source
-from limn.pins.location.figure import drag_frac, element_rungs, pin_element, read_source
+from limn.pins.location import resolve as pick_resolve, source as pick_source
+from limn.pins.location.figure import drag_frac, element_rungs, pin_element as to_pin_element, read_source
 from limn.pins.location.http import PICK_WARNINGS, pick_answer
 from limn.pins.location.input import PickRequest
 from limn.pins.location.mapping import compute_levels, snippet
@@ -97,7 +98,7 @@ JUL = el("F/cal/m07", "F/cal", (0.2, 0.2, 0.2, 0.2), src=(88, 95), part="MonthCe
 def rungs(*elements, drag=(0.3, 0.3, 0.0, 0.0), lines=LINES):
     """element_rungs for a click at drag on a page of the root and elements, with the chosen file's lines."""
     pg = MapPage(1, "F", None, (ROOT, *elements))
-    return element_rungs(pg, pick_element(pg, drag), lines)
+    return element_rungs(select_element(FigureMap("", "", (pg,)), 1, drag), lines)
 
 
 class Rungs(unittest.TestCase):
@@ -150,6 +151,11 @@ class Rungs(unittest.TestCase):
             got[0].el.to_record(),
             {"id": "F/cal/m07", "path": ["F", "F/cal", "F/cal/m07"], "frac": [0.2, 0.2, 0.2, 0.2]},
         )
+
+
+def pin_element(page, el):
+    """Adapt the map fixture to a completed provider fact before testing pin serialization."""
+    return to_pin_element(_element(page, el))
 
 
 class PinElements(unittest.TestCase):
@@ -515,7 +521,9 @@ class FigurePick(Base):
         reads over HTTP holds the score rounded to two decimals, 1.0, and no warning."""
         body = {"doc": "fig", "page": 1, "pdf_build": BUILD1}
         body.update(zip(("x0", "y0", "x1", "y1"), INSIDE_JULY_BOX, strict=True))
-        real, picks = figure.pick_element, []
+        from limn.builds import queries
+
+        real, picks = queries.pick_element, []
 
         def record(page, drag):
             """pick_element, keeping what it chose."""
@@ -524,7 +532,7 @@ class FigurePick(Base):
 
         with (
             mock.patch.object(pick_source, "region_text", side_effect=AssertionError("no pdftotext on a map pick")),
-            mock.patch.object(figure, "pick_element", record),
+            mock.patch.object(queries, "pick_element", record),
         ):
             code, _, raw = split_resp(self.talk(jreq("POST", "/api/pick", body)))
         self.assertEqual(code, 200, raw)

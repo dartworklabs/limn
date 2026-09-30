@@ -3,7 +3,7 @@
 HTTPError is the one exception the handler turns into an error response ({"error": <Korean message>, "reason":
 <code>, ...extra}); the messages and reason codes are part of the agent contract (docs/handbook/api.md §오류 응답) and
 the messages are never reworded - the viewer shows English by the reason (ui_en.json `reason:<code>`). InputRejected is the value a
-boundary parser returns instead of raising. The tables below give pin-scoping refusals (limn.pins.changes) their texts.
+boundary parser returns instead of raising. The tables below give pin-scoping refusals (limn.revisions.scope) their texts.
 Pick refusals live with the location feature; comparison worker failures live with the revision feature.
 BUILD_FAILURES gives a failed document build (limn.builds.artifacts.FailedBuild) the text its log opens with;
 build_failure_log() is handed to the build the same way.
@@ -54,7 +54,7 @@ class InputRejected(NamedTuple):
     reason: str
 
 
-# Expected refusals of pin scoping (limn.pins.changes.ScopeRefusal, one type each) -> (status, message, API reason). The one
+# Expected refusals of pin scoping (limn.revisions.scope.ScopeRefusal, one type each) -> (status, message, API reason). The one
 # place they become responses - the revision answers for requests (features.revisions.answer.revision_answer), and through
 # the comparison feature the status a failed build stores. The messages and reasons are part of the agent
 # contract (api.md §핀 단위 변경 보기); tests pin every body and check that every refusal type has its row.

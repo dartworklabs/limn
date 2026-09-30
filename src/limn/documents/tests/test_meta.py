@@ -24,10 +24,12 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import get_args
 
-from limn.builds import DocumentFacts, artifacts as limn_build
+from limn.builds import artifacts as limn_build, queries as build_queries
+from limn.builds.document_facts import DocumentFacts
 from limn.builds.figure_map import FigureMap, MapRejected
 from limn.documents import reads as meta
 from limn.documents.reads import MetaSettings
+from limn.pins.application import change_token as pin_change_token
 from limn.platform.files import file_in_tree
 from limn.runtime import documents
 from limn.runtime.documents import Doc, DocKind, DocNotFound, kind_builds_from_source
@@ -138,7 +140,6 @@ class Fixture(unittest.TestCase):
         self.settings = MetaSettings(
             state=self.state,
             pins_md=self.state / "pins.md",
-            pins_jsonl=self.state / "pins.jsonl",
             label="원고",
             accent="#1d4ed8",
             repo=None,
@@ -251,7 +252,7 @@ class OutlineLabels(Fixture):
         (d / "main.aux").unlink()
         with open(d / "main.aux", "w", encoding="utf-8") as fh:
             fh.write(AUX)
-            fh.truncate(meta.AUX_MAX_BYTES + 1)
+            fh.truncate(build_queries.AUX_MAX_BYTES + 1)
         self.assertEqual(meta.outline_labels(self.ms)["labels"], [])
 
 
@@ -294,7 +295,7 @@ class Meta(Fixture):
         for name in ("main.tex", "review.pdf"):
             os.utime(self.src / name, (later, later))
         docs = [self.ms, self.rv]
-        briefs = meta.docs_payload(docs, [], lambda r: "ms", self.state)["docs"]
+        briefs = meta.docs_payload(docs, {}, 0, self.state)["docs"]
         self.assertEqual(
             [(b["key"], b["stale_build"], b["view_only"]) for b in briefs], [("ms", True, False), ("rv", False, True)]
         )
@@ -312,24 +313,23 @@ class Meta(Fixture):
 
     def test_pins_rev_follows_the_pins_file(self):
         """ "0" with no file; mtime_ns:size once written, changing when the file is replaced."""
-        f = self.settings.pins_jsonl
-        self.assertEqual(meta.pins_rev(f), "0")
+        f = self.state / "pins.jsonl"
+        self.assertEqual(pin_change_token(f), "0")
         f.write_text("{}\n", encoding="utf-8")
-        first = meta.pins_rev(f)
+        first = pin_change_token(f)
         self.assertEqual(first, "%d:%d" % (f.stat().st_mtime_ns, 3))
-        self.assertEqual(meta.pins_rev(f), first)
+        self.assertEqual(pin_change_token(f), first)
         f.write_text("{}\n{}\n", encoding="utf-8")
-        self.assertNotEqual(meta.pins_rev(f), first)
+        self.assertNotEqual(pin_change_token(f), first)
 
 
 class DocsPayload(Fixture):
-    """docs_payload counts open pins per document from the records it is given."""
+    """docs_payload renders open counts supplied by the pin read boundary."""
 
     def test_counts_open_pins_per_document_and_orphans(self):
         """Done pins are not counted; a key no document serves goes to other_open; the first document is default."""
-        rows = [{"doc": "rr"}, {"doc": "rr"}, {"doc": "rr", "done": True}, {}, {"doc": "gone"}]
         docs = [self.ms, self.rr, self.rv]
-        out = meta.docs_payload(docs, rows, lambda r: documents.pin_doc_key(r, docs), self.state)
+        out = meta.docs_payload(docs, {"ms": 1, "rr": 2, "gone": 1}, 1, self.state)
         self.assertEqual([(d["key"], d["n_open"]) for d in out["docs"]], [("ms", 1), ("rr", 2), ("rv", 0)])
         self.assertEqual((out["default"], out["multi"], out["other_open"]), ("ms", True, 1))
         self.assertEqual(out["docs"][1]["path"], "rr/rr.tex")
@@ -596,11 +596,11 @@ class LightMeta(Base):
             self.assertIn(k, d)
 
     def test_pins_rev_changes_only_when_file_changes(self):
-        rev0 = meta.pins_rev(ps.APP.C.pins_jsonl)
+        rev0 = pin_change_token(ps.APP.C.pins_jsonl)
         self.add()
-        rev1 = meta.pins_rev(ps.APP.C.pins_jsonl)
+        rev1 = pin_change_token(ps.APP.C.pins_jsonl)
         self.assertNotEqual(rev0, rev1)
-        rev2 = meta.pins_rev(ps.APP.C.pins_jsonl)
+        rev2 = pin_change_token(ps.APP.C.pins_jsonl)
         self.assertEqual(rev1, rev2)  # unchanged if nothing changed
 
     def test_src_mtime_ignores_main_pdf_and_build_dir(self):

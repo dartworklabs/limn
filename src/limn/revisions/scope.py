@@ -1,4 +1,4 @@
-"""Pin-scoped changes (docs/adr/0005-pin-scoped-changes.md): which hunks of a commit belong to one pin - pure.
+"""Revision-scoped changes: which hunks of a commit belong to one pin, kept pure.
 
 [변경 보기] showed the whole commit linked to a pin. When one commit fixes several pins, a reviewer could not tell which
 change belonged to which pin. The commit's -U0 hunks ("blocks") are attributed to the pin: the agent's recorded
@@ -12,18 +12,33 @@ each into a status, a Korean message and an API reason.
 """
 
 import re
-from collections.abc import Callable, Mapping, Sequence, Set as AbstractSet
+from collections.abc import Callable, Sequence, Set as AbstractSet
 from dataclasses import dataclass
-from typing import Any, Literal, NamedTuple, TypeAlias, TypedDict, TypeGuard
+from typing import Literal, NamedTuple, TypeAlias, TypedDict
 
-from limn.pins.location.mapping import anchor_offset, find_line, norm
-from limn.platform.values import is_int
-
-Record: TypeAlias = Mapping[str, Any]  # a pin record or a revision row, as read from JSON
+from limn.pins import RevisionPin
 
 SCOPE_CONTEXT = 3  # context lines around a scoped hunk, git's default
 REVISION_DIFF_MAX = 256 * 1024  # response/memory cap of a source diff. Review large changes in the repo instead.
 _U0_HUNK_RE = re.compile(rb"^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@", re.M)
+
+
+def _norm(line: str) -> str:
+    """Collapse whitespace exactly as stored pin anchors do."""
+    return " ".join(line.split())
+
+
+def _find_line(lines: Sequence[str], needle: object, near: int) -> int | None:
+    """Return the nearest one-based exact or stable-prefix anchor match."""
+    if not isinstance(needle, str) or not needle:
+        return None
+    candidates = [index for index, text in enumerate(lines) if text == needle]
+    key = needle[:40] if len(needle) >= 12 else None
+    if not candidates and key is not None:
+        candidates = [index for index, text in enumerate(lines) if key in text]
+    if not candidates:
+        return None
+    return min(candidates, key=lambda index: abs(index + 1 - near)) + 1
 
 
 @dataclass(frozen=True)
@@ -97,28 +112,6 @@ ScopeMode = Literal["pin", "commit"]
 ScopeSource = Literal["changes", "inferred", "none"]
 
 
-class Anchor(NamedTuple):
-    """A pin's anchor (anchor_of): the normalised first and last non-comment lines and their distance from lo/hi."""
-
-    head: str
-    tail: str
-    head_off: int
-    tail_off: int
-
-
-class PinFacts(NamedTuple):
-    """What scope attribution reads from a pin record (pin_facts): its id, its file relative to the repository (None
-    for a view-only PDF pin or a file outside the repository), its range (None when the record has no int lo/hi),
-    whether sync lost it, and its anchor if it has a usable one."""
-
-    id: int
-    rel: str | None
-    lo: int | None
-    hi: int | None
-    stale: bool
-    anchor: Anchor | None
-
-
 BlockId = tuple[int, int]  # (index into the files, index into that file's blocks)
 ScopeItem = tuple[str, str, int, int, int, int]  # (old path or "", new path or "", *Block) - see scope_key()
 
@@ -136,14 +129,6 @@ class RepoRange(NamedTuple):
     placed in the repository - pin_scope's caller drops those) and its new-side lines, 1 ≤ lo ≤ hi."""
 
     path: str | None
-    lo: int
-    hi: int
-
-
-class ChangeRecord(TypedDict):
-    """One item of a pin record's stored `changes` (api.md §핀 레코드 스키마): an absolute path and 1 ≤ lo ≤ hi."""
-
-    file: str
     lo: int
     hi: int
 
@@ -232,7 +217,7 @@ def _hits(rng: tuple[int, int], lo: int, hi: int) -> bool:
     return rng[0] <= hi and rng[1] >= lo
 
 
-def pin_range_candidates(f: FileChange, pin: PinFacts) -> list[Placement]:
+def pin_range_candidates(f: FileChange, pin: RevisionPin) -> list[Placement]:
     """Where the pin's range may sit in this commit, best first; the pin must have a range (lo/hi not None).
 
     A closed pin keeps the lines of its last sync, and nothing records which version that was: the commit's new side
@@ -252,12 +237,12 @@ def pin_range_candidates(f: FileChange, pin: PinFacts) -> list[Placement]:
             texts, to_git = sides[side]
             if not texts:
                 continue
-            nl = [norm(t) for t in texts]
-            head = find_line(nl, anc.head, lo + ho)
+            nl = [_norm(t) for t in texts]
+            head = _find_line(nl, anc.head, lo + ho)
             if head is None:
                 continue
             a = max(1, head - ho)
-            tail = find_line(nl, anc.tail, hi - to + (a - lo))
+            tail = _find_line(nl, anc.tail, hi - to + (a - lo))
             b = max(a, min(len(texts), tail + to if tail is not None and tail >= head else a + (hi - lo)))
             found.append((abs(a - lo), rank, Placement(side, to_git(a), to_git(b))))
     raw = "old" if pin.stale else "new"
@@ -280,7 +265,7 @@ def _pin_lines(lines: tuple[bytes, ...]) -> tuple[list[str], Callable[[int], int
 
 
 def attribute_blocks(
-    files: Sequence[FileChange], pin: PinFacts, changes: Sequence[RepoRange]
+    files: Sequence[FileChange], pin: RevisionPin, changes: Sequence[RepoRange]
 ) -> tuple[ScopeSource, set[BlockId]]:
     """(source, block ids) - the blocks of this commit that belong to the pin.
 
@@ -297,9 +282,9 @@ def attribute_blocks(
                 chosen |= {(fi, bi) for bi, b in enumerate(f.blocks) if _hits(touch_range(b.new_lo, b.new_n), lo, hi)}
     if chosen:
         return "changes", chosen
-    if pin.rel and pin.lo is not None and pin.hi is not None:
+    if pin.relative_path and pin.lo is not None and pin.hi is not None:
         for fi, f in enumerate(files):
-            if pin.rel not in (f.old_path, f.new_path):
+            if pin.relative_path not in (f.old_path, f.new_path):
                 continue
             for side, lo, hi in pin_range_candidates(f, pin):  # the first placement that meets a change wins
                 hit = {
@@ -438,7 +423,7 @@ def scope_key(files: Sequence[FileChange], chosen: AbstractSet[BlockId]) -> tupl
     return tuple(sorted(_item(files[fi], files[fi].blocks[bi]) for fi, bi in chosen))
 
 
-def pin_scope(files: Sequence[FileChange] | None, pin: PinFacts, changes: Sequence[RepoRange]) -> PinScope:
+def pin_scope(files: Sequence[FileChange] | None, pin: RevisionPin, changes: Sequence[RepoRange]) -> PinScope:
     """The decision for one pin and one commit's files (None = the commit could not be read for scoping, which
     shows the whole commit). Mode "pin" only when the pin owns some but not all places of the commit. The patches
     are kept cut at REVISION_DIFF_MAX + 1 bytes - one byte more than a response sends, so truncation still shows."""
@@ -460,58 +445,6 @@ def pin_scope(files: Sequence[FileChange] | None, pin: PinFacts, changes: Sequen
         mine_text.encode("utf-8", "replace")[:cut],
         other_text.encode("utf-8", "replace")[:cut],
     )
-
-
-def pin_facts(r: Record, rel: str | None) -> PinFacts:
-    """Parses a pin record (already accepted by valid_rec) into what attribution reads. rel is its file relative to
-    the repository, resolved by the caller; an anchor without a non-empty head counts as none."""
-    stored = r.get("anchor")
-    anc: Record = stored if isinstance(stored, dict) else {}
-    head = anc.get("head")
-    tail = anc.get("tail")
-    anchor = (
-        Anchor(
-            head,
-            tail if isinstance(tail, str) else "",
-            anchor_offset(anc.get("head_off")),
-            anchor_offset(anc.get("tail_off")),
-        )
-        if isinstance(head, str) and head
-        else None
-    )
-    lo, hi = r.get("lo"), r.get("hi")
-    return PinFacts(r["id"], rel, lo if is_int(lo) else None, hi if is_int(hi) else None, bool(r.get("stale")), anchor)
-
-
-_REF_SHA_RE = re.compile(r"\b[0-9a-f]{7,40}\b", re.ASCII)
-_REF_PR_RE = re.compile(r"#(\d+)", re.ASCII)
-
-
-def ref_commit(ref: object, revisions: Sequence[Record]) -> str | None:
-    """The commit a close reference names among revisions ([{id, subject}], newest first) - the viewer's
-    matchRevision() rule, kept identical (a test runs both): the first 7-40 hex token that prefixes a commit id,
-    else the first #N found in a subject as "(#N)", "pull request #N" or "#N" (the squash or merge commit)."""
-    ref = ref if isinstance(ref, str) else ""
-    for tok in _REF_SHA_RE.findall(ref):
-        for r in revisions:
-            if str(r["id"]).startswith(tok):
-                return str(r["id"])
-    for n in _REF_PR_RE.findall(ref):
-        rx = re.compile(r"\(#%s\)|pull request #%s\b|#%s\b" % (n, n, n), re.ASCII)
-        for r in revisions:
-            if rx.search(r.get("subject") or ""):
-                return str(r["id"])
-    return None
-
-
-def recorded_changes(pin: Record, head: str, revisions: Sequence[Record]) -> tuple[ChangeRecord, ...]:
-    """The pin's stored `changes` that apply to commit head: none unless changes_at equals done_at (a 0.2.2 server,
-    after a rollback, neither clears nor writes them, so an older close's set may still be on the record) and head is
-    the commit its close_ref names (ref_commit) - the lines were recorded for that commit, and on any other commit
-    they would select another pin's fix (review M1). Items of the wrong shape are skipped."""
-    if pin.get("changes_at") != pin.get("done_at") or ref_commit(pin.get("close_ref"), revisions) != head:
-        return ()
-    return tuple(c for c in (pin.get("changes") or []) if _valid_change(c))
 
 
 def scope_meta(sc: PinScope) -> ScopeMeta:
@@ -595,19 +528,3 @@ def parse_raw_entries(raw: bytes) -> list[RawEntry]:
         text = all(m in _TEXT_MODES for m in modes if m)
         out.append(RawEntry(old_path, new_path, old_oid, new_oid, modes, text))
     return out
-
-
-def _valid_change(value: object) -> TypeGuard[ChangeRecord]:
-    """Recognize one stored change range by the fields its scope readers require; preserve any extra keys."""
-    return (
-        isinstance(value, dict)
-        and isinstance(value.get("file"), str)
-        and is_int(value.get("lo"))
-        and is_int(value.get("hi"))
-    )
-
-
-def valid_changes(v: object) -> bool:
-    """Whether v has the stored shape of `changes` - a list of {file: str, lo: int, hi: int}. server.valid_rec() treats
-    a record failing this as a broken line; recorded_changes() skips such items."""
-    return isinstance(v, list) and all(_valid_change(change) for change in v)
