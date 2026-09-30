@@ -382,8 +382,8 @@ class OneLookPerChange(FigureTree):
 
     def pdf_flipped_out(self) -> contextlib.AbstractContextManager[object]:
         """pdf_outside: the map names current.pdf, a symlink inside the folder that the watch has resolved and imported;
-        then the link is pointed at a matching PDF outside the folder and the PDF is written again - the map's
-        bytes never changed, so the watch still remembers it as accepted and must resolve the PDF afresh."""
+        then a matching PDF is written outside the folder and the link is repointed at it - the map's bytes never
+        changed, so the watch still remembers it as accepted and must resolve the PDF afresh."""
         inside = self.figs / "out" / "inside.pdf"
         (self.figs / "out" / "current.pdf").symlink_to(inside)
         self.producer.write(inside, MINI_PDF)
@@ -524,7 +524,7 @@ class OneLookPerChange(FigureTree):
                         imports[doc.key] += 1
                         self.assertIsInstance(figure.render_figure_doc(doc, self.cfg, ready), BuildOk)
         self.assertEqual(imports, {"fig": 1, "fig2": 0})
-        self.assertEqual(err.getvalue().count("pdf_outside"), 1, err.getvalue())
+        self.assertEqual(err.getvalue().count("(pdf_outside: "), 1, err.getvalue())
         self.assertEqual(len(list(self.doc.dir.glob("pages-*"))), 1)
 
     def test_a_script_that_leads_out_of_one_documents_folder_is_imported_by_both_documents(self):

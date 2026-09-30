@@ -8,9 +8,10 @@ format grows additively, so unknown keys are ignored; a repeated key is refused,
 would be a guess.
 
 Pure: no file, subprocess or HTTP. The caller reads the bytes; a map's validity is a function of those bytes alone.
-src.file and impl.file are judged by their shape only (canonical relative paths). Where a path leads - inside the
-document's folder or not, readable or not - is decided by whoever reads the script (read_source in
-limn.pins.location.figure), so a script that links out costs only its own elements. The top-level pdf is
+src.file and impl.file are judged by their shape only (canonical relative paths). Where src.file leads - inside the
+document's folder or not, readable or not - is decided by its reader when the pick opens it (read_source in
+limn.pins.location.figure), so a script that links out costs only its own elements. impl.file is data: a pin
+stores it and pins.md prints it, and nothing opens it, so its shape is all that is ever checked. The top-level pdf is
 placed by the import (limn.builds.artifacts.figure_pdf).
 """
 
@@ -173,8 +174,8 @@ def parse_map(raw: bytes) -> FigureMap | MapRejected:
     and canonical, their lines at most MAP_MAX_LINE (_source), and an element at most MAP_MAX_DEPTH ids from its
     root (_tree_rejection). pdf is relative to the map's folder and may climb out of it with '..': where it lands is
     the import's check (limn.builds.artifacts.figure_pdf), not the parser's; likewise a canonical src.file or impl.file is kept
-    whatever it would lead to (a link out of the folder, a dot-named folder, a file that does not exist), because
-    whether a script may be read is decided when it is read. The verdict depends on raw alone. Unknown keys are
+    whatever it would lead to (a link out of the folder, a dot-named folder, a file that does not exist): src.file's
+    reader decides when it opens the script, and impl.file is never opened. The verdict depends on raw alone. Unknown keys are
     ignored everywhere. Never raises."""
     if len(raw) > MAP_MAX_BYTES:
         return MapRejected("too_large", "%d bytes > %d" % (len(raw), MAP_MAX_BYTES))
@@ -362,7 +363,7 @@ def _source(v: object, where: str) -> SourceRef | None | MapRejected:
     """An optional {file, lo, hi}: None when absent or null (a vector graphic without code, ADR-0011 D7); bad_shape
     unless an object whose file is a non-empty string of at most MAP_MAX_PATH characters and lo, hi JSON integers with
     1 <= lo <= hi <= MAP_MAX_LINE; path_outside when file is not a canonical relative path (_canonical). Only the
-    shape is judged: where a canonical path leads is not asked."""
+    shape is judged: where a canonical path leads is not asked (src.file's reader asks; impl.file is never opened)."""
     if v is None:
         return None
     if not isinstance(v, dict):
@@ -398,8 +399,8 @@ def _rooted(elements: list[MapElement], figure: str, where: str) -> tuple[MapEle
 
 def _canonical(path: str) -> bool:
     """Whether path is a canonical relative POSIX path, the only form a pin stores: no leading or trailing '/', no
-    empty, '.' or '..' part, and no backslash or NUL. Where it leads is not asked here: the reader of the script asks
-    (read_source in limn.pins.location.figure)."""
+    empty, '.' or '..' part, and no backslash or NUL. Where it leads is not asked here: src.file's reader asks
+    (read_source in limn.pins.location.figure), and impl.file is never opened."""
     return "\\" not in path and "\x00" not in path and all(part not in ("", ".", "..") for part in path.split("/"))
 
 

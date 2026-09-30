@@ -352,8 +352,9 @@ class Accepted(unittest.TestCase):
     def test_a_canonical_source_path_is_accepted_wherever_it_would_lead(self):
         """src.file and impl.file are judged by their shape alone: a path with a dot-named part, one through what may be
         a link out of the folder, one to a file that does not exist and a bare file name are all kept as written. Where
-        the path leads is decided when the script is read (features.pins.location.figure.read_source), so the map is
-        accepted and an element whose script cannot be read degrades alone."""
+        src.file leads is decided when the pick reads the script (limn.pins.location.figure.read_source), so the
+        map is accepted and an element whose script cannot be read degrades alone; impl.file is data that is never
+        opened, so its shape is all there is to check."""
         for path in (".cache/x.py", "src/.hidden/x.py", "src/out-link/x.py", "no/such/script.py", "main.tex"):
             for key, index in (("src", 1), ("impl", 2)):
                 with self.subTest(path=path, key=key):

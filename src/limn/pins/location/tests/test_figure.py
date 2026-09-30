@@ -386,10 +386,12 @@ class FigurePick(Base):
         first drag parsed the map while the script was still inside) or cold (a restart: the link was already there
         for the first drag), the answer is the same: the region body with the element B2/calendar/m07 and the
         element_without_source sentence - never figure_map_unavailable - and the file the link leads to is never
-        opened. The folder is judged when the script is read, not when the map is parsed."""
+        opened. The two whole answers are equal. The folder is judged when the script is read, not when the map is
+        parsed."""
         outside = self.src / "elsewhere.py"
         outside.write_text("\n".join(script_lines()) + "\n", encoding="utf-8")
         real, opened = files.ManuscriptFile.snapshot, []
+        answers = {}
 
         def spy(checked):
             """Record the file read, then read it."""
@@ -414,11 +416,12 @@ class FigurePick(Base):
                 self.script.unlink()
                 os.symlink(outside, self.script)
                 opened.clear()
-                d = self.drag(JULY_BOX)
+                d = answers[cache] = self.drag(JULY_BOX)
                 self.assertEqual(parsed.call_count, 1)  # warm: the first drag's parse served both; cold: this one
                 self.assertEqual((d["kind"], d["el"]["id"]), ("region", "B2/calendar/m07"))
                 self.assertTrue(d["warn"].startswith(PICK_WARNINGS["element_without_source"]), d["warn"])
                 self.assertEqual(opened, [])
+        self.assertEqual(answers["warm"], answers["cold"])
 
     def test_a_script_that_links_out_of_the_folder_costs_only_the_elements_drawn_by_it(self):
         """The strip is drawn by src/B2_calendar.py, which is a link out of figs/, and the July cell by src/july.py,
