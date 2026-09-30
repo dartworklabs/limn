@@ -4,7 +4,7 @@ Limn은 원고를 PDF로 빌드해 쪽 이미지로 보여 주고, 그 위에 �
 
 재빌드 흐름, 빌드 상태, 폴링 주기, 점선 마크(`est`) 판정을 바꿀 때 이 문서를 읽고 같은 diff에서 고친다. 엔드포인트 목록과 응답 필드 전체는 [api.md](api.md) 에 있다. 뷰어 조작 요약은 [viewer.md](viewer.md) §조작 한눈에가 맡는다.
 
-빌드의 순수 결과 타입·상태 이름은 [`build_values.py`](../../src/limn/build_values.py), 공통 상태·이력·지문은 [`build.py`](../../src/limn/build.py)가 소유한다. `build.py`의 결과 타입 import도 같은 타입을 가리킨다. 요청 경로와 HTTP 응답은 [`features/builds/routes.py`](../../src/limn/features/builds/routes.py)·[`http.py`](../../src/limn/features/builds/http.py)가, 실행 연결은 [`service.py`](../../src/limn/features/builds/service.py)가 맡는다. 같은 기능의 [`completion.py`](../../src/limn/features/builds/completion.py)는 주어진 결과·시각·원본 기준에서 이력과 화면 상태를 계산한다. [`run.py`](../../src/limn/features/builds/run.py)는 문서별 잠금·추적·이력을, [`engine.py`](../../src/limn/features/builds/engine.py)는 원고 복사·컴파일·쪽 교체·보기 전용 PDF 렌더를 맡는다. 잠금·상태·mtime 캐시는 `Doc`이 갖고, 실행 설정은 서비스가 호출 시점에 받는다.
+빌드의 순수 결과 타입·상태 이름은 [`build_values.py`](../../src/limn/build_values.py), 공통 상태·이력·지문은 [`build.py`](../../src/limn/build.py)가 소유한다. `build.py`의 결과 타입 import도 같은 타입을 가리킨다. 요청 경로와 HTTP 응답은 [`features/builds/routes.py`](../../src/limn/features/builds/routes.py)·[`http.py`](../../src/limn/features/builds/http.py)가, 실행 연결은 [`service.py`](../../src/limn/features/builds/service.py)가 맡는다. 같은 기능의 [`completion.py`](../../src/limn/features/builds/completion.py)는 주어진 결과·시각·원본 기준에서 이력과 화면 상태를 계산한다. [`run.py`](../../src/limn/features/builds/run.py)는 문서별 잠금·추적·이력을, [`engine.py`](../../src/limn/features/builds/engine.py)는 원고 복사·컴파일·쪽 교체·보기 전용 PDF 렌더를 맡는다. 잠금·상태·mtime 캐시는 `Doc`이 갖고, 실행 설정은 서비스가 호출 시점에 받는다. 그림 문서의 가져오기는 같은 기능의 [`figure.py`](../../src/limn/features/builds/figure.py)가, 빌드마다 보관한 지도 사본 읽기와 지도 경로 검사는 공통 `build.py`가 맡는다(§그림 문서).
 
 `--git-pull`의 판단은 순수 [`features/sync/rules.py`](../../src/limn/features/sync/rules.py)가, git 호출과 원격 감시는 [`run.py`](../../src/limn/features/sync/run.py)가 맡는다. 규칙은 pull 결과와 다시 빌드할 문서를 정하고, 실행은 원고 경로·문서·Git 실행기·시계를 인자로 받는다.
 
@@ -14,7 +14,7 @@ Limn은 원고를 PDF로 빌드해 쪽 이미지로 보여 주고, 그 위에 �
 
 > **한눈에**
 >
-> 재빌드는 동기(`POST /api/rebuild`)와 비동기(`?async=1` + `GET /api/build`) 두 경로가 같은 빌드 함수를 쓴다. `--git-pull` 을 켜면 빌드 전에 원격 main을 fast-forward로 당긴다. 에이전트용 응답은 로그를 줄여 보낸다. 뷰어는 쓰기가 없는 라이트 meta를 5초마다 폴링해 변화가 있을 때만 핀을 다시 읽는다. 핀 마크를 실선으로 그릴지 점선으로 그릴지는 서버가 빌드 지문으로 판정한다. 보기 전용 PDF는 빌드 대신 파일 변화를 감시한다.
+> 재빌드는 동기(`POST /api/rebuild`)와 비동기(`?async=1` + `GET /api/build`) 두 경로가 같은 빌드 함수를 쓴다. `--git-pull` 을 켜면 빌드 전에 원격 main을 fast-forward로 당긴다. 에이전트용 응답은 로그를 줄여 보낸다. 뷰어는 쓰기가 없는 라이트 meta를 5초마다 폴링해 변화가 있을 때만 핀을 다시 읽는다. 핀 마크를 실선으로 그릴지 점선으로 그릴지는 서버가 빌드 지문으로 판정한다. 보기 전용 PDF는 빌드 대신 파일 변화를 감시하고, 그림 문서는 지도와 PDF가 서로 맞을 때만 가져온다.
 
 `src_mtime` 의 2초 캐시와 그 잠금은 각 `Doc` 이 함께 소유한다. 한 문서의 캐시를 읽거나 채우는 동안 다른 문서의 캐시를 막지 않는다. 추적 빌드에서 원고 mtime을 재는 단계가 실패하면 컴파일 단계의 예상 밖 실패와 같이 `BuildAborted("crashed")` 를 기록하고 빌드 상태를 `fail` 로 끝낸다.
 
@@ -57,7 +57,7 @@ Limn은 원고를 PDF로 빌드해 쪽 이미지로 보여 주고, 그 위에 �
 | `BuildOkWithErrors` | 새 쪽, `! ` 줄 있음(`errors`) | `ok_errors` |
 | `CopyFailed` | 원고 사본을 못 믿어 컴파일하지 않았다 | `fail` |
 | `BuildFailed(kind)` | 컴파일했지만 새 쪽이 없다. `kind` 는 `timeout`·`no_pdf`·`no_synctex`·`render`(pdftoppm)·`pdf_copy`(PDF 사본을 쪽 옆에 못 둠) | `fail` |
-| `BuildAborted(kind)` | 아무것도 재기 전에 멈췄다. `kind` 는 `pdf_missing`(보기 전용 PDF가 없다)·`crashed`(추적 빌드의 예상 밖 예외)·`worker_crashed`(백그라운드 스레드의 예상 밖 예외) | `fail` |
+| `BuildAborted(kind)` | 아무것도 재기 전에 멈췄다. `kind` 는 `pdf_missing`(보기 전용 PDF가 없다)·`figure_unready`(감시 밖에서 가져오기를 불렀는데 그림 문서의 지도와 PDF가 맞지 않는다. 감시는 여기까지 오지 않고 기다린다)·`crashed`(추적 빌드의 예상 밖 예외)·`worker_crashed`(백그라운드 스레드의 예상 밖 예외) | `fail` |
 
 실패 셋의 이름은 `FailedBuild`, 끝난 빌드 전체는 `FinishedBuild` 다. 빌드를 시작하는 쪽의 값은 따로다. 이미 빌드 중이면 `BuildBusy`, 백그라운드 빌드를 걸었으면 `BuildStarted`, 기동 때 쪽이 이미 맞아 빌드하지 않았으면 `BuildSkipped` 다. 쪽 그리기(`render_pages`)는 새 디렉토리나 `PagesNotRendered(kind)` 를 돌려준다.
 
@@ -280,3 +280,26 @@ est = (pin.pdf_build ≠ 지금 빌드 그리고 두 빌드의 src_hash 가 다�
 - `POST /api/rebuild?doc=<키>` 는 `400` 이다.
 
 보기 전용 문서의 pick과 핀 규칙은 [api.md](api.md) §보기 전용 PDF 문서의 pick·핀에 있다.
+
+## 그림 문서
+
+`--doc` 의 경로가 `.limnmap.json` 인 문서는 그림 저장소가 낸 PDF와 요소 지도를 가져온다. Limn은 그림 저장소의 코드를 실행하지 않는다. 지도 형식은 [api.md](api.md) §그림 요소 지도 (`limn-figure-map/1`), 문서 폴더의 뜻은 [domain.md](domain.md) §그림 문서에 있다.
+
+감시 스레드는 보기 전용 PDF와 같다. 3초마다 지문을 재고, 가져온 뒤나 미룬 뒤에는 그 지문을 `docs/<키>/pdf_sig.txt` 에 적는다.
+
+```text
+지문 = <지도 mtime_ns>:<지도 크기>|<PDF mtime_ns>:<PDF 크기>
+```
+
+- PDF는 지도가 가리키는 파일이다. 지도가 바뀌지 않았으면 지도를 다시 읽지 않고 두 파일의 `mtime:크기`만 본다. 지도를 받지 않았거나 PDF가 없으면 PDF 쪽은 `-` 다.
+- 지문이 적힌 값과 다르면 지도와 PDF를 한 번씩 읽어 검사한다. 지도가 검사를 통과하는지, 지도의 `pdf` 가 문서 폴더 안인지, PDF가 64 MiB를 넘지 않는지, PDF 바이트의 SHA-256이 `pdf_sha256` 과 같은지 본다.
+- 하나라도 어긋나면 이번 차례는 빌드하지 않고 실패도 기록하지 않는다. 화면은 앞 빌드 그대로다. 그때 본 지문만 적고 이유를 서버 로그에 한 줄 남긴다. 그래서 두 파일 중 하나가 다시 바뀌어야 다시 본다. 생산자가 PDF를 먼저 쓰고 지도를 나중에 쓰는 사이의 틈이 여기에 걸린다. 쓰는 순서가 거꾸로여도 두 파일이 맞는 차례에 가져온다. PDF가 64 MiB를 넘어도 같다 — 지도가 가리키는 파일이므로 해시를 보기 전에 크기부터 보고, 넘으면 그 바이트를 끝까지 읽지 않은 채 미룬다.
+- 맞으면 검사한 바이트 그대로 쪽을 그린다. 그래서 검사한 PDF와 화면의 PDF가 어긋날 수 없다. 새 `pages-<build>/` 에는 쪽 이미지, PDF 사본(지도 이름에서 `.limnmap.json` 을 뺀 `<이름>.pdf`), 지도 사본 `figmap.json` 이 함께 있다. 쪽 폴더는 지금 것과 바로 앞 것을 남기므로, 옛 빌드 화면에서 한 드래그는 그 빌드의 지도로 읽는다.
+- 빌드 경로는 보기 전용 PDF와 같은 `run_tracked` 다. 그래서 `build_seq`, 빌드 이력, 뷰어의 쪽 교체가 LaTeX 빌드와 똑같이 돈다. 이력의 `src_hash` 는 PDF 바이트의 SHA-256과 지도 바이트의 SHA-256을 이어 다시 해시한 값(앞 32자)이다. 둘 중 하나가 바뀌면 옛 핀은 점선(추정)이 된다(§위치 추정 (`est`)).
+- 쪽 그리기가 실패하면 보기 전용 PDF처럼 같은 파일로 되풀이하지 않는다.
+- 지도의 쪽 수가 PDF의 쪽 수와 달라도 가져온다. PDF에 없는 쪽의 지도 항목은 쓰이지 않는다.
+- 지도 파일이 사라지면 아무것도 하지 않는다. 화면은 마지막으로 가져온 그림이다. 지도가 없는 채로는 서버가 뜨지 않는다([instances.md](instances.md) §여러 문서 (`DOCS=`)).
+- 지도와 PDF는 경로의 마지막 조각이 심볼릭 링크면 읽지 않는다. 지도는 4 MiB까지만 읽는다. PDF는 64 MiB까지만 읽는다.
+- 기동 때는 지문이 바뀌었거나 쪽 이미지가 없을 때 가져온다. `--no-build` 는 그림 문서에 적용하지 않는다.
+- `stale_build` 는 늘 `false` 다. `POST /api/rebuild?doc=<키>` 는 보기 전용 문서처럼 `400` 이다. 그림을 고쳤으면 그림 저장소에서 다시 렌더한다.
+- 감시가 아닌 경로로 추적 빌드가 그림 문서를 가져오다 두 파일이 맞지 않으면, 실패를 `BuildAborted("figure_unready")` 로 기록한다(§빌드 결과).

@@ -210,7 +210,7 @@ curl -s -H "Authorization: Bearer $(cat ~/.config/limn/<인스턴스>.token)" ht
 | `GET` | `/api/meta` | `pages`(쪽 목록), `built_at`, `head`(원고 커밋), `main`(최상위 `.tex` 이름), `label`·`accent`·`repo`(이 인스턴스의 이름표·강조색·git origin URL, [operations.md](operations.md) §여러 논문 인스턴스를 동시에 띄울 때), `n_open`·`n_review`·`n_done`(§검토 대기), `pins_md`·`state_dir`(절대경로), `me`(지금 요청자와 그 `role` — §인증), `building`(재빌드 진행 중), `stale_build`(이 PDF 를 만든 뒤 원고 `.tex` 가 바뀌었는가), `src_mtime`·`build_src_mtime`·`src_age_s`·`pins_rev`([build-sync.md](build-sync.md) §자동 동기화 (가벼운 meta 폴링)), `pages_build`(지금 화면의 빌드 id, `pages.cur` 값), `build_seq`(끝난 빌드 수)·`last_build:{state,errors,finished_at,seq}`·`build:{state,phase,started_at}`([build-sync.md](build-sync.md) §비동기 재빌드), `doc`·`doc_name`·`kind`·`view_only`·`multi`(§문서 매개변수), `ev_seq`(§브라우저 알림 커서). 여러 문서면 `docs`(`/api/docs` 항목에서 `n_open` 을 뺀 것)와 `src_sig` 가 붙는다(라이트 포함). `src_sig` 는 문서마다의 `src_mtime` 을 이은 문자열이다. 그래서 뷰어는 다른 문서의 원고가 바뀌어도 목록을 다시 읽는다. 전체 meta는 요청한 사람을 기록한다(§@태그·사람·이벤트) |
 | `GET` | `/api/meta?light=1` | 위와 같되 `n_open`·`n_review`·`n_done` 이 없고 **쓰기를 하지 않는다**(`snapshot_pins()` 의 sync 쓰기를 하지 않는다). 폴링 전용이다. [build-sync.md](build-sync.md) §자동 동기화 (가벼운 meta 폴링) |
 | `GET` | `/api/meta?ev=<seq>` | 라이트와 함께 쓸 수 있다. 요청자에게 온 새 이벤트를 `events` 로 싣는다 — §브라우저 알림 커서 |
-| `GET` | `/api/docs` | 문서 목록 `{docs:[{key,name,kind:"tex"\|"pdf",view_only,path,main,n_open,stale_build,building,build:{state,phase},build_seq,last_state,pages_build,n_pages,src_mtime}], default, multi, other_open}`. 핀은 읽기만 한다(sync 쓰기 없음). `other_open` 은 지금 설정에 없는 문서 키의 열린 핀 수다 |
+| `GET` | `/api/docs` | 문서 목록 `{docs:[{key,name,kind:"tex"\|"pdf"\|"figure",view_only,path,main,n_open,stale_build,building,build:{state,phase},build_seq,last_state,pages_build,n_pages,src_mtime}], default, multi, other_open}`. 핀은 읽기만 한다(sync 쓰기 없음). `other_open` 은 지금 설정에 없는 문서 키의 열린 핀 수다. `view_only` 는 보기 전용 PDF와 그림 문서(§그림 요소 지도 (`limn-figure-map/1`))에서 `true` 다 |
 | `GET` | `/api/people` | @태그 후보 `{people:[{login,name,pic?,last_seen?,role}], me}` — §@태그·사람·이벤트. `role` 과 `me.role` 은 §인증. 쓰기 없음 |
 
 ### 화면·PDF·정적 파일
@@ -219,7 +219,7 @@ curl -s -H "Authorization: Bearer $(cat ~/.config/limn/<인스턴스>.token)" ht
 | --- | --- | --- |
 | `GET` | `/` | 뷰어 HTML. 이 뷰어를 연 사람을 기록한다(§@태그·사람·이벤트). 에이전트(토큰, 헤더 없는 루프백 요청)는 기록하지 않는다 |
 | `GET` | `/pages/<파일>` | 지금 빌드의 쪽 이미지(`page-<번호>.png`)를 `image/png` 로 준다(`Cache-Control: private, max-age=600`, PDF처럼 공유 캐시에 남지 않는다). 이름이 이 모양이 아니거나 파일이 없으면 `404` |
-| `GET` | `/pdf?build=<pages_build>` | 그 빌드의 쪽 이미지와 짝인 PDF 사본(`pages-<build>/<main>.pdf`)을 `application/pdf` 로 준다(`Cache-Control: private, max-age=600`). 뷰어가 벡터로 그릴 때 쓴다([viewer.md](viewer.md) §벡터 렌더링). `build` 를 빼면 지금 빌드다. 이름이 틀렸거나, 이미 지워졌거나, 그 디렉토리에 PDF 가 없으면 `404 {error, pdf_build_gone, pages_build}` 다. `build/` 나 다른 빌드로 물러서지 않는다. 화면의 쪽 이미지와 어긋나면 좌표가 틀리기 때문이다. `Range` 는 받지 않고 통째로 준다. Host·Origin 검사는 다른 `GET` 과 같다 |
+| `GET` | `/pdf?build=<pages_build>` | 그 빌드의 쪽 이미지와 짝인 PDF 사본(`pages-<build>/<main>.pdf`, 그림 문서는 지도 이름에서 `.limnmap.json` 을 뺀 `<이름>.pdf`)을 `application/pdf` 로 준다(`Cache-Control: private, max-age=600`). 뷰어가 벡터로 그릴 때 쓴다([viewer.md](viewer.md) §벡터 렌더링). `build` 를 빼면 지금 빌드다. 이름이 틀렸거나, 이미 지워졌거나, 그 디렉토리에 PDF 가 없으면 `404 {error, pdf_build_gone, pages_build}` 다. `build/` 나 다른 빌드로 물러서지 않는다. 화면의 쪽 이미지와 어긋나면 좌표가 틀리기 때문이다. `Range` 는 받지 않고 통째로 준다. Host·Origin 검사는 다른 `GET` 과 같다 |
 | `GET` | `/vendor/pdfjs/<파일>.mjs` | 뷰어가 쓰는 PDF.js(`pdf.min.mjs`·`pdf.worker.min.mjs`)를 `text/javascript; charset=utf-8` 로 준다(`Cache-Control: public, max-age=86400`). 뷰어는 `?v=<버전>` 을 붙여 캐시를 가른다. 이름 한 칸의 `.mjs` 만 받는다. 하위 경로, `..`, 점으로 시작하는 이름, `%` 인코딩, 디렉토리 밖을 가리키는 심볼릭 링크, `.mjs` 가 아닌 파일(`LICENSE`·`README.md`)은 모두 `404` 다. PDF.js는 패키지 안 `src/limn/vendor/pdfjs/` 에 들어 있고 기본으로 이것을 준다. `--pdfjs-dir`([operations.md](operations.md) §실행 인자)로 디렉토리를 바꿀 수 있다. 출처·버전은 [`src/limn/vendor/pdfjs/README.md`](../../src/limn/vendor/pdfjs/README.md). Host·Origin 검사는 다른 `GET` 과 같다 |
 | `GET` | `/api/outline-labels?doc=<키>` | 현재 PDF와 함께 보존한 `.aux` 의 목차 → `{build,labels:[{number,title,page,level,anchor}]}`. PDF.js outline과 제목·계층·순서가 일치할 때만 번호를 붙인다. `page` 는 인쇄 쪽번호 문자열(로마 숫자 가능)이며 물리 PDF 페이지 인덱스가 아니다. `.aux` 가 없는 기존 빌드는 빈 배열이다. 지원하지 않는 복잡한 TeX 제목은 빈 `number`·`title` 자리표시자가 된다 |
 | `GET` | `/sw.js` | 브라우저 알림용 서비스 워커(`text/javascript; charset=utf-8`, `Cache-Control: no-cache`, 범위 `/`). `fetch` 처리기가 없어 앱 데이터를 캐시하지 않는다 |
@@ -231,7 +231,7 @@ curl -s -H "Authorization: Bearer $(cat ~/.config/limn/<인스턴스>.token)" ht
 | 메서드 | 경로 | 설명 |
 | --- | --- | --- |
 | `GET` | `/api/build` | `{state:"idle\|running\|ok\|ok_errors\|fail", phase:"pull\|copy\|latex\|render"\|null, started_at, finished_at, seq, last, elapsed_s, last_s, pages, errors:[{line,msg}], log_tail, built_at, head, pull}` — [build-sync.md](build-sync.md) §비동기 재빌드. 서버를 다시 띄워도 마지막 빌드 결과(`state`·`errors`·`log_tail`·`seq`·`head`·`pull`)는 `builds.json` 에서 되살린다. `log_tail` 은 [build-sync.md](build-sync.md) §에이전트 응답 다이어트를 따른다. `state=="ok"` 면 빠지고, 아니면 40줄이며, `?log=1` 이면 전체다 |
-| `POST` | `/api/rebuild` | PDF 재빌드(동기) — [build-sync.md](build-sync.md) §재빌드 (동기). 응답에 `head`(빌드한 커밋의 짧은 해시, 성공 때만)와 `pull`(`--git-pull` 일 때만, [build-sync.md](build-sync.md) §재빌드 전 원격 main 당겨오기 (`--git-pull`))이 붙는다. `log` 는 [build-sync.md](build-sync.md) §에이전트 응답 다이어트를 따른다. 보기 전용 문서면 `400` |
+| `POST` | `/api/rebuild` | PDF 재빌드(동기) — [build-sync.md](build-sync.md) §재빌드 (동기). 응답에 `head`(빌드한 커밋의 짧은 해시, 성공 때만)와 `pull`(`--git-pull` 일 때만, [build-sync.md](build-sync.md) §재빌드 전 원격 main 당겨오기 (`--git-pull`))이 붙는다. `log` 는 [build-sync.md](build-sync.md) §에이전트 응답 다이어트를 따른다. 보기 전용 문서와 그림 문서면 `400` 이다(`view_only_no_rebuild`) |
 | `POST` | `/api/rebuild?async=1` | PDF 재빌드(비동기). 잠금을 얻으면 데몬 스레드로 같은 빌드 함수를 돌리고 바로 `202 {"state":"running"}` 을 준다. 이미 도는 중이면 `409 {"state":"running","busy":true}`. 진행은 `GET /api/build` 로 폴링한다([build-sync.md](build-sync.md) §비동기 재빌드) |
 | `POST` / `GET` | `/api/rebuild?log=1` / `/api/build?log=1` | [build-sync.md](build-sync.md) §에이전트 응답 다이어트를 끄고 전체 로그 꼬리(4000자)를 그대로 받는다. 뷰어는 오류 패널을 위해 이 플래그를 항상 붙인다 |
 
@@ -689,6 +689,74 @@ curl -s -X POST http://127.0.0.1:<port>/api/pins/3/unclaim
 - `POST /api/rebuild` 는 `400` 이다. 재빌드가 없고, 파일이 바뀌면 쪽을 저절로 다시 그린다([build-sync.md](build-sync.md) §보기 전용 PDF 문서).
 - `/api/snippet` 도 `400` 이다.
 
+**그림 문서.** `kind:"figure"` 문서도 지금은 이 절의 규칙을 그대로 따른다. `view_only` 가 `true` 이고, pick·핀·수정·거절이 모두 같다. 다른 것은 PDF를 적는 두 값이다.
+
+- pick의 `pdf` 는 드래그한 빌드(`pdf_build`)의 지도가 가리키는 PDF의 원고 폴더 기준 경로이고, `name` 은 그 파일 이름이다. 영역 글자는 그 빌드의 PDF 사본에서 뽑는다.
+- 저장 레코드의 `pdf` 는 화면 빌드의 지도가 가리키는 PDF의 절대경로이고, `name` 은 그 파일 이름이다.
+- 그 빌드에 읽을 수 있는 지도가 없거나 지도의 `pdf` 가 문서 폴더 밖이면, 두 값 모두 지도 파일을 적는다. 문서 폴더 밖의 경로는 적지 않는다.
+
+## 그림 요소 지도 (`limn-figure-map/1`)
+
+그림 문서([domain.md](domain.md) §그림 문서)의 요소 지도는 그림 저장소가 쓰고 Limn이 읽는 생산자 계약이다. Limn은 지도를 만든 도구를 모른다. 형식은 더하기만 한다. 이 판이 모르는 키는 무시하고, 뜻을 바꾸는 변경은 `format` 의 판 번호를 올린다. 지금 서버는 지도를 가져와 빌드마다 보관하고, 핀의 PDF 이름에 쓴다([build-sync.md](build-sync.md) §그림 문서).
+
+```json
+{
+  "format": "limn-figure-map/1",
+  "pdf": "figures.pdf",
+  "pdf_sha256": "<PDF 바이트의 SHA-256, 소문자 16진 64자>",
+  "pages": [
+    {
+      "page": 1,
+      "figure": "B2",
+      "title": "Deployment calendar",
+      "elements": [
+        {"id": "B2", "frac": [0, 0, 1, 1],
+         "src": {"file": "src/B2_calendar.py", "lo": 12, "hi": 140}},
+        {"id": "B2/calendar", "parent": "B2", "part": "CalendarStrip", "label": "달력",
+         "frac": [0.06, 0.18, 0.88, 0.12],
+         "src": {"file": "src/B2_calendar.py", "lo": 80, "hi": 97}},
+        {"id": "B2/calendar/m07", "parent": "B2/calendar", "part": "MonthCell", "label": "7월",
+         "frac": [0.47, 0.18, 0.07, 0.12],
+         "src": {"file": "src/B2_calendar.py", "lo": 88, "hi": 95},
+         "impl": {"file": "lib/components.py", "lo": 410, "hi": 470}}
+      ]
+    }
+  ]
+}
+```
+
+| 필드 | 규칙 |
+| --- | --- |
+| `format` | `"limn-figure-map/1"` |
+| `pdf` | 지도 파일이 있는 폴더 기준 상대 경로. 문서 폴더 안이어야 한다 |
+| `pdf_sha256` | 지도가 설명하는 PDF 바이트의 SHA-256. 소문자 16진 64자 |
+| `pages[].page` | 1부터 세는 쪽 번호. 지도 안에서 겹치지 않는다 |
+| `pages[].figure` | 그림 id. 그 쪽의 뿌리 요소 id와 같다. 200자 이하 |
+| `pages[].title` | 선택. 그림 제목. 200자 이하 |
+| `elements[].id` | 비어 있지 않은 문자열, 200자 이하. 지도 전체에서 유일하다. 다시 렌더해도 같은 뜻의 요소는 같은 id를 받는다 |
+| `elements[].parent` | 같은 쪽 요소의 id. 뿌리만 없다(또는 `null`). 순환이 없다 |
+| `elements[].frac` | `[x, y, w, h]`. 쪽 폭·높이에 대한 비율이고 원점은 왼쪽 위다. 뿌리는 `[0, 0, 1, 1]` 이다 |
+| `elements[].src` | 선택. 그 요소를 부른 코드 `{file, lo, hi}`. `file` 은 문서 폴더 기준 상대 경로(`/` 구분)다. 코드 줄이 없는 벡터 그래픽의 요소는 뺀다 |
+| `elements[].impl` | 선택. 공통 부품을 구현한 코드. `src` 와 같은 모양이다 |
+| `elements[].part`, `elements[].label` | 선택. 사람에게 보이는 이름. 200자 이하 |
+
+**검사.** 서버는 지도를 읽을 때 아래를 차례로 본다. 하나라도 어기면 지도 전체를 받지 않는다. 괄호 안은 서버 로그에 남는 이유 코드다.
+
+- 파일이 4 MiB 이하다(`too_large`). 크기는 해석 전에 본다.
+- UTF-8 JSON이고 같은 키가 두 번 나오지 않는다(`not_json`). 맨 위는 객체다(`bad_shape`).
+- `format` 이 맞다(`bad_format`). `pdf` 와 `pdf_sha256` 의 모양이 맞다(`bad_shape`).
+- 쪽 번호가 1 이상의 정수이고 겹치지 않는다(`bad_page`).
+- 쪽마다 요소는 5000개까지다(`too_many_elements`). 개수는 요소를 읽기 전에 센다.
+- `figure`·`title`·요소 `id`·`part`·`label` 은 200자(`MAP_MAX_TEXT`, 바이트가 아니라 글자 수) 이하다(`bad_shape`). 핀이 이 값을 저장하기 때문이다.
+- `frac` 은 유한수 넷이고 `0 ≤ x`, `0 ≤ y`, `w > 0`, `h > 0`, `x + w ≤ 1 + 1e-6`, `y + h ≤ 1 + 1e-6` 이다(`bad_frac`).
+- `lo`·`hi` 는 정수이고 `1 ≤ lo ≤ hi` 다. 그 밖의 필드도 적힌 모양이어야 한다(`bad_shape`).
+- id가 지도 전체에서 유일하다(`duplicate_id`).
+- 쪽마다 `parent` 없는 요소가 정확히 하나이고, 그 id가 `figure`, `frac` 이 `[0, 0, 1, 1]` 이다(`no_root`).
+- 모든 `parent` 가 같은 쪽 요소를 가리키고 순환이 없다(`bad_parent`).
+- `src`·`impl` 의 `file` 은 문서 폴더 안이고, 점으로 시작하는 이름 아래가 아니다. 심볼릭 링크는 푼 뒤에 본다(`path_outside`). `pdf` 가 문서 폴더 밖이면 가져오기가 미룬다.
+
+**쓰는 순서.** 생산자는 PDF를 먼저 쓰고, 지도는 마지막에 원자적으로 바꾼다(임시 파일에 쓰고 이름 바꾸기). 순서가 달라도 `pdf_sha256` 이 맞을 때만 가져오므로, 어긋난 짝이 화면에 오르지는 않는다.
+
 ## 휴지통
 
 삭제(`/drop`)한 핀은 휴지통에 30일(`TRASH_DAYS`) 동안 머문다(0.2.2+). 저장은 `pins.dropped.jsonl` 이고 레코드는 핀 레코드에 `dropped_at`·`dropped_by` 를 더한 모양이다.
@@ -727,7 +795,7 @@ curl -s -X POST http://127.0.0.1:<port>/api/pins/3/unclaim
 | `file` | 핀이 가리키는 원고 파일의 **이 서버 머신 절대 경로**다. 저장값은 마지막으로 그 핀을 쓰거나 줄을 다시 맞춘 때의 경로다. 응답의 값은 §핀 파일의 위치로 찾은 **지금 경로**(0.3.2+)이고, 찾지 못하면 저장값 그대로다 |
 | `file_rel` | (0.3.2+) 저장 전용. 원고 폴더(`--manuscript`) 기준 POSIX 상대 경로다(`sections/introduction.tex`). 서버가 **그 핀을** 만들거나 고치거나(`/edit`, 위치 다시 잡기 포함) 되살릴 때 `file` 과 함께 적는다. 옛 레코드에는 없고, 채우려고 다시 쓰지 않는다. 응답에는 싣지 않는다(대신 `rel_path`). 문자열이 아니면 그 줄은 깨진 줄이다 |
 | `doc` | 핀이 속한 문서 키(§문서 매개변수 (`doc=`)). 없는 옛 레코드는 첫 문서로 **읽는다**. 이관 쓰기를 하지 않는다. `GET /api/pins` 응답에는 늘 채워진다(계산) |
-| `pdf` | 보기 전용 PDF 문서의 핀에만 있다. 그 PDF의 절대경로다. 이 필드가 있고 `file` 이 없으면 보기 전용 핀으로 검증한다(`page`·`frac` 필수, `lo`·`hi` 없음). 문서 키가 지금 설정에 없어도 깨진 줄로 치지 않는다 |
+| `pdf` | 보기 전용 PDF 문서와 그림 문서의 영역 핀에만 있다. 그 PDF의 절대경로다(그림 문서는 지도가 가리키는 PDF, §보기 전용 PDF 문서의 pick·핀). 이 필드가 있고 `file` 이 없으면 보기 전용 핀으로 검증한다(`page`·`frac` 필수, `lo`·`hi` 없음). 문서 키가 지금 설정에 없어도 깨진 줄로 치지 않는다 |
 | `rev` | 레코드 내용이 바뀌는 모든 쓰기(줄 이동·stale, 수정, 닫기, 다시 열기, 되살리기)에서 +1. 없으면 0 |
 | `scope` | `raw\|para\|env\|env2\|env3\|lines`. 저장할 때 고른 범위 사다리 단계다 |
 | `quote` | 선택. 호출자가 붙인 짧은 인용이다(60자에서 자른다) |
