@@ -2,8 +2,6 @@
 
 ## Unreleased
 
-**Release blocker:** figure pins need the P1c viewer; do not release from main until P1c is merged (P1c removes this line and tests/contracts/test_release_blocker.py).
-
 Figure pins, server side: a drag on a figure document is traced to the lines of the script that drew the element, a
 pin records its element, and its position is followed across re-renders. The agent contract grows (new fields and new
 values in existing lists); one field changes its value for figure documents (below). For an instance without figure
