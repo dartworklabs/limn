@@ -127,6 +127,7 @@ BUILD_FAILURES: dict[BuildFailureKind, str] = {
     "render": "쪽 이미지를 그리지 못했습니다(pdftoppm).",
     "pdf_copy": "PDF 사본을 쪽 디렉토리에 두지 못했습니다: {detail}",
     "pdf_missing": "PDF 가 없습니다: {detail}",
+    "figure_unready": "그림 PDF 와 지도를 가져오지 못했습니다: {detail}",
     "crashed": "빌드 중 예상 밖 예외가 났습니다: {detail}",
     "worker_crashed": "빌드 스레드에서 예상 밖 예외가 났습니다: {detail}",
 }

@@ -6,7 +6,8 @@ DOCS_MAX=12
 DOC_NAME_MAX=40
 # ── multiple documents (--doc / DOCS=) ──
 # Format is <key>=<display name>:<path>. Parsing/validation rules are kept in sync with the server
-# (parse_doc_arg/make_docs in limn/startup.py) — the server re-validates on startup, but filtering
+# (parse_doc_arg/make_docs in limn/features/administration/serve_documents.py; the figure-map suffix is
+# limn.figmap.MAP_SUFFIX) — the server re-validates on startup, but filtering
 # here first means a clear error at `limn add`/`limn doc add` time instead of a systemd Restart loop.
 join_semi() { local IFS=';'; printf '%s' "$*"; } # join_semi <items...> -> string joined by ';'
 valid_doc_key() { # [a-z0-9-]{1,24}
@@ -31,7 +32,7 @@ doc_parse_kv() {
 }
 
 # doc_check_path <absolute manuscript path> — reads DOC_KEY/DOC_PATH filled by doc_parse_kv and
-# validates the path. The `::` notation (<build root>::<main.tex>) checks that both the build root
+# validates the path. The `::` notation (<build root>::<main.tex or figure map>) checks that both the build root
 # and the main file are inside the manuscript dir. A string pointing outside the manuscript via `../`
 # can't be caught by a plain prefix comparison (`$ms/../x` still starts with `$ms/` as a string), so
 # it's normalized with `cd .. && pwd -P` before comparing — the same `pwd -P` convention cmd_add uses
@@ -51,15 +52,15 @@ doc_check_path() {
         esac
         [[ "$main_s" != /* ]] || die "--doc $key: the main after '::' must be relative to the build root: $main_s"
         main="$root_c/$main_s"
-        case "${main##*.}" in
-            tex) ;;
-            *) die "--doc $key: '::' notation is only for LaTeX documents (.tex): $main" ;;
+        case "$main" in
+            *.tex | *.limnmap.json) ;;
+            *) die "--doc $key: '::' notation is only for LaTeX documents (.tex) and figure maps (.limnmap.json): $main" ;;
         esac
     else
         if [[ "$path" == /* ]]; then main="$path"; else main="$ms/$path"; fi
-        case "${main##*.}" in
-            tex | pdf) ;;
-            *) die "--doc $key: only .tex (LaTeX) or .pdf (view-only) are accepted: $main" ;;
+        case "$main" in
+            *.tex | *.pdf | *.limnmap.json) ;;
+            *) die "--doc $key: only .tex (LaTeX), .pdf (view-only) or .limnmap.json (figure) are accepted: $main" ;;
         esac
     fi
     [[ -f "$main" ]] || die "--doc $key: file does not exist: $main"

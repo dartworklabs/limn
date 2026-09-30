@@ -23,7 +23,7 @@ Limn은 **하나의 배포 단위(`dartwork-limn` 패키지) 안에서 표준 �
 
 | 층 | 모듈 | 하는 일 | 모르는 것 |
 | --- | --- | --- | --- |
-| 순수 도메인 | `pins/`(상태 타입·레코드 검사·공유 스레드·편집 상수·위치 규칙·API 모양·`pins.md` 렌더), `build_values.py`, `mapping.py`, `scope.py`, `mentions.py`, `guidance.py`, `mark.py` | 핀 수명 주기와 위치 계산의 규칙. 입력 값에서 결과 값이나 거절 값을 낸다 | 파일, subprocess, 시계, HTTP. 모듈마다 import 검사가 지킨다 |
+| 순수 도메인 | `pins/`(상태 타입·레코드 검사·공유 스레드·편집 상수·위치 규칙·API 모양·`pins.md` 렌더), `build_values.py`, `mapping.py`, `figmap.py`(그림 요소 지도 파서), `scope.py`, `mentions.py`, `guidance.py`, `mark.py` | 핀 수명 주기와 위치 계산의 규칙. 입력 값에서 결과 값이나 거절 값을 낸다 | 파일, subprocess, 시계, HTTP. 모듈마다 import 검사가 지킨다 |
 | 기능(세로 슬라이스) | `features/pins/lifecycle/*`, `features/pins/claims/*`, `features/pins/trash/*`, `features/pins/editing/*`, `features/pins/listing/*`, `features/pins/location/*`, `features/builds/*`, `features/sync/*`, `features/collaboration/*`, `features/document_views/*`, `features/revisions/*`, `features/viewer_shell/*`, `features/administration/*` | 각 기능의 순수 판단, 입력 검사, HTTP 라우팅·응답 매핑, 실행별 문맥 조립과 서비스 로직 | 다른 슬라이스의 비공개 세부. 공통 도메인 규칙이나 공통 저장소 협력자를 통해서만 소통한다 |
 | 서비스 협력자 | `service/context.py`(`PinContext`), `store.py`(`PinStore`), `locate.py`(`est_context`·`sync_all`), `build.py`(`BuildArtifacts`·`BuildHistory`), `documents.py`(`Doc`·`DocumentFacts`), `gitrun.py`, `files.py` | 실행별 자원·잠금·파일 읽기/쓰기를 기능에 주입하기 쉬운 협력자로 감싼다 | HTTP 요청/응답 형식 |
 | 인프라 | `files.py`(`atomic_write`·`store_lock`), `gitrun.py`, `people.py`, `events.py`, `audit.py`, `args.py`, `config.py`, `startup.py`, `access.py` | 운영체제·외부 도구와의 경계. 신원 방식·역할·Host 검사 | 핀 수명 주기와 계산 규칙 |
@@ -37,7 +37,7 @@ Limn은 **하나의 배포 단위(`dartwork-limn` 패키지) 안에서 표준 �
 규칙은 단순하다. **안쪽(도메인)은 바깥쪽(인프라·HTTP·뷰어)을 모른다.**
 
 ```text
-순수 도메인 (pins/, build_values, mapping, scope, mentions, guidance, mark)
+순수 도메인 (pins/, build_values, mapping, figmap, scope, mentions, guidance, mark)
    ▲
    │
 기능 슬라이스 (features/*) + 서비스 협력자 (service/context, store, locate, build, documents)

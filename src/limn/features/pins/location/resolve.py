@@ -82,9 +82,10 @@ class Picked:
 
 @dataclass(frozen=True)
 class PickedRegion:
-    """A selection on a view-only PDF document: its key, the page and page-relative box (frac), the PDF's path from
-    the manuscript root and file name, the region's printed text as a quote and its length, and the page directory.
-    blank: the region has no printed text (a figure or scan); redrawing: the pages are being redrawn now."""
+    """A selection on a document whose pins are regions: its key, the page and page-relative box (frac), the PDF's
+    path from the manuscript root and file name (for a document with an element map, the PDF the map of the drag's
+    build names), the region's printed text as a quote and its length, and the page directory. blank: the region has
+    no printed text (a figure or scan); redrawing: the pages are being redrawn now."""
 
     doc: str
     page: int
@@ -146,7 +147,7 @@ def pick(D: Doc, request: Selection, ctx: PickContext) -> Picked | PickedRegion 
     pdf = build.cur_pdf(D, pdir)
     rtext = source.region_text(pdf, page, x0, y0, x1, y1)
     if D.view_only:
-        return _pick_region(D, pdir, page, (x0, y0, x1, y1), (pw, ph), frac, rtext)
+        return _pick_region(D, pdir, page, (x0, y0, x1, y1), (pw, ph), frac, rtext, ctx.root)
     sy = source.by_synctex(pdf, page, x0, y0, x1, y1)
 
     src = to_source(D, sy[0]) if sy else D.main
@@ -188,24 +189,42 @@ def _pick_region(
     size: tuple[float, float],
     frac: list[float] | None,
     rtext: str,
+    root: Path,
 ) -> PickedRegion:
-    """pick for a view-only document - only page/region and the region's text (pdftotext), no SyncTeX.
-    If frac wasn't sent (agent curl), it's built from the coordinates - for a view-only pin, the region is the whole location."""
+    """pick for a document whose pins are regions - only page/region and the region's text (pdftotext), no SyncTeX.
+    If frac wasn't sent (agent curl), it's built from the coordinates - for such a pin, the region is the whole
+    location. The PDF it names is _region_pdf's, relative to the manuscript root."""
     x0, y0, x1, y1 = box
     pw, ph = size
     if frac is None:
         frac = [x0 / pw, y0 / ph, (x1 - x0) / pw, (y1 - y0) / ph]
     text = norm(rtext)
     bstate = build.state_snapshot(D)
+    pdf, name = _region_pdf(D, pdir, root)
     return PickedRegion(
         doc=D.key,
         page=page,
         frac=frac,
-        pdf=D.rel_path(),
-        name=D.main.name,
+        pdf=pdf,
+        name=name,
         quote=truncate_quote(text, PDF_QUOTE_MAX),
         n_chars=len(text),
         blank=not text,
         redrawing=bstate["state"] == "running",
         pdf_build=pdir.name,
     )
+
+
+def _region_pdf(D: Doc, pdir: Path, root: Path) -> tuple[str, str]:
+    """The PDF a region pick names, as (path from the manuscript root, file name). A view-only PDF names itself
+    (Doc.rel_path). A document with an element map names the PDF the map of the drag's build (pdir) names
+    (limn.build.build_figure_pdf) - or its map file when that build has no loadable map or the map's PDF lies outside
+    the document's folder, so no path outside it is ever named."""
+    if D.has_element_map:
+        named = build.build_figure_pdf(D, pdir.name)
+        if named is not None:
+            try:
+                return str(named.relative_to(root.resolve())), named.name
+            except (ValueError, OSError, RuntimeError):
+                return str(named), named.name
+    return D.rel_path(), D.main.name

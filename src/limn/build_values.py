@@ -24,11 +24,20 @@ Json: TypeAlias = dict[str, Any]
 # Why a build failed; each kind has one text in limn.web.errors.BUILD_FAILURES. The narrower kinds are what each
 # failure type can carry (tests pin that together they are every kind but "copy", which is CopyFailed's own).
 BuildFailureKind: TypeAlias = Literal[
-    "copy", "timeout", "no_pdf", "no_synctex", "render", "pdf_copy", "pdf_missing", "crashed", "worker_crashed"
+    "copy",
+    "timeout",
+    "no_pdf",
+    "no_synctex",
+    "render",
+    "pdf_copy",
+    "pdf_missing",
+    "figure_unready",
+    "crashed",
+    "worker_crashed",
 ]
 RenderFailureKind: TypeAlias = Literal["render", "pdf_copy"]
 OutputFailureKind: TypeAlias = Literal["timeout", "no_pdf", "no_synctex", "render", "pdf_copy"]
-AbortKind: TypeAlias = Literal["pdf_missing", "crashed", "worker_crashed"]
+AbortKind: TypeAlias = Literal["pdf_missing", "figure_unready", "crashed", "worker_crashed"]
 
 
 @dataclass(frozen=True)
@@ -96,9 +105,11 @@ class BuildFailed:
 
 @dataclass(frozen=True)
 class BuildAborted:
-    """The build stopped before it measured anything: a view-only document's PDF is missing (detail: its path), or the
-    build died of an unexpected exception (detail: its repr) - in the tracked build (crashed) or in the background
-    worker around it (worker_crashed). Reported with elapsed_s 0.0."""
+    """The build stopped before it measured anything: a view-only document's PDF is missing (detail: its path), a
+    figure document's map and PDF do not agree when a tracked build is asked to import them (figure_unready; detail:
+    the reason and its detail - the watch never gets here, it waits instead), or the build died of an unexpected
+    exception (detail: its repr) - in the tracked build (crashed) or in the background worker around it
+    (worker_crashed). Reported with elapsed_s 0.0."""
 
     kind: AbortKind
     detail: str

@@ -20,7 +20,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from unittest import mock
 
-from limn import build, build as limn_build, files
+from limn import build, build as limn_build, figmap, files
 from limn.build import (
     BuildAborted,
     BuildBusy,
@@ -38,7 +38,7 @@ from limn.features.builds.answer import finished_build_body, rebuild_answer, reb
 from limn.features.document_views import reads as limn_meta
 from limn.web.errors import BUILD_FAILURES, HTTPError, build_failure_log
 
-from helpers import Base, blank_png, needs_tex, ps, req
+from helpers import MINI_PDF, Base, blank_png, figure_map, map_bytes, needs_tex, ps, req
 
 BUILD_PY = Path(build.__file__)
 RUN_PY = Path(build_run.__file__)
@@ -781,6 +781,90 @@ class ReadsBeforeAndBetweenBuilds(unittest.TestCase):
         alone, however new the .tex files beside it."""
         self.assertAlmostEqual(build.src_mtime(self.tex, self.state, force=True), self.t + 200, places=3)
         self.assertAlmostEqual(build.src_mtime(self.pdf, self.state, force=True), self.t + 100, places=3)
+
+
+class FigureBuildFacts(unittest.TestCase):
+    """The figure build facts limn.build shares with the builds and pins slices: which map paths a figure document
+    accepts, the PDF a map names, and the map a published build kept (docs/handbook/code-style-roadmap.md §R10)."""
+
+    def setUp(self):
+        """A manuscript with a figure folder figs/ (out/, src/, a dot folder, a symlink src/out-link to a folder
+        outside the manuscript) served as figure document fig."""
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        root = Path(tmp.name).resolve()
+        self.figs = root / "ms" / "figs"
+        for sub in ("out", "src", ".cache"):
+            (self.figs / sub).mkdir(parents=True)
+        (root / "elsewhere").mkdir()
+        (self.figs / "src" / "out-link").symlink_to(root / "elsewhere")
+        paths = RunPaths(root / "ms", root / "ms" / "main.tex", root / "state")
+        self.doc = Doc("fig", "그림", "figure", self.figs, self.figs / "out" / "figures.limnmap.json", paths=paths)
+        self.inside = build.figure_source_check(self.figs)
+
+    def map_naming(self, pdf: str) -> figmap.FigureMap:
+        """A map with no pages that names pdf."""
+        return figmap.FigureMap(pdf, "0" * 64, ())
+
+    def publish(self, name: str, raw: bytes) -> Path:
+        """Page directory `name` of the figure document holding a map copy with bytes raw."""
+        pdir = self.doc.dir / name
+        pdir.mkdir(parents=True, exist_ok=True)
+        (pdir / build.FIGMAP_NAME).write_bytes(raw)
+        return pdir
+
+    def test_a_source_path_is_accepted_only_inside_the_documents_folder(self):
+        """Relative paths that resolve inside figs/ pass, existing or not; empty, absolute, escaping, dot-named,
+        backslashed, NUL-holding, over-long and symlinked-out paths and the folder itself do not."""
+        for rel in ("src/B2_calendar.py", "lib/components.py", "./src/a.py", "src/../lib/b.py"):
+            self.assertTrue(self.inside(rel), rel)
+        for rel in (
+            "",
+            "/etc/passwd",
+            "../main.tex",
+            "src/../../main.tex",
+            ".cache/x.py",
+            "src/.hidden/x.py",
+            "src\\a.py",
+            "src/a\x00.py",
+            "src/out-link/x.py",
+            "a" * 5000,
+            ".",
+        ):
+            self.assertFalse(self.inside(rel), repr(rel[:40]))
+
+    def test_the_pdf_a_map_names_is_resolved_from_the_maps_folder_inside_the_document(self):
+        """pdf is relative to the folder holding the map and may step up, but only to a path inside figs/."""
+        self.assertEqual(build.figure_pdf(self.doc, self.map_naming("figures.pdf")), self.figs / "out" / "figures.pdf")
+        self.assertEqual(
+            build.figure_pdf(self.doc, self.map_naming("../render/figures.pdf")), self.figs / "render" / "figures.pdf"
+        )
+        for pdf in ("../../outside.pdf", "/srv/paper/figures.pdf", ".figures.pdf", "../src/out-link/f.pdf"):
+            self.assertIsNone(build.figure_pdf(self.doc, self.map_naming(pdf)), pdf)
+
+    def test_a_published_build_map_is_read_back_or_absent(self):
+        """A build with a map copy gives the map and the PDF it names; a build without one, a gone build and a name
+        that is no page directory give None."""
+        pdir = self.doc.dir / "pages-20260101000000"
+        pdir.mkdir(parents=True)
+        self.assertIsNone(build.load_build_map(self.doc, pdir.name))
+        self.publish(pdir.name, map_bytes(figure_map(MINI_PDF)))
+        self.assertIsInstance(build.load_build_map(self.doc, pdir.name), figmap.FigureMap)
+        self.assertEqual(build.build_figure_pdf(self.doc, pdir.name), self.figs / "out" / "figures.pdf")
+        for name in ("../pages-20260101000000", "pages-x", "", "figure-import", "pages-20260102000000"):
+            self.assertIsNone(build.load_build_map(self.doc, name), name)
+            self.assertIsNone(build.build_figure_pdf(self.doc, name), name)
+
+    def test_a_published_map_is_checked_again_when_read(self):
+        """The copy is parsed with the document's own source check: a source outside figs/ is path_outside, a copy
+        over the size cap is too_large, and neither names a PDF."""
+        m = figure_map(MINI_PDF)
+        m["pages"][0]["elements"][0]["src"]["file"] = "../../main.tex"
+        self.publish("pages-20260101000000", map_bytes(m))
+        self.assertEqual(build.load_build_map(self.doc, "pages-20260101000000").reason, "path_outside")
+        self.publish("pages-20260102000000", b" " * (figmap.MAP_MAX_BYTES + 10))
+        self.assertEqual(build.load_build_map(self.doc, "pages-20260102000000").reason, "too_large")
+        self.assertIsNone(build.build_figure_pdf(self.doc, "pages-20260101000000"))
 
 
 # ---------------------------------------------------------------- through server.py's wiring

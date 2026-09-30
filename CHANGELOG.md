@@ -1,5 +1,21 @@
 # Changelog
 
+## Unreleased
+
+Figure documents arrive in part: they register, import and pick as regions, and `/api/docs` and `/api/meta` gain the document kind `figure`.
+
+### Added
+
+- **Figure documents: registration and import.** A `--doc`/`DOCS=` entry whose path ends in `.limnmap.json` serves
+  a figure document: the PDF a figure repository renders, plus its element map (`limn-figure-map/1`, Handbook
+  api.md). `ROOT::path/figures.limnmap.json` sets the folder the map's source paths are relative to; without `::`
+  it is the map's folder. The watch imports the pair only when the map's `pdf_sha256` is the PDF's SHA-256, renders
+  exactly the bytes it checked, and keeps the map in every page directory. While the two disagree (the producer has
+  written one and not yet the other), nothing is built and no failure is recorded. `/api/docs` and `/api/meta`
+  report `kind: "figure"` with `view_only: true` (ADR-0011 D5: the document kind value list grows). Picks and pins
+  on a figure document are region pins named after the map's PDF, and `POST /api/rebuild` answers `400`. A missing
+  map refuses startup, like a missing view-only PDF. Existing documents, fields and `pins.md` are unchanged.
+
 ## 0.3.7 — unreleased
 
 One internal refactor; the HTTP API, `pins.md` and the state directory are unchanged.

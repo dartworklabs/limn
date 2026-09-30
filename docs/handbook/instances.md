@@ -154,6 +154,7 @@ limn add paper2 --manuscript ~/papers/paper2        # 같은 결과를 설정에
 >   --doc 'sub=제출본 PDF:submission/submission_ready/manuscript.pdf'
 >
 > limn doc add paper2 --doc 'cl=커버레터:submission/cover_letter/cover_letter.tex' --restart
+> limn doc add paper2 --doc 'fig=그림:figures::out/figures.limnmap.json' --restart
 > limn doc list paper2
 > limn doc remove paper2 cl
 > ```
@@ -163,13 +164,17 @@ limn add paper2 --manuscript ~/papers/paper2        # 같은 결과를 설정에
 | `--doc` 형식 | `<키>=<표시 이름>:<경로>`. 첫 `=` 앞이 키, 다음 `:`까지가 이름, 나머지가 경로 |
 | 키 | `[a-z0-9-]{1,24}`, 중복 금지. 핀에 남으므로 한 번 정하면 바꾸지 않는다 |
 | 이름 | 비어 있으면 안 되고 40자 이하 |
-| 경로 | `--manuscript` 기준 상대(권장) 또는 절대. 반드시 `--manuscript` 안. `.tex`(LaTeX)나 `.pdf`(보기 전용)만 받는다 |
+| 경로 | `--manuscript` 기준 상대(권장) 또는 절대. 반드시 `--manuscript` 안. `.tex`(LaTeX), `.pdf`(보기 전용), `.limnmap.json`(그림 문서)만 받는다 |
 | `x/main.tex` | LaTeX, 빌드 루트 `x/` |
 | `root::sub/main.tex` | LaTeX, 빌드 루트 `root/`(복사 범위를 넓힌다), 메인 `root/sub/main.tex` |
 | `x/file.pdf` | 보기 전용(재빌드 없음, 쪽·영역 핀) |
+| `x/figures.limnmap.json` | 그림 문서. 지도가 가리키는 PDF를 가져온다(재빌드 없음). 문서 폴더는 지도가 있는 `x/` |
+| `root::sub/figures.limnmap.json` | 그림 문서. 문서 폴더는 `root/`, 지도는 `root/sub/figures.limnmap.json`. 지도 속 코드 경로(`src`·`impl`)가 `root/` 기준일 때 쓴다 |
 | 개수 | 12개까지 |
 | `MAIN`과의 관계 | 함께 쓰지 않는다. `add`와 `run`이 거부한다 |
 | 설정 파일 형식 | `DOCS="<키1>=<이름1>:<경로1>;<키2>=…"`. `;`로 나누고, 이름에 공백이 있을 수 있어 따옴표로 싼다 |
+
+그림 문서는 지도 파일이 있어야 등록된다. 없으면 `limn add`·`limn doc add`와 서버 기동이 거절한다. 보기 전용 PDF가 없을 때와 같다. 지도가 가리키는 PDF는 등록 때 보지 않는다. 확장자는 소문자 `.limnmap.json` 그대로여야 한다. 지도 형식은 [api.md](api.md) §그림 요소 지도 (`limn-figure-map/1`), 가져오기는 [build-sync.md](build-sync.md) §그림 문서에 있다.
 
 `limn`은 설정에 쓰기 전에 이 규칙을 먼저 검사한다. 서버도 기동 때 다시 검사하지만, 앞에서 걸러 두면 systemd 재시작 반복 대신 `limn add`나 `limn doc add` 시점에 분명한 오류가 난다.
 
