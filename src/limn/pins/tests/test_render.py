@@ -460,6 +460,45 @@ class BadgeWords(unittest.TestCase):
                 r"^\| `[⊂∩⏳✎⚠]",
             )
 
+    def test_skill_teaches_figure_pins_and_rebuilds_only_latex(self):
+        """Both SKILLs carry the 요소 잃음 marker row, the figure pin rule tied to the section title — 그림(요소 지도),
+        the three origins of a figure region pin, and a rebuild rule keyed on kind "tex" (not the old view-only line)."""
+        for path, head, end, words in (
+            (
+                SKILL_MD,
+                "### Markers in the number column",
+                "### Rules",
+                (
+                    'kind` in `GET /api/docs` is `"tex"`',
+                    "figure repository",
+                    "— 그림(요소 지도)",
+                    "design file",
+                    "could not be read",
+                ),
+            ),
+            (
+                SKILL_KO,
+                "### 번호 칸의 표시",
+                "### 규칙",
+                ('`kind` 가 `"tex"`', "그림 저장소", "— 그림(요소 지도)", "디자인 파일", "읽지 못"),
+            ),
+        ):
+            skill = path.read_text(encoding="utf-8")
+            self.assertIn("| `요소 잃음` |", skill[skill.index(head) : skill.index(end)])
+            for w in words:
+                self.assertIn(w, skill)
+            self.assertNotIn("View-only documents have no rebuild.", skill)
+            self.assertNotIn("보기 전용 문서는 재빌드가 없다.", skill)
+
+    def test_skill_ko_shares_its_figure_literals_with_the_pins_md_guidance(self):
+        """The Korean words pins.md's FIGURE_GUIDANCE teaches (the shared part, the lost marker, the figure repository,
+        asking a person) also stand in SKILL.ko.md, so the two cannot drift into contradiction unnoticed."""
+        skill = SKILL_KO.read_text(encoding="utf-8")
+        for literal in ("공통 부품", "요소 잃음", "그림 저장소", "사람에게 묻"):
+            with self.subTest(literal=literal):
+                self.assertIn(literal, render.FIGURE_GUIDANCE)
+                self.assertIn(literal, skill)
+
 
 EL7 = {
     "id": "B2/calendar/m07",
