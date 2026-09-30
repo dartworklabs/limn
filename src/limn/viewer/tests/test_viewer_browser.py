@@ -1670,3 +1670,18 @@ class FigureDocuments(BrowserBase):
         settle(page)
         self.assertEqual(page.evaluate("COMPOSE.current.elSel&&COMPOSE.current.elSel.id"), helpers_figure.CELL_ID)
         self.assert_box(page, "#doc .sel", 1, helpers_figure.JULY)
+
+    def test_a_long_press_on_a_phone_picks_the_cell_under_the_finger(self):
+        """A long-press on the cell of a very wide figure picks the cell, not the strip a text-line box would reach, and
+        the box snaps to it."""
+        page = self.open_fig(**DEVICES["phone"])
+        x, y, w, h = helpers_figure.JULY
+        px, py = self.on_page(page, x + w / 2, y + h / 2)
+        cdp = page.context.new_cdp_session(page)
+        self.touch(cdp, "touchStart", [(px, py)])
+        page.wait_for_function("LP===null&&LP_PICKED!==null", timeout=8000)
+        self.touch(cdp, "touchEnd", [])
+        page.wait_for_function("COMPOSE.current&&!COMPOSE.picking", timeout=8000)
+        settle(page)
+        self.assertEqual(page.evaluate("COMPOSE.current.elSel&&COMPOSE.current.elSel.id"), helpers_figure.CELL_ID)
+        self.assert_box(page, "#doc .sel", 1, helpers_figure.JULY)

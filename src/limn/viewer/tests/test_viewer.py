@@ -1007,21 +1007,32 @@ class FrontendMobileLogic(unittest.TestCase):
             json.loads(run_node(js)), ["narrow", "narrow", "mid", "mid", "mid", "wide", "wide", "narrow", "mid", "wide"]
         )
 
-    def test_quick_pick_box_is_small_and_clamped(self):
+    def test_quick_pick_box_is_a_line_on_a_manuscript_and_a_point_on_a_figure(self):
+        """A quick selection sends about one text line around the point on a manuscript page (+-7 % x +-0.6 %), and a
+        +-0.4 % square - the point - on a figure document; both are clamped to the page."""
         js = "\n".join(
             [
                 r"""
-            const c01=v=>Math.min(1,Math.max(0,v)); const QUICK_W=0.07,QUICK_H=0.006; const out=[];
+            const c01=v=>Math.min(1,Math.max(0,v)); const QUICK_W=0.07,QUICK_H=0.006,QUICK_FIG=0.004; const out=[]; let META=null;
             const pg={getBoundingClientRect:()=>({left:100,top:50,width:400,height:600})};
             function newBox(){return {};} function finishRect(pg,box,x0,y0,x1,y1){out.push([x0,y0,x1,y1].map(v=>+v.toFixed(4)));}
             """,
                 extract_js_fn("fracAt"),
+                extract_js_fn("quickBox"),
                 extract_js_fn("quickPick"),
-                "quickPick(pg,300,350); quickPick(pg,90,40); quickPick(pg,510,660); console.log(JSON.stringify(out));",
+                "quickPick(pg,300,350); quickPick(pg,90,40); quickPick(pg,510,660);"
+                " META={kind:'figure'}; quickPick(pg,300,350); quickPick(pg,90,40); console.log(JSON.stringify(out));",
             ]
         )
         self.assertEqual(
-            json.loads(run_node(js)), [[0.43, 0.494, 0.57, 0.506], [0, 0, 0.07, 0.006], [0.93, 0.994, 1, 1]]
+            json.loads(run_node(js)),
+            [
+                [0.43, 0.494, 0.57, 0.506],
+                [0, 0, 0.07, 0.006],
+                [0.93, 0.994, 1, 1],
+                [0.496, 0.496, 0.504, 0.504],
+                [0, 0, 0.004, 0.004],
+            ],
         )
 
     def test_keyboard_inset_ignores_pinch_zoom_and_desktop(self):
