@@ -856,19 +856,19 @@
 
 그냥 `.mark` 는 PDF 위 핀 상자라 `marks()` 가 지우고 다시 그린다. 같은 이름을 쓰면 핀을 그리는 순간 로고가 모두 사라진다(가드 `InlineMarkup.test_mark_classes_are_its_own`, 브라우저 `EnglishChrome.test_the_limn_mark_survives_boot_and_pin_marks`).
 
-**파비콘.** 탭 파비콘은 16·32px 픽셀 그림이다. 밝은 색 구성에서는 뼈종이, 어두운 색 구성에서는 먹이다. 홈 화면 아이콘(`apple-touch-icon`)은 180px 뼈종이이고 모서리까지 꽉 찬 네모다. iOS가 모서리를 깎고, 투명한 모서리는 검게 보이기 때문이다. 경로와 파일은 [api.md](api.md) §화면·PDF·정적 파일에 있다.
+**파비콘.** 탭 파비콘은 앱 아이콘과 다른 그림이다. 정사각을 모서리까지 채운 먹 둥근 사각형에 미색 획과 주 핀을 둔 16·32px 픽셀 그림 하나이고, 밝은 탭과 어두운 탭에 똑같이 쓴다. i는 16 중 10(32 중 20) px이다. Chrome의 밝은 탭은 뼈종이와 색이 거의 같아(ΔE 8) 뼈종이 타일은 16px 탭에서 사라지고 2 × 9 px의 i만 남기 때문이다. 홈 화면 아이콘(`apple-touch-icon`)은 180px 뼈종이이고 모서리까지 꽉 찬 네모다. iOS가 모서리를 깎고, 투명한 모서리는 검게 보이기 때문이다. 경로와 파일은 [api.md](api.md) §화면·PDF·정적 파일에 있다.
 
-- `<head>`는 라이트 묶음(`/favicon.ico`·`/favicon-16.png`·`/favicon-32.png`, `media="(prefers-color-scheme: light)"`)과 다크 묶음(`/favicon-dark…`, `media="(prefers-color-scheme: dark)"`), 그리고 `apple-touch-icon`을 잇는다. 탭은 16 CSS px라서 1× 화면은 16 그림을, 2× 화면은 32 그림을 고른다.
-- `media`를 무시하는 브라우저도 있다. 그래서 `<head>`의 작은 스크립트가 모든 아이콘 링크를 지금 색 구성의 파일(`/favicon…` 또는 `/favicon-dark…`)로 맞추고, `matchMedia`가 바뀔 때마다 다시 맞춘다. 어느 링크를 고르든 결과는 색 구성 하나로 정해진다.
-- 색 구성은 브라우저(운영체제)의 것이다. 뷰어의 테마 설정(`pinPrefs.theme`)은 인라인 로고의 색만 바꾸고 탭 파비콘은 바꾸지 않는다. 탭 막대는 브라우저가 그린다.
+- `<head>`는 한 묶음(`/favicon.ico`·`/favicon-16.png`·`/favicon-32.png`, `apple-touch-icon`)만 잇는다. `media`도 색 구성 스크립트도 없다. 탭은 16 CSS px라서 1× 화면은 16 그림을, 2× 화면은 32 그림을 고른다.
+- 뷰어의 테마 설정(`pinPrefs.theme`)은 인라인 로고의 색만 바꾸고 탭 파비콘은 바꾸지 않는다. 탭 막대는 브라우저가 그린다.
+- `/favicon-dark.ico`·`/favicon-dark-16.png`·`/favicon-dark-32.png`는 0.3.8 한 릴리스 동안만 같은 파비콘을 준다(`limn.mark.RETIRED_ICON_ROUTES`). 0.3.6–0.3.7 페이지가 링크하고 그 스크립트가 어두운 탭을 그 주소로 돌리기 때문이다. HTTP API는 경로를 알린 릴리스 뒤에만 뺀다([architecture.md](architecture.md) §불변식 3).
 - 주소의 `?v=<내용 키>`는 아이콘 파일 바이트에서 낸 sha256의 앞 12자리다(`limn.mark.content_key`). 그림이 바뀌면 주소도 바뀌어 옛 그림이 캐시에서 나오지 않는다.
 - 파비콘은 인스턴스와 무관하다. 여러 인스턴스의 탭은 제목의 이름표(`Limn · <이름표>`)로 가른다. 인스턴스 색(`--brand`)은 화면 맨 위 띠(`#brand-stripe`)와 이름표 칩에만 쓴다.
 
 **바꿀 때.** 그림은 브랜드 저장소에서 `make icons`로 다시 만들고, [`src/limn/brand/README.md`](../../src/limn/brand/README.md)의 절차대로 파일과 `SHA256SUMS` 줄을 옮긴다. 손으로 고치지 않는다. 가드는 셋이다.
 
 - `VendoredFiles.test_every_file_is_listed_in_sha256sums_with_its_hash`: 모든 파일이 `SHA256SUMS`와 맞는지
-- `VendoredFiles.test_tab_favicons_are_the_pixel_drawings_in_both_schemes`: 탭 파비콘이 두 색 구성의 픽셀 그림인지
-- `LogoInTheBrowser`: 실제 Chromium에서 크기·테마 색이 맞는지, 파비콘 링크가 색 구성을 따르는지
+- `VendoredFiles.test_the_tab_favicon_is_the_ink_pixel_drawing`: 탭 파비콘이 정사각을 채운 먹 픽셀 그림인지
+- `LogoInTheBrowser`: 실제 Chromium에서 크기·테마 색이 맞는지, 파비콘 링크가 색 구성과 무관한지
 
 ## 렌더링과 확대
 
