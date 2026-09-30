@@ -12,7 +12,15 @@ import json
 import time
 import unittest
 
-from limn.pins.listing.projection import dropped_payload, pin_state, pin_view, pins_payload, public_record
+from limn.builds.figure_map import FigureMap, MapElement, MapPage
+from limn.pins.listing.projection import (
+    dropped_payload,
+    element_marks,
+    pin_state,
+    pin_view,
+    pins_payload,
+    public_record,
+)
 from limn.pins.location import position
 from limn.pins.location.position import EstContext
 from limn.pins.model import TrashedPin, parse_pin
@@ -168,6 +176,192 @@ class DroppedPayload(unittest.TestCase):
         self.assertEqual([r.get("expires_ts") for r in out], [None, 50.0, None, 100.123])
         self.assertTrue(all(r["shown"] for r in out))
         self.assertEqual(rows[0], {"id": 1, "dropped_at": "2026-09-26 10:00:00"})
+
+
+FIG = FigureMap(
+    "figures.pdf",
+    "0" * 64,
+    (
+        MapPage(
+            1,
+            "B2",
+            None,
+            (
+                MapElement("B2", None, (0.0, 0.0, 1.0, 1.0), None, None, None, None),
+                MapElement("B2/m07", "B2", (0.47, 0.18, 0.07, 0.12), None, None, "MonthCell", "7월"),
+            ),
+        ),
+    ),
+)
+EL = {"id": "B2/m07", "path": ["B2", "B2/m07"], "frac": [0.47, 0.18, 0.07, 0.12]}
+HUGE = 10**400  # a JSON integer no float can hold: is_num accepts it, float() raises OverflowError
+
+
+class ElementMarks(unittest.TestCase):
+    """element_marks: where a figure pin's element is on its document's current map."""
+
+    def test_an_element_where_it_was_pinned_is_ok_with_its_mark(self):
+        """The same page and box as el.frac: ok, with the box as mark and the page."""
+        r = {"id": 1, "page": 1, "frac": [0.48, 0.2, 0.04, 0.07], "el": EL}
+        self.assertEqual(element_marks(r, FIG), {"mark": [0.47, 0.18, 0.07, 0.12], "mark_page": 1, "el_sync": "ok"})
+
+    def test_a_moved_element_gives_its_new_box_and_a_gone_one_only_lost(self):
+        """Pinned at another box: moved, with the box it has now; an id the map lacks: lost and no mark."""
+        r = {"id": 1, "page": 1, "el": {**EL, "frac": [0.4, 0.18, 0.07, 0.12]}}
+        self.assertEqual(element_marks(r, FIG)["el_sync"], "moved")
+        self.assertEqual(
+            element_marks({"id": 1, "page": 1, "el": {"id": "B2/gone", "path": ["B2", "B2/gone"]}}, FIG),
+            {"el_sync": "lost"},
+        )
+
+    def test_without_the_elements_box_the_pins_own_frac_is_compared_and_never_ok_by_default(self):
+        """An agent's el has no frac and its pin no frac either: the element is found, but never ok."""
+        self.assertEqual(
+            element_marks({"id": 1, "el": {"id": "B2/m07", "path": ["B2", "B2/m07"]}}, FIG),
+            {"mark": [0.47, 0.18, 0.07, 0.12], "mark_page": 1, "el_sync": "moved"},
+        )
+
+    def test_nothing_without_a_well_formed_el_or_a_map(self):
+        """No el, a malformed el or no loadable map: no fields at all."""
+        self.assertEqual(element_marks({"id": 1, "page": 1, "frac": [0, 0, 1, 1]}, FIG), {})
+        self.assertEqual(element_marks({"id": 1, "el": {"id": ""}}, FIG), {})
+        self.assertEqual(element_marks({"id": 1, "el": EL}, None), {})
+
+    def test_an_el_frac_that_is_not_usable_falls_back_to_the_pins_own_frac(self):
+        """el.frac a NaN, an infinity or an oversized integer (shapes the store keeps): the pin's own frac is the box
+        it is compared with - here equal to the element's, so ok - and nothing raises."""
+        own = [0.47, 0.18, 0.07, 0.12]
+        for bad in ([float("nan"), 0.18, 0.07, 0.12], [float("inf"), 0, 1, 1], [HUGE, 0.18, 0.07, 0.12]):
+            r = {"id": 1, "page": 1, "frac": own, "el": {**EL, "frac": bad}}
+            self.assertEqual(element_marks(r, FIG)["el_sync"], "ok", bad)
+
+    def test_an_el_frac_that_is_absent_falls_back_to_the_pins_own_frac(self):
+        """el.frac missing: the pin's own frac decides - the element's box means ok, another box moved."""
+        el = {"id": "B2/m07", "path": ["B2", "B2/m07"]}
+        at = {"id": 1, "page": 1, "frac": [0.47, 0.18, 0.07, 0.12], "el": el}
+        away = {"id": 1, "page": 1, "frac": [0.1, 0.1, 0.1, 0.1], "el": el}
+        self.assertEqual((element_marks(at, FIG)["el_sync"], element_marks(away, FIG)["el_sync"]), ("ok", "moved"))
+
+    def test_no_usable_frac_anywhere_is_moved_and_never_raises(self):
+        """Neither el.frac nor the pin's frac is a usable box (NaN, an oversized integer, a wrong length, a string, a
+        boolean): the element is found and is never ok."""
+        hostile = ([float("nan"), 0, 1, 1], [HUGE, 0, 1, 1], [0.47, 0.18, 0.07], "0.47,0.18,0.07,0.12", [True, 0, 1, 1])
+        for bad in hostile:
+            r = {"id": 1, "page": 1, "frac": bad, "el": {**EL, "frac": [float("nan"), 0, 1, 1]}}
+            self.assertEqual(element_marks(r, FIG)["el_sync"], "moved", bad)
+
+    def test_a_page_that_is_not_an_integer_is_compared_as_page_zero_and_never_raises(self):
+        """A missing, boolean, string or oversized page cannot be the element's page: moved, with the element's own."""
+        for bad in (None, True, "1", HUGE, 1.0):
+            r = {"id": 1, "page": bad, "el": EL}
+            got = element_marks(r, FIG)
+            self.assertEqual((got["el_sync"], got["mark_page"]), ("moved", 1), bad)
+
+    def test_the_pin_on_another_page_than_its_element_is_moved(self):
+        """The element is on page 1 now while the pin was placed on page 2 with the same box: moved."""
+        self.assertEqual(element_marks({"id": 1, "page": 2, "el": EL}, FIG)["el_sync"], "moved")
+
+    def test_the_record_and_the_element_are_not_changed(self):
+        """element_marks is a read: neither r nor its el changes."""
+        r = {"id": 1, "page": 1, "frac": [0.1, 0.1, 0.1, 0.1], "el": {"id": "B2/m07", "path": ["B2", "B2/m07"]}}
+        before = json.dumps(r, sort_keys=True)
+        element_marks(r, FIG)
+        self.assertEqual(json.dumps(r, sort_keys=True), before)
+
+
+class FigurePayload(unittest.TestCase):
+    """pins_payload with figure maps: the fields follow the computed ones, each document's map asked once."""
+
+    def test_marks_come_last_and_each_documents_map_is_asked_once_and_only_for_element_pins(self):
+        """Two element pins of fig ask its map once; a pin without el and a LaTeX pin get nothing and ask nothing."""
+        rows = [
+            {"id": 1, "doc": "fig", "page": 1, "el": EL},
+            {"id": 2, "doc": "fig", "el": EL},
+            {"id": 3, "doc": "ms"},
+            {"id": 4, "doc": "fig"},
+        ]
+        asked = []
+
+        def figure_map(key):
+            """Record the question; fig's map."""
+            asked.append(key)
+            return FIG
+
+        out = pins_payload(rows, False, {}, shown, lambda r: r["doc"], lambda k: CUR, NOW, figure_map)
+        self.assertEqual(asked, ["fig"])
+        self.assertEqual(list(out[0])[-3:], ["mark", "mark_page", "el_sync"])
+        self.assertNotIn("el_sync", out[2])
+        self.assertNotIn("el_sync", out[3])
+
+    def test_each_figure_document_is_asked_once_however_its_pins_are_interleaved(self):
+        """Pins of two figure documents in an alternating order: each document's map is asked once, in the order the
+        documents first appear, and each pin is followed on its own document's map."""
+        other = FigureMap(
+            "other.pdf",
+            "0" * 64,
+            (MapPage(1, "C1", None, (MapElement("C1", None, (0, 0, 1, 1), None, None, None, None),)),),
+        )
+        rows = [{"id": i, "doc": "fig" if i % 2 else "fig2", "page": 1, "el": EL} for i in range(1, 7)]
+        asked = []
+
+        def figure_map(key):
+            """Record the question; fig's map for fig, another figure's map (without the element) for fig2."""
+            asked.append(key)
+            return FIG if key == "fig" else other
+
+        out = pins_payload(rows, False, {}, shown, lambda r: r["doc"], lambda k: CUR, NOW, figure_map)
+        self.assertEqual(asked, ["fig", "fig2"])
+        self.assertEqual([o["el_sync"] for o in out], ["ok", "lost"] * 3)
+
+    def test_a_document_whose_map_does_not_load_is_asked_once_and_its_pins_get_no_fields(self):
+        """figure_map answers None for fig: asked once for both element pins, neither gets a field."""
+        rows = [{"id": 1, "doc": "fig", "el": EL}, {"id": 2, "doc": "fig", "el": EL}]
+        asked = []
+
+        def figure_map(key):
+            """Record the question; no map."""
+            asked.append(key)
+
+        out = pins_payload(rows, False, {}, shown, lambda r: r["doc"], lambda k: CUR, NOW, figure_map)
+        self.assertEqual(asked, ["fig"])
+        self.assertEqual([("mark" in o, "el_sync" in o) for o in out], [(False, False), (False, False)])
+
+    def test_a_malformed_el_asks_nothing(self):
+        """A pin whose el is not a well-formed element (a stored shape the record check lets through is one thing;
+        a wrong shape another) does not ask for its document's map."""
+        rows = [{"id": 1, "doc": "fig", "el": {"id": ""}}, {"id": 2, "doc": "fig", "el": "B2/m07"}]
+        asked = []
+
+        def figure_map(key):
+            """Record the question; fig's map."""
+            asked.append(key)
+            return FIG
+
+        out = pins_payload(rows, False, {}, shown, lambda r: r["doc"], lambda k: CUR, NOW, figure_map)
+        self.assertEqual(asked, [])
+        self.assertTrue(all("el_sync" not in o for o in out))
+
+    def test_the_default_gives_no_document_a_map(self):
+        """Without a figure_map argument no pin gets a field, whatever its el."""
+        out = pins_payload(
+            [{"id": 1, "doc": "fig", "el": EL}], False, {}, shown, lambda r: r["doc"], lambda k: CUR, NOW
+        )
+        self.assertNotIn("el_sync", out[0])
+
+    def test_a_pin_view_with_a_map_changes_neither_the_record_nor_the_shown_copy(self):
+        """pin_view of an element pin on a map that moved it: the record and its shown copy are the same afterwards,
+        so the fields exist only in the answer (a render never writes)."""
+        r = {"id": 1, "page": 1, "el": {**EL, "frac": [0.4, 0.18, 0.07, 0.12]}}
+        show = shown(r)
+        before = (json.dumps(r, sort_keys=True), json.dumps(show, sort_keys=True))
+        rec = pin_view(r, show, [], False, "fig", NOW, FIG)
+        self.assertEqual(rec["el_sync"], "moved")
+        self.assertEqual((json.dumps(r, sort_keys=True), json.dumps(show, sort_keys=True)), before)
+
+    def test_a_pin_view_without_a_map_keeps_exactly_its_current_keys(self):
+        """pin_view with no fmap (the Trash list and a change request's echo never pass one) adds no key, el or not."""
+        rec = pin_view({"id": 1, "el": EL}, {"id": 1, "el": EL}, [], False, "fig", NOW)
+        self.assertEqual(list(rec), ["id", "el", "rel", "est", "doc", "state", "addressed", "fyi"])
 
 
 # ---------------------------------------------------------------- through server.py's wiring

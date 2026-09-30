@@ -24,6 +24,7 @@ PURE_IMPORTS = {
     "math",
     "re",
     "typing",
+    "limn.builds",  # projection.py follows elements on a figure map: figure_map values only (checked below)
     "limn.pins.element",  # a figure pin's el shape; pure (src/limn/pins/tests/test_element.py)
     "limn.pins.model",
     "limn.pins.thread",
@@ -105,6 +106,28 @@ class Purity(unittest.TestCase):
             self.assertLessEqual(imported, PURE_TEXT_IMPORTS, path.name)
             self.assertLessEqual(from_pathlib, {"PurePath"}, path.name)
             self.assertNotIn("pathlib", {a.name for n in ast.walk(tree) if isinstance(n, ast.Import) for a in n.names})
+
+
+class BuildsSurfacePurity(unittest.TestCase):
+    """The pure pin modules may take names from the builds surface (limn.builds) only where those names are the pure
+    figure map's (limn.builds.figure_map): the surface itself loads just the name asked for, so the purity above holds
+    as long as no other builds module is reached."""
+
+    def test_names_from_the_builds_surface_are_figure_map_values(self):
+        """Every name the pure listing modules (projection.py, render.py) import from limn.builds is the same object in
+        limn.builds.figure_map; at least one such name is imported, so the check is not vacuous."""
+        import limn.builds
+        from limn.builds import figure_map
+
+        taken = []
+        for path in (PINS_DIR / "listing/projection.py", PINS_DIR / "listing/render.py"):
+            tree = ast.parse(path.read_text(encoding="utf-8"))
+            for node in ast.walk(tree):
+                if isinstance(node, ast.ImportFrom) and node.module == "limn.builds":
+                    taken += [(path.name, alias.name) for alias in node.names]
+        self.assertTrue(taken)
+        for module, name in taken:
+            self.assertIs(getattr(limn.builds, name), getattr(figure_map, name, None), (module, name))
 
 
 class States(unittest.TestCase):

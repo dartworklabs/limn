@@ -5,6 +5,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any, Protocol
 
+from limn.builds import FigureMap
 from limn.pins.listing import projection as view
 from limn.pins.location.position import EstContext
 from limn.pins.model import Pin, PinNotFound, Record
@@ -41,6 +42,10 @@ class ListingDeps(Protocol):
         """Current build facts for one document."""
         ...
 
+    def doc_figure_map(self, key: str) -> FigureMap | None:
+        """The loadable map of the build on screen of the figure document key names, or None."""
+        ...
+
 
 @dataclass(frozen=True)
 class PinListing:
@@ -50,7 +55,7 @@ class PinListing:
     trash_days: int
 
     def pins_payload(self, pins: Sequence[Pin], allp: bool) -> list[Json]:
-        """The list with overlap and estimation computed over the full live set."""
+        """The list with overlap, estimation and figure element positions computed over the full live set."""
         rows = [pin.record for pin in pins]
         return view.pins_payload(
             rows,
@@ -60,6 +65,7 @@ class PinListing:
             self.deps.pin_doc_key,
             self.deps._doc_est_context,
             time.time(),
+            self.deps.doc_figure_map,
         )
 
     def list_payload(self, allp: bool, doc_key: str | None = None) -> list[Json]:
