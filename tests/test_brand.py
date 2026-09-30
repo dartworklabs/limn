@@ -1,7 +1,7 @@
 """The Limn logo in the viewer: the confirmed icon and wordmark, vendored from dartworklabs/limn-sans (src/limn/brand/).
 
-The favicons and the apple-touch-icon are the brand build's files served byte for byte - the tab icons are the 16 and
-32 px pixel drawings, 뼈종이 in a light colour scheme and 먹 in a dark one. The viewer inlines the icon (top bar 16px,
+The favicons and the apple-touch-icon are the brand build's files served byte for byte - the tab favicon is one drawing
+for light and dark tabs, the 16 and 32 px pixel drawings of the i on a 먹 rounded square that fills the square. The viewer inlines the icon (top bar 16px,
 [더보기] label chip 14px) and the wordmark (help header, 20px tall) as SVG with classes only, coloured by the brand
 tokens for the theme (docs/handbook/viewer.md §마크와 파비콘). limn.mark is pure; server.read_brand reads the folder.
 
@@ -28,15 +28,16 @@ from helpers_browser import ChromiumTestCase
 
 BRAND_DIR = ps.BRAND_DIR
 INK, VER, BONE, CREAM = (21, 22, 26), (232, 69, 44), (251, 241, 230), (244, 237, 225)
-# The pixel drawings as limn-brand.js ICON_PX draws them (limn-sans site/icons.html): the stem [x, width, top, base) in
-# whole pixels (the 32's top row is its antialiased round cap), the first row below the pin, and the pin's solid pixels.
-PIXEL_DRAWINGS = {
-    16: {"stem": (7, 2, 6, 12), "cap": False, "pin_end": 5, "pin": {(7, 3), (8, 3), (7, 4), (8, 4)}},
+# The favicon drawings as limn-brand.js FAVICON_PX draws them (limn-sans site/icons.html): the stem [x, width, top,
+# base) in whole pixels (the 32's top row is its antialiased round cap), the first row below the pin, and the pin's
+# solid pixels. The ground is 먹 to the edges of the square, the stem 미색.
+FAVICON_DRAWINGS = {
+    16: {"stem": (7, 2, 6, 13), "cap": False, "pin_end": 5, "pin": {(7, 3), (8, 3), (7, 4), (8, 4)}},
     32: {
-        "stem": (14, 3, 12, 23),
+        "stem": (14, 4, 13, 26),
         "cap": True,
         "pin_end": 11,
-        "pin": {(15, 7), (14, 8), (15, 8), (16, 8), (14, 9), (15, 9), (16, 9), (15, 10)},
+        "pin": {(x, y) for x in range(14, 18) for y in (7, 8, 9)},
     },
 }
 
@@ -103,35 +104,38 @@ class VendoredFiles(unittest.TestCase):
                 self.assertEqual(hashlib.sha256(vendored(name)).hexdigest(), digest)
         self.assertLessEqual(mark.FILES, set(listed))
 
-    def test_tab_favicons_are_the_pixel_drawings_in_both_schemes(self):
-        """16 and 32 px, 뼈종이 and 먹: whole-pixel stem columns in the stem colour, one row of ground between pin and
-        stem, the pin solid 주 - and 주 nowhere else."""
-        for size, spec in PIXEL_DRAWINGS.items():
-            for route, ground, stroke in (("/favicon-%d.png", BONE, INK), ("/favicon-dark-%d.png", INK, CREAM)):
-                path = route % size
-                with self.subTest(path=path):
-                    w, h, rows = decode_png(vendored(mark.ICON_ROUTES[path][0]))
-                    self.assertEqual((w, h), (size, size))
-                    x0, sw, top, base = spec["stem"]
-                    for x in range(x0, x0 + sw):
-                        for y in range(top + (1 if spec["cap"] else 0), base):
-                            self.assertEqual(rows[y][x], stroke + (255,), (x, y))
-                        for y in range(spec["pin_end"], top):
-                            self.assertEqual(rows[y][x], ground + (255,), (x, y))
-                    for x, y in spec["pin"]:
-                        self.assertEqual(rows[y][x], VER + (255,), (x, y))
-                    vermilion = {(x, y) for y in range(h) for x in range(w) if rows[y][x][:3] == VER}
-                    self.assertEqual(vermilion, spec["pin"])
+    def test_the_tab_favicon_is_the_ink_pixel_drawing(self):
+        """/favicon-16.png and /favicon-32.png: 먹 opaque to the middle of every edge and nothing in the very corners (a
+        rounded square filling the square), whole-pixel stem columns in 미색, only 먹 between pin and stem, the pin
+        solid 주 - and 주 nowhere else."""
+        for size, spec in FAVICON_DRAWINGS.items():
+            path = "/favicon-%d.png" % size
+            with self.subTest(path=path):
+                w, h, rows = decode_png(vendored(mark.ICON_ROUTES[path][0]))
+                self.assertEqual((w, h), (size, size))
+                for x, y in ((size // 2, 0), (size // 2, size - 1), (0, size // 2), (size - 1, size // 2)):
+                    self.assertEqual(rows[y][x], INK + (255,), (x, y))
+                for x, y in ((0, 0), (size - 1, 0), (0, size - 1), (size - 1, size - 1)):
+                    self.assertEqual(rows[y][x][3], 0, (x, y))
+                x0, sw, top, base = spec["stem"]
+                for x in range(x0, x0 + sw):
+                    for y in range(top + (1 if spec["cap"] else 0), base):
+                        self.assertEqual(rows[y][x], CREAM + (255,), (x, y))
+                    for y in range(spec["pin_end"], top):
+                        self.assertEqual(rows[y][x], INK + (255,), (x, y))
+                for x, y in spec["pin"]:
+                    self.assertEqual(rows[y][x], VER + (255,), (x, y))
+                vermilion = {(x, y) for y in range(h) for x in range(w) if rows[y][x][:3] == VER}
+                self.assertEqual(vermilion, spec["pin"])
 
-    def test_each_ico_holds_the_16_and_32_drawings_of_its_scheme(self):
-        """favicon.ico's frames are the light PNGs' pixels, favicon-dark.ico's the dark ones'."""
-        for ico, prefix in (("favicon.ico", "/favicon-"), ("favicon-dark.ico", "/favicon-dark-")):
-            frames = ico_frames(vendored(ico))
-            self.assertEqual(sorted(frames), [16, 32], ico)
-            for size in (16, 32):
-                with self.subTest(ico=ico, size=size):
-                    png = vendored(mark.ICON_ROUTES["%s%d.png" % (prefix, size)][0])
-                    self.assertEqual(decode_png(frames[size]), decode_png(png))
+    def test_favicon_ico_holds_the_16_and_32_favicon_drawings(self):
+        """The .ico's two frames are the favicon PNGs' pixels."""
+        frames = ico_frames(vendored(mark.ICON_ROUTES["/favicon.ico"][0]))
+        self.assertEqual(sorted(frames), [16, 32])
+        for size in (16, 32):
+            with self.subTest(size=size):
+                png = vendored(mark.ICON_ROUTES["/favicon-%d.png" % size][0])
+                self.assertEqual(decode_png(frames[size]), decode_png(png))
 
     def test_the_touch_icon_is_an_opaque_bone_square(self):
         """apple-touch-icon.png is 180 px with no transparent pixel (iOS shows those black and rounds the icon itself),
@@ -298,10 +302,10 @@ class BrandValue(unittest.TestCase):
         key = mark.brand(self.FILES).key
         self.assertRegex(key, r"^[0-9a-f]{12}$")
         self.assertEqual(mark.brand(dict(self.FILES)).key, key)
-        ico = self.FILES["favicon-dark.ico"]
+        ico = self.FILES["favicon.ico"]
         for changed in (ico[:-1] + bytes([ico[-1] ^ 1]), ico + b"\0"):
             with self.subTest(length=len(changed)):
-                self.assertNotEqual(mark.brand(dict(self.FILES, **{"favicon-dark.ico": changed})).key, key)
+                self.assertNotEqual(mark.brand(dict(self.FILES, **{"favicon.ico": changed})).key, key)
         svg = dict(self.FILES, **{"limn-icon-light-14.svg": self.FILES["limn-icon-light-14.svg"] + b"\n"})
         self.assertEqual(mark.brand(svg).key, key)
 
@@ -368,9 +372,9 @@ class PageLinks(unittest.TestCase):
         self.assertEqual((out.count('<svg class="limn-mark"'), out.count('<svg class="limn-mark-word"')), (2, 1))
         self.assertNotIn("__LIMN_", out)
 
-    def test_head_links_both_schemes_by_media_with_the_content_key(self):
-        """Light and dark sets (ico, 16, 32) each carry media=(prefers-color-scheme: …) and ?v=<content key>, plus the
-        touch icon; no accent-coloured data: SVG and no ?c=<accent> key are left."""
+    def test_head_links_one_favicon_set_with_the_content_key(self):
+        """One favicon for light and dark tabs: the .ico, the 16 and 32 PNGs and the touch icon, each with ?v=<content
+        key>; no media=, no dark set, no colour-scheme script, no accent-coloured data: SVG or ?c=<accent> key."""
         key = ps.read_brand().key
         head = page_for("A-DEMO", "#1d4ed8")
         head = head[: head.index("</head>")]
@@ -382,20 +386,14 @@ class PageLinks(unittest.TestCase):
                 "/favicon.ico?v=" + key,
                 "/favicon-16.png?v=" + key,
                 "/favicon-32.png?v=" + key,
-                "/favicon-dark.ico?v=" + key,
-                "/favicon-dark-16.png?v=" + key,
-                "/favicon-dark-32.png?v=" + key,
                 "/apple-touch-icon.png?v=" + key,
             ],
         )
-        media = [re.search(r'media="([^"]+)"', a) for _, a in links]
-        self.assertEqual(
-            [m and m.group(1) for m in media[:6]],
-            ["(prefers-color-scheme: light)"] * 3 + ["(prefers-color-scheme: dark)"] * 3,
-        )
-        self.assertIsNone(media[6])
-        self.assertNotIn("data:image/svg", head)
-        self.assertNotIn("?c=", head)
+        self.assertEqual([a for _, a in links if "media=" in a], [])
+        icons = head[head.index("</title>") : head.index("<style>")]  # the links, and nothing between them and the CSS
+        self.assertNotIn("<script", icons)
+        for gone in ("favicon-dark", "data:image/svg", "?c="):
+            self.assertNotIn(gone, head)
 
     def test_the_icons_do_not_depend_on_the_instance(self):
         """Two runs with different labels and accents link the same icons: the tile is never the instance colour."""
@@ -423,6 +421,25 @@ class IconRoutes(AccessBase):
                     self.assertEqual((code, hdrs.get("content-type")), (200, content_type))
                     self.assertEqual(hdrs.get("cache-control"), "public, max-age=86400")
                     self.assertEqual(body, vendored(name))
+
+    def test_retired_dark_paths_serve_the_one_favicon_for_this_release(self):
+        """/favicon-dark.ico, /favicon-dark-16.png and /favicon-dark-32.png - linked by 0.3.6-0.3.7 pages, whose head
+        script still points a tab at them in a dark scheme - answer 200 with exactly the bytes of /favicon.ico,
+        /favicon-16.png and /favicon-32.png, so such a tab shows the new favicon rather than none."""
+        self.assertEqual(
+            dict(mark.RETIRED_ICON_ROUTES),
+            {
+                "/favicon-dark.ico": "/favicon.ico",
+                "/favicon-dark-16.png": "/favicon-16.png",
+                "/favicon-dark-32.png": "/favicon-32.png",
+            },
+        )
+        for retired, current in mark.RETIRED_ICON_ROUTES.items():
+            with self.subTest(path=retired):
+                code, hdrs, body = self.get(retired + "?v=0123456789ab")
+                want_code, want_hdrs, want_body = self.get(current)
+                self.assertEqual((code, want_code), (200, 200))
+                self.assertEqual((hdrs.get("content-type"), body), (want_hdrs.get("content-type"), want_body))
 
     def test_icon_routes_are_explicit_read_paths(self):
         """access.py admits each icon route by name (a new path is denied by default); test_web's GuardOrder walks
@@ -523,25 +540,17 @@ class LogoInTheBrowser(ChromiumTestCase):
                 )
                 self.assertEqual((got["top"], got["chip"], got["word"]), ([16, 16], [14, 14], 20))
 
-    def test_favicon_links_follow_the_colour_scheme_live(self):
-        """Every icon link points at the light files under a light scheme and at the dark ones under a dark scheme,
-        also when the scheme changes while the page is open (a browser that ignores media= then takes any link)."""
-        page = self.page(scheme="light")
-        hrefs = "()=>[...document.querySelectorAll('link[rel=icon]')].map(l=>l.getAttribute('href'))"
-        # the change event is delivered after emulate_media returns: wait for the links (fails on timeout)
-        settled = "(dark)=>[...document.querySelectorAll('link[rel=icon]')].every(l=>l.getAttribute('href').startsWith('/favicon-dark')===dark)"
-        light = page.evaluate(hrefs)
-        self.assertEqual(len(light), 6)
-        self.assertFalse([h for h in light if "-dark" in h], light)
-        page.emulate_media(color_scheme="dark")
-        page.wait_for_function(settled, arg=True, timeout=3000)
-        dark = page.evaluate(hrefs)
-        self.assertEqual(dark, [h.replace("/favicon", "/favicon-dark", 1) for h in light])
-        page.emulate_media(color_scheme="light")
-        page.wait_for_function(settled, arg=False, timeout=3000)
-        self.assertEqual(page.evaluate(hrefs), light)
-        dark_first = self.page(scheme="dark").evaluate(hrefs)
-        self.assertEqual(dark_first, dark)
+    def test_favicon_links_are_the_same_in_every_colour_scheme(self):
+        """The favicon links do not depend on the browser's colour scheme: a page opened light, opened dark, and one
+        whose scheme changes while it is open all keep the same four icon links."""
+        hrefs = "()=>[...document.querySelectorAll('link[rel=icon],link[rel=apple-touch-icon]')].map(l=>l.getAttribute('href'))"
+        light_page = self.page(scheme="light")
+        light = light_page.evaluate(hrefs)
+        self.assertEqual(len(light), 4)
+        self.assertEqual(self.page(scheme="dark").evaluate(hrefs), light)
+        light_page.emulate_media(color_scheme="dark")
+        light_page.wait_for_timeout(200)  # a change listener, if there were one, would have run by now
+        self.assertEqual(light_page.evaluate(hrefs), light)
 
 
 if __name__ == "__main__":

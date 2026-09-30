@@ -1,13 +1,15 @@
-"""The Limn logo in the viewer: the confirmed app icon (the letter i - a stem and a vermilion pin - on a squircle tile)
-and the wordmark "limn", as the brand source draws them.
+"""The Limn logo in the viewer: the confirmed app icon (the letter i - a stem and a vermilion pin - on a squircle tile),
+the browser favicon (the same i on a 먹 rounded square that fills the square) and the wordmark "limn", as the brand
+source draws them.
 
 Nothing is drawn here. dartworklabs/limn-sans draws every picture (site/limn-brand.js, `make icons`), and
 src/limn/brand/ holds the files the app uses, byte for byte, with their SHA256SUMS and provenance (its README.md).
 This module turns those bytes into what the viewer serves. It is pure - no files, no clock, no state: the composition
 root reads the folder (server.read_brand) and passes the bytes to brand().
 
-- ICON_ROUTES: the tab and home-screen icon routes and the file each serves unchanged - the 16 and 32 px pixel
-  drawings in 뼈종이 (light) and 먹 (dark), an .ico of each pair, and the 180 px full-bleed apple-touch-icon.
+- ICON_ROUTES: the tab and home-screen icon routes and the file each serves unchanged - the favicon's 16 and 32 px
+  pixel drawings on 먹 (one for light and dark tabs) and their .ico, and the 180 px full-bleed apple-touch-icon;
+  RETIRED_ICON_ROUTES are the 0.3.6-0.3.7 dark paths, served for one release as the same favicon.
 - MARK_SLOTS: the viewer page's placeholders for the inline logo and the SVG made for that size - the icon with the
   optical correction of 16 px (top bar) and 14 px ([더보기] label chip), the wordmark 20 px tall (help header).
 - parse_svg(): one vendored SVG as a Drawing. The vocabulary is closed (svg, g, path and circle with their geometry
@@ -33,15 +35,25 @@ ROLE_OF_FILL: Mapping[str, Role] = {"#fbf1e6": "tile", "#15161a": "stroke", "#e8
 ROLE_CLASS: Mapping[Role, str] = {"tile": "limn-mark-tile", "stroke": "limn-mark-stroke", "pin": "limn-mark-pin"}
 
 # GET path -> (file in src/limn/brand/, content type). /favicon.ico and /apple-touch-icon.png are also the paths
-# browsers and iOS ask for on their own.
-ICON_ROUTES: Mapping[str, tuple[str, str]] = {
+# browsers and iOS ask for on their own. The tab favicon is one drawing for light and dark tabs (the i on a 먹 rounded
+# square); the touch icon is the app icon.
+CURRENT_ICON_ROUTES: Mapping[str, tuple[str, str]] = {
     "/favicon.ico": ("favicon.ico", "image/x-icon"),
-    "/favicon-dark.ico": ("favicon-dark.ico", "image/x-icon"),
-    "/favicon-16.png": ("limn-icon-light-16.png", "image/png"),
-    "/favicon-32.png": ("limn-icon-light-32.png", "image/png"),
-    "/favicon-dark-16.png": ("limn-icon-dark-16.png", "image/png"),
-    "/favicon-dark-32.png": ("limn-icon-dark-32.png", "image/png"),
+    "/favicon-16.png": ("favicon-16.png", "image/png"),
+    "/favicon-32.png": ("favicon-32.png", "image/png"),
     "/apple-touch-icon.png": ("apple-touch-icon.png", "image/png"),
+}
+# Retired path -> the path whose file it serves, for 0.3.8 only (docs/handbook/api.md): 0.3.6-0.3.7 pages link a dark
+# set and their head script points a dark-scheme tab at it, and the HTTP API removes a path only after a release that
+# announces it. Remove these in the next release.
+RETIRED_ICON_ROUTES: Mapping[str, str] = {
+    "/favicon-dark.ico": "/favicon.ico",
+    "/favicon-dark-16.png": "/favicon-16.png",
+    "/favicon-dark-32.png": "/favicon-32.png",
+}
+ICON_ROUTES: Mapping[str, tuple[str, str]] = {
+    **CURRENT_ICON_ROUTES,
+    **{retired: CURRENT_ICON_ROUTES[current] for retired, current in RETIRED_ICON_ROUTES.items()},
 }
 
 

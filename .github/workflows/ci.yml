@@ -106,7 +106,7 @@ jobs:
                    features/administration/instance_update.sh features/administration/instance_documents.sh \
                    features/administration/instance_lifecycle.sh features/administration/instance_inspection.sh \
                    viewer/index.html viewer/parts.txt viewer/css/tokens.css viewer/js/events.js \
-                   brand/SHA256SUMS brand/favicon.ico brand/favicon-dark.ico brand/apple-touch-icon.png \
+                   brand/SHA256SUMS brand/favicon.ico brand/favicon-16.png brand/favicon-32.png brand/apple-touch-icon.png \
                    brand/limn-wordmark-light-20.svg; do
             find "$python_dir" -path "*limn/$f" | grep -q . || { echo "not packaged: $f"; exit 1; }
             echo "packaged: $f"

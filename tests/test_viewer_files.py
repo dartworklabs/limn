@@ -168,12 +168,11 @@ class ViewerScriptParses(unittest.TestCase):
         self.skipTest("node is not installed")
 
     def test_every_inline_script_of_the_served_page_parses(self):
-        """The page GET / serves - parts joined and every placeholder filled - has four inline scripts (three in the
-        head: theme, language, favicon scheme; the main one at the end of the body), and node parses each as a
-        classic script."""
+        """The page GET / serves - parts joined and every placeholder filled - has three inline scripts (two in the
+        head: theme and language; the main one at the end of the body), and node parses each as a classic script."""
         page = page_for("Paper", "#2563eb")
         scripts = inline_scripts(page)
-        self.assertEqual(len(scripts), 4)
+        self.assertEqual(len(scripts), 3)
         self.assertIn(viewer_text("__APP_JS__")[:200], scripts[-1])
         self.assertEqual(script_errors(page), [])
 
