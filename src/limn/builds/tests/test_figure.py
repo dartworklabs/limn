@@ -670,7 +670,7 @@ class FigureDocumentThroughTheServer(Base):
 
     def test_startup_imports_a_figure_document_whose_files_agree(self):
         """init_doc imports the pair even under --no-build; /pdf serves the checked PDF bytes, and /api/docs and
-        /api/meta report kind figure, view_only true, never stale, the map as main."""
+        /api/meta report kind figure, view_only false, never stale, the map as main."""
         self.assertIsInstance(ps.APP.build_requests.init_doc(self.fig, no_build=True, wait=True), BuildOk)
         code, hdrs, body = split_resp(self.talk(req("GET", "/pdf?doc=fig")))
         self.assertEqual((code, hdrs["content-type"], body), (200, "application/pdf", MINI_PDF))
@@ -678,13 +678,13 @@ class FigureDocumentThroughTheServer(Base):
         brief = json.loads(body)["docs"][1]
         self.assertEqual(
             (brief["key"], brief["kind"], brief["view_only"], brief["stale_build"], brief["n_pages"]),
-            ("fig", "figure", True, False, 1),
+            ("fig", "figure", False, False, 1),
         )
         code, _, body = split_resp(self.talk(req("GET", "/api/meta?doc=fig")))
         m = json.loads(body)
         self.assertEqual(
             (m["kind"], m["view_only"], m["stale_build"], m["main"], m["build_seq"]),
-            ("figure", True, False, "figures.limnmap.json", 1),
+            ("figure", False, False, "figures.limnmap.json", 1),
         )
 
     def test_startup_leaves_a_figure_whose_files_disagree_unbuilt(self):
@@ -733,12 +733,11 @@ class FigureDocumentThroughTheServer(Base):
         self.assertFalse(ps.APP.build_requests.refresh_watched(ps.APP.docs[0]))
         self.assertEqual(build.state_snapshot(ps.APP.docs[0])["state"], "idle")
 
-    def test_rebuild_snippet_and_revisions_refuse_a_figure_document(self):
-        """POST /api/rebuild is 400 view_only_no_rebuild, a snippet is 400 no_source_lines, and the changes view is
-        unavailable - as for a view-only PDF."""
+    def test_rebuild_and_revisions_refuse_a_figure_document(self):
+        """POST /api/rebuild is 400 view_only_no_rebuild (its pages follow its files, whatever pins it takes) and the
+        changes view is unavailable - as for a view-only PDF. A snippet is no longer refused: a figure document takes
+        line pins (see pins/editing/tests/test_figure_pins.py)."""
         code, _, body = split_resp(self.talk(req("POST", "/api/rebuild?doc=fig")))
         self.assertEqual((code, json.loads(body)["reason"]), (400, "view_only_no_rebuild"))
-        code, _, body = split_resp(self.talk(req("GET", "/api/snippet?doc=fig&file=main.tex&lo=1&hi=2")))
-        self.assertEqual((code, json.loads(body)["reason"]), (400, "no_source_lines"))
         code, _, body = split_resp(self.talk(req("GET", "/api/revisions?doc=fig")))
         self.assertEqual((code, json.loads(body)["available"]), (200, False))

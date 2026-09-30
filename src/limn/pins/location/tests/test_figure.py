@@ -22,12 +22,13 @@ from limn.pins.location import figure, resolve as pick_resolve, source as pick_s
 from limn.pins.location.figure import drag_frac, element_rungs, pin_element, read_source
 from limn.pins.location.http import PICK_WARNINGS, pick_answer
 from limn.pins.location.input import PickRequest
-from limn.pins.location.mapping import snippet
+from limn.pins.location.mapping import compute_levels, snippet
+from limn.pins.location.range import SourceRange, snippet_api
 from limn.pins.location.resolve import PickedRegion
 from limn.platform import files
 from limn.runtime.documents import Doc, RunPaths
 
-from helpers import Base, fresh_runtime, jreq, pick, ps, split_resp
+from helpers import Base, fresh_runtime, jreq, pick, ps, req, split_resp
 from helpers_figure import (
     AUGUST_BOX,
     BUILD1,
@@ -35,6 +36,7 @@ from helpers_figure import (
     EMPTY_BOX,
     JULY,
     JULY_BOX,
+    SCRIPT,
     STRIP_BOX,
     b2_map,
     figure_doc,
@@ -274,6 +276,50 @@ class RegionBodies(unittest.TestCase):
         body = pick_answer(replace(self.REGION, blank=False, redrawing=True, fallback="figure_map_unavailable"))
         self.assertEqual(list(body), REGION_KEYS)
         self.assertEqual(body["warn"], PICK_WARNINGS["figure_map_unavailable"] + " " + PICK_WARNINGS["redrawing"])
+
+
+class SnippetLadder(unittest.TestCase):
+    """snippet_api: the source ladder (compute_levels) where a document's ladder comes from its text; only the raw
+    rung where it comes from an element map (a figure's script, whose element ladder is the pick's)."""
+
+    TEX = ["\\begin{table}", "a", "", "b", "\\end{table}"]
+
+    def test_a_map_ladder_document_gets_only_the_raw_rung(self):
+        """Python lines: one raw rung for the range, and it is the default - no paragraph or environment rung."""
+        rng = SourceRange(Path("/ms/figs/src/a.py"), ["x = 1", "", "y = 2", "z = 3"], 3, 4)
+        out = snippet_api(rng, True, ("table",), source_ladder=False)
+        self.assertEqual(
+            out["levels"],
+            [{"level": "raw", "lo": 3, "hi": 4, "label": "드래그한 줄", "n": 2, "snippet": snippet(rng.lines, 3, 4)}],
+        )
+        self.assertEqual(out["default_level"], "raw")
+
+    def test_a_source_ladder_document_keeps_compute_levels(self):
+        """LaTeX lines: the ladder is compute_levels', unchanged."""
+        rng = SourceRange(Path("/ms/main.tex"), self.TEX, 2, 2)
+        out = snippet_api(rng, True, ("table",), source_ladder=True)
+        want = compute_levels(self.TEX, 2, 2, ("table",))
+        self.assertEqual((out["levels"], out["default_level"]), (want["levels"], want["default_level"]))
+
+    def test_the_source_ladder_is_the_default(self):
+        """Without the parameter a document's ladder is compute_levels' (every caller before figures)."""
+        rng = SourceRange(Path("/ms/main.tex"), self.TEX, 2, 2)
+        self.assertEqual(snippet_api(rng, True, ("table",)), snippet_api(rng, True, ("table",), source_ladder=True))
+
+    def test_no_ladder_is_computed_unless_levels_are_asked_for(self):
+        """levels false: neither ladder is in the answer, whichever the document's kind."""
+        rng = SourceRange(Path("/ms/figs/src/a.py"), ["x = 1", "y = 2"], 1, 2)
+        for source_ladder in (True, False):
+            out = snippet_api(rng, False, ("table",), source_ladder=source_ladder)
+            self.assertNotIn("levels", out)
+            self.assertNotIn("default_level", out)
+
+    def test_the_latex_ladder_is_never_run_for_a_map_ladder_document(self):
+        """source_ladder false never calls compute_levels, however the lines look like LaTeX."""
+        rng = SourceRange(Path("/ms/figs/src/a.py"), self.TEX, 2, 2)
+        with mock.patch("limn.pins.location.range.compute_levels", side_effect=AssertionError("LaTeX rules")):
+            out = snippet_api(rng, True, ("table",), source_ladder=False)
+        self.assertEqual([lv["level"] for lv in out["levels"]], ["raw"])
 
 
 class FigurePick(Base):
@@ -527,6 +573,24 @@ class FigurePick(Base):
         }
         self.assertEqual(d["el"], want)
         self.assertEqual(d["levels"][0]["el"], want)
+
+    def test_the_edit_cards_ladder_on_a_figure_script_is_the_raw_rung_only(self):
+        """GET /api/snippet?levels=1 on the figure's script: one raw rung; on the LaTeX document the paragraph rung is
+        still there."""
+        code, _, body = split_resp(self.talk(req("GET", "/api/snippet?doc=fig&file=%s&lo=88&hi=95&levels=1" % SCRIPT)))
+        self.assertEqual(code, 200, body)
+        d = json.loads(body)
+        self.assertEqual(([lv["level"] for lv in d["levels"]], d["default_level"]), (["raw"], "raw"))
+        code, _, body = split_resp(self.talk(req("GET", "/api/snippet?doc=ms&file=main.tex&lo=4&hi=4&levels=1")))
+        self.assertIn("para", [lv["level"] for lv in json.loads(body)["levels"]])
+
+    def test_a_figure_snippet_without_levels_has_no_ladder(self):
+        """GET /api/snippet on the script without levels answers the lines alone, as for a LaTeX document."""
+        code, _, body = split_resp(self.talk(req("GET", "/api/snippet?doc=fig&file=%s&lo=88&hi=95" % SCRIPT)))
+        self.assertEqual(code, 200, body)
+        d = json.loads(body)
+        self.assertNotIn("levels", d)
+        self.assertNotIn("default_level", d)
 
 
 class Dispatch(Base):

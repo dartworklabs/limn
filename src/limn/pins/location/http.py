@@ -42,9 +42,10 @@ def pick(app: LocationApp, doc: Doc, body: Mapping[str, Any]) -> Body:
 
 
 def snippet(app: LocationApp, doc: Doc, query: Query) -> Body:
-    """GET /api/snippet after the common request guards."""
+    """GET /api/snippet after the common request guards; a document with an element map gets the raw rung as its
+    ladder."""
     rng = accepted(pick_input.parse_snippet(query, app.document_facts(doc)))
-    return app.location_service.snippet(rng, parse_flag(query, "levels"))
+    return app.location_service.snippet(rng, parse_flag(query, "levels"), not doc.has_element_map)
 
 
 def overlaps(app: LocationApp, doc: Doc, query: Query) -> Body:

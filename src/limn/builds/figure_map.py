@@ -39,8 +39,8 @@ FULL_PAGE: Frac = (0.0, 0.0, 1.0, 1.0)  # the root element's box: the whole page
 DETAIL_TEXT_MAX = 80  # how much of the map's own text a rejection's detail quotes
 _HEX = frozenset("0123456789abcdef")
 
-# path_outside: a src.file or impl.file that is not a canonical relative POSIX path (_canonical) - its shape, never where
-# a well-formed path leads. The name stays because the value list of a rejection's reason only grows.
+# path_outside: a src.file or impl.file that is not a canonical relative POSIX path (is_canonical_path) - its shape,
+# never where a well-formed path leads. The name stays because the value list of a rejection's reason only grows.
 MapRejectReason: TypeAlias = Literal[
     "too_large",
     "not_json",
@@ -362,8 +362,9 @@ def _frac(v: object, where: str) -> Frac | MapRejected:
 def _source(v: object, where: str) -> SourceRef | None | MapRejected:
     """An optional {file, lo, hi}: None when absent or null (a vector graphic without code, ADR-0011 D7); bad_shape
     unless an object whose file is a non-empty string of at most MAP_MAX_PATH characters and lo, hi JSON integers with
-    1 <= lo <= hi <= MAP_MAX_LINE; path_outside when file is not a canonical relative path (_canonical). Only the
-    shape is judged: where a canonical path leads is not asked (src.file's reader asks; impl.file is never opened)."""
+    1 <= lo <= hi <= MAP_MAX_LINE; path_outside when file is not a canonical relative path (is_canonical_path). Only
+    the shape is judged: where a canonical path leads is not asked (src.file's reader asks; impl.file is never
+    opened)."""
     if v is None:
         return None
     if not isinstance(v, dict):
@@ -376,7 +377,7 @@ def _source(v: object, where: str) -> SourceRef | None | MapRejected:
             "%s must be {file, lo, hi} with a file of at most %d characters and 1 <= lo <= hi <= %d"
             % (where, MAP_MAX_PATH, MAP_MAX_LINE),
         )
-    if not _canonical(file):
+    if not is_canonical_path(file):
         return MapRejected(
             "path_outside", "%s.file %r is not a canonical relative path" % (where, file[:DETAIL_TEXT_MAX])
         )
@@ -397,10 +398,11 @@ def _rooted(elements: list[MapElement], figure: str, where: str) -> tuple[MapEle
     return (root,) + tuple(el for el in elements if el is not root)
 
 
-def _canonical(path: str) -> bool:
+def is_canonical_path(path: str) -> bool:
     """Whether path is a canonical relative POSIX path, the only form a pin stores: no leading or trailing '/', no
     empty, '.' or '..' part, and no backslash or NUL. Where it leads is not asked here: src.file's reader asks
-    (read_source in limn.pins.location.figure), and impl.file is never opened."""
+    (read_source in limn.pins.location.figure), and impl.file is never opened. The rule a map's src.file and
+    impl.file are parsed by, and a request's el.impl.file (limn.pins.editing.location.parse_el) is held to."""
     return "\\" not in path and "\x00" not in path and all(part not in ("", ".", "..") for part in path.split("/"))
 
 

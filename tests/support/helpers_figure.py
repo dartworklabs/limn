@@ -11,10 +11,15 @@ only from helpers modules, never from one another (tests/support/helpers.py).
 
 import json
 from pathlib import Path
+from unittest import mock
 
 from limn.builds.artifacts import FIGMAP_NAME
+from limn.pins.location import source as pick_source
 from limn.platform import files
 from limn.runtime.documents import Doc, RunPaths
+from limn.web.errors import InputRejected
+
+from helpers import add_pin, pick
 
 BUILD1 = "pages-20260926100000"
 BUILD2 = "pages-20260926110000"
@@ -118,3 +123,39 @@ def write_build(D: Doc, name: str, fmap: dict | None, pages: int = 1) -> Path:
         (d / FIGMAP_NAME).write_text(json.dumps(fmap, ensure_ascii=False), encoding="utf-8")
     files.atomic_write(D.dir / "pages.cur", name)
     return d
+
+
+SAVE_LINE = (
+    "file",
+    "name",
+    "page",
+    "lo",
+    "hi",
+    "raw_lo",
+    "raw_hi",
+    "kind",
+    "via",
+    "score",
+    "frac",
+    "quote",
+    "pdf_build",
+    "el",
+)
+
+
+def pin_from_pick(fig: Doc, box: tuple[float, float, float, float], actor: dict, note: str = "n") -> int:
+    """Pick box (points) on build BUILD1 of figure document fig and save the answer as the viewer does - a line pin with
+    its el at the default level, or, when the pick fell back, a region pin with the el - as actor; the new pin's id.
+    pdftotext answers no text."""
+    x0, y0, x1, y1 = box
+    with mock.patch.object(pick_source, "region_text", return_value=""):
+        d = pick({"doc": fig.key, "page": 1, "x0": x0, "y0": y0, "x1": x1, "y1": y1, "pdf_build": BUILD1}, doc=fig)
+    if d.get("kind") == "region":
+        body = {k: d[k] for k in ("page", "frac", "quote", "pdf_build", "el") if d.get(k) not in (None, "")}
+    else:
+        body = {k: d[k] for k in SAVE_LINE if d.get(k) is not None}
+        body["scope"] = d["default_level"]
+    body.update(doc=fig.key, note=note)
+    pin = add_pin(body, dict(actor))
+    assert not isinstance(pin, InputRejected), pin
+    return pin.core.pid

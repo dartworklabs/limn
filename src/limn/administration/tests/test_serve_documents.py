@@ -180,9 +180,10 @@ class FigureRegistration(unittest.TestCase):
             DocMainOutsideRoot("fig", self.ms / "main.limnmap.json"),
         )
 
-    def test_a_figure_document_is_watched_view_only_and_keeps_its_own_folder(self):
+    def test_a_figure_document_is_watched_takes_line_pins_and_keeps_its_own_folder(self):
         """Keyed main, a figure document still gets docs/main (only a document built from source takes the state
-        root); it is watched, view-only, has an element map, and its PDF copy is named after the map."""
+        root); it is watched, takes line pins (so is not view-only), has an element map, and its PDF copy is named
+        after the map."""
         docs = serve_documents.make_docs(
             ["main=그림:figs::out/figures.limnmap.json", "ms=본문:main.tex"], self.ms, self.paths
         )
@@ -200,7 +201,7 @@ class FigureRegistration(unittest.TestCase):
                 fig.view_only,
                 fig.has_element_map,
             ),
-            (False, True, False, False, True, True),
+            (False, True, True, False, False, True),
         )
 
     def test_the_run_main_is_never_a_figure_map(self):

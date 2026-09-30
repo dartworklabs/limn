@@ -6,6 +6,7 @@ test_server.py, test_service.py and the feature files; here the pure decisions a
 Run: uv run pytest -q src/limn/pins/editing/tests/test_rules.py
 """
 
+import json
 import unittest
 
 from limn.pins.editing.rules import (
@@ -504,6 +505,141 @@ class NewPins(unittest.TestCase):
                 "assignee",
             ],
         )
+
+
+class FigurePlaces(unittest.TestCase):
+    """A figure pin's place carries an el; a malformed one is refused; a re-placement replaces or drops it."""
+
+    EL = {
+        "id": "B2/calendar/m07",
+        "path": ["B2", "B2/calendar", "B2/calendar/m07"],
+        "label": "7월",
+        "part": "MonthCell",
+    }
+    LINE = {"file": "/ms/figs/src/B2_calendar.py", "name": "B2_calendar.py", "lo": 88, "hi": 95, "page": 1}
+    REGION = {
+        "pdf": "/ms/figs/out/figures.pdf",
+        "name": "figures.pdf",
+        "kind": "region",
+        "page": 1,
+        "frac": [0.1, 0.1, 0.2, 0.2],
+    }
+    # An el as an older or hand-written store may hold it: keys out of the canonical order, an integer frac, a key the
+    # contract does not have and a null label (all of which PinElement.to_record would change).
+    ODD_EL = {
+        "path": ["B2", "B2/calendar", "B2/calendar/m07"],
+        "frac": [0, 0, 1, 1],
+        "future": {"b": [1, 2], "a": None},
+        "id": "B2/calendar/m07",
+        "label": None,
+        "part": "MonthCell",
+    }
+
+    def test_line_and_region_places_keep_the_el(self):
+        """A line place and a region place both carry an el and give it back as its record."""
+        self.assertEqual(LinePlace({**self.LINE, "el": self.EL}, frozenset()).fields["el"], self.EL)
+        self.assertEqual(RegionPlace({**self.REGION, "el": self.EL}).fields["el"], self.EL)
+
+    def test_a_place_refuses_a_malformed_el(self):
+        """An el the record check would call broken never gets into a place (ValueError)."""
+        for bad in ("B2", {**self.EL, "id": ""}, {**self.EL, "path": "B2"}, {**self.EL, "label": 7}):
+            with self.subTest(bad=bad):
+                with self.assertRaises(ValueError):
+                    LinePlace({**self.LINE, "el": bad}, frozenset())
+                with self.assertRaises(ValueError):
+                    RegionPlace({**self.REGION, "el": bad})
+
+    def test_a_place_refuses_an_el_whose_frac_cannot_be_written_as_json(self):
+        """NaN, Infinity or an integer too large for a float in an el's frac (shapes the record check lets through) would
+        be stored as invalid JSON or dropped silently: a place refuses them like a malformed el."""
+        for frac in ([float("nan"), 0, 1, 1], [0, 0, float("inf"), 1], [0, 0, 10**400, 1]):
+            with self.subTest(frac=frac):
+                with self.assertRaises(ValueError):
+                    LinePlace({**self.LINE, "el": {**self.EL, "frac": frac}}, frozenset())
+                with self.assertRaises(ValueError):
+                    RegionPlace({**self.REGION, "el": {**self.EL, "frac": frac}})
+
+    def test_the_el_of_a_place_is_a_snapshot(self):
+        """Changing the caller's el or an exposed record cannot change the validated place."""
+        el = {**self.EL, "path": list(self.EL["path"])}
+        place = LinePlace({**self.LINE, "el": el}, frozenset({"el"}))
+        el["path"].append("x")
+        place.fields["el"]["path"].append("y")
+        self.assertEqual(place.fields["el"], self.EL)
+
+    def test_a_place_gives_its_el_back_byte_for_byte(self):
+        """A place validates its el but never rewrites it: key order, an integer frac, a key the contract does not have
+        and a null label come out as they went in (the boundary's parse_el is what makes an el canonical)."""
+        for place in (
+            LinePlace({**self.LINE, "el": self.ODD_EL}, frozenset()),
+            RegionPlace({**self.REGION, "el": self.ODD_EL}),
+        ):
+            with self.subTest(place=type(place).__name__):
+                self.assertEqual(json.dumps(place.fields["el"]), json.dumps(self.ODD_EL))
+
+    def test_the_el_of_a_place_is_a_deep_snapshot_of_its_unknown_keys(self):
+        """The snapshot reaches a nested value under a key the contract does not have, in both directions."""
+        el = json.loads(json.dumps(self.ODD_EL))
+        place = LinePlace({**self.LINE, "el": el}, frozenset({"el"}))
+        el["future"]["b"].append(3)
+        place.fields["el"]["future"]["b"].append(4)
+        self.assertEqual(json.dumps(place.fields["el"]), json.dumps(self.ODD_EL))
+
+    def test_a_line_re_placement_replaces_or_drops_the_el(self):
+        """A re-placement with an el writes it; one without drops the old el (it no longer describes the place)."""
+        record = line_record(el=dict(self.EL), scope="el")
+        with_el = LinePlace({**self.LINE, "el": {"id": "B2", "path": ["B2"]}}, frozenset({"file", "lo", "hi", "el"}))
+        out = evolve_edit(
+            OpenPin.from_record(record), edited(place=with_el, range_changed=True), None, None, None, None
+        )
+        self.assertEqual(out.record["el"], {"id": "B2", "path": ["B2"]})
+        bare = LinePlace(dict(self.LINE), frozenset({"file", "lo", "hi"}))
+        out = evolve_edit(OpenPin.from_record(record), edited(place=bare, range_changed=True), None, None, None, None)
+        self.assertNotIn("el", out.record)
+
+    def test_a_lines_edit_keeps_the_el(self):
+        """Narrowing the lines of a figure pin keeps the element it names."""
+        out = evolve_edit(
+            OpenPin.from_record(line_record(el=dict(self.EL))),
+            edited(lines=(4, 6), range_changed=True),
+            None,
+            None,
+            None,
+            None,
+        )
+        self.assertEqual(out.record["el"], self.EL)
+
+    def test_an_edit_that_keeps_the_location_leaves_the_stored_el_byte_for_byte(self):
+        """A note, a lo/hi range, a scope and a kind edit each keep an el that is not canonical exactly as stored - the
+        key order, the integer frac, the unknown key and the null label."""
+        pin = OpenPin.from_record(line_record(el=json.loads(json.dumps(self.ODD_EL))))
+        for name, event in (
+            ("note", edited(note="new")),
+            ("range", edited(lines=(4, 6), range_changed=True)),
+            ("scope", edited(scope="el")),
+            ("kind", edited(kind="el:MonthCell")),
+        ):
+            with self.subTest(edit=name):
+                out = evolve_edit(pin, event, None, None, None, None)
+                self.assertEqual(json.dumps(out.record["el"]), json.dumps(self.ODD_EL))
+
+    def test_a_region_re_placement_replaces_or_drops_the_el(self):
+        """Like the quote: a region re-placed with an el writes it, without one drops it."""
+        record = {
+            "pdf": "/ms/figs/out/figures.pdf",
+            "page": 1,
+            "frac": [0, 0, 1, 1],
+            "kind": "region",
+            "el": dict(self.EL),
+            "rev": 0,
+        }
+        out = evolve_edit(
+            OpenPin.from_record(record), edited(place=RegionPlace(dict(self.REGION))), None, None, None, None
+        )
+        self.assertNotIn("el", out.record)
+        placed = RegionPlace({**self.REGION, "el": {"id": "B2", "path": ["B2"]}})
+        out = evolve_edit(OpenPin.from_record(record), edited(place=placed), None, None, None, None)
+        self.assertEqual(out.record["el"], {"id": "B2", "path": ["B2"]})
 
 
 if __name__ == "__main__":

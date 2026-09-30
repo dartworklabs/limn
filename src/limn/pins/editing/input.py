@@ -25,18 +25,21 @@ ADD_FIELDS = (
     "scope",
     "quote",
     "pdf_build",
+    "el",
 )
-REGION_FIELDS = ("page", "frac", "note", "quote", "pdf_build")
+REGION_FIELDS = ("page", "frac", "note", "quote", "pdf_build", "el")
 REGION_EDIT_REFUSAL = "보기 전용 문서의 핀에는 줄 범위가 없습니다 — 메모(note)와 영역(loc: page, frac)만 고칩니다."
 
 
 def parse_add(d: Json, known: Collection[str], facts: DocumentFacts) -> AddRequest | InputRejected:
     """A POST /api/pin body for the request's document -> the new pin's validated place and fields, or the first
-    field refused, in the contract's order: the location first (parse_region when the document's pins are regions -
-    facts.view_only - which refuses file/lo/hi/scope; parse_loc otherwise, which reads the named file), then note,
-    kind_req, mention hints and assignee (known: the logins supplied by EditingRequests)."""
+    field refused, in the contract's order: the location first - a region (parse_region, which refuses
+    file/lo/hi/scope) on a view-only document, and on a figure document when the body names no file, lo or hi (an
+    element drawn without code, docs/handbook/api.md §보기 전용 PDF 문서의 pick·핀); lines (parse_loc, which reads the
+    named file) otherwise. A figure document's place keeps the body's el (parse_el). Then note, kind_req, mention hints
+    and assignee (known: the logins supplied by EditingRequests)."""
     place: Place
-    if facts.view_only:
+    if facts.view_only or (facts.has_element_map and all(d.get(k) is None for k in ("file", "lo", "hi"))):
         region = parse_region({k: d[k] for k in REGION_FIELDS + ("file", "lo", "hi", "scope") if k in d}, facts)
         if isinstance(region, InputRejected):
             return region
@@ -144,9 +147,11 @@ def parse_edit(d: Json, known: Collection[str]) -> EditBody | InputRejected:
 def parse_edit_place(body: EditBody, region: bool, facts: DocumentFacts) -> Place | None | InputRejected:
     """An edit's re-placement checked against the pin's own document (facts), or None when the edit sends no loc.
 
-    A view-only pin (region) refuses lo/hi/scope/kind first. Then loc is parsed like a new pin's location (parse_region
-    for a view-only pin, parse_loc for a line pin). pdf_build records which build frac's coordinates belong to, so a
-    loc that re-places frac takes the one sent or the build on screen, and a loc without frac cannot change it."""
+    A region pin (a view-only PDF's, or a figure element drawn without code) refuses lo/hi/scope/kind first. Then loc is
+    parsed like a new pin's location (parse_region for a region pin, parse_loc for a line pin), a figure document's el
+    included (parse_el): the re-placement carries the el it names, or none, and so drops the old one. pdf_build records
+    which build frac's coordinates belong to, so a loc that re-places frac takes the one sent or the build on screen,
+    and a loc without frac cannot change it."""
     request = body.request
     if region and (
         request.lo is not None or request.hi is not None or request.scope is not None or request.kind is not None

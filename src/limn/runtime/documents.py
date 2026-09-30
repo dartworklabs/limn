@@ -194,8 +194,9 @@ class Doc:
     @property
     def takes_line_pins(self) -> bool:
         """Its pins are file/lo/hi line ranges with anchor re-sync, and a request that names only a file can route to
-        it (doc_for_file)."""
-        return self.kind == "tex"
+        it (doc_for_file): a LaTeX document, and a figure document - its pins are lines of the code that drew it
+        (docs/handbook/domain.md §여러 문서)."""
+        return self.kind in ("tex", "figure")
 
     @property
     def shows_revisions(self) -> bool:
@@ -250,9 +251,10 @@ def pin_doc_key(r: Mapping[str, Any], docs: Sequence[Doc]) -> str:
 
 
 def doc_for_file(docs: Sequence[Doc], root: Path, path: object) -> Doc:
-    """Which document of docs that takes line pins a request that only gave a file (agent curl) belongs to: the one
-    whose build root most deeply contains it (a relative path is taken under the manuscript root), or the first
-    document if none does or the path cannot be resolved. A document without line pins (view-only) never matches."""
+    """Which document of docs that takes line pins (LaTeX or figure) a request that only gave a file (agent curl)
+    belongs to: the one whose folder most deeply contains it (a relative path is taken under the manuscript root; of
+    two equally deep the one listed first), or the first document if none does or the path cannot be resolved.
+    View-only documents never match."""
     try:
         p = Path(str(path)) if os.path.isabs(str(path)) else root / str(path)
         p = p.resolve()

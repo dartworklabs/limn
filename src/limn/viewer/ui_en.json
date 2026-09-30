@@ -126,6 +126,7 @@
  "reason:bad_content_length": "Content-Length is not valid.",
  "reason:bad_content_type": "Send the body as Content-Type: application/json.",
  "reason:bad_doc": "doc must be text.",
+ "reason:bad_el": "el must be the element the pick returned: {id, path, label?, part?, impl?: {file, lo, hi}, frac?}.",
  "reason:bad_event_cursor": "ev must be a whole number (the last event you saw).",
  "reason:bad_file": "The file is not valid.",
  "reason:bad_frac": "The region must be four numbers [x, y, w, h], as fractions of the page.",

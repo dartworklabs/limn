@@ -98,9 +98,9 @@ CAPABILITY_TABLE = {
     "figure": {
         "builds_from_source": False,
         "watches_files": True,
-        "takes_line_pins": False,
+        "takes_line_pins": True,
         "shows_revisions": False,
-        "view_only": True,
+        "view_only": False,
         "has_element_map": True,
     },
 }
@@ -360,6 +360,25 @@ class Lookups(Fixture):
         self.assertIs(documents.doc_for_file(docs, self.src, "/elsewhere/x.tex"), self.rv)
         self.assertIs(documents.doc_for_file(docs, self.src, "bad\x00name"), self.rv)
 
+    def test_doc_for_file_takes_the_deepest_root_among_latex_and_figure_documents(self):
+        """A figure document takes line pins too: a file under both a LaTeX build root and a figure root goes to the
+        deeper root, whichever kind it is; a view-only document still never matches."""
+        (self.src / "figs" / "src").mkdir(parents=True)
+        (self.src / "figs" / "src" / "a.py").write_text("x = 1\n", encoding="utf-8")
+        fig = Doc("fig", "그림", "figure", self.src / "figs", self.src / "figs" / "f.limnmap.json", paths=self.paths)
+        self.assertIs(documents.doc_for_file([self.rv, self.ms, fig], self.src, "figs/src/a.py"), fig)
+        self.assertIs(documents.doc_for_file([self.rv, self.ms, fig], self.src, "main.tex"), self.ms)
+        outer = Doc("all", "그림 전체", "figure", self.src, self.src / "all.limnmap.json", paths=self.paths)
+        self.assertIs(documents.doc_for_file([self.rv, outer, self.rr], self.src, "rr/rr.tex"), self.rr)
+        self.assertIs(documents.doc_for_file([self.rv, outer, self.rr], self.src, "main.tex"), outer)
+
+    def test_doc_for_file_gives_two_roots_of_equal_depth_to_the_first_document(self):
+        """A figure document whose folder is the LaTeX document's own build root: neither is deeper, so the one listed
+        first takes the file, in either order (the order is the operator's, never the kind's)."""
+        same = Doc("same", "그림", "figure", self.src, self.src / "same.limnmap.json", paths=self.paths)
+        self.assertIs(documents.doc_for_file([same, self.ms], self.src, "main.tex"), same)
+        self.assertIs(documents.doc_for_file([self.ms, same], self.src, "main.tex"), self.ms)
+
     def test_pin_doc_key_reads_legacy_records_as_the_first_document(self):
         """A record without a usable doc field belongs to the first document; no field is written."""
         docs = [self.ms, self.rr]
@@ -456,30 +475,30 @@ class FigureDocumentReads(Fixture):
         facts = DocumentFacts(self.fig, self.src, self.state, 150)
         self.assertEqual(facts.pdf, (self.src / "figs" / "out" / "figures.pdf").resolve())
 
-    def test_its_brief_and_meta_report_kind_figure_view_only_and_never_stale(self):
-        """/api/docs and /api/meta say kind figure and view_only true; a map newer than the pages is not 'stale'
-        (only a document built from source is), and path and main name the map."""
+    def test_its_brief_and_meta_report_kind_figure_not_view_only_and_never_stale(self):
+        """/api/docs and /api/meta say kind figure and view_only false (it takes line pins); a map newer than the pages
+        is not 'stale' (only a document built from source is), and path and main name the map."""
         self.pages(self.fig)
         later = time.time() + 60
         os.utime(self.map, (later, later))
         brief = meta.doc_brief(self.fig, self.state)
         self.assertEqual(
             (brief["kind"], brief["view_only"], brief["stale_build"], brief["main"], brief["path"]),
-            ("figure", True, False, "figures.limnmap.json", "figs/out/figures.limnmap.json"),
+            ("figure", False, False, "figures.limnmap.json", "figs/out/figures.limnmap.json"),
         )
         out = meta.meta(self.fig, {}, self.settings, [self.ms, self.fig], {}, time.time())
-        self.assertEqual((out["kind"], out["view_only"], out["stale_build"]), ("figure", True, False))
+        self.assertEqual((out["kind"], out["view_only"], out["stale_build"]), ("figure", False, False))
 
     def test_it_has_no_outline_labels(self):
         """Nothing is compiled, so no .aux is read even if a file of that name sits in its page directory."""
         d = self.pages(self.fig, aux=AUX)
         self.assertEqual(meta.outline_labels(self.fig), {"build": d.name, "labels": []})
 
-    def test_a_file_under_a_figure_folder_routes_to_the_latex_document_around_it(self):
-        """The figure folder lies inside the body's build root and deeper: a file-only request (agent curl) still goes
-        to the LaTeX document, since a figure document takes no line pin."""
+    def test_a_file_under_a_figure_folder_routes_to_the_figure_document_inside(self):
+        """The figure folder lies inside the body's build root and deeper: a file-only request (agent curl) goes to the
+        figure document, the deepest root that takes line pins."""
         docs = [self.fig, self.ms]
-        self.assertIs(documents.doc_for_file(docs, self.src, "figs/src/B2_calendar.py"), self.ms)
+        self.assertIs(documents.doc_for_file(docs, self.src, "figs/src/B2_calendar.py"), self.fig)
 
 
 class ToSource(Fixture):

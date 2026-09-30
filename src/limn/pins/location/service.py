@@ -21,9 +21,10 @@ class PinLocationService:
         """Return source lines, a figure element's lines, a region or a named refusal."""
         return pick(doc, request, self.context())
 
-    def snippet(self, rng: SourceRange, levels: bool) -> dict[str, Any]:
-        """Render a source range and optionally its range ladder."""
-        return source_range.snippet_api(rng, levels, self.context().envs)
+    def snippet(self, rng: SourceRange, levels: bool, source_ladder: bool = True) -> dict[str, Any]:
+        """Render a source range and optionally its range ladder: the source ladder, or the raw rung alone when the
+        document's ladder comes from an element map (range.snippet_api)."""
+        return source_range.snippet_api(rng, levels, self.context().envs, source_ladder)
 
     def overlaps(self, rng: SourceRange) -> dict[str, Any]:
         """Find open pins that intersect a validated source range."""

@@ -34,6 +34,12 @@ class DocumentFacts:
         return self._doc.key
 
     @property
+    def has_element_map(self) -> bool:
+        """The document is a figure with an element map (Doc.has_element_map): the location parsers keep a pin's el
+        only there, and a body without file, lo or hi is a region pin on it."""
+        return self._doc.has_element_map
+
+    @property
     def view_only(self) -> bool:
         """True when D's pins are page regions only (Doc.view_only): the parsers refuse file/lo/hi and snippets."""
         return self._doc.view_only

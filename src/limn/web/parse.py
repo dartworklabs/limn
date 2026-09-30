@@ -38,6 +38,12 @@ class DocumentFacts(Protocol):
         ...
 
     @property
+    def has_element_map(self) -> bool:
+        """A figure document with an element map: a pin's el is kept only there, and a body without file, lo or hi is a
+        region pin on it."""
+        ...
+
+    @property
     def view_only(self) -> bool:
         """True when the document's pins are page regions only (limn.runtime.documents.Doc.view_only): it has no source
         lines."""

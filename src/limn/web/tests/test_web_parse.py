@@ -45,10 +45,19 @@ NO_STATE = Path("/nonexistent-limn-state")
 class Facts:
     """A DocumentFacts over a real temporary manuscript tree, with the pages and builds given in memory."""
 
-    def __init__(self, root: Path, view_only: bool = False, pages: dict | None = None, current: str = "pages"):
+    def __init__(
+        self,
+        root: Path,
+        view_only: bool = False,
+        pages: dict | None = None,
+        current: str = "pages",
+        has_element_map: bool = False,
+    ):
         """root is the tree; view_only says the document's pins are regions (DocumentFacts.view_only); pages maps a
-        build name to its page sizes; current names the build on screen."""
+        build name to its page sizes; current names the build on screen; has_element_map says the document is a
+        figure (DocumentFacts.has_element_map)."""
         self.key, self.view_only, self.root, self.state = "rev" if view_only else "main", view_only, root, NO_STATE
+        self.has_element_map = has_element_map
         self.pdf = root / "review.pdf"
         self._pages = pages if pages is not None else {"pages": [(600.0, 800.0), (600.0, 800.0)]}
         self._current = current
