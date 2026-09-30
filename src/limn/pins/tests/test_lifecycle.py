@@ -24,6 +24,7 @@ PURE_IMPORTS = {
     "math",
     "re",
     "typing",
+    "limn.pins.element",  # a figure pin's el shape; pure (src/limn/pins/tests/test_element.py)
     "limn.pins.model",
     "limn.pins.thread",
     "limn.pins.location.position",

@@ -27,6 +27,7 @@ from posixpath import isabs  # os.path.isabs on POSIX, the only platform Limn ru
 from typing import TypeGuard
 
 from limn.pins.changes import valid_changes
+from limn.pins.element import is_element_record
 from limn.pins.model import THREAD_EVENTS, Pin, TrashedPin, is_kind_req, is_region_pin, parse_pin
 from limn.platform.values import is_int, is_num
 
@@ -63,7 +64,8 @@ def fits_record(
     is_doc_key(s) is truthy when s is a document key (the stored `doc`; a document no longer configured is still a
     valid key, so its pins are not broken); is_actor(v) tells whether v is a recorded actor ({login, name, pic?}
     strings - author and every *_by). A view-only PDF's pin (is_region_pin) is placed by pdf (absolute path), page and
-    frac instead of file/lo/hi. Never raises and never changes r."""
+    frac instead of file/lo/hi; a figure pin's `el`, when present, has its element shape
+    (limn.pins.element.is_element_record). Never raises and never changes r."""
     if not isinstance(r, dict) or not is_int(r.get("id")):
         return False
     if r.get("doc") is not None and not (isinstance(r["doc"], str) and is_doc_key(r["doc"])):
@@ -92,6 +94,9 @@ def fits_record(
         if r.get(k) is not None and not isinstance(r[k], str):
             return False
     if r.get("changes") is not None and not valid_changes(r["changes"]):
+        return False
+    # A figure pin's element (limn.pins.element): optional, but a malformed one breaks the line like any other field.
+    if r.get("el") is not None and not is_element_record(r["el"]):
         return False
     # The new fields (kind_req/thread/mentions/review) are all optional. The viewer renders them as-is, so a malformed shape is treated as a broken line.
     if r.get("kind_req") is not None and not is_kind_req(r["kind_req"]):
