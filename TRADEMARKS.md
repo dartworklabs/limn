@@ -9,4 +9,5 @@ it is Limn or endorsed by Dartwork. Plain references to the project (for example
 The Limn logo is the app icon (the letter i - a stem and a vermilion pin - on a squircle tile) and the wordmark
 "limn". The files the viewer serves and inlines - its favicons, home-screen icon and logo SVGs - are in
 [src/limn/viewer/brand/](src/limn/viewer/brand/README.md), which records where they come from. They are trademarks of Dartwork too, so
-a distribution under another name must replace them.
+a distribution under another name must replace them. So are the wordmark files and the social preview image the
+README and the repository page use, in [docs/assets/](docs/assets/README.md).

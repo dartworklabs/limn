@@ -1,6 +1,28 @@
-English | [한국어](README.ko.md)
+<h1 align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/brand/wordmark-dark.svg">
+    <img src="docs/assets/brand/wordmark-light.svg" alt="Limn" height="72">
+  </picture>
+</h1>
 
-# Limn
+<p align="center"><strong>Point at a spot in the PDF, reach the source line.</strong></p>
+
+<p align="center">
+  <a href="https://github.com/dartworklabs/limn/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/dartworklabs/limn?style=flat-square&amp;label=release&amp;labelColor=6b6a66&amp;color=3b3c42"></a>
+  <a href="LICENSE"><img alt="License: AGPL-3.0" src="https://img.shields.io/github/license/dartworklabs/limn?style=flat-square&amp;labelColor=6b6a66&amp;color=3b3c42"></a>
+  <a href="https://github.com/dartworklabs/limn/actions/workflows/ci.yml"><img alt="CI status" src="https://img.shields.io/github/actions/workflow/status/dartworklabs/limn/ci.yml?branch=main&amp;style=flat-square&amp;label=CI&amp;labelColor=6b6a66"></a>
+</p>
+
+<p align="center">English | <a href="README.ko.md">한국어</a></p>
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/app-dark.png">
+    <img src="docs/assets/app-light.png" alt="The Limn viewer on a sample paper: three open pins, each with the source line it reaches (L18, L20, L30)" width="880">
+  </picture>
+  <br>
+  <sub>A sample paper in the viewer: three pins, each with the line it reaches in the source.</sub>
+</p>
 
 **Limn** (림, "to depict clearly") closes the revision loop between people and agents on a LaTeX
 manuscript. Drag over a spot in the PDF, write what should change, and Limn turns it into a **pin**: the
@@ -10,7 +32,7 @@ screenshot), edit the source, and close each pin with what they changed; a perso
 on the same private network pin too, and every pin records who left it.
 
 - Single stdlib-only Python server, browser viewer with vector PDF rendering (bundled PDF.js)
-- Several documents per manuscript (manuscript, response letter, view-only reviewer PDFs) as tabs
+- Several documents per manuscript (manuscript, response letter, view-only reviewer PDFs, and, in part, figure documents) as tabs
 - Rebuilds on demand or when the upstream branch moves (`--git-pull`)
 - Threads, questions, @mentions, assignees, review before done, a diff view per pin
 - One [Reply] on a closed pin: a person's reply sends it back to the agent (a line under the box says so first; undo after sending), and a 30-day Trash for deleted pins
@@ -22,11 +44,11 @@ Requires Python ≥ 3.10, [uv](https://docs.astral.sh/uv/), a TeX distribution w
 (`latexmk`/`pdflatex`) and Poppler (`pdftoppm`).
 
 ```bash
-uv tool install git+https://github.com/dartworklabs/limn@v0.2.2
+uv tool install git+https://github.com/dartworklabs/limn@v0.3.8
 limn version
 ```
 
-With SSH access to GitHub, `git+ssh://git@github.com/dartworklabs/limn@v0.2.2` works too.
+With SSH access to GitHub, `git+ssh://git@github.com/dartworklabs/limn@v0.3.8` works too.
 
 ## Run one server
 
@@ -83,7 +105,7 @@ the HTTP API are a stable contract — they do not change with the UI language.
 | [docs/adr/](docs/adr/) | architecture decision records |
 | [SECURITY.md](SECURITY.md) · [CONTRIBUTING.md](CONTRIBUTING.md) · [CHANGELOG.md](CHANGELOG.md) | |
 
-Planned access control: [ADR-0002, access control, collaboration boundaries and sync](docs/adr/0002-access-control.md) (proposed).
+Access control design: [ADR-0002, access control, collaboration boundaries and sync](docs/adr/0002-access-control.md) (the v0.2 stage is implemented; later stages are proposed).
 
 ## License
 
@@ -103,7 +125,7 @@ Personal data in the imported history was replaced with placeholders.
 Nothing is deleted; ports, tailnet addresses and pins carry over.
 
 ```bash
-uv tool install git+https://github.com/dartworklabs/limn@v0.2.2
+uv tool install git+https://github.com/dartworklabs/limn@v0.3.8
 limn migrate --dry-run            # plan: ~/.config/pin-viewer/<name>.env -> ~/.config/limn/<name>.env
 limn migrate                      # copy configs (idempotent; old files stay)
 # per instance:
