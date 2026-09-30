@@ -46,7 +46,8 @@ class DocumentFacts(Protocol):
 
     @property
     def pdf(self) -> Path:
-        """A view-only document's PDF (its main file), which a region pin records."""
+        """The PDF a region pin records: a view-only document's own PDF (its main file), or the PDF a figure
+        document's on-screen build map names."""
         ...
 
     @property

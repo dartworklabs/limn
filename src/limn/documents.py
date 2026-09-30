@@ -337,7 +337,13 @@ class DocumentFacts:
 
     @property
     def pdf(self) -> Path:
-        """The document's main file (a view-only document's PDF)."""
+        """The PDF a region pin on D records: a view-only document's own PDF (its main file); for a document with an
+        element map, the PDF named by the map of the build on screen (limn.build.build_figure_pdf), or the map file
+        itself before an import has published a loadable map."""
+        if self._doc.has_element_map:
+            named = build.build_figure_pdf(self._doc, build.cur_pages(self._doc).name)
+            if named is not None:
+                return named
         return self._doc.main
 
     @property
