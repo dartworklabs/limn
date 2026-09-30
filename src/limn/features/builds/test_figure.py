@@ -22,7 +22,7 @@ from collections.abc import Callable
 from pathlib import Path
 from unittest import mock
 
-from limn import build
+from limn import build, figmap
 from limn.build import BuildConfig, BuildFailed, BuildOk, BuildSkipped
 from limn.documents import Doc, RunPaths
 from limn.features.administration import serve_documents as startup_documents
@@ -291,6 +291,26 @@ class Deferral(FigureTree):
         self.assertIn("pdf_missing", err.getvalue())
         (self.figs / "out" / "current.pdf").symlink_to(v1)
         self.assertIsInstance(self.pending(), figure.FigureImport)
+
+    def test_the_pdf_a_map_names_reaches_the_log_quoted_and_cut(self):
+        """The map's pdf text appears in the log line of pdf_outside, pdf_missing and pdf_mismatch only as a quoted
+        literal of at most DETAIL_TEXT_MAX characters: a newline in it cannot start a forged second line, and a long
+        name cannot flood the log."""
+        tail = "x" * 200 + "\nforged"
+        (self.figs / "out" / ("fig" + tail + ".pdf")).write_bytes(OTHER_PDF)
+        for reason, name in (
+            ("pdf_outside", "../../" + tail + ".pdf"),
+            ("pdf_missing", "absent" + tail + ".pdf"),
+            ("pdf_mismatch", "fig" + tail + ".pdf"),
+        ):
+            with self.subTest(reason=reason):
+                self.producer.write(self.map, map_bytes(figure_map(MINI_PDF, name)))
+                err = io.StringIO()
+                with contextlib.redirect_stderr(err):
+                    self.assertIsNone(figure.pending_import(self.doc, self.looks, 72, first=False))
+                line = err.getvalue()
+                self.assertEqual(line.count("\n"), 1, line)
+                self.assertIn("(%s: %r)" % (reason, name[: figmap.DETAIL_TEXT_MAX]), line)
 
     def test_a_pdf_over_the_size_cap_is_deferred_before_it_is_hashed(self):
         """A PDF bigger than PDF_MAX_BYTES is deferred pdf_too_large: logged once, settled from its real size so an

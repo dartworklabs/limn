@@ -26,7 +26,7 @@ from typing import Literal, TypeAlias
 from limn import build
 from limn.build import BuildAborted, BuildConfig, BuildDoc, BuildFailed, BuildOk, PagesNotRendered
 from limn.features.builds import engine
-from limn.figmap import MAP_MAX_BYTES, FigureMap, MapRejected, parse_map
+from limn.figmap import DETAIL_TEXT_MAX, MAP_MAX_BYTES, FigureMap, MapRejected, parse_map
 from limn.files import atomic_write
 
 SIG_FILE = "pdf_sig.txt"  # the watch's signature file, shared with view-only PDFs (engine.render_pdf_doc)
@@ -64,8 +64,9 @@ class FigureImport:
 
 @dataclass(frozen=True)
 class ImportDeferred:
-    """Why a figure document's files are not imported now, a detail for the log, and the watch signature of what was
-    seen, built by watch_signature's own rule (_pair_signature) - None when the map could not be read. The watch
+    """Why a figure document's files are not imported now, a detail for the log (one line: text the map provides is
+    quoted and cut, by _map_text or by limn.figmap for a rejection), and the watch signature of what was seen, built
+    by watch_signature's own rule (_pair_signature) - None when the map could not be read. The watch
     settles that signature, so the next tick computes the same value and only a change is looked at."""
 
     reason: DeferReason
@@ -107,6 +108,14 @@ class MapLooks:
     def remember(self, D: BuildDoc, signature: str, figure_map: FigureMap | None) -> None:
         """Keep figure_map (None: the map was rejected) as D's parse of its map at signature."""
         self.seen[self.key(D)] = (signature, figure_map)
+
+
+def _map_text(text: str) -> str:
+    """Text a map provides (the PDF it names), as a deferral's detail puts it into a log line and a build's failure
+    detail: its first DETAIL_TEXT_MAX characters as a Python literal (repr), so a newline or another control character
+    cannot start a forged line and a long value cannot flood the log (limn.figmap quotes the map's text in a
+    rejection's detail the same way)."""
+    return repr(text[:DETAIL_TEXT_MAX])
 
 
 def stat_signature(st: os.stat_result) -> str:
@@ -200,7 +209,7 @@ def accept_pdf(map_read: FileRead, figure_map: FigureMap, pdf_read: FileRead) ->
     the producer has written one file and not yet the other. Either way the signature is the map's and the PDF's."""
     signature = map_read.signature + "|" + pdf_read.signature
     if hashlib.sha256(pdf_read.raw).hexdigest() != figure_map.pdf_sha256:
-        return ImportDeferred("pdf_mismatch", figure_map.pdf, signature)
+        return ImportDeferred("pdf_mismatch", _map_text(figure_map.pdf), signature)
     return FigureImport(map_read.raw, figure_map, pdf_read.raw, signature)
 
 
@@ -228,11 +237,11 @@ def read_figure_import(D: BuildDoc, looks: MapLooks | None = None) -> FigureImpo
         return ImportDeferred("map_rejected", detail, _pair_signature(got.signature, None))
     pdf = build.figure_pdf(D, parsed)
     if pdf is None:
-        return ImportDeferred("pdf_outside", parsed.pdf, _pair_signature(got.signature, None))
+        return ImportDeferred("pdf_outside", _map_text(parsed.pdf), _pair_signature(got.signature, None))
     seen = _pair_signature(got.signature, pdf)  # stat before the open, so a change after it is looked at again
     pdf_read = _read_file(pdf, PDF_MAX_BYTES)
     if pdf_read is None:
-        return ImportDeferred("pdf_missing", str(pdf), seen)
+        return ImportDeferred("pdf_missing", _map_text(parsed.pdf), seen)
     if len(pdf_read.raw) > PDF_MAX_BYTES:
         return ImportDeferred(
             "pdf_too_large",
