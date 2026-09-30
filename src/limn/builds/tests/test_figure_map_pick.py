@@ -2,7 +2,7 @@
 above it, and where a pinned element is on a later build's map - pure functions over map values.
 
 The parser half of the module (parse_map) is tested with P1a's tests. Here pages are built from the value types
-directly, so each rule is seen without JSON, files or a server. docs/handbook/domain.md §범위 사다리
+directly, so each rule is seen without JSON, files or a server. docs/handbook/domain.md §그림 문서의 요소 pick
 describes the ladder the rules feed; the Hypothesis properties at the end check them on generated element trees against an oracle
 written from that description.
 

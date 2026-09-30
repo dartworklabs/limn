@@ -1,7 +1,7 @@
 """Figure pins through pin creation and editing: POST /api/pin and /api/pins/{id}/edit keep a figure pin's el
 (pins/editing), a figure document takes line pins (Doc.takes_line_pins), an agent's curl without el is a plain
 line pin routed by its file, and a malformed el is 400 bad_el with nothing stored. parse_el is checked on its own
-first. docs/handbook/api.md §핀 레코드 스키마 and §핀 수정 (`/api/pins/{id}/edit`) are the contract they extend.
+first. docs/handbook/api.md §그림 문서의 pick·핀 is the contract they extend.
 
 Run: uv run pytest -q src/limn/pins/editing/tests/test_figure_pins.py
 """

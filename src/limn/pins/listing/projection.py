@@ -4,7 +4,7 @@ GET /api/pins returns each stored record plus fields computed on every read and 
 the pin's state type), `rel` (its overlaps with other open line pins), `est` (whether its mark is only an estimate on
 the PDF on screen), `doc`, `addressed` and `fyi` (who it is handed to or tags for reference), and for a claim written
 before claim_ts existed the claim's start epoch - and, for a figure pin with an element, `mark`, `mark_page` and
-`el_sync` on its document's current map (docs/handbook/api.md §핀 읽기). GET /api/pins/dropped returns the Trash with
+`el_sync` on its document's current map (docs/handbook/api.md §그림 문서의 pick·핀). GET /api/pins/dropped returns the Trash with
 `expires_ts`. Both answers are the agent contract: field names, order and values must not change.
 
 Everything here is pure. What only the instance knows arrives as arguments: how a record is shown (the composition

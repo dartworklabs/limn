@@ -8,7 +8,7 @@ any of them loses nothing (docs/superpowers/plans/2026-09-30-figure-documents.md
 The releases check records in two ways. v0.3.5's valid_rec is an untyped shape predicate (server.valid_rec)
 that types kind, via, scope and el only as opaque strings/objects and passes every field it does not know; its
 PinStore takes that predicate directly (files, lock, valid, sync, render, refusal). v0.3.7 and v0.3.8 already have
-typed parsing (limn.pins.record.parse_record/parse_trashed, the same module this version's Task 2 extends) and a
+typed parsing (limn.pins.record.parse_record/parse_trashed, the same module this version extends with the `el` check) and a
 PinStore built from those two callables (files, lock, parse, parse_trashed, sync, render) bound to
 limn.documents.DOC_KEY_RE and limn.people.is_actor, same as server.parse_record does now. Both keep every field
 this version does not know and write it back unchanged.

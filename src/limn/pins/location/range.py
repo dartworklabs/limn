@@ -51,8 +51,8 @@ def snippet_api(rng: SourceRange, levels: bool, envs: Sequence[str], source_ladd
 def raw_ladder(lines: Sequence[str], lo: int, hi: int) -> dict[str, Any]:
     """The ladder of a range in a document whose rungs come from its element map rather than its text (a figure's
     drawing script): the raw rung alone - the lines as they are - and it is the default. Paragraph and environment
-    rungs are LaTeX rules and mean nothing in code; the element ladder is the pick's (docs/handbook/domain.md §범위
-    사다리)."""
+    rungs are LaTeX rules and mean nothing in code; the element ladder is the pick's (docs/handbook/api.md §그림 문서의
+    pick·핀)."""
     rung = {
         "level": "raw",
         "lo": lo,

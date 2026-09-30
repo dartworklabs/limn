@@ -503,9 +503,10 @@ class BadgeWords(unittest.TestCase):
 
     def test_skill_ko_shares_its_figure_literals_with_the_pins_md_guidance(self):
         """The Korean words pins.md's FIGURE_GUIDANCE teaches (the shared part, the lost marker, the figure repository,
-        asking a person) also stand in SKILL.ko.md, so the two cannot drift into contradiction unnoticed."""
+        asking a person, and not closing when the place cannot be found: 닫지 말고) also stand in SKILL.ko.md, so the two
+        cannot drift into contradiction unnoticed - a flip from "do not close" to "close" would drop the literal."""
         skill = SKILL_KO.read_text(encoding="utf-8")
-        for literal in ("공통 부품", "요소 잃음", "그림 저장소", "사람에게 묻"):
+        for literal in ("공통 부품", "요소 잃음", "그림 저장소", "사람에게 묻", "닫지 말고"):
             with self.subTest(literal=literal):
                 self.assertIn(literal, render.FIGURE_GUIDANCE)
                 self.assertIn(literal, skill)

@@ -1,5 +1,5 @@
-"""The `el` field of a figure pin: which element of a figure's map the pin points at (docs/handbook/api.md §핀
-레코드 스키마).
+"""The `el` field of a figure pin: which element of a figure's map the pin points at (docs/handbook/api.md §그림 문서의
+pick·핀).
 
 A figure pin records its element as {id, path, label?, part?, impl?: {file, lo, hi}, frac?}: id is the element's
 map id, path the ids from the page root down to it, label and part its display names, impl the lines of its shared
@@ -82,7 +82,7 @@ def element_of(v: object) -> PinElement | None:
     Total: is_element_record's frac check is shape-only (is_num, any int or float), so a stored frac may hold a
     NaN, an Infinity or an integer too large for float() to hold - each a line the store still keeps. Such a frac
     is dropped here (the rest of the element is still lifted) instead of raising, so a reader that calls this on
-    every open row (Task 8 pins_payload, Task 9 render.py, before any write) never turns one bad line into a
+    every open row (listing.projection.pins_payload, listing.markdown's pins.md facts, before any write) never turns one bad line into a
     failed GET/POST for every pin."""
     if not is_element_record(v):
         return None

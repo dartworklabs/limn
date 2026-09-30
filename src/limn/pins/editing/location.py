@@ -231,7 +231,8 @@ def parse_loc(d: Json, facts: DocumentFacts) -> LineLoc | InputRejected:
     pdf_build = d.get("pdf_build")  # the build on screen at drag time (pdf_build from the pick response)
     if pdf_build is not None and not valid_build_name(pdf_build):
         return InputRejected(PDF_BUILD_REFUSAL, "bad_pdf_build")
-    el = parse_el(d.get("el")) if facts.has_element_map else None  # a figure pin's element (api.md §핀 레코드 스키마)
+    # a figure pin's element (docs/handbook/api.md §그림 문서의 pick·핀)
+    el = parse_el(d.get("el")) if facts.has_element_map else None
     if isinstance(el, InputRejected):
         return el
     return LineLoc(

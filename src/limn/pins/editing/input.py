@@ -35,7 +35,7 @@ def parse_add(d: Json, known: Collection[str], facts: DocumentFacts) -> AddReque
     """A POST /api/pin body for the request's document -> the new pin's validated place and fields, or the first
     field refused, in the contract's order: the location first - a region (parse_region, which refuses
     file/lo/hi/scope) on a view-only document, and on a figure document when the body names no file, lo or hi (an
-    element drawn without code, docs/handbook/api.md §보기 전용 PDF 문서의 pick·핀); lines (parse_loc, which reads the
+    element drawn without code, docs/handbook/api.md §그림 문서의 pick·핀); lines (parse_loc, which reads the
     named file) otherwise. A figure document's place keeps the body's el (parse_el). Then note, kind_req, mention hints
     and assignee (known: the logins supplied by EditingRequests)."""
     place: Place

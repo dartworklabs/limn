@@ -275,7 +275,7 @@ REPLY_GUIDANCE = (
 
 
 # The guidance clause pins.md adds while figure pins are open: a pin with an el, or a region pin on a figure document
-# (docs/handbook/api.md §pins.md 형식). A figure pin's fix is in the figure repository, never in the LaTeX document.
+# (docs/handbook/api.md §그림 핀의 행). A figure pin's fix is in the figure repository, never in the LaTeX document.
 FIGURE_GUIDANCE = (
     " · 그림 핀(메모 앞 «요소 이름»)의 위치 칸은 그 요소를 그린 코드 줄이다 — 그 줄을 고친다 · "
     "'공통 부품: 파일:줄' 은 여러 그림이 함께 쓰는 정의라, 요청이 공통 모양에 관한 것이면 한 그림만 덮어쓰지 말고 사람에게 묻는다 · "
@@ -288,7 +288,7 @@ FIGURE_GUIDANCE = (
 
 def element_quote(r: Record) -> str:
     """A figure pin's element name in front of its note, «label» - always, with no length condition, when the pin has
-    a well-formed el with a label; "" otherwise (docs/handbook/api.md §pins.md 형식)."""
+    a well-formed el with a label; "" otherwise (docs/handbook/api.md §그림 핀의 행)."""
     el = element_of(r.get("el"))
     return "«%s» " % md_cell(el.label) if el is not None and el.label else ""
 

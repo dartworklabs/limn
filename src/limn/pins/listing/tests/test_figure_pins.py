@@ -1,8 +1,8 @@
 """Figure pins as the listing reads them through the server: GET /api/pins and /api/pins/{id} carry the read-time
 mark, mark_page and el_sync of each pin with an element, computed on the build on screen and never written - a
-re-render moves or loses the mark without touching pins.jsonl or rev (docs/handbook/api.md §핀 읽기) - and pins.md
+re-render moves or loses the mark without touching pins.jsonl or rev (docs/handbook/api.md §그림 문서의 pick·핀) - and pins.md
 shows the same pins as rows: the element's «label», its shared part and 요소 잃음, rendered on request through the
-same per-request map lookup (docs/handbook/api.md §pins.md 형식).
+same per-request map lookup (docs/handbook/api.md §그림 핀의 행).
 
 Run: uv run pytest -q src/limn/pins/listing/tests/test_figure_pins.py
 """
@@ -495,7 +495,7 @@ class FigureMarkdown(FigureBase):
     def test_get_pins_md_renders_the_build_on_screen_on_request(self):
         """A build put on screen without an import (no hook ran) still shows in GET /pins.md, which renders on request: the
         August row already says 요소 잃음. The guidance explains the word, so it is the pin's row that is compared, not
-        the whole text."""
+        the whole text. The limit of the file on disk is docs/handbook/domain.md §그림 핀의 한계."""
         write_build(self.fig, BUILD2, b2_map(august=False))
         code, _, body = split_resp(self.talk(req("GET", "/pins.md")))
         self.assertEqual(code, 200)

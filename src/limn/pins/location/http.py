@@ -158,8 +158,8 @@ def pick_warning(p: Picked) -> str:
 
 def _element_body(p: PickedElement) -> Body:
     """The body of a drag traced through a figure's map: the traced-selection body's keys in their contract order -
-    the default rung's lines, via "map", the element's kind and name - then el (docs/handbook/api.md §핀 만들기와
-    상태 바꾸기, the pick row). The score is rounded to two decimals like a traced selection's: full containment
+    the default rung's lines, via "map", the element's kind and name - then el (docs/handbook/api.md §그림 문서의
+    pick·핀). The score is rounded to two decimals like a traced selection's: full containment
     computes a cover a hair under 1.0. Only the body is rounded - element_warning still tests the unrounded score
     against WEAK_SCORE."""
     first = p.rungs[0]
@@ -188,7 +188,7 @@ def _element_body(p: PickedElement) -> Body:
 
 
 def _rung_level(r: Rung) -> dict[str, object]:
-    """One levels entry of a map pick, keys in the index's order (§Pick answer): level, lo, hi, n, label, snippet, then
+    """One levels entry of a map pick, keys in the contract's order (docs/handbook/api.md §그림 문서의 pick·핀): level, lo, hi, n, label, snippet, then
     its el, then merged when outer rungs had the same lines."""
     out: dict[str, object] = {
         "level": r.level,

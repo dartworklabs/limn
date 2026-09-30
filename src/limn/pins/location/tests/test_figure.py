@@ -1,8 +1,8 @@
 """The figure branch of POST /api/pick (pins/location/figure.py): a drag on a figure document traced through
 its build's element map. First the ladder rungs and the answer bodies as pure values, then the pick through the
 location feature's HTTP entry on a real state folder with a figure build (tests/support/helpers_figure.py).
-docs/handbook/api.md §보기 전용 PDF 문서의 pick·핀 is the region answer it falls back to; docs/handbook/domain.md
-§범위 사다리 the ladder.
+docs/handbook/api.md §그림 문서의 pick·핀 is the answer, region fallback included; docs/handbook/domain.md
+§그림 문서의 요소 pick the rules.
 
 Run: uv run pytest -q src/limn/pins/location/tests/test_figure.py
 """

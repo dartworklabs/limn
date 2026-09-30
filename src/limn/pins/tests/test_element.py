@@ -63,8 +63,8 @@ class Shape(unittest.TestCase):
 
 class NonFiniteFrac(unittest.TestCase):
     """A stored frac the shape check accepts (is_num asks only int-or-float, not finite or in range) but that is
-    not a usable box: element_of must lift the rest of the element and drop frac, never raise. Task 8's
-    pins_payload and Task 9's render.py call element_of on every open row before any write, so a raise here would
+    not a usable box: element_of must lift the rest of the element and drop frac, never raise. The listing's
+    pins_payload and the pins.md facts call element_of on every open row before any write, so a raise here would
     break GET /api/pins and every pin write for an unrelated line."""
 
     def test_a_frac_with_nan_is_dropped_without_raising(self):

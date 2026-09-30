@@ -81,7 +81,7 @@ Limn(림, "또렷이 그리다")은 원고 PDF를 브라우저에 띄운다. 사
      - 메모 앞 `«…»` 는 요소 이름이고, 메모 뒤 `공통 부품: <파일>:<lo>-<hi>` 는 공통 부품의 정의다.
      - 위치 칸이 `쪽 N, 영역 …` 인 그림 핀은 코드 줄이 없다. 요소를 코드 없이 그렸거나(예: 디자인 파일), 그 요소의 스크립트나 지도를 읽지 못했다는 뜻이다. 쪽·요소 이름·메모로 그림 저장소에서 고칠 곳을 찾는다. 요소가 디자인 도구에서 왔으면 고치지 말고 보고한다. 고칠 곳을 못 찾으면 닫지 말고 사람에게 묻거나 보고한다.
    - **저장소를 확인한다(강제).** 머리줄 `논문: <이름표> · 저장소: <url>` 이 있으면 자기 체크아웃의 `git remote get-url origin` 과 같은지 본다. 다르면 다른 논문의 핀이니 처리하지 말고 멈추고 보고한다(여러 인스턴스가 동시에 돌 때의 안전판).
-2. **기준 커밋을 맞춘다.** `기준: <head> · 빌드 <built_at>` 줄(단일 문서는 머리, 여러 문서는 소절마다)이 있고 다른 체크아웃에서 처리하면, `git rev-parse --short HEAD` 가 같은지 먼저 본다.
+2. **기준 커밋을 맞춘다.** `기준: <head> · 빌드 <built_at>` 줄(단일 문서는 머리, 여러 문서는 소절마다)이 있고 다른 체크아웃에서 처리하면, `git rev-parse --short HEAD` 가 같은지 먼저 본다. 원고에서 빌드하지 않는 문서(그림 문서, 보기 전용 PDF)의 소절에서는 `기준: <head> · 그림 <built_at>` 으로 읽힌다. 확인은 같다.
 3. **처리 범위를 정한다.**
    - 부탁받은 쪽이 그 시점 열린 핀을 **전부** 처리한다. 누가 남겼는지와 무관하다(저자 결정 2026-09-22).
    - 사용자가 번호를 지목했으면 그 핀만.
@@ -155,7 +155,7 @@ Limn(림, "또렷이 그리다")은 원고 PDF를 브라우저에 띄운다. 사
 - 메모·범위를 고칠 때는 `GET /api/pins` 의 `rev` 를 `/edit` 의 `base_rev` 로 보낸다. `409 conflict` 면 응답의 최신 `pin` 을 보고 다시 보낸다. 덧붙이기만 하면 `note_append`(`base_rev` 불필요).
 - 오류 응답은 늘 `{"error": "<한국어 문장>", "reason": "<코드>"}` 다. 분기는 안정 코드 `reason`(`viewer_only`·`conflict`·`pin_not_found` 등 영문 소문자)으로 하고, 문장은 사람이 읽는 것이다. 코드 목록은 `docs/handbook/api.md` §오류 응답.
 - 원고를 고친 뒤 재빌드는 `GET /api/docs` 의 `kind` 가 `"tex"` 인 문서만 한다: `POST /api/rebuild?async=1&doc=<키>`(단일 문서는 `doc` 생략). 옛 PDF 위의 pick 은 줄 번호가 어긋난다. 보기 전용 PDF(`"pdf"`)와 그림 문서(`"figure"`)는 재빌드가 없고 `POST /api/rebuild` 는 `400` 이다.
-- 그림 핀(제목이 `… — 그림(요소 지도)` 인 소절의 핀): 위치 칸의 줄(그 요소를 그린 호출)을 고친다. 요청이 공통 모양에 관한 것이면 — 요소의 `공통 부품` 을 고치면 그 부품을 쓰는 그림이 모두 바뀐다 — 한 그림만 덮어쓰지 말고 사람에게 묻는다. 닫기 전에 그림 저장소에서 그림을 다시 렌더하고(그 저장소의 명령, 예: `make figures`) 커밋한다. 그래야 사람이 고친 그림을 본다. 새 PDF와 지도는 Limn 이 알아서 가져온다.
+- 그림 핀(제목이 `… — 그림(요소 지도)` 인 소절의 핀): 위치 칸의 줄(그 요소를 그린 호출)을 고친다. 요청이 공통 모양에 관한 것이면 — 요소의 `공통 부품` 을 고치면 그 부품을 쓰는 그림이 모두 바뀐다 — 한 그림만 덮어쓰지 말고 사람에게 묻는다. 묻는 법은 핀을 열어 둔 채 그 핀에 답글로 질문을 다는 것이다(`POST /api/pins/N/reply`, 질문 핀과 같다). 닫지 않는다. 고친 뒤에는 그림 저장소에서 그림을 다시 렌더한다(그 저장소의 명령, 예: `make figures`). Limn 이 PDF와 지도를 지켜보다 알아서 가져오므로, 다시 렌더해야 사람이 고친 그림을 본다. 핀을 닫기 전에 고친 것을 커밋한다. 닫을 때 보내는 `changes` 와 `ref` 에 그 커밋이 필요하다.
 
 ## 사용자에게 뷰어 띄워 주기
 
@@ -170,7 +170,7 @@ Limn(림, "또렷이 그리다")은 원고 PDF를 브라우저에 띄운다. 사
    - `--port` 를 빼면 서버가 빈 포트를 골라 기동 로그에 찍는다.
    - 일회성 서버를 내릴 때 `pkill -f limn` 금지. `pid=$(lsof -ti tcp:<port>); [ -n "$pid" ] && kill $pid`.
 3. **실행한다.**
-   - 일회성: `limn serve --manuscript <dir> [--main main.tex | --doc KEY=NAME:PATH ...] [--port N] [--state-dir DIR]`. `--doc`(반복)은 논문 저장소 하나의 문서 여럿을 한 주소에서 고르게 한다. `.tex` 는 LaTeX, `.pdf` 는 보기 전용. 직접 띄울 때는 **원고마다 `--state-dir` 과 포트를 따로 둔다** — 같은 값을 공유하면 핀이 섞인다. 다른 인자(`--git-pull`·`--label`·`--accent` 등)는 `limn serve --help` 와 [operations.md](../docs/handbook/operations.md).
+   - 일회성: `limn serve --manuscript <dir> [--main main.tex | --doc KEY=NAME:PATH ...] [--port N] [--state-dir DIR]`. `--doc`(반복)은 논문 저장소 하나의 문서 여럿을 한 주소에서 고르게 한다. `.tex` 는 LaTeX, `.pdf` 는 보기 전용, `.limnmap.json`(소문자)으로 끝나는 경로는 그림 문서다. 그 지도가 가리키는 PDF를 Limn 이 가져온다. 직접 띄울 때는 **원고마다 `--state-dir` 과 포트를 따로 둔다** — 같은 값을 공유하면 핀이 섞인다. 다른 인자(`--git-pull`·`--label`·`--accent` 등)는 `limn serve --help` 와 [operations.md](../docs/handbook/operations.md).
    - 상시, 원고마다 하나: `limn add <이름> --manuscript <dir> ...` 이 포트를 배정하고 설정을 쓰고 `limn@<이름>` 을 켜고 `tailscale serve` 까지 잡는다. 그다음 `limn list`, `limn status <이름>`, `limn url <이름>`. `limn snippet <이름>` 은 논문 저장소 AGENTS.md 에 붙일 조각을 찍는다 — 에이전트가 인스턴스를 찾는 입구다. 운영 안내: [instances.md](../docs/handbook/instances.md).
 4. **노출한다 — Hard Rule.**
 

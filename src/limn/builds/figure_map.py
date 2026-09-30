@@ -444,7 +444,7 @@ def _tree_rejection(elements: tuple[MapElement, ...], where: str) -> MapRejected
 
 # ---------------------------------------------------------------- Picking an element and following it (P1b)
 #
-# docs/handbook/domain.md §역변환이 두 경로인 이유 and §범위 사다리 describe the pick and the ladder these rules extend.
+# docs/handbook/domain.md §그림 문서의 요소 pick and §그림 핀의 요소 위치 — 읽을 때 계산한다 describe these rules.
 
 COVER_MIN = 0.6  # an element holding at least this share of the drag is a candidate (step 1)
 FILL_MIN = 0.5  # an element the drag covers at least this share of joins the common-ancestor step (step 2)

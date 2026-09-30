@@ -1,6 +1,6 @@
 """The figure branch of POST /api/pick: a drag on a figure document traced through its build's element map to the
-lines of code that drew the element (the ladder: docs/handbook/domain.md §범위 사다리; the region fallback:
-docs/handbook/api.md §보기 전용 PDF 문서의 pick·핀).
+lines of code that drew the element (the ladder: docs/handbook/domain.md §그림 문서의 요소 pick; the answers:
+docs/handbook/api.md §그림 문서의 pick·핀).
 
 resolve.pick sends a figure document here before anything else. The map comes from the composition root
 (PickContext.figure_map: the pick's own build's copy, parsed once per build); which element and which ladder are
