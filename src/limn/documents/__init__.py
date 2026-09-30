@@ -4,15 +4,18 @@ from importlib import import_module
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    from .application import DocumentsSubsystem as DocumentsSubsystem, assemble_documents as assemble_documents
     from .reads import MetaSettings as MetaSettings
     from .routes import get as get_route
     from .service import DocumentViews as DocumentViews
 
-__all__ = ["DocumentViews", "MetaSettings", "get_route"]
+__all__ = ["DocumentViews", "DocumentsSubsystem", "MetaSettings", "assemble_documents", "get_route"]
 
 _EXPORTS = {
     "DocumentViews": ("service", "DocumentViews"),
+    "DocumentsSubsystem": ("application", "DocumentsSubsystem"),
     "MetaSettings": ("reads", "MetaSettings"),
+    "assemble_documents": ("application", "assemble_documents"),
     "get_route": ("routes", "get"),
 }
 

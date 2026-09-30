@@ -1308,7 +1308,6 @@ class ScopeReviewRegressions(AccessBase):
 
         repo, paths = revisions.revision_scope(ps.APP.docs[0])
         revs = revision_history(ps.APP.docs[0])["revisions"]
-        rows = records(ps.APP.read_pins()[0])
 
         def request(pid):
             """One scoping request for pid, counted as started before it asks for a slot."""
@@ -1316,7 +1315,7 @@ class ScopeReviewRegressions(AccessBase):
                 state["started"] += 1
                 cond.notify_all()
             revisions.revision_pin_scope(
-                ps.APP.docs[0], rows, repo, tuple(paths), base, X, pid, revs, ps.APP.revision_context()
+                ps.APP.docs[0], repo, tuple(paths), base, X, pid, revs, ps.APP.revision_context()
             )
 
         with mock.patch.object(revisions, "revision_changes", side_effect=held):

@@ -29,7 +29,7 @@ import os
 import sys
 import threading
 import time
-from collections.abc import Callable, Iterable, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime
 from email.message import Message
@@ -56,8 +56,14 @@ from limn.builds import (
     post_route as build_post,
     seed_builds as build_seed_builds,
 )
-from limn.collaboration import Notices, PeopleDirectory, ReadCache as events_ReadCache, get_route as collaboration_get
-from limn.documents import DocumentViews, MetaSettings, get_route as document_get
+from limn.collaboration import (
+    NoticeSink,
+    PeopleView,
+    ReadCache as events_ReadCache,
+    assemble_collaboration,
+    get_route as collaboration_get,
+)
+from limn.documents import DocumentViews, MetaSettings, assemble_documents, get_route as document_get
 from limn.pins import (
     PICK_PATH,
     PIN_PATH,
@@ -79,6 +85,7 @@ from limn.pins import (
     PinLocation,
     PinLocationService,
     PinMarkdown,
+    PinReadView,
     PinStore,
     PinTrash,
     Record,
@@ -94,6 +101,7 @@ from limn.pins import (
     locate_file,
     location_get as location_get,
     location_post as location_post,
+    note_tags as pin_note_tags,
     overlaps_by_id as locate_overlaps_by_id,
     overlaps_for_range as locate_overlaps_for_range,
     parse_record as record_parse_record,
@@ -113,7 +121,6 @@ from limn.platform.git import git as _git
 from limn.revisions import (
     REVISION_PATH,
     RevisionContext,
-    RevisionDoc,
     RevisionJobs,
     RevisionRequests,
     ScopeCache,
@@ -368,8 +375,9 @@ class ServerApplication:
     location_service: PinLocationService = field(init=False)
     build_requests: BuildRequests = field(init=False)
     build_view: BuildView = field(init=False)
-    people_directory: PeopleDirectory = field(init=False)
-    notices: Notices = field(init=False)
+    pin_view: PinReadView = field(init=False)
+    people_directory: PeopleView = field(init=False)
+    notices: NoticeSink = field(init=False)
     document_views: DocumentViews = field(init=False)
     sync_service: SyncService = field(init=False)
     revision_requests: RevisionRequests = field(init=False)
@@ -380,28 +388,44 @@ class ServerApplication:
 
     def __post_init__(self) -> None:
         """Bind pin features to this application's context factory."""
-        self.people_directory = PeopleDirectory(
+        self.build_view = BuildView()
+        self.pin_view = PinReadView(
+            self.read_pins,
+            self.snapshot_pins,
+            self.pin_doc_key,
+            lambda value, document: (
+                location.path
+                if (
+                    location := locate_file(
+                        value.get("file") if isinstance(value, Mapping) else value,
+                        value.get("file_rel") if isinstance(value, Mapping) else None,
+                        self.C.src,
+                        self.C.state,
+                        document,
+                    )
+                )
+                is not None
+                else None
+            ),
+        )
+        collaboration = assemble_collaboration(
             state=lambda: self.C.state,
             people_file=lambda: self.C.people_file,
-            lock=lambda: self.RT.people_lock,
+            people_lock=lambda: self.RT.people_lock,
             seen=lambda: self.RT.people_seen,
             warning=lambda: self.RT.people_warning,
-            read_pins=self.read_pins,
-            snapshot_pins=self.snapshot_pins,
+            pins=self.pin_view,
             roles=self.people_roles,
             clock=lambda: time.time(),
-        )
-        self.notices = Notices(
-            path=lambda: self.C.events_file,
-            lock=lambda: self.RT.events_lock,
+            events_path=lambda: self.C.events_file,
+            events_lock=lambda: self.RT.events_lock,
             cache=lambda: self.RT.events_cache,
-            clock=lambda: time.time(),
             stamp=lambda: self.now_str(),
-            pin_doc_key=self.pin_doc_key,
+            document_key=self.pin_doc_key,
             docs=lambda: self.docs,
-            known_people=self.people_directory.known,
         )
-        self.build_view = BuildView()
+        self.people_directory = collaboration.people
+        self.notices = collaboration.notices
         self.pin_lifecycle = PinLifecycle(self.pin_context)
         self.pin_claims = PinClaims(self.pin_context)
         self.pin_trash = PinTrash(self.pin_context)
@@ -414,7 +438,7 @@ class ServerApplication:
             self.public,
         )
         self.pin_listing = PinListing(self, TRASH_DAYS)
-        self.pin_markdown = PinMarkdown(self, self.people_directory.known, self.build_view)
+        self.pin_markdown = PinMarkdown(self, self.known_pin_people, self.build_view)
         self.location_service = PinLocationService(
             lambda: PickContext(
                 self.C.src, self.C.envs, self.C.state, self.RT.token_cache, self.overlaps_for_range, self.build_view
@@ -441,7 +465,7 @@ class ServerApplication:
                 stamp=local_stamp,
             )
         )
-        self.document_views = DocumentViews(
+        self.document_views = assemble_documents(
             settings=lambda: MetaSettings(
                 state=self.C.state,
                 pins_md=self.C.pins_md,
@@ -453,13 +477,11 @@ class ServerApplication:
             ),
             docs=self.docs,
             sync_status=self.sync_service.status,
-            read_pins=self.read_pins,
-            snapshot_pins=self.snapshot_pins,
-            pin_doc_key=self.pin_doc_key,
+            pins=self.pin_view,
             events_since=self.notices.since,
             now=lambda: time.time(),
             builds=self.build_view,
-        )
+        ).views
         self.revision_requests = RevisionRequests(self.revision_context)
         self.get_routes = (
             lambda request: viewer_shell_get(request, self),
@@ -521,18 +543,9 @@ class ServerApplication:
     def revision_context(self) -> RevisionContext:
         """The revision services' view of this instance, made per request like pin_store(), so a test (or main()) that
         changes C is seen at once."""
-        root, state = self.C.src, self.C.state
-
-        def locate(file: str, D: RevisionDoc) -> Path | None:
-            """Where a recorded change's path of document D is under the manuscript root now (locate_file, issue #24)."""
-            loc = locate_file(file, None, root, state, D)
-            return loc.path if loc is not None else None
-
         return RevisionContext(
             timeout=self.C.timeout,
-            pins=lambda: [self.public(pin.record) for pin in self.read_pins()[0]],
-            doc_of=self.pin_doc_key,
-            locate=locate,
+            pins=self.pin_view,
             cache=self.RT.scope_cache,
             jobs=self.RT.revision_jobs,
             describe=revision_failure_text,
@@ -653,6 +666,14 @@ class ServerApplication:
         """A known person's display name, or the login itself for someone the viewer does not know."""
         return (self.people_directory.known().get(login) or {}).get("name") or login
 
+    def known_pin_people(self, pins: Sequence[Pin] | None = None) -> dict[str, Json]:
+        """Return known people, optionally including actor facts from the supplied pins."""
+        return self.people_directory.known(None if pins is None else [dict(pin.record) for pin in pins])
+
+    def known_record_people(self, records: Sequence[Mapping[str, object]]) -> dict[str, Json]:
+        """Return known people with detached record facts for pin-owned policies."""
+        return self.people_directory.known([dict(record) for record in records])
+
     def request_doc(self, key: str | None, file_hint: object | None = None) -> Doc | DocNotFound:
         """The document of this instance that key names, else the one holding file_hint, else the first; DocNotFound for a
         key it does not serve (limn.runtime.documents.request_doc)."""
@@ -675,8 +696,18 @@ class ServerApplication:
             emit_events=self.notices.emit_events,
             who=who,
             audit=self.http_audit,
-            known_people=self.people_directory.known,
-            note_tags=self.notices.note_tags,
+            known_people=self.known_pin_people,
+            note_tags=lambda note, old, pins, hints, actor, pid: pin_note_tags(
+                note,
+                old,
+                pins,
+                hints,
+                actor,
+                pid,
+                self.known_record_people,
+                lambda: self.notices.read()[0],
+                time.time,
+            ),
             role_of=self.role_of,
             person_name=self._person_name,
             locate=self.record_locator(),

@@ -4,6 +4,14 @@ from importlib import import_module
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    from .application import (
+        PinCommands as PinCommands,
+        PinReadView as PinReadView,
+        PinRoutes as PinRoutes,
+        PinStartup as PinStartup,
+        PinSubsystem as PinSubsystem,
+        assemble_pins as assemble_pins,
+    )
     from .claims import PinClaims as PinClaims, pin_actions as claims_actions
     from .context import Json as Json, PinContext as PinContext, is_agent as is_agent, who as who
     from .editing import (
@@ -39,7 +47,12 @@ if TYPE_CHECKING:
         sync_all as sync_all,
     )
     from .location.position import EstContext as EstContext
-    from .mentions import NoteTags as NoteTags, note_mention_targets as note_mention_targets, tag_note as tag_note
+    from .mentions import (
+        NoteTags as NoteTags,
+        note_mention_targets as note_mention_targets,
+        note_tags as note_tags,
+        tag_note as tag_note,
+    )
     from .model import (
         EventType as EventType,
         OpenPin as OpenPin,
@@ -55,6 +68,7 @@ if TYPE_CHECKING:
     from .trash import PinTrash as PinTrash, other_posts as trash_posts, pin_actions as trash_actions
 
 __all__ = [
+    "assemble_pins",
     "Broken",
     "EditScope",
     "EditingRequests",
@@ -70,6 +84,7 @@ __all__ = [
     "PickContext",
     "Pin",
     "PinClaims",
+    "PinCommands",
     "PinContext",
     "PinEditing",
     "PinFiles",
@@ -78,7 +93,11 @@ __all__ = [
     "PinLocation",
     "PinLocationService",
     "PinMarkdown",
+    "PinReadView",
+    "PinRoutes",
+    "PinStartup",
     "PinStore",
+    "PinSubsystem",
     "PinTrash",
     "Record",
     "Row",
@@ -98,6 +117,7 @@ __all__ = [
     "location_get",
     "location_post",
     "note_mention_targets",
+    "note_tags",
     "overlaps_by_id",
     "overlaps_for_range",
     "parse_record",
@@ -117,6 +137,7 @@ __all__ = [
 ]
 
 _EXPORTS = {
+    "assemble_pins": ("application", "assemble_pins"),
     "Broken": ("record", "Broken"),
     "EditScope": ("editing", "EditScope"),
     "EditingRequests": ("editing", "EditingRequests"),
@@ -132,6 +153,7 @@ _EXPORTS = {
     "PickContext": ("location", "PickContext"),
     "Pin": ("model", "Pin"),
     "PinClaims": ("claims", "PinClaims"),
+    "PinCommands": ("application", "PinCommands"),
     "PinContext": ("context", "PinContext"),
     "PinEditing": ("editing", "PinEditing"),
     "PinFiles": ("store", "PinFiles"),
@@ -140,7 +162,11 @@ _EXPORTS = {
     "PinLocation": ("location.lookup", "PinLocation"),
     "PinLocationService": ("location", "PinLocationService"),
     "PinMarkdown": ("listing", "PinMarkdown"),
+    "PinReadView": ("application", "PinReadView"),
+    "PinRoutes": ("application", "PinRoutes"),
+    "PinStartup": ("application", "PinStartup"),
     "PinStore": ("store", "PinStore"),
+    "PinSubsystem": ("application", "PinSubsystem"),
     "PinTrash": ("trash", "PinTrash"),
     "Record": ("model", "Record"),
     "Row": ("store", "Row"),
@@ -160,6 +186,7 @@ _EXPORTS = {
     "location_get": ("location", "get_route"),
     "location_post": ("location", "post_route"),
     "note_mention_targets": ("mentions", "note_mention_targets"),
+    "note_tags": ("mentions", "note_tags"),
     "overlaps_by_id": ("location.lookup", "overlaps_by_id"),
     "overlaps_for_range": ("location.lookup", "overlaps_for_range"),
     "parse_record": ("record", "parse_record"),

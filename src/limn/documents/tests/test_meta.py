@@ -292,7 +292,7 @@ class Meta(Fixture):
         for name in ("main.tex", "review.pdf"):
             os.utime(self.src / name, (later, later))
         docs = [self.ms, self.rv]
-        briefs = meta.docs_payload(docs, [], lambda r: "ms", self.state)["docs"]
+        briefs = meta.docs_payload(docs, {}, 0, self.state)["docs"]
         self.assertEqual(
             [(b["key"], b["stale_build"], b["view_only"]) for b in briefs], [("ms", True, False), ("rv", False, True)]
         )
@@ -321,13 +321,12 @@ class Meta(Fixture):
 
 
 class DocsPayload(Fixture):
-    """docs_payload counts open pins per document from the records it is given."""
+    """docs_payload renders open counts supplied by the pin read boundary."""
 
     def test_counts_open_pins_per_document_and_orphans(self):
         """Done pins are not counted; a key no document serves goes to other_open; the first document is default."""
-        rows = [{"doc": "rr"}, {"doc": "rr"}, {"doc": "rr", "done": True}, {}, {"doc": "gone"}]
         docs = [self.ms, self.rr, self.rv]
-        out = meta.docs_payload(docs, rows, lambda r: documents.pin_doc_key(r, docs), self.state)
+        out = meta.docs_payload(docs, {"ms": 1, "rr": 2, "gone": 1}, 1, self.state)
         self.assertEqual([(d["key"], d["n_open"]) for d in out["docs"]], [("ms", 1), ("rr", 2), ("rv", 0)])
         self.assertEqual((out["default"], out["multi"], out["other_open"]), ("ms", True, 1))
         self.assertEqual(out["docs"][1]["path"], "rr/rr.tex")

@@ -11,14 +11,13 @@ value - the --git-pull sync status, the pins as read, which document a pin belon
 the agent contract; a change here must keep every body byte-identical.
 """
 
-from collections.abc import Callable, Iterable, Mapping, Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 from limn.builds import BuildView
 from limn.documents.outline import toc_labels
-from limn.pins import OpenPin, state_of
 from limn.runtime.documents import Doc
 
 AUX_MAX_BYTES = 4 * 1024 * 1024  # a larger .aux is not read for outline labels
@@ -79,25 +78,19 @@ def doc_brief(D: Doc, state_dir: Path, builds: BuildView = _DEFAULT_BUILDS) -> d
 
 def docs_payload(
     docs: Sequence[Doc],
-    rows: Iterable[Mapping[str, Any]],
-    doc_of: Callable[[Mapping[str, Any]], str],
+    open_counts: Mapping[str, int],
+    other_open: int,
     state_dir: Path,
     builds: BuildView = _DEFAULT_BUILDS,
 ) -> dict[str, Any]:
     """GET /api/docs: every document of docs (the first is the default) with its open-pin count, from the pin records
     rows as read (doc_of says which document a record belongs to). Open pins of a key no document serves any more are
     counted in other_open."""
-    counts: dict[str, int] = {}
-    for r in rows:
-        if state_of(r) is OpenPin:
-            k = doc_of(r)
-            counts[k] = counts.get(k, 0) + 1
-    known = {d.key for d in docs}
     return {
-        "docs": [dict(doc_brief(d, state_dir, builds), n_open=counts.get(d.key, 0)) for d in docs],
+        "docs": [dict(doc_brief(d, state_dir, builds), n_open=open_counts.get(d.key, 0)) for d in docs],
         "default": docs[0].key,
         "multi": len(docs) > 1,
-        "other_open": sum(v for k, v in counts.items() if k not in known),
+        "other_open": other_open,
     }
 
 

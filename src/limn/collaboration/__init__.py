@@ -4,17 +4,36 @@ from importlib import import_module
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    from .application import (
+        CollaborationSubsystem as CollaborationSubsystem,
+        NoticeSink as NoticeSink,
+        PeopleView as PeopleView,
+        assemble_collaboration as assemble_collaboration,
+    )
     from .directory import PeopleDirectory as PeopleDirectory
     from .events import ReadCache as ReadCache
     from .notices import Notices as Notices
     from .routes import get as get_route
 
-__all__ = ["Notices", "PeopleDirectory", "ReadCache", "get_route"]
+__all__ = [
+    "CollaborationSubsystem",
+    "NoticeSink",
+    "Notices",
+    "PeopleDirectory",
+    "PeopleView",
+    "ReadCache",
+    "assemble_collaboration",
+    "get_route",
+]
 
 _EXPORTS = {
+    "CollaborationSubsystem": ("application", "CollaborationSubsystem"),
+    "NoticeSink": ("application", "NoticeSink"),
     "Notices": ("notices", "Notices"),
     "PeopleDirectory": ("directory", "PeopleDirectory"),
+    "PeopleView": ("application", "PeopleView"),
     "ReadCache": ("events", "ReadCache"),
+    "assemble_collaboration": ("application", "assemble_collaboration"),
     "get_route": ("routes", "get"),
 }
 
