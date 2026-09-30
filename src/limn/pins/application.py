@@ -141,7 +141,7 @@ class PinSubsystem:
 def assemble_pins(
     *,
     settings: Callable[[], RunConfig],
-    resources: Callable[[], RuntimeResources[object, object, object, object, object, TokenCache]],
+    resources: Callable[[], RuntimeResources[object, object, object, object, object, TokenCache, object]],
     docs: list[Doc],
     builds: BuildView,
     known_people: Callable[[Sequence[Json] | None], dict[str, Json]],

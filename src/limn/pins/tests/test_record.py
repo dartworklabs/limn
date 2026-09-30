@@ -10,12 +10,16 @@ rules are stand-ins, so each test also sees that the check asks them - and only 
 Run: uv run pytest -q src/limn/pins/tests/test_record.py
 """
 
+import json
 import unittest
+from pathlib import Path
 
 from limn.pins.model import DonePin, OpenPin, Region, TrashedPin
 from limn.pins.record import THREAD_EVENTS, Broken, fits_record, is_int, parse_record, parse_trashed
 
 from helpers import Base, ps
+
+CORPUS = Path(__file__).resolve().parents[4] / "tests" / "data" / "pin_records.jsonl"
 
 ALICE_ACTOR = {"login": "alice@example.com", "name": "Alice Kim"}
 LINE = {
@@ -204,6 +208,74 @@ class Thread(unittest.TestCase):
             self.assertFalse(check(dict(LINE, thread=[self.entry(**bad)])), bad)
         self.assertFalse(check(dict(LINE, thread="hi")))
         self.assertFalse(check(dict(LINE, thread=["hi"])))
+
+
+class FigureElement(unittest.TestCase):
+    """A figure pin's optional `el` (limn.pins.element): the check vouches for its shape; a line pin and a region pin
+    may carry one; a malformed one breaks the line like any other field."""
+
+    EL = {
+        "id": "B2/calendar/m07",
+        "path": ["B2", "B2/calendar", "B2/calendar/m07"],
+        "label": "7월",
+        "part": "MonthCell",
+        "impl": {"file": "lib/components.py", "lo": 410, "hi": 470},
+        "frac": [0.47, 0.18, 0.07, 0.12],
+    }
+
+    def test_line_and_region_pins_with_an_element_pass(self):
+        """A line pin with el and the figure values of kind, via and scope; a region pin with el; a null el."""
+        self.assertTrue(check(dict(LINE, el=self.EL, scope="el", kind="el:MonthCell", via="map")))
+        self.assertTrue(
+            check(dict(REGION, el={"id": "B2/calendar/m08", "path": ["B2", "B2/calendar", "B2/calendar/m08"]}))
+        )
+        self.assertTrue(check(dict(LINE, el=None)))
+
+    def test_a_malformed_element_breaks_the_line(self):
+        """Not an object, an empty or non-string id, no path or a non-string entry, a non-string label or part, an impl
+        that is not {file: str, lo: int, hi: int}, or a frac that is not four numbers: broken, line or region pin."""
+        for bad in (
+            "B2",
+            [],
+            {"path": ["B2"]},
+            {"id": "", "path": []},
+            {"id": 7, "path": []},
+            {"id": "B2"},
+            {"id": "B2", "path": "B2"},
+            {"id": "B2", "path": ["B2", 3]},
+            {**self.EL, "label": 7},
+            {**self.EL, "part": ["x"]},
+            {**self.EL, "impl": "lib.py"},
+            {**self.EL, "impl": {"file": 3, "lo": 1, "hi": 2}},
+            {**self.EL, "impl": {"file": "a.py", "lo": True, "hi": 2}},
+            {**self.EL, "impl": {"file": "a.py", "lo": 1}},
+            {**self.EL, "frac": [0.1, 0.2, 0.3]},
+            {**self.EL, "frac": [0.1, 0.2, 0.3, "x"]},
+        ):
+            with self.subTest(bad=bad):
+                self.assertFalse(check(dict(LINE, el=bad)))
+                self.assertFalse(check(dict(REGION, el=bad)))
+
+    def test_a_non_finite_frac_does_not_break_the_line(self):
+        """A NaN, an Infinity or an oversized integer in el.frac is still a shape the check trusts (is_num asks
+        only int-or-float): the line stays unbroken. element_of, not this check, is where such a frac is later
+        dropped (limn.pins.element.element_of, tested by NonFiniteFrac in limn.pins.tests.test_element)."""
+        for bad_frac in (
+            [float("nan"), 0.1, 0.1, 0.1],
+            [0.1, float("inf"), 0.1, 0.1],
+            [0.1, 0.1, 10**400, 0.1],
+        ):
+            with self.subTest(bad_frac=bad_frac):
+                self.assertTrue(check(dict(LINE, el={**self.EL, "frac": bad_frac})))
+                self.assertTrue(check(dict(REGION, el={**self.EL, "frac": bad_frac})))
+
+    def test_every_figure_record_of_the_corpus_passes(self):
+        """The corpus's figure records - open, awaiting review, region, Trash copy - are records the store trusts."""
+        lines = [json.loads(t) for t in CORPUS.read_text(encoding="utf-8").splitlines() if '"el": ' in t]
+        self.assertGreaterEqual(len(lines), 4)
+        for r in lines:
+            with self.subTest(id=r["id"]):
+                self.assertTrue(check(r))
 
 
 class IsInt(unittest.TestCase):

@@ -194,8 +194,9 @@ class Doc:
     @property
     def takes_line_pins(self) -> bool:
         """Its pins are file/lo/hi line ranges with anchor re-sync, and a request that names only a file can route to
-        it (doc_for_file)."""
-        return self.kind == "tex"
+        it (doc_for_file): a LaTeX document, and a figure document - its pins are lines of the code that drew it
+        (docs/handbook/domain.md §여러 문서)."""
+        return self.kind in ("tex", "figure")
 
     @property
     def shows_revisions(self) -> bool:
@@ -249,16 +250,25 @@ def pin_doc_key(r: Mapping[str, Any], docs: Sequence[Doc]) -> str:
     return k if isinstance(k, str) and k else docs[0].key
 
 
+# The suffixes of a LaTeX document's own source files (compared case-insensitively). doc_for_file sends such a file to
+# the document built from source when two line-pin documents contain it at the same folder depth; any other file
+# (a drawing script, a data file) goes to the figure document.
+LATEX_SOURCE_SUFFIXES: frozenset[str] = frozenset({".tex", ".bib", ".sty", ".cls", ".bst"})
+
+
 def doc_for_file(docs: Sequence[Doc], root: Path, path: object) -> Doc:
-    """Which document of docs that takes line pins a request that only gave a file (agent curl) belongs to: the one
-    whose build root most deeply contains it (a relative path is taken under the manuscript root), or the first
-    document if none does or the path cannot be resolved. A document without line pins (view-only) never matches."""
+    """Which document of docs that takes line pins (LaTeX or figure) a request that only gave a file (agent curl)
+    belongs to: the one whose folder most deeply contains it (a relative path is taken under the manuscript root), or
+    the first document if none does or the path cannot be resolved. Of documents equally deep, a file with a LaTeX
+    source suffix (LATEX_SOURCE_SUFFIXES, any case) goes to the one built from source, any other file to the one with
+    an element map, and in a tie that leaves the first listed wins. View-only documents never match."""
     try:
         p = Path(str(path)) if os.path.isabs(str(path)) else root / str(path)
         p = p.resolve()
     except (OSError, RuntimeError, ValueError):
         return docs[0]
-    best, depth = None, -1
+    latex_file = p.suffix.lower() in LATEX_SOURCE_SUFFIXES
+    best, rank = None, (-1, False)
     for d in docs:
         if not d.takes_line_pins:
             continue
@@ -266,9 +276,10 @@ def doc_for_file(docs: Sequence[Doc], root: Path, path: object) -> Doc:
             p.relative_to(d.src.resolve())
         except (ValueError, OSError, RuntimeError):
             continue
-        n = len(d.src.resolve().parts)
-        if n > depth:
-            best, depth = d, n
+        preferred = d.builds_from_source if latex_file else d.has_element_map
+        cand = (len(d.src.resolve().parts), preferred)
+        if cand > rank:
+            best, rank = d, cand
     return best or docs[0]
 
 

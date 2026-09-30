@@ -17,10 +17,12 @@ import unittest
 from pathlib import Path
 
 from limn.builds import BuildView, input as builds_input
+from limn.builds.figure_map import LADDER_MAX, MapElement, ladder_scopes
 from limn.documents import input as document_input
 from limn.pins.claims import input as claims_input
 from limn.pins.editing import fields as editing_fields, input as editing_input, location as editing_location
 from limn.pins.editing.rules import LinePlace, PinEdited, RegionPlace, evolve_edit
+from limn.pins.editing.values import SCOPES
 from limn.pins.lifecycle import input as lifecycle_input
 from limn.pins.lifecycle.rules import CloseRequest
 from limn.pins.listing import input as listing_input
@@ -43,10 +45,19 @@ NO_STATE = Path("/nonexistent-limn-state")
 class Facts:
     """A DocumentFacts over a real temporary manuscript tree, with the pages and builds given in memory."""
 
-    def __init__(self, root: Path, view_only: bool = False, pages: dict | None = None, current: str = "pages"):
+    def __init__(
+        self,
+        root: Path,
+        view_only: bool = False,
+        pages: dict | None = None,
+        current: str = "pages",
+        has_element_map: bool = False,
+    ):
         """root is the tree; view_only says the document's pins are regions (DocumentFacts.view_only); pages maps a
-        build name to its page sizes; current names the build on screen."""
+        build name to its page sizes; current names the build on screen; has_element_map says the document is a
+        figure (DocumentFacts.has_element_map)."""
         self.key, self.view_only, self.root, self.state = "rev" if view_only else "main", view_only, root, NO_STATE
+        self.has_element_map = has_element_map
         self.pdf = root / "review.pdf"
         self._pages = pages if pages is not None else {"pages": [(600.0, 800.0), (600.0, 800.0)]}
         self._current = current
@@ -234,7 +245,9 @@ class Fields(unittest.TestCase):
         self.assertIsNone(editing_fields.parse_scope(None))
         self.assertEqual(
             editing_fields.parse_scope(["raw"]),
-            InputRejected("scope 는 raw|para|env|env2|env3|lines 중 하나입니다.", "bad_scope"),
+            InputRejected(
+                "scope 는 raw|para|env|env2|env3|lines|el|el2|el3|el4|el5|el6|el7|el8|fig 중 하나입니다.", "bad_scope"
+            ),
         )
 
     def test_thread_text_is_cleaned_then_checked(self):
@@ -424,6 +437,34 @@ class Fields(unittest.TestCase):
         )
 
 
+class FigureValueLists(Tree):
+    """The value lists ADR-0011 grows: via takes map and the scope list takes the figure ladder's names."""
+
+    def test_a_line_location_takes_via_map_and_the_figure_scopes(self):
+        """via map and the scopes el, el3 and fig are accepted on a line location."""
+        for scope in ("el", "el3", "fig"):
+            loc = editing_location.parse_loc(
+                {"file": "main.tex", "lo": 1, "hi": 2, "via": "map", "scope": scope}, Facts(self.root)
+            )
+            self.assertEqual((loc.via, loc.scope), ("map", scope))
+
+    def test_a_via_outside_the_list_names_the_whole_list(self):
+        """A via outside synctex|text|map is 400 bad_via, and the sentence lists the three values."""
+        self.assertEqual(
+            editing_location.parse_loc({"file": "main.tex", "lo": 1, "hi": 2, "via": "svg"}, Facts(self.root)),
+            InputRejected("via 는 synctex|text|map 입니다.", "bad_via"),
+        )
+
+    def test_a_scope_past_the_ladder_cap_is_refused(self):
+        """el9 is past LADDER_MAX: bad_scope."""
+        self.assertEqual(editing_fields.parse_scope("el9").reason, "bad_scope")
+
+    def test_every_ladder_name_is_a_scope_a_pin_may_store(self):
+        """The longest ladder's level names (el..el8, fig) are all pin scopes."""
+        root = MapElement("F", None, (0.0, 0.0, 1.0, 1.0), None, None, None, None)
+        self.assertLessEqual(set(ladder_scopes((root,) * (LADDER_MAX + 1))), set(SCOPES))
+
+
 class RouteRequests(unittest.TestCase):
     """The per-route request parsers the handler calls instead of reading a body field or a query parameter itself."""
 
@@ -591,7 +632,7 @@ class Locations(Tree):
         self.assertEqual(
             editing_input.parse_add({"lo": 1, "page": 1, "frac": [0, 0, 1, 1]}, (), facts),
             InputRejected(
-                "보기 전용 문서(rev)의 핀에는 lo 가 없습니다 — 쪽(page)과 영역(frac)만 받습니다.", "no_source_lines"
+                "줄이 없는 영역 핀(rev)에는 lo 가 없습니다 — 쪽(page)과 영역(frac)만 받습니다.", "no_source_lines"
             ),
         )
         self.assertEqual(

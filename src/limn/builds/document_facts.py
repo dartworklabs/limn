@@ -1,8 +1,11 @@
 """Request-local source and build facts for a selected runtime document."""
 
+from collections.abc import Callable
 from pathlib import Path
 
 from limn.builds import BuildView
+from limn.builds import artifacts as build
+from limn.builds.figure_map import FigureMap, MapRejected
 from limn.platform.files import ManuscriptFile, tex_lines
 from limn.runtime.documents import Doc
 
@@ -15,14 +18,32 @@ class DocumentFacts:
     (sized at dpi). The composition root makes one per
     request (server.document_facts); every method reads at call time."""
 
-    def __init__(self, D: Doc, root: Path, state: Path, dpi: int, builds: BuildView = _DEFAULT_BUILDS) -> None:
-        """Bind the document, the manuscript root, the state folder and the dpi the page images were rendered at."""
-        self._doc, self._root, self._state, self._dpi, self._builds = D, root, state, dpi, builds
+    def __init__(
+        self,
+        D: Doc,
+        root: Path,
+        state: Path,
+        dpi: int,
+        figure_map: Callable[[Doc, str], FigureMap | MapRejected | None] = build.load_build_map,
+        *,
+        builds: BuildView = _DEFAULT_BUILDS,
+    ) -> None:
+        """Bind the document, the manuscript root, the state folder and the dpi the page images were rendered at.
+        figure_map reads the map of a build of a figure document by page directory name: the composition root hands in
+        the run's cache (server.figure_map); the default parses the build's copy on every call."""
+        self._doc, self._root, self._state, self._dpi, self._figure_map = D, root, state, dpi, figure_map
+        self._builds = builds
 
     @property
     def key(self) -> str:
         """The document key."""
         return self._doc.key
+
+    @property
+    def has_element_map(self) -> bool:
+        """The document is a figure with an element map (Doc.has_element_map): the location parsers keep a pin's el
+        only there, and a body without file, lo or hi is a region pin on it."""
+        return self._doc.has_element_map
 
     @property
     def view_only(self) -> bool:
@@ -32,10 +53,11 @@ class DocumentFacts:
     @property
     def pdf(self) -> Path:
         """The PDF a region pin on D records: a view-only document's own PDF (its main file); for a document with an
-        element map, the PDF named by the map of the build on screen (limn.builds.artifacts.build_figure_pdf), or the map file
-        itself before an import has published a loadable map."""
+        element map, the PDF named by the map of the build on screen (limn.builds.artifacts.build_figure_pdf, the map
+        read through the lookup this was made with), or the map file itself before an import has published a loadable
+        map."""
         if self._doc.has_element_map:
-            named = self._builds.figure_pdf(self._doc, self._builds.current_pages(self._doc).name)
+            named = build.build_figure_pdf(self._doc, build.cur_pages(self._doc).name, self._figure_map)
             if named is not None:
                 return named
         return self._doc.main

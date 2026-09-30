@@ -120,7 +120,7 @@ def kind_builds_from_source(kind: DocKind) -> bool:
 
 - `DOCS=`/`--doc` entry `KEY=NAME:ROOT::REL/PATH/x.limnmap.json` → `kind="figure"`, `src = ROOT`, `main = the map file`. Without `::`, `src` is the map's folder.
 - The suffix constant is `figmap.MAP_SUFFIX = ".limnmap.json"`. The Python check and the shell mirror (`instance_documents.sh`) change in the same commit.
-- Paths in the map: `pdf` is relative to the map file's folder; `src.file`/`impl.file` are relative to `Doc.src`. All must resolve inside `Doc.src`.
+- Paths in the map: `pdf` is relative to the map file's folder; `src.file`/`impl.file` are relative to `Doc.src`. `pdf` must resolve inside `Doc.src`, which the import checks (`pdf_outside`). `src.file`/`impl.file` are only checked for shape when the map is parsed; whether a script lies inside `Doc.src` is judged when the pick reads `src.file` (P1b Task 6b). `impl.file` is data - stored in the pin, printed in `pins.md`, never opened - so its shape is all that is checked.
 
 ### `src/limn/figmap.py` (pure, P1a creates, P1b extends)
 
@@ -181,7 +181,7 @@ class FigureMap:
 
 MapRejectReason: TypeAlias = Literal[
     "too_large", "not_json", "bad_format", "bad_shape", "bad_page", "bad_frac",
-    "duplicate_id", "bad_parent", "no_root", "too_many_elements", "path_outside",
+    "duplicate_id", "bad_parent", "no_root", "too_many_elements", "path_outside",  # path_outside: a src.file/impl.file that is not a canonical relative path
 ]
 
 
@@ -191,10 +191,10 @@ class MapRejected:
     detail: str  # English, for logs; never shown as a contract value
 
 
-def parse_map(raw: bytes, *, source_inside: Callable[[str], bool]) -> FigureMap | MapRejected: ...
+def parse_map(raw: bytes) -> FigureMap | MapRejected: ...  # the verdict depends on `raw` alone (P1b Task 6b)
 ```
 
-Rules `parse_map` enforces: size ≤ `MAP_MAX_BYTES` before decoding; `figure`, `title`, element `id`, `part` and `label` are at most `MAP_MAX_TEXT = 200` characters (`bad_shape` otherwise), because pins store them; `format == MAP_FORMAT`; pages have distinct 1-based `page`; element ids are unique across the whole map; exactly one root per page (`parent` absent, `id == figure`, `frac == (0, 0, 1, 1)`); every `parent` names an element of the same page and there is no cycle; every `frac` value is a finite number (use `limn.pins.shapes.is_finite_num`) with `0 ≤ x, y`, `w, h > 0`, `x + w ≤ 1 + 1e-6`, `y + h ≤ 1 + 1e-6`; `lo`/`hi` are ints (`is_int`) with `1 ≤ lo ≤ hi ≤ MAP_MAX_LINE` (`bad_shape`); `pdf`, `src.file` and `impl.file` are at most `MAP_MAX_PATH` characters (`bad_shape`); every `src.file`/`impl.file` is a canonical relative POSIX path - no leading or trailing `/`, no empty, `.` or `..` part, no backslash or NUL (`path_outside`, refused before `source_inside` is asked) - and passes `source_inside`; `pdf` may climb out of the map's folder with `..`, and where it lands is the import's check (`pdf_outside`); every element is at most `MAP_MAX_DEPTH` ids from its page root, both counted (`bad_parent`); ≤ `MAP_MAX_ELEMENTS` per page. These bounds are the pin record's (P1b `parse_el`: `EL_PATH_MAX`, `EL_FILE_MAX`, `EL_LINE_MAX`, no `..` in `impl.file`), so every element of an accepted map can be pinned. Unknown keys are ignored (the format grows additively).
+Rules `parse_map` enforces: size ≤ `MAP_MAX_BYTES` before decoding; `figure`, `title`, element `id`, `part` and `label` are at most `MAP_MAX_TEXT = 200` characters (`bad_shape` otherwise), because pins store them; `format == MAP_FORMAT`; pages have distinct 1-based `page`; element ids are unique across the whole map; exactly one root per page (`parent` absent, `id == figure`, `frac == (0, 0, 1, 1)`); every `parent` names an element of the same page and there is no cycle; every `frac` value is a finite number (use `limn.pins.shapes.is_finite_num`) with `0 ≤ x, y`, `w, h > 0`, `x + w ≤ 1 + 1e-6`, `y + h ≤ 1 + 1e-6`; `lo`/`hi` are ints (`is_int`) with `1 ≤ lo ≤ hi ≤ MAP_MAX_LINE` (`bad_shape`); `pdf`, `src.file` and `impl.file` are at most `MAP_MAX_PATH` characters (`bad_shape`); every `src.file`/`impl.file` is a canonical relative POSIX path - no leading or trailing `/`, no empty, `.` or `..` part, no backslash or NUL (`path_outside`) - and that shape is the whole test: the parser asks the filesystem nothing, so a path that would lead out of `Doc.src`, into a dot folder or to a file that does not exist is kept, and whether `src.file`'s script may be read is decided when the pick reads it (`read_source`), which costs only the elements drawn by that script (`impl.file` is data: stored and printed, never opened); `pdf` may climb out of the map's folder with `..`, and where it lands is the import's check (`pdf_outside`); every element is at most `MAP_MAX_DEPTH` ids from its page root, both counted (`bad_parent`); ≤ `MAP_MAX_ELEMENTS` per page. These bounds are the pin record's (P1b `parse_el`: `EL_PATH_MAX`, `EL_FILE_MAX`, `EL_LINE_MAX`, no `..` in `impl.file`), so every element of an accepted map can be pinned. Unknown keys are ignored (the format grows additively).
 
 P1b adds to the same module:
 
@@ -256,7 +256,7 @@ For a figure doc with a loadable map for the requested `pdf_build`, `POST /api/p
 | `levels` | one rung per ladder element: `{level, lo, hi, n, label, snippet, el, merged?}`; `label` = element `label` or `part` or id; `n = hi - lo + 1`. Every rung lies in the chosen element's `src.file`; a ladder element drawn in another file gets no rung (it stays in `el.path`). Rungs with equal `lo`/`hi` merge into the **inner** rung, and the outer level name goes under `merged` |
 | `default_level` | the first rung's level: `"el"`, or `"fig"` when the root was picked |
 | `quote` | chosen element `label` or `""` |
-| `el` | `{id, path, label?, part?, impl?: {file, lo, hi}, frac?}` in this key order; `path` = ids root first; `impl.file` relative to `Doc.src`; `frac` = the element's box on the traced build. The top-level `el` and every rung's `el` carry `frac` (the viewer draws the outline from it and switches rungs without a request) |
+| `el` | `{id, path, label?, part?, impl?: {file, lo, hi}, frac?}` in this key order; `path` = ids root first; `impl.file` a canonical relative POSIX path of at most 1024 characters (`MAP_MAX_PATH`), relative to `Doc.src`; `frac` = the element's box on the traced build. The top-level `el` and every rung's `el` carry `frac` (the viewer draws the outline from it and switches rungs without a request) |
 | `warn` | as today for low score |
 
 Fallbacks → the **region body** (as view-only today) plus `el` when an element was found, and `warn` naming the reason:
@@ -282,8 +282,8 @@ Fallbacks → the **region body** (as view-only today) plus `el` when an element
 - Section title: a figure document's section ends with ` — 그림(요소 지도)` (`DocHeading.has_element_map`); the view-only PDF suffix is unchanged.
 - Range column: unchanged code path; unknown scopes already print `kind` (`el:MonthCell`).
 - Memo: `«label»` prefix whenever `el.label` is set; `공통 부품: <path>:<lo>-<hi>` appended when `el.impl` is set, where `<path>` is the document folder relative to `--manuscript` joined with `impl.file` (the same base as the location column).
-- `el_sync == "lost"` prints the same warning style as `stale`: `요소 잃음`. The on-disk `pins.md` is only as fresh as its last render (known limit; `GET /pins.md` renders on request).
-- One guidance line in the header when any open pin has `el` (same mechanism as the view-only guidance).
+- `el_sync == "lost"` prints the same warning style as `stale`: `요소 잃음`. The on-disk `pins.md` is rewritten when a figure import puts a new build on screen, so `요소 잃음` follows the map with no pin write (a failed rewrite keeps the old file); `GET /pins.md` also renders on request.
+- One guidance line in the header when any open pin has `el` or is a region pin on a figure document (same mechanism as the view-only guidance).
 
 ### Viewer (P1c)
 
@@ -298,9 +298,12 @@ The phase plans raised these; they are folded into the sections above. Plans tha
 | P0 | `kind_builds_from_source` (and `Doc.builds_from_source` calls it); `is_pdf` removed from every carrier |
 | P1a | `FIGMAP_NAME`/`load_build_map` in `build.py`; `has_element_map`; `figure_src_hash`; missing map at startup refuses the start |
 | P1a final review | `MAP_MAX_PATH`, canonical paths, `MAP_MAX_LINE`, `MAP_MAX_DEPTH`: `parse_map` accepts only maps whose every element P1b's pin record can store (a parent chain deeper than 64 is now `bad_parent`) |
+| P1b Task 6b | source paths are judged at read time; `parse_map` is syntactic: it takes only `raw` (`source_inside` and `build.figure_source_check` are gone), keeps `path_outside` for non-canonical `src.file`/`impl.file`, and a script that links out degrades only its own elements (`element_without_source`) the same from a warm and a cold cache; `pdf` keeps its import-time check |
 | P1b | `el.frac`; root excluded from pick steps 1–2; `default_level` from the first rung; rungs in one file, merged inward, with `n`; grown error sentences; `pins.md` shared-part path; `element_kind` 77-character cap; broader `element_without_source`; `bad_el`; `.py` anchor comments; `raw`-only snippet ladder; `pins.md` figure section title |
 | P1c | `body.no-rebuild` by kind |
 | Orchestrator | `MAP_MAX_TEXT = 200`; `el` dropped by a `loc` without it |
+| P1b port | #114 moved the modules (figmap → builds/figure_map, build → builds/artifacts, documents → runtime/documents, mapping → pins/location/mapping, pins/render → pins/listing/render, pins/view → pins/listing/projection, features/<cap> → <cap>); contract names unchanged |
+| P1b final | `pins.md` on disk refreshed on figure import; non-finite numbers read null; release blocker until P1c |
 
 ## Intermediate states
 

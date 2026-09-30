@@ -46,9 +46,9 @@ JSON 객체는 중첩된 객체까지 키가 한 번만 나와야 한다. 같은
 | 요청 경계 | `400`·`403`·`413`·`415` | `transfer_encoding`·`bad_content_length`·`body_truncated`·`body_too_large`·`bad_content_type`·`bad_json`·`bad_query`·`duplicate_header`·`bad_host`·`bad_origin`·`invalid_authority` |
 | 인증·입장·역할 | `401`·`403` | `unauthenticated`·`loopback_agent_off`(루프백 에이전트를 끈 인스턴스에 헤더 없는 로컬 요청)·`headerless`·`bad_bearer`·`bad_token`·`not_member`·`not_allowed`·`viewer_only`·`owner_only`·`confirm_by_human` |
 | 경로 | `404` | `not_found`(없는 경로·vendor 파일), `pdf_build_gone`(`?build=` 의 빌드가 없음, pick 의 옛 빌드), `pdf_missing`(`?build=` 없이 지금 빌드의 PDF 가 없음) |
-| 문서 | `400`·`404` | `bad_doc`·`doc_mismatch`·`unknown_doc`·`no_source_lines`(보기 전용 문서에 줄을 보냄)·`view_only_no_rebuild` |
+| 문서 | `400`·`404` | `bad_doc`·`doc_mismatch`·`unknown_doc`·`no_source_lines`(보기 전용 문서나 영역 핀에 줄을 보냄)·`view_only_no_rebuild` |
 | 핀 | `404`·`409` | `pin_not_found`·`not_in_trash`·`pin_exists`, `409` 코드 `done`·`conflict`·`open`·`full`·`claimed` |
-| 핀 입력 | `400` | `not_integer`·`not_number`·`too_small`·`bad_note`·`note_too_long`·`bad_note_append`·`note_append_empty`·`note_append_too_long`·`bad_reply`·`reply_too_long`·`bad_ref`·`ref_too_long`·`bad_changes`·`too_many_changes`·`change_outside_manuscript`·`bad_pin`·`bad_assignee`·`unknown_assignee`·`bad_kind_req`·`bad_kind`·`bad_via`·`bad_scope`·`bad_quote`·`bad_loc`·`bad_mentions`·`bad_event_cursor`·`bad_reopen`·`bad_review`·`text_required`·`bad_text`·`text_too_long`·`text_empty`·`base_rev_required`·`nothing_to_change`·`unknown_fields`·`confirm_required` |
+| 핀 입력 | `400` | `not_integer`·`not_number`·`too_small`·`bad_note`·`note_too_long`·`bad_note_append`·`note_append_empty`·`note_append_too_long`·`bad_reply`·`reply_too_long`·`bad_ref`·`ref_too_long`·`bad_changes`·`too_many_changes`·`change_outside_manuscript`·`bad_pin`·`bad_assignee`·`unknown_assignee`·`bad_kind_req`·`bad_kind`·`bad_via`·`bad_scope`·`bad_el`·`bad_quote`·`bad_loc`·`bad_mentions`·`bad_event_cursor`·`bad_reopen`·`bad_review`·`text_required`·`bad_text`·`text_too_long`·`text_empty`·`base_rev_required`·`nothing_to_change`·`unknown_fields`·`confirm_required` |
 | 위치 | `400` | `bad_file`·`file_outside_manuscript`·`file_not_found`·`range_outside_file`·`pin_outside_manuscript`·`bad_page`·`page_out_of_range`·`bad_frac`·`frac_outside_page`·`bad_pdf_build` |
 | pick(`200`) | `200` | `pdf_build_gone`·`generated_file`·`synctex_outside`·`source_unreadable`·`no_source_here` |
 | 변경 보기 | `400`·`404`·`503` | `bad_commit`·`no_history`·`commit_not_recent`·`diff_unreadable`·`not_in_repo`·`pin_not_in_doc`·`revision_not_ready`·`revision_pdf_missing` |
@@ -193,7 +193,7 @@ curl -s -H "Authorization: Bearer $(cat ~/.config/limn/<인스턴스>.token)" ht
 
 - `doc` 이 없으면 첫 문서다.
 - POST는 쿼리와 JSON 본문의 `doc` 을 둘 다 받는다. 둘이 다르면 `400` 이다.
-- `POST /api/pin` 에 `doc` 없이 `file` 만 오면 문서를 짐작한다. 에이전트의 `curl` 이 이런 요청을 보낸다. 서버는 그 파일을 빌드 루트가 가장 깊게 감싸는 LaTeX 문서를 고른다.
+- `POST /api/pin` 에 `doc` 없이 `file` 만 오면 문서를 짐작한다. 에이전트의 `curl` 이 이런 요청을 보낸다. 서버는 줄 핀을 받는 문서(LaTeX 문서와 그림 문서) 가운데 그 파일을 가장 깊게 감싸는 문서 폴더의 문서를 고른다. 깊이가 같으면 `.tex`·`.bib`·`.sty`·`.cls`·`.bst`(대소문자 무관)는 원고에서 빌드하는 문서로, 그 밖의 파일은 그림 문서로 간다. 그래도 가려지지 않으면 문서 목록에서 앞선 문서다.
 - 없는 키는 `404 {error, docs:[키…]}` 다. 조용히 첫 문서로 물러서지 않는다. 물러서면 핀이 다른 문서에 붙기 때문이다.
 - 핀 id로 가는 경로(`/api/pins/{id}/…`)는 `doc` 이 필요 없다. 핀의 문서는 레코드에 들어 있다.
 - 단일 문서 인스턴스는 `doc` 을 무시해도 된다. 그 문서의 키는 `main` 이다.
@@ -210,7 +210,7 @@ curl -s -H "Authorization: Bearer $(cat ~/.config/limn/<인스턴스>.token)" ht
 | `GET` | `/api/meta` | `pages`(쪽 목록), `built_at`, `head`(원고 커밋), `main`(최상위 `.tex` 이름. 보기 전용 PDF는 그 PDF 파일 이름, 그림 문서는 지도 파일 이름), `label`·`accent`·`repo`(이 인스턴스의 이름표·강조색·git origin URL, [operations.md](operations.md) §여러 논문 인스턴스를 동시에 띄울 때), `n_open`·`n_review`·`n_done`(§검토 대기), `pins_md`·`state_dir`(절대경로), `me`(지금 요청자와 그 `role` — §인증), `building`(재빌드 진행 중), `stale_build`(이 PDF 를 만든 뒤 원고 `.tex` 가 바뀌었는가), `src_mtime`·`build_src_mtime`·`src_age_s`·`pins_rev`([build-sync.md](build-sync.md) §자동 동기화 (가벼운 meta 폴링)), `pages_build`(지금 화면의 빌드 id, `pages.cur` 값), `build_seq`(끝난 빌드 수)·`last_build:{state,errors,finished_at,seq}`·`build:{state,phase,started_at}`([build-sync.md](build-sync.md) §비동기 재빌드), `doc`·`doc_name`·`kind`·`view_only`·`multi`(§문서 매개변수), `ev_seq`(§브라우저 알림 커서). 여러 문서면 `docs`(`/api/docs` 항목에서 `n_open` 을 뺀 것)와 `src_sig` 가 붙는다(라이트 포함). `src_sig` 는 문서마다의 `src_mtime` 을 이은 문자열이다. 그래서 뷰어는 다른 문서의 원고가 바뀌어도 목록을 다시 읽는다. 전체 meta는 요청한 사람을 기록한다(§@태그·사람·이벤트) |
 | `GET` | `/api/meta?light=1` | 위와 같되 `n_open`·`n_review`·`n_done` 이 없고 **쓰기를 하지 않는다**(`snapshot_pins()` 의 sync 쓰기를 하지 않는다). 폴링 전용이다. [build-sync.md](build-sync.md) §자동 동기화 (가벼운 meta 폴링) |
 | `GET` | `/api/meta?ev=<seq>` | 라이트와 함께 쓸 수 있다. 요청자에게 온 새 이벤트를 `events` 로 싣는다 — §브라우저 알림 커서 |
-| `GET` | `/api/docs` | 문서 목록 `{docs:[{key,name,kind:"tex"\|"pdf"\|"figure",view_only,path,main,n_open,stale_build,building,build:{state,phase},build_seq,last_state,pages_build,n_pages,src_mtime}], default, multi, other_open}`. 핀은 읽기만 한다(sync 쓰기 없음). `other_open` 은 지금 설정에 없는 문서 키의 열린 핀 수다. `view_only` 는 보기 전용 PDF와 그림 문서(§그림 요소 지도 (`limn-figure-map/1`))에서 `true` 다. `path` 는 `--manuscript` 기준 메인 파일 경로이고 `main` 은 그 파일 이름이다. 그림 문서에서는 둘 다 지도 파일(`.limnmap.json`)을 가리킨다 |
+| `GET` | `/api/docs` | 문서 목록 `{docs:[{key,name,kind:"tex"\|"pdf"\|"figure",view_only,path,main,n_open,stale_build,building,build:{state,phase},build_seq,last_state,pages_build,n_pages,src_mtime}], default, multi, other_open}`. 핀은 읽기만 한다(sync 쓰기 없음). `other_open` 은 지금 설정에 없는 문서 키의 열린 핀 수다. `view_only` 는 그 문서의 핀이 쪽·영역뿐인가, 곧 줄 핀을 받지 못하는가를 나타내는 문서의 능력이다. 보기 전용 PDF에서만 `true` 이고, 그림 문서(§그림 요소 지도 (`limn-figure-map/1`))는 줄 핀을 받으므로 `false` 다. 그림 문서의 pick 이 줄을 주지 못해 돌려주는 영역 답의 `view_only: true` 는 그 답이 영역뿐이고 코드 줄이 없다는 뜻이며, 문서의 능력이 아니다(§그림 문서의 pick·핀). `path` 는 `--manuscript` 기준 메인 파일 경로이고 `main` 은 그 파일 이름이다. 그림 문서에서는 둘 다 지도 파일(`.limnmap.json`)을 가리킨다 |
 | `GET` | `/api/people` | @태그 후보 `{people:[{login,name,pic?,last_seen?,role}], me}` — §@태그·사람·이벤트. `role` 과 `me.role` 은 §인증. 쓰기 없음 |
 
 ### 화면·PDF·정적 파일
@@ -252,19 +252,19 @@ curl -s -H "Authorization: Bearer $(cat ~/.config/limn/<인스턴스>.token)" ht
 
 | 메서드 | 경로 | 설명 |
 | --- | --- | --- |
-| `GET` | `/api/pins` | 열린 핀 목록(JSON). 레코드마다 `rev`, `rel`(§겹친 핀과 덧붙이기), `est`(불리언, [build-sync.md](build-sync.md) §위치 추정 (`est`)), `state`(§검토 대기)가 채워진다. `rel`·`est`·`state` 는 계산 필드라 저장하지 않는다. `?all=1` 이면 닫힌 핀까지 준다. 이 경로는 줄 맞춤(sync) 쓰기를 한다 |
+| `GET` | `/api/pins` | 열린 핀 목록(JSON). 레코드마다 `rev`, `rel`(§겹친 핀과 덧붙이기), `est`(불리언, [build-sync.md](build-sync.md) §위치 추정 (`est`)), `state`(§검토 대기)가 채워진다. `rel`·`est`·`state` 는 계산 필드라 저장하지 않는다. `el` 이 있는 그림 핀에는 `mark`·`mark_page`·`el_sync` 도 붙는다(§그림 문서의 pick·핀). 저장된 숫자에 NaN·Infinity 가 있으면 응답에서 `null` 이다. `frac`·`el.frac` 은 필드 전체가 그렇다(§핀 레코드 스키마). `?all=1` 이면 닫힌 핀까지 준다. 이 경로는 줄 맞춤(sync) 쓰기를 한다 |
 | `GET` | `/api/pins/{id}` | 핀 한 건 `{pin}`. `GET /api/pins?all=1` 의 한 항목과 같은 모양이다(스레드 전부와 계산 필드 포함). 없으면 `404` |
 | `GET` | `/api/pins/dropped` | 휴지통 → `{dropped: [...]}`. 잠금 아래 원본과 휴지통을 함께 읽고, `dropped_at` 순으로 유효한 휴지통 항목만 낸다(쓰기 부작용 없음). 살아 있는 원본과 번호가 겹치거나 30일(`TRASH_DAYS`)이 지난 항목은 싣지 않는다(§휴지통). 계산 필드는 `expires_ts`(지워질 시각, epoch 초, 0.2.2+) 하나다. 뷰어의 휴지통이 이것을 쓴다. 열린 목록에서 사라진 핀이 완료인지 삭제인지 가르는 알림도 이것을 쓴다([build-sync.md](build-sync.md) §자동 동기화 (가벼운 meta 폴링)) |
 | `GET` | `/pins.md` | 원격 에이전트 진입점. `<state_dir>/pins.md` 와 같은 내용을 `text/markdown; charset=utf-8` 로 낸다. `GET /api/pins` 와 같은 sync 경로를 탄 뒤 렌더한다. 안내 줄의 base URL만 요청 `Host` 에 맞춘다. `Host` 가 `*.ts.net` 이면 `https://<Host 그대로>`, `--public-host` 이름이면 `https://<이름>[:<포트>]`, 루프백이면 기존 `http://127.0.0.1:<port>` 다. 디스크의 `<state_dir>/pins.md` 는 항상 루프백 base다. Host·Origin 검사는 다른 `GET` 과 같다 — §원격 에이전트 진입점 (`GET /pins.md`) |
-| `GET` | `/api/snippet?file=&lo=&hi=` | 원문 줄 스니펫(80줄 캡). `&levels=1` 이면 그 범위를 기준으로 한 범위 사다리도 준다. 원고 트리 밖(점으로 시작하는 이름 아래와 원고 안에 둔 상태 폴더 포함, §요청 형식과 경계)이거나 범위가 틀리면 `400`. 보기 전용 문서면 `400` |
+| `GET` | `/api/snippet?file=&lo=&hi=` | 원문 줄 스니펫(80줄 캡). `&levels=1` 이면 그 범위를 기준으로 한 범위 사다리도 준다(그림 문서에 대한 요청이면 `raw` 단계 하나. §그림 문서의 pick·핀). 원고 트리 밖(점으로 시작하는 이름 아래와 원고 안에 둔 상태 폴더 포함, §요청 형식과 경계)이거나 범위가 틀리면 `400`. 보기 전용 문서면 `400` |
 | `GET` | `/api/overlaps?file=&lo=&hi=` | 그 범위(저장 전 선택)와 열린 핀의 겹침 `{overlaps}`. 뷰어는 쓰지 않고(§겹친 핀과 덧붙이기), 에이전트 호환용으로 남긴다 |
 
 ### 핀 만들기와 상태 바꾸기
 
 | 메서드 | 경로 | 설명 |
 | --- | --- | --- |
-| `POST` | `/api/pick` | 드래그 좌표를 원문 위치로 되짚는다. 입력은 `page`, `x0`, `y0`, `x1`, `y1` 이다. 선택 `frac` 은 쪽 대비 비율 숫자 4개 목록 `[x, y, w, h]` 이고, 다른 모양이면 `400`. 선택 `pdf_build` 는 드래그할 때 화면의 빌드 id이며, 그 빌드의 PDF로 되짚는다. 그 빌드가 이미 지워졌으면 `200 {error, pdf_build_gone:true}`, 모양이 틀리면 `400`. 응답은 `{file, name, lo, hi, raw_lo, raw_hi, kind, via, score, warn, snippet, frac, levels, default_level, n_lines, quote, overlaps, pdf_build}`. `quote` 는 선택 영역 글자를 공백 정규화해 자른 60자다. `overlaps` 는 같은 파일의 열린 핀과의 겹침이다(§겹친 핀과 덧붙이기). 입력 오류는 `400`, 되짚기 실패는 `200 {error}`. `levels`·`via`·`score` 의 뜻은 [domain.md](domain.md) §범위 사다리와 §역변환이 두 경로인 이유 |
-| `POST` | `/api/pin` | 새 핀 추가 → `{id}`. 저장 필드 화이트리스트는 `file, name, page, lo, hi, raw_lo, raw_hi, kind, via, score, frac, note, scope, quote, pdf_build`. 선택으로 `kind_req`(§스레드 (답글)), `mentions`(힌트), `assignee`(담당, §@태그·사람·이벤트)를 받는다. `pdf_build` 를 안 보내면(에이전트 `curl`) 지금 빌드로 찍는다 |
+| `POST` | `/api/pick` | 드래그 좌표를 원문 위치로 되짚는다. 입력은 `page`, `x0`, `y0`, `x1`, `y1` 이다. 선택 `frac` 은 쪽 대비 비율 숫자 4개 목록 `[x, y, w, h]` 이고, 다른 모양이면 `400`. 선택 `pdf_build` 는 드래그할 때 화면의 빌드 id이며, 그 빌드의 PDF로 되짚는다. 그 빌드가 이미 지워졌으면 `200 {error, pdf_build_gone:true}`, 모양이 틀리면 `400`. 응답은 `{file, name, lo, hi, raw_lo, raw_hi, kind, via, score, warn, snippet, frac, levels, default_level, n_lines, quote, overlaps, pdf_build}`. `quote` 는 선택 영역 글자를 공백 정규화해 자른 60자다. `overlaps` 는 같은 파일의 열린 핀과의 겹침이다(§겹친 핀과 덧붙이기). 입력 오류는 `400`, 되짚기 실패는 `200 {error}`. `levels`·`via`·`score` 의 뜻은 [domain.md](domain.md) §범위 사다리와 §역변환이 두 경로인 이유. 그림 문서의 답은 §그림 문서의 pick·핀 |
+| `POST` | `/api/pin` | 새 핀 추가 → `{id}`. 저장 필드 화이트리스트는 `file, name, page, lo, hi, raw_lo, raw_hi, kind, via, score, frac, note, scope, quote, pdf_build, el`. `el` 은 그림 문서에서만 저장한다(§그림 문서의 pick·핀). 선택으로 `kind_req`(§스레드 (답글)), `mentions`(힌트), `assignee`(담당, §@태그·사람·이벤트)를 받는다. `pdf_build` 를 안 보내면(에이전트 `curl`) 지금 빌드로 찍는다 |
 | `POST` | `/api/pins/{id}/edit` | 제자리 수정 — §핀 수정 (`/api/pins/{id}/edit`) |
 | `POST` | `/api/pins/{id}/close` | 핀 한 건을 닫는다(`done: true`, `closed_by`). 에이전트가 닫으면 검토 대기(`review: true`), 사람이 닫으면 완료다 — §검토 대기. 선택 본문 `{"reply", "ref", "changes", "review"}` — §닫을 때 사유 남기기. 레코드는 남는다. `<state_dir>/pins.md` 에서는 열린 표에서 빠지고 머리줄 건수로만 남는다(§pins.md 형식). 응답은 `{ok, pin, state}`. 그 id가 없으면 `200 {"ok": false, "pin": null}` 이다(reopen도 같다). **이미 닫힌 핀을 다시 닫으면 `{ok: true, pin}` 을 그대로 돌려주고 아무 필드도 바꾸지 않는다.** `rev` 도 그대로다(규칙은 [domain.md](domain.md) §전이에 딸린 규칙) |
 | `POST` | `/api/pins/{id}/reopen` | 닫은 핀을 되돌린다(`reopened_by`). `close_reply`·`close_ref`·`changes`·`review`·`confirmed_*` 가 있었으면 지운다. 다시 닫을 때 새로 남기기 위해서다. 선택 본문 `{"reason"}` 은 스레드에 남는다 → `{ok, pin, state}`. 뷰어에는 [다시 열기] 버튼이 없고 사람의 답글이 규칙으로 다시 연다(§스레드 (답글)). 이 경로는 에이전트와 뷰어의 [완료] 되돌리기가 쓴다 |
@@ -381,7 +381,7 @@ latexmk -norc -pdf -no-shell-escape -interaction=nonstopmode -halt-on-error
 ```
 
 - **`base_rev` 는 필수다.** 수정하려는 핀을 읽을 때 받은 `rev` 를 보낸다. 다르면 `409 {"error":"conflict","pin":<최신>}` 이고 아무것도 바뀌지 않는다. 다른 에이전트가 먼저 닫았거나 자동 줄 맞춤이 옮긴 핀을 옛 `lo`·`hi` 로 조용히 덮어쓰지 않기 위해서다. `409` 를 받으면 응답의 최신 `pin` 을 보고 다시 보낸다.
-- **위치를 통째로 바꿀 때는 `loc` 을 보낸다.** 모양은 `loc: {file, page, lo, hi, raw_lo, raw_hi, kind, via, score, frac, scope, pdf_build}` 이고, 이것을 "위치 다시 잡기"라 부른다. 필수는 `file`·`lo`·`hi` 다. `loc` 에 없는 `page`·`frac` 은 기존 값을 둔다. `kind` 가 없으면 `lines` 가 되고, 나머지 위치 필드는 지워진다. id, 메모, 작성자는 그대로다.
+- **위치를 통째로 바꿀 때는 `loc` 을 보낸다.** 모양은 `loc: {file, page, lo, hi, raw_lo, raw_hi, kind, via, score, frac, scope, pdf_build, el}` 이고, 이것을 "위치 다시 잡기"라 부른다. 필수는 `file`·`lo`·`hi` 다. `loc` 에 없는 `page`·`frac` 은 기존 값을 둔다. `kind` 가 없으면 `lines` 가 되고, 나머지 위치 필드는 지워진다. id, 메모, 작성자는 그대로다. `el` 은 위치 필드다. 그림 문서에서만 받고(다른 문서에서는 모르는 필드처럼 버린다), 다른 위치 필드처럼 `loc` 에 없으면 핀의 `el` 이 지워진다. `lo`·`hi` 만 고치는 편집은 `el` 을 둔다. 영역 핀과 줄 핀은 위치 다시 잡기로 서로 바뀌지 않는다(§그림 문서의 pick·핀).
 - **`pdf_build` 는 `loc` 에 `frac` 이 있을 때만 바뀐다.** 이때 값은 `loc` 에 담긴 `pdf_build` 다. 뷰어는 여기에 pick 응답 값을 넣는다. 둘 다 없으면 지금 빌드다. 메모, `note_append`, `lo`·`hi` 만 고치는 편집은 `pdf_build` 를 건드리지 않는다.
 - **범위가 바뀌면 `anchor` 를 새로 뜨고 `stale`·`sync` 를 지운다.** 위치를 잃은(`stale`) 핀도 이 경로로 고친다.
 - **닫힌 핀은 메모만 고칠 수 있다.** 범위나 위치를 보내면 `409 {"error":"done"}` 이다.
@@ -637,6 +637,7 @@ curl -s -X POST http://127.0.0.1:<port>/api/pins/3/unclaim
 이름이 `*_at` 이 아닌 것은 일부러다. 레코드 검증(`valid_rec`)은 `*_at` 을 문자열 시각으로 본다. 숫자인 `*_at` 필드를 쓰면, 이 필드를 모르는 이전 버전 서버가 그 레코드를 깨진 줄로 버린다.
 
 - 만료된 claim은 모든 표시에서 없는 것으로 본다. `<state_dir>/pins.md`, 뷰어 카드, 충돌 판정이 모두 그렇다. 저장값 자체는 다음 쓰기 때 정리될 뿐이다.
+- 저장된 `claim_until` 이 유한하지 않은 값(예: Infinity)이면 응답이 그 값을 `null` 로 주므로, 뷰어는 그 claim을 없는 것으로 보여 주지만 서버는 저장값을 그대로 쥐고 있다.
 - `claim_ts` 가 없는 옛 claim은 `GET /api/pins` 가 `claimed_at`(서버 현지 시각 문자열)을 epoch로 풀어 계산 필드 `claim_ts` 로 싣는다. 저장하지 않는다.
 
 ### 표시
@@ -690,15 +691,74 @@ curl -s -X POST http://127.0.0.1:<port>/api/pins/3/unclaim
 - `POST /api/rebuild` 는 `400` 이다. 재빌드가 없고, 파일이 바뀌면 쪽을 저절로 다시 그린다([build-sync.md](build-sync.md) §보기 전용 PDF 문서).
 - `/api/snippet` 도 `400` 이다.
 
-**그림 문서.** `kind:"figure"` 문서도 지금은 이 절의 규칙을 그대로 따른다. `view_only` 가 `true` 이고, pick·핀·수정·거절이 모두 같다. 다른 것은 PDF를 적는 두 값이다.
+**그림 문서.** `kind:"figure"` 문서는 줄 핀을 받는다. 이 절의 영역 답과 영역 핀은 그림 문서에서 줄을 줄 수 없을 때만 나온다(§그림 문서의 pick·핀).
+
+## 그림 문서의 pick·핀
+
+`kind:"figure"` 문서는 그림 저장소가 낸 PDF와 요소 지도(`limn-figure-map/1`)를 가져온 문서다. 핀은 그림을 그린 코드의 줄 핀이고, 선택 필드 `el` 로 어느 요소인지 적는다. 되짚는 규칙은 [domain.md](domain.md) §그림 문서의 요소 pick 에 있다.
+
+**pick.** 요청 형식은 원고와 같다. 그 빌드(`pdf_build`)의 지도로 줄을 찾으면 원고 pick 과 같은 키를 같은 순서로 주고(`page` 는 드래그한 쪽), 끝에 `el` 을 더한다.
+
+| 필드 | 값 |
+| --- | --- |
+| `file`·`name` | 고른 요소의 `src.file` 을 이 서버 머신에서 읽은 절대경로와 그 파일 이름. 그림 스크립트다 |
+| `lo`·`hi`·`raw_lo`·`raw_hi` | 기본 단계의 `src` 줄, 곧 그 스크립트에서 고른 요소를 부른 줄. `raw_*` 도 같은 값이다 |
+| `via` | `map` |
+| `score` | 고른 요소가 드래그를 품은 몫(`cover`). 소수 둘째 자리로 준다 |
+| `kind` | `el:<부품>`(`el:MonthCell`, 부품 이름이 없으면 `el:?`, 부품 이름은 77자에서 자른다). 그림 전체를 골랐으면 `figure` |
+| `levels` | 사다리 단계마다 `{level, lo, hi, n, label, snippet, el, merged?}`. `level` 은 `el`·`el2`…`el8`·`fig` |
+| `default_level` | `el`. 그림 전체를 골랐으면 `fig` |
+| `quote` | 고른 요소의 `label`, 없으면 `""` |
+| `overlaps` | 기본 단계의 줄과 겹치는 같은 파일의 열린 핀(§겹친 핀과 덧붙이기) |
+| `el` | `{id, path, label?, part?, impl?: {file, lo, hi}, frac}`. `path` 는 뿌리부터 그 요소까지의 id, `impl` 은 공통 부품(구현)의 줄이고 `impl.file` 은 문서 폴더 기준 상대 경로, `frac` 은 이 빌드에서 그 요소의 영역 `[x, y, w, h]` 다 |
+| `warn` | 고른 요소의 `score`(줄이기 전 값)가 0.3 미만이면 약한 일치 문장이고, 쪽을 다시 그리는 중이면 그 문장이 이어진다. 원고 pick 의 오래된 PDF·두 경로 불일치 문장은 없다. 아무것도 없으면 `""` |
+
+**줄을 줄 수 없으면 영역 답을 준다.** 보기 전용 PDF 의 답(`{doc, kind:"region", view_only:true, page, frac, pdf, name, quote, n_chars, warn, overlaps:[], pdf_build}`)과 같은 모양이다. 이 답의 `view_only: true` 는 그 답이 영역뿐이고 코드 줄이 없다는 뜻이다. `/api/docs` 의 `view_only` 는 문서의 능력이고 그림 문서에서는 `false` 다. 줄을 줄 수 없는 경우는 둘이다.
+
+- 지도를 읽지 못한다: 그 빌드에 지도 사본이 없거나, 지도가 검사를 어겼거나, 그 쪽이 지도에 없다. 이때 답에 `el` 이 없다.
+- 고른 요소의 코드 줄을 줄 수 없다: 요소에 `src` 가 없거나, 그 파일을 문서 폴더 안에서 읽지 못하거나, 줄 범위가 지금 파일을 넘는다. 이때 답에 그 요소의 `el` 이 붙는다.
+
+두 경우 `warn` 은 이유 문장으로 시작한다. 이유는 그 한국어 문장으로만 드러나고, 답에 이유 코드 필드는 없다(`figure_map_unavailable`·`element_without_source` 는 서버 안의 이름이다). 두 경우를 기계가 가르려면 답에 `el` 이 있는지 본다. `quote` 는 그 빌드의 PDF 사본에서 pdftotext 로 뽑은 영역 글자다. 영역 답과 영역 핀의 PDF 는 다음과 같다.
 
 - pick의 `pdf` 는 드래그한 빌드(`pdf_build`)의 지도가 가리키는 PDF의 원고 폴더 기준 경로이고, `name` 은 그 파일 이름이다. 영역 글자는 그 빌드의 PDF 사본에서 뽑는다.
 - 저장 레코드의 `pdf` 는 화면 빌드의 지도가 가리키는 PDF의 절대경로이고, `name` 은 그 파일 이름이다.
 - 그 빌드에 읽을 수 있는 지도가 없거나 지도의 `pdf` 가 문서 폴더 밖이면, 두 값 모두 지도 파일을 적는다. 문서 폴더 밖의 경로는 적지 않는다.
 
+**핀 만들기.** `POST /api/pin` 은 두 모양을 받는다.
+
+- 줄 핀: 원고 핀과 같은 필드에 `el` 을 더한다. `via` 는 `map` 도 받고, `scope` 는 `el`…`el8`·`fig` 도 받는다.
+- 영역 핀: `file`·`lo`·`hi` 가 모두 없으면 영역 핀이고, 보기 전용 핀과 같은 필드(`page`·`frac`·`note`·`quote`·`pdf_build`)에 `el` 을 더한다. `scope` 를 함께 보내면 `400 no_source_lines` 다. 이 셋 가운데 일부만 보내면 줄 핀으로 본다.
+
+`el` 은 그림 문서에서만 저장하고, 다른 문서에서는 모르는 필드처럼 버린다. `el` 은 pick 이 준 모양이어야 하고, 어기면 `400 bad_el` 이다.
+
+- `id` 는 비어 있지 않은 문자열이다.
+- `path` 는 `id` 로 끝나는 비어 있지 않은 문자열의 목록이고 1개 이상 64개 이하다.
+- `label`·`part` 는 문자열이다. 빈 문자열은 보내지 않은 것으로 친다.
+- `impl` 은 `{file, lo, hi}` 이다. `file` 은 정규 상대 경로(`/` 로 시작하지 않고, 빈 조각·`.`·`..`·역슬래시·NUL 이 없다)이고 1024자 이하이며, `1 ≤ lo ≤ hi ≤ 1000000` 이다.
+- `frac` 은 있으면 쪽 안의 유한수 4개다(넓이 > 0).
+- `id`·`path` 의 각 항목·`label`·`part` 는 200자 이하다.
+
+`el` 안의 모르는 키는 버린다. `el` 없이 `file`·`lo`·`hi` 만 보낸 에이전트의 핀도 받는다. 그 핀은 요소 없는 줄 핀이다. `doc` 없이 `file` 만 보내면 문서를 가리는 규칙은 §문서 매개변수 (`doc=`) 에 있다. 줄 핀의 anchor 는 그 파일 종류의 주석 줄을 건너뛰고 뜬다(`.py` 는 `#`, 그 밖은 `%`).
+
+**수정.** `el` 은 위치 필드다. `/edit` 의 `loc` 도 `el` 을 받고, 다른 위치 필드처럼 `loc` 에 `el` 이 없으면 핀의 `el` 이 지워진다. `lo`·`hi` 만 고치는 편집은 `el` 을 그대로 둔다. `/edit` 는 영역 핀을 줄 핀으로, 줄 핀을 영역 핀으로 바꾸지 않는다. 코드가 생기거나 사라졌으면 새로 찍는다(§핀 수정 (`/api/pins/{id}/edit`)).
+
+**읽을 때 계산하는 필드.** `GET /api/pins` 와 `/api/pins/{id}` 는 `el` 이 있는 핀에 그 문서의 지금 화면 빌드의 지도로 계산한 필드를 붙인다. `rel`·`est`·`doc`·`state`·`addressed`·`fyi` 다음에 이 순서로 온다. 이 필드는 저장하지 않고, 다시 렌더해도 `rev` 가 오르지 않는다.
+
+| 필드 | 뜻 |
+| --- | --- |
+| `mark` | 그 요소의 지금 영역 `[x, y, w, h]` |
+| `mark_page` | 그 요소가 지금 있는 쪽 |
+| `el_sync` | `ok`(핀의 쪽과 같은 쪽, 찍은 때 영역), `moved`(옮김), `lost`(지도에 없음. 이때 `mark`·`mark_page` 는 없다) |
+
+지도를 읽지 못하는 핀과 `el` 이 없는 핀에는 세 필드가 모두 없다. 휴지통 목록과 변경 요청의 응답 `pin` 에는 붙지 않는다(`est` 와 같다). `ok` 와 `moved` 를 가르는 규칙은 [domain.md](domain.md) §그림 핀의 요소 위치 — 읽을 때 계산한다 에 있다.
+
+**편집 카드의 사다리.** `GET /api/snippet?levels=1` 은 그림 문서의 파일에 대해 `raw` 단계 하나만 준다(`default_level` 도 `raw`). 문단·환경 단계는 LaTeX 원고의 규칙이라 그림 스크립트에 뜻이 없고, 요소 사다리는 pick 답에만 있다. 이 사다리로 줄을 조정해도 핀의 `el` 은 그대로다.
+
+**그 밖의 경로.** 닫기·claim·drop 은 원고 핀과 같다. `POST /api/rebuild` 는 `400` 이다. 그림은 그림 저장소에서 다시 렌더하고, Limn 이 새 PDF와 지도를 가져와 쪽을 다시 그린다.
+
 ## 그림 요소 지도 (`limn-figure-map/1`)
 
-그림 문서([domain.md](domain.md) §그림 문서)의 요소 지도는 그림 저장소가 쓰고 Limn이 읽는 생산자 계약이다. Limn은 지도를 만든 도구를 모른다. 형식은 더하기만 한다. 이 판이 모르는 키는 무시하고, 뜻을 바꾸는 변경은 `format` 의 판 번호를 올린다. 지금 서버는 지도를 가져와 빌드마다 보관하고, 핀의 PDF 이름에 쓴다([build-sync.md](build-sync.md) §그림 문서).
+그림 문서([domain.md](domain.md) §그림 문서)의 요소 지도는 그림 저장소가 쓰고 Limn이 읽는 생산자 계약이다. Limn은 지도를 만든 도구를 모른다. 형식은 더하기만 한다. 이 판이 모르는 키는 무시하고, 뜻을 바꾸는 변경은 `format` 의 판 번호를 올린다. 서버는 지도를 가져와 빌드마다 보관하고, pick이 요소를 고르고 핀의 요소가 어디로 옮겼는지 따라가는 데 쓴다([build-sync.md](build-sync.md) §그림 문서, §그림 문서의 pick·핀).
 
 ```json
 {
@@ -748,10 +808,10 @@ curl -s -X POST http://127.0.0.1:<port>/api/pins/3/unclaim
 3. `format` 이 맞다(`bad_format`).
 4. `pdf` 는 비어 있지 않은 1024자(`MAP_MAX_PATH`) 이하 문자열이고, `pdf_sha256` 은 소문자 16진 64자이고, `pages` 는 목록이다(`bad_shape`).
 5. 쪽마다: 쪽은 객체다(`bad_shape`). 쪽 번호는 1 이상의 정수이고 앞 쪽과 겹치지 않는다(`bad_page`). `figure` 는 비어 있지 않은 문자열이고 `title` 은 없거나 문자열이며, 둘 다 200자(`MAP_MAX_TEXT`, 바이트가 아니라 글자 수) 이하다(`bad_shape`). `elements` 는 목록이다(`bad_shape`). 요소는 5000개까지다(`too_many_elements`). 개수는 요소를 읽기 전에 센다.
-6. 그 쪽의 요소마다: 요소는 객체이고 `id` 는 비어 있지 않은 200자 이하 문자열이다(`bad_shape`). id가 지도 전체에서 유일하다(`duplicate_id`). `parent` 는 없거나 `null` 이거나 비어 있지 않은 문자열이다(`bad_shape`). `frac` 은 유한수 넷이고 `0 ≤ x`, `0 ≤ y`, `w > 0`, `h > 0`, `x + w ≤ 1 + 1e-6`, `y + h ≤ 1 + 1e-6` 이다(`bad_frac`). `src` 를 보고 `impl` 을 같은 규칙으로 본다. 각각 없거나 `null` 이거나 `{file, lo, hi}` 이고, `file` 은 1024자 이하 문자열, `lo`·`hi` 는 `1 ≤ lo ≤ hi ≤ 1000000`(`MAP_MAX_LINE`)인 정수다(`bad_shape`). 그 `file` 은 정규 상대 경로다. `/` 로 시작하거나 끝나지 않고, 빈 조각·`.`·`..` 조각·역슬래시·NUL이 없다(`path_outside`). 이 모양은 폴더를 보기 전에 본다. 그다음 문서 폴더 안이고, 점으로 시작하는 이름 아래가 아니다. 심볼릭 링크는 푼 뒤에 본다(`path_outside`). 끝으로 `part`·`label` 은 없거나 200자 이하 문자열이다(`bad_shape`).
+6. 그 쪽의 요소마다: 요소는 객체이고 `id` 는 비어 있지 않은 200자 이하 문자열이다(`bad_shape`). id가 지도 전체에서 유일하다(`duplicate_id`). `parent` 는 없거나 `null` 이거나 비어 있지 않은 문자열이다(`bad_shape`). `frac` 은 유한수 넷이고 `0 ≤ x`, `0 ≤ y`, `w > 0`, `h > 0`, `x + w ≤ 1 + 1e-6`, `y + h ≤ 1 + 1e-6` 이다(`bad_frac`). `src` 를 보고 `impl` 을 같은 규칙으로 본다. 각각 없거나 `null` 이거나 `{file, lo, hi}` 이고, `file` 은 1024자 이하 문자열, `lo`·`hi` 는 `1 ≤ lo ≤ hi ≤ 1000000`(`MAP_MAX_LINE`)인 정수다(`bad_shape`). 그 `file` 은 정규 상대 경로다. `/` 로 시작하거나 끝나지 않고, 빈 조각·`.`·`..` 조각·역슬래시·NUL이 없다(`path_outside`). 지도를 받을 때 보는 것은 이 모양뿐이다. 그 경로가 문서 폴더 안을 가리키는지, 파일이 있는지는 보지 않는다. 끝으로 `part`·`label` 은 없거나 200자 이하 문자열이다(`bad_shape`).
 7. 그 쪽의 요소를 다 읽은 뒤: `parent` 없는 요소가 정확히 하나이고, 그 id가 `figure`, `frac` 이 `[0, 0, 1, 1]` 이다(`no_root`). 모든 `parent` 가 같은 쪽 요소를 가리키고 순환이 없다. 뿌리부터 어느 요소까지든 id는 둘 다 세어 64개(`MAP_MAX_DEPTH`) 이하다(`bad_parent`).
 
-글자 수 200자 상한은 핀이 그 이름을 저장하기 때문이다. 경로 길이·줄 번호·깊이의 상한도 같은 이유로 둔다. 받은 지도의 어느 요소든 핀에 그대로 담을 수 있어야 하기 때문이다. `pdf` 는 이 검사에서 모양만 본다. 그 PDF가 문서 폴더 밖이면 지도는 받되 가져오기가 미룬다([build-sync.md](build-sync.md) §그림 문서).
+글자 수 200자 상한은 핀이 그 이름을 저장하기 때문이다. 경로 길이·줄 번호·깊이의 상한도 같은 이유로 둔다. 받은 지도의 어느 요소든 핀에 그대로 담을 수 있어야 하기 때문이다. `pdf` 는 이 검사에서 모양만 본다. 그 PDF가 문서 폴더 밖이면 지도는 받되 가져오기가 미룬다([build-sync.md](build-sync.md) §그림 문서). `src.file` 은 이 검사에서 모양만 보고, 문서 폴더 안에서 읽을 수 있는지는 pick이 그 스크립트를 읽을 때 정한다. 문서 폴더 안이고 점으로 시작하는 이름 아래가 아니어야 하며, 심볼릭 링크는 푼 뒤에 본다. 폴더 밖으로 이어지거나 없는 스크립트는 그 스크립트가 그린 요소만 줄을 주지 못하고(pick이 영역으로 답한다), 지도 전체는 그대로 받는다. `impl.file` 은 데이터다. 핀에 저장되고 pins.md에 글자로 적힐 뿐 열리지 않으므로 모양만 본다. 그래서 같은 지도 바이트는 언제 읽어도 같은 판정이다.
 
 **쓰는 순서.** 생산자는 PDF를 먼저 쓰고, 지도는 마지막에 원자적으로 바꾼다(임시 파일에 쓰고 이름 바꾸기). 순서가 달라도 `pdf_sha256` 이 맞을 때만 가져오므로, 어긋난 짝이 화면에 오르지는 않는다.
 
@@ -795,11 +855,13 @@ curl -s -X POST http://127.0.0.1:<port>/api/pins/3/unclaim
 | `doc` | 핀이 속한 문서 키(§문서 매개변수 (`doc=`)). 없는 옛 레코드는 첫 문서로 **읽는다**. 이관 쓰기를 하지 않는다. `GET /api/pins` 응답에는 늘 채워진다(계산) |
 | `pdf` | 보기 전용 PDF 문서와 그림 문서의 영역 핀에만 있다. 그 PDF의 절대경로다(그림 문서는 지도가 가리키는 PDF, §보기 전용 PDF 문서의 pick·핀). 이 필드가 있고 `file` 이 없으면 보기 전용 핀으로 검증한다(`page`·`frac` 필수, `lo`·`hi` 없음). 문서 키가 지금 설정에 없어도 깨진 줄로 치지 않는다 |
 | `rev` | 레코드 내용이 바뀌는 모든 쓰기(줄 이동·stale, 수정, 닫기, 다시 열기, 되살리기)에서 +1. 없으면 0 |
-| `scope` | `raw\|para\|env\|env2\|env3\|lines`. 저장할 때 고른 범위 사다리 단계다 |
+| `scope` | `raw\|para\|env\|env2\|env3\|lines`, 그림 핀은 `el\|el2\|…\|el8\|fig`. 저장할 때 고른 범위 사다리 단계다 |
+| `via` | 범위를 찾은 방법 `synctex\|text\|map`. `map` 은 그림 문서의 요소 지도다 |
+| `el` | 그림 핀만 가진다. 가리킨 요소 `{id, path, label?, part?, impl?: {file, lo, hi}, frac?}`(§그림 문서의 pick·핀)다. 모양이 틀리면 그 줄은 깨진 줄이다. 모양이 틀린 경우는 객체가 아니거나, `id` 가 없거나 문자열이 아니거나 빈 문자열이거나, `path` 가 문자열 목록이 아니거나, `label`·`part` 가 문자열이 아니거나, `impl` 이 `{file: 문자열, lo: 정수, hi: 정수}` 가 아니거나, `frac` 이 숫자 4개가 아닌 때다. 이 필드를 모르는 이전 서버(0.3.5, 0.3.7, 0.3.8에서 확인된다)는 모르는 필드로 지나치고, 되쓸 때 그대로 둔다 |
 | `quote` | 선택. 호출자가 붙인 짧은 인용이다(60자에서 자른다) |
 | `pdf_build` | `frac` 을 찍은 빌드 id(쪽 디렉토리 이름). 없으면 옛 핀이다. 옛 필드명 `frac_build` 도 같은 뜻으로 읽는다([build-sync.md](build-sync.md) §위치 추정 (`est`)) |
 | `anchor` | `{head, tail, head_off, tail_off}`. 줄 맞춤의 기준이다. `*_off` 가 없는 옛 앵커는 0으로 본다([domain.md](domain.md) §줄 번호 재동기화) |
-| `kind` | `paragraph\|float\|block\|none`(옛 값) 또는 `env:<이름>`, `lines`. 모르는 값은 원문 그대로 둔다 |
+| `kind` | `paragraph\|float\|block\|none`(옛 값) 또는 `env:<이름>`, `lines`. 그림 핀은 `el:<부품>`(`el:MonthCell`, `el:?`)과 `figure`. 모르는 값은 원문 그대로 둔다 |
 | `author` | 만든 사람 `{login, name, pic?}` |
 | `edited_at`, `edited_by` | 저장 뒤 마지막 수정 시각과 사람 |
 | `closed_by` / `reopened_by` | 닫은 사람과 다시 연 사람(`done_at`·`reopened_at` 과 함께) |
@@ -814,7 +876,9 @@ curl -s -X POST http://127.0.0.1:<port>/api/pins/3/unclaim
 | `confirmed_by` / `confirmed_at` | 검토 대기를 확인한 사람과 시각 |
 | `claimed_by` / `claimed_at` / `claim_ts` / `claim_until` / `eta_ts` | 처리 중 표시(§처리 중 표시 (claim)). `claimed_by` 는 작성자 귀속과 같은 `{login,name}` 형식이고, `claimed_at` 은 시작 시각 문자열이다. `claim_ts`(시작), `claim_until`(잠금 자동 해제), `eta_ts`(예상 완료)는 epoch 초다. `claim_until` 이 지난 값이면 없는 것으로 본다. `close`·`drop`·`unclaim` 이 모두 지운다 |
 
-`snippet`, `warn`, `levels`, `default_level`, `rel`, `rel_path`, `overlaps`, `est`, `state`, `addressed` 는 응답에만 있고 저장하지 않는다(§겹친 핀과 덧붙이기, [build-sync.md](build-sync.md) §위치 추정 (`est`)). `rel_path`(0.3.2+)는 §핀 파일의 위치로 찾은 원고 폴더 기준 상대 경로이고, 옛 레코드에도 계산해서 싣는다. 찾지 못하면 없다. `rel`(겹침 관계)과는 다른 필드다.
+`snippet`, `warn`, `levels`, `default_level`, `rel`, `rel_path`, `overlaps`, `est`, `state`, `addressed`, `mark`, `mark_page`, `el_sync` 는 응답에만 있고 저장하지 않는다(§겹친 핀과 덧붙이기, [build-sync.md](build-sync.md) §위치 추정 (`est`)). `rel_path`(0.3.2+)는 §핀 파일의 위치로 찾은 원고 폴더 기준 상대 경로이고, 옛 레코드에도 계산해서 싣는다. 찾지 못하면 없다. `rel`(겹침 관계)과는 다른 필드다.
+
+**응답에는 NaN·Infinity 가 없다.** 저장된 숫자에 NaN·Infinity·float 로 담을 수 없는 큰 정수(손으로 고친 줄이나 옛 줄에 생길 수 있다)가 있으면, 모든 핀 응답이 그 숫자를 `null` 로 준다. `GET /api/pins`, `GET /api/pins/{id}`, 휴지통 목록, 변경 요청의 응답 `pin`, 그리고 `409 claimed` 의 `claim_until`·`eta_ts` 가 모두 그렇다. `frac` 과 `el.frac` 은 원소 하나라도 그러면 필드 전체가 `null` 이다. 유한한 원소로 상자를 맞추면 지어낸 위치에 표시가 그려지기 때문이다. 그 밖의 숫자는(`synced_at`·`score`·`claim_until`·`claim_ts`·`eta_ts`, 그리고 `anchor`·`thread`·모르는 필드 안의 숫자) 하나씩 `null` 이다. 저장된 줄은 고치지 않는다.
 
 ### 핀 파일의 위치
 
@@ -878,8 +942,9 @@ curl -s -X POST http://127.0.0.1:<port>/api/pins/3/unclaim
 | `처리 중(<이름>, 약 N분)` | 다른 에이전트가 유효한 claim을 쥐고 있다(§처리 중 표시 (claim)). 이름은 `claimed_by.name` 이다. 토큰이면 토큰 이름, 헤더 없는 루프백 요청이면 `로컬/에이전트` 다. `약 N분` 은 남은 견적(5분 단위 올림)이고, 넘겼으면 `예상 초과`, 견적이 없으면 이름만 쓴다 | **건너뛴다.** 처리 중인 사람과 겹치지 않게 한다 |
 | `수정됨` | 저장한 뒤 메모나 범위를 수정했다(`edited_at` 있음) | — |
 | `위치 잃음` | 위치를 잃었다(`stale`) | 방금 그 범위를 직접 고친 직후라면 이미 반영됐을 수 있다. 원문을 확인하고 닫아도 된다. 무조건 사용자에게 보고할 필요는 없다. 단 방금 자기가 만든 변경이 원인일 때에 한한다 |
+| `요소 잃음` | 그림 핀의 요소가 지금 그림의 지도에 없다(`el_sync` 가 `lost`) | 추측해 닫지 않고 보고한다 |
 
-표시 범례 줄은 열린 핀에 표시가 하나라도 있을 때만 실린다. 모양은 `표시: '#N 범위 안'·'#N과 같은 범위' = … · '#N과 일부 겹침' = … · '처리 중(이름, 약 N분)' = … · '수정됨' = … · '위치 잃음' = … · «…» = …` 다.
+표시 범례 줄은 열린 핀에 표시가 하나라도 있을 때만 실린다. 모양은 `표시: '#N 범위 안'·'#N과 같은 범위' = … · '#N과 일부 겹침' = … · '처리 중(이름, 약 N분)' = … · '수정됨' = … · '위치 잃음' = … · «…» = …` 다. 범례의 `«…»` 는 줄 안에서 가리킨 부분의 렌더 글자다. 그림 핀에서 `«…»` 는 요소 이름이고, `요소 잃음` 에는 범례 항목이 없다. 둘은 그림 핀 안내 문단이 설명한다(§그림 핀의 행).
 
 ### 질문·다시 열림·사람에게 물은 핀
 
@@ -921,20 +986,37 @@ curl -s -X POST http://127.0.0.1:<port>/api/pins/3/unclaim
 
 ### 여러 문서
 
-`--doc` 이 둘 이상이거나, 첫 문서가 아닌 키의 열린 핀이 있으면 여러 문서 모양이 된다. 파일은 한 장 그대로다.
+`--doc` 이 둘 이상이거나, 첫 문서가 아닌 키의 열린 핀이 있거나, 그림 문서가 있으면 여러 문서 모양이 된다. 그림 문서는 그것이 인스턴스의 유일한 문서여도 늘 자기 소절을 가진다. 파일은 한 장 그대로다.
 
 1. 머리에 `` 문서: 본문(`ms`) 3건 · … · 리뷰어 코멘트(`rv`, 보기 전용) 1건 `` 한 줄과 소절 안내를 둔다.
-2. 열린 핀이 있는 문서마다 소절 `` ## <이름> · `<키>` · `<--manuscript 기준 경로>` `` 를 둔다. 보기 전용이면 제목 끝에 `— 보기 전용 PDF(줄 번호 없음)` 이 붙는다.
-3. 소절 안에 그 문서의 `기준: <head> · 빌드 <built_at>` 줄이 온다. 보기 전용은 `빌드` 대신 `그림` 이다. 그 뒤에 5열 표가 온다.
+2. 열린 핀이 있는 문서마다 소절 `` ## <이름> · `<키>` · `<--manuscript 기준 경로>` `` 를 둔다. 보기 전용이면 제목 끝에 `— 보기 전용 PDF(줄 번호 없음)` 이, 그림 문서면 `— 그림(요소 지도)` 가 붙는다.
+3. 소절 안에 그 문서의 `기준: <head> · 빌드 <built_at>` 줄이 온다. 원고에서 빌드하지 않는 문서(보기 전용 PDF와 그림 문서)는 `빌드` 대신 `그림` 이라서 `기준: <head> · 그림 <built_at>` 이다. 그 문서의 `head` 가 있고 `-` 가 아니며(git 밖이면 `-`) `built_at` 이 있을 때만 이 줄이 온다. `head` 가 `-` 이면 이 줄은 없다. 그 뒤에 5열 표가 온다.
 
-머리의 단일 `기준:` 줄은 소절로 옮겨 간다. 설정에 없는 문서 키의 핀은 `` ## 설정에 없는 문서 · `<키>` `` 소절로 드러난다. 단일 문서에는 문서 소절이 없다.
+머리의 단일 `기준:` 줄은 소절로 옮겨 간다. 설정에 없는 문서 키의 핀은 `` ## 설정에 없는 문서 · `<키>` `` 소절로 드러난다. 단일 문서(그림 문서가 아닌)에는 문서 소절이 없다. 머리의 `문서:` 줄에는 보기 전용 문서만 `보기 전용` 이 붙고, 그림 문서에는 붙지 않는다.
 
 ### 보기 전용 핀의 행
 
 - 위치 칸은 `쪽 3, 영역 가로 10–60% 세로 20–30%` 모양이다.
 - 범위 칸은 `영역` 이다.
 - 메모 앞에 영역 글자 `«…»` 가 늘 붙는다. 한 줄·600자 조건이 없다. 줄 번호가 없어 영역 글자가 유일한 원문 단서이기 때문이다.
-- 보기 전용 핀이 있으면 안내 문단에 "줄 번호가 없다 — 쪽·영역 글자·메모로 판단, 고칠 곳은 LaTeX 문서에서" 가 붙는다.
+- 보기 전용 PDF 의 영역 핀이 있으면 안내 문단에 "줄 번호가 없다 — 쪽·영역 글자·메모로 판단, 고칠 곳은 LaTeX 문서에서" 가 붙는다. 그림 문서의 영역 핀과 `el` 이 있는 영역 핀은 그림 핀이라 이 안내를 붙이지 않는다.
+
+### 그림 핀의 행
+
+그림 핀은 그림 문서의 소절에 실리는 핀이다. `el` 이 있는 핀과 그림 문서의 영역 핀이 여기에 든다.
+
+- 소절 제목 끝에 `— 그림(요소 지도)` 가 붙는다. 그림은 그림 저장소에서 다시 렌더하고 재빌드하지 않는다.
+- 줄 핀의 위치 칸은 원고 핀처럼 그림 스크립트의 `파일 L<lo>-L<hi>` 이고, 범위 칸은 핀의 `kind`(`el:MonthCell`, `figure`)다. 영역 핀의 위치 칸은 `쪽 N, 영역 …` 이고 범위 칸은 `영역` 이다.
+- `el` 에 `label` 이 있으면 메모 앞에 요소 이름 `«label»` 이 늘 붙는다. 한 줄·600자 조건은 없다. 이 이름이 원고 핀의 `«…»` 인용 자리를 차지한다. `label` 이 없으면 원고 핀·영역 핀의 인용 규칙이 그대로다.
+- 요소에 공통 부품(`el.impl`)이 있으면 메모 뒤에 ` ⏎ 공통 부품: <파일>:<lo>-<hi>` 가 붙는다. 아래를 모두 만족할 때만 찍는다.
+  - 그 핀의 문서가 지금 설정에 있다.
+  - 저장된 `impl.file` 이 정규 상대 경로이고(`/` 로 시작하지 않고 빈 조각·`.`·`..`·역슬래시·NUL 이 없다), 점으로 시작하는 조각이 없고, 1024자 이하다.
+  - `impl` 의 줄이 `1 ≤ lo ≤ hi ≤ 1000000` 이다.
+  - 문서 폴더(`--manuscript` 기준)에 `impl.file` 을 이어 붙인 경로도 정규 상대 경로이고 점으로 시작하는 조각이 없다.
+
+  파일은 위치 칸처럼 `--manuscript` 기준 경로다. 경로는 글자로만 이어 붙이고 파일을 열지 않는다. 손으로 고친 `pins.jsonl` 이 `..`·절대 경로·점 폴더를 작업 목록에 올리지 못하게 하려는 것이다.
+- 요소를 잃은 핀(`el_sync` 가 `lost`)은 번호 칸에 `요소 잃음` 이 붙는다. 기준은 그 문서의 지금 화면 빌드의 지도다. 디스크의 `<state_dir>/pins.md` 는 핀을 쓸 때, 서버를 띄울 때, 그림 가져오기가 새 빌드를 화면에 올릴 때 다시 써서 이 기준을 따라간다. `GET /pins.md` 는 요청마다 렌더한다.
+- 그림 핀이 열려 있으면 안내 문단 끝에 그림 핀 안내가 붙는다. 지금 `el` 이 있는 열린 핀이나 그림 문서의 열린 영역 핀이 있을 때다. 안내는 다음을 알린다. `«요소 이름»` 이 앞에 붙은 핀의 위치 칸은 그 요소를 그린 코드 줄이니 그 줄을 고칠 것. `공통 부품: 파일:줄` 은 여러 그림이 함께 쓰는 정의라서, 요청이 공통 모양에 관한 것이면 한 그림만 덮어쓰지 말고 사람에게 물을 것. 닫기 전에 그림 저장소에서 그림을 다시 렌더할 것(그림 문서에는 `/api/rebuild` 가 없다). `요소 잃음` 은 추측해 닫지 말고 보고할 것. 위치 칸이 쪽·영역뿐인 그림 핀은 코드 줄이 없으니, 고칠 곳은 LaTeX 문서가 아니라 그림 저장소에서 쪽·영역·요소 이름·메모로 그 요소를 그린 곳(스크립트나 디자인 파일)을 찾을 것. 못 찾으면 닫지 말고 사람에게 묻거나 보고한다. 요소가 디자인 도구에서 왔으면 고치지 말고 보고할 것. 이 안내 문장은 계약이다. 범례는 이 안내를 대신하지 않는다(§번호 칸의 표시).
 
 ### 이스케이프
 

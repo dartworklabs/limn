@@ -29,3 +29,16 @@ def is_finite_num(v: object) -> TypeGuard[int | float]:
         return isfinite(v)
     except OverflowError:
         return False
+
+
+def wire_value(v: object) -> object:
+    """v as a JSON response can carry it: a number that is not finite (NaN, an Infinity, an integer no float holds)
+    becomes None - at any depth of a list or an object - and everything else is kept. Lists and objects come back as
+    copies, so the stored value a reader passed in is never changed."""
+    if is_num(v):
+        return v if is_finite_num(v) else None
+    if isinstance(v, list):
+        return [wire_value(x) for x in v]
+    if isinstance(v, dict):
+        return {k: wire_value(x) for k, x in v.items()}
+    return v

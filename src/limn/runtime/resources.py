@@ -13,10 +13,11 @@ Jobs = TypeVar("Jobs", covariant=True)
 Share = TypeVar("Share", covariant=True)
 Watch = TypeVar("Watch", covariant=True)
 Tokens = TypeVar("Tokens", covariant=True)
+Maps = TypeVar("Maps", covariant=True)
 
 
 @dataclass(frozen=True)
-class RuntimeResources(Generic[Viewer, Scope, Jobs, Share, Watch, Tokens]):
+class RuntimeResources(Generic[Viewer, Scope, Jobs, Share, Watch, Tokens, Maps]):
     """Mutable resources owned by one server process, grouped by lifecycle."""
 
     viewer: Viewer
@@ -25,6 +26,7 @@ class RuntimeResources(Generic[Viewer, Scope, Jobs, Share, Watch, Tokens]):
     pull_share: Share
     sync_watch: Watch
     token_cache: Tokens
+    figure_maps: Maps
     pin_lock: threading.RLock = field(default_factory=threading.RLock)
     people_lock: threading.Lock = field(default_factory=threading.Lock)
     events_lock: threading.Lock = field(default_factory=threading.Lock)

@@ -54,7 +54,7 @@ This plan assumes the P0 and P1a names below. **Task 1, Step 1 verifies them.** 
 | `resolve.pick` branches `if D.view_only:` to `_pick_region(D, pdir, page, box, size, frac, rtext, ctx.root)` (`resolve.py:148` at `5d1c4b6`; P1a Task 6 adds `root` and names the PDF the build's map names) | figure documents pick as regions after P1a |
 | `documents.doc_for_file` skips documents without `takes_line_pins` (`documents.py:209`) | routing |
 | `limn/figmap.py`: `Frac`, `SourceRef`, `MapElement`, `MapPage` (`root`, `by_id`, `ancestors`), `FigureMap` (`page`, `find`), `MapRejected`, `parse_map` exactly as the index | pure, no I/O |
-| `limn/build.py` (P1a Contract issue 1, not `features/builds/figure.py`): `FIGMAP_NAME = "figmap.json"`, `load_build_map(doc, build) -> FigureMap \| MapRejected \| None` (reads `doc.dir / build / FIGMAP_NAME`, parses with the document folder's source check), `build_figure_pdf` | shared build facts; slices never import each other |
+| `limn/build.py` (P1a Contract issue 1, not `features/builds/figure.py`): `FIGMAP_NAME = "figmap.json"`, `load_build_map(doc, build) -> FigureMap \| MapRejected \| None` (reads `doc.dir / build / FIGMAP_NAME`, parses the copy's bytes alone; `src.file` is folder-checked when the pick reads it, `impl.file` is data that is never opened - P1b Task 6b), `build_figure_pdf` | shared build facts; slices never import each other |
 | P1a tests that P1b's flip reverses: `CAPABILITY_TABLE["figure"]` and the figure routing test in `src/limn/features/document_views/test_meta.py`; `test_a_figure_document_takes_no_line_pin` and `test_a_file_only_pin_under_the_figure_folder_goes_to_the_latex_document` in `src/limn/features/pins/location/test_figure_region.py` | Task 7 updates them |
 
 ## Global Constraints

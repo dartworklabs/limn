@@ -11,7 +11,7 @@ themselves are described in docs/handbook/domain.md.
 import re
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
-from typing import Any, Literal, TypeAlias
+from typing import Any, Literal, TypeAlias, get_args
 
 from limn.platform.text import flat as flat, truncate_quote as truncate_quote
 from limn.platform.values import is_int
@@ -38,9 +38,15 @@ def norm(line: str) -> str:
     return " ".join(line.split())
 
 
-def is_comment(line: str) -> bool:
-    """True for a whole-line LaTeX comment (first non-blank character is %)."""
-    return line.lstrip().startswith("%")
+def is_comment(line: str, marker: str = "%") -> bool:
+    """True for a whole-line comment: the first non-blank character is marker (a LaTeX % by default)."""
+    return line.lstrip().startswith(marker)
+
+
+def comment_marker(path: str) -> str:
+    """The character a whole-line comment starts with in the source file at path, as anchor_of skips it: "#" for a
+    Python script (a figure's drawing code, suffix .py in any case), "%" for every other file - LaTeX, as always."""
+    return "#" if path.lower().endswith(".py") else "%"
 
 
 def strip_comment(line: str) -> str:
@@ -299,8 +305,10 @@ def compute_levels(lines: Sequence[str], raw_lo: int, raw_hi: int, envs: Sequenc
 
 # ---------------------------------------------------------------- Choosing a selection's range
 
-# How a selection's range was found: SyncTeX's answer for the box, or the rendered text's tokens (by_text).
-Via: TypeAlias = Literal["synctex", "text"]
+# How a selection's range was found: SyncTeX's answer for the box, the rendered text's tokens (by_text), or - on a
+# figure document - its build's element map (limn.builds.figure_map, pins/location/figure.py).
+Via: TypeAlias = Literal["synctex", "text", "map"]
+VIAS: tuple[Via, ...] = get_args(Via)
 WEAK_SCORE = 0.3  # below this a weighed selection's best range is flagged as a weak match
 SPLIT_MARGIN = 0.12  # two paths scoring closer than this that land apart are flagged as disagreeing
 
@@ -363,8 +371,9 @@ def trace_range(
 # ---------------------------------------------------------------- Anchors
 
 
-def anchor_of(lines: Sequence[str], lo: int, hi: int) -> dict[str, str | int]:
-    """Captures the head/tail text of the block a pin points at (pure-comment lines are skipped).
+def anchor_of(lines: Sequence[str], lo: int, hi: int, marker: str = "%") -> dict[str, str | int]:
+    """Captures the head/tail text of the block a pin points at (whole-line comments - lines starting with marker,
+    comment_marker() of the pin's file - are skipped).
 
     Storing only line numbers means every pin drifts the moment the manuscript is edited once. The whole
     point of this tool is "an agent edits the manuscript", so a design where editing kills the pins is
@@ -375,7 +384,7 @@ def anchor_of(lines: Sequence[str], lo: int, hi: int) -> dict[str, str | int]:
     these, a pin that deliberately included comment lines at its edges would silently shrink on the first
     line-matching pass (observed: L7-L9 -> L10-L11)."""
     idx = [i for i in range(lo - 1, min(hi, len(lines))) if lines[i].strip()]
-    body = [i for i in idx if not is_comment(lines[i])] or idx
+    body = [i for i in idx if not is_comment(lines[i], marker)] or idx
     if not body:
         return {}
     return {

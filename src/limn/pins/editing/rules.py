@@ -9,28 +9,97 @@ from posixpath import isabs
 from typing import Any, TypeAlias
 
 from limn.pins.editing.values import ASSIGNEE_AGENT, NOTE_MAX, PDF_QUOTE_MAX, Scope, is_scope
+from limn.pins.element import element_of
+from limn.pins.location.mapping import VIAS
 from limn.pins.model import Actor, DonePin, KindReq, LineSpan, OpenPin, Pin, Record, ReviewPin, is_kind_req
 from limn.pins.thread import PinT, author, rev_after, signature, thread_message, with_entry
 from limn.platform.values import is_finite_num, is_int
 
-# A line re-placement replaces these fields as a whole; unnamed fields are dropped.
-LOC_FIELDS = ("file", "name", "page", "lo", "hi", "raw_lo", "raw_hi", "kind", "via", "score", "frac", "scope", "quote")
+# A line re-placement replaces these fields as a whole; unnamed fields are dropped (a figure pin's el too).
+LOC_FIELDS = (
+    "file",
+    "name",
+    "page",
+    "lo",
+    "hi",
+    "raw_lo",
+    "raw_hi",
+    "kind",
+    "via",
+    "score",
+    "frac",
+    "scope",
+    "quote",
+    "el",
+)
 
 
-# A region without a quote drops the previous quote.
-REGION_PLACE_FIELDS = ("page", "frac", "quote", "pdf_build")
+# A region without a quote or an el drops the previous one.
+REGION_PLACE_FIELDS = ("page", "frac", "quote", "pdf_build", "el")
+
+
+@dataclass(frozen=True)
+class _Object:
+    """A JSON object frozen inside a place: its members, keys in the order they came."""
+
+    members: tuple[tuple[str, object], ...]
+
+
+def _freeze(v: object) -> object:
+    """A JSON value as an immutable one that gives back exactly what it was given: an object as an _Object (members
+    in order), a list as a tuple, a scalar as it is. Nothing is normalised - not the key order, not an integer, not a
+    key the contract does not know - so a place never rewrites an el it carries."""
+    if isinstance(v, dict):
+        return _Object(tuple((key, _freeze(member)) for key, member in v.items()))
+    if isinstance(v, list):
+        return tuple(_freeze(member) for member in v)
+    return v
+
+
+def _thaw(v: object) -> object:
+    """_freeze's inverse: a new dict for an _Object, a new list for a tuple, a scalar as it is."""
+    if isinstance(v, _Object):
+        return {key: _thaw(member) for key, member in v.members}
+    if isinstance(v, tuple):
+        return [_thaw(member) for member in v]
+    return v
+
+
+def _is_placeable_el(v: object) -> bool:
+    """An el a place may carry: one the record check accepts (limn.pins.element.is_element_record) whose frac, when it
+    has one, is four finite numbers - a place is written as JSON, where NaN and Infinity are not valid and an integer
+    too large for a float cannot be read back."""
+    el = element_of(v)
+    return el is not None and (not isinstance(v, dict) or v.get("frac") is None or el.frac is not None)
 
 
 def _place_record(items: tuple[tuple[str, object], ...]) -> Record:
-    """Rebuild ordered JSON fields, exposing a new list for a frozen place's fractional coordinates."""
-    return {key: list(value) if key == "frac" and isinstance(value, tuple) else value for key, value in items}
+    """Rebuild ordered JSON fields from a frozen place: a new list for its fractional coordinates, a new copy of the
+    el exactly as it was frozen."""
+    return {key: _thawed(key, value) for key, value in items}
+
+
+def _thawed(key: str, value: object) -> object:
+    """A frozen place value back as JSON: a list for frac, the el as it was given."""
+    if key == "frac" and isinstance(value, tuple):
+        return list(value)
+    if key == "el":
+        return _thaw(value)
+    return value
 
 
 def _place_items(fields: Record) -> tuple[tuple[str, object], ...]:
-    """Freeze the known nested JSON list as well as a place's outer record while retaining its field order."""
-    return tuple(
-        (key, tuple(value) if key == "frac" and isinstance(value, list) else value) for key, value in fields.items()
-    )
+    """Freeze a place's fields in their order: frac as a tuple, el as an immutable copy of itself."""
+    return tuple((key, _frozen(key, value)) for key, value in fields.items())
+
+
+def _frozen(key: str, value: object) -> object:
+    """A place value frozen for its snapshot: a tuple for frac, an exact immutable copy for el."""
+    if key == "frac" and isinstance(value, list):
+        return tuple(value)
+    if key == "el":
+        return _freeze(value)
+    return value
 
 
 @dataclass(frozen=True, init=False)
@@ -38,8 +107,9 @@ class LinePlace:
     """A line pin's location with required local fields; the boundary also checks file existence and line count.
 
     named is the set of fields the request itself sent. An edit keeps the pin's page and frac when the request did
-    not name them, and forgets the legacy frac_build only when it re-placed frac. The record snapshot cannot be
-    changed through the caller's dict or the fields property after construction.
+    not name them, and forgets the legacy frac_build only when it re-placed frac. A figure pin's el
+    (limn.pins.element) is checked and carried as given. The record snapshot cannot be changed through the caller's
+    dict or the fields property after construction.
     """
 
     _items: tuple[tuple[str, object], ...]
@@ -49,7 +119,8 @@ class LinePlace:
     hi: int
 
     def __init__(self, fields: Record, named: frozenset[str]) -> None:
-        """Keep the field order and reject a place that would fail the service's required field reads."""
+        """Keep the field order and reject a place that would fail the service's required field reads (a via outside
+        mapping.VIAS or a scope outside edit.SCOPES included)."""
         if not isinstance(fields, dict):
             raise ValueError("line place fields must be a record")
         if not fields.keys() <= set(LOC_FIELDS + ("pdf_build",)):
@@ -74,7 +145,7 @@ class LinePlace:
                 raise ValueError(f"line place {key} must be an integer")
         if "kind" in fields and (not isinstance(fields["kind"], str) or len(fields["kind"]) > 80):
             raise ValueError("line place kind must be a short string")
-        if "via" in fields and fields["via"] not in ("synctex", "text"):
+        if "via" in fields and fields["via"] not in VIAS:
             raise ValueError("line place via must name a location method")
         if "score" in fields and not is_finite_num(fields["score"]):
             raise ValueError("line place score must be a finite number")
@@ -88,6 +159,8 @@ class LinePlace:
             raise ValueError("line place quote must be a short string")
         if "pdf_build" in fields and (not isinstance(fields["pdf_build"], str) or not fields["pdf_build"]):
             raise ValueError("line place pdf_build must be a nonempty string")
+        if "el" in fields and not _is_placeable_el(fields["el"]):
+            raise ValueError("line place el must be a figure element")
         object.__setattr__(self, "_items", _place_items(fields))
         object.__setattr__(self, "named", frozenset(named))
         object.__setattr__(self, "file", file)
@@ -102,7 +175,8 @@ class LinePlace:
 
 @dataclass(frozen=True, init=False)
 class RegionPlace:
-    """A view-only PDF pin's locally valid region; the boundary also checks the document's page count."""
+    """A region pin's locally valid region (a view-only PDF's, or a figure element drawn without code, which carries
+    its el); the boundary also checks the document's page count."""
 
     _items: tuple[tuple[str, object], ...]
 
@@ -110,7 +184,7 @@ class RegionPlace:
         """Reject missing PDF coordinates and keep an isolated snapshot of the ordered record fields."""
         if not isinstance(fields, dict):
             raise ValueError("region place fields must be a record")
-        if not fields.keys() <= {"pdf", "name", "kind", "page", "frac", "quote", "pdf_build"}:
+        if not fields.keys() <= {"pdf", "name", "kind", "page", "frac", "quote", "pdf_build", "el"}:
             raise ValueError("region place contains fields outside its location")
         pdf, name, page, frac = (fields.get(key) for key in ("pdf", "name", "page", "frac"))
         if not (
@@ -141,6 +215,8 @@ class RegionPlace:
             raise ValueError("region place quote must be a short string")
         if "pdf_build" in fields and (not isinstance(fields["pdf_build"], str) or not fields["pdf_build"]):
             raise ValueError("region place pdf_build must be a nonempty string")
+        if "el" in fields and not _is_placeable_el(fields["el"]):
+            raise ValueError("region place el must be a figure element")
         object.__setattr__(self, "_items", _place_items(fields))
 
     @property
@@ -355,14 +431,16 @@ def evolve_edit(
 ) -> PinT:
     """Apply an edit; the pin keeps its state. Fields keep their order in the record (new ones go to the end).
 
-    A region re-placement sets page, frac, quote (dropped if not sent) and pdf_build. A line re-placement replaces
-    every location field, keeping page and frac the request did not name; kind defaults to the request's kind or
-    "lines", scope comes from the request when the place has none. A lo/hi edit writes the range and, if it moved,
-    forgets via/score (the range is no longer a matching result). scope and kind are set directly when nothing is
-    re-placed. Then the facts the shell read: where the file is now (file, file_rel), and - given only when the
-    range changed and the file is located - the new anchor and synced_at, which also clear stale/sync. Last come the
-    note, kind_req, the note's @-tags (mentions, None when the note is untouched), a changed assignee with an
-    ev=assign thread entry naming them (assignee_name is the person's display name), edited_at/by, and rev.
+    A region re-placement sets page, frac, quote and el (each dropped if not sent) and pdf_build. A line re-placement
+    replaces every location field, el included (a figure pin's element that the new place does not name is dropped),
+    keeping page and frac the request did not name; kind defaults to the request's kind or "lines", scope comes from
+    the request when the place has none. A lo/hi edit writes the range and, if it moved, forgets via/score (the range
+    is no longer a matching result); it, and every edit without a place, leaves a stored el as it is, byte for byte.
+    scope and kind are set directly when nothing is re-placed. Then the facts the shell read: where the file is now
+    (file, file_rel), and - given only when the range changed and the file is located - the new anchor and synced_at,
+    which also clear stale/sync. Last come the note, kind_req, the note's @-tags (mentions, None when the note is
+    untouched), a changed assignee with an ev=assign thread entry naming them (assignee_name is the person's display
+    name), edited_at/by, and rev.
     """
     record = dict(pin.record)
     place = event.place
@@ -371,8 +449,8 @@ def evolve_edit(
         for key in REGION_PLACE_FIELDS:
             if key in fields:
                 record[key] = fields[key]
-            elif key == "quote":
-                record.pop("quote", None)
+            elif key in ("quote", "el"):
+                record.pop(key, None)
     elif isinstance(place, LinePlace):
         fields = place.fields
         keep = {key: record[key] for key in ("page", "frac") if key not in place.named and key in record}

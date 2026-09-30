@@ -12,6 +12,8 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 
+from limn.builds import MAP_MAX_LINE, MAP_MAX_PATH, is_canonical_path
+from limn.pins.element import element_of
 from limn.pins.location.mapping import flat
 from limn.pins.model import OpenPin, Record, ReviewPin, ThreadEntry, is_region_pin, state_of
 from limn.pins.thread import claim_holds
@@ -27,7 +29,8 @@ class DocHeading:
     없음)". builds_from_source: its stamp reads "빌드" (latexmk built the pages); otherwise "그림" (the pages were
     rendered from a file Limn only reads). head is the short git hash the page images came from ('-' outside git) and
     built_at when they were committed; either is None when the document was never built. path is the main file
-    relative to --manuscript."""
+    relative to --manuscript. has_element_map: a figure document (Doc.has_element_map) - its section title says
+    '— 그림(요소 지도)': its pins are lines of the drawing code, re-rendered in the figure repository and never rebuilt."""
 
     key: str
     name: str
@@ -36,6 +39,7 @@ class DocHeading:
     builds_from_source: bool
     head: str | None
     built_at: str | None
+    has_element_map: bool = False
 
 
 @dataclass(frozen=True)
@@ -49,7 +53,10 @@ class PinFacts:
     file is placed under --manuscript; None otherwise - the long-line quote exception reads nothing else of the file.
     badge: the overlap badge ('#N 범위 안', ...) or "". reopened: reopened since its last close. addressed: logins it
     is handed to (the assignee, or a legacy question's @-tags). fyi: logins tagged for reference only. round: the
-    thread posts of the current round, oldest first."""
+    thread posts of the current round, oldest first. el_sync: a figure pin's element on its document's current map
+    ('ok' | 'moved' | 'lost'), None for another pin or when the map does not load. impl_scope: the folder of the pin's
+    document relative to --manuscript ("" for the manuscript root), None when that document is not served - the
+    renderer joins it with the element's stored shared-part file (shared_part_path) and decides what may be shown."""
 
     doc_key: str
     location: str
@@ -59,6 +66,8 @@ class PinFacts:
     addressed: tuple[str, ...]
     fyi: tuple[str, ...]
     round: tuple[ThreadEntry, ...]
+    el_sync: str | None = None
+    impl_scope: str | None = None
 
 
 @dataclass(frozen=True)
@@ -112,12 +121,15 @@ def md_cell(v: object, newline: str = " ") -> str:
 
 
 def region_text_of(r: Record) -> str:
-    """A view-only pin's location text: "쪽 3, 영역 가로 12-55% 세로 30-48%"."""
+    """A view-only pin's location text: "쪽 3, 영역 가로 12-55% 세로 30-48%". A frac that is not four finite numbers (a
+    hand-edited NaN or Infinity is one the store keeps) reads as the zero box, so one such pin never fails the sheet."""
     frac = r.get("frac")
     fr = frac if isinstance(frac, list) and len(frac) == 4 else [0, 0, 0, 0]
     try:
         x, y, w, h = [float(v) * 100 for v in fr]
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
+        x = y = w = h = 0.0
+    if not all(math.isfinite(v) for v in (x, y, w, h, x + w, y + h)):
         x = y = w = h = 0.0
     return "쪽 %s, 영역 가로 %d–%d%% 세로 %d–%d%%" % (
         r.get("page", "?"),
@@ -262,6 +274,62 @@ REPLY_GUIDANCE = (
 )
 
 
+# The guidance clause pins.md adds while figure pins are open: a pin with an el, or a region pin on a figure document
+# (docs/handbook/api.md §그림 핀의 행). A figure pin's fix is in the figure repository, never in the LaTeX document.
+FIGURE_GUIDANCE = (
+    " · 그림 핀(메모 앞 «요소 이름»)의 위치 칸은 그 요소를 그린 코드 줄이다 — 그 줄을 고친다 · "
+    "'공통 부품: 파일:줄' 은 여러 그림이 함께 쓰는 정의라, 요청이 공통 모양에 관한 것이면 한 그림만 덮어쓰지 말고 사람에게 묻는다 · "
+    "닫기 전에 그림 저장소에서 그림을 다시 렌더한다(그림 문서에는 /api/rebuild 가 없다) · "
+    "'요소 잃음' = 지금 그림의 지도에 그 요소가 없다, 추측해 닫지 말고 보고한다 · "
+    "위치 칸이 쪽·영역뿐인 그림 핀은 코드 줄이 없다 — 고칠 곳은 LaTeX 문서가 아니라 그림 저장소에서 쪽·영역·«요소 이름»·메모로 "
+    "그 요소를 그린 곳(스크립트나 디자인 파일)을 찾는다(못 찾으면 닫지 말고 사람에게 묻거나 보고) · "
+    "요소가 디자인 도구에서 왔으면 고치지 말고 보고한다"
+)
+
+
+def element_quote(r: Record) -> str:
+    """A figure pin's element name in front of its note, «label» - always, with no length condition, when the pin has
+    a well-formed el with a label; "" otherwise (docs/handbook/api.md §그림 핀의 행)."""
+    el = element_of(r.get("el"))
+    return "«%s» " % md_cell(el.label) if el is not None and el.label else ""
+
+
+def _plain_relative(path: str) -> bool:
+    """Is path one an agent may be told to open: canonical and relative (limn.builds.figure_map.is_canonical_path - no
+    '..', '.', empty part, leading '/', backslash or NUL), with no dot-named part (.git, .env, a hidden folder)?"""
+    return is_canonical_path(path) and not any(part.startswith(".") for part in path.split("/"))
+
+
+def shared_part_path(scope: str, impl_file: str) -> str | None:
+    """A shared part's file relative to --manuscript: impl_file (relative to the document's folder) under scope (the
+    folder relative to --manuscript, "" for the manuscript root itself), joined as text - nothing is opened. None when
+    it may not be shown: impl_file is longer than a map allows (MAP_MAX_PATH), or it or the joined path is not a plain
+    relative path (_plain_relative), so a hand-edited pins.jsonl line never puts '..', an absolute path or a
+    dot folder in an agent's work list."""
+    if len(impl_file) > MAP_MAX_PATH or not _plain_relative(impl_file):
+        return None
+    joined = scope + "/" + impl_file if scope else impl_file
+    return joined if _plain_relative(joined) else None
+
+
+def shared_part_md(r: Record, facts: PinFacts) -> str:
+    """'공통 부품: <file>:<lo>-<hi>' for a figure pin whose element names its shared implementation (el.impl): the file
+    is el.impl.file placed under facts.impl_scope by shared_part_path (relative to --manuscript, like the location
+    column), the lines as stored; "" otherwise - the one place this rule is applied. Printed only for what a request
+    could have stored (limn.pins.editing.location.parse_el): 1 <= lo <= hi <= MAP_MAX_LINE and a shown path, and
+    never the stored file alone in place of a folder the edge did not give (impl_scope None)."""
+    el = element_of(r.get("el"))
+    if el is None or el.impl is None or facts.impl_scope is None:
+        return ""
+    impl = el.impl
+    if not (1 <= impl.lo <= impl.hi <= MAP_MAX_LINE):
+        return ""
+    shown = shared_part_path(facts.impl_scope, impl.file)
+    if shown is None:
+        return ""
+    return "공통 부품: %s:%d-%d" % (md_cell(shown), impl.lo, impl.hi)
+
+
 def claim_guidance(base: str) -> str:
     """The line after the close instruction: how to claim a pin before working on it, what a 409 means, and how to
     give the claim up. base is the URL the curl examples use."""
@@ -335,7 +403,13 @@ def pins_md_text(page: PinsMdInput) -> str:
     (a remote reader cannot reach this machine's file).
 
     Multiple documents (§Multiple documents): kept as a single sheet, grouped into per-document subsections
-    (## name - key - path). With a single document and no open pins under any other document key, it keeps the old shape with no subsections."""
+    (## name - key - path). With a single document that is not a figure and no open pins under any other document key,
+    it keeps the old shape with no subsections.
+
+    A figure pin (with an el) shows its element's «label» before the note, its shared part after it and 요소 잃음
+    when the element is lost; while any figure pin is open - one with an el, or a region pin on a figure document -
+    the guidance gains FIGURE_GUIDANCE, and those region pins do not count as view-only ones. A figure document's
+    section title ends with — 그림(요소 지도) (a view-only PDF's keeps — 보기 전용 PDF(줄 번호 없음))."""
     rows, facts = page.rows, page.facts
     loopback_base = "http://127.0.0.1:%d" % page.port
     is_remote = page.base is not None and page.base != loopback_base
@@ -379,10 +453,15 @@ def pins_md_text(page: PinsMdInput) -> str:
             syms.append("수정됨")
         if r.get("stale"):
             syms.append("위치 잃음")
+        if f.el_sync == "lost":  # a figure pin whose element the current map no longer has (FIGURE_GUIDANCE)
+            syms.append("요소 잃음")
         if syms:
             any_symbol = True
         idcol = md_cell(" · ".join(["%s" % r.get("id")] + syms))
         note = md_cell(r.get("note") or "", newline=" ⏎ ")
+        part = shared_part_md(r, f)
+        if part:
+            note = (note + " ⏎ " if note else "") + part
         th = thread_md(r, f)
         if th:
             note = (note + " ⏎ " if note else "") + md_cell(th)
@@ -390,9 +469,11 @@ def pins_md_text(page: PinsMdInput) -> str:
             an = (r.get("author") or {}).get("name")
             if an:  # '[name]' rather than '@name' - so it's never misread as an @-tag (observed)
                 note = "[%s] " % md_cell(an) + note
-        q = render_quote(r, f)
-        if q:
+        eq = element_quote(r)
+        q = eq or render_quote(r, f)
+        if q and not eq:  # the legend explains «…» as rendered text; a figure's «label» is explained by FIGURE_GUIDANCE
             any_symbol = True
+        if q:
             note = q + note
         rows_by_doc.setdefault(f.doc_key, []).append(
             "| %s | %s | %s | %s | %s |" % (idcol, md_cell(r.get("page", 0)), location_col(r, f), range_label(r), note)
@@ -400,8 +481,17 @@ def pins_md_text(page: PinsMdInput) -> str:
 
     docs = page.docs
     known = [d.key for d in docs]
-    sectioned = len(docs) > 1 or any(k not in known[:1] for k in rows_by_doc)
-    n_region = sum(1 for r in openn if is_region_pin(r))
+    # A figure document is always sectioned, alone too: its title and 기준 line say what its pins are.
+    sectioned = len(docs) > 1 or any(k not in known[:1] for k in rows_by_doc) or any(d.has_element_map for d in docs)
+    # A region pin is a view-only PDF's - unless it points at a figure: a pin with an element, or any region pin on a
+    # figure document (a pick that fell back to a region). Its fix is in the figure repository, not in LaTeX.
+    figure_docs = {d.key for d in docs if d.has_element_map}
+    n_region = n_figure = 0
+    for r in openn:
+        if element_of(r.get("el")) is not None or (is_region_pin(r) and facts[r["id"]].doc_key in figure_docs):
+            n_figure += 1
+        elif is_region_pin(r):
+            n_region += 1
 
     out = [
         "# 수정 요청 핀",
@@ -472,6 +562,8 @@ def pins_md_text(page: PinsMdInput) -> str:
             " · 보기 전용 PDF 의 핀은 줄 번호가 없다 — 쪽·영역 글자(«…»)·메모로 무엇을 가리키는지 판단하고, "
             "고칠 곳은 LaTeX 문서에서 찾는다(못 찾으면 닫지 말고 보고)"
         )
+    if n_figure:
+        guidance += FIGURE_GUIDANCE
     out.append(guidance)
     out.append(claim_guidance(base))
     out.append(token_guidance_line(None if is_remote else page.token_file))
@@ -493,6 +585,8 @@ def pins_md_text(page: PinsMdInput) -> str:
         title = "## %s · `%s` · `%s`" % (md_cell(d.name), d.key, md_cell(d.path))
         if d.view_only:
             title += " — 보기 전용 PDF(줄 번호 없음)"
+        elif d.has_element_map:
+            title += " — 그림(요소 지도)"
         out += ["", title]
         if d.head and d.head != "-" and d.built_at:
             out.append("기준: %s · %s %s" % (d.head, "빌드" if d.builds_from_source else "그림", d.built_at))

@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 
-from limn.builds import BuildView
+from limn.builds import BuildView, FigureMap, MapRejected
 from limn.pins.application import people_facts
 from limn.pins.claims.service import PinClaims
 from limn.pins.context import Json, MakeEvent, PinContext, who
@@ -54,7 +54,7 @@ class PinCommands:
     """Bind pin transactions, source placement and HTTP adapters to explicit run ports."""
 
     settings: Callable[[], RunConfig]
-    resources: Callable[[], RuntimeResources[object, object, object, object, object, TokenCache]]
+    resources: Callable[[], RuntimeResources[object, object, object, object, object, TokenCache, object]]
     docs: list[Doc]
     build_view: BuildView
     known_people: Callable[[Sequence[Json] | None], dict[str, Json]]
@@ -84,7 +84,7 @@ class PinCommands:
         return TRASH_DAYS
 
     @property
-    def RT(self) -> RuntimeResources[object, object, object, object, object, TokenCache]:
+    def RT(self) -> RuntimeResources[object, object, object, object, object, TokenCache, object]:
         """Read the run's shared transaction and cache resources."""
         return self.resources()
 
@@ -110,11 +110,29 @@ class PinCommands:
                 self.C.state,
                 self.RT.token_cache,
                 self.overlaps_for_range,
+                self.figure_map,
                 self.build_view,
             )
         )
 
     pin_state = staticmethod(pin_state)
+
+    def figure_map(self, doc: Doc, build: str) -> FigureMap | MapRejected | None:
+        """Read the map of a figure document through the build-owned run cache."""
+        return self.build_view.figure_map(doc, build)
+
+    def doc_figure_map(self, key: str) -> FigureMap | None:
+        """Read a served figure document's currently published map."""
+        doc = self.doc_by_key(key)
+        if doc is None or not doc.has_element_map:
+            return None
+        result = self.figure_map(doc, self.build_view.current_pages(doc).name)
+        return result if isinstance(result, FigureMap) else None
+
+    def refresh_pins_md(self) -> None:
+        """Refresh derived markdown after publication without resynchronizing pins."""
+        with self.RT.pin_lock:
+            self.render_pins_md(self.read_pins()[0])
 
     def doc_by_key(self, key: object) -> Doc | None:
         """The document of this instance whose key is `key`, or None (limn.runtime.documents.doc_by_key)."""

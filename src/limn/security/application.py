@@ -74,7 +74,7 @@ class SecurityApplication:
     """Current file-backed identity facts and audit persistence for one run."""
 
     settings: Callable[[], RunConfig]
-    resources: Callable[[], RuntimeResources[object, object, object, object, object, object]]
+    resources: Callable[[], RuntimeResources[object, object, object, object, object, object, object]]
     load_people: Callable[[], list[people.Row] | people.PeopleUnreadable]
 
     def current_tokens(self) -> list[dict[str, Any]]:

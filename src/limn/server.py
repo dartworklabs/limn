@@ -39,6 +39,7 @@ if __package__ in (None, ""):
 # Capability implementations assemble their own routes; this entrypoint only wires run ports.
 from limn.administration import doc_start_line, docs_of, pick_documents
 from limn.builds import (
+    BuildMapCache,
     BuildSubsystem,
     assemble_builds,
 )
@@ -85,12 +86,16 @@ from limn.web.routes import merge_routes
 
 DEFAULT_ENVS = "figure,table,algorithm,equation,align,itemize,enumerate,minipage"
 
-RunResources: TypeAlias = RuntimeResources[ServedViewer, ScopeCache, RevisionJobs, PullShare, SyncWatch, TokenCache]
+RunResources: TypeAlias = RuntimeResources[
+    ServedViewer, ScopeCache, RevisionJobs, PullShare, SyncWatch, TokenCache, BuildMapCache
+]
 
 
 def new_runtime(viewer: ServedViewer) -> RunResources:
     """A process's resources, all fresh: new locks, empty caches and registries, no threads, serving viewer."""
-    return RuntimeResources(viewer, ScopeCache(), RevisionJobs(), PullShare(), SyncWatch(), TokenCache())
+    return RuntimeResources(
+        viewer, ScopeCache(), RevisionJobs(), PullShare(), SyncWatch(), TokenCache(), BuildMapCache()
+    )
 
 
 # ---------------------------------------------------------------- HTTP handler wiring (the handler is limn/web/handler.py)
@@ -214,7 +219,14 @@ def assemble_application(config: RunConfig, runtime: RunResources) -> ServerAsse
     sync: SyncSubsystem
     collaboration: CollaborationSubsystem
     security: SecurityApplication
-    builds = assemble_builds(settings, lambda: sync.service.repo_pull(), lambda: docs, timestamp)
+    builds = assemble_builds(
+        settings,
+        lambda: sync.service.repo_pull(),
+        lambda: docs,
+        timestamp,
+        maps=lambda: resources().figure_maps,
+        figure_shown=lambda: pins.commands.refresh_pins_md(),
+    )
     pins = assemble_pins(
         settings=settings,
         resources=resources,

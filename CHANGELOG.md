@@ -1,5 +1,72 @@
 # Changelog
 
+## Unreleased
+
+**Release blocker:** figure pins need the P1c viewer; do not release from main until P1c is merged (P1c removes this line and tests/contracts/test_release_blocker.py).
+
+Figure pins, server side: a drag on a figure document is traced to the lines of the script that drew the element, a
+pin records its element, and its position is followed across re-renders. The agent contract grows (new fields and new
+values in existing lists); one field changes its value for figure documents (below). For an instance without figure
+documents `pins.md`, the API and the state directory are unchanged, with these exceptions: the grown value lists and the
+`bad_via` and `bad_scope` sentences that list them, the wording of the `no_source_lines` and `view_only_no_rebuild`
+refusal sentences (same reason codes), anchors of `.py` sources skipping `#` comment lines, and non-finite stored
+numbers reading as `null`. The viewer side ships in 0.4.0.
+
+### Added
+
+- **Figure pins (unreleased on `main`; ships with the viewer in 0.4.0).** A drag on a figure document is traced
+  through its build's element map: `POST /api/pick` answers the lines of the drawing script with `via: "map"`, the
+  element ladder (`levels` `el`, `el2` … `el8`, `fig`) and the element `el` (`id`, `path`, `label`, `part`, `impl`,
+  `frac`). An element drawn without code, or a figure whose map does not load, answers the region with a `warn` that
+  leads with the reason (there is no reason code field), and with `el` when an element was chosen. Pins take the
+  optional `el` (`POST /api/pin`, an edit's `loc`); a malformed one is `400 bad_el`. Figure documents take line pins:
+  an agent's `curl` with only a file routes to the document whose folder holds the file most deeply; at equal depth a
+  `.tex`, `.bib`, `.sty`, `.cls` or `.bst` file (any case) goes to the LaTeX document and any other file to the
+  figure document.
+- **Read-time element position.** `GET /api/pins` adds `mark`, `mark_page` and `el_sync` (`ok`/`moved`/`lost`) to a
+  figure pin, computed on the build on screen; nothing is written and a re-render never changes `rev`. A pin without
+  any recorded box is never `ok`. Each build's map copy is parsed once per run.
+- **`pins.md` figure rows.** The element's `«label»`, `공통 부품: file:lo-hi` and `요소 잃음`, and one guidance clause
+  while figure pins are open. A figure document always gets its own section, also when it is the only document; the
+  title ends with `— 그림(요소 지도)` and its `기준:` line reads `· 그림 <built_at>`. The view-only title is unchanged.
+  The file on disk is also rewritten when a figure import puts a new build on screen, so `요소 잃음` follows the map
+  on screen without a pin write (`pins.jsonl` and `rev` are untouched; a failed rewrite keeps the old file).
+- **Value lists grow as ADR-0011 decided.** `via` gains `map`, `scope` gains `el`…`el8` and `fig`, pin `kind` gains
+  `el:<part>` and `figure`. The `bad_scope` and `bad_via` sentences list the new values; their reason codes are
+  unchanged.
+- **Anchors of Python sources skip `#` comment lines** (the file suffix `.py`, any case; LaTeX anchors are unchanged).
+- **SKILL (en/ko)** teaches figure pins: edit the lines, ask about a shared part by replying on the open pin,
+  re-render in the figure repository and commit before closing, `요소 잃음`, the `.limnmap.json` path in `--doc`, and
+  rebuilds only for documents whose `kind` is `"tex"`.
+
+### Changed
+
+- **A figure document's `view_only` is `false`.** 0.3.8 reported `view_only: true` in `/api/docs` and `/api/meta`,
+  when its picks and pins were regions. Figure documents now take line pins, and `view_only` is the absence of line
+  pins. `kind` is still `"figure"`, `POST /api/rebuild` still answers `400`, and the region answer of a figure pick
+  that finds no lines still carries `view_only: true` (it names that answer, not the document).
+- The refusal sentences of `no_source_lines` (lines sent with a region pin, in a new pin or an edit) and
+  `view_only_no_rebuild` no longer call the document "view-only", since a figure document meets them too. Their reason
+  codes are unchanged.
+- `GET /api/snippet` no longer refuses a figure document; with `levels=1` it gives the `raw` rung alone.
+
+### Fixes
+
+- **No NaN or Infinity in a pin response.** A stored number that is NaN, an Infinity or an integer no float holds (a
+  hand-edited or legacy line) reads as `null` in every pin response, including the `claim_until` and `eta_ts` of a
+  `409 claimed`. A `frac` or `el.frac` with any such entry is `null` as a whole, since a box built from the finite
+  entries would put the mark at a made-up position. Every other number (`synced_at`, `score`, `claim_until`,
+  `claim_ts`, `eta_ts`, and numbers inside `anchor`, `thread` or a field this version does not know) is `null` one by
+  one. The stored line is untouched. `pins.md` no longer fails for a region pin with such a `frac`, which had failed
+  every later pin write.
+
+### Rollback
+
+- Rolling back to v0.3.8 keeps every figure pin: its store reads each figure record and writes it back byte for byte
+  (`tests/contracts/test_figure_rollback.py`, which also covers v0.3.5 and v0.3.7). v0.3.8 serves figure documents, so
+  their `--doc` entries can stay; how its viewer shows a line pin on a figure document was not tried. v0.3.5 and
+  v0.3.7 do not know figure documents: remove the figure document from `--doc` first.
+
 ## 0.3.8 — unreleased
 
 A larger browser favicon, and figure documents arrive in part. `pins.md` and the state directory are unchanged; the
