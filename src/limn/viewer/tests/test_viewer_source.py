@@ -25,7 +25,7 @@ from limn.collaboration import events
 from limn.pins import model
 from limn.pins.editing import values as edit
 from limn.pins.listing.projection import pin_state
-from limn.pins.location import position
+from limn.pins.location import mapping, position
 from limn.revisions import scope
 from limn.security import access
 from limn.sync import rules as pull
@@ -308,6 +308,7 @@ SERVER_SETS = {
     "KIND_REQ": lambda: set(get_args(model.KindReq)),
     "ROLE": lambda: set(access.ROLES),
     "EVENT_TYPE": lambda: set(get_args(events.EventType)),
+    "VIA": lambda: set(get_args(mapping.Via)),
     "LOCAL_LOGIN": lambda: {access.LOCAL_LOGIN},
     "ASSIGNEE_AGENT": lambda: {edit.ASSIGNEE_AGENT},
 }

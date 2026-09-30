@@ -66,6 +66,7 @@
 | `KIND_REQ` | fix · question | `pins.model.KindReq` |
 | `ROLE` | owner · editor · viewer · agent | `access.ROLES` |
 | `EVENT_TYPE` | mention · review_requested · replied · reopened · assigned · dropped | `events.EventType` |
+| `VIA` | synctex · text · map | pick과 핀의 `via`(`pins.location.mapping.Via`) |
 | `LOCAL_LOGIN`, `ASSIGNEE_AGENT` | local, agent | `access.LOCAL_LOGIN`, `pins.edit.ASSIGNEE_AGENT` |
 | `LAYOUT_MODE` | wide · mid · narrow | 뷰어(창 폭, `layoutFor()`) |
 | `CARD_DOT` | open · claimed · review · lost | 뷰어(카드의 상태 점, CSS 클래스와 같다) |
@@ -462,7 +463,7 @@
 | `예상보다 늦어짐 (+5분)` | 견적을 넘겼다(초과 분, 5분 단위). 경고 색 | 견적 초과 |
 | `처리 중 · 20:02부터 (23분째)` | 견적 없이 잡은 claim | 견적 없는 claim |
 | `#20 범위 안` · `#20과 같은 범위` · `#20과 일부 겹침` | 다른 열린 핀과 겹침. 같은 범위 > 범위 안(가장 좁은 바깥 핀) > 일부 겹침 순으로 하나. 조사는 숫자 읽기로 가린다(`#2와`, `#20과`) | 겹칠 때. pins.md 번호 칸도 같은 말 |
-| `위치 불확실` | 드래그한 글자가 찾은 줄 범위에 90%보다 적게 있다. 30% 미만은 경고 색. 설명에 '좌표로 찾음/글자로 찾음 · 일치 N%'와 확인할 것 | 90% 미만일 때만(작성 패널의 위치 줄도 같다) |
+| `위치 불확실` | 드래그한 글자가 찾은 줄 범위에 90%보다 적게 있다. 그림 문서에서는 드래그가 고른 요소 안에 90%보다 적게 들어 있다. 30% 미만은 경고 색. 설명에 '좌표로 찾음/글자로 찾음/지도로 찾음 · 일치 N%'와 확인할 것 | 90% 미만일 때만(작성 패널의 위치 줄도 같다) |
 | `줄 +3 이동` · `위치 잃음` · `수정됨` | 줄 맞춤이 옮김 · 앵커를 잃음 · 저장 뒤 고침 | 그대로 |
 
 처리 중 배지의 시각은 보는 기기의 현지 시각이고 30초마다 다시 센다. 잠금 자동 해제 시각(`claim_until`)은 배지에 쓰지 않고 설명에만 둔다. 배지에 쓰면 그것이 예상 완료 시각으로 읽힌다. 잠금은 안전장치일 뿐이다([api.md](api.md) §처리 중 표시).

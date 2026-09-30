@@ -2071,6 +2071,57 @@ class FrontendDocs(unittest.TestCase):
         self.assertIn("#composer.region #c-levels", HTML)
 
 
+def js_tooltips() -> str:
+    """The viewer's tooltip table (`const T` in core.js) as the page declares it, for harnesses whose functions read T.x."""
+    found = re.search(r"^const T=\{.*?^\};$", HTML, re.S | re.M)
+    assert found is not None, "core.js no longer declares `const T={...};` at line start"
+    return found.group(0)
+
+
+def js_via_limits() -> str:
+    """The location-confidence thresholds viaTag() reads (`const VIA_HIDE=...` in levels.js)."""
+    found = re.search(r"^const VIA_HIDE=.*;$", HTML, re.M)
+    assert found is not None, "levels.js no longer declares `const VIA_HIDE=...;` at line start"
+    return found.group(0)
+
+
+# ---------------------------------------------------------------- figure documents (docs/handbook/viewer.md §패널 정리, §상태 표현)
+class FrontendFigure(unittest.TestCase):
+    """Figure documents in the viewer (P1c): the map as a way of finding, the figure tab without rebuild, the element a
+    pick chose (path, rungs, snapped box), what a figure pin saves, and where its mark goes. Pure functions run under
+    node; wiring is read from the served source."""
+
+    def node(self) -> None:
+        """Skip the calling check when node is missing."""
+        if not shutil.which("node"):
+            self.skipTest("node not available")
+
+    def test_a_figure_pick_under_90_percent_says_it_was_found_by_the_map(self):
+        """A figure pick's badge says '지도로 찾음' and the map's hint in Korean and English; 90 % and up shows no
+        badge, under 30 % the warning colour."""
+        self.node()
+        for lang, head in (
+            ("ko", "지도로 찾음 · 일치 50% — 그림 지도에서 드래그와"),
+            ("en", "Found by the figure map · 50% match — The figure map chose"),
+        ):
+            with self.subTest(lang=lang):
+                js = "\n".join(
+                    [
+                        js_i18n(lang),
+                        js_tooltips(),
+                        js_via_limits(),
+                        extract_js_fn("viaTag"),
+                        "console.log(JSON.stringify([viaTag({via:'map',score:0.5}),viaTag({via:'map',score:0.95}),"
+                        "viaTag({via:'map',score:0.2})]));",
+                    ]
+                )
+                half, confident, weak = json.loads(run_node(js))
+                self.assertTrue(half["tip"].startswith(head), half["tip"])
+                self.assertFalse(half["low"])
+                self.assertIsNone(confident)
+                self.assertTrue(weak["low"])
+
+
 # ---------------------------------------------------------------- icons: Lucide only, no emoji/symbol glyphs
 # Emoji/basic-character icons (⏳ ▾ ☾ ✎ etc.) looked ugly because they render differently per
 # device/font (author feedback 2026-09-23). Icons only use inline SVG elements from Lucide

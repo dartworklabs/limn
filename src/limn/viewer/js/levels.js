@@ -47,10 +47,11 @@ function refetchSnip(o,after){const visit=captureVisit(); clearTimeout(snipT); s
 function snipText(text,open){const ls=String(text||'').split('\n');
   return (open||ls.length<=8)?ls.join('\n'):ls.slice(0,8).join('\n')+'\n      … '+tl('{n}줄 접힘',{n:ls.length-8});}
 // Location match-rate badge: hidden at 90% or above (a number on a location you can trust is just noise). Below that, '위치 불확실';
-// below 30%, the warning color. The method used, match rate, and what to check go in the description instead ('match 100%' alone was meaningless). Shared by the composer panel and cards.
+// below 30%, the warning color. The method used (coordinates, text, or the figure map - whose score is how much of the drag lies in
+// the chosen element), the match rate and what to check go in the description. Shared by the composer panel and cards.
 const VIA_HIDE=90,VIA_WARN=30;
 function viaTag(p){if(!p.via)return null; const pct=Math.round((+p.score||0)*100);
   if(pct>=VIA_HIDE)return null; const low=pct<VIA_WARN;
-  const how=p.via==='synctex'?tr('좌표로 찾음'):(p.via==='text'?tr('글자로 찾음'):tl('찾은 방법: {via}',{via:p.via}));
-  const why=tr(p.via==='text'?T.text:T.synctex);
+  const how=p.via===VIA.SYNCTEX?tr('좌표로 찾음'):p.via===VIA.TEXT?tr('글자로 찾음'):p.via===VIA.MAP?tr('지도로 찾음'):tl('찾은 방법: {via}',{via:p.via});
+  const why=tr(p.via===VIA.TEXT?T.text:p.via===VIA.MAP?T.map:T.synctex);
   return {t:tr('위치 불확실'),tip:tl('{how} · 일치 {pct}% — {why}',{how,pct,why})+(low?' '+tr('많이 어긋났을 수 있습니다.'):''),low};}
