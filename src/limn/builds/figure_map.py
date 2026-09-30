@@ -494,7 +494,13 @@ def _fill(box: Frac, drag: Frac) -> float:
 
 def _common_ancestor(page: MapPage, els: Sequence[MapElement]) -> MapElement:
     """The deepest element of page that is each of els or an ancestor of it (an element counts as its own ancestor).
-    els is not empty; every chain ends at the root, so there always is one."""
+    els is not empty and holds no root (pick_element passes page elements other than the root).
+
+    The next() below never runs dry for a page parse_map accepted: _rooted gives a page exactly one element without a
+    parent and puts it first, and _tree_rejection (bad_parent) refuses a parent that is no element of the page, a
+    cycle and a chain that never reaches that root - so the walk up from any non-root element ends at the root, the
+    root is in every chain, and it is in the intersection at the latest. The pick tests cover the case where the root
+    is the only shared ancestor, on a map made by parse_map."""
     chains = [(e, *page.ancestors(e)) for e in els]
     shared = set.intersection(*({a.id for a in chain} for chain in chains))
     return next(a for a in chains[0] if a.id in shared)

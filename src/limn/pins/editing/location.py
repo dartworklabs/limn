@@ -111,7 +111,7 @@ EL_FILE_MAX = MAP_MAX_PATH  # characters of impl.file
 EL_LINE_MAX = MAP_MAX_LINE  # the highest impl line, as for a close's changes
 EL_REFUSAL = (
     "el 은 pick 이 준 요소 {id, path, label?, part?, impl?: {file, lo, hi}, frac?} 여야 합니다"
-    "(문자열 200자 이하, path 는 뿌리부터 그 요소까지의 id, impl.file 은 문서 폴더 기준 상대 경로)."
+    "(문자열 %d자 이하, path 는 뿌리부터 그 요소까지의 id, impl.file 은 문서 폴더 기준 상대 경로)." % EL_TEXT_MAX
 )
 
 

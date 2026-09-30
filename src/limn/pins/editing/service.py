@@ -44,7 +44,7 @@ def add_pin(ctx: PinContext, D: Doc, request: AddRequest, actor: PostAuthority) 
     """Saves a new pin in document D from a parsed POST /api/pin body (limn.pins.editing.input.parse_add) -> the new open pin. A
     LaTeX document gets a line pin with its anchor (which skips the comment lines of the file's kind,
     comment_marker), the author and - since 0.3.2 (ADR-0006) - file_rel next to the absolute file; a view-only
-    document gets a region pin. Queues mention/assigned notices and emits them after the write."""
+    document gets a region pin, and so does a figure document for a region pick (a drag that found no lines). Queues mention/assigned notices and emits them after the write."""
     require_authority(actor, ctx.authority_scope, "add", document_authority_target(D))
     place = request.place
     # Manuscript text is read before taking the pin lock, as it was for line pins before this shared transaction.
@@ -94,8 +94,8 @@ def edit_pin(
     """Edits pin pid's note, range, location and note-level fields in place; id/at/done never change.
 
     request is the parsed body with its loc already placed against the pin's own document (limn.pins.editing.input.parse_edit
-    and parse_edit_place, with region and the document from EditScope); region says the pin is a view-only
-    one, whose file is never located. The 'HH:MM' an appended note is stamped with is read before the lock. Under the
+    and parse_edit_place, with region and the document from EditScope); region says the pin is a region pin - a view-only
+    document's, or a figure document's region pick - whose file is never located. The 'HH:MM' an appended note is stamped with is read before the lock. Under the
     pin lock the shell reads where the pin's file will be and - for a lo/hi edit - its line count, and
     limn.pins.editing.rules.decide_edit() refuses or accepts: a closed pin cannot be reshaped, a stale base_rev is a conflict
     (so a pin the agent closed, or one line matching moved, is never silently overwritten with stale lo/hi), a merged

@@ -646,10 +646,12 @@ class ServerApplication:
 
     def doc_figure_map(self, key: str) -> FigureMap | None:
         """The loadable map of the build on screen of the figure document key names - what the read-time fields and
-        pins.md follow elements on - or None: another kind of document, one no longer served, no map copy, or a map
-        the parser refuses."""
+        pins.md follow elements on - or None: another kind of document (asked first, so a LaTeX document never reads
+        its pages.cur), one no longer served, no map copy, or a map the parser refuses."""
         D = self.doc_by_key(key)
-        got = None if D is None else self.figure_map(D, cur_pages(D).name)
+        if D is None or not D.has_element_map:
+            return None
+        got = self.figure_map(D, cur_pages(D).name)
         return got if isinstance(got, FigureMap) else None
 
     def overlaps_by_id(self, pins: Sequence[Pin]) -> dict[int, list[Json]]:

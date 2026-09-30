@@ -45,8 +45,8 @@ def is_comment(line: str, marker: str = "%") -> bool:
 
 def comment_marker(path: str) -> str:
     """The character a whole-line comment starts with in the source file at path, as anchor_of skips it: "#" for a
-    Python script (a figure's drawing code, suffix .py), "%" for every other file - LaTeX, as always."""
-    return "#" if path.endswith(".py") else "%"
+    Python script (a figure's drawing code, suffix .py in any case), "%" for every other file - LaTeX, as always."""
+    return "#" if path.lower().endswith(".py") else "%"
 
 
 def strip_comment(line: str) -> str:

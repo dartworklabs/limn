@@ -160,7 +160,8 @@ def _element_body(p: PickedElement) -> Body:
     """The body of a drag traced through a figure's map: the traced-selection body's keys in their contract order -
     the default rung's lines, via "map", the element's kind and name - then el (docs/handbook/api.md §핀 만들기와
     상태 바꾸기, the pick row). The score is rounded to two decimals like a traced selection's: full containment
-    computes a cover a hair under 1.0, and nothing here compares the unrounded value."""
+    computes a cover a hair under 1.0. Only the body is rounded - element_warning still tests the unrounded score
+    against WEAK_SCORE."""
     first = p.rungs[0]
     return {
         "file": str(p.file),

@@ -296,7 +296,9 @@ class BuildMapCache:
 
     def get(self, doc: BuildDoc, build: str) -> FigureMap | MapRejected | None:
         """The map of build `build` of figure document doc as load_build_map reads it - from the cache while the copy
-        is unchanged. None, without reading, when build is not a page directory name or the build has no map copy."""
+        is unchanged. The verdict (a FigureMap or a MapRejected) depends on the copy's bytes only, never on the
+        filesystem around it, so a cached one equals a fresh parse. None, without reading, when build is not a page
+        directory name or the build has no map copy."""
         if not valid_build_name(build):
             return None
         try:

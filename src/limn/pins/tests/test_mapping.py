@@ -283,6 +283,13 @@ class AnchorComments(unittest.TestCase):
         for path in ("/ms/main.tex", "/ms/refs.bib", "/ms/figs/src/draw.js", "/ms/notes"):
             self.assertEqual(mapping.comment_marker(path), "%", path)
 
+    def test_the_suffix_is_compared_without_regard_to_case(self):
+        """.PY and .Py are Python scripts too (#); a name that only contains or ends like .py is not (%)."""
+        for path in ("/ms/figs/src/draw.PY", "/ms/figs/src/draw.Py", "draw.pY"):
+            self.assertEqual(mapping.comment_marker(path), "#", path)
+        for path in ("/ms/figs/src/draw.pyc", "/ms/figs/src/draw.py.bak", "/ms/py", "/ms/draw.TEX"):
+            self.assertEqual(mapping.comment_marker(path), "%", path)
+
     def test_python_hash_comments_are_skipped_at_both_ends(self):
         """A range opening and closing on # lines anchors on the code between them, offsets recorded."""
         self.assertEqual(

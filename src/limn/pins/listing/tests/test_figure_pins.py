@@ -211,6 +211,20 @@ class FigureMapReads(FigureBase):
             self.listed()
             self.assertEqual(asked.call_count, 0)
 
+    def test_a_latex_document_never_reads_its_pages_for_a_figure_map(self):
+        """doc_figure_map of a LaTeX document is None and asks neither the cache nor which build is on screen: the
+        capability is checked before pages.cur is read. A figure document still answers its map."""
+        cache = ps.APP.RT.figure_maps
+        with (
+            mock.patch.object(cache, "get", wraps=cache.get) as asked,
+            mock.patch.object(ps, "cur_pages", wraps=ps.cur_pages) as shown,
+        ):
+            self.assertIsNone(ps.APP.doc_figure_map("ms"))
+            self.assertIsNone(ps.APP.doc_figure_map("gone"))
+            self.assertEqual((asked.call_count, shown.call_count), (0, 0))
+            self.assertIsNotNone(ps.APP.doc_figure_map("fig"))
+            self.assertEqual((asked.call_count, shown.call_count), (1, 1))
+
     def test_a_listing_of_pins_without_a_figure_document_asks_no_map(self):
         """An instance whose only document is LaTeX: a pin (even one carrying an el an older writer left) is listed and
         the cache is never asked - the document has no element map."""

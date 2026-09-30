@@ -9,7 +9,8 @@ Run: uv run pytest -q src/limn/pins/editing/tests/test_figure_pins.py
 import json
 import unittest
 
-from limn.pins.editing.location import EL_FILE_MAX, EL_LINE_MAX, EL_PATH_MAX, EL_TEXT_MAX, parse_el
+from limn.builds import MAP_MAX_TEXT
+from limn.pins.editing.location import EL_FILE_MAX, EL_LINE_MAX, EL_PATH_MAX, EL_REFUSAL, EL_TEXT_MAX, parse_el
 from limn.pins.element import ElementImpl, PinElement
 from limn.runtime.documents import Doc
 from limn.security.access import LOCAL_ACTOR
@@ -64,6 +65,19 @@ class ParseEl(unittest.TestCase):
             ),
         )
         self.assertIsNone(parse_el(None))
+
+    def test_the_refusal_sentence_is_the_contracts_and_its_limit_is_the_maps_text_limit(self):
+        """The bad_el sentence is byte-identical to the one agents already read, and the number of characters in it is
+        MAP_MAX_TEXT, the bound parse_el enforces."""
+        self.assertEqual(
+            EL_REFUSAL,
+            "el 은 pick 이 준 요소 {id, path, label?, part?, impl?: {file, lo, hi}, frac?} 여야 합니다"
+            "(문자열 200자 이하, path 는 뿌리부터 그 요소까지의 id, impl.file 은 문서 폴더 기준 상대 경로).",
+        )
+        self.assertIn("문자열 %d자 이하" % MAP_MAX_TEXT, EL_REFUSAL)
+        self.assertEqual(
+            parse_el({"id": "x" * (MAP_MAX_TEXT + 1), "path": ["x" * (MAP_MAX_TEXT + 1)]}).message, EL_REFUSAL
+        )
 
     def test_a_malformed_el_is_bad_el(self):
         """Not an object; a bad id or path (empty, not strings, not ending with the id, too long); a non-string label
@@ -204,8 +218,9 @@ class FigurePins(Base):
         return code, json.loads(out)
 
     def stored_el_text(self, pid):
-        """The el of pin pid as pins.jsonl holds it: the text between '"el": ' and the record's next key, read from the
-        file itself so no parse or re-serialisation of ours can hide a change."""
+        """The stored line of pin pid, and its el as text - el_text of the parsed record's el, which is the stored form
+        re-serialised (not the raw characters between the keys). The line itself is returned raw, so a test that
+        compares lines sees any byte the store changed."""
         for line in ps.APP.C.pins_jsonl.read_text(encoding="utf-8").splitlines():
             rec = json.loads(line)
             if rec["id"] == pid:

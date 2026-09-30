@@ -251,6 +251,29 @@ class ElementMarks(unittest.TestCase):
             r = {"id": 1, "page": 1, "frac": bad, "el": {**EL, "frac": [float("nan"), 0, 1, 1]}}
             self.assertEqual(element_marks(r, FIG)["el_sync"], "moved", bad)
 
+    def test_a_tiny_element_at_the_page_origin_is_never_ok_for_a_pin_without_any_frac(self):
+        """A pin on page 1 with an el but no el.frac and no frac is compared with NO_FRAC: an element at the page origin
+        whose box is within FOLLOW_EPS of zero size must not read as where it was. Moved, with its box as the mark."""
+        for w in (0.00005, 0.001):
+            with self.subTest(size=w):
+                tiny = FigureMap(
+                    "figures.pdf",
+                    "0" * 64,
+                    (
+                        MapPage(
+                            1,
+                            "B2",
+                            None,
+                            (
+                                MapElement("B2", None, (0.0, 0.0, 1.0, 1.0), None, None, None, None),
+                                MapElement("B2/dot", "B2", (0.0, 0.0, w, w), None, None, "Dot", None),
+                            ),
+                        ),
+                    ),
+                )
+                r = {"id": 1, "page": 1, "el": {"id": "B2/dot", "path": ["B2", "B2/dot"]}}
+                self.assertEqual(element_marks(r, tiny), {"mark": [0.0, 0.0, w, w], "mark_page": 1, "el_sync": "moved"})
+
     def test_a_page_that_is_not_an_integer_is_compared_as_page_zero_and_never_raises(self):
         """A missing, boolean, string or oversized page cannot be the element's page: moved, with the element's own."""
         for bad in (None, True, "1", HUGE, 1.0):

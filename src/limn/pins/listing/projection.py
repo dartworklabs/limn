@@ -79,9 +79,10 @@ def _wire_frac(frac: object) -> object:
     return [v if not is_num(v) or is_finite_num(v) else None for v in frac]
 
 
-# The box compared with when neither the element nor the pin recorded one: no element's box has zero size, so it is
-# never "ok".
-NO_FRAC: Frac = (0.0, 0.0, 0.0, 0.0)
+# The box compared with when neither the element nor the pin recorded one. Its origin is off the page (-1, -1), so no
+# element's box - x and y in 0..1 - is within FOLLOW_EPS of it, however small the element or near the page origin:
+# such a pin is never "ok".
+NO_FRAC: Frac = (-1.0, -1.0, 0.0, 0.0)
 
 
 def no_figure_maps(key: str) -> None:

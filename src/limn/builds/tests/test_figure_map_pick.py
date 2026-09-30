@@ -9,6 +9,7 @@ written from that description.
 Run: uv run pytest -q src/limn/builds/tests/test_figure_map_pick.py
 """
 
+import json
 import unittest
 
 from hypothesis import given, settings, strategies as st
@@ -26,6 +27,7 @@ from limn.builds.figure_map import (
     element_kind,
     follow_element,
     ladder_scopes,
+    parse_map,
     pick_element,
 )
 
@@ -81,6 +83,38 @@ class Pick(unittest.TestCase):
         got = pick_element(CAL_PAGE, (0.25, 0.1, 0.3, 0.4))
         self.assertEqual(got.chosen.id, "F/cal")
         self.assertAlmostEqual(got.score, 0.5)
+
+    def test_a_drag_across_branches_of_a_parsed_map_ends_at_the_root_and_never_raises(self):
+        """Through parse_map (the only way a served page is made): two elements in separate branches under the root are
+        both filled by a wide drag, so their common ancestor is the root itself - the walk up from any element of an
+        accepted map reaches the root, so _common_ancestor always has an answer."""
+
+        def box(eid, parent, frac):
+            """One map element."""
+            return {"id": eid, "parent": parent, "frac": frac}
+
+        raw = {
+            "format": "limn-figure-map/1",
+            "pdf": "f.pdf",
+            "pdf_sha256": SHA,
+            "pages": [
+                {
+                    "page": 1,
+                    "figure": "F",
+                    "elements": [
+                        {"id": "F", "frac": [0, 0, 1, 1]},
+                        box("F/a", "F", [0.0, 0.0, 0.3, 0.3]),
+                        box("F/a/x", "F/a", [0.0, 0.0, 0.2, 0.2]),
+                        box("F/b", "F", [0.7, 0.7, 0.3, 0.3]),
+                        box("F/b/y", "F/b", [0.8, 0.8, 0.2, 0.2]),
+                    ],
+                }
+            ],
+        }
+        parsed = parse_map(json.dumps(raw).encode())
+        self.assertIsInstance(parsed, FigureMap)
+        got = pick_element(parsed.pages[0], (0.0, 0.0, 1.0, 1.0))
+        self.assertEqual((got.chosen.id, [e.id for e in got.ladder]), ("F", ["F"]))
 
     def test_nothing_qualifying_picks_the_root(self):
         """A box over empty space: no element covers it or is filled by it, so the whole figure is chosen."""
