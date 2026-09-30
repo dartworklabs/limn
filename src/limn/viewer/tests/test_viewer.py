@@ -2165,6 +2165,156 @@ class FrontendFigure(unittest.TestCase):
                 self.assertIn('<span class="badge dvo" aria-label="보기 전용">PDF</span>', pdf)
                 self.assertNotIn("dfig", pdf)
 
+    def test_the_path_names_each_ancestor_by_its_rung_and_falls_back_to_the_id(self):
+        """The location path is root first, named by the rung that carries each id; an ancestor with no rung of its own
+        (merged into the inner rung, past the cap, drawn in another file) is written as its id, and a region answer names
+        its element itself."""
+        self.node()
+        js = "\n".join(
+            [extract_js_fn("elName"), extract_js_fn("elPathText")]
+            + [
+                r"""
+            const cell={id:'B2/c/m07',path:['B2','B2/c','B2/c/m07'],label:'7월'},root={id:'B2',path:['B2']};
+            const full=[{level:'el',lo:24,hi:26,label:'7월',el:cell},{level:'el2',lo:20,hi:30,label:'달력',el:{id:'B2/c',path:['B2','B2/c']}},
+                        {level:'fig',lo:1,hi:40,label:'B2',el:root}];
+            const merged=[{level:'el',lo:20,hi:30,label:'7월',merged:['el2'],el:cell},{level:'fig',lo:1,hi:40,label:'B2',el:root}];
+            const box={id:'B9/x',path:['B9','B9/x'],part:'Box'};
+            console.log(JSON.stringify([elPathText({levels:full,el:cell,elSel:cell}),elPathText({levels:full,el:cell,elSel:full[1].el}),
+              elPathText({levels:merged,el:cell,elSel:cell}),elPathText({levels:[],el:box,elSel:box}),elPathText({levels:[],elSel:null})]));"""
+            ]
+        )
+        self.assertEqual(json.loads(run_node(js)), ["B2 › 달력 › 7월", "B2 › 달력", "B2 › B2/c › 7월", "B9 › Box", ""])
+
+    def test_figure_rungs_are_named_by_their_element_with_a_line_count(self):
+        """A figure rung's segment reads its element's name and line count (derived when the rung has no n); its
+        tooltip says the element's lines, or the whole figure's for the root."""
+        self.node()
+        js = "\n".join(
+            [js_esc(), js_tooltips()]
+            + [
+                extract_js_fn(n)
+                for n in (
+                    "lvOf",
+                    "curLevel",
+                    "rng",
+                    "levelLabel",
+                    "elName",
+                    "levelName",
+                    "rungLines",
+                    "rungTip",
+                    "levelBtns",
+                )
+            ]
+            + [
+                r"""
+            const o={lo:24,hi:26,scope:'el',levels:[
+              {level:'el',lo:24,hi:26,label:'7월',snippet:'',el:{id:'B2/c/m07',path:['B2','B2/c','B2/c/m07']}},
+              {level:'el2',lo:20,hi:30,n:11,label:'달력',snippet:'',el:{id:'B2/c',path:['B2','B2/c']}},
+              {level:'fig',lo:1,hi:40,label:'B2',snippet:'',el:{id:'B2',path:['B2']}}]};
+            const re=/data-level="([^"]+)" aria-pressed="([^"]+)"[^>]*data-tip="([^"]*)">([^<]*)<span class="k[^"]*">· ([^<]*)</g;
+            console.log(JSON.stringify([...levelBtns(o,false).matchAll(re)].map(m=>[m[1],m[2],m[3],m[4].trim(),m[5]])));"""
+            ]
+        )
+        el = "이 요소를 그린 코드 줄입니다. 대기 상자가 그림의 이 요소에 맞춰집니다"
+        self.assertEqual(
+            json.loads(run_node(js)),
+            [
+                ["el", "true", "L24-L26 · " + el, "7월", "3줄"],
+                ["el2", "false", "L20-L30 · " + el, "달력", "11줄"],
+                ["fig", "false", "L1-L40 · 그림 전체를 그린 코드 줄입니다", "B2", "40줄"],
+            ],
+        )
+
+    def test_the_element_line_names_the_path_and_the_box_snaps_only_to_a_real_box(self):
+        """renderElement shows '#c-path' with the path and the element id as its tip, and snaps the pending box to the
+        element's frac; an element without a box (or with a null frac) keeps the dragged box, no element hides the
+        line, no box is no error."""
+        self.node()
+        js = "\n".join(
+            [extract_js_fn(n) for n in ("isFrac", "elName", "elPathText", "drawBox", "snapBox", "renderElement")]
+            + [
+                r"""
+            const nodes={'#c-path':{hidden:true,textContent:'',dataset:{}}}; const $=s=>nodes[s];
+            const vals=b=>['left','top','width','height'].map(k=>parseFloat(b.style[k]));
+            const cell={id:'B2/c/m07',path:['B2','B2/c','B2/c/m07'],label:'7월',frac:[0.47,0.18,0.07,0.12]};
+            const levels=[{level:'el',lo:24,hi:26,label:'7월',el:cell},{level:'el2',lo:20,hi:30,label:'달력',el:{id:'B2/c',path:['B2','B2/c']}},
+                          {level:'fig',lo:1,hi:40,label:'B2',el:{id:'B2',path:['B2']}}];
+            const line=nodes['#c-path'],out=[];
+            const box={style:{left:'48%',top:'20%',width:'4%',height:'8%'}};
+            renderElement({levels,el:cell,elSel:cell},box); out.push([line.hidden,line.textContent,line.dataset.tip,vals(box)]);
+            const drag={style:{left:'48%',top:'20%',width:'4%',height:'8%'}};
+            renderElement({levels,el:cell,elSel:levels[1].el},drag); out.push([line.textContent,vals(drag)]);
+            renderElement({file:'/m.tex',elSel:null},drag); out.push([line.hidden,vals(drag)]);
+            renderElement({levels,el:cell,elSel:cell},null); out.push(line.hidden);
+            const nul={id:'n',path:['n'],frac:null}; renderElement({levels:[],el:nul,elSel:nul},drag); out.push(vals(drag));
+            console.log(JSON.stringify(out));"""
+            ]
+        )
+        snapped, strip, none, boxless, null_frac = json.loads(run_node(js))
+        self.assertEqual(snapped[:3], [False, "B2 › 달력 › 7월 ·", "요소 B2/c/m07"])
+        for got, want in zip(snapped[3], (47, 18, 7, 12), strict=True):
+            self.assertAlmostEqual(got, want, places=6)
+        self.assertEqual(strip, ["B2 › 달력 ·", [48, 20, 4, 8]])
+        self.assertEqual(none, [True, [48, 20, 4, 8]])
+        self.assertFalse(boxless)
+        self.assertEqual(null_frac, [48, 20, 4, 8])
+
+    def test_a_rung_switch_selects_its_element_and_nudged_lines_keep_it(self):
+        """useLevel moves the selection to the rung's lines and element; a nudge makes the lines manual but keeps the
+        element; a rung without an element (a LaTeX rung) leaves the element as it was."""
+        self.node()
+        js = "\n".join(
+            [extract_js_fn("lvOf"), extract_js_fn("useLevel"), extract_js_fn("nudge")]
+            + [
+                r"""
+            const cell={id:'c'},strip={id:'s'};
+            const o={lo:24,hi:26,n_lines:40,elSel:cell,levels:[{level:'el',lo:24,hi:26,snippet:'a',el:cell},
+              {level:'el2',lo:20,hi:30,snippet:'b',el:strip},{level:'raw',lo:5,hi:5,snippet:'r'}]};
+            const out=[]; useLevel(o,'el2'); out.push([o.scope,o.lo,o.hi,o.elSel.id]);
+            nudge(o,'up-grow'); out.push([o.scope,o.lo,o.elSel.id]);
+            useLevel(o,'raw'); out.push([o.scope,o.elSel.id]);
+            console.log(JSON.stringify(out));"""
+            ]
+        )
+        self.assertEqual(json.loads(run_node(js)), [["el2", 20, 30, "s"], ["lines", 19, "s"], ["raw", "s"]])
+
+    def test_the_composer_shows_the_element_from_the_pick_without_asking_again(self):
+        """The location line has a path slot before the lines; both composer branches draw the element; a pick selects
+        its element, a rung its rung's; the element code sends no request; figure.js sits between the ladder and the
+        composer parts."""
+        self.assertIn('<div class="c-loc-main"><span id="c-path" hidden></span><span id="c-loc"', HTML)
+        for fn in ("renderComposer", "renderRegionComposer"):
+            self.assertIn("renderElement(d,COMPOSE.box)", extract_js_fn(fn), fn)
+        self.assertIn("COMPOSE.current.elSel=d.el||null;", extract_js_fn("pick"))
+        self.assertIn("if(lv.el)o.elSel=lv.el;", extract_js_fn("useLevel"))
+        for fn in ("elPathText", "snapBox", "renderElement"):
+            self.assertNotIn("api(", extract_js_fn(fn), fn)
+        parts = (PKG / "viewer" / "parts.txt").read_text(encoding="utf-8")
+        self.assertLess(parts.index("js/levels.js"), parts.index("js/figure.js"))
+        self.assertLess(parts.index("js/figure.js"), parts.index("js/composer.js"))
+
+    def test_a_figure_region_is_named_by_what_the_map_found_and_a_view_only_region_keeps_its_name(self):
+        """figRegionBadge: an element without code lines reads '코드 없는 요소', a figure region without an element
+        (map unreadable) reads '영역', each with its own tooltip; off a figure document without an element there is no
+        figure badge, so the caller's '보기 전용' stays."""
+        self.node()
+        js = "\n".join(
+            [
+                js_i18n("ko"),
+                js_tooltips(),
+                extract_js_fn("figRegionBadge"),
+                "console.log(JSON.stringify([figRegionBadge({id:'x',path:['x']},true),figRegionBadge(null,true),"
+                "figRegionBadge(null,false)]));",
+            ]
+        )
+        with_el, figure, off = json.loads(run_node(js))
+        self.assertEqual(with_el["t"], "코드 없는 요소")
+        self.assertIn("이 요소를 그린 코드 줄을 찾지 못했습니다", with_el["tip"])
+        self.assertEqual(figure["t"], "영역")
+        self.assertIn("그림 지도를 읽지 못해", figure["tip"])
+        self.assertIsNone(off)
+        self.assertIn("figRegionBadge(d.el,", extract_js_fn("renderRegionComposer"))
+
 
 # ---------------------------------------------------------------- icons: Lucide only, no emoji/symbol glyphs
 # Emoji/basic-character icons (⏳ ▾ ☾ ✎ etc.) looked ugly because they render differently per

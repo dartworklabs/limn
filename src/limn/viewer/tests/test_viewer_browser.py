@@ -1539,3 +1539,134 @@ class FigureDocuments(BrowserBase):
                     "(e.querySelector('.dvo')||{}).textContent||''])",
                 )
                 self.assertEqual(marks, [["ms", "", ""], ["fig", word, ""], ["rv", "", "PDF"]])
+
+    # Where element sel sits on page n, as page fractions of that page's box (inside its border), plus the box's size.
+    BOX = """([sel, n]) => {const b=document.querySelector(sel), pg=document.getElementById('p'+n);
+      if(!b||b.parentNode!==pg)return null;
+      const r=b.getBoundingClientRect(), p=pg.getBoundingClientRect(), L=p.left+pg.clientLeft, T=p.top+pg.clientTop;
+      return [(r.left-L)/pg.clientWidth,(r.top-T)/pg.clientHeight,r.width/pg.clientWidth,r.height/pg.clientHeight,
+        pg.clientWidth,pg.clientHeight];}"""
+
+    def assert_box(self, page, sel, n, frac):
+        """Element sel sits on page n at frac [x, y, w, h], to within one CSS pixel of that page's box."""
+        got = page.evaluate(self.BOX, [sel, n])
+        self.assertIsNotNone(got, "%s is not on page %d" % (sel, n))
+        pw, ph = got[4], got[5]
+        for i, (g, want, size) in enumerate(zip(got[:4], frac, (pw, ph, pw, ph), strict=True)):
+            self.assertAlmostEqual(g, want, delta=1.0 / size, msg="%s[%d] on a %dx%d page" % (sel, i, pw, ph))
+
+    def drag(self, page, frac, n=1, ready="COMPOSE.current&&!COMPOSE.picking"):
+        """A mouse drag across frac [x, y, w, h] of page n through the real pointer path, then wait for ready."""
+        page.locator("#p%d" % n).scroll_into_view_if_needed()
+        b = page.locator("#p%d" % n).bounding_box()
+        x0, y0 = b["x"] + b["width"] * frac[0], b["y"] + b["height"] * frac[1]
+        page.mouse.move(x0, y0)
+        page.mouse.down()
+        page.mouse.move(x0 + b["width"] * frac[2], y0 + b["height"] * frac[3], steps=5)
+        page.mouse.up()
+        page.wait_for_function(ready, timeout=8000)
+        settle(page)
+
+    @staticmethod
+    def touch(cdp, kind, pts):
+        """One CDP touch event (touchStart/touchMove/touchEnd) at the given viewport points."""
+        cdp.send(
+            "Input.dispatchTouchEvent",
+            {"type": kind, "touchPoints": [{"x": x, "y": y, "id": i} for i, (x, y) in enumerate(pts)]},
+        )
+
+    @staticmethod
+    def on_page(page, fx, fy, n=1):
+        """The viewport point at fractions (fx, fy) of page n's box."""
+        b = page.locator("#p%d" % n).bounding_box()
+        return b["x"] + b["width"] * fx, b["y"] + b["height"] * fy
+
+    def test_a_drag_on_the_july_cell_snaps_the_box_to_it_and_names_its_path_and_lines(self):
+        """The map chose the cell: '새 핀' sits on the cell's box, the location line reads its path and code lines, and
+        the ladder offers cell, strip and figure by name with the cell pressed."""
+        page = self.open_fig()
+        self.drag(page, helpers_figure.CELL_DRAG)
+        self.assert_box(page, "#doc .sel", 1, helpers_figure.JULY)
+        self.assertEqual(self.text(page, "#c-path"), "B2 › 달력 › 7월 ·")
+        self.assertEqual(self.text(page, "#c-loc"), "B2_calendar.py L88-L95")
+        self.assertEqual(
+            page.eval_on_selector_all(
+                "#c-levels button",
+                "bs=>bs.map(b=>[b.dataset.level,b.firstChild.textContent.trim(),b.getAttribute('aria-pressed')])",
+            ),
+            [["el", "7월", "true"], ["el2", "달력", "false"], ["fig", "B2", "false"]],
+        )
+
+    def test_a_rung_moves_the_box_path_and_lines_without_asking_the_server(self):
+        """Pressing strip, figure, then cell moves '새 핀', the path and the lines each time, and no pick is requested."""
+        page = self.open_fig()
+        self.drag(page, helpers_figure.CELL_DRAG)
+        page.evaluate(
+            """()=>{window.pickCalls=0; const f=window.fetch; window.fetch=function(u,o){
+              if(String(u).startsWith('/api/pick'))window.pickCalls++; return f.call(this,u,o);};}"""
+        )
+        for level, box, path, loc in (
+            ("el2", helpers_figure.STRIP_FRAC, "B2 › 달력 ·", "B2_calendar.py L80-L97"),
+            ("fig", (0, 0, 1, 1), "B2 ·", "B2_calendar.py L12-L140"),
+            ("el", helpers_figure.JULY, "B2 › 달력 › 7월 ·", "B2_calendar.py L88-L95"),
+        ):
+            with self.subTest(level=level):
+                page.click('#c-levels [data-level="%s"]' % level)
+                settle(page)
+                self.assert_box(page, "#doc .sel", 1, box)
+                self.assertEqual(self.text(page, "#c-path"), path)
+                self.assertEqual(self.text(page, "#c-loc"), loc)
+        self.assertEqual(page.evaluate("window.pickCalls"), 0)
+
+    def test_the_snapped_box_stays_on_the_cell_at_fit_and_300_percent_at_dpr_1_and_2(self):
+        """The box is placed in page fractions, so it stays on the cell at fit width and at three times that, on a 1x and
+        a 2x screen."""
+        for dpr in (1, 2):
+            with self.subTest(dpr=dpr):
+                page = self.open_fig(viewport={"width": 1400, "height": 850}, device_scale_factor=dpr)
+                self.drag(page, helpers_figure.CELL_DRAG)
+                self.assert_box(page, "#doc .sel", 1, helpers_figure.JULY)
+                page.evaluate("zoomTo(fitWidth()*3)")
+                settle(page)
+                self.assertGreater(page.evaluate("document.getElementById('p1').clientWidth"), 2000)
+                self.assert_box(page, "#doc .sel", 1, helpers_figure.JULY)
+
+    def test_switching_documents_while_a_figure_pick_is_in_flight_leaves_nothing_behind(self):
+        """The figure pick answers after the switch to the manuscript: no box, path line or composer appears there and
+        the late answer is dropped."""
+        page = self.open_fig()
+        page.evaluate(
+            """()=>{const real=api; window.heldPicks=[];
+              api=(path,options)=>path==='/api/pick'?new Promise((ok,no)=>window.heldPicks.push(()=>real(path,options).then(ok,no)))
+                :real(path,options);}"""
+        )
+        page.evaluate("(()=>{const pg=document.getElementById('p1');finishRect(pg,newBox(pg),0.48,0.2,0.52,0.28);})()")
+        page.wait_for_function("window.heldPicks.length===1", timeout=8000)
+        page.evaluate("async()=>await switchDoc('ms')")
+        page.wait_for_function("DOC==='ms'", timeout=8000)
+        page.evaluate("window.heldPicks[0]()")
+        settle(page)
+        self.assertEqual(
+            page.evaluate(
+                "[COMPOSE.current,COMPOSE.box,COMPOSE.picking,document.querySelectorAll('#doc .sel').length,"
+                "document.getElementById('composer').hidden,document.getElementById('c-path').hidden]"
+            ),
+            [None, None, False, 0, True, True],
+        )
+
+    def test_a_select_mode_finger_drag_on_a_phone_snaps_like_a_mouse_drag(self):
+        """[선택] on, one finger drags across the cell on a phone: the map chooses the cell and the box snaps to it."""
+        page = self.open_fig(**DEVICES["phone"])
+        page.evaluate("setSelMode(true)")
+        x, y, w, h = helpers_figure.CELL_DRAG
+        x0, y0 = self.on_page(page, x, y)
+        x1, y1 = self.on_page(page, x + w, y + h)
+        cdp = page.context.new_cdp_session(page)
+        self.touch(cdp, "touchStart", [(x0, y0)])
+        for i in range(1, 7):
+            self.touch(cdp, "touchMove", [(x0 + (x1 - x0) * i / 6, y0 + (y1 - y0) * i / 6)])
+        self.touch(cdp, "touchEnd", [])
+        page.wait_for_function("COMPOSE.current&&!COMPOSE.picking", timeout=8000)
+        settle(page)
+        self.assertEqual(page.evaluate("COMPOSE.current.elSel&&COMPOSE.current.elSel.id"), helpers_figure.CELL_ID)
+        self.assert_box(page, "#doc .sel", 1, helpers_figure.JULY)

@@ -16,14 +16,19 @@ function curLevel(o){const ls=o.levels||[];
 function rng(lo,hi){return 'L'+lo+(hi!==lo?'-L'+hi:'');}
 // Segment-control labels are kept short - '환경 abstract' -> 'abstract'. When the same environment name appears more than
 // once, '(바깥)' is kept to distinguish them. The line range is left out of the label, going instead into the description (data-tip)/aria-label and the location line.
-function levelName(lv,all){if(!lv.env)return levelLabel(lv.label);
+// A figure rung is named by its element as the server labelled it (a person's words, not run through levelLabel).
+function levelName(lv,all){if(lv.el)return String(lv.label||elName(lv.el)); if(!lv.env)return levelLabel(lv.label);
   const dup=(all||[]).filter(o=>o.env===lv.env).length>1; return dup?levelLabel(lv.label).replace(/^(환경|Environment) /,''):lv.env;}
-function levelBtns(o,isEdit){const cur=curLevel(o),ls=o.levels||[]; return ls.map(lv=>{const on=lv===cur;
-  const tip=isEdit&&lv.level==='raw'?T.cur:(lv.level.startsWith('env')?T.env:T[lv.level]);
-  const label=isEdit&&lv.level==='raw'?tr('지금 범위'):levelName(lv,ls),nl=tl('{n}줄',{n:lv.n});
+// The range ladder's segments (composer and edit card): one button per rung, the rung matching the range pressed. A
+// figure rung (it carries an element) gets the element's tooltip; its line count comes from lo-hi when the rung has no n.
+function levelBtns(o,isEdit){const cur=curLevel(o),ls=o.levels||[]; return ls.map(lv=>{const on=lv===cur,n=rungLines(lv);
+  const tip=lv.el?rungTip(lv):isEdit&&lv.level==='raw'?T.cur:(lv.level.startsWith('env')?T.env:T[lv.level]);
+  const label=isEdit&&lv.level==='raw'?tr('지금 범위'):levelName(lv,ls),nl=tl('{n}줄',{n});
   return '<button class="'+(on?'on':'')+'" data-act="level" data-level="'+esc(lv.level)+'" aria-pressed="'+on+'" aria-label="'+
     esc(label+' '+rng(lv.lo,lv.hi)+' · '+nl)+'" data-tip="'+esc(rng(lv.lo,lv.hi)+' · '+tr(tip))+'">'+
-    esc(label)+' <span class="k'+(lv.n>50?' wn':'')+'">· '+esc(nl)+'</span></button>';}).join('');}
+    esc(label)+' <span class="k'+(n>50?' wn':'')+'">· '+esc(nl)+'</span></button>';}).join('');}
+// A rung's line count: the server's n, else its lo-hi span (a figure rung may come without n).
+function rungLines(lv){return typeof lv.n==='number'?lv.n:lv.hi-lv.lo+1;}
 // Scrolls a horizontally overflowing segment control so the selected segment is visible (vertical scroll is left untouched).
 function segReveal(seg){const on=seg&&seg.querySelector('.on'); if(!on){segFade(seg);return;}
   const l=on.offsetLeft,r=l+on.offsetWidth;
@@ -34,7 +39,9 @@ function segReveal(seg){const on=seg&&seg.querySelector('.on'); if(!on){segFade(
 function segFade(seg){if(!seg)return; const over=seg.scrollWidth-seg.clientWidth;
   seg.classList.toggle('fade-l',over>1&&seg.scrollLeft>1); seg.classList.toggle('fade-r',over>1&&over-seg.scrollLeft>1);}
 document.addEventListener('scroll',e=>{const t=e.target; if(t&&t.classList&&t.classList.contains('seg'))segFade(t);},true);
-function useLevel(o,key){const lv=lvOf(o,key); if(!lv)return; o.lo=lv.lo;o.hi=lv.hi;o.scope=lv.level;o.env=lv.env||null;o.snippet=lv.snippet;}
+// Applies rung key to o (the composer's selection or an edit card): its lines, scope and source; a figure rung also selects
+// its element (elSel), which a later nudge to other lines keeps.
+function useLevel(o,key){const lv=lvOf(o,key); if(!lv)return; o.lo=lv.lo;o.hi=lv.hi;o.scope=lv.level;o.env=lv.env||null;o.snippet=lv.snippet; if(lv.el)o.elSel=lv.el;}
 function nudge(o,dir){let lo=o.lo,hi=o.hi; const max=o.n_lines||hi+1;
   if(dir==='up-grow')lo=Math.max(1,lo-1); else if(dir==='up-shrink')lo=Math.min(hi,lo+1);
   else if(dir==='down-grow')hi=Math.min(max,hi+1); else if(dir==='down-shrink')hi=Math.max(lo,hi-1);

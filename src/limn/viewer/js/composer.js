@@ -28,7 +28,7 @@ async function pick(r){
     // Even a pending save is never carried out if pick fails - only the existing error panel is shown (regression: prevents a silent save failure).
     COMPOSE.current=null; clearPendingSave(); $('#c-err').textContent=errText(d); $('#c-err').hidden=false; $('#c-body').hidden=true; return;}
   if(rp){rp.cand=d; bannerCompare(); return;}
-  COMPOSE.current=d; COMPOSE.current.scope=null; if(!isRegion(d)){useLevel(COMPOSE.current,d.default_level); if(!COMPOSE.current.scope){COMPOSE.current.lo=d.lo;COMPOSE.current.hi=d.hi;}}
+  COMPOSE.current=d; COMPOSE.current.scope=null; COMPOSE.current.elSel=d.el||null; if(!isRegion(d)){useLevel(COMPOSE.current,d.default_level); if(!COMPOSE.current.scope){COMPOSE.current.lo=d.lo;COMPOSE.current.hi=d.hi;}}
   COMPOSE.dismissedOverlap=null;   // a freshly chosen selection - re-notified even if [별도 핀으로 저장] was pressed for a previous selection
   COMPOSE.current.overlaps=overlapsFor(COMPOSE.current,PINS);
   // If a pin the server saw as overlapping isn't in this tab's PINS (someone else just saved it), the list is re-fetched - loadPins recomputes overlap too.
@@ -93,22 +93,25 @@ function renderOverlapBanner(){
 // Location is one line: 'file L159' + page + match badge + [copy]. Range kind/line count are never repeated, since the
 // segment control's selected segment already shows them (if adjusted directly via up/down and it doesn't match any
 // segment, '줄 직접 지정' is appended next to the page). The dragged line goes into the description.
+// A figure element without code lines comes back as a region with its element: labelled '코드 없는 요소', its box snapped.
 // Selection on a view-only PDF: the location is '쪽 N - 영역', and the region's text (pdftotext) is shown in the source field. The range ladder/stepper are hidden.
 function renderRegionComposer(d){
   $('#composer').classList.add('region');
   $('#c-loc').textContent=d.name+' · '+tl('쪽 {page} 영역',{page:d.page}); $('#c-loc').dataset.copy=d.name+' 쪽 '+d.page;
-  const pg=$('#c-page'); pg.textContent=tr('보기 전용'); pg.dataset.tip='LaTeX 소스가 없는 PDF입니다 — 줄 번호 없이 쪽·영역과 영역 글자로 핀을 남깁니다';
+  // A figure region: '코드 없는 요소' (element without code lines, its box snapped) or '영역' (map unreadable).
+  const pg=$('#c-page'),fb=figRegionBadge(d.el,!!META&&META.kind===DOC_KIND.FIGURE);
+  pg.textContent=fb?fb.t:tr('보기 전용'); pg.dataset.tip=fb?fb.tip:'LaTeX 소스가 없는 PDF입니다 — 줄 번호 없이 쪽·영역과 영역 글자로 핀을 남깁니다';
   $('#c-tag').hidden=true; $('#c-warn').hidden=!d.warn; $('#c-warn').textContent=warnText(d.warn); $('#c-overlap').hidden=true;
   $('#c-levels').innerHTML='';
   const pre=$('#c-snip'); pre.className='wrap open'; pre.textContent=d.quote?tl('영역 글자: {text}',{text:d.quote}):tr('(이 영역에는 글자가 없습니다)');
-  $('#c-expand').hidden=true;}
+  $('#c-expand').hidden=true; renderElement(d,COMPOSE.box);}
 // Draws the composer from COMPOSE.current (location, ladder, source, overlap) and schedules the draft write - every change of the
 // selection (a pick, a level, a nudge, a restore) passes through here.
 function renderComposer(){const d=COMPOSE.current; if(!d)return; saveDraftSoon();
   if(isRegion(d)){renderRegionComposer(d); return;}
   $('#composer').classList.remove('region');
   const copy=d.name+' L'+d.lo+'-L'+d.hi;
-  $('#c-loc').textContent=d.name+' '+rng(d.lo,d.hi); $('#c-loc').dataset.copy=copy;
+  $('#c-loc').textContent=d.name+' '+rng(d.lo,d.hi); $('#c-loc').dataset.copy=copy; renderElement(d,COMPOSE.box);
   const pg=$('#c-page'),pgn=tl('{page}쪽',{page:d.page}); pg.textContent=pgn+(curLevel(d)?'':' · '+tr('줄 직접 지정'));
   pg.dataset.tip=pgn+' · '+scopeLabel(d)+' · '+tl('{n}줄',{n:d.hi-d.lo+1})+' · '+tl('드래그한 줄 {range}',{range:rng(d.raw_lo,d.raw_hi)});
   const v=viaTag(d),tg=$('#c-tag'); tg.hidden=!v; if(v){tg.textContent=v.t;tg.dataset.tip=v.tip;tg.classList.toggle('badge-warning',!!v.low);}
