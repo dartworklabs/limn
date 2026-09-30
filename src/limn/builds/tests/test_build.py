@@ -802,9 +802,9 @@ class ReadsBeforeAndBetweenBuilds(unittest.TestCase):
 
 
 class FigureBuildFacts(unittest.TestCase):
-    """The figure build facts limn.builds.artifacts shares with the builds and pins slices: the PDF a map names, kept only inside
-    the figure document's folder, and the map a published build kept, whose verdict depends on its bytes alone
-    (docs/handbook/code-style-roadmap.md §R10)."""
+    """The figure build facts limn.builds.artifacts shares with the builds and pins slices: the PDF a map names, kept
+    only inside the figure document's folder, and the map a published build kept, whose verdict depends on its bytes
+    alone (docs/handbook/code-style-roadmap.md §R10)."""
 
     def setUp(self):
         """A manuscript with a figure folder figs/ (out/, src/, a dot folder, a symlink src/out-link to a folder
@@ -869,9 +869,9 @@ class FigureBuildFacts(unittest.TestCase):
             self.assertIsNone(build.build_figure_pdf(self.doc, name), name)
 
     def test_a_published_map_is_judged_by_its_bytes_alone(self):
-        """The copy is parsed as bytes: a source path through a symlink that leads out of figs/ is a map, and it stays the
-        same map after that link is replaced by a folder inside figs/ - the filesystem is never asked; a source path that
-        is not canonical is path_outside, a copy over the size cap is too_large, and neither names a PDF."""
+        """The copy is parsed as bytes: a source path through a symlink that leads out of figs/ is a map, and it stays
+        the same map after that link is replaced by a folder inside figs/ - the filesystem is never asked; a source path
+        that is not canonical is path_outside, a copy over the size cap is too_large, and neither names a PDF."""
         linked = figure_map(MINI_PDF)
         linked["pages"][0]["elements"][0]["src"]["file"] = "src/out-link/x.py"
         self.publish("pages-20260101000000", map_bytes(linked))
@@ -892,9 +892,9 @@ class FigureBuildFacts(unittest.TestCase):
 
 
 class BuildMapCacheReads(unittest.TestCase):
-    """limn.builds.artifacts.BuildMapCache, the per-run cache of parsed figure maps: a build's map copy is parsed once and served
-    again while the copy is unchanged; a rewritten copy, a missing one and a name that is not a build miss. One figure
-    document with build BUILD1 on screen and a fresh cache."""
+    """limn.builds.artifacts.BuildMapCache, the per-run cache of parsed figure maps: a build's map copy is parsed once
+    and served again while the copy is unchanged; a rewritten copy, a missing one and a name that is not a build miss.
+    One figure document with build BUILD1 on screen and a fresh cache."""
 
     def setUp(self):
         """Temp manuscript and state folder, the figure document, its first build."""
@@ -977,7 +977,8 @@ class BuildMapCacheReads(unittest.TestCase):
         self.assertEqual(self.cache.held(), 2)
 
     def test_the_pdf_of_a_build_read_through_the_cache_parses_its_copy_once(self):
-        """build_figure_pdf given the cache's get names the PDF the uncached call names, and asking twice parses once."""
+        """build_figure_pdf given the cache's get names the PDF the uncached call names, and asking twice parses
+        once."""
         want = build.build_figure_pdf(self.fig, BUILD1)
         self.assertEqual(want, (self.fig.main.parent / "figures.pdf").resolve())
         with mock.patch.object(build, "parse_map", wraps=figmap.parse_map) as parsed:
@@ -1002,9 +1003,9 @@ class BuildMapCacheReads(unittest.TestCase):
 
 
 class BuildMapCacheThreads(unittest.TestCase):
-    """limn.builds.artifacts.BuildMapCache under request threads. The run's one cache is shared by the pick and GET /api/pins, so
-    reads that miss, hit and evict at the same moment must each get the map of the build they asked for, raise
-    nothing and leave the cache at its cap. The interpreter is set to switch threads every microsecond, so an
+    """limn.builds.artifacts.BuildMapCache under request threads. The run's one cache is shared by the pick and GET
+    /api/pins, so reads that miss, hit and evict at the same moment must each get the map of the build they asked for,
+    raise nothing and leave the cache at its cap. The interpreter is set to switch threads every microsecond, so an
     unguarded eviction shows. Twice the cap of builds, each with a July box of its own."""
 
     THREADS = 8

@@ -4,8 +4,8 @@ docs/handbook/api.md §그림 문서의 pick·핀).
 
 resolve.pick sends a figure document here before anything else. The map comes from the composition root
 (PickContext.figure_map: the pick's own build's copy, parsed once per build); which element and which ladder are
-limn.builds.figure_map's pure rules (pick_element, ladder_scopes, element_kind) and element_rungs below. This module reads
-only the chosen element's source file, through the checked-file helpers and only inside the document's folder, and
+limn.builds.figure_map's pure rules (pick_element, ladder_scopes, element_kind) and element_rungs below. This module
+reads only the chosen element's source file, through the checked-file helpers and only inside the document's folder, and
 never the PDF. What it cannot answer with lines it answers with a FigureFallback, which resolve.pick turns into the
 region answer. No HTTP here: location.http shapes every body.
 """
@@ -92,8 +92,8 @@ def drag_frac(box: tuple[float, float, float, float], size: tuple[float, float])
 def pin_element(page: MapPage, el: MapElement) -> PinElement:
     """el of page as a pin records it (limn.pins.element): its id, the ids from the page root down to it, its label and
     part, its shared implementation's file and lines when the map names them, and its box on this build. The parser
-    keeps an empty label or part as "" (limn.builds.figure_map.parse_map); a pin stores that as absent, like a name the map does
-    not give, so "" never reaches a record or an answer."""
+    keeps an empty label or part as "" (limn.builds.figure_map.parse_map); a pin stores that as absent, like a name the
+    map does not give, so "" never reaches a record or an answer."""
     chain = (el, *page.ancestors(el))
     impl = None if el.impl is None else ElementImpl(el.impl.file, el.impl.lo, el.impl.hi)
     return PinElement(el.id, tuple(e.id for e in reversed(chain)), el.label or None, el.part or None, impl, el.frac)
@@ -125,13 +125,15 @@ def element_rungs(page: MapPage, pick: ElementPick, lines: Sequence[str]) -> tup
 
 def read_source(D: Doc, rel: str, root: Path, state: Path) -> tuple[ManuscriptFile, list[str]] | None:
     """The checked source file a map names (rel, relative to the document's folder D.src) and its lines read now, or
-    None: not a regular file inside the manuscript tree (limn.platform.files.file_in_tree), not inside D.src once symlinks are
-    resolved (tree_part, which also keeps the state folder and dot-named parts out), or no readable UTF-8 lines.
+    None: not a regular file inside the manuscript tree (limn.platform.files.file_in_tree), not inside D.src once
+    symlinks are resolved (tree_part, which also keeps the state folder and dot-named parts out), or no readable UTF-8
+    lines.
 
-    The folder check is made here, on every read, and nowhere earlier: the map's parse (limn.builds.figure_map.parse_map) judges a
-    source path by its shape only, so the run's cached map (limn.builds.BuildMapCache) says nothing about where a
-    script leads. A script that links out of the folder - from the start or since the map was written - is refused
-    now and costs only its own elements their lines; the answer is the same from a warm cache and a cold one."""
+    The folder check is made here, on every read, and nowhere earlier: the map's parse
+    (limn.builds.figure_map.parse_map) judges a source path by its shape only, so the run's cached map
+    (limn.builds.BuildMapCache) says nothing about where a script leads. A script that links out of the folder - from
+    the start or since the map was written - is refused now and costs only its own elements their lines; the answer is
+    the same from a warm cache and a cold one."""
     found = file_in_tree(str(D.src / rel), root, state)
     if not isinstance(found, ManuscriptFile) or tree_part(found.path, D.src, state) is None:
         return None

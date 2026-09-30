@@ -271,8 +271,8 @@ def resync(
     changes. A synced_at that is missing or null counts as 0 (never synced).
 
     - A legacy pin saved without an anchor gets one from its current lines, once (skipping the comment lines of that
-      file's kind, limn.pins.location.mapping.comment_marker) - never from a file the record does not name (path differs from the
-      stored file: it may be a guess).
+      file's kind, limn.pins.location.mapping.comment_marker) - never from a file the record does not name (path differs
+      from the stored file: it may be a guess).
     - A pin that selected only blank lines (empty anchor) has nothing to follow.
     - When the file is not newer than synced_at the pin is left alone - unless path is another file than the stored
       one (a moved checkout: synced_at was measured on the old file) and the anchor no longer holds at lo.

@@ -428,8 +428,8 @@ class FigurePick(Base):
         self.assertTrue(d["warn"].startswith(PICK_WARNINGS["element_without_source"]))
 
     def test_a_script_that_links_out_of_the_folder_answers_alike_from_a_warm_and_a_cold_cache(self):
-        """The July cell's script is a link out of figs/ to a manuscript file beside it. With the run's map cache warm (a
-        first drag parsed the map while the script was still inside) or cold (a restart: the link was already there
+        """The July cell's script is a link out of figs/ to a manuscript file beside it. With the run's map cache warm
+        (a first drag parsed the map while the script was still inside) or cold (a restart: the link was already there
         for the first drag), the answer is the same: the region body with the element B2/calendar/m07 and the
         element_without_source sentence - never figure_map_unavailable - and the file the link leads to is never
         opened. The two whole answers are equal. The folder is judged when the script is read, not when the map is

@@ -550,8 +550,8 @@ class FigurePlaces(unittest.TestCase):
                     RegionPlace({**self.REGION, "el": bad})
 
     def test_a_place_refuses_an_el_whose_frac_cannot_be_written_as_json(self):
-        """NaN, Infinity or an integer too large for a float in an el's frac (shapes the record check lets through) would
-        be stored as invalid JSON or dropped silently: a place refuses them like a malformed el."""
+        """NaN, Infinity or an integer too large for a float in an el's frac (shapes the record check lets through)
+        would be stored as invalid JSON or dropped silently: a place refuses them like a malformed el."""
         for frac in ([float("nan"), 0, 1, 1], [0, 0, float("inf"), 1], [0, 0, 10**400, 1]):
             with self.subTest(frac=frac):
                 with self.assertRaises(ValueError):

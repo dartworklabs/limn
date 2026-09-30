@@ -1,10 +1,10 @@
-"""limn.builds.figure_map's pick, ladder and follow rules: which element a drag on a figure page points at, the range ladder
-above it, and where a pinned element is on a later build's map - pure functions over map values.
+"""limn.builds.figure_map's pick, ladder and follow rules: which element a drag on a figure page points at, the range
+ladder above it, and where a pinned element is on a later build's map - pure functions over map values.
 
 The parser half of the module (parse_map) is tested with P1a's tests. Here pages are built from the value types
 directly, so each rule is seen without JSON, files or a server. docs/handbook/domain.md §그림 문서의 요소 pick
-describes the ladder the rules feed; the Hypothesis properties at the end check them on generated element trees against an oracle
-written from that description.
+describes the ladder the rules feed; the Hypothesis properties at the end check them on generated element trees against
+an oracle written from that description.
 
 Run: uv run pytest -q src/limn/builds/tests/test_figure_map_pick.py
 """

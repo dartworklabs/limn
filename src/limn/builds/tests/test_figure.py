@@ -508,10 +508,10 @@ class OneLookPerChange(FigureTree):
 
     def test_one_map_under_two_folders_is_judged_per_document_and_imported_once(self):
         """The same map registered twice: fig with folder figs/, fig2 with the map's own folder figs/out/. The map
-        names ../figures.pdf, a PDF inside figs/ but outside figs/out/, so fig imports it and fig2 defers it pdf_outside.
-        The parse is the map's bytes alone and is shared through one memo, while the PDF is judged per document
-        (build.figure_pdf): over three rounds of ticks, fig imports once and fig2 logs once - a judgement is never
-        borrowed from the other document."""
+        names ../figures.pdf, a PDF inside figs/ but outside figs/out/, so fig imports it and fig2 defers it
+        pdf_outside. The parse is the map's bytes alone and is shared through one memo, while the PDF is judged per
+        document (build.figure_pdf): over three rounds of ticks, fig imports once and fig2 logs once - a judgement is
+        never borrowed from the other document."""
         self.producer.write(self.figs / "figures.pdf", MINI_PDF)
         self.producer.write(self.map, map_bytes(figure_map(MINI_PDF, "../figures.pdf")))
         fig2 = Doc("fig2", "그림 2", "figure", self.figs / "out", self.map, paths=self.doc.paths)
@@ -653,7 +653,8 @@ class FigureShownHook(FigureTree):
         self.assertEqual(self.calls, [res.build])
 
     def test_startup_import_calls_the_hook_too(self):
-        """init_doc's import (startup, --no-build not applying to a figure) is a tracked build like any other: one call."""
+        """init_doc's import (startup, --no-build not applying to a figure) is a tracked build like any other: one
+        call."""
         self.producer.render()
         self.assertIsInstance(self.requests.init_doc(self.doc, no_build=True, wait=True), BuildOk)
         self.assertEqual(len(self.calls), 1)
@@ -691,7 +692,8 @@ class FigureShownHook(FigureTree):
         self.assertIn("hook broke", err.getvalue())
 
     def test_a_latex_or_view_only_build_does_not_call_the_hook(self):
-        """The hook belongs to the figure import: a LaTeX document's build and a view-only PDF's render never call it."""
+        """The hook belongs to the figure import: a LaTeX document's build and a view-only PDF's render never call
+        it."""
         ok = BuildOk("", 0.1, None, None, "h" * 32, "-", "pages-20260926120000", 1)
         tex = Doc("ms", "본문", "tex", self.ms, self.ms / "main.tex", paths=self.doc.paths)
         pdf = Doc("rv", "리뷰", "pdf", self.ms, self.ms / "review.pdf", paths=self.doc.paths)

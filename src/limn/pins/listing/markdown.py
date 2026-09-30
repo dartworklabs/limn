@@ -148,8 +148,8 @@ class PinMarkdown:
         element has a shared part - None when it has none, or when its document is no longer served or is no longer a
         figure document (not doc.has_element_map: the key was reconfigured, so the folder means nothing for an element).
         The edge only passes the folder; whether and how the shared part's file is printed is the renderer's rule
-        (limn.pins.listing.render.shared_part_md). Nothing is opened. (None, None) for a pin without a well-formed el. Total: a hostile stored el gives facts, never
-        an error."""
+        (limn.pins.listing.render.shared_part_md). Nothing is opened. (None, None) for a pin without a well-formed el.
+        Total: a hostile stored el gives facts, never an error."""
         el = element_of(r.get("el"))
         if el is None:
             return None, None

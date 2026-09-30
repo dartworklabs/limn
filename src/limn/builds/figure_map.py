@@ -173,10 +173,10 @@ def parse_map(raw: bytes) -> FigureMap | MapRejected:
     part, label - are at most MAP_MAX_TEXT characters (bad_shape), src and impl paths at most MAP_MAX_PATH characters
     and canonical, their lines at most MAP_MAX_LINE (_source), and an element at most MAP_MAX_DEPTH ids from its
     root (_tree_rejection). pdf is relative to the map's folder and may climb out of it with '..': where it lands is
-    the import's check (limn.builds.artifacts.figure_pdf), not the parser's; likewise a canonical src.file or impl.file is kept
-    whatever it would lead to (a link out of the folder, a dot-named folder, a file that does not exist): src.file's
-    reader decides when it opens the script, and impl.file is never opened. The verdict depends on raw alone. Unknown keys are
-    ignored everywhere. Never raises."""
+    the import's check (limn.builds.artifacts.figure_pdf), not the parser's; likewise a canonical src.file or impl.file
+    is kept whatever it would lead to (a link out of the folder, a dot-named folder, a file that does not exist):
+    src.file's reader decides when it opens the script, and impl.file is never opened. The verdict depends on raw alone.
+    Unknown keys are ignored everywhere. Never raises."""
     if len(raw) > MAP_MAX_BYTES:
         return MapRejected("too_large", "%d bytes > %d" % (len(raw), MAP_MAX_BYTES))
     try:

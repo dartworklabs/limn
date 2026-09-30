@@ -103,8 +103,9 @@ def _frac4(v: object, refusal: InputRejected) -> Frac | InputRejected:
     return nums[0], nums[1], nums[2], nums[3]
 
 
-# What a pin's el may hold. They are the limits a map is parsed by (limn.builds.figure_map), so every element a map accepts can be
-# pinned: a longer text, a deeper path or a higher line would make a pin the map itself could not have described.
+# What a pin's el may hold. They are the limits a map is parsed by (limn.builds.figure_map), so every element a map
+# accepts can be pinned: a longer text, a deeper path or a higher line would make a pin the map itself could not have
+# described.
 EL_TEXT_MAX = MAP_MAX_TEXT  # characters of an element id, path entry, label or part
 EL_PATH_MAX = MAP_MAX_DEPTH  # ids from the page root down to the element
 EL_FILE_MAX = MAP_MAX_PATH  # characters of impl.file
@@ -121,10 +122,11 @@ def parse_el(v: object) -> PinElement | None | InputRejected:
 
     id is a non-empty string; path a list of 1..EL_PATH_MAX non-empty strings ending with id; label and part strings
     when sent (an empty one counts as not sent, as the pick leaves it out); impl, when sent, {file, lo, hi} with file a
-    canonical relative POSIX path of at most EL_FILE_MAX characters (limn.builds.figure_map.is_canonical_path: no '..', '.' or empty
-    part, no leading '/', backslash or NUL) and 1 <= lo <= hi <= EL_LINE_MAX; frac, when sent, four finite numbers
-    inside the page with positive area (parse_frac); every other string at most EL_TEXT_MAX characters. Keys other than
-    these are dropped, as unknown top-level fields are: the value is the canonical element, and is what is stored."""
+    canonical relative POSIX path of at most EL_FILE_MAX characters (limn.builds.figure_map.is_canonical_path: no '..',
+    '.' or empty part, no leading '/', backslash or NUL) and 1 <= lo <= hi <= EL_LINE_MAX; frac, when sent, four finite
+    numbers inside the page with positive area (parse_frac); every other string at most EL_TEXT_MAX characters. Keys
+    other than these are dropped, as unknown top-level fields are: the value is the canonical element, and is what is
+    stored."""
     if v is None:
         return None
     bad = InputRejected(EL_REFUSAL, "bad_el")

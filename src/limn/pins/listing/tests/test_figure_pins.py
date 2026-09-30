@@ -85,8 +85,8 @@ class FigureBase(Base):
         )
 
     def rewrite(self, pid, change):
-        """Hand-edit the stored record of pin pid (the way an older or foreign writer left it): change(record) runs on the
-        stored record, and pins.jsonl is written again. Nothing is validated beyond what the store keeps."""
+        """Hand-edit the stored record of pin pid (the way an older or foreign writer left it): change(record) runs on
+        the stored record, and pins.jsonl is written again. Nothing is validated beyond what the store keeps."""
         with ps.APP.RT.pin_lock:
             rows = records(ps.APP.read_pins()[0])
             change(next(r for r in rows if r["id"] == pid))
@@ -523,8 +523,8 @@ class FigureMarkdown(FigureBase):
             self.assertNotIn("요소 잃음", self.row(md, pid))
 
     def test_get_pins_md_renders_the_build_on_screen_on_request(self):
-        """A build put on screen without an import (no hook ran) still shows in GET /pins.md, which renders on request: the
-        August row already says 요소 잃음. The guidance explains the word, so it is the pin's row that is compared, not
+        """A build put on screen without an import (no hook ran) still shows in GET /pins.md, which renders on request:
+        the August row already says 요소 잃음. The guidance explains the word, so it is the pin's row that is compared, not
         the whole text. The limit of the file on disk is docs/handbook/domain.md §그림 핀의 한계."""
         write_build(self.fig, BUILD2, b2_map(august=False))
         code, _, body = split_resp(self.talk(req("GET", "/pins.md")))
@@ -532,9 +532,9 @@ class FigureMarkdown(FigureBase):
         self.assertIn("요소 잃음", self.row(body.decode("utf-8"), self.august))
 
     def test_an_import_rewrites_the_file_on_disk_so_a_local_agent_reads_the_lost_element(self):
-        """The tracked import of a re-render without the August cell rewrites pins.md on disk - the file an agent on this
-        machine reads - so its row says 요소 잃음 with no GET and no pin write in between; the July cell only moved, so its
-        row does not; pins.jsonl is the same bytes and every rev is still 0."""
+        """The tracked import of a re-render without the August cell rewrites pins.md on disk - the file an agent on
+        this machine reads - so its row says 요소 잃음 with no GET and no pin write in between; the July cell only moved, so
+        its row does not; pins.jsonl is the same bytes and every rev is still 0."""
         before = ps.APP.C.pins_jsonl.read_bytes()
         self.assertNotIn("요소 잃음", self.row(ps.APP.C.pins_md.read_text(encoding="utf-8"), self.august))
         done = import_build(ps.APP, self.fig, BUILD2, b2_map(july=(0.4, 0.18, 0.07, 0.12), august=False))
@@ -570,8 +570,8 @@ class FigureMarkdown(FigureBase):
         self.assertNotEqual(pins_md_stamp(), aged)
 
     def test_a_refresh_that_fails_keeps_the_old_file_and_the_import_still_lands(self):
-        """The render of pins.md raises: the file stays as it was (rendering happens before the write), the error goes to
-        stderr, and the import is still a good build - pages.cur moved, the build state says ok."""
+        """The render of pins.md raises: the file stays as it was (rendering happens before the write), the error goes
+        to stderr, and the import is still a good build - pages.cur moved, the build state says ok."""
         aged = age_pins_md()
         err = io.StringIO()
         with (
@@ -593,8 +593,8 @@ class FigureMarkdown(FigureBase):
         self.assertIn(render.FIGURE_GUIDANCE, text)
 
     def test_a_region_pin_on_the_figure_is_guided_to_the_figure_not_to_latex(self):
-        """The August cell (drawn without code) is a region pin with an element: «8월» before its note, the figure clause,
-        and no 'LaTeX 문서에서 찾는다' anywhere - the view-only clause is only for PDF documents."""
+        """The August cell (drawn without code) is a region pin with an element: «8월» before its note, the figure
+        clause, and no 'LaTeX 문서에서 찾는다' anywhere - the view-only clause is only for PDF documents."""
         md = self.md()
         self.assertIn("«8월» ", self.row(md, self.august))
         self.assertIn("색을 바꿔 줘", self.row(md, self.august))
@@ -602,8 +602,8 @@ class FigureMarkdown(FigureBase):
         self.assertNotIn("LaTeX 문서에서 찾는다", md)
 
     def test_a_region_pin_without_an_element_on_the_figure_is_guided_to_the_figure_too(self):
-        """A pick that fell back because the map could not be read leaves a region pin without el: with only that pin open,
-        the sheet still points at the figure repository, not at LaTeX."""
+        """A pick that fell back because the map could not be read leaves a region pin without el: with only that pin
+        open, the sheet still points at the figure repository, not at LaTeX."""
         pid = add_pin(
             {"doc": "fig", "page": 1, "frac": [0.1, 0.1, 0.2, 0.2], "note": "영역"}, dict(LOCAL_ACTOR)
         ).core.pid
@@ -632,8 +632,8 @@ class FigureMarkdownMapReads(FigureBase):
         return ps.APP.pin_markdown.pins_md_text(ps.APP.snapshot_pins(), base)
 
     def test_a_render_asks_the_cache_once_and_parses_at_most_once(self):
-        """Eight element pins of fig on a build whose map is not cached yet: one render asks the cache for fig's map once
-        and parses it once; the next render asks once more and parses nothing."""
+        """Eight element pins of fig on a build whose map is not cached yet: one render asks the cache for fig's map
+        once and parses it once; the next render asks once more and parses nothing."""
         for i in range(6):
             pin_from_pick(self.fig, JULY_BOX, ALICE_ACTOR, "다시 %d" % i)
         write_build(self.fig, BUILD2, b2_map(july=(0.4, 0.18, 0.07, 0.12)))  # a copy the cache has not seen
@@ -674,7 +674,8 @@ class FigureMarkdownMapReads(FigureBase):
             self.assertEqual(asked.call_count, 1)
 
     def test_a_render_never_writes_a_pin(self):
-        """pins.jsonl is the same bytes and every rev is still 0 after a render of a re-rendered figure, lost element included."""
+        """pins.jsonl is the same bytes and every rev is still 0 after a render of a re-rendered figure, lost element
+        included."""
         write_build(self.fig, BUILD2, b2_map(july=(0.4, 0.18, 0.07, 0.12), august=False))
         before = ps.APP.C.pins_jsonl.read_bytes()
         md = self.render()
@@ -686,7 +687,8 @@ class FigureMarkdownMapReads(FigureBase):
 
 
 class FigureMarkdownSharedPart(FigureBase):
-    """The shared part is text joined under the document's folder: nothing is opened, and only a plain path is printed."""
+    """The shared part is text joined under the document's folder: nothing is opened, and only a plain path is
+    printed."""
 
     def md(self):
         """GET /pins.md's text."""
@@ -779,8 +781,8 @@ class FigureMarkdownSharedPart(FigureBase):
         self.assertNotIn("공통 부품", row)
 
     def test_hostile_stored_records_render_and_change_nothing(self):
-        """A NaN or oversized el.frac and reversed impl lines: pins.md answers 200, prints no part for the bad lines, and
-        pins.jsonl is byte for byte as the hand edit wrote it."""
+        """A NaN or oversized el.frac and reversed impl lines: pins.md answers 200, prints no part for the bad lines,
+        and pins.jsonl is byte for byte as the hand edit wrote it."""
         self.rewrite(
             self.july, lambda r: (r["el"].update(frac=[float("nan"), 0, 0, 0]), r["el"]["impl"].update(lo=9, hi=3))
         )

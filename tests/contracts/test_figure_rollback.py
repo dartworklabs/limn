@@ -8,10 +8,10 @@ any of them loses nothing (docs/superpowers/plans/2026-09-30-figure-documents.md
 The releases check records in two ways. v0.3.5's valid_rec is an untyped shape predicate (server.valid_rec)
 that types kind, via, scope and el only as opaque strings/objects and passes every field it does not know; its
 PinStore takes that predicate directly (files, lock, valid, sync, render, refusal). v0.3.7 and v0.3.8 already have
-typed parsing (limn.pins.record.parse_record/parse_trashed, the same module this version extends with the `el` check) and a
-PinStore built from those two callables (files, lock, parse, parse_trashed, sync, render) bound to
-limn.runtime.documents.DOC_KEY_RE and limn.security.people.is_actor, same as server.parse_record does now. Both keep every field
-this version does not know and write it back unchanged.
+typed parsing (limn.pins.record.parse_record/parse_trashed, the same module this version extends with the `el` check)
+and a PinStore built from those two callables (files, lock, parse, parse_trashed, sync, render) bound to
+limn.runtime.documents.DOC_KEY_RE and limn.security.people.is_actor, same as server.parse_record does now. Both keep
+every field this version does not know and write it back unchanged.
 
 This test runs each release's own store on the figure records of tests/data/pin_records.jsonl: the live figure
 lines through read_pins/write_pins, and the one Trash-shaped figure copy (`dropped_at`) through
@@ -59,8 +59,9 @@ print(json.dumps({
 }))
 """
 
-# v0.3.7 and v0.3.8 (the same flat layout): typed parsing (limn.pins.record.parse_record/parse_trashed) bound to DOC_KEY_RE and is_actor, the same
-# way server.parse_record binds them; PinStore(files, lock, parse, parse_trashed, sync, render).
+# v0.3.7 and v0.3.8 (the same flat layout): typed parsing (limn.pins.record.parse_record/parse_trashed) bound to
+# DOC_KEY_RE and is_actor, the same way server.parse_record binds them; PinStore(files, lock, parse, parse_trashed,
+# sync, render).
 NEW_STORE = r"""
 import json, sys, threading
 from pathlib import Path
@@ -209,7 +210,7 @@ class RollbackToV038(_RollbackChecks, unittest.TestCase):
 
 
 class Corpus(unittest.TestCase):
-    """The fixture the two rollback checks share, independent of either release."""
+    """The fixture the three rollback checks share (v0.3.5, v0.3.7, v0.3.8), independent of any release."""
 
     def test_the_corpus_holds_the_figure_shapes(self):
         """Line pins and a region pin with el, the element scopes, and at least one Trash-shaped copy: the shapes

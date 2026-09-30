@@ -4,8 +4,8 @@ GET /api/pins returns each stored record plus fields computed on every read and 
 the pin's state type), `rel` (its overlaps with other open line pins), `est` (whether its mark is only an estimate on
 the PDF on screen), `doc`, `addressed` and `fyi` (who it is handed to or tags for reference), and for a claim written
 before claim_ts existed the claim's start epoch - and, for a figure pin with an element, `mark`, `mark_page` and
-`el_sync` on its document's current map (docs/handbook/api.md §그림 문서의 pick·핀). GET /api/pins/dropped returns the Trash with
-`expires_ts`. Both answers are the agent contract: field names, order and values must not change.
+`el_sync` on its document's current map (docs/handbook/api.md §그림 문서의 pick·핀). GET /api/pins/dropped returns the Trash
+with `expires_ts`. Both answers are the agent contract: field names, order and values must not change.
 
 Everything here is pure. What only the instance knows arrives as arguments: how a record is shown (the composition
 root's public(): public_record() with where the pin's file is on this machine now), which document a pin belongs to,
@@ -98,10 +98,10 @@ def no_figure_maps(key: str) -> None:
 
 def element_marks(r: Row, fmap: FigureMap | None) -> Json:
     """The read-time position of pin r's element on its figure document's current map: {} unless r carries a well-formed
-    el (limn.pins.element) and fmap is that map; else el_sync (limn.builds.figure_map.follow_element) and, when the element is on
-    the map, mark ([x, y, w, h]) and mark_page before it. Where the element was when pinned is el.frac (its box then);
-    a pin without it is compared by its own frac, and a pin with neither by NO_FRAC, so it is never "ok". The page is
-    the pin's page. Never stored; never changes r."""
+    el (limn.pins.element) and fmap is that map; else el_sync (limn.builds.figure_map.follow_element) and, when the
+    element is on the map, mark ([x, y, w, h]) and mark_page before it. Where the element was when pinned is el.frac
+    (its box then); a pin without it is compared by its own frac, and a pin with neither by NO_FRAC, so it is never
+    "ok". The page is the pin's page. Never stored; never changes r."""
     el = element_of(r.get("el"))
     if el is None or fmap is None:
         return {}

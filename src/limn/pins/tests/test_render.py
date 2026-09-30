@@ -378,8 +378,8 @@ class RenderHelpers(unittest.TestCase):
         self.assertEqual(render.region_text_of({}), "쪽 ?, 영역 가로 0–0% 세로 0–0%")
 
     def test_region_text_reads_a_non_finite_frac_as_zeros_and_never_raises(self):
-        """NaN, an infinity and an integer no float holds (shapes the store keeps in a hand-edited frac) read as the zero
-        box, like any other malformed frac; a finite frac keeps its text."""
+        """NaN, an infinity and an integer no float holds (shapes the store keeps in a hand-edited frac) read as the
+        zero box, like any other malformed frac; a finite frac keeps its text."""
         zero = "쪽 2, 영역 가로 0–0% 세로 0–0%"
         for bad in (float("nan"), float("inf"), -float("inf"), 10**400):
             with self.subTest(bad=bad):
@@ -473,7 +473,8 @@ class BadgeWords(unittest.TestCase):
 
     def test_skill_teaches_figure_pins_and_rebuilds_only_latex(self):
         """Both SKILLs carry the 요소 잃음 marker row, the figure pin rule tied to the section title — 그림(요소 지도),
-        the three origins of a figure region pin, and a rebuild rule keyed on kind "tex" (not the old view-only line)."""
+        the three origins of a figure region pin, and a rebuild rule keyed on kind "tex" (not the old view-only
+        line)."""
         for path, head, end, words in (
             (
                 SKILL_MD,
@@ -566,7 +567,8 @@ class FigureRows(unittest.TestCase):
     element, and one guidance clause while figure pins are open."""
 
     def test_a_figure_pin_row_shows_its_lines_kind_label_and_shared_part(self):
-        """Location and range as the record says; «7월» before the note; the shared part after it, manuscript-relative."""
+        """Location and range as the record says; «7월» before the note; the shared part after it,
+        manuscript-relative."""
         r = line_pin(
             1,
             file="/ms/figs/src/B2_calendar.py",
@@ -608,7 +610,8 @@ class FigureRows(unittest.TestCase):
         self.assertEqual(guidance_line(pins_md_text(page([line_pin(1, el=EL7)]))), plain + render.FIGURE_GUIDANCE)
 
     def test_a_region_pin_with_an_element_takes_the_figure_clause_not_the_view_only_one(self):
-        """An element drawn without code is a region pin: «label» before the note, the figure clause, no view-only one."""
+        """An element drawn without code is a region pin: «label» before the note, the figure clause, no view-only
+        one."""
         r = region_pin(
             1,
             quote="8월",
@@ -626,7 +629,8 @@ class FigureRows(unittest.TestCase):
         self.assertIn("«q» note 1", pins_md_text(page([r], {1: facts(line_len=700)})))
 
     def test_a_label_with_a_pipe_or_a_newline_cannot_break_the_row(self):
-        """The «label» goes through md_cell: a pipe is escaped and a newline becomes a space, so the row keeps its 5 columns."""
+        """The «label» goes through md_cell: a pipe is escaped and a newline becomes a space, so the row keeps its 5
+        columns."""
         el = dict(EL7, label="a|b\nc")
         md = pins_md_text(page([line_pin(1, el=el)]))
         row = next(line for line in md.splitlines() if line.startswith("| 1 |"))
@@ -643,12 +647,13 @@ class FigureRows(unittest.TestCase):
         self.assertNotIn("the quote", row)
 
     def test_a_figure_label_alone_does_not_bring_the_legend(self):
-        """The legend explains «…» as rendered text; a figure's «label» does not switch it on (FIGURE_GUIDANCE explains it)."""
+        """The legend explains «…» as rendered text; a figure's «label» does not switch it on (FIGURE_GUIDANCE explains
+        it)."""
         self.assertNotIn(render.LEGEND, pins_md_text(page([line_pin(1, el=EL7)])))
 
     def test_a_malformed_el_is_no_figure_pin_and_never_raises(self):
-        """A stored el that is not a shape the store trusts (a number, a list, a path that is not strings) is ignored: no
-        «label», no clause, no part - the row and the guidance are the plain line pin's."""
+        """A stored el that is not a shape the store trusts (a number, a list, a path that is not strings) is ignored:
+        no «label», no clause, no part - the row and the guidance are the plain line pin's."""
         plain = pins_md_text(page([line_pin(1)]))
         for bad in (
             5,
@@ -663,8 +668,8 @@ class FigureRows(unittest.TestCase):
 
 
 class SharedPart(unittest.TestCase):
-    """'공통 부품: <path>:<lo>-<hi>' is a line an agent acts on: printed only for a plain relative path (limn.builds.figure_map's
-    canonical rule, no dot-named part), never as the stored text alone."""
+    """'공통 부품: <path>:<lo>-<hi>' is a line an agent acts on: printed only for a plain relative path
+    (limn.builds.figure_map's canonical rule, no dot-named part), never as the stored text alone."""
 
     def part_of(self, el, impl_scope):
         """The note cell of a row for a pin with el whose document's folder the edge gave as impl_scope."""
@@ -672,7 +677,8 @@ class SharedPart(unittest.TestCase):
         return next(line for line in md.splitlines() if line.startswith("| 1 |"))
 
     def test_the_part_is_printed_from_the_placed_location_and_the_stored_lines(self):
-        """The renderer joins impl_scope (the document's folder) and el.impl.file as text: lib/components.py under figs/."""
+        """The renderer joins impl_scope (the document's folder) and el.impl.file as text: lib/components.py under
+        figs/."""
         self.assertTrue(self.part_of(EL7, "figs").endswith("n ⏎ 공통 부품: figs/lib/components.py:410-470 |"))
 
     def test_an_element_without_a_note_shows_the_part_alone_after_its_label(self):
@@ -695,8 +701,8 @@ class SharedPart(unittest.TestCase):
         self.assertNotIn("공통 부품", self.part_of(el, "figs"))
 
     def test_a_stored_file_that_is_not_a_canonical_relative_path_is_omitted(self):
-        """A line that predates parse_el, or a hand edit: '..', '.', an empty part, a leading '/', a backslash, a NUL and a
-        path longer than the map's limit are each left out, whatever location the edge placed."""
+        """A line that predates parse_el, or a hand edit: '..', '.', an empty part, a leading '/', a backslash, a NUL
+        and a path longer than the map's limit are each left out, whatever location the edge placed."""
         too_long = "d/" * (figmap.MAP_MAX_PATH // 2) + "x.py"
         for bad in (
             "../secret.py",
@@ -804,8 +810,8 @@ class FigureSections(unittest.TestCase):
         self.assertNotIn("그림(`fig`, 보기 전용)", md)
 
     def test_the_stamp_word_is_decided_by_builds_from_source_alone(self):
-        """A figure heading whose pages are read in says 그림; had it been built from source it would say 빌드 - has_element_map
-        changes the title and nothing else."""
+        """A figure heading whose pages are read in says 그림; had it been built from source it would say 빌드 -
+        has_element_map changes the title and nothing else."""
         for builds, word in ((False, "그림"), (True, "빌드")):
             with self.subTest(builds_from_source=builds):
                 fg = dataclasses.replace(FIG, builds_from_source=builds, head="abc1234", built_at="2026-09-26 10:00")
@@ -844,7 +850,8 @@ class SingleDocumentSections(unittest.TestCase):
         self.assertTrue(pins_md_text(page([], docs=(FIG,))).endswith("\n\n열린 핀 없음\n"))
 
     def test_a_single_latex_document_keeps_the_old_shape(self):
-        """One LaTeX document: no subsections, the stamp in the header, the one table - byte for byte the unsectioned form."""
+        """One LaTeX document: no subsections, the stamp in the header, the one table - byte for byte the unsectioned
+        form."""
         stamped = dataclasses.replace(MAIN, head="abc1234", built_at="2026-09-26 09:59")
         md = pins_md_text(page([line_pin(1)], docs=(stamped,)))
         self.assertNotIn("\n## ", md)
@@ -873,8 +880,8 @@ class FigureGuidance(unittest.TestCase):
         self.assertNotIn("LaTeX 문서에서 찾는다", render.FIGURE_GUIDANCE)
 
     def test_the_figure_clause_names_a_script_or_a_design_file_as_the_source(self):
-        """The drawn-without-code sentence says the element may come from a script or a design file, so an agent does not
-        search scripts for a graphic a design tool made."""
+        """The drawn-without-code sentence says the element may come from a script or a design file, so an agent does
+        not search scripts for a graphic a design tool made."""
         self.assertIn("스크립트나 디자인 파일", render.FIGURE_GUIDANCE)
 
     def test_the_figure_clause_says_an_element_from_a_design_tool_is_reported_not_edited(self):
@@ -883,8 +890,9 @@ class FigureGuidance(unittest.TestCase):
         self.assertIn("요소가 디자인 도구에서 왔으면 고치지 말고 보고한다", render.FIGURE_GUIDANCE)
 
     def test_a_region_pin_on_a_figure_document_without_an_element_takes_the_figure_clause(self):
-        """A pick that fell back because the map could not be read leaves a region pin without el on a figure document: it
-        has no lines either, and its fix is not in a LaTeX document, so it too gets the figure clause and not the view-only one."""
+        """A pick that fell back because the map could not be read leaves a region pin without el on a figure document:
+        it has no lines either, and its fix is not in a LaTeX document, so it too gets the figure clause and not the
+        view-only one."""
         md = pins_md_text(page([region_pin(1)], {1: facts(doc_key="fig", location="")}, docs=(MAIN, FIG)))
         self.assertIn(render.FIGURE_GUIDANCE, md)
         self.assertNotIn(VIEW_ONLY_CLAUSE, md)
@@ -912,7 +920,8 @@ class FigureGuidance(unittest.TestCase):
         self.assertTrue(line.endswith(render.FIGURE_GUIDANCE))
 
     def test_a_region_pin_under_an_unknown_document_is_a_view_only_one(self):
-        """A region pin whose document is not configured is judged by its shape alone, as before: the view-only clause."""
+        """A region pin whose document is not configured is judged by its shape alone, as before: the view-only
+        clause."""
         md = pins_md_text(page([region_pin(1)], {1: facts(doc_key="gone", location="")}))
         self.assertIn(VIEW_ONLY_CLAUSE, md)
         self.assertNotIn(render.FIGURE_GUIDANCE, md)

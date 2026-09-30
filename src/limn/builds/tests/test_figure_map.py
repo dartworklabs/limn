@@ -89,7 +89,8 @@ def chain_of(depth: int) -> list[dict]:
 
 
 # Source paths that are not canonical relative POSIX paths, which a pin could not store: path_outside (index §Shared
-# contract: canonical paths). Their shape is the whole judgement; where a canonical path leads is not asked at parse time.
+# contract: canonical paths). Their shape is the whole judgement; where a canonical path leads is not asked at parse
+# time.
 NOT_CANONICAL = {
     "absolute": "/src/B2_calendar.py",
     "climbing out": "../src/B2_calendar.py",

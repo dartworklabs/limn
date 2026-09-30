@@ -1,7 +1,7 @@
 """A figure document for the tests: a figure folder with its drawing script and shared components, the element map of
 the spec's example, and build folders with that map's copy on screen - no producer or pdftoppm (the map pick reads
-the map copy and the script only). tests/support/helpers.py's figure_map() (P1a) is the same example without the August cell;
-b2_map() here adds that cell (drawn without code) and a July box that a re-render can move.
+the map copy and the script only). tests/support/helpers.py's figure_map() (P1a) is the same example without the August
+cell; b2_map() here adds that cell (drawn without code) and a July box that a re-render can move.
 
 figure_doc() makes figs/ under a manuscript and returns the document (key fig, folder figs/, map
 figs/out/figures.limnmap.json); write_build() puts a build of it on screen, and import_build() imports one through the
@@ -60,9 +60,9 @@ def script_lines(n: int = 140) -> list[str]:
 
 
 def b2_map(july: tuple[float, float, float, float] = JULY, august: bool = True) -> dict:
-    """The element map of the spec's example: figure B2 (lines 12-140), its calendar strip (80-97), the July cell (88-95,
-    shared component lib/components.py 410-470) at box `july`, and - unless august is False - the August cell drawn
-    without code (no src, D7). Paths are relative to the figure folder."""
+    """The element map of the spec's example: figure B2 (lines 12-140), its calendar strip (80-97), the July cell
+    (88-95, shared component lib/components.py 410-470) at box `july`, and - unless august is False - the August cell
+    drawn without code (no src, D7). Paths are relative to the figure folder."""
     elements = [
         {"id": "B2", "frac": [0, 0, 1, 1], "src": {"file": "src/B2_calendar.py", "lo": 12, "hi": 140}},
         {
@@ -131,12 +131,12 @@ def write_build(D: Doc, name: str, fmap: dict | None, pages: int = 1) -> Path:
 
 
 def import_build(app: Any, D: Doc, name: str, fmap: dict, *, renders: bool = True) -> FinishedBuild | BuildBusy:
-    """Import build `name` of figure document D through its tracked build, as the watch and startup do: fmap - stamped with
-    the SHA-256 of D's PDF, so the pair agrees - is written as the map beside the PDF, and app.build_requests.build_all(D)
-    reads and checks the pair, renders it and moves pages.cur to the new page directory. Only pdftoppm is stood in for:
-    a render (renders True) makes directory `name` with one PAGE_PT page image, the PDF copy and the map copy, as
-    engine.render_pages leaves it; with renders False it fails (PagesNotRendered) and nothing is committed.
-    Returns the tracked build's outcome."""
+    """Import build `name` of figure document D through its tracked build, as the watch and startup do: fmap - stamped
+    with the SHA-256 of D's PDF, so the pair agrees - is written as the map beside the PDF, and
+    app.build_requests.build_all(D) reads and checks the pair, renders it and moves pages.cur to the new page directory.
+    Only pdftoppm is stood in for: a render (renders True) makes directory `name` with one PAGE_PT page image, the PDF
+    copy and the map copy, as engine.render_pages leaves it; with renders False it fails (PagesNotRendered) and nothing
+    is committed. Returns the tracked build's outcome."""
     pdf = D.main.parent / fmap["pdf"]
     stamped = {**fmap, "pdf_sha256": hashlib.sha256(pdf.read_bytes()).hexdigest()}
     D.main.write_text(json.dumps(stamped, ensure_ascii=False), encoding="utf-8")

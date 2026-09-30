@@ -60,10 +60,10 @@ class Selection(Protocol):
 class PickContext:
     """What resolving a selection needs from the instance: the manuscript root (a SyncTeX answer outside it is
     refused), the float environments of the range ladder (--float-envs), the state folder (for the "PDF older than the
-    manuscript" check, and never part of the tree), the process's token-weight cache, the overlaps of a range with the stored open pins
-    (file, lo, hi) -> [{"id", "lo", "hi", "rel"}], and figure_map, the element map of a build of a figure document by
-    page directory name (the composition root's per-run cache: a map copy is parsed once per run, for the pick and for
-    the region it falls back to alike)."""
+    manuscript" check, and never part of the tree), the process's token-weight cache, the overlaps of a range with the
+    stored open pins (file, lo, hi) -> [{"id", "lo", "hi", "rel"}], and figure_map, the element map of a build of a
+    figure document by page directory name (the composition root's per-run cache: a map copy is parsed once per run, for
+    the pick and for the region it falls back to alike)."""
 
     root: Path
     envs: Sequence[str]

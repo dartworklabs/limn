@@ -76,9 +76,9 @@ class ImportDeferred:
 @dataclass
 class MapLooks:
     """What the watch last learned from each figure document's map: the map's signature and its parse (None when the
-    map is rejected), kept per map path. The parse is a function of the map's bytes alone (limn.builds.figure_map.parse_map
-    judges no path against a folder), so two documents registering one map share one entry, and the memo can never
-    hold a verdict the filesystem has since changed.
+    map is rejected), kept per map path. The parse is a function of the map's bytes alone
+    (limn.builds.figure_map.parse_map judges no path against a folder), so two documents registering one map share one
+    entry, and the memo can never hold a verdict the filesystem has since changed.
 
     Both readers keep it current: watch_signature when a tick reads a changed map, and read_figure_import with the
     parse it has just checked. A deferral's settled signature is built from that same parse by the watch's own rule
@@ -157,9 +157,9 @@ def _read_file(path: Path, limit: int | None) -> FileRead | None:
 
 
 def _parsed_map(raw: bytes) -> FigureMap | None:
-    """The map bytes raw hold (limn.builds.figure_map.parse_map): the map when it is one, else None when it is rejected. Does not
-    resolve the PDF the map names - watch_signature does that itself, every time, since the target can change (a
-    repointed symlink) without these bytes changing."""
+    """The map bytes raw hold (limn.builds.figure_map.parse_map): the map when it is one, else None when it is rejected.
+    Does not resolve the PDF the map names - watch_signature does that itself, every time, since the target can change
+    (a repointed symlink) without these bytes changing."""
     parsed = parse_map(raw)
     return parsed if isinstance(parsed, FigureMap) else None
 

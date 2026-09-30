@@ -679,8 +679,9 @@ class ServerApplication:
 
     def document_facts(self, D: Doc) -> DocumentFacts:
         """The parsing facts of document D (limn.builds.DocumentFacts) with this instance's manuscript root, state
-        folder and dpi - made per request like pin_store(), so a test that replaces this application's C is seen at once.
-        A figure document's maps are read through figure_map, so the request parses no map copy this run has read."""
+        folder and dpi - made per request like pin_store(), so a test that replaces this application's C is seen at
+        once. A figure document's maps are read through figure_map, so the request parses no map copy this run has
+        read."""
         return DocumentFacts(D, self.C.src, self.C.state, self.C.dpi, self.figure_map)
 
     def pin_context(self) -> PinContext:
@@ -715,12 +716,12 @@ class ServerApplication:
         self.pin_store().render_md(pins)
 
     def refresh_pins_md(self) -> None:
-        """Rewrites pins.md once from the live pins as stored, under RT.pin_lock - at startup, and each time an import puts
-        a new build of a figure document on screen (BuildRequests.figure_shown).
+        """Rewrites pins.md once from the live pins as stored, under RT.pin_lock - at startup, and each time an import
+        puts a new build of a figure document on screen (BuildRequests.figure_shown).
 
         Why the import needs it: a figure pin's el_sync ('lost' when its element is gone from the map on screen) is a
-        read-time field. It is never stored, so no pin write follows a re-render, and the file on disk - which an agent on
-        this machine reads without asking the server - would keep the old row and miss 요소 잃음. The pins are read
+        read-time field. It is never stored, so no pin write follows a re-render, and the file on disk - which an agent
+        on this machine reads without asking the server - would keep the old row and miss 요소 잃음. The pins are read
         without a re-sync and nothing is written but pins.md: pins.jsonl and every rev stay as they are. If rendering
         fails, the old pins.md stays (PinStore.render_md renders before it writes) and the exception propagates."""
         with self.RT.pin_lock:

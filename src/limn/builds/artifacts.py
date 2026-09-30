@@ -248,9 +248,9 @@ def figure_pdf(doc: BuildDoc, figure_map: FigureMap) -> Path | None:
 
 def load_build_map(doc: BuildDoc, build: str) -> FigureMap | MapRejected | None:
     """The element map published with page directory `build` of figure document doc (<doc.dir>/<build>/figmap.json),
-    parsed from the copy's bytes alone (limn.builds.figure_map.parse_map asks the filesystem nothing), so the same copy is the
-    same map on every read. None when build is not a page directory name or that directory has no readable copy. Reads
-    at most MAP_MAX_BYTES + 1 bytes; a larger copy is MapRejected too_large."""
+    parsed from the copy's bytes alone (limn.builds.figure_map.parse_map asks the filesystem nothing), so the same copy
+    is the same map on every read. None when build is not a page directory name or that directory has no readable copy.
+    Reads at most MAP_MAX_BYTES + 1 bytes; a larger copy is MapRejected too_large."""
     if not valid_build_name(build):
         return None
     try:

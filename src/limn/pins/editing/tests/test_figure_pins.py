@@ -125,8 +125,9 @@ class ParseEl(unittest.TestCase):
         self.assertEqual((EL_TEXT_MAX, EL_PATH_MAX, EL_FILE_MAX, EL_LINE_MAX), (200, 64, 1024, 1_000_000))
 
     def test_an_impl_file_must_be_a_canonical_relative_path(self):
-        """The rule a map's src.file and impl.file are held to (limn.builds.figure_map.is_canonical_path): a '..', '.' or empty part, a
-        leading or trailing '/', a backslash, a NUL, nothing at all, and more than EL_FILE_MAX characters are bad_el."""
+        """The rule a map's src.file and impl.file are held to (limn.builds.figure_map.is_canonical_path): a '..', '.'
+        or empty part, a leading or trailing '/', a backslash, a NUL, nothing at all, and more than EL_FILE_MAX
+        characters are bad_el."""
         for file in (
             "",
             "..",
@@ -370,7 +371,8 @@ class FigurePins(Base):
 
     def test_an_edit_that_re_places_with_an_el_stores_the_canonical_element(self):
         """The el a loc carries is parsed once at the boundary: an unknown key is dropped, an integer frac is a float,
-        a null label is absent, and the key order is the contract's - only an edit whose loc carries an el writes one."""
+        a null label is absent, and the key order is the contract's - only an edit whose loc carries an el writes
+        one."""
         pid = pin_from_pick(self.fig, JULY_BOX, ALICE_ACTOR)
         loc = {"file": SCRIPT, "lo": 88, "hi": 95, "el": json.loads(el_text(ODD_EL))}
         p = record_of(edit_pin(pid, {"loc": loc, "base_rev": self.pin(pid)["rev"]}, dict(ALICE_ACTOR)))

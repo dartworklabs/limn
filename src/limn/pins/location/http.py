@@ -188,8 +188,8 @@ def _element_body(p: PickedElement) -> Body:
 
 
 def _rung_level(r: Rung) -> dict[str, object]:
-    """One levels entry of a map pick, keys in the contract's order (docs/handbook/api.md §그림 문서의 pick·핀): level, lo, hi, n, label, snippet, then
-    its el, then merged when outer rungs had the same lines."""
+    """One levels entry of a map pick, keys in the contract's order (docs/handbook/api.md §그림 문서의 pick·핀): level, lo,
+    hi, n, label, snippet, then its el, then merged when outer rungs had the same lines."""
     out: dict[str, object] = {
         "level": r.level,
         "lo": r.lo,

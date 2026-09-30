@@ -200,7 +200,8 @@ class FigureContractSnapshot(SnapshotBase):
     so the fallback's quote does not depend on the machine."""
 
     def setUp(self):
-        """The pinned clocks; a LaTeX document ms and figure document fig with BUILD1 on screen; the scripts' mtime T0."""
+        """The pinned clocks; a LaTeX document ms and figure document fig with BUILD1 on screen; the scripts' mtime
+        T0."""
         super().setUp()
         self.fig = figure_doc(self.src, ps.APP.C.paths)
         ps.APP.set_docs([Doc("ms", "본문", "tex", self.src, self.main, paths=ps.APP.C.paths), self.fig])

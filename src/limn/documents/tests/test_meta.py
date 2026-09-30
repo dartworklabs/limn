@@ -404,6 +404,16 @@ class Lookups(Fixture):
         self.assertIs(documents.doc_for_file([self.ms, fig], self.src, "figs/cover.tex"), fig)
         self.assertIs(documents.doc_for_file([self.rv, self.ms, fig], self.src, "main.tex"), self.ms)
 
+    def test_doc_for_file_skips_a_view_only_document_that_would_otherwise_win_the_tie(self):
+        """A view-only PDF document listed first, on the same folder as a LaTeX document, is the only thing that could
+        take a file with no LaTeX suffix (neither document has an element map, so nothing prefers either and the first
+        listed would win): the answer is the LaTeX document, so only the view-only filter decides. A .tex file does not
+        show this, since the document built from source is preferred for it anyway."""
+        self.assertFalse(self.rv.takes_line_pins)
+        for docs in ([self.rv, self.ms], [self.ms, self.rv]):
+            with self.subTest(first=docs[0].key):
+                self.assertIs(documents.doc_for_file(docs, self.src, "notes"), self.ms)
+
     def test_pin_doc_key_reads_legacy_records_as_the_first_document(self):
         """A record without a usable doc field belongs to the first document; no field is written."""
         docs = [self.ms, self.rr]

@@ -256,7 +256,7 @@ For a figure doc with a loadable map for the requested `pdf_build`, `POST /api/p
 | `levels` | one rung per ladder element: `{level, lo, hi, n, label, snippet, el, merged?}`; `label` = element `label` or `part` or id; `n = hi - lo + 1`. Every rung lies in the chosen element's `src.file`; a ladder element drawn in another file gets no rung (it stays in `el.path`). Rungs with equal `lo`/`hi` merge into the **inner** rung, and the outer level name goes under `merged` |
 | `default_level` | the first rung's level: `"el"`, or `"fig"` when the root was picked |
 | `quote` | chosen element `label` or `""` |
-| `el` | `{id, path, label?, part?, impl?: {file, lo, hi}, frac?}` in this key order; `path` = ids root first; `impl.file` relative to `Doc.src`; `frac` = the element's box on the traced build. The top-level `el` and every rung's `el` carry `frac` (the viewer draws the outline from it and switches rungs without a request) |
+| `el` | `{id, path, label?, part?, impl?: {file, lo, hi}, frac?}` in this key order; `path` = ids root first; `impl.file` a canonical relative POSIX path of at most 1024 characters (`MAP_MAX_PATH`), relative to `Doc.src`; `frac` = the element's box on the traced build. The top-level `el` and every rung's `el` carry `frac` (the viewer draws the outline from it and switches rungs without a request) |
 | `warn` | as today for low score |
 
 Fallbacks → the **region body** (as view-only today) plus `el` when an element was found, and `warn` naming the reason:
@@ -282,8 +282,8 @@ Fallbacks → the **region body** (as view-only today) plus `el` when an element
 - Section title: a figure document's section ends with ` — 그림(요소 지도)` (`DocHeading.has_element_map`); the view-only PDF suffix is unchanged.
 - Range column: unchanged code path; unknown scopes already print `kind` (`el:MonthCell`).
 - Memo: `«label»` prefix whenever `el.label` is set; `공통 부품: <path>:<lo>-<hi>` appended when `el.impl` is set, where `<path>` is the document folder relative to `--manuscript` joined with `impl.file` (the same base as the location column).
-- `el_sync == "lost"` prints the same warning style as `stale`: `요소 잃음`. The on-disk `pins.md` is only as fresh as its last render (known limit; `GET /pins.md` renders on request).
-- One guidance line in the header when any open pin has `el` (same mechanism as the view-only guidance).
+- `el_sync == "lost"` prints the same warning style as `stale`: `요소 잃음`. The on-disk `pins.md` is rewritten when a figure import puts a new build on screen, so `요소 잃음` follows the map with no pin write (a failed rewrite keeps the old file); `GET /pins.md` also renders on request.
+- One guidance line in the header when any open pin has `el` or is a region pin on a figure document (same mechanism as the view-only guidance).
 
 ### Viewer (P1c)
 
@@ -303,6 +303,7 @@ The phase plans raised these; they are folded into the sections above. Plans tha
 | P1c | `body.no-rebuild` by kind |
 | Orchestrator | `MAP_MAX_TEXT = 200`; `el` dropped by a `loc` without it |
 | P1b port | #114 moved the modules (figmap → builds/figure_map, build → builds/artifacts, documents → runtime/documents, mapping → pins/location/mapping, pins/render → pins/listing/render, pins/view → pins/listing/projection, features/<cap> → <cap>); contract names unchanged |
+| P1b final | `pins.md` on disk refreshed on figure import; non-finite numbers read null; release blocker until P1c |
 
 ## Intermediate states
 

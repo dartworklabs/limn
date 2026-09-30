@@ -295,8 +295,8 @@ def element_quote(r: Record) -> str:
 
 
 def _plain_relative(path: str) -> bool:
-    """Is path one an agent may be told to open: canonical and relative (limn.builds.figure_map.is_canonical_path - no '..', '.',
-    empty part, leading '/', backslash or NUL), with no dot-named part (.git, .env, a hidden folder)?"""
+    """Is path one an agent may be told to open: canonical and relative (limn.builds.figure_map.is_canonical_path - no
+    '..', '.', empty part, leading '/', backslash or NUL), with no dot-named part (.git, .env, a hidden folder)?"""
     return is_canonical_path(path) and not any(part.startswith(".") for part in path.split("/"))
 
 
@@ -315,8 +315,8 @@ def shared_part_path(scope: str, impl_file: str) -> str | None:
 def shared_part_md(r: Record, facts: PinFacts) -> str:
     """'공통 부품: <file>:<lo>-<hi>' for a figure pin whose element names its shared implementation (el.impl): the file
     is el.impl.file placed under facts.impl_scope by shared_part_path (relative to --manuscript, like the location
-    column), the lines as stored; "" otherwise - the one place this rule is applied. Printed only for what a request could
-    have stored (limn.pins.editing.location.parse_el): 1 <= lo <= hi <= MAP_MAX_LINE and a shown path, and
+    column), the lines as stored; "" otherwise - the one place this rule is applied. Printed only for what a request
+    could have stored (limn.pins.editing.location.parse_el): 1 <= lo <= hi <= MAP_MAX_LINE and a shown path, and
     never the stored file alone in place of a folder the edge did not give (impl_scope None)."""
     el = element_of(r.get("el"))
     if el is None or el.impl is None or facts.impl_scope is None:

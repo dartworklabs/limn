@@ -82,8 +82,8 @@ def element_of(v: object) -> PinElement | None:
     Total: is_element_record's frac check is shape-only (is_num, any int or float), so a stored frac may hold a
     NaN, an Infinity or an integer too large for float() to hold - each a line the store still keeps. Such a frac
     is dropped here (the rest of the element is still lifted) instead of raising, so a reader that calls this on
-    every open row (listing.projection.pins_payload, listing.markdown's pins.md facts, before any write) never turns one bad line into a
-    failed GET/POST for every pin."""
+    every open row (listing.projection.pins_payload, listing.markdown's pins.md facts, before any write) never turns one
+    bad line into a failed GET/POST for every pin."""
     if not is_element_record(v):
         return None
     impl, frac = v.get("impl"), v.get("frac")
