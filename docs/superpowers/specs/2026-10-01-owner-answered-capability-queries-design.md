@@ -1,6 +1,6 @@
 # Owner-answered capability queries
 
-Status: direction approved in conversation; written spec awaiting review.
+Status: approved for direct implementation by the user on 2026-10-01.
 
 ## Intent and success criterion
 
@@ -208,5 +208,5 @@ design decision instead of being smuggled into this refactor.
 
 Self-review: intent, owner responsibilities, hidden callback inputs, upstream figure functionality, read-time
 authority, immutable/detached results, behavioral limits, reconciliation, and validation are explicitly covered.
-Implementation has not started. After written-spec review, write the checkbox implementation plan and obtain its
-review/execution-method choice before production edits, as required by the architectural brainstorming workflow.
+The user explicitly requested direct implementation after the written-spec handoff. Execute inline from the
+checkbox implementation plan without another approval pause; preserve all verification and final review gates.
