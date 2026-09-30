@@ -4,6 +4,7 @@ from importlib import import_module
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    from .application import ViewerSubsystem as ViewerSubsystem, assemble_viewer as assemble_viewer
     from .assemble import (
         LUCIDE as LUCIDE,
         PDFJS_VERSION as PDFJS_VERSION,
@@ -32,6 +33,8 @@ __all__ = [
     "serve_viewer",
     "service_worker",
     "viewer_html",
+    "ViewerSubsystem",
+    "assemble_viewer",
 ]
 
 _EXPORTS = {
@@ -48,6 +51,8 @@ _EXPORTS = {
     "serve_viewer": ("assemble", "serve_viewer"),
     "service_worker": ("assemble", "service_worker"),
     "viewer_html": ("assemble", "viewer_html"),
+    "ViewerSubsystem": ("application", "ViewerSubsystem"),
+    "assemble_viewer": ("application", "assemble_viewer"),
 }
 
 

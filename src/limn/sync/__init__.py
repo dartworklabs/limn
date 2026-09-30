@@ -4,16 +4,19 @@ from importlib import import_module
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    from .application import SyncSubsystem as SyncSubsystem, assemble_sync as assemble_sync
     from .run import PullShare as PullShare, SyncWatch as SyncWatch, local_stamp as local_stamp
     from .service import SyncContext as SyncContext, SyncService as SyncService
 
-__all__ = ["PullShare", "SyncContext", "SyncService", "SyncWatch", "local_stamp"]
+__all__ = ["PullShare", "SyncContext", "SyncService", "SyncSubsystem", "SyncWatch", "assemble_sync", "local_stamp"]
 
 _EXPORTS = {
     "PullShare": ("run", "PullShare"),
     "SyncContext": ("service", "SyncContext"),
     "SyncService": ("service", "SyncService"),
+    "SyncSubsystem": ("application", "SyncSubsystem"),
     "SyncWatch": ("run", "SyncWatch"),
+    "assemble_sync": ("application", "assemble_sync"),
     "local_stamp": ("run", "local_stamp"),
 }
 

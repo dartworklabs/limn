@@ -16,7 +16,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from limn.builds import input as builds_input
+from limn.builds import BuildView, input as builds_input
 from limn.documents import input as document_input
 from limn.pins.claims import input as claims_input
 from limn.pins.editing import fields as editing_fields, input as editing_input, location as editing_location
@@ -62,6 +62,10 @@ class Facts:
     def current_build(self) -> str:
         """The build on screen."""
         return self._current
+
+    def valid_build_name(self, value: object) -> bool:
+        """Whether a request value can name a published build directory."""
+        return BuildView().valid_name(value)
 
     def pick_pages(self, build: str | None) -> tuple | None:
         """(directory, sizes) of build, or of the one on screen for None; None for a gone build."""

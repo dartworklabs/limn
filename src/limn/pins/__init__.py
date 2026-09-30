@@ -7,10 +7,10 @@ if TYPE_CHECKING:
     from .application import (
         PinCommands as PinCommands,
         PinReadView as PinReadView,
-        PinRoutes as PinRoutes,
         PinStartup as PinStartup,
         PinSubsystem as PinSubsystem,
         assemble_pins as assemble_pins,
+        pin_route_bundle as pin_route_bundle,
     )
     from .claims import PinClaims as PinClaims, pin_actions as claims_actions
     from .context import Json as Json, PinContext as PinContext, is_agent as is_agent, who as who
@@ -94,7 +94,6 @@ __all__ = [
     "PinLocationService",
     "PinMarkdown",
     "PinReadView",
-    "PinRoutes",
     "PinStartup",
     "PinStore",
     "PinSubsystem",
@@ -124,6 +123,7 @@ __all__ = [
     "parse_trashed",
     "pin_file",
     "pin_location",
+    "pin_route_bundle",
     "pin_state",
     "public_record",
     "revision_pin",
@@ -163,7 +163,6 @@ _EXPORTS = {
     "PinLocationService": ("location", "PinLocationService"),
     "PinMarkdown": ("listing", "PinMarkdown"),
     "PinReadView": ("application", "PinReadView"),
-    "PinRoutes": ("application", "PinRoutes"),
     "PinStartup": ("application", "PinStartup"),
     "PinStore": ("store", "PinStore"),
     "PinSubsystem": ("application", "PinSubsystem"),
@@ -193,6 +192,7 @@ _EXPORTS = {
     "parse_trashed": ("record", "parse_trashed"),
     "pin_file": ("location.lookup", "pin_file"),
     "pin_location": ("location.lookup", "pin_location"),
+    "pin_route_bundle": ("application", "pin_route_bundle"),
     "pin_state": ("listing.projection", "pin_state"),
     "public_record": ("listing.projection", "public_record"),
     "revision_pin": ("revision", "revision_pin"),

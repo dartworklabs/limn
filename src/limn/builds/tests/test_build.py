@@ -165,7 +165,7 @@ class NoServerState(unittest.TestCase):
 
         self.assertIsInstance(subsystem.view, BuildView)
         self.assertIs(subsystem.startup.__self__, subsystem.commands)
-        self.assertEqual(subsystem.routes.post_path, "/api/rebuild")
+        self.assertEqual(subsystem.routes.post_documents[0].path, "/api/rebuild")
 
 
 class DocumentMemoOwnership(unittest.TestCase):

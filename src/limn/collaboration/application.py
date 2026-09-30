@@ -12,6 +12,7 @@ from limn.collaboration.notices import Notices
 from limn.pins import PinReadView
 from limn.runtime.documents import Doc
 from limn.security import access, people
+from limn.web.routes import RouteBundle
 
 Json = dict[str, Any]
 
@@ -92,7 +93,7 @@ class CollaborationSubsystem:
 
     people: PeopleView
     notices: NoticeSink
-    routes: object | None = None
+    routes: RouteBundle
 
 
 def assemble_collaboration(
@@ -124,4 +125,10 @@ def assemble_collaboration(
         clock=clock,
     )
     notices = Notices(events_path, events_lock, cache, clock, stamp, document_key, docs)
-    return CollaborationSubsystem(people_view, NoticeSink(notices))
+    from limn.collaboration.routes import get
+
+    return CollaborationSubsystem(
+        people_view,
+        NoticeSink(notices),
+        RouteBundle(get=(lambda request: get(request, people_view),)),
+    )

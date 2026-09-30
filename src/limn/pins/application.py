@@ -1,12 +1,17 @@
 """Public pin reads and capability-owned composition values."""
 
+from __future__ import annotations
+
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Any, TypeAlias
+from typing import TYPE_CHECKING, Any, TypeAlias
 
 from limn.pins.model import Pin
 from limn.pins.revision import RevisionPin, revision_pin as project_revision_pin
+
+if TYPE_CHECKING:
+    from limn.web.routes import PinAction, RouteBundle
 
 Json: TypeAlias = dict[str, Any]
 Record: TypeAlias = Mapping[str, Any]
@@ -105,16 +110,6 @@ class PinCommands:
 
 
 @dataclass(frozen=True)
-class PinRoutes:
-    """Pin HTTP bindings completed by the route assembly step."""
-
-    get: tuple[Callable[..., object], ...] = ()
-    document_posts: tuple[object, ...] = ()
-    actions: Mapping[str, Callable[..., object]] | None = None
-    other_posts: Mapping[str, Callable[..., object]] | None = None
-
-
-@dataclass(frozen=True)
 class PinStartup:
     """Pin startup operations owned by the capability."""
 
@@ -128,7 +123,7 @@ class PinSubsystem:
 
     view: PinReadView
     commands: PinCommands
-    routes: PinRoutes
+    routes: RouteBundle
     startup: PinStartup
 
 
@@ -136,7 +131,43 @@ def assemble_pins(
     view: PinReadView,
     commands: PinCommands,
     startup: PinStartup,
-    routes: PinRoutes | None = None,
+    routes: RouteBundle | None = None,
 ) -> PinSubsystem:
     """Assemble the pin capability from its explicit read, command, and startup ports."""
-    return PinSubsystem(view, commands, routes or PinRoutes(), startup)
+    from limn.web.routes import RouteBundle
+
+    return PinSubsystem(view, commands, routes or RouteBundle(), startup)
+
+
+def pin_route_bundle(
+    app: Any,
+    editing: Any,
+    remote_base_for: Callable[[str], str],
+) -> RouteBundle:
+    """Bind all pin-owned reads and mutations without exposing their adapter modules."""
+    from limn.pins.claims.routes import actions as claims_actions
+    from limn.pins.editing.routes import POST_NEW_PIN, POST_PATH, actions as editing_actions, post as editing_post
+    from limn.pins.lifecycle.routes import actions as lifecycle_actions
+    from limn.pins.listing.routes import get as listing_get
+    from limn.pins.location.routes import POST_PATH as PICK_PATH, get as location_get, post as location_post
+    from limn.pins.trash.routes import actions as trash_actions, other_posts as trash_posts
+    from limn.web.routes import PostDocRoute, RouteBundle
+
+    actions: dict[str, PinAction] = {}
+    for group in (lifecycle_actions(app), claims_actions(app), editing_actions(editing), trash_actions(app)):
+        for name, action in group.items():
+            if name in actions:
+                raise ValueError("duplicate pin action route: %s" % name)
+            actions[name] = action
+    return RouteBundle(
+        get=(
+            lambda request: listing_get(request, app, app.pin_trash.maybe_purge_trash, remote_base_for),
+            lambda request: location_get(request, app),
+        ),
+        post_documents=(
+            PostDocRoute(PICK_PATH, lambda request: location_post(request, app)),
+            PostDocRoute(POST_PATH, lambda request: editing_post(request, editing), new_pin=POST_NEW_PIN),
+        ),
+        pin_actions=actions,
+        other_posts=trash_posts(app),
+    )

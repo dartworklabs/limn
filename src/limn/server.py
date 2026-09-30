@@ -43,17 +43,15 @@ if __package__ in (None, ""):
 # retain the names that application exposes to the handler through App.
 from limn.administration import doc_start_line, docs_of, pick_documents
 from limn.builds import (
-    REBUILD_PATH,
     BuildRequests,
     BuildSkipped,
     BuildView,
     DocumentFacts,
     FailedBuild,
+    assemble_builds,
     build_failure_log,
-    get_route as build_get,
     migrate_pages as build_migrate_pages,
     needs_build,
-    post_route as build_post,
     seed_builds as build_seed_builds,
 )
 from limn.collaboration import (
@@ -61,13 +59,9 @@ from limn.collaboration import (
     PeopleView,
     ReadCache as events_ReadCache,
     assemble_collaboration,
-    get_route as collaboration_get,
 )
-from limn.documents import DocumentViews, MetaSettings, assemble_documents, get_route as document_get
+from limn.documents import DocumentViews, MetaSettings, assemble_documents
 from limn.pins import (
-    PICK_PATH,
-    PIN_PATH,
-    POST_NEW_PIN,
     Broken,
     EditingRequests,
     EditScope,
@@ -92,15 +86,8 @@ from limn.pins import (
     Row,
     TokenCache,
     TrashedPin,
-    claims_actions as claims_actions,
-    editing_actions as editing_actions,
-    editing_post as editing_post,
     est_context,
-    lifecycle_actions as lifecycle_actions,
-    listing_get as listing_get,
     locate_file,
-    location_get as location_get,
-    location_post as location_post,
     note_tags as pin_note_tags,
     overlaps_by_id as locate_overlaps_by_id,
     overlaps_for_range as locate_overlaps_for_range,
@@ -108,24 +95,21 @@ from limn.pins import (
     parse_trashed as record_parse_trashed,
     pin_file as locate_pin_file,
     pin_location as locate_pin_location,
+    pin_route_bundle,
     pin_state as pin_state,
     public_record as view_public_record,
     stamp_location as locate_stamp_location,
     sync_all as locate_sync_all,
-    trash_actions as trash_actions,
-    trash_posts as trash_posts,
     who,
 )
 from limn.platform.files import vendor_file as find_vendor_file
 from limn.platform.git import git as _git
 from limn.revisions import (
-    REVISION_PATH,
     RevisionContext,
     RevisionJobs,
     RevisionRequests,
     ScopeCache,
-    get_route as revision_get,
-    post_route as revision_post,
+    assemble_revisions,
     revision_failure_text,
 )
 from limn.runtime import documents, startup
@@ -145,7 +129,7 @@ from limn.security.access import (
 )
 from limn.security.audit import AuditAction, append_audit, audit_entry
 from limn.security.people import is_actor as _is_actor
-from limn.sync import PullShare, SyncContext, SyncService, SyncWatch, local_stamp
+from limn.sync import PullShare, SyncContext, SyncService, SyncWatch, assemble_sync, local_stamp
 from limn.viewer import (
     BRAND_FILES,
     LUCIDE,
@@ -154,8 +138,8 @@ from limn.viewer import (
     Brand,
     ServedViewer,
     ViewerFiles,
+    assemble_viewer,
     brand,
-    get_route as viewer_shell_get,
     load_ui_messages,
     serve_viewer,
     service_worker,
@@ -164,7 +148,7 @@ from limn.viewer import (
 from limn.web.app import App
 from limn.web.errors import HTTPError as HTTPError
 from limn.web.handler import Handler as WebHandler, Server, Server6
-from limn.web.routes import GetRoute, OtherPost, PinAction, PostDocRoute
+from limn.web.routes import GetRoute, OtherPost, PinAction, PostDocRoute, merge_routes
 
 DEFAULT_ENVS = "figure,table,algorithm,equation,align,itemize,enumerate,minipage"
 
@@ -451,7 +435,7 @@ class ServerApplication:
             now=lambda: self.now_str(),
             describe=build_failure_log,
         )
-        self.sync_service = SyncService(
+        self.sync_service = assemble_sync(
             lambda: SyncContext(
                 manuscript=self.C.src,
                 enabled=self.C.git_pull,
@@ -464,8 +448,8 @@ class ServerApplication:
                 clock=time.time,
                 stamp=local_stamp,
             )
-        )
-        self.document_views = assemble_documents(
+        ).service
+        documents_subsystem = assemble_documents(
             settings=lambda: MetaSettings(
                 state=self.C.state,
                 pins_md=self.C.pins_md,
@@ -481,49 +465,31 @@ class ServerApplication:
             events_since=self.notices.since,
             now=lambda: time.time(),
             builds=self.build_view,
-        ).views
-        self.revision_requests = RevisionRequests(self.revision_context)
-        self.get_routes = (
-            lambda request: viewer_shell_get(request, self),
-            lambda request: build_get(request.path, request.query, request.doc, self.hdr_text),
-            lambda request: revision_get(request.path, request.query, request.doc, self.revision_requests),
-            lambda request: document_get(request, self.document_views),
-            lambda request: collaboration_get(request, self.people_directory),
-            lambda request: listing_get(request, self, self.pin_trash.maybe_purge_trash, self.remote_base_for),
-            lambda request: location_get(request, self),
         )
-        self.post_doc_routes = (
-            PostDocRoute(
-                REBUILD_PATH,
-                lambda request: build_post(
-                    request.query, request.body, request.doc, self.build_requests, request.actor
-                ),
-            ),
-            PostDocRoute(
-                REVISION_PATH,
-                lambda request: revision_post(
-                    request.query, request.body, request.doc, self.revision_requests, request.actor
-                ),
-            ),
-            PostDocRoute(PICK_PATH, lambda request: location_post(request, self)),
-            PostDocRoute(
-                PIN_PATH,
-                lambda request: editing_post(request, self.editing_requests),
-                new_pin=POST_NEW_PIN,
-            ),
+        self.document_views = documents_subsystem.views
+        revision_subsystem = assemble_revisions(self.revision_context)
+        self.revision_requests = revision_subsystem.requests
+        build_subsystem = assemble_builds(
+            lambda: self.C,
+            lambda: self.sync_service.repo_pull(),
+            lambda: self.docs,
+            self.now_str,
+            build_failure_log,
+            self.hdr_text,
+            self.build_requests,
         )
-        self.pin_actions = {}
-        for group in (
-            lifecycle_actions(self),
-            claims_actions(self),
-            editing_actions(self.editing_requests),
-            trash_actions(self),
-        ):
-            for name, action in group.items():
-                if name in self.pin_actions:
-                    raise ValueError("duplicate pin action: %s" % name)
-                self.pin_actions[name] = action
-        self.other_posts = trash_posts(self)
+        routes = merge_routes(
+            assemble_viewer(self).routes,
+            build_subsystem.routes,
+            revision_subsystem.routes,
+            documents_subsystem.routes,
+            collaboration.routes,
+            pin_route_bundle(self, self.editing_requests, self.remote_base_for),
+        )
+        self.get_routes = routes.get
+        self.post_doc_routes = routes.post_documents
+        self.pin_actions = dict(routes.pin_actions)
+        self.other_posts = dict(routes.other_posts)
 
     APP_NAME = APP_NAME
     DEFAULT_ROLE = DEFAULT_ROLE

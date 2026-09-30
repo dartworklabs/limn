@@ -9,6 +9,7 @@ from limn.documents import reads
 from limn.documents.service import DocumentViews
 from limn.pins import PinReadView
 from limn.runtime.documents import Doc
+from limn.web.routes import RouteBundle
 
 Json = dict[str, Any]
 
@@ -18,7 +19,7 @@ class DocumentsSubsystem:
     """The document read service and its route bindings."""
 
     views: DocumentViews
-    routes: object | None = None
+    routes: RouteBundle
 
 
 def assemble_documents(
@@ -32,4 +33,7 @@ def assemble_documents(
     builds: BuildView,
 ) -> DocumentsSubsystem:
     """Assemble document views without importing HTTP adapters."""
-    return DocumentsSubsystem(DocumentViews(settings, docs, sync_status, pins, events_since, now, builds))
+    from limn.documents.routes import get
+
+    views = DocumentViews(settings, docs, sync_status, pins, events_since, now, builds)
+    return DocumentsSubsystem(views, RouteBundle(get=(lambda request: get(request, views),)))

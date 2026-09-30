@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from .answer import revision_failure_text as revision_failure_text
+    from .application import RevisionSubsystem as RevisionSubsystem, assemble_revisions as assemble_revisions
     from .core import (
         RevisionContext as RevisionContext,
         RevisionDoc as RevisionDoc,
@@ -16,6 +17,7 @@ if TYPE_CHECKING:
 
 __all__ = [
     "REVISION_PATH",
+    "RevisionSubsystem",
     "RevisionContext",
     "RevisionDoc",
     "RevisionJobs",
@@ -24,10 +26,12 @@ __all__ = [
     "get_route",
     "post_route",
     "revision_failure_text",
+    "assemble_revisions",
 ]
 
 _EXPORTS = {
     "REVISION_PATH": ("routes", "POST_PATH"),
+    "RevisionSubsystem": ("application", "RevisionSubsystem"),
     "RevisionContext": ("core", "RevisionContext"),
     "RevisionDoc": ("core", "RevisionDoc"),
     "RevisionJobs": ("core", "RevisionJobs"),
@@ -36,6 +40,7 @@ _EXPORTS = {
     "get_route": ("routes", "get"),
     "post_route": ("routes", "post"),
     "revision_failure_text": ("answer", "revision_failure_text"),
+    "assemble_revisions": ("application", "assemble_revisions"),
 }
 
 

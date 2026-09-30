@@ -1,10 +1,12 @@
 """Public build reads, commands, and capability assembly."""
 
+from __future__ import annotations
+
 import threading
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from limn.builds import artifacts
 from limn.builds.answer import build_failure_log
@@ -22,6 +24,9 @@ from limn.builds.service import BuildRequests
 from limn.runtime.config import RunConfig
 from limn.runtime.documents import Doc
 from limn.security.access import AuthorityScope, PostAuthority
+
+if TYPE_CHECKING:
+    from limn.web.routes import RouteBundle
 
 Json = dict[str, Any]
 
@@ -126,21 +131,12 @@ class BuildCommands:
 
 
 @dataclass(frozen=True)
-class BuildRouteBindings:
-    """Build route functions, loaded only during capability assembly."""
-
-    get: Callable[..., object]
-    post_path: str
-    post: Callable[..., object]
-
-
-@dataclass(frozen=True)
 class BuildSubsystem:
     """The build capability values used by composition."""
 
     view: BuildView
     commands: BuildCommands
-    routes: BuildRouteBindings
+    routes: RouteBundle
     startup: Callable[[Doc, bool, bool], object]
 
 
@@ -150,9 +146,21 @@ def assemble_builds(
     docs: Callable[[], Sequence[Doc]],
     now: Callable[[], str],
     describe: Describe = build_failure_log,
+    header_text: Callable[[object], str] = str,
+    requests: BuildRequests | None = None,
 ) -> BuildSubsystem:
     """Assemble build reads, commands, routes, and startup without import-time adapters."""
     from limn.builds.routes import POST_PATH, get, post
+    from limn.web.routes import PostDocRoute, RouteBundle
 
-    commands = BuildCommands(BuildRequests(settings, pull, docs, now, describe))
-    return BuildSubsystem(BuildView(), commands, BuildRouteBindings(get, POST_PATH, post), commands.initialize)
+    commands = BuildCommands(requests or BuildRequests(settings, pull, docs, now, describe))
+    routes = RouteBundle(
+        get=(lambda request: get(request.path, request.query, request.doc, header_text),),
+        post_documents=(
+            PostDocRoute(
+                POST_PATH,
+                lambda request: post(request.query, request.body, request.doc, commands._requests, request.actor),
+            ),
+        ),
+    )
+    return BuildSubsystem(BuildView(), commands, routes, commands.initialize)
