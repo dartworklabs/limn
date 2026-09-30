@@ -1,6 +1,24 @@
 # Changelog
 
-## Unreleased
+## 0.3.8 — unreleased
+
+A larger browser favicon, and figure documents arrive in part. `pins.md` and the state directory are unchanged; the
+three `/favicon-dark*` icon paths are deprecated (below).
+
+### Favicon
+
+- **One 먹 favicon for light and dark tabs.** On a light tab the 뼈종이 tile had almost the tab's colour (ΔE 8), so
+  the favicon read as a 2 × 9 px i next to other sites. The tab favicon is now its own drawing: the i (미색 stem, 주
+  pin) on a 먹 rounded square that fills the whole 16 px square, as 16 and 32 px pixel drawings from limn-sans
+  (`LIMN.favicon`). `/favicon.ico`, `/favicon-16.png` and `/favicon-32.png` serve it; `<head>` links one set,
+  without `media=` and without the colour-scheme script. The home-screen icon (`/apple-touch-icon.png`) and the
+  in-app marks are unchanged.
+- **Deprecated: `/favicon-dark.ico`, `/favicon-dark-16.png`, `/favicon-dark-32.png`.** In 0.3.8 they serve the same
+  bytes as the paths without `-dark`, so tabs still open with a 0.3.6-0.3.7 page (whose script switches a dark tab
+  to them) show the new favicon. They are removed in the next release.
+- Rolling back to 0.3.7 is safe: nothing is stored.
+
+### Figure documents
 
 Figure documents arrive in part: they register, import and pick as regions, and `/api/docs` and `/api/meta` gain the document kind `figure`.
 
