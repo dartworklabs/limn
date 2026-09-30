@@ -34,6 +34,7 @@ class LifecycleApp(Protocol):
     def C(self) -> RunConfig:
         """Read the current settings used when constructing a lifecycle response."""
         ...
+
     pin_lifecycle: PinLifecycle
 
     def public(self, record: Record) -> dict[str, Any]:

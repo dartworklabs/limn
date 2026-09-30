@@ -23,7 +23,24 @@ def test_server_has_no_application_service_locator():
     """The entrypoint composes ports and does not own a mega application class."""
     tree = ast.parse((ROOT / "src" / "limn" / "server.py").read_text(encoding="utf-8"))
     classes = {node.name for node in tree.body if isinstance(node, ast.ClassDef)}
-    assert "ServerApplication" not in classes
+    assert classes == {"Handler", "RunStart", "RunEnvironment", "ServerAssembly", "StartedServer"}
+    assert not any(
+        isinstance(child, ast.FunctionDef | ast.AsyncFunctionDef)
+        for node in tree.body
+        if isinstance(node, ast.ClassDef)
+        for child in node.body
+    ), "Composition values cannot hide capability workflows in a renamed application class"
+
+
+def test_production_crossings_are_the_reviewed_query_contracts():
+    """Public helpers cannot silently widen any current cross-capability dependency."""
+    assert {
+        ("limn.collaboration", "limn.pins"): {"PinReadView"},
+        ("limn.documents", "limn.builds"): {"BuildView"},
+        ("limn.documents", "limn.pins"): {"PinReadView"},
+        ("limn.pins", "limn.builds"): {"BuildView"},
+        ("limn.revisions", "limn.pins"): {"PinReadView", "RevisionPin"},
+    } == checker.CROSSING_NAMES
 
 
 def test_revisions_imports_only_the_pin_projection_contract():

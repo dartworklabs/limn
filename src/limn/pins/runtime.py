@@ -7,6 +7,7 @@ from datetime import datetime
 from pathlib import Path
 
 from limn.builds import BuildView
+from limn.pins.application import people_facts
 from limn.pins.claims.service import PinClaims
 from limn.pins.context import Json, MakeEvent, PinContext, who
 from limn.pins.editing.http import EditingRequests
@@ -76,6 +77,11 @@ class PinCommands:
     def C(self) -> RunConfig:
         """Read current settings when an operation begins."""
         return self.settings()
+
+    @property
+    def retention_days(self) -> int:
+        """Return the pin-owned Trash retention used in permission refusal messages."""
+        return TRASH_DAYS
 
     @property
     def RT(self) -> RuntimeResources[object, object, object, object, object, TokenCache]:
@@ -222,11 +228,11 @@ class PinCommands:
 
     def known_pin_people(self, pins: Sequence[Pin] | None = None) -> dict[str, Json]:
         """Return known people, optionally including actor facts from the supplied pins."""
-        return self.known_people(None if pins is None else [dict(pin.record) for pin in pins])
+        return self.known_people(None if pins is None else [people_facts(pin.record) for pin in pins])
 
     def known_record_people(self, records: Sequence[Mapping[str, object]]) -> dict[str, Json]:
         """Return known people with detached record facts for pin-owned policies."""
-        return self.known_people([dict(record) for record in records])
+        return self.known_people([people_facts(record) for record in records])
 
     def document_facts(self, D: Doc) -> DocumentFacts:
         """The parsing facts of document D (limn.runtime.documents.DocumentFacts) with this instance's manuscript root, state

@@ -17,12 +17,14 @@ from limn.builds.artifacts import (
     BuildStarted,
     BuildStateHolder,
     Describe,
+    FailedBuild,
     FinishedBuild,
     ViewOnlyNoRebuild,
 )
 from limn.builds.service import BuildRequests
 from limn.runtime.config import RunConfig
 from limn.runtime.documents import Doc
+from limn.runtime.startup import StartupRefused
 from limn.security.access import AuthorityScope, PostAuthority
 
 if TYPE_CHECKING:
@@ -30,6 +32,14 @@ if TYPE_CHECKING:
     from limn.web.routes import RouteBundle
 
 Json = dict[str, Any]
+
+
+@dataclass(frozen=True)
+class BuildInitialization:
+    """Startup facts without compiler failures or artifact internals crossing into composition."""
+
+    started: bool
+    refusal: StartupRefused | None = None
 
 
 @dataclass(frozen=True)
@@ -126,11 +136,13 @@ class BuildCommands:
         """Start an internal asynchronous build."""
         return self._requests.build_async(doc)
 
-    def initialize(
-        self, doc: Doc, no_build: bool, wait: bool
-    ) -> FinishedBuild | BuildStarted | BuildBusy | BuildSkipped:
+    def initialize(self, doc: Doc, no_build: bool, wait: bool) -> BuildInitialization:
         """Restore and, when needed, build one document during startup."""
-        return self._requests.init_doc(doc, no_build, wait)
+        result = self._requests.init_doc(doc, no_build, wait)
+        refusal = (
+            StartupRefused("Build failed:\n" + build_failure_log(result)) if isinstance(result, FailedBuild) else None
+        )
+        return BuildInitialization(not isinstance(result, BuildSkipped), refusal)
 
     def watch(self, stop: threading.Event, every: float = 3.0) -> None:
         """Watch file-backed documents until ``stop`` is set."""
@@ -144,7 +156,7 @@ class BuildSubsystem:
     view: BuildView
     commands: BuildCommands
     routes: RouteBundle
-    startup: Callable[[Doc, bool, bool], object]
+    startup: Callable[[Doc, bool, bool], BuildInitialization]
 
 
 def assemble_builds(

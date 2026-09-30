@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
+from copy import deepcopy
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, TypeAlias
@@ -33,33 +34,42 @@ def _stored_path(value: Record | str, _document: object) -> Path:
     return Path(file) if isinstance(file, str) else Path()
 
 
+def people_facts(record: Record) -> Json:
+    """Project attribution for collaboration, detaching every actor and discarding other fields."""
+
+    def actor(value: object) -> Json:
+        """Copy only the identity facts needed to discover and exclude people."""
+        if not isinstance(value, Mapping):
+            return {}
+        return {key: deepcopy(value[key]) for key in ("login", "name", "pic") if key in value}
+
+    facts: Json = {key: actor(value) for key, value in record.items() if key == "author" or key.endswith("_by")}
+    facts["thread"] = [{"by": actor(post.get("by"))} for post in record.get("thread") or []]
+    return facts
+
+
 @dataclass(frozen=True)
 class PinReadView:
     """Read-only pin projections for other capabilities."""
 
-    read: Callable[[], tuple[list[Pin], list[int]]]
-    snapshot: Callable[[], list[Pin]]
-    document_key: Callable[[Record], str]
-    locate: Callable[[Record | str, Any], Path | None] = _stored_path
-
-    def _records(self, refresh: bool) -> tuple[Json, ...]:
-        """Return detached records, optionally after the normal resynchronization."""
-        pins = self.snapshot() if refresh else self.read()[0]
-        return tuple(dict(pin.record) for pin in pins)
+    _read: Callable[[], tuple[list[Pin], list[int]]]
+    _snapshot: Callable[[], list[Pin]]
+    _document_key: Callable[[Record], str]
+    _locate: Callable[[Record | str, Any], Path | None] = _stored_path
 
     def counts_by_document(self, known: set[str]) -> tuple[dict[str, int], int]:
         """Return open counts by document and the count outside ``known``."""
         counts: dict[str, int] = {}
-        for pin in self.read()[0]:
+        for pin in self._read()[0]:
             if pin.state != "open":
                 continue
-            key = self.document_key(pin.record)
+            key = self._document_key(pin.record)
             counts[key] = counts.get(key, 0) + 1
         return counts, sum(count for key, count in counts.items() if key not in known)
 
     def state_counts(self) -> dict[str, int]:
         """Return viewer counts after the normal pin resynchronization."""
-        states = [pin.state for pin in self.snapshot()]
+        states = [pin.state for pin in self._snapshot()]
         return {
             "n_open": states.count("open"),
             "n_done": states.count("done"),
@@ -67,8 +77,9 @@ class PinReadView:
         }
 
     def people_records(self, *, refresh: bool = False) -> tuple[Json, ...]:
-        """Return detached records from which collaboration derives people facts."""
-        return self._records(refresh)
+        """Return only detached actor facts, never source locations or pin workflow data."""
+        pins = self._snapshot() if refresh else self._read()[0]
+        return tuple(people_facts(pin.record) for pin in pins)
 
     def revision_pin(
         self,
@@ -80,13 +91,13 @@ class PinReadView:
         revisions: Sequence[Record],
     ) -> RevisionPin | None:
         """Return one document-bound projection with every stored path currently resolved."""
-        record = next((pin.record for pin in self.read()[0] if pin.core.id == pin_id), None)
-        if record is None or self.document_key(record) != document_key:
+        record = next((pin.record for pin in self._read()[0] if pin.core.id == pin_id), None)
+        if record is None or self._document_key(record) != document_key:
             return None
 
         def resolve(value: Record | str) -> str | None:
             """Locate a stored path now, then let the revision owner place it in its repository."""
-            path = self.locate(value, document)
+            path = self._locate(value, document)
             return relative(path) if path is not None else None
 
         def resolve_pin() -> str | None:

@@ -23,19 +23,19 @@ Limn은 하나의 `dartwork-limn` 배포 안에서 기능 소유권으로 나눈
 
 | 소유권 | 경로 | 함께 바뀌는 것 |
 | --- | --- | --- |
-| 핀 | `pins/` | `model.py`·`record.py`·`thread.py`·`changes.py`의 값·규칙, `store.py`의 트랜잭션, `context.py`의 실행 협력자. 만들기·편집은 `editing/`, 처리 중 표시는 `claims/`, 전이는 `lifecycle/`, 삭제·복원은 `trash/`, 조회·Markdown은 `listing/`, 원문·PDF 위치 계산은 `location/` |
+| 핀 | `pins/` | 모델·레코드·스레드 규칙, `store.py`의 트랜잭션, `context.py`의 실행 협력자, `revision.py`의 비교용 핀 사실. `application.py`와 `runtime.py`가 조회 계약·실행 협력자·경로를 조립한다. 만들기·편집은 `editing/`, 처리 중 표시는 `claims/`, 전이는 `lifecycle/`, 삭제·복원은 `trash/`, 조회·Markdown은 `listing/`, 원문·PDF 위치 계산은 `location/` |
 | 빌드 | `builds/` | 결과 값(`values.py`), 산출물·이력·원고 지문(`artifacts.py`), 요청 시점의 파일·쪽 사실(`document_facts.py`), 컴파일·재빌드·PDF 감시·그림 지도 파싱(`figure_map.py`)·PDF/지도 가져오기(`figure.py`)와 응답 |
 | 협업 | `collaboration/` | 사람 후보·방문 기록 연결, `events.jsonl`, 멘션 알림·폴링. 핀의 태그·차례 규칙은 핀 소유권에 남고 공개 값·동작으로 받는다 |
 | 문서 조회 | `documents/` | 문서 탭·meta·목차 응답과 파싱. 실행별 문서 자원은 `runtime/documents.py`가 소유한다 |
-| 비교 | `revisions/` | Git 이력·원고 diff·격리 비교 PDF·작업 캐시와 응답 |
+| 비교 | `revisions/` | Git 이력·원고 diff·격리 비교 PDF·작업 캐시와 응답. `scope.py`가 diff 파싱·핀 범위 귀속·범위 패치와 사본 쓰기 계획을 소유한다 |
 | 동기화 | `sync/` | 원격 main 감시·fast-forward·문서별 재빌드 선택 |
 | 관리 | `administration/` | 토큰·멤버 명령, 문서 실행 인자, 이관, 인스턴스 셸과 `systemd/` 템플릿 |
 | 뷰어 | `viewer/` | HTML·CSS·JS, `ui_en.json`, 마크·브랜드 파일(`brand/`), 페이지 조립과 제공 경로 |
-| 실행 자원 | `runtime/` | 시작 규칙·인자·얼린 설정, 실행별 문서와 잠금, 상태 파일의 고정 위치(`paths.py`) |
+| 실행 자원 | `runtime/` | 시작 규칙·인자·얼린 설정, 실행별 문서와 잠금, 상태 파일의 고정 위치(`paths.py`), `resources.py`의 자원 수명과 감시 스레드 정리 |
 | 보안 | `security/` | 신원·Host/Origin·역할·권한 발급, 사람 사실, 인증 안내, 감사 파일 |
 | 기능 독립 장치 | `platform/` | 원자적 파일 교체·검사된 원고 핸들(`files.py`), Git 프로세스(`git.py`), JSON 숫자 판정(`values.py`), 제한된 텍스트(`text.py`) |
-| HTTP 전송 | `web/` | 처리기·요청 파서·응답과 경로 등록 계약. 기능의 구체 서비스와 오류 표를 소유하지 않는다 |
-| 조립·진입점 | `server.py`, `cli.py`, `__main__.py` | 자원 생성과 기능 연결·명령 전달. `Runtime`과 `ServerApplication`은 서버 조립 지점에 있다 |
+| HTTP 전송 | `web/` | 처리기·요청 파서·응답과 경로 등록 계약. `WebApplication`은 요청 경계의 구체 포트만 묶으며 기능 서비스와 오류 표를 소유하지 않는다 |
+| 조립·진입점 | `server.py`, `cli.py`, `__main__.py` | 자원 생성과 기능 연결·명령 전달. 서버는 기능별 조립 결과를 연결하고 시작·리스닝·종료 순서를 정한다 |
 
 각 기능의 테스트는 같은 패키지의 `tests/`에 있다. 루트 `tests/`에는 여러 기능을 관통하는 계약·아키텍처 검사와 공용 테스트 도우미·고정 입력만 둔다. 경로별 변경 trigger는 [index.md](index.md) §파일 지도에 있다.
 
@@ -53,14 +53,28 @@ server.py / cli.py                 실행 자원 생성·기능 조립
 runtime/ · security/ · platform/ · web/   기능 구현을 import하지 않는 경계
 ```
 
-- 기능의 공개 표면은 `__init__.py`의 `__all__`로 선언한다. 요청한 export만 지연 로드하므로 순수 값을 가져오는 일이 HTTP나 실행 자원을 초기화하지 않는다. 소유 기능 안에서는 내부 모듈을 직접 import할 수 있다.
-- `tools/check_boundaries.py`가 모든 기능의 비공개 접근·경계 코드의 기능 의존·기능 순환을 검사한다. 공용 모듈 여러 개를 거친 경로와 패키지 초기화도 계산한다([verification.md](verification.md) §10).
-- 핀 모델·레코드·스레드·변경·전이 규칙, 위치 계산과 순수 렌더는 I/O·HTTP를 import하지 않는다. 같은 `pins/` 안의 `store.py`·서비스·HTTP 어댑터는 부수효과를 담당한다. 패키지 전체를 순수 도메인이라고 부르지 않는다.
+- 기능의 공개 표면은 `__init__.py`의 `__all__`로 선언한다. 기능별 조립 함수·조회/명령 계약·조립에 필요한 자원과 결과값만 공개한다. 저장소·파서·렌더·라우트 구현은 내부에 둔다. 요청한 export만 지연 로드하므로 조회 계약을 가져오는 일이 HTTP나 실행 자원을 초기화하지 않는다. 소유 기능 안에서는 내부 모듈을 직접 import할 수 있다.
+- `tools/check_boundaries.py`가 모든 기능의 비공개 접근·경계 코드의 기능 의존·기능 순환을 검사한다. `CROSSING_NAMES`는 기능 쌍마다 허용한 이름을, `ENTRYPOINT_IMPORTS`는 진입점의 조립 import를 제한한다. 공개 이름을 추가하는 것만으로 다른 기능의 접근이 허용되지 않는다. 공용 모듈 여러 개를 거친 경로와 패키지 초기화도 계산한다([verification.md](verification.md) §10).
+- 핀 모델·레코드·스레드·전이 규칙, 위치 계산과 순수 렌더는 I/O·HTTP를 import하지 않는다. 같은 `pins/` 안의 `store.py`·서비스·HTTP 어댑터는 부수효과를 담당한다. 패키지 전체를 순수 도메인이라고 부르지 않는다.
 - `runtime/documents.py`의 문서는 실행별 경로·잠금·상태를 가진다. 빌드 산출물을 읽는 `DocumentFacts`는 `builds/document_facts.py`에 있고, 실행 설정은 기능 구현을 import하지 않는다.
 - 빌드 실패 문구는 `builds/answer.py`, 비교·핀 범위 실패 문구는 `revisions/answer.py`가 소유한다. 공통 HTTP 오류 모듈은 이 기능들을 import하지 않는다.
 - 기능 서비스는 실행별 협력자·설정·문서를 인자로 받는다. 서버의 현재 문서·잠금·시계를 전역으로 읽지 않는다. `PinContext`는 저장·시계·알림·감사 협력자를 묶고 `PinStore.transact()`가 쓰기 순서를 집행한다.
 - 예상된 거절은 결과 값으로 전달하고 기능의 HTTP 입구가 상태 코드로 바꾼다. 신원·권한 실패와 요청 크기 초과는 `HTTPError`로 처리기에서 즉시 거부한다.
-- `Runtime`은 실행별 잠금·캐시·감시 스레드를 소유한다. 서버 두 벌의 상태는 서로 공유하지 않는다. 종료는 비교 작업 중단, 서버 종료, 감시 스레드 합류의 기존 순서를 유지한다.
+- `RuntimeResources`는 실행별 잠금·캐시·감시 스레드를 소유한다. 기능 자원의 구체 타입은 조립 지점에서 연결하므로 실행 경계가 기능을 import하지 않는다. 서버 두 벌의 상태는 서로 공유하지 않는다. 시작 도중 실패하면 그 실행에서 시작한 감시만 정리한다. 소켓 닫기가 실패해도 감시 스레드를 정리하고 최초 오류를 보존한다.
+
+각 기능의 `assemble_*()`는 자신의 서비스와 HTTP 경로를 묶은 subsystem을 반환한다. `server.py`의 `ServerAssembly`는 이 결과들을 보관하는 값이며 기능 동작을 대신 수행하지 않는다. `WebApplication`에는 보안 검사, 문서 선택, 경로 등록과 방문 기록 포트만 전달한다. 뷰어 오류 메시지와 설정도 명시적인 읽기 함수로 받는다. HTTP 처리기가 저장소나 기능 서비스 전체를 찾아 쓰는 구조를 허용하지 않는다.
+
+기능 간 조회 계약은 아래와 같다. 소비자는 공급자의 자료를 재조립하지 않고 필요한 사실을 질의한다. 쓰기·알림·동기화처럼 import 방향과 별개인 실행 연결은 조립 지점이 구체 명령이나 작은 콜백을 넘긴다. 범용 컨테이너나 이벤트 버스는 두지 않는다.
+
+| 소비 기능 | 공급 기능 | 허용 계약과 목적 |
+| --- | --- | --- |
+| 협업 | 핀 | `PinReadView`: 작성자·참여자 사실. 원문 위치·메모·저장 레코드는 넘기지 않는다 |
+| 문서 조회 | 핀 | `PinReadView`: 문서별 열린 핀 수와 상태 요약 |
+| 문서 조회 | 빌드 | `BuildView`: 쪽·산출물·빌드 상태 |
+| 핀 | 빌드 | `BuildView`: 위치 계산과 입력 파싱에 필요한 문서·빌드 사실 |
+| 비교 | 핀 | `PinReadView`, `RevisionPin`: 현재 위치로 해석한 비교용 투영. diff 해석과 범위 귀속은 비교가 수행한다 |
+
+Python의 비공개 이름은 런타임 접근을 봉인하지 않는다. 검사기는 정적 import를 집행하고, 계약이 불필요한 원본 데이터나 내부 객체를 반환하지 않는지는 투영 테스트와 리뷰가 확인한다.
 
 ## 채택한 설계 축
 

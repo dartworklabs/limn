@@ -32,6 +32,7 @@ from limn.viewer import assemble
 from helpers import (
     HTML,
     UI_EN,
+    ApplicationFixture,
     add_pin,
     blank_png,
     edit_stored,
@@ -462,10 +463,10 @@ class EnglishChrome(ChromiumTestCase):
             (src / name).write_text(TEX, encoding="utf-8")
         (root / "state").mkdir()
         config = run_config(src, src / "main.tex", root / "state", label="Demo")
-        ps.APP = ps.ServerApplication(
+        ps.APP = ApplicationFixture(
             config, ps.new_runtime(ps.serve_viewer(ps.read_viewer(), config.label, config.accent))
         )
-        ps.Handler.app = ps.APP
+        ps.Handler.app = ps.APP.web
         fresh_runtime(ps)
         C = ps.APP.C
         ps.APP.set_docs(startup_documents.make_docs(["ms=본문:main.tex", "rr=답변서:reply.tex"], src, ps.APP.C.paths))

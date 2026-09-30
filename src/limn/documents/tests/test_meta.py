@@ -24,7 +24,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import get_args
 
-from limn.builds import DocumentFacts, artifacts as limn_build
+from limn.builds import artifacts as limn_build
+from limn.builds.document_facts import DocumentFacts
 from limn.documents import reads as meta
 from limn.documents.reads import MetaSettings
 from limn.platform.files import file_in_tree

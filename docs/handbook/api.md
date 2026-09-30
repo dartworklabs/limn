@@ -372,7 +372,7 @@ latexmk -norc -pdf -no-shell-escape -interaction=nonstopmode -halt-on-error
 
 상태 응답에 `scope`(`pin`|`commit`)·`pin`·`source`·`hunks`·`other` 가 더해진다. 합성 판이 컴파일되지 않으면 그 비교는 `state:"error"` 이고, 뷰어가 커밋 전체 비교로 넘어간다. 두 SHA-1과 파이프라인이 같으면 결과도 같으므로, 핀 비교의 컴파일·diff 실패(`compile_failed`·`diff_failed`·`scope_failed`)는 캐시가 살아 있는 동안 POST에 다시 빌드하지 않고 그 오류를 돌려준다. 커밋 전체 비교는 POST마다 다시 시도한다. 상태 파일(`status.json`)에는 요청마다 다른 `scope`·`pin`·`source`·`hunks`·`other` 를 저장하지 않는다.
 
-이 절의 거부(이 문서의 핀이 아님, 핀의 블록을 다시 읽지 못함·찾지 못함·사본에 쓰지 못함, 허용되지 않는 경로)는 안쪽 코드(`limn/pins/changes.py`·`revisions/core.py`·`execution.py`)가 경우마다 한 값(`ScopeRefusal`)으로 돌려준다. 상태 코드·한국어 문구·`reason` 은 한 표 `SCOPE_REJECTIONS` 가 정한다(요청은 `revisions/answer.py`의 `revision_answer`, 빌드 상태는 워커가 조립 지점에서 받은 `revision_failure_text`). 문구는 계약이라 `test_revisions.ScopedErrorBodies` 가 본문을 그대로 고정한다. 커밋 전체 비교를 여러 핀과 `pin` 없는 요청이 함께 쓰기 때문이다.
+이 절의 거부(이 문서의 핀이 아님, 핀의 블록을 다시 읽지 못함·찾지 못함·사본에 쓰지 못함, 허용되지 않는 경로)는 안쪽 코드(`limn/revisions/scope.py`·`revisions/core.py`·`execution.py`)가 경우마다 한 값(`ScopeRefusal`)으로 돌려준다. 상태 코드·한국어 문구·`reason` 은 한 표 `SCOPE_REJECTIONS` 가 정한다(요청은 `revisions/answer.py`의 `revision_answer`, 빌드 상태는 워커가 비교 조립 모듈에서 받은 `revision_failure_text`). 문구는 계약이라 `test_revisions.ScopedErrorBodies` 가 본문을 그대로 고정한다. 커밋 전체 비교를 여러 핀과 `pin` 없는 요청이 함께 쓰기 때문이다.
 
 ## 핀 수정 (`/api/pins/{id}/edit`)
 

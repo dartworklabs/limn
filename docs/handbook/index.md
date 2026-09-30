@@ -38,21 +38,21 @@ catalog_schema: 1
 <!-- handbook-filemap:start -->
 | 경로 패턴 | 책임 | 수정 trigger | 갱신 주체 |
 | --- | --- | --- | --- |
-| `src/limn/pins/**` | 핀 값·전이·레코드·저장·문맥·멘션·변경 범위와 여섯 동작. 순수 판단과 I/O는 같은 기능 안에서 의존 방향으로 구별한다 | 상태·전이·위치·쓰기·알림·pins.md 변경 | domain.md, api.md, build-sync.md, architecture.md |
+| `src/limn/pins/**` | 핀 값·전이·레코드·저장·문맥·멘션·비교용 투영과 여섯 동작. 순수 판단과 I/O는 같은 기능 안에서 의존 방향으로 구별한다 | 상태·전이·위치·쓰기·알림·pins.md 변경 | domain.md, api.md, build-sync.md, architecture.md |
 | `src/limn/builds/**` | 빌드 결과·산출물·원고 지문·이력·DocumentFacts·컴파일·PDF 감시·그림 지도 파싱/가져오기와 요청 응답 | 빌드 상태·파일 선택·실행·실패 문구 변경 | build-sync.md, api.md, architecture.md |
 | `src/limn/collaboration/**` | 사람 후보·방문 연결, 이벤트 파일·멘션 알림·폴링 | 사람 조회·이벤트 순서·기록·알림 변경 | api.md, viewer.md, architecture.md |
 | `src/limn/documents/**` | 문서 탭·meta·목차 조회와 순수 목차 파서 | 문서 응답·폴링·목차 변경 | api.md, viewer.md, build-sync.md |
-| `src/limn/revisions/**` | Git 이력·diff·격리 비교 PDF·캐시·실패 응답 | 비교 실행·범위·응답·캐시 변경 | api.md, architecture.md |
+| `src/limn/revisions/**` | Git 이력·diff 파싱·핀 범위 귀속·격리 비교 PDF·캐시·실패 응답 | 비교 실행·범위·응답·캐시 변경 | api.md, architecture.md |
 | `src/limn/sync/**` | 원격 main 감시·pull 순서·재빌드 선택 | 동기화 거절·감시·재빌드 변경 | build-sync.md, api.md |
 | `src/limn/administration/**` | 토큰·멤버·문서 인자·이관·인스턴스 셸·systemd 템플릿 | 명령·설정 키·유닛·업데이트 흐름 변경 | instances.md, operations.md, api.md |
 | `src/limn/viewer/**` | HTML·CSS·JS·번역·마크·브랜드 파일·조립·화면 제공 경로 | 화면 동작·조각 순서·번역·캐시 정책 변경 | viewer.md, api.md, verification.md |
-| `src/limn/runtime/**` | 시작·설정·실행별 문서와 잠금·고정 상태 경로 | 실행 수명·설정·문서 경로 변경 | architecture.md, operations.md, domain.md |
+| `src/limn/runtime/**` | 시작·설정·실행별 문서·잠금·캐시·감시 수명·고정 상태 경로 | 실행 수명·설정·문서 경로 변경 | architecture.md, operations.md, domain.md |
 | `src/limn/security/**` | 신원·Host/Origin·역할·권한 발급·사람 사실·감사·인증 안내 | 신뢰·권한·사람 기록·감사 변경 | architecture.md, api.md, operations.md, SECURITY.md |
 | `src/limn/platform/**` | 원고 핸들·원자적 쓰기·파일 잠금·Git 프로세스·숫자와 텍스트 장치 | 파일 접근·프로세스 인자/환경·JSON 값 판정 변경 | domain.md, build-sync.md, architecture.md |
-| `src/limn/web/**` | 공통 HTTP 처리기·요청 파서·응답·경로 계약 | 요청 한도·디스패치·공통 오류 형식 변경 | api.md, architecture.md |
-| `src/limn/server.py`, `src/limn/cli.py`, `src/limn/__main__.py` | 실행 자원 생성·기능 조립·명령 전달 | 시작/종료 연결·공개 서비스 인터페이스 변경 | architecture.md, operations.md, 연결된 기능 topic |
+| `src/limn/web/**` | 공통 HTTP 처리기·요청 경계 포트·요청 파서·응답·경로 계약 | 요청 한도·디스패치·공통 오류 형식 변경 | api.md, architecture.md |
+| `src/limn/server.py`, `src/limn/cli.py`, `src/limn/__main__.py` | 실행 자원 생성·기능 조립·명령 전달 | 시작/종료 연결·기능별 조립 계약 변경 | architecture.md, operations.md, 연결된 기능 topic |
 | `src/limn/*/__init__.py` | 기능 공개 표면과 요청한 값만 불러오는 지연 export | 공개 동작·값·기능 소유권 변경 | architecture.md, code-style-roadmap.md, verification.md |
-| `tools/check_boundaries.py`, `tests/architecture/test_boundaries.py` | 기능 비공개 접근·경계 코드의 기능 의존·순환 검사 | import 해석·소유권·검증 규칙 변경 | verification.md, architecture.md |
+| `tools/check_boundaries.py`, `tests/architecture/test_boundaries.py` | 기능 비공개 접근·기능 쌍/진입점별 import 허용목록·경계 코드의 기능 의존·순환 검사 | import 해석·소유권·검증 규칙 변경 | verification.md, architecture.md |
 | `src/limn/vendor/**` | 번들한 PDF.js와 Lucide | 버전 교체·파일 추가 | viewer.md, 해당 vendor README |
 | `src/limn/**/tests/**`, `tests/**` | 소유 패키지의 동작과 교차 기능 계약·구조 게이트 | 검사 추가·이동·합격 기준 변경 | verification.md |
 | `pyproject.toml`, `uv.lock`, `.github/workflows/*` | 지원 Python·의존성·수집/패키징·병렬 실행·정적 게이트 | 실행 환경·검증 구성 변경 | architecture.md, verification.md, workflow.md |

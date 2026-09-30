@@ -18,14 +18,14 @@ import zlib
 from pathlib import Path
 
 from limn.security import access as access
-from limn.viewer import assemble, mark as mark, routes as viewer_shell_routes
+from limn.viewer import assemble, assemble as viewer_assemble, mark as mark, routes as viewer_shell_routes
 from limn.web.errors import HTTPError
 
 from helpers import page_for, ps, req, set_config, split_resp, viewer_text
 from helpers_access import AccessBase, talk_to
 from helpers_browser import ChromiumTestCase
 
-BRAND_DIR = ps.BRAND_DIR
+BRAND_DIR = viewer_assemble.BRAND_DIR
 INK, VER, BONE, CREAM = (21, 22, 26), (232, 69, 44), (251, 241, 230), (244, 237, 225)
 # The favicon drawings as limn-brand.js FAVICON_PX draws them (limn-sans site/icons.html): the stem [x, width, top,
 # base) in whole pixels (the 32's top row is its antialiased round cap), the first row below the pin, and the pin's
@@ -246,7 +246,7 @@ class ParseSvg(unittest.TestCase):
 class InlineMarkup(unittest.TestCase):
     """The markup the page inlines: classes and geometry only, the icon decorative, the wordmark named Limn."""
 
-    BRAND = ps.read_brand()
+    BRAND = viewer_assemble.read_brand()
 
     def test_inline_logos_carry_classes_and_never_a_colour(self):
         """Every slot's markup is an <svg> of limn-mark* classes with no colour literal, fill or stroke attribute."""
@@ -374,7 +374,7 @@ class PageLinks(unittest.TestCase):
     def test_head_links_one_favicon_set_with_the_content_key(self):
         """One favicon for light and dark tabs: the .ico, the 16 and 32 PNGs and the touch icon, each with ?v=<content
         key>; no media=, no dark set, no colour-scheme script, no accent-coloured data: SVG or ?c=<accent> key."""
-        key = ps.read_brand().key
+        key = viewer_assemble.read_brand().key
         head = page_for("A-DEMO", "#1d4ed8")
         head = head[: head.index("</head>")]
         links = re.findall(r"<link rel=\"(icon|apple-touch-icon)\"([^>]*)>", head)

@@ -3,7 +3,9 @@
 from collections.abc import Callable
 from dataclasses import dataclass
 
-from limn.revisions.core import RevisionContext
+from limn.pins import PinReadView
+from limn.revisions.answer import revision_failure_text
+from limn.revisions.core import RevisionContext, RevisionJobs, ScopeCache
 from limn.revisions.service import RevisionRequests
 from limn.web.routes import PostDocRoute, RouteBundle
 
@@ -16,11 +18,17 @@ class RevisionSubsystem:
     routes: RouteBundle
 
 
-def assemble_revisions(context: Callable[[], RevisionContext]) -> RevisionSubsystem:
-    """Bind revision requests and adapters to one run."""
+def assemble_revisions(
+    *,
+    timeout: Callable[[], int],
+    pins: PinReadView,
+    cache: Callable[[], ScopeCache],
+    jobs: Callable[[], RevisionJobs],
+) -> RevisionSubsystem:
+    """Bind revision resources and adapters while keeping failure rendering at its owner."""
     from limn.revisions.routes import POST_PATH, get, post
 
-    requests = RevisionRequests(context)
+    requests = RevisionRequests(lambda: RevisionContext(timeout(), pins, cache(), jobs(), revision_failure_text))
     routes = RouteBundle(
         get=(lambda request: get(request.path, request.query, request.doc, requests),),
         post_documents=(

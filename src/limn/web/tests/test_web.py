@@ -2,7 +2,7 @@
 
 Every route's statuses, headers and bodies are pinned end to end through the handler in test_server.py, test_access.py
 and the feature files. Here: the binding contract (server.py provides everything limn.web.app.App names, and the
-handler sees a service replaced on its bound application), the import direction (limn.web never imports server.py), the
+handler sees a route port replaced on its bound application), the import direction (limn.web never imports server.py), the
 package name (server.py still runs as a file), the handler's shape read from its source (no route reads the body or
 query itself; it raises only its own transport refusals), the order of the guard checks on every route, and the answers
 and error pages as plain functions.

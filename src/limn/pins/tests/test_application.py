@@ -33,9 +33,9 @@ class PinReadViewTests(unittest.TestCase):
         ]
         pins = [parse_pin(record) for record in self.records]
         self.view = PinReadView(
-            read=lambda: (pins, []),
-            snapshot=lambda: pins,
-            document_key=lambda record: str(record.get("doc") or "paper"),
+            _read=lambda: (pins, []),
+            _snapshot=lambda: pins,
+            _document_key=lambda record: str(record.get("doc") or "paper"),
         )
 
     def test_counts_and_people_are_plain_read_facts(self) -> None:
@@ -63,6 +63,13 @@ class PinReadViewTests(unittest.TestCase):
         self.assertEqual(projection.relative_path, "paper/main.tex")
         self.assertEqual(projection.changes, (("paper/main.tex", 10, 12),))
         self.assertIsNone(self.view.revision_pin(1, "other", None, lambda _path: None, self.head, []))
+
+    def test_people_projection_contains_only_detached_actor_facts(self) -> None:
+        """Collaboration cannot observe source paths or mutate nested pin attribution."""
+        actors = self.view.people_records()[0]
+        self.assertEqual(set(actors), {"author", "thread"})
+        actors["author"]["name"] = "Changed"
+        self.assertEqual(self.view.people_records()[0]["author"]["name"], "Alice")
 
     def test_importing_pin_read_view_does_not_load_http_adapters(self) -> None:
         """The read contract remains importable without initializing pin routes."""

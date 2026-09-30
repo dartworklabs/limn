@@ -23,7 +23,7 @@ class SyncContext:
     last_failed: Callable[[run.SyncDoc], bool]
     git: run.Git
     clock: run.Clock
-    stamp: run.Stamp
+    stamp: run.Stamp = run.local_stamp
 
 
 @dataclass

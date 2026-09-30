@@ -1,6 +1,6 @@
 """What a pin service needs from the instance (PinContext), and the typed actor of a request.
 
-The composition root (server.pin_context()) makes a PinContext per call. Every collaborator is a value or a callable
+The pin assembly (PinCommands.pin_context()) makes a PinContext per call. Every collaborator is a value or a callable
 looked up at that moment - the pin store with the process's lock, the clock, the notice and audit sinks, the @-tag
 lookups, where a pin's file is under the manuscript root, and the settings values - so the services never read the
 run settings and a frozen clock or a patched setting in a test reaches them.
@@ -57,7 +57,7 @@ class NoteTagger(Protocol):
 
 @dataclass(frozen=True)
 class PinContext:
-    """What a pin service needs from the instance, made per call by the composition root (server.pin_context()).
+    """What a pin service needs from the instance, made per call by its owning assembly.
 
     store is the pin store with the process-wide re-entrant lock: every service writes the pin files only through
     store.transact() or while holding store.lock. The clock is three readings of the same wall clock: now (the local

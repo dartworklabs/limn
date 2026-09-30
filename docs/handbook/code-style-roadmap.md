@@ -26,13 +26,13 @@ Limn의 코딩 규칙은 팀 스킬 `code-implement`, `code-testing`, `code-secu
 
 ## R5 보이지 않는 전역 상태를 명시적 인자로
 
-[`server.py`](../../src/limn/server.py)의 `start()`가 얼린 설정 `RunConfig`, 실행별 자원 `Runtime`, 문서 목록을 `ServerApplication`에 묶는다. `StartedServer`는 소켓과 앱을 함께 반환해 종료 대상을 보존한다. 다른 모듈은 서버의 전역 설정이나 현재 문서를 읽지 않고 필요한 설정·문서·협력자를 인자로 받는다. 실행별 수명과 종료 순서는 [architecture.md](architecture.md) §의존 방향이 소유한다. 서버를 두 벌 띄운 테스트와 모듈별 import 검사가 실행 간 격리를 확인한다.
+[`server.py`](../../src/limn/server.py)의 `start()`는 얼린 설정 `RunConfig`, 실행별 자원 `RuntimeResources`, 문서 목록으로 기능별 subsystem을 조립한다. 기능 로직은 각 소유 패키지에 있고 서버는 연결과 실행 순서만 정한다. HTTP 처리기는 `WebApplication`의 요청 경계 포트를 받으며 전체 기능 서비스를 탐색하지 않는다. `StartedServer`는 소켓·HTTP 앱·자원을 함께 반환해 종료 대상을 보존한다. 다른 모듈은 서버의 전역 설정이나 현재 문서를 읽지 않고 필요한 설정·문서·협력자를 인자로 받는다. 실행별 수명과 종료 순서는 [architecture.md](architecture.md) §의존 방향이 소유한다. 서버를 두 벌 띄운 테스트와 모듈별 import 검사가 실행 간 격리를 확인한다.
 
 ## R6 변경 이유가 다른 코드는 다른 모듈로 — 동거 기본값과 세로 슬라이스
 
 함께 바뀌는 것을 함께 두는 배치를 기본값으로 삼는다(Common Closure Principle, Locality of Behaviour). 기능별 세로 슬라이스는 규칙·서비스·HTTP·테스트를 함께 소유한다.
 
-- **공개 경계:** 각 슬라이스의 `__init__.py`와 `__all__`가 조립과 다른 기능에 넘기는 값·동작을 선언한다. 조립 지점도 이 표면으로 import한다. 공통 HTTP 계약은 기능의 구체 구현을 import하지 않고 필요한 협력자 계약만 정의한다. `tools/check_boundaries.py`가 비공개 접근·공통 코드의 기능 의존·순환을 모든 슬라이스에서 검사한다([verification.md](verification.md) §10).
+- **공개 경계:** 각 슬라이스의 `__init__.py`와 `__all__`가 조립과 다른 기능에 넘기는 계약을 선언한다. 조회는 소비자가 필요한 투영만 돌려주며 원본 레코드·저장소·파서·렌더 구현을 공개하지 않는다. 조립 지점도 이 표면으로 import한다. 공통 HTTP 계약은 기능의 구체 구현을 import하지 않는다. `tools/check_boundaries.py`의 기능 쌍별·진입점별 허용목록은 공개 이름 중에서도 승인한 import만 통과시킨다. 비공개 접근·공통 코드의 기능 의존·순환도 모든 슬라이스에서 검사한다([verification.md](verification.md) §10).
 - **슬라이스 내부의 계층은 폴더가 아니라 의존 방향 규칙이다.** 슬라이스 안에서 순수 판단은 I/O를 import하지 않는다. 기능을 `routes/`, `services/`, `models/`처럼 가로 레이어 폴더로 흩뿌리지 않는다.
 - **추상화보다 복제가 싸다 (AHA, Sandi Metz).** 모양이 닮았다는 이유만으로 섣불리 공통 도우미, 유틸리티, 베이스 클래스를 만들지 않는다. 변경 이유가 실제로 같음이 확인될 때만 승격한다.
 - **테스트 동거 (Test Colocation).** 새 기능 슬라이스나 이행되는 슬라이스는 해당 슬라이스를 검증하는 테스트를 슬라이스의 `tests/`에 둔다. 기능 독립 장치와 보안·HTTP·실행 자원도 자기 패키지에 테스트를 둔다. 여러 기능을 관통하는 계약·구조 검사는 루트 `tests/`에 둔다. 수집·패키징 규칙은 [verification.md](verification.md) §테스트 파일의 배치가 정한다.

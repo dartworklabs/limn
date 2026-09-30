@@ -32,12 +32,35 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TypeAlias
 
-from limn.viewer.mark import Icon
+from limn.viewer.mark import FILES as BRAND_FILES, Brand, Icon, brand
 
 # One entry of the message table: an English string, or plural forms {"one": ..., "other": ...} for a key with {n}.
 Message: TypeAlias = str | dict[str, str]
 
+
+def default_pdfjs_dir() -> Path:
+    """Return the package's bundled PDF.js directory."""
+    return Path(__file__).resolve().parent.parent / "vendor" / "pdfjs"
+
+
+def read_brand(directory: Path | None = None) -> Brand:
+    """Read packaged logo files; missing or malformed assets refuse startup."""
+    directory = directory or BRAND_DIR
+    return brand({name: (directory / name).read_bytes() for name in sorted(BRAND_FILES)})
+
+
+def read_viewer() -> "ViewerFiles":
+    """Read the viewer template, messages, worker and icons without import-time I/O."""
+    messages = load_ui_messages(VIEWER_DIR / "ui_en.json")
+    logo = read_brand()
+    template = viewer_html(
+        VIEWER_DIR, messages, pdfjs_version=PDFJS_VERSION, marks=logo.marks, icon_key=logo.key, icons=LUCIDE
+    )
+    return ViewerFiles(template, service_worker(VIEWER_DIR), messages, logo.icons)
+
+
 VIEWER_DIR = Path(__file__).resolve().parent  # this package's folder: index.html, parts.txt, css/, js/
+BRAND_DIR = VIEWER_DIR / "brand"
 VIEWER_MARKERS = ("__APP_CSS__", "__APP_JS__")
 VIEWER_MANIFEST = "parts.txt"  # the ordered list of parts, beside index.html
 VIEWER_PART_RE = re.compile(r"[a-z0-9-]+/[a-z0-9-]+\.[a-z]+")  # folder/name.ext: never leaves the viewer folder

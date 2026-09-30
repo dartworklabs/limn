@@ -14,6 +14,47 @@ CrossingKey: TypeAlias = tuple[str, str]
 CrossingNames: TypeAlias = Mapping[CrossingKey, set[str]]
 EntrypointImports: TypeAlias = Mapping[str, set[str]]
 
+CROSSING_NAMES: CrossingNames = {
+    ("limn.collaboration", "limn.pins"): {"PinReadView"},
+    ("limn.documents", "limn.builds"): {"BuildView"},
+    ("limn.documents", "limn.pins"): {"PinReadView"},
+    ("limn.pins", "limn.builds"): {"BuildView"},
+    ("limn.revisions", "limn.pins"): {"PinReadView", "RevisionPin"},
+}
+ENTRYPOINT_IMPORTS: EntrypointImports = {
+    "limn.server": {
+        "doc_start_line",
+        "docs_of",
+        "pick_documents",
+        "BuildSubsystem",
+        "assemble_builds",
+        "CollaborationSubsystem",
+        "assemble_collaboration",
+        "DocumentsSubsystem",
+        "MetaSettings",
+        "assemble_documents",
+        "PinSubsystem",
+        "TokenCache",
+        "assemble_pins",
+        "RevisionJobs",
+        "RevisionSubsystem",
+        "ScopeCache",
+        "assemble_revisions",
+        "PullShare",
+        "SyncContext",
+        "SyncSubsystem",
+        "SyncWatch",
+        "assemble_sync",
+        "ServedViewer",
+        "assemble_viewer",
+        "default_pdfjs_dir",
+        "read_viewer",
+        "serve_viewer",
+    },
+    "limn.cli": {"CliError", "cmd_member", "cmd_token", "migrate_main"},
+    "limn.__main__": set(),
+}
+
 
 def owner(module: str) -> str | None:
     """Return the capability owning a module, excluding namespace packages."""
@@ -158,7 +199,7 @@ def check(root: Path) -> list[str]:
         and name not in {f"limn.{package}" for package in CAPABILITIES | BOUNDARIES}
     ]
     packages = {name for name in code if (root / Path(*name.split(".")[1:]) / "__init__.py").is_file()}
-    return sorted([*unowned, *violations(code, packages)])
+    return sorted([*unowned, *violations(code, packages, CROSSING_NAMES, ENTRYPOINT_IMPORTS)])
 
 
 def main() -> int:

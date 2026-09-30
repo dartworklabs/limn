@@ -23,9 +23,8 @@ import threading
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, TypeAlias, get_args
+from typing import Any, Literal, TypeAlias, get_args
 
-from limn.pins import EventType as EventType
 from limn.platform.files import atomic_write
 from limn.platform.text import flat
 from limn.platform.values import is_int
@@ -33,6 +32,7 @@ from limn.runtime.paths import EVENTS_FILE as EVENTS_FILE
 
 # One notice or events.jsonl record, a pin record, an actor or a thread post as read from JSON.
 Row: TypeAlias = dict[str, Any]
+EventType: TypeAlias = Literal["mention", "review_requested", "replied", "reopened", "assigned", "dropped"]
 # The file signature the read cache is keyed by: (path, st_mtime_ns, st_size).
 Signature: TypeAlias = tuple[str, int, int]
 # The process's read cache: {"v": (signature, records)}.

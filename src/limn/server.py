@@ -36,15 +36,11 @@ from typing import ClassVar, TypeAlias
 if __package__ in (None, ""):
     # Run as a file (python .../limn/server.py, how instances start): make the sibling modules importable as limn.*.
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-# The composition root wires these modules into ServerApplication. Explicit aliases
-# retain the names that application exposes to the handler through App.
+# Capability implementations assemble their own routes; this entrypoint only wires run ports.
 from limn.administration import doc_start_line, docs_of, pick_documents
 from limn.builds import (
-    BuildSkipped,
     BuildSubsystem,
-    FailedBuild,
     assemble_builds,
-    build_failure_log,
 )
 from limn.collaboration import CollaborationSubsystem, assemble_collaboration
 from limn.documents import DocumentsSubsystem, MetaSettings, assemble_documents
@@ -52,17 +48,14 @@ from limn.pins import (
     PinSubsystem,
     TokenCache,
     assemble_pins,
-    pin_state as pin_state,
 )
 from limn.platform.files import vendor_file as find_vendor_file
 from limn.platform.git import git as _git
 from limn.revisions import (
-    RevisionContext,
     RevisionJobs,
     RevisionSubsystem,
     ScopeCache,
     assemble_revisions,
-    revision_failure_text,
 )
 from limn.runtime import documents as runtime_documents, startup
 from limn.runtime.args import serve_parser
@@ -77,21 +70,13 @@ from limn.security.access import (
     hdr_text as hdr_text,
 )
 from limn.security.application import SecurityApplication
-from limn.sync import PullShare, SyncContext, SyncSubsystem, SyncWatch, assemble_sync, local_stamp
+from limn.sync import PullShare, SyncContext, SyncSubsystem, SyncWatch, assemble_sync
 from limn.viewer import (
-    BRAND_FILES,
-    LUCIDE,
-    PDFJS_VERSION,
-    VIEWER_DIR,
-    Brand,
     ServedViewer,
-    ViewerFiles,
     assemble_viewer,
-    brand,
-    load_ui_messages,
-    serve_viewer,
-    service_worker,
-    viewer_html,
+    default_pdfjs_dir as default_pdfjs_dir,
+    read_viewer as read_viewer,
+    serve_viewer as serve_viewer,
 )
 from limn.web.app import DocumentSelector, RouteRegistry, WebApplication
 from limn.web.errors import HTTPError as HTTPError
@@ -102,54 +87,10 @@ DEFAULT_ENVS = "figure,table,algorithm,equation,align,itemize,enumerate,minipage
 
 RunResources: TypeAlias = RuntimeResources[ServedViewer, ScopeCache, RevisionJobs, PullShare, SyncWatch, TokenCache]
 
-# The pin services receive instance settings through pin_context(). The rules they bind
-# live with the rules: request limits in limn/web/parse.py, NOTE_MAX in limn/pins/editing/values.py,
-# KIND_REQS and the thread marks a record may carry in limn/pins/model.py, PEOPLE_TOUCH_S in limn.security.people,
-# EVENTS_KEEP in limn.collaboration.events, NOTE_MENTION_COOLDOWN_S in limn.pins.mentions (docs/handbook/api.md §스레드, §@태그·사람·이벤트).
-THREAD_MAX = 200  # cap on one pin's thread (replies). State-transition records (close/reopen/confirm) are appended regardless of this cap
-TRASH_DAYS = 30  # a dropped pin stays in the Trash (pins.dropped.jsonl) this long, then is purged for good
-
 
 def new_runtime(viewer: ServedViewer) -> RunResources:
     """A process's resources, all fresh: new locks, empty caches and registries, no threads, serving viewer."""
     return RuntimeResources(viewer, ScopeCache(), RevisionJobs(), PullShare(), SyncWatch(), TokenCache())
-
-
-# The run settings and process resources are owned by the application assembly, bound before serving.
-
-
-# The application passes an explicit Doc and its RunConfig into build and revision services.
-# The default document is the first entry in ServerApplication.docs.
-
-
-def default_pdfjs_dir() -> Path:
-    """The PDF.js bundled with the package (limn/vendor/pdfjs)."""
-    return Path(__file__).resolve().parent / "vendor" / "pdfjs"
-
-
-# The viewer package and the brand files are read at startup. Importing this module does not read them from disk.
-
-BRAND_DIR = VIEWER_DIR / "brand"  # the vendored logo files (src/limn/viewer/brand/README.md)
-
-
-def read_brand(directory: Path = BRAND_DIR) -> Brand:
-    """The Limn logo as the viewer serves it (limn.viewer.mark.brand), from the files limn.viewer.mark.FILES names in directory.
-    Reads those files and nothing else. Raises OSError for a missing file and ValueError for a malformed SVG (a
-    packaging defect: start() fails rather than serve a page without its logo)."""
-    return brand({name: (directory / name).read_bytes() for name in sorted(BRAND_FILES)})
-
-
-def read_viewer() -> ViewerFiles:
-    """The viewer package from disk: the page template (index.html, its parts, the icons, the logo's inline SVGs and
-    icon key, the PDF.js version and ui_en.json's message table filled in), the service worker, the message table and
-    the favicon routes' icons (read_brand). Raises OSError / ValueError for a missing or malformed file (a packaging
-    defect)."""
-    messages = load_ui_messages(VIEWER_DIR / "ui_en.json")
-    logo = read_brand()
-    template = viewer_html(
-        VIEWER_DIR, messages, pdfjs_version=PDFJS_VERSION, marks=logo.marks, icon_key=logo.key, icons=LUCIDE
-    )
-    return ViewerFiles(template, service_worker(VIEWER_DIR), messages, logo.icons)
 
 
 # ---------------------------------------------------------------- HTTP handler wiring (the handler is limn/web/handler.py)
@@ -318,7 +259,6 @@ def assemble_application(config: RunConfig, runtime: RunResources) -> ServerAsse
             last_failed=builds.view.last_failed,
             git=_git,
             clock=time.time,
-            stamp=local_stamp,
         )
     )
     documents_subsystem = assemble_documents(
@@ -339,13 +279,10 @@ def assemble_application(config: RunConfig, runtime: RunResources) -> ServerAsse
         builds=builds.view,
     )
     revisions = assemble_revisions(
-        lambda: RevisionContext(
-            settings().timeout,
-            pins.view,
-            resources().scope_cache,
-            resources().revision_jobs,
-            revision_failure_text,
-        )
+        timeout=lambda: settings().timeout,
+        pins=pins.view,
+        cache=lambda: resources().scope_cache,
+        jobs=lambda: resources().revision_jobs,
     )
     viewer = assemble_viewer(settings, lambda: resources().viewer)
     routes = merge_routes(
@@ -362,7 +299,7 @@ def assemble_application(config: RunConfig, runtime: RunResources) -> ServerAsse
 
     web = WebApplication(
         settings,
-        security.guards(lambda: docs, authority_scope, 30),
+        security.guards(lambda: docs, authority_scope, pins.commands.retention_days),
         DocumentSelector(lambda key, hint: runtime_documents.request_doc(docs, settings().src, key, hint)),
         RouteRegistry(routes),
         collaboration.people,
@@ -380,10 +317,10 @@ def prepare(app: ServerAssembly, documents: list[Doc] | None, no_build: bool) ->
     app.pins.commands.pin_trash.purge_trash()
     for doc in environment.docs:
         result = app.builds.commands.initialize(doc, no_build, wait=not documents)
-        if not documents and isinstance(result, FailedBuild):
-            return StartupRefused("Build failed:\n" + build_failure_log(result))
+        if not documents and result.refusal is not None:
+            return result.refusal
         if documents:
-            print(doc_start_line(doc.key, doc.kind, doc.rel_path(), not isinstance(result, BuildSkipped)))
+            print(doc_start_line(doc.key, doc.kind, doc.rel_path(), result.started))
     if documents:
         environment.RT.start_thread(app.builds.commands.watch, environment.RT.stopping)
     if environment.C.git_pull:
@@ -428,7 +365,7 @@ class StartedServer:
 def start(a: argparse.Namespace) -> StartedServer | StartupRefused:
     """Every startup step, in order, until one refuses: the access options (limn.runtime.startup.access_options: main() stops
     before any build, so a misconfigured unit fails fast), the --port probe, the run settings and documents,
-    the ServerApplication with its Runtime and served viewer, the store and builds, the summary, then the
+    the capability assembly with its resources and served viewer, the store and builds, the summary, then the
     listening server. A refusal or failure after creating the application stops any watch threads it began."""
     access_opts = startup.access_options(a)
     if isinstance(access_opts, StartupRefused):

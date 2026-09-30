@@ -52,13 +52,13 @@ class ModuleBoundary(unittest.TestCase):
 
     def test_imports_only_the_standard_library_files_and_the_pure_text_rule(self):
         """No server, HTTP or subprocess import; of limn only limn.platform.files (atomic_write), limn.platform.text (flat, the one-line
-        rule the excerpt shares with pins.md) limn.platform.values (is_int), fixed state paths, and the pin event vocabulary."""
+        rule the excerpt shares with pins.md), limn.platform.values (is_int), and fixed state paths."""
         tree = ast.parse(EVENTS_PY.read_text(encoding="utf-8"))
         modules = {a.name for n in ast.walk(tree) if isinstance(n, ast.Import) for a in n.names}
         modules |= {n.module or "" for n in ast.walk(tree) if isinstance(n, ast.ImportFrom)}
         self.assertEqual(
             {m for m in modules if m.startswith("limn")},
-            {"limn.platform.files", "limn.platform.text", "limn.platform.values", "limn.runtime.paths", "limn.pins"},
+            {"limn.platform.files", "limn.platform.text", "limn.platform.values", "limn.runtime.paths"},
         )
         self.assertFalse({"http", "http.server", "urllib", "subprocess", "time"} & modules)
 
