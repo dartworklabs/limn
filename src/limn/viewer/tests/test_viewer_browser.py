@@ -21,6 +21,7 @@ import shutil
 import subprocess
 import time
 from unittest import mock
+from urllib.parse import urlparse
 
 from limn.administration import serve_documents as startup_documents
 from limn.pins.lifecycle import input as lifecycle_input
@@ -29,6 +30,7 @@ from limn.pins.listing.projection import pin_state
 from limn.revisions import core as revisions, execution as revision_execution
 from limn.security.access import LOCAL_ACTOR
 
+import helpers_figure
 from helpers import SW_JS, add_pin, blank_png, find_record, minimal_pdf, ps, records, trash_records
 from helpers_access import ALICE, BOB, CAROL, REPO_NEW as NEW, REPO_OLD as OLD, actor
 from helpers_authority import post_authority
@@ -1469,3 +1471,71 @@ class ViewerRoleUi(BrowserBase):
                 self.assertIn(a, acts)
         finally:
             type(self).WHO = CAROL
+
+
+# ---------------------------------------------------------------- figure documents (P1c)
+
+
+class FigureDocuments(BrowserBase):
+    """A figure document (limn-figure-map/1) beside the manuscript and a view-only PDF, in the real viewer: the tab,
+    the element a drag picks, the pin saved from it and its mark across re-renders. Page 1 of the figure is 3:1, so
+    every flow runs on a very wide page. /api/pick on the figure goes to the real server (its map answers without
+    SyncTeX); the manuscript keeps BrowserBase's computed answer."""
+
+    WHO = ALICE
+    # First-visit coach marks off, so no hint sits over the page a test drags on.
+    NO_COACH = "try{localStorage.setItem('pinPrefs',JSON.stringify({coach:{touch:1,mouse:1,sel:1}}))}catch(e){}"
+
+    def setUp(self):
+        """The three documents of helpers_figure.viewer_docs (P1b's figure_doc among them), each with a finished
+        two-page build."""
+        super().setUp()
+        self.ms, self.fig, self.rv = helpers_figure.viewer_docs(ps.APP, ps.APP.C.src)
+        self.addCleanup(ps.APP.set_docs, None)
+
+    def route(self, route):
+        """Send the figure document's pick to the real server; route everything else as BrowserBase does."""
+        rq = route.request
+        if urlparse(rq.url).path == "/api/pick" and json.loads(rq.post_data or "{}").get("doc") == helpers_figure.FIG:
+            return self.forward(route)
+        return super().route(route)
+
+    def open_fig(self, lang="ko", **device):
+        """The viewer switched to the figure document and settled (open() boots on the manuscript, the first one)."""
+        page = self.open(0, lang=lang, init=self.NO_COACH, **device)
+        page.evaluate("async()=>await switchDoc('fig')")
+        page.wait_for_function("DOC==='fig'&&document.querySelectorAll('#doc .pg').length===2", timeout=8000)
+        settle(page)
+        return page
+
+    @staticmethod
+    def text(page, sel):
+        """The textContent of the first element sel matches, or None when there is none (no wait)."""
+        return page.evaluate("s=>{const e=document.querySelector(s);return e?e.textContent:null;}", sel)
+
+    def test_a_figure_tab_and_a_view_only_tab_hide_rebuild_and_the_manuscript_keeps_it(self):
+        """Rebuild follows the document kind: the manuscript shows [PDF 재빌드]; the figure and the view-only PDF, which
+        redraw when their files change, hide it - there and back again."""
+        page = self.open(0, init=self.NO_COACH)
+        for key, shown in (("ms", True), ("fig", False), ("rv", False), ("ms", True)):
+            with self.subTest(doc=key):
+                page.evaluate("async k=>await switchDoc(k)", key)
+                page.wait_for_function("k=>DOC===k", arg=key, timeout=8000)
+                settle(page)
+                self.assertEqual(page.locator("#btn-rebuild").is_visible(), shown)
+                self.assertEqual(page.evaluate("document.body.classList.contains('no-rebuild')"), not shown)
+
+    def test_the_phone_documents_sheet_marks_the_figure_and_the_view_only_pdf(self):
+        """On a phone the documents sheet shows '그림' ('Figure' in English) on the figure and 'PDF' on the view-only
+        document, and nothing on the manuscript."""
+        for lang, word in (("ko", "그림"), ("en", "Figure")):
+            with self.subTest(lang=lang):
+                page = self.open(0, lang=lang, init=self.NO_COACH, **DEVICES["phone"])
+                page.evaluate("openDocsMenu()")
+                page.wait_for_selector("#docs-menu[open] .dm-item", timeout=8000)
+                marks = page.eval_on_selector_all(
+                    "#docs-menu-list .dm-item",
+                    "els=>els.map(e=>[e.dataset.doc,(e.querySelector('.dfig')||{}).textContent||'',"
+                    "(e.querySelector('.dvo')||{}).textContent||''])",
+                )
+                self.assertEqual(marks, [["ms", "", ""], ["fig", word, ""], ["rv", "", "PDF"]])

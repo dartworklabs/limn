@@ -60,7 +60,7 @@ function noteOtherDocs(list){if(!Array.isArray(list)||!list.length)return; let r
     const was=DOC_SEQ.get(n.key); DOC_SEQ.set(n.key,n.build_seq);
     if(n.key===DOC||was===undefined||was===n.build_seq)return;
     META_BY.delete(n.key); redraw=true;
-    if(n.last_state===BUILD_STATE.OK)toast(tl(d.view_only?'{name} PDF 쪽을 새로 그렸습니다':'{name} PDF 재빌드 완료',{name:d.name}),'ok',{label:'열기',tip:'그 문서로 바꿉니다',fn:()=>switchDoc(n.key)});
+    if(n.last_state===BUILD_STATE.OK)toast(tl(d.kind!==DOC_KIND.TEX?'{name} PDF 쪽을 새로 그렸습니다':'{name} PDF 재빌드 완료',{name:d.name}),'ok',{label:'열기',tip:'그 문서로 바꿉니다',fn:()=>switchDoc(n.key)});
     else if(n.last_state===BUILD_STATE.OK_ERRORS||n.last_state===BUILD_STATE.FAIL)toast(tl(n.last_state===BUILD_STATE.FAIL?'{name} 빌드 실패':'{name} 빌드에 LaTeX 오류',{name:d.name}),n.last_state===BUILD_STATE.FAIL?'err':'warn',{label:'열기',tip:'그 문서로 바꿔 오류를 봅니다',fn:()=>switchDoc(n.key)});});
   if(redraw)drawDocTabs();}
 function startLightPolling(){

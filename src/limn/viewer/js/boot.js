@@ -56,7 +56,7 @@ function isViewer(){return !!(typeof META!=='undefined'&&META&&META.me&&META.me.
 // A state change the viewer role cannot make (the server answers 403 anyway): say so once instead of sending it.
 function viewerBlocked(){if(!isViewer())return false; toast('보기 권한(viewer)만 있는 계정이라 바꿀 수 없습니다','warn'); return true;}
 function drawMeta(){
-  document.body.classList.toggle('view-only',!!META.view_only);
+  document.body.classList.toggle('no-rebuild',META.kind!==DOC_KIND.TEX);   // only a LaTeX document builds from source; a view-only PDF and a figure redraw when their files change
   document.body.classList.toggle('role-viewer',isViewer());
   $('#meta-main').textContent=META.main; $('#meta-pages').textContent=tl('{n}쪽',{n:META.pages.length});
   $('#meta-head').textContent=META.head; $('#meta-built').textContent=String(META.built_at||'').slice(0,16).replace('T',' ');

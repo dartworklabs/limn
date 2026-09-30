@@ -1857,7 +1857,7 @@ class FrontendDocs(unittest.TestCase):
         self.assertIn("body:not(.lay-narrow) #doc-nav{display:flex}", css)
         self.assertIn("#btn-doc{display:none;", css)
         self.assertIn("body.lay-narrow.docs-multi #btn-doc{display:inline-flex}", css)
-        self.assertIn("body.view-only #btn-rebuild{display:none}", css)
+        self.assertIn("body.no-rebuild #btn-rebuild{display:none}", css)
         self.assertIn('id="all-docs"', css)
         self.assertIn("$('#all-docs').hidden=!multiDoc()", HTML)
         self.assertIn("document.body.classList.toggle('docs-multi',multiDoc())", HTML)
@@ -2120,6 +2120,50 @@ class FrontendFigure(unittest.TestCase):
                 self.assertFalse(half["low"])
                 self.assertIsNone(confident)
                 self.assertTrue(weak["low"])
+
+    def test_rebuild_hides_by_document_kind_not_by_view_only(self):
+        """Only a LaTeX document builds: the rebuild button and the rebuilt/redrawn wording follow META.kind and a
+        document's kind, never view_only (a figure document is view_only:false and still has no rebuild)."""
+        css = HTML[HTML.index("<style>") : HTML.index("</style>")]
+        self.assertIn("body.no-rebuild #btn-rebuild{display:none}", css)
+        self.assertNotIn("body.view-only", css)
+        self.assertIn(
+            "document.body.classList.toggle('no-rebuild',META.kind!==DOC_KIND.TEX)", extract_js_fn("drawMeta")
+        )
+        for fn in ("drawMeta", "pollBuildOnce", "noteOtherDocs"):
+            with self.subTest(fn=fn):
+                self.assertNotIn("view_only", extract_js_fn(fn))
+                self.assertIn("DOC_KIND.TEX", extract_js_fn(fn))
+        self.assertIn(
+            "d.kind===DOC_KIND.FIGURE?' · '+tr('그림 문서(드래그하면 요소와 그 요소를 그린 코드 줄을 찾습니다)'):''",
+            extract_js_fn("docTip"),
+        )
+
+    def test_the_documents_list_marks_a_figure_and_keeps_the_pdf_mark(self):
+        """The documents sheet marks a figure '그림' (English 'Figure'), keeps 'PDF' on a view-only PDF, and marks a
+        LaTeX document with neither."""
+        self.node()
+        for lang, word, label in (("ko", "그림", "그림 문서"), ("en", "Figure", "Figure document")):
+            with self.subTest(lang=lang):
+                js = "\n".join(
+                    [
+                        js_i18n(lang),
+                        js_esc(),
+                        "let OPEN_ALL=[]; const DEFAULT_DOC='ms';",
+                        extract_js_fn("pdoc"),
+                        extract_js_fn("docCount"),
+                        extract_js_fn("docBadge"),
+                        "console.log(JSON.stringify([{key:'ms',kind:'tex',view_only:false},"
+                        "{key:'fig',kind:'figure',view_only:false},{key:'rv',kind:'pdf',view_only:true}].map(docBadge)));",
+                    ]
+                )
+                tex, fig, pdf = json.loads(run_node(js))
+                self.assertNotIn("dfig", tex)
+                self.assertNotIn("dvo", tex)
+                self.assertIn('<span class="badge dfig" aria-label="%s">%s</span>' % (label, word), fig)
+                self.assertNotIn("dvo", fig)
+                self.assertIn('<span class="badge dvo" aria-label="보기 전용">PDF</span>', pdf)
+                self.assertNotIn("dfig", pdf)
 
 
 # ---------------------------------------------------------------- icons: Lucide only, no emoji/symbol glyphs

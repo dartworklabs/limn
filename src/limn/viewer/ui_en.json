@@ -1090,5 +1090,8 @@
  "휴지통에서 영구 삭제합니다(소유자만). 알림이 떠 있는 동안 [되돌리기]로 취소할 수 있고, 알림이 사라지면 지웁니다": "Deletes it from the Trash for good (owner only). While the notification is up, [Undo] cancels it; it is deleted when the notification goes away",
  "휴지통이 비어 있습니다": "The Trash is empty",
  "지도로 찾음": "Found by the figure map",
- "그림 지도에서 드래그와 가장 많이 겹치는 요소를 골랐습니다. 고른 상자가 고칠 곳을 덮는지 확인하세요.": "The figure map chose the element the drag overlaps most. Check that the chosen box covers the spot to fix."
+ "그림 지도에서 드래그와 가장 많이 겹치는 요소를 골랐습니다. 고른 상자가 고칠 곳을 덮는지 확인하세요.": "The figure map chose the element the drag overlaps most. Check that the chosen box covers the spot to fix.",
+ "그림": "Figure",
+ "그림 문서": "Figure document",
+ "그림 문서(드래그하면 요소와 그 요소를 그린 코드 줄을 찾습니다)": "Figure document (a drag finds the element and the code lines that drew it)"
 }

@@ -28,6 +28,7 @@ const KIND_REQ=Object.freeze({FIX:'fix',QUESTION:'question'});   // a pin's `kin
 const ROLE=Object.freeze({OWNER:'owner',EDITOR:'editor',VIEWER:'viewer',AGENT:'agent'});   // a person's `role` (access.ROLES)
 const EVENT_TYPE=Object.freeze({MENTION:'mention',REVIEW_REQUESTED:'review_requested',REPLIED:'replied',REOPENED:'reopened',ASSIGNED:'assigned',DROPPED:'dropped'});   // an event's `type` (events.EventType)
 const VIA=Object.freeze({SYNCTEX:'synctex',TEXT:'text',MAP:'map'});   // how a pick traced its range: a pick's and a pin's `via` (limn.pins.location.mapping.Via)
+const DOC_KIND=Object.freeze({TEX:'tex',PDF:'pdf',FIGURE:'figure'});   // a document's `kind` in /api/docs and /api/meta (limn.runtime.documents.DocKind)
 const LOCAL_LOGIN='local',ASSIGNEE_AGENT='agent';   // the identity-less local login (access.LOCAL_LOGIN); the assignee meaning "the agent" (pins.edit.ASSIGNEE_AGENT)
 const LAYOUT_MODE=Object.freeze({WIDE:'wide',MID:'mid',NARROW:'narrow'});   // LAYOUT, by window width (layoutFor)
 const CARD_DOT=Object.freeze({OPEN:'open',CLAIMED:'claimed',REVIEW:'review',LOST:'lost'});   // a card's status dot (stDot); also its CSS class
