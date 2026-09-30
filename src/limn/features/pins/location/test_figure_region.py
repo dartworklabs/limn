@@ -32,7 +32,7 @@ class FigureRegionPick(Base):
         (self.figs / "out" / "figures.pdf").write_bytes(MINI_PDF)
         (self.figs / "out" / "figures.limnmap.json").write_bytes(map_bytes(figure_map(MINI_PDF)))
         docs = startup_documents.make_docs(
-            ["ms=본문:main.tex", "fig=그림:figs::out/figures.limnmap.json"], self.src, ps.APP.C
+            ["ms=본문:main.tex", "fig=그림:figs::out/figures.limnmap.json"], self.src, ps.APP.C.paths
         )
         ps.APP.set_docs(docs)
         self.fig = docs[1]

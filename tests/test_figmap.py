@@ -263,7 +263,9 @@ class Accepted(unittest.TestCase):
         for el in elements0(extra):
             el["style"] = ["bold"]
         elements0(extra)[1]["src"]["col"] = 4
-        self.assertEqual(parse(extra), parse(m))
+        got = parse(extra)
+        self.assertIsInstance(got, FigureMap)
+        self.assertEqual(got, parse(m))
 
     def test_an_element_drawn_without_code_has_no_source(self):
         """A vector graphic exported from a design tool has no code lines (ADR-0011 D7): src and impl are None."""
@@ -549,4 +551,6 @@ class AcceptedMaps(unittest.TestCase):
             p["future"] = [1]
             for el in p["elements"]:
                 el["future"] = {"x": 1}
-        self.assertEqual(parse(extra), parse(m))
+        got = parse(extra)
+        self.assertIsInstance(got, FigureMap)
+        self.assertEqual(got, parse(m))

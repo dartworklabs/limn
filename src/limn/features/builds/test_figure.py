@@ -548,6 +548,12 @@ class Render(FigureTree):
         for other in (("pdf2", "map"), ("pdf", "map2"), ("pdfm", "ap")):
             self.assertNotEqual(a, figure.figure_src_hash(other[0].encode(), other[1].encode()), other)
 
+    def test_the_fingerprint_is_the_digest_of_the_pdf_digest_then_the_map_digest(self):
+        """A golden value for fixed bytes: SHA-256 over the raw SHA-256 digest of the PDF bytes followed by that of the
+        map bytes, cut to 32 hex digits. Swapping the two digests, or hashing their hex text instead, gives another
+        value, so either slip fails here."""
+        self.assertEqual(figure.figure_src_hash(b"pdf bytes", b"map bytes"), "55f525c2f7fdff784c31e00fe04c29dc")
+
     def test_a_tracked_step_without_a_verified_pair_checks_the_files_itself(self):
         """import_now with no pair reads and checks the files: a pair that does not agree is BuildAborted
         figure_unready naming the reason, logged with its Korean text, and nothing is settled; a pair that agrees is

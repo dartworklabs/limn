@@ -73,8 +73,8 @@ LIGHT_KEYS = [
     "build",
 ]
 
-# The capability table of the shared contract (docs/superpowers/plans/2026-09-30-figure-documents.md, Shared contract).
-# A new DocKind value adds its row here before any branch can serve it.
+# The capability table of docs/handbook/domain.md §여러 문서, one column per document kind. A new DocKind value adds its
+# row here before any branch can serve it.
 CAPABILITY_TABLE = {
     "tex": {
         "builds_from_source": True,
