@@ -10,6 +10,7 @@ from limn.builds import artifacts as build, engine, figure, run
 from limn.builds.artifacts import (
     BuildBusy,
     BuildConfig,
+    BuildOk,
     BuildSkipped,
     BuildStarted,
     Describe,
@@ -34,14 +35,17 @@ class BuildRequests:
         docs: Callable[[], Sequence[Doc]],
         now: Callable[[], str],
         describe: Describe,
+        figure_shown: Callable[[], None] = lambda: None,
     ) -> None:
         """Bind run facts as call-time lookups so a new setting or runtime is seen on the next build, and start this
-        run's memo of figure maps."""
+        run's memo of figure maps. figure_shown is the composition root's hook, called once each time an import puts a
+        new build of a figure document on screen (see announce_figure_shown); by default it does nothing."""
         self.settings = settings
         self.pull = pull
         self.docs = docs
         self.now = now
         self.describe = describe
+        self.figure_shown = figure_shown
         self.figure_looks = figure.MapLooks()  # this run's memo of each figure document's map parse (figure.MapLooks)
 
     @property
@@ -73,8 +77,23 @@ class BuildRequests:
         if doc.builds_from_source:
             return self.compile(doc)
         if doc.has_element_map:
-            return figure.import_now(doc, self.config(), ready)
+            imported = figure.import_now(doc, self.config(), ready)
+            if isinstance(imported, BuildOk):
+                self.announce_figure_shown()
+            return imported
         return engine.render_pdf_doc(doc, self.config())
+
+    def announce_figure_shown(self) -> None:
+        """Tell the composition root (figure_shown) that pages.cur of a figure document now names a new build. The one
+        place this is said: every import - startup, the watch, a rebuild call - is a tracked build_step, and no LaTeX
+        build or view-only render comes through here. Called after the pages moved and before the build is recorded,
+        so a reader that sees the build ok finds the files that follow it already refreshed. The hook only refreshes a
+        file for readers, so its failure is printed to stderr and does not fail the import: the pages are on screen
+        already."""
+        try:
+            self.figure_shown()
+        except Exception:  # noqa: BLE001 — the import has landed; a failed refresh must not turn it into a failed build
+            traceback.print_exc(file=sys.stderr)
 
     def import_figure(self, doc: Doc, ready: FigureImport, wait: bool) -> FinishedBuild | BuildStarted | BuildBusy:
         """Import a verified figure pair through the tracked build: now when wait, else on a daemon thread. BuildBusy

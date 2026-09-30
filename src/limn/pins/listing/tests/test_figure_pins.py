@@ -8,12 +8,14 @@ Run: uv run pytest -q src/limn/pins/listing/tests/test_figure_pins.py
 """
 
 import contextlib
+import io
 import json
 import os
 from collections import Counter
 from unittest import mock
 
 from limn.builds import artifacts as build
+from limn.builds.artifacts import BuildFailed, BuildOk
 from limn.pins.listing import render
 from limn.runtime.documents import Doc
 from limn.security.access import LOCAL_ACTOR
@@ -30,12 +32,27 @@ from helpers_figure import (
     SCRIPT,
     b2_map,
     figure_doc,
+    import_build,
     pin_from_pick,
     write_build,
 )
 
 FIELDS = ("mark", "mark_page", "el_sync")
 HUGE = 10**400  # a JSON integer no float can hold
+LATEX_OK = BuildOk("", 0.1, None, None, "h" * 32, "-", "pages-20260926120000", 1)  # what a LaTeX build hands back
+
+
+def pins_md_stamp() -> tuple[int, int]:
+    """The identity of pins.md on disk: inode and mtime in ns - a rewrite (atomic replace) changes both."""
+    st = ps.APP.C.pins_md.stat()
+    return st.st_ino, st.st_mtime_ns
+
+
+def age_pins_md() -> tuple[int, int]:
+    """Give pins.md on disk an old mtime, so a later rewrite cannot leave it looking the same; its new stamp."""
+    old = 1_000_000_000 * 10**9
+    os.utime(ps.APP.C.pins_md, ns=(old, old))
+    return pins_md_stamp()
 
 
 class FigureBase(Base):
@@ -375,15 +392,68 @@ class FigureMarkdown(FigureBase):
         for pid in (self.july, self.august):
             self.assertNotIn("요소 잃음", self.row(md, pid))
 
-    def test_get_pins_md_renders_on_request_while_the_file_waits_for_a_pin_write(self):
-        """A re-render writes no pin, so the pins.md file keeps its last render; GET /pins.md renders on request and
-        already says 요소 잃음 in the row (the known limit of the file, docs/handbook/domain.md §알려진 제약). The
-        guidance explains the word, so it is the pin's row that is compared, not the whole text."""
+    def test_get_pins_md_renders_the_build_on_screen_on_request(self):
+        """A build put on screen without an import (no hook ran) still shows in GET /pins.md, which renders on request: the
+        August row already says 요소 잃음. The guidance explains the word, so it is the pin's row that is compared, not
+        the whole text."""
         write_build(self.fig, BUILD2, b2_map(august=False))
         code, _, body = split_resp(self.talk(req("GET", "/pins.md")))
         self.assertEqual(code, 200)
         self.assertIn("요소 잃음", self.row(body.decode("utf-8"), self.august))
+
+    def test_an_import_rewrites_the_file_on_disk_so_a_local_agent_reads_the_lost_element(self):
+        """The tracked import of a re-render without the August cell rewrites pins.md on disk - the file an agent on this
+        machine reads - so its row says 요소 잃음 with no GET and no pin write in between; the July cell only moved, so its
+        row does not; pins.jsonl is the same bytes and every rev is still 0."""
+        before = ps.APP.C.pins_jsonl.read_bytes()
         self.assertNotIn("요소 잃음", self.row(ps.APP.C.pins_md.read_text(encoding="utf-8"), self.august))
+        done = import_build(ps.APP, self.fig, BUILD2, b2_map(july=(0.4, 0.18, 0.07, 0.12), august=False))
+        self.assertIsInstance(done, BuildOk)
+        self.assertEqual(build.cur_pages(self.fig).name, BUILD2)
+        on_disk = ps.APP.C.pins_md.read_text(encoding="utf-8")
+        self.assertIn("요소 잃음", self.row(on_disk, self.august))
+        self.assertNotIn("요소 잃음", self.row(on_disk, self.july))
+        self.assertEqual(ps.APP.C.pins_jsonl.read_bytes(), before)
+        self.assertEqual([r.get("rev", 0) for r in records(ps.APP.read_pins()[0])], [0, 0, 0])
+
+    def test_a_latex_build_leaves_pins_md_alone(self):
+        """A LaTeX document's build that succeeds writes no pins.md: the file keeps its inode and its (aged) mtime."""
+        aged = age_pins_md()
+        ms = ps.APP.docs[0]
+        with mock.patch.object(ps.APP.build_requests, "compile", return_value=LATEX_OK):
+            self.assertIsInstance(ps.APP.build_requests.build_all(ms), BuildOk)
+        self.assertEqual(pins_md_stamp(), aged)
+
+    def test_an_import_that_does_not_land_leaves_pins_md_alone(self):
+        """A render that fails commits no page directory, so nothing is on screen that pins.md could follow: the file is
+        not rewritten and pages.cur still names the build before."""
+        aged = age_pins_md()
+        done = import_build(ps.APP, self.fig, BUILD2, b2_map(august=False), renders=False)
+        self.assertIsInstance(done, BuildFailed)
+        self.assertEqual(build.cur_pages(self.fig).name, BUILD1)
+        self.assertEqual(pins_md_stamp(), aged)
+
+    def test_an_import_rewrites_the_file_once(self):
+        """One import is one rewrite of pins.md - the control of the two tests above: the aged file is replaced."""
+        aged = age_pins_md()
+        import_build(ps.APP, self.fig, BUILD2, b2_map(august=False))
+        self.assertNotEqual(pins_md_stamp(), aged)
+
+    def test_a_refresh_that_fails_keeps_the_old_file_and_the_import_still_lands(self):
+        """The render of pins.md raises: the file stays as it was (rendering happens before the write), the error goes to
+        stderr, and the import is still a good build - pages.cur moved, the build state says ok."""
+        aged = age_pins_md()
+        err = io.StringIO()
+        with (
+            mock.patch.object(ps.APP.pin_markdown, "pins_md_text", side_effect=RuntimeError("render broke")),
+            contextlib.redirect_stderr(err),
+        ):
+            done = import_build(ps.APP, self.fig, BUILD2, b2_map(august=False))
+        self.assertIsInstance(done, BuildOk)
+        self.assertEqual(build.cur_pages(self.fig).name, BUILD2)
+        self.assertEqual(build.state_snapshot(self.fig)["state"], "ok")
+        self.assertEqual(pins_md_stamp(), aged)
+        self.assertIn("render broke", err.getvalue())
 
     def test_the_file_the_store_wrote_shows_the_same_rows(self):
         """pins.md on disk (written after the last pin write in setUp) has the figure title, the part and the clause."""

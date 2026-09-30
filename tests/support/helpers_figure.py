@@ -4,16 +4,21 @@ the map copy and the script only). tests/support/helpers.py's figure_map() (P1a)
 b2_map() here adds that cell (drawn without code) and a July box that a re-render can move.
 
 figure_doc() makes figs/ under a manuscript and returns the document (key fig, folder figs/, map
-figs/out/figures.limnmap.json); write_build() puts a build of it on screen. Every page is PAGE_PT points (a
+figs/out/figures.limnmap.json); write_build() puts a build of it on screen, and import_build() imports one through the
+tracked build (only pdftoppm stood in for), as the watch and startup do. Every page is PAGE_PT points (a
 1500 x 1000 px image at the tests' 150 dpi), and the *_BOX drags are in those points. Test modules import fixtures
 only from helpers modules, never from one another (tests/support/helpers.py).
 """
 
+import hashlib
 import json
+import shutil
 from pathlib import Path
+from typing import Any
 from unittest import mock
 
-from limn.builds.artifacts import FIGMAP_NAME
+from limn.builds import engine
+from limn.builds.artifacts import FIGMAP_NAME, BuildBusy, FinishedBuild, PagesNotRendered
 from limn.pins.location import source as pick_source
 from limn.platform import files
 from limn.runtime.documents import Doc, RunPaths
@@ -123,6 +128,33 @@ def write_build(D: Doc, name: str, fmap: dict | None, pages: int = 1) -> Path:
         (d / FIGMAP_NAME).write_text(json.dumps(fmap, ensure_ascii=False), encoding="utf-8")
     files.atomic_write(D.dir / "pages.cur", name)
     return d
+
+
+def import_build(app: Any, D: Doc, name: str, fmap: dict, *, renders: bool = True) -> FinishedBuild | BuildBusy:
+    """Import build `name` of figure document D through its tracked build, as the watch and startup do: fmap - stamped with
+    the SHA-256 of D's PDF, so the pair agrees - is written as the map beside the PDF, and app.build_requests.build_all(D)
+    reads and checks the pair, renders it and moves pages.cur to the new page directory. Only pdftoppm is stood in for:
+    a render (renders True) makes directory `name` with one PAGE_PT page image, the PDF copy and the map copy, as
+    engine.render_pages leaves it; with renders False it fails (PagesNotRendered) and nothing is committed.
+    Returns the tracked build's outcome."""
+    pdf = D.main.parent / fmap["pdf"]
+    stamped = {**fmap, "pdf_sha256": hashlib.sha256(pdf.read_bytes()).hexdigest()}
+    D.main.write_text(json.dumps(stamped, ensure_ascii=False), encoding="utf-8")
+
+    def render_pages(doc: Doc, pdf_path: Path, extra: list[Path], dpi: int) -> Path | PagesNotRendered:
+        """engine.render_pages without pdftoppm: the page directory `name`, or why there is none."""
+        if not renders:
+            return PagesNotRendered("render", "")
+        newdir = doc.dir / name
+        newdir.mkdir(parents=True)
+        (newdir / "page-1.png").write_bytes(png_header(1500, 1000))
+        shutil.copy2(pdf_path, newdir / doc.pdf_name)
+        for f in extra:
+            shutil.copy2(f, newdir / f.name)
+        return newdir
+
+    with mock.patch.object(engine, "render_pages", render_pages):
+        return app.build_requests.build_all(D)
 
 
 SAVE_LINE = (

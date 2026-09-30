@@ -429,6 +429,7 @@ class ServerApplication:
             docs=lambda: self.docs,
             now=lambda: self.now_str(),
             describe=build_failure_log,
+            figure_shown=lambda: self.refresh_pins_md(),
         )
         self.sync_service = SyncService(
             lambda: SyncContext(
@@ -711,6 +712,18 @@ class ServerApplication:
         """Rewrites pins.md from pins alone (PinStore.render_md). Callers hold RT.pin_lock."""
         self.pin_store().render_md(pins)
 
+    def refresh_pins_md(self) -> None:
+        """Rewrites pins.md once from the live pins as stored, under RT.pin_lock - at startup, and each time an import puts
+        a new build of a figure document on screen (BuildRequests.figure_shown).
+
+        Why the import needs it: a figure pin's el_sync ('lost' when its element is gone from the map on screen) is a
+        read-time field. It is never stored, so no pin write follows a re-render, and the file on disk - which an agent on
+        this machine reads without asking the server - would keep the old row and miss 요소 잃음. The pins are read
+        without a re-sync and nothing is written but pins.md: pins.jsonl and every rev stay as they are. If rendering
+        fails, the old pins.md stays (PinStore.render_md renders before it writes) and the exception propagates."""
+        with self.RT.pin_lock:
+            self.render_pins_md(self.read_pins()[0])
+
     def access_settings(self) -> access.AccessSettings:
         """The access options of this run as the value identify() and admit() read (C.access_settings, made once per C)."""
         return self.C.access_settings
@@ -816,8 +829,7 @@ class ServerApplication:
             self.RT.start_thread(self.build_requests.watch_pdf_docs, self.RT.stopping)
         if self.C.git_pull:
             self.RT.start_thread(self.sync_service.watch, self.RT.stopping)
-        with self.RT.pin_lock:
-            self.render_pins_md(self.read_pins()[0])
+        self.refresh_pins_md()
         startup.tighten_state_perms(self.C.people_file)
         return None
 

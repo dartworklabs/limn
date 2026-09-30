@@ -20,13 +20,15 @@ import typing
 import unittest
 from collections.abc import Callable
 from pathlib import Path
+from types import SimpleNamespace
 from unittest import mock
 
 from limn.administration import serve_documents as startup_documents
-from limn.builds import artifacts as build, figure, figure_map as figmap
+from limn.builds import artifacts as build, engine, figure, figure_map as figmap
 from limn.builds.answer import build_failure_log
-from limn.builds.artifacts import BuildConfig, BuildFailed, BuildOk, BuildSkipped
+from limn.builds.artifacts import BuildAborted, BuildConfig, BuildFailed, BuildOk, BuildSkipped
 from limn.builds.figure_map import FigureMap
+from limn.builds.service import BuildRequests
 from limn.runtime.documents import Doc, RunPaths
 
 from helpers import MINI_PDF, Base, blank_png, figure_map, map_bytes, ps, req, split_resp
@@ -625,6 +627,84 @@ class Render(FigureTree):
         self.assertIsInstance(figure.import_now(self.doc, self.cfg, None), BuildOk)
 
 
+class FigureShownHook(FigureTree):
+    """BuildRequests.figure_shown: the composition root is told, once, right after an import put a new build of a figure
+    document on screen - and never for a build that did not land or for a document that is not a figure."""
+
+    def setUp(self):
+        """A build service over the tree's state folder whose hook records the page directory on screen when it runs."""
+        super().setUp()
+        self.calls: list[str] = []
+        settings = SimpleNamespace(state=self.cfg.state, dpi=72, timeout=5, git_pull=False)
+        self.requests = BuildRequests(
+            lambda: settings, lambda: {}, lambda: [self.doc], lambda: "T", lambda r: "", figure_shown=self.shown
+        )
+
+    def shown(self) -> None:
+        """The hook: note which page directory pages.cur names at the moment it is called."""
+        self.calls.append(build.cur_pages(self.doc).name)
+
+    def test_a_landed_import_calls_the_hook_once_after_pages_cur_moved(self):
+        """build_all imports the agreeing pair: BuildOk, and the hook ran once, when pages.cur already named the new
+        directory."""
+        self.producer.render()
+        res = self.requests.build_all(self.doc)
+        self.assertIsInstance(res, BuildOk)
+        self.assertEqual(self.calls, [res.build])
+
+    def test_startup_import_calls_the_hook_too(self):
+        """init_doc's import (startup, --no-build not applying to a figure) is a tracked build like any other: one call."""
+        self.producer.render()
+        self.assertIsInstance(self.requests.init_doc(self.doc, no_build=True, wait=True), BuildOk)
+        self.assertEqual(len(self.calls), 1)
+
+    def test_a_render_that_fails_does_not_call_the_hook(self):
+        """pdftoppm failing commits no page directory: BuildFailed, and nothing is on screen to tell of."""
+        self.producer.render()
+        with mock.patch.dict(os.environ, {"LIMN_TEST_PDFTOPPM": "fail"}):
+            res = self.requests.build_all(self.doc)
+        self.assertIsInstance(res, BuildFailed)
+        self.assertEqual(self.calls, [])
+
+    def test_files_that_do_not_agree_do_not_call_the_hook(self):
+        """A map describing a PDF not written yet is BuildAborted figure_unready: no call."""
+        self.producer.render(described=b"a pdf not written yet")
+        self.assertIsInstance(self.requests.build_all(self.doc), BuildAborted)
+        self.assertEqual(self.calls, [])
+
+    def test_a_hook_that_raises_is_printed_and_the_import_still_lands(self):
+        """The hook refreshes a file for readers; when it cannot, the import is still a good build - BuildOk, pages.cur
+        moved, the build state ok - and the error goes to stderr."""
+
+        def broken() -> None:
+            """A hook that fails."""
+            raise RuntimeError("hook broke")
+
+        self.requests.figure_shown = broken
+        self.producer.render()
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            res = self.requests.build_all(self.doc)
+        self.assertIsInstance(res, BuildOk)
+        self.assertEqual(build.cur_pages(self.doc).name, res.build)
+        self.assertEqual(build.state_snapshot(self.doc)["state"], "ok")
+        self.assertIn("hook broke", err.getvalue())
+
+    def test_a_latex_or_view_only_build_does_not_call_the_hook(self):
+        """The hook belongs to the figure import: a LaTeX document's build and a view-only PDF's render never call it."""
+        ok = BuildOk("", 0.1, None, None, "h" * 32, "-", "pages-20260926120000", 1)
+        tex = Doc("ms", "본문", "tex", self.ms, self.ms / "main.tex", paths=self.doc.paths)
+        pdf = Doc("rv", "리뷰", "pdf", self.ms, self.ms / "review.pdf", paths=self.doc.paths)
+        with (
+            mock.patch.object(self.requests, "compile", return_value=ok),
+            mock.patch.object(engine, "render_pdf_doc", return_value=ok),
+        ):
+            for doc in (tex, pdf):
+                with self.subTest(kind=doc.kind):
+                    self.assertEqual(self.requests.build_step(doc), ok)
+        self.assertEqual(self.calls, [])
+
+
 class NoServerState(unittest.TestCase):
     """The import reads no server global and imports neither the server nor the web layer (coding rule R5)."""
 
@@ -638,6 +718,32 @@ class NoServerState(unittest.TestCase):
         modules = {n.module or "" for n in ast.walk(tree) if isinstance(n, ast.ImportFrom)}
         modules |= {a.name for n in ast.walk(tree) if isinstance(n, ast.Import) for a in n.names}
         self.assertFalse({m for m in modules if "server" in m or m.startswith("limn.web")})
+
+
+class BuildsNeverImportPins(unittest.TestCase):
+    """The pins.md refresh reaches the build capability only as the callback the composition root injects
+    (BuildRequests.figure_shown): builds -> pins is not an allowed direction (pins -> builds is)."""
+
+    def test_no_builds_module_imports_pins_code(self):
+        """No production module of limn.builds (its tests/ aside) imports limn.pins or anything under it, by an absolute
+        or a relative import; service.py, which calls the hook, is among the modules read."""
+        package = Path(figure.__file__).parent
+        offenders, read = [], set()
+        for path in sorted(package.rglob("*.py")):
+            rel = path.relative_to(package)
+            if "tests" in rel.parts or path.name.startswith("test_"):
+                continue
+            read.add(rel.as_posix())
+            here = ["limn", "builds", *rel.parent.parts]
+            tree = ast.parse(path.read_text(encoding="utf-8"))
+            names = {a.name for n in ast.walk(tree) if isinstance(n, ast.Import) for a in n.names}
+            for n in ast.walk(tree):
+                if isinstance(n, ast.ImportFrom):
+                    base = here[: len(here) - n.level + 1] if n.level else []
+                    names.add(".".join([*base, *filter(None, (n.module or "").split("."))]))
+            offenders += [(rel.as_posix(), m) for m in names if m == "limn.pins" or m.startswith("limn.pins.")]
+        self.assertIn("service.py", read)
+        self.assertEqual(offenders, [])
 
 
 class FigureDocumentThroughTheServer(Base):
