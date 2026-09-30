@@ -4,10 +4,15 @@ import ast
 import sys
 from collections.abc import Mapping
 from pathlib import Path
+from typing import TypeAlias
 
 ENTRY_POINTS = {"limn.server", "limn.cli", "limn.__main__"}
 CAPABILITIES = {"administration", "builds", "collaboration", "documents", "pins", "revisions", "sync", "viewer"}
 BOUNDARIES = {"runtime", "security", "platform", "web"}
+
+CrossingKey: TypeAlias = tuple[str, str]
+CrossingNames: TypeAlias = Mapping[CrossingKey, set[str]]
+EntrypointImports: TypeAlias = Mapping[str, set[str]]
 
 
 def owner(module: str) -> str | None:
@@ -58,7 +63,12 @@ def exports(tree: ast.Module) -> set[str] | None:
     return None
 
 
-def violations(code: Mapping[str, str], packages: set[str]) -> list[str]:
+def violations(
+    code: Mapping[str, str],
+    packages: set[str],
+    crossings: CrossingNames | None = None,
+    entrypoint_imports: EntrypointImports | None = None,
+) -> list[str]:
     """Report private imports, shared-to-feature paths and cycles across every slice.
 
     Entry points may compose public operations. Within a slice, modules may use
@@ -84,10 +94,19 @@ def violations(code: Mapping[str, str], packages: set[str]) -> list[str]:
                     if parent in packages and parent in code:
                         graph[name].add(parent)
             target_owner = owner(target)
-            if target_owner and owner(name) != target_owner:
+            source_owner = owner(name)
+            if target_owner and source_owner != target_owner:
                 surface = surfaces.get(target_owner) or set()
                 if base != target_owner or symbol not in surface:
                     errors.append(f"{name}: private import {base}" + (f".{symbol}" if symbol else ""))
+                elif source_owner and crossings is not None:
+                    approved = crossings.get((source_owner, target_owner), set())
+                    if symbol not in approved:
+                        errors.append(f"{name}: unapproved crossing {target_owner}.{symbol}")
+                elif name in ENTRY_POINTS and entrypoint_imports is not None:
+                    approved = entrypoint_imports.get(name, set())
+                    if symbol not in approved:
+                        errors.append(f"{name}: unapproved composition import {target_owner}.{symbol}")
 
     def paths(start: str) -> dict[str, tuple[str, ...]]:
         """Find reachable modules with one finite witness per destination."""

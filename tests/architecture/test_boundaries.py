@@ -80,6 +80,63 @@ def test_relative_import_inside_a_slice_is_allowed():
     assert checker.violations(code, {"limn.pins"}) == []
 
 
+def test_crossing_allowlist_rejects_an_unapproved_public_name():
+    """A public export cannot cross a capability boundary without explicit approval."""
+    code = {
+        "limn.pins": '__all__ = ["PinReadView", "PinStore"]\n',
+        "limn.pins.application": "class PinReadView: ...\n",
+        "limn.pins.store": "class PinStore: ...\n",
+        "limn.documents": '__all__ = ["DocumentViews"]\n',
+        "limn.documents.reads": "from limn.pins import PinStore\n",
+    }
+
+    errors = checker.violations(
+        code,
+        {"limn.pins", "limn.documents"},
+        {("limn.documents", "limn.pins"): {"PinReadView"}},
+    )
+
+    assert "limn.documents.reads: unapproved crossing limn.pins.PinStore" in errors
+
+
+def test_crossing_allowlist_accepts_the_approved_public_name():
+    """The exact public contract named for a capability pair remains importable."""
+    code = {
+        "limn.pins": '__all__ = ["PinReadView"]\n',
+        "limn.pins.application": "class PinReadView: ...\n",
+        "limn.documents": '__all__ = ["DocumentViews"]\n',
+        "limn.documents.reads": "from limn.pins import PinReadView\n",
+    }
+
+    assert (
+        checker.violations(
+            code,
+            {"limn.pins", "limn.documents"},
+            {("limn.documents", "limn.pins"): {"PinReadView"}},
+        )
+        == []
+    )
+
+
+def test_composition_import_allowlist_rejects_a_domain_helper():
+    """An entry point may import only the approved capability assembly names."""
+    code = {
+        "limn.pins": '__all__ = ["assemble_pins", "PinStore"]\n',
+        "limn.pins.application": "def assemble_pins(): ...\n",
+        "limn.pins.store": "class PinStore: ...\n",
+        "limn.server": "from limn.pins import PinStore\n",
+    }
+
+    errors = checker.violations(
+        code,
+        {"limn.pins"},
+        None,
+        {"limn.server": {"assemble_pins"}},
+    )
+
+    assert "limn.server: unapproved composition import limn.pins.PinStore" in errors
+
+
 def test_empty_discovery_fails(tmp_path):
     """A misconfigured source root must not pass without checking any modules."""
     assert checker.check(tmp_path) != []
