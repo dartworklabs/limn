@@ -53,14 +53,30 @@ def public_record(r: Row, place: tuple[str, str] | None) -> Json:
     composition root finds a line pin's file under the manuscript root now - (absolute path, path relative to the
     root) - and becomes `file` and `rel_path`; with None (a region pin, or a file it cannot locate) the stored file
     stays and there is no rel_path. rel_path is always this server's answer, never a value an older version left
-    behind. Never changes r."""
+    behind. A non-finite number of `frac` or of `el.frac` (NaN, an Infinity, an integer no float holds: shapes the
+    store keeps in a hand-edited or legacy line) is None, number by number, so the body is strict JSON; the stored
+    line is not touched. Never changes r."""
     out = dict(r)
     out["rev"] = out["rev"] if is_int(out.get("rev")) else 0
     out.pop("file_rel", None)
     out.pop("rel_path", None)
     if place is not None:
         out["file"], out["rel_path"] = place
+    if "frac" in out:
+        out["frac"] = _wire_frac(out["frac"])
+    el = out.get("el")
+    if isinstance(el, dict) and "frac" in el:
+        out["el"] = {**el, "frac": _wire_frac(el["frac"])}
     return out
+
+
+def _wire_frac(frac: object) -> object:
+    """A stored frac as the wire can carry it: a list with each non-finite number replaced by None (a copy), anything
+    else - a string, a missing value, a record the store keeps as it is - unchanged. Finite numbers, 0.0 and 1.0
+    included, pass exactly."""
+    if not isinstance(frac, list):
+        return frac
+    return [v if not is_num(v) or is_finite_num(v) else None for v in frac]
 
 
 # The box compared with when neither the element nor the pin recorded one: no element's box has zero size, so it is

@@ -121,12 +121,15 @@ def md_cell(v: object, newline: str = " ") -> str:
 
 
 def region_text_of(r: Record) -> str:
-    """A view-only pin's location text: "쪽 3, 영역 가로 12-55% 세로 30-48%"."""
+    """A view-only pin's location text: "쪽 3, 영역 가로 12-55% 세로 30-48%". A frac that is not four finite numbers (a
+    hand-edited NaN or Infinity is one the store keeps) reads as the zero box, so one such pin never fails the sheet."""
     frac = r.get("frac")
     fr = frac if isinstance(frac, list) and len(frac) == 4 else [0, 0, 0, 0]
     try:
         x, y, w, h = [float(v) * 100 for v in fr]
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
+        x = y = w = h = 0.0
+    if not all(math.isfinite(v) for v in (x, y, w, h, x + w, y + h)):
         x = y = w = h = 0.0
     return "쪽 %s, 영역 가로 %d–%d%% 세로 %d–%d%%" % (
         r.get("page", "?"),

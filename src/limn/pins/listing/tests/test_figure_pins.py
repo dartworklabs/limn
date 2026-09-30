@@ -273,6 +273,92 @@ class HostileStoredPins(FigureBase):
         self.assertEqual(ps.APP.C.pins_jsonl.read_bytes(), before)
 
 
+class NonFiniteNumbers(FigureBase):
+    """A hand-edited or legacy pins.jsonl that holds NaN or Infinity in frac or el.frac: every endpoint that echoes a
+    stored record answers strict JSON (what the browser's JSON.parse reads), with those numbers as null, and the stored
+    bytes stay as they were."""
+
+    def setUp(self):
+        """July (a line pin with el) gets a NaN in frac and an Infinity in el.frac; August (a region pin with el) a
+        negative Infinity in frac and a NaN in el.frac - written the way json.dumps writes them."""
+        super().setUp()
+        nan, inf = float("nan"), float("inf")
+        self.rewrite(
+            self.july, lambda r: (r.update(frac=[nan, 0.1, 0.2, 0.3]), r["el"].update(frac=[inf, 0.1, 0.2, 0.3]))
+        )
+        self.rewrite(
+            self.august, lambda r: (r.update(frac=[-inf, 0.1, 0.2, 0.3]), r["el"].update(frac=[0.1, nan, 0.2, 0.3]))
+        )
+        self.stored = ps.APP.C.pins_jsonl.read_bytes()
+
+    @staticmethod
+    def strict(body):
+        """json.loads with NaN and Infinity refused, as JSON.parse refuses them."""
+
+        def refuse(name):
+            """A non-finite constant on the wire is a failure."""
+            raise AssertionError("non-finite constant on the wire: " + name)
+
+        return json.loads(body, parse_constant=refuse)
+
+    def get(self, path):
+        """GET path through the handler: the status is 200 and the body parses strictly."""
+        code, _, body = split_resp(self.talk(req("GET", path)))
+        self.assertEqual(code, 200, body)
+        return self.strict(body)
+
+    def test_the_stored_lines_really_hold_the_non_finite_numbers(self):
+        """Guard for the fixture: the hand edit wrote NaN and Infinity tokens, so the tests below are not vacuous."""
+        self.assertIn(b"NaN", self.stored)
+        self.assertIn(b"Infinity", self.stored)
+
+    def test_the_list_answers_strict_json_with_null_and_leaves_the_file_alone(self):
+        """GET /api/pins?all=1: frac and el.frac of both pins read null where they were non-finite, their finite
+        numbers are echoed, and the read-time fields are still there; pins.jsonl is the same bytes."""
+        pins = {p["id"]: p for p in self.get("/api/pins?all=1")}
+        self.assertEqual(pins[self.july]["frac"], [None, 0.1, 0.2, 0.3])
+        self.assertEqual(pins[self.july]["el"]["frac"], [None, 0.1, 0.2, 0.3])
+        self.assertEqual(pins[self.august]["frac"], [None, 0.1, 0.2, 0.3])
+        self.assertEqual(pins[self.august]["el"]["frac"], [0.1, None, 0.2, 0.3])
+        self.assertIn("el_sync", pins[self.july])
+        self.assertEqual(ps.APP.C.pins_jsonl.read_bytes(), self.stored)
+
+    def test_one_pin_by_id_answers_strict_json_with_null(self):
+        """GET /api/pins/{id}: the same nulls in the single pin's frac and el.frac; the file is unchanged."""
+        pin = self.get("/api/pins/%d" % self.july)["pin"]
+        self.assertEqual((pin["frac"], pin["el"]["frac"]), ([None, 0.1, 0.2, 0.3], [None, 0.1, 0.2, 0.3]))
+        self.assertEqual(ps.APP.C.pins_jsonl.read_bytes(), self.stored)
+
+    def test_the_trash_list_answers_strict_json_with_null(self):
+        """A dropped pin that holds the numbers is listed from the Trash file with null in their place, and the Trash
+        file keeps the stored numbers."""
+        code, _, body = split_resp(self.talk(jreq("POST", "/api/pins/%d/drop" % self.august, {})))
+        self.assertEqual(code, 200, body)
+        self.strict(body)
+        trash = ps.APP.C.state / "pins.dropped.jsonl"
+        kept = trash.read_bytes()
+        dropped = {p["id"]: p for p in self.get("/api/pins/dropped")["dropped"]}
+        self.assertEqual(dropped[self.august]["frac"], [None, 0.1, 0.2, 0.3])
+        self.assertEqual(dropped[self.august]["el"]["frac"], [0.1, None, 0.2, 0.3])
+        self.assertIn(b"NaN", kept)
+        self.assertEqual(trash.read_bytes(), kept)
+
+    def test_a_change_requests_echo_answers_strict_json_with_null(self):
+        """POST claim answers with the pin it changed: its frac reads null where it was non-finite."""
+        code, _, body = split_resp(self.talk(jreq("POST", "/api/pins/%d/claim" % self.july, {})))
+        self.assertEqual(code, 200, body)
+        echoed = self.strict(body)["pin"]
+        self.assertEqual((echoed["frac"], echoed["el"]["frac"]), ([None, 0.1, 0.2, 0.3], [None, 0.1, 0.2, 0.3]))
+
+    def test_finite_bounds_are_echoed_unchanged(self):
+        """frac and el.frac made of 0.0 and 1.0 (the page's corners) come back exactly as stored."""
+        self.rewrite(
+            self.july, lambda r: (r.update(frac=[0.0, 0.0, 1.0, 1.0]), r["el"].update(frac=[1.0, 0.0, 0.0, 1.0]))
+        )
+        pin = self.listed()[self.july]
+        self.assertEqual((pin["frac"], pin["el"]["frac"]), ([0.0, 0.0, 1.0, 1.0], [1.0, 0.0, 0.0, 1.0]))
+
+
 class UnchangedPins(FigureBase):
     """Every pin that is not a figure pin with an element keeps exactly the keys it had."""
 

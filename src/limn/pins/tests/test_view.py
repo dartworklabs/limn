@@ -9,6 +9,7 @@ Run: uv run pytest -q src/limn/pins/tests/test_view.py
 """
 
 import json
+import math
 import time
 import unittest
 
@@ -436,6 +437,53 @@ class PublicRecord(unittest.TestCase):
         for rev in (None, "2", True):
             r = {"id": 2, "pdf": "/ms/r.pdf", "file_rel": "x"} | ({} if rev is None else {"rev": rev})
             self.assertEqual(public_record(r, None), {"id": 2, "pdf": "/ms/r.pdf", "rev": 0}, rev)
+
+
+class PublicRecordNumbers(unittest.TestCase):
+    """public_record never lets a NaN, an Infinity or an oversized integer of frac or el.frac reach the wire."""
+
+    NAN, INF = float("nan"), float("inf")
+
+    def test_a_non_finite_number_of_frac_and_of_el_frac_reads_as_null_one_by_one(self):
+        """Each non-finite number (NaN, both infinities, an integer no float holds) is None; its finite neighbours stay,
+        in both the pin's own frac and the element's."""
+        r = {"id": 1, "rev": 0, "frac": [self.NAN, 0.1, -self.INF, HUGE], "el": {**EL, "frac": [0.0, self.INF, 1, 0.5]}}
+        out = public_record(r, None)
+        self.assertEqual(out["frac"], [None, 0.1, None, None])
+        self.assertEqual(out["el"]["frac"], [0.0, None, 1, 0.5])
+        self.assertEqual(list(out["el"]), list(EL))  # the element's other keys stay, in order
+
+    def test_the_answer_is_strict_json(self):
+        """The encoded answer parses with a parser that refuses NaN and Infinity, as the browser's JSON.parse does."""
+        r = {"id": 1, "frac": [self.NAN, 0, 0, 0], "el": {**EL, "frac": [self.INF, 0, 0, 0]}}
+        strict = json.loads(json.dumps(public_record(r, None)), parse_constant=self.refuse)
+        self.assertEqual((strict["frac"][0], strict["el"]["frac"][0]), (None, None))
+
+    @staticmethod
+    def refuse(name):
+        """parse_constant for json.loads: any NaN or Infinity token is an error."""
+        raise AssertionError("non-finite constant on the wire: " + name)
+
+    def test_finite_numbers_including_the_bounds_are_echoed_unchanged(self):
+        """0.0, 1.0, 0 and 1 are finite: frac and el.frac come back equal, and the answer shares no list with r."""
+        r = {"id": 1, "frac": [0.0, 1.0, 0, 1], "el": {**EL, "frac": [0.0, 1.0, 1, 0]}}
+        out = public_record(r, None)
+        self.assertEqual((out["frac"], out["el"]["frac"]), ([0.0, 1.0, 0, 1], [0.0, 1.0, 1, 0]))
+        self.assertIsNot(out["frac"], r["frac"])
+
+    def test_a_frac_that_is_not_a_list_or_not_a_number_is_left_as_stored(self):
+        """Only non-finite numbers change: a string, a boolean, a wrong length and a non-object el pass as they are."""
+        for frac in ("0.1,0.2", [True, 0, 1, 1], [0.1, 0.2], None):
+            with self.subTest(frac=frac):
+                self.assertEqual(public_record({"id": 1, "frac": frac}, None)["frac"], frac)
+        self.assertEqual(public_record({"id": 1, "el": "B2/m07"}, None)["el"], "B2/m07")
+        self.assertEqual(public_record({"id": 1, "el": {"id": "x"}}, None)["el"], {"id": "x"})
+
+    def test_the_stored_record_is_not_changed(self):
+        """r keeps its NaN and its nested el: the read never writes back."""
+        r = {"id": 1, "frac": [self.NAN, 0, 0, 0], "el": {**EL, "frac": [self.INF, 0, 0, 0]}}
+        public_record(r, None)
+        self.assertTrue(math.isnan(r["frac"][0]) and math.isinf(r["el"]["frac"][0]))
 
 
 class LegacyClaimStart(Base):

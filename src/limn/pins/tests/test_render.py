@@ -377,6 +377,17 @@ class RenderHelpers(unittest.TestCase):
         self.assertEqual(render.region_text_of({"page": 2, "frac": ["x", 0, 0, 0]}), "쪽 2, 영역 가로 0–0% 세로 0–0%")
         self.assertEqual(render.region_text_of({}), "쪽 ?, 영역 가로 0–0% 세로 0–0%")
 
+    def test_region_text_reads_a_non_finite_frac_as_zeros_and_never_raises(self):
+        """NaN, an infinity and an integer no float holds (shapes the store keeps in a hand-edited frac) read as the zero
+        box, like any other malformed frac; a finite frac keeps its text."""
+        zero = "쪽 2, 영역 가로 0–0% 세로 0–0%"
+        for bad in (float("nan"), float("inf"), -float("inf"), 10**400):
+            with self.subTest(bad=bad):
+                self.assertEqual(render.region_text_of({"page": 2, "frac": [bad, 0.1, 0.2, 0.3]}), zero)
+        self.assertEqual(
+            render.region_text_of({"page": 2, "frac": [0.0, 0.0, 1.0, 1.0]}), "쪽 2, 영역 가로 0–100% 세로 0–100%"
+        )
+
 
 class BadgeWords(unittest.TestCase):
     """The overlap badges read as words ('#20 범위 안', '#20과 같은 범위', '#20과 일부 겹침') with the particle the
