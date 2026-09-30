@@ -305,6 +305,7 @@ class Watch(unittest.TestCase):
         self.docs = [self.ms, self.hl, self.pdf]
         self.started = []
         self.last_failed = limn_build.last_build_failed
+        self.built_head = lambda doc: limn_build.read_head(doc) or ""
 
     def tearDown(self):
         """Remove the folder."""
@@ -313,14 +314,21 @@ class Watch(unittest.TestCase):
     def once(self, watch, outcome, share=None, enabled=True):
         """One round with a pull that returns `outcome`, a fixed stamp and clock; builds are recorded, not run."""
         return watch.once(
-            self.docs, enabled, lambda: outcome, share or PullShare(), self.started.append, lambda: "T", FakeClock(5.0)
+            self.docs,
+            enabled,
+            lambda: outcome,
+            share or PullShare(),
+            self.started.append,
+            lambda: "T",
+            FakeClock(5.0),
+            self.built_head,
         )
 
     def test_disabled_without_git_pull(self):
         """Without --git-pull the status and a round are just "disabled"; nothing is pulled."""
         watch = SyncWatch()
-        self.assertEqual(watch.status(self.docs, False, self.last_failed), {"state": "disabled"})
-        self.assertEqual(watch.once(self.docs, False, None, PullShare(), None, None, None), {"state": "disabled"})
+        self.assertEqual(watch.status(self.docs, False, self.last_failed, self.built_head), {"state": "disabled"})
+        self.assertEqual(watch.once(self.docs, False, None, PullShare(), None, None, None, None), {"state": "disabled"})
 
     def test_up_to_date_rebuilds_only_the_document_behind(self):
         """Nothing new upstream: only the LaTeX document built from another commit is rebuilt; the pull is shared."""
@@ -331,7 +339,9 @@ class Watch(unittest.TestCase):
             out, {"state": "updating", "reason": None, "head_before": B, "head_after": B, "checked_at": "T"}
         )
         self.assertEqual((share.last, share.at), (UpToDate(B), 5.0))
-        self.assertEqual(watch.status(self.docs, True, self.last_failed)["state"], "updating")  # ms is still behind
+        self.assertEqual(
+            watch.status(self.docs, True, self.last_failed, self.built_head)["state"], "updating"
+        )  # ms is still behind
 
     def test_fast_forward_rebuilds_every_latex_document(self):
         """After Pulled every LaTeX document is rebuilt, the view-only PDF never."""
@@ -342,7 +352,14 @@ class Watch(unittest.TestCase):
         """An iterable consumed while claiming locks still supplies documents for rebuild decisions."""
         watch = SyncWatch()
         out = watch.once(
-            iter(self.docs), True, lambda: Pulled(A, B), PullShare(), self.started.append, lambda: "T", FakeClock(5.0)
+            iter(self.docs),
+            True,
+            lambda: Pulled(A, B),
+            PullShare(),
+            self.started.append,
+            lambda: "T",
+            FakeClock(5.0),
+            self.built_head,
         )
         self.assertEqual(self.started, [self.ms, self.hl])
         self.assertEqual(out["state"], "updating")
@@ -352,7 +369,7 @@ class Watch(unittest.TestCase):
         watch = SyncWatch()
         out = self.once(watch, PullFailed("fetch_failed", A))
         self.assertEqual(self.started, [])
-        self.assertEqual(watch.status(self.docs, True, self.last_failed), out)
+        self.assertEqual(watch.status(self.docs, True, self.last_failed, self.built_head), out)
         self.assertEqual((out["state"], out["reason"]), ("error", "fetch_failed"))
 
     def test_a_running_build_defers_the_round_and_keeps_the_heads(self):
@@ -365,7 +382,7 @@ class Watch(unittest.TestCase):
         finally:
             self.hl.lock.release()
         self.assertEqual(out, {"state": "deferred", "reason": "building", "checked_at": "T"})
-        self.assertEqual(watch.status(self.docs, True, self.last_failed)["head_after"], A)
+        self.assertEqual(watch.status(self.docs, True, self.last_failed, self.built_head)["head_after"], A)
         self.assertFalse(self.ms.lock.locked())
 
     def test_status_settles_when_every_document_reached_the_commit(self):
@@ -374,7 +391,8 @@ class Watch(unittest.TestCase):
         self.once(watch, UpToDate(B))
         (self.ms.dir / "head.txt").write_text("bbbbbbb", encoding="utf-8")
         self.assertEqual(
-            (watch.status(self.docs, True, self.last_failed)["state"], watch.record["state"]), ("current", "current")
+            (watch.status(self.docs, True, self.last_failed, self.built_head)["state"], watch.record["state"]),
+            ("current", "current"),
         )
 
     def test_status_reports_a_failed_build(self):
@@ -382,7 +400,7 @@ class Watch(unittest.TestCase):
         watch = SyncWatch()
         self.once(watch, UpToDate(B))
         self.ms.bstate["state"] = "fail"
-        status = watch.status(self.docs, True, self.last_failed)
+        status = watch.status(self.docs, True, self.last_failed, self.built_head)
         self.assertEqual((status["state"], status["reason"]), ("error", "build_failed"))
 
     def test_watch_survives_a_crashing_round(self):

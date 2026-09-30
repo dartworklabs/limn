@@ -107,8 +107,8 @@ def test_selected_publication_keeps_its_build_when_current_changes(tmp_path):
 **Interfaces:** Consumes the final tree; produces verified PR head and a merge only after CI success.
 
 - [ ] Step 1: Run full pytest, shell instance tests, Ruff/format, ShellCheck, boundary checker, mypy, build/entry-point and Handbook publication checks. Expected: no failures; explain every skip and actual elapsed/count evidence.
-- [ ] Step 2: Dispatch one fresh-context whole-branch reviewer as required by executing-plans. Provide spec/plan, review focus, base/head, and ledger rulings; regrade findings by shipped effect and verify important fixes RED→GREEN.
-- [ ] Step 3: Recheck remote main and reconcile any subsequent movement safely. Rerun affected checks; never infer an old green run verifies a changed tree.
+- [x] Step 2: Dispatch one fresh-context whole-branch reviewer as required by executing-plans. Provide spec/plan, review focus, base/head, and ledger rulings; regrade findings by shipped effect and verify important fixes RED→GREEN.
+- [x] Step 3: Recheck remote main and reconcile any subsequent movement safely. Rerun affected checks; never infer an old green run verifies a changed tree.
 - [ ] Step 4: Push without force, update PR #115 with actual boundary/evidence changes, and wait for every head CI job. Expected: exact head checks succeed and merge is allowed.
 - [ ] Step 5: Merge with a matched head SHA, fetch the actual merged main, and report PR URL, tests, limits and any rulings/deferred minors. No release/deployment.
 
@@ -119,3 +119,8 @@ def test_selected_publication_keeps_its_build_when_current_changes(tmp_path):
 - Red evidence: provider API absent; actor facts nested rather than flat; Notice absent; change-token query absent; retired BuildView/PinReadView imports still accepted. Each gate passed after implementing the corresponding owner contract.
 - Removed the dormant pin-owned build-history interpretation as well as live consumers; its source-equivalence/default tests now belong to builds.
 - Integrated non-browser/non-TeX regression run: 2,343 passed, 1 skipped, 1,413 subtests. Final full-tree verification and independent review follow in Task 6.
+
+- Fresh-context review: no Critical issues; one Important ownership gap in sync's head marker read. Fixed both watch paths with an injected build-owned query, removed storage fields from SyncDoc, and added storage-free watch tests (2 red before the API change) plus marker-leak guards (25 assertion-red before enforcement). Reviewer confirmed the correction; no remaining Critical/Important issues.
+- Full local suite before the review correction: 2,488 passed, 11 skipped, 1,532 subtests in 116.94 seconds. Ten skips require local TeX/sandbox tools, one requires optional real-state-copy data. Shell suite 195/0; Ruff, format, ShellCheck, boundaries, mypy155, wheel/sdist, isolated command smoke, Python3.10 direct entry, and Handbook check/build passed.
+- Declined review behaviors: atomic consistency of separately read facts, exactly-once notifications, and P1c/release/deployment remain explicitly out of scope; no claim is made for them.
+- Ruling: overlap read-only final review and PR CI after local green verification, but never merge until the reviewed corrected head passes every required gate.

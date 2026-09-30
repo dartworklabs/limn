@@ -165,8 +165,8 @@ def unexpected(checked_at: str) -> Json:
 
 
 def behind(head: str, built: str) -> bool:
-    """True when a document's PDF was not built from commit `head`: no head.txt, a build outside git ("-"), or a
-    built commit that is not a prefix of head (head.txt holds the short id)."""
+    """True when a document's PDF was not built from commit `head`: unknown publication identity, a build outside git ("-"), or a
+    built commit that is not a prefix of head (the provider supplies the short id)."""
     return not built or built == "-" or not head.startswith(built)
 
 
@@ -189,7 +189,7 @@ class Building:
 
 @dataclass(frozen=True)
 class Built:
-    """A LaTeX document at rest: the commit its PDF was built from (head.txt, "" when unreadable) and whether its last
+    """A LaTeX document at rest: the commit its PDF was built from ("" when unknown) and whether its last
     build failed."""
 
     head: str

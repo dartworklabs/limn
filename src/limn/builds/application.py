@@ -85,6 +85,7 @@ class BuildSubsystem:
     documents: DocumentBuildQueries
     pins: PinBuildQueries
     last_failed: Callable[[BuildStateHolder], bool]
+    published_head: Callable[[Doc], str]
     commands: BuildCommands
     routes: RouteBundle
     startup: Callable[[Doc, bool, bool], BuildInitialization]
@@ -119,5 +120,11 @@ def assemble_builds(
     owned_maps = maps or BuildMapCache()
     queries = BuildQueries(lambda: owned_maps() if callable(owned_maps) else owned_maps)
     return BuildSubsystem(
-        queries.documents(), queries.pins(), artifacts.last_build_failed, commands, routes, commands.initialize
+        queries.documents(),
+        queries.pins(),
+        artifacts.last_build_failed,
+        queries.published_head,
+        commands,
+        routes,
+        commands.initialize,
     )

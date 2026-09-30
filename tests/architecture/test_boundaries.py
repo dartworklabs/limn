@@ -19,6 +19,24 @@ def test_repository_respects_all_feature_surfaces():
     assert checker.check(ROOT / "src" / "limn") == []
 
 
+@pytest.mark.parametrize("consumer", ["sync", "documents", "pins", "collaboration", "revisions"])
+@pytest.mark.parametrize("marker", ["head.txt", "built_at.txt", "built_src_mtime.txt", "pages.cur", "builds.json"])
+def test_foreign_build_marker_access_is_rejected(consumer, marker):
+    """Feature consumers cannot bypass the build owner by naming its marker or history files."""
+    code = {
+        f"limn.{consumer}": "__all__ = []",
+        f"limn.{consumer}.reads": f'answer = (doc.dir / "{marker}").read_text()',
+    }
+    errors = checker.violations(code, {f"limn.{consumer}"})
+    assert any("build storage leak" in error for error in errors)
+
+
+def test_build_owner_may_read_its_markers():
+    """The provider remains free to interpret its own publication layout."""
+    code = {"limn.builds": "__all__ = []", "limn.builds.queries": 'answer = (doc.dir / "head.txt").read_text()'}
+    assert checker.violations(code, {"limn.builds"}) == []
+
+
 @pytest.mark.parametrize(
     "provider,name",
     [

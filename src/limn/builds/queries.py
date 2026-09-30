@@ -121,6 +121,10 @@ class BuildQueries:
 
     maps: Callable[[], artifacts.BuildMapCache]
 
+    def published_head(self, doc: Doc) -> str:
+        """Answer synchronization's publication identity; absent/unreadable markers are unknown."""
+        return artifacts.read_head(doc) or ""
+
     def heading(self, doc: Doc) -> BuildHeading:
         """Interpret optional stamps here so consumers never name marker files."""
         return BuildHeading(artifacts.read_head(doc), artifacts.read_built_at(doc), artifacts.cur_pages(doc).name)

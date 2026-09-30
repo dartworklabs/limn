@@ -266,6 +266,7 @@ def assemble_application(config: RunConfig, runtime: RunResources) -> ServerAsse
             watch=resources().sync_watch,
             start_build=builds.commands.build_async,
             last_failed=builds.last_failed,
+            built_head=builds.published_head,
             git=_git,
             clock=time.time,
         )

@@ -9,6 +9,7 @@ from typing import TypeAlias
 ENTRY_POINTS = {"limn.server", "limn.cli", "limn.__main__"}
 CAPABILITIES = {"administration", "builds", "collaboration", "documents", "pins", "revisions", "sync", "viewer"}
 BOUNDARIES = {"runtime", "security", "platform", "web"}
+BUILD_STORAGE_NAMES = {"head.txt", "built_at.txt", "built_src_mtime.txt", "pages.cur", "builds.json"}
 
 CrossingKey: TypeAlias = tuple[str, str]
 CrossingNames: TypeAlias = Mapping[CrossingKey, set[str]]
@@ -130,6 +131,11 @@ def violations(
     errors = [f"{name}: missing literal __all__" for name, surface in sorted(surfaces.items()) if surface is None]
     graph: dict[str, set[str]] = {name: set() for name in code}
     for name, tree in trees.items():
+        source_owner = owner(name)
+        if source_owner and source_owner != "limn.builds":
+            for node in ast.walk(tree):
+                if isinstance(node, ast.Constant) and isinstance(node.value, str) and node.value in BUILD_STORAGE_NAMES:
+                    errors.append(f"{name}:{node.lineno}: build storage leak {node.value}")
         for base, symbol in imports(name, tree, packages):
             target = f"{base}.{symbol}" if symbol and f"{base}.{symbol}" in code else base
             if base in code:
@@ -144,7 +150,6 @@ def violations(
                     if parent in packages and parent in code:
                         graph[name].add(parent)
             target_owner = owner(target)
-            source_owner = owner(name)
             if target_owner and source_owner != target_owner:
                 surface = surfaces.get(target_owner) or set()
                 if base != target_owner or symbol not in surface:
