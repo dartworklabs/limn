@@ -728,15 +728,15 @@ curl -s -X POST http://127.0.0.1:<port>/api/pins/3/unclaim
 | 필드 | 규칙 |
 | --- | --- |
 | `format` | `"limn-figure-map/1"` |
-| `pdf` | 지도 파일이 있는 폴더 기준 상대 경로. 문서 폴더 안이어야 한다 |
+| `pdf` | 지도 파일이 있는 폴더 기준 상대 경로, 1024자 이하. `..` 로 지도 폴더를 벗어나도 되지만 문서 폴더 안이어야 한다 |
 | `pdf_sha256` | 지도가 설명하는 PDF 바이트의 SHA-256. 소문자 16진 64자 |
 | `pages[].page` | 1부터 세는 쪽 번호. 지도 안에서 겹치지 않는다 |
 | `pages[].figure` | 그림 id. 그 쪽의 뿌리 요소 id와 같다. 200자 이하 |
 | `pages[].title` | 선택. 그림 제목. 200자 이하 |
 | `elements[].id` | 비어 있지 않은 문자열, 200자 이하. 지도 전체에서 유일하다. 다시 렌더해도 같은 뜻의 요소는 같은 id를 받는다 |
-| `elements[].parent` | 같은 쪽 요소의 id. 뿌리만 없다(또는 `null`). 순환이 없다 |
+| `elements[].parent` | 같은 쪽 요소의 id. 뿌리만 없다(또는 `null`). 순환이 없고, 뿌리부터 그 요소까지의 id는 둘 다 세어 64개(`MAP_MAX_DEPTH`) 이하다 |
 | `elements[].frac` | `[x, y, w, h]`. 쪽 폭·높이에 대한 비율이고 원점은 왼쪽 위다. 뿌리는 `[0, 0, 1, 1]` 이다 |
-| `elements[].src` | 선택. 그 요소를 부른 코드 `{file, lo, hi}`. `file` 은 문서 폴더 기준 상대 경로(`/` 구분)다. 코드 줄이 없는 벡터 그래픽의 요소는 뺀다 |
+| `elements[].src` | 선택. 그 요소를 부른 코드 `{file, lo, hi}`. `file` 은 문서 폴더 기준 상대 경로(`/` 구분)이고 1024자 이하다. `lo`·`hi` 는 1,000,000 이하다. 코드 줄이 없는 벡터 그래픽의 요소는 뺀다 |
 | `elements[].impl` | 선택. 공통 부품을 구현한 코드. `src` 와 같은 모양이다 |
 | `elements[].part`, `elements[].label` | 선택. 사람에게 보이는 이름. 200자 이하 |
 
@@ -744,16 +744,18 @@ curl -s -X POST http://127.0.0.1:<port>/api/pins/3/unclaim
 
 - 파일이 4 MiB 이하다(`too_large`). 크기는 해석 전에 본다.
 - UTF-8 JSON이고 같은 키가 두 번 나오지 않는다(`not_json`). 맨 위는 객체다(`bad_shape`).
-- `format` 이 맞다(`bad_format`). `pdf` 와 `pdf_sha256` 의 모양이 맞다(`bad_shape`).
+- `format` 이 맞다(`bad_format`). `pdf` 는 1024자(`MAP_MAX_PATH`) 이하이고, `pdf` 와 `pdf_sha256` 의 모양이 맞다(`bad_shape`).
 - 쪽 번호가 1 이상의 정수이고 겹치지 않는다(`bad_page`).
 - 쪽마다 요소는 5000개까지다(`too_many_elements`). 개수는 요소를 읽기 전에 센다.
 - `figure`·`title`·요소 `id`·`part`·`label` 은 200자(`MAP_MAX_TEXT`, 바이트가 아니라 글자 수) 이하다(`bad_shape`). 핀이 이 값을 저장하기 때문이다.
 - `frac` 은 유한수 넷이고 `0 ≤ x`, `0 ≤ y`, `w > 0`, `h > 0`, `x + w ≤ 1 + 1e-6`, `y + h ≤ 1 + 1e-6` 이다(`bad_frac`).
-- `lo`·`hi` 는 정수이고 `1 ≤ lo ≤ hi` 다. 그 밖의 필드도 적힌 모양이어야 한다(`bad_shape`).
+- `lo`·`hi` 는 정수이고 `1 ≤ lo ≤ hi ≤ 1000000`(`MAP_MAX_LINE`)이다. `src`·`impl` 의 `file` 은 1024자(`MAP_MAX_PATH`) 이하다. 그 밖의 필드도 적힌 모양이어야 한다(`bad_shape`).
 - id가 지도 전체에서 유일하다(`duplicate_id`).
 - 쪽마다 `parent` 없는 요소가 정확히 하나이고, 그 id가 `figure`, `frac` 이 `[0, 0, 1, 1]` 이다(`no_root`).
-- 모든 `parent` 가 같은 쪽 요소를 가리키고 순환이 없다(`bad_parent`).
-- `src`·`impl` 의 `file` 은 문서 폴더 안이고, 점으로 시작하는 이름 아래가 아니다. 심볼릭 링크는 푼 뒤에 본다(`path_outside`). `pdf` 가 문서 폴더 밖이면 가져오기가 미룬다.
+- 모든 `parent` 가 같은 쪽 요소를 가리키고 순환이 없다. 뿌리부터 어느 요소까지든 id는 둘 다 세어 64개(`MAP_MAX_DEPTH`) 이하다(`bad_parent`).
+- `src`·`impl` 의 `file` 은 정규 상대 경로다. `/` 로 시작하거나 끝나지 않고, 빈 조각·`.`·`..` 조각·역슬래시·NUL이 없다(`path_outside`). 이 모양은 폴더를 보기 전에 본다. 그다음 문서 폴더 안이고, 점으로 시작하는 이름 아래가 아니다. 심볼릭 링크는 푼 뒤에 본다(`path_outside`). `pdf` 가 문서 폴더 밖이면 가져오기가 미룬다.
+
+경로 길이·줄 번호·깊이의 상한도 `MAP_MAX_TEXT` 와 같은 이유로 둔다. 받은 지도의 어느 요소든 핀에 그대로 담을 수 있어야 하기 때문이다.
 
 **쓰는 순서.** 생산자는 PDF를 먼저 쓰고, 지도는 마지막에 원자적으로 바꾼다(임시 파일에 쓰고 이름 바꾸기). 순서가 달라도 `pdf_sha256` 이 맞을 때만 가져오므로, 어긋난 짝이 화면에 오르지는 않는다.
 

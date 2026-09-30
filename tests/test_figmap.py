@@ -2,8 +2,8 @@
 
 The module is pure, so these tests hand it bytes and a path check and look only at the values it returns (coding rule
 R9). Every rejection reason has examples that break exactly that rule. The accepted edges are pinned too: unknown keys,
-elements drawn without code (ADR-0011 D7), a root listed last, rounding at the page edge, a parent chain as deep as
-the element cap, a file exactly at the size cap. Hypothesis checks that parse_map never raises, whatever bytes or JSON
+elements drawn without code (ADR-0011 D7), a root listed last, rounding at the page edge, each bound a pin relies on
+(path length, line number, depth) at its limit, a file exactly at the size cap. Hypothesis checks that parse_map never raises, whatever bytes or JSON
 it gets, and that every map it accepts is one tree per page rooted at the page's figure.
 
 Run: uv run pytest -q tests/test_figmap.py
@@ -23,7 +23,10 @@ from limn.figmap import (
     FULL_PAGE,
     MAP_FORMAT,
     MAP_MAX_BYTES,
+    MAP_MAX_DEPTH,
     MAP_MAX_ELEMENTS,
+    MAP_MAX_LINE,
+    MAP_MAX_PATH,
     MAP_MAX_TEXT,
     FigureMap,
     MapElement,
@@ -71,6 +74,34 @@ def second_page(figure: str, *elements: dict, number: int = 2) -> Callable[[dict
 
 
 ROOT_ONLY = {"id": "C1", "frac": [0, 0, 1, 1]}
+
+
+def path_of(length: int, suffix: str) -> str:
+    """A canonical relative path of exactly length characters (at least len(suffix) + 3) ending in suffix."""
+    return "d/" + "x" * (length - 2 - len(suffix)) + suffix
+
+
+def chain_of(depth: int) -> list[dict]:
+    """A first page's elements as one parent chain: root B2 and depth - 1 descendants, each the child of the one
+    before, so the last one is depth ids from the root, both counted."""
+    return [{"id": "B2", "frac": [0, 0, 1, 1]}] + [
+        {"id": "B2/%d" % i, "parent": "B2" if i == 0 else "B2/%d" % (i - 1), "frac": [0, 0, 1, 1]}
+        for i in range(depth - 1)
+    ]
+
+
+# Source paths that are not canonical relative POSIX paths, which a pin could not store: path_outside before the
+# document's folder is ever asked (index §Shared contract: canonical paths).
+NOT_CANONICAL = {
+    "absolute": "/src/B2_calendar.py",
+    "climbing out": "../src/B2_calendar.py",
+    "climbing out and back in": "src/../src/B2_calendar.py",
+    "a . part": "./src/B2_calendar.py",
+    "an empty part": "src//B2_calendar.py",
+    "a trailing /": "src/",
+    "a backslash": "src\\B2_calendar.py",
+    "a NUL": "src/B2\x00.py",
+}
 
 
 def put_figure(m: dict, text: str) -> None:
@@ -142,6 +173,33 @@ REJECTIONS = [
     ),
     ("two elements parenting each other", lambda m: elements0(m)[1].update(parent="B2/calendar/m07"), "bad_parent"),
     ("an element its own parent", lambda m: elements0(m)[1].update(parent="B2/calendar"), "bad_parent"),
+    ("pdf longer than MAP_MAX_PATH", lambda m: m.update(pdf=path_of(MAP_MAX_PATH + 1, ".pdf")), "bad_shape"),
+    (
+        "src file longer than MAP_MAX_PATH",
+        lambda m: elements0(m)[1]["src"].update(file=path_of(MAP_MAX_PATH + 1, ".py")),
+        "bad_shape",
+    ),
+    (
+        "impl file longer than MAP_MAX_PATH",
+        lambda m: elements0(m)[2]["impl"].update(file=path_of(MAP_MAX_PATH + 1, ".py")),
+        "bad_shape",
+    ),
+    ("hi past MAP_MAX_LINE", lambda m: elements0(m)[1]["src"].update(hi=MAP_MAX_LINE + 1), "bad_shape"),
+    (
+        "impl lo and hi past MAP_MAX_LINE",
+        lambda m: elements0(m)[2]["impl"].update(lo=MAP_MAX_LINE + 1, hi=MAP_MAX_LINE + 1),
+        "bad_shape",
+    ),
+    *(
+        ("src file with %s" % what, lambda m, path=path: elements0(m)[1]["src"].update(file=path), "path_outside")
+        for what, path in NOT_CANONICAL.items()
+    ),
+    ("impl file climbing out", lambda m: elements0(m)[2]["impl"].update(file="../lib/components.py"), "path_outside"),
+    (
+        "an element MAP_MAX_DEPTH + 1 ids from its root",
+        lambda m: page0(m).update(elements=chain_of(MAP_MAX_DEPTH + 1)),
+        "bad_parent",
+    ),
     ("no element without a parent", lambda m: elements0(m)[0].update(parent="B2/calendar"), "no_root"),
     ("two elements without a parent", lambda m: elements0(m)[1].pop("parent"), "no_root"),
     ("the root is not the figure", lambda m: page0(m).update(figure="B3"), "no_root"),
@@ -244,18 +302,43 @@ class Accepted(unittest.TestCase):
         got = parse(changed(lambda m: m.update(pages=[])))
         self.assertEqual((got.pages, got.page(1), got.find("B2")), ((), None, None))
 
-    def test_a_parent_chain_as_deep_as_the_element_cap_parses(self):
-        """MAP_MAX_ELEMENTS elements each the child of the one before: no recursion limit is hit, and the last one's
-        ancestors are all the others, root last."""
-        chain = [{"id": "B2", "frac": [0, 0, 1, 1]}] + [
-            {"id": "B2/%d" % i, "parent": "B2" if i == 0 else "B2/%d" % (i - 1), "frac": [0, 0, 1, 1]}
-            for i in range(MAP_MAX_ELEMENTS - 1)
+    def test_each_bound_a_pin_relies_on_is_accepted_at_its_limit(self):
+        """pdf, src.file and impl.file of MAP_MAX_PATH characters, lo = hi = MAP_MAX_LINE, and a parent chain whose
+        last element is MAP_MAX_DEPTH ids from the root, both counted: each is a map, with the value kept."""
+
+        def depth_of_last(got: FigureMap) -> int:
+            """How many ids lie from the first page's root down to its last element, both counted."""
+            page = got.page(1)
+            return len(page.ancestors(page.elements[-1])) + 1
+
+        pdf, file = path_of(MAP_MAX_PATH, ".pdf"), path_of(MAP_MAX_PATH, ".py")
+        rows: list[tuple[str, Callable[[dict], object], Callable[[FigureMap], object], object]] = [
+            ("pdf", lambda m: m.update(pdf=pdf), lambda got: got.pdf, pdf),
+            (
+                "src file",
+                lambda m: elements0(m)[1]["src"].update(file=file),
+                lambda got: got.page(1).elements[1].src.file,
+                file,
+            ),
+            (
+                "impl file",
+                lambda m: elements0(m)[2]["impl"].update(file=file),
+                lambda got: got.page(1).elements[2].impl.file,
+                file,
+            ),
+            (
+                "lines",
+                lambda m: elements0(m)[1]["src"].update(lo=MAP_MAX_LINE, hi=MAP_MAX_LINE),
+                lambda got: got.page(1).elements[1].src,
+                SourceRef("src/B2_calendar.py", MAP_MAX_LINE, MAP_MAX_LINE),
+            ),
+            ("depth", lambda m: page0(m).update(elements=chain_of(MAP_MAX_DEPTH)), depth_of_last, MAP_MAX_DEPTH),
         ]
-        got = parse(changed(lambda m: page0(m).update(elements=chain)))
-        page = got.page(1)
-        self.assertEqual(len(page.elements), MAP_MAX_ELEMENTS)
-        ancestors = page.ancestors(page.elements[-1])
-        self.assertEqual((len(ancestors), ancestors[-1].id), (MAP_MAX_ELEMENTS - 1, "B2"))
+        for what, change, read, want in rows:
+            with self.subTest(what):
+                got = parse(changed(change))
+                self.assertIsInstance(got, FigureMap)
+                self.assertEqual(read(got), want)
 
     def test_a_file_exactly_at_the_size_cap_is_read(self):
         """MAP_MAX_BYTES bytes (a map padded with trailing whitespace) are still a map."""
@@ -336,6 +419,34 @@ class Rejected(unittest.TestCase):
             {"id": "B2/%d" % i, "parent": "B2", "frac": [0, 0, 1, 1]} for i in range(MAP_MAX_ELEMENTS)
         ]
         self.assertEqual(parse(changed(lambda m: page0(m).update(elements=many))).reason, "too_many_elements")
+
+    def test_a_parent_chain_as_long_as_the_element_cap_is_refused_without_recursion(self):
+        """MAP_MAX_ELEMENTS elements each the child of the one before, listed root first or leaf first, reach far
+        deeper than MAP_MAX_DEPTH: bad_parent, found by an iterative walk - never a RecursionError."""
+        chain = chain_of(MAP_MAX_ELEMENTS)
+        for order, elements in (("root first", chain), ("leaf first", chain[::-1])):
+            with self.subTest(order):
+                got = parse(changed(lambda m, elements=elements: page0(m).update(elements=elements)))
+                self.assertIsInstance(got, MapRejected)
+                self.assertEqual(got.reason, "bad_parent", got.detail)
+
+    def test_a_path_that_is_not_canonical_is_refused_before_the_folder_is_asked(self):
+        """The root's src.file set to each NOT_CANONICAL path: path_outside, and source_inside is never asked - the
+        root is the first element read, so no path was asked about before it."""
+        asked: list[str] = []
+
+        def record(path: str) -> bool:
+            """Remember the path and accept it."""
+            asked.append(path)
+            return True
+
+        for what, path in NOT_CANONICAL.items():
+            with self.subTest(what):
+                got = parse(
+                    changed(lambda m, path=path: elements0(m)[0]["src"].update(file=path)), source_inside=record
+                )
+                self.assertIsInstance(got, MapRejected)
+                self.assertEqual((got.reason, asked), ("path_outside", []))
 
     def test_a_source_path_the_document_does_not_hold_is_path_outside(self):
         """source_inside decides for src.file and impl.file alike (docs/handbook/code-style-roadmap.md §R10)."""

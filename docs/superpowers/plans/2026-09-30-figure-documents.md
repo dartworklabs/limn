@@ -131,6 +131,10 @@ MAP_FORMAT = "limn-figure-map/1"
 MAP_SUFFIX = ".limnmap.json"
 MAP_MAX_BYTES = 4 * 1024 * 1024
 MAP_MAX_ELEMENTS = 5000  # per page
+MAP_MAX_TEXT = 200  # characters of figure, title, element id, part, label
+MAP_MAX_PATH = 1024  # characters of pdf, src.file, impl.file
+MAP_MAX_LINE = 1_000_000  # the highest lo or hi
+MAP_MAX_DEPTH = 64  # ids from a page's root down to an element, both counted
 Frac: TypeAlias = tuple[float, float, float, float]  # x, y, w, h; top-left origin; page fractions
 
 
@@ -190,7 +194,7 @@ class MapRejected:
 def parse_map(raw: bytes, *, source_inside: Callable[[str], bool]) -> FigureMap | MapRejected: ...
 ```
 
-Rules `parse_map` enforces: size ≤ `MAP_MAX_BYTES` before decoding; `figure`, `title`, element `id`, `part` and `label` are at most `MAP_MAX_TEXT = 200` characters (`bad_shape` otherwise), because pins store them; `format == MAP_FORMAT`; pages have distinct 1-based `page`; element ids are unique across the whole map; exactly one root per page (`parent` absent, `id == figure`, `frac == (0, 0, 1, 1)`); every `parent` names an element of the same page and there is no cycle; every `frac` value is a finite number (use `limn.pins.shapes.is_finite_num`) with `0 ≤ x, y`, `w, h > 0`, `x + w ≤ 1 + 1e-6`, `y + h ≤ 1 + 1e-6`; `lo`/`hi` are ints (`is_int`) with `1 ≤ lo ≤ hi`; every `src.file`/`impl.file` passes `source_inside`; ≤ `MAP_MAX_ELEMENTS` per page. Unknown keys are ignored (the format grows additively).
+Rules `parse_map` enforces: size ≤ `MAP_MAX_BYTES` before decoding; `figure`, `title`, element `id`, `part` and `label` are at most `MAP_MAX_TEXT = 200` characters (`bad_shape` otherwise), because pins store them; `format == MAP_FORMAT`; pages have distinct 1-based `page`; element ids are unique across the whole map; exactly one root per page (`parent` absent, `id == figure`, `frac == (0, 0, 1, 1)`); every `parent` names an element of the same page and there is no cycle; every `frac` value is a finite number (use `limn.pins.shapes.is_finite_num`) with `0 ≤ x, y`, `w, h > 0`, `x + w ≤ 1 + 1e-6`, `y + h ≤ 1 + 1e-6`; `lo`/`hi` are ints (`is_int`) with `1 ≤ lo ≤ hi ≤ MAP_MAX_LINE` (`bad_shape`); `pdf`, `src.file` and `impl.file` are at most `MAP_MAX_PATH` characters (`bad_shape`); every `src.file`/`impl.file` is a canonical relative POSIX path - no leading or trailing `/`, no empty, `.` or `..` part, no backslash or NUL (`path_outside`, refused before `source_inside` is asked) - and passes `source_inside`; `pdf` may climb out of the map's folder with `..`, and where it lands is the import's check (`pdf_outside`); every element is at most `MAP_MAX_DEPTH` ids from its page root, both counted (`bad_parent`); ≤ `MAP_MAX_ELEMENTS` per page. These bounds are the pin record's (P1b `parse_el`: `EL_PATH_MAX`, `EL_FILE_MAX`, `EL_LINE_MAX`, no `..` in `impl.file`), so every element of an accepted map can be pinned. Unknown keys are ignored (the format grows additively).
 
 P1b adds to the same module:
 
@@ -231,7 +235,7 @@ def follow_element(m: FigureMap, el_id: str, page_then: int, frac_then: Frac) ->
 Shared build facts live in `src/limn/build.py`, because the pick slice, `documents.DocumentFacts` and the composition root read them and one feature slice must not import another (architecture.md §의존 방향):
 
 - `FIGMAP_NAME = "figmap.json"`: the map copied into every `pages-<build>/` folder next to the PDF copy.
-- `load_build_map(doc: Doc, build: str) -> FigureMap | MapRejected | None`: reads `pages-<build>/figmap.json` (None when absent). The pick and the read-time fields call this with the pick's `pdf_build` or the current build. P1b puts a per-run `BuildMapCache` (keyed by document folder, build, mtime_ns, size; 16 entries) in front of it.
+- `load_build_map(doc: Doc, build: str) -> FigureMap | MapRejected | None`: `build` is the full page-folder name (`pages_build`, e.g. `pages-20260926100000`); reads `<doc.dir>/<build>/figmap.json` (None when `build` is not a page-folder name or the copy is absent). The pick and the read-time fields call this with the pick's `pdf_build` or the current build. P1b puts a per-run `BuildMapCache` (keyed by document folder, build, mtime_ns, size; 16 entries) in front of it.
 
 `src/limn/features/builds/figure.py` owns the import:
 
@@ -293,6 +297,7 @@ The phase plans raised these; they are folded into the sections above. Plans tha
 | --- | --- |
 | P0 | `kind_builds_from_source` (and `Doc.builds_from_source` calls it); `is_pdf` removed from every carrier |
 | P1a | `FIGMAP_NAME`/`load_build_map` in `build.py`; `has_element_map`; `figure_src_hash`; missing map at startup refuses the start |
+| P1a final review | `MAP_MAX_PATH`, canonical paths, `MAP_MAX_LINE`, `MAP_MAX_DEPTH`: `parse_map` accepts only maps whose every element P1b's pin record can store (a parent chain deeper than 64 is now `bad_parent`) |
 | P1b | `el.frac`; root excluded from pick steps 1–2; `default_level` from the first rung; rungs in one file, merged inward, with `n`; grown error sentences; `pins.md` shared-part path; `element_kind` 77-character cap; broader `element_without_source`; `bad_el`; `.py` anchor comments; `raw`-only snippet ladder; `pins.md` figure section title |
 | P1c | `body.no-rebuild` by kind |
 | Orchestrator | `MAP_MAX_TEXT = 200`; `el` dropped by a `loc` without it |

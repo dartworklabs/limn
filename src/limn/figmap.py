@@ -25,6 +25,9 @@ MAP_SUFFIX = ".limnmap.json"
 MAP_MAX_BYTES = 4 * 1024 * 1024
 MAP_MAX_ELEMENTS = 5000  # per page
 MAP_MAX_TEXT = 200  # characters of a figure, title, element id, part or label: pins store them
+MAP_MAX_PATH = 1024  # characters of pdf, src.file and impl.file: a pin stores impl.file
+MAP_MAX_LINE = 1_000_000  # the highest lo or hi of src and impl: a pin stores impl's lines
+MAP_MAX_DEPTH = 64  # ids from a page's root down to an element, both counted: a pin stores them as its path
 Frac: TypeAlias = tuple[float, float, float, float]  # x, y, w, h; top-left origin; page fractions
 
 FRAC_EPS = 1e-6  # how far past the page edge a producer's float rounding may put x + w or y + h
@@ -158,10 +161,14 @@ class FigureMap:
 def parse_map(raw: bytes, *, source_inside: Callable[[str], bool]) -> FigureMap | MapRejected:
     """The map raw holds, or the first rule it breaks, in this order: the size (at most MAP_MAX_BYTES, checked before
     decoding: too_large); UTF-8 JSON with no repeated key and no nesting deeper than the decoder's stack (not_json); a
-    top-level object (bad_shape); format (bad_format); pdf a non-empty string and pdf_sha256 64 lowercase hex digits
-    (bad_shape); pages a list; then each page in map order (_page). The names a pin stores - figure, title, element
-    id, part, label - are at most MAP_MAX_TEXT characters (bad_shape). Unknown keys are ignored everywhere. Never
-    raises. source_inside is asked about every src.file and impl.file and must not raise either."""
+    top-level object (bad_shape); format (bad_format); pdf a non-empty string of at most MAP_MAX_PATH characters and
+    pdf_sha256 64 lowercase hex digits (bad_shape); pages a list; then each page in map order (_page). What a pin
+    stores is bounded, so every element of an accepted map can be pinned: the names - figure, title, element id,
+    part, label - are at most MAP_MAX_TEXT characters (bad_shape), src and impl paths at most MAP_MAX_PATH characters
+    and canonical, their lines at most MAP_MAX_LINE (_source), and an element at most MAP_MAX_DEPTH ids from its
+    root (_tree_rejection). pdf is relative to the map's folder and may climb out of it with '..': where it lands is
+    the import's check (limn.build.figure_pdf), not the parser's. Unknown keys are ignored everywhere. Never raises.
+    source_inside is asked about every canonical src.file and impl.file and must not raise either."""
     if len(raw) > MAP_MAX_BYTES:
         return MapRejected("too_large", "%d bytes > %d" % (len(raw), MAP_MAX_BYTES))
     try:
@@ -173,8 +180,8 @@ def parse_map(raw: bytes, *, source_inside: Callable[[str], bool]) -> FigureMap 
     if top.get("format") != MAP_FORMAT:
         return MapRejected("bad_format", "format is %s, not %r" % (_short(top.get("format")), MAP_FORMAT))
     pdf = _text(top.get("pdf"))
-    if not pdf:
-        return MapRejected("bad_shape", "pdf must be a non-empty string")
+    if not pdf or len(pdf) > MAP_MAX_PATH:
+        return MapRejected("bad_shape", "pdf must be a non-empty string of at most %d characters" % MAP_MAX_PATH)
     sha = top.get("pdf_sha256")
     if not (isinstance(sha, str) and len(sha) == 64 and set(sha) <= _HEX):
         return MapRejected("bad_shape", "pdf_sha256 must be 64 lowercase hex digits")
@@ -254,8 +261,8 @@ def _page(
     """One page, or the first rule it breaks: an object (bad_shape); page a JSON integer >= 1 no earlier page used
     (bad_page); figure a non-empty string and title absent or a string (bad_shape); elements a list (bad_shape) of at
     most MAP_MAX_ELEMENTS, counted before any is read (too_many_elements); each element (_element, ids unique across
-    the map); exactly one root (_rooted: no_root); every parent on this page and no cycle (_tree_rejection:
-    bad_parent). figure and title are at most MAP_MAX_TEXT characters. numbers and ids collect what this page uses,
+    the map); exactly one root (_rooted: no_root); every parent on this page, no cycle and no element deeper than
+    MAP_MAX_DEPTH (_tree_rejection: bad_parent). figure and title are at most MAP_MAX_TEXT characters. numbers and ids collect what this page uses,
     for the pages after it."""
     if not isinstance(v, dict):
         return MapRejected("bad_shape", "%s is not an object" % where)
@@ -347,16 +354,25 @@ def _frac(v: object, where: str) -> Frac | MapRejected:
 
 def _source(v: object, where: str, source_inside: Callable[[str], bool]) -> SourceRef | None | MapRejected:
     """An optional {file, lo, hi}: None when absent or null (a vector graphic without code, ADR-0011 D7); bad_shape
-    unless an object whose file is a non-empty string and lo, hi JSON integers with 1 <= lo <= hi; path_outside when
-    source_inside refuses file."""
+    unless an object whose file is a non-empty string of at most MAP_MAX_PATH characters and lo, hi JSON integers with
+    1 <= lo <= hi <= MAP_MAX_LINE; path_outside when file is not a canonical relative path (_canonical - refused before
+    source_inside is asked) or source_inside refuses it."""
     if v is None:
         return None
     if not isinstance(v, dict):
         return MapRejected("bad_shape", "%s must be an object {file, lo, hi}" % where)
     file = _text(v.get("file"))
     lo, hi = _int(v.get("lo")), _int(v.get("hi"))
-    if not file or lo is None or hi is None or not 1 <= lo <= hi:
-        return MapRejected("bad_shape", "%s must be {file, lo, hi} with 1 <= lo <= hi" % where)
+    if not file or len(file) > MAP_MAX_PATH or lo is None or hi is None or not 1 <= lo <= hi <= MAP_MAX_LINE:
+        return MapRejected(
+            "bad_shape",
+            "%s must be {file, lo, hi} with a file of at most %d characters and 1 <= lo <= hi <= %d"
+            % (where, MAP_MAX_PATH, MAP_MAX_LINE),
+        )
+    if not _canonical(file):
+        return MapRejected(
+            "path_outside", "%s.file %r is not a canonical relative path" % (where, file[:DETAIL_TEXT_MAX])
+        )
     if not source_inside(file):
         return MapRejected(
             "path_outside", "%s.file %r is outside the figure's folder" % (where, file[:DETAIL_TEXT_MAX])
@@ -378,26 +394,43 @@ def _rooted(elements: list[MapElement], figure: str, where: str) -> tuple[MapEle
     return (root,) + tuple(el for el in elements if el is not root)
 
 
+def _canonical(path: str) -> bool:
+    """Whether path is a canonical relative POSIX path, the only form a pin stores: no leading or trailing '/', no
+    empty, '.' or '..' part, and no backslash or NUL. Where it leads is not asked here (source_inside is)."""
+    return "\\" not in path and "\x00" not in path and all(part not in ("", ".", "..") for part in path.split("/"))
+
+
 def _tree_rejection(elements: tuple[MapElement, ...], where: str) -> MapRejected | None:
-    """bad_parent when a parent names no element of this page, or when following the parents from an element never
-    reaches the root (a cycle); None for a tree. elements has the root first. The walk is iterative and marks what
-    reaches the root, so a chain of MAP_MAX_ELEMENTS elements costs one pass."""
+    """bad_parent when a parent names no element of this page, when following the parents from an element never
+    reaches the root (a cycle), or when an element lies more than MAP_MAX_DEPTH ids from the root, both counted (a pin
+    stores that chain of ids); None for a tree. elements has the root first. The walk is iterative and remembers each
+    element's depth once it is known, so a chain of MAP_MAX_ELEMENTS elements costs one pass, in any order."""
     by_id = {el.id: el for el in elements}
     for el in elements:
         if el.parent is not None and el.parent not in by_id:
             return MapRejected(
-                "bad_parent", "%s: parent %r of %r is not on this page" % (where, el.parent[:80], el.id[:80])
+                "bad_parent",
+                "%s: parent %r of %r is not on this page"
+                % (where, el.parent[:DETAIL_TEXT_MAX], el.id[:DETAIL_TEXT_MAX]),
             )
-    reaches = {elements[0].id}
+    depth = {elements[0].id: 1}
     for el in elements:
         walk: list[str] = []
         on_walk: set[str] = set()
         cur = el
-        while cur.id not in reaches:
+        while cur.id not in depth:
             if cur.id in on_walk or cur.parent is None:
                 return MapRejected("bad_parent", "%s: %r is on a parent cycle" % (where, cur.id[:DETAIL_TEXT_MAX]))
             walk.append(cur.id)
             on_walk.add(cur.id)
             cur = by_id[cur.parent]
-        reaches.update(walk)
+        d = depth[cur.id]
+        for el_id in reversed(walk):
+            d += 1
+            if d > MAP_MAX_DEPTH:
+                return MapRejected(
+                    "bad_parent",
+                    "%s: %r is more than %d ids from the root" % (where, el_id[:DETAIL_TEXT_MAX], MAP_MAX_DEPTH),
+                )
+            depth[el_id] = d
     return None
