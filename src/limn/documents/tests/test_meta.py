@@ -372,12 +372,37 @@ class Lookups(Fixture):
         self.assertIs(documents.doc_for_file([self.rv, outer, self.rr], self.src, "rr/rr.tex"), self.rr)
         self.assertIs(documents.doc_for_file([self.rv, outer, self.rr], self.src, "main.tex"), outer)
 
-    def test_doc_for_file_gives_two_roots_of_equal_depth_to_the_first_document(self):
-        """A figure document whose folder is the LaTeX document's own build root: neither is deeper, so the one listed
-        first takes the file, in either order (the order is the operator's, never the kind's)."""
+    def test_doc_for_file_breaks_an_equal_depth_tie_by_the_file_suffix(self):
+        """A figure document whose folder is the LaTeX document's own build root: neither is deeper, so a LaTeX source
+        suffix (any case) goes to the document built from source and any other file to the figure document, in either
+        listing order."""
         same = Doc("same", "그림", "figure", self.src, self.src / "same.limnmap.json", paths=self.paths)
-        self.assertIs(documents.doc_for_file([same, self.ms], self.src, "main.tex"), same)
-        self.assertIs(documents.doc_for_file([self.ms, same], self.src, "main.tex"), self.ms)
+        for docs in ([same, self.ms], [self.ms, same]):
+            with self.subTest(first=docs[0].key):
+                self.assertIs(documents.doc_for_file(docs, self.src, "main.tex"), self.ms)
+                self.assertIs(documents.doc_for_file(docs, self.src, "refs.BIB"), self.ms)
+                self.assertIs(documents.doc_for_file(docs, self.src, "style.Sty"), self.ms)
+                self.assertIs(documents.doc_for_file(docs, self.src, "figs/plot.py"), same)
+                self.assertIs(documents.doc_for_file(docs, self.src, "notes"), same)
+
+    def test_doc_for_file_gives_an_equal_depth_tie_with_no_preference_to_the_first_document(self):
+        """Two figure documents on one folder share no capability that prefers either: the first listed takes the file,
+        and so does the first of two LaTeX documents on one folder."""
+        a = Doc("a", "a", "figure", self.src, self.src / "a.limnmap.json", paths=self.paths)
+        b = Doc("b", "b", "figure", self.src, self.src / "b.limnmap.json", paths=self.paths)
+        self.assertIs(documents.doc_for_file([a, b], self.src, "x.py"), a)
+        self.assertIs(documents.doc_for_file([b, a], self.src, "x.py"), b)
+        twin = Doc("twin", "twin", "tex", self.src, self.src / "main.tex", paths=self.paths)
+        self.assertIs(documents.doc_for_file([twin, self.ms], self.src, "main.tex"), twin)
+        self.assertIs(documents.doc_for_file([self.ms, twin], self.src, "main.tex"), self.ms)
+
+    def test_doc_for_file_lets_a_deeper_figure_folder_beat_the_suffix(self):
+        """Depth is judged before the suffix: a .tex file inside a deeper figure folder goes to that figure document,
+        and a view-only PDF document never matches whatever the suffix."""
+        (self.src / "figs").mkdir()
+        fig = Doc("fig", "그림", "figure", self.src / "figs", self.src / "figs" / "f.limnmap.json", paths=self.paths)
+        self.assertIs(documents.doc_for_file([self.ms, fig], self.src, "figs/cover.tex"), fig)
+        self.assertIs(documents.doc_for_file([self.rv, self.ms, fig], self.src, "main.tex"), self.ms)
 
     def test_pin_doc_key_reads_legacy_records_as_the_first_document(self):
         """A record without a usable doc field belongs to the first document; no field is written."""
