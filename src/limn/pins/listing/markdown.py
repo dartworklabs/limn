@@ -16,7 +16,6 @@ from limn.pins.listing.render import (
     PinsMdInput,
     pins_md_text as render_pins_md_text,
     rel_badge,
-    shared_part_path,
 )
 from limn.pins.location.lookup import PinLocation, doc_scope
 from limn.pins.mentions import addressed_to, fyi_mentions_to, thread_round
@@ -82,8 +81,8 @@ class PinMarkdown:
 
         The rules a pin's row follows are the overlap, @-tag, thread, file-location and figure-element ones - a figure
         pin's element is followed on its document's current map, read at most once per document per call (through
-        the run's map cache, as GET /api/pins does), and its shared part is placed under its document's folder as
-        text.
+        the run's map cache, as GET /api/pins does), and its shared part is given the document's folder to be
+        placed under as text.
 
         Reads files (people.json, the build stamps, whether the token file exists, the source file of each open
         one-line pin that carries a quote - each file read at most once per call - and each figure document's
@@ -100,7 +99,7 @@ class PinMarkdown:
                 continue
             location, line_len = self._location_and_line_len(pin, sources)
             doc_key = self.deps.pin_doc_key(r)
-            el_sync, impl_location = self._element_facts(r, doc_key, maps)
+            el_sync, impl_scope = self._element_facts(r, doc_key, maps)
             facts[r["id"]] = PinFacts(
                 doc_key=doc_key,
                 location=location,
@@ -111,7 +110,7 @@ class PinMarkdown:
                 fyi=tuple(fyi_mentions_to(pin)),
                 round=tuple(thread_round(pin.core.thread)),
                 el_sync=el_sync,
-                impl_location=impl_location,
+                impl_scope=impl_scope,
             )
         docs = tuple(
             DocHeading(
@@ -145,10 +144,11 @@ class PinMarkdown:
         self, r: Record, doc_key: str, maps: dict[str, FigureMap | None]
     ) -> tuple[str | None, str | None]:
         """A figure pin's facts for its row: el_sync on its document's current map (asked at most once per document per
-        render, kept in maps) and the shared part's file relative to --manuscript (impl.file joined as text under the
-        document's folder, doc_scope - never opened), or None for it when the pin's document is no longer served or
-        impl.file may not be shown (limn.pins.listing.render.shared_part_path). (None, None) for a pin without a well-formed
-        el. Total: a hostile stored el gives facts, never an error."""
+        render, kept in maps) and impl_scope, the folder of its document relative to --manuscript (doc_scope) when the
+        element has a shared part - None when it has none or its document is no longer served. The edge only passes the
+        folder; whether and how the shared part's file is printed is the renderer's rule (limn.pins.listing.render.shared_part_md).
+        Nothing is opened. (None, None) for a pin without a well-formed el. Total: a hostile stored el gives facts, never
+        an error."""
         el = element_of(r.get("el"))
         if el is None:
             return None, None
@@ -158,7 +158,7 @@ class PinMarkdown:
         doc = doc_by_key(self.deps.docs, doc_key)
         if el.impl is None or doc is None:
             return sync, None
-        return sync, shared_part_path(doc_scope(doc, self.deps.C.src), el.impl.file)
+        return sync, doc_scope(doc, self.deps.C.src)
 
     def _location_and_line_len(self, pin: Pin, sources: dict[Path, list[str]]) -> tuple[str, int | None]:
         """The pin's current display path and quoted line length, reading each source path at most once."""

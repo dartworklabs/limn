@@ -78,6 +78,12 @@ class FigureBase(Base):
         self.assertEqual(code, 200, body)
         return {p["id"]: p for p in json.loads(body)}
 
+    def row(self, md, pid):
+        """The table row of pin pid."""
+        return next(
+            line for line in md.splitlines() if line.startswith("| %d |" % pid) or line.startswith("| %d · " % pid)
+        )
+
     def rewrite(self, pid, change):
         """Hand-edit the stored record of pin pid (the way an older or foreign writer left it): change(record) runs on the
         stored record, and pins.jsonl is written again. Nothing is validated beyond what the store keeps."""
@@ -345,12 +351,6 @@ class FigureMarkdown(FigureBase):
         pins = ps.APP.snapshot_pins()
         return ps.APP.pin_markdown.pins_md_text([p for p in pins if only is None or p.core.pid in only])
 
-    def row(self, md, pid):
-        """The table row of pin pid."""
-        return next(
-            line for line in md.splitlines() if line.startswith("| %d |" % pid) or line.startswith("| %d · " % pid)
-        )
-
     def test_the_figure_section_is_titled_as_a_figure(self):
         """The figure document's subsection title ends with — 그림(요소 지도), never the view-only suffix."""
         lines = self.md().splitlines()
@@ -550,7 +550,7 @@ class FigureMarkdownMapReads(FigureBase):
         md = self.render()
         code, _, _ = split_resp(self.talk(req("GET", "/pins.md")))
         self.assertEqual(code, 200)
-        self.assertIn("요소 잃음", md)
+        self.assertIn("요소 잃음", self.row(md, self.august))
         self.assertEqual(ps.APP.C.pins_jsonl.read_bytes(), before)
         self.assertEqual([r.get("rev", 0) for r in records(ps.APP.read_pins()[0])], [0, 0, 0])
 
@@ -563,12 +563,6 @@ class FigureMarkdownSharedPart(FigureBase):
         code, _, body = split_resp(self.talk(req("GET", "/pins.md")))
         self.assertEqual(code, 200, body)
         return body.decode("utf-8")
-
-    def row(self, md, pid):
-        """The table row of pin pid."""
-        return next(
-            line for line in md.splitlines() if line.startswith("| %d |" % pid) or line.startswith("| %d · " % pid)
-        )
 
     def set_impl_file(self, file):
         """Hand-edit the July pin's stored el.impl.file (a line an older writer or a person left)."""
@@ -599,8 +593,8 @@ class FigureMarkdownSharedPart(FigureBase):
                 self.assertNotIn("..", row.replace("...", ""))
 
     def test_the_part_is_printed_without_opening_the_file_it_names(self):
-        """The shared file is gone (and lib/ itself a dangling link): the line is still printed, and no stat, open or
-        readlink is made on a path ending in the impl file."""
+        """The shared file is gone: the line is still printed, and no stat, open or readlink is made on a path ending in
+        the impl file."""
         components = self.fig.src / "lib" / "components.py"
         components.unlink()
         seen = []

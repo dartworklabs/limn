@@ -518,9 +518,7 @@ class FigureRows(unittest.TestCase):
             el=EL7,
             note="글자를 키워 줘",
         )
-        md = pins_md_text(
-            page([r], {1: facts(location="figs/src/B2_calendar.py", impl_location="figs/lib/components.py")})
-        )
+        md = pins_md_text(page([r], {1: facts(location="figs/src/B2_calendar.py", impl_scope="figs")}))
         self.assertIn(
             "| 1 | 1 | `figs/src/B2_calendar.py L88-L95` | el:MonthCell | «7월» 글자를 키워 줘 ⏎ 공통 부품: figs/lib/components.py:410-470 |",
             md,
@@ -609,25 +607,24 @@ class SharedPart(unittest.TestCase):
     """'공통 부품: <path>:<lo>-<hi>' is a line an agent acts on: printed only for a plain relative path (limn.builds.figure_map's
     canonical rule, no dot-named part), never as the stored text alone."""
 
-    def part_of(self, el, impl_location):
-        """The note cell of a row for a pin with el whose shared part the edge placed at impl_location."""
-        md = pins_md_text(page([line_pin(1, el=el, note="n")], {1: facts(impl_location=impl_location)}))
+    def part_of(self, el, impl_scope):
+        """The note cell of a row for a pin with el whose document's folder the edge gave as impl_scope."""
+        md = pins_md_text(page([line_pin(1, el=el, note="n")], {1: facts(impl_scope=impl_scope)}))
         return next(line for line in md.splitlines() if line.startswith("| 1 |"))
 
     def test_the_part_is_printed_from_the_placed_location_and_the_stored_lines(self):
-        """impl_location (the edge's join) and el.impl.lo/hi: lib/components.py:410-470 under figs/."""
-        self.assertTrue(
-            self.part_of(EL7, "figs/lib/components.py").endswith("n ⏎ 공통 부품: figs/lib/components.py:410-470 |")
-        )
+        """The renderer joins impl_scope (the document's folder) and el.impl.file as text: lib/components.py under figs/."""
+        self.assertTrue(self.part_of(EL7, "figs").endswith("n ⏎ 공통 부품: figs/lib/components.py:410-470 |"))
 
     def test_an_element_without_a_note_shows_the_part_alone_after_its_label(self):
         """No note: «label» then the part, with no stray separator."""
-        md = pins_md_text(page([line_pin(1, el=EL7, note="")], {1: facts(impl_location="figs/lib/components.py")}))
+        md = pins_md_text(page([line_pin(1, el=EL7, note="")], {1: facts(impl_scope="figs")}))
         self.assertIn("| «7월» 공통 부품: figs/lib/components.py:410-470 |", md)
 
-    def test_no_placed_location_means_no_part_and_never_the_stored_file(self):
-        """Without impl_location the stored impl.file is not printed in its place (it is relative to the document's folder,
-        not to --manuscript): the row is as if the element had no shared part."""
+    def test_no_scope_means_no_part_and_never_the_stored_file(self):
+        """Without impl_scope (the pin's document is not served, so its folder is unknown) the stored impl.file is not
+        printed in its place (it is relative to the document's folder, not to --manuscript): the row is as if the
+        element had no shared part."""
         row = self.part_of(EL7, None)
         self.assertNotIn("공통 부품", row)
         self.assertNotIn("lib/components.py", row)
@@ -636,7 +633,7 @@ class SharedPart(unittest.TestCase):
     def test_an_element_without_impl_has_no_part(self):
         """el without impl: nothing to print even when a location was given."""
         el = {k: v for k, v in EL7.items() if k != "impl"}
-        self.assertNotIn("공통 부품", self.part_of(el, "figs/lib/components.py"))
+        self.assertNotIn("공통 부품", self.part_of(el, "figs"))
 
     def test_a_stored_file_that_is_not_a_canonical_relative_path_is_omitted(self):
         """A line that predates parse_el, or a hand edit: '..', '.', an empty part, a leading '/', a backslash, a NUL and a
@@ -656,35 +653,35 @@ class SharedPart(unittest.TestCase):
             too_long,
         ):
             with self.subTest(file=bad[:30]):
-                self.assertNotIn("공통 부품", self.part_of(el_with_impl(bad), "figs/" + bad))
+                self.assertNotIn("공통 부품", self.part_of(el_with_impl(bad), "figs"))
 
     def test_a_path_with_a_dot_named_part_is_omitted(self):
         """.git, a hidden folder or a hidden file anywhere in the path stays out of an agent's work list."""
         for bad in (".git/config", "lib/.env", ".hidden.py", "lib/..x/a.py", "a/.b"):
             with self.subTest(file=bad):
-                self.assertNotIn("공통 부품", self.part_of(el_with_impl(bad), "figs/" + bad))
+                self.assertNotIn("공통 부품", self.part_of(el_with_impl(bad), "figs"))
 
-    def test_a_placed_location_that_is_hostile_is_omitted_too(self):
-        """The renderer re-checks what it prints: an impl_location with '..', an absolute path or a dot part is dropped."""
-        for bad in ("../x.py", "/etc/passwd", "figs/.git/config", "figs//x.py", "figs\\x.py"):
-            with self.subTest(location=bad):
+    def test_a_scope_that_is_hostile_is_omitted_too(self):
+        """The renderer judges the joined path itself: an impl_scope with '..', an absolute path, a dot part or a
+        backslash drops the part; the manuscript root ("") is a fine scope."""
+        for bad in ("..", "../x", "/etc", "figs/.git", "figs//x", "figs\\x", ".figs"):
+            with self.subTest(scope=bad):
                 self.assertNotIn("공통 부품", self.part_of(EL7, bad))
+        self.assertIn("공통 부품: lib/components.py:410-470", self.part_of(EL7, ""))
 
     def test_lines_outside_what_a_request_could_have_stored_are_omitted(self):
         """1 <= lo <= hi <= MAP_MAX_LINE (parse_el's bound): zero, negative, reversed and huge ranges print nothing."""
         for lo, hi in ((0, 5), (-3, 5), (9, 3), (1, figmap.MAP_MAX_LINE + 1), (1, 10**400)):
             with self.subTest(lo=lo, hi=hi):
-                self.assertNotIn(
-                    "공통 부품", self.part_of(el_with_impl("lib/components.py", lo, hi), "figs/lib/components.py")
-                )
+                self.assertNotIn("공통 부품", self.part_of(el_with_impl("lib/components.py", lo, hi), "figs"))
         self.assertIn(
             "공통 부품",
-            self.part_of(el_with_impl("lib/components.py", 1, figmap.MAP_MAX_LINE), "figs/lib/components.py"),
+            self.part_of(el_with_impl("lib/components.py", 1, figmap.MAP_MAX_LINE), "figs"),
         )
 
     def test_a_pipe_in_the_path_cannot_add_a_column(self):
         """The part goes through md_cell like every cell."""
-        row = self.part_of(el_with_impl("lib/a|b.py"), "figs/lib/a|b.py")
+        row = self.part_of(el_with_impl("lib/a|b.py"), "figs")
         self.assertIn("공통 부품: figs/lib/a\\|b.py:410-470", row)
 
     def test_the_join_is_text_only_under_the_document_folder(self):
@@ -767,6 +764,45 @@ class FigureSections(unittest.TestCase):
         self.assertNotIn("요소 지도", md)
 
 
+class SingleDocumentSections(unittest.TestCase):
+    """One served document: only a figure document is sectioned, so its title and 기준 line are always shown."""
+
+    def test_a_figure_only_instance_shows_its_titled_section_and_stamp(self):
+        """The one document is a figure: the sheet is sectioned - the document list, the title with — 그림(요소 지도) and its
+        기준 line - though there is no second document."""
+        fg = dataclasses.replace(FIG, head="abc1234", built_at="2026-09-26 10:00")
+        md = pins_md_text(page([line_pin(1, el=EL7)], {1: facts(doc_key="fig")}, docs=(fg,)))
+        lines = md.splitlines()
+        self.assertIn("문서: 그림(`fig`) 1건", md)
+        self.assertIn("## 그림 · `fig` · `figs/out/figures.limnmap.json` — 그림(요소 지도)", lines)
+        self.assertEqual(
+            lines[lines.index("## 그림 · `fig` · `figs/out/figures.limnmap.json` — 그림(요소 지도)") + 1],
+            "기준: abc1234 · 그림 2026-09-26 10:00",
+        )
+
+    def test_a_figure_only_instance_without_open_pins_is_sectioned_too(self):
+        """No open pin: the sectioned sheet's '열린 핀 없음' line, as any several-document sheet without pins."""
+        self.assertTrue(pins_md_text(page([], docs=(FIG,))).endswith("\n\n열린 핀 없음\n"))
+
+    def test_a_single_latex_document_keeps_the_old_shape(self):
+        """One LaTeX document: no subsections, the stamp in the header, the one table - byte for byte the unsectioned form."""
+        stamped = dataclasses.replace(MAIN, head="abc1234", built_at="2026-09-26 09:59")
+        md = pins_md_text(page([line_pin(1)], docs=(stamped,)))
+        self.assertNotIn("\n## ", md)
+        self.assertNotIn("\n문서: ", md)
+        self.assertIn("\n기준: abc1234 · 빌드 2026-09-26 09:59\n", md)
+
+    def test_a_single_view_only_pdf_document_keeps_the_old_shape(self):
+        """One view-only PDF and no figure: still unsectioned, as before."""
+        pdf = dataclasses.replace(PDF, head="bbb2222", built_at="2026-09-25 08:00")
+        md = pins_md_text(
+            page([region_pin(1, doc_pdf="/ms/review.pdf")], {1: facts(doc_key="rv", location="")}, docs=(pdf,))
+        )
+        self.assertNotIn("\n## ", md)
+        self.assertNotIn("\n문서: ", md)
+        self.assertIn("\n기준: bbb2222 · 빌드 2026-09-25 08:00\n", md)
+
+
 class FigureGuidance(unittest.TestCase):
     """What the guidance says to do with a figure pin, a region pin on a figure, and a view-only PDF's pin."""
 
@@ -776,6 +812,11 @@ class FigureGuidance(unittest.TestCase):
         self.assertIn("그림 저장소", render.FIGURE_GUIDANCE)
         self.assertIn("사람에게 묻", render.FIGURE_GUIDANCE)
         self.assertNotIn("LaTeX 문서에서 찾는다", render.FIGURE_GUIDANCE)
+
+    def test_the_figure_clause_names_a_script_or_a_design_file_as_the_source(self):
+        """The drawn-without-code sentence says the element may come from a script or a design file, so an agent does not
+        search scripts for a graphic a design tool made."""
+        self.assertIn("스크립트나 디자인 파일", render.FIGURE_GUIDANCE)
 
     def test_a_region_pin_on_a_figure_document_without_an_element_takes_the_figure_clause(self):
         """A pick that fell back because the map could not be read leaves a region pin without el on a figure document: it
