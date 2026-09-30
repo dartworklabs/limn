@@ -1,14 +1,14 @@
-"""A state folder with figure pins stays valid for the releases before them: v0.3.5 (the last pre-P0 release) and
-v0.3.7 (the currently deployed release - where a rollback from 0.4.0 lands).
+"""A state folder with figure pins stays valid for the releases before them: v0.3.5, v0.3.7 (the last release before
+P1a's figure documents) and v0.3.8 (the currently deployed release - where a rollback from 0.4.0 lands).
 
-Figure pins add the `el` field and the values via "map", scope el..el8/fig and kind el:<part>/figure. Both prior
-releases must read every such record without a broken line and write it back byte for byte, so rolling back to
-either loses nothing (docs/superpowers/plans/2026-09-30-figure-documents.md §Global Constraints).
+Figure pins add the `el` field and the values via "map", scope el..el8/fig and kind el:<part>/figure. Every one of
+these releases must read every such record without a broken line and write it back byte for byte, so rolling back to
+any of them loses nothing (docs/superpowers/plans/2026-09-30-figure-documents.md §Global Constraints).
 
-The two releases check records differently. v0.3.5's valid_rec is an untyped shape predicate (server.valid_rec)
+The releases check records in two ways. v0.3.5's valid_rec is an untyped shape predicate (server.valid_rec)
 that types kind, via, scope and el only as opaque strings/objects and passes every field it does not know; its
-PinStore takes that predicate directly (files, lock, valid, sync, render, refusal). v0.3.7 already has typed
-parsing (limn.pins.record.parse_record/parse_trashed, the same module this version's Task 2 extends) and a
+PinStore takes that predicate directly (files, lock, valid, sync, render, refusal). v0.3.7 and v0.3.8 already have
+typed parsing (limn.pins.record.parse_record/parse_trashed, the same module this version's Task 2 extends) and a
 PinStore built from those two callables (files, lock, parse, parse_trashed, sync, render) bound to
 limn.documents.DOC_KEY_RE and limn.people.is_actor, same as server.parse_record does now. Both keep every field
 this version does not know and write it back unchanged.
@@ -19,7 +19,7 @@ read_dropped/write_dropped, so the Trash path is exercised too. Each release's s
 by a separate interpreter without site-packages, so this checkout's limn cannot shadow it. A clone missing a tag
 (shallow) skips that release only - checked by `git rev-parse -q --verify`, so any other git failure (a corrupt
 archive, for instance) fails loudly instead of being mistaken for a missing tag. CI checks out full history, so
-both releases run.
+every release runs.
 
 Run: uv run pytest -q tests/contracts/test_figure_rollback.py
 """
@@ -59,7 +59,7 @@ print(json.dumps({
 }))
 """
 
-# v0.3.7: typed parsing (limn.pins.record.parse_record/parse_trashed) bound to DOC_KEY_RE and is_actor, the same
+# v0.3.7 and v0.3.8 (the same flat layout): typed parsing (limn.pins.record.parse_record/parse_trashed) bound to DOC_KEY_RE and is_actor, the same
 # way server.parse_record binds them; PinStore(files, lock, parse, parse_trashed, sync, render).
 NEW_STORE = r"""
 import json, sys, threading
@@ -192,10 +192,19 @@ class RollbackToV035(_RollbackChecks, unittest.TestCase):
 
 
 class RollbackToV037(_RollbackChecks, unittest.TestCase):
-    """v0.3.7's typed store (limn.pins.record.parse_record/parse_trashed) on the same figure records - the
-    currently deployed release."""
+    """v0.3.7's typed store (limn.pins.record.parse_record/parse_trashed) on the same figure records - the last
+    release before P1a's figure documents."""
 
     TAG = "v0.3.7"
+    SCRIPT = NEW_STORE
+
+
+class RollbackToV038(_RollbackChecks, unittest.TestCase):
+    """v0.3.8's typed store on the same figure records - the currently deployed release, where a rollback from 0.4.0
+    lands. It knows figure documents (P1a) but not `el`, and its figure documents do not take line pins; its store
+    still keeps every field it does not know."""
+
+    TAG = "v0.3.8"
     SCRIPT = NEW_STORE
 
 
