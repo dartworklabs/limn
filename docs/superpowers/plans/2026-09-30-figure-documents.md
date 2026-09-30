@@ -302,6 +302,7 @@ The phase plans raised these; they are folded into the sections above. Plans tha
 | P1b | `el.frac`; root excluded from pick steps 1–2; `default_level` from the first rung; rungs in one file, merged inward, with `n`; grown error sentences; `pins.md` shared-part path; `element_kind` 77-character cap; broader `element_without_source`; `bad_el`; `.py` anchor comments; `raw`-only snippet ladder; `pins.md` figure section title |
 | P1c | `body.no-rebuild` by kind |
 | Orchestrator | `MAP_MAX_TEXT = 200`; `el` dropped by a `loc` without it |
+| P1b port | #114 moved the modules (figmap → builds/figure_map, build → builds/artifacts, documents → runtime/documents, mapping → pins/location/mapping, pins/render → pins/listing/render, pins/view → pins/listing/projection, features/<cap> → <cap>); contract names unchanged |
 
 ## Intermediate states
 
