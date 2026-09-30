@@ -24,7 +24,9 @@ function errText(d){if(!d)return ''; const s=d.error==null?'':String(d.error);
 // template through tl(). Korean shows the server text as is; a sentence no template matches stays as it is.
 const PICK_WARNS=['이 영역은 원문 대조가 약합니다({pct}%). 줄 범위를 눈으로 확인하세요.','두 경로가 다른 곳을 가리킵니다(L{a} / L{b}). 확인이 필요합니다.',
   '화면의 PDF 가 지금 원고보다 낡았습니다 — [PDF 재빌드] 뒤에 다시 고르세요.','빌드 중이라 결과가 흔들릴 수 있습니다.',
-  '이 영역에는 글자가 없습니다(그림·스캔본). 메모에 무엇을 가리키는지 적어 주세요.','PDF 가 바뀌어 쪽을 다시 그리는 중입니다 — 끝나면 다시 고르세요.'];
+  '이 영역에는 글자가 없습니다(그림·스캔본). 메모에 무엇을 가리키는지 적어 주세요.','PDF 가 바뀌어 쪽을 다시 그리는 중입니다 — 끝나면 다시 고르세요.',
+  '이 그림의 요소 지도를 읽지 못해 영역으로 찍습니다 — 그림 저장소가 지도를 다시 쓰면 다시 고르세요.',
+  '이 요소를 그린 코드 줄을 찾지 못해 영역으로 찍습니다 — 스크립트를 고친 뒤라면 그림을 다시 렌더하고 다시 고르세요.'];
 function warnText(s){s=s==null?'':String(s); if(LANG!==UI_LANG.EN||!s)return s;
   for(const k of PICK_WARNS){const names=[],lit=k.split(/\{(\w+)\}/).filter((p,i)=>i%2===0||!names.push(p));
     const re=new RegExp(lit.map(p=>p.replace(/[.*+?^$()|[\]\\{}]/g,'\\$&')).join('(\\d+)'),'g');

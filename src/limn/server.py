@@ -419,7 +419,9 @@ class ServerApplication:
         self.pin_listing = PinListing(self, TRASH_DAYS)
         self.pin_markdown = PinMarkdown(self, self.people_directory.known)
         self.location_service = PinLocationService(
-            lambda: PickContext(self.C.src, self.C.envs, self.C.state, self.RT.token_cache, self.overlaps_for_range)
+            lambda: PickContext(
+                self.C.src, self.C.envs, self.C.state, self.RT.token_cache, self.overlaps_for_range, self.figure_map
+            )
         )
         self.build_requests = BuildRequests(
             settings=lambda: self.C,

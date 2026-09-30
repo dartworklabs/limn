@@ -4,6 +4,8 @@ from collections.abc import Mapping
 from typing import Any, Protocol, TypeAlias
 
 from limn.pins.location import input as pick_input
+from limn.pins.location.figure import PickedElement, Rung
+from limn.pins.location.mapping import WEAK_SCORE
 from limn.pins.location.resolve import (
     GeneratedFile,
     NoSourceHere,
@@ -53,6 +55,7 @@ def overlaps(app: LocationApp, doc: Doc, query: Query) -> Body:
 
 # The sentences a pick's `warn` is made of (a UI hint in a 200 body, not an error). The viewer translates each by its
 # template in PICK_WARNS (docs/handbook/viewer.md); src/limn/viewer/tests/test_i18n.py checks that every sentence here has one.
+# figure_map_unavailable and element_without_source lead a figure's region answer (location.figure.FigureFallback).
 PICK_WARNINGS = {
     "weak": "이 영역은 원문 대조가 약합니다(%.0f%%). 줄 범위를 눈으로 확인하세요.",
     "split": "두 경로가 다른 곳을 가리킵니다(L%d / L%d). 확인이 필요합니다.",
@@ -60,6 +63,8 @@ PICK_WARNINGS = {
     "building": "빌드 중이라 결과가 흔들릴 수 있습니다.",
     "blank": "이 영역에는 글자가 없습니다(그림·스캔본). 메모에 무엇을 가리키는지 적어 주세요.",
     "redrawing": "PDF 가 바뀌어 쪽을 다시 그리는 중입니다 — 끝나면 다시 고르세요.",
+    "figure_map_unavailable": "이 그림의 요소 지도를 읽지 못해 영역으로 찍습니다 — 그림 저장소가 지도를 다시 쓰면 다시 고르세요.",
+    "element_without_source": "이 요소를 그린 코드 줄을 찾지 못해 영역으로 찍습니다 — 스크립트를 고친 뒤라면 그림을 다시 렌더하고 다시 고르세요.",
 }
 # Why a selection is not traced to manuscript lines (location.resolve.PickRefusal, one type each) -> (message, API reason).
 # POST /api/pick answers each with a 200 {"error", "reason"} body (pick_answer), the message filled with the
@@ -83,13 +88,15 @@ def pick_build_gone() -> Body:
     }
 
 
-def pick_answer(result: Picked | PickedRegion | PickRefusal) -> Body:
-    """POST /api/pick for every outcome, always a 200 body: the traced range with its ladder, a view-only region, or
-    {"error", "reason"} for a selection that cannot be traced (PICK_REFUSALS, the message filled with
-    the refusal's detail)."""
+def pick_answer(result: Picked | PickedElement | PickedRegion | PickRefusal) -> Body:
+    """POST /api/pick for every outcome, always a 200 body: the traced range with its ladder, a figure element's lines,
+    a view-only region, or {"error", "reason"} for a selection that cannot be traced (PICK_REFUSALS, the message filled
+    with the refusal's detail)."""
     match result:
         case Picked():
             return _picked_body(result)
+        case PickedElement():
+            return _element_body(result)
         case PickedRegion():
             return _region_body(result)
         case GeneratedFile(suffix=suffix):
@@ -148,12 +155,72 @@ def pick_warning(p: Picked) -> str:
     return warn
 
 
+def _element_body(p: PickedElement) -> Body:
+    """The body of a drag traced through a figure's map: the traced-selection body's keys in their contract order -
+    the default rung's lines, via "map", the element's kind and name - then el (docs/handbook/api.md §핀 만들기와
+    상태 바꾸기, the pick row). The score is rounded to two decimals like a traced selection's: full containment
+    computes a cover a hair under 1.0, and nothing here compares the unrounded value."""
+    first = p.rungs[0]
+    return {
+        "file": str(p.file),
+        "name": p.file.name,
+        "page": p.page,
+        "lo": first.lo,
+        "hi": first.hi,
+        "raw_lo": first.lo,
+        "raw_hi": first.hi,
+        "kind": p.kind,
+        "via": "map",
+        "score": round(p.score, 2),
+        "warn": element_warning(p),
+        "n_lines": p.n_lines,
+        "snippet": first.snippet,
+        "frac": p.frac,
+        "quote": p.quote,
+        "levels": [_rung_level(r) for r in p.rungs],
+        "default_level": first.level,
+        "overlaps": p.overlaps,
+        "pdf_build": p.pdf_build,
+        "el": p.el.to_record(),
+    }
+
+
+def _rung_level(r: Rung) -> dict[str, object]:
+    """One levels entry of a map pick, keys in the index's order (§Pick answer): level, lo, hi, n, label, snippet, then
+    its el, then merged when outer rungs had the same lines."""
+    out: dict[str, object] = {
+        "level": r.level,
+        "lo": r.lo,
+        "hi": r.hi,
+        "n": r.hi - r.lo + 1,
+        "label": r.label,
+        "snippet": r.snippet,
+        "el": r.el.to_record(),
+    }
+    if r.merged:
+        out["merged"] = list(r.merged)
+    return out
+
+
+def element_warning(p: PickedElement) -> str:
+    """A map pick's warn: the weak-match sentence when the chosen element holds less than WEAK_SCORE of the drag, then
+    the redraw sentence while the pages are being redrawn; "" when neither applies."""
+    warn = PICK_WARNINGS["weak"] % (p.score * 100) if p.score < WEAK_SCORE else ""
+    if p.redrawing:
+        warn = (warn + " " if warn else "") + PICK_WARNINGS["redrawing"]
+    return warn
+
+
 def _region_body(r: PickedRegion) -> Body:
-    """The body of a selection on a view-only document, keys in the order the agent contract has always had them."""
-    warn = PICK_WARNINGS["blank"] if r.blank else ""
+    """The body of a selection answered as a region - a view-only document's, or a figure's that fell back - keys in
+    the order the agent contract has always had them. A figure's fallback leads the warn with its reason's sentence
+    and adds el, the element it chose, after the contract keys."""
+    warn = PICK_WARNINGS[r.fallback] if r.fallback is not None else ""
+    if r.blank:
+        warn = (warn + " " if warn else "") + PICK_WARNINGS["blank"]
     if r.redrawing:
         warn = (warn + " " if warn else "") + PICK_WARNINGS["redrawing"]
-    return {
+    body: Body = {
         "doc": r.doc,
         "kind": "region",
         "view_only": True,
@@ -167,3 +234,6 @@ def _region_body(r: PickedRegion) -> Body:
         "overlaps": [],
         "pdf_build": r.pdf_build,
     }
+    if r.el is not None:
+        body["el"] = r.el.to_record()
+    return body

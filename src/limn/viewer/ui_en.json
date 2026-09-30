@@ -76,6 +76,8 @@
  "N시간 전": "N hr ago",
  "N일 전": "N days ago",
  "PDF 가 바뀌어 쪽을 다시 그리는 중입니다 — 끝나면 다시 고르세요.": "The PDF changed and the pages are being redrawn — select again when it finishes.",
+ "이 그림의 요소 지도를 읽지 못해 영역으로 찍습니다 — 그림 저장소가 지도를 다시 쓰면 다시 고르세요.": "The figure's element map could not be read, so the region is pinned — select again once the figure repository writes the map.",
+ "이 요소를 그린 코드 줄을 찾지 못해 영역으로 찍습니다 — 스크립트를 고친 뒤라면 그림을 다시 렌더하고 다시 고르세요.": "No code line was found for this element, so the region is pinned — if the script changed, re-render the figure and select again.",
  "PDF 를 벡터로 열지 못했습니다": "Couldn't open the PDF as vectors",
  "PDF 목차를 읽는 중입니다.": "Reading the PDF outline…",
  "PDF 위를 길게 누르면 그 자리 문단을 고릅니다. 스크롤·확대는 평소처럼 됩니다": "Long-press on the PDF to select the paragraph there. Scrolling and zooming still work as usual",

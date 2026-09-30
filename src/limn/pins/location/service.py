@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from limn.pins.location import range as source_range
+from limn.pins.location.figure import PickedElement
 from limn.pins.location.range import SourceRange
 from limn.pins.location.resolve import PickContext, Picked, PickedRegion, PickRefusal, Selection, pick
 from limn.runtime.documents import Doc
@@ -16,8 +17,8 @@ class PinLocationService:
 
     context: Callable[[], PickContext]
 
-    def resolve(self, doc: Doc, request: Selection) -> Picked | PickedRegion | PickRefusal:
-        """Return source lines, a view-only region or a named refusal."""
+    def resolve(self, doc: Doc, request: Selection) -> Picked | PickedElement | PickedRegion | PickRefusal:
+        """Return source lines, a figure element's lines, a region or a named refusal."""
         return pick(doc, request, self.context())
 
     def snippet(self, rng: SourceRange, levels: bool) -> dict[str, Any]:
