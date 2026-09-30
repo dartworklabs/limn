@@ -207,10 +207,10 @@ curl -s -H "Authorization: Bearer $(cat ~/.config/limn/<인스턴스>.token)" ht
 | 메서드 | 경로 | 설명 |
 | --- | --- | --- |
 | `GET` | `/api/version` | `{"name":"limn","version":<문자열>}`. `limn serve --version` 과 같은 값이다. 지금 인스턴스가 어느 설치 버전으로 도는지 확인할 때 쓴다. 쓰기 없음 |
-| `GET` | `/api/meta` | `pages`(쪽 목록), `built_at`, `head`(원고 커밋), `main`(최상위 `.tex` 이름), `label`·`accent`·`repo`(이 인스턴스의 이름표·강조색·git origin URL, [operations.md](operations.md) §여러 논문 인스턴스를 동시에 띄울 때), `n_open`·`n_review`·`n_done`(§검토 대기), `pins_md`·`state_dir`(절대경로), `me`(지금 요청자와 그 `role` — §인증), `building`(재빌드 진행 중), `stale_build`(이 PDF 를 만든 뒤 원고 `.tex` 가 바뀌었는가), `src_mtime`·`build_src_mtime`·`src_age_s`·`pins_rev`([build-sync.md](build-sync.md) §자동 동기화 (가벼운 meta 폴링)), `pages_build`(지금 화면의 빌드 id, `pages.cur` 값), `build_seq`(끝난 빌드 수)·`last_build:{state,errors,finished_at,seq}`·`build:{state,phase,started_at}`([build-sync.md](build-sync.md) §비동기 재빌드), `doc`·`doc_name`·`kind`·`view_only`·`multi`(§문서 매개변수), `ev_seq`(§브라우저 알림 커서). 여러 문서면 `docs`(`/api/docs` 항목에서 `n_open` 을 뺀 것)와 `src_sig` 가 붙는다(라이트 포함). `src_sig` 는 문서마다의 `src_mtime` 을 이은 문자열이다. 그래서 뷰어는 다른 문서의 원고가 바뀌어도 목록을 다시 읽는다. 전체 meta는 요청한 사람을 기록한다(§@태그·사람·이벤트) |
+| `GET` | `/api/meta` | `pages`(쪽 목록), `built_at`, `head`(원고 커밋), `main`(최상위 `.tex` 이름. 보기 전용 PDF는 그 PDF 파일 이름, 그림 문서는 지도 파일 이름), `label`·`accent`·`repo`(이 인스턴스의 이름표·강조색·git origin URL, [operations.md](operations.md) §여러 논문 인스턴스를 동시에 띄울 때), `n_open`·`n_review`·`n_done`(§검토 대기), `pins_md`·`state_dir`(절대경로), `me`(지금 요청자와 그 `role` — §인증), `building`(재빌드 진행 중), `stale_build`(이 PDF 를 만든 뒤 원고 `.tex` 가 바뀌었는가), `src_mtime`·`build_src_mtime`·`src_age_s`·`pins_rev`([build-sync.md](build-sync.md) §자동 동기화 (가벼운 meta 폴링)), `pages_build`(지금 화면의 빌드 id, `pages.cur` 값), `build_seq`(끝난 빌드 수)·`last_build:{state,errors,finished_at,seq}`·`build:{state,phase,started_at}`([build-sync.md](build-sync.md) §비동기 재빌드), `doc`·`doc_name`·`kind`·`view_only`·`multi`(§문서 매개변수), `ev_seq`(§브라우저 알림 커서). 여러 문서면 `docs`(`/api/docs` 항목에서 `n_open` 을 뺀 것)와 `src_sig` 가 붙는다(라이트 포함). `src_sig` 는 문서마다의 `src_mtime` 을 이은 문자열이다. 그래서 뷰어는 다른 문서의 원고가 바뀌어도 목록을 다시 읽는다. 전체 meta는 요청한 사람을 기록한다(§@태그·사람·이벤트) |
 | `GET` | `/api/meta?light=1` | 위와 같되 `n_open`·`n_review`·`n_done` 이 없고 **쓰기를 하지 않는다**(`snapshot_pins()` 의 sync 쓰기를 하지 않는다). 폴링 전용이다. [build-sync.md](build-sync.md) §자동 동기화 (가벼운 meta 폴링) |
 | `GET` | `/api/meta?ev=<seq>` | 라이트와 함께 쓸 수 있다. 요청자에게 온 새 이벤트를 `events` 로 싣는다 — §브라우저 알림 커서 |
-| `GET` | `/api/docs` | 문서 목록 `{docs:[{key,name,kind:"tex"\|"pdf"\|"figure",view_only,path,main,n_open,stale_build,building,build:{state,phase},build_seq,last_state,pages_build,n_pages,src_mtime}], default, multi, other_open}`. 핀은 읽기만 한다(sync 쓰기 없음). `other_open` 은 지금 설정에 없는 문서 키의 열린 핀 수다. `view_only` 는 보기 전용 PDF와 그림 문서(§그림 요소 지도 (`limn-figure-map/1`))에서 `true` 다 |
+| `GET` | `/api/docs` | 문서 목록 `{docs:[{key,name,kind:"tex"\|"pdf"\|"figure",view_only,path,main,n_open,stale_build,building,build:{state,phase},build_seq,last_state,pages_build,n_pages,src_mtime}], default, multi, other_open}`. 핀은 읽기만 한다(sync 쓰기 없음). `other_open` 은 지금 설정에 없는 문서 키의 열린 핀 수다. `view_only` 는 보기 전용 PDF와 그림 문서(§그림 요소 지도 (`limn-figure-map/1`))에서 `true` 다. `path` 는 `--manuscript` 기준 메인 파일 경로이고 `main` 은 그 파일 이름이다. 그림 문서에서는 둘 다 지도 파일(`.limnmap.json`)을 가리킨다 |
 | `GET` | `/api/people` | @태그 후보 `{people:[{login,name,pic?,last_seen?,role}], me}` — §@태그·사람·이벤트. `role` 과 `me.role` 은 §인증. 쓰기 없음 |
 
 ### 화면·PDF·정적 파일
@@ -736,26 +736,21 @@ curl -s -X POST http://127.0.0.1:<port>/api/pins/3/unclaim
 | `elements[].id` | 비어 있지 않은 문자열, 200자 이하. 지도 전체에서 유일하다. 다시 렌더해도 같은 뜻의 요소는 같은 id를 받는다 |
 | `elements[].parent` | 같은 쪽 요소의 id. 뿌리만 없다(또는 `null`). 순환이 없고, 뿌리부터 그 요소까지의 id는 둘 다 세어 64개(`MAP_MAX_DEPTH`) 이하다 |
 | `elements[].frac` | `[x, y, w, h]`. 쪽 폭·높이에 대한 비율이고 원점은 왼쪽 위다. 뿌리는 `[0, 0, 1, 1]` 이다 |
-| `elements[].src` | 선택. 그 요소를 부른 코드 `{file, lo, hi}`. `file` 은 문서 폴더 기준 상대 경로(`/` 구분)이고 1024자 이하다. `lo`·`hi` 는 1,000,000 이하다. 코드 줄이 없는 벡터 그래픽의 요소는 뺀다 |
+| `elements[].src` | 선택. 그 요소를 부른 코드 `{file, lo, hi}`. `file` 은 문서 폴더 기준 상대 경로(`/` 구분)이고 1024자 이하다. `lo`·`hi` 는 `1 ≤ lo ≤ hi ≤ 1000000` 이다. 코드 줄이 없는 벡터 그래픽의 요소는 뺀다 |
 | `elements[].impl` | 선택. 공통 부품을 구현한 코드. `src` 와 같은 모양이다 |
 | `elements[].part`, `elements[].label` | 선택. 사람에게 보이는 이름. 200자 이하 |
 
-**검사.** 서버는 지도를 읽을 때 아래를 차례로 본다. 하나라도 어기면 지도 전체를 받지 않는다. 괄호 안은 서버 로그에 남는 이유 코드다.
+**검사.** 서버는 지도를 읽을 때 아래를 이 순서로 본다. 쪽과 요소는 지도에 적힌 순서대로 본다. 처음 어긴 규칙 하나로 지도 전체를 받지 않는다. 괄호 안은 서버 로그에 남는 이유 코드다.
 
-- 파일이 4 MiB 이하다(`too_large`). 크기는 해석 전에 본다.
-- UTF-8 JSON이고 같은 키가 두 번 나오지 않는다(`not_json`). 맨 위는 객체다(`bad_shape`).
-- `format` 이 맞다(`bad_format`). `pdf` 는 1024자(`MAP_MAX_PATH`) 이하이고, `pdf` 와 `pdf_sha256` 의 모양이 맞다(`bad_shape`).
-- 쪽 번호가 1 이상의 정수이고 겹치지 않는다(`bad_page`).
-- 쪽마다 요소는 5000개까지다(`too_many_elements`). 개수는 요소를 읽기 전에 센다.
-- `figure`·`title`·요소 `id`·`part`·`label` 은 200자(`MAP_MAX_TEXT`, 바이트가 아니라 글자 수) 이하다(`bad_shape`). 핀이 이 값을 저장하기 때문이다.
-- `frac` 은 유한수 넷이고 `0 ≤ x`, `0 ≤ y`, `w > 0`, `h > 0`, `x + w ≤ 1 + 1e-6`, `y + h ≤ 1 + 1e-6` 이다(`bad_frac`).
-- `lo`·`hi` 는 정수이고 `1 ≤ lo ≤ hi ≤ 1000000`(`MAP_MAX_LINE`)이다. `src`·`impl` 의 `file` 은 1024자(`MAP_MAX_PATH`) 이하다. 그 밖의 필드도 적힌 모양이어야 한다(`bad_shape`).
-- id가 지도 전체에서 유일하다(`duplicate_id`).
-- 쪽마다 `parent` 없는 요소가 정확히 하나이고, 그 id가 `figure`, `frac` 이 `[0, 0, 1, 1]` 이다(`no_root`).
-- 모든 `parent` 가 같은 쪽 요소를 가리키고 순환이 없다. 뿌리부터 어느 요소까지든 id는 둘 다 세어 64개(`MAP_MAX_DEPTH`) 이하다(`bad_parent`).
-- `src`·`impl` 의 `file` 은 정규 상대 경로다. `/` 로 시작하거나 끝나지 않고, 빈 조각·`.`·`..` 조각·역슬래시·NUL이 없다(`path_outside`). 이 모양은 폴더를 보기 전에 본다. 그다음 문서 폴더 안이고, 점으로 시작하는 이름 아래가 아니다. 심볼릭 링크는 푼 뒤에 본다(`path_outside`). `pdf` 가 문서 폴더 밖이면 가져오기가 미룬다.
+1. 파일이 4 MiB 이하다(`too_large`). 크기는 해석 전에 본다.
+2. UTF-8 JSON이고 같은 키가 두 번 나오지 않는다(`not_json`). 맨 위는 객체다(`bad_shape`).
+3. `format` 이 맞다(`bad_format`).
+4. `pdf` 는 비어 있지 않은 1024자(`MAP_MAX_PATH`) 이하 문자열이고, `pdf_sha256` 은 소문자 16진 64자이고, `pages` 는 목록이다(`bad_shape`).
+5. 쪽마다: 쪽은 객체다(`bad_shape`). 쪽 번호는 1 이상의 정수이고 앞 쪽과 겹치지 않는다(`bad_page`). `figure` 는 비어 있지 않은 문자열이고 `title` 은 없거나 문자열이며, 둘 다 200자(`MAP_MAX_TEXT`, 바이트가 아니라 글자 수) 이하다(`bad_shape`). `elements` 는 목록이다(`bad_shape`). 요소는 5000개까지다(`too_many_elements`). 개수는 요소를 읽기 전에 센다.
+6. 그 쪽의 요소마다: 요소는 객체이고 `id` 는 비어 있지 않은 200자 이하 문자열이다(`bad_shape`). id가 지도 전체에서 유일하다(`duplicate_id`). `parent` 는 없거나 `null` 이거나 비어 있지 않은 문자열이다(`bad_shape`). `frac` 은 유한수 넷이고 `0 ≤ x`, `0 ≤ y`, `w > 0`, `h > 0`, `x + w ≤ 1 + 1e-6`, `y + h ≤ 1 + 1e-6` 이다(`bad_frac`). `src` 를 보고 `impl` 을 같은 규칙으로 본다. 각각 없거나 `null` 이거나 `{file, lo, hi}` 이고, `file` 은 1024자 이하 문자열, `lo`·`hi` 는 `1 ≤ lo ≤ hi ≤ 1000000`(`MAP_MAX_LINE`)인 정수다(`bad_shape`). 그 `file` 은 정규 상대 경로다. `/` 로 시작하거나 끝나지 않고, 빈 조각·`.`·`..` 조각·역슬래시·NUL이 없다(`path_outside`). 이 모양은 폴더를 보기 전에 본다. 그다음 문서 폴더 안이고, 점으로 시작하는 이름 아래가 아니다. 심볼릭 링크는 푼 뒤에 본다(`path_outside`). 끝으로 `part`·`label` 은 없거나 200자 이하 문자열이다(`bad_shape`).
+7. 그 쪽의 요소를 다 읽은 뒤: `parent` 없는 요소가 정확히 하나이고, 그 id가 `figure`, `frac` 이 `[0, 0, 1, 1]` 이다(`no_root`). 모든 `parent` 가 같은 쪽 요소를 가리키고 순환이 없다. 뿌리부터 어느 요소까지든 id는 둘 다 세어 64개(`MAP_MAX_DEPTH`) 이하다(`bad_parent`).
 
-경로 길이·줄 번호·깊이의 상한도 `MAP_MAX_TEXT` 와 같은 이유로 둔다. 받은 지도의 어느 요소든 핀에 그대로 담을 수 있어야 하기 때문이다.
+글자 수 200자 상한은 핀이 그 이름을 저장하기 때문이다. 경로 길이·줄 번호·깊이의 상한도 같은 이유로 둔다. 받은 지도의 어느 요소든 핀에 그대로 담을 수 있어야 하기 때문이다. `pdf` 는 이 검사에서 모양만 본다. 그 PDF가 문서 폴더 밖이면 지도는 받되 가져오기가 미룬다([build-sync.md](build-sync.md) §그림 문서).
 
 **쓰는 순서.** 생산자는 PDF를 먼저 쓰고, 지도는 마지막에 원자적으로 바꾼다(임시 파일에 쓰고 이름 바꾸기). 순서가 달라도 `pdf_sha256` 이 맞을 때만 가져오므로, 어긋난 짝이 화면에 오르지는 않는다.
 
