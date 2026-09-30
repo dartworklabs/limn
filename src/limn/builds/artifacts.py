@@ -17,7 +17,7 @@ import sys
 import threading
 import time
 from collections.abc import Callable, Iterator
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Protocol, TypeGuard, TypeVar
 
@@ -280,11 +280,66 @@ def load_build_map(doc: BuildDoc, build: str) -> FigureMap | MapRejected | None:
     return parse_map(raw, source_inside=figure_source_check(doc.src))
 
 
-def build_figure_pdf(doc: BuildDoc, build: str) -> Path | None:
-    """The source PDF named by the map published with page directory `build` of figure document doc (load_build_map,
-    then figure_pdf), or None when that build has no loadable map or its pdf lies outside doc.src."""
-    found = load_build_map(doc, build)
+def build_figure_pdf(
+    doc: Doc, build: str, lookup: Callable[[Doc, str], FigureMap | MapRejected | None] = load_build_map
+) -> Path | None:
+    """The source PDF named by the map published with page directory `build` of figure document doc (the map lookup
+    gives, then figure_pdf), or None when that build has no loadable map or its pdf lies outside doc.src. lookup is
+    how the map is read: the composition root hands in the run's BuildMapCache, so a request does not parse the copy
+    again; without one the copy is parsed on this call (load_build_map)."""
+    found = lookup(doc, build)
     return figure_pdf(doc, found) if isinstance(found, FigureMap) else None
+
+
+MAP_CACHE_MAX = 16  # parsed maps kept per run: the current and previous builds of a few figure documents
+
+
+@dataclass
+class BuildMapCache:
+    """The parsed maps of one run's figure builds, so a pick, GET /api/pins and every pins.md render do not parse the
+    same map copy again. An entry is keyed by the document's folder, the build name and the copy's (mtime_ns, size):
+    the import writes a build's copy once, so an entry stays right, and a copy written again misses. At most
+    MAP_CACHE_MAX entries, the oldest dropped first. What an entry holds is decided when it is parsed - a map's
+    source paths were checked against the folder as it was then - so whoever reads a file a map names checks that
+    path again.
+
+    Request threads share it: every read and write of the entries is under the lock. The entries are frozen
+    dataclasses that nothing changes once parsed (FigureMap, MapRejected), so a map handed out stays usable while
+    another thread evicts it. The parse runs outside the lock, so two threads that miss the same copy at once may
+    both parse it; each gets an equal map and the later one is kept. A copy rewritten between the stat and the read
+    is parsed under its older key, which the next read misses. The composition root makes one per run
+    (server.Runtime.figure_maps)."""
+
+    _entries: dict[tuple[str, str, int, int], FigureMap | MapRejected] = field(default_factory=dict)
+    _lock: threading.Lock = field(default_factory=threading.Lock)
+
+    def get(self, doc: BuildDoc, build: str) -> FigureMap | MapRejected | None:
+        """The map of build `build` of figure document doc as load_build_map reads it - from the cache while the copy
+        is unchanged. None, without reading, when build is not a page directory name or the build has no map copy."""
+        if not valid_build_name(build):
+            return None
+        try:
+            st = (doc.dir / build / FIGMAP_NAME).stat()
+        except OSError:
+            return None
+        key = (str(doc.dir), build, st.st_mtime_ns, st.st_size)
+        with self._lock:
+            hit = self._entries.get(key)
+        if hit is not None:
+            return hit
+        got = load_build_map(doc, build)
+        if got is None:
+            return None
+        with self._lock:
+            self._entries[key] = got
+            while len(self._entries) > MAP_CACHE_MAX:
+                del self._entries[next(iter(self._entries))]
+        return got
+
+    def held(self) -> int:
+        """How many parsed maps the cache holds now: at most MAP_CACHE_MAX."""
+        with self._lock:
+            return len(self._entries)
 
 
 def png_size(path: Path) -> tuple[int, int]:

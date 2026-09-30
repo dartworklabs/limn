@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from .answer import build_failure_log as build_failure_log
     from .artifacts import (
+        BuildMapCache as BuildMapCache,
         BuildSkipped as BuildSkipped,
         FailedBuild as FailedBuild,
         build_figure_pdf as build_figure_pdf,
@@ -25,16 +26,20 @@ if TYPE_CHECKING:
         valid_build_name as valid_build_name,
     )
     from .document_facts import DocumentFacts as DocumentFacts
+    from .figure_map import FigureMap as FigureMap, MapRejected as MapRejected
     from .routes import POST_PATH as REBUILD_PATH, get as get_route, post as post_route
     from .run import needs_build as needs_build
     from .service import BuildRequests as BuildRequests
 
 __all__ = [
     "build_figure_pdf",
+    "BuildMapCache",
     "BuildRequests",
     "BuildSkipped",
     "DocumentFacts",
     "FailedBuild",
+    "FigureMap",
+    "MapRejected",
     "REBUILD_PATH",
     "build_failure_log",
     "cur_pages",
@@ -58,10 +63,13 @@ __all__ = [
 
 _EXPORTS = {
     "build_figure_pdf": ("artifacts", "build_figure_pdf"),
+    "BuildMapCache": ("artifacts", "BuildMapCache"),
     "BuildRequests": ("service", "BuildRequests"),
     "BuildSkipped": ("artifacts", "BuildSkipped"),
     "DocumentFacts": ("document_facts", "DocumentFacts"),
     "FailedBuild": ("artifacts", "FailedBuild"),
+    "FigureMap": ("figure_map", "FigureMap"),
+    "MapRejected": ("figure_map", "MapRejected"),
     "REBUILD_PATH": ("routes", "POST_PATH"),
     "build_failure_log": ("answer", "build_failure_log"),
     "cur_pages": ("artifacts", "cur_pages"),

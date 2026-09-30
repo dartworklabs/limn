@@ -25,6 +25,7 @@ from pathlib import Path
 from typing import get_args
 
 from limn.builds import DocumentFacts, artifacts as limn_build
+from limn.builds.figure_map import FigureMap, MapRejected
 from limn.documents import reads as meta
 from limn.documents.reads import MetaSettings
 from limn.platform.files import file_in_tree
@@ -33,6 +34,7 @@ from limn.runtime.documents import Doc, DocKind, DocNotFound, kind_builds_from_s
 from limn.security.access import LOCAL_ACTOR
 
 from helpers import Base, ps, req, set_config
+from helpers_figure import b2_map, write_build
 
 PKG = Path(documents.__file__).parents[1]
 SERVER_GLOBALS = {"C", "cur_doc", "using_doc", "DOCS", "LEGACY_DOC", "BUILD_STATE", "BUILD_LOCK"}
@@ -413,6 +415,46 @@ class FigureDocumentReads(Fixture):
     def test_the_copy_of_its_pdf_is_named_after_the_map(self):
         """pages-<build>/ holds figures.pdf for figures.limnmap.json - never figures.limnmap.pdf."""
         self.assertEqual(self.fig.pdf_name, "figures.pdf")
+
+    def test_the_pdf_a_region_pin_records_is_asked_of_the_lookup_for_the_build_on_screen(self):
+        """DocumentFacts.pdf reads the build on screen's map through the lookup it was given (the run's cache): a map
+        naming ../render/figures.pdf gives that PDF inside figs/, and the lookup was asked once, for this document and
+        that build."""
+        pdir = self.pages(self.fig)
+        asked = []
+
+        def lookup(D: Doc, build: str) -> FigureMap | MapRejected | None:
+            """A map naming a PDF beside out/; records who asked."""
+            asked.append((D, build))
+            return FigureMap("../render/figures.pdf", "0" * 64, ())
+
+        facts = DocumentFacts(self.fig, self.src, self.state, 150, lookup)
+        self.assertEqual(facts.pdf, (self.src / "figs" / "render" / "figures.pdf").resolve())
+        self.assertEqual(asked, [(self.fig, pdir.name)])
+
+    def test_the_map_file_is_the_pdf_when_the_lookup_finds_no_usable_map(self):
+        """No map for the build, a map the parser refused and a map naming a PDF outside figs/ all leave the map file
+        as the PDF a region pin records."""
+        self.pages(self.fig)
+        for answer in (None, MapRejected("path_outside", "src.file"), FigureMap("../../outside.pdf", "0" * 64, ())):
+            facts = DocumentFacts(self.fig, self.src, self.state, 150, lambda D, build, a=answer: a)
+            self.assertEqual(facts.pdf, self.fig.main, answer)
+
+    def test_a_document_without_an_element_map_never_asks_the_lookup(self):
+        """A LaTeX document and a view-only PDF name their own file and never ask for a map."""
+
+        def lookup(D: Doc, build: str) -> FigureMap | MapRejected | None:
+            """Fails the test if it is asked."""
+            raise AssertionError("asked for the map of %s" % D.key)
+
+        for D in (self.ms, self.rv):
+            self.assertEqual(DocumentFacts(D, self.src, self.state, 150, lookup).pdf, D.main)
+
+    def test_without_a_lookup_the_pdf_comes_from_the_builds_own_copy(self):
+        """DocumentFacts made without a lookup parses the build's map copy itself: the PDF it names inside figs/."""
+        write_build(self.fig, "pages-20260101000000", b2_map())
+        facts = DocumentFacts(self.fig, self.src, self.state, 150)
+        self.assertEqual(facts.pdf, (self.src / "figs" / "out" / "figures.pdf").resolve())
 
     def test_its_brief_and_meta_report_kind_figure_view_only_and_never_stale(self):
         """/api/docs and /api/meta say kind figure and view_only true; a map newer than the pages is not 'stale'
