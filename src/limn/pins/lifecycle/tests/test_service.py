@@ -3,6 +3,7 @@
 import json
 from unittest import mock
 
+from limn.pins import runtime as pin_runtime
 from limn.pins.claims.rules import ClaimClosedPin
 from limn.pins.lifecycle import input as lifecycle_input
 from limn.pins.lifecycle.rules import AlreadyClosed, CloseRequest, ThreadFull
@@ -466,7 +467,7 @@ class PinKindAndThread(Base):
     def test_thread_is_capped(self):
         """A full message thread refuses another reply but still records a closing state transition."""
         pid = self.add()
-        with mock.patch.object(ps, "THREAD_MAX", 2):
+        with mock.patch.object(pin_runtime, "THREAD_MAX", 2):
             ps.APP.pin_lifecycle.reply_pin(
                 pid, "1", post_authority(ps.APP.pin_lifecycle.context().store, dict(self.S), "reply", pid)
             )

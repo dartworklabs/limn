@@ -24,7 +24,7 @@ from urllib.parse import urlparse
 from limn.runtime.config import AccessOptions
 from limn.web import answers, parse, request_input
 from limn.web.answers import accepted
-from limn.web.app import App, Document, Json, Principal, Query
+from limn.web.app import Document, Json, Principal, Query, WebApplication
 from limn.web.errors import HTTPError, InputRejected, error_page_html, page_lang
 from limn.web.reply import Reply, json_reply as _json_reply
 from limn.web.routes import GetRequest, OtherPostRequest, PinActionRequest, PostDocRequest
@@ -52,7 +52,7 @@ class Handler(BaseHTTPRequestHandler):
     # If the body arrives shorter than Content-Length and the connection never closes, the read would hang forever. Idle keep-alive connections are also closed after this time.
     timeout = 30
 
-    app: ClassVar[App]
+    app: ClassVar[WebApplication]
     principal: Principal
     _raw: bytes
 
@@ -162,19 +162,19 @@ class Handler(BaseHTTPRequestHandler):
           origin as that host when Host is *.ts.net (origin_ok).
           A browser always attaches Origin to a cross-origin POST. curl/agents send no Origin, so this has no effect on them."""
         # --no-origin-check: an escape hatch for when the observed path differs from expectations
-        config = self.app.C
+        config = self.app.settings()
         self._check_singleton_headers(config.access)
         if not config.origin_check:
             return
         host = self.headers.get("Host")
         # Checked independent of whether the Tailscale-User-* header is present. That header can also be
         # carried on a same-origin GET from a rebinding page with no preflight, so exempting it via that header would bypass the defense entirely (observed).
-        if host is not None and not self.app.host_ok(host):
-            raise HTTPError(403, "허용되지 않은 Host 입니다: %s" % self.app.hdr_text(host)[:100], reason="bad_host")
+        if host is not None and not self.app.guards.host_ok(host):
+            raise HTTPError(403, "허용되지 않은 Host 입니다: %s" % self.app.header_text(host)[:100], reason="bad_host")
         origin = self.headers.get("Origin")
-        if origin is not None and not self.app.origin_ok(origin, host):
+        if origin is not None and not self.app.guards.origin_ok(origin, host):
             raise HTTPError(
-                403, "다른 출처의 요청은 받지 않습니다: %s" % self.app.hdr_text(origin)[:100], reason="bad_origin"
+                403, "다른 출처의 요청은 받지 않습니다: %s" % self.app.header_text(origin)[:100], reason="bad_origin"
             )
 
     def _guard(self) -> Json:
@@ -183,14 +183,14 @@ class Handler(BaseHTTPRequestHandler):
         self._read_raw()
         self._check_origin()
         peer = self.client_address[0] if isinstance(self.client_address, tuple) and self.client_address else ""
-        p = self.app.identify(self.headers, peer)
-        self.app.admit(p, self.headers.get("Host"), self.headers)
+        p = self.app.guards.identify(self.headers, peer)
+        self.app.guards.admit(p, self.headers.get("Host"), self.headers)
         self.principal = p
         return p.actor
 
     def _record(self, actor: Json) -> None:
         """people.json for a person who opened the viewer or wrote something (agents never). The local owner is recorded as owner."""
-        self.app.people_directory.record(actor, role="owner" if self.principal.via == "local-owner" else None)
+        self.app.recorder.record(actor, role="owner" if self.principal.via == "local-owner" else None)
 
     def _wants_page(self) -> bool:
         """A browser opening the viewer itself (GET / for HTML) - it gets a readable page on a refusal, not JSON."""
@@ -206,7 +206,7 @@ class Handler(BaseHTTPRequestHandler):
             query = request_input.query_values(urlparse(self.path).query)
             lang = page_lang(self.headers, {} if isinstance(query, InputRejected) else query)
             return self._send(
-                e.code, error_page_html(e, lang, self.app.viewer().messages).encode("utf-8"), "text/html; charset=utf-8"
+                e.code, error_page_html(e, lang, self.app.messages()).encode("utf-8"), "text/html; charset=utf-8"
             )
         self._json(e.body, e.code)
 
@@ -240,7 +240,7 @@ class Handler(BaseHTTPRequestHandler):
         actor = self._guard()
         u = urlparse(self.path)
         path, q = u.path, accepted(request_input.query_values(u.query))
-        self.app.check_read(path)
+        self.app.guards.check_read(path)
         # A document-scoped path takes ?doc=<key> (the first document if absent) and is handled for that document (§Multiple documents).
         return self._get_doc(actor, path, q, self._request_doc(accepted(parse.parse_doc_choice(q))))
 
@@ -250,9 +250,9 @@ class Handler(BaseHTTPRequestHandler):
         wins over ?doc= when it names another (as it always has). 404 unknown_doc for a key this instance does not
         serve (answers.found_doc)."""
         app = self.app
-        D = answers.found_doc(app.request_doc(choice.key, choice.file_hint), app.hdr_text)
+        D = answers.found_doc(app.selector.select(choice.key, choice.file_hint), app.header_text)
         if choice.body_key is not None and choice.body_key != D.key:
-            D = answers.found_doc(app.request_doc(choice.body_key), app.hdr_text)
+            D = answers.found_doc(app.selector.select(choice.body_key, None), app.header_text)
         return D
 
     def _get_doc(self, actor: Json, path: str, q: Query, D: Document) -> None:
@@ -269,7 +269,7 @@ class Handler(BaseHTTPRequestHandler):
         request = GetRequest(
             path, q, D, actor, self.principal, self.headers.get("Host") or "", lambda: self._record(actor)
         )
-        for route in self.app.get_routes:
+        for route in self.app.routes.bundle.get:
             reply = route(request)
             if reply is not None:
                 return reply
@@ -293,27 +293,27 @@ class Handler(BaseHTTPRequestHandler):
         actor = self._guard()
         u = urlparse(self.path)
         path = u.path
-        self.app.check_role(self.principal, path)  # the one place roles are enforced, before any state change
+        self.app.guards.check_role(self.principal, path)  # the one place roles are enforced, before any state change
         d = self._body()
         q = accepted(request_input.query_values(u.query))
-        registered = next((route for route in self.app.post_doc_routes if route.path == path), None)
+        registered = next((route for route in self.app.routes.bundle.post_documents if route.path == path), None)
         if registered is not None:
             D = self._request_doc(accepted(parse.parse_doc_choice(q, d, new_pin=registered.new_pin)))
-            authority = self.app.authorize_post(self.principal, path, D)
+            authority = self.app.guards.authorize_post(self.principal, path, D)
             self._record(dict(authority))
             return self._json(*registered.action(PostDocRequest(q, d, D, authority, authority.principal)))
         return self._post_other(actor, path, d)
 
     def _post_other(self, actor: Json, path: str, d: Json) -> None:
         """Dispatch guarded POSTs by pin action or exact path; anything else is 404."""
-        authority = self.app.authorize_post(self.principal, path)
+        authority = self.app.guards.authorize_post(self.principal, path)
         self._record(dict(authority))
         m = re.fullmatch(r"/api/pins/(\d+)/([a-z]+)", path)
         if m:
-            action = self.app.pin_actions.get(m.group(2))
+            action = self.app.routes.bundle.pin_actions.get(m.group(2))
             if action is not None:
                 return self._json(action(PinActionRequest(int(m.group(1)), authority, d, authority.principal)))
-        other_post = self.app.other_posts.get(path)
+        other_post = self.app.routes.bundle.other_posts.get(path)
         if other_post is not None:
             return self._json(other_post(OtherPostRequest(authority, d, authority.principal)))
         raise HTTPError(404, "없는 경로입니다: %s" % path, reason="not_found")

@@ -16,6 +16,7 @@ to the rule (AgentAsPerson). The route's plain thread behaviour is test_server.K
 Run: uv run pytest -q src/limn/pins/lifecycle/tests/test_reply.py
 """
 
+from limn.pins import runtime as pin_runtime
 from limn.pins.lifecycle.rules import CloseRequest
 from limn.pins.listing import render as md_render
 from limn.pins.listing.projection import pin_state
@@ -206,7 +207,7 @@ class ReplyApi(AccessBase):
         rows = records(ps.APP.read_pins()[0])
         r = find_pin(rows, pid)
         r["thread"] = r["thread"] + [
-            {"id": 100 + i, "by": A, "at": "2026-09-25 10:00:00", "text": "x"} for i in range(ps.THREAD_MAX)
+            {"id": 100 + i, "by": A, "at": "2026-09-25 10:00:00", "text": "x"} for i in range(pin_runtime.THREAD_MAX)
         ]
         write_records(rows)
         code, d = self.reply(pid, {"text": "다시"}, BOB)

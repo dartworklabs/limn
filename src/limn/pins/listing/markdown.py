@@ -26,8 +26,12 @@ Json = dict[str, Any]
 class MarkdownDeps(Protocol):
     """The run-specific facts and lookups needed to render pins.md."""
 
-    C: RunConfig
     docs: list[Doc]
+
+    @property
+    def C(self) -> RunConfig:
+        """Read the run settings used for this rendering."""
+        ...
 
     def snapshot_pins(self) -> list[Pin]:
         """The live pins after their usual resynchronization."""

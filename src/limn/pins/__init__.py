@@ -5,7 +5,6 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from .application import (
-        PinCommands as PinCommands,
         PinReadView as PinReadView,
         PinStartup as PinStartup,
         PinSubsystem as PinSubsystem,
@@ -64,6 +63,7 @@ if TYPE_CHECKING:
     )
     from .record import Broken as Broken, parse_record as parse_record, parse_trashed as parse_trashed
     from .revision import RevisionPin as RevisionPin, revision_pin as revision_pin
+    from .runtime import PinCommands as PinCommands
     from .store import PinFiles as PinFiles, PinStore as PinStore, Row as Row, find_pin as find_pin
     from .trash import PinTrash as PinTrash, other_posts as trash_posts, pin_actions as trash_actions
 
@@ -153,7 +153,7 @@ _EXPORTS = {
     "PickContext": ("location", "PickContext"),
     "Pin": ("model", "Pin"),
     "PinClaims": ("claims", "PinClaims"),
-    "PinCommands": ("application", "PinCommands"),
+    "PinCommands": ("runtime", "PinCommands"),
     "PinContext": ("context", "PinContext"),
     "PinEditing": ("editing", "PinEditing"),
     "PinFiles": ("store", "PinFiles"),

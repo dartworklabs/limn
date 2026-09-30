@@ -843,8 +843,12 @@ class ProcessRuntime(Base):
 
         def prepare(app, _docs, _no_build):
             """Give each real listener a document and a watch thread without building LaTeX."""
-            app.set_docs([ps.Doc(app.C.label.lower(), app.C.label, legacy=True, paths=app.C.paths)])
-            app.RT.start_thread(app.RT.stopping.wait)
+            app.environment.docs[:] = [
+                ps.Doc(
+                    app.environment.C.label.lower(), app.environment.C.label, legacy=True, paths=app.environment.C.paths
+                )
+            ]
+            app.environment.RT.start_thread(app.environment.RT.stopping.wait)
             return None
 
         def get(started, path):
@@ -872,8 +876,8 @@ class ProcessRuntime(Base):
                 "serve_viewer",
                 side_effect=lambda _, label, _accent: viewer_assemble.ServedViewer(f"<p>{label}</p>", "", {}),
             ),
-            mock.patch.object(ps.ServerApplication, "prepare", autospec=True, side_effect=prepare),
-            mock.patch.object(ps.ServerApplication, "report"),
+            mock.patch.object(ps, "prepare", autospec=True, side_effect=prepare),
+            mock.patch.object(ps, "report"),
         ):
             try:
                 for _ in range(2):
@@ -890,14 +894,14 @@ class ProcessRuntime(Base):
                 self.assertIs(first.server.RequestHandlerClass.app, first.app)
                 self.assertIs(second.server.RequestHandlerClass.app, second.app)
                 self.assertIs(ps.Handler.app, fixture_app)
-                self.assertIsNot(first.app.RT.pin_lock, second.app.RT.pin_lock)
+                self.assertIsNot(first.runtime.pin_lock, second.runtime.pin_lock)
                 self.assertEqual(get(first, "/"), b"<p>First</p>")
                 self.assertEqual(get(second, "/"), b"<p>Second</p>")
                 self.assertEqual(json.loads(get(first, "/api/docs"))["docs"][0]["name"], "First")
                 self.assertEqual(json.loads(get(second, "/api/docs"))["docs"][0]["name"], "Second")
-                self.assertFalse(first.app.RT.stopping.is_set())
-                first.app.RT.stop()
-                self.assertFalse(second.app.RT.stopping.is_set())
+                self.assertFalse(first.runtime.stopping.is_set())
+                first.runtime.stop()
+                self.assertFalse(second.runtime.stopping.is_set())
                 self.assertEqual(get(second, "/"), b"<p>Second</p>")
             finally:
                 for index, result in enumerate(started):
@@ -905,8 +909,8 @@ class ProcessRuntime(Base):
                     if index < len(threads):
                         server.shutdown()
                     server.server_close()
-                    app = result.app if hasattr(result, "app") else ps.APP
-                    app.RT.stop()
+                    runtime = result.runtime if hasattr(result, "runtime") else ps.APP.RT
+                    runtime.stop()
                 for thread in threads:
                     thread.join(5)
 
@@ -918,7 +922,7 @@ class ProcessRuntime(Base):
         def prepare(app, _docs, _no_build):
             """Register a real waiting thread in each app so cleanup has an observable target."""
             apps.append(app)
-            app.RT.start_thread(app.RT.stopping.wait)
+            app.environment.RT.start_thread(app.environment.RT.stopping.wait)
             return None
 
         with (
@@ -926,22 +930,22 @@ class ProcessRuntime(Base):
             mock.patch.object(ps, "configure_run", return_value=ps.RunStart(config, None)),
             mock.patch.object(ps, "read_viewer"),
             mock.patch.object(ps, "serve_viewer", return_value=viewer_assemble.ServedViewer("", "", {})),
-            mock.patch.object(ps.ServerApplication, "prepare", autospec=True, side_effect=prepare),
-            mock.patch.object(ps.ServerApplication, "report"),
-            mock.patch.object(ps.ServerApplication, "listen", side_effect=[mock.Mock(), OSError("listen failed")]),
+            mock.patch.object(ps, "prepare", autospec=True, side_effect=prepare),
+            mock.patch.object(ps, "report"),
+            mock.patch.object(ps, "listen", side_effect=[mock.Mock(), OSError("listen failed")]),
         ):
             first = ps.start(mock.Mock(port=0, no_build=True))
             try:
                 self.assertIsInstance(first, ps.StartedServer)
                 with self.assertRaisesRegex(OSError, "listen failed"):
                     ps.start(mock.Mock(port=0, no_build=True))
-                self.assertIs(first.app, apps[0])
-                self.assertFalse(apps[0].RT.stopping.is_set())
-                self.assertTrue(apps[0].RT.threads[0].is_alive())
-                self.assertTrue(apps[1].RT.stopping.is_set())
-                self.assertFalse(apps[1].RT.threads[0].is_alive())
+                self.assertIs(first.app, apps[0].web)
+                self.assertFalse(apps[0].environment.RT.stopping.is_set())
+                self.assertTrue(apps[0].environment.RT.threads[0].is_alive())
+                self.assertTrue(apps[1].environment.RT.stopping.is_set())
+                self.assertFalse(apps[1].environment.RT.threads[0].is_alive())
             finally:
-                apps[0].RT.stop()
+                apps[0].environment.RT.stop()
 
     def cleanup_run(self, serving_error=None):
         """Create a real listener/watch pair; stop serving normally or at its next poll.
@@ -967,13 +971,13 @@ class ProcessRuntime(Base):
             stopper = threading.Thread(target=server.shutdown, daemon=True)
             stopper.start()
             self.addCleanup(stopper.join, 5)
-        return ps.StartedServer(server, ps.ServerApplication(ps.APP.C, rt))
+        return ps.StartedServer(server, ps.assemble_application(ps.APP.C, rt).web, rt)
 
     def assert_run_released(self, started):
         """The listener descriptor and all real watch threads are released."""
         self.assertEqual(started.server.socket.fileno(), -1)
-        self.assertTrue(started.app.RT.stopping.is_set())
-        self.assertTrue(all(not thread.is_alive() for thread in started.app.RT.threads))
+        self.assertTrue(started.runtime.stopping.is_set())
+        self.assertTrue(all(not thread.is_alive() for thread in started.runtime.threads))
 
     def close_failure(self):
         """Inject a socket API failure after its descriptor is actually released."""
@@ -1088,11 +1092,9 @@ class ProcessRuntime(Base):
                 mock.patch.object(ps, "read_viewer"),
                 mock.patch.object(ps, "serve_viewer", return_value=rt.viewer),
                 mock.patch.object(ps, "new_runtime", return_value=rt),
-                mock.patch.object(
-                    ps.ServerApplication, "prepare", side_effect=lambda *_: rt.start_thread(rt.stopping.wait)
-                ),
-                mock.patch.object(ps.ServerApplication, "report"),
-                mock.patch.object(ps.ServerApplication, "listen", return_value=refusal),
+                mock.patch.object(ps, "prepare", side_effect=lambda *_: rt.start_thread(rt.stopping.wait)),
+                mock.patch.object(ps, "report"),
+                mock.patch.object(ps, "listen", return_value=refusal),
             ):
                 self.assertEqual(ps.start(mock.Mock(port=0, no_build=True)), refusal)
             self.assertTrue(rt.stopping.is_set())

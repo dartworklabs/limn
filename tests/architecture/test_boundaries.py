@@ -1,5 +1,6 @@
 """Feature boundaries reject private access, indirect dependency leaks and cycles."""
 
+import ast
 import importlib.util
 from pathlib import Path
 
@@ -18,6 +19,13 @@ def test_repository_respects_all_feature_surfaces():
     assert checker.check(ROOT / "src" / "limn") == []
 
 
+def test_server_has_no_application_service_locator():
+    """The entrypoint composes ports and does not own a mega application class."""
+    tree = ast.parse((ROOT / "src" / "limn" / "server.py").read_text(encoding="utf-8"))
+    classes = {node.name for node in tree.body if isinstance(node, ast.ClassDef)}
+    assert "ServerApplication" not in classes
+
+
 def test_revisions_imports_only_the_pin_projection_contract():
     """Revision algorithms cannot reach pin storage, models, or scope helpers."""
     code = checker.sources(ROOT / "src" / "limn")
@@ -30,7 +38,7 @@ def test_revisions_imports_only_the_pin_projection_contract():
         if base == "limn.pins"
     }
 
-    assert imported <= {"RevisionPin", "revision_pin"}
+    assert imported == {"RevisionPin", "PinReadView"}
 
 
 @pytest.mark.parametrize("statement", ["import limn.builds.private", "from limn.builds import private"])

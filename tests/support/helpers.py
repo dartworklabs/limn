@@ -417,6 +417,94 @@ Tail paragraph zetaunique.
 """
 
 
+class ApplicationFixture:
+    """Adapt legacy test helpers to an assembly without widening the production HTTP ports."""
+
+    def __init__(self, settings, runtime, module=ps):
+        """Create an isolated assembly; callbacks read its current test settings and resources."""
+        self.assembly = module.assemble_application(settings, runtime)
+
+    def __getattr__(self, name):
+        """Resolve test operations at their actual capability owner."""
+        app = self.assembly
+        fixed = {
+            "C": app.environment.C,
+            "RT": app.environment.RT,
+            "docs": app.environment.docs,
+            "web": app.web,
+            "build_requests": app.builds.commands._requests,
+            "build_view": app.builds.view,
+            "pin_view": app.pins.view,
+            "people_directory": app.collaboration.people,
+            "notices": app.collaboration.notices,
+            "document_views": app.documents.views,
+            "sync_service": app.sync.service,
+            "revision_requests": app.revisions.requests,
+            "pin_actions": app.web.routes.bundle.pin_actions,
+            "other_posts": app.web.routes.bundle.other_posts,
+        }
+        if name in fixed:
+            return fixed[name]
+        for owner in (app.pins.commands, app.security, app.web.guards):
+            if hasattr(owner, name):
+                return getattr(owner, name)
+        raise AttributeError(name)
+
+    def __setattr__(self, name, value):
+        """Keep replacements in tests at the resource or service the callbacks actually use."""
+        if name == "assembly":
+            object.__setattr__(self, name, value)
+        elif name in ("C", "RT"):
+            setattr(self.assembly.environment, name, value)
+        elif name == "docs":
+            self.assembly.environment.docs[:] = value
+        elif hasattr(self.assembly.pins.commands, name):
+            setattr(self.assembly.pins.commands, name, value)
+        else:
+            object.__setattr__(self, name, value)
+
+    def __delattr__(self, name):
+        """Allow mock.patch to restore a temporarily replaced pin collaborator."""
+        if name in self.__dict__:
+            object.__delattr__(self, name)
+        elif name not in ("C", "RT", "docs"):
+            delattr(self.assembly.pins.commands, name)
+
+    def set_docs(self, documents):
+        """Replace served documents in place so every bound capability sees the new list."""
+        self.docs[:] = documents or [ps.Doc(ps.DEFAULT_DOC_KEY, "본문", legacy=True, paths=self.C.paths)]
+
+    def viewer(self):
+        """Read the current served viewer for viewer-specific test helpers."""
+        return self.RT.viewer
+
+    def request_doc(self, key, hint=None):
+        """Choose a test target through the same document selector as HTTP."""
+        return self.web.selector.select(key, hint)
+
+    def access_settings(self):
+        """Read the security settings for tests exercising identity directly."""
+        return self.C.access_settings
+
+    def revision_context(self):
+        """Read the revision owner's current context for its focused tests."""
+        return self.assembly.revisions.requests.context()
+
+    def prepare(self, documents, no_build):
+        """Exercise the real startup orchestration for state-recovery tests."""
+        return ps.prepare(self.assembly, documents, no_build)
+
+    def access_log_lines(self):
+        """Render the actual startup security summary for configuration tests."""
+        return ps.startup.access_log_lines(
+            self.C.access, len(self.current_tokens()), ps.file_present(self.C.access.agent_token_file)
+        )
+
+    def remote_base_for(self, host):
+        """Read the request link base using the production security policy."""
+        return ps.access.remote_base_for(host, self.C.access.public_hosts, self.C.port)
+
+
 class Base(unittest.TestCase):
     """server.py pointed at a fresh temporary manuscript (main.tex = TEX) and state folder: one document, no pins, an
     idle build, default run settings. Tests drive it through ps's functions or the handler (talk)."""
@@ -432,10 +520,10 @@ class Base(unittest.TestCase):
         self.main.write_text(TEX, encoding="utf-8")
         (root / "state").mkdir()
         config = run_config(self.src, self.main, root / "state")
-        ps.APP = ps.ServerApplication(
+        ps.APP = ApplicationFixture(
             config, ps.new_runtime(assemble.serve_viewer(VIEWER_FILES, config.label, config.accent))
         )
-        ps.Handler.app = ps.APP
+        ps.Handler.app = ps.APP.web
         ps.APP.set_docs(None)  # start as a single document (no --doc) — clears the list left over from multi-doc tests
         ps.APP.init_seq()
 

@@ -11,6 +11,16 @@ from limn.pins.model import Pin
 from limn.pins.revision import RevisionPin, revision_pin as project_revision_pin
 
 if TYPE_CHECKING:
+    from limn.builds import BuildView
+    from limn.pins.context import MakeEvent
+    from limn.pins.editing.http import EditingRequests
+    from limn.pins.location.source import TokenCache
+    from limn.pins.runtime import PinCommands
+    from limn.runtime.config import RunConfig
+    from limn.runtime.documents import Doc
+    from limn.runtime.resources import RuntimeResources
+    from limn.security.access import Role
+    from limn.security.audit import AuditAction
     from limn.web.routes import PinAction, RouteBundle
 
 Json: TypeAlias = dict[str, Any]
@@ -100,16 +110,6 @@ class PinReadView:
 
 
 @dataclass(frozen=True)
-class PinCommands:
-    """Pin mutation services kept behind one composition value."""
-
-    lifecycle: object
-    claims: object
-    trash: object
-    editing: object
-
-
-@dataclass(frozen=True)
 class PinStartup:
     """Pin startup operations owned by the capability."""
 
@@ -128,20 +128,53 @@ class PinSubsystem:
 
 
 def assemble_pins(
-    view: PinReadView,
-    commands: PinCommands,
-    startup: PinStartup,
-    routes: RouteBundle | None = None,
+    *,
+    settings: Callable[[], RunConfig],
+    resources: Callable[[], RuntimeResources[object, object, object, object, object, TokenCache]],
+    docs: list[Doc],
+    builds: BuildView,
+    known_people: Callable[[Sequence[Json] | None], dict[str, Json]],
+    make_event: MakeEvent,
+    emit_events: Callable[[list[Json | None]], None],
+    recent_events: Callable[[], Sequence[Json]],
+    role_of: Callable[[str], Role],
+    audit: Callable[[AuditAction, Json, Json], bool],
+    now: Callable[[], str],
+    remote_base_for: Callable[[str], str],
 ) -> PinSubsystem:
-    """Assemble the pin capability from its explicit read, command, and startup ports."""
-    from limn.web.routes import RouteBundle
+    """Assemble pin reads, transactions, routes and startup using explicit deferred ports."""
+    from limn.pins.location.lookup import locate_file
+    from limn.pins.runtime import PinCommands
 
-    return PinSubsystem(view, commands, routes or RouteBundle(), startup)
+    commands = PinCommands(
+        settings, resources, docs, builds, known_people, make_event, emit_events, recent_events, role_of, audit, now
+    )
+
+    def locate(value: Record | str, document: Any) -> Path | None:
+        """Resolve a pin or recorded change using the current manuscript paths."""
+        config = settings()
+        location = locate_file(
+            value.get("file") if isinstance(value, Mapping) else value,
+            value.get("file_rel") if isinstance(value, Mapping) else None,
+            config.src,
+            config.state,
+            document,
+        )
+        return None if location is None else location.path
+
+    def render() -> None:
+        """Render current pins after acquiring this run's transaction lock."""
+        with resources().pin_lock:
+            commands.render_pins_md(commands.read_pins()[0])
+
+    view = PinReadView(commands.read_pins, commands.snapshot_pins, commands.pin_doc_key, locate)
+    startup = PinStartup(commands.init_seq, render)
+    return PinSubsystem(view, commands, pin_route_bundle(commands, commands.editing_requests, remote_base_for), startup)
 
 
 def pin_route_bundle(
-    app: Any,
-    editing: Any,
+    app: PinCommands,
+    editing: EditingRequests,
     remote_base_for: Callable[[str], str],
 ) -> RouteBundle:
     """Bind all pin-owned reads and mutations without exposing their adapter modules."""

@@ -26,6 +26,7 @@ from limn.runtime.documents import Doc
 from limn.security.access import AuthorityScope, PostAuthority
 
 if TYPE_CHECKING:
+    from limn.web.parse import DocumentFacts
     from limn.web.routes import RouteBundle
 
 Json = dict[str, Any]
@@ -94,6 +95,12 @@ class BuildView:
     def valid_name(self, value: object) -> bool:
         """Return whether ``value`` names a page directory."""
         return artifacts.valid_build_name(value)
+
+    def document_facts(self, doc: Doc, root: Path, state: Path, dpi: int) -> DocumentFacts:
+        """Bind source and page parsing facts without exposing build implementation helpers."""
+        from limn.builds.document_facts import DocumentFacts
+
+        return DocumentFacts(doc, root, state, dpi, self)
 
 
 @dataclass(frozen=True)

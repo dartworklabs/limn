@@ -30,7 +30,10 @@ CONFIRM_OPEN_DETAIL = "열린 핀은 확인할 것이 없습니다 — 닫힌 �
 class LifecycleApp(Protocol):
     """Only the run-specific collaborators these lifecycle routes use."""
 
-    C: RunConfig
+    @property
+    def C(self) -> RunConfig:
+        """Read the current settings used when constructing a lifecycle response."""
+        ...
     pin_lifecycle: PinLifecycle
 
     def public(self, record: Record) -> dict[str, Any]:

@@ -131,7 +131,7 @@ def test_production_authority_issuance_stays_at_the_boundary():
         for node in ast.walk(tree):
             name = node.attr if isinstance(node, ast.Attribute) else node.id if isinstance(node, ast.Name) else None
             if name in ("_AUTHORITY_KEY", "_authorize_post") and not (
-                path.name == "server.py" and name == "_authorize_post"
+                path.relative_to(root).as_posix() == "security/application.py" and name == "_authorize_post"
             ):
                 violations.append((str(path.relative_to(root)), node.lineno, name))
             if isinstance(node, ast.ImportFrom):
@@ -237,6 +237,9 @@ def request_context():
 @pytest.mark.parametrize("kind", ("read", "document", "pin", "other"))
 def test_new_registered_routes_cannot_execute(request_context, monkeypatch, kind):
     """New route registration alone cannot execute a handler, even for an owner."""
+    from dataclasses import replace
+
+    from limn.web.app import RouteRegistry
     from limn.web.routes import PostDocRoute
 
     from helpers import ps
@@ -252,16 +255,18 @@ def test_new_registered_routes_cannot_execute(request_context, monkeypatch, kind
 
     path = "/api/future"
     method = "POST"
+    routes = ps.Handler.app.routes.bundle
     if kind == "read":
-        monkeypatch.setattr(ps.APP, "get_routes", (effect,))
+        routes = replace(routes, get=(effect,))
         method = "GET"
     elif kind == "document":
-        monkeypatch.setattr(ps.APP, "post_doc_routes", (*ps.APP.post_doc_routes, PostDocRoute(path, effect)))
+        routes = replace(routes, post_documents=(*routes.post_documents, PostDocRoute(path, effect)))
     elif kind == "pin":
         path = "/api/pins/7/future"
-        monkeypatch.setattr(ps.APP, "pin_actions", {**ps.APP.pin_actions, "future": effect})
+        routes = replace(routes, pin_actions={**routes.pin_actions, "future": effect})
     else:
-        monkeypatch.setattr(ps.APP, "other_posts", {**ps.APP.other_posts, path: effect})
+        routes = replace(routes, other_posts={**routes.other_posts, path: effect})
+    monkeypatch.setattr(ps.Handler, "app", replace(ps.Handler.app, routes=RouteRegistry(routes)))
     code, body = case.call(method, path, headers=ALICE)
     assert (code, body["reason"]) == (404, "not_found")
     assert not marker.exists()

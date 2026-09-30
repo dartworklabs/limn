@@ -27,7 +27,7 @@ from limn.builds.artifacts import cur_pages
 from limn.pins.location import mapping
 from limn.platform.files import file_in_tree, tex_lines
 
-from helpers import blank_png, ps, run_config, serve_viewer, split_resp
+from helpers import ApplicationFixture, blank_png, ps, run_config, serve_viewer, split_resp
 from helpers_access import ALICE, reset_access, talk_to
 
 # The timers settle() waits for: the viewer's debounces, slides and long-press timers run 0-1000ms. Longer ones are
@@ -164,10 +164,10 @@ class BrowserBase(ChromiumTestCase):
         (src / "main.tex").write_text(DEMO_TEX, encoding="utf-8")
         (root / "state").mkdir()
         config = run_config(src, src / "main.tex", root / "state", label="Demo")
-        ps.APP = ps.ServerApplication(
+        ps.APP = ApplicationFixture(
             config, ps.new_runtime(ps.serve_viewer(ps.read_viewer(), config.label, config.accent))
         )
-        ps.Handler.app = ps.APP
+        ps.Handler.app = ps.APP.web
         C = ps.APP.C
         reset_access()  # the access defaults and a fresh Runtime
         serve_viewer("Demo", "#2563eb", ps)
