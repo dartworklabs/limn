@@ -44,11 +44,15 @@ if __package__ in (None, ""):
 from limn.administration import doc_start_line, docs_of, pick_documents
 from limn.builds import (
     REBUILD_PATH,
+    BuildMapCache,
     BuildRequests,
     BuildSkipped,
     DocumentFacts,
     FailedBuild,
+    FigureMap,
+    MapRejected,
     build_failure_log,
+    cur_pages,
     get_route as build_get,
     migrate_pages as build_migrate_pages,
     needs_build,
@@ -202,6 +206,8 @@ class Runtime:
     pull_share: PullShare = field(default_factory=PullShare)
     sync_watch: SyncWatch = field(default_factory=SyncWatch)
     token_cache: TokenCache = field(default_factory=TokenCache)  # word weights of the last file weighed
+    # the parsed element maps of figure builds, one parse per build copy (limn.builds.BuildMapCache)
+    figure_maps: BuildMapCache = field(default_factory=BuildMapCache)
     # tokens.json's valid entries and people.json's {login: role} (or PeopleUnreadable) as last read - re-read when
     # the file changes on disk, so `limn token` / `limn member` edits take effect on the next request
     tokens_cache: access.FileCache[list[Json]] = field(default_factory=access.FileCache)
@@ -413,7 +419,9 @@ class ServerApplication:
         self.pin_listing = PinListing(self, TRASH_DAYS)
         self.pin_markdown = PinMarkdown(self, self.people_directory.known)
         self.location_service = PinLocationService(
-            lambda: PickContext(self.C.src, self.C.envs, self.C.state, self.RT.token_cache, self.overlaps_for_range)
+            lambda: PickContext(
+                self.C.src, self.C.envs, self.C.state, self.RT.token_cache, self.overlaps_for_range, self.figure_map
+            )
         )
         self.build_requests = BuildRequests(
             settings=lambda: self.C,
@@ -421,6 +429,7 @@ class ServerApplication:
             docs=lambda: self.docs,
             now=lambda: self.now_str(),
             describe=build_failure_log,
+            figure_shown=lambda: self.refresh_pins_md(),
         )
         self.sync_service = SyncService(
             lambda: SyncContext(
@@ -628,6 +637,23 @@ class ServerApplication:
         D = self.doc_by_key(key)
         return None if D is None else est_context(D)
 
+    def figure_map(self, D: Doc, build: str) -> FigureMap | MapRejected | None:
+        """The element map of build `build` (a page directory name) of figure document D, parsed once per build copy in
+        this run (RT.figure_maps), or None for a document without an element map or a build without a map copy."""
+        if not D.has_element_map:
+            return None
+        return self.RT.figure_maps.get(D, build)
+
+    def doc_figure_map(self, key: str) -> FigureMap | None:
+        """The loadable map of the build on screen of the figure document key names - what the read-time fields and
+        pins.md follow elements on - or None: another kind of document (asked first, so a LaTeX document never reads
+        its pages.cur), one no longer served, no map copy, or a map the parser refuses."""
+        D = self.doc_by_key(key)
+        if D is None or not D.has_element_map:
+            return None
+        got = self.figure_map(D, cur_pages(D).name)
+        return got if isinstance(got, FigureMap) else None
+
     def overlaps_by_id(self, pins: Sequence[Pin]) -> dict[int, list[Json]]:
         """The relationship of every pair of open line pins on the same file, each counted where pin_location() places it
         now (limn.pins.location.lookup.overlaps_by_id), never stored."""
@@ -652,9 +678,11 @@ class ServerApplication:
         return documents.request_doc(self.docs, self.C.src, key, file_hint)
 
     def document_facts(self, D: Doc) -> DocumentFacts:
-        """The parsing facts of document D (limn.runtime.documents.DocumentFacts) with this instance's manuscript root, state
-        folder and dpi - made per request like pin_store(), so a test that replaces this application's C is seen at once."""
-        return DocumentFacts(D, self.C.src, self.C.state, self.C.dpi)
+        """The parsing facts of document D (limn.builds.DocumentFacts) with this instance's manuscript root, state
+        folder and dpi - made per request like pin_store(), so a test that replaces this application's C is seen at
+        once. A figure document's maps are read through figure_map, so the request parses no map copy this run has
+        read."""
+        return DocumentFacts(D, self.C.src, self.C.state, self.C.dpi, self.figure_map)
 
     def pin_context(self) -> PinContext:
         """The pin services' view of this instance (limn.pins.context.PinContext), made per call like pin_store(), so a
@@ -686,6 +714,18 @@ class ServerApplication:
     def render_pins_md(self, pins: Sequence[Pin]) -> None:
         """Rewrites pins.md from pins alone (PinStore.render_md). Callers hold RT.pin_lock."""
         self.pin_store().render_md(pins)
+
+    def refresh_pins_md(self) -> None:
+        """Rewrites pins.md once from the live pins as stored, under RT.pin_lock - at startup, and each time an import
+        puts a new build of a figure document on screen (BuildRequests.figure_shown).
+
+        Why the import needs it: a figure pin's el_sync ('lost' when its element is gone from the map on screen) is a
+        read-time field. It is never stored, so no pin write follows a re-render, and the file on disk - which an agent
+        on this machine reads without asking the server - would keep the old row and miss 요소 잃음. The pins are read
+        without a re-sync and nothing is written but pins.md: pins.jsonl and every rev stay as they are. If rendering
+        fails, the old pins.md stays (PinStore.render_md renders before it writes) and the exception propagates."""
+        with self.RT.pin_lock:
+            self.render_pins_md(self.read_pins()[0])
 
     def access_settings(self) -> access.AccessSettings:
         """The access options of this run as the value identify() and admit() read (C.access_settings, made once per C)."""
@@ -792,8 +832,7 @@ class ServerApplication:
             self.RT.start_thread(self.build_requests.watch_pdf_docs, self.RT.stopping)
         if self.C.git_pull:
             self.RT.start_thread(self.sync_service.watch, self.RT.stopping)
-        with self.RT.pin_lock:
-            self.render_pins_md(self.read_pins()[0])
+        self.refresh_pins_md()
         startup.tighten_state_perms(self.C.people_file)
         return None
 

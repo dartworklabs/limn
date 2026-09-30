@@ -13,7 +13,7 @@ no file itself apart from resolving a named path against the manuscript tree.
 
 from collections.abc import Mapping
 from pathlib import Path
-from typing import Any, Literal, NamedTuple, Protocol, TypeAlias
+from typing import Any, NamedTuple, Protocol, TypeAlias
 
 from limn.platform.files import BadPath, ManuscriptFile, NotAFile, OutsideTree, file_in_tree
 from limn.platform.values import is_finite_num
@@ -26,7 +26,6 @@ MENTION_MAX = 10  # cap on mention hints per post
 PDF_BUILD_REFUSAL = "pdf_build 는 쪽 디렉토리 이름(pages 또는 pages-<시각>)이어야 합니다."
 
 Frac: TypeAlias = tuple[float, float, float, float]  # a selection's [x, y, w, h] as fractions of its page
-Via: TypeAlias = Literal["synctex", "text"]  # how the viewer traced a line pin's range
 
 
 class DocumentFacts(Protocol):
@@ -36,6 +35,12 @@ class DocumentFacts(Protocol):
     @property
     def key(self) -> str:
         """The document key (?doc=); a view-only document's refusals name it."""
+        ...
+
+    @property
+    def has_element_map(self) -> bool:
+        """A figure document with an element map: a pin's el is kept only there, and a body without file, lo or hi is a
+        region pin on it."""
         ...
 
     @property

@@ -1,6 +1,6 @@
 ---
 name: limn
-description: "Work with Limn, a browser viewer that turns a region picked on a LaTeX manuscript PDF into a .tex file:line range plus a request note (a pin). Use it when the user gives a Limn URL, when the paper repo's AGENTS.md points to a Limn instance, when asked to process the open pins in pins.md (\"check the pins\", session start), or when the user wants to point at a spot in the manuscript PDF instead of pasting a screenshot."
+description: "Work with Limn, a browser viewer that turns a region picked on a LaTeX manuscript PDF - or on a figure drawn by code - into a source file:line range plus a request note (a pin). Use it when the user gives a Limn URL, when the paper repo's AGENTS.md points to a Limn instance, when asked to process the open pins in pins.md (\"check the pins\", session start), or when the user wants to point at a spot in the manuscript PDF or a figure instead of pasting a screenshot."
 ---
 
 # Limn
@@ -25,6 +25,7 @@ Terms are defined once here and used with exactly this meaning below.
 | **assignee** | Who a pin is for: `agent` (the default) or a person. A person-assigned pin shows `→ @이름` ("→ @name"). |
 | **claim** | A short-lived "in progress" lock with an ETA, shown as `처리 중(<이름>, 약 N분)` ("in progress (<name>, about N min)"). |
 | **view-only document** | A PDF served without sources (e.g. reviewer comments). Its pins have a page and region, but no line numbers. |
+| **figure document** | A figure drawn by code, served as one PDF page per figure with an element map from the figure repository (`kind: "figure"` in `GET /api/docs`). Its pins are line pins on the drawing script and name the element (`el`). |
 
 ## When to use, when not
 
@@ -59,7 +60,7 @@ Send an API token with every request. Where the token comes from depends on wher
 - Claim one pin, right before you edit it, with an `eta_min` estimate (step 4).
 - Reply to a pin (`/reply`). An agent's reply never changes the pin's state; send `"reopen": true` only when the user asks.
 - Close a pin with `reply`, `ref` and `changes` (step 6). When you close through the tailnet address without a token, send `"review": true`.
-- Rebuild the PDF after editing (§Rules).
+- Rebuild a LaTeX document's PDF after editing (§Rules).
 
 ### What you must not do
 
@@ -75,8 +76,12 @@ Send an API token with every request. Where the token comes from depends on wher
    - The table is `| # | 쪽 | 위치 | 범위 | 메모 |` (# · page · location · range · note). `위치` (location) is a path relative to `--manuscript` plus `L<lo>-L<hi>`.
    - **Several documents**: pins are grouped in subsections `## <document name> · \`<key>\` · \`<path>\`` (manuscript, response letter, cover letter, …). Pin numbers are unique across documents.
    - **View-only document subsections** (`— 보기 전용 PDF(줄 번호 없음)`, "view-only PDF (no line numbers)") have no lines. The location cell reads `쪽 N, 영역 …` (page N, region …), and the `«…»` before the note is the text inside that region. Work out what the pin points at from the page, the region text and the note, then find the place to edit in the LaTeX document. If you cannot find it, do not close the pin; report it.
+   - **Figure pins** (a subsection whose title ends with `— 그림(요소 지도)`, "figure (element map)"; a figure document always gets its own subsection):
+     - The location is the drawing script's `<file> L<lo>-L<hi>`, the call that drew the element, and the range is the element kind (`el:MonthCell`, `figure` for the whole figure).
+     - The note starts with the element's name `«label»`. `공통 부품: <file>:<lo>-<hi>` ("shared part") after the note is the shared component's definition.
+     - A figure pin whose location is `쪽 N, 영역 …` has no code lines: the element was drawn without code (for example in a design file), or its script or the map could not be read. Work out the place in the figure repository from the page, the element name and the note; if the element comes from a design tool, report instead of editing. If you cannot find the place, do not close the pin; ask the human or report it.
    - **Check the repository (mandatory).** If the header line `논문: <label> · 저장소: <url>` (paper: … · repository: …) is present, compare `<url>` with `git remote get-url origin` in your checkout. If they differ, these are another paper's pins: do not process them; stop and report. This is the safeguard when several instances run at once.
-2. **Match the base commit.** If there is a line `기준: <head> · 빌드 <built_at>` (base: … · built …) — in the header for a single document, per subsection for several — and you work in a different checkout, first check that `git rev-parse --short HEAD` matches `<head>`.
+2. **Match the base commit.** If there is a line `기준: <head> · 빌드 <built_at>` (base: … · built …) — in the header for a single document, per subsection for several — and you work in a different checkout, first check that `git rev-parse --short HEAD` matches `<head>`. In the subsection of a document that is not built from source (a figure document or a view-only PDF) the line reads `기준: <head> · 그림 <built_at>` (base: … · figure …); the check is the same.
 3. **Decide the scope.**
    - Whoever is asked processes **all** pins open at that moment, regardless of who left them (author decision, 2026-09-22).
    - If the user named pin numbers, only those.
@@ -132,7 +137,8 @@ After the number, the number cell carries short plain-word markers joined by ` �
 | `처리 중(<이름>, 약 N분)` | Someone else holds a valid claim ("in progress (<name>, about N min)"; `예상 초과` means past the estimate) | Skip |
 | `수정됨` | The note or range was edited after saving ("edited") | — |
 | `위치 잃음` | The location was lost (stale) | See the stale rules below |
-| `«…»` | Quote of the rendered text (≤60 chars, `…` if truncated) | Use only as a search hint; never as `Edit`'s `old_string` |
+| `요소 잃음` | The figure pin's element is no longer in the figure's current map ("element lost": a re-render gave it another id or removed it) | Do not close by guessing; report it |
+| `«…»` | Quote of the rendered text (≤60 chars, `…` if truncated); on a figure pin, the element's name | Use only as a search hint; never as `Edit`'s `old_string` |
 | `[<작성자>]` | Author name in front of the note, when there are two or more authors | Not an assignment rule; for reports and `reply` only |
 | `질문` | A question pin, not a place to edit | Answer with a reply and close (edit the manuscript only if the question implies it) |
 | `다시 열림` | Sent back from review ("reopened") | Edit again per `[스레드 N건] 다시 연 이유(…)` in the note cell |
@@ -148,7 +154,8 @@ After the number, the number cell carries short plain-word markers joined by ` �
 - `close` and `drop` clear the claim. Call `/unclaim` only when you give up a pin or hand it over.
 - To edit a pin's note or range, send the `rev` from `GET /api/pins` as `base_rev` to `/edit`. On `409 conflict`, look at the latest `pin` in the response and resend. To only append, use `note_append` (no `base_rev` needed).
 - Every error response is `{"error": "<Korean text>", "reason": "<code>"}`. Branch on `reason`, a stable snake_case code (`viewer_only`, `conflict`, `pin_not_found`, …); the text is for people. The codes are listed in `docs/handbook/api.md` §오류 응답.
-- After editing the manuscript, rebuild that document's PDF (`POST /api/rebuild?async=1&doc=<key>`; omit `doc` for a single document). Picks on an old PDF map to wrong line numbers. View-only documents have no rebuild.
+- Rebuild after editing only a document whose `kind` in `GET /api/docs` is `"tex"`: `POST /api/rebuild?async=1&doc=<key>` (omit `doc` for a single document). Picks on an old PDF map to wrong line numbers. View-only PDFs (`"pdf"`) and figure documents (`"figure"`) have no rebuild; `POST /api/rebuild` answers them `400`.
+- Figure pins (every pin in a subsection titled `… — 그림(요소 지도)`): edit the lines in the location column (the call that drew the element). If the request is about a shared look - the element's `공통 부품` would change every figure that uses it - do not patch one figure. Ask the human: leave the pin open and reply on it with your question (`POST /api/pins/N/reply`, as for a question pin); do not close it. After editing, re-render the figure in the figure repository (its own command, e.g. `make figures`): Limn watches the PDF and its map and imports them by itself, so the re-render is what makes the human see the fixed figure. Commit the change before you close the pin: the `changes` and `ref` you send when closing need that commit.
 
 ## Starting a viewer for the user
 
@@ -163,7 +170,7 @@ After the number, the number cell carries short plain-word markers joined by ` �
    - Without `--port` the server picks a free port and prints it in the startup log.
    - To stop a one-off server, do not `pkill -f limn`; use `pid=$(lsof -ti tcp:<port>); [ -n "$pid" ] && kill $pid`.
 3. **Run.**
-   - One-off: `limn serve --manuscript <dir> [--main main.tex | --doc KEY=NAME:PATH ...] [--port N] [--state-dir DIR]`. `--doc` (repeatable) serves several documents from one paper repo on one address: `.tex` is LaTeX, `.pdf` is view-only. When starting servers by hand, give **each manuscript its own `--state-dir` and port**, or pins get mixed. Other arguments (`--git-pull`, `--label`, `--accent`, …): `limn serve --help` and [operations.md](../docs/handbook/operations.md).
+   - One-off: `limn serve --manuscript <dir> [--main main.tex | --doc KEY=NAME:PATH ...] [--port N] [--state-dir DIR]`. `--doc` (repeatable) serves several documents from one paper repo on one address: `.tex` is LaTeX, `.pdf` is view-only, and a path ending in `.limnmap.json` (lower case) is a figure document: Limn imports the PDF its element map names. When starting servers by hand, give **each manuscript its own `--state-dir` and port**, or pins get mixed. Other arguments (`--git-pull`, `--label`, `--accent`, …): `limn serve --help` and [operations.md](../docs/handbook/operations.md).
    - Long-running, one per manuscript: `limn add <name> --manuscript <dir> ...` assigns ports, writes the config, enables `limn@<name>` and sets up `tailscale serve`. Then `limn list`, `limn status <name>`, `limn url <name>`. `limn snippet <name>` prints the block to paste into the paper repo's AGENTS.md so that agents find the instance. Operator guide: [instances.md](../docs/handbook/instances.md).
 4. **Expose — hard rules.**
 
@@ -194,8 +201,8 @@ Send each JSON key, query parameter and singleton security header once. Duplicat
 | `POST /api/pins/{id}/reopen` | Reopen (clears the old `reply`, `ref` and `changes`). Optional `{"reason"}` stays in the thread |
 | `POST /api/pins/{id}/edit` | Edit note or range (`base_rev` required), or `note_append` |
 | `POST /api/pins/{id}/drop` | Move a pin to the Trash. `/restore` brings it back within 30 days (permanent `/purge` is owner-only) |
-| `POST /api/rebuild?async=1` | Rebuild the PDF; progress at `GET /api/build`. With several documents add `&doc=<key>` to both |
-| `GET /api/docs` | Document list (key, name, kind, open pin count, build state) |
+| `POST /api/rebuild?async=1` | Rebuild a LaTeX document's PDF (`kind: "tex"` only; figure and view-only documents answer `400`); progress at `GET /api/build`. With several documents add `&doc=<key>` to both |
+| `GET /api/docs` | Document list (key, name, kind `tex`/`pdf`/`figure`, open pin count, build state) |
 | `GET /api/meta?light=1` | Read-only state (`stale_build`, …). `&ev=<seq>` returns events addressed to you (for browser notifications) |
 
 ## Reference files

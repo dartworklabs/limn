@@ -12,6 +12,7 @@ Run: uv run pytest -q src/limn/builds/tests/test_build.py
 import ast
 import json
 import os
+import sys
 import tempfile
 import threading
 import time
@@ -35,9 +36,12 @@ from limn.builds.answer import (
     rebuild_started_answer,
 )
 from limn.builds.artifacts import (
+    FIGMAP_NAME,
+    MAP_CACHE_MAX,
     BuildAborted,
     BuildBusy,
     BuildFailed,
+    BuildMapCache,
     BuildOk,
     BuildOkWithErrors,
     BuildStarted,
@@ -45,12 +49,14 @@ from limn.builds.artifacts import (
     PagesNotRendered,
     ViewOnlyNoRebuild,
 )
+from limn.builds.figure_map import FigureMap, MapRejected
 from limn.documents import reads as limn_meta
 from limn.platform import files
 from limn.runtime.documents import Doc, RunPaths
 from limn.web.errors import HTTPError
 
 from helpers import MINI_PDF, Base, blank_png, figure_map, map_bytes, needs_tex, ps, req
+from helpers_figure import BUILD1, b2_map, figure_doc, write_build
 
 BUILD_PY = Path(build.__file__)
 RUN_PY = Path(build_run.__file__)
@@ -602,7 +608,7 @@ class RebuildAnswer(unittest.TestCase):
                 (
                     400,
                     {
-                        "error": "보기 전용 문서(rv)는 재빌드하지 않습니다 — PDF 파일이 바뀌면 쪽을 저절로 다시 그립니다.",
+                        "error": "재빌드하지 않는 문서(rv)입니다 — PDF 파일이 바뀌면 쪽을 저절로 다시 그립니다.",
                         "reason": "view_only_no_rebuild",
                     },
                 ),
@@ -796,8 +802,9 @@ class ReadsBeforeAndBetweenBuilds(unittest.TestCase):
 
 
 class FigureBuildFacts(unittest.TestCase):
-    """The figure build facts limn.builds.artifacts shares with the builds and pins slices: which map paths a figure document
-    accepts, the PDF a map names, and the map a published build kept (docs/handbook/code-style-roadmap.md §R10)."""
+    """The figure build facts limn.builds.artifacts shares with the builds and pins slices: the PDF a map names, kept
+    only inside the figure document's folder, and the map a published build kept, whose verdict depends on its bytes
+    alone (docs/handbook/code-style-roadmap.md §R10)."""
 
     def setUp(self):
         """A manuscript with a figure folder figs/ (out/, src/, a dot folder, a symlink src/out-link to a folder
@@ -812,7 +819,6 @@ class FigureBuildFacts(unittest.TestCase):
         (self.figs / "src" / "out-link").symlink_to(root / "elsewhere")
         paths = RunPaths(root / "ms", root / "ms" / "main.tex", root / "state")
         self.doc = Doc("fig", "그림", "figure", self.figs, self.figs / "out" / "figures.limnmap.json", paths=paths)
-        self.inside = build.figure_source_check(self.figs)
 
     def map_naming(self, pdf: str) -> figmap.FigureMap:
         """A map with no pages that names pdf."""
@@ -825,34 +831,29 @@ class FigureBuildFacts(unittest.TestCase):
         (pdir / build.FIGMAP_NAME).write_bytes(raw)
         return pdir
 
-    def test_a_source_path_is_accepted_only_inside_the_documents_folder(self):
-        """Relative paths that resolve inside figs/ pass, existing or not; empty, absolute, escaping, dot-named,
-        backslashed, NUL-holding, over-long and symlinked-out paths and the folder itself do not."""
-        for rel in ("src/B2_calendar.py", "lib/components.py", "./src/a.py", "src/../lib/b.py"):
-            self.assertTrue(self.inside(rel), rel)
-        for rel in (
-            "",
-            "/etc/passwd",
-            "../main.tex",
-            "src/../../main.tex",
-            ".cache/x.py",
-            "src/.hidden/x.py",
-            "src\\a.py",
-            "src/a\x00.py",
-            "src/out-link/x.py",
-            "a" * 5000,
-            ".",
-        ):
-            self.assertFalse(self.inside(rel), repr(rel[:40]))
-
     def test_the_pdf_a_map_names_is_resolved_from_the_maps_folder_inside_the_document(self):
-        """pdf is relative to the folder holding the map and may step up, but only to a path inside figs/."""
+        """pdf is relative to the folder holding the map and may step up, but only to a path strictly inside figs/ and
+        with no dot-named part: the folder itself, a path that climbs out, an absolute one, an empty, backslashed,
+        NUL-holding or over-long one, and one through a symlink that leads out are all None. This is the one folder
+        judgement a map still gets when it is imported: src and impl are judged when their script is read."""
         self.assertEqual(build.figure_pdf(self.doc, self.map_naming("figures.pdf")), self.figs / "out" / "figures.pdf")
         self.assertEqual(
             build.figure_pdf(self.doc, self.map_naming("../render/figures.pdf")), self.figs / "render" / "figures.pdf"
         )
-        for pdf in ("../../outside.pdf", "/srv/paper/figures.pdf", ".figures.pdf", "../src/out-link/f.pdf"):
-            self.assertIsNone(build.figure_pdf(self.doc, self.map_naming(pdf)), pdf)
+        for pdf in (
+            "../../outside.pdf",
+            "/srv/paper/figures.pdf",
+            ".figures.pdf",
+            "../src/out-link/f.pdf",
+            "",
+            "..",
+            "../.cache/x.pdf",
+            "../src/.hidden/x.pdf",
+            "src\\a.pdf",
+            "src/a\x00.pdf",
+            "a" * 5000,
+        ):
+            self.assertIsNone(build.figure_pdf(self.doc, self.map_naming(pdf)), repr(pdf[:40]))
 
     def test_a_published_build_map_is_read_back_or_absent(self):
         """A build with a map copy gives the map and the PDF it names; a build without one, a gone build and a name
@@ -867,16 +868,224 @@ class FigureBuildFacts(unittest.TestCase):
             self.assertIsNone(build.load_build_map(self.doc, name), name)
             self.assertIsNone(build.build_figure_pdf(self.doc, name), name)
 
-    def test_a_published_map_is_checked_again_when_read(self):
-        """The copy is parsed with the document's own source check: a source outside figs/ is path_outside, a copy
-        over the size cap is too_large, and neither names a PDF."""
-        m = figure_map(MINI_PDF)
-        m["pages"][0]["elements"][0]["src"]["file"] = "../../main.tex"
-        self.publish("pages-20260101000000", map_bytes(m))
-        self.assertEqual(build.load_build_map(self.doc, "pages-20260101000000").reason, "path_outside")
-        self.publish("pages-20260102000000", b" " * (figmap.MAP_MAX_BYTES + 10))
-        self.assertEqual(build.load_build_map(self.doc, "pages-20260102000000").reason, "too_large")
-        self.assertIsNone(build.build_figure_pdf(self.doc, "pages-20260101000000"))
+    def test_a_published_map_is_judged_by_its_bytes_alone(self):
+        """The copy is parsed as bytes: a source path through a symlink that leads out of figs/ is a map, and it stays
+        the same map after that link is replaced by a folder inside figs/ - the filesystem is never asked; a source path
+        that is not canonical is path_outside, a copy over the size cap is too_large, and neither names a PDF."""
+        linked = figure_map(MINI_PDF)
+        linked["pages"][0]["elements"][0]["src"]["file"] = "src/out-link/x.py"
+        self.publish("pages-20260101000000", map_bytes(linked))
+        first = build.load_build_map(self.doc, "pages-20260101000000")
+        self.assertIsInstance(first, figmap.FigureMap)
+        self.assertEqual(build.build_figure_pdf(self.doc, "pages-20260101000000"), self.figs / "out" / "figures.pdf")
+        (self.figs / "src" / "out-link").unlink()
+        (self.figs / "src" / "out-link").mkdir()
+        self.assertEqual(build.load_build_map(self.doc, "pages-20260101000000"), first)
+        climbing = figure_map(MINI_PDF)
+        climbing["pages"][0]["elements"][0]["src"]["file"] = "../../main.tex"
+        self.publish("pages-20260102000000", map_bytes(climbing))
+        self.assertEqual(build.load_build_map(self.doc, "pages-20260102000000").reason, "path_outside")
+        self.assertIsNone(build.build_figure_pdf(self.doc, "pages-20260102000000"))
+        self.publish("pages-20260103000000", b" " * (figmap.MAP_MAX_BYTES + 10))
+        self.assertEqual(build.load_build_map(self.doc, "pages-20260103000000").reason, "too_large")
+        self.assertIsNone(build.build_figure_pdf(self.doc, "pages-20260103000000"))
+
+
+class BuildMapCacheReads(unittest.TestCase):
+    """limn.builds.artifacts.BuildMapCache, the per-run cache of parsed figure maps: a build's map copy is parsed once
+    and served again while the copy is unchanged; a rewritten copy, a missing one and a name that is not a build miss.
+    One figure document with build BUILD1 on screen and a fresh cache."""
+
+    def setUp(self):
+        """Temp manuscript and state folder, the figure document, its first build."""
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        root = Path(self.tmp.name)
+        src = root / "ms"
+        src.mkdir()
+        (root / "state").mkdir()
+        self.fig = figure_doc(src, RunPaths(src, src / "main.tex", root / "state"))
+        write_build(self.fig, BUILD1, b2_map())
+        self.cache = BuildMapCache()
+
+    def test_an_unchanged_copy_is_parsed_once(self):
+        """The second read of the same copy is the very map the first one parsed."""
+        first = self.cache.get(self.fig, BUILD1)
+        self.assertIsInstance(first, FigureMap)
+        self.assertIs(self.cache.get(self.fig, BUILD1), first)
+
+    def test_a_rewritten_copy_is_parsed_again(self):
+        """A copy written again (another size) is a miss, and the new map is what comes back."""
+        first = self.cache.get(self.fig, BUILD1)
+        write_build(self.fig, BUILD1, b2_map(july=(0.4, 0.18, 0.07, 0.12)))
+        second = self.cache.get(self.fig, BUILD1)
+        self.assertIsNot(second, first)
+        self.assertEqual(second.find("B2/calendar/m07")[1].frac, (0.4, 0.18, 0.07, 0.12))
+
+    def test_a_warm_and_a_cold_cache_give_the_same_map_whatever_the_folder_holds(self):
+        """A script that becomes a link out of the folder after the map was cached changes nothing in what a cold cache
+        reads: both give the same FigureMap, so no answer built on the map depends on which cache state served it."""
+        warm = self.cache.get(self.fig, BUILD1)
+        self.assertIsInstance(warm, FigureMap)
+        outside = self.fig.src.parent / "elsewhere.py"
+        outside.write_text("x = 1\n", encoding="utf-8")
+        script = self.fig.src / "src" / "B2_calendar.py"
+        script.unlink()
+        script.symlink_to(outside)
+        self.assertEqual(self.cache.get(self.fig, BUILD1), warm)
+        self.assertEqual(BuildMapCache().get(self.fig, BUILD1), warm)
+
+    def test_a_missing_copy_or_a_name_that_is_not_a_build_is_none(self):
+        """No copy in that build, or a name no page directory can have (a path), gives None and reads nothing."""
+        self.assertIsNone(self.cache.get(self.fig, "pages-20990101000000"))
+        self.assertIsNone(self.cache.get(self.fig, "../state"))
+
+    def test_a_refused_copy_is_cached_as_refused(self):
+        """A copy the parser refuses is MapRejected, and it is not parsed again while unchanged."""
+        (self.fig.dir / BUILD1 / FIGMAP_NAME).write_text("not json", encoding="utf-8")
+        got = self.cache.get(self.fig, BUILD1)
+        self.assertIsInstance(got, MapRejected)
+        self.assertIs(self.cache.get(self.fig, BUILD1), got)
+
+    def test_the_oldest_entry_goes_first_beyond_the_cap(self):
+        """MAP_CACHE_MAX + 1 builds read in turn: the first is parsed again, the last is still cached."""
+        names = ["pages-202609261000%02d" % i for i in range(MAP_CACHE_MAX + 1)]
+        for name in names:
+            write_build(self.fig, name, b2_map())
+        first = self.cache.get(self.fig, names[0])
+        last = [self.cache.get(self.fig, name) for name in names[1:]][-1]
+        self.assertIs(self.cache.get(self.fig, names[-1]), last)
+        self.assertIsNot(self.cache.get(self.fig, names[0]), first)
+
+    def test_a_copy_removed_after_it_was_read_is_none_not_the_stale_parse(self):
+        """The copy is looked at on every read, so a build whose copy has gone answers None though its entry is held."""
+        self.assertIsInstance(self.cache.get(self.fig, BUILD1), FigureMap)
+        (self.fig.dir / BUILD1 / FIGMAP_NAME).unlink()
+        self.assertIsNone(self.cache.get(self.fig, BUILD1))
+
+    def test_the_same_build_name_of_two_figure_documents_is_two_entries(self):
+        """The document's folder is in the key: each document's build BUILD1 is its own map, and both stay cached."""
+        other_dir = self.fig.src.parent / "figs2"
+        other = Doc(
+            "other", "다른 그림", "figure", other_dir, other_dir / "out" / "figures.limnmap.json", paths=self.fig.paths
+        )
+        write_build(other, BUILD1, b2_map(july=(0.4, 0.18, 0.07, 0.12)))
+        mine, theirs = self.cache.get(self.fig, BUILD1), self.cache.get(other, BUILD1)
+        self.assertEqual(mine.find("B2/calendar/m07")[1].frac, (0.47, 0.18, 0.07, 0.12))
+        self.assertEqual(theirs.find("B2/calendar/m07")[1].frac, (0.4, 0.18, 0.07, 0.12))
+        self.assertEqual((self.cache.get(self.fig, BUILD1), self.cache.get(other, BUILD1)), (mine, theirs))
+        self.assertEqual(self.cache.held(), 2)
+
+    def test_the_pdf_of_a_build_read_through_the_cache_parses_its_copy_once(self):
+        """build_figure_pdf given the cache's get names the PDF the uncached call names, and asking twice parses
+        once."""
+        want = build.build_figure_pdf(self.fig, BUILD1)
+        self.assertEqual(want, (self.fig.main.parent / "figures.pdf").resolve())
+        with mock.patch.object(build, "parse_map", wraps=figmap.parse_map) as parsed:
+            first = build.build_figure_pdf(self.fig, BUILD1, self.cache.get)
+            second = build.build_figure_pdf(self.fig, BUILD1, self.cache.get)
+        self.assertEqual((first, second), (want, want))
+        self.assertEqual(parsed.call_count, 1)
+
+    def test_the_pdf_of_a_build_read_without_a_cache_parses_its_copy_each_time(self):
+        """Without a lookup build_figure_pdf reads the copy itself (load_build_map): two calls are two parses."""
+        with mock.patch.object(build, "parse_map", wraps=figmap.parse_map) as parsed:
+            build.build_figure_pdf(self.fig, BUILD1)
+            build.build_figure_pdf(self.fig, BUILD1)
+        self.assertEqual(parsed.call_count, 2)
+
+    def test_a_refused_copy_or_a_missing_one_names_no_pdf_through_the_cache(self):
+        """A copy the parser refuses, a build without a copy and a name that is no build name a PDF through the cache
+        no more than they do uncached."""
+        (self.fig.dir / BUILD1 / FIGMAP_NAME).write_text("not json", encoding="utf-8")
+        for name in (BUILD1, "pages-20990101000000", "../state"):
+            self.assertIsNone(build.build_figure_pdf(self.fig, name, self.cache.get), name)
+
+
+class BuildMapCacheThreads(unittest.TestCase):
+    """limn.builds.artifacts.BuildMapCache under request threads. The run's one cache is shared by the pick and GET
+    /api/pins, so reads that miss, hit and evict at the same moment must each get the map of the build they asked for,
+    raise nothing and leave the cache at its cap. The interpreter is set to switch threads every microsecond, so an
+    unguarded eviction shows. Twice the cap of builds, each with a July box of its own."""
+
+    THREADS = 8
+
+    def setUp(self):
+        """A figure document with 2 * MAP_CACHE_MAX builds whose July cells differ, and a fresh cache."""
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        root = Path(self.tmp.name)
+        src = root / "ms"
+        src.mkdir()
+        (root / "state").mkdir()
+        self.fig = figure_doc(src, RunPaths(src, src / "main.tex", root / "state"))
+        self.names = ["pages-202609261000%02d" % i for i in range(2 * MAP_CACHE_MAX)]
+        for i, name in enumerate(self.names):
+            write_build(self.fig, name, b2_map(july=self.july(i)))
+        self.cache = BuildMapCache()
+        switch = sys.getswitchinterval()
+        sys.setswitchinterval(1e-6)
+        self.addCleanup(sys.setswitchinterval, switch)
+
+    def july(self, i: int) -> tuple[float, float, float, float]:
+        """The July box of build number i: no two builds share an x."""
+        return (0.10 + 0.01 * i, 0.18, 0.07, 0.12)
+
+    def run_threads(self, body) -> list[str]:
+        """Run body(n) on THREADS threads that start together; what each raised or reported, all joined."""
+        problems: list[str] = []
+        start = threading.Barrier(self.THREADS)
+
+        def guarded(n: int) -> None:
+            """body(n) after the barrier, its exceptions and reports gathered."""
+            try:
+                start.wait(timeout=30)
+                problems.extend(body(n))
+            except Exception as exc:
+                problems.append("%s: %s" % (type(exc).__name__, exc))
+
+        threads = [threading.Thread(target=guarded, args=(n,)) for n in range(self.THREADS)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join(60)
+        self.assertEqual([t.is_alive() for t in threads], [False] * self.THREADS)
+        return problems
+
+    def test_reads_that_miss_and_evict_at_once_each_get_their_own_build_and_the_cap_holds(self):
+        """Every thread reads all the builds, each from its own starting point, five times over: each read is the map
+        of the build asked (its July x), none raises, and the cache ends holding exactly MAP_CACHE_MAX maps."""
+
+        def body(n: int) -> list[str]:
+            """Read every build five times from a start of this thread's own; the wrong or missing answers."""
+            wrong = []
+            for _ in range(5):
+                for k in range(len(self.names)):
+                    i = (k + 4 * n) % len(self.names)
+                    got = self.cache.get(self.fig, self.names[i])
+                    if not isinstance(got, FigureMap) or got.find("B2/calendar/m07")[1].frac != self.july(i):
+                        wrong.append("build %d: %r" % (i, got))
+            return wrong
+
+        self.assertEqual(self.run_threads(body), [])
+        self.assertEqual(self.cache.held(), MAP_CACHE_MAX)
+
+    def test_threads_that_miss_the_same_copy_together_get_equal_maps_and_one_entry(self):
+        """A stampede on one unread copy: every thread gets a map equal to the others' (each may have parsed it), and
+        the cache holds one entry for it, which the next read serves."""
+        got: list[object] = []
+
+        def body(n: int) -> list[str]:
+            """Read the first build's copy once; the answer is kept for the comparison."""
+            got.append(self.cache.get(self.fig, self.names[0]))
+            return []
+
+        self.assertEqual(self.run_threads(body), [])
+        self.assertEqual(len(got), self.THREADS)
+        self.assertIsInstance(got[0], FigureMap)
+        self.assertEqual(got, [got[0]] * self.THREADS)
+        self.assertEqual(self.cache.held(), 1)
+        self.assertIs(self.cache.get(self.fig, self.names[0]), self.cache.get(self.fig, self.names[0]))
 
 
 # ---------------------------------------------------------------- through server.py's wiring

@@ -27,9 +27,10 @@ def overlaps_api(rng: SourceRange, overlaps: Callable[[str, int, int], list[dict
     return {"overlaps": overlaps(str(rng.file), rng.lo, rng.hi)}
 
 
-def snippet_api(rng: SourceRange, levels: bool, envs: Sequence[str]) -> dict[str, Any]:
+def snippet_api(rng: SourceRange, levels: bool, envs: Sequence[str], source_ladder: bool = True) -> dict[str, Any]:
     """GET /api/snippet: the source lines lo..hi of a manuscript file (a range parsed by location.input.parse_snippet),
-    and with levels the range ladder around them for the float environments envs."""
+    and with levels the range ladder around them - compute_levels' for the float environments envs when the document's
+    ladder comes from its text (source_ladder), else raw_ladder's."""
     f, lines, lo, hi = rng.file, rng.lines, rng.lo, rng.hi
     out: dict[str, Any] = {
         "file": str(f),
@@ -41,7 +42,23 @@ def snippet_api(rng: SourceRange, levels: bool, envs: Sequence[str]) -> dict[str
         "snippet": snippet(lines, lo, hi),
     }
     if levels:
-        lad = compute_levels(lines, lo, hi, envs)
+        lad = compute_levels(lines, lo, hi, envs) if source_ladder else raw_ladder(lines, lo, hi)
         out["levels"] = lad["levels"]
         out["default_level"] = lad["default_level"]
     return out
+
+
+def raw_ladder(lines: Sequence[str], lo: int, hi: int) -> dict[str, Any]:
+    """The ladder of a range in a document whose rungs come from its element map rather than its text (a figure's
+    drawing script): the raw rung alone - the lines as they are - and it is the default. Paragraph and environment
+    rungs are LaTeX rules and mean nothing in code; the element ladder is the pick's (docs/handbook/api.md §그림 문서의
+    pick·핀)."""
+    rung = {
+        "level": "raw",
+        "lo": lo,
+        "hi": hi,
+        "label": "드래그한 줄",
+        "n": hi - lo + 1,
+        "snippet": snippet(lines, lo, hi),
+    }
+    return {"levels": [rung], "default_level": "raw"}

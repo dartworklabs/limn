@@ -15,7 +15,7 @@ from pathlib import Path
 from limn.pins.location import position
 from limn.pins.location.mapping import anchor_of, norm
 from limn.pins.location.position import AnchorLost, EstContext, Followed
-from limn.pins.model import parse_pin
+from limn.pins.model import LineSpan, OpenPin, parse_pin
 
 POSITION_PY = Path(position.__file__)
 PURE_IMPORTS = {
@@ -298,6 +298,21 @@ class SelectionRelation(unittest.TestCase):
         self.assertEqual(position.selection_rel(3, 10, 4, 9), "contains")
         self.assertEqual(position.selection_rel(8, 12, 4, 9), "partial")
         self.assertIsNone(position.selection_rel(10, 12, 4, 9))
+
+
+class FigureAnchorBackfill(unittest.TestCase):
+    """A legacy pin on a Python script gets an anchor that skips # comment lines."""
+
+    def test_a_python_pin_without_an_anchor_is_backfilled_past_its_comment(self):
+        """The first line of the range is a # comment: head is the code line after it, head_off 1."""
+        lines = ["x = 0", "# July cell", "cell = month(7)"]
+        pin = OpenPin.from_record({"id": 1, "file": "/ms/figs/a.py", "lo": 2, "hi": 3})
+        out = position.resync(
+            pin, LineSpan("/ms/figs/a.py", 2, 3), lines, [norm(t) for t in lines], 5.0, "/ms/figs/a.py"
+        )
+        self.assertEqual(
+            out.record["anchor"], {"head": "cell = month(7)", "tail": "cell = month(7)", "head_off": 1, "tail_off": 0}
+        )
 
 
 if __name__ == "__main__":

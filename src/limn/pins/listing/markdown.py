@@ -7,16 +7,24 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Protocol
 
-from limn.builds import read_built_at as build_read_built_at, read_head as build_read_head
-from limn.pins.listing.render import DocHeading, PinFacts, PinsMdInput, pins_md_text as render_pins_md_text, rel_badge
-from limn.pins.location.lookup import PinLocation
+from limn.builds import FigureMap, read_built_at as build_read_built_at, read_head as build_read_head
+from limn.pins.element import element_of
+from limn.pins.listing.projection import element_marks
+from limn.pins.listing.render import (
+    DocHeading,
+    PinFacts,
+    PinsMdInput,
+    pins_md_text as render_pins_md_text,
+    rel_badge,
+)
+from limn.pins.location.lookup import PinLocation, doc_scope
 from limn.pins.mentions import addressed_to, fyi_mentions_to, thread_round
 from limn.pins.model import DonePin, OpenPin, Pin, Record, is_region_pin, state_of
 from limn.pins.thread import pin_reopened_in_round
 from limn.platform.files import tex_lines
 from limn.platform.values import is_int
 from limn.runtime.config import RunConfig
-from limn.runtime.documents import Doc
+from limn.runtime.documents import Doc, doc_by_key
 from limn.security.access import file_present, home_or_none
 from limn.security.guidance import shell_path
 
@@ -45,6 +53,10 @@ class MarkdownDeps(Protocol):
         """The document that owns this pin."""
         ...
 
+    def doc_figure_map(self, key: str) -> FigureMap | None:
+        """The loadable map of the build on screen of the figure document key names, or None."""
+        ...
+
 
 @dataclass
 class PinMarkdown:
@@ -67,20 +79,29 @@ class PinMarkdown:
         build stamps, the clock, this machine's token file, people.json, and per pin what the overlap, @-tag, thread and
         file-location rules decide. base is GET /pins.md's request base, None for the file written to disk.
 
-        Reads files (people.json, the build stamps, whether the token file exists, and the source file of each open
-        one-line pin that carries a quote - each file read at most once per call) but writes nothing."""
+        The rules a pin's row follows are the overlap, @-tag, thread, file-location and figure-element ones - a figure
+        pin's element is followed on its document's current map, read at most once per document per call (through
+        the run's map cache, as GET /api/pins does), and its shared part is given the document's folder to be
+        placed under as text.
+
+        Reads files (people.json, the build stamps, whether the token file exists, the source file of each open
+        one-line pin that carries a quote - each file read at most once per call - and each figure document's
+        current map) but writes nothing."""
         rows = [pin.record for pin in pins]
         rel = self.deps.overlaps_by_id(pins)
         by_id = {r["id"]: r for r in rows}
         sources: dict[Path, list[str]] = {}
+        maps: dict[str, FigureMap | None] = {}
         facts: dict[int, PinFacts] = {}
         for pin in pins:
             r = pin.record
             if state_of(r) is DonePin:
                 continue
             location, line_len = self._location_and_line_len(pin, sources)
+            doc_key = self.deps.pin_doc_key(r)
+            el_sync, impl_scope = self._element_facts(r, doc_key, maps)
             facts[r["id"]] = PinFacts(
-                doc_key=self.deps.pin_doc_key(r),
+                doc_key=doc_key,
                 location=location,
                 line_len=line_len,
                 badge=rel_badge(rel.get(r["id"], []), by_id, r),
@@ -88,6 +109,8 @@ class PinMarkdown:
                 addressed=tuple(addressed_to(pin)),
                 fyi=tuple(fyi_mentions_to(pin)),
                 round=tuple(thread_round(pin.core.thread)),
+                el_sync=el_sync,
+                impl_scope=impl_scope,
             )
         docs = tuple(
             DocHeading(
@@ -98,6 +121,7 @@ class PinMarkdown:
                 builds_from_source=d.builds_from_source,
                 head=build_read_head(d),
                 built_at=build_read_built_at(d),
+                has_element_map=d.has_element_map,
             )
             for d in self.deps.docs
         )
@@ -115,6 +139,27 @@ class PinMarkdown:
             updated=datetime.now().astimezone().strftime("%Y-%m-%d %H:%M"),
             token_file=self.existing_token_file_shown(self.deps.C.access.agent_token_file),
         )
+
+    def _element_facts(
+        self, r: Record, doc_key: str, maps: dict[str, FigureMap | None]
+    ) -> tuple[str | None, str | None]:
+        """A figure pin's facts for its row: el_sync on its document's current map (asked at most once per document per
+        render, kept in maps) and impl_scope, the folder of its document relative to --manuscript (doc_scope) when the
+        element has a shared part - None when it has none, or when its document is no longer served or is no longer a
+        figure document (not doc.has_element_map: the key was reconfigured, so the folder means nothing for an element).
+        The edge only passes the folder; whether and how the shared part's file is printed is the renderer's rule
+        (limn.pins.listing.render.shared_part_md). Nothing is opened. (None, None) for a pin without a well-formed el.
+        Total: a hostile stored el gives facts, never an error."""
+        el = element_of(r.get("el"))
+        if el is None:
+            return None, None
+        if doc_key not in maps:
+            maps[doc_key] = self.deps.doc_figure_map(doc_key)
+        sync = element_marks(r, maps[doc_key]).get("el_sync")
+        doc = doc_by_key(self.deps.docs, doc_key)
+        if el.impl is None or doc is None or not doc.has_element_map:
+            return sync, None
+        return sync, doc_scope(doc, self.deps.C.src)
 
     def _location_and_line_len(self, pin: Pin, sources: dict[Path, list[str]]) -> tuple[str, int | None]:
         """The pin's current display path and quoted line length, reading each source path at most once."""

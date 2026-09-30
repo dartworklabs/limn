@@ -272,5 +272,49 @@ class PinRelPathRule(unittest.TestCase):
         self.assertFalse(mapping.anchor_holds(anchor, 5, nlines))
 
 
+class AnchorComments(unittest.TestCase):
+    """anchor_of skips whole-line comments by the file's own marker (comment_marker): % for LaTeX, # for Python."""
+
+    PY = ["def draw():", "    # July cell", "    cell = month(7)", "    cell.label('7월')", "    # TODO bigger"]
+
+    def test_the_marker_follows_the_file_suffix(self):
+        """# for a .py drawing script; % for LaTeX and every other file, as before."""
+        self.assertEqual(mapping.comment_marker("/ms/figs/src/B2_calendar.py"), "#")
+        for path in ("/ms/main.tex", "/ms/refs.bib", "/ms/figs/src/draw.js", "/ms/notes"):
+            self.assertEqual(mapping.comment_marker(path), "%", path)
+
+    def test_the_suffix_is_compared_without_regard_to_case(self):
+        """.PY and .Py are Python scripts too (#); a name that only contains or ends like .py is not (%)."""
+        for path in ("/ms/figs/src/draw.PY", "/ms/figs/src/draw.Py", "draw.pY"):
+            self.assertEqual(mapping.comment_marker(path), "#", path)
+        for path in ("/ms/figs/src/draw.pyc", "/ms/figs/src/draw.py.bak", "/ms/py", "/ms/draw.TEX"):
+            self.assertEqual(mapping.comment_marker(path), "%", path)
+
+    def test_python_hash_comments_are_skipped_at_both_ends(self):
+        """A range opening and closing on # lines anchors on the code between them, offsets recorded."""
+        self.assertEqual(
+            mapping.anchor_of(self.PY, 2, 5, "#"),
+            {"head": "cell = month(7)", "tail": "cell.label('7월')", "head_off": 1, "tail_off": 1},
+        )
+
+    def test_latex_keeps_skipping_percent_and_not_hash(self):
+        """The default marker is %: a LaTeX line starting with # is text."""
+        tex = ["% TODO", "#1 is the first argument", "text"]
+        self.assertEqual(
+            mapping.anchor_of(tex, 1, 3),
+            {"head": "#1 is the first argument", "tail": "text", "head_off": 1, "tail_off": 0},
+        )
+
+    def test_a_percent_line_in_python_is_code(self):
+        """With the # marker a line starting with % is not a comment."""
+        self.assertEqual(mapping.anchor_of(["    % (a, b)", "x = 1"], 1, 2, "#")["head"], "% (a, b)")
+
+    def test_a_range_of_comments_only_still_anchors_on_them(self):
+        """Nothing but comments: the comments themselves are the anchor, as for LaTeX."""
+        self.assertEqual(
+            mapping.anchor_of(["# a", "# b"], 1, 2, "#"), {"head": "# a", "tail": "# b", "head_off": 0, "tail_off": 0}
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

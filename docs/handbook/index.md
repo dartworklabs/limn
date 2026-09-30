@@ -20,10 +20,10 @@ catalog_schema: 1
 | --- | --- | --- | --- |
 | purpose | [purpose.md](purpose.md) | Limn이 줄이는 비용, 사용자, 범위, 영역별 진실 소스 | 처음 읽을 때, 현재값의 정본 위치가 헷갈릴 때 / 제품 범위나 정본 위치가 바뀔 때 |
 | architecture | [architecture.md](architecture.md) | 현재 구조(기능 소유권과 공통 경계), 의존 방향, 채택한 설계 축, 불변식, 멈춤 신호 | 코드를 놓을 자리를 고르거나 의존성·저장·보안 경계를 건드리기 전 / 구조 단위·불변식·채택값이 바뀔 때 |
-|  | [domain.md](domain.md) | 핀 용어, 상태와 전이, 역변환·범위 사다리·anchor 재동기화, 저장소 안전성, 작성자 귀속, 여러 문서 서버 규칙(보기 전용 PDF·그림 문서), 알려진 제약 | 핀 규칙이나 위치 계산을 고치기 전 / 상태·전이·위치 규칙·한도가 바뀔 때 |
+|  | [domain.md](domain.md) | 핀 용어, 상태와 전이, 역변환·범위 사다리·그림 문서의 요소 pick·anchor 재동기화·읽을 때 계산하는 요소 위치, 저장소 안전성, 작성자 귀속, 여러 문서 서버 규칙(보기 전용 PDF·그림 문서), 알려진 제약 | 핀 규칙이나 위치 계산을 고치기 전 / 상태·전이·위치 규칙·한도가 바뀔 때 |
 |  | [viewer.md](viewer.md) | 뷰어 조작 요약, 레이아웃, 패널, 상태 표시, 협업 UI, 디자인 토큰·컴포넌트, 벡터 렌더링·확대, 화면 쪽 제약 | 뷰어 HTML·CSS·JS를 고치기 전 / 화면 규칙이나 가드 테스트가 바뀔 때 |
 |  | [build-sync.md](build-sync.md) | 동기·비동기 재빌드, git pull, 자동 동기화 폴링, 위치 추정 est, 응답 다이어트, 보기 전용 PDF 감시, 그림 문서 가져오기 | 빌드·동기화·추정 코드를 고치기 전 / 빌드 상태나 폴링 규칙이 바뀔 때 |
-|  | [api.md](api.md) | 에이전트 계약: HTTP API 전체, 요청 경계, 핀 레코드 스키마, pins.md 형식, 그림 요소 지도 형식 | 에이전트 연동을 만들거나 요청 처리를 고치기 전 / 경로·필드·상태·pins.md 형식이 바뀔 때 |
+|  | [api.md](api.md) | 에이전트 계약: HTTP API 전체, 요청 경계, 핀 레코드 스키마, pins.md 형식, 그림 문서의 pick·핀, 그림 요소 지도 형식 | 에이전트 연동을 만들거나 요청 처리를 고치기 전 / 경로·필드·상태·pins.md 형식이 바뀔 때 |
 |  | [operations.md](operations.md) | 서버 하나 실행: 요구 환경, 실행 인자, 포트, 보안 제약, tailscale serve, systemd, 상태 파일 | 서버를 띄우거나 운영 문제를 볼 때 / 실행 인자·상태 파일·보안 제약이 바뀔 때 |
 |  | [instances.md](instances.md) | 원고별 인스턴스 관리자: limn 명령, 설정 키, 문서 탭, 업데이트·되돌리기, 포트, 환경 변수 | 인스턴스를 추가·업데이트·제거할 때 / limn 명령·설정 키·유닛 템플릿이 바뀔 때 |
 | verification | [verification.md](verification.md) | 게이트별 측정 대상·적용 조건·실행·합격 기준·보장 범위, 없는 게이트 | PR 전과 리뷰할 때 / 테스트·CI 단계·합격 기준이 바뀔 때 |
@@ -38,8 +38,8 @@ catalog_schema: 1
 <!-- handbook-filemap:start -->
 | 경로 패턴 | 책임 | 수정 trigger | 갱신 주체 |
 | --- | --- | --- | --- |
-| `src/limn/pins/**` | 핀 값·전이·레코드·저장·문맥·멘션·변경 범위와 여섯 동작. 순수 판단과 I/O는 같은 기능 안에서 의존 방향으로 구별한다 | 상태·전이·위치·쓰기·알림·pins.md 변경 | domain.md, api.md, build-sync.md, architecture.md |
-| `src/limn/builds/**` | 빌드 결과·산출물·원고 지문·이력·DocumentFacts·컴파일·PDF 감시·그림 지도 파싱/가져오기와 요청 응답 | 빌드 상태·파일 선택·실행·실패 문구 변경 | build-sync.md, api.md, architecture.md |
+| `src/limn/pins/**` | 핀 값·전이·레코드·저장·문맥·멘션·변경 범위와 여섯 동작. 순수 판단과 I/O는 같은 기능 안에서 의존 방향으로 구별한다. 그림 문서의 요소 pick과 사다리 단계(`location/figure.py`), 그림 핀의 요소 필드 모양(`element.py`), 읽을 때 계산하는 `mark`·`el_sync`(`listing/projection.py`), pins.md의 그림 핀 행(`listing/render.py`), 파일 종류별 주석 줄(`location/mapping.py`의 `comment_marker`)을 포함한다 | 상태·전이·위치·쓰기·알림·pins.md 변경 | domain.md, api.md, build-sync.md, architecture.md |
+| `src/limn/builds/**` | 빌드 결과·산출물·원고 지문·이력·DocumentFacts·컴파일·PDF 감시·그림 지도 파싱/가져오기와 요청 응답. 지도 사본의 실행별 파싱 캐시(`artifacts.py`의 `BuildMapCache`)와 요소 고르기·사다리·따라가기 규칙(`figure_map.py`)을 포함한다 | 빌드 상태·파일 선택·실행·실패 문구 변경 | build-sync.md, api.md, architecture.md |
 | `src/limn/collaboration/**` | 사람 후보·방문 연결, 이벤트 파일·멘션 알림·폴링 | 사람 조회·이벤트 순서·기록·알림 변경 | api.md, viewer.md, architecture.md |
 | `src/limn/documents/**` | 문서 탭·meta·목차 조회와 순수 목차 파서 | 문서 응답·폴링·목차 변경 | api.md, viewer.md, build-sync.md |
 | `src/limn/revisions/**` | Git 이력·diff·격리 비교 PDF·캐시·실패 응답 | 비교 실행·범위·응답·캐시 변경 | api.md, architecture.md |

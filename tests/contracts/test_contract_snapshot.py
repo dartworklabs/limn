@@ -24,10 +24,13 @@ from unittest import mock
 
 from limn.builds import engine as build_engine
 from limn.pins.listing import markdown as listing_markdown
+from limn.pins.location import source as pick_source
+from limn.runtime.documents import Doc
 from limn.security import people as limn_people
 
 from helpers import ps
 from helpers_access import ALICE, BOB, AccessBase
+from helpers_figure import AUGUST_BOX, BUILD1, BUILD2, JULY_BOX, SCRIPT, b2_map, figure_doc, write_build
 
 SNAPSHOT = Path(__file__).resolve().parents[2] / "tests" / "data" / "contract_snapshot.json"
 T0 = 1790384400.0  # 2026-09-26 10:00:00 +09:00
@@ -59,8 +62,8 @@ def frozen_strftime(fmt, t=None):
     return _STRFTIME(fmt, time.gmtime(T0 + 9 * 3600) if t is None else t)
 
 
-class ContractSnapshot(AccessBase):
-    """The recorded pin flow; see the module docstring."""
+class SnapshotBase(AccessBase):
+    """The pinned clocks and zone and the recording of one flow's answers (every snapshot test's setup)."""
 
     def setUp(self):
         """AccessBase's fresh server, with every clock the flow reads pinned to T0 in +09:00 (Asia/Seoul)."""
@@ -110,6 +113,19 @@ class ContractSnapshot(AccessBase):
         if method == "POST" and ps.APP.C.pins_md.exists():
             self.seen.append({"step": name + " -> pins.md", "body": self.text(ps.APP.C.pins_md.read_bytes())})
         return data
+
+    def assert_recorded(self, path: Path) -> None:
+        """The answers seen equal the snapshot at path, step by step; LIMN_RECORD_SNAPSHOT=1 writes it first."""
+        if os.environ.get("LIMN_RECORD_SNAPSHOT") == "1":
+            path.write_text(json.dumps(self.seen, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
+        recorded = json.loads(path.read_text(encoding="utf-8"))
+        self.assertEqual([s["step"] for s in self.seen], [s["step"] for s in recorded])
+        for got, want in zip(self.seen, recorded, strict=True):
+            self.assertEqual(got, want, got["step"])
+
+
+class ContractSnapshot(SnapshotBase):
+    """The recorded pin flow; see the module docstring."""
 
     def test_the_pin_flow_answers_as_recorded(self):
         """Every answer and pins.md along the flow equal the recorded snapshot."""
@@ -171,12 +187,106 @@ class ContractSnapshot(AccessBase):
         self.step("GET /api/pins", "GET", "/api/pins")
         self.step("GET /api/pins?all=1", "GET", "/api/pins?all=1")
         self.step("GET /api/pins/<a>", "GET", "/api/pins/%d" % a)
-        if os.environ.get("LIMN_RECORD_SNAPSHOT") == "1":
-            SNAPSHOT.write_text(json.dumps(self.seen, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
-        recorded = json.loads(SNAPSHOT.read_text(encoding="utf-8"))
-        self.assertEqual([s["step"] for s in self.seen], [s["step"] for s in recorded])
-        for got, want in zip(self.seen, recorded, strict=True):
-            self.assertEqual(got, want, got["step"])
+        self.assert_recorded(SNAPSHOT)
+
+
+FIGURE_SNAPSHOT = Path(__file__).resolve().parents[2] / "tests" / "data" / "contract_snapshot_figure.json"
+
+
+class FigureContractSnapshot(SnapshotBase):
+    """The figure flow, recorded in tests/data/contract_snapshot_figure.json: a map pick and its pin, an agent's pin
+    without el, a pick on an element drawn without code and its region pin, pins.md and the pin list, then a re-render
+    that moves one element and removes the other (read-time mark and el_sync, 요소 잃음). pdftotext answers no text,
+    so the fallback's quote does not depend on the machine."""
+
+    def setUp(self):
+        """The pinned clocks; a LaTeX document ms and figure document fig with BUILD1 on screen; the scripts' mtime
+        T0."""
+        super().setUp()
+        self.fig = figure_doc(self.src, ps.APP.C.paths)
+        ps.APP.set_docs([Doc("ms", "본문", "tex", self.src, self.main, paths=ps.APP.C.paths), self.fig])
+        self.addCleanup(ps.APP.set_docs, None)
+        write_build(self.fig, BUILD1, b2_map())
+        for path in (self.fig.src / "src" / "B2_calendar.py", self.fig.src / "lib" / "components.py"):
+            os.utime(path, (T0, T0))
+        patcher = mock.patch.object(pick_source, "region_text", return_value="")
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def test_the_figure_pin_flow_answers_as_recorded(self):
+        """Every answer and pins.md along the figure flow equal the recorded snapshot."""
+        x0, y0, x1, y1 = JULY_BOX
+        july = self.step(
+            "figure: person picks the July cell",
+            "POST",
+            "/api/pick",
+            {
+                "doc": "fig",
+                "page": 1,
+                "x0": x0,
+                "y0": y0,
+                "x1": x1,
+                "y1": y1,
+                "frac": [0.479, 0.198, 0.049, 0.073],
+                "pdf_build": BUILD1,
+            },
+            ALICE,
+        )
+        body = {
+            k: july[k]
+            for k in (
+                "file",
+                "name",
+                "page",
+                "lo",
+                "hi",
+                "raw_lo",
+                "raw_hi",
+                "kind",
+                "via",
+                "score",
+                "frac",
+                "quote",
+                "pdf_build",
+                "el",
+            )
+        }
+        body.update(doc="fig", scope=july["default_level"], note="글자를 키워 줘")
+        self.step("figure: person pins the element", "POST", "/api/pin", body, ALICE)
+        self.step(
+            "figure: agent pins lines without el",
+            "POST",
+            "/api/pin",
+            {"file": SCRIPT, "lo": 20, "hi": 22, "note": "선 굵기"},
+        )
+        x0, y0, x1, y1 = AUGUST_BOX
+        august = self.step(
+            "figure: person picks the August cell drawn without code",
+            "POST",
+            "/api/pick",
+            {"doc": "fig", "page": 1, "x0": x0, "y0": y0, "x1": x1, "y1": y1, "pdf_build": BUILD1},
+            BOB,
+        )
+        self.step(
+            "figure: person pins the August cell as a region",
+            "POST",
+            "/api/pin",
+            {
+                "doc": "fig",
+                "page": 1,
+                "frac": august["frac"],
+                "el": august["el"],
+                "pdf_build": BUILD1,
+                "note": "색을 바꿔 줘",
+            },
+            BOB,
+        )
+        self.step("figure: GET /pins.md", "GET", "/pins.md")
+        self.step("figure: GET /api/pins", "GET", "/api/pins")
+        write_build(self.fig, BUILD2, b2_map(july=(0.4, 0.18, 0.07, 0.12), august=False))
+        self.step("figure: re-rendered, GET /api/pins", "GET", "/api/pins")
+        self.step("figure: re-rendered, GET /pins.md", "GET", "/pins.md")
+        self.assert_recorded(FIGURE_SNAPSHOT)
 
 
 if __name__ == "__main__":

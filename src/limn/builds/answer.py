@@ -92,10 +92,11 @@ def _put_source(body: Body, pull: dict[str, Any] | None, src_mtime: float | None
 
 
 def view_only_refused(result: ViewOnlyNoRebuild) -> NoReturn:
-    """POST /api/rebuild for a view-only document: 400 view_only_no_rebuild naming the document."""
+    """POST /api/rebuild for a document that is never rebuilt (a view-only PDF or a figure document): 400
+    view_only_no_rebuild naming the document. The sentence is true of both kinds."""
     raise HTTPError(
         400,
-        "보기 전용 문서(%s)는 재빌드하지 않습니다 — PDF 파일이 바뀌면 쪽을 저절로 다시 그립니다." % result.key,
+        "재빌드하지 않는 문서(%s)입니다 — PDF 파일이 바뀌면 쪽을 저절로 다시 그립니다." % result.key,
         reason="view_only_no_rebuild",
     )
 

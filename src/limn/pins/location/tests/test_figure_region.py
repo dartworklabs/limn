@@ -110,18 +110,23 @@ class FigureRegionPick(Base):
         self.assertNotIn("file", rec)
         self.assertTrue(fits(rec))
 
-    def test_a_figure_document_takes_no_line_pin(self):
-        """A line pin on a figure document is refused as on a view-only PDF (400 no_source_lines)."""
+    def test_a_figure_document_takes_a_line_pin_on_its_script(self):
+        """Since P1b a figure document takes line pins: file/lo/hi on its script make a line pin of fig, no el."""
+        (self.figs / "src").mkdir()
+        (self.figs / "src" / "B2_calendar.py").write_text("a = 1\nb = 2\n", encoding="utf-8")
         body = {"doc": "fig", "file": "figs/src/B2_calendar.py", "lo": 1, "hi": 2, "page": 1}
         code, _, raw = split_resp(self.talk(jreq("POST", "/api/pin", body)))
-        self.assertEqual((code, json.loads(raw)["reason"]), (400, "no_source_lines"))
+        self.assertEqual(code, 200, raw)
+        rec = self.pin(json.loads(raw)["id"])
+        self.assertEqual((rec["doc"], rec["lo"], rec["hi"]), ("fig", 1, 2))
+        self.assertNotIn("el", rec)
 
-    def test_a_file_only_pin_under_the_figure_folder_goes_to_the_latex_document(self):
-        """The figure folder lies inside the body's build root: an agent's pin that names only a file there becomes a
-        line pin of the LaTeX document, never of the figure."""
+    def test_a_file_only_pin_under_the_figure_folder_goes_to_the_figure_document(self):
+        """The figure folder lies inside the body's build root: an agent's pin that names only a file there goes to the
+        figure document, the deepest root that takes line pins."""
         (self.figs / "src").mkdir()
         (self.figs / "src" / "B2_calendar.py").write_text("a = 1\nb = 2\n", encoding="utf-8")
         body = {"file": "figs/src/B2_calendar.py", "lo": 1, "hi": 2}
         code, _, raw = split_resp(self.talk(jreq("POST", "/api/pin", body)))
         self.assertEqual(code, 200, raw)
-        self.assertEqual(self.pin(json.loads(raw)["id"])["doc"], "ms")
+        self.assertEqual(self.pin(json.loads(raw)["id"])["doc"], "fig")

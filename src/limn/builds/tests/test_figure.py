@@ -20,13 +20,15 @@ import typing
 import unittest
 from collections.abc import Callable
 from pathlib import Path
+from types import SimpleNamespace
 from unittest import mock
 
 from limn.administration import serve_documents as startup_documents
-from limn.builds import artifacts as build, figure, figure_map as figmap
+from limn.builds import artifacts as build, engine, figure, figure_map as figmap
 from limn.builds.answer import build_failure_log
-from limn.builds.artifacts import BuildConfig, BuildFailed, BuildOk, BuildSkipped
+from limn.builds.artifacts import BuildAborted, BuildConfig, BuildFailed, BuildOk, BuildSkipped
 from limn.builds.figure_map import FigureMap
+from limn.builds.service import BuildRequests
 from limn.runtime.documents import Doc, RunPaths
 
 from helpers import MINI_PDF, Base, blank_png, figure_map, map_bytes, ps, req, split_resp
@@ -163,6 +165,16 @@ class Signatures(FigureTree):
         self.assertNotEqual(now, first)
         self.assertTrue(now.endswith("|%d:%d" % (o.st_mtime_ns, o.st_size)))
 
+    def test_two_documents_registering_one_map_share_its_parse(self):
+        """The parse is the map's bytes alone, so the memo is keyed by the map's path: fig2, whose folder is the map's
+        own, finds the parse fig made and reads the map no more than once."""
+        self.producer.render()
+        fig2 = Doc("fig2", "그림 2", "figure", self.figs / "out", self.map, paths=self.doc.paths)
+        fig2.dir.mkdir(parents=True)
+        first = figure.watch_signature(self.doc, self.looks)
+        with mock.patch.object(figure, "parse_map", side_effect=AssertionError("the parse is shared, not made again")):
+            self.assertEqual(figure.watch_signature(fig2, self.looks), first)
+
 
 class ImportDue(unittest.TestCase):
     """import_due: the pure rule for when the files are read and checked."""
@@ -241,14 +253,43 @@ class Deferral(FigureTree):
                 self.assertIsNone(self.pending(first=True))
         self.assertEqual(list(self.doc.dir.glob("pages-*")), [])
 
-    def test_a_map_naming_a_source_outside_its_folder_is_rejected(self):
-        """A src.file that escapes figs/ rejects the whole map (path_outside), so the pair is not imported."""
+    def test_a_map_naming_a_path_that_is_not_canonical_is_rejected(self):
+        """A src.file that climbs out of figs/ by '..' is not a canonical relative path: the whole map is rejected
+        (path_outside), so the pair is not imported. Unchanged by where scripts are judged: it is the map's shape."""
         m = figure_map(MINI_PDF)
         m["pages"][0]["elements"][1]["src"]["file"] = "../../main.tex"
         self.producer.write(self.pdf, MINI_PDF)
         self.producer.write(self.map, map_bytes(m))
         got = figure.read_figure_import(self.doc)
         self.assertEqual((got.reason, got.detail.split(":")[0]), ("map_rejected", "path_outside"))
+
+    def test_a_map_whose_script_leads_out_of_the_folder_is_imported(self):
+        """figs/src is a symlink out of the folder, so the script src/B2_calendar.py the map names cannot be read
+        inside figs/. The map still describes its PDF: the pair is imported, nothing is deferred and nothing is logged.
+        Whether a script may be read is decided when a pick reads it (limn.pins.location.figure.read_source), so
+        one script that links out costs its own elements, not the whole figure."""
+        elsewhere = self.ms / "elsewhere"
+        elsewhere.mkdir()
+        (self.figs / "src").symlink_to(elsewhere)
+        self.producer.render()
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            ready = figure.pending_import(self.doc, self.looks, 72, first=True)
+        self.assertIsInstance(ready, figure.FigureImport)
+        self.assertEqual(err.getvalue(), "")
+        self.assertIsInstance(figure.render_figure_doc(self.doc, self.cfg, ready), BuildOk)
+
+    def test_a_script_that_becomes_a_link_out_after_an_import_does_not_hold_back_the_next_one(self):
+        """The map was imported, then lib/ became a symlink out of the folder and the producer wrote the PDF again with
+        the same map bytes: the new pair is imported. (Before, the same folder judgement was made again on the
+        unchanged map and deferred it map_rejected.)"""
+        self.producer.render()
+        self.imported()
+        elsewhere = self.ms / "elsewhere"
+        elsewhere.mkdir()
+        (self.figs / "lib").symlink_to(elsewhere)
+        self.producer.write(self.pdf, MINI_PDF)
+        self.assertIsInstance(self.pending(), figure.FigureImport)
 
     def test_a_missing_map_imports_nothing_and_records_nothing(self):
         """No map: no signature, no read, nothing settled - the last pages stay."""
@@ -341,15 +382,19 @@ class OneLookPerChange(FigureTree):
         self.producer.write(self.map, map_bytes(broken))
         return contextlib.nullcontext()
 
-    def judgement_flipped(self) -> contextlib.AbstractContextManager[object]:
-        """map_rejected: the map was accepted and imported, then lib/ became a symlink out of the folder and only the
-        PDF was written again - the map's bytes never changed, so the watch still remembers it as accepted."""
-        self.producer.render()
+    def pdf_flipped_out(self) -> contextlib.AbstractContextManager[object]:
+        """pdf_outside: the map names current.pdf, a symlink inside the folder that the watch has resolved and imported;
+        then a matching PDF is written outside the folder and the link is repointed at it - the map's bytes never
+        changed, so the watch still remembers it as accepted and must resolve the PDF afresh."""
+        inside = self.figs / "out" / "inside.pdf"
+        (self.figs / "out" / "current.pdf").symlink_to(inside)
+        self.producer.write(inside, MINI_PDF)
+        self.producer.write(self.map, map_bytes(figure_map(MINI_PDF, "current.pdf")))
         self.imported()
-        elsewhere = self.ms / "elsewhere"
-        elsewhere.mkdir()
-        (self.figs / "lib").symlink_to(elsewhere)
-        self.producer.write(self.pdf, MINI_PDF)
+        outside = self.ms / "elsewhere.pdf"
+        outside.write_bytes(MINI_PDF)
+        (self.figs / "out" / "current.pdf").unlink()
+        (self.figs / "out" / "current.pdf").symlink_to(outside)
         return contextlib.nullcontext()
 
     def pdf_up_and_out(self) -> contextlib.AbstractContextManager[object]:
@@ -407,7 +452,7 @@ class OneLookPerChange(FigureTree):
         file whatever its mode."""
         out: list[tuple[figure.DeferReason, Callable[[], contextlib.AbstractContextManager[object]]]] = [
             ("map_rejected", self.rule_broken),
-            ("map_rejected", self.judgement_flipped),
+            ("pdf_outside", self.pdf_flipped_out),
             ("pdf_outside", self.pdf_up_and_out),
             ("pdf_outside", self.pdf_linked_out),
             ("pdf_missing", self.pdf_absent),
@@ -430,9 +475,9 @@ class OneLookPerChange(FigureTree):
 
     def test_every_deferral_settles_the_signature_the_next_tick_computes(self):
         """For every reason a deferral can have (map_missing settles nothing), and for the cases where the files
-        and what the watch sees can drift apart - a PDF that can be stat'ed but not read, a map judged again with its
-        bytes unchanged: right after the deferring tick, watch_signature equals the settled signature, and the next
-        tick opens no file and logs nothing."""
+        and what the watch sees can drift apart - a PDF that can be stat'ed but not read, a PDF judged again after
+        its link was pointed out of the folder with the map's bytes unchanged: right after the deferring tick,
+        watch_signature equals the settled signature, and the next tick opens no file and logs nothing."""
         scenarios = self.scenarios()
         reasons = set(typing.get_args(figure.DeferReason)) - {"map_missing"}
         self.assertEqual({reason for reason, _ in scenarios}, reasons)
@@ -462,13 +507,13 @@ class OneLookPerChange(FigureTree):
         self.assertIsInstance(self.pending(), figure.FigureImport)
 
     def test_one_map_under_two_folders_is_judged_per_document_and_imported_once(self):
-        """The same map registered twice: fig with folder figs/, fig2 with the map's own folder figs/out/. figs/out/src
-        is a symlink to figs/src, so src/B2_calendar.py lies inside figs/ but leads out of figs/out/: fig2 rejects the
-        map (path_outside) and fig imports it. Over three rounds of ticks sharing one memo, fig imports once and fig2
-        logs once - a judgement is never borrowed from the other document."""
-        (self.figs / "src").mkdir()
-        (self.figs / "out" / "src").symlink_to(self.figs / "src")
-        self.producer.render()
+        """The same map registered twice: fig with folder figs/, fig2 with the map's own folder figs/out/. The map
+        names ../figures.pdf, a PDF inside figs/ but outside figs/out/, so fig imports it and fig2 defers it
+        pdf_outside. The parse is the map's bytes alone and is shared through one memo, while the PDF is judged per
+        document (build.figure_pdf): over three rounds of ticks, fig imports once and fig2 logs once - a judgement is
+        never borrowed from the other document."""
+        self.producer.write(self.figs / "figures.pdf", MINI_PDF)
+        self.producer.write(self.map, map_bytes(figure_map(MINI_PDF, "../figures.pdf")))
         fig2 = Doc("fig2", "그림 2", "figure", self.figs / "out", self.map, paths=self.doc.paths)
         fig2.dir.mkdir(parents=True)
         imports = {"fig": 0, "fig2": 0}
@@ -481,8 +526,23 @@ class OneLookPerChange(FigureTree):
                         imports[doc.key] += 1
                         self.assertIsInstance(figure.render_figure_doc(doc, self.cfg, ready), BuildOk)
         self.assertEqual(imports, {"fig": 1, "fig2": 0})
-        self.assertEqual(err.getvalue().count("map_rejected: path_outside"), 1, err.getvalue())
+        self.assertEqual(err.getvalue().count("(pdf_outside: "), 1, err.getvalue())
         self.assertEqual(len(list(self.doc.dir.glob("pages-*"))), 1)
+
+    def test_a_script_that_leads_out_of_one_documents_folder_is_imported_by_both_documents(self):
+        """The same map registered with folders figs/ and figs/out/, whose script src/B2_calendar.py lies inside figs/
+        but through a symlink that leads out of figs/out/: both documents import it. Before, fig2 rejected the map
+        (path_outside) for that script; now the script's folder is judged only when a pick reads it."""
+        (self.figs / "src").mkdir()
+        (self.figs / "out" / "src").symlink_to(self.figs / "src")
+        self.producer.render()
+        fig2 = Doc("fig2", "그림 2", "figure", self.figs / "out", self.map, paths=self.doc.paths)
+        fig2.dir.mkdir(parents=True)
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            got = [figure.pending_import(doc, self.looks, 72, first=False) for doc in (fig2, self.doc)]
+        self.assertTrue(all(isinstance(ready, figure.FigureImport) for ready in got), got)
+        self.assertEqual(err.getvalue(), "")
 
 
 class Render(FigureTree):
@@ -567,6 +627,86 @@ class Render(FigureTree):
         self.assertIsInstance(figure.import_now(self.doc, self.cfg, None), BuildOk)
 
 
+class FigureShownHook(FigureTree):
+    """BuildRequests.figure_shown: the composition root is told, once, right after an import put a new build of a figure
+    document on screen - and never for a build that did not land or for a document that is not a figure."""
+
+    def setUp(self):
+        """A build service over the tree's state folder whose hook records the page directory on screen when it runs."""
+        super().setUp()
+        self.calls: list[str] = []
+        settings = SimpleNamespace(state=self.cfg.state, dpi=72, timeout=5, git_pull=False)
+        self.requests = BuildRequests(
+            lambda: settings, lambda: {}, lambda: [self.doc], lambda: "T", lambda r: "", figure_shown=self.shown
+        )
+
+    def shown(self) -> None:
+        """The hook: note which page directory pages.cur names at the moment it is called."""
+        self.calls.append(build.cur_pages(self.doc).name)
+
+    def test_a_landed_import_calls_the_hook_once_after_pages_cur_moved(self):
+        """build_all imports the agreeing pair: BuildOk, and the hook ran once, when pages.cur already named the new
+        directory."""
+        self.producer.render()
+        res = self.requests.build_all(self.doc)
+        self.assertIsInstance(res, BuildOk)
+        self.assertEqual(self.calls, [res.build])
+
+    def test_startup_import_calls_the_hook_too(self):
+        """init_doc's import (startup, --no-build not applying to a figure) is a tracked build like any other: one
+        call."""
+        self.producer.render()
+        self.assertIsInstance(self.requests.init_doc(self.doc, no_build=True, wait=True), BuildOk)
+        self.assertEqual(len(self.calls), 1)
+
+    def test_a_render_that_fails_does_not_call_the_hook(self):
+        """pdftoppm failing commits no page directory: BuildFailed, and nothing is on screen to tell of."""
+        self.producer.render()
+        with mock.patch.dict(os.environ, {"LIMN_TEST_PDFTOPPM": "fail"}):
+            res = self.requests.build_all(self.doc)
+        self.assertIsInstance(res, BuildFailed)
+        self.assertEqual(self.calls, [])
+
+    def test_files_that_do_not_agree_do_not_call_the_hook(self):
+        """A map describing a PDF not written yet is BuildAborted figure_unready: no call."""
+        self.producer.render(described=b"a pdf not written yet")
+        self.assertIsInstance(self.requests.build_all(self.doc), BuildAborted)
+        self.assertEqual(self.calls, [])
+
+    def test_a_hook_that_raises_is_printed_and_the_import_still_lands(self):
+        """The hook refreshes a file for readers; when it cannot, the import is still a good build - BuildOk, pages.cur
+        moved, the build state ok - and the error goes to stderr."""
+
+        def broken() -> None:
+            """A hook that fails."""
+            raise RuntimeError("hook broke")
+
+        self.requests.figure_shown = broken
+        self.producer.render()
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            res = self.requests.build_all(self.doc)
+        self.assertIsInstance(res, BuildOk)
+        self.assertEqual(build.cur_pages(self.doc).name, res.build)
+        self.assertEqual(build.state_snapshot(self.doc)["state"], "ok")
+        self.assertIn("hook broke", err.getvalue())
+
+    def test_a_latex_or_view_only_build_does_not_call_the_hook(self):
+        """The hook belongs to the figure import: a LaTeX document's build and a view-only PDF's render never call
+        it."""
+        ok = BuildOk("", 0.1, None, None, "h" * 32, "-", "pages-20260926120000", 1)
+        tex = Doc("ms", "본문", "tex", self.ms, self.ms / "main.tex", paths=self.doc.paths)
+        pdf = Doc("rv", "리뷰", "pdf", self.ms, self.ms / "review.pdf", paths=self.doc.paths)
+        with (
+            mock.patch.object(self.requests, "compile", return_value=ok),
+            mock.patch.object(engine, "render_pdf_doc", return_value=ok),
+        ):
+            for doc in (tex, pdf):
+                with self.subTest(kind=doc.kind):
+                    self.assertEqual(self.requests.build_step(doc), ok)
+        self.assertEqual(self.calls, [])
+
+
 class NoServerState(unittest.TestCase):
     """The import reads no server global and imports neither the server nor the web layer (coding rule R5)."""
 
@@ -580,6 +720,32 @@ class NoServerState(unittest.TestCase):
         modules = {n.module or "" for n in ast.walk(tree) if isinstance(n, ast.ImportFrom)}
         modules |= {a.name for n in ast.walk(tree) if isinstance(n, ast.Import) for a in n.names}
         self.assertFalse({m for m in modules if "server" in m or m.startswith("limn.web")})
+
+
+class BuildsNeverImportPins(unittest.TestCase):
+    """The pins.md refresh reaches the build capability only as the callback the composition root injects
+    (BuildRequests.figure_shown): builds -> pins is not an allowed direction (pins -> builds is)."""
+
+    def test_no_builds_module_imports_pins_code(self):
+        """No production module of limn.builds (its tests/ aside) imports limn.pins or anything under it, by an absolute
+        or a relative import; service.py, which calls the hook, is among the modules read."""
+        package = Path(figure.__file__).parent
+        offenders, read = [], set()
+        for path in sorted(package.rglob("*.py")):
+            rel = path.relative_to(package)
+            if "tests" in rel.parts or path.name.startswith("test_"):
+                continue
+            read.add(rel.as_posix())
+            here = ["limn", "builds", *rel.parent.parts]
+            tree = ast.parse(path.read_text(encoding="utf-8"))
+            names = {a.name for n in ast.walk(tree) if isinstance(n, ast.Import) for a in n.names}
+            for n in ast.walk(tree):
+                if isinstance(n, ast.ImportFrom):
+                    base = here[: len(here) - n.level + 1] if n.level else []
+                    names.add(".".join([*base, *filter(None, (n.module or "").split("."))]))
+            offenders += [(rel.as_posix(), m) for m in names if m == "limn.pins" or m.startswith("limn.pins.")]
+        self.assertIn("service.py", read)
+        self.assertEqual(offenders, [])
 
 
 class FigureDocumentThroughTheServer(Base):
@@ -612,7 +778,7 @@ class FigureDocumentThroughTheServer(Base):
 
     def test_startup_imports_a_figure_document_whose_files_agree(self):
         """init_doc imports the pair even under --no-build; /pdf serves the checked PDF bytes, and /api/docs and
-        /api/meta report kind figure, view_only true, never stale, the map as main."""
+        /api/meta report kind figure, view_only false, never stale, the map as main."""
         self.assertIsInstance(ps.APP.build_requests.init_doc(self.fig, no_build=True, wait=True), BuildOk)
         code, hdrs, body = split_resp(self.talk(req("GET", "/pdf?doc=fig")))
         self.assertEqual((code, hdrs["content-type"], body), (200, "application/pdf", MINI_PDF))
@@ -620,13 +786,13 @@ class FigureDocumentThroughTheServer(Base):
         brief = json.loads(body)["docs"][1]
         self.assertEqual(
             (brief["key"], brief["kind"], brief["view_only"], brief["stale_build"], brief["n_pages"]),
-            ("fig", "figure", True, False, 1),
+            ("fig", "figure", False, False, 1),
         )
         code, _, body = split_resp(self.talk(req("GET", "/api/meta?doc=fig")))
         m = json.loads(body)
         self.assertEqual(
             (m["kind"], m["view_only"], m["stale_build"], m["main"], m["build_seq"]),
-            ("figure", True, False, "figures.limnmap.json", 1),
+            ("figure", False, False, "figures.limnmap.json", 1),
         )
 
     def test_startup_leaves_a_figure_whose_files_disagree_unbuilt(self):
@@ -675,12 +841,12 @@ class FigureDocumentThroughTheServer(Base):
         self.assertFalse(ps.APP.build_requests.refresh_watched(ps.APP.docs[0]))
         self.assertEqual(build.state_snapshot(ps.APP.docs[0])["state"], "idle")
 
-    def test_rebuild_snippet_and_revisions_refuse_a_figure_document(self):
-        """POST /api/rebuild is 400 view_only_no_rebuild, a snippet is 400 no_source_lines, and the changes view is
-        unavailable - as for a view-only PDF."""
+    def test_rebuild_and_revisions_refuse_a_figure_document(self):
+        """POST /api/rebuild is 400 view_only_no_rebuild (its pages follow its files, whatever pins it takes) and the
+        changes view is unavailable - as for a view-only PDF. A snippet is no longer refused: a figure document takes
+        line pins (see pins/editing/tests/test_figure_pins.py)."""
         code, _, body = split_resp(self.talk(req("POST", "/api/rebuild?doc=fig")))
         self.assertEqual((code, json.loads(body)["reason"]), (400, "view_only_no_rebuild"))
-        code, _, body = split_resp(self.talk(req("GET", "/api/snippet?doc=fig&file=main.tex&lo=1&hi=2")))
-        self.assertEqual((code, json.loads(body)["reason"]), (400, "no_source_lines"))
+        self.assertNotIn("보기 전용", json.loads(body)["error"])  # the sentence holds for a figure document too
         code, _, body = split_resp(self.talk(req("GET", "/api/revisions?doc=fig")))
         self.assertEqual((code, json.loads(body)["available"]), (200, False))
