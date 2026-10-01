@@ -77,7 +77,7 @@ body.outline-collapsed #outline-items,body.outline-collapsed #outline-search,bod
 #outline-items button:hover,#outline-items button:focus-visible{background:var(--accent);color:var(--foreground)}
 #outline-items button:is(.ol-active,:hover,:focus-visible) .ol-page{color:var(--muted-foreground)}   /* the faint page number measured 3.8 contrast on --accent here (QA) */
 #outline-grip{position:relative;z-index:6;width:6px;flex:none;cursor:col-resize;touch-action:none;background:var(--border)}
-#outline-grip::after{content:'';position:absolute;inset:0 -9px}
+@media not all and (pointer:coarse){#outline-grip::after{content:'';position:absolute;inset:0 -9px}}   /* touch: the .hit utility's 44px (responsive.css) */
 #outline-grip:hover,#outline-grip.on,#outline-grip:focus-visible{background:var(--border-strong)}
 body.outline-collapsed #outline-grip,body.band-phone #outline,body.lay-narrow #outline-grip{display:none}
 #section-strip{display:flex;align-items:center;gap:var(--space-2);height:38px;flex:none;padding:0 var(--space-4);background:var(--muted);

@@ -82,8 +82,8 @@ body:not(.lay-narrow) #coach button{pointer-events:auto}
   .arc-reply.open{display:block;padding:var(--space-2) 0}
   .th-n{min-height:44px;min-width:44px;justify-content:center}
   .thread :is(button.msg-more,button.th-more){padding-left:var(--space-1);padding-right:var(--space-1)}
-  #grip::after{left:-9px;right:-9px}
-  body.lay-wide:not(.side-open) #grip::after{left:-18px}   /* the collapsed rail: a 24px touch target reaching into the PDF side (touch scrollbars overlay) */
+  /* The panel handle and the outline handle are .hit: their 6-8px bars answer 44px, half on each side (they answered 25 and 24px).
+     The collapsed wide rail at the screen's right edge keeps 25px of it on screen, reaching into the PDF side (touch scrollbars overlay). */
 }
 /* Mouse hit targets (WCAG 2.5.8, 24px; input review 2026-09-26): small controls keep their drawn size and get a 24x24 hit area
    from ::after, centered on them - [3쪽] was 17x19, the reply count 23x17, a mark badge 22x22, card buttons 53x23. */

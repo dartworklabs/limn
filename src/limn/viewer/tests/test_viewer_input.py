@@ -2094,6 +2094,84 @@ class TouchLayoutBands(ViewerBase):
         self.assertEqual(round(bar["y"] + bar["height"]), 390)
 
 
+# The edit card's note in the opened panel or sheet: focus it, write, and select characters 3-5 (as a person mid-edit).
+EDIT_FOCUS = """() => {setSide(true); openEdit(PINS[0].id); const ta = document.querySelector('.edit .e-note'); ta.focus();
+  ta.value = '고치는 중인 메모'; ta.setSelectionRange(3, 5); }"""
+# Where the focus is and what is selected in the edit card's note.
+EDIT_STATE = """() => {const ta = document.querySelector('.edit .e-note');
+  return [document.activeElement === ta, ta.selectionStart, ta.selectionEnd, ta.value]; }"""
+
+
+class RedrawKeepsTheEditCard(ViewerBase):
+    """A redraw of the card list re-inserts the open edit card: its note kept the text but lost the focus and the selection,
+    which the reply box already restored (docs/handbook/viewer.md §모바일 레이아웃)."""
+
+    def test_a_layout_change_keeps_the_edit_notes_focus_and_selection(self):
+        """A mouse window going from wide (1400) to the side panel (1000): the layout changes, the cards are redrawn in their
+        compact row, and the edit card's note still has the focus and characters 3-5 selected."""
+        page = self.view(DESK)
+        page.evaluate(EDIT_FOCUS)
+        settle(page)
+        page.set_viewport_size({"width": 1000, "height": 850})
+        page.wait_for_function("LAYOUT==='mid'")
+        settle(page)
+        self.assertEqual(page.evaluate(EDIT_STATE), [True, 3, 5, "고치는 중인 메모"])
+
+    def test_a_list_redraw_keeps_the_edit_notes_focus_and_selection(self):
+        """The same for any redraw (a poll that brings another pin's change): drawPins() while the note is being edited."""
+        page = self.view(touch_device(1024, 768))
+        page.evaluate(EDIT_FOCUS)
+        settle(page)
+        page.evaluate("drawPins()")
+        self.assertEqual(page.evaluate(EDIT_STATE), [True, 3, 5, "고치는 중인 메모"])
+
+    def test_rotating_with_the_edit_note_focused_keeps_its_focus_and_selection(self):
+        """768x1024 rotated to 1024x768 while the edit card's note has focus: the band holds (settleBand) and the note keeps
+        its focus and selection; when the focus leaves, the band follows the rotation."""
+        page = self.view(touch_device(768, 1024))
+        page.evaluate(EDIT_FOCUS)
+        settle(page)
+        page.set_viewport_size({"width": 1024, "height": 768})
+        page.wait_for_function("innerWidth===1024")
+        settle(page)
+        self.assertEqual(page.evaluate(EDIT_STATE), [True, 3, 5, "고치는 중인 메모"])
+        self.assertEqual(page.evaluate("BAND"), "tablet-sheet")
+        page.evaluate("document.activeElement.blur()")
+        page.wait_for_function("BAND==='mid-side'")
+
+
+# A mid handle's or outline handle's hit width, drawn width and pseudo-element width (the mouse keeps its own).
+GRIP_BOX = """sel => {const g = document.querySelector(sel); return [Math.round(g.getBoundingClientRect().width),
+  getComputedStyle(g, '::after').width]; }"""
+
+
+class TouchHandleHits(ViewerBase):
+    """The mid panel handle (25px) and the wide outline handle (24px) answered a tap narrower than 44px on touch; through the
+    .hit utility they answer a 44px box, and their drawn bars keep their width. A mouse keeps its 12px and 24px."""
+
+    def test_the_mid_panel_handle_answers_44px_beside_and_over_the_document(self):
+        """1024x768 (the side panel) and 842x758 (the overlay panel, opened): the handle's 8px bar answers 44px."""
+        for device in (touch_device(1024, 768), FOLD):
+            with self.subTest(width=device["viewport"]["width"]):
+                page = self.view(device)
+                page.evaluate("setSide(true)")
+                settle(page)
+                self.assertEqual(page.evaluate(MISSES_44, "#grip"), [])
+                self.assertEqual(page.evaluate(GRIP_BOX, "#grip")[0], 8)
+
+    def test_the_wide_outline_handle_answers_44px_on_touch(self):
+        """1440x900 touch with the outline open: the 6px handle answers 44px."""
+        page = self.view(touch_device(1440, 900), prefs={"outlineClosed": False})
+        self.assertEqual(page.evaluate(MISSES_44, "#outline-grip"), [])
+        self.assertEqual(page.evaluate(GRIP_BOX, "#outline-grip")[0], 6)
+
+    def test_a_mouse_keeps_its_handle_hit_widths(self):
+        """1400x850 with a mouse: the panel handle reaches 3px each side (12px, clear of the scrollbar), the outline's 9px."""
+        page = self.view(DESK, prefs={"outlineClosed": False})
+        self.assertEqual(page.evaluate(GRIP_BOX, "#grip"), [6, "12px"])
+        self.assertEqual(page.evaluate(GRIP_BOX, "#outline-grip"), [6, "24px"])
+
+
 class PhoneMoreAndHelp(ViewerBase):
     """[더보기] and help on a phone (input diagnosis P10): [더보기] was a 600px centred dialog whose 2-column grid left 'English' on
     a row of its own and wrapped English labels onto two lines; help showed the desktop shortcut table on a touch screen."""
