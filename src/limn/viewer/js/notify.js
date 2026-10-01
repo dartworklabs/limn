@@ -50,6 +50,9 @@ async function notifyRegister(){if(!notifySupported())return null;
 function isLocalIdentity(){const me=META&&META.me; return !me||!me.login||me.login===LOCAL_LOGIN;}
 function notifyState(){if(isLocalIdentity())return NOTIFY_STATE.LOCAL; if(!notifySupported())return NOTIFY_STATE.UNSUPPORTED; const pm=notifyPerm();
   if(pm==='denied')return NOTIFY_STATE.BLOCKED; return prefs().notify&&pm==='granted'?NOTIFY_STATE.ON:NOTIFY_STATE.OFF;}
+// Draws both notification controls for this device's state (notifyState): the desktop bell, and [더보기]'s switch - on only
+// when on, and off and disabled where it cannot turn on (blocked, unsupported, a local identity) with the reason on a line
+// under it. The state is never in the switch's name ('브라우저 알림').
 function drawNotify(){const st=notifyState(),b=$('#btn-notify'),m=$('#m-notify');
   const lab={on:'알림: 켜짐',off:'알림: 꺼짐',blocked:'알림: 브라우저에서 차단됨',unsupported:'알림: 이 주소에서는 안 됨',local:'알림: 테일넷 주소에서만'}[st];
   const tip={on:'이 기기에서 켜져 있습니다. 누르면 끕니다',off:'누르면 이 기기에서 켭니다(브라우저가 허용을 묻습니다)',
@@ -57,8 +60,11 @@ function drawNotify(){const st=notifyState(),b=$('#btn-notify'),m=$('#m-notify')
     unsupported:'브라우저 알림은 https(테일넷 주소)나 http://127.0.0.1·localhost 에서만 됩니다',
     local:'테일넷 주소로 열면 켤 수 있습니다'}[st];
   b.innerHTML=st===NOTIFY_STATE.ON?ic('bell'):ic('bell-off'); b.setAttribute('aria-label',tr('브라우저 '+lab)); b.setAttribute('aria-pressed',String(st===NOTIFY_STATE.ON)); b.dataset.tip=lab+' — '+tip;
-  b.disabled=st===NOTIFY_STATE.LOCAL; m.disabled=st===NOTIFY_STATE.LOCAL;
-  m.textContent=st===NOTIFY_STATE.ON?'알림 끄기 (켜짐)':st===NOTIFY_STATE.OFF?'알림 켜기':lab; m.dataset.tip=tip;}
+  b.disabled=st===NOTIFY_STATE.LOCAL;
+  const why=st===NOTIFY_STATE.BLOCKED?tr('브라우저가 막았습니다 — 주소창 자물쇠 → 알림 → 허용'):st===NOTIFY_STATE.UNSUPPORTED?tr('https 테일넷 주소나 http://127.0.0.1에서만 됩니다'):
+    st===NOTIFY_STATE.LOCAL?tr('테일넷 주소로 열면 켤 수 있습니다'):'';
+  m.setAttribute('aria-checked',String(st===NOTIFY_STATE.ON)); m.disabled=!!why; m.dataset.tip=tip;
+  const w=$('#m-notify-why'); w.textContent=why; w.hidden=!why;}
 async function notifyToggle(){const st=notifyState();
   if(st===NOTIFY_STATE.LOCAL){toast('테일넷 주소로 열면 켤 수 있습니다','warn'); return;}
   if(st===NOTIFY_STATE.ON){savePrefs({notify:false}); drawNotify(); syncHiddenNotifyTimer(); toast('이 기기의 브라우저 알림을 껐습니다','ok'); return;}

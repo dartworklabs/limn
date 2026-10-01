@@ -17,6 +17,7 @@ import unittest
 import zlib
 from pathlib import Path
 
+from limn import __version__
 from limn.security import access as access
 from limn.viewer import assemble, assemble as viewer_assemble, mark as mark, routes as viewer_shell_routes
 from limn.web.errors import HTTPError
@@ -261,16 +262,23 @@ class InlineMarkup(unittest.TestCase):
                 self.assertEqual(svg.count('class="limn-mark-pin"'), 1)
 
     def test_the_icons_are_decorative_and_the_wordmark_is_an_image_named_limn(self):
-        """The two icons sit next to the label that names them (aria-hidden); the wordmark stands for the word Limn in
-        the help heading, so it is role=img with that name."""
+        """The icon sits next to the label that names it (aria-hidden); the wordmark stands for the word Limn in the help
+        heading and [더보기]'s foot, so it is role=img with that name."""
         marks = self.BRAND.marks
-        for placeholder in ("__LIMN_MARK_16__", "__LIMN_MARK_14__"):
-            self.assertIn('aria-hidden="true" focusable="false"', marks[placeholder])
-            self.assertNotIn("role=", marks[placeholder])
+        self.assertIn('aria-hidden="true" focusable="false"', marks["__LIMN_MARK_16__"])
+        self.assertNotIn("role=", marks["__LIMN_MARK_16__"])
         self.assertIn('role="img" aria-label="Limn" focusable="false"', marks["__LIMN_WORDMARK__"])
-        self.assertIn('width="14" height="14"', marks["__LIMN_MARK_14__"])
         self.assertIn('width="16" height="16"', marks["__LIMN_MARK_16__"])
         self.assertIn('height="20"', marks["__LIMN_WORDMARK__"])
+
+    def test_the_label_chips_14px_icon_is_gone(self):
+        """[더보기]'s label holds no Limn icon (UX spec §V7: a brand and a workspace never share one container), so its 14px
+        drawing, its slot and its SHA256SUMS line are gone from the package and the page."""
+        self.assertNotIn("__LIMN_MARK_14__", mark.MARK_SLOTS)
+        self.assertNotIn("limn-icon-light-14.svg", mark.FILES)
+        self.assertNotIn("limn-icon-light-14.svg", (BRAND_DIR / "SHA256SUMS").read_text(encoding="utf-8"))
+        self.assertFalse((BRAND_DIR / "limn-icon-light-14.svg").exists())
+        self.assertNotIn("__LIMN_MARK_14__", (viewer_assemble.VIEWER_DIR / "index.html").read_text(encoding="utf-8"))
 
     def test_mark_classes_are_its_own(self):
         """The logo's classes are limn-mark*, which no viewer script touches: plain .mark is the pin box on the PDF that
@@ -305,7 +313,7 @@ class BrandValue(unittest.TestCase):
         for changed in (ico[:-1] + bytes([ico[-1] ^ 1]), ico + b"\0"):
             with self.subTest(length=len(changed)):
                 self.assertNotEqual(mark.brand(dict(self.FILES, **{"favicon.ico": changed})).key, key)
-        svg = dict(self.FILES, **{"limn-icon-light-14.svg": self.FILES["limn-icon-light-14.svg"] + b"\n"})
+        svg = dict(self.FILES, **{"limn-icon-light-16.svg": self.FILES["limn-icon-light-16.svg"] + b"\n"})
         self.assertEqual(mark.brand(svg).key, key)
 
     def test_a_missing_or_broken_file_fails_the_start(self):
@@ -356,19 +364,23 @@ class MarkPurity(unittest.TestCase):
 class PageLinks(unittest.TestCase):
     """Where the page puts the logo and how its <head> links the icons."""
 
-    def test_icon_by_the_label_and_in_the_chip_wordmark_in_the_help_header(self):
-        """Top bar (before the label) and the [더보기] label chip show the icon once each; the help header shows the
-        wordmark where the word Limn was, followed by the rest of the title."""
+    def test_icon_by_the_label_wordmark_in_the_help_header_and_the_more_foot(self):
+        """The top bar shows the icon before the label; [더보기]'s label is the instance's dot and name with no icon (UX spec
+        §V7); the help header shows the wordmark where the word Limn was, followed by the rest of the title, and [더보기]'s
+        foot the wordmark and the version."""
         out = page_for("A-DEMO", "#1d4ed8")
         ident = out[out.index('id="paper-identity"') : out.index('id="doc-select-wrap"')]
         self.assertIn('<svg class="limn-mark" viewBox="0 0 1024 1024" width="16" height="16"', ident)
         self.assertIn('<span translate="no">A-DEMO</span>', ident)  # the instance's own name, never translated
-        label = out[out.index('<span id="more-label"') : out.index("</span>", out.index('<span id="more-label"') + 30)]
-        self.assertIn('<svg class="limn-mark" viewBox="0 0 1024 1024" width="14" height="14"', label)
+        label = out[out.index('<span id="more-label"') : out.index("</span>", out.index('<span id="more-label"'))]
+        self.assertNotIn("<svg", label)
         help_h = out[out.index('<h2 id="help-h"') : out.index("</h2>", out.index('<h2 id="help-h"'))]
         self.assertIn('<svg class="limn-mark-word"', help_h)
         self.assertTrue(help_h.endswith("</svg><span>— 사용법</span>"), help_h[-60:])
-        self.assertEqual((out.count('<svg class="limn-mark"'), out.count('<svg class="limn-mark-word"')), (2, 1))
+        foot = out[out.index('id="more-foot"') : out.index("</dialog>", out.index('id="more-foot"'))]
+        self.assertIn('<svg class="limn-mark-word"', foot)
+        self.assertIn('<span class="m-ver">v%s</span>' % __version__, foot)
+        self.assertEqual((out.count('<svg class="limn-mark"'), out.count('<svg class="limn-mark-word"')), (1, 2))
         self.assertNotIn("__LIMN_", out)
 
     def test_head_links_one_favicon_set_with_the_content_key(self):
@@ -514,8 +526,8 @@ class LogoInTheBrowser(ChromiumTestCase):
         return page
 
     def test_the_logo_takes_the_themes_brand_colours(self):
-        """Light: 뼈종이 tile, 먹 strokes; dark: 먹 tile, 미색 strokes; the pin 주 in both. The top-bar icon is 16px,
-        the chip's 14px, the help wordmark 20px tall."""
+        """Light: 뼈종이 tile, 먹 strokes; dark: 먹 tile, 미색 strokes; the pin 주 in both. The top-bar icon is 16px, the help
+        wordmark and [더보기]'s foot wordmark 20px tall."""
         expect = {"light": (BONE, INK), "dark": (INK, CREAM)}
         for theme, (tile, stroke) in expect.items():
             with self.subTest(theme=theme):
@@ -525,16 +537,17 @@ class LogoInTheBrowser(ChromiumTestCase):
                     const box=s=>{const r=document.querySelector(s).getBoundingClientRect();return [r.width,r.height]};
                     const inDialog=(id,s)=>{const d=document.getElementById(id);d.showModal();const b=box(s);d.close();return b};
                     return {fills:[f('#paper-identity-mark','.limn-mark-tile'),f('#paper-identity-mark','.limn-mark-stroke'),
-                      f('#paper-identity-mark','.limn-mark-pin'),f('#more-label','.limn-mark-tile'),
+                      f('#paper-identity-mark','.limn-mark-pin'),f('#more-foot','.limn-mark-stroke'),f('#more-foot','.limn-mark-pin'),
                       f('#help-h','.limn-mark-stroke'),f('#help-h','.limn-mark-pin')],
-                      top:box('#paper-identity-mark svg'),chip:inDialog('more','#more-label svg'),
+                      top:box('#paper-identity-mark svg'),foot:inDialog('more','#more-foot svg')[1],
                       word:inDialog('help','#help-h svg')[1]}}"""
                 )
                 rgb = "rgb(%d, %d, %d)"
                 self.assertEqual(
-                    got["fills"], [rgb % tile, rgb % stroke, rgb % VER, rgb % tile, rgb % stroke, rgb % VER]
+                    got["fills"],
+                    [rgb % tile, rgb % stroke, rgb % VER, rgb % stroke, rgb % VER, rgb % stroke, rgb % VER],
                 )
-                self.assertEqual((got["top"], got["chip"], got["word"]), ([16, 16], [14, 14], 20))
+                self.assertEqual((got["top"], got["foot"], got["word"]), ([16, 16], 20, 20))
 
     def test_favicon_links_are_the_same_in_every_colour_scheme(self):
         """The favicon links do not depend on the browser's colour scheme: a page opened light, opened dark, and one

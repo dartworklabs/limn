@@ -642,12 +642,16 @@ class FrontendMobileStructure(unittest.TestCase):
             '<dialog id="more"',
             'id="coach"',
             'id="more-info"',
-            'id="m-theme"',
-            'id="m-done"',
             'id="m-trash"',
-            'id="m-jump"',
+            'id="more-foot"',
+            'id="btn-pos"',
         ):
             self.assertIn(el, HTML)
+        # theme and language are segments showing the current value; the closed-pins row and the page field are gone (UX spec §V7)
+        for seg in ("m-theme", "m-lang"):
+            self.assertRegex(HTML, r'<div [^>]*id="%s"[^>]*role="radiogroup"' % seg)
+        for gone in ('id="m-done"', 'id="m-jump"'):
+            self.assertNotIn(gone, HTML)
         self.assertIn('aria-pressed="false"', re.search(r'<button id="btn-select"[^>]*>', HTML).group(0))
         # less important buttons are hidden in compact mode (.sec) and live inside [⋯] with the same data-act
         for bid, act in (
@@ -664,7 +668,7 @@ class FrontendMobileStructure(unittest.TestCase):
             self.assertIn('data-act="%s"' % act, more)
         self.assertRegex(HTML, r'<input class="n sec" id="jump"')
         self.assertIn("body.compact .sec{display:none}", HTML)
-        for act in ("side", "selmode", "more", "more-close", "m-jump", "coach-close", "card-toggle"):
+        for act in ("side", "selmode", "more", "more-close", "coach-close", "card-toggle"):
             self.assertIn("case '%s':" % act, HTML)
 
     def test_touch_css_targets_inputs_safe_area_and_selection_touch_action(self):
@@ -1788,10 +1792,15 @@ class FrontendNoNestedOutlines(unittest.TestCase):
         )
         self.assertIn(".pin .acts button.btn-destructive{background:transparent}", css)
         self.assertIn(".seg button.on{background:var(--popover);border-color:transparent;", css)
-        more = HTML[HTML.index('<div class="more-grid">') :]
+        # [더보기]'s zoom buttons are filled and borderless (secondary); its pin-group rows are rows - an icon and a name on the
+        # sheet, a fill only under a mouse's hover (UX spec §V7)
+        more = HTML[HTML.index('<dialog id="more"') :]
         more = more[: more.index("</dialog>")]
-        for tag in re.findall(r"<button[^>]*>", more):
-            self.assertIn("btn-secondary", tag)  # dialog buttons are filled, borderless too
+        for act in ("zoom-out", "zoom-in"):
+            self.assertRegex(more, r'<button class="btn-secondary[^"]*"[^>]*data-act="%s"' % act)
+        grid = more[more.index('<div class="more-grid">') : more.index('<div class="more-foot"')]
+        for tag in re.findall(r"<button[^>]*>", grid):
+            self.assertNotIn("btn-", tag)
 
     def test_floating_surfaces_are_the_only_shadows_with_hairlines(self):
         for sel in ("dialog", "#mention-pop"):
@@ -3456,11 +3465,16 @@ class FrontendToolbarOneRow(unittest.TestCase):
         self.assertIn("body.lay-narrow #bar1 .chip,body.lay-mid #bar1 .chip{display:none}", css)
         self.assertIn("#btn-pos .nm{flex:0 1 auto;min-width:0;", css)
         self.assertIn("#btn-pos b{flex:none;", css)
+        # [더보기]'s label is no chip: the instance colour's dot and the name (translate="no"), no Limn icon (UX spec §V7)
         more = HTML[HTML.index('<dialog id="more"') : HTML.index("</dialog>", HTML.index('<dialog id="more"'))]
-        self.assertIn('<span id="more-label" class="chip" data-tip="__LABEL__ — ', more)
+        label = more[more.index('<span id="more-label"') : more.index("</span>", more.index('<span id="more-label"'))]
+        self.assertNotIn('class="chip"', label)
+        self.assertNotIn("<svg", label)
+        self.assertIn('<i class="more-dot" aria-hidden="true"></i><b translate="no">__LABEL__</b>', label)
         out = page_for("Long-DemoPaper1", "#1d4ed8")
         self.assertIn('<dialog id="more" aria-label="더보기 · Long-DemoPaper1">', out)
-        self.assertIn("#more .more-head .chip{background:var(--brand);", css)
+        self.assertIn("#more .more-dot{", css)
+        self.assertIn("background:var(--brand)", css[css.index("#more .more-dot{") :][:200])
 
     def test_fold_open_also_hides_toolbar_chip_and_relies_on_more(self):
         # regression: an unfolded fold device (884px) also puts #bar1 under flex-wrap:nowrap pressure,
@@ -3492,7 +3506,9 @@ class FrontendToolbarSize(unittest.TestCase):
         self.assertIn("#bar1{flex-wrap:wrap;--tb-h:var(--control-h-touch)}", coarse)
         self.assertIn("#bar1 input.n{width:84px;flex:0 0 84px;max-width:none;font-size:var(--text-xl)}", coarse)
         self.assertRegex(HTML, r'<input class="n sec" id="jump" placeholder="쪽 이동"')
-        self.assertIn('id="m-jump" inputmode="numeric" placeholder="쪽"', HTML)
+        # [더보기] has no page field any more: the phone's navigation sheet and the nav bar's page count take it (UX spec §V7)
+        self.assertRegex(HTML, r'<button id="nav-page" data-act="nav-page"')
+        self.assertIn('<input id="ns-page-in" inputmode="numeric"', HTML)
 
 
 class FrontendSaveWhilePicking(unittest.TestCase):
@@ -4639,6 +4655,10 @@ class FrontendNotify(unittest.TestCase):
     def test_wiring(self):
         h = HTML
         self.assertIn('id="m-notify"', h)
+        # [더보기]'s row is a switch with its reason line under it (UX spec §V7), its state never in its name
+        self.assertRegex(h, r'<button id="m-notify" role="switch" aria-checked="false"')
+        self.assertIn('id="m-notify-why"', h)
+        self.assertIn("m.setAttribute('aria-checked',String(st===NOTIFY_STATE.ON))", extract_js_fn("drawNotify"))
         self.assertIn('id="btn-notify"', h)
         tog = extract_js_fn("notifyToggle")
         self.assertIn("Notification.requestPermission()", tog)

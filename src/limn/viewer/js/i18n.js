@@ -49,9 +49,9 @@ function i18nTree(root){if(LANG!==UI_LANG.EN||!root)return;
   const w=document.createTreeWalker(root,NodeFilter.SHOW_ELEMENT|NodeFilter.SHOW_TEXT,
     {acceptNode:n=>n.nodeType===1&&i18nUser(n)?NodeFilter.FILTER_REJECT:NodeFilter.FILTER_ACCEPT}); let n;
   while((n=w.nextNode())){if(n.nodeType===3)i18nText(n); else i18nEl(n);}}
-// Labels the language switch, then in English translates the page once and everything drawn or changed after it (text nodes and
-// UI attributes), leaving user text alone (i18nUser).
-function i18nStart(){const b=document.getElementById('m-lang'); if(b)b.textContent=LANG===UI_LANG.EN?'한국어':'English';
+// Checks the current language in [더보기]'s language segment, then in English translates the page once and everything drawn or
+// changed after it (text nodes and UI attributes), leaving user text alone (i18nUser).
+function i18nStart(){for(const r of document.querySelectorAll('#m-lang [role=radio]')){const on=r.dataset.lang===LANG; r.setAttribute('aria-checked',String(on)); r.classList.toggle('on',on);}
   if(LANG!==UI_LANG.EN)return; i18nTree(document.body);
   new MutationObserver(ms=>{for(const m of ms){
     if(m.type==='childList')m.addedNodes.forEach(i18nTree);
@@ -59,5 +59,8 @@ function i18nStart(){const b=document.getElementById('m-lang'); if(b)b.textConte
     else if(m.type==='attributes'&&m.target.nodeType===1&&!i18nUser(m.target)){const v=m.target.getAttribute(m.attributeName);
       if(v){const e=trMsg(v); if(e!==v)m.target.setAttribute(m.attributeName,e);}}}})
     .observe(document.body,{childList:true,subtree:true,characterData:true,attributes:true,attributeFilter:I18N_ATTRS});}
-function switchLang(){try{localStorage.setItem('limnLang',LANG===UI_LANG.EN?UI_LANG.KO:UI_LANG.EN);}catch(e){}
+// [더보기]'s language segment: saves lang (ko or en) as this device's choice and reloads in it - the tab's draft is kept
+// (sessionStorage). The language on screen does nothing; nothing asks first.
+function switchLang(lang){if(lang!==UI_LANG.KO&&lang!==UI_LANG.EN||lang===LANG)return;
+  try{localStorage.setItem('limnLang',lang);}catch(e){}
   const u=new URL(location.href); u.searchParams.delete('lang'); location.replace(u.toString());}

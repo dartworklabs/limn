@@ -22,13 +22,12 @@ document.addEventListener('click',e=>{
     case 'selmode':setSelMode(!SELMODE);if(SELMODE&&LAYOUT===LAYOUT_MODE.NARROW&&!COMPOSE.current&&!EDITOR.current)setSide(false);break;
     case 'more':openMore();break; case 'more-close':$('#more').close();break;
     case 'size-preset':sizePreset(+a.dataset.i);break;
-    case 'm-jump':$('#more').close();goPage($('#m-jump').value);break;
     case 'coach-close':$('#coach').hidden=true;break;
     case 'toasts-expand':$('#toasts').classList.add('expanded'); syncToastStack(); break;
     case 'card-toggle':if(id==null)break; if(OPEN_CARDS.has(id))OPEN_CARDS.delete(id); else OPEN_CARDS.add(id); drawPins();break;
     case 'rebuild':rebuild();break; case 'reload':loadPins();break;
     case 'zoom-in':zoom(1);break; case 'zoom-out':zoom(-1);break; case 'fit':fitW();break;
-    case 'theme':cycleTheme();break; case 'lang':switchLang();break; case 'notify-toggle':notifyToggle();break; case 'help':openHelp();break; case 'help-close':$('#help').close();break;
+    case 'theme':if(a.dataset.theme)setTheme(a.dataset.theme); else cycleTheme(); break; case 'lang':switchLang(a.dataset.lang);break; case 'notify-toggle':notifyToggle();break; case 'help':openHelp();break; case 'help-close':$('#help').close();break;
     case 'save':if(!viewerBlocked())savePin();break; case 'cancel':discardSelection();break;
     case 'overlap-append':{const text=$('#note').value.trim();
       if(!text){toast('메모를 먼저 써야 덧붙일 수 있습니다','warn');break;}
@@ -82,7 +81,6 @@ document.addEventListener('click',e=>{
     case 'esave':saveEdit();break; case 'ecancel':cancelEdit();break;
     case 'repick':startRepick();break; case 'rp-cancel':cancelRepick();break; case 'rp-apply':applyRepick();break;
     case 'sec-toggle':toggleSec(a.dataset.sec);break;
-    case 'done-toggle':toggleSec('done');if(fromMore)revealList('#done-toggle',SEC.done);break;
     case 'trash-open':openTrash();break; case 'trash-close':$('#trash').close();break;
     case 'err-close':hideBuildErr();break;
     case 'build-err-reopen':if(BUILD.error){setSide(true); showBuildErr(BUILD.error);} break;   // the chip floats on a collapsed panel; the log is inside it

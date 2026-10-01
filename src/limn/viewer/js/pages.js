@@ -15,9 +15,14 @@ function buildDoc(){
 // The page width limit is ZOOM_MIN-ZOOM_MAX times the fit-width (minimum 160px). Overflow scrolls horizontally only within the PDF area (#left).
 const ZOOM_MIN=0.5,ZOOM_MAX=5,ZOOM_STEP=1.2;
 function wBounds(fit){const f=Math.max(160,fit),lo=Math.max(160,Math.round(f*ZOOM_MIN)); return [lo,Math.max(lo,Math.round(f*ZOOM_MAX))];}
-// Sets the page width W within wBounds (saved in wide unless save is false); the marks' badges follow the new width (markBadgeSides).
+// Sets the page width W within wBounds (saved in wide unless save is false); the marks' badges follow the new width (markBadgeSides)
+// and so does [더보기]'s zoom figure (drawZoom).
 function setW(w,save){const b=wBounds(fitWidth()); W=Math.round(Math.min(b[1],Math.max(b[0],w))); $$('.pg').forEach(e=>e.style.width=W+'px');
-  markBadgeSides(); if(save!==false&&LAYOUT===LAYOUT_MODE.WIDE)savePrefs({w:W}); vecInvalidate();}
+  markBadgeSides(); if(save!==false&&LAYOUT===LAYOUT_MODE.WIDE)savePrefs({w:W}); vecInvalidate(); drawZoom();}
+// The zoom as [더보기] shows it: the page width W over the fitted width, in percent, rounded; 100 before a width is known. Pure.
+function zoomPct(w,fit){return fit>0?Math.round(w/fit*100):100;}
+// Writes [더보기]'s zoom figure (a live region: it is read out as it changes).
+function drawZoom(){const z=$('#m-zoom'); if(z)z.textContent=zoomPct(W,fitWidth())+'%';}
 function innerW(){const L=$('#left'),cs=getComputedStyle(L); return L.clientWidth-parseFloat(cs.paddingLeft)-parseFloat(cs.paddingRight);}
 // Fit-width: in compact and on a wide touch screen, the scroller's inner width (innerW: its padding is the gap, which on touch keeps
 // the page off the handles' hit areas); with a mouse in wide, #left.clientWidth minus 48px (left/right margins), as always.
@@ -60,5 +65,4 @@ $('#nav-page-in').addEventListener('keydown',e=>{if(e.isComposing)return;
   if(e.key==='Enter'){e.preventDefault(); const p=clampPage(e.target.value,META&&META.pages?META.pages.length:0); navPageField(false); $('#nav-page').focus({preventScroll:true}); if(p!==null)goPage(p);}
   else if(e.key==='Escape'){e.preventDefault(); e.stopPropagation(); navPageField(false); $('#nav-page').focus({preventScroll:true});}});
 $('#nav-page-in').addEventListener('blur',()=>{if(!$('#nav-page-in').hidden)navPageField(false);});
-$('#m-jump').addEventListener('keydown',e=>{if(e.key==='Enter'){$('#more').close(); goPage($('#m-jump').value);}});
 

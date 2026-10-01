@@ -34,7 +34,7 @@ body:not(.lay-narrow) #doc-nav,body.band-tablet-sheet #doc-nav{display:flex}   /
 .limn-mark-pin{fill:var(--limn-ver)}
 #help-h{display:flex;align-items:center;gap:var(--space-2)}
 .limn-mark-word{display:block;flex:none;height:20px}
-#more-label .limn-mark{display:inline-block;width:14px;height:14px;vertical-align:-2px;margin-right:var(--space-1)}
+.more-brand .limn-mark-word{margin-right:var(--space-2)}   /* [더보기]'s foot: the wordmark, then the version */
 #paper-identity>span:last-child{overflow:hidden;text-overflow:ellipsis}
 body.lay-narrow #paper-identity{display:none}
 #doc-select-wrap{display:none;align-items:center;gap:var(--space-2);min-width:0}

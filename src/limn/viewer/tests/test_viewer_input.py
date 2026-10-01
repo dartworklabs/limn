@@ -19,6 +19,7 @@ import unittest
 from typing import Any
 from urllib.parse import urlparse
 
+from limn import __version__
 from limn.pins.lifecycle.rules import CloseRequest
 from limn.security.access import LOCAL_ACTOR
 
@@ -340,6 +341,13 @@ class NavLogic(unittest.TestCase):
         )
         en = self.run_js(["posLabel"], "posLabel('본문',3,25,true,true,'manuscript')", lang="en")
         self.assertEqual(en, {"name": "본문", "pages": "3/25", "label": "Go to · 본문 · 3 / 25"})
+
+    def test_zoom_percent_is_the_page_width_over_the_fitted_width(self):
+        """zoomPct(W, fit): [더보기]'s zoom figure, rounded - the fitted width is 100%, one step in 120%, two 144%."""
+        got = self.run_js(
+            ["zoomPct"], "[zoomPct(387,387),zoomPct(464,387),zoomPct(557,387),zoomPct(194,387),zoomPct(400,0)]"
+        )
+        self.assertEqual(got, [100, 120, 144, 50, 100])
 
 
 class StatusLogic(unittest.TestCase):
@@ -2797,11 +2805,16 @@ SHEETS = (
         "#more",
         "openMore()",
         [
-            ["#more-label", "box"],
-            ["#more .more-tools button", "box"],
+            ["#more-label", "ink"],
+            ["#more-info", "ink"],
+            ["#m-zoom-l", "ink"],
             ["#m-size-l", "ink"],
-            ["#more .more-grid", "box"],
+            ["#m-size", "end"],
+            ["#m-theme", "end"],
+            ["#more .more-grid button", "box"],
+            ["#more .more-grid button", "end"],
             ["#more .more-grid button", "ink"],
+            ["#more-foot", "ink"],
             ["#more [data-act=more-close]", "end"],
         ],
     ),
@@ -2990,39 +3003,47 @@ class PhoneMoreAndHelp(ViewerBase):
     a row of its own and wrapped English labels onto two lines; help showed the desktop shortcut table on a touch screen."""
 
     def test_more_is_a_bottom_sheet_of_one_line_rows(self):
-        """360x780, Korean and English: a sheet on the bottom edge, at most the screen less 48px high (the phone's [PDF 재빌드]
-        row is in it), no label on two lines, 44px targets."""
-        for lang in ("ko", "en"):
-            with self.subTest(lang=lang):
-                page = self.view(PHONE_360, lang=lang)
-                page.evaluate("openMore()")
-                settle(page)
-                box = page.locator("#more").bounding_box()
-                self.assertLessEqual(box["height"], 780 - 48)
-                self.assertAlmostEqual(box["y"] + box["height"], 780, delta=1)
-                two = page.evaluate(
-                    """() => [...document.querySelectorAll('#more button')].filter(b => b.getClientRects().length).filter(b => {
-                      const r = document.createRange(); r.selectNodeContents(b);
-                      return new Set([...r.getClientRects()].filter(q => q.width > 1).map(q => Math.round(q.top))).size > 1;
-                    }).map(b => b.id || b.textContent.trim())"""
-                )
-                self.assertEqual(two, [])
-                self.assertEqual(page.evaluate(MISSES_44, "#more button,#more input"), [])
+        """360x780 and 411x908, Korean and English: a sheet on the bottom edge, at most the screen less 48px high (the new
+        structure - two meta lines, the view and pin groups, the foot - outgrew the old 460px cap), no label on two lines,
+        44px targets for the segments, the switch and the rows, and no Limn icon in the label."""
+        for w, h in ((360, 780), (411, 908)):
+            for lang in ("ko", "en"):
+                with self.subTest(w=w, lang=lang):
+                    page = self.view(touch_device(w, h), lang=lang)
+                    page.evaluate("openMore()")
+                    settle(page)
+                    box = page.locator("#more").bounding_box()
+                    self.assertLessEqual(box["height"], h - 48)
+                    self.assertAlmostEqual(box["y"] + box["height"], h, delta=1)
+                    two = page.evaluate(
+                        """() => [...document.querySelectorAll('#more button')].filter(b => b.getClientRects().length).filter(b => {
+                          const w = document.createTreeWalker(b, NodeFilter.SHOW_TEXT), tops = new Set(); let n;
+                          while ((n = w.nextNode())) {if (!n.nodeValue.trim()) continue; const r = document.createRange(); r.selectNodeContents(n);
+                            for (const q of r.getClientRects()) if (q.width > 1) tops.add(Math.round(q.top));}
+                          return tops.size > 1;
+                        }).map(b => b.id || b.textContent.trim())"""
+                    )
+                    self.assertEqual(two, [])
+                    self.assertEqual(page.evaluate(MISSES_44, "#more button,#more input"), [])
+                    self.assertFalse(page.evaluate("!!document.querySelector('#more-label svg')"))
 
     def test_a_tapped_row_keeps_no_hover_fill_while_a_mouse_still_gets_one(self):
         """360x780 touch: a tap on [테마] in [더보기] left the row grey (a sticky :hover, the owner's 'Theme: System', UX
-        audit P4.6); the hover fill answers a mouse only. A mouse at 1000x800 (the same sheet) still gets --accent."""
-        bg = "getComputedStyle(document.querySelector('#m-theme')).backgroundColor"
+        audit P4.6); the hover fill answers a mouse only. The theme is a segment control now: after a tap on [어둡게] and
+        one back on [밝게], [어둡게] has no fill. A mouse at 1000x800 (the same sheet) still gets --accent on it."""
+        bg = "getComputedStyle(document.querySelector('#m-theme [data-theme=dark]')).backgroundColor"
         page = self.view(PHONE_360)
         page.evaluate("openMore()")
         settle(page)
-        self.tap(self.cdp(page), *self.center(page, "#m-theme"))
+        self.tap(self.cdp(page), *self.center(page, "#m-theme [data-theme=dark]"))
+        settle(page)
+        self.tap(self.cdp(page), *self.center(page, "#m-theme [data-theme=light]"))
         settle(page)
         self.assertEqual(page.evaluate(bg), "rgba(0, 0, 0, 0)")
         page = self.view(MOUSE_MID)
         page.evaluate("openMore()")
         settle(page)
-        page.hover("#m-theme")
+        page.hover("#m-theme [data-theme=dark]")
         settle(page)
         accent = page.evaluate(
             "(()=>{const e=document.createElement('i'); e.style.background='var(--accent)'; document.body.append(e);"
@@ -3220,6 +3241,17 @@ NAV_SHEET = """() => {const d = document.querySelector('#nav-sheet'), R = d.getB
   const spill = [...d.querySelectorAll('button,input')].filter(vis).filter(e => {const r = e.getBoundingClientRect();
     return r.left < R.left - 0.5 || r.right > R.right + 0.5;}).map(e => e.id || e.className);
   const a = document.activeElement; return {order, spill, focus: a.dataset.doc || a.dataset.mode || a.id};}"""
+# The open [더보기]: whether a Limn icon is in the label, the label dot's fill and the instance colour, the meta's distinct line
+# tops and the pieces that break across lines, the foot (wordmark, version text, [도움말]) and the rows that are gone.
+MORE = """() => {const q = s => document.querySelector(s), colour = v => {const e = document.createElement('i'); e.style.background = v;
+    document.body.append(e); const c = getComputedStyle(e).backgroundColor; e.remove(); return c;};
+  const tops = e => {const r = document.createRange(); r.selectNodeContents(e);
+    return new Set([...r.getClientRects()].filter(x => x.width > 1).map(x => Math.round(x.top)));};
+  const pieces = [...document.querySelectorAll('#more-info .mc')];
+  return {iconInLabel: !!q('#more-label svg'), dot: getComputedStyle(q('#more-label .more-dot')).backgroundColor, brand: colour('var(--brand)'),
+    lines: new Set(pieces.map(p => Math.round(p.getBoundingClientRect().top))).size, broken: pieces.filter(p => tops(p).size > 1).map(p => p.textContent),
+    foot: [!!q('#more-foot svg.limn-mark-word'), q('#more-foot .m-ver').textContent, !!q('#more-foot [data-act=help]')],
+    gone: [!!q('#m-done'), !!q('#m-jump')]};}"""
 # The fullest bar the width budget plans for: 123 open pins, 12 awaiting review and a draft dot (UX spec §V4 폭 예산).
 FULL_BAR = """() => {document.querySelector('#side-n').textContent = '123'; const p = document.querySelector('#side-rv');
   p.hidden = false; p.innerHTML = ic('eye') + '12'; document.querySelector('#btn-side .c-dot').hidden = false;}"""
@@ -3592,6 +3624,99 @@ class BarAndSheets(ViewerBase):
         page.keyboard.press("Escape")
         page.wait_for_function("document.querySelector('#nav-page-in').hidden")
         self.assertEqual(page.evaluate("topAnchor().page"), 2)
+
+    # ---- [더보기] (V7)
+
+    def more_view(self, device, **kw):
+        """A view of device with [더보기] open."""
+        page = self.view(device, init=NO_PNG_CHIP, **kw)
+        page.evaluate("openMore()")
+        settle(page)
+        return page
+
+    def test_more_has_a_dot_label_two_meta_lines_and_the_brand_at_its_foot(self):
+        """411x908, Korean and English: the label is the instance colour's dot and the name, with no Limn icon in it (the
+        icon read as the label's decoration, UX audit P4.1); the meta is two lines and no piece breaks inside (it was one
+        line cut at '…', P4.2); the foot is the Limn wordmark, 'v' and the version, and [도움말]. The closed-pins row and the
+        page field are gone."""
+        for lang in ("ko", "en"):
+            with self.subTest(lang=lang):
+                got = self.more_view(BAR_PHONES[0], lang=lang).evaluate(MORE)
+                self.assertFalse(got["iconInLabel"])
+                self.assertEqual(got["dot"], got["brand"])
+                self.assertEqual(got["lines"], 2)
+                self.assertEqual(got["broken"], [])
+                self.assertEqual(got["foot"], [True, "v" + __version__, True])
+                self.assertEqual(got["gone"], [False, False])
+
+    def test_theme_and_language_are_segments_that_show_the_current_value(self):
+        """The theme was a cycle whose next value was unknown until pressed (P4.5): [시스템 | 밝게 | 어둡게] checks the current
+        one and a tap applies its value at once; under 시스템 a line says what it is now. The language showed the other
+        language's name (P4.4): [한국어 | English] checks the current one; the checked one does nothing, the other saves the
+        choice (limnLang) and reloads in it, the tab's draft kept."""
+        page = self.more_view(BAR_PHONES[0])
+        checked = "s=>document.querySelector(s+' [aria-checked=true]').dataset"
+        self.assertEqual(page.evaluate(checked, "#m-theme")["theme"], "light")
+        self.tap(self.cdp(page), *self.center(page, "#m-theme [data-theme=dark]"))
+        page.wait_for_function("document.documentElement.dataset.theme==='dark'")
+        self.assertEqual(page.evaluate(checked, "#m-theme")["theme"], "dark")
+        self.tap(self.cdp(page), *self.center(page, "#m-theme [data-theme=system]"))
+        page.wait_for_function("!document.querySelector('#m-theme-now').hidden")
+        self.assertEqual(page.inner_text("#m-theme-now"), "지금 밝게")
+        self.assertEqual(page.evaluate(checked, "#m-lang")["lang"], "ko")
+        boot = page.evaluate("window.__pinViewerBoot")
+        page.evaluate("sessionStorage.setItem('limnDraft:test','{\"note\":\"쓰던 메모\"}')")
+        self.tap(self.cdp(page), *self.center(page, "#m-lang [data-lang=ko]"))
+        nothing_follows(page)
+        self.assertEqual(page.evaluate("window.__pinViewerBoot"), boot)
+        with page.expect_navigation():
+            self.tap(self.cdp(page), *self.center(page, "#m-lang [data-lang=en]"))
+        page.wait_for_function(BOOTED, timeout=20000)
+        self.assertEqual(
+            page.evaluate(
+                "[document.documentElement.lang, localStorage.getItem('limnLang'), sessionStorage.getItem('limnDraft:test')]"
+            ),
+            ["en", "en", '{"note":"쓰던 메모"}'],
+        )
+
+    def test_zoom_shows_its_percentage(self):
+        """[더보기]'s zoom had no feedback but the 449px of page above the sheet (P11): the figure between [−] and [+] says
+        it - 100% fitted, 144% after two steps."""
+        page = self.more_view(BAR_PHONES[0])
+        self.assertEqual(page.inner_text("#m-zoom"), "100%")
+        for _ in range(2):
+            page.click("#more [data-act=zoom-in]")
+        page.wait_for_function("document.querySelector('#m-zoom').textContent==='144%'")
+
+    def test_notifications_are_a_switch_with_its_reason_underneath(self):
+        """The row mixed the state into its name ('Notifications: Not available on this address', P4.7): it is a switch
+        named 브라우저 알림, and where it cannot turn on - here not a secure address, or a local identity - it is off and
+        disabled with the reason on a line under it."""
+        page = self.more_view(BAR_PHONES[0])
+        sw = (
+            "()=>{const s=document.querySelector('#m-notify'),w=document.querySelector('#m-notify-why');"
+            "return [s.getAttribute('role'),s.getAttribute('aria-checked'),s.disabled,s.querySelector('.lbl').textContent,w.hidden?null:w.textContent];}"
+        )
+        self.assertEqual(
+            page.evaluate(sw),
+            ["switch", "false", True, "브라우저 알림", "https 테일넷 주소나 http://127.0.0.1에서만 됩니다"],
+        )
+        page.evaluate("()=>{META=Object.assign({},META,{me:{login:'local'}}); drawNotify();}")
+        self.assertEqual(page.evaluate(sw)[4], "테일넷 주소로 열면 켤 수 있습니다")
+
+    def test_a_landscape_phone_scrolls_more_under_its_sticky_head(self):
+        """908x411: three rows were cut below a 360px sheet (P4.9). The sheet is at most the screen less 48px; scrolled to
+        its end the head (label and [닫기]) is still at its top and the foot is inside it."""
+        page = self.more_view(touch_device(908, 411))
+        box = page.locator("#more").bounding_box()
+        self.assertLessEqual(box["height"], 411 - 48 + 1)
+        page.evaluate("document.querySelector('#more').scrollTop=1e6")
+        settle(page)
+        got = page.evaluate(
+            "()=>{const d=document.querySelector('#more').getBoundingClientRect(),h=document.querySelector('#more .more-top').getBoundingClientRect(),"
+            "f=document.querySelector('#more-foot').getBoundingClientRect(); return [h.top-d.top<=1.5, f.bottom<=d.bottom+0.5, document.querySelector('#more').scrollTop>0];}"
+        )
+        self.assertEqual(got, [True, True, True])
 
 
 if __name__ == "__main__":

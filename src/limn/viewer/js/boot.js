@@ -71,8 +71,13 @@ function drawMeta(){
   updateStaleBadge(META);
   updateSyncBadge(META.sync);
   $('#help-pins-md').textContent=META.pins_md||'';
-  // In compact, #bar2's file/commit/time/author line is hidden and shown as a single line inside [⋯] instead (so a long filename never overflows).
-  const info=[META.main,tl('{n}쪽',{n:META.pages.length}),META.head,String(META.built_at||'').slice(0,16).replace('T',' '),
-    tl('나: {name}',{name:who(me)})].filter(Boolean).join(' · ');
-  $('#more-info').textContent=info; $('#more-info').dataset.tip=info;   // one line in [더보기]; the whole of it in the tooltip
+  $('#more-info').innerHTML=moreInfo(META,me);
 }
+// [더보기]'s meta (compact, where #bar2's line is hidden) as two lines: the file · pages · commit, then the build time · me. Each
+// piece keeps its words together and the lines break only between pieces; a piece longer than the line (a long file name)
+// breaks after / . _ - (<wbr>), never cut - it was one line cut at '…', its rest only in a 500ms long-press tip (UX audit P4.2).
+// The words are the viewer's (tr/tl), the names the user's: #more-info is translate="no".
+function moreInfo(m,me){const built=String(m.built_at||'').slice(5,16).replace('T',' ');
+  const piece=t=>'<span class="mc">'+esc(t).replace(/([/._-])/g,'$1<wbr>')+'</span>';
+  const line=a=>a.filter(Boolean).map(piece).join(' · ');
+  return line([m.main,tl('{n}쪽',{n:m.pages.length}),m.head])+'<br>'+line([built&&built!=='?'?built+' '+tr('빌드'):'',tl('나: {name}',{name:who(me)})]);}

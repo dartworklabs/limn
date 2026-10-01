@@ -10,8 +10,9 @@ here runs at import.
 Placeholders filled here:
 - __APP_CSS__ / __APP_JS__: the parts listed under each marker in parts.txt, joined in order (load_viewer_html).
 - __PDFJS_VERSION__: the vendored PDF.js version, the ?v= that busts the browser cache for /vendor/pdfjs/.
-- __LIMN_MARK_16__ / __LIMN_MARK_14__ / __LIMN_WORDMARK__: the Limn logo's inline SVGs (limn.viewer.mark.MARK_SLOTS) - the
-  icon by the label in the top bar and in the [더보기] label chip, the wordmark in the help header.
+- __LIMN_MARK_16__ / __LIMN_WORDMARK__: the Limn logo's inline SVGs (limn.viewer.mark.MARK_SLOTS) - the icon by the label
+  in the top bar, the wordmark in the help header and [더보기]'s foot.
+- __LIMN_VERSION__: this Limn's version (limn.__version__), beside the wordmark in [더보기]'s foot.
 - __ICON_KEY__: the content key of the icon files (limn.viewer.mark.Brand.key), the ?v= of the favicon links.
 - __LUCIDE_JSON__: the icon table, for the viewer's JS ic().
 - __UI_EN_JSON__: the ko -> en message table (ui_en.json), for the viewer's I18N_EN.
@@ -32,6 +33,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TypeAlias
 
+from limn import __version__
 from limn.viewer.mark import FILES as BRAND_FILES, Brand, Icon, brand
 
 # One entry of the message table: an English string, or plural forms {"one": ..., "other": ...} for a key with {n}.
@@ -54,7 +56,13 @@ def read_viewer() -> "ViewerFiles":
     messages = load_ui_messages(VIEWER_DIR / "ui_en.json")
     logo = read_brand()
     template = viewer_html(
-        VIEWER_DIR, messages, pdfjs_version=PDFJS_VERSION, marks=logo.marks, icon_key=logo.key, icons=LUCIDE
+        VIEWER_DIR,
+        messages,
+        pdfjs_version=PDFJS_VERSION,
+        marks=logo.marks,
+        icon_key=logo.key,
+        icons=LUCIDE,
+        version=__version__,
     )
     return ViewerFiles(template, service_worker(VIEWER_DIR), messages, logo.icons)
 
@@ -115,6 +123,7 @@ LUCIDE = {
     "refresh-cw": '<path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/>'
     '<path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/>',
     "rotate-ccw": '<path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/>',
+    "rotate-cw": '<path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/>',
     "square-dashed": '<path d="M5 3a2 2 0 0 0-2 2"/><path d="M19 3a2 2 0 0 1 2 2"/><path d="M21 19a2 2 0 0 1-2 2"/>'
     '<path d="M5 21a2 2 0 0 1-2-2"/><path d="M9 3h1"/><path d="M9 21h1"/><path d="M14 3h1"/><path d="M14 21h1"/>'
     '<path d="M3 9v1"/><path d="M21 9v1"/><path d="M3 14v1"/><path d="M21 14v1"/>',
@@ -242,12 +251,14 @@ def viewer_html(
     marks: Mapping[str, str],
     icon_key: str,
     icons: Mapping[str, str],
+    version: str,
 ) -> str:
     """The viewer page served at GET /, before the run-time placeholders: run_page() fills those per instance.
 
     The page and its parts come from directory (load_viewer_html); pdfjs_version, the logo's inline SVGs (marks:
-    placeholder -> markup, limn.viewer.mark.Brand.marks, in placeholder order), the favicon links' icon_key, the icon table and
-    the message table fill their placeholders, in that order, and every {{ic:<name>}} token becomes its icon's <svg>.
+    placeholder -> markup, limn.viewer.mark.Brand.marks, in placeholder order), Limn's version, the favicon links' icon_key,
+    the icon table and the message table fill their placeholders, in that order, and every {{ic:<name>}} token becomes its
+    icon's <svg>.
     The JSON forms are sorted by key so the page does not depend on the table's order; the message table's "</" is
     escaped so a string can never close the <script> it sits in. Raises like load_viewer_html, and KeyError for an
     icon token the table lacks.
@@ -256,6 +267,7 @@ def viewer_html(
     page = page.replace("__PDFJS_VERSION__", pdfjs_version)
     for placeholder in sorted(marks):
         page = page.replace(placeholder, marks[placeholder])
+    page = page.replace("__LIMN_VERSION__", html.escape(version, quote=True))
     page = page.replace("__ICON_KEY__", icon_key)
     page = page.replace("__LUCIDE_JSON__", json.dumps(dict(icons), sort_keys=True))
     table = json.dumps(dict(messages), ensure_ascii=False, sort_keys=True).replace("</", "<\\/")

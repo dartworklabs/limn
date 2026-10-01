@@ -19,7 +19,7 @@ from limn.viewer import assemble, mark
 BRAND_DIR = Path(mark.__file__).with_name("brand")  # the vendored logo files (server.BRAND_DIR)
 
 PAGE = (
-    "<html><style>__APP_CSS__</style><title>__LABEL__</title>{{ic:x}}<i>__LIMN_MARK_16__</i><b>__LIMN_WORDMARK__</b>"
+    "<html><style>__APP_CSS__</style><title>__LABEL__</title>{{ic:x}}<i>__LIMN_MARK_16__</i><b>__LIMN_WORDMARK__</b><u>v__LIMN_VERSION__</u>"
     '<link href="/favicon.ico?v=__ICON_KEY__">'
     "<script>const V='__PDFJS_VERSION__';const ICONS=__LUCIDE_JSON__;const I18N_EN=__UI_EN_JSON__;\n"
     "__APP_JS__</script></html>"
@@ -40,7 +40,7 @@ def viewer_folder(root: Path, page: str = PAGE) -> Path:
 
 
 class ViewerHtml(unittest.TestCase):
-    """viewer_html(directory, messages, pdfjs_version=, marks=, icon_key=, icons=) -> the page before run_page()."""
+    """viewer_html(directory, messages, pdfjs_version=, marks=, icon_key=, icons=, version=) -> the page before run_page()."""
 
     def setUp(self):
         """A fresh viewer folder per test."""
@@ -57,15 +57,18 @@ class ViewerHtml(unittest.TestCase):
             marks={"__LIMN_MARK_16__": "<svg id=m/>", "__LIMN_WORDMARK__": "<svg id=w/>"},
             icon_key="0123456789ab",
             icons=icons,
+            version="1.2.3",
         )
 
     def test_every_build_time_placeholder_is_filled_from_the_arguments(self):
-        """The exact page: parts joined in order, the version, each logo placeholder its markup, the icon key, both
-        JSON tables (sorted), icon tokens in the page and inside a part replaced - and the run-time __LABEL__ left for
+        """The exact page: parts joined in order, the PDF.js version, each logo placeholder its markup, Limn's version
+        ([더보기]'s foot), the icon key, both JSON tables (sorted), icon tokens in the page and inside a part replaced - and the run-time __LABEL__ left for
         run_page()."""
         svg = lambda name: assemble.icon_svg(name, ICONS)  # noqa: E731 - a local shorthand
         expected = (
-            "<html><style>b{}\n</style><title>__LABEL__</title>" + svg("x") + "<i><svg id=m/></i><b><svg id=w/></b>"
+            "<html><style>b{}\n</style><title>__LABEL__</title>"
+            + svg("x")
+            + "<i><svg id=m/></i><b><svg id=w/></b><u>v1.2.3</u>"
             '<link href="/favicon.ico?v=0123456789ab">'
             "<script>const V='9.9.9';const ICONS="
             + json.dumps(ICONS, sort_keys=True)
@@ -101,7 +104,7 @@ class ViewerHtml(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             broken = viewer_folder(Path(d), PAGE.replace("__APP_JS__", ""))
             with self.assertRaises(ValueError):
-                assemble.viewer_html(broken, {}, pdfjs_version="1", marks={}, icon_key="k", icons=ICONS)
+                assemble.viewer_html(broken, {}, pdfjs_version="1", marks={}, icon_key="k", icons=ICONS, version="1")
 
     def test_the_packaged_page_keeps_only_the_run_time_placeholders(self):
         """The real folder with the real tables and logo: no build-time placeholder or icon token survives, and the
@@ -114,6 +117,7 @@ class ViewerHtml(unittest.TestCase):
             marks=logo.marks,
             icon_key=logo.key,
             icons=assemble.LUCIDE,
+            version="0.0.0",
         )
         for gone in (
             "__APP_CSS__",
@@ -164,15 +168,19 @@ class Independence(unittest.TestCase):
     """The assembly takes everything as arguments or from its own folder: no server state, no HTTP layer."""
 
     def test_imports_only_the_standard_library(self):
-        """assemble.py imports the standard library and the pure mark (limn.viewer.mark, for the served icons' type) - never
-        server.py, limn.web or settings."""
+        """assemble.py imports the standard library, the pure mark (limn.viewer.mark, for the served icons' type) and the
+        package's version string (limn.__version__, for [더보기]'s foot - a constant like PDFJS_VERSION) - never server.py,
+        limn.web or settings."""
         tree = ast.parse(Path(assemble.__file__).read_text(encoding="utf-8"))
         modules = {a.name for n in ast.walk(tree) if isinstance(n, ast.Import) for a in n.names}
         modules |= {n.module or "" for n in ast.walk(tree) if isinstance(n, ast.ImportFrom)}
         self.assertEqual(
             modules,
-            {"html", "json", "re", "collections.abc", "dataclasses", "pathlib", "typing", "limn.viewer.mark"},
+            {"html", "json", "re", "collections.abc", "dataclasses", "pathlib", "typing", "limn", "limn.viewer.mark"},
         )
+        froms = {(n.module, a.name) for n in ast.walk(tree) if isinstance(n, ast.ImportFrom) for a in n.names}
+        self.assertIn(("limn", "__version__"), froms)
+        self.assertEqual([a for m, a in froms if m == "limn"], ["__version__"])
         names = {n.id for n in ast.walk(tree) if isinstance(n, ast.Name)}
         self.assertEqual(names & {"C", "cur_doc", "HTML", "UI_EN"}, set())
 

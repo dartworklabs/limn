@@ -12,7 +12,7 @@ brand source, copied byte for byte; `src/limn/viewer/mark.py` maps them to route
 | Commit | dartworklabs/limn-sans branch `feat/favicon-ink`, commit `2cc250979444712a28df231b0ab4af5ae6ab270e` (on `main` `ce9288b`); the app icon and SVG files are byte for byte those of `main` `f110bb8` (PR #18) |
 | Built by | `make font` once (it writes `site/limn-font.js`), then `make icons`, which runs `cd site && uv run --no-project --with playwright --with pillow python3 tools/build_icons.py` and writes `site/icons/` with its checks passed |
 | Tools | Playwright 1.63.0 with Chromium 153.0.8010.12, Pillow 12.3.0 (as `uv run --with` resolved them); a rebuild with these gives the same bytes |
-| Copied | the seven files below from `site/icons/`, unchanged; `SHA256SUMS` here is their seven lines of `site/icons/SHA256SUMS` |
+| Copied | the six files below from `site/icons/`, unchanged; `SHA256SUMS` here is their six lines of `site/icons/SHA256SUMS` |
 | Check | `sha256sum -c SHA256SUMS` in this folder; `src/limn/viewer/tests/test_brand.py` checks the hashes, that the favicons are the pixel drawings and that each SVG parses |
 
 | File | Served or inlined as |
@@ -20,15 +20,15 @@ brand source, copied byte for byte; `src/limn/viewer/mark.py` maps them to route
 | `favicon-16.png`, `favicon-32.png` | `GET /favicon-16.png`, `GET /favicon-32.png` - the browser favicon, 16 and 32 px pixel drawings on 먹, one for light and dark tabs (`LIMN.FAVICON_PX`) |
 | `favicon.ico` | `GET /favicon.ico` - the same two drawings in one .ico |
 | `apple-touch-icon.png` | `GET /apple-touch-icon.png` - 180 px, 뼈종이, full-bleed square (iOS rounds it) |
-| `limn-icon-light-16.svg`, `limn-icon-light-14.svg` | the inline icon in the top bar (16 px) and the [더보기] label chip (14 px), with that size's optical correction |
-| `limn-wordmark-light-20.svg` | the inline wordmark in the help header, 20 px tall |
+| `limn-icon-light-16.svg` | the inline icon in the top bar (16 px), with that size's optical correction |
+| `limn-wordmark-light-20.svg` | the inline wordmark in the help header and the [더보기] footer, 20 px tall |
 
 Only the light SVGs are vendored: the viewer takes their shapes and replaces each brand colour with a class
 (뼈종이 tile, 먹 stroke, 주 pin), and its stylesheet paints both themes from the brand tokens.
 
 ## Updating
 
-Rebuild in limn-sans with `make icons`, copy the seven files, replace `SHA256SUMS` with their lines from the build's
+Rebuild in limn-sans with `make icons`, copy the six files, replace `SHA256SUMS` with their lines from the build's
 `SHA256SUMS`, update the commit above, and run `uv run pytest -q src/limn/viewer/tests/test_brand.py`. Do not edit a file here by hand;
 the test fails on any byte that differs from `SHA256SUMS`. A new file needs a line in `limn.viewer.mark` (`ICON_ROUTES` or
 `MARK_SLOTS`) and one in `SHA256SUMS`. A new icon route also needs its path in `access.READ_PATHS` (new paths are

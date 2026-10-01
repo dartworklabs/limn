@@ -17,23 +17,52 @@ body.selmode .pg{touch-action:none;outline:2px dashed var(--primary);outline-off
 #coach button{background:transparent;color:inherit;border-color:transparent}
 body:not(.lay-narrow) #coach{top:94px;pointer-events:none}
 body:not(.lay-narrow) #coach button{pointer-events:auto}
-/* [더보기] (compact only, docs/handbook/viewer.md §모바일 레이아웃) is a bottom sheet like the documents sheet: the label, one meta
-   line, [?] and [닫기]; a row of zoom-out/zoom-in/fit icons and the page field, the sheet-height/panel-width control, then one-line rows. It was a
-   600px centred dialog whose two-column grid left 'English' alone on a row and wrapped English labels (diagnosis P10). Help is the
-   [?] beside [닫기]. */
-#more{max-width:560px;width:100%;margin:auto auto 0;border-radius:var(--radius-lg) var(--radius-lg) 0 0;
-  padding:var(--space-3) var(--space-4) calc(var(--space-3) + env(safe-area-inset-bottom))}
-#more .more-head{flex-wrap:nowrap;gap:var(--space-2);margin-bottom:var(--space-2)}
-#more .more-head .chip{background:var(--brand);max-width:min(60%,240px)}
-#more .more-info{flex:1;min-width:0;font-size:var(--text-sm);color:var(--muted-foreground);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin:0}
-#more .more-tools{display:flex;align-items:center;gap:var(--space-2);margin-bottom:var(--space-2)}
-#more .jump-row{display:flex;gap:var(--space-2)}
-#more .jump-row input{width:72px;flex:none}
-#more .size-row{display:flex;align-items:center;gap:var(--space-2)}
-#more .size-row .seg{flex:1;margin:0}
-#more .more-grid{display:flex;flex-direction:column;margin-top:var(--space-2);border-top:1px solid var(--border);padding-top:var(--space-1)}
-#more .more-grid button{justify-content:flex-start;width:100%;text-align:left;white-space:nowrap;background:transparent;border-color:transparent}
+/* [더보기] (compact only, docs/handbook/viewer.md §모바일 레이아웃) is a bottom sheet like the navigation sheet. Under a sticky grab
+   band and head - the instance colour's dot and the name, and [닫기]; no Limn icon, which read as the label's decoration (UX audit
+   P4.1) - the meta in two lines that break only between pieces, never cut (P4.2); the view group (zoom with its figure, sheet height
+   or panel width, theme and language segments with the current value checked); the pin group (reload, the notifications switch
+   with its reason, Trash, rebuild); and the foot, the Limn wordmark and version with [도움말]. At most the screen less 48px high; on a
+   landscape phone the rest scrolls under the head (three rows were cut, P4.9). */
+#more{max-width:560px;width:100%;margin:auto auto 0;border-radius:var(--radius-lg) var(--radius-lg) 0 0;max-height:calc(var(--vvh,100dvh) - 48px);overflow:auto;
+  padding:0 var(--space-4) calc(var(--space-3) + env(safe-area-inset-bottom))}
+#more .more-top{position:sticky;top:0;z-index:1;background:var(--popover)}
+#more .more-head{flex-wrap:nowrap;gap:var(--space-2);min-height:var(--hit)}
+#more-label{display:inline-flex;align-items:center;gap:var(--space-2);min-width:0;font-size:var(--text-xl);font-weight:600;color:var(--foreground)}
+#more-label b{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#more .more-dot{flex:none;width:10px;height:10px;border-radius:50%;background:var(--brand)}
+#more .more-info{margin:0 0 var(--space-2);font-size:var(--text-sm);line-height:18px;color:var(--muted-foreground)}
+#more .more-info .mc{display:inline-block;max-width:100%;overflow-wrap:anywhere}   /* moves to the next line whole; breaks inside only when wider than a line */
+#more :is(.more-view,.more-grid){border-top:1px solid var(--border);padding:var(--space-2) 0}
+/* The view group is one two-column grid - labels (as wide as the widest, at most 96px of text) | controls - so every control
+   starts on one line; a row is its two cells. */
+#more .more-view{display:grid;grid-template-columns:fit-content(108px) minmax(0,1fr);align-items:center;column-gap:var(--space-3)}
+#more .m-row{display:contents}
+#more .m-l{display:flex;flex-direction:column;justify-content:center;min-height:var(--hit);font-size:var(--text-lg);color:var(--foreground);min-width:0}
+#more .m-l small{font-size:var(--text-sm);color:var(--muted-foreground)}
+#more .m-c{display:flex;align-items:center;gap:var(--space-2);min-width:0}
+#more #m-zoom{min-width:48px;text-align:center;font-variant-numeric:tabular-nums;color:var(--foreground)}
+#more .m-row .seg{margin:0;min-width:0}
+#more .m-row .seg button{flex:1 1 0;min-width:0}
+#more #m-theme .ic{width:14px;height:14px}
+@media (max-width:359.98px){#more #m-theme .ic{display:none}}   /* under 360px the theme segments keep their words only */
+#more .more-grid{display:flex;flex-direction:column}
+#more .more-grid button,#more .more-grid .m-sw{width:100%}
+#more .more-grid button{justify-content:flex-start;gap:var(--space-2);text-align:left;white-space:nowrap;background:transparent;border-color:transparent;font-size:var(--text-lg)}
 @media (hover:hover){#more .more-grid button:hover{background:var(--accent)}}   /* a tapped row stayed grey (sticky :hover, UX audit P4.6) */
+#more .more-grid .lbl{flex:1;min-width:0}
+#more .m-n{color:var(--muted-foreground);font-variant-numeric:tabular-nums}
+#more .more-grid button>.ic:last-child:not(:first-child){color:var(--muted-foreground)}
+#more .m-why{display:block;padding:0 var(--space-3) var(--space-1) calc(var(--space-3) + 16px + var(--space-2));font-size:var(--text-sm);line-height:18px;color:var(--muted-foreground)}
+/* The notifications switch: a 36x20 track whose knob sits right when on; off and disabled where it cannot turn on. */
+#more .sw-track{position:relative;flex:none;width:36px;height:20px;border-radius:var(--radius-lg);background:var(--input)}
+#more .sw-track::after{content:'';position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;background:var(--sidebar);box-shadow:var(--shadow-sm)}
+#more [role=switch][aria-checked=true] .sw-track{background:var(--primary)}
+#more [role=switch][aria-checked=true] .sw-track::after{left:18px}
+#more .more-foot{display:flex;align-items:center;gap:var(--space-2);min-height:var(--hit);border-top:1px solid var(--border);padding-top:var(--space-1)}
+#more .more-brand{display:inline-flex;align-items:center;color:var(--foreground)}
+#more .m-ver{font-size:var(--text-sm);color:var(--muted-foreground)}
+#more .more-foot button{gap:var(--space-1)}
+@media (hover:hover){#more .seg button:not(.on):hover{background:var(--accent)}}
 @media (pointer:coarse){
   :root{--doc-nav-h:48px;--text-xs:12px}   /* no touch text below 12px: badges, counts, avatar initials and page numbers were 11px (diagnosis P7) */
   button.tch{display:inline-flex}
@@ -62,7 +91,7 @@ body:not(.lay-narrow) #coach button{pointer-events:auto}
   .mark b{width:26px;height:26px;left:-28px;font-size:var(--text-base)}
   .mark b::after{content:'';position:absolute;inset:-9px}
   #tip{max-width:min(300px,calc(100vw - 16px))}
-  #more .more-tools .btn-icon{width:var(--control-h-lg);min-width:var(--control-h-lg);height:var(--control-h-lg);min-height:0}   /* icons drawn at 36px, 8px apart: their 44px hits (.hit) meet */
+  #more .m-c .btn-icon{width:var(--control-h-lg);min-width:var(--control-h-lg);height:var(--control-h-lg);min-height:0}   /* icons drawn at 36px, 8px apart: their 44px hits (.hit) meet */
   #help{padding:var(--space-4)}
   #help .kbd-only{display:none}   /* Ctrl, the wheel and Alt+1…9 mean nothing on a touch screen; the touch table above stays */
   #help .touch-only{display:inline}   /* the tour's first step: a long press or [선택], not a drag */
@@ -478,8 +507,8 @@ body.no-rebuild #btn-rebuild{display:none}
    Trash were centred cards 92vw and 100vw - 16px wide with 16 and 24px sides (UX audit P9); the desktop keeps them. */
 body.compact :is(#more,#nav-sheet,#help,#trash){margin:auto auto 0;width:100%;max-width:640px;border-radius:var(--radius-lg) var(--radius-lg) 0 0;
   padding:var(--space-3) max(calc(var(--edge) - 1px),env(safe-area-inset-right)) calc(var(--space-3) + env(safe-area-inset-bottom)) max(calc(var(--edge) - 1px),env(safe-area-inset-left))}
-body.compact #nav-sheet{padding-top:0}   /* its sticky grab band is the top */
-body.compact :is(#nav-sheet-h,#nav-sheet .ns-h,#ns-page label,#trash-h,#help-h,#help h4,#trash-note,#m-size-l,#help .help-legend,#help .help-steps,#help-pins-md){padding-left:var(--space-3)}
+body.compact :is(#nav-sheet,#more){padding-top:0}   /* their sticky grab band is the top */
+body.compact :is(#nav-sheet-h,#nav-sheet .ns-h,#ns-page label,#trash-h,#help-h,#help h4,#trash-note,#more-label,#more-info,#more .m-l,#more .more-brand,#help .help-legend,#help .help-steps,#help-pins-md){padding-left:var(--space-3)}
 /* A segment control in a sheet is drawn at 36px in its 4px frame: each segment's 44px hit fills the 44px row. */
 @media (pointer:coarse){body.compact :is(#nav-sheet,#more) .seg button{min-height:0;height:var(--control-h-lg);position:relative}
   body.compact :is(#nav-sheet,#more) .seg button::after{content:'';position:absolute;left:0;right:0;top:50%;height:var(--hit);transform:translateY(-50%)}}
