@@ -512,8 +512,9 @@ class OverlapRoutes(Base):
         self.assertEqual(d["pdf_build"], limn_build.cur_pages(ps.APP.docs[0]).name)
         # if the screen shows an old build, it's resolved against that build and its name is returned (a drag made right after a rebuild, before the screen updates).
         b1 = limn_build.cur_pages(ps.APP.docs[0]).name
-        # a rebuild within the same second still gets a page directory of its own (test_build.Outcomes)
-        self.assertEqual(type(ps.APP.build_requests.build_all(ps.APP.docs[0])), BuildOk)
+        # a forced rebuild (an unchanged one keeps the build on screen) within the same second still gets a page
+        # directory of its own (test_build.Outcomes)
+        self.assertEqual(type(ps.APP.build_requests.build_all(ps.APP.docs[0], force=True)), BuildOk)
         self.assertNotEqual(limn_build.cur_pages(ps.APP.docs[0]).name, b1)
         d2 = pick({"page": 1, "x0": 0, "y0": 0, "x1": p["pt_w"], "y1": p["pt_h"] * 0.4, "pdf_build": b1})
         self.assertEqual(d2["pdf_build"], b1)
@@ -647,7 +648,7 @@ class RebuildLogDiet(Base):
         super().tearDown()
 
     def test_sync_rebuild_ok_omits_log(self):
-        def fake_build(D=None):
+        def fake_build(D=None, force=False):
             return BuildOk("font path\n" * 200, 0.01, None, 1.0, None, "abc1234", "", 1)
 
         with mock.patch.object(ps.APP.build_requests, "compile", side_effect=fake_build):
@@ -658,7 +659,7 @@ class RebuildLogDiet(Base):
         self.assertEqual(body["head"], "abc1234")
 
     def test_sync_rebuild_ok_errors_trims_log_to_40_lines(self):
-        def fake_build(D=None):
+        def fake_build(D=None, force=False):
             return BuildOkWithErrors(
                 [{"line": 1, "msg": "x"}], "\n".join("l%d" % i for i in range(200)), 0.01, None, 1.0, None, "-", "", 1
             )
@@ -669,7 +670,7 @@ class RebuildLogDiet(Base):
         self.assertEqual(len(body["log"].splitlines()), 40)
 
     def test_sync_rebuild_log1_query_bypasses_diet(self):
-        def fake_build(D=None):
+        def fake_build(D=None, force=False):
             return BuildOk("keep-full", 0.01, None, 1.0, None, "-", "", 1)
 
         with mock.patch.object(ps.APP.build_requests, "compile", side_effect=fake_build):
@@ -678,7 +679,7 @@ class RebuildLogDiet(Base):
         self.assertEqual(body["log"], "keep-full")
 
     def test_get_api_build_applies_same_diet_and_log1_bypasses(self):
-        def fake_build(D=None):
+        def fake_build(D=None, force=False):
             return BuildOk("font path\n" * 200, 0.01, None, 1.0, None, "-", "", 1)
 
         with mock.patch.object(ps.APP.build_requests, "compile", side_effect=fake_build):
@@ -694,7 +695,7 @@ class RebuildLogDiet(Base):
         # same axis as the live measurement (the live check) — mocking confirms the same conclusion quickly.
         big_log = "font path\n" * 300
 
-        def fake_build_before(D=None):
+        def fake_build_before(D=None, force=False):
             return BuildOk(big_log, 0.01, None, 1.0, None, "-", "", 1)
 
         with mock.patch.object(ps.APP.build_requests, "compile", side_effect=fake_build_before):
@@ -1549,7 +1550,7 @@ class MultiDoc(Base):
     def test_build_lock_is_per_doc(self):
         gate = threading.Event()
 
-        def slow_build(D=None):
+        def slow_build(D=None, force=False):
             gate.wait(5)
             return BuildAborted("crashed", "x")
 

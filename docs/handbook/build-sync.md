@@ -41,7 +41,7 @@ Limn은 원고를 PDF로 빌드해 쪽 이미지로 보여 주고, 그 위에 �
 
 | `state` | 조건 | 화면 |
 | --- | --- | --- |
-| `ok` | 새 PDF가 나왔고 LaTeX 로그에 `! ` 줄이 없다 | 새 쪽으로 교체 |
+| `ok` | 새 PDF가 나왔고 LaTeX 로그에 `! ` 줄이 없다. 또는 원고가 화면 빌드와 같아 아무것도 돌리지 않았다(`unchanged: true`, §따뜻한 LaTeX와 변경 없는 재빌드) | 새 쪽으로 교체. 변경 없음이면 그대로 |
 | `ok_errors` | 새 PDF는 나왔지만 `! ` 줄이 있다(nonstopmode의 `\undefinedmacro` 등) | 새 쪽으로 교체 + 오류 알림 |
 | `fail` | 원고 사본을 못 믿거나, 새 PDF가 없거나(PDF mtime < 시작 시각), 시간 초과, SyncTeX 파일이 없거나, 쪽을 못 그렸다 | **이전 쪽 그대로** |
 
@@ -54,6 +54,7 @@ Limn은 원고를 PDF로 빌드해 쪽 이미지로 보여 주고, 그 위에 �
 | 값 | 뜻 | `state` |
 | --- | --- | --- |
 | `BuildOk` | 새 쪽, LaTeX 오류 없음 | `ok` |
+| `BuildUnchanged` | 원고 사본이 화면 빌드와 같아 latexmk·쪽 그리기를 하지 않았다. 새 쪽도 `build_seq` 도 없다(§따뜻한 LaTeX와 변경 없는 재빌드) | `ok` |
 | `BuildOkWithErrors` | 새 쪽, `! ` 줄 있음(`errors`) | `ok_errors` |
 | `CopyFailed` | 원고 사본을 못 믿어 컴파일하지 않았다 | `fail` |
 | `BuildFailed(kind)` | 컴파일했지만 새 쪽이 없다. `kind` 는 `timeout`·`no_pdf`·`no_synctex`·`render`(pdftoppm)·`pdf_copy`(PDF 사본을 쪽 옆에 못 둠) | `fail` |
@@ -67,7 +68,7 @@ Limn은 원고를 PDF로 빌드해 쪽 이미지로 보여 주고, 그 위에 �
 
 ### 응답
 
-`POST /api/rebuild` 의 본문은 한 곳, [`builds/answer.py`](../../src/limn/builds/answer.py) 의 `finished_build_body` 가 만든다. 키 순서는 `ok`(state≠fail), `state`, `errors: [{"line", "msg"}]`, `log`, `elapsed_s` 이고, 그 뒤로 빌드가 간 데까지만 붙는다. `pull`(`--git-pull` 일 때), `src_mtime`(LaTeX 빌드가 컴파일한 원고의 mtime), `src_hash`(사본의 지문을 잰 뒤. 못 읽었으면 `null`), 새 쪽이 나왔으면 `head`·`build`(새 쪽 디렉토리 이름)·`pages`(새 쪽 수)다. 원고 사본에서 멈춘 실패에는 `src_hash` 가 없고, `BuildAborted` 는 앞의 다섯 키만 있다(`elapsed_s` 0.0). 상태 코드와 다이어트는 `rebuild_answer`(동기)와 `rebuild_started_answer`(비동기)가 정한다.
+`POST /api/rebuild` 의 본문은 한 곳, [`builds/answer.py`](../../src/limn/builds/answer.py) 의 `finished_build_body` 가 만든다. 키 순서는 `ok`(state≠fail), `state`, `errors: [{"line", "msg"}]`, `log`, `elapsed_s` 이고, 그 뒤로 빌드가 간 데까지만 붙는다. `pull`(`--git-pull` 일 때), `src_mtime`(LaTeX 빌드가 컴파일한 원고의 mtime), `src_hash`(사본의 지문을 잰 뒤. 못 읽었으면 `null`), 새 쪽이 나왔으면 `head`·`build`(새 쪽 디렉토리 이름)·`pages`(새 쪽 수)다. 변경 없는 재빌드는 `ok` 빌드와 같은 키에 `build`(화면에 남은 쪽 디렉토리)와 맨 뒤 `unchanged: true` 가 붙고, `log` 는 빈 글이다. 원고 사본에서 멈춘 실패에는 `src_hash` 가 없고, `BuildAborted` 는 앞의 다섯 키만 있다(`elapsed_s` 0.0). 상태 코드와 다이어트는 `rebuild_answer`(동기)와 `rebuild_started_answer`(비동기)가 정한다.
 
 | 필드 | 뜻 |
 | --- | --- |
@@ -88,6 +89,43 @@ Limn은 원고를 PDF로 빌드해 쪽 이미지로 보여 주고, 그 위에 �
 - 한 쪽이라도 못 그리면 빌드는 `BuildFailed("render")` 다. 로그 첫 줄의 세부가 그 쪽 번호와 `pdftoppm`(또는 `pdfinfo`)의 마지막 메시지를 알린다. 아직 시작하지 않은 쪽은 그리지 않는다.
 - 그리는 동안의 폴더는 `.pages-<build_id>.part` 다. 이 이름은 클라이언트가 보낼 수 있는 빌드 이름(`valid_build_name`)이 아니므로, 반쯤 그린 폴더를 아무도 요청할 수 없다. 쪽과 PDF·SyncTeX 사본이 모두 들어간 뒤에야 한 번의 rename으로 `pages-<build_id>` 가 된다. 실패하면 이 폴더를 지운다. 프로세스가 죽어 남은 폴더는 그 문서의 다음 렌더가 지운다.
 - 빌드 이름은 초 단위 시각이다. 같은 초에 이미 있는 폴더나 `builds.json` 이력에 남은 이름이면 `-<n>` 을 붙인다. 지워진 빌드의 이름도 다시 쓰지 않으므로, 빌드 이름이 들어간 URL은 언제나 같은 이미지를 가리킨다.
+
+## 따뜻한 LaTeX와 변경 없는 재빌드
+
+빌드 시간의 나머지 절반은 매번 처음부터 도는 LaTeX다. 그래서 사본은 latexmk의 부산물을 빌드 사이에 남기고, 원고가 화면 빌드와 같으면 아무것도 돌리지 않는다. 판단은 순수 [`builds/warm.py`](../../src/limn/builds/warm.py)가, 파일 일은 `engine.compile_tex` 가 맡는다.
+
+부산물은 언제 지워도 다음 빌드가 처음부터 다시 만드는 캐시이므로, 이 동작은 ADR 없이 이 문서에만 적는다.
+
+### 남기는 부산물
+
+- 사본은 메인 파일의 부산물과 PDF를 남긴다. 부산물은 latexmk를 돌리는 폴더의 `<main>` 에 `.aux`·`.bbl`·`.bcf`·`.blg`·`.fdb_latexmk`·`.fls`·`.idx`·`.ilg`·`.ind`·`.lof`·`.log`·`.lot`·`.nav`·`.out`·`.run.xml`·`.snm`·`.spl`·`.toc`·`.vrb` 를 붙인 이름이다(`warm.kept_paths`). 복사(`copy_manuscript`)는 이 경로를 rsync에 고정 제외로 넘기므로 지우지도 덮지도 않는다. rsync가 없을 때의 복사도 이 경로를 비워 두고 나머지만 새로 복사한다. 그래서 latexmk는 바뀐 단계만 돈다. 한 문단을 고치면 pdflatex가 한 번 돈다.
+- 원고에 커밋된 같은 이름의 PDF(`<main>.pdf`)는 사본으로 오지 않는다. 그래서 빌드가 쓴 PDF를 덮지 못한다.
+- 메인 파일 폴더에 부산물 이름의 파일이 원고로 들어 있으면(arXiv용 `main.bbl` 등) 아무것도 남기지 않는다. 그 파일은 예전처럼 사본으로 복사되어 쓰이고, 빌드는 매번 처음부터 돈다.
+- 복사는 `rsync -a --checksum --delete` 다. 사본을 빌드 사이에 남기므로 크기와 mtime(초)이 같은 편집, 곧 직전 복사와 같은 초에 한 글자를 바꾼 편집도 내용으로 가려 사본에 넣는다.
+- 강제 재빌드(`POST /api/rebuild?force=1`)는 시작 전에 부산물과 PDF·SyncTeX를 지운다. `ok` 로 끝나지 않은 빌드(`ok_errors`·`fail`)도 끝난 뒤 지운다. 다음 빌드는 처음부터 돈다. 그래서 옛 `.aux`·`.bbl` 이 실패한 빌드를 넘어 남지 않는다.
+
+latexmk가 `Latexmk: All targets (…) are up-to-date` 라고 하면 새 PDF를 쓰지 않는다. 부산물을 남긴 사본에서만 이 답을 믿는다. 그때는 사본에 남은 PDF·SyncTeX·`.aux`·`.fls` 가 이번 빌드의 것이다(dpi만 바꾼 재빌드 등). 그 밖에는 파일이 이번 실행에서 쓰였는지를 실행 전후의 (mtime_ns, 크기, inode)로 가른다. 직전 빌드의 1초 안에 실패한 빌드가 남은 PDF를 새 PDF로 내놓지 않게 하기 위해서다.
+
+### 변경 없는 재빌드
+
+재빌드(동기·비동기, 원격 main 감시와 기동 빌드 포함)는 사본을 만든 뒤 지문을 잰다. 지문은 화면 빌드의 `.fls` 가 알려 준 읽은 파일로 고른다(§원고 변화 감지). 아래가 모두 맞으면 `BuildUnchanged` 로 끝난다(`warm.keeps_pages`).
+
+- 강제 재빌드가 아니다.
+- 지문이 화면 빌드의 이력 항목 `src_hash` 와 같다.
+- 빌드 방식 `recipe`(쪽 dpi, 메인 파일 경로, latexmk 스위치)가 화면 빌드의 것과 같다.
+- 마지막으로 끝난 빌드가 `ok` 이고, 그 빌드가 화면 빌드다. `ok_errors`·`fail` 뒤에는 늘 빌드한다.
+
+변경 없는 재빌드는 latexmk와 쪽 그리기를 하지 않는다. 새 쪽 폴더, `build_seq`, 이력 항목, 이력의 `last` 를 만들지 않는다. 하는 일은 셋이다.
+
+- 화면 빌드 이력 항목의 `src_mtime` 과 `built_src_mtime.txt` 를 이번에 잰 원고 mtime으로 옮긴다. 내용이 같으므로 화면 빌드가 지금 원고를 나타낸다. mtime만 바뀐 원고의 "원고 수정됨" 배지가 이것으로 꺼진다.
+- `head.txt` 를 지금 체크아웃한 커밋으로 쓴다. 원고 밖 파일만 바꾼 커밋을 fast-forward 했을 때 원격 main 감시가 그 커밋을 반영한 것으로 본다.
+- 빌드 상태를 `state:"ok"`, `unchanged:true` 로 둔다. `phase`·`start_ts` 는 비우고, `last_s` 와 `last` 는 마지막으로 센 빌드의 값 그대로다. 다음 빌드가 시작하면 `unchanged` 는 빠진다.
+
+뷰어는 이 탭이 누른 재빌드가 같은 `build_seq` 에서 `unchanged:true` 로 끝나면 "변경 없음 — 쪽을 다시 그리지 않았습니다" 토스트 하나를 띄우고 화면은 바꾸지 않는다. 다른 탭과 에이전트의 변경 없는 재빌드는 알리지 않는다. 바뀐 것이 없기 때문이다.
+
+`recipe` 는 이력 항목의 선택 필드다. 이 필드가 없는 옛 Limn의 빌드는 맞지 않으므로 업그레이드 뒤 첫 재빌드는 늘 빌드한다. 옛 Limn은 모르는 필드를 그대로 두고 읽는다.
+
+지문에 들지 않는 파일(지문의 파일 목록은 §원고 변화 감지. `.csv`·`.dat`·`latexmkrc` 등)만 바꾸거나 TeX 배포판·글꼴을 바꾸면 변경 없음으로 끝난다. 그때는 `POST /api/rebuild?force=1` 로 처음부터 빌드한다.
 
 ## 비동기 재빌드
 
@@ -114,7 +152,7 @@ Limn은 원고를 PDF로 빌드해 쪽 이미지로 보여 주고, 그 위에 �
 
 `GET /api/build` 응답의 진행 필드는 다음과 같다.
 
-- `phase` 는 `pull`(업스트림 당겨오는 중, `--git-pull` 일 때만) → `copy`(원고 사본을 만드는 중) → `latex`(latexmk) → `render`(pdftoppm) 순서다. 퍼센트는 만들지 않는다. 알 수 없기 때문이다.
+- `phase` 는 `pull`(업스트림 당겨오는 중, `--git-pull` 일 때만) → `copy`(원고 사본을 만드는 중) → `latex`(latexmk) → `render`(pdftoppm) 순서다. 변경 없는 재빌드는 `copy` 에서 끝난다. 퍼센트는 만들지 않는다. 알 수 없기 때문이다.
 - `elapsed_s` 는 지금까지 걸린 시간, `last_s` 는 지난 빌드가 걸린 시간이다. `last_s` 는 진행 중에 참고용으로 쓴다.
 - 서버를 다시 띄워도 마지막 빌드 결과(`state`, `errors`, `log_tail`, `seq`, `head`, `pull`)는 `builds.json` 에서 되살린다. 마지막 결과의 개별 필드가 손상됐으면 쓸 수 없는 표시 값만 빈 값으로 두고, 유효한 상태와 순번은 복원한다.
 
@@ -223,8 +261,8 @@ Limn이 띄우는 git은 모두 [`src/limn/platform/git.py`](../../src/limn/plat
   - **같은 빌드 루트 안에 있는 다른 문서의 파일.** 폴더가 빌드 루트 안에 있는 그림 문서는 그 폴더 아래의 그림 확장자 파일이고, 보기 전용 PDF 문서는 그 PDF 파일 한 개다. 그 PDF를 담은 폴더는 빼지 않는다. `.tex`·`.bib`·`.sty`·`.cls`·`.bst` 는 어디에 있든 센다. 문서 폴더가 빌드 루트와 같거나, 빌드 루트를 품거나, 이 LaTeX 문서의 메인 `.tex` 를 품으면 아무것도 빼지 않는다. 다른 LaTeX 문서의 폴더도 빼지 않는다. 무엇을 뺄지는 기동 때 `--doc` 목록으로 정해 `Doc.apart` 에 둔다(`runtime/documents.py` 의 `apart_paths`). 경로는 심볼릭 링크를 푼 뒤 빌드 루트 기준 상대 조각으로 비교하므로, 같은 규칙이 `D.src`(`src_mtime`)와 빌드 사본(지문)에 똑같이 적용된다.
 
   **그 빌드가 실제로 읽은 파일은 위에서 뺐어도 센다.** 그림 세트의 파일이라도 LaTeX가 읽는 것은 다시 렌더하면 LaTeX 출력이 바뀌기 때문이다. 폴더 단위가 아니라 파일 단위로 본다.
-  - 읽은 파일은 latexmk가 사본의 실행 폴더에 남기는 `.fls`(recorder 파일)의 `INPUT` 줄이 알려 준다. 빌드는 이 `.fls` 를 쪽 폴더 `<문서 상태 폴더>/pages-<빌드>/<main>.fls` 에 `.synctex.gz`·`.aux` 와 함께 둔다. 다음 빌드의 사본 복사(`rsync --delete`)가 사본의 `.fls` 를 지우기 때문이다. 질의는 화면 빌드의 `.fls`(pick은 그 pick이 난 빌드의 것)를 읽는다. 그래서 읽은 파일을 적는 저장 필드는 `builds.json` 에도 다른 상태 파일에도 없다. 쪽 폴더의 `.fls` 는 옛 Limn 이 모르는 파일이라 되돌려도 안전하고, 쪽 폴더와 함께 지워지며, 밖으로 서빙하지 않는다.
-  - 이 실행이 쓴 `.fls` 만 읽고 둔다. 심볼릭 링크가 아닌 일반 파일이고 수정 시각이 빌드 시작 시각에서 1초를 뺀 값 이상일 때만 이 실행이 쓴 것으로 본다(PDF·SyncTeX·`.aux` 에 쓰는 신선도 조건과 같다). 원고와 함께 사본에 딸려 온 `main.fls`(recorder를 껐을 때 남는 옛 파일)는 수정 시각이 그보다 앞서므로 읽지도 두지도 않는다.
+  - 읽은 파일은 latexmk가 사본의 실행 폴더에 남기는 `.fls`(recorder 파일)의 `INPUT` 줄이 알려 준다. 빌드는 이 `.fls` 를 쪽 폴더 `<문서 상태 폴더>/pages-<빌드>/<main>.fls` 에 `.synctex.gz`·`.aux` 와 함께 둔다. 사본의 `.fls` 는 다음 빌드가 다시 쓰거나, 강제·실패 빌드가 지우기 때문이다(§따뜻한 LaTeX와 변경 없는 재빌드). 질의는 화면 빌드의 `.fls`(pick은 그 pick이 난 빌드의 것)를 읽는다. 그래서 읽은 파일을 적는 저장 필드는 `builds.json` 에도 다른 상태 파일에도 없다. 쪽 폴더의 `.fls` 는 옛 Limn 이 모르는 파일이라 되돌려도 안전하고, 쪽 폴더와 함께 지워지며, 밖으로 서빙하지 않는다.
+  - 이 실행이 쓴 `.fls` 만 읽고 둔다. 실행 전후의 (mtime_ns, 크기, inode)가 달라진 일반 파일이어야 하고, 원고와 함께 사본에 딸려 온 `main.fls`(recorder를 껐을 때 남는 옛 파일)는 읽지도 두지도 않는다. 하나의 예외는 부산물을 남긴 사본에서 latexmk가 모든 대상이 최신이라고 답한 빌드다. 그 `.fls` 는 latexmk가 앞선 실행에서 이 PDF와 함께 쓴 것이므로 그 빌드의 것으로 읽고 둔다.
   - `INPUT` 줄에서는 빌드 사본 안의 그림 확장자 파일만 고른다. 상대 경로는 latexmk를 돌린 폴더 기준으로 푼다. 읽은 이름에 NUL 바이트가 있으면 그 줄은 버린다. 파싱한 결과는 (경로, mtime_ns, 크기, 실행 폴더, 빌드 사본 폴더)를 키로 `Doc` 마다 둔 캐시에 담는다(`Doc.input_sets`, 최대 32개, 잠금으로 보호). 문서끼리, 서버끼리 이 캐시를 나누지 않는다.
   - `.fls` 는 pdflatex가 연 파일만 적는다. bibtex가 읽는 `.bib` 은 없으므로 `.bib` 은 이 규칙이 아니라 확장자로 센다.
   - `.fls` 가 없거나(이 규칙 이전의 빌드, 지워진 쪽 폴더, `.latexmkrc` 로 recorder를 끈 경우), 일반 파일이 아니거나, 8 MiB를 넘으면 읽은 파일이 없는 것으로 본다. 제외만 적용된다. 그 빌드가 읽은 그림 세트 파일의 재렌더는 다음 빌드까지 알리지 않는다(한 번의 재빌드로 사라진다).
@@ -256,7 +294,7 @@ Limn이 띄우는 git은 모두 [`src/limn/platform/git.py`](../../src/limn/plat
 
 ### 빌드 신원과 핀의 빌드
 
-- **빌드 신원.** 빌드마다 `<state_dir>/builds.json` 에 `{build, src_hash, src_mtime, finished_at, seq}` 를 남긴다. 성공한 빌드를 최근 200개까지 보관한다. `build` 는 쪽 디렉토리 이름(`pages.cur` 값)이다.
+- **빌드 신원.** 빌드마다 `<state_dir>/builds.json` 에 `{build, src_hash, src_mtime, finished_at, seq}` 를 남긴다. LaTeX 빌드에는 빌드 방식 `recipe` 가 더 붙는다(§따뜻한 LaTeX와 변경 없는 재빌드). 성공한 빌드를 최근 200개까지 보관한다. `build` 는 쪽 디렉토리 이름(`pages.cur` 값)이다.
 - **`src_hash`** 는 빌드 사본의 원고 파일을 (상대경로, 내용)으로 해시한 값이다. 파일 목록은 `src_mtime` 과 같다. 즉 `diff/`·`diff_temporary/`, 점 디렉토리, 메인 PDF, 같은 빌드 루트 안의 다른 문서의 파일을 뺀다. 그 빌드가 읽은 그림 세트 파일은 넣는다. 읽은 파일은 컴파일 뒤에야 알 수 있으므로, 빌드는 사본의 모든 파일을 컴파일 전에 해시해 두고 컴파일 뒤에 `.fls` 로 고른다(위의 훑기와 같은 훑기다). 그래서 빌드 직후의 `src_hash` 는 같은 원고를 질의 때 다시 잰 지문과 같다. mtime은 넣지 않는다. 내용이 같으면 레이아웃도 같기 때문이다.
 - **핀의 `pdf_build`.** 드래그할 때 화면에 있던 빌드 id다(pick 응답의 `pdf_build`). 핀을 만들 때와 위치를 다시 잡을 때(`loc` 에 `frac` 이 있을 때) 남긴다. 메모나 범위 텍스트 편집은 바꾸지 않는다.
 

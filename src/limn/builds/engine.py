@@ -12,10 +12,10 @@ import time
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
 
-from limn.builds import artifacts as build, png
+from limn.builds import artifacts as build, png, warm
 from limn.builds.artifacts import (
     BUILD_EXCLUDE_DIRS,
     PAGES_DIR_RE,
@@ -27,6 +27,7 @@ from limn.builds.artifacts import (
     BuildOk,
     BuildOkWithErrors,
     BuildStarted,
+    BuildUnchanged,
     CopyFailed,
     Doc,
     FinishedBuild,
@@ -95,15 +96,18 @@ def _rsync_literal(name: str) -> str:
     return re.sub(r"([*?\[\\])", r"\\\1", name)
 
 
-def copy_manuscript(src: Path, dest: Path, state: Path) -> None:
+def copy_manuscript(src: Path, dest: Path, state: Path, keep: tuple[str, ...] = ()) -> None:
     """Mirror the manuscript folder into the build folder, skipping BUILD_EXCLUDE_DIRS, *.synctex.gz and the state
     folder `state` when --state-dir puts it inside src (state_in_source).
 
     The state folder holds people.json, tokens.json (hashes), audit.jsonl and events.jsonl - not manuscript - and
     usually the build folder itself, which a copy would nest one level deeper on every build.
-    Uses rsync -a --delete when it is installed, otherwise replaces dest with a fresh tree copy.
-    Raises ManuscriptCopyError when the copy cannot be trusted: rsync exits non-zero (a partial
-    transfer exits 23 and skips --delete, leaving removed files behind), times out, or the copy hits
+    keep are paths below dest (POSIX, limn.builds.warm.kept_paths) that the copy neither deletes nor overwrites: the
+    last build's LaTeX byproducts and PDF, so latexmk runs warm, and a committed PDF of the same name never lands on the
+    build's. Uses rsync -a --checksum --delete when it is installed (keep as anchored excludes; --checksum because a
+    same-size edit within the second of the last copy passes rsync's size-and-mtime check, and the copy - now kept
+    between builds - would keep the old text), otherwise rebuilds dest as a fresh tree copy around the kept files. Raises ManuscriptCopyError when the copy cannot be trusted: rsync exits non-zero
+    (a partial transfer exits 23 and skips --delete, leaving removed files behind), times out, or the copy hits
     an OS error. The caller must not compile dest after that.
     """
     rs = shutil.which("rsync")
@@ -115,8 +119,12 @@ def copy_manuscript(src: Path, dest: Path, state: Path) -> None:
                 excl += ["--exclude", d + "/"]
             if held is not None:  # anchored at the transfer root: only that folder, never a same-named one elsewhere
                 excl += ["--exclude", "/" + "/".join(_rsync_literal(part) for part in held) + "/"]
+            for rel in keep:  # anchored too: an excluded file is neither sent nor deleted
+                excl += ["--exclude", "/" + "/".join(_rsync_literal(part) for part in rel.split("/"))]
             r = subprocess.run(
-                [rs, "-a", "--delete"] + excl + ["--exclude", "*.synctex.gz", str(src) + "/", str(dest) + "/"],
+                [rs, "-a", "--checksum", "--delete"]
+                + excl
+                + ["--exclude", "*.synctex.gz", str(src) + "/", str(dest) + "/"],
                 capture_output=True,
                 text=True,
                 errors="replace",
@@ -127,50 +135,129 @@ def copy_manuscript(src: Path, dest: Path, state: Path) -> None:
                 last = (r.stderr.strip().splitlines() or ["(no message)"])[-1]
                 raise ManuscriptCopyError("rsync exit %d: %s" % (r.returncode, last))
         else:  # must still work without rsync
-            shutil.rmtree(dest, ignore_errors=True)
-            shutil.copytree(src, dest, ignore=_copy_ignore(src, held))
+            if dest.is_dir():
+                _clear_except(dest, (), frozenset(keep))
+            shutil.copytree(src, dest, ignore=_copy_ignore(src, held, frozenset(keep)), dirs_exist_ok=True)
     except (subprocess.TimeoutExpired, OSError) as e:
         raise ManuscriptCopyError(str(e)) from e
 
 
-def _copy_ignore(src: Path, held: tuple[str, ...] | None) -> Callable[[str, list[str]], set[str]]:
-    """shutil.copytree's ignore for copy_manuscript without rsync: BUILD_EXCLUDE_DIRS and *.synctex.gz by name, and the
-    state folder `held` (its parts below src, state_in_source) at that one place. Folders are compared with symlinks
-    resolved, as held is: copytree follows a linked folder, so a link into the state folder copies nothing of it."""
+def _clear_except(folder: Path, rel: tuple[str, ...], keep: frozenset[str]) -> None:
+    """Remove everything in folder (rel: its parts below the build copy) but the kept files (keep, POSIX paths below
+    the build copy) and the folders that lead to them - the copy without rsync, before the fresh tree copy."""
+    for entry in os.scandir(folder):
+        parts = rel + (entry.name,)
+        path = "/".join(parts)
+        if entry.is_dir(follow_symlinks=False):
+            if any(k.startswith(path + "/") for k in keep):
+                _clear_except(Path(entry.path), parts, keep)
+            else:
+                shutil.rmtree(entry.path)
+        elif path not in keep or not entry.is_file(follow_symlinks=False):
+            os.unlink(entry.path)
+
+
+def _copy_ignore(
+    src: Path, held: tuple[str, ...] | None, keep: frozenset[str] = frozenset()
+) -> Callable[[str, list[str]], set[str]]:
+    """shutil.copytree's ignore for copy_manuscript without rsync: BUILD_EXCLUDE_DIRS and *.synctex.gz by name, the
+    state folder `held` (its parts below src, state_in_source) at that one place, and the kept paths (keep, POSIX
+    below src) at theirs, so a source file of a kept name is never copied over the build's. Folders are compared with
+    symlinks resolved, as held is: copytree follows a linked folder, so a link into the state folder copies nothing of
+    it."""
     by_name = shutil.ignore_patterns(*BUILD_EXCLUDE_DIRS, "*.synctex.gz")
     base = os.path.realpath(src)
 
     def ignore(folder: str, names: list[str]) -> set[str]:
         """The names of folder to skip."""
         out = set(by_name(folder, names))
+        rel = Path(os.path.relpath(os.path.realpath(folder), base)).parts
+        here = () if rel == (".",) else rel
         if held is not None:
-            rel = Path(os.path.relpath(os.path.realpath(folder), base)).parts
-            here = () if rel == (".",) else rel
             if here[: len(held)] == held:
                 return set(names)
             if here == held[:-1] and held[-1] in names:
                 out.add(held[-1])
+        out.update(n for n in names if "/".join(here + (n,)) in keep)
         return out
 
     return ignore
 
 
-def compile_tex(D: BuildDoc, cfg: BuildConfig, pull: Callable[[], Json] | None) -> FinishedBuild:
+LATEXMK_ARGS = ("-pdf", "-synctex=1", "-interaction=nonstopmode")  # latexmk's switches; part of every build's recipe
+
+
+def compile_tex(D: BuildDoc, cfg: BuildConfig, pull: Callable[[], Json] | None, force: bool = False) -> FinishedBuild:
     """Builds D with -synctex=1 from a copy, leaving the original untouched, then renders pages into a new directory and only swaps the pointer.
 
     pull is the --git-pull step (None when the flag is off); its record is the outcome's pull. Outcomes: CopyFailed
     (the copy could not be trusted, nothing compiled), BuildFailed (no new PDF, a timeout, no SyncTeX, or the pages
     could not be rendered - the screen keeps the old PDF), BuildOkWithErrors (a new PDF with LaTeX errors, '! '
-    lines) and BuildOk (no errors). Each carries what the build got as far as: the pull, the manuscript mtime it
-    compiled, the copy's fingerprint, latexmk's last lines, and for a success the new page directory.
+    lines), BuildOk (no errors) and BuildUnchanged (the copy is the manuscript of the ok build on screen: nothing ran).
+    Each carries what the build got as far as: the pull, the manuscript mtime it compiled, the copy's fingerprint,
+    latexmk's last lines, and for a success the new page directory.
+
+    The copy keeps the main file's LaTeX byproducts from the last build (limn.builds.warm), so latexmk runs only what
+    changed. force (POST /api/rebuild?force=1) clears them first and never skips. Every outcome but BuildOk and
+    BuildUnchanged clears them afterwards, so the next build is cold (docs/handbook/build-sync.md §따뜻한 LaTeX와 변경
+    없는 재빌드).
 
     The files another document owns (D.apart) are left out of the manuscript mtime and the fingerprint unless the build
-    read them. Which it read is only known once latexmk has run, from the .fls this run wrote in the copy: the copy is
-    scanned once before latexmk (digest and mtime of every file), and afterwards the fingerprint is chosen from that scan
-    and the baseline mtime takes in the newest file the build read - the mtime as that scan saw it, and only for a file
-    that was in it, so neither a file latexmk made nor one it touched can move the baseline past an edit made during the
-    run. The scan hashes the copy but takes each mtime from the same file of D.src (when it is the file that was
-    copied), because a copy tool may keep only whole seconds and the baseline must not fall below the source's mtime. The .fls is published with the pages (next to the .synctex.gz and .aux), where the later queries find it."""
+    read them. Which it read is only known once latexmk has run, from the .fls this run wrote in the copy (or, when a
+    warm latexmk found everything up to date, the one it vouched for): the copy is scanned once before latexmk (digest
+    and mtime of every file), and afterwards the fingerprint is chosen from that scan and the baseline mtime takes in
+    the newest file the build read - the mtime as that scan saw it, and only for a file that was in it, so neither a
+    file latexmk made nor one it touched can move the baseline past an edit made during the run. The .fls is published
+    with the pages (next to the .synctex.gz and .aux), where the later queries find it. The scan hashes the copy but
+    takes each mtime from the same file of D.src (when it is the file that was copied), because a copy tool may keep
+    only whole seconds and the baseline must not fall below the source's mtime."""
+    if force:
+        clear_byproducts(D)
+    res = _compile(D, cfg, pull, force)
+    if not isinstance(res, BuildOk | BuildUnchanged):
+        clear_byproducts(D)
+    return res
+
+
+def clear_byproducts(D: BuildDoc) -> None:
+    """Remove the main file's LaTeX byproducts and outputs from the folder latexmk runs in (warm.byproduct_names), so
+    the next latexmk starts cold. What cannot be removed is left; the next copy or latexmk run decides then."""
+    for name in warm.byproduct_names(D.main.stem):
+        with contextlib.suppress(OSError):
+            (D.out / name).unlink()
+
+
+def _kept(D: BuildDoc) -> tuple[str, ...]:
+    """The build-copy paths of D's byproducts that its copy keeps (warm.kept_paths), against the files the manuscript
+    holds where the main file is; none (a cold build) when that folder cannot be listed or lies outside the copy."""
+    try:
+        out_rel = D.out.relative_to(D.build)
+        names = os.listdir(D.src / out_rel)
+    except (ValueError, OSError):
+        return ()
+    return warm.kept_paths(PurePosixPath(out_rel.as_posix()), D.main.stem, names)
+
+
+def _published_head(D: BuildDoc) -> str:
+    """The short commit D's manuscript has checked out now, or '-' outside git."""
+    try:
+        head = run_git(["-C", str(D.src), "rev-parse", "--short", "HEAD"], D.src, 10)
+        return head.stdout.strip() or "-"
+    except (OSError, subprocess.SubprocessError):
+        return "-"
+
+
+def _signature(f: Path) -> tuple[int, int, int] | None:
+    """(mtime_ns, size, inode) of f when it is a plain file (not a symlink), else None."""
+    try:
+        st = os.lstat(f)
+    except OSError:
+        return None
+    return (st.st_mtime_ns, st.st_size, st.st_ino) if stat.S_ISREG(st.st_mode) else None
+
+
+def _compile(D: BuildDoc, cfg: BuildConfig, pull: Callable[[], Json] | None, force: bool) -> FinishedBuild:
+    """compile_tex's build itself: pull, copy, the no-change skip, latexmk and the render (compile_tex)."""
     t0 = time.time()
     D.build.mkdir(parents=True, exist_ok=True)
     pulled: Json | None = None
@@ -187,8 +274,9 @@ def compile_tex(D: BuildDoc, cfg: BuildConfig, pull: Callable[[], Json] | None) 
     # badge on even right after a success.
     compiled_at = build.src_mtime(D, cfg.state, force=True)
 
+    keep = _kept(D)
     try:
-        copy_manuscript(D.src, D.build, cfg.state)
+        copy_manuscript(D.src, D.build, cfg.state, keep)
     except ManuscriptCopyError as e:
         return CopyFailed(str(e), round(time.time() - t0, 1), pulled, compiled_at)
     # The scan is taken from the copy - these are exactly the files this build actually compiles (the original can still
@@ -199,33 +287,61 @@ def compile_tex(D: BuildDoc, cfg: BuildConfig, pull: Callable[[], Json] | None) 
         scan = build.scan_sources(D, D.build, cfg.state, keep_apart=True, mtimes_from=D.src)
     except OSError:
         scan = None
+    build_recipe = warm.recipe(cfg.dpi, PurePosixPath(D.main_rel.as_posix()), LATEXMK_ARGS)
 
-    build.state_update(D, phase="latex")
-    # A single document runs in the build root as before; a --doc document runs in the folder holding its main .tex (Doc.out).
-    _rc, out, timed_out = run_logged(
-        ["latexmk", "-pdf", "-synctex=1", "-interaction=nonstopmode", D.main.name], D.out, cfg.timeout
-    )
-    with contextlib.suppress(OSError):
-        atomic_write(D.dir / "build.log", out)
-    tail = "\n".join(out.splitlines()[-40:])[-4000:]
+    # The no-change skip: the copy read as the build on screen read its manuscript (that build's .fls) has that build's
+    # fingerprint, and the recipe and an ok last build agree - its pages are what this build would make.
+    cur = build.cur_pages(D)
+    if not force and scan is not None:
+        cur_reads = build.read_in_scan(scan, build.build_inputs(D, cur.name))
+        seen = build.fingerprint_of(build.without_apart(D, scan, cur_reads))
+        pages = len(list(cur.glob("page-*.png"))) if cur.is_dir() else 0
+        if pages and warm.keeps_pages(build.load_builds(D), cur.name, seen, build_recipe):
+            compiled_at = max(compiled_at, build.newest_read_apart(D, scan, cur_reads))
+            head = _published_head(D)
+            atomic_write(D.dir / "head.txt", head)
+            return BuildUnchanged(round(time.time() - t0, 1), pulled, compiled_at, seen, head, cur.name, pages)
 
     pdf = D.out / (D.main.stem + ".pdf")
     syn = D.out / (D.main.stem + ".synctex.gz")
     texlog = D.out / (D.main.stem + ".log")
+    aux = D.out / (D.main.stem + ".aux")
+    fls = D.out / (D.main.stem + ".fls")
+    # What the outputs were before latexmk: the copy can hold the last build's (warm), so "written by this run" is a
+    # changed file, not a recent mtime - a build that fails a second after the last one must not pass its PDF off.
+    before = {f: _signature(f) for f in (pdf, syn, texlog, aux, fls)}
+
+    build.state_update(D, phase="latex")
+    # A single document runs in the build root as before; a --doc document runs in the folder holding its main .tex (Doc.out).
+    rc, out, timed_out = run_logged(["latexmk", *LATEXMK_ARGS, D.main.name], D.out, cfg.timeout)
+    with contextlib.suppress(OSError):
+        atomic_write(D.dir / "build.log", out)
+    tail = "\n".join(out.splitlines()[-40:])[-4000:]
+
+    def written(f: Path) -> bool:
+        """f is a plain file this latexmk run wrote (it is new or changed since before the run)."""
+        now = _signature(f)
+        return now is not None and now != before[f]
+
     try:
-        logtxt = (
-            texlog.read_text(encoding="utf-8", errors="replace")
-            if texlog.exists() and texlog.stat().st_mtime >= t0 - 1
-            else out
-        )
+        logtxt = texlog.read_text(encoding="utf-8", errors="replace") if written(texlog) else out
     except OSError:
         logtxt = out
     errors = latex_errors(logtxt)
 
+    # A warm copy that latexmk found up to date wrote nothing new: its PDF, SyncTeX, .aux and .fls are the last run's,
+    # which matched the manuscript then and still do. Only a warm copy is trusted so: a cold one has no fdb of its own.
+    settled = bool(keep) and rc == 0 and not timed_out and warm.up_to_date(out)
+
+    def current(f: Path) -> bool:
+        """f is a plain file this run wrote, or one that latexmk vouched for (settled)."""
+        return written(f) or (settled and _signature(f) is not None)
+
     # What this run read: the figure-set files of another document that the manuscript uses count as part of it. Only a
-    # recorder file this run wrote says so (a main.fls shipped with the manuscript is the copy's, not latexmk's), and only
-    # the files the scan before latexmk had. A damaged recorder file must not fail a build that made its pages.
-    recorder = _fresh_recorder(D.out / (D.main.stem + ".fls"), t0)
+    # recorder file this run wrote (or a warm latexmk vouched for) says so - a main.fls shipped with the manuscript is the
+    # copy's, not latexmk's - and only the files the scan before latexmk had. A damaged recorder file must not fail a
+    # build that made its pages.
+    recorder: Path | None = fls if current(fls) else None
     reads: frozenset[str] = frozenset()
     if scan is not None and recorder is not None and not D.apart.empty:
         try:
@@ -241,15 +357,13 @@ def compile_tex(D: BuildDoc, cfg: BuildConfig, pull: Callable[[], Json] | None) 
         """This build's failure of `kind`, with latexmk's last lines and what it compiled."""
         return BuildFailed(kind, detail, tail, errors, round(time.time() - t0, 1), pulled, compiled_at, src_hash)
 
-    fresh = (not timed_out) and pdf.exists() and pdf.stat().st_mtime >= t0 - 1
-    if not fresh:
+    if timed_out or not current(pdf):
         return failed("timeout" if timed_out else "no_pdf")
-    if not syn.exists() or syn.stat().st_mtime < t0 - 1:
+    if not current(syn):
         return failed("no_synctex")
 
     extra = [syn]
-    aux = D.out / (D.main.stem + ".aux")
-    if aux.is_file() and aux.stat().st_mtime >= t0 - 1:
+    if current(aux):
         extra.append(aux)
     if recorder is not None:
         extra.append(recorder)  # what this build read, kept with its pages (build.build_inputs reads it back)
@@ -261,19 +375,10 @@ def compile_tex(D: BuildDoc, cfg: BuildConfig, pull: Callable[[], Json] | None) 
     pages = len(list(newdir.glob("page-*.png")))
     elapsed_s = round(time.time() - t0, 1)
     if errors:
-        return BuildOkWithErrors(errors, tail, elapsed_s, pulled, compiled_at, src_hash, head_short, newdir.name, pages)
-    return BuildOk(tail, elapsed_s, pulled, compiled_at, src_hash, head_short, newdir.name, pages)
-
-
-def _fresh_recorder(path: Path, started: float) -> Path | None:
-    """The latexmk recorder file `path` when this run wrote it: a plain file (not a symlink) modified since the build
-    started (`started`, with the one second of slack the PDF and SyncTeX checks use). None otherwise - none was written
-    (the recorder is off) or what stands there came with the manuscript copy."""
-    try:
-        st = os.lstat(path)
-    except OSError:
-        return None
-    return path if stat.S_ISREG(st.st_mode) and st.st_mtime >= started - 1 else None
+        return BuildOkWithErrors(
+            errors, tail, elapsed_s, pulled, compiled_at, src_hash, head_short, newdir.name, pages, build_recipe
+        )
+    return BuildOk(tail, elapsed_s, pulled, compiled_at, src_hash, head_short, newdir.name, pages, build_recipe)
 
 
 RENDER_WORKERS_MAX = 8  # pdftoppm processes one render runs at once, at most
@@ -429,11 +534,7 @@ def commit_pages(D: BuildDoc, newdir: Path, on_swap: Callable[[], None] | None =
         if d.is_dir() and PAGES_DIR_RE.fullmatch(d.name) and d.name not in (newdir.name, prev):
             shutil.rmtree(d, ignore_errors=True)
     atomic_write(D.dir / "built_at.txt", datetime.now().astimezone().isoformat(timespec="seconds"))
-    try:
-        head = run_git(["-C", str(D.src), "rev-parse", "--short", "HEAD"], D.src, 10)
-        head_short = head.stdout.strip() or "-"
-    except (OSError, subprocess.SubprocessError):
-        head_short = "-"
+    head_short = _published_head(D)
     atomic_write(D.dir / "head.txt", head_short)
     return head_short
 

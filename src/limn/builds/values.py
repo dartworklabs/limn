@@ -47,7 +47,8 @@ class BuildOk:
     log is latexmk's last lines ("" for a view-only render); pull is the --git-pull record (None: no pull ran, no key);
     src_mtime the manuscript mtime it compiled (None for a view-only document, no key); src_hash the fingerprint of
     what it compiled (None when it could not be read); head the short commit, build the new page directory's name,
-    pages how many page images it holds."""
+    pages how many page images it holds; recipe how a LaTeX build made its pages (limn.builds.warm.recipe: dpi, main
+    file, latexmk switches), kept in the history for the no-change skip (None for a render without LaTeX)."""
 
     log: str
     elapsed_s: float
@@ -57,6 +58,7 @@ class BuildOk:
     head: str
     build: str
     pages: int
+    recipe: str | None = None
 
 
 @dataclass(frozen=True)
@@ -70,6 +72,24 @@ class BuildOkWithErrors:
     pull: Json | None
     src_mtime: float
     src_hash: str | None
+    head: str
+    build: str
+    pages: int
+    recipe: str | None = None
+
+
+@dataclass(frozen=True)
+class BuildUnchanged:
+    """A LaTeX rebuild whose manuscript copy has the fingerprint and recipe of the build on screen, after an ok build:
+    it ran neither latexmk nor a render, made no page directory and is not counted (no new seq). Its state is "ok".
+    pull and src_mtime as in BuildOk (src_mtime becomes the kept build's baseline); src_hash the fingerprint the copy
+    and the kept build share; head the commit now checked out; build the page directory kept on screen; pages its
+    page images."""
+
+    elapsed_s: float
+    pull: Json | None
+    src_mtime: float
+    src_hash: str
     head: str
     build: str
     pages: int
@@ -116,7 +136,7 @@ class BuildAborted:
 
 
 FailedBuild: TypeAlias = CopyFailed | BuildFailed | BuildAborted
-FinishedBuild: TypeAlias = BuildOk | BuildOkWithErrors | FailedBuild
+FinishedBuild: TypeAlias = BuildOk | BuildOkWithErrors | BuildUnchanged | FailedBuild
 # The text of a failed build's log (limn.web.errors.build_failure_log), passed in by the composition root.
 Describe: TypeAlias = Callable[[FailedBuild], str]
 

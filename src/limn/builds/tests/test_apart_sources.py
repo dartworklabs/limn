@@ -28,6 +28,7 @@ from limn.builds.artifacts import (
     NO_INPUTS,
     BuildFailed,
     BuildOk,
+    BuildUnchanged,
     fls_inputs,
 )
 from limn.runtime.documents import INPUT_CACHE_MAX, NO_APART, ApartPaths, Doc, InputSetCache, RunPaths
@@ -735,12 +736,19 @@ class Compile(Tree):
         self.cfg = build.BuildConfig(state=self.state, dpi=72, timeout=10)
 
     def tracked(
-        self, inputs: str = "", latexmk: str = "ok", recorder: str = "on", edit: Path | None = None, generate: str = ""
+        self,
+        inputs: str = "",
+        latexmk: str = "ok",
+        recorder: str = "on",
+        edit: Path | None = None,
+        generate: str = "",
+        force: bool = True,
     ):
         """One tracked build of the document with the fake latexmk writing a recorder file that lists `inputs` (INPUT
         lines, printf %b escapes allowed). While it runs it appends a line to the file `edit` (a source edit made
         mid-build) and creates the file `generate` in the build copy (something latexmk itself makes, such as an
-        epstopdf conversion)."""
+        epstopdf conversion). Forced by default: the fake changes what latexmk reads without changing the .tex, which a
+        real manuscript cannot, so an unforced rebuild would rightly keep the build on screen (BuildUnchanged)."""
         env = dict(
             self.env,
             LIMN_TEST_LATEXMK=latexmk,
@@ -751,7 +759,11 @@ class Compile(Tree):
         )
         with mock.patch.dict(os.environ, env):
             return build_run.run_tracked(
-                self.D, self.state, lambda: build_engine.compile_tex(self.D, self.cfg, None), "t0", build_failure_log
+                self.D,
+                self.state,
+                lambda: build_engine.compile_tex(self.D, self.cfg, None, force=force),
+                "t0",
+                build_failure_log,
             )
 
     def test_the_recorder_file_is_kept_with_the_pages_of_the_build(self):
@@ -787,6 +799,7 @@ class Compile(Tree):
         """figs/a.pdf is not in the recorder file: its new bytes do not change the build's fingerprint. A file it reads does."""
         first = self.tracked("INPUT ./figs/c.svg\n")
         (self.src / "figs" / "a.pdf").write_text("a new rendering", encoding="utf-8")
+        self.assertIsInstance(self.tracked("INPUT ./figs/c.svg\n", force=False), BuildUnchanged)
         same = self.tracked("INPUT ./figs/c.svg\n")
         (self.src / "figs" / "c.svg").write_text("a new rendering", encoding="utf-8")
         moved = self.tracked("INPUT ./figs/c.svg\n")
@@ -899,9 +912,10 @@ class Compile(Tree):
         `after_copy` (when given) once the copy is made. A context manager."""
         real = build_engine.copy_manuscript
 
-        def copy(src: Path, dest: Path, state: Path) -> None:
-            """The real copy, then every file of the copy truncated to a whole second."""
-            real(src, dest, state)
+        def copy(src: Path, dest: Path, state: Path, keep: tuple[str, ...] = ()) -> None:
+            """The real copy (keeping the warm byproducts it is told to), then every file of the copy truncated to a whole
+            second."""
+            real(src, dest, state, keep)
             for p in dest.rglob("*"):
                 if p.is_file() and not p.is_symlink():
                     whole = int(p.stat().st_mtime)

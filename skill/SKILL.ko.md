@@ -201,7 +201,7 @@ JSON 키·쿼리 매개변수·단일값 보안 헤더는 각각 한 번만 보�
 | `POST /api/pins/{id}/reopen` | 다시 연다(옛 `reply`·`ref`·`changes` 삭제). 선택 `{"reason"}` 은 스레드에 남는다 |
 | `POST /api/pins/{id}/edit` | 메모·범위 수정(`base_rev` 필수) 또는 `note_append` |
 | `POST /api/pins/{id}/drop` | 핀을 휴지통으로 뺀다. 30일 동안 `/restore` 로 되살린다(영구 삭제 `/purge` 는 소유자만) |
-| `POST /api/rebuild?async=1` | LaTeX 문서의 PDF 재빌드(`kind: "tex"` 만. 그림·보기 전용 문서는 `400`). 진행은 `GET /api/build`. 여러 문서면 둘 다 `&doc=<키>` |
+| `POST /api/rebuild?async=1` | LaTeX 문서의 PDF 재빌드(`kind: "tex"` 만. 그림·보기 전용 문서는 `400`). 진행은 `GET /api/build`. 여러 문서면 둘 다 `&doc=<키>`. 원고가 화면 빌드와 같으면 바로 `ok` 와 `unchanged: true` 로 끝난다. 처음부터 다시 빌드하려면 `&force=1` 을 붙인다(지문에 들지 않는 데이터 파일을 바꿨거나 TeX 설치를 바꿨을 때) |
 | `GET /api/docs` | 문서 목록(키·이름·종류 `tex`/`pdf`/`figure`·열린 핀 수·빌드 상태) |
 | `GET /api/meta?light=1` | 쓰기 없는 상태 조회(`stale_build` 등). `&ev=<seq>` 면 나에게 온 이벤트(브라우저 알림용) |
 

@@ -8,6 +8,7 @@ from limn.builds.values import (
     BuildFailed,
     BuildOk,
     BuildOkWithErrors,
+    BuildUnchanged,
     CopyFailed,
     FinishedBuild,
     FinishedState,
@@ -89,23 +90,52 @@ def project_completion(
             "src_hash": new_pages.src_hash,
             "finished_at": finished_at,
         }
+        if new_pages.recipe is not None:
+            entry["recipe"] = new_pages.recipe
     return BuildCompletion(last, entry, 0 if new_pages is None else new_pages.pages, log)
+
+
+def kept_publication(res: BuildUnchanged, finished_at: str, built_at: str | None) -> Json:
+    """The build state an unchanged rebuild leaves (limn.builds.values.BuildUnchanged): finished ok, with unchanged
+    true, its elapsed time, pull, head and the kept build's page count. seq, last_s and last stay as the last counted
+    build left them - nothing was built, so the viewer swaps nothing and the next build's estimate keeps its basis."""
+    return {
+        "state": "ok",
+        "phase": None,
+        "start_ts": None,
+        "finished_at": finished_at,
+        "elapsed_s": res.elapsed_s,
+        "pages": res.pages,
+        "errors": [],
+        "head": res.head,
+        "pull": res.pull,
+        "log_tail": "",
+        "built_at": built_at,
+        "unchanged": True,
+    }
 
 
 def compiled_mtime(res: FinishedBuild) -> float | None:
     """The mtime of the manuscript the build compiled (measured after the pull, before the copy), or None when the
     build never measured it (a view-only render, or a build that stopped first)."""
     match res:
-        case BuildOk(src_mtime=m) | BuildOkWithErrors(src_mtime=m) | CopyFailed(src_mtime=m) | BuildFailed(src_mtime=m):
+        case (
+            BuildOk(src_mtime=m)
+            | BuildOkWithErrors(src_mtime=m)
+            | BuildUnchanged(src_mtime=m)
+            | CopyFailed(src_mtime=m)
+            | BuildFailed(src_mtime=m)
+        ):
             return m
         case BuildAborted():
             return None
 
 
 def finished_state(res: FinishedBuild) -> FinishedState:
-    """The build state name of a finished build: ok, ok_errors (new pages, LaTeX errors) or fail."""
+    """The build state name of a finished build: ok (an unchanged rebuild too), ok_errors (new pages, LaTeX errors) or
+    fail."""
     match res:
-        case BuildOk():
+        case BuildOk() | BuildUnchanged():
             return "ok"
         case BuildOkWithErrors():
             return "ok_errors"
@@ -118,14 +148,20 @@ def build_errors(res: FinishedBuild) -> list[LatexError]:
     match res:
         case BuildOkWithErrors(errors=errors) | BuildFailed(errors=errors):
             return errors
-        case BuildOk() | CopyFailed() | BuildAborted():
+        case BuildOk() | BuildUnchanged() | CopyFailed() | BuildAborted():
             return []
 
 
 def build_elapsed(res: FinishedBuild) -> float:
     """How long the build took in seconds (rounded to 0.1); 0.0 for a build that stopped before measuring."""
     match res:
-        case BuildOk(elapsed_s=s) | BuildOkWithErrors(elapsed_s=s) | CopyFailed(elapsed_s=s) | BuildFailed(elapsed_s=s):
+        case (
+            BuildOk(elapsed_s=s)
+            | BuildOkWithErrors(elapsed_s=s)
+            | BuildUnchanged(elapsed_s=s)
+            | CopyFailed(elapsed_s=s)
+            | BuildFailed(elapsed_s=s)
+        ):
             return s
         case BuildAborted():
             return 0.0
@@ -134,7 +170,13 @@ def build_elapsed(res: FinishedBuild) -> float:
 def build_pull(res: FinishedBuild) -> Json | None:
     """The --git-pull record of the build, or None when no pull ran."""
     match res:
-        case BuildOk(pull=p) | BuildOkWithErrors(pull=p) | CopyFailed(pull=p) | BuildFailed(pull=p):
+        case (
+            BuildOk(pull=p)
+            | BuildOkWithErrors(pull=p)
+            | BuildUnchanged(pull=p)
+            | CopyFailed(pull=p)
+            | BuildFailed(pull=p)
+        ):
             return p
         case BuildAborted():
             return None

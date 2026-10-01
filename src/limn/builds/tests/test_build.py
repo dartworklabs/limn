@@ -1225,7 +1225,7 @@ class AsyncBuild(Base):
         """The first background build reports running; a second request is busy until its worker releases the lock."""
         ev = threading.Event()
 
-        def fake_build(D=None):
+        def fake_build(D=None, force=False):
             """Hold the worker until the test has observed its running state and busy response."""
             ev.wait(5)
             return ok_build(elapsed_s=0.01)
@@ -1248,7 +1248,7 @@ class AsyncBuild(Base):
         """The tracked build publishes its copy phase before invoking the compiler and clears it afterward."""
         seen = []
 
-        def fake_build(D=None):
+        def fake_build(D=None, force=False):
             """Record the state visible inside the build step, then return a successful result."""
             seen.append(limn_build.state_snapshot(ps.APP.docs[0])["phase"])
             return ok_build()
@@ -1261,7 +1261,7 @@ class AsyncBuild(Base):
     def test_ok_errors_state_surfaces_in_build_state(self):
         """A build with LaTeX errors publishes ok_errors and keeps the error's source line."""
 
-        def fake_build(D=None):
+        def fake_build(D=None, force=False):
             """Return a committed build carrying one LaTeX diagnostic."""
             return BuildOkWithErrors(
                 [{"line": 412, "msg": "Undefined control sequence"}], "boom", 1.2, None, 1.0, None, "-", "", 3
@@ -1276,7 +1276,7 @@ class AsyncBuild(Base):
     def test_ok_errors_commits_built_src_mtime(self):
         """Published pages with LaTeX diagnostics still commit the manuscript mtime baseline."""
 
-        def fake_build(D=None):
+        def fake_build(D=None, force=False):
             """Return an ok_errors result whose pages were published despite a diagnostic."""
             return BuildOkWithErrors([{"line": 1, "msg": "x"}], "", 0.0, None, 1.0, None, "-", "", 1)
 
@@ -1291,7 +1291,7 @@ class AsyncBuild(Base):
         # committed on ok|ok_errors.
         self.assertIsNone(limn_build.read_built_src_mtime(ps.APP.docs[0]))
 
-        def fake_build_fail(D=None):
+        def fake_build_fail(D=None, force=False):
             """Fail before publishing pages or a manuscript mtime baseline."""
             return BuildAborted("crashed", "boom")
 
@@ -1300,7 +1300,7 @@ class AsyncBuild(Base):
         self.assertIsNone(limn_build.read_built_src_mtime(ps.APP.docs[0]))  # still None because it failed
         self.assertEqual(limn_build.state_snapshot(ps.APP.docs[0])["state"], "fail")
 
-        def fake_build_ok(D=None):
+        def fake_build_ok(D=None, force=False):
             """Publish a successful build to establish a baseline for the later failure."""
             return ok_build(elapsed_s=0.1)
 

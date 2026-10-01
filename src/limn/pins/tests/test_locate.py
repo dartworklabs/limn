@@ -20,7 +20,7 @@ from unittest import mock
 
 from limn.builds import artifacts as limn_build, run as build_run
 from limn.builds.answer import build_failure_log
-from limn.builds.artifacts import BuildFailed, BuildOk, BuildOkWithErrors
+from limn.builds.artifacts import BuildFailed, BuildOk, BuildOkWithErrors, BuildUnchanged
 from limn.pins.location import (
     input as location_input,
     lookup as locate,
@@ -544,8 +544,11 @@ class Estimate(Base):
         b1 = limn_build.cur_pages(ps.APP.docs[0]).name
         pid = self.add()
         self.assertEqual(self.pin(pid)["pdf_build"], b1)
-        # a rebuild within the same second still gets a page directory of its own (test_build.Outcomes)
-        self.assertEqual(type(ps.APP.build_requests.build_all(ps.APP.docs[0])), BuildOk)
+        # an unchanged rebuild keeps build 1 on screen; a forced one within the same second still gets a page
+        # directory of its own (test_build.Outcomes) with the same fingerprint
+        self.assertEqual(type(ps.APP.build_requests.build_all(ps.APP.docs[0])), BuildUnchanged)
+        self.assertEqual(limn_build.cur_pages(ps.APP.docs[0]).name, b1)
+        self.assertEqual(type(ps.APP.build_requests.build_all(ps.APP.docs[0], force=True)), BuildOk)
         self.assertNotEqual(limn_build.cur_pages(ps.APP.docs[0]).name, b1)
         self.assertIs(self.est_of(pid), False)
         self.main.write_text(

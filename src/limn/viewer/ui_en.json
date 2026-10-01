@@ -1113,5 +1113,6 @@
  "점선 상자('새 핀')가 남습니다.": "A dashed box ('New pin') is left.",
  ". 알림의 [되돌리기]로 바로 취소할 수 있습니다.": ". You can cancel right away with [Undo] in the notification.",
  "(⌘ Enter / Ctrl+Enter). 알림의 [되돌리기]로 바로 취소할 수 있습니다.": " (⌘ Enter / Ctrl+Enter). You can cancel right away with [Undo] in the notification.",
- "PDF를 길게 누르거나 [선택]을 켜고 끌어서 고릅니다.": "Long-press the PDF, or turn on [Select] and drag to pick the spot."
+ "PDF를 길게 누르거나 [선택]을 켜고 끌어서 고릅니다.": "Long-press the PDF, or turn on [Select] and drag to pick the spot.",
+ "변경 없음 — 쪽을 다시 그리지 않았습니다": "No change — the pages were not redrawn"
 }

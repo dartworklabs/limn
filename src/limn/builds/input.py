@@ -22,12 +22,13 @@ def parse_build_name(q: Query) -> str:
 
 
 class RebuildQuery(NamedTuple):
-    """POST /api/rebuild switches: full response log and background execution."""
+    """POST /api/rebuild switches: full response log, background execution, and a forced cold build (no skip)."""
 
     full_log: bool
     background: bool
+    force: bool = False
 
 
 def parse_rebuild_query(q: Query) -> RebuildQuery:
-    """Parse ?log=1 and ?async=1 with the shared exact-value switch rule."""
-    return RebuildQuery(parse_flag(q, "log"), parse_flag(q, "async"))
+    """Parse ?log=1, ?async=1 and ?force=1 with the shared exact-value switch rule."""
+    return RebuildQuery(parse_flag(q, "log"), parse_flag(q, "async"), parse_flag(q, "force"))

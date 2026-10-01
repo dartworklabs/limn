@@ -13,7 +13,7 @@ import unittest
 from pathlib import Path
 
 from limn.builds import artifacts as limn_build
-from limn.builds.artifacts import BuildOk
+from limn.builds.artifacts import BuildOk, BuildUnchanged
 from limn.builds.queries import BuildQueries
 from limn.documents import reads as meta
 from limn.security.access import LOCAL_ACTOR
@@ -322,7 +322,7 @@ class FigureSetBuiltWithRealLatexmk(Fixture):
         res = ps.APP.build_requests.build_all(self.ms)
         self.assertIsInstance(res, BuildOk, getattr(res, "log", res))
         pid = self.add()
-        res2 = ps.APP.build_requests.build_all(self.ms)
+        res2 = ps.APP.build_requests.build_all(self.ms, force=True)  # forced: an unforced one keeps build 1 (unchanged)
         self.assertIsInstance(res2, BuildOk)
         self.assertIs(self.est_of(pid), False)
 
@@ -334,7 +334,8 @@ class FigureSetBuiltWithRealLatexmk(Fixture):
         self.assertIsInstance(res, BuildOk, getattr(res, "log", res))
         pid = self.add()
         rewrite_ahead(self.src / "figs" / "figures.pdf", minimal_pdf("fig v2"))
-        res2 = ps.APP.build_requests.build_all(self.ms)
+        self.assertIsInstance(ps.APP.build_requests.build_all(self.ms), BuildUnchanged)  # figures.pdf is not its source
+        res2 = ps.APP.build_requests.build_all(self.ms, force=True)
         self.assertIsInstance(res2, BuildOk)
         self.assertIs(self.est_of(pid), False)
 

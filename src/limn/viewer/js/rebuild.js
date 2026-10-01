@@ -27,7 +27,9 @@ function showBuildErr(r){BUILD.error=r; if(DOC)BUILD_ERR_BY.set(DOC,r); const b=
 function hideBuildErr(){$('#build-err').hidden=true; $('#build-err-chip').hidden=!BUILD.error;}
 // docs/handbook/build-sync.md §비동기 재빌드: rebuild is async - the POST returns immediately, and the #build-chip poller (startBuildPolling) shows
 // progress, then does the in-place swap and notification once it finishes. A build started by someone else is caught by the same poller.
-// Its completion may update controls or start polling only while the initiating document visit remains active.
+// Its completion may update controls or start polling only while the initiating document visit remains active. BUILD.asked
+// marks that this tab asked, so an unchanged rebuild (no new seq) still gets its toast; it is set only after any older
+// in-flight poll settled, since that one may carry the previous rebuild's unchanged mark.
 async function rebuild(){
   const k=DOC,visit=SWITCHSEQ;
   try{const {status}=await api(dq('/api/rebuild?async=1'),{method:'POST',what:'PDF 재빌드',expect:[409]});
@@ -38,5 +40,5 @@ async function rebuild(){
     // carries a stale state (ok) and would never turn on 1-second polling. Completion is distinguished by build_seq, so this tab has nothing separate to remember.
     if(BUILD.inflight){try{await BUILD.inflight;}catch(e){}}
     if(k!==DOC||visit!==SWITCHSEQ)return;
-    await pollBuild();
+    BUILD.asked=true; await pollBuild();
   }catch(e){}}
