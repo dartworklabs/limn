@@ -31,7 +31,8 @@ function settleBand(C,N,typing){if(!C||(!C.coarse&&!N.coarse))return BAND_STEP.S
 // narrow starts collapsed - except between the phone and the tablet sheet, both sheets, which keep it as it was. An open draft
 // keeps it open. The status line moves to the band's place (placeStatus); the phone's navigation sheet closes when the band
 // is no longer the phone (the nav bar does its job there); an open [더보기] stays open and redraws its sheet-height or panel-width
-// row. Returns whether the band or its overlay changed.
+// row; the changes view's guide-line buttons move to the thumb row or back (revTargetActs). Returns whether the band or its
+// overlay changed.
 function applyLayout(){if(!BAND_IN)BAND_IN=bandInput(); const o=BAND_IN,band=layoutFor(o.w,o.h,o.coarse),L=BAND_MODE[band],overlay=L===LAYOUT_MODE.MID&&o.w<=900;
   if(band===BAND&&overlay===MID_OVERLAY)return false;
   const sheetToSheet=L===LAYOUT_MODE.NARROW&&LAYOUT===LAYOUT_MODE.NARROW,wasOpen=SIDE_OPEN;
@@ -41,7 +42,7 @@ function applyLayout(){if(!BAND_IN)BAND_IN=bandInput(); const o=BAND_IN,band=lay
   SIDE_OPEN=L===LAYOUT_MODE.WIDE?p.sideClosed!==true:(L===LAYOUT_MODE.MID?(typeof p.midClosed==='boolean'?!p.midClosed:!overlay):sheetToSheet&&wasOpen);
   if(!REPICK&&(COMPOSE.current||EDITOR.current||REPLY||!$('#composer').hidden))SIDE_OPEN=true;   // an in-progress note/edit/reply is never left hidden collapsed
   if(band!==LAYOUT_BAND.PHONE&&$('#nav-sheet').open)$('#nav-sheet').close();
-  applySide(); stickTop(); placeStatus(); if($('#more').open)renderSizeSeg(); return true;}
+  applySide(); stickTop(); placeStatus(); if($('#more').open)renderSizeSeg(); if(REV.target)revTargetActs(); return true;}
 // Whether the outline is an overlay over the document that opens one at a time with the pin panel (OUTLINE_MID_OPEN, never
 // saved): in the mid bands and on the tablet sheet. The phone has no outline; wide keeps it beside the document.
 function outlineOverlay(){return LAYOUT===LAYOUT_MODE.MID||BAND===LAYOUT_BAND.TABLET_SHEET;}

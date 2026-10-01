@@ -1,13 +1,23 @@
 #revision-view{display:none;flex:1;min-width:0;min-height:0;overflow:hidden;background:var(--background)}
 body.revision-open #revision-view{display:block}
 body.revision-open #left{display:none}
-/* The pin [변경 보기] points at (docs/handbook/viewer.md §변경 보기): a one-line notice below the header plus highlighting of the pin's range lines. The narrow (folded)
-   layout has no nav bar, so this notice's [원고로] is the way back. */
+/* The pin [변경 보기] points at (docs/handbook/viewer.md §변경 보기): a one-line notice below the header plus highlighting of the pin's range lines.
+   Its buttons - [원고로], and [확인] for a pin awaiting review - are one group (.rp-acts) at the notice's right; on the phone and tablet
+   sheet they sit in the thumb row (#revision-acts) at the view's bottom, right above the status line and the tool bar. */
 #revision-pin{display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-1) var(--space-2);padding:var(--space-2) var(--space-4);background:var(--card);
   border-bottom:1px solid var(--border);font-size:var(--text-sm)}
 #revision-pin .rp-msg{color:var(--muted-foreground);min-width:0;flex:1 1 12em;overflow-wrap:anywhere}
 #revision-pin>span:first-child{min-width:0;overflow-wrap:anywhere}
-#revision-pin button{flex:none;margin-left:auto}   /* if the text is long it wraps - the button is never clipped (QA: at 842px, [원고로] was going off-screen) */
+#revision-pin .rp-acts{display:flex;gap:var(--space-2);flex:none;margin-left:auto}   /* if the text is long it wraps - the buttons are never clipped (QA: at 842px, [원고로] was going off-screen) */
+#revision-acts{display:flex;position:fixed;left:0;right:0;bottom:calc(var(--sheet-h,0px) + var(--kb,0px));z-index:20;
+  padding:var(--space-2) max(var(--edge),env(safe-area-inset-right)) var(--space-2) max(var(--edge),env(safe-area-inset-left));
+  background:var(--card);border-top:1px solid var(--border)}
+/* With the status line (24px on the sheet's top edge) the row sits on it, and its buttons end 20px above it - clear of the status
+   action's 44px hit, which reaches 20px up. */
+body.has-status:not(.typing) #revision-acts{bottom:calc(var(--sheet-h,0px) + var(--kb,0px) + 24px);padding-bottom:20px}
+body.lay-narrow.rev-thumb #revision-source,body.lay-narrow.rev-thumb #revision-pdf{padding-bottom:160px}   /* ...and the thumb row */
+#revision-acts .rp-acts{display:flex;justify-content:flex-end;gap:var(--space-2);width:100%;max-width:640px;margin:0 auto}   /* the tablet sheet's 640px column */
+#revision-acts button{min-height:var(--hit);padding-left:var(--space-4);padding-right:var(--space-4)}
 #revision-diff .rd-pin{background:color-mix(in srgb,var(--status-review) 12%,var(--sidebar))}
 body.lay-narrow #revision-head{padding:var(--space-2) var(--space-3)}
 body.lay-narrow #revision-head h2{display:none}

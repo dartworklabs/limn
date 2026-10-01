@@ -1891,8 +1891,10 @@ class FrontendSemanticAudit(unittest.TestCase):
         )
 
     def test_revision_note_wraps_and_returns_to_previous_doc(self):
-        self.assertIn("#revision-pin button{flex:none;margin-left:auto}", self.css)
-        self.assertIn('data-act="rev-back"', extract_js_fn("revTargetNote"))
+        """The guide line's buttons are one group at its right that never shrinks ([원고로], and [확인] for a pin awaiting
+        review); revTargetActs draws them."""
+        self.assertIn("#revision-pin .rp-acts{display:flex;gap:var(--space-2);flex:none;margin-left:auto}", self.css)
+        self.assertIn('data-act="rev-back"', extract_js_fn("revTargetActs"))
         self.assertIn("if(fromManuscript)REV.back=back", extract_js_fn("showChange"))
         self.assertIn("case 'rev-back':", HTML)
 

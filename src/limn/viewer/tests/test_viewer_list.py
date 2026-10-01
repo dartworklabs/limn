@@ -32,6 +32,22 @@ class PinListLoading(unittest.TestCase):
         )
         self.assertEqual(json.loads(run_node(js)), [[1, 4], [2], [3], [1], []])
 
+    def test_a_confirm_waiting_for_its_undo_toast_stays_out_of_the_review_list(self):
+        """A pin whose [확인] waits for its undo toast (CONFIRMING) is left out of every snapshot's review list, so a poll
+        in those six seconds does not bring its card back; the other lists are as they were."""
+        js = "\n".join(
+            [
+                extract_js_fn("pinState"),
+                extract_js_fn("derivePinLists"),
+                """
+                const rows=[{id:1},{id:2,done:true,review:true},{id:5,done:true,review:true},{id:3,done:true}];
+                const r=derivePinLists(rows,'main','main',new Set([2]));
+                console.log(JSON.stringify([r.openAll.map(p=>p.id),r.reviewAll.map(p=>p.id),r.doneAll.map(p=>p.id)]));
+                """,
+            ]
+        )
+        self.assertEqual(json.loads(run_node(js)), [[1], [5], [3]])
+
     def test_newer_refresh_wins_when_older_trash_request_finishes_last(self):
         """An older response never restores stale rows or emits stale transition toasts after a newer refresh."""
         js = "\n".join(
@@ -42,7 +58,7 @@ class PinListLoading(unittest.TestCase):
                 extract_js_fn("loadPins"),
                 """
                 let DOC='main',DEFAULT_DOC='main',OPEN_ALL=[],REVIEW_ALL=[],DONE_ALL=[],PINS=[],DONE=[],DROPPED=[];
-                let REPLY=null,COMPOSE={current:null},PINS_LOAD_SEQ=0,PINS_APPLIED_SEQ=0; const EDITOR={current:null,saving:false};
+                let REPLY=null,COMPOSE={current:null},PINS_LOAD_SEQ=0,PINS_APPLIED_SEQ=0; const CONFIRMING=new Set(); const EDITOR={current:null,saving:false};
                 const SEC_SEEN={open:null,review:null,done:null},calls=[],reads=[],toasts=[];
                 let firstTrash;
                 function api(url){
@@ -86,7 +102,7 @@ class PinListLoading(unittest.TestCase):
                 extract_js_fn("loadPins"),
                 """
                 let DOC='main',DEFAULT_DOC='main',OPEN_ALL=[],REVIEW_ALL=[],DONE_ALL=[],PINS=[],DONE=[],DROPPED=[];
-                let REPLY=null,COMPOSE={current:null},PINS_LOAD_SEQ=0,PINS_APPLIED_SEQ=0; const EDITOR={current:null,saving:false};
+                let REPLY=null,COMPOSE={current:null},PINS_LOAD_SEQ=0,PINS_APPLIED_SEQ=0; const CONFIRMING=new Set(); const EDITOR={current:null,saving:false};
                 const SEC_SEEN={open:null,review:null,done:null},calls=[];
                 let firstPins,pinReads=0,trashReads=0,peopleReads=0;
                 function api(url){
@@ -137,7 +153,7 @@ class PinListLoading(unittest.TestCase):
                 extract_js_fn("pollLightOnce"),
                 """
                 let DOC='main',SWITCHSEQ=0,DEFAULT_DOC='main',OPEN_ALL=[{id:0}],REVIEW_ALL=[],DONE_ALL=[],PINS=OPEN_ALL,DONE=[],DROPPED=[];
-                let REPLY=null,COMPOSE={current:null},PINS_LOAD_SEQ=0,PINS_APPLIED_SEQ=0; const EDITOR={current:null,saving:false};
+                let REPLY=null,COMPOSE={current:null},PINS_LOAD_SEQ=0,PINS_APPLIED_SEQ=0; const CONFIRMING=new Set(); const EDITOR={current:null,saving:false};
                 let LAST_PINS_REV='old',LAST_SRC_MTIME='old-src',POLL_FAILS=0; const BUILD={lastSeq:0,timer:null};
                 const SEC_SEEN={open:new Set(),review:new Set(),done:new Set()},drawn=[];
                 const document={hidden:false};
@@ -186,7 +202,7 @@ class PinListLoading(unittest.TestCase):
                 extract_js_fn("pollLightOnce"),
                 """
                 let DOC='main',SWITCHSEQ=0,DEFAULT_DOC='main',OPEN_ALL=[{id:1}],REVIEW_ALL=[],DONE_ALL=[],PINS=OPEN_ALL,DONE=[],DROPPED=[{id:9}];
-                let REPLY=null,COMPOSE={current:null},PINS_LOAD_SEQ=0,PINS_APPLIED_SEQ=0; const EDITOR={current:null,saving:false};
+                let REPLY=null,COMPOSE={current:null},PINS_LOAD_SEQ=0,PINS_APPLIED_SEQ=0; const CONFIRMING=new Set(); const EDITOR={current:null,saving:false};
                 let LAST_PINS_REV='old',LAST_SRC_MTIME='old-src',POLL_FAILS=0; const BUILD={lastSeq:0,timer:null};
                 const SEC_SEEN={open:new Set(),review:new Set(),done:new Set()},drawn=[];
                 const document={hidden:false};let pinReads=0,trashReads=0;
@@ -241,7 +257,7 @@ class PinListLoading(unittest.TestCase):
                 extract_js_fn("pollLightOnce"),
                 """
                 let DOC=null,SWITCHSEQ=0,META=null,DEFAULT_DOC='main',OPEN_ALL=[],REVIEW_ALL=[],DONE_ALL=[],PINS=[],DONE=[],DROPPED=[];
-                let REPLY=null,COMPOSE={current:null},PINS_LOAD_SEQ=0,PINS_APPLIED_SEQ=0; const EDITOR={current:null,saving:false};
+                let REPLY=null,COMPOSE={current:null},PINS_LOAD_SEQ=0,PINS_APPLIED_SEQ=0; const CONFIRMING=new Set(); const EDITOR={current:null,saving:false};
                 let LAST_PINS_REV=null,LAST_SRC_MTIME=null,POLL_FAILS=0; const BUILD={lastSeq:null,timer:null};
                 const META_BY=new Map(),VIEW_BY=new Map(),DOC_SEQ=new Map();
                 const SEC_SEEN={open:null,review:null,done:null},MQ_COARSE={matches:false};

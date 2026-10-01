@@ -80,16 +80,19 @@ function setViewMode(mode){
   $('#view-manuscript').setAttribute('aria-pressed',String(!revisions));
   $('#view-revisions').setAttribute('aria-pressed',String(revisions));
   if(!revisions)REV.target=null;
-  if(revisions)loadRevisions(); else{++REV.seq;clearRevisionPdf();$('#revision-pin').hidden=true;if(VEC.doc)vecSchedule(0);updateSectionStrip();}
+  if(revisions)loadRevisions(); else{++REV.seq;clearRevisionPdf();$('#revision-pin').hidden=true;revTargetActs();if(VEC.doc)vecSchedule(0);updateSectionStrip();}
   drawNavView(); drawPos();
 }
+// Reads the document's recent commits into the changes view. Without history (not Git, a view-only PDF, or no recent commit) the
+// one reason line stays and the unusable [변경 PDF] [소스 diff] [줄바꿈] and the comparison note are hidden; a pin's guide line stays.
 async function loadRevisions(){
   const seq=++REV.seq,k=DOC,list=$('#revision-list'),out=$('#revision-diff'),tg=REV.target;
   clearRevisionPdf();list.textContent='최근 변경사항을 읽는 중입니다.';out.textContent='';$('#revision-pin').hidden=!tg;
-  if(tg)revTargetNote('변경사항을 읽는 중입니다.');
+  if(tg)revTargetNote('변경사항을 읽는 중입니다.'); else revTargetActs();
   let data; try{data=(await api(dq('/api/revisions',k),{what:'변경사항 읽기',silent:true})).data;}
   catch(e){if(seq===REV.seq)list.textContent='변경사항을 읽지 못했습니다.';return;}
   if(seq!==REV.seq||k!==DOC)return;
+  $('#revision-controls').hidden=$('#revision-note').hidden=!data.available||!data.revisions.length;
   if(!data.available){list.textContent='이 문서의 Git 변경사항을 볼 수 없습니다.';
     if(tg)revTargetNote(tg.region?'보기 전용 PDF 문서의 핀이라 Git 변경사항이 없습니다 — 고친 곳은 LaTeX 문서(본문 등)의 변경사항에서 찾으세요.':
       '이 문서는 Git 이력을 읽을 수 없어(Git 저장소가 아니거나 경로가 밖) 핀 자리를 변경과 맞출 수 없습니다.'); return;}
@@ -155,10 +158,22 @@ function revTargetNote(msg){const tg=REV.target,box=$('#revision-pin'); if(!tg){
   let t=msg?tr(msg):scopeMsg+(REV.format===DIFF_FORMAT.PDF?tl('비교 PDF에는 줄 대응이 없어 원고 {page}쪽 근처로만 옮겼습니다(삭제 문장이 끼어 쪽이 밀릴 수 있음). 정확한 줄은 [소스 diff]',{page:tg.page}):
     tr(tg.hit===false?'이 커밋의 diff에서 핀 범위를 찾지 못했습니다 — 가장 가까운 줄을 보입니다':
      tg.near?'핀 범위 줄 자체는 바뀌지 않았고 바로 곁(±5줄)이 바뀌었습니다 — 가장 가까운 줄을 보입니다':'강조한 줄이 핀 범위입니다'));
-  const back=REV.back&&REV.back!==DOC&&docInfo(REV.back)?docInfo(REV.back).name:null;
-  box.innerHTML='<span><b>'+esc(tl('핀 #{id}',{id:tg.id}))+'</b> · '+esc(where)+(tg.ref?' · '+esc(tl('참조 {ref}',{ref:tg.ref})):'')+(via?' · '+esc(via):'')+'</span><span class="rp-msg">'+esc(t)+'</span>'+
-    '<button class="btn-sm" data-act="rev-back" data-tip="'+esc(back?tl('{name} 원고 보기로 돌아갑니다',{name:back}):tr('원고 보기로 돌아갑니다'))+'">'+esc(back?tl('{name}(으)로',{name:back}):tr('원고로'))+'</button>';
-  box.hidden=false;}
+  box.innerHTML='<span><b>'+esc(tl('핀 #{id}',{id:tg.id}))+'</b> · '+esc(where)+(tg.ref?' · '+esc(tl('참조 {ref}',{ref:tg.ref})):'')+(via?' · '+esc(via):'')+'</span><span class="rp-msg">'+esc(t)+'</span>';
+  box.dataset.id=tg.id; box.hidden=false; revTargetActs();}
+// The guide line's buttons (docs/handbook/viewer.md §변경 보기): [원고로] and, for a pin awaiting review that this person may confirm
+// (not a viewer, not a view-only region pin), the card's [확인] - the same data-act="confirm" and confirmPin(), soft for the
+// author as on the card. On the phone and tablet sheet they sit in the thumb row (#revision-acts) right above the status line
+// and the tool bar; in the other bands at the guide line's right. Redrawn on a band change and whenever the pin lists change.
+function revTargetActs(){const tg=REV.target,row=$('#revision-acts'),narrow=LAYOUT===LAYOUT_MODE.NARROW;
+  $$('.rp-acts').forEach(e=>e.remove());
+  if(!tg||$('#revision-pin').hidden){row.hidden=true; document.body.classList.remove('rev-thumb'); return;}
+  const p=findAnyPin(tg.id),confirm=!!p&&pinState(p)===PIN_STATE.REVIEW&&!tg.region&&!isViewer();
+  const back=REV.back&&REV.back!==DOC&&docInfo(REV.back)?docInfo(REV.back).name:null,acts=document.createElement('span');
+  acts.className='rp-acts';
+  acts.innerHTML='<button class="btn-sm" data-act="rev-back" data-tip="'+esc(back?tl('{name} 원고 보기로 돌아갑니다',{name:back}):tr('원고 보기로 돌아갑니다'))+'">'+esc(back?tl('{name}(으)로',{name:back}):tr('원고로'))+'</button>'+
+    (confirm?'<button class="btn-sm b-confirm '+(isMe(p.author)?'btn-soft':'btn-secondary')+'" data-act="confirm" data-tip="'+esc(T.confirm)+'">확인</button>':'');
+  (narrow?row:$('#revision-pin')).appendChild(acts);
+  row.dataset.id=tg.id; row.hidden=!narrow; document.body.classList.toggle('rev-thumb',narrow);}
 function revHighlight(tg){const rows=$$('#revision-diff .rd-line'); let first=null;
   rows.forEach(el=>{if(!(el.classList.contains('rd-add')||el.classList.contains('rd-context')))return; const n=+el.querySelector('.rd-no').textContent;
     if(n>=tg.lo&&n<=tg.hi){el.classList.add('rd-pin'); if(!first)first=el;}});

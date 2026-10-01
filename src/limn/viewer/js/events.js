@@ -72,7 +72,8 @@ document.addEventListener('click',e=>{
     case 'e-kind':if(EDITOR.current){EDITOR.current.kind_req=a.dataset.kind===KIND_REQ.QUESTION?KIND_REQ.QUESTION:KIND_REQ.FIX; renderEdit();}break;
     case 'reply-open':if(id!=null)openReply(id);break;
     case 'reply-flip':if(REPLY){REPLY.flip=!REPLY.flip; renderReplyOutcome();}break;
-    case 'confirm':if(id!=null)confirmPin(id);break;
+    case 'confirm':{if(id==null)break; const inGuide=!!a.closest('#revision-pin,#revision-acts');   // before confirmPin redraws the guide line
+      confirmPin(id); if(inGuide)revBack(); break;}   // the review ends where it is read: back to the manuscript
     case 'change':if(id!=null)showChange(id);break;
     case 'goto-review':gotoReview();break;
     case 'reply-cancel':closeReply();break; case 'reply-send':sendReply();break;
