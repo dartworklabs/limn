@@ -1787,23 +1787,22 @@ class PinNumberJump(unittest.TestCase):
         self.assertIn("누르면 PDF에서 이 핀 자리로 갑니다", src)
 
     def test_number_is_keyboard_and_touch_reachable(self):
+        """#N is a role=button the keyboard reaches; on touch #N, the line range and N쪽 are each a real 44x44 box.
+
+        Regression: #N used to render at only its text width (26-35px) with a fixed 44x44 ::before centred on it, and
+        '1쪽' (16px) and 'L4-L5' only got min-height - their centred hit areas overlapped 4-8px apart, so '1쪽' answered
+        16x38 (input diagnosis P6). Real boxes cannot overlap; the live check is PhoneTouchSizes."""
         src = HTML
         self.assertIn("/^(button|link)$/.test(t.getAttribute('role')||'')&&t.dataset&&t.dataset.act", src)
-        self.assertIn(".loc,.pg-link,.pin .n.go{display:inline-flex;align-items:center;min-height:44px}", src)
-        # regression: #N used to render at only its text width (26-35px), falling short of the 44px
-        # minimum touch hit area (observed). The visual size stays the same; a fixed 44x44 ::before hit
-        # area is centered on top of it — it must be fixed width/height, not the inset approach
-        # (proportional to the parent's width), to guarantee 44 even for a short number (e.g. one digit).
-        # position:relative is given only to .n.go — giving it to .loc/.pg-link too would let .loc, which
-        # comes later in DOM order, rise above the ::before in positioned stacking and steal the hit test
-        # for the right half (a regression found and reverted via live browser testing).
         css = src[src.index("<style>") : src.index("</style>")]
-        self.assertIn(".pin .n.go{position:relative}", css)
+        coarse = css[css.index("@media (pointer:coarse){") :]
+        coarse = coarse[: coarse.index("\n}")]
         self.assertIn(
-            ".pin .n.go::before{content:'';position:absolute;left:50%;top:50%;"
-            "width:var(--control-h-touch);height:var(--control-h-touch);transform:translate(-50%,-50%)}",
-            css,
+            ".loc,.pg-link,.pin .n.go{display:inline-flex;align-items:center;justify-content:center;"
+            "min-height:var(--hit);min-width:var(--hit);position:relative}",
+            coarse,
         )
+        self.assertNotIn(".pin .n.go::before", css)
 
     def test_view_action_still_routes_to_jumppin(self):
         self.assertIn("case 'view':jumpPin(id);break;", HTML)

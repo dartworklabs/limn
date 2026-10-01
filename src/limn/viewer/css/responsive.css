@@ -31,21 +31,21 @@ body:not(.lay-narrow) #coach button{pointer-events:auto}
   .hint .t-mouse{display:none}
   button{min-height:44px;min-width:44px;padding:var(--space-2) var(--space-3);font-size:var(--text-lg);-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
   button.btn-sm,.seg button{min-height:44px;padding:var(--space-2) var(--space-3);font-size:var(--text-base)}
-  /* A tappable badge (assignee chip/awaiting review/build error) keeps its visual size and only widens its hit area to 44px - growing it via
-     min-height:44px turned the card header's assignee chip into a 44px blue slab (folded-layout QA). */
-  button.badge{min-height:0;min-width:0;padding:1px var(--space-2);position:relative}
-  button.badge::after{content:'';position:absolute;left:-4px;right:-4px;top:50%;height:var(--control-h-touch);transform:translateY(-50%)}
+  /* The one touch hit-area utility (docs/handbook/viewer.md §모바일 레이아웃): a control drawn smaller than --hit keeps its
+     drawn size and gets a centred --hit x --hit box from ::after. Its own overflow is forced visible - a clipping box (the
+     assignee chip's overflow:hidden) cut the ::after back to the drawn 20px (input diagnosis P6). A tappable badge (assignee
+     chip/awaiting review/build error) is one: growing it via min-height:44px turned the chip into a 44px blue slab. */
+  button.badge{min-height:0;min-width:0;padding:1px var(--space-2)}
+  :is(.hit,button.badge){position:relative;overflow:visible}
+  :is(.hit,button.badge)::after{content:'';position:absolute;left:50%;top:50%;width:max(100%,var(--hit));height:max(100%,var(--hit));transform:translate(-50%,-50%)}
   #bar1{flex-wrap:wrap;--tb-h:var(--control-h-touch)}
   #bar1 button{padding:0 var(--space-2)}
   input,textarea,select{font-size:var(--text-xl)}
   #bar1 input.n{width:84px;flex:0 0 84px;max-width:none;font-size:var(--text-xl)}   /* iOS zooms the screen when focusing an input field smaller than 16px */
-  .loc,.pg-link,.pin .n.go{display:inline-flex;align-items:center;min-height:44px}
-  /* #N is drawn narrow, only as wide as its text (26-35px) - the visual size is kept and a fixed 44x44 hit area is centered on top of it
-     (a fixed size rather than an inset proportional to the parent's width is needed to guarantee 44 even for a short number). position:relative
-     is given only to .n.go - giving it to .loc/.pg-link too let .loc, which comes later in DOM order, rise above .n.go's ::before
-     in the positioned stacking order and intercept hit-testing for the right half (observed: cx+21 returned '.loc' instead of '#N').  */
-  .pin .n.go{position:relative}
-  .pin .n.go::before{content:'';position:absolute;left:50%;top:50%;width:var(--control-h-touch);height:var(--control-h-touch);transform:translate(-50%,-50%)}
+  /* Text links (#N, the line range, N쪽) sit 4-8px apart, so centred 44px hit areas would overlap and the later one would take the
+     earlier's half (observed: '1쪽' answered 16x38, 'L4-L5' 33x38). Each is a real --hit x --hit box instead, its text centred,
+     positioned so that it stays above the line below that the compact head's -6px margin lets overlap it. */
+  .loc,.pg-link,.pin .n.go{display:inline-flex;align-items:center;justify-content:center;min-height:var(--hit);min-width:var(--hit);position:relative}
   .mark b{width:26px;height:26px;left:-28px;font-size:var(--text-base)}
   .mark b::after{content:'';position:absolute;inset:-9px}
   #tip{max-width:min(300px,calc(100vw - 16px))}
@@ -75,7 +75,6 @@ body:not(.lay-narrow) #coach button{pointer-events:auto}
   :is(button.btn-sm,button.badge,button.sec-tg,button.arc-orig-t,.loc,.pg-link,.th-n,.pin .n.go)::after{content:'';position:absolute;left:50%;top:50%;
     width:max(100%,24px);height:max(100%,24px);transform:translate(-50%,-50%)}
   .mark b::after{content:'';position:absolute;inset:-1px}
-  button.badge-assign{overflow:visible}   /* its name ellipsizes by itself (.as-n); a clipping chip would clip its hit area too */
 }
 body.lay-narrow #grip,body.lay-mid:not(.side-open) #grip{display:none}
 /* mid: shows a grab bar in the middle of the handle (easier to find by touch) */
@@ -154,7 +153,6 @@ body.lay-narrow.side-open #right{height:min(calc(var(--sheet-f,.64) * 100dvh),ca
 body.lay-narrow #sheet-grip{display:flex;align-items:center;justify-content:center;height:24px;flex:none;position:sticky;top:0;z-index:4;
   background:var(--sidebar);border-radius:var(--radius-lg) var(--radius-lg) 0 0;touch-action:none;cursor:row-resize}
 body.lay-narrow #sheet-grip::before{content:'';width:40px;height:4px;border-radius:var(--radius-sm);background:var(--border-strong)}
-body.lay-narrow #sheet-grip::after{content:'';position:absolute;left:0;right:0;top:0;bottom:-8px}
 body.lay-narrow #sheet-grip.on::before{background:var(--primary)}
 body.lay-narrow #bar1{top:24px;padding-top:0;touch-action:none}   /* the whole tool bar drags the sheet; its taps still press buttons */
 /* ---- Spread-out folded layout / tablet (mid): the document nav bar on top, the action row on the bottom - both fixed to the full screen

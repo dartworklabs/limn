@@ -191,7 +191,14 @@
 
 **가상 키보드.** viewport meta의 `interactive-widget=resizes-content`(크롬 안드로이드)로 레이아웃 자체를 줄인다. 그 값을 모르는 브라우저에서는 `visualViewport`로 잰 높이(`--kb`)만큼 화면을 올린다. 핀치 확대로 줄어든 visualViewport는 `scale`을 곱해 되돌려, 키보드로 치지 않는다.
 
-**터치 기기 크기.** 터치 기기(`pointer:coarse`)에서는 버튼·입력 칸이 44px 이상이고 입력 글자는 16px이다. 16px은 포커스 때 자동 확대를 막는다. 안전 영역(`env(safe-area-inset-*)`, `viewport-fit=cover`)은 비운다. compact에서 알림은 탐색 줄 바로 아래 위쪽으로 옮긴다(`narrow`는 화면 위, `mid`는 본문 왼쪽 위). 아래 도구 줄·첫 안내와 겹치지 않게 하려는 것이다.
+**터치 기기 크기.** 터치 기기(`pointer:coarse`)에서는 눌리는 영역이 모두 44×44px(`--hit`) 이상이고 입력 글자는 16px이다. 16px은 포커스 때 자동 확대를 막는다.
+
+- 그린 크기가 44px보다 작은 컨트롤은 히트 유틸리티 하나로 넓힌다. `.hit`(그리고 누를 수 있는 배지 `button.badge`)의 `::after`가 가운데 맞춘 `--hit` 상자를 깔고, 그 요소의 `overflow`는 `visible`이다. 담당 칩의 `overflow:hidden`이 이 상자를 그린 높이 20px로 잘랐기 때문이다.
+- 카드 머리의 글자 링크(`#N`·줄 범위·`N쪽`)는 4–8px 간격이라 가운데 맞춘 상자가 서로 겹치고, 뒤의 것이 앞의 것의 절반을 가져간다(`1쪽`이 16×38px로 눌렸다). 그래서 이 셋은 각각 실제 44×44px 상자로 그리고 글자를 가운데 둔다.
+- 마우스(`pointer:fine`)는 그린 크기 그대로이고 히트는 24px이다(WCAG 2.5.8).
+- 확인은 `PhoneTouchSizes`(폰 시트에서 44×44 상자의 네 점을 찍는다)와 `DesktopMisc.test_desktop_hit_targets_are_at_least_24px`다.
+
+안전 영역(`env(safe-area-inset-*)`, `viewport-fit=cover`)은 비운다. compact에서 알림은 탐색 줄 바로 아래 위쪽으로 옮긴다(`narrow`는 화면 위, `mid`는 본문 왼쪽 위). 아래 도구 줄·첫 안내와 겹치지 않게 하려는 것이다.
 
 ### 펼친 화면 레이아웃
 
@@ -768,7 +775,7 @@
 | radius | `--radius-sm` 4px(배지·kbd·작은 막대) · `--radius` 6px(버튼·입력·툴팁) · `--radius-lg` 10px(카드·대화상자·시트 모서리·셈 알약). 원형 점·아바타·스피너만 `50%`, 모서리를 없앨 때만 `0` |
 | 글자 | `--text-xs` 11px(배지·쪽 번호) · `--text-sm` 12px(작은 버튼·보조 글자) · `--text-base` 13px(버튼·입력·알림) · `--text-lg` 14px(본문, 터치 버튼) · `--text-xl` 16px(대화상자 제목, 터치 입력 — iOS 확대 방지) |
 | 간격 | `--space-1..6` = 4·8·12·16·20·24px. padding·margin·gap은 모두 이 격자다. 1–2px 머리카락 선·광학 보정과 음수 margin만 예외다. 가드 `FrontendSpacingGrid` |
-| 컨트롤 높이 | `--control-h-sm` 24 · `--control-h` 28(도구 줄 `--tb-h`) · `--control-h-lg` 36(동작 줄) · `--control-h-touch` 44 |
+| 컨트롤 높이 | `--control-h-sm` 24 · `--control-h` 28(도구 줄 `--tb-h`) · `--control-h-lg` 36(동작 줄) · `--control-h-touch` 44 · `--hit` 44(터치 히트 상자, §모바일 레이아웃) |
 | 그림자 | `--shadow-sm`·`--shadow`·`--shadow-lg` |
 | 글꼴 | `--font-sans`·`--font-mono` |
 

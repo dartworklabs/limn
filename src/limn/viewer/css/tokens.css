@@ -43,7 +43,7 @@
   --radius-sm:4px;--radius:6px;--radius-lg:10px;
   --text-xs:11px;--text-sm:12px;--text-base:13px;--text-lg:14px;--text-xl:16px;
   --space-1:4px;--space-2:8px;--space-3:12px;--space-4:16px;--space-5:20px;--space-6:24px;
-  --control-h-sm:24px;--control-h:28px;--control-h-lg:36px;--control-h-touch:44px;
+  --control-h-sm:24px;--control-h:28px;--control-h-lg:36px;--control-h-touch:44px;--hit:44px;
   --shadow-sm:0 1px 4px var(--shadow-color);--shadow:0 4px 16px var(--shadow-color);--shadow-lg:0 6px 24px var(--shadow-color);
   --font-sans:-apple-system,BlinkMacSystemFont,"Pretendard","Noto Sans KR",sans-serif;
   --font-mono:"JetBrains Mono",ui-monospace,monospace}

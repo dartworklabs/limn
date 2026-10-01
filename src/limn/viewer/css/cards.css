@@ -64,6 +64,7 @@ button.b-close{font-weight:600}
 .mention.me{background:color-mix(in srgb,var(--primary) 28%,transparent);color:var(--foreground)}
 .badge-assign{background:color-mix(in srgb,var(--primary) 14%,transparent);color:var(--foreground);font-weight:600;flex:0 0 auto;max-width:12em;overflow:hidden;justify-content:flex-start}
 .badge-assign .as-n{min-width:0;overflow:hidden;text-overflow:ellipsis}
+button.badge-assign{overflow:visible}   /* its name ellipsizes by itself (.as-n); a clipping chip would clip its hit area too */
 .badge-assign.me{background:color-mix(in srgb,var(--primary) 28%,transparent)}
 .assign-row{display:flex;align-items:center;gap:var(--space-2);margin-top:var(--space-2)}
 .assign-row .as-lab{flex:none;color:var(--muted-foreground);font-size:var(--text-sm)}

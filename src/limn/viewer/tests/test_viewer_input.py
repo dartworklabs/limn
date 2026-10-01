@@ -21,7 +21,7 @@ from limn.pins.lifecycle.rules import CloseRequest
 from limn.security.access import LOCAL_ACTOR
 
 from helpers import HTML, add_pin, extract_js_fn, ps, run_node
-from helpers_access import ALICE, actor
+from helpers_access import ALICE, BOB, actor
 from helpers_authority import post_authority
 from helpers_browser import BrowserBase, booted, nothing_follows, settle, watch_idle
 
@@ -1302,6 +1302,72 @@ class PhoneSheet(ViewerBase):
         self.assertTrue(more.is_visible())
         self.tap(self.cdp(page), *self.center(page, "#toasts-more"))
         page.wait_for_function(visible + "===5")
+
+
+# Every visible element matching the selector that does not answer a tap anywhere in a 44x44 box around its centre (the
+# 21.5px points left/right/above/below), as "name WxH" - the touch twin of DesktopMisc's 24px probe. Off-screen ones are skipped.
+MISSES_44 = """sel => {
+  const out = [];
+  for (const e of document.querySelectorAll(sel)) {
+    const r = e.getBoundingClientRect(); if (!r.width || !r.height || getComputedStyle(e).visibility === 'hidden') continue;
+    if (r.top < 22 || r.bottom > innerHeight - 22 || r.left < 0 || r.right > innerWidth) continue;
+    const cx = r.left + r.width / 2, cy = r.top + r.height / 2;
+    const ok = [[-21.5, 0], [21.5, 0], [0, -21.5], [0, 21.5]].every(([dx, dy]) => {
+      const h = document.elementFromPoint(cx + dx, cy + dy); return !!h && (h === e || e.contains(h)); });
+    if (!ok) out.push((e.id ? '#' + e.id : e.className) + ' ' + Math.round(r.width) + 'x' + Math.round(r.height));
+  }
+  return out; }"""
+
+
+class PhoneTouchSizes(ViewerBase):
+    """Touch sizes on the phone sheet: every control answers a tap in a 44x44 box, whatever its drawn size - the assignee
+    chip, the card head's links, the tool bar under the sheet handle (input diagnosis P6)."""
+
+    def setUp(self):
+        """One more open pin, assigned to Bob, so its card head carries the assignee chip."""
+        super().setUp()
+        ps.APP.people_directory.record(actor(BOB))
+        add_pin(
+            {
+                "file": str(self.main),
+                "lo": 30,
+                "hi": 31,
+                "page": 1,
+                "note": "담당 있는 핀",
+                "assignee": BOB["Tailscale-User-Login"],
+            },
+            actor(ALICE),
+        )
+
+    def open_card(self, page):
+        """The phone sheet open at its top, with the assigned pin's card expanded; returns that card's selector."""
+        pid = page.evaluate("OPEN_ALL.find(p=>p.assignee).id")
+        page.evaluate(
+            "id=>{setSide(true); OPEN_CARDS.add(id); drawPins(); document.querySelector('#right').scrollTop=0;}", pid
+        )
+        settle(page)
+        card = '.pin[data-id="%d"]' % pid
+        page.evaluate("s=>document.querySelector(s).scrollIntoView({block:'nearest'})", card)
+        settle(page)
+        return card
+
+    def test_card_head_controls_and_the_tool_bar_answer_a_44px_box(self):
+        """The assignee chip answered 72x20 (its overflow clipped the hit area), '1쪽' 16x38 and 'L4-L5' 33x38 (neighbours took
+        their halves), and the sheet handle took the top 8px of every tool-bar button (36px high)."""
+        page = self.view(PHONE)
+        card = self.open_card(page)
+        self.assertTrue(page.is_visible(card + " .as-chip"))
+        misses = page.evaluate(
+            MISSES_44,
+            "%s .head [data-act],%s .head [data-copy],%s .head button,#bar1 button" % (card, card, card),
+        )
+        self.assertEqual(misses, [])
+
+    def test_a_mouse_keeps_the_drawn_card_head(self):
+        """The 44px boxes are touch only: a mouse sees the card head links at their text size (24px hit areas, DesktopMisc)."""
+        page = self.view(DESK)
+        w = page.evaluate("Math.round(document.querySelector('.pin .pg-link').getBoundingClientRect().width)")
+        self.assertLess(w, 30)
 
 
 # ---------------------------------------------------------------- B. the rest of the approved findings
