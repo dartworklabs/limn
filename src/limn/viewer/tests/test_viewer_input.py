@@ -2187,6 +2187,49 @@ class TouchLayoutBands(ViewerBase):
         self.assertGreaterEqual(pg["x"], og["x"] + 44)
         self.assertLessEqual(pg["x"] + pg["width"], grip["x"] + grip["width"] - 44)
 
+    def page_clear_of_grip(self, page):
+        """[page right, the panel handle's hit left, page left, the outline handle's hit right or None] for page 1 now."""
+        return page.evaluate(
+            """() => {const R = s => { const e = document.querySelector(s); return e && e.getClientRects().length ? e.getBoundingClientRect() : null; };
+              const p = R('#p1'), g = R('#grip'), o = R('#outline-grip');
+              return [p.right, g ? g.right - 44 : null, p.left, o ? o.left + 44 : null]; }"""
+        )
+
+    def test_composing_over_the_overlay_panel_keeps_the_page_clear_of_the_handle(self):
+        """842x758 composing: the page is fitted left of the overlay panel. The padding was the panel width + 40px and missed the
+        8px bar, so the page's right edge (472) lay 4px inside the handle's hit (468-512)."""
+        page = self.view(FOLD)
+        self.compose(page)
+        right, hit, _, _ = self.page_clear_of_grip(page)
+        self.assertLess(right, hit)
+
+    def test_fit_width_on_a_wide_touch_screen_keeps_the_page_clear_of_both_handles(self):
+        """1440x900 touch: [폭 맞춤] (fitW) fitted 32px less than the width and the 48px padding, leaving the page 2px over the
+        panel handle's hit; the fit now leaves exactly the padding. Also with the outline open and with the panel collapsed
+        to its rail at the screen's edge."""
+        for name, prefs in (("plain", {}), ("outline", {"outlineClosed": False}), ("rail", {"sideClosed": True})):
+            with self.subTest(case=name):
+                page = self.view(touch_device(1440, 900), prefs=prefs)
+                page.evaluate("fitW()")
+                settle(page)
+                right, hit, left, ohit = self.page_clear_of_grip(page)
+                self.assertLess(right, hit)
+                if ohit is not None:
+                    self.assertGreaterEqual(left, ohit)
+                pad = page.evaluate("parseFloat(getComputedStyle(document.querySelector('#left')).paddingRight)")
+                self.assertAlmostEqual(
+                    page.evaluate("document.querySelector('#left').getBoundingClientRect().right") - right, pad, delta=1
+                )
+
+    def test_zoomed_and_scrolled_to_the_right_end_the_page_stays_clear_of_the_handle(self):
+        """1024x768 touch at 300%, scrolled fully right: the right padding was not part of the scroll extent, so the page's
+        edge came flush with the scroller under the handle's hit. The padding now counts."""
+        page = self.view(touch_device(1024, 768))
+        page.evaluate("()=>{zoomTo(W*3); const L=document.querySelector('#left'); L.scrollLeft=L.scrollWidth;}")
+        settle(page)
+        right, hit, _, _ = self.page_clear_of_grip(page)
+        self.assertLess(right, hit)
+
     def test_a_tap_on_a_cards_left_edge_opens_the_card_not_the_panel_handle(self):
         """1024x768 touch: the handle's 44px hit reached 19px into the panel, so a tap on the leftmost 6px of a collapsed card
         cycled the panel width. The hit now lies on the PDF side of the bar; the card's edge opens the card."""

@@ -15,9 +15,9 @@ function wBounds(fit){const f=Math.max(160,fit),lo=Math.max(160,Math.round(f*ZOO
 function setW(w,save){const b=wBounds(fitWidth()); W=Math.round(Math.min(b[1],Math.max(b[0],w))); $$('.pg').forEach(e=>e.style.width=W+'px');
   if(save!==false&&LAYOUT===LAYOUT_MODE.WIDE)savePrefs({w:W}); vecInvalidate();}
 function innerW(){const L=$('#left'),cs=getComputedStyle(L); return L.clientWidth-parseFloat(cs.paddingLeft)-parseFloat(cs.paddingRight);}
-// Fit-width: in compact, the body's inner width; in wide, #left.clientWidth minus 32px and the right padding - 48px with a
-// mouse (16px padding), more on touch, whose wider right padding keeps the page off the panel handle's hit area.
-function fitWidth(){if(LAYOUT!==LAYOUT_MODE.WIDE)return innerW(); const L=$('#left'); return L.clientWidth-32-parseFloat(getComputedStyle(L).paddingRight);}
+// Fit-width: in compact and on a wide touch screen, the scroller's inner width (innerW: its padding is the gap, which on touch keeps
+// the page off the handles' hit areas); with a mouse in wide, #left.clientWidth minus 48px (left/right margins), as always.
+function fitWidth(){return LAYOUT!==LAYOUT_MODE.WIDE||MQ_COARSE.matches?innerW():$('#left').clientWidth-48;}
 // compact always fits the screen width (unless the user pressed -/+, in which case it stays fixed for that layout). wide fits the
 // padded width up to 900px unless a width is saved.
 function autoW(){if(LAYOUT!==LAYOUT_MODE.WIDE){if(!ZOOMED)setW(innerW(),false);return;}
