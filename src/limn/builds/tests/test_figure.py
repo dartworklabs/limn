@@ -31,13 +31,17 @@ from limn.builds.figure_map import FigureMap
 from limn.builds.service import BuildRequests
 from limn.runtime.documents import Doc, RunPaths
 
-from helpers import MINI_PDF, Base, blank_png, figure_map, map_bytes, ps, req, split_resp
+from helpers import MINI_PDF, Base, figure_map, map_bytes, ps, req, split_resp
 
-# pdftoppm stand-in (pdftoppm -r DPI -png PDF PREFIX): one page, the PNG named by LIMN_TEST_PAGE_PNG; exit 1 when
-# LIMN_TEST_PDFTOPPM is "fail".
+# pdftoppm stand-in (pdftoppm -r DPI -f N -l N -singlefile PDF): the 200x100 PPM named by LIMN_TEST_PAGE_PNG on
+# stdout; exit 1 when LIMN_TEST_PDFTOPPM is "fail".
 FAKE_PDFTOPPM = """#!/bin/sh
 [ "$LIMN_TEST_PDFTOPPM" = fail ] && exit 1
-cp "$LIMN_TEST_PAGE_PNG" "$5-1.png"
+cat "$LIMN_TEST_PAGE_PNG"
+"""
+# pdfinfo stand-in: every PDF has one page.
+FAKE_PDFINFO = """#!/bin/sh
+echo "Pages:          1"
 """
 OTHER_PDF = MINI_PDF.replace(b"Reviewer one", b"Reviewer two")  # the same size, other bytes
 
@@ -46,10 +50,11 @@ def fake_pdftoppm(case: unittest.TestCase, root: Path) -> None:
     """Put FAKE_PDFTOPPM first on PATH for the rest of case, with a 200x100 page image under root."""
     bin_dir = root / "bin"
     bin_dir.mkdir()
-    (bin_dir / "pdftoppm").write_text(FAKE_PDFTOPPM, encoding="utf-8")
-    (bin_dir / "pdftoppm").chmod(0o755)
-    page = root / "page.png"
-    page.write_bytes(blank_png(200, 100))
+    for name, text in (("pdftoppm", FAKE_PDFTOPPM), ("pdfinfo", FAKE_PDFINFO)):
+        (bin_dir / name).write_text(text, encoding="utf-8")
+        (bin_dir / name).chmod(0o755)
+    page = root / "page.ppm"
+    page.write_bytes(b"P6\n200 100\n255\n" + b"\xff" * (200 * 100 * 3))
     env = mock.patch.dict(
         os.environ,
         {

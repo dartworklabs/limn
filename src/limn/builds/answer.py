@@ -139,7 +139,7 @@ BUILD_FAILURES: dict[BuildFailureKind, str] = {
     "timeout": "시간 초과로 멈췄습니다.",
     "no_pdf": "새 PDF 가 나오지 않았습니다.",
     "no_synctex": "synctex.gz 가 없습니다 — latexmk 가 -synctex=1 을 받았는지 확인하세요.",
-    "render": "쪽 이미지를 그리지 못했습니다(pdftoppm).",
+    "render": "쪽 이미지를 그리지 못했습니다(pdftoppm): {detail}",
     "pdf_copy": "PDF 사본을 쪽 디렉토리에 두지 못했습니다: {detail}",
     "pdf_missing": "PDF 가 없습니다: {detail}",
     "figure_unready": "그림 PDF 와 지도를 가져오지 못했습니다: {detail}",

@@ -706,8 +706,13 @@ case "$LIMN_TEST_RECORDER" in
   *) { printf 'PWD %s\\nINPUT /usr/share/texlive/article.cls\\n' "$PWD"; printf '%b' "$LIMN_TEST_INPUTS"; } > "$stem.fls" ;;
 esac
 """
+# pdftoppm stand-in (pdftoppm -r DPI -f N -l N -singlefile PDF): a 2x1 PPM of the page on stdout.
 FAKE_PDFTOPPM = """#!/bin/sh
-cp "$4" "$5-1.png"
+printf 'P6\\n2 1\\n255\\n\\377\\377\\377\\0\\0\\0'
+"""
+# pdfinfo stand-in: every PDF has one page.
+FAKE_PDFINFO = """#!/bin/sh
+echo "Pages:          1"
 """
 
 
@@ -723,7 +728,7 @@ class Compile(Tree):
         )
         bin_dir = self.top / "bin"
         bin_dir.mkdir()
-        for name, text in (("latexmk", FAKE_LATEXMK), ("pdftoppm", FAKE_PDFTOPPM)):
+        for name, text in (("latexmk", FAKE_LATEXMK), ("pdftoppm", FAKE_PDFTOPPM), ("pdfinfo", FAKE_PDFINFO)):
             (bin_dir / name).write_text(text, encoding="utf-8")
             (bin_dir / name).chmod(0o755)
         self.env = {"PATH": str(bin_dir) + os.pathsep + os.environ.get("PATH", "")}

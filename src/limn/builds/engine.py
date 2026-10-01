@@ -7,13 +7,15 @@ import shutil
 import signal
 import stat
 import subprocess
+import threading
 import time
 from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from limn.builds import artifacts as build
+from limn.builds import artifacts as build, png
 from limn.builds.artifacts import (
     BUILD_EXCLUDE_DIRS,
     PAGES_DIR_RE,
@@ -274,40 +276,142 @@ def _fresh_recorder(path: Path, started: float) -> Path | None:
     return path if stat.S_ISREG(st.st_mode) and st.st_mtime >= started - 1 else None
 
 
-def render_pages(D: BuildDoc, pdf: Path, extra: list[Path], dpi: int) -> Path | PagesNotRendered:
-    """Renders pages into a new directory and drops in a copy of the PDF (and extra - synctex). The screen keeps
-    showing the old directory until this finishes. Returns the new directory, or why there is none (the half-made
-    directory is removed)."""
-    D.dir.mkdir(parents=True, exist_ok=True)
+RENDER_WORKERS_MAX = 8  # pdftoppm processes one render runs at once, at most
+RENDER_TIMEOUT_S = 600  # one render's whole budget; each page gets what is left of it
+PART_DIR_RE = re.compile(r"\.pages-.*\.part")  # a page folder being drawn: no client may ask for it (valid_build_name)
+
+
+def render_workers() -> int:
+    """How many pages one render draws at once: min(RENDER_WORKERS_MAX, os.cpu_count()), and one when the count is
+    unknown."""
+    return min(RENDER_WORKERS_MAX, os.cpu_count() or 1)
+
+
+def _last_line(err: bytes) -> str:
+    """A tool's last non-empty stderr line, for a failure's detail ("" when it said nothing)."""
+    lines = err.decode("utf-8", "replace").strip().splitlines()
+    return lines[-1].strip()[:200] if lines else ""
+
+
+def page_count(pdf: Path, timeout: float) -> int | str:
+    """The number of pages pdfinfo reads in pdf, or why there is none (a detail for PagesNotRendered render)."""
+    try:
+        r = subprocess.run(["pdfinfo", str(pdf)], capture_output=True, timeout=timeout, check=False)
+    except FileNotFoundError:
+        return "pdfinfo not found"
+    except subprocess.TimeoutExpired:
+        return "pdfinfo timed out"
+    if r.returncode != 0:
+        return "pdfinfo exit %d: %s" % (r.returncode, _last_line(r.stderr))
+    m = re.search(rb"^Pages:\s+(\d+)\s*$", r.stdout, re.MULTILINE)
+    if m is None:
+        return "pdfinfo gave no page count"
+    return int(m.group(1)) or "the PDF has no pages"
+
+
+def draw_page(pdf: Path, page: int, dpi: int, dest: Path, deadline: float) -> str | None:
+    """Draw page `page` of pdf at dpi with its own pdftoppm (a PPM on stdout) and write it to dest as a PNG
+    (limn.builds.png). None when the page is written; otherwise why not (the page, and pdftoppm's last message)."""
+    left = deadline - time.monotonic()
+    if left <= 0:
+        return "page %d: no time left" % page
+    try:
+        r = subprocess.run(
+            ["pdftoppm", "-r", str(dpi), "-f", str(page), "-l", str(page), "-singlefile", str(pdf)],
+            capture_output=True,
+            timeout=left,
+            check=False,
+        )
+    except FileNotFoundError:
+        return "pdftoppm not found"
+    except subprocess.TimeoutExpired:
+        return "page %d: pdftoppm timed out" % page
+    if r.returncode != 0:
+        return "page %d: pdftoppm exit %d: %s" % (page, r.returncode, _last_line(r.stderr))
+    img = png.parse_ppm(r.stdout)
+    if img is None:
+        return "page %d: pdftoppm wrote no PPM image" % page
+    try:
+        dest.write_bytes(png.png_from_ppm(img, dpi))
+    except OSError as e:
+        return "page %d: %s" % (page, e)
+    return None
+
+
+def draw_pages(pdf: Path, folder: Path, dpi: int, workers: int) -> str | None:
+    """Draw every page of pdf into folder as page-<n>.png, n zero-padded to the page count's digits as
+    `pdftoppm -png` names them, with at most `workers` pdftoppm processes at once, page 1 first. None when every page
+    is written; otherwise the first failure's detail - the pages not yet started are not drawn."""
+    deadline = time.monotonic() + RENDER_TIMEOUT_S
+    n = page_count(pdf, RENDER_TIMEOUT_S)
+    if isinstance(n, str):
+        return n
+    width = len(str(n))
+    stop = threading.Event()
+
+    def one(page: int) -> str | None:
+        """Draw one page unless another page already failed."""
+        if stop.is_set():
+            return None
+        why = draw_page(pdf, page, dpi, folder / ("page-%0*d.png" % (width, page)), deadline)
+        if why is not None:
+            stop.set()
+        return why
+
+    with ThreadPoolExecutor(max_workers=max(1, workers)) as pool:
+        futures = [pool.submit(one, page) for page in range(1, n + 1)]
+        failures = [why for why in (f.result() for f in futures) if why is not None]
+    return failures[0] if failures else None
+
+
+def _new_build_name(D: BuildDoc) -> str:
+    """A page folder name for a new build: pages-<YYYYmmddHHMMSS>, with the first free -<n> suffix when that folder
+    exists or the build history still names it - a name is never given to two builds, so a URL that names a build
+    always means the same images."""
+    used = set(build.load_builds(D)["by"])
     bid = time.strftime("%Y%m%d%H%M%S")
     name = "pages-" + bid
     k = 1
-    while (D.dir / name).exists():
+    while (D.dir / name).exists() or name in used:
         name = "pages-%s-%d" % (bid, k)
         k += 1
-    newdir = D.dir / name
-    newdir.mkdir(parents=True)
+    return name
+
+
+def render_pages(
+    D: BuildDoc, pdf: Path, extra: list[Path], dpi: int, workers: int | None = None
+) -> Path | PagesNotRendered:
+    """Renders pages into a new directory and drops in a copy of the PDF (and extra - synctex, .aux, a figure map).
+    Pages are drawn in parallel (draw_pages, at most `workers` at once, render_workers() by default) into a hidden
+    folder (.<name>.part) that no client can name; only when every page and companion is in place does it get its
+    pages-<build> name, in one rename. The screen keeps showing the old directory until commit_pages. Returns the new
+    directory, or why there is none: render (a page could not be drawn; detail names it) or pdf_copy (a companion
+    could not be stored) - the half-made folder is removed. A half-made folder a killed process left is cleared first."""
+    D.dir.mkdir(parents=True, exist_ok=True)
+    for d in D.dir.iterdir():
+        if d.is_dir() and PART_DIR_RE.fullmatch(d.name):
+            shutil.rmtree(d, ignore_errors=True)
+    name = _new_build_name(D)
+    part = D.dir / ("." + name + ".part")
+    part.mkdir(parents=True)
     build.state_update(D, phase="render")
+    why = draw_pages(pdf, part, dpi, render_workers() if workers is None else workers)
+    if why is not None:
+        shutil.rmtree(part, ignore_errors=True)
+        return PagesNotRendered("render", why)
     try:
-        r = subprocess.run(
-            ["pdftoppm", "-r", str(dpi), "-png", str(pdf), str(newdir / "page")],
-            capture_output=True,
-            timeout=600,
-            check=False,
-        )
-        ok_render = r.returncode == 0 and any(newdir.glob("page-*.png"))
-    except (subprocess.TimeoutExpired, FileNotFoundError):
-        ok_render = False
-    if not ok_render:
-        shutil.rmtree(newdir, ignore_errors=True)
-        return PagesNotRendered("render", "")
-    try:
-        shutil.copy2(pdf, newdir / D.pdf_name)
+        shutil.copy2(pdf, part / D.pdf_name)
         for f in extra:
-            shutil.copy2(f, newdir / f.name)
+            shutil.copy2(f, part / f.name)
     except OSError as e:
-        shutil.rmtree(newdir, ignore_errors=True)
+        shutil.rmtree(part, ignore_errors=True)
         return PagesNotRendered("pdf_copy", str(e))
+    newdir = D.dir / name
+    try:
+        os.rename(part, newdir)
+    except OSError as e:
+        shutil.rmtree(part, ignore_errors=True)
+        return PagesNotRendered("render", "page folder not published: %s" % e)
     return newdir
 
 
