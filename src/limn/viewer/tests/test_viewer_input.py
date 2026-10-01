@@ -2506,6 +2506,199 @@ class EvenPageMargins(ViewerBase):
         self.assertEqual({(g["inside"], g["shown"], g["within"]) for g in rest}, {(False, True, False)})
 
 
+# Where a sheet's lines start, against its reference box (the sheet, or the pin list's column): for each [selector, kind] the
+# first visible match's 'box' (border-box left), 'content' (content-box left), 'ink' (left of its first drawn leaf - a text run,
+# an icon or an empty box such as a status dot) or 'end' (the gap from its border-box right to the reference's right).
+SHEET_LINES = """([ref, items]) => {const R = document.querySelector(ref).getBoundingClientRect(), r1 = v => Math.round(v * 10) / 10;
+  const vis = e => !!e && e.getClientRects().length > 0 && getComputedStyle(e).visibility !== 'hidden';
+  const ink = e => {const w = document.createTreeWalker(e, NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT); let n;
+    while ((n = w.nextNode())) {
+      if (n.nodeType === 3) {if (!n.nodeValue.trim()) continue; const g = document.createRange(); g.selectNodeContents(n); const b = g.getBoundingClientRect(); if (b.width) return b.left;}
+      else if (vis(n) && (n.tagName.toLowerCase() === 'svg' || !n.childNodes.length)) {const b = n.getBoundingClientRect(); if (b.width) return b.left;}}
+    return null;};
+  return items.map(([sel, kind]) => {const e = [...document.querySelectorAll(sel)].find(vis); if (!e) return [sel, kind, null];
+    const b = e.getBoundingClientRect(), cs = getComputedStyle(e);
+    const x = kind === 'box' ? b.left - R.left : kind === 'content' ? b.left + parseFloat(cs.borderLeftWidth) + parseFloat(cs.paddingLeft) - R.left
+      : kind === 'ink' ? ink(e) - R.left : R.right - b.right;
+    return [sel, kind, r1(x)];});}"""
+# The lines each sheet draws, as [reference, opener, [[selector, kind]...]] (SHEET_LINES).
+SHEETS = (
+    (
+        "#list",
+        "()=>{setSide(true); document.querySelector('#right').scrollTop=0;}",
+        [
+            ["#open-toggle", "ink"],
+            ["#pins .pin", "box"],
+            ["#pins .pin", "end"],
+            ["#pins .pin .head", "ink"],
+            ["#review-pins .pin", "box"],
+        ],
+    ),
+    (
+        "#more",
+        "openMore()",
+        [
+            ["#more-label", "box"],
+            ["#more .more-tools button", "box"],
+            ["#m-size-l", "ink"],
+            ["#more .more-grid", "box"],
+            ["#more .more-grid button", "ink"],
+            ["#more [data-act=more-close]", "end"],
+        ],
+    ),
+    (
+        "#docs-menu",
+        "openDocsMenu()",
+        [
+            ["#docs-menu-h", "ink"],
+            ["#docs-menu .dm-item", "box"],
+            ["#docs-menu .dm-item", "end"],
+            ["#docs-menu .dm-item .nm", "ink"],
+            ["#docs-menu [data-act=docs-menu-close]", "end"],
+        ],
+    ),
+    (
+        "#help",
+        "openHelp()",
+        [
+            ["#help-h", "ink"],
+            ["#help h4", "ink"],
+            ["#help .help-steps li", "ink"],
+            ["#help table", "box"],
+            ["#help table", "end"],
+            ["#help td", "content"],
+            ["#help .help-legend", "content"],
+            ["#help-pins-md", "ink"],
+            ["#help [data-act=help-close]", "end"],
+        ],
+    ),
+    (
+        "#trash",
+        "openTrash()",
+        [
+            ["#trash-h", "ink"],
+            ["#trash-note", "ink"],
+            ["#trash .arc-row", "box"],
+            ["#trash .arc-row .arc-l1", "ink"],
+            ["#trash .arc-row .arc-l2", "ink"],
+            ["#trash .arc-acts", "end"],
+            ["#trash [data-act=trash-close]", "end"],
+        ],
+    ),
+)
+
+
+class SheetEdgeGrid(ViewerBase):
+    """One edge grid and one sheet (docs/handbook/viewer.md §패널 정리, §휴지통, UX audit P8/P9, R1/R2): in a compact sheet
+    every box starts and ends on --edge (12px on a phone, 16px from the tablet sheet up) and every line without a box
+    starts its text on --ink (--edge + 12). Box and text lines were spread over 8, 12, 13, 16, 17, 25, 26, 30 and 33px.
+    Help and the Trash are bottom sheets like [더보기] and the documents sheet; Trash rows are two lines."""
+
+    def drop_one(self):
+        """Add one more pin by Alice and delete it, so the Trash has a row (the three open pins stay)."""
+        pid = add_pin(
+            {"file": str(self.main), "lo": 30, "hi": 31, "page": 2, "note": "지운 핀", "frac": [0.2, 0.6, 0.4, 0.04]},
+            actor(ALICE),
+        ).record["id"]
+        ps.APP.pin_trash.drop_pin(pid, post_authority(ps.APP.pin_trash.context().store, actor(ALICE), "drop", pid))
+
+    def test_every_sheet_puts_its_boxes_on_edge_and_its_text_on_ink(self):
+        """411x908 phone (12/24) and 768x1024 tablet sheet (16/28): the pin list, [더보기], the documents sheet, help and
+        the Trash."""
+        self.drop_one()
+        for (w, h), edge in (((411, 908), 12), ((768, 1024), 16)):
+            page = self.view(touch_device(w, h))
+            for ref, opener, items in SHEETS:
+                with self.subTest(w=w, sheet=ref):
+                    page.evaluate(opener)
+                    settle(page)
+                    got = page.evaluate(SHEET_LINES, [ref, items])
+                    want = {"box": edge, "end": edge, "ink": edge + 12, "content": edge + 12}
+                    off = [g for g in got if g[2] is None or abs(g[2] - want[g[1]]) > 1.5]
+                    self.assertEqual(off, [])
+                    page.evaluate(
+                        "()=>{for(const d of document.querySelectorAll('dialog[open]'))d.close(); setSide(false);}"
+                    )
+                    settle(page)
+
+    def test_help_and_the_trash_are_bottom_sheets_on_compact_bands(self):
+        """Like [더보기] and the documents sheet: on the bottom edge, the phone's whole width, the tablet sheet's 640px
+        column (they were centred cards 92vw and 100vw - 16px wide)."""
+        for (w, h), width in (((411, 908), 411), ((768, 1024), 640)):
+            page = self.view(touch_device(w, h))
+            for opener, dlg in (("openHelp()", "#help"), ("openTrash()", "#trash"), ("openMore()", "#more")):
+                with self.subTest(w=w, dialog=dlg):
+                    page.evaluate(opener)
+                    settle(page)
+                    b = page.locator(dlg).bounding_box()
+                    self.assertAlmostEqual(b["y"] + b["height"], h, delta=1)
+                    self.assertAlmostEqual(b["width"], width, delta=1)
+                    self.assertAlmostEqual(b["x"], (w - width) / 2, delta=1)
+                    page.evaluate("s=>document.querySelector(s).close()", dlg)
+
+    def test_help_and_the_trash_close_on_an_outside_tap_a_pull_down_and_the_back_gesture(self):
+        """Phone: a tap above the sheet, a pull down past 35% of it, and the system back (history fallback) with the pin
+        sheet open below - which stays open - each close it."""
+        for opener, dlg in (("openHelp()", "#help"), ("openTrash()", "#trash")):
+            with self.subTest(dialog=dlg):
+                page = self.view(PHONE, init=NO_CLOSE_WATCHER)
+                cdp = self.cdp(page)
+                is_open = "s=>document.querySelector(s).open"
+                page.evaluate(opener)
+                settle(page)
+                self.tap(cdp, 190, 20)
+                page.wait_for_function("s=>!document.querySelector(s).open", arg=dlg)
+                page.evaluate(opener)
+                settle(page)
+                r = page.locator(dlg).bounding_box()
+                self.swipe(cdp, 190, r["y"] + 30, 190, r["y"] + 30 + r["height"] * 0.6, steps=10, dt=0.02)
+                page.wait_for_function("s=>!document.querySelector(s).open", arg=dlg)
+                self.tap(cdp, *self.center(page, "#btn-side"))
+                page.wait_for_function("SIDE_OPEN")
+                page.evaluate(opener)
+                settle(page)
+                self.assertTrue(page.evaluate(is_open, dlg))
+                page.go_back()
+                page.wait_for_function("s=>!document.querySelector(s).open", arg=dlg)
+                settle(page)
+                self.assertTrue(page.evaluate("SIDE_OPEN"))
+
+    def test_a_trash_row_is_two_lines_with_its_buttons_beside_the_note_on_a_phone(self):
+        """411x908: a row was the meta line, then [되살리기] alone on a line, then the note (the button away from its note).
+        Now the meta line, then the note with [되살리기] at its right end: two 44px touch lines and the row's 16px padding."""
+        self.drop_one()
+        page = self.view(touch_device(411, 908))
+        page.evaluate("openTrash()")
+        settle(page)
+        got = page.evaluate(
+            """() => {const row = document.querySelector('#trash .arc-row'), B = s => row.querySelector(s).getBoundingClientRect();
+              const l1 = B('.arc-l1'), l2 = B('.arc-l2'), a = B('.arc-acts'), r = row.getBoundingClientRect();
+              return {lines: l2.top >= l1.bottom - 1, besideNote: a.top < l2.bottom && a.bottom > l2.top && a.left >= l2.right - 1,
+                height: Math.round(r.height)}; }"""
+        )
+        self.assertEqual({k: got[k] for k in ("lines", "besideNote")}, {"lines": True, "besideNote": True})
+        self.assertLessEqual(got["height"], 2 * 44 + 16)
+
+    def test_touch_help_starts_with_a_long_press_and_a_mouse_with_a_drag(self):
+        """The tour's first step taught 'drag on the PDF' and '⌘ Enter' on a phone; touch gets the long press and [선택],
+        and no shortcut, while a mouse keeps the drag."""
+        steps = "[...document.querySelectorAll('#help .help-steps li')].map(li=>li.innerText)"
+        page = self.view(PHONE)
+        page.evaluate("openHelp()")
+        settle(page)
+        touch = page.evaluate(steps)
+        self.assertIn("길게 누르", touch[0])
+        self.assertNotIn("드래그", touch[0])
+        self.assertFalse([s for s in touch if "⌘" in s or "Ctrl" in s])
+        page = self.view(DESK)
+        page.evaluate("openHelp()")
+        settle(page)
+        mouse = page.evaluate(steps)
+        self.assertIn("드래그", mouse[0])
+        self.assertNotIn("길게 누르", mouse[0])
+        self.assertIn("⌘ Enter", mouse[2])
+
+
 class TouchHandleHits(ViewerBase):
     """The mid panel handle (25px) and the wide outline handle (24px) answered a tap narrower than 44px on touch; through the
     .hit utility they answer a 44px box, and their drawn bars keep their width. A mouse keeps its 12px and 24px."""

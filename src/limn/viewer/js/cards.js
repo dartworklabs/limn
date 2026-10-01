@@ -125,7 +125,8 @@ function doneCard(p){
     (p.note&&oo?'<div class="arc-orig" translate="no"><b>'+esc(tr('원래 요청'))+'</b>'+fmtText(p.note,p.mentions)+'</div>':'')+
     (to?'<div class="arc-thread"><div class="thread">'+th.map((m,i)=>msgHtml(m,p.id+':'+i)).join('')+(replying?'<div class="reply-slot"></div>':'')+'</div></div>':'')+'</div>';}
 // A Trash row (docs/handbook/viewer.md §휴지통): who deleted it and when, how many days are left before it is purged, [되살리기], and -
-// for the owner only - [영구 삭제] (sent after its undo toast goes away, like a reply).
+// for the owner only - [영구 삭제] (sent after its undo toast goes away, like a reply). The buttons follow the two lines in the
+// markup; CSS sets them beside the meta line, or on a phone beside the note line (two lines, not three).
 const TRASH_DAYS=30;
 function trashDaysLeft(at,now,exp){if(typeof exp==='number')return Math.max(0,Math.ceil((exp*1000-(now==null?Date.now():now))/86400000));
   const m=/^(\d{4})-(\d\d)-(\d\d)[ T](\d\d):(\d\d)/.exec(String(at||'')); if(!m)return null;
@@ -140,9 +141,9 @@ function droppedCard(p){
     '<span class="arc-sep" aria-hidden="true">·</span><span class="arc-t trash-by">'+esc(tl('{name} 삭제',{name:who(p.dropped_by)||tr('기록 전')}))+'</span>'+
     (left!=null?'<span class="arc-sep" aria-hidden="true">·</span><span class="arc-t trash-left" data-tip="'+esc(tl('{n}일이 지나면 저절로 지워집니다',{n:TRASH_DAYS}))+'">'+esc(tl('{n}일 뒤 지워짐',{n:left}))+'</span>':'')+'<span class="sp"></span>'+
     // a viewer reads the Trash but is offered no state change (the server answers 403 anyway) - not rendered, not only hidden
+    '</div><div class="arc-l2">'+line+'</div>'+
     '<span class="arc-acts">'+(isViewer()?'':'<button class="btn-sm btn-secondary arc-b b-restore" data-act="restore" data-tip="'+esc(T.restore)+'">되살리기</button>')+
-    (isOwner()?'<button class="btn-sm arc-b btn-destructive b-purge" data-act="purge" data-tip="'+esc(T.purge)+'">영구 삭제</button>':'')+'</span></div>'+
-    '<div class="arc-l2">'+line+'</div></div>';}
+    (isOwner()?'<button class="btn-sm arc-b btn-destructive b-purge" data-act="purge" data-tip="'+esc(T.purge)+'">영구 삭제</button>':'')+'</span></div>';}
 let TRASH_ALL=false;   // the Trash shows every document while open for another document's pin - the list's own filter (SHOW_ALL) is untouched
 function drawTrash(){const L=TRASH_ALL?DROPPED:listDropped(),box=$('#trash-list'); if(!box)return;
   $('#trash-note').textContent=tl('삭제한 핀은 {n}일 동안 여기 있다가 저절로 지워집니다. 되살리면 같은 번호로 돌아옵니다',{n:TRASH_DAYS});

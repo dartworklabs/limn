@@ -35,6 +35,7 @@ dialog{background:var(--popover);color:var(--popover-foreground);border:1px soli
 dialog::backdrop{background:var(--shadow-color)}
 dialog h2{font-size:var(--text-xl);margin:0 0 8px}
 dialog .help-steps{margin:0;padding-left:var(--space-5);font-size:var(--text-base)}
+#help .touch-only{display:none}   /* a mouse's tour starts with the drag */
 dialog .help-legend{font-size:var(--text-base)}
 dialog .help-legend+.help-legend{margin-top:var(--space-1)}
 dialog h4{margin:var(--space-4) 0 var(--space-1);font-size:var(--text-base)}

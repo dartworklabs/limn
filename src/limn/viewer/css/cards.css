@@ -116,6 +116,16 @@ body:is(.lay-narrow,.band-short) #c-qhint{order:1;margin:-4px 0 8px}
 .trash-left{color:var(--subtle-foreground)}
 #trash .arc-l1{flex-wrap:wrap;white-space:normal;row-gap:var(--space-1)}   /* [되살리기] [영구 삭제] drop to their own line on a phone instead of being cut off */
 #trash .arc-l1 .sp{flex:1 0 0}
+/* A Trash row is two lines (docs/handbook/viewer.md §휴지통): meta ··· [되살리기], then the note; on a phone the buttons sit at the
+   right of the note line instead of on a line of their own between the two (UX audit P9: three lines, the button away from
+   its note). */
+#trash .arc-row{display:grid;grid-template-columns:minmax(0,1fr) auto;column-gap:var(--space-2);align-items:center}
+#trash .arc-l1{grid-column:1;grid-row:1}
+#trash .arc-acts{grid-column:2;grid-row:1}
+#trash .arc-l2{grid-column:1/-1;grid-row:2}
+body.band-phone #trash .arc-l1{grid-column:1/-1}
+body.band-phone #trash .arc-acts{grid-row:2}
+body.band-phone #trash .arc-l2{grid-column:1}
 .arc-acts{flex:none;display:inline-flex;gap:var(--space-1);margin-left:auto}
 #trash-link{display:flex;margin:12px auto 0;color:var(--muted-foreground);background:transparent;border-color:transparent}
 @media (hover:hover){#trash-link:hover{background:var(--accent);color:var(--foreground)}}

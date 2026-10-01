@@ -41,7 +41,6 @@
  "'{q}' 와 맞는 사람이 없습니다": "No one matches '{q}'",
  "'파일 L시작-L끝'을 복사합니다. 채팅창에 붙이면 에이전트가 바로 그 줄을 엽니다": "Copies \"file L<start>-L<end>.\" Paste it into a chat and the agent opens those exact lines",
  "(PDF가 새로 만들어져 위치는 추정입니다)": "(The PDF was rebuilt, so the location is estimated)",
- "(⌘ Enter / Ctrl+Enter). 알림의 [되돌리기]로 바로 취소할 수 있습니다.": " (⌘ Enter / Ctrl+Enter). You can cancel right away with [Undo] in the notification.",
  "(그 뒤에는 다른 쪽이 잡을 수 있습니다). 에이전트가 멈췄으면 [풀기]": "(after that, someone else can claim it). If the agent has stalled, use [Release]",
  "(나 — 알림 없음)": "(me — no notification)",
  "(나)": "(me)",
@@ -1072,7 +1071,6 @@
  "핀이 가리키는 원문 줄. 클릭하면 복사": "The source lines the pin points to. Click to copy",
  "한 바퀴": "One round",
  "한 줄씩 넓히고 좁히기": "Widen and narrow one line at a time",
- "합니다. 점선 상자('새 핀')가 남습니다.": ". A dashed box ('New pin') is left.",
  "해 영역을 고르면": " to select a region, and",
  "현재 체크아웃이 main이 아닙니다": "The current checkout isn't main",
  "화면 언어를 바꿉니다 (한국어 / English)": "Switch the interface language (Korean / English)",
@@ -1110,5 +1108,10 @@
  "PDF 쪽만 축소합니다": "Zooms out the PDF page only",
  "PDF 쪽만 확대합니다": "Zooms in the PDF page only",
  "폭 맞춤: PDF 쪽 폭을 화면 폭에 맞춥니다": "Fit width: fits the PDF page to the screen width",
- "사용법·용어 설명, pins.md 위치": "How to use, terms, where pins.md is"
+ "사용법·용어 설명, pins.md 위치": "How to use, terms, where pins.md is",
+ "PDF를 길게 누르거나 [선택]을 켜고 끕니다.": "Long-press the PDF, or turn on [Select] and drag.",
+ "합니다.": ".",
+ "점선 상자('새 핀')가 남습니다.": "A dashed box ('New pin') is left.",
+ ". 알림의 [되돌리기]로 바로 취소할 수 있습니다.": ". You can cancel right away with [Undo] in the notification.",
+ "(⌘ Enter / Ctrl+Enter). 알림의 [되돌리기]로 바로 취소할 수 있습니다.": " (⌘ Enter / Ctrl+Enter). You can cancel right away with [Undo] in the notification."
 }

@@ -44,10 +44,11 @@ body:not(.lay-narrow) #coach button{pointer-events:auto}
   /* The one touch hit-area utility (docs/handbook/viewer.md §모바일 레이아웃): a control drawn smaller than --hit keeps its
      drawn size and gets a centred --hit x --hit box from ::after. Its own overflow is forced visible - a clipping box (the
      assignee chip's overflow:hidden) cut the ::after back to the drawn 20px (input diagnosis P6). A tappable badge (assignee
-     chip/awaiting review/build error) is one: growing it via min-height:44px turned the chip into a 44px blue slab. */
+     chip/awaiting review/build error) is one: growing it via min-height:44px turned the chip into a 44px blue slab.
+     The list keeps class-level specificity (:where for the Trash's id) so the handles' own placements (#grip.hit::after) win. */
   button.badge{min-height:0;min-width:0;padding:1px var(--space-2)}
-  :is(.hit,button.badge,.pin .acts button,.pin .go-all){position:relative;overflow:visible}
-  :is(.hit,button.badge,.pin .acts button,.pin .go-all)::after{content:'';position:absolute;left:50%;top:50%;width:max(100%,var(--hit));height:max(100%,var(--hit));transform:translate(-50%,-50%)}
+  :is(.hit,button.badge,.pin .acts button,.pin .go-all,:where(#trash) .arc-acts button){position:relative;overflow:visible}
+  :is(.hit,button.badge,.pin .acts button,.pin .go-all,:where(#trash) .arc-acts button)::after{content:'';position:absolute;left:50%;top:50%;width:max(100%,var(--hit));height:max(100%,var(--hit));transform:translate(-50%,-50%)}
   #bar1{flex-wrap:wrap;--tb-h:var(--control-h-touch)}
   #bar1 button{padding:0 var(--space-2)}
   input,textarea,select{font-size:var(--text-xl)}
@@ -64,6 +65,8 @@ body:not(.lay-narrow) #coach button{pointer-events:auto}
   #more .more-tools .btn-icon{width:var(--control-h-lg);min-width:var(--control-h-lg);height:var(--control-h-lg);min-height:0}   /* icons drawn at 36px, 8px apart: their 44px hits (.hit) meet */
   #help{padding:var(--space-4)}
   #help .kbd-only{display:none}   /* Ctrl, the wheel and Alt+1…9 mean nothing on a touch screen; the touch table above stays */
+  #help .touch-only{display:inline}   /* the tour's first step: a long press or [선택], not a drag */
+  #trash .arc-acts button{min-height:0;height:var(--ctl-touch-sm);padding-top:0;padding-bottom:0}   /* drawn like a card's actions, 44px hits */
   button.btn-icon,.step button{width:var(--control-h-touch);min-width:var(--control-h-touch)}
   /* button.btn-icon.btn-sm{width:var(--control-h-sm)} (the base rule, 0-0-2-1) is more specific than the
      button.btn-icon above (0-0-1-1), so it stayed at 24px even for touch (observed on the card-collapse .b-fold/toast-close buttons) - re-pinned here at the same specificity. */
@@ -120,6 +123,8 @@ body.compact .sec{display:none}
    used to be 32px, a gutter for the mark badges, against 8px on the right (UX audit P1); a badge that would hang past the page
    edge now goes inside its mark (.mark.in, markBadgeIn). */
 body.band-phone{--edge:var(--space-3)}
+/* --ink is the text line beside it: a line without a box (a section head, a sheet's title, an archive row) starts its text there. */
+body{--ink:calc(var(--edge) + var(--space-3))}
 body.compact #left{padding:var(--space-3) max(var(--edge),env(safe-area-inset-right)) 60vh max(var(--edge),env(safe-area-inset-left));min-width:0}
 body.compact #main{min-width:0}
 body.compact #right{overflow-y:auto;overscroll-behavior:contain;min-width:0;max-width:none}
@@ -178,8 +183,14 @@ body:is(.lay-narrow,.band-short) #c-viewer{order:1}
 #c-overlap.one button{flex:none}
 @media (pointer:coarse){#c-overlap.one button{min-height:var(--ctl-touch-sm);padding-top:0;padding-bottom:0}}
 body.compact #list{overflow:visible;padding-bottom:calc(20px + env(safe-area-inset-bottom))}
+/* The pin sheet's and panel's edge grid (docs/handbook/viewer.md §패널 정리, UX audit R1/R2): every box - a card, a status chip,
+   the composer's controls, the save row - starts and ends on --edge, and a line without a box - a section head's chevron and
+   name, an archive row's icon and text - starts on --ink. They were spread over 8, 12, 13, 16 and 25px (UX audit P8). */
+body.compact :is(#bar2,#build-err,#banner,#composer,#list){padding-left:var(--edge);padding-right:var(--edge)}
+body.compact .sec-head{margin-left:calc(-1 * var(--edge));margin-right:calc(-1 * var(--edge));padding-left:var(--ink);padding-right:var(--edge)}
+body.compact .arc-row{padding-left:var(--space-3)}
 /* In compact, #right is the scroll box - the action row is stuck to its bottom. */
-body.compact #c-actions{position:sticky;bottom:0;padding:8px 12px calc(8px + env(safe-area-inset-bottom))}
+body.compact #c-actions{position:sticky;bottom:0;padding:8px var(--edge) calc(8px + env(safe-area-inset-bottom))}
 /* The save row is 56px on touch (44px buttons + 12px): it was 65px around 48px buttons (diagnosis P2). */
 @media (pointer:coarse){body.compact #c-actions{padding-top:0;padding-bottom:env(safe-area-inset-bottom);min-height:calc(var(--hit) + var(--space-3) + env(safe-area-inset-bottom));align-content:center}}
 body.compact #meta-txt,body.compact #me{display:none}
@@ -224,7 +235,7 @@ body.lay-narrow:not(.side-open) #bar1{padding-bottom:var(--space-1)}   /* the co
   body.lay-narrow #bar1 :is(button,#sheet-grip){position:relative;min-height:0;overflow:clip;overflow-clip-margin:var(--space-2)}   /* the label still ellipsizes; the hit area below is not clipped */
   body.lay-narrow #bar1 :is(button,#sheet-grip)::after{content:'';position:absolute;left:50%;top:0;width:max(100%,var(--hit));height:calc(var(--hit) + 2px);transform:translateX(-50%)}   /* +2px: a sheet at a fractional y loses a row to the edge */
   /* The section head is 40px: its tools are drawn at 32px from 4px down, and their hit areas reach into the 12px under it. */
-  body.lay-narrow .sec-head{min-height:40px;padding:0 var(--space-3);margin-bottom:var(--space-3)}
+  body.lay-narrow .sec-head{min-height:40px;padding:0 var(--edge) 0 var(--ink);margin-bottom:var(--space-3)}
   body.lay-narrow .sec-head button{min-height:var(--ctl-touch-sm);height:var(--ctl-touch-sm);padding-top:0;padding-bottom:0;position:relative}
   body.lay-narrow .sec-head button::after{content:'';position:absolute;left:50%;top:0;width:max(100%,var(--hit));height:calc(var(--hit) + 2px);transform:translateX(-50%)}
 }
@@ -337,6 +348,7 @@ body.band-tablet-sheet #doc-nav{height:calc(var(--doc-nav-h) + env(safe-area-ins
 body.band-tablet-sheet #pdf-body{position:relative}   /* the outline overlay's box starts under the nav bar */
 body.band-tablet-sheet #right>*{width:100%;max-width:640px;margin-left:auto;margin-right:auto}
 body.band-tablet-sheet #bar1 button{flex:none}
+body.band-tablet-sheet #bar1{padding-left:var(--edge);padding-right:var(--edge)}   /* the phone's bar keeps 8px until its grid (UX audit V4): 12px overflows a 360px row */
 body.band-tablet-sheet #coach{top:calc(var(--doc-nav-h) + env(safe-area-inset-top) + var(--space-3))}
 body.band-tablet-sheet #toasts{max-width:640px;margin:0 auto}
 /* The folded layout (narrow) reuses the existing tool bar's [문서 ▾] button and sheet list as-is. */
@@ -359,6 +371,18 @@ body.no-rebuild #btn-rebuild{display:none}
 .dm-item .ph{font-size:var(--text-sm);color:var(--muted-foreground);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .dm-item{border-color:transparent;background:transparent}
 .dm-item.on{background:var(--accent)}
+/* One bottom sheet (docs/handbook/viewer.md §패널 정리): in compact, [더보기], the documents sheet, help and the Trash rise from the
+   bottom edge - the phone's whole width, else a 640px column like the pin sheet's - with their boxes on --edge (its 1px border
+   counted) and their text lines on --ink, and close on an outside tap, a pull down (sheetPull) and the back gesture. Help and the
+   Trash were centred cards 92vw and 100vw - 16px wide with 16 and 24px sides (UX audit P9); the desktop keeps them. */
+body.compact :is(#more,#docs-menu,#help,#trash){margin:auto auto 0;width:100%;max-width:640px;border-radius:var(--radius-lg) var(--radius-lg) 0 0;
+  padding:var(--space-3) max(calc(var(--edge) - 1px),env(safe-area-inset-right)) calc(var(--space-3) + env(safe-area-inset-bottom)) max(calc(var(--edge) - 1px),env(safe-area-inset-left))}
+body.compact :is(#docs-menu-h,#trash-h,#help-h,#help h4,#trash-note,#m-size-l,#help .help-legend,#help .help-steps,#help-pins-md){padding-left:var(--space-3)}
+body.compact #help-pins-md{display:block}
+body.compact #help td:first-child{padding-left:var(--space-3)}
+body.compact :is(#docs-menu,#help,#trash)>.row>button{background:transparent;border-color:transparent}   /* [닫기] is a ghost, like [더보기]'s */
+@media (hover:hover){body.compact :is(#docs-menu,#help,#trash)>.row>button:hover{background:var(--accent)}}
+body.compact #trash .arc-list{max-height:none;overflow:visible}   /* the sheet scrolls, so a pull down starts at its top */
 /* Selection on a view-only PDF document: no range ladder, stepper, or source expansion (there is no line). The region's text is shown in the source field instead. */
 #composer.region #c-levels,#composer.region .c-tools,#composer.region .snip-foot,#composer.region #c-copy{display:none}
 .edit.region .e-levels,.edit.region .c-tools .step{display:none}
