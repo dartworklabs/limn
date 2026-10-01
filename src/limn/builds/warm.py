@@ -42,11 +42,10 @@ LATEXMKRC_NAMES = ("latexmkrc", ".latexmkrc")
 # The tools a latexmk run may start, as rc variables whose command's first word names the program: -pdf runs $pdflatex,
 # and bibtex, biber and makeindex run when the document needs them. Each defaults to its own name.
 TOOL_VARS = ("pdflatex", "bibtex", "biber", "makeindex")
-_RC_TOOL = re.compile(r"""^\s*\$(%s)\s*=\s*(['"])\s*([^\s'"]+)""" % "|".join(TOOL_VARS), re.MULTILINE)
-# makeindex prints one dot per few lines it scans, then "done": "Scanning style file ./style.ist.done".
-_ILG_STYLE = re.compile(r"^Scanning style file (.+?)\.+done", re.MULTILINE)
-_BLG_STYLE = re.compile(r"^The style file: (.+?)\s*$", re.MULTILINE)
-_UP_TO_DATE = re.compile(r"^Latexmk: All targets \((.*)\) are up-to-date\s*$", re.MULTILINE)
+_ILG_STYLE = "Scanning style file "  # makeindex: "Scanning style file ./style.ist.done (...)" - one dot per few lines
+_BLG_STYLE = "The style file: "  # bibtex: "The style file: plain.bst"
+_WORD_END = frozenset(" \t'\";")
+_UP_TO_DATE = ("Latexmk: All targets (", ") are up-to-date")
 
 
 def byproduct_names(stem: str) -> tuple[str, ...]:
@@ -77,7 +76,7 @@ class Reads(NamedTuple):
 
 NO_READS = Reads(frozenset(), frozenset())
 RECIPE_NAME = "recipe.json"  # the sidecar a LaTeX build publishes in its page folder, next to its .fls
-RECIPE_FORMAT = 2
+RECIPE_FORMAT = 3
 # One source line of a .fdb_latexmk rule: "name" mtime size md5 "rule that made it" ("" for a primary source).
 _FDB_SOURCE = re.compile(r'^  "((?:[^"\\]|\\.)*)" \S+ \S+ \S+ "([^"]*)"\s*$')
 
@@ -171,8 +170,18 @@ def tool_names(rc_texts: Sequence[str]) -> dict[str, str]:
     bytes are in the cold digest anyway."""
     names = {var: var for var in TOOL_VARS}
     for text in rc_texts:
-        for m in _RC_TOOL.finditer(text):
-            names[m.group(1)] = m.group(3)
+        for line in text.splitlines():  # line by line, in linear time, whatever the rc holds
+            stripped = line.lstrip()
+            if not stripped.startswith("$"):
+                continue
+            var, eq, value = stripped[1:].partition("=")
+            var, value = var.strip(), value.lstrip()
+            if not eq or var not in names or value[:1] not in ("'", '"'):
+                continue
+            word = value[1:].lstrip()
+            end = next((i for i, c in enumerate(word) if c in _WORD_END), len(word))
+            if end:
+                names[var] = word[:end]
     return names
 
 
@@ -181,10 +190,17 @@ def log_styles(ilg_text: str | None, blg_text: str | None) -> list[str]:
     bibtex's .blg 'The style file: X'. latexmk does not track a style given with makeindex -s, so its edit would
     otherwise meet a warm copy that latexmk thinks is up to date."""
     found: list[str] = []
-    if ilg_text is not None:
-        found += _ILG_STYLE.findall(ilg_text)
-    if blg_text is not None:
-        found += _BLG_STYLE.findall(blg_text)
+    for line in (ilg_text or "").splitlines():  # line by line, in linear time, whatever the log holds
+        if line.startswith(_ILG_STYLE):
+            spelled, _, _ = line[len(_ILG_STYLE) :].rpartition("done")
+            name = spelled.rstrip(".")
+            if spelled.endswith(".") and name:
+                found.append(name)
+    for line in (blg_text or "").splitlines():
+        if line.startswith(_BLG_STYLE):
+            name = line[len(_BLG_STYLE) :].strip()
+            if name:
+                found.append(name)
     return found
 
 
@@ -192,22 +208,24 @@ def recipe(
     dpi: int,
     main_rel: PurePosixPath,
     latexmk_args: Sequence[str],
-    reads: Reads,
-    digest: str,
+    reads: Reads | None,
+    digest: str | None,
     styles: Sequence[str],
     cold: str,
 ) -> dict[str, Any]:
     """How a LaTeX build made its pages, besides its fingerprint, as its page folder's RECIPE_NAME holds it: the page
     image dpi, the main file below the build root, latexmk's switches, the files it read (inside and outside the copy)
-    and their reads_digest, the side tools' style files (log_styles, resolved) and the cold_digest when it finished."""
+    and their reads_digest - both None for a build that published no .fls, which no rebuild may then skip - and the
+    side tools' style files (log_styles, resolved) and the cold_digest when it finished, which the next build's go-cold
+    decision uses with or without a .fls."""
     return {
         "format": RECIPE_FORMAT,
         "dpi": dpi,
         "main": main_rel.as_posix(),
         "latexmk": list(latexmk_args),
-        "inside": sorted(reads.inside),
-        "outside": sorted(reads.outside),
-        "digest": digest,
+        "inside": sorted(reads.inside) if reads is not None else [],
+        "outside": sorted(reads.outside) if reads is not None else [],
+        "digest": digest if reads is not None else None,
         "styles": list(styles),
         "cold": cold,
     }
@@ -218,30 +236,38 @@ def _strings(v: object) -> list[str] | None:
     return v if isinstance(v, list) and all(isinstance(x, str) for x in v) else None
 
 
-def stored_reads(stored: object) -> Reads | None:
-    """The files a recipe (as recipe() makes it, read back from JSON) says its build read, or None for anything that is
-    not such a recipe - another format, a missing or mistyped field."""
+def _cold_part(stored: object) -> tuple[list[str], str] | None:
+    """(styles, cold) of a recipe (as recipe() makes it, read back from JSON), or None for anything that is not one -
+    another format, a missing or mistyped field."""
     if not isinstance(stored, dict) or stored.get("format") != RECIPE_FORMAT:
         return None
-    inside, outside = _strings(stored.get("inside")), _strings(stored.get("outside"))
-    if inside is None or outside is None or _strings(stored.get("styles")) is None:
+    styles, cold = _strings(stored.get("styles")), stored.get("cold")
+    return (styles, cold) if styles is not None and isinstance(cold, str) else None
+
+
+def stored_reads(stored: object) -> Reads | None:
+    """The files a recipe says its build read, or None when it records none (a build without a .fls) or is not such a
+    recipe."""
+    if _cold_part(stored) is None or not isinstance(stored, dict) or not isinstance(stored.get("digest"), str):
         return None
-    if not isinstance(stored.get("cold"), str):
+    inside, outside = _strings(stored.get("inside")), _strings(stored.get("outside"))
+    if inside is None or outside is None:
         return None
     return Reads(frozenset(inside), frozenset(outside))
 
 
 def stored_styles(stored: object) -> list[str]:
     """The style files a valid recipe lists (none for anything that is not one)."""
-    if stored_reads(stored) is None or not isinstance(stored, dict):
-        return []
-    return list(stored["styles"])
+    part = _cold_part(stored)
+    return [] if part is None else list(part[0])
 
 
 def goes_cold(stored: object, cold_now: str) -> bool:
     """Must this build clear the copy's byproducts before latexmk? Yes unless the build on screen recorded a valid
-    recipe whose cold_digest equals cold_now - an unknown recipe (no recipe.json, an older format) goes cold too."""
-    return stored_reads(stored) is None or not isinstance(stored, dict) or stored.get("cold") != cold_now
+    recipe - with or without a .fls - whose cold_digest equals cold_now; an unknown recipe (no recipe.json, an older
+    format) goes cold too."""
+    part = _cold_part(stored)
+    return part is None or part[1] != cold_now
 
 
 def recipe_matches(
@@ -265,8 +291,13 @@ def up_to_date_target(latexmk_output: str) -> str | None:
     """What the last 'Latexmk: All targets (X) are up-to-date' line of latexmk's output names (X), or None. latexmk
     4.87 prints that line after every run that ends without an error, a run that compiled too, so it says only which
     targets latexmk ended with - never that it compiled nothing."""
-    found = _UP_TO_DATE.findall(latexmk_output)
-    return found[-1] if found else None
+    head, tail = _UP_TO_DATE
+    found = None
+    for line in latexmk_output.splitlines():  # line by line, in linear time
+        line = line.rstrip()
+        if line.startswith(head) and line.endswith(tail) and len(line) >= len(head) + len(tail):
+            found = line[len(head) : len(line) - len(tail)]
+    return found
 
 
 def vouched(

@@ -255,14 +255,23 @@ def _published_head(D: BuildDoc) -> str:
 
 
 def _file_digest(f: Path) -> bytes | None:
-    """The SHA-256 of f's bytes, or None when it is missing or cannot be read (a folder, no permission)."""
+    """The SHA-256 of f's bytes when it is (or links to) a plain file, or None when it is missing, cannot be read, or is
+    anything else - a folder, a FIFO, a device such as /dev/zero, which is never read."""
     h = hashlib.sha256()
     try:
-        with open(f, "rb") as fh:
+        fd = os.open(f, os.O_RDONLY | getattr(os, "O_NONBLOCK", 0))
+    except OSError:
+        return None
+    try:
+        if not stat.S_ISREG(os.fstat(fd).st_mode):
+            return None
+        with os.fdopen(fd, "rb", closefd=False) as fh:
             for chunk in iter(lambda: fh.read(1 << 20), b""):
                 h.update(chunk)
     except OSError:
         return None
+    finally:
+        os.close(fd)
     return h.digest()
 
 
@@ -284,49 +293,112 @@ def _reads_digest(D: BuildDoc, reads: warm.Reads) -> str:
     return warm.reads_digest(inside, outside)
 
 
-def _rc_paths(D: BuildDoc) -> list[Path]:
-    """Every latexmkrc latexmk may read for D, in its reading order: the system files ($LATEXMKRCSYS and the usual
-    places), the user's (XDG and ~/.latexmkrc), then the project's in the folder it runs in - and, as the warm copy
-    keeps them all the same, the build root's. Missing ones are listed too: one appearing is a change."""
-    system = [os.environ.get("LATEXMKRCSYS", "")] + [
-        "/opt/local/share/latexmk/LatexMk",
-        "/usr/local/share/latexmk/LatexMk",
-        "/usr/local/lib/latexmk/LatexMk",
-        "/etc/LatexMk",
-        "/etc/latexmk/LatexMk",
-    ]
-    user: list[str] = []
-    with contextlib.suppress(RuntimeError, KeyError):
-        home = Path.home()
-        xdg = os.environ.get("XDG_CONFIG_HOME") or str(home / ".config")
-        user = [os.path.join(xdg, "latexmk", "latexmkrc"), str(home / ".latexmkrc")]
-    project = [str(folder / name) for folder in dict.fromkeys((D.out, D.build)) for name in warm.LATEXMKRC_NAMES]
-    return [Path(f) for f in dict.fromkeys(system + user + project) if f]
+TEXT_CAP = 1 << 20  # the most a latexmkrc, .ilg, .blg or recipe.json read here may hold
+# latexmk 4.87 (latexmk.pl, the UNIX branch): the system rc is the first that exists of these, LatexMk names first.
+SYSTEM_RC_FILES = tuple(
+    "%s/%s" % (folder, name)
+    for name in ("LatexMk", "latexmkrc")
+    for folder in ("/etc", "/opt/local/share/latexmk", "/usr/local/share/latexmk", "/usr/local/lib/latexmk")
+)
+
+
+def _small_regular(f: Path) -> bytes | None:
+    """f's bytes when it is a plain file - not a symlink (the open does not follow one), a folder or a device - of at
+    most TEXT_CAP bytes, read bounded; None otherwise. A latexmkrc linked to /dev/zero is never read."""
+    try:
+        fd = os.open(f, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0))
+    except OSError:
+        return None
+    try:
+        st = os.fstat(fd)
+        if not stat.S_ISREG(st.st_mode) or st.st_size > TEXT_CAP:
+            return None
+        with os.fdopen(fd, "rb", closefd=False) as fh:
+            data = fh.read(TEXT_CAP + 1)
+    except OSError:
+        return None
+    finally:
+        os.close(fd)
+    return None if len(data) > TEXT_CAP else data
 
 
 def _read_text(f: Path) -> str | None:
-    """f's text (bytes that are not UTF-8 replaced), or None when it cannot be read."""
+    """f's text (bytes that are not UTF-8 replaced) when it is a small plain file (_small_regular), else None."""
+    data = _small_regular(f)
+    return None if data is None else data.decode("utf-8", errors="replace")
+
+
+def _rc_token(f: Path) -> bytes | None:
+    """How an rc file is compared: the SHA-256 of its bytes when it is a small plain file; otherwise - a symlink, a
+    device, a file over TEXT_CAP - never read: its kind, the link's target and what stat says of it stand in. None when
+    there is nothing there."""
     try:
-        return f.read_bytes().decode("utf-8", errors="replace")
+        st = os.lstat(f)
     except OSError:
         return None
+    data = _small_regular(f)
+    if data is not None:
+        return hashlib.sha256(data).digest()
+    target = b""
+    if stat.S_ISLNK(st.st_mode):
+        with contextlib.suppress(OSError):
+            target = os.fsencode(os.readlink(f))
+    try:
+        seen = os.stat(f)  # follows a link; asks nothing of a device
+    except OSError:
+        seen = st
+    return b"special:%o:%d:%d:" % (seen.st_mode, seen.st_mtime_ns, seen.st_size) + target
 
 
-def _resolve_styles(D: BuildDoc, spelled: list[str]) -> list[str]:
+def _first_existing(paths: list[str]) -> str | None:
+    """The first of paths that exists (a link to something counts), as latexmk's read_first_rc_file_in_list picks it."""
+    return next((f for f in paths if f and os.path.exists(f)), None)
+
+
+def _rc_paths(D: BuildDoc) -> list[tuple[str, Path | None]]:
+    """The latexmkrc files latexmk 4.87 reads for D, in its reading order, as (role, file or None when it reads none):
+    the system one ($LATEXMKRCSYS when set, else the first of SYSTEM_RC_FILES that exists), the user's (the first of
+    $XDG_CONFIG_HOME/latexmk/latexmkrc and ~/.latexmkrc), and the project's in the folder it runs in (the first of
+    .latexmkrc and latexmkrc) - and, as the warm copy keeps it alike, the build root's chosen the same way. Which file is
+    chosen is part of the digest: a file appearing ahead of the one read changes it."""
+    sysrc = os.environ.get("LATEXMKRCSYS")
+    system = _first_existing([sysrc] if sysrc is not None else list(SYSTEM_RC_FILES))
+    user: str | None = None
+    with contextlib.suppress(RuntimeError, KeyError):
+        home = Path.home()
+        xdg = os.environ.get("XDG_CONFIG_HOME") or str(home / ".config")
+        user = _first_existing([os.path.join(xdg, "latexmk", "latexmkrc"), str(home / ".latexmkrc")])
+    chosen: list[tuple[str, str | None]] = [("system", system), ("user", user)]
+    for role, folder in (("project", D.out), ("root", D.build)):
+        if role == "root" and folder == D.out:
+            continue
+        chosen.append((role, _first_existing([str(folder / ".latexmkrc"), str(folder / "latexmkrc")])))
+    return [(role, Path(f) if f else None) for role, f in chosen]
+
+
+def _resolve_styles(D: BuildDoc, spelled: list[str], tracked: frozenset[str]) -> list[str]:
     """The style files a side tool's log names (warm.log_styles), as absolute paths of files that exist: relative to the
-    folder latexmk runs in, where makeindex and bibtex ran. A bare name the tool found elsewhere (a TeX Live .bst) is
-    left out; the .fdb_latexmk sources already cover it."""
-    found = (os.path.normpath(os.path.join(D.out, s)) for s in spelled)
-    return sorted({f for f in found if os.path.isfile(f)})
+    folder latexmk runs in, where makeindex and bibtex ran. Left out: a bare name the tool found elsewhere (a TeX Live
+    .bst), which the .fdb_latexmk sources already cover, and a file of tracked - the reads inside the copy (relative to
+    it), which latexmk itself follows, so an in-tree .bst edit stays warm."""
+    copy = os.path.normpath(D.build)
+    found = {os.path.normpath(os.path.join(D.out, s)) for s in spelled}
+    return sorted(
+        f
+        for f in found
+        if os.path.isfile(f)
+        and not (f.startswith(copy + os.sep) and f[len(copy) + 1 :].replace(os.sep, "/") in tracked)
+    )
 
 
 def _cold_digest(D: BuildDoc, styles: list[str]) -> str:
     """warm.cold_digest as the machine and the copy are now: every latexmkrc latexmk may read (_rc_paths) by its bytes;
     latexmk and each tool the rc files name (warm.tool_names) by the real path PATH gives and that file's stat; and
     styles - side tools' style files - by their bytes inside the copy, their stat outside it."""
-    paths = _rc_paths(D)
-    rc = [(str(f), _file_digest(f)) for f in paths]
-    names = {"latexmk": "latexmk", **warm.tool_names([t for t in map(_read_text, paths) if t is not None])}
+    chosen = _rc_paths(D)
+    rc = [("%s=%s" % (role, f or "-"), _rc_token(f) if f else None) for role, f in chosen]
+    texts = [t for t in (_read_text(f) for _role, f in chosen if f is not None) if t is not None]
+    names = {"latexmk": "latexmk", **warm.tool_names(texts)}
     tools: list[tuple[str, bytes | None]] = []
     for var, prog in sorted(names.items()):
         found = shutil.which(prog)
@@ -352,10 +424,14 @@ def _build_reads(D: BuildDoc, fls_text: str) -> warm.Reads:
 
 
 def _stored_recipe(folder: Path) -> object:
-    """The recipe a page folder holds (warm.RECIPE_NAME) as parsed JSON, or None when it has none or it is unreadable."""
+    """The recipe a page folder holds (warm.RECIPE_NAME) as parsed JSON, or None when it has none, it is not a small plain
+    file, or it is not JSON."""
+    data = _small_regular(folder / warm.RECIPE_NAME)
+    if data is None:
+        return None
     try:
-        return json.loads((folder / warm.RECIPE_NAME).read_text(encoding="utf-8"))
-    except (OSError, ValueError, RecursionError):
+        return json.loads(data.decode("utf-8"))
+    except (ValueError, RecursionError):
         return None
 
 
@@ -406,8 +482,8 @@ def _compile(D: BuildDoc, cfg: BuildConfig, pull: Callable[[], Json] | None, for
     # read with their digest) still holds over the copy and the machine now, after an ok last build - so its pages are
     # what this build would make. A build on screen without a .fls or a recipe (recorder off, an older Limn) is rebuilt.
     cur = build.cur_pages(D)
-    stored = _stored_recipe(cur) if (cur / (D.main.stem + ".fls")).is_file() else None
-    stored_reads = warm.stored_reads(stored)
+    stored = _stored_recipe(cur)
+    stored_reads = warm.stored_reads(stored) if (cur / (D.main.stem + ".fls")).is_file() else None
     cold_now = _cold_digest(D, warm.stored_styles(stored))
     if not force and scan is not None and stored_reads is not None:
         cur_reads = build.read_in_scan(scan, build.build_inputs(D, cur.name))
@@ -499,18 +575,25 @@ def _compile(D: BuildDoc, cfg: BuildConfig, pull: Callable[[], Json] | None, for
     extra = [syn]
     if current(aux):
         extra.append(aux)
-    notes: dict[str, str] = {}
     fls_text = build.read_recorder(recorder) if recorder is not None else None
+    made: warm.Reads | None = None
     if recorder is not None and fls_text is not None:
         extra.append(recorder)  # what this build read, kept with its pages (build.build_inputs reads it back)
-        # how this build made its pages and what it read, for the next rebuild's skip; never without the .fls
         made = _build_reads(D, fls_text)
-        logs = [_read_text(D.out / (D.main.stem + suffix)) for suffix in (".ilg", ".blg")]
-        styles = _resolve_styles(D, warm.log_styles(*logs))
-        recipe = warm.recipe(
-            cfg.dpi, main_rel, LATEXMK_ARGS, made, _reads_digest(D, made), styles, _cold_digest(D, styles)
-        )
-        notes[warm.RECIPE_NAME] = json.dumps(recipe, ensure_ascii=False)
+    # How this build made its pages, for the next build: its cold digest always (a document with the recorder off stays
+    # warm on .tex edits), and what it read only with its .fls (no skip without one).
+    logs = [_read_text(D.out / (D.main.stem + suffix)) for suffix in (".ilg", ".blg")]
+    styles = _resolve_styles(D, warm.log_styles(*logs), made.inside if made is not None else frozenset())
+    recipe = warm.recipe(
+        cfg.dpi,
+        main_rel,
+        LATEXMK_ARGS,
+        made,
+        _reads_digest(D, made) if made is not None else None,
+        styles,
+        _cold_digest(D, styles),
+    )
+    notes = {warm.RECIPE_NAME: json.dumps(recipe, ensure_ascii=False)}
     newdir = render_pages(D, pdf, extra, cfg.dpi, notes=notes)
     if isinstance(newdir, PagesNotRendered):
         return failed(newdir.kind, newdir.detail)

@@ -71,7 +71,8 @@ class WarmDoc:
 
 # latexmk stand-in: appends "warm" or "cold" to $LIMN_TEST_CALLS (was main.aux there when it started?), then writes
 # the PDF (the .tex), SyncTeX, log, aux, fdb_latexmk and a recorder file listing the main file and $LIMN_TEST_INPUTS
-# (none when LIMN_TEST_RECORDER=off); LIMN_TEST_LATEXMK=nopdf writes nothing and fails.
+# (none when LIMN_TEST_RECORDER=off), and $LIMN_TEST_FDB as its .fdb_latexmk and $LIMN_TEST_BLG as a .blg when set;
+# LIMN_TEST_LATEXMK=nopdf writes nothing and fails.
 FAKE_LATEXMK = """#!/bin/sh
 for a; do main=$a; done
 stem=${main%.tex}
@@ -85,7 +86,9 @@ case "$LIMN_TEST_RECORDER" in
   off) rm -f "$stem.fls" ;;
   *) { printf 'PWD %s\\nINPUT %s\\n' "$PWD" "$main"; printf '%b' "$LIMN_TEST_INPUTS"; } > "$stem.fls" ;;
 esac
-echo fdb > "$stem.fdb_latexmk"
+if [ -n "$LIMN_TEST_FDB" ]; then printf '%b' "$LIMN_TEST_FDB"; else echo fdb; fi > "$stem.fdb_latexmk"
+[ -n "$LIMN_TEST_BLG" ] && printf '%b' "$LIMN_TEST_BLG" > "$stem.blg"
+exit 0
 """
 FAKE_PDFTOPPM = """#!/bin/sh
 printf 'P6\\n2 1\\n255\\n\\377\\377\\377\\0\\0\\0'
@@ -112,6 +115,8 @@ def stand_ins(case: unittest.TestCase, root: Path) -> Path:
             "LIMN_TEST_LATEXMK": "ok",
             "LIMN_TEST_RECORDER": "on",
             "LIMN_TEST_INPUTS": "",
+            "LIMN_TEST_FDB": "",
+            "LIMN_TEST_BLG": "",
         },
     )
     env.start()
@@ -281,19 +286,80 @@ class ReadsDigest(unittest.TestCase):
             (150, PurePosixPath("1st/m.tex"), ("-pdf",), "d", "x"),
         ):
             self.assertFalse(warm.recipe_matches(stored, *args))
-        for bad in (
-            None,
-            [],
-            dict(stored, format=1),
-            dict(stored, inside="a.csv"),
-            dict(stored, outside=[1]),
-            dict(stored, styles=None),
-            dict(stored, cold=3),
-        ):
+        for bad in (None, [], dict(stored, format=2), dict(stored, styles=None), dict(stored, cold=3)):
             self.assertIsNone(warm.stored_reads(bad))
             self.assertEqual(warm.stored_styles(bad), [])
             self.assertTrue(warm.goes_cold(bad, "c"))
             self.assertFalse(warm.recipe_matches(bad, 150, PurePosixPath("1st/m.tex"), ("-pdf",), "d", "c"))
+        for no_reads in (dict(stored, inside="a.csv"), dict(stored, outside=[1]), dict(stored, digest=None)):
+            self.assertIsNone(warm.stored_reads(no_reads))  # never skipped ...
+            self.assertFalse(warm.recipe_matches(no_reads, 150, PurePosixPath("1st/m.tex"), ("-pdf",), "d", "c"))
+            self.assertFalse(warm.goes_cold(no_reads, "c"))  # ... but its cold digest still keeps the copy warm
+
+    def test_hostile_logs_and_rc_files_are_read_in_linear_time(self):
+        """A .blg line of 60,000 spaces, an .ilg line of 60,000 dots without 'done' and an rc of 60,000 blank or space
+        lines each parse in well under a second (they are read line by line, with no regular expression)."""
+        cases = (
+            (warm.log_styles, (None, "The style file: " + " " * 60_000 + "x\n"), ["x"]),
+            (warm.log_styles, ("Scanning style file " + "." * 60_000 + "\n", None), []),
+            (warm.tool_names, (["\n" * 60_000],), {v: v for v in warm.TOOL_VARS}),
+            (warm.tool_names, ([(" " * 50 + "\n") * 1_200],), {v: v for v in warm.TOOL_VARS}),
+            (warm.up_to_date_target, ("Latexmk: All targets (" + "(" * 60_000 + "\n",), None),
+        )
+        for fn, args, want in cases:
+            with self.subTest(fn=fn.__name__):
+                start = time.perf_counter()
+                self.assertEqual(fn(*args), want)
+                self.assertLess(time.perf_counter() - start, 0.5)
+
+    def test_a_recipe_without_a_recorder_file_keeps_its_cold_digest(self):
+        """A build that published no .fls records no reads (no skip) but its styles and cold digest."""
+        made = json.loads(json.dumps(warm.recipe(150, PurePosixPath("m.tex"), ("-pdf",), None, None, ["/s.ist"], "c")))
+        self.assertEqual((made["inside"], made["outside"], made["digest"]), ([], [], None))
+        self.assertIsNone(warm.stored_reads(made))
+        self.assertEqual(warm.stored_styles(made), ["/s.ist"])
+        self.assertFalse(warm.goes_cold(made, "c"))
+        self.assertTrue(warm.goes_cold(made, "d"))
+
+
+class RcFiles(unittest.TestCase):
+    """engine._rc_paths: the latexmkrc files latexmk 4.87 reads, as it picks them."""
+
+    def test_the_system_list_is_latexmks_own(self):
+        """For LatexMk then latexmkrc: /etc, /opt/local/share/latexmk, /usr/local/share/latexmk, /usr/local/lib/latexmk
+        (latexmk.pl's UNIX branch), in that order."""
+        dirs = ("/etc", "/opt/local/share/latexmk", "/usr/local/share/latexmk", "/usr/local/lib/latexmk")
+        want = tuple("%s/%s" % (d, n) for n in ("LatexMk", "latexmkrc") for d in dirs)
+        self.assertEqual(build_engine.SYSTEM_RC_FILES, want)
+
+    def test_only_the_first_existing_file_of_each_list_is_read(self):
+        """The first system file that exists (or $LATEXMKRCSYS alone when set), the XDG user rc before ~/.latexmkrc, and
+        .latexmkrc before latexmkrc in the run folder and in the build root."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            sys_a, sys_b = root / "a" / "LatexMk", root / "b" / "latexmkrc"
+            home, xdg = root / "home", root / "xdg"
+            for f in (sys_b, home / ".latexmkrc", xdg / "latexmk" / "latexmkrc"):
+                f.parent.mkdir(parents=True, exist_ok=True)
+                f.write_text("", encoding="utf-8")
+            D = WarmDoc(src=root / "ms", main=root / "ms" / "1st" / "main.tex", dir=root / "state")
+            (D.out).mkdir(parents=True)
+            (D.out / "latexmkrc").write_text("", encoding="utf-8")
+            (D.out / ".latexmkrc").write_text("", encoding="utf-8")
+            (D.build / "latexmkrc").write_text("", encoding="utf-8")
+            env = {"XDG_CONFIG_HOME": str(xdg), "HOME": str(home)}
+            with (
+                mock.patch.object(build_engine, "SYSTEM_RC_FILES", (str(sys_a), str(sys_b))),
+                mock.patch.dict(os.environ, env),
+            ):
+                os.environ.pop("LATEXMKRCSYS", None)
+                chosen = dict(build_engine._rc_paths(D))
+                self.assertEqual(chosen["system"], sys_b)
+                self.assertEqual(chosen["user"], xdg / "latexmk" / "latexmkrc")
+                self.assertEqual(chosen["project"], D.out / ".latexmkrc")
+                self.assertEqual(chosen["root"], D.build / "latexmkrc")
+                with mock.patch.dict(os.environ, {"LATEXMKRCSYS": str(root / "missing")}):
+                    self.assertIsNone(dict(build_engine._rc_paths(D))["system"])  # set but missing: none at all
 
 
 class CopyKeeps(unittest.TestCase):
@@ -555,6 +621,62 @@ class Warm(unittest.TestCase):
         self.assertIsInstance(first, BuildOk)
         self.assertIsInstance(self.tracked(**long), BuildUnchanged)
 
+    def run_bounded(self, seconds: float = 30, **env: str):
+        """tracked(**env) on a thread that must finish within `seconds` (a read of /dev/zero would never end)."""
+        out: list = []
+        worker = threading.Thread(target=lambda: out.append(self.tracked(**env)), daemon=True)
+        worker.start()
+        worker.join(seconds)
+        self.assertFalse(worker.is_alive(), "the build hung")
+        return out[0]
+
+    def test_an_ilg_linked_to_dev_zero_is_never_read(self):
+        """A main.ilg in the copy that is a symlink to /dev/zero is not a plain file: the build neither reads nor hangs
+        on it, and finishes ok."""
+        self.assertIsInstance(self.tracked(), BuildOk)
+        (self.D.out / "main.ilg").symlink_to("/dev/zero")
+        self.D.main.write_text(self.D.main.read_text().replace("A", "I"), encoding="utf-8")
+        ilg = self.D.out / "main.ilg"
+        with mock.patch.object(build_engine.os, "open", wraps=os.open) as opened:
+            self.assertIsInstance(self.run_bounded(), BuildOk)
+        flags = [call.args[1] for call in opened.call_args_list if Path(call.args[0]) == ilg]
+        self.assertTrue(flags, "the build never looked at the .ilg")
+        self.assertTrue(all(f & os.O_NOFOLLOW for f in flags), "the .ilg was opened in a way that follows the link")
+        self.assertIsNone(build_engine._read_text(ilg))
+
+    def test_an_rc_linked_to_dev_zero_does_not_hang_the_build(self):
+        """A latexmkrc that is a symlink to /dev/zero is compared by what stat says of it, never read: two builds finish,
+        the second skipped as unchanged."""
+        (self.D.src / "1st" / "latexmkrc").symlink_to("/dev/zero")
+        self.assertIsInstance(self.run_bounded(), BuildOk)
+        self.assertIsInstance(self.run_bounded(), BuildUnchanged)
+
+    def test_a_recorder_off_document_stays_warm_on_a_tex_edit(self):
+        """A build without a .fls still records its cold digest, so a .tex edit of a document with the recorder off
+        starts latexmk warm - and, without a .fls, is never skipped."""
+        self.assertIsInstance(self.tracked(LIMN_TEST_RECORDER="off"), BuildOk)
+        self.D.main.write_text(self.D.main.read_text().replace("A", "J"), encoding="utf-8")
+        self.assertIsInstance(self.tracked(LIMN_TEST_RECORDER="off"), BuildOk)
+        self.assertEqual(self.latexmk_runs(), ["cold", "warm"])
+        self.assertIsInstance(self.tracked(LIMN_TEST_RECORDER="off"), BuildOk)  # nothing changed, but no .fls: builds
+        self.assertEqual(self.latexmk_runs()[-1], "warm")
+
+    def test_an_in_tree_bst_latexmk_tracks_stays_warm(self):
+        """A .bst in the manuscript that bibtex used is in the .fdb_latexmk sources, which latexmk follows: it is left
+        out of the cold digest's styles, so editing it rebuilds warm, not cold."""
+        bst = self.D.src / "1st" / "mystyle.bst"
+        bst.write_text("ENTRY {} {} {}\n", encoding="utf-8")
+        env = {
+            "LIMN_TEST_FDB": '["bibtex main"] 1 "main.aux" "main.bbl" "main" 1 0\n  "mystyle.bst" 1 16 abc ""\n',
+            "LIMN_TEST_BLG": "This is BibTeX, Version 0.99d\nThe style file: mystyle.bst\n",
+        }
+        first = self.tracked(**env)
+        self.assertEqual(json.loads((self.D.dir / first.build / "recipe.json").read_text())["styles"], [])
+        self.assertIsInstance(self.tracked(**env), BuildUnchanged)
+        bst.write_text("ENTRY {} {} {} % edited\n", encoding="utf-8")
+        self.assertIsInstance(self.tracked(**env), BuildOk)
+        self.assertEqual(self.latexmk_runs()[-1], "warm")
+
     def test_a_build_that_dies_clears_the_byproducts(self):
         """A build that raises (here its render) clears the kept byproducts like any build that does not end ok, so the
         next one starts cold."""
@@ -572,7 +694,7 @@ class Warm(unittest.TestCase):
         first = self.tracked(LIMN_TEST_RECORDER="off")
         self.assertIsInstance(first, BuildOk)
         self.assertFalse((self.D.dir / first.build / "main.fls").exists())
-        self.assertFalse((self.D.dir / first.build / "recipe.json").exists())
+        self.assertIsNone(json.loads((self.D.dir / first.build / "recipe.json").read_text())["digest"])  # no reads
         again = self.tracked(LIMN_TEST_RECORDER="off")
         self.assertIsInstance(again, BuildOk)
         self.assertNotEqual(again.build, first.build)
@@ -762,8 +884,8 @@ class WarmWithLatexmk(unittest.TestCase):
     @needs_tex("latexmk", "pdftoppm", "pdfinfo", "pdftotext")
     def test_a_recorder_switched_off_never_publishes_the_old_recorder_file(self):
         """(A) The first build reads data1.csv with the recorder on. A latexmkrc then turns the recorder off and the
-        .tex switches to data2.csv: that build publishes no .fls (the copy's is the old one, naming data1.csv) and no
-        recipe, so editing data2.csv afterwards rebuilds and the PDF shows the edit."""
+        .tex switches to data2.csv: that build publishes no .fls (the copy's is the old one, naming data1.csv) and a
+        recipe without reads, so editing data2.csv afterwards rebuilds and the PDF shows the edit."""
         folder = self.main.parent
         (folder / "data1.csv").write_text("11,11\n", encoding="utf-8")
         (folder / "data2.csv").write_text("22,22\n", encoding="utf-8")
@@ -775,7 +897,7 @@ class WarmWithLatexmk(unittest.TestCase):
         second = self.tracked()
         self.assertIsInstance(second, BuildOk)
         self.assertFalse((self.D.dir / second.build / "main.fls").exists())
-        self.assertFalse((self.D.dir / second.build / "recipe.json").exists())
+        self.assertIsNone(json.loads((self.D.dir / second.build / "recipe.json").read_text())["digest"])  # no reads
         (folder / "data2.csv").write_text("99,99\n", encoding="utf-8")
         third = self.tracked()
         self.assertIsInstance(third, BuildOk)
