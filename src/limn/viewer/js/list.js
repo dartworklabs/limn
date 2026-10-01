@@ -45,8 +45,9 @@ function listDone(){return SHOW_ALL&&multiDoc()?DONE_ALL:DONE;}
 function listReview(){return SHOW_ALL&&multiDoc()?REVIEW_ALL:REVIEW_ALL.filter(p=>pdoc(p)===DOC||!DOC);}
 // Awaiting-review count: counted across documents (the inbox of work for a person to confirm). The purple number next to [핀 N] (compact) / the tool bar chip (wide).
 // The pill rides on both [핀 N] toggles (the tool bar's and the collapsed wide nav bar's); the chip is the open wide panel's.
+// The pill is the eye icon and the count, so it never reads as part of the open count beside it ('11 1', UX audit P10).
 function updateReviewCount(){const n=REVIEW_ALL.length,chip=$('#rv-chip');
-  for(const pill of $$('#btn-side .rv-n,#nav-side .rv-n')){pill.hidden=!n; pill.textContent=n; pill.setAttribute('aria-label',tl('검토 대기 {n}',{n}));}
+  for(const pill of $$('#btn-side .rv-n,#nav-side .rv-n')){pill.hidden=!n; pill.innerHTML=ic('eye')+n; pill.setAttribute('aria-label',tl('검토 대기 {n}',{n}));}
   const here=listReview().length; chip.hidden=!n||LAYOUT!==LAYOUT_MODE.WIDE||!SIDE_OPEN; chip.textContent=tl('검토 대기 {n}',{n})+(multiDoc()&&here!==n?' '+tl('(이 문서 {n})',{n:here}):'');}
 function gotoReview(){if(!listReview().length&&REVIEW_ALL.length&&multiDoc())SHOW_ALL=true;
   if(!SEC.review){SEC.review=true; savePrefs({sec:SEC});} drawPins();

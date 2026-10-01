@@ -34,7 +34,10 @@
   --mark-tile:var(--limn-bone);--mark-stroke:var(--limn-ink)}
 /* Theme-independent scales: radius in 3 steps (only circular dots/avatars use 50%), text in 5 steps, spacing in
    6 steps, control heights. --edge is the compact layout's edge line (docs/handbook/viewer.md §모바일 레이아웃): the fitted page's
-   margin on both sides; 16px, 12px on the phone band (body.band-phone, responsive.css). The label color (--brand) is filled in per instance by the server (--accent argument) and stays fixed across theme changes.
+   margin on both sides; 16px, 12px on the phone band (body.band-phone, responsive.css). --grabber is the sheet and panel
+   handles' bar: half the text colour, 3:1 and more on --sidebar in both themes (--border-strong measured 2.5:1).
+   The label color (--brand) is filled in per instance by the server (--accent argument) and stays fixed across theme changes;
+   it paints the top stripe, the label and the current document's underline - never a count badge.
    The Limn brand colours (--limn-*) are limn-brand.js COLOR's, the same in both themes: 먹 ink, 주 vermilion (the pin
    only), 뼈종이 bone (the icon's light tile), 미색 cream (strokes on ink); --mark-tile/--mark-stroke above pick the icon's
    pair for the theme. */
@@ -45,6 +48,7 @@
   --text-xs:11px;--text-sm:12px;--text-base:13px;--text-lg:14px;--text-xl:16px;
   --space-1:4px;--space-2:8px;--space-3:12px;--space-4:16px;--space-5:20px;--space-6:24px;
   --edge:var(--space-4);
+  --grabber:color-mix(in srgb,var(--foreground) 50%,transparent);
   --control-h-sm:24px;--control-h:28px;--control-h-lg:36px;--control-h-touch:44px;--hit:44px;--ctl-touch-sm:36px;--ctl-touch:40px;
   --shadow-sm:0 1px 4px var(--shadow-color);--shadow:0 4px 16px var(--shadow-color);--shadow-lg:0 6px 24px var(--shadow-color);
   --font-sans:-apple-system,BlinkMacSystemFont,"Pretendard","Noto Sans KR",sans-serif;

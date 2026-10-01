@@ -112,7 +112,7 @@ body.lay-narrow #grip,body.lay-mid:not(.side-open) #grip{display:none}
 /* mid: shows a grab bar in the middle of the handle (easier to find by touch) */
 body.lay-mid #grip{width:8px;background:var(--sidebar);border-left:1px solid var(--border)}
 body.lay-mid #grip::before{content:'';position:absolute;left:50%;top:50%;width:4px;height:44px;border-radius:var(--radius-sm);
-  background:var(--border-strong);transform:translate(-50%,-50%)}
+  background:var(--grabber);transform:translate(-50%,-50%)}
 body.lay-mid #grip.on::before{background:var(--primary)}
 body.compact button.cmp{display:inline-flex}
 body.compact .sec{display:none}
@@ -214,7 +214,7 @@ body.lay-narrow.side-open.sheet-up #right{height:min(calc(max(var(--sheet-f,.64)
    reach 4px down into the section head below, never up past the sheet's edge (the scroll box would clip them). */
 body.lay-narrow #sheet-grip{display:flex;align-items:flex-start;justify-content:center;flex:none;order:4;width:var(--hit);height:var(--tb-h);
   margin:0 auto;padding-top:var(--space-1);touch-action:none;cursor:row-resize;position:relative}
-body.lay-narrow #sheet-grip::before{content:'';width:24px;height:4px;border-radius:var(--radius-sm);background:var(--border-strong)}
+body.lay-narrow #sheet-grip::before{content:'';width:24px;height:4px;border-radius:var(--radius-sm);background:var(--grabber)}
 body.lay-narrow #sheet-grip.on::before{background:var(--primary)}
 body.lay-narrow #bar1{top:0;padding:0 var(--space-2);border-bottom:0;touch-action:none}   /* the whole tool bar drags the sheet; its taps still press buttons */
 body.lay-narrow #sec-open>.sec-head{border-top:1px solid var(--border)}   /* the line under the tool bar is the section head's own (40px with it) */
@@ -343,7 +343,6 @@ body.band-tablet-sheet #toasts{max-width:640px;margin:0 auto}
 .dm-item .nm{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .dcnt{font-weight:600}
 .dcnt.z{color:var(--muted-foreground);font-weight:400;background:transparent}
-.dm-item.on .dcnt:not(.z){background:var(--brand);color:var(--brand-foreground)}
 .dvo,.dfig{flex:none;line-height:14px;padding:0 var(--space-1);letter-spacing:.02em}
 .ddot{flex:none;width:7px;height:7px;border-radius:50%;background:var(--warning)}
 .dm-item .spin,#btn-doc .spin{width:10px;height:10px}

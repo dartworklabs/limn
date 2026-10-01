@@ -805,11 +805,11 @@ compact(`narrow`·`mid`)는 한 번 더 줄인다. 279px 태블릿 패널에서 
 | 동작 | `--secondary`·`--secondary-foreground` | 채운 보조 버튼·셈 배지 |
 | 동작 | `--accent`·`--accent-foreground` | hover 면 |
 | 동작 | `--destructive`·`--destructive-foreground` | 삭제·오류 |
-| 선 | `--border`·`--border-strong`·`--input`·`--outline-bg` | 구분선·강조 선(배지 테두리)·컨트롤 테두리·outline 버튼 바탕 |
+| 선 | `--border`·`--border-strong`·`--input`·`--outline-bg`·`--grabber` | 구분선·강조 선(배지 테두리)·컨트롤 테두리·outline 버튼 바탕·시트와 패널 손잡이 막대(글자색 50%, 두 테마 모두 `--sidebar` 대비 3:1 이상, `FrontendColourRoles`) |
 | 상태 | `--success`·`--warning`(+`-foreground`) | 알림 아이콘·경고 글자 |
 | 상태 | `--status-open`·`--status-claimed`·`--status-review`·`--status-closed`·`--status-dropped`·`--status-warning` | 마크·열림 점 / 처리 중 점 / 검토 대기 점 / 완료 아이콘 / 삭제 아이콘 / 위치 잃음·늦어짐·다시 열림(§상태 표현) |
 | 기타 | `--tooltip`·`--tooltip-foreground`·`--shadow-color`·`--shadow-page` | 툴팁·그림자 색·쪽 그림자 |
-| 인스턴스 | `--brand`·`--brand-foreground` | 이름표 색(`--accent` 인자로 서버가 채움, 테마와 무관)·그 위 흰 글자 |
+| 인스턴스 | `--brand`·`--brand-foreground` | 이름표 색(`--accent` 인자로 서버가 채움, 테마와 무관)·그 위 흰 글자. 맨 위 띠·이름표·탐색 줄 현재 문서 밑줄에만 칠하고, 수 배지에는 쓰지 않는다. 붉은 수 배지는 읽지 않은 알림이나 오류로 읽힌다(문서 시트의 현재 문서 수는 중립 `--secondary`) |
 | 브랜드 | `--limn-ink`·`--limn-ver`·`--limn-bone`·`--limn-cream` | Limn 브랜드 색. `limn-brand.js`의 `COLOR`과 같은 값이다(먹·주·뼈종이·미색). 테마와 무관해 세 번째 `:root` 블록에 있다. 주는 로고의 점에만 쓴다 |
 | 브랜드 | `--mark-tile`·`--mark-stroke` | 로고의 타일·획. 라이트는 뼈종이·먹, 다크는 먹·미색이다(§마크와 파비콘) |
 

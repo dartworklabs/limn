@@ -1912,6 +1912,113 @@ class FrontendSemanticAudit(unittest.TestCase):
         self.assertIn("button[data-pending]{cursor:progress;", self.css)
 
 
+def theme_tokens(theme: str) -> dict[str, str]:
+    """The custom properties a theme ('dark' or 'light') resolves at :root: the scale block, the dark block and - for
+    light - the light block over it, as written (values may still hold var())."""
+    out: dict[str, str] = {}
+    for sel, decls in css_rules():
+        d = dict(decls)
+        scheme = d.get("color-scheme")
+        if (sel == ":root" and scheme in (None, "dark")) or (theme == "light" and sel == ":root[data-theme=light]"):
+            out.update({k: v for k, v in decls if k.startswith("--")})
+    return out
+
+
+RGBA = tuple[float, float, float, float]
+
+
+def css_colour(value: str, tokens: dict[str, str]) -> RGBA:
+    """A token-built CSS colour as (r, g, b, alpha), r/g/b 0-255: var(--x), #rgb/#rrggbb/#rrggbbaa, transparent and
+    color-mix(in srgb, A N%, B) with B optional."""
+    v = value.strip()
+    m = re.fullmatch(r"var\((--[\w-]+)\)", v)
+    if m:
+        return css_colour(tokens[m.group(1)], tokens)
+    if v == "transparent":
+        return (0.0, 0.0, 0.0, 0.0)
+    m = re.fullmatch(r"#([0-9a-fA-F]{3}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})", v)
+    if m:
+        h = m.group(1)
+        h = "".join(c * 2 for c in h) if len(h) == 3 else h
+        a = int(h[6:8], 16) / 255 if len(h) == 8 else 1.0
+        return (float(int(h[0:2], 16)), float(int(h[2:4], 16)), float(int(h[4:6], 16)), a)
+    m = re.fullmatch(r"color-mix\(in srgb,\s*(.+?)\s+(\d+(?:\.\d+)?)%\s*(?:,\s*(.+))?\)", v)
+    if m:
+        p = float(m.group(2)) / 100
+        a, b = css_colour(m.group(1), tokens), css_colour(m.group(3) or "transparent", tokens)
+        alpha = a[3] * p + b[3] * (1 - p)
+        if not alpha:
+            return (0.0, 0.0, 0.0, 0.0)
+        mix = [(a[i] * a[3] * p + b[i] * b[3] * (1 - p)) / alpha for i in range(3)]
+        return (mix[0], mix[1], mix[2], alpha)
+    raise ValueError("not a token colour: %s" % value)
+
+
+def contrast(fg: RGBA, bg: RGBA) -> float:
+    """The WCAG contrast ratio of fg drawn over the opaque bg (fg's alpha composited first)."""
+
+    def lum(c: tuple[float, float, float]) -> float:
+        lin = [(x / 255 / 12.92) if x / 255 <= 0.03928 else ((x / 255 + 0.055) / 1.055) ** 2.4 for x in c]
+        return 0.2126 * lin[0] + 0.7152 * lin[1] + 0.0722 * lin[2]
+
+    over = tuple(fg[i] * fg[3] + bg[i] * (1 - fg[3]) for i in range(3))
+    hi, lo = sorted((lum((over[0], over[1], over[2])), lum((bg[0], bg[1], bg[2]))), reverse=True)
+    return (hi + 0.05) / (lo + 0.05)
+
+
+def rule_value(selector: str, prop: str) -> str:
+    """The last value of prop among the page's rules whose selector is exactly selector."""
+    vals = [dict(decls)[prop] for sel, decls in css_rules() if sel == selector and prop in dict(decls)]
+    if not vals:
+        raise KeyError("%s { %s }" % (selector, prop))
+    return vals[-1]
+
+
+class FrontendColourRoles(unittest.TestCase):
+    """Colour roles and contrast (docs/handbook/viewer.md §토큰, UX audit P10/P12): the instance colour paints the stripe, the
+    label and the current document's underline only - a red count badge read like an unread alert; the sheet and panel
+    grab bars reach 3:1 against their surface in both themes (the sheet's measured 2.5:1)."""
+
+    def test_no_count_badge_is_painted_in_the_instance_colour(self):
+        """The documents sheet's count of the current document ('11' white on red) used --brand; every .dcnt is neutral."""
+        bad = [
+            "%s { %s:%s }" % (sel, k, v)
+            for sel, decls in css_rules()
+            if ".dcnt" in sel
+            for k, v in decls
+            if "--brand" in v
+        ]
+        self.assertEqual(bad, [])
+
+    def test_the_grab_bars_reach_3_to_1_on_their_surface_in_both_themes(self):
+        """The phone and tablet sheet handle and the mid panel handle, over --sidebar, light and dark."""
+        for sel in ("body.lay-narrow #sheet-grip::before", "body.lay-mid #grip::before"):
+            for theme in ("light", "dark"):
+                with self.subTest(handle=sel, theme=theme):
+                    t = theme_tokens(theme)
+                    ratio = contrast(css_colour(rule_value(sel, "background"), t), css_colour("var(--sidebar)", t))
+                    self.assertGreaterEqual(ratio, 3.0)
+
+    def test_the_review_pill_and_the_neutral_count_read_at_4_5_to_1(self):
+        """The [핀 N] review pill (its number and eye icon) and the neutral count badge, both themes."""
+        for theme in ("light", "dark"):
+            t = theme_tokens(theme)
+            for fg, bg in (
+                ("--status-review-foreground", "--status-review"),
+                ("--secondary-foreground", "--secondary"),
+            ):
+                with self.subTest(theme=theme, fg=fg):
+                    ratio = contrast(css_colour("var(%s)" % fg, t), css_colour("var(%s)" % bg, t))
+                    self.assertGreaterEqual(ratio, 4.5)
+
+    def test_the_contrast_helper_matches_known_pairs(self):
+        """Black on white is 21:1, #a1a1aa on white 2.56:1 (the old handle), and a 50% mix over white is the mix."""
+        t = {"--w": "#ffffff", "--k": "#000000"}
+        self.assertAlmostEqual(contrast(css_colour("#000", t), css_colour("var(--w)", t)), 21.0, places=2)
+        self.assertAlmostEqual(contrast(css_colour("#a1a1aa", t), css_colour("#fff", t)), 2.56, delta=0.01)
+        self.assertEqual(css_colour("color-mix(in srgb,var(--k) 50%,transparent)", t), (0.0, 0.0, 0.0, 0.5))
+
+
 def hover_rules_outside_hover_media(css: str) -> list[str]:
     """The selector of every style rule in css that has :hover but that no `@media (hover:hover)` encloses. A negated
     query (`@media not all and (hover:hover)`) does not count: a hover look answers a mouse only, and a touch screen's

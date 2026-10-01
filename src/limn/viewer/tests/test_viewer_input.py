@@ -1526,6 +1526,18 @@ class PhoneTouchSizes(ViewerBase):
         settle(page)
         return card
 
+    def test_the_review_pill_shows_an_eye_beside_its_count(self):
+        """384x832: [핀 N]'s purple pill reads 'eye 1' - a bare '1' after the open count read as '4 1' (UX audit P10). On a
+        360px phone, where [선택] already drops its label, the eye goes too and the count stays."""
+        for device, eye in ((PHONE, True), (PHONE_360, False)):
+            with self.subTest(width=device["viewport"]["width"]):
+                page = self.view(device)
+                got = page.evaluate(
+                    "()=>{const p=document.querySelector('#btn-side .rv-n'), i=p.querySelector('svg.ic');"
+                    " return [p.textContent, !!i&&i.getClientRects().length>0];}"
+                )
+                self.assertEqual(got, ["1", eye])
+
     def test_card_head_controls_and_the_tool_bar_answer_a_44px_box(self):
         """The assignee chip answered 72x20 (its overflow clipped the hit area), '1쪽' 16x38 and 'L4-L5' 33x38 (neighbours took
         their halves), and the sheet handle took the top 8px of every tool-bar button (36px high)."""
