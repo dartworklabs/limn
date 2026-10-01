@@ -26,14 +26,16 @@ function toastDup(dd){if(!dd||!dd.keys||!dd.keys.length)return false; const now=
     if(rank>x.rank){x.el.remove(); TOAST_KEYS.splice(i,1);}}
   return false;}
 // Shows one toast, newest on top (more than six drop the oldest, firing its _gone), with an optional action button;
-// returns the element, or null when toastDup() suppressed it.
-function toast(msg,kind,action,dd){msg=trMsg(msg);
+// returns the element, or null when toastDup() suppressed it. dd.literal: msg is already in the UI language and quotes
+// what people wrote (a document name, a note), so neither trMsg() nor the translator touches its title and description.
+function toast(msg,kind,action,dd){const literal=!!(dd&&dd.literal); msg=literal?String(msg):trMsg(msg);
   if(toastDup(dd))return null;
   kind=TOAST_IC[kind]?kind:'ok';
   const box=toastHost(),t=document.createElement('div'); t.className='toast '+kind;
   const [title,desc]=toastSplit(msg);
   t.innerHTML=TOAST_IC[kind]()+'<div class="t-body"><div class="t-title"></div>'+(desc?'<div class="t-desc"></div>':'')+'</div><div class="t-acts"></div>';
   t.querySelector('.t-title').textContent=title; if(desc)t.querySelector('.t-desc').textContent=desc;
+  if(literal)t.querySelector('.t-body').translate=false;
   const acts=t.querySelector('.t-acts');
   let timer=null; const kill=()=>{clearTimeout(timer);t.remove();hideTip();toastGone(t);};
   const arm=()=>{clearTimeout(timer);timer=setTimeout(kill,6000);};

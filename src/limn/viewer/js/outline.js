@@ -43,12 +43,14 @@ function mergeOutlineLabels(entries,labels){
   });
 }
 let OUTLINE_ENTRIES=[],OUTLINE_SELECTED=-1,OUTLINE_ACTIVE_PAGE=0;
+// Draws the outline's entries matching the search. A heading is the manuscript's own words, so each entry is translate="no"
+// (its page label is tl()'d here); the empty-state sentences stay UI.
 function renderOutline(){
   const box=$('#outline-items'),query=$('#outline-search').value.trim().toLowerCase();
   if(!OUTLINE_ENTRIES.length){box.className='outline-empty';box.textContent='이 PDF에는 이동할 수 있는 목차가 없습니다.';return;}
   const rows=OUTLINE_ENTRIES.map((x,i)=>Object.assign({index:i},x)).filter(x=>!query||(x.number+' '+x.title).toLowerCase().includes(query));
   if(!rows.length){box.className='outline-empty';box.textContent='찾은 장·절이 없습니다.';return;}
-  box.className='';box.innerHTML=rows.map(x=>'<button class="ol-depth-'+Math.min(x.depth,4)+(x.index===OUTLINE_SELECTED?' ol-active':'')+'" data-act="outline-page" data-index="'+x.index+'" data-page="'+x.page+'" aria-current="'+(x.index===OUTLINE_SELECTED?'location':'false')+'" title="'+esc(x.title)+'"><span class="ol-no">'+esc(x.number||'·')+'</span><span class="ol-name">'+esc(x.title)+'</span><span class="ol-page">'+esc(tl('{page}쪽',{page:x.pageLabel||String(x.page)}))+'</span></button>').join('');
+  box.className='';box.innerHTML=rows.map(x=>'<button translate="no" class="ol-depth-'+Math.min(x.depth,4)+(x.index===OUTLINE_SELECTED?' ol-active':'')+'" data-act="outline-page" data-index="'+x.index+'" data-page="'+x.page+'" aria-current="'+(x.index===OUTLINE_SELECTED?'location':'false')+'" title="'+esc(x.title)+'"><span class="ol-no">'+esc(x.number||'·')+'</span><span class="ol-name">'+esc(x.title)+'</span><span class="ol-page">'+esc(tl('{page}쪽',{page:x.pageLabel||String(x.page)}))+'</span></button>').join('');
 }
 // Where a PDF outline destination sits on its page, as a fraction from the top (0 = top). An XYZ destination carries
 // the top edge in PDF points from the bottom; anything else (Fit, no top) counts as the top of the page.

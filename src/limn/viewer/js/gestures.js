@@ -130,11 +130,12 @@ function pullDown(box,ok,onStart,onMove,onEnd){let P=null;
     (dy,v)=>{document.body.classList.remove('resizing'); if(dy===null){applySheet(); return;}
       SWALLOW_CLICK=Date.now()+400; settleSheet($('#right').getBoundingClientRect().height/innerHeight,dy,v);});
 })();
-// The documents sheet follows a pull-down and closes on a release past 35% of its height or a flick (dismissOutcome).
-(function(){const d=$('#docs-menu');
-  pullDown(d,()=>d.open,()=>{},dy=>{d.style.transform='translateY('+Math.max(0,Math.round(dy))+'px)';},
-    (dy,v)=>{const close=dy!==null&&dismissOutcome(dy,d.getBoundingClientRect().height,v)==='close'; d.style.transform=''; if(close)d.close();});
-})();
+// The bottom sheets follow a pull-down and close on a release past 35% of their height or a flick (dismissOutcome): [더보기] and the
+// documents sheet always, help and the Trash where they are bottom sheets too (compact; the desktop centres them).
+function sheetPull(d,always){
+  pullDown(d,()=>d.open&&(always||LAYOUT!==LAYOUT_MODE.WIDE),()=>{},dy=>{d.style.transform='translateY('+Math.max(0,Math.round(dy))+'px)';},
+    (dy,v)=>{const close=dy!==null&&dismissOutcome(dy,d.getBoundingClientRect().height,v)==='close'; d.style.transform=''; if(close)d.close();});}
+sheetPull($('#docs-menu'),true); sheetPull($('#more'),true); sheetPull($('#help'),false); sheetPull($('#trash'),false);
 
 // ------------------------------------------------ The overlay panel's swipe (701-900px, touch)
 // The overlay panel is dismissed by a rightward swipe (docs/handbook/viewer.md §펼친 화면 레이아웃). swipeAxis() waits for 10px and

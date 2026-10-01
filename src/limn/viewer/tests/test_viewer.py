@@ -1222,7 +1222,7 @@ class FrontendMobileLogic(unittest.TestCase):
                 r"""
             const a=card({id:1,file:'/m.tex',name:'m.tex',lo:3,hi:5,page:2,note:'첫 줄 <b>\n둘째 줄'});
             const b=card({id:2,file:'/m.tex',name:'m.tex',lo:3,hi:5,page:2,note:''});
-            const sum=s=>(/<div class="sum" data-act="card-toggle">((?:[^<]|<span class="dim">|<\/span>)*)<\/div>/.exec(s)||[])[1];
+            const sum=s=>(/<div class="sum" translate="no" data-act="card-toggle">((?:[^<]|<span class="dim">|<\/span>)*)<\/div>/.exec(s)||[])[1];
             console.log(JSON.stringify([sum(a), / open"/.test(a), sum(b), / open"/.test(b), /class="tags"/.test(a),
               /data-act="card-toggle" aria-expanded="false"/.test(a), /aria-expanded="true"/.test(b)]));
             """,
@@ -1834,7 +1834,7 @@ class FrontendSemanticAudit(unittest.TestCase):
             ]
         )
         self.assertEqual(json.loads(run_node(js)), [False, True, True, False, False, False])
-        self.assertIn("{keys:[e.type+':'+e.pin],rank:2}", extract_js_fn("notifyShow"))
+        self.assertIn("{keys:[e.type+':'+e.pin],rank:2,literal:true}", extract_js_fn("notifyShow"))
         self.assertIn("{keys:reviewed.map(i=>EVENT_TYPE.REVIEW_REQUESTED+':'+i)}", extract_js_fn("diffToast"))
         self.assertIn("{keys:[EVENT_TYPE.REOPENED+':'+p.id]}", extract_js_fn("reviewToast"))
 
@@ -1897,8 +1897,9 @@ class FrontendSemanticAudit(unittest.TestCase):
         # three looks: bold dotted, blue, gray dotted. A dotted underline is now used only for an
         # unresolved @-mention (.mention-bad).
         self.assertIn(":is(.loc,.pg-link,.pin .n.go,.pin-ref){text-decoration:none;", self.css)
-        self.assertIn(
-            ":is(.loc,.pg-link,.pin .n.go,.pin-ref):is(:hover,:focus-visible){text-decoration:underline}", self.css
+        self.assertIn(":is(.loc,.pg-link,.pin .n.go,.pin-ref):focus-visible{text-decoration:underline}", self.css)
+        self.assertIn(  # the hover underline answers a mouse only (FrontendHoverForMouse)
+            "@media (hover:hover){:is(.loc,.pg-link,.pin .n.go,.pin-ref):hover{text-decoration:underline}}", self.css
         )
         for rule in (
             ".pin .n.go{cursor:pointer;color:var(--primary);",
@@ -1909,6 +1910,177 @@ class FrontendSemanticAudit(unittest.TestCase):
         dotted = [r for r in re.findall(r"[^{}]+\{[^}]*underline dotted[^}]*\}", self.css)]
         self.assertEqual([r.split("{")[0].strip() for r in dotted], [".mention-bad"])
         self.assertIn("button[data-pending]{cursor:progress;", self.css)
+
+
+def theme_tokens(theme: str) -> dict[str, str]:
+    """The custom properties a theme ('dark' or 'light') resolves at :root: the scale block, the dark block and - for
+    light - the light block over it, as written (values may still hold var())."""
+    out: dict[str, str] = {}
+    for sel, decls in css_rules():
+        d = dict(decls)
+        scheme = d.get("color-scheme")
+        if (sel == ":root" and scheme in (None, "dark")) or (theme == "light" and sel == ":root[data-theme=light]"):
+            out.update({k: v for k, v in decls if k.startswith("--")})
+    return out
+
+
+RGBA = tuple[float, float, float, float]
+
+
+def css_colour(value: str, tokens: dict[str, str]) -> RGBA:
+    """A token-built CSS colour as (r, g, b, alpha), r/g/b 0-255: var(--x), #rgb/#rrggbb/#rrggbbaa, transparent and
+    color-mix(in srgb, A N%, B) with B optional."""
+    v = value.strip()
+    m = re.fullmatch(r"var\((--[\w-]+)\)", v)
+    if m:
+        return css_colour(tokens[m.group(1)], tokens)
+    if v == "transparent":
+        return (0.0, 0.0, 0.0, 0.0)
+    m = re.fullmatch(r"#([0-9a-fA-F]{3}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})", v)
+    if m:
+        h = m.group(1)
+        h = "".join(c * 2 for c in h) if len(h) == 3 else h
+        a = int(h[6:8], 16) / 255 if len(h) == 8 else 1.0
+        return (float(int(h[0:2], 16)), float(int(h[2:4], 16)), float(int(h[4:6], 16)), a)
+    m = re.fullmatch(r"color-mix\(in srgb,\s*(.+?)\s+(\d+(?:\.\d+)?)%\s*(?:,\s*(.+))?\)", v)
+    if m:
+        p = float(m.group(2)) / 100
+        a, b = css_colour(m.group(1), tokens), css_colour(m.group(3) or "transparent", tokens)
+        alpha = a[3] * p + b[3] * (1 - p)
+        if not alpha:
+            return (0.0, 0.0, 0.0, 0.0)
+        mix = [(a[i] * a[3] * p + b[i] * b[3] * (1 - p)) / alpha for i in range(3)]
+        return (mix[0], mix[1], mix[2], alpha)
+    raise ValueError("not a token colour: %s" % value)
+
+
+def contrast(fg: RGBA, bg: RGBA) -> float:
+    """The WCAG contrast ratio of fg drawn over the opaque bg (fg's alpha composited first)."""
+
+    def lum(c: tuple[float, float, float]) -> float:
+        lin = [(x / 255 / 12.92) if x / 255 <= 0.03928 else ((x / 255 + 0.055) / 1.055) ** 2.4 for x in c]
+        return 0.2126 * lin[0] + 0.7152 * lin[1] + 0.0722 * lin[2]
+
+    over = tuple(fg[i] * fg[3] + bg[i] * (1 - fg[3]) for i in range(3))
+    hi, lo = sorted((lum((over[0], over[1], over[2])), lum((bg[0], bg[1], bg[2]))), reverse=True)
+    return (hi + 0.05) / (lo + 0.05)
+
+
+def rule_value(selector: str, prop: str) -> str:
+    """The last value of prop among the page's rules whose selector is exactly selector."""
+    vals = [dict(decls)[prop] for sel, decls in css_rules() if sel == selector and prop in dict(decls)]
+    if not vals:
+        raise KeyError("%s { %s }" % (selector, prop))
+    return vals[-1]
+
+
+class FrontendColourRoles(unittest.TestCase):
+    """Colour roles and contrast (docs/handbook/viewer.md §토큰, UX audit P10/P12): the instance colour paints the stripe, the
+    label and the current document's underline only - a red count badge read like an unread alert; the sheet and panel
+    grab bars reach 3:1 against their surface in both themes (the sheet's measured 2.5:1)."""
+
+    def test_no_count_badge_is_painted_in_the_instance_colour(self):
+        """The documents sheet's count of the current document ('11' white on red) used --brand; every .dcnt is neutral."""
+        bad = [
+            "%s { %s:%s }" % (sel, k, v)
+            for sel, decls in css_rules()
+            if ".dcnt" in sel
+            for k, v in decls
+            if "--brand" in v
+        ]
+        self.assertEqual(bad, [])
+
+    def test_the_grab_bars_reach_3_to_1_on_their_surface_in_both_themes(self):
+        """The phone and tablet sheet handle and the mid panel handle, over --sidebar, light and dark."""
+        for sel in ("body.lay-narrow #sheet-grip::before", "body.lay-mid #grip::before"):
+            for theme in ("light", "dark"):
+                with self.subTest(handle=sel, theme=theme):
+                    t = theme_tokens(theme)
+                    ratio = contrast(css_colour(rule_value(sel, "background"), t), css_colour("var(--sidebar)", t))
+                    self.assertGreaterEqual(ratio, 3.0)
+
+    def test_the_review_pill_and_the_neutral_count_read_at_4_5_to_1(self):
+        """The [핀 N] review pill (its number and eye icon) and the neutral count badge, both themes."""
+        for theme in ("light", "dark"):
+            t = theme_tokens(theme)
+            for fg, bg in (
+                ("--status-review-foreground", "--status-review"),
+                ("--secondary-foreground", "--secondary"),
+            ):
+                with self.subTest(theme=theme, fg=fg):
+                    ratio = contrast(css_colour("var(%s)" % fg, t), css_colour("var(%s)" % bg, t))
+                    self.assertGreaterEqual(ratio, 4.5)
+
+    def test_the_contrast_helper_matches_known_pairs(self):
+        """Black on white is 21:1, #a1a1aa on white 2.56:1 (the old handle), and a 50% mix over white is the mix."""
+        t = {"--w": "#ffffff", "--k": "#000000"}
+        self.assertAlmostEqual(contrast(css_colour("#000", t), css_colour("var(--w)", t)), 21.0, places=2)
+        self.assertAlmostEqual(contrast(css_colour("#a1a1aa", t), css_colour("#fff", t)), 2.56, delta=0.01)
+        self.assertEqual(css_colour("color-mix(in srgb,var(--k) 50%,transparent)", t), (0.0, 0.0, 0.0, 0.5))
+
+
+def hover_rules_outside_hover_media(css: str) -> list[str]:
+    """The selector of every style rule in css that has :hover but that no `@media (hover:hover)` encloses. A negated
+    query (`@media not all and (hover:hover)`) does not count: a hover look answers a mouse only, and a touch screen's
+    tap leaves a sticky :hover behind (UX audit P4.6)."""
+    css = re.sub(r"/\*.*?\*/", "", css, flags=re.S)
+    stack: list[str] = []
+    bad: list[str] = []
+    start = 0
+    for i, ch in enumerate(css):
+        if ch == "{":
+            prelude = css[start:i].strip()
+            if not prelude.startswith("@") and ":hover" in prelude:
+                mouse = any(
+                    p.startswith("@media")
+                    and re.search(r"\(\s*hover\s*:\s*hover\s*\)", p)
+                    and not re.match(r"@media\s+not\b", p)
+                    for p in stack
+                )
+                if not mouse:
+                    bad.append(prelude)
+            stack.append(prelude)
+            start = i + 1
+        elif ch in "};":
+            if ch == "}" and stack:
+                stack.pop()
+            start = i + 1
+    return bad
+
+
+class FrontendHoverForMouse(unittest.TestCase):
+    """Every hover look sits inside `@media (hover:hover)` (docs/handbook/viewer.md §뜻과 모양): on a touch screen a tapped
+    row of [더보기] stayed grey after the tap, the owner's 'Theme: System' (UX audit P4.6, 29 bare :hover rules)."""
+
+    def test_no_hover_rule_answers_a_touch_screen(self):
+        """The served page's CSS has no :hover rule outside a hover media query."""
+        css = HTML[HTML.index("<style>") + len("<style>") : HTML.index("</style>")]
+        self.assertEqual(hover_rules_outside_hover_media(css), [])
+
+    def test_a_touch_press_gets_a_brief_token_wash_instead(self):
+        """With hover answering a mouse only, a touch screen still sees a press: while a control is pressed (:active) an
+        inset wash of the text colour covers its surface, from tokens, under the no-hover query only - so nothing stays
+        after the finger lifts and a mouse keeps its hover look."""
+        css = HTML[HTML.index("<style>") + len("<style>") : HTML.index("</style>")]
+        self.assertIn(
+            "@media not all and (hover:hover){button:active:not(:disabled){box-shadow:inset 0 0 0 100vmax "
+            "color-mix(in srgb,var(--foreground) 8%,transparent)}}",
+            css,
+        )
+        self.assertEqual(css.count(":active"), 1)
+
+    def test_the_guard_catches_a_bare_a_negated_and_a_pointer_hover_rule(self):
+        """A bare rule, one under the negated query and one under another media query are reported; the same rule inside
+        `@media (hover:hover)` (alone or with another condition) is not."""
+        ok = "@media (hover:hover){a:hover{color:red}}@media (hover:hover) and (pointer:fine){b:hover{color:red}}"
+        self.assertEqual(hover_rules_outside_hover_media(ok + "c:focus-visible{color:red}"), [])
+        for planted, sel in (
+            ("button:hover{color:red}", "button:hover"),
+            ("@media not all and (hover:hover){x:not(:hover) y{display:none}}", "x:not(:hover) y"),
+            ("@media (pointer:coarse){z:is(:hover,:focus-visible){color:red}}", "z:is(:hover,:focus-visible)"),
+        ):
+            with self.subTest(planted=planted):
+                self.assertEqual(hover_rules_outside_hover_media(ok + planted), [sel])
 
 
 class PinNumberJump(unittest.TestCase):
@@ -2637,7 +2809,7 @@ class FrontendFigure(unittest.TestCase):
         js = "\n".join(
             [
                 r"""
-            const DOC='d', DEFAULT_DOC='d'; let PINS=[], REVIEW_ALL=[]; const drawn=[];
+            const DOC='d', DEFAULT_DOC='d', markBadgeSides=()=>{}; let PINS=[], REVIEW_ALL=[]; const drawn=[];
             const $$=()=>[]; const esc=s=>String(s);
             const page1={appendChild:m=>drawn.push([m.dataset.pin,m.className,m.style.left,m.style.width])};
             const document={getElementById:id=>id==='p1'?page1:null,
@@ -2645,7 +2817,16 @@ class FrontendFigure(unittest.TestCase):
                 js_i18n(),
                 *[
                     extract_js_fn(n)
-                    for n in ("isFrac", "hasMark", "pinPlace", "elLost", "isEstimated", "pinState", "pdoc", "marks")
+                    for n in (
+                        "isFrac",
+                        "hasMark",
+                        "pinPlace",
+                        "elLost",
+                        "isEstimated",
+                        "pinState",
+                        "pdoc",
+                        "marks",
+                    )
                 ],
                 r"""
             const good=[0.1,0.2,0.3,0.4];
@@ -3030,7 +3211,7 @@ class FrontendArchive(unittest.TestCase):
             console.log(JSON.stringify([/class="arc-row done"/.test(a), !/class="pin/.test(a), /ic-check/.test(a),
               /data-act="reply-open"[^>]*>답글</.test(a), /PR #227/.test(a), /class="rt arc-t" data-at="2026-09-23 20:40:11" data-tip="닫은 사람 에이전트 · 닫은 시각 2026-09-23 20:40:11">[^<]+</.test(a),
               /<span class="arc-reply" [^>]*>제목을 &lt;b&gt;바꿈&lt;\/b&gt;<\/span>/.test(a), /arc-orig"/.test(a), /원래 요청<\/button>/.test(a),
-              /arc-reply open/.test(b), /class="arc-orig"><b>원래 요청<\/b>원래 &lt;메모&gt;/.test(b)]));
+              /arc-reply open/.test(b), /class="arc-orig" translate="no"><b>원래 요청<\/b>원래 &lt;메모&gt;/.test(b)]));
             """)
         self.assertEqual(out, [True, True, True, True, True, True, True, False, True, True, True])
 

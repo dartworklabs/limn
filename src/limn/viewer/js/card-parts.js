@@ -66,18 +66,20 @@ setInterval(tickClaims,30000);
 function locText(p){return isRegion(p)?tr('영역'):rng(p.lo,p.hi);}
 function locCopy(p){const name=p.name||String(p.file||p.pdf||'').split('/').pop(); return isRegion(p)?name+' 쪽 '+pinPlace(p).page:name+' L'+p.lo+'-L'+p.hi;}
 // The document chip attached to a card header when viewing all documents. Another document's is dashed-bordered - clicking it switches to that document.
+// The name is user text (translate="no"); its description's UI words are translated here.
 function docChip(p){if(!(SHOW_ALL&&multiDoc()))return ''; const d=docInfo(pdoc(p)),other=pdoc(p)!==DOC;
-  return '<span class="badge badge-secondary dchip'+(other?' other':'')+'" data-tip="'+esc((d?d.name+' · '+d.path:tl('{doc} (설정에 없는 문서)',{doc:pdoc(p)}))+(other?' — '+tr('#번호·[보기]를 누르면 이 문서로 바꿉니다'):''))+'">'+esc(d?d.name:pdoc(p))+'</span>';}
+  return '<span class="badge badge-secondary dchip'+(other?' other':'')+'" translate="no" data-tip="'+esc((d?d.name+' · '+d.path:tl('{doc} (설정에 없는 문서)',{doc:pdoc(p)}))+(other?' — '+tr('#번호·[보기]를 누르면 이 문서로 바꿉니다'):''))+'">'+esc(d?d.name:pdoc(p))+'</span>';}
 // Thread (docs/handbook/viewer.md §스레드와 검토): replies and state-transition records (close/reopen/confirm) form a single line of history. Text goes through esc().
 // wide shows the last 3, compact shows only the last 1, expanded via [이전 N건] (THREAD_OPEN). The input field (REPLY) is inserted in place like EDITOR.current.
 function isQuestion(p){return !!p&&p.kind_req===KIND_REQ.QUESTION;}
 // The current assignee - the recorded value (p.assignee); for a legacy pin without one, the person the server inferred (the first of p.addressed); if neither, the agent.
 function assigneeOf(p){if(!p)return ASSIGNEE_AGENT; if(p.assignee)return p.assignee; const a=p.addressed||[]; return a.length?a[0]:ASSIGNEE_AGENT;}
 // The card header's assignee chip: shown only when the assignee is a person (the agent is the default, so it's not shown). The author (or an identity-less local screen) changes it by clicking into [수정].
+// The name is user text (translate="no").
 function assignChip(p){if(!p.assignee||p.assignee===ASSIGNEE_AGENT)return ''; const me=meLogin(),mine=p.assignee===me,nm=mine?tr('나'):'@'+(String(peopleName(p.assignee)).split(/\s+/)[0]||p.assignee);   // the chip shows the first word of the name; the full name goes in the description
   const canEdit=pinState(p)===PIN_STATE.OPEN&&(isMe(p.author)||!me),tip=tl('담당: {name} — 에이전트는 이 핀을 건너뜁니다',{name:mine?tr('나'):peopleName(p.assignee)})+(canEdit?tr('. 누르면 [수정]에서 담당을 바꿉니다'):'');
-  return canEdit?'<button class="badge badge-assign as-chip'+(mine?' me':'')+'" data-act="edit" data-tip="'+esc(tip)+'">'+esc(tr('담당'))+' <span class="as-n">'+esc(nm)+'</span></button>'
-    :'<span class="badge badge-assign as-chip'+(mine?' me':'')+'" data-tip="'+esc(tip)+'">'+esc(tr('담당'))+' <span class="as-n">'+esc(nm)+'</span></span>';}
+  return canEdit?'<button class="badge badge-assign as-chip'+(mine?' me':'')+'" data-act="edit" data-tip="'+esc(tip)+'">'+esc(tr('담당'))+' <span class="as-n" translate="no">'+esc(nm)+'</span></button>'
+    :'<span class="badge badge-assign as-chip'+(mine?' me':'')+'" data-tip="'+esc(tip)+'">'+esc(tr('담당'))+' <span class="as-n" translate="no">'+esc(nm)+'</span></span>';}
 // Status dot (docs/handbook/viewer.md §상태 표현): color + a readable name (aria-label/description). A badge states the same meaning in text once more.
 const ST_NAME={open:'열림',claimed:'처리 중',review:'검토 대기',lost:'위치 잃음'};
 function stDot(st){const t=esc(tl('상태: {name}',{name:tr(ST_NAME[st])})); return '<span class="st-dot'+(st===CARD_DOT.OPEN?'':' '+st)+'" role="img" aria-label="'+t+'" data-tip="'+t+'"></span>';}
@@ -125,10 +127,11 @@ function pinRefGone(id){return typeof DROPPED!=='undefined'&&Array.isArray(DROPP
 // even after reopening (observed). addressed_to() only has a value on question pins.
 function mentionsMe(p){const me=META&&META.me; if(!me||!me.login||me.login===LOCAL_LOGIN)return false;
   return (p.addressed||[]).includes(me.login);}
+// The badges of a question pin that calls people: '나를 부름', and the others' names (user text, translate="no").
 function addressedTag(p){const to=(p.addressed||[]); if(!to.length)return '';
   const me=META&&META.me&&META.me.login,mine=to.includes(me),others=to.filter(x=>x!==me);
   return (mine?'<span class="badge badge-mention" data-tip="이 핀이 나를 @태그했습니다 — 에이전트는 이 핀을 건너뜁니다(사용자가 시키면 예외)">'+ic('at-sign')+'나를 부름</span>':'')+
-    (others.length?'<span class="badge badge-mention" data-tip="사람을 부른 핀입니다 — 에이전트는 사용자가 따로 시키지 않으면 건너뜁니다">'+ic('at-sign')+esc(others.map(peopleName).join(', '))+'</span>':'');}
+    (others.length?'<span class="badge badge-mention" data-tip="사람을 부른 핀입니다 — 에이전트는 사용자가 따로 시키지 않으면 건너뜁니다">'+ic('at-sign')+'<span translate="no">'+esc(others.map(peopleName).join(', '))+'</span></span>':'');}
 // A fix pin's FYI @-tags (never skipped) - kept separate from p.addressed (question-pin only) and sent in p.fyi instead.
 function fyiTag(p){const to=(p.fyi||[]); if(!to.length)return '';
   return '<span class="badge badge-mention" data-tip="참고로 부른 사람입니다 — 질문이 아니라 수정 요청이라 건너뛰지 않습니다">'+ic('at-sign')+esc(tl('참고 {names}',{names:to.map(peopleName).join(', ')}))+'</span>';}
@@ -136,15 +139,19 @@ function fyiTag(p){const to=(p.fyi||[]); if(!to.length)return '';
 // it would produce meaningless text like '닫음 · -' (observed defect). An empty or whitespace-only value is filtered out the same way.
 function hasRef(v){return !!v&&String(v).trim()!==''&&String(v).trim()!=='-';}
 const EV_LABEL={close:'닫음',reopen:'다시 엶',confirm:'확인',assign:'담당 바꿈'};
-// A long post collapses at 6 lines with [더 보기] (keyed 'id:index' in MSG_OPEN). If the author is me, '(나)'.
+// A long post collapses at 6 lines with [더 보기] (keyed 'id:index' in MSG_OPEN). If the author is me, '(나)'. The post and its
+// author's name are user text (translate="no"); '(나)' is translated here.
 const MSG_OPEN=new Set();
+// A thread entry's text (user text, translate="no") clamped at 6 lines with [더 보기]/[접기] when long; key ('id:index') keeps
+// it open across redraws (MSG_OPEN), and without a key it is drawn whole with no button.
 function msgBody(m,key){const long=String(m.text||'').length>280||String(m.text||'').split('\n').length>6,open=!key||MSG_OPEN.has(key);
-  return '<div class="msg-t'+(long&&!open?' clamp':'')+'">'+msgText(m)+'</div>'+
+  return '<div class="msg-t'+(long&&!open?' clamp':'')+'" translate="no">'+msgText(m)+'</div>'+
     (long&&key?'<button class="btn-sm btn-ghost msg-more" data-act="msg-more" data-key="'+esc(key)+'" aria-expanded="'+open+'">'+(open?'접기':'더 보기')+'</button>':'');}
-function msgHtml(m,key){const by=m.by||{},nm=who(by)||'?',mine=isMe(by)?'<span class="me-tag"> (나)</span>':'';
-  if(m.ev)return '<div class="msg ev ev-'+esc(m.ev)+'"><div class="msg-h"><b>'+esc(nm)+mine+'</b><span>'+esc(tr(EV_LABEL[m.ev]||m.ev))+(hasRef(m.ref)?' · '+esc(m.ref):'')+'</span>'+relSpan(m.at)+'</div>'+
+// One thread entry: a post (avatar, author, time, text) or a state record (who, what, reference, time, optional text).
+function msgHtml(m,key){const by=m.by||{},nm=who(by)||'?',mine=isMe(by)?'<span class="me-tag"> '+esc(tr('(나)'))+'</span>':'';
+  if(m.ev)return '<div class="msg ev ev-'+esc(m.ev)+'"><div class="msg-h"><b translate="no">'+esc(nm)+mine+'</b><span>'+esc(tr(EV_LABEL[m.ev]||m.ev))+(hasRef(m.ref)?' · '+esc(m.ref):'')+'</span>'+relSpan(m.at)+'</div>'+
     (m.text?msgBody(m,key):'')+'</div>';
-  return '<div class="msg">'+avatar(by)+'<div class="msg-b"><div class="msg-h"><b>'+esc(nm)+mine+'</b>'+relSpan(m.at)+'</div>'+msgBody(m,key)+'</div></div>';}
+  return '<div class="msg">'+avatar(by)+'<div class="msg-b"><div class="msg-h"><b translate="no">'+esc(nm)+mine+'</b>'+relSpan(m.at)+'</div>'+msgBody(m,key)+'</div></div>';}
 function threadHtml(p,wide){const th=threadOf(p),keep=wide?3:1,all=THREAD_OPEN.has(p.id),hide=all?0:Math.max(0,th.length-keep);
   let h='';
   if(hide)h+='<button class="btn-sm btn-ghost th-more" data-act="thread-more" aria-expanded="false">'+esc(tl('이전 {n}건 보기',{n:hide}))+'</button>';

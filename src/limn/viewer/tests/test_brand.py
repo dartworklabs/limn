@@ -362,7 +362,7 @@ class PageLinks(unittest.TestCase):
         out = page_for("A-DEMO", "#1d4ed8")
         ident = out[out.index('id="paper-identity"') : out.index('id="doc-select-wrap"')]
         self.assertIn('<svg class="limn-mark" viewBox="0 0 1024 1024" width="16" height="16"', ident)
-        self.assertIn("<span>A-DEMO</span>", ident)
+        self.assertIn('<span translate="no">A-DEMO</span>', ident)  # the instance's own name, never translated
         label = out[out.index('<span id="more-label"') : out.index("</span>", out.index('<span id="more-label"') + 30)]
         self.assertIn('<svg class="limn-mark" viewBox="0 0 1024 1024" width="14" height="14"', label)
         help_h = out[out.index('<h2 id="help-h"') : out.index("</h2>", out.index('<h2 id="help-h"'))]

@@ -16,6 +16,7 @@ import json
 import re
 import time
 import unittest
+from typing import Any
 
 from limn.pins.lifecycle.rules import CloseRequest
 from limn.security.access import LOCAL_ACTOR
@@ -283,6 +284,25 @@ class GestureLogic(unittest.TestCase):
             ["backLayer"], "%s.map(c=>backLayer(c[0],c[1],c[2],c[3]))" % json.dumps([c[:4] for c in cases])
         )
         self.assertEqual([c[:4] + (g,) for c, g in zip(cases, got, strict=True)], cases)
+
+
+class MarkBadgeLogic(unittest.TestCase):
+    """Where a mark's number badge goes (docs/handbook/viewer.md §모바일 레이아웃, UX audit R4): outside the mark's left
+    edge, unless the room left of the mark - the page's left margin plus the mark's offset in the page - is smaller than
+    the badge's reach (28px on touch, 24px with a mouse), where it would be clipped."""
+
+    def test_the_badge_goes_inside_only_when_the_margin_and_the_offset_leave_no_room(self):
+        """Touch, 12px margin: a mark at 0 or 15.9px in has no room (inside); 16px in has (outside). The manuscript's text
+        at 6.4% of a 387px (411) or 336px (360) page keeps its badge outside - it went inside and covered the text when
+        the margin was not counted. A mouse's 44px desktop margin never moves a badge inside, even at the page edge."""
+        js = "\n".join(
+            [
+                extract_js_fn("markBadgeIn"),
+                "console.log(JSON.stringify([markBadgeIn(0,387,12,28),markBadgeIn(15.9/336,336,12,28),markBadgeIn(16/336,336,12,28),"
+                "markBadgeIn(0.064,387,12,28),markBadgeIn(0.064,336,12,28),markBadgeIn(0,780,44,24),markBadgeIn(0,780,23,24)]));",
+            ]
+        )
+        self.assertEqual(node_or_skip(self, js), [True, True, False, False, False, False, True])
 
 
 class DraftLogic(unittest.TestCase):
@@ -1420,6 +1440,144 @@ class LayoutNotPointer(ViewerBase):
             },
         )
 
+    def test_a_mouse_at_1440_keeps_badges_outside_even_at_the_page_edge(self):
+        """1440x900 with a mouse: the 44px desktop margin leaves the badge room, so marks at the page's edge, at the text
+        (6.4%) and further in all keep it 22px left of the mark's border box, as before the inside rule (UX audit R4)."""
+        for fx, lo in ((0.0, 30), (0.064, 32)):
+            add_pin(
+                {
+                    "file": str(self.main),
+                    "lo": lo,
+                    "hi": lo + 1,
+                    "page": 1,
+                    "note": "왼쪽",
+                    "frac": [fx, 0.6 + fx, 0.4, 0.04],
+                },
+                actor(ALICE),
+            )
+        page = self.view(MOUSE_WIDE)
+        got = page.evaluate(MARK_BADGES)
+        self.assertEqual(
+            {(g["fx"], g["inside"], g["shown"], g["gap"]) for g in got},
+            {(0.0, False, True, 22), (0.064, False, True, 22), (0.15, False, True, 22)},
+        )
+
+    def test_a_mouse_at_1440_keeps_the_desktop_geometry_to_the_pixel(self):
+        """1440x900 with a mouse: the page's margins and box, its first mark's badge, the panel's tool bar, section head and
+        first card, and the help, Trash and documents dialogs sit where they sat before the touch edge grid (UX audit V2/V6):
+        the desktop layout is unchanged. What CSS lengths, the viewport or the page size is compared to the pixel. What a
+        label or a wrapped note sizes is compared by where it starts and ends, how tall it is and its order, never by its
+        width or by the height its text makes - those follow the installed fonts (a tool-bar button was 71px wide here
+        and 79px on CI), so desk_shape() leaves them out."""
+        page = self.view(MOUSE_WIDE)
+        page.evaluate("document.querySelector('#left').scrollTop=0")
+        settle(page)
+        got = page.evaluate(DESK_GEOMETRY)
+        for opener, dlg in (("openHelp()", "#help"), ("openTrash()", "#trash"), ("openDocsMenu()", "#docs-menu")):
+            page.evaluate(opener)
+            settle(page)
+            got[dlg] = page.evaluate(DESK_DIALOG, dlg)
+            page.evaluate("s=>document.querySelector(s).close()", dlg)
+        self.maxDiff = None  # the whole shape is one dict: show which entries moved
+        self.assertEqual(desk_shape(got), DESK_1440)
+
+
+# Where the desktop's chrome sits at 1440x900 with a mouse on the ViewerBase fixture, as measured in the page: boxes are
+# [x, y, width, height] (rounded), paddings [top, right, bottom, left] (computed). A tool-bar item also carries its left edge
+# from the panel's left edge (start), its right edge from the panel's right edge (end) and whether it follows the spacer
+# (after: the right-aligned group), both taken from the unrounded boxes.
+DESK_GEOMETRY = """() => {const q = s => document.querySelector(s), R = Math.round, panel = q('#right').getBoundingClientRect(),
+    B = e => {const r = e.getBoundingClientRect(); return [R(r.x), R(r.y), R(r.width), R(r.height)];},
+    P = e => {const c = getComputedStyle(e); return [c.paddingTop, c.paddingRight, c.paddingBottom, c.paddingLeft];},
+    spacer = q('#bar1 .sp'), card = q('#pins .pin');
+  return {left: P(q('#left')), page: B(q('#p1')), badge: B(q('.mark b')), right: B(q('#right')), tool: B(q('#bar1')),
+    bar: [...q('#bar1').children].filter(e => e.getClientRects().length).map(e => {const r = e.getBoundingClientRect();
+      return {id: e.id || e.className, box: B(e), start: R(r.left - panel.left), end: R(panel.right - r.right),
+        after: !!(spacer.compareDocumentPosition(e) & Node.DOCUMENT_POSITION_FOLLOWING)};}),
+    head: B(q('#sec-open .sec-head')), toggle: B(q('#open-toggle')), chevron: B(q('#open-toggle svg')), card: B(card), card_pad: P(card),
+    dot: B(q('#pins .pin .st-dot')), list: P(q('#list'))};}"""
+# One open dialog: its box and paddings, its computed max-height, and how it is anchored in the viewport - its middle and the
+# gap under it, from the unrounded box.
+DESK_DIALOG = """s => {const e = document.querySelector(s), r = e.getBoundingClientRect(), c = getComputedStyle(e), R = Math.round;
+  return {box: [R(r.x), R(r.y), R(r.width), R(r.height)], pad: [c.paddingTop, c.paddingRight, c.paddingBottom, c.paddingLeft],
+    max_height: c.maxHeight, mid: R((r.top + r.bottom) / 2), below: R(innerHeight - r.bottom)};}"""
+# Tool-bar items whose width a label sets (the spacer's, the free room); the others are icon buttons of a CSS length.
+BAR_LABEL_SIZED = ("btn-rebuild", "sp", "jump")
+# How each dialog is anchored: a centred one by its middle (its text-made height moves both edges), a bottom sheet by the gap
+# under it.
+DIALOG_ANCHOR = {"#help": "mid", "#trash": "mid", "#docs-menu": "below"}
+
+
+def desk_shape(got: dict[str, Any]) -> dict[str, Any]:
+    """DESK_GEOMETRY and DESK_DIALOG's answers reduced to what the installed fonts do not move. Kept as measured: every
+    box and padding that a CSS length, the viewport or the page sizes, and each dialog's x, width, paddings, max-height and
+    anchor. Reduced: the tool bar to its items' order, y and height, the icon buttons' width, the first item's left edge and
+    the right-aligned group's right edges (both from the panel's edges); the section toggle to x, y and height; the card to
+    x, y and width and its paddings; a dialog's own height and, for a centred one, its y to its middle."""
+    shape = {
+        k: got[k] for k in ("left", "page", "badge", "right", "tool", "head", "chevron", "card_pad", "dot", "list")
+    }
+    bar = got["bar"]
+    shape["bar"] = [
+        [b["id"], b["box"][1], b["box"][3], None if b["id"] in BAR_LABEL_SIZED else b["box"][2]] for b in bar
+    ]
+    shape["bar_start"] = bar[0]["start"]
+    shape["bar_ends"] = {b["id"]: b["end"] for b in bar if b["after"]}
+    x, y, _, height = got["toggle"]
+    shape["toggle"] = [x, y, height]
+    x, y, width, _ = got["card"]
+    shape["card"] = [x, y, width]
+    for dlg, anchor in DIALOG_ANCHOR.items():
+        d = got[dlg]
+        shape[dlg] = {
+            "x": d["box"][0],
+            "width": d["box"][2],
+            "pad": d["pad"],
+            "max_height": d["max_height"],
+            anchor: d[anchor],
+        }
+    return shape
+
+
+DESK_1440 = {
+    "left": ["16px", "16px", "540px", "44px"],
+    "page": [290, 98, 780, 1009],
+    "badge": [386, 300, 22, 22],
+    "right": [1092, 0, 348, 900],
+    "tool": [1093, 0, 347, 45],
+    "bar": [
+        ["btn-rebuild", 8, 28, None],
+        ["sp", 22, 0, None],
+        ["jump", 8, 28, None],
+        ["btn-zoom-out", 8, 28, 28],
+        ["btn-zoom-in", 8, 28, 28],
+        ["btn-fit", 8, 28, 28],
+        ["btn-notify", 8, 28, 28],
+        ["btn-theme", 8, 28, 28],
+        ["btn-help", 8, 28, 28],
+    ],
+    "bar_start": 9,
+    "bar_ends": {
+        "jump": 200,
+        "btn-zoom-out": 168,
+        "btn-zoom-in": 136,
+        "btn-fit": 104,
+        "btn-notify": 72,
+        "btn-theme": 40,
+        "btn-help": 8,
+    },
+    "head": [1093, 108, 347, 31],
+    "toggle": [1101, 112, 22],
+    "chevron": [1106, 116, 14, 14],
+    "card": [1105, 143, 323],
+    "card_pad": ["8px", "12px", "8px", "12px"],
+    "dot": [1118, 162, 8, 8],
+    "list": ["0px", "12px", "32px", "12px"],
+    "#help": {"x": 380, "width": 680, "pad": ["16px", "24px", "16px", "24px"], "max_height": "792px", "mid": 450},
+    "#trash": {"x": 440, "width": 560, "pad": ["16px", "24px", "16px", "24px"], "max_height": "792px", "mid": 450},
+    "#docs-menu": {"x": 440, "width": 560, "pad": ["12px", "12px", "12px", "12px"], "max_height": "792px", "below": 0},
+}
+
 
 class PhoneTouchSizes(ViewerBase):
     """Touch sizes on the phone sheet: every control answers a tap in a 44x44 box, whatever its drawn size - the assignee
@@ -1454,6 +1612,20 @@ class PhoneTouchSizes(ViewerBase):
         )  # clear of the scroll box's edges
         settle(page)
         return card
+
+    def test_the_review_pill_shows_an_eye_beside_its_count_and_a_360px_phone_drops_the_arrow_for_it(self):
+        """384x832: [핀 N]'s purple pill reads 'eye 1' - a bare '1' after the open count read as '4 1' (UX audit P10). On a
+        360px phone (the commonest Android width), where [선택] already drops its label, the toggle drops its decorative
+        arrow (aria-expanded carries the state) and keeps the eye."""
+        for device, arrow in ((PHONE, True), (PHONE_360, False)):
+            with self.subTest(width=device["viewport"]["width"]):
+                page = self.view(device)
+                got = page.evaluate(
+                    "()=>{const p=document.querySelector('#btn-side .rv-n'), i=p.querySelector('svg.ic'),"
+                    " a=document.querySelector('#side-arrow'); return [p.textContent, !!i&&i.getClientRects().length>0,"
+                    " a.getClientRects().length>0];}"
+                )
+                self.assertEqual(got, ["1", True, arrow])
 
     def test_card_head_controls_and_the_tool_bar_answer_a_44px_box(self):
         """The assignee chip answered 72x20 (its overflow clipped the hit area), '1쪽' 16x38 and 'L4-L5' 33x38 (neighbours took
@@ -2372,6 +2544,261 @@ GRIP_BOX = """sel => {const g = document.querySelector(sel); return [Math.round(
   getComputedStyle(g, '::after').width]; }"""
 
 
+# Page 1's gaps to the PDF scroller's visible box (inside its border, without a scroll bar): [left, right], to 0.1px.
+PAGE_GAPS = """() => {const L = document.querySelector('#left'), lr = L.getBoundingClientRect(), p = document.querySelector('#p1').getBoundingClientRect();
+  const x0 = lr.left + L.clientLeft, R = v => Math.round(v * 10) / 10; return [R(p.left - x0), R(x0 + L.clientWidth - p.right)];}"""
+
+
+class EvenPageMargins(ViewerBase):
+    """The fitted page sits in the middle of the PDF column (docs/handbook/viewer.md §모바일 레이아웃, UX audit P1/R3): on every
+    compact band its left margin was 32px (a gutter for the mark badges) against 8px on the right - the owner's 'the left
+    margin is bigger than the right'. Both are now --edge; beside the side panel both are the handle's 40px."""
+
+    def test_the_fitted_page_has_equal_margins_on_phones_the_tablet_sheet_and_beside_the_side_panel(self):
+        """360, 411 and 430 phones: 12 and 12; a 768 tablet sheet: 16 and 16; 1024x768 with the side panel open: 40 and 40
+        (the right one keeps the panel handle's touch hit off the page)."""
+        for (w, h), edge in (
+            ((360, 800), 12),
+            ((411, 908), 12),
+            ((430, 932), 12),
+            ((768, 1024), 16),
+            ((1024, 768), 40),
+        ):
+            with self.subTest(w=w, h=h):
+                page = self.view(touch_device(w, h))
+                if w == 1024:
+                    page.evaluate("setSide(true)")
+                    settle(page)
+                left, right = page.evaluate(PAGE_GAPS)
+                self.assertAlmostEqual(left, right, delta=1)
+                self.assertAlmostEqual(left, edge, delta=1)
+
+    def test_a_mark_at_the_page_edge_takes_its_badge_inside_and_a_mark_at_the_text_keeps_it_outside(self):
+        """411 and 360 phones (12px margins): a pin marked from the page's very edge has its badge in the mark's top-left
+        corner, wholly in the PDF column; marks where the manuscript's text starts (6.4% in, the owner's #60) and further in
+        keep the badge outside their left edge, also wholly shown - inside it covered the text they mark."""
+        for fx, lo in ((0.0, 30), (0.064, 32)):
+            add_pin(
+                {
+                    "file": str(self.main),
+                    "lo": lo,
+                    "hi": lo + 1,
+                    "page": 1,
+                    "note": "왼쪽",
+                    "frac": [fx, 0.6 + fx, 0.4, 0.04],
+                },
+                actor(ALICE),
+            )
+        for w, h in ((411, 908), (360, 800)):
+            with self.subTest(w=w):
+                page = self.view(touch_device(w, h))
+                got = page.evaluate(MARK_BADGES)
+                self.assertEqual(
+                    {(g["fx"], g["inside"], g["shown"], g["within"]) for g in got},
+                    {(0.0, True, True, True), (0.064, False, True, False), (0.15, False, True, False)},
+                )
+
+
+# Each page-1 mark: its fraction x, whether its badge is inside (.in), wholly in the PDF column, and within the mark's box.
+MARK_BADGES = """() => {const L = document.querySelector('#left'), lr = L.getBoundingClientRect(), x0 = lr.left + L.clientLeft;
+  return [...document.querySelectorAll('#p1 .mark')].map(m => {const b = m.querySelector('b').getBoundingClientRect(), r = m.getBoundingClientRect();
+    return {fx: +m.dataset.fx, inside: m.classList.contains('in'), shown: b.left >= x0 && b.right <= x0 + L.clientWidth,
+      within: b.left >= r.left && b.top >= r.top, gap: Math.round(r.left - b.left)};}); }"""
+
+
+# Where a sheet's lines start, against its reference box (the sheet, or the pin list's column): for each [selector, kind] the
+# first visible match's 'box' (border-box left), 'content' (content-box left), 'ink' (left of its first drawn leaf - a text run,
+# an icon or an empty box such as a status dot) or 'end' (the gap from its border-box right to the reference's right).
+SHEET_LINES = """([ref, items]) => {const R = document.querySelector(ref).getBoundingClientRect(), r1 = v => Math.round(v * 10) / 10;
+  const vis = e => !!e && e.getClientRects().length > 0 && getComputedStyle(e).visibility !== 'hidden';
+  const ink = e => {const w = document.createTreeWalker(e, NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT); let n;
+    while ((n = w.nextNode())) {
+      if (n.nodeType === 3) {if (!n.nodeValue.trim()) continue; const g = document.createRange(); g.selectNodeContents(n); const b = g.getBoundingClientRect(); if (b.width) return b.left;}
+      else if (vis(n) && (n.tagName.toLowerCase() === 'svg' || !n.childNodes.length)) {const b = n.getBoundingClientRect(); if (b.width) return b.left;}}
+    return null;};
+  return items.map(([sel, kind]) => {const e = [...document.querySelectorAll(sel)].find(vis); if (!e) return [sel, kind, null];
+    const b = e.getBoundingClientRect(), cs = getComputedStyle(e);
+    const x = kind === 'box' ? b.left - R.left : kind === 'content' ? b.left + parseFloat(cs.borderLeftWidth) + parseFloat(cs.paddingLeft) - R.left
+      : kind === 'ink' ? ink(e) - R.left : R.right - b.right;
+    return [sel, kind, r1(x)];});}"""
+# The lines each sheet draws, as [reference, opener, [[selector, kind]...]] (SHEET_LINES).
+SHEETS = (
+    (
+        "#list",
+        "()=>{setSide(true); document.querySelector('#right').scrollTop=0;}",
+        [
+            ["#open-toggle", "ink"],
+            ["#pins .pin", "box"],
+            ["#pins .pin", "end"],
+            ["#pins .pin .head", "ink"],
+            ["#review-pins .pin", "box"],
+        ],
+    ),
+    (
+        "#more",
+        "openMore()",
+        [
+            ["#more-label", "box"],
+            ["#more .more-tools button", "box"],
+            ["#m-size-l", "ink"],
+            ["#more .more-grid", "box"],
+            ["#more .more-grid button", "ink"],
+            ["#more [data-act=more-close]", "end"],
+        ],
+    ),
+    (
+        "#docs-menu",
+        "openDocsMenu()",
+        [
+            ["#docs-menu-h", "ink"],
+            ["#docs-menu .dm-item", "box"],
+            ["#docs-menu .dm-item", "end"],
+            ["#docs-menu .dm-item .nm", "ink"],
+            ["#docs-menu [data-act=docs-menu-close]", "end"],
+        ],
+    ),
+    (
+        "#help",
+        "openHelp()",
+        [
+            ["#help-h", "ink"],
+            ["#help h4", "ink"],
+            ["#help .help-steps li", "ink"],
+            ["#help table", "box"],
+            ["#help table", "end"],
+            ["#help td", "content"],
+            ["#help .help-legend", "content"],
+            ["#help-pins-md", "ink"],
+            ["#help [data-act=help-close]", "end"],
+        ],
+    ),
+    (
+        "#trash",
+        "openTrash()",
+        [
+            ["#trash-h", "ink"],
+            ["#trash-note", "ink"],
+            ["#trash .arc-row", "box"],
+            ["#trash .arc-row .arc-l1", "ink"],
+            ["#trash .arc-row .arc-l2", "ink"],
+            ["#trash .arc-acts", "end"],
+            ["#trash [data-act=trash-close]", "end"],
+        ],
+    ),
+)
+
+
+class SheetEdgeGrid(ViewerBase):
+    """One edge grid and one sheet (docs/handbook/viewer.md §패널 정리, §휴지통, UX audit P8/P9, R1/R2): in a compact sheet
+    every box starts and ends on --edge (12px on a phone, 16px from the tablet sheet up) and every line without a box
+    starts its text on --ink (--edge + 12). Box and text lines were spread over 8, 12, 13, 16, 17, 25, 26, 30 and 33px.
+    Help and the Trash are bottom sheets like [더보기] and the documents sheet; Trash rows are two lines."""
+
+    def drop_one(self):
+        """Add one more pin by Alice and delete it, so the Trash has a row (the three open pins stay)."""
+        pid = add_pin(
+            {"file": str(self.main), "lo": 30, "hi": 31, "page": 2, "note": "지운 핀", "frac": [0.2, 0.6, 0.4, 0.04]},
+            actor(ALICE),
+        ).record["id"]
+        ps.APP.pin_trash.drop_pin(pid, post_authority(ps.APP.pin_trash.context().store, actor(ALICE), "drop", pid))
+
+    def test_every_sheet_puts_its_boxes_on_edge_and_its_text_on_ink(self):
+        """411x908 phone (12/24) and 768x1024 tablet sheet (16/28): the pin list, [더보기], the documents sheet, help and
+        the Trash."""
+        self.drop_one()
+        for (w, h), edge in (((411, 908), 12), ((768, 1024), 16)):
+            page = self.view(touch_device(w, h))
+            for ref, opener, items in SHEETS:
+                with self.subTest(w=w, sheet=ref):
+                    page.evaluate(opener)
+                    settle(page)
+                    got = page.evaluate(SHEET_LINES, [ref, items])
+                    want = {"box": edge, "end": edge, "ink": edge + 12, "content": edge + 12}
+                    off = [g for g in got if g[2] is None or abs(g[2] - want[g[1]]) > 1.5]
+                    self.assertEqual(off, [])
+                    page.evaluate(
+                        "()=>{for(const d of document.querySelectorAll('dialog[open]'))d.close(); setSide(false);}"
+                    )
+                    settle(page)
+
+    def test_help_and_the_trash_are_bottom_sheets_on_compact_bands(self):
+        """Like [더보기] and the documents sheet: on the bottom edge, the phone's whole width, the tablet sheet's 640px
+        column (they were centred cards 92vw and 100vw - 16px wide)."""
+        for (w, h), width in (((411, 908), 411), ((768, 1024), 640)):
+            page = self.view(touch_device(w, h))
+            for opener, dlg in (("openHelp()", "#help"), ("openTrash()", "#trash"), ("openMore()", "#more")):
+                with self.subTest(w=w, dialog=dlg):
+                    page.evaluate(opener)
+                    settle(page)
+                    b = page.locator(dlg).bounding_box()
+                    self.assertAlmostEqual(b["y"] + b["height"], h, delta=1)
+                    self.assertAlmostEqual(b["width"], width, delta=1)
+                    self.assertAlmostEqual(b["x"], (w - width) / 2, delta=1)
+                    page.evaluate("s=>document.querySelector(s).close()", dlg)
+
+    def test_help_and_the_trash_close_on_an_outside_tap_a_pull_down_and_the_back_gesture(self):
+        """Phone: a tap above the sheet, a pull down past 35% of it, and the system back (history fallback) with the pin
+        sheet open below - which stays open - each close it."""
+        for opener, dlg in (("openHelp()", "#help"), ("openTrash()", "#trash")):
+            with self.subTest(dialog=dlg):
+                page = self.view(PHONE, init=NO_CLOSE_WATCHER)
+                cdp = self.cdp(page)
+                is_open = "s=>document.querySelector(s).open"
+                page.evaluate(opener)
+                settle(page)
+                self.tap(cdp, 190, 20)
+                page.wait_for_function("s=>!document.querySelector(s).open", arg=dlg)
+                page.evaluate(opener)
+                settle(page)
+                r = page.locator(dlg).bounding_box()
+                self.swipe(cdp, 190, r["y"] + 30, 190, r["y"] + 30 + r["height"] * 0.6, steps=10, dt=0.02)
+                page.wait_for_function("s=>!document.querySelector(s).open", arg=dlg)
+                self.tap(cdp, *self.center(page, "#btn-side"))
+                page.wait_for_function("SIDE_OPEN")
+                page.evaluate(opener)
+                settle(page)
+                self.assertTrue(page.evaluate(is_open, dlg))
+                page.go_back()
+                page.wait_for_function("s=>!document.querySelector(s).open", arg=dlg)
+                settle(page)
+                self.assertTrue(page.evaluate("SIDE_OPEN"))
+
+    def test_a_trash_row_is_two_lines_with_its_buttons_beside_the_note_on_a_phone(self):
+        """411x908: a row was the meta line, then [되살리기] alone on a line, then the note (the button away from its note).
+        Now the meta line, then the note with [되살리기] at its right end: two 44px touch lines and the row's 16px padding."""
+        self.drop_one()
+        page = self.view(touch_device(411, 908))
+        page.evaluate("openTrash()")
+        settle(page)
+        got = page.evaluate(
+            """() => {const row = document.querySelector('#trash .arc-row'), B = s => row.querySelector(s).getBoundingClientRect();
+              const l1 = B('.arc-l1'), l2 = B('.arc-l2'), a = B('.arc-acts'), r = row.getBoundingClientRect();
+              return {lines: l2.top >= l1.bottom - 1, besideNote: a.top < l2.bottom && a.bottom > l2.top && a.left >= l2.right - 1,
+                height: Math.round(r.height)}; }"""
+        )
+        self.assertEqual({k: got[k] for k in ("lines", "besideNote")}, {"lines": True, "besideNote": True})
+        self.assertLessEqual(got["height"], 2 * 44 + 16)
+
+    def test_touch_help_starts_with_a_long_press_and_a_mouse_with_a_drag(self):
+        """The tour's first step taught 'drag on the PDF' and '⌘ Enter' on a phone; touch gets the long press and [선택],
+        and no shortcut, while a mouse keeps the drag."""
+        steps = "[...document.querySelectorAll('#help .help-steps li')].map(li=>li.innerText)"
+        page = self.view(PHONE)
+        page.evaluate("openHelp()")
+        settle(page)
+        touch = page.evaluate(steps)
+        self.assertIn("길게 누르", touch[0])
+        self.assertNotIn("드래그", touch[0])
+        self.assertFalse([s for s in touch if "⌘" in s or "Ctrl" in s])
+        page = self.view(DESK)
+        page.evaluate("openHelp()")
+        settle(page)
+        mouse = page.evaluate(steps)
+        self.assertIn("드래그", mouse[0])
+        self.assertNotIn("길게 누르", mouse[0])
+        self.assertIn("⌘ Enter", mouse[2])
+
+
 class TouchHandleHits(ViewerBase):
     """The mid panel handle (25px) and the wide outline handle (24px) answered a tap narrower than 44px on touch; through the
     .hit utility they answer a 44px box, and their drawn bars keep their width. A mouse keeps its 12px and 24px."""
@@ -2421,6 +2848,27 @@ class PhoneMoreAndHelp(ViewerBase):
                 )
                 self.assertEqual(two, [])
                 self.assertEqual(page.evaluate(MISSES_44, "#more button,#more input"), [])
+
+    def test_a_tapped_row_keeps_no_hover_fill_while_a_mouse_still_gets_one(self):
+        """360x780 touch: a tap on [테마] in [더보기] left the row grey (a sticky :hover, the owner's 'Theme: System', UX
+        audit P4.6); the hover fill answers a mouse only. A mouse at 1000x800 (the same sheet) still gets --accent."""
+        bg = "getComputedStyle(document.querySelector('#m-theme')).backgroundColor"
+        page = self.view(PHONE_360)
+        page.evaluate("openMore()")
+        settle(page)
+        self.tap(self.cdp(page), *self.center(page, "#m-theme"))
+        settle(page)
+        self.assertEqual(page.evaluate(bg), "rgba(0, 0, 0, 0)")
+        page = self.view(MOUSE_MID)
+        page.evaluate("openMore()")
+        settle(page)
+        page.hover("#m-theme")
+        settle(page)
+        accent = page.evaluate(
+            "(()=>{const e=document.createElement('i'); e.style.background='var(--accent)'; document.body.append(e);"
+            " const c=getComputedStyle(e).backgroundColor; e.remove(); return c;})()"
+        )
+        self.assertEqual(page.evaluate(bg), accent)
 
     def test_help_on_a_touch_screen_leaves_out_the_shortcut_table(self):
         """Ctrl, the wheel and Alt+1…9 mean nothing on a phone; a mouse still gets the table."""

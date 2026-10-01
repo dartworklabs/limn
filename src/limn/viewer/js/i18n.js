@@ -32,20 +32,31 @@ function warnText(s){s=s==null?'':String(s); if(LANG!==UI_LANG.EN||!s)return s;
     const re=new RegExp(lit.map(p=>p.replace(/[.*+?^$()|[\]\\{}]/g,'\\$&')).join('(\\d+)'),'g');
     s=s.replace(re,(...m)=>tl(k,Object.fromEntries(names.map((n,i)=>[n,m[i+1]]))));}
   return s;}
-function i18nEl(el){for(const a of I18N_ATTRS){const v=el.getAttribute(a); if(v){const e=trMsg(v); if(e!==v)el.setAttribute(a,e);}}}
-function i18nText(n){const p=n.parentNode; if(!p||/^(TEXTAREA|SCRIPT|STYLE)$/.test(p.nodeName))return;
+// What people wrote is never translated (docs/handbook/viewer.md §뷰어 규칙을 바꿀 때): document names, notes, authors and thread
+// posts are drawn under translate="no", and the translator leaves that subtree - its text and its UI attributes - alone, so a
+// document named '그림' or a note that reads '완료' stays as written. The UI words drawn inside it are tr()'d by the code that
+// draws them. el is an element (an SVG one has no translate and counts as translatable).
+function i18nUser(el){return !!el&&el.translate===false;}
+// Translates el's UI attributes in place, unless el is user text.
+function i18nEl(el){if(i18nUser(el))return; for(const a of I18N_ATTRS){const v=el.getAttribute(a); if(v){const e=trMsg(v); if(e!==v)el.setAttribute(a,e);}}}
+// Translates text node n in place, unless it sits in a text field, a script or style, or user text.
+function i18nText(n){const p=n.parentNode; if(!p||/^(TEXTAREA|SCRIPT|STYLE)$/.test(p.nodeName)||i18nUser(p))return;
   const e=trMsg(n.nodeValue); if(e!==n.nodeValue)n.nodeValue=e;}
+// Translates root and everything under it in English mode, skipping whole user-text subtrees.
 function i18nTree(root){if(LANG!==UI_LANG.EN||!root)return;
   if(root.nodeType===3)return i18nText(root);
-  if(root.nodeType!==1)return; i18nEl(root);
-  const w=document.createTreeWalker(root,NodeFilter.SHOW_ELEMENT|NodeFilter.SHOW_TEXT); let n;
+  if(root.nodeType!==1||i18nUser(root))return; i18nEl(root);
+  const w=document.createTreeWalker(root,NodeFilter.SHOW_ELEMENT|NodeFilter.SHOW_TEXT,
+    {acceptNode:n=>n.nodeType===1&&i18nUser(n)?NodeFilter.FILTER_REJECT:NodeFilter.FILTER_ACCEPT}); let n;
   while((n=w.nextNode())){if(n.nodeType===3)i18nText(n); else i18nEl(n);}}
+// Labels the language switch, then in English translates the page once and everything drawn or changed after it (text nodes and
+// UI attributes), leaving user text alone (i18nUser).
 function i18nStart(){const b=document.getElementById('m-lang'); if(b)b.textContent=LANG===UI_LANG.EN?'한국어':'English';
   if(LANG!==UI_LANG.EN)return; i18nTree(document.body);
   new MutationObserver(ms=>{for(const m of ms){
     if(m.type==='childList')m.addedNodes.forEach(i18nTree);
     else if(m.type==='characterData')i18nText(m.target);
-    else if(m.type==='attributes'&&m.target.nodeType===1){const v=m.target.getAttribute(m.attributeName);
+    else if(m.type==='attributes'&&m.target.nodeType===1&&!i18nUser(m.target)){const v=m.target.getAttribute(m.attributeName);
       if(v){const e=trMsg(v); if(e!==v)m.target.setAttribute(m.attributeName,e);}}}})
     .observe(document.body,{childList:true,subtree:true,characterData:true,attributes:true,attributeFilter:I18N_ATTRS});}
 function switchLang(){try{localStorage.setItem('limnLang',LANG===UI_LANG.EN?UI_LANG.KO:UI_LANG.EN);}catch(e){}

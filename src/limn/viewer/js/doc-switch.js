@@ -1,8 +1,9 @@
 // ------------------------------------------------ Switching documents - the documents sheet, remembered view positions (docs/handbook/domain.md §여러 문서)
+// Draws the documents sheet's rows: the name and path are user text (translate="no"), the badges UI.
 function drawDocsMenu(){
   $('#docs-menu-list').innerHTML=DOCS.map(d=>{const on=d.key===DOC;
     return '<button class="dm-item'+(on?' on':'')+'" role="option" aria-selected="'+on+'" data-act="doc" data-doc="'+esc(d.key)+'" data-close="1">'+
-      '<span class="tx"><span class="nm">'+esc(d.name)+(on?ic('check'):'')+'</span><span class="ph">'+esc(d.path)+'</span></span>'+docBadge(d)+'</button>';}).join('');}
+      '<span class="tx"><span class="nm" translate="no">'+esc(d.name)+(on?ic('check'):'')+'</span><span class="ph" translate="no">'+esc(d.path)+'</span></span>'+docBadge(d)+'</button>';}).join('');}
 function openDocsMenu(){const d=$('#docs-menu'); if(d.open)return; hideTip(); drawDocsMenu(); d.showModal();
   const on=d.querySelector('.dm-item.on'); if(on)on.focus();}
 // Viewed position: page/fraction anchored at the top, page width, whether zoomed manually in compact, horizontal scroll. Kept in sessionStorage so it survives a reload.

@@ -9,7 +9,7 @@
 .step{display:inline-flex;flex:none;border:0;border-radius:var(--radius-lg);overflow:hidden;background:var(--muted);padding:2px;gap:2px}
 .step{align-items:stretch}
 .step button{border:0;border-radius:var(--radius);min-width:30px;padding:var(--space-1);background:transparent}
-.step button:hover{background:var(--popover)}
+@media (hover:hover){.step button:hover{background:var(--popover)}}
 .step .sl{display:inline-flex;align-items:center;padding:0 var(--space-2);font-size:var(--text-sm);color:var(--muted-foreground)}
 button.tg[aria-pressed=false]{color:var(--muted-foreground)}
 button.tg[aria-pressed=true]{border-color:var(--border-strong)}

@@ -45,8 +45,9 @@ function listDone(){return SHOW_ALL&&multiDoc()?DONE_ALL:DONE;}
 function listReview(){return SHOW_ALL&&multiDoc()?REVIEW_ALL:REVIEW_ALL.filter(p=>pdoc(p)===DOC||!DOC);}
 // Awaiting-review count: counted across documents (the inbox of work for a person to confirm). The purple number next to [핀 N] (compact) / the tool bar chip (wide).
 // The pill rides on both [핀 N] toggles (the tool bar's and the collapsed wide nav bar's); the chip is the open wide panel's.
+// The pill is the eye icon and the count, so it never reads as part of the open count beside it ('11 1', UX audit P10).
 function updateReviewCount(){const n=REVIEW_ALL.length,chip=$('#rv-chip');
-  for(const pill of $$('#btn-side .rv-n,#nav-side .rv-n')){pill.hidden=!n; pill.textContent=n; pill.setAttribute('aria-label',tl('검토 대기 {n}',{n}));}
+  for(const pill of $$('#btn-side .rv-n,#nav-side .rv-n')){pill.hidden=!n; pill.innerHTML=ic('eye')+n; pill.setAttribute('aria-label',tl('검토 대기 {n}',{n}));}
   const here=listReview().length; chip.hidden=!n||LAYOUT!==LAYOUT_MODE.WIDE||!SIDE_OPEN; chip.textContent=tl('검토 대기 {n}',{n})+(multiDoc()&&here!==n?' '+tl('(이 문서 {n})',{n:here}):'');}
 function gotoReview(){if(!listReview().length&&REVIEW_ALL.length&&multiDoc())SHOW_ALL=true;
   if(!SEC.review){SEC.review=true; savePrefs({sec:SEC});} drawPins();
@@ -108,19 +109,33 @@ function drawPins(){
 // wall clock, it was wrong across the board with browser timezone, a note-only edited_at, and a pin placed on a stale
 // PDF (confirmed by independent verification). The viewer just renders the value it's given.
 function isEstimated(p){return p.est===true;}
+// Whether a mark's number badge goes inside the mark (docs/handbook/viewer.md §모바일 레이아웃): fx is the mark's left as a
+// fraction of the page, w the page width, pad the room left of the page in the PDF scroller (its margin) and reach how far
+// the badge hangs left of the mark (28px on touch, 24px with a mouse). Only when the margin and the offset together are
+// short of the reach would the badge be clipped, and only then does it sit in the mark's top-left corner - inside, it covers
+// the text the mark points at. Pure.
+function markBadgeIn(fx,w,pad,reach){return fx*w+pad<reach;}
+// The room left of the page in the PDF scroller, in scroll coordinates (a horizontal scroll does not count), and the badge's
+// reach for the primary pointer: {pad, reach}.
+function markBadgeRoom(){const L=$('#left'),p=$('#doc .pg'); if(!L||!p)return {pad:0,reach:28};
+  return {pad:p.getBoundingClientRect().left-L.getBoundingClientRect().left-L.clientLeft+L.scrollLeft,reach:MQ_COARSE.matches?28:24};}
+// Re-decides every drawn mark's badge side for the page width W and the margin now (a zoom, a re-fit or a band change moves both).
+function markBadgeSides(){const r=markBadgeRoom(); $$('.mark').forEach(m=>m.classList.toggle('in',markBadgeIn(+m.dataset.fx,W,r.pad,r.reach)));}
 // Draws one mark per open or awaiting-review pin of this document on its page: where the pin's element is now for a figure
-// pin (pinPlace), else where it was pinned. A pin without a usable box or page draws nothing.
+// pin (pinPlace), else where it was pinned, then decides each badge's side (markBadgeSides). A pin without a usable box or
+// page draws nothing.
 function marks(){
   $$('.mark').forEach(m=>m.remove());
   // Awaiting-review pins are also drawn as purple marks - so the reviewer can see right there what was fixed (unrelated to an open pin's overlap/editing).
   // A figure pin is drawn where the server found its element in this build (see pinPlace), and a found element is no estimate.
   PINS.concat(REVIEW_ALL.filter(p=>pdoc(p)===DOC)).forEach(p=>{const at=pinPlace(p),el=document.getElementById('p'+at.page); if(!el||!isFrac(at.frac))return;
     const est=isEstimated(p)&&!hasMark(p),lost=p.stale||elLost(p);
-    const m=document.createElement('div'); m.className='mark'+(lost?' st':'')+(est?' est':'')+(pinState(p)===PIN_STATE.REVIEW?' rv':''); m.dataset.pin=p.id;
+    const m=document.createElement('div'); m.className='mark'+(lost?' st':'')+(est?' est':'')+(pinState(p)===PIN_STATE.REVIEW?' rv':''); m.dataset.pin=p.id; m.dataset.fx=at.frac[0];
     Object.assign(m.style,{left:at.frac[0]*100+'%',top:at.frac[1]*100+'%',width:at.frac[2]*100+'%',height:at.frac[3]*100+'%'});
     const n=String(p.note||'').replace(/\s+/g,' ').trim();
     const tip='#'+p.id+' · '+(n?(n.length>60?n.slice(0,60)+'…':n):tr('(메모 없음)'))+(est?' '+tr('(PDF가 새로 만들어져 위치는 추정입니다)'):'')+(elLost(p)?' · '+tr('요소 잃음'):'');
-    m.innerHTML='<b data-act="mark-jump" data-id="'+p.id+'" data-tip="'+esc(tip)+'">'+p.id+'</b>'; el.appendChild(m);});
+    m.innerHTML='<b translate="no" data-act="mark-jump" data-id="'+p.id+'" data-tip="'+esc(tip)+'">'+p.id+'</b>'; el.appendChild(m);});   // the tip carries the note
+  markBadgeSides();
 }
 // Clicking a badge scrolls to and flashes the card (never calls pick). The mark box itself has pointer-events:none, so
 // a drag over it still becomes a new selection - only the badge (<b>) needs to block mousedown.
