@@ -1355,9 +1355,12 @@ class FrontendPanelTidyStructure(unittest.TestCase):
         self.assertIn('role="separator"', tag)
         self.assertIn('aria-orientation="horizontal"', tag)
         # the grip is an item of the tool bar's row (input diagnosis P3: its own 24px row took the buttons' top 8px), so it stays
-        # with the tool bar on a collapsed sheet
+        # with the tool bar on a collapsed sheet - its middle column, between the two cells (UX spec §V4)
         bar = HTML[HTML.index('<div class="bar" id="bar1"') : HTML.index('<div class="bar" id="bar2"')]
-        self.assertIn('<div id="sheet-grip"', bar)
+        self.assertRegex(
+            bar,
+            r'^<div class="bar" id="bar1"[^>]*>\s*<div class="bar-l">.*?</div>\s*<div id="sheet-grip"[^>]*></div>\s*<div class="bar-r">',
+        )
         self.assertIn("body.compact:not(.side-open) #right>:not(#bar1):not(#bar2):not(#banner){display:none}", HTML)
         self.assertIn("var(--sheet-f,.64)", HTML)
         more = HTML[HTML.index('<dialog id="more"') : HTML.index('<dialog id="help"')]
@@ -1418,8 +1421,16 @@ class FrontendPanelTidyStructure(unittest.TestCase):
         self.assertIn('class="btn-sm btn-destructive b-drop"', body)
 
     def test_compact_toolbar_is_one_even_row(self):
+        """The phone and tablet-sheet bar is a three-column grid with equal outer columns, the left cell start-aligned and
+        the right one end-aligned (UX spec §V4); the mid bar keeps [⋯] a 44px flex item."""
         css = HTML[HTML.index("<style>") : HTML.index("</style>")]
         self.assertIn("body.compact #bar1 .sp{display:none}", css)
+        self.assertIn(
+            "body.lay-narrow #bar1{display:grid;grid-template-columns:minmax(0,1fr) var(--hit) minmax(0,1fr);", css
+        )
+        self.assertIn("body.lay-narrow #bar1 .bar-l{grid-column:1}", css)
+        self.assertIn("body.lay-narrow #bar1 .bar-r{grid-column:3;justify-content:flex-end}", css)
+        self.assertIn(".bar-l,.bar-r{display:contents}", css)
         self.assertIn("body.compact #bar1 #btn-more{flex:0 0 44px", css)
 
     def test_mid_layout_pins_nav_top_and_action_bar_bottom(self):
@@ -2010,6 +2021,16 @@ class FrontendColourRoles(unittest.TestCase):
                 with self.subTest(theme=theme, fg=fg):
                     ratio = contrast(css_colour("var(%s)" % fg, t), css_colour("var(%s)" % bg, t))
                     self.assertGreaterEqual(ratio, 4.5)
+
+    def test_the_bars_review_pill_reads_at_4_5_to_1_in_both_themes(self):
+        """The compact bar's [👁 M] pill is a 14% review tint over the sheet (UX spec §막대 공통 규칙): its 12px review-coloured
+        count reads at 4.5:1 in both themes, whatever fill the [📍 N] button around it has."""
+        sel = "body.compact #btn-side .rv-n"
+        for theme in ("light", "dark"):
+            with self.subTest(theme=theme):
+                t = theme_tokens(theme)
+                ratio = contrast(css_colour(rule_value(sel, "color"), t), css_colour(rule_value(sel, "background"), t))
+                self.assertGreaterEqual(ratio, 4.5)
 
     def test_the_contrast_helper_matches_known_pairs(self):
         """Black on white is 21:1, #a1a1aa on white 2.56:1 (the old handle), and a 50% mix over white is the mix."""

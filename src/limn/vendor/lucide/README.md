@@ -36,6 +36,7 @@ Icons are drawn with the original `<svg>` attributes: `viewBox="0 0 24 24"`, `fi
 | `move-horizontal` | fit PDF width (desktop toolbar) |
 | `panel-left` | open/close the outline (document navigation bar) |
 | `pencil` | 'edited' badge; [수정] on a compact card |
+| `pin` | the pin panel and sheet toggle on compact bars (the icon before the open count) |
 | `refresh-cw` | [Rebuild PDF] |
 | `rotate-ccw` | 'reopened' badge (pin sent back from review) |
 | `square-dashed` | [Select] button — drag to pick a region on touch devices (same shape as the dashed box on the PDF) |

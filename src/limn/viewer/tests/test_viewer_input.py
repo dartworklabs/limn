@@ -1613,11 +1613,11 @@ class PhoneTouchSizes(ViewerBase):
         settle(page)
         return card
 
-    def test_the_review_pill_shows_an_eye_beside_its_count_and_a_360px_phone_drops_the_arrow_for_it(self):
-        """384x832: [핀 N]'s purple pill reads 'eye 1' - a bare '1' after the open count read as '4 1' (UX audit P10). On a
-        360px phone (the commonest Android width), where [선택] already drops its label, the toggle drops its decorative
-        arrow (aria-expanded carries the state) and keeps the eye."""
-        for device, arrow in ((PHONE, True), (PHONE_360, False)):
+    def test_the_review_pill_shows_an_eye_beside_its_count(self):
+        """411x908: [📍 N]'s purple pill reads 'eye 1' - a bare '1' after the open count read as '4 1' (UX audit P10). Under
+        400px the bar's width budget drops the eye and keeps the count (UX spec §V4 폭 예산): 384 and 360. The sheet's toggle
+        has no arrow at any width: the grabber says it is a sheet, its fill and aria-expanded say open."""
+        for device, eye in ((phone(411, 908), True), (PHONE, False), (PHONE_360, False)):
             with self.subTest(width=device["viewport"]["width"]):
                 page = self.view(device)
                 got = page.evaluate(
@@ -1625,7 +1625,7 @@ class PhoneTouchSizes(ViewerBase):
                     " a=document.querySelector('#side-arrow'); return [p.textContent, !!i&&i.getClientRects().length>0,"
                     " a.getClientRects().length>0];}"
                 )
-                self.assertEqual(got, ["1", True, arrow])
+                self.assertEqual(got, ["1", eye, False])
 
     def test_card_head_controls_and_the_tool_bar_answer_a_44px_box(self):
         """The assignee chip answered 72x20 (its overflow clipped the hit area), '1쪽' 16x38 and 'L4-L5' 33x38 (neighbours took
@@ -2831,14 +2831,15 @@ class PhoneMoreAndHelp(ViewerBase):
     a row of its own and wrapped English labels onto two lines; help showed the desktop shortcut table on a touch screen."""
 
     def test_more_is_a_bottom_sheet_of_one_line_rows(self):
-        """360x780, Korean and English: a sheet on the bottom edge, at most 460px high, no label on two lines, 44px targets."""
+        """360x780, Korean and English: a sheet on the bottom edge, at most the screen less 48px high (the phone's [PDF 재빌드]
+        row is in it), no label on two lines, 44px targets."""
         for lang in ("ko", "en"):
             with self.subTest(lang=lang):
                 page = self.view(PHONE_360, lang=lang)
                 page.evaluate("openMore()")
                 settle(page)
                 box = page.locator("#more").bounding_box()
-                self.assertLessEqual(box["height"], 460)
+                self.assertLessEqual(box["height"], 780 - 48)
                 self.assertAlmostEqual(box["y"] + box["height"], 780, delta=1)
                 two = page.evaluate(
                     """() => [...document.querySelectorAll('#more button')].filter(b => b.getClientRects().length).filter(b => {
@@ -3010,6 +3011,93 @@ class DesktopMisc(ViewerBase):
                 self.assertTrue(text)
                 self.assertEqual(bool(HANGUL.search(text)), lang == "ko")
                 self.assertEqual(page.evaluate("prefs().coach.mouse"), 1)
+
+
+# ---------------------------------------------------------------- the bottom bar, the status line and the sheets (PR D)
+
+
+def phone(w: int, h: int, dpr: float = 2.625) -> dict[str, object]:
+    """A touch phone of w x h CSS px at the UX audit's device pixel ratio (touch_device plus the ratio)."""
+    return dict(touch_device(w, h), device_scale_factor=dpr)
+
+
+# The phone band's widths of the UX audit (the owner's 411, the narrowest phones and the folded cover) and the tablet sheet.
+BAR_PHONES = (phone(411, 908), phone(360, 800, 3), phone(393, 852, 3), phone(430, 932, 3), phone(344, 882))
+BAR_TABLETS = (phone(820, 1180, 2), phone(884, 1104, 2.5))
+# The bottom bar as drawn: the grabber's centre minus the screen's, the children that spill out of their cell, the bar buttons
+# that draw a border, the text [⬚] shows, whether [📍 N] shows a word, the collapsed sheet's chrome under the PDF, the visible
+# ids of the right cell, and the left cell's gap and [📍]'s side padding.
+BAR = """() => {const q = s => document.querySelector(s), R = e => e.getBoundingClientRect(), vis = e => !!e && e.getClientRects().length > 0;
+  const bar = q('#bar1'), g = R(q('#sheet-grip')), r1 = v => Math.round(v * 10) / 10;
+  const spill = [];
+  for (const c of bar.querySelectorAll(':scope>.bar-l,:scope>.bar-r')) {const cr = R(c);
+    for (const e of [...c.children].filter(vis)) {const r = R(e); if (r.left < cr.left - 0.5 || r.right > cr.right + 0.5) spill.push(e.id);}
+    if (cr.left < R(bar).left - 0.5 || cr.right > R(bar).right + 0.5) spill.push(c.className);}
+  const buttons = [...bar.querySelectorAll('button')].filter(vis);
+  return {off: r1(g.left + g.width / 2 - innerWidth / 2), spill,
+    borders: buttons.filter(b => ['Top', 'Right', 'Bottom', 'Left'].some(s => parseFloat(getComputedStyle(b)['border' + s + 'Width']))).map(b => b.id),
+    select: q('#btn-select').innerText.trim(), sideWord: /[A-Za-z\\uac00-\\ud7a3]/.test(q('#btn-side').innerText),
+    chrome: Math.round(innerHeight - R(q('#right')).top), right: [...q('#bar1 .bar-r').children].filter(vis).map(e => e.id),
+    gap: getComputedStyle(q('#bar1 .bar-l')).columnGap, pad: getComputedStyle(q('#btn-side')).paddingLeft,
+    eye: vis(q('#btn-side .rv-n svg.ic'))};}"""
+# The fullest bar the width budget plans for: 123 open pins, 12 awaiting review and a draft dot (UX spec §V4 폭 예산).
+FULL_BAR = """() => {document.querySelector('#side-n').textContent = '123'; const p = document.querySelector('#side-rv');
+  p.hidden = false; p.innerHTML = ic('eye') + '12'; document.querySelector('#btn-side .c-dot').hidden = false;}"""
+
+
+class BarAndSheets(ViewerBase):
+    """The bottom bar, the status line and the navigation and [더보기] sheets (docs/handbook/viewer.md §모바일 레이아웃, the
+    PR D design): the phone and tablet-sheet bar is a three-column grid whose middle column, the grabber, is the screen's
+    centre whatever the language, the counts or the document; its buttons draw no border, and [⬚] is an icon."""
+
+    def test_the_grabber_is_at_the_screen_centre_on_every_phone_and_tablet_sheet(self):
+        """The grabber was 31-89px right of the centre (UX audit P2: a flex item centred in the space left between unequal
+        groups). On every phone and tablet-sheet width, in Korean and English, with the default counts and the fullest
+        bar, it is the centre within 1px and nothing spills out of its cell."""
+        for device in BAR_PHONES + BAR_TABLETS:
+            for lang in ("ko", "en") if device["viewport"]["width"] in (411, 884) else ("ko",):
+                with self.subTest(width=device["viewport"]["width"], lang=lang):
+                    page = self.view(device, lang=lang)
+                    bar = page.evaluate(BAR)
+                    self.assertLessEqual(abs(bar["off"]), 1, bar)
+                    self.assertEqual(bar["spill"], [])
+                    page.evaluate(FULL_BAR)
+                    bar = page.evaluate(BAR)
+                    self.assertLessEqual(abs(bar["off"]), 1, bar)
+                    self.assertEqual(bar["spill"], [])
+
+    def test_the_phone_bar_draws_no_border_and_its_select_is_an_icon(self):
+        """411 and 360: three bordered boxes and two ghosts were mixed (UX audit P3). Now no bar button draws a border, [⬚]
+        shows no word (its name is aria-label), [📍 N] shows no 핀/Pin, the collapsed sheet is 40 + 8px under the PDF, and
+        every bar control still answers a 44px box."""
+        for device in (BAR_PHONES[0], BAR_PHONES[1]):
+            with self.subTest(width=device["viewport"]["width"]):
+                page = self.view(device, init=NO_PNG_CHIP)
+                bar = page.evaluate(BAR)
+                self.assertEqual(bar["borders"], [])
+                self.assertEqual(bar["select"], "")
+                self.assertFalse(bar["sideWord"])
+                self.assertAlmostEqual(bar["chrome"], 48, delta=1)
+                self.assertEqual(page.get_attribute("#btn-select", "aria-label"), "선택")
+                self.assertEqual(page.evaluate(MISSES_44, "#bar1 button,#sheet-grip"), [])
+
+    def test_the_width_budget_drops_the_eye_under_400_and_tightens_under_360(self):
+        """The review pill keeps its eye from 400px; at 360-399 only the count stays, and under 360 the bar buttons' side
+        padding and the gap in a cell go from 8 to 4px (UX spec §V4 폭 예산)."""
+        for device, eye, pad in (
+            (BAR_PHONES[0], True, "8px"),
+            (BAR_PHONES[2], False, "8px"),
+            (BAR_PHONES[1], False, "8px"),
+            (BAR_PHONES[4], False, "4px"),
+        ):
+            with self.subTest(width=device["viewport"]["width"]):
+                bar = self.view(device).evaluate(BAR)
+                self.assertEqual((bar["eye"], bar["pad"], bar["gap"]), (eye, pad, pad))
+
+    def test_the_tablet_sheet_bar_has_only_more_in_its_right_cell(self):
+        """820x1180: documents, view, page and outline are the nav bar's, so the right cell holds [⋯] alone."""
+        page = self.view(BAR_TABLETS[0])
+        self.assertEqual(page.evaluate(BAR)["right"], ["btn-more"])
 
 
 if __name__ == "__main__":

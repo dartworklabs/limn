@@ -129,10 +129,26 @@ body.compact #left{padding:var(--space-3) max(var(--edge),env(safe-area-inset-ri
 body.compact #main{min-width:0}
 body.compact #right{overflow-y:auto;overscroll-behavior:contain;min-width:0;max-width:none}
 body.compact #right>*{flex:none}
-/* Compact tool bar: a single row of same-height items. Packed edge to edge with no gaps, and [⋯] sits in that same flow (text shrinks first if there's no room). */
-body.compact #bar1{flex-wrap:nowrap;gap:var(--space-1);padding:var(--space-2) var(--space-3);position:sticky;top:0;z-index:3;background:var(--sidebar)}
+/* Compact bars (docs/handbook/viewer.md §모바일 레이아웃): one row of same-height items, 8px apart. No bar button draws a border -
+   [📍 N 👁 M] is a tonal fill (--accent while the sheet or panel is open), a pressed [⬚] the primary fill, the rest ghosts - and
+   names are 14px at 400 with counts at 600 in tabular figures. Bordered boxes and ghosts were mixed, so the two ends of the bar sat
+   8 and 22px in (UX audit P3). */
+body.compact #bar1{flex-wrap:nowrap;gap:var(--space-2);padding:var(--space-2) var(--space-3);position:sticky;top:0;z-index:3;background:var(--sidebar)}
 body.compact #bar1 .sp{display:none}
-body.compact #bar1 button{flex:1 1 auto;min-width:0;padding:0 var(--space-2);overflow:hidden;text-overflow:ellipsis;font-size:var(--text-base)}
+body.compact #bar1 button{flex:1 1 auto;min-width:0;padding:0 var(--space-2);overflow:hidden;text-overflow:ellipsis;font-size:var(--text-lg);font-weight:400;
+  border:0;background:transparent;color:var(--foreground)}
+@media (hover:hover){body.compact #bar1 button:hover{background:var(--accent)}}
+body.compact #bar1 #btn-side{background:var(--secondary);color:var(--secondary-foreground)}
+body.compact #bar1 #btn-side[aria-expanded=true]{background:var(--accent)}
+body.compact #bar1 #btn-select[aria-pressed=true]{background:var(--primary);color:var(--primary-foreground);font-weight:600}
+body.compact #bar1 #btn-rebuild.btn-default{background:var(--primary);color:var(--primary-foreground)}
+/* [📍 N 👁 M]: the pin icon carries the draft dot on its top-right corner (no width of its own), the open count is 600 in tabular
+   figures, and the review pill is a 14% review tint - not the old solid purple, whose two numbers read as one ('11 1', UX audit P10). */
+#btn-side .pin-ic{position:relative;display:inline-flex}
+#btn-side .pin-ic .c-dot{position:absolute;top:-2px;right:-3px}
+#btn-side .side-n{font-weight:600;font-variant-numeric:tabular-nums}
+body.compact #btn-side .rv-n{margin-left:var(--space-1);background:color-mix(in srgb,var(--status-review) 14%,var(--sidebar));color:var(--status-review);
+  font-weight:600;font-variant-numeric:tabular-nums}
 /* If there's no room, the label chip shrinks first (the full name is in the description) - this prevents a button's text from getting clipped to something like 'DF 재빌드' */
 body.compact #bar1 .chip{flex:0 50 auto;min-width:28px}
 /* min-width:0 above (body.compact #bar1 button) is more specific (includes an id) than @media(pointer:coarse)'s
@@ -146,20 +162,26 @@ body.compact #bar1 .chip{flex:0 50 auto;min-width:28px}
    (shared markup with no layout condition), so the full name is visible without a separate sheet. */
 body.lay-narrow #bar1 .chip,body.lay-mid #bar1 .chip{display:none}
 body.lay-narrow #bar1 #btn-doc{flex:none;overflow:visible}
-/* Folded/phone-sheet tool bar (QA 2026-09-24): frequency order - [핀 N] [선택] [문서] ... [재빌드] [⋯]. The awaiting-review count is a pill
-   inside [핀 N] (it used to float half-overlapping the button's corner border). [PDF 재빌드] is rarely used, so only its icon remains to free up
-   thumb space (the name lives in aria-label/long-press description). Freeing that space also removed the width problem that used to clip it to '핀 02'. */
-body.lay-narrow #btn-side{order:1}
-body.lay-narrow #btn-select{order:2}
-body.lay-narrow #btn-doc{order:3}
-body.lay-narrow #btn-rebuild{order:5}
-body.lay-narrow #btn-more{order:6}
-body.lay-narrow #bar1 #btn-rebuild{flex:0 0 var(--tb-h);padding:0}
-body.lay-narrow #btn-rebuild .lbl{display:none}
-@media (max-width:360px){body.lay-narrow #btn-select .lbl{display:none}}   /* very narrow phone: [선택] is just the dashed-box icon (filled color when on) */
-@media (max-width:360px){body.lay-narrow #side-arrow{display:none}}   /* ...and [핀 N] drops its arrow (aria-expanded says it), so the review pill keeps its eye */
+/* The phone and tablet-sheet bar is a three-column grid (docs/handbook/viewer.md §모바일 레이아웃): [📍 N 👁 M] [⬚] | the grabber |
+   [본문 ▾] [⋯] - [⋯] alone on the tablet sheet, whose nav bar has the documents. The outer columns are equal, so the grabber's
+   centre is the bar's, the screen's, whatever the language, counts or document; as a flex item centred in the space left between
+   unequal groups it sat 31-89px right of it (UX audit P2). Outside the sheet the two groups are display:contents, so the mid and
+   wide bars keep their flex order. [PDF 재빌드] is in [⋯] (#m-rebuild); [⬚] is its icon, named by aria-label. */
+.bar-l,.bar-r{display:contents}
+body.lay-narrow #bar1{display:grid;grid-template-columns:minmax(0,1fr) var(--hit) minmax(0,1fr);align-items:start;column-gap:0}
+body.lay-narrow #bar1>:not(.bar-l):not(.bar-r):not(#sheet-grip){display:none}
+body.lay-narrow #bar1 :is(.bar-l,.bar-r){display:flex;align-items:center;gap:var(--space-2);min-width:0}
+body.lay-narrow #bar1 .bar-l{grid-column:1}
+body.lay-narrow #bar1 .bar-r{grid-column:3;justify-content:flex-end}
+body.lay-narrow #bar1 button{flex:none}
+body.lay-narrow #btn-select .lbl,body.lay-narrow #side-arrow{display:none}   /* the grabber already says it is a sheet; its fill and aria-expanded say open */
 body.lay-narrow #btn-doc .nm{overflow:visible;text-overflow:clip;max-width:6em}
-body.compact #bar1 #btn-more{flex:0 0 44px;padding:0;background:transparent;border-color:transparent}   /* utility = ghost (the same convention as notification/theme/help on desktop) */
+/* The width budget (UX spec §V4 폭 예산): under 400px the review pill drops its eye and keeps the count; under 360px the bar buttons'
+   side padding and the gap in a cell go from 8 to 4px. Decoration only - the layout never changes by width here. */
+@media (max-width:399.98px){body.lay-narrow #bar1 .rv-n .ic{display:none}}
+@media (max-width:359.98px){body.lay-narrow #bar1 :is(.bar-l,.bar-r){gap:var(--space-1)}body.lay-narrow #bar1 button:not(.btn-icon){padding:0 var(--space-1)}}
+body.lay-narrow:not(.no-rebuild) #m-rebuild{display:flex}
+body.compact #bar1 #btn-more{flex:0 0 44px;padding:0}   /* utility = ghost (the same convention as notification/theme/help on desktop) */
 body.compact #composer{max-height:none;overflow:visible}
 /* Touch only (a mouse window scrolls as it always did): a field scrolled into view stays clear of the stuck save row (56px plus the
    bottom safe area) and, on a sheet, of the tool bar stuck at its top (whose hit areas reach 6px below it). */
@@ -220,17 +242,17 @@ body.lay-narrow.side-open #right{height:min(calc(var(--sheet-f,.64) * 100dvh),ca
 /* While composing the phone sheet rises to 80% (body.sheet-up, never saved) unless the user sets a height meanwhile (panel-size.js SHEET_KEPT);
    the tablet sheet keeps its height and rises only with the keyboard up, through --sheet-f (tabletLift). */
 body.lay-narrow.side-open.sheet-up #right{height:min(calc(max(var(--sheet-f,.64),.8) * 100dvh),calc(var(--vvh,100dvh) - var(--sheet-gap)))}
-/* The sheet's header is one row (docs/handbook/viewer.md §패널 폭과 시트 높이): the handle is an item of the tool bar, between [문서] and
-   [재빌드], its bar drawn at the row's top like a sheet handle. It used to be a 24px row of its own whose hit area took the top 8px
+/* The sheet's header is one row (docs/handbook/viewer.md §패널 폭과 시트 높이): the handle is the bar's middle column (44px), its
+   32x4px bar drawn in the column's top 4px like a sheet handle. It used to be a 24px row of its own whose hit area took the top 8px
    of every tool-bar button (diagnosis P3). The row has no vertical padding: the buttons are drawn at --tb-h and their 44px hit areas
    reach 4px down into the section head below, never up past the sheet's edge (the scroll box would clip them). */
-body.lay-narrow #sheet-grip{display:flex;align-items:flex-start;justify-content:center;flex:none;order:4;width:var(--hit);height:var(--tb-h);
-  margin:0 auto;padding-top:var(--space-1);touch-action:none;cursor:row-resize;position:relative}
-body.lay-narrow #sheet-grip::before{content:'';width:24px;height:4px;border-radius:var(--radius-sm);background:var(--grabber)}
+body.lay-narrow #sheet-grip{display:flex;align-items:flex-start;justify-content:center;grid-column:2;width:var(--hit);height:var(--tb-h);
+  padding-top:var(--space-1);touch-action:none;cursor:row-resize;position:relative}
+body.lay-narrow #sheet-grip::before{content:'';width:32px;height:4px;border-radius:var(--radius-sm);background:var(--grabber)}
 body.lay-narrow #sheet-grip.on::before{background:var(--primary)}
-body.lay-narrow #bar1{top:0;padding:0 var(--space-2);border-bottom:0;touch-action:none}   /* the whole tool bar drags the sheet; its taps still press buttons */
+body.lay-narrow #bar1{top:0;padding:0 var(--edge);border-bottom:0;touch-action:none}   /* the whole tool bar drags the sheet; its taps still press buttons */
 body.lay-narrow #sec-open>.sec-head{border-top:1px solid var(--border)}   /* the line under the tool bar is the section head's own (40px with it) */
-body.lay-narrow:not(.side-open) #bar1{padding-bottom:var(--space-1)}   /* the collapsed sheet: room for the hit areas below the row */
+body.lay-narrow:not(.side-open) #bar1{padding-bottom:var(--space-2)}   /* the collapsed sheet: 8px (plus the bottom safe area) under the row, its hit areas inside */
 @media (pointer:coarse){
   body.lay-narrow #bar1{--tb-h:var(--ctl-touch)}
   body.lay-narrow #bar1 :is(button,#sheet-grip){position:relative;min-height:0;overflow:clip;overflow-clip-margin:var(--space-2)}   /* the label still ellipsizes; the hit area below is not clipped */
@@ -240,7 +262,6 @@ body.lay-narrow:not(.side-open) #bar1{padding-bottom:var(--space-1)}   /* the co
   body.lay-narrow .sec-head button{min-height:var(--ctl-touch-sm);height:var(--ctl-touch-sm);padding-top:0;padding-bottom:0;position:relative}
   body.lay-narrow .sec-head button::after{content:'';position:absolute;left:50%;top:0;width:max(100%,var(--hit));height:calc(var(--hit) + 2px);transform:translateX(-50%)}
 }
-@media (min-width:480px){body.lay-narrow #bar1 button{flex:none}}   /* a small tablet's sheet never stretches the buttons (600px: [핀 5] was 218px wide) */
 /* ---- Spread-out folded layout / tablet (mid): the document nav bar on top, the action row on the bottom - both fixed to the full screen
    width, with the panel spread between them (docs/handbook/viewer.md §펼친 화면 레이아웃). It used to have the tool bar follow the panel, so [핀]
    jumped to the top-right when expanded and the bottom-right when collapsed (observed 842x758, y 56->693), and the document-side panel
@@ -348,8 +369,6 @@ body.band-tablet-sheet #doc-nav{height:calc(var(--doc-nav-h) + env(safe-area-ins
   padding:env(safe-area-inset-top) max(var(--space-3),env(safe-area-inset-right)) 0 max(var(--space-3),env(safe-area-inset-left))}
 body.band-tablet-sheet #pdf-body{position:relative}   /* the outline overlay's box starts under the nav bar */
 body.band-tablet-sheet #right>*{width:100%;max-width:640px;margin-left:auto;margin-right:auto}
-body.band-tablet-sheet #bar1 button{flex:none}
-body.band-tablet-sheet #bar1{padding-left:var(--edge);padding-right:var(--edge)}   /* the phone's bar keeps 8px until its grid (UX audit V4): 12px overflows a 360px row */
 body.band-tablet-sheet #coach{top:calc(var(--doc-nav-h) + env(safe-area-inset-top) + var(--space-3))}
 body.band-tablet-sheet #toasts{max-width:640px;margin:0 auto}
 /* The folded layout (narrow) reuses the existing tool bar's [문서 ▾] button and sheet list as-is. */
