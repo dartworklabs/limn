@@ -1551,6 +1551,38 @@ class PhoneComposer(ViewerBase):
         self.assertAlmostEqual(page.locator("#right").bounding_box()["height"] / 780, 0.45, delta=0.01)
 
 
+# A portrait tablet in the mid layout (the overlay panel).
+TAB_PORTRAIT = {"viewport": {"width": 768, "height": 1024}, "is_mobile": True, "has_touch": True}
+
+
+class MidChrome(ViewerBase):
+    """The mid layout's fixed chrome (input diagnosis P4): nav bar 48 + section strip 38 + action row 61 = 147px. The strip
+    repeated the nav bar's 원고 tab and goes; its page count moves to the nav bar's right end; the action row is drawn at 40px."""
+
+    def test_the_section_strip_goes_and_the_action_row_is_at_most_52px(self):
+        """768x1024: no section strip, the page count in the nav bar, an action row of 52px or less whose buttons answer 44px."""
+        page = self.view(TAB_PORTRAIT)
+        self.assertTrue(page.evaluate("document.body.classList.contains('lay-mid')"))
+        self.assertFalse(page.is_visible("#section-strip"))
+        self.assertTrue(page.is_visible("#nav-page"))
+        self.assertRegex(page.inner_text("#nav-page"), r"^1 / 2쪽$")
+        self.assertLessEqual(round(page.locator("#bar1").bounding_box()["height"]), 52)
+        self.assertEqual(page.evaluate(MISSES_44, "#bar1 button"), [])
+
+    def test_the_open_panel_keeps_out_of_a_right_notch(self):
+        """A landscape phone with its notch on the right: the panel's buttons sat in the 47px inset (#c-copy at x 788-832)."""
+        page = self.view(FOLD)
+        self.cdp(page).send("Emulation.setSafeAreaInsetsOverride", {"insets": {"right": 47}})
+        page.evaluate("()=>{LAST_PTR='touch'; pick({page:1,x0:10,y0:10,x1:200,y1:60});}")
+        page.wait_for_function("COMPOSE.current&&!COMPOSE.picking")
+        settle(page)
+        out = page.evaluate(
+            "[...document.querySelectorAll('#right button')].filter(b=>b.getClientRects().length&&b.closest('#composer,#c-actions'))"
+            ".filter(b=>b.getBoundingClientRect().right>innerWidth-47).map(b=>b.id||b.className)"
+        )
+        self.assertEqual(out, [])
+
+
 # A touch tablet wide enough for the desktop layout (1180x820), as an iPad home-screen app or full screen.
 TAB_WIDE = {"viewport": {"width": 1180, "height": 820}, "is_mobile": True, "has_touch": True}
 

@@ -266,7 +266,7 @@ class PinListLoading(unittest.TestCase):
                 function loadViews(){} function drawMeta(){} function applySideWidth(){}
                 function applyOutlineState(){} function applyViewWidth(){return false;}
                 function buildDoc(){} function autoW(){} function vecBoot(){}
-                function restoreView(){} function drawDocTabs(){} function restoreDraft(){}
+                function restoreView(){} function drawDocTabs(){} function restoreDraft(){} function updateSectionStrip(){}
                 function coach(){} function startLightPolling(){} function startBuildPolling(){}
                 function drawNotify(){} function prefs(){return {};}
                 function loadPeople(){} function diffToast(){} function reviewToast(){}
@@ -314,7 +314,7 @@ class PinListLoading(unittest.TestCase):
                 function loadViews(){} function drawMeta(){} function applySideWidth(){}
                 function applyOutlineState(){} function applyViewWidth(){return false;}
                 function buildDoc(){} function autoW(){} function vecBoot(){}
-                function restoreView(){} function drawDocTabs(){} function restoreDraft(){}
+                function restoreView(){} function drawDocTabs(){} function restoreDraft(){} function updateSectionStrip(){}
                 function coach(){} function startLightPolling(){} function startBuildPolling(){}
                 function drawNotify(){} function prefs(){return {};}
                 async function loadPins(){pinReads++;return true;}

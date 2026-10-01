@@ -1322,7 +1322,10 @@ class FrontendPanelTidyStructure(unittest.TestCase):
         self.assertIn("body.lay-mid #doc-nav{position:fixed;top:0;left:0;right:0;", css)
         # the body/panel only occupy the space between the two
         self.assertIn("padding-top:var(--mid-top);padding-bottom:var(--mbar-h)}", css)
-        self.assertIn("@media (pointer:coarse){body.lay-mid{--mbar-tb:var(--control-h-touch)}}", css)
+        # touch: 40px buttons in 4px padding (input diagnosis P4: the row was 61px around 44px buttons); hit areas stay 44px (MidChrome)
+        self.assertIn(
+            "@media (pointer:coarse){body.lay-mid{--mbar-tb:var(--ctl-touch);--mbar-pad:var(--space-1)}}", css
+        )
         # thumb order: [select] at the far left, [pin N] at the far right. DOM is shared with the narrow sheet, so only order changes.
         self.assertIn("body.lay-mid #btn-select{order:1}", css)
         self.assertIn("body.lay-mid #bar1 #btn-side{order:5;", css)

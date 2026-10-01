@@ -199,16 +199,23 @@ body.lay-narrow:not(.side-open) #bar1{padding-bottom:var(--space-1)}   /* the co
    row, so it's within right-thumb reach. The tool bar (#bar1) stays in the DOM inside #right and is pulled out visually via position:fixed -
    this is because the narrow sheet reuses the same markup as a sticky element below its handle. That's also why #right is never given a
    transform/filter/opacity (that would change a fixed child's containing block, and the action row would move together with the panel). */
-body.lay-mid{--mbar-tb:var(--control-h);--mbar-h:calc(var(--mbar-tb) + 2 * var(--space-2) + 1px + env(safe-area-inset-bottom));
+body.lay-mid{--mbar-tb:var(--control-h);--mbar-pad:var(--space-2);--mbar-h:calc(var(--mbar-tb) + 2 * var(--mbar-pad) + 1px + env(safe-area-inset-bottom));
   --mid-top:calc(var(--doc-nav-h) + env(safe-area-inset-top));padding-top:var(--mid-top);padding-bottom:var(--mbar-h)}
-@media (pointer:coarse){body.lay-mid{--mbar-tb:var(--control-h-touch)}}
+@media (pointer:coarse){body.lay-mid{--mbar-tb:var(--ctl-touch);--mbar-pad:var(--space-1)}}
+/* Touch mid action row: buttons drawn at 40px in 4px padding (49px with the line; 61px around 44px buttons before), each answering a 44px
+   box that reaches into the padding. */
+@media (pointer:coarse){
+  body.lay-mid #bar1 button{min-height:0;position:relative;overflow:visible}
+  body.lay-mid #bar1 button::after{content:'';position:absolute;left:50%;top:50%;width:max(100%,var(--hit));height:max(100%,var(--hit));transform:translate(-50%,-50%)}
+}
 body.lay-mid #bar1{position:fixed;left:0;right:0;top:auto;bottom:var(--kb,0px);z-index:30;height:var(--mbar-h);--tb-h:var(--mbar-tb);
-  gap:var(--space-2);padding:var(--space-2) max(var(--space-3),env(safe-area-inset-right)) calc(var(--space-2) + env(safe-area-inset-bottom)) max(var(--space-3),env(safe-area-inset-left));
+  gap:var(--space-2);padding:var(--mbar-pad) max(var(--space-3),env(safe-area-inset-right)) calc(var(--mbar-pad) + env(safe-area-inset-bottom)) max(var(--space-3),env(safe-area-inset-left));
   background:var(--sidebar);border-top:1px solid var(--border);border-bottom:0;pointer-events:auto;visibility:visible}
 /* Buttons keep their natural text width (never shrink or grow). Order follows thumb reach: [선택] .... [PDF 재빌드] [⋯] [핀 N].
    DOM order is shared with the narrow sheet, so only CSS order changes it. */
 body.lay-mid #bar1 button{flex:none;min-width:var(--tb-h);padding:0 var(--space-3);overflow:visible}
 body.lay-mid #bar1 #btn-more{flex:0 0 var(--tb-h);width:var(--tb-h);padding:0}
+@media (pointer:coarse){body.lay-mid #bar1 #btn-more{flex-basis:var(--hit);width:var(--hit)}}   /* a ghost icon: drawn at its hit width, so nothing hangs outside it */
 body.lay-mid #bar1 .sp{display:block;flex:1 1 0;order:2;align-self:stretch}
 body.lay-mid #btn-select{order:1}
 body.lay-mid #btn-rebuild{order:3}
@@ -216,6 +223,7 @@ body.lay-mid #btn-more{order:4}
 body.lay-mid #bar1 #btn-side{order:5;min-width:calc(2 * var(--control-h-touch));justify-content:center;gap:var(--space-1)}
 body.lay-mid #bar1 #btn-side[aria-expanded=true]{background:var(--accent);border-color:var(--border-strong)}
 body.lay-mid.side-open #right{width:var(--side-w,clamp(300px,38vw,360px))!important}
+body.lay-mid.side-open #right{padding-right:env(safe-area-inset-right)}   /* a landscape phone's right notch: #c-copy and [핀 저장] sat in it (diagnosis P9) */
 /* Collapsed panel: #right remains an invisible frame, floating only the status chips (#bar2) and the re-place-location banner (#banner) at the bottom-right just above the action row.
    The frame itself never receives input, so it never blocks the PDF behind it. */
 body.lay-mid:not(.side-open) #right{position:fixed;left:auto;top:auto;right:max(var(--space-3),env(safe-area-inset-right));
