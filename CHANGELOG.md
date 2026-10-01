@@ -1,5 +1,36 @@
 # Changelog
 
+## 0.4.3 — 2026-10-01
+
+A figure set that lives inside a LaTeX document's folder no longer makes that document look stale. Nothing changes in
+`pins.md`, the API or its fields. No state file gains a field or changes its format: `builds.json`,
+`built_src_mtime.txt` and the pin files are read and written as before. The one addition on disk is a file inside each
+kept page folder, the build's latexmk `.fls` (see Fixed).
+
+### Fixed
+
+- **Re-rendering a figure document inside a LaTeX document's folder** no longer marks the LaTeX tab "manuscript
+  edited", no longer puts the stale-PDF warning on a pick, and no longer turns the pins of the next rebuild into
+  estimates (dashed marks). The LaTeX document's source list now leaves out two things another document owns: the
+  figure files (`png`, `jpg`, `jpeg`, `pdf`, `eps`, `svg`) under a figure document's folder, and a view-only
+  document's PDF as that one file - not the other files of its folder, so a PDF in the manuscript root no longer
+  stales the manuscript when it is saved again. `.tex`, `.bib`, `.sty`, `.cls` and `.bst` still count wherever they
+  are, and so does everything outside those two. A figure folder that is the LaTeX build root, holds it or holds the
+  document's main file sets nothing apart.
+- **A figure file the manuscript includes still counts.** The build keeps latexmk's recorder file (`<main>.fls`) in its
+  page directory, next to the `.synctex.gz` and `.aux`, and a figure-set file it lists is part of the manuscript again:
+  re-rendering that file makes the document stale, and the build's fingerprint includes it. Only files that were in the
+  copy before latexmk ran count, at the mtime they had then: a file latexmk makes itself (an epstopdf conversion) does
+  not move the baseline, so a source edited while a build runs still leaves the document stale. Only a `.fls` that the
+  run wrote is read; one that came with the manuscript is ignored. A build with no `.fls`
+  (made before this release, or latexmk's recorder switched off) is treated as having read none, so the re-render of a
+  figure it did read is not reported until the next rebuild.
+- The first rebuild after the upgrade can turn the pins of a document that has a figure set inside its folder into
+  estimates once, because the fingerprint of the older build still included the figure files.
+- The page directory kept for the build on screen and the one before it now also holds that build's `.fls` (typically
+  tens to a few hundred KB). The server reads it and never serves it; it is removed with its page folder, and an older
+  Limn ignores it, so going back to 0.4.2 needs no cleanup (its first rebuild can dash the pins of such a document once, the upgrade's effect in reverse).
+
 ## 0.4.2 — 2026-10-01
 
 The viewer's layout now depends on the input device and, on touch, on the screen's height and orientation. A mouse
