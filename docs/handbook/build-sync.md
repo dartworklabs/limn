@@ -102,7 +102,8 @@ Limn은 원고를 PDF로 빌드해 쪽 이미지로 보여 주고, 그 위에 �
 - 원고에 커밋된 같은 이름의 PDF(`<main>.pdf`)는 사본으로 오지 않는다. 그래서 빌드가 쓴 PDF를 덮지 못한다.
 - 메인 파일 폴더에 부산물 이름의 파일이 원고로 들어 있으면(arXiv용 `main.bbl` 등) 아무것도 남기지 않는다. 그 파일은 예전처럼 사본으로 복사되어 쓰이고, 빌드는 매번 처음부터 돈다.
 - 복사는 `rsync -a --checksum --delete` 다. 사본을 빌드 사이에 남기므로 크기와 mtime(초)이 같은 편집, 곧 직전 복사와 같은 초에 한 글자를 바꾼 편집도 내용으로 가려 사본에 넣는다.
-- 강제 재빌드(`POST /api/rebuild?force=1`)는 시작 전에 부산물과 PDF·SyncTeX를 지운다. `ok` 로 끝나지 않은 빌드(`ok_errors`·`fail`)도 끝난 뒤 지운다. 다음 빌드는 처음부터 돈다. 그래서 옛 `.aux`·`.bbl` 이 실패한 빌드를 넘어 남지 않는다.
+- 강제 재빌드(`POST /api/rebuild?force=1`)는 시작 전에 부산물과 PDF·SyncTeX를 지운다. `ok` 로 끝나지 않은 빌드(`ok_errors`·`fail`)와 예상 밖 예외로 죽은 빌드도 끝난 뒤 지운다. 다음 빌드는 처음부터 돈다. 그래서 옛 `.aux`·`.bbl` 이 실패한 빌드를 넘어 남지 않는다.
+- 빌드 방식이 바뀐 빌드도 latexmk를 돌리기 전에 지운다(§빌드 방식이 바뀌면 처음부터).
 
 파일이 이번 실행에서 쓰였는지는 실행 전후의 (mtime_ns, 크기, inode)로 가른다. 직전 빌드의 1초 안에 실패한 빌드가 남은 PDF를 새 PDF로 내놓지 않게 하기 위해서다.
 
@@ -112,9 +113,21 @@ latexmk가 아무것도 컴파일하지 않아도 빌드가 남은 파일로 쪽
 2. 이번 실행이 PDF를 쓰지 않았다. 실행 전에 있던 PDF의 (mtime_ns, 크기, inode)가 그대로다.
 3. latexmk 출력의 마지막 `Latexmk: All targets (X) are up-to-date` 줄의 `X` 가 정확히 `<main>.pdf` 다.
 
-latexmk 4.87은 오류 없이 끝난 모든 실행 뒤에 이 줄을 찍는다. 컴파일한 실행도 그렇다. 그래서 줄만으로는 아무것도 증명하지 않고, 2가 있어야 한다. 3은 latexmkrc의 `$out_dir`·`$aux_dir`·`-jobname` 을 잡는다. 이런 설정이면 latexmk의 대상이 다른 이름이고, 사본의 `<main>.pdf` 는 latexmk가 만든 PDF가 아니다. 이때 빌드는 `no_pdf` 로 실패하고 화면은 이전 쪽 그대로다.
+latexmk 4.87은 오류 없이 끝난 모든 실행 뒤에 이 줄을 찍는다. 컴파일한 실행도 그렇다. 그래서 줄만으로는 아무것도 증명하지 않고, 2가 있어야 한다. 3은 latexmkrc의 `$out_dir` 과 `-jobname` 을 잡는다. 이런 설정이면 latexmk의 대상이 다른 이름이고, 사본의 `<main>.pdf` 는 latexmk가 만든 PDF가 아니다. 이때 빌드는 `no_pdf` 로 실패하고 화면은 이전 쪽 그대로다. `$aux_dir` 만 둔 설정은 대상이 여전히 `<main>.pdf` 라 3이 잡지 못한다. 그래도 안전하다. 그 폴더는 원고에 없으므로 사본 복사(`rsync --delete`)가 빌드마다 지우고, 그 안의 `.fdb_latexmk` 가 사라진 latexmk는 매번 PDF를 다시 쓴다. 그러면 2가 맞지 않는다.
 
 조건이 맞아도 사본에 남은 `.fls` 는 그 바이트가 화면 빌드의 쪽 폴더에 있는 `.fls` 와 같을 때만 이번 빌드의 것으로 둔다. 다르면(recorder를 껐거나, 원고에 딸려 온 옛 `main.fls`) `.fls` 와 빌드 방식 파일을 두지 않는다. 그러면 다음 재빌드는 변경 없음으로 끝나지 않는다.
+
+### 빌드 방식이 바뀌면 처음부터
+
+latexmk는 원고 파일의 변화만 따진다. latexmkrc, 어떤 프로그램이 도는지, 곁도구의 스타일 파일은 보지 않는다. 그래서 이런 것이 바뀐 사본을 그대로 넘기면 latexmk는 대상이 최신이라고 보고 옛 PDF를 둔다. 예를 들어 latexmkrc에 `$pdflatex = 'xelatex %O %S';` 를 넣으면 옛 pdfTeX PDF가, makeindex 스타일(`-s style.ist`)을 고치면 옛 색인이 남는다.
+
+빌드는 latexmk를 돌리기 전에 빌드 방식 다이제스트(`warm.cold_digest`)를 지금 상태로 잰다. 화면 빌드의 `recipe.json` 에 적힌 값과 다르거나, 화면 빌드에 `recipe.json` 이 없으면 부산물을 지우고 처음부터 돈다. 다이제스트는 세 묶음이다.
+
+- **latexmkrc.** latexmk가 읽을 수 있는 rc 파일 전부를 내용으로 센다. 시스템 파일(`$LATEXMKRCSYS`, `/opt/local/share/latexmk/LatexMk`, `/usr/local/share/latexmk/LatexMk`, `/usr/local/lib/latexmk/LatexMk`, `/etc/LatexMk`, `/etc/latexmk/LatexMk`), 사용자 파일(`$XDG_CONFIG_HOME/latexmk/latexmkrc`, `~/.latexmkrc`), latexmk를 돌리는 폴더와 빌드 루트의 `latexmkrc`·`.latexmkrc` 다. 없는 파일은 없다는 사실을 센다. 그래서 새로 생겨도 바뀐 것이다.
+- **도구.** `latexmk` 와 rc가 정한 `$pdflatex`·`$bibtex`·`$biber`·`$makeindex` 의 프로그램(기본은 같은 이름, 따옴표로 둘러싼 단순 대입의 첫 낱말만 읽는다, `warm.tool_names`)을 PATH로 찾아 실제 경로(`os.path.realpath`)와 그 파일의 mtime_ns·크기를 센다. 새 해의 TeX Live를 옛것 옆에 깔고 PATH를 바꾸면 경로가 달라진다. 제자리 업데이트로 프로그램이 바뀌어도 크기나 mtime이 달라진다.
+- **곁도구의 스타일 파일.** makeindex의 `.ilg`(`Scanning style file …`)와 bibtex의 `.blg`(`The style file: …`)가 적은 스타일 파일(`warm.log_styles`)이다. latexmk를 돌리는 폴더 기준으로 찾아 있는 파일만, 사본 안이면 내용으로, 밖이면 mtime·크기로 센다. 이름만 적혀 TeX 배포판에서 찾은 `.bst` 는 `.fdb_latexmk` 의 bibtex 원본으로 이미 비교된다.
+
+이 다이제스트는 빌드가 끝날 때 `recipe.json` 의 `cold` 와 스타일 파일 목록 `styles` 로 남는다. 변경 없는 재빌드도 이 값이 같아야 한다. 한 문단을 고친 것처럼 원고만 바뀌면 다이제스트는 그대로이고 사본은 따뜻하다.
 
 ### 변경 없는 재빌드
 
@@ -123,8 +136,7 @@ latexmk 4.87은 오류 없이 끝난 모든 실행 뒤에 이 줄을 찍는다. 
 - 강제 재빌드가 아니다.
 - 화면 빌드의 쪽 폴더에 `.fls` 와 빌드 방식 파일 `recipe.json` 이 있다. 없으면(recorder를 끈 빌드, 이 규칙 이전의 빌드, 업그레이드 뒤 첫 재빌드) 그 빌드가 무엇을 읽었는지 모르므로 늘 빌드한다.
 - 지문이 화면 빌드의 이력 항목 `src_hash` 와 같다.
-- `recipe.json` 이 지금도 맞는다(`warm.recipe_matches`). 이 파일에는 쪽 dpi, 메인 파일 경로, latexmk 스위치, 그 빌드가 읽은 파일 목록, 빌드가 끝날 때 잰 다이제스트가 들어 있다. 재빌드는 같은 목록으로 다이제스트를 지금 다시 재서 비교한다. 다이제스트는 세 묶음이다.
-  - latexmk가 읽는 프로젝트 rc 파일. latexmk를 돌리는 폴더와 빌드 루트의 `latexmkrc`·`.latexmkrc` 이고, 내용을 비교한다. 없으면 없다는 사실을 센다.
+- `recipe.json` 이 지금도 맞는다(`warm.recipe_matches`). 이 파일에는 쪽 dpi, 메인 파일 경로, latexmk 스위치, 그 빌드가 읽은 파일 목록, 빌드가 끝날 때 잰 두 다이제스트가 들어 있다. 하나는 위의 빌드 방식 다이제스트(`cold`)다. 다른 하나는 읽은 파일의 다이제스트(`digest`)다. 재빌드는 같은 목록으로 둘을 지금 다시 재서 비교한다. 읽은 파일의 다이제스트는 두 묶음이다.
   - 사본 안에서 읽은 파일. 내용을 비교한다. 목록은 그 빌드의 `.fls` 가 읽었다고 적은 파일(`warm.fls_reads`, 같은 `.fls` 가 쓴 `OUTPUT` 파일은 뺀다)에 `.fdb_latexmk` 가 적은 각 규칙의 원본(`warm.fdb_sources`)을 더한 것이다. `.fdb_latexmk` 가 bibtex·biber·makeindex가 읽은 `.bib`·`.bst`·`.ist` 를 알려 준다. 이 파일들은 `.fls` 에 없고, `out/` 아래의 `.bib` 은 지문에도 없다. 확장자를 가리지 않으므로 `\input` 한 파일, pgfplots가 읽는 `.csv`·`.dat` 도 든다. 원고 폴더에 실제로 있는 파일만 센다. latexmk나 도구가 사본에서 만든 파일(epstopdf 변환본 등)은 원고가 아니기 때문이다.
   - 사본 밖에서 읽은 파일(TeX 배포판의 `.cls`·`.sty`·글꼴·서식 파일, `TEXINPUTS` 로 찾은 패키지). mtime_ns와 크기를 비교한다. 읽지 않고 stat만 하므로 수백 개여도 몇 밀리초다. TeX 배포판을 업데이트하면 다시 빌드한다.
 - 마지막으로 끝난 빌드가 `ok` 이고, 그 빌드가 화면 빌드다. `ok_errors`·`fail` 뒤에는 늘 빌드한다.
@@ -139,7 +151,9 @@ latexmk 4.87은 오류 없이 끝난 모든 실행 뒤에 이 줄을 찍는다. 
 
 `recipe.json` 은 `builds.json` 이 아니라 쪽 폴더에 `.fls` 와 함께 둔다. 쪽을 다 그린 뒤 폴더 이름을 붙이기 전에 써서 폴더와 함께 한 번에 공개되고, 폴더와 함께 지워진다. `.fls` 를 두지 않는 빌드는 이 파일도 두지 않는다. 그래서 `builds.json` 에는 새 필드가 없고, 옛 Limn으로 되돌려도 모르는 파일이 하나 남을 뿐이다. 이 파일이 없는 화면 빌드(업그레이드 직후)는 변경 없음으로 끝나지 않는다.
 
-그래도 남는 것이 있다. 사용자 홈의 `~/.latexmkrc` 는 비교하지 않는다. 화면 빌드가 읽지 않았던 파일이 새로 생겨 원고가 조건부로 그것을 읽게 되는 경우(`\IfFileExists`)도 잡지 못한다. 셸 탈출(`\write18`)로 돈 외부 프로그램이 읽은 파일은 `.fls` 에도 `.fdb_latexmk` 에도 없을 수 있다. 이때는 변경 없음으로 끝나므로 [그래도 빌드]나 `POST /api/rebuild?force=1` 로 처음부터 빌드한다.
+TeX 패키지를 제자리에서 업데이트한 경우(같은 경로의 `.sty` 를 덮어쓴 경우)는 사본 밖 파일의 mtime·크기 비교가 잡는다. 그래서 변경 없음으로 끝나지 않고 빌드하며, latexmk도 `.fdb_latexmk` 의 체크섬으로 그 변화를 알아본다.
+
+그 밖의 것은 `POST /api/rebuild?force=1`(뷰어에서는 변경 없음 토스트의 [그래도 빌드])로 처음부터 빌드한다. 화면 빌드가 읽지 않았던 파일이 새로 생겨 원고가 조건부로 그것을 읽게 되는 경우(`\IfFileExists`)가 그렇다. 셸 탈출(`\write18`)로 돈 외부 프로그램이나 위 네 변수 밖의 latexmk 규칙이 읽은 파일도 그렇다. 이런 파일은 `.fls` 에도 `.fdb_latexmk` 에도 없을 수 있다.
 
 ## 비동기 재빌드
 

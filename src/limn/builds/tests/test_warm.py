@@ -219,36 +219,81 @@ class ReadsDigest(unittest.TestCase):
         )
 
     def test_a_changed_missing_or_moved_file_changes_the_digest(self):
-        """The digest follows each name and token: a changed byte, a file gone, an rc file appearing, an outside file
-        whose stat moved all differ."""
-        base = warm.reads_digest([("latexmkrc", None)], [("a.csv", b"1" * 32)], [("/t/a.sty", b"1:2")])
-        self.assertEqual(base, warm.reads_digest([("latexmkrc", None)], [("a.csv", b"1" * 32)], [("/t/a.sty", b"1:2")]))
+        """The digest follows each name and token: a changed byte, a file gone, a file renamed, an outside file whose
+        stat moved all differ."""
+        base = warm.reads_digest([("a.csv", b"1" * 32)], [("/t/a.sty", b"1:2")])
+        self.assertEqual(base, warm.reads_digest([("a.csv", b"1" * 32)], [("/t/a.sty", b"1:2")]))
         for other in (
-            warm.reads_digest([("latexmkrc", None)], [("a.csv", b"2" * 32)], [("/t/a.sty", b"1:2")]),
-            warm.reads_digest([("latexmkrc", None)], [("a.csv", None)], [("/t/a.sty", b"1:2")]),
-            warm.reads_digest([("latexmkrc", b"3" * 32)], [("a.csv", b"1" * 32)], [("/t/a.sty", b"1:2")]),
-            warm.reads_digest([("latexmkrc", None)], [("b.csv", b"1" * 32)], [("/t/a.sty", b"1:2")]),
-            warm.reads_digest([("latexmkrc", None)], [("a.csv", b"1" * 32)], [("/t/a.sty", b"9:2")]),
+            warm.reads_digest([("a.csv", b"2" * 32)], [("/t/a.sty", b"1:2")]),
+            warm.reads_digest([("a.csv", None)], [("/t/a.sty", b"1:2")]),
+            warm.reads_digest([("b.csv", b"1" * 32)], [("/t/a.sty", b"1:2")]),
+            warm.reads_digest([("a.csv", b"1" * 32)], [("/t/a.sty", b"9:2")]),
         ):
             self.assertNotEqual(base, other)
 
-    def test_a_stored_recipe_matches_only_itself(self):
-        """recipe_matches holds for the recipe as stored with the same dpi, main, switches and digest; another value of
-        any, another format or a damaged recipe refuses."""
+    def test_the_cold_digest_follows_rc_files_tools_and_styles(self):
+        """cold_digest changes with an rc file's bytes or its appearance, a tool's real path or stat, and a side tool's
+        style file; the same inputs give the same digest."""
+        rc, tools, styles = [("/p/latexmkrc", None)], [("pdflatex=/tl/2025/pdflatex", b"1:2")], [("/c/s.ist", b"a")]
+        base = warm.cold_digest(rc, tools, styles)
+        self.assertEqual(base, warm.cold_digest(rc, tools, styles))
+        for other in (
+            warm.cold_digest([("/p/latexmkrc", b"x")], tools, styles),
+            warm.cold_digest(rc, [("pdflatex=/tl/2026/pdflatex", b"1:2")], styles),
+            warm.cold_digest(rc, [("pdflatex=/tl/2025/pdflatex", b"3:2")], styles),
+            warm.cold_digest(rc, tools, [("/c/s.ist", b"b")]),
+            warm.cold_digest(rc, tools, []),
+        ):
+            self.assertNotEqual(base, other)
+
+    def test_the_tools_an_rc_names_and_the_styles_a_log_names(self):
+        """tool_names reads the first word of a simple quoted assignment, a later rc winning; log_styles reads the style
+        file makeindex's .ilg and bibtex's .blg name."""
+        self.assertEqual(
+            warm.tool_names(
+                ["$pdflatex = 'lualatex %O %S';\n", "$pdflatex = \"xelatex %O %S\";\n$makeindex='mendex';\n"]
+            ),
+            {"pdflatex": "xelatex", "bibtex": "bibtex", "biber": "biber", "makeindex": "mendex"},
+        )
+        self.assertEqual(warm.tool_names([]), {v: v for v in warm.TOOL_VARS})
+        ilg = "This is makeindex, version 2.17\nScanning style file ./out/style.ist...done (3 attributes redefined).\n"
+        blg = "This is BibTeX, Version 0.99d\nThe top-level auxiliary file: main.aux\nThe style file: plain.bst\n"
+        self.assertEqual(warm.log_styles(ilg, blg), ["./out/style.ist", "plain.bst"])
+        one_dot = "Scanning style file ./style.ist.done (1 attributes redefined, 0 ignored).\n"  # a short style file
+        self.assertEqual(warm.log_styles(one_dot, None), ["./style.ist"])
+        self.assertEqual(warm.log_styles(None, None), [])
+
+    def test_a_stored_recipe_matches_only_itself_and_an_unknown_one_goes_cold(self):
+        """recipe_matches holds for the recipe as stored with the same dpi, main, switches, digest and cold digest;
+        another value of any, another format or a damaged recipe refuses, and goes_cold for all of those."""
         reads = warm.Reads(frozenset({"a.csv"}), frozenset({"/t/a.sty"}))
-        stored = json.loads(json.dumps(warm.recipe(150, PurePosixPath("1st/m.tex"), ("-pdf",), reads, "d")))
-        self.assertEqual(warm.stored_reads(stored), reads)
-        self.assertTrue(warm.recipe_matches(stored, 150, PurePosixPath("1st/m.tex"), ("-pdf",), "d"))
+        made = warm.recipe(150, PurePosixPath("1st/m.tex"), ("-pdf",), reads, "d", ["/c/s.ist"], "c")
+        stored = json.loads(json.dumps(made))
+        self.assertEqual((warm.stored_reads(stored), warm.stored_styles(stored)), (reads, ["/c/s.ist"]))
+        self.assertTrue(warm.recipe_matches(stored, 150, PurePosixPath("1st/m.tex"), ("-pdf",), "d", "c"))
+        self.assertFalse(warm.goes_cold(stored, "c"))
+        self.assertTrue(warm.goes_cold(stored, "other"))
         for args in (
-            (100, PurePosixPath("1st/m.tex"), ("-pdf",), "d"),
-            (150, PurePosixPath("m.tex"), ("-pdf",), "d"),
-            (150, PurePosixPath("1st/m.tex"), ("-pdf", "-g"), "d"),
-            (150, PurePosixPath("1st/m.tex"), ("-pdf",), "e"),
+            (100, PurePosixPath("1st/m.tex"), ("-pdf",), "d", "c"),
+            (150, PurePosixPath("m.tex"), ("-pdf",), "d", "c"),
+            (150, PurePosixPath("1st/m.tex"), ("-pdf", "-g"), "d", "c"),
+            (150, PurePosixPath("1st/m.tex"), ("-pdf",), "e", "c"),
+            (150, PurePosixPath("1st/m.tex"), ("-pdf",), "d", "x"),
         ):
             self.assertFalse(warm.recipe_matches(stored, *args))
-        for bad in (None, [], dict(stored, format=2), dict(stored, inside="a.csv"), dict(stored, outside=[1])):
+        for bad in (
+            None,
+            [],
+            dict(stored, format=1),
+            dict(stored, inside="a.csv"),
+            dict(stored, outside=[1]),
+            dict(stored, styles=None),
+            dict(stored, cold=3),
+        ):
             self.assertIsNone(warm.stored_reads(bad))
-            self.assertFalse(warm.recipe_matches(bad, 150, PurePosixPath("1st/m.tex"), ("-pdf",), "d"))
+            self.assertEqual(warm.stored_styles(bad), [])
+            self.assertTrue(warm.goes_cold(bad, "c"))
+            self.assertFalse(warm.recipe_matches(bad, 150, PurePosixPath("1st/m.tex"), ("-pdf",), "d", "c"))
 
 
 class CopyKeeps(unittest.TestCase):
@@ -477,10 +522,50 @@ class Warm(unittest.TestCase):
         self.assertIsInstance(self.tracked(), BuildUnchanged)
         rc.write_text("$pdf_mode = 1; # edited\n", encoding="utf-8")
         self.assertIsInstance(self.tracked(), BuildOk)
+        self.assertEqual(self.latexmk_runs()[-1], "cold")  # latexmk does not track rc files: the copy goes cold
         self.assertIsInstance(self.tracked(), BuildUnchanged)
         root_rc.write_text("$bibtex_use = 2;\n", encoding="utf-8")
         self.assertIsInstance(self.tracked(), BuildOk)
+        self.assertEqual(self.latexmk_runs()[-1], "cold")
         self.assertIsInstance(self.tracked(), BuildUnchanged)
+        self.D.main.write_text(self.D.main.read_text().replace("A", "G"), encoding="utf-8")
+        self.assertIsInstance(self.tracked(), BuildOk)
+        self.assertEqual(self.latexmk_runs()[-1], "warm")  # a source edit alone stays warm
+
+    def test_a_new_pdflatex_on_path_goes_cold(self):
+        """Another pdflatex first on PATH (a new TeX Live year beside the old one) changes the toolchain's real path:
+        the next rebuild is not skipped, and latexmk starts cold."""
+        self.assertIsInstance(self.tracked(), BuildOk)
+        self.assertIsInstance(self.tracked(), BuildUnchanged)
+        year = Path(self.tmp.name) / "texlive-next"
+        year.mkdir()
+        (year / "pdflatex").write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+        (year / "pdflatex").chmod(0o755)
+        with mock.patch.dict(os.environ, {"PATH": str(year) + os.pathsep + os.environ["PATH"]}):
+            self.assertEqual(shutil.which("pdflatex"), str(year / "pdflatex"))
+            res = self.tracked()
+        self.assertIsInstance(res, BuildOk)
+        self.assertEqual(self.latexmk_runs()[-1], "cold")
+
+    def test_a_name_longer_than_the_file_system_takes_does_not_crash_the_build(self):
+        """A recorder file that names a 260-character file (a \\bibliography of a long name) is a name no file system
+        takes: the build reads it as a file that is not there and finishes ok, and the next rebuild is skipped."""
+        long = {"LIMN_TEST_INPUTS": "INPUT ./" + "b" * 260 + ".bib\n"}
+        first = self.tracked(**long)
+        self.assertIsInstance(first, BuildOk)
+        self.assertIsInstance(self.tracked(**long), BuildUnchanged)
+
+    def test_a_build_that_dies_clears_the_byproducts(self):
+        """A build that raises (here its render) clears the kept byproducts like any build that does not end ok, so the
+        next one starts cold."""
+        self.assertIsInstance(self.tracked(), BuildOk)
+        self.D.main.write_text(self.D.main.read_text().replace("A", "H"), encoding="utf-8")
+        with mock.patch.object(build_engine, "render_pages", side_effect=RuntimeError("render died")):
+            died = self.tracked()
+        self.assertEqual((type(died).__name__, died.kind), ("BuildAborted", "crashed"))
+        self.assertEqual([n for n in BYPRODUCTS if (self.D.out / n).exists()], [])
+        self.assertIsInstance(self.tracked(), BuildOk)
+        self.assertEqual(self.latexmk_runs()[-1], "cold")
 
     def test_a_build_on_screen_without_a_recorder_file_is_rebuilt(self):
         """When the build on screen kept no .fls (latexmk's recorder off), what it read is unknown: the rebuild runs."""
@@ -786,6 +871,45 @@ class WarmWithLatexmk(unittest.TestCase):
         res = self.tracked()
         self.assertIsInstance(res, BuildOk)
         self.assertIn("secondtitle", self.text_of(res).lower())  # the plain style sets titles in sentence case
+
+    def producer_of(self, res) -> str:
+        """The Producer pdfinfo reads from the PDF published with build outcome res."""
+        info = subprocess.run(
+            ["pdfinfo", str(self.D.dir / res.build / "main.pdf")], capture_output=True, text=True, check=True
+        ).stdout
+        return next((ln.split(":", 1)[1].strip() for ln in info.splitlines() if ln.startswith("Producer:")), "")
+
+    @needs_tex("latexmk", "pdftoppm", "pdfinfo", "xelatex")
+    def test_an_rc_that_switches_the_engine_goes_cold_and_builds_with_it(self):
+        """(I1) A latexmkrc that appears with `$pdflatex = 'xelatex %O %S'` is nothing latexmk tracks: the build goes
+        cold, so xelatex makes the published PDF (its Producer is xdvipdfmx), not the pdfTeX PDF left in the copy."""
+        first = self.tracked()
+        self.assertIsInstance(first, BuildOk)
+        self.assertIn("pdfTeX", self.producer_of(first))
+        (self.main.parent / "latexmkrc").write_text("$pdflatex = 'xelatex %O %S';\n", encoding="utf-8")
+        res = self.tracked()
+        self.assertIsInstance(res, BuildOk)
+        self.assertGreater(self.pdflatex_runs(), 0)
+        self.assertIn("xdvipdfmx", self.producer_of(res))
+
+    @needs_tex("latexmk", "pdftoppm", "pdfinfo", "pdftotext", "makeindex")
+    def test_an_edited_makeindex_style_goes_cold_and_shows_the_new_index(self):
+        """(I2) makeindex -s style.ist, set in the latexmkrc, reads a style latexmk does not track: an unchanged rebuild
+        is skipped, and once style.ist changes the build goes cold and the index shows the new preamble."""
+        folder = self.main.parent
+        ist = folder / "style.ist"
+        ist.write_text('preamble "\\\\begin{theindex}\\nIDXONE\\n"\n', encoding="utf-8")
+        (folder / "latexmkrc").write_text("$makeindex = 'makeindex -s style.ist %O -o %D %S';\n", encoding="utf-8")
+        self.edit("\\begin{document}", "\\usepackage{makeidx}\n\\makeindex\n\\begin{document}")
+        self.edit("WORD.", "WORD\\index{alpha}\\index{beta}.\n\\printindex")
+        first = self.tracked()
+        self.assertIsInstance(first, BuildOk)
+        self.assertIn("IDXONE", self.text_of(first))
+        self.assertIsInstance(self.tracked(), BuildUnchanged)
+        ist.write_text(ist.read_text().replace("IDXONE", "IDXTWO"), encoding="utf-8")
+        res = self.tracked()
+        self.assertIsInstance(res, BuildOk)
+        self.assertIn("IDXTWO", self.text_of(res))
 
     @needs_tex("latexmk", "pdftoppm", "pdfinfo")
     def test_an_unchanged_rebuild_with_latexmk_runs_nothing(self):

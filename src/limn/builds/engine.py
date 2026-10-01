@@ -200,8 +200,9 @@ def compile_tex(D: BuildDoc, cfg: BuildConfig, pull: Callable[[], Json] | None, 
     latexmk's last lines, and for a success the new page directory.
 
     The copy keeps the main file's LaTeX byproducts from the last build (limn.builds.warm), so latexmk runs only what
-    changed. force (POST /api/rebuild?force=1) clears them first and never skips. Every outcome but BuildOk and
-    BuildUnchanged clears them afterwards, so the next build is cold (docs/handbook/build-sync.md §따뜻한 LaTeX와 변경
+    changed. force (POST /api/rebuild?force=1) clears them first and never skips; so does a change of what latexmk does
+    not track (warm.cold_digest: rc files, toolchain, side tools' styles) before latexmk runs. Every outcome but BuildOk
+    and BuildUnchanged, and a build that raises, clears them afterwards, so the next build is cold (docs/handbook/build-sync.md §따뜻한 LaTeX와 변경
     없는 재빌드).
 
     The files another document owns (D.apart) are left out of the manuscript mtime and the fingerprint unless the build
@@ -215,7 +216,11 @@ def compile_tex(D: BuildDoc, cfg: BuildConfig, pull: Callable[[], Json] | None, 
     only whole seconds and the baseline must not fall below the source's mtime."""
     if force:
         clear_byproducts(D)
-    res = _compile(D, cfg, pull, force)
+    try:
+        res = _compile(D, cfg, pull, force)
+    except BaseException:
+        clear_byproducts(D)  # a build that died is not ok either: the next one starts cold
+        raise
     if not isinstance(res, BuildOk | BuildUnchanged):
         clear_byproducts(D)
     return res
@@ -271,18 +276,65 @@ def _stat_token(f: str) -> bytes | None:
 
 
 def _reads_digest(D: BuildDoc, reads: warm.Reads) -> str:
-    """warm.reads_digest of what reads names, as the build copy and the machine hold it now: the latexmkrc files latexmk
-    reads (in the folder it runs in and in the build root) and each file inside the copy by its bytes, each file outside
-    it by its mtime_ns and size - a TeX Live update or a .sty on TEXINPUTS changes them, and a stat costs far less than a
-    read. Only the copy's files are opened."""
-    rc = [
-        ((folder / name).relative_to(D.build).as_posix(), _file_digest(folder / name))
-        for folder in dict.fromkeys((D.out, D.build))
-        for name in warm.LATEXMKRC_NAMES
-    ]
+    """warm.reads_digest of what reads names, as the build copy and the machine hold it now: each file inside the copy by
+    its bytes, each file outside it by its mtime_ns and size - a TeX Live update or a .sty on TEXINPUTS changes them,
+    and a stat costs far less than a read. Only the copy's files are opened."""
     inside = [(r, _file_digest(D.build / r)) for r in sorted(reads.inside)]
     outside = [(f, _stat_token(f)) for f in sorted(reads.outside)]
-    return warm.reads_digest(rc, inside, outside)
+    return warm.reads_digest(inside, outside)
+
+
+def _rc_paths(D: BuildDoc) -> list[Path]:
+    """Every latexmkrc latexmk may read for D, in its reading order: the system files ($LATEXMKRCSYS and the usual
+    places), the user's (XDG and ~/.latexmkrc), then the project's in the folder it runs in - and, as the warm copy
+    keeps them all the same, the build root's. Missing ones are listed too: one appearing is a change."""
+    system = [os.environ.get("LATEXMKRCSYS", "")] + [
+        "/opt/local/share/latexmk/LatexMk",
+        "/usr/local/share/latexmk/LatexMk",
+        "/usr/local/lib/latexmk/LatexMk",
+        "/etc/LatexMk",
+        "/etc/latexmk/LatexMk",
+    ]
+    user: list[str] = []
+    with contextlib.suppress(RuntimeError, KeyError):
+        home = Path.home()
+        xdg = os.environ.get("XDG_CONFIG_HOME") or str(home / ".config")
+        user = [os.path.join(xdg, "latexmk", "latexmkrc"), str(home / ".latexmkrc")]
+    project = [str(folder / name) for folder in dict.fromkeys((D.out, D.build)) for name in warm.LATEXMKRC_NAMES]
+    return [Path(f) for f in dict.fromkeys(system + user + project) if f]
+
+
+def _read_text(f: Path) -> str | None:
+    """f's text (bytes that are not UTF-8 replaced), or None when it cannot be read."""
+    try:
+        return f.read_bytes().decode("utf-8", errors="replace")
+    except OSError:
+        return None
+
+
+def _resolve_styles(D: BuildDoc, spelled: list[str]) -> list[str]:
+    """The style files a side tool's log names (warm.log_styles), as absolute paths of files that exist: relative to the
+    folder latexmk runs in, where makeindex and bibtex ran. A bare name the tool found elsewhere (a TeX Live .bst) is
+    left out; the .fdb_latexmk sources already cover it."""
+    found = (os.path.normpath(os.path.join(D.out, s)) for s in spelled)
+    return sorted({f for f in found if os.path.isfile(f)})
+
+
+def _cold_digest(D: BuildDoc, styles: list[str]) -> str:
+    """warm.cold_digest as the machine and the copy are now: every latexmkrc latexmk may read (_rc_paths) by its bytes;
+    latexmk and each tool the rc files name (warm.tool_names) by the real path PATH gives and that file's stat; and
+    styles - side tools' style files - by their bytes inside the copy, their stat outside it."""
+    paths = _rc_paths(D)
+    rc = [(str(f), _file_digest(f)) for f in paths]
+    names = {"latexmk": "latexmk", **warm.tool_names([t for t in map(_read_text, paths) if t is not None])}
+    tools: list[tuple[str, bytes | None]] = []
+    for var, prog in sorted(names.items()):
+        found = shutil.which(prog)
+        real = os.path.realpath(found) if found else None
+        tools.append(("%s=%s" % (var, real or "-"), _stat_token(real) if real else None))
+    copy = os.path.normpath(D.build)
+    style_tokens = [(f, _file_digest(Path(f)) if f.startswith(copy + os.sep) else _stat_token(f)) for f in styles]
+    return warm.cold_digest(rc, tools, style_tokens)
 
 
 def _build_reads(D: BuildDoc, fls_text: str) -> warm.Reads:
@@ -295,7 +347,8 @@ def _build_reads(D: BuildDoc, fls_text: str) -> warm.Reads:
         warm.fls_reads(fls_text, str(D.out), roots),
         warm.fdb_sources(fdb, str(D.out), roots) if fdb is not None else warm.NO_READS,
     )
-    return warm.Reads(frozenset(r for r in found.inside if (D.src / r).is_file()), found.outside)
+    # os.path.isfile, not Path.is_file: before Python 3.14 the latter raises for a name longer than the file system takes
+    return warm.Reads(frozenset(r for r in found.inside if os.path.isfile(D.src / r)), found.outside)
 
 
 def _stored_recipe(folder: Path) -> object:
@@ -355,16 +408,23 @@ def _compile(D: BuildDoc, cfg: BuildConfig, pull: Callable[[], Json] | None, for
     cur = build.cur_pages(D)
     stored = _stored_recipe(cur) if (cur / (D.main.stem + ".fls")).is_file() else None
     stored_reads = warm.stored_reads(stored)
+    cold_now = _cold_digest(D, warm.stored_styles(stored))
     if not force and scan is not None and stored_reads is not None:
         cur_reads = build.read_in_scan(scan, build.build_inputs(D, cur.name))
         seen = build.fingerprint_of(build.without_apart(D, scan, cur_reads))
         pages = len(list(cur.glob("page-*.png")))
-        holds = warm.recipe_matches(stored, cfg.dpi, main_rel, LATEXMK_ARGS, _reads_digest(D, stored_reads))
+        holds = warm.recipe_matches(stored, cfg.dpi, main_rel, LATEXMK_ARGS, _reads_digest(D, stored_reads), cold_now)
         if pages and holds and warm.keeps_pages(build.load_builds(D), cur.name, seen):
             compiled_at = max(compiled_at, build.newest_read_apart(D, scan, cur_reads))
             head = _published_head(D)
             atomic_write(D.dir / "head.txt", head)
             return BuildUnchanged(round(time.time() - t0, 1), pulled, compiled_at, seen, head, cur.name, pages)
+
+    # Go cold on a recipe-level change: what latexmk does not track - an rc file, the toolchain PATH gives, a side tool's
+    # style file - differs from the build on screen (or that build left no recipe), so the kept byproducts may not meet
+    # this run: latexmk would find its targets up to date and keep the old PDF.
+    if not force and warm.goes_cold(stored, cold_now):
+        clear_byproducts(D)
 
     pdf = D.out / (D.main.stem + ".pdf")
     syn = D.out / (D.main.stem + ".synctex.gz")
@@ -445,9 +505,12 @@ def _compile(D: BuildDoc, cfg: BuildConfig, pull: Callable[[], Json] | None, for
         extra.append(recorder)  # what this build read, kept with its pages (build.build_inputs reads it back)
         # how this build made its pages and what it read, for the next rebuild's skip; never without the .fls
         made = _build_reads(D, fls_text)
-        notes[warm.RECIPE_NAME] = json.dumps(
-            warm.recipe(cfg.dpi, main_rel, LATEXMK_ARGS, made, _reads_digest(D, made)), ensure_ascii=False
+        logs = [_read_text(D.out / (D.main.stem + suffix)) for suffix in (".ilg", ".blg")]
+        styles = _resolve_styles(D, warm.log_styles(*logs))
+        recipe = warm.recipe(
+            cfg.dpi, main_rel, LATEXMK_ARGS, made, _reads_digest(D, made), styles, _cold_digest(D, styles)
         )
+        notes[warm.RECIPE_NAME] = json.dumps(recipe, ensure_ascii=False)
     newdir = render_pages(D, pdf, extra, cfg.dpi, notes=notes)
     if isinstance(newdir, PagesNotRendered):
         return failed(newdir.kind, newdir.detail)

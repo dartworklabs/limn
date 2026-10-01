@@ -37,8 +37,15 @@ BYPRODUCT_SUFFIXES = (
     ".vrb",
 )
 OUTPUT_SUFFIXES = (".pdf", ".synctex.gz")  # the build's own output; the copy already never touches *.synctex.gz
-# The project rc files latexmk reads from the folder it runs in; the build root's are counted too (warm.reads_digest).
+# The project rc files latexmk reads from the folder it runs in; the build root's are counted too (warm.cold_digest).
 LATEXMKRC_NAMES = ("latexmkrc", ".latexmkrc")
+# The tools a latexmk run may start, as rc variables whose command's first word names the program: -pdf runs $pdflatex,
+# and bibtex, biber and makeindex run when the document needs them. Each defaults to its own name.
+TOOL_VARS = ("pdflatex", "bibtex", "biber", "makeindex")
+_RC_TOOL = re.compile(r"""^\s*\$(%s)\s*=\s*(['"])\s*([^\s'"]+)""" % "|".join(TOOL_VARS), re.MULTILINE)
+# makeindex prints one dot per few lines it scans, then "done": "Scanning style file ./style.ist.done".
+_ILG_STYLE = re.compile(r"^Scanning style file (.+?)\.+done", re.MULTILINE)
+_BLG_STYLE = re.compile(r"^The style file: (.+?)\s*$", re.MULTILINE)
 _UP_TO_DATE = re.compile(r"^Latexmk: All targets \((.*)\) are up-to-date\s*$", re.MULTILINE)
 
 
@@ -70,7 +77,7 @@ class Reads(NamedTuple):
 
 NO_READS = Reads(frozenset(), frozenset())
 RECIPE_NAME = "recipe.json"  # the sidecar a LaTeX build publishes in its page folder, next to its .fls
-RECIPE_FORMAT = 1
+RECIPE_FORMAT = 2
 # One source line of a .fdb_latexmk rule: "name" mtime size md5 "rule that made it" ("" for a primary source).
 _FDB_SOURCE = re.compile(r'^  "((?:[^"\\]|\\.)*)" \S+ \S+ \S+ "([^"]*)"\s*$')
 
@@ -129,26 +136,70 @@ def union(*reads: Reads) -> Reads:
     return Reads(frozenset().union(*(r.inside for r in reads)), frozenset().union(*(r.outside for r in reads)))
 
 
-def reads_digest(
-    rc_files: Sequence[tuple[str, bytes | None]],
-    inside: Sequence[tuple[str, bytes | None]],
-    outside: Sequence[tuple[str, bytes | None]],
-) -> str:
-    """One digest (32 hex digits) of what a build read: each latexmkrc file latexmk would read and each file inside the
-    copy, as (name, SHA-256 of its bytes), and each file outside it, as (path, its mtime_ns and size) - None for a file
-    that is missing - in the order given. A file that appears, disappears or changes changes the digest."""
+Tokens = Sequence[tuple[str, bytes | None]]
+
+
+def _digest(groups: Sequence[tuple[bytes, Tokens]]) -> str:
+    """32 hex digits of SHA-256 over named groups of (name, token) - a token None for a missing file - in order."""
     h = hashlib.sha256()
-    for group, files in ((b"rc", rc_files), (b"inside", inside), (b"outside", outside)):
+    for group, files in groups:
         h.update(group + b"\0")
         for name, token in files:
             h.update(name.encode("utf-8", "surrogateescape") + b"\0" + (b"-" if token is None else b"+" + token))
     return h.hexdigest()[:32]
 
 
-def recipe(dpi: int, main_rel: PurePosixPath, latexmk_args: Sequence[str], reads: Reads, digest: str) -> dict[str, Any]:
+def reads_digest(inside: Tokens, outside: Tokens) -> str:
+    """One digest (32 hex digits) of what a build read: each file inside the copy as (name, SHA-256 of its bytes) and
+    each file outside it as (path, its mtime_ns and size), None for a file that is missing, in the order given. A file
+    that appears, disappears or changes changes the digest."""
+    return _digest(((b"inside", inside), (b"outside", outside)))
+
+
+def cold_digest(rc_files: Tokens, tools: Tokens, styles: Tokens) -> str:
+    """The recipe-level digest (32 hex digits): what latexmk does not track, so a change to it must not meet a warm
+    copy. Each latexmkrc latexmk would read, by its bytes; each tool the run may start, as 'var=<real path>' with the
+    program's mtime_ns and size (a new TeX Live year on PATH, an in-place update); and each style file named only in a
+    side tool's log (makeindex's .ist, bibtex's .bst), by its bytes or stat."""
+    return _digest(((b"rc", rc_files), (b"tools", tools), (b"styles", styles)))
+
+
+def tool_names(rc_texts: Sequence[str]) -> dict[str, str]:
+    """The program each of TOOL_VARS runs, from rc texts in the order latexmk reads them (a later assignment wins): the
+    first word of a `$pdflatex = '...'` style assignment ('xelatex' for "$pdflatex = 'xelatex %O %S'"), else the
+    variable's own name. Only a simple quoted assignment is read; anything else leaves the default, and the rc's own
+    bytes are in the cold digest anyway."""
+    names = {var: var for var in TOOL_VARS}
+    for text in rc_texts:
+        for m in _RC_TOOL.finditer(text):
+            names[m.group(1)] = m.group(3)
+    return names
+
+
+def log_styles(ilg_text: str | None, blg_text: str | None) -> list[str]:
+    """The style files a side tool says it read, as it spells them: makeindex's .ilg 'Scanning style file X...' and
+    bibtex's .blg 'The style file: X'. latexmk does not track a style given with makeindex -s, so its edit would
+    otherwise meet a warm copy that latexmk thinks is up to date."""
+    found: list[str] = []
+    if ilg_text is not None:
+        found += _ILG_STYLE.findall(ilg_text)
+    if blg_text is not None:
+        found += _BLG_STYLE.findall(blg_text)
+    return found
+
+
+def recipe(
+    dpi: int,
+    main_rel: PurePosixPath,
+    latexmk_args: Sequence[str],
+    reads: Reads,
+    digest: str,
+    styles: Sequence[str],
+    cold: str,
+) -> dict[str, Any]:
     """How a LaTeX build made its pages, besides its fingerprint, as its page folder's RECIPE_NAME holds it: the page
     image dpi, the main file below the build root, latexmk's switches, the files it read (inside and outside the copy)
-    and the reads_digest of those and of its latexmkrc files when it finished."""
+    and their reads_digest, the side tools' style files (log_styles, resolved) and the cold_digest when it finished."""
     return {
         "format": RECIPE_FORMAT,
         "dpi": dpi,
@@ -157,7 +208,14 @@ def recipe(dpi: int, main_rel: PurePosixPath, latexmk_args: Sequence[str], reads
         "inside": sorted(reads.inside),
         "outside": sorted(reads.outside),
         "digest": digest,
+        "styles": list(styles),
+        "cold": cold,
     }
+
+
+def _strings(v: object) -> list[str] | None:
+    """v when it is a list of strings, else None."""
+    return v if isinstance(v, list) and all(isinstance(x, str) for x in v) else None
 
 
 def stored_reads(stored: object) -> Reads | None:
@@ -165,17 +223,33 @@ def stored_reads(stored: object) -> Reads | None:
     not such a recipe - another format, a missing or mistyped field."""
     if not isinstance(stored, dict) or stored.get("format") != RECIPE_FORMAT:
         return None
-    inside, outside = stored.get("inside"), stored.get("outside")
-    if not (isinstance(inside, list) and isinstance(outside, list)):
+    inside, outside = _strings(stored.get("inside")), _strings(stored.get("outside"))
+    if inside is None or outside is None or _strings(stored.get("styles")) is None:
         return None
-    if not all(isinstance(x, str) for x in inside + outside):
+    if not isinstance(stored.get("cold"), str):
         return None
     return Reads(frozenset(inside), frozenset(outside))
 
 
-def recipe_matches(stored: object, dpi: int, main_rel: PurePosixPath, latexmk_args: Sequence[str], digest: str) -> bool:
-    """Does the recipe a build stored still hold: the same dpi, main file and switches, and `digest` - the reads_digest
-    the caller made now over the files the recipe lists (stored_reads) - equal to the one it recorded?"""
+def stored_styles(stored: object) -> list[str]:
+    """The style files a valid recipe lists (none for anything that is not one)."""
+    if stored_reads(stored) is None or not isinstance(stored, dict):
+        return []
+    return list(stored["styles"])
+
+
+def goes_cold(stored: object, cold_now: str) -> bool:
+    """Must this build clear the copy's byproducts before latexmk? Yes unless the build on screen recorded a valid
+    recipe whose cold_digest equals cold_now - an unknown recipe (no recipe.json, an older format) goes cold too."""
+    return stored_reads(stored) is None or not isinstance(stored, dict) or stored.get("cold") != cold_now
+
+
+def recipe_matches(
+    stored: object, dpi: int, main_rel: PurePosixPath, latexmk_args: Sequence[str], digest: str, cold: str
+) -> bool:
+    """Does the recipe a build stored still hold: the same dpi, main file and switches, `digest` - the reads_digest the
+    caller made now over the files the recipe lists (stored_reads) - and `cold` - the cold_digest made now - equal to
+    the ones it recorded?"""
     return (
         stored_reads(stored) is not None
         and isinstance(stored, dict)
@@ -183,6 +257,7 @@ def recipe_matches(stored: object, dpi: int, main_rel: PurePosixPath, latexmk_ar
         and stored.get("main") == main_rel.as_posix()
         and stored.get("latexmk") == list(latexmk_args)
         and stored.get("digest") == digest
+        and stored.get("cold") == cold
     )
 
 
