@@ -1,5 +1,52 @@
 # Changelog
 
+## 0.4.5 — 2026-10-02
+
+Faster builds and faster page loads. On a 25-page manuscript at 150 dpi, measured on a busy 64-thread machine:
+
+| | 0.4.4 | 0.4.5 |
+| --- | --- | --- |
+| Drawing the page images | 16.6 s | 1.2 s |
+| A one-paragraph edit | 24 s, three pdflatex runs | 4 s, one run |
+| A rebuild that changes nothing | 25 s | 0.2 s |
+| A cold build | 38 s | 8 s |
+
+`pins.md` does not change. The API only grows. `builds.json` gains no field.
+
+### Changed
+
+- **Parallel page render.** Each page has its own `pdftoppm`, with up to min(8, available CPUs) running at once.
+  - The standard library writes the PNG at zlib level 1. The pixels are the same as before, and the bytes are 19% fewer.
+  - A page that fails is named in the build log.
+  - `pdfinfo`, from the same Poppler package as `pdftoppm`, is now required.
+- **Warm LaTeX.** The build copy keeps latexmk's byproducts between builds, so an edit runs pdflatex once.
+  - A PDF committed beside the main file never replaces the build's own output.
+  - A forced build, a failed build and a build that crashes clear the byproducts.
+- **The "go cold" rule.** Some changes are invisible to latexmk:
+  - any latexmkrc it reads (system, user or project, picked as latexmk 4.87 picks them);
+  - the toolchain on PATH: `latexmk`, the engine, bibtex, biber and makeindex, by real path and stat;
+  - a makeindex or bibtex style file.
+
+  When one of these changes, the build clears the byproducts before latexmk and starts from scratch, so a switch to
+  xelatex or an edited `.ist` reaches the PDF.
+- **Page URLs carry the build.** `/pages/<build>/page-NN.png` and `/pdf?build=<build>` are served
+  `private, max-age=31536000, immutable`. They carry an ETag, and a matching `If-None-Match` gets `304`.
+  - The viewer asks for these URLs.
+  - The old `/pages/page-NN.png` keeps its ten-minute cache for this release only.
+
+### Added
+
+- **No-change rebuild.** A rebuild ends at once as `ok` with `unchanged: true`, and no new `build_seq`, when all of
+  these match the ok build on screen:
+  - the manuscript;
+  - every file that build read, inside the tree by content and outside it (TeX Live, TEXINPUTS) by stat;
+  - its recipe.
+
+  The viewer shows "변경 없음 · [그래도 빌드]". The action sends `POST /api/rebuild?force=1`, which clears the kept
+  byproducts and builds from scratch. Agents can send `?force=1` themselves.
+- **`recipe.json`.** Each new page folder holds `recipe.json` beside the build's `.fls`. It records how the pages were
+  made and what the build read.
+
 ## 0.4.4 — 2026-10-02
 
 Viewer polish on phones and tablets: equal page margins, one edge grid, and no stray hover colours. This release does
