@@ -1335,8 +1335,9 @@ MOUSE_WIDE = {"viewport": {"width": 1440, "height": 900}}
 
 
 class LayoutNotPointer(ViewerBase):
-    """The compact layouts follow the window width, not the input device (docs/handbook/viewer.md §모바일 레이아웃): a mouse at mid
-    width gets the compact card and the [더보기] sheet too. Only the wide layout with a mouse is the unchanged desktop."""
+    """The compact arrangement follows the layout mode, not the pointer that draws it (docs/handbook/viewer.md §모바일 레이아웃): a
+    mouse window in a mid band gets the compact card and the [더보기] sheet too. Only the wide layout with a mouse is the
+    unchanged desktop."""
 
     def test_a_mouse_at_mid_width_gets_the_compact_card_and_the_more_sheet(self):
         """1000x800 with a mouse: the head's '#N · L… · N쪽' link, the icon row without [보기], [더보기] on the bottom edge."""
@@ -1736,7 +1737,7 @@ TOP_ROW = """() => {
 
 class TouchLayoutBands(ViewerBase):
     """The touch layout bands (docs/handbook/viewer.md §모바일 레이아웃): a landscape phone gets one top row (the short band),
-    and a mouse window of the same size keeps the width-only layout."""
+    a touch tablet up to 1366px wide the side panel, and a mouse window of the same size keeps the width-only layout."""
 
     def compose(self, page):
         """A touch selection through the real pick path; waits for the composer."""
@@ -1813,6 +1814,61 @@ class TouchLayoutBands(ViewerBase):
         seen, h = page.evaluate(SHOWN, "#note")
         self.assertEqual(seen, h)
 
+    def test_a_touch_tablet_up_to_1366px_wide_gets_the_side_panel_band(self):
+        """1180x820 and 1366x1024 touch were the desktop with 44px buttons: a two-line tool bar, a 240px outline and
+        always-open cards left the page 580px at 1180. Now: the side panel between the nav bar and a bottom action row,
+        330px wide, the outline collapsed and the cards folded."""
+        for w, h in ((1180, 820), (1366, 1024)):
+            with self.subTest(w=w, h=h):
+                page = self.view(touch_device(w, h))
+                self.assertEqual(page.evaluate(BODY_BANDS), ["band-mid-side", "lay-mid"])
+                self.assertTrue(page.evaluate("SIDE_OPEN"))
+                bar = page.locator("#bar1").bounding_box()
+                self.assertEqual((bar["x"], bar["width"], round(bar["y"] + bar["height"])), (0, w, h))
+                self.assertEqual(round(page.locator("#right").bounding_box()["width"]), 330)
+                if w == 1180:
+                    self.assertGreaterEqual(page.locator("#pdf-center").bounding_box()["width"], 840)
+                self.assertTrue(page.evaluate("document.body.classList.contains('outline-collapsed')"))
+                self.assertTrue(page.is_visible("#pins .pin .sum"))
+                self.assertFalse(page.is_visible("#pins .pin .acts"))
+
+    def test_a_wide_touch_screen_starts_with_its_outline_collapsed_unless_saved_open(self):
+        """1440x900 touch is still wide, but the 240px outline starts collapsed; a saved choice wins either way."""
+        page = self.view(touch_device(1440, 900))
+        self.assertEqual(page.evaluate(BODY_BANDS), ["band-wide", "lay-wide"])
+        self.assertTrue(page.evaluate("document.body.classList.contains('outline-collapsed')"))
+        page = self.view(touch_device(1440, 900), prefs={"outlineClosed": False})
+        self.assertFalse(page.evaluate("document.body.classList.contains('outline-collapsed')"))
+
+    def test_a_mouse_keeps_the_width_only_layouts_at_640_1000_and_1440(self):
+        """A fine pointer gets the layouts it had before the bands: 640 the phone sheet (collapsed, no nav bar), 1000 the side
+        panel open beside the document over a bottom action row, 1440 the desktop with its outline open; and 820x390,
+        820x900, 1180x820 and 1366x1024 the overlay, overlay, wide and wide - never short or tablet-sheet."""
+        want = {
+            (640, 900): ["band-phone", "lay-narrow"],
+            (1000, 800): ["band-mid-side", "lay-mid"],
+            (1440, 900): ["band-wide", "lay-wide"],
+            (820, 390): ["band-mid-overlay", "lay-mid", "mid-overlay"],
+            (820, 900): ["band-mid-overlay", "lay-mid", "mid-overlay"],
+            (1180, 820): ["band-wide", "lay-wide"],
+            (1366, 1024): ["band-wide", "lay-wide"],
+        }
+        for (w, h), bands in want.items():
+            with self.subTest(w=w, h=h):
+                page = self.view({"viewport": {"width": w, "height": h}})
+                self.assertEqual(page.evaluate(BODY_BANDS), bands)
+                self.assertFalse(page.evaluate("MQ_COARSE.matches"))
+                if (w, h) == (640, 900):
+                    self.assertFalse(page.evaluate("SIDE_OPEN"))
+                    self.assertFalse(page.is_visible("#doc-nav"))
+                if (w, h) == (1000, 800):
+                    self.assertTrue(page.evaluate("SIDE_OPEN"))
+                    bar = page.locator("#bar1").bounding_box()
+                    self.assertEqual(round(bar["y"] + bar["height"]), 800)
+                if w >= 1100:
+                    self.assertFalse(page.evaluate("document.body.classList.contains('outline-collapsed')"))
+                    self.assertEqual(round(page.locator("#right").bounding_box()["width"]), 348)
+
     def test_a_mouse_window_as_low_as_a_landscape_phone_keeps_the_width_layout(self):
         """820x390 with a mouse: the overlay layout with its nav bar and bottom action row, never the short band."""
         page = self.view(MOUSE_LOW)
@@ -1856,8 +1912,9 @@ class PhoneMoreAndHelp(ViewerBase):
         self.assertTrue(page.locator("#help .kbd-only").first.is_visible())
 
 
-# A touch tablet wide enough for the desktop layout (1180x820), as an iPad home-screen app or full screen.
-TAB_WIDE = {"viewport": {"width": 1180, "height": 820}, "is_mobile": True, "has_touch": True}
+# A touch tablet wide enough for the desktop layout (wider than 1366px: a 13-inch iPad in landscape), as an iPad home-screen
+# app or full screen. A 1180x820 tablet is the side-panel band (TouchLayoutBands).
+TAB_WIDE = {"viewport": {"width": 1376, "height": 1032}, "is_mobile": True, "has_touch": True}
 
 
 class WideSafeArea(ViewerBase):

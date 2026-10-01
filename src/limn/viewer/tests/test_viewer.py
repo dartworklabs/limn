@@ -1026,7 +1026,9 @@ class FrontendMobileLogic(unittest.TestCase):
         (900, 700, "mid-overlay"),
         (901, 700, "mid-side"),
         (1099, 900, "mid-side"),
-        (1100, 900, "wide"),
+        (1100, 900, "mid-side"),
+        (1366, 1024, "mid-side"),
+        (1367, 1024, "wide"),
         # height boundaries
         (844, 479, "short"),
         (844, 480, "mid-overlay"),
@@ -1043,6 +1045,9 @@ class FrontendMobileLogic(unittest.TestCase):
         (640, 360, "short"),
         (842, 758, "mid-overlay"),
         (1024, 768, "mid-side"),
+        (1180, 820, "mid-side"),
+        (1366, 1024, "mid-side"),
+        (1440, 900, "wide"),
     ]
 
     def layout_bands(self, cases):
@@ -3431,8 +3436,11 @@ class FrontendResponsiveBrowser(ChromiumTestCase):
         super().setUpClass()
         cls.html = page_for("Long-DemoPaper1", "#2563eb").replace("\nboot();", "\n")
 
-    def open_viewer(self, width, touch=False, preferences=None):
-        context = self.browser.new_context(viewport={"width": width, "height": 900}, is_mobile=touch, has_touch=touch)
+    def open_viewer(self, width, touch=False, preferences=None, height=900):
+        """The viewer page (boot() off) at width x height, touch or mouse, with pinPrefs preferences and three blank pages."""
+        context = self.browser.new_context(
+            viewport={"width": width, "height": height}, is_mobile=touch, has_touch=touch
+        )
         self.addCleanup(context.close)
         page = context.new_page()
         page.route(
@@ -3463,6 +3471,8 @@ class FrontendResponsiveBrowser(ChromiumTestCase):
         return page
 
     def test_toggle_stays_in_place_without_overflow_for_mouse_and_touch(self):
+        """The outline toggle keeps its place, focus and reading spot at every width, mouse and touch; outside wide it opens
+        the outline overlay, which Escape and the pin panel close (touch 1180 is the side-panel band, not wide)."""
         for touch in (False, True):
             for width in (720, 820, 900, 1024, 1180, 1440):
                 with self.subTest(width=width, touch=touch):
@@ -3473,6 +3483,8 @@ class FrontendResponsiveBrowser(ChromiumTestCase):
                     toggle = page.locator("#nav-toc-toggle")
                     self.assertEqual(page.locator('[data-act="outline"]').count(), 1)
                     before = toggle.bounding_box()
+                    was = toggle.get_attribute("aria-expanded")  # wide: open with a mouse, collapsed on touch
+                    self.assertEqual(was, "true" if page.evaluate("LAYOUT") == "wide" and not touch else "false")
                     self.assertGreaterEqual(before["y"], 0)
                     page.evaluate("document.querySelector('#left').scrollTop=480")
                     anchor = page.evaluate("topAnchor()")
@@ -3490,7 +3502,7 @@ class FrontendResponsiveBrowser(ChromiumTestCase):
                             "document.querySelector('#doc-nav').scrollWidth>document.querySelector('#doc-nav').clientWidth"
                         )
                     )
-                    if width < 1100:
+                    if page.evaluate("LAYOUT") != "wide":
                         self.assertEqual(toggle.get_attribute("aria-expanded"), "true")
                         self.assertFalse(page.evaluate("SIDE_OPEN"))
                         page.keyboard.press("Escape")
@@ -3500,9 +3512,9 @@ class FrontendResponsiveBrowser(ChromiumTestCase):
                         self.assertEqual(toggle.get_attribute("aria-expanded"), "false")
                         self.assertTrue(page.evaluate("SIDE_OPEN"))
                     else:
-                        self.assertEqual(toggle.get_attribute("aria-expanded"), "false")
+                        self.assertNotEqual(toggle.get_attribute("aria-expanded"), was)
                         toggle.press("Enter")
-                        self.assertEqual(toggle.get_attribute("aria-expanded"), "true")
+                        self.assertEqual(toggle.get_attribute("aria-expanded"), was)
 
     def test_mid_action_bar_and_tabs_stay_put_when_panel_toggles(self):
         # regression (2026-09-24, Fold 7 user): in mid, [핀 N] used to jump between top-right (y 56) when
@@ -3521,9 +3533,9 @@ class FrontendResponsiveBrowser(ChromiumTestCase):
                   blocked:ctl.filter(e=>!hit(e)).map(e=>e.id||e.textContent.trim()),
                   clipped:ctl.filter(e=>e.scrollWidth>e.clientWidth+1).map(e=>e.id||e.textContent.trim())};
         }"""
-        for width in (720, 820, 884, 968, 1024):
-            with self.subTest(width=width):
-                page = self.open_viewer(width, True)
+        for width, height in ((720, 900), (820, 900), (884, 900), (968, 900), (1024, 900), (1180, 820), (1366, 1024)):
+            with self.subTest(width=width, height=height):
+                page = self.open_viewer(width, True, height=height)
                 a = page.evaluate(probe)
                 page.locator("#btn-side").click()
                 b = page.evaluate(probe)
@@ -3531,7 +3543,7 @@ class FrontendResponsiveBrowser(ChromiumTestCase):
                 for s in (a, b):
                     self.assertEqual(s["pos"], "fixed")
                     self.assertEqual(
-                        (s["bar"]["x"], s["bar"]["width"], s["bar"]["y"] + s["bar"]["height"]), (0, width, 900)
+                        (s["bar"]["x"], s["bar"]["width"], s["bar"]["y"] + s["bar"]["height"]), (0, width, height)
                     )
                     self.assertEqual((s["nav"]["x"], s["nav"]["width"]), (0, width))
                     self.assertEqual(s["blocked"], [])

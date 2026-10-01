@@ -8,9 +8,10 @@ function outlineBounds(){if(LAYOUT===LAYOUT_MODE.MID)return {min:220,max:320};co
 function showOutlineWidth(w){const b=outlineBounds();w=Math.round(Math.max(b.min,Math.min(b.max,w)));
   document.documentElement.style.setProperty('--outline-width',w+'px');
   const g=$('#outline-grip');g.setAttribute('aria-valuemin',b.min);g.setAttribute('aria-valuemax',b.max);g.setAttribute('aria-valuenow',w);return w;}
-// Draws the outline's open/collapsed state and width for the layout (mid keeps its own, unsaved) and syncs the back layer.
+// Draws the outline's open/collapsed state and width for the layout (mid keeps its own, unsaved) and syncs the back layer. The wide
+// outline follows pinPrefs.outlineClosed; until one is saved it starts open with a mouse and collapsed on touch.
 function applyOutlineState(){
-  const p=prefs(),closed=LAYOUT===LAYOUT_MODE.MID?!OUTLINE_MID_OPEN:p.outlineClosed===true;
+  const p=prefs(),closed=LAYOUT===LAYOUT_MODE.MID?!OUTLINE_MID_OPEN:(typeof p.outlineClosed==='boolean'?p.outlineClosed:MQ_COARSE.matches);
   document.body.classList.toggle('outline-collapsed',closed);
   const t=$('#nav-toc-toggle');t.setAttribute('aria-expanded',String(!closed));t.setAttribute('aria-label',closed?'목차 펼치기':'목차 접기');
   if(LAYOUT!==LAYOUT_MODE.NARROW)showOutlineWidth(typeof p.outlineWidth==='number'?p.outlineWidth:240);

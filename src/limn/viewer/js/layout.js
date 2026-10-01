@@ -7,11 +7,12 @@
 // automatically once the page width is fit.
 // The band for a w x h CSS px window whose primary pointer is coarse (touch) or not. Pure. A mouse reads the width only:
 // phone up to 700px, the overlay panel up to 900px, the side panel up to 1099px, wide from 1100px. Touch reads the height too:
-// under 600px wide is a phone at any height, then under 480px high is the short band (a landscape phone).
+// under 600px wide is a phone at any height, then under 480px high is the short band (a landscape phone); a touch tablet up to
+// 1366px wide keeps the side panel (mid-side), so only a touch screen wider than that is the desktop.
 function layoutFor(w,h,coarse){
   if(!coarse){if(w<=700)return LAYOUT_BAND.PHONE; if(w<=900)return LAYOUT_BAND.MID_OVERLAY; if(w<=1099)return LAYOUT_BAND.MID_SIDE; return LAYOUT_BAND.WIDE;}
   if(w<600)return LAYOUT_BAND.PHONE; if(h<480)return LAYOUT_BAND.SHORT;
-  if(w<=700)return LAYOUT_BAND.PHONE; if(w<=900)return LAYOUT_BAND.MID_OVERLAY; if(w<=1099)return LAYOUT_BAND.MID_SIDE; return LAYOUT_BAND.WIDE;}
+  if(w<=700)return LAYOUT_BAND.PHONE; if(w<=900)return LAYOUT_BAND.MID_OVERLAY; if(w<=1366)return LAYOUT_BAND.MID_SIDE; return LAYOUT_BAND.WIDE;}
 // What layoutFor reads from the window now: {w, h, coarse}.
 function bandInput(){return {w:innerWidth,h:innerHeight,coarse:MQ_COARSE.matches};}
 // Picks the band for the window and its panel state: the body classes (lay-*, band-*, mid-overlay, compact), then wide follows the
