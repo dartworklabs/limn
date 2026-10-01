@@ -1386,6 +1386,37 @@ class PhoneTouchSizes(ViewerBase):
         self.assertLess(w, 30)
 
 
+# A touch tablet wide enough for the desktop layout (1180x820), as an iPad home-screen app or full screen.
+TAB_WIDE = {"viewport": {"width": 1180, "height": 820}, "is_mobile": True, "has_touch": True}
+
+
+class WideSafeArea(ViewerBase):
+    """The wide layout keeps its controls out of the safe-area insets (input diagnosis P9): in an iPad home-screen app or full
+    screen the nav links and tool-bar buttons sat under the status bar and [취소][핀 저장] on the home indicator."""
+
+    INSETS = {"top": 24, "bottom": 20}
+
+    def test_wide_controls_stay_inside_the_safe_area(self):
+        """Nav bar, tool bar and the composer's action row lie between the top and bottom insets."""
+        page = self.view(TAB_WIDE)
+        self.assertTrue(page.evaluate("document.body.classList.contains('lay-wide')"))
+        self.cdp(page).send("Emulation.setSafeAreaInsetsOverride", {"insets": self.INSETS})
+        page.evaluate("()=>{LAST_PTR='touch'; pick({page:1,x0:10,y0:10,x1:200,y1:60});}")
+        page.wait_for_function("COMPOSE.current&&!COMPOSE.picking")
+        settle(page)
+        out = page.evaluate(
+            """ins => {
+              const bad = [];
+              for (const e of document.querySelectorAll('#doc-nav button,#bar1 button,#c-actions button')) {
+                const r = e.getBoundingClientRect(); if (!r.width || !r.height) continue;
+                if (r.top < ins.top || r.bottom > innerHeight - ins.bottom) bad.push((e.id || e.className) + ' ' + Math.round(r.top) + '-' + Math.round(r.bottom));
+              }
+              return bad; }""",
+            self.INSETS,
+        )
+        self.assertEqual(out, [])
+
+
 # ---------------------------------------------------------------- B. the rest of the approved findings
 
 

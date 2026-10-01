@@ -198,7 +198,7 @@
 - 마우스(`pointer:fine`)는 그린 크기 그대로이고 히트는 24px이다(WCAG 2.5.8).
 - 확인은 `PhoneTouchSizes`(폰 시트에서 44×44 상자의 네 점을 찍는다)와 `DesktopMisc.test_desktop_hit_targets_are_at_least_24px`다.
 
-안전 영역(`env(safe-area-inset-*)`, `viewport-fit=cover`)은 비운다. compact에서 알림은 탐색 줄 바로 아래 위쪽으로 옮긴다(`narrow`는 화면 위, `mid`는 본문 왼쪽 위). 아래 도구 줄·첫 안내와 겹치지 않게 하려는 것이다.
+안전 영역(`env(safe-area-inset-*)`, `viewport-fit=cover`)은 모든 레이아웃에서 비운다. `wide`(아이패드 홈 화면 앱·전체 화면)도 탐색 줄과 펼친 패널이 위 안전 영역 아래에서 시작하고, 작성 패널의 `[취소] [핀 저장]`, 목록 끝, 접힌 패널의 상태 칩이 아래 안전 영역 위에 남는다(`WideSafeArea`). compact에서 알림은 탐색 줄 바로 아래 위쪽으로 옮긴다(`narrow`는 화면 위, `mid`는 본문 왼쪽 위). 아래 도구 줄·첫 안내와 겹치지 않게 하려는 것이다.
 
 ### 펼친 화면 레이아웃
 

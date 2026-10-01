@@ -55,3 +55,11 @@ body.lay-wide #btn-rebuild .ic{display:none}   /* text only on a wide screen - s
 body.lay-wide #bar1 #btn-rebuild{padding:0 var(--space-1)}   /* at 8px, [?] dropped to a second line in the default 348px panel (grid-cleanup QA) */
 #btn-rebuild:not(.btn-default):hover{background:var(--accent);color:var(--foreground)}
 #bar1 .chip{height:var(--control-h-sm);display:block;line-height:var(--control-h-sm);padding:0 var(--space-2);flex:0 1 auto;min-width:40px}
+/* Safe areas in the wide layout (an iPad home-screen app or full screen, docs/handbook/viewer.md §모바일 레이아웃): the nav bar and the
+   panel start below the status bar, and the composer's action row, the list's end and the floating status chips stay above the home
+   indicator. The links and tool-bar buttons used to sit under the status bar and [취소][핀 저장] on the home indicator (diagnosis P9). */
+body.lay-wide #doc-nav{height:calc(var(--doc-nav-h) + env(safe-area-inset-top));padding-top:env(safe-area-inset-top);padding-left:max(var(--space-4),env(safe-area-inset-left))}
+body.lay-wide.side-open #right{padding:env(safe-area-inset-top) env(safe-area-inset-right) 0 0}
+body.lay-wide #c-actions{padding-bottom:calc(var(--space-2) + env(safe-area-inset-bottom))}
+body.lay-wide #composer[hidden]~#list{padding-bottom:calc(32px + env(safe-area-inset-bottom))}   /* only when the action row is not below it */
+body.lay-wide:not(.side-open) #right{bottom:calc(var(--space-3) + env(safe-area-inset-bottom))}
