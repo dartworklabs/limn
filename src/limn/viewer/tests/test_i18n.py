@@ -676,11 +676,11 @@ class EnglishChrome(ChromiumTestCase):
         preview, its thread and its author. The translator rewrote every text node that matched the table, so the tabs read
         '본문 · Figure · …' (UX audit P6, docs/handbook/viewer.md §뷰어 규칙을 바꿀 때)."""
         page, pin = self.open_with_ui_words()
-        page.evaluate("id=>{OPEN_CARDS.add(id); drawPins(); openDocsMenu();}", pin["id"])
+        page.evaluate("id=>{OPEN_CARDS.add(id); drawPins(); openNavSheet();}", pin["id"])
         settle(page)
         got = page.evaluate(
             """id => {const c = document.querySelector('.pin[data-id="' + id + '"]'), t = s => (c.querySelector(s) || {}).textContent;
-              return {link: document.querySelector('#doc-links [data-doc=rr]').textContent, sheet: document.querySelector('#docs-menu [data-doc=rr] .nm').textContent,
+              return {link: document.querySelector('#doc-links [data-doc=rr]').textContent, sheet: document.querySelector('#nav-sheet [data-doc=rr] .nm').textContent,
                 note: t('.note'), sum: t('.sum'), post: t('.msg-t'), author: t('.au-n')};}""",
             pin["id"],
         )

@@ -29,7 +29,8 @@ function settleBand(C,N,typing){if(!C||(!C.coarse&&!N.coarse))return BAND_STEP.S
 // Picks the band for the settled input (BAND_IN; the window's at the first call) and its panel state: the body classes (lay-*, band-*, mid-overlay, compact), then wide follows the
 // per-device pinPrefs.sideClosed (open by default), mid its midClosed (else open beside the document, collapsed as an overlay),
 // narrow starts collapsed - except between the phone and the tablet sheet, both sheets, which keep it as it was. An open draft
-// keeps it open. The status line moves to the band's place (placeStatus). Returns whether the band or its overlay changed.
+// keeps it open. The status line moves to the band's place (placeStatus); the phone's navigation sheet closes when the band
+// is no longer the phone (the nav bar does its job there). Returns whether the band or its overlay changed.
 function applyLayout(){if(!BAND_IN)BAND_IN=bandInput(); const o=BAND_IN,band=layoutFor(o.w,o.h,o.coarse),L=BAND_MODE[band],overlay=L===LAYOUT_MODE.MID&&o.w<=900;
   if(band===BAND&&overlay===MID_OVERLAY)return false;
   const sheetToSheet=L===LAYOUT_MODE.NARROW&&LAYOUT===LAYOUT_MODE.NARROW,wasOpen=SIDE_OPEN;
@@ -38,6 +39,7 @@ function applyLayout(){if(!BAND_IN)BAND_IN=bandInput(); const o=BAND_IN,band=lay
   b.classList.toggle('mid-overlay',overlay); b.classList.toggle('compact',L!==LAYOUT_MODE.WIDE);
   SIDE_OPEN=L===LAYOUT_MODE.WIDE?p.sideClosed!==true:(L===LAYOUT_MODE.MID?(typeof p.midClosed==='boolean'?!p.midClosed:!overlay):sheetToSheet&&wasOpen);
   if(!REPICK&&(COMPOSE.current||EDITOR.current||REPLY||!$('#composer').hidden))SIDE_OPEN=true;   // an in-progress note/edit/reply is never left hidden collapsed
+  if(band!==LAYOUT_BAND.PHONE&&$('#nav-sheet').open)$('#nav-sheet').close();
   applySide(); stickTop(); placeStatus(); return true;}
 // Whether the outline is an overlay over the document that opens one at a time with the pin panel (OUTLINE_MID_OPEN, never
 // saved): in the mid bands and on the tablet sheet. The phone has no outline; wide keeps it beside the document.
@@ -181,8 +183,10 @@ function openMore(){const d=$('#more'); if(d.open)return; hideTip(); renderSizeS
 // Expanding done/dropped pins from [⋯] opens the panel and scrolls to that list.
 function revealList(sel,shown){if(!shown)return; setSide(true); requestAnimationFrame(()=>{const t=$(sel); if(t)t.scrollIntoView({block:'start'});});}
 // Clicking outside a dialog (the backdrop) closes it - only for a click whose target is the dialog itself and that falls outside its
-// box rectangle. The same for [더보기], help and the documents sheet (and the Trash, below); help and the documents sheet used to
-// stay open (input review 2026-09-26).
-for(const sel of ['#more','#help','#docs-menu','#status-list'])$(sel).addEventListener('click',e=>{const d=e.currentTarget; if(e.target!==d)return; const r=d.getBoundingClientRect();
+// box rectangle. The same for [더보기], help, the navigation sheet and the status line's list (and the Trash, below); help and
+// the documents sheet used to stay open (input review 2026-09-26).
+for(const sel of ['#more','#help','#nav-sheet','#status-list'])$(sel).addEventListener('click',e=>{const d=e.currentTarget; if(e.target!==d)return; const r=d.getBoundingClientRect();
   if(e.clientX<r.left||e.clientX>r.right||e.clientY<r.top||e.clientY>r.bottom)d.close();});
+// However the navigation sheet closes, the focus goes back to the button that opens it.
+$('#nav-sheet').addEventListener('close',()=>{const b=$('#btn-pos'); if(b.getClientRects().length)b.focus({preventScroll:true});});
 

@@ -160,7 +160,6 @@ body.compact #bar1 .chip{flex:0 50 auto;min-width:28px}
    also shrank to 'CE-iTra...' (71px) (observed) - the same fix is applied there too. #more-label ([더보기]'s first line) already exists in both layouts
    (shared markup with no layout condition), so the full name is visible without a separate sheet. */
 body.lay-narrow #bar1 .chip,body.lay-mid #bar1 .chip{display:none}
-body.lay-narrow #bar1 #btn-doc{flex:none;overflow:visible}
 /* The phone and tablet-sheet bar is a three-column grid (docs/handbook/viewer.md §모바일 레이아웃): [📍 N 👁 M] [⬚] | the grabber |
    [본문 ▾] [⋯] - [⋯] alone on the tablet sheet, whose nav bar has the documents. The outer columns are equal, so the grabber's
    centre is the bar's, the screen's, whatever the language, counts or document; as a flex item centred in the space left between
@@ -174,7 +173,14 @@ body.lay-narrow #bar1 .bar-l{grid-column:1}
 body.lay-narrow #bar1 .bar-r{grid-column:3;justify-content:flex-end}
 body.lay-narrow #bar1 button{flex:none}
 body.lay-narrow #btn-select .lbl,body.lay-narrow #side-arrow{display:none}   /* the grabber already says it is a sheet; its fill and aria-expanded say open */
-body.lay-narrow #btn-doc .nm{overflow:visible;text-overflow:clip;max-width:6em}
+/* [본문 3/25 ▾] (#btn-pos, the phone only): the document's name is the one item that shrinks (an ellipsis, the whole name in
+   aria-label); the pages and the chevron keep their width. */
+#btn-pos{display:none;align-items:center;gap:var(--space-1)}
+body.band-phone #btn-pos{display:inline-flex}
+body.lay-narrow #bar1 #btn-pos{flex:0 1 auto;min-width:0}
+#btn-pos .nm{flex:0 1 auto;min-width:0;margin-right:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#btn-pos b{flex:none;font-weight:600;font-variant-numeric:tabular-nums;white-space:nowrap}
+#btn-pos :is(.ic,.ddot){flex:none}
 /* The width budget (UX spec §V4 폭 예산): under 400px the review pill drops its eye and keeps the count; under 360px the bar buttons'
    side padding and the gap in a cell go from 8 to 4px. Decoration only - the layout never changes by width here. */
 @media (max-width:399.98px){body.lay-narrow #bar1 .rv-n .ic{display:none}}
@@ -421,37 +427,66 @@ body.band-short #doc-nav #status{flex:none;position:relative;align-self:stretch}
 #status-list .st-row button{flex:none}
 #status-list .st-ic{display:inline-flex;flex:none;width:16px;justify-content:center}
 #status-list .st-ic .ic{width:14px;height:14px}
-/* The folded layout (narrow) reuses the existing tool bar's [문서 ▾] button and sheet list as-is. */
+/* The navigation sheet's document rows (and their marks): name and path, build state, 'PDF'/'그림', the open-pin count. */
 .dm-item .nm{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .dcnt{font-weight:600}
 .dcnt.z{color:var(--muted-foreground);font-weight:400;background:transparent}
 .dvo,.dfig{flex:none;line-height:14px;padding:0 var(--space-1);letter-spacing:.02em}
 .ddot{flex:none;width:7px;height:7px;border-radius:50%;background:var(--warning)}
-.dm-item .spin,#btn-doc .spin{width:10px;height:10px}
-#btn-doc{display:none;align-items:center;gap:var(--space-1)}
-#btn-doc .nm{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-body.band-phone.docs-multi #btn-doc{display:inline-flex}   /* the tablet sheet has the nav bar's document links instead */
+.dm-item .spin{width:10px;height:10px}
 body.no-rebuild #btn-rebuild{display:none}
 .dchip{flex:none;line-height:16px;max-width:110px;overflow:hidden;text-overflow:ellipsis}
 .dchip.other{background:transparent;border-color:var(--border-strong);border-style:dashed}   /* another document = a dashed border (a meaningful border) */
-#docs-menu{margin:auto auto 0;width:100%;max-width:560px;border-radius:var(--radius-lg) var(--radius-lg) 0 0;padding:var(--space-3) var(--space-3) calc(var(--space-3) + env(safe-area-inset-bottom))}
-#docs-menu .dm-list{display:flex;flex-direction:column;gap:var(--space-2);margin-top:var(--space-2)}
+/* The phone's navigation sheet (#nav-sheet, docs/handbook/viewer.md §모바일 레이아웃): documents, [원고 | 변경사항], the page field
+   and the outline under a sticky grab band and head. As high as its content, at most the screen less 48px; past that the head
+   stays and the rest scrolls. */
+#nav-sheet{margin:auto auto 0;width:100%;max-width:560px;max-height:calc(var(--vvh,100dvh) - 48px);overflow:auto;border-radius:var(--radius-lg) var(--radius-lg) 0 0;
+  padding:0 var(--space-3) calc(var(--space-3) + env(safe-area-inset-bottom))}
+#nav-sheet .ns-head{position:sticky;top:0;z-index:1;background:var(--popover)}
+.ns-grab{display:flex;justify-content:center;height:12px;padding-top:var(--space-1)}
+.ns-grab::before{content:'';width:32px;height:4px;border-radius:var(--radius-sm);background:var(--grabber)}
+#nav-sheet .ns-head .row{flex-wrap:nowrap;min-height:var(--hit)}
+#nav-sheet-h{margin:0;font-size:var(--text-xl)}
+#nav-sheet>:is(section,#ns-view,#ns-page){border-top:1px solid var(--border);margin:0;padding:var(--space-2) 0}
+#nav-sheet>#ns-view{border-top:0;margin:var(--space-2) 0}
+#nav-sheet .ns-h{margin:0 0 var(--space-1);font-size:var(--text-sm);font-weight:600;color:var(--muted-foreground)}
+#nav-sheet .dm-list{display:flex;flex-direction:column;gap:var(--space-1)}
+#ns-view button{flex:1 1 0}
+#ns-page{display:flex;align-items:center;gap:var(--space-2);min-height:var(--hit)}
+#ns-page input{width:72px;flex:none;text-align:left}
+#ns-page #ns-page-n{color:var(--muted-foreground);white-space:nowrap}
+#nav-sheet .ns-oh{display:flex;align-items:center;gap:var(--space-2);margin-bottom:var(--space-1)}
+#nav-sheet .ns-oh .ns-h{margin:0;flex:none}
+#ns-outline-search{flex:1;min-width:0;background:var(--field)}
+#ns-outline-items button{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:var(--space-2);align-items:start;width:100%;min-height:var(--hit);text-align:left;
+  background:transparent;border:0;padding:var(--space-2) var(--space-3);font-size:var(--text-lg);color:var(--foreground)}
+#ns-outline-items button .ol-name{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;overflow-wrap:anywhere}
+#ns-outline-items button .ol-no{color:var(--muted-foreground);font-variant-numeric:tabular-nums}
+#ns-outline-items button .ol-page{color:var(--muted-foreground);font-size:var(--text-sm);white-space:nowrap}
+#ns-outline-items button.ol-depth-1{padding-left:var(--space-5)}
+#ns-outline-items button:is(.ol-depth-2,.ol-depth-3,.ol-depth-4){padding-left:var(--space-6)}
+#ns-outline-items button.ol-active{background:var(--accent)}
+#ns-outline-items.outline-empty{color:var(--muted-foreground);padding:var(--space-2) var(--space-3);font-size:var(--text-sm)}
 .dm-item{display:flex;align-items:center;gap:var(--space-3);width:100%;text-align:left;padding:var(--space-3)}
 .dm-item .tx{flex:1;min-width:0;display:flex;flex-direction:column}
 .dm-item .ph{font-size:var(--text-sm);color:var(--muted-foreground);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .dm-item{border-color:transparent;background:transparent}
 .dm-item.on{background:var(--accent)}
-/* One bottom sheet (docs/handbook/viewer.md §패널 정리): in compact, [더보기], the documents sheet, help and the Trash rise from the
-   bottom edge - the phone's whole width, else a 640px column like the pin sheet's - with their boxes on --edge (its 1px border
+/* One bottom sheet (docs/handbook/viewer.md §패널 정리): in compact, [더보기], the navigation sheet, help and the Trash rise from
+   the bottom edge - the phone's whole width, else a 640px column like the pin sheet's - with their boxes on --edge (its 1px border
    counted) and their text lines on --ink, and close on an outside tap, a pull down (sheetPull) and the back gesture. Help and the
    Trash were centred cards 92vw and 100vw - 16px wide with 16 and 24px sides (UX audit P9); the desktop keeps them. */
-body.compact :is(#more,#docs-menu,#help,#trash){margin:auto auto 0;width:100%;max-width:640px;border-radius:var(--radius-lg) var(--radius-lg) 0 0;
+body.compact :is(#more,#nav-sheet,#help,#trash){margin:auto auto 0;width:100%;max-width:640px;border-radius:var(--radius-lg) var(--radius-lg) 0 0;
   padding:var(--space-3) max(calc(var(--edge) - 1px),env(safe-area-inset-right)) calc(var(--space-3) + env(safe-area-inset-bottom)) max(calc(var(--edge) - 1px),env(safe-area-inset-left))}
-body.compact :is(#docs-menu-h,#trash-h,#help-h,#help h4,#trash-note,#m-size-l,#help .help-legend,#help .help-steps,#help-pins-md){padding-left:var(--space-3)}
+body.compact #nav-sheet{padding-top:0}   /* its sticky grab band is the top */
+body.compact :is(#nav-sheet-h,#nav-sheet .ns-h,#ns-page label,#trash-h,#help-h,#help h4,#trash-note,#m-size-l,#help .help-legend,#help .help-steps,#help-pins-md){padding-left:var(--space-3)}
+/* A segment control in a sheet is drawn at 36px in its 4px frame: each segment's 44px hit fills the 44px row. */
+@media (pointer:coarse){body.compact :is(#nav-sheet,#more) .seg button{min-height:0;height:var(--control-h-lg);position:relative}
+  body.compact :is(#nav-sheet,#more) .seg button::after{content:'';position:absolute;left:0;right:0;top:50%;height:var(--hit);transform:translateY(-50%)}}
 body.compact #help-pins-md{display:block}
 body.compact #help td:first-child{padding-left:var(--space-3)}
-body.compact :is(#docs-menu,#help,#trash)>.row>button{background:transparent;border-color:transparent}   /* [닫기] is a ghost, like [더보기]'s */
-@media (hover:hover){body.compact :is(#docs-menu,#help,#trash)>.row>button:hover{background:var(--accent)}}
+body.compact :is(#nav-sheet .ns-head,#help,#trash)>.row>button{background:transparent;border-color:transparent}   /* [닫기] is a ghost, like [더보기]'s */
+@media (hover:hover){body.compact :is(#nav-sheet .ns-head,#help,#trash)>.row>button:hover{background:var(--accent)}}
 body.compact #trash .arc-list{max-height:none;overflow:visible}   /* the sheet scrolls, so a pull down starts at its top */
 /* Selection on a view-only PDF document: no range ladder, stepper, or source expansion (there is no line). The region's text is shown in the source field instead. */
 #composer.region #c-levels,#composer.region .c-tools,#composer.region .snip-foot,#composer.region #c-copy{display:none}

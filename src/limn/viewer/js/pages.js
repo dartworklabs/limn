@@ -45,5 +45,20 @@ function fitW(){const a=topAnchor(),L=$('#left');
   restoreAnchor(a); L.scrollLeft=0;}
 function goPage(v){const el=document.getElementById('p'+parseInt(v===undefined?$('#jump').value:v,10)); if(el) el.scrollIntoView({behavior:SMOOTH});}
 $('#jump').addEventListener('keydown',e=>{if(e.key==='Enter')goPage();});
+// The page a typed entry v goes to in a document of n pages: a whole number clamped to 1..n; null for an empty or non-number
+// entry, which goes nowhere. Pure.
+function clampPage(v,n){const s=String(v==null?'':v).trim(); if(!/^-?\d+$/.test(s)||!(n>=1))return null; return Math.min(n,Math.max(1,parseInt(s,10)));}
+// The navigation sheet's page field (Enter or [이동]): goes to the clamped page and closes the sheet; nothing typed does nothing.
+function navGo(){const p=clampPage($('#ns-page-in').value,META&&META.pages?META.pages.length:0); if(p===null)return;
+  $('#nav-sheet').close(); if(document.body.classList.contains('revision-open'))setViewMode(VIEW_MODE.MANUSCRIPT); goPage(p);}
+$('#ns-page-in').addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.isComposing){e.preventDefault(); navGo();}});
+// The nav bar's page count (tablet sheet, mid, short) as a page field in its place: the page on screen selected; Enter goes
+// to the clamped page, Esc or leaving it gives the count back.
+function navPageField(on){const b=$('#nav-page'),f=$('#nav-page-in'); b.hidden=on; f.hidden=!on;
+  if(on){f.value=String(OUTLINE_ACTIVE_PAGE||1); f.focus(); f.select();}}
+$('#nav-page-in').addEventListener('keydown',e=>{if(e.isComposing)return;
+  if(e.key==='Enter'){e.preventDefault(); const p=clampPage(e.target.value,META&&META.pages?META.pages.length:0); navPageField(false); $('#nav-page').focus({preventScroll:true}); if(p!==null)goPage(p);}
+  else if(e.key==='Escape'){e.preventDefault(); e.stopPropagation(); navPageField(false); $('#nav-page').focus({preventScroll:true});}});
+$('#nav-page-in').addEventListener('blur',()=>{if(!$('#nav-page-in').hidden)navPageField(false);});
 $('#m-jump').addEventListener('keydown',e=>{if(e.key==='Enter'){$('#more').close(); goPage($('#m-jump').value);}});
 

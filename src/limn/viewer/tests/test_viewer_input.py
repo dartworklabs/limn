@@ -22,6 +22,7 @@ from urllib.parse import urlparse
 from limn.pins.lifecycle.rules import CloseRequest
 from limn.security.access import LOCAL_ACTOR
 
+import helpers_figure
 from helpers import HTML, UI_EN, add_pin, extract_js_fn, ps, run_node
 from helpers_access import ALICE, BOB, actor
 from helpers_authority import post_authority
@@ -261,30 +262,84 @@ class GestureLogic(unittest.TestCase):
         self.assertEqual(got, [0.45, 0.52, 0.6, 0.64])
 
     def test_back_layer_is_the_sheet_the_overlay_panel_or_the_outline_overlay(self):
-        """backLayer(band, overlay, sideOpen, outlineOpen): only a layer that covers the document - a sheet (phone, tablet),
-        the overlay panel (mid-overlay, or a short band up to 900px), the outline overlay (mid bands and the tablet sheet;
-        with both open the outline is on top). The side panel beside the document and anything wide are not layers."""
+        """backLayer(band, overlay, sideOpen, outlineOpen, dialogOpen): only a layer that covers the document - a sheet
+        (phone, tablet), the overlay panel (mid-overlay, or a short band up to 900px), the outline overlay (mid bands and
+        the tablet sheet; with both open the outline is on top), and above them all an open bottom-sheet dialog (the
+        navigation sheet, [더보기], help, the Trash; the caller passes it only without CloseWatcher, where a modal dialog
+        takes the close request itself). The side panel beside the document and anything wide are not layers."""
         cases = [
-            ("phone", False, True, False, "side"),
-            ("phone", False, False, False, None),
-            ("phone", False, False, True, None),
-            ("tablet-sheet", False, True, False, "side"),
-            ("tablet-sheet", False, False, True, "outline"),
-            ("tablet-sheet", False, True, True, "outline"),
-            ("tablet-sheet", False, False, False, None),
-            ("mid-overlay", True, True, False, "side"),
-            ("mid-overlay", True, False, True, "outline"),
-            ("short", True, True, False, "side"),
-            ("short", False, True, False, None),
-            ("short", False, False, True, "outline"),
-            ("mid-side", False, True, False, None),
-            ("mid-side", False, False, True, "outline"),
-            ("wide", False, True, True, None),
+            ("phone", False, True, False, False, "side"),
+            ("phone", False, False, False, False, None),
+            ("phone", False, False, True, False, None),
+            ("phone", False, False, False, True, "dialog"),
+            ("phone", False, True, False, True, "dialog"),
+            ("tablet-sheet", False, True, False, False, "side"),
+            ("tablet-sheet", False, False, True, False, "outline"),
+            ("tablet-sheet", False, True, True, False, "outline"),
+            ("tablet-sheet", False, False, False, False, None),
+            ("tablet-sheet", False, False, True, True, "dialog"),
+            ("mid-overlay", True, True, False, False, "side"),
+            ("mid-overlay", True, False, True, False, "outline"),
+            ("short", True, True, False, False, "side"),
+            ("short", False, True, False, False, None),
+            ("short", False, False, True, False, "outline"),
+            ("short", False, False, False, True, "dialog"),
+            ("mid-side", False, True, False, False, None),
+            ("mid-side", False, False, True, False, "outline"),
+            ("mid-side", False, False, False, True, "dialog"),
+            ("wide", False, True, True, False, None),
+            ("wide", False, False, False, True, None),
         ]
         got = self.run_js(
-            ["backLayer"], "%s.map(c=>backLayer(c[0],c[1],c[2],c[3]))" % json.dumps([c[:4] for c in cases])
+            ["backLayer"], "%s.map(c=>backLayer(c[0],c[1],c[2],c[3],c[4]))" % json.dumps([c[:5] for c in cases])
         )
-        self.assertEqual([c[:4] + (g,) for c, g in zip(cases, got, strict=True)], cases)
+        self.assertEqual([c[:5] + (g,) for c, g in zip(cases, got, strict=True)], cases)
+
+
+class NavLogic(unittest.TestCase):
+    """The navigation sheet's pure decisions (docs/handbook/viewer.md §모바일 레이아웃): which page a typed number goes to,
+    and what the phone's [본문 3/25 ▾] says."""
+
+    def run_js(self, names, expr, lang="ko"):
+        """Evaluate expr (JSON) with the named shipped functions and the viewer's tr/tl in lang."""
+        js = "\n".join(
+            ["var LANG=%s,I18N_EN=%s;" % (json.dumps(lang), json.dumps(UI_EN, ensure_ascii=False))]
+            + [extract_js_fn(n) for n in ["tr", "tl"] + names]
+            + ["console.log(JSON.stringify(%s));" % expr]
+        )
+        return node_or_skip(self, js)
+
+    def test_a_typed_page_is_clamped_to_the_document_and_nothing_is_no_page(self):
+        """clampPage(v, n): a number below 1 goes to the first page, past the last to the last; an empty or non-number
+        entry is null - nothing happens (goPage did nothing for a page out of range)."""
+        got = self.run_js(
+            ["clampPage"],
+            "[clampPage('3',25),clampPage('0',25),clampPage('99',25),clampPage('',25),clampPage('abc',25),clampPage(' 7 ',25),clampPage('-4',25)]",
+        )
+        self.assertEqual(got, [3, 1, 25, None, None, 7, 1])
+
+    def test_the_position_button_names_the_document_only_where_it_helps(self):
+        """posLabel(doc, page, n, multi, wide, mode): the document's name with several documents on a 400px-or-wider phone,
+        else the pages only; '–/–' before the page is known; '변경사항' in the changes view. Its accessible name says where
+        it goes."""
+        got = self.run_js(
+            ["posLabel"],
+            "[posLabel('본문',3,25,true,true,'manuscript'),posLabel('본문',3,25,true,false,'manuscript'),"
+            "posLabel('본문',3,25,false,true,'manuscript'),posLabel('본문',0,0,true,true,'manuscript'),"
+            "posLabel('본문',3,25,true,true,'revisions')]",
+        )
+        self.assertEqual(
+            got,
+            [
+                {"name": "본문", "pages": "3/25", "label": "이동 · 본문 · 3 / 25쪽"},
+                {"name": "", "pages": "3/25", "label": "이동 · 3 / 25쪽"},
+                {"name": "", "pages": "3/25", "label": "이동 · 3 / 25쪽"},
+                {"name": "본문", "pages": "–/–", "label": "이동 · 본문 · – / –쪽"},
+                {"name": "", "pages": "변경사항", "label": "이동 · 변경사항"},
+            ],
+        )
+        en = self.run_js(["posLabel"], "posLabel('본문',3,25,true,true,'manuscript')", lang="en")
+        self.assertEqual(en, {"name": "본문", "pages": "3/25", "label": "Go to · 본문 · 3 / 25"})
 
 
 class StatusLogic(unittest.TestCase):
@@ -1446,16 +1501,17 @@ class PhoneSheet(ViewerBase):
         page.wait_for_function("!SIDE_OPEN")
 
     def test_docs_sheet_closes_on_an_outside_tap_and_a_pull_down(self):
-        """The documents sheet behaves like [더보기]: outside tap closes it, and it follows a pull down."""
+        """The navigation sheet (the documents sheet before it) behaves like [더보기]: outside tap closes it, and it follows
+        a pull down."""
         page = self.view(PHONE)
         cdp = self.cdp(page)
-        page.evaluate("openDocsMenu()")
+        page.evaluate("openNavSheet()")
         self.tap(cdp, 190, 100)
-        page.wait_for_function("!document.querySelector('#docs-menu').open")
-        page.evaluate("openDocsMenu()")
-        r = page.locator("#docs-menu").bounding_box()
+        page.wait_for_function("!document.querySelector('#nav-sheet').open")
+        page.evaluate("openNavSheet()")
+        r = page.locator("#nav-sheet").bounding_box()
         self.swipe(cdp, 190, r["y"] + 20, 190, r["y"] + 20 + r["height"] * 0.6, steps=10, dt=0.02)
-        page.wait_for_function("!document.querySelector('#docs-menu').open")
+        page.wait_for_function("!document.querySelector('#nav-sheet').open")
 
     def test_stacked_toasts_open_on_a_tap(self):
         """More than three toasts: a '+N' button under the stack opens it on touch (hover/focus only did before)."""
@@ -1578,16 +1634,17 @@ class LayoutNotPointer(ViewerBase):
 
     def test_a_mouse_at_1440_keeps_the_desktop_geometry_to_the_pixel(self):
         """1440x900 with a mouse: the page's margins and box, its first mark's badge, the panel's tool bar, section head and
-        first card, and the help, Trash and documents dialogs sit where they sat before the touch edge grid (UX audit V2/V6):
-        the desktop layout is unchanged. What CSS lengths, the viewport or the page size is compared to the pixel. What a
-        label or a wrapped note sizes is compared by where it starts and ends, how tall it is and its order, never by its
-        width or by the height its text makes - those follow the installed fonts (a tool-bar button was 71px wide here
-        and 79px on CI), so desk_shape() leaves them out."""
+        first card, and the help and Trash dialogs sit where they sat before the touch edge grid (UX audit V2/V6): the
+        desktop layout is unchanged. (The documents sheet, which only the phone opened, is the phone's navigation sheet.)
+        What CSS lengths, the viewport or the page size is compared to the pixel. What a label or a wrapped note sizes is
+        compared by where it starts and ends, how tall it is and its order, never by its width or by the height its text
+        makes - those follow the installed fonts (a tool-bar button was 71px wide here and 79px on CI), so desk_shape()
+        leaves them out."""
         page = self.view(MOUSE_WIDE)
         page.evaluate("document.querySelector('#left').scrollTop=0")
         settle(page)
         got = page.evaluate(DESK_GEOMETRY)
-        for opener, dlg in (("openHelp()", "#help"), ("openTrash()", "#trash"), ("openDocsMenu()", "#docs-menu")):
+        for opener, dlg in (("openHelp()", "#help"), ("openTrash()", "#trash")):
             page.evaluate(opener)
             settle(page)
             got[dlg] = page.evaluate(DESK_DIALOG, dlg)
@@ -1619,7 +1676,7 @@ DESK_DIALOG = """s => {const e = document.querySelector(s), r = e.getBoundingCli
 BAR_LABEL_SIZED = ("btn-rebuild", "sp", "jump")
 # How each dialog is anchored: a centred one by its middle (its text-made height moves both edges), a bottom sheet by the gap
 # under it.
-DIALOG_ANCHOR = {"#help": "mid", "#trash": "mid", "#docs-menu": "below"}
+DIALOG_ANCHOR = {"#help": "mid", "#trash": "mid"}
 
 
 def desk_shape(got: dict[str, Any]) -> dict[str, Any]:
@@ -1689,7 +1746,6 @@ DESK_1440 = {
     "list": ["0px", "12px", "32px", "12px"],
     "#help": {"x": 380, "width": 680, "pad": ["16px", "24px", "16px", "24px"], "max_height": "792px", "mid": 450},
     "#trash": {"x": 440, "width": 560, "pad": ["16px", "24px", "16px", "24px"], "max_height": "792px", "mid": 450},
-    "#docs-menu": {"x": 440, "width": 560, "pad": ["12px", "12px", "12px", "12px"], "max_height": "792px", "below": 0},
 }
 
 
@@ -2750,14 +2806,14 @@ SHEETS = (
         ],
     ),
     (
-        "#docs-menu",
-        "openDocsMenu()",
+        "#nav-sheet",
+        "openNavSheet()",
         [
-            ["#docs-menu-h", "ink"],
-            ["#docs-menu .dm-item", "box"],
-            ["#docs-menu .dm-item", "end"],
-            ["#docs-menu .dm-item .nm", "ink"],
-            ["#docs-menu [data-act=docs-menu-close]", "end"],
+            ["#nav-sheet-h", "ink"],
+            ["#ns-view", "box"],
+            ["#ns-view", "end"],
+            ["#ns-page label", "ink"],
+            ["#nav-sheet [data-act=nav-sheet-close]", "end"],
         ],
     ),
     (
@@ -3076,9 +3132,9 @@ class DesktopMisc(ViewerBase):
         self.assertFalse(page.evaluate("document.body.classList.contains('revision-open')"))
 
     def test_an_outside_click_closes_help_and_the_documents_menu_like_the_others(self):
-        """[더보기] and the Trash closed on a backdrop click; help and the documents menu now do too."""
+        """[더보기] and the Trash closed on a backdrop click; help and the documents menu (now the navigation sheet) do too."""
         page = self.view(DESK)
-        for opener, dlg in (("openHelp()", "#help"), ("openDocsMenu()", "#docs-menu")):
+        for opener, dlg in (("openHelp()", "#help"), ("openNavSheet()", "#nav-sheet")):
             with self.subTest(dialog=dlg):
                 page.evaluate(opener)
                 page.mouse.click(8, 8)
@@ -3092,7 +3148,7 @@ class DesktopMisc(ViewerBase):
           const sel = 'button,[data-act],[role=button],[data-copy],.mark b';
           const out = [];
           for (const e of document.querySelectorAll(sel)) {
-            if (e.closest('#more,#help,#trash,#docs-menu,#revision-view,#outline') || e.matches('.note,.sum,.arc-reply,.pin-ref,#grip,#outline-grip,textarea'))
+            if (e.closest('#more,#help,#trash,#nav-sheet,#revision-view,#outline') || e.matches('.note,.sum,.arc-reply,.pin-ref,#grip,#outline-grip,textarea'))
               continue;
             const r = e.getBoundingClientRect(); if (!r.width || !r.height || getComputedStyle(e).visibility === 'hidden') continue;
             if (r.bottom < 0 || r.top > innerHeight || r.right < 0 || r.left > innerWidth) continue;
@@ -3150,6 +3206,20 @@ STATUS_LINE = """() => {const q = s => document.querySelector(s), B = e => {cons
   return {parent: s.parentElement.id, dock: B(q('#status-dock')), sheet: B(q('#right')),
     text: (s.querySelector('.st-tx') || {}).textContent || '', acts: [...s.querySelectorAll('button')].map(b => b.dataset.act),
     bar: bar ? {role: bar.getAttribute('role'), now: bar.getAttribute('aria-valuenow')} : null};}"""
+# An outline of three headings over the fixture's two pages (its PDFs carry none), drawn into both outline lists.
+OUTLINE3 = """() => {OUTLINE_ENTRIES = [{title: '서론', page: 1, depth: 0, frac: 0, number: '1', pageLabel: '1'},
+  {title: '연구 배경', page: 1, depth: 1, frac: 0.5, number: '1.1', pageLabel: '1'}, {title: '방법', page: 2, depth: 0, frac: 0, number: '2', pageLabel: '2'}];
+  renderOutline();}"""
+# [본문 3/25 ▾] as drawn: the document name's text, the pages' text and whether the name shows.
+POS = "[document.querySelector('#btn-pos-n').textContent, document.querySelector('#btn-pos-p').textContent, document.querySelector('#btn-pos-n').getClientRects().length>0]"
+# The open navigation sheet: its visible sections top to bottom, the visible controls that spill out of its box, and the
+# focused control (a document row's key, a view radio's mode, else its id).
+NAV_SHEET = """() => {const d = document.querySelector('#nav-sheet'), R = d.getBoundingClientRect(), vis = e => !!e && e.getClientRects().length > 0;
+  const order = ['ns-docs', 'ns-view', 'ns-page', 'ns-outline'].map(id => document.getElementById(id)).filter(vis)
+    .map(e => [e.id, e.getBoundingClientRect().top]).sort((a, b) => a[1] - b[1]);
+  const spill = [...d.querySelectorAll('button,input')].filter(vis).filter(e => {const r = e.getBoundingClientRect();
+    return r.left < R.left - 0.5 || r.right > R.right + 0.5;}).map(e => e.id || e.className);
+  const a = document.activeElement; return {order, spill, focus: a.dataset.doc || a.dataset.mode || a.id};}"""
 # The fullest bar the width budget plans for: 123 open pins, 12 awaiting review and a draft dot (UX spec §V4 폭 예산).
 FULL_BAR = """() => {document.querySelector('#side-n').textContent = '123'; const p = document.querySelector('#side-rv');
   p.hidden = false; p.innerHTML = ic('eye') + '12'; document.querySelector('#btn-side .c-dot').hidden = false;}"""
@@ -3384,6 +3454,144 @@ class BarAndSheets(ViewerBase):
         self.assertEqual(rows, [[44, "build-err-reopen"], [44, "rebuild"]])
         page.keyboard.press("Escape")
         page.wait_for_function("!document.querySelector('#status-list').open")
+
+    # ---- the phone's navigation sheet and the nav bar's page field (V9)
+
+    def docs_view(self, device, init="", **kw):
+        """A view with three documents (the manuscript, a figure and a view-only PDF of two pages each) and an outline of
+        three headings (the test PDFs carry none), once booted."""
+        helpers_figure.viewer_docs(ps.APP, ps.APP.C.src)
+        self.addCleanup(ps.APP.set_docs, None)
+        page = self.view(device, init=NO_PNG_CHIP + init, **kw)
+        page.evaluate(OUTLINE3)
+        settle(page)
+        return page
+
+    def open_nav(self, page):
+        """Tap [본문 1/2 ▾] and wait for the navigation sheet."""
+        self.tap(self.cdp(page), *self.center(page, "#btn-pos"))
+        page.wait_for_function("document.querySelector('#nav-sheet').open")
+        settle(page)
+
+    def test_the_position_button_opens_documents_view_page_and_outline_in_that_order(self):
+        """411 and 344: [본문 1/2 ▾] - the document's name from 400px - opens one sheet whose sections run documents, the
+        view switch, the page field and the outline, all inside the sheet, with the current document's row focused. P5:
+        the phone had no way to the outline or the changes view."""
+        for device, name in ((BAR_PHONES[0], "본문"), (BAR_PHONES[4], "")):
+            with self.subTest(width=device["viewport"]["width"]):
+                page = self.docs_view(device)
+                self.assertEqual(page.evaluate(POS), [name, "1/2", bool(name)])
+                self.open_nav(page)
+                got = page.evaluate(NAV_SHEET)
+                self.assertEqual([s for s, _ in got["order"]], ["ns-docs", "ns-view", "ns-page", "ns-outline"])
+                self.assertEqual(got["spill"], [])
+                self.assertEqual(got["focus"], "ms")
+                self.assertEqual(page.evaluate(MISSES_44, "#nav-sheet button,#nav-sheet input"), [])
+
+    def test_every_choice_goes_there_and_closes_the_sheet(self):
+        """Picking is going: [변경사항] opens the changes view (the button then reads 변경사항), a page past the end goes to
+        the last page, an outline entry to its section, a document row switches - and each closes the sheet. An empty page
+        field does nothing."""
+        page = self.docs_view(BAR_PHONES[0])
+        closed = "!document.querySelector('#nav-sheet').open"
+        self.open_nav(page)
+        page.click("#ns-view [data-mode=revisions]")
+        page.wait_for_function(closed + "&&document.body.classList.contains('revision-open')")
+        self.assertEqual(page.inner_text("#btn-pos-p"), "변경사항")
+        self.open_nav(page)
+        page.click("#ns-view [data-mode=manuscript]")
+        page.wait_for_function(closed + "&&!document.body.classList.contains('revision-open')")
+        self.open_nav(page)
+        page.press("#ns-page-in", "Enter")
+        self.assertTrue(page.evaluate("document.querySelector('#nav-sheet').open"))
+        page.fill("#ns-page-in", "99")
+        page.press("#ns-page-in", "Enter")
+        page.wait_for_function(closed + "&&topAnchor().page===2")
+        self.open_nav(page)
+        page.click("#ns-outline-items [data-index='0']")
+        page.wait_for_function(closed + "&&OUTLINE_SELECTED===0&&topAnchor().page===1")
+        self.open_nav(page)
+        page.click("#nav-sheet .dm-item[data-doc=rv]")
+        page.wait_for_function(closed + "&&DOC==='rv'")
+
+    def test_close_esc_an_outside_tap_a_pull_and_back_close_it_and_change_nothing(self):
+        """[닫기], Esc (Chrome's close request for the back gesture), a tap outside and a pull down past 35% close the sheet
+        and do nothing else; the focus returns to [본문 1/2 ▾]. Without CloseWatcher the back gesture closes it and stays in
+        Limn."""
+        page = self.docs_view(BAR_PHONES[0])
+        cdp = self.cdp(page)
+        state = "[DOC, document.body.classList.contains('revision-open'), topAnchor().page, SIDE_OPEN]"
+        before = page.evaluate(state)
+        closed = "!document.querySelector('#nav-sheet').open"
+        for way in ("close", "esc", "outside", "pull"):
+            with self.subTest(way=way):
+                self.open_nav(page)
+                if way == "close":
+                    page.click("#nav-sheet [data-act=nav-sheet-close]")
+                elif way == "esc":
+                    page.keyboard.press("Escape")
+                elif way == "outside":
+                    self.tap(cdp, 200, 30)
+                else:
+                    r = page.locator("#nav-sheet").bounding_box()
+                    self.swipe(cdp, 200, r["y"] + 6, 200, r["y"] + 6 + r["height"] * 0.6, steps=10, dt=0.02)
+                page.wait_for_function(closed)
+                settle(page)
+                self.assertEqual(page.evaluate(state), before)
+                if way in ("close", "esc"):
+                    self.assertEqual(page.evaluate("document.activeElement.id"), "btn-pos")
+        page = self.docs_view(BAR_PHONES[0], init=NO_CLOSE_WATCHER)
+        boot = page.evaluate("window.__pinViewerBoot")
+        self.open_nav(page)
+        page.wait_for_function("BACK&&BACK.kind==='history'")
+        page.go_back()
+        page.wait_for_function(closed)
+        self.assertEqual(page.evaluate("window.__pinViewerBoot"), boot)
+
+    def test_one_document_and_no_outline_leave_their_sections_out(self):
+        """One document: nothing to switch to, so no documents section and no name on the button; a PDF without an outline:
+        no outline section. The view switch then takes the first focus."""
+        page = self.view(BAR_PHONES[0], init=NO_PNG_CHIP)
+        self.assertEqual(page.evaluate(POS), ["", "1/2", False])
+        self.open_nav(page)
+        got = page.evaluate(NAV_SHEET)
+        self.assertEqual([s for s, _ in got["order"]], ["ns-view", "ns-page"])
+        self.assertEqual(got["focus"], "manuscript")
+
+    def test_unfolding_with_the_sheet_open_closes_it_and_keeps_the_note_and_the_spot(self):
+        """A folded 344x882 with a note being written and the sheet open, unfolded to 884x1104 (the tablet sheet, whose nav
+        bar does this job): the sheet closes, and the note and the reading spot stay (s10_fold_cover)."""
+        page = self.docs_view(BAR_PHONES[4])
+        self.long_press_pick(self.cdp(page), page)
+        page.fill("#note", "펼치기 전 메모")
+        page.evaluate("document.activeElement.blur()")
+        page.evaluate("openNavSheet()")
+        settle(page)
+        spot = page.evaluate("topAnchor().page")
+        page.set_viewport_size({"width": 884, "height": 1104})
+        page.wait_for_function("BAND==='tablet-sheet'&&!document.querySelector('#nav-sheet').open")
+        settle(page)
+        self.assertEqual(
+            page.evaluate("[document.querySelector('#note').value, topAnchor().page]"), ["펼치기 전 메모", spot]
+        )
+
+    def test_the_nav_bars_page_count_becomes_a_page_field(self):
+        """820x1180: the nav bar's '1 / 2쪽' is a button named for what it does; a tap turns it into a page field with the
+        page selected, Enter goes there, and Esc gives the count back without moving."""
+        page = self.view(BAR_TABLETS[0], init=NO_PNG_CHIP)
+        self.assertEqual(page.get_attribute("#nav-page", "aria-label"), "쪽 번호로 이동 · 1 / 2쪽")
+        self.tap(self.cdp(page), *self.center(page, "#nav-page"))
+        page.wait_for_function("document.activeElement.id==='nav-page-in'")
+        self.assertEqual(page.evaluate("[document.activeElement.value, document.activeElement.selectionEnd]"), ["1", 1])
+        page.keyboard.type("2")
+        page.keyboard.press("Enter")
+        page.wait_for_function("topAnchor().page===2&&document.querySelector('#nav-page-in').hidden")
+        self.assertTrue(page.is_visible("#nav-page"))
+        self.tap(self.cdp(page), *self.center(page, "#nav-page"))
+        page.wait_for_function("document.activeElement.id==='nav-page-in'")
+        page.keyboard.press("Escape")
+        page.wait_for_function("document.querySelector('#nav-page-in').hidden")
+        self.assertEqual(page.evaluate("topAnchor().page"), 2)
 
 
 if __name__ == "__main__":

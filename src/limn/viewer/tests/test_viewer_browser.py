@@ -1536,10 +1536,10 @@ class FigureDocuments(BrowserBase):
         for lang, word in (("ko", "그림"), ("en", "Figure")):
             with self.subTest(lang=lang):
                 page = self.open(0, lang=lang, init=self.NO_COACH, **DEVICES["phone"])
-                page.evaluate("openDocsMenu()")
-                page.wait_for_selector("#docs-menu[open] .dm-item", timeout=8000)
+                page.evaluate("openNavSheet()")
+                page.wait_for_selector("#nav-sheet[open] .dm-item", timeout=8000)
                 marks = page.eval_on_selector_all(
-                    "#docs-menu-list .dm-item",
+                    "#ns-docs-list .dm-item",
                     "els=>els.map(e=>[e.dataset.doc,(e.querySelector('.dfig')||{}).textContent||'',"
                     "(e.querySelector('.dvo')||{}).textContent||''])",
                 )

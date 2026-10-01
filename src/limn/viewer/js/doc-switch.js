@@ -1,11 +1,36 @@
-// ------------------------------------------------ Switching documents - the documents sheet, remembered view positions (docs/handbook/domain.md §여러 문서)
-// Draws the documents sheet's rows: the name and path are user text (translate="no"), the badges UI.
-function drawDocsMenu(){
-  $('#docs-menu-list').innerHTML=DOCS.map(d=>{const on=d.key===DOC;
+// ------------------------------------------------ Switching documents - the navigation sheet, remembered view positions (docs/handbook/domain.md §여러 문서)
+// Draws the navigation sheet's document rows: the name and path are user text (translate="no"), the badges UI. One document
+// leaves the section out - there is nothing to switch to.
+function drawDocsMenu(){$('#ns-docs').hidden=!multiDoc();
+  $('#ns-docs-list').innerHTML=DOCS.map(d=>{const on=d.key===DOC;
     return '<button class="dm-item'+(on?' on':'')+'" role="option" aria-selected="'+on+'" data-act="doc" data-doc="'+esc(d.key)+'" data-close="1">'+
       '<span class="tx"><span class="nm" translate="no">'+esc(d.name)+(on?ic('check'):'')+'</span><span class="ph" translate="no">'+esc(d.path)+'</span></span>'+docBadge(d)+'</button>';}).join('');}
-function openDocsMenu(){const d=$('#docs-menu'); if(d.open)return; hideTip(); drawDocsMenu(); d.showModal();
-  const on=d.querySelector('.dm-item.on'); if(on)on.focus();}
+// The phone's navigation sheet (docs/handbook/viewer.md §모바일 레이아웃): documents, [원고 | 변경사항], the page field and the
+// outline, each a destination - picking one goes there and closes the sheet. It opens on the current document's row (else the
+// chosen view) with the outline's current section in the middle of its list; the page field gets no focus, so no keyboard
+// covers the sheet.
+function openNavSheet(){const d=$('#nav-sheet'); if(d.open)return; hideTip(); drawDocsMenu(); drawNavView(); renderOutline();
+  const n=META&&META.pages?META.pages.length:0,f=$('#ns-page-in');
+  f.value=''; f.placeholder=String(OUTLINE_ACTIVE_PAGE||1); $('#ns-page-n').textContent=tl('/ {n}쪽',{n});
+  d.showModal(); const on=(multiDoc()&&d.querySelector('.dm-item.on'))||d.querySelector('#ns-view [aria-checked=true]'); if(on)on.focus();
+  const cur=d.querySelector('#ns-outline-items .ol-active'); if(cur)cur.scrollIntoView({block:'center'});}
+// The navigation sheet's view switch: the view on screen is the checked radio.
+function drawNavView(){const rev=document.body.classList.contains('revision-open');
+  for(const b of $$('#ns-view [role=radio]')){const on=(b.dataset.mode===VIEW_MODE.REVISIONS)===rev; b.setAttribute('aria-checked',String(on)); b.classList.toggle('on',on);}}
+// The phone's position button (docs/handbook/viewer.md §모바일 레이아웃): [본문 3/25 ▾] - the document's name only with several
+// documents on a 400px-or-wider phone, the reading line's page of the pages, '–/–' before they are known, and '변경사항' in the
+// changes view - as {name, pages, label}; label is its accessible name. Pure but for tr/tl.
+function posLabel(doc,page,n,multi,wide,mode){
+  if(mode===VIEW_MODE.REVISIONS)return {name:'',pages:tr('변경사항'),label:tr('이동')+' · '+tr('변경사항')};
+  const name=multi&&wide?doc:'',p=n?page:'–',m=n?n:'–';
+  return {name,pages:p+'/'+m,label:name?tl('이동 · {doc} · {page} / {n}쪽',{doc:name,page:p,n:m}):tl('이동 · {page} / {n}쪽',{page:p,n:m})};}
+// Draws [본문 3/25 ▾] from the document on screen, the reading line's page and the view (posLabel), with a dot when another
+// document's manuscript is newer or building. The button is translate="no" (a document name), so its UI words are tr()'d here.
+function drawPos(){const b=$('#btn-pos'); if(!b)return; const cur=docInfo(DOC),n=META&&META.pages?META.pages.length:0;
+  const L=posLabel(cur?cur.name:'',OUTLINE_ACTIVE_PAGE||1,n,multiDoc(),innerWidth>=400,document.body.classList.contains('revision-open')?VIEW_MODE.REVISIONS:VIEW_MODE.MANUSCRIPT);
+  const nm=$('#btn-pos-n'); nm.textContent=L.name; nm.hidden=!L.name; $('#btn-pos-p').textContent=L.pages;
+  b.setAttribute('aria-label',L.label); b.dataset.tip=tr('문서·보기·쪽·목차로 갑니다');
+  $('#btn-pos-dot').hidden=!DOCS.some(d=>d.key!==DOC&&(d.stale_build||d.building));}
 // Viewed position: page/fraction anchored at the top, page width, whether zoomed manually in compact, horizontal scroll. Kept in sessionStorage so it survives a reload.
 function saveView(){if(!DOC||!META||!$('#doc .pg'))return; const a=topAnchor();
   VIEW_BY.set(DOC,{page:a?a.page:1,frac:a?a.frac:0,w:W,zoomed:ZOOMED,sl:$('#left').scrollLeft,lay:LAYOUT});

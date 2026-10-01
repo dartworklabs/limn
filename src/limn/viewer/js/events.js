@@ -16,6 +16,7 @@ document.addEventListener('click',e=>{
   const fromMore=!!a.closest('#more');
   if(fromMore&&(a.dataset.close||a.dataset.act==='help'))$('#more').close();
   if(a.closest('#status-list'))$('#status-list').close();   // a row's action folds the status list
+  if(a.dataset.close&&a.closest('#nav-sheet'))$('#nav-sheet').close();   // a destination in the navigation sheet: go there, the sheet closes
   switch(a.dataset.act){
     case 'side':toggleSide();break;
     case 'selmode':setSelMode(!SELMODE);if(SELMODE&&LAYOUT===LAYOUT_MODE.NARROW&&!COMPOSE.current&&!EDITOR.current)setSide(false);break;
@@ -39,12 +40,13 @@ document.addEventListener('click',e=>{
     case 'level':{const o=inEdit?EDITOR.current:COMPOSE.current; if(!o)break; useLevel(o,a.dataset.level); if(!inEdit)recomputeOverlap(); inEdit?renderEdit():renderComposer(); break;}
     case 'nudge':{const o=inEdit?EDITOR.current:COMPOSE.current; if(!o||!nudge(o,a.dataset.dir))break; if(!inEdit)recomputeOverlap(); const r=inEdit?renderEdit:renderComposer; r(); refetchSnip(o,r); break;}
     case 'view':jumpPin(id);break; case 'edit':openEdit(id);break;
-    case 'doc':{const inMenu=!!a.closest('#docs-menu'); switchDoc(a.dataset.doc); if(inMenu)$('#docs-menu').close(); break;}
+    case 'doc':{const inMenu=!!a.closest('#nav-sheet'); switchDoc(a.dataset.doc); if(inMenu)$('#nav-sheet').close(); break;}
     // ^ inMenu is determined before calling switchDoc() - for a cached document, switchDoc finishes synchronously
-    //   through drawDocTabs, and inside that it redraws the open #docs-menu (drawDocsMenu), detaching a from the DOM.
-    //   Calling a.closest() after switchDoc would return null, leaving the menu open and blocking the next tab
+    //   through drawDocTabs, and inside that it redraws the open #nav-sheet (drawDocsMenu), detaching a from the DOM.
+    //   Calling a.closest() after switchDoc would return null, leaving the sheet open and blocking the next tab
     //   interaction (a touch regression).
-    case 'doc-menu':openDocsMenu();break; case 'docs-menu-close':$('#docs-menu').close();break;
+    case 'nav-sheet':openNavSheet();break; case 'nav-sheet-close':$('#nav-sheet').close();break;
+    case 'ns-go':navGo();break; case 'nav-page':navPageField(true);break;
     case 'view-mode':setViewMode(a.dataset.mode);break;
     case 'rev-back':revBack();break;
     case 'outline':toggleOutline();break;
@@ -114,7 +116,7 @@ document.addEventListener('keydown',e=>{
   // A span with role=button (a card's #number) is also activated by Enter/Space - sent through the same data-act path as a click.
   if((e.key==='Enter'||e.key===' ')&&t&&t.getAttribute&&/^(button|link)$/.test(t.getAttribute('role')||'')&&t.dataset&&t.dataset.act&&!inField){e.preventDefault();t.click();return;}
   if(e.key==='Escape'){
-    if($('#help').open||$('#more').open||$('#docs-menu').open||$('#trash').open||$('#status-list').open)return;
+    if($('#help').open||$('#more').open||$('#nav-sheet').open||$('#trash').open||$('#status-list').open)return;
     if(!TIP.hidden){hideTip(); if(!inField){e.preventDefault(); return;}}
     // Each Esc closes the top thing only; a handled Esc is not also a close request (the back-gesture layer's CloseWatcher).
     if(outlineOverlay()&&OUTLINE_MID_OPEN){e.preventDefault();toggleOutline();return;}

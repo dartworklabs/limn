@@ -135,7 +135,7 @@ function pullDown(box,ok,onStart,onMove,onEnd){let P=null;
 function sheetPull(d,always){
   pullDown(d,()=>d.open&&(always||LAYOUT!==LAYOUT_MODE.WIDE),()=>{},dy=>{d.style.transform='translateY('+Math.max(0,Math.round(dy))+'px)';},
     (dy,v)=>{const close=dy!==null&&dismissOutcome(dy,d.getBoundingClientRect().height,v)==='close'; d.style.transform=''; if(close)d.close();});}
-sheetPull($('#docs-menu'),true); sheetPull($('#more'),true); sheetPull($('#help'),false); sheetPull($('#trash'),false);
+sheetPull($('#nav-sheet'),true); sheetPull($('#more'),true); sheetPull($('#help'),false); sheetPull($('#trash'),false);
 
 // ------------------------------------------------ The overlay panel's swipe (701-900px, touch)
 // The overlay panel is dismissed by a rightward swipe (docs/handbook/viewer.md §펼친 화면 레이아웃). swipeAxis() waits for 10px and
@@ -179,14 +179,21 @@ function dismissOutcome(d,size,v){return d>=0.35*size||(d>24&&v>=0.5)?'close':'b
 // entry does (popstate). Closing the layer any other way removes it again, so back never has a dead press, and document
 // switches never add entries (they replace the hash). Mouse devices have no system back, so nothing is registered there.
 let BACK=null,BACK_SKIP=false;
-// Which layer covers the document for a band (overlay = MID_OVERLAY): the outline overlay first (the mid bands and the tablet
-// sheet), then a sheet (phone, tablet) or the overlay panel (mid-overlay, a short band up to 900px). 'side'|'outline'|null.
-function backLayer(band,overlay,sideOpen,outlineOpen){
-  if(band===LAYOUT_BAND.PHONE)return sideOpen?'side':null; if(band===LAYOUT_BAND.WIDE)return null;
+// Which layer covers the document for a band (overlay = MID_OVERLAY): an open bottom-sheet dialog on top (dialogOpen - the
+// caller passes it only without CloseWatcher, where a modal dialog takes the back gesture itself), then the outline overlay
+// (the mid bands and the tablet sheet), then a sheet (phone, tablet) or the overlay panel (mid-overlay, a short band up to
+// 900px). The desktop has none. 'dialog'|'side'|'outline'|null.
+function backLayer(band,overlay,sideOpen,outlineOpen,dialogOpen){if(band===LAYOUT_BAND.WIDE)return null; if(dialogOpen)return 'dialog';
+  if(band===LAYOUT_BAND.PHONE)return sideOpen?'side':null;
   if(outlineOpen)return 'outline'; return sideOpen&&(band===LAYOUT_BAND.TABLET_SHEET||overlay)?'side':null;}
-// Registers or removes the back layer to match the screen (called by applySide and applyOutlineState; idempotent).
-function syncBackLayer(){const want=MQ_COARSE.matches&&!!backLayer(BAND,MID_OVERLAY,SIDE_OPEN,OUTLINE_MID_OPEN);
+// The open bottom-sheet dialog the back gesture closes first, or null: the navigation sheet, [더보기], help, the Trash, the
+// status line's list.
+function sheetDialog(){return document.querySelector('#nav-sheet[open],#more[open],#help[open],#trash[open],#status-list[open]');}
+// Registers or removes the back layer to match the screen (called by applySide, applyOutlineState and a sheet dialog opening
+// or closing; idempotent).
+function syncBackLayer(){const want=MQ_COARSE.matches&&!!backLayer(BAND,MID_OVERLAY,SIDE_OPEN,OUTLINE_MID_OPEN,!window.CloseWatcher&&!!sheetDialog());
   if(want&&!BACK)armBack(); else if(!want&&BACK)disarmBack();}
+for(const d of $$('#nav-sheet,#more,#help,#trash,#status-list'))new MutationObserver(()=>syncBackLayer()).observe(d,{attributes:true,attributeFilter:['open']});
 // Stands one CloseWatcher for the open layer, or pushes one history entry (same URL) where CloseWatcher is missing.
 function armBack(){
   if(window.CloseWatcher){try{const w=new CloseWatcher(); BACK={kind:'watcher',w}; w.onclose=()=>{if(BACK&&BACK.w===w){BACK=null; closeTopLayer();}}; return;}catch(e){}}
@@ -195,9 +202,10 @@ function armBack(){
 function disarmBack(){const b=BACK; BACK=null;
   if(b.kind==='watcher'){b.w.destroy(); return;}
   if(history.state&&history.state.limnLayer){BACK_SKIP=true; history.back();}}
-// The back gesture's action: close the outline overlay, or collapse the sheet or overlay panel (remembered, with the slide).
-function closeTopLayer(){const k=backLayer(BAND,MID_OVERLAY,SIDE_OPEN,OUTLINE_MID_OPEN);
-  if(k==='outline')toggleOutline(); else if(k==='side'){setSide(false,true,true); focusSideToggle();}}
+// The back gesture's action: close the open sheet dialog or the outline overlay, or collapse the sheet or overlay panel
+// (remembered, with the slide).
+function closeTopLayer(){const d=sheetDialog(),k=backLayer(BAND,MID_OVERLAY,SIDE_OPEN,OUTLINE_MID_OPEN,!!d);
+  if(k==='dialog')d.close(); else if(k==='outline')toggleOutline(); else if(k==='side'){setSide(false,true,true); focusSideToggle();}}
 window.addEventListener('popstate',()=>{const ours=BACK_SKIP||(BACK&&BACK.kind==='history'); if(!ours)return;
   if(DOC)setHash(DOC);   // the entry below may carry an older #doc= - the document on screen stays
   if(BACK_SKIP){BACK_SKIP=false; return;} BACK=null;

@@ -73,12 +73,15 @@ function setRevisionFormat(format){REV.format=format===DIFF_FORMAT.SOURCE?DIFF_F
   syncRevisionWhole();
   if(REV.target)revTargetNote();
 }
+// Shows the manuscript or the changes view: the nav bar's tabs, the navigation sheet's switch and the phone's position button
+// ([변경사항 ▾] in the changes view) follow; leaving the changes view forgets the pin it was opened for and redraws the pages.
 function setViewMode(mode){
   const revisions=mode===VIEW_MODE.REVISIONS; document.body.classList.toggle('revision-open',revisions);
   $('#view-manuscript').setAttribute('aria-pressed',String(!revisions));
   $('#view-revisions').setAttribute('aria-pressed',String(revisions));
   if(!revisions)REV.target=null;
   if(revisions)loadRevisions(); else{++REV.seq;clearRevisionPdf();$('#revision-pin').hidden=true;if(VEC.doc)vecSchedule(0);updateSectionStrip();}
+  drawNavView(); drawPos();
 }
 async function loadRevisions(){
   const seq=++REV.seq,k=DOC,list=$('#revision-list'),out=$('#revision-diff'),tg=REV.target;

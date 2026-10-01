@@ -467,7 +467,7 @@ class FrontendStructure(unittest.TestCase):
 
     def test_doc_menu_closes_even_when_switch_doc_is_synchronous_and_cached(self):
         # regression: when switchDoc() runs synchronously through drawDocTabs->drawDocsMenu for a cached
-        # document, it redraws the open #docs-menu, detaching the clicked <a> from the DOM. Calling
+        # document, it redraws the open #nav-sheet, detaching the clicked <a> from the DOM. Calling
         # a.closest() after switchDoc() then returns null and the menu stays open — inMenu must always
         # be determined *before* calling switchDoc().
         m = re.search(r"case 'doc':\{(.*?)\}", HTML, re.S)
@@ -478,10 +478,10 @@ class FrontendStructure(unittest.TestCase):
             (async()=>{
               const out={};
               const docsMenu={closed:false,close(){this.closed=true;}};
-              function $(sel){return sel==='#docs-menu'?docsMenu:{};}
+              function $(sel){return sel==='#nav-sheet'?docsMenu:{};}
               let detached=false;
               function switchDoc(k){detached=true;}   // 캐시된 문서: 동기로 끝나며 a 를 떼어낸 것을 흉내
-              const a={dataset:{doc:'ms'},closest(sel){return (!detached&&sel==='#docs-menu')?{}:null;}};
+              const a={dataset:{doc:'ms'},closest(sel){return (!detached&&sel==='#nav-sheet')?{}:null;}};
               switch('doc'){case 'doc':{%s}}
               out.closed=docsMenu.closed;
               console.log(JSON.stringify(out));
@@ -493,7 +493,7 @@ class FrontendStructure(unittest.TestCase):
         if out is None:
             self.skipTest("node not available")
         data = json.loads(out)
-        self.assertTrue(data["closed"], "#docs-menu must close even when the selected document is cached")
+        self.assertTrue(data["closed"], "#nav-sheet must close even when the selected document is cached")
 
     def test_pick_resets_overlap_dismissed_and_recounts(self):
         m = re.search(r"async function pick\(r\)\{(.*?)\n\}", HTML, re.S)
@@ -2210,14 +2210,16 @@ class FrontendDocs(unittest.TestCase):
         css = HTML
         self.assertIn("#doc-select-wrap{display:none;", css)
         self.assertIn("#doc-links{display:none;", css)
-        # the tablet sheet switches documents by the nav bar's links; only the phone sheet has the [문서] button
+        # the tablet sheet switches documents by the nav bar's links; only the phone has [본문 3/25 ▾] - with one document
+        # too, since it also leads to the view, the page and the outline (UX spec §V9)
         self.assertIn(
             "body.docs-multi:not(.lay-narrow) #doc-links,body.docs-multi.band-tablet-sheet #doc-links{display:flex}",
             css,
         )
         self.assertIn("body:not(.lay-narrow) #doc-nav,body.band-tablet-sheet #doc-nav{display:flex}", css)
-        self.assertIn("#btn-doc{display:none;", css)
-        self.assertIn("body.band-phone.docs-multi #btn-doc{display:inline-flex}", css)
+        self.assertIn("#btn-pos{display:none;", css)
+        self.assertIn("body.band-phone #btn-pos{display:inline-flex}", css)
+        self.assertNotIn('id="docs-menu"', HTML)
         self.assertIn("body.no-rebuild #btn-rebuild{display:none}", css)
         self.assertIn('id="all-docs"', css)
         self.assertIn("$('#all-docs').hidden=!multiDoc()", HTML)
@@ -3448,10 +3450,12 @@ class FrontendToolbarOneRow(unittest.TestCase):
 
     def test_fold_closed_moves_label_into_more_and_keeps_doc_name(self):
         # on a folded fold device (344px), the label shrank to 'C…' and the document button to '본..', unreadable (2026-09-23).
+        # The position button [본문 3/25 ▾] names the document only from 400px; where it does, the name is the one part that
+        # shrinks, and the pages and chevron keep their width (UX spec §V4 폭 예산).
         css = HTML[HTML.index("<style>") : HTML.index("</style>")]
         self.assertIn("body.lay-narrow #bar1 .chip,body.lay-mid #bar1 .chip{display:none}", css)
-        self.assertIn("body.lay-narrow #bar1 #btn-doc{flex:none;overflow:visible}", css)
-        self.assertIn("body.lay-narrow #btn-doc .nm{overflow:visible;text-overflow:clip", css)
+        self.assertIn("#btn-pos .nm{flex:0 1 auto;min-width:0;", css)
+        self.assertIn("#btn-pos b{flex:none;", css)
         more = HTML[HTML.index('<dialog id="more"') : HTML.index("</dialog>", HTML.index('<dialog id="more"'))]
         self.assertIn('<span id="more-label" class="chip" data-tip="__LABEL__ — ', more)
         out = page_for("Long-DemoPaper1", "#1d4ed8")
@@ -3851,13 +3855,13 @@ class FrontendResponsiveBrowser(ChromiumTestCase):
         self.assertEqual(page.locator("#right").bounding_box()["width"], 300)
         page = self.open_viewer(390, True)
         self.assertFalse(page.locator("#doc-nav").is_visible())
-        self.assertTrue(page.locator("#btn-doc").is_visible())
+        self.assertTrue(page.locator("#btn-pos").is_visible())  # the phone's position button, documents or not
         self.assertFalse(page.evaluate("SIDE_OPEN"))
         page.locator("#btn-side").click()
         self.assertTrue(page.evaluate("SIDE_OPEN"))
         self.assertEqual(page.locator("#right").bounding_box()["width"], 390)
-        page.locator("#btn-doc").click()
-        self.assertTrue(page.locator("#docs-menu").is_visible())
+        page.locator("#btn-pos").click()
+        self.assertTrue(page.locator("#nav-sheet").is_visible())
 
 
 class FrontendThread(unittest.TestCase):

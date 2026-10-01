@@ -496,7 +496,6 @@
  "문단": "Paragraph",
  "문서": "Document",
  "문서 목록": "Document list",
- "문서 바꾸기": "Switch document",
  "문서 선택": "Select document",
  "문서 열기": "Open document",
  "문서 전환(문서가 여럿일 때, 입력 칸 밖에서). 브라우저가 이 키를 먼저 가져가면 PDF 위 문서 탭을 누르세요. 문서마다 보던 자리·확대를 기억합니다": "Switches documents (when there is more than one, outside input fields). If the browser intercepts this key, click the document tab above the PDF instead. Each document remembers its own view position and zoom",
@@ -804,7 +803,6 @@
  "이 기기에서 브라우저 알림을 켰습니다 — 나를 부르거나 내 핀에 일이 생기면 알립니다": "Turned on browser notifications for this device — you'll be notified when mentioned or when something happens to your pin",
  "이 기기에서 켜져 있습니다. 누르면 끕니다": "Turned on for this device. Click to turn off",
  "이 기기의 브라우저 알림을 껐습니다": "Turned off browser notifications for this device",
- "이 논문의 다른 문서(답변서·커버레터 등)로 바꿉니다": "Switches to another document of this paper (response letter, cover letter, etc.)",
  "이 도움말 (입력 칸 밖에서)": "This help (outside input fields)",
  "이 목록에서 빠졌습니다(다른 쪽에서 닫았거나 지움)": "was removed from the list (closed or deleted elsewhere)",
  "이 문서는 Git 이력을 읽을 수 없어(Git 저장소가 아니거나 경로가 밖) 핀 자리를 변경과 맞출 수 없습니다.": "This document's Git history can't be read (it's not a Git repository, or the path is outside it), so the pin's location can't be matched against changes.",
@@ -1141,5 +1139,11 @@
   "other": "Show {n} more statuses"
  },
  "빌드 진행": "Build progress",
- "상태": "Status"
+ "상태": "Status",
+ "이동 · {doc} · {page} / {n}쪽": "Go to · {doc} · {page} / {n}",
+ "이동 · {page} / {n}쪽": "Go to · {page} / {n}",
+ "문서·보기·쪽·목차로 갑니다": "Documents, view, page and outline",
+ "/ {n}쪽": "/ {n}",
+ "눌러서 쪽 번호로 이동합니다": "Tap to go to a page",
+ "쪽 번호로 이동 · {page} / {n}쪽": "Go to page · {page} / {n}"
 }
