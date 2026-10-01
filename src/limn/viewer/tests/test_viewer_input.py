@@ -3520,6 +3520,35 @@ class BarAndSheets(ViewerBase):
                 self.assertEqual(got["focus"], "ms")
                 self.assertEqual(page.evaluate(MISSES_44, "#nav-sheet button,#nav-sheet input"), [])
 
+    def test_the_current_section_scrolls_up_only_as_far_as_the_focused_row_stays_under_the_head(self):
+        """The sheet brings the outline's current section towards the middle of the space under its sticky head, but never
+        so far that the focused document row goes under the head (the evidence run at 411 found the row 37px under it, a
+        cut-off highlighted row). A section already in view stays where it is; a deep one comes as close as that allows."""
+        for selected in (2, 25):
+            with self.subTest(selected=selected):
+                page = self.docs_view(BAR_PHONES[0])
+                page.evaluate(
+                    "n=>{OUTLINE_ENTRIES=Array.from({length:30},(_,i)=>({title:'절 '+(i+1),page:1+(i%2),depth:i%3?1:0,"
+                    "frac:0,number:String(i+1),pageLabel:String(1+(i%2))})); updateSectionStrip=()=>{}; OUTLINE_SELECTED=n;"
+                    " renderOutline();}",
+                    selected,
+                )  # an outline longer than the sheet, its current section fixed (the reading line would move it)
+                self.open_nav(page)
+                got = page.evaluate(
+                    "(()=>{const d=document.getElementById('nav-sheet'),h=d.querySelector('.ns-head').getBoundingClientRect(),"
+                    "f=document.activeElement.getBoundingClientRect(),a=d.querySelector('#ns-outline-items .ol-active')"
+                    ".getBoundingClientRect(),D=d.getBoundingClientRect();"
+                    "return {gap:Math.round(f.top-h.bottom),st:d.scrollTop,active:[Math.round(a.top),Math.round(a.bottom)],"
+                    "head:Math.round(h.bottom),bottom:Math.round(D.bottom),focus:document.activeElement.dataset.doc};})()"
+                )
+                self.assertEqual(got["focus"], "ms", got)
+                self.assertGreaterEqual(got["gap"], 0, got)  # the focused row is whole, under the head
+                if selected == 2:
+                    self.assertEqual(got["st"], 0, got)  # in view already: the sheet opens at its top
+                else:
+                    self.assertGreater(got["st"], 0, got)  # a deep section: the sheet scrolls towards it
+                    self.assertEqual(got["gap"], 0, got)  # ...exactly as far as the focused row allows
+
     def test_every_choice_goes_there_and_closes_the_sheet(self):
         """Picking is going: [변경사항] opens the changes view (the button then reads 변경사항), a page past the end goes to
         the last page, an outline entry to its section, a document row switches - and each closes the sheet. An empty page

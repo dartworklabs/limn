@@ -7,13 +7,21 @@ function drawDocsMenu(){$('#ns-docs').hidden=!multiDoc();
       '<span class="tx"><span class="nm" translate="no">'+esc(d.name)+(on?ic('check'):'')+'</span><span class="ph" translate="no">'+esc(d.path)+'</span></span>'+docBadge(d)+'</button>';}).join('');}
 // The phone's navigation sheet (docs/handbook/viewer.md §모바일 레이아웃): documents, [원고 | 변경사항], the page field and the
 // outline, each a destination - picking one goes there and closes the sheet. It opens on the current document's row (else the
-// chosen view) with the outline's current section in the middle of its list; the page field gets no focus, so no keyboard
-// covers the sheet.
+// chosen view) and shows the outline's current section (navSheetReveal); the page field gets no focus, so no keyboard covers
+// the sheet.
 function openNavSheet(){const d=$('#nav-sheet'); if(d.open)return; hideTip(); drawDocsMenu(); drawNavView(); renderOutline();
   const n=META&&META.pages?META.pages.length:0,f=$('#ns-page-in');
   f.value=''; f.placeholder=String(OUTLINE_ACTIVE_PAGE||1); $('#ns-page-n').textContent=tl('/ {n}쪽',{n});
-  d.showModal(); const on=(multiDoc()&&d.querySelector('.dm-item.on'))||d.querySelector('#ns-view [aria-checked=true]'); if(on)on.focus();
-  const cur=d.querySelector('#ns-outline-items .ol-active'); if(cur)cur.scrollIntoView({block:'center'});}
+  d.showModal(); d.scrollTop=0; const on=(multiDoc()&&d.querySelector('.dm-item.on'))||d.querySelector('#ns-view [aria-checked=true]');
+  if(on)on.focus({preventScroll:true}); navSheetReveal(d,on);}
+// The outline's current section in the open sheet d: left where it is when it is already in view under the sticky head, else
+// the sheet scrolls it towards the middle of that space - but never so far that the focused row (focused) goes under the head,
+// where it would show cut off. The whole sheet scrolls, so the documents above it move too.
+function navSheetReveal(d,focused){const cur=d.querySelector('#ns-outline-items .ol-active'); if(!cur)return;
+  const head=d.querySelector('.ns-head').getBoundingClientRect().bottom,box=d.getBoundingClientRect(),c=cur.getBoundingClientRect();
+  if(c.top>=head&&c.bottom<=box.bottom)return;
+  const want=c.top+c.height/2-(head+box.bottom)/2,room=focused?focused.getBoundingClientRect().top-head:Infinity;
+  d.scrollTop+=Math.max(0,Math.min(want,room));}
 // The navigation sheet's view switch: the view on screen is the checked radio.
 function drawNavView(){const rev=document.body.classList.contains('revision-open');
   for(const b of $$('#ns-view [role=radio]')){const on=(b.dataset.mode===VIEW_MODE.REVISIONS)===rev; b.setAttribute('aria-checked',String(on)); b.classList.toggle('on',on);}}
