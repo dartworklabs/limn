@@ -128,9 +128,10 @@ class FrontendLogic(unittest.TestCase):
         js = "\n".join(
             [
                 r"""
-            const box={hidden:true,dataset:{},innerHTML:''};
+            const box={hidden:true,dataset:{},innerHTML:'',cls:new Set(),classList:{toggle(c,on){on?box.cls.add(c):box.cls.delete(c);}}};
             const $=s=>box;
             const COMPOSE={current:null,dismissedOverlap:null}; let PINS=[{id:5,file:'/m.tex',lo:405,hi:406}];
+            const esc=s=>String(s);
             """,
                 extract_js_fn("selRel"),
                 extract_js_fn("pinState"),
@@ -140,6 +141,8 @@ class FrontendLogic(unittest.TestCase):
                 extract_js_fn("overlapText"),
                 extract_js_fn("recomputeOverlap"),
                 extract_js_fn("renderOverlapBanner"),
+                extract_js_fn("overlapShort"),
+                "let LAYOUT=LAYOUT_MODE.WIDE;",
                 extract_js_fn("lvOf"),
                 extract_js_fn("useLevel"),
                 r"""
@@ -151,6 +154,9 @@ class FrontendLogic(unittest.TestCase):
             useLevel(COMPOSE.current,'env'); recomputeOverlap(); renderOverlapBanner(); out.push([box.hidden, box.dataset.rel]);   // 관계가 바뀌면 다시 알림
             COMPOSE.dismissedOverlap=null;                        // pick() 의 리셋(새 선택)
             useLevel(COMPOSE.current,'para'); recomputeOverlap(); renderOverlapBanner(); out.push([box.hidden, box.dataset.rel]);
+            LAYOUT=LAYOUT_MODE.NARROW; renderOverlapBanner();   // the phone sheet: one line, the short relation, the lines in the tooltip
+            out.push([box.cls.has('one'), /<span class="ov-t" data-tip="[^"]*\(L405-L406\)">#5와 같은 범위<\/span>/.test(box.innerHTML), />덧붙이기</.test(box.innerHTML)]);
+            LAYOUT=LAYOUT_MODE.WIDE; renderOverlapBanner(); out.push([box.cls.has('one')]);
             console.log(JSON.stringify(out));
             """,
             ]
@@ -161,6 +167,8 @@ class FrontendLogic(unittest.TestCase):
         self.assertEqual(out[2], [True])
         self.assertEqual(out[3], [False, "contains"])
         self.assertEqual(out[4], [False, "equal"])
+        self.assertEqual(out[5], [True, True, True])  # narrow: one line (input diagnosis P2)
+        self.assertEqual(out[6], [False])
 
     def test_poll_build_single_flight_and_once_per_seq(self):
         # design 4: pollBuild is single-flight — no matter how many times it's called concurrently,

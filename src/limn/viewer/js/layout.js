@@ -15,11 +15,12 @@ function applyLayout(){const L=layoutFor(),overlay=L===LAYOUT_MODE.MID&&innerWid
 // A draft the panel is holding: the composer (a selection being noted), an open edit or reply, or a relocation. Collapsing by a
 // drag stops short of it, a swipe only rubber-bands, and a collapsed [핀 N] shows a dot for it.
 function draftOpen(){return !$('#composer').hidden||!!EDITOR.current||!!REPLY||!!REPICK;}
-// Draws the panel state (docs/handbook/viewer.md §패널 폭과 시트 높이): the body classes, both [핀 N] toggles - the tool bar's and,
+// Draws the panel state (docs/handbook/viewer.md §패널 폭과 시트 높이): the body classes (with the phone sheet's composing lift), both [핀 N] toggles - the tool bar's and,
 // for a collapsed wide panel, the nav bar's - with the open count, the draft dot and the arrow, the handle's ARIA and the back-gesture
 // layer. Idempotent and cheap: drawPins() calls it on every redraw. The panel keeps its open layout while it slides out.
-function applySide(){const open=SIDE_OPEN,b=document.body,dot=!open&&draftOpen(),n=PINS.length;
-  b.classList.toggle('side-open',open||!!(SIDE_SLIDE&&SIDE_SLIDE.kind==='closing')); b.classList.toggle('composing',!$('#composer').hidden);
+function applySide(){const open=SIDE_OPEN,b=document.body,dot=!open&&draftOpen(),n=PINS.length,composing=!$('#composer').hidden;
+  b.classList.toggle('side-open',open||!!(SIDE_SLIDE&&SIDE_SLIDE.kind==='closing')); b.classList.toggle('composing',composing);
+  if(!composing)SHEET_KEPT=false; b.classList.toggle('sheet-up',composing&&!SHEET_KEPT);   // the composing lift (panel-size.js)
   const label=tr(open?'패널 접기':'패널 펴기')+' · '+tl('열린 핀 {n}',{n})+(dot?' · '+tr('작성 중'):'');
   for(const t of [$('#btn-side'),$('#nav-side')]){t.setAttribute('aria-expanded',String(open)); t.setAttribute('aria-label',label);
     t.querySelector('.side-n').textContent=n; t.querySelector('.c-dot').hidden=!dot;}

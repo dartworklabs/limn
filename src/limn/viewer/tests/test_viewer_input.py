@@ -220,7 +220,9 @@ class GestureLogic(unittest.TestCase):
 
     def test_sheet_release_collapses_low_or_flung_down_and_steps_up_on_an_upward_fling(self):
         """Below 25% or a downward fling collapses (30% while composing); an upward fling goes to the next stop."""
-        pre = re.search(r"const SHEET_F=\[[^\]]*\],SHEET_MIN_F=[\d.]+,SHEET_CLOSE_F=[\d.]+;", HTML).group(0)
+        pre = re.search(
+            r"const SHEET_F=\[[^\]]*\],SHEET_MIN_F=[\d.]+,SHEET_CLOSE_F=[\d.]+(?:,SHEET_COMPOSE_F=[\d.]+)?;", HTML
+        ).group(0)
         got = self.run_js(
             ["sheetRelease"],
             "[sheetRelease(0.2,300,0.1,false),sheetRelease(0.2,300,0.1,true),"
@@ -1384,6 +1386,77 @@ class PhoneTouchSizes(ViewerBase):
         page = self.view(DESK)
         w = page.evaluate("Math.round(document.querySelector('.pin .pg-link').getBoundingClientRect().width)")
         self.assertLess(w, 30)
+
+
+# The narrowest phone of the diagnosis and its keyboard (Chrome on Android shrinks the layout by it: resizes-content).
+PHONE_360 = {"viewport": {"width": 360, "height": 780}, "is_mobile": True, "has_touch": True}
+KEYBOARD_360 = 300
+# How much of an element is visible and on top: the px of its centre column whose topmost element is it, and its height.
+SHOWN = """sel => {
+  const e = document.querySelector(sel), r = e.getBoundingClientRect(), x = r.left + r.width / 2; let n = 0;
+  for (let y = Math.max(0, Math.ceil(r.top)); y < Math.min(innerHeight, r.bottom); y++) {
+    const t = document.elementFromPoint(x, y); if (t && (t === e || e.contains(t))) n++; }
+  return [n, Math.round(r.height)]; }"""
+
+
+class PhoneComposer(ViewerBase):
+    """The phone sheet's composer (input diagnosis P2): the note comes right after the location line, the overlap notice is one
+    line, the sheet rises to 80% while composing without remembering it, and the save row is 56px - so the note field is
+    whole above [취소][핀 저장], and with the keyboard up the location line is still above it."""
+
+    def compose(self, page):
+        """A touch selection through the real pick path (the computed answer overlaps the open pin at L4-L5)."""
+        page.evaluate("()=>{LAST_PTR='touch'; pick({page:1,x0:10,y0:10,x1:200,y1:60});}")
+        page.wait_for_function("COMPOSE.current&&!COMPOSE.picking")
+        settle(page)
+
+    def test_the_note_is_whole_above_the_save_row_with_the_overlap_notice(self):
+        """360x780: the note was the fourth block and the save row covered 64 of its 92px."""
+        page = self.view(PHONE_360)
+        self.compose(page)
+        self.assertTrue(page.is_visible("#c-overlap"))
+        self.assertLessEqual(page.locator("#c-overlap").bounding_box()["height"], 44)
+        seen, h = page.evaluate(SHOWN, "#note")
+        self.assertEqual(seen, h)
+        self.assertEqual(round(page.locator("#c-actions").bounding_box()["height"]), 56)
+        order = page.evaluate(
+            "[...document.querySelectorAll('.c-loc-row,#note,#c-overlap,#c-levels,#c-kind,#c-snip')]"
+            ".map(e=>[e.id||e.className,Math.round(e.getBoundingClientRect().top)]).sort((a,b)=>a[1]-b[1]).map(a=>a[0])"
+        )
+        self.assertEqual(order, ["c-loc-row", "note", "c-overlap", "c-levels", "c-kind", "c-snip"])
+
+    def test_with_the_keyboard_up_the_note_and_the_location_line_stay_in_view(self):
+        """The keyboard shrinks the layout by 300px: the location line scrolled to y -35 above the note."""
+        page = self.view(PHONE_360)
+        self.compose(page)
+        page.focus("#note")
+        page.set_viewport_size({"width": 360, "height": 780 - KEYBOARD_360})
+        settle(page)
+        seen, h = page.evaluate(SHOWN, "#note")
+        self.assertEqual(seen, h)
+        seen, h = page.evaluate(SHOWN, "#c-loc")
+        self.assertEqual(seen, h)
+
+    def test_the_sheet_rises_to_80_percent_while_composing_and_goes_back_after(self):
+        """The lift is not remembered: cancelling returns the sheet to its saved height."""
+        page = self.view(PHONE_360)
+        page.evaluate("setSide(true)")
+        settle(page)
+        self.assertAlmostEqual(page.locator("#right").bounding_box()["height"] / 780, 0.64, delta=0.01)
+        self.compose(page)
+        self.assertAlmostEqual(page.locator("#right").bounding_box()["height"] / 780, 0.8, delta=0.01)
+        page.evaluate("document.querySelector('#btn-cancel').click(); setSide(true)")
+        settle(page)
+        self.assertAlmostEqual(page.locator("#right").bounding_box()["height"] / 780, 0.64, delta=0.01)
+        self.assertNotIn("sheetF", page.evaluate("prefs()"))
+
+    def test_a_height_the_user_sets_while_composing_wins_over_the_lift(self):
+        """A preset chosen while composing applies at once (the lift never overrides the user)."""
+        page = self.view(PHONE_360)
+        self.compose(page)
+        page.evaluate("sizePreset(0)")
+        settle(page)
+        self.assertAlmostEqual(page.locator("#right").bounding_box()["height"] / 780, 0.45, delta=0.01)
 
 
 # A touch tablet wide enough for the desktop layout (1180x820), as an iPad home-screen app or full screen.

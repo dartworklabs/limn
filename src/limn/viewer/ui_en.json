@@ -1104,5 +1104,7 @@
  "휴지통 닫기 (Esc)": "Close the Trash (Esc)",
  "휴지통에서 같은 번호로 되살립니다": "Restore it from the Trash under the same number",
  "휴지통에서 영구 삭제합니다(소유자만). 알림이 떠 있는 동안 [되돌리기]로 취소할 수 있고, 알림이 사라지면 지웁니다": "Deletes it from the Trash for good (owner only). While the notification is up, [Undo] cancels it; it is deleted when the notification goes away",
- "휴지통이 비어 있습니다": "The Trash is empty"
+ "휴지통이 비어 있습니다": "The Trash is empty",
+ "#{id}{p} 감쌈": "Encloses #{id}",
+ "따로 저장": "Save apart"
 }

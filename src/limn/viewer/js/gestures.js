@@ -71,8 +71,9 @@ function sheetRelease(f,dy,v,composing){
   return {f:Math.max(SHEET_MIN_F,Math.min(1,f))};}
 // Carries out sheetRelease() for the draft state now: collapse the sheet (remembered) or set its height.
 function settleSheet(f,dy,v){const r=sheetRelease(f,dy,v,draftOpen()); if(r.close){applySheet(); setSide(false,true);} else setSheetF(r.f);}
-// The height a dragged sheet shows: never below 12% - or 30% while a draft is open, where it will stop anyway.
-function dragSheetTo(h){document.documentElement.style.setProperty('--sheet-f',String(Math.max(draftOpen()?SHEET_MIN_F:0.12,h/innerHeight)));}
+// The height a dragged sheet shows: never below 12% - or 30% while a draft is open, where it will stop anyway. A drag ends the
+// composing lift (keepSheet): from here the finger sets the height.
+function dragSheetTo(h){keepSheet(); document.documentElement.style.setProperty('--sheet-f',String(Math.max(draftOpen()?SHEET_MIN_F:0.12,h/innerHeight)));}
 // Sheet height (narrow): the top-edge handle and the whole tool bar move the sheet. On the handle a drag starts at once (6px); on
 // the tool bar a vertical move of more than 8px on a button turns into a sheet drag and swallows that button's click. Dragging
 // up opens a collapsed sheet; the release is sheetRelease(). A tap on the handle opens it or cycles the heights, and swallows the

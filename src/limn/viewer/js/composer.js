@@ -80,16 +80,25 @@ function overlapText(rel,id){const k={equal:'열린 핀 #{id}{p} 같은 범위�
 // relationship, and reset on a fresh drag (pick) - prevents a regression where one press permanently silenced it for every later selection.
 
 function recomputeOverlap(){if(COMPOSE.current)COMPOSE.current.overlaps=overlapsFor(COMPOSE.current,PINS);}
+// Draws the overlap notice for the current selection, or hides it. On the phone sheet it is one line (diagnosis P2: three lines
+// took 72px above the note): the short relation ('#4와 같은 범위', the full sentence and the lines in its tooltip) and the two
+// actions with short names; elsewhere the sentence with the lines and the two full-named buttons.
 function renderOverlapBanner(){
   const box=$('#c-overlap'); const d=COMPOSE.current;
   const ov=d?pickOverlap(d.overlaps):null;
   if(!ov||COMPOSE.dismissedOverlap===ov.id+':'+ov.rel){box.hidden=true;return;}
   box.hidden=false; box.dataset.rel=ov.rel;
-  box.innerHTML='<span>'+overlapText(ov.rel,ov.id)+' <span class="dim">(L'+ov.lo+'-L'+ov.hi+')</span></span>'+
-    '<button class="btn-sm" data-act="overlap-append" data-oid="'+ov.id+'" data-tip="'+tl('이 선택의 메모를 #{id} 에 덧붙이고, 지금 선택은 새 핀으로 만들지 않습니다',{id:ov.id})+'">'+
-    tl('#{id} 메모에 덧붙이기',{id:ov.id})+'</button>'+
-    '<button class="btn-sm" data-act="overlap-separate" data-key="'+ov.id+':'+ov.rel+'" data-tip="겹쳐도 별도 핀으로 저장합니다">별도 핀으로 저장</button>';
+  const one=LAYOUT===LAYOUT_MODE.NARROW,full=overlapText(ov.rel,ov.id)+' (L'+ov.lo+'-L'+ov.hi+')';
+  box.classList.toggle('one',one);
+  box.innerHTML=(one?'<span class="ov-t" data-tip="'+esc(full)+'">'+esc(overlapShort(ov.rel,ov.id))+'</span>'
+      :'<span>'+overlapText(ov.rel,ov.id)+' <span class="dim">(L'+ov.lo+'-L'+ov.hi+')</span></span>')+
+    '<button class="btn-sm hit" data-act="overlap-append" data-oid="'+ov.id+'" data-tip="'+tl('이 선택의 메모를 #{id} 에 덧붙이고, 지금 선택은 새 핀으로 만들지 않습니다',{id:ov.id})+'">'+
+    (one?tr('덧붙이기'):tl('#{id} 메모에 덧붙이기',{id:ov.id}))+'</button>'+
+    '<button class="btn-sm hit" data-act="overlap-separate" data-key="'+ov.id+':'+ov.rel+'" data-tip="겹쳐도 별도 핀으로 저장합니다">'+(one?tr('따로 저장'):'별도 핀으로 저장')+'</button>';
 }
+// The overlap in a few words for the one-line notice: '#4와 같은 범위' - '#4 범위 안' - '#4를 감쌈' - '#4와 일부 겹침' (the card badges' wording).
+function overlapShort(rel,id){const k={equal:'#{id}{p} 같은 범위',inside:'#{id} 범위 안',contains:'#{id}{p} 감쌈',partial:'#{id}{p} 일부 겹침'}[rel]||'#{id}{p} 일부 겹침';
+  return tl(k,{id,p:rel===RANGE_REL.CONTAINS?josa(id,'을','를'):josa(id,'과','와')});}
 // Location is one line: 'file L159' + page + match badge + [copy]. Range kind/line count are never repeated, since the
 // segment control's selected segment already shows them (if adjusted directly via up/down and it doesn't match any
 // segment, '줄 직접 지정' is appended next to the page). The dragged line goes into the description.
