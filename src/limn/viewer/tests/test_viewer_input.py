@@ -16,6 +16,7 @@ import json
 import re
 import time
 import unittest
+from typing import Any
 
 from limn.pins.lifecycle.rules import CloseRequest
 from limn.security.access import LOCAL_ACTOR
@@ -1464,7 +1465,10 @@ class LayoutNotPointer(ViewerBase):
     def test_a_mouse_at_1440_keeps_the_desktop_geometry_to_the_pixel(self):
         """1440x900 with a mouse: the page's margins and box, its first mark's badge, the panel's tool bar, section head and
         first card, and the help, Trash and documents dialogs sit where they sat before the touch edge grid (UX audit V2/V6):
-        the desktop layout is unchanged."""
+        the desktop layout is unchanged. What CSS lengths, the viewport or the page size is compared to the pixel. What a
+        label or a wrapped note sizes is compared by where it starts and ends, how tall it is and its order, never by its
+        width or by the height its text makes - those follow the installed fonts (a tool-bar button was 71px wide here
+        and 79px on CI), so desk_shape() leaves them out."""
         page = self.view(MOUSE_WIDE)
         page.evaluate("document.querySelector('#left').scrollTop=0")
         settle(page)
@@ -1472,47 +1476,106 @@ class LayoutNotPointer(ViewerBase):
         for opener, dlg in (("openHelp()", "#help"), ("openTrash()", "#trash"), ("openDocsMenu()", "#docs-menu")):
             page.evaluate(opener)
             settle(page)
-            got[dlg] = page.evaluate(
-                "s=>{const r=document.querySelector(s).getBoundingClientRect(),c=getComputedStyle(document.querySelector(s));"
-                "return [Math.round(r.x),Math.round(r.y),Math.round(r.width),Math.round(r.height),c.paddingLeft,c.paddingRight];}",
-                dlg,
-            )
+            got[dlg] = page.evaluate(DESK_DIALOG, dlg)
             page.evaluate("s=>document.querySelector(s).close()", dlg)
-        self.assertEqual(got, DESK_1440)
+        self.maxDiff = None  # the whole shape is one dict: show which entries moved
+        self.assertEqual(desk_shape(got), DESK_1440)
 
 
-# Where the desktop's chrome sits at 1440x900 with a mouse on the ViewerBase fixture: [x, y, width, height] boxes (rounded).
-DESK_GEOMETRY = """() => {const q = s => document.querySelector(s), B = e => {const r = e.getBoundingClientRect();
-    return [Math.round(r.x), Math.round(r.y), Math.round(r.width), Math.round(r.height)];}, L = getComputedStyle(q('#left'));
-  return {left: [L.paddingLeft, L.paddingRight], page: B(q('#p1')), badge: B(q('.mark b')), right: B(q('#right')),
-    bar: [...q('#bar1').children].filter(e => e.getClientRects().length).map(e => (e.id || e.className) + '@' + B(e).join(',')),
-    head: B(q('#sec-open .sec-head')), toggle: B(q('#open-toggle')), chevron: B(q('#open-toggle svg')), card: B(q('#pins .pin')),
-    dot: B(q('#pins .pin .st-dot')), list: [getComputedStyle(q('#list')).paddingLeft, getComputedStyle(q('#list')).paddingRight]};}"""
+# Where the desktop's chrome sits at 1440x900 with a mouse on the ViewerBase fixture, as measured in the page: boxes are
+# [x, y, width, height] (rounded), paddings [top, right, bottom, left] (computed). A tool-bar item also carries its left edge
+# from the panel's left edge (start), its right edge from the panel's right edge (end) and whether it follows the spacer
+# (after: the right-aligned group), both taken from the unrounded boxes.
+DESK_GEOMETRY = """() => {const q = s => document.querySelector(s), R = Math.round, panel = q('#right').getBoundingClientRect(),
+    B = e => {const r = e.getBoundingClientRect(); return [R(r.x), R(r.y), R(r.width), R(r.height)];},
+    P = e => {const c = getComputedStyle(e); return [c.paddingTop, c.paddingRight, c.paddingBottom, c.paddingLeft];},
+    spacer = q('#bar1 .sp'), card = q('#pins .pin');
+  return {left: P(q('#left')), page: B(q('#p1')), badge: B(q('.mark b')), right: B(q('#right')), tool: B(q('#bar1')),
+    bar: [...q('#bar1').children].filter(e => e.getClientRects().length).map(e => {const r = e.getBoundingClientRect();
+      return {id: e.id || e.className, box: B(e), start: R(r.left - panel.left), end: R(panel.right - r.right),
+        after: !!(spacer.compareDocumentPosition(e) & Node.DOCUMENT_POSITION_FOLLOWING)};}),
+    head: B(q('#sec-open .sec-head')), toggle: B(q('#open-toggle')), chevron: B(q('#open-toggle svg')), card: B(card), card_pad: P(card),
+    dot: B(q('#pins .pin .st-dot')), list: P(q('#list'))};}"""
+# One open dialog: its box and paddings, its computed max-height, and how it is anchored in the viewport - its middle and the
+# gap under it, from the unrounded box.
+DESK_DIALOG = """s => {const e = document.querySelector(s), r = e.getBoundingClientRect(), c = getComputedStyle(e), R = Math.round;
+  return {box: [R(r.x), R(r.y), R(r.width), R(r.height)], pad: [c.paddingTop, c.paddingRight, c.paddingBottom, c.paddingLeft],
+    max_height: c.maxHeight, mid: R((r.top + r.bottom) / 2), below: R(innerHeight - r.bottom)};}"""
+# Tool-bar items whose width a label sets (the spacer's, the free room); the others are icon buttons of a CSS length.
+BAR_LABEL_SIZED = ("btn-rebuild", "sp", "jump")
+# How each dialog is anchored: a centred one by its middle (its text-made height moves both edges), a bottom sheet by the gap
+# under it.
+DIALOG_ANCHOR = {"#help": "mid", "#trash": "mid", "#docs-menu": "below"}
+
+
+def desk_shape(got: dict[str, Any]) -> dict[str, Any]:
+    """DESK_GEOMETRY and DESK_DIALOG's answers reduced to what the installed fonts do not move. Kept as measured: every
+    box and padding that a CSS length, the viewport or the page sizes, and each dialog's x, width, paddings, max-height and
+    anchor. Reduced: the tool bar to its items' order, y and height, the icon buttons' width, the first item's left edge and
+    the right-aligned group's right edges (both from the panel's edges); the section toggle to x, y and height; the card to
+    x, y and width and its paddings; a dialog's own height and, for a centred one, its y to its middle."""
+    shape = {
+        k: got[k] for k in ("left", "page", "badge", "right", "tool", "head", "chevron", "card_pad", "dot", "list")
+    }
+    bar = got["bar"]
+    shape["bar"] = [
+        [b["id"], b["box"][1], b["box"][3], None if b["id"] in BAR_LABEL_SIZED else b["box"][2]] for b in bar
+    ]
+    shape["bar_start"] = bar[0]["start"]
+    shape["bar_ends"] = {b["id"]: b["end"] for b in bar if b["after"]}
+    x, y, _, height = got["toggle"]
+    shape["toggle"] = [x, y, height]
+    x, y, width, _ = got["card"]
+    shape["card"] = [x, y, width]
+    for dlg, anchor in DIALOG_ANCHOR.items():
+        d = got[dlg]
+        shape[dlg] = {
+            "x": d["box"][0],
+            "width": d["box"][2],
+            "pad": d["pad"],
+            "max_height": d["max_height"],
+            anchor: d[anchor],
+        }
+    return shape
+
+
 DESK_1440 = {
-    "left": ["44px", "16px"],
+    "left": ["16px", "16px", "540px", "44px"],
     "page": [290, 98, 780, 1009],
     "badge": [386, 300, 22, 22],
     "right": [1092, 0, 348, 900],
+    "tool": [1093, 0, 347, 45],
     "bar": [
-        "btn-rebuild@1101,8,71,28",
-        "sp@1176,22,6,0",
-        "jump@1186,8,54,28",
-        "btn-zoom-out@1244,8,28,28",
-        "btn-zoom-in@1276,8,28,28",
-        "btn-fit@1308,8,28,28",
-        "btn-notify@1340,8,28,28",
-        "btn-theme@1372,8,28,28",
-        "btn-help@1404,8,28,28",
+        ["btn-rebuild", 8, 28, None],
+        ["sp", 22, 0, None],
+        ["jump", 8, 28, None],
+        ["btn-zoom-out", 8, 28, 28],
+        ["btn-zoom-in", 8, 28, 28],
+        ["btn-fit", 8, 28, 28],
+        ["btn-notify", 8, 28, 28],
+        ["btn-theme", 8, 28, 28],
+        ["btn-help", 8, 28, 28],
     ],
+    "bar_start": 9,
+    "bar_ends": {
+        "jump": 200,
+        "btn-zoom-out": 168,
+        "btn-zoom-in": 136,
+        "btn-fit": 104,
+        "btn-notify": 72,
+        "btn-theme": 40,
+        "btn-help": 8,
+    },
     "head": [1093, 108, 347, 31],
-    "toggle": [1101, 112, 88, 22],
+    "toggle": [1101, 112, 22],
     "chevron": [1106, 116, 14, 14],
-    "card": [1105, 143, 323, 102],
+    "card": [1105, 143, 323],
+    "card_pad": ["8px", "12px", "8px", "12px"],
     "dot": [1118, 162, 8, 8],
-    "list": ["12px", "12px"],
-    "#help": [380, 54, 680, 792, "24px", "24px"],
-    "#trash": [440, 388, 560, 124, "24px", "24px"],
-    "#docs-menu": [440, 780, 560, 120, "12px", "12px"],
+    "list": ["0px", "12px", "32px", "12px"],
+    "#help": {"x": 380, "width": 680, "pad": ["16px", "24px", "16px", "24px"], "max_height": "792px", "mid": 450},
+    "#trash": {"x": 440, "width": 560, "pad": ["16px", "24px", "16px", "24px"], "max_height": "792px", "mid": 450},
+    "#docs-menu": {"x": 440, "width": 560, "pad": ["12px", "12px", "12px", "12px"], "max_height": "792px", "below": 0},
 }
 
 
