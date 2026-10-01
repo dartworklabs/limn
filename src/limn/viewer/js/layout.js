@@ -166,7 +166,7 @@ document.addEventListener('focusout',()=>setTimeout(()=>{syncTyping(); if(bandSt
 // Scrolls a panel text field that has focus back into view after a re-fit; the scroller's scroll-padding keeps it clear of the save row
 // and, on a sheet, of the tool bar stuck above. On the tablet sheet the composer's location line comes to the top first, so it stays
 // above the note.
-function keepFieldInView(){const f=panelField(); if(!f)return;
+function keepFieldInView(){const f=panelField(); if(!f||!MQ_COARSE.matches)return;   // touch only: a mouse window scrolls as it always did
   if(f===$('#note')&&BAND===LAYOUT_BAND.TABLET_SHEET)$('#composer .c-loc-row').scrollIntoView({block:'start'}); f.scrollIntoView({block:'nearest'});}
 
 // Onboarding shown only the first time (remembers that it's been seen in localStorage pinPrefs.coach).

@@ -82,8 +82,11 @@ body:not(.lay-narrow) #coach button{pointer-events:auto}
   .arc-reply.open{display:block;padding:var(--space-2) 0}
   .th-n{min-height:44px;min-width:44px;justify-content:center}
   .thread :is(button.msg-more,button.th-more){padding-left:var(--space-1);padding-right:var(--space-1)}
-  /* The panel handle and the outline handle are .hit: their 6-8px bars answer 44px, half on each side (they answered 25 and 24px).
-     The collapsed wide rail at the screen's right edge keeps 25px of it on screen, reaching into the PDF side (touch scrollbars overlay). */
+  /* The panel handle and the outline handle are .hit: their 6-8px bars answer 44px (they answered 25 and 24px). The box lies on
+     the PDF side of the bar - left of the panel handle, right of the outline handle - so it never takes the edge of a card or an
+     outline entry; the collapsed wide rail at the screen's right edge gets the whole 44px on screen. */
+  #grip.hit::after{left:auto;right:0;transform:translateY(-50%)}
+  #outline-grip.hit::after{left:0;transform:translateY(-50%)}
 }
 /* Mouse hit targets (WCAG 2.5.8, 24px; input review 2026-09-26): small controls keep their drawn size and get a 24x24 hit area
    from ::after, centered on them - [3쪽] was 17x19, the reply count 23x17, a mark badge 22x22, card buttons 53x23. */
@@ -136,18 +139,23 @@ body.lay-narrow #btn-rebuild .lbl{display:none}
 body.lay-narrow #btn-doc .nm{overflow:visible;text-overflow:clip;max-width:6em}
 body.compact #bar1 #btn-more{flex:0 0 44px;padding:0;background:transparent;border-color:transparent}   /* utility = ghost (the same convention as notification/theme/help on desktop) */
 body.compact #composer{max-height:none;overflow:visible}
-body.compact.composing #right{scroll-padding-bottom:calc(var(--hit) + var(--space-5))}   /* a field scrolled into view stays clear of the stuck save row (56px on touch) */
-body.lay-narrow.composing #right{scroll-padding-top:calc(var(--stick-top,0px) + var(--space-2))}   /* and on a sheet, of the tool bar stuck at its top (whose hit areas reach 6px below it) */
+/* Touch only (a mouse window scrolls as it always did): a field scrolled into view stays clear of the stuck save row (56px plus the
+   bottom safe area) and, on a sheet, of the tool bar stuck at its top (whose hit areas reach 6px below it). */
+@media (pointer:coarse){
+  body.compact.composing #right{scroll-padding-bottom:calc(var(--hit) + var(--space-5) + env(safe-area-inset-bottom))}
+  body.lay-narrow.composing #right{scroll-padding-top:calc(var(--stick-top,0px) + var(--space-2))}
+}
 /* Phone sheet composer (docs/handbook/viewer.md §패널 정리): the location line, then the note with its helpers, then the one-line
    overlap notice, then the range ladder, the nudges and the kind, then the source. The note was the fourth block, 328px down, and hid
    below the save row; with the keyboard up the location line scrolled away (diagnosis P2). */
-body.lay-narrow #composer{display:flex;flex-direction:column}
-body.lay-narrow #c-body{display:contents}
-body.lay-narrow #c-overlap{order:2}
-body.lay-narrow :is(#c-levels,.c-tools,#c-kind){order:3}
-body.lay-narrow #c-snip,body.lay-narrow .snip-foot{order:4}
-body.lay-narrow #note{order:1;margin:var(--space-2) 0}
-body.lay-narrow #c-viewer{order:1}
+/* The short band (a landscape phone, ~346px of panel) takes the same order: in the mid order the note was ninth, off screen after a pick. */
+body:is(.lay-narrow,.band-short) #composer{display:flex;flex-direction:column}
+body:is(.lay-narrow,.band-short) #c-body{display:contents}
+body:is(.lay-narrow,.band-short) #c-overlap{order:2}
+body:is(.lay-narrow,.band-short) :is(#c-levels,.c-tools,#c-kind){order:3}
+body:is(.lay-narrow,.band-short) #c-snip,body:is(.lay-narrow,.band-short) .snip-foot{order:4}
+body:is(.lay-narrow,.band-short) #note{order:1;margin:var(--space-2) 0}
+body:is(.lay-narrow,.band-short) #c-viewer{order:1}
 /* One line: the short relation shrinks (its tooltip has the sentence), the two actions keep their names. */
 #c-overlap.one{flex-wrap:nowrap;align-items:center;margin:0 0 var(--space-2)}
 #c-overlap.one>.ov-t{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}

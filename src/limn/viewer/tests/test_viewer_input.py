@@ -1760,6 +1760,8 @@ TOP_ROW = """() => {
     bottomIsPdf: !!bottom && !!bottom.closest('#left'), overflow: document.documentElement.scrollWidth > innerWidth}; }"""
 
 
+# Resolves after two animation frames: a resize the page has seen has also been through scheduleRelayout's frame.
+TWO_FRAMES = "() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)))"
 # Records the body's band changes from now on in window.__bands (a MutationObserver on body's class: one entry per new band).
 COUNT_BANDS = """() => {const band = () => [...document.body.classList].find(c => c.startsWith('band-')); let last = band(); window.__bands = [];
   new MutationObserver(() => {const b = band(); if (b !== last) {window.__bands.push(b); last = b;}}).observe(document.body, {attributes: true, attributeFilter: ['class']});}"""
@@ -1954,6 +1956,20 @@ class TouchLayoutBands(ViewerBase):
         self.assertTrue(page.evaluate("SIDE_OPEN"))
         self.assertAlmostEqual(page.locator("#right").bounding_box()["height"], 0.45 * 900, delta=1)
 
+    def test_a_mouse_composing_at_1000px_scrolls_the_panel_as_before(self):
+        """1000x800 with a mouse: picking focuses the note and the panel scrolls it into view as in 0.4.1 - the composer's top
+        at y 11 (the same check passes on 2bdef90); the touch save-row padding scrolled it 32px further (y -21)."""
+        page = self.view(MOUSE_MID)
+        self.mouse_pick(page)
+        page.mouse.move(5, 5)
+        settle(page)
+        got = page.evaluate(
+            "[document.activeElement.id, Math.round(document.querySelector('#composer').getBoundingClientRect().top),"
+            " getComputedStyle(document.querySelector('#right')).scrollPaddingBottom,"
+            " getComputedStyle(document.querySelector('#right')).scrollPaddingTop]"
+        )
+        self.assertEqual(got, ["note", 11, "auto", "auto"])
+
     def test_a_mouse_keeps_the_width_only_layouts_at_640_1000_and_1440(self):
         """A fine pointer gets the layouts it had before the bands: 640 the phone sheet (collapsed, no nav bar), 1000 the side
         panel open beside the document over a bottom action row, 1440 the desktop with its outline open; and 820x390,
@@ -2022,12 +2038,15 @@ class TouchLayoutBands(ViewerBase):
         self.assertFalse(page.evaluate("SIDE_OPEN"))
 
     def test_a_flickering_rotation_changes_the_band_exactly_once(self):
-        """Seven quick sizes between 768x1024 and 1024x768 (each comes before the 200ms settle of the one before): the band
-        waits them out and changes once, to where the window stays."""
+        """Seven sizes between 768x1024 and 1024x768, each one handled by the page (its resize seen, two animation frames
+        run) and well within the 200ms settle of the one before: the band waits them out and changes once, to where the
+        window stays. Without the wait (settleBand settling at once) it changes seven times."""
         page = self.view(touch_device(768, 1024))
         page.evaluate(COUNT_BANDS)
         for w, h in ((1024, 768), (768, 1024)) * 3 + ((1024, 768),):
             page.set_viewport_size({"width": w, "height": h})
+            page.wait_for_function("w=>innerWidth===w", arg=w, polling="raf")
+            page.evaluate(TWO_FRAMES)
         page.wait_for_function("BAND==='mid-side'")
         settle(page)
         self.assertEqual(page.evaluate("window.__bands"), ["band-mid-side"])
@@ -2074,6 +2093,69 @@ class TouchLayoutBands(ViewerBase):
         settle(page)
         self.assertEqual(page.evaluate("window.__bands"), ["band-mid-side"])
         self.assertEqual(page.input_value("#note"), "쓰는 중")
+
+    def test_a_text_field_focused_during_the_settle_wait_holds_the_band(self):
+        """768x1024 rotated with nothing focused: the band waits 200ms. The note gets the focus inside that wait (the timer
+        is pending): when the wait runs out the band still holds, and it changes once the focus leaves."""
+        page = self.view(touch_device(768, 1024))
+        self.compose(page)
+        page.evaluate(COUNT_BANDS)
+        page.set_viewport_size({"width": 1024, "height": 768})
+        page.wait_for_function("BAND_T!==0", polling="raf")
+        page.focus("#note")
+        settle(page)
+        self.assertEqual(page.evaluate("[BAND, window.__bands]"), ["tablet-sheet", []])
+        page.evaluate("document.activeElement.blur()")
+        page.wait_for_function("BAND==='mid-side'")
+        settle(page)
+        self.assertEqual(page.evaluate("window.__bands"), ["band-mid-side"])
+
+    def test_a_pick_in_the_short_band_shows_the_note_without_scrolling(self):
+        """844x390, a real long-press pick: the composer put the note ninth (the mid order) and it was off screen (0/92); the
+        short band takes the phone order, so the note comes right after the location line and is whole."""
+        page = self.view(LAND_PHONE)
+        self.long_press_pick(self.cdp(page), page)
+        self.assertEqual(page.evaluate("document.querySelector('#right').scrollTop"), 0)
+        seen, h = page.evaluate(SHOWN, "#note")
+        self.assertEqual(seen, h)
+
+    def test_with_a_bottom_safe_area_the_short_bands_note_is_whole_above_the_keyboard(self):
+        """844x390 with a 21px bottom inset (and 47px side notches), the keyboard up (844x200): the save row grows by the
+        inset, and the note's bottom 14px sat under it."""
+        page = self.view(LAND_PHONE)
+        cdp = self.cdp(page)
+        cdp.send("Emulation.setSafeAreaInsetsOverride", {"insets": {"left": 47, "right": 47, "bottom": 21}})
+        settle(page)
+        self.long_press_pick(cdp, page)
+        page.focus("#note")
+        page.keyboard.insert_text("가로 휴대폰 메모")
+        settle(page)  # the focus has scrolled the note into view before the keyboard comes up
+        self.resize(page, 844, 200)
+        seen, h = page.evaluate(SHOWN, "#note")
+        self.assertEqual(seen, h)
+
+    def test_a_tap_on_a_cards_left_edge_opens_the_card_not_the_panel_handle(self):
+        """1024x768 touch: the handle's 44px hit reached 19px into the panel, so a tap on the leftmost 6px of a collapsed card
+        cycled the panel width. The hit now lies on the PDF side of the bar; the card's edge opens the card."""
+        page = self.view(touch_device(1024, 768))
+        card = page.locator("#pins .pin").first
+        b = card.bounding_box()
+        pid = int(card.get_attribute("data-id"))
+        width = page.evaluate("Math.round(document.querySelector('#right').getBoundingClientRect().width)")
+        self.tap(self.cdp(page), b["x"] + 1, b["y"] + b["height"] / 2)
+        page.wait_for_function("id=>OPEN_CARDS.has(id)", arg=pid)
+        settle(page)
+        self.assertEqual(
+            page.evaluate("Math.round(document.querySelector('#right').getBoundingClientRect().width)"), width
+        )
+        grip = page.locator("#grip").bounding_box()
+        self.assertEqual(
+            page.evaluate(
+                "([x,y])=>!!document.elementFromPoint(x,y).closest('#right')",
+                [grip["x"] + grip["width"] + 1, grip["y"] + grip["height"] / 2],
+            ),
+            True,
+        )  # one px right of the bar is the panel, not the handle
 
     def test_a_primary_pointer_turning_fine_and_back_switches_wide_and_side_panel(self):
         """1180x820: touch is mid-side; a mouse becoming the primary pointer (CDP turns touch emulation off, so pointer:coarse

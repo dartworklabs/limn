@@ -1396,8 +1396,8 @@ class FrontendPanelTidyStructure(unittest.TestCase):
         self.assertIn("#c-snip:not(.open){max-height:calc(6em + 16px);overflow:hidden}", css)
         m = re.search(r"\nfunction renderComposer\(\)\{(.*?)\n\}", HTML, re.S)
         self.assertIn("pre.scrollHeight>pre.clientHeight", m.group(1))
-        # on a narrow sheet the note field sits above the source snippet (so it doesn't hide under the action row)
-        self.assertIn("body.lay-narrow #note{order:1", css)
+        # on a narrow sheet and in the short band the note field sits above the source snippet (so it doesn't hide under the action row)
+        self.assertIn("body:is(.lay-narrow,.band-short) #note{order:1", css)
 
     def test_card_head_tags_row_and_action_grid(self):
         m = re.search(r"\nfunction card\(p\)\{(.*?)\n\}", HTML, re.S)
