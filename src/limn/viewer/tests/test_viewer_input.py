@@ -1751,6 +1751,11 @@ TOP_ROW = """() => {
     bottomIsPdf: !!bottom && !!bottom.closest('#left'), overflow: document.documentElement.scrollWidth > innerWidth}; }"""
 
 
+# Records the body's band changes from now on in window.__bands (a MutationObserver on body's class: one entry per new band).
+COUNT_BANDS = """() => {const band = () => [...document.body.classList].find(c => c.startsWith('band-')); let last = band(); window.__bands = [];
+  new MutationObserver(() => {const b = band(); if (b !== last) {window.__bands.push(b); last = b;}}).observe(document.body, {attributes: true, attributeFilter: ['class']});}"""
+
+
 class TouchLayoutBands(ViewerBase):
     """The touch layout bands (docs/handbook/viewer.md §모바일 레이아웃): a landscape phone gets one top row (the short band),
     a touch tablet up to 1366px wide the side panel, and a mouse window of the same size keeps the width-only layout."""
@@ -1968,6 +1973,118 @@ class TouchLayoutBands(ViewerBase):
                 if w >= 1100:
                     self.assertFalse(page.evaluate("document.body.classList.contains('outline-collapsed')"))
                     self.assertEqual(round(page.locator("#right").bounding_box()["width"]), 348)
+
+    def resize(self, page, w, h):
+        """Resize the touch viewport, as a rotation or a keyboard does, and wait until the page has handled it."""
+        page.set_viewport_size({"width": w, "height": h})
+        page.wait_for_function("([w,h])=>innerWidth===w&&innerHeight===h", arg=[w, h])
+        settle(page)
+
+    def test_rotating_a_tablet_while_composing_changes_the_band_once_and_keeps_the_note_and_the_spot(self):
+        """768x1024 -> 1024x768 with a note written (the keyboard down): tablet-sheet to mid-side in one change, the composer
+        still open with its note, the same page and spot on it."""
+        page = self.view(touch_device(768, 1024))
+        self.compose(page)
+        page.locator("#note").fill("회전 전에 쓴 메모")
+        page.evaluate("document.activeElement.blur(); document.querySelector('#left').scrollTop=600")
+        settle(page)
+        anchor = page.evaluate("topAnchor()")
+        page.evaluate(COUNT_BANDS)
+        self.resize(page, 1024, 768)
+        page.wait_for_function("BAND==='mid-side'")
+        settle(page)
+        self.assertEqual(page.evaluate("window.__bands"), ["band-mid-side"])
+        self.assertTrue(page.is_visible("#note"))
+        self.assertEqual(page.input_value("#note"), "회전 전에 쓴 메모")
+        now = page.evaluate("topAnchor()")
+        self.assertEqual(now["page"], anchor["page"])
+        self.assertAlmostEqual(now["frac"], anchor["frac"], delta=0.003)
+
+    def test_unfolding_and_folding_again_go_phone_overlay_phone_with_the_sheet_collapsed(self):
+        """344x882 -> 842x758 -> 344x882: one change each way; back on the folded screen the sheet starts collapsed."""
+        page = self.view(touch_device(344, 882))
+        page.evaluate(COUNT_BANDS)
+        self.resize(page, 842, 758)
+        page.wait_for_function("BAND==='mid-overlay'")
+        self.resize(page, 344, 882)
+        page.wait_for_function("BAND==='phone'")
+        settle(page)
+        self.assertEqual(page.evaluate("window.__bands"), ["band-mid-overlay", "band-phone"])
+        self.assertFalse(page.evaluate("SIDE_OPEN"))
+
+    def test_a_flickering_rotation_changes_the_band_exactly_once(self):
+        """Seven quick sizes between 768x1024 and 1024x768 (each comes before the 200ms settle of the one before): the band
+        waits them out and changes once, to where the window stays."""
+        page = self.view(touch_device(768, 1024))
+        page.evaluate(COUNT_BANDS)
+        for w, h in ((1024, 768), (768, 1024)) * 3 + ((1024, 768),):
+            page.set_viewport_size({"width": w, "height": h})
+        page.wait_for_function("BAND==='mid-side'")
+        settle(page)
+        self.assertEqual(page.evaluate("window.__bands"), ["band-mid-side"])
+
+    def test_the_address_bar_moving_the_height_by_56px_keeps_the_band(self):
+        """A height change under 96px from the settled one keeps the band - also where it crosses the 480px boundary
+        (844x450 is short, 844x506 would not be)."""
+        for w, low, high in ((844, 390, 446), (844, 450, 506)):
+            with self.subTest(low=low, high=high):
+                page = self.view(touch_device(w, low))
+                page.evaluate(COUNT_BANDS)
+                self.resize(page, w, high)
+                self.assertEqual(page.evaluate("BAND"), "short")
+                self.resize(page, w, low)
+                self.assertEqual(page.evaluate("window.__bands"), [])
+
+    def test_the_keyboard_on_a_landscape_tablet_keeps_the_band(self):
+        """1024x768 with the note focused: Chrome on Android shrinks the layout to 1024x388, which alone would be the short band;
+        the band stays mid-side while the note has focus, and when the keyboard closes and the focus leaves."""
+        page = self.view(touch_device(1024, 768))
+        self.compose(page)
+        page.focus("#note")
+        page.evaluate(COUNT_BANDS)
+        self.resize(page, 1024, 388)
+        self.assertEqual(page.evaluate("BAND"), "mid-side")
+        self.resize(page, 1024, 768)
+        page.evaluate("document.activeElement.blur()")
+        settle(page)
+        self.assertEqual(page.evaluate("[BAND, window.__bands]"), ["mid-side", []])
+
+    def test_while_the_note_has_focus_a_rotation_waits_for_the_focus_to_leave(self):
+        """768x1024 rotated with the note focused (the keyboard up): the band and the note's focus stay; once the focus leaves,
+        the band changes to mid-side."""
+        page = self.view(touch_device(768, 1024))
+        self.compose(page)
+        page.locator("#note").fill("쓰는 중")
+        page.evaluate(COUNT_BANDS)
+        self.resize(page, 1024, 768)
+        self.assertEqual(
+            page.evaluate("[BAND, document.activeElement.id, window.__bands]"), ["tablet-sheet", "note", []]
+        )
+        page.evaluate("document.activeElement.blur()")
+        page.wait_for_function("BAND==='mid-side'")
+        settle(page)
+        self.assertEqual(page.evaluate("window.__bands"), ["band-mid-side"])
+        self.assertEqual(page.input_value("#note"), "쓰는 중")
+
+    def test_a_primary_pointer_turning_fine_and_back_switches_wide_and_side_panel(self):
+        """1180x820: touch is mid-side; a mouse becoming the primary pointer (CDP turns touch emulation off, so pointer:coarse
+        stops matching) makes it wide after the settle, and back; the note written meanwhile stays."""
+        page = self.view(touch_device(1180, 820))
+        self.compose(page)
+        page.locator("#note").fill("포인터를 바꿔도 남는 메모")
+        page.evaluate("document.activeElement.blur()")
+        settle(page)
+        page.evaluate(COUNT_BANDS)
+        cdp = self.cdp(page)
+        cdp.send("Emulation.setTouchEmulationEnabled", {"enabled": False})
+        page.wait_for_function("BAND==='wide'")
+        settle(page)
+        self.assertFalse(page.evaluate("MQ_COARSE.matches"))
+        cdp.send("Emulation.setTouchEmulationEnabled", {"enabled": True, "maxTouchPoints": 5})
+        page.wait_for_function("BAND==='mid-side'")
+        settle(page)
+        self.assertEqual(page.evaluate("window.__bands"), ["band-wide", "band-mid-side"])
+        self.assertEqual(page.input_value("#note"), "포인터를 바꿔도 남는 메모")
 
     def test_a_mouse_window_as_low_as_a_landscape_phone_keeps_the_width_layout(self):
         """820x390 with a mouse: the overlay layout with its nav bar and bottom action row, never the short band."""

@@ -316,7 +316,16 @@ SERVER_SETS = {
     "ASSIGNEE_AGENT": lambda: {edit.ASSIGNEE_AGENT},
 }
 # The viewer's own closed sets: no server counterpart.
-VIEWER_SETS = {"LAYOUT_MODE", "LAYOUT_BAND", "CARD_DOT", "DIFF_FORMAT", "VIEW_MODE", "UI_LANG", "NOTIFY_STATE"}
+VIEWER_SETS = {
+    "LAYOUT_MODE",
+    "LAYOUT_BAND",
+    "BAND_STEP",
+    "CARD_DOT",
+    "DIFF_FORMAT",
+    "VIEW_MODE",
+    "UI_LANG",
+    "NOTIFY_STATE",
+}
 
 
 def set_values(value: helpers_js.ClosedSet) -> list[str]:

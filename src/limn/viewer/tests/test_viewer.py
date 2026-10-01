@@ -1079,6 +1079,39 @@ class FrontendMobileLogic(unittest.TestCase):
         got = self.layout_bands([r[:3] for r in rows])
         self.assertEqual([r[:3] + (g,) for r, g in zip(rows, got, strict=True)], rows)
 
+    def test_band_settle_rules(self):
+        """settleBand(C, N, typing): what a new window observation N does to the settled input C on touch - settle at once
+        (no C yet, or a mouse), keep the band while a text field has focus or for a height change under 96px from C (C stays,
+        so two 56px steps add up), and otherwise wait 200ms (a rotation, an unfolding, a pointer change)."""
+        t = lambda w, h: {"w": w, "h": h, "coarse": True}  # noqa: E731
+        m = lambda w, h: {"w": w, "h": h, "coarse": False}  # noqa: E731
+        cases = [
+            (None, t(768, 1024), False, "settle"),
+            (t(768, 1024), t(768, 644), True, "keep"),  # the keyboard, while the note has focus
+            (t(768, 1024), t(1024, 768), True, "keep"),  # a rotation, while the note has focus
+            (t(844, 390), t(844, 446), False, "keep"),  # the address bar hides
+            (t(844, 446), t(844, 390), False, "keep"),  # and comes back
+            (t(1024, 768), t(1024, 712), False, "keep"),  # one 56px step
+            (t(1024, 768), t(1024, 656), False, "wait"),  # the second, against the same C: 112px
+            (t(1024, 768), t(1024, 673), False, "keep"),  # 95px
+            (t(1024, 768), t(1024, 672), False, "wait"),  # 96px
+            (t(768, 1024), t(1024, 768), False, "wait"),  # a rotation
+            (t(344, 882), t(842, 758), False, "wait"),  # an unfolding
+            (t(1180, 820), m(1180, 820), False, "wait"),  # the primary pointer turns fine
+            (m(1180, 820), t(1180, 820), False, "wait"),  # and back
+            (m(1000, 800), m(1200, 800), False, "settle"),  # a mouse window, at once
+            (m(1000, 800), m(1000, 300), True, "settle"),  # even with a text field focused
+        ]
+        consts = re.search(r"^const BAND_HOLD_PX=.*;$", HTML, re.M).group(0)  # the served thresholds, not a copy
+        js = (
+            consts
+            + extract_js_fn("settleBand")
+            + "\nconsole.log(JSON.stringify(%s.map(c=>settleBand(c[0],c[1],c[2]))));"
+            % (json.dumps([c[:3] for c in cases]))
+        )
+        got = json.loads(run_node(js))
+        self.assertEqual([c[:3] + (g,) for c, g in zip(cases, got, strict=True)], cases)
+
     def test_a_mouse_window_keeps_the_width_only_layout_modes(self):
         """The mouse rows of the old width-only test give the same layout mode through BAND_MODE: 412 narrow, 880 mid,
         1440 wide."""

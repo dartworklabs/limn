@@ -33,6 +33,7 @@ const EL_SYNC=Object.freeze({OK:'ok',MOVED:'moved',LOST:'lost'});   // where a f
 const LOCAL_LOGIN='local',ASSIGNEE_AGENT='agent';   // the identity-less local login (access.LOCAL_LOGIN); the assignee meaning "the agent" (pins.edit.ASSIGNEE_AGENT)
 const LAYOUT_MODE=Object.freeze({WIDE:'wide',MID:'mid',NARROW:'narrow'});   // LAYOUT, the band's mode (BAND_MODE)
 const LAYOUT_BAND=Object.freeze({PHONE:'phone',TABLET_SHEET:'tablet-sheet',SHORT:'short',MID_OVERLAY:'mid-overlay',MID_SIDE:'mid-side',WIDE:'wide'});   // BAND, by window width, height and primary pointer (layoutFor)
+const BAND_STEP=Object.freeze({KEEP:'keep',WAIT:'wait',SETTLE:'settle'});   // what a new window observation does to the band (settleBand)
 const CARD_DOT=Object.freeze({OPEN:'open',CLAIMED:'claimed',REVIEW:'review',LOST:'lost'});   // a card's status dot (stDot); also its CSS class
 const DIFF_FORMAT=Object.freeze({PDF:'pdf',SOURCE:'source'});   // the changes view's tab (REVISION_FORMAT); index.html data-format
 const VIEW_MODE=Object.freeze({MANUSCRIPT:'manuscript',REVISIONS:'revisions'});   // the manuscript or the changes view; index.html data-mode
@@ -48,13 +49,13 @@ function isFigureKind(kind){return kind===DOC_KIND.FIGURE;}
 function buildsFromSource(kind){return kind===DOC_KIND.TEX;}
 let META=null,PINS=[],DONE=[],DROPPED=[],REPICK=null,PICKSEQ=0;
 let SNIP_OPEN=false,W=900,WRAP=true;
-// Mobile: BAND is a LAYOUT_BAND (layoutFor) and LAYOUT its LAYOUT_MODE (wide|mid|narrow, BAND_MODE), SIDE_OPEN is whether the panel/sheet is expanded, SELMODE is touch selection mode,
+// Mobile: BAND is a LAYOUT_BAND (layoutFor of BAND_IN, the settled {w,h,coarse} - settleBand) and LAYOUT its LAYOUT_MODE (wide|mid|narrow, BAND_MODE), SIDE_OPEN is whether the panel/sheet is expanded, SELMODE is touch selection mode,
 // ZOOMED is whether the user changed the width via -/+ in compact (while true, it's never auto-fit to the screen width).
 const MQ_COARSE=matchMedia('(pointer:coarse)');
 // A device with no hover (phone/tablet): hover/focus tooltips are never shown at all - a tap sent a simulated mouseover and left the description stuck over the list (phone QA). Only long-press is used.
 const MQ_NOHOVER=matchMedia('(hover:none)');
 let OUTLINE_MID_OPEN=false,MID_OVERLAY=false;
-let LAYOUT=null,BAND=null,SIDE_OPEN=true,SELMODE=false,ZOOMED=false,LAST_PTR='mouse',LAST_TOUCH_T=0;
+let LAYOUT=null,BAND=null,BAND_IN=null,SIDE_OPEN=true,SELMODE=false,ZOOMED=false,LAST_PTR='mouse',LAST_TOUCH_T=0;
 const OPEN_CARDS=new Set();   // ids of pin cards expanded in compact
 // Pin kind/thread (docs/handbook/viewer.md §스레드와 검토): KIND_NEW = the composer panel's kind (fix|question), REPLY = the open reply/reopen
 // input field {id,mode,el} (holds onto the DOM like EDITOR.current does, and re-inserts it in place when the list redraws), THREAD_OPEN = cards with the thread fully expanded,

@@ -17,11 +17,20 @@ function layoutFor(w,h,coarse){
   if(w<=1366)return LAYOUT_BAND.MID_SIDE; return LAYOUT_BAND.WIDE;}
 // What layoutFor reads from the window now: {w, h, coarse}.
 function bandInput(){return {w:innerWidth,h:innerHeight,coarse:MQ_COARSE.matches};}
-// Picks the band for the window and its panel state: the body classes (lay-*, band-*, mid-overlay, compact), then wide follows the
+// Keeping the band steady on touch (docs/handbook/viewer.md §모바일 레이아웃): a height change under BAND_HOLD_PX from the settled
+// one is the address bar, and a new size or pointer must stay BAND_SETTLE_MS before the band follows it. Starting values,
+// chosen by emulation; a real device may move them.
+const BAND_HOLD_PX=96,BAND_SETTLE_MS=200;
+// What a new observation N does to the settled input C ({w,h,coarse}, null before the first): settle at once with no C yet or
+// for a mouse (both fine pointers); keep the band while a text field has focus (typing - the keyboard shrinks the layout) or
+// when only the height moved less than BAND_HOLD_PX from C (C stays, so slow steps add up); otherwise wait for N to hold. Pure.
+function settleBand(C,N,typing){if(!C||(!C.coarse&&!N.coarse))return BAND_STEP.SETTLE; if(typing)return BAND_STEP.KEEP;
+  if(N.w===C.w&&N.coarse===C.coarse&&Math.abs(N.h-C.h)<BAND_HOLD_PX)return BAND_STEP.KEEP; return BAND_STEP.WAIT;}
+// Picks the band for the settled input (BAND_IN; the window's at the first call) and its panel state: the body classes (lay-*, band-*, mid-overlay, compact), then wide follows the
 // per-device pinPrefs.sideClosed (open by default), mid its midClosed (else open beside the document, collapsed as an overlay),
 // narrow starts collapsed - except between the phone and the tablet sheet, both sheets, which keep it as it was. An open draft
 // keeps it open. Returns whether the band or its overlay changed.
-function applyLayout(){const o=bandInput(),band=layoutFor(o.w,o.h,o.coarse),L=BAND_MODE[band],overlay=L===LAYOUT_MODE.MID&&o.w<=900;
+function applyLayout(){if(!BAND_IN)BAND_IN=bandInput(); const o=BAND_IN,band=layoutFor(o.w,o.h,o.coarse),L=BAND_MODE[band],overlay=L===LAYOUT_MODE.MID&&o.w<=900;
   if(band===BAND&&overlay===MID_OVERLAY)return false;
   const sheetToSheet=L===LAYOUT_MODE.NARROW&&LAYOUT===LAYOUT_MODE.NARROW,wasOpen=SIDE_OPEN;
   BAND=band; LAYOUT=L; MID_OVERLAY=overlay; OUTLINE_MID_OPEN=false; const b=document.body,p=prefs(); ZOOMED=false; endSideSlide();
@@ -107,8 +116,20 @@ function stickTop(){let t=0; const b=$('#bar1');
 // links end where it begins.
 function barWidth(){document.documentElement.style.setProperty('--bar1-w',Math.ceil($('#bar1').getBoundingClientRect().width)+'px');}
 if(window.ResizeObserver)new ResizeObserver(()=>{stickTop(); barWidth();}).observe($('#bar1'),{box:'border-box'});   // padding-only changes (the collapsed sheet) count
-let RELAY=0;
-function scheduleRelayout(){if(RELAY)return; RELAY=requestAnimationFrame(()=>{RELAY=0; if(META)relayout(); else applyLayout();});}
+let RELAY=0,BAND_T=0;
+// Re-fits on the next frame after a resize, a pointer change or a panel/keyboard change - unless the band input is waiting to
+// settle (bandSettle), in which case the band and the page width stay as they are until it does.
+function scheduleRelayout(){if(RELAY)return; RELAY=requestAnimationFrame(()=>{RELAY=0; if(bandSettle())refit();});}
+// The re-fit itself: relayout once the document is open, else only the layout.
+function refit(){if(META)relayout(); else applyLayout();}
+// Applies settleBand to the window now. Settle: BAND_IN takes the new input. Keep: BAND_IN stays (a pending wait is dropped - the
+// window came back). Wait: (re)starts BAND_SETTLE_MS; when it runs out with no text field focused, BAND_IN takes the window's input
+// and the page re-fits once. Returns whether the caller may re-fit now.
+function bandSettle(){const N=bandInput(),step=settleBand(BAND_IN,N,typingNow()); clearTimeout(BAND_T); BAND_T=0;
+  if(step===BAND_STEP.WAIT){BAND_T=setTimeout(()=>{BAND_T=0; if(typingNow())return; BAND_IN=bandInput(); refit();},BAND_SETTLE_MS); return false;}
+  if(step===BAND_STEP.SETTLE)BAND_IN=N; return true;}
+// Whether the window differs from the settled band input (a band change may be due).
+function bandStale(){const o=bandInput(); return !!BAND_IN&&(o.w!==BAND_IN.w||o.h!==BAND_IN.h||o.coarse!==BAND_IN.coarse);}
 window.addEventListener('resize',scheduleRelayout);
 MQ_COARSE.addEventListener('change',scheduleRelayout);
 // Even a mere #left width change from expanding/collapsing the panel (compact) re-fits the page width. The layout is never
@@ -139,7 +160,8 @@ function panelField(){const a=document.activeElement; return typingNow()&&$('#ri
 // body.typing while a panel text field has focus: the short band hides its top row then, leaving the keyboard's ~200px to the panel.
 function syncTyping(){document.body.classList.toggle('typing',!!panelField());}
 document.addEventListener('focusin',syncTyping);
-document.addEventListener('focusout',()=>setTimeout(syncTyping,0));   // after the focus has moved on
+// After the focus has moved on: the typing class, and a band held while a text field had focus gets its turn (settleBand).
+document.addEventListener('focusout',()=>setTimeout(()=>{syncTyping(); if(bandStale())scheduleRelayout();},0));
 // Scrolls a panel text field that has focus back into view after a re-fit; the scroller's scroll-padding keeps it clear of the save row.
 function keepFieldInView(){const f=panelField(); if(f)f.scrollIntoView({block:'nearest'});}
 
