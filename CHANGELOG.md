@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.4.0 — 2026-10-01
 
 Figure documents: a figure set drawn by code (one PDF page per figure plus a `limn-figure-map/1` element map) opens as a
 tab. A drag is traced to the element and the lines of the script that drew it, a pin records its element, and its mark
