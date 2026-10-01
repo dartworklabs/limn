@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.4.4 — 2026-10-02
+
+Viewer polish on phones and tablets: equal page margins, one edge grid, and no stray hover colours. This release does
+not change `pins.md`, the API or the state directory, and it keeps the layout bands. The desktop with a mouse looks
+the same.
+
+### Changed
+
+- **Equal page margins.** At fit, the page has the same margin on the left and on the right. On phones the margins
+  were 32 and 8 px; they are now 12 and 12 px, and on tablet sheets 16 and 16 px. A pin's number badge sits outside its
+  mark when the page margin has room for it. It moves inside only when the mark starts too close to the page edge.
+- **One edge grid.** Section heads, cards, the documents sheet, Help and Trash share one edge and one text line. On
+  phone and tablet widths, Help and Trash open as bottom sheets, like More and Documents. Trash rows take two lines.
+- **Touch feedback.** Hover colours answer a mouse only, so a tapped row no longer stays grey. A short press colour
+  marks a tap instead.
+- **Colour roles.** Count badges are neutral. The awaiting-review count carries an eye icon. The sheet grabber
+  reaches 3:1 contrast in light and dark themes.
+
+### Fixed
+
+- **User-written text is never translated.** This covers document names, notes, authors, thread posts, mark tooltips,
+  notification titles, outline titles, the instance label and source excerpts. A document named `그림` stays `그림`
+  on an English screen.
+
 ## 0.4.3 — 2026-10-01
 
 A figure set that lives inside a LaTeX document's folder no longer makes that document look stale. Nothing changes in
