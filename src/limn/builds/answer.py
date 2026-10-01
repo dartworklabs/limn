@@ -9,6 +9,7 @@ from limn.builds.artifacts import (
     BuildOk,
     BuildOkWithErrors,
     BuildStarted,
+    BuildUnchanged,
     CopyFailed,
     FinishedBuild,
     ViewOnlyNoRebuild,
@@ -49,13 +50,21 @@ def diet_log(payload: dict[str, Any], full: bool) -> dict[str, Any]:
 def finished_build_body(result: FinishedBuild) -> Body:
     """A finished build as JSON - POST /api/rebuild's body before the log diet, in the key order the agent contract has
     always had: ok, state, errors, log, elapsed_s, then only what the build got as far as - pull (when --git-pull ran),
-    src_mtime (a LaTeX build), src_hash (once the copy was fingerprinted), and for new pages head, build, pages. A
-    failure's log is limn.web.errors.build_failure_log's text."""
+    src_mtime (a LaTeX build), src_hash (once the copy was fingerprinted), and for new pages head, build, pages. An
+    unchanged rebuild answers as an ok build naming the build kept on screen, with an empty log and unchanged: true
+    last. A failure's log is limn.web.errors.build_failure_log's text."""
     match result:
         case BuildOk():
             return _new_pages_body(result, "ok", [])
         case BuildOkWithErrors(errors=errors):
             return _new_pages_body(result, "ok_errors", errors)
+        case BuildUnchanged():
+            body: Body = {"ok": True, "state": "ok", "errors": [], "log": "", "elapsed_s": result.elapsed_s}
+            _put_source(body, result.pull, result.src_mtime)
+            body.update(
+                src_hash=result.src_hash, head=result.head, build=result.build, pages=result.pages, unchanged=True
+            )
+            return body
         case CopyFailed(pull=pull, src_mtime=src_mtime, elapsed_s=elapsed_s):
             body = _failed_body([], build_failure_log(result), elapsed_s)
             _put_source(body, pull, src_mtime)
@@ -104,13 +113,14 @@ def view_only_refused(result: ViewOnlyNoRebuild) -> NoReturn:
 def rebuild_answer(result: FinishedBuild | BuildBusy | ViewOnlyNoRebuild, full: bool) -> tuple[Body, int]:
     """POST /api/rebuild (synchronous): the finished build's body and 200, 409 {"ok": false, "busy": true} when the
     document was already building, or the view-only refusal. Without full (?log=1) the log is dropped for BuildOk and
-    cut to its last LOG_TAIL_LINES lines for every other outcome (§에이전트 응답 다이어트)."""
+    cut to its last LOG_TAIL_LINES lines for every other outcome (§에이전트 응답 다이어트); an unchanged rebuild is
+    dieted as an ok build."""
     match result:
         case ViewOnlyNoRebuild():
             view_only_refused(result)
         case BuildBusy():
             return {"ok": False, "busy": True}, 409
-        case BuildOk():
+        case BuildOk() | BuildUnchanged():
             body = finished_build_body(result)
             if not full:
                 del body["log"]
@@ -139,7 +149,7 @@ BUILD_FAILURES: dict[BuildFailureKind, str] = {
     "timeout": "시간 초과로 멈췄습니다.",
     "no_pdf": "새 PDF 가 나오지 않았습니다.",
     "no_synctex": "synctex.gz 가 없습니다 — latexmk 가 -synctex=1 을 받았는지 확인하세요.",
-    "render": "쪽 이미지를 그리지 못했습니다(pdftoppm).",
+    "render": "쪽 이미지를 그리지 못했습니다(pdftoppm): {detail}",
     "pdf_copy": "PDF 사본을 쪽 디렉토리에 두지 못했습니다: {detail}",
     "pdf_missing": "PDF 가 없습니다: {detail}",
     "figure_unready": "그림 PDF 와 지도를 가져오지 못했습니다: {detail}",

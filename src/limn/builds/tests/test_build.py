@@ -86,9 +86,13 @@ printf 'synctex' > "$stem.synctex.gz"
 : > "$stem.log"
 """
 
-# pdftoppm stand-in (pdftoppm -r DPI -png PDF PREFIX): one "page" whose bytes are the PDF's.
+# pdftoppm stand-in (pdftoppm -r DPI -f N -l N -singlefile PDF): a 2x1 PPM of the page on stdout.
 FAKE_PDFTOPPM = """#!/bin/sh
-cp "$4" "$5-1.png"
+printf 'P6\\n2 1\\n255\\n\\377\\377\\377\\0\\0\\0'
+"""
+# pdfinfo stand-in: every PDF has one page.
+FAKE_PDFINFO = """#!/bin/sh
+echo "Pages:          1"
 """
 
 
@@ -227,7 +231,7 @@ class TwoDocumentsAtOnce(unittest.TestCase):
             self.docs[key] = PlainDoc(src=repo / key, main=main, dir=self.state / "docs" / key)
         bin_dir = root / "bin"
         bin_dir.mkdir()
-        for name, text in (("latexmk", FAKE_LATEXMK), ("pdftoppm", FAKE_PDFTOPPM)):
+        for name, text in (("latexmk", FAKE_LATEXMK), ("pdftoppm", FAKE_PDFTOPPM), ("pdfinfo", FAKE_PDFINFO)):
             (bin_dir / name).write_text(text, encoding="utf-8")
             (bin_dir / name).chmod(0o755)
         (root / "rendezvous").mkdir()
@@ -389,10 +393,10 @@ case "$LIMN_TEST_LATEXMK" in
 esac
 """
 
-# pdftoppm stand-in that fails when LIMN_TEST_PDFTOPPM is "fail", else writes one page.
+# pdftoppm stand-in that fails when LIMN_TEST_PDFTOPPM is "fail", else writes one page's PPM on stdout.
 MODAL_PDFTOPPM = """#!/bin/sh
-[ "$LIMN_TEST_PDFTOPPM" = fail ] && exit 1
-cp "$4" "$5-1.png"
+[ "$LIMN_TEST_PDFTOPPM" = fail ] && { echo "Syntax Error: stand-in" >&2; exit 1; }
+printf 'P6\\n2 1\\n255\\n\\377\\377\\377\\0\\0\\0'
 """
 
 
@@ -419,7 +423,7 @@ class Outcomes(unittest.TestCase):
         self.cfg = build.BuildConfig(state=self.state, dpi=72, timeout=1)
         bin_dir = root / "bin"
         bin_dir.mkdir()
-        for name, text in (("latexmk", MODAL_LATEXMK), ("pdftoppm", MODAL_PDFTOPPM)):
+        for name, text in (("latexmk", MODAL_LATEXMK), ("pdftoppm", MODAL_PDFTOPPM), ("pdfinfo", FAKE_PDFINFO)):
             (bin_dir / name).write_text(text, encoding="utf-8")
             (bin_dir / name).chmod(0o755)
         self.env = {"PATH": str(bin_dir) + os.pathsep + os.environ.get("PATH", "")}
@@ -446,19 +450,20 @@ class Outcomes(unittest.TestCase):
         self.assertEqual(res.errors, [{"line": 3, "msg": "Undefined control sequence."}])
 
     def test_each_failed_compile_names_its_kind(self):
-        """No PDF, no SyncTeX, a timeout and a failed render are BuildFailed with that kind, latexmk's output kept."""
-        for latexmk, pdftoppm, kind in (
-            ("nopdf", "ok", "no_pdf"),
-            ("nosynctex", "ok", "no_synctex"),
-            ("hang", "ok", "timeout"),
-            ("ok", "fail", "render"),
+        """No PDF, no SyncTeX, a timeout and a failed render are BuildFailed with that kind, latexmk's output kept; a
+        failed render's detail names the page and pdftoppm's message."""
+        for latexmk, pdftoppm, kind, detail in (
+            ("nopdf", "ok", "no_pdf", ""),
+            ("nosynctex", "ok", "no_synctex", ""),
+            ("hang", "ok", "timeout", ""),
+            ("ok", "fail", "render", "page 1: pdftoppm exit 1: Syntax Error: stand-in"),
         ):
             with self.subTest(kind=kind):
                 res = self.compile(latexmk, pdftoppm)
                 self.assertIsInstance(res, BuildFailed)
-                self.assertEqual((res.kind, res.detail), (kind, ""))
+                self.assertEqual((res.kind, res.detail), (kind, detail))
                 self.assertIsNotNone(res.output)
-                self.assertEqual(build_failure_log(res), BUILD_FAILURES[kind] + "\n" + res.output)
+                self.assertEqual(build_failure_log(res), BUILD_FAILURES[kind].format(detail=detail) + "\n" + res.output)
 
     def test_pull_record_rides_along(self):
         """The --git-pull step's record is the outcome's pull, success or failure."""
@@ -496,7 +501,8 @@ class Outcomes(unittest.TestCase):
             failed = build_engine.render_pdf_doc(self.P, self.cfg)
         self.assertIsInstance(failed, BuildFailed)
         self.assertEqual((failed.kind, failed.output, failed.src_mtime), ("render", None, None))
-        self.assertEqual(build_failure_log(failed), BUILD_FAILURES["render"])
+        self.assertEqual(failed.detail, "page 1: pdftoppm exit 1: Syntax Error: stand-in")
+        self.assertEqual(build_failure_log(failed), BUILD_FAILURES["render"].format(detail=failed.detail))
         self.P.main.unlink()
         self.assertEqual(build_engine.render_pdf_doc(self.P, self.cfg), BuildAborted("pdf_missing", str(self.P.main)))
 
@@ -1219,7 +1225,7 @@ class AsyncBuild(Base):
         """The first background build reports running; a second request is busy until its worker releases the lock."""
         ev = threading.Event()
 
-        def fake_build(D=None):
+        def fake_build(D=None, force=False):
             """Hold the worker until the test has observed its running state and busy response."""
             ev.wait(5)
             return ok_build(elapsed_s=0.01)
@@ -1242,7 +1248,7 @@ class AsyncBuild(Base):
         """The tracked build publishes its copy phase before invoking the compiler and clears it afterward."""
         seen = []
 
-        def fake_build(D=None):
+        def fake_build(D=None, force=False):
             """Record the state visible inside the build step, then return a successful result."""
             seen.append(limn_build.state_snapshot(ps.APP.docs[0])["phase"])
             return ok_build()
@@ -1255,7 +1261,7 @@ class AsyncBuild(Base):
     def test_ok_errors_state_surfaces_in_build_state(self):
         """A build with LaTeX errors publishes ok_errors and keeps the error's source line."""
 
-        def fake_build(D=None):
+        def fake_build(D=None, force=False):
             """Return a committed build carrying one LaTeX diagnostic."""
             return BuildOkWithErrors(
                 [{"line": 412, "msg": "Undefined control sequence"}], "boom", 1.2, None, 1.0, None, "-", "", 3
@@ -1270,7 +1276,7 @@ class AsyncBuild(Base):
     def test_ok_errors_commits_built_src_mtime(self):
         """Published pages with LaTeX diagnostics still commit the manuscript mtime baseline."""
 
-        def fake_build(D=None):
+        def fake_build(D=None, force=False):
             """Return an ok_errors result whose pages were published despite a diagnostic."""
             return BuildOkWithErrors([{"line": 1, "msg": "x"}], "", 0.0, None, 1.0, None, "-", "", 1)
 
@@ -1285,7 +1291,7 @@ class AsyncBuild(Base):
         # committed on ok|ok_errors.
         self.assertIsNone(limn_build.read_built_src_mtime(ps.APP.docs[0]))
 
-        def fake_build_fail(D=None):
+        def fake_build_fail(D=None, force=False):
             """Fail before publishing pages or a manuscript mtime baseline."""
             return BuildAborted("crashed", "boom")
 
@@ -1294,7 +1300,7 @@ class AsyncBuild(Base):
         self.assertIsNone(limn_build.read_built_src_mtime(ps.APP.docs[0]))  # still None because it failed
         self.assertEqual(limn_build.state_snapshot(ps.APP.docs[0])["state"], "fail")
 
-        def fake_build_ok(D=None):
+        def fake_build_ok(D=None, force=False):
             """Publish a successful build to establish a baseline for the later failure."""
             return ok_build(elapsed_s=0.1)
 

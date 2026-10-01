@@ -45,7 +45,7 @@ JSON 객체는 중첩된 객체까지 키가 한 번만 나와야 한다. 같은
 | --- | --- | --- |
 | 요청 경계 | `400`·`403`·`413`·`415` | `transfer_encoding`·`bad_content_length`·`body_truncated`·`body_too_large`·`bad_content_type`·`bad_json`·`bad_query`·`duplicate_header`·`bad_host`·`bad_origin`·`invalid_authority` |
 | 인증·입장·역할 | `401`·`403` | `unauthenticated`·`loopback_agent_off`(루프백 에이전트를 끈 인스턴스에 헤더 없는 로컬 요청)·`headerless`·`bad_bearer`·`bad_token`·`not_member`·`not_allowed`·`viewer_only`·`owner_only`·`confirm_by_human` |
-| 경로 | `404` | `not_found`(없는 경로·vendor 파일), `pdf_build_gone`(`?build=` 의 빌드가 없음, pick 의 옛 빌드), `pdf_missing`(`?build=` 없이 지금 빌드의 PDF 가 없음) |
+| 경로 | `404` | `not_found`(없는 경로·vendor 파일), `pdf_build_gone`(`?build=` 나 `/pages/<빌드>/` 의 빌드가 없음, pick 의 옛 빌드), `pdf_missing`(`?build=` 없이 지금 빌드의 PDF 가 없음) |
 | 문서 | `400`·`404` | `bad_doc`·`doc_mismatch`·`unknown_doc`·`no_source_lines`(보기 전용 문서나 영역 핀에 줄을 보냄)·`view_only_no_rebuild` |
 | 핀 | `404`·`409` | `pin_not_found`·`not_in_trash`·`pin_exists`, `409` 코드 `done`·`conflict`·`open`·`full`·`claimed` |
 | 핀 입력 | `400` | `not_integer`·`not_number`·`too_small`·`bad_note`·`note_too_long`·`bad_note_append`·`note_append_empty`·`note_append_too_long`·`bad_reply`·`reply_too_long`·`bad_ref`·`ref_too_long`·`bad_changes`·`too_many_changes`·`change_outside_manuscript`·`bad_pin`·`bad_assignee`·`unknown_assignee`·`bad_kind_req`·`bad_kind`·`bad_via`·`bad_scope`·`bad_el`·`bad_quote`·`bad_loc`·`bad_mentions`·`bad_event_cursor`·`bad_reopen`·`bad_review`·`text_required`·`bad_text`·`text_too_long`·`text_empty`·`base_rev_required`·`nothing_to_change`·`unknown_fields`·`confirm_required` |
@@ -186,7 +186,7 @@ curl -s -H "Authorization: Bearer $(cat ~/.config/limn/<인스턴스>.token)" ht
 
 | 방식 | 경로 |
 | --- | --- |
-| `GET` 쿼리 | `/api/meta`, `/api/build`, `/pdf`, `/pages/<쪽>`, `/api/snippet`, `/api/overlaps`, `/api/pins`(그 문서의 핀만 거른다), `/api/revisions`, `/api/revision-diff`, `/api/outline-labels`, `/api/revision-build`, `/api/revision-pdf` |
+| `GET` 쿼리 | `/api/meta`, `/api/build`, `/pdf`, `/pages/<쪽>`, `/pages/<빌드>/<쪽>`, `/api/snippet`, `/api/overlaps`, `/api/pins`(그 문서의 핀만 거른다), `/api/revisions`, `/api/revision-diff`, `/api/outline-labels`, `/api/revision-build`, `/api/revision-pdf` |
 | `POST` 쿼리 또는 JSON 본문 | `/api/pick`, `/api/pin`, `/api/rebuild`, `/api/revision-build` |
 
 규칙은 다음과 같다.
@@ -218,20 +218,24 @@ curl -s -H "Authorization: Bearer $(cat ~/.config/limn/<인스턴스>.token)" ht
 | 메서드 | 경로 | 설명 |
 | --- | --- | --- |
 | `GET` | `/` | 뷰어 HTML. 이 뷰어를 연 사람을 기록한다(§@태그·사람·이벤트). 에이전트(토큰, 헤더 없는 루프백 요청)는 기록하지 않는다 |
-| `GET` | `/pages/<파일>` | 지금 빌드의 쪽 이미지(`page-<번호>.png`)를 `image/png` 로 준다(`Cache-Control: private, max-age=600`, PDF처럼 공유 캐시에 남지 않는다). 이름이 이 모양이 아니거나 파일이 없으면 `404` |
-| `GET` | `/pdf?build=<pages_build>` | 그 빌드의 쪽 이미지와 짝인 PDF 사본(`pages-<build>/<main>.pdf`, 그림 문서는 지도 이름에서 `.limnmap.json` 을 뺀 `<이름>.pdf`)을 `application/pdf` 로 준다(`Cache-Control: private, max-age=600`). 뷰어가 벡터로 그릴 때 쓴다([viewer.md](viewer.md) §벡터 렌더링). `build` 를 빼면 지금 빌드다. 이름이 틀렸거나, 이미 지워졌거나, 그 디렉토리에 PDF 가 없으면 `404 {error, pdf_build_gone, pages_build}` 다. `build/` 나 다른 빌드로 물러서지 않는다. 화면의 쪽 이미지와 어긋나면 좌표가 틀리기 때문이다. `Range` 는 받지 않고 통째로 준다. Host·Origin 검사는 다른 `GET` 과 같다 |
+| `GET` | `/pages/<빌드>/<파일>` | 그 빌드(`pages_build` 값, 쪽 디렉토리 이름)의 쪽 이미지(`page-<번호>.png`)를 `image/png` 로 준다. 뷰어는 이 주소를 쓴다. 쪽 폴더는 공개된 뒤 다시 쓰지 않고 빌드 이름도 다시 쓰지 않으므로 같은 주소는 늘 같은 바이트다. 그래서 시각 빌드 이름(`pages-<14자리>[-<n>]`)이면 `Cache-Control: private, max-age=31536000, immutable` 이다. 옛 배치의 이름 `pages` 는 `private, max-age=600` 이다. 응답은 신원 검사 뒤에만 나가므로 `private` 이다. 그 빌드의 폴더가 지워졌으면 `/pdf?build=` 와 같은 `404 {error, pdf_build_gone, pages_build}`, 그 빌드에 그 쪽이 없거나 이름이 이 모양이 아니면 `404` |
+| `GET` | `/pages/<파일>` | 지금 빌드의 쪽 이미지를 `image/png` 로 준다(`Cache-Control: private, max-age=600`, PDF처럼 공유 캐시에 남지 않는다). 빌드 이름이 없는 옛 주소다. 열려 있던 탭이 깨지지 않게 이 릴리스에서만 남기고 다음 릴리스에서 뺀다. `/pages/` 뒤에 빌드 이름이 아닌 조각이 끼어 있어도 마지막 조각을 지금 빌드에서 찾는다. 이름이 이 모양이 아니거나 파일이 없으면 `404` |
+| `GET` | `/pdf?build=<pages_build>` | 그 빌드의 쪽 이미지와 짝인 PDF 사본(`pages-<build>/<main>.pdf`, 그림 문서는 지도 이름에서 `.limnmap.json` 을 뺀 `<이름>.pdf`)을 `application/pdf` 로 준다. `build` 가 시각 빌드 이름이면 `Cache-Control: private, max-age=31536000, immutable`, `build` 를 빼거나 옛 이름 `pages` 면 `private, max-age=600` 이다. 뷰어가 벡터로 그릴 때 쓴다([viewer.md](viewer.md) §벡터 렌더링). `build` 를 빼면 지금 빌드다. 이름이 틀렸거나, 이미 지워졌거나, 그 디렉토리에 PDF 가 없으면 `404 {error, pdf_build_gone, pages_build}` 다. `build/` 나 다른 빌드로 물러서지 않는다. 화면의 쪽 이미지와 어긋나면 좌표가 틀리기 때문이다. `Range` 는 받지 않고 통째로 준다. Host·Origin 검사는 다른 `GET` 과 같다 |
 | `GET` | `/vendor/pdfjs/<파일>.mjs` | 뷰어가 쓰는 PDF.js(`pdf.min.mjs`·`pdf.worker.min.mjs`)를 `text/javascript; charset=utf-8` 로 준다(`Cache-Control: public, max-age=86400`). 뷰어는 `?v=<버전>` 을 붙여 캐시를 가른다. 이름 한 칸의 `.mjs` 만 받는다. 하위 경로, `..`, 점으로 시작하는 이름, `%` 인코딩, 디렉토리 밖을 가리키는 심볼릭 링크, `.mjs` 가 아닌 파일(`LICENSE`·`README.md`)은 모두 `404` 다. PDF.js는 패키지 안 `src/limn/vendor/pdfjs/` 에 들어 있고 기본으로 이것을 준다. `--pdfjs-dir`([operations.md](operations.md) §실행 인자)로 디렉토리를 바꿀 수 있다. 출처·버전은 [`src/limn/vendor/pdfjs/README.md`](../../src/limn/vendor/pdfjs/README.md). Host·Origin 검사는 다른 `GET` 과 같다 |
 | `GET` | `/api/outline-labels?doc=<키>` | 현재 PDF와 함께 보존한 `.aux` 의 목차 → `{build,labels:[{number,title,page,level,anchor}]}`. PDF.js outline과 제목·계층·순서가 일치할 때만 번호를 붙인다. `page` 는 인쇄 쪽번호 문자열(로마 숫자 가능)이며 물리 PDF 페이지 인덱스가 아니다. `.aux` 가 없는 기존 빌드는 빈 배열이다. 지원하지 않는 복잡한 TeX 제목은 빈 `number`·`title` 자리표시자가 된다 |
 | `GET` | `/sw.js` | 브라우저 알림용 서비스 워커(`text/javascript; charset=utf-8`, `Cache-Control: no-cache`, 범위 `/`). `fetch` 처리기가 없어 앱 데이터를 캐시하지 않는다 |
 | `GET` | `/favicon.ico` | 탭 파비콘 `.ico`(`image/x-icon`). 먹 둥근 사각형 위 i의 16·32px 픽셀 그림 두 장이 들어 있다. 밝은 탭과 어두운 탭에 같은 그림이다. `Cache-Control: public, max-age=86400`. 뷰어의 링크는 `?v=<내용 키>` 를 붙여 그림이 바뀌면 캐시를 가른다. 브라우저가 링크 없이 스스로 묻는 `/favicon.ico` 는 쿼리가 없어 하루까지 캐시에 남을 수 있다. 0.3.5까지 `/favicon.ico` 는 빈 본문 `204` 였다 |
 | `GET` | `/favicon-16.png`, `/favicon-32.png`, `/apple-touch-icon.png` | 탭 파비콘 PNG(16·32px, 먹 픽셀 그림)와 홈 화면 아이콘(180×180 뼈종이 네모, iOS가 모서리를 깎는다). `-16` 경로는 0.3.6+다. 모두 패키지에 든 브랜드 파일(`src/limn/viewer/brand/`)을 바이트 그대로 준다([viewer.md](viewer.md) §마크와 파비콘). 인스턴스의 `--accent` 와 무관하다. `image/png`, `Cache-Control: public, max-age=86400`. 뷰어는 `?v=<내용 키>` 를 붙여 그림이 바뀌면 캐시를 가른다. 쿼리 없는 주소(iOS가 스스로 묻는 `/apple-touch-icon.png` 등)는 하루까지 캐시에 남을 수 있다. 쿼리는 그 밖의 뜻이 없다. 아이콘 경로 목록에 없는 이름(`/favicon-64.png` 등)은 아이콘이 아니다. Host·Origin·신원 검사는 이 행과 위아래 행 모두 다른 `GET` 과 같다 |
 
+쪽 이미지와 PDF(`/pages/…`, `/pdf`)의 `200` 응답에는 `ETag` 가 붙는다. 값은 따옴표 안의 쪽 디렉토리 이름과 파일의 mtime_ns·크기다. 그래서 두 빌드의 같은 바이트도 태그가 다르다. 요청의 `If-None-Match` 가 그 값을 담으면(`*`, 쉼표 목록, `W/` 접두사 포함) 본문 없는 `304` 에 같은 `ETag`·`Cache-Control` 을 준다. 다른 경로의 캐시 헤더는 바뀌지 않는다.
+
 ### 빌드
 
 | 메서드 | 경로 | 설명 |
 | --- | --- | --- |
-| `GET` | `/api/build` | `{state:"idle\|running\|ok\|ok_errors\|fail", phase:"pull\|copy\|latex\|render"\|null, started_at, finished_at, seq, last, elapsed_s, last_s, pages, errors:[{line,msg}], log_tail, built_at, head, pull}` — [build-sync.md](build-sync.md) §비동기 재빌드. 서버를 다시 띄워도 마지막 빌드 결과(`state`·`errors`·`log_tail`·`seq`·`head`·`pull`)는 `builds.json` 에서 되살린다. `log_tail` 은 [build-sync.md](build-sync.md) §에이전트 응답 다이어트를 따른다. `state=="ok"` 면 빠지고, 아니면 40줄이며, `?log=1` 이면 전체다 |
-| `POST` | `/api/rebuild` | PDF 재빌드(동기) — [build-sync.md](build-sync.md) §재빌드 (동기). 응답에 `head`(빌드한 커밋의 짧은 해시, 성공 때만)와 `pull`(`--git-pull` 일 때만, [build-sync.md](build-sync.md) §재빌드 전 원격 main 당겨오기 (`--git-pull`))이 붙는다. `log` 는 [build-sync.md](build-sync.md) §에이전트 응답 다이어트를 따른다. 보기 전용 문서와 그림 문서면 `400` 이다(`view_only_no_rebuild`) |
+| `GET` | `/api/build` | `{state:"idle\|running\|ok\|ok_errors\|fail", phase:"pull\|copy\|latex\|render"\|null, started_at, finished_at, seq, last, elapsed_s, last_s, pages, errors:[{line,msg}], log_tail, built_at, head, pull}` — [build-sync.md](build-sync.md) §비동기 재빌드. 마지막 재빌드가 변경 없음으로 끝났으면 `state:"ok"` 에 `unchanged:true` 가 더 붙고 `seq` 는 그대로다. 다음 빌드가 시작하면 빠진다([build-sync.md](build-sync.md) §따뜻한 LaTeX와 변경 없는 재빌드). 서버를 다시 띄워도 마지막 빌드 결과(`state`·`errors`·`log_tail`·`seq`·`head`·`pull`)는 `builds.json` 에서 되살린다. `log_tail` 은 [build-sync.md](build-sync.md) §에이전트 응답 다이어트를 따른다. `state=="ok"` 면 빠지고, 아니면 40줄이며, `?log=1` 이면 전체다 |
+| `POST` | `/api/rebuild` | PDF 재빌드(동기) — [build-sync.md](build-sync.md) §재빌드 (동기). 응답에 `head`(빌드한 커밋의 짧은 해시, 성공 때만)와 `pull`(`--git-pull` 일 때만, [build-sync.md](build-sync.md) §재빌드 전 원격 main 당겨오기 (`--git-pull`))이 붙는다. `log` 는 [build-sync.md](build-sync.md) §에이전트 응답 다이어트를 따른다. 원고 사본이 화면 빌드와 같으면(지문이 같고, 그 빌드의 `recipe.json` 이 적은 dpi·메인 파일·스위치와 그 빌드가 읽은 파일(사본 안은 내용, TeX 배포판 등 사본 밖은 mtime·크기), latexmkrc·도구·곁도구 스타일 파일이 그대로이고, 마지막 빌드가 `ok`) latexmk와 쪽 그리기를 하지 않고 `ok` 응답에 `unchanged: true` 를 붙여 바로 끝난다. `build` 는 화면에 남은 빌드이고 `build_seq` 는 늘지 않는다([build-sync.md](build-sync.md) §따뜻한 LaTeX와 변경 없는 재빌드). 보기 전용 문서와 그림 문서면 `400` 이다(`view_only_no_rebuild`) |
+| `POST` | `/api/rebuild?force=1` | 강제 재빌드. 남겨 둔 LaTeX 부산물을 지우고 처음부터 빌드하며, 변경 없음으로 끝나지 않는다. 빌드가 비교하지 않는 것(셸 탈출로 돈 프로그램이 읽은 파일, 조건부로 새로 읽게 된 파일)을 바꿨을 때 쓴다. 뷰어는 변경 없음 토스트의 [그래도 빌드]로만 보낸다. `?async=1`·`?log=1` 과 함께 쓸 수 있다 |
 | `POST` | `/api/rebuild?async=1` | PDF 재빌드(비동기). 잠금을 얻으면 데몬 스레드로 같은 빌드 함수를 돌리고 바로 `202 {"state":"running"}` 을 준다. 이미 도는 중이면 `409 {"state":"running","busy":true}`. 진행은 `GET /api/build` 로 폴링한다([build-sync.md](build-sync.md) §비동기 재빌드) |
 | `POST` / `GET` | `/api/rebuild?log=1` / `/api/build?log=1` | [build-sync.md](build-sync.md) §에이전트 응답 다이어트를 끄고 전체 로그 꼬리(4000자)를 그대로 받는다. 뷰어는 오류 패널을 위해 이 플래그를 항상 붙인다 |
 

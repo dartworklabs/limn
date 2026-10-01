@@ -15,11 +15,12 @@ from limn.builds.artifacts import (
     BuildOk,
     BuildOkWithErrors,
     BuildStarted,
+    BuildUnchanged,
     Describe,
     FinishedBuild,
     ViewOnlyNoRebuild,
 )
-from limn.builds.completion import compiled_mtime, project_completion
+from limn.builds.completion import compiled_mtime, kept_publication, project_completion
 
 
 class Rebuildable(Protocol):
@@ -84,6 +85,7 @@ def build_in_background(
     if not D.lock.acquire(blocking=False):
         return BuildBusy()
     try:
+        _forget_unchanged(D)
         build.state_update(D, state="running", phase="copy", started_at=started_at, start_ts=time.time())
     except BaseException:
         try:
@@ -139,6 +141,7 @@ def run_tracked(
     "manuscript modified" badge must not turn off. describe gives a failure its log text (build state, history)."""
     with D.bstate_lock:
         last_s = D.bstate.get("last_s")
+        D.bstate.pop("unchanged", None)
     build.state_update(
         D,
         state="running",
@@ -160,15 +163,33 @@ def run_tracked(
     # fallback for outcomes without one - a PDF document, or a build that stopped before measuring
     src_mtime_for_build = src_mtime_at_start if compiled is None else compiled
     try:
-        if isinstance(res, BuildOk | BuildOkWithErrors):
+        if isinstance(res, BuildOk | BuildOkWithErrors | BuildUnchanged):
             build.write_built_src_mtime(D, state_dir, src_mtime_for_build)
-        finish_build(D, res, src_mtime_for_build, describe)
+        if isinstance(res, BuildUnchanged):
+            keep_build(D, res)
+        else:
+            finish_build(D, res, src_mtime_for_build, describe)
     except BaseException:
         # Keep the original persistence error and published pages, but clear the in-memory running state.
         with D.bstate_lock:
             D.bstate.update(state="fail", phase=None, start_ts=None)
         raise
     return res
+
+
+def _forget_unchanged(D: BuildDoc) -> None:
+    """Drop the unchanged mark of the last rebuild from D's build state: a new build is starting."""
+    with D.bstate_lock:
+        D.bstate.pop("unchanged", None)
+
+
+def keep_build(D: BuildDoc, res: BuildUnchanged) -> None:
+    """An unchanged rebuild finished (docs/handbook/build-sync.md §따뜻한 LaTeX와 변경 없는 재빌드): the kept build's
+    baseline moves to the mtime this rebuild compiled (build.confirm_build), and D's build state reads ok with
+    unchanged true (completion.kept_publication). Nothing is counted: no history entry, no seq, no last."""
+    build.confirm_build(D, res.build, res.src_mtime)
+    finished_at = datetime.now().astimezone().isoformat(timespec="seconds")
+    build.state_update(D, **kept_publication(res, finished_at, build.read_built_at(D)))
 
 
 def finish_build(D: BuildDoc, res: FinishedBuild, src_mtime_for_build: float | None, describe: Describe) -> None:
@@ -183,7 +204,13 @@ def finish_build(D: BuildDoc, res: FinishedBuild, src_mtime_for_build: float | N
     this value changed - even a build that starts and finishes inside a single 5-second polling gap (never
     observed as running) still bumps seq. seq and the final state are changed together (so there's never a
     visible moment where the state is final but seq is still the old value)."""
-    log = res.log if isinstance(res, BuildOk | BuildOkWithErrors) else describe(res)
+    log = (
+        res.log
+        if isinstance(res, BuildOk | BuildOkWithErrors)
+        else ""
+        if isinstance(res, BuildUnchanged)
+        else describe(res)
+    )
     finished_at = datetime.now().astimezone().isoformat(timespec="seconds")
     with D.bstate_lock:
         started_at = D.bstate.get("started_at")

@@ -1,19 +1,23 @@
 """Manuscript copy, LaTeX compilation and PDF page rendering for one build."""
 
 import contextlib
+import hashlib
+import json
 import os
 import re
 import shutil
 import signal
 import stat
 import subprocess
+import threading
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
 
-from limn.builds import artifacts as build
+from limn.builds import artifacts as build, png, warm
 from limn.builds.artifacts import (
     BUILD_EXCLUDE_DIRS,
     PAGES_DIR_RE,
@@ -25,6 +29,7 @@ from limn.builds.artifacts import (
     BuildOk,
     BuildOkWithErrors,
     BuildStarted,
+    BuildUnchanged,
     CopyFailed,
     Doc,
     FinishedBuild,
@@ -93,15 +98,18 @@ def _rsync_literal(name: str) -> str:
     return re.sub(r"([*?\[\\])", r"\\\1", name)
 
 
-def copy_manuscript(src: Path, dest: Path, state: Path) -> None:
+def copy_manuscript(src: Path, dest: Path, state: Path, keep: tuple[str, ...] = ()) -> None:
     """Mirror the manuscript folder into the build folder, skipping BUILD_EXCLUDE_DIRS, *.synctex.gz and the state
     folder `state` when --state-dir puts it inside src (state_in_source).
 
     The state folder holds people.json, tokens.json (hashes), audit.jsonl and events.jsonl - not manuscript - and
     usually the build folder itself, which a copy would nest one level deeper on every build.
-    Uses rsync -a --delete when it is installed, otherwise replaces dest with a fresh tree copy.
-    Raises ManuscriptCopyError when the copy cannot be trusted: rsync exits non-zero (a partial
-    transfer exits 23 and skips --delete, leaving removed files behind), times out, or the copy hits
+    keep are paths below dest (POSIX, limn.builds.warm.kept_paths) that the copy neither deletes nor overwrites: the
+    last build's LaTeX byproducts and PDF, so latexmk runs warm, and a committed PDF of the same name never lands on the
+    build's. Uses rsync -a --checksum --delete when it is installed (keep as anchored excludes; --checksum because a
+    same-size edit within the second of the last copy passes rsync's size-and-mtime check, and the copy - now kept
+    between builds - would keep the old text), otherwise rebuilds dest as a fresh tree copy around the kept files. Raises ManuscriptCopyError when the copy cannot be trusted: rsync exits non-zero
+    (a partial transfer exits 23 and skips --delete, leaving removed files behind), times out, or the copy hits
     an OS error. The caller must not compile dest after that.
     """
     rs = shutil.which("rsync")
@@ -113,8 +121,12 @@ def copy_manuscript(src: Path, dest: Path, state: Path) -> None:
                 excl += ["--exclude", d + "/"]
             if held is not None:  # anchored at the transfer root: only that folder, never a same-named one elsewhere
                 excl += ["--exclude", "/" + "/".join(_rsync_literal(part) for part in held) + "/"]
+            for rel in keep:  # anchored too: an excluded file is neither sent nor deleted
+                excl += ["--exclude", "/" + "/".join(_rsync_literal(part) for part in rel.split("/"))]
             r = subprocess.run(
-                [rs, "-a", "--delete"] + excl + ["--exclude", "*.synctex.gz", str(src) + "/", str(dest) + "/"],
+                [rs, "-a", "--checksum", "--delete"]
+                + excl
+                + ["--exclude", "*.synctex.gz", str(src) + "/", str(dest) + "/"],
                 capture_output=True,
                 text=True,
                 errors="replace",
@@ -125,50 +137,315 @@ def copy_manuscript(src: Path, dest: Path, state: Path) -> None:
                 last = (r.stderr.strip().splitlines() or ["(no message)"])[-1]
                 raise ManuscriptCopyError("rsync exit %d: %s" % (r.returncode, last))
         else:  # must still work without rsync
-            shutil.rmtree(dest, ignore_errors=True)
-            shutil.copytree(src, dest, ignore=_copy_ignore(src, held))
+            if dest.is_dir():
+                _clear_except(dest, (), frozenset(keep))
+            shutil.copytree(src, dest, ignore=_copy_ignore(src, held, frozenset(keep)), dirs_exist_ok=True)
     except (subprocess.TimeoutExpired, OSError) as e:
         raise ManuscriptCopyError(str(e)) from e
 
 
-def _copy_ignore(src: Path, held: tuple[str, ...] | None) -> Callable[[str, list[str]], set[str]]:
-    """shutil.copytree's ignore for copy_manuscript without rsync: BUILD_EXCLUDE_DIRS and *.synctex.gz by name, and the
-    state folder `held` (its parts below src, state_in_source) at that one place. Folders are compared with symlinks
-    resolved, as held is: copytree follows a linked folder, so a link into the state folder copies nothing of it."""
+def _clear_except(folder: Path, rel: tuple[str, ...], keep: frozenset[str]) -> None:
+    """Remove everything in folder (rel: its parts below the build copy) but the kept files (keep, POSIX paths below
+    the build copy) and the folders that lead to them - the copy without rsync, before the fresh tree copy."""
+    for entry in os.scandir(folder):
+        parts = rel + (entry.name,)
+        path = "/".join(parts)
+        if entry.is_dir(follow_symlinks=False):
+            if any(k.startswith(path + "/") for k in keep):
+                _clear_except(Path(entry.path), parts, keep)
+            else:
+                shutil.rmtree(entry.path)
+        elif path not in keep or not entry.is_file(follow_symlinks=False):
+            os.unlink(entry.path)
+
+
+def _copy_ignore(
+    src: Path, held: tuple[str, ...] | None, keep: frozenset[str] = frozenset()
+) -> Callable[[str, list[str]], set[str]]:
+    """shutil.copytree's ignore for copy_manuscript without rsync: BUILD_EXCLUDE_DIRS and *.synctex.gz by name, the
+    state folder `held` (its parts below src, state_in_source) at that one place, and the kept paths (keep, POSIX
+    below src) at theirs, so a source file of a kept name is never copied over the build's. Folders are compared with
+    symlinks resolved, as held is: copytree follows a linked folder, so a link into the state folder copies nothing of
+    it."""
     by_name = shutil.ignore_patterns(*BUILD_EXCLUDE_DIRS, "*.synctex.gz")
     base = os.path.realpath(src)
 
     def ignore(folder: str, names: list[str]) -> set[str]:
         """The names of folder to skip."""
         out = set(by_name(folder, names))
+        rel = Path(os.path.relpath(os.path.realpath(folder), base)).parts
+        here = () if rel == (".",) else rel
         if held is not None:
-            rel = Path(os.path.relpath(os.path.realpath(folder), base)).parts
-            here = () if rel == (".",) else rel
             if here[: len(held)] == held:
                 return set(names)
             if here == held[:-1] and held[-1] in names:
                 out.add(held[-1])
+        out.update(n for n in names if "/".join(here + (n,)) in keep)
         return out
 
     return ignore
 
 
-def compile_tex(D: BuildDoc, cfg: BuildConfig, pull: Callable[[], Json] | None) -> FinishedBuild:
+LATEXMK_ARGS = ("-pdf", "-synctex=1", "-interaction=nonstopmode")  # latexmk's switches; part of every build's recipe
+
+
+def compile_tex(D: BuildDoc, cfg: BuildConfig, pull: Callable[[], Json] | None, force: bool = False) -> FinishedBuild:
     """Builds D with -synctex=1 from a copy, leaving the original untouched, then renders pages into a new directory and only swaps the pointer.
 
     pull is the --git-pull step (None when the flag is off); its record is the outcome's pull. Outcomes: CopyFailed
     (the copy could not be trusted, nothing compiled), BuildFailed (no new PDF, a timeout, no SyncTeX, or the pages
     could not be rendered - the screen keeps the old PDF), BuildOkWithErrors (a new PDF with LaTeX errors, '! '
-    lines) and BuildOk (no errors). Each carries what the build got as far as: the pull, the manuscript mtime it
-    compiled, the copy's fingerprint, latexmk's last lines, and for a success the new page directory.
+    lines), BuildOk (no errors) and BuildUnchanged (the copy is the manuscript of the ok build on screen: nothing ran).
+    Each carries what the build got as far as: the pull, the manuscript mtime it compiled, the copy's fingerprint,
+    latexmk's last lines, and for a success the new page directory.
+
+    The copy keeps the main file's LaTeX byproducts from the last build (limn.builds.warm), so latexmk runs only what
+    changed. force (POST /api/rebuild?force=1) clears them first and never skips; so does a change of what latexmk does
+    not track (warm.cold_digest: rc files, toolchain, side tools' styles) before latexmk runs. Every outcome but BuildOk
+    and BuildUnchanged, and a build that raises, clears them afterwards, so the next build is cold (docs/handbook/build-sync.md §따뜻한 LaTeX와 변경
+    없는 재빌드).
 
     The files another document owns (D.apart) are left out of the manuscript mtime and the fingerprint unless the build
-    read them. Which it read is only known once latexmk has run, from the .fls this run wrote in the copy: the copy is
-    scanned once before latexmk (digest and mtime of every file), and afterwards the fingerprint is chosen from that scan
-    and the baseline mtime takes in the newest file the build read - the mtime as that scan saw it, and only for a file
-    that was in it, so neither a file latexmk made nor one it touched can move the baseline past an edit made during the
-    run. The scan hashes the copy but takes each mtime from the same file of D.src (when it is the file that was
-    copied), because a copy tool may keep only whole seconds and the baseline must not fall below the source's mtime. The .fls is published with the pages (next to the .synctex.gz and .aux), where the later queries find it."""
+    read them. Which it read is only known once latexmk has run, from the .fls this run wrote in the copy (or, when a
+    warm latexmk found everything up to date, the one it vouched for): the copy is scanned once before latexmk (digest
+    and mtime of every file), and afterwards the fingerprint is chosen from that scan and the baseline mtime takes in
+    the newest file the build read - the mtime as that scan saw it, and only for a file that was in it, so neither a
+    file latexmk made nor one it touched can move the baseline past an edit made during the run. The .fls is published
+    with the pages (next to the .synctex.gz and .aux), where the later queries find it. The scan hashes the copy but
+    takes each mtime from the same file of D.src (when it is the file that was copied), because a copy tool may keep
+    only whole seconds and the baseline must not fall below the source's mtime."""
+    if force:
+        clear_byproducts(D)
+    try:
+        res = _compile(D, cfg, pull, force)
+    except BaseException:
+        clear_byproducts(D)  # a build that died is not ok either: the next one starts cold
+        raise
+    if not isinstance(res, BuildOk | BuildUnchanged):
+        clear_byproducts(D)
+    return res
+
+
+def clear_byproducts(D: BuildDoc) -> None:
+    """Remove the main file's LaTeX byproducts and outputs from the folder latexmk runs in (warm.byproduct_names), so
+    the next latexmk starts cold. What cannot be removed is left; the next copy or latexmk run decides then."""
+    for name in warm.byproduct_names(D.main.stem):
+        with contextlib.suppress(OSError):
+            (D.out / name).unlink()
+
+
+def _kept(D: BuildDoc) -> tuple[str, ...]:
+    """The build-copy paths of D's byproducts that its copy keeps (warm.kept_paths), against the files the manuscript
+    holds where the main file is; none (a cold build) when that folder cannot be listed or lies outside the copy."""
+    try:
+        out_rel = D.out.relative_to(D.build)
+        names = os.listdir(D.src / out_rel)
+    except (ValueError, OSError):
+        return ()
+    return warm.kept_paths(PurePosixPath(out_rel.as_posix()), D.main.stem, names)
+
+
+def _published_head(D: BuildDoc) -> str:
+    """The short commit D's manuscript has checked out now, or '-' outside git."""
+    try:
+        head = run_git(["-C", str(D.src), "rev-parse", "--short", "HEAD"], D.src, 10)
+        return head.stdout.strip() or "-"
+    except (OSError, subprocess.SubprocessError):
+        return "-"
+
+
+def _file_digest(f: Path) -> bytes | None:
+    """The SHA-256 of f's bytes when it is (or links to) a plain file, or None when it is missing, cannot be read, or is
+    anything else - a folder, a FIFO, a device such as /dev/zero, which is never read."""
+    h = hashlib.sha256()
+    try:
+        fd = os.open(f, os.O_RDONLY | getattr(os, "O_NONBLOCK", 0))
+    except OSError:
+        return None
+    try:
+        if not stat.S_ISREG(os.fstat(fd).st_mode):
+            return None
+        with os.fdopen(fd, "rb", closefd=False) as fh:
+            for chunk in iter(lambda: fh.read(1 << 20), b""):
+                h.update(chunk)
+    except OSError:
+        return None
+    finally:
+        os.close(fd)
+    return h.digest()
+
+
+def _stat_token(f: str) -> bytes | None:
+    """f's mtime_ns and size as bytes, or None when it cannot be stat'ed - how a file outside the copy is compared."""
+    try:
+        st = os.stat(f)
+    except OSError:
+        return None
+    return b"%d:%d" % (st.st_mtime_ns, st.st_size)
+
+
+def _reads_digest(D: BuildDoc, reads: warm.Reads) -> str:
+    """warm.reads_digest of what reads names, as the build copy and the machine hold it now: each file inside the copy by
+    its bytes, each file outside it by its mtime_ns and size - a TeX Live update or a .sty on TEXINPUTS changes them,
+    and a stat costs far less than a read. Only the copy's files are opened."""
+    inside = [(r, _file_digest(D.build / r)) for r in sorted(reads.inside)]
+    outside = [(f, _stat_token(f)) for f in sorted(reads.outside)]
+    return warm.reads_digest(inside, outside)
+
+
+TEXT_CAP = 1 << 20  # the most a latexmkrc, .ilg, .blg or recipe.json read here may hold
+# latexmk 4.87 (latexmk.pl, the UNIX branch): the system rc is the first that exists of these, LatexMk names first.
+SYSTEM_RC_FILES = tuple(
+    "%s/%s" % (folder, name)
+    for name in ("LatexMk", "latexmkrc")
+    for folder in ("/etc", "/opt/local/share/latexmk", "/usr/local/share/latexmk", "/usr/local/lib/latexmk")
+)
+
+
+def _small_regular(f: Path) -> bytes | None:
+    """f's bytes when it is a plain file - not a symlink (the open does not follow one), a folder or a device - of at
+    most TEXT_CAP bytes, read bounded; None otherwise. A latexmkrc linked to /dev/zero is never read."""
+    try:
+        fd = os.open(f, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0))
+    except OSError:
+        return None
+    try:
+        st = os.fstat(fd)
+        if not stat.S_ISREG(st.st_mode) or st.st_size > TEXT_CAP:
+            return None
+        with os.fdopen(fd, "rb", closefd=False) as fh:
+            data = fh.read(TEXT_CAP + 1)
+    except OSError:
+        return None
+    finally:
+        os.close(fd)
+    return None if len(data) > TEXT_CAP else data
+
+
+def _read_text(f: Path) -> str | None:
+    """f's text (bytes that are not UTF-8 replaced) when it is a small plain file (_small_regular), else None."""
+    data = _small_regular(f)
+    return None if data is None else data.decode("utf-8", errors="replace")
+
+
+def _rc_token(f: Path) -> bytes | None:
+    """How an rc file is compared: the SHA-256 of its bytes when it is a small plain file; otherwise - a symlink, a
+    device, a file over TEXT_CAP - never read: its kind, the link's target and what stat says of it stand in. None when
+    there is nothing there."""
+    try:
+        st = os.lstat(f)
+    except OSError:
+        return None
+    data = _small_regular(f)
+    if data is not None:
+        return hashlib.sha256(data).digest()
+    target = b""
+    if stat.S_ISLNK(st.st_mode):
+        with contextlib.suppress(OSError):
+            target = os.fsencode(os.readlink(f))
+    try:
+        seen = os.stat(f)  # follows a link; asks nothing of a device
+    except OSError:
+        seen = st
+    return b"special:%o:%d:%d:" % (seen.st_mode, seen.st_mtime_ns, seen.st_size) + target
+
+
+def _first_existing(paths: list[str]) -> str | None:
+    """The first of paths that exists (a link to something counts), as latexmk's read_first_rc_file_in_list picks it."""
+    return next((f for f in paths if f and os.path.exists(f)), None)
+
+
+def _rc_paths(D: BuildDoc) -> list[tuple[str, Path | None]]:
+    """The latexmkrc files latexmk 4.87 reads for D, in its reading order, as (role, file or None when it reads none):
+    the system one ($LATEXMKRCSYS when set, else the first of SYSTEM_RC_FILES that exists), the user's (the first of
+    $XDG_CONFIG_HOME/latexmk/latexmkrc and ~/.latexmkrc), and the project's in the folder it runs in (the first of
+    .latexmkrc and latexmkrc) - and, as the warm copy keeps it alike, the build root's chosen the same way. Which file is
+    chosen is part of the digest: a file appearing ahead of the one read changes it."""
+    sysrc = os.environ.get("LATEXMKRCSYS")
+    system = _first_existing([sysrc] if sysrc is not None else list(SYSTEM_RC_FILES))
+    user: str | None = None
+    with contextlib.suppress(RuntimeError, KeyError):
+        home = Path.home()
+        xdg = os.environ.get("XDG_CONFIG_HOME") or str(home / ".config")
+        user = _first_existing([os.path.join(xdg, "latexmk", "latexmkrc"), str(home / ".latexmkrc")])
+    chosen: list[tuple[str, str | None]] = [("system", system), ("user", user)]
+    for role, folder in (("project", D.out), ("root", D.build)):
+        if role == "root" and folder == D.out:
+            continue
+        chosen.append((role, _first_existing([str(folder / ".latexmkrc"), str(folder / "latexmkrc")])))
+    return [(role, Path(f) if f else None) for role, f in chosen]
+
+
+def _resolve_styles(D: BuildDoc, spelled: list[str], tracked: frozenset[str]) -> list[str]:
+    """The style files a side tool's log names (warm.log_styles), as absolute paths of files that exist: relative to the
+    folder latexmk runs in, where makeindex and bibtex ran. Left out: a bare name the tool found elsewhere (a TeX Live
+    .bst), which the .fdb_latexmk sources already cover, and a file of tracked - the reads inside the copy (relative to
+    it), which latexmk itself follows, so an in-tree .bst edit stays warm."""
+    copy = os.path.normpath(D.build)
+    found = {os.path.normpath(os.path.join(D.out, s)) for s in spelled}
+    return sorted(
+        f
+        for f in found
+        if os.path.isfile(f)
+        and not (f.startswith(copy + os.sep) and f[len(copy) + 1 :].replace(os.sep, "/") in tracked)
+    )
+
+
+def _cold_digest(D: BuildDoc, styles: list[str]) -> str:
+    """warm.cold_digest as the machine and the copy are now: every latexmkrc latexmk may read (_rc_paths) by its bytes;
+    latexmk and each tool the rc files name (warm.tool_names) by the real path PATH gives and that file's stat; and
+    styles - side tools' style files - by their bytes inside the copy, their stat outside it."""
+    chosen = _rc_paths(D)
+    rc = [("%s=%s" % (role, f or "-"), _rc_token(f) if f else None) for role, f in chosen]
+    texts = [t for t in (_read_text(f) for _role, f in chosen if f is not None) if t is not None]
+    names = {"latexmk": "latexmk", **warm.tool_names(texts)}
+    tools: list[tuple[str, bytes | None]] = []
+    for var, prog in sorted(names.items()):
+        found = shutil.which(prog)
+        real = os.path.realpath(found) if found else None
+        tools.append(("%s=%s" % (var, real or "-"), _stat_token(real) if real else None))
+    copy = os.path.normpath(D.build)
+    style_tokens = [(f, _file_digest(Path(f)) if f.startswith(copy + os.sep) else _stat_token(f)) for f in styles]
+    return warm.cold_digest(rc, tools, style_tokens)
+
+
+def _build_reads(D: BuildDoc, fls_text: str) -> warm.Reads:
+    """What a build read, from its recorder file's text and the copy's .fdb_latexmk (bibtex's, biber's and makeindex's
+    sources, which the .fls never lists): inside the copy, only the files the manuscript itself has - a file latexmk or a
+    tool made in the copy (an epstopdf conversion) is not part of it and every build makes it anew."""
+    roots = (str(D.build), str(D.build.resolve()))
+    fdb = build.read_recorder(D.out / (D.main.stem + ".fdb_latexmk"))
+    found = warm.union(
+        warm.fls_reads(fls_text, str(D.out), roots),
+        warm.fdb_sources(fdb, str(D.out), roots) if fdb is not None else warm.NO_READS,
+    )
+    # os.path.isfile, not Path.is_file: before Python 3.14 the latter raises for a name longer than the file system takes
+    return warm.Reads(frozenset(r for r in found.inside if os.path.isfile(D.src / r)), found.outside)
+
+
+def _stored_recipe(folder: Path) -> object:
+    """The recipe a page folder holds (warm.RECIPE_NAME) as parsed JSON, or None when it has none, it is not a small plain
+    file, or it is not JSON."""
+    data = _small_regular(folder / warm.RECIPE_NAME)
+    if data is None:
+        return None
+    try:
+        return json.loads(data.decode("utf-8"))
+    except (ValueError, RecursionError):
+        return None
+
+
+def _signature(f: Path) -> tuple[int, int, int] | None:
+    """(mtime_ns, size, inode) of f when it is a plain file (not a symlink), else None."""
+    try:
+        st = os.lstat(f)
+    except OSError:
+        return None
+    return (st.st_mtime_ns, st.st_size, st.st_ino) if stat.S_ISREG(st.st_mode) else None
+
+
+def _compile(D: BuildDoc, cfg: BuildConfig, pull: Callable[[], Json] | None, force: bool) -> FinishedBuild:
+    """compile_tex's build itself: pull, copy, the no-change skip, latexmk and the render (compile_tex)."""
     t0 = time.time()
     D.build.mkdir(parents=True, exist_ok=True)
     pulled: Json | None = None
@@ -185,8 +462,9 @@ def compile_tex(D: BuildDoc, cfg: BuildConfig, pull: Callable[[], Json] | None) 
     # badge on even right after a success.
     compiled_at = build.src_mtime(D, cfg.state, force=True)
 
+    keep = _kept(D)
     try:
-        copy_manuscript(D.src, D.build, cfg.state)
+        copy_manuscript(D.src, D.build, cfg.state, keep)
     except ManuscriptCopyError as e:
         return CopyFailed(str(e), round(time.time() - t0, 1), pulled, compiled_at)
     # The scan is taken from the copy - these are exactly the files this build actually compiles (the original can still
@@ -197,33 +475,83 @@ def compile_tex(D: BuildDoc, cfg: BuildConfig, pull: Callable[[], Json] | None) 
         scan = build.scan_sources(D, D.build, cfg.state, keep_apart=True, mtimes_from=D.src)
     except OSError:
         scan = None
+    main_rel = PurePosixPath(D.main_rel.as_posix())
 
-    build.state_update(D, phase="latex")
-    # A single document runs in the build root as before; a --doc document runs in the folder holding its main .tex (Doc.out).
-    _rc, out, timed_out = run_logged(
-        ["latexmk", "-pdf", "-synctex=1", "-interaction=nonstopmode", D.main.name], D.out, cfg.timeout
-    )
-    with contextlib.suppress(OSError):
-        atomic_write(D.dir / "build.log", out)
-    tail = "\n".join(out.splitlines()[-40:])[-4000:]
+    # The no-change skip: the copy, read as the build on screen read its manuscript (that build's .fls), has that build's
+    # fingerprint, and that build's recipe (its page folder's recipe.json: dpi, main file, switches, and the files it
+    # read with their digest) still holds over the copy and the machine now, after an ok last build - so its pages are
+    # what this build would make. A build on screen without a .fls or a recipe (recorder off, an older Limn) is rebuilt.
+    cur = build.cur_pages(D)
+    stored = _stored_recipe(cur)
+    stored_reads = warm.stored_reads(stored) if (cur / (D.main.stem + ".fls")).is_file() else None
+    cold_now = _cold_digest(D, warm.stored_styles(stored))
+    if not force and scan is not None and stored_reads is not None:
+        cur_reads = build.read_in_scan(scan, build.build_inputs(D, cur.name))
+        seen = build.fingerprint_of(build.without_apart(D, scan, cur_reads))
+        pages = len(list(cur.glob("page-*.png")))
+        holds = warm.recipe_matches(stored, cfg.dpi, main_rel, LATEXMK_ARGS, _reads_digest(D, stored_reads), cold_now)
+        if pages and holds and warm.keeps_pages(build.load_builds(D), cur.name, seen):
+            compiled_at = max(compiled_at, build.newest_read_apart(D, scan, cur_reads))
+            head = _published_head(D)
+            atomic_write(D.dir / "head.txt", head)
+            return BuildUnchanged(round(time.time() - t0, 1), pulled, compiled_at, seen, head, cur.name, pages)
+
+    # Go cold on a recipe-level change: what latexmk does not track - an rc file, the toolchain PATH gives, a side tool's
+    # style file - differs from the build on screen (or that build left no recipe), so the kept byproducts may not meet
+    # this run: latexmk would find its targets up to date and keep the old PDF.
+    if not force and warm.goes_cold(stored, cold_now):
+        clear_byproducts(D)
 
     pdf = D.out / (D.main.stem + ".pdf")
     syn = D.out / (D.main.stem + ".synctex.gz")
     texlog = D.out / (D.main.stem + ".log")
+    aux = D.out / (D.main.stem + ".aux")
+    fls = D.out / (D.main.stem + ".fls")
+    # What the outputs were before latexmk: the copy can hold the last build's (warm), so "written by this run" is a
+    # changed file, not a recent mtime - a build that fails a second after the last one must not pass its PDF off.
+    before = {f: _signature(f) for f in (pdf, syn, texlog, aux, fls)}
+
+    build.state_update(D, phase="latex")
+    # A single document runs in the build root as before; a --doc document runs in the folder holding its main .tex (Doc.out).
+    rc, out, timed_out = run_logged(["latexmk", *LATEXMK_ARGS, D.main.name], D.out, cfg.timeout)
+    with contextlib.suppress(OSError):
+        atomic_write(D.dir / "build.log", out)
+    tail = "\n".join(out.splitlines()[-40:])[-4000:]
+
+    def written(f: Path) -> bool:
+        """f is a plain file this latexmk run wrote (it is new or changed since before the run)."""
+        now = _signature(f)
+        return now is not None and now != before[f]
+
     try:
-        logtxt = (
-            texlog.read_text(encoding="utf-8", errors="replace")
-            if texlog.exists() and texlog.stat().st_mtime >= t0 - 1
-            else out
-        )
+        logtxt = texlog.read_text(encoding="utf-8", errors="replace") if written(texlog) else out
     except OSError:
         logtxt = out
     errors = latex_errors(logtxt)
 
+    # A warm copy where latexmk compiled nothing: the PDF, SyncTeX and .aux it left are the last run's, which matched the
+    # manuscript then and still do. latexmk prints its up-to-date line after every successful run, so the line alone
+    # proves nothing: this run must have left the PDF untouched, and latexmk's target must be exactly <main>.pdf
+    # (warm.vouched; an $out_dir or -jobname names another).
+    settled = warm.vouched(out, D.main.stem, bool(keep), rc, timed_out, before[pdf], _signature(pdf))
+
+    def current(f: Path) -> bool:
+        """f is a plain file this run wrote, or one that latexmk vouched for (settled)."""
+        return written(f) or (settled and _signature(f) is not None)
+
+    def as_on_screen(f: Path) -> bool:
+        """f has the bytes of the file of its name published with the build on screen."""
+        try:
+            return f.read_bytes() == (cur / f.name).read_bytes()
+        except OSError:
+            return False
+
     # What this run read: the figure-set files of another document that the manuscript uses count as part of it. Only a
-    # recorder file this run wrote says so (a main.fls shipped with the manuscript is the copy's, not latexmk's), and only
-    # the files the scan before latexmk had. A damaged recorder file must not fail a build that made its pages.
-    recorder = _fresh_recorder(D.out / (D.main.stem + ".fls"), t0)
+    # recorder file this run wrote says so - a main.fls shipped with the manuscript is the copy's, not latexmk's - and
+    # only the files the scan before latexmk had. When latexmk vouched for the copy, its kept .fls counts only if it is
+    # the one published with the build on screen; otherwise none is published, and the next rebuild cannot skip. A
+    # damaged recorder file must not fail a build that made its pages.
+    recorder: Path | None = fls if written(fls) or (settled and as_on_screen(fls)) else None
     reads: frozenset[str] = frozenset()
     if scan is not None and recorder is not None and not D.apart.empty:
         try:
@@ -239,19 +567,34 @@ def compile_tex(D: BuildDoc, cfg: BuildConfig, pull: Callable[[], Json] | None) 
         """This build's failure of `kind`, with latexmk's last lines and what it compiled."""
         return BuildFailed(kind, detail, tail, errors, round(time.time() - t0, 1), pulled, compiled_at, src_hash)
 
-    fresh = (not timed_out) and pdf.exists() and pdf.stat().st_mtime >= t0 - 1
-    if not fresh:
+    if timed_out or not current(pdf):
         return failed("timeout" if timed_out else "no_pdf")
-    if not syn.exists() or syn.stat().st_mtime < t0 - 1:
+    if not current(syn):
         return failed("no_synctex")
 
     extra = [syn]
-    aux = D.out / (D.main.stem + ".aux")
-    if aux.is_file() and aux.stat().st_mtime >= t0 - 1:
+    if current(aux):
         extra.append(aux)
-    if recorder is not None:
+    fls_text = build.read_recorder(recorder) if recorder is not None else None
+    made: warm.Reads | None = None
+    if recorder is not None and fls_text is not None:
         extra.append(recorder)  # what this build read, kept with its pages (build.build_inputs reads it back)
-    newdir = render_pages(D, pdf, extra, cfg.dpi)
+        made = _build_reads(D, fls_text)
+    # How this build made its pages, for the next build: its cold digest always (a document with the recorder off stays
+    # warm on .tex edits), and what it read only with its .fls (no skip without one).
+    logs = [_read_text(D.out / (D.main.stem + suffix)) for suffix in (".ilg", ".blg")]
+    styles = _resolve_styles(D, warm.log_styles(*logs), made.inside if made is not None else frozenset())
+    recipe = warm.recipe(
+        cfg.dpi,
+        main_rel,
+        LATEXMK_ARGS,
+        made,
+        _reads_digest(D, made) if made is not None else None,
+        styles,
+        _cold_digest(D, styles),
+    )
+    notes = {warm.RECIPE_NAME: json.dumps(recipe, ensure_ascii=False)}
+    newdir = render_pages(D, pdf, extra, cfg.dpi, notes=notes)
     if isinstance(newdir, PagesNotRendered):
         return failed(newdir.kind, newdir.detail)
     # the manuscript is measured against this build's recorder file from the moment the pointer names its pages
@@ -263,51 +606,158 @@ def compile_tex(D: BuildDoc, cfg: BuildConfig, pull: Callable[[], Json] | None) 
     return BuildOk(tail, elapsed_s, pulled, compiled_at, src_hash, head_short, newdir.name, pages)
 
 
-def _fresh_recorder(path: Path, started: float) -> Path | None:
-    """The latexmk recorder file `path` when this run wrote it: a plain file (not a symlink) modified since the build
-    started (`started`, with the one second of slack the PDF and SyncTeX checks use). None otherwise - none was written
-    (the recorder is off) or what stands there came with the manuscript copy."""
+RENDER_WORKERS_MAX = 8  # pdftoppm processes one render runs at once, at most
+RENDER_TIMEOUT_S = 600  # one render's whole budget; each page gets what is left of it
+PART_DIR_RE = re.compile(r"\.pages-.*\.part")  # a page folder being drawn: no client may ask for it (valid_build_name)
+
+
+def available_cpus() -> int:
+    """The CPUs this process may run on: its affinity set where the platform has one (Linux - a container or a
+    taskset narrows it), else os.cpu_count(), and one when neither is known."""
     try:
-        st = os.lstat(path)
-    except OSError:
-        return None
-    return path if stat.S_ISREG(st.st_mode) and st.st_mtime >= started - 1 else None
+        return max(1, len(os.sched_getaffinity(0)))
+    except (AttributeError, OSError):
+        return os.cpu_count() or 1
 
 
-def render_pages(D: BuildDoc, pdf: Path, extra: list[Path], dpi: int) -> Path | PagesNotRendered:
-    """Renders pages into a new directory and drops in a copy of the PDF (and extra - synctex). The screen keeps
-    showing the old directory until this finishes. Returns the new directory, or why there is none (the half-made
-    directory is removed)."""
-    D.dir.mkdir(parents=True, exist_ok=True)
+def render_workers() -> int:
+    """How many pages one render draws at once: min(RENDER_WORKERS_MAX, available_cpus())."""
+    return min(RENDER_WORKERS_MAX, available_cpus())
+
+
+def _last_line(err: bytes) -> str:
+    """A tool's last non-empty stderr line, for a failure's detail ("" when it said nothing)."""
+    lines = err.decode("utf-8", "replace").strip().splitlines()
+    return lines[-1].strip()[:200] if lines else ""
+
+
+def page_count(pdf: Path, timeout: float) -> int | str:
+    """The number of pages pdfinfo reads in pdf, or why there is none (a detail for PagesNotRendered render)."""
+    try:
+        r = subprocess.run(["pdfinfo", str(pdf)], capture_output=True, timeout=timeout, check=False)
+    except FileNotFoundError:
+        return "pdfinfo not found"
+    except subprocess.TimeoutExpired:
+        return "pdfinfo timed out"
+    if r.returncode != 0:
+        return "pdfinfo exit %d: %s" % (r.returncode, _last_line(r.stderr))
+    m = re.search(rb"^Pages:\s+(\d+)\s*$", r.stdout, re.MULTILINE)
+    if m is None:
+        return "pdfinfo gave no page count"
+    return int(m.group(1)) or "the PDF has no pages"
+
+
+def draw_page(pdf: Path, page: int, dpi: int, dest: Path, deadline: float) -> str | None:
+    """Draw page `page` of pdf at dpi with its own pdftoppm (a PPM on stdout) and write it to dest as a PNG
+    (limn.builds.png). None when the page is written; otherwise why not (the page, and pdftoppm's last message)."""
+    left = deadline - time.monotonic()
+    if left <= 0:
+        return "page %d: no time left" % page
+    try:
+        r = subprocess.run(
+            ["pdftoppm", "-r", str(dpi), "-f", str(page), "-l", str(page), "-singlefile", str(pdf)],
+            capture_output=True,
+            timeout=left,
+            check=False,
+        )
+    except FileNotFoundError:
+        return "pdftoppm not found"
+    except subprocess.TimeoutExpired:
+        return "page %d: pdftoppm timed out" % page
+    if r.returncode != 0:
+        return "page %d: pdftoppm exit %d: %s" % (page, r.returncode, _last_line(r.stderr))
+    img = png.parse_ppm(r.stdout)
+    if img is None:
+        return "page %d: pdftoppm wrote no PPM image" % page
+    try:
+        dest.write_bytes(png.png_from_ppm(img, dpi))
+    except OSError as e:
+        return "page %d: %s" % (page, e)
+    return None
+
+
+def draw_pages(pdf: Path, folder: Path, dpi: int, workers: int) -> str | None:
+    """Draw every page of pdf into folder as page-<n>.png, n zero-padded to the page count's digits as
+    `pdftoppm -png` names them, with at most `workers` pdftoppm processes at once, page 1 first. None when every page
+    is written; otherwise the first failure's detail - the pages not yet started are not drawn."""
+    deadline = time.monotonic() + RENDER_TIMEOUT_S
+    n = page_count(pdf, max(0.001, deadline - time.monotonic()))
+    if isinstance(n, str):
+        return n
+    width = len(str(n))
+    stop = threading.Event()
+
+    def one(page: int) -> str | None:
+        """Draw one page unless another page already failed."""
+        if stop.is_set():
+            return None
+        why = draw_page(pdf, page, dpi, folder / ("page-%0*d.png" % (width, page)), deadline)
+        if why is not None:
+            stop.set()
+        return why
+
+    with ThreadPoolExecutor(max_workers=max(1, workers)) as pool:
+        futures = [pool.submit(one, page) for page in range(1, n + 1)]
+        failures = [why for why in (f.result() for f in futures) if why is not None]
+    return failures[0] if failures else None
+
+
+def _new_build_name(D: BuildDoc) -> str:
+    """A page folder name for a new build: pages-<YYYYmmddHHMMSS>, with the first free -<n> suffix when that folder
+    exists or the build history still names it - a name is never given to two builds, so a URL that names a build
+    always means the same images."""
+    used = set(build.load_builds(D)["by"])
     bid = time.strftime("%Y%m%d%H%M%S")
     name = "pages-" + bid
     k = 1
-    while (D.dir / name).exists():
+    while (D.dir / name).exists() or name in used:
         name = "pages-%s-%d" % (bid, k)
         k += 1
-    newdir = D.dir / name
-    newdir.mkdir(parents=True)
+    return name
+
+
+def render_pages(
+    D: BuildDoc,
+    pdf: Path,
+    extra: list[Path],
+    dpi: int,
+    workers: int | None = None,
+    notes: Mapping[str, str] | None = None,
+) -> Path | PagesNotRendered:
+    """Renders pages into a new directory and drops in a copy of the PDF (and extra - synctex, .aux, a figure map), and
+    notes - small text files by name (a LaTeX build's recipe.json), written into it before it is published.
+    Pages are drawn in parallel (draw_pages, at most `workers` at once, render_workers() by default) into a hidden
+    folder (.<name>.part) that no client can name; only when every page and companion is in place does it get its
+    pages-<build> name, in one rename. The screen keeps showing the old directory until commit_pages. Returns the new
+    directory, or why there is none: render (a page could not be drawn; detail names it) or pdf_copy (a companion
+    could not be stored) - the half-made folder is removed. A half-made folder a killed process left is cleared first."""
+    D.dir.mkdir(parents=True, exist_ok=True)
+    for d in D.dir.iterdir():
+        if d.is_dir() and PART_DIR_RE.fullmatch(d.name):
+            shutil.rmtree(d, ignore_errors=True)
+    name = _new_build_name(D)
+    part = D.dir / ("." + name + ".part")
+    part.mkdir(parents=True)
     build.state_update(D, phase="render")
+    why = draw_pages(pdf, part, dpi, render_workers() if workers is None else workers)
+    if why is not None:
+        shutil.rmtree(part, ignore_errors=True)
+        return PagesNotRendered("render", why)
     try:
-        r = subprocess.run(
-            ["pdftoppm", "-r", str(dpi), "-png", str(pdf), str(newdir / "page")],
-            capture_output=True,
-            timeout=600,
-            check=False,
-        )
-        ok_render = r.returncode == 0 and any(newdir.glob("page-*.png"))
-    except (subprocess.TimeoutExpired, FileNotFoundError):
-        ok_render = False
-    if not ok_render:
-        shutil.rmtree(newdir, ignore_errors=True)
-        return PagesNotRendered("render", "")
-    try:
-        shutil.copy2(pdf, newdir / D.pdf_name)
+        shutil.copy2(pdf, part / D.pdf_name)
         for f in extra:
-            shutil.copy2(f, newdir / f.name)
+            shutil.copy2(f, part / f.name)
+        for note, text in (notes or {}).items():
+            (part / note).write_text(text, encoding="utf-8")
     except OSError as e:
-        shutil.rmtree(newdir, ignore_errors=True)
+        shutil.rmtree(part, ignore_errors=True)
         return PagesNotRendered("pdf_copy", str(e))
+    newdir = D.dir / name
+    try:
+        os.rename(part, newdir)
+    except OSError as e:
+        shutil.rmtree(part, ignore_errors=True)
+        return PagesNotRendered("render", "page folder not published: %s" % e)
     return newdir
 
 
@@ -325,11 +775,7 @@ def commit_pages(D: BuildDoc, newdir: Path, on_swap: Callable[[], None] | None =
         if d.is_dir() and PAGES_DIR_RE.fullmatch(d.name) and d.name not in (newdir.name, prev):
             shutil.rmtree(d, ignore_errors=True)
     atomic_write(D.dir / "built_at.txt", datetime.now().astimezone().isoformat(timespec="seconds"))
-    try:
-        head = run_git(["-C", str(D.src), "rev-parse", "--short", "HEAD"], D.src, 10)
-        head_short = head.stdout.strip() or "-"
-    except (OSError, subprocess.SubprocessError):
-        head_short = "-"
+    head_short = _published_head(D)
     atomic_write(D.dir / "head.txt", head_short)
     return head_short
 

@@ -13,15 +13,17 @@ POST_PATH = "/api/rebuild"
 
 
 def get(path: str, query: Query, doc: Doc, text: Callable[[object], str]) -> Reply | None:
-    """Answer build status, one page image or the matching PDF; None lets another GET route match."""
+    """Answer build status, one page image or the matching PDF; None lets another GET route match. A page or PDF
+    answer carries its Cache-Control and ETag (http.BuildFile)."""
     if path == "/api/build":
         return json_reply(http.status(doc, query))
     if path.startswith("/pages/"):
-        data = http.page(doc, path)
-        if data is not None:
-            return Reply(200, data, "image/png")
+        found = http.page(doc, path, text)
+        if found is not None:
+            return Reply(200, found.data, "image/png", found.cache, found.etag)
     if path == "/pdf":
-        return Reply(200, http.pdf(doc, query, text), "application/pdf", "private, max-age=600")
+        pdf = http.pdf(doc, query, text)
+        return Reply(200, pdf.data, "application/pdf", pdf.cache, pdf.etag)
     return None
 
 

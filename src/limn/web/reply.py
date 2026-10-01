@@ -5,12 +5,13 @@ from typing import NamedTuple
 
 
 class Reply(NamedTuple):
-    """Status, body, Content-Type and optional Cache-Control for one response."""
+    """Status, body, Content-Type, optional Cache-Control and optional ETag (a quoted entity tag) for one response."""
 
     code: int
     body: bytes
     ctype: str
     cache: str | None = None
+    etag: str | None = None
 
 
 def json_reply(obj: object, code: int = 200) -> Reply:

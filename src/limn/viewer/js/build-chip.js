@@ -7,11 +7,11 @@
 // started_at string or "was running ever observed" instead missed a build that finished within a 5-second gap, or
 // double-processed the same completion when a hidden tab came back via two paths at once (observed: toast x2).
 // The active document visit owns one poll timer, request and completion baseline; the error panel follows that visit.
-const BUILD={timer:null,error:null,lastSeq:null,booted:false,inflight:null};
+const BUILD={timer:null,error:null,lastSeq:null,booted:false,inflight:null,asked:false};
 // Reset the visible build controls and baseline when a different document takes the screen.
 function resetBuildForDoc(){if(BUILD.timer){clearInterval(BUILD.timer);BUILD.timer=null;}
   $('#build-chip').hidden=true; $('#btn-rebuild').disabled=false;
-  BUILD.lastSeq=(typeof META.build_seq==='number')?META.build_seq:0; BUILD.error=BUILD_ERR_BY.get(DOC)||null;
+  BUILD.lastSeq=(typeof META.build_seq==='number')?META.build_seq:0; BUILD.asked=false; BUILD.error=BUILD_ERR_BY.get(DOC)||null;
   if(BUILD.error)hideBuildErr(); else{$('#build-err').hidden=true; $('#build-err-chip').hidden=true;}
   BUILD.booted=true; if(BUILD.inflight)BUILD.inflight.then(()=>pollBuild()); else pollBuild();}
 function buildChipText(b){
@@ -37,8 +37,9 @@ function pollBuild(){
   return BUILD.inflight;
 }
 // One /api/build poll for the document on screen: shows or hides the progress chip and the 1-second timer, and processes a
-// finished build exactly once per `seq` (refresh the pages, toast, error panel). A reply that arrives after a document
-// switch is dropped. Resolves with nothing and never throws; a failed request is ignored (the next poll retries).
+// finished build exactly once per `seq` (refresh the pages, toast, error panel). A rebuild this tab asked for that kept
+// the pages (unchanged: true, the same seq) gets one "no changes" toast whose [그래도 빌드] forces a cold rebuild. A reply that arrives after a
+// document switch is dropped. Resolves with nothing and never throws; a failed request is ignored (the next poll retries).
 async function pollBuildOnce(){
   let b; const k=DOC,visit=SWITCHSEQ;
   try{b=(await api(dq('/api/build?log=1'),{what:'빌드 상태',silent:true})).data;}catch(e){return;}
@@ -54,8 +55,10 @@ async function pollBuildOnce(){
   const seq=(typeof b.seq==='number')?b.seq:0;
   const booted=BUILD.booted; BUILD.booted=true;
   if(BUILD.lastSeq===null)BUILD.lastSeq=seq;
-  if(seq!==BUILD.lastSeq){
-    BUILD.lastSeq=seq;                 // claimed before the await - so the same completion is never processed twice
+  if(seq===BUILD.lastSeq&&BUILD.asked&&b.unchanged===true){
+    BUILD.asked=false; toast(tr(T.nochange)+pullSuffix(b),'ok',{label:T.buildanyway,tip:T.buildanywaytip,fn:()=>rebuild(true)});
+  }else if(seq!==BUILD.lastSeq){
+    BUILD.lastSeq=seq; BUILD.asked=false;  // claimed before the await - so the same completion is never processed twice
     DOC_SEQ.set(k,seq);
     try{await refreshDoc();}catch(e){}
     if(k!==DOC||visit!==SWITCHSEQ)return;

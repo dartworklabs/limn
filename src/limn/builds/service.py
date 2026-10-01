@@ -58,24 +58,25 @@ class BuildRequests:
         c = self.settings()
         return BuildConfig(state=c.state, dpi=c.dpi, timeout=c.timeout)
 
-    def compile(self, doc: Doc) -> FinishedBuild:
-        """Compile one LaTeX document, pulling its repository first when configured."""
-        return engine.compile_tex(doc, self.config(), self.pull if self.settings().git_pull else None)
+    def compile(self, doc: Doc, force: bool = False) -> FinishedBuild:
+        """Compile one LaTeX document, pulling its repository first when configured; force builds cold and never
+        skips (engine.compile_tex)."""
+        return engine.compile_tex(doc, self.config(), self.pull if self.settings().git_pull else None, force)
 
-    def tracked(self, doc: Doc, ready: FigureImport | None = None) -> FinishedBuild:
+    def tracked(self, doc: Doc, ready: FigureImport | None = None, force: bool = False) -> FinishedBuild:
         """Run one build of doc (build_step) and commit its status and page history (run.run_tracked). ready is a
         figure document's verified pair (figure.pending_import); without it such a document reads and checks its files
-        itself."""
+        itself. force is a LaTeX document's forced cold build."""
         return run.run_tracked(
-            doc, self.settings().state, lambda: self.build_step(doc, ready), self.now(), self.describe
+            doc, self.settings().state, lambda: self.build_step(doc, ready, force), self.now(), self.describe
         )
 
-    def build_step(self, doc: Doc, ready: FigureImport | None = None) -> FinishedBuild:
-        """One untracked build of doc, chosen by capability: latexmk for a document built from source; the import of
-        its map and PDF for a document with an element map (figure.import_now, with ready when given); otherwise the
-        render of its view-only PDF."""
+    def build_step(self, doc: Doc, ready: FigureImport | None = None, force: bool = False) -> FinishedBuild:
+        """One untracked build of doc, chosen by capability: latexmk for a document built from source (force: cold, no
+        skip); the import of its map and PDF for a document with an element map (figure.import_now, with ready when
+        given); otherwise the render of its view-only PDF."""
         if doc.builds_from_source:
-            return self.compile(doc)
+            return self.compile(doc, force)
         if doc.has_element_map:
             imported = figure.import_now(doc, self.config(), ready)
             if isinstance(imported, BuildOk):
@@ -102,23 +103,27 @@ class BuildRequests:
             return run.build_now(doc, lambda: self.tracked(doc, ready))
         return run.build_in_background(doc, lambda: self.tracked(doc, ready), self.now(), self.describe)
 
-    def build_all(self, doc: Doc) -> FinishedBuild | BuildBusy:
-        """Build now, or return busy when this document's build lock is held."""
-        return run.build_now(doc, lambda: self.tracked(doc))
+    def build_all(self, doc: Doc, force: bool = False) -> FinishedBuild | BuildBusy:
+        """Build now, or return busy when this document's build lock is held. force builds cold, never skipping."""
+        return run.build_now(doc, lambda: self.tracked(doc, force=force))
 
-    def build_async(self, doc: Doc) -> BuildStarted | BuildBusy:
-        """Start a tracked build on a daemon thread, or return busy."""
-        return run.build_in_background(doc, lambda: self.tracked(doc), self.now(), self.describe)
+    def build_async(self, doc: Doc, force: bool = False) -> BuildStarted | BuildBusy:
+        """Start a tracked build on a daemon thread, or return busy. force builds cold, never skipping."""
+        return run.build_in_background(doc, lambda: self.tracked(doc, force=force), self.now(), self.describe)
 
-    def rebuild(self, doc: Doc, authority: PostAuthority) -> FinishedBuild | BuildBusy | ViewOnlyNoRebuild:
-        """Refuse manual rebuild of a view-only document; otherwise build now."""
+    def rebuild(
+        self, doc: Doc, authority: PostAuthority, force: bool = False
+    ) -> FinishedBuild | BuildBusy | ViewOnlyNoRebuild:
+        """Refuse manual rebuild of a view-only document; otherwise build now (force: POST /api/rebuild?force=1)."""
         require_authority(authority, self.authority_scope, "rebuild", document_authority_target(doc))
-        return run.request_rebuild(doc, self.build_all)
+        return run.request_rebuild(doc, lambda d: self.build_all(d, force))
 
-    def rebuild_async(self, doc: Doc, authority: PostAuthority) -> BuildStarted | BuildBusy | ViewOnlyNoRebuild:
-        """Refuse manual rebuild of a view-only document; otherwise start in the background."""
+    def rebuild_async(
+        self, doc: Doc, authority: PostAuthority, force: bool = False
+    ) -> BuildStarted | BuildBusy | ViewOnlyNoRebuild:
+        """Refuse manual rebuild of a view-only document; otherwise start in the background (force as in rebuild)."""
         require_authority(authority, self.authority_scope, "rebuild", document_authority_target(doc))
-        return run.request_rebuild(doc, self.build_async)
+        return run.request_rebuild(doc, lambda d: self.build_async(d, force))
 
     def init_doc(self, doc: Doc, no_build: bool, wait: bool) -> FinishedBuild | BuildStarted | BuildBusy | BuildSkipped:
         """Restore build history and start a needed build, synchronously only when requested. A document with an

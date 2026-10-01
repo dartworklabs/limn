@@ -53,13 +53,17 @@ class BuildCommands:
         """Return the authority scope bound by the underlying build service."""
         return self._requests.authority_scope
 
-    def rebuild(self, doc: Doc, authority: PostAuthority) -> FinishedBuild | BuildBusy | ViewOnlyNoRebuild:
-        """Run a synchronous authorized rebuild."""
-        return self._requests.rebuild(doc, authority)
+    def rebuild(
+        self, doc: Doc, authority: PostAuthority, force: bool = False
+    ) -> FinishedBuild | BuildBusy | ViewOnlyNoRebuild:
+        """Run a synchronous authorized rebuild; force builds cold and never answers unchanged."""
+        return self._requests.rebuild(doc, authority, force)
 
-    def rebuild_async(self, doc: Doc, authority: PostAuthority) -> BuildStarted | BuildBusy | ViewOnlyNoRebuild:
-        """Start an asynchronous authorized rebuild."""
-        return self._requests.rebuild_async(doc, authority)
+    def rebuild_async(
+        self, doc: Doc, authority: PostAuthority, force: bool = False
+    ) -> BuildStarted | BuildBusy | ViewOnlyNoRebuild:
+        """Start an asynchronous authorized rebuild; force as in rebuild."""
+        return self._requests.rebuild_async(doc, authority, force)
 
     def build_async(self, doc: Doc) -> BuildStarted | BuildBusy:
         """Start an internal asynchronous build."""

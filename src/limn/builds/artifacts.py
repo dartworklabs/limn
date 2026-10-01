@@ -35,6 +35,7 @@ from limn.builds.values import (
     BuildSkipped as BuildSkipped,
     BuildStarted as BuildStarted,
     BuildState as BuildState,
+    BuildUnchanged as BuildUnchanged,
     CopyFailed as CopyFailed,
     Describe as Describe,
     FailedBuild as FailedBuild,
@@ -533,6 +534,20 @@ def record_build(D: BuildDoc, last: dict[str, Any], ent: dict[str, Any] | None) 
             h["builds"] = [b for b in h["builds"] if b["build"] != ent["build"]] + [ent]
         _write_builds(D, h)
         return seq
+
+
+def confirm_build(D: BuildDoc, name: str, src_mtime: float) -> None:
+    """A rebuild found build `name`'s manuscript unchanged at src_mtime (limn.builds.values.BuildUnchanged): move that
+    build's history entry src_mtime there, so the "manuscript modified" badge (build_ref_mtime) measures from it. The
+    content is the same, so the build stands for the manuscript as it is now. Nothing else in the history changes: no
+    seq, no last. An entry that is gone (or a history that cannot be written) is left as it is."""
+    with D.builds_lock:
+        h = load_builds(D)
+        ent = h["by"].get(name)
+        if ent is None:
+            return
+        ent["src_mtime"] = src_mtime
+        _write_builds(D, h)
 
 
 def _restored_last(last: object, seq: int) -> Json | None:

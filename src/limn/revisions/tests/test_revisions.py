@@ -658,8 +658,9 @@ class ManuscriptRevisions(Base):
         aux.write_text(r"\@writefile{toc}{\contentsline {section}{\numberline {1}Before}{1}{section.1}}")
 
         def render(cmd, **kwargs):
-            Path(str(cmd[-1]) + "-1.png").write_bytes(b"png")
-            return subprocess.CompletedProcess(cmd, 0)
+            """pdfinfo says one page; pdftoppm writes that page as a 1x1 PPM on stdout."""
+            out = b"Pages: 1\n" if cmd[0] == "pdfinfo" else b"P6\n1 1\n255\n\xff\xff\xff"
+            return subprocess.CompletedProcess(cmd, 0, out, b"")
 
         with mock.patch.object(subprocess, "run", side_effect=render):
             pages = build_engine.render_pages(ps.APP.docs[0], pdf, [aux], ps.APP.C.dpi)

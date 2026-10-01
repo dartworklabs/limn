@@ -159,7 +159,7 @@ After the number, the number cell carries short plain-word markers joined by ` Â
 
 ## Starting a viewer for the user
 
-1. **Install** (once): `uv tool install git+https://github.com/dartworklabs/limn@v0.4.4`, then check with `limn version`.
+1. **Install** (once): `uv tool install git+https://github.com/dartworklabs/limn@v0.4.5`, then check with `limn version`.
 2. **Check the port (mandatory).** Never bind without checking.
 
    ```bash
@@ -201,7 +201,7 @@ Send each JSON key, query parameter and singleton security header once. Duplicat
 | `POST /api/pins/{id}/reopen` | Reopen (clears the old `reply`, `ref` and `changes`). Optional `{"reason"}` stays in the thread |
 | `POST /api/pins/{id}/edit` | Edit note or range (`base_rev` required), or `note_append` |
 | `POST /api/pins/{id}/drop` | Move a pin to the Trash. `/restore` brings it back within 30 days (permanent `/purge` is owner-only) |
-| `POST /api/rebuild?async=1` | Rebuild a LaTeX document's PDF (`kind: "tex"` only; figure and view-only documents answer `400`); progress at `GET /api/build`. With several documents add `&doc=<key>` to both |
+| `POST /api/rebuild?async=1` | Rebuild a LaTeX document's PDF (`kind: "tex"` only; figure and view-only documents answer `400`); progress at `GET /api/build`. With several documents add `&doc=<key>` to both. A manuscript identical to the build on screen ends at once as `ok` with `unchanged: true`; add `&force=1` to rebuild from scratch (after changing a file only a shell-escape program reads) |
 | `GET /api/docs` | Document list (key, name, kind `tex`/`pdf`/`figure`, open pin count, build state) |
 | `GET /api/meta?light=1` | Read-only state (`stale_build`, â€¦). `&ev=<seq>` returns events addressed to you (for browser notifications) |
 

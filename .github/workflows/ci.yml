@@ -159,7 +159,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            latexmk texlive-latex-base texlive-plain-generic latexdiff poppler-utils bubblewrap
+            latexmk texlive-latex-base texlive-plain-generic texlive-xetex latexdiff poppler-utils bubblewrap
       - name: Let bwrap create user namespaces
         # Ubuntu 24.04 (kernel.apparmor_restrict_unprivileged_userns=1) denies unprivileged user namespaces to any
         # program without an AppArmor profile that grants them, and bwrap then fails at its first step ("loopback:

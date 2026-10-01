@@ -41,9 +41,9 @@ Limn은 원고를 PDF로 빌드해 쪽 이미지로 보여 주고, 그 위에 �
 
 | `state` | 조건 | 화면 |
 | --- | --- | --- |
-| `ok` | 새 PDF가 나왔고 LaTeX 로그에 `! ` 줄이 없다 | 새 쪽으로 교체 |
+| `ok` | 새 PDF가 나왔고 LaTeX 로그에 `! ` 줄이 없다. 또는 원고가 화면 빌드와 같아 아무것도 돌리지 않았다(`unchanged: true`, §따뜻한 LaTeX와 변경 없는 재빌드) | 새 쪽으로 교체. 변경 없음이면 그대로 |
 | `ok_errors` | 새 PDF는 나왔지만 `! ` 줄이 있다(nonstopmode의 `\undefinedmacro` 등) | 새 쪽으로 교체 + 오류 알림 |
-| `fail` | 원고 사본을 못 믿거나, 새 PDF가 없거나(PDF mtime < 시작 시각), 시간 초과, SyncTeX 파일이 없거나, 쪽을 못 그렸다 | **이전 쪽 그대로** |
+| `fail` | 원고 사본을 못 믿거나, 새 PDF가 없거나(이번 실행이 PDF를 쓰지 않았다. 실행 전후의 (mtime_ns, 크기, inode)가 같고, latexmk가 남긴 PDF를 믿을 조건(§따뜻한 LaTeX와 변경 없는 재빌드)도 맞지 않는다), 시간 초과, SyncTeX 파일이 없거나, 쪽을 못 그렸다 | **이전 쪽 그대로** |
 
 비동기 조회(`GET /api/build`)에는 빌드 전의 `idle` 과 진행 중인 `running` 이 더 있다(§비동기 재빌드). 다섯 이름은 `limn/builds/values.py` 의 `BuildState`(`BUILD_STATES`)다.
 
@@ -54,6 +54,7 @@ Limn은 원고를 PDF로 빌드해 쪽 이미지로 보여 주고, 그 위에 �
 | 값 | 뜻 | `state` |
 | --- | --- | --- |
 | `BuildOk` | 새 쪽, LaTeX 오류 없음 | `ok` |
+| `BuildUnchanged` | 원고 사본이 화면 빌드와 같아 latexmk·쪽 그리기를 하지 않았다. 새 쪽도 `build_seq` 도 없다(§따뜻한 LaTeX와 변경 없는 재빌드) | `ok` |
 | `BuildOkWithErrors` | 새 쪽, `! ` 줄 있음(`errors`) | `ok_errors` |
 | `CopyFailed` | 원고 사본을 못 믿어 컴파일하지 않았다 | `fail` |
 | `BuildFailed(kind)` | 컴파일했지만 새 쪽이 없다. `kind` 는 `timeout`·`no_pdf`·`no_synctex`·`render`(pdftoppm)·`pdf_copy`(PDF 사본을 쪽 옆에 못 둠) | `fail` |
@@ -67,7 +68,7 @@ Limn은 원고를 PDF로 빌드해 쪽 이미지로 보여 주고, 그 위에 �
 
 ### 응답
 
-`POST /api/rebuild` 의 본문은 한 곳, [`builds/answer.py`](../../src/limn/builds/answer.py) 의 `finished_build_body` 가 만든다. 키 순서는 `ok`(state≠fail), `state`, `errors: [{"line", "msg"}]`, `log`, `elapsed_s` 이고, 그 뒤로 빌드가 간 데까지만 붙는다. `pull`(`--git-pull` 일 때), `src_mtime`(LaTeX 빌드가 컴파일한 원고의 mtime), `src_hash`(사본의 지문을 잰 뒤. 못 읽었으면 `null`), 새 쪽이 나왔으면 `head`·`build`(새 쪽 디렉토리 이름)·`pages`(새 쪽 수)다. 원고 사본에서 멈춘 실패에는 `src_hash` 가 없고, `BuildAborted` 는 앞의 다섯 키만 있다(`elapsed_s` 0.0). 상태 코드와 다이어트는 `rebuild_answer`(동기)와 `rebuild_started_answer`(비동기)가 정한다.
+`POST /api/rebuild` 의 본문은 한 곳, [`builds/answer.py`](../../src/limn/builds/answer.py) 의 `finished_build_body` 가 만든다. 키 순서는 `ok`(state≠fail), `state`, `errors: [{"line", "msg"}]`, `log`, `elapsed_s` 이고, 그 뒤로 빌드가 간 데까지만 붙는다. `pull`(`--git-pull` 일 때), `src_mtime`(LaTeX 빌드가 컴파일한 원고의 mtime), `src_hash`(사본의 지문을 잰 뒤. 못 읽었으면 `null`), 새 쪽이 나왔으면 `head`·`build`(새 쪽 디렉토리 이름)·`pages`(새 쪽 수)다. 변경 없는 재빌드는 `ok` 빌드와 같은 키에 `build`(화면에 남은 쪽 디렉토리)와 맨 뒤 `unchanged: true` 가 붙고, `log` 는 빈 글이다. 원고 사본에서 멈춘 실패에는 `src_hash` 가 없고, `BuildAborted` 는 앞의 다섯 키만 있다(`elapsed_s` 0.0). 상태 코드와 다이어트는 `rebuild_answer`(동기)와 `rebuild_started_answer`(비동기)가 정한다.
 
 | 필드 | 뜻 |
 | --- | --- |
@@ -79,6 +80,85 @@ Limn은 원고를 PDF로 빌드해 쪽 이미지로 보여 주고, 그 위에 �
 ### 쪽 교체
 
 쪽 이미지는 새 디렉토리 `pages-<build_id>/` 에 먼저 그린다. 그다음 포인터 파일 `pages.cur` 를 원자적으로 바꾼다. 그래서 빌드 중에도, 전환 직후 옛 URL로도 쪽 요청이 끊기지 않는다. 뷰어는 새로고침 없이 이미지만 바꾼다. 보던 쪽과 쓰던 메모는 그대로 유지한다.
+
+쪽 그리기(`engine.render_pages`, phase `render`)는 쪽마다 `pdftoppm` 을 따로 돌린다.
+
+- 쪽 수는 `pdfinfo` 로 읽는다. 쪽마다 `pdftoppm -r <dpi> -f <n> -l <n> -singlefile` 이 PPM을 표준 출력으로 내고, 서버가 그것을 표준 라이브러리(`zlib`)로 PNG로 바꾼다(`builds/png.py`). 모든 줄을 필터 0(None)으로 두고 zlib 수준 1로 압축한다. `pdftoppm -png` 는 시간의 절반을 PNG 압축에 쓰기 때문이다. 픽셀은 `pdftoppm -png` 가 저장하던 것과 같고 바이트만 다르다. 파일 이름도 같은 규칙이다. `page-<n>.png` 의 `n` 은 전체 쪽 수의 자릿수만큼 0을 채운다(9쪽이면 `page-1`, 10쪽이면 `page-01`). `page_list` 의 정렬과 쪽 크기 계산은 그대로다.
+- 동시에 도는 `pdftoppm` 은 `min(8, CPU 수)` 개까지다. 1쪽부터 차례로 맡긴다. 한 쪽의 PPM은 150 dpi A4에서 약 6.5 MB라, 순간 메모리는 그 몇 배다.
+- 렌더 전체의 시간 한도는 600초다. 쪽마다 남은 시간을 넘겨받는다.
+- 한 쪽이라도 못 그리면 빌드는 `BuildFailed("render")` 다. 로그 첫 줄의 세부가 그 쪽 번호와 `pdftoppm`(또는 `pdfinfo`)의 마지막 메시지를 알린다. 아직 시작하지 않은 쪽은 그리지 않는다.
+- 그리는 동안의 폴더는 `.pages-<build_id>.part` 다. 이 이름은 클라이언트가 보낼 수 있는 빌드 이름(`valid_build_name`)이 아니므로, 반쯤 그린 폴더를 아무도 요청할 수 없다. 쪽과 PDF·SyncTeX 사본이 모두 들어간 뒤에야 한 번의 rename으로 `pages-<build_id>` 가 된다. 실패하면 이 폴더를 지운다. 프로세스가 죽어 남은 폴더는 그 문서의 다음 렌더가 지운다.
+- 빌드 이름은 초 단위 시각이다. 같은 초에 이미 있는 폴더나 `builds.json` 이력에 남은 이름이면 `-<n>` 을 붙인다. 지워진 빌드의 이름도 다시 쓰지 않으므로, 빌드 이름이 들어간 URL은 언제나 같은 이미지를 가리킨다. 그래서 그 URL(`/pages/<빌드>/<쪽>`, `/pdf?build=<빌드>`)은 1년 동안 캐시한다([api.md](api.md) §화면·PDF·정적 파일).
+
+## 따뜻한 LaTeX와 변경 없는 재빌드
+
+빌드 시간의 나머지 절반은 매번 처음부터 도는 LaTeX다. 그래서 사본은 latexmk의 부산물을 빌드 사이에 남기고, 원고가 화면 빌드와 같으면 아무것도 돌리지 않는다. 판단은 순수 [`builds/warm.py`](../../src/limn/builds/warm.py)가, 파일 일은 `engine.compile_tex` 가 맡는다.
+
+부산물은 언제 지워도 다음 빌드가 처음부터 다시 만드는 캐시이므로, 이 동작은 ADR 없이 이 문서에만 적는다.
+
+### 남기는 부산물
+
+- 사본은 메인 파일의 부산물과 PDF를 남긴다. 부산물은 latexmk를 돌리는 폴더의 `<main>` 에 `.aux`·`.bbl`·`.bcf`·`.blg`·`.fdb_latexmk`·`.fls`·`.idx`·`.ilg`·`.ind`·`.lof`·`.log`·`.lot`·`.nav`·`.out`·`.run.xml`·`.snm`·`.spl`·`.toc`·`.vrb` 를 붙인 이름이다(`warm.kept_paths`). 복사(`copy_manuscript`)는 이 경로를 rsync에 고정 제외로 넘기므로 지우지도 덮지도 않는다. rsync가 없을 때의 복사도 이 경로를 비워 두고 나머지만 새로 복사한다. 그래서 latexmk는 바뀐 단계만 돈다. 한 문단을 고치면 pdflatex가 한 번 돈다.
+- 원고에 커밋된 같은 이름의 PDF(`<main>.pdf`)는 사본으로 오지 않는다. 그래서 빌드가 쓴 PDF를 덮지 못한다.
+- 메인 파일 폴더에 부산물 이름의 파일이 원고로 들어 있으면(arXiv용 `main.bbl` 등) 아무것도 남기지 않는다. 그 파일은 예전처럼 사본으로 복사되어 쓰이고, 빌드는 매번 처음부터 돈다.
+- 복사는 `rsync -a --checksum --delete` 다. 사본을 빌드 사이에 남기므로 크기와 mtime(초)이 같은 편집, 곧 직전 복사와 같은 초에 한 글자를 바꾼 편집도 내용으로 가려 사본에 넣는다.
+- 강제 재빌드(`POST /api/rebuild?force=1`)는 시작 전에 부산물과 PDF·SyncTeX를 지운다. `ok` 로 끝나지 않은 빌드(`ok_errors`·`fail`)와 예상 밖 예외로 죽은 빌드도 끝난 뒤 지운다. 다음 빌드는 처음부터 돈다. 그래서 옛 `.aux`·`.bbl` 이 실패한 빌드를 넘어 남지 않는다.
+- 빌드 방식이 바뀐 빌드도 latexmk를 돌리기 전에 지운다(§빌드 방식이 바뀌면 처음부터).
+
+파일이 이번 실행에서 쓰였는지는 실행 전후의 (mtime_ns, 크기, inode)로 가른다. 직전 빌드의 1초 안에 실패한 빌드가 남은 PDF를 새 PDF로 내놓지 않게 하기 위해서다.
+
+latexmk가 아무것도 컴파일하지 않아도 빌드가 남은 파일로 쪽을 그려야 할 때가 있다. dpi만 바꾼 재빌드, 인용하지 않는 `.bib` 항목을 고친 재빌드, 업그레이드 뒤 첫 재빌드다. 이때 사본에 남은 PDF·SyncTeX·`.aux` 를 이번 빌드의 것으로 믿는 조건은 아래가 **모두** 맞을 때뿐이다(`warm.vouched`).
+
+1. 부산물을 남긴 사본이고, latexmk가 종료 코드 0으로 끝났고, 시간 초과가 아니다.
+2. 이번 실행이 PDF를 쓰지 않았다. 실행 전에 있던 PDF의 (mtime_ns, 크기, inode)가 그대로다.
+3. latexmk 출력의 마지막 `Latexmk: All targets (X) are up-to-date` 줄의 `X` 가 정확히 `<main>.pdf` 다.
+
+latexmk 4.87은 오류 없이 끝난 모든 실행 뒤에 이 줄을 찍는다. 컴파일한 실행도 그렇다. 그래서 줄만으로는 아무것도 증명하지 않고, 2가 있어야 한다. 3은 latexmkrc의 `$out_dir` 과 `-jobname` 을 잡는다. 이런 설정이면 latexmk의 대상이 다른 이름이고, 사본의 `<main>.pdf` 는 latexmk가 만든 PDF가 아니다. 이때 빌드는 `no_pdf` 로 실패하고 화면은 이전 쪽 그대로다. `$aux_dir` 만 둔 설정은 대상이 여전히 `<main>.pdf` 라 3이 잡지 못한다. 그래도 안전하다. 그 폴더는 원고에 없으므로 사본 복사(`rsync --delete`)가 빌드마다 지우고, 그 안의 `.fdb_latexmk` 가 사라진 latexmk는 매번 PDF를 다시 쓴다. 그러면 2가 맞지 않는다.
+
+조건이 맞아도 사본에 남은 `.fls` 는 그 바이트가 화면 빌드의 쪽 폴더에 있는 `.fls` 와 같을 때만 이번 빌드의 것으로 둔다. 다르면(recorder를 껐거나, 원고에 딸려 온 옛 `main.fls`) `.fls` 를 두지 않고, 빌드 방식 파일에도 읽은 파일을 적지 않는다. 그러면 다음 재빌드는 변경 없음으로 끝나지 않는다.
+
+### 빌드 방식이 바뀌면 처음부터
+
+latexmk는 원고 파일의 변화만 따진다. latexmkrc, 어떤 프로그램이 도는지, 곁도구의 스타일 파일은 보지 않는다. 그래서 이런 것이 바뀐 사본을 그대로 넘기면 latexmk는 대상이 최신이라고 보고 옛 PDF를 둔다. 예를 들어 latexmkrc에 `$pdflatex = 'xelatex %O %S';` 를 넣으면 옛 pdfTeX PDF가, makeindex 스타일(`-s style.ist`)을 고치면 옛 색인이 남는다.
+
+빌드는 latexmk를 돌리기 전에 빌드 방식 다이제스트(`warm.cold_digest`)를 지금 상태로 잰다. 화면 빌드의 `recipe.json` 에 적힌 값과 다르거나, 화면 빌드에 `recipe.json` 이 없으면 부산물을 지우고 처음부터 돈다. 다이제스트는 세 묶음이다.
+
+- **latexmkrc.** latexmk 4.87이 실제로 읽는 rc 파일을 latexmk와 같은 규칙으로 고른다(`engine._rc_paths`). 각 목록에서 처음으로 있는 파일 하나만 읽는다.
+  - 시스템 파일: `$LATEXMKRCSYS` 가 있으면 그것만 본다. 없으면 `LatexMk`, 그다음 `latexmkrc` 의 순서로 `/etc`, `/opt/local/share/latexmk`, `/usr/local/share/latexmk`, `/usr/local/lib/latexmk` 를 차례로 본다.
+  - 사용자 파일: `$XDG_CONFIG_HOME/latexmk/latexmkrc`(없으면 `~/.config/latexmk/latexmkrc`), 그다음 `~/.latexmkrc` 다.
+  - 프로젝트 파일: latexmk를 돌리는 폴더의 `.latexmkrc`, 그다음 `latexmkrc` 다. 사본이 그대로 두므로 빌드 루트에서도 같은 규칙으로 하나를 고른다.
+
+  고른 파일의 경로가 다이제스트에 든다. 그래서 앞 순위의 파일이 새로 생겨도 바뀐 것이다. 내용은 1 MiB 이하의 일반 파일일 때만 읽고, 그 내용을 센다. 심볼릭 링크는 따라가지 않고, 장치·FIFO도 읽지 않는다. 이런 파일은 종류, 링크 대상, stat 결과로 센다. `/dev/zero` 를 가리키는 rc가 빌드를 멈추게 하지 않는다. 도구 이름(아래)도 읽은 일반 파일에서만 찾는다.
+- **도구.** `latexmk` 와 rc가 정한 `$pdflatex`·`$bibtex`·`$biber`·`$makeindex` 의 프로그램(기본은 같은 이름, 따옴표로 둘러싼 단순 대입의 첫 낱말만 읽는다, `warm.tool_names`)을 PATH로 찾아 실제 경로(`os.path.realpath`)와 그 파일의 mtime_ns·크기를 센다. 새 해의 TeX Live를 옛것 옆에 깔고 PATH를 바꾸면 경로가 달라진다. 제자리 업데이트로 프로그램이 바뀌어도 크기나 mtime이 달라진다.
+- **곁도구의 스타일 파일.** makeindex의 `.ilg`(`Scanning style file …`)와 bibtex의 `.blg`(`The style file: …`)가 적은 스타일 파일(`warm.log_styles`)이다. latexmk를 돌리는 폴더 기준으로 찾아 있는 파일만, 사본 안이면 내용으로, 밖이면 mtime·크기로 센다. 이름만 적혀 TeX 배포판에서 찾은 `.bst` 는 `.fdb_latexmk` 의 bibtex 원본으로 이미 비교된다. 사본 안의 파일이라도 그 빌드가 읽은 파일 목록(`.fdb_latexmk` 원본 포함)에 있으면 뺀다. latexmk가 스스로 따라가므로 원고에 든 `.bst` 를 고쳐도 사본은 따뜻하다. `.ilg`·`.blg` 는 1 MiB 이하의 일반 파일일 때만 읽고(링크는 따라가지 않는다), 줄 단위로 훑는다. 정규식을 쓰지 않으므로 긴 줄에도 시간이 선형이다.
+
+이 다이제스트는 빌드가 끝날 때 `recipe.json` 의 `cold` 와 스타일 파일 목록 `styles` 로 남는다. `.fls` 가 없는 빌드(recorder를 끈 문서)도 이 값은 남긴다. 그래서 그런 문서도 `.tex` 만 고치면 따뜻하게 돈다. 다만 읽은 파일을 모르므로 변경 없음으로 끝나지는 않는다. 변경 없는 재빌드도 이 값이 같아야 한다. 한 문단을 고친 것처럼 원고만 바뀌면 다이제스트는 그대로이고 사본은 따뜻하다.
+
+### 변경 없는 재빌드
+
+재빌드(동기·비동기, 원격 main 감시와 기동 빌드 포함)는 사본을 만든 뒤 지문을 잰다. 지문은 화면 빌드의 `.fls` 가 알려 준 읽은 파일로 고른다(§원고 변화 감지). 아래가 모두 맞으면 `BuildUnchanged` 로 끝난다(`warm.keeps_pages`).
+
+- 강제 재빌드가 아니다.
+- 화면 빌드의 쪽 폴더에 `.fls` 가 있고, 빌드 방식 파일 `recipe.json` 이 읽은 파일을 적고 있다. 어느 하나라도 없으면(recorder를 끈 빌드, 이 규칙 이전의 빌드, 업그레이드 뒤 첫 재빌드) 그 빌드가 무엇을 읽었는지 모르므로 늘 빌드한다.
+- 지문이 화면 빌드의 이력 항목 `src_hash` 와 같다.
+- `recipe.json` 이 지금도 맞는다(`warm.recipe_matches`). 이 파일에는 쪽 dpi, 메인 파일 경로, latexmk 스위치, 그 빌드가 읽은 파일 목록, 빌드가 끝날 때 잰 두 다이제스트가 들어 있다. 하나는 위의 빌드 방식 다이제스트(`cold`)다. 다른 하나는 읽은 파일의 다이제스트(`digest`)다. 재빌드는 같은 목록으로 둘을 지금 다시 재서 비교한다. 읽은 파일의 다이제스트는 두 묶음이다.
+  - 사본 안에서 읽은 파일. 내용을 비교한다. 목록은 그 빌드의 `.fls` 가 읽었다고 적은 파일(`warm.fls_reads`, 같은 `.fls` 가 쓴 `OUTPUT` 파일은 뺀다)에 `.fdb_latexmk` 가 적은 각 규칙의 원본(`warm.fdb_sources`)을 더한 것이다. `.fdb_latexmk` 가 bibtex·biber·makeindex가 읽은 `.bib`·`.bst`·`.ist` 를 알려 준다. 이 파일들은 `.fls` 에 없고, `out/` 아래의 `.bib` 은 지문에도 없다. 확장자를 가리지 않으므로 `\input` 한 파일, pgfplots가 읽는 `.csv`·`.dat` 도 든다. 원고 폴더에 실제로 있는 파일만 센다. latexmk나 도구가 사본에서 만든 파일(epstopdf 변환본 등)은 원고가 아니기 때문이다.
+  - 사본 밖에서 읽은 파일(TeX 배포판의 `.cls`·`.sty`·글꼴·서식 파일, `TEXINPUTS` 로 찾은 패키지). mtime_ns와 크기를 비교한다. 읽지 않고 stat만 하므로 수백 개여도 몇 밀리초다. TeX 배포판을 업데이트하면 다시 빌드한다.
+- 마지막으로 끝난 빌드가 `ok` 이고, 그 빌드가 화면 빌드다. `ok_errors`·`fail` 뒤에는 늘 빌드한다.
+
+변경 없는 재빌드는 latexmk와 쪽 그리기를 하지 않는다. 새 쪽 폴더, `build_seq`, 이력 항목, 이력의 `last` 를 만들지 않는다. 하는 일은 셋이다.
+
+- 화면 빌드 이력 항목의 `src_mtime` 과 `built_src_mtime.txt` 를 이번에 잰 원고 mtime으로 옮긴다. 내용이 같으므로 화면 빌드가 지금 원고를 나타낸다. mtime만 바뀐 원고의 "원고 수정됨" 배지가 이것으로 꺼진다.
+- `head.txt` 를 지금 체크아웃한 커밋으로 쓴다. 원고 밖 파일만 바꾼 커밋을 fast-forward 했을 때 원격 main 감시가 그 커밋을 반영한 것으로 본다.
+- 빌드 상태를 `state:"ok"`, `unchanged:true` 로 둔다. `phase`·`start_ts` 는 비우고, `last_s` 와 `last` 는 마지막으로 센 빌드의 값 그대로다. 다음 빌드가 시작하면 `unchanged` 는 빠진다.
+
+뷰어는 이 탭이 누른 재빌드가 같은 `build_seq` 에서 `unchanged:true` 로 끝나면 "변경 없음" 토스트 하나를 띄우고 화면은 바꾸지 않는다. 토스트의 [그래도 빌드]는 `POST /api/rebuild?async=1&force=1` 을 보낸다. 늘 보이는 강제 빌드 버튼은 두지 않는다. 다른 탭과 에이전트의 변경 없는 재빌드는 알리지 않는다. 바뀐 것이 없기 때문이다.
+
+`recipe.json` 은 `builds.json` 이 아니라 쪽 폴더에 `.fls` 와 함께 둔다. 쪽을 다 그린 뒤 폴더 이름을 붙이기 전에 써서 폴더와 함께 한 번에 공개되고, 폴더와 함께 지워진다. `.fls` 를 두지 않는 빌드는 이 파일에 읽은 파일을 적지 않고(`digest` 가 `null`) 빌드 방식 다이제스트만 남긴다. 그래서 `builds.json` 에는 새 필드가 없고, 옛 Limn으로 되돌려도 모르는 파일이 하나 남을 뿐이다. 이 파일이 없는 화면 빌드(업그레이드 직후)는 변경 없음으로 끝나지 않는다.
+
+TeX 패키지를 제자리에서 업데이트한 경우(같은 경로의 `.sty` 를 덮어쓴 경우)는 사본 밖 파일의 mtime·크기 비교가 잡는다. 그래서 변경 없음으로 끝나지 않고 빌드하며, latexmk도 `.fdb_latexmk` 의 체크섬으로 그 변화를 알아본다.
+
+그 밖의 것은 `POST /api/rebuild?force=1`(뷰어에서는 변경 없음 토스트의 [그래도 빌드])로 처음부터 빌드한다. 화면 빌드가 읽지 않았던 파일이 새로 생겨 원고가 조건부로 그것을 읽게 되는 경우(`\IfFileExists`)가 그렇다. 셸 탈출(`\write18`)로 돈 외부 프로그램이나 위 네 변수 밖의 latexmk 규칙이 읽은 파일도 그렇다. 이런 파일은 `.fls` 에도 `.fdb_latexmk` 에도 없을 수 있다.
 
 ## 비동기 재빌드
 
@@ -105,7 +185,7 @@ Limn은 원고를 PDF로 빌드해 쪽 이미지로 보여 주고, 그 위에 �
 
 `GET /api/build` 응답의 진행 필드는 다음과 같다.
 
-- `phase` 는 `pull`(업스트림 당겨오는 중, `--git-pull` 일 때만) → `copy`(원고 사본을 만드는 중) → `latex`(latexmk) → `render`(pdftoppm) 순서다. 퍼센트는 만들지 않는다. 알 수 없기 때문이다.
+- `phase` 는 `pull`(업스트림 당겨오는 중, `--git-pull` 일 때만) → `copy`(원고 사본을 만드는 중) → `latex`(latexmk) → `render`(pdftoppm) 순서다. 변경 없는 재빌드는 `copy` 에서 끝난다. 퍼센트는 만들지 않는다. 알 수 없기 때문이다.
 - `elapsed_s` 는 지금까지 걸린 시간, `last_s` 는 지난 빌드가 걸린 시간이다. `last_s` 는 진행 중에 참고용으로 쓴다.
 - 서버를 다시 띄워도 마지막 빌드 결과(`state`, `errors`, `log_tail`, `seq`, `head`, `pull`)는 `builds.json` 에서 되살린다. 마지막 결과의 개별 필드가 손상됐으면 쓸 수 없는 표시 값만 빈 값으로 두고, 유효한 상태와 순번은 복원한다.
 
@@ -214,8 +294,8 @@ Limn이 띄우는 git은 모두 [`src/limn/platform/git.py`](../../src/limn/plat
   - **같은 빌드 루트 안에 있는 다른 문서의 파일.** 폴더가 빌드 루트 안에 있는 그림 문서는 그 폴더 아래의 그림 확장자 파일이고, 보기 전용 PDF 문서는 그 PDF 파일 한 개다. 그 PDF를 담은 폴더는 빼지 않는다. `.tex`·`.bib`·`.sty`·`.cls`·`.bst` 는 어디에 있든 센다. 문서 폴더가 빌드 루트와 같거나, 빌드 루트를 품거나, 이 LaTeX 문서의 메인 `.tex` 를 품으면 아무것도 빼지 않는다. 다른 LaTeX 문서의 폴더도 빼지 않는다. 무엇을 뺄지는 기동 때 `--doc` 목록으로 정해 `Doc.apart` 에 둔다(`runtime/documents.py` 의 `apart_paths`). 경로는 심볼릭 링크를 푼 뒤 빌드 루트 기준 상대 조각으로 비교하므로, 같은 규칙이 `D.src`(`src_mtime`)와 빌드 사본(지문)에 똑같이 적용된다.
 
   **그 빌드가 실제로 읽은 파일은 위에서 뺐어도 센다.** 그림 세트의 파일이라도 LaTeX가 읽는 것은 다시 렌더하면 LaTeX 출력이 바뀌기 때문이다. 폴더 단위가 아니라 파일 단위로 본다.
-  - 읽은 파일은 latexmk가 사본의 실행 폴더에 남기는 `.fls`(recorder 파일)의 `INPUT` 줄이 알려 준다. 빌드는 이 `.fls` 를 쪽 폴더 `<문서 상태 폴더>/pages-<빌드>/<main>.fls` 에 `.synctex.gz`·`.aux` 와 함께 둔다. 다음 빌드의 사본 복사(`rsync --delete`)가 사본의 `.fls` 를 지우기 때문이다. 질의는 화면 빌드의 `.fls`(pick은 그 pick이 난 빌드의 것)를 읽는다. 그래서 읽은 파일을 적는 저장 필드는 `builds.json` 에도 다른 상태 파일에도 없다. 쪽 폴더의 `.fls` 는 옛 Limn 이 모르는 파일이라 되돌려도 안전하고, 쪽 폴더와 함께 지워지며, 밖으로 서빙하지 않는다.
-  - 이 실행이 쓴 `.fls` 만 읽고 둔다. 심볼릭 링크가 아닌 일반 파일이고 수정 시각이 빌드 시작 시각에서 1초를 뺀 값 이상일 때만 이 실행이 쓴 것으로 본다(PDF·SyncTeX·`.aux` 에 쓰는 신선도 조건과 같다). 원고와 함께 사본에 딸려 온 `main.fls`(recorder를 껐을 때 남는 옛 파일)는 수정 시각이 그보다 앞서므로 읽지도 두지도 않는다.
+  - 읽은 파일은 latexmk가 사본의 실행 폴더에 남기는 `.fls`(recorder 파일)의 `INPUT` 줄이 알려 준다. 빌드는 이 `.fls` 를 쪽 폴더 `<문서 상태 폴더>/pages-<빌드>/<main>.fls` 에 `.synctex.gz`·`.aux` 와 함께 둔다. 사본의 `.fls` 는 다음 빌드가 다시 쓰거나, 강제·실패 빌드가 지우기 때문이다(§따뜻한 LaTeX와 변경 없는 재빌드). 질의는 화면 빌드의 `.fls`(pick은 그 pick이 난 빌드의 것)를 읽는다. 그래서 읽은 파일을 적는 저장 필드는 `builds.json` 에도 다른 상태 파일에도 없다. 쪽 폴더의 `.fls` 는 옛 Limn 이 모르는 파일이라 되돌려도 안전하고, 쪽 폴더와 함께 지워지며, 밖으로 서빙하지 않는다.
+  - 이 실행이 쓴 `.fls` 만 읽고 둔다. 실행 전후의 (mtime_ns, 크기, inode)가 달라진 일반 파일이어야 하고, 원고와 함께 사본에 딸려 온 `main.fls`(recorder를 껐을 때 남는 옛 파일)는 읽지도 두지도 않는다. 하나의 예외는 latexmk가 사본에 남은 파일을 그대로 믿게 해 준 빌드다(조건은 §따뜻한 LaTeX와 변경 없는 재빌드). 그때도 남은 `.fls` 는 그 바이트가 화면 빌드의 쪽 폴더에 있는 `.fls` 와 같을 때만 그 빌드의 것으로 읽고 둔다.
   - `INPUT` 줄에서는 빌드 사본 안의 그림 확장자 파일만 고른다. 상대 경로는 latexmk를 돌린 폴더 기준으로 푼다. 읽은 이름에 NUL 바이트가 있으면 그 줄은 버린다. 파싱한 결과는 (경로, mtime_ns, 크기, 실행 폴더, 빌드 사본 폴더)를 키로 `Doc` 마다 둔 캐시에 담는다(`Doc.input_sets`, 최대 32개, 잠금으로 보호). 문서끼리, 서버끼리 이 캐시를 나누지 않는다.
   - `.fls` 는 pdflatex가 연 파일만 적는다. bibtex가 읽는 `.bib` 은 없으므로 `.bib` 은 이 규칙이 아니라 확장자로 센다.
   - `.fls` 가 없거나(이 규칙 이전의 빌드, 지워진 쪽 폴더, `.latexmkrc` 로 recorder를 끈 경우), 일반 파일이 아니거나, 8 MiB를 넘으면 읽은 파일이 없는 것으로 본다. 제외만 적용된다. 그 빌드가 읽은 그림 세트 파일의 재렌더는 다음 빌드까지 알리지 않는다(한 번의 재빌드로 사라진다).

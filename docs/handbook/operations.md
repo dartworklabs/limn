@@ -16,7 +16,7 @@
 
 - `latexmk`
 - `synctex`
-- `pdftoppm`
+- `pdftoppm`·`pdfinfo` (poppler의 같은 패키지)
 - `pdftotext`
 - `rsync` (있으면 쓴다)
 
@@ -300,7 +300,7 @@ Host에서 포트를 보지 않는 이유도 SSH `-L`이다. `-L 9000:127.0.0.1:
 
 상시 인스턴스는 systemd 사용자 유닛 `limn@<이름>`으로 관리한다. 유닛 생성, 설정(`~/.config/limn/<이름>.env`), 시작, 정지, 재시작은 인스턴스 관리자의 `limn add|start|stop|update`가 맡는다. 유닛 파일의 정확한 형식과 TeX 배포판 PATH 설정 같은 상세 절차는 [instances.md](instances.md) §유닛 템플릿이 정본이다.
 
-서버 자체는 표준 라이브러리만 쓰지만 **재빌드는 외부 명령에 의존한다.** `latexmk`·`pdftoppm`·`pdftotext`·`synctex`가 그 명령이다. systemd는 로그인 셸의 rc를 거치지 않는다. 그래서 TeX 배포판이 `/usr/local/texlive/...`처럼 기본 PATH 밖에 있으면 유닛이 그 경로를 명시해야 한다. 인스턴스 관리자가 이 일을 처리한다.
+서버 자체는 표준 라이브러리만 쓰지만 **재빌드는 외부 명령에 의존한다.** `latexmk`·`pdftoppm`·`pdfinfo`·`pdftotext`·`synctex`가 그 명령이다. systemd는 로그인 셸의 rc를 거치지 않는다. 그래서 TeX 배포판이 `/usr/local/texlive/...`처럼 기본 PATH 밖에 있으면 유닛이 그 경로를 명시해야 한다. 인스턴스 관리자가 이 일을 처리한다.
 
 > **주의**
 >
@@ -332,7 +332,7 @@ curl -s -X POST http://127.0.0.1:<port>/api/rebuild | head -c 200   # state 가 
 ├── build/                    # rsync 사본 + latexmk 산출물 (원본 체크아웃 아님)
 ├── pages.cur                 # 지금 쪽 이미지 디렉토리 이름(포인터, 원자적 교체)
 ├── builds.json               # 빌드 이력(build id·원고 지문·seq·마지막 결과) — 위치 추정·build_seq 원천
-├── pages-<build_id>/         # page-*.png + 짝이 맞는 PDF·synctex·aux 사본과 latexmk 의 .fls (현재와 직전 1개만 유지)
+├── pages-<build_id>/         # page-*.png + 짝이 맞는 PDF·synctex·aux 사본, latexmk 의 .fls, 빌드 방식 recipe.json (현재와 직전 1개만 유지)
 ├── pages/                    # 옛 배치 — pages.cur 가 없으면 이것을 그대로 쓴다
 ├── pins.jsonl                # 현재 핀 전체(매번 원자적으로 다시 씀)
 ├── pins.seq                  # 마지막으로 발급한 id

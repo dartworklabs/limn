@@ -45,6 +45,17 @@ class Server6(Server):
     address_family = socket.AF_INET6
 
 
+def etag_matches(header: str | None, etag: str) -> bool:
+    """Does an If-None-Match header name etag? "*" names any; otherwise a comma-separated list of entity tags, compared
+    weakly (a W/ prefix is ignored on either side), as RFC 9110 asks for If-None-Match."""
+    if header is None:
+        return False
+    if header.strip() == "*":
+        return True
+    want = etag.removeprefix("W/")
+    return any(tag.strip().removeprefix("W/") == want for tag in header.split(","))
+
+
 class Handler(BaseHTTPRequestHandler):
     """One connection's requests. Unbound: a subclass sets `app` (server.Handler) before it serves anything."""
 
@@ -59,10 +70,18 @@ class Handler(BaseHTTPRequestHandler):
     def log_message(self, format: str, *args: Any) -> None:  # noqa: A002 - the base class's parameter name
         """No access log: requests carry identities and pin text, and the server prints what it needs itself."""
 
-    def _send(self, code: int, body: bytes, ctype: str, cache: str | None = None) -> None:
+    def _send(self, code: int, body: bytes, ctype: str, cache: str | None = None, etag: str | None = None) -> None:
         """Send one complete response: status, Content-Type/Length, Cache-Control (no-store unless given; page images
-        cache privately for 10 minutes - they are manuscript pages, like the PDFs), nosniff, WWW-Authenticate on 401,
-        Connection: close on every error, and the anti-framing pair end_headers adds."""
+        cache privately for 10 minutes - they are manuscript pages, like the PDFs), the ETag when given, nosniff,
+        WWW-Authenticate on 401, Connection: close on every error, and the anti-framing pair end_headers adds. A 200
+        with an ETag that the request's If-None-Match names is sent as 304 Not Modified without a body."""
+        if etag is not None and code == 200 and etag_matches(self.headers.get("If-None-Match"), etag):
+            self.send_response(304)
+            self.send_header("ETag", etag)
+            self.send_header("Cache-Control", cache or "no-store")
+            self.send_header("X-Content-Type-Options", "nosniff")
+            self.end_headers()
+            return
         if code >= 400:
             # The connection is closed after an error. The request may not have been read to completion, and
             # if the leftover bytes get read as the next request, they'd bypass --allow and author attribution (request smuggling).
@@ -73,6 +92,8 @@ class Handler(BaseHTTPRequestHandler):
         if cache is None or code >= 400:
             cache = "private, max-age=600" if ctype == "image/png" and code < 400 else "no-store"
         self.send_header("Cache-Control", cache)
+        if etag is not None and code < 400:
+            self.send_header("ETag", etag)
         self.send_header("X-Content-Type-Options", "nosniff")
         if code == 401:
             self.send_header("WWW-Authenticate", 'Bearer realm="limn"')
