@@ -128,9 +128,10 @@ class FrontendLogic(unittest.TestCase):
         js = "\n".join(
             [
                 r"""
-            const box={hidden:true,dataset:{},innerHTML:''};
+            const box={hidden:true,dataset:{},innerHTML:'',cls:new Set(),classList:{toggle(c,on){on?box.cls.add(c):box.cls.delete(c);}}};
             const $=s=>box;
             const COMPOSE={current:null,dismissedOverlap:null}; let PINS=[{id:5,file:'/m.tex',lo:405,hi:406}];
+            const esc=s=>String(s);
             """,
                 extract_js_fn("selRel"),
                 extract_js_fn("pinState"),
@@ -140,6 +141,8 @@ class FrontendLogic(unittest.TestCase):
                 extract_js_fn("overlapText"),
                 extract_js_fn("recomputeOverlap"),
                 extract_js_fn("renderOverlapBanner"),
+                extract_js_fn("overlapShort"),
+                "let LAYOUT=LAYOUT_MODE.WIDE;",
                 extract_js_fn("lvOf"),
                 extract_js_fn("useLevel"),
                 r"""
@@ -151,6 +154,9 @@ class FrontendLogic(unittest.TestCase):
             useLevel(COMPOSE.current,'env'); recomputeOverlap(); renderOverlapBanner(); out.push([box.hidden, box.dataset.rel]);   // 관계가 바뀌면 다시 알림
             COMPOSE.dismissedOverlap=null;                        // pick() 의 리셋(새 선택)
             useLevel(COMPOSE.current,'para'); recomputeOverlap(); renderOverlapBanner(); out.push([box.hidden, box.dataset.rel]);
+            LAYOUT=LAYOUT_MODE.NARROW; renderOverlapBanner();   // the phone sheet: one line, the short relation, the lines in the tooltip
+            out.push([box.cls.has('one'), /<span class="ov-t" data-tip="[^"]*\(L405-L406\)">#5와 같은 범위<\/span>/.test(box.innerHTML), />덧붙이기</.test(box.innerHTML)]);
+            LAYOUT=LAYOUT_MODE.WIDE; renderOverlapBanner(); out.push([box.cls.has('one')]);
             console.log(JSON.stringify(out));
             """,
             ]
@@ -161,6 +167,8 @@ class FrontendLogic(unittest.TestCase):
         self.assertEqual(out[2], [True])
         self.assertEqual(out[3], [False, "contains"])
         self.assertEqual(out[4], [False, "equal"])
+        self.assertEqual(out[5], [True, True, True])  # narrow: one line (input diagnosis P2)
+        self.assertEqual(out[6], [False])
 
     def test_poll_build_single_flight_and_once_per_seq(self):
         # design 4: pollBuild is single-flight — no matter how many times it's called concurrently,
@@ -1101,6 +1109,7 @@ class FrontendMobileLogic(unittest.TestCase):
                 extract_js_fn("elLostTag"),
                 extract_js_fn("figRegionBadge"),
                 extract_js_fn("card"),
+                extract_js_fn("cardActs"),  # the open card's action row (its visual order per layout)
                 js_icons(),
                 r"""
             const a=card({id:1,file:'/m.tex',name:'m.tex',lo:3,hi:5,page:2,note:'첫 줄 <b>\n둘째 줄'});
@@ -1237,7 +1246,11 @@ class FrontendPanelTidyStructure(unittest.TestCase):
         tag = re.search(r'<div id="sheet-grip"[^>]*>', HTML).group(0)
         self.assertIn('role="separator"', tag)
         self.assertIn('aria-orientation="horizontal"', tag)
-        self.assertIn(":not(#sheet-grip){display:none}", HTML)  # the grip stays even on a collapsed sheet
+        # the grip is an item of the tool bar's row (input diagnosis P3: its own 24px row took the buttons' top 8px), so it stays
+        # with the tool bar on a collapsed sheet
+        bar = HTML[HTML.index('<div class="bar" id="bar1"') : HTML.index('<div class="bar" id="bar2"')]
+        self.assertIn('<div id="sheet-grip"', bar)
+        self.assertIn("body.compact:not(.side-open) #right>:not(#bar1):not(#bar2):not(#banner){display:none}", HTML)
         self.assertIn("var(--sheet-f,.64)", HTML)
         more = HTML[HTML.index('<dialog id="more"') : HTML.index('<dialog id="help"')]
         self.assertIn('id="m-size"', more)
@@ -1280,7 +1293,8 @@ class FrontendPanelTidyStructure(unittest.TestCase):
 
     def test_card_head_tags_row_and_action_grid(self):
         m = re.search(r"\nfunction card\(p\)\{(.*?)\n\}", HTML, re.S)
-        body = m.group(1)
+        # the open card's action row is built by cardActs() in its visual order per layout (compact: icons first, wide: by name)
+        body = m.group(1) + extract_js_fn("cardActs")
         self.assertNotIn('<span class="tags">', body)  # badges are not inside the head row
         # one line after the head (fold button)
         self.assertGreater(body.index('<div class="tags">'), body.index("b-fold"))
@@ -1310,7 +1324,10 @@ class FrontendPanelTidyStructure(unittest.TestCase):
         self.assertIn("body.lay-mid #doc-nav{position:fixed;top:0;left:0;right:0;", css)
         # the body/panel only occupy the space between the two
         self.assertIn("padding-top:var(--mid-top);padding-bottom:var(--mbar-h)}", css)
-        self.assertIn("@media (pointer:coarse){body.lay-mid{--mbar-tb:var(--control-h-touch)}}", css)
+        # touch: 40px buttons in 4px padding (input diagnosis P4: the row was 61px around 44px buttons); hit areas stay 44px (MidChrome)
+        self.assertIn(
+            "@media (pointer:coarse){body.lay-mid{--mbar-tb:var(--ctl-touch);--mbar-pad:var(--space-1)}}", css
+        )
         # thumb order: [select] at the far left, [pin N] at the far right. DOM is shared with the narrow sheet, so only order changes.
         self.assertIn("body.lay-mid #btn-select{order:1}", css)
         self.assertIn("body.lay-mid #bar1 #btn-side{order:5;", css)
@@ -1477,10 +1494,15 @@ class FrontendDesignTokens(unittest.TestCase):
                 if k == "font" and v != "inherit" and not v.startswith("var(--text-"):
                     bad.append("%s { %s:%s }" % (sel, k, v))
         self.assertEqual(bad, [])
-        defs = {k: v for sel, decls in css_rules() if sel == ":root" for k, v in decls}
+        # the scale block (the :root that defines --text-sm) holds the five steps; touch only raises the smallest to 12px
+        # (input diagnosis P7: badges and counts were 11px on a phone - the live check is PhoneTouchSizes)
+        scale = next(dict(decls) for sel, decls in css_rules() if sel == ":root" and "--text-sm" in dict(decls))
         self.assertEqual(
-            [defs["--text-" + n] for n in ("xs", "sm", "base", "lg", "xl")], ["11px", "12px", "13px", "14px", "16px"]
+            [scale["--text-" + n] for n in ("xs", "sm", "base", "lg", "xl")], ["11px", "12px", "13px", "14px", "16px"]
         )
+        css = HTML[HTML.index("<style>") : HTML.index("</style>")]
+        coarse = css[css.index("@media (pointer:coarse){") :]
+        self.assertIn(":root{--doc-nav-h:48px;--text-xs:12px}", coarse[: coarse.index("\n}")])
 
     def test_inline_styles_and_scripts_carry_no_design_literals(self):
         body = HTML[HTML.index("</style>") :]
@@ -1787,23 +1809,22 @@ class PinNumberJump(unittest.TestCase):
         self.assertIn("누르면 PDF에서 이 핀 자리로 갑니다", src)
 
     def test_number_is_keyboard_and_touch_reachable(self):
+        """#N is a role=button the keyboard reaches; on touch #N, the line range and N쪽 are each a real 44x44 box.
+
+        Regression: #N used to render at only its text width (26-35px) with a fixed 44x44 ::before centred on it, and
+        '1쪽' (16px) and 'L4-L5' only got min-height - their centred hit areas overlapped 4-8px apart, so '1쪽' answered
+        16x38 (input diagnosis P6). Real boxes cannot overlap; the live check is PhoneTouchSizes."""
         src = HTML
         self.assertIn("/^(button|link)$/.test(t.getAttribute('role')||'')&&t.dataset&&t.dataset.act", src)
-        self.assertIn(".loc,.pg-link,.pin .n.go{display:inline-flex;align-items:center;min-height:44px}", src)
-        # regression: #N used to render at only its text width (26-35px), falling short of the 44px
-        # minimum touch hit area (observed). The visual size stays the same; a fixed 44x44 ::before hit
-        # area is centered on top of it — it must be fixed width/height, not the inset approach
-        # (proportional to the parent's width), to guarantee 44 even for a short number (e.g. one digit).
-        # position:relative is given only to .n.go — giving it to .loc/.pg-link too would let .loc, which
-        # comes later in DOM order, rise above the ::before in positioned stacking and steal the hit test
-        # for the right half (a regression found and reverted via live browser testing).
         css = src[src.index("<style>") : src.index("</style>")]
-        self.assertIn(".pin .n.go{position:relative}", css)
+        coarse = css[css.index("@media (pointer:coarse){") :]
+        coarse = coarse[: coarse.index("\n}")]
         self.assertIn(
-            ".pin .n.go::before{content:'';position:absolute;left:50%;top:50%;"
-            "width:var(--control-h-touch);height:var(--control-h-touch);transform:translate(-50%,-50%)}",
-            css,
+            ".loc,.pg-link,.pin .n.go{display:inline-flex;align-items:center;justify-content:center;"
+            "min-height:var(--hit);min-width:var(--hit);position:relative}",
+            coarse,
         )
+        self.assertNotIn(".pin .n.go::before", css)
 
     def test_view_action_still_routes_to_jumppin(self):
         self.assertIn("case 'view':jumpPin(id);break;", HTML)
@@ -2460,7 +2481,8 @@ class FrontendFigure(unittest.TestCase):
         self.assertIn("if(!el||!isFrac(at.frac))return;", m)
         self.assertIn("const est=isEstimated(p)&&!hasMark(p),lost=p.stale||elLost(p);", m)
         c = extract_js_fn("card")
-        self.assertEqual(c.count("{page:pinPlace(p).page}"), 2)
+        # the open and the review card's N쪽, and compact's one head link '#N · L… · N쪽' (input diagnosis U5)
+        self.assertEqual(c.count("{page:pinPlace(p).page}"), 3)
         self.assertEqual(c.count("p.stale||elLost(p)?CARD_DOT.LOST"), 2)
         self.assertIn("const lostEl=elLostTag(p); if(lostEl)tags.push(lostEl);", c)
         self.assertIn("figRegionBadge(p.el,isFigureKind((docInfo(pdoc(p))||{}).kind))", c)
@@ -3624,6 +3646,7 @@ class FrontendReview(unittest.TestCase):
                 extract_js_fn("elLostTag"),
                 extract_js_fn("figRegionBadge"),
                 extract_js_fn("card"),
+                extract_js_fn("cardActs"),  # the open card's action row (its visual order per layout)
                 js_icons(),
                 r"""
             const base={id:3,file:'/m.tex',name:'m.tex',lo:1,hi:2,page:1,note:'n',done:true,review:true,state:'review',

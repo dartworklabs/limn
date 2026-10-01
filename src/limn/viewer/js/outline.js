@@ -61,6 +61,8 @@ function outlineIndexAt(entries,page,frac){let sel=-1;
   for(let i=0;i<entries.length;i++){const e=entries[i]; if(e.page<page||(e.page===page&&(e.frac||0)<=frac+1e-6))sel=i;}
   return sel<0&&entries.length?0:sel;}
 let OUTLINE_PINNED=null;   // an entry picked in the outline wins until the reader leaves its page
+// The section strip under the nav bar (the section at the reading line and 'page / pages') and the outline's highlight; mid has no
+// strip, so the same page count also goes to the nav bar's right end (#nav-page).
 function updateSectionStrip(){
   const L=$('#left'),probe=L?Math.min(160,L.clientHeight/4):0,anchor=topAnchor(probe),page=anchor?anchor.page:1,frac=anchor?anchor.frac:0;
   let sel;
@@ -68,7 +70,7 @@ function updateSectionStrip(){
   else{OUTLINE_PINNED=null; sel=outlineIndexAt(OUTLINE_ENTRIES,page,frac);}
   if(sel!==OUTLINE_SELECTED||page!==OUTLINE_ACTIVE_PAGE){OUTLINE_ACTIVE_PAGE=page;OUTLINE_SELECTED=sel;renderOutline();}
   const x=OUTLINE_ENTRIES[OUTLINE_SELECTED];$('#section-current').textContent=x?(x.number?x.number+'  ':'')+x.title:tr('원고');
-  $('#section-page').textContent=tl('{page} / {n}쪽',{page,n:META&&META.pages?META.pages.length:0});
+  const pg=tl('{page} / {n}쪽',{page,n:META&&META.pages?META.pages.length:0}); $('#section-page').textContent=pg; $('#nav-page').textContent=pg;
 }
 $('#outline-search').addEventListener('input',renderOutline);
 $('#left').addEventListener('scroll',()=>{if(!document.body.classList.contains('revision-open'))requestAnimationFrame(updateSectionStrip);},{passive:true});

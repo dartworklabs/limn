@@ -85,4 +85,6 @@ body.outline-collapsed #outline-grip,body.lay-narrow #outline,body.lay-narrow #o
 #section-current{color:var(--foreground);font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 #section-page{margin-left:auto;white-space:nowrap}
 body.revision-open #section-strip{display:none}
-body.lay-narrow #section-strip{display:none}
+body.lay-narrow #section-strip,body.lay-mid #section-strip{display:none}   /* mid: it repeated the nav bar's 원고 tab (38px, diagnosis P4); its page count is #nav-page */
+#nav-page{display:none;flex:none;margin-left:auto;font-size:var(--text-sm);color:var(--muted-foreground);white-space:nowrap}
+body.lay-mid #nav-page{display:inline}

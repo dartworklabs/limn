@@ -15,11 +15,12 @@ function applyLayout(){const L=layoutFor(),overlay=L===LAYOUT_MODE.MID&&innerWid
 // A draft the panel is holding: the composer (a selection being noted), an open edit or reply, or a relocation. Collapsing by a
 // drag stops short of it, a swipe only rubber-bands, and a collapsed [핀 N] shows a dot for it.
 function draftOpen(){return !$('#composer').hidden||!!EDITOR.current||!!REPLY||!!REPICK;}
-// Draws the panel state (docs/handbook/viewer.md §패널 폭과 시트 높이): the body classes, both [핀 N] toggles - the tool bar's and,
+// Draws the panel state (docs/handbook/viewer.md §패널 폭과 시트 높이): the body classes (with the phone sheet's composing lift), both [핀 N] toggles - the tool bar's and,
 // for a collapsed wide panel, the nav bar's - with the open count, the draft dot and the arrow, the handle's ARIA and the back-gesture
 // layer. Idempotent and cheap: drawPins() calls it on every redraw. The panel keeps its open layout while it slides out.
-function applySide(){const open=SIDE_OPEN,b=document.body,dot=!open&&draftOpen(),n=PINS.length;
-  b.classList.toggle('side-open',open||!!(SIDE_SLIDE&&SIDE_SLIDE.kind==='closing')); b.classList.toggle('composing',!$('#composer').hidden);
+function applySide(){const open=SIDE_OPEN,b=document.body,dot=!open&&draftOpen(),n=PINS.length,composing=!$('#composer').hidden;
+  b.classList.toggle('side-open',open||!!(SIDE_SLIDE&&SIDE_SLIDE.kind==='closing')); b.classList.toggle('composing',composing);
+  if(!composing)SHEET_KEPT=false; b.classList.toggle('sheet-up',composing&&!SHEET_KEPT&&LAYOUT===LAYOUT_MODE.NARROW);   // the phone sheet's composing lift (panel-size.js)
   const label=tr(open?'패널 접기':'패널 펴기')+' · '+tl('열린 핀 {n}',{n})+(dot?' · '+tr('작성 중'):'');
   for(const t of [$('#btn-side'),$('#nav-side')]){t.setAttribute('aria-expanded',String(open)); t.setAttribute('aria-label',label);
     t.querySelector('.side-n').textContent=n; t.querySelector('.c-dot').hidden=!dot;}
@@ -72,13 +73,15 @@ function toggleSide(){const open=!SIDE_OPEN,a=document.activeElement; setSide(op
   if(!open)focusSideToggle(); else if(a===$('#nav-side'))$('#grip').focus({preventScroll:true});}
 // The first drag-collapse on a wide screen says once how to bring the panel back (it leaves only a 6px rail behind).
 function coachSideCollapsed(){if(LAYOUT===LAYOUT_MODE.WIDE&&!SIDE_OPEN)coach('side','핀 패널은 오른쪽 위 [핀 N] 또는 Ctrl+\\ 로 다시 엽니다');}
-function relayout(){const a=topAnchor(); applyLayout(); applySideWidth(); applyOutlineState();autoW(); restoreAnchor(a); hideTip(); if(COMPOSE.current)renderComposer(); stickTop();updateSectionStrip();}
-// The height a list section header (sticky) sticks below. In compact, #right is the scroll box and the tool bar (#bar1, below the
-// sheet handle in narrow) is already stuck above it, so the header sticks below that. In wide, #list itself is the scroll box, so this is 0.
+// Re-fits everything to the window: the layout (a changed one redraws the cards, whose action row is ordered per layout), the panel
+// and outline widths, the page width at the same reading spot, the composer, the stuck heads and the section strip.
+function relayout(){const a=topAnchor(),changed=applyLayout(); if(changed&&META)drawPins(); applySideWidth(); applyOutlineState();autoW(); restoreAnchor(a); hideTip(); if(COMPOSE.current)renderComposer(); stickTop();updateSectionStrip();}
+// The height a list section header (sticky) sticks below. In compact, #right is the scroll box and the tool bar (#bar1, which holds
+// the sheet handle in narrow) is already stuck above it, so the header sticks below that. In wide, #list itself is the scroll box, so this is 0.
 function stickTop(){let t=0; const b=$('#bar1');
   if(LAYOUT!==LAYOUT_MODE.WIDE&&b){const cs=getComputedStyle(b); if(cs.position==='sticky')t=Math.round((parseFloat(cs.top)||0)+b.offsetHeight);}
   document.documentElement.style.setProperty('--stick-top',t+'px');}
-if(window.ResizeObserver)new ResizeObserver(()=>stickTop()).observe($('#bar1'));
+if(window.ResizeObserver)new ResizeObserver(()=>stickTop()).observe($('#bar1'),{box:'border-box'});   // padding-only changes (the collapsed sheet) count
 let RELAY=0;
 function scheduleRelayout(){if(RELAY)return; RELAY=requestAnimationFrame(()=>{RELAY=0; if(META)relayout(); else applyLayout();});}
 window.addEventListener('resize',scheduleRelayout);

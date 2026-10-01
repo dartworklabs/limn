@@ -66,11 +66,18 @@ function setSideWidth(w){if(LAYOUT===LAYOUT_MODE.NARROW)return; const b=sideBoun
   showSideW(w,b); savePrefs({[sideKey()]:w}); relayout(); renderSizeSeg();}
 function cycleSideWidth(){if(LAYOUT===LAYOUT_MODE.NARROW)return; const b=sideBounds(LAYOUT,innerWidth); setSideWidth(nextPreset(b.presets,curSideW()));}
 // Sheet height is stored as a fraction of screen height (--sheet-f) - CSS shrinks it to fit within the visible height when the keyboard is up.
-const SHEET_F=[0.45,0.64,1],SHEET_MIN_F=0.3,SHEET_CLOSE_F=0.25;
+const SHEET_F=[0.45,0.64,1],SHEET_MIN_F=0.3,SHEET_CLOSE_F=0.25,SHEET_COMPOSE_F=0.8;
+// While composing, the phone sheet rises to SHEET_COMPOSE_F (CSS body.sheet-up, never saved) so the note field and the location line
+// above it stay in view; the first height the user sets meanwhile (a drag, a tap, a preset, a key) wins until the composer closes.
+let SHEET_KEPT=false;
+// Marks that the user set the sheet height while composing: the lift stops and their height applies. Outside composing it does nothing.
+function keepSheet(){if($('#composer').hidden)return; SHEET_KEPT=true; document.body.classList.remove('sheet-up');}
 function sheetF(){const f=prefs().sheetF; return typeof f==='number'?Math.min(1,Math.max(SHEET_MIN_F,f)):0.64;}
 function applySheet(){document.documentElement.style.setProperty('--sheet-f',String(sheetF()));}
-function setSheetF(f){f=Math.min(1,Math.max(SHEET_MIN_F,f)); savePrefs({sheetF:Math.round(f*1000)/1000}); applySheet(); if(!SIDE_OPEN)setSide(true); renderSizeSeg();}
-function cycleSheet(){const f=sheetF(),i=SHEET_F.findIndex(x=>x>f+0.02); setSheetF(SHEET_F[i<0?0:i]);}
+// Sets and remembers the sheet height (a fraction, clamped to 30-100%), opens a collapsed sheet, and ends the composing lift.
+function setSheetF(f){keepSheet(); f=Math.min(1,Math.max(SHEET_MIN_F,f)); savePrefs({sheetF:Math.round(f*1000)/1000}); applySheet(); if(!SIDE_OPEN)setSide(true); renderSizeSeg();}
+// The next height stop above the one shown (the composing lift counts as shown); wraps to the lowest.
+function cycleSheet(){const f=document.body.classList.contains('sheet-up')?Math.max(sheetF(),SHEET_COMPOSE_F):sheetF(),i=SHEET_F.findIndex(x=>x>f+0.02); setSheetF(SHEET_F[i<0?0:i]);}
 // The '패널 폭' (wide/mid) / '시트 높이' (narrow) segment control inside [⋯].
 function renderSizeSeg(){const box=$('#m-size'); if(!box)return; const narrow=LAYOUT===LAYOUT_MODE.NARROW;
   $('#m-size-l').textContent=narrow?'시트 높이':'패널 폭'; box.setAttribute('aria-label',narrow?'시트 높이':'패널 폭');

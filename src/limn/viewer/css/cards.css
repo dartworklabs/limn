@@ -43,6 +43,24 @@ button.badge-review{font-weight:600}
 .pin .tags:empty{display:none}
 .pin .acts{display:grid;grid-auto-flow:column;grid-auto-columns:1fr;gap:var(--space-2);margin-top:8px}
 .pin .acts button{min-width:0;padding-left:var(--space-1);padding-right:var(--space-1)}
+/* The card's head link and its row of actions (docs/handbook/viewer.md §패널 정리 핀 카드). wide: the head's #N, line range and N쪽 and the
+   named grid [보기] [수정] [답글] [삭제] [완료]. compact: '#N · L… · N쪽' is one link (= [보기]), and the row is [삭제] [수정] [풀기] as
+   icons ...... [답글] [완료] - six equal buttons were 40px wide in a 279px tablet panel (diagnosis P4). */
+.pin .go-all{display:none}
+.pin .acts :is(.b-edit,.b-drop,.b-unclaim) .ic{display:none}
+body.compact .pin .go-all{display:inline-flex;align-items:center;white-space:nowrap;color:var(--primary);font-weight:600;cursor:pointer;border-radius:var(--radius)}
+body.compact .pin .head>:is(.n.go,.loc,.pg-link){display:none}
+body.compact .pin .acts{display:flex;align-items:center;gap:var(--space-3)}
+body.compact .pin .acts .b-view{display:none}
+body.compact .pin .acts :is(.b-edit,.b-drop,.b-unclaim) .ic{display:inline-block}
+body.compact .pin .acts :is(.b-edit,.b-drop,.b-unclaim) .lbl{display:none}
+body.compact .pin .acts :is(.b-edit,.b-drop,.b-unclaim){flex:none;padding:0;width:var(--control-h)}
+/* The three icons share one neutral fill and size; only the delete glyph is red, and [삭제] keeps one more spacing step from [수정]
+   so a thumb meant for edit does not land on delete. */
+body.compact .pin .acts .b-drop{background:var(--secondary);margin-right:var(--space-2)}
+body.compact .pin .acts .b-drop:hover{background:color-mix(in srgb,var(--destructive) 12%,var(--secondary))}
+body.compact .pin .acts .b-reply{margin-left:auto}   /* the row's order is the markup's (cardActs), so Tab follows what is seen */
+body.compact .pin .acts button:not(.btn-icon){padding-left:var(--space-3);padding-right:var(--space-3)}
 button.b-close{font-weight:600}
 /* Buttons inside a card are borderless and filled (secondary) - so six bordered buttons never line up inside an already-bordered card.
    Only [완료] gets the soft emphasis; [삭제] is plain destructive-colored text with no fill, so it never becomes the most eye-catching button. [취소] next to an input field uses the same fill. */
@@ -64,6 +82,7 @@ button.b-close{font-weight:600}
 .mention.me{background:color-mix(in srgb,var(--primary) 28%,transparent);color:var(--foreground)}
 .badge-assign{background:color-mix(in srgb,var(--primary) 14%,transparent);color:var(--foreground);font-weight:600;flex:0 0 auto;max-width:12em;overflow:hidden;justify-content:flex-start}
 .badge-assign .as-n{min-width:0;overflow:hidden;text-overflow:ellipsis}
+button.badge-assign{overflow:visible}   /* its name ellipsizes by itself (.as-n); a clipping chip would clip its hit area too */
 .badge-assign.me{background:color-mix(in srgb,var(--primary) 28%,transparent)}
 .assign-row{display:flex;align-items:center;gap:var(--space-2);margin-top:var(--space-2)}
 .assign-row .as-lab{flex:none;color:var(--muted-foreground);font-size:var(--text-sm)}

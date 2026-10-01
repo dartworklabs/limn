@@ -36,10 +36,13 @@ function card(p){
   if(rv)tags.unshift('<span class="badge badge-review" data-tip="'+esc(tr(T.review)+' · '+tl('닫은 쪽: {name}',{name:who(p.closed_by)||'?'})+' · '+(p.done_at||''))+'">'+ic('eye')+esc(reviewerLabel(p))+'</span>');
   const ro=!rv&&reopenedTurn(p);
   if(ro)tags.unshift('<span class="badge badge-reopen" data-tip="'+esc(tl('검토에서 되돌아온 핀 — {name} · {time}',{name:who(ro.by)||'?',time:arcTime(ro.at)})+(ro.text?' · '+tl('이유: {text}',{text:ro.text}):''))+'">'+ic('rotate-ccw')+'다시 열림</span>');
+  // compact's head link (CSS shows it in place of #N, the line range and N쪽, diagnosis P6/U5): one 44px target that does what
+  // [보기] does - the same data-act, so it also replaces the row's [보기] there.
+  const go='<span class="go-all" role="button" tabindex="0" data-act="view" data-tip="'+esc(T.view)+'">#'+p.id+' · '+esc(locText(p))+' · '+esc(tl('{page}쪽',{page:pinPlace(p).page}))+'</span>';
   const nr=replyCount(p);
   const thn=nr?'<span class="th-n" role="button" tabindex="0" data-act="reply-open" aria-label="'+esc(tl('답글 {n}건 — 답글 쓰기',{n:nr}))+'" data-tip="'+esc(tl('이 핀의 답글 {n}건 — 누르면 카드를 펴고 답글 칸을 엽니다',{n:nr}))+'">'+ic('message-square')+nr+'</span>':'';
   if(rv)return '<div class="pin card review'+(open?' open':'')+'" data-id="'+p.id+'" data-doc="'+esc(pdoc(p))+'">'+
-    '<div class="row head">'+stDot(rv?CARD_DOT.REVIEW:p.stale||elLost(p)?CARD_DOT.LOST:claimed?CARD_DOT.CLAIMED:CARD_DOT.OPEN)+'<span class="n go" role="button" tabindex="0" data-act="view" data-tip="'+esc(T.n)+'">#'+p.id+'</span>'+docChip(p)+
+    '<div class="row head">'+stDot(rv?CARD_DOT.REVIEW:p.stale||elLost(p)?CARD_DOT.LOST:claimed?CARD_DOT.CLAIMED:CARD_DOT.OPEN)+go+'<span class="n go" role="button" tabindex="0" data-act="view" data-tip="'+esc(T.n)+'">#'+p.id+'</span>'+docChip(p)+
     '<span class="loc" tabindex="0" data-copy="'+esc(isRegion(p)?locCopy(p):name+' '+loc)+'" data-tip="'+esc(isRegion(p)?'영역이 있는 PDF 쪽. 클릭하면 복사':T.loc)+'">'+locText(p)+'</span>'+
     '<span class="pg-link" tabindex="0" data-act="view" data-tip="클릭하면 그 쪽으로 이동">'+esc(tl('{page}쪽',{page:pinPlace(p).page}))+'</span>'+
     '<span class="sp"></span><span class="h-meta">'+assignChip(p)+thn+au+'</span>'+
@@ -54,7 +57,7 @@ function card(p){
     '<button class="btn-sm b-confirm'+(isMe(p.author)?' btn-soft':'')+'" data-act="confirm" data-tip="'+esc(T.confirm)+'">확인</button>'+
     '</div></div>';
   return '<div class="pin card'+(p.stale||elLost(p)?' st':'')+(claimed?' claimed':'')+(editing?' editing':'')+(open?' open':'')+'" data-id="'+p.id+'" data-doc="'+esc(pdoc(p))+'">'+
-    '<div class="row head">'+stDot(rv?CARD_DOT.REVIEW:p.stale||elLost(p)?CARD_DOT.LOST:claimed?CARD_DOT.CLAIMED:CARD_DOT.OPEN)+'<span class="n go" role="button" tabindex="0" data-act="view" data-tip="'+esc(T.n)+'">#'+p.id+'</span>'+docChip(p)+
+    '<div class="row head">'+stDot(rv?CARD_DOT.REVIEW:p.stale||elLost(p)?CARD_DOT.LOST:claimed?CARD_DOT.CLAIMED:CARD_DOT.OPEN)+go+'<span class="n go" role="button" tabindex="0" data-act="view" data-tip="'+esc(T.n)+'">#'+p.id+'</span>'+docChip(p)+
     '<span class="loc" tabindex="0" data-copy="'+esc(isRegion(p)?locCopy(p):name+' '+loc)+'" data-tip="'+esc(isRegion(p)?'영역이 있는 PDF 쪽. 클릭하면 복사':T.loc)+'">'+locText(p)+'</span>'+
     '<span class="pg-link" tabindex="0" data-act="view" data-tip="클릭하면 그 쪽으로 이동">'+esc(tl('{page}쪽',{page:pinPlace(p).page}))+'</span>'+
     '<span class="sp"></span><span class="h-meta">'+assignChip(p)+thn+au+'</span>'+
@@ -64,14 +67,19 @@ function card(p){
     (editing?'<div class="edit-slot"></div>':
     '<div class="note" data-act="edit" data-tip="클릭하면 메모와 범위를 고칩니다">'+(p.note?fmtText(p.note,p.mentions):'<span class="dim">(메모 없음)</span>')+'</div>'+
     threadHtml(p,LAYOUT===LAYOUT_MODE.WIDE)+
-    '<div class="acts"><button class="btn-sm b-view" data-act="view" data-tip="'+esc(T.view)+'">보기</button>'+
-    '<button class="btn-sm b-edit" data-act="edit" data-tip="'+esc(T.edit)+'">수정</button>'+
-    '<button class="btn-sm b-reply" data-act="reply-open" data-tip="'+esc(T.reply)+'">답글</button>'+
-    (claimed?'<button class="btn-sm b-unclaim" data-act="unclaim" data-tip="'+esc('처리 중 표시를 풉니다(에이전트가 멈췄거나 잘못 잡은 경우)')+'">풀기</button>':'')+
-    '<button class="btn-sm btn-destructive b-drop" data-act="drop" data-tip="'+esc(T.drop)+'">삭제</button>'+
-    '<button class="btn-sm btn-soft b-close" data-act="close" data-tip="'+esc(T.close)+'">완료</button>'+
-    '</div>')+'</div>';
+    '<div class="acts">'+cardActs(claimed,LAYOUT!==LAYOUT_MODE.WIDE)+'</div>')+'</div>';
 }
+// An open card's action row, in the order it is seen so that Tab follows it. wide: [보기] [수정] [답글] ([풀기]) [삭제] [완료], by name.
+// compact (narrow and mid, any pointer): [삭제] [수정] ([풀기]) ...... [답글] [완료] - [보기] is the head's '#N · L… · N쪽' link, and
+// [수정][풀기][삭제] show only their icon (the name stays in aria-label and the tooltip); CSS picks icon or name per layout.
+function cardActs(claimed,compact){
+  const b={view:'<button class="btn-sm b-view" data-act="view" data-tip="'+esc(T.view)+'">보기</button>',
+    edit:'<button class="btn-sm b-edit" data-act="edit" aria-label="수정" data-tip="'+esc(T.edit)+'">'+ic('pencil')+'<span class="lbl">수정</span></button>',
+    reply:'<button class="btn-sm b-reply" data-act="reply-open" data-tip="'+esc(T.reply)+'">답글</button>',
+    unclaim:claimed?'<button class="btn-sm b-unclaim" data-act="unclaim" aria-label="풀기" data-tip="'+esc('처리 중 표시를 풉니다(에이전트가 멈췄거나 잘못 잡은 경우)')+'">'+ic('lock-open')+'<span class="lbl">풀기</span></button>':'',
+    drop:'<button class="btn-sm btn-destructive b-drop" data-act="drop" aria-label="삭제" data-tip="'+esc(T.drop)+'">'+ic('trash-2')+'<span class="lbl">삭제</span></button>',
+    close:'<button class="btn-sm btn-soft b-close" data-act="close" data-tip="'+esc(T.close)+'">완료</button>'};
+  return (compact?['drop','edit','unclaim','reply','close']:['view','edit','reply','unclaim','drop','close']).map(k=>b[k]).join('');}
 // Archive row (docs/handbook/viewer.md §보관함): a closed/dropped pin is a flat, borderless, backgroundless row with faded text, not a card.
 // The first line is icon/#number/location/reference/time/[다시 열기|되살리기]; the second line is one line of the agent's
 // answer (close_reply) - truncated on overflow, expandable on click. The original request note is only shown by pressing

@@ -14,47 +14,61 @@ body.selmode .pg{touch-action:none;outline:2px dashed var(--primary);outline-off
 #coach button{background:transparent;color:inherit;border-color:transparent}
 body:not(.lay-narrow) #coach{top:94px;pointer-events:none}
 body:not(.lay-narrow) #coach button{pointer-events:auto}
-#more{max-width:440px}
+/* [더보기] (compact only, docs/handbook/viewer.md §모바일 레이아웃) is a bottom sheet like the documents sheet: the label, one meta
+   line, [?] and [닫기]; a row of zoom-out/zoom-in/fit icons and the page field, the sheet-height/panel-width control, then one-line rows. It was a
+   600px centred dialog whose two-column grid left 'English' alone on a row and wrapped English labels (diagnosis P10). Help is the
+   [?] beside [닫기]. */
+#more{max-width:560px;width:100%;margin:auto auto 0;border-radius:var(--radius-lg) var(--radius-lg) 0 0;
+  padding:var(--space-3) var(--space-4) calc(var(--space-3) + env(safe-area-inset-bottom))}
 #more .more-head{flex-wrap:nowrap;gap:var(--space-2);margin-bottom:var(--space-2)}
 #more .more-head .chip{background:var(--brand);max-width:min(60%,240px)}
-#more .more-info{font-size:var(--text-base);color:var(--muted-foreground);overflow-wrap:anywhere;margin:0 0 var(--space-2)}
-#more .more-grid{display:grid;grid-template-columns:1fr 1fr;gap:var(--space-2)}
-#more .more-grid .wide{grid-column:1/-1}
+#more .more-info{flex:1;min-width:0;font-size:var(--text-sm);color:var(--muted-foreground);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin:0}
+#more .more-tools{display:flex;align-items:center;gap:var(--space-2);margin-bottom:var(--space-2)}
 #more .jump-row{display:flex;gap:var(--space-2)}
-#more .jump-row input{flex:1;min-width:0}
+#more .jump-row input{width:72px;flex:none}
 #more .size-row{display:flex;align-items:center;gap:var(--space-2)}
 #more .size-row .seg{flex:1;margin:0}
+#more .more-grid{display:flex;flex-direction:column;margin-top:var(--space-2);border-top:1px solid var(--border);padding-top:var(--space-1)}
+#more .more-grid button{justify-content:flex-start;width:100%;text-align:left;white-space:nowrap;background:transparent;border-color:transparent}
+#more .more-grid button:hover{background:var(--accent)}
 @media (pointer:coarse){
-  :root{--doc-nav-h:48px}
+  :root{--doc-nav-h:48px;--text-xs:12px}   /* no touch text below 12px: badges, counts, avatar initials and page numbers were 11px (diagnosis P7) */
   button.tch{display:inline-flex}
   .hint .t-touch{display:inline}
   .hint .t-mouse{display:none}
   button{min-height:44px;min-width:44px;padding:var(--space-2) var(--space-3);font-size:var(--text-lg);-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
   button.btn-sm,.seg button{min-height:44px;padding:var(--space-2) var(--space-3);font-size:var(--text-base)}
-  /* A tappable badge (assignee chip/awaiting review/build error) keeps its visual size and only widens its hit area to 44px - growing it via
-     min-height:44px turned the card header's assignee chip into a 44px blue slab (folded-layout QA). */
-  button.badge{min-height:0;min-width:0;padding:1px var(--space-2);position:relative}
-  button.badge::after{content:'';position:absolute;left:-4px;right:-4px;top:50%;height:var(--control-h-touch);transform:translateY(-50%)}
+  /* The one touch hit-area utility (docs/handbook/viewer.md §모바일 레이아웃): a control drawn smaller than --hit keeps its
+     drawn size and gets a centred --hit x --hit box from ::after. Its own overflow is forced visible - a clipping box (the
+     assignee chip's overflow:hidden) cut the ::after back to the drawn 20px (input diagnosis P6). A tappable badge (assignee
+     chip/awaiting review/build error) is one: growing it via min-height:44px turned the chip into a 44px blue slab. */
+  button.badge{min-height:0;min-width:0;padding:1px var(--space-2)}
+  :is(.hit,button.badge,.pin .acts button,.pin .go-all){position:relative;overflow:visible}
+  :is(.hit,button.badge,.pin .acts button,.pin .go-all)::after{content:'';position:absolute;left:50%;top:50%;width:max(100%,var(--hit));height:max(100%,var(--hit));transform:translate(-50%,-50%)}
   #bar1{flex-wrap:wrap;--tb-h:var(--control-h-touch)}
   #bar1 button{padding:0 var(--space-2)}
   input,textarea,select{font-size:var(--text-xl)}
   #bar1 input.n{width:84px;flex:0 0 84px;max-width:none;font-size:var(--text-xl)}   /* iOS zooms the screen when focusing an input field smaller than 16px */
-  .loc,.pg-link,.pin .n.go{display:inline-flex;align-items:center;min-height:44px}
-  /* #N is drawn narrow, only as wide as its text (26-35px) - the visual size is kept and a fixed 44x44 hit area is centered on top of it
-     (a fixed size rather than an inset proportional to the parent's width is needed to guarantee 44 even for a short number). position:relative
-     is given only to .n.go - giving it to .loc/.pg-link too let .loc, which comes later in DOM order, rise above .n.go's ::before
-     in the positioned stacking order and intercept hit-testing for the right half (observed: cx+21 returned '.loc' instead of '#N').  */
-  .pin .n.go{position:relative}
-  .pin .n.go::before{content:'';position:absolute;left:50%;top:50%;width:var(--control-h-touch);height:var(--control-h-touch);transform:translate(-50%,-50%)}
+  /* Text links (#N, the line range, N쪽) sit 4-8px apart, so centred 44px hit areas would overlap and the later one would take the
+     earlier's half (observed: '1쪽' answered 16x38, 'L4-L5' 33x38). Each is a real --hit x --hit box instead, its text centred,
+     positioned so that it stays above the line below that the compact head's -6px margin lets overlap it. */
+  .loc,.pg-link,.pin .n.go{display:inline-flex;align-items:center;justify-content:center;min-height:var(--hit);min-width:var(--hit);position:relative}
+  .pin .go-all{min-height:var(--hit)}
+  .pin .head .b-fold{position:relative}   /* above the preview line that the head's -6px margin lets overlap its bottom (it answered 44x38) */
   .mark b{width:26px;height:26px;left:-28px;font-size:var(--text-base)}
   .mark b::after{content:'';position:absolute;inset:-9px}
   #tip{max-width:min(300px,calc(100vw - 16px))}
+  #more .more-tools .btn-icon{width:var(--control-h-lg);min-width:var(--control-h-lg);height:var(--control-h-lg);min-height:0}   /* icons drawn at 36px, 8px apart: their 44px hits (.hit) meet */
+  #help{padding:var(--space-4)}
+  #help .kbd-only{display:none}   /* Ctrl, the wheel and Alt+1…9 mean nothing on a touch screen; the touch table above stays */
   button.btn-icon,.step button{width:var(--control-h-touch);min-width:var(--control-h-touch)}
   /* button.btn-icon.btn-sm{width:var(--control-h-sm)} (the base rule, 0-0-2-1) is more specific than the
      button.btn-icon above (0-0-1-1), so it stayed at 24px even for touch (observed on the card-collapse .b-fold/toast-close buttons) - re-pinned here at the same specificity. */
   button.btn-icon.btn-sm{width:var(--control-h-touch);min-width:var(--control-h-touch);height:var(--control-h-touch)}
-  #c-actions button{min-height:48px;font-size:var(--text-lg)}
-  .pin .acts button{min-height:44px}
+  #c-actions button{min-height:var(--hit);font-size:var(--text-lg)}
+  /* Card actions are drawn at --ctl-touch-sm (32px on the phone sheet, 36px in a tablet panel), each with the 44px hit area. */
+  .pin .acts button{min-height:0;height:var(--ctl-touch-sm);padding-top:0;padding-bottom:0}
+  body.compact .pin .acts :is(.b-edit,.b-drop,.b-unclaim){width:var(--ctl-touch-sm);min-width:var(--ctl-touch-sm)}
   /* To keep an archive row flat, [원래 요청] is drawn at 28px and only its hit area is widened to 44px via ::after */
   button.arc-orig-t{min-height:44px;min-width:44px;padding:0 var(--space-1);font-size:var(--text-base)}   /* the box itself is 44px (QA: used to be 58x28) */
   .arc-reply{min-height:44px;display:flex;align-items:center}
@@ -75,7 +89,6 @@ body:not(.lay-narrow) #coach button{pointer-events:auto}
   :is(button.btn-sm,button.badge,button.sec-tg,button.arc-orig-t,.loc,.pg-link,.th-n,.pin .n.go)::after{content:'';position:absolute;left:50%;top:50%;
     width:max(100%,24px);height:max(100%,24px);transform:translate(-50%,-50%)}
   .mark b::after{content:'';position:absolute;inset:-1px}
-  button.badge-assign{overflow:visible}   /* its name ellipsizes by itself (.as-n); a clipping chip would clip its hit area too */
 }
 body.lay-narrow #grip,body.lay-mid:not(.side-open) #grip{display:none}
 /* mid: shows a grab bar in the middle of the handle (easier to find by touch) */
@@ -112,25 +125,37 @@ body.lay-narrow #bar1 #btn-doc{flex:none;overflow:visible}
 body.lay-narrow #btn-side{order:1}
 body.lay-narrow #btn-select{order:2}
 body.lay-narrow #btn-doc{order:3}
-body.lay-narrow #btn-rebuild{order:4}
-body.lay-narrow #btn-more{order:5}
+body.lay-narrow #btn-rebuild{order:5}
+body.lay-narrow #btn-more{order:6}
 body.lay-narrow #bar1 #btn-rebuild{flex:0 0 var(--tb-h);padding:0}
 body.lay-narrow #btn-rebuild .lbl{display:none}
 @media (max-width:360px){body.lay-narrow #btn-select .lbl{display:none}}   /* very narrow phone: [선택] is just the dashed-box icon (filled color when on) */
 body.lay-narrow #btn-doc .nm{overflow:visible;text-overflow:clip;max-width:6em}
 body.compact #bar1 #btn-more{flex:0 0 44px;padding:0;background:transparent;border-color:transparent}   /* utility = ghost (the same convention as notification/theme/help on desktop) */
 body.compact #composer{max-height:none;overflow:visible}
-/* Narrow sheet: the note field is moved above the source text - within the sheet height, the note field used to hide below the bottom action row (observed during the mobile improvements). */
+/* Phone sheet composer (docs/handbook/viewer.md §패널 정리): the location line, then the note with its helpers, then the one-line
+   overlap notice, then the range ladder, the nudges and the kind, then the source. The note was the fourth block, 328px down, and hid
+   below the save row; with the keyboard up the location line scrolled away (diagnosis P2). */
 body.lay-narrow #composer{display:flex;flex-direction:column}
 body.lay-narrow #c-body{display:contents}
-body.lay-narrow #c-snip,body.lay-narrow .snip-foot{order:2}
-body.lay-narrow #note{order:1;margin:0 0 8px}
+body.lay-narrow #c-overlap{order:2}
+body.lay-narrow :is(#c-levels,.c-tools,#c-kind){order:3}
+body.lay-narrow #c-snip,body.lay-narrow .snip-foot{order:4}
+body.lay-narrow #note{order:1;margin:var(--space-2) 0}
+body.lay-narrow #c-viewer{order:1}
+/* One line: the short relation shrinks (its tooltip has the sentence), the two actions keep their names. */
+#c-overlap.one{flex-wrap:nowrap;align-items:center;margin:0 0 var(--space-2)}
+#c-overlap.one>.ov-t{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#c-overlap.one button{flex:none}
+@media (pointer:coarse){#c-overlap.one button{min-height:var(--ctl-touch-sm);padding-top:0;padding-bottom:0}}
 body.compact #list{overflow:visible;padding-bottom:calc(20px + env(safe-area-inset-bottom))}
 /* In compact, #right is the scroll box - the action row is stuck to its bottom. */
 body.compact #c-actions{position:sticky;bottom:0;padding:8px 12px calc(8px + env(safe-area-inset-bottom))}
+/* The save row is 56px on touch (44px buttons + 12px): it was 65px around 48px buttons (diagnosis P2). */
+@media (pointer:coarse){body.compact #c-actions{padding-top:0;padding-bottom:env(safe-area-inset-bottom);min-height:calc(var(--hit) + var(--space-3) + env(safe-area-inset-bottom));align-content:center}}
 body.compact #meta-txt,body.compact #me{display:none}
 body.compact #bar2:not(:has(.badge:not([hidden]))){display:none}
-body.compact:not(.side-open) #right>:not(#bar1):not(#bar2):not(#banner):not(#sheet-grip){display:none}
+body.compact:not(.side-open) #right>:not(#bar1):not(#bar2):not(#banner){display:none}
 body.compact:not(.side-open) #bar1{order:3;border-bottom:0}
 /* Toast placement (placeToasts): narrow is the full screen width right above the sheet; mid is the panel side just above the action row (inside its column if the panel is open). */
 body.lay-narrow #toasts{left:var(--space-2);right:var(--space-2);width:auto;max-width:none}
@@ -143,7 +168,7 @@ body.compact .pin .head{flex-wrap:nowrap;margin:-6px 0}
 body.compact .pin.open .sum,body.compact .pin.editing .sum{display:none}
 body.compact .pin:not(.open):not(.editing) :is(.tags,.au,.note,.acts,.head>.sp,.thread){display:none}
 body.compact .pin .au .au-n{display:none}
-body.lay-narrow{display:block}
+body.lay-narrow{display:block;--ctl-touch-sm:32px}   /* the phone sheet's small touch controls are drawn at 32px, a tablet panel's at 36px (tokens.css) */
 body.lay-narrow #main{height:100%}
 body.lay-narrow #left{height:100%}
 body.lay-narrow #right{position:fixed;left:0;right:0;bottom:var(--kb,0px);width:auto!important;height:auto;
@@ -151,12 +176,29 @@ body.lay-narrow #right{position:fixed;left:0;right:0;bottom:var(--kb,0px);width:
   box-shadow:0 -6px 24px var(--shadow-color);z-index:20;padding:0 env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left)}
 /* Sheet height: --sheet-f (fraction of screen height, default 0.64) is changed by dragging or pressing the top-edge handle (#sheet-grip). It shrinks to fit within the visible height when the keyboard is up. */
 body.lay-narrow.side-open #right{height:min(calc(var(--sheet-f,.64) * 100dvh),calc(var(--vvh,100dvh) - 48px))}
-body.lay-narrow #sheet-grip{display:flex;align-items:center;justify-content:center;height:24px;flex:none;position:sticky;top:0;z-index:4;
-  background:var(--sidebar);border-radius:var(--radius-lg) var(--radius-lg) 0 0;touch-action:none;cursor:row-resize}
-body.lay-narrow #sheet-grip::before{content:'';width:40px;height:4px;border-radius:var(--radius-sm);background:var(--border-strong)}
-body.lay-narrow #sheet-grip::after{content:'';position:absolute;left:0;right:0;top:0;bottom:-8px}
+/* While composing the sheet rises to 80% (body.sheet-up, never saved) unless the user sets a height meanwhile (panel-size.js SHEET_KEPT). */
+body.lay-narrow.side-open.sheet-up #right{height:min(calc(max(var(--sheet-f,.64),.8) * 100dvh),calc(var(--vvh,100dvh) - 48px))}
+/* The sheet's header is one row (docs/handbook/viewer.md §패널 폭과 시트 높이): the handle is an item of the tool bar, between [문서] and
+   [재빌드], its bar drawn at the row's top like a sheet handle. It used to be a 24px row of its own whose hit area took the top 8px
+   of every tool-bar button (diagnosis P3). The row has no vertical padding: the buttons are drawn at --tb-h and their 44px hit areas
+   reach 4px down into the section head below, never up past the sheet's edge (the scroll box would clip them). */
+body.lay-narrow #sheet-grip{display:flex;align-items:flex-start;justify-content:center;flex:none;order:4;width:var(--hit);height:var(--tb-h);
+  margin:0 auto;padding-top:var(--space-1);touch-action:none;cursor:row-resize;position:relative}
+body.lay-narrow #sheet-grip::before{content:'';width:24px;height:4px;border-radius:var(--radius-sm);background:var(--border-strong)}
 body.lay-narrow #sheet-grip.on::before{background:var(--primary)}
-body.lay-narrow #bar1{top:24px;padding-top:0;touch-action:none}   /* the whole tool bar drags the sheet; its taps still press buttons */
+body.lay-narrow #bar1{top:0;padding:0 var(--space-2);border-bottom:0;touch-action:none}   /* the whole tool bar drags the sheet; its taps still press buttons */
+body.lay-narrow #sec-open>.sec-head{border-top:1px solid var(--border)}   /* the line under the tool bar is the section head's own (40px with it) */
+body.lay-narrow:not(.side-open) #bar1{padding-bottom:var(--space-1)}   /* the collapsed sheet: room for the hit areas below the row */
+@media (pointer:coarse){
+  body.lay-narrow #bar1{--tb-h:var(--ctl-touch)}
+  body.lay-narrow #bar1 :is(button,#sheet-grip){position:relative;min-height:0;overflow:clip;overflow-clip-margin:var(--space-2)}   /* the label still ellipsizes; the hit area below is not clipped */
+  body.lay-narrow #bar1 :is(button,#sheet-grip)::after{content:'';position:absolute;left:50%;top:0;width:max(100%,var(--hit));height:calc(var(--hit) + 2px);transform:translateX(-50%)}   /* +2px: a sheet at a fractional y loses a row to the edge */
+  /* The section head is 40px: its tools are drawn at 32px from 4px down, and their hit areas reach into the 12px under it. */
+  body.lay-narrow .sec-head{min-height:40px;padding:0 var(--space-3);margin-bottom:var(--space-3)}
+  body.lay-narrow .sec-head button{min-height:var(--ctl-touch-sm);height:var(--ctl-touch-sm);padding-top:0;padding-bottom:0;position:relative}
+  body.lay-narrow .sec-head button::after{content:'';position:absolute;left:50%;top:0;width:max(100%,var(--hit));height:calc(var(--hit) + 2px);transform:translateX(-50%)}
+}
+@media (min-width:480px){body.lay-narrow #bar1 button{flex:none}}   /* a small tablet's sheet never stretches the buttons (600px: [핀 5] was 218px wide) */
 /* ---- Spread-out folded layout / tablet (mid): the document nav bar on top, the action row on the bottom - both fixed to the full screen
    width, with the panel spread between them (docs/handbook/viewer.md §펼친 화면 레이아웃). It used to have the tool bar follow the panel, so [핀]
    jumped to the top-right when expanded and the bottom-right when collapsed (observed 842x758, y 56->693), and the document-side panel
@@ -166,16 +208,23 @@ body.lay-narrow #bar1{top:24px;padding-top:0;touch-action:none}   /* the whole t
    row, so it's within right-thumb reach. The tool bar (#bar1) stays in the DOM inside #right and is pulled out visually via position:fixed -
    this is because the narrow sheet reuses the same markup as a sticky element below its handle. That's also why #right is never given a
    transform/filter/opacity (that would change a fixed child's containing block, and the action row would move together with the panel). */
-body.lay-mid{--mbar-tb:var(--control-h);--mbar-h:calc(var(--mbar-tb) + 2 * var(--space-2) + 1px + env(safe-area-inset-bottom));
+body.lay-mid{--mbar-tb:var(--control-h);--mbar-pad:var(--space-2);--mbar-h:calc(var(--mbar-tb) + 2 * var(--mbar-pad) + 1px + env(safe-area-inset-bottom));
   --mid-top:calc(var(--doc-nav-h) + env(safe-area-inset-top));padding-top:var(--mid-top);padding-bottom:var(--mbar-h)}
-@media (pointer:coarse){body.lay-mid{--mbar-tb:var(--control-h-touch)}}
+@media (pointer:coarse){body.lay-mid{--mbar-tb:var(--ctl-touch);--mbar-pad:var(--space-1)}}
+/* Touch mid action row: buttons drawn at 40px in 4px padding (49px with the line; 61px around 44px buttons before), each answering a 44px
+   box that reaches into the padding. */
+@media (pointer:coarse){
+  body.lay-mid #bar1 button{min-height:0;position:relative;overflow:visible}
+  body.lay-mid #bar1 button::after{content:'';position:absolute;left:50%;top:50%;width:max(100%,var(--hit));height:max(100%,var(--hit));transform:translate(-50%,-50%)}
+}
 body.lay-mid #bar1{position:fixed;left:0;right:0;top:auto;bottom:var(--kb,0px);z-index:30;height:var(--mbar-h);--tb-h:var(--mbar-tb);
-  gap:var(--space-2);padding:var(--space-2) max(var(--space-3),env(safe-area-inset-right)) calc(var(--space-2) + env(safe-area-inset-bottom)) max(var(--space-3),env(safe-area-inset-left));
+  gap:var(--space-2);padding:var(--mbar-pad) max(var(--space-3),env(safe-area-inset-right)) calc(var(--mbar-pad) + env(safe-area-inset-bottom)) max(var(--space-3),env(safe-area-inset-left));
   background:var(--sidebar);border-top:1px solid var(--border);border-bottom:0;pointer-events:auto;visibility:visible}
 /* Buttons keep their natural text width (never shrink or grow). Order follows thumb reach: [선택] .... [PDF 재빌드] [⋯] [핀 N].
    DOM order is shared with the narrow sheet, so only CSS order changes it. */
 body.lay-mid #bar1 button{flex:none;min-width:var(--tb-h);padding:0 var(--space-3);overflow:visible}
 body.lay-mid #bar1 #btn-more{flex:0 0 var(--tb-h);width:var(--tb-h);padding:0}
+@media (pointer:coarse){body.lay-mid #bar1 #btn-more{flex-basis:var(--hit);width:var(--hit)}}   /* a ghost icon: drawn at its hit width, so nothing hangs outside it */
 body.lay-mid #bar1 .sp{display:block;flex:1 1 0;order:2;align-self:stretch}
 body.lay-mid #btn-select{order:1}
 body.lay-mid #btn-rebuild{order:3}
@@ -183,6 +232,7 @@ body.lay-mid #btn-more{order:4}
 body.lay-mid #bar1 #btn-side{order:5;min-width:calc(2 * var(--control-h-touch));justify-content:center;gap:var(--space-1)}
 body.lay-mid #bar1 #btn-side[aria-expanded=true]{background:var(--accent);border-color:var(--border-strong)}
 body.lay-mid.side-open #right{width:var(--side-w,clamp(300px,38vw,360px))!important}
+body.lay-mid.side-open #right{padding-right:env(safe-area-inset-right)}   /* a landscape phone's right notch: #c-copy and [핀 저장] sat in it (diagnosis P9) */
 /* Collapsed panel: #right remains an invisible frame, floating only the status chips (#bar2) and the re-place-location banner (#banner) at the bottom-right just above the action row.
    The frame itself never receives input, so it never blocks the PDF behind it. */
 body.lay-mid:not(.side-open) #right{position:fixed;left:auto;top:auto;right:max(var(--space-3),env(safe-area-inset-right));

@@ -13,7 +13,7 @@ async function boot(){i18nStart();
   if(META.doc)DOC=META.doc; META_BY.set(DOC,META); loadViews(); const v=VIEW_BY.get(DOC);
   if(multiDoc()){setHash(DOC); savePrefs({lastDoc:DOC});}
   drawMeta(); applySideWidth(); applyOutlineState(); const hadW=applyViewWidth(v); buildDoc(); if(!hadW)autoW(); vecBoot(); const pinsLoaded=await loadPins();
-  restoreView(v); drawDocTabs(); restoreDraft();
+  restoreView(v); drawDocTabs(); updateSectionStrip(); restoreDraft();   // the page count is there before the first scroll (mid shows it in the nav bar)
   if(MQ_COARSE.matches)coach('touch','PDF를 길게 누르면 그 문단을 고릅니다 · [선택]을 켜면 끌어서 고릅니다');
   else coach('mouse','PDF를 끌어서 고칠 곳을 고르세요');   // first-time mouse users had no hint how to pin (the PDF also shows a crosshair)
   // A failed first read has no pin baseline; the light poll must retry even when meta has not changed.
@@ -70,6 +70,7 @@ function drawMeta(){
   updateSyncBadge(META.sync);
   $('#help-pins-md').textContent=META.pins_md||'';
   // In compact, #bar2's file/commit/time/author line is hidden and shown as a single line inside [⋯] instead (so a long filename never overflows).
-  $('#more-info').textContent=[META.main,tl('{n}쪽',{n:META.pages.length}),META.head,String(META.built_at||'').slice(0,16).replace('T',' '),
+  const info=[META.main,tl('{n}쪽',{n:META.pages.length}),META.head,String(META.built_at||'').slice(0,16).replace('T',' '),
     tl('나: {name}',{name:who(me)})].filter(Boolean).join(' · ');
+  $('#more-info').textContent=info; $('#more-info').dataset.tip=info;   // one line in [더보기]; the whole of it in the tooltip
 }

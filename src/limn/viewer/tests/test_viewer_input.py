@@ -21,7 +21,7 @@ from limn.pins.lifecycle.rules import CloseRequest
 from limn.security.access import LOCAL_ACTOR
 
 from helpers import HTML, add_pin, extract_js_fn, ps, run_node
-from helpers_access import ALICE, actor
+from helpers_access import ALICE, BOB, actor
 from helpers_authority import post_authority
 from helpers_browser import BrowserBase, booted, nothing_follows, settle, watch_idle
 
@@ -50,6 +50,10 @@ PROBE = """() => {
 CLICKS = """() => {window.__clicks = []; document.addEventListener('click', e => {const t = e.target.closest('[data-act]') || e.target;
   window.__clicks.push((t.id || t.className || t.tagName) + (t.dataset && t.dataset.act ? '[' + t.dataset.act + ']' : ''));}, true);}"""
 NO_CLOSE_WATCHER = "delete window.CloseWatcher;"
+# The test build's PDF copies are stubs, so PDF.js falls back to PNG and shows the 'PNG 보기' status chip, which a real build never
+# shows; hidden where a test measures the status row's absence.
+NO_PNG_CHIP = """document.addEventListener('DOMContentLoaded',()=>{const v=document.getElementById('vec-chip'); if(!v)return; v.hidden=true;
+  new MutationObserver(()=>{if(!v.hidden)v.hidden=true;}).observe(v,{attributes:true});});"""
 
 
 def node_or_skip(test, js):
@@ -220,7 +224,9 @@ class GestureLogic(unittest.TestCase):
 
     def test_sheet_release_collapses_low_or_flung_down_and_steps_up_on_an_upward_fling(self):
         """Below 25% or a downward fling collapses (30% while composing); an upward fling goes to the next stop."""
-        pre = re.search(r"const SHEET_F=\[[^\]]*\],SHEET_MIN_F=[\d.]+,SHEET_CLOSE_F=[\d.]+;", HTML).group(0)
+        pre = re.search(
+            r"const SHEET_F=\[[^\]]*\],SHEET_MIN_F=[\d.]+,SHEET_CLOSE_F=[\d.]+(?:,SHEET_COMPOSE_F=[\d.]+)?;", HTML
+        ).group(0)
         got = self.run_js(
             ["sheetRelease"],
             "[sheetRelease(0.2,300,0.1,false),sheetRelease(0.2,300,0.1,true),"
@@ -1302,6 +1308,472 @@ class PhoneSheet(ViewerBase):
         self.assertTrue(more.is_visible())
         self.tap(self.cdp(page), *self.center(page, "#toasts-more"))
         page.wait_for_function(visible + "===5")
+
+
+# Every visible element matching the selector whose tap area is under 44px wide or high, as "name WxH(hit wxh)": from its
+# centre, the px that still answer it going left/right/up/down (each side counted to 60px), as the diagnosis measured them - the
+# touch twin of DesktopMisc's 24px probe. A hit area may sit off-centre (the sheet's tool bar reaches only downwards).
+MISSES_44 = """sel => {
+  const out = [];
+  const own = (e, x, y) => { if (x < 0 || y < 0 || x >= innerWidth || y >= innerHeight) return false;
+    const h = document.elementFromPoint(x, y); return !!h && (h === e || e.contains(h)); };
+  for (const e of document.querySelectorAll(sel)) {
+    const r = e.getBoundingClientRect(); if (!r.width || !r.height || getComputedStyle(e).visibility === 'hidden') continue;
+    if (r.top < 0 || r.bottom > innerHeight || r.left < 0 || r.right > innerWidth) continue;
+    const cx = r.left + r.width / 2, cy = r.top + r.height / 2; let l = 0, ri = 0, u = 0, d = 0;
+    if (own(e, cx, cy)) { while (l < 60 && own(e, cx - l - 1, cy)) l++; while (ri < 60 && own(e, cx + ri + 1, cy)) ri++;
+      while (u < 60 && own(e, cx, cy - u - 1)) u++; while (d < 60 && own(e, cx, cy + d + 1)) d++; }
+    const w = l + ri + 1, h = u + d + 1;
+    if (w < 44 || h < 44) out.push((e.id ? '#' + e.id : e.className) + ' ' + Math.round(r.width) + 'x' + Math.round(r.height) + '(hit ' + w + 'x' + h + ')');
+  }
+  return out; }"""
+
+
+# A mouse window in the mid layout, and a wide desktop window.
+MOUSE_MID = {"viewport": {"width": 1000, "height": 800}}
+MOUSE_WIDE = {"viewport": {"width": 1440, "height": 900}}
+
+
+class LayoutNotPointer(ViewerBase):
+    """The compact layouts follow the window width, not the input device (docs/handbook/viewer.md §모바일 레이아웃): a mouse at mid
+    width gets the compact card and the [더보기] sheet too. Only the wide layout with a mouse is the unchanged desktop."""
+
+    def test_a_mouse_at_mid_width_gets_the_compact_card_and_the_more_sheet(self):
+        """1000x800 with a mouse: the head's '#N · L… · N쪽' link, the icon row without [보기], [더보기] on the bottom edge."""
+        page = self.view(MOUSE_MID)
+        self.assertTrue(page.evaluate("document.body.classList.contains('lay-mid')&&!MQ_COARSE.matches"))
+        pid = page.evaluate("PINS[0].id")
+        page.evaluate("id=>{setSide(true); OPEN_CARDS.add(id); drawPins();}", pid)
+        settle(page)
+        card = '#pins .pin[data-id="%d"]' % pid
+        got = page.evaluate(
+            """s => {const c = document.querySelector(s), vis = e => !!e && e.getClientRects().length > 0;
+              return {link: vis(c.querySelector('.go-all')), view: vis(c.querySelector('.acts .b-view')),
+                acts: [...c.querySelectorAll('.acts button')].filter(vis).map(b => b.dataset.act),
+                icons: [...c.querySelectorAll('.acts :is(.b-edit,.b-drop) .ic')].every(vis)}; }""",
+            card,
+        )
+        self.assertEqual(
+            got, {"link": True, "view": False, "acts": ["drop", "edit", "reply-open", "close"], "icons": True}
+        )
+        page.evaluate("openMore()")
+        settle(page)
+        box = page.locator("#more").bounding_box()
+        self.assertAlmostEqual(box["y"] + box["height"], 800, delta=1)
+
+    def test_a_mouse_at_wide_width_sees_the_desktop_unchanged(self):
+        """1440x900 with a mouse: the panel, card, composer and tool bar are as they were before the compact work - a 348px
+        panel, 28px tool bar, the section strip, the card's #N / range / N쪽 and its named grid, the composer's order and its
+        36px save row. (The same checks pass on 809fc9a.)"""
+        page = self.view(MOUSE_WIDE)
+        self.mouse_pick(page)
+        got = page.evaluate(
+            """() => {const q = s => document.querySelector(s), R = s => q(s).getBoundingClientRect(), vis = e => !!e && e.getClientRects().length > 0;
+              const c = q('#pins .pin'), acts = [...c.querySelectorAll('.acts button')].filter(vis);
+              const tops = s => [...document.querySelectorAll(s)].filter(vis).sort((a, b) => a.getBoundingClientRect().top - b.getBoundingClientRect().top).map(e => e.id || e.className);
+              return {panel: Math.round(R('#right').width), tool: Math.round(R('#btn-rebuild').height), strip: Math.round(R('#section-strip').height),
+                head: [vis(c.querySelector('.n.go')), vis(c.querySelector('.loc')), vis(c.querySelector('.pg-link')), vis(c.querySelector('.go-all'))],
+                acts: acts.map(b => b.innerText.trim()), even: new Set(acts.map(b => Math.round(b.getBoundingClientRect().width))).size,
+                rowTop: new Set(acts.map(b => Math.round(b.getBoundingClientRect().top))).size,
+                composer: tops('#composer .c-loc-row,#composer #c-levels,#composer .c-tools,#composer #c-snip,#composer #c-kind,#composer #note'),
+                save: Math.round(R('#btn-save').height), lift: document.body.classList.contains('sheet-up')}; }"""
+        )
+        self.assertEqual(
+            got,
+            {
+                "panel": 348,
+                "tool": 28,
+                "strip": 38,
+                "head": [True, True, True, False],
+                "acts": ["보기", "수정", "답글", "삭제", "완료"],
+                "even": 1,
+                "rowTop": 1,
+                "composer": ["c-loc-row", "c-levels", "c-tools", "c-snip", "c-kind", "note"],
+                "save": 36,
+                "lift": False,
+            },
+        )
+
+
+class PhoneTouchSizes(ViewerBase):
+    """Touch sizes on the phone sheet: every control answers a tap in a 44x44 box, whatever its drawn size - the assignee
+    chip, the card head's links, the tool bar under the sheet handle (input diagnosis P6) - and no text is below 12px (P7)."""
+
+    def setUp(self):
+        """One more open pin, assigned to Bob, so its card head carries the assignee chip."""
+        super().setUp()
+        ps.APP.people_directory.record(actor(BOB))
+        add_pin(
+            {
+                "file": str(self.main),
+                "lo": 30,
+                "hi": 31,
+                "page": 1,
+                "note": "담당 있는 핀",
+                "assignee": BOB["Tailscale-User-Login"],
+            },
+            actor(ALICE),
+        )
+
+    def open_card(self, page):
+        """The phone sheet open at its top, with the assigned pin's card expanded; returns that card's selector."""
+        pid = page.evaluate("OPEN_ALL.find(p=>p.assignee).id")
+        page.evaluate(
+            "id=>{setSide(true); OPEN_CARDS.add(id); drawPins(); document.querySelector('#right').scrollTop=0;}", pid
+        )
+        settle(page)
+        card = '.pin[data-id="%d"]' % pid
+        page.evaluate(
+            "s=>document.querySelector(s).scrollIntoView({block:'center'})", card
+        )  # clear of the scroll box's edges
+        settle(page)
+        return card
+
+    def test_card_head_controls_and_the_tool_bar_answer_a_44px_box(self):
+        """The assignee chip answered 72x20 (its overflow clipped the hit area), '1쪽' 16x38 and 'L4-L5' 33x38 (neighbours took
+        their halves), and the sheet handle took the top 8px of every tool-bar button (36px high)."""
+        page = self.view(PHONE)
+        card = self.open_card(page)
+        self.assertTrue(page.is_visible(card + " .as-chip"))
+        misses = page.evaluate(
+            MISSES_44,
+            "%s .head [data-act],%s .head [data-copy],%s .head button,#bar1 button" % (card, card, card),
+        )
+        self.assertEqual(misses, [])
+
+    def test_the_sheet_header_is_80px_and_its_handle_and_section_tools_answer_44px(self):
+        """The sheet's stuck header was the handle row 24 + the tool bar 53 + the section head 52 = 129px (diagnosis P3); the handle
+        now sits in the tool bar's row, so the header (below the sheet's 1px edge, as the diagnosis measured it) is the 40px row
+        and the 40px section head, and every control in it -
+        the handle included (it answered 121x32) - still answers a 44x44 box."""
+        page = self.view(PHONE, prefs={"sec": {"open": True, "review": True, "done": True}}, init=NO_PNG_CHIP)
+        page.evaluate("()=>{setSide(true); document.querySelector('#right').scrollTop=0;}")
+        settle(page)
+        head = page.evaluate(
+            "Math.round(document.querySelector('#sec-open .sec-head').getBoundingClientRect().bottom"
+            "-document.querySelector('#bar1').getBoundingClientRect().top)"
+        )
+        self.assertLessEqual(head, 80)
+        self.assertTrue(
+            page.evaluate("document.querySelector('#bar1').contains(document.querySelector('#sheet-grip'))")
+        )
+        misses = page.evaluate(MISSES_44, "#bar1 button,#sheet-grip,#sec-open .sec-head button")
+        self.assertEqual(misses, [])
+
+    def test_the_card_row_is_three_icons_and_two_names_and_the_head_is_one_link(self):
+        """An open card's six equal buttons were 40px wide in a tablet panel (diagnosis P4): [보기] is now the head's
+        '#N · L… · N쪽' link (one tap, the same place), [삭제][수정][풀기] are icons with names for screen readers and tooltips,
+        [답글][완료] keep their names; every one still answers a 44px box and keeps its data-act."""
+        page = self.view(PHONE)
+        card = self.open_card(page)
+        page.evaluate(
+            "s=>{const id=+document.querySelector(s).dataset.id; OPEN_ALL.concat(PINS).filter(p=>p.id===id)"
+            ".forEach(p=>{p.claim_until=Date.now()/1000+600;}); drawPins();}",
+            card,
+        )
+        settle(page)
+        row = page.evaluate(
+            """s => [...document.querySelectorAll(s + ' .acts button')].filter(b => b.getClientRects().length)
+                 .map(b => [b.dataset.act, b.innerText.trim(), b.getAttribute('aria-label') || '', Math.round(b.getBoundingClientRect().height)])""",
+            card,
+        )
+        order = page.evaluate(
+            "s=>[...document.querySelectorAll(s+' .acts button')].filter(b=>b.getClientRects().length)"
+            ".sort((a,b)=>a.getBoundingClientRect().left-b.getBoundingClientRect().left).map(b=>b.dataset.act)",
+            card,
+        )
+        self.assertEqual(order, ["drop", "edit", "unclaim", "reply-open", "close"])
+        names = {a: (t, lab, h) for a, t, lab, h in row}
+        for act, label in (("drop", "삭제"), ("edit", "수정"), ("unclaim", "풀기")):
+            self.assertEqual(names[act], ("", label, 32), act)
+        for act, text in (("reply-open", "답글"), ("close", "완료")):
+            self.assertEqual(names[act][:2], (text, ""), act)
+        head = page.evaluate(
+            "s=>[...document.querySelectorAll(s+' .head [data-act=view]')].filter(e=>e.getClientRects().length).map(e=>e.innerText)",
+            card,
+        )
+        self.assertEqual(len(head), 1)
+        self.assertRegex(head[0], r"^#\d+ · L30-L31 · 1쪽$")
+        self.assertEqual(page.evaluate(MISSES_44, card + " .acts button," + card + " .head [data-act=view]"), [])
+
+    def test_the_card_row_sits_one_step_under_the_note_and_its_icons_match(self):
+        """Controller review of the after-shots: a 22-60px band sat between the note and the row (the note's 44px min-height),
+        [삭제] had no fill while [수정] and [풀기] did, and [풀기] was a circled x that reads as close. Now the row is one spacing
+        step (8px) under the note, the three icons share the neutral fill and size with only the delete glyph red, [삭제] keeps one
+        more step from [수정], and [풀기] is an open lock."""
+        page = self.view(PHONE)
+        card = self.open_card(page)
+        page.evaluate(
+            "s=>{const id=+document.querySelector(s).dataset.id; OPEN_ALL.concat(PINS).filter(p=>p.id===id)"
+            ".forEach(p=>{p.claim_until=Date.now()/1000+600;}); drawPins();}",
+            card,
+        )
+        settle(page)
+        got = page.evaluate(
+            """s => {
+              const c = document.querySelector(s), q = x => c.querySelector(x), R = x => q(x).getBoundingClientRect();
+              const cs = x => getComputedStyle(q(x));
+              const g = document.createRange(); g.selectNodeContents(q('.note'));
+              const text = Math.max(...[...g.getClientRects()].filter(r => r.height > 0).map(r => r.bottom));   // the note's last line, not its box
+              return {gap: Math.round(R('.acts').top - text), boxGap: Math.round(R('.acts').top - R('.note').bottom),
+                fills: ['.b-drop', '.b-edit', '.b-unclaim'].map(x => cs(x).backgroundColor),
+                sizes: ['.b-drop', '.b-edit', '.b-unclaim'].map(x => Math.round(R(x).width) + 'x' + Math.round(R(x).height)),
+                glyphs: [cs('.b-drop').color, cs('.b-edit').color],
+                apart: [Math.round(R('.b-edit').left - R('.b-drop').right), Math.round(R('.b-unclaim').left - R('.b-edit').right)],
+                lock: !!q('.b-unclaim svg.ic-lock-open')}; }""",
+            card,
+        )
+        self.assertLessEqual(
+            got["gap"], 12
+        )  # the 8px step plus the last line's half-leading (21.7px line, ~14px glyphs)
+        self.assertEqual(got["boxGap"], 8)
+        self.assertEqual(len(set(got["fills"])), 1, got["fills"])
+        self.assertNotIn(got["fills"][0], ("rgba(0, 0, 0, 0)", "transparent"))
+        self.assertEqual(len(set(got["sizes"])), 1, got["sizes"])
+        self.assertNotEqual(got["glyphs"][0], got["glyphs"][1])
+        self.assertEqual(got["apart"][0] - got["apart"][1], 8)
+        self.assertTrue(got["lock"])
+
+    def test_a_tap_anywhere_on_a_collapsed_card_opens_it(self):
+        """The collapsed card opened only from its 20px preview line or the chevron; now any spot that is not a link does."""
+        page = self.view(PHONE)
+        page.evaluate(
+            "()=>{setSide(true); OPEN_CARDS.clear(); drawPins(); document.querySelector('#right').scrollTop=0;}"
+        )
+        settle(page)
+        # the collapsed head's link and chevron keep their 44px boxes over the preview line below them
+        self.assertEqual(page.evaluate(MISSES_44, "#pins .pin .head [data-act]"), [])
+        card = page.locator("#pins .pin").first
+        b = card.bounding_box()
+        pid = int(card.get_attribute("data-id"))
+        self.tap(self.cdp(page), b["x"] + b["width"] * 0.6, b["y"] + b["height"] - 4)
+        page.wait_for_function("id=>OPEN_CARDS.has(id)", arg=pid)
+
+    def test_tab_walks_the_card_row_from_left_to_right(self):
+        """The row's markup order is its visual order: it was edit, reply, release, delete, done in the DOM and delete, edit,
+        release, reply, done on screen (CSS order), so Tab jumped back and forth."""
+        page = self.view(PHONE)
+        card = self.open_card(page)
+        page.evaluate(
+            "s=>{const id=+document.querySelector(s).dataset.id; OPEN_ALL.concat(PINS).filter(p=>p.id===id)"
+            ".forEach(p=>{p.claim_until=Date.now()/1000+600;}); drawPins();}",
+            card,
+        )
+        settle(page)
+        seen = page.evaluate(
+            "s=>[...document.querySelectorAll(s+' .acts button')].filter(b=>b.getClientRects().length)"
+            ".sort((a,b)=>a.getBoundingClientRect().left-b.getBoundingClientRect().left).map(b=>b.dataset.act)",
+            card,
+        )
+        page.evaluate("s=>document.querySelector(s+' .acts button').focus()", card)
+        tabbed = [page.evaluate("document.activeElement.dataset.act")]
+        for _ in range(len(seen) - 1):
+            page.keyboard.press("Tab")
+            tabbed.append(page.evaluate("document.activeElement.dataset.act"))
+        self.assertEqual(seen, ["drop", "edit", "unclaim", "reply-open", "close"])
+        self.assertEqual(tabbed, seen)
+
+    def test_no_text_on_a_touch_screen_is_below_12px(self):
+        """Badges, the assignee chip, the reply count, avatar initials and page numbers were 11px (--text-xs) on a phone."""
+        page = self.view(PHONE)
+        page.evaluate("()=>{setSide(true); OPEN_ALL.forEach(p=>OPEN_CARDS.add(p.id)); drawPins();}")
+        settle(page)
+        small = page.evaluate("""() => {
+          const out = [];
+          for (const e of document.querySelectorAll('body *')) {
+            if (![...e.childNodes].some(n => n.nodeType === 3 && n.textContent.trim())) continue;
+            if (!e.getClientRects().length || getComputedStyle(e).visibility === 'hidden') continue;
+            const fs = parseFloat(getComputedStyle(e).fontSize);
+            if (fs < 12) out.push((e.id ? '#' + e.id : e.className || e.tagName) + ' ' + fs);
+          }
+          return [...new Set(out)]; }""")
+        self.assertEqual(small, [])
+
+    def test_a_mouse_keeps_the_named_card_buttons(self):
+        """The desktop card is unchanged: [보기][수정][답글][삭제][완료] by name, and no merged head link."""
+        page = self.view(DESK)
+        texts = page.evaluate(
+            "[...document.querySelectorAll('#pins .pin')[0].querySelectorAll('.acts button')].filter(b=>b.getClientRects().length).map(b=>b.innerText.trim())"
+        )
+        self.assertEqual(texts, ["보기", "수정", "답글", "삭제", "완료"])
+        self.assertFalse(
+            page.evaluate("[...document.querySelectorAll('.pin .go-all')].some(e=>e.getClientRects().length)")
+        )
+
+    def test_a_mouse_keeps_the_drawn_card_head(self):
+        """The 44px boxes are touch only: a mouse sees the card head links at their text size (24px hit areas, DesktopMisc)."""
+        page = self.view(DESK)
+        w = page.evaluate("Math.round(document.querySelector('.pin .pg-link').getBoundingClientRect().width)")
+        self.assertLess(w, 30)
+
+
+# The narrowest phone of the diagnosis and its keyboard (Chrome on Android shrinks the layout by it: resizes-content).
+PHONE_360 = {"viewport": {"width": 360, "height": 780}, "is_mobile": True, "has_touch": True}
+KEYBOARD_360 = 300
+# How much of an element is visible and on top: the px of its centre column whose topmost element is it, and its height.
+SHOWN = """sel => {
+  const e = document.querySelector(sel), r = e.getBoundingClientRect(), x = r.left + r.width / 2; let n = 0;
+  for (let y = Math.max(0, Math.ceil(r.top)); y < Math.min(innerHeight, r.bottom); y++) {
+    const t = document.elementFromPoint(x, y); if (t && (t === e || e.contains(t))) n++; }
+  return [n, Math.round(r.height)]; }"""
+
+
+class PhoneComposer(ViewerBase):
+    """The phone sheet's composer (input diagnosis P2): the note comes right after the location line, the overlap notice is one
+    line, the sheet rises to 80% while composing without remembering it, and the save row is 56px - so the note field is
+    whole above [취소][핀 저장], and with the keyboard up the location line is still above it."""
+
+    def compose(self, page):
+        """A touch selection through the real pick path (the computed answer overlaps the open pin at L4-L5)."""
+        page.evaluate("()=>{LAST_PTR='touch'; pick({page:1,x0:10,y0:10,x1:200,y1:60});}")
+        page.wait_for_function("COMPOSE.current&&!COMPOSE.picking")
+        settle(page)
+
+    def test_the_note_is_whole_above_the_save_row_with_the_overlap_notice(self):
+        """360x780: the note was the fourth block and the save row covered 64 of its 92px."""
+        page = self.view(PHONE_360)
+        self.compose(page)
+        self.assertTrue(page.is_visible("#c-overlap"))
+        self.assertLessEqual(page.locator("#c-overlap").bounding_box()["height"], 44)
+        seen, h = page.evaluate(SHOWN, "#note")
+        self.assertEqual(seen, h)
+        self.assertEqual(round(page.locator("#c-actions").bounding_box()["height"]), 56)
+        order = page.evaluate(
+            "[...document.querySelectorAll('.c-loc-row,#note,#c-overlap,#c-levels,#c-kind,#c-snip')]"
+            ".map(e=>[e.id||e.className,Math.round(e.getBoundingClientRect().top)]).sort((a,b)=>a[1]-b[1]).map(a=>a[0])"
+        )
+        self.assertEqual(order, ["c-loc-row", "note", "c-overlap", "c-levels", "c-kind", "c-snip"])
+
+    def test_with_the_keyboard_up_the_note_and_the_location_line_stay_in_view(self):
+        """The keyboard shrinks the layout by 300px: the location line scrolled to y -35 above the note."""
+        page = self.view(PHONE_360)
+        self.compose(page)
+        page.focus("#note")
+        page.set_viewport_size({"width": 360, "height": 780 - KEYBOARD_360})
+        settle(page)
+        seen, h = page.evaluate(SHOWN, "#note")
+        self.assertEqual(seen, h)
+        seen, h = page.evaluate(SHOWN, "#c-loc")
+        self.assertEqual(seen, h)
+
+    def test_the_sheet_rises_to_80_percent_while_composing_and_goes_back_after(self):
+        """The lift is not remembered: cancelling returns the sheet to its saved height."""
+        page = self.view(PHONE_360)
+        page.evaluate("setSide(true)")
+        settle(page)
+        self.assertAlmostEqual(page.locator("#right").bounding_box()["height"] / 780, 0.64, delta=0.01)
+        self.compose(page)
+        self.assertAlmostEqual(page.locator("#right").bounding_box()["height"] / 780, 0.8, delta=0.01)
+        page.evaluate("document.querySelector('#btn-cancel').click(); setSide(true)")
+        settle(page)
+        self.assertAlmostEqual(page.locator("#right").bounding_box()["height"] / 780, 0.64, delta=0.01)
+        self.assertNotIn("sheetF", page.evaluate("prefs()"))
+
+    def test_a_height_the_user_sets_while_composing_wins_over_the_lift(self):
+        """A preset chosen while composing applies at once (the lift never overrides the user)."""
+        page = self.view(PHONE_360)
+        self.compose(page)
+        page.evaluate("sizePreset(0)")
+        settle(page)
+        self.assertAlmostEqual(page.locator("#right").bounding_box()["height"] / 780, 0.45, delta=0.01)
+
+
+# A portrait tablet in the mid layout (the overlay panel).
+TAB_PORTRAIT = {"viewport": {"width": 768, "height": 1024}, "is_mobile": True, "has_touch": True}
+
+
+class MidChrome(ViewerBase):
+    """The mid layout's fixed chrome (input diagnosis P4): nav bar 48 + section strip 38 + action row 61 = 147px. The strip
+    repeated the nav bar's 원고 tab and goes; its page count moves to the nav bar's right end; the action row is drawn at 40px."""
+
+    def test_the_section_strip_goes_and_the_action_row_is_at_most_52px(self):
+        """768x1024: no section strip, the page count in the nav bar, an action row of 52px or less whose buttons answer 44px."""
+        page = self.view(TAB_PORTRAIT)
+        self.assertTrue(page.evaluate("document.body.classList.contains('lay-mid')"))
+        self.assertFalse(page.is_visible("#section-strip"))
+        self.assertTrue(page.is_visible("#nav-page"))
+        self.assertRegex(page.inner_text("#nav-page"), r"^1 / 2쪽$")
+        self.assertLessEqual(round(page.locator("#bar1").bounding_box()["height"]), 52)
+        self.assertEqual(page.evaluate(MISSES_44, "#bar1 button"), [])
+
+    def test_the_open_panel_keeps_out_of_a_right_notch(self):
+        """A landscape phone with its notch on the right: the panel's buttons sat in the 47px inset (#c-copy at x 788-832)."""
+        page = self.view(FOLD)
+        self.cdp(page).send("Emulation.setSafeAreaInsetsOverride", {"insets": {"right": 47}})
+        page.evaluate("()=>{LAST_PTR='touch'; pick({page:1,x0:10,y0:10,x1:200,y1:60});}")
+        page.wait_for_function("COMPOSE.current&&!COMPOSE.picking")
+        settle(page)
+        out = page.evaluate(
+            "[...document.querySelectorAll('#right button')].filter(b=>b.getClientRects().length&&b.closest('#composer,#c-actions'))"
+            ".filter(b=>b.getBoundingClientRect().right>innerWidth-47).map(b=>b.id||b.className)"
+        )
+        self.assertEqual(out, [])
+
+
+class PhoneMoreAndHelp(ViewerBase):
+    """[더보기] and help on a phone (input diagnosis P10): [더보기] was a 600px centred dialog whose 2-column grid left 'English' on
+    a row of its own and wrapped English labels onto two lines; help showed the desktop shortcut table on a touch screen."""
+
+    def test_more_is_a_bottom_sheet_of_one_line_rows(self):
+        """360x780, Korean and English: a sheet on the bottom edge, at most 460px high, no label on two lines, 44px targets."""
+        for lang in ("ko", "en"):
+            with self.subTest(lang=lang):
+                page = self.view(PHONE_360, lang=lang)
+                page.evaluate("openMore()")
+                settle(page)
+                box = page.locator("#more").bounding_box()
+                self.assertLessEqual(box["height"], 460)
+                self.assertAlmostEqual(box["y"] + box["height"], 780, delta=1)
+                two = page.evaluate(
+                    """() => [...document.querySelectorAll('#more button')].filter(b => b.getClientRects().length).filter(b => {
+                      const r = document.createRange(); r.selectNodeContents(b);
+                      return new Set([...r.getClientRects()].filter(q => q.width > 1).map(q => Math.round(q.top))).size > 1;
+                    }).map(b => b.id || b.textContent.trim())"""
+                )
+                self.assertEqual(two, [])
+                self.assertEqual(page.evaluate(MISSES_44, "#more button,#more input"), [])
+
+    def test_help_on_a_touch_screen_leaves_out_the_shortcut_table(self):
+        """Ctrl, the wheel and Alt+1…9 mean nothing on a phone; a mouse still gets the table."""
+        page = self.view(PHONE_360)
+        page.evaluate("openHelp()")
+        settle(page)
+        self.assertFalse(page.locator("#help .kbd-only").first.is_visible())
+        page = self.view(DESK)
+        page.evaluate("openHelp()")
+        settle(page)
+        self.assertTrue(page.locator("#help .kbd-only").first.is_visible())
+
+
+# A touch tablet wide enough for the desktop layout (1180x820), as an iPad home-screen app or full screen.
+TAB_WIDE = {"viewport": {"width": 1180, "height": 820}, "is_mobile": True, "has_touch": True}
+
+
+class WideSafeArea(ViewerBase):
+    """The wide layout keeps its controls out of the safe-area insets (input diagnosis P9): in an iPad home-screen app or full
+    screen the nav links and tool-bar buttons sat under the status bar and [취소][핀 저장] on the home indicator."""
+
+    INSETS = {"top": 24, "bottom": 20}
+
+    def test_wide_controls_stay_inside_the_safe_area(self):
+        """Nav bar, tool bar and the composer's action row lie between the top and bottom insets."""
+        page = self.view(TAB_WIDE)
+        self.assertTrue(page.evaluate("document.body.classList.contains('lay-wide')"))
+        self.cdp(page).send("Emulation.setSafeAreaInsetsOverride", {"insets": self.INSETS})
+        page.evaluate("()=>{LAST_PTR='touch'; pick({page:1,x0:10,y0:10,x1:200,y1:60});}")
+        page.wait_for_function("COMPOSE.current&&!COMPOSE.picking")
+        settle(page)
+        out = page.evaluate(
+            """ins => {
+              const bad = [];
+              for (const e of document.querySelectorAll('#doc-nav button,#bar1 button,#c-actions button')) {
+                const r = e.getBoundingClientRect(); if (!r.width || !r.height) continue;
+                if (r.top < ins.top || r.bottom > innerHeight - ins.bottom) bad.push((e.id || e.className) + ' ' + Math.round(r.top) + '-' + Math.round(r.bottom));
+              }
+              return bad; }""",
+            self.INSETS,
+        )
+        self.assertEqual(out, [])
 
 
 # ---------------------------------------------------------------- B. the rest of the approved findings

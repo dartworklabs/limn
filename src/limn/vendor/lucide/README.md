@@ -31,15 +31,16 @@ Icons are drawn with the original `<svg>` attributes: `viewBox="0 0 24 24"`, `fi
 | `eye` | 'awaiting review' badge (whose turn it is to confirm) |
 | `minus` · `plus` | PDF zoom out/in; shrink/grow a range by one line |
 | `moon` · `sun` · `sun-moon` | theme (dark, light, system) |
+| `lock-open` | [풀기] (release the in-progress claim) on a compact card |
 | `move-vertical` | 'lines moved +N' badge |
 | `move-horizontal` | fit PDF width (desktop toolbar) |
 | `panel-left` | open/close the outline (document navigation bar) |
-| `pencil` | 'edited' badge |
+| `pencil` | 'edited' badge; [수정] on a compact card |
 | `refresh-cw` | [Rebuild PDF] |
 | `rotate-ccw` | 'reopened' badge (pin sent back from review) |
 | `square-dashed` | [Select] button — drag to pick a region on touch devices (same shape as the dashed box on the PDF) |
 | `text-wrap` | [Wrap] in the source diff |
-| `trash-2` | deleted-pin row head |
+| `trash-2` | deleted-pin row head; [삭제] on a compact card |
 | `triangle-alert` | 'location lost' badge, warning toast lead icon |
 | `x` | close toasts and notices |
 
