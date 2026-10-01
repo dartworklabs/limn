@@ -1583,6 +1583,41 @@ class MidChrome(ViewerBase):
         self.assertEqual(out, [])
 
 
+class PhoneMoreAndHelp(ViewerBase):
+    """[더보기] and help on a phone (input diagnosis P10): [더보기] was a 600px centred dialog whose 2-column grid left 'English' on
+    a row of its own and wrapped English labels onto two lines; help showed the desktop shortcut table on a touch screen."""
+
+    def test_more_is_a_bottom_sheet_of_one_line_rows(self):
+        """360x780, Korean and English: a sheet on the bottom edge, at most 460px high, no label on two lines, 44px targets."""
+        for lang in ("ko", "en"):
+            with self.subTest(lang=lang):
+                page = self.view(PHONE_360, lang=lang)
+                page.evaluate("openMore()")
+                settle(page)
+                box = page.locator("#more").bounding_box()
+                self.assertLessEqual(box["height"], 460)
+                self.assertAlmostEqual(box["y"] + box["height"], 780, delta=1)
+                two = page.evaluate(
+                    """() => [...document.querySelectorAll('#more button')].filter(b => b.getClientRects().length).filter(b => {
+                      const r = document.createRange(); r.selectNodeContents(b);
+                      return new Set([...r.getClientRects()].filter(q => q.width > 1).map(q => Math.round(q.top))).size > 1;
+                    }).map(b => b.id || b.textContent.trim())"""
+                )
+                self.assertEqual(two, [])
+                self.assertEqual(page.evaluate(MISSES_44, "#more button,#more input"), [])
+
+    def test_help_on_a_touch_screen_leaves_out_the_shortcut_table(self):
+        """Ctrl, the wheel and Alt+1…9 mean nothing on a phone; a mouse still gets the table."""
+        page = self.view(PHONE_360)
+        page.evaluate("openHelp()")
+        settle(page)
+        self.assertFalse(page.locator("#help .kbd-only").first.is_visible())
+        page = self.view(DESK)
+        page.evaluate("openHelp()")
+        settle(page)
+        self.assertTrue(page.locator("#help .kbd-only").first.is_visible())
+
+
 # A touch tablet wide enough for the desktop layout (1180x820), as an iPad home-screen app or full screen.
 TAB_WIDE = {"viewport": {"width": 1180, "height": 820}, "is_mobile": True, "has_touch": True}
 

@@ -70,6 +70,7 @@ function drawMeta(){
   updateSyncBadge(META.sync);
   $('#help-pins-md').textContent=META.pins_md||'';
   // In compact, #bar2's file/commit/time/author line is hidden and shown as a single line inside [⋯] instead (so a long filename never overflows).
-  $('#more-info').textContent=[META.main,tl('{n}쪽',{n:META.pages.length}),META.head,String(META.built_at||'').slice(0,16).replace('T',' '),
+  const info=[META.main,tl('{n}쪽',{n:META.pages.length}),META.head,String(META.built_at||'').slice(0,16).replace('T',' '),
     tl('나: {name}',{name:who(me)})].filter(Boolean).join(' · ');
+  $('#more-info').textContent=info; $('#more-info').dataset.tip=info;   // one line in [더보기]; the whole of it in the tooltip
 }

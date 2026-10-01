@@ -14,16 +14,23 @@ body.selmode .pg{touch-action:none;outline:2px dashed var(--primary);outline-off
 #coach button{background:transparent;color:inherit;border-color:transparent}
 body:not(.lay-narrow) #coach{top:94px;pointer-events:none}
 body:not(.lay-narrow) #coach button{pointer-events:auto}
-#more{max-width:440px}
+/* [더보기] (compact only, docs/handbook/viewer.md §모바일 레이아웃) is a bottom sheet like the documents sheet: the label, one meta
+   line, [?] and [닫기]; a row of zoom-out/zoom-in/fit icons and the page field, the sheet-height/panel-width control, then one-line rows. It was a
+   600px centred dialog whose two-column grid left 'English' alone on a row and wrapped English labels (diagnosis P10). Help is the
+   [?] beside [닫기]. */
+#more{max-width:560px;width:100%;margin:auto auto 0;border-radius:var(--radius-lg) var(--radius-lg) 0 0;
+  padding:var(--space-3) var(--space-4) calc(var(--space-3) + env(safe-area-inset-bottom))}
 #more .more-head{flex-wrap:nowrap;gap:var(--space-2);margin-bottom:var(--space-2)}
 #more .more-head .chip{background:var(--brand);max-width:min(60%,240px)}
-#more .more-info{font-size:var(--text-base);color:var(--muted-foreground);overflow-wrap:anywhere;margin:0 0 var(--space-2)}
-#more .more-grid{display:grid;grid-template-columns:1fr 1fr;gap:var(--space-2)}
-#more .more-grid .wide{grid-column:1/-1}
+#more .more-info{flex:1;min-width:0;font-size:var(--text-sm);color:var(--muted-foreground);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin:0}
+#more .more-tools{display:flex;align-items:center;gap:var(--space-2);margin-bottom:var(--space-2)}
 #more .jump-row{display:flex;gap:var(--space-2)}
-#more .jump-row input{flex:1;min-width:0}
+#more .jump-row input{width:72px;flex:none}
 #more .size-row{display:flex;align-items:center;gap:var(--space-2)}
 #more .size-row .seg{flex:1;margin:0}
+#more .more-grid{display:flex;flex-direction:column;margin-top:var(--space-2);border-top:1px solid var(--border);padding-top:var(--space-1)}
+#more .more-grid button{justify-content:flex-start;width:100%;text-align:left;white-space:nowrap;background:transparent;border-color:transparent}
+#more .more-grid button:hover{background:var(--accent)}
 @media (pointer:coarse){
   :root{--doc-nav-h:48px;--text-xs:12px}   /* no touch text below 12px: badges, counts, avatar initials and page numbers were 11px (diagnosis P7) */
   button.tch{display:inline-flex}
@@ -51,6 +58,9 @@ body:not(.lay-narrow) #coach button{pointer-events:auto}
   .mark b{width:26px;height:26px;left:-28px;font-size:var(--text-base)}
   .mark b::after{content:'';position:absolute;inset:-9px}
   #tip{max-width:min(300px,calc(100vw - 16px))}
+  #more .more-tools .btn-icon{width:var(--control-h-lg);min-width:var(--control-h-lg);height:var(--control-h-lg);min-height:0}   /* icons drawn at 36px, 8px apart: their 44px hits (.hit) meet */
+  #help{padding:var(--space-4)}
+  #help .kbd-only{display:none}   /* Ctrl, the wheel and Alt+1…9 mean nothing on a touch screen; the touch table above stays */
   button.btn-icon,.step button{width:var(--control-h-touch);min-width:var(--control-h-touch)}
   /* button.btn-icon.btn-sm{width:var(--control-h-sm)} (the base rule, 0-0-2-1) is more specific than the
      button.btn-icon above (0-0-1-1), so it stayed at 24px even for touch (observed on the card-collapse .b-fold/toast-close buttons) - re-pinned here at the same specificity. */
