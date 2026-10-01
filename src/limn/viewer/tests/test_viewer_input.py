@@ -2118,6 +2118,25 @@ class TouchLayoutBands(ViewerBase):
         self.assertEqual(page.evaluate("document.querySelector('#right').scrollTop"), 0)
         seen, h = page.evaluate(SHOWN, "#note")
         self.assertEqual(seen, h)
+        # the phone order and spacing: the note one 8px step under the location line, its question hint under it (not over it)
+        page.locator("#note").fill("이 문장은 왜 이렇게 썼나요?")
+        settle(page)
+        order = page.evaluate(
+            "[...document.querySelectorAll('#composer .c-loc-row,#c-qhint,#c-overlap,#c-levels,#c-kind,#c-snip,#note')]"
+            ".filter(e=>e.getClientRects().length).map(e=>[e.id||e.className,Math.round(e.getBoundingClientRect().top)])"
+            ".sort((a,b)=>a[1]-b[1]).map(a=>a[0])"
+        )
+        self.assertEqual(order, ["c-loc-row", "note", "c-qhint", "c-overlap", "c-levels", "c-kind", "c-snip"])
+        gap = page.evaluate(
+            "Math.round(document.querySelector('#note').getBoundingClientRect().top"
+            "-document.querySelector('#composer .c-loc-row').getBoundingClientRect().bottom)"
+        )
+        self.assertEqual(gap, 8)
+        overlap = page.evaluate(
+            "Math.round(document.querySelector('#note').getBoundingClientRect().bottom"
+            "-document.querySelector('#c-qhint').getBoundingClientRect().top)"
+        )
+        self.assertLessEqual(overlap, 0)  # the hint sits under the note's 8px bottom margin, never over its last line
 
     def test_with_a_bottom_safe_area_the_short_bands_note_is_whole_above_the_keyboard(self):
         """844x390 with a 21px bottom inset (and 47px side notches), the keyboard up (844x200): the save row grows by the
@@ -2133,6 +2152,40 @@ class TouchLayoutBands(ViewerBase):
         self.resize(page, 844, 200)
         seen, h = page.evaluate(SHOWN, "#note")
         self.assertEqual(seen, h)
+
+    def test_the_panel_handles_hit_leaves_the_page_edge_to_scroll_and_pick(self):
+        """1024x768 and 1180x820 touch: the handle's 44px hit lies on the PDF side and covered the page's right 28px, where a
+        vertical swipe widened the panel (330 -> 512) instead of scrolling. The PDF scroller's right padding keeps the page
+        clear of it: a swipe 10px inside the page's right edge scrolls the PDF with the panel width unchanged, and a long
+        press there picks."""
+        for w, h in ((1024, 768), (1180, 820)):
+            with self.subTest(w=w, h=h):
+                page = self.view(touch_device(w, h))
+                cdp = self.cdp(page)
+                pg = page.locator("#p1").bounding_box()
+                grip = page.locator("#grip").bounding_box()
+                self.assertLessEqual(pg["x"] + pg["width"], grip["x"] + grip["width"] - 44)  # the hit is off the page
+                width = page.evaluate("Math.round(document.querySelector('#right').getBoundingClientRect().width)")
+                x, y = pg["x"] + pg["width"] - 10, h / 2
+                self.swipe(cdp, x, y + 120, x, y - 120)
+                settle(page)
+                self.assertGreater(page.evaluate("document.querySelector('#left').scrollTop"), 100)
+                self.assertEqual(
+                    page.evaluate("Math.round(document.querySelector('#right').getBoundingClientRect().width)"), width
+                )
+                page.evaluate("document.querySelector('#left').scrollTop=0")
+                settle(page)
+                self.long_press_pick(cdp, page, x, pg["y"] + 120)
+
+    def test_on_a_wide_touch_screen_both_handles_hits_stay_off_the_page(self):
+        """1440x900 touch with the outline open: the outline handle's hit (to its right) ends inside the PDF scroller's 44px
+        left padding, and the panel handle's (to its left) inside the margin beside the 900px page."""
+        page = self.view(touch_device(1440, 900), prefs={"outlineClosed": False})
+        pg = page.locator("#p1").bounding_box()
+        og = page.locator("#outline-grip").bounding_box()
+        grip = page.locator("#grip").bounding_box()
+        self.assertGreaterEqual(pg["x"], og["x"] + 44)
+        self.assertLessEqual(pg["x"] + pg["width"], grip["x"] + grip["width"] - 44)
 
     def test_a_tap_on_a_cards_left_edge_opens_the_card_not_the_panel_handle(self):
         """1024x768 touch: the handle's 44px hit reached 19px into the panel, so a tap on the leftmost 6px of a collapsed card

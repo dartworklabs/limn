@@ -87,6 +87,12 @@ body:not(.lay-narrow) #coach button{pointer-events:auto}
      outline entry; the collapsed wide rail at the screen's right edge gets the whole 44px on screen. */
   #grip.hit::after{left:auto;right:0;transform:translateY(-50%)}
   #outline-grip.hit::after{left:0;transform:translateY(-50%)}
+  /* ...and the PDF scroller keeps the page out of that box, so a swipe or a long press at the page's right edge scrolls or
+     picks instead of grabbing the handle (the page fits the padded width, innerW and fitWidth): beside the open side panel, 40px of right
+     padding (the hit's 36px plus 4); over the overlay panel while composing, the panel width plus the same 40px (below, after that rule); in wide (and its
+     collapsed rail), 48px. The outline handle's hit (38px past its bar) ends inside #left's 44px left padding. */
+  body.lay-mid.side-open:not(.mid-overlay) #left{padding-right:max(calc(var(--hit) - var(--space-1)),env(safe-area-inset-right))}
+  body.lay-wide #left{padding-right:calc(var(--hit) + var(--space-1))}   /* wide: 48px - its fit (fitWidth) adds 12px of margin less than compact's */
 }
 /* Mouse hit targets (WCAG 2.5.8, 24px; input review 2026-09-26): small controls keep their drawn size and get a 24x24 hit area
    from ::after, centered on them - [3쪽] was 17x19, the reply count 23x17, a mark badge 22x22, card buttons 53x23. */
@@ -287,6 +293,7 @@ body.mid-overlay.side-open #revision-view{padding-right:var(--side-w,330px)}
 /* The same while composing: a pick in the right column would hide under the panel (fold QA 2026-09-26, s10) - the PDF re-fits
    to the space left of it (or scrolls there when zoomed). */
 body.mid-overlay.side-open.composing #left{padding-right:var(--side-w,330px)}
+@media (pointer:coarse){body.mid-overlay.side-open.composing #left{padding-right:calc(var(--side-w,330px) + var(--hit) - var(--space-1))}}   /* clear of the handle's touch hit */
 body.mid-overlay.side-open #grip{position:fixed;right:calc(var(--side-w,330px) - var(--swipe-x,0px));top:var(--mid-top);bottom:calc(var(--mbar-h) + var(--kb,0px));z-index:21;
   animation:mid-grip-in .18s ease-out}
 /* Collapsing (a drag past the threshold, [핀], Esc) slides it back out the same way - right only. */
