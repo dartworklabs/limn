@@ -55,8 +55,11 @@ function updateSyncBadge(s){const b=$('#meta-sync'); if(!b)return;
 function isViewer(){return !!(typeof META!=='undefined'&&META&&META.me&&META.me.role===ROLE.VIEWER);}
 // A state change the viewer role cannot make (the server answers 403 anyway): say so once instead of sending it.
 function viewerBlocked(){if(!isViewer())return false; toast('보기 권한(viewer)만 있는 계정이라 바꿀 수 없습니다','warn'); return true;}
+// Paints the header and the info line from META (the document on screen): names, page count, commit, build time, who is
+// signed in, the stale and sync badges and the pins.md help text; the rebuild button is hidden unless the document builds
+// from source. Reads META only and sends nothing.
 function drawMeta(){
-  document.body.classList.toggle('no-rebuild',META.kind!==DOC_KIND.TEX);   // only a LaTeX document builds from source; a view-only PDF and a figure redraw when their files change
+  document.body.classList.toggle('no-rebuild',!buildsFromSource(META.kind));   // only a LaTeX document builds from source; a view-only PDF and a figure redraw when their files change
   document.body.classList.toggle('role-viewer',isViewer());
   $('#meta-main').textContent=META.main; $('#meta-pages').textContent=tl('{n}쪽',{n:META.pages.length});
   $('#meta-head').textContent=META.head; $('#meta-built').textContent=String(META.built_at||'').slice(0,16).replace('T',' ');

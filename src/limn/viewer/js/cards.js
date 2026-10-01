@@ -27,7 +27,7 @@ function card(p){
   // leftover width after the number/location inside the header's single line, clipping to '[C...', and an awaiting-review
   // card's prefixed '내 확인 차례 · ' ate even more of that width (QA 2026-09-24). Review status is conveyed by the dot color.
   const sum='<div class="sum" data-act="card-toggle">'+(first?fmtText(first,p.mentions):'<span class="dim">(메모 없음)</span>')+'</div>';
-  if(isRegion(p)){const fb=figRegionBadge(p.el,(docInfo(pdoc(p))||{}).kind===DOC_KIND.FIGURE);   // a figure region: element without code, or map unreadable
+  if(isRegion(p)){const fb=figRegionBadge(p.el,isFigureKind((docInfo(pdoc(p))||{}).kind));   // a figure region: element without code, or map unreadable
     tags.unshift(fb?'<span class="badge" data-tip="'+esc(fb.tip)+'">'+esc(fb.t)+'</span>':'<span class="badge" data-tip="보기 전용 PDF의 핀 — 줄 번호 없이 쪽·영역과 영역 글자로 가리킵니다">보기 전용</span>');}
   if(isQuestion(p))tags.unshift('<span class="badge badge-question" data-tip="'+esc(T.question)+'">'+ic('circle-question-mark')+'질문</span>');
   const adr=p.assignee?'':addressedTag(p); if(adr)tags.push(adr);   // a pin with a recorded assignee already says the same thing via the header's assignee chip
@@ -87,8 +87,10 @@ function relSpan(s,cls,tip){return '<span class="rt'+(cls?' '+cls:'')+'" data-at
 function tickRel(){if(document.hidden)return; $$('.rt[data-at]').forEach(e=>{const v=relTime(e.dataset.at); if(e.textContent!==v)e.textContent=v;});}
 setInterval(tickRel,60000);
 function arcTime(s){s=String(s||''); return /^\d{4}-\d\d-\d\d \d\d:\d\d/.test(s)?s.slice(5,16):s;}
+// The location span of an archive row (done or trashed pin): 'L12-L18' for lines, '쪽 N 영역' for a region, N being the page
+// its mark is on now (pinPlace); the copy text carries the same.
 function arcLoc(p){const name=p.name||String(p.file||p.pdf||'').split('/').pop();
-  return '<span class="loc" tabindex="0" data-copy="'+esc(isRegion(p)?locCopy(p):name+' L'+p.lo+'-L'+p.hi)+'" data-tip="'+esc(T.loc)+'">'+esc(isRegion(p)?tl('쪽 {page} 영역',{page:p.page}):rng(p.lo,p.hi))+'</span>';}
+  return '<span class="loc" tabindex="0" data-copy="'+esc(isRegion(p)?locCopy(p):name+' L'+p.lo+'-L'+p.hi)+'" data-tip="'+esc(T.loc)+'">'+esc(isRegion(p)?tl('쪽 {page} 영역',{page:pinPlace(p).page}):rng(p.lo,p.hi))+'</span>';}
 function arcLine(key,text,tip,logins){const open=ARC_OPEN.has(key);
   return '<span class="arc-reply'+(open?' open':'')+'" role="button" tabindex="0" data-act="arc-toggle" data-key="'+esc(key)+'" aria-expanded="'+open+'" data-tip="'+esc(tip)+'">'+fmtText(text,logins)+'</span>';}
 function allMentions(p){const out=(p.mentions||[]).slice(); threadOf(p).forEach(m=>(m.mentions||[]).forEach(l=>{if(!out.includes(l))out.push(l);})); return out;}

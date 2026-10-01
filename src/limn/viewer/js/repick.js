@@ -25,6 +25,10 @@ async function startRepick(){if(!EDITOR.current)return;
 // Cancelling also invalidates an in-flight /api/pick; its continuation must not render a banner for the cleared re-place.
 function cancelRepick(){const was=!!REPICK; if(was)PICKSEQ++; if(REPICK&&REPICK.box)REPICK.box.remove(); REPICK=null; $('#banner').hidden=true;
   if(was){if(!COMPOSE.current)setSelMode(false); if(EDITOR.current&&LAYOUT!==LAYOUT_MODE.WIDE)setSide(true);}}
+// Sends the re-place candidate as the pin's new location (POST /api/pins/<id>/edit with `loc` and the `base_rev` the editor
+// holds). The loc carries the candidate's range, its element and that element's box on a figure, or only the region on a
+// view-only page; one without an element drops the pin's el. On 409 it keeps the editor's rev current and reloads the pins;
+// on success it syncs the open editor with the stored pin. Does nothing without a candidate.
 async function applyRepick(){const R=REPICK; if(!R||!R.cand)return; const c=R.cand,lv=lvOf(c,c.default_level)||c;
   const visit=captureVisit(),E=EDITOR.current;
   let loc={file:c.file,page:c.page,lo:lv.lo,hi:lv.hi,raw_lo:c.raw_lo,raw_hi:c.raw_hi,via:c.via,score:c.score,frac:c.frac,pdf_build:c.pdf_build||undefined,
@@ -40,7 +44,7 @@ async function applyRepick(){const R=REPICK; if(!R||!R.cand)return; const c=R.ca
       await loadPins(); return;}
     const p=data.pin;
     if(currentVisit(visit)&&REPICK===R)cancelRepick();
-    if(EDITOR.current===E&&E&&E.id===p.id){Object.assign(E,{base_rev:p.rev,lo:p.lo,hi:p.hi,file:p.file,name:p.name,scope:p.scope||null,page:p.page,quote:p.quote||'',pinEl:p.el||null});
+    if(EDITOR.current===E&&E&&E.id===p.id){Object.assign(E,{base_rev:p.rev,lo:p.lo,hi:p.hi,file:p.file,name:p.name,scope:p.scope||null,page:pinPlace(p).page,quote:p.quote||'',pinEl:p.el||null});
       E.orig.lo=p.lo;E.orig.hi=p.hi;E.orig.scope=p.scope||null; editSnip(true);}
     toast(tl('핀 #{id} 위치를 {where} 로 바꿨습니다',{id:p.id,where:isRegion(p)?tl('쪽 {page} 영역',{page:p.page}):'L'+p.lo+'-L'+p.hi}),'ok'); await loadPins();
   }catch(e){}}

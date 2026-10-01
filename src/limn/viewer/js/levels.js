@@ -60,5 +60,5 @@ const VIA_HIDE=90,VIA_WARN=30;
 function viaTag(p){if(!p.via)return null; const pct=Math.round((+p.score||0)*100);
   if(pct>=VIA_HIDE)return null; const low=pct<VIA_WARN;
   const how=p.via===VIA.SYNCTEX?tr('좌표로 찾음'):p.via===VIA.TEXT?tr('글자로 찾음'):p.via===VIA.MAP?tr('지도로 찾음'):tl('찾은 방법: {via}',{via:p.via});
-  const why=tr(p.via===VIA.TEXT?T.text:p.via===VIA.MAP?T.map:T.synctex);
+  const why=tr(p.via===VIA.SYNCTEX?T.synctex:p.via===VIA.TEXT?T.text:p.via===VIA.MAP?T.map:T.viaother);
   return {t:tr('위치 불확실'),tip:tl('{how} · 일치 {pct}% — {why}',{how,pct,why})+(low?' '+tr('많이 어긋났을 수 있습니다.'):''),low};}

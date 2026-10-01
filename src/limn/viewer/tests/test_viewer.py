@@ -185,6 +185,7 @@ class FrontendLogic(unittest.TestCase):
             """,
                 extract_js_fn("buildChipText"),
                 extract_js_fn("pullSuffix"),
+                extract_js_fn("buildsFromSource"),
                 extract_js_fn("pollBuild"),
                 extract_js_fn("pollBuildOnce"),
                 r"""
@@ -1010,29 +1011,40 @@ class FrontendMobileLogic(unittest.TestCase):
 
     def test_quick_pick_box_is_a_line_on_a_manuscript_and_a_point_on_a_figure(self):
         """A quick selection sends about one text line around the point on a manuscript page (+-7 % x +-0.6 %), and a
-        +-0.4 % square - the point - on a figure document; both are clamped to the page."""
+        point on a figure document: +-0.4 % of the page width by +-0.4 % of its height, a rectangle on a page that is
+        not square (here 400 x 600); both are clamped to the page at every corner. The half-widths are the page's own
+        (selection.js), not numbers this test repeats."""
+        consts = re.search(r"^const c01=.*;$", HTML, re.M).group(0) + re.search(
+            r"^const LONGPRESS_MS=.*;$", HTML, re.M
+        ).group(0)
         js = "\n".join(
             [
+                consts,
                 r"""
-            const c01=v=>Math.min(1,Math.max(0,v)); const QUICK_W=0.07,QUICK_H=0.006,QUICK_FIG=0.004; const out=[]; let META=null;
+            const out=[]; let META=null;
             const pg={getBoundingClientRect:()=>({left:100,top:50,width:400,height:600})};
             function newBox(){return {};} function finishRect(pg,box,x0,y0,x1,y1){out.push([x0,y0,x1,y1].map(v=>+v.toFixed(4)));}
             """,
                 extract_js_fn("fracAt"),
+                extract_js_fn("isFigureKind"),
                 extract_js_fn("quickBox"),
                 extract_js_fn("quickPick"),
                 "quickPick(pg,300,350); quickPick(pg,90,40); quickPick(pg,510,660);"
-                " META={kind:'figure'}; quickPick(pg,300,350); quickPick(pg,90,40); console.log(JSON.stringify(out));",
+                " META={kind:'figure'}; quickPick(pg,300,350); quickPick(pg,90,40); quickPick(pg,510,660);"
+                " console.log(JSON.stringify([out,[QUICK_W,QUICK_H,QUICK_FIG]]));",
             ]
         )
+        out, (quick_w, quick_h, quick_fig) = json.loads(run_node(js))
+        self.assertEqual((quick_w, quick_h, quick_fig), (0.07, 0.006, 0.004))
         self.assertEqual(
-            json.loads(run_node(js)),
+            out,
             [
                 [0.43, 0.494, 0.57, 0.506],
                 [0, 0, 0.07, 0.006],
                 [0.93, 0.994, 1, 1],
                 [0.496, 0.496, 0.504, 0.504],
                 [0, 0, 0.004, 0.004],
+                [0.996, 0.996, 1, 1],
             ],
         )
 
@@ -2146,15 +2158,35 @@ class FrontendFigure(unittest.TestCase):
         self.assertIn("body.no-rebuild #btn-rebuild{display:none}", css)
         self.assertNotIn("body.view-only", css)
         self.assertIn(
-            "document.body.classList.toggle('no-rebuild',META.kind!==DOC_KIND.TEX)", extract_js_fn("drawMeta")
+            "document.body.classList.toggle('no-rebuild',!buildsFromSource(META.kind))", extract_js_fn("drawMeta")
         )
         for fn in ("drawMeta", "pollBuildOnce", "noteOtherDocs"):
             with self.subTest(fn=fn):
                 self.assertNotIn("view_only", extract_js_fn(fn))
-                self.assertIn("DOC_KIND.TEX", extract_js_fn(fn))
+                self.assertIn("buildsFromSource(", extract_js_fn(fn))
         self.assertIn(
-            "d.kind===DOC_KIND.FIGURE?' · '+tr('그림 문서(드래그하면 요소와 그 요소를 그린 코드 줄을 찾습니다)'):''",
+            "isFigureKind(d.kind)?' · '+tr('그림 문서(드래그하면 요소와 그 요소를 그린 코드 줄을 찾습니다)'):''",
             extract_js_fn("docTip"),
+        )
+
+    def test_the_document_kind_rules_are_asked_in_one_place_each(self):
+        """'Is it a figure document' and 'is it rebuilt from source' are the two helpers isFigureKind and
+        buildsFromSource, and no other code compares a kind with DOC_KIND.FIGURE or DOC_KIND.TEX. Both answer false for
+        a kind the page does not know and for none."""
+        self.node()
+        self.assertEqual(len(re.findall(r"[=!]==\s*DOC_KIND\.FIGURE|DOC_KIND\.FIGURE\s*[=!]==", HTML)), 1)
+        self.assertEqual(len(re.findall(r"[=!]==\s*DOC_KIND\.TEX|DOC_KIND\.TEX\s*[=!]==", HTML)), 1)
+        js = "\n".join(
+            [
+                extract_js_fn("isFigureKind"),
+                extract_js_fn("buildsFromSource"),
+                "const K=['tex','pdf','figure','video',undefined,null];"
+                "console.log(JSON.stringify(K.map(k=>[isFigureKind(k),buildsFromSource(k)])));",
+            ]
+        )
+        self.assertEqual(
+            json.loads(run_node(js)),
+            [[False, True], [False, False], [True, False], [False, False], [False, False], [False, False]],
         )
 
     def test_the_documents_list_marks_a_figure_and_keeps_the_pdf_mark(self):
@@ -2170,6 +2202,7 @@ class FrontendFigure(unittest.TestCase):
                         "let OPEN_ALL=[]; const DEFAULT_DOC='ms';",
                         extract_js_fn("pdoc"),
                         extract_js_fn("docCount"),
+                        extract_js_fn("isFigureKind"),
                         extract_js_fn("docBadge"),
                         "console.log(JSON.stringify([{key:'ms',kind:'tex',view_only:false},"
                         "{key:'fig',kind:'figure',view_only:false},{key:'rv',kind:'pdf',view_only:true}].map(docBadge)));",
@@ -2417,9 +2450,136 @@ class FrontendFigure(unittest.TestCase):
         self.assertEqual(c.count("{page:pinPlace(p).page}"), 2)
         self.assertEqual(c.count("p.stale||elLost(p)?CARD_DOT.LOST"), 2)
         self.assertIn("const lostEl=elLostTag(p); if(lostEl)tags.push(lostEl);", c)
-        self.assertIn("figRegionBadge(p.el,(docInfo(pdoc(p))||{}).kind===DOC_KIND.FIGURE)", c)
+        self.assertIn("figRegionBadge(p.el,isFigureKind((docInfo(pdoc(p))||{}).kind))", c)
         self.assertIn("document.getElementById('p'+pinPlace(p).page)", extract_js_fn("jumpPin"))
         self.assertIn("p.el_sync===EL_SYNC.LOST", extract_js_fn("diffToast"))
+
+    def test_a_pin_of_an_unknown_via_gets_a_neutral_hint_not_the_synctex_one(self):
+        """A `via` this page does not know is named as it came ('찾은 방법: ...') with a hint that claims no method, in
+        Korean and English; the three known methods keep their own hints."""
+        self.node()
+        for lang, head, neutral in (
+            ("ko", "찾은 방법: ocr · 일치 50% — ", "이 화면이 알지 못하는 방법으로"),
+            ("en", "Found by: ocr · 50% match — ", "This page does not know the method"),
+        ):
+            with self.subTest(lang=lang):
+                js = "\n".join(
+                    [
+                        js_i18n(lang),
+                        js_tooltips(),
+                        js_via_limits(),
+                        extract_js_fn("viaTag"),
+                        "console.log(JSON.stringify([viaTag({via:'ocr',score:0.5}),viaTag({via:'synctex',score:0.5}),"
+                        "viaTag({via:'text',score:0.5}),viaTag({via:'map',score:0.5})]));",
+                    ]
+                )
+                unknown, *known = json.loads(run_node(js))
+                self.assertTrue(unknown["tip"].startswith(head + neutral), unknown["tip"])
+                self.assertNotIn("SyncTeX", unknown["tip"])
+                self.assertEqual(len({k["tip"] for k in known} | {unknown["tip"]}), 4)
+
+    def test_marks_draws_nothing_for_a_null_or_malformed_box_and_one_mark_for_a_good_one(self):
+        """marks() itself run over pins whose box is null, has a non-number, is not four long or sits on a page that is
+        not on screen draws nothing for them; a good pin beside them draws one mark, and a lost element is drawn at the
+        pinned box. Nothing throws."""
+        self.node()
+        js = "\n".join(
+            [
+                r"""
+            const DOC='d', DEFAULT_DOC='d'; let PINS=[], REVIEW_ALL=[]; const drawn=[];
+            const $$=()=>[]; const esc=s=>String(s);
+            const page1={appendChild:m=>drawn.push([m.dataset.pin,m.className,m.style.left,m.style.width])};
+            const document={getElementById:id=>id==='p1'?page1:null,
+              createElement:()=>({dataset:{},style:{},className:'',set innerHTML(v){}})};""",
+                js_i18n(),
+                *[
+                    extract_js_fn(n)
+                    for n in ("isFrac", "hasMark", "pinPlace", "elLost", "isEstimated", "pinState", "pdoc", "marks")
+                ],
+                r"""
+            const good=[0.1,0.2,0.3,0.4];
+            PINS=[{id:1,page:1,frac:null},{id:2,page:1,frac:[0.1,'x',0.2,0.2]},{id:3,page:1,frac:[0.1,0.2,0.3]},
+              {id:4,page:7,frac:good},{id:5,page:1,frac:null,mark:[NaN,0,0.1,0.1],mark_page:1,el_sync:'moved'},
+              {id:6,page:1,frac:good},{id:7,page:1,frac:good,mark:null,mark_page:1,el_sync:'lost'},
+              {id:8,page:1,frac:[0.9,0.9,0.05,0.05],mark:good,mark_page:1,el_sync:'moved'}];
+            marks(); console.log(JSON.stringify(drawn));""",
+            ]
+        )
+        self.assertEqual(
+            json.loads(run_node(js)),
+            [[6, "mark", "10%", "30%"], [7, "mark st", "10%", "30%"], [8, "mark", "10%", "30%"]],
+        )
+
+    def test_the_finished_build_toast_says_rebuilt_for_a_manuscript_and_redrawn_for_a_figure(self):
+        """The toast after a finished build of the document on screen, and the one for another document's finished
+        build, say 'PDF 재빌드 완료' for a LaTeX document and that the pages were redrawn for a figure or a view-only
+        PDF, in Korean and English."""
+        self.node()
+        words = {
+            "ko": {
+                "tex": "PDF 재빌드 완료",
+                "redrawn": "PDF가 바뀌어 쪽을 새로 그렸습니다",
+                "other": "PDF 쪽을 새로 그렸습니다",
+            },
+            "en": {"tex": "PDF rebuilt", "redrawn": "The PDF changed, pages redrawn", "other": "PDF pages redrawn"},
+        }
+        for lang in ("ko", "en"):
+            for kind in ("tex", "figure", "pdf"):
+                with self.subTest(lang=lang, kind=kind):
+                    js = "\n".join(
+                        [
+                            js_i18n(lang),
+                            r"""
+                        let DOC='a', SWITCHSEQ=1, META={kind:%s,pages:[1,2]}; const TOASTS=[]; let REPLY;
+                        const BUILD={timer:null,error:null,lastSeq:0,booted:true,inflight:null};
+                        const DOC_SEQ=new Map(), BUILD_ERR_BY=new Map(), META_BY=new Map();
+                        const chip={hidden:false,textContent:''}, btn={disabled:false}; const $=s=>s==='#build-chip'?chip:btn;
+                        const dq=u=>u; const pullSuffix=()=>''; const hideBuildErr=()=>{}; const showBuildErr=()=>{};
+                        const api=async()=>REPLY; const refreshDoc=async()=>{};
+                        const toast=(m,k)=>TOASTS.push([m,k]); const switchDoc=()=>{}; const drawDocTabs=()=>{};
+                        const DOCS=[{key:'b',name:'Fig B',kind:%s}]; const docInfo=k=>DOCS.find(d=>d.key===k)||null;"""
+                            % (json.dumps(kind), json.dumps(kind)),
+                            *[extract_js_fn(n) for n in ("buildsFromSource", "pollBuildOnce", "noteOtherDocs")],
+                            r"""
+                        (async()=>{
+                          REPLY={data:{state:'ok',seq:1,elapsed_s:3}}; await pollBuildOnce();
+                          DOC_SEQ.set('b',1); noteOtherDocs([{key:'b',build_seq:2,last_state:'ok'}]);
+                          console.log(JSON.stringify(TOASTS.map(t=>t[0])));})();""",
+                        ]
+                    )
+                    on_screen, other = json.loads(run_node(js))
+                    w = words[lang]
+                    self.assertTrue(on_screen.startswith(w["tex"] if kind == "tex" else w["redrawn"]), on_screen)
+                    self.assertIn(w["tex"] if kind == "tex" else w["other"], other)
+
+    def test_a_region_pin_is_located_by_the_page_its_mark_is_on_now(self):
+        """locCopy (the copy text) and arcLoc (an archive row) name a region pin's page by pinPlace: the page its
+        element's mark is on in the current build, else the page it was pinned on. Lines are untouched."""
+        self.node()
+        js = "\n".join(
+            [
+                js_esc(),
+                js_tooltips(),
+                *[extract_js_fn(n) for n in ("isFrac", "hasMark", "pinPlace", "isRegion", "locCopy", "rng", "arcLoc")],
+                r"""
+            const moved={kind:'region',pdf:'fig.pdf',name:'fig.pdf',page:1,frac:[0.1,0.1,0.2,0.2],mark:[0.3,0.4,0.1,0.05],mark_page:2};
+            const home={kind:'region',pdf:'fig.pdf',name:'fig.pdf',page:1,frac:[0.1,0.1,0.2,0.2]};
+            const lines={file:'a.py',name:'a.py',page:3,lo:4,hi:6,mark:[0.3,0.4,0.1,0.05],mark_page:2};
+            const loc=h=>[/data-copy="([^"]*)"/.exec(h)[1],/>([^<]*)<\/span>$/.exec(h)[1]];
+            console.log(JSON.stringify([locCopy(moved),locCopy(home),locCopy(lines),loc(arcLoc(moved)),loc(arcLoc(home)),loc(arcLoc(lines))]));""",
+            ]
+        )
+        self.assertEqual(
+            json.loads(run_node(js)),
+            [
+                "fig.pdf 쪽 2",
+                "fig.pdf 쪽 1",
+                "a.py L4-L6",
+                ["fig.pdf 쪽 2", "쪽 2 영역"],
+                ["fig.pdf 쪽 1", "쪽 1 영역"],
+                ["a.py L4-L6", "L4-L6"],
+            ],
+        )
 
     def test_null_boxes_and_a_null_claim_end_draw_nothing_and_claim_nothing(self):
         """Whole-field null from the API (a stored non-finite frac, el.frac or claim_until reads null): a pin with a null

@@ -93,13 +93,12 @@ function renderOverlapBanner(){
 // Location is one line: 'file L159' + page + match badge + [copy]. Range kind/line count are never repeated, since the
 // segment control's selected segment already shows them (if adjusted directly via up/down and it doesn't match any
 // segment, '줄 직접 지정' is appended next to the page). The dragged line goes into the description.
-// A figure element without code lines comes back as a region with its element: labelled '코드 없는 요소', its box snapped.
 // Selection on a view-only PDF: the location is '쪽 N - 영역', and the region's text (pdftotext) is shown in the source field. The range ladder/stepper are hidden.
 function renderRegionComposer(d){
   $('#composer').classList.add('region');
   $('#c-loc').textContent=d.name+' · '+tl('쪽 {page} 영역',{page:d.page}); $('#c-loc').dataset.copy=d.name+' 쪽 '+d.page;
   // A figure region: '코드 없는 요소' (element without code lines, its box snapped) or '영역' (map unreadable).
-  const pg=$('#c-page'),fb=figRegionBadge(d.el,!!META&&META.kind===DOC_KIND.FIGURE);
+  const pg=$('#c-page'),fb=figRegionBadge(d.el,isFigureKind(META&&META.kind));
   pg.textContent=fb?fb.t:tr('보기 전용'); pg.dataset.tip=fb?fb.tip:'LaTeX 소스가 없는 PDF입니다 — 줄 번호 없이 쪽·영역과 영역 글자로 핀을 남깁니다';
   $('#c-tag').hidden=true; $('#c-warn').hidden=!d.warn; $('#c-warn').textContent=warnText(d.warn); $('#c-overlap').hidden=true;
   $('#c-levels').innerHTML='';

@@ -122,8 +122,9 @@ def figure_doc(src: Path, paths: RunPaths) -> Doc:
 
 
 def write_build(D: Doc, name: str, fmap: dict | None, pages: int = 1) -> Path:
-    """Put build `name` of figure document D on screen as an import leaves it: `pages` page images of PAGE_PT, the PDF
-    copy (D.pdf_name) and, unless fmap is None, the map copy (FIGMAP_NAME). Returns the build folder."""
+    """Put build `name` of document D (a figure; a LaTeX or view-only document takes fmap None) on screen as an import
+    leaves it: `pages` page images of PAGE_PT, the PDF copy (D.pdf_name) and, unless fmap is None, the map copy
+    (FIGMAP_NAME). Returns the build folder."""
     d = D.dir / name
     d.mkdir(parents=True, exist_ok=True)
     for i in range(1, pages + 1):
@@ -202,24 +203,30 @@ def pin_from_pick(fig: Doc, box: tuple[float, float, float, float], actor: dict,
 
 Box: TypeAlias = tuple[float, float, float, float]  # x, y, w, h in page fractions
 FIG = "fig"  # figure_doc()'s key
-ROOT_ID, STRIP_ID, CELL_ID = "B2", "B2/calendar", "B2/calendar/m07"
+ROOT_ID, STRIP_ID, CELL_ID, AUGUST_ID = "B2", "B2/calendar", "B2/calendar/m07", "B2/calendar/m08"
 STRIP_FRAC: Box = (0.06, 0.18, 0.88, 0.12)  # the calendar strip's box in b2_map()
 CELL_DRAG: Box = (0.48, 0.20, 0.04, 0.08)  # a drag inside the July cell (JULY), as page fractions
+AUGUST_DRAG: Box = (0.56, 0.20, 0.04, 0.08)  # a drag inside the August cell (AUGUST), which has no code lines
 STRIP_DRAG: Box = (0.20, 0.20, 0.04, 0.08)  # a drag inside the strip, clear of the July and August cells
 WIDE_PX, TALL_PX = (2400, 800), (1275, 1650)  # page images at 150 dpi: the figure's page 1 is 3:1, the rest portrait
 
 
-def viewer_map(july: Box | None = JULY, july_page: int = 1) -> dict[str, Any]:
-    """b2_map() with a second page (figure B3, lines 1-10) and the July cell where a re-render left it: at box july on
-    page july_page (2: under figure B3), or gone (july None) - its id renamed or dropped."""
+def viewer_map(july: Box | None = JULY, july_page: int = 1, august_page: int = 1) -> dict[str, Any]:
+    """b2_map() with a second page (figure B3, lines 1-10) and the cells where a re-render left them: the July cell at
+    box july on page july_page (2: under figure B3), or dropped (july None) - and the August cell (drawn without
+    code) on page august_page."""
     fmap = b2_map(JULY if july is None else july)
     one = fmap["pages"][0]["elements"]
     cell = next(e for e in one if e["id"] == CELL_ID)
+    august = next(e for e in one if e["id"] == AUGUST_ID)
     two = [{"id": "B3", "frac": [0, 0, 1, 1], "src": {"file": "src/B2_calendar.py", "lo": 1, "hi": 10}}]
     if july is None or july_page != 1:
         one.remove(cell)
     if july is not None and july_page == 2:
         two.append(dict(cell, parent="B3"))
+    if august_page == 2:
+        one.remove(august)
+        two.append(dict(august, parent="B3"))
     fmap["pages"].append({"page": 2, "figure": "B3", "title": "Review flow", "elements": two})
     return fmap
 
@@ -252,7 +259,7 @@ def viewer_docs(app: Any, src: Path) -> list[Doc]:
     return [ms, fig, rv]
 
 
-def viewer_rerender(D: Doc, july: Box | None = JULY, july_page: int = 1) -> None:
+def viewer_rerender(D: Doc, july: Box | None = JULY, july_page: int = 1, august_page: int = 1) -> None:
     """The figure repository rendered again and the import took it: build BUILD2 on screen, with the July cell at july on
-    july_page, or gone (july None)."""
-    viewer_build(D, BUILD2, viewer_map(july, july_page))
+    july_page, or gone (july None), and the August cell on august_page."""
+    viewer_build(D, BUILD2, viewer_map(july, july_page, august_page))

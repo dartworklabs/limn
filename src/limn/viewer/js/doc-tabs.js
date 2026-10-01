@@ -21,11 +21,11 @@ function docCount(k){return OPEN_ALL.filter(p=>pdoc(p)===k).length;}
 function docBadge(d){const n=docCount(d.key);
   return (d.building?'<span class="spin" aria-label="빌드 중"></span>':(d.stale_build?'<span class="ddot" aria-label="원고 수정됨"></span>':''))+
     (d.view_only?'<span class="badge dvo" aria-label="보기 전용">PDF</span>':'')+
-    (d.kind===DOC_KIND.FIGURE?'<span class="badge dfig" aria-label="'+esc(tr('그림 문서'))+'">'+esc(tr('그림'))+'</span>':'')+
+    (isFigureKind(d.kind)?'<span class="badge dfig" aria-label="'+esc(tr('그림 문서'))+'">'+esc(tr('그림'))+'</span>':'')+
     '<span class="badge badge-secondary dcnt'+(n?'':' z')+'" aria-label="'+esc(tl('열린 핀 {n}',{n}))+'">'+n+'</span>';}
 // A document link's description: name, path, what kind of document it is, and its build state.
 function docTip(d){return d.name+' · '+d.path+(d.view_only?' · 보기 전용 PDF(줄 번호 없이 쪽·영역으로 핀을 남깁니다)':'')+
-  (d.kind===DOC_KIND.FIGURE?' · '+tr('그림 문서(드래그하면 요소와 그 요소를 그린 코드 줄을 찾습니다)'):'')+
+  (isFigureKind(d.kind)?' · '+tr('그림 문서(드래그하면 요소와 그 요소를 그린 코드 줄을 찾습니다)'):'')+
   (d.building?' · 빌드 중':(d.stale_build?' · 원고가 이 PDF보다 새롭습니다(그 탭에서 [PDF 재빌드])':''));}
 function drawDocTabs(){
   const box=$('#doc-select');

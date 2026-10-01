@@ -60,7 +60,7 @@ function doubleTapZoom(x,y){const fit=fitWidth(),w=doubleTapWidth(W,fit); zoomTo
 // Quick selection: calls the existing /api/pick with a small box around the pressed point (quickBox). The server's
 // default level is used as-is - 'paragraph' in body text, 'environment' inside a figure/table, the element under the
 // point on a figure document - and then widened or narrowed via the range ladder.
-function quickPick(pg,cx,cy){const [x,y]=fracAt(pg,cx,cy),b=quickBox(x,y,!!META&&META.kind===DOC_KIND.FIGURE);
+function quickPick(pg,cx,cy){const [x,y]=fracAt(pg,cx,cy),b=quickBox(x,y,isFigureKind(META&&META.kind));
   finishRect(pg,newBox(pg),b[0],b[1],b[2],b[3]);}
 // The box a quick selection sends around the point (x, y), as page fractions [x0, y0, x1, y1]: about one text line on a
 // manuscript page (page width +-7%, height +-0.6%); a small square on a figure, which the map reads as the point - the

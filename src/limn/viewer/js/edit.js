@@ -3,6 +3,9 @@
 const EDITOR={current:null,saving:false};
 // A dirty edit card survives document switches, so only replacement or cancellation revokes its pending response.
 function editorOwns(card){return EDITOR.current===card;}
+// Opens the edit card for pin `id` (the pin's document is switched to first) and focuses its note: builds the card markup,
+// records the pin's current values as the editor's baseline (EDITOR.current, including a figure pin's element) and loads the
+// snippet and range ladder. An edit already open on that pin is left as it is.
 function openEdit(id){if(viaDoc(id,openEdit))return; const p=PINS.find(x=>x.id===id); if(!p)return;
   if(document.body.classList.contains('revision-open'))jumpPin(id);
   if(EDITOR.current&&EDITOR.current.id===id)return;
@@ -27,7 +30,7 @@ function openEdit(id){if(viaDoc(id,openEdit))return; const p=PINS.find(x=>x.id==
   EDITOR.current={id,el,base_rev:p.rev||0,file:p.file,name:p.name||String(p.file||p.pdf||'').split('/').pop(),lo:p.lo,hi:p.hi,scope:p.scope||null,
     kind:p.kind,env:null,levels:[],n_lines:null,snippet:'',orig:{lo:p.lo,hi:p.hi,scope:p.scope||null,note:p.note||'',kind_req:isQuestion(p)?KIND_REQ.QUESTION:KIND_REQ.FIX,assignee:assigneeOf(p)},
     assignee:assigneeOf(p),
-    doc:pdoc(p),region:isRegion(p),pinEl:p.el||null,page:p.page,quote:p.quote||'',kind_req:isQuestion(p)?KIND_REQ.QUESTION:KIND_REQ.FIX};
+    doc:pdoc(p),region:isRegion(p),pinEl:p.el||null,page:pinPlace(p).page,quote:p.quote||'',kind_req:isQuestion(p)?KIND_REQ.QUESTION:KIND_REQ.FIX};
   if(EDITOR.current.region)el.classList.add('region');
   drawPins(); renderEdit(); ta.focus(); editSnip(true);
 }
@@ -54,6 +57,10 @@ function renderEdit(){const E=EDITOR.current; if(!E)return; const el=E.el;
   const pre=el.querySelector('.e-snip'); pre.className='e-snip '+(WRAP?'wrap':'nowrap'); pre.textContent=snipText(E.snippet,false); renderAssignEdit();
   qHint(el.querySelector('.e-qhint'),el.querySelector('.e-note').value,E.kind_req);}
 function cancelEdit(){EDITOR.current=null; drawPins();}
+// Saves the open edit card (POST /api/pins/<id>/edit with `base_rev`): only what changed is sent - the note, the kind, the
+// assignee and, when the lines or the ladder rung moved, lo/hi with scope and kind. Nothing changed just closes the card.
+// On 409 the card adopts the stored pin (a closed pin loses the range edit, a rival edit refreshes it); always reloads the
+// pins. A viewer role and a save already under way send nothing.
 async function saveEdit(){const E=EDITOR.current; if(!E||EDITOR.saving||viewerBlocked())return;
   const note=E.el.querySelector('.e-note').value, body={base_rev:E.base_rev};
   if(note!==E.orig.note)body.note=note;

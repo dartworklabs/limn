@@ -36,6 +36,9 @@ function pollBuild(){
   BUILD.inflight=pollBuildOnce().finally(()=>{BUILD.inflight=null;});
   return BUILD.inflight;
 }
+// One /api/build poll for the document on screen: shows or hides the progress chip and the 1-second timer, and processes a
+// finished build exactly once per `seq` (refresh the pages, toast, error panel). A reply that arrives after a document
+// switch is dropped. Resolves with nothing and never throws; a failed request is ignored (the next poll retries).
 async function pollBuildOnce(){
   let b; const k=DOC,visit=SWITCHSEQ;
   try{b=(await api(dq('/api/build?log=1'),{what:'빌드 상태',silent:true})).data;}catch(e){return;}
@@ -57,7 +60,7 @@ async function pollBuildOnce(){
     try{await refreshDoc();}catch(e){}
     if(k!==DOC||visit!==SWITCHSEQ)return;
     const secs=Math.round(b.elapsed_s||0);
-    if(b.state===BUILD_STATE.OK){toast(tr(META.kind!==DOC_KIND.TEX?'PDF가 바뀌어 쪽을 새로 그렸습니다':'PDF 재빌드 완료')+' · '+tl('{n}쪽',{n:META.pages.length})+' · '+tl('{s}초',{s:secs})+pullSuffix(b),'ok'); BUILD.error=null; BUILD_ERR_BY.delete(k); hideBuildErr();}
+    if(b.state===BUILD_STATE.OK){toast(tr(!buildsFromSource(META.kind)?'PDF가 바뀌어 쪽을 새로 그렸습니다':'PDF 재빌드 완료')+' · '+tl('{n}쪽',{n:META.pages.length})+' · '+tl('{s}초',{s:secs})+pullSuffix(b),'ok'); BUILD.error=null; BUILD_ERR_BY.delete(k); hideBuildErr();}
     else if(b.state===BUILD_STATE.OK_ERRORS){toast(tr('PDF를 재빌드했지만 LaTeX 오류가 있습니다')+pullSuffix(b),'warn'); showBuildErr(b);}
     else if(b.state===BUILD_STATE.FAIL){toast(tr('빌드 실패 — 화면은 이전 PDF입니다')+pullSuffix(b),'err'); showBuildErr(b);}
   }else if(!booted&&(b.state===BUILD_STATE.FAIL||b.state===BUILD_STATE.OK_ERRORS)){

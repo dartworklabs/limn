@@ -77,7 +77,6 @@ from helpers import (
 )
 from helpers_access import BOB_ACTOR
 from helpers_authority import post_authority
-from helpers_figure import BUILD1, BUILD2, b2_map, figure_doc, write_build
 
 
 class Smuggling(Base):
@@ -1116,10 +1115,10 @@ class FigureMapLookups(Base):
         """The two documents served, fig with BUILD1 then BUILD2 written (BUILD2 on screen)."""
         super().setUp()
         self.ms = ps.Doc("ms", "본문", "tex", self.src, self.main, paths=ps.APP.C.paths)
-        self.fig = figure_doc(self.src, ps.APP.C.paths)
+        self.fig = helpers_figure.figure_doc(self.src, ps.APP.C.paths)
         ps.APP.set_docs([self.ms, self.fig])
-        write_build(self.fig, BUILD1, b2_map())
-        write_build(self.fig, BUILD2, b2_map(july=(0.4, 0.18, 0.07, 0.12)))
+        helpers_figure.write_build(self.fig, helpers_figure.BUILD1, helpers_figure.b2_map())
+        helpers_figure.write_build(self.fig, helpers_figure.BUILD2, helpers_figure.b2_map(july=(0.4, 0.18, 0.07, 0.12)))
 
     def tearDown(self):
         """Back to the single document before the fixture removes the manuscript."""
@@ -1132,20 +1131,23 @@ class FigureMapLookups(Base):
 
     def test_a_figure_builds_map_is_parsed_once_in_the_run_and_is_that_builds_own(self):
         """figure_map gives each build its own map, the same parsed value on a second ask, out of RT.figure_maps."""
-        first, second = ps.APP.RT.figure_maps.get(self.fig, BUILD1), ps.APP.RT.figure_maps.get(self.fig, BUILD2)
+        first, second = (
+            ps.APP.RT.figure_maps.get(self.fig, helpers_figure.BUILD1),
+            ps.APP.RT.figure_maps.get(self.fig, helpers_figure.BUILD2),
+        )
         self.assertEqual(
             (first.find("B2/calendar/m07")[1].frac, second.find("B2/calendar/m07")[1].frac),
             ((0.47, 0.18, 0.07, 0.12), (0.4, 0.18, 0.07, 0.12)),
         )
-        self.assertIs(ps.APP.RT.figure_maps.get(self.fig, BUILD1), first)
-        self.assertIs(ps.APP.RT.figure_maps.get(self.fig, BUILD1), first)
+        self.assertIs(ps.APP.RT.figure_maps.get(self.fig, helpers_figure.BUILD1), first)
+        self.assertIs(ps.APP.RT.figure_maps.get(self.fig, helpers_figure.BUILD1), first)
 
     def test_a_document_without_an_element_map_has_none_and_nothing_is_read(self):
         """A LaTeX document has no map even when a file of the map's name sits in its page directory, and the cache
         was not asked."""
         (self.ms.dir / "pages-20260926100000").mkdir(parents=True)
         (self.ms.dir / "pages-20260926100000" / limn_build.FIGMAP_NAME).write_text(
-            json.dumps(b2_map()), encoding="utf-8"
+            json.dumps(helpers_figure.b2_map()), encoding="utf-8"
         )
         self.assertIsNone(ps.APP.assembly.builds.pins.elements(self.ms))
         self.assertEqual(ps.APP.RT.figure_maps.held(), 0)
@@ -1159,7 +1161,7 @@ class FigureMapLookups(Base):
         """doc_figure_map gives the map of the build pages.cur names now: BUILD2's, then BUILD1's once the pointer
         moves back."""
         self.assertEqual(self.july(ps.APP.element_follower("fig")), (0.4, 0.18, 0.07, 0.12))
-        files.atomic_write(self.fig.dir / "pages.cur", BUILD1)
+        files.atomic_write(self.fig.dir / "pages.cur", helpers_figure.BUILD1)
         self.assertEqual(self.july(ps.APP.element_follower("fig")), (0.47, 0.18, 0.07, 0.12))
 
     def test_a_key_that_has_no_loadable_map_on_screen_has_none(self):
@@ -1167,7 +1169,7 @@ class FigureMapLookups(Base):
         refuses all answer None (a refusal is not a map)."""
         self.assertIsNone(ps.APP.element_follower("nope"))
         self.assertIsNone(ps.APP.element_follower("ms"))
-        write_build(self.fig, "pages-20260926120000", None)
+        helpers_figure.write_build(self.fig, "pages-20260926120000", None)
         self.assertIsNone(ps.APP.element_follower("fig"))
         (self.fig.dir / "pages-20260926120000" / limn_build.FIGMAP_NAME).write_text("not json", encoding="utf-8")
         self.assertIsInstance(ps.APP.RT.figure_maps.get(self.fig, "pages-20260926120000"), MapRejected)
@@ -1182,7 +1184,7 @@ class FigureMapLookups(Base):
         self.assertEqual(first, (self.src / "figs" / "out" / "figures.pdf").resolve())
         self.assertEqual(second, first)
         self.assertEqual(parsed.call_count, 1)
-        self.assertIsInstance(ps.APP.RT.figure_maps.get(self.fig, BUILD2), FigureMap)
+        self.assertIsInstance(ps.APP.RT.figure_maps.get(self.fig, helpers_figure.BUILD2), FigureMap)
 
 
 class FigurePickFeedsTheViewer(Base):

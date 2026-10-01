@@ -1476,6 +1476,10 @@ class ViewerRoleUi(BrowserBase):
 # ---------------------------------------------------------------- figure documents (P1c)
 
 
+# The documents whose /api/pick goes to the real server in FigureDocuments (the figure, the view-only PDF).
+REAL_PICK_DOCS = (helpers_figure.FIG, "rv")
+
+
 class FigureDocuments(BrowserBase):
     """A figure document (limn-figure-map/1) beside the manuscript and a view-only PDF, in the real viewer: the tab,
     the element a drag picks, the pin saved from it and its mark across re-renders. Page 1 of the figure is 3:1, so
@@ -1494,9 +1498,10 @@ class FigureDocuments(BrowserBase):
         self.addCleanup(ps.APP.set_docs, None)
 
     def route(self, route):
-        """Send the figure document's pick to the real server; route everything else as BrowserBase does."""
+        """Send the figure's and the view-only PDF's picks to the real server; route everything else as BrowserBase
+        does."""
         rq = route.request
-        if urlparse(rq.url).path == "/api/pick" and json.loads(rq.post_data or "{}").get("doc") == helpers_figure.FIG:
+        if urlparse(rq.url).path == "/api/pick" and json.loads(rq.post_data or "{}").get("doc") in REAL_PICK_DOCS:
             return self.forward(route)
         return super().route(route)
 
@@ -1694,7 +1699,11 @@ class FigureDocuments(BrowserBase):
 
     def saved_cell_pin(self, page, note) -> int:
         """Pick the July cell, write note, press [핀 저장], and return the new pin's id once the list shows it."""
-        self.drag(page, helpers_figure.CELL_DRAG)
+        return self.saved_pin_at(page, helpers_figure.CELL_DRAG, note)
+
+    def saved_pin_at(self, page, frac, note) -> int:
+        """Drag across frac on page 1, write note, press [핀 저장], and return the new pin's id once the list shows it."""
+        self.drag(page, frac)
         page.locator("#note").fill(note)
         page.click("#btn-save")
         page.wait_for_function("n=>OPEN_ALL.some(p=>p.note===n)", arg=note, timeout=8000)
@@ -1841,3 +1850,49 @@ class FigureDocuments(BrowserBase):
         self.assertTrue(page.evaluate("s=>document.querySelector(s).classList.contains('st')", mark))
         self.assert_box(page, mark, 1, helpers_figure.JULY)
         self.assertEqual(page.locator("#toasts .toast").filter(has_text="#%d 요소를 잃었습니다" % pid).count(), 1)
+
+    def test_a_region_pins_card_and_edit_card_name_the_page_its_element_is_on_now(self):
+        """The August cell is drawn without code, so it is pinned as a region with its element. After a re-render takes
+        the cell to page 2, the card's copy text and the edit card's location name page 2, not page 1 where it was
+        pinned."""
+        page = self.open_fig()
+        pid = self.saved_pin_at(page, helpers_figure.AUGUST_DRAG, "8월 칸이 비어 있음")
+        rec = find_record(ps.APP.snapshot_pins(), pid)
+        self.assertEqual((rec["kind"], rec["page"], rec["el"]["id"]), ("region", 1, helpers_figure.AUGUST_ID))
+        self.rerender_and_refresh(page, august_page=2)
+        card = '.pin[data-id="%d"]' % pid
+        self.assertTrue(page.evaluate("s=>document.querySelector(s+' .loc').dataset.copy", card).endswith(" 쪽 2"))
+        page.evaluate("id=>openEdit(id)", pid)
+        page.wait_for_selector(".edit .e-range", timeout=8000)
+        self.assertEqual(self.text(page, ".edit .e-range"), "쪽 2 · 영역")
+        self.assertTrue(page.evaluate("document.querySelector('.edit .e-range').dataset.copy").endswith(" 쪽 2"))
+
+    def test_re_placing_a_view_only_region_pin_sends_only_the_region_and_keeps_its_shape(self):
+        """On the reviewer's PDF a drag pins a region. [위치 다시 잡기] then [이 위치로 바꾸기] sends a loc with the page,
+        the box, the quote and the build and nothing else (no lines, no element), and the pin stays a region at the
+        new box."""
+        page = self.open(0, init=self.NO_COACH)
+        page.evaluate("async()=>await switchDoc('rv')")
+        page.wait_for_function("DOC==='rv'&&document.querySelectorAll('#doc .pg').length===2", timeout=8000)
+        settle(page)
+        pid = self.saved_pin_at(page, (0.2, 0.2, 0.3, 0.1), "이 문단 다시 쓰기")
+        before = find_record(ps.APP.snapshot_pins(), pid)
+        self.assertEqual((before["doc"], before["kind"], before["page"]), ("rv", "region", 1))
+        page.evaluate("id=>openEdit(id)", pid)
+        page.wait_for_selector(".edit .b-repick", timeout=8000)
+        page.click(".edit .b-repick")
+        page.wait_for_function("REPICK!==null", timeout=8000)
+        new = (0.5, 0.5, 0.3, 0.1)
+        self.drag(page, new, ready="REPICK&&REPICK.cand")
+        with page.expect_request(lambda r: r.url.endswith("/edit")) as sent:
+            page.click('#banner [data-act="rp-apply"]')
+        loc = json.loads(sent.value.post_data)["loc"]
+        self.assertEqual(sorted(loc), ["frac", "page", "pdf_build", "quote"])
+        page.wait_for_function("REPICK===null", timeout=8000)
+        settle(page)
+        after = find_record(ps.APP.snapshot_pins(), pid)
+        self.assertEqual((after["doc"], after["kind"], after["page"]), ("rv", "region", 1))
+        self.assertNotIn("el", after)
+        self.assertGreater(after["rev"], before["rev"])
+        self.assert_frac(after["frac"], [round(v, 6) for v in loc["frac"]])
+        self.assertGreater(after["frac"][0], before["frac"][0] + 0.2)

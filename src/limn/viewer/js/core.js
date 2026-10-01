@@ -37,6 +37,11 @@ const DIFF_FORMAT=Object.freeze({PDF:'pdf',SOURCE:'source'});   // the changes v
 const VIEW_MODE=Object.freeze({MANUSCRIPT:'manuscript',REVISIONS:'revisions'});   // the manuscript or the changes view; index.html data-mode
 const UI_LANG=Object.freeze({KO:'ko',EN:'en'});   // LANG
 const NOTIFY_STATE=Object.freeze({ON:'on',OFF:'off',BLOCKED:'blocked',UNSUPPORTED:'unsupported',LOCAL:'local'});   // browser notifications on this device (notifyState)
+// Whether a document `kind` is a figure document (a figure set drawn by code, with its element map): the one place this is asked.
+function isFigureKind(kind){return kind===DOC_KIND.FIGURE;}
+// Whether a document of this `kind` is rebuilt from its source: only a LaTeX one. A view-only PDF and a figure redraw when their
+// files change, so they have no rebuild and word a finished build as a redraw.
+function buildsFromSource(kind){return kind===DOC_KIND.TEX;}
 let META=null,PINS=[],DONE=[],DROPPED=[],REPICK=null,PICKSEQ=0;
 let SNIP_OPEN=false,W=900,WRAP=true;
 // Mobile: LAYOUT is a LAYOUT_MODE (wide|mid|narrow), SIDE_OPEN is whether the panel/sheet is expanded, SELMODE is touch selection mode,
@@ -82,6 +87,7 @@ const T={
   purge:'휴지통에서 영구 삭제합니다(소유자만). 알림이 떠 있는 동안 [되돌리기]로 취소할 수 있고, 알림이 사라지면 지웁니다',
   synctex:'PDF 좌표(SyncTeX)로 줄을 찾았지만 드래그한 글자가 이 줄 범위에 다 있지는 않습니다(드문 낱말에 가중한 비율). 원문 칸에서 고칠 곳이 이 줄들에 들어 있는지 확인하세요.',
   text:'드래그한 글자를 원문에서 직접 찾아 위치를 정했습니다(표·기호표처럼 좌표 조회가 약한 곳). 원문 칸에서 고칠 곳이 이 줄들에 들어 있는지 확인하세요.',
+  viaother:'이 화면이 알지 못하는 방법으로 위치를 정했고, 드래그와 다 맞지는 않습니다. 고칠 곳이 이 범위에 들어 있는지 확인하세요.',
   map:'그림 지도에서 드래그와 가장 많이 겹치는 요소를 골랐습니다. 고른 상자가 고칠 곳을 덮는지 확인하세요.',
   raw:'넓히기 전에 드래그 영역이 직접 가리킨 줄만 잡습니다',
   para:'드래그한 자리를 감싸는 문단 전체입니다(앞뒤 % 주석 줄은 뺍니다)',

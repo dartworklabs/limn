@@ -61,9 +61,10 @@ function tickClaims(){if(document.hidden)return; let gone=false;
     if(!p||!claimActive(p)){gone=true; return;} const c=claimInfo(p); el.querySelector('.ct').textContent=c.t; el.dataset.tip=c.tip; el.classList.toggle('late',c.late);});
   if(gone)drawPins();}
 setInterval(tickClaims,30000);
-// A card's location text: 'L12-L18' for a LaTeX pin, '영역' for a view-only PDF's pin (the page is a separate field). The copy format is 'file L12-L18' / 'x.pdf 쪽 3'.
+// A card's location text: 'L12-L18' for a LaTeX pin, '영역' for a view-only PDF's pin (the page is a separate field). The copy format is 'file L12-L18' / 'x.pdf 쪽 3'; a
+// region's page is the one its mark is on in the current build (pinPlace), which a figure pin's element can move.
 function locText(p){return isRegion(p)?tr('영역'):rng(p.lo,p.hi);}
-function locCopy(p){const name=p.name||String(p.file||p.pdf||'').split('/').pop(); return isRegion(p)?name+' 쪽 '+p.page:name+' L'+p.lo+'-L'+p.hi;}
+function locCopy(p){const name=p.name||String(p.file||p.pdf||'').split('/').pop(); return isRegion(p)?name+' 쪽 '+pinPlace(p).page:name+' L'+p.lo+'-L'+p.hi;}
 // The document chip attached to a card header when viewing all documents. Another document's is dashed-bordered - clicking it switches to that document.
 function docChip(p){if(!(SHOW_ALL&&multiDoc()))return ''; const d=docInfo(pdoc(p)),other=pdoc(p)!==DOC;
   return '<span class="badge badge-secondary dchip'+(other?' other':'')+'" data-tip="'+esc((d?d.name+' · '+d.path:tl('{doc} (설정에 없는 문서)',{doc:pdoc(p)}))+(other?' — '+tr('#번호·[보기]를 누르면 이 문서로 바꿉니다'):''))+'">'+esc(d?d.name:pdoc(p))+'</span>';}
