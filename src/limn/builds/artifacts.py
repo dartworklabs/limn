@@ -49,7 +49,7 @@ from limn.builds.values import (
 )
 from limn.platform.files import PATH_MAX_CHARS, atomic_write
 from limn.platform.values import is_finite_num, is_int, is_num
-from limn.runtime.documents import NO_APART, ApartPaths
+from limn.runtime.documents import NO_APART, ApartPaths, InputSetCache
 
 PAGES_DIR_RE = re.compile(r"pages(-\d{14}(-\d+)?)?")
 # Directories excluded from the build copy (rsync). The manuscript fingerprint and src_mtime use the same
@@ -64,7 +64,6 @@ SRC_MTIME_EXTS = SRC_TEX_EXTS + SRC_FIG_EXTS
 # Build artifact directories (in case the state directory is placed inside the manuscript) + directories the build rsync excludes.
 BUILD_OUTDIRS = ("build", "out") + BUILD_EXCLUDE_DIRS
 RECORDER_MAX_BYTES = 8 * 1024 * 1024  # a latexmk recorder file (.fls) larger than this is not read
-INPUT_CACHE_MAX = 32  # parsed recorder files kept per run: the current and previous builds of the LaTeX documents
 
 FIGMAP_NAME = "figmap.json"  # a figure document's element map, copied into every page directory next to its PDF
 
@@ -126,6 +125,10 @@ class BuildDoc(BuildStateHolder, Protocol):
     def apart(self) -> ApartPaths:
         """What its source list leaves out because another document owns it - figure folders and view-only PDFs inside
         src (limn.runtime.documents.apart_paths); empty for a document that has none of them inside."""
+
+    @property
+    def input_sets(self) -> InputSetCache:
+        """The memo of the recorder files parsed for this document (limn.runtime.documents.Doc.input_sets)."""
 
     @property
     def watches_files(self) -> bool:
@@ -396,11 +399,10 @@ def source_newer(D: BuildDoc, state_dir: Path, name: str | None = None) -> float
     src_mtime already excludes diff/, which isn't part of the build (the old implementation looked at every
     *.tex plus the PDF timestamp). state_dir is skipped when the manuscript is scanned (see iter_sources). The
     manuscript is measured as that build saw it: the figure-set files that build read count (build_inputs)."""
-    nm = name or cur_pages(D).name
-    ref = build_ref_mtime(D, nm)
+    ref = build_ref_mtime(D, name or cur_pages(D).name)
     if ref is None:
         return 0.0
-    return max(0.0, src_mtime(D, state_dir, build=nm) - ref)
+    return max(0.0, src_mtime(D, state_dir, build=name) - ref)
 
 
 def migrate_pages(D: BuildDoc) -> None:
@@ -645,19 +647,11 @@ def read_head(D: BuildDoc) -> str | None:
 # files that another document owns - a figure document's folder and a view-only PDF inside its build root (D.apart): that
 # document's re-render is not an edit of this manuscript. A figure-set file the build on screen actually read stays in:
 # latexmk's recorder file (<main>.fls) lists what pdflatex opened, and each build keeps its own next to its pages
-# (limn.builds.engine.compile_tex), so the answer needs no field of builds.json.
+# (limn.builds.engine.compile_tex), so the answer needs no field of builds.json. The parsed recorder files are kept in
+# the document's own memo (D.input_sets), never in a module global: two servers in one process share nothing.
 
 
-class BuildInputs(NamedTuple):
-    """The figure-set files one build read, and which recorder file said so: `names` are the files ('a/b.pdf', relative to
-    the build root, forward slashes) the build's .fls lists as INPUT inside its build copy and carrying a figure-set
-    suffix (SRC_FIG_EXTS); `stamp` is (path, mtime_ns, size) of that .fls, or None when there was no readable one."""
-
-    names: frozenset[str]
-    stamp: tuple[str, int, int] | None
-
-
-NO_INPUTS = BuildInputs(frozenset(), None)
+NO_INPUTS: frozenset[str] = frozenset()  # what a build with no readable recorder file read
 
 
 def fls_inputs(text: str, cwd: Path, roots: Iterable[Path]) -> frozenset[str]:
@@ -665,7 +659,8 @@ def fls_inputs(text: str, cwd: Path, roots: Iterable[Path]) -> frozenset[str]:
     cwd - the folder pdflatex ran in - when relative, and kept when it lies strictly below one of roots (the build copy
     as a path and with symlinks resolved) and carries a suffix of SRC_FIG_EXTS, as 'a/b.pdf' below that root. The
     resolution is lexical (`.` and `..` folded, no file asked), so a file that is gone since is still named; TeX Live's
-    own files, other lines (PWD, OUTPUT) and anything outside the copy are dropped."""
+    own files, other lines (PWD, OUTPUT), a name with a NUL byte (no file has one; it would only ever be damage) and
+    anything outside the copy are dropped."""
     bases = [os.path.normpath(str(r)) for r in roots]
     here = os.path.normpath(str(cwd))
     found: set[str] = set()
@@ -673,6 +668,8 @@ def fls_inputs(text: str, cwd: Path, roots: Iterable[Path]) -> frozenset[str]:
         if not line.startswith("INPUT "):
             continue
         spelled = line[len("INPUT ") :].rstrip("\r")
+        if "\x00" in spelled:
+            continue
         full = os.path.normpath(spelled if os.path.isabs(spelled) else os.path.join(here, spelled))
         if os.path.splitext(full)[1].lower() not in SRC_FIG_EXTS:
             continue
@@ -707,51 +704,12 @@ def recorded_inputs(D: BuildDoc, fls: Path) -> frozenset[str]:
     return fls_inputs(text, D.out, (D.build, D.build.resolve()))
 
 
-@dataclass
-class InputSetCache:
-    """The parsed recorder files of one run, so every /api/docs, /api/meta and pick poll does not read and parse a build's
-    .fls again. An entry is keyed by the file's path, its (mtime_ns, size) and the document's out and build folders (the
-    parse resolves paths against them); a .fls written again misses. At most INPUT_CACHE_MAX entries, the oldest dropped
-    first. What an entry holds is a function of those bytes and folders alone, so a warm cache answers what a cold one
-    does and an entry can never be stale against the file.
-
-    Request threads share it: every read and write of the entries is under the lock; the entries are frozen sets that
-    nothing changes. The parse runs outside the lock, so two threads that miss the same file at once both parse it and the
-    later one is kept. A file rewritten between the stat and the read is parsed under its older key, which the next read
-    misses. INPUT_SETS is the one the build functions use by default."""
-
-    _entries: dict[tuple[str, int, int, str, str], frozenset[str]] = field(default_factory=dict)
-    _lock: threading.Lock = field(default_factory=threading.Lock)
-
-    def get(self, D: BuildDoc, fls: Path, mtime_ns: int, size: int) -> frozenset[str]:
-        """The figure-set files the recorder file `fls` of document D lists (recorded_inputs), from the cache while the file
-        is unchanged. mtime_ns and size are the stat the caller keyed on."""
-        key = (str(fls), mtime_ns, size, str(D.out), str(D.build))
-        with self._lock:
-            hit = self._entries.get(key)
-        if hit is not None:
-            return hit
-        got = recorded_inputs(D, fls)
-        with self._lock:
-            self._entries[key] = got
-            while len(self._entries) > INPUT_CACHE_MAX:
-                del self._entries[next(iter(self._entries))]
-        return got
-
-    def held(self) -> int:
-        """How many parsed recorder files the cache holds now: at most INPUT_CACHE_MAX."""
-        with self._lock:
-            return len(self._entries)
-
-
-INPUT_SETS = InputSetCache()
-
-
-def build_inputs(D: BuildDoc, name: str | None = None, cache: InputSetCache = INPUT_SETS) -> BuildInputs:
-    """The figure-set files build `name` of D read - the build on screen when name is None - from the recorder file kept
-    with its pages (<D.dir>/<name>/<main>.fls). NO_INPUTS, without touching the disk, for a document that sets nothing
-    apart (D.apart), and for a build with no readable recorder file (made before the rule, a page directory already
-    removed, latexmk's recorder switched off) or a name that is not a page directory: such a build reads nothing."""
+def build_inputs(D: BuildDoc, name: str | None = None) -> frozenset[str]:
+    """The figure-set files build `name` of D read - the build on screen when name is None - as 'a/b.pdf' below the build
+    root, from the recorder file kept with its pages (<D.dir>/<name>/<main>.fls), parsed once per file through the
+    document's own memo (D.input_sets). NO_INPUTS, without touching the disk, for a document that sets nothing apart
+    (D.apart), and for a build with no readable recorder file (made before the rule, a page directory already removed,
+    latexmk's recorder switched off) or a name that is not a page directory: such a build reads nothing."""
     if D.apart.empty:
         return NO_INPUTS
     if name is None:
@@ -767,7 +725,8 @@ def build_inputs(D: BuildDoc, name: str | None = None, cache: InputSetCache = IN
         return NO_INPUTS
     if not stat.S_ISREG(st.st_mode) or st.st_size > RECORDER_MAX_BYTES:
         return NO_INPUTS
-    return BuildInputs(cache.get(D, fls, st.st_mtime_ns, st.st_size), (str(fls), st.st_mtime_ns, st.st_size))
+    key = (str(fls), st.st_mtime_ns, st.st_size, str(D.out), str(D.build))
+    return D.input_sets.get(key, lambda: recorded_inputs(D, fls))
 
 
 def _excluded_dir(name: str) -> bool:
@@ -794,7 +753,7 @@ def iter_sources(
     if they saw different files, mismatches like "badge is off but estimation is on" would appear. Dot (.)
     directories, build artifacts / directories the build rsync excludes (BUILD_OUTDIRS), the state directory
     (state_dir) when placed inside the manuscript, and the root's main PDF are all excluded. So are the files another
-    document owns (D.apart, set_apart) - unless the build read them (reads, build_inputs(D).names) or keep_apart is
+    document owns (D.apart, set_apart) - unless the build read them (reads, build_inputs(D)) or keep_apart is
     True, which the build asks for to hash everything once and choose after latexmk has said what it read. The paths of
     D.apart are relative to the build root, so the list is the same over D.src and over the build copy D.build."""
     main_pdf = D.pdf_name
@@ -838,60 +797,75 @@ def doc_fingerprint(D: BuildDoc, state_dir: Path) -> str:
             for chunk in iter(lambda: fh.read(1 << 20), b""):
                 h.update(chunk)
         return h.hexdigest()[:32]
-    return source_fingerprint(D, D.src, state_dir, build_inputs(D).names)
+    return source_fingerprint(D, D.src, state_dir, build_inputs(D))
 
 
-def source_digests(
+class ScannedSource(NamedTuple):
+    """One file of a scan of the manuscript: the SHA-256 of its content and its mtime, the mtime taken before the content
+    was read, so a file written in between reads as newer than what was hashed - never older."""
+
+    digest: bytes
+    mtime: float
+
+
+def scan_sources(
     D: BuildDoc, root: Path, state_dir: Path, reads: frozenset[str] = frozenset(), keep_apart: bool = False
-) -> dict[str, bytes]:
-    """The SHA-256 of every file iter_sources yields (same arguments) keyed by its relative path, in list order; a file
-    that cannot be read is left out."""
-    out: dict[str, bytes] = {}
+) -> dict[str, ScannedSource]:
+    """Every file iter_sources yields (same arguments) as {relative path: ScannedSource}, in list order; a file that cannot
+    be read is left out. The build scans its copy once with keep_apart=True before latexmk runs: that scan is both the
+    fingerprint's input and the record of which files, with which mtimes, existed before latexmk could make any."""
+    out: dict[str, ScannedSource] = {}
     for rel, e in iter_sources(D, root, state_dir, reads, keep_apart):
         try:
+            mtime = e.stat(follow_symlinks=False).st_mtime
             with open(e.path, "rb") as fh:
-                out[rel] = hashlib.sha256(fh.read()).digest()
+                out[rel] = ScannedSource(hashlib.sha256(fh.read()).digest(), mtime)
         except OSError:
             continue
     return out
 
 
-def fingerprint_of(digests: Mapping[str, bytes]) -> str:
-    """Manuscript fingerprint - a hash of (relative path, content digest) in the order digests lists them. mtime is not
+def fingerprint_of(scan: Mapping[str, ScannedSource]) -> str:
+    """Manuscript fingerprint - a hash of (relative path, content digest) in the order scan lists them. mtime is not
     included: a file whose content is unchanged but timestamp changed (e.g. via git checkout) should not change the
     layout."""
     h = hashlib.sha256()
-    for rel, digest in digests.items():
-        h.update(rel.encode("utf-8", "surrogateescape") + b"\0" + digest)
+    for rel, f in scan.items():
+        h.update(rel.encode("utf-8", "surrogateescape") + b"\0" + f.digest)
     return h.hexdigest()[:32]
 
 
 def source_fingerprint(D: BuildDoc, root: Path, state_dir: Path, reads: frozenset[str] = frozenset()) -> str:
-    """Manuscript fingerprint over the files iter_sources yields (same arguments): fingerprint_of their digests."""
-    return fingerprint_of(source_digests(D, root, state_dir, reads))
+    """Manuscript fingerprint over the files iter_sources yields (same arguments): fingerprint_of their scan."""
+    return fingerprint_of(scan_sources(D, root, state_dir, reads))
 
 
-def without_apart(D: BuildDoc, digests: Mapping[str, bytes], reads: frozenset[str]) -> dict[str, bytes]:
-    """digests - made with keep_apart=True - narrowed to the list iter_sources gives with the same `reads`: the files
+def without_apart(D: BuildDoc, scan: Mapping[str, ScannedSource], reads: frozenset[str]) -> dict[str, ScannedSource]:
+    """scan - made with keep_apart=True - narrowed to the list iter_sources gives with the same `reads`: the files
     another document owns drop out, except those the build read. The fingerprint of that equals source_fingerprint over
     the same tree, so a build can hash its copy before latexmk runs and choose after it has said what it read."""
-    return {rel: d for rel, d in digests.items() if not set_apart(D.apart, tuple(rel.split("/")), reads)}
+    return {rel: f for rel, f in scan.items() if not set_apart(D.apart, tuple(rel.split("/")), reads)}
 
 
-def newest_read_apart(D: BuildDoc, root: Path, reads: frozenset[str]) -> float:
-    """The newest mtime under root among the files of `reads` that D sets apart (a plain file of the tree, not a symlink),
-    0.0 when there is none: what a build that read them compiled."""
-    newest = 0.0
-    for rel in reads:
-        if not D.apart.covers(tuple(rel.split("/"))):
-            continue
-        try:
-            st = os.lstat(root / rel)
-        except OSError:
-            continue
-        if stat.S_ISREG(st.st_mode):
-            newest = max(newest, st.st_mtime)
-    return newest
+def read_in_scan(scan: Mapping[str, ScannedSource], recorded: frozenset[str]) -> frozenset[str]:
+    """Of the files a recorder file lists, those the scan made before latexmk ran has: a file latexmk made itself (an
+    epstopdf conversion, a generated figure) was not in the manuscript the build compiled, so it is not one of the
+    build's sources however the recorder file lists it."""
+    return frozenset(rel for rel in recorded if rel in scan)
+
+
+def newest_read_apart(D: BuildDoc, scan: Mapping[str, ScannedSource], reads: frozenset[str]) -> float:
+    """The newest mtime, as the scan made before latexmk ran recorded it, among the files of `reads` that D sets apart;
+    0.0 when there is none: what a build that read them compiled. The mtimes come from before latexmk so that a file the
+    run touches cannot move the baseline past an edit made while it ran."""
+    return max((scan[rel].mtime for rel in reads if rel in scan and D.apart.covers(tuple(rel.split("/")))), default=0.0)
+
+
+def expire_src_mtime(D: BuildDoc) -> None:
+    """Drop D's 2 second src_mtime memo, so the next read measures now. A build that puts new pages on screen calls this:
+    which recorder file the manuscript is measured against has just changed."""
+    with D.mcache_lock:
+        D.mcache[2] = 0.0
 
 
 def src_mtime(D: BuildDoc, state_dir: Path, force: bool = False, build: str | None = None) -> float:
@@ -899,7 +873,10 @@ def src_mtime(D: BuildDoc, state_dir: Path, force: bool = False, build: str | No
     A document not built from source measures its main file alone.
 
     The figure-set files another document owns are left out (D.apart) unless build `build` - the one on screen when it is
-    None - read them (build_inputs); the memo is keyed by the recorder file it used, so a new build is measured at once.
+    None - read them (build_inputs). The memo is keyed by that build as the caller named it, so a read of it is a lock and
+    a comparison: the page pointer and the recorder file are looked at only when the memo misses. A build that commits
+    new pages expires the memo (expire_src_mtime), so the new build is measured at once. A document that sets nothing
+    apart has one answer whatever the build, and one memo key.
 
     D.build, which the build populates via rsync, is normally under the state folder (i.e. outside D.src), but
     it is also excluded by name so that even the rare layout with the state directory inside the manuscript
@@ -912,8 +889,7 @@ def src_mtime(D: BuildDoc, state_dir: Path, force: bool = False, build: str | No
     being filled and immediately rebuilding would wrongly record the pre-edit mtime as "the build start time".
     The cache and its leaf lock belong to D; the file scan runs outside the lock."""
     cache = D.mcache
-    inputs = build_inputs(D, build)
-    key = (str(D.src), inputs.stamp)
+    key = (str(D.src), None if D.apart.empty else build)
     if not force:
         with D.mcache_lock:
             ckey, at = cache[0], cache[2]
@@ -925,7 +901,7 @@ def src_mtime(D: BuildDoc, state_dir: Path, force: bool = False, build: str | No
         with contextlib.suppress(OSError):
             newest = D.main.stat().st_mtime
     else:
-        for _rel, e in iter_sources(D, D.src, state_dir, inputs.names):
+        for _rel, e in iter_sources(D, D.src, state_dir, build_inputs(D, build)):
             with contextlib.suppress(OSError):
                 newest = max(newest, e.stat().st_mtime)
     with D.mcache_lock:

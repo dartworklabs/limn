@@ -3,15 +3,17 @@
 A LaTeX document's source list - src_mtime and the fingerprint read the same one (limn.builds.artifacts.iter_sources) -
 leaves out the figure-set files of a figure document's folder and a view-only document's PDF (Doc.apart), except the
 ones the build on screen read. "Read" is the latexmk recorder file (.fls) the build keeps next to its pages: its INPUT
-lines, parsed (fls_inputs), read back at query time through a bounded cache (InputSetCache) and chosen against the
-fingerprint hashed before latexmk (without_apart). These tests drive the functions directly over a real tree and, for
+lines, parsed (fls_inputs), read back at query time through the document's own bounded memo (Doc.input_sets,
+InputSetCache) and chosen against the scan made before latexmk (without_apart). These tests drive the functions directly over a real tree and, for
 the build, fake latexmk and pdftoppm on PATH, so no TeX installation is needed; the same rule through a real latexmk and
 the server is in src/limn/documents/tests/test_stale_figure_folder.py.
 
 Run: uv run pytest -q src/limn/builds/tests/test_apart_sources.py
 """
 
+import hashlib
 import os
+import shutil
 import tempfile
 import threading
 import time
@@ -22,14 +24,12 @@ from unittest import mock
 from limn.builds import artifacts as build, engine as build_engine, run as build_run
 from limn.builds.answer import build_failure_log
 from limn.builds.artifacts import (
-    INPUT_CACHE_MAX,
     NO_INPUTS,
     BuildFailed,
     BuildOk,
-    InputSetCache,
     fls_inputs,
 )
-from limn.runtime.documents import NO_APART, ApartPaths, Doc, RunPaths
+from limn.runtime.documents import INPUT_CACHE_MAX, NO_APART, ApartPaths, Doc, InputSetCache, RunPaths
 
 BUILD1 = "pages-20260926100000"
 BUILD2 = "pages-20260926110000"
@@ -142,6 +142,11 @@ class RecorderLines(unittest.TestCase):
         text = "PWD /b/build\r\nOUTPUT main.pdf\r\n\r\nGARBAGE ./figs/no.pdf\r\nINPUT ./figs/my panel.pdf\r\nINPUT\r\n"
         self.assertEqual(self.names(text), {"figs/my panel.pdf"})
 
+    def test_a_name_with_a_nul_byte_is_dropped_and_its_neighbours_stay(self):
+        """No file name holds a NUL: such a line is damage, not an input, and must never reach a system call."""
+        text = "INPUT ./figs/a\x00.pdf\nINPUT ./figs/b.pdf\nINPUT ./figs\x00/c.pdf\n"
+        self.assertEqual(self.names(text), {"figs/b.pdf"})
+
     def test_an_empty_recorder_lists_nothing(self):
         """No text, no inputs."""
         self.assertEqual(self.names(""), frozenset())
@@ -202,18 +207,9 @@ class Pages(Tree):
         self.pages(BUILD1, "INPUT ./figs/a.pdf\n")
         self.pages(BUILD2, "INPUT ./figs/c.svg\n")
         self.put_on_screen(BUILD2)
-        self.assertEqual(build.build_inputs(self.D).names, {"figs/c.svg"})
-        self.assertEqual(build.build_inputs(self.D, BUILD1).names, {"figs/a.pdf"})
-        self.assertEqual(build.build_inputs(self.D, BUILD2).names, {"figs/c.svg"})
-
-    def test_the_stamp_identifies_the_recorder_file_it_was_read_from(self):
-        """The stamp is (path, mtime_ns, size); a .fls written again has another one."""
-        d = self.pages(BUILD1, "INPUT ./figs/a.pdf\n")
-        self.put_on_screen(BUILD1)
-        first = build.build_inputs(self.D).stamp
-        self.assertEqual(first[0], str(d / "main.fls"))
-        (d / "main.fls").write_text("INPUT ./figs/a.pdf\nINPUT ./figs/c.svg\n", encoding="utf-8")
-        self.assertNotEqual(build.build_inputs(self.D).stamp, first)
+        self.assertEqual(build.build_inputs(self.D), {"figs/c.svg"})
+        self.assertEqual(build.build_inputs(self.D, BUILD1), {"figs/a.pdf"})
+        self.assertEqual(build.build_inputs(self.D, BUILD2), {"figs/c.svg"})
 
     def test_no_recorder_file_reads_nothing(self):
         """A build with no .fls, a page directory that is gone and no page directory at all read nothing."""
@@ -257,59 +253,66 @@ class Pages(Tree):
 
 
 class Cache(Tree):
-    """InputSetCache is a bounded, thread-safe memo of parsed recorder files keyed by what they were parsed from."""
+    """The memo of parsed recorder files is the document's own (Doc.input_sets): bounded, thread-safe, and keyed by what
+    the parse depends on."""
 
-    def fls(self, text: str = "INPUT ./figs/a.pdf\n") -> tuple[Path, os.stat_result]:
-        """A recorder file under the document's state folder and its stat."""
+    def fls(self, text: str = "INPUT ./figs/a.pdf\n") -> Path:
+        """Write text as the recorder file of build BUILD1 of the document, put that build on screen, and return its path."""
         d = self.D.dir / BUILD1
         d.mkdir(parents=True, exist_ok=True)
+        (self.D.dir / "pages.cur").write_text(BUILD1, encoding="utf-8")
         f = d / "main.fls"
         f.write_text(text, encoding="utf-8")
-        return f, f.stat()
+        return f
 
     def test_an_unchanged_file_is_parsed_once(self):
-        """Two gets with the same (mtime_ns, size) parse the file once and return the same set."""
-        cache = InputSetCache()
-        f, st = self.fls()
+        """Two reads of the same recorder file parse it once and give the same set."""
+        self.fls()
         with mock.patch.object(build, "recorded_inputs", wraps=build.recorded_inputs) as parse:
-            first = cache.get(self.D, f, st.st_mtime_ns, st.st_size)
-            second = cache.get(self.D, f, st.st_mtime_ns, st.st_size)
+            first = build.build_inputs(self.D)
+            second = build.build_inputs(self.D)
         self.assertEqual((first, second, parse.call_count), (frozenset({"figs/a.pdf"}), first, 1))
 
     def test_a_file_written_again_misses(self):
-        """New mtime_ns or size is a new key: the new text is parsed and the answer is the new one."""
-        cache = InputSetCache()
-        f, st = self.fls()
-        cache.get(self.D, f, st.st_mtime_ns, st.st_size)
-        f, st2 = self.fls("INPUT ./figs/a.pdf\nINPUT ./figs/c.svg\n")
-        self.assertEqual(cache.get(self.D, f, st2.st_mtime_ns, st2.st_size), {"figs/a.pdf", "figs/c.svg"})
+        """New text of another size is a new key: the new text is parsed and the answer is the new one."""
+        self.fls()
+        build.build_inputs(self.D)
+        self.fls("INPUT ./figs/a.pdf\nINPUT ./figs/c.svg\n")
+        self.assertEqual(build.build_inputs(self.D), {"figs/a.pdf", "figs/c.svg"})
 
     def test_a_warm_answer_equals_a_cold_one(self):
-        """The cache holds a function of the file's bytes: its answer is recorded_inputs' on a cold cache and a warm one."""
-        f, st = self.fls("INPUT ./figs/B.PNG\nINPUT /usr/share/x.pdf\n")
-        cache = InputSetCache()
-        cold = cache.get(self.D, f, st.st_mtime_ns, st.st_size)
-        warm = cache.get(self.D, f, st.st_mtime_ns, st.st_size)
+        """The memo holds a function of the file's bytes: the answer is recorded_inputs' on a cold memo and on a warm one."""
+        f = self.fls("INPUT ./figs/B.PNG\nINPUT /usr/share/x.pdf\n")
+        cold = build.build_inputs(self.D)
+        warm = build.build_inputs(self.D)
         self.assertEqual((cold, warm), (build.recorded_inputs(self.D, f),) * 2)
 
     def test_the_oldest_entries_are_dropped_at_the_bound(self):
-        """Past INPUT_CACHE_MAX entries the oldest go first; the newest stay."""
-        cache = InputSetCache()
-        f, st = self.fls()
-        with mock.patch.object(build, "INPUT_CACHE_MAX", 3):
-            for i in range(5):
-                cache.get(self.D, f, st.st_mtime_ns + i, st.st_size)
-        self.assertEqual(cache.held(), 3)
-        with mock.patch.object(build, "recorded_inputs", wraps=build.recorded_inputs) as parse:
-            cache.get(self.D, f, st.st_mtime_ns + 4, st.st_size)  # newest: kept
-            cache.get(self.D, f, st.st_mtime_ns + 0, st.st_size)  # oldest: dropped, parsed again
-        self.assertEqual(parse.call_count, 1)
+        """Past `limit` entries the oldest go first; the newest stay."""
+        cache = InputSetCache(limit=3)
+        seen: list[tuple[str, int, int, str, str]] = []
 
-    def test_threads_sharing_one_cache_stay_within_the_bound_and_agree(self):
-        """Eight threads asking for many keys at once: no exception, at most INPUT_CACHE_MAX entries, every answer equal."""
-        cache = InputSetCache()
-        f, st = self.fls()
-        want = build.recorded_inputs(self.D, f)
+        def key(i: int) -> tuple[str, int, int, str, str]:
+            """The i-th key; every parse is recorded in `seen`."""
+            return ("/f", i, 1, "/o", "/b")
+
+        for i in range(5):
+            cache.get(key(i), lambda i=i: seen.append(key(i)) or frozenset({str(i)}))
+        self.assertEqual((cache.held(), len(seen)), (3, 5))
+        cache.get(key(4), lambda: frozenset())  # newest: kept, not parsed again
+        cache.get(key(0), lambda: seen.append(key(0)) or frozenset())  # oldest: dropped, parsed again
+        self.assertEqual(seen[5:], [key(0)])
+
+    def test_the_default_bound_is_the_documents(self):
+        """A document's memo holds at most INPUT_CACHE_MAX parsed files, however many builds ask."""
+        for i in range(INPUT_CACHE_MAX + 10):
+            self.D.input_sets.get(("/f", i, 1, "/o", "/b"), lambda: frozenset())
+        self.assertEqual(self.D.input_sets.held(), INPUT_CACHE_MAX)
+
+    def test_threads_sharing_one_memo_stay_within_the_bound_and_agree(self):
+        """Eight threads asking for many keys at once: no exception, at most `limit` entries, every answer equal."""
+        cache = InputSetCache(limit=10)
+        want = frozenset({"figs/a.pdf"})
         answers: list[frozenset[str]] = []
         errors: list[BaseException] = []
 
@@ -317,8 +320,8 @@ class Cache(Tree):
             """Ask for 60 keys, 20 of them shared with the other threads."""
             try:
                 for i in range(60):
-                    key = st.st_mtime_ns + (i if i < 20 else offset * 100 + i)
-                    answers.append(cache.get(self.D, f, key, st.st_size))
+                    key = ("/f", i if i < 20 else offset * 100 + i, 1, "/o", "/b")
+                    answers.append(cache.get(key, lambda: want))
             except BaseException as e:  # noqa: BLE001 - the test reports whatever a thread raised
                 errors.append(e)
 
@@ -328,8 +331,17 @@ class Cache(Tree):
         for t in threads:
             t.join(30)
         self.assertEqual(errors, [])
-        self.assertLessEqual(cache.held(), INPUT_CACHE_MAX)
+        self.assertLessEqual(cache.held(), 10)
         self.assertEqual(set(answers), {want})
+
+    def test_two_documents_never_share_parsed_recorder_files_and_no_module_keeps_one(self):
+        """Each Doc has a memo of its own, and the build module holds none: two servers in one process share no state."""
+        other = Doc("ms", "본문", "tex", src=self.src, main=self.src / "main.tex", paths=self.paths, apart=self.apart)
+        self.fls()
+        build.build_inputs(self.D)
+        self.assertEqual((self.D.input_sets.held(), other.input_sets.held()), (1, 0))
+        self.assertIsNot(self.D.input_sets, other.input_sets)
+        self.assertFalse([n for n, v in vars(build).items() if isinstance(v, InputSetCache)])
 
 
 class SourceList(Tree):
@@ -454,9 +466,9 @@ class SourceList(Tree):
 class Fingerprint(Tree):
     """The fingerprint and src_mtime follow the same list; the build's choice after latexmk equals a plain scan."""
 
-    def digests(self, **kw) -> dict[str, bytes]:
-        """source_digests of the manuscript with keep_apart (the build's hash before latexmk) unless kw says otherwise."""
-        return build.source_digests(self.D, self.src, self.state, **{"keep_apart": True, **kw})
+    def digests(self, **kw) -> dict[str, build.ScannedSource]:
+        """scan_sources of the manuscript with keep_apart (the build's scan before latexmk) unless kw says otherwise."""
+        return build.scan_sources(self.D, self.src, self.state, **{"keep_apart": True, **kw})
 
     def test_choosing_after_latexmk_equals_scanning_with_the_same_reads(self):
         """fingerprint_of(without_apart(digests, reads)) == source_fingerprint(..., reads) for no reads, one, several and
@@ -498,9 +510,9 @@ class Fingerprint(Tree):
         (self.src / "main.tex").write_text("edited", encoding="utf-8")
         self.assertNotEqual(build.source_fingerprint(self.D, self.src, self.state), base)
 
-    def test_src_mtime_skips_the_set_apart_files_unless_the_build_read_them(self):
-        """A re-rendered figure PDF newer than everything leaves src_mtime where main.tex puts it; once the recorder file of
-        the build on screen lists it, src_mtime follows it - without force and inside the 2 second memo."""
+    def aged_with_new_figures(self) -> tuple[Path, float, float]:
+        """Back-date the tree, put build BUILD1 (no recorder file) on screen, then re-render figs/a.pdf and reviewer.pdf
+        30 seconds ahead. Returns the page directory, the old time and the new one."""
         old = time.time() - 100
         for p in self.src.rglob("*"):
             if p.is_file():
@@ -511,18 +523,64 @@ class Fingerprint(Tree):
         ahead = time.time() + 30
         os.utime(self.src / "figs" / "a.pdf", (ahead, ahead))
         os.utime(self.src / "reviewer.pdf", (ahead, ahead))
+        return pages, old, ahead
+
+    def test_src_mtime_skips_the_set_apart_files_unless_the_build_read_them(self):
+        """A re-rendered figure PDF newer than everything leaves src_mtime where main.tex puts it; once the recorder file of
+        the build on screen lists it (and the memo is read again), src_mtime follows it."""
+        pages, old, ahead = self.aged_with_new_figures()
         self.assertAlmostEqual(build.src_mtime(self.D, self.state), old, places=3)
         (pages / "main.fls").write_text("INPUT ./figs/a.pdf\n", encoding="utf-8")
+        build.expire_src_mtime(self.D)
         self.assertAlmostEqual(build.src_mtime(self.D, self.state), ahead, places=3)
 
+    def test_the_memo_is_kept_per_build_when_files_are_set_apart_and_once_when_none_are(self):
+        """Asked for two builds inside the 2 seconds, a document with files set apart measures each against its own
+        recorder file; a document that sets nothing apart has the same answer for both and one memo key."""
+        pages, old, ahead = self.aged_with_new_figures()
+        (pages / "main.fls").write_text("INPUT ./figs/a.pdf\n", encoding="utf-8")
+        newer = self.D.dir / BUILD2
+        newer.mkdir()
+        got = [build.src_mtime(self.D, self.state, build=b) for b in (BUILD1, BUILD2, BUILD1)]
+        self.assertEqual([round(v, 3) for v in got], [round(v, 3) for v in (ahead, old, ahead)])
+        plain = Doc("p", "p", "tex", src=self.src, main=self.src / "main.tex", paths=self.paths)
+        build.src_mtime(plain, self.state, build=BUILD1)
+        key = plain.mcache[0]
+        build.src_mtime(plain, self.state, build=BUILD2)
+        self.assertEqual(plain.mcache[0], key)
+
+    def test_a_memo_hit_does_not_look_at_the_build_again(self):
+        """Within the 2 second memo the answer is the memo's: neither the recorder file nor the page pointer is read."""
+        self.D.mcache[2] = 0.0
+        first = build.src_mtime(self.D, self.state)
+        with mock.patch.object(build, "build_inputs", side_effect=AssertionError("a memo hit reads no build")):
+            self.assertEqual(build.src_mtime(self.D, self.state), first)
+            self.assertEqual(build.source_newer(self.D, self.state), 0.0)
+
     def test_the_newest_read_apart_file_is_the_newest_plain_file_that_is_both_read_and_set_apart(self):
-        """newest_read_apart ignores a name that is not set apart, a missing file and a symlink."""
+        """newest_read_apart takes the mtimes of the scan made before latexmk, and ignores a name that is not set apart,
+        one the scan does not have (made later, or gone) and a symlink."""
         for rel, t in (("figs/a.pdf", 5000.0), ("reviewer.pdf", 7000.0), ("images/i.pdf", 9000.0)):
             os.utime(self.src / rel, (t, t))
         (self.src / "figs" / "link.pdf").symlink_to(self.src / "images" / "i.pdf")
+        scan = self.digests()
         reads = frozenset({"figs/a.pdf", "reviewer.pdf", "images/i.pdf", "figs/gone.pdf", "figs/link.pdf"})
-        self.assertEqual(build.newest_read_apart(self.D, self.src, reads), 7000.0)
-        self.assertEqual(build.newest_read_apart(self.D, self.src, frozenset()), 0.0)
+        self.assertEqual(build.newest_read_apart(self.D, scan, reads), 7000.0)
+        self.assertEqual(build.newest_read_apart(self.D, scan, frozenset()), 0.0)
+        os.utime(self.src / "reviewer.pdf", (8000.0, 8000.0))
+        self.assertEqual(build.newest_read_apart(self.D, scan, reads), 7000.0, "the scan's mtime, not the file's now")
+
+    def test_a_file_the_scan_did_not_have_is_not_one_of_the_builds_reads(self):
+        """read_in_scan keeps a listed name only when the scan before latexmk had that file."""
+        scan = self.digests()
+        listed = frozenset({"figs/a.pdf", "figs/fig-eps-converted-to.pdf", "reviewer.pdf"})
+        self.assertEqual(build.read_in_scan(scan, listed), {"figs/a.pdf", "reviewer.pdf"})
+
+    def test_the_scan_takes_the_mtime_of_each_file_and_the_digest_of_its_bytes(self):
+        """ScannedSource(digest, mtime) of a file is its content's SHA-256 and the mtime it had."""
+        os.utime(self.src / "figs" / "a.pdf", (1234.0, 1234.0))
+        got = self.digests()["figs/a.pdf"]
+        self.assertEqual((got.digest, got.mtime), (hashlib.sha256(b"figs/a.pdf").digest(), 1234.0))
 
 
 FAKE_LATEXMK = """#!/bin/sh
@@ -532,10 +590,12 @@ case "$LIMN_TEST_LATEXMK" in
   nopdf) ;;
   *) cp "$main" "$stem.pdf"; printf 'synctex' > "$stem.synctex.gz"; : > "$stem.log" ;;
 esac
+if [ -n "$LIMN_TEST_EDIT" ]; then printf '%% edited while latexmk ran\\n' >> "$LIMN_TEST_EDIT"; fi
+if [ -n "$LIMN_TEST_GENERATE" ]; then mkdir -p "$(dirname "$LIMN_TEST_GENERATE")"; printf generated > "$LIMN_TEST_GENERATE"; fi
 case "$LIMN_TEST_RECORDER" in
   off) ;;
   link) ln -s "$main" "$stem.fls" ;;
-  *) { printf 'PWD %s\\nINPUT /usr/share/texlive/article.cls\\n' "$PWD"; printf '%s' "$LIMN_TEST_INPUTS"; } > "$stem.fls" ;;
+  *) { printf 'PWD %s\\nINPUT /usr/share/texlive/article.cls\\n' "$PWD"; printf '%b' "$LIMN_TEST_INPUTS"; } > "$stem.fls" ;;
 esac
 """
 FAKE_PDFTOPPM = """#!/bin/sh
@@ -561,9 +621,21 @@ class Compile(Tree):
         self.env = {"PATH": str(bin_dir) + os.pathsep + os.environ.get("PATH", "")}
         self.cfg = build.BuildConfig(state=self.state, dpi=72, timeout=10)
 
-    def tracked(self, inputs: str = "", latexmk: str = "ok", recorder: str = "on"):
-        """One tracked build of the document with the fake latexmk writing a recorder file that lists `inputs` (INPUT lines)."""
-        env = dict(self.env, LIMN_TEST_LATEXMK=latexmk, LIMN_TEST_RECORDER=recorder, LIMN_TEST_INPUTS=inputs)
+    def tracked(
+        self, inputs: str = "", latexmk: str = "ok", recorder: str = "on", edit: Path | None = None, generate: str = ""
+    ):
+        """One tracked build of the document with the fake latexmk writing a recorder file that lists `inputs` (INPUT
+        lines, printf %b escapes allowed). While it runs it appends a line to the file `edit` (a source edit made
+        mid-build) and creates the file `generate` in the build copy (something latexmk itself makes, such as an
+        epstopdf conversion)."""
+        env = dict(
+            self.env,
+            LIMN_TEST_LATEXMK=latexmk,
+            LIMN_TEST_RECORDER=recorder,
+            LIMN_TEST_INPUTS=inputs,
+            LIMN_TEST_EDIT=str(edit or ""),
+            LIMN_TEST_GENERATE=generate,
+        )
         with mock.patch.dict(os.environ, env):
             return build_run.run_tracked(
                 self.D, self.state, lambda: build_engine.compile_tex(self.D, self.cfg, None), "t0", build_failure_log
@@ -575,7 +647,7 @@ class Compile(Tree):
         self.assertIsInstance(res, BuildOk)
         pages = build.cur_pages(self.D)
         self.assertIn("INPUT ./figs/a.pdf", (pages / "main.fls").read_text(encoding="utf-8"))
-        self.assertEqual(build.build_inputs(self.D).names, {"figs/a.pdf"})
+        self.assertEqual(build.build_inputs(self.D), {"figs/a.pdf"})
 
     def test_a_build_without_a_recorder_file_publishes_none_and_reads_nothing(self):
         """latexmk with its recorder switched off leaves no .fls: nothing is kept, the build reads no figure-set file."""
@@ -647,7 +719,7 @@ class Compile(Tree):
         res = self.tracked("INPUT ./figs/c.svg\n", latexmk="nopdf")
         self.assertIsInstance(res, BuildFailed)
         self.assertEqual(build.cur_pages(self.D), before)
-        self.assertEqual(build.build_inputs(self.D).names, {"figs/a.pdf"})
+        self.assertEqual(build.build_inputs(self.D), {"figs/a.pdf"})
 
     def test_a_document_that_sets_nothing_apart_gets_the_fingerprint_it_always_got(self):
         """Without other documents inside its tree the build's src_hash is the plain scan of the copy."""
@@ -656,6 +728,92 @@ class Compile(Tree):
         self.assertIsInstance(res, BuildOk)
         self.assertEqual(res.src_hash, build.source_fingerprint(self.D, self.D.build, self.state))
         self.assertEqual(res.src_hash, build.doc_fingerprint(self.D, self.state))
+
+    def age_tree(self) -> float:
+        """Back-date every file of the manuscript by 100 seconds; returns that time."""
+        old = time.time() - 100
+        for p in self.src.rglob("*"):
+            if p.is_file():
+                os.utime(p, (old, old))
+        return old
+
+    def test_a_source_edited_while_latexmk_runs_still_makes_the_document_stale(self):
+        """latexmk converts an EPS into figs/fig-eps-converted-to.pdf, which the .fls lists, and main.tex is edited during
+        the run: the file latexmk made is not a source the build read, so the baseline stays at the measurement before
+        the copy and the edit is newer than it - the document is stale, as the edit is a change the build never saw."""
+        self.age_tree()
+        res = self.tracked(
+            "INPUT ./figs/fig-eps-converted-to.pdf\n",
+            edit=self.src / "main.tex",
+            generate="figs/fig-eps-converted-to.pdf",
+        )
+        self.assertIsInstance(res, BuildOk)
+        self.D.mcache[2] = 0.0
+        self.assertGreater(build.source_newer(self.D, self.state), 2)
+
+    def test_a_file_latexmk_makes_in_a_figure_folder_does_not_raise_the_baseline(self):
+        """The baseline of a build that lists a file it created itself (absent from the copy before latexmk) is the
+        manuscript's mtime, not that file's - its fingerprint is the one of the sources."""
+        old = self.age_tree()
+        res = self.tracked("INPUT ./figs/gen-converted-to.pdf\n", generate="figs/gen-converted-to.pdf")
+        made = (self.D.build / "figs" / "gen-converted-to.pdf").stat().st_mtime
+        self.assertIsInstance(res, BuildOk)
+        self.assertGreater(made - old, 50)
+        self.assertAlmostEqual(res.src_mtime, old, places=2)
+        self.assertEqual(res.src_hash, build.source_fingerprint(self.D, self.src, self.state))
+
+    def test_a_figure_file_that_was_in_the_copy_still_raises_the_baseline_to_its_mtime(self):
+        """Counterpart of the previous test: figs/a.pdf, present before latexmk and listed, sets the baseline to its mtime."""
+        old = self.age_tree()
+        newer = old + 50
+        os.utime(self.src / "figs" / "a.pdf", (newer, newer))
+        res = self.tracked("INPUT ./figs/a.pdf\n")
+        self.assertIsInstance(res, BuildOk)
+        self.assertAlmostEqual(res.src_mtime, newer, places=2)
+
+    def test_a_recorder_file_shipped_with_the_manuscript_is_not_what_the_build_read(self):
+        """The manuscript carries a main.fls (a committed latexmk by-product) and latexmk's recorder is off, so this run
+        wrote none: the old file is not read, not published, and the fingerprint has no figure-set file in it."""
+        (self.src / "main.fls").write_text("PWD /x\nINPUT ./figs/a.pdf\n", encoding="utf-8")
+        self.age_tree()
+        res = self.tracked(recorder="off")
+        self.assertIsInstance(res, BuildOk)
+        self.assertEqual(res.src_hash, build.source_fingerprint(self.D, self.src, self.state))
+        self.assertFalse((build.cur_pages(self.D) / "main.fls").exists())
+
+    def test_a_finished_build_expires_the_memo_so_it_is_measured_at_once(self):
+        """The 2 second memo holds the answer measured against the previous build. A build whose recorder file lists
+        figs/a.pdf, re-rendered since, ends: the next src_mtime already follows that file, without waiting."""
+        old = self.age_tree()
+        ahead = time.time() + 30
+        os.utime(self.src / "figs" / "a.pdf", (ahead, ahead))
+        self.D.mcache[2] = 0.0
+        self.assertAlmostEqual(build.src_mtime(self.D, self.state), old, places=2)
+        res = self.tracked("INPUT ./figs/a.pdf\n")
+        self.assertIsInstance(res, BuildOk)
+        self.assertAlmostEqual(build.src_mtime(self.D, self.state), ahead, places=2)
+
+    def test_a_nul_in_a_recorder_input_name_does_not_crash_the_build(self):
+        """A NUL byte in an INPUT name would make os.lstat raise ValueError: the name is dropped, the other inputs stay,
+        and the build is BuildOk, not a crashed one."""
+        old = self.age_tree()
+        newer = old + 50
+        os.utime(self.src / "figs" / "c.svg", (newer, newer))
+        res = self.tracked("INPUT ./figs/a\\0000.pdf\nINPUT ./figs/c.svg\n")
+        self.assertIsInstance(res, BuildOk, getattr(res, "detail", res))
+        self.assertAlmostEqual(res.src_mtime, newer, places=2)
+
+    def test_a_recorder_file_that_raises_when_read_does_not_fail_the_build(self):
+        """Whatever OSError or ValueError reading the recorder file raises, the build that made its pages is BuildOk and
+        has read no figure-set file."""
+        self.age_tree()
+        for error in (OSError("gone"), ValueError("embedded null byte")):
+            with self.subTest(error=type(error).__name__):
+                shutil.rmtree(self.D.dir, ignore_errors=True)  # no earlier build whose .fls a query would parse
+                with mock.patch.object(build, "recorded_inputs", side_effect=error):
+                    res = self.tracked("INPUT ./figs/a.pdf\n")
+                self.assertIsInstance(res, BuildOk)
+                self.assertEqual(res.src_hash, build.source_fingerprint(self.D, self.src, self.state))
 
 
 class OlderBuild(Tree):

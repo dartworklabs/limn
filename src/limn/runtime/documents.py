@@ -18,8 +18,8 @@ from __future__ import annotations
 import os
 import re
 import threading
-from collections.abc import Iterable, Mapping, Sequence
-from dataclasses import dataclass
+from collections.abc import Callable, Iterable, Mapping, Sequence
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal, TypeAlias
 
@@ -87,6 +87,45 @@ class ApartPaths:
 
 
 NO_APART = ApartPaths()
+
+INPUT_CACHE_MAX = (
+    32  # parsed recorder files one document keeps: its current and previous builds, with room for a few more
+)
+
+
+@dataclass
+class InputSetCache:
+    """One document's memo of parsed latexmk recorder files (.fls), so a poll or a pick does not read and parse a build's
+    .fls again (limn.builds.artifacts.build_inputs). It belongs to the Doc, next to the src_mtime memo and its lock, so
+    two documents - or two servers in one process - never share it. An entry is keyed by the caller (the file's path, its
+    (mtime_ns, size) and the folders its paths were resolved against), so a file written again misses; what an entry
+    holds is a function of that key's bytes alone, a frozen set, so a warm memo answers what a cold one does. At most
+    `limit` entries, the oldest dropped first.
+
+    Request threads share it: every read and write of the entries is under the lock. `parse` runs outside the lock, so
+    two threads that miss the same key at once both parse it, each gets an equal set, and the later one is kept."""
+
+    limit: int = INPUT_CACHE_MAX
+    _entries: dict[tuple[str, int, int, str, str], frozenset[str]] = field(default_factory=dict)
+    _lock: threading.Lock = field(default_factory=threading.Lock)
+
+    def get(self, key: tuple[str, int, int, str, str], parse: Callable[[], frozenset[str]]) -> frozenset[str]:
+        """The entry for key - from the memo while it is there, else what parse() answers, which is then kept."""
+        with self._lock:
+            hit = self._entries.get(key)
+        if hit is not None:
+            return hit
+        got = parse()
+        with self._lock:
+            self._entries[key] = got
+            while len(self._entries) > self.limit:
+                del self._entries[next(iter(self._entries))]
+        return got
+
+    def held(self) -> int:
+        """How many parsed recorder files the memo holds now: at most `limit`."""
+        with self._lock:
+            return len(self._entries)
 
 
 def _parts_below(root: Path, path: Path) -> tuple[str, ...] | None:
@@ -166,8 +205,9 @@ class Doc:
     own, so the legacy state-folder layout keeps working. root=True puts build artifacts at the state folder
     root (the same place as for a single document). Under --doc, only the LaTeX document keyed main gets this - so
     adding documents to a single-document instance keeps the body's build history (the source of location
-    estimation) continuous. A Doc carries its own build lock, build state and its lock, history lock and src_mtime
-    memo and its lock, and the paths its source list leaves out (apart) (limn.builds.artifacts.BuildDoc)."""
+    estimation) continuous. A Doc carries its own build lock, build state and its lock, history lock, src_mtime memo
+    and its lock, the memo of the recorder files parsed for it (input_sets), and the paths its source list leaves out
+    (apart) (limn.builds.artifacts.BuildDoc)."""
 
     def __init__(
         self,
@@ -201,6 +241,7 @@ class Doc:
         self.builds_lock = builds_lock or threading.Lock()
         self.mcache = list(mcache) if mcache is not None else [None, 0.0, 0.0]
         self.mcache_lock = threading.Lock()
+        self.input_sets = InputSetCache()
 
     @property
     def src(self) -> Path:

@@ -5,6 +5,7 @@ import os
 import re
 import shutil
 import signal
+import stat
 import subprocess
 import time
 from collections.abc import Callable
@@ -162,9 +163,11 @@ def compile_tex(D: BuildDoc, cfg: BuildConfig, pull: Callable[[], Json] | None) 
     compiled, the copy's fingerprint, latexmk's last lines, and for a success the new page directory.
 
     The files another document owns (D.apart) are left out of the manuscript mtime and the fingerprint unless the build
-    read them. Which it read is only known once latexmk has run, from the .fls it records in the copy: the fingerprint
-    hashes the whole copy before latexmk and chooses afterwards, and the mtime takes in the newest file the build read.
-    The .fls is published with the pages (next to the .synctex.gz and .aux), where the later queries find it."""
+    read them. Which it read is only known once latexmk has run, from the .fls this run wrote in the copy: the copy is
+    scanned once before latexmk (digest and mtime of every file), and afterwards the fingerprint is chosen from that scan
+    and the baseline mtime takes in the newest file the build read - the mtime as that scan saw it, and only for a file
+    that was in it, so neither a file latexmk made nor one it touched can move the baseline past an edit made during the
+    run. The .fls is published with the pages (next to the .synctex.gz and .aux), where the later queries find it."""
     t0 = time.time()
     D.build.mkdir(parents=True, exist_ok=True)
     pulled: Json | None = None
@@ -185,14 +188,14 @@ def compile_tex(D: BuildDoc, cfg: BuildConfig, pull: Callable[[], Json] | None) 
         copy_manuscript(D.src, D.build, cfg.state)
     except ManuscriptCopyError as e:
         return CopyFailed(str(e), round(time.time() - t0, 1), pulled, compiled_at)
-    # The hashes are taken from the copy - these are exactly the files this build actually compiles (the original can still
-    # change meanwhile). The files another document owns are hashed too, because which of them the build reads is only
-    # known after latexmk; the fingerprint is chosen from them below.
-    digests: dict[str, bytes] | None
+    # The scan is taken from the copy - these are exactly the files this build actually compiles (the original can still
+    # change meanwhile). The files another document owns are scanned too, because which of them the build reads is only
+    # known after latexmk; the fingerprint and the baseline are chosen from this scan below.
+    scan: dict[str, build.ScannedSource] | None
     try:
-        digests = build.source_digests(D, D.build, cfg.state, keep_apart=True)
+        scan = build.scan_sources(D, D.build, cfg.state, keep_apart=True)
     except OSError:
-        digests = None
+        scan = None
 
     build.state_update(D, phase="latex")
     # A single document runs in the build root as before; a --doc document runs in the folder holding its main .tex (Doc.out).
@@ -216,11 +219,20 @@ def compile_tex(D: BuildDoc, cfg: BuildConfig, pull: Callable[[], Json] | None) 
         logtxt = out
     errors = latex_errors(logtxt)
 
-    # What this run read: the figure-set files of another document that the manuscript uses count as part of it.
-    recorder = D.out / (D.main.stem + ".fls")
-    reads = build.recorded_inputs(D, recorder) if not D.apart.empty else frozenset()
-    compiled_at = max(compiled_at, build.newest_read_apart(D, D.build, reads))
-    src_hash = None if digests is None else build.fingerprint_of(build.without_apart(D, digests, reads))
+    # What this run read: the figure-set files of another document that the manuscript uses count as part of it. Only a
+    # recorder file this run wrote says so (a main.fls shipped with the manuscript is the copy's, not latexmk's), and only
+    # the files the scan before latexmk had. A damaged recorder file must not fail a build that made its pages.
+    recorder = _fresh_recorder(D.out / (D.main.stem + ".fls"), t0)
+    reads: frozenset[str] = frozenset()
+    if scan is not None and recorder is not None and not D.apart.empty:
+        try:
+            reads = build.read_in_scan(scan, build.recorded_inputs(D, recorder))
+        except (OSError, ValueError):
+            reads = frozenset()
+    src_hash = None
+    if scan is not None:
+        compiled_at = max(compiled_at, build.newest_read_apart(D, scan, reads))
+        src_hash = build.fingerprint_of(build.without_apart(D, scan, reads))
 
     def failed(kind: OutputFailureKind, detail: str = "") -> BuildFailed:
         """This build's failure of `kind`, with latexmk's last lines and what it compiled."""
@@ -236,17 +248,29 @@ def compile_tex(D: BuildDoc, cfg: BuildConfig, pull: Callable[[], Json] | None) 
     aux = D.out / (D.main.stem + ".aux")
     if aux.is_file() and aux.stat().st_mtime >= t0 - 1:
         extra.append(aux)
-    if recorder.is_file() and not recorder.is_symlink() and recorder.stat().st_mtime >= t0 - 1:
+    if recorder is not None:
         extra.append(recorder)  # what this build read, kept with its pages (build.build_inputs reads it back)
     newdir = render_pages(D, pdf, extra, cfg.dpi)
     if isinstance(newdir, PagesNotRendered):
         return failed(newdir.kind, newdir.detail)
     head_short = commit_pages(D, newdir)
+    build.expire_src_mtime(D)  # the manuscript is now measured against this build's recorder file
     pages = len(list(newdir.glob("page-*.png")))
     elapsed_s = round(time.time() - t0, 1)
     if errors:
         return BuildOkWithErrors(errors, tail, elapsed_s, pulled, compiled_at, src_hash, head_short, newdir.name, pages)
     return BuildOk(tail, elapsed_s, pulled, compiled_at, src_hash, head_short, newdir.name, pages)
+
+
+def _fresh_recorder(path: Path, started: float) -> Path | None:
+    """The latexmk recorder file `path` when this run wrote it: a plain file (not a symlink) modified since the build
+    started (`started`, with the one second of slack the PDF and SyncTeX checks use). None otherwise - none was written
+    (the recorder is off) or what stands there came with the manuscript copy."""
+    try:
+        st = os.lstat(path)
+    except OSError:
+        return None
+    return path if stat.S_ISREG(st.st_mode) and st.st_mtime >= started - 1 else None
 
 
 def render_pages(D: BuildDoc, pdf: Path, extra: list[Path], dpi: int) -> Path | PagesNotRendered:
