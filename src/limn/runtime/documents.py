@@ -18,8 +18,8 @@ from __future__ import annotations
 import os
 import re
 import threading
-from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from collections.abc import Callable, Iterable, Mapping, Sequence
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal, TypeAlias
 
@@ -63,6 +63,117 @@ class RunPaths:
         return self.state / "build"
 
 
+@dataclass(frozen=True)
+class ApartPaths:
+    """What a LaTeX document leaves out of its source list because another document owns it, as path parts below its
+    build root (docs/handbook/build-sync.md §원고 변화 감지): `folders` are the folders of figure documents, whose
+    figure-set files (images and PDFs) are left out; `files` are view-only PDFs, left out one by one - never their
+    folder, which is often the manuscript root itself. Only the build's source list reads this; it names no document and
+    no pin. A suffix is not part of the answer: the source list decides which suffixes it asks about."""
+
+    folders: tuple[tuple[str, ...], ...] = ()
+    files: tuple[tuple[str, ...], ...] = ()
+
+    @property
+    def empty(self) -> bool:
+        """Nothing is set apart: the document has no other document's files inside its tree."""
+        return not (self.folders or self.files)
+
+    def covers(self, parts: tuple[str, ...]) -> bool:
+        """Is the file at `parts` (below the build root) inside a set-apart folder, or one of the set-apart files?"""
+        if parts in self.files:
+            return True
+        return any(len(parts) > len(folder) and parts[: len(folder)] == folder for folder in self.folders)
+
+
+NO_APART = ApartPaths()
+
+INPUT_CACHE_MAX = (
+    32  # parsed recorder files one document keeps: its current and previous builds, with room for a few more
+)
+
+
+@dataclass
+class InputSetCache:
+    """One document's memo of parsed latexmk recorder files (.fls), so a poll or a pick does not read and parse a build's
+    .fls again (limn.builds.artifacts.build_inputs). It belongs to the Doc, next to the src_mtime memo and its lock, so
+    two documents - or two servers in one process - never share it. An entry is keyed by the caller (the file's path, its
+    (mtime_ns, size) and the folders its paths were resolved against), so a file written again misses; what an entry
+    holds is a function of that key's bytes alone, a frozen set, so a warm memo answers what a cold one does. At most
+    `limit` entries, the oldest dropped first.
+
+    Request threads share it: every read and write of the entries is under the lock. `parse` runs outside the lock, so
+    two threads that miss the same key at once both parse it, each gets an equal set, and the later one is kept."""
+
+    limit: int = INPUT_CACHE_MAX
+    _entries: dict[tuple[str, int, int, str, str], frozenset[str]] = field(default_factory=dict)
+    _lock: threading.Lock = field(default_factory=threading.Lock)
+
+    def get(self, key: tuple[str, int, int, str, str], parse: Callable[[], frozenset[str]]) -> frozenset[str]:
+        """The entry for key - from the memo while it is there, else what parse() answers, which is then kept."""
+        with self._lock:
+            hit = self._entries.get(key)
+        if hit is not None:
+            return hit
+        got = parse()
+        with self._lock:
+            self._entries[key] = got
+            while len(self._entries) > self.limit:
+                del self._entries[next(iter(self._entries))]
+        return got
+
+    def held(self) -> int:
+        """How many parsed recorder files the memo holds now: at most `limit`."""
+        with self._lock:
+            return len(self._entries)
+
+
+def _parts_below(root: Path, path: Path) -> tuple[str, ...] | None:
+    """The parts of `path` below `root`, both with symlinks resolved, when it lies strictly inside; None when it is
+    root itself, lies elsewhere or a path cannot be resolved."""
+    try:
+        parts = path.resolve().relative_to(root).parts
+    except (ValueError, OSError, RuntimeError):
+        return None
+    return parts or None
+
+
+def apart_paths(src: Path, main: Path, others: Iterable[tuple[DocKind, Path, Path]]) -> ApartPaths:
+    """What the LaTeX document with build root `src` and main file `main` sets apart, given the (kind, src, main) of
+    every other document the instance serves.
+
+    - A figure document's folder, when it lies strictly inside src and does not hold this document's main file: its
+      figure-set files are another document's output, not this document's source. A folder equal to src or holding
+      src sets nothing apart - every file of the tree would be left out.
+    - A view-only PDF, when the file lies strictly inside src: that one file. Its folder (what the document calls its
+      src) is not set apart; it is the manuscript root as often as not.
+    - Another LaTeX document's folder and anything outside src set nothing apart.
+    Symlinks are resolved on both sides, as limn.builds.artifacts.state_in_source does."""
+    try:
+        root = src.resolve()
+        main_real = main.resolve()
+    except (OSError, RuntimeError):
+        return NO_APART
+    folders: list[tuple[str, ...]] = []
+    files: list[tuple[str, ...]] = []
+    for kind, other_src, other_main in others:
+        if kind == "figure":
+            below = _parts_below(root, other_src)
+            if below is None:
+                continue
+            try:
+                main_real.relative_to(other_src.resolve())
+            except ValueError:
+                folders.append(below)
+            except (OSError, RuntimeError):
+                continue
+        elif kind == "pdf":
+            below = _parts_below(root, other_main)
+            if below is not None:
+                files.append(below)
+    return ApartPaths(tuple(folders), tuple(files))
+
+
 def fresh_build_state() -> dict[str, Any]:
     """A document's build state before its first build (what GET /api/build reports then)."""
     return {
@@ -94,8 +205,10 @@ class Doc:
     own, so the legacy state-folder layout keeps working. root=True puts build artifacts at the state folder
     root (the same place as for a single document). Under --doc, only the LaTeX document keyed main gets this - so
     adding documents to a single-document instance keeps the body's build history (the source of location
-    estimation) continuous. A Doc carries its own build lock, build state and its lock, history lock and src_mtime
-    memo and its lock (limn.builds.artifacts.BuildDoc)."""
+    estimation) continuous. A Doc carries its own build lock, build state and its lock, history lock, src_mtime memo
+    with its lock and its epoch (a count of the times the memo was expired, so an answer measured across an expiry is
+    never stored), the memo of the recorder files parsed for it (input_sets), and the paths its source list leaves out
+    (apart) (limn.builds.artifacts.BuildDoc)."""
 
     def __init__(
         self,
@@ -113,10 +226,13 @@ class Doc:
         mcache: list[Any] | None = None,
         *,
         paths: RunPaths,
+        apart: ApartPaths = NO_APART,
     ) -> None:
         """A document; src/main are its build root and main file unless legacy (then the run paths' own).
-        A supplied mcache is copied so its mutable memo and lock belong only to this document."""
+        A supplied mcache is copied so its mutable memo and lock belong only to this document. apart is what its source
+        list leaves out because another document owns it (apart_paths); only a LaTeX document is given any."""
         self.key, self.name, self.kind = key, name, kind
+        self.apart = apart
         self._src, self._main, self.legacy = src, main, legacy
         self.paths = paths
         self.root = legacy if root is None else root
@@ -126,6 +242,8 @@ class Doc:
         self.builds_lock = builds_lock or threading.Lock()
         self.mcache = list(mcache) if mcache is not None else [None, 0.0, 0.0]
         self.mcache_lock = threading.Lock()
+        self.mcache_epoch = 0
+        self.input_sets = InputSetCache()
 
     @property
     def src(self) -> Path:

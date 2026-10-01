@@ -16,7 +16,9 @@ viewer_rerender() move the July cell, take it to page 2 or drop it, as a re-rend
 
 import hashlib
 import json
+import os
 import shutil
+import time
 from pathlib import Path
 from typing import Any, TypeAlias
 from unittest import mock
@@ -263,3 +265,56 @@ def viewer_rerender(D: Doc, july: Box | None = JULY, july_page: int = 1, august_
     """The figure repository rendered again and the import took it: build BUILD2 on screen, with the July cell at july on
     july_page, or gone (july None), and the August cell on august_page."""
     viewer_build(D, BUILD2, viewer_map(july, july_page, august_page))
+
+
+# ---------------------------------------------------------------- a figure set inside a LaTeX document's folder
+
+FIGURE_SET_SPECS = ["ms=본문:main.tex", "fig=그림:figs/figures.limnmap.json", "rv=리뷰어:reviewer.pdf"]
+FIGURE_SET_TEX = (
+    "\\documentclass{article}\n\\usepackage{graphicx}\n\\begin{document}\n\\section{Intro}\n"
+    "Hello rarewordalpha.\n%s\n\\end{document}\n"
+)
+
+
+def write_figure_set_tree(src: Path, include: str = "") -> None:
+    """Fill the manuscript folder src as one repository holds a paper and its figures: main.tex (FIGURE_SET_TEX with the
+    line `include` in its body), refs.bib, reviewer.pdf and figs/ with figures.pdf, panel1.pdf, the map and a drawing
+    script. The figure PDFs sit directly in figs/ - not in figs/out/ as figure_doc() puts them: a folder named out is
+    skipped by name when a manuscript is scanned (limn.builds.artifacts.BUILD_OUTDIRS), which hides every question
+    about a figure set inside a LaTeX document."""
+    (src / "main.tex").write_text(FIGURE_SET_TEX % include, encoding="utf-8")
+    (src / "refs.bib").write_text("@book{a,author={A},title={T},year={2020},publisher={P}}\n", encoding="utf-8")
+    (src / "reviewer.pdf").write_bytes(minimal_pdf("reviewer"))
+    figs = src / "figs"
+    (figs / "src").mkdir(parents=True, exist_ok=True)
+    (figs / "src" / "B2_calendar.py").write_text("\n".join(script_lines()) + "\n", encoding="utf-8")
+    (figs / "figures.pdf").write_bytes(minimal_pdf("fig v1"))
+    (figs / "panel1.pdf").write_bytes(minimal_pdf("panel v1"))
+    (figs / "figures.limnmap.json").write_text(json.dumps(b2_map(), ensure_ascii=False), encoding="utf-8")
+
+
+def make_figure_set_docs(src: Path, paths: RunPaths, specs: list[str] | None = None) -> list[Doc]:
+    """The documents of the --doc values specs (default FIGURE_SET_SPECS: ms, fig, rv) over manuscript src, made as
+    startup makes them (startup_documents.make_docs), so the wiring that sets one document's files apart from another is
+    the production wiring."""
+    docs = startup_documents.make_docs(FIGURE_SET_SPECS if specs is None else specs, src, paths)
+    assert isinstance(docs, list), docs
+    return docs
+
+
+def age_tree(root: Path, seconds: float = 100.0) -> None:
+    """Back-date every file under root by `seconds`, so a build that measures the tree now records a baseline newer than
+    all of it and a later write is clearly after that build."""
+    then = time.time() - seconds
+    for p in root.rglob("*"):
+        if p.is_file() and not p.is_symlink():
+            os.utime(p, (then, then))
+
+
+def rewrite_ahead(path: Path, data: bytes | None = None, ahead: float = 30.0) -> None:
+    """Re-render path as a producer does: write `data` when given, then stamp the file `ahead` seconds in the future, so
+    it is newer than the build baseline by more than the 2 second threshold of stale_build."""
+    if data is not None:
+        path.write_bytes(data)
+    when = time.time() + ahead
+    os.utime(path, (when, when))

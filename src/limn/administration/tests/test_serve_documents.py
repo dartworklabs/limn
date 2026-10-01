@@ -22,7 +22,7 @@ from limn.administration.serve_documents import (
     DocOutsideManuscript,
     RunDocuments,
 )
-from limn.runtime.documents import MAP_SUFFIX, RunPaths
+from limn.runtime.documents import MAP_SUFFIX, NO_APART, RunPaths
 from limn.runtime.startup import StartupRefused
 
 TEX = "\\documentclass{article}\n\\begin{document}\nx\n\\end{document}\n"
@@ -81,6 +81,44 @@ class BuildsFromSourceAtStartup(StartupTree):
         )
         self.assertIsInstance(got, RunDocuments)
         self.assertEqual(got.main, self.ms / "main.tex")
+
+
+class SetApartAtStartup(StartupTree):
+    """docs_of gives a LaTeX document what other documents inside its build root own (limn.runtime.documents.apart_paths),
+    and no other kind anything (docs/handbook/build-sync.md §원고 변화 감지)."""
+
+    def setUp(self):
+        """Add a figure folder figs/ with its map, and reviewer.pdf in the manuscript root."""
+        super().setUp()
+        (self.ms / "figs").mkdir()
+        (self.ms / "figs" / "figures.limnmap.json").write_text("{}", encoding="utf-8")
+        (self.ms / "reviewer.pdf").write_bytes(PDF)
+        self.specs = ["ms=본문:main.tex", "fig=그림:figs/figures.limnmap.json", "rv=리뷰:reviewer.pdf"]
+
+    def test_the_latex_document_sets_the_figure_folder_and_the_reviewer_pdf_apart(self):
+        """ms gets the folder figs and the file reviewer.pdf; the figure and the view-only document get nothing."""
+        docs = serve_documents.make_docs(self.specs, self.ms, self.paths)
+        self.assertIsInstance(docs, list)
+        ms, fig, rv = docs
+        self.assertEqual((ms.apart.folders, ms.apart.files), ((("figs",),), (("reviewer.pdf",),)))
+        self.assertEqual((fig.apart, rv.apart), (NO_APART, NO_APART))
+
+    def test_a_single_latex_document_sets_nothing_apart(self):
+        """Without any other document the list is whole."""
+        docs = serve_documents.make_docs(["ms=본문:main.tex"], self.ms, self.paths)
+        self.assertEqual(docs[0].apart, NO_APART)
+
+    def test_a_second_latex_document_is_not_set_apart_and_owns_only_what_is_inside_its_root(self):
+        """ms sets the figure folder apart but not the LaTeX document rr/ beside it; rr's build root rr/ holds no other
+        document, so it sets nothing apart."""
+        (self.ms / "rr").mkdir()
+        (self.ms / "rr" / "reply.tex").write_text(TEX, encoding="utf-8")
+        docs = serve_documents.make_docs(
+            ["ms=본문:main.tex", "rr=답변:rr/reply.tex", "fig=그림:figs/figures.limnmap.json"], self.ms, self.paths
+        )
+        self.assertIsInstance(docs, list)
+        ms, rr, fig = docs
+        self.assertEqual((ms.apart.folders, rr.apart, fig.apart), ((("figs",),), NO_APART, NO_APART))
 
 
 class DocStartLine(unittest.TestCase):

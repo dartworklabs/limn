@@ -122,7 +122,7 @@ uv run python3 -m unittest discover -s tests
 | `root::sub/main.tex` | LaTeX 문서. 빌드 루트는 `root/`, 메인은 `root/sub/main.tex`, 빌드는 `root/sub/`에서 돈다. 메인이 `../`로 빌드 루트 안의 다른 폴더를 읽을 때 쓴다. `::`는 한 번만 쓰고, 메인은 빌드 루트 안에 있어야 한다. 그림 지도에도 쓴다(아래 줄) |
 | `x/file.pdf` | 보기 전용. 재빌드가 없고, 파일이 바뀌면(3초마다 확인) 쪽을 다시 그린다. 핀은 쪽과 영역으로 찍는다 |
 | `x/figures.limnmap.json` | 그림 문서. 그림 저장소가 낸 PDF와 요소 지도를 가져온다. 재빌드가 없고, 두 파일이 바뀌고 서로 맞으면(3초마다 확인) 쪽을 다시 그린다. 핀은 그 그림을 그린 코드의 줄 핀이다(코드 줄이 없는 요소는 쪽·영역 핀) |
-| `root::sub/figures.limnmap.json` | 그림 문서. 문서 폴더(지도 속 코드 경로의 기준)가 `root/`다 |
+| `root::sub/figures.limnmap.json` | 그림 문서. 문서 폴더(지도 속 코드 경로의 기준)가 `root/`다. 그림 세트가 LaTeX 문서의 빌드 루트 안에 있을 때 그 LaTeX 문서의 `src_mtime` 에서 빠지는 범위도 이 폴더다([build-sync.md](build-sync.md) §원고 변화 감지) |
 | 개수 | 12개까지. Alt+1…9는 앞의 아홉 개에 대응한다 |
 | `--doc` 없음 | `--manuscript`·`--main`의 문서 하나(키 `main`)를 띄운다. 상태 폴더는 아래 '상태 파일 배치' 절의 단일 문서 배치다 |
 | 기동 빌드 | 여러 문서면 문서마다 백그라운드로 빌드하고 서버는 바로 뜬다. 한 문서가 실패해도 기동은 계속되고, 그 탭이 오류 패널을 보여 준다. `--no-build`는 쪽이 이미 있는 문서만 건너뛴다 |
@@ -332,7 +332,7 @@ curl -s -X POST http://127.0.0.1:<port>/api/rebuild | head -c 200   # state 가 
 ├── build/                    # rsync 사본 + latexmk 산출물 (원본 체크아웃 아님)
 ├── pages.cur                 # 지금 쪽 이미지 디렉토리 이름(포인터, 원자적 교체)
 ├── builds.json               # 빌드 이력(build id·원고 지문·seq·마지막 결과) — 위치 추정·build_seq 원천
-├── pages-<build_id>/         # page-*.png + 짝이 맞는 PDF·synctex 사본 (현재와 직전 1개만 유지)
+├── pages-<build_id>/         # page-*.png + 짝이 맞는 PDF·synctex·aux 사본과 latexmk 의 .fls (현재와 직전 1개만 유지)
 ├── pages/                    # 옛 배치 — pages.cur 가 없으면 이것을 그대로 쓴다
 ├── pins.jsonl                # 현재 핀 전체(매번 원자적으로 다시 씀)
 ├── pins.seq                  # 마지막으로 발급한 id
