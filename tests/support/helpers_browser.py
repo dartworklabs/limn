@@ -165,7 +165,7 @@ class BrowserBase(ChromiumTestCase):
         (root / "state").mkdir()
         config = run_config(src, src / "main.tex", root / "state", label="Demo")
         ps.APP = ApplicationFixture(
-            config, ps.new_runtime(ps.serve_viewer(ps.read_viewer(), config.label, config.accent))
+            config, ps.new_runtime(ps.serve_viewer(ps.read_viewer(), config.label, config.accent, config.ui_lang))
         )
         ps.Handler.app = ps.APP.web
         C = ps.APP.C

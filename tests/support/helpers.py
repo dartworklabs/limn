@@ -173,7 +173,7 @@ ACCESS_FIELDS = frozenset(f.name for f in dataclasses.fields(AccessOptions))
 def run_config(src: Path, main: Path, state: Path, **over) -> RunConfig:
     """The run settings Base serves with (manuscript src, main file main, state folder state; port 18999, 150 dpi, a
     60-second build timeout, the default float environments, label 원고 in the first accent, no origin URL, access
-    options at their defaults), with `over` replacing settings by name - an access option's name (auth, bind, ...)
+    options at their defaults, no --ui-lang), with `over` replacing settings by name - an access option's name (auth, bind, ...)
     replaces that field of .access."""
     base = RunConfig(
         src=src,
@@ -191,6 +191,7 @@ def run_config(src: Path, main: Path, state: Path, **over) -> RunConfig:
         accent=config.ACCENT_PALETTE[0],
         repo=None,
         access=DEFAULT_ACCESS,
+        ui_lang=None,
     )
     return with_settings(base, **over)
 
@@ -215,22 +216,26 @@ def set_config(mod=None, **over) -> None:
         mod.APP.set_docs(None)
 
 
-def page_for(label: str, accent: str) -> str:
-    """The page GET / serves on a run labelled `label` in `accent` (limn.viewer.assemble.run_page over HTML)."""
-    return assemble.run_page(HTML, label, accent)
+def page_for(label: str, accent: str, ui_lang: str | None = None) -> str:
+    """The page GET / serves on a run labelled `label` in `accent` with --ui-lang ui_lang (None: not given;
+    limn.viewer.assemble.run_page over HTML)."""
+    return assemble.run_page(HTML, label, accent, ui_lang)
 
 
 def fresh_runtime(mod=None) -> None:
     """Bind a fresh Runtime (new_runtime) on the server copy (default ps), as a restarted process has: new locks,
-    empty caches and registries, no threads, serving the viewer for its run's label and accent."""
+    empty caches and registries, no threads, serving the viewer for its run's label, accent and interface language."""
     mod = mod or ps
-    mod.APP.RT = mod.new_runtime(assemble.serve_viewer(VIEWER_FILES, mod.APP.C.label, mod.APP.C.accent))
+    c = mod.APP.C
+    mod.APP.RT = mod.new_runtime(assemble.serve_viewer(VIEWER_FILES, c.label, c.accent, c.ui_lang))
 
 
 def serve_viewer(label: str, accent: str, mod=None) -> None:
-    """Make the server copy (default ps) serve the viewer of a run labelled `label` in `accent`, as start() does."""
+    """Make the server copy (default ps) serve the viewer of a run labelled `label` in `accent` (with its run's
+    interface language), as start() does."""
     mod = mod or ps
-    mod.APP.RT = dataclasses.replace(mod.APP.RT, viewer=assemble.serve_viewer(VIEWER_FILES, label, accent))
+    served = assemble.serve_viewer(VIEWER_FILES, label, accent, mod.APP.C.ui_lang)
+    mod.APP.RT = dataclasses.replace(mod.APP.RT, viewer=served)
 
 
 def needs_tex(*tools: str):
@@ -519,7 +524,7 @@ class Base(unittest.TestCase):
         (root / "state").mkdir()
         config = run_config(self.src, self.main, root / "state")
         ps.APP = ApplicationFixture(
-            config, ps.new_runtime(assemble.serve_viewer(VIEWER_FILES, config.label, config.accent))
+            config, ps.new_runtime(assemble.serve_viewer(VIEWER_FILES, config.label, config.accent, config.ui_lang))
         )
         ps.Handler.app = ps.APP.web
         ps.APP.set_docs(None)  # start as a single document (no --doc) — clears the list left over from multi-doc tests

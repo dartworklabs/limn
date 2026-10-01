@@ -84,13 +84,27 @@ ERROR_PAGE_TEXT = {
 }
 
 
-def page_lang(headers: Message, query: Mapping[str, list[str]]) -> str:
-    """ko or en for a server-rendered page: ?lang=, else the first Accept-Language tag (ko* -> ko), else en - the viewer's rule."""
+def page_lang(headers: Message, query: Mapping[str, list[str]], default: str | None) -> str:
+    """ko or en for a server-rendered page, in the viewer's order: ?lang=, else the instance's default (--ui-lang; None
+    when not given), else the first Accept-Language tag (ko* -> ko, anything else en). The viewer's saved choice is
+    the browser's and reaches the page through REOPEN_SCRIPT."""
     v = (query.get("lang") or [""])[0]
     if v in ("ko", "en"):
         return v
+    if default in ("ko", "en"):
+        return default
     first = (headers.get("Accept-Language") or "").split(",")[0].strip().lower()
     return "ko" if first.startswith("ko") else "en"
+
+
+# The refused page's one fixed line (no user data): the server cannot see this device's saved choice (localStorage
+# limnLang), so without ?lang= a saved ko or en other than the page's language (%s) reopens /?lang=<it> - that request
+# has ?lang=, so it stops there.
+REOPEN_SCRIPT = (
+    "<script>try{var s=localStorage.getItem('limnLang');"
+    "if(!/[?&]lang=/.test(location.search)&&(s==='ko'||s==='en')&&s!=='%s')location.replace('/?lang='+s);}"
+    "catch(e){}</script>"
+)
 
 
 def ui_text(key: str, lang: str, messages: Messages, **params: object) -> str:
@@ -110,7 +124,8 @@ def ui_text(key: str, lang: str, messages: Messages, **params: object) -> str:
 def error_page_html(e: HTTPError, lang: str, messages: Messages) -> str:
     """The readable page for a browser whose GET / was refused: e's page kind (heading and hint) when it names one,
     else a generic heading with the error text as a detail line; every value is HTML-escaped. The page links to
-    itself in the other language (/?lang=)."""
+    itself in the other language (/?lang=) and carries REOPEN_SCRIPT for lang, so a language saved on the device
+    wins as it does in the viewer."""
     kind, params = e.page or ("", {})
     if kind in ERROR_PAGE_TEXT:
         head, hint = (ui_text(k, lang, messages, **params) for k in ERROR_PAGE_TEXT[kind])
@@ -122,7 +137,7 @@ def error_page_html(e: HTTPError, lang: str, messages: Messages) -> str:
     esc = html.escape
     return (
         '<!doctype html><html lang="%s"><head><meta charset="utf-8">'
-        '<meta name="viewport" content="width=device-width,initial-scale=1"><title>Limn · %s</title>'
+        '<meta name="viewport" content="width=device-width,initial-scale=1"><title>Limn · %s</title>%s'
         '<style>body{font:15px/1.6 -apple-system,BlinkMacSystemFont,"Pretendard","Noto Sans KR",sans-serif;max-width:36rem;'
         "margin:15vh auto;padding:0 1.25rem;color:#18181b;background:#fafafa}h1{font-size:1.15rem;margin:0 0 .6rem}"
         "p{margin:.4rem 0;color:#3f3f46}code,.d{font:13px ui-monospace,monospace;word-break:break-all}"
@@ -131,6 +146,7 @@ def error_page_html(e: HTTPError, lang: str, messages: Messages) -> str:
         % (
             lang,
             esc(str(e.code)),
+            REOPEN_SCRIPT % lang,
             esc(head),
             "<p>%s</p>" % esc(hint) if hint else "",
             '<p class="d">%s</p>' % esc(detail) if detail else "",

@@ -222,10 +222,13 @@ class Handler(BaseHTTPRequestHandler):
         )
 
     def _refuse(self, e: HTTPError) -> None:
-        """Send a refusal: the readable HTML page to a browser opening /, the JSON error body to everyone else."""
+        """Send a refusal: the readable HTML page to a browser opening / (in page_lang's language, with the run's
+        --ui-lang as the default), the JSON error body to everyone else."""
         if self._wants_page():
             query = request_input.query_values(urlparse(self.path).query)
-            lang = page_lang(self.headers, {} if isinstance(query, InputRejected) else query)
+            lang = page_lang(
+                self.headers, {} if isinstance(query, InputRejected) else query, self.app.settings().ui_lang
+            )
             return self._send(
                 e.code, error_page_html(e, lang, self.app.messages()).encode("utf-8"), "text/html; charset=utf-8"
             )

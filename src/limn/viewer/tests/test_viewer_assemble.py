@@ -130,7 +130,7 @@ class ViewerHtml(unittest.TestCase):
             "{{ic:",
         ):
             self.assertNotIn(gone, out)
-        for kept in ("__LABEL__", "__ACCENT__"):
+        for kept in ("__LABEL__", "__ACCENT__", "__UI_LANG__"):
             self.assertIn(kept, out)
         for gone in ("__ACCENT_KEY__", "__FAVICON_HREF__"):
             self.assertNotIn(gone, out)
@@ -214,7 +214,7 @@ class ServedPage(unittest.TestCase):
         template = '<title>__LABEL__</title><i s="__ACCENT__"></i><link href="/favicon.ico?v=0123456789ab">'
         icons = {"/favicon.ico": mark.Icon(b"ico", "image/x-icon")}
         files = assemble.ViewerFiles(template, "sw", {"가": "A"}, icons)
-        served = assemble.serve_viewer(files, "<A&B>", "#BE123C")
+        served = assemble.serve_viewer(files, "<A&B>", "#BE123C", None)
         self.assertEqual(
             served.page, '<title>&lt;A&amp;B&gt;</title><i s="#BE123C"></i><link href="/favicon.ico?v=0123456789ab">'
         )
@@ -226,9 +226,32 @@ class ServedPage(unittest.TestCase):
         colour (the tab title tells instances apart)."""
         icons = {"/favicon.ico": mark.Icon(b"ico", "image/x-icon")}
         files = assemble.ViewerFiles("<title>__LABEL__</title>", "sw", {}, icons)
-        a, b = assemble.serve_viewer(files, "A", "#1d4ed8"), assemble.serve_viewer(files, "B", "#be123c")
+        a, b = assemble.serve_viewer(files, "A", "#1d4ed8", None), assemble.serve_viewer(files, "B", "#be123c", "ko")
         self.assertEqual(a.icons, b.icons)
         self.assertNotEqual(a.page, b.page)
+
+    def test_the_instance_ui_language_fills_the_head_script(self):
+        """run_page(template, label, accent, ui_lang): __UI_LANG__ becomes ko or en, and the empty string without --ui-lang
+        (the head script then skips that step); the same arguments give the same bytes."""
+        template = "<script>var d='__UI_LANG__';</script><title>__LABEL__</title>"
+        self.assertEqual(
+            assemble.run_page(template, "A", "#1d4ed8", None), "<script>var d='';</script><title>A</title>"
+        )
+        self.assertEqual(
+            assemble.run_page(template, "A", "#1d4ed8", "ko"), "<script>var d='ko';</script><title>A</title>"
+        )
+        self.assertEqual(
+            assemble.run_page(template, "A", "#1d4ed8", "en"), assemble.run_page(template, "A", "#1d4ed8", "en")
+        )
+        self.assertEqual(
+            assemble.serve_viewer(assemble.ViewerFiles(template, "sw", {}), "A", "#1d4ed8", "en").page,
+            "<script>var d='en';</script><title>A</title>",
+        )
+
+    def test_the_packaged_head_script_reads_the_ui_language_placeholder(self):
+        """The viewer's language script has the one run-time placeholder __UI_LANG__ (index.html's <head>)."""
+        head = (assemble.VIEWER_DIR / "index.html").read_text(encoding="utf-8").split("<body>")[0]
+        self.assertEqual(head.count("__UI_LANG__"), 1)
 
 
 if __name__ == "__main__":

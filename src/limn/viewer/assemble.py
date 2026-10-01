@@ -293,8 +293,8 @@ class ViewerFiles:
 
 @dataclass(frozen=True)
 class ServedViewer:
-    """What the viewer routes of one run answer: the page GET / serves (the template with the run's label and accent,
-    run_page), the service worker GET /sw.js serves, the message table a refused browser's page reads and the icon
+    """What the viewer routes of one run answer: the page GET / serves (the template with the run's interface language,
+    label and accent, run_page), the service worker GET /sw.js serves, the message table a refused browser's page reads and the icon
     each favicon route serves (by GET path; the same for every run - the tile is never the instance colour)."""
 
     page: str
@@ -303,15 +303,20 @@ class ServedViewer:
     icons: Mapping[str, Icon] = field(default_factory=dict)
 
 
-def run_page(template: str, label: str, accent: str) -> str:
-    """The page GET / serves: template (viewer_html) with the run-time placeholders filled in - __LABEL__ with the
-    HTML-escaped label, then __ACCENT__ with the accent (#rrggbb, startup.run_accent checks it), for the stripe and the
-    label chip. The favicons do not depend on the run: tabs of different instances are told apart by their title."""
-    out = template.replace("__LABEL__", html.escape(label, quote=True))
+def run_page(template: str, label: str, accent: str, ui_lang: str | None) -> str:
+    """The page GET / serves: template (viewer_html) with the run-time placeholders filled in - __UI_LANG__ with the
+    instance's interface language (ko or en, --ui-lang; the empty string without it, and the head script then skips
+    that step), then __LABEL__ with the HTML-escaped label, then __ACCENT__ with the accent (#rrggbb, startup.run_accent
+    checks it), for the stripe and the label chip. The favicons do not depend on the run: tabs of different instances
+    are told apart by their title."""
+    out = template.replace("__UI_LANG__", ui_lang or "")
+    out = out.replace("__LABEL__", html.escape(label, quote=True))
     return out.replace("__ACCENT__", accent)
 
 
-def serve_viewer(files: ViewerFiles, label: str, accent: str) -> ServedViewer:
-    """What a run labelled `label` in `accent` serves from the viewer files: the filled page (run_page), and the
-    service worker, the message table and the icons as read."""
-    return ServedViewer(run_page(files.template, label, accent), files.service_worker, files.messages, files.icons)
+def serve_viewer(files: ViewerFiles, label: str, accent: str, ui_lang: str | None) -> ServedViewer:
+    """What a run labelled `label` in `accent` with interface language ui_lang (None = the browser's) serves from the
+    viewer files: the filled page (run_page), and the service worker, the message table and the icons as read."""
+    return ServedViewer(
+        run_page(files.template, label, accent, ui_lang), files.service_worker, files.messages, files.icons
+    )

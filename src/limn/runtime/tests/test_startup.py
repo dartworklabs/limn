@@ -48,7 +48,7 @@ from limn.runtime.documents import DOCS_MAX, RunPaths
 from limn.runtime.startup import AccessOptions, StartupRefused
 from limn.security.access import LOOPBACK_AGENT_DEPRECATION
 
-from helpers import DEFAULT_ACCESS, MINI_PDF, TEX as FIXTURE_TEX, run_config
+from helpers import DEFAULT_ACCESS, MINI_PDF, TEX as FIXTURE_TEX, ps, run_config
 
 SRC = Path(__file__).resolve().parents[4] / "src" / "limn"
 TEX = "\\documentclass{article}\n\\begin{document}\nx\n\\end{document}\n"
@@ -496,13 +496,14 @@ class Summary(unittest.TestCase):
     """summary_lines(): the startup summary on stdout."""
 
     def test_single_document_on_loopback(self):
-        """The main file for a single document, the loopback address note, access lines as given, pdf.js found."""
+        """The main file for a single document, the loopback address note, access lines as given, pdf.js found; the label
+        line ends with the interface language - the browser's without --ui-lang."""
         c = run_config(Path("/m"), Path("/m/main.tex"), Path("/s"), port=18300, pdfjs_dir=Path("/p"))
         self.assertEqual(
             startup.summary_lines(c, False, ["auth        x"], True),
             [
                 "manuscript  /m/main.tex",
-                "label       원고 (#1d4ed8) - no git origin, using the folder name as default",
+                "label       원고 (#1d4ed8) - no git origin, using the folder name as default; ui-lang=browser",
                 "state       /s",
                 "address     http://127.0.0.1:18300/   (external exposure only via tailscale serve)",
                 "auth        x",
@@ -511,7 +512,8 @@ class Summary(unittest.TestCase):
         )
 
     def test_documents_ipv6_and_optional_features(self):
-        """The folder under --doc, a bracketed IPv6 address, allow, --no-origin-check, --git-pull, missing pdf.js."""
+        """The folder under --doc, a bracketed IPv6 address, allow, --no-origin-check, --git-pull, missing pdf.js, and
+        --ui-lang ko at the label line's end."""
         c = run_config(
             Path("/m"),
             Path("/m/main.tex"),
@@ -523,12 +525,13 @@ class Summary(unittest.TestCase):
             origin_check=False,
             git_pull=True,
             agent_loopback=False,
+            ui_lang="ko",
         )
         self.assertEqual(
             startup.summary_lines(c, True, [], False),
             [
                 "manuscript  /m",
-                "label       원고 (#1d4ed8)",
+                "label       원고 (#1d4ed8); ui-lang=ko",
                 "state       /s",
                 "address     http://[::]:18301/",
                 "allow       a, b",
@@ -537,6 +540,36 @@ class Summary(unittest.TestCase):
                 "warning     pdf.js is missing (None) - the viewer falls back to PNG",
             ],
         )
+
+
+class UiLang(unittest.TestCase):
+    """--ui-lang: the instance's default interface language for the viewer (docs/handbook/operations.md §실행 인자)."""
+
+    def test_ui_lang_takes_ko_or_en_and_is_none_without_it(self):
+        """ko and en parse; without the option there is no default (None - the browser's language decides)."""
+        self.assertEqual([parse("--ui-lang", v).ui_lang for v in ("ko", "en")], ["ko", "en"])
+        self.assertIsNone(parse().ui_lang)
+
+    def test_any_other_ui_lang_is_a_usage_error(self):
+        """fr, KO and the empty value are refused by the parser (choices), so no other value reaches the page."""
+        for bad in ("fr", "KO", ""):
+            with self.subTest(bad=bad), mock.patch("sys.stderr"), self.assertRaises(SystemExit):
+                parse("--ui-lang", bad)
+
+    def test_the_run_settings_carry_it(self):
+        """configure_run puts the option into RunConfig.ui_lang, None when it was not given."""
+        with tempfile.TemporaryDirectory() as d:
+            src = Path(d) / "ms"
+            src.mkdir()
+            (src / "main.tex").write_text(TEX, encoding="utf-8")
+            for argv, want in ((["--ui-lang", "en"], "en"), ([], None)):
+                with self.subTest(argv=argv):
+                    a = ps.build_arg_parser().parse_args(
+                        ["--manuscript", str(src), "--state-dir", str(Path(d) / "st"), "--no-build", *argv]
+                    )
+                    got = ps.configure_run(a, DEFAULT_ACCESS)
+                    assert isinstance(got, ps.RunStart), got
+                    self.assertEqual(got.config.ui_lang, want)
 
 
 class Parser(unittest.TestCase):

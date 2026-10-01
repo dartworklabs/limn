@@ -7,10 +7,13 @@
  document.documentElement.setAttribute('data-theme',eff==='light'?'light':'dark');})();
 </script>
 <script>
-// Interface language: ?lang=ko|en (remembered), then the saved choice, then the browser language.
+// Interface language: the saved choice (a ?lang=ko|en link saves it first), then the instance's --ui-lang (filled in
+// per run by the server; empty skips it), then the browser language.
 window.LIMN_LANG=(function(){var v=null;try{v=new URLSearchParams(location.search).get('lang');}catch(e){}
  if(v==='ko'||v==='en'){try{localStorage.setItem('limnLang',v);}catch(e){}return v;}
  try{v=localStorage.getItem('limnLang');}catch(e){v=null;}
+ if(v==='ko'||v==='en')return v;
+ v='__UI_LANG__';
  if(v==='ko'||v==='en')return v;
  return String(navigator.language||'').toLowerCase().indexOf('ko')===0?'ko':'en';})();
 document.documentElement.setAttribute('lang',window.LIMN_LANG);

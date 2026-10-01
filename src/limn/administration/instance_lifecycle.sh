@@ -13,6 +13,7 @@ cmd_run() {
     [[ -z "$C_MAIN" || -f "$C_MANUSCRIPT/$C_MAIN" ]] || die "MAIN file does not exist: $C_MANUSCRIPT/$C_MAIN"
     valid_port "${C_PORT:-x}" || die "PORT is missing or invalid: '$C_PORT' (never left to auto-pick — the advertised address would break)"
     [[ -z "$C_ACCENT" || "$C_ACCENT" =~ ^#[0-9a-fA-F]{6}$ ]] || die "ACCENT must be in #rrggbb format: '$C_ACCENT'"
+    valid_ui_lang "$C_UI_LANG" || die "UI_LANG must be ko or en (or left out — the browser's language decides): '$C_UI_LANG'"
     local args=(--manuscript "$C_MANUSCRIPT" --port "$C_PORT" --state-dir "$C_STATE_DIR")
     if [[ -n "$C_DOCS" ]]; then
         local doc_specs=() d
@@ -25,6 +26,7 @@ cmd_run() {
     [[ "$C_GIT_PULL" == 1 ]] && args+=(--git-pull)
     [[ -n "$C_LABEL" ]] && args+=(--label "$C_LABEL")
     [[ -n "$C_ACCENT" ]] && args+=(--accent "$C_ACCENT")
+    [[ -n "$C_UI_LANG" ]] && args+=(--ui-lang "$C_UI_LANG")
     access_args
     args+=("${ACCESS_ARGS[@]+"${ACCESS_ARGS[@]}"}")
     if [[ -n "$C_EXTRA_ARGS" ]]; then
@@ -81,7 +83,7 @@ cmd_add() {
     local n=${1:-}
     need_name "$n"
     shift
-    local manuscript="" main="" port="" ts="" gitpull=0 label="" accent="" state="" extra_args="--no-build" serve=1 start=1
+    local manuscript="" main="" port="" ts="" gitpull=0 label="" accent="" ui_lang="" state="" extra_args="--no-build" serve=1 start=1
     local docs=() stage=auto auth=""
     while [[ $# -gt 0 ]]; do
         case "$1" in
@@ -95,6 +97,7 @@ cmd_add() {
             --git-pull) gitpull=1; shift ;;
             --label) label=${2:-}; shift 2 ;;
             --accent) accent=${2:-}; shift 2 ;;
+            --ui-lang) ui_lang=${2:-}; shift 2 ;;
             --state-dir) state=${2:-}; shift 2 ;;
             --extra) extra_args=${2:-}; shift 2 ;;
             --no-serve) serve=0; shift ;;
@@ -124,6 +127,7 @@ cmd_add() {
         main=$(detect_main "$manuscript") || die "automatic main .tex detection failed"
     fi
     [[ -z "$accent" || "$accent" =~ ^#[0-9a-fA-F]{6}$ ]] || die "--accent must be in #rrggbb format: $accent"
+    valid_ui_lang "$ui_lang" || die "--ui-lang must be ko or en: $ui_lang"
     [[ -n "$label" ]] || label=$(default_label "$manuscript")
     [[ -n "$label" ]] || label=$n
     ((${#label} <= 40)) || die "--label must be 40 characters or fewer: $label"
@@ -169,6 +173,7 @@ cmd_add() {
         printf '# Not sourced by the shell — do not put shell syntax in values.\n'
         emit LABEL "$label"
         emit ACCENT "$accent"
+        emit UI_LANG "$ui_lang"
         emit MANUSCRIPT "$manuscript"
         emit MAIN "$main"
         emit DOCS "$docs_str"

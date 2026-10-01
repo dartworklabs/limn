@@ -29,6 +29,7 @@ from limn.revisions.scope import ScopeUnreadable
 from limn.runtime import config
 from limn.security.access import LOCAL_ACTOR
 from limn.viewer import assemble
+from limn.web.errors import HTTPError, error_page_html
 
 from helpers import (
     HTML,
@@ -236,10 +237,15 @@ class Wiring(unittest.TestCase):
         self.assertNotIn("</script", m.group(1))
 
     def test_language_choice_order(self):
+        """The head script's order (docs/handbook/viewer.md §뷰어 규칙을 바꿀 때): the saved choice (a ?lang= link writes it
+        first), then the instance's --ui-lang (__UI_LANG__, filled per run), then the browser's language."""
         head = HTML[: HTML.index("<body")]
-        i_q, i_saved, i_nav = (head.index(x) for x in ("get('lang')", "getItem('limnLang')", "navigator.language"))
+        i_q, i_saved, i_default, i_nav = (
+            head.index(x) for x in ("get('lang')", "getItem('limnLang')", "'__UI_LANG__'", "navigator.language")
+        )
         self.assertLess(i_q, i_saved)
-        self.assertLess(i_saved, i_nav)
+        self.assertLess(i_saved, i_default)
+        self.assertLess(i_default, i_nav)
         self.assertIn("indexOf('ko')===0?'ko':'en'", head)
 
     def test_toasts_boot_and_switch_are_wired(self):
@@ -262,14 +268,19 @@ class BrowserLanguage(ChromiumTestCase):
         super().setUpClass()
         cls.html = page_for("A-DEMO", "#2563eb").replace("\nboot();", "\n")
 
-    def open(self, query, locale):
+    def open(self, query, locale, html=None, saved=None):
+        """The page (html, else the class's) at http://viewer.test/<query> in a browser of locale, with limnLang saved
+        first when saved is given; its i18nStart() has run."""
         context = self.browser.new_context(locale=locale)
         self.addCleanup(context.close)
+        if saved:
+            context.add_init_script("try{localStorage.setItem('limnLang',%s)}catch(e){}" % json.dumps(saved))
         page = context.new_page()
+        body = html or self.html
         page.route(
             "**/*",
             lambda route: (
-                route.fulfill(content_type="text/html", body=self.html)
+                route.fulfill(content_type="text/html", body=body)
                 if route.request.url.startswith("http://viewer.test/")
                 else route.abort()
             ),
@@ -310,6 +321,39 @@ class BrowserLanguage(ChromiumTestCase):
         )
         page2.goto("http://viewer.test/")
         self.assertEqual(page2.evaluate("LANG"), "ko")
+
+    def test_the_instance_default_beats_the_browser_and_loses_to_the_saved_choice(self):
+        """--ui-lang en on a Korean phone with nothing saved: English. The same with Korean saved on the device: Korean.
+        Without --ui-lang the browser decides as before (test_browser_language_decides_without_a_choice)."""
+        html = page_for("A-DEMO", "#2563eb", "en").replace("\nboot();", "\n")
+        self.assertEqual(self.open("", "ko-KR", html).evaluate("LANG"), "en")
+        self.assertEqual(self.open("", "ko-KR", html, saved="ko").evaluate("LANG"), "ko")
+        html = page_for("A-DEMO", "#2563eb", "ko").replace("\nboot();", "\n")
+        self.assertEqual(self.open("", "en-US", html).evaluate("LANG"), "ko")
+
+    def test_a_refused_page_reopens_once_in_the_saved_language(self):
+        """The refused first screen (web/errors.py) is Korean by the server's rule, but this device saved English: its
+        one-line script reopens /?lang=en, which the server answers in English, and it stops there."""
+        context = self.browser.new_context(locale="ko-KR")
+        self.addCleanup(context.close)
+        context.add_init_script("try{localStorage.setItem('limnLang','en')}catch(e){}")
+        page = context.new_page()
+        seen = []
+
+        def answer(route):
+            """The refused page in the language its query asks for, else Korean (the server's rule here)."""
+            url = route.request.url
+            seen.append(url)
+            lang = "en" if url.endswith("?lang=en") else "ko"
+            e = HTTPError(403, "x", reason="not_member", page=("not-member", {"login": "eve@example.com"}))
+            route.fulfill(content_type="text/html", body=error_page_html(e, lang, UI_EN))
+
+        page.route("**/*", answer)
+        page.goto("http://viewer.test/")
+        page.wait_for_url("http://viewer.test/?lang=en")
+        page.wait_for_load_state()
+        self.assertEqual(page.evaluate("document.documentElement.lang"), "en")
+        self.assertEqual(seen, ["http://viewer.test/", "http://viewer.test/?lang=en"])
 
 
 class ComposedMessages(unittest.TestCase):
@@ -496,7 +540,7 @@ class EnglishChrome(ChromiumTestCase):
         (root / "state").mkdir()
         config = run_config(src, src / "main.tex", root / "state", label="Demo")
         ps.APP = ApplicationFixture(
-            config, ps.new_runtime(ps.serve_viewer(ps.read_viewer(), config.label, config.accent))
+            config, ps.new_runtime(ps.serve_viewer(ps.read_viewer(), config.label, config.accent, config.ui_lang))
         )
         ps.Handler.app = ps.APP.web
         fresh_runtime(ps)

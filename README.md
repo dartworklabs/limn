@@ -75,6 +75,7 @@ state (pins, builds) goes to `--state-dir` or `~/.local/share/limn/serve/<manusc
 
 ```bash
 limn add paper2 --manuscript ~/papers/paper2 --git-pull   # ports, config, systemd unit limn@paper2, tailscale serve
+         [--ui-lang <ko|en>]                               # the viewer's default language (a person's choice wins)
 limn list                                                  # label, ports, state, open pins, documents
 limn status paper2 · limn url paper2 · limn snippet paper2 # details · tailnet URL · block for AGENTS.md
 limn update [--dry-run] [--ref vX.Y.Z]                     # reinstall via uv tool, restart running instances

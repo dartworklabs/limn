@@ -217,7 +217,7 @@ curl -s -H "Authorization: Bearer $(cat ~/.config/limn/<인스턴스>.token)" ht
 
 | 메서드 | 경로 | 설명 |
 | --- | --- | --- |
-| `GET` | `/` | 뷰어 HTML. 이 뷰어를 연 사람을 기록한다(§@태그·사람·이벤트). 에이전트(토큰, 헤더 없는 루프백 요청)는 기록하지 않는다 |
+| `GET` | `/` | 뷰어 HTML. 이 뷰어를 연 사람을 기록한다(§@태그·사람·이벤트). 에이전트(토큰, 헤더 없는 루프백 요청)는 기록하지 않는다. 페이지의 머리 스크립트는 인스턴스의 화면 언어 기본값(`--ui-lang`, 없으면 빈 값)을 싣는다. 거부된 브라우저 요청이 받는 안내 쪽의 언어 규칙은 [viewer.md](viewer.md) §역할에 따른 화면에 있다 |
 | `GET` | `/pages/<빌드>/<파일>` | 그 빌드(`pages_build` 값, 쪽 디렉토리 이름)의 쪽 이미지(`page-<번호>.png`)를 `image/png` 로 준다. 뷰어는 이 주소를 쓴다. 쪽 폴더는 공개된 뒤 다시 쓰지 않고 빌드 이름도 다시 쓰지 않으므로 같은 주소는 늘 같은 바이트다. 그래서 시각 빌드 이름(`pages-<14자리>[-<n>]`)이면 `Cache-Control: private, max-age=31536000, immutable` 이다. 옛 배치의 이름 `pages` 는 `private, max-age=600` 이다. 응답은 신원 검사 뒤에만 나가므로 `private` 이다. 그 빌드의 폴더가 지워졌으면 `/pdf?build=` 와 같은 `404 {error, pdf_build_gone, pages_build}`, 그 빌드에 그 쪽이 없거나 이름이 이 모양이 아니면 `404` |
 | `GET` | `/pages/<파일>` | 지금 빌드의 쪽 이미지를 `image/png` 로 준다(`Cache-Control: private, max-age=600`, PDF처럼 공유 캐시에 남지 않는다). 빌드 이름이 없는 옛 주소다. 열려 있던 탭이 깨지지 않게 이 릴리스에서만 남기고 다음 릴리스에서 뺀다. `/pages/` 뒤에 빌드 이름이 아닌 조각이 끼어 있어도 마지막 조각을 지금 빌드에서 찾는다. 이름이 이 모양이 아니거나 파일이 없으면 `404` |
 | `GET` | `/pdf?build=<pages_build>` | 그 빌드의 쪽 이미지와 짝인 PDF 사본(`pages-<build>/<main>.pdf`, 그림 문서는 지도 이름에서 `.limnmap.json` 을 뺀 `<이름>.pdf`)을 `application/pdf` 로 준다. `build` 가 시각 빌드 이름이면 `Cache-Control: private, max-age=31536000, immutable`, `build` 를 빼거나 옛 이름 `pages` 면 `private, max-age=600` 이다. 뷰어가 벡터로 그릴 때 쓴다([viewer.md](viewer.md) §벡터 렌더링). `build` 를 빼면 지금 빌드다. 이름이 틀렸거나, 이미 지워졌거나, 그 디렉토리에 PDF 가 없으면 `404 {error, pdf_build_gone, pages_build}` 다. `build/` 나 다른 빌드로 물러서지 않는다. 화면의 쪽 이미지와 어긋나면 좌표가 틀리기 때문이다. `Range` 는 받지 않고 통째로 준다. Host·Origin 검사는 다른 `GET` 과 같다 |

@@ -879,7 +879,7 @@ class ProcessRuntime(Base):
             mock.patch.object(
                 ps,
                 "serve_viewer",
-                side_effect=lambda _, label, _accent: viewer_assemble.ServedViewer(f"<p>{label}</p>", "", {}),
+                side_effect=lambda _, label, _accent, _ui_lang: viewer_assemble.ServedViewer(f"<p>{label}</p>", "", {}),
             ),
             mock.patch.object(ps, "prepare", autospec=True, side_effect=prepare),
             mock.patch.object(ps, "report"),

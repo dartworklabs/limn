@@ -74,6 +74,7 @@ limn serve --manuscript ~/papers/paper2 \
 
 ```bash
 limn add paper2 --manuscript ~/papers/paper2 --git-pull   # 포트·설정·systemd 유닛 limn@paper2·tailscale serve
+         [--ui-lang <ko|en>]                               # 뷰어 화면 언어의 기본값(사람이 고른 언어가 이긴다)
 limn list                                                  # 이름표·포트·상태·열린 핀·문서 수
 limn status paper2 · limn url paper2 · limn snippet paper2 # 자세히 · 테일넷 주소 · AGENTS.md 조각
 limn update [--dry-run] [--ref vX.Y.Z]                     # uv tool 로 다시 설치, 켜진 인스턴스 재시작
