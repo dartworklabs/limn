@@ -73,7 +73,7 @@ function flushDeferred(){Array.from(DEFERRED).forEach(d=>d.run());}
 window.addEventListener('pagehide',flushDeferred);
 document.addEventListener('visibilitychange',()=>{if(document.hidden)flushDeferred();});
 // Toast placement: near where you just clicked. wide/mid is bottom-right of the panel column - just above the top edge of whichever action row is
-// visible (#c-actions: save/cancel, mid's bottom tool bar - none in the short band, whose tool bar is on top - or the status chips floating in collapsed mid). narrow is just above the sheet's top edge, at most 640px wide and centred on the tablet sheet
+// visible (#c-actions: save/cancel, mid's bottom tool bar - none in the short band, whose tool bar is on top - or the status chips floating in collapsed mid). narrow is just above the sheet's top edge - or 20px over the status line on it, clear of its action's hit - at most 640px wide and centred on the tablet sheet
 // (or above the screen if the sheet nearly fills it). While showing, the position is re-measured (watchToasts) whenever the panel opens/closes or the
 // composer panel appears - so the save/cancel buttons and the bottom tool bar are never covered.
 function placeToasts(){const box=$('#toasts'),right=$('#right'); if(!box||!right)return;
@@ -82,6 +82,7 @@ function placeToasts(){const box=$('#toasts'),right=$('#right'); if(!box||!right
     const r=el.getBoundingClientRect(); return r.height>0&&r.width>0&&r.top<vh;};
   let top=vh,r=12,w=360;
   if(LAYOUT===LAYOUT_MODE.NARROW){r=8; w=Math.min(BAND===LAYOUT_BAND.TABLET_SHEET?640:Infinity,innerWidth-16); if(shown(right))top=Math.min(top,right.getBoundingClientRect().top);
+    const sd=$('#status-dock'); if(shown(sd))top=Math.min(top,sd.getBoundingClientRect().top-20);   // over the status line's action hit, which reaches 20px up
     // If the sheet covers most of the screen (starts within the top 30%), there's no room above it - raising it above the screen
     // instead covered the sheet's own tool bar ([더보기] etc.), making it unpressable (a touch regression). In that case, it's placed inside the
     // sheet near the bottom, above the save/cancel row if that's visible.

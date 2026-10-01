@@ -1116,5 +1116,30 @@
  "PDF를 길게 누르거나 [선택]을 켜고 끌어서 고릅니다.": "Long-press the PDF, or turn on [Select] and drag to pick the spot.",
  "변경 없음": "No changes",
  "그래도 빌드": "Build anyway",
- "남겨 둔 LaTeX 부산물을 지우고 처음부터 다시 빌드합니다. 빌드가 비교하지 않는 것(셸 탈출로 도는 프로그램이 읽는 파일 등)을 바꿨을 때 씁니다": "Clears the kept LaTeX byproducts and builds from scratch. Use it after changing something the build does not compare (a file only a shell-escape program reads, say)"
+ "남겨 둔 LaTeX 부산물을 지우고 처음부터 다시 빌드합니다. 빌드가 비교하지 않는 것(셸 탈출로 도는 프로그램이 읽는 파일 등)을 바꿨을 때 씁니다": "Clears the kept LaTeX byproducts and builds from scratch. Use it after changing something the build does not compare (a file only a shell-escape program reads, say)",
+ "원고가 PDF보다 새롭습니다": "The manuscript is newer than the PDF",
+ "재빌드": "Rebuild",
+ "빌드 실패 · 이전 PDF를 보는 중": "Build failed · showing the previous PDF",
+ "LaTeX 오류 {n}건 · 새 PDF": {
+  "one": "{n} LaTeX error · new PDF",
+  "other": "{n} LaTeX errors · new PDF"
+ },
+ "LaTeX 오류 {n}": {
+  "one": "{n} LaTeX error",
+  "other": "{n} LaTeX errors"
+ },
+ "연결 끊김 · 다시 잇는 중": "Disconnected · reconnecting",
+ "쪽 그리는 중 · {done}/{total}쪽": "Rendering pages · {done}/{total}",
+ "쪽 {done}/{total}": "Pages {done}/{total}",
+ "main 동기화 확인 필요 · {reason}": "Check the main sync · {reason}",
+ "main 동기화 막힘": "Main sync blocked",
+ "이유": "Why",
+ "PNG로 보는 중 · 확대하면 흐릴 수 있습니다": "Showing PNG · may blur when zoomed",
+ "PNG로 보는 중": "Showing PNG",
+ "상태 {n}건 더 보기": {
+  "one": "Show {n} more status",
+  "other": "Show {n} more statuses"
+ },
+ "빌드 진행": "Build progress",
+ "상태": "Status"
 }

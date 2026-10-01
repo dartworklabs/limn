@@ -36,6 +36,7 @@ js/boot.js              # boot() and the header: meta, stale and sync badges, vi
 js/polling.js           # meta polling, other documents' builds, toasts for pins changed elsewhere
 js/notify.js            # browser notifications and pin links (#doc=&pin=)
 js/build-chip.js        # build progress polling and its chip
+js/status.js            # the status line: its items, text, progress bar and place per band
 js/panel-size.js        # outline width, panel width and sheet height, their presets
 js/pages.js             # the page elements, page width and zoom steps, page jump
 js/pdf-open.js          # PDF.js: loading, the document cache, opening the current build

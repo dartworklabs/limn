@@ -7,10 +7,11 @@
 // started_at string or "was running ever observed" instead missed a build that finished within a 5-second gap, or
 // double-processed the same completion when a hidden tab came back via two paths at once (observed: toast x2).
 // The active document visit owns one poll timer, request and completion baseline; the error panel follows that visit.
-const BUILD={timer:null,error:null,lastSeq:null,booted:false,inflight:null,asked:false};
+// BUILD.cur is the running build's last /api/build answer (null when none runs): the status line reads its phase and seconds.
+const BUILD={timer:null,error:null,lastSeq:null,booted:false,inflight:null,asked:false,cur:null};
 // Reset the visible build controls and baseline when a different document takes the screen.
 function resetBuildForDoc(){if(BUILD.timer){clearInterval(BUILD.timer);BUILD.timer=null;}
-  $('#build-chip').hidden=true; $('#btn-rebuild').disabled=false;
+  BUILD.cur=null; $('#build-chip').hidden=true; $('#btn-rebuild').disabled=false;
   BUILD.lastSeq=(typeof META.build_seq==='number')?META.build_seq:0; BUILD.asked=false; BUILD.error=BUILD_ERR_BY.get(DOC)||null;
   if(BUILD.error)hideBuildErr(); else{$('#build-err').hidden=true; $('#build-err-chip').hidden=true;}
   BUILD.booted=true; if(BUILD.inflight)BUILD.inflight.then(()=>pollBuild()); else pollBuild();}
@@ -46,11 +47,11 @@ async function pollBuildOnce(){
   if(k!==DOC||visit!==SWITCHSEQ)return;  // showDoc queries again after a switch, including a return to this key
   const chip=$('#build-chip');
   if(b.state===BUILD_STATE.RUNNING){
-    chip.hidden=false; chip.textContent=buildChipText(b); $('#btn-rebuild').disabled=true;
+    BUILD.cur=b; chip.hidden=false; chip.textContent=buildChipText(b); $('#btn-rebuild').disabled=true;
     if(!BUILD.timer)BUILD.timer=setInterval(pollBuild,1000);
     BUILD.booted=true; return;
   }
-  chip.hidden=true; $('#btn-rebuild').disabled=false;
+  BUILD.cur=null; chip.hidden=true; $('#btn-rebuild').disabled=false;
   if(BUILD.timer){clearInterval(BUILD.timer);BUILD.timer=null;}    // polling stops once there's nothing left to watch
   const seq=(typeof b.seq==='number')?b.seq:0;
   const booted=BUILD.booted; BUILD.booted=true;

@@ -29,6 +29,7 @@ Icons are drawn with the original `<svg>` attributes: `viewBox="0 0 24 24"`, `fi
 | `copy` | copy-location button |
 | `ellipsis` | more button (narrow screens) |
 | `eye` | 'awaiting review' badge (whose turn it is to confirm) |
+| `image` | the status line's 'showing PNG' state (compact bands) |
 | `minus` · `plus` | PDF zoom out/in; shrink/grow a range by one line |
 | `moon` · `sun` · `sun-moon` | theme (dark, light, system) |
 | `lock-open` | [풀기] (release the in-progress claim) on a compact card |
@@ -43,6 +44,7 @@ Icons are drawn with the original `<svg>` attributes: `viewBox="0 0 24 24"`, `fi
 | `text-wrap` | [Wrap] in the source diff |
 | `trash-2` | deleted-pin row head; [삭제] on a compact card |
 | `triangle-alert` | 'location lost' badge, warning toast lead icon |
+| `wifi-off` | the status line's 'disconnected' state (compact bands) |
 | `x` | close toasts and notices |
 
 ## Updating

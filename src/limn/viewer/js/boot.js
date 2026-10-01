@@ -44,7 +44,9 @@ const SYNC_REASON={not_git:'Git 저장소가 아닙니다',no_upstream:'main 업
   fetch_failed:'원격을 확인하지 못했습니다',fetch_timeout:'원격 확인 시간이 초과됐습니다',
   status_failed:'로컬 수정 상태를 읽지 못했습니다',unexpected:'동기화 중 오류가 났습니다',
   building:'다른 PDF 빌드가 진행 중입니다',build_failed:'새 원고의 PDF 빌드가 실패했습니다'};
-function updateSyncBadge(s){const b=$('#meta-sync'); if(!b)return;
+// The main sync badge (--git-pull) from a meta's `sync` {state, reason}: hidden when off or current, a warning when blocked or
+// failed. It also keeps s for the status line (STATUS_SYNC), which words the same state on compact bands.
+function updateSyncBadge(s){STATUS_SYNC=s||null; const b=$('#meta-sync'); if(!b)return;
   if(!s||s.state===SYNC_STATE.DISABLED||s.state===SYNC_STATE.CURRENT){b.hidden=true; return;}
   b.hidden=false; b.classList.toggle('badge-warning',s.state===SYNC_STATE.BLOCKED||s.state===SYNC_STATE.ERROR);
   const reason=tr(SYNC_REASON[s.reason]||s.reason||'');

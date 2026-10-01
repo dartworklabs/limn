@@ -141,7 +141,6 @@ body.compact #bar1 button{flex:1 1 auto;min-width:0;padding:0 var(--space-2);ove
 body.compact #bar1 #btn-side{background:var(--secondary);color:var(--secondary-foreground)}
 body.compact #bar1 #btn-side[aria-expanded=true]{background:var(--accent)}
 body.compact #bar1 #btn-select[aria-pressed=true]{background:var(--primary);color:var(--primary-foreground);font-weight:600}
-body.compact #bar1 #btn-rebuild.btn-default{background:var(--primary);color:var(--primary-foreground)}
 /* [📍 N 👁 M]: the pin icon carries the draft dot on its top-right corner (no width of its own), the open count is 600 in tabular
    figures, and the review pill is a 14% review tint - not the old solid purple, whose two numbers read as one ('11 1', UX audit P10). */
 #btn-side .pin-ic{position:relative;display:inline-flex}
@@ -166,7 +165,7 @@ body.lay-narrow #bar1 #btn-doc{flex:none;overflow:visible}
    [본문 ▾] [⋯] - [⋯] alone on the tablet sheet, whose nav bar has the documents. The outer columns are equal, so the grabber's
    centre is the bar's, the screen's, whatever the language, counts or document; as a flex item centred in the space left between
    unequal groups it sat 31-89px right of it (UX audit P2). Outside the sheet the two groups are display:contents, so the mid and
-   wide bars keep their flex order. [PDF 재빌드] is in [⋯] (#m-rebuild); [⬚] is its icon, named by aria-label. */
+   wide bars keep their flex order. [⬚] is its icon, named by aria-label. */
 .bar-l,.bar-r{display:contents}
 body.lay-narrow #bar1{display:grid;grid-template-columns:minmax(0,1fr) var(--hit) minmax(0,1fr);align-items:start;column-gap:0}
 body.lay-narrow #bar1>:not(.bar-l):not(.bar-r):not(#sheet-grip){display:none}
@@ -180,7 +179,6 @@ body.lay-narrow #btn-doc .nm{overflow:visible;text-overflow:clip;max-width:6em}
    side padding and the gap in a cell go from 8 to 4px. Decoration only - the layout never changes by width here. */
 @media (max-width:399.98px){body.lay-narrow #bar1 .rv-n .ic{display:none}}
 @media (max-width:359.98px){body.lay-narrow #bar1 :is(.bar-l,.bar-r){gap:var(--space-1)}body.lay-narrow #bar1 button:not(.btn-icon){padding:0 var(--space-1)}}
-body.lay-narrow:not(.no-rebuild) #m-rebuild{display:flex}
 body.compact #bar1 #btn-more{flex:0 0 44px;padding:0}   /* utility = ghost (the same convention as notification/theme/help on desktop) */
 body.compact #composer{max-height:none;overflow:visible}
 /* Touch only (a mouse window scrolls as it always did): a field scrolled into view stays clear of the stuck save row (56px plus the
@@ -217,7 +215,7 @@ body.compact #c-actions{position:sticky;bottom:0;padding:8px var(--edge) calc(8p
 /* The save row is 56px on touch (44px buttons + 12px): it was 65px around 48px buttons (diagnosis P2). */
 @media (pointer:coarse){body.compact #c-actions{padding-top:0;padding-bottom:env(safe-area-inset-bottom);min-height:calc(var(--hit) + var(--space-3) + env(safe-area-inset-bottom));align-content:center}}
 body.compact #meta-txt,body.compact #me{display:none}
-body.compact #bar2:not(:has(.badge:not([hidden]))){display:none}
+body.compact #bar2{display:none}   /* compact shows its states on the status line (#status); the chips stay the desktop's */
 body.compact:not(.side-open) #right>:not(#bar1):not(#bar2):not(#banner){display:none}
 body.compact:not(.side-open) #bar1{order:3;border-bottom:0}
 /* Toast placement (placeToasts): narrow is the full screen width right above the sheet; mid is the panel side just above the action row (inside its column if the panel is open). */
@@ -290,7 +288,6 @@ body.lay-mid #bar1 #btn-more{flex:0 0 var(--tb-h);width:var(--tb-h);padding:0}
 @media (pointer:coarse){body.lay-mid #bar1 #btn-more{flex-basis:var(--hit);width:var(--hit)}}   /* a ghost icon: drawn at its hit width, so nothing hangs outside it */
 body.lay-mid #bar1 .sp{display:block;flex:1 1 0;order:2;align-self:stretch}
 body.lay-mid #btn-select{order:1}
-body.lay-mid #btn-rebuild{order:3}
 body.lay-mid #btn-more{order:4}
 body.lay-mid #bar1 #btn-side{order:5;min-width:calc(2 * var(--control-h-touch));justify-content:center;gap:var(--space-1)}
 body.lay-mid #bar1 #btn-side[aria-expanded=true]{background:var(--accent);border-color:var(--border-strong)}
@@ -354,11 +351,16 @@ body.band-short #doc-nav{right:var(--bar1-w,0px);padding-right:var(--space-2)}
 body.band-short #bar1{top:0;bottom:auto;left:auto;right:0;height:var(--mid-top);gap:var(--space-1);align-items:flex-start;border-top:0;border-bottom:1px solid var(--border);
   padding:calc(env(safe-area-inset-top) + 2px) max(var(--space-3),env(safe-area-inset-right)) 0 var(--space-2)}
 body.band-short:not(.side-open) #bar1{border-bottom:1px solid var(--border)}
-body.band-short #bar1 .sp,body.band-short #btn-rebuild{display:none}
+body.band-short #bar1 .sp{display:none}
 body.band-short.typing{--mid-top:0px}
 body.band-short.typing :is(#doc-nav,#bar1){display:none}
+/* [PDF 재빌드] leaves every compact bar (docs/handbook/viewer.md §모바일 레이아웃): the status line's [재빌드] (the PDF is older than its
+   source) and the [⋯] row (#m-rebuild, off with '빌드 중' while a build runs) do it. A view-only PDF, a figure document and the
+   viewer role have neither (body.no-rebuild, body.role-viewer). */
+body.compact #btn-rebuild{display:none}
 #m-rebuild{display:none}
-body.band-short:not(.no-rebuild) #m-rebuild{display:flex}
+body.compact:not(.no-rebuild) #m-rebuild{display:flex}
+#m-rebuild .m-tail{margin-left:auto;font-size:var(--text-sm);color:var(--muted-foreground)}
 /* ---- Tablet sheet (touch 600-839px, or up to 900px in portrait; docs/handbook/viewer.md §모바일 레이아웃): the narrow sheet under
    the nav bar of the mid layout. The overlay panel covered the right 43% of a 768px page; the sheet leaves the page its whole width.
    The sheet box spans the screen and its content is at most 640px, centred; the tool bar keeps its buttons at their natural width.
@@ -371,6 +373,54 @@ body.band-tablet-sheet #pdf-body{position:relative}   /* the outline overlay's b
 body.band-tablet-sheet #right>*{width:100%;max-width:640px;margin-left:auto;margin-right:auto}
 body.band-tablet-sheet #coach{top:calc(var(--doc-nav-h) + env(safe-area-inset-top) + var(--space-3))}
 body.band-tablet-sheet #toasts{max-width:640px;margin:0 auto}
+/* ---- The status line (docs/handbook/viewer.md §모바일 레이아웃, 상태는 한 줄이다; status.js): one #status, placed per band. On the
+   phone and tablet sheet it is a 24px line in #status-dock, fixed on the sheet's top edge (--sheet-h, the sheet's height); while it
+   is up the sheet hides its top border and drops its corners so the two read as one surface, and the dock's shadow stops at its bottom
+   edge. It is outside the sheet because the sheet is a scroll box that clips what reaches past it: the action is drawn at 24px
+   and its 44px hit reaches 20px up over the PDF, never down into the bar's hits. It steps aside while a panel field has focus. */
+#status-dock,#status-slot{display:none}
+body.lay-narrow.has-status:not(.typing) #status-dock{display:block;position:fixed;left:0;right:0;bottom:calc(var(--sheet-h,0px) + var(--kb,0px));z-index:21;
+  height:24px;padding:0 max(var(--edge),env(safe-area-inset-right)) 0 max(var(--edge),env(safe-area-inset-left));background:var(--sidebar);
+  border-top:1px solid var(--border-strong);border-radius:var(--radius-lg) var(--radius-lg) 0 0;box-shadow:0 -6px 24px var(--shadow-color);clip-path:inset(-40px -40px 0 -40px)}
+body.lay-narrow.has-status:not(.typing) #right{border-top-color:transparent;border-radius:0}
+#status{display:flex;align-items:center;gap:var(--space-2);min-width:0;font-size:var(--text-sm);line-height:1.4;color:var(--muted-foreground);white-space:nowrap}
+#status-dock #status{height:100%;max-width:640px;margin:0 auto;padding-left:var(--space-3)}
+#status .st-ic{display:inline-flex;align-items:center;justify-content:center;flex:none;width:16px;height:16px}
+#status .st-ic .ic{width:14px;height:14px}
+.st-ic.warn{color:var(--warning)}
+.st-stale{display:block;width:8px;height:8px;border-radius:50%;background:var(--warning)}
+.st-ic .spin{width:12px;height:12px}
+#status .st-tx{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis}
+#bar1 #status button,#status button{flex:none;min-width:0;width:auto}
+#bar1 #status .st-act.btn-default{background:var(--primary);color:var(--primary-foreground);font-weight:600}
+#bar1 #status .st-act.btn-secondary{background:var(--secondary);color:var(--secondary-foreground)}
+#status-dock #status button{min-height:0;height:24px;padding:0 var(--space-2);font-size:var(--text-sm);position:relative;overflow:visible}
+#status-dock #status button::after{content:'';position:absolute;left:50%;bottom:0;width:max(100%,var(--hit));height:var(--hit);transform:translateX(-50%)}
+/* The 2px progress bar on the line's lower edge: filled to its share when the build counts its work, else a 30% band that crosses
+   in 1.2s - the last build's time is a reference, not a forecast, so it never fills the bar. Reduced motion: the faint track only. */
+#status .st-bar{position:absolute;left:0;right:0;bottom:0;height:2px;background:var(--muted);overflow:hidden;pointer-events:none}
+#status .st-bar>i{position:absolute;top:0;bottom:0;left:0;background:var(--primary)}
+#status .st-bar.indet>i{width:30%;animation:st-indet 1.2s linear infinite}
+@keyframes st-indet{from{transform:translateX(-100%)}to{transform:translateX(334%)}}
+@media (prefers-reduced-motion: reduce){#status .st-bar.indet>i{display:none}}
+/* mid: the middle of the action row, between [⬚ 선택] and [⋯] - centred, at most 420px, its action drawn at the row's 40px. */
+body.lay-mid:not(.band-short) #status-slot{display:flex;flex:1 1 0;order:2;align-self:stretch;align-items:center;justify-content:center;min-width:0;position:relative}
+body.lay-mid:not(.band-short) #bar1 .sp{display:none}
+#status-slot #status{max-width:420px}
+#status-slot #status .st-tx{flex:0 1 auto}
+#status-slot #status button{height:var(--tb-h)}
+/* short: the short text in the top row, between the view switch and the page count, its action drawn at 40px (44px hit). */
+body.band-short #doc-nav #status{flex:none;position:relative;align-self:stretch}
+@media (pointer:coarse){body.band-short #doc-nav #status button{min-height:0;height:var(--ctl-touch);position:relative;overflow:visible}
+  body.band-short #doc-nav #status button::after{content:'';position:absolute;left:50%;top:50%;width:max(100%,var(--hit));height:var(--hit);transform:translate(-50%,-50%)}}
+/* The '+N' list: every state as a 44px row with its action, a modal sheet over the line (under the top row in the short band). */
+#status-list{position:fixed;margin:0;left:max(var(--edge),env(safe-area-inset-left));right:max(var(--edge),env(safe-area-inset-right));width:auto;max-width:640px;
+  margin-inline:auto;padding:var(--space-1) var(--space-3)}
+#status-list .st-row{display:flex;align-items:center;gap:var(--space-2);min-height:var(--hit);font-size:var(--text-base)}
+#status-list .st-row-t{flex:1;min-width:0}
+#status-list .st-row button{flex:none}
+#status-list .st-ic{display:inline-flex;flex:none;width:16px;justify-content:center}
+#status-list .st-ic .ic{width:14px;height:14px}
 /* The folded layout (narrow) reuses the existing tool bar's [문서 ▾] button and sheet list as-is. */
 .dm-item .nm{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .dcnt{font-weight:600}

@@ -17,11 +17,12 @@ import re
 import time
 import unittest
 from typing import Any
+from urllib.parse import urlparse
 
 from limn.pins.lifecycle.rules import CloseRequest
 from limn.security.access import LOCAL_ACTOR
 
-from helpers import HTML, add_pin, extract_js_fn, ps, run_node
+from helpers import HTML, UI_EN, add_pin, extract_js_fn, ps, run_node
 from helpers_access import ALICE, BOB, actor
 from helpers_authority import post_authority
 from helpers_browser import BrowserBase, booted, nothing_follows, settle, watch_idle
@@ -284,6 +285,119 @@ class GestureLogic(unittest.TestCase):
             ["backLayer"], "%s.map(c=>backLayer(c[0],c[1],c[2],c[3]))" % json.dumps([c[:4] for c in cases])
         )
         self.assertEqual([c[:4] + (g,) for c, g in zip(cases, got, strict=True)], cases)
+
+
+class StatusLogic(unittest.TestCase):
+    """The status line's pure decisions (docs/handbook/viewer.md §모바일 레이아웃 상태는 한 줄이다): which items show, in
+    which order, with which action, and their long and short text in Korean and English."""
+
+    S0 = {
+        "build": None,
+        "buildErr": None,
+        "offline": False,
+        "sync": None,
+        "stale": False,
+        "png": False,
+        "canRebuild": True,
+    }
+
+    def items(self, **s):
+        """statusList() of the empty input S0 with s over it."""
+        return node_or_skip(
+            self,
+            "\n".join(
+                [extract_js_fn("statusProgress"), extract_js_fn("statusList")]
+                + ["console.log(JSON.stringify(statusList(%s)));" % json.dumps(dict(self.S0, **s))]
+            ),
+        )
+
+    def kinds(self, **s):
+        """The kinds of statusList() for s, in order."""
+        return [i["kind"] for i in self.items(**s)]
+
+    def test_one_item_per_state_in_priority_order(self):
+        """Nothing shows nothing; a stale PDF is [stale]; a running build hides the staleness it is about to clear; a
+        failed build comes before the stale PDF, the lost connection before a running build."""
+        running = {"state": "running", "phase": "latex", "elapsed_s": 20, "last_s": 67}
+        failed = {"state": "fail", "errors": []}
+        self.assertEqual(self.kinds(), [])
+        self.assertEqual(self.kinds(stale=True), ["stale"])
+        self.assertEqual(self.kinds(stale=True, build=running), ["building"])
+        self.assertEqual(self.kinds(stale=True, buildErr=failed), ["failed", "stale"])
+        self.assertEqual(self.kinds(offline=True, build=running), ["offline", "building"])
+        self.assertEqual(
+            self.kinds(png=True, sync={"state": "checking"}, stale=True),
+            ["stale", "sync", "png"],
+        )
+        self.assertEqual(
+            self.kinds(sync={"state": "blocked", "reason": "dirty"}, stale=True), ["sync-blocked", "stale"]
+        )
+        self.assertEqual(self.kinds(buildErr={"state": "ok_errors", "errors": [{}, {}]}), ["errors"])
+        self.assertEqual(self.kinds(sync={"state": "current"}), [])
+
+    def test_the_page_render_counts_pages_only_with_a_well_formed_progress(self):
+        """The render phase is 'rendering'; its progress is used only when done and total are integers, total > 0 and
+        0 <= done <= total - anything else is as if there were none (an indeterminate bar)."""
+        render = {"state": "running", "phase": "render", "elapsed_s": 30, "last_s": 67}
+        got = self.items(build=dict(render, progress={"done": 12, "total": 25}))
+        self.assertEqual((got[0]["kind"], got[0]["progress"]), ("rendering", {"done": 12, "total": 25}))
+        for bad in (
+            {"done": 30, "total": 25},
+            {"done": -1, "total": 25},
+            {"done": 0, "total": 0},
+            {"done": "3", "total": 5},
+            "12/25",
+        ):
+            with self.subTest(progress=bad):
+                got = self.items(build=dict(render, progress=bad))
+                self.assertEqual((got[0]["kind"], got[0]["progress"]), ("rendering", None))
+
+    def test_only_a_rebuildable_document_offers_rebuild(self):
+        """The stale item's [재빌드] is there for a LaTeX document and a person who may rebuild; a figure document or the
+        viewer role sees the line without the action. A failed build's action reopens the error; blocked sync's says why."""
+        self.assertEqual(self.items(stale=True)[0]["act"], "rebuild")
+        self.assertIsNone(self.items(stale=True, canRebuild=False)[0]["act"])
+        self.assertEqual(self.items(buildErr={"state": "fail"})[0]["act"], "build-err-reopen")
+        self.assertEqual(self.items(sync={"state": "error", "reason": "x"})[0]["act"], "status-why")
+        self.assertIsNone(self.items(offline=True)[0]["act"])
+
+    def test_long_and_short_texts_in_korean_and_english(self):
+        """statusText(item, fit) is [label, tail]: the label is what a screen reader hears, the tail the ticking numbers.
+        LaTeX errors take the plural forms in English."""
+        cases = {
+            "stale": {"kind": "stale"},
+            "build": {"kind": "building", "phase": "latex", "el": 20, "last": 67},
+            "render": {"kind": "rendering", "progress": {"done": 12, "total": 25}, "el": 30, "last": 67},
+            "err1": {"kind": "errors", "n": 1},
+            "err2": {"kind": "errors", "n": 2},
+            "off": {"kind": "offline"},
+        }
+        out = {}
+        for lang in ("ko", "en"):
+            js = "\n".join(
+                [
+                    "var LANG=%s,I18N_EN=%s;" % (json.dumps(lang), json.dumps(UI_EN, ensure_ascii=False)),
+                    extract_js_fn("tr"),
+                    extract_js_fn("tl"),
+                    extract_js_fn("statusSplit"),
+                    extract_js_fn("statusText"),
+                    "const C=%s; const o={}; for(const k in C)o[k]=[statusText(C[k],'long'),statusText(C[k],'short')];"
+                    " console.log(JSON.stringify(o));" % json.dumps(cases),
+                ]
+            )
+            out[lang] = node_or_skip(self, js)
+        self.assertEqual(out["ko"]["stale"], [["원고가 PDF보다 새롭습니다", ""], ["원고 수정됨", ""]])
+        self.assertEqual(
+            out["ko"]["build"], [["LaTeX 컴파일 중", " · 20초 (지난번 67초)"], ["LaTeX 컴파일 중", " 20초"]]
+        )
+        self.assertEqual(out["ko"]["render"], [["쪽 그리는 중", " · 12/25쪽"], ["쪽", " 12/25"]])
+        self.assertEqual(out["ko"]["err1"], [["LaTeX 오류 1건 · 새 PDF", ""], ["LaTeX 오류 1", ""]])
+        self.assertEqual(out["ko"]["off"], [["연결 끊김 · 다시 잇는 중", ""], ["연결 끊김", ""]])
+        self.assertEqual(out["en"]["stale"], [["The manuscript is newer than the PDF", ""], ["Manuscript edited", ""]])
+        self.assertEqual(out["en"]["err1"], [["1 LaTeX error · new PDF", ""], ["1 LaTeX error", ""]])
+        self.assertEqual(out["en"]["err2"], [["2 LaTeX errors · new PDF", ""], ["2 LaTeX errors", ""]])
+        self.assertEqual(out["en"]["render"], [["Rendering pages", " · 12/25"], ["Pages", " 12/25"]])
+        self.assertFalse(any(HANGUL.search(a + b) for pair in out["en"].values() for a, b in pair))
 
 
 class MarkBadgeLogic(unittest.TestCase):
@@ -1808,12 +1922,14 @@ class PhoneTouchSizes(ViewerBase):
 # The narrowest phone of the diagnosis and its keyboard (Chrome on Android shrinks the layout by it: resizes-content).
 PHONE_360 = {"viewport": {"width": 360, "height": 780}, "is_mobile": True, "has_touch": True}
 KEYBOARD_360 = 300
-# How much of an element is visible and on top: the px of its centre column whose topmost element is it, and its height.
+# How much of an element is visible and on top: the px rows of its centre column whose topmost element is it, and the rows its
+# box covers (on screen or not), counted the same way - its height rounded disagreed by one row when the box started on a whole
+# pixel and ended on a fraction.
 SHOWN = """sel => {
   const e = document.querySelector(sel), r = e.getBoundingClientRect(), x = r.left + r.width / 2; let n = 0;
   for (let y = Math.max(0, Math.ceil(r.top)); y < Math.min(innerHeight, r.bottom); y++) {
     const t = document.elementFromPoint(x, y); if (t && (t === e || e.contains(t))) n++; }
-  return [n, Math.round(r.height)]; }"""
+  return [n, Math.ceil(r.bottom) - Math.ceil(r.top)]; }"""
 
 
 class PhoneComposer(ViewerBase):
@@ -1977,19 +2093,6 @@ class TouchLayoutBands(ViewerBase):
         row = page.evaluate(TOP_ROW)
         self.assertLessEqual(row["bar"]["h"], 44)
         self.assertTrue(all(top < 44 and hit for _, top, hit in row["tools"]), row["tools"])
-
-    def test_the_short_band_moves_rebuild_into_more(self):
-        """[PDF 재빌드] leaves the row for [⋯]; the overlay layout of a taller screen keeps it in its action row."""
-        page = self.view(LAND_PHONE)
-        self.assertFalse(page.is_visible("#btn-rebuild"))
-        page.evaluate("openMore()")
-        settle(page)
-        self.assertTrue(page.is_visible("#more [data-act=rebuild]"))
-        page = self.view(FOLD)
-        self.assertTrue(page.is_visible("#btn-rebuild"))
-        page.evaluate("openMore()")
-        settle(page)
-        self.assertFalse(page.is_visible("#more [data-act=rebuild]"))
 
     def test_focusing_the_note_hides_the_top_row_until_the_focus_leaves(self):
         """With the keyboard up a landscape phone has about 200px: the row hides while a note field has focus."""
@@ -3040,9 +3143,34 @@ BAR = """() => {const q = s => document.querySelector(s), R = e => e.getBounding
     chrome: Math.round(innerHeight - R(q('#right')).top), right: [...q('#bar1 .bar-r').children].filter(vis).map(e => e.id),
     gap: getComputedStyle(q('#bar1 .bar-l')).columnGap, pad: getComputedStyle(q('#btn-side')).paddingLeft,
     eye: vis(q('#btn-side .rv-n svg.ic'))};}"""
+# The status line as drawn: the id of its parent (where placeStatus put it), the dock's and the sheet's boxes, the visible
+# text, the data-act of its buttons, and its progress bar's role and value.
+STATUS_LINE = """() => {const q = s => document.querySelector(s), B = e => {const r = e.getBoundingClientRect();
+    return {x: r.x, y: r.y, w: r.width, h: r.height, b: r.bottom};}, s = q('#status'), bar = s.querySelector('.st-bar');
+  return {parent: s.parentElement.id, dock: B(q('#status-dock')), sheet: B(q('#right')),
+    text: (s.querySelector('.st-tx') || {}).textContent || '', acts: [...s.querySelectorAll('button')].map(b => b.dataset.act),
+    bar: bar ? {role: bar.getAttribute('role'), now: bar.getAttribute('aria-valuenow')} : null};}"""
 # The fullest bar the width budget plans for: 123 open pins, 12 awaiting review and a draft dot (UX spec §V4 폭 예산).
 FULL_BAR = """() => {document.querySelector('#side-n').textContent = '123'; const p = document.querySelector('#side-rv');
   p.hidden = false; p.innerHTML = ic('eye') + '12'; document.querySelector('#btn-side .c-dot').hidden = false;}"""
+
+
+class MetaPatched:
+    """A Playwright route whose fulfil merges patch into the JSON body the handler answered (the rest passes through)."""
+
+    def __init__(self, route, patch: dict[str, object]) -> None:
+        """Wrap route; patch is merged into the answer's top-level object."""
+        self._route, self._patch = route, patch
+
+    def __getattr__(self, name: str):
+        """Everything but fulfill is the route's own (forward() reads its request)."""
+        return getattr(self._route, name)
+
+    def fulfill(self, status: int, headers: dict[str, str], body: bytes) -> None:
+        """Fulfil the route with the handler's JSON answer, patch merged in."""
+        data = json.loads(body)
+        data.update(self._patch)
+        self._route.fulfill(status=status, headers=headers, body=json.dumps(data))
 
 
 class BarAndSheets(ViewerBase):
@@ -3098,6 +3226,164 @@ class BarAndSheets(ViewerBase):
         """820x1180: documents, view, page and outline are the nav bar's, so the right cell holds [⋯] alone."""
         page = self.view(BAR_TABLETS[0])
         self.assertEqual(page.evaluate(BAR)["right"], ["btn-more"])
+
+    # ---- the status line (V8)
+
+    def route(self, route):
+        """The fixture's routes, with GET /api/build answered from self.fake_build while one is set (a running build) and
+        GET /api/meta (full and light) saying stale_build while self.stale is set."""
+        path = urlparse(route.request.url).path
+        fake = getattr(self, "fake_build", None)
+        if fake and path == "/api/build":
+            return route.fulfill(status=200, headers={"content-type": "application/json"}, body=json.dumps(fake))
+        if getattr(self, "stale", False) and path == "/api/meta":
+            return self.forward(MetaPatched(route, {"stale_build": True, "src_age_s": 120}))
+        return super().route(route)
+
+    def stale_view(self, device, **kw):
+        """A view of device with a stale PDF (meta says stale_build), once the status line shows it."""
+        self.stale = True
+        page = self.view(device, init=NO_PNG_CHIP, **kw)
+        page.wait_for_function("!document.querySelector('#status').hidden")
+        settle(page)
+        return page
+
+    def test_a_stale_pdf_puts_a_24px_status_line_on_the_sheet_with_rebuild(self):
+        """411x908: the 38px chip row over the bar (83px of chrome, UX audit P3) is a 24px line on the sheet's top edge -
+        no gap, 72px of chrome - saying the manuscript is newer, with [재빌드] whose 44px hit reaches up over the PDF. The
+        bar has no [PDF 재빌드] and the desktop chip row is not drawn."""
+        page = self.stale_view(BAR_PHONES[0])
+        got = page.evaluate(STATUS_LINE)
+        self.assertEqual(got["parent"], "status-dock")
+        self.assertAlmostEqual(got["dock"]["b"], got["sheet"]["y"], delta=0.5)
+        self.assertEqual(round(got["dock"]["h"]), 24)
+        self.assertAlmostEqual(908 - got["dock"]["y"], 72, delta=1)
+        self.assertEqual(got["text"], "원고가 PDF보다 새롭습니다")
+        self.assertEqual(got["acts"], ["rebuild"])
+        self.assertEqual(page.evaluate(MISSES_44, "#status button"), [])
+        self.assertFalse(page.is_visible("#btn-rebuild"))
+        self.assertFalse(page.is_visible("#bar2"))
+
+    def test_a_running_build_shows_its_phase_and_an_indeterminate_or_counted_bar(self):
+        """A LaTeX pass shows its seconds and the last build's, over a bar with no value (the last time is a reference, not
+        a forecast); the page render with a progress field fills the bar to its share (12/25 = 48%)."""
+        page = self.view(BAR_PHONES[0], init=NO_PNG_CHIP)
+        self.fake_build = {"state": "running", "phase": "latex", "elapsed_s": 20, "last_s": 67, "seq": 0}
+        page.evaluate("pollBuild()")
+        page.wait_for_function("!!document.querySelector('#status .st-bar')")
+        got = page.evaluate(STATUS_LINE)
+        self.assertEqual(got["text"], "LaTeX 컴파일 중 · 20초 (지난번 67초)")
+        self.assertEqual(got["bar"], {"role": "progressbar", "now": None})
+        self.fake_build = dict(self.fake_build, phase="render", elapsed_s=30, progress={"done": 12, "total": 25})
+        page.wait_for_function("document.querySelector('#status .st-bar').getAttribute('aria-valuenow')==='48'")
+        self.assertEqual(page.evaluate(STATUS_LINE)["text"], "쪽 그리는 중 · 12/25쪽")
+        self.fake_build = None
+        page.wait_for_function("document.querySelector('#status').hidden")
+
+    def test_typing_hides_the_status_line_and_a_toast_floats_over_its_hit(self):
+        """While the note has focus the line steps aside for the keyboard; a toast sits above the line's action hit (20px
+        over the line), never on it."""
+        page = self.stale_view(BAR_PHONES[0])
+        page.evaluate("toast('핀 #1 저장됨 · pins.md 갱신','ok')")
+        settle(page)
+        t = page.locator("#toasts .toast").bounding_box()
+        dock = page.locator("#status-dock").bounding_box()
+        self.assertLessEqual(t["y"] + t["height"], dock["y"] - 20)
+        self.long_press_pick(self.cdp(page), page)
+        page.focus("#note")
+        page.wait_for_function("!document.querySelector('#status-dock').getClientRects().length")
+
+    def test_every_compact_band_moves_rebuild_into_more(self):
+        """[PDF 재빌드] leaves every compact bar for a row in [⋯] - a landscape phone, an unfolded foldable, a phone and a
+        tablet sheet; a view-only or figure document and the viewer role have no row."""
+        for device in (LAND_PHONE, FOLD, PHONE, BAR_TABLETS[0]):
+            with self.subTest(width=device["viewport"]["width"]):
+                page = self.view(device)
+                self.assertFalse(page.is_visible("#btn-rebuild"))
+                page.evaluate("openMore()")
+                settle(page)
+                self.assertTrue(page.is_visible("#more [data-act=rebuild]"))
+                page.evaluate(
+                    "()=>{document.querySelector('#more').close(); META=Object.assign({},META,{kind:'pdf'}); drawMeta();}"
+                )
+                page.evaluate("openMore()")
+                settle(page)
+                self.assertFalse(page.is_visible("#more [data-act=rebuild]"))
+        page = self.view(PHONE)
+        page.evaluate(
+            "()=>{META=Object.assign({},META,{me:Object.assign({},META.me,{role:'viewer'})}); drawMeta(); openMore();}"
+        )
+        settle(page)
+        self.assertFalse(page.is_visible("#more [data-act=rebuild]"))
+
+    def test_the_mid_bar_puts_status_between_select_and_more(self):
+        """842x758 and 1180x820: the action row is [⬚ 선택] · status · [⋯] [📍 N ›] with no [PDF 재빌드]; [📍] stays put
+        when the panel opens and closes, and a collapsed panel floats no status card."""
+        for device in (FOLD, phone(1180, 820, 2)):
+            with self.subTest(width=device["viewport"]["width"]):
+                page = self.stale_view(device)
+                order = page.evaluate(
+                    "[...document.querySelectorAll('#bar1 #btn-select,#bar1 #status-slot,#bar1 #btn-more,#bar1 #btn-side,#bar1 #btn-rebuild')]"
+                    ".filter(e=>e.getClientRects().length).sort((a,b)=>a.getBoundingClientRect().left-b.getBoundingClientRect().left).map(e=>e.id)"
+                )
+                self.assertEqual(order, ["btn-select", "status-slot", "btn-more", "btn-side"])
+                self.assertEqual(page.evaluate(STATUS_LINE)["parent"], "status-slot")
+                x0 = page.locator("#btn-side").bounding_box()["x"]
+                page.evaluate("setSide(!SIDE_OPEN)")
+                settle(page)
+                self.assertEqual(page.locator("#btn-side").bounding_box()["x"], x0)
+                page.evaluate("setSide(false)")
+                settle(page)
+                self.assertFalse(page.is_visible("#bar2"))
+
+    def test_the_short_band_keeps_the_page_beside_a_short_status(self):
+        """844x390: the one 44px row keeps its page count while the PDF is stale; the short status sits between the view
+        switch and the page count, and there is no [PDF 재빌드]."""
+        page = self.stale_view(LAND_PHONE)
+        row = page.evaluate(TOP_ROW)
+        self.assertLessEqual(row["nav"]["h"], 44)
+        self.assertTrue(page.is_visible("#nav-page"))
+        got = page.evaluate(STATUS_LINE)
+        self.assertEqual((got["parent"], got["text"]), ("doc-nav", "원고 수정됨"))
+        xs = page.evaluate(
+            "['#view-switch','#status','#nav-page'].map(s=>document.querySelector(s).getBoundingClientRect().left)"
+        )
+        self.assertEqual(xs, sorted(xs))
+        self.assertFalse(page.is_visible("#btn-rebuild"))
+
+    def test_the_tablet_sheet_line_stays_in_its_640_column(self):
+        """820x1180: the line's box spans the screen like the sheet, its content the 640px column."""
+        page = self.stale_view(BAR_TABLETS[0])
+        r = page.locator("#status").bounding_box()
+        self.assertGreaterEqual(r["x"], (820 - 640) / 2 - 0.5)
+        self.assertLessEqual(r["x"] + r["width"], (820 + 640) / 2 + 0.5)
+
+    def test_a_mouse_desktop_keeps_its_rebuild_button_and_chips(self):
+        """1440x900 with a mouse: [PDF 재빌드] in the tool bar and the chip row, no status line."""
+        page = self.stale_view(MOUSE_WIDE)
+        self.assertTrue(page.is_visible("#btn-rebuild"))
+        self.assertTrue(page.is_visible("#meta-stale"))
+        self.assertFalse(page.is_visible("#status"))
+
+    def test_two_states_show_the_first_and_a_plus_that_lists_both(self):
+        """A failed build and a stale PDF: the line shows the failure with [보기] and '+1'; '+1' lists both as 44px rows
+        with their actions, and Esc folds the list."""
+        page = self.stale_view(BAR_PHONES[0])
+        page.evaluate("showBuildErr({state:'fail',errors:[],log:''}); hideBuildErr();")
+        page.wait_for_function("document.querySelector('#status .st-more')")
+        got = page.evaluate(STATUS_LINE)
+        self.assertEqual(
+            (got["text"], got["acts"]), ("빌드 실패 · 이전 PDF를 보는 중", ["status-more", "build-err-reopen"])
+        )
+        page.click("#status .st-more")
+        page.wait_for_function("document.querySelector('#status-list').open")
+        rows = page.evaluate(
+            "[...document.querySelectorAll('#status-list .st-row')].map(r=>[Math.round(r.getBoundingClientRect().height),"
+            "r.querySelector('button')&&r.querySelector('button').dataset.act])"
+        )
+        self.assertEqual(rows, [[44, "build-err-reopen"], [44, "rebuild"]])
+        page.keyboard.press("Escape")
+        page.wait_for_function("!document.querySelector('#status-list').open")
 
 
 if __name__ == "__main__":

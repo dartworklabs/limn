@@ -1708,6 +1708,7 @@ class FrontendToasts(unittest.TestCase):
         # doesn't cover the bottom toolbar (the short band has none: its tool bar is in the top row)
         self.assertIn("LAYOUT===LAYOUT_MODE.MID&&BAND!==LAYOUT_BAND.SHORT?['#bar1']", body)
         self.assertIn("right.getBoundingClientRect().top", body)  # narrow: above the sheet
+        self.assertIn("sd.getBoundingClientRect().top-20", body)  # ... and over the status line's action hit
         self.assertIn("innerWidth-rr.right+12", body)  # right edge inside the panel column
         # a nearly-full sheet: drop down so it doesn't cover the toolbar
         self.assertIn("if(top<vh*0.3){top=vh; const ca=$('#c-actions');", body)
@@ -2486,6 +2487,10 @@ class FrontendFigure(unittest.TestCase):
         document's kind, never view_only (a figure document is view_only:false and still has no rebuild)."""
         css = HTML[HTML.index("<style>") : HTML.index("</style>")]
         self.assertIn("body.no-rebuild #btn-rebuild{display:none}", css)
+        # compact bars have no [PDF 재빌드]: the status line and the [⋯] row do it, and neither shows without a rebuild (UX spec §V8)
+        self.assertIn("body.compact #btn-rebuild{display:none}", css)
+        self.assertIn("body.compact:not(.no-rebuild) #m-rebuild{display:flex}", css)
+        self.assertIn("canRebuild:!!META&&buildsFromSource(META.kind)&&!isViewer()", extract_js_fn("statusInput"))
         self.assertNotIn("body.view-only", css)
         self.assertIn(
             "document.body.classList.toggle('no-rebuild',!buildsFromSource(META.kind))", extract_js_fn("drawMeta")

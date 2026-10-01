@@ -15,6 +15,7 @@ document.addEventListener('click',e=>{
   const host=a.closest('[data-id]'),id=host?+host.dataset.id:null,inEdit=!!a.closest('.edit');
   const fromMore=!!a.closest('#more');
   if(fromMore&&(a.dataset.close||a.dataset.act==='help'))$('#more').close();
+  if(a.closest('#status-list'))$('#status-list').close();   // a row's action folds the status list
   switch(a.dataset.act){
     case 'side':toggleSide();break;
     case 'selmode':setSelMode(!SELMODE);if(SELMODE&&LAYOUT===LAYOUT_MODE.NARROW&&!COMPOSE.current&&!EDITOR.current)setSide(false);break;
@@ -83,6 +84,8 @@ document.addEventListener('click',e=>{
     case 'trash-open':openTrash();break; case 'trash-close':$('#trash').close();break;
     case 'err-close':hideBuildErr();break;
     case 'build-err-reopen':if(BUILD.error){setSide(true); showBuildErr(BUILD.error);} break;   // the chip floats on a collapsed panel; the log is inside it
+    case 'status-more':toggleStatusList();break;
+    case 'status-why':statusWhy();break;
   }
 });
 $('#doc-select').addEventListener('change',e=>switchDoc(e.target.value));
@@ -111,7 +114,7 @@ document.addEventListener('keydown',e=>{
   // A span with role=button (a card's #number) is also activated by Enter/Space - sent through the same data-act path as a click.
   if((e.key==='Enter'||e.key===' ')&&t&&t.getAttribute&&/^(button|link)$/.test(t.getAttribute('role')||'')&&t.dataset&&t.dataset.act&&!inField){e.preventDefault();t.click();return;}
   if(e.key==='Escape'){
-    if($('#help').open||$('#more').open||$('#docs-menu').open||$('#trash').open)return;
+    if($('#help').open||$('#more').open||$('#docs-menu').open||$('#trash').open||$('#status-list').open)return;
     if(!TIP.hidden){hideTip(); if(!inField){e.preventDefault(); return;}}
     // Each Esc closes the top thing only; a handled Esc is not also a close request (the back-gesture layer's CloseWatcher).
     if(outlineOverlay()&&OUTLINE_MID_OPEN){e.preventDefault();toggleOutline();return;}
