@@ -108,15 +108,22 @@ function drawPins(){
 // wall clock, it was wrong across the board with browser timezone, a note-only edited_at, and a pin placed on a stale
 // PDF (confirmed by independent verification). The viewer just renders the value it's given.
 function isEstimated(p){return p.est===true;}
+// Whether a mark's number badge goes inside the mark (docs/handbook/viewer.md §모바일 레이아웃): fx is the mark's left as a
+// fraction of the page, w the page width in px. Under 28px from the page's left edge (the 26px badge and a 2px gap) the badge
+// would hang past the even page margin and be clipped, so it sits in the mark's top-left corner. Pure.
+function markBadgeIn(fx,w){return fx*w<28;}
+// Re-decides every drawn mark's badge side for the page width W (a zoom or a re-fit moves a mark's px offset).
+function markBadgeSides(){$$('.mark').forEach(m=>m.classList.toggle('in',markBadgeIn(+m.dataset.fx,W)));}
 // Draws one mark per open or awaiting-review pin of this document on its page: where the pin's element is now for a figure
-// pin (pinPlace), else where it was pinned. A pin without a usable box or page draws nothing.
+// pin (pinPlace), else where it was pinned, its badge outside or inside the mark (markBadgeIn). A pin without a usable box or
+// page draws nothing.
 function marks(){
   $$('.mark').forEach(m=>m.remove());
   // Awaiting-review pins are also drawn as purple marks - so the reviewer can see right there what was fixed (unrelated to an open pin's overlap/editing).
   // A figure pin is drawn where the server found its element in this build (see pinPlace), and a found element is no estimate.
   PINS.concat(REVIEW_ALL.filter(p=>pdoc(p)===DOC)).forEach(p=>{const at=pinPlace(p),el=document.getElementById('p'+at.page); if(!el||!isFrac(at.frac))return;
     const est=isEstimated(p)&&!hasMark(p),lost=p.stale||elLost(p);
-    const m=document.createElement('div'); m.className='mark'+(lost?' st':'')+(est?' est':'')+(pinState(p)===PIN_STATE.REVIEW?' rv':''); m.dataset.pin=p.id;
+    const m=document.createElement('div'); m.className='mark'+(lost?' st':'')+(est?' est':'')+(pinState(p)===PIN_STATE.REVIEW?' rv':'')+(markBadgeIn(at.frac[0],W)?' in':''); m.dataset.pin=p.id; m.dataset.fx=at.frac[0];
     Object.assign(m.style,{left:at.frac[0]*100+'%',top:at.frac[1]*100+'%',width:at.frac[2]*100+'%',height:at.frac[3]*100+'%'});
     const n=String(p.note||'').replace(/\s+/g,' ').trim();
     const tip='#'+p.id+' · '+(n?(n.length>60?n.slice(0,60)+'…':n):tr('(메모 없음)'))+(est?' '+tr('(PDF가 새로 만들어져 위치는 추정입니다)'):'')+(elLost(p)?' · '+tr('요소 잃음'):'');

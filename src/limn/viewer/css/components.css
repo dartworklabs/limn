@@ -71,6 +71,9 @@ input.n{width:58px;text-align:center}
 .mark.hi{border-width:3px}
 .mark b{position:absolute;top:-2px;left:-24px;background:var(--status-open);color:var(--status-open-foreground);border-radius:50%;
   width:22px;height:22px;display:flex;align-items:center;justify-content:center;font-size:var(--text-sm);pointer-events:auto;cursor:pointer}
+/* A mark that starts under 28px from the page's left edge has its badge in its own top-left corner (markBadgeIn): outside, it
+   would hang past the even page margin (--edge) and be clipped. */
+.mark.in b{left:0;top:0}
 .mark.st b{background:var(--warning);color:var(--warning-foreground)}
 .mark.rv{border-color:var(--status-review);background:color-mix(in srgb,var(--status-review) 8%,transparent)}
 .mark.rv b{background:var(--status-review);color:var(--status-review-foreground)}

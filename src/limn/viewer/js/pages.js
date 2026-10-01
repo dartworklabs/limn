@@ -12,8 +12,9 @@ function buildDoc(){
 // The page width limit is ZOOM_MIN-ZOOM_MAX times the fit-width (minimum 160px). Overflow scrolls horizontally only within the PDF area (#left).
 const ZOOM_MIN=0.5,ZOOM_MAX=5,ZOOM_STEP=1.2;
 function wBounds(fit){const f=Math.max(160,fit),lo=Math.max(160,Math.round(f*ZOOM_MIN)); return [lo,Math.max(lo,Math.round(f*ZOOM_MAX))];}
+// Sets the page width W within wBounds (saved in wide unless save is false); the marks' badges follow the new width (markBadgeSides).
 function setW(w,save){const b=wBounds(fitWidth()); W=Math.round(Math.min(b[1],Math.max(b[0],w))); $$('.pg').forEach(e=>e.style.width=W+'px');
-  if(save!==false&&LAYOUT===LAYOUT_MODE.WIDE)savePrefs({w:W}); vecInvalidate();}
+  markBadgeSides(); if(save!==false&&LAYOUT===LAYOUT_MODE.WIDE)savePrefs({w:W}); vecInvalidate();}
 function innerW(){const L=$('#left'),cs=getComputedStyle(L); return L.clientWidth-parseFloat(cs.paddingLeft)-parseFloat(cs.paddingRight);}
 // Fit-width: in compact and on a wide touch screen, the scroller's inner width (innerW: its padding is the gap, which on touch keeps
 // the page off the handles' hit areas); with a mouse in wide, #left.clientWidth minus 48px (left/right margins), as always.

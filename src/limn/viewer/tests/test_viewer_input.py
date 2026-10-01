@@ -285,6 +285,23 @@ class GestureLogic(unittest.TestCase):
         self.assertEqual([c[:4] + (g,) for c, g in zip(cases, got, strict=True)], cases)
 
 
+class MarkBadgeLogic(unittest.TestCase):
+    """Where a mark's number badge goes (docs/handbook/viewer.md §모바일 레이아웃, UX audit R4): outside the mark's left
+    edge, unless the mark starts less than 28px from the page's left edge, where the even page margin (12px on a phone) has
+    no room for it."""
+
+    def test_the_badge_goes_inside_a_mark_that_starts_under_28px_from_the_page_edge(self):
+        """At a 336px page: 0px and 27.9px are inside, 28px and more outside; the same fraction flips with the page width."""
+        js = "\n".join(
+            [
+                extract_js_fn("markBadgeIn"),
+                "console.log(JSON.stringify([markBadgeIn(0,336),markBadgeIn(27.9/336,336),markBadgeIn(28/336,336),"
+                "markBadgeIn(0.15,336),markBadgeIn(0.05,336),markBadgeIn(0.05,900)]));",
+            ]
+        )
+        self.assertEqual(node_or_skip(self, js), [True, True, False, False, True, False])
+
+
 class DraftLogic(unittest.TestCase):
     """draftKey()/draftRestore(): where a composer draft is kept per tab (sessionStorage) and what a reload brings back."""
 
@@ -2424,6 +2441,57 @@ class RedrawKeepsTheEditCard(ViewerBase):
 # A mid handle's or outline handle's hit width, drawn width and pseudo-element width (the mouse keeps its own).
 GRIP_BOX = """sel => {const g = document.querySelector(sel); return [Math.round(g.getBoundingClientRect().width),
   getComputedStyle(g, '::after').width]; }"""
+
+
+# Page 1's gaps to the PDF scroller's visible box (inside its border, without a scroll bar): [left, right], to 0.1px.
+PAGE_GAPS = """() => {const L = document.querySelector('#left'), lr = L.getBoundingClientRect(), p = document.querySelector('#p1').getBoundingClientRect();
+  const x0 = lr.left + L.clientLeft, R = v => Math.round(v * 10) / 10; return [R(p.left - x0), R(x0 + L.clientWidth - p.right)];}"""
+
+
+class EvenPageMargins(ViewerBase):
+    """The fitted page sits in the middle of the PDF column (docs/handbook/viewer.md §모바일 레이아웃, UX audit P1/R3): on every
+    compact band its left margin was 32px (a gutter for the mark badges) against 8px on the right - the owner's 'the left
+    margin is bigger than the right'. Both are now --edge; beside the side panel both are the handle's 40px."""
+
+    def test_the_fitted_page_has_equal_margins_on_phones_the_tablet_sheet_and_beside_the_side_panel(self):
+        """360, 411 and 430 phones: 12 and 12; a 768 tablet sheet: 16 and 16; 1024x768 with the side panel open: 40 and 40
+        (the right one keeps the panel handle's touch hit off the page)."""
+        for (w, h), edge in (
+            ((360, 800), 12),
+            ((411, 908), 12),
+            ((430, 932), 12),
+            ((768, 1024), 16),
+            ((1024, 768), 40),
+        ):
+            with self.subTest(w=w, h=h):
+                page = self.view(touch_device(w, h))
+                if w == 1024:
+                    page.evaluate("setSide(true)")
+                    settle(page)
+                left, right = page.evaluate(PAGE_GAPS)
+                self.assertAlmostEqual(left, right, delta=1)
+                self.assertAlmostEqual(left, edge, delta=1)
+
+    def test_a_mark_at_the_page_edge_shows_its_whole_badge_inside_and_the_others_keep_theirs_outside(self):
+        """360x800: a pin marked from the page's left edge has its badge in the mark's top-left corner, wholly inside the
+        PDF column (outside, it would hang 16px past the 12px margin and be clipped); a mark 50px in keeps the badge
+        outside its left edge."""
+        add_pin(
+            {"file": str(self.main), "lo": 30, "hi": 31, "page": 1, "note": "왼쪽 끝", "frac": [0.0, 0.65, 0.4, 0.04]},
+            actor(ALICE),
+        )
+        page = self.view(touch_device(360, 800))
+        got = page.evaluate(
+            """() => {const L = document.querySelector('#left'), lr = L.getBoundingClientRect(), x0 = lr.left + L.clientLeft;
+              return [...document.querySelectorAll('#p1 .mark')].map(m => {const b = m.querySelector('b').getBoundingClientRect(),
+                r = m.getBoundingClientRect(); return {inside: m.classList.contains('in'), shown: b.left >= x0 && b.right <= x0 + L.clientWidth,
+                within: b.left >= r.left && b.top >= r.top, off: Math.round(r.left - document.querySelector('#p1').getBoundingClientRect().left)};}); }"""
+        )
+        edge = [g for g in got if g["off"] <= 1]  # the light page's 1px border
+        self.assertEqual([dict(g, off=0) for g in edge], [{"inside": True, "shown": True, "within": True, "off": 0}])
+        rest = [g for g in got if g["off"] > 1]
+        self.assertTrue(rest)
+        self.assertEqual({(g["inside"], g["shown"], g["within"]) for g in rest}, {(False, True, False)})
 
 
 class TouchHandleHits(ViewerBase):

@@ -90,8 +90,10 @@ body:not(.lay-narrow) #coach button{pointer-events:auto}
   /* ...and the PDF scroller keeps the page out of that box, so a swipe or a long press at the page's right edge scrolls or
      picks instead of grabbing the handle (the page fits the padded width, innerW and fitWidth): beside the open side panel, 40px of right
      padding (the hit's 36px plus 4); over the overlay panel while composing, the panel width plus the 8px bar plus the same 40px (below, after that rule); in
-     wide (and its collapsed rail), 48px. The outline handle's hit (38px past its bar) ends inside #left's 44px left padding. */
-  body.lay-mid.side-open:not(.mid-overlay) #left{--doc-end:calc(var(--hit) - var(--space-1));padding-right:max(var(--doc-end),env(safe-area-inset-right))}
+     wide (and its collapsed rail), 48px. The outline handle's hit (38px past its bar) ends inside #left's 44px left padding.
+     Beside the side panel the left matches it, so the fitted page stays in the middle of its column (UX audit R3). */
+  body.lay-mid.side-open:not(.mid-overlay) #left{--doc-end:calc(var(--hit) - var(--space-1));padding-right:max(var(--doc-end),env(safe-area-inset-right));
+    padding-left:max(var(--doc-end),env(safe-area-inset-left))}
   body.lay-wide #left{--doc-end:calc(var(--hit) + var(--space-1));padding-right:var(--doc-end)}
   /* A page zoomed past the fit overflows the scroller, whose own right padding is not part of its scroll extent: #doc carries
      the same --doc-end as its own padding (and gives it back as a negative margin, so a fitted page is unchanged), so scrolled
@@ -114,7 +116,11 @@ body.lay-mid #grip::before{content:'';position:absolute;left:50%;top:50%;width:4
 body.lay-mid #grip.on::before{background:var(--primary)}
 body.compact button.cmp{display:inline-flex}
 body.compact .sec{display:none}
-body.compact #left{padding:var(--space-3) max(var(--space-2),env(safe-area-inset-right)) 60vh max(32px,env(safe-area-inset-left));min-width:0}
+/* The fitted page sits in the middle of the PDF column (docs/handbook/viewer.md §모바일 레이아웃): --edge on both sides. The left
+   used to be 32px, a gutter for the mark badges, against 8px on the right (UX audit P1); a badge that would hang past the page
+   edge now goes inside its mark (.mark.in, markBadgeIn). */
+body.band-phone{--edge:var(--space-3)}
+body.compact #left{padding:var(--space-3) max(var(--edge),env(safe-area-inset-right)) 60vh max(var(--edge),env(safe-area-inset-left));min-width:0}
 body.compact #main{min-width:0}
 body.compact #right{overflow-y:auto;overscroll-behavior:contain;min-width:0;max-width:none}
 body.compact #right>*{flex:none}

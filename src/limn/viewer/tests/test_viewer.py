@@ -2690,7 +2690,7 @@ class FrontendFigure(unittest.TestCase):
         js = "\n".join(
             [
                 r"""
-            const DOC='d', DEFAULT_DOC='d'; let PINS=[], REVIEW_ALL=[]; const drawn=[];
+            const DOC='d', DEFAULT_DOC='d', W=900; let PINS=[], REVIEW_ALL=[]; const drawn=[];
             const $$=()=>[]; const esc=s=>String(s);
             const page1={appendChild:m=>drawn.push([m.dataset.pin,m.className,m.style.left,m.style.width])};
             const document={getElementById:id=>id==='p1'?page1:null,
@@ -2698,7 +2698,17 @@ class FrontendFigure(unittest.TestCase):
                 js_i18n(),
                 *[
                     extract_js_fn(n)
-                    for n in ("isFrac", "hasMark", "pinPlace", "elLost", "isEstimated", "pinState", "pdoc", "marks")
+                    for n in (
+                        "isFrac",
+                        "hasMark",
+                        "pinPlace",
+                        "elLost",
+                        "isEstimated",
+                        "pinState",
+                        "pdoc",
+                        "markBadgeIn",
+                        "marks",
+                    )
                 ],
                 r"""
             const good=[0.1,0.2,0.3,0.4];
