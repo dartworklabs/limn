@@ -2169,6 +2169,19 @@ class FrontendFigure(unittest.TestCase):
             extract_js_fn("docTip"),
         )
 
+    def test_the_empty_hint_and_the_commit_tooltip_hold_for_every_document_kind(self):
+        """The first-use hint promises 'source line numbers' and the header's commit tooltip speaks of 'the source', not
+        of a .tex file or a manuscript, since a figure document or a view-only PDF is opened with the same text; each has
+        its English."""
+        for text in (".tex 줄 번호", "원고 Git 커밋"):
+            self.assertNotIn(text, HTML)
+        for text, english in (
+            ("<b>원문 줄 번호</b>", "source line number"),
+            ("PDF를 만들 때의 소스 Git 커밋.", "The source's Git commit"),
+        ):
+            self.assertIn(text, HTML)
+            self.assertTrue(any(english in v for v in UI_EN.values()), english)
+
     def test_the_document_kind_rules_are_asked_in_one_place_each(self):
         """'Is it a figure document' and 'is it rebuilt from source' are the two helpers isFigureKind and
         buildsFromSource, and no other code compares a kind with DOC_KIND.FIGURE or DOC_KIND.TEX. Both answer false for

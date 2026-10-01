@@ -12,24 +12,26 @@ reason codes), anchors of `.py` sources skipping `#` comment lines, and non-fini
 
 ### Added
 
-- **Figure documents in the viewer.** A figure tab is marked `그림` in the documents list and has no [PDF rebuild];
-  rebuild is shown only for documents whose `kind` is `"tex"`. A drag snaps the pending box onto the element the map
-  chose and names it in the location line (`B2 › 달력 › 7월 · B2_calendar.py L88-L95`); the range ladder runs element →
-  part → figure without asking the server again, and the selected rung's element is the one pinned. Saving and
-  re-placing send the element as `el` with its box, and that box as the pin's `frac`. A figure pin's mark follows its
-  element across re-renders (`mark`, `mark_page`) and is never dashed; a lost element shows `요소 잃음` like a lost line,
-  and the location-uncertain badge says `지도로 찾음`. A figure region is labelled `코드 없는 요소` (element without code
-  lines) or `영역` (map unreadable), not `보기 전용`. A long-press on a figure picks the element under the finger. A
-  `null` box from the API draws no mark.
+- **Figure documents in the viewer.** A figure document is marked `그림` on the documents sheet (the desktop document
+  links name it in their tooltip) and has no [PDF rebuild]; rebuild is shown only for documents whose `kind` is
+  `"tex"`. A drag snaps the pending box onto the element the map
+  chose and names it in the location line (`B2 › 달력 › 7월 · B2_calendar.py L88-L95`); the range ladder runs from the
+  element up through its ancestors to the whole figure without asking the server again, and the selected rung's
+  element is the one pinned. Saving and re-placing send the element as `el` with its box, and that box as the pin's
+  `frac`. A figure pin's mark follows its element across re-renders (`mark`, `mark_page`) and is solid while the
+  element is found; a lost element's mark stays where the pin was placed, in the warning colour, and the card shows
+  `요소 잃음` like a lost line. The location-uncertain badge keeps its text `위치 불확실`; for a pick the map made,
+  its tooltip says `지도로 찾음`. A figure region is labelled `코드 없는 요소` (element without code lines) or `영역`
+  (map unreadable), not `보기 전용`. A long-press on a figure picks the element under the finger. A `null` box from
+  the API draws no mark.
 - **Figure pins.** A drag on a figure document is traced through its build's element map: `POST /api/pick` answers the
-  lines of the drawing script with `via: "map"`, the
-  element ladder (`levels` `el`, `el2` … `el8`, `fig`) and the element `el` (`id`, `path`, `label`, `part`, `impl`,
-  `frac`). An element drawn without code, or a figure whose map does not load, answers the region with a `warn` that
-  leads with the reason (there is no reason code field), and with `el` when an element was chosen. Pins take the
-  optional `el` (`POST /api/pin`, an edit's `loc`); a malformed one is `400 bad_el`. Figure documents take line pins:
-  an agent's `curl` with only a file routes to the document whose folder holds the file most deeply; at equal depth a
-  `.tex`, `.bib`, `.sty`, `.cls` or `.bst` file (any case) goes to the LaTeX document and any other file to the
-  figure document.
+  lines of the drawing script with `via: "map"`, the element ladder (`levels` `el`, `el2` … `el8`, `fig`) and the
+  element `el` (`id`, `path`, `label`, `part`, `impl`, `frac`). An element drawn without code, or a figure whose map
+  does not load, answers the region with a `warn` that leads with the reason (there is no reason code field), and
+  with `el` when an element was chosen. Pins take the optional `el` (`POST /api/pin`, an edit's `loc`); a malformed
+  one is `400 bad_el`. Figure documents take line pins: an agent's `curl` with only a file routes to the document
+  whose folder holds the file most deeply; at equal depth a `.tex`, `.bib`, `.sty`, `.cls` or `.bst` file (any case)
+  goes to the LaTeX document and any other file to the figure document.
 - **Read-time element position.** `GET /api/pins` adds `mark`, `mark_page` and `el_sync` (`ok`/`moved`/`lost`) to a
   figure pin, computed on the build on screen; nothing is written and a re-render never changes `rev`. A pin without
   any recorded box is never `ok`. Each build's map copy is parsed once per run.

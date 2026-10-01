@@ -63,9 +63,10 @@ function doubleTapZoom(x,y){const fit=fitWidth(),w=doubleTapWidth(W,fit); zoomTo
 function quickPick(pg,cx,cy){const [x,y]=fracAt(pg,cx,cy),b=quickBox(x,y,isFigureKind(META&&META.kind));
   finishRect(pg,newBox(pg),b[0],b[1],b[2],b[3]);}
 // The box a quick selection sends around the point (x, y), as page fractions [x0, y0, x1, y1]: about one text line on a
-// manuscript page (page width +-7%, height +-0.6%); a small square on a figure, which the map reads as the point - the
-// deepest element holding it (docs/handbook/viewer.md §모바일 레이아웃). A line-shaped strip would cross a figure's
-// small elements and resolve to an outer one.
+// manuscript page (page width +-7%, height +-0.6%); on a figure a small box of +-0.4% of the page width by +-0.4% of its
+// height (a rectangle on a page that is not square), which the map reads as the point - the deepest element holding it
+// (docs/handbook/viewer.md §모바일 레이아웃). A line-shaped strip would cross a figure's small elements and resolve to
+// an outer one.
 function quickBox(x,y,figure){const w=figure?QUICK_FIG:QUICK_W,h=figure?QUICK_FIG:QUICK_H;
   return [c01(x-w),c01(y-h),c01(x+w),c01(y+h)];}
 function finishRect(pg,box,sx,sy,x,y){
