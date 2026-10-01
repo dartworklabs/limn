@@ -21,6 +21,7 @@ import shutil
 import subprocess
 import time
 from unittest import mock
+from urllib.parse import urlparse
 
 from limn.administration import serve_documents as startup_documents
 from limn.pins.lifecycle import input as lifecycle_input
@@ -29,6 +30,7 @@ from limn.pins.listing.projection import pin_state
 from limn.revisions import core as revisions, execution as revision_execution
 from limn.security.access import LOCAL_ACTOR
 
+import helpers_figure
 from helpers import SW_JS, add_pin, blank_png, find_record, minimal_pdf, ps, records, trash_records
 from helpers_access import ALICE, BOB, CAROL, REPO_NEW as NEW, REPO_OLD as OLD, actor
 from helpers_authority import post_authority
@@ -1469,3 +1471,428 @@ class ViewerRoleUi(BrowserBase):
                 self.assertIn(a, acts)
         finally:
             type(self).WHO = CAROL
+
+
+# ---------------------------------------------------------------- figure documents (P1c)
+
+
+# The documents whose /api/pick goes to the real server in FigureDocuments (the figure, the view-only PDF).
+REAL_PICK_DOCS = (helpers_figure.FIG, "rv")
+
+
+class FigureDocuments(BrowserBase):
+    """A figure document (limn-figure-map/1) beside the manuscript and a view-only PDF, in the real viewer: the tab,
+    the element a drag picks, the pin saved from it and its mark across re-renders. Page 1 of the figure is 3:1, so
+    every flow runs on a very wide page. /api/pick on the figure goes to the real server (its map answers without
+    SyncTeX); the manuscript keeps BrowserBase's computed answer."""
+
+    WHO = ALICE
+    # First-visit coach marks off, so no hint sits over the page a test drags on.
+    NO_COACH = "try{localStorage.setItem('pinPrefs',JSON.stringify({coach:{touch:1,mouse:1,sel:1}}))}catch(e){}"
+
+    def setUp(self):
+        """The three documents of helpers_figure.viewer_docs (P1b's figure_doc among them), each with a finished
+        two-page build."""
+        super().setUp()
+        self.ms, self.fig, self.rv = helpers_figure.viewer_docs(ps.APP, ps.APP.C.src)
+        self.addCleanup(ps.APP.set_docs, None)
+
+    def route(self, route):
+        """Send the figure's and the view-only PDF's picks to the real server; route everything else as BrowserBase
+        does."""
+        rq = route.request
+        if urlparse(rq.url).path == "/api/pick" and json.loads(rq.post_data or "{}").get("doc") in REAL_PICK_DOCS:
+            return self.forward(route)
+        return super().route(route)
+
+    def open_fig(self, lang="ko", **device):
+        """The viewer switched to the figure document and settled (open() boots on the manuscript, the first one)."""
+        page = self.open(0, lang=lang, init=self.NO_COACH, **device)
+        page.evaluate("async()=>await switchDoc('fig')")
+        page.wait_for_function("DOC==='fig'&&document.querySelectorAll('#doc .pg').length===2", timeout=8000)
+        settle(page)
+        return page
+
+    @staticmethod
+    def text(page, sel):
+        """The textContent of the first element sel matches, or None when there is none (no wait)."""
+        return page.evaluate("s=>{const e=document.querySelector(s);return e?e.textContent:null;}", sel)
+
+    def test_a_figure_tab_and_a_view_only_tab_hide_rebuild_and_the_manuscript_keeps_it(self):
+        """Rebuild follows the document kind: the manuscript shows [PDF 재빌드]; the figure and the view-only PDF, which
+        redraw when their files change, hide it - there and back again."""
+        page = self.open(0, init=self.NO_COACH)
+        for key, shown in (("ms", True), ("fig", False), ("rv", False), ("ms", True)):
+            with self.subTest(doc=key):
+                page.evaluate("async k=>await switchDoc(k)", key)
+                page.wait_for_function("k=>DOC===k", arg=key, timeout=8000)
+                settle(page)
+                self.assertEqual(page.locator("#btn-rebuild").is_visible(), shown)
+                self.assertEqual(page.evaluate("document.body.classList.contains('no-rebuild')"), not shown)
+
+    def test_the_phone_documents_sheet_marks_the_figure_and_the_view_only_pdf(self):
+        """On a phone the documents sheet shows '그림' ('Figure' in English) on the figure and 'PDF' on the view-only
+        document, and nothing on the manuscript."""
+        for lang, word in (("ko", "그림"), ("en", "Figure")):
+            with self.subTest(lang=lang):
+                page = self.open(0, lang=lang, init=self.NO_COACH, **DEVICES["phone"])
+                page.evaluate("openDocsMenu()")
+                page.wait_for_selector("#docs-menu[open] .dm-item", timeout=8000)
+                marks = page.eval_on_selector_all(
+                    "#docs-menu-list .dm-item",
+                    "els=>els.map(e=>[e.dataset.doc,(e.querySelector('.dfig')||{}).textContent||'',"
+                    "(e.querySelector('.dvo')||{}).textContent||''])",
+                )
+                self.assertEqual(marks, [["ms", "", ""], ["fig", word, ""], ["rv", "", "PDF"]])
+
+    # Where element sel sits on page n, as page fractions of that page's box (inside its border), plus the box's size.
+    BOX = """([sel, n]) => {const b=document.querySelector(sel), pg=document.getElementById('p'+n);
+      if(!b||b.parentNode!==pg)return null;
+      const r=b.getBoundingClientRect(), p=pg.getBoundingClientRect(), L=p.left+pg.clientLeft, T=p.top+pg.clientTop;
+      return [(r.left-L)/pg.clientWidth,(r.top-T)/pg.clientHeight,r.width/pg.clientWidth,r.height/pg.clientHeight,
+        pg.clientWidth,pg.clientHeight];}"""
+
+    def assert_box(self, page, sel, n, frac):
+        """Element sel sits on page n at frac [x, y, w, h], to within one CSS pixel of that page's box."""
+        got = page.evaluate(self.BOX, [sel, n])
+        self.assertIsNotNone(got, "%s is not on page %d" % (sel, n))
+        pw, ph = got[4], got[5]
+        for i, (g, want, size) in enumerate(zip(got[:4], frac, (pw, ph, pw, ph), strict=True)):
+            self.assertAlmostEqual(g, want, delta=1.0 / size, msg="%s[%d] on a %dx%d page" % (sel, i, pw, ph))
+
+    def drag(self, page, frac, n=1, ready="COMPOSE.current&&!COMPOSE.picking"):
+        """A mouse drag across frac [x, y, w, h] of page n through the real pointer path, then wait for ready."""
+        page.locator("#p%d" % n).scroll_into_view_if_needed()
+        b = page.locator("#p%d" % n).bounding_box()
+        x0, y0 = b["x"] + b["width"] * frac[0], b["y"] + b["height"] * frac[1]
+        page.mouse.move(x0, y0)
+        page.mouse.down()
+        page.mouse.move(x0 + b["width"] * frac[2], y0 + b["height"] * frac[3], steps=5)
+        page.mouse.up()
+        page.wait_for_function(ready, timeout=8000)
+        settle(page)
+
+    @staticmethod
+    def touch(cdp, kind, pts):
+        """One CDP touch event (touchStart/touchMove/touchEnd) at the given viewport points."""
+        cdp.send(
+            "Input.dispatchTouchEvent",
+            {"type": kind, "touchPoints": [{"x": x, "y": y, "id": i} for i, (x, y) in enumerate(pts)]},
+        )
+
+    @staticmethod
+    def on_page(page, fx, fy, n=1):
+        """The viewport point at fractions (fx, fy) of page n's box."""
+        b = page.locator("#p%d" % n).bounding_box()
+        return b["x"] + b["width"] * fx, b["y"] + b["height"] * fy
+
+    def test_a_drag_on_the_july_cell_snaps_the_box_to_it_and_names_its_path_and_lines(self):
+        """The map chose the cell: '새 핀' sits on the cell's box, the location line reads its path and code lines, and
+        the ladder offers cell, strip and figure by name with the cell pressed."""
+        page = self.open_fig()
+        self.drag(page, helpers_figure.CELL_DRAG)
+        self.assert_box(page, "#doc .sel", 1, helpers_figure.JULY)
+        self.assertEqual(self.text(page, "#c-path"), "B2 › 달력 › 7월 ·")
+        self.assertEqual(self.text(page, "#c-loc"), "B2_calendar.py L88-L95")
+        self.assertEqual(
+            page.eval_on_selector_all(
+                "#c-levels button",
+                "bs=>bs.map(b=>[b.dataset.level,b.firstChild.textContent.trim(),b.getAttribute('aria-pressed')])",
+            ),
+            [["el", "7월", "true"], ["el2", "달력", "false"], ["fig", "B2", "false"]],
+        )
+
+    def test_a_rung_moves_the_box_path_and_lines_without_asking_the_server(self):
+        """Pressing strip, figure, then cell moves '새 핀', the path and the lines each time, and no pick is requested."""
+        page = self.open_fig()
+        self.drag(page, helpers_figure.CELL_DRAG)
+        page.evaluate(
+            """()=>{window.pickCalls=0; const f=window.fetch; window.fetch=function(u,o){
+              if(String(u).startsWith('/api/pick'))window.pickCalls++; return f.call(this,u,o);};}"""
+        )
+        for level, box, path, loc in (
+            ("el2", helpers_figure.STRIP_FRAC, "B2 › 달력 ·", "B2_calendar.py L80-L97"),
+            ("fig", (0, 0, 1, 1), "B2 ·", "B2_calendar.py L12-L140"),
+            ("el", helpers_figure.JULY, "B2 › 달력 › 7월 ·", "B2_calendar.py L88-L95"),
+        ):
+            with self.subTest(level=level):
+                page.click('#c-levels [data-level="%s"]' % level)
+                settle(page)
+                self.assert_box(page, "#doc .sel", 1, box)
+                self.assertEqual(self.text(page, "#c-path"), path)
+                self.assertEqual(self.text(page, "#c-loc"), loc)
+        self.assertEqual(page.evaluate("window.pickCalls"), 0)
+
+    def test_the_snapped_box_stays_on_the_cell_at_fit_and_300_percent_at_dpr_1_and_2(self):
+        """The box is placed in page fractions, so it stays on the cell at fit width and at three times that, on a 1x and
+        a 2x screen."""
+        for dpr in (1, 2):
+            with self.subTest(dpr=dpr):
+                page = self.open_fig(viewport={"width": 1400, "height": 850}, device_scale_factor=dpr)
+                self.drag(page, helpers_figure.CELL_DRAG)
+                self.assert_box(page, "#doc .sel", 1, helpers_figure.JULY)
+                page.evaluate("zoomTo(fitWidth()*3)")
+                settle(page)
+                self.assertGreater(page.evaluate("document.getElementById('p1').clientWidth"), 2000)
+                self.assert_box(page, "#doc .sel", 1, helpers_figure.JULY)
+
+    def test_switching_documents_while_a_figure_pick_is_in_flight_leaves_nothing_behind(self):
+        """The figure pick answers after the switch to the manuscript: no box, path line or composer appears there and
+        the late answer is dropped."""
+        page = self.open_fig()
+        page.evaluate(
+            """()=>{const real=api; window.heldPicks=[];
+              api=(path,options)=>path==='/api/pick'?new Promise((ok,no)=>window.heldPicks.push(()=>real(path,options).then(ok,no)))
+                :real(path,options);}"""
+        )
+        page.evaluate("(()=>{const pg=document.getElementById('p1');finishRect(pg,newBox(pg),0.48,0.2,0.52,0.28);})()")
+        page.wait_for_function("window.heldPicks.length===1", timeout=8000)
+        page.evaluate("async()=>await switchDoc('ms')")
+        page.wait_for_function("DOC==='ms'", timeout=8000)
+        page.evaluate("window.heldPicks[0]()")
+        settle(page)
+        self.assertEqual(
+            page.evaluate(
+                "[COMPOSE.current,COMPOSE.box,COMPOSE.picking,document.querySelectorAll('#doc .sel').length,"
+                "document.getElementById('composer').hidden,document.getElementById('c-path').hidden]"
+            ),
+            [None, None, False, 0, True, True],
+        )
+
+    def test_a_select_mode_finger_drag_on_a_phone_snaps_like_a_mouse_drag(self):
+        """[선택] on, one finger drags across the cell on a phone: the map chooses the cell and the box snaps to it."""
+        page = self.open_fig(**DEVICES["phone"])
+        page.evaluate("setSelMode(true)")
+        x, y, w, h = helpers_figure.CELL_DRAG
+        x0, y0 = self.on_page(page, x, y)
+        x1, y1 = self.on_page(page, x + w, y + h)
+        cdp = page.context.new_cdp_session(page)
+        self.touch(cdp, "touchStart", [(x0, y0)])
+        for i in range(1, 7):
+            self.touch(cdp, "touchMove", [(x0 + (x1 - x0) * i / 6, y0 + (y1 - y0) * i / 6)])
+        self.touch(cdp, "touchEnd", [])
+        page.wait_for_function("COMPOSE.current&&!COMPOSE.picking", timeout=8000)
+        settle(page)
+        self.assertEqual(page.evaluate("COMPOSE.current.elSel&&COMPOSE.current.elSel.id"), helpers_figure.CELL_ID)
+        self.assert_box(page, "#doc .sel", 1, helpers_figure.JULY)
+
+    def test_a_long_press_on_a_phone_picks_the_cell_under_the_finger(self):
+        """A long-press on the cell of a very wide figure picks the cell, not the strip a text-line box would reach, and
+        the box snaps to it."""
+        page = self.open_fig(**DEVICES["phone"])
+        x, y, w, h = helpers_figure.JULY
+        px, py = self.on_page(page, x + w / 2, y + h / 2)
+        cdp = page.context.new_cdp_session(page)
+        self.touch(cdp, "touchStart", [(px, py)])
+        page.wait_for_function("LP===null&&LP_PICKED!==null", timeout=8000)
+        self.touch(cdp, "touchEnd", [])
+        page.wait_for_function("COMPOSE.current&&!COMPOSE.picking", timeout=8000)
+        settle(page)
+        self.assertEqual(page.evaluate("COMPOSE.current.elSel&&COMPOSE.current.elSel.id"), helpers_figure.CELL_ID)
+        self.assert_box(page, "#doc .sel", 1, helpers_figure.JULY)
+
+    def assert_frac(self, got, want):
+        """A stored frac equal to want within float noise."""
+        self.assertEqual(len(got), 4, got)
+        for g, w in zip(got, want, strict=True):
+            self.assertAlmostEqual(g, w, places=6)
+
+    def saved_cell_pin(self, page, note) -> int:
+        """Pick the July cell, write note, press [핀 저장], and return the new pin's id once the list shows it."""
+        return self.saved_pin_at(page, helpers_figure.CELL_DRAG, note)
+
+    def saved_pin_at(self, page, frac, note) -> int:
+        """Drag across frac on page 1, write note, press [핀 저장], and return the new pin's id once the list shows it."""
+        self.drag(page, frac)
+        page.locator("#note").fill(note)
+        page.click("#btn-save")
+        page.wait_for_function("n=>OPEN_ALL.some(p=>p.note===n)", arg=note, timeout=8000)
+        settle(page)
+        return page.evaluate("n=>OPEN_ALL.find(p=>p.note===n).id", note)
+
+    def test_saving_a_pick_stores_the_chosen_element_its_box_and_kind(self):
+        """[핀 저장] on the cell stores the cell with its box as el, the cell's box as frac too, el:MonthCell and its
+        lines; after pressing the strip rung, the strip with its box, kind and lines."""
+        page = self.open_fig()
+        pid = self.saved_cell_pin(page, "7월 칸 글자 키우기")
+        rec = find_record(ps.APP.snapshot_pins(), pid)
+        self.assertEqual(
+            (rec["doc"], rec["scope"], rec["kind"], rec["via"], rec["lo"], rec["hi"]),
+            ("fig", "el", "el:MonthCell", "map", 88, 95),
+        )
+        self.assertEqual(
+            {k: v for k, v in rec["el"].items() if k != "frac"},
+            {
+                "id": helpers_figure.CELL_ID,
+                "path": [helpers_figure.ROOT_ID, helpers_figure.STRIP_ID, helpers_figure.CELL_ID],
+                "label": "7월",
+                "part": "MonthCell",
+                "impl": {"file": "lib/components.py", "lo": 410, "hi": 470},
+            },
+        )
+        self.assert_frac(rec["el"]["frac"], helpers_figure.JULY)
+        self.assert_frac(rec["frac"], helpers_figure.JULY)
+        self.drag(page, helpers_figure.CELL_DRAG)
+        page.click('#c-levels [data-level="el2"]')
+        settle(page)
+        page.locator("#note").fill("달력 줄 간격")
+        page.click("#btn-save")
+        page.wait_for_function("OPEN_ALL.some(p=>p.note==='달력 줄 간격')", timeout=8000)
+        settle(page)
+        strip = find_record(ps.APP.snapshot_pins(), page.evaluate("OPEN_ALL.find(p=>p.note==='달력 줄 간격').id"))
+        self.assertEqual(
+            (strip["scope"], strip["kind"], strip["lo"], strip["hi"], strip["el"]["id"]),
+            ("el2", "el:CalendarStrip", 80, 97, helpers_figure.STRIP_ID),
+        )
+        self.assert_frac(strip["el"]["frac"], helpers_figure.STRIP_FRAC)
+        self.assert_frac(strip["frac"], helpers_figure.STRIP_FRAC)
+
+    def test_re_placing_a_cell_pin_on_the_strip_moves_its_element_box_and_lines(self):
+        """[위치 다시 잡기] on the strip: '새 위치' snaps to the strip before [이 위치로 바꾸기], and the pin then stores
+        the strip - its element, box, kind and lines."""
+        page = self.open_fig()
+        pid = self.saved_cell_pin(page, "7월 칸 글자 키우기")
+        page.evaluate("id=>openEdit(id)", pid)
+        page.wait_for_selector(".edit .b-repick", timeout=8000)
+        page.click(".edit .b-repick")
+        page.wait_for_function("REPICK!==null", timeout=8000)
+        self.drag(page, helpers_figure.STRIP_DRAG, ready="REPICK&&REPICK.cand")
+        self.assert_box(page, "#doc .sel", 1, helpers_figure.STRIP_FRAC)
+        page.click('#banner [data-act="rp-apply"]')
+        page.wait_for_function("REPICK===null", timeout=8000)
+        settle(page)
+        rec = find_record(ps.APP.snapshot_pins(), pid)
+        self.assertEqual(
+            (rec["lo"], rec["hi"], rec["kind"], rec["el"]["id"]), (80, 97, "el:CalendarStrip", helpers_figure.STRIP_ID)
+        )
+        self.assert_frac(rec["frac"], helpers_figure.STRIP_FRAC)
+
+    def test_the_edit_card_keeps_a_figure_pins_element_and_kind_unless_its_lines_change(self):
+        """The edit card's ladder is the snippet route's raw rung only (P1b): pressing '지금 범위' and saving sends
+        nothing; nudging a line saves the new lines with kind 'lines', and the pin keeps its el (a range edit is no
+        loc). No tooltip reads 'undefined'."""
+        page = self.open_fig()
+        pid = self.saved_cell_pin(page, "7월 칸 글자 키우기")
+        for step in ("press the current range", "nudge one line down"):
+            with self.subTest(step=step):
+                page.evaluate("id=>openEdit(id)", pid)
+                page.wait_for_function("EDITOR.current&&EDITOR.current.levels.length>0", timeout=8000)
+                settle(page)
+                tips = page.eval_on_selector_all(".edit .e-levels button", "bs=>bs.map(b=>b.dataset.tip)")
+                self.assertTrue(tips and all("undefined" not in t for t in tips), tips)
+                if step == "press the current range":
+                    page.click('.edit .e-levels [data-level="raw"]')
+                else:
+                    page.click('.edit [data-dir="down-grow"]')
+                settle(page)
+                page.click(".edit .b-esave")
+                page.wait_for_function("EDITOR.current===null", timeout=8000)
+                settle(page)
+                rec = find_record(ps.APP.snapshot_pins(), pid)
+                want = (
+                    ("el", "el:MonthCell", 88, 95) if step == "press the current range" else ("lines", "lines", 88, 96)
+                )
+                self.assertEqual((rec["scope"], rec["kind"], rec["lo"], rec["hi"]), want)
+                self.assertEqual(rec["el"]["id"], helpers_figure.CELL_ID)
+
+    def rerender_and_refresh(self, page, **july) -> None:
+        """The figure is rendered again into build BUILD2 (helpers_figure.viewer_rerender with july/july_page) and the
+        viewer takes it the way its poll does (refreshDoc: pages, then pins)."""
+        helpers_figure.viewer_rerender(self.fig, **july)
+        page.evaluate("async()=>await refreshDoc()")
+        page.wait_for_function("b=>META.pages_build===b", arg=helpers_figure.BUILD2, timeout=8000)
+        settle(page)
+
+    def test_a_saved_pins_mark_follows_its_element_after_a_re_render(self):
+        """The mark starts on the cell; after a re-render moves the cell it is drawn at the cell's new box, solid (a
+        placed element is no estimate)."""
+        page = self.open_fig()
+        pid = self.saved_cell_pin(page, "7월 칸 글자 키우기")
+        mark = '.mark[data-pin="%d"]' % pid
+        self.assert_box(page, mark, 1, helpers_figure.JULY)
+        moved = (0.30, 0.18, 0.07, 0.12)  # clear of the August cell
+        self.rerender_and_refresh(page, july=moved)
+        self.assert_box(page, mark, 1, moved)
+        self.assertEqual(page.evaluate("s=>[...document.querySelector(s).classList]", mark), ["mark"])
+
+    def test_a_mark_whose_element_moved_to_page_2_is_drawn_and_counted_there(self):
+        """The cell moves to page 2: its mark is drawn there, the card's page link says 2쪽, and [보기] brings the mark
+        on screen."""
+        page = self.open_fig()
+        pid = self.saved_cell_pin(page, "7월 칸 글자 키우기")
+        there = (0.30, 0.40, 0.10, 0.05)
+        self.rerender_and_refresh(page, july=there, july_page=2)
+        mark, card = '.mark[data-pin="%d"]' % pid, '.pin[data-id="%d"]' % pid
+        self.assert_box(page, mark, 2, there)
+        self.assertEqual(self.text(page, card + " .pg-link"), "2쪽")
+        page.click(card + " .pg-link")
+        settle(page)
+        self.assertTrue(
+            page.evaluate(
+                """s=>{const m=document.querySelector(s).getBoundingClientRect(),l=document.getElementById('left').getBoundingClientRect();
+                return m.top>=l.top&&m.bottom<=l.bottom;}""",
+                mark,
+            )
+        )
+
+    def test_a_lost_element_shows_element_lost_like_a_lost_line(self):
+        """The re-render drops the cell: the card gets '요소 잃음', the lost dot and the warning border, the mark stays
+        where the pin was placed in the warning colour, and one toast says so."""
+        page = self.open_fig()
+        pid = self.saved_cell_pin(page, "7월 칸 글자 키우기")
+        self.rerender_and_refresh(page, july=None)
+        card, mark = '.pin[data-id="%d"]' % pid, '.mark[data-pin="%d"]' % pid
+        self.assertIn("요소 잃음", self.text(page, card + " .tags"))
+        self.assertEqual(
+            page.evaluate("s=>[...document.querySelector(s).classList]", card + " .st-dot"), ["st-dot", "lost"]
+        )
+        self.assertTrue(page.evaluate("s=>document.querySelector(s).classList.contains('st')", card))
+        self.assertTrue(page.evaluate("s=>document.querySelector(s).classList.contains('st')", mark))
+        self.assert_box(page, mark, 1, helpers_figure.JULY)
+        self.assertEqual(page.locator("#toasts .toast").filter(has_text="#%d 요소를 잃었습니다" % pid).count(), 1)
+
+    def test_a_region_pins_card_and_edit_card_name_the_page_its_element_is_on_now(self):
+        """The August cell is drawn without code, so it is pinned as a region with its element. After a re-render takes
+        the cell to page 2, the card's copy text and the edit card's location name page 2, not page 1 where it was
+        pinned."""
+        page = self.open_fig()
+        pid = self.saved_pin_at(page, helpers_figure.AUGUST_DRAG, "8월 칸이 비어 있음")
+        rec = find_record(ps.APP.snapshot_pins(), pid)
+        self.assertEqual((rec["kind"], rec["page"], rec["el"]["id"]), ("region", 1, helpers_figure.AUGUST_ID))
+        self.rerender_and_refresh(page, august_page=2)
+        card = '.pin[data-id="%d"]' % pid
+        self.assertTrue(page.evaluate("s=>document.querySelector(s+' .loc').dataset.copy", card).endswith(" 쪽 2"))
+        page.evaluate("id=>openEdit(id)", pid)
+        page.wait_for_selector(".edit .e-range", timeout=8000)
+        self.assertEqual(self.text(page, ".edit .e-range"), "쪽 2 · 영역")
+        self.assertTrue(page.evaluate("document.querySelector('.edit .e-range').dataset.copy").endswith(" 쪽 2"))
+
+    def test_re_placing_a_view_only_region_pin_sends_only_the_region_and_keeps_its_shape(self):
+        """On the reviewer's PDF a drag pins a region. [위치 다시 잡기] then [이 위치로 바꾸기] sends a loc with the page,
+        the box, the quote and the build and nothing else (no lines, no element), and the pin stays a region at the
+        new box."""
+        page = self.open(0, init=self.NO_COACH)
+        page.evaluate("async()=>await switchDoc('rv')")
+        page.wait_for_function("DOC==='rv'&&document.querySelectorAll('#doc .pg').length===2", timeout=8000)
+        settle(page)
+        pid = self.saved_pin_at(page, (0.2, 0.2, 0.3, 0.1), "이 문단 다시 쓰기")
+        before = find_record(ps.APP.snapshot_pins(), pid)
+        self.assertEqual((before["doc"], before["kind"], before["page"]), ("rv", "region", 1))
+        page.evaluate("id=>openEdit(id)", pid)
+        page.wait_for_selector(".edit .b-repick", timeout=8000)
+        page.click(".edit .b-repick")
+        page.wait_for_function("REPICK!==null", timeout=8000)
+        new = (0.5, 0.5, 0.3, 0.1)
+        self.drag(page, new, ready="REPICK&&REPICK.cand")
+        with page.expect_request(lambda r: r.url.endswith("/edit")) as sent:
+            page.click('#banner [data-act="rp-apply"]')
+        loc = json.loads(sent.value.post_data)["loc"]
+        self.assertEqual(sorted(loc), ["frac", "page", "pdf_build", "quote"])
+        page.wait_for_function("REPICK===null", timeout=8000)
+        settle(page)
+        after = find_record(ps.APP.snapshot_pins(), pid)
+        self.assertEqual((after["doc"], after["kind"], after["page"]), ("rv", "region", 1))
+        self.assertNotIn("el", after)
+        self.assertGreater(after["rev"], before["rev"])
+        self.assert_frac(after["frac"], [round(v, 6) for v in loc["frac"]])
+        self.assertGreater(after["frac"][0], before["frac"][0] + 0.2)

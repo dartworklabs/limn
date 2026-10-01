@@ -171,6 +171,17 @@ class MessageTable(unittest.TestCase):
         self.assertGreater(len(used), 150)
         self.assertEqual(sorted(k for k in used if k not in UI_EN), [])
 
+    def test_every_tooltip_text_has_a_translation(self):
+        """The tooltip table T (core.js) reaches the screen through tr(T.x), which composed_keys() cannot see: every text
+        in it has an English entry, so a new tooltip is never left in Korean."""
+        found = re.search(r"^const T=\{(.*?)^\};$", HTML, re.S | re.M)
+        assert found is not None, "core.js no longer declares `const T={...};` at line start"
+        texts = [
+            re.sub(r"\\(.)", r"\1", m.group(2)) for m in re.finditer(r"\w+:(['\"])((?:\\.|(?!\1).)*)\1", found.group(1))
+        ]
+        self.assertGreater(len(texts), 20)
+        self.assertEqual(sorted(t for t in texts if t not in UI_EN), [])
+
     def test_every_static_ui_string_has_a_translation(self):
         html = page_for("A-DEMO", "#2563eb")
 

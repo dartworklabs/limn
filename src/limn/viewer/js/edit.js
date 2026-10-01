@@ -3,6 +3,9 @@
 const EDITOR={current:null,saving:false};
 // A dirty edit card survives document switches, so only replacement or cancellation revokes its pending response.
 function editorOwns(card){return EDITOR.current===card;}
+// Opens the edit card for pin `id` (the pin's document is switched to first) and focuses its note: builds the card markup,
+// records the pin's current values as the editor's baseline (EDITOR.current, including a figure pin's element) and loads the
+// snippet and range ladder. An edit already open on that pin is left as it is.
 function openEdit(id){if(viaDoc(id,openEdit))return; const p=PINS.find(x=>x.id===id); if(!p)return;
   if(document.body.classList.contains('revision-open'))jumpPin(id);
   if(EDITOR.current&&EDITOR.current.id===id)return;
@@ -27,7 +30,7 @@ function openEdit(id){if(viaDoc(id,openEdit))return; const p=PINS.find(x=>x.id==
   EDITOR.current={id,el,base_rev:p.rev||0,file:p.file,name:p.name||String(p.file||p.pdf||'').split('/').pop(),lo:p.lo,hi:p.hi,scope:p.scope||null,
     kind:p.kind,env:null,levels:[],n_lines:null,snippet:'',orig:{lo:p.lo,hi:p.hi,scope:p.scope||null,note:p.note||'',kind_req:isQuestion(p)?KIND_REQ.QUESTION:KIND_REQ.FIX,assignee:assigneeOf(p)},
     assignee:assigneeOf(p),
-    doc:pdoc(p),region:isRegion(p),page:p.page,quote:p.quote||'',kind_req:isQuestion(p)?KIND_REQ.QUESTION:KIND_REQ.FIX};
+    doc:pdoc(p),region:isRegion(p),pinEl:p.el||null,page:pinPlace(p).page,quote:p.quote||'',kind_req:isQuestion(p)?KIND_REQ.QUESTION:KIND_REQ.FIX};
   if(EDITOR.current.region)el.classList.add('region');
   drawPins(); renderEdit(); ta.focus(); editSnip(true);
 }
@@ -54,13 +57,20 @@ function renderEdit(){const E=EDITOR.current; if(!E)return; const el=E.el;
   const pre=el.querySelector('.e-snip'); pre.className='e-snip '+(WRAP?'wrap':'nowrap'); pre.textContent=snipText(E.snippet,false); renderAssignEdit();
   qHint(el.querySelector('.e-qhint'),el.querySelector('.e-note').value,E.kind_req);}
 function cancelEdit(){EDITOR.current=null; drawPins();}
+// Saves the open edit card (POST /api/pins/<id>/edit with `base_rev`): only what changed is sent - the note, the kind, the
+// assignee and, when the lines or the ladder rung moved, lo/hi with scope and kind. Nothing changed just closes the card.
+// On 409 for a closed pin (error===done) the card closes and a warning says only the note can still be changed; on any other
+// 409 (a rival edit) the card adopts the stored pin's rev, range, scope, file and element. Always reloads the pins. A viewer
+// role and a save already under way send nothing.
 async function saveEdit(){const E=EDITOR.current; if(!E||EDITOR.saving||viewerBlocked())return;
   const note=E.el.querySelector('.e-note').value, body={base_rev:E.base_rev};
   if(note!==E.orig.note)body.note=note;
   if(E.kind_req&&E.kind_req!==E.orig.kind_req)body.kind_req=E.kind_req;
   if(E.assignee&&E.assignee!==E.orig.assignee)body.assignee=E.assignee;
   if(body.note!==undefined){const mh=mentionHints(E.el.querySelector('.e-note')); if(mh.length)body.mentions=mh;}
-  if(E.lo!==E.orig.lo||E.hi!==E.orig.hi||(E.scope||null)!==(E.orig.scope||null)){body.lo=E.lo;body.hi=E.hi;
+  // A figure pin's ladder here is raw/lines only (no element rungs): a rung press alone would trade the element's kind
+  // for 'lines', so only changed lines are sent; the pin keeps its el either way (a range edit is not a loc).
+  if(E.lo!==E.orig.lo||E.hi!==E.orig.hi||(!E.pinEl&&(E.scope||null)!==(E.orig.scope||null))){body.lo=E.lo;body.hi=E.hi;
     if(E.scope){body.scope=E.scope; body.kind=kindFor(E.scope,E.env);}}
   if(Object.keys(body).length===1){cancelEdit();return;}
   EDITOR.saving=true;
@@ -68,7 +78,7 @@ async function saveEdit(){const E=EDITOR.current; if(!E||EDITOR.saving||viewerBl
     if(status===409){
       if(data&&data.error===PIN_STATE.DONE){toast(tl('핀 #{id} 은 이미 닫혀 범위를 바꿀 수 없습니다 — 메모만 고칠 수 있습니다',{id:E.id}),'warn'); if(editorOwns(E))EDITOR.current=null; await loadPins(); return;}
       const p=data.pin; toast('다른 쪽(에이전트나 자동 줄 맞춤)이 이 핀을 먼저 바꿨습니다 — 최신 위치를 불러왔습니다','warn');
-      if(editorOwns(E)){E.base_rev=p.rev; E.lo=p.lo; E.hi=p.hi; E.scope=p.scope||null; E.file=p.file;
+      if(editorOwns(E)){E.base_rev=p.rev; E.lo=p.lo; E.hi=p.hi; E.scope=p.scope||null; E.file=p.file; E.pinEl=p.el||null;
         E.orig={lo:p.lo,hi:p.hi,scope:p.scope||null,note:p.note||'',kind_req:E.orig.kind_req,assignee:assigneeOf(p)}; editSnip(true);}
       await loadPins(); return;}
     if(editorOwns(E))EDITOR.current=null; toast(tl('핀 #{id} 수정됨',{id:E.id}),'ok'); await loadPins();

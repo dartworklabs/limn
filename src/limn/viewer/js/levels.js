@@ -16,14 +16,19 @@ function curLevel(o){const ls=o.levels||[];
 function rng(lo,hi){return 'L'+lo+(hi!==lo?'-L'+hi:'');}
 // Segment-control labels are kept short - '환경 abstract' -> 'abstract'. When the same environment name appears more than
 // once, '(바깥)' is kept to distinguish them. The line range is left out of the label, going instead into the description (data-tip)/aria-label and the location line.
-function levelName(lv,all){if(!lv.env)return levelLabel(lv.label);
+// A figure rung is named by its element as the server labelled it (a person's words, not run through levelLabel).
+function levelName(lv,all){if(lv.el)return String(lv.label||elName(lv.el)); if(!lv.env)return levelLabel(lv.label);
   const dup=(all||[]).filter(o=>o.env===lv.env).length>1; return dup?levelLabel(lv.label).replace(/^(환경|Environment) /,''):lv.env;}
-function levelBtns(o,isEdit){const cur=curLevel(o),ls=o.levels||[]; return ls.map(lv=>{const on=lv===cur;
-  const tip=isEdit&&lv.level==='raw'?T.cur:(lv.level.startsWith('env')?T.env:T[lv.level]);
-  const label=isEdit&&lv.level==='raw'?tr('지금 범위'):levelName(lv,ls),nl=tl('{n}줄',{n:lv.n});
+// The range ladder's segments (composer and edit card): one button per rung, the rung matching the range pressed. A
+// figure rung (it carries an element) gets the element's tooltip; its line count comes from lo-hi when the rung has no n.
+function levelBtns(o,isEdit){const cur=curLevel(o),ls=o.levels||[]; return ls.map(lv=>{const on=lv===cur,n=rungLines(lv);
+  const tip=lv.el?rungTip(lv):isEdit&&lv.level==='raw'?T.cur:(lv.level.startsWith('env')?T.env:T[lv.level]);
+  const label=isEdit&&lv.level==='raw'?tr('지금 범위'):levelName(lv,ls),nl=tl('{n}줄',{n});
   return '<button class="'+(on?'on':'')+'" data-act="level" data-level="'+esc(lv.level)+'" aria-pressed="'+on+'" aria-label="'+
     esc(label+' '+rng(lv.lo,lv.hi)+' · '+nl)+'" data-tip="'+esc(rng(lv.lo,lv.hi)+' · '+tr(tip))+'">'+
-    esc(label)+' <span class="k'+(lv.n>50?' wn':'')+'">· '+esc(nl)+'</span></button>';}).join('');}
+    esc(label)+' <span class="k'+(n>50?' wn':'')+'">· '+esc(nl)+'</span></button>';}).join('');}
+// A rung's line count: the server's n, else its lo-hi span (a figure rung may come without n).
+function rungLines(lv){return typeof lv.n==='number'?lv.n:lv.hi-lv.lo+1;}
 // Scrolls a horizontally overflowing segment control so the selected segment is visible (vertical scroll is left untouched).
 function segReveal(seg){const on=seg&&seg.querySelector('.on'); if(!on){segFade(seg);return;}
   const l=on.offsetLeft,r=l+on.offsetWidth;
@@ -34,7 +39,9 @@ function segReveal(seg){const on=seg&&seg.querySelector('.on'); if(!on){segFade(
 function segFade(seg){if(!seg)return; const over=seg.scrollWidth-seg.clientWidth;
   seg.classList.toggle('fade-l',over>1&&seg.scrollLeft>1); seg.classList.toggle('fade-r',over>1&&over-seg.scrollLeft>1);}
 document.addEventListener('scroll',e=>{const t=e.target; if(t&&t.classList&&t.classList.contains('seg'))segFade(t);},true);
-function useLevel(o,key){const lv=lvOf(o,key); if(!lv)return; o.lo=lv.lo;o.hi=lv.hi;o.scope=lv.level;o.env=lv.env||null;o.snippet=lv.snippet;}
+// Applies rung key to o (the composer's selection or an edit card): its lines, scope and source; a figure rung also selects
+// its element (elSel), which a later nudge to other lines keeps.
+function useLevel(o,key){const lv=lvOf(o,key); if(!lv)return; o.lo=lv.lo;o.hi=lv.hi;o.scope=lv.level;o.env=lv.env||null;o.snippet=lv.snippet; if(lv.el)o.elSel=lv.el;}
 function nudge(o,dir){let lo=o.lo,hi=o.hi; const max=o.n_lines||hi+1;
   if(dir==='up-grow')lo=Math.max(1,lo-1); else if(dir==='up-shrink')lo=Math.min(hi,lo+1);
   else if(dir==='down-grow')hi=Math.min(max,hi+1); else if(dir==='down-shrink')hi=Math.max(lo,hi-1);
@@ -47,10 +54,11 @@ function refetchSnip(o,after){const visit=captureVisit(); clearTimeout(snipT); s
 function snipText(text,open){const ls=String(text||'').split('\n');
   return (open||ls.length<=8)?ls.join('\n'):ls.slice(0,8).join('\n')+'\n      … '+tl('{n}줄 접힘',{n:ls.length-8});}
 // Location match-rate badge: hidden at 90% or above (a number on a location you can trust is just noise). Below that, '위치 불확실';
-// below 30%, the warning color. The method used, match rate, and what to check go in the description instead ('match 100%' alone was meaningless). Shared by the composer panel and cards.
+// below 30%, the warning color. The method used (coordinates, text, or the figure map - whose score is how much of the drag lies in
+// the chosen element), the match rate and what to check go in the description. Shared by the composer panel and cards.
 const VIA_HIDE=90,VIA_WARN=30;
 function viaTag(p){if(!p.via)return null; const pct=Math.round((+p.score||0)*100);
   if(pct>=VIA_HIDE)return null; const low=pct<VIA_WARN;
-  const how=p.via==='synctex'?tr('좌표로 찾음'):(p.via==='text'?tr('글자로 찾음'):tl('찾은 방법: {via}',{via:p.via}));
-  const why=tr(p.via==='text'?T.text:T.synctex);
+  const how=p.via===VIA.SYNCTEX?tr('좌표로 찾음'):p.via===VIA.TEXT?tr('글자로 찾음'):p.via===VIA.MAP?tr('지도로 찾음'):tl('찾은 방법: {via}',{via:p.via});
+  const why=tr(p.via===VIA.SYNCTEX?T.synctex:p.via===VIA.TEXT?T.text:p.via===VIA.MAP?T.map:T.viaother);
   return {t:tr('위치 불확실'),tip:tl('{how} · 일치 {pct}% — {why}',{how,pct,why})+(low?' '+tr('많이 어긋났을 수 있습니다.'):''),low};}

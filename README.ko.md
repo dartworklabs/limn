@@ -31,7 +31,8 @@ PDF 에서 고칠 곳을 드래그하고 메모를 남기면 Limn 이 그것을 
 사람이 확인하면 끝난다. 같은 사설망의 공저자도 핀을 남기고, 누가 남겼는지 기록된다.
 
 - 표준 라이브러리만 쓰는 Python 서버 하나, PDF 를 벡터로 그리는 브라우저 뷰어(PDF.js 동봉)
-- 원고 하나에 여러 문서(본문·답변서·보기 전용 리뷰어 PDF, 일부 지원하는 그림 문서)를 탭으로
+- 원고 하나에 여러 문서(본문·답변서·보기 전용 리뷰어 PDF·그림 문서)를 탭으로
+- 그림 문서: 코드로 그린 그림 모음(그림 한 장이 PDF 한 쪽, 요소 지도 `limn-figure-map/1`)을 탭으로 연다. 드래그하면 요소와 그 요소를 그린 스크립트 줄을 찾고, 그림을 다시 렌더해도 핀 표시가 요소를 따라간다
 - 요청하거나 업스트림 브랜치가 움직이면 재빌드(`--git-pull`)
 - 스레드·질문·@태그·담당·완료 전 검토·핀별 변경 보기
 - 닫힌 핀에는 [답글] 하나: 사람이 단 답글은 핀을 에이전트에게 되돌린다(보내기 전 한 줄로 알리고, 보낸 뒤 되돌릴 수 있다). 삭제한 핀은 30일 동안 휴지통에
@@ -43,11 +44,11 @@ Python 3.10 이상, [uv](https://docs.astral.sh/uv/), SyncTeX 가 되는 TeX 배
 Poppler(`pdftoppm`)가 필요하다.
 
 ```bash
-uv tool install git+https://github.com/dartworklabs/limn@v0.3.8
+uv tool install git+https://github.com/dartworklabs/limn@v0.4.0
 limn version
 ```
 
-GitHub SSH 접근이 있으면 `git+ssh://git@github.com/dartworklabs/limn@v0.3.8` 도 된다.
+GitHub SSH 접근이 있으면 `git+ssh://git@github.com/dartworklabs/limn@v0.4.0` 도 된다.
 
 ## 서버 하나 띄우기
 
@@ -124,7 +125,7 @@ Limn 은 2026-09-21 writing-agent-playbook 저장소의 `manuscript-pin-picker` 
 아무 것도 지우지 않는다. 포트·테일넷 주소·핀이 그대로 이어진다.
 
 ```bash
-uv tool install git+https://github.com/dartworklabs/limn@v0.3.8
+uv tool install git+https://github.com/dartworklabs/limn@v0.4.0
 limn migrate --dry-run            # 계획: ~/.config/pin-viewer/<이름>.env -> ~/.config/limn/<이름>.env
 limn migrate                      # 설정 복사(여러 번 불러도 같다, 옛 파일은 남는다)
 # 인스턴스마다:

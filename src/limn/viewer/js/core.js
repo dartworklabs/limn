@@ -27,6 +27,9 @@ const RANGE_REL=Object.freeze({EQUAL:'equal',INSIDE:'inside',CONTAINS:'contains'
 const KIND_REQ=Object.freeze({FIX:'fix',QUESTION:'question'});   // a pin's `kind_req` (pins.model.KindReq)
 const ROLE=Object.freeze({OWNER:'owner',EDITOR:'editor',VIEWER:'viewer',AGENT:'agent'});   // a person's `role` (access.ROLES)
 const EVENT_TYPE=Object.freeze({MENTION:'mention',REVIEW_REQUESTED:'review_requested',REPLIED:'replied',REOPENED:'reopened',ASSIGNED:'assigned',DROPPED:'dropped'});   // an event's `type` (events.EventType)
+const VIA=Object.freeze({SYNCTEX:'synctex',TEXT:'text',MAP:'map'});   // how a pick traced its range: a pick's and a pin's `via` (limn.pins.location.mapping.Via)
+const DOC_KIND=Object.freeze({TEX:'tex',PDF:'pdf',FIGURE:'figure'});   // a document's `kind` in /api/docs and /api/meta (limn.runtime.documents.DocKind)
+const EL_SYNC=Object.freeze({OK:'ok',MOVED:'moved',LOST:'lost'});   // where a figure pin's element is in the current build: a pin's `el_sync` (limn.builds.figure_map.ElSync)
 const LOCAL_LOGIN='local',ASSIGNEE_AGENT='agent';   // the identity-less local login (access.LOCAL_LOGIN); the assignee meaning "the agent" (pins.edit.ASSIGNEE_AGENT)
 const LAYOUT_MODE=Object.freeze({WIDE:'wide',MID:'mid',NARROW:'narrow'});   // LAYOUT, by window width (layoutFor)
 const CARD_DOT=Object.freeze({OPEN:'open',CLAIMED:'claimed',REVIEW:'review',LOST:'lost'});   // a card's status dot (stDot); also its CSS class
@@ -34,6 +37,11 @@ const DIFF_FORMAT=Object.freeze({PDF:'pdf',SOURCE:'source'});   // the changes v
 const VIEW_MODE=Object.freeze({MANUSCRIPT:'manuscript',REVISIONS:'revisions'});   // the manuscript or the changes view; index.html data-mode
 const UI_LANG=Object.freeze({KO:'ko',EN:'en'});   // LANG
 const NOTIFY_STATE=Object.freeze({ON:'on',OFF:'off',BLOCKED:'blocked',UNSUPPORTED:'unsupported',LOCAL:'local'});   // browser notifications on this device (notifyState)
+// Whether a document `kind` is a figure document (a figure set drawn by code, with its element map): the one place this is asked.
+function isFigureKind(kind){return kind===DOC_KIND.FIGURE;}
+// Whether a document of this `kind` is rebuilt from its source: only a LaTeX one. A view-only PDF and a figure redraw when their
+// files change, so they have no rebuild and word a finished build as a redraw.
+function buildsFromSource(kind){return kind===DOC_KIND.TEX;}
 let META=null,PINS=[],DONE=[],DROPPED=[],REPICK=null,PICKSEQ=0;
 let SNIP_OPEN=false,W=900,WRAP=true;
 // Mobile: LAYOUT is a LAYOUT_MODE (wide|mid|narrow), SIDE_OPEN is whether the panel/sheet is expanded, SELMODE is touch selection mode,
@@ -67,6 +75,7 @@ window.__pinViewerBoot=Date.now();   // a marker for checking reload status from
 
 const T={
   stale:'핀을 찍은 첫 문장이 바뀌거나 지워져 위치를 되찾지 못했습니다. 이미 고쳐졌을 수 있으니 확인한 뒤 완료하거나 [수정] → 위치 다시 잡기를 하세요',
+  ellost:'그림을 다시 그린 뒤 지도에서 이 요소를 찾지 못했습니다(요소 id가 바뀌었거나 지워짐). 표시는 핀을 찍은 때 자리에 그립니다. 이미 고쳐졌을 수 있으니 확인한 뒤 완료하거나 [수정] → 위치 다시 잡기를 하세요',
   n:"누르면 PDF에서 이 핀 자리로 갑니다. 에이전트에게는 '#2 처리해줘'처럼 번호로 부르세요. 번호는 다시 쓰이지 않습니다",
   loc:'핀이 가리키는 원문 줄. 클릭하면 복사',
   view:'PDF에서 이 핀 자리로 가서 깜빡입니다', edit:'메모와 범위를 고칩니다. 번호는 그대로입니다',
@@ -78,9 +87,16 @@ const T={
   purge:'휴지통에서 영구 삭제합니다(소유자만). 알림이 떠 있는 동안 [되돌리기]로 취소할 수 있고, 알림이 사라지면 지웁니다',
   synctex:'PDF 좌표(SyncTeX)로 줄을 찾았지만 드래그한 글자가 이 줄 범위에 다 있지는 않습니다(드문 낱말에 가중한 비율). 원문 칸에서 고칠 곳이 이 줄들에 들어 있는지 확인하세요.',
   text:'드래그한 글자를 원문에서 직접 찾아 위치를 정했습니다(표·기호표처럼 좌표 조회가 약한 곳). 원문 칸에서 고칠 곳이 이 줄들에 들어 있는지 확인하세요.',
+  viaother:'이 화면이 알지 못하는 방법으로 위치를 정했고, 드래그와 다 맞지는 않습니다. 고칠 곳이 이 범위에 들어 있는지 확인하세요.',
+  map:'그림 지도에서 드래그와 가장 많이 겹치는 요소를 골랐습니다. 고른 상자가 고칠 곳을 덮는지 확인하세요.',
   raw:'넓히기 전에 드래그 영역이 직접 가리킨 줄만 잡습니다',
   para:'드래그한 자리를 감싸는 문단 전체입니다(앞뒤 % 주석 줄은 뺍니다)',
   env:'감싸는 \\begin{…}…\\end{…} 블록 전체입니다. (바깥)은 한 단계 더 바깥 블록입니다',
+  el:'이 요소를 그린 코드 줄입니다. 대기 상자가 그림의 이 요소에 맞춰집니다',
+  fig:'그림 전체를 그린 코드 줄입니다',
+  elregion:'이 요소를 그린 코드 줄을 찾지 못했습니다 — 쪽·영역과 요소로 핀을 남깁니다',
+  figregion:'그림 지도를 읽지 못해 쪽·영역과 영역 글자로 핀을 남깁니다',
+  shape:'이 자리는 지금 핀과 모양(줄/영역)이 달라 옮길 수 없습니다 — 다른 자리를 고르거나 새 핀을 남기세요',
   cur:'지금 핀이 가리키는 범위 그대로입니다',
   undo:'방금 한 저장·완료·삭제를 되돌립니다',
   question:'고칠 곳이 아니라 묻는 핀입니다. 답은 아래 스레드에 달리고, 원고는 질문이 수정을 뜻할 때만 고칩니다',

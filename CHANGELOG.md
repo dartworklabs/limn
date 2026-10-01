@@ -1,28 +1,38 @@
 # Changelog
 
-## Unreleased
+## 0.4.0 — 2026-10-01
 
-**Release blocker:** figure pins need the P1c viewer; do not release from main until P1c is merged (P1c removes this line and tests/contracts/test_release_blocker.py).
-
-Figure pins, server side: a drag on a figure document is traced to the lines of the script that drew the element, a
-pin records its element, and its position is followed across re-renders. The agent contract grows (new fields and new
-values in existing lists); one field changes its value for figure documents (below). For an instance without figure
-documents `pins.md`, the API and the state directory are unchanged, with these exceptions: the grown value lists and the
-`bad_via` and `bad_scope` sentences that list them, the wording of the `no_source_lines` and `view_only_no_rebuild`
-refusal sentences (same reason codes), anchors of `.py` sources skipping `#` comment lines, and non-finite stored
-numbers reading as `null`. The viewer side ships in 0.4.0.
+Figure documents: a figure set drawn by code (one PDF page per figure plus a `limn-figure-map/1` element map) opens as a
+tab. A drag is traced to the element and the lines of the script that drew it, a pin records its element, and its mark
+follows the element across re-renders. The agent contract grows (new fields and new values in existing lists); one
+field changes its value for figure documents (below). For an instance without figure documents `pins.md`, the API and
+the state directory are unchanged, with these exceptions: the grown value lists and the `bad_via` and `bad_scope`
+sentences that list them, the wording of the `no_source_lines` and `view_only_no_rebuild` refusal sentences (same
+reason codes), anchors of `.py` sources skipping `#` comment lines, non-finite stored numbers reading as `null`, and the
+three retired `/favicon-dark*` icon paths (below).
 
 ### Added
 
-- **Figure pins (unreleased on `main`; ships with the viewer in 0.4.0).** A drag on a figure document is traced
-  through its build's element map: `POST /api/pick` answers the lines of the drawing script with `via: "map"`, the
-  element ladder (`levels` `el`, `el2` … `el8`, `fig`) and the element `el` (`id`, `path`, `label`, `part`, `impl`,
-  `frac`). An element drawn without code, or a figure whose map does not load, answers the region with a `warn` that
-  leads with the reason (there is no reason code field), and with `el` when an element was chosen. Pins take the
-  optional `el` (`POST /api/pin`, an edit's `loc`); a malformed one is `400 bad_el`. Figure documents take line pins:
-  an agent's `curl` with only a file routes to the document whose folder holds the file most deeply; at equal depth a
-  `.tex`, `.bib`, `.sty`, `.cls` or `.bst` file (any case) goes to the LaTeX document and any other file to the
-  figure document.
+- **Figure documents in the viewer.** A figure document is marked `그림` on the documents sheet (the desktop document
+  links name it in their tooltip) and has no [PDF rebuild]; rebuild is shown only for documents whose `kind` is
+  `"tex"`. A drag snaps the pending box onto the element the map
+  chose and names it in the location line (`B2 › 달력 › 7월 · B2_calendar.py L88-L95`); the range ladder runs from the
+  element up through its ancestors to the whole figure without asking the server again, and the selected rung's
+  element is the one pinned. Saving and re-placing send the element as `el` with its box, and that box as the pin's
+  `frac`. A figure pin's mark follows its element across re-renders (`mark`, `mark_page`) and is solid while the
+  element is found; a lost element's mark stays where the pin was placed, in the warning colour and dashed (`.est`), and
+  the card shows `요소 잃음` like a lost line. The location-uncertain badge keeps its text `위치 불확실`; for a pick the map made,
+  its tooltip says `지도로 찾음`. A figure region is labelled `코드 없는 요소` (element without code lines) or `영역`
+  (map unreadable), not `보기 전용`. A long-press on a figure picks the element under the finger. A `null` box from
+  the API draws no mark.
+- **Figure pins.** A drag on a figure document is traced through its build's element map: `POST /api/pick` answers the
+  lines of the drawing script with `via: "map"`, the element ladder (`levels` `el`, `el2` … `el8`, `fig`) and the
+  element `el` (`id`, `path`, `label`, `part`, `impl`, `frac`). An element drawn without code, or a figure whose map
+  does not load, answers the region with a `warn` that leads with the reason (there is no reason code field), and
+  with `el` when an element was chosen. Pins take the optional `el` (`POST /api/pin`, an edit's `loc`); a malformed
+  one is `400 bad_el`. Figure documents take line pins: an agent's `curl` with only a file routes to the document
+  whose folder holds the file most deeply; at equal depth a `.tex`, `.bib`, `.sty`, `.cls` or `.bst` file (any case)
+  goes to the LaTeX document and any other file to the figure document.
 - **Read-time element position.** `GET /api/pins` adds `mark`, `mark_page` and `el_sync` (`ok`/`moved`/`lost`) to a
   figure pin, computed on the build on screen; nothing is written and a re-render never changes `rev`. A pin without
   any recorded box is never `ok`. Each build's map copy is parsed once per run.
@@ -59,6 +69,13 @@ numbers reading as `null`. The viewer side ships in 0.4.0.
   `claim_ts`, `eta_ts`, and numbers inside `anchor`, `thread` or a field this version does not know) is `null` one by
   one. The stored line is untouched. `pins.md` no longer fails for a region pin with such a `frac`, which had failed
   every later pin write.
+
+### Removed
+
+- **`/favicon-dark.ico`, `/favicon-dark-16.png`, `/favicon-dark-32.png`.** 0.3.8 announced them as deprecated, serving
+  the same bytes as the paths without `-dark`; they are gone now and answer `404` like any unknown path. A tab still
+  open on a 0.3.6-0.3.7 page in a dark colour scheme shows no favicon until the page is reloaded; the current page
+  links only `/favicon.ico`, `/favicon-16.png` and `/favicon-32.png`. `pins.md` and the state directory are unchanged.
 
 ### Rollback
 

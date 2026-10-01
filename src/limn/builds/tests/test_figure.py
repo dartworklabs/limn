@@ -556,7 +556,7 @@ class Render(FigureTree):
         self.assertIsInstance(res, BuildOk)
         pdir = build.cur_pages(self.doc)
         self.assertEqual((res.build, res.pages, res.log, res.src_mtime), (pdir.name, 1, "", None))
-        self.assertEqual(sorted(p.name for p in pdir.iterdir()), ["figmap.json", "figures.pdf", "page-1.png"])
+        self.assertEqual(sorted(p.name for p in pdir.iterdir()), [build.FIGMAP_NAME, "figures.pdf", "page-1.png"])
         self.assertEqual((pdir / "figures.pdf").read_bytes(), self.pdf.read_bytes())
         self.assertEqual((pdir / build.FIGMAP_NAME).read_bytes(), self.map.read_bytes())
         self.assertEqual(res.src_hash, figure.figure_src_hash(self.pdf.read_bytes(), self.map.read_bytes()))

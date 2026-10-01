@@ -404,7 +404,7 @@ class FigurePick(Base):
 
     def test_no_loadable_map_answers_the_region_without_an_element(self):
         """No map copy, a copy the parser refuses, or a page the map does not describe: the region, no el."""
-        copy = self.fig.dir / BUILD1 / "figmap.json"
+        copy = self.fig.dir / BUILD1 / limn_build.FIGMAP_NAME
         copy.unlink()
         for setup in (lambda: None, lambda: copy.write_text("not json", encoding="utf-8")):
             setup()

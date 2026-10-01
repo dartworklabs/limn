@@ -7,7 +7,7 @@
 // basis (the layout viewport), so they stay correct even during a pinch zoom.
 let DRAG=null,LP=null;
 const c01=v=>Math.min(1,Math.max(0,v));
-const LONGPRESS_MS=450,TAP_SLOP=8,QUICK_W=0.07,QUICK_H=0.006;
+const LONGPRESS_MS=450,TAP_SLOP=8,QUICK_W=0.07,QUICK_H=0.006,QUICK_FIG=0.004;
 function fracAt(pg,cx,cy){const r=pg.getBoundingClientRect(); return [c01((cx-r.left)/r.width),c01((cy-r.top)/r.height)];}
 function newBox(pg){const b=document.createElement('div'); b.className='sel'; pg.appendChild(b); return b;}
 function drawBox(box,sx,sy,x,y){Object.assign(box.style,{left:Math.min(sx,x)*100+'%',top:Math.min(sy,y)*100+'%',
@@ -57,11 +57,18 @@ function isDoubleTap(a,b){return !!a&&!!b&&b.t-a.t<=300&&Math.hypot(b.x-a.x,b.y-
 function doubleTapWidth(w,fit){return Math.abs(w-fit)<=fit*0.05?fit*2:fit;}
 // Zooms around (x, y) to doubleTapWidth(); landing on fit width, compact stops counting as zoomed (it re-fits again).
 function doubleTapZoom(x,y){const fit=fitWidth(),w=doubleTapWidth(W,fit); zoomTo(w,x,y); if(w===fit&&LAYOUT!==LAYOUT_MODE.WIDE)ZOOMED=false;}
-// Quick selection: calls the existing /api/pick with a small box around the pressed point (page width +-7%, height
-// +-0.6% ~ one line). The server's default level is used as-is - 'paragraph' in body text, 'environment' inside a
-// figure/table - and then widened or narrowed via the range ladder.
-function quickPick(pg,cx,cy){const [x,y]=fracAt(pg,cx,cy);
-  finishRect(pg,newBox(pg),c01(x-QUICK_W),c01(y-QUICK_H),c01(x+QUICK_W),c01(y+QUICK_H));}
+// Quick selection: calls the existing /api/pick with a small box around the pressed point (quickBox). The server's
+// default level is used as-is - 'paragraph' in body text, 'environment' inside a figure/table, the element under the
+// point on a figure document - and then widened or narrowed via the range ladder.
+function quickPick(pg,cx,cy){const [x,y]=fracAt(pg,cx,cy),b=quickBox(x,y,isFigureKind(META&&META.kind));
+  finishRect(pg,newBox(pg),b[0],b[1],b[2],b[3]);}
+// The box a quick selection sends around the point (x, y), as page fractions [x0, y0, x1, y1]: about one text line on a
+// manuscript page (page width +-7%, height +-0.6%); on a figure a small box of +-0.4% of the page width by +-0.4% of its
+// height (a rectangle on a page that is not square), which the map reads as the point - the deepest element holding it
+// (docs/handbook/viewer.md §모바일 레이아웃). A line-shaped strip would cross a figure's small elements and resolve to
+// an outer one.
+function quickBox(x,y,figure){const w=figure?QUICK_FIG:QUICK_W,h=figure?QUICK_FIG:QUICK_H;
+  return [c01(x-w),c01(y-h),c01(x+w),c01(y+h)];}
 function finishRect(pg,box,sx,sy,x,y){
   const w=Math.abs(x-sx),h=Math.abs(y-sy);
   if(w<0.004&&h<0.004){box.remove();return;}

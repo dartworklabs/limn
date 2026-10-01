@@ -193,7 +193,7 @@ class BrowserBase(ChromiumTestCase):
 
     def route(self, route):
         """Playwright route handler: /api/pick gets a computed answer, every other viewer.test request goes to the
-        handler with WHO's tailnet headers (and a same-origin Origin on POST); anything else is aborted."""
+        handler (forward); anything else is aborted."""
         rq = route.request
         u = urlparse(rq.url)
         if u.netloc != "viewer.test":
@@ -223,6 +223,13 @@ class BrowserBase(ChromiumTestCase):
                 "pdf_build": cur_pages(ps.APP.docs[0]).name,
             }
             return route.fulfill(status=200, headers={"content-type": "application/json"}, body=json.dumps(d))
+        return self.forward(route)
+
+    def forward(self, route):
+        """Send one viewer.test request to the in-process handler as WHO (tailnet headers, and a same-origin Origin on a
+        POST) and fulfil the route with the handler's answer."""
+        rq = route.request
+        u = urlparse(rq.url)
         body = rq.post_data_buffer or b""
         h = {
             "Host": "127.0.0.1:18999",

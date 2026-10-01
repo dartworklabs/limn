@@ -105,15 +105,18 @@ function drawPins(){
 // wall clock, it was wrong across the board with browser timezone, a note-only edited_at, and a pin placed on a stale
 // PDF (confirmed by independent verification). The viewer just renders the value it's given.
 function isEstimated(p){return p.est===true;}
+// Draws one mark per open or awaiting-review pin of this document on its page: where the pin's element is now for a figure
+// pin (pinPlace), else where it was pinned. A pin without a usable box or page draws nothing.
 function marks(){
   $$('.mark').forEach(m=>m.remove());
   // Awaiting-review pins are also drawn as purple marks - so the reviewer can see right there what was fixed (unrelated to an open pin's overlap/editing).
-  PINS.concat(REVIEW_ALL.filter(p=>pdoc(p)===DOC)).forEach(p=>{const el=document.getElementById('p'+p.page); if(!el||!Array.isArray(p.frac))return;
-    const est=isEstimated(p);
-    const m=document.createElement('div'); m.className='mark'+(p.stale?' st':'')+(est?' est':'')+(pinState(p)===PIN_STATE.REVIEW?' rv':''); m.dataset.pin=p.id;
-    Object.assign(m.style,{left:p.frac[0]*100+'%',top:p.frac[1]*100+'%',width:p.frac[2]*100+'%',height:p.frac[3]*100+'%'});
+  // A figure pin is drawn where the server found its element in this build (see pinPlace), and a found element is no estimate.
+  PINS.concat(REVIEW_ALL.filter(p=>pdoc(p)===DOC)).forEach(p=>{const at=pinPlace(p),el=document.getElementById('p'+at.page); if(!el||!isFrac(at.frac))return;
+    const est=isEstimated(p)&&!hasMark(p),lost=p.stale||elLost(p);
+    const m=document.createElement('div'); m.className='mark'+(lost?' st':'')+(est?' est':'')+(pinState(p)===PIN_STATE.REVIEW?' rv':''); m.dataset.pin=p.id;
+    Object.assign(m.style,{left:at.frac[0]*100+'%',top:at.frac[1]*100+'%',width:at.frac[2]*100+'%',height:at.frac[3]*100+'%'});
     const n=String(p.note||'').replace(/\s+/g,' ').trim();
-    const tip='#'+p.id+' · '+(n?(n.length>60?n.slice(0,60)+'…':n):tr('(메모 없음)'))+(est?' '+tr('(PDF가 새로 만들어져 위치는 추정입니다)'):'');
+    const tip='#'+p.id+' · '+(n?(n.length>60?n.slice(0,60)+'…':n):tr('(메모 없음)'))+(est?' '+tr('(PDF가 새로 만들어져 위치는 추정입니다)'):'')+(elLost(p)?' · '+tr('요소 잃음'):'');
     m.innerHTML='<b data-act="mark-jump" data-id="'+p.id+'" data-tip="'+esc(tip)+'">'+p.id+'</b>'; el.appendChild(m);});
 }
 // Clicking a badge scrolls to and flashes the card (never calls pick). The mark box itself has pointer-events:none, so
@@ -147,6 +150,8 @@ function gotoPinRef(id){const p=findAnyPin(id); if(!p){if(DROPPED.some(x=>x.id==
   requestAnimationFrame(()=>{const el=document.querySelector('.pin[data-id="'+id+'"],.arc-row[data-id="'+id+'"]'); if(!el)return;
     el.scrollIntoView({behavior:SMOOTH,block:'nearest'}); el.classList.remove('flash'); void el.offsetWidth; el.classList.add('flash');
     clearTimeout(el._flT); el._flT=setTimeout(()=>el.classList.remove('flash'),1200);});}
+// Scrolls the mark of pin id into view and flashes it (switching to the pin's document first); a pin whose mark is not drawn
+// scrolls to the page the mark would be on.
 function jumpPin(id){if(viaDoc(id,jumpPin))return; const p=PINS.find(x=>x.id===id)||REVIEW_ALL.find(x=>x.id===id&&pdoc(x)===DOC);
   if(!p){const q=REVIEW_ALL.find(x=>x.id===id); if(q&&docInfo(pdoc(q))){const k=pdoc(q),opening=switchDoc(k),visit=SWITCHSEQ;
     opening.then(()=>{if(DOC===k&&visit===SWITCHSEQ)jumpPin(id);});} return;}
@@ -158,7 +163,7 @@ function jumpPin(id){if(viaDoc(id,jumpPin))return; const p=PINS.find(x=>x.id===i
     L.scrollTop+=(mr.top-(lr.top+lr.height*0.30));
     m.classList.remove('flash');void m.offsetWidth;m.classList.add('flash');
   } else {
-    const el=document.getElementById('p'+p.page); if(el)el.scrollIntoView({behavior:SMOOTH});
+    const el=document.getElementById('p'+pinPlace(p).page); if(el)el.scrollIntoView({behavior:SMOOTH});
   }
 }
 // Hovering a card highlights its mark, along with any overlapping counterpart marks.

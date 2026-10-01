@@ -17,6 +17,7 @@ import shutil
 import unittest
 from pathlib import Path
 
+from limn.builds import figure_map
 from limn.collaboration.events import NOTIFY_TYPES
 from limn.pins.listing import render as md_render
 from limn.pins.location import position
@@ -184,6 +185,7 @@ class FrontendLogic(unittest.TestCase):
             """,
                 extract_js_fn("buildChipText"),
                 extract_js_fn("pullSuffix"),
+                extract_js_fn("buildsFromSource"),
                 extract_js_fn("pollBuild"),
                 extract_js_fn("pollBuildOnce"),
                 r"""
@@ -1007,21 +1009,43 @@ class FrontendMobileLogic(unittest.TestCase):
             json.loads(run_node(js)), ["narrow", "narrow", "mid", "mid", "mid", "wide", "wide", "narrow", "mid", "wide"]
         )
 
-    def test_quick_pick_box_is_small_and_clamped(self):
+    def test_quick_pick_box_is_a_line_on_a_manuscript_and_a_point_on_a_figure(self):
+        """A quick selection sends about one text line around the point on a manuscript page (+-7 % x +-0.6 %), and a
+        point on a figure document: +-0.4 % of the page width by +-0.4 % of its height, a rectangle on a page that is
+        not square (here 400 x 600); both are clamped to the page at every corner. The half-widths are the page's own
+        (selection.js), not numbers this test repeats."""
+        consts = re.search(r"^const c01=.*;$", HTML, re.M).group(0) + re.search(
+            r"^const LONGPRESS_MS=.*;$", HTML, re.M
+        ).group(0)
         js = "\n".join(
             [
+                consts,
                 r"""
-            const c01=v=>Math.min(1,Math.max(0,v)); const QUICK_W=0.07,QUICK_H=0.006; const out=[];
+            const out=[]; let META=null;
             const pg={getBoundingClientRect:()=>({left:100,top:50,width:400,height:600})};
             function newBox(){return {};} function finishRect(pg,box,x0,y0,x1,y1){out.push([x0,y0,x1,y1].map(v=>+v.toFixed(4)));}
             """,
                 extract_js_fn("fracAt"),
+                extract_js_fn("isFigureKind"),
+                extract_js_fn("quickBox"),
                 extract_js_fn("quickPick"),
-                "quickPick(pg,300,350); quickPick(pg,90,40); quickPick(pg,510,660); console.log(JSON.stringify(out));",
+                "quickPick(pg,300,350); quickPick(pg,90,40); quickPick(pg,510,660);"
+                " META={kind:'figure'}; quickPick(pg,300,350); quickPick(pg,90,40); quickPick(pg,510,660);"
+                " console.log(JSON.stringify([out,[QUICK_W,QUICK_H,QUICK_FIG]]));",
             ]
         )
+        out, (quick_w, quick_h, quick_fig) = json.loads(run_node(js))
+        self.assertEqual((quick_w, quick_h, quick_fig), (0.07, 0.006, 0.004))
         self.assertEqual(
-            json.loads(run_node(js)), [[0.43, 0.494, 0.57, 0.506], [0, 0, 0.07, 0.006], [0.93, 0.994, 1, 1]]
+            out,
+            [
+                [0.43, 0.494, 0.57, 0.506],
+                [0, 0, 0.07, 0.006],
+                [0.93, 0.994, 1, 1],
+                [0.496, 0.496, 0.504, 0.504],
+                [0, 0, 0.004, 0.004],
+                [0.996, 0.996, 1, 1],
+            ],
         )
 
     def test_keyboard_inset_ignores_pinch_zoom_and_desktop(self):
@@ -1070,6 +1094,12 @@ class FrontendMobileLogic(unittest.TestCase):
                 extract_js_fn("locCopy"),
                 extract_js_fn("docChip"),
                 js_thread(),
+                extract_js_fn("isFrac"),
+                extract_js_fn("hasMark"),
+                extract_js_fn("pinPlace"),
+                extract_js_fn("elLost"),
+                extract_js_fn("elLostTag"),
+                extract_js_fn("figRegionBadge"),
                 extract_js_fn("card"),
                 js_icons(),
                 r"""
@@ -1857,7 +1887,7 @@ class FrontendDocs(unittest.TestCase):
         self.assertIn("body:not(.lay-narrow) #doc-nav{display:flex}", css)
         self.assertIn("#btn-doc{display:none;", css)
         self.assertIn("body.lay-narrow.docs-multi #btn-doc{display:inline-flex}", css)
-        self.assertIn("body.view-only #btn-rebuild{display:none}", css)
+        self.assertIn("body.no-rebuild #btn-rebuild{display:none}", css)
         self.assertIn('id="all-docs"', css)
         self.assertIn("$('#all-docs').hidden=!multiDoc()", HTML)
         self.assertIn("document.body.classList.toggle('docs-multi',multiDoc())", HTML)
@@ -2069,6 +2099,663 @@ class FrontendDocs(unittest.TestCase):
         self.assertIn("body.doc=d.doc||DOC||undefined;", body)
         self.assertIn("if(!o||!o.file)return out;", extract_js_fn("overlapsFor"))
         self.assertIn("#composer.region #c-levels", HTML)
+
+
+def js_tooltips() -> str:
+    """The viewer's tooltip table (`const T` in core.js) as the page declares it, for harnesses whose functions read T.x."""
+    found = re.search(r"^const T=\{.*?^\};$", HTML, re.S | re.M)
+    assert found is not None, "core.js no longer declares `const T={...};` at line start"
+    return found.group(0)
+
+
+def js_via_limits() -> str:
+    """The location-confidence thresholds viaTag() reads (`const VIA_HIDE=...` in levels.js)."""
+    found = re.search(r"^const VIA_HIDE=.*;$", HTML, re.M)
+    assert found is not None, "levels.js no longer declares `const VIA_HIDE=...;` at line start"
+    return found.group(0)
+
+
+# ---------------------------------------------------------------- figure documents (docs/handbook/viewer.md §패널 정리, §상태 표현)
+class FrontendFigure(unittest.TestCase):
+    """Figure documents in the viewer (P1c): the map as a way of finding, the figure tab without rebuild, the element a
+    pick chose (path, rungs, snapped box), what a figure pin saves, and where its mark goes. Pure functions run under
+    node; wiring is read from the served source."""
+
+    def node(self) -> None:
+        """Skip the calling check when node is missing."""
+        if not shutil.which("node"):
+            self.skipTest("node not available")
+
+    def test_a_figure_pick_under_90_percent_says_it_was_found_by_the_map(self):
+        """A figure pick's badge says '지도로 찾음' and the map's hint in Korean and English; 90 % and up shows no
+        badge, under 30 % the warning colour."""
+        self.node()
+        for lang, head in (
+            ("ko", "지도로 찾음 · 일치 50% — 그림 지도에서 드래그와"),
+            ("en", "Found by the figure map · 50% match — The figure map chose"),
+        ):
+            with self.subTest(lang=lang):
+                js = "\n".join(
+                    [
+                        js_i18n(lang),
+                        js_tooltips(),
+                        js_via_limits(),
+                        extract_js_fn("viaTag"),
+                        "console.log(JSON.stringify([viaTag({via:'map',score:0.5}),viaTag({via:'map',score:0.95}),"
+                        "viaTag({via:'map',score:0.2})]));",
+                    ]
+                )
+                half, confident, weak = json.loads(run_node(js))
+                self.assertTrue(half["tip"].startswith(head), half["tip"])
+                self.assertFalse(half["low"])
+                self.assertIsNone(confident)
+                self.assertTrue(weak["low"])
+
+    def test_rebuild_hides_by_document_kind_not_by_view_only(self):
+        """Only a LaTeX document builds: the rebuild button and the rebuilt/redrawn wording follow META.kind and a
+        document's kind, never view_only (a figure document is view_only:false and still has no rebuild)."""
+        css = HTML[HTML.index("<style>") : HTML.index("</style>")]
+        self.assertIn("body.no-rebuild #btn-rebuild{display:none}", css)
+        self.assertNotIn("body.view-only", css)
+        self.assertIn(
+            "document.body.classList.toggle('no-rebuild',!buildsFromSource(META.kind))", extract_js_fn("drawMeta")
+        )
+        for fn in ("drawMeta", "pollBuildOnce", "noteOtherDocs"):
+            with self.subTest(fn=fn):
+                self.assertNotIn("view_only", extract_js_fn(fn))
+                self.assertIn("buildsFromSource(", extract_js_fn(fn))
+        self.assertIn(
+            "isFigureKind(d.kind)?' · '+tr('그림 문서(드래그하면 요소와 그 요소를 그린 코드 줄을 찾습니다)'):''",
+            extract_js_fn("docTip"),
+        )
+
+    def test_the_empty_hint_and_the_commit_tooltip_hold_for_every_document_kind(self):
+        """The first-use hint promises 'source line numbers' and the header's commit tooltip speaks of 'the source', not
+        of a .tex file or a manuscript, since a figure document or a view-only PDF is opened with the same text; each has
+        its English."""
+        for text in (".tex 줄 번호", "원고 Git 커밋"):
+            self.assertNotIn(text, HTML)
+        for text, english in (
+            ("<b>원문 줄 번호</b>", "source line number"),
+            ("PDF를 만들 때의 소스 Git 커밋.", "The source's Git commit"),
+        ):
+            self.assertIn(text, HTML)
+            self.assertTrue(any(english in v for v in UI_EN.values()), english)
+
+    def test_the_document_kind_rules_are_asked_in_one_place_each(self):
+        """'Is it a figure document' and 'is it rebuilt from source' are the two helpers isFigureKind and
+        buildsFromSource, and no other code compares a kind with DOC_KIND.FIGURE or DOC_KIND.TEX. Both answer false for
+        a kind the page does not know and for none."""
+        self.node()
+        self.assertEqual(len(re.findall(r"[=!]==\s*DOC_KIND\.FIGURE|DOC_KIND\.FIGURE\s*[=!]==", HTML)), 1)
+        self.assertEqual(len(re.findall(r"[=!]==\s*DOC_KIND\.TEX|DOC_KIND\.TEX\s*[=!]==", HTML)), 1)
+        js = "\n".join(
+            [
+                extract_js_fn("isFigureKind"),
+                extract_js_fn("buildsFromSource"),
+                "const K=['tex','pdf','figure','video',undefined,null];"
+                "console.log(JSON.stringify(K.map(k=>[isFigureKind(k),buildsFromSource(k)])));",
+            ]
+        )
+        self.assertEqual(
+            json.loads(run_node(js)),
+            [[False, True], [False, False], [True, False], [False, False], [False, False], [False, False]],
+        )
+
+    def test_the_documents_list_marks_a_figure_and_keeps_the_pdf_mark(self):
+        """The documents sheet marks a figure '그림' (English 'Figure'), keeps 'PDF' on a view-only PDF, and marks a
+        LaTeX document with neither."""
+        self.node()
+        for lang, word, label in (("ko", "그림", "그림 문서"), ("en", "Figure", "Figure document")):
+            with self.subTest(lang=lang):
+                js = "\n".join(
+                    [
+                        js_i18n(lang),
+                        js_esc(),
+                        "let OPEN_ALL=[]; const DEFAULT_DOC='ms';",
+                        extract_js_fn("pdoc"),
+                        extract_js_fn("docCount"),
+                        extract_js_fn("isFigureKind"),
+                        extract_js_fn("docBadge"),
+                        "console.log(JSON.stringify([{key:'ms',kind:'tex',view_only:false},"
+                        "{key:'fig',kind:'figure',view_only:false},{key:'rv',kind:'pdf',view_only:true}].map(docBadge)));",
+                    ]
+                )
+                tex, fig, pdf = json.loads(run_node(js))
+                self.assertNotIn("dfig", tex)
+                self.assertNotIn("dvo", tex)
+                self.assertIn('<span class="badge dfig" aria-label="%s">%s</span>' % (label, word), fig)
+                self.assertNotIn("dvo", fig)
+                self.assertIn('<span class="badge dvo" aria-label="보기 전용">PDF</span>', pdf)
+                self.assertNotIn("dfig", pdf)
+
+    def test_the_path_names_each_ancestor_by_its_rung_and_falls_back_to_the_id(self):
+        """The location path is root first, named by the rung that carries each id; an ancestor with no rung of its own
+        (merged into the inner rung, past the cap, drawn in another file) is written as its id, and a region answer names
+        its element itself."""
+        self.node()
+        js = "\n".join(
+            [extract_js_fn("elName"), extract_js_fn("elPathText")]
+            + [
+                r"""
+            const cell={id:'B2/c/m07',path:['B2','B2/c','B2/c/m07'],label:'7월'},root={id:'B2',path:['B2']};
+            const full=[{level:'el',lo:24,hi:26,label:'7월',el:cell},{level:'el2',lo:20,hi:30,label:'달력',el:{id:'B2/c',path:['B2','B2/c']}},
+                        {level:'fig',lo:1,hi:40,label:'B2',el:root}];
+            const merged=[{level:'el',lo:20,hi:30,label:'7월',merged:['el2'],el:cell},{level:'fig',lo:1,hi:40,label:'B2',el:root}];
+            const box={id:'B9/x',path:['B9','B9/x'],part:'Box'};
+            console.log(JSON.stringify([elPathText({levels:full,el:cell,elSel:cell}),elPathText({levels:full,el:cell,elSel:full[1].el}),
+              elPathText({levels:merged,el:cell,elSel:cell}),elPathText({levels:[],el:box,elSel:box}),elPathText({levels:[],elSel:null})]));"""
+            ]
+        )
+        self.assertEqual(json.loads(run_node(js)), ["B2 › 달력 › 7월", "B2 › 달력", "B2 › B2/c › 7월", "B9 › Box", ""])
+
+    def test_figure_rungs_are_named_by_their_element_with_a_line_count(self):
+        """A figure rung's segment reads its element's name and line count (derived when the rung has no n); its
+        tooltip says the element's lines, or the whole figure's for the root."""
+        self.node()
+        js = "\n".join(
+            [js_esc(), js_tooltips()]
+            + [
+                extract_js_fn(n)
+                for n in (
+                    "lvOf",
+                    "curLevel",
+                    "rng",
+                    "levelLabel",
+                    "elName",
+                    "levelName",
+                    "rungLines",
+                    "rungTip",
+                    "levelBtns",
+                )
+            ]
+            + [
+                r"""
+            const o={lo:24,hi:26,scope:'el',levels:[
+              {level:'el',lo:24,hi:26,label:'7월',snippet:'',el:{id:'B2/c/m07',path:['B2','B2/c','B2/c/m07']}},
+              {level:'el2',lo:20,hi:30,n:11,label:'달력',snippet:'',el:{id:'B2/c',path:['B2','B2/c']}},
+              {level:'fig',lo:1,hi:40,label:'B2',snippet:'',el:{id:'B2',path:['B2']}}]};
+            const re=/data-level="([^"]+)" aria-pressed="([^"]+)"[^>]*data-tip="([^"]*)">([^<]*)<span class="k[^"]*">· ([^<]*)</g;
+            console.log(JSON.stringify([...levelBtns(o,false).matchAll(re)].map(m=>[m[1],m[2],m[3],m[4].trim(),m[5]])));"""
+            ]
+        )
+        el = "이 요소를 그린 코드 줄입니다. 대기 상자가 그림의 이 요소에 맞춰집니다"
+        self.assertEqual(
+            json.loads(run_node(js)),
+            [
+                ["el", "true", "L24-L26 · " + el, "7월", "3줄"],
+                ["el2", "false", "L20-L30 · " + el, "달력", "11줄"],
+                ["fig", "false", "L1-L40 · 그림 전체를 그린 코드 줄입니다", "B2", "40줄"],
+            ],
+        )
+
+    def test_the_element_line_names_the_path_and_the_box_snaps_only_to_a_real_box(self):
+        """renderElement shows '#c-path' with the path and the element id as its tip, and snaps the pending box to the
+        element's frac; an element without a box (or with a null frac) keeps the dragged box, no element hides the
+        line, no box is no error."""
+        self.node()
+        js = "\n".join(
+            [extract_js_fn(n) for n in ("isFrac", "elName", "elPathText", "drawBox", "snapBox", "renderElement")]
+            + [
+                r"""
+            const nodes={'#c-path':{hidden:true,textContent:'',dataset:{}}}; const $=s=>nodes[s];
+            const vals=b=>['left','top','width','height'].map(k=>parseFloat(b.style[k]));
+            const cell={id:'B2/c/m07',path:['B2','B2/c','B2/c/m07'],label:'7월',frac:[0.47,0.18,0.07,0.12]};
+            const levels=[{level:'el',lo:24,hi:26,label:'7월',el:cell},{level:'el2',lo:20,hi:30,label:'달력',el:{id:'B2/c',path:['B2','B2/c']}},
+                          {level:'fig',lo:1,hi:40,label:'B2',el:{id:'B2',path:['B2']}}];
+            const line=nodes['#c-path'],out=[];
+            const box={style:{left:'48%',top:'20%',width:'4%',height:'8%'}};
+            renderElement({levels,el:cell,elSel:cell},box); out.push([line.hidden,line.textContent,line.dataset.tip,vals(box)]);
+            const drag={style:{left:'48%',top:'20%',width:'4%',height:'8%'}};
+            renderElement({levels,el:cell,elSel:levels[1].el},drag); out.push([line.textContent,vals(drag)]);
+            renderElement({file:'/m.tex',elSel:null},drag); out.push([line.hidden,vals(drag)]);
+            renderElement({levels,el:cell,elSel:cell},null); out.push(line.hidden);
+            const nul={id:'n',path:['n'],frac:null}; renderElement({levels:[],el:nul,elSel:nul},drag); out.push(vals(drag));
+            console.log(JSON.stringify(out));"""
+            ]
+        )
+        snapped, strip, none, boxless, null_frac = json.loads(run_node(js))
+        self.assertEqual(snapped[:3], [False, "B2 › 달력 › 7월 ·", "요소 B2/c/m07"])
+        for got, want in zip(snapped[3], (47, 18, 7, 12), strict=True):
+            self.assertAlmostEqual(got, want, places=6)
+        self.assertEqual(strip, ["B2 › 달력 ·", [48, 20, 4, 8]])
+        self.assertEqual(none, [True, [48, 20, 4, 8]])
+        self.assertFalse(boxless)
+        self.assertEqual(null_frac, [48, 20, 4, 8])
+
+    def test_a_rung_switch_selects_its_element_and_nudged_lines_keep_it(self):
+        """useLevel moves the selection to the rung's lines and element; a nudge makes the lines manual but keeps the
+        element; a rung without an element (a LaTeX rung) leaves the element as it was."""
+        self.node()
+        js = "\n".join(
+            [extract_js_fn("lvOf"), extract_js_fn("useLevel"), extract_js_fn("nudge")]
+            + [
+                r"""
+            const cell={id:'c'},strip={id:'s'};
+            const o={lo:24,hi:26,n_lines:40,elSel:cell,levels:[{level:'el',lo:24,hi:26,snippet:'a',el:cell},
+              {level:'el2',lo:20,hi:30,snippet:'b',el:strip},{level:'raw',lo:5,hi:5,snippet:'r'}]};
+            const out=[]; useLevel(o,'el2'); out.push([o.scope,o.lo,o.hi,o.elSel.id]);
+            nudge(o,'up-grow'); out.push([o.scope,o.lo,o.elSel.id]);
+            useLevel(o,'raw'); out.push([o.scope,o.elSel.id]);
+            console.log(JSON.stringify(out));"""
+            ]
+        )
+        self.assertEqual(json.loads(run_node(js)), [["el2", 20, 30, "s"], ["lines", 19, "s"], ["raw", "s"]])
+
+    def test_the_composer_shows_the_element_from_the_pick_without_asking_again(self):
+        """The location line has a path slot before the lines; both composer branches draw the element; a pick selects
+        its element, a rung its rung's; the element code sends no request; figure.js sits between the ladder and the
+        composer parts."""
+        self.assertIn('<div class="c-loc-main"><span id="c-path" hidden></span><span id="c-loc"', HTML)
+        for fn in ("renderComposer", "renderRegionComposer"):
+            self.assertIn("renderElement(d,COMPOSE.box)", extract_js_fn(fn), fn)
+        self.assertIn("COMPOSE.current.elSel=d.el||null;", extract_js_fn("pick"))
+        self.assertIn("if(lv.el)o.elSel=lv.el;", extract_js_fn("useLevel"))
+        for fn in ("elPathText", "snapBox", "renderElement"):
+            self.assertNotIn("api(", extract_js_fn(fn), fn)
+        parts = (PKG / "viewer" / "parts.txt").read_text(encoding="utf-8")
+        self.assertLess(parts.index("js/levels.js"), parts.index("js/figure.js"))
+        self.assertLess(parts.index("js/figure.js"), parts.index("js/composer.js"))
+
+    def test_a_figure_region_is_named_by_what_the_map_found_and_a_view_only_region_keeps_its_name(self):
+        """figRegionBadge: an element without code lines reads '코드 없는 요소', a figure region without an element
+        (map unreadable) reads '영역', each with its own tooltip; off a figure document without an element there is no
+        figure badge, so the caller's '보기 전용' stays."""
+        self.node()
+        js = "\n".join(
+            [
+                js_i18n("ko"),
+                js_tooltips(),
+                extract_js_fn("figRegionBadge"),
+                "console.log(JSON.stringify([figRegionBadge({id:'x',path:['x']},true),figRegionBadge(null,true),"
+                "figRegionBadge(null,false)]));",
+            ]
+        )
+        with_el, figure, off = json.loads(run_node(js))
+        self.assertEqual(with_el["t"], "코드 없는 요소")
+        self.assertIn("이 요소를 그린 코드 줄을 찾지 못했습니다", with_el["tip"])
+        self.assertEqual(figure["t"], "영역")
+        self.assertIn("그림 지도를 읽지 못해", figure["tip"])
+        self.assertIsNone(off)
+        self.assertIn("figRegionBadge(d.el,", extract_js_fn("renderRegionComposer"))
+
+    def test_a_figure_pins_mark_goes_to_its_element_and_otherwise_where_it_was_pinned(self):
+        """pinPlace uses the server's mark on mark_page when both are well formed, else the pin's page and frac; elLost
+        is true only for el_sync 'lost'."""
+        self.node()
+        js = "\n".join(
+            [extract_js_fn(n) for n in ("isFrac", "hasMark", "pinPlace", "elLost")]
+            + [
+                r"""
+            const P=[{page:1,frac:[0.1,0.1,0.1,0.1],mark:[0.55,0.2,0.07,0.12],mark_page:2,el_sync:'moved'},
+                     {page:1,frac:[0.1,0.1,0.1,0.1],el_sync:'lost'},
+                     {page:3,frac:[0.2,0.2,0.2,0.2]},
+                     {page:1,frac:[0.1,0.1,0.1,0.1],mark:[0.5,0.5],mark_page:1},
+                     {page:1,frac:[0.1,0.1,0.1,0.1],mark:[0.5,0.5,0.1,0.1],mark_page:0}];
+            console.log(JSON.stringify(P.map(p=>[pinPlace(p),elLost(p)])));"""
+            ]
+        )
+        pinned = {"page": 1, "frac": [0.1, 0.1, 0.1, 0.1]}
+        self.assertEqual(
+            json.loads(run_node(js)),
+            [
+                [{"page": 2, "frac": [0.55, 0.2, 0.07, 0.12]}, False],
+                [pinned, True],
+                [{"page": 3, "frac": [0.2, 0.2, 0.2, 0.2]}, False],
+                [pinned, False],
+                [pinned, False],
+            ],
+        )
+
+    def test_a_lost_element_badge_reads_element_lost_in_both_languages(self):
+        """The lost-element badge is the lost-line warning look with the text '요소 잃음' ('Element lost'); a moved or
+        plain pin has none."""
+        self.node()
+        for lang, word in (("ko", "요소 잃음"), ("en", "Element lost")):
+            with self.subTest(lang=lang):
+                js = "\n".join(
+                    [
+                        js_i18n(lang),
+                        js_esc(),
+                        js_icons(),
+                        js_tooltips(),
+                        extract_js_fn("elLost"),
+                        extract_js_fn("elLostTag"),
+                        "console.log(JSON.stringify([elLostTag({el_sync:'lost'}),elLostTag({el_sync:'moved'}),elLostTag({})]));",
+                    ]
+                )
+                tag, moved, plain = json.loads(run_node(js))
+                self.assertIn(word, tag)
+                self.assertIn('class="badge badge-warning"', tag)
+                self.assertIn("ic-triangle-alert", tag)
+                self.assertEqual((moved, plain), ("", ""))
+
+    def test_a_pin_that_loses_its_element_is_announced_once(self):
+        """The list refresh announces '#N 요소를 잃었습니다' when an open pin's element becomes lost, not when it already
+        was, and not for a move."""
+        self.node()
+        js = "\n".join(
+            [
+                r"""
+            function who(a){return (a&&(a.name||a.login))||'';}
+            const TOASTS=[]; function toast(m,k){TOASTS.push([m,k]);} function restorePin(){}
+            const MY_ACTIONS=new Map();""",
+                extract_js_fn("markMine"),
+                extract_js_fn("consumeMine"),
+                extract_js_fn("pinState"),
+                extract_js_fn("diffToast"),
+                r"""
+            diffToast([{id:1,el_sync:'ok'},{id:2,el_sync:'lost'},{id:3}],[{id:1,el_sync:'lost'},{id:2,el_sync:'lost'},{id:3,el_sync:'moved'}],[]);
+            console.log(JSON.stringify(TOASTS));""",
+            ]
+        )
+        self.assertEqual(json.loads(run_node(js)), [["#1 요소를 잃었습니다", "warn"]])
+
+    def test_marks_and_cards_place_a_figure_pin_where_its_element_is(self):
+        """marks() and the card's page link use pinPlace; a placed mark is not dashed; a lost element marks the card and
+        mark like a lost line; [보기] falls back to the mark's page; a figure region card is labelled by what the map
+        found."""
+        m = extract_js_fn("marks")
+        self.assertIn("const at=pinPlace(p),el=document.getElementById('p'+at.page);", m)
+        self.assertIn("if(!el||!isFrac(at.frac))return;", m)
+        self.assertIn("const est=isEstimated(p)&&!hasMark(p),lost=p.stale||elLost(p);", m)
+        c = extract_js_fn("card")
+        self.assertEqual(c.count("{page:pinPlace(p).page}"), 2)
+        self.assertEqual(c.count("p.stale||elLost(p)?CARD_DOT.LOST"), 2)
+        self.assertIn("const lostEl=elLostTag(p); if(lostEl)tags.push(lostEl);", c)
+        self.assertIn("figRegionBadge(p.el,isFigureKind((docInfo(pdoc(p))||{}).kind))", c)
+        self.assertIn("document.getElementById('p'+pinPlace(p).page)", extract_js_fn("jumpPin"))
+        self.assertIn("p.el_sync===EL_SYNC.LOST", extract_js_fn("diffToast"))
+
+    def test_a_pin_of_an_unknown_via_gets_a_neutral_hint_not_the_synctex_one(self):
+        """A `via` this page does not know is named as it came ('찾은 방법: ...') with a hint that claims no method, in
+        Korean and English; the three known methods keep their own hints."""
+        self.node()
+        for lang, head, neutral in (
+            ("ko", "찾은 방법: ocr · 일치 50% — ", "이 화면이 알지 못하는 방법으로"),
+            ("en", "Found by: ocr · 50% match — ", "This page does not know the method"),
+        ):
+            with self.subTest(lang=lang):
+                js = "\n".join(
+                    [
+                        js_i18n(lang),
+                        js_tooltips(),
+                        js_via_limits(),
+                        extract_js_fn("viaTag"),
+                        "console.log(JSON.stringify([viaTag({via:'ocr',score:0.5}),viaTag({via:'synctex',score:0.5}),"
+                        "viaTag({via:'text',score:0.5}),viaTag({via:'map',score:0.5})]));",
+                    ]
+                )
+                unknown, *known = json.loads(run_node(js))
+                self.assertTrue(unknown["tip"].startswith(head + neutral), unknown["tip"])
+                self.assertNotIn("SyncTeX", unknown["tip"])
+                self.assertEqual(len({k["tip"] for k in known} | {unknown["tip"]}), 4)
+
+    def test_marks_draws_nothing_for_a_null_or_malformed_box_and_one_mark_for_a_good_one(self):
+        """marks() itself run over pins whose box is null, has a non-number, is not four long or sits on a page that is
+        not on screen draws nothing for them; a good pin beside them draws one mark, and a lost element is drawn at the
+        pinned box. Nothing throws."""
+        self.node()
+        js = "\n".join(
+            [
+                r"""
+            const DOC='d', DEFAULT_DOC='d'; let PINS=[], REVIEW_ALL=[]; const drawn=[];
+            const $$=()=>[]; const esc=s=>String(s);
+            const page1={appendChild:m=>drawn.push([m.dataset.pin,m.className,m.style.left,m.style.width])};
+            const document={getElementById:id=>id==='p1'?page1:null,
+              createElement:()=>({dataset:{},style:{},className:'',set innerHTML(v){}})};""",
+                js_i18n(),
+                *[
+                    extract_js_fn(n)
+                    for n in ("isFrac", "hasMark", "pinPlace", "elLost", "isEstimated", "pinState", "pdoc", "marks")
+                ],
+                r"""
+            const good=[0.1,0.2,0.3,0.4];
+            PINS=[{id:1,page:1,frac:null},{id:2,page:1,frac:[0.1,'x',0.2,0.2]},{id:3,page:1,frac:[0.1,0.2,0.3]},
+              {id:4,page:7,frac:good},{id:5,page:1,frac:null,mark:[NaN,0,0.1,0.1],mark_page:1,el_sync:'moved'},
+              {id:6,page:1,frac:good},{id:7,page:1,frac:good,mark:null,mark_page:1,el_sync:'lost'},
+              {id:8,page:1,frac:[0.9,0.9,0.05,0.05],mark:good,mark_page:1,el_sync:'moved'}];
+            marks(); console.log(JSON.stringify(drawn));""",
+            ]
+        )
+        self.assertEqual(
+            json.loads(run_node(js)),
+            [[6, "mark", "10%", "30%"], [7, "mark st", "10%", "30%"], [8, "mark", "10%", "30%"]],
+        )
+
+    def test_the_finished_build_toast_says_rebuilt_for_a_manuscript_and_redrawn_for_a_figure(self):
+        """The toast after a finished build of the document on screen, and the one for another document's finished
+        build, say 'PDF 재빌드 완료' for a LaTeX document and that the pages were redrawn for a figure or a view-only
+        PDF, in Korean and English."""
+        self.node()
+        words = {
+            "ko": {
+                "tex": "PDF 재빌드 완료",
+                "redrawn": "PDF가 바뀌어 쪽을 새로 그렸습니다",
+                "other": "PDF 쪽을 새로 그렸습니다",
+            },
+            "en": {"tex": "PDF rebuilt", "redrawn": "The PDF changed, pages redrawn", "other": "PDF pages redrawn"},
+        }
+        for lang in ("ko", "en"):
+            for kind in ("tex", "figure", "pdf"):
+                with self.subTest(lang=lang, kind=kind):
+                    js = "\n".join(
+                        [
+                            js_i18n(lang),
+                            r"""
+                        let DOC='a', SWITCHSEQ=1, META={kind:%s,pages:[1,2]}; const TOASTS=[]; let REPLY;
+                        const BUILD={timer:null,error:null,lastSeq:0,booted:true,inflight:null};
+                        const DOC_SEQ=new Map(), BUILD_ERR_BY=new Map(), META_BY=new Map();
+                        const chip={hidden:false,textContent:''}, btn={disabled:false}; const $=s=>s==='#build-chip'?chip:btn;
+                        const dq=u=>u; const pullSuffix=()=>''; const hideBuildErr=()=>{}; const showBuildErr=()=>{};
+                        const api=async()=>REPLY; const refreshDoc=async()=>{};
+                        const toast=(m,k)=>TOASTS.push([m,k]); const switchDoc=()=>{}; const drawDocTabs=()=>{};
+                        const DOCS=[{key:'b',name:'Fig B',kind:%s}]; const docInfo=k=>DOCS.find(d=>d.key===k)||null;"""
+                            % (json.dumps(kind), json.dumps(kind)),
+                            *[extract_js_fn(n) for n in ("buildsFromSource", "pollBuildOnce", "noteOtherDocs")],
+                            r"""
+                        (async()=>{
+                          REPLY={data:{state:'ok',seq:1,elapsed_s:3}}; await pollBuildOnce();
+                          DOC_SEQ.set('b',1); noteOtherDocs([{key:'b',build_seq:2,last_state:'ok'}]);
+                          console.log(JSON.stringify(TOASTS.map(t=>t[0])));})();""",
+                        ]
+                    )
+                    on_screen, other = json.loads(run_node(js))
+                    w = words[lang]
+                    self.assertTrue(on_screen.startswith(w["tex"] if kind == "tex" else w["redrawn"]), on_screen)
+                    self.assertIn(w["tex"] if kind == "tex" else w["other"], other)
+
+    def test_a_region_pin_is_located_by_the_page_its_mark_is_on_now(self):
+        """locCopy (the copy text) and arcLoc (an archive row) name a region pin's page by pinPlace: the page its
+        element's mark is on in the current build, else the page it was pinned on. Lines are untouched."""
+        self.node()
+        js = "\n".join(
+            [
+                js_esc(),
+                js_tooltips(),
+                *[extract_js_fn(n) for n in ("isFrac", "hasMark", "pinPlace", "isRegion", "locCopy", "rng", "arcLoc")],
+                r"""
+            const moved={kind:'region',pdf:'fig.pdf',name:'fig.pdf',page:1,frac:[0.1,0.1,0.2,0.2],mark:[0.3,0.4,0.1,0.05],mark_page:2};
+            const home={kind:'region',pdf:'fig.pdf',name:'fig.pdf',page:1,frac:[0.1,0.1,0.2,0.2]};
+            const lines={file:'a.py',name:'a.py',page:3,lo:4,hi:6,mark:[0.3,0.4,0.1,0.05],mark_page:2};
+            const loc=h=>[/data-copy="([^"]*)"/.exec(h)[1],/>([^<]*)<\/span>$/.exec(h)[1]];
+            console.log(JSON.stringify([locCopy(moved),locCopy(home),locCopy(lines),loc(arcLoc(moved)),loc(arcLoc(home)),loc(arcLoc(lines))]));""",
+            ]
+        )
+        self.assertEqual(
+            json.loads(run_node(js)),
+            [
+                "fig.pdf 쪽 2",
+                "fig.pdf 쪽 1",
+                "a.py L4-L6",
+                ["fig.pdf 쪽 2", "쪽 2 영역"],
+                ["fig.pdf 쪽 1", "쪽 1 영역"],
+                ["a.py L4-L6", "L4-L6"],
+            ],
+        )
+
+    def test_null_boxes_and_a_null_claim_end_draw_nothing_and_claim_nothing(self):
+        """Whole-field null from the API (a stored non-finite frac, el.frac or claim_until reads null): a pin with a null
+        frac and no mark gets a place marks() skips, a mark that is not a box is no mark, a figure pick whose element box
+        is null saves el without frac and keeps the body's frac, a null claim_until is no active claim, and a hand-edited
+        list that is not four numbers is no box either."""
+        self.node()
+        js = "\n".join(
+            [extract_js_fn(n) for n in ("isFrac", "hasMark", "pinPlace", "elForSave", "figureFields", "claimActive")]
+            + [
+                r"""
+            const b=figureFields({frac:[0.1,0.1,0.2,0.2]},{id:'x',path:['x'],frac:null},null);
+            console.log(JSON.stringify([isFrac(pinPlace({page:1,frac:null,el:{id:'x',path:['x'],frac:null}}).frac),
+              hasMark({mark:null,mark_page:1}),b,claimActive({claim_until:null}),
+              isFrac(pinPlace({page:1,frac:[0.1,'x',0.2,0.2]}).frac)]));"""
+            ]
+        )
+        self.assertEqual(
+            json.loads(run_node(js)),
+            [False, False, {"frac": [0.1, 0.1, 0.2, 0.2], "el": {"id": "x", "path": ["x"]}}, False, False],
+        )
+
+    def test_figure_fields_send_the_element_with_its_box_and_the_box_as_frac(self):
+        """A pin body gets el with the record's fields only (id, path, label, part, impl, frac - no unknown keys), the
+        element's box as its own frac too, and the element's kind when the range is that element's rung; nudged lines
+        keep the body's kind; a pick without an element is untouched."""
+        self.node()
+        js = "\n".join(
+            [extract_js_fn(n) for n in ("isFrac", "elForSave", "elKind", "figureFields")]
+            + [
+                r"""
+            const cell={id:'B2/c/m07',path:['B2','B2/c','B2/c/m07'],label:'7월',part:'MonthCell',
+              impl:{file:'lib/components.py',lo:1,hi:5,extra:1},frac:[0.47,0.18,0.07,0.12],unknown:'x'};
+            const root={id:'B2',path:['B2'],frac:[0,0,1,1]};
+            console.log(JSON.stringify([
+              figureFields({frac:[0.48,0.2,0.04,0.08],kind:'lines'},cell,{el:cell}),
+              figureFields({frac:[0.48,0.2,0.04,0.08],kind:'lines'},cell,null),
+              figureFields({frac:[0.1,0.1,0.1,0.1]},{id:'x',path:['B2','x']},null),
+              figureFields({kind:'lines'},root,{el:root}),
+              figureFields({kind:'paragraph'},null,null)]));"""
+            ]
+        )
+        cell = {
+            "id": "B2/c/m07",
+            "path": ["B2", "B2/c", "B2/c/m07"],
+            "label": "7월",
+            "part": "MonthCell",
+            "impl": {"file": "lib/components.py", "lo": 1, "hi": 5},
+            "frac": [0.47, 0.18, 0.07, 0.12],
+        }
+        got = json.loads(run_node(js))
+        self.assertEqual(
+            got,
+            [
+                {"frac": [0.47, 0.18, 0.07, 0.12], "kind": "el:MonthCell", "el": cell},
+                {"frac": [0.47, 0.18, 0.07, 0.12], "kind": "lines", "el": cell},
+                {"frac": [0.1, 0.1, 0.1, 0.1], "el": {"id": "x", "path": ["B2", "x"]}},
+                {"kind": "figure", "el": {"id": "B2", "path": ["B2"], "frac": [0, 0, 1, 1]}, "frac": [0, 0, 1, 1]},
+                {"kind": "paragraph"},
+            ],
+        )
+        self.assertEqual(list(got[0]["el"]), ["id", "path", "label", "part", "impl", "frac"])  # the record's key order
+
+    def test_a_null_element_box_is_kept_out_of_the_saved_el_and_the_pins_frac(self):
+        """An element whose frac is null (the whole-field null of P1b) or has a non-finite entry sends its id and path
+        without a box and leaves the body's own frac alone."""
+        self.node()
+        js = "\n".join(
+            [extract_js_fn(n) for n in ("isFrac", "elForSave", "elKind", "figureFields")]
+            + [
+                r"""
+            const out=[];
+            for(const f of [null,[0.1,0.2,null,0.4],[0.1,0.2,0.3],'x'])
+              out.push(figureFields({frac:[0.5,0.5,0.1,0.1]},{id:'x',path:['B2','x'],part:'P',frac:f},{el:{path:['B2','x'],part:'P'}}));
+            console.log(JSON.stringify(out));"""
+            ]
+        )
+        want = {"frac": [0.5, 0.5, 0.1, 0.1], "kind": "el:P", "el": {"id": "x", "path": ["B2", "x"], "part": "P"}}
+        self.assertEqual(json.loads(run_node(js)), [want] * 4)
+
+    def test_el_kind_names_elements_like_the_server(self):
+        """The viewer's elKind() and the server's limn.builds.figure_map.element_kind() name the same elements the same
+        way: 'figure' for a page's root (with or without a part), 'el:<part>' below it with the part cut to 77
+        characters, 'el:?' without a part."""
+        self.node()
+        src = figure_map.SourceRef(file="B2_calendar.py", lo=1, hi=40)
+
+        def element(eid: str, parent: str | None, part: str | None, label: str | None) -> figure_map.MapElement:
+            """A map element of the parity cases at a fixed box with the given names."""
+            return figure_map.MapElement(
+                id=eid, parent=parent, frac=(0.1, 0.1, 0.2, 0.2), src=src, impl=None, part=part, label=label
+            )
+
+        cases = [
+            (element("B2", None, None, None), True, {"id": "B2", "path": ["B2"]}),
+            (element("B2", None, "Figure", "그림"), True, {"id": "B2", "path": ["B2"], "part": "Figure"}),
+            (
+                element("B2/c", "B2", "CalendarStrip", "달력"),
+                False,
+                {"id": "B2/c", "path": ["B2", "B2/c"], "part": "CalendarStrip"},
+            ),
+            (element("B2/c/x", "B2/c", None, "7월"), False, {"id": "B2/c/x", "path": ["B2", "B2/c", "B2/c/x"]}),
+            (
+                element("B2/c/y", "B2/c", "P" * 100, None),
+                False,
+                {"id": "B2/c/y", "path": ["B2", "B2/c", "B2/c/y"], "part": "P" * 100},
+            ),
+        ]
+        js = extract_js_fn("elKind") + "\nconsole.log(JSON.stringify(%s.map(elKind)));" % json.dumps(
+            [c[2] for c in cases], ensure_ascii=False
+        )
+        self.assertEqual(json.loads(run_node(js)), [figure_map.element_kind(e, root) for e, root, _ in cases])
+
+    def test_saving_and_re_placing_send_the_figure_element(self):
+        """savePin adds the figure fields after the region shape is chosen; a re-place adds them to its loc and snaps
+        its '새 위치' box to the candidate's element; the edit card keeps the pin's element (and follows it after a
+        re-place or a 409) and sends a range only when the lines changed."""
+        save = extract_js_fn("savePin")
+        region = (
+            "if(isRegion(d))body={page:d.page,frac:d.frac,note:note,quote:d.quote,pdf_build:d.pdf_build||undefined};"
+        )
+        self.assertLess(save.index(region), save.index("figureFields(body,d.elSel,isRegion(d)?null:figRung(d));"))
+        rp = extract_js_fn("applyRepick")
+        self.assertLess(
+            rp.index("if(isRegion(c))loc="), rp.index("figureFields(loc,repickEl(c),isRegion(c)||!lv.el?null:lv);")
+        )
+        self.assertIn("snapBox(REPICK.box,repickEl(c));", extract_js_fn("bannerCompare"))
+        self.assertIn("region:!!EDITOR.current.region", extract_js_fn("startRepick"))
+        self.assertIn("pinEl:p.el||null", extract_js_fn("openEdit"))
+        self.assertIn("(!E.pinEl&&(E.scope||null)!==(E.orig.scope||null))", extract_js_fn("saveEdit"))
+        self.assertIn("pinEl:p.el||null", extract_js_fn("applyRepick"))
+        self.assertIn("E.pinEl=p.el||null;", extract_js_fn("saveEdit"))
+
+    def test_a_re_place_candidate_of_the_other_shape_is_not_offered(self):
+        """/edit never turns a line pin into a region pin or back, so a candidate of the other shape (a region answer for
+        a line pin, lines for a region pin) is dropped and the banner asks for another drag with the reason; a candidate
+        of the same shape gets [이 위치로 바꾸기]."""
+        self.node()
+        js = "\n".join(
+            [js_tooltips(), js_esc()]
+            + [
+                extract_js_fn(n)
+                for n in ("isRegion", "lvOf", "levelLabel", "isFrac", "drawBox", "snapBox", "repickEl", "bannerCompare")
+            ]
+            + [
+                r"""
+            const out=[]; let REPICK;
+            function banner(h){out.push(/data-act="rp-apply"/.test(h)?'apply':'banner');}
+            function bannerRepick(err){out.push(['again',err]);} function scopeLabel(){return '';}
+            const region={kind:'region',page:1,frac:[0.2,0.2,0.1,0.1],pdf:'x.pdf',quote:''};
+            const line={file:'/f.py',page:1,lo:20,hi:30,default_level:'el',
+              levels:[{level:'el',lo:20,hi:30,label:'달력',el:{id:'B2/c',path:['B2','B2/c']}}]};
+            for(const [fromRegion,cand] of [[false,region],[true,line],[false,line],[true,region]]){
+              REPICK={id:7,from:{lo:24,hi:26,page:1,region:fromRegion},box:null,cand};
+              bannerCompare(); out.push(REPICK.cand===null);}
+            console.log(JSON.stringify(out));"""
+            ]
+        )
+        shape = "이 자리는 지금 핀과 모양(줄/영역)이 달라 옮길 수 없습니다 — 다른 자리를 고르거나 새 핀을 남기세요"
+        self.assertEqual(
+            json.loads(run_node(js)),
+            [["again", shape], True, ["again", shape], True, "apply", False, "apply", False],
+        )
 
 
 # ---------------------------------------------------------------- icons: Lucide only, no emoji/symbol glyphs
@@ -2314,7 +3001,9 @@ class FrontendArchive(unittest.TestCase):
         self.assertEqual(css.count("--status-claimed:"), 2)  # both dark and light
         body = extract_js_fn("card")
         self.assertIn("(claimed?' claimed':'')", body)
-        self.assertIn("stDot(rv?CARD_DOT.REVIEW:p.stale?CARD_DOT.LOST:claimed?CARD_DOT.CLAIMED:CARD_DOT.OPEN)", body)
+        self.assertIn(
+            "stDot(rv?CARD_DOT.REVIEW:p.stale||elLost(p)?CARD_DOT.LOST:claimed?CARD_DOT.CLAIMED:CARD_DOT.OPEN)", body
+        )
         self.assertIn("tl('상태: {name}',{name:tr(ST_NAME[st])})", extract_js_fn("stDot"))
         self.assertIn('role="img" aria-label="\'+t+\'"', extract_js_fn("stDot"))  # not distinguished by color alone
         self.assertIn("ic('rotate-ccw')+'다시 열림", body)
@@ -2495,6 +3184,7 @@ class FrontendSaveWhilePicking(unittest.TestCase):
             function saveDraftSoon(){} function syncDraft(){} function savedDraftSnapshot(){return null;}
             function restoredDraftOwns(){return false;} function clearSavedDraft(){}
             async function loadPins(){} function useLevel(){} function isRegion(){return false;} function kindFor(){return 'line';}
+            function figureFields(b){return b;} function figRung(){return null;}
             function banner(){} function bannerRepick(){} function bannerCompare(){} function revealBox(){}
             async function refreshDoc(){} function setSide(){} function setSelMode(){} function toast(){} function dropPin(){}
             const apiCalls=[]; let pickResolve=null, pickReject=null, pinResolve=null;
@@ -2927,6 +3617,12 @@ class FrontendReview(unittest.TestCase):
                 extract_js_fn("docChip"),
                 extract_js_fn("arcTime"),
                 js_thread(),
+                extract_js_fn("isFrac"),
+                extract_js_fn("hasMark"),
+                extract_js_fn("pinPlace"),
+                extract_js_fn("elLost"),
+                extract_js_fn("elLostTag"),
+                extract_js_fn("figRegionBadge"),
                 extract_js_fn("card"),
                 js_icons(),
                 r"""

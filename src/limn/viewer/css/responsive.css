@@ -236,13 +236,13 @@ body.lay-mid.side-open #coach{max-width:calc(100vw - var(--side-w,330px) - 3 * v
 .dcnt{font-weight:600}
 .dcnt.z{color:var(--muted-foreground);font-weight:400;background:transparent}
 .dm-item.on .dcnt:not(.z){background:var(--brand);color:var(--brand-foreground)}
-.dvo{flex:none;line-height:14px;padding:0 var(--space-1);letter-spacing:.02em}
+.dvo,.dfig{flex:none;line-height:14px;padding:0 var(--space-1);letter-spacing:.02em}
 .ddot{flex:none;width:7px;height:7px;border-radius:50%;background:var(--warning)}
 .dm-item .spin,#btn-doc .spin{width:10px;height:10px}
 #btn-doc{display:none;align-items:center;gap:var(--space-1)}
 #btn-doc .nm{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 body.lay-narrow.docs-multi #btn-doc{display:inline-flex}
-body.view-only #btn-rebuild{display:none}
+body.no-rebuild #btn-rebuild{display:none}
 .dchip{flex:none;line-height:16px;max-width:110px;overflow:hidden;text-overflow:ellipsis}
 .dchip.other{background:transparent;border-color:var(--border-strong);border-style:dashed}   /* another document = a dashed border (a meaningful border) */
 #docs-menu{margin:auto auto 0;width:100%;max-width:560px;border-radius:var(--radius-lg) var(--radius-lg) 0 0;padding:var(--space-3) var(--space-3) calc(var(--space-3) + env(safe-area-inset-bottom))}

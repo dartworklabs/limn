@@ -50,6 +50,7 @@ from limn.sync.rules import UpToDate
 from limn.viewer import assemble as viewer_assemble
 from limn.web.errors import HTTPError, InputRejected
 
+import helpers_figure
 from helpers import (
     DOCS_DIR,
     MINI_PDF,
@@ -76,7 +77,6 @@ from helpers import (
 )
 from helpers_access import BOB_ACTOR
 from helpers_authority import post_authority
-from helpers_figure import BUILD1, BUILD2, b2_map, figure_doc, write_build
 
 
 class Smuggling(Base):
@@ -1115,10 +1115,10 @@ class FigureMapLookups(Base):
         """The two documents served, fig with BUILD1 then BUILD2 written (BUILD2 on screen)."""
         super().setUp()
         self.ms = ps.Doc("ms", "본문", "tex", self.src, self.main, paths=ps.APP.C.paths)
-        self.fig = figure_doc(self.src, ps.APP.C.paths)
+        self.fig = helpers_figure.figure_doc(self.src, ps.APP.C.paths)
         ps.APP.set_docs([self.ms, self.fig])
-        write_build(self.fig, BUILD1, b2_map())
-        write_build(self.fig, BUILD2, b2_map(july=(0.4, 0.18, 0.07, 0.12)))
+        helpers_figure.write_build(self.fig, helpers_figure.BUILD1, helpers_figure.b2_map())
+        helpers_figure.write_build(self.fig, helpers_figure.BUILD2, helpers_figure.b2_map(july=(0.4, 0.18, 0.07, 0.12)))
 
     def tearDown(self):
         """Back to the single document before the fixture removes the manuscript."""
@@ -1131,20 +1131,23 @@ class FigureMapLookups(Base):
 
     def test_a_figure_builds_map_is_parsed_once_in_the_run_and_is_that_builds_own(self):
         """figure_map gives each build its own map, the same parsed value on a second ask, out of RT.figure_maps."""
-        first, second = ps.APP.RT.figure_maps.get(self.fig, BUILD1), ps.APP.RT.figure_maps.get(self.fig, BUILD2)
+        first, second = (
+            ps.APP.RT.figure_maps.get(self.fig, helpers_figure.BUILD1),
+            ps.APP.RT.figure_maps.get(self.fig, helpers_figure.BUILD2),
+        )
         self.assertEqual(
             (first.find("B2/calendar/m07")[1].frac, second.find("B2/calendar/m07")[1].frac),
             ((0.47, 0.18, 0.07, 0.12), (0.4, 0.18, 0.07, 0.12)),
         )
-        self.assertIs(ps.APP.RT.figure_maps.get(self.fig, BUILD1), first)
-        self.assertIs(ps.APP.RT.figure_maps.get(self.fig, BUILD1), first)
+        self.assertIs(ps.APP.RT.figure_maps.get(self.fig, helpers_figure.BUILD1), first)
+        self.assertIs(ps.APP.RT.figure_maps.get(self.fig, helpers_figure.BUILD1), first)
 
     def test_a_document_without_an_element_map_has_none_and_nothing_is_read(self):
         """A LaTeX document has no map even when a file of the map's name sits in its page directory, and the cache
         was not asked."""
         (self.ms.dir / "pages-20260926100000").mkdir(parents=True)
         (self.ms.dir / "pages-20260926100000" / limn_build.FIGMAP_NAME).write_text(
-            json.dumps(b2_map()), encoding="utf-8"
+            json.dumps(helpers_figure.b2_map()), encoding="utf-8"
         )
         self.assertIsNone(ps.APP.assembly.builds.pins.elements(self.ms))
         self.assertEqual(ps.APP.RT.figure_maps.held(), 0)
@@ -1158,7 +1161,7 @@ class FigureMapLookups(Base):
         """doc_figure_map gives the map of the build pages.cur names now: BUILD2's, then BUILD1's once the pointer
         moves back."""
         self.assertEqual(self.july(ps.APP.element_follower("fig")), (0.4, 0.18, 0.07, 0.12))
-        files.atomic_write(self.fig.dir / "pages.cur", BUILD1)
+        files.atomic_write(self.fig.dir / "pages.cur", helpers_figure.BUILD1)
         self.assertEqual(self.july(ps.APP.element_follower("fig")), (0.47, 0.18, 0.07, 0.12))
 
     def test_a_key_that_has_no_loadable_map_on_screen_has_none(self):
@@ -1166,7 +1169,7 @@ class FigureMapLookups(Base):
         refuses all answer None (a refusal is not a map)."""
         self.assertIsNone(ps.APP.element_follower("nope"))
         self.assertIsNone(ps.APP.element_follower("ms"))
-        write_build(self.fig, "pages-20260926120000", None)
+        helpers_figure.write_build(self.fig, "pages-20260926120000", None)
         self.assertIsNone(ps.APP.element_follower("fig"))
         (self.fig.dir / "pages-20260926120000" / limn_build.FIGMAP_NAME).write_text("not json", encoding="utf-8")
         self.assertIsInstance(ps.APP.RT.figure_maps.get(self.fig, "pages-20260926120000"), MapRejected)
@@ -1181,7 +1184,68 @@ class FigureMapLookups(Base):
         self.assertEqual(first, (self.src / "figs" / "out" / "figures.pdf").resolve())
         self.assertEqual(second, first)
         self.assertEqual(parsed.call_count, 1)
-        self.assertIsInstance(ps.APP.RT.figure_maps.get(self.fig, BUILD2), FigureMap)
+        self.assertIsInstance(ps.APP.RT.figure_maps.get(self.fig, helpers_figure.BUILD2), FigureMap)
+
+
+class FigurePickFeedsTheViewer(Base):
+    """A figure document's pick carries what the viewer draws without asking again (index §Pick answer, P1c): the
+    chosen element and every rung's element with its box, so the composer snaps its pending box to the element and the
+    range ladder moves it client-side. The viewer's side of P1b's answer, run end to end through the handler."""
+
+    def setUp(self):
+        """The manuscript, the figure and the view-only PDF of helpers_figure.viewer_docs, each with a finished build."""
+        super().setUp()
+        self.ms, self.fig, self.rv = helpers_figure.viewer_docs(ps.APP, self.src)
+
+    def tearDown(self):
+        """Back to the single document the next test expects."""
+        ps.APP.set_docs(None)
+        super().tearDown()
+
+    def pick_figure(self, drag):
+        """POST /api/pick over drag [x, y, w, h] on page 1 of the figure's current build; the decoded 200 body."""
+        code, _, raw = split_resp(self.talk(req("GET", "/api/meta?doc=" + helpers_figure.FIG)))
+        self.assertEqual(code, 200, raw)
+        page = json.loads(raw)["pages"][0]
+        x, y, w, h = drag
+        body = {
+            "doc": helpers_figure.FIG,
+            "page": 1,
+            "x0": x * page["pt_w"],
+            "y0": y * page["pt_h"],
+            "x1": (x + w) * page["pt_w"],
+            "y1": (y + h) * page["pt_h"],
+            "frac": list(drag),
+            "pdf_build": helpers_figure.BUILD1,
+        }
+        code, _, raw = split_resp(self.talk(jreq("POST", "/api/pick", body)))
+        self.assertEqual(code, 200, raw)
+        return json.loads(raw)
+
+    def assert_box(self, got, want):
+        """A frac equal to want within float noise."""
+        self.assertEqual(len(got), 4, got)
+        for g, w in zip(got, want, strict=True):
+            self.assertAlmostEqual(g, w, places=6)
+
+    def test_a_drag_in_the_july_cell_answers_every_rung_with_its_element_box(self):
+        """The map chooses the cell; the rungs el/el2/fig carry the cell, the strip and the figure, each with its lines
+        and its box from the build's map, and the answer's own el is the cell with its box."""
+        d = self.pick_figure(helpers_figure.CELL_DRAG)
+        self.assertEqual((d["via"], d["default_level"], d["el"]["id"]), ("map", "el", helpers_figure.CELL_ID))
+        self.assertEqual(d["el"]["path"], [helpers_figure.ROOT_ID, helpers_figure.STRIP_ID, helpers_figure.CELL_ID])
+        self.assert_box(d["el"]["frac"], helpers_figure.JULY)
+        rungs = {lv["level"]: lv for lv in d["levels"]}
+        want = {
+            "el": (helpers_figure.CELL_ID, helpers_figure.JULY, 88, 95),
+            "el2": (helpers_figure.STRIP_ID, helpers_figure.STRIP_FRAC, 80, 97),
+            "fig": (helpers_figure.ROOT_ID, (0, 0, 1, 1), 12, 140),
+        }
+        self.assertEqual(sorted(rungs), sorted(want))
+        for level, (eid, box, lo, hi) in want.items():
+            with self.subTest(level=level):
+                self.assertEqual((rungs[level]["el"]["id"], rungs[level]["lo"], rungs[level]["hi"]), (eid, lo, hi))
+                self.assert_box(rungs[level]["el"]["frac"], box)
 
 
 class MultiDoc(Base):

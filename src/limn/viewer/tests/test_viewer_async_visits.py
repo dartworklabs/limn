@@ -134,7 +134,7 @@ class VisitLocalContinuations(unittest.TestCase):
                 const SEC_SEEN={open:new Set()},ASSIGN_NEW={v:'agent'};
                 let finish,undo;
                 function $(name){return name==='#note'?{value:'note'}:{disabled:false};}
-                function isRegion(){return false;}function kindFor(){return 'line';}
+                function isRegion(){return false;}function kindFor(){return 'line';}function figureFields(b){return b;}function figRung(){return null;}
                 function mentionHints(){return [];}function renderAssignNew(){}
                 function selectionSnapshot(){return {};}
                 function cancelSelection(){clears++;COMPOSE.current=null;}
@@ -391,7 +391,7 @@ class VisitLocalContinuations(unittest.TestCase):
                 const prior={id:1,cand:{file:'a.tex',page:1,lo:2,hi:3,kind:'line'}};
                 let REPICK=prior,finish,loads=0,toasts=0,cancels=0,snips=0;
                 const EDITOR={current:{id:1,base_rev:1,orig:{lo:1,hi:1}},saving:false};
-                function lvOf(){return null;}function isRegion(){return false;}
+                function lvOf(){return null;}function isRegion(){return false;}function figureFields(b){return b;}function repickEl(){return null;}function pinPlace(p){return {page:p.page};}
                 function tl(s){return s;}function toast(){toasts++;}
                 function cancelRepick(){cancels++;REPICK=null;}
                 function editSnip(){snips++;}function loadPins(){loads++;return Promise.resolve();}
@@ -408,6 +408,36 @@ class VisitLocalContinuations(unittest.TestCase):
             json.loads(run_node(js)),
             {"repick": 2, "edit": 2, "cancels": 0, "snips": 0, "loads": 1, "toasts": 1},
         )
+
+    def test_repick_success_toast_names_the_page_the_mark_is_on_now(self):
+        """A re-placed figure region whose element the server found on another page is announced with that page (pinPlace),
+        not with the page it was first placed on; a pin without a found element keeps its own page."""
+        for pin, expected_page in (
+            ({"id": 1, "rev": 2, "page": 1, "mark": [0.1, 0.1, 0.2, 0.2], "mark_page": 3}, 3),
+            ({"id": 1, "rev": 2, "page": 1}, 1),
+        ):
+            with self.subTest(pin=pin):
+                js = "\n".join(
+                    [
+                        extract_js_fn("captureVisit"),
+                        extract_js_fn("currentVisit"),
+                        extract_js_fn("isFrac"),
+                        extract_js_fn("hasMark"),
+                        extract_js_fn("pinPlace"),
+                        extract_js_fn("applyRepick"),
+                        """
+                        let DOC='a',SWITCHSEQ=1;
+                        let REPICK={id:1,cand:{page:1,kind:'region',frac:[0,0,1,1]}};
+                        const EDITOR={current:null,saving:false}; const TOASTS=[];
+                        function lvOf(){return null;}function isRegion(){return true;}function figureFields(b){return b;}function repickEl(){return null;}
+                        function tl(s,v){return s.replace(/\\{(\\w+)\\}/g,(m,k)=>v[k]);}function toast(m,k){TOASTS.push(m);}
+                        function cancelRepick(){REPICK=null;}function editSnip(){}function loadPins(){return Promise.resolve();}
+                        function api(){return Promise.resolve({status:200,data:{pin:PIN}});}
+                        (async()=>{await applyRepick(); console.log(JSON.stringify(TOASTS));})();
+                        """.replace("PIN", json.dumps(pin)),
+                    ]
+                )
+                self.assertEqual(json.loads(run_node(js)), [f"핀 #1 위치를 쪽 {expected_page} 영역 로 바꿨습니다"])
 
     def test_repick_reply_updates_the_same_editor_after_document_switch(self):
         """A dirty editor kept across documents receives the relocation revision without reviving its banner."""
@@ -427,7 +457,7 @@ class VisitLocalContinuations(unittest.TestCase):
                         let REPICK=prior,finish,loads=0,toasts=0,cancels=0,snips=0;
                         const card={id:1,base_rev:1,lo:1,hi:1,orig:{lo:1,hi:1}};
                         const EDITOR={current:card,saving:false};
-                        function lvOf(){return null;}function isRegion(){return false;}
+                        function lvOf(){return null;}function isRegion(){return false;}function figureFields(b){return b;}function repickEl(){return null;}function pinPlace(p){return {page:p.page};}
                         function tl(s){return s;}function toast(){toasts++;}
                         function cancelRepick(){cancels++;REPICK=null;}
                         function editSnip(){snips++;}function loadPins(){loads++;return Promise.resolve();}
