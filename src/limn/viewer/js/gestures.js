@@ -173,16 +173,18 @@ function dismissOutcome(d,size,v){return d>=0.35*size||(d>24&&v>=0.5)?'close':'b
 
 // ------------------------------------------------ The back gesture closes the top layer (touch)
 // On a phone or tablet the system back gesture closes the top layer first (docs/handbook/viewer.md §모바일 레이아웃) instead of
-// leaving Limn with a draft on screen. While the narrow sheet, the 701-900px overlay panel or the mid outline is open, one
+// leaving Limn with a draft on screen. While a sheet, the overlay panel or the outline overlay is open, one
 // CloseWatcher stands for it (Chrome on Android routes back there; modal dialogs have their own); without CloseWatcher, one history
 // entry does (popstate). Closing the layer any other way removes it again, so back never has a dead press, and document
 // switches never add entries (they replace the hash). Mouse devices have no system back, so nothing is registered there.
 let BACK=null,BACK_SKIP=false;
-// Which layer covers the document: the narrow sheet, the 701-900px overlay panel, or the mid outline overlay ('side'|'outline'|null).
-function backLayer(layout,overlay,sideOpen,outlineOpen){if(layout===LAYOUT_MODE.NARROW)return sideOpen?'side':null;
-  if(layout===LAYOUT_MODE.MID){if(outlineOpen)return 'outline'; if(overlay&&sideOpen)return 'side';} return null;}
+// Which layer covers the document for a band (overlay = MID_OVERLAY): the outline overlay first (the mid bands and the tablet
+// sheet), then a sheet (phone, tablet) or the overlay panel (mid-overlay, a short band up to 900px). 'side'|'outline'|null.
+function backLayer(band,overlay,sideOpen,outlineOpen){
+  if(band===LAYOUT_BAND.PHONE)return sideOpen?'side':null; if(band===LAYOUT_BAND.WIDE)return null;
+  if(outlineOpen)return 'outline'; return sideOpen&&(band===LAYOUT_BAND.TABLET_SHEET||overlay)?'side':null;}
 // Registers or removes the back layer to match the screen (called by applySide and applyOutlineState; idempotent).
-function syncBackLayer(){const want=MQ_COARSE.matches&&!!backLayer(LAYOUT,MID_OVERLAY,SIDE_OPEN,OUTLINE_MID_OPEN);
+function syncBackLayer(){const want=MQ_COARSE.matches&&!!backLayer(BAND,MID_OVERLAY,SIDE_OPEN,OUTLINE_MID_OPEN);
   if(want&&!BACK)armBack(); else if(!want&&BACK)disarmBack();}
 // Stands one CloseWatcher for the open layer, or pushes one history entry (same URL) where CloseWatcher is missing.
 function armBack(){
@@ -192,8 +194,8 @@ function armBack(){
 function disarmBack(){const b=BACK; BACK=null;
   if(b.kind==='watcher'){b.w.destroy(); return;}
   if(history.state&&history.state.limnLayer){BACK_SKIP=true; history.back();}}
-// The back gesture's action: close the mid outline, or collapse the sheet or overlay panel (remembered, with the slide).
-function closeTopLayer(){const k=backLayer(LAYOUT,MID_OVERLAY,SIDE_OPEN,OUTLINE_MID_OPEN);
+// The back gesture's action: close the outline overlay, or collapse the sheet or overlay panel (remembered, with the slide).
+function closeTopLayer(){const k=backLayer(BAND,MID_OVERLAY,SIDE_OPEN,OUTLINE_MID_OPEN);
   if(k==='outline')toggleOutline(); else if(k==='side'){setSide(false,true,true); focusSideToggle();}}
 window.addEventListener('popstate',()=>{const ours=BACK_SKIP||(BACK&&BACK.kind==='history'); if(!ours)return;
   if(DOC)setHash(DOC);   // the entry below may carry an older #doc= - the document on screen stays

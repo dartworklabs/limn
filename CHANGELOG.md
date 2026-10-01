@@ -1,5 +1,33 @@
 # Changelog
 
+## 0.4.2 — 2026-10-01
+
+The viewer's layout now depends on the input device and, on touch, on the screen's height and orientation. A mouse
+window is unchanged: it still picks its layout from the width alone (phone sheet up to 700 px, the panel up to 1099 px,
+the desktop from 1100 px). Nothing changes in `pins.md`, the API or the state directory; the browser keeps one new
+optional preference, `pinPrefs.sheetFTab`.
+
+### Changed
+
+- **Landscape phones** (touch, at least 600 px wide and under 480 px high). One 44 px row on top holds the document
+  links and [선택] [⋯] [핀 N]; the bottom action row is gone and [PDF 재빌드] moves into [⋯]. The composer puts the note
+  right after the location line, as on the phone sheet. While a note field has focus the row hides, so the whole note
+  stays visible above the keyboard.
+- **Portrait tablets** (touch, at least 480 px high: 600–839 px wide in either orientation, and 840–900 px wide in
+  portrait only; a square window counts as landscape). The pin panel is a bottom sheet under the
+  navigation row, opening at 45% with its own remembered height, instead of an overlay that covered the right part of
+  the page; the outline opens as an overlay, one at a time with the sheet. While you write a pin the sheet stays at 45%,
+  so the page you just selected on stays in view; with the keyboard up it rises only as far as the location line, the
+  note and the save row need, never above 60%. The phone sheet still rises to 80% while composing.
+- **Touch tablets 1100–1366 px wide** (an 11-inch iPad in landscape). They use the side panel with a bottom action row
+  and folded cards instead of the desktop layout with touch-sized buttons. Only touch screens wider than 1366 px get
+  the desktop layout, and there the outline starts collapsed until you open it.
+- **Rotation and folding** change the layout once, after the size has held for 200 ms; the layout does not change while
+  a text field has focus (the keyboard is up), so a note being written keeps its place. A mouse plugged in or removed
+  switches the layout the same way.
+- **Fixes.** The edit card keeps its focus and selection when the list is redrawn; the mid panel handle and the wide
+  outline handle answer a 44 px touch.
+
 ## 0.4.1 — 2026-10-01
 
 A tighter viewer on phones and tablets. Nothing changes in `pins.md`, the API or the state directory, and the layout

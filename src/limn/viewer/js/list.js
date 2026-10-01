@@ -75,8 +75,10 @@ function drawPins(){
   if(MENTION_ONLY&&!MINE.length)MENTION_ONLY=false;
   mf.hidden=!MINE.length; mf.setAttribute('aria-pressed',String(MENTION_ONLY)); mf.innerHTML=ic('at-sign')+MINE.length; mf.setAttribute('aria-label',tl('나를 부른 핀 {n}',{n:MINE.length}));
   const SHOWN=MENTION_ONLY?OPEN_ALL.filter(mentionsMe):LIST;
-  // If the cursor was in the reply input field, it's restored to that position after redrawing (so auto-sync redrawing the list never interrupts typing).
+  // If the cursor was in the reply input field or the edit card's note, it's restored to that position after redrawing (so auto-sync
+  // redrawing the list, or a layout change redrawing the cards, never interrupts typing).
   const rta=REPLY&&REPLY.el.querySelector('textarea'),rfocus=rta&&document.activeElement===rta?[rta.selectionStart,rta.selectionEnd]:null;
+  const eta=EDITOR.current&&EDITOR.current.el.querySelector('.e-note'),efocus=eta&&document.activeElement===eta?[eta.selectionStart,eta.selectionEnd]:null;
   secHead('open',tr(MENTION_ONLY?'나를 부른 열린 핀':SHOW_ALL&&multiDoc()?'모든 문서의 열린 핀':'열린 핀'),SHOWN.map(p=>p.id),OPEN_ALL.map(p=>p.id));
   const ab=$('#all-docs'); ab.setAttribute('aria-pressed',String(SHOW_ALL)); ab.innerHTML=(SHOW_ALL?ic('check'):'')+esc(tr('모든 문서'));
   $('#side-n').textContent=PINS.length; applySide();
@@ -87,7 +89,8 @@ function drawPins(){
   $('#empty').hidden=SHOWN.length>0||OPEN_ALL.length>0||REVIEW_ALL.length>0;
   // Empty list: the header's count already says it - a separate '아직 없습니다.' line is never added too (QA). Only a note that another document has pins is left.
   $('#pins').innerHTML=SHOWN.length?SHOWN.map(card).join(''):(multiDoc()&&!SHOW_ALL&&OPEN_ALL.length?'<div class="dim list-empty">'+esc(tl('이 문서에는 없습니다 · 다른 문서에 {n}건',{n:OPEN_ALL.length}))+'</div>':'');
-  if(EDITOR.current){const slot=$('#pins .edit-slot'); if(slot)slot.replaceWith(EDITOR.current.el);}
+  if(EDITOR.current){const slot=$('#pins .edit-slot'); if(slot)slot.replaceWith(EDITOR.current.el);
+    if(efocus&&document.contains(eta)){eta.focus(); try{eta.setSelectionRange(efocus[0],efocus[1]);}catch(e){}}}
   // Awaiting-review section: between open pins and done. Hidden when empty. The card looks the same as an open pin (thread/replies); only the actions are [확인]/[답글].
   const LREV=MENTION_ONLY?REVIEW_ALL.filter(mentionsMe):listReview();
   $('#sec-review').hidden=!LREV.length; secHead('review',tr('검토 대기'),LREV.map(p=>p.id),REVIEW_ALL.map(p=>p.id));

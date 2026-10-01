@@ -23,6 +23,7 @@ from limn.pins.listing import render as md_render
 from limn.pins.location import position
 from limn.viewer import assemble as viewer_assemble
 
+import helpers_js
 from helpers import (
     DOCS_DIR,
     HTML,
@@ -32,6 +33,7 @@ from helpers import (
     SKILL_MD,
     SW_JS,
     UI_EN,
+    VIEWER_CLOSED_SETS,
     extract_js_fn,
     js_esc,
     js_i18n,
@@ -622,6 +624,15 @@ class FrontendMobileStructure(unittest.TestCase):
         for doc in [SKILL_MD, SKILL_KO] + sorted(DOCS_DIR.glob("*.md")):
             self.assertFalse("PDF 다시 만들기" in doc.read_text(encoding="utf-8"), doc.name)
 
+    def test_layout_rules_hang_on_band_classes_not_width_queries(self):
+        """The band is chosen in JS (layoutFor) from width, height and pointer: a width media query left in the CSS would
+        switch on its own and disagree with it. The overlay panel's rules hang on body.mid-overlay instead of the old
+        701-900px query."""
+        css = (PKG / "viewer" / "css" / "responsive.css").read_text(encoding="utf-8")
+        self.assertNotIn("min-width:701px", css)
+        self.assertNotRegex(css, r"max-width:\s*900px")
+        self.assertIn("body.mid-overlay.side-open #right{", css)
+
     def test_compact_toolbar_elements_and_more_menu(self):
         for el in (
             'id="btn-side"',
@@ -992,30 +1003,127 @@ class FrontendMobileLogic(unittest.TestCase):
         if not shutil.which("node"):
             self.skipTest("node not available")
 
-    def test_layout_for_breakpoints(self):
+    # layoutFor(w, h, coarse) rows: (w, h, coarse, band). A mouse looks at the width only, so its rows hold at any height;
+    # touch rows put both sides of every width, height and orientation boundary (docs/handbook/viewer.md §모바일 레이아웃).
+    MOUSE_BANDS = [
+        (412, 900, "phone"),
+        (700, 900, "phone"),
+        (701, 900, "mid-overlay"),
+        (880, 900, "mid-overlay"),
+        (900, 900, "mid-overlay"),
+        (820, 390, "mid-overlay"),
+        (901, 900, "mid-side"),
+        (1099, 900, "mid-side"),
+        (1100, 820, "wide"),
+        (1180, 820, "wide"),
+        (1366, 1024, "wide"),
+        (1440, 900, "wide"),
+    ]
+    TOUCH_BANDS = [
+        # width boundaries
+        (599, 900, "phone"),
+        (600, 900, "tablet-sheet"),
+        (700, 900, "tablet-sheet"),
+        (839, 700, "tablet-sheet"),
+        (840, 700, "mid-overlay"),
+        (900, 700, "mid-overlay"),
+        (901, 700, "mid-side"),
+        (1099, 900, "mid-side"),
+        (1100, 900, "mid-side"),
+        (1366, 1024, "mid-side"),
+        (1367, 1024, "wide"),
+        # height boundaries
+        (844, 479, "short"),
+        (844, 480, "mid-overlay"),
+        (599, 300, "phone"),
+        (600, 479, "short"),
+        (1200, 479, "short"),
+        # orientation (a square window is landscape)
+        (860, 1000, "tablet-sheet"),
+        (860, 860, "mid-overlay"),
+        (860, 861, "tablet-sheet"),
+        (800, 600, "tablet-sheet"),
+        (1024, 1366, "mid-side"),
+        # the diagnosis' viewports
+        (360, 780, "phone"),
+        (390, 844, "phone"),
+        (430, 932, "phone"),
+        (344, 882, "phone"),
+        (844, 390, "short"),
+        (932, 430, "short"),
+        (640, 360, "short"),
+        (842, 758, "mid-overlay"),
+        (600, 900, "tablet-sheet"),
+        (768, 1024, "tablet-sheet"),
+        (820, 1180, "tablet-sheet"),
+        (834, 1194, "tablet-sheet"),
+        (1024, 768, "mid-side"),
+        (1180, 820, "mid-side"),
+        (1366, 1024, "mid-side"),
+        (1440, 900, "wide"),
+    ]
+
+    def layout_bands(self, cases):
+        """[(w, h, coarse)] -> [layoutFor(w, h, coarse)] from the served source."""
+        js = extract_js_fn("layoutFor") + "\nconsole.log(JSON.stringify(%s.map(c=>layoutFor(c[0],c[1],c[2]))));" % (
+            json.dumps(cases)
+        )
+        return json.loads(run_node(js))
+
+    def test_layout_for_bands(self):
+        """layoutFor(w, h, coarse) is the band table: a mouse gets the width-only bands at any height (300, the row's own
+        and 2000), touch also reads the height and the orientation. Each row sits on one side of a boundary."""
+        mouse = [(w, hh, False, b) for w, h, b in self.MOUSE_BANDS for hh in (h, 300, 2000)]
+        touch = [(w, h, True, b) for w, h, b in self.TOUCH_BANDS]
+        rows = mouse + touch
+        got = self.layout_bands([r[:3] for r in rows])
+        self.assertEqual([r[:3] + (g,) for r, g in zip(rows, got, strict=True)], rows)
+
+    def test_band_settle_rules(self):
+        """settleBand(C, N, typing): what a new window observation N does to the settled input C on touch - settle at once
+        (no C yet, or a mouse), keep the band while a text field has focus or for a height change under 96px from C (C stays,
+        so two 56px steps add up), and otherwise wait 200ms (a rotation, an unfolding, a pointer change)."""
+        t = lambda w, h: {"w": w, "h": h, "coarse": True}  # noqa: E731
+        m = lambda w, h: {"w": w, "h": h, "coarse": False}  # noqa: E731
         cases = [
-            (412, True),
-            (700, True),
-            (701, True),
-            (880, True),
-            (1099, True),
-            (1100, True),
-            (1440, True),
-            (412, False),
-            (880, False),
-            (1440, False),
+            (None, t(768, 1024), False, "settle"),
+            (t(768, 1024), t(768, 644), True, "keep"),  # the keyboard, while the note has focus
+            (t(768, 1024), t(1024, 768), True, "keep"),  # a rotation, while the note has focus
+            (t(844, 390), t(844, 446), False, "keep"),  # the address bar hides
+            (t(844, 446), t(844, 390), False, "keep"),  # and comes back
+            (t(1024, 768), t(1024, 712), False, "keep"),  # one 56px step
+            (t(1024, 768), t(1024, 656), False, "wait"),  # the second, against the same C: 112px
+            (t(1024, 768), t(1024, 673), False, "keep"),  # 95px
+            (t(1024, 768), t(1024, 672), False, "wait"),  # 96px
+            (t(768, 1024), t(1024, 768), False, "wait"),  # a rotation
+            (t(344, 882), t(842, 758), False, "wait"),  # an unfolding
+            (t(1180, 820), m(1180, 820), False, "wait"),  # the primary pointer turns fine
+            (m(1180, 820), t(1180, 820), False, "wait"),  # and back
+            (m(1000, 800), m(1200, 800), False, "settle"),  # a mouse window, at once
+            (m(1000, 800), m(1000, 300), True, "settle"),  # even with a text field focused
         ]
+        consts = re.search(r"^const BAND_HOLD_PX=.*;$", HTML, re.M).group(0)  # the served thresholds, not a copy
+        js = (
+            consts
+            + extract_js_fn("settleBand")
+            + "\nconsole.log(JSON.stringify(%s.map(c=>settleBand(c[0],c[1],c[2]))));"
+            % (json.dumps([c[:3] for c in cases]))
+        )
+        got = json.loads(run_node(js))
+        self.assertEqual([c[:3] + (g,) for c, g in zip(cases, got, strict=True)], cases)
+
+    def test_a_mouse_window_keeps_the_width_only_layout_modes(self):
+        """The mouse rows of the old width-only test give the same layout mode through BAND_MODE: 412 narrow, 880 mid,
+        1440 wide."""
+        consts = re.search(r"^const BAND_MODE=.*;$", HTML, re.M).group(0)
         js = "\n".join(
             [
-                "let innerWidth=0; const MQ_COARSE={matches:false};",
                 extract_js_fn("layoutFor"),
-                "console.log(JSON.stringify(%s.map(c=>{innerWidth=c[0];MQ_COARSE.matches=c[1];return layoutFor();})));"
-                % json.dumps(cases),
+                helpers_js.closed_set_prelude(VIEWER_CLOSED_SETS, consts) + consts,
+                "console.log(JSON.stringify([[412,900],[880,900],[1440,900]].map(c=>BAND_MODE[layoutFor(c[0],c[1],false)])));",
             ]
         )
-        self.assertEqual(
-            json.loads(run_node(js)), ["narrow", "narrow", "mid", "mid", "mid", "wide", "wide", "narrow", "mid", "wide"]
-        )
+        self.assertEqual(json.loads(run_node(js)), ["narrow", "mid", "wide"])
 
     def test_quick_pick_box_is_a_line_on_a_manuscript_and_a_point_on_a_figure(self):
         """A quick selection sends about one text line around the point on a manuscript page (+-7 % x +-0.6 %), and a
@@ -1288,8 +1396,8 @@ class FrontendPanelTidyStructure(unittest.TestCase):
         self.assertIn("#c-snip:not(.open){max-height:calc(6em + 16px);overflow:hidden}", css)
         m = re.search(r"\nfunction renderComposer\(\)\{(.*?)\n\}", HTML, re.S)
         self.assertIn("pre.scrollHeight>pre.clientHeight", m.group(1))
-        # on a narrow sheet the note field sits above the source snippet (so it doesn't hide under the action row)
-        self.assertIn("body.lay-narrow #note{order:1", css)
+        # on a narrow sheet and in the short band the note field sits above the source snippet (so it doesn't hide under the action row)
+        self.assertIn("body:is(.lay-narrow,.band-short) #note{order:1", css)
 
     def test_card_head_tags_row_and_action_grid(self):
         m = re.search(r"\nfunction card\(p\)\{(.*?)\n\}", HTML, re.S)
@@ -1345,7 +1453,9 @@ class FrontendPanelTidyStructure(unittest.TestCase):
         self.assertIn("body.lay-mid #coach{top:auto;bottom:calc(var(--mbar-h)", css)
         self.assertIn("body.lay-mid #toasts{", css)
         # an overflowing document-link row fades at the edge instead of showing a scrollbar
-        self.assertIn("body.lay-mid #doc-links.fade-r{mask-image:", css)
+        self.assertIn(
+            "body:is(.lay-mid,.band-tablet-sheet) #doc-links.fade-r{mask-image:", css
+        )  # the tablet sheet's nav bar too
         self.assertIn("function docLinksFade(){", HTML)
         self.assertIn("$('#doc-links').addEventListener('scroll',docLinksFade,{passive:true});", HTML)
 
@@ -1584,7 +1694,8 @@ class FrontendToasts(unittest.TestCase):
         self.assertNotRegex(self.css, r"body\.lay-mid #toasts\{[^}]*top:")  # formerly: top-left of the body
         body = extract_js_fn("placeToasts")
         self.assertIn("'#c-actions'", body)  # doesn't cover the save/cancel buttons
-        self.assertIn("LAYOUT===LAYOUT_MODE.MID?['#bar1']", body)  # doesn't cover the bottom toolbar
+        # doesn't cover the bottom toolbar (the short band has none: its tool bar is in the top row)
+        self.assertIn("LAYOUT===LAYOUT_MODE.MID&&BAND!==LAYOUT_BAND.SHORT?['#bar1']", body)
         self.assertIn("right.getBoundingClientRect().top", body)  # narrow: above the sheet
         self.assertIn("innerWidth-rr.right+12", body)  # right edge inside the panel column
         # a nearly-full sheet: drop down so it doesn't cover the toolbar
@@ -1770,10 +1881,10 @@ class FrontendSemanticAudit(unittest.TestCase):
         self.assertIn("#revision-diff.wrap .rd-code{flex:1;min-width:0;white-space:pre-wrap", self.css)
 
     def test_change_view_on_fold_and_phone(self):
-        # [변경 보기] phone/fold QA (2026-09-25): on a fold (701-900px), the pin panel floats on top,
+        # [변경 보기] phone/fold QA (2026-09-25): on a fold (the overlay panel, body.mid-overlay), the pin panel floats on top,
         # hiding the right half of the diff and the [원고로] button — only the change view yields space
         # equal to the panel width. Commit picking / build-warning expand are 44px on touch.
-        self.assertIn("body.lay-mid.side-open #revision-view{padding-right:var(--side-w,330px)}", self.css)
+        self.assertIn("body.mid-overlay.side-open #revision-view{padding-right:var(--side-w,330px)}", self.css)
         self.assertIn("#revision-list select,#revision-file-row select{min-height:var(--control-h-touch)}", self.css)
         self.assertIn("#revision-warning summary{line-height:var(--control-h-touch)}", self.css)
         # if the pin's range line isn't in the diff and only nearby lines changed, don't say "the highlighted line is the pin's range" (there is no highlighted line).
@@ -1885,7 +1996,8 @@ class HtmlTemplateStructure(unittest.TestCase):
 
     def test_identity_crumb_does_not_take_mobile_space(self):
         self.assertIn("body.lay-narrow #paper-identity{display:none}", HTML)
-        self.assertIn("body:not(.lay-narrow) #doc-nav{display:flex}", HTML)
+        # the nav bar is off on the phone sheet only; the tablet sheet keeps it above the document
+        self.assertIn("body:not(.lay-narrow) #doc-nav,body.band-tablet-sheet #doc-nav{display:flex}", HTML)
 
     def test_document_title_prefixes_label(self):
         # with multiple documents, the document name (META.doc_name) is used instead of the main filename — the label prefix stays the same.
@@ -1904,10 +2016,14 @@ class FrontendDocs(unittest.TestCase):
         css = HTML
         self.assertIn("#doc-select-wrap{display:none;", css)
         self.assertIn("#doc-links{display:none;", css)
-        self.assertIn("body.docs-multi:not(.lay-narrow) #doc-links{display:flex}", css)
-        self.assertIn("body:not(.lay-narrow) #doc-nav{display:flex}", css)
+        # the tablet sheet switches documents by the nav bar's links; only the phone sheet has the [문서] button
+        self.assertIn(
+            "body.docs-multi:not(.lay-narrow) #doc-links,body.docs-multi.band-tablet-sheet #doc-links{display:flex}",
+            css,
+        )
+        self.assertIn("body:not(.lay-narrow) #doc-nav,body.band-tablet-sheet #doc-nav{display:flex}", css)
         self.assertIn("#btn-doc{display:none;", css)
-        self.assertIn("body.lay-narrow.docs-multi #btn-doc{display:inline-flex}", css)
+        self.assertIn("body.band-phone.docs-multi #btn-doc{display:inline-flex}", css)
         self.assertIn("body.no-rebuild #btn-rebuild{display:none}", css)
         self.assertIn('id="all-docs"', css)
         self.assertIn("$('#all-docs').hidden=!multiDoc()", HTML)
@@ -3373,8 +3489,11 @@ class FrontendResponsiveBrowser(ChromiumTestCase):
         super().setUpClass()
         cls.html = page_for("Long-DemoPaper1", "#2563eb").replace("\nboot();", "\n")
 
-    def open_viewer(self, width, touch=False, preferences=None):
-        context = self.browser.new_context(viewport={"width": width, "height": 900}, is_mobile=touch, has_touch=touch)
+    def open_viewer(self, width, touch=False, preferences=None, height=900):
+        """The viewer page (boot() off) at width x height, touch or mouse, with pinPrefs preferences and three blank pages."""
+        context = self.browser.new_context(
+            viewport={"width": width, "height": height}, is_mobile=touch, has_touch=touch
+        )
         self.addCleanup(context.close)
         page = context.new_page()
         page.route(
@@ -3405,6 +3524,8 @@ class FrontendResponsiveBrowser(ChromiumTestCase):
         return page
 
     def test_toggle_stays_in_place_without_overflow_for_mouse_and_touch(self):
+        """The outline toggle keeps its place, focus and reading spot at every width, mouse and touch; outside wide it opens
+        the outline overlay, which Escape and the pin panel close (touch 1180 is the side-panel band, not wide)."""
         for touch in (False, True):
             for width in (720, 820, 900, 1024, 1180, 1440):
                 with self.subTest(width=width, touch=touch):
@@ -3415,6 +3536,8 @@ class FrontendResponsiveBrowser(ChromiumTestCase):
                     toggle = page.locator("#nav-toc-toggle")
                     self.assertEqual(page.locator('[data-act="outline"]').count(), 1)
                     before = toggle.bounding_box()
+                    was = toggle.get_attribute("aria-expanded")  # wide: open with a mouse, collapsed on touch
+                    self.assertEqual(was, "true" if page.evaluate("LAYOUT") == "wide" and not touch else "false")
                     self.assertGreaterEqual(before["y"], 0)
                     page.evaluate("document.querySelector('#left').scrollTop=480")
                     anchor = page.evaluate("topAnchor()")
@@ -3432,7 +3555,7 @@ class FrontendResponsiveBrowser(ChromiumTestCase):
                             "document.querySelector('#doc-nav').scrollWidth>document.querySelector('#doc-nav').clientWidth"
                         )
                     )
-                    if width < 1100:
+                    if page.evaluate("LAYOUT") != "wide":
                         self.assertEqual(toggle.get_attribute("aria-expanded"), "true")
                         self.assertFalse(page.evaluate("SIDE_OPEN"))
                         page.keyboard.press("Escape")
@@ -3442,9 +3565,9 @@ class FrontendResponsiveBrowser(ChromiumTestCase):
                         self.assertEqual(toggle.get_attribute("aria-expanded"), "false")
                         self.assertTrue(page.evaluate("SIDE_OPEN"))
                     else:
-                        self.assertEqual(toggle.get_attribute("aria-expanded"), "false")
+                        self.assertNotEqual(toggle.get_attribute("aria-expanded"), was)
                         toggle.press("Enter")
-                        self.assertEqual(toggle.get_attribute("aria-expanded"), "true")
+                        self.assertEqual(toggle.get_attribute("aria-expanded"), was)
 
     def test_mid_action_bar_and_tabs_stay_put_when_panel_toggles(self):
         # regression (2026-09-24, Fold 7 user): in mid, [핀 N] used to jump between top-right (y 56) when
@@ -3463,9 +3586,11 @@ class FrontendResponsiveBrowser(ChromiumTestCase):
                   blocked:ctl.filter(e=>!hit(e)).map(e=>e.id||e.textContent.trim()),
                   clipped:ctl.filter(e=>e.scrollWidth>e.clientWidth+1).map(e=>e.id||e.textContent.trim())};
         }"""
-        for width in (720, 820, 884, 968, 1024):
-            with self.subTest(width=width):
-                page = self.open_viewer(width, True)
+        # touch mid bands only: 844/884x700 the overlay, 968x900 and 1024x768 beside the document, 1180/1366 the U8 tablets
+        # (720 and 820 at 900px high are portrait tablets now: the bottom sheet, TouchLayoutBands)
+        for width, height in ((844, 700), (884, 700), (968, 900), (1024, 768), (1180, 820), (1366, 1024)):
+            with self.subTest(width=width, height=height):
+                page = self.open_viewer(width, True, height=height)
                 a = page.evaluate(probe)
                 page.locator("#btn-side").click()
                 b = page.evaluate(probe)
@@ -3473,7 +3598,7 @@ class FrontendResponsiveBrowser(ChromiumTestCase):
                 for s in (a, b):
                     self.assertEqual(s["pos"], "fixed")
                     self.assertEqual(
-                        (s["bar"]["x"], s["bar"]["width"], s["bar"]["y"] + s["bar"]["height"]), (0, width, 900)
+                        (s["bar"]["x"], s["bar"]["width"], s["bar"]["y"] + s["bar"]["height"]), (0, width, height)
                     )
                     self.assertEqual((s["nav"]["x"], s["nav"]["width"]), (0, width))
                     self.assertEqual(s["blocked"], [])

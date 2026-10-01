@@ -1,7 +1,10 @@
 /* ---------------- Mobile/touch (docs/handbook/viewer.md §모바일 레이아웃)
-   The layout is set by JS on body: lay-wide (1100px and up) - lay-mid (over 700px, under 1100px: a narrow side panel) -
-   lay-narrow (700px and below: a bottom sheet). compact = mid|narrow. side-open = the panel/sheet is expanded.
-   In the collapsed state, only the tool bar (#bar1), status chips (#bar2), and the re-place-location banner remain. */
+   The layout is set by JS on body from the window's width, height and primary pointer (layoutFor): the band (band-phone,
+   band-short, band-mid-overlay, band-mid-side, band-wide) and its mode - lay-wide (the desktop), lay-mid (the panel between the nav
+   bar and the action row; mid-overlay when it floats over the document) or lay-narrow (a bottom sheet). compact = mid|narrow.
+   side-open = the panel/sheet is expanded. Layout rules hang on these classes only, never on a width media query: the JS band
+   and the CSS must switch together. In the collapsed state, only the tool bar (#bar1), status chips (#bar2), and the
+   re-place-location banner remain. */
 .cmp,.tch{display:none}
 .pin .sum{display:none}
 .hint .t-touch{display:none}
@@ -79,8 +82,21 @@ body:not(.lay-narrow) #coach button{pointer-events:auto}
   .arc-reply.open{display:block;padding:var(--space-2) 0}
   .th-n{min-height:44px;min-width:44px;justify-content:center}
   .thread :is(button.msg-more,button.th-more){padding-left:var(--space-1);padding-right:var(--space-1)}
-  #grip::after{left:-9px;right:-9px}
-  body.lay-wide:not(.side-open) #grip::after{left:-18px}   /* the collapsed rail: a 24px touch target reaching into the PDF side (touch scrollbars overlay) */
+  /* The panel handle and the outline handle are .hit: their 6-8px bars answer 44px (they answered 25 and 24px). The box lies on
+     the PDF side of the bar - left of the panel handle, right of the outline handle - so it never takes the edge of a card or an
+     outline entry; the collapsed wide rail at the screen's right edge gets the whole 44px on screen. */
+  #grip.hit::after{left:auto;right:0;transform:translateY(-50%)}
+  #outline-grip.hit::after{left:0;transform:translateY(-50%)}
+  /* ...and the PDF scroller keeps the page out of that box, so a swipe or a long press at the page's right edge scrolls or
+     picks instead of grabbing the handle (the page fits the padded width, innerW and fitWidth): beside the open side panel, 40px of right
+     padding (the hit's 36px plus 4); over the overlay panel while composing, the panel width plus the 8px bar plus the same 40px (below, after that rule); in
+     wide (and its collapsed rail), 48px. The outline handle's hit (38px past its bar) ends inside #left's 44px left padding. */
+  body.lay-mid.side-open:not(.mid-overlay) #left{--doc-end:calc(var(--hit) - var(--space-1));padding-right:max(var(--doc-end),env(safe-area-inset-right))}
+  body.lay-wide #left{--doc-end:calc(var(--hit) + var(--space-1));padding-right:var(--doc-end)}
+  /* A page zoomed past the fit overflows the scroller, whose own right padding is not part of its scroll extent: #doc carries
+     the same --doc-end as its own padding (and gives it back as a negative margin, so a fitted page is unchanged), so scrolled
+     fully right the page still ends that far from the edge. */
+  #doc{width:fit-content;min-width:100%;padding-right:var(--doc-end,0px);margin-right:calc(-1 * var(--doc-end,0px))}
 }
 /* Mouse hit targets (WCAG 2.5.8, 24px; input review 2026-09-26): small controls keep their drawn size and get a 24x24 hit area
    from ::after, centered on them - [3쪽] was 17x19, the reply count 23x17, a mark badge 22x22, card buttons 53x23. */
@@ -133,16 +149,23 @@ body.lay-narrow #btn-rebuild .lbl{display:none}
 body.lay-narrow #btn-doc .nm{overflow:visible;text-overflow:clip;max-width:6em}
 body.compact #bar1 #btn-more{flex:0 0 44px;padding:0;background:transparent;border-color:transparent}   /* utility = ghost (the same convention as notification/theme/help on desktop) */
 body.compact #composer{max-height:none;overflow:visible}
+/* Touch only (a mouse window scrolls as it always did): a field scrolled into view stays clear of the stuck save row (56px plus the
+   bottom safe area) and, on a sheet, of the tool bar stuck at its top (whose hit areas reach 6px below it). */
+@media (pointer:coarse){
+  body.compact.composing #right{scroll-padding-bottom:calc(var(--hit) + var(--space-5) + env(safe-area-inset-bottom))}
+  body.lay-narrow.composing #right{scroll-padding-top:calc(var(--stick-top,0px) + var(--space-2))}
+}
 /* Phone sheet composer (docs/handbook/viewer.md §패널 정리): the location line, then the note with its helpers, then the one-line
    overlap notice, then the range ladder, the nudges and the kind, then the source. The note was the fourth block, 328px down, and hid
    below the save row; with the keyboard up the location line scrolled away (diagnosis P2). */
-body.lay-narrow #composer{display:flex;flex-direction:column}
-body.lay-narrow #c-body{display:contents}
-body.lay-narrow #c-overlap{order:2}
-body.lay-narrow :is(#c-levels,.c-tools,#c-kind){order:3}
-body.lay-narrow #c-snip,body.lay-narrow .snip-foot{order:4}
-body.lay-narrow #note{order:1;margin:var(--space-2) 0}
-body.lay-narrow #c-viewer{order:1}
+/* The short band (a landscape phone, ~346px of panel) takes the same order: in the mid order the note was ninth, off screen after a pick. */
+body:is(.lay-narrow,.band-short) #composer{display:flex;flex-direction:column}
+body:is(.lay-narrow,.band-short) #c-body{display:contents}
+body:is(.lay-narrow,.band-short) #c-overlap{order:2}
+body:is(.lay-narrow,.band-short) :is(#c-levels,.c-tools,#c-kind){order:3}
+body:is(.lay-narrow,.band-short) #c-snip,body:is(.lay-narrow,.band-short) .snip-foot{order:4}
+body:is(.lay-narrow,.band-short) #note{order:1;margin:var(--space-2) 0}
+body:is(.lay-narrow,.band-short) #c-viewer{order:1}
 /* One line: the short relation shrinks (its tooltip has the sentence), the two actions keep their names. */
 #c-overlap.one{flex-wrap:nowrap;align-items:center;margin:0 0 var(--space-2)}
 #c-overlap.one>.ov-t{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -168,16 +191,17 @@ body.compact .pin .head{flex-wrap:nowrap;margin:-6px 0}
 body.compact .pin.open .sum,body.compact .pin.editing .sum{display:none}
 body.compact .pin:not(.open):not(.editing) :is(.tags,.au,.note,.acts,.head>.sp,.thread){display:none}
 body.compact .pin .au .au-n{display:none}
-body.lay-narrow{display:block;--ctl-touch-sm:32px}   /* the phone sheet's small touch controls are drawn at 32px, a tablet panel's at 36px (tokens.css) */
+body.lay-narrow{display:block;--ctl-touch-sm:32px;--sheet-gap:48px}   /* the phone sheet's small touch controls are drawn at 32px, a tablet panel's at 36px (tokens.css) */
 body.lay-narrow #main{height:100%}
 body.lay-narrow #left{height:100%}
 body.lay-narrow #right{position:fixed;left:0;right:0;bottom:var(--kb,0px);width:auto!important;height:auto;
-  max-height:calc(var(--vvh,100dvh) - 48px);border-left:0;border-top:1px solid var(--border-strong);border-radius:var(--radius-lg) var(--radius-lg) 0 0;
+  max-height:calc(var(--vvh,100dvh) - var(--sheet-gap));border-left:0;border-top:1px solid var(--border-strong);border-radius:var(--radius-lg) var(--radius-lg) 0 0;
   box-shadow:0 -6px 24px var(--shadow-color);z-index:20;padding:0 env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left)}
 /* Sheet height: --sheet-f (fraction of screen height, default 0.64) is changed by dragging or pressing the top-edge handle (#sheet-grip). It shrinks to fit within the visible height when the keyboard is up. */
-body.lay-narrow.side-open #right{height:min(calc(var(--sheet-f,.64) * 100dvh),calc(var(--vvh,100dvh) - 48px))}
-/* While composing the sheet rises to 80% (body.sheet-up, never saved) unless the user sets a height meanwhile (panel-size.js SHEET_KEPT). */
-body.lay-narrow.side-open.sheet-up #right{height:min(calc(max(var(--sheet-f,.64),.8) * 100dvh),calc(var(--vvh,100dvh) - 48px))}
+body.lay-narrow.side-open #right{height:min(calc(var(--sheet-f,.64) * 100dvh),calc(var(--vvh,100dvh) - var(--sheet-gap)))}
+/* While composing the phone sheet rises to 80% (body.sheet-up, never saved) unless the user sets a height meanwhile (panel-size.js SHEET_KEPT);
+   the tablet sheet keeps its height and rises only with the keyboard up, through --sheet-f (tabletLift). */
+body.lay-narrow.side-open.sheet-up #right{height:min(calc(max(var(--sheet-f,.64),.8) * 100dvh),calc(var(--vvh,100dvh) - var(--sheet-gap)))}
 /* The sheet's header is one row (docs/handbook/viewer.md §패널 폭과 시트 높이): the handle is an item of the tool bar, between [문서] and
    [재빌드], its bar drawn at the row's top like a sheet handle. It used to be a 24px row of its own whose hit area took the top 8px
    of every tool-bar button (diagnosis P3). The row has no vertical padding: the buttons are drawn at --tb-h and their 44px hit areas
@@ -246,15 +270,15 @@ body.lay-mid:not(.side-open) #right>#bar2,body.lay-mid:not(.side-open) #right>#b
 body.lay-mid #paper-identity{display:none}
 body.lay-mid #doc-nav{position:fixed;top:0;left:0;right:0;z-index:22;height:var(--mid-top);gap:var(--space-2);
   padding:env(safe-area-inset-top) max(var(--space-3),env(safe-area-inset-right)) 0 max(var(--space-3),env(safe-area-inset-left))}
-body.lay-mid #doc-links{gap:var(--space-3);margin-right:0;flex:0 1 auto;scrollbar-width:none}
-body.lay-mid #doc-links::-webkit-scrollbar{display:none}
-body.lay-mid #doc-links.fade-r{mask-image:linear-gradient(to right,var(--foreground) calc(100% - 32px),transparent)}
-body.lay-mid #doc-links.fade-l{mask-image:linear-gradient(to left,var(--foreground) calc(100% - 32px),transparent)}
-body.lay-mid #doc-links.fade-l.fade-r{mask-image:linear-gradient(to right,transparent,var(--foreground) 32px,var(--foreground) calc(100% - 32px),transparent)}
-body.lay-mid #view-switch{gap:var(--space-2);padding-left:var(--space-2)}
-body.lay-mid #doc-nav button{white-space:nowrap}
+body:is(.lay-mid,.band-tablet-sheet) #doc-links{gap:var(--space-3);margin-right:0;flex:0 1 auto;scrollbar-width:none}
+body:is(.lay-mid,.band-tablet-sheet) #doc-links::-webkit-scrollbar{display:none}
+body:is(.lay-mid,.band-tablet-sheet) #doc-links.fade-r{mask-image:linear-gradient(to right,var(--foreground) calc(100% - 32px),transparent)}
+body:is(.lay-mid,.band-tablet-sheet) #doc-links.fade-l{mask-image:linear-gradient(to left,var(--foreground) calc(100% - 32px),transparent)}
+body:is(.lay-mid,.band-tablet-sheet) #doc-links.fade-l.fade-r{mask-image:linear-gradient(to right,transparent,var(--foreground) 32px,var(--foreground) calc(100% - 32px),transparent)}
+body:is(.lay-mid,.band-tablet-sheet) #view-switch{gap:var(--space-2);padding-left:var(--space-2)}
+body:is(.lay-mid,.band-tablet-sheet) #doc-nav button{white-space:nowrap}
 /* At mid width, the outline overlays on top of the document (#main already starts below the nav bar). On a narrow tablet, pins overlay too, preserving the body's width. */
-body.lay-mid #outline{position:absolute;left:0;top:0;bottom:0;z-index:18;border-right:1px solid var(--border);box-shadow:var(--shadow)}
+body:is(.lay-mid,.band-tablet-sheet) #outline{position:absolute;left:0;top:0;bottom:0;z-index:18;border-right:1px solid var(--border);box-shadow:var(--shadow)}
 body.lay-mid #outline-grip{display:none}
 /* First-time onboarding: shown as a small chip just above the action row, on the left, right above the [선택] it points at - it never covers the nav bar or panel. */
 body.lay-mid #coach{top:auto;bottom:calc(var(--mbar-h) + var(--kb,0px) + var(--space-2));left:max(var(--space-3),env(safe-area-inset-left));transform:none;
@@ -262,25 +286,53 @@ body.lay-mid #coach{top:auto;bottom:calc(var(--mbar-h) + var(--kb,0px) + var(--s
 body.lay-mid.side-open #coach{max-width:calc(100vw - var(--side-w,330px) - 3 * var(--space-3))}
 @keyframes mid-panel-in{from{right:calc(-1 * var(--side-w,330px))}}
 @keyframes mid-grip-in{from{opacity:0}}
-@media (min-width:701px) and (max-width:900px){
-  body.lay-mid.side-open #right{position:fixed;right:calc(-1 * var(--swipe-x,0px));top:var(--mid-top);bottom:calc(var(--mbar-h) + var(--kb,0px));z-index:20;box-shadow:var(--shadow);
-    animation:mid-panel-in .18s ease-out}
-  /* A swipe to dismiss moves it through right (--swipe-x, set while the finger drags); its release springs back or slides out. */
-  body.lay-mid.side-settling #right,body.lay-mid.side-settling #grip{transition:right .18s ease-out}
-  /* At the width where the pin panel floats overlaid (folded), the change view gets offset by the panel width - unlike the body PDF, the diff
-     can't be pushed aside to view, so the right half under the panel (the end of a wrapped line, the guidance line's [원고로]) was hidden (QA 2026-09-25, 842px). */
-  body.lay-mid.side-open #revision-view{padding-right:var(--side-w,330px)}
-  /* The same while composing: a pick in the right column would hide under the panel (fold QA 2026-09-26, s10) - the PDF re-fits
-     to the space left of it (or scrolls there when zoomed). */
-  body.lay-mid.side-open.composing #left{padding-right:var(--side-w,330px)}
-  body.lay-mid.side-open #grip{position:fixed;right:calc(var(--side-w,330px) - var(--swipe-x,0px));top:var(--mid-top);bottom:calc(var(--mbar-h) + var(--kb,0px));z-index:21;
-    animation:mid-grip-in .18s ease-out}
-  /* Collapsing (a drag past the threshold, [핀], Esc) slides it back out the same way - right only. */
-  body.lay-mid.side-open.side-closing #right{animation:mid-panel-out .18s ease-in forwards}
-  body.lay-mid.side-open.side-closing #grip{animation:mid-grip-out .18s ease-in forwards}
-}
+/* The overlay panel (body.mid-overlay: the mid-overlay band, and the short band up to 900px): it floats over the document. */
+body.mid-overlay.side-open #right{position:fixed;right:calc(-1 * var(--swipe-x,0px));top:var(--mid-top);bottom:calc(var(--mbar-h) + var(--kb,0px));z-index:20;box-shadow:var(--shadow);
+  animation:mid-panel-in .18s ease-out}
+/* A swipe to dismiss moves it through right (--swipe-x, set while the finger drags); its release springs back or slides out. */
+body.mid-overlay.side-settling #right,body.mid-overlay.side-settling #grip{transition:right .18s ease-out}
+/* At the width where the pin panel floats overlaid (folded), the change view gets offset by the panel width - unlike the body PDF, the diff
+   can't be pushed aside to view, so the right half under the panel (the end of a wrapped line, the guidance line's [원고로]) was hidden (QA 2026-09-25, 842px). */
+body.mid-overlay.side-open #revision-view{padding-right:var(--side-w,330px)}
+/* The same while composing: a pick in the right column would hide under the panel (fold QA 2026-09-26, s10) - the PDF re-fits
+   to the space left of it (or scrolls there when zoomed). */
+body.mid-overlay.side-open.composing #left{padding-right:var(--side-w,330px)}
+@media (pointer:coarse){body.mid-overlay.side-open.composing #left{--doc-end:calc(var(--side-w,330px) + var(--space-2) + var(--hit) - var(--space-1));padding-right:var(--doc-end)}}   /* clear of the 8px bar's 44px touch hit */
+body.mid-overlay.side-open #grip{position:fixed;right:calc(var(--side-w,330px) - var(--swipe-x,0px));top:var(--mid-top);bottom:calc(var(--mbar-h) + var(--kb,0px));z-index:21;
+  animation:mid-grip-in .18s ease-out}
+/* Collapsing (a drag past the threshold, [핀], Esc) slides it back out the same way - right only. */
+body.mid-overlay.side-open.side-closing #right{animation:mid-panel-out .18s ease-in forwards}
+body.mid-overlay.side-open.side-closing #grip{animation:mid-grip-out .18s ease-in forwards}
 @keyframes mid-panel-out{to{right:calc(-1 * var(--side-w,330px))}}
 @keyframes mid-grip-out{to{opacity:0}}
+/* ---- Short band (a landscape phone, touch under 480px high; docs/handbook/viewer.md §모바일 레이아웃): one top row of 44px instead of the
+   nav bar and the bottom action row - [목차] [문서 링크…] ··· [선택] [⋯] [핀 N]. The tool bar is drawn over the nav bar's right end
+   (--bar1-w, barWidth); [PDF 재빌드] moves into [⋯]. The panel spreads from under the row to the bottom of the screen, and while a
+   panel text field has focus (body.typing) the row hides, so the ~200px the keyboard leaves go to the panel. */
+body.band-short{--doc-nav-h:var(--hit);--mbar-h:0px}
+body.band-short #doc-nav{right:var(--bar1-w,0px);padding-right:var(--space-2)}
+/* Buttons drawn at 40px from 2px down: their 44px hit areas fill the row from its top edge to its line. */
+body.band-short #bar1{top:0;bottom:auto;left:auto;right:0;height:var(--mid-top);gap:var(--space-1);align-items:flex-start;border-top:0;border-bottom:1px solid var(--border);
+  padding:calc(env(safe-area-inset-top) + 2px) max(var(--space-3),env(safe-area-inset-right)) 0 var(--space-2)}
+body.band-short:not(.side-open) #bar1{border-bottom:1px solid var(--border)}
+body.band-short #bar1 .sp,body.band-short #btn-rebuild{display:none}
+body.band-short.typing{--mid-top:0px}
+body.band-short.typing :is(#doc-nav,#bar1){display:none}
+#m-rebuild{display:none}
+body.band-short:not(.no-rebuild) #m-rebuild{display:flex}
+/* ---- Tablet sheet (touch 600-839px, or up to 900px in portrait; docs/handbook/viewer.md §모바일 레이아웃): the narrow sheet under
+   the nav bar of the mid layout. The overlay panel covered the right 43% of a 768px page; the sheet leaves the page its whole width.
+   The sheet box spans the screen and its content is at most 640px, centred; the tool bar keeps its buttons at their natural width.
+   The nav bar stays in the flow above the document (the sheet's highest step ends under it, --sheet-gap), and the outline is an
+   overlay over the document that opens one at a time with the sheet. */
+body.band-tablet-sheet{--sheet-gap:calc(var(--doc-nav-h) + env(safe-area-inset-top))}
+body.band-tablet-sheet #doc-nav{height:calc(var(--doc-nav-h) + env(safe-area-inset-top));gap:var(--space-2);
+  padding:env(safe-area-inset-top) max(var(--space-3),env(safe-area-inset-right)) 0 max(var(--space-3),env(safe-area-inset-left))}
+body.band-tablet-sheet #pdf-body{position:relative}   /* the outline overlay's box starts under the nav bar */
+body.band-tablet-sheet #right>*{width:100%;max-width:640px;margin-left:auto;margin-right:auto}
+body.band-tablet-sheet #bar1 button{flex:none}
+body.band-tablet-sheet #coach{top:calc(var(--doc-nav-h) + env(safe-area-inset-top) + var(--space-3))}
+body.band-tablet-sheet #toasts{max-width:640px;margin:0 auto}
 /* The folded layout (narrow) reuses the existing tool bar's [문서 ▾] button and sheet list as-is. */
 .dm-item .nm{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .dcnt{font-weight:600}
@@ -291,7 +343,7 @@ body.lay-mid.side-open #coach{max-width:calc(100vw - var(--side-w,330px) - 3 * v
 .dm-item .spin,#btn-doc .spin{width:10px;height:10px}
 #btn-doc{display:none;align-items:center;gap:var(--space-1)}
 #btn-doc .nm{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-body.lay-narrow.docs-multi #btn-doc{display:inline-flex}
+body.band-phone.docs-multi #btn-doc{display:inline-flex}   /* the tablet sheet has the nav bar's document links instead */
 body.no-rebuild #btn-rebuild{display:none}
 .dchip{flex:none;line-height:16px;max-width:110px;overflow:hidden;text-overflow:ellipsis}
 .dchip.other{background:transparent;border-color:var(--border-strong);border-style:dashed}   /* another document = a dashed border (a meaningful border) */

@@ -249,15 +249,40 @@ class GestureLogic(unittest.TestCase):
         )
         self.assertEqual(got, [True, False, False, False, 1600, 1600, 800, 800])
 
-    def test_back_layer_is_the_sheet_the_overlay_panel_or_the_mid_outline(self):
-        """Only a layer that covers the document: narrow sheet, 701-900px overlay panel, mid outline overlay."""
+    def test_tablet_sheet_lift_rises_only_as_far_as_needed_and_never_past_60_percent(self):
+        """sheetLift(f, need): the tablet sheet's height while composing with the keyboard up - its own height when the
+        location line, the note and the save row fit, else just what they need, at most 60%; a higher chosen height stays."""
+        pre = re.search(r"^const SHEET_TAB_LIFT_MAX=.*;", HTML, re.M).group(0)
         got = self.run_js(
-            ["backLayer"],
-            "[backLayer('narrow',false,true,false),backLayer('narrow',false,false,false),"
-            "backLayer('mid',true,true,false),backLayer('mid',false,true,false),backLayer('mid',false,false,true),"
-            "backLayer('wide',false,true,true)]",
+            ["sheetLift"], "[sheetLift(0.45,0.39),sheetLift(0.45,0.52),sheetLift(0.45,0.8),sheetLift(0.64,0.8)]", pre
         )
-        self.assertEqual(got, ["side", None, "side", None, "outline", None])
+        self.assertEqual(got, [0.45, 0.52, 0.6, 0.64])
+
+    def test_back_layer_is_the_sheet_the_overlay_panel_or_the_outline_overlay(self):
+        """backLayer(band, overlay, sideOpen, outlineOpen): only a layer that covers the document - a sheet (phone, tablet),
+        the overlay panel (mid-overlay, or a short band up to 900px), the outline overlay (mid bands and the tablet sheet;
+        with both open the outline is on top). The side panel beside the document and anything wide are not layers."""
+        cases = [
+            ("phone", False, True, False, "side"),
+            ("phone", False, False, False, None),
+            ("phone", False, False, True, None),
+            ("tablet-sheet", False, True, False, "side"),
+            ("tablet-sheet", False, False, True, "outline"),
+            ("tablet-sheet", False, True, True, "outline"),
+            ("tablet-sheet", False, False, False, None),
+            ("mid-overlay", True, True, False, "side"),
+            ("mid-overlay", True, False, True, "outline"),
+            ("short", True, True, False, "side"),
+            ("short", False, True, False, None),
+            ("short", False, False, True, "outline"),
+            ("mid-side", False, True, False, None),
+            ("mid-side", False, False, True, "outline"),
+            ("wide", False, True, True, None),
+        ]
+        got = self.run_js(
+            ["backLayer"], "%s.map(c=>backLayer(c[0],c[1],c[2],c[3]))" % json.dumps([c[:4] for c in cases])
+        )
+        self.assertEqual([c[:4] + (g,) for c, g in zip(cases, got, strict=True)], cases)
 
 
 class DraftLogic(unittest.TestCase):
@@ -1335,8 +1360,9 @@ MOUSE_WIDE = {"viewport": {"width": 1440, "height": 900}}
 
 
 class LayoutNotPointer(ViewerBase):
-    """The compact layouts follow the window width, not the input device (docs/handbook/viewer.md §모바일 레이아웃): a mouse at mid
-    width gets the compact card and the [더보기] sheet too. Only the wide layout with a mouse is the unchanged desktop."""
+    """The compact arrangement follows the layout mode, not the pointer that draws it (docs/handbook/viewer.md §모바일 레이아웃): a
+    mouse window in a mid band gets the compact card and the [더보기] sheet too. Only the wide layout with a mouse is the
+    unchanged desktop."""
 
     def test_a_mouse_at_mid_width_gets_the_compact_card_and_the_more_sheet(self):
         """1000x800 with a mouse: the head's '#N · L… · N쪽' link, the icon row without [보기], [더보기] on the bottom edge."""
@@ -1678,8 +1704,8 @@ class PhoneComposer(ViewerBase):
         self.assertAlmostEqual(page.locator("#right").bounding_box()["height"] / 780, 0.45, delta=0.01)
 
 
-# A portrait tablet in the mid layout (the overlay panel).
-TAB_PORTRAIT = {"viewport": {"width": 768, "height": 1024}, "is_mobile": True, "has_touch": True}
+# A landscape tablet in the mid layout (the side panel). A portrait tablet is the tablet sheet (TouchLayoutBands).
+TAB_LANDSCAPE = {"viewport": {"width": 1024, "height": 768}, "is_mobile": True, "has_touch": True}
 
 
 class MidChrome(ViewerBase):
@@ -1687,8 +1713,8 @@ class MidChrome(ViewerBase):
     repeated the nav bar's 원고 tab and goes; its page count moves to the nav bar's right end; the action row is drawn at 40px."""
 
     def test_the_section_strip_goes_and_the_action_row_is_at_most_52px(self):
-        """768x1024: no section strip, the page count in the nav bar, an action row of 52px or less whose buttons answer 44px."""
-        page = self.view(TAB_PORTRAIT)
+        """1024x768: no section strip, the page count in the nav bar, an action row of 52px or less whose buttons answer 44px."""
+        page = self.view(TAB_LANDSCAPE)
         self.assertTrue(page.evaluate("document.body.classList.contains('lay-mid')"))
         self.assertFalse(page.is_visible("#section-strip"))
         self.assertTrue(page.is_visible("#nav-page"))
@@ -1708,6 +1734,669 @@ class MidChrome(ViewerBase):
             ".filter(b=>b.getBoundingClientRect().right>innerWidth-47).map(b=>b.id||b.className)"
         )
         self.assertEqual(out, [])
+
+
+def touch_device(w: int, h: int) -> dict[str, object]:
+    """A touch viewport of w x h CSS px (Playwright's isMobile and hasTouch)."""
+    return {"viewport": {"width": w, "height": h}, "is_mobile": True, "has_touch": True}
+
+
+# A landscape phone (the short band) beside the overlay limit and past it, and a mouse window as low as the first.
+LAND_PHONE = touch_device(844, 390)
+LAND_PHONE_WIDE = touch_device(932, 430)
+MOUSE_LOW = {"viewport": {"width": 820, "height": 390}}
+# The band and layout classes on body, sorted.
+BODY_BANDS = "[...document.body.classList].filter(c=>/^(lay-|band-|mid-overlay$)/.test(c)).sort()"
+# The top row of the short band: the nav bar's and the tool bar's boxes, and the visible controls of the tool bar with
+# whether a tap at their centre reaches them.
+TOP_ROW = """() => {
+  const R = s => { const e = document.querySelector(s); if (!e || !e.getClientRects().length) return null;
+    const b = e.getBoundingClientRect(); return {x: Math.round(b.x), y: Math.round(b.y), w: Math.round(b.width), h: Math.round(b.height)}; };
+  const vis = e => !!e && e.getClientRects().length > 0 && getComputedStyle(e).visibility !== 'hidden';
+  const tools = [...document.querySelectorAll('#bar1 button')].filter(vis).map(b => { const r = b.getBoundingClientRect();
+    const t = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2); return [b.id, Math.round(r.top), !!t && (t === b || b.contains(t))]; });
+  const bottom = document.elementFromPoint(innerWidth / 2, innerHeight - 4);
+  return {nav: R('#doc-nav'), bar: R('#bar1'), strip: vis(document.querySelector('#section-strip')), tools,
+    bottomIsPdf: !!bottom && !!bottom.closest('#left'), overflow: document.documentElement.scrollWidth > innerWidth}; }"""
+
+
+# Resolves after two animation frames: a resize the page has seen has also been through scheduleRelayout's frame.
+TWO_FRAMES = "() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)))"
+# Records the body's band changes from now on in window.__bands (a MutationObserver on body's class: one entry per new band).
+COUNT_BANDS = """() => {const band = () => [...document.body.classList].find(c => c.startsWith('band-')); let last = band(); window.__bands = [];
+  new MutationObserver(() => {const b = band(); if (b !== last) {window.__bands.push(b); last = b;}}).observe(document.body, {attributes: true, attributeFilter: ['class']});}"""
+
+
+class TouchLayoutBands(ViewerBase):
+    """The touch layout bands (docs/handbook/viewer.md §모바일 레이아웃): a landscape phone gets one top row (the short band),
+    a touch tablet up to 1366px wide the side panel, and a mouse window of the same size keeps the width-only layout."""
+
+    def compose(self, page):
+        """A touch selection through the real pick path; waits for the composer."""
+        page.evaluate("()=>{LAST_PTR='touch'; pick({page:1,x0:10,y0:10,x1:200,y1:60});}")
+        page.wait_for_function("COMPOSE.current&&!COMPOSE.picking")
+        settle(page)
+
+    def test_a_landscape_phone_has_one_top_row_and_no_bottom_row(self):
+        """844x390: nav bar 48 + action row 49 left the page 293px. The short band has one 44px row on top holding the nav
+        bar and [선택] [⋯] [핀 N] at its right end, nothing at the bottom, and the overlay panel collapsed."""
+        page = self.view(LAND_PHONE)
+        self.assertEqual(page.evaluate(BODY_BANDS), ["band-short", "lay-mid", "mid-overlay"])
+        self.assertFalse(page.evaluate("SIDE_OPEN"))
+        row = page.evaluate(TOP_ROW)
+        self.assertEqual((row["nav"]["y"], row["bar"]["y"]), (0, 0))
+        self.assertLessEqual(max(row["nav"]["h"], row["bar"]["h"]), 44)
+        self.assertLessEqual(row["nav"]["x"] + row["nav"]["w"], row["bar"]["x"])  # the links end where the tools begin
+        self.assertEqual(row["bar"]["x"] + row["bar"]["w"], 844)
+        self.assertEqual(sorted(t[0] for t in row["tools"]), ["btn-more", "btn-select", "btn-side"])
+        self.assertTrue(all(top < 44 and hit for _, top, hit in row["tools"]), row["tools"])
+        self.assertFalse(row["strip"])
+        self.assertTrue(row["bottomIsPdf"])
+        self.assertFalse(row["overflow"])
+        self.assertEqual(page.evaluate(MISSES_44, "#bar1 button,#nav-toc-toggle"), [])
+
+    def test_past_900px_the_short_band_opens_its_panel_beside_the_document(self):
+        """932x430: the same one row; the panel is open beside the document (no overlay) from the top row to the bottom."""
+        page = self.view(LAND_PHONE_WIDE)
+        self.assertEqual(page.evaluate(BODY_BANDS), ["band-short", "lay-mid"])
+        self.assertTrue(page.evaluate("SIDE_OPEN"))
+        right = page.locator("#right").bounding_box()
+        self.assertEqual((round(right["y"]), round(right["y"] + right["height"])), (44, 430))
+        row = page.evaluate(TOP_ROW)
+        self.assertLessEqual(row["bar"]["h"], 44)
+        self.assertTrue(all(top < 44 and hit for _, top, hit in row["tools"]), row["tools"])
+
+    def test_the_short_band_moves_rebuild_into_more(self):
+        """[PDF 재빌드] leaves the row for [⋯]; the overlay layout of a taller screen keeps it in its action row."""
+        page = self.view(LAND_PHONE)
+        self.assertFalse(page.is_visible("#btn-rebuild"))
+        page.evaluate("openMore()")
+        settle(page)
+        self.assertTrue(page.is_visible("#more [data-act=rebuild]"))
+        page = self.view(FOLD)
+        self.assertTrue(page.is_visible("#btn-rebuild"))
+        page.evaluate("openMore()")
+        settle(page)
+        self.assertFalse(page.is_visible("#more [data-act=rebuild]"))
+
+    def test_focusing_the_note_hides_the_top_row_until_the_focus_leaves(self):
+        """With the keyboard up a landscape phone has about 200px: the row hides while a note field has focus."""
+        page = self.view(LAND_PHONE)
+        self.compose(page)
+        page.focus("#note")
+        settle(page)
+        self.assertTrue(page.evaluate("document.body.classList.contains('typing')"))
+        self.assertFalse(page.is_visible("#doc-nav"))
+        self.assertFalse(page.is_visible("#bar1"))
+        self.assertEqual(round(page.locator("#right").bounding_box()["y"]), 0)
+        page.evaluate("document.activeElement.blur()")
+        settle(page)
+        self.assertTrue(page.is_visible("#doc-nav"))
+        self.assertEqual(round(page.locator("#right").bounding_box()["y"]), 44)
+
+    def test_with_the_keyboard_up_the_whole_note_is_visible(self):
+        """844x390 with a 190px keyboard (Chrome on Android shrinks the layout to 844x200): 41 of the note's 92px showed."""
+        page = self.view(LAND_PHONE)
+        self.compose(page)
+        page.focus("#note")
+        page.set_viewport_size({"width": 844, "height": 200})
+        page.wait_for_function("innerHeight===200")
+        settle(page)
+        self.assertEqual(page.evaluate(BODY_BANDS), ["band-short", "lay-mid", "mid-overlay"])
+        seen, h = page.evaluate(SHOWN, "#note")
+        self.assertEqual(seen, h)
+
+    def test_a_touch_tablet_up_to_1366px_wide_gets_the_side_panel_band(self):
+        """1180x820 and 1366x1024 touch were the desktop with 44px buttons: a two-line tool bar, a 240px outline and
+        always-open cards left the page 580px at 1180. Now: the side panel between the nav bar and a bottom action row,
+        330px wide, the outline collapsed and the cards folded."""
+        for w, h in ((1180, 820), (1366, 1024)):
+            with self.subTest(w=w, h=h):
+                page = self.view(touch_device(w, h))
+                self.assertEqual(page.evaluate(BODY_BANDS), ["band-mid-side", "lay-mid"])
+                self.assertTrue(page.evaluate("SIDE_OPEN"))
+                bar = page.locator("#bar1").bounding_box()
+                self.assertEqual((bar["x"], bar["width"], round(bar["y"] + bar["height"])), (0, w, h))
+                self.assertEqual(round(page.locator("#right").bounding_box()["width"]), 330)
+                if w == 1180:
+                    self.assertGreaterEqual(page.locator("#pdf-center").bounding_box()["width"], 840)
+                self.assertTrue(page.evaluate("document.body.classList.contains('outline-collapsed')"))
+                self.assertTrue(page.is_visible("#pins .pin .sum"))
+                self.assertFalse(page.is_visible("#pins .pin .acts"))
+
+    def test_a_wide_touch_screen_starts_with_its_outline_collapsed_unless_saved_open(self):
+        """1440x900 touch is still wide, but the 240px outline starts collapsed; a saved choice wins either way."""
+        page = self.view(touch_device(1440, 900))
+        self.assertEqual(page.evaluate(BODY_BANDS), ["band-wide", "lay-wide"])
+        self.assertTrue(page.evaluate("document.body.classList.contains('outline-collapsed')"))
+        page = self.view(touch_device(1440, 900), prefs={"outlineClosed": False})
+        self.assertFalse(page.evaluate("document.body.classList.contains('outline-collapsed')"))
+
+    def test_a_phone_keeps_its_sheet_at_64_percent_without_a_nav_bar(self):
+        """390x844: the phone sheet as before - collapsed, 64% of the height once opened, no nav bar, height kept in sheetF."""
+        page = self.view(touch_device(390, 844))
+        self.assertEqual(page.evaluate(BODY_BANDS), ["band-phone", "lay-narrow"])
+        self.assertFalse(page.evaluate("SIDE_OPEN"))
+        self.assertFalse(page.is_visible("#doc-nav"))
+        page.evaluate("setSide(true)")
+        settle(page)
+        self.assertAlmostEqual(page.locator("#right").bounding_box()["height"], 0.64 * 844, delta=1)
+
+    def test_a_portrait_tablet_gets_a_bottom_sheet_under_the_nav_bar(self):
+        """768x1024, 600x900 and 820x1180 touch: the overlay panel covered the right 43% of the page (768) and a small
+        tablet stretched the phone sheet to 64% with 218px buttons (600). Now a sheet at 45% under the nav bar: the whole
+        page width stays in view, the tool bar keeps its buttons at their natural width, and the list is at most 640px."""
+        for w, h in ((768, 1024), (600, 900), (820, 1180)):
+            with self.subTest(w=w, h=h):
+                page = self.view(touch_device(w, h))
+                self.assertEqual(page.evaluate(BODY_BANDS), ["band-tablet-sheet", "lay-narrow"])
+                self.assertFalse(page.evaluate("SIDE_OPEN"))
+                self.assertTrue(page.is_visible("#doc-nav"))
+                self.assertTrue(page.is_visible("#nav-toc-toggle"))
+                self.tap(self.cdp(page), *self.center(page, "#btn-side"))
+                page.wait_for_function("SIDE_OPEN")
+                settle(page)
+                got = page.evaluate(
+                    """() => {const R = s => document.querySelector(s).getBoundingClientRect(), vis = e => e.getClientRects().length > 0;
+                      const marks = [...document.querySelectorAll('.mark')].map(m => m.getBoundingClientRect());
+                      return {right: [R('#right').x, R('#right').width, R('#right').height], page: R('#p1').right,
+                        marksIn: marks.every(m => m.left >= 0 && m.right <= innerWidth), marks: marks.length,
+                        list: R('#list').width, grow: [...document.querySelectorAll('#bar1 button')].filter(vis).map(b => getComputedStyle(b).flexGrow),
+                        side: R('#btn-side').width}; }"""
+                )
+                self.assertEqual(got["right"][:2], [0, w])
+                self.assertAlmostEqual(got["right"][2], 0.45 * h, delta=1)
+                self.assertLessEqual(got["page"], w)
+                self.assertTrue(got["marks"] and got["marksIn"])
+                self.assertLessEqual(got["list"], 640)
+                self.assertEqual(set(got["grow"]), {"0"})
+                self.assertLess(got["side"], 120)
+
+    def test_the_tablet_sheet_and_its_outline_open_one_at_a_time(self):
+        """768x1024: the outline is an overlay over the document; opening it collapses the sheet and opening the sheet closes
+        it, as in the mid layout."""
+        page = self.view(touch_device(768, 1024))
+        page.evaluate("setSide(true)")
+        settle(page)
+        page.locator("#nav-toc-toggle").click()
+        settle(page)
+        self.assertEqual(
+            page.evaluate("[OUTLINE_MID_OPEN, SIDE_OPEN, document.body.classList.contains('outline-collapsed')]"),
+            [True, False, False],
+        )
+        self.assertTrue(page.is_visible("#outline"))
+        page.locator("#btn-side").click()
+        settle(page)
+        self.assertEqual(page.evaluate("[OUTLINE_MID_OPEN, SIDE_OPEN]"), [False, True])
+        self.assertFalse(page.is_visible("#outline"))
+
+    def test_the_tablet_sheet_remembers_its_own_height_and_rises_to_under_the_nav_bar(self):
+        """A height chosen on the tablet sheet goes to sheetFTab and leaves the phone's sheetF alone; its highest step ends
+        under the nav bar instead of 48px from the top."""
+        page = self.view(touch_device(768, 1024))
+        page.evaluate("sizePreset(1)")
+        settle(page)
+        self.assertAlmostEqual(page.locator("#right").bounding_box()["height"], 0.64 * 1024, delta=1)
+        prefs = page.evaluate("prefs()")
+        self.assertEqual(prefs.get("sheetFTab"), 0.64)
+        self.assertNotIn("sheetF", prefs)
+        page.evaluate("sizePreset(2)")
+        settle(page)
+        nav = page.locator("#doc-nav").bounding_box()
+        self.assertAlmostEqual(page.locator("#right").bounding_box()["y"], nav["y"] + nav["height"], delta=1)
+
+    def test_between_phone_and_tablet_widths_the_open_sheet_stays_open_at_its_own_height(self):
+        """A split-screen window dragged from 500 to 700px wide: still a sheet, still open, now at the tablet's 45%."""
+        page = self.view(touch_device(500, 900))
+        page.evaluate("setSide(true)")
+        settle(page)
+        page.set_viewport_size({"width": 700, "height": 900})
+        page.wait_for_function("BAND==='tablet-sheet'")
+        settle(page)
+        self.assertTrue(page.evaluate("SIDE_OPEN"))
+        self.assertAlmostEqual(page.locator("#right").bounding_box()["height"], 0.45 * 900, delta=1)
+
+    def test_a_mouse_composing_at_1000px_scrolls_the_panel_as_before(self):
+        """1000x800 with a mouse: picking focuses the note and the panel scrolls it into view as in 0.4.1 - the composer's top
+        at y 11 (the same check passes on 2bdef90); the touch save-row padding scrolled it 32px further (y -21)."""
+        page = self.view(MOUSE_MID)
+        self.mouse_pick(page)
+        page.mouse.move(5, 5)
+        settle(page)
+        got = page.evaluate(
+            "[document.activeElement.id, Math.round(document.querySelector('#composer').getBoundingClientRect().top),"
+            " getComputedStyle(document.querySelector('#right')).scrollPaddingBottom,"
+            " getComputedStyle(document.querySelector('#right')).scrollPaddingTop]"
+        )
+        self.assertEqual(got, ["note", 11, "auto", "auto"])
+
+    def test_a_mouse_keeps_the_width_only_layouts_at_640_1000_and_1440(self):
+        """A fine pointer gets the layouts it had before the bands: 640 the phone sheet (collapsed, no nav bar), 1000 the side
+        panel open beside the document over a bottom action row, 1440 the desktop with its outline open; and 820x390,
+        820x900, 1180x820 and 1366x1024 the overlay, overlay, wide and wide - never short or tablet-sheet."""
+        want = {
+            (640, 900): ["band-phone", "lay-narrow"],
+            (1000, 800): ["band-mid-side", "lay-mid"],
+            (1440, 900): ["band-wide", "lay-wide"],
+            (820, 390): ["band-mid-overlay", "lay-mid", "mid-overlay"],
+            (820, 900): ["band-mid-overlay", "lay-mid", "mid-overlay"],
+            (1180, 820): ["band-wide", "lay-wide"],
+            (1366, 1024): ["band-wide", "lay-wide"],
+        }
+        for (w, h), bands in want.items():
+            with self.subTest(w=w, h=h):
+                page = self.view({"viewport": {"width": w, "height": h}})
+                self.assertEqual(page.evaluate(BODY_BANDS), bands)
+                self.assertFalse(page.evaluate("MQ_COARSE.matches"))
+                if (w, h) == (640, 900):
+                    self.assertFalse(page.evaluate("SIDE_OPEN"))
+                    self.assertFalse(page.is_visible("#doc-nav"))
+                if (w, h) == (1000, 800):
+                    self.assertTrue(page.evaluate("SIDE_OPEN"))
+                    bar = page.locator("#bar1").bounding_box()
+                    self.assertEqual(round(bar["y"] + bar["height"]), 800)
+                if w >= 1100:
+                    self.assertFalse(page.evaluate("document.body.classList.contains('outline-collapsed')"))
+                    self.assertEqual(round(page.locator("#right").bounding_box()["width"]), 348)
+
+    def resize(self, page, w, h):
+        """Resize the touch viewport, as a rotation or a keyboard does, and wait until the page has handled it."""
+        page.set_viewport_size({"width": w, "height": h})
+        page.wait_for_function("([w,h])=>innerWidth===w&&innerHeight===h", arg=[w, h])
+        settle(page)
+
+    def test_rotating_a_tablet_while_composing_changes_the_band_once_and_keeps_the_note_and_the_spot(self):
+        """768x1024 -> 1024x768 with a note written (the keyboard down): tablet-sheet to mid-side in one change, the composer
+        still open with its note, the same page and spot on it."""
+        page = self.view(touch_device(768, 1024))
+        self.compose(page)
+        page.locator("#note").fill("회전 전에 쓴 메모")
+        page.evaluate("document.activeElement.blur(); document.querySelector('#left').scrollTop=600")
+        settle(page)
+        anchor = page.evaluate("topAnchor()")
+        page.evaluate(COUNT_BANDS)
+        self.resize(page, 1024, 768)
+        page.wait_for_function("BAND==='mid-side'")
+        settle(page)
+        self.assertEqual(page.evaluate("window.__bands"), ["band-mid-side"])
+        self.assertTrue(page.is_visible("#note"))
+        self.assertEqual(page.input_value("#note"), "회전 전에 쓴 메모")
+        now = page.evaluate("topAnchor()")
+        self.assertEqual(now["page"], anchor["page"])
+        self.assertAlmostEqual(now["frac"], anchor["frac"], delta=0.003)
+
+    def test_unfolding_and_folding_again_go_phone_overlay_phone_with_the_sheet_collapsed(self):
+        """344x882 -> 842x758 -> 344x882: one change each way; back on the folded screen the sheet starts collapsed."""
+        page = self.view(touch_device(344, 882))
+        page.evaluate(COUNT_BANDS)
+        self.resize(page, 842, 758)
+        page.wait_for_function("BAND==='mid-overlay'")
+        self.resize(page, 344, 882)
+        page.wait_for_function("BAND==='phone'")
+        settle(page)
+        self.assertEqual(page.evaluate("window.__bands"), ["band-mid-overlay", "band-phone"])
+        self.assertFalse(page.evaluate("SIDE_OPEN"))
+
+    def test_a_flickering_rotation_changes_the_band_exactly_once(self):
+        """Seven sizes between 768x1024 and 1024x768, each one handled by the page (its resize seen, two animation frames
+        run) and well within the 200ms settle of the one before: the band waits them out and changes once, to where the
+        window stays. Without the wait (settleBand settling at once) it changes seven times."""
+        page = self.view(touch_device(768, 1024))
+        page.evaluate(COUNT_BANDS)
+        for w, h in ((1024, 768), (768, 1024)) * 3 + ((1024, 768),):
+            page.set_viewport_size({"width": w, "height": h})
+            page.wait_for_function("w=>innerWidth===w", arg=w, polling="raf")
+            page.evaluate(TWO_FRAMES)
+        page.wait_for_function("BAND==='mid-side'")
+        settle(page)
+        self.assertEqual(page.evaluate("window.__bands"), ["band-mid-side"])
+
+    def test_the_address_bar_moving_the_height_by_56px_keeps_the_band(self):
+        """A height change under 96px from the settled one keeps the band - also where it crosses the 480px boundary
+        (844x450 is short, 844x506 would not be)."""
+        for w, low, high in ((844, 390, 446), (844, 450, 506)):
+            with self.subTest(low=low, high=high):
+                page = self.view(touch_device(w, low))
+                page.evaluate(COUNT_BANDS)
+                self.resize(page, w, high)
+                self.assertEqual(page.evaluate("BAND"), "short")
+                self.resize(page, w, low)
+                self.assertEqual(page.evaluate("window.__bands"), [])
+
+    def test_the_keyboard_on_a_landscape_tablet_keeps_the_band(self):
+        """1024x768 with the note focused: Chrome on Android shrinks the layout to 1024x388, which alone would be the short band;
+        the band stays mid-side while the note has focus, and when the keyboard closes and the focus leaves."""
+        page = self.view(touch_device(1024, 768))
+        self.compose(page)
+        page.focus("#note")
+        page.evaluate(COUNT_BANDS)
+        self.resize(page, 1024, 388)
+        self.assertEqual(page.evaluate("BAND"), "mid-side")
+        self.resize(page, 1024, 768)
+        page.evaluate("document.activeElement.blur()")
+        settle(page)
+        self.assertEqual(page.evaluate("[BAND, window.__bands]"), ["mid-side", []])
+
+    def test_while_the_note_has_focus_a_rotation_waits_for_the_focus_to_leave(self):
+        """768x1024 rotated with the note focused (the keyboard up): the band and the note's focus stay; once the focus leaves,
+        the band changes to mid-side."""
+        page = self.view(touch_device(768, 1024))
+        self.compose(page)
+        page.locator("#note").fill("쓰는 중")
+        page.evaluate(COUNT_BANDS)
+        self.resize(page, 1024, 768)
+        self.assertEqual(
+            page.evaluate("[BAND, document.activeElement.id, window.__bands]"), ["tablet-sheet", "note", []]
+        )
+        page.evaluate("document.activeElement.blur()")
+        page.wait_for_function("BAND==='mid-side'")
+        settle(page)
+        self.assertEqual(page.evaluate("window.__bands"), ["band-mid-side"])
+        self.assertEqual(page.input_value("#note"), "쓰는 중")
+
+    def test_a_text_field_focused_during_the_settle_wait_holds_the_band(self):
+        """768x1024 rotated with nothing focused: the band waits 200ms. The note gets the focus inside that wait (the timer
+        is pending): when the wait runs out the band still holds, and it changes once the focus leaves."""
+        page = self.view(touch_device(768, 1024))
+        self.compose(page)
+        page.evaluate(COUNT_BANDS)
+        page.set_viewport_size({"width": 1024, "height": 768})
+        page.wait_for_function("BAND_T!==0", polling="raf")
+        page.focus("#note")
+        settle(page)
+        self.assertEqual(page.evaluate("[BAND, window.__bands]"), ["tablet-sheet", []])
+        page.evaluate("document.activeElement.blur()")
+        page.wait_for_function("BAND==='mid-side'")
+        settle(page)
+        self.assertEqual(page.evaluate("window.__bands"), ["band-mid-side"])
+
+    def test_a_pick_in_the_short_band_shows_the_note_without_scrolling(self):
+        """844x390, a real long-press pick: the composer put the note ninth (the mid order) and it was off screen (0/92); the
+        short band takes the phone order, so the note comes right after the location line and is whole."""
+        page = self.view(LAND_PHONE)
+        self.long_press_pick(self.cdp(page), page)
+        self.assertEqual(page.evaluate("document.querySelector('#right').scrollTop"), 0)
+        seen, h = page.evaluate(SHOWN, "#note")
+        self.assertEqual(seen, h)
+        # the phone order and spacing: the note one 8px step under the location line, its question hint under it (not over it)
+        page.locator("#note").fill("이 문장은 왜 이렇게 썼나요?")
+        settle(page)
+        order = page.evaluate(
+            "[...document.querySelectorAll('#composer .c-loc-row,#c-qhint,#c-overlap,#c-levels,#c-kind,#c-snip,#note')]"
+            ".filter(e=>e.getClientRects().length).map(e=>[e.id||e.className,Math.round(e.getBoundingClientRect().top)])"
+            ".sort((a,b)=>a[1]-b[1]).map(a=>a[0])"
+        )
+        self.assertEqual(order, ["c-loc-row", "note", "c-qhint", "c-overlap", "c-levels", "c-kind", "c-snip"])
+        gap = page.evaluate(
+            "Math.round(document.querySelector('#note').getBoundingClientRect().top"
+            "-document.querySelector('#composer .c-loc-row').getBoundingClientRect().bottom)"
+        )
+        self.assertEqual(gap, 8)
+        overlap = page.evaluate(
+            "Math.round(document.querySelector('#note').getBoundingClientRect().bottom"
+            "-document.querySelector('#c-qhint').getBoundingClientRect().top)"
+        )
+        self.assertLessEqual(overlap, 0)  # the hint sits under the note's 8px bottom margin, never over its last line
+
+    def test_with_a_bottom_safe_area_the_short_bands_note_is_whole_above_the_keyboard(self):
+        """844x390 with a 21px bottom inset (and 47px side notches), the keyboard up (844x200): the save row grows by the
+        inset, and the note's bottom 14px sat under it."""
+        page = self.view(LAND_PHONE)
+        cdp = self.cdp(page)
+        cdp.send("Emulation.setSafeAreaInsetsOverride", {"insets": {"left": 47, "right": 47, "bottom": 21}})
+        settle(page)
+        self.long_press_pick(cdp, page)
+        page.focus("#note")
+        page.keyboard.insert_text("가로 휴대폰 메모")
+        settle(page)  # the focus has scrolled the note into view before the keyboard comes up
+        self.resize(page, 844, 200)
+        seen, h = page.evaluate(SHOWN, "#note")
+        self.assertEqual(seen, h)
+
+    def test_the_panel_handles_hit_leaves_the_page_edge_to_scroll_and_pick(self):
+        """1024x768 and 1180x820 touch: the handle's 44px hit lies on the PDF side and covered the page's right 28px, where a
+        vertical swipe widened the panel (330 -> 512) instead of scrolling. The PDF scroller's right padding keeps the page
+        clear of it: a swipe 10px inside the page's right edge scrolls the PDF with the panel width unchanged, and a long
+        press there picks."""
+        for w, h in ((1024, 768), (1180, 820)):
+            with self.subTest(w=w, h=h):
+                page = self.view(touch_device(w, h))
+                cdp = self.cdp(page)
+                pg = page.locator("#p1").bounding_box()
+                grip = page.locator("#grip").bounding_box()
+                self.assertLessEqual(pg["x"] + pg["width"], grip["x"] + grip["width"] - 44)  # the hit is off the page
+                width = page.evaluate("Math.round(document.querySelector('#right').getBoundingClientRect().width)")
+                x, y = pg["x"] + pg["width"] - 10, h / 2
+                self.swipe(cdp, x, y + 120, x, y - 120)
+                settle(page)
+                self.assertGreater(page.evaluate("document.querySelector('#left').scrollTop"), 100)
+                self.assertEqual(
+                    page.evaluate("Math.round(document.querySelector('#right').getBoundingClientRect().width)"), width
+                )
+                page.evaluate("document.querySelector('#left').scrollTop=0")
+                settle(page)
+                self.long_press_pick(cdp, page, x, pg["y"] + 120)
+
+    def test_on_a_wide_touch_screen_both_handles_hits_stay_off_the_page(self):
+        """1440x900 touch with the outline open: the outline handle's hit (to its right) ends inside the PDF scroller's 44px
+        left padding, and the panel handle's (to its left) inside the margin beside the 900px page."""
+        page = self.view(touch_device(1440, 900), prefs={"outlineClosed": False})
+        pg = page.locator("#p1").bounding_box()
+        og = page.locator("#outline-grip").bounding_box()
+        grip = page.locator("#grip").bounding_box()
+        self.assertGreaterEqual(pg["x"], og["x"] + 44)
+        self.assertLessEqual(pg["x"] + pg["width"], grip["x"] + grip["width"] - 44)
+
+    def page_clear_of_grip(self, page):
+        """[page right, the panel handle's hit left, page left, the outline handle's hit right or None] for page 1 now."""
+        return page.evaluate(
+            """() => {const R = s => { const e = document.querySelector(s); return e && e.getClientRects().length ? e.getBoundingClientRect() : null; };
+              const p = R('#p1'), g = R('#grip'), o = R('#outline-grip');
+              return [p.right, g ? g.right - 44 : null, p.left, o ? o.left + 44 : null]; }"""
+        )
+
+    def test_composing_over_the_overlay_panel_keeps_the_page_clear_of_the_handle(self):
+        """842x758 composing: the page is fitted left of the overlay panel. The padding was the panel width + 40px and missed the
+        8px bar, so the page's right edge (472) lay 4px inside the handle's hit (468-512)."""
+        page = self.view(FOLD)
+        self.compose(page)
+        right, hit, _, _ = self.page_clear_of_grip(page)
+        self.assertLess(right, hit)
+
+    def test_fit_width_on_a_wide_touch_screen_keeps_the_page_clear_of_both_handles(self):
+        """1440x900 touch: [폭 맞춤] (fitW) fitted 32px less than the width and the 48px padding, leaving the page 2px over the
+        panel handle's hit; the fit now leaves exactly the padding. Also with the outline open and with the panel collapsed
+        to its rail at the screen's edge."""
+        for name, prefs in (("plain", {}), ("outline", {"outlineClosed": False}), ("rail", {"sideClosed": True})):
+            with self.subTest(case=name):
+                page = self.view(touch_device(1440, 900), prefs=prefs)
+                page.evaluate("fitW()")
+                settle(page)
+                right, hit, left, ohit = self.page_clear_of_grip(page)
+                self.assertLess(right, hit)
+                if ohit is not None:
+                    self.assertGreaterEqual(left, ohit)
+                pad = page.evaluate("parseFloat(getComputedStyle(document.querySelector('#left')).paddingRight)")
+                self.assertAlmostEqual(
+                    page.evaluate("document.querySelector('#left').getBoundingClientRect().right") - right, pad, delta=1
+                )
+
+    def test_zoomed_and_scrolled_to_the_right_end_the_page_stays_clear_of_the_handle(self):
+        """1024x768 touch at 300%, scrolled fully right: the right padding was not part of the scroll extent, so the page's
+        edge came flush with the scroller under the handle's hit. The padding now counts."""
+        page = self.view(touch_device(1024, 768))
+        page.evaluate("()=>{zoomTo(W*3); const L=document.querySelector('#left'); L.scrollLeft=L.scrollWidth;}")
+        settle(page)
+        right, hit, _, _ = self.page_clear_of_grip(page)
+        self.assertLess(right, hit)
+
+    def test_a_tap_on_a_cards_left_edge_opens_the_card_not_the_panel_handle(self):
+        """1024x768 touch: the handle's 44px hit reached 19px into the panel, so a tap on the leftmost 6px of a collapsed card
+        cycled the panel width. The hit now lies on the PDF side of the bar; the card's edge opens the card."""
+        page = self.view(touch_device(1024, 768))
+        card = page.locator("#pins .pin").first
+        b = card.bounding_box()
+        pid = int(card.get_attribute("data-id"))
+        width = page.evaluate("Math.round(document.querySelector('#right').getBoundingClientRect().width)")
+        self.tap(self.cdp(page), b["x"] + 1, b["y"] + b["height"] / 2)
+        page.wait_for_function("id=>OPEN_CARDS.has(id)", arg=pid)
+        settle(page)
+        self.assertEqual(
+            page.evaluate("Math.round(document.querySelector('#right').getBoundingClientRect().width)"), width
+        )
+        grip = page.locator("#grip").bounding_box()
+        self.assertEqual(
+            page.evaluate(
+                "([x,y])=>!!document.elementFromPoint(x,y).closest('#right')",
+                [grip["x"] + grip["width"] + 1, grip["y"] + grip["height"] / 2],
+            ),
+            True,
+        )  # one px right of the bar is the panel, not the handle
+
+    def test_a_primary_pointer_turning_fine_and_back_switches_wide_and_side_panel(self):
+        """1180x820: touch is mid-side; a mouse becoming the primary pointer (CDP turns touch emulation off, so pointer:coarse
+        stops matching) makes it wide after the settle, and back; the note written meanwhile stays."""
+        page = self.view(touch_device(1180, 820))
+        self.compose(page)
+        page.locator("#note").fill("포인터를 바꿔도 남는 메모")
+        page.evaluate("document.activeElement.blur()")
+        settle(page)
+        page.evaluate(COUNT_BANDS)
+        cdp = self.cdp(page)
+        cdp.send("Emulation.setTouchEmulationEnabled", {"enabled": False})
+        page.wait_for_function("BAND==='wide'")
+        settle(page)
+        self.assertFalse(page.evaluate("MQ_COARSE.matches"))
+        cdp.send("Emulation.setTouchEmulationEnabled", {"enabled": True, "maxTouchPoints": 5})
+        page.wait_for_function("BAND==='mid-side'")
+        settle(page)
+        self.assertEqual(page.evaluate("window.__bands"), ["band-wide", "band-mid-side"])
+        self.assertEqual(page.input_value("#note"), "포인터를 바꿔도 남는 메모")
+
+    def test_composing_on_a_tablet_sheet_keeps_it_at_45_percent_with_the_box_in_view(self):
+        """768x1024 and 820x1180 with the keyboard down: the phone's 80% lift would hide the page just dragged on. The tablet
+        sheet stays at 45% (the note is second, so the location line, the note and the save row fit) and the pending box is
+        on screen between the nav bar and the sheet."""
+        for w, h in ((768, 1024), (820, 1180)):
+            with self.subTest(w=w, h=h):
+                page = self.view(touch_device(w, h))
+                self.long_press_pick(self.cdp(page), page)  # a real touch selection, with its pending box
+                got = page.evaluate(
+                    """() => {const R = s => document.querySelector(s).getBoundingClientRect(), box = R('.sel.pending');
+                      return {sheet: [R('#right').top, R('#right').height], nav: R('#doc-nav').bottom, box: [box.top, box.bottom],
+                        lift: document.body.classList.contains('sheet-up')}; }"""
+                )
+                self.assertAlmostEqual(got["sheet"][1], 0.45 * h, delta=1)
+                self.assertFalse(got["lift"])
+                self.assertGreaterEqual(got["box"][0], got["nav"])
+                self.assertLessEqual(got["box"][1], got["sheet"][0])
+                for sel in ("#c-loc", "#note", "#btn-save"):
+                    seen, hh = page.evaluate(SHOWN, sel)
+                    self.assertEqual(seen, hh, sel)
+
+    def test_with_the_keyboard_up_the_tablet_sheet_shows_the_location_note_and_save_row_under_60_percent(self):
+        """The keyboard shrinks the layout (Chrome on Android, resizes-content) by 330 and 380px: the location line, the note
+        and the save row are all on screen, and the sheet is at most 60% of what is left. At 45% they fit there; a 600x900
+        tablet with a 400px keyboard (500px left) needs more, and the sheet rises just past 45%, never past 60%."""
+        for w, h, kb in ((768, 1024, 330), (820, 1180, 380), (600, 900, 400)):
+            with self.subTest(w=w, h=h):
+                page = self.view(touch_device(w, h))
+                self.compose(page)
+                page.focus("#note")
+                self.resize(page, w, h - kb)
+                for sel in ("#c-loc", "#note", "#btn-save"):
+                    seen, hh = page.evaluate(SHOWN, sel)
+                    self.assertEqual(seen, hh, sel)
+                sheet = page.locator("#right").bounding_box()["height"]
+                self.assertLessEqual(sheet, 0.6 * (h - kb) + 1)
+                if kb == 400:
+                    self.assertGreater(sheet, 0.45 * (h - kb) + 1)  # lifted only because they did not fit
+                self.assertEqual(page.evaluate("BAND"), "tablet-sheet")
+
+    def test_a_mouse_window_as_low_as_a_landscape_phone_keeps_the_width_layout(self):
+        """820x390 with a mouse: the overlay layout with its nav bar and bottom action row, never the short band."""
+        page = self.view(MOUSE_LOW)
+        self.assertEqual(page.evaluate(BODY_BANDS), ["band-mid-overlay", "lay-mid", "mid-overlay"])
+        bar = page.locator("#bar1").bounding_box()
+        self.assertEqual(round(bar["y"] + bar["height"]), 390)
+
+
+# The edit card's note in the opened panel or sheet: focus it, write, and select characters 3-5 (as a person mid-edit).
+EDIT_FOCUS = """() => {setSide(true); openEdit(PINS[0].id); const ta = document.querySelector('.edit .e-note'); ta.focus();
+  ta.value = '고치는 중인 메모'; ta.setSelectionRange(3, 5); }"""
+# Where the focus is and what is selected in the edit card's note.
+EDIT_STATE = """() => {const ta = document.querySelector('.edit .e-note');
+  return [document.activeElement === ta, ta.selectionStart, ta.selectionEnd, ta.value]; }"""
+
+
+class RedrawKeepsTheEditCard(ViewerBase):
+    """A redraw of the card list re-inserts the open edit card: its note kept the text but lost the focus and the selection,
+    which the reply box already restored (docs/handbook/viewer.md §모바일 레이아웃)."""
+
+    def test_a_layout_change_keeps_the_edit_notes_focus_and_selection(self):
+        """A mouse window going from wide (1400) to the side panel (1000): the layout changes, the cards are redrawn in their
+        compact row, and the edit card's note still has the focus and characters 3-5 selected."""
+        page = self.view(DESK)
+        page.evaluate(EDIT_FOCUS)
+        settle(page)
+        page.set_viewport_size({"width": 1000, "height": 850})
+        page.wait_for_function("LAYOUT==='mid'")
+        settle(page)
+        self.assertEqual(page.evaluate(EDIT_STATE), [True, 3, 5, "고치는 중인 메모"])
+
+    def test_a_list_redraw_keeps_the_edit_notes_focus_and_selection(self):
+        """The same for any redraw (a poll that brings another pin's change): drawPins() while the note is being edited."""
+        page = self.view(touch_device(1024, 768))
+        page.evaluate(EDIT_FOCUS)
+        settle(page)
+        page.evaluate("drawPins()")
+        self.assertEqual(page.evaluate(EDIT_STATE), [True, 3, 5, "고치는 중인 메모"])
+
+    def test_rotating_with_the_edit_note_focused_keeps_its_focus_and_selection(self):
+        """768x1024 rotated to 1024x768 while the edit card's note has focus: the band holds (settleBand) and the note keeps
+        its focus and selection; when the focus leaves, the band follows the rotation."""
+        page = self.view(touch_device(768, 1024))
+        page.evaluate(EDIT_FOCUS)
+        settle(page)
+        page.set_viewport_size({"width": 1024, "height": 768})
+        page.wait_for_function("innerWidth===1024")
+        settle(page)
+        self.assertEqual(page.evaluate(EDIT_STATE), [True, 3, 5, "고치는 중인 메모"])
+        self.assertEqual(page.evaluate("BAND"), "tablet-sheet")
+        page.evaluate("document.activeElement.blur()")
+        page.wait_for_function("BAND==='mid-side'")
+
+
+# A mid handle's or outline handle's hit width, drawn width and pseudo-element width (the mouse keeps its own).
+GRIP_BOX = """sel => {const g = document.querySelector(sel); return [Math.round(g.getBoundingClientRect().width),
+  getComputedStyle(g, '::after').width]; }"""
+
+
+class TouchHandleHits(ViewerBase):
+    """The mid panel handle (25px) and the wide outline handle (24px) answered a tap narrower than 44px on touch; through the
+    .hit utility they answer a 44px box, and their drawn bars keep their width. A mouse keeps its 12px and 24px."""
+
+    def test_the_mid_panel_handle_answers_44px_beside_and_over_the_document(self):
+        """1024x768 (the side panel) and 842x758 (the overlay panel, opened): the handle's 8px bar answers 44px."""
+        for device in (touch_device(1024, 768), FOLD):
+            with self.subTest(width=device["viewport"]["width"]):
+                page = self.view(device)
+                page.evaluate("setSide(true)")
+                settle(page)
+                self.assertEqual(page.evaluate(MISSES_44, "#grip"), [])
+                self.assertEqual(page.evaluate(GRIP_BOX, "#grip")[0], 8)
+
+    def test_the_wide_outline_handle_answers_44px_on_touch(self):
+        """1440x900 touch with the outline open: the 6px handle answers 44px."""
+        page = self.view(touch_device(1440, 900), prefs={"outlineClosed": False})
+        self.assertEqual(page.evaluate(MISSES_44, "#outline-grip"), [])
+        self.assertEqual(page.evaluate(GRIP_BOX, "#outline-grip")[0], 6)
+
+    def test_a_mouse_keeps_its_handle_hit_widths(self):
+        """1400x850 with a mouse: the panel handle reaches 3px each side (12px, clear of the scrollbar), the outline's 9px."""
+        page = self.view(DESK, prefs={"outlineClosed": False})
+        self.assertEqual(page.evaluate(GRIP_BOX, "#grip"), [6, "12px"])
+        self.assertEqual(page.evaluate(GRIP_BOX, "#outline-grip"), [6, "24px"])
 
 
 class PhoneMoreAndHelp(ViewerBase):
@@ -1745,8 +2434,9 @@ class PhoneMoreAndHelp(ViewerBase):
         self.assertTrue(page.locator("#help .kbd-only").first.is_visible())
 
 
-# A touch tablet wide enough for the desktop layout (1180x820), as an iPad home-screen app or full screen.
-TAB_WIDE = {"viewport": {"width": 1180, "height": 820}, "is_mobile": True, "has_touch": True}
+# A touch tablet wide enough for the desktop layout (wider than 1366px: a 13-inch iPad in landscape), as an iPad home-screen
+# app or full screen. A 1180x820 tablet is the side-panel band (TouchLayoutBands).
+TAB_WIDE = {"viewport": {"width": 1376, "height": 1032}, "is_mobile": True, "has_touch": True}
 
 
 class WideSafeArea(ViewerBase):
