@@ -1477,10 +1477,15 @@ class FrontendDesignTokens(unittest.TestCase):
                 if k == "font" and v != "inherit" and not v.startswith("var(--text-"):
                     bad.append("%s { %s:%s }" % (sel, k, v))
         self.assertEqual(bad, [])
-        defs = {k: v for sel, decls in css_rules() if sel == ":root" for k, v in decls}
+        # the scale block (the :root that defines --text-sm) holds the five steps; touch only raises the smallest to 12px
+        # (input diagnosis P7: badges and counts were 11px on a phone - the live check is PhoneTouchSizes)
+        scale = next(dict(decls) for sel, decls in css_rules() if sel == ":root" and "--text-sm" in dict(decls))
         self.assertEqual(
-            [defs["--text-" + n] for n in ("xs", "sm", "base", "lg", "xl")], ["11px", "12px", "13px", "14px", "16px"]
+            [scale["--text-" + n] for n in ("xs", "sm", "base", "lg", "xl")], ["11px", "12px", "13px", "14px", "16px"]
         )
+        css = HTML[HTML.index("<style>") : HTML.index("</style>")]
+        coarse = css[css.index("@media (pointer:coarse){") :]
+        self.assertIn(":root{--doc-nav-h:48px;--text-xs:12px}", coarse[: coarse.index("\n}")])
 
     def test_inline_styles_and_scripts_carry_no_design_literals(self):
         body = HTML[HTML.index("</style>") :]

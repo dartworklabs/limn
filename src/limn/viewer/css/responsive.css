@@ -25,7 +25,7 @@ body:not(.lay-narrow) #coach button{pointer-events:auto}
 #more .size-row{display:flex;align-items:center;gap:var(--space-2)}
 #more .size-row .seg{flex:1;margin:0}
 @media (pointer:coarse){
-  :root{--doc-nav-h:48px}
+  :root{--doc-nav-h:48px;--text-xs:12px}   /* no touch text below 12px: badges, counts, avatar initials and page numbers were 11px (diagnosis P7) */
   button.tch{display:inline-flex}
   .hint .t-touch{display:inline}
   .hint .t-mouse{display:none}

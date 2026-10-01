@@ -1321,7 +1321,7 @@ MISSES_44 = """sel => {
 
 class PhoneTouchSizes(ViewerBase):
     """Touch sizes on the phone sheet: every control answers a tap in a 44x44 box, whatever its drawn size - the assignee
-    chip, the card head's links, the tool bar under the sheet handle (input diagnosis P6)."""
+    chip, the card head's links, the tool bar under the sheet handle (input diagnosis P6) - and no text is below 12px (P7)."""
 
     def setUp(self):
         """One more open pin, assigned to Bob, so its card head carries the assignee chip."""
@@ -1362,6 +1362,22 @@ class PhoneTouchSizes(ViewerBase):
             "%s .head [data-act],%s .head [data-copy],%s .head button,#bar1 button" % (card, card, card),
         )
         self.assertEqual(misses, [])
+
+    def test_no_text_on_a_touch_screen_is_below_12px(self):
+        """Badges, the assignee chip, the reply count, avatar initials and page numbers were 11px (--text-xs) on a phone."""
+        page = self.view(PHONE)
+        page.evaluate("()=>{setSide(true); OPEN_ALL.forEach(p=>OPEN_CARDS.add(p.id)); drawPins();}")
+        settle(page)
+        small = page.evaluate("""() => {
+          const out = [];
+          for (const e of document.querySelectorAll('body *')) {
+            if (![...e.childNodes].some(n => n.nodeType === 3 && n.textContent.trim())) continue;
+            if (!e.getClientRects().length || getComputedStyle(e).visibility === 'hidden') continue;
+            const fs = parseFloat(getComputedStyle(e).fontSize);
+            if (fs < 12) out.push((e.id ? '#' + e.id : e.className || e.tagName) + ' ' + fs);
+          }
+          return [...new Set(out)]; }""")
+        self.assertEqual(small, [])
 
     def test_a_mouse_keeps_the_drawn_card_head(self):
         """The 44px boxes are touch only: a mouse sees the card head links at their text size (24px hit areas, DesktopMisc)."""
