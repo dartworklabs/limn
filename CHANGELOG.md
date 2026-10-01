@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.4.1 — 2026-10-01
+
+A tighter viewer on phones and tablets. Nothing changes in `pins.md`, the API or the state directory, and the layout
+bands are unchanged.
+
+### Changed
+
+- **Touch sizes.** Every touch control has a hit area of at least 44×44 CSS px, while the drawn controls are tighter:
+  card actions 32 (phone) or 36, tool bar 40, primary buttons 44. Touch text is never under 12 px. The wide layout
+  keeps its controls out of the safe-area insets.
+- **Phone composer.** The note comes second, right after the location line, so it stays visible above the keyboard;
+  the overlap notice is one line and the sheet rises to 80% while composing.
+- **Phone sheet header.** The handle sits in the tool bar row, so it no longer takes the top of the buttons; the
+  header is 80 px instead of 129.
+- **Compact card row** (phone and tablet widths). `#N · L… · 쪽` is the link that shows the pin, replacing [보기];
+  [수정], [풀기] and [삭제] are icon buttons with labels for screen readers; [답글] and [완료] keep their names. The
+  keyboard order follows the order on screen. No new confirmation and no extra menu.
+- **Tablet chrome.** The section strip is hidden at mid widths and the page count moves to the navigation row;
+  [더보기] opens as a bottom sheet and the touch help is shorter.
+
 ## 0.4.0 — 2026-10-01
 
 Figure documents: a figure set drawn by code (one PDF page per figure plus a `limn-figure-map/1` element map) opens as a
