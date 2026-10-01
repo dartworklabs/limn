@@ -1109,9 +1109,9 @@
  "PDF 쪽만 확대합니다": "Zooms in the PDF page only",
  "폭 맞춤: PDF 쪽 폭을 화면 폭에 맞춥니다": "Fit width: fits the PDF page to the screen width",
  "사용법·용어 설명, pins.md 위치": "How to use, terms, where pins.md is",
- "PDF를 길게 누르거나 [선택]을 켜고 끕니다.": "Long-press the PDF, or turn on [Select] and drag.",
  "합니다.": ".",
  "점선 상자('새 핀')가 남습니다.": "A dashed box ('New pin') is left.",
  ". 알림의 [되돌리기]로 바로 취소할 수 있습니다.": ". You can cancel right away with [Undo] in the notification.",
- "(⌘ Enter / Ctrl+Enter). 알림의 [되돌리기]로 바로 취소할 수 있습니다.": " (⌘ Enter / Ctrl+Enter). You can cancel right away with [Undo] in the notification."
+ "(⌘ Enter / Ctrl+Enter). 알림의 [되돌리기]로 바로 취소할 수 있습니다.": " (⌘ Enter / Ctrl+Enter). You can cancel right away with [Undo] in the notification.",
+ "PDF를 길게 누르거나 [선택]을 켜고 끌어서 고릅니다.": "Long-press the PDF, or turn on [Select] and drag to pick the spot."
 }

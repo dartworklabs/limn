@@ -15,6 +15,8 @@ let DIFF_WRAP=null;
 function setDiffWrap(on){DIFF_WRAP=!!on; savePrefs({diffWrap:DIFF_WRAP}); for(const d of [$('#revision-diff'),$('#revision-other')])if(d)d.className=DIFF_WRAP?'wrap':'nowrap';
   const b=$('#revision-wrap'); if(b)b.setAttribute('aria-pressed',String(DIFF_WRAP));}
 function initDiffWrap(){const v=prefs().diffWrap; setDiffWrap(typeof v==='boolean'?v:MQ_COARSE.matches);}
+// A patch as numbered lines (file, hunk, add, del, context, meta). The code itself is the manuscript's text, so it is
+// translate="no"; the lines are escaped.
 function renderRevisionDiff(patch){
   const lines=String(patch||'').split('\n'); if(lines[lines.length-1]==='')lines.pop();
   let oldLine=null,newLine=null,inHunk=false;
@@ -30,7 +32,7 @@ function renderRevisionDiff(patch){
     else if(line.startsWith('+')){kind='add';if(newLine!==null)number=newLine++;}
     else if(line.startsWith('-')){kind='del';if(oldLine!==null)number=oldLine++;}
     else if(line.startsWith(' ')){kind='context';if(newLine!==null){number=newLine++;oldLine++;}}
-    return '<span class="rd-line rd-'+kind+'"><span class="rd-no" aria-hidden="true">'+number+'</span><span class="rd-code">'+esc(line)+'</span></span>';
+    return '<span class="rd-line rd-'+kind+'"><span class="rd-no" aria-hidden="true">'+number+'</span><span class="rd-code" translate="no">'+esc(line)+'</span></span>';
   }).join('');
 }
 function renderRevisionFile(){const v=$('#revision-file').value,i=Number(v);

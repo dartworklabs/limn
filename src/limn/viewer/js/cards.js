@@ -105,6 +105,9 @@ function arcLoc(p){const name=p.name||String(p.file||p.pdf||'').split('/').pop()
 function arcLine(key,text,tip,logins){const open=ARC_OPEN.has(key);
   return '<span class="arc-reply'+(open?' open':'')+'" translate="no" role="button" tabindex="0" data-act="arc-toggle" data-key="'+esc(key)+'" aria-expanded="'+open+'" data-tip="'+esc(trMsg(tip))+'">'+fmtText(text,logins)+'</span>';}
 function allMentions(p){const out=(p.mentions||[]).slice(); threadOf(p).forEach(m=>(m.mentions||[]).forEach(l=>{if(!out.includes(l))out.push(l);})); return out;}
+// A done pin's archive row (docs/handbook/viewer.md §보관함): icon, #N, location, reference and time with [답글]; the close
+// reply as one expandable line (user text) with [원래 요청], [변경 보기] and [스레드 N]; the original request and the thread
+// when expanded (ARC_OPEN), the thread also while a reply box is open on it.
 function doneCard(p){
   const ref=hasRef(p.close_ref)?'<span class="badge arc-ref" data-tip="닫을 때 남긴 참조 — 같은 값이면 같은 처리에 딸린 핀입니다">'+esc(p.close_ref)+'</span>':'';
   const reply=p.close_reply?arcLine('r:'+p.id,p.close_reply,'닫으며 남긴 설명 — 누르면 펼치고 접습니다',allMentions(p)):'<span class="arc-reply none">설명 없이 닫힘</span>';
@@ -132,6 +135,8 @@ function trashDaysLeft(at,now,exp){if(typeof exp==='number')return Math.max(0,Ma
   const m=/^(\d{4})-(\d\d)-(\d\d)[ T](\d\d):(\d\d)/.exec(String(at||'')); if(!m)return null;
   const t=new Date(+m[1],+m[2]-1,+m[3],+m[4],+m[5]).getTime(); return Math.max(0,Math.ceil(TRASH_DAYS-((now==null?Date.now():now)-t)/86400000));}
 function isOwner(){return !!(typeof META!=='undefined'&&META&&META.me&&META.me.role===ROLE.OWNER);}
+// A Trash row: #N, location, when and by whom it was deleted and the days left, the note as one expandable line (user text),
+// and [되살리기] (not for a viewer) and [영구 삭제] (the owner only) after the two lines.
 function droppedCard(p){
   const line=p.note?arcLine('d:'+p.id,p.note,'삭제한 핀의 메모 — 누르면 펼치고 접습니다',p.mentions):'<span class="arc-reply none">(메모 없음)</span>';
   const left=trashDaysLeft(p.dropped_at,null,p.expires_ts);

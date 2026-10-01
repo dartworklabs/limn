@@ -16,6 +16,7 @@ import time
 import unittest
 from html.parser import HTMLParser
 from pathlib import Path
+from typing import TYPE_CHECKING, Any
 from urllib.parse import urlparse
 
 from limn.administration import member_state, serve_documents as startup_documents
@@ -47,6 +48,9 @@ from helpers import (
 from helpers_access import ALICE_ACTOR
 from helpers_authority import post_authority
 from helpers_browser import ChromiumTestCase, booted, settle, watch_idle
+
+if TYPE_CHECKING:
+    from playwright.sync_api import Page
 
 ROOT = Path(__file__).resolve().parents[4]
 PKG = ROOT / "src" / "limn"
@@ -232,7 +236,11 @@ class Wiring(unittest.TestCase):
         self.assertIn("indexOf('ko')===0?'ko':'en'", head)
 
     def test_toasts_boot_and_switch_are_wired(self):
-        self.assertIn("function toast(msg,kind,action,dd){msg=trMsg(msg);", HTML)
+        # a toast translates its message, unless the caller already did and it quotes user text (dd.literal, notifyShow)
+        self.assertIn(
+            "function toast(msg,kind,action,dd){const literal=!!(dd&&dd.literal); msg=literal?String(msg):trMsg(msg);",
+            HTML,
+        )
         self.assertIn("async function boot(){i18nStart();", HTML)
         self.assertIn('id="m-lang"', HTML)
         self.assertIn("case 'lang':switchLang();break;", HTML)
@@ -615,11 +623,10 @@ class EnglishChrome(ChromiumTestCase):
         bad = chrome_hangul(page.evaluate(VISIBLE_HANGUL_JS), user_text)
         self.assertEqual(bad, [], "Hangul left in the English chrome (%s)" % where)
 
-    def test_user_text_reads_as_written_even_when_it_is_a_ui_word(self):
-        """en: a document named '그림' (the table's word for 'Figure'), a note and a reply that read '완료' ('Done') and an
-        author named '검토 대기' ('Awaiting review') stay as written - in the nav link, the documents sheet, the card, its
-        preview, its thread and its author. The translator rewrote every text node that matched the table, so the tabs read
-        '본문 · Figure · …' (UX audit P6, docs/handbook/viewer.md §뷰어 규칙을 바꿀 때)."""
+    def open_with_ui_words(self) -> "tuple[Page, dict[str, Any]]":
+        """Open the English viewer with the fixture's second document named '그림' and the Korean pin's note and first reply
+        reading '완료', its author named '검토 대기' and a box on page 1 (so it has a mark), through canned /api/docs and
+        /api/pins answers built from the live ones. Returns the page and that pin."""
         probe = self.open("en", viewport={"width": 1400, "height": 850})
         docs = probe.evaluate("fetch('/api/docs').then(r=>r.json())")
         pins = probe.evaluate("fetch('/api/pins?all=1').then(r=>r.json())")
@@ -630,9 +637,45 @@ class EnglishChrome(ChromiumTestCase):
         pin["note"] = "완료"
         pin["author"] = dict(pin["author"], name="검토 대기")
         pin["thread"][0]["text"] = "완료"
+        pin["frac"] = [0.2, 0.3, 0.4, 0.05]
         self.canned = {"/api/docs": (200, docs), "/api/pins": (200, pins)}
         self.addCleanup(lambda: setattr(self, "canned", {}))
-        page = self.open("en", viewport={"width": 1400, "height": 850})
+        return self.open("en", viewport={"width": 1400, "height": 850}), pin
+
+    def test_a_description_and_a_notification_toast_quote_user_text_as_written(self):
+        """en: the mark's description '#N · 완료' (its note) and the notification toast 'Pin #N · 그림' (the document's name)
+        were translated a second time on screen - the description box and the toast's text re-ran the table, splitting at
+        ' · ', and read '#N · Done' and 'Pin #N · Figure'. A UI description still shows in English."""
+        page, pin = self.open_with_ui_words()
+
+        def tip(sel: str) -> str:
+            """The description box's text once sel's description is shown and the translator has had its turn."""
+            page.evaluate("s=>showTip(document.querySelector(s))", sel)
+            settle(page)
+            return str(page.evaluate("document.querySelector('#tip').textContent"))
+
+        self.assertEqual(tip('.mark[data-pin="%d"] b' % pin["id"]), "#%d · 완료" % pin["id"])
+        self.assertFalse(HANGUL.search(tip("#btn-help")))
+        page.evaluate("document.querySelector('#toasts').replaceChildren()")
+        page.bring_to_front()
+        page.evaluate(
+            "id=>notifyShow({type:'replied',pin:id,doc:'rr',doc_name:'그림',seq:99,"
+            "by:{login:'bob@example.com',name:'Bob Lee'},excerpt:'완료'})",
+            pin["id"],
+        )
+        page.wait_for_selector("#toasts .toast")
+        title, desc = page.evaluate(
+            "[document.querySelector('#toasts .t-title').textContent,document.querySelector('#toasts .t-desc').textContent]"
+        )
+        self.assertEqual(title, "Pin #%d · 그림" % pin["id"])
+        self.assertTrue(desc.endswith(": 완료") and not HANGUL.search(desc[: -len("완료")]), desc)
+
+    def test_user_text_reads_as_written_even_when_it_is_a_ui_word(self):
+        """en: a document named '그림' (the table's word for 'Figure'), a note and a reply that read '완료' ('Done') and an
+        author named '검토 대기' ('Awaiting review') stay as written - in the nav link, the documents sheet, the card, its
+        preview, its thread and its author. The translator rewrote every text node that matched the table, so the tabs read
+        '본문 · Figure · …' (UX audit P6, docs/handbook/viewer.md §뷰어 규칙을 바꿀 때)."""
+        page, pin = self.open_with_ui_words()
         page.evaluate("id=>{OPEN_CARDS.add(id); drawPins(); openDocsMenu();}", pin["id"])
         settle(page)
         got = page.evaluate(

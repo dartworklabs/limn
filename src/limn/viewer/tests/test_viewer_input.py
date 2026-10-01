@@ -287,19 +287,21 @@ class GestureLogic(unittest.TestCase):
 
 class MarkBadgeLogic(unittest.TestCase):
     """Where a mark's number badge goes (docs/handbook/viewer.md §모바일 레이아웃, UX audit R4): outside the mark's left
-    edge, unless the mark starts less than 28px from the page's left edge, where the even page margin (12px on a phone) has
-    no room for it."""
+    edge, unless the room left of the mark - the page's left margin plus the mark's offset in the page - is smaller than
+    the badge's reach (28px on touch, 24px with a mouse), where it would be clipped."""
 
-    def test_the_badge_goes_inside_a_mark_that_starts_under_28px_from_the_page_edge(self):
-        """At a 336px page: 0px and 27.9px are inside, 28px and more outside; the same fraction flips with the page width."""
+    def test_the_badge_goes_inside_only_when_the_margin_and_the_offset_leave_no_room(self):
+        """Touch, 12px margin: a mark at 0 or 15.9px in has no room (inside); 16px in has (outside). The manuscript's text
+        at 6.4% of a 387px (411) or 336px (360) page keeps its badge outside - it went inside and covered the text when
+        the margin was not counted. A mouse's 44px desktop margin never moves a badge inside, even at the page edge."""
         js = "\n".join(
             [
                 extract_js_fn("markBadgeIn"),
-                "console.log(JSON.stringify([markBadgeIn(0,336),markBadgeIn(27.9/336,336),markBadgeIn(28/336,336),"
-                "markBadgeIn(0.15,336),markBadgeIn(0.05,336),markBadgeIn(0.05,900)]));",
+                "console.log(JSON.stringify([markBadgeIn(0,387,12,28),markBadgeIn(15.9/336,336,12,28),markBadgeIn(16/336,336,12,28),"
+                "markBadgeIn(0.064,387,12,28),markBadgeIn(0.064,336,12,28),markBadgeIn(0,780,44,24),markBadgeIn(0,780,23,24)]));",
             ]
         )
-        self.assertEqual(node_or_skip(self, js), [True, True, False, False, True, False])
+        self.assertEqual(node_or_skip(self, js), [True, True, False, False, False, False, True])
 
 
 class DraftLogic(unittest.TestCase):
@@ -1437,6 +1439,28 @@ class LayoutNotPointer(ViewerBase):
             },
         )
 
+    def test_a_mouse_at_1440_keeps_badges_outside_even_at_the_page_edge(self):
+        """1440x900 with a mouse: the 44px desktop margin leaves the badge room, so marks at the page's edge, at the text
+        (6.4%) and further in all keep it 22px left of the mark's border box, as before the inside rule (UX audit R4)."""
+        for fx, lo in ((0.0, 30), (0.064, 32)):
+            add_pin(
+                {
+                    "file": str(self.main),
+                    "lo": lo,
+                    "hi": lo + 1,
+                    "page": 1,
+                    "note": "왼쪽",
+                    "frac": [fx, 0.6 + fx, 0.4, 0.04],
+                },
+                actor(ALICE),
+            )
+        page = self.view(MOUSE_WIDE)
+        got = page.evaluate(MARK_BADGES)
+        self.assertEqual(
+            {(g["fx"], g["inside"], g["shown"], g["gap"]) for g in got},
+            {(0.0, False, True, 22), (0.064, False, True, 22), (0.15, False, True, 22)},
+        )
+
     def test_a_mouse_at_1440_keeps_the_desktop_geometry_to_the_pixel(self):
         """1440x900 with a mouse: the page's margins and box, its first mark's badge, the panel's tool bar, section head and
         first card, and the help, Trash and documents dialogs sit where they sat before the touch edge grid (UX audit V2/V6):
@@ -1526,17 +1550,19 @@ class PhoneTouchSizes(ViewerBase):
         settle(page)
         return card
 
-    def test_the_review_pill_shows_an_eye_beside_its_count(self):
+    def test_the_review_pill_shows_an_eye_beside_its_count_and_a_360px_phone_drops_the_arrow_for_it(self):
         """384x832: [핀 N]'s purple pill reads 'eye 1' - a bare '1' after the open count read as '4 1' (UX audit P10). On a
-        360px phone, where [선택] already drops its label, the eye goes too and the count stays."""
-        for device, eye in ((PHONE, True), (PHONE_360, False)):
+        360px phone (the commonest Android width), where [선택] already drops its label, the toggle drops its decorative
+        arrow (aria-expanded carries the state) and keeps the eye."""
+        for device, arrow in ((PHONE, True), (PHONE_360, False)):
             with self.subTest(width=device["viewport"]["width"]):
                 page = self.view(device)
                 got = page.evaluate(
-                    "()=>{const p=document.querySelector('#btn-side .rv-n'), i=p.querySelector('svg.ic');"
-                    " return [p.textContent, !!i&&i.getClientRects().length>0];}"
+                    "()=>{const p=document.querySelector('#btn-side .rv-n'), i=p.querySelector('svg.ic'),"
+                    " a=document.querySelector('#side-arrow'); return [p.textContent, !!i&&i.getClientRects().length>0,"
+                    " a.getClientRects().length>0];}"
                 )
-                self.assertEqual(got, ["1", eye])
+                self.assertEqual(got, ["1", True, arrow])
 
     def test_card_head_controls_and_the_tool_bar_answer_a_44px_box(self):
         """The assignee chip answered 72x20 (its overflow clipped the hit area), '1쪽' 16x38 and 'L4-L5' 33x38 (neighbours took
@@ -2484,26 +2510,37 @@ class EvenPageMargins(ViewerBase):
                 self.assertAlmostEqual(left, right, delta=1)
                 self.assertAlmostEqual(left, edge, delta=1)
 
-    def test_a_mark_at_the_page_edge_shows_its_whole_badge_inside_and_the_others_keep_theirs_outside(self):
-        """360x800: a pin marked from the page's left edge has its badge in the mark's top-left corner, wholly inside the
-        PDF column (outside, it would hang 16px past the 12px margin and be clipped); a mark 50px in keeps the badge
-        outside its left edge."""
-        add_pin(
-            {"file": str(self.main), "lo": 30, "hi": 31, "page": 1, "note": "왼쪽 끝", "frac": [0.0, 0.65, 0.4, 0.04]},
-            actor(ALICE),
-        )
-        page = self.view(touch_device(360, 800))
-        got = page.evaluate(
-            """() => {const L = document.querySelector('#left'), lr = L.getBoundingClientRect(), x0 = lr.left + L.clientLeft;
-              return [...document.querySelectorAll('#p1 .mark')].map(m => {const b = m.querySelector('b').getBoundingClientRect(),
-                r = m.getBoundingClientRect(); return {inside: m.classList.contains('in'), shown: b.left >= x0 && b.right <= x0 + L.clientWidth,
-                within: b.left >= r.left && b.top >= r.top, off: Math.round(r.left - document.querySelector('#p1').getBoundingClientRect().left)};}); }"""
-        )
-        edge = [g for g in got if g["off"] <= 1]  # the light page's 1px border
-        self.assertEqual([dict(g, off=0) for g in edge], [{"inside": True, "shown": True, "within": True, "off": 0}])
-        rest = [g for g in got if g["off"] > 1]
-        self.assertTrue(rest)
-        self.assertEqual({(g["inside"], g["shown"], g["within"]) for g in rest}, {(False, True, False)})
+    def test_a_mark_at_the_page_edge_takes_its_badge_inside_and_a_mark_at_the_text_keeps_it_outside(self):
+        """411 and 360 phones (12px margins): a pin marked from the page's very edge has its badge in the mark's top-left
+        corner, wholly in the PDF column; marks where the manuscript's text starts (6.4% in, the owner's #60) and further in
+        keep the badge outside their left edge, also wholly shown - inside it covered the text they mark."""
+        for fx, lo in ((0.0, 30), (0.064, 32)):
+            add_pin(
+                {
+                    "file": str(self.main),
+                    "lo": lo,
+                    "hi": lo + 1,
+                    "page": 1,
+                    "note": "왼쪽",
+                    "frac": [fx, 0.6 + fx, 0.4, 0.04],
+                },
+                actor(ALICE),
+            )
+        for w, h in ((411, 908), (360, 800)):
+            with self.subTest(w=w):
+                page = self.view(touch_device(w, h))
+                got = page.evaluate(MARK_BADGES)
+                self.assertEqual(
+                    {(g["fx"], g["inside"], g["shown"], g["within"]) for g in got},
+                    {(0.0, True, True, True), (0.064, False, True, False), (0.15, False, True, False)},
+                )
+
+
+# Each page-1 mark: its fraction x, whether its badge is inside (.in), wholly in the PDF column, and within the mark's box.
+MARK_BADGES = """() => {const L = document.querySelector('#left'), lr = L.getBoundingClientRect(), x0 = lr.left + L.clientLeft;
+  return [...document.querySelectorAll('#p1 .mark')].map(m => {const b = m.querySelector('b').getBoundingClientRect(), r = m.getBoundingClientRect();
+    return {fx: +m.dataset.fx, inside: m.classList.contains('in'), shown: b.left >= x0 && b.right <= x0 + L.clientWidth,
+      within: b.left >= r.left && b.top >= r.top, gap: Math.round(r.left - b.left)};}); }"""
 
 
 # Where a sheet's lines start, against its reference box (the sheet, or the pin list's column): for each [selector, kind] the

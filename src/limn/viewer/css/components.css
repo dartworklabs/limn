@@ -13,6 +13,9 @@ button{display:inline-flex;align-items:center;justify-content:center;gap:var(--s
    tapped control, and a [더보기] row stayed grey after it was tapped (UX audit P4.6). */
 @media (hover:hover){button:hover{background:var(--accent);color:var(--accent-foreground)}}
 button:disabled{opacity:.65;cursor:not-allowed}
+/* Touch press feedback: with no hover, a pressed control is washed with the text colour for the press only - over whatever fill
+   it has, and gone on release, so nothing stays behind as a hover would (docs/handbook/viewer.md §뜻과 모양). */
+@media not all and (hover:hover){button:active:not(:disabled){box-shadow:inset 0 0 0 100vmax color-mix(in srgb,var(--foreground) 8%,transparent)}}
 button[data-pending]{cursor:progress;background:color-mix(in srgb,var(--primary) 70%,var(--background));border-color:transparent}   /* [핀 저장]'s "saving" - looks pressed-and-waiting */
 button.btn-default{background:var(--primary);color:var(--primary-foreground);border-color:var(--primary);font-weight:600}
 @media (hover:hover){button.btn-default:hover{background:color-mix(in srgb,var(--primary) 88%,var(--background));color:var(--primary-foreground)}}
@@ -71,8 +74,8 @@ input.n{width:58px;text-align:center}
 .mark.hi{border-width:3px}
 .mark b{position:absolute;top:-2px;left:-24px;background:var(--status-open);color:var(--status-open-foreground);border-radius:50%;
   width:22px;height:22px;display:flex;align-items:center;justify-content:center;font-size:var(--text-sm);pointer-events:auto;cursor:pointer}
-/* A mark that starts under 28px from the page's left edge has its badge in its own top-left corner (markBadgeIn): outside, it
-   would hang past the even page margin (--edge) and be clipped. */
+/* A mark whose badge has no room outside - the page margin plus the mark's offset short of the badge's reach - has it in its
+   own top-left corner (markBadgeIn): outside, it would be clipped. */
 .mark.in b{left:0;top:0}
 .mark.st b{background:var(--warning);color:var(--warning-foreground)}
 .mark.rv{border-color:var(--status-review);background:color-mix(in srgb,var(--status-review) 8%,transparent)}

@@ -142,6 +142,8 @@ const EV_LABEL={close:'닫음',reopen:'다시 엶',confirm:'확인',assign:'담�
 // A long post collapses at 6 lines with [더 보기] (keyed 'id:index' in MSG_OPEN). If the author is me, '(나)'. The post and its
 // author's name are user text (translate="no"); '(나)' is translated here.
 const MSG_OPEN=new Set();
+// A thread entry's text (user text, translate="no") clamped at 6 lines with [더 보기]/[접기] when long; key ('id:index') keeps
+// it open across redraws (MSG_OPEN), and without a key it is drawn whole with no button.
 function msgBody(m,key){const long=String(m.text||'').length>280||String(m.text||'').split('\n').length>6,open=!key||MSG_OPEN.has(key);
   return '<div class="msg-t'+(long&&!open?' clamp':'')+'" translate="no">'+msgText(m)+'</div>'+
     (long&&key?'<button class="btn-sm btn-ghost msg-more" data-act="msg-more" data-key="'+esc(key)+'" aria-expanded="'+open+'">'+(open?'접기':'더 보기')+'</button>':'');}

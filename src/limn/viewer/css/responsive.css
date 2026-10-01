@@ -157,6 +157,7 @@ body.lay-narrow #btn-more{order:6}
 body.lay-narrow #bar1 #btn-rebuild{flex:0 0 var(--tb-h);padding:0}
 body.lay-narrow #btn-rebuild .lbl{display:none}
 @media (max-width:360px){body.lay-narrow #btn-select .lbl{display:none}}   /* very narrow phone: [선택] is just the dashed-box icon (filled color when on) */
+@media (max-width:360px){body.lay-narrow #side-arrow{display:none}}   /* ...and [핀 N] drops its arrow (aria-expanded says it), so the review pill keeps its eye */
 body.lay-narrow #btn-doc .nm{overflow:visible;text-overflow:clip;max-width:6em}
 body.compact #bar1 #btn-more{flex:0 0 44px;padding:0;background:transparent;border-color:transparent}   /* utility = ghost (the same convention as notification/theme/help on desktop) */
 body.compact #composer{max-height:none;overflow:visible}

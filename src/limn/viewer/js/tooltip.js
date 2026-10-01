@@ -2,6 +2,8 @@
 const TIP=$('#tip'); let tipT=null,tipEl=null,TIPXY=null;
 document.addEventListener('mousemove',e=>{TIPXY=[e.clientX,e.clientY];},{passive:true});
 function hideTip(){clearTimeout(tipT);tipT=null;tipEl=null;TIP.hidden=true;}
+// Shows el's description over it. The box is translate="no": a description is already in the UI language (the translator
+// rewrote the attribute, or the code drew it with tr()), and one that quotes a note ('#38 · 완료') must not be rewritten again.
 function showTip(el){const txt=el.dataset.tip; if(!txt||!document.contains(el))return;
   TIP.textContent=txt; TIP.hidden=false;
   const r=el.getBoundingClientRect(),tw=TIP.offsetWidth,th=TIP.offsetHeight;

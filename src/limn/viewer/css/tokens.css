@@ -37,7 +37,7 @@
    margin on both sides; 16px, 12px on the phone band (body.band-phone, responsive.css). --grabber is the sheet and panel
    handles' bar: half the text colour, 3:1 and more on --sidebar in both themes (--border-strong measured 2.5:1).
    The label color (--brand) is filled in per instance by the server (--accent argument) and stays fixed across theme changes;
-   it paints the top stripe, the label and the current document's underline - never a count badge.
+   it paints the top stripe, the label and the current document's and view switch's underlines - never a count badge.
    The Limn brand colours (--limn-*) are limn-brand.js COLOR's, the same in both themes: 먹 ink, 주 vermilion (the pin
    only), 뼈종이 bone (the icon's light tile), 미색 cream (strokes on ink); --mark-tile/--mark-stroke above pick the icon's
    pair for the theme. */

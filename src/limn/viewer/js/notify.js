@@ -25,11 +25,13 @@ function notifyText(e){const nm=who(e.by)||tr('누군가'),ex=String(e.excerpt||
     replied:tl('{name}님 답글: {text}',q),reopened:ex?tl('{name}님이 다시 열었습니다: {text}',q):tl('{name}님이 다시 열었습니다',q),
     assigned:tl('{name}님이 담당으로 지정했습니다: {text}',q),dropped:tl('{name}님이 삭제했습니다: {text}',q)}[e.type]||ex;
   return {title:tl('핀 #{id}',{id:e.pin})+' · '+(e.doc_name||e.doc||(META&&META.label)||''),body};}
+// Shows one event: a toast while this tab has focus, else a system notification. notifyText() already speaks the UI
+// language and quotes the document's name and the post, so the toast is literal (a document named '그림' stays '그림').
 async function notifyShow(e){const t=notifyText(e);
   if(document.visibilityState==='visible'&&document.hasFocus()){
     const act=e.type===EVENT_TYPE.DROPPED?(isViewer()?{label:'열기',tip:'휴지통에서 봅니다',fn:()=>openPinFromLink(e.doc,e.pin)}:{label:'되살리기',tip:'휴지통에서 같은 번호로 되살립니다',fn:()=>restorePin(e.pin)})
       :{label:'열기',tip:'그 핀으로 갑니다',fn:()=>openPinFromLink(e.doc,e.pin)};
-    toast(t.title+' — '+t.body,e.type===EVENT_TYPE.DROPPED?'warn':'ok',act,{keys:[e.type+':'+e.pin],rank:2});return;}
+    toast(t.title+' — '+t.body,e.type===EVENT_TYPE.DROPPED?'warn':'ok',act,{keys:[e.type+':'+e.pin],rank:2,literal:true});return;}
   try{const reg=SW_REG||await navigator.serviceWorker.ready;
     await reg.showNotification(t.title,{body:t.body,tag:'pin-'+e.pin,icon:(document.querySelector('link[rel=apple-touch-icon]')||document.querySelector('link[rel=icon]')||{}).href,
       actions:e.type===EVENT_TYPE.DROPPED&&!isViewer()?[{action:'restore',title:tr('되살리기')}]:[],   // [되살리기] on "X deleted your pin" (the service worker hands it to this tab)

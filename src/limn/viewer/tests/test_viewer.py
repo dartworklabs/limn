@@ -1834,7 +1834,7 @@ class FrontendSemanticAudit(unittest.TestCase):
             ]
         )
         self.assertEqual(json.loads(run_node(js)), [False, True, True, False, False, False])
-        self.assertIn("{keys:[e.type+':'+e.pin],rank:2}", extract_js_fn("notifyShow"))
+        self.assertIn("{keys:[e.type+':'+e.pin],rank:2,literal:true}", extract_js_fn("notifyShow"))
         self.assertIn("{keys:reviewed.map(i=>EVENT_TYPE.REVIEW_REQUESTED+':'+i)}", extract_js_fn("diffToast"))
         self.assertIn("{keys:[EVENT_TYPE.REOPENED+':'+p.id]}", extract_js_fn("reviewToast"))
 
@@ -2056,6 +2056,18 @@ class FrontendHoverForMouse(unittest.TestCase):
         """The served page's CSS has no :hover rule outside a hover media query."""
         css = HTML[HTML.index("<style>") + len("<style>") : HTML.index("</style>")]
         self.assertEqual(hover_rules_outside_hover_media(css), [])
+
+    def test_a_touch_press_gets_a_brief_token_wash_instead(self):
+        """With hover answering a mouse only, a touch screen still sees a press: while a control is pressed (:active) an
+        inset wash of the text colour covers its surface, from tokens, under the no-hover query only - so nothing stays
+        after the finger lifts and a mouse keeps its hover look."""
+        css = HTML[HTML.index("<style>") + len("<style>") : HTML.index("</style>")]
+        self.assertIn(
+            "@media not all and (hover:hover){button:active:not(:disabled){box-shadow:inset 0 0 0 100vmax "
+            "color-mix(in srgb,var(--foreground) 8%,transparent)}}",
+            css,
+        )
+        self.assertEqual(css.count(":active"), 1)
 
     def test_the_guard_catches_a_bare_a_negated_and_a_pointer_hover_rule(self):
         """A bare rule, one under the negated query and one under another media query are reported; the same rule inside
@@ -2797,7 +2809,7 @@ class FrontendFigure(unittest.TestCase):
         js = "\n".join(
             [
                 r"""
-            const DOC='d', DEFAULT_DOC='d', W=900; let PINS=[], REVIEW_ALL=[]; const drawn=[];
+            const DOC='d', DEFAULT_DOC='d', markBadgeSides=()=>{}; let PINS=[], REVIEW_ALL=[]; const drawn=[];
             const $$=()=>[]; const esc=s=>String(s);
             const page1={appendChild:m=>drawn.push([m.dataset.pin,m.className,m.style.left,m.style.width])};
             const document={getElementById:id=>id==='p1'?page1:null,
@@ -2813,7 +2825,6 @@ class FrontendFigure(unittest.TestCase):
                         "isEstimated",
                         "pinState",
                         "pdoc",
-                        "markBadgeIn",
                         "marks",
                     )
                 ],
