@@ -47,7 +47,7 @@ document.addEventListener('click',e=>{
     case 'view-mode':setViewMode(a.dataset.mode);break;
     case 'rev-back':revBack();break;
     case 'outline':toggleOutline();break;
-    case 'outline-page':if(LAYOUT===LAYOUT_MODE.MID&&OUTLINE_MID_OPEN)toggleOutline();OUTLINE_SELECTED=Number(a.dataset.index);OUTLINE_ACTIVE_PAGE=Number(a.dataset.page);OUTLINE_PINNED={index:OUTLINE_SELECTED,page:OUTLINE_ACTIVE_PAGE};renderOutline();updateSectionStrip();setViewMode('manuscript');goPage(a.dataset.page);break;
+    case 'outline-page':if(outlineOverlay()&&OUTLINE_MID_OPEN)toggleOutline();OUTLINE_SELECTED=Number(a.dataset.index);OUTLINE_ACTIVE_PAGE=Number(a.dataset.page);OUTLINE_PINNED={index:OUTLINE_SELECTED,page:OUTLINE_ACTIVE_PAGE};renderOutline();updateSectionStrip();setViewMode('manuscript');goPage(a.dataset.page);break;
     case 'revision':showRevision(a.dataset.commit);break;
     case 'revision-format':setRevisionFormat(a.dataset.format);break;
     case 'all-docs':SHOW_ALL=!SHOW_ALL;drawPins();break;
@@ -114,7 +114,7 @@ document.addEventListener('keydown',e=>{
     if($('#help').open||$('#more').open||$('#docs-menu').open||$('#trash').open)return;
     if(!TIP.hidden){hideTip(); if(!inField){e.preventDefault(); return;}}
     // Each Esc closes the top thing only; a handled Esc is not also a close request (the back-gesture layer's CloseWatcher).
-    if(LAYOUT===LAYOUT_MODE.MID&&OUTLINE_MID_OPEN){e.preventDefault();toggleOutline();return;}
+    if(outlineOverlay()&&OUTLINE_MID_OPEN){e.preventDefault();toggleOutline();return;}
     if(REPICK){e.preventDefault();cancelRepick();return;}
     if(REPLY){e.preventDefault();closeReply();return;}
     if(EDITOR.current){e.preventDefault();cancelEdit();return;}

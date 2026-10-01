@@ -6,26 +6,33 @@
 // viewed position (topAnchor). Marks and the selection box are % coordinates within the page, so they fall back into place
 // automatically once the page width is fit.
 // The band for a w x h CSS px window whose primary pointer is coarse (touch) or not. Pure. A mouse reads the width only:
-// phone up to 700px, the overlay panel up to 900px, the side panel up to 1099px, wide from 1100px. Touch reads the height too:
-// under 600px wide is a phone at any height, then under 480px high is the short band (a landscape phone); a touch tablet up to
-// 1366px wide keeps the side panel (mid-side), so only a touch screen wider than that is the desktop.
+// phone up to 700px, the overlay panel up to 900px, the side panel up to 1099px, wide from 1100px. Touch reads the height and
+// the orientation too, first match wins: under 600px wide a phone at any height; under 480px high the short band (a landscape
+// phone); up to 839px, or up to 900px in portrait (h > w; a square window is landscape), the tablet sheet; up to 900px the
+// overlay panel (an unfolded foldable); up to 1366px the side panel; wider, the desktop.
 function layoutFor(w,h,coarse){
   if(!coarse){if(w<=700)return LAYOUT_BAND.PHONE; if(w<=900)return LAYOUT_BAND.MID_OVERLAY; if(w<=1099)return LAYOUT_BAND.MID_SIDE; return LAYOUT_BAND.WIDE;}
   if(w<600)return LAYOUT_BAND.PHONE; if(h<480)return LAYOUT_BAND.SHORT;
-  if(w<=700)return LAYOUT_BAND.PHONE; if(w<=900)return LAYOUT_BAND.MID_OVERLAY; if(w<=1366)return LAYOUT_BAND.MID_SIDE; return LAYOUT_BAND.WIDE;}
+  if(w<=839||(w<=900&&h>w))return LAYOUT_BAND.TABLET_SHEET; if(w<=900)return LAYOUT_BAND.MID_OVERLAY;
+  if(w<=1366)return LAYOUT_BAND.MID_SIDE; return LAYOUT_BAND.WIDE;}
 // What layoutFor reads from the window now: {w, h, coarse}.
 function bandInput(){return {w:innerWidth,h:innerHeight,coarse:MQ_COARSE.matches};}
 // Picks the band for the window and its panel state: the body classes (lay-*, band-*, mid-overlay, compact), then wide follows the
 // per-device pinPrefs.sideClosed (open by default), mid its midClosed (else open beside the document, collapsed as an overlay),
-// narrow starts collapsed. An open draft keeps it open. Returns whether the band or its overlay changed.
+// narrow starts collapsed - except between the phone and the tablet sheet, both sheets, which keep it as it was. An open draft
+// keeps it open. Returns whether the band or its overlay changed.
 function applyLayout(){const o=bandInput(),band=layoutFor(o.w,o.h,o.coarse),L=BAND_MODE[band],overlay=L===LAYOUT_MODE.MID&&o.w<=900;
   if(band===BAND&&overlay===MID_OVERLAY)return false;
+  const sheetToSheet=L===LAYOUT_MODE.NARROW&&LAYOUT===LAYOUT_MODE.NARROW,wasOpen=SIDE_OPEN;
   BAND=band; LAYOUT=L; MID_OVERLAY=overlay; OUTLINE_MID_OPEN=false; const b=document.body,p=prefs(); ZOOMED=false; endSideSlide();
   Object.values(LAYOUT_MODE).forEach(k=>b.classList.toggle('lay-'+k,k===L)); Object.values(LAYOUT_BAND).forEach(k=>b.classList.toggle('band-'+k,k===band));
   b.classList.toggle('mid-overlay',overlay); b.classList.toggle('compact',L!==LAYOUT_MODE.WIDE);
-  SIDE_OPEN=L===LAYOUT_MODE.WIDE?p.sideClosed!==true:(L===LAYOUT_MODE.MID?(typeof p.midClosed==='boolean'?!p.midClosed:!overlay):false);
+  SIDE_OPEN=L===LAYOUT_MODE.WIDE?p.sideClosed!==true:(L===LAYOUT_MODE.MID?(typeof p.midClosed==='boolean'?!p.midClosed:!overlay):sheetToSheet&&wasOpen);
   if(!REPICK&&(COMPOSE.current||EDITOR.current||REPLY||!$('#composer').hidden))SIDE_OPEN=true;   // an in-progress note/edit/reply is never left hidden collapsed
   applySide(); stickTop(); return true;}
+// Whether the outline is an overlay over the document that opens one at a time with the pin panel (OUTLINE_MID_OPEN, never
+// saved): in the mid bands and on the tablet sheet. The phone has no outline; wide keeps it beside the document.
+function outlineOverlay(){return LAYOUT===LAYOUT_MODE.MID||BAND===LAYOUT_BAND.TABLET_SHEET;}
 // A draft the panel is holding: the composer (a selection being noted), an open edit or reply, or a relocation. Collapsing by a
 // drag stops short of it, a swipe only rubber-bands, and a collapsed [핀 N] shows a dot for it.
 function draftOpen(){return !$('#composer').hidden||!!EDITOR.current||!!REPLY||!!REPICK;}
@@ -53,10 +60,10 @@ function gripAria(){const g=$('#grip'),s=SIDE_SHOWN;
 // remember = the user did it (a toggle, Ctrl+\, a handle drag or key, a swipe): wide keeps it per device in pinPrefs.sideClosed,
 // mid in midClosed; narrow always starts collapsed. slide = move with the 0.18s slide where the layout has one (wide, and the
 // 701-900px overlay, whose opening slide is CSS's own); things that merely need the panel (a pick, a link) open it at once.
-// Opening the mid panel closes the mid outline (one overlay at a time). Collapsing never touches the saved width - once
-// collapsed, the panel's width is put back to it for the next opening.
+// Opening the mid panel or the tablet sheet closes the outline overlay (one at a time). Collapsing never touches the saved width -
+// once collapsed, the panel's width is put back to it for the next opening.
 function setSide(open,remember,slide){open=!!open;
-  if(open&&LAYOUT===LAYOUT_MODE.MID){OUTLINE_MID_OPEN=false;applyOutlineState();}
+  if(open&&outlineOverlay()){OUTLINE_MID_OPEN=false;applyOutlineState();}
   if(remember&&LAYOUT===LAYOUT_MODE.MID)savePrefs({midClosed:!open});
   if(remember&&LAYOUT===LAYOUT_MODE.WIDE)savePrefs({sideClosed:!open});
   if(SIDE_OPEN===open)return; SIDE_OPEN=open; const cut=!!SIDE_SLIDE&&SIDE_SLIDE.kind==='closing'; endSideSlide();

@@ -172,16 +172,16 @@ body.compact .pin .head{flex-wrap:nowrap;margin:-6px 0}
 body.compact .pin.open .sum,body.compact .pin.editing .sum{display:none}
 body.compact .pin:not(.open):not(.editing) :is(.tags,.au,.note,.acts,.head>.sp,.thread){display:none}
 body.compact .pin .au .au-n{display:none}
-body.lay-narrow{display:block;--ctl-touch-sm:32px}   /* the phone sheet's small touch controls are drawn at 32px, a tablet panel's at 36px (tokens.css) */
+body.lay-narrow{display:block;--ctl-touch-sm:32px;--sheet-gap:48px}   /* the phone sheet's small touch controls are drawn at 32px, a tablet panel's at 36px (tokens.css) */
 body.lay-narrow #main{height:100%}
 body.lay-narrow #left{height:100%}
 body.lay-narrow #right{position:fixed;left:0;right:0;bottom:var(--kb,0px);width:auto!important;height:auto;
-  max-height:calc(var(--vvh,100dvh) - 48px);border-left:0;border-top:1px solid var(--border-strong);border-radius:var(--radius-lg) var(--radius-lg) 0 0;
+  max-height:calc(var(--vvh,100dvh) - var(--sheet-gap));border-left:0;border-top:1px solid var(--border-strong);border-radius:var(--radius-lg) var(--radius-lg) 0 0;
   box-shadow:0 -6px 24px var(--shadow-color);z-index:20;padding:0 env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left)}
 /* Sheet height: --sheet-f (fraction of screen height, default 0.64) is changed by dragging or pressing the top-edge handle (#sheet-grip). It shrinks to fit within the visible height when the keyboard is up. */
-body.lay-narrow.side-open #right{height:min(calc(var(--sheet-f,.64) * 100dvh),calc(var(--vvh,100dvh) - 48px))}
+body.lay-narrow.side-open #right{height:min(calc(var(--sheet-f,.64) * 100dvh),calc(var(--vvh,100dvh) - var(--sheet-gap)))}
 /* While composing the sheet rises to 80% (body.sheet-up, never saved) unless the user sets a height meanwhile (panel-size.js SHEET_KEPT). */
-body.lay-narrow.side-open.sheet-up #right{height:min(calc(max(var(--sheet-f,.64),.8) * 100dvh),calc(var(--vvh,100dvh) - 48px))}
+body.lay-narrow.side-open.sheet-up #right{height:min(calc(max(var(--sheet-f,.64),.8) * 100dvh),calc(var(--vvh,100dvh) - var(--sheet-gap)))}
 /* The sheet's header is one row (docs/handbook/viewer.md §패널 폭과 시트 높이): the handle is an item of the tool bar, between [문서] and
    [재빌드], its bar drawn at the row's top like a sheet handle. It used to be a 24px row of its own whose hit area took the top 8px
    of every tool-bar button (diagnosis P3). The row has no vertical padding: the buttons are drawn at --tb-h and their 44px hit areas
@@ -250,15 +250,15 @@ body.lay-mid:not(.side-open) #right>#bar2,body.lay-mid:not(.side-open) #right>#b
 body.lay-mid #paper-identity{display:none}
 body.lay-mid #doc-nav{position:fixed;top:0;left:0;right:0;z-index:22;height:var(--mid-top);gap:var(--space-2);
   padding:env(safe-area-inset-top) max(var(--space-3),env(safe-area-inset-right)) 0 max(var(--space-3),env(safe-area-inset-left))}
-body.lay-mid #doc-links{gap:var(--space-3);margin-right:0;flex:0 1 auto;scrollbar-width:none}
-body.lay-mid #doc-links::-webkit-scrollbar{display:none}
-body.lay-mid #doc-links.fade-r{mask-image:linear-gradient(to right,var(--foreground) calc(100% - 32px),transparent)}
-body.lay-mid #doc-links.fade-l{mask-image:linear-gradient(to left,var(--foreground) calc(100% - 32px),transparent)}
-body.lay-mid #doc-links.fade-l.fade-r{mask-image:linear-gradient(to right,transparent,var(--foreground) 32px,var(--foreground) calc(100% - 32px),transparent)}
-body.lay-mid #view-switch{gap:var(--space-2);padding-left:var(--space-2)}
-body.lay-mid #doc-nav button{white-space:nowrap}
+body:is(.lay-mid,.band-tablet-sheet) #doc-links{gap:var(--space-3);margin-right:0;flex:0 1 auto;scrollbar-width:none}
+body:is(.lay-mid,.band-tablet-sheet) #doc-links::-webkit-scrollbar{display:none}
+body:is(.lay-mid,.band-tablet-sheet) #doc-links.fade-r{mask-image:linear-gradient(to right,var(--foreground) calc(100% - 32px),transparent)}
+body:is(.lay-mid,.band-tablet-sheet) #doc-links.fade-l{mask-image:linear-gradient(to left,var(--foreground) calc(100% - 32px),transparent)}
+body:is(.lay-mid,.band-tablet-sheet) #doc-links.fade-l.fade-r{mask-image:linear-gradient(to right,transparent,var(--foreground) 32px,var(--foreground) calc(100% - 32px),transparent)}
+body:is(.lay-mid,.band-tablet-sheet) #view-switch{gap:var(--space-2);padding-left:var(--space-2)}
+body:is(.lay-mid,.band-tablet-sheet) #doc-nav button{white-space:nowrap}
 /* At mid width, the outline overlays on top of the document (#main already starts below the nav bar). On a narrow tablet, pins overlay too, preserving the body's width. */
-body.lay-mid #outline{position:absolute;left:0;top:0;bottom:0;z-index:18;border-right:1px solid var(--border);box-shadow:var(--shadow)}
+body:is(.lay-mid,.band-tablet-sheet) #outline{position:absolute;left:0;top:0;bottom:0;z-index:18;border-right:1px solid var(--border);box-shadow:var(--shadow)}
 body.lay-mid #outline-grip{display:none}
 /* First-time onboarding: shown as a small chip just above the action row, on the left, right above the [선택] it points at - it never covers the nav bar or panel. */
 body.lay-mid #coach{top:auto;bottom:calc(var(--mbar-h) + var(--kb,0px) + var(--space-2));left:max(var(--space-3),env(safe-area-inset-left));transform:none;
@@ -299,6 +299,19 @@ body.band-short.typing{--mid-top:0px}
 body.band-short.typing :is(#doc-nav,#bar1){display:none}
 #m-rebuild{display:none}
 body.band-short:not(.no-rebuild) #m-rebuild{display:flex}
+/* ---- Tablet sheet (touch 600-839px, or up to 900px in portrait; docs/handbook/viewer.md §모바일 레이아웃): the narrow sheet under
+   the nav bar of the mid layout. The overlay panel covered the right 43% of a 768px page; the sheet leaves the page its whole width.
+   The sheet box spans the screen and its content is at most 640px, centred; the tool bar keeps its buttons at their natural width.
+   The nav bar stays in the flow above the document (the sheet's highest step ends under it, --sheet-gap), and the outline is an
+   overlay over the document that opens one at a time with the sheet. */
+body.band-tablet-sheet{--sheet-gap:calc(var(--doc-nav-h) + env(safe-area-inset-top))}
+body.band-tablet-sheet #doc-nav{height:calc(var(--doc-nav-h) + env(safe-area-inset-top));gap:var(--space-2);
+  padding:env(safe-area-inset-top) max(var(--space-3),env(safe-area-inset-right)) 0 max(var(--space-3),env(safe-area-inset-left))}
+body.band-tablet-sheet #pdf-body{position:relative}   /* the outline overlay's box starts under the nav bar */
+body.band-tablet-sheet #right>*{width:100%;max-width:640px;margin-left:auto;margin-right:auto}
+body.band-tablet-sheet #bar1 button{flex:none}
+body.band-tablet-sheet #coach{top:calc(var(--doc-nav-h) + env(safe-area-inset-top) + var(--space-3))}
+body.band-tablet-sheet #toasts{max-width:640px;margin:0 auto}
 /* The folded layout (narrow) reuses the existing tool bar's [문서 ▾] button and sheet list as-is. */
 .dm-item .nm{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .dcnt{font-weight:600}
@@ -309,7 +322,7 @@ body.band-short:not(.no-rebuild) #m-rebuild{display:flex}
 .dm-item .spin,#btn-doc .spin{width:10px;height:10px}
 #btn-doc{display:none;align-items:center;gap:var(--space-1)}
 #btn-doc .nm{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-body.lay-narrow.docs-multi #btn-doc{display:inline-flex}
+body.band-phone.docs-multi #btn-doc{display:inline-flex}   /* the tablet sheet has the nav bar's document links instead */
 body.no-rebuild #btn-rebuild{display:none}
 .dchip{flex:none;line-height:16px;max-width:110px;overflow:hidden;text-overflow:ellipsis}
 .dchip.other{background:transparent;border-color:var(--border-strong);border-style:dashed}   /* another document = a dashed border (a meaningful border) */

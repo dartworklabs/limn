@@ -4,22 +4,27 @@
 // If the saved value exceeds the current screen's limit (collapsing/expanding, shrinking the window), the saved value is kept
 // and only the visible width is clamped within the limit. The limit: the minimum is the width where the panel's tool bar fits
 // on one line, the maximum is the width that leaves the body (PDF) side its minimum width.
-function outlineBounds(){if(LAYOUT===LAYOUT_MODE.MID)return {min:220,max:320};const max=Math.max(180,Math.min(320,innerWidth-curSideW()-290));return {min:Math.min(220,max),max};}
+// The outline's width bounds: 220-320px as an overlay; beside the document at most what leaves the PDF 290px beside the panel.
+function outlineBounds(){if(outlineOverlay())return {min:220,max:320};const max=Math.max(180,Math.min(320,innerWidth-curSideW()-290));return {min:Math.min(220,max),max};}
 function showOutlineWidth(w){const b=outlineBounds();w=Math.round(Math.max(b.min,Math.min(b.max,w)));
   document.documentElement.style.setProperty('--outline-width',w+'px');
   const g=$('#outline-grip');g.setAttribute('aria-valuemin',b.min);g.setAttribute('aria-valuemax',b.max);g.setAttribute('aria-valuenow',w);return w;}
-// Draws the outline's open/collapsed state and width for the layout (mid keeps its own, unsaved) and syncs the back layer. The wide
-// outline follows pinPrefs.outlineClosed; until one is saved it starts open with a mouse and collapsed on touch.
+// Draws the outline's open/collapsed state and width for the layout (the overlay of mid and the tablet sheet keeps its own,
+// unsaved) and syncs the back layer. The wide outline follows pinPrefs.outlineClosed; until one is saved it starts open with a
+// mouse and collapsed on touch. The phone has no outline (CSS), so it draws no width.
 function applyOutlineState(){
-  const p=prefs(),closed=LAYOUT===LAYOUT_MODE.MID?!OUTLINE_MID_OPEN:(typeof p.outlineClosed==='boolean'?p.outlineClosed:MQ_COARSE.matches);
+  const p=prefs(),closed=outlineOverlay()?!OUTLINE_MID_OPEN:(typeof p.outlineClosed==='boolean'?p.outlineClosed:MQ_COARSE.matches);
   document.body.classList.toggle('outline-collapsed',closed);
   const t=$('#nav-toc-toggle');t.setAttribute('aria-expanded',String(!closed));t.setAttribute('aria-label',closed?'목차 펼치기':'목차 접기');
-  if(LAYOUT!==LAYOUT_MODE.NARROW)showOutlineWidth(typeof p.outlineWidth==='number'?p.outlineWidth:240);
+  if(BAND!==LAYOUT_BAND.PHONE)showOutlineWidth(typeof p.outlineWidth==='number'?p.outlineWidth:240);
   syncBackLayer();   // the mid outline overlay is a layer the back gesture closes
 }
-function setOutlineWidth(w){if(LAYOUT===LAYOUT_MODE.NARROW)return;w=showOutlineWidth(w);savePrefs({outlineWidth:w});relayout();}
+// Sets and remembers the outline width (pinPrefs.outlineWidth), then re-fits; the phone has no outline.
+function setOutlineWidth(w){if(BAND===LAYOUT_BAND.PHONE)return;w=showOutlineWidth(w);savePrefs({outlineWidth:w});relayout();}
+// Opens or closes the outline at the same reading spot: the overlay (mid, tablet sheet) for now, collapsing the pin panel as it
+// opens; wide remembers it in pinPrefs.outlineClosed.
 function toggleOutline(){const a=topAnchor(),closed=!document.body.classList.contains('outline-collapsed');
-  if(LAYOUT===LAYOUT_MODE.MID){OUTLINE_MID_OPEN=!closed;if(!closed)setSide(false);}
+  if(outlineOverlay()){OUTLINE_MID_OPEN=!closed;if(!closed)setSide(false);}
   else savePrefs({outlineClosed:closed});
   applyOutlineState();relayout();restoreAnchor(a);$('#nav-toc-toggle').focus({preventScroll:true});}
 function sideBounds(layout,iw){const cl=(w,a,b)=>Math.round(Math.min(b,Math.max(a,w)));
@@ -68,15 +73,19 @@ function setSideWidth(w){if(LAYOUT===LAYOUT_MODE.NARROW)return; const b=sideBoun
 function cycleSideWidth(){if(LAYOUT===LAYOUT_MODE.NARROW)return; const b=sideBounds(LAYOUT,innerWidth); setSideWidth(nextPreset(b.presets,curSideW()));}
 // Sheet height is stored as a fraction of screen height (--sheet-f) - CSS shrinks it to fit within the visible height when the keyboard is up.
 const SHEET_F=[0.45,0.64,1],SHEET_MIN_F=0.3,SHEET_CLOSE_F=0.25,SHEET_COMPOSE_F=0.8;
+// The sheet's own preference key and default height: the phone's 64% in pinPrefs.sheetF, the tablet sheet's 45% in sheetFTab - so a
+// height chosen on a folded phone never becomes the unfolded or tablet screen's default.
+function sheetPref(){return BAND===LAYOUT_BAND.TABLET_SHEET?{key:'sheetFTab',def:0.45}:{key:'sheetF',def:0.64};}
 // While composing, the phone sheet rises to SHEET_COMPOSE_F (CSS body.sheet-up, never saved) so the note field and the location line
 // above it stay in view; the first height the user sets meanwhile (a drag, a tap, a preset, a key) wins until the composer closes.
 let SHEET_KEPT=false;
 // Marks that the user set the sheet height while composing: the lift stops and their height applies. Outside composing it does nothing.
 function keepSheet(){if($('#composer').hidden)return; SHEET_KEPT=true; document.body.classList.remove('sheet-up');}
-function sheetF(){const f=prefs().sheetF; return typeof f==='number'?Math.min(1,Math.max(SHEET_MIN_F,f)):0.64;}
+// The sheet height in use (a fraction, 30-100%): the band's saved one, else its default.
+function sheetF(){const s=sheetPref(),f=prefs()[s.key]; return typeof f==='number'?Math.min(1,Math.max(SHEET_MIN_F,f)):s.def;}
 function applySheet(){document.documentElement.style.setProperty('--sheet-f',String(sheetF()));}
-// Sets and remembers the sheet height (a fraction, clamped to 30-100%), opens a collapsed sheet, and ends the composing lift.
-function setSheetF(f){keepSheet(); f=Math.min(1,Math.max(SHEET_MIN_F,f)); savePrefs({sheetF:Math.round(f*1000)/1000}); applySheet(); if(!SIDE_OPEN)setSide(true); renderSizeSeg();}
+// Sets and remembers the sheet height (a fraction, clamped to 30-100%) under the band's key, opens a collapsed sheet, and ends the composing lift.
+function setSheetF(f){keepSheet(); f=Math.min(1,Math.max(SHEET_MIN_F,f)); savePrefs({[sheetPref().key]:Math.round(f*1000)/1000}); applySheet(); if(!SIDE_OPEN)setSide(true); renderSizeSeg();}
 // The next height stop above the one shown (the composing lift counts as shown); wraps to the lowest.
 function cycleSheet(){const f=document.body.classList.contains('sheet-up')?Math.max(sheetF(),SHEET_COMPOSE_F):sheetF(),i=SHEET_F.findIndex(x=>x>f+0.02); setSheetF(SHEET_F[i<0?0:i]);}
 // The '패널 폭' (wide/mid) / '시트 높이' (narrow) segment control inside [⋯].

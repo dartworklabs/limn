@@ -249,15 +249,31 @@ class GestureLogic(unittest.TestCase):
         )
         self.assertEqual(got, [True, False, False, False, 1600, 1600, 800, 800])
 
-    def test_back_layer_is_the_sheet_the_overlay_panel_or_the_mid_outline(self):
-        """Only a layer that covers the document: narrow sheet, 701-900px overlay panel, mid outline overlay."""
+    def test_back_layer_is_the_sheet_the_overlay_panel_or_the_outline_overlay(self):
+        """backLayer(band, overlay, sideOpen, outlineOpen): only a layer that covers the document - a sheet (phone, tablet),
+        the overlay panel (mid-overlay, or a short band up to 900px), the outline overlay (mid bands and the tablet sheet;
+        with both open the outline is on top). The side panel beside the document and anything wide are not layers."""
+        cases = [
+            ("phone", False, True, False, "side"),
+            ("phone", False, False, False, None),
+            ("phone", False, False, True, None),
+            ("tablet-sheet", False, True, False, "side"),
+            ("tablet-sheet", False, False, True, "outline"),
+            ("tablet-sheet", False, True, True, "outline"),
+            ("tablet-sheet", False, False, False, None),
+            ("mid-overlay", True, True, False, "side"),
+            ("mid-overlay", True, False, True, "outline"),
+            ("short", True, True, False, "side"),
+            ("short", False, True, False, None),
+            ("short", False, False, True, "outline"),
+            ("mid-side", False, True, False, None),
+            ("mid-side", False, False, True, "outline"),
+            ("wide", False, True, True, None),
+        ]
         got = self.run_js(
-            ["backLayer"],
-            "[backLayer('narrow',false,true,false),backLayer('narrow',false,false,false),"
-            "backLayer('mid',true,true,false),backLayer('mid',false,true,false),backLayer('mid',false,false,true),"
-            "backLayer('wide',false,true,true)]",
+            ["backLayer"], "%s.map(c=>backLayer(c[0],c[1],c[2],c[3]))" % json.dumps([c[:4] for c in cases])
         )
-        self.assertEqual(got, ["side", None, "side", None, "outline", None])
+        self.assertEqual([c[:4] + (g,) for c, g in zip(cases, got, strict=True)], cases)
 
 
 class DraftLogic(unittest.TestCase):
@@ -1679,8 +1695,8 @@ class PhoneComposer(ViewerBase):
         self.assertAlmostEqual(page.locator("#right").bounding_box()["height"] / 780, 0.45, delta=0.01)
 
 
-# A portrait tablet in the mid layout (the overlay panel).
-TAB_PORTRAIT = {"viewport": {"width": 768, "height": 1024}, "is_mobile": True, "has_touch": True}
+# A landscape tablet in the mid layout (the side panel). A portrait tablet is the tablet sheet (TouchLayoutBands).
+TAB_LANDSCAPE = {"viewport": {"width": 1024, "height": 768}, "is_mobile": True, "has_touch": True}
 
 
 class MidChrome(ViewerBase):
@@ -1688,8 +1704,8 @@ class MidChrome(ViewerBase):
     repeated the nav bar's 원고 tab and goes; its page count moves to the nav bar's right end; the action row is drawn at 40px."""
 
     def test_the_section_strip_goes_and_the_action_row_is_at_most_52px(self):
-        """768x1024: no section strip, the page count in the nav bar, an action row of 52px or less whose buttons answer 44px."""
-        page = self.view(TAB_PORTRAIT)
+        """1024x768: no section strip, the page count in the nav bar, an action row of 52px or less whose buttons answer 44px."""
+        page = self.view(TAB_LANDSCAPE)
         self.assertTrue(page.evaluate("document.body.classList.contains('lay-mid')"))
         self.assertFalse(page.is_visible("#section-strip"))
         self.assertTrue(page.is_visible("#nav-page"))
@@ -1839,6 +1855,90 @@ class TouchLayoutBands(ViewerBase):
         self.assertTrue(page.evaluate("document.body.classList.contains('outline-collapsed')"))
         page = self.view(touch_device(1440, 900), prefs={"outlineClosed": False})
         self.assertFalse(page.evaluate("document.body.classList.contains('outline-collapsed')"))
+
+    def test_a_phone_keeps_its_sheet_at_64_percent_without_a_nav_bar(self):
+        """390x844: the phone sheet as before - collapsed, 64% of the height once opened, no nav bar, height kept in sheetF."""
+        page = self.view(touch_device(390, 844))
+        self.assertEqual(page.evaluate(BODY_BANDS), ["band-phone", "lay-narrow"])
+        self.assertFalse(page.evaluate("SIDE_OPEN"))
+        self.assertFalse(page.is_visible("#doc-nav"))
+        page.evaluate("setSide(true)")
+        settle(page)
+        self.assertAlmostEqual(page.locator("#right").bounding_box()["height"], 0.64 * 844, delta=1)
+
+    def test_a_portrait_tablet_gets_a_bottom_sheet_under_the_nav_bar(self):
+        """768x1024, 600x900 and 820x1180 touch: the overlay panel covered the right 43% of the page (768) and a small
+        tablet stretched the phone sheet to 64% with 218px buttons (600). Now a sheet at 45% under the nav bar: the whole
+        page width stays in view, the tool bar keeps its buttons at their natural width, and the list is at most 640px."""
+        for w, h in ((768, 1024), (600, 900), (820, 1180)):
+            with self.subTest(w=w, h=h):
+                page = self.view(touch_device(w, h))
+                self.assertEqual(page.evaluate(BODY_BANDS), ["band-tablet-sheet", "lay-narrow"])
+                self.assertFalse(page.evaluate("SIDE_OPEN"))
+                self.assertTrue(page.is_visible("#doc-nav"))
+                self.assertTrue(page.is_visible("#nav-toc-toggle"))
+                self.tap(self.cdp(page), *self.center(page, "#btn-side"))
+                page.wait_for_function("SIDE_OPEN")
+                settle(page)
+                got = page.evaluate(
+                    """() => {const R = s => document.querySelector(s).getBoundingClientRect(), vis = e => e.getClientRects().length > 0;
+                      const marks = [...document.querySelectorAll('.mark')].map(m => m.getBoundingClientRect());
+                      return {right: [R('#right').x, R('#right').width, R('#right').height], page: R('#p1').right,
+                        marksIn: marks.every(m => m.left >= 0 && m.right <= innerWidth), marks: marks.length,
+                        list: R('#list').width, grow: [...document.querySelectorAll('#bar1 button')].filter(vis).map(b => getComputedStyle(b).flexGrow),
+                        side: R('#btn-side').width}; }"""
+                )
+                self.assertEqual(got["right"][:2], [0, w])
+                self.assertAlmostEqual(got["right"][2], 0.45 * h, delta=1)
+                self.assertLessEqual(got["page"], w)
+                self.assertTrue(got["marks"] and got["marksIn"])
+                self.assertLessEqual(got["list"], 640)
+                self.assertEqual(set(got["grow"]), {"0"})
+                self.assertLess(got["side"], 120)
+
+    def test_the_tablet_sheet_and_its_outline_open_one_at_a_time(self):
+        """768x1024: the outline is an overlay over the document; opening it collapses the sheet and opening the sheet closes
+        it, as in the mid layout."""
+        page = self.view(touch_device(768, 1024))
+        page.evaluate("setSide(true)")
+        settle(page)
+        page.locator("#nav-toc-toggle").click()
+        settle(page)
+        self.assertEqual(
+            page.evaluate("[OUTLINE_MID_OPEN, SIDE_OPEN, document.body.classList.contains('outline-collapsed')]"),
+            [True, False, False],
+        )
+        self.assertTrue(page.is_visible("#outline"))
+        page.locator("#btn-side").click()
+        settle(page)
+        self.assertEqual(page.evaluate("[OUTLINE_MID_OPEN, SIDE_OPEN]"), [False, True])
+        self.assertFalse(page.is_visible("#outline"))
+
+    def test_the_tablet_sheet_remembers_its_own_height_and_rises_to_under_the_nav_bar(self):
+        """A height chosen on the tablet sheet goes to sheetFTab and leaves the phone's sheetF alone; its highest step ends
+        under the nav bar instead of 48px from the top."""
+        page = self.view(touch_device(768, 1024))
+        page.evaluate("sizePreset(1)")
+        settle(page)
+        self.assertAlmostEqual(page.locator("#right").bounding_box()["height"], 0.64 * 1024, delta=1)
+        prefs = page.evaluate("prefs()")
+        self.assertEqual(prefs.get("sheetFTab"), 0.64)
+        self.assertNotIn("sheetF", prefs)
+        page.evaluate("sizePreset(2)")
+        settle(page)
+        nav = page.locator("#doc-nav").bounding_box()
+        self.assertAlmostEqual(page.locator("#right").bounding_box()["y"], nav["y"] + nav["height"], delta=1)
+
+    def test_between_phone_and_tablet_widths_the_open_sheet_stays_open_at_its_own_height(self):
+        """A split-screen window dragged from 500 to 700px wide: still a sheet, still open, now at the tablet's 45%."""
+        page = self.view(touch_device(500, 900))
+        page.evaluate("setSide(true)")
+        settle(page)
+        page.set_viewport_size({"width": 700, "height": 900})
+        page.wait_for_function("BAND==='tablet-sheet'")
+        settle(page)
+        self.assertTrue(page.evaluate("SIDE_OPEN"))
+        self.assertAlmostEqual(page.locator("#right").bounding_box()["height"], 0.45 * 900, delta=1)
 
     def test_a_mouse_keeps_the_width_only_layouts_at_640_1000_and_1440(self):
         """A fine pointer gets the layouts it had before the bands: 640 the phone sheet (collapsed, no nav bar), 1000 the side

@@ -1022,7 +1022,10 @@ class FrontendMobileLogic(unittest.TestCase):
     TOUCH_BANDS = [
         # width boundaries
         (599, 900, "phone"),
-        (700, 900, "phone"),
+        (600, 900, "tablet-sheet"),
+        (700, 900, "tablet-sheet"),
+        (839, 700, "tablet-sheet"),
+        (840, 700, "mid-overlay"),
         (900, 700, "mid-overlay"),
         (901, 700, "mid-side"),
         (1099, 900, "mid-side"),
@@ -1035,6 +1038,12 @@ class FrontendMobileLogic(unittest.TestCase):
         (599, 300, "phone"),
         (600, 479, "short"),
         (1200, 479, "short"),
+        # orientation (a square window is landscape)
+        (860, 1000, "tablet-sheet"),
+        (860, 860, "mid-overlay"),
+        (860, 861, "tablet-sheet"),
+        (800, 600, "tablet-sheet"),
+        (1024, 1366, "mid-side"),
         # the diagnosis' viewports
         (360, 780, "phone"),
         (390, 844, "phone"),
@@ -1044,6 +1053,10 @@ class FrontendMobileLogic(unittest.TestCase):
         (932, 430, "short"),
         (640, 360, "short"),
         (842, 758, "mid-overlay"),
+        (600, 900, "tablet-sheet"),
+        (768, 1024, "tablet-sheet"),
+        (820, 1180, "tablet-sheet"),
+        (834, 1194, "tablet-sheet"),
         (1024, 768, "mid-side"),
         (1180, 820, "mid-side"),
         (1366, 1024, "mid-side"),
@@ -1407,7 +1420,9 @@ class FrontendPanelTidyStructure(unittest.TestCase):
         self.assertIn("body.lay-mid #coach{top:auto;bottom:calc(var(--mbar-h)", css)
         self.assertIn("body.lay-mid #toasts{", css)
         # an overflowing document-link row fades at the edge instead of showing a scrollbar
-        self.assertIn("body.lay-mid #doc-links.fade-r{mask-image:", css)
+        self.assertIn(
+            "body:is(.lay-mid,.band-tablet-sheet) #doc-links.fade-r{mask-image:", css
+        )  # the tablet sheet's nav bar too
         self.assertIn("function docLinksFade(){", HTML)
         self.assertIn("$('#doc-links').addEventListener('scroll',docLinksFade,{passive:true});", HTML)
 
@@ -1948,7 +1963,8 @@ class HtmlTemplateStructure(unittest.TestCase):
 
     def test_identity_crumb_does_not_take_mobile_space(self):
         self.assertIn("body.lay-narrow #paper-identity{display:none}", HTML)
-        self.assertIn("body:not(.lay-narrow) #doc-nav{display:flex}", HTML)
+        # the nav bar is off on the phone sheet only; the tablet sheet keeps it above the document
+        self.assertIn("body:not(.lay-narrow) #doc-nav,body.band-tablet-sheet #doc-nav{display:flex}", HTML)
 
     def test_document_title_prefixes_label(self):
         # with multiple documents, the document name (META.doc_name) is used instead of the main filename — the label prefix stays the same.
@@ -1967,10 +1983,14 @@ class FrontendDocs(unittest.TestCase):
         css = HTML
         self.assertIn("#doc-select-wrap{display:none;", css)
         self.assertIn("#doc-links{display:none;", css)
-        self.assertIn("body.docs-multi:not(.lay-narrow) #doc-links{display:flex}", css)
-        self.assertIn("body:not(.lay-narrow) #doc-nav{display:flex}", css)
+        # the tablet sheet switches documents by the nav bar's links; only the phone sheet has the [문서] button
+        self.assertIn(
+            "body.docs-multi:not(.lay-narrow) #doc-links,body.docs-multi.band-tablet-sheet #doc-links{display:flex}",
+            css,
+        )
+        self.assertIn("body:not(.lay-narrow) #doc-nav,body.band-tablet-sheet #doc-nav{display:flex}", css)
         self.assertIn("#btn-doc{display:none;", css)
-        self.assertIn("body.lay-narrow.docs-multi #btn-doc{display:inline-flex}", css)
+        self.assertIn("body.band-phone.docs-multi #btn-doc{display:inline-flex}", css)
         self.assertIn("body.no-rebuild #btn-rebuild{display:none}", css)
         self.assertIn('id="all-docs"', css)
         self.assertIn("$('#all-docs').hidden=!multiDoc()", HTML)
@@ -3533,7 +3553,9 @@ class FrontendResponsiveBrowser(ChromiumTestCase):
                   blocked:ctl.filter(e=>!hit(e)).map(e=>e.id||e.textContent.trim()),
                   clipped:ctl.filter(e=>e.scrollWidth>e.clientWidth+1).map(e=>e.id||e.textContent.trim())};
         }"""
-        for width, height in ((720, 900), (820, 900), (884, 900), (968, 900), (1024, 900), (1180, 820), (1366, 1024)):
+        # touch mid bands only: 844/884x700 the overlay, 968x900 and 1024x768 beside the document, 1180/1366 the U8 tablets
+        # (720 and 820 at 900px high are portrait tablets now: the bottom sheet, TouchLayoutBands)
+        for width, height in ((844, 700), (884, 700), (968, 900), (1024, 768), (1180, 820), (1366, 1024)):
             with self.subTest(width=width, height=height):
                 page = self.open_viewer(width, True, height=height)
                 a = page.evaluate(probe)
