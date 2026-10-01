@@ -45,12 +45,12 @@ function outlineOverlay(){return LAYOUT===LAYOUT_MODE.MID||BAND===LAYOUT_BAND.TA
 // A draft the panel is holding: the composer (a selection being noted), an open edit or reply, or a relocation. Collapsing by a
 // drag stops short of it, a swipe only rubber-bands, and a collapsed [핀 N] shows a dot for it.
 function draftOpen(){return !$('#composer').hidden||!!EDITOR.current||!!REPLY||!!REPICK;}
-// Draws the panel state (docs/handbook/viewer.md §패널 폭과 시트 높이): the body classes (with the phone sheet's composing lift), both [핀 N] toggles - the tool bar's and,
+// Draws the panel state (docs/handbook/viewer.md §패널 폭과 시트 높이): the body classes (with the phone sheet's composing lift, the phone only), both [핀 N] toggles - the tool bar's and,
 // for a collapsed wide panel, the nav bar's - with the open count, the draft dot and the arrow, the handle's ARIA and the back-gesture
 // layer. Idempotent and cheap: drawPins() calls it on every redraw. The panel keeps its open layout while it slides out.
 function applySide(){const open=SIDE_OPEN,b=document.body,dot=!open&&draftOpen(),n=PINS.length,composing=!$('#composer').hidden;
   b.classList.toggle('side-open',open||!!(SIDE_SLIDE&&SIDE_SLIDE.kind==='closing')); b.classList.toggle('composing',composing);
-  if(!composing)SHEET_KEPT=false; b.classList.toggle('sheet-up',composing&&!SHEET_KEPT&&LAYOUT===LAYOUT_MODE.NARROW);   // the phone sheet's composing lift (panel-size.js)
+  if(!composing)SHEET_KEPT=false; b.classList.toggle('sheet-up',composing&&!SHEET_KEPT&&BAND===LAYOUT_BAND.PHONE);   // the phone sheet's composing lift; the tablet sheet's is tabletLift (panel-size.js)
   const label=tr(open?'패널 접기':'패널 펴기')+' · '+tl('열린 핀 {n}',{n})+(dot?' · '+tr('작성 중'):'');
   for(const t of [$('#btn-side'),$('#nav-side')]){t.setAttribute('aria-expanded',String(open)); t.setAttribute('aria-label',label);
     t.querySelector('.side-n').textContent=n; t.querySelector('.c-dot').hidden=!dot;}
@@ -151,19 +151,23 @@ function onViewport(){const vv=window.visualViewport; if(!vv)return;
     requestAnimationFrame(()=>a.scrollIntoView({block:'center'}));}
 if(window.visualViewport){visualViewport.addEventListener('resize',onViewport); visualViewport.addEventListener('scroll',onViewport);}
 document.addEventListener('focusin',e=>{const t=e.target;
-  if(LAYOUT!==LAYOUT_MODE.WIDE&&t&&t.tagName==='TEXTAREA'&&$('#right').contains(t))setTimeout(()=>t.scrollIntoView({block:'center'}),350);});
+  if(LAYOUT!==LAYOUT_MODE.WIDE&&t&&t.tagName==='TEXTAREA'&&$('#right').contains(t))setTimeout(()=>{if(BAND===LAYOUT_BAND.TABLET_SHEET)keepFieldInView(); else t.scrollIntoView({block:'center'});},350);});
 // Whether a text field has focus - a textarea, a text input or editable content - which on a touch screen means the keyboard is up.
 function typingNow(){const a=document.activeElement; if(!a||a===document.body)return false; if(a.isContentEditable||a.tagName==='TEXTAREA')return true;
   return a.tagName==='INPUT'&&!/^(checkbox|radio|button|submit|reset|range|color|file|image|hidden)$/i.test(a.type||'');}
 // The panel's text field that has focus (a note, an edit or a reply), or null.
 function panelField(){const a=document.activeElement; return typingNow()&&$('#right').contains(a)?a:null;}
-// body.typing while a panel text field has focus: the short band hides its top row then, leaving the keyboard's ~200px to the panel.
-function syncTyping(){document.body.classList.toggle('typing',!!panelField());}
+// body.typing while a panel text field has focus: the short band hides its top row then, leaving the keyboard's ~200px to the panel;
+// the tablet sheet re-measures its keyboard lift (applySheet, tabletLift).
+function syncTyping(){document.body.classList.toggle('typing',!!panelField()); if(BAND===LAYOUT_BAND.TABLET_SHEET)applySheet();}
 document.addEventListener('focusin',syncTyping);
 // After the focus has moved on: the typing class, and a band held while a text field had focus gets its turn (settleBand).
 document.addEventListener('focusout',()=>setTimeout(()=>{syncTyping(); if(bandStale())scheduleRelayout();},0));
-// Scrolls a panel text field that has focus back into view after a re-fit; the scroller's scroll-padding keeps it clear of the save row.
-function keepFieldInView(){const f=panelField(); if(f)f.scrollIntoView({block:'nearest'});}
+// Scrolls a panel text field that has focus back into view after a re-fit; the scroller's scroll-padding keeps it clear of the save row
+// and, on a sheet, of the tool bar stuck above. On the tablet sheet the composer's location line comes to the top first, so it stays
+// above the note.
+function keepFieldInView(){const f=panelField(); if(!f)return;
+  if(f===$('#note')&&BAND===LAYOUT_BAND.TABLET_SHEET)$('#composer .c-loc-row').scrollIntoView({block:'start'}); f.scrollIntoView({block:'nearest'});}
 
 // Onboarding shown only the first time (remembers that it's been seen in localStorage pinPrefs.coach).
 let COACH_T=null;

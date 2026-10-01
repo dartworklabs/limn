@@ -249,6 +249,15 @@ class GestureLogic(unittest.TestCase):
         )
         self.assertEqual(got, [True, False, False, False, 1600, 1600, 800, 800])
 
+    def test_tablet_sheet_lift_rises_only_as_far_as_needed_and_never_past_60_percent(self):
+        """sheetLift(f, need): the tablet sheet's height while composing with the keyboard up - its own height when the
+        location line, the note and the save row fit, else just what they need, at most 60%; a higher chosen height stays."""
+        pre = re.search(r"^const SHEET_TAB_LIFT_MAX=.*;", HTML, re.M).group(0)
+        got = self.run_js(
+            ["sheetLift"], "[sheetLift(0.45,0.39),sheetLift(0.45,0.52),sheetLift(0.45,0.8),sheetLift(0.64,0.8)]", pre
+        )
+        self.assertEqual(got, [0.45, 0.52, 0.6, 0.64])
+
     def test_back_layer_is_the_sheet_the_overlay_panel_or_the_outline_overlay(self):
         """backLayer(band, overlay, sideOpen, outlineOpen): only a layer that covers the document - a sheet (phone, tablet),
         the overlay panel (mid-overlay, or a short band up to 900px), the outline overlay (mid bands and the tablet sheet;
@@ -2085,6 +2094,46 @@ class TouchLayoutBands(ViewerBase):
         settle(page)
         self.assertEqual(page.evaluate("window.__bands"), ["band-wide", "band-mid-side"])
         self.assertEqual(page.input_value("#note"), "포인터를 바꿔도 남는 메모")
+
+    def test_composing_on_a_tablet_sheet_keeps_it_at_45_percent_with_the_box_in_view(self):
+        """768x1024 and 820x1180 with the keyboard down: the phone's 80% lift would hide the page just dragged on. The tablet
+        sheet stays at 45% (the note is second, so the location line, the note and the save row fit) and the pending box is
+        on screen between the nav bar and the sheet."""
+        for w, h in ((768, 1024), (820, 1180)):
+            with self.subTest(w=w, h=h):
+                page = self.view(touch_device(w, h))
+                self.long_press_pick(self.cdp(page), page)  # a real touch selection, with its pending box
+                got = page.evaluate(
+                    """() => {const R = s => document.querySelector(s).getBoundingClientRect(), box = R('.sel.pending');
+                      return {sheet: [R('#right').top, R('#right').height], nav: R('#doc-nav').bottom, box: [box.top, box.bottom],
+                        lift: document.body.classList.contains('sheet-up')}; }"""
+                )
+                self.assertAlmostEqual(got["sheet"][1], 0.45 * h, delta=1)
+                self.assertFalse(got["lift"])
+                self.assertGreaterEqual(got["box"][0], got["nav"])
+                self.assertLessEqual(got["box"][1], got["sheet"][0])
+                for sel in ("#c-loc", "#note", "#btn-save"):
+                    seen, hh = page.evaluate(SHOWN, sel)
+                    self.assertEqual(seen, hh, sel)
+
+    def test_with_the_keyboard_up_the_tablet_sheet_shows_the_location_note_and_save_row_under_60_percent(self):
+        """The keyboard shrinks the layout (Chrome on Android, resizes-content) by 330 and 380px: the location line, the note
+        and the save row are all on screen, and the sheet is at most 60% of what is left. At 45% they fit there; a 600x900
+        tablet with a 400px keyboard (500px left) needs more, and the sheet rises just past 45%, never past 60%."""
+        for w, h, kb in ((768, 1024, 330), (820, 1180, 380), (600, 900, 400)):
+            with self.subTest(w=w, h=h):
+                page = self.view(touch_device(w, h))
+                self.compose(page)
+                page.focus("#note")
+                self.resize(page, w, h - kb)
+                for sel in ("#c-loc", "#note", "#btn-save"):
+                    seen, hh = page.evaluate(SHOWN, sel)
+                    self.assertEqual(seen, hh, sel)
+                sheet = page.locator("#right").bounding_box()["height"]
+                self.assertLessEqual(sheet, 0.6 * (h - kb) + 1)
+                if kb == 400:
+                    self.assertGreater(sheet, 0.45 * (h - kb) + 1)  # lifted only because they did not fit
+                self.assertEqual(page.evaluate("BAND"), "tablet-sheet")
 
     def test_a_mouse_window_as_low_as_a_landscape_phone_keeps_the_width_layout(self):
         """820x390 with a mouse: the overlay layout with its nav bar and bottom action row, never the short band."""

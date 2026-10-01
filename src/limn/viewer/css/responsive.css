@@ -137,6 +137,7 @@ body.lay-narrow #btn-doc .nm{overflow:visible;text-overflow:clip;max-width:6em}
 body.compact #bar1 #btn-more{flex:0 0 44px;padding:0;background:transparent;border-color:transparent}   /* utility = ghost (the same convention as notification/theme/help on desktop) */
 body.compact #composer{max-height:none;overflow:visible}
 body.compact.composing #right{scroll-padding-bottom:calc(var(--hit) + var(--space-5))}   /* a field scrolled into view stays clear of the stuck save row (56px on touch) */
+body.lay-narrow.composing #right{scroll-padding-top:calc(var(--stick-top,0px) + var(--space-2))}   /* and on a sheet, of the tool bar stuck at its top (whose hit areas reach 6px below it) */
 /* Phone sheet composer (docs/handbook/viewer.md §패널 정리): the location line, then the note with its helpers, then the one-line
    overlap notice, then the range ladder, the nudges and the kind, then the source. The note was the fourth block, 328px down, and hid
    below the save row; with the keyboard up the location line scrolled away (diagnosis P2). */
@@ -180,7 +181,8 @@ body.lay-narrow #right{position:fixed;left:0;right:0;bottom:var(--kb,0px);width:
   box-shadow:0 -6px 24px var(--shadow-color);z-index:20;padding:0 env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left)}
 /* Sheet height: --sheet-f (fraction of screen height, default 0.64) is changed by dragging or pressing the top-edge handle (#sheet-grip). It shrinks to fit within the visible height when the keyboard is up. */
 body.lay-narrow.side-open #right{height:min(calc(var(--sheet-f,.64) * 100dvh),calc(var(--vvh,100dvh) - var(--sheet-gap)))}
-/* While composing the sheet rises to 80% (body.sheet-up, never saved) unless the user sets a height meanwhile (panel-size.js SHEET_KEPT). */
+/* While composing the phone sheet rises to 80% (body.sheet-up, never saved) unless the user sets a height meanwhile (panel-size.js SHEET_KEPT);
+   the tablet sheet keeps its height and rises only with the keyboard up, through --sheet-f (tabletLift). */
 body.lay-narrow.side-open.sheet-up #right{height:min(calc(max(var(--sheet-f,.64),.8) * 100dvh),calc(var(--vvh,100dvh) - var(--sheet-gap)))}
 /* The sheet's header is one row (docs/handbook/viewer.md §패널 폭과 시트 높이): the handle is an item of the tool bar, between [문서] and
    [재빌드], its bar drawn at the row's top like a sheet handle. It used to be a 24px row of its own whose hit area took the top 8px

@@ -73,17 +73,32 @@ function setSideWidth(w){if(LAYOUT===LAYOUT_MODE.NARROW)return; const b=sideBoun
 function cycleSideWidth(){if(LAYOUT===LAYOUT_MODE.NARROW)return; const b=sideBounds(LAYOUT,innerWidth); setSideWidth(nextPreset(b.presets,curSideW()));}
 // Sheet height is stored as a fraction of screen height (--sheet-f) - CSS shrinks it to fit within the visible height when the keyboard is up.
 const SHEET_F=[0.45,0.64,1],SHEET_MIN_F=0.3,SHEET_CLOSE_F=0.25,SHEET_COMPOSE_F=0.8;
+const SHEET_TAB_LIFT_MAX=0.6;   // the tablet sheet's highest keyboard lift (tabletLift)
 // The sheet's own preference key and default height: the phone's 64% in pinPrefs.sheetF, the tablet sheet's 45% in sheetFTab - so a
 // height chosen on a folded phone never becomes the unfolded or tablet screen's default.
 function sheetPref(){return BAND===LAYOUT_BAND.TABLET_SHEET?{key:'sheetFTab',def:0.45}:{key:'sheetF',def:0.64};}
 // While composing, the phone sheet rises to SHEET_COMPOSE_F (CSS body.sheet-up, never saved) so the note field and the location line
 // above it stay in view; the first height the user sets meanwhile (a drag, a tap, a preset, a key) wins until the composer closes.
+// The tablet sheet does not rise: at 45% the location line, the note and the save row fit and the page dragged on stays in view.
+// Only with the keyboard up, if they no longer fit, it rises as far as they need, at most SHEET_TAB_LIFT_MAX (tabletLift).
 let SHEET_KEPT=false;
 // Marks that the user set the sheet height while composing: the lift stops and their height applies. Outside composing it does nothing.
 function keepSheet(){if($('#composer').hidden)return; SHEET_KEPT=true; document.body.classList.remove('sheet-up');}
 // The sheet height in use (a fraction, 30-100%): the band's saved one, else its default.
 function sheetF(){const s=sheetPref(),f=prefs()[s.key]; return typeof f==='number'?Math.min(1,Math.max(SHEET_MIN_F,f)):s.def;}
-function applySheet(){document.documentElement.style.setProperty('--sheet-f',String(sheetF()));}
+// Draws the sheet height: the band's own (sheetF), or on the tablet sheet its keyboard lift (tabletLift). Never saved.
+function applySheet(){document.documentElement.style.setProperty('--sheet-f',String(tabletLift()));}
+// The tablet sheet's height for need (the fraction of the screen the location line, the note and the save row take): its own
+// height f if they fit, else just what they need, at most SHEET_TAB_LIFT_MAX; a higher chosen f stays. Pure.
+function sheetLift(f,need){return Math.max(f,Math.min(SHEET_TAB_LIFT_MAX,need));}
+// The sheet height to draw now: sheetF(), lifted (sheetLift) on the tablet sheet while composing with the keyboard up - a panel text
+// field has focus on a touch screen - and the user has not set a height meanwhile. Measures the tool bar, the location line to the
+// note's bottom, the save row and two 8px gaps against the layout height.
+function tabletLift(){const f=sheetF();
+  if(BAND!==LAYOUT_BAND.TABLET_SHEET||SHEET_KEPT||$('#composer').hidden||!MQ_COARSE.matches||!panelField())return f;
+  const r=$('#right'),note=$('#note'),y=e=>e.getBoundingClientRect().top-r.getBoundingClientRect().top+r.scrollTop;
+  const need=$('#bar1').offsetHeight+y(note)+note.offsetHeight-y($('#composer .c-loc-row'))+$('#c-actions').offsetHeight+16;
+  return sheetLift(f,need/innerHeight);}
 // Sets and remembers the sheet height (a fraction, clamped to 30-100%) under the band's key, opens a collapsed sheet, and ends the composing lift.
 function setSheetF(f){keepSheet(); f=Math.min(1,Math.max(SHEET_MIN_F,f)); savePrefs({[sheetPref().key]:Math.round(f*1000)/1000}); applySheet(); if(!SIDE_OPEN)setSide(true); renderSizeSeg();}
 // The next height stop above the one shown (the composing lift counts as shown); wraps to the lowest.
