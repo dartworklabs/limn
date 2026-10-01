@@ -19,7 +19,6 @@ brand source, copied byte for byte; `src/limn/viewer/mark.py` maps them to route
 | --- | --- |
 | `favicon-16.png`, `favicon-32.png` | `GET /favicon-16.png`, `GET /favicon-32.png` - the browser favicon, 16 and 32 px pixel drawings on 먹, one for light and dark tabs (`LIMN.FAVICON_PX`) |
 | `favicon.ico` | `GET /favicon.ico` - the same two drawings in one .ico |
-| (the three above) | `GET /favicon-dark.ico`, `GET /favicon-dark-16.png`, `GET /favicon-dark-32.png` - retired paths, served for 0.3.8 only (`limn.mark.RETIRED_ICON_ROUTES`) |
 | `apple-touch-icon.png` | `GET /apple-touch-icon.png` - 180 px, 뼈종이, full-bleed square (iOS rounds it) |
 | `limn-icon-light-16.svg`, `limn-icon-light-14.svg` | the inline icon in the top bar (16 px) and the [더보기] label chip (14 px), with that size's optical correction |
 | `limn-wordmark-light-20.svg` | the inline wordmark in the help header, 20 px tall |

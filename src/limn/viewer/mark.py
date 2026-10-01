@@ -8,8 +8,7 @@ This module turns those bytes into what the viewer serves. It is pure - no files
 root reads the folder (server.read_brand) and passes the bytes to brand().
 
 - ICON_ROUTES: the tab and home-screen icon routes and the file each serves unchanged - the favicon's 16 and 32 px
-  pixel drawings on 먹 (one for light and dark tabs) and their .ico, and the 180 px full-bleed apple-touch-icon;
-  RETIRED_ICON_ROUTES are the 0.3.6-0.3.7 dark paths, served for one release as the same favicon.
+  pixel drawings on 먹 (one for light and dark tabs) and their .ico, and the 180 px full-bleed apple-touch-icon.
 - MARK_SLOTS: the viewer page's placeholders for the inline logo and the SVG made for that size - the icon with the
   optical correction of 16 px (top bar) and 14 px ([더보기] label chip), the wordmark 20 px tall (help header).
 - parse_svg(): one vendored SVG as a Drawing. The vocabulary is closed (svg, g, path and circle with their geometry
@@ -37,23 +36,11 @@ ROLE_CLASS: Mapping[Role, str] = {"tile": "limn-mark-tile", "stroke": "limn-mark
 # GET path -> (file in src/limn/viewer/brand/, content type). /favicon.ico and /apple-touch-icon.png are also the paths
 # browsers and iOS ask for on their own. The tab favicon is one drawing for light and dark tabs (the i on a 먹 rounded
 # square); the touch icon is the app icon.
-CURRENT_ICON_ROUTES: Mapping[str, tuple[str, str]] = {
+ICON_ROUTES: Mapping[str, tuple[str, str]] = {
     "/favicon.ico": ("favicon.ico", "image/x-icon"),
     "/favicon-16.png": ("favicon-16.png", "image/png"),
     "/favicon-32.png": ("favicon-32.png", "image/png"),
     "/apple-touch-icon.png": ("apple-touch-icon.png", "image/png"),
-}
-# Retired path -> the path whose file it serves, for 0.3.8 only (docs/handbook/api.md): 0.3.6-0.3.7 pages link a dark
-# set and their head script points a dark-scheme tab at it, and the HTTP API removes a path only after a release that
-# announces it. Remove these in the next release.
-RETIRED_ICON_ROUTES: Mapping[str, str] = {
-    "/favicon-dark.ico": "/favicon.ico",
-    "/favicon-dark-16.png": "/favicon-16.png",
-    "/favicon-dark-32.png": "/favicon-32.png",
-}
-ICON_ROUTES: Mapping[str, tuple[str, str]] = {
-    **CURRENT_ICON_ROUTES,
-    **{retired: CURRENT_ICON_ROUTES[current] for retired, current in RETIRED_ICON_ROUTES.items()},
 }
 
 

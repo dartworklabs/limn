@@ -878,7 +878,7 @@
 
 - `<head>`는 한 묶음(`/favicon.ico`·`/favicon-16.png`·`/favicon-32.png`, `apple-touch-icon`)만 잇는다. `media`도 색 구성 스크립트도 없다. 탭은 16 CSS px라서 1× 화면은 16 그림을, 2× 화면은 32 그림을 고른다.
 - 뷰어의 테마 설정(`pinPrefs.theme`)은 인라인 로고의 색만 바꾸고 탭 파비콘은 바꾸지 않는다. 탭 막대는 브라우저가 그린다.
-- `/favicon-dark.ico`·`/favicon-dark-16.png`·`/favicon-dark-32.png`는 0.3.8 한 릴리스 동안만 같은 파비콘을 준다(`limn.viewer.mark.RETIRED_ICON_ROUTES`). 0.3.6–0.3.7 페이지가 링크하고 그 스크립트가 어두운 탭을 그 주소로 돌리기 때문이다. HTTP API는 경로를 알린 릴리스 뒤에만 뺀다([architecture.md](architecture.md) §불변식 3).
+- `/favicon-dark.ico`·`/favicon-dark-16.png`·`/favicon-dark-32.png`는 없다. 0.3.8이 폐지를 알렸고 0.4.0에서 뺐다. 이 주소는 없는 경로처럼 404이고, 0.3.6–0.3.7 페이지의 어두운 탭은 파비콘 없이 열린다. HTTP API는 경로를 알린 릴리스 뒤에만 뺀다([architecture.md](architecture.md) §불변식 3).
 - 주소의 `?v=<내용 키>`는 아이콘 파일 바이트에서 낸 sha256의 앞 12자리다(`limn.viewer.mark.content_key`). 그림이 바뀌면 주소도 바뀌어 옛 그림이 캐시에서 나오지 않는다.
 - 파비콘은 인스턴스와 무관하다. 여러 인스턴스의 탭은 제목의 이름표(`Limn · <이름표>`)로 가른다. 인스턴스 색(`--brand`)은 화면 맨 위 띠(`#brand-stripe`)와 이름표 칩에만 쓴다.
 

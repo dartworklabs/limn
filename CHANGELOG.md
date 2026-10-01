@@ -8,7 +8,8 @@ follows the element across re-renders. The agent contract grows (new fields and 
 field changes its value for figure documents (below). For an instance without figure documents `pins.md`, the API and
 the state directory are unchanged, with these exceptions: the grown value lists and the `bad_via` and `bad_scope`
 sentences that list them, the wording of the `no_source_lines` and `view_only_no_rebuild` refusal sentences (same
-reason codes), anchors of `.py` sources skipping `#` comment lines, and non-finite stored numbers reading as `null`.
+reason codes), anchors of `.py` sources skipping `#` comment lines, non-finite stored numbers reading as `null`, and the
+three retired `/favicon-dark*` icon paths (below).
 
 ### Added
 
@@ -68,6 +69,13 @@ reason codes), anchors of `.py` sources skipping `#` comment lines, and non-fini
   `claim_ts`, `eta_ts`, and numbers inside `anchor`, `thread` or a field this version does not know) is `null` one by
   one. The stored line is untouched. `pins.md` no longer fails for a region pin with such a `frac`, which had failed
   every later pin write.
+
+### Removed
+
+- **`/favicon-dark.ico`, `/favicon-dark-16.png`, `/favicon-dark-32.png`.** 0.3.8 announced them as deprecated, serving
+  the same bytes as the paths without `-dark`; they are gone now and answer `404` like any unknown path. A tab still
+  open on a 0.3.6-0.3.7 page in a dark colour scheme shows no favicon until the page is reloaded; the current page
+  links only `/favicon.ico`, `/favicon-16.png` and `/favicon-32.png`. `pins.md` and the state directory are unchanged.
 
 ### Rollback
 

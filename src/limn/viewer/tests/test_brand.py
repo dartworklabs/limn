@@ -421,24 +421,21 @@ class IconRoutes(AccessBase):
                     self.assertEqual(hdrs.get("cache-control"), "public, max-age=86400")
                     self.assertEqual(body, vendored(name))
 
-    def test_retired_dark_paths_serve_the_one_favicon_for_this_release(self):
-        """/favicon-dark.ico, /favicon-dark-16.png and /favicon-dark-32.png - linked by 0.3.6-0.3.7 pages, whose head
-        script still points a tab at them in a dark scheme - answer 200 with exactly the bytes of /favicon.ico,
-        /favicon-16.png and /favicon-32.png, so such a tab shows the new favicon rather than none."""
-        self.assertEqual(
-            dict(mark.RETIRED_ICON_ROUTES),
-            {
-                "/favicon-dark.ico": "/favicon.ico",
-                "/favicon-dark-16.png": "/favicon-16.png",
-                "/favicon-dark-32.png": "/favicon-32.png",
-            },
-        )
-        for retired, current in mark.RETIRED_ICON_ROUTES.items():
-            with self.subTest(path=retired):
-                code, hdrs, body = self.get(retired + "?v=0123456789ab")
-                want_code, want_hdrs, want_body = self.get(current)
-                self.assertEqual((code, want_code), (200, 200))
-                self.assertEqual((hdrs.get("content-type"), body), (want_hdrs.get("content-type"), want_body))
+    def test_the_retired_dark_paths_answer_like_any_unknown_icon_path(self):
+        """/favicon-dark.ico, /favicon-dark-16.png and /favicon-dark-32.png, which 0.3.8 served as the one favicon for the
+        0.3.6-0.3.7 pages, are gone in 0.4.0: each answers what a path that never existed answers (not 200, no icon
+        bytes), with or without the ?v= key, and none is an icon route or a read path any more."""
+        icons = {vendored(n) for n, _ in mark.ICON_ROUTES.values()}
+        unknown = self.get("/favicon-never-served.ico")
+        self.assertNotEqual(unknown[0], 200)
+        for retired in ("/favicon-dark.ico", "/favicon-dark-16.png", "/favicon-dark-32.png"):
+            for query in ("", "?v=0123456789ab"):
+                with self.subTest(path=retired + query):
+                    code, _, body = self.get(retired + query)
+                    self.assertEqual(code, unknown[0])
+                    self.assertNotIn(body, icons)
+            self.assertNotIn(retired, mark.ICON_ROUTES)
+            self.assertNotIn(retired, access.READ_PATHS)
 
     def test_icon_routes_are_explicit_read_paths(self):
         """access.py admits each icon route by name (a new path is denied by default); test_web's GuardOrder walks

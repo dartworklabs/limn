@@ -225,7 +225,6 @@ curl -s -H "Authorization: Bearer $(cat ~/.config/limn/<인스턴스>.token)" ht
 | `GET` | `/sw.js` | 브라우저 알림용 서비스 워커(`text/javascript; charset=utf-8`, `Cache-Control: no-cache`, 범위 `/`). `fetch` 처리기가 없어 앱 데이터를 캐시하지 않는다 |
 | `GET` | `/favicon.ico` | 탭 파비콘 `.ico`(`image/x-icon`). 먹 둥근 사각형 위 i의 16·32px 픽셀 그림 두 장이 들어 있다. 밝은 탭과 어두운 탭에 같은 그림이다. `Cache-Control: public, max-age=86400`. 뷰어의 링크는 `?v=<내용 키>` 를 붙여 그림이 바뀌면 캐시를 가른다. 브라우저가 링크 없이 스스로 묻는 `/favicon.ico` 는 쿼리가 없어 하루까지 캐시에 남을 수 있다. 0.3.5까지 `/favicon.ico` 는 빈 본문 `204` 였다 |
 | `GET` | `/favicon-16.png`, `/favicon-32.png`, `/apple-touch-icon.png` | 탭 파비콘 PNG(16·32px, 먹 픽셀 그림)와 홈 화면 아이콘(180×180 뼈종이 네모, iOS가 모서리를 깎는다). `-16` 경로는 0.3.6+다. 모두 패키지에 든 브랜드 파일(`src/limn/viewer/brand/`)을 바이트 그대로 준다([viewer.md](viewer.md) §마크와 파비콘). 인스턴스의 `--accent` 와 무관하다. `image/png`, `Cache-Control: public, max-age=86400`. 뷰어는 `?v=<내용 키>` 를 붙여 그림이 바뀌면 캐시를 가른다. 쿼리 없는 주소(iOS가 스스로 묻는 `/apple-touch-icon.png` 등)는 하루까지 캐시에 남을 수 있다. 쿼리는 그 밖의 뜻이 없다. 아이콘 경로 목록에 없는 이름(`/favicon-64.png` 등)은 아이콘이 아니다. Host·Origin·신원 검사는 이 행과 위아래 행 모두 다른 `GET` 과 같다 |
-| `GET` | `/favicon-dark.ico`, `/favicon-dark-16.png`, `/favicon-dark-32.png` | (0.3.6+, 폐지 예정) 0.3.8에서는 `/favicon.ico`·`/favicon-16.png`·`/favicon-32.png` 와 같은 바이트·타입·캐시를 준다. 0.3.6–0.3.7 페이지가 어두운 색 구성에서 이 주소를 쓰기 때문이다. 다음 릴리스에서 뺀다 |
 
 ### 빌드
 
