@@ -423,16 +423,16 @@ class IconRoutes(AccessBase):
 
     def test_the_retired_dark_paths_answer_like_any_unknown_icon_path(self):
         """/favicon-dark.ico, /favicon-dark-16.png and /favicon-dark-32.png, which 0.3.8 served as the one favicon for the
-        0.3.6-0.3.7 pages, are gone in 0.4.0: each answers what a path that never existed answers (not 200, no icon
+        0.3.6-0.3.7 pages, are gone in 0.4.0: each answers what a path that never existed answers (exactly 404, no icon
         bytes), with or without the ?v= key, and none is an icon route or a read path any more."""
         icons = {vendored(n) for n, _ in mark.ICON_ROUTES.values()}
         unknown = self.get("/favicon-never-served.ico")
-        self.assertNotEqual(unknown[0], 200)
+        self.assertEqual(unknown[0], 404)
         for retired in ("/favicon-dark.ico", "/favicon-dark-16.png", "/favicon-dark-32.png"):
             for query in ("", "?v=0123456789ab"):
                 with self.subTest(path=retired + query):
                     code, _, body = self.get(retired + query)
-                    self.assertEqual(code, unknown[0])
+                    self.assertEqual(code, 404)
                     self.assertNotIn(body, icons)
             self.assertNotIn(retired, mark.ICON_ROUTES)
             self.assertNotIn(retired, access.READ_PATHS)

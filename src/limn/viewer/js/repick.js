@@ -46,5 +46,5 @@ async function applyRepick(){const R=REPICK; if(!R||!R.cand)return; const c=R.ca
     if(currentVisit(visit)&&REPICK===R)cancelRepick();
     if(EDITOR.current===E&&E&&E.id===p.id){Object.assign(E,{base_rev:p.rev,lo:p.lo,hi:p.hi,file:p.file,name:p.name,scope:p.scope||null,page:pinPlace(p).page,quote:p.quote||'',pinEl:p.el||null});
       E.orig.lo=p.lo;E.orig.hi=p.hi;E.orig.scope=p.scope||null; editSnip(true);}
-    toast(tl('핀 #{id} 위치를 {where} 로 바꿨습니다',{id:p.id,where:isRegion(p)?tl('쪽 {page} 영역',{page:p.page}):'L'+p.lo+'-L'+p.hi}),'ok'); await loadPins();
+    toast(tl('핀 #{id} 위치를 {where} 로 바꿨습니다',{id:p.id,where:isRegion(p)?tl('쪽 {page} 영역',{page:pinPlace(p).page}):'L'+p.lo+'-L'+p.hi}),'ok'); await loadPins();
   }catch(e){}}

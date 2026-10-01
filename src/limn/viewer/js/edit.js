@@ -59,8 +59,9 @@ function renderEdit(){const E=EDITOR.current; if(!E)return; const el=E.el;
 function cancelEdit(){EDITOR.current=null; drawPins();}
 // Saves the open edit card (POST /api/pins/<id>/edit with `base_rev`): only what changed is sent - the note, the kind, the
 // assignee and, when the lines or the ladder rung moved, lo/hi with scope and kind. Nothing changed just closes the card.
-// On 409 the card adopts the stored pin (a closed pin loses the range edit, a rival edit refreshes it); always reloads the
-// pins. A viewer role and a save already under way send nothing.
+// On 409 for a closed pin (error===done) the card closes and a warning says only the note can still be changed; on any other
+// 409 (a rival edit) the card adopts the stored pin's rev, range, scope, file and element. Always reloads the pins. A viewer
+// role and a save already under way send nothing.
 async function saveEdit(){const E=EDITOR.current; if(!E||EDITOR.saving||viewerBlocked())return;
   const note=E.el.querySelector('.e-note').value, body={base_rev:E.base_rev};
   if(note!==E.orig.note)body.note=note;

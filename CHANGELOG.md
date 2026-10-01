@@ -20,8 +20,8 @@ three retired `/favicon-dark*` icon paths (below).
   element up through its ancestors to the whole figure without asking the server again, and the selected rung's
   element is the one pinned. Saving and re-placing send the element as `el` with its box, and that box as the pin's
   `frac`. A figure pin's mark follows its element across re-renders (`mark`, `mark_page`) and is solid while the
-  element is found; a lost element's mark stays where the pin was placed, in the warning colour, and the card shows
-  `요소 잃음` like a lost line. The location-uncertain badge keeps its text `위치 불확실`; for a pick the map made,
+  element is found; a lost element's mark stays where the pin was placed, in the warning colour and dashed (`.est`), and
+  the card shows `요소 잃음` like a lost line. The location-uncertain badge keeps its text `위치 불확실`; for a pick the map made,
   its tooltip says `지도로 찾음`. A figure region is labelled `코드 없는 요소` (element without code lines) or `영역`
   (map unreadable), not `보기 전용`. A long-press on a figure picks the element under the finger. A `null` box from
   the API draws no mark.
