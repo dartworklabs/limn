@@ -36,7 +36,7 @@
 - 서버가 시작할 때(`server.read_viewer()`) `load_ui_messages()`(`limn/viewer/assemble.py`)가 표를 읽고, `viewer_html()`이 `__UI_EN_JSON__` 자리를 JS 객체 `I18N_EN`으로 채운다. 거부된 첫 화면도 같은 표(`ServedViewer.messages`)를 읽는다.
 - 영어 모드에서 `tr()`·`trMsg()`가 표를 찾는다. `trMsg()`는 문자열 전체가 표에 없으면 ` — ` 또는 ` · `로 나눈 조각마다 다시 찾는다. 그래서 조합한 문구도 조각 단위로 번역된다.
 - `MutationObserver`가 새로 그려지는 글자 노드와 UI 속성(`data-tip`·`aria-label`·`title`·`placeholder`)을 번역한다. 알림(`toast`)도 `trMsg`를 거친다.
-- 실행 중에 조합하는 문구는 `tl('<한국어 틀>', {값})`으로 만든다. 틀 안의 `{name}` 자리에 값을 넣는다(예: `tl('{n}쪽', {n: 3})`). 영어 값은 `{"one": ..., "other": ...}` 복수형일 수 있고, `n`으로 고른다. 문서 탭 이름·메모·답글·원고처럼 사용자가 쓴 글은 번역하지 않는다.
+- 실행 중에 조합하는 문구는 `tl('<한국어 틀>', {값})`으로 만든다. 틀 안의 `{name}` 자리에 값을 넣는다(예: `tl('{n}쪽', {n: 3})`). 영어 값은 `{"one": ..., "other": ...}` 복수형일 수 있고, `n`으로 고른다. 문서 탭 이름·메모·답글·원고처럼 사용자가 쓴 글은 번역하지 않는다. 문서 이름·메모·작성자·스레드 글은 `translate="no"` 요소 안에 그리고, `i18nTree`·`i18nText`와 속성 번역이 그 아래를 건너뛴다(`i18nUser`). 그래서 이름이 `그림`인 문서나 `완료` 한 낱말 메모가 표의 낱말과 같아도 그대로 보인다. 그 안에 함께 그리는 UI 낱말(`(메모 없음)`, `(나)`, 설명)은 그리는 코드가 `tr()`로 미리 옮긴다(`EnglishChrome.test_user_text_reads_as_written_even_when_it_is_a_ui_word`).
 - 표에 없는 문자열은 한국어로 남는다.
 - 화면 언어는 `?lang=` 쿼리 → 저장한 선택(localStorage `limnLang`) → 브라우저 언어(`navigator.language`가 `ko`로 시작하면 한국어, 아니면 영어) 순으로 정한다. [더보기]의 `#m-lang`으로 바꾼다.
 - pins.md와 API는 번역하지 않는다. 에이전트가 읽는, 언어가 고정된 계약이기 때문이다.

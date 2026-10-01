@@ -29,7 +29,7 @@ document.documentElement.setAttribute('lang',window.LIMN_LANG);
 <div id="right">
   <div class="bar" id="bar1" role="toolbar" aria-label="도구">
     <div id="sheet-grip" role="separator" aria-orientation="horizontal" aria-controls="right" aria-label="시트 높이" tabindex="0" data-tip="끌어서 시트 높이를 바꿉니다. 탭하면 낮게 → 보통 → 높게 순으로 바뀌고, 끝까지 내리면 접힙니다"></div>
-    <button id="btn-doc" data-act="doc-menu" aria-haspopup="dialog" aria-label="문서 바꾸기" data-tip="이 논문의 다른 문서(답변서·커버레터 등)로 바꿉니다"><span class="nm" id="btn-doc-n">문서</span><span id="btn-doc-dot" class="ddot" hidden></span>{{ic:chevron-down}}</button>
+    <button id="btn-doc" data-act="doc-menu" aria-haspopup="dialog" aria-label="문서 바꾸기" data-tip="이 논문의 다른 문서(답변서·커버레터 등)로 바꿉니다"><span class="nm" id="btn-doc-n" translate="no">문서</span><span id="btn-doc-dot" class="ddot" hidden></span>{{ic:chevron-down}}</button>
     <button id="btn-side" class="cmp" data-act="side" aria-controls="right" aria-expanded="false" data-tip="핀 목록과 선택한 자리 패널을 펴고 접습니다. 보라색 숫자는 검토 대기(에이전트가 닫고 사람의 확인을 기다리는 핀) 수입니다">핀 <b id="side-n" class="side-n">0</b><span id="side-rv" class="rv-n" hidden></span><span class="c-dot" hidden></span><span id="side-arrow" aria-hidden="true">{{ic:chevron-up}}</span></button>
     <button id="btn-select" class="tch" data-act="selmode" aria-pressed="false" data-tip="켜면 PDF 위를 끌어서 영역을 고르고, 탭하면 그 자리 문단을 고릅니다. 끄면 보통처럼 스크롤·확대됩니다">{{ic:square-dashed}}<span class="lbl">선택</span></button>
     <button id="btn-rebuild" data-act="rebuild" aria-label="PDF 재빌드" data-tip="지금 원고(.tex)로 PDF를 새로 컴파일해 화면을 바꿉니다. 에이전트가 원고를 고친 뒤 결과를 볼 때 누르세요. 30초~1분쯤 걸리며, 끝나면 보던 자리 그대로 화면만 바뀝니다. 원본 폴더는 건드리지 않고 사본에서 빌드합니다.">{{ic:refresh-cw}}<span class="lbl">PDF 재빌드</span></button>

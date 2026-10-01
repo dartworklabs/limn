@@ -23,15 +23,18 @@ function docBadge(d){const n=docCount(d.key);
     (d.view_only?'<span class="badge dvo" aria-label="보기 전용">PDF</span>':'')+
     (isFigureKind(d.kind)?'<span class="badge dfig" aria-label="'+esc(tr('그림 문서'))+'">'+esc(tr('그림'))+'</span>':'')+
     '<span class="badge badge-secondary dcnt'+(n?'':' z')+'" aria-label="'+esc(tl('열린 핀 {n}',{n}))+'">'+n+'</span>';}
-// A document link's description: name, path, what kind of document it is, and its build state.
-function docTip(d){return d.name+' · '+d.path+(d.view_only?' · 보기 전용 PDF(줄 번호 없이 쪽·영역으로 핀을 남깁니다)':'')+
+// A document link's description: name, path, what kind of document it is, and its build state. The link is user text
+// (translate="no", the name), so the UI words are translated here.
+function docTip(d){return d.name+' · '+d.path+(d.view_only?tr(' · 보기 전용 PDF(줄 번호 없이 쪽·영역으로 핀을 남깁니다)'):'')+
   (isFigureKind(d.kind)?' · '+tr('그림 문서(드래그하면 요소와 그 요소를 그린 코드 줄을 찾습니다)'):'')+
-  (d.building?' · 빌드 중':(d.stale_build?' · 원고가 이 PDF보다 새롭습니다(그 탭에서 [PDF 재빌드])':''));}
+  (d.building?tr(' · 빌드 중'):(d.stale_build?tr(' · 원고가 이 PDF보다 새롭습니다(그 탭에서 [PDF 재빌드])'):''));}
+// Draws the document choosers: the select, the nav bar's links and the [문서] button's name. A document's name is user text
+// (translate="no"); the UI words beside it (build state, page count, the description) are translated here.
 function drawDocTabs(){
   const box=$('#doc-select');
-  box.innerHTML=DOCS.map(d=>'<option value="'+esc(d.key)+'">'+esc(d.name)+(d.building?' · 빌드 중':d.stale_build?' · 원고 수정됨':'')+'</option>').join('');
+  box.innerHTML=DOCS.map(d=>'<option translate="no" value="'+esc(d.key)+'">'+esc(d.name)+esc(d.building?tr(' · 빌드 중'):d.stale_build?tr(' · 원고 수정됨'):'')+'</option>').join('');
   if(DOC)box.value=DOC;
-  $('#doc-links').innerHTML=DOCS.map(d=>'<button data-act="doc" data-doc="'+esc(d.key)+'" aria-current="'+(d.key===DOC?'page':'false')+'" title="'+esc(docTip(d))+'">'+esc(d.name)+(d.n_pages?'<span class="doc-link-count">'+tl('{n}쪽',{n:d.n_pages})+'</span>':'')+'</button>').join('');
+  $('#doc-links').innerHTML=DOCS.map(d=>'<button translate="no" data-act="doc" data-doc="'+esc(d.key)+'" aria-current="'+(d.key===DOC?'page':'false')+'" title="'+esc(docTip(d))+'">'+esc(d.name)+(d.n_pages?'<span class="doc-link-count">'+tl('{n}쪽',{n:d.n_pages})+'</span>':'')+'</button>').join('');
   const cur=docInfo(DOC); $('#btn-doc-n').textContent=cur?cur.name:tr('문서');
   $('#btn-doc-dot').hidden=!DOCS.some(d=>d.key!==DOC&&(d.stale_build||d.building));
   if(DOC!==DOC_LINK_SHOWN){DOC_LINK_SHOWN=DOC; docLinksReveal();} else docLinksFade();

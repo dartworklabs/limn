@@ -420,25 +420,30 @@ VERA = {"login": "vera@example.com", "name": "Vera Park"}  # a view-only member:
 # else on screen is chrome and must be English in English mode. '한국어' is the switch back to Korean.
 USER_TEXT = ("본문", "답변서", "이 문장을 다듬어 주세요", "표 설명을 줄였습니다", "김서준")
 CHROME_ALLOWED = ("한국어",)
+# Every visible text node with Hangul, the placeholders and the tab title. user = the node sits under translate="no", where
+# the viewer draws what people wrote (document names, notes, authors, thread posts) and never translates it; the tab title
+# is composed by docTitle() from the document's name and is never touched by the translator either.
 VISIBLE_HANGUL_JS = """() => {
   const out=[]; const w=document.createTreeWalker(document.body,NodeFilter.SHOW_TEXT); let n;
   const vis=el=>{if(!el||!el.getClientRects().length)return false; const cs=getComputedStyle(el); return cs.visibility!=='hidden'&&cs.display!=='none';};
   while((n=w.nextNode())){const t=n.nodeValue.trim(); if(t&&/[가-힣]/.test(t)&&vis(n.parentElement)&&!n.parentElement.closest('.av'))   // .av = a person's initial
-    out.push({t, where:(n.parentElement.id||n.parentElement.className||n.parentElement.tagName)});}
-  document.querySelectorAll('input[placeholder],textarea[placeholder]').forEach(e=>{if(vis(e)&&/[가-힣]/.test(e.placeholder))out.push({t:e.placeholder,where:e.id||'placeholder'});});
-  out.push({t:document.title,where:'title'});
+    out.push({t, user:n.parentElement.translate===false, where:(n.parentElement.id||n.parentElement.className||n.parentElement.tagName)});}
+  document.querySelectorAll('input[placeholder],textarea[placeholder]').forEach(e=>{if(vis(e)&&/[가-힣]/.test(e.placeholder))out.push({t:e.placeholder,user:false,where:e.id||'placeholder'});});
+  out.push({t:document.title,user:true,where:'title'});
   return out;}"""
 
 
-def chrome_hangul(found):
-    """Items whose text still has Hangul once user content and the allowed chrome strings are removed."""
+def chrome_hangul(found: list[dict[str, object]], user_text: tuple[str, ...] = USER_TEXT) -> list[str]:
+    """Items whose text still has Hangul once the allowed chrome strings and - only where the item is user text (under
+    translate="no") - what people wrote are removed. A person's words shown outside translate="no" count as chrome: the
+    translator would rewrite them the moment they read like a UI word."""
     bad = []
     for x in found:
-        rest = x["t"]
-        for u in USER_TEXT + CHROME_ALLOWED:
+        rest = str(x["t"])
+        for u in (user_text if x["user"] else ()) + CHROME_ALLOWED:
             rest = rest.replace(u, "")
         if HANGUL.search(rest):
-            bad.append("%s :: %s" % (x["where"], x["t"][:80]))
+            bad.append("%s :: %s" % (x["where"], str(x["t"])[:80]))
     return bad
 
 
@@ -606,9 +611,48 @@ class EnglishChrome(ChromiumTestCase):
         self.addCleanup(lambda: self.assertEqual(errors, []))
         return page
 
-    def assert_english(self, page, where):
-        bad = chrome_hangul(page.evaluate(VISIBLE_HANGUL_JS))
+    def assert_english(self, page, where, user_text=USER_TEXT):
+        bad = chrome_hangul(page.evaluate(VISIBLE_HANGUL_JS), user_text)
         self.assertEqual(bad, [], "Hangul left in the English chrome (%s)" % where)
+
+    def test_user_text_reads_as_written_even_when_it_is_a_ui_word(self):
+        """en: a document named '그림' (the table's word for 'Figure'), a note and a reply that read '완료' ('Done') and an
+        author named '검토 대기' ('Awaiting review') stay as written - in the nav link, the documents sheet, the card, its
+        preview, its thread and its author. The translator rewrote every text node that matched the table, so the tabs read
+        '본문 · Figure · …' (UX audit P6, docs/handbook/viewer.md §뷰어 규칙을 바꿀 때)."""
+        probe = self.open("en", viewport={"width": 1400, "height": 850})
+        docs = probe.evaluate("fetch('/api/docs').then(r=>r.json())")
+        pins = probe.evaluate("fetch('/api/pins?all=1').then(r=>r.json())")
+        for d in docs["docs"]:
+            if d["key"] == "rr":
+                d["name"] = "그림"
+        pin = next(p for p in pins if p.get("note") == "이 문장을 다듬어 주세요")
+        pin["note"] = "완료"
+        pin["author"] = dict(pin["author"], name="검토 대기")
+        pin["thread"][0]["text"] = "완료"
+        self.canned = {"/api/docs": (200, docs), "/api/pins": (200, pins)}
+        self.addCleanup(lambda: setattr(self, "canned", {}))
+        page = self.open("en", viewport={"width": 1400, "height": 850})
+        page.evaluate("id=>{OPEN_CARDS.add(id); drawPins(); openDocsMenu();}", pin["id"])
+        settle(page)
+        got = page.evaluate(
+            """id => {const c = document.querySelector('.pin[data-id="' + id + '"]'), t = s => (c.querySelector(s) || {}).textContent;
+              return {link: document.querySelector('#doc-links [data-doc=rr]').textContent, sheet: document.querySelector('#docs-menu [data-doc=rr] .nm').textContent,
+                note: t('.note'), sum: t('.sum'), post: t('.msg-t'), author: t('.au-n')};}""",
+            pin["id"],
+        )
+        self.assertEqual(
+            got,
+            {
+                "link": "그림3 pp.",
+                "sheet": "그림",
+                "note": "완료",
+                "sum": "완료",
+                "post": "완료",
+                "author": "검토 대기",
+            },
+        )
+        self.assert_english(page, "user text that reads like UI words", USER_TEXT + ("그림", "완료", "검토 대기"))
 
     def test_desktop_chrome_is_english(self):
         page = self.open("en", viewport={"width": 1400, "height": 850})

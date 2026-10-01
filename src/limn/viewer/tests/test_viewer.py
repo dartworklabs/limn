@@ -1222,7 +1222,7 @@ class FrontendMobileLogic(unittest.TestCase):
                 r"""
             const a=card({id:1,file:'/m.tex',name:'m.tex',lo:3,hi:5,page:2,note:'첫 줄 <b>\n둘째 줄'});
             const b=card({id:2,file:'/m.tex',name:'m.tex',lo:3,hi:5,page:2,note:''});
-            const sum=s=>(/<div class="sum" data-act="card-toggle">((?:[^<]|<span class="dim">|<\/span>)*)<\/div>/.exec(s)||[])[1];
+            const sum=s=>(/<div class="sum" translate="no" data-act="card-toggle">((?:[^<]|<span class="dim">|<\/span>)*)<\/div>/.exec(s)||[])[1];
             console.log(JSON.stringify([sum(a), / open"/.test(a), sum(b), / open"/.test(b), /class="tags"/.test(a),
               /data-act="card-toggle" aria-expanded="false"/.test(a), /aria-expanded="true"/.test(b)]));
             """,
@@ -3200,7 +3200,7 @@ class FrontendArchive(unittest.TestCase):
             console.log(JSON.stringify([/class="arc-row done"/.test(a), !/class="pin/.test(a), /ic-check/.test(a),
               /data-act="reply-open"[^>]*>답글</.test(a), /PR #227/.test(a), /class="rt arc-t" data-at="2026-09-23 20:40:11" data-tip="닫은 사람 에이전트 · 닫은 시각 2026-09-23 20:40:11">[^<]+</.test(a),
               /<span class="arc-reply" [^>]*>제목을 &lt;b&gt;바꿈&lt;\/b&gt;<\/span>/.test(a), /arc-orig"/.test(a), /원래 요청<\/button>/.test(a),
-              /arc-reply open/.test(b), /class="arc-orig"><b>원래 요청<\/b>원래 &lt;메모&gt;/.test(b)]));
+              /arc-reply open/.test(b), /class="arc-orig" translate="no"><b>원래 요청<\/b>원래 &lt;메모&gt;/.test(b)]));
             """)
         self.assertEqual(out, [True, True, True, True, True, True, True, False, True, True, True])
 

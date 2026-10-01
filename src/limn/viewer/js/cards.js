@@ -1,5 +1,6 @@
 // The open or awaiting-review pin card: header, badges, note and actions. A figure pin's page link follows its element, and a
-// lost element is flagged like a lost line.
+// lost element is flagged like a lost line. The note, its preview and the author's name are user text (translate="no"); the UI
+// words drawn inside them are translated here.
 function card(p){
   const loc='L'+p.lo+'-L'+p.hi,name=p.name||String(p.file||'').split('/').pop(),tags=[];   // loc stays in the copy format
   if(p.stale)tags.push('<span class="badge badge-warning" data-tip="'+esc(T.stale)+'">'+ic('triangle-alert')+'위치 잃음</span>');
@@ -16,7 +17,7 @@ function card(p){
     '핀 #{id}{p} 같은 곳을 가리킵니다. 한 번에 고치고 함께 닫는 편이 낫습니다',{id:rb.id,p:josa(rb.id,'과','와')}))+'">'+esc(rb.label)+'</span>');
   const v=closedCard?null:viaTag(p); if(v)tags.push('<span class="badge'+(v.low?' badge-warning':'')+'" data-tip="'+esc(v.tip)+'">'+esc(v.t)+'</span>');
   const tip=esc(authorTip(p));
-  const au=p.author?'<span class="au" data-tip="'+tip+'">'+avatar(p.author)+'<span class="au-n">'+esc(who(p.author))+(isMe(p.author)?'<span class="me-tag"> (나)</span>':'')+'</span></span>'
+  const au=p.author?'<span class="au" data-tip="'+tip+'">'+avatar(p.author)+'<span class="au-n" translate="no">'+esc(who(p.author))+(isMe(p.author)?'<span class="me-tag"> '+esc(tr('(나)'))+'</span>':'')+'</span></span>'
     :'<span class="au old" data-tip="'+tip+'">기록 전</span>';
   const editing=!!(EDITOR.current&&EDITOR.current.id===p.id),open=OPEN_CARDS.has(p.id);
   // Header line: number/line-range/page on the left, author/collapse on the right. Badges (.tags) drop to one line below the header.
@@ -26,7 +27,7 @@ function card(p){
   // Collapsed card's (compact) note preview: up to two lines on its own line below the header. It used to only get the
   // leftover width after the number/location inside the header's single line, clipping to '[C...', and an awaiting-review
   // card's prefixed '내 확인 차례 · ' ate even more of that width (QA 2026-09-24). Review status is conveyed by the dot color.
-  const sum='<div class="sum" data-act="card-toggle">'+(first?fmtText(first,p.mentions):'<span class="dim">(메모 없음)</span>')+'</div>';
+  const sum='<div class="sum" translate="no" data-act="card-toggle">'+(first?fmtText(first,p.mentions):'<span class="dim">'+esc(tr('(메모 없음)'))+'</span>')+'</div>';
   if(isRegion(p)){const fb=figRegionBadge(p.el,isFigureKind((docInfo(pdoc(p))||{}).kind));   // a figure region: element without code, or map unreadable
     tags.unshift(fb?'<span class="badge" data-tip="'+esc(fb.tip)+'">'+esc(fb.t)+'</span>':'<span class="badge" data-tip="보기 전용 PDF의 핀 — 줄 번호 없이 쪽·영역과 영역 글자로 가리킵니다">보기 전용</span>');}
   if(isQuestion(p))tags.unshift('<span class="badge badge-question" data-tip="'+esc(T.question)+'">'+ic('circle-question-mark')+'질문</span>');
@@ -49,7 +50,7 @@ function card(p){
     '<button class="btn-icon btn-sm btn-ghost cmp b-fold" data-act="card-toggle" aria-expanded="'+open+'" aria-label="'+(open?'카드 접기':'카드 펼치기')+'">'+ic(open?'chevron-down':'chevron-right')+'</button></div>'+
     sum+
     '<div class="tags">'+tags.join('')+'</div>'+
-    '<div class="note">'+(p.note?fmtText(p.note,p.mentions):'<span class="dim">(메모 없음)</span>')+'</div>'+
+    '<div class="note" translate="no">'+(p.note?fmtText(p.note,p.mentions):'<span class="dim">'+esc(tr('(메모 없음)'))+'</span>')+'</div>'+
     threadHtml(p,LAYOUT===LAYOUT_MODE.WIDE)+
     '<div class="acts">'+
     '<button class="btn-sm b-change" data-act="change" data-tip="'+esc(T.change)+'">변경 보기</button>'+
@@ -65,7 +66,7 @@ function card(p){
     sum+
     '<div class="tags">'+tags.join('')+'</div>'+
     (editing?'<div class="edit-slot"></div>':
-    '<div class="note" data-act="edit" data-tip="클릭하면 메모와 범위를 고칩니다">'+(p.note?fmtText(p.note,p.mentions):'<span class="dim">(메모 없음)</span>')+'</div>'+
+    '<div class="note" translate="no" data-act="edit" data-tip="'+esc(tr('클릭하면 메모와 범위를 고칩니다'))+'">'+(p.note?fmtText(p.note,p.mentions):'<span class="dim">'+esc(tr('(메모 없음)'))+'</span>')+'</div>'+
     threadHtml(p,LAYOUT===LAYOUT_MODE.WIDE)+
     '<div class="acts">'+cardActs(claimed,LAYOUT!==LAYOUT_MODE.WIDE)+'</div>')+'</div>';
 }
@@ -99,8 +100,10 @@ function arcTime(s){s=String(s||''); return /^\d{4}-\d\d-\d\d \d\d:\d\d/.test(s)
 // its mark is on now (pinPlace); the copy text carries the same.
 function arcLoc(p){const name=p.name||String(p.file||p.pdf||'').split('/').pop();
   return '<span class="loc" tabindex="0" data-copy="'+esc(isRegion(p)?locCopy(p):name+' L'+p.lo+'-L'+p.hi)+'" data-tip="'+esc(T.loc)+'">'+esc(isRegion(p)?tl('쪽 {page} 영역',{page:pinPlace(p).page}):rng(p.lo,p.hi))+'</span>';}
+// One expandable line of an archive row: text (a close reply or a deleted pin's note) is user text (translate="no"), so its
+// Korean description tip is translated here.
 function arcLine(key,text,tip,logins){const open=ARC_OPEN.has(key);
-  return '<span class="arc-reply'+(open?' open':'')+'" role="button" tabindex="0" data-act="arc-toggle" data-key="'+esc(key)+'" aria-expanded="'+open+'" data-tip="'+esc(tip)+'">'+fmtText(text,logins)+'</span>';}
+  return '<span class="arc-reply'+(open?' open':'')+'" translate="no" role="button" tabindex="0" data-act="arc-toggle" data-key="'+esc(key)+'" aria-expanded="'+open+'" data-tip="'+esc(trMsg(tip))+'">'+fmtText(text,logins)+'</span>';}
 function allMentions(p){const out=(p.mentions||[]).slice(); threadOf(p).forEach(m=>(m.mentions||[]).forEach(l=>{if(!out.includes(l))out.push(l);})); return out;}
 function doneCard(p){
   const ref=hasRef(p.close_ref)?'<span class="badge arc-ref" data-tip="닫을 때 남긴 참조 — 같은 값이면 같은 처리에 딸린 핀입니다">'+esc(p.close_ref)+'</span>':'';
@@ -119,7 +122,7 @@ function doneCard(p){
     '<div class="arc-l2">'+reply+(p.note?'<button class="arc-orig-t" data-act="arc-toggle" data-key="o:'+p.id+'" aria-expanded="'+oo+'" data-tip="핀을 남길 때 쓴 메모를 펼치고 접습니다">원래 요청</button>':'')+
     '<button class="arc-orig-t b-change" data-act="change" data-tip="'+esc(T.change)+'">변경 보기</button>'+
     (tn?'<button class="arc-orig-t" data-act="arc-toggle" data-key="t:'+p.id+'" aria-expanded="'+to+'" data-tip="답글과 닫기·다시 열기 이력을 펼치고 접습니다">'+esc(tl('스레드 {n}',{n:th.length}))+'</button>':'')+'</div>'+
-    (p.note&&oo?'<div class="arc-orig"><b>원래 요청</b>'+fmtText(p.note,p.mentions)+'</div>':'')+
+    (p.note&&oo?'<div class="arc-orig" translate="no"><b>'+esc(tr('원래 요청'))+'</b>'+fmtText(p.note,p.mentions)+'</div>':'')+
     (to?'<div class="arc-thread"><div class="thread">'+th.map((m,i)=>msgHtml(m,p.id+':'+i)).join('')+(replying?'<div class="reply-slot"></div>':'')+'</div></div>':'')+'</div>';}
 // A Trash row (docs/handbook/viewer.md §휴지통): who deleted it and when, how many days are left before it is purged, [되살리기], and -
 // for the owner only - [영구 삭제] (sent after its undo toast goes away, like a reply).
