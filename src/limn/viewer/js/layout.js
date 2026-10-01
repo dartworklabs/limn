@@ -1,14 +1,27 @@
-// ------------------------------------------------ Layout by screen width (mobile)
-// wide: 1100px and up, a right sidebar (width-adjustable). mid: over 700px, under 1100px - a narrow side
-// panel; when collapsed, only the bottom-right tool bar remains. narrow: 700px and below (a folded foldable/phone) -
-// a bottom sheet, collapsed by default. If the width changes partway through a collapse/expand, the layout is re-chosen
-// and the page width is re-fit while preserving the viewed position (topAnchor). Marks and the selection box are % coordinates within the page, so they fall back into place automatically once the page width is fit.
-function layoutFor(){const w=innerWidth; if(w<=700)return LAYOUT_MODE.NARROW; if(w<1100)return LAYOUT_MODE.MID; return LAYOUT_MODE.WIDE;}
-// Picks the layout for the window width and its panel state: wide follows the per-device pinPrefs.sideClosed (open by default),
-// mid its midClosed (else open beside the document, collapsed as an overlay), narrow starts collapsed. An open draft keeps it open.
-function applyLayout(){const L=layoutFor(),overlay=L===LAYOUT_MODE.MID&&innerWidth<=900; if(L===LAYOUT&&overlay===MID_OVERLAY)return false;
-  LAYOUT=L; MID_OVERLAY=overlay; OUTLINE_MID_OPEN=false; const b=document.body,p=prefs(); ZOOMED=false; endSideSlide();
-  Object.values(LAYOUT_MODE).forEach(k=>b.classList.toggle('lay-'+k,k===L)); b.classList.toggle('compact',L!==LAYOUT_MODE.WIDE);
+// ------------------------------------------------ Layout bands (docs/handbook/viewer.md §모바일 레이아웃)
+// The window's width, height and primary pointer pick a band (layoutFor), and the band a layout mode (BAND_MODE): wide - a right
+// sidebar (width-adjustable); mid - the panel between the nav bar and the action row (an overlay up to 900px, else beside the
+// document; the short band of a landscape phone folds both rows into one top row); narrow - a bottom sheet, collapsed by
+// default. If the band changes partway through a collapse/expand or a rotation, the page width is re-fit while preserving the
+// viewed position (topAnchor). Marks and the selection box are % coordinates within the page, so they fall back into place
+// automatically once the page width is fit.
+// The band for a w x h CSS px window whose primary pointer is coarse (touch) or not. Pure. A mouse reads the width only:
+// phone up to 700px, the overlay panel up to 900px, the side panel up to 1099px, wide from 1100px. Touch reads the height too:
+// under 600px wide is a phone at any height, then under 480px high is the short band (a landscape phone).
+function layoutFor(w,h,coarse){
+  if(!coarse){if(w<=700)return LAYOUT_BAND.PHONE; if(w<=900)return LAYOUT_BAND.MID_OVERLAY; if(w<=1099)return LAYOUT_BAND.MID_SIDE; return LAYOUT_BAND.WIDE;}
+  if(w<600)return LAYOUT_BAND.PHONE; if(h<480)return LAYOUT_BAND.SHORT;
+  if(w<=700)return LAYOUT_BAND.PHONE; if(w<=900)return LAYOUT_BAND.MID_OVERLAY; if(w<=1099)return LAYOUT_BAND.MID_SIDE; return LAYOUT_BAND.WIDE;}
+// What layoutFor reads from the window now: {w, h, coarse}.
+function bandInput(){return {w:innerWidth,h:innerHeight,coarse:MQ_COARSE.matches};}
+// Picks the band for the window and its panel state: the body classes (lay-*, band-*, mid-overlay, compact), then wide follows the
+// per-device pinPrefs.sideClosed (open by default), mid its midClosed (else open beside the document, collapsed as an overlay),
+// narrow starts collapsed. An open draft keeps it open. Returns whether the band or its overlay changed.
+function applyLayout(){const o=bandInput(),band=layoutFor(o.w,o.h,o.coarse),L=BAND_MODE[band],overlay=L===LAYOUT_MODE.MID&&o.w<=900;
+  if(band===BAND&&overlay===MID_OVERLAY)return false;
+  BAND=band; LAYOUT=L; MID_OVERLAY=overlay; OUTLINE_MID_OPEN=false; const b=document.body,p=prefs(); ZOOMED=false; endSideSlide();
+  Object.values(LAYOUT_MODE).forEach(k=>b.classList.toggle('lay-'+k,k===L)); Object.values(LAYOUT_BAND).forEach(k=>b.classList.toggle('band-'+k,k===band));
+  b.classList.toggle('mid-overlay',overlay); b.classList.toggle('compact',L!==LAYOUT_MODE.WIDE);
   SIDE_OPEN=L===LAYOUT_MODE.WIDE?p.sideClosed!==true:(L===LAYOUT_MODE.MID?(typeof p.midClosed==='boolean'?!p.midClosed:!overlay):false);
   if(!REPICK&&(COMPOSE.current||EDITOR.current||REPLY||!$('#composer').hidden))SIDE_OPEN=true;   // an in-progress note/edit/reply is never left hidden collapsed
   applySide(); stickTop(); return true;}
@@ -74,14 +87,18 @@ function toggleSide(){const open=!SIDE_OPEN,a=document.activeElement; setSide(op
 // The first drag-collapse on a wide screen says once how to bring the panel back (it leaves only a 6px rail behind).
 function coachSideCollapsed(){if(LAYOUT===LAYOUT_MODE.WIDE&&!SIDE_OPEN)coach('side','핀 패널은 오른쪽 위 [핀 N] 또는 Ctrl+\\ 로 다시 엽니다');}
 // Re-fits everything to the window: the layout (a changed one redraws the cards, whose action row is ordered per layout), the panel
-// and outline widths, the page width at the same reading spot, the composer, the stuck heads and the section strip.
-function relayout(){const a=topAnchor(),changed=applyLayout(); if(changed&&META)drawPins(); applySideWidth(); applyOutlineState();autoW(); restoreAnchor(a); hideTip(); if(COMPOSE.current)renderComposer(); stickTop();updateSectionStrip();}
+// and outline widths, the page width at the same reading spot, the composer, the stuck heads and the section strip - and keeps a
+// panel text field that has focus in view (the keyboard or the short band's hidden top row moved it).
+function relayout(){const a=topAnchor(),changed=applyLayout(); if(changed&&META)drawPins(); applySideWidth(); applyOutlineState();autoW(); restoreAnchor(a); hideTip(); if(COMPOSE.current)renderComposer(); stickTop();updateSectionStrip(); keepFieldInView();}
 // The height a list section header (sticky) sticks below. In compact, #right is the scroll box and the tool bar (#bar1, which holds
 // the sheet handle in narrow) is already stuck above it, so the header sticks below that. In wide, #list itself is the scroll box, so this is 0.
 function stickTop(){let t=0; const b=$('#bar1');
   if(LAYOUT!==LAYOUT_MODE.WIDE&&b){const cs=getComputedStyle(b); if(cs.position==='sticky')t=Math.round((parseFloat(cs.top)||0)+b.offsetHeight);}
   document.documentElement.style.setProperty('--stick-top',t+'px');}
-if(window.ResizeObserver)new ResizeObserver(()=>stickTop()).observe($('#bar1'),{box:'border-box'});   // padding-only changes (the collapsed sheet) count
+// The tool bar's width (--bar1-w): the short band draws the tool bar over the right end of its one top row, and the nav bar's
+// links end where it begins.
+function barWidth(){document.documentElement.style.setProperty('--bar1-w',Math.ceil($('#bar1').getBoundingClientRect().width)+'px');}
+if(window.ResizeObserver)new ResizeObserver(()=>{stickTop(); barWidth();}).observe($('#bar1'),{box:'border-box'});   // padding-only changes (the collapsed sheet) count
 let RELAY=0;
 function scheduleRelayout(){if(RELAY)return; RELAY=requestAnimationFrame(()=>{RELAY=0; if(META)relayout(); else applyLayout();});}
 window.addEventListener('resize',scheduleRelayout);
@@ -106,6 +123,17 @@ function onViewport(){const vv=window.visualViewport; if(!vv)return;
 if(window.visualViewport){visualViewport.addEventListener('resize',onViewport); visualViewport.addEventListener('scroll',onViewport);}
 document.addEventListener('focusin',e=>{const t=e.target;
   if(LAYOUT!==LAYOUT_MODE.WIDE&&t&&t.tagName==='TEXTAREA'&&$('#right').contains(t))setTimeout(()=>t.scrollIntoView({block:'center'}),350);});
+// Whether a text field has focus - a textarea, a text input or editable content - which on a touch screen means the keyboard is up.
+function typingNow(){const a=document.activeElement; if(!a||a===document.body)return false; if(a.isContentEditable||a.tagName==='TEXTAREA')return true;
+  return a.tagName==='INPUT'&&!/^(checkbox|radio|button|submit|reset|range|color|file|image|hidden)$/i.test(a.type||'');}
+// The panel's text field that has focus (a note, an edit or a reply), or null.
+function panelField(){const a=document.activeElement; return typingNow()&&$('#right').contains(a)?a:null;}
+// body.typing while a panel text field has focus: the short band hides its top row then, leaving the keyboard's ~200px to the panel.
+function syncTyping(){document.body.classList.toggle('typing',!!panelField());}
+document.addEventListener('focusin',syncTyping);
+document.addEventListener('focusout',()=>setTimeout(syncTyping,0));   // after the focus has moved on
+// Scrolls a panel text field that has focus back into view after a re-fit; the scroller's scroll-padding keeps it clear of the save row.
+function keepFieldInView(){const f=panelField(); if(f)f.scrollIntoView({block:'nearest'});}
 
 // Onboarding shown only the first time (remembers that it's been seen in localStorage pinPrefs.coach).
 let COACH_T=null;

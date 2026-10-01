@@ -316,7 +316,7 @@ SERVER_SETS = {
     "ASSIGNEE_AGENT": lambda: {edit.ASSIGNEE_AGENT},
 }
 # The viewer's own closed sets: no server counterpart.
-VIEWER_SETS = {"LAYOUT_MODE", "CARD_DOT", "DIFF_FORMAT", "VIEW_MODE", "UI_LANG", "NOTIFY_STATE"}
+VIEWER_SETS = {"LAYOUT_MODE", "LAYOUT_BAND", "CARD_DOT", "DIFF_FORMAT", "VIEW_MODE", "UI_LANG", "NOTIFY_STATE"}
 
 
 def set_values(value: helpers_js.ClosedSet) -> list[str]:
@@ -404,6 +404,25 @@ class ClosedSets(unittest.TestCase):
         planted = dict(part_sources())
         planted["js/list.js"] += "const a=PINS.filter(p=>!p.done),b=pinState(PINS[0])==='review';\n"
         self.assertEqual(raw_state_reads(planted), ["js/list.js: p.done", "js/list.js: pinState(...)==='review'"])
+
+    def test_band_mode_maps_every_band_and_only_the_bands_to_a_layout_mode(self):
+        """BAND_MODE (core.js) gives LAYOUT for the band in use: its keys are exactly LAYOUT_BAND's members and its values
+        LAYOUT_MODE's, so a band added to one table without the other fails here, not on a device."""
+        node_or_skip(self)
+        src = (VIEWER / "js" / "core.js").read_text(encoding="utf-8")
+        line = re.search(r"^const BAND_MODE=.*;$", src, re.M).group(0)
+        js = (
+            helpers_js.closed_set_prelude(VIEWER_CLOSED_SETS, line)
+            + line
+            + (
+                "\nconsole.log(JSON.stringify([Object.keys(BAND_MODE).sort(),[...new Set(Object.values(BAND_MODE))].sort(),"
+                "Object.isFrozen(BAND_MODE)]));"
+            )
+        )
+        keys, modes, frozen = json.loads(run_node(js))
+        self.assertEqual(keys, sorted(VIEWER_CLOSED_SETS["LAYOUT_BAND"].values()))
+        self.assertEqual(modes, sorted(VIEWER_CLOSED_SETS["LAYOUT_MODE"].values()))
+        self.assertTrue(frozen)
 
     def test_pin_state_agrees_with_the_server_for_every_record_shape(self):
         """pinState() reads the API's `state` when it is there, and otherwise derives the same state the server does

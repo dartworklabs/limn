@@ -71,7 +71,7 @@ function flushDeferred(){Array.from(DEFERRED).forEach(d=>d.run());}
 window.addEventListener('pagehide',flushDeferred);
 document.addEventListener('visibilitychange',()=>{if(document.hidden)flushDeferred();});
 // Toast placement: near where you just clicked. wide/mid is bottom-right of the panel column - just above the top edge of whichever action row is
-// visible (#c-actions: save/cancel, mid's bottom tool bar, or the status chips floating in collapsed mid). narrow is just above the sheet's top edge
+// visible (#c-actions: save/cancel, mid's bottom tool bar - none in the short band, whose tool bar is on top - or the status chips floating in collapsed mid). narrow is just above the sheet's top edge
 // (or above the screen if the sheet nearly fills it). While showing, the position is re-measured (watchToasts) whenever the panel opens/closes or the
 // composer panel appears - so the save/cancel buttons and the bottom tool bar are never covered.
 function placeToasts(){const box=$('#toasts'),right=$('#right'); if(!box||!right)return;
@@ -89,7 +89,7 @@ function placeToasts(){const box=$('#toasts'),right=$('#right'); if(!box||!right
     else if(LAYOUT===LAYOUT_MODE.WIDE){const L=$('#left'),lr=L.getBoundingClientRect();   // collapsed wide: the PDF area's bottom-right, left of its scrollbar
       r=Math.max(gap,innerWidth-(lr.left+L.clientLeft+L.clientWidth)+12); w=Math.min(360,L.clientWidth-24);}
     else w=Math.min(360,innerWidth-24);
-    ['#c-actions'].concat(LAYOUT===LAYOUT_MODE.MID?['#bar1']:[],!open?['#bar2','#banner']:[]).forEach(s=>{const e=$(s);
+    ['#c-actions'].concat(LAYOUT===LAYOUT_MODE.MID&&BAND!==LAYOUT_BAND.SHORT?['#bar1']:[],!open?['#bar2','#banner']:[]).forEach(s=>{const e=$(s);
       if(shown(e))top=Math.min(top,e.getBoundingClientRect().top);});}
   R.setProperty('--toast-b',Math.max(gap,Math.round(vh-top+gap))+'px'); R.setProperty('--toast-r',Math.round(r)+'px'); R.setProperty('--toast-w',Math.round(Math.max(200,w))+'px');}
 let TOAST_WATCH=0;

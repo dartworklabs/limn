@@ -31,12 +31,16 @@ const VIA=Object.freeze({SYNCTEX:'synctex',TEXT:'text',MAP:'map'});   // how a p
 const DOC_KIND=Object.freeze({TEX:'tex',PDF:'pdf',FIGURE:'figure'});   // a document's `kind` in /api/docs and /api/meta (limn.runtime.documents.DocKind)
 const EL_SYNC=Object.freeze({OK:'ok',MOVED:'moved',LOST:'lost'});   // where a figure pin's element is in the current build: a pin's `el_sync` (limn.builds.figure_map.ElSync)
 const LOCAL_LOGIN='local',ASSIGNEE_AGENT='agent';   // the identity-less local login (access.LOCAL_LOGIN); the assignee meaning "the agent" (pins.edit.ASSIGNEE_AGENT)
-const LAYOUT_MODE=Object.freeze({WIDE:'wide',MID:'mid',NARROW:'narrow'});   // LAYOUT, by window width (layoutFor)
+const LAYOUT_MODE=Object.freeze({WIDE:'wide',MID:'mid',NARROW:'narrow'});   // LAYOUT, the band's mode (BAND_MODE)
+const LAYOUT_BAND=Object.freeze({PHONE:'phone',TABLET_SHEET:'tablet-sheet',SHORT:'short',MID_OVERLAY:'mid-overlay',MID_SIDE:'mid-side',WIDE:'wide'});   // BAND, by window width, height and primary pointer (layoutFor)
 const CARD_DOT=Object.freeze({OPEN:'open',CLAIMED:'claimed',REVIEW:'review',LOST:'lost'});   // a card's status dot (stDot); also its CSS class
 const DIFF_FORMAT=Object.freeze({PDF:'pdf',SOURCE:'source'});   // the changes view's tab (REVISION_FORMAT); index.html data-format
 const VIEW_MODE=Object.freeze({MANUSCRIPT:'manuscript',REVISIONS:'revisions'});   // the manuscript or the changes view; index.html data-mode
 const UI_LANG=Object.freeze({KO:'ko',EN:'en'});   // LANG
 const NOTIFY_STATE=Object.freeze({ON:'on',OFF:'off',BLOCKED:'blocked',UNSUPPORTED:'unsupported',LOCAL:'local'});   // browser notifications on this device (notifyState)
+// Each band's layout mode (docs/handbook/viewer.md §모바일 레이아웃): the sheet (narrow), the panel between the nav bar and the
+// action row (mid) or the desktop (wide). Code that only asks which of the three reads LAYOUT; code that differs per band reads BAND.
+const BAND_MODE=Object.freeze({[LAYOUT_BAND.PHONE]:LAYOUT_MODE.NARROW,[LAYOUT_BAND.TABLET_SHEET]:LAYOUT_MODE.NARROW,[LAYOUT_BAND.SHORT]:LAYOUT_MODE.MID,[LAYOUT_BAND.MID_OVERLAY]:LAYOUT_MODE.MID,[LAYOUT_BAND.MID_SIDE]:LAYOUT_MODE.MID,[LAYOUT_BAND.WIDE]:LAYOUT_MODE.WIDE});
 // Whether a document `kind` is a figure document (a figure set drawn by code, with its element map): the one place this is asked.
 function isFigureKind(kind){return kind===DOC_KIND.FIGURE;}
 // Whether a document of this `kind` is rebuilt from its source: only a LaTeX one. A view-only PDF and a figure redraw when their
@@ -44,13 +48,13 @@ function isFigureKind(kind){return kind===DOC_KIND.FIGURE;}
 function buildsFromSource(kind){return kind===DOC_KIND.TEX;}
 let META=null,PINS=[],DONE=[],DROPPED=[],REPICK=null,PICKSEQ=0;
 let SNIP_OPEN=false,W=900,WRAP=true;
-// Mobile: LAYOUT is a LAYOUT_MODE (wide|mid|narrow), SIDE_OPEN is whether the panel/sheet is expanded, SELMODE is touch selection mode,
+// Mobile: BAND is a LAYOUT_BAND (layoutFor) and LAYOUT its LAYOUT_MODE (wide|mid|narrow, BAND_MODE), SIDE_OPEN is whether the panel/sheet is expanded, SELMODE is touch selection mode,
 // ZOOMED is whether the user changed the width via -/+ in compact (while true, it's never auto-fit to the screen width).
 const MQ_COARSE=matchMedia('(pointer:coarse)');
 // A device with no hover (phone/tablet): hover/focus tooltips are never shown at all - a tap sent a simulated mouseover and left the description stuck over the list (phone QA). Only long-press is used.
 const MQ_NOHOVER=matchMedia('(hover:none)');
 let OUTLINE_MID_OPEN=false,MID_OVERLAY=false;
-let LAYOUT=null,SIDE_OPEN=true,SELMODE=false,ZOOMED=false,LAST_PTR='mouse',LAST_TOUCH_T=0;
+let LAYOUT=null,BAND=null,SIDE_OPEN=true,SELMODE=false,ZOOMED=false,LAST_PTR='mouse',LAST_TOUCH_T=0;
 const OPEN_CARDS=new Set();   // ids of pin cards expanded in compact
 // Pin kind/thread (docs/handbook/viewer.md §스레드와 검토): KIND_NEW = the composer panel's kind (fix|question), REPLY = the open reply/reopen
 // input field {id,mode,el} (holds onto the DOM like EDITOR.current does, and re-inserts it in place when the list redraws), THREAD_OPEN = cards with the thread fully expanded,

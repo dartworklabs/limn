@@ -1710,6 +1710,117 @@ class MidChrome(ViewerBase):
         self.assertEqual(out, [])
 
 
+def touch_device(w: int, h: int) -> dict[str, object]:
+    """A touch viewport of w x h CSS px (Playwright's isMobile and hasTouch)."""
+    return {"viewport": {"width": w, "height": h}, "is_mobile": True, "has_touch": True}
+
+
+# A landscape phone (the short band) beside the overlay limit and past it, and a mouse window as low as the first.
+LAND_PHONE = touch_device(844, 390)
+LAND_PHONE_WIDE = touch_device(932, 430)
+MOUSE_LOW = {"viewport": {"width": 820, "height": 390}}
+# The band and layout classes on body, sorted.
+BODY_BANDS = "[...document.body.classList].filter(c=>/^(lay-|band-|mid-overlay$)/.test(c)).sort()"
+# The top row of the short band: the nav bar's and the tool bar's boxes, and the visible controls of the tool bar with
+# whether a tap at their centre reaches them.
+TOP_ROW = """() => {
+  const R = s => { const e = document.querySelector(s); if (!e || !e.getClientRects().length) return null;
+    const b = e.getBoundingClientRect(); return {x: Math.round(b.x), y: Math.round(b.y), w: Math.round(b.width), h: Math.round(b.height)}; };
+  const vis = e => !!e && e.getClientRects().length > 0 && getComputedStyle(e).visibility !== 'hidden';
+  const tools = [...document.querySelectorAll('#bar1 button')].filter(vis).map(b => { const r = b.getBoundingClientRect();
+    const t = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2); return [b.id, Math.round(r.top), !!t && (t === b || b.contains(t))]; });
+  const bottom = document.elementFromPoint(innerWidth / 2, innerHeight - 4);
+  return {nav: R('#doc-nav'), bar: R('#bar1'), strip: vis(document.querySelector('#section-strip')), tools,
+    bottomIsPdf: !!bottom && !!bottom.closest('#left'), overflow: document.documentElement.scrollWidth > innerWidth}; }"""
+
+
+class TouchLayoutBands(ViewerBase):
+    """The touch layout bands (docs/handbook/viewer.md §모바일 레이아웃): a landscape phone gets one top row (the short band),
+    and a mouse window of the same size keeps the width-only layout."""
+
+    def compose(self, page):
+        """A touch selection through the real pick path; waits for the composer."""
+        page.evaluate("()=>{LAST_PTR='touch'; pick({page:1,x0:10,y0:10,x1:200,y1:60});}")
+        page.wait_for_function("COMPOSE.current&&!COMPOSE.picking")
+        settle(page)
+
+    def test_a_landscape_phone_has_one_top_row_and_no_bottom_row(self):
+        """844x390: nav bar 48 + action row 49 left the page 293px. The short band has one 44px row on top holding the nav
+        bar and [선택] [⋯] [핀 N] at its right end, nothing at the bottom, and the overlay panel collapsed."""
+        page = self.view(LAND_PHONE)
+        self.assertEqual(page.evaluate(BODY_BANDS), ["band-short", "lay-mid", "mid-overlay"])
+        self.assertFalse(page.evaluate("SIDE_OPEN"))
+        row = page.evaluate(TOP_ROW)
+        self.assertEqual((row["nav"]["y"], row["bar"]["y"]), (0, 0))
+        self.assertLessEqual(max(row["nav"]["h"], row["bar"]["h"]), 44)
+        self.assertLessEqual(row["nav"]["x"] + row["nav"]["w"], row["bar"]["x"])  # the links end where the tools begin
+        self.assertEqual(row["bar"]["x"] + row["bar"]["w"], 844)
+        self.assertEqual(sorted(t[0] for t in row["tools"]), ["btn-more", "btn-select", "btn-side"])
+        self.assertTrue(all(top < 44 and hit for _, top, hit in row["tools"]), row["tools"])
+        self.assertFalse(row["strip"])
+        self.assertTrue(row["bottomIsPdf"])
+        self.assertFalse(row["overflow"])
+        self.assertEqual(page.evaluate(MISSES_44, "#bar1 button,#nav-toc-toggle"), [])
+
+    def test_past_900px_the_short_band_opens_its_panel_beside_the_document(self):
+        """932x430: the same one row; the panel is open beside the document (no overlay) from the top row to the bottom."""
+        page = self.view(LAND_PHONE_WIDE)
+        self.assertEqual(page.evaluate(BODY_BANDS), ["band-short", "lay-mid"])
+        self.assertTrue(page.evaluate("SIDE_OPEN"))
+        right = page.locator("#right").bounding_box()
+        self.assertEqual((round(right["y"]), round(right["y"] + right["height"])), (44, 430))
+        row = page.evaluate(TOP_ROW)
+        self.assertLessEqual(row["bar"]["h"], 44)
+        self.assertTrue(all(top < 44 and hit for _, top, hit in row["tools"]), row["tools"])
+
+    def test_the_short_band_moves_rebuild_into_more(self):
+        """[PDF 재빌드] leaves the row for [⋯]; the overlay layout of a taller screen keeps it in its action row."""
+        page = self.view(LAND_PHONE)
+        self.assertFalse(page.is_visible("#btn-rebuild"))
+        page.evaluate("openMore()")
+        settle(page)
+        self.assertTrue(page.is_visible("#more [data-act=rebuild]"))
+        page = self.view(FOLD)
+        self.assertTrue(page.is_visible("#btn-rebuild"))
+        page.evaluate("openMore()")
+        settle(page)
+        self.assertFalse(page.is_visible("#more [data-act=rebuild]"))
+
+    def test_focusing_the_note_hides_the_top_row_until_the_focus_leaves(self):
+        """With the keyboard up a landscape phone has about 200px: the row hides while a note field has focus."""
+        page = self.view(LAND_PHONE)
+        self.compose(page)
+        page.focus("#note")
+        settle(page)
+        self.assertTrue(page.evaluate("document.body.classList.contains('typing')"))
+        self.assertFalse(page.is_visible("#doc-nav"))
+        self.assertFalse(page.is_visible("#bar1"))
+        self.assertEqual(round(page.locator("#right").bounding_box()["y"]), 0)
+        page.evaluate("document.activeElement.blur()")
+        settle(page)
+        self.assertTrue(page.is_visible("#doc-nav"))
+        self.assertEqual(round(page.locator("#right").bounding_box()["y"]), 44)
+
+    def test_with_the_keyboard_up_the_whole_note_is_visible(self):
+        """844x390 with a 190px keyboard (Chrome on Android shrinks the layout to 844x200): 41 of the note's 92px showed."""
+        page = self.view(LAND_PHONE)
+        self.compose(page)
+        page.focus("#note")
+        page.set_viewport_size({"width": 844, "height": 200})
+        page.wait_for_function("innerHeight===200")
+        settle(page)
+        self.assertEqual(page.evaluate(BODY_BANDS), ["band-short", "lay-mid", "mid-overlay"])
+        seen, h = page.evaluate(SHOWN, "#note")
+        self.assertEqual(seen, h)
+
+    def test_a_mouse_window_as_low_as_a_landscape_phone_keeps_the_width_layout(self):
+        """820x390 with a mouse: the overlay layout with its nav bar and bottom action row, never the short band."""
+        page = self.view(MOUSE_LOW)
+        self.assertEqual(page.evaluate(BODY_BANDS), ["band-mid-overlay", "lay-mid", "mid-overlay"])
+        bar = page.locator("#bar1").bounding_box()
+        self.assertEqual(round(bar["y"] + bar["height"]), 390)
+
+
 class PhoneMoreAndHelp(ViewerBase):
     """[더보기] and help on a phone (input diagnosis P10): [더보기] was a 600px centred dialog whose 2-column grid left 'English' on
     a row of its own and wrapped English labels onto two lines; help showed the desktop shortcut table on a touch screen."""

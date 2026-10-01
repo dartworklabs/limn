@@ -1,7 +1,10 @@
 /* ---------------- Mobile/touch (docs/handbook/viewer.md §모바일 레이아웃)
-   The layout is set by JS on body: lay-wide (1100px and up) - lay-mid (over 700px, under 1100px: a narrow side panel) -
-   lay-narrow (700px and below: a bottom sheet). compact = mid|narrow. side-open = the panel/sheet is expanded.
-   In the collapsed state, only the tool bar (#bar1), status chips (#bar2), and the re-place-location banner remain. */
+   The layout is set by JS on body from the window's width, height and primary pointer (layoutFor): the band (band-phone,
+   band-short, band-mid-overlay, band-mid-side, band-wide) and its mode - lay-wide (the desktop), lay-mid (the panel between the nav
+   bar and the action row; mid-overlay when it floats over the document) or lay-narrow (a bottom sheet). compact = mid|narrow.
+   side-open = the panel/sheet is expanded. Layout rules hang on these classes only, never on a width media query: the JS band
+   and the CSS must switch together. In the collapsed state, only the tool bar (#bar1), status chips (#bar2), and the
+   re-place-location banner remain. */
 .cmp,.tch{display:none}
 .pin .sum{display:none}
 .hint .t-touch{display:none}
@@ -133,6 +136,7 @@ body.lay-narrow #btn-rebuild .lbl{display:none}
 body.lay-narrow #btn-doc .nm{overflow:visible;text-overflow:clip;max-width:6em}
 body.compact #bar1 #btn-more{flex:0 0 44px;padding:0;background:transparent;border-color:transparent}   /* utility = ghost (the same convention as notification/theme/help on desktop) */
 body.compact #composer{max-height:none;overflow:visible}
+body.compact.composing #right{scroll-padding-bottom:calc(var(--hit) + var(--space-5))}   /* a field scrolled into view stays clear of the stuck save row (56px on touch) */
 /* Phone sheet composer (docs/handbook/viewer.md §패널 정리): the location line, then the note with its helpers, then the one-line
    overlap notice, then the range ladder, the nudges and the kind, then the source. The note was the fourth block, 328px down, and hid
    below the save row; with the keyboard up the location line scrolled away (diagnosis P2). */
@@ -262,25 +266,39 @@ body.lay-mid #coach{top:auto;bottom:calc(var(--mbar-h) + var(--kb,0px) + var(--s
 body.lay-mid.side-open #coach{max-width:calc(100vw - var(--side-w,330px) - 3 * var(--space-3))}
 @keyframes mid-panel-in{from{right:calc(-1 * var(--side-w,330px))}}
 @keyframes mid-grip-in{from{opacity:0}}
-@media (min-width:701px) and (max-width:900px){
-  body.lay-mid.side-open #right{position:fixed;right:calc(-1 * var(--swipe-x,0px));top:var(--mid-top);bottom:calc(var(--mbar-h) + var(--kb,0px));z-index:20;box-shadow:var(--shadow);
-    animation:mid-panel-in .18s ease-out}
-  /* A swipe to dismiss moves it through right (--swipe-x, set while the finger drags); its release springs back or slides out. */
-  body.lay-mid.side-settling #right,body.lay-mid.side-settling #grip{transition:right .18s ease-out}
-  /* At the width where the pin panel floats overlaid (folded), the change view gets offset by the panel width - unlike the body PDF, the diff
-     can't be pushed aside to view, so the right half under the panel (the end of a wrapped line, the guidance line's [원고로]) was hidden (QA 2026-09-25, 842px). */
-  body.lay-mid.side-open #revision-view{padding-right:var(--side-w,330px)}
-  /* The same while composing: a pick in the right column would hide under the panel (fold QA 2026-09-26, s10) - the PDF re-fits
-     to the space left of it (or scrolls there when zoomed). */
-  body.lay-mid.side-open.composing #left{padding-right:var(--side-w,330px)}
-  body.lay-mid.side-open #grip{position:fixed;right:calc(var(--side-w,330px) - var(--swipe-x,0px));top:var(--mid-top);bottom:calc(var(--mbar-h) + var(--kb,0px));z-index:21;
-    animation:mid-grip-in .18s ease-out}
-  /* Collapsing (a drag past the threshold, [핀], Esc) slides it back out the same way - right only. */
-  body.lay-mid.side-open.side-closing #right{animation:mid-panel-out .18s ease-in forwards}
-  body.lay-mid.side-open.side-closing #grip{animation:mid-grip-out .18s ease-in forwards}
-}
+/* The overlay panel (body.mid-overlay: the mid-overlay band, and the short band up to 900px): it floats over the document. */
+body.mid-overlay.side-open #right{position:fixed;right:calc(-1 * var(--swipe-x,0px));top:var(--mid-top);bottom:calc(var(--mbar-h) + var(--kb,0px));z-index:20;box-shadow:var(--shadow);
+  animation:mid-panel-in .18s ease-out}
+/* A swipe to dismiss moves it through right (--swipe-x, set while the finger drags); its release springs back or slides out. */
+body.mid-overlay.side-settling #right,body.mid-overlay.side-settling #grip{transition:right .18s ease-out}
+/* At the width where the pin panel floats overlaid (folded), the change view gets offset by the panel width - unlike the body PDF, the diff
+   can't be pushed aside to view, so the right half under the panel (the end of a wrapped line, the guidance line's [원고로]) was hidden (QA 2026-09-25, 842px). */
+body.mid-overlay.side-open #revision-view{padding-right:var(--side-w,330px)}
+/* The same while composing: a pick in the right column would hide under the panel (fold QA 2026-09-26, s10) - the PDF re-fits
+   to the space left of it (or scrolls there when zoomed). */
+body.mid-overlay.side-open.composing #left{padding-right:var(--side-w,330px)}
+body.mid-overlay.side-open #grip{position:fixed;right:calc(var(--side-w,330px) - var(--swipe-x,0px));top:var(--mid-top);bottom:calc(var(--mbar-h) + var(--kb,0px));z-index:21;
+  animation:mid-grip-in .18s ease-out}
+/* Collapsing (a drag past the threshold, [핀], Esc) slides it back out the same way - right only. */
+body.mid-overlay.side-open.side-closing #right{animation:mid-panel-out .18s ease-in forwards}
+body.mid-overlay.side-open.side-closing #grip{animation:mid-grip-out .18s ease-in forwards}
 @keyframes mid-panel-out{to{right:calc(-1 * var(--side-w,330px))}}
 @keyframes mid-grip-out{to{opacity:0}}
+/* ---- Short band (a landscape phone, touch under 480px high; docs/handbook/viewer.md §모바일 레이아웃): one top row of 44px instead of the
+   nav bar and the bottom action row - [목차] [문서 링크…] ··· [선택] [⋯] [핀 N]. The tool bar is drawn over the nav bar's right end
+   (--bar1-w, barWidth); [PDF 재빌드] moves into [⋯]. The panel spreads from under the row to the bottom of the screen, and while a
+   panel text field has focus (body.typing) the row hides, so the ~200px the keyboard leaves go to the panel. */
+body.band-short{--doc-nav-h:var(--hit);--mbar-h:0px}
+body.band-short #doc-nav{right:var(--bar1-w,0px);padding-right:var(--space-2)}
+/* Buttons drawn at 40px from 2px down: their 44px hit areas fill the row from its top edge to its line. */
+body.band-short #bar1{top:0;bottom:auto;left:auto;right:0;height:var(--mid-top);gap:var(--space-1);align-items:flex-start;border-top:0;border-bottom:1px solid var(--border);
+  padding:calc(env(safe-area-inset-top) + 2px) max(var(--space-3),env(safe-area-inset-right)) 0 var(--space-2)}
+body.band-short:not(.side-open) #bar1{border-bottom:1px solid var(--border)}
+body.band-short #bar1 .sp,body.band-short #btn-rebuild{display:none}
+body.band-short.typing{--mid-top:0px}
+body.band-short.typing :is(#doc-nav,#bar1){display:none}
+#m-rebuild{display:none}
+body.band-short:not(.no-rebuild) #m-rebuild{display:flex}
 /* The folded layout (narrow) reuses the existing tool bar's [문서 ▾] button and sheet list as-is. */
 .dm-item .nm{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .dcnt{font-weight:600}

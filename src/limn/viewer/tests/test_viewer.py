@@ -23,6 +23,7 @@ from limn.pins.listing import render as md_render
 from limn.pins.location import position
 from limn.viewer import assemble as viewer_assemble
 
+import helpers_js
 from helpers import (
     DOCS_DIR,
     HTML,
@@ -32,6 +33,7 @@ from helpers import (
     SKILL_MD,
     SW_JS,
     UI_EN,
+    VIEWER_CLOSED_SETS,
     extract_js_fn,
     js_esc,
     js_i18n,
@@ -622,6 +624,15 @@ class FrontendMobileStructure(unittest.TestCase):
         for doc in [SKILL_MD, SKILL_KO] + sorted(DOCS_DIR.glob("*.md")):
             self.assertFalse("PDF 다시 만들기" in doc.read_text(encoding="utf-8"), doc.name)
 
+    def test_layout_rules_hang_on_band_classes_not_width_queries(self):
+        """The band is chosen in JS (layoutFor) from width, height and pointer: a width media query left in the CSS would
+        switch on its own and disagree with it. The overlay panel's rules hang on body.mid-overlay instead of the old
+        701-900px query."""
+        css = (PKG / "viewer" / "css" / "responsive.css").read_text(encoding="utf-8")
+        self.assertNotIn("min-width:701px", css)
+        self.assertNotRegex(css, r"max-width:\s*900px")
+        self.assertIn("body.mid-overlay.side-open #right{", css)
+
     def test_compact_toolbar_elements_and_more_menu(self):
         for el in (
             'id="btn-side"',
@@ -992,30 +1003,76 @@ class FrontendMobileLogic(unittest.TestCase):
         if not shutil.which("node"):
             self.skipTest("node not available")
 
-    def test_layout_for_breakpoints(self):
-        cases = [
-            (412, True),
-            (700, True),
-            (701, True),
-            (880, True),
-            (1099, True),
-            (1100, True),
-            (1440, True),
-            (412, False),
-            (880, False),
-            (1440, False),
-        ]
+    # layoutFor(w, h, coarse) rows: (w, h, coarse, band). A mouse looks at the width only, so its rows hold at any height;
+    # touch rows put both sides of every width, height and orientation boundary (docs/handbook/viewer.md §모바일 레이아웃).
+    MOUSE_BANDS = [
+        (412, 900, "phone"),
+        (700, 900, "phone"),
+        (701, 900, "mid-overlay"),
+        (880, 900, "mid-overlay"),
+        (900, 900, "mid-overlay"),
+        (820, 390, "mid-overlay"),
+        (901, 900, "mid-side"),
+        (1099, 900, "mid-side"),
+        (1100, 820, "wide"),
+        (1180, 820, "wide"),
+        (1366, 1024, "wide"),
+        (1440, 900, "wide"),
+    ]
+    TOUCH_BANDS = [
+        # width boundaries
+        (599, 900, "phone"),
+        (700, 900, "phone"),
+        (900, 700, "mid-overlay"),
+        (901, 700, "mid-side"),
+        (1099, 900, "mid-side"),
+        (1100, 900, "wide"),
+        # height boundaries
+        (844, 479, "short"),
+        (844, 480, "mid-overlay"),
+        (599, 300, "phone"),
+        (600, 479, "short"),
+        (1200, 479, "short"),
+        # the diagnosis' viewports
+        (360, 780, "phone"),
+        (390, 844, "phone"),
+        (430, 932, "phone"),
+        (344, 882, "phone"),
+        (844, 390, "short"),
+        (932, 430, "short"),
+        (640, 360, "short"),
+        (842, 758, "mid-overlay"),
+        (1024, 768, "mid-side"),
+    ]
+
+    def layout_bands(self, cases):
+        """[(w, h, coarse)] -> [layoutFor(w, h, coarse)] from the served source."""
+        js = extract_js_fn("layoutFor") + "\nconsole.log(JSON.stringify(%s.map(c=>layoutFor(c[0],c[1],c[2]))));" % (
+            json.dumps(cases)
+        )
+        return json.loads(run_node(js))
+
+    def test_layout_for_bands(self):
+        """layoutFor(w, h, coarse) is the band table: a mouse gets the width-only bands at any height (300, the row's own
+        and 2000), touch also reads the height and the orientation. Each row sits on one side of a boundary."""
+        mouse = [(w, hh, False, b) for w, h, b in self.MOUSE_BANDS for hh in (h, 300, 2000)]
+        touch = [(w, h, True, b) for w, h, b in self.TOUCH_BANDS]
+        rows = mouse + touch
+        got = self.layout_bands([r[:3] for r in rows])
+        self.assertEqual([r[:3] + (g,) for r, g in zip(rows, got, strict=True)], rows)
+
+    def test_a_mouse_window_keeps_the_width_only_layout_modes(self):
+        """The mouse rows of the old width-only test give the same layout mode through BAND_MODE: 412 narrow, 880 mid,
+        1440 wide."""
+        consts = re.search(r"^const BAND_MODE=.*;$", HTML, re.M).group(0)
         js = "\n".join(
             [
-                "let innerWidth=0; const MQ_COARSE={matches:false};",
                 extract_js_fn("layoutFor"),
-                "console.log(JSON.stringify(%s.map(c=>{innerWidth=c[0];MQ_COARSE.matches=c[1];return layoutFor();})));"
-                % json.dumps(cases),
+                helpers_js.closed_set_prelude(VIEWER_CLOSED_SETS, consts) + consts,
+                "console.log(JSON.stringify([[412,900],[880,900],[1440,900]].map(c=>BAND_MODE[layoutFor(c[0],c[1],false)])));",
             ]
         )
-        self.assertEqual(
-            json.loads(run_node(js)), ["narrow", "narrow", "mid", "mid", "mid", "wide", "wide", "narrow", "mid", "wide"]
-        )
+        self.assertEqual(json.loads(run_node(js)), ["narrow", "mid", "wide"])
 
     def test_quick_pick_box_is_a_line_on_a_manuscript_and_a_point_on_a_figure(self):
         """A quick selection sends about one text line around the point on a manuscript page (+-7 % x +-0.6 %), and a
@@ -1584,7 +1641,8 @@ class FrontendToasts(unittest.TestCase):
         self.assertNotRegex(self.css, r"body\.lay-mid #toasts\{[^}]*top:")  # formerly: top-left of the body
         body = extract_js_fn("placeToasts")
         self.assertIn("'#c-actions'", body)  # doesn't cover the save/cancel buttons
-        self.assertIn("LAYOUT===LAYOUT_MODE.MID?['#bar1']", body)  # doesn't cover the bottom toolbar
+        # doesn't cover the bottom toolbar (the short band has none: its tool bar is in the top row)
+        self.assertIn("LAYOUT===LAYOUT_MODE.MID&&BAND!==LAYOUT_BAND.SHORT?['#bar1']", body)
         self.assertIn("right.getBoundingClientRect().top", body)  # narrow: above the sheet
         self.assertIn("innerWidth-rr.right+12", body)  # right edge inside the panel column
         # a nearly-full sheet: drop down so it doesn't cover the toolbar
@@ -1770,10 +1828,10 @@ class FrontendSemanticAudit(unittest.TestCase):
         self.assertIn("#revision-diff.wrap .rd-code{flex:1;min-width:0;white-space:pre-wrap", self.css)
 
     def test_change_view_on_fold_and_phone(self):
-        # [변경 보기] phone/fold QA (2026-09-25): on a fold (701-900px), the pin panel floats on top,
+        # [변경 보기] phone/fold QA (2026-09-25): on a fold (the overlay panel, body.mid-overlay), the pin panel floats on top,
         # hiding the right half of the diff and the [원고로] button — only the change view yields space
         # equal to the panel width. Commit picking / build-warning expand are 44px on touch.
-        self.assertIn("body.lay-mid.side-open #revision-view{padding-right:var(--side-w,330px)}", self.css)
+        self.assertIn("body.mid-overlay.side-open #revision-view{padding-right:var(--side-w,330px)}", self.css)
         self.assertIn("#revision-list select,#revision-file-row select{min-height:var(--control-h-touch)}", self.css)
         self.assertIn("#revision-warning summary{line-height:var(--control-h-touch)}", self.css)
         # if the pin's range line isn't in the diff and only nearby lines changed, don't say "the highlighted line is the pin's range" (there is no highlighted line).
