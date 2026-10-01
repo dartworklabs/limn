@@ -449,7 +449,8 @@ class PdfRoute(Base):
             code, h, got = self.get("/pdf?build=%s&v=x" % name)
             self.assertEqual(code, 200)
             self.assertEqual(h["content-type"], "application/pdf")
-            self.assertEqual(h["cache-control"], "private, max-age=600")
+            # a URL naming its build always means the same bytes: cached privately for a year (docs/handbook/api.md)
+            self.assertEqual(h["cache-control"], "private, max-age=31536000, immutable")
             # asking for the previous build gets the previous build — not swapped for the current one
             self.assertEqual(got, body)
 

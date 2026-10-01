@@ -1,8 +1,9 @@
 """GET build status, PDF and page image answers after common request guards."""
 
+import re
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any, NoReturn
+from typing import Any, NamedTuple, NoReturn
 
 from limn.builds import answer, artifacts as build, input as build_input
 from limn.builds.service import BuildRequests
@@ -34,20 +35,69 @@ def _read(path: Path) -> bytes | None:
         return None
 
 
-def page(doc: Doc, path: str) -> bytes | None:
-    """A page image on screen, or None so the handler can fall through to its unknown-path answer."""
-    name = build_input.page_name(path)
-    return _read(build.cur_pages(doc) / name) if name is not None else None
+# A URL that names a timestamped build always means the same bytes: a page folder is never written again once
+# published, and its name is never given to another build (engine.render_pages). The legacy folder `pages` is not one.
+IMMUTABLE_BUILD_RE = re.compile(r"pages-\d{14}(-\d+)?")
+YEAR_CACHE = "private, max-age=31536000, immutable"
+SHORT_CACHE = "private, max-age=600"
 
 
-def pdf(doc: Doc, query: Query, text: Callable[[object], str]) -> bytes:
+class BuildFile(NamedTuple):
+    """One page image or PDF answer: its bytes, its Cache-Control and its ETag."""
+
+    data: bytes
+    cache: str
+    etag: str
+
+
+def _answer(path: Path, build_name: str, named: bool) -> BuildFile | None:
+    """The file at path of page folder build_name, or None when it has vanished. A URL that named a timestamped build
+    is cached for a year (immutable); any other - the build on screen, the legacy folder - for ten minutes. The ETag
+    is the folder name with the file's mtime_ns and size, so the same bytes in two builds are two tags."""
+    try:
+        st = path.stat()
+        data = path.read_bytes()
+    except OSError:
+        return None
+    cache = YEAR_CACHE if named and IMMUTABLE_BUILD_RE.fullmatch(build_name) else SHORT_CACHE
+    return BuildFile(data, cache, '"%s-%x-%x"' % (build_name, st.st_mtime_ns, st.st_size))
+
+
+def page(doc: Doc, path: str, text: Callable[[object], str]) -> BuildFile | None:
+    """A page image: of the build the path names (/pages/<build>/<page>), else of the build on screen. None for a name
+    that is not a page image or a page the build does not have, so the handler can fall through to its unknown-path
+    answer; a named build whose folder is gone is the pdf_build_gone 404."""
+    asked = build_input.page_path(path)
+    if asked is None:
+        return None
+    if asked.build is None:
+        cur = build.cur_pages(doc)
+        return _answer(cur / asked.name, cur.name, False)
+    folder = doc.dir / asked.build
+    if not folder.is_dir():
+        build_gone(asked.build, build.cur_pages(doc).name, text, "쪽 이미지")
+    return _answer(folder / asked.name, asked.build, True)
+
+
+def pdf(doc: Doc, query: Query, text: Callable[[object], str]) -> BuildFile:
     """The PDF of the requested page build, or its contract 404 when absent or unreadable."""
     name = build_input.parse_build_name(query)
     path = build.build_pdf(doc, name)
-    data = None if path is None else _read(path)
-    if data is None:
+    found = None if path is None else _answer(path, path.parent.name, bool(name))
+    if found is None:
         pdf_gone(name, build.cur_pages(doc).name, text)
-    return data
+    return found
+
+
+def build_gone(name: str, pages_build: str, text: Callable[[object], str], what: str) -> NoReturn:
+    """404 pdf_build_gone for a page URL naming a build whose folder is gone, with the build on screen."""
+    raise HTTPError(
+        404,
+        "그 빌드의 %s가 없습니다: %s" % (what, text(name)[:60]),
+        pdf_build_gone=True,
+        pages_build=pages_build,
+        reason="pdf_build_gone",
+    )
 
 
 def pdf_gone(name: str, pages_build: str, text: Callable[[object], str]) -> NoReturn:

@@ -1,4 +1,7 @@
-function pageSrc(p){return dq('/pages/'+encodeURIComponent(p.name)+'?v='+encodeURIComponent(META.built_at));}
+// The URL of page image p of the build on screen: /pages/<META.pages_build>/<name>, which the server caches for a year
+// because a build's images never change (docs/handbook/api.md). Without a build name, the old /pages/<name>?v=<built_at>.
+function pageSrc(p){const b=META.pages_build;
+  return dq(b?'/pages/'+encodeURIComponent(b)+'/'+encodeURIComponent(p.name):'/pages/'+encodeURIComponent(p.name)+'?v='+encodeURIComponent(META.built_at));}
 function buildDoc(){
   const doc=$('#doc'); doc.innerHTML=''; COMPOSE.box=null;
   META.pages.forEach((p,i)=>{const d=document.createElement('div'); d.className='pg'; d.id='p'+(i+1); d.dataset.page=i+1;
