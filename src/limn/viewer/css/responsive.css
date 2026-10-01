@@ -36,8 +36,8 @@ body:not(.lay-narrow) #coach button{pointer-events:auto}
      assignee chip's overflow:hidden) cut the ::after back to the drawn 20px (input diagnosis P6). A tappable badge (assignee
      chip/awaiting review/build error) is one: growing it via min-height:44px turned the chip into a 44px blue slab. */
   button.badge{min-height:0;min-width:0;padding:1px var(--space-2)}
-  :is(.hit,button.badge){position:relative;overflow:visible}
-  :is(.hit,button.badge)::after{content:'';position:absolute;left:50%;top:50%;width:max(100%,var(--hit));height:max(100%,var(--hit));transform:translate(-50%,-50%)}
+  :is(.hit,button.badge,.pin .acts button,.pin .go-all){position:relative;overflow:visible}
+  :is(.hit,button.badge,.pin .acts button,.pin .go-all)::after{content:'';position:absolute;left:50%;top:50%;width:max(100%,var(--hit));height:max(100%,var(--hit));transform:translate(-50%,-50%)}
   #bar1{flex-wrap:wrap;--tb-h:var(--control-h-touch)}
   #bar1 button{padding:0 var(--space-2)}
   input,textarea,select{font-size:var(--text-xl)}
@@ -46,6 +46,8 @@ body:not(.lay-narrow) #coach button{pointer-events:auto}
      earlier's half (observed: '1쪽' answered 16x38, 'L4-L5' 33x38). Each is a real --hit x --hit box instead, its text centred,
      positioned so that it stays above the line below that the compact head's -6px margin lets overlap it. */
   .loc,.pg-link,.pin .n.go{display:inline-flex;align-items:center;justify-content:center;min-height:var(--hit);min-width:var(--hit);position:relative}
+  .pin .go-all{min-height:var(--hit)}
+  .pin .head .b-fold{position:relative}   /* above the preview line that the head's -6px margin lets overlap its bottom (it answered 44x38) */
   .mark b{width:26px;height:26px;left:-28px;font-size:var(--text-base)}
   .mark b::after{content:'';position:absolute;inset:-9px}
   #tip{max-width:min(300px,calc(100vw - 16px))}
@@ -54,7 +56,10 @@ body:not(.lay-narrow) #coach button{pointer-events:auto}
      button.btn-icon above (0-0-1-1), so it stayed at 24px even for touch (observed on the card-collapse .b-fold/toast-close buttons) - re-pinned here at the same specificity. */
   button.btn-icon.btn-sm{width:var(--control-h-touch);min-width:var(--control-h-touch);height:var(--control-h-touch)}
   #c-actions button{min-height:var(--hit);font-size:var(--text-lg)}
-  .pin .acts button{min-height:44px}
+  /* Card actions are drawn at --ctl-touch-sm (32px on the phone sheet, 36px in a tablet panel), each with the 44px hit area. */
+  .pin .acts button{min-height:0;height:var(--ctl-touch-sm);padding-top:0;padding-bottom:0}
+  body.compact .pin .acts :is(.b-edit,.b-drop,.b-unclaim){width:var(--ctl-touch-sm);min-width:var(--ctl-touch-sm)}
+  .pin .note[data-act]{min-height:var(--hit)}   /* tapping the note edits it: a one-line note answered 22px high */
   /* To keep an archive row flat, [원래 요청] is drawn at 28px and only its hit area is widened to 44px via ::after */
   button.arc-orig-t{min-height:44px;min-width:44px;padding:0 var(--space-1);font-size:var(--text-base)}   /* the box itself is 44px (QA: used to be 58x28) */
   .arc-reply{min-height:44px;display:flex;align-items:center}
@@ -179,8 +184,8 @@ body.lay-narrow:not(.side-open) #bar1{padding-bottom:var(--space-1)}   /* the co
   body.lay-narrow #bar1{--tb-h:var(--ctl-touch)}
   body.lay-narrow #bar1 :is(button,#sheet-grip){position:relative;min-height:0;overflow:clip;overflow-clip-margin:var(--space-2)}   /* the label still ellipsizes; the hit area below is not clipped */
   body.lay-narrow #bar1 :is(button,#sheet-grip)::after{content:'';position:absolute;left:50%;top:0;width:max(100%,var(--hit));height:calc(var(--hit) + 2px);transform:translateX(-50%)}   /* +2px: a sheet at a fractional y loses a row to the edge */
-  /* The section head is 40px: its tools are drawn at 32px from 4px down, and their hit areas reach into the 8px under it. */
-  body.lay-narrow .sec-head{min-height:40px;padding:0 var(--space-3);margin-bottom:var(--space-2)}
+  /* The section head is 40px: its tools are drawn at 32px from 4px down, and their hit areas reach into the 12px under it. */
+  body.lay-narrow .sec-head{min-height:40px;padding:0 var(--space-3);margin-bottom:var(--space-3)}
   body.lay-narrow .sec-head button{min-height:var(--ctl-touch-sm);height:var(--ctl-touch-sm);padding-top:0;padding-bottom:0;position:relative}
   body.lay-narrow .sec-head button::after{content:'';position:absolute;left:50%;top:0;width:max(100%,var(--hit));height:calc(var(--hit) + 2px);transform:translateX(-50%)}
 }

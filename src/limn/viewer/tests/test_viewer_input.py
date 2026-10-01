@@ -1357,7 +1357,9 @@ class PhoneTouchSizes(ViewerBase):
         )
         settle(page)
         card = '.pin[data-id="%d"]' % pid
-        page.evaluate("s=>document.querySelector(s).scrollIntoView({block:'nearest'})", card)
+        page.evaluate(
+            "s=>document.querySelector(s).scrollIntoView({block:'center'})", card
+        )  # clear of the scroll box's edges
         settle(page)
         return card
 
@@ -1392,6 +1394,58 @@ class PhoneTouchSizes(ViewerBase):
         misses = page.evaluate(MISSES_44, "#bar1 button,#sheet-grip,#sec-open .sec-head button")
         self.assertEqual(misses, [])
 
+    def test_the_card_row_is_three_icons_and_two_names_and_the_head_is_one_link(self):
+        """An open card's six equal buttons were 40px wide in a tablet panel (diagnosis P4): [보기] is now the head's
+        '#N · L… · N쪽' link (one tap, the same place), [삭제][수정][풀기] are icons with names for screen readers and tooltips,
+        [답글][완료] keep their names; every one still answers a 44px box and keeps its data-act."""
+        page = self.view(PHONE)
+        card = self.open_card(page)
+        page.evaluate(
+            "s=>{const id=+document.querySelector(s).dataset.id; OPEN_ALL.concat(PINS).filter(p=>p.id===id)"
+            ".forEach(p=>{p.claim_until=Date.now()/1000+600;}); drawPins();}",
+            card,
+        )
+        settle(page)
+        row = page.evaluate(
+            """s => [...document.querySelectorAll(s + ' .acts button')].filter(b => b.getClientRects().length)
+                 .map(b => [b.dataset.act, b.innerText.trim(), b.getAttribute('aria-label') || '', Math.round(b.getBoundingClientRect().height)])
+                 .sort((a, b) => 0)""",
+            card,
+        )
+        order = page.evaluate(
+            "s=>[...document.querySelectorAll(s+' .acts button')].filter(b=>b.getClientRects().length)"
+            ".sort((a,b)=>a.getBoundingClientRect().left-b.getBoundingClientRect().left).map(b=>b.dataset.act)",
+            card,
+        )
+        self.assertEqual(order, ["drop", "edit", "unclaim", "reply-open", "close"])
+        names = {a: (t, lab, h) for a, t, lab, h in row}
+        for act, label in (("drop", "삭제"), ("edit", "수정"), ("unclaim", "풀기")):
+            self.assertEqual(names[act], ("", label, 32), act)
+        for act, text in (("reply-open", "답글"), ("close", "완료")):
+            self.assertEqual(names[act][:2], (text, ""), act)
+        head = page.evaluate(
+            "s=>[...document.querySelectorAll(s+' .head [data-act=view]')].filter(e=>e.getClientRects().length).map(e=>e.innerText)",
+            card,
+        )
+        self.assertEqual(len(head), 1)
+        self.assertRegex(head[0], r"^#\d+ · L30-L31 · 1쪽$")
+        self.assertEqual(page.evaluate(MISSES_44, card + " .acts button," + card + " .head [data-act=view]"), [])
+
+    def test_a_tap_anywhere_on_a_collapsed_card_opens_it(self):
+        """The collapsed card opened only from its 20px preview line or the chevron; now any spot that is not a link does."""
+        page = self.view(PHONE)
+        page.evaluate(
+            "()=>{setSide(true); OPEN_CARDS.clear(); drawPins(); document.querySelector('#right').scrollTop=0;}"
+        )
+        settle(page)
+        # the collapsed head's link and chevron keep their 44px boxes over the preview line below them
+        self.assertEqual(page.evaluate(MISSES_44, "#pins .pin .head [data-act]"), [])
+        card = page.locator("#pins .pin").first
+        b = card.bounding_box()
+        pid = int(card.get_attribute("data-id"))
+        self.tap(self.cdp(page), b["x"] + b["width"] * 0.6, b["y"] + b["height"] - 4)
+        page.wait_for_function("id=>OPEN_CARDS.has(id)", arg=pid)
+
     def test_no_text_on_a_touch_screen_is_below_12px(self):
         """Badges, the assignee chip, the reply count, avatar initials and page numbers were 11px (--text-xs) on a phone."""
         page = self.view(PHONE)
@@ -1407,6 +1461,17 @@ class PhoneTouchSizes(ViewerBase):
           }
           return [...new Set(out)]; }""")
         self.assertEqual(small, [])
+
+    def test_a_mouse_keeps_the_named_card_buttons(self):
+        """The desktop card is unchanged: [보기][수정][답글][삭제][완료] by name, and no merged head link."""
+        page = self.view(DESK)
+        texts = page.evaluate(
+            "[...document.querySelectorAll('#pins .pin')[0].querySelectorAll('.acts button')].filter(b=>b.getClientRects().length).map(b=>b.innerText.trim())"
+        )
+        self.assertEqual(texts, ["보기", "수정", "답글", "삭제", "완료"])
+        self.assertFalse(
+            page.evaluate("[...document.querySelectorAll('.pin .go-all')].some(e=>e.getClientRects().length)")
+        )
 
     def test_a_mouse_keeps_the_drawn_card_head(self):
         """The 44px boxes are touch only: a mouse sees the card head links at their text size (24px hit areas, DesktopMisc)."""

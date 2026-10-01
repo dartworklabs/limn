@@ -4,9 +4,14 @@ function openHelp(){const d=$('#help'); if(d.open)return; HELP_BACK=document.act
 $('#help').addEventListener('close',()=>{if(HELP_BACK&&HELP_BACK.focus)HELP_BACK.focus(); HELP_BACK=null;});
 
 // ------------------------------------------------ Event delegation (no inline handlers)
+// compact: a click on a collapsed card that hit nothing of its own opens the card, as its preview line and chevron do (the card's
+// 44px links and chips keep their own action). wide cards are always open.
+function openTappedCard(t){const c=t&&t.closest&&t.closest('.pin.card:not(.open):not(.editing)');
+  if(!c||LAYOUT===LAYOUT_MODE.WIDE||t.closest('[data-copy],button,input,textarea'))return;
+  OPEN_CARDS.add(+c.dataset.id); drawPins();}
 document.addEventListener('click',e=>{
   const cp=e.target.closest('[data-copy]'); if(cp){copyText(cp.dataset.copy);return;}
-  const a=e.target.closest('[data-act]'); if(!a)return;
+  const a=e.target.closest('[data-act]'); if(!a){openTappedCard(e.target); return;}
   const host=a.closest('[data-id]'),id=host?+host.dataset.id:null,inEdit=!!a.closest('.edit');
   const fromMore=!!a.closest('#more');
   if(fromMore&&(a.dataset.close||a.dataset.act==='help'))$('#more').close();
