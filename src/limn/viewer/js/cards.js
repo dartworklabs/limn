@@ -71,7 +71,7 @@ function card(p){
     // [수정][풀기][삭제] carry an icon and a name: compact shows only the icon (the name stays in aria-label and the tooltip), wide only the name.
     '<button class="btn-sm b-edit" data-act="edit" aria-label="수정" data-tip="'+esc(T.edit)+'">'+ic('pencil')+'<span class="lbl">수정</span></button>'+
     '<button class="btn-sm b-reply" data-act="reply-open" data-tip="'+esc(T.reply)+'">답글</button>'+
-    (claimed?'<button class="btn-sm b-unclaim" data-act="unclaim" aria-label="풀기" data-tip="'+esc('처리 중 표시를 풉니다(에이전트가 멈췄거나 잘못 잡은 경우)')+'">'+ic('circle-x')+'<span class="lbl">풀기</span></button>':'')+
+    (claimed?'<button class="btn-sm b-unclaim" data-act="unclaim" aria-label="풀기" data-tip="'+esc('처리 중 표시를 풉니다(에이전트가 멈췄거나 잘못 잡은 경우)')+'">'+ic('lock-open')+'<span class="lbl">풀기</span></button>':'')+
     '<button class="btn-sm btn-destructive b-drop" data-act="drop" aria-label="삭제" data-tip="'+esc(T.drop)+'">'+ic('trash-2')+'<span class="lbl">삭제</span></button>'+
     '<button class="btn-sm btn-soft b-close" data-act="close" data-tip="'+esc(T.close)+'">완료</button>'+
     '</div>')+'</div>';

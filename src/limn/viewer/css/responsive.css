@@ -69,7 +69,6 @@ body:not(.lay-narrow) #coach button{pointer-events:auto}
   /* Card actions are drawn at --ctl-touch-sm (32px on the phone sheet, 36px in a tablet panel), each with the 44px hit area. */
   .pin .acts button{min-height:0;height:var(--ctl-touch-sm);padding-top:0;padding-bottom:0}
   body.compact .pin .acts :is(.b-edit,.b-drop,.b-unclaim){width:var(--ctl-touch-sm);min-width:var(--ctl-touch-sm)}
-  .pin .note[data-act]{min-height:var(--hit)}   /* tapping the note edits it: a one-line note answered 22px high */
   /* To keep an archive row flat, [원래 요청] is drawn at 28px and only its hit area is widened to 44px via ::after */
   button.arc-orig-t{min-height:44px;min-width:44px;padding:0 var(--space-1);font-size:var(--text-base)}   /* the box itself is 44px (QA: used to be 58x28) */
   .arc-reply{min-height:44px;display:flex;align-items:center}

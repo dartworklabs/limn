@@ -1431,6 +1431,44 @@ class PhoneTouchSizes(ViewerBase):
         self.assertRegex(head[0], r"^#\d+ · L30-L31 · 1쪽$")
         self.assertEqual(page.evaluate(MISSES_44, card + " .acts button," + card + " .head [data-act=view]"), [])
 
+    def test_the_card_row_sits_one_step_under_the_note_and_its_icons_match(self):
+        """Controller review of the after-shots: a 22-60px band sat between the note and the row (the note's 44px min-height),
+        [삭제] had no fill while [수정] and [풀기] did, and [풀기] was a circled x that reads as close. Now the row is one spacing
+        step (8px) under the note, the three icons share the neutral fill and size with only the delete glyph red, [삭제] keeps one
+        more step from [수정], and [풀기] is an open lock."""
+        page = self.view(PHONE)
+        card = self.open_card(page)
+        page.evaluate(
+            "s=>{const id=+document.querySelector(s).dataset.id; OPEN_ALL.concat(PINS).filter(p=>p.id===id)"
+            ".forEach(p=>{p.claim_until=Date.now()/1000+600;}); drawPins();}",
+            card,
+        )
+        settle(page)
+        got = page.evaluate(
+            """s => {
+              const c = document.querySelector(s), q = x => c.querySelector(x), R = x => q(x).getBoundingClientRect();
+              const cs = x => getComputedStyle(q(x));
+              const g = document.createRange(); g.selectNodeContents(q('.note'));
+              const text = Math.max(...[...g.getClientRects()].filter(r => r.height > 0).map(r => r.bottom));   // the note's last line, not its box
+              return {gap: Math.round(R('.acts').top - text), boxGap: Math.round(R('.acts').top - R('.note').bottom),
+                fills: ['.b-drop', '.b-edit', '.b-unclaim'].map(x => cs(x).backgroundColor),
+                sizes: ['.b-drop', '.b-edit', '.b-unclaim'].map(x => Math.round(R(x).width) + 'x' + Math.round(R(x).height)),
+                glyphs: [cs('.b-drop').color, cs('.b-edit').color],
+                apart: [Math.round(R('.b-edit').left - R('.b-drop').right), Math.round(R('.b-unclaim').left - R('.b-edit').right)],
+                lock: !!q('.b-unclaim svg.ic-lock-open')}; }""",
+            card,
+        )
+        self.assertLessEqual(
+            got["gap"], 12
+        )  # the 8px step plus the last line's half-leading (21.7px line, ~14px glyphs)
+        self.assertEqual(got["boxGap"], 8)
+        self.assertEqual(len(set(got["fills"])), 1, got["fills"])
+        self.assertNotIn(got["fills"][0], ("rgba(0, 0, 0, 0)", "transparent"))
+        self.assertEqual(len(set(got["sizes"])), 1, got["sizes"])
+        self.assertNotEqual(got["glyphs"][0], got["glyphs"][1])
+        self.assertEqual(got["apart"][0] - got["apart"][1], 8)
+        self.assertTrue(got["lock"])
+
     def test_a_tap_anywhere_on_a_collapsed_card_opens_it(self):
         """The collapsed card opened only from its 20px preview line or the chevron; now any spot that is not a link does."""
         page = self.view(PHONE)
