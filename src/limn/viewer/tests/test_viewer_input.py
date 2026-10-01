@@ -1329,6 +1329,72 @@ MISSES_44 = """sel => {
   return out; }"""
 
 
+# A mouse window in the mid layout, and a wide desktop window.
+MOUSE_MID = {"viewport": {"width": 1000, "height": 800}}
+MOUSE_WIDE = {"viewport": {"width": 1440, "height": 900}}
+
+
+class LayoutNotPointer(ViewerBase):
+    """The compact layouts follow the window width, not the input device (docs/handbook/viewer.md §모바일 레이아웃): a mouse at mid
+    width gets the compact card and the [더보기] sheet too. Only the wide layout with a mouse is the unchanged desktop."""
+
+    def test_a_mouse_at_mid_width_gets_the_compact_card_and_the_more_sheet(self):
+        """1000x800 with a mouse: the head's '#N · L… · N쪽' link, the icon row without [보기], [더보기] on the bottom edge."""
+        page = self.view(MOUSE_MID)
+        self.assertTrue(page.evaluate("document.body.classList.contains('lay-mid')&&!MQ_COARSE.matches"))
+        pid = page.evaluate("PINS[0].id")
+        page.evaluate("id=>{setSide(true); OPEN_CARDS.add(id); drawPins();}", pid)
+        settle(page)
+        card = '#pins .pin[data-id="%d"]' % pid
+        got = page.evaluate(
+            """s => {const c = document.querySelector(s), vis = e => !!e && e.getClientRects().length > 0;
+              return {link: vis(c.querySelector('.go-all')), view: vis(c.querySelector('.acts .b-view')),
+                acts: [...c.querySelectorAll('.acts button')].filter(vis).map(b => b.dataset.act),
+                icons: [...c.querySelectorAll('.acts :is(.b-edit,.b-drop) .ic')].every(vis)}; }""",
+            card,
+        )
+        self.assertEqual(
+            got, {"link": True, "view": False, "acts": ["drop", "edit", "reply-open", "close"], "icons": True}
+        )
+        page.evaluate("openMore()")
+        settle(page)
+        box = page.locator("#more").bounding_box()
+        self.assertAlmostEqual(box["y"] + box["height"], 800, delta=1)
+
+    def test_a_mouse_at_wide_width_sees_the_desktop_unchanged(self):
+        """1440x900 with a mouse: the panel, card, composer and tool bar are as they were before the compact work - a 348px
+        panel, 28px tool bar, the section strip, the card's #N / range / N쪽 and its named grid, the composer's order and its
+        36px save row. (The same checks pass on 809fc9a.)"""
+        page = self.view(MOUSE_WIDE)
+        self.mouse_pick(page)
+        got = page.evaluate(
+            """() => {const q = s => document.querySelector(s), R = s => q(s).getBoundingClientRect(), vis = e => !!e && e.getClientRects().length > 0;
+              const c = q('#pins .pin'), acts = [...c.querySelectorAll('.acts button')].filter(vis);
+              const tops = s => [...document.querySelectorAll(s)].filter(vis).sort((a, b) => a.getBoundingClientRect().top - b.getBoundingClientRect().top).map(e => e.id || e.className);
+              return {panel: Math.round(R('#right').width), tool: Math.round(R('#btn-rebuild').height), strip: Math.round(R('#section-strip').height),
+                head: [vis(c.querySelector('.n.go')), vis(c.querySelector('.loc')), vis(c.querySelector('.pg-link')), vis(c.querySelector('.go-all'))],
+                acts: acts.map(b => b.innerText.trim()), even: new Set(acts.map(b => Math.round(b.getBoundingClientRect().width))).size,
+                rowTop: new Set(acts.map(b => Math.round(b.getBoundingClientRect().top))).size,
+                composer: tops('#composer .c-loc-row,#composer #c-levels,#composer .c-tools,#composer #c-snip,#composer #c-kind,#composer #note'),
+                save: Math.round(R('#btn-save').height), lift: document.body.classList.contains('sheet-up')}; }"""
+        )
+        self.assertEqual(
+            got,
+            {
+                "panel": 348,
+                "tool": 28,
+                "strip": 38,
+                "head": [True, True, True, False],
+                "acts": ["보기", "수정", "답글", "삭제", "완료"],
+                "even": 1,
+                "rowTop": 1,
+                "composer": ["c-loc-row", "c-levels", "c-tools", "c-snip", "c-kind", "note"],
+                "save": 36,
+                "lift": False,
+            },
+        )
+
+
 class PhoneTouchSizes(ViewerBase):
     """Touch sizes on the phone sheet: every control answers a tap in a 44x44 box, whatever its drawn size - the assignee
     chip, the card head's links, the tool bar under the sheet handle (input diagnosis P6) - and no text is below 12px (P7)."""
@@ -1408,8 +1474,7 @@ class PhoneTouchSizes(ViewerBase):
         settle(page)
         row = page.evaluate(
             """s => [...document.querySelectorAll(s + ' .acts button')].filter(b => b.getClientRects().length)
-                 .map(b => [b.dataset.act, b.innerText.trim(), b.getAttribute('aria-label') || '', Math.round(b.getBoundingClientRect().height)])
-                 .sort((a, b) => 0)""",
+                 .map(b => [b.dataset.act, b.innerText.trim(), b.getAttribute('aria-label') || '', Math.round(b.getBoundingClientRect().height)])""",
             card,
         )
         order = page.evaluate(
@@ -1483,6 +1548,30 @@ class PhoneTouchSizes(ViewerBase):
         pid = int(card.get_attribute("data-id"))
         self.tap(self.cdp(page), b["x"] + b["width"] * 0.6, b["y"] + b["height"] - 4)
         page.wait_for_function("id=>OPEN_CARDS.has(id)", arg=pid)
+
+    def test_tab_walks_the_card_row_from_left_to_right(self):
+        """The row's markup order is its visual order: it was edit, reply, release, delete, done in the DOM and delete, edit,
+        release, reply, done on screen (CSS order), so Tab jumped back and forth."""
+        page = self.view(PHONE)
+        card = self.open_card(page)
+        page.evaluate(
+            "s=>{const id=+document.querySelector(s).dataset.id; OPEN_ALL.concat(PINS).filter(p=>p.id===id)"
+            ".forEach(p=>{p.claim_until=Date.now()/1000+600;}); drawPins();}",
+            card,
+        )
+        settle(page)
+        seen = page.evaluate(
+            "s=>[...document.querySelectorAll(s+' .acts button')].filter(b=>b.getClientRects().length)"
+            ".sort((a,b)=>a.getBoundingClientRect().left-b.getBoundingClientRect().left).map(b=>b.dataset.act)",
+            card,
+        )
+        page.evaluate("s=>document.querySelector(s+' .acts button').focus()", card)
+        tabbed = [page.evaluate("document.activeElement.dataset.act")]
+        for _ in range(len(seen) - 1):
+            page.keyboard.press("Tab")
+            tabbed.append(page.evaluate("document.activeElement.dataset.act"))
+        self.assertEqual(seen, ["drop", "edit", "unclaim", "reply-open", "close"])
+        self.assertEqual(tabbed, seen)
 
     def test_no_text_on_a_touch_screen_is_below_12px(self):
         """Badges, the assignee chip, the reply count, avatar initials and page numbers were 11px (--text-xs) on a phone."""

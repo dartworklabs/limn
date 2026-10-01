@@ -67,15 +67,19 @@ function card(p){
     (editing?'<div class="edit-slot"></div>':
     '<div class="note" data-act="edit" data-tip="클릭하면 메모와 범위를 고칩니다">'+(p.note?fmtText(p.note,p.mentions):'<span class="dim">(메모 없음)</span>')+'</div>'+
     threadHtml(p,LAYOUT===LAYOUT_MODE.WIDE)+
-    '<div class="acts"><button class="btn-sm b-view" data-act="view" data-tip="'+esc(T.view)+'">보기</button>'+
-    // [수정][풀기][삭제] carry an icon and a name: compact shows only the icon (the name stays in aria-label and the tooltip), wide only the name.
-    '<button class="btn-sm b-edit" data-act="edit" aria-label="수정" data-tip="'+esc(T.edit)+'">'+ic('pencil')+'<span class="lbl">수정</span></button>'+
-    '<button class="btn-sm b-reply" data-act="reply-open" data-tip="'+esc(T.reply)+'">답글</button>'+
-    (claimed?'<button class="btn-sm b-unclaim" data-act="unclaim" aria-label="풀기" data-tip="'+esc('처리 중 표시를 풉니다(에이전트가 멈췄거나 잘못 잡은 경우)')+'">'+ic('lock-open')+'<span class="lbl">풀기</span></button>':'')+
-    '<button class="btn-sm btn-destructive b-drop" data-act="drop" aria-label="삭제" data-tip="'+esc(T.drop)+'">'+ic('trash-2')+'<span class="lbl">삭제</span></button>'+
-    '<button class="btn-sm btn-soft b-close" data-act="close" data-tip="'+esc(T.close)+'">완료</button>'+
-    '</div>')+'</div>';
+    '<div class="acts">'+cardActs(claimed,LAYOUT!==LAYOUT_MODE.WIDE)+'</div>')+'</div>';
 }
+// An open card's action row, in the order it is seen so that Tab follows it. wide: [보기] [수정] [답글] ([풀기]) [삭제] [완료], by name.
+// compact (narrow and mid, any pointer): [삭제] [수정] ([풀기]) ...... [답글] [완료] - [보기] is the head's '#N · L… · N쪽' link, and
+// [수정][풀기][삭제] show only their icon (the name stays in aria-label and the tooltip); CSS picks icon or name per layout.
+function cardActs(claimed,compact){
+  const b={view:'<button class="btn-sm b-view" data-act="view" data-tip="'+esc(T.view)+'">보기</button>',
+    edit:'<button class="btn-sm b-edit" data-act="edit" aria-label="수정" data-tip="'+esc(T.edit)+'">'+ic('pencil')+'<span class="lbl">수정</span></button>',
+    reply:'<button class="btn-sm b-reply" data-act="reply-open" data-tip="'+esc(T.reply)+'">답글</button>',
+    unclaim:claimed?'<button class="btn-sm b-unclaim" data-act="unclaim" aria-label="풀기" data-tip="'+esc('처리 중 표시를 풉니다(에이전트가 멈췄거나 잘못 잡은 경우)')+'">'+ic('lock-open')+'<span class="lbl">풀기</span></button>':'',
+    drop:'<button class="btn-sm btn-destructive b-drop" data-act="drop" aria-label="삭제" data-tip="'+esc(T.drop)+'">'+ic('trash-2')+'<span class="lbl">삭제</span></button>',
+    close:'<button class="btn-sm btn-soft b-close" data-act="close" data-tip="'+esc(T.close)+'">완료</button>'};
+  return (compact?['drop','edit','unclaim','reply','close']:['view','edit','reply','unclaim','drop','close']).map(k=>b[k]).join('');}
 // Archive row (docs/handbook/viewer.md §보관함): a closed/dropped pin is a flat, borderless, backgroundless row with faded text, not a card.
 // The first line is icon/#number/location/reference/time/[다시 열기|되살리기]; the second line is one line of the agent's
 // answer (close_reply) - truncated on overflow, expandable on click. The original request note is only shown by pressing

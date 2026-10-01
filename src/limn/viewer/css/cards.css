@@ -59,11 +59,7 @@ body.compact .pin .acts :is(.b-edit,.b-drop,.b-unclaim){flex:none;padding:0;widt
    so a thumb meant for edit does not land on delete. */
 body.compact .pin .acts .b-drop{background:var(--secondary);margin-right:var(--space-2)}
 body.compact .pin .acts .b-drop:hover{background:color-mix(in srgb,var(--destructive) 12%,var(--secondary))}
-body.compact .pin .acts .b-drop{order:1}
-body.compact .pin .acts .b-edit{order:2}
-body.compact .pin .acts .b-unclaim{order:3}
-body.compact .pin .acts .b-reply{order:4;margin-left:auto}
-body.compact .pin .acts .b-close{order:5}
+body.compact .pin .acts .b-reply{margin-left:auto}   /* the row's order is the markup's (cardActs), so Tab follows what is seen */
 body.compact .pin .acts button:not(.btn-icon){padding-left:var(--space-3);padding-right:var(--space-3)}
 button.b-close{font-weight:600}
 /* Buttons inside a card are borderless and filled (secondary) - so six bordered buttons never line up inside an already-bordered card.

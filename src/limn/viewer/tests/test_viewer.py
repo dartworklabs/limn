@@ -1109,6 +1109,7 @@ class FrontendMobileLogic(unittest.TestCase):
                 extract_js_fn("elLostTag"),
                 extract_js_fn("figRegionBadge"),
                 extract_js_fn("card"),
+                extract_js_fn("cardActs"),  # the open card's action row (its visual order per layout)
                 js_icons(),
                 r"""
             const a=card({id:1,file:'/m.tex',name:'m.tex',lo:3,hi:5,page:2,note:'첫 줄 <b>\n둘째 줄'});
@@ -1292,7 +1293,8 @@ class FrontendPanelTidyStructure(unittest.TestCase):
 
     def test_card_head_tags_row_and_action_grid(self):
         m = re.search(r"\nfunction card\(p\)\{(.*?)\n\}", HTML, re.S)
-        body = m.group(1)
+        # the open card's action row is built by cardActs() in its visual order per layout (compact: icons first, wide: by name)
+        body = m.group(1) + extract_js_fn("cardActs")
         self.assertNotIn('<span class="tags">', body)  # badges are not inside the head row
         # one line after the head (fold button)
         self.assertGreater(body.index('<div class="tags">'), body.index("b-fold"))
@@ -3644,6 +3646,7 @@ class FrontendReview(unittest.TestCase):
                 extract_js_fn("elLostTag"),
                 extract_js_fn("figRegionBadge"),
                 extract_js_fn("card"),
+                extract_js_fn("cardActs"),  # the open card's action row (its visual order per layout)
                 js_icons(),
                 r"""
             const base={id:3,file:'/m.tex',name:'m.tex',lo:1,hi:2,page:1,note:'n',done:true,review:true,state:'review',
