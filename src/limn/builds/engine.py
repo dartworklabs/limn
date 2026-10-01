@@ -167,7 +167,8 @@ def compile_tex(D: BuildDoc, cfg: BuildConfig, pull: Callable[[], Json] | None) 
     scanned once before latexmk (digest and mtime of every file), and afterwards the fingerprint is chosen from that scan
     and the baseline mtime takes in the newest file the build read - the mtime as that scan saw it, and only for a file
     that was in it, so neither a file latexmk made nor one it touched can move the baseline past an edit made during the
-    run. The .fls is published with the pages (next to the .synctex.gz and .aux), where the later queries find it."""
+    run. The scan hashes the copy but takes each mtime from the same file of D.src (when it is the file that was
+    copied), because a copy tool may keep only whole seconds and the baseline must not fall below the source's mtime. The .fls is published with the pages (next to the .synctex.gz and .aux), where the later queries find it."""
     t0 = time.time()
     D.build.mkdir(parents=True, exist_ok=True)
     pulled: Json | None = None
@@ -193,7 +194,7 @@ def compile_tex(D: BuildDoc, cfg: BuildConfig, pull: Callable[[], Json] | None) 
     # known after latexmk; the fingerprint and the baseline are chosen from this scan below.
     scan: dict[str, build.ScannedSource] | None
     try:
-        scan = build.scan_sources(D, D.build, cfg.state, keep_apart=True)
+        scan = build.scan_sources(D, D.build, cfg.state, keep_apart=True, mtimes_from=D.src)
     except OSError:
         scan = None
 
@@ -253,8 +254,8 @@ def compile_tex(D: BuildDoc, cfg: BuildConfig, pull: Callable[[], Json] | None) 
     newdir = render_pages(D, pdf, extra, cfg.dpi)
     if isinstance(newdir, PagesNotRendered):
         return failed(newdir.kind, newdir.detail)
-    head_short = commit_pages(D, newdir)
-    build.expire_src_mtime(D)  # the manuscript is now measured against this build's recorder file
+    # the manuscript is measured against this build's recorder file from the moment the pointer names its pages
+    head_short = commit_pages(D, newdir, lambda: build.expire_src_mtime(D))
     pages = len(list(newdir.glob("page-*.png")))
     elapsed_s = round(time.time() - t0, 1)
     if errors:
@@ -310,10 +311,16 @@ def render_pages(D: BuildDoc, pdf: Path, extra: list[Path], dpi: int) -> Path | 
     return newdir
 
 
-def commit_pages(D: BuildDoc, newdir: Path) -> str:
-    """Swaps the pointer to the new page directory in one shot (atomically), keeps only current+previous, and writes built_at/head. head is the short hash."""
+def commit_pages(D: BuildDoc, newdir: Path, on_swap: Callable[[], None] | None = None) -> str:
+    """Swaps the pointer to the new page directory in one shot (atomically), keeps only current+previous, and writes built_at/head. head is the short hash.
+
+    on_swap, when given, is called once, right after the pointer names the new directory and before anything else is
+    done (the removal of old directories and the call to git can take seconds): the caller's caches that depend on the
+    page on screen are dropped there."""
     prev = build.cur_pages(D).name
     atomic_write(D.dir / "pages.cur", newdir.name)  # a single atomic swap
+    if on_swap is not None:
+        on_swap()
     for d in D.dir.iterdir():  # keep only current and previous
         if d.is_dir() and PAGES_DIR_RE.fullmatch(d.name) and d.name not in (newdir.name, prev):
             shutil.rmtree(d, ignore_errors=True)

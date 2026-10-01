@@ -206,7 +206,8 @@ class Doc:
     root (the same place as for a single document). Under --doc, only the LaTeX document keyed main gets this - so
     adding documents to a single-document instance keeps the body's build history (the source of location
     estimation) continuous. A Doc carries its own build lock, build state and its lock, history lock, src_mtime memo
-    and its lock, the memo of the recorder files parsed for it (input_sets), and the paths its source list leaves out
+    with its lock and its epoch (a count of the times the memo was expired, so an answer measured across an expiry is
+    never stored), the memo of the recorder files parsed for it (input_sets), and the paths its source list leaves out
     (apart) (limn.builds.artifacts.BuildDoc)."""
 
     def __init__(
@@ -241,6 +242,7 @@ class Doc:
         self.builds_lock = builds_lock or threading.Lock()
         self.mcache = list(mcache) if mcache is not None else [None, 0.0, 0.0]
         self.mcache_lock = threading.Lock()
+        self.mcache_epoch = 0
         self.input_sets = InputSetCache()
 
     @property

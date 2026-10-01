@@ -4,9 +4,9 @@ A LaTeX document's source list - src_mtime and the fingerprint read the same one
 leaves out the figure-set files of a figure document's folder and a view-only document's PDF (Doc.apart), except the
 ones the build on screen read. "Read" is the latexmk recorder file (.fls) the build keeps next to its pages: its INPUT
 lines, parsed (fls_inputs), read back at query time through the document's own bounded memo (Doc.input_sets,
-InputSetCache) and chosen against the scan made before latexmk (without_apart). These tests drive the functions directly over a real tree and, for
-the build, fake latexmk and pdftoppm on PATH, so no TeX installation is needed; the same rule through a real latexmk and
-the server is in src/limn/documents/tests/test_stale_figure_folder.py.
+InputSetCache) and chosen against the scan made before latexmk (without_apart). These tests drive the functions
+directly over a real tree and, for the build, fake latexmk and pdftoppm on PATH, so no TeX installation is needed; the
+same rule through a real latexmk and the server is in src/limn/documents/tests/test_stale_figure_folder.py.
 
 Run: uv run pytest -q src/limn/builds/tests/test_apart_sources.py
 """
@@ -14,6 +14,7 @@ Run: uv run pytest -q src/limn/builds/tests/test_apart_sources.py
 import hashlib
 import os
 import shutil
+import subprocess
 import tempfile
 import threading
 import time
@@ -32,6 +33,7 @@ from limn.builds.artifacts import (
 from limn.runtime.documents import INPUT_CACHE_MAX, NO_APART, ApartPaths, Doc, InputSetCache, RunPaths
 
 BUILD1 = "pages-20260926100000"
+BUILD0 = "pages-20260926080000"
 BUILD2 = "pages-20260926110000"
 FIGS_AND_REVIEWER = ApartPaths(folders=(("figs",),), files=(("reviewer.pdf",),))
 
@@ -549,6 +551,74 @@ class Fingerprint(Tree):
         build.src_mtime(plain, self.state, build=BUILD2)
         self.assertEqual(plain.mcache[0], key)
 
+    def test_a_value_measured_before_a_new_build_took_the_screen_is_not_kept(self):
+        """A slow src_mtime read the old build's recorder file, then a new build took the screen and expired the memo, and
+        only then did the slow call store its answer: that answer is dropped, so the next read measures against the new
+        build instead of hitting the old build's value inside the 2 seconds. The slow call itself answers what it measured."""
+        _pages, old, ahead = self.aged_with_new_figures()
+        real = build.build_inputs
+        started, release, calls = threading.Event(), threading.Event(), []
+
+        def slow(D, name=None):
+            """The real lookup; the first call then waits until the test lets it go."""
+            got = real(D, name)
+            if not calls:
+                calls.append(name)
+                started.set()
+                release.wait(10)
+            return got
+
+        answers: list[float] = []
+        with mock.patch.object(build, "build_inputs", slow):
+            reader = threading.Thread(target=lambda: answers.append(build.src_mtime(self.D, self.state)))
+            reader.start()
+            self.assertTrue(started.wait(10))
+            newdir = self.D.dir / BUILD2
+            newdir.mkdir()
+            (newdir / "main.fls").write_text("INPUT ./figs/a.pdf\n", encoding="utf-8")
+            (self.D.dir / "pages.cur").write_text(BUILD2, encoding="utf-8")
+            build.expire_src_mtime(self.D)
+            release.set()
+            reader.join(10)
+            self.assertFalse(reader.is_alive())
+            self.assertAlmostEqual(build.src_mtime(self.D, self.state), ahead, places=3)
+        self.assertAlmostEqual(answers[0], old, places=3)
+
+    def test_an_expiry_that_comes_before_the_measurement_does_not_discard_it(self):
+        """The generation only drops a value measured across an expiry: one measured after it is kept, and a hit follows."""
+        _pages, old, _ahead = self.aged_with_new_figures()
+        build.expire_src_mtime(self.D)
+        first = build.src_mtime(self.D, self.state)
+        with mock.patch.object(build, "build_inputs", side_effect=AssertionError("kept: a hit")):
+            self.assertEqual(build.src_mtime(self.D, self.state), first)
+        self.assertAlmostEqual(first, old, places=3)
+
+    def test_commit_pages_runs_its_hook_right_after_the_pointer_swap(self):
+        """The hook runs once the pointer names the new pages and before older page directories are removed and before git
+        is asked for the head, which can take seconds: the memo must not outlive the swap by that long."""
+        self.D.dir.mkdir(parents=True)
+        for name in (BUILD0, BUILD1, BUILD2):
+            (self.D.dir / name).mkdir()
+        (self.D.dir / "pages.cur").write_text(BUILD1, encoding="utf-8")
+        seen: list[tuple] = []
+
+        def run_git(*_a, **_k):
+            """git, recorded; the head it answers is "abc1234"."""
+            seen.append(("git",))
+            return subprocess.CompletedProcess([], 0, stdout="abc1234\n")
+
+        def hook() -> None:
+            """What the hook sees: the pointer and whether the oldest page directory is still there."""
+            seen.append(
+                ("hook", (self.D.dir / "pages.cur").read_text(encoding="utf-8"), (self.D.dir / BUILD0).exists())
+            )
+
+        with mock.patch.object(build_engine, "run_git", run_git):
+            head = build_engine.commit_pages(self.D, self.D.dir / BUILD2, on_swap=hook)
+        self.assertEqual(head, "abc1234")
+        self.assertEqual(seen, [("hook", BUILD2, True), ("git",)])
+        self.assertFalse((self.D.dir / BUILD0).exists())
+
     def test_a_memo_hit_does_not_look_at_the_build_again(self):
         """Within the 2 second memo the answer is the memo's: neither the recorder file nor the page pointer is read."""
         self.D.mcache[2] = 0.0
@@ -575,6 +645,44 @@ class Fingerprint(Tree):
         scan = self.digests()
         listed = frozenset({"figs/a.pdf", "figs/fig-eps-converted-to.pdf", "reviewer.pdf"})
         self.assertEqual(build.read_in_scan(scan, listed), {"figs/a.pdf", "reviewer.pdf"})
+
+    def copy_in_whole_seconds(self) -> None:
+        """Copy the manuscript into D.build and truncate every file of the copy to a whole second."""
+        self.D.build.mkdir(parents=True)
+        build_engine.copy_manuscript(self.src, self.D.build, self.state)
+        for p in self.D.build.rglob("*"):
+            if p.is_file():
+                os.utime(p, (int(p.stat().st_mtime), int(p.stat().st_mtime)))
+
+    def test_a_scan_of_the_copy_takes_each_files_mtime_from_the_source_when_it_agrees_to_the_second(self):
+        """A copy that lost the fraction: with mtimes_from the scan has the source's mtime, fraction included; without it,
+        the copy's."""
+        os.utime(self.src / "figs" / "a.pdf", (1000.75, 1000.75))
+        os.utime(self.src / "main.tex", (2000.25, 2000.25))
+        self.copy_in_whole_seconds()
+        plain = build.scan_sources(self.D, self.D.build, self.state, keep_apart=True)
+        exact = build.scan_sources(self.D, self.D.build, self.state, keep_apart=True, mtimes_from=self.src)
+        self.assertEqual((plain["figs/a.pdf"].mtime, plain["main.tex"].mtime), (1000.0, 2000.0))
+        self.assertEqual((exact["figs/a.pdf"].mtime, exact["main.tex"].mtime), (1000.75, 2000.25))
+        self.assertEqual({k: v.digest for k, v in exact.items()}, {k: v.digest for k, v in plain.items()})
+
+    def test_a_source_that_differs_by_a_second_or_more_or_is_not_a_plain_file_gives_the_copys_mtime(self):
+        """The source file changed since the copy (a second or more apart), is gone, or is a symlink: the copy's mtime,
+        which is what the scan hashed, stands."""
+        os.utime(self.src / "figs" / "a.pdf", (1000.75, 1000.75))
+        os.utime(self.src / "figs" / "c.svg", (3000.5, 3000.5))
+        os.utime(self.src / "figs" / "d.eps", (4000.5, 4000.5))
+        os.utime(self.src / "figs" / "e.jpg", (5000.99, 5000.99))  # 0.99 s past its whole-second copy: the same file
+        self.copy_in_whole_seconds()
+        os.utime(self.src / "figs" / "a.pdf", (1002.0, 1002.0))  # written again two seconds later
+        (self.src / "figs" / "c.svg").unlink()  # gone
+        (self.src / "figs" / "d.eps").unlink()  # replaced by a link
+        (self.src / "figs" / "d.eps").symlink_to(self.src / "main.tex")
+        got = build.scan_sources(self.D, self.D.build, self.state, keep_apart=True, mtimes_from=self.src)
+        self.assertEqual(
+            [round(got[k].mtime, 3) for k in ("figs/a.pdf", "figs/c.svg", "figs/d.eps", "figs/e.jpg")],
+            [1000.0, 3000.0, 4000.0, 5000.99],
+        )
 
     def test_the_scan_takes_the_mtime_of_each_file_and_the_digest_of_its_bytes(self):
         """ScannedSource(digest, mtime) of a file is its content's SHA-256 and the mtime it had."""
@@ -780,6 +888,67 @@ class Compile(Tree):
         self.assertIsInstance(res, BuildOk)
         self.assertEqual(res.src_hash, build.source_fingerprint(self.D, self.src, self.state))
         self.assertFalse((build.cur_pages(self.D) / "main.fls").exists())
+
+    def whole_second_copy(self, after_copy=None):
+        """Patch the build's copy step so the copy keeps mtimes to whole seconds only, as the rsync of macOS does, and run
+        `after_copy` (when given) once the copy is made. A context manager."""
+        real = build_engine.copy_manuscript
+
+        def copy(src: Path, dest: Path, state: Path) -> None:
+            """The real copy, then every file of the copy truncated to a whole second."""
+            real(src, dest, state)
+            for p in dest.rglob("*"):
+                if p.is_file() and not p.is_symlink():
+                    whole = int(p.stat().st_mtime)
+                    os.utime(p, (whole, whole))
+            if after_copy is not None:
+                after_copy()
+
+        return mock.patch.object(build_engine, "copy_manuscript", copy)
+
+    def test_a_copy_that_keeps_whole_seconds_does_not_cost_the_baseline_its_fraction(self):
+        """On macOS the copy's mtimes lose their fraction. The baseline of a build that read figs/a.pdf is that file's mtime
+        as the source tree has it, so the document is not newer than its own build by the lost fraction: src_mtime is the
+        source's mtime to the microsecond, and a query right after the build finds nothing newer."""
+        old = self.age_tree()
+        newer = int(old) + 50.62
+        os.utime(self.src / "figs" / "a.pdf", (newer, newer))
+        with self.whole_second_copy():
+            res = self.tracked("INPUT ./figs/a.pdf\n")
+        self.assertIsInstance(res, BuildOk)
+        self.assertEqual(int((self.D.build / "figs" / "a.pdf").stat().st_mtime), int(newer))
+        self.assertAlmostEqual(res.src_mtime, newer, places=4)
+        self.D.mcache[2] = 0.0
+        self.assertLess(build.source_newer(self.D, self.state), 1e-3)
+        self.assertEqual(res.src_hash, build.doc_fingerprint(self.D, self.state))
+
+    def test_the_baseline_of_a_build_that_read_nothing_is_the_sources_mtime_whatever_the_copy_keeps(self):
+        """Control: with nothing set apart read, the baseline is main.tex's mtime from the source tree (measured before
+        the copy), fraction included, with a whole-second copy as with an exact one."""
+        old = self.age_tree()
+        os.utime(self.src / "main.tex", (old + 0.37, old + 0.37))
+        with self.whole_second_copy():
+            res = self.tracked()
+        self.assertIsInstance(res, BuildOk)
+        self.assertAlmostEqual(res.src_mtime, old + 0.37, places=4)
+
+    def test_a_figure_file_changed_between_the_copy_and_the_scan_keeps_the_copys_mtime(self):
+        """figs/a.pdf is re-rendered 10 seconds later in the source after the copy was made: the copy still holds the old
+        bytes, so the baseline is the copy's mtime - not the source's - and the re-render shows as newer than the build."""
+        old = self.age_tree()
+        newer = int(old) + 50.62
+        os.utime(self.src / "figs" / "a.pdf", (newer, newer))
+
+        def re_render() -> None:
+            """The source file is written again, 10 seconds ahead, after the copy."""
+            os.utime(self.src / "figs" / "a.pdf", (newer + 10, newer + 10))
+
+        with self.whole_second_copy(re_render):
+            res = self.tracked("INPUT ./figs/a.pdf\n")
+        self.assertIsInstance(res, BuildOk)
+        self.assertAlmostEqual(res.src_mtime, int(newer), places=4)
+        self.D.mcache[2] = 0.0
+        self.assertGreater(build.source_newer(self.D, self.state), 2)
 
     def test_a_finished_build_expires_the_memo_so_it_is_measured_at_once(self):
         """The 2 second memo holds the answer measured against the previous build. A build whose recorder file lists

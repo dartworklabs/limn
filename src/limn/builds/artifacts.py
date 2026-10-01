@@ -150,6 +150,9 @@ class BuildDoc(BuildStateHolder, Protocol):
     def mcache_lock(self) -> threading.Lock:
         """Guards this document's src_mtime memo without serializing other documents."""
 
+    mcache_epoch: int
+    """How many times the src_mtime memo was expired (expire_src_mtime); changed only under mcache_lock."""
+
 
 Doc = TypeVar("Doc", bound=BuildDoc)  # one document type through a call that hands the document back to its caller
 
@@ -808,16 +811,45 @@ class ScannedSource(NamedTuple):
     mtime: float
 
 
+COPY_MTIME_SLACK = 1.0  # seconds: how far a copy's mtime may be from its source's and still be the same file
+
+
+def source_mtime_of(path: Path, copied: float) -> float:
+    """The mtime of the plain file at `path` (in the source tree) when it agrees with `copied`, the mtime of its copy, to
+    within COPY_MTIME_SLACK; else `copied`. Some copy tools (the rsync of macOS) keep mtimes in whole seconds, so a copy
+    can be up to a second older than its source, and a baseline taken from the copy would leave the source newer than the
+    build that compiled it. A file that differs by more than that has been written since the copy, a missing file or a
+    link is not the copied file: the copy's mtime, the one that belongs to the bytes hashed, stands."""
+    try:
+        st = os.lstat(path)
+    except OSError:
+        return copied
+    if stat.S_ISREG(st.st_mode) and abs(st.st_mtime - copied) < COPY_MTIME_SLACK:
+        return st.st_mtime
+    return copied
+
+
 def scan_sources(
-    D: BuildDoc, root: Path, state_dir: Path, reads: frozenset[str] = frozenset(), keep_apart: bool = False
+    D: BuildDoc,
+    root: Path,
+    state_dir: Path,
+    reads: frozenset[str] = frozenset(),
+    keep_apart: bool = False,
+    mtimes_from: Path | None = None,
 ) -> dict[str, ScannedSource]:
     """Every file iter_sources yields (same arguments) as {relative path: ScannedSource}, in list order; a file that cannot
     be read is left out. The build scans its copy once with keep_apart=True before latexmk runs: that scan is both the
-    fingerprint's input and the record of which files, with which mtimes, existed before latexmk could make any."""
+    fingerprint's input and the record of which files, with which mtimes, existed before latexmk could make any.
+
+    The bytes are hashed from root. mtimes_from, a tree laid out like root (the build passes D.src when it scans the copy),
+    gives each file the mtime of the same path there (source_mtime_of) so the mtimes do not depend on what the copy
+    tool keeps; without it the mtime is root's own."""
     out: dict[str, ScannedSource] = {}
     for rel, e in iter_sources(D, root, state_dir, reads, keep_apart):
         try:
             mtime = e.stat(follow_symlinks=False).st_mtime
+            if mtimes_from is not None:
+                mtime = source_mtime_of(mtimes_from / rel, mtime)
             with open(e.path, "rb") as fh:
                 out[rel] = ScannedSource(hashlib.sha256(fh.read()).digest(), mtime)
         except OSError:
@@ -857,14 +889,18 @@ def read_in_scan(scan: Mapping[str, ScannedSource], recorded: frozenset[str]) ->
 def newest_read_apart(D: BuildDoc, scan: Mapping[str, ScannedSource], reads: frozenset[str]) -> float:
     """The newest mtime, as the scan made before latexmk ran recorded it, among the files of `reads` that D sets apart;
     0.0 when there is none: what a build that read them compiled. The mtimes come from before latexmk so that a file the
-    run touches cannot move the baseline past an edit made while it ran."""
+    run touches cannot move the baseline past an edit made while it ran, and (the build scans with mtimes_from) from the
+    source tree so that a copy that keeps whole seconds cannot pull it below the source's mtime."""
     return max((scan[rel].mtime for rel in reads if rel in scan and D.apart.covers(tuple(rel.split("/")))), default=0.0)
 
 
 def expire_src_mtime(D: BuildDoc) -> None:
-    """Drop D's 2 second src_mtime memo, so the next read measures now. A build that puts new pages on screen calls this:
-    which recorder file the manuscript is measured against has just changed."""
+    """Drop D's 2 second src_mtime memo, so the next read measures now, and make any measurement still in flight drop its
+    answer instead of storing it (it was measured against the old build): the epoch counts expiries. A build that puts
+    new pages on screen calls this right after it swaps the page pointer, because which recorder file the manuscript is
+    measured against has just changed."""
     with D.mcache_lock:
+        D.mcache_epoch += 1
         D.mcache[2] = 0.0
 
 
@@ -874,9 +910,10 @@ def src_mtime(D: BuildDoc, state_dir: Path, force: bool = False, build: str | No
 
     The figure-set files another document owns are left out (D.apart) unless build `build` - the one on screen when it is
     None - read them (build_inputs). The memo is keyed by that build as the caller named it, so a read of it is a lock and
-    a comparison: the page pointer and the recorder file are looked at only when the memo misses. A build that commits
-    new pages expires the memo (expire_src_mtime), so the new build is measured at once. A document that sets nothing
-    apart has one answer whatever the build, and one memo key.
+    a comparison: the page pointer and the recorder file are looked at only when the memo misses. A build that swaps
+    the page pointer expires the memo at once (expire_src_mtime); a measurement that began before that expiry still
+    returns what it measured but does not store it, so the first read after the swap is made against the new build. A
+    document that sets nothing apart has one answer whatever the build, and one memo key.
 
     D.build, which the build populates via rsync, is normally under the state folder (i.e. outside D.src), but
     it is also excluded by name so that even the rare layout with the state directory inside the manuscript
@@ -890,12 +927,12 @@ def src_mtime(D: BuildDoc, state_dir: Path, force: bool = False, build: str | No
     The cache and its leaf lock belong to D; the file scan runs outside the lock."""
     cache = D.mcache
     key = (str(D.src), None if D.apart.empty else build)
-    if not force:
-        with D.mcache_lock:
-            ckey, at = cache[0], cache[2]
-            val: float = cache[1]
-            if ckey == key and time.time() - at < 2.0:
-                return val
+    with D.mcache_lock:
+        epoch = D.mcache_epoch
+        ckey, at = cache[0], cache[2]
+        val: float = cache[1]
+        if not force and ckey == key and time.time() - at < 2.0:
+            return val
     newest = 0.0
     if not D.builds_from_source:  # not built from a tree: that one file is the manuscript
         with contextlib.suppress(OSError):
@@ -905,7 +942,8 @@ def src_mtime(D: BuildDoc, state_dir: Path, force: bool = False, build: str | No
             with contextlib.suppress(OSError):
                 newest = max(newest, e.stat().st_mtime)
     with D.mcache_lock:
-        cache[0], cache[1], cache[2] = key, newest, time.time()
+        if D.mcache_epoch == epoch:  # not measured across an expiry: the answer is still about the build on screen
+            cache[0], cache[1], cache[2] = key, newest, time.time()
     return newest
 
 

@@ -107,6 +107,7 @@ class PlainDoc:
     builds_lock: threading.Lock = field(default_factory=threading.Lock)
     mcache: list = field(default_factory=lambda: [None, 0.0, 0.0])
     mcache_lock: threading.Lock = field(default_factory=threading.Lock)
+    mcache_epoch: int = 0
     builds_from_source: bool = True
     watches_files: bool = False
     apart: ApartPaths = NO_APART
