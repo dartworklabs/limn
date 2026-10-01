@@ -111,8 +111,8 @@ body.lay-narrow #bar1 #btn-doc{flex:none;overflow:visible}
 body.lay-narrow #btn-side{order:1}
 body.lay-narrow #btn-select{order:2}
 body.lay-narrow #btn-doc{order:3}
-body.lay-narrow #btn-rebuild{order:4}
-body.lay-narrow #btn-more{order:5}
+body.lay-narrow #btn-rebuild{order:5}
+body.lay-narrow #btn-more{order:6}
 body.lay-narrow #bar1 #btn-rebuild{flex:0 0 var(--tb-h);padding:0}
 body.lay-narrow #btn-rebuild .lbl{display:none}
 @media (max-width:360px){body.lay-narrow #btn-select .lbl{display:none}}   /* very narrow phone: [선택] is just the dashed-box icon (filled color when on) */
@@ -141,7 +141,7 @@ body.compact #c-actions{position:sticky;bottom:0;padding:8px 12px calc(8px + env
 @media (pointer:coarse){body.compact #c-actions{padding-top:0;padding-bottom:env(safe-area-inset-bottom);min-height:calc(var(--hit) + var(--space-3) + env(safe-area-inset-bottom));align-content:center}}
 body.compact #meta-txt,body.compact #me{display:none}
 body.compact #bar2:not(:has(.badge:not([hidden]))){display:none}
-body.compact:not(.side-open) #right>:not(#bar1):not(#bar2):not(#banner):not(#sheet-grip){display:none}
+body.compact:not(.side-open) #right>:not(#bar1):not(#bar2):not(#banner){display:none}
 body.compact:not(.side-open) #bar1{order:3;border-bottom:0}
 /* Toast placement (placeToasts): narrow is the full screen width right above the sheet; mid is the panel side just above the action row (inside its column if the panel is open). */
 body.lay-narrow #toasts{left:var(--space-2);right:var(--space-2);width:auto;max-width:none}
@@ -164,11 +164,27 @@ body.lay-narrow #right{position:fixed;left:0;right:0;bottom:var(--kb,0px);width:
 body.lay-narrow.side-open #right{height:min(calc(var(--sheet-f,.64) * 100dvh),calc(var(--vvh,100dvh) - 48px))}
 /* While composing the sheet rises to 80% (body.sheet-up, never saved) unless the user sets a height meanwhile (panel-size.js SHEET_KEPT). */
 body.lay-narrow.side-open.sheet-up #right{height:min(calc(max(var(--sheet-f,.64),.8) * 100dvh),calc(var(--vvh,100dvh) - 48px))}
-body.lay-narrow #sheet-grip{display:flex;align-items:center;justify-content:center;height:24px;flex:none;position:sticky;top:0;z-index:4;
-  background:var(--sidebar);border-radius:var(--radius-lg) var(--radius-lg) 0 0;touch-action:none;cursor:row-resize}
-body.lay-narrow #sheet-grip::before{content:'';width:40px;height:4px;border-radius:var(--radius-sm);background:var(--border-strong)}
+/* The sheet's header is one row (docs/handbook/viewer.md §패널 폭과 시트 높이): the handle is an item of the tool bar, between [문서] and
+   [재빌드], its bar drawn at the row's top like a sheet handle. It used to be a 24px row of its own whose hit area took the top 8px
+   of every tool-bar button (diagnosis P3). The row has no vertical padding: the buttons are drawn at --tb-h and their 44px hit areas
+   reach 4px down into the section head below, never up past the sheet's edge (the scroll box would clip them). */
+body.lay-narrow #sheet-grip{display:flex;align-items:flex-start;justify-content:center;flex:none;order:4;width:var(--hit);height:var(--tb-h);
+  margin:0 auto;padding-top:var(--space-1);touch-action:none;cursor:row-resize;position:relative}
+body.lay-narrow #sheet-grip::before{content:'';width:24px;height:4px;border-radius:var(--radius-sm);background:var(--border-strong)}
 body.lay-narrow #sheet-grip.on::before{background:var(--primary)}
-body.lay-narrow #bar1{top:24px;padding-top:0;touch-action:none}   /* the whole tool bar drags the sheet; its taps still press buttons */
+body.lay-narrow #bar1{top:0;padding:0 var(--space-2);border-bottom:0;touch-action:none}   /* the whole tool bar drags the sheet; its taps still press buttons */
+body.lay-narrow #sec-open>.sec-head{border-top:1px solid var(--border)}   /* the line under the tool bar is the section head's own (40px with it) */
+body.lay-narrow:not(.side-open) #bar1{padding-bottom:var(--space-1)}   /* the collapsed sheet: room for the hit areas below the row */
+@media (pointer:coarse){
+  body.lay-narrow #bar1{--tb-h:var(--ctl-touch)}
+  body.lay-narrow #bar1 :is(button,#sheet-grip){position:relative;min-height:0;overflow:clip;overflow-clip-margin:var(--space-2)}   /* the label still ellipsizes; the hit area below is not clipped */
+  body.lay-narrow #bar1 :is(button,#sheet-grip)::after{content:'';position:absolute;left:50%;top:0;width:max(100%,var(--hit));height:calc(var(--hit) + 2px);transform:translateX(-50%)}   /* +2px: a sheet at a fractional y loses a row to the edge */
+  /* The section head is 40px: its tools are drawn at 32px from 4px down, and their hit areas reach into the 8px under it. */
+  body.lay-narrow .sec-head{min-height:40px;padding:0 var(--space-3);margin-bottom:var(--space-2)}
+  body.lay-narrow .sec-head button{min-height:var(--ctl-touch-sm);height:var(--ctl-touch-sm);padding-top:0;padding-bottom:0;position:relative}
+  body.lay-narrow .sec-head button::after{content:'';position:absolute;left:50%;top:0;width:max(100%,var(--hit));height:calc(var(--hit) + 2px);transform:translateX(-50%)}
+}
+@media (min-width:480px){body.lay-narrow #bar1 button{flex:none}}   /* a small tablet's sheet never stretches the buttons (600px: [핀 5] was 218px wide) */
 /* ---- Spread-out folded layout / tablet (mid): the document nav bar on top, the action row on the bottom - both fixed to the full screen
    width, with the panel spread between them (docs/handbook/viewer.md §펼친 화면 레이아웃). It used to have the tool bar follow the panel, so [핀]
    jumped to the top-right when expanded and the bottom-right when collapsed (observed 842x758, y 56->693), and the document-side panel

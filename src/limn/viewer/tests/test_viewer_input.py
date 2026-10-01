@@ -50,6 +50,10 @@ PROBE = """() => {
 CLICKS = """() => {window.__clicks = []; document.addEventListener('click', e => {const t = e.target.closest('[data-act]') || e.target;
   window.__clicks.push((t.id || t.className || t.tagName) + (t.dataset && t.dataset.act ? '[' + t.dataset.act + ']' : ''));}, true);}"""
 NO_CLOSE_WATCHER = "delete window.CloseWatcher;"
+# The test build's PDF copies are stubs, so PDF.js falls back to PNG and shows the 'PNG 보기' status chip, which a real build never
+# shows; hidden where a test measures the status row's absence.
+NO_PNG_CHIP = """document.addEventListener('DOMContentLoaded',()=>{const v=document.getElementById('vec-chip'); if(!v)return; v.hidden=true;
+  new MutationObserver(()=>{if(!v.hidden)v.hidden=true;}).observe(v,{attributes:true});});"""
 
 
 def node_or_skip(test, js):
@@ -1306,17 +1310,21 @@ class PhoneSheet(ViewerBase):
         page.wait_for_function(visible + "===5")
 
 
-# Every visible element matching the selector that does not answer a tap anywhere in a 44x44 box around its centre (the
-# 21.5px points left/right/above/below), as "name WxH" - the touch twin of DesktopMisc's 24px probe. Off-screen ones are skipped.
+# Every visible element matching the selector whose tap area is under 44px wide or high, as "name WxH(hit wxh)": from its
+# centre, the px that still answer it going left/right/up/down (each side counted to 60px), as the diagnosis measured them - the
+# touch twin of DesktopMisc's 24px probe. A hit area may sit off-centre (the sheet's tool bar reaches only downwards).
 MISSES_44 = """sel => {
   const out = [];
+  const own = (e, x, y) => { if (x < 0 || y < 0 || x >= innerWidth || y >= innerHeight) return false;
+    const h = document.elementFromPoint(x, y); return !!h && (h === e || e.contains(h)); };
   for (const e of document.querySelectorAll(sel)) {
     const r = e.getBoundingClientRect(); if (!r.width || !r.height || getComputedStyle(e).visibility === 'hidden') continue;
-    if (r.top < 22 || r.bottom > innerHeight - 22 || r.left < 0 || r.right > innerWidth) continue;
-    const cx = r.left + r.width / 2, cy = r.top + r.height / 2;
-    const ok = [[-21.5, 0], [21.5, 0], [0, -21.5], [0, 21.5]].every(([dx, dy]) => {
-      const h = document.elementFromPoint(cx + dx, cy + dy); return !!h && (h === e || e.contains(h)); });
-    if (!ok) out.push((e.id ? '#' + e.id : e.className) + ' ' + Math.round(r.width) + 'x' + Math.round(r.height));
+    if (r.top < 0 || r.bottom > innerHeight || r.left < 0 || r.right > innerWidth) continue;
+    const cx = r.left + r.width / 2, cy = r.top + r.height / 2; let l = 0, ri = 0, u = 0, d = 0;
+    if (own(e, cx, cy)) { while (l < 60 && own(e, cx - l - 1, cy)) l++; while (ri < 60 && own(e, cx + ri + 1, cy)) ri++;
+      while (u < 60 && own(e, cx, cy - u - 1)) u++; while (d < 60 && own(e, cx, cy + d + 1)) d++; }
+    const w = l + ri + 1, h = u + d + 1;
+    if (w < 44 || h < 44) out.push((e.id ? '#' + e.id : e.className) + ' ' + Math.round(r.width) + 'x' + Math.round(r.height) + '(hit ' + w + 'x' + h + ')');
   }
   return out; }"""
 
@@ -1363,6 +1371,25 @@ class PhoneTouchSizes(ViewerBase):
             MISSES_44,
             "%s .head [data-act],%s .head [data-copy],%s .head button,#bar1 button" % (card, card, card),
         )
+        self.assertEqual(misses, [])
+
+    def test_the_sheet_header_is_80px_and_its_handle_and_section_tools_answer_44px(self):
+        """The sheet's stuck header was the handle row 24 + the tool bar 53 + the section head 52 = 129px (diagnosis P3); the handle
+        now sits in the tool bar's row, so the header (below the sheet's 1px edge, as the diagnosis measured it) is the 40px row
+        and the 40px section head, and every control in it -
+        the handle included (it answered 121x32) - still answers a 44x44 box."""
+        page = self.view(PHONE, prefs={"sec": {"open": True, "review": True, "done": True}}, init=NO_PNG_CHIP)
+        page.evaluate("()=>{setSide(true); document.querySelector('#right').scrollTop=0;}")
+        settle(page)
+        head = page.evaluate(
+            "Math.round(document.querySelector('#sec-open .sec-head').getBoundingClientRect().bottom"
+            "-document.querySelector('#bar1').getBoundingClientRect().top)"
+        )
+        self.assertLessEqual(head, 80)
+        self.assertTrue(
+            page.evaluate("document.querySelector('#bar1').contains(document.querySelector('#sheet-grip'))")
+        )
+        misses = page.evaluate(MISSES_44, "#bar1 button,#sheet-grip,#sec-open .sec-head button")
         self.assertEqual(misses, [])
 
     def test_no_text_on_a_touch_screen_is_below_12px(self):

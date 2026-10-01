@@ -1245,7 +1245,11 @@ class FrontendPanelTidyStructure(unittest.TestCase):
         tag = re.search(r'<div id="sheet-grip"[^>]*>', HTML).group(0)
         self.assertIn('role="separator"', tag)
         self.assertIn('aria-orientation="horizontal"', tag)
-        self.assertIn(":not(#sheet-grip){display:none}", HTML)  # the grip stays even on a collapsed sheet
+        # the grip is an item of the tool bar's row (input diagnosis P3: its own 24px row took the buttons' top 8px), so it stays
+        # with the tool bar on a collapsed sheet
+        bar = HTML[HTML.index('<div class="bar" id="bar1"') : HTML.index('<div class="bar" id="bar2"')]
+        self.assertIn('<div id="sheet-grip"', bar)
+        self.assertIn("body.compact:not(.side-open) #right>:not(#bar1):not(#bar2):not(#banner){display:none}", HTML)
         self.assertIn("var(--sheet-f,.64)", HTML)
         more = HTML[HTML.index('<dialog id="more"') : HTML.index('<dialog id="help"')]
         self.assertIn('id="m-size"', more)

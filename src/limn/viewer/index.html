@@ -27,8 +27,8 @@ document.documentElement.setAttribute('lang',window.LIMN_LANG);
 <div id="toasts" role="status" aria-live="polite"></div>
 <div id="grip" role="separator" aria-orientation="vertical" aria-controls="right" aria-label="패널 폭" tabindex="0" data-tip="끌어서 패널 폭을 바꿉니다. 오른쪽 끝까지 끌면 접힙니다. 탭(마우스는 두 번 클릭)하면 좁게 → 보통 → 넓게 순으로 바뀝니다. 키보드: ←/→ 16px, Home/End 최소/최대, Enter 접기·펴기"></div>
 <div id="right">
-  <div id="sheet-grip" role="separator" aria-orientation="horizontal" aria-controls="right" aria-label="시트 높이" tabindex="0" data-tip="끌어서 시트 높이를 바꿉니다. 탭하면 낮게 → 보통 → 높게 순으로 바뀌고, 끝까지 내리면 접힙니다"></div>
   <div class="bar" id="bar1" role="toolbar" aria-label="도구">
+    <div id="sheet-grip" role="separator" aria-orientation="horizontal" aria-controls="right" aria-label="시트 높이" tabindex="0" data-tip="끌어서 시트 높이를 바꿉니다. 탭하면 낮게 → 보통 → 높게 순으로 바뀌고, 끝까지 내리면 접힙니다"></div>
     <button id="btn-doc" data-act="doc-menu" aria-haspopup="dialog" aria-label="문서 바꾸기" data-tip="이 논문의 다른 문서(답변서·커버레터 등)로 바꿉니다"><span class="nm" id="btn-doc-n">문서</span><span id="btn-doc-dot" class="ddot" hidden></span>{{ic:chevron-down}}</button>
     <button id="btn-side" class="cmp" data-act="side" aria-controls="right" aria-expanded="false" data-tip="핀 목록과 선택한 자리 패널을 펴고 접습니다. 보라색 숫자는 검토 대기(에이전트가 닫고 사람의 확인을 기다리는 핀) 수입니다">핀 <b id="side-n" class="side-n">0</b><span id="side-rv" class="rv-n" hidden></span><span class="c-dot" hidden></span><span id="side-arrow" aria-hidden="true">{{ic:chevron-up}}</span></button>
     <button id="btn-select" class="tch" data-act="selmode" aria-pressed="false" data-tip="켜면 PDF 위를 끌어서 영역을 고르고, 탭하면 그 자리 문단을 고릅니다. 끄면 보통처럼 스크롤·확대됩니다">{{ic:square-dashed}}<span class="lbl">선택</span></button>

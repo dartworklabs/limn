@@ -74,7 +74,7 @@ function settleSheet(f,dy,v){const r=sheetRelease(f,dy,v,draftOpen()); if(r.clos
 // The height a dragged sheet shows: never below 12% - or 30% while a draft is open, where it will stop anyway. A drag ends the
 // composing lift (keepSheet): from here the finger sets the height.
 function dragSheetTo(h){keepSheet(); document.documentElement.style.setProperty('--sheet-f',String(Math.max(draftOpen()?SHEET_MIN_F:0.12,h/innerHeight)));}
-// Sheet height (narrow): the top-edge handle and the whole tool bar move the sheet. On the handle a drag starts at once (6px); on
+// Sheet height (narrow): the handle in the tool bar's row and the whole tool bar move the sheet. On the handle a drag starts at once (6px); on
 // the tool bar a vertical move of more than 8px on a button turns into a sheet drag and swallows that button's click. Dragging
 // up opens a collapsed sheet; the release is sheetRelease(). A tap on the handle opens it or cycles the heights, and swallows the
 // ghost click that would otherwise land on whatever moved under the finger.
@@ -83,7 +83,7 @@ function dragSheetTo(h){keepSheet(); document.documentElement.style.setProperty(
   // (lazy - its buttons keep their taps); end = settle by sheetRelease(), or a handle tap.
   const grab=e=>{try{D.el.setPointerCapture(e.pointerId);}catch(_){} D.el.classList.add('on'); document.body.classList.add('resizing');};
   const down=(e,lazy)=>{if(LAYOUT!==LAYOUT_MODE.NARROW||!e.isPrimary||(e.pointerType==='mouse'&&e.button!==0))return;
-    if(lazy&&e.target.closest&&e.target.closest('input,textarea,select'))return;
+    if(lazy&&e.target.closest&&e.target.closest('input,textarea,select,#sheet-grip'))return;   // the handle (inside the bar) already grabbed
     D={id:e.pointerId,x:e.clientX,y:e.clientY,h:$('#right').getBoundingClientRect().height,moved:false,lazy,el:lazy?bar:g,pts:[]};
     if(!lazy){e.preventDefault(); grab(e);}};
   g.addEventListener('pointerdown',e=>down(e,false));

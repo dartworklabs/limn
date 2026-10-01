@@ -74,12 +74,12 @@ function toggleSide(){const open=!SIDE_OPEN,a=document.activeElement; setSide(op
 // The first drag-collapse on a wide screen says once how to bring the panel back (it leaves only a 6px rail behind).
 function coachSideCollapsed(){if(LAYOUT===LAYOUT_MODE.WIDE&&!SIDE_OPEN)coach('side','핀 패널은 오른쪽 위 [핀 N] 또는 Ctrl+\\ 로 다시 엽니다');}
 function relayout(){const a=topAnchor(); applyLayout(); applySideWidth(); applyOutlineState();autoW(); restoreAnchor(a); hideTip(); if(COMPOSE.current)renderComposer(); stickTop();updateSectionStrip();}
-// The height a list section header (sticky) sticks below. In compact, #right is the scroll box and the tool bar (#bar1, below the
-// sheet handle in narrow) is already stuck above it, so the header sticks below that. In wide, #list itself is the scroll box, so this is 0.
+// The height a list section header (sticky) sticks below. In compact, #right is the scroll box and the tool bar (#bar1, which holds
+// the sheet handle in narrow) is already stuck above it, so the header sticks below that. In wide, #list itself is the scroll box, so this is 0.
 function stickTop(){let t=0; const b=$('#bar1');
   if(LAYOUT!==LAYOUT_MODE.WIDE&&b){const cs=getComputedStyle(b); if(cs.position==='sticky')t=Math.round((parseFloat(cs.top)||0)+b.offsetHeight);}
   document.documentElement.style.setProperty('--stick-top',t+'px');}
-if(window.ResizeObserver)new ResizeObserver(()=>stickTop()).observe($('#bar1'));
+if(window.ResizeObserver)new ResizeObserver(()=>stickTop()).observe($('#bar1'),{box:'border-box'});   // padding-only changes (the collapsed sheet) count
 let RELAY=0;
 function scheduleRelayout(){if(RELAY)return; RELAY=requestAnimationFrame(()=>{RELAY=0; if(META)relayout(); else applyLayout();});}
 window.addEventListener('resize',scheduleRelayout);
