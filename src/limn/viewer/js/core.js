@@ -39,7 +39,7 @@ const DIFF_FORMAT=Object.freeze({PDF:'pdf',SOURCE:'source'});   // the changes v
 const VIEW_MODE=Object.freeze({MANUSCRIPT:'manuscript',REVISIONS:'revisions'});   // the manuscript or the changes view; index.html data-mode
 const UI_LANG=Object.freeze({KO:'ko',EN:'en'});   // LANG
 const NOTIFY_STATE=Object.freeze({ON:'on',OFF:'off',BLOCKED:'blocked',UNSUPPORTED:'unsupported',LOCAL:'local'});   // browser notifications on this device (notifyState)
-const STATUS_KIND=Object.freeze({FAILED:'failed',ERRORS:'errors',OFFLINE:'offline',BUILDING:'building',RENDERING:'rendering',SYNC_BLOCKED:'sync-blocked',STALE:'stale',SYNC:'sync',PNG:'png'});   // an item of the status line (statusList)
+const STATUS_KIND=Object.freeze({FAILED:'failed',ERRORS:'errors',OFFLINE:'offline',BUILDING:'building',RENDERING:'rendering',SYNC_BLOCKED:'sync-blocked',UNCHANGED:'unchanged',STALE:'stale',SYNC:'sync',PNG:'png'});   // an item of the status line (statusList)
 // Each band's layout mode (docs/handbook/viewer.md §모바일 레이아웃): the sheet (narrow), the panel between the nav bar and the
 // action row (mid) or the desktop (wide). Code that only asks which of the three reads LAYOUT; code that differs per band reads BAND.
 const BAND_MODE=Object.freeze({[LAYOUT_BAND.PHONE]:LAYOUT_MODE.NARROW,[LAYOUT_BAND.TABLET_SHEET]:LAYOUT_MODE.NARROW,[LAYOUT_BAND.SHORT]:LAYOUT_MODE.MID,[LAYOUT_BAND.MID_OVERLAY]:LAYOUT_MODE.MID,[LAYOUT_BAND.MID_SIDE]:LAYOUT_MODE.MID,[LAYOUT_BAND.WIDE]:LAYOUT_MODE.WIDE});

@@ -5,17 +5,20 @@
 // its status chips (#bar2) and draws no line. The line is the compact face of those chips: whenever one of them changes
 // (a MutationObserver on #bar2) it is drawn again from the state they come from.
 let STATUS_SYNC=null,STATUS_SIG='',STATUS_SAID='';   // the last meta `sync`; the drawn item's kind, action and count; the label read out last
+const STATUS_TRANSIENT_MS=6000;   // a passing answer (no changes) stays on the line as long as a toast stays (api-toasts.js)
 
 // A build's countable progress {done, total}: integers with total > 0 and 0 <= done <= total, else null - as if the field were
 // missing (GET /api/build `progress`, a proposal; without it the bar does not know its end). Pure.
 function statusProgress(pr){if(!pr||typeof pr!=='object')return null; const {done,total}=pr;
   return Number.isInteger(done)&&Number.isInteger(total)&&total>0&&done>=0&&done<=total?{done,total}:null;}
 
-// The items the status line shows for s = {build, buildErr, offline, sync, stale, png, canRebuild} (statusInput), highest
-// priority first: the last build failed or had LaTeX errors; the connection is lost; a build runs (rendering in the page
-// render, else building); main sync is blocked; the PDF is older than its source - not while a build runs, which clears it;
-// main sync is under way; the PDF shows as PNG. Each item is {kind, act} plus what its text needs; act is the data-act of its
-// one action, or null - [재빌드] only where canRebuild (a LaTeX document and a person who may build). The phase whose work can
+// The items the status line shows for s = {build, buildErr, offline, sync, stale, png, canRebuild, unchanged} (statusInput),
+// highest priority first: the last build failed or had LaTeX errors; the connection is lost; a build runs (rendering in the
+// page render, else building); main sync is blocked; this tab's rebuild changed nothing (unchanged, for a toast's time);
+// the PDF is older than its source - not while a build runs, which clears it, nor while the unchanged answer says the
+// rebuild found nothing new (the line would contradict itself); main sync is under way; the PDF shows as PNG. Each item is {kind, act} plus what
+// its text needs; act is the data-act of its one action, or null - [재빌드] and [그래도 빌드] (rebuild-force, a cold build)
+// only where canRebuild (a LaTeX document and a person who may build). The phase whose work can
 // be counted - the page render, whose progress field gives pages done of total - is looked up, not compared. Pure.
 function statusList(s){const out=[],b=s.build,running=!!b&&b.state===BUILD_STATE.RUNNING,e=s.buildErr,sy=s.sync&&s.sync.state;
   if(e&&e.state===BUILD_STATE.FAIL)out.push({kind:STATUS_KIND.FAILED,act:'build-err-reopen'});
@@ -24,7 +27,8 @@ function statusList(s){const out=[],b=s.build,running=!!b&&b.state===BUILD_STATE
   if(running)out.push({kind:{render:STATUS_KIND.RENDERING}[b.phase]||STATUS_KIND.BUILDING,phase:b.phase||'',el:Math.round(b.elapsed_s||0),
     last:b.last_s?Math.round(b.last_s):0,progress:statusProgress(b.progress),act:null});
   if(sy===SYNC_STATE.BLOCKED||sy===SYNC_STATE.ERROR)out.push({kind:STATUS_KIND.SYNC_BLOCKED,reason:s.sync.reason||'',act:'status-why'});
-  if(s.stale&&!running)out.push({kind:STATUS_KIND.STALE,act:s.canRebuild?'rebuild':null});
+  if(s.unchanged&&!running)out.push({kind:STATUS_KIND.UNCHANGED,pull:s.unchanged.pull||'',act:s.canRebuild?'rebuild-force':null});
+  if(s.stale&&!running&&!s.unchanged)out.push({kind:STATUS_KIND.STALE,act:s.canRebuild?'rebuild':null});
   if(sy===SYNC_STATE.CHECKING||sy===SYNC_STATE.DEFERRED||sy===SYNC_STATE.UPDATING||sy===SYNC_STATE.UPDATED)out.push({kind:STATUS_KIND.SYNC,state:sy,act:null});
   if(s.png)out.push({kind:STATUS_KIND.PNG,act:null});
   return out;}
@@ -48,6 +52,7 @@ function statusText(item,fit){const long=fit!=='short';
       const s=tl('{s}초',{s:item.el});
       return [name,long?' · '+s+(item.last?' '+tl('(지난번 {s}초)',{s:item.last}):''):' '+s];}
     case STATUS_KIND.SYNC_BLOCKED:return [long?tl('main 동기화 확인 필요 · {reason}',{reason:tr(SYNC_REASON[item.reason]||item.reason||'')}):tr('main 동기화 막힘'),''];
+    case STATUS_KIND.UNCHANGED:return [tr('변경 없음')+(long?item.pull||'':''),''];
     case STATUS_KIND.STALE:return [long?tr('원고가 PDF보다 새롭습니다'):tr('원고 수정됨'),''];
     case STATUS_KIND.SYNC:return [tr(item.state===SYNC_STATE.UPDATING?'최신 main PDF 반영 중':item.state===SYNC_STATE.UPDATED?'최신 main 반영됨':
       item.state===SYNC_STATE.DEFERRED?'빌드 뒤 main 확인':'main 확인 중'),''];
@@ -62,19 +67,30 @@ function statusIcon(item){const K=STATUS_KIND;
   if(item.kind===K.OFFLINE)return '<span class="st-ic">'+ic('wifi-off')+'</span>';
   if(item.kind===K.STALE)return '<span class="st-ic"><i class="st-stale"></i></span>';
   if(item.kind===K.PNG)return '<span class="st-ic">'+ic('image')+'</span>';
-  if(item.kind===K.SYNC&&item.state===SYNC_STATE.UPDATED)return '<span class="st-ic">'+ic('check')+'</span>';
+  if(item.kind===K.UNCHANGED||item.kind===K.SYNC&&item.state===SYNC_STATE.UPDATED)return '<span class="st-ic">'+ic('check')+'</span>';
   return '<span class="st-ic"><i class="spin"></i></span>';}
 
-// An item's one action as a button (its data-act; [재빌드] is the line's one primary fill), or '' without one.
+// An item's one action as a button (its data-act; [재빌드] is the line's one primary fill), or '' without one. [그래도 빌드]
+// carries 0.4.5's tip on what a cold build is for.
 function statusAct(item){if(!item.act)return '';
-  const name=item.act==='rebuild'?tr('재빌드'):item.act==='status-why'?tr('이유'):tr('보기');
-  return '<button class="btn-sm st-act '+(item.act==='rebuild'?'btn-default':'btn-secondary')+'" data-act="'+item.act+'">'+esc(name)+'</button>';}
+  const force=item.act==='rebuild-force',name=item.act==='rebuild'?tr('재빌드'):item.act==='status-why'?tr('이유'):force?tr(T.buildanyway):tr('보기');
+  return '<button class="btn-sm st-act '+(item.act==='rebuild'?'btn-default':'btn-secondary')+'" data-act="'+item.act+'"'+
+    (force?' data-tip="'+esc(T.buildanywaytip)+'"':'')+'>'+esc(name)+'</button>';}
 
 // What the status line is drawn from, gathered from the shell: the running build (BUILD.cur) and the last failed one, the
 // light poll's failures, the last meta `sync`, and the chips that already say stale and PNG - plus whether this document and
 // person may rebuild.
 function statusInput(){return {build:BUILD.cur,buildErr:BUILD.error,offline:POLL_FAILS>=2,sync:STATUS_SYNC,stale:!$('#meta-stale').hidden,
-  png:!$('#vec-chip').hidden,canRebuild:!!META&&buildsFromSource(META.kind)&&!isViewer()};}
+  png:!$('#vec-chip').hidden,canRebuild:!!META&&buildsFromSource(META.kind)&&!isViewer(),unchanged:BUILD.unchanged};}
+
+// The answer to this tab's rebuild that kept the pages (0.4.5: ok, unchanged, the same seq), with [그래도 빌드] for a cold
+// build. The desktop says it in a toast, as 0.4.5 does. The compact bands keep rebuild on the status line, so the line says
+// it, for as long as a toast would stay (STATUS_TRANSIENT_MS), then shows what it showed before; a build that starts, a
+// document switch or [그래도 빌드] ends it sooner.
+function buildUnchanged(b){
+  if(LAYOUT===LAYOUT_MODE.WIDE){toast(tr(T.nochange)+pullSuffix(b),'ok',{label:T.buildanyway,tip:T.buildanywaytip,fn:()=>rebuild(true)}); return;}
+  const mark={pull:pullSuffix(b)}; BUILD.unchanged=mark; drawStatus();
+  setTimeout(()=>{if(BUILD.unchanged!==mark)return; BUILD.unchanged=null; drawStatus();},STATUS_TRANSIENT_MS);}
 
 // Draws the status line from statusInput(): the first item with its icon, its text (the long form, the short one where the
 // long does not fit and always in the short band's top row, then an ellipsis), '+N' for the rest and its action, and a 2px progress bar while a build runs - counted

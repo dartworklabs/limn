@@ -362,6 +362,7 @@ class StatusLogic(unittest.TestCase):
         "stale": False,
         "png": False,
         "canRebuild": True,
+        "unchanged": False,
     }
 
     def items(self, **s):
@@ -415,6 +416,18 @@ class StatusLogic(unittest.TestCase):
                 got = self.items(build=dict(render, progress=bad))
                 self.assertEqual((got[0]["kind"], got[0]["progress"]), ("rendering", None))
 
+    def test_a_rebuild_that_changed_nothing_says_so_with_build_anyway(self):
+        """After this tab's rebuild ended unchanged (0.4.5: ok, unchanged, the same seq), the line says so with [그래도 빌드]
+        (rebuild-force, a cold build). Meanwhile it does not also call the PDF stale - the rebuild just found nothing new -
+        and it never shows while a build runs, which is the answer to that action; without rebuild rights, no action."""
+        running = {"state": "running", "phase": "copy", "elapsed_s": 0, "last_s": 8}
+        self.assertEqual(self.kinds(unchanged=True), ["unchanged"])
+        self.assertEqual(self.items(unchanged=True)[0]["act"], "rebuild-force")
+        self.assertIsNone(self.items(unchanged=True, canRebuild=False)[0]["act"])
+        self.assertEqual(self.kinds(unchanged=True, stale=True), ["unchanged"])
+        self.assertEqual(self.kinds(unchanged=True, png=True), ["unchanged", "png"])
+        self.assertEqual(self.kinds(unchanged=True, build=running), ["building"])
+
     def test_only_a_rebuildable_document_offers_rebuild(self):
         """The stale item's [재빌드] is there for a LaTeX document and a person who may rebuild; a figure document or the
         viewer role sees the line without the action. A failed build's action reopens the error; blocked sync's says why."""
@@ -434,6 +447,7 @@ class StatusLogic(unittest.TestCase):
             "err1": {"kind": "errors", "n": 1},
             "err2": {"kind": "errors", "n": 2},
             "off": {"kind": "offline"},
+            "same": {"kind": "unchanged"},
         }
         out = {}
         for lang in ("ko", "en"):
@@ -460,6 +474,8 @@ class StatusLogic(unittest.TestCase):
         self.assertEqual(out["en"]["err1"], [["1 LaTeX error · new PDF", ""], ["1 LaTeX error", ""]])
         self.assertEqual(out["en"]["err2"], [["2 LaTeX errors · new PDF", ""], ["2 LaTeX errors", ""]])
         self.assertEqual(out["en"]["render"], [["Rendering pages", " · 12/25"], ["Pages", " 12/25"]])
+        self.assertEqual(out["ko"]["same"], [["변경 없음", ""], ["변경 없음", ""]])  # 0.4.5's words
+        self.assertEqual(out["en"]["same"], [["No changes", ""], ["No changes", ""]])
         self.assertFalse(any(HANGUL.search(a + b) for pair in out["en"].values() for a, b in pair))
 
 
@@ -3336,6 +3352,11 @@ class BarAndSheets(ViewerBase):
         GET /api/meta (full and light) saying stale_build while self.stale is set."""
         path = urlparse(route.request.url).path
         fake = getattr(self, "fake_build", None)
+        if path == "/api/rebuild" and hasattr(
+            self, "rebuilds"
+        ):  # a rebuild asked for: recorded, accepted, nothing runs
+            self.rebuilds.append(urlparse(route.request.url).query)
+            return route.fulfill(status=202, headers={"content-type": "application/json"}, body='{"ok":true}')
         if fake and path == "/api/build":
             return route.fulfill(status=200, headers={"content-type": "application/json"}, body=json.dumps(fake))
         if getattr(self, "stale", False) and path == "/api/meta":
@@ -3381,6 +3402,31 @@ class BarAndSheets(ViewerBase):
         self.assertEqual(page.evaluate(STATUS_LINE)["text"], "쪽 그리는 중 · 12/25쪽")
         self.fake_build = None
         page.wait_for_function("document.querySelector('#status').hidden")
+
+    def test_a_rebuild_that_changed_nothing_says_so_on_the_line_with_build_anyway(self):
+        """411x908, a stale PDF: [재빌드] on the line, and the build answers ok, unchanged, the same seq (0.4.5). On compact
+        bands the line, where rebuild lives, says '변경 없음' with [그래도 빌드] - no toast. That posts force=1 and the line
+        moves on. Left alone, the answer goes after a toast's six seconds and the stale PDF shows again."""
+        self.rebuilds = []
+        page = self.stale_view(BAR_PHONES[0])
+        self.fake_build = {"state": "ok", "seq": page.evaluate("BUILD.lastSeq"), "unchanged": True, "elapsed_s": 0.2}
+        page.click("#status [data-act=rebuild]")
+        page.wait_for_selector("#status [data-act=rebuild-force]")
+        got = page.evaluate(STATUS_LINE)
+        self.assertEqual((got["text"], got["acts"]), ("변경 없음", ["rebuild-force"]))
+        self.assertEqual(page.locator("#toasts .toast").count(), 0)
+        self.assertEqual(page.evaluate(MISSES_44, "#status button"), [])
+        self.fake_build = None
+        page.click("#status [data-act=rebuild-force]")
+        page.wait_for_function("!document.querySelector('#status [data-act=rebuild-force]')")
+        settle(page)
+        self.assertEqual(self.rebuilds, ["async=1&doc=main", "async=1&force=1&doc=main"])
+        self.fake_build = {"state": "ok", "seq": page.evaluate("BUILD.lastSeq"), "unchanged": True}
+        page.click("#status [data-act=rebuild]")
+        page.wait_for_selector("#status [data-act=rebuild-force]")
+        shown = time.monotonic()
+        page.wait_for_selector("#status [data-act=rebuild]", timeout=10000)
+        self.assertGreaterEqual(time.monotonic() - shown, 5.5)
 
     def test_typing_hides_the_status_line_and_a_toast_floats_over_its_hit(self):
         """While the note has focus the line steps aside for the keyboard; a toast sits above the line's action hit (20px
