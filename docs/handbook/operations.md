@@ -332,7 +332,7 @@ curl -s -X POST http://127.0.0.1:<port>/api/rebuild | head -c 200   # state 가 
 ├── build/                    # rsync 사본 + latexmk 산출물 (원본 체크아웃 아님)
 ├── pages.cur                 # 지금 쪽 이미지 디렉토리 이름(포인터, 원자적 교체)
 ├── builds.json               # 빌드 이력(build id·원고 지문·seq·마지막 결과) — 위치 추정·build_seq 원천
-├── pages-<build_id>/         # page-*.png + 짝이 맞는 PDF·synctex·aux 사본과 latexmk 의 .fls (현재와 직전 1개만 유지)
+├── pages-<build_id>/         # page-*.png + 짝이 맞는 PDF·synctex·aux 사본, latexmk 의 .fls, 빌드 방식 recipe.json (현재와 직전 1개만 유지)
 ├── pages/                    # 옛 배치 — pages.cur 가 없으면 이것을 그대로 쓴다
 ├── pins.jsonl                # 현재 핀 전체(매번 원자적으로 다시 씀)
 ├── pins.seq                  # 마지막으로 발급한 id

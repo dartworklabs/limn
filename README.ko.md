@@ -41,7 +41,7 @@ PDF 에서 고칠 곳을 드래그하고 메모를 남기면 Limn 이 그것을 
 ## 설치
 
 Python 3.10 이상, [uv](https://docs.astral.sh/uv/), SyncTeX 가 되는 TeX 배포판(`latexmk`/`pdflatex`),
-Poppler(`pdftoppm`)가 필요하다.
+Poppler(`pdftoppm`·`pdfinfo`)가 필요하다.
 
 ```bash
 uv tool install git+https://github.com/dartworklabs/limn@v0.4.4

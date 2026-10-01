@@ -2,6 +2,7 @@
 
 import contextlib
 import hashlib
+import json
 import os
 import re
 import shutil
@@ -10,7 +11,7 @@ import stat
 import subprocess
 import threading
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from pathlib import Path, PurePosixPath
@@ -260,19 +261,49 @@ def _file_digest(f: Path) -> bytes | None:
     return h.digest()
 
 
-def _reads_digest(D: BuildDoc, fls_text: str) -> str:
-    """warm.reads_digest of what the build copy holds now for a build whose recorder file says fls_text: the latexmkrc
-    files latexmk reads, in the folder it runs in and in the build root, and every file the .fls lists as read
-    (warm.fls_reads, any suffix) that the manuscript itself has - a file latexmk or a tool made in the copy is not part
-    of the manuscript and is left out. Only files inside the copy are opened."""
-    roots = (str(D.build), str(D.build.resolve()))
-    read = sorted(r for r in warm.fls_reads(fls_text, str(D.out), roots) if (D.src / r).is_file())
+def _stat_token(f: str) -> bytes | None:
+    """f's mtime_ns and size as bytes, or None when it cannot be stat'ed - how a file outside the copy is compared."""
+    try:
+        st = os.stat(f)
+    except OSError:
+        return None
+    return b"%d:%d" % (st.st_mtime_ns, st.st_size)
+
+
+def _reads_digest(D: BuildDoc, reads: warm.Reads) -> str:
+    """warm.reads_digest of what reads names, as the build copy and the machine hold it now: the latexmkrc files latexmk
+    reads (in the folder it runs in and in the build root) and each file inside the copy by its bytes, each file outside
+    it by its mtime_ns and size - a TeX Live update or a .sty on TEXINPUTS changes them, and a stat costs far less than a
+    read. Only the copy's files are opened."""
     rc = [
         ((folder / name).relative_to(D.build).as_posix(), _file_digest(folder / name))
         for folder in dict.fromkeys((D.out, D.build))
         for name in warm.LATEXMKRC_NAMES
     ]
-    return warm.reads_digest(rc, [(r, _file_digest(D.build / r)) for r in read])
+    inside = [(r, _file_digest(D.build / r)) for r in sorted(reads.inside)]
+    outside = [(f, _stat_token(f)) for f in sorted(reads.outside)]
+    return warm.reads_digest(rc, inside, outside)
+
+
+def _build_reads(D: BuildDoc, fls_text: str) -> warm.Reads:
+    """What a build read, from its recorder file's text and the copy's .fdb_latexmk (bibtex's, biber's and makeindex's
+    sources, which the .fls never lists): inside the copy, only the files the manuscript itself has - a file latexmk or a
+    tool made in the copy (an epstopdf conversion) is not part of it and every build makes it anew."""
+    roots = (str(D.build), str(D.build.resolve()))
+    fdb = build.read_recorder(D.out / (D.main.stem + ".fdb_latexmk"))
+    found = warm.union(
+        warm.fls_reads(fls_text, str(D.out), roots),
+        warm.fdb_sources(fdb, str(D.out), roots) if fdb is not None else warm.NO_READS,
+    )
+    return warm.Reads(frozenset(r for r in found.inside if (D.src / r).is_file()), found.outside)
+
+
+def _stored_recipe(folder: Path) -> object:
+    """The recipe a page folder holds (warm.RECIPE_NAME) as parsed JSON, or None when it has none or it is unreadable."""
+    try:
+        return json.loads((folder / warm.RECIPE_NAME).read_text(encoding="utf-8"))
+    except (OSError, ValueError, RecursionError):
+        return None
 
 
 def _signature(f: Path) -> tuple[int, int, int] | None:
@@ -318,17 +349,18 @@ def _compile(D: BuildDoc, cfg: BuildConfig, pull: Callable[[], Json] | None, for
     main_rel = PurePosixPath(D.main_rel.as_posix())
 
     # The no-change skip: the copy, read as the build on screen read its manuscript (that build's .fls), has that build's
-    # fingerprint and recipe - dpi, main file, switches, and the latexmkrc files and every file its .fls says it read -
-    # after an ok last build, so its pages are what this build would make. No .fls kept with it: what it read is
-    # unknown, so it is rebuilt.
+    # fingerprint, and that build's recipe (its page folder's recipe.json: dpi, main file, switches, and the files it
+    # read with their digest) still holds over the copy and the machine now, after an ok last build - so its pages are
+    # what this build would make. A build on screen without a .fls or a recipe (recorder off, an older Limn) is rebuilt.
     cur = build.cur_pages(D)
-    cur_fls = build.read_recorder(cur / (D.main.stem + ".fls")) if cur.is_dir() else None
-    if not force and scan is not None and cur_fls is not None:
+    stored = _stored_recipe(cur) if (cur / (D.main.stem + ".fls")).is_file() else None
+    stored_reads = warm.stored_reads(stored)
+    if not force and scan is not None and stored_reads is not None:
         cur_reads = build.read_in_scan(scan, build.build_inputs(D, cur.name))
         seen = build.fingerprint_of(build.without_apart(D, scan, cur_reads))
         pages = len(list(cur.glob("page-*.png")))
-        cur_recipe = warm.recipe(cfg.dpi, main_rel, LATEXMK_ARGS, _reads_digest(D, cur_fls))
-        if pages and warm.keeps_pages(build.load_builds(D), cur.name, seen, cur_recipe):
+        holds = warm.recipe_matches(stored, cfg.dpi, main_rel, LATEXMK_ARGS, _reads_digest(D, stored_reads))
+        if pages and holds and warm.keeps_pages(build.load_builds(D), cur.name, seen):
             compiled_at = max(compiled_at, build.newest_read_apart(D, scan, cur_reads))
             head = _published_head(D)
             atomic_write(D.dir / "head.txt", head)
@@ -361,19 +393,29 @@ def _compile(D: BuildDoc, cfg: BuildConfig, pull: Callable[[], Json] | None, for
         logtxt = out
     errors = latex_errors(logtxt)
 
-    # A warm copy that latexmk found up to date wrote nothing new: its PDF, SyncTeX, .aux and .fls are the last run's,
-    # which matched the manuscript then and still do. Only a warm copy is trusted so: a cold one has no fdb of its own.
-    settled = bool(keep) and rc == 0 and not timed_out and warm.up_to_date(out)
+    # A warm copy where latexmk compiled nothing: the PDF, SyncTeX and .aux it left are the last run's, which matched the
+    # manuscript then and still do. latexmk prints its up-to-date line after every successful run, so the line alone
+    # proves nothing: this run must have left the PDF untouched, and latexmk's target must be exactly <main>.pdf
+    # (warm.vouched; an $out_dir or -jobname names another).
+    settled = warm.vouched(out, D.main.stem, bool(keep), rc, timed_out, before[pdf], _signature(pdf))
 
     def current(f: Path) -> bool:
         """f is a plain file this run wrote, or one that latexmk vouched for (settled)."""
         return written(f) or (settled and _signature(f) is not None)
 
+    def as_on_screen(f: Path) -> bool:
+        """f has the bytes of the file of its name published with the build on screen."""
+        try:
+            return f.read_bytes() == (cur / f.name).read_bytes()
+        except OSError:
+            return False
+
     # What this run read: the figure-set files of another document that the manuscript uses count as part of it. Only a
-    # recorder file this run wrote (or a warm latexmk vouched for) says so - a main.fls shipped with the manuscript is the
-    # copy's, not latexmk's - and only the files the scan before latexmk had. A damaged recorder file must not fail a
-    # build that made its pages.
-    recorder: Path | None = fls if current(fls) else None
+    # recorder file this run wrote says so - a main.fls shipped with the manuscript is the copy's, not latexmk's - and
+    # only the files the scan before latexmk had. When latexmk vouched for the copy, its kept .fls counts only if it is
+    # the one published with the build on screen; otherwise none is published, and the next rebuild cannot skip. A
+    # damaged recorder file must not fail a build that made its pages.
+    recorder: Path | None = fls if written(fls) or (settled and as_on_screen(fls)) else None
     reads: frozenset[str] = frozenset()
     if scan is not None and recorder is not None and not D.apart.empty:
         try:
@@ -397,14 +439,16 @@ def _compile(D: BuildDoc, cfg: BuildConfig, pull: Callable[[], Json] | None, for
     extra = [syn]
     if current(aux):
         extra.append(aux)
-    fls_text = None
-    if recorder is not None:
+    notes: dict[str, str] = {}
+    fls_text = build.read_recorder(recorder) if recorder is not None else None
+    if recorder is not None and fls_text is not None:
         extra.append(recorder)  # what this build read, kept with its pages (build.build_inputs reads it back)
-        fls_text = build.read_recorder(recorder)
-    build_recipe = warm.recipe(
-        cfg.dpi, main_rel, LATEXMK_ARGS, None if fls_text is None else _reads_digest(D, fls_text)
-    )
-    newdir = render_pages(D, pdf, extra, cfg.dpi)
+        # how this build made its pages and what it read, for the next rebuild's skip; never without the .fls
+        made = _build_reads(D, fls_text)
+        notes[warm.RECIPE_NAME] = json.dumps(
+            warm.recipe(cfg.dpi, main_rel, LATEXMK_ARGS, made, _reads_digest(D, made)), ensure_ascii=False
+        )
+    newdir = render_pages(D, pdf, extra, cfg.dpi, notes=notes)
     if isinstance(newdir, PagesNotRendered):
         return failed(newdir.kind, newdir.detail)
     # the manuscript is measured against this build's recorder file from the moment the pointer names its pages
@@ -412,10 +456,8 @@ def _compile(D: BuildDoc, cfg: BuildConfig, pull: Callable[[], Json] | None, for
     pages = len(list(newdir.glob("page-*.png")))
     elapsed_s = round(time.time() - t0, 1)
     if errors:
-        return BuildOkWithErrors(
-            errors, tail, elapsed_s, pulled, compiled_at, src_hash, head_short, newdir.name, pages, build_recipe
-        )
-    return BuildOk(tail, elapsed_s, pulled, compiled_at, src_hash, head_short, newdir.name, pages, build_recipe)
+        return BuildOkWithErrors(errors, tail, elapsed_s, pulled, compiled_at, src_hash, head_short, newdir.name, pages)
+    return BuildOk(tail, elapsed_s, pulled, compiled_at, src_hash, head_short, newdir.name, pages)
 
 
 RENDER_WORKERS_MAX = 8  # pdftoppm processes one render runs at once, at most
@@ -423,10 +465,18 @@ RENDER_TIMEOUT_S = 600  # one render's whole budget; each page gets what is left
 PART_DIR_RE = re.compile(r"\.pages-.*\.part")  # a page folder being drawn: no client may ask for it (valid_build_name)
 
 
+def available_cpus() -> int:
+    """The CPUs this process may run on: its affinity set where the platform has one (Linux - a container or a
+    taskset narrows it), else os.cpu_count(), and one when neither is known."""
+    try:
+        return max(1, len(os.sched_getaffinity(0)))
+    except (AttributeError, OSError):
+        return os.cpu_count() or 1
+
+
 def render_workers() -> int:
-    """How many pages one render draws at once: min(RENDER_WORKERS_MAX, os.cpu_count()), and one when the count is
-    unknown."""
-    return min(RENDER_WORKERS_MAX, os.cpu_count() or 1)
+    """How many pages one render draws at once: min(RENDER_WORKERS_MAX, available_cpus())."""
+    return min(RENDER_WORKERS_MAX, available_cpus())
 
 
 def _last_line(err: bytes) -> str:
@@ -485,7 +535,7 @@ def draw_pages(pdf: Path, folder: Path, dpi: int, workers: int) -> str | None:
     `pdftoppm -png` names them, with at most `workers` pdftoppm processes at once, page 1 first. None when every page
     is written; otherwise the first failure's detail - the pages not yet started are not drawn."""
     deadline = time.monotonic() + RENDER_TIMEOUT_S
-    n = page_count(pdf, RENDER_TIMEOUT_S)
+    n = page_count(pdf, max(0.001, deadline - time.monotonic()))
     if isinstance(n, str):
         return n
     width = len(str(n))
@@ -521,9 +571,15 @@ def _new_build_name(D: BuildDoc) -> str:
 
 
 def render_pages(
-    D: BuildDoc, pdf: Path, extra: list[Path], dpi: int, workers: int | None = None
+    D: BuildDoc,
+    pdf: Path,
+    extra: list[Path],
+    dpi: int,
+    workers: int | None = None,
+    notes: Mapping[str, str] | None = None,
 ) -> Path | PagesNotRendered:
-    """Renders pages into a new directory and drops in a copy of the PDF (and extra - synctex, .aux, a figure map).
+    """Renders pages into a new directory and drops in a copy of the PDF (and extra - synctex, .aux, a figure map), and
+    notes - small text files by name (a LaTeX build's recipe.json), written into it before it is published.
     Pages are drawn in parallel (draw_pages, at most `workers` at once, render_workers() by default) into a hidden
     folder (.<name>.part) that no client can name; only when every page and companion is in place does it get its
     pages-<build> name, in one rename. The screen keeps showing the old directory until commit_pages. Returns the new
@@ -545,6 +601,8 @@ def render_pages(
         shutil.copy2(pdf, part / D.pdf_name)
         for f in extra:
             shutil.copy2(f, part / f.name)
+        for note, text in (notes or {}).items():
+            (part / note).write_text(text, encoding="utf-8")
     except OSError as e:
         shutil.rmtree(part, ignore_errors=True)
         return PagesNotRendered("pdf_copy", str(e))

@@ -42,7 +42,7 @@ on the same private network pin too, and every pin records who left it.
 ## Install
 
 Requires Python ≥ 3.10, [uv](https://docs.astral.sh/uv/), a TeX distribution with SyncTeX
-(`latexmk`/`pdflatex`) and Poppler (`pdftoppm`).
+(`latexmk`/`pdflatex`) and Poppler (`pdftoppm`, `pdfinfo`).
 
 ```bash
 uv tool install git+https://github.com/dartworklabs/limn@v0.4.4

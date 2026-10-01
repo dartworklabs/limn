@@ -1116,5 +1116,5 @@
  "PDF를 길게 누르거나 [선택]을 켜고 끌어서 고릅니다.": "Long-press the PDF, or turn on [Select] and drag to pick the spot.",
  "변경 없음": "No changes",
  "그래도 빌드": "Build anyway",
- "남겨 둔 LaTeX 부산물을 지우고 처음부터 다시 빌드합니다. 원고 지문이 보지 않는 것(TeX 설치 등)을 바꿨을 때 씁니다": "Clears the kept LaTeX byproducts and builds from scratch. Use it after changing something the manuscript fingerprint does not see (the TeX installation, say)"
+ "남겨 둔 LaTeX 부산물을 지우고 처음부터 다시 빌드합니다. 빌드가 비교하지 않는 것(~/.latexmkrc 등)을 바꿨을 때 씁니다": "Clears the kept LaTeX byproducts and builds from scratch. Use it after changing something the build does not compare (~/.latexmkrc, say)"
 }

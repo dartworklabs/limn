@@ -90,8 +90,6 @@ def project_completion(
             "src_hash": new_pages.src_hash,
             "finished_at": finished_at,
         }
-        if new_pages.recipe is not None:
-            entry["recipe"] = new_pages.recipe
     return BuildCompletion(last, entry, 0 if new_pages is None else new_pages.pages, log)
 
 

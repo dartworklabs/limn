@@ -14,6 +14,7 @@ import struct
 import subprocess
 import tempfile
 import threading
+import time
 import unittest
 import zlib
 from dataclasses import dataclass, field
@@ -168,8 +169,9 @@ class PngFromPpm(unittest.TestCase):
                 self.assertIsNone(png.parse_ppm(data))
 
 
-# pdfinfo stand-in: LIMN_TEST_PAGES pages, or exit 1 when LIMN_TEST_PDFINFO is "fail".
+# pdfinfo stand-in: LIMN_TEST_PAGES pages after LIMN_TEST_PDFINFO_SLEEP seconds, or exit 1 when LIMN_TEST_PDFINFO is "fail".
 FAKE_PDFINFO = """#!/bin/sh
+sleep "${LIMN_TEST_PDFINFO_SLEEP:-0}"
 [ "$LIMN_TEST_PDFINFO" = fail ] && { echo "Syntax Error: broken" >&2; exit 1; }
 echo "Title: x"
 echo "Pages:          ${LIMN_TEST_PAGES:-3}"
@@ -253,11 +255,33 @@ class RenderWithStandIns(unittest.TestCase):
         self.assertIsInstance(out, Path)
         self.assertEqual(int(self.max.read_text()), 2)
 
-    def test_the_pool_is_at_most_eight_and_at_most_the_cpu_count(self):
-        """The default pool is min(8, os.cpu_count()), and one when the count is unknown."""
-        for cpus, want in ((64, 8), (8, 8), (3, 3), (1, 1), (None, 1)):
-            with self.subTest(cpus=cpus), mock.patch.object(build_engine.os, "cpu_count", return_value=cpus):
+    def test_the_pool_is_at_most_eight_and_at_most_the_cpus_this_process_may_use(self):
+        """The default pool is min(8, the CPUs of the process's affinity set) - a container or taskset narrows it below
+        the machine's count - and without an affinity call min(8, os.cpu_count()), one when that is unknown too."""
+        for allowed, cpus, want in ((range(64), 64, 8), (range(3), 64, 3), (range(1), 64, 1)):
+            with (
+                self.subTest(allowed=len(allowed)),
+                mock.patch.object(build_engine.os, "sched_getaffinity", return_value=set(allowed), create=True),
+                mock.patch.object(build_engine.os, "cpu_count", return_value=cpus),
+            ):
                 self.assertEqual(build_engine.render_workers(), want)
+        for cpus, want in ((64, 8), (8, 8), (3, 3), (1, 1), (None, 1)):
+            with (
+                self.subTest(cpus=cpus),
+                mock.patch.object(build_engine.os, "sched_getaffinity", side_effect=AttributeError, create=True),
+                mock.patch.object(build_engine.os, "cpu_count", return_value=cpus),
+            ):
+                self.assertEqual(build_engine.render_workers(), want)
+
+    def test_counting_pages_spends_the_renders_budget_not_a_fresh_one(self):
+        """pdfinfo gets what is left of the render's time budget: with a one-second budget a pdfinfo that hangs ends the
+        render as 'pdfinfo timed out' within that budget."""
+        start = time.monotonic()
+        with mock.patch.object(build_engine, "RENDER_TIMEOUT_S", 1):
+            out = self.render(LIMN_TEST_PDFINFO_SLEEP="5")
+        self.assertIsInstance(out, PagesNotRendered)
+        self.assertEqual((out.kind, out.detail), ("render", "pdfinfo timed out"))
+        self.assertLess(time.monotonic() - start, 4)
 
     def test_one_failed_page_fails_the_render_and_leaves_no_page_folder(self):
         """Page 2 of 5 failing is PagesNotRendered render naming that page and pdftoppm's message; no pages-* folder

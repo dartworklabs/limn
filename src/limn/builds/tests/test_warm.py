@@ -11,6 +11,7 @@ import json
 import os
 import re
 import shutil
+import subprocess
 import tempfile
 import threading
 import time
@@ -140,41 +141,114 @@ class KeptPaths(unittest.TestCase):
                 self.assertEqual(warm.kept_paths(PurePosixPath("."), "main", ["main.tex", shipped]), ())
         self.assertNotEqual(warm.kept_paths(PurePosixPath("."), "main", ["main.tex", "other.bbl", "main.pdf"]), ())
 
-    def test_latexmks_up_to_date_line_is_recognised_only_as_its_own_line(self):
-        """'All targets (...) are up-to-date' on a Latexmk: line is up to date; a run that compiled is not."""
-        self.assertTrue(warm.up_to_date("Rc files read:\nLatexmk: All targets (main.pdf) are up-to-date\n"))
-        self.assertFalse(warm.up_to_date("Latexmk: Run number 1 of rule 'pdflatex'\n"))
-        self.assertFalse(warm.up_to_date("% All targets (main.pdf) are up-to-date in a comment\n"))
+    def test_the_last_up_to_date_line_names_the_target(self):
+        """up_to_date_target is the target of the last 'Latexmk: All targets (X) are up-to-date' line; a line that is not
+        latexmk's own, or none, is None."""
+        self.assertEqual(warm.up_to_date_target("Latexmk: All targets (main.pdf) are up-to-date\n"), "main.pdf")
+        two = "Latexmk: All targets (a.pdf) are up-to-date\nLatexmk: All targets (build/main.pdf) are up-to-date\n"
+        self.assertEqual(warm.up_to_date_target(two), "build/main.pdf")
+        self.assertIsNone(warm.up_to_date_target("% All targets (main.pdf) are up-to-date in a comment\n"))
+        self.assertIsNone(warm.up_to_date_target("Latexmk: Run number 1 of rule 'pdflatex'\n"))
+
+    def test_latexmk_vouches_only_for_an_untouched_pdf_of_its_own_target_in_a_warm_copy(self):
+        """vouched needs every condition: a warm copy, exit 0, no timeout, a PDF that was there and that this run did
+        not write, and the last target exactly <stem>.pdf. Dropping any one of them refuses."""
+        line, sig = "Latexmk: All targets (main.pdf) are up-to-date\n", (1, 2, 3)
+        self.assertTrue(warm.vouched(line, "main", True, 0, False, sig, sig))
+        for name, args in (
+            ("cold copy", (line, "main", False, 0, False, sig, sig)),
+            ("exit 12", (line, "main", True, 12, False, sig, sig)),
+            ("timed out", (line, "main", True, 0, True, sig, sig)),
+            ("no PDF before", (line, "main", True, 0, False, None, sig)),
+            ("PDF written", (line, "main", True, 0, False, sig, (4, 2, 3))),
+            ("out_dir", ("Latexmk: All targets (build/main.pdf) are up-to-date\n", "main", True, 0, False, sig, sig)),
+            ("jobname", ("Latexmk: All targets (other.pdf) are up-to-date\n", "main", True, 0, False, sig, sig)),
+            ("no line", ("", "main", True, 0, False, sig, sig)),
+        ):
+            with self.subTest(name):
+                self.assertFalse(warm.vouched(*args))
+
+
+FDB = """# Fdb version 4
+["bibtex main"] 1790888405.96743 "main.aux" "main.bbl" "main" 1790888406.54166 0
+  "./refs.bib" 1790888404.90003 57 3449d4b2a80210a3e0b0e19846068304 ""
+  "/usr/local/texlive/2025/texmf-dist/bibtex/bst/base/plain.bst" 1292289607 20613 bd3fbfa9f64872b81ac57a0dd2ed855f ""
+  "main.aux" 1790888406.30505 92 b70a13514d2aff8d7f882c43a4a14612 "pdflatex"
+  (generated)
+  "main.bbl"
+  "main.blg"
+  (rewritten before read)
+["pdflatex"] 1790888406.07911 "main.tex" "main.pdf" "main" 1790888406.54181 0
+  "/usr/local/texlive/2025/texmf-dist/tex/latex/base/article.cls" 1748806692 20144 b966087dda3b194755eb460d32e2ef75 ""
+  "data.csv" 1790888404.90003 4 3ecfad755fa825f7a17c5526ec44e651 ""
+  "main.bbl" 1790888406.07504 104 16d5715921c0dd775ad1f63b83c5f64c "bibtex main"
+  "main.tex" 1790888404.90003 127 dddfe0fd01b2e6b83e66a8c5a0bbd1a0 ""
+  (generated)
+  "main.aux"
+  "main.pdf"
+"""
 
 
 class ReadsDigest(unittest.TestCase):
-    """warm.fls_reads and warm.reads_digest: what a build read beyond its fingerprint."""
+    """warm.fls_reads, warm.fdb_sources and warm.reads_digest: what a build read beyond its fingerprint."""
 
-    def test_the_files_read_and_not_written_inside_the_copy_whatever_their_suffix(self):
-        """INPUT lines inside the copy count, relative to it, any suffix; a file also written (OUTPUT, the .aux), a
-        file outside the copy (TeX Live), a name with a NUL and other lines do not."""
+    def test_the_files_read_and_not_written_split_by_the_copy_whatever_their_suffix(self):
+        """INPUT lines inside the copy count by name relative to it, any suffix; a file also written (OUTPUT, the .aux)
+        and a name with a NUL do not; files outside the copy (TeX Live, a sibling folder) are the outside set."""
         text = (
             "PWD /state/build/1st\n"
             "INPUT ./data.csv\nINPUT /state/build/1st/main.tex\nINPUT ../shared/defs.def\n"
             "INPUT main.aux\nOUTPUT main.aux\nOUTPUT main.pdf\n"
             "INPUT /usr/share/texlive/article.cls\nINPUT bad\x00.csv\nINPUT /state/other.csv\n"
         )
+        got = warm.fls_reads(text, "/state/build/1st", ["/state/build"])
+        self.assertEqual(got.inside, {"1st/data.csv", "1st/main.tex", "shared/defs.def"})
+        self.assertEqual(got.outside, {"/usr/share/texlive/article.cls", "/state/other.csv"})
+
+    def test_the_database_adds_what_bibtex_read(self):
+        """.fdb_latexmk's primary sources of every rule count - refs.bib and plain.bst that only bibtex read - and its
+        generated files (main.aux, main.bbl, the generated lists) do not."""
+        got = warm.fdb_sources(FDB, "/state/build", ["/state/build"])
+        self.assertEqual(got.inside, {"refs.bib", "data.csv", "main.tex"})
         self.assertEqual(
-            warm.fls_reads(text, "/state/build/1st", ["/state/build"]),
-            {"1st/data.csv", "1st/main.tex", "shared/defs.def"},
+            got.outside,
+            {
+                "/usr/local/texlive/2025/texmf-dist/bibtex/bst/base/plain.bst",
+                "/usr/local/texlive/2025/texmf-dist/tex/latex/base/article.cls",
+            },
         )
 
     def test_a_changed_missing_or_moved_file_changes_the_digest(self):
-        """The digest follows each name and content: a changed byte, a file gone, an rc file appearing all differ."""
-        base = warm.reads_digest([("latexmkrc", None)], [("a.csv", b"1" * 32)])
-        self.assertEqual(base, warm.reads_digest([("latexmkrc", None)], [("a.csv", b"1" * 32)]))
+        """The digest follows each name and token: a changed byte, a file gone, an rc file appearing, an outside file
+        whose stat moved all differ."""
+        base = warm.reads_digest([("latexmkrc", None)], [("a.csv", b"1" * 32)], [("/t/a.sty", b"1:2")])
+        self.assertEqual(base, warm.reads_digest([("latexmkrc", None)], [("a.csv", b"1" * 32)], [("/t/a.sty", b"1:2")]))
         for other in (
-            warm.reads_digest([("latexmkrc", None)], [("a.csv", b"2" * 32)]),
-            warm.reads_digest([("latexmkrc", None)], [("a.csv", None)]),
-            warm.reads_digest([("latexmkrc", b"3" * 32)], [("a.csv", b"1" * 32)]),
-            warm.reads_digest([("latexmkrc", None)], [("b.csv", b"1" * 32)]),
+            warm.reads_digest([("latexmkrc", None)], [("a.csv", b"2" * 32)], [("/t/a.sty", b"1:2")]),
+            warm.reads_digest([("latexmkrc", None)], [("a.csv", None)], [("/t/a.sty", b"1:2")]),
+            warm.reads_digest([("latexmkrc", b"3" * 32)], [("a.csv", b"1" * 32)], [("/t/a.sty", b"1:2")]),
+            warm.reads_digest([("latexmkrc", None)], [("b.csv", b"1" * 32)], [("/t/a.sty", b"1:2")]),
+            warm.reads_digest([("latexmkrc", None)], [("a.csv", b"1" * 32)], [("/t/a.sty", b"9:2")]),
         ):
             self.assertNotEqual(base, other)
+
+    def test_a_stored_recipe_matches_only_itself(self):
+        """recipe_matches holds for the recipe as stored with the same dpi, main, switches and digest; another value of
+        any, another format or a damaged recipe refuses."""
+        reads = warm.Reads(frozenset({"a.csv"}), frozenset({"/t/a.sty"}))
+        stored = json.loads(json.dumps(warm.recipe(150, PurePosixPath("1st/m.tex"), ("-pdf",), reads, "d")))
+        self.assertEqual(warm.stored_reads(stored), reads)
+        self.assertTrue(warm.recipe_matches(stored, 150, PurePosixPath("1st/m.tex"), ("-pdf",), "d"))
+        for args in (
+            (100, PurePosixPath("1st/m.tex"), ("-pdf",), "d"),
+            (150, PurePosixPath("m.tex"), ("-pdf",), "d"),
+            (150, PurePosixPath("1st/m.tex"), ("-pdf", "-g"), "d"),
+            (150, PurePosixPath("1st/m.tex"), ("-pdf",), "e"),
+        ):
+            self.assertFalse(warm.recipe_matches(stored, *args))
+        for bad in (None, [], dict(stored, format=2), dict(stored, inside="a.csv"), dict(stored, outside=[1])):
+            self.assertIsNone(warm.stored_reads(bad))
+            self.assertFalse(warm.recipe_matches(bad, 150, PurePosixPath("1st/m.tex"), ("-pdf",), "d"))
 
 
 class CopyKeeps(unittest.TestCase):
@@ -333,12 +407,13 @@ class Warm(unittest.TestCase):
         self.assertIsInstance(self.tracked(dpi=100), BuildOk)
 
     def test_a_build_on_screen_without_a_recipe_is_rebuilt(self):
-        """A history entry made before the recipe existed (an older Limn) never matches: the rebuild runs."""
+        """A page folder without recipe.json (made by an older Limn, before an upgrade) is never kept: the rebuild runs.
+        A new build publishes recipe.json beside its .fls and adds no field to builds.json."""
         first = self.tracked()
-        h = json.loads((self.D.dir / "builds.json").read_text())
-        for ent in h["builds"]:
-            ent.pop("recipe")
-        (self.D.dir / "builds.json").write_text(json.dumps(h))
+        recipe = self.D.dir / first.build / "recipe.json"
+        self.assertEqual(json.loads(recipe.read_text())["dpi"], 72)
+        self.assertNotIn("recipe", build.load_builds(self.D)["by"][first.build])
+        recipe.unlink()
         again = self.tracked()
         self.assertIsInstance(again, BuildOk)
         self.assertNotEqual(again.build, first.build)
@@ -412,6 +487,7 @@ class Warm(unittest.TestCase):
         first = self.tracked(LIMN_TEST_RECORDER="off")
         self.assertIsInstance(first, BuildOk)
         self.assertFalse((self.D.dir / first.build / "main.fls").exists())
+        self.assertFalse((self.D.dir / first.build / "recipe.json").exists())
         again = self.tracked(LIMN_TEST_RECORDER="off")
         self.assertIsInstance(again, BuildOk)
         self.assertNotEqual(again.build, first.build)
@@ -487,7 +563,8 @@ See section~\ref{sec:a}. WORD.
 
 class WarmWithLatexmk(unittest.TestCase):
     """The real latexmk on a small manuscript: one pdflatex run per edit, labels that follow a rename, a committed PDF
-    that never stands in for the build's, and a failure the next build recovers from."""
+    that never stands in for the build's, a failure the next build recovers from, and the cases where what latexmk left
+    in the copy must not stand for a build (a recorder switched off, a shipped .fls, an $out_dir)."""
 
     def setUp(self):
         """A manuscript with main.tex in 1st/ (and a committed main.pdf there), and its document."""
@@ -509,6 +586,11 @@ class WarmWithLatexmk(unittest.TestCase):
         return build_run.run_tracked(
             self.D, self.state, lambda: build_engine.compile_tex(self.D, cfg, None), "t0", build_failure_log
         )
+
+    def text_of(self, res) -> str:
+        """The text pdftotext reads from the PDF published with build outcome res."""
+        pdf = self.D.dir / res.build / "main.pdf"
+        return subprocess.run(["pdftotext", str(pdf), "-"], capture_output=True, text=True, check=True).stdout
 
     def pdflatex_runs(self) -> int:
         """How many times the last latexmk ran pdflatex (its build.log)."""
@@ -591,6 +673,119 @@ class WarmWithLatexmk(unittest.TestCase):
         self.assertNotEqual(
             (self.D.dir / res.build / "main.pdf").read_bytes(), (self.D.dir / first.build / "main.pdf").read_bytes()
         )
+
+    @needs_tex("latexmk", "pdftoppm", "pdfinfo", "pdftotext")
+    def test_a_recorder_switched_off_never_publishes_the_old_recorder_file(self):
+        """(A) The first build reads data1.csv with the recorder on. A latexmkrc then turns the recorder off and the
+        .tex switches to data2.csv: that build publishes no .fls (the copy's is the old one, naming data1.csv) and no
+        recipe, so editing data2.csv afterwards rebuilds and the PDF shows the edit."""
+        folder = self.main.parent
+        (folder / "data1.csv").write_text("11,11\n", encoding="utf-8")
+        (folder / "data2.csv").write_text("22,22\n", encoding="utf-8")
+        self.edit("WORD.", "WORD. \\input{data1.csv}")
+        first = self.tracked()
+        self.assertTrue((self.D.dir / first.build / "main.fls").is_file())
+        (folder / "latexmkrc").write_text("$recorder = 0;\n", encoding="utf-8")
+        self.edit("data1.csv", "data2.csv")
+        second = self.tracked()
+        self.assertIsInstance(second, BuildOk)
+        self.assertFalse((self.D.dir / second.build / "main.fls").exists())
+        self.assertFalse((self.D.dir / second.build / "recipe.json").exists())
+        (folder / "data2.csv").write_text("99,99\n", encoding="utf-8")
+        third = self.tracked()
+        self.assertIsInstance(third, BuildOk)
+        self.assertIn("99,99", self.text_of(third))
+
+    @needs_tex("latexmk", "pdftoppm", "pdfinfo", "pdftotext")
+    def test_a_shipped_recorder_file_is_never_published(self):
+        """(B) The manuscript ships an old main.fls (naming data1.csv) and turns the recorder off. Neither the cold build
+        that copies it nor, once it is removed from the manuscript, the warm build that finds it left in the copy
+        publishes it, and an edit of data2.csv rebuilds."""
+        folder = self.main.parent
+        (folder / "data1.csv").write_text("11,11\n", encoding="utf-8")
+        (folder / "data2.csv").write_text("22,22\n", encoding="utf-8")
+        (folder / "latexmkrc").write_text("$recorder = 0;\n", encoding="utf-8")
+        (folder / "main.fls").write_text("PWD /elsewhere\nINPUT ./data1.csv\nINPUT ./main.tex\n", encoding="utf-8")
+        self.edit("WORD.", "WORD. \\input{data2.csv}")
+        first = self.tracked()
+        self.assertIsInstance(first, BuildOk)
+        self.assertFalse((self.D.dir / first.build / "main.fls").exists())
+        (folder / "main.fls").unlink()
+        second = self.tracked()
+        self.assertIsInstance(second, BuildOk)
+        self.assertFalse((self.D.dir / second.build / "main.fls").exists())
+        (folder / "data2.csv").write_text("77,77\n", encoding="utf-8")
+        third = self.tracked()
+        self.assertIsInstance(third, BuildOk)
+        self.assertIn("77,77", self.text_of(third))
+
+    @needs_tex("latexmk", "pdftoppm", "pdfinfo")
+    def test_an_out_dir_in_latexmkrc_fails_instead_of_showing_the_old_pdf(self):
+        """(C) A latexmkrc that sets $out_dir sends latexmk's PDF elsewhere: an edit then fails as no_pdf and the
+        screen keeps the first build, never a BuildOk that publishes the PDF left in the copy."""
+        first = self.tracked()
+        self.assertIsInstance(first, BuildOk)
+        (self.main.parent / "latexmkrc").write_text("$out_dir = 'build';\n", encoding="utf-8")
+        self.edit("WORD", "OUTDIRWORD")
+        res = self.tracked()
+        self.assertIsInstance(res, BuildFailed)
+        self.assertEqual(res.kind, "no_pdf")
+        self.assertEqual(build.cur_pages(self.D).name, first.build)
+
+    @needs_tex("latexmk", "pdftoppm", "pdfinfo")
+    def test_the_output_of_a_run_that_compiled_does_not_vouch(self):
+        """latexmk's output after a run that compiled ends with its up-to-date line too; with the PDF that run wrote,
+        vouched refuses. The output of a run that compiled nothing (only the dpi changed), with the PDF untouched,
+        vouches."""
+        self.assertIsInstance(self.tracked(), BuildOk)
+        pdf = self.D.out / "main.pdf"
+        before = build_engine._signature(pdf)
+        self.edit("WORD", "TERM")
+        self.assertIsInstance(self.tracked(), BuildOk)
+        compiled, after = (self.D.dir / "build.log").read_text(), build_engine._signature(pdf)
+        self.assertIn("Run number 1 of rule 'pdflatex'", compiled)
+        self.assertEqual(warm.up_to_date_target(compiled), "main.pdf")
+        self.assertFalse(warm.vouched(compiled, "main", True, 0, False, before, after))
+        self.assertIsInstance(self.tracked(dpi=60), BuildOk)
+        idle = (self.D.dir / "build.log").read_text()
+        self.assertNotIn("Run number", idle)
+        self.assertTrue(warm.vouched(idle, "main", True, 0, False, after, build_engine._signature(pdf)))
+
+    @needs_tex("latexmk", "pdftoppm", "pdfinfo", "pdftotext")
+    def test_a_package_outside_the_tree_on_texinputs_rebuilds_when_it_changes(self):
+        """A .sty found through TEXINPUTS outside the manuscript is compared by its stat: unchanged, the rebuild is
+        skipped; rewritten (as a TeX update would), the rebuild runs and the PDF shows the new package."""
+        texmf = Path(self.tmp.name) / "texmf"
+        texmf.mkdir()
+        sty = texmf / "limnpkg.sty"
+        sty.write_text("\\newcommand{\\limnword}{ALPHA}\n", encoding="utf-8")
+        self.edit("\\begin{document}", "\\usepackage{limnpkg}\n\\begin{document}")
+        self.edit("WORD.", "WORD. \\limnword")
+        with mock.patch.dict(os.environ, {"TEXINPUTS": str(texmf) + os.pathsep}):
+            first = self.tracked()
+            self.assertIsInstance(first, BuildOk)
+            self.assertIsInstance(self.tracked(), BuildUnchanged)
+            sty.write_text("\\newcommand{\\limnword}{OMEGA}\n", encoding="utf-8")
+            res = self.tracked()
+        self.assertIsInstance(res, BuildOk)
+        self.assertIn("OMEGA", self.text_of(res))
+
+    @needs_tex("latexmk", "pdftoppm", "pdfinfo", "pdftotext", "bibtex")
+    def test_a_bib_file_only_bibtex_reads_rebuilds_when_it_changes(self):
+        """A .bib under out/ is outside the fingerprint and absent from the .fls - only bibtex reads it. The build's
+        .fdb_latexmk lists it, so an unchanged rebuild is skipped and an edited .bib rebuilds with the new entry."""
+        out = self.main.parent / "out"
+        out.mkdir()
+        bib = out / "refs.bib"
+        bib.write_text("@article{k,title={FIRSTTITLE},author={A},journal={J},year={2020}}\n", encoding="utf-8")
+        self.edit("WORD.", "WORD. \\cite{k}\\bibliographystyle{plain}\\bibliography{out/refs}")
+        first = self.tracked()
+        self.assertIsInstance(first, BuildOk)
+        self.assertIsInstance(self.tracked(), BuildUnchanged)
+        bib.write_text(bib.read_text().replace("FIRSTTITLE", "SECONDTITLE"), encoding="utf-8")
+        res = self.tracked()
+        self.assertIsInstance(res, BuildOk)
+        self.assertIn("secondtitle", self.text_of(res).lower())  # the plain style sets titles in sentence case
 
     @needs_tex("latexmk", "pdftoppm", "pdfinfo")
     def test_an_unchanged_rebuild_with_latexmk_runs_nothing(self):

@@ -47,8 +47,7 @@ class BuildOk:
     log is latexmk's last lines ("" for a view-only render); pull is the --git-pull record (None: no pull ran, no key);
     src_mtime the manuscript mtime it compiled (None for a view-only document, no key); src_hash the fingerprint of
     what it compiled (None when it could not be read); head the short commit, build the new page directory's name,
-    pages how many page images it holds; recipe how a LaTeX build made its pages (limn.builds.warm.recipe: dpi, main
-    file, latexmk switches), kept in the history for the no-change skip (None for a render without LaTeX)."""
+    pages how many page images it holds."""
 
     log: str
     elapsed_s: float
@@ -58,7 +57,6 @@ class BuildOk:
     head: str
     build: str
     pages: int
-    recipe: str | None = None
 
 
 @dataclass(frozen=True)
@@ -75,7 +73,6 @@ class BuildOkWithErrors:
     head: str
     build: str
     pages: int
-    recipe: str | None = None
 
 
 @dataclass(frozen=True)
