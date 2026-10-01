@@ -69,7 +69,8 @@ class WarmDoc:
 
 
 # latexmk stand-in: appends "warm" or "cold" to $LIMN_TEST_CALLS (was main.aux there when it started?), then writes
-# the PDF (the .tex), SyncTeX, log, aux, fls and fdb_latexmk; LIMN_TEST_LATEXMK=nopdf writes nothing and fails.
+# the PDF (the .tex), SyncTeX, log, aux, fdb_latexmk and a recorder file listing the main file and $LIMN_TEST_INPUTS
+# (none when LIMN_TEST_RECORDER=off); LIMN_TEST_LATEXMK=nopdf writes nothing and fails.
 FAKE_LATEXMK = """#!/bin/sh
 for a; do main=$a; done
 stem=${main%.tex}
@@ -79,7 +80,10 @@ cp "$main" "$stem.pdf"
 printf 'synctex' > "$stem.synctex.gz"
 : > "$stem.log"
 echo 'relax' > "$stem.aux"
-printf 'PWD %s\\nINPUT %s\\n' "$PWD" "$main" > "$stem.fls"
+case "$LIMN_TEST_RECORDER" in
+  off) rm -f "$stem.fls" ;;
+  *) { printf 'PWD %s\\nINPUT %s\\n' "$PWD" "$main"; printf '%b' "$LIMN_TEST_INPUTS"; } > "$stem.fls" ;;
+esac
 echo fdb > "$stem.fdb_latexmk"
 """
 FAKE_PDFTOPPM = """#!/bin/sh
@@ -105,6 +109,8 @@ def stand_ins(case: unittest.TestCase, root: Path) -> Path:
             "PATH": str(bin_dir) + os.pathsep + os.environ.get("PATH", ""),
             "LIMN_TEST_CALLS": str(calls),
             "LIMN_TEST_LATEXMK": "ok",
+            "LIMN_TEST_RECORDER": "on",
+            "LIMN_TEST_INPUTS": "",
         },
     )
     env.start()
@@ -139,6 +145,36 @@ class KeptPaths(unittest.TestCase):
         self.assertTrue(warm.up_to_date("Rc files read:\nLatexmk: All targets (main.pdf) are up-to-date\n"))
         self.assertFalse(warm.up_to_date("Latexmk: Run number 1 of rule 'pdflatex'\n"))
         self.assertFalse(warm.up_to_date("% All targets (main.pdf) are up-to-date in a comment\n"))
+
+
+class ReadsDigest(unittest.TestCase):
+    """warm.fls_reads and warm.reads_digest: what a build read beyond its fingerprint."""
+
+    def test_the_files_read_and_not_written_inside_the_copy_whatever_their_suffix(self):
+        """INPUT lines inside the copy count, relative to it, any suffix; a file also written (OUTPUT, the .aux), a
+        file outside the copy (TeX Live), a name with a NUL and other lines do not."""
+        text = (
+            "PWD /state/build/1st\n"
+            "INPUT ./data.csv\nINPUT /state/build/1st/main.tex\nINPUT ../shared/defs.def\n"
+            "INPUT main.aux\nOUTPUT main.aux\nOUTPUT main.pdf\n"
+            "INPUT /usr/share/texlive/article.cls\nINPUT bad\x00.csv\nINPUT /state/other.csv\n"
+        )
+        self.assertEqual(
+            warm.fls_reads(text, "/state/build/1st", ["/state/build"]),
+            {"1st/data.csv", "1st/main.tex", "shared/defs.def"},
+        )
+
+    def test_a_changed_missing_or_moved_file_changes_the_digest(self):
+        """The digest follows each name and content: a changed byte, a file gone, an rc file appearing all differ."""
+        base = warm.reads_digest([("latexmkrc", None)], [("a.csv", b"1" * 32)])
+        self.assertEqual(base, warm.reads_digest([("latexmkrc", None)], [("a.csv", b"1" * 32)]))
+        for other in (
+            warm.reads_digest([("latexmkrc", None)], [("a.csv", b"2" * 32)]),
+            warm.reads_digest([("latexmkrc", None)], [("a.csv", None)]),
+            warm.reads_digest([("latexmkrc", b"3" * 32)], [("a.csv", b"1" * 32)]),
+            warm.reads_digest([("latexmkrc", None)], [("b.csv", b"1" * 32)]),
+        ):
+            self.assertNotEqual(base, other)
 
 
 class CopyKeeps(unittest.TestCase):
@@ -340,6 +376,46 @@ class Warm(unittest.TestCase):
         self.assertEqual(again.head, "abc1234")
         self.assertEqual(build.load_builds(self.D)["by"][first.build]["src_mtime"], later)
 
+    def test_an_edited_file_the_build_read_is_rebuilt_even_outside_the_fingerprint(self):
+        """data.csv is no source suffix, so the fingerprint does not see it; the build's .fls lists it as read. With
+        nothing changed the rebuild is skipped; once data.csv changes the rebuild runs; a file the build did not read
+        changing (notes.csv) is still skipped."""
+        (self.D.src / "1st" / "data.csv").write_text("1,2\n", encoding="utf-8")
+        (self.D.src / "1st" / "notes.csv").write_text("x\n", encoding="utf-8")
+        reads = {"LIMN_TEST_INPUTS": "INPUT ./data.csv\n"}
+        first = self.tracked(**reads)
+        self.assertIsInstance(first, BuildOk)
+        self.assertIsInstance(self.tracked(**reads), BuildUnchanged)
+        (self.D.src / "1st" / "notes.csv").write_text("y\n", encoding="utf-8")
+        self.assertIsInstance(self.tracked(**reads), BuildUnchanged)
+        (self.D.src / "1st" / "data.csv").write_text("1,3\n", encoding="utf-8")
+        again = self.tracked(**reads)
+        self.assertIsInstance(again, BuildOk)
+        self.assertNotEqual(again.build, first.build)
+
+    def test_an_edited_latexmkrc_is_rebuilt(self):
+        """A latexmkrc beside the main file and a .latexmkrc in the build root are read by latexmk: editing either makes
+        the rebuild run; leaving both alone skips it."""
+        rc, root_rc = self.D.src / "1st" / "latexmkrc", self.D.src / ".latexmkrc"
+        rc.write_text("$pdf_mode = 1;\n", encoding="utf-8")
+        self.assertIsInstance(self.tracked(), BuildOk)
+        self.assertIsInstance(self.tracked(), BuildUnchanged)
+        rc.write_text("$pdf_mode = 1; # edited\n", encoding="utf-8")
+        self.assertIsInstance(self.tracked(), BuildOk)
+        self.assertIsInstance(self.tracked(), BuildUnchanged)
+        root_rc.write_text("$bibtex_use = 2;\n", encoding="utf-8")
+        self.assertIsInstance(self.tracked(), BuildOk)
+        self.assertIsInstance(self.tracked(), BuildUnchanged)
+
+    def test_a_build_on_screen_without_a_recorder_file_is_rebuilt(self):
+        """When the build on screen kept no .fls (latexmk's recorder off), what it read is unknown: the rebuild runs."""
+        first = self.tracked(LIMN_TEST_RECORDER="off")
+        self.assertIsInstance(first, BuildOk)
+        self.assertFalse((self.D.dir / first.build / "main.fls").exists())
+        again = self.tracked(LIMN_TEST_RECORDER="off")
+        self.assertIsInstance(again, BuildOk)
+        self.assertNotEqual(again.build, first.build)
+
     def test_a_published_build_carries_its_recorder_file(self):
         """Every new page folder holds the main file's .fls next to its PDF, written by this build."""
         res = self.tracked()
@@ -499,6 +575,22 @@ class WarmWithLatexmk(unittest.TestCase):
         res = self.tracked()
         self.assertIsInstance(res, BuildOk)
         self.assertIn("\\newlabel{sec:c}", (self.D.dir / res.build / "main.aux").read_text())
+
+    @needs_tex("latexmk", "pdftoppm", "pdfinfo")
+    def test_an_edited_csv_the_manuscript_inputs_is_rebuilt(self):
+        """A .csv the manuscript reads with \\input is outside the fingerprint but in the build's .fls: an unchanged
+        rebuild is skipped, and after editing the .csv the rebuild runs and its PDF differs."""
+        (self.main.parent / "data.csv").write_text("12,34\n", encoding="utf-8")
+        self.edit("WORD.", "WORD. \\input{data.csv}")
+        first = self.tracked()
+        self.assertIsInstance(first, BuildOk)
+        self.assertIsInstance(self.tracked(), BuildUnchanged)
+        (self.main.parent / "data.csv").write_text("56,78\n", encoding="utf-8")
+        res = self.tracked()
+        self.assertIsInstance(res, BuildOk)
+        self.assertNotEqual(
+            (self.D.dir / res.build / "main.pdf").read_bytes(), (self.D.dir / first.build / "main.pdf").read_bytes()
+        )
 
     @needs_tex("latexmk", "pdftoppm", "pdfinfo")
     def test_an_unchanged_rebuild_with_latexmk_runs_nothing(self):

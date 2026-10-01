@@ -29,10 +29,11 @@ function hideBuildErr(){$('#build-err').hidden=true; $('#build-err-chip').hidden
 // progress, then does the in-place swap and notification once it finishes. A build started by someone else is caught by the same poller.
 // Its completion may update controls or start polling only while the initiating document visit remains active. BUILD.asked
 // marks that this tab asked, so an unchanged rebuild (no new seq) still gets its toast; it is set only after any older
-// in-flight poll settled, since that one may carry the previous rebuild's unchanged mark.
-async function rebuild(){
+// in-flight poll settled, since that one may carry the previous rebuild's unchanged mark. force (only the [그래도 빌드]
+// of an unchanged rebuild's toast passes it) asks for ?force=1: a cold build that never ends unchanged.
+async function rebuild(force){
   const k=DOC,visit=SWITCHSEQ;
-  try{const {status}=await api(dq('/api/rebuild?async=1'),{method:'POST',what:'PDF 재빌드',expect:[409]});
+  try{const {status}=await api(dq('/api/rebuild?async=1'+(force===true?'&force=1':'')),{method:'POST',what:'PDF 재빌드',expect:[409]});
     if(k!==DOC||visit!==SWITCHSEQ)return;
     if(status===409){toast('이미 다른 곳에서 PDF를 재빌드하는 중입니다 — 끝난 뒤 다시 누르세요','warn');return;}
     $('#build-err').hidden=true;

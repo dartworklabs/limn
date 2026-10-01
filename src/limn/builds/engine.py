@@ -1,6 +1,7 @@
 """Manuscript copy, LaTeX compilation and PDF page rendering for one build."""
 
 import contextlib
+import hashlib
 import os
 import re
 import shutil
@@ -247,6 +248,33 @@ def _published_head(D: BuildDoc) -> str:
         return "-"
 
 
+def _file_digest(f: Path) -> bytes | None:
+    """The SHA-256 of f's bytes, or None when it is missing or cannot be read (a folder, no permission)."""
+    h = hashlib.sha256()
+    try:
+        with open(f, "rb") as fh:
+            for chunk in iter(lambda: fh.read(1 << 20), b""):
+                h.update(chunk)
+    except OSError:
+        return None
+    return h.digest()
+
+
+def _reads_digest(D: BuildDoc, fls_text: str) -> str:
+    """warm.reads_digest of what the build copy holds now for a build whose recorder file says fls_text: the latexmkrc
+    files latexmk reads, in the folder it runs in and in the build root, and every file the .fls lists as read
+    (warm.fls_reads, any suffix) that the manuscript itself has - a file latexmk or a tool made in the copy is not part
+    of the manuscript and is left out. Only files inside the copy are opened."""
+    roots = (str(D.build), str(D.build.resolve()))
+    read = sorted(r for r in warm.fls_reads(fls_text, str(D.out), roots) if (D.src / r).is_file())
+    rc = [
+        ((folder / name).relative_to(D.build).as_posix(), _file_digest(folder / name))
+        for folder in dict.fromkeys((D.out, D.build))
+        for name in warm.LATEXMKRC_NAMES
+    ]
+    return warm.reads_digest(rc, [(r, _file_digest(D.build / r)) for r in read])
+
+
 def _signature(f: Path) -> tuple[int, int, int] | None:
     """(mtime_ns, size, inode) of f when it is a plain file (not a symlink), else None."""
     try:
@@ -287,16 +315,20 @@ def _compile(D: BuildDoc, cfg: BuildConfig, pull: Callable[[], Json] | None, for
         scan = build.scan_sources(D, D.build, cfg.state, keep_apart=True, mtimes_from=D.src)
     except OSError:
         scan = None
-    build_recipe = warm.recipe(cfg.dpi, PurePosixPath(D.main_rel.as_posix()), LATEXMK_ARGS)
+    main_rel = PurePosixPath(D.main_rel.as_posix())
 
-    # The no-change skip: the copy read as the build on screen read its manuscript (that build's .fls) has that build's
-    # fingerprint, and the recipe and an ok last build agree - its pages are what this build would make.
+    # The no-change skip: the copy, read as the build on screen read its manuscript (that build's .fls), has that build's
+    # fingerprint and recipe - dpi, main file, switches, and the latexmkrc files and every file its .fls says it read -
+    # after an ok last build, so its pages are what this build would make. No .fls kept with it: what it read is
+    # unknown, so it is rebuilt.
     cur = build.cur_pages(D)
-    if not force and scan is not None:
+    cur_fls = build.read_recorder(cur / (D.main.stem + ".fls")) if cur.is_dir() else None
+    if not force and scan is not None and cur_fls is not None:
         cur_reads = build.read_in_scan(scan, build.build_inputs(D, cur.name))
         seen = build.fingerprint_of(build.without_apart(D, scan, cur_reads))
-        pages = len(list(cur.glob("page-*.png"))) if cur.is_dir() else 0
-        if pages and warm.keeps_pages(build.load_builds(D), cur.name, seen, build_recipe):
+        pages = len(list(cur.glob("page-*.png")))
+        cur_recipe = warm.recipe(cfg.dpi, main_rel, LATEXMK_ARGS, _reads_digest(D, cur_fls))
+        if pages and warm.keeps_pages(build.load_builds(D), cur.name, seen, cur_recipe):
             compiled_at = max(compiled_at, build.newest_read_apart(D, scan, cur_reads))
             head = _published_head(D)
             atomic_write(D.dir / "head.txt", head)
@@ -365,8 +397,13 @@ def _compile(D: BuildDoc, cfg: BuildConfig, pull: Callable[[], Json] | None, for
     extra = [syn]
     if current(aux):
         extra.append(aux)
+    fls_text = None
     if recorder is not None:
         extra.append(recorder)  # what this build read, kept with its pages (build.build_inputs reads it back)
+        fls_text = build.read_recorder(recorder)
+    build_recipe = warm.recipe(
+        cfg.dpi, main_rel, LATEXMK_ARGS, None if fls_text is None else _reads_digest(D, fls_text)
+    )
     newdir = render_pages(D, pdf, extra, cfg.dpi)
     if isinstance(newdir, PagesNotRendered):
         return failed(newdir.kind, newdir.detail)

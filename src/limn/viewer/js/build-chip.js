@@ -38,7 +38,7 @@ function pollBuild(){
 }
 // One /api/build poll for the document on screen: shows or hides the progress chip and the 1-second timer, and processes a
 // finished build exactly once per `seq` (refresh the pages, toast, error panel). A rebuild this tab asked for that kept
-// the pages (unchanged: true, the same seq) gets one "no change" toast and nothing else. A reply that arrives after a
+// the pages (unchanged: true, the same seq) gets one "no changes" toast whose [그래도 빌드] forces a cold rebuild. A reply that arrives after a
 // document switch is dropped. Resolves with nothing and never throws; a failed request is ignored (the next poll retries).
 async function pollBuildOnce(){
   let b; const k=DOC,visit=SWITCHSEQ;
@@ -56,7 +56,7 @@ async function pollBuildOnce(){
   const booted=BUILD.booted; BUILD.booted=true;
   if(BUILD.lastSeq===null)BUILD.lastSeq=seq;
   if(seq===BUILD.lastSeq&&BUILD.asked&&b.unchanged===true){
-    BUILD.asked=false; toast(tr('변경 없음 — 쪽을 다시 그리지 않았습니다')+pullSuffix(b),'ok');
+    BUILD.asked=false; toast(tr(T.nochange)+pullSuffix(b),'ok',{label:T.buildanyway,tip:T.buildanywaytip,fn:()=>rebuild(true)});
   }else if(seq!==BUILD.lastSeq){
     BUILD.lastSeq=seq; BUILD.asked=false;  // claimed before the await - so the same completion is never processed twice
     DOC_SEQ.set(k,seq);
