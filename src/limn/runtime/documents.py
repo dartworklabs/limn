@@ -18,7 +18,7 @@ from __future__ import annotations
 import os
 import re
 import threading
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal, TypeAlias
@@ -63,6 +63,78 @@ class RunPaths:
         return self.state / "build"
 
 
+@dataclass(frozen=True)
+class ApartPaths:
+    """What a LaTeX document leaves out of its source list because another document owns it, as path parts below its
+    build root (docs/handbook/build-sync.md §원고 변화 감지): `folders` are the folders of figure documents, whose
+    figure-set files (images and PDFs) are left out; `files` are view-only PDFs, left out one by one - never their
+    folder, which is often the manuscript root itself. Only the build's source list reads this; it names no document and
+    no pin. A suffix is not part of the answer: the source list decides which suffixes it asks about."""
+
+    folders: tuple[tuple[str, ...], ...] = ()
+    files: tuple[tuple[str, ...], ...] = ()
+
+    @property
+    def empty(self) -> bool:
+        """Nothing is set apart: the document has no other document's files inside its tree."""
+        return not (self.folders or self.files)
+
+    def covers(self, parts: tuple[str, ...]) -> bool:
+        """Is the file at `parts` (below the build root) inside a set-apart folder, or one of the set-apart files?"""
+        if parts in self.files:
+            return True
+        return any(len(parts) > len(folder) and parts[: len(folder)] == folder for folder in self.folders)
+
+
+NO_APART = ApartPaths()
+
+
+def _parts_below(root: Path, path: Path) -> tuple[str, ...] | None:
+    """The parts of `path` below `root`, both with symlinks resolved, when it lies strictly inside; None when it is
+    root itself, lies elsewhere or a path cannot be resolved."""
+    try:
+        parts = path.resolve().relative_to(root).parts
+    except (ValueError, OSError, RuntimeError):
+        return None
+    return parts or None
+
+
+def apart_paths(src: Path, main: Path, others: Iterable[tuple[DocKind, Path, Path]]) -> ApartPaths:
+    """What the LaTeX document with build root `src` and main file `main` sets apart, given the (kind, src, main) of
+    every other document the instance serves.
+
+    - A figure document's folder, when it lies strictly inside src and does not hold this document's main file: its
+      figure-set files are another document's output, not this document's source. A folder equal to src or holding
+      src sets nothing apart - every file of the tree would be left out.
+    - A view-only PDF, when the file lies strictly inside src: that one file. Its folder (what the document calls its
+      src) is not set apart; it is the manuscript root as often as not.
+    - Another LaTeX document's folder and anything outside src set nothing apart.
+    Symlinks are resolved on both sides, as limn.builds.artifacts.state_in_source does."""
+    try:
+        root = src.resolve()
+        main_real = main.resolve()
+    except (OSError, RuntimeError):
+        return NO_APART
+    folders: list[tuple[str, ...]] = []
+    files: list[tuple[str, ...]] = []
+    for kind, other_src, other_main in others:
+        if kind == "figure":
+            below = _parts_below(root, other_src)
+            if below is None:
+                continue
+            try:
+                main_real.relative_to(other_src.resolve())
+            except ValueError:
+                folders.append(below)
+            except (OSError, RuntimeError):
+                continue
+        elif kind == "pdf":
+            below = _parts_below(root, other_main)
+            if below is not None:
+                files.append(below)
+    return ApartPaths(tuple(folders), tuple(files))
+
+
 def fresh_build_state() -> dict[str, Any]:
     """A document's build state before its first build (what GET /api/build reports then)."""
     return {
@@ -95,7 +167,7 @@ class Doc:
     root (the same place as for a single document). Under --doc, only the LaTeX document keyed main gets this - so
     adding documents to a single-document instance keeps the body's build history (the source of location
     estimation) continuous. A Doc carries its own build lock, build state and its lock, history lock and src_mtime
-    memo and its lock (limn.builds.artifacts.BuildDoc)."""
+    memo and its lock, and the paths its source list leaves out (apart) (limn.builds.artifacts.BuildDoc)."""
 
     def __init__(
         self,
@@ -113,10 +185,13 @@ class Doc:
         mcache: list[Any] | None = None,
         *,
         paths: RunPaths,
+        apart: ApartPaths = NO_APART,
     ) -> None:
         """A document; src/main are its build root and main file unless legacy (then the run paths' own).
-        A supplied mcache is copied so its mutable memo and lock belong only to this document."""
+        A supplied mcache is copied so its mutable memo and lock belong only to this document. apart is what its source
+        list leaves out because another document owns it (apart_paths); only a LaTeX document is given any."""
         self.key, self.name, self.kind = key, name, kind
+        self.apart = apart
         self._src, self._main, self.legacy = src, main, legacy
         self.paths = paths
         self.root = legacy if root is None else root

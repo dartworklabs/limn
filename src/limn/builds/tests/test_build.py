@@ -56,7 +56,7 @@ from limn.builds.figure_map import FigureMap, MapRejected
 from limn.builds.queries import BuildQueries
 from limn.documents import reads as limn_meta
 from limn.platform import files
-from limn.runtime.documents import Doc, RunPaths
+from limn.runtime.documents import NO_APART, ApartPaths, Doc, RunPaths
 from limn.web.errors import HTTPError
 
 from helpers import MINI_PDF, Base, blank_png, figure_map, map_bytes, needs_tex, ps, req
@@ -109,6 +109,7 @@ class PlainDoc:
     mcache_lock: threading.Lock = field(default_factory=threading.Lock)
     builds_from_source: bool = True
     watches_files: bool = False
+    apart: ApartPaths = NO_APART
 
     @property
     def build(self) -> Path:

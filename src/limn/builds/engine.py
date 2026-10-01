@@ -159,7 +159,12 @@ def compile_tex(D: BuildDoc, cfg: BuildConfig, pull: Callable[[], Json] | None) 
     (the copy could not be trusted, nothing compiled), BuildFailed (no new PDF, a timeout, no SyncTeX, or the pages
     could not be rendered - the screen keeps the old PDF), BuildOkWithErrors (a new PDF with LaTeX errors, '! '
     lines) and BuildOk (no errors). Each carries what the build got as far as: the pull, the manuscript mtime it
-    compiled, the copy's fingerprint, latexmk's last lines, and for a success the new page directory."""
+    compiled, the copy's fingerprint, latexmk's last lines, and for a success the new page directory.
+
+    The files another document owns (D.apart) are left out of the manuscript mtime and the fingerprint unless the build
+    read them. Which it read is only known once latexmk has run, from the .fls it records in the copy: the fingerprint
+    hashes the whole copy before latexmk and chooses afterwards, and the mtime takes in the newest file the build read.
+    The .fls is published with the pages (next to the .synctex.gz and .aux), where the later queries find it."""
     t0 = time.time()
     D.build.mkdir(parents=True, exist_ok=True)
     pulled: Json | None = None
@@ -180,12 +185,14 @@ def compile_tex(D: BuildDoc, cfg: BuildConfig, pull: Callable[[], Json] | None) 
         copy_manuscript(D.src, D.build, cfg.state)
     except ManuscriptCopyError as e:
         return CopyFailed(str(e), round(time.time() - t0, 1), pulled, compiled_at)
-    # The fingerprint is taken from the copy - these are exactly the files this build actually compiles (the original can still change meanwhile).
-    src_hash: str | None
+    # The hashes are taken from the copy - these are exactly the files this build actually compiles (the original can still
+    # change meanwhile). The files another document owns are hashed too, because which of them the build reads is only
+    # known after latexmk; the fingerprint is chosen from them below.
+    digests: dict[str, bytes] | None
     try:
-        src_hash = build.source_fingerprint(D, D.build, cfg.state)
+        digests = build.source_digests(D, D.build, cfg.state, keep_apart=True)
     except OSError:
-        src_hash = None
+        digests = None
 
     build.state_update(D, phase="latex")
     # A single document runs in the build root as before; a --doc document runs in the folder holding its main .tex (Doc.out).
@@ -209,6 +216,12 @@ def compile_tex(D: BuildDoc, cfg: BuildConfig, pull: Callable[[], Json] | None) 
         logtxt = out
     errors = latex_errors(logtxt)
 
+    # What this run read: the figure-set files of another document that the manuscript uses count as part of it.
+    recorder = D.out / (D.main.stem + ".fls")
+    reads = build.recorded_inputs(D, recorder) if not D.apart.empty else frozenset()
+    compiled_at = max(compiled_at, build.newest_read_apart(D, D.build, reads))
+    src_hash = None if digests is None else build.fingerprint_of(build.without_apart(D, digests, reads))
+
     def failed(kind: OutputFailureKind, detail: str = "") -> BuildFailed:
         """This build's failure of `kind`, with latexmk's last lines and what it compiled."""
         return BuildFailed(kind, detail, tail, errors, round(time.time() - t0, 1), pulled, compiled_at, src_hash)
@@ -223,6 +236,8 @@ def compile_tex(D: BuildDoc, cfg: BuildConfig, pull: Callable[[], Json] | None) 
     aux = D.out / (D.main.stem + ".aux")
     if aux.is_file() and aux.stat().st_mtime >= t0 - 1:
         extra.append(aux)
+    if recorder.is_file() and not recorder.is_symlink() and recorder.stat().st_mtime >= t0 - 1:
+        extra.append(recorder)  # what this build read, kept with its pages (build.build_inputs reads it back)
     newdir = render_pages(D, pdf, extra, cfg.dpi)
     if isinstance(newdir, PagesNotRendered):
         return failed(newdir.kind, newdir.detail)

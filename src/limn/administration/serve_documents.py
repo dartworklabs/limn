@@ -13,9 +13,11 @@ from limn.runtime.documents import (
     DOC_NAME_MAX,
     DOCS_MAX,
     MAP_SUFFIX,
+    NO_APART,
     Doc,
     DocKind,
     RunPaths,
+    apart_paths,
     kind_builds_from_source,
 )
 from limn.runtime.startup import APP_NAME, StartupRefused
@@ -323,7 +325,9 @@ def parse_docs(specs: Sequence[str], ms: Path) -> list[DocSpec] | DocsRefusal:
 def docs_of(specs: Sequence[DocSpec], paths: RunPaths) -> list[Doc]:
     """The documents of parsed --doc specs over the run's paths (the frozen value the composition root made once the
     state folder was known). A document keyed main whose kind builds from source (kind_builds_from_source) uses the
-    state-folder-root layout (root), so it continues a single-document instance's build history."""
+    state-folder-root layout (root), so it continues a single-document instance's build history. A LaTeX document is
+    given what its source list leaves out because another of the specs owns it (apart_paths): the figure folders and
+    view-only PDFs inside its build root; any other kind has nothing set apart."""
     return [
         Doc(
             p["key"],
@@ -333,6 +337,11 @@ def docs_of(specs: Sequence[DocSpec], paths: RunPaths) -> list[Doc]:
             main=p["main"],
             root=(p["key"] == DEFAULT_DOC_KEY and kind_builds_from_source(p["kind"])),
             paths=paths,
+            apart=(
+                apart_paths(p["src"], p["main"], [(o["kind"], o["src"], o["main"]) for o in specs if o is not p])
+                if kind_builds_from_source(p["kind"])
+                else NO_APART
+            ),
         )
         for p in specs
     ]
