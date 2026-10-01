@@ -1897,8 +1897,9 @@ class FrontendSemanticAudit(unittest.TestCase):
         # three looks: bold dotted, blue, gray dotted. A dotted underline is now used only for an
         # unresolved @-mention (.mention-bad).
         self.assertIn(":is(.loc,.pg-link,.pin .n.go,.pin-ref){text-decoration:none;", self.css)
-        self.assertIn(
-            ":is(.loc,.pg-link,.pin .n.go,.pin-ref):is(:hover,:focus-visible){text-decoration:underline}", self.css
+        self.assertIn(":is(.loc,.pg-link,.pin .n.go,.pin-ref):focus-visible{text-decoration:underline}", self.css)
+        self.assertIn(  # the hover underline answers a mouse only (FrontendHoverForMouse)
+            "@media (hover:hover){:is(.loc,.pg-link,.pin .n.go,.pin-ref):hover{text-decoration:underline}}", self.css
         )
         for rule in (
             ".pin .n.go{cursor:pointer;color:var(--primary);",
@@ -1909,6 +1910,58 @@ class FrontendSemanticAudit(unittest.TestCase):
         dotted = [r for r in re.findall(r"[^{}]+\{[^}]*underline dotted[^}]*\}", self.css)]
         self.assertEqual([r.split("{")[0].strip() for r in dotted], [".mention-bad"])
         self.assertIn("button[data-pending]{cursor:progress;", self.css)
+
+
+def hover_rules_outside_hover_media(css: str) -> list[str]:
+    """The selector of every style rule in css that has :hover but that no `@media (hover:hover)` encloses. A negated
+    query (`@media not all and (hover:hover)`) does not count: a hover look answers a mouse only, and a touch screen's
+    tap leaves a sticky :hover behind (UX audit P4.6)."""
+    css = re.sub(r"/\*.*?\*/", "", css, flags=re.S)
+    stack: list[str] = []
+    bad: list[str] = []
+    start = 0
+    for i, ch in enumerate(css):
+        if ch == "{":
+            prelude = css[start:i].strip()
+            if not prelude.startswith("@") and ":hover" in prelude:
+                mouse = any(
+                    p.startswith("@media")
+                    and re.search(r"\(\s*hover\s*:\s*hover\s*\)", p)
+                    and not re.match(r"@media\s+not\b", p)
+                    for p in stack
+                )
+                if not mouse:
+                    bad.append(prelude)
+            stack.append(prelude)
+            start = i + 1
+        elif ch in "};":
+            if ch == "}" and stack:
+                stack.pop()
+            start = i + 1
+    return bad
+
+
+class FrontendHoverForMouse(unittest.TestCase):
+    """Every hover look sits inside `@media (hover:hover)` (docs/handbook/viewer.md §뜻과 모양): on a touch screen a tapped
+    row of [더보기] stayed grey after the tap, the owner's 'Theme: System' (UX audit P4.6, 29 bare :hover rules)."""
+
+    def test_no_hover_rule_answers_a_touch_screen(self):
+        """The served page's CSS has no :hover rule outside a hover media query."""
+        css = HTML[HTML.index("<style>") + len("<style>") : HTML.index("</style>")]
+        self.assertEqual(hover_rules_outside_hover_media(css), [])
+
+    def test_the_guard_catches_a_bare_a_negated_and_a_pointer_hover_rule(self):
+        """A bare rule, one under the negated query and one under another media query are reported; the same rule inside
+        `@media (hover:hover)` (alone or with another condition) is not."""
+        ok = "@media (hover:hover){a:hover{color:red}}@media (hover:hover) and (pointer:fine){b:hover{color:red}}"
+        self.assertEqual(hover_rules_outside_hover_media(ok + "c:focus-visible{color:red}"), [])
+        for planted, sel in (
+            ("button:hover{color:red}", "button:hover"),
+            ("@media not all and (hover:hover){x:not(:hover) y{display:none}}", "x:not(:hover) y"),
+            ("@media (pointer:coarse){z:is(:hover,:focus-visible){color:red}}", "z:is(:hover,:focus-visible)"),
+        ):
+            with self.subTest(planted=planted):
+                self.assertEqual(hover_rules_outside_hover_media(ok + planted), [sel])
 
 
 class PinNumberJump(unittest.TestCase):

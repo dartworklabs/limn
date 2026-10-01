@@ -33,7 +33,7 @@ body:not(.lay-narrow) #coach button{pointer-events:auto}
 #more .size-row .seg{flex:1;margin:0}
 #more .more-grid{display:flex;flex-direction:column;margin-top:var(--space-2);border-top:1px solid var(--border);padding-top:var(--space-1)}
 #more .more-grid button{justify-content:flex-start;width:100%;text-align:left;white-space:nowrap;background:transparent;border-color:transparent}
-#more .more-grid button:hover{background:var(--accent)}
+@media (hover:hover){#more .more-grid button:hover{background:var(--accent)}}   /* a tapped row stayed grey (sticky :hover, UX audit P4.6) */
 @media (pointer:coarse){
   :root{--doc-nav-h:48px;--text-xs:12px}   /* no touch text below 12px: badges, counts, avatar initials and page numbers were 11px (diagnosis P7) */
   button.tch{display:inline-flex}

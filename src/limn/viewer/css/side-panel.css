@@ -2,7 +2,8 @@
    gets the .hit utility's 44px (responsive.css); a mouse only 3px on each side, so it doesn't cover the body scrollbar on the left. */
 #grip{position:relative;z-index:6;width:6px;cursor:col-resize;background:var(--border);flex:none;touch-action:none}
 @media not all and (pointer:coarse){#grip::after{content:'';position:absolute;top:0;bottom:0;left:-3px;right:-3px}}
-#grip:hover,#grip.on,#grip:focus-visible{background:var(--border-strong)}
+#grip.on,#grip:focus-visible{background:var(--border-strong)}
+@media (hover:hover){#grip:hover{background:var(--border-strong)}}
 body.resizing{-webkit-user-select:none;user-select:none;cursor:col-resize}
 body.resizing #left{pointer-events:none}
 /* Collapsing by the handle (docs/handbook/viewer.md §패널 폭과 시트 높이, snapSide): stopped at the minimum the bar turns primary;
@@ -49,11 +50,11 @@ body:not(.lay-wide) #nav-side{display:none}
 /* Tool bar hierarchy (QA 2026-09-24): page/zoom-in/zoom-out/fit-width are bordered navigation controls, notification/theme/help
    are borderless utility icons, and [PDF 재빌드] is a rarely used action so it's a faint ghost - if the manuscript is newer than the PDF, updateStaleBadge promotes it to .btn-default. */
 #bar1 :is(#btn-notify,#btn-theme,#btn-help){background:transparent;border-color:transparent;color:var(--muted-foreground)}
-#bar1 :is(#btn-notify,#btn-theme,#btn-help):hover{background:var(--accent);color:var(--foreground)}
+@media (hover:hover){#bar1 :is(#btn-notify,#btn-theme,#btn-help):hover{background:var(--accent);color:var(--foreground)}}
 #btn-rebuild:not(.btn-default){background:transparent;border-color:transparent;color:var(--muted-foreground)}
 body.lay-wide #btn-rebuild .ic{display:none}   /* text only on a wide screen - so the 348px panel's tool bar fits on one line */
 body.lay-wide #bar1 #btn-rebuild{padding:0 var(--space-1)}   /* at 8px, [?] dropped to a second line in the default 348px panel (grid-cleanup QA) */
-#btn-rebuild:not(.btn-default):hover{background:var(--accent);color:var(--foreground)}
+@media (hover:hover){#btn-rebuild:not(.btn-default):hover{background:var(--accent);color:var(--foreground)}}
 #bar1 .chip{height:var(--control-h-sm);display:block;line-height:var(--control-h-sm);padding:0 var(--space-2);flex:0 1 auto;min-width:40px}
 /* Safe areas in the wide layout (an iPad home-screen app or full screen, docs/handbook/viewer.md §모바일 레이아웃): the nav bar and the
    panel start below the status bar, and the composer's action row, the list's end and the floating status chips stay above the home

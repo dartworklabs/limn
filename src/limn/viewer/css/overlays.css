@@ -16,10 +16,15 @@
 .toast .t-title{font-weight:600}
 .toast .t-desc{color:var(--muted-foreground);font-size:var(--text-sm)}
 .toast .t-acts{display:flex;align-items:center;gap:var(--space-1);margin:-3px -5px -3px 0}
-#toasts:not(:hover):not(:focus-within):not(.expanded) .toast:nth-child(n+4){display:none}
-/* The '+N' under a folded stack (syncToastStack): the way to open it on touch, where hover does not exist. */
+/* A mouse opens the fold by hovering; a touch screen has no hover (a tap would leave it stuck open), so there only the focus and
+   the '+N' button (.expanded) open it. */
+@media (hover:hover){#toasts:not(:hover):not(:focus-within):not(.expanded) .toast:nth-child(n+4){display:none}}
+@media not all and (hover:hover){#toasts:not(:focus-within):not(.expanded) .toast:nth-child(n+4){display:none}}
+/* The '+N' under a folded stack (syncToastStack): the way to open it on touch, where hover does not exist. A mouse's hover or
+   focus already opens the stack, so the button goes; on touch only its own click hides it (syncToastStack) - hidden by the focus
+   its tap gives it, it lost that click. */
 #toasts .t-more{pointer-events:auto;align-self:flex-end;background:var(--popover);box-shadow:var(--shadow-sm)}
-#toasts:is(:hover,:focus-within) .t-more{display:none}
+@media (hover:hover){#toasts:is(:hover,:focus-within) .t-more{display:none}}
 /* Touch: the toast body passes taps through (only its buttons receive them) - so a toast floating right above a phone's sheet never intercepts a PDF long-press or the tool bar. */
 @media (pointer:coarse){.toast{pointer-events:none}.toast button{pointer-events:auto}}
 @keyframes toast-in{from{opacity:0;transform:translateY(6px)}}

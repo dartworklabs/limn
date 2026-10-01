@@ -1420,6 +1420,60 @@ class LayoutNotPointer(ViewerBase):
             },
         )
 
+    def test_a_mouse_at_1440_keeps_the_desktop_geometry_to_the_pixel(self):
+        """1440x900 with a mouse: the page's margins and box, its first mark's badge, the panel's tool bar, section head and
+        first card, and the help, Trash and documents dialogs sit where they sat before the touch edge grid (UX audit V2/V6):
+        the desktop layout is unchanged."""
+        page = self.view(MOUSE_WIDE)
+        page.evaluate("document.querySelector('#left').scrollTop=0")
+        settle(page)
+        got = page.evaluate(DESK_GEOMETRY)
+        for opener, dlg in (("openHelp()", "#help"), ("openTrash()", "#trash"), ("openDocsMenu()", "#docs-menu")):
+            page.evaluate(opener)
+            settle(page)
+            got[dlg] = page.evaluate(
+                "s=>{const r=document.querySelector(s).getBoundingClientRect(),c=getComputedStyle(document.querySelector(s));"
+                "return [Math.round(r.x),Math.round(r.y),Math.round(r.width),Math.round(r.height),c.paddingLeft,c.paddingRight];}",
+                dlg,
+            )
+            page.evaluate("s=>document.querySelector(s).close()", dlg)
+        self.assertEqual(got, DESK_1440)
+
+
+# Where the desktop's chrome sits at 1440x900 with a mouse on the ViewerBase fixture: [x, y, width, height] boxes (rounded).
+DESK_GEOMETRY = """() => {const q = s => document.querySelector(s), B = e => {const r = e.getBoundingClientRect();
+    return [Math.round(r.x), Math.round(r.y), Math.round(r.width), Math.round(r.height)];}, L = getComputedStyle(q('#left'));
+  return {left: [L.paddingLeft, L.paddingRight], page: B(q('#p1')), badge: B(q('.mark b')), right: B(q('#right')),
+    bar: [...q('#bar1').children].filter(e => e.getClientRects().length).map(e => (e.id || e.className) + '@' + B(e).join(',')),
+    head: B(q('#sec-open .sec-head')), toggle: B(q('#open-toggle')), chevron: B(q('#open-toggle svg')), card: B(q('#pins .pin')),
+    dot: B(q('#pins .pin .st-dot')), list: [getComputedStyle(q('#list')).paddingLeft, getComputedStyle(q('#list')).paddingRight]};}"""
+DESK_1440 = {
+    "left": ["44px", "16px"],
+    "page": [290, 98, 780, 1009],
+    "badge": [386, 300, 22, 22],
+    "right": [1092, 0, 348, 900],
+    "bar": [
+        "btn-rebuild@1101,8,71,28",
+        "sp@1176,22,6,0",
+        "jump@1186,8,54,28",
+        "btn-zoom-out@1244,8,28,28",
+        "btn-zoom-in@1276,8,28,28",
+        "btn-fit@1308,8,28,28",
+        "btn-notify@1340,8,28,28",
+        "btn-theme@1372,8,28,28",
+        "btn-help@1404,8,28,28",
+    ],
+    "head": [1093, 108, 347, 31],
+    "toggle": [1101, 112, 88, 22],
+    "chevron": [1106, 116, 14, 14],
+    "card": [1105, 143, 323, 102],
+    "dot": [1118, 162, 8, 8],
+    "list": ["12px", "12px"],
+    "#help": [380, 54, 680, 792, "24px", "24px"],
+    "#trash": [440, 388, 560, 124, "24px", "24px"],
+    "#docs-menu": [440, 780, 560, 120, "12px", "12px"],
+}
+
 
 class PhoneTouchSizes(ViewerBase):
     """Touch sizes on the phone sheet: every control answers a tap in a 44x44 box, whatever its drawn size - the assignee
@@ -2421,6 +2475,27 @@ class PhoneMoreAndHelp(ViewerBase):
                 )
                 self.assertEqual(two, [])
                 self.assertEqual(page.evaluate(MISSES_44, "#more button,#more input"), [])
+
+    def test_a_tapped_row_keeps_no_hover_fill_while_a_mouse_still_gets_one(self):
+        """360x780 touch: a tap on [테마] in [더보기] left the row grey (a sticky :hover, the owner's 'Theme: System', UX
+        audit P4.6); the hover fill answers a mouse only. A mouse at 1000x800 (the same sheet) still gets --accent."""
+        bg = "getComputedStyle(document.querySelector('#m-theme')).backgroundColor"
+        page = self.view(PHONE_360)
+        page.evaluate("openMore()")
+        settle(page)
+        self.tap(self.cdp(page), *self.center(page, "#m-theme"))
+        settle(page)
+        self.assertEqual(page.evaluate(bg), "rgba(0, 0, 0, 0)")
+        page = self.view(MOUSE_MID)
+        page.evaluate("openMore()")
+        settle(page)
+        page.hover("#m-theme")
+        settle(page)
+        accent = page.evaluate(
+            "(()=>{const e=document.createElement('i'); e.style.background='var(--accent)'; document.body.append(e);"
+            " const c=getComputedStyle(e).backgroundColor; e.remove(); return c;})()"
+        )
+        self.assertEqual(page.evaluate(bg), accent)
 
     def test_help_on_a_touch_screen_leaves_out_the_shortcut_table(self):
         """Ctrl, the wheel and Alt+1…9 mean nothing on a phone; a mouse still gets the table."""

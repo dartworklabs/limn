@@ -26,7 +26,8 @@ button.badge-review{font-weight:600}
    primary-color text, no underline at rest, solid underline on hover/focus. Gray text is non-clickable information (author/timestamp).
    Same inside a faded archive row - the row's text is faded and only the clickable words are in the primary color. */
 :is(.loc,.pg-link,.pin .n.go,.pin-ref){text-decoration:none;text-underline-offset:3px}
-:is(.loc,.pg-link,.pin .n.go,.pin-ref):is(:hover,:focus-visible){text-decoration:underline}
+:is(.loc,.pg-link,.pin .n.go,.pin-ref):focus-visible{text-decoration:underline}
+@media (hover:hover){:is(.loc,.pg-link,.pin .n.go,.pin-ref):hover{text-decoration:underline}}
 .pin .note{margin-top:4px;white-space:pre-wrap;word-break:break-word;cursor:text}
 /* Card header: number/range/page on the left, author/collapse on the right. Badges are a single row below the header. Actions form an equal-width grid; only [완료] is emphasized and [삭제] is in the destructive color. */
 .pin .head{flex-wrap:wrap;gap:var(--space-1) var(--space-2);min-height:28px}
@@ -58,16 +59,16 @@ body.compact .pin .acts :is(.b-edit,.b-drop,.b-unclaim){flex:none;padding:0;widt
 /* The three icons share one neutral fill and size; only the delete glyph is red, and [삭제] keeps one more spacing step from [수정]
    so a thumb meant for edit does not land on delete. */
 body.compact .pin .acts .b-drop{background:var(--secondary);margin-right:var(--space-2)}
-body.compact .pin .acts .b-drop:hover{background:color-mix(in srgb,var(--destructive) 12%,var(--secondary))}
+@media (hover:hover){body.compact .pin .acts .b-drop:hover{background:color-mix(in srgb,var(--destructive) 12%,var(--secondary))}}
 body.compact .pin .acts .b-reply{margin-left:auto}   /* the row's order is the markup's (cardActs), so Tab follows what is seen */
 body.compact .pin .acts button:not(.btn-icon){padding-left:var(--space-3);padding-right:var(--space-3)}
 button.b-close{font-weight:600}
 /* Buttons inside a card are borderless and filled (secondary) - so six bordered buttons never line up inside an already-bordered card.
    Only [완료] gets the soft emphasis; [삭제] is plain destructive-colored text with no fill, so it never becomes the most eye-catching button. [취소] next to an input field uses the same fill. */
 .pin :is(.acts,.e-acts,.r-acts) button:not(.btn-soft):not(.btn-destructive):not(.btn-default){background:var(--secondary);color:var(--secondary-foreground);border-color:transparent}
-.pin :is(.acts,.e-acts,.r-acts) button:not(.btn-soft):not(.btn-destructive):not(.btn-default):hover{background:var(--accent)}
+@media (hover:hover){.pin :is(.acts,.e-acts,.r-acts) button:not(.btn-soft):not(.btn-destructive):not(.btn-default):hover{background:var(--accent)}}
 .pin .acts button.btn-destructive{background:transparent}
-.pin .acts button.btn-destructive:hover{background:color-mix(in srgb,var(--destructive) 12%,transparent)}   /* [완료] = soft, [삭제] = destructive - the variant is set by the class in the markup */
+@media (hover:hover){.pin .acts button.btn-destructive:hover{background:color-mix(in srgb,var(--destructive) 12%,transparent)}}   /* [완료] = soft, [삭제] = destructive - the variant is set by the class in the markup */
 .e-acts{display:grid;grid-template-columns:1.4fr 1fr 1fr;gap:var(--space-2);margin-top:8px}
 /* Pin kind (fix request / question) and thread (docs/handbook/viewer.md §스레드와 검토). The question badge has a primary-color border; the thread is set apart by a dotted line below the note. */
 .kind-seg{margin:8px 0 0}
@@ -98,7 +99,8 @@ body:is(.lay-narrow,.band-short) #note-mentions{order:1;margin:-4px 0 8px}
 .q-hint{display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-1);margin-top:var(--space-1);font-size:var(--text-sm);color:var(--muted-foreground)}
 .q-hint svg{width:14px;height:14px;flex:none}
 .q-hint button{background:transparent;border-color:transparent;color:var(--primary);padding:0 var(--space-1);font-size:var(--text-sm);text-underline-offset:3px}
-.q-hint button:is(:hover,:focus-visible){background:transparent;color:var(--primary);text-decoration:underline}
+.q-hint button:focus-visible{background:transparent;color:var(--primary);text-decoration:underline}
+@media (hover:hover){.q-hint button:hover{background:transparent;color:var(--primary);text-decoration:underline}}
 body:is(.lay-narrow,.band-short) #c-qhint{order:1;margin:-4px 0 8px}
 /* A '#12' inside text = a link to that pin (a navigable string is dotted-underline, solid on hover - the same convention as .pg-link/#number) */
 .pin-ref{color:var(--primary);font-weight:600;cursor:pointer}
@@ -114,7 +116,7 @@ body:is(.lay-narrow,.band-short) #c-qhint{order:1;margin:-4px 0 8px}
 #trash .arc-l1 .sp{flex:1 0 0}
 .arc-acts{flex:none;display:inline-flex;gap:var(--space-1);margin-left:auto}
 #trash-link{display:flex;margin:12px auto 0;color:var(--muted-foreground);background:transparent;border-color:transparent}
-#trash-link:hover{background:var(--accent);color:var(--foreground)}
+@media (hover:hover){#trash-link:hover{background:var(--accent);color:var(--foreground)}}
 body.compact #trash-link{display:none}   /* compact: the Trash is in [⋯], like the other secondary lists */
 .arc-row.flash{animation:pinflash 1.2s ease-in-out 1;border-radius:var(--radius)}
 /* @-tag autocomplete: a list that appears right below the input field (above it if there's no room). Never steals the input field's focus (blocks pointerdown). */
@@ -139,7 +141,7 @@ button.msg-more{align-self:flex-start;margin-top:2px;color:var(--muted-foregroun
 .msg.ev .msg-t{color:var(--card-foreground);font-size:var(--text-base)}
 button.th-more{align-self:flex-start;color:var(--muted-foreground)}
 .th-n{display:inline-flex;align-items:center;gap:2px;flex:none;color:var(--muted-foreground);font-size:var(--text-xs);cursor:pointer;border-radius:var(--radius);padding:0 2px;position:relative}
-.th-n:hover{background:var(--accent);color:var(--foreground)}
+@media (hover:hover){.th-n:hover{background:var(--accent);color:var(--foreground)}}
 .th-n .ic{width:12px;height:12px}
 .reply-box{display:flex;flex-direction:column;gap:var(--space-2);margin-top:8px}
 .reply-box textarea{min-height:3.2em}

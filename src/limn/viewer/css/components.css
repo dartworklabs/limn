@@ -9,20 +9,22 @@ button{display:inline-flex;align-items:center;justify-content:center;gap:var(--s
 /* Icons (Lucide, vendor/lucide/README.md): outline icons that follow the text color. Inside a button they sit next to the text with a 4px gap. */
 .ic{width:16px;height:16px;flex:none;display:inline-block;vertical-align:-3px;pointer-events:none}
 .kh{font-weight:400;opacity:.8;font-size:var(--text-sm)}
-button:hover{background:var(--accent);color:var(--accent-foreground)}
+/* Every hover look answers a mouse only (docs/handbook/viewer.md §뜻과 모양): on a touch screen a tap leaves :hover stuck on the
+   tapped control, and a [더보기] row stayed grey after it was tapped (UX audit P4.6). */
+@media (hover:hover){button:hover{background:var(--accent);color:var(--accent-foreground)}}
 button:disabled{opacity:.65;cursor:not-allowed}
 button[data-pending]{cursor:progress;background:color-mix(in srgb,var(--primary) 70%,var(--background));border-color:transparent}   /* [핀 저장]'s "saving" - looks pressed-and-waiting */
 button.btn-default{background:var(--primary);color:var(--primary-foreground);border-color:var(--primary);font-weight:600}
-button.btn-default:hover{background:color-mix(in srgb,var(--primary) 88%,var(--background));color:var(--primary-foreground)}
+@media (hover:hover){button.btn-default:hover{background:color-mix(in srgb,var(--primary) 88%,var(--background));color:var(--primary-foreground)}}
 button.btn-secondary{background:var(--secondary);color:var(--secondary-foreground);border-color:transparent}
-button.btn-secondary:hover{background:color-mix(in srgb,var(--secondary) 88%,var(--foreground))}
+@media (hover:hover){button.btn-secondary:hover{background:color-mix(in srgb,var(--secondary) 88%,var(--foreground))}}
 button.btn-ghost{background:transparent;border-color:transparent}
-button.btn-ghost:hover{background:var(--accent)}
+@media (hover:hover){button.btn-ghost:hover{background:var(--accent)}}
 /* soft: a light accent (a tint of the primary color). Only for the card's [완료] - set by the author 2026-09-23 (light blue). The secondary token is used by count badges, so it's left untouched */
 button.btn-soft{background:color-mix(in srgb,var(--primary) 14%,transparent);color:var(--primary);border-color:transparent}
-button.btn-soft:hover{background:color-mix(in srgb,var(--primary) 14%,transparent);color:var(--primary);border-color:color-mix(in srgb,var(--primary) 45%,transparent)}   /* darkening the background further drops light-mode text contrast below 4.5 - shown via a border instead */
+@media (hover:hover){button.btn-soft:hover{background:color-mix(in srgb,var(--primary) 14%,transparent);color:var(--primary);border-color:color-mix(in srgb,var(--primary) 45%,transparent)}}   /* darkening the background further drops light-mode text contrast below 4.5 - shown via a border instead */
 button.btn-destructive{background:color-mix(in srgb,var(--destructive) 10%,transparent);color:var(--destructive);border-color:transparent}
-button.btn-destructive:hover{background:color-mix(in srgb,var(--destructive) 18%,transparent);color:var(--destructive)}
+@media (hover:hover){button.btn-destructive:hover{background:color-mix(in srgb,var(--destructive) 18%,transparent);color:var(--destructive)}}
 button.btn-sm{padding:2px var(--space-2);font-size:var(--text-sm)}
 button.btn-icon{flex:none;padding:0;width:var(--control-h);min-width:var(--control-h);height:var(--control-h)}
 button.btn-icon.btn-sm{width:var(--control-h-sm);min-width:var(--control-h-sm);height:var(--control-h-sm)}
@@ -41,7 +43,7 @@ button.btn-icon.btn-sm{width:var(--control-h-sm);min-width:var(--control-h-sm);h
 .badge-claimed.late{background:color-mix(in srgb,var(--status-warning) 14%,transparent);color:var(--status-warning)}
 .badge-claimed.late .ic{color:var(--status-warning)}
 button.badge{cursor:pointer;padding:1px var(--space-2);border-radius:var(--radius-sm);font-size:var(--text-xs);line-height:1.45}
-button.badge:hover{background:var(--accent);border-color:var(--border-strong)}
+@media (hover:hover){button.badge:hover{background:var(--accent);border-color:var(--border-strong)}}
 .card{background:var(--card);color:var(--card-foreground);border:1px solid var(--border);border-radius:var(--radius-lg)}
 input,textarea{background:var(--field);color:var(--foreground);border:1px solid var(--input);border-radius:var(--radius);padding:var(--space-2);
   font:inherit;width:100%}

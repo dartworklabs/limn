@@ -44,7 +44,8 @@ body.docs-multi:not(.lay-narrow) #doc-links,body.docs-multi.band-tablet-sheet #d
 #doc-links button{position:relative;border:0;border-radius:0;background:transparent;color:var(--muted-foreground);padding:0 2px;font-size:var(--text-sm);white-space:nowrap}
 #doc-links button[aria-current=page]{color:var(--foreground);font-weight:600}
 #doc-links button[aria-current=page]::after{content:'';position:absolute;bottom:-1px;left:0;right:0;height:2px;background:var(--brand)}
-#doc-links button:hover,#doc-links button:focus-visible{color:var(--foreground)}
+#doc-links button:focus-visible{color:var(--foreground)}
+@media (hover:hover){#doc-links button:hover{color:var(--foreground)}}
 #doc-links .doc-link-count{font-size:var(--text-xs);color:var(--subtle-foreground);margin-left:var(--space-1)}
 #doc-links button[aria-current=page] .doc-link-count{color:var(--muted-foreground)}   /* label-colored text measured 2.8 contrast in dark (QA) - the current document's underline bar already carries the label color */
 #doc-select-wrap label{color:var(--muted-foreground);font-size:var(--text-sm)}
@@ -74,11 +75,14 @@ body.outline-collapsed #outline-items,body.outline-collapsed #outline-search,bod
 #outline-items button.ol-depth-2{padding-left:var(--space-5)}
 #outline-items button.ol-depth-3,#outline-items button.ol-depth-4{padding-left:var(--space-6)}
 #outline-items button.ol-active{background:var(--accent);color:var(--foreground)}
-#outline-items button:hover,#outline-items button:focus-visible{background:var(--accent);color:var(--foreground)}
-#outline-items button:is(.ol-active,:hover,:focus-visible) .ol-page{color:var(--muted-foreground)}   /* the faint page number measured 3.8 contrast on --accent here (QA) */
+#outline-items button:focus-visible{background:var(--accent);color:var(--foreground)}
+@media (hover:hover){#outline-items button:hover{background:var(--accent);color:var(--foreground)}}
+#outline-items button:is(.ol-active,:focus-visible) .ol-page{color:var(--muted-foreground)}   /* the faint page number measured 3.8 contrast on --accent here (QA) */
+@media (hover:hover){#outline-items button:hover .ol-page{color:var(--muted-foreground)}}
 #outline-grip{position:relative;z-index:6;width:6px;flex:none;cursor:col-resize;touch-action:none;background:var(--border)}
 @media not all and (pointer:coarse){#outline-grip::after{content:'';position:absolute;inset:0 -9px}}   /* touch: the .hit utility's 44px (responsive.css) */
-#outline-grip:hover,#outline-grip.on,#outline-grip:focus-visible{background:var(--border-strong)}
+#outline-grip.on,#outline-grip:focus-visible{background:var(--border-strong)}
+@media (hover:hover){#outline-grip:hover{background:var(--border-strong)}}
 body.outline-collapsed #outline-grip,body.band-phone #outline,body.lay-narrow #outline-grip{display:none}
 #section-strip{display:flex;align-items:center;gap:var(--space-2);height:38px;flex:none;padding:0 var(--space-4);background:var(--muted);
   border-bottom:1px solid var(--border);font-size:var(--text-sm);color:var(--muted-foreground)}
