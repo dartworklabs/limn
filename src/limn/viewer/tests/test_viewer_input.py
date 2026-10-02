@@ -2037,7 +2037,7 @@ class PhoneComposer(ViewerBase):
             "[...document.querySelectorAll('.c-loc-row,#note,#c-overlap,#c-levels,#c-kind,#c-snip')]"
             ".map(e=>[e.id||e.className,Math.round(e.getBoundingClientRect().top)]).sort((a,b)=>a[1]-b[1]).map(a=>a[0])"
         )
-        self.assertEqual(order, ["c-loc-row", "note", "c-overlap", "c-levels", "c-kind", "c-snip"])
+        self.assertEqual(order, ["c-loc-row", "note", "c-kind", "c-overlap", "c-levels", "c-snip"])
 
     def test_with_the_keyboard_up_the_note_and_the_location_line_stay_in_view(self):
         """The keyboard shrinks the layout by 300px: the location line scrolled to y -35 above the note."""
@@ -2323,6 +2323,107 @@ class RangeLadderAndCaption(ViewerBase):
         self.compose(page)
         got = page.evaluate(RANGE_BLOCK, "#composer")
         self.assertEqual((got["cap"], got["page"]), ("Range L5 · 1 line · Paragraph", "p. 1"))
+
+
+# The phone composer's blocks as drawn, top to bottom: each visible flex item of #composer (and of the range block #c-range)
+# with its top and bottom, so a test reads their order and the gaps between them.
+COMPOSER_BLOCKS = """sel => [...document.querySelector(sel).children].flatMap(e => getComputedStyle(e).display === 'contents' ? [...e.children] : [e])
+  .filter(e => e.getClientRects().length && getComputedStyle(e).position !== 'absolute')
+  .map(e => {const r = e.getBoundingClientRect(); return [e.id || e.className, r.top, r.bottom];}).sort((a, b) => a[1] - b[1])"""
+# The pending box's badge: its box, the pending box's, the page's left edge, the badge's visible text and its spoken name.
+PENDING_BADGE = """() => {const s = document.querySelector('.sel.pending'), i = s.querySelector('i'), R = e => e.getBoundingClientRect();
+  return {badge: R(i), box: R(s), page: R(s.closest('.pg')), seen: i.innerText.trim(), name: s.textContent.trim()};}"""
+
+
+class ComposerSamePass(ViewerBase):
+    """The rest of the composer and edit card on a phone, in the same pass as the owner's four points (UX audit rules R1/R2,
+    one 8px step): the '새 핀' tag covered the line above the box, the copy button was a 44px bordered box, the blocks sat
+    0-20px apart, the kind control split the range controls from the source they change, and the composer was a grey card
+    inside the white sheet (a box of its own in the tablet's 640px column)."""
+
+    def compose(self, page):
+        """A touch selection through the real pick path; waits for the composer."""
+        page.evaluate("()=>{LAST_PTR='touch'; pick({page:1,x0:10,y0:10,x1:200,y1:60});}")
+        page.wait_for_function("COMPOSE.current&&!COMPOSE.picking")
+        settle(page)
+
+    def test_the_phone_order_puts_the_kind_by_the_note_and_the_range_block_last(self):
+        """411x908 with the overlap notice: location, note, kind, overlap, then the range block - caption, ladder, line
+        buttons, source and its foot - so what changes the range sits with the source it changes."""
+        page = self.view(phone(411, 908))
+        self.compose(page)
+        top = [b[0] for b in page.evaluate(COMPOSER_BLOCKS, "#composer")]
+        self.assertEqual(top, ["c-loc-row", "note", "c-kind", "c-overlap", "c-range"], top)
+        inner = [b[0] for b in page.evaluate(COMPOSER_BLOCKS, "#c-range")]
+        self.assertEqual(inner, ["c-cap", "c-levels", "c-tools", "c-snip", "snip-foot"], inner)
+
+    def test_the_phone_composers_blocks_are_one_8px_step_apart(self):
+        """411x908 and 768x1024: every gap between the composer's blocks, and inside the range block, is 8px (the kind
+        control sat flush on the source, the ladder 20px under the note)."""
+        for w, h in ((411, 908), (768, 1024)):
+            with self.subTest(w=w):
+                page = self.view(phone(w, h))
+                self.compose(page)
+                for sel in ("#composer", "#c-range"):
+                    b = page.evaluate(COMPOSER_BLOCKS, sel)
+                    gaps = [round(n[1] - p[2]) for p, n in zip(b, b[1:], strict=False)]
+                    self.assertEqual(set(gaps), {8}, (sel, list(zip([x[0] for x in b], gaps, strict=False))))
+
+    def test_the_copy_button_is_a_borderless_icon_answering_44px(self):
+        """411x908: [⧉] beside the location line was a 44px bordered box; it is a ghost icon drawn at 36px whose tap
+        still answers a 44px box. A mouse desktop keeps its drawn button."""
+        page = self.view(phone(411, 908))
+        self.compose(page)
+        got = page.evaluate(
+            "(()=>{const b=document.querySelector('#c-copy'),cs=getComputedStyle(b),r=b.getBoundingClientRect();"
+            " return [cs.borderTopColor, cs.backgroundColor, Math.round(r.width), Math.round(r.height)];})()"
+        )
+        self.assertEqual(got, ["rgba(0, 0, 0, 0)", "rgba(0, 0, 0, 0)", 36, 36])
+        self.assertEqual(page.evaluate(MISSES_44, "#c-copy"), [])
+        page = self.view(DESK)
+        self.mouse_pick(page)
+        self.assertNotEqual(
+            page.evaluate("getComputedStyle(document.querySelector('#c-copy')).borderTopColor"), "rgba(0, 0, 0, 0)"
+        )
+
+    def test_the_new_pin_badge_sits_left_of_the_box_not_over_the_line_above(self):
+        """411x908, a long press on the text: the pending box's badge is a 26px '+' outside its left edge at its top -
+        where a saved mark's number goes - with no visible word, and is named '새 핀' for screen readers. The old tag sat
+        21px above the box, over the line above it."""
+        page = self.view(phone(411, 908))
+        self.long_press_pick(self.cdp(page), page)
+        got = page.evaluate(PENDING_BADGE)
+        b, box = got["badge"], got["box"]
+        self.assertLessEqual(b["right"], box["left"] + 0.5)
+        self.assertGreaterEqual(b["top"], box["top"] - 2.5)
+        self.assertEqual((round(b["width"]), round(b["height"]), got["seen"], got["name"]), (26, 26, "", "새 핀"))
+
+    def test_the_new_pin_badge_goes_inside_a_box_at_the_page_edge(self):
+        """A box starting at the page's left edge has no room for the badge outside (it would be cut at the PDF column):
+        the badge is in the box's top-left corner, as a mark's is (markBadgeIn)."""
+        page = self.view(phone(411, 908))
+        p1 = page.locator("#p1").bounding_box()
+        self.long_press_pick(self.cdp(page), page, p1["x"] + 4, p1["y"] + p1["height"] * 0.1)
+        got = page.evaluate(PENDING_BADGE)
+        self.assertGreaterEqual(got["badge"]["left"], got["box"]["left"] - 0.5)
+        self.assertGreaterEqual(got["badge"]["left"], got["page"]["left"] - 0.5)
+
+    def test_the_composer_is_on_the_sheet_not_a_grey_card(self):
+        """411x908 and 768x1024: the composer has the sheet's own background (it was --card, a grey box in the white
+        sheet - in the tablet's 640px column a box of its own); the mouse desktop keeps --card."""
+        bg = "getComputedStyle(document.querySelector('#composer')).backgroundColor"
+        for w, h in ((411, 908), (768, 1024)):
+            with self.subTest(w=w):
+                page = self.view(phone(w, h))
+                self.compose(page)
+                self.assertEqual(page.evaluate(bg), "rgba(0, 0, 0, 0)")
+        page = self.view(DESK)
+        self.mouse_pick(page)
+        card = page.evaluate(
+            "(()=>{const e=document.createElement('i'); e.style.background='var(--card)'; document.body.append(e);"
+            " const c=getComputedStyle(e).backgroundColor; e.remove(); return c;})()"
+        )
+        self.assertEqual(page.evaluate(bg), card)
 
 
 # A landscape tablet in the mid layout (the side panel). A portrait tablet is the tablet sheet (TouchLayoutBands).
@@ -2737,7 +2838,7 @@ class TouchLayoutBands(ViewerBase):
             ".filter(e=>e.getClientRects().length).map(e=>[e.id||e.className,Math.round(e.getBoundingClientRect().top)])"
             ".sort((a,b)=>a[1]-b[1]).map(a=>a[0])"
         )
-        self.assertEqual(order, ["c-loc-row", "note", "c-qhint", "c-overlap", "c-levels", "c-kind", "c-snip"])
+        self.assertEqual(order, ["c-loc-row", "note", "c-qhint", "c-kind", "c-overlap", "c-levels", "c-snip"])
         gap = page.evaluate(
             "Math.round(document.querySelector('#note').getBoundingClientRect().top"
             "-document.querySelector('#composer .c-loc-row').getBoundingClientRect().bottom)"

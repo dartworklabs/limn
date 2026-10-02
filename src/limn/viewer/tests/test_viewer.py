@@ -2646,6 +2646,7 @@ class FrontendFigure(unittest.TestCase):
             [extract_js_fn(n) for n in ("isFrac", "elName", "elPathText", "drawBox", "snapBox", "renderElement")]
             + [
                 r"""
+            function pendingBadgeSide(){}   // the badge's side needs the page on screen (markBadgeRoom); not this test's
             const nodes={'#c-path':{hidden:true,textContent:'',dataset:{}}}; const $=s=>nodes[s];
             const vals=b=>['left','top','width','height'].map(k=>parseFloat(b.style[k]));
             const cell={id:'B2/c/m07',path:['B2','B2/c','B2/c/m07'],label:'7월',frac:[0.47,0.18,0.07,0.12]};

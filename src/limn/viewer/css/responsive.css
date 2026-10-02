@@ -89,7 +89,7 @@ body:not(.lay-narrow) #coach button{pointer-events:auto}
   .loc,.pg-link,.pin .n.go{display:inline-flex;align-items:center;justify-content:center;min-height:var(--hit);min-width:var(--hit);position:relative}
   .pin .go-all{min-height:var(--hit)}
   .pin .head .b-fold{position:relative}   /* above the preview line that the head's -6px margin lets overlap its bottom (it answered 44x38) */
-  .mark b{width:26px;height:26px;left:-28px;font-size:var(--text-base)}
+  .mark b,.sel i{width:26px;height:26px;left:-28px;font-size:var(--text-base)}
   .mark b::after{content:'';position:absolute;inset:-9px}
   #tip{max-width:min(300px,calc(100vw - 16px))}
   #more .m-c .btn-icon{width:var(--control-h-lg);min-width:var(--control-h-lg);height:var(--control-h-lg);min-height:0}   /* icons drawn at 36px, 8px apart: their 44px hits (.hit) meet */
@@ -220,7 +220,13 @@ body.compact #bar1 #btn-more{flex:0 0 44px;padding:0}   /* utility = ghost (the 
 /* The phone and tablet bar's right end: [⋯]'s ink ends on the ink line (--ink), as R2 asks of a ghost at a row's end - centred in
    its 44px box it ended 4px further in (28 on a phone), across from [📍]'s fill on the edge line. */
 body.lay-narrow #bar1 #btn-more{justify-content:flex-end;padding-right:calc(var(--ink) - var(--edge) - var(--ic-bearing))}
-body.compact #composer{max-height:none;overflow:visible}
+/* The composer is part of the sheet or panel, on its background (it was --card: a grey box in the white sheet, in the tablet's
+   640px column a box of its own); the line under it parts it from the list. Its [⧉] is a ghost at the row's end (R2), drawn at
+   36px with a 44px hit - it was a 44px bordered box beside the location line. */
+body.compact #composer{max-height:none;overflow:visible;background:transparent}
+body.compact #c-copy{background:transparent;border-color:transparent}
+@media (hover:hover){body.compact #c-copy:hover{background:var(--accent)}}
+@media (pointer:coarse){body.compact #c-copy{width:var(--control-h-lg);min-width:var(--control-h-lg);height:var(--control-h-lg);min-height:0;padding:0}}
 /* Touch only (a mouse window scrolls as it always did): a field scrolled into view stays clear of the stuck save row (56px plus the
    bottom safe area) and, on a sheet, of the tool bar stuck at its top (whose hit areas reach 6px below it). */
 @media (pointer:coarse){
@@ -231,13 +237,17 @@ body.compact #composer{max-height:none;overflow:visible}
    overlap notice, then the range ladder, the nudges and the kind, then the source. The note was the fourth block, 328px down, and hid
    below the save row; with the keyboard up the location line scrolled away (diagnosis P2). */
 /* The short band (a landscape phone, ~346px of panel) takes the same order: in the mid order the note was ninth, off screen after a pick. */
-body:is(.lay-narrow,.band-short) #composer{display:flex;flex-direction:column}
+/* After the note come its kind (what the note is), the overlap notice, and last the range block (#c-range: caption, ladder,
+   line buttons, source and its foot), so what changes the range sits with the source it changes - the kind used to sit
+   between them. Every block is one 8px step from the next (they sat 0-20px apart, the kind flush on the source). */
+body:is(.lay-narrow,.band-short) #composer{display:flex;flex-direction:column;gap:var(--space-2)}
 body:is(.lay-narrow,.band-short) #c-body{display:contents}
-body:is(.lay-narrow,.band-short) #c-overlap{order:2}
-body:is(.lay-narrow,.band-short) :is(#c-cap,#c-levels,.c-tools,#c-kind){order:3}
-body:is(.lay-narrow,.band-short) #c-snip,body:is(.lay-narrow,.band-short) .snip-foot{order:4}
-body:is(.lay-narrow,.band-short) #note{order:1;margin:var(--space-2) 0}
-body:is(.lay-narrow,.band-short) #c-viewer{order:1}
+body:is(.lay-narrow,.band-short) #note{order:1}
+body:is(.lay-narrow,.band-short) :is(#note-mentions,#c-viewer,#c-qhint,#c-assign){order:1}
+body:is(.lay-narrow,.band-short) #c-kind{order:2}
+body:is(.lay-narrow,.band-short) #c-overlap{order:3}
+body:is(.lay-narrow,.band-short) #c-range{order:4;display:flex;flex-direction:column;gap:var(--space-2)}
+body:is(.lay-narrow,.band-short) #composer :is(#note,#note-mentions,#c-qhint,#c-assign,#c-kind,#c-overlap,#c-cap,#c-levels,.c-tools,#c-snip){margin:0}
 /* One line: the short relation shrinks (its tooltip has the sentence), the two actions keep their names. */
 #c-overlap.one{flex-wrap:nowrap;align-items:center;margin:0 0 var(--space-2)}
 #c-overlap.one>.ov-t{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}

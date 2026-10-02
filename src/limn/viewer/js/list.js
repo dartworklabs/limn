@@ -123,7 +123,8 @@ function markBadgeIn(fx,w,pad,reach){return fx*w+pad<reach;}
 function markBadgeRoom(){const L=$('#left'),p=$('#doc .pg'); if(!L||!p)return {pad:0,reach:28};
   return {pad:p.getBoundingClientRect().left-L.getBoundingClientRect().left-L.clientLeft+L.scrollLeft,reach:MQ_COARSE.matches?28:24};}
 // Re-decides every drawn mark's badge side for the page width W and the margin now (a zoom, a re-fit or a band change moves both).
-function markBadgeSides(){const r=markBadgeRoom(); $$('.mark').forEach(m=>m.classList.toggle('in',markBadgeIn(+m.dataset.fx,W,r.pad,r.reach)));}
+function markBadgeSides(){const r=markBadgeRoom(); $$('.mark').forEach(m=>m.classList.toggle('in',markBadgeIn(+m.dataset.fx,W,r.pad,r.reach)));
+  $$('.sel.pending').forEach(pendingBadgeSide);}   // the pending boxes' '+' badges follow the same rule
 // Draws one mark per open or awaiting-review pin of this document on its page: where the pin's element is now for a figure
 // pin (pinPlace), else where it was pinned, then decides each badge's side (markBadgeSides). A pin without a usable box or
 // page draws nothing.

@@ -19,7 +19,7 @@ function elPathText(o){const el=o&&o.elSel; if(!el||!Array.isArray(el.path))retu
 function rungTip(lv){return Array.isArray(lv.el.path)&&lv.el.path.length<=1?T.fig:T.el;}
 // Puts a pending box (the composer's '새 핀', a re-place's '새 위치') on the element it will pin, so the person sees the
 // mark before saving. An element without a usable box, or no box on screen, leaves the box as dragged.
-function snapBox(box,el){if(!box||!el||!isFrac(el.frac))return; const f=el.frac; drawBox(box,f[0],f[1],f[0]+f[2],f[1]+f[3]);}
+function snapBox(box,el){if(!box||!el||!isFrac(el.frac))return; const f=el.frac; drawBox(box,f[0],f[1],f[0]+f[2],f[1]+f[3]); pendingBadgeSide(box);}
 // The element part of the composer for selection o and its pending box: the path line '#c-path' (hidden when the pick
 // found no element - a manuscript, a view-only PDF, a figure whose map is unreadable) and the snapped box.
 function renderElement(o,box){const line=$('#c-path'),el=o.elSel; line.hidden=!el;
