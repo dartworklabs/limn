@@ -1,6 +1,7 @@
 // ------------------------------------------------ Help
 let HELP_BACK=null;
-function openHelp(){const d=$('#help'); if(d.open)return; HELP_BACK=document.activeElement; hideTip(); showSheet(d); toastHost();}
+// Opens help with its head on one ink line (headInk); closing it gives the focus back to what had it.
+function openHelp(){const d=$('#help'); if(d.open)return; HELP_BACK=document.activeElement; hideTip(); showSheet(d); headInk(); toastHost();}
 $('#help').addEventListener('close',()=>{if(HELP_BACK&&HELP_BACK.focus)HELP_BACK.focus(); HELP_BACK=null;});
 
 // ------------------------------------------------ Event delegation (no inline handlers)

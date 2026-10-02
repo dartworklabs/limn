@@ -4966,6 +4966,44 @@ OPENERS = (
 )
 
 
+# The open help's head, for an ink measure as FOOT_BOXES: the clip round it and, inside it, the boxes of the wordmark and of the
+# title's text ('— 사용법'), each with its ink colour's luminance, and the dialog's.
+HELP_HEAD = """() => {const h = document.querySelector('#help-h'), H = h.getBoundingClientRect(), clip = {x: 0, y: H.top - 8, width: innerWidth, height: H.height + 16};
+  const lum = c => {const m = c.match(/[\\d.]+/g).map(Number); return 0.2126 * m[0] + 0.7152 * m[1] + 0.0722 * m[2];};
+  const box = (r, color, pad) => [r.left - clip.x, r.top - clip.y - pad, r.right - clip.x, r.bottom - clip.y + pad, lum(color)];
+  const w = h.querySelector('svg.limn-mark-word'), t = h.querySelector('span'), rg = document.createRange(); rg.selectNodeContents(t);
+  return {clip, bg: lum(getComputedStyle(document.querySelector('#help')).backgroundColor), height: w.getBoundingClientRect().height,
+    boxes: {word: box(w.getBoundingClientRect(), getComputedStyle(w.querySelector('.limn-mark-stroke')).fill, 2),
+      title: box(rg.getBoundingClientRect(), getComputedStyle(t).color, 4)}};}"""
+
+
+class HelpHeadInk(ViewerBase):
+    """Help's head (docs/handbook/viewer.md §마크와 파비콘): the same rule as [더보기]'s foot - the wordmark ends on the ink line
+    of the words beside it. Its 20px box was centred on the row and "limn" stood 3.3px below '— 사용법'; now it drops by the
+    title's Hangul ink descent (headInk) onto the title's ink bottom."""
+
+    def ink(self, page, dpr):
+        """The head's measured ink edges (CSS px): open help, screenshot the head, read each box's ink."""
+        page.evaluate("openHelp()")
+        settle(page)
+        f = page.evaluate(HELP_HEAD)
+        b64 = base64.b64encode(page.screenshot(clip=f["clip"])).decode()
+        return f, page.evaluate(INK, [b64, dpr, f["boxes"], f["bg"]])
+
+    def test_the_wordmark_and_the_title_end_on_one_ink_line(self):
+        """411x908 at DPR 2.625 and the 1400x850 mouse dialog at DPR 2, light and dark: the wordmark's and the title's ink
+        bottoms are within 0.5px (3.3px apart before); the wordmark stays 20px tall. A 1x screen is left out: there the
+        glyphs are hinted to whole pixels, and how far a fallback Hangul font's ink then reaches below its measured descent
+        depends on the font (1.2px under CI-like fonts, where the measure itself is a pixel coarse)."""
+        for device, dpr in ((phone(411, 908), 2.625), (dict(DESK, device_scale_factor=2), 2)):
+            for dark in (False, True):
+                with self.subTest(width=device["viewport"]["width"], dpr=dpr, dark=dark):
+                    page = self.view(device, dark=dark)
+                    f, ink = self.ink(page, dpr)
+                    self.assertLessEqual(abs(ink["word"]["bottom"] - ink["title"]["bottom"]), 0.5, ink)
+                    self.assertEqual(f["height"], 20)
+
+
 class MetaWithoutCommit(ViewerBase):
     """The meta line of a manuscript outside Git (docs/handbook/viewer.md §모바일 레이아웃): the server names no commit ('-'),
     and [더보기] read 'main.tex · 2쪽 · -' and the desktop chip row 'main.tex · 2쪽 · - · <built>'. The empty piece goes, with

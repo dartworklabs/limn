@@ -32,7 +32,10 @@ body:not(.lay-narrow) #doc-nav,body.band-tablet-sheet #doc-nav{display:flex}   /
 .limn-mark-tile{fill:var(--mark-tile)}
 .limn-mark-stroke{fill:var(--mark-stroke)}
 .limn-mark-pin{fill:var(--limn-ver)}
-#help-h{display:flex;align-items:center;gap:var(--space-2)}
+/* Help's head is one ink line (headInk), as [더보기]'s foot: the wordmark stands on the title's baseline as an inline image and
+   drops by the title's Hangul ink descent; a 20px box centred on the row left "limn" 3.3px below '— 사용법'. */
+#help-h{display:block}
+#help-h>svg{display:inline;width:auto;vertical-align:calc(-1 * var(--ink-word,0px));margin-right:var(--space-2)}
 .limn-mark-word{display:block;flex:none;height:20px}
 .more-brand .limn-mark-word{display:inline;height:var(--foot-word);width:auto;vertical-align:calc(-1 * var(--ink-word,0px));margin-right:var(--space-2)}   /* [더보기]'s foot: the wordmark's ink bottom on [도움말]'s (footInk) */
 #paper-identity>span:last-child{overflow:hidden;text-overflow:ellipsis}

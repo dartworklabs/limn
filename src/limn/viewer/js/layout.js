@@ -201,16 +201,25 @@ function inkDrops(labelDescent,versionDescent){return {word:labelDescent,ver:lab
 // until their ink bottoms meet the label's Hangul (inkDrops), and the chevron moves to the centre of the label's ink.
 function footInk(){const f=$('#more-foot'),h=f&&f.querySelector('[data-act=help]'),v=f&&f.querySelector('.m-ver'); if(!h||!v)return;
   const t=[...h.childNodes].find(n=>n.nodeType===3&&n.nodeValue.trim()),ch=h.querySelector('svg'); if(!t)return;
-  const c=footInk.ctx||(footInk.ctx=document.createElement('canvas').getContext('2d')),S=64;
-  const m=(el,s)=>{const cs=getComputedStyle(el); c.font=cs.fontStyle+' '+cs.fontWeight+' '+parseFloat(cs.fontSize)*S+'px '+cs.fontFamily; const x=c.measureText(s);
-    return {a:x.actualBoundingBoxAscent/S,d:x.actualBoundingBoxDescent/S};};
-  const label=t.nodeValue.trim(),hangul=label.replace(/[^\u1100-\u11ff\u3130-\u318f\uac00-\ud7a3]/g,''),hm=m(h,label);
-  const d=inkDrops(hangul?m(h,hangul).d:0,m(v,v.textContent.trim()).d);
+  const label=t.nodeValue.trim(),hangul=hangulOf(label),hm=inkMetrics(h,label);
+  const d=inkDrops(hangul?inkMetrics(h,hangul).d:0,inkMetrics(v,v.textContent.trim()).d);
   f.style.setProperty('--ink-word',d.word+'px'); f.style.setProperty('--ink-ver',d.ver+'px'); f.style.setProperty('--help-chev','0px');
   if(!ch)return; const w=document.createElement('span'),k=document.createElement('span');   // the label's baseline: an empty inline-block on it
   k.style.cssText='display:inline-block;width:0;height:0'; h.insertBefore(w,t); w.append(t,k); const base=k.getBoundingClientRect().bottom;
   h.insertBefore(t,w); w.remove(); const mid=base-(hm.a-hm.d)/2,cr=ch.getBoundingClientRect();
   f.style.setProperty('--help-chev',(mid-(cr.top+cr.height/2))+'px');}
+// The ink of s in el's font as {a, d}: how far it rises above and reaches below the baseline (px), from the canvas's text
+// metrics read at 64 times the size, because the canvas rounds them to whole pixels.
+function inkMetrics(el,s){const c=inkMetrics.ctx||(inkMetrics.ctx=document.createElement('canvas').getContext('2d')),S=64,cs=getComputedStyle(el);
+  c.font=cs.fontStyle+' '+cs.fontWeight+' '+parseFloat(cs.fontSize)*S+'px '+cs.fontFamily; const x=c.measureText(s);
+  return {a:x.actualBoundingBoxAscent/S,d:x.actualBoundingBoxDescent/S};}
+// The Hangul letters of s (syllables and jamo) - the glyphs that reach below the Latin baseline. Pure.
+function hangulOf(s){return String(s).replace(/[^ᄀ-ᇿ㄰-㆏가-힣]/g,'');}
+// Help's head on one ink line (docs/handbook/viewer.md §마크와 파비콘), the foot's rule: the wordmark ("limn" ends on the
+// baseline) drops by the title's Hangul ink descent ('— 사용법'), so their ink bottoms meet. Its 20px box was centred on the
+// row and "limn" stood 3.3px below the title's foot. English ('— How to use') has no Hangul and no drop.
+function headInk(){const h=$('#help-h'),t=h&&h.querySelector(':scope>span'); if(!t)return; const hangul=hangulOf(t.textContent);
+  h.style.setProperty('--ink-word',inkDrops(hangul?inkMetrics(t,hangul).d:0,0).word+'px');}
 // Clicking outside a dialog (the backdrop) closes it - only for a click whose target is the dialog itself and that falls outside its
 // box rectangle. The same for [더보기], help, the navigation sheet and the status line's list (and the Trash, below); help and
 // the documents sheet used to stay open (input review 2026-09-26).
