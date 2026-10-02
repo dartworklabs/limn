@@ -2329,10 +2329,12 @@ class RangeLadderAndCaption(ViewerBase):
 
 
 # The phone composer's blocks as drawn, top to bottom: each visible flex item of #composer (and of the range block #c-range)
-# with its top and bottom, so a test reads their order and the gaps between them.
+# with its top and bottom - a ladder's drawn track, not its scroll box (which keeps its hits' room) - so a test reads their
+# order and the gaps between them.
 COMPOSER_BLOCKS = """sel => [...document.querySelector(sel).children].flatMap(e => getComputedStyle(e).display === 'contents' ? [...e.children] : [e])
   .filter(e => e.getClientRects().length && getComputedStyle(e).position !== 'absolute')
-  .map(e => {const r = e.getBoundingClientRect(); return [e.id || e.className, r.top, r.bottom];}).sort((a, b) => a[1] - b[1])"""
+  .map(e => {const r = (e.querySelector(':scope>.lad-t') || e).getBoundingClientRect(); return [e.id || e.className, r.top, r.bottom];})
+  .sort((a, b) => a[1] - b[1])"""
 # The pending box's badge: its box, the pending box's, the page's left edge, the badge's visible text and its spoken name.
 PENDING_BADGE = """() => {const s = document.querySelector('.sel.pending'), i = s.querySelector('i'), R = e => e.getBoundingClientRect();
   return {badge: R(i), box: R(s), page: R(s.closest('.pg')), seen: i.innerText.trim(), name: s.textContent.trim()};}"""
@@ -2427,6 +2429,140 @@ class ComposerSamePass(ViewerBase):
             " const c=getComputedStyle(e).backgroundColor; e.remove(); return c;})()"
         )
         self.assertEqual(page.evaluate(bg), card)
+
+
+# Every visible segmented control under root, as drawn: its drawn track (a ladder's .lad-t, else the .seg itself), the track's
+# height and radius, the selected thumb's insets from the track (top, bottom) and the end segments' (left, right), the thumb's
+# radius, and its shadow's reach below it (y offset + blur, px).
+SEGMENTS = """root => [...document.querySelectorAll(root + ' .seg')].filter(s => s.getClientRects().length).map(s => {
+  const t = s.querySelector(':scope>.lad-t') || s, T = t.getBoundingClientRect(), bs = [...t.querySelectorAll(':scope>button')];
+  const on = t.querySelector(':scope>button.on') || bs[0], O = on.getBoundingClientRect(), cs = getComputedStyle(on);
+  const sh = cs.boxShadow === 'none' ? [0, 0] : cs.boxShadow.replace(/rgba?\\([^)]*\\)/, '').trim().split(/\\s+/).map(parseFloat).slice(1, 3);
+  const r1 = v => Math.round(v * 10) / 10;
+  return {id: s.id || s.className, h: r1(T.height), top: r1(O.top - T.top), bottom: r1(T.bottom - O.bottom),
+    left: r1(bs[0].getBoundingClientRect().left - T.left), right: r1(T.right - bs[bs.length - 1].getBoundingClientRect().right),
+    rTrack: parseFloat(getComputedStyle(t).borderTopLeftRadius), rThumb: parseFloat(cs.borderTopLeftRadius), reach: sh[0] + sh[1]};})"""
+# The open [더보기]'s view group, drawn: each row's control (the zoom row's buttons, else its segment track) top and bottom.
+MORE_ROWS = """() => [...document.querySelectorAll('#more .m-row .m-c, #more .m-row .seg')].filter(e => e.getClientRects().length)
+  .map(e => {const r = (e.matches('.m-c') ? e.querySelector('button') : e).getBoundingClientRect(); return [r.top, r.bottom];})"""
+
+
+class SegmentedControl(ViewerBase):
+    """One segmented control (docs/handbook/viewer.md §컴포넌트): the owner saw [더보기]'s sheet-height, theme and language
+    tracks touching each other (44px tracks in 44px rows) and the navigation sheet's [원고 | 변경사항] thumb running into its
+    track's edge (the sheet's padding rule took the track's side inset). Every track - [더보기], the navigation sheet, the
+    composer's and the edit card's kind and ladder - is drawn at 36px on touch, its thumb inset 4px all round with the radius
+    the track's less that inset, its shadow inside the inset; rows of them stand 8px apart; every segment answers 44px."""
+
+    def compose(self, page):
+        """A touch selection through the real pick path; waits for the composer."""
+        page.evaluate("()=>{LAST_PTR='touch'; pick({page:1,x0:10,y0:10,x1:200,y1:60});}")
+        page.wait_for_function("COMPOSE.current&&!COMPOSE.picking")
+        settle(page)
+
+    def every_control(self, page):
+        """[(where, SEGMENTS answer)] for the composer, the edit card, [더보기] and the navigation sheet, each opened in turn."""
+        out = []
+        self.compose(page)
+        out.append(("composer", page.evaluate(SEGMENTS, "#composer")))
+        page.evaluate("()=>{setSide(true); openEdit(OPEN_ALL[0].id);}")
+        page.wait_for_function("EDITOR.current&&EDITOR.current.levels.length>0")
+        settle(page)
+        out.append(("edit", page.evaluate(SEGMENTS, ".edit")))
+        page.evaluate("()=>{cancelEdit(); cancelSelection(true); openMore();}")
+        settle(page)
+        out.append(("more", page.evaluate(SEGMENTS, "#more")))
+        page.evaluate("()=>{document.querySelector('#more').close(); openNavSheet();}")
+        settle(page)
+        out.append(("nav", page.evaluate(SEGMENTS, "#nav-sheet")))
+        page.evaluate("document.querySelector('#nav-sheet').close()")
+        return out
+
+    def test_every_track_is_36px_with_its_thumb_inset_4px_and_the_radius_rule(self):
+        """411x908: each control's track is 36px high, its thumb and end segments 4px in from every edge (the navigation
+        sheet's [변경사항] touched the right edge), and the thumb's radius is the track's (10) less 4 (6)."""
+        page = self.view(phone(411, 908))
+        for where, segs in self.every_control(page):
+            self.assertTrue(segs, where)
+            for s in segs:
+                with self.subTest(where=where, seg=s["id"]):
+                    got = [s["h"], s["top"], s["bottom"], s["left"], s["right"], s["rTrack"] - s["rThumb"]]
+                    self.assertEqual(got, [36, 4, 4, 4, 4, 4], s)
+
+    def test_more_rows_stand_8px_apart(self):
+        """411x908 [더보기]: the zoom buttons and the sheet-height, theme and language tracks have 8px between each other
+        (the tracks touched: 0px)."""
+        page = self.view(phone(411, 908))
+        page.evaluate("openMore()")
+        settle(page)
+        rows = page.evaluate(MORE_ROWS)
+        self.assertEqual(len(rows), 4)
+        self.assertEqual([round(b[0] - a[1], 1) for a, b in zip(rows, rows[1:], strict=False)], [8, 8, 8])
+
+    def test_every_segment_answers_44px(self):
+        """411x908: drawn at 28px, every segment of every control still answers a 44px tap."""
+        page = self.view(phone(411, 908))
+        self.compose(page)
+        self.assertEqual(page.evaluate(MISSES_44, "#composer .seg button"), [])
+        page.evaluate("openMore()")
+        settle(page)
+        self.assertEqual(page.evaluate(MISSES_44, "#more .seg button"), [])
+        page.evaluate("()=>{document.querySelector('#more').close(); openNavSheet();}")
+        settle(page)
+        self.assertEqual(page.evaluate(MISSES_44, "#nav-sheet .seg button"), [])
+
+    def test_the_thumb_shadow_stays_inside_the_inset_in_both_themes(self):
+        """Light and dark: the selected thumb's shadow reaches at most 4px below it (it reached 5px, past the inset, where
+        the track's edge clipped it)."""
+        for dark in (False, True):
+            with self.subTest(dark=dark):
+                page = self.view(phone(411, 908), dark=dark)
+                page.evaluate("openMore()")
+                settle(page)
+                for s in page.evaluate(SEGMENTS, "#more"):
+                    self.assertLessEqual(s["reach"], 4, s)
+
+
+# The baselines in the open [더보기]'s foot, from zero-size inline-block markers put after the version and [도움말]'s text (an
+# empty inline-block sits on its line's baseline), the wordmark's glyph baseline (the SVG's bottom: its viewBox ends on the
+# baseline, and "limn" has no descender), and the x-heights: the wordmark's (545 of its 740 units) and the version font's 'x'.
+FOOT = """() => {const v = document.querySelector('#more .m-ver'), h = document.querySelector('#more-foot [data-act=help]'),
+    w = document.querySelector('#more-foot svg.limn-mark-word'), mark = e => {const m = document.createElement('span');
+      m.style.cssText = 'display:inline-block;width:0;height:0'; e.append(m); const b = m.getBoundingClientRect().bottom; m.remove(); return b;};
+  const hText = [...h.childNodes].find(n => n.nodeType === 3 && n.nodeValue.trim()), hs = document.createElement('span');
+  h.insertBefore(hs, hText); hs.append(hText); const help = mark(hs); h.insertBefore(hText, hs); hs.remove();
+  const c = document.createElement('canvas').getContext('2d'), cs = getComputedStyle(v);
+  c.font = cs.fontWeight + ' ' + cs.fontSize + ' ' + cs.fontFamily;
+  const W = w.getBoundingClientRect();
+  return {word: W.bottom, version: mark(v), help, ratio: (W.height * 545 / 740) / c.measureText('x').actualBoundingBoxAscent};}"""
+
+
+class MoreFoot(ViewerBase):
+    """[더보기]'s foot (docs/handbook/viewer.md §모바일 레이아웃): the owner found the version beside the 20px wordmark neither
+    bottom- nor centre-aligned, and the wordmark large against the text. The version and [도움말 ›] stand on the wordmark's
+    baseline, and the wordmark's x-height is 1.3-1.5 times the version's."""
+
+    def test_the_wordmark_the_version_and_help_share_one_baseline(self):
+        """411x908, light and dark: the three baselines agree within 0.5px (the version sat 4px above the glyphs' foot)."""
+        for dark in (False, True):
+            with self.subTest(dark=dark):
+                page = self.view(phone(411, 908), dark=dark)
+                page.evaluate("openMore()")
+                settle(page)
+                f = page.evaluate(FOOT)
+                self.assertLessEqual(abs(f["version"] - f["word"]), 0.5, f)
+                self.assertLessEqual(abs(f["help"] - f["word"]), 0.5, f)
+
+    def test_the_wordmarks_x_height_is_1_3_to_1_5_times_the_versions(self):
+        """411x908 and a 1000x800 mouse window (the same sheet): the ratio of the x-heights is in 1.3-1.5 (it was about 2.3)."""
+        for device in (phone(411, 908), MOUSE_MID):
+            with self.subTest(width=device["viewport"]["width"]):
+                page = self.view(device)
+                page.evaluate("openMore()")
+                settle(page)
+                ratio = page.evaluate(FOOT)["ratio"]
+                self.assertGreaterEqual(ratio, 1.3)
+                self.assertLessEqual(ratio, 1.5)
 
 
 # A landscape tablet in the mid layout (the side panel). A portrait tablet is the tablet sheet (TouchLayoutBands).

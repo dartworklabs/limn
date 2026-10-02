@@ -21,7 +21,7 @@ brand source, copied byte for byte; `src/limn/viewer/mark.py` maps them to route
 | `favicon.ico` | `GET /favicon.ico` - the same two drawings in one .ico |
 | `apple-touch-icon.png` | `GET /apple-touch-icon.png` - 180 px, 뼈종이, full-bleed square (iOS rounds it) |
 | `limn-icon-light-16.svg` | the inline icon in the top bar (16 px), with that size's optical correction |
-| `limn-wordmark-light-20.svg` | the inline wordmark in the help header and the [더보기] footer, 20 px tall |
+| `limn-wordmark-light-20.svg` | the inline wordmark in the help header (20 px tall) and the [더보기] footer (scaled to the version text: its x-height 1.4 times the version's, on one baseline) |
 
 Only the light SVGs are vendored: the viewer takes their shapes and replaces each brand colour with a class
 (뼈종이 tile, 먹 stroke, 주 pin), and its stylesheet paints both themes from the brand tokens.

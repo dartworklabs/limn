@@ -59,9 +59,13 @@ body:not(.lay-narrow) #coach button{pointer-events:auto}
 #more .sw-track::after{content:'';position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;background:var(--sidebar);box-shadow:var(--shadow-sm)}
 #more [role=switch][aria-checked=true] .sw-track{background:var(--primary)}
 #more [role=switch][aria-checked=true] .sw-track::after{left:18px}
-#more .more-foot{display:flex;align-items:center;gap:var(--space-2);min-height:var(--hit);border-top:1px solid var(--border);padding-top:var(--space-1)}
-#more .more-brand{display:inline-flex;align-items:center;color:var(--foreground)}
-#more .m-ver{font-size:var(--text-sm);color:var(--muted-foreground)}
+/* The foot is one baseline: the wordmark's glyphs ("limn" has no descender; its SVG ends on the baseline), the version and
+   [도움말 ›]. The wordmark is sized from the version's own font - 1.9ex tall, so its x-height (545 of its 740 units) is 1.4
+   times the version's on any font - and stands on the line as an inline image. It was a 20px block centred on the row, its
+   x-height 2.1 times the version's: the version floated 6px above its foot. */
+#more .more-foot{display:flex;align-items:baseline;gap:var(--space-2);min-height:var(--hit);border-top:1px solid var(--border);padding-top:var(--space-1)}
+#more .more-brand{display:inline-block;color:var(--foreground);font-size:var(--text-base);line-height:var(--hit);white-space:nowrap}
+#more .m-ver{color:var(--muted-foreground);font-variant-numeric:tabular-nums}
 #more .more-foot button{gap:var(--space-1)}
 @media (hover:hover){#more .seg button:not(.on):hover{background:var(--accent)}}
 @media (pointer:coarse){
@@ -70,7 +74,12 @@ body:not(.lay-narrow) #coach button{pointer-events:auto}
   .hint .t-touch{display:inline}
   .hint .t-mouse{display:none}
   button{min-height:44px;min-width:44px;padding:var(--space-2) var(--space-3);font-size:var(--text-lg);-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
-  button.btn-sm,.seg button{min-height:44px;padding:var(--space-2) var(--space-3);font-size:var(--text-base)}
+  button.btn-sm{min-height:44px;padding:var(--space-2) var(--space-3);font-size:var(--text-base)}
+  /* The segmented control on touch (composer.css): 28px segments in the 4px inset, a 36px track; each segment answers 44px. A
+     ladder's scroll box keeps 4px above and below its track for those hits (it clips what passes it). */
+  .seg button{min-height:0;height:var(--control-h);padding:0 var(--space-3);font-size:var(--text-base);position:relative}
+  .seg button::after{content:'';position:absolute;left:0;right:0;top:50%;height:var(--hit);transform:translateY(-50%)}
+  .seg.lad{padding:var(--space-1) 0;margin:var(--space-1) 0}
   /* The one touch hit-area utility (docs/handbook/viewer.md §모바일 레이아웃): a control drawn smaller than --hit keeps its
      drawn size and gets a centred --hit x --hit box from ::after. Its own overflow is forced visible - a clipping box (the
      assignee chip's overflow:hidden) cut the ::after back to the drawn 20px (input diagnosis P6). A tappable badge (assignee
@@ -252,6 +261,7 @@ body:is(.lay-narrow,.band-short) #c-kind{order:2}
 body:is(.lay-narrow,.band-short) #c-overlap{order:3}
 body:is(.lay-narrow,.band-short) #c-range{order:4;display:flex;flex-direction:column;gap:var(--space-2)}
 body:is(.lay-narrow,.band-short) #composer :is(#note,#note-mentions,#c-qhint,#c-assign,#c-kind,#c-overlap,#c-cap,#c-levels,.c-tools,#c-snip){margin:0}
+@media (pointer:coarse){body:is(.lay-narrow,.band-short) #composer #c-levels{margin:calc(-1 * var(--space-1)) 0}}   /* its hit padding is not a gap: the track stands 8px from its neighbours */
 /* One line: the short relation shrinks (its tooltip has the sentence), the two actions keep their names. */
 #c-overlap.one{flex-wrap:nowrap;align-items:center;margin:0 0 var(--space-2)}
 #c-overlap.one>.ov-t{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -518,8 +528,8 @@ body.no-rebuild #btn-rebuild{display:none}
 .ns-grab::before{content:'';width:32px;height:4px;border-radius:var(--radius-sm);background:var(--grabber)}
 #nav-sheet .ns-head .row{flex-wrap:nowrap;min-height:var(--hit)}
 #nav-sheet-h{margin:0;font-size:var(--text-xl)}
-#nav-sheet>:is(section,#ns-view,#ns-page){border-top:1px solid var(--border);margin:0;padding:var(--space-2) 0}
-#nav-sheet>#ns-view{border-top:0;margin:var(--space-2) 0}
+#nav-sheet>:is(section,#ns-page){border-top:1px solid var(--border);margin:0;padding:var(--space-2) 0}
+#nav-sheet>#ns-view{margin:var(--space-2) 0}   /* its own 4px inset: the sections' padding took its sides, and the thumb ran into the edge */
 #nav-sheet .ns-h{margin:0 0 var(--space-1);font-size:var(--text-sm);font-weight:600;color:var(--muted-foreground)}
 #nav-sheet .dm-list{display:flex;flex-direction:column;gap:var(--space-1)}
 #ns-view button{flex:1 1 0}
@@ -551,9 +561,8 @@ body.compact :is(#more,#nav-sheet,#help,#trash){margin:auto auto 0;width:100%;ma
   padding:var(--space-3) max(calc(var(--edge) - 1px),env(safe-area-inset-right)) calc(var(--space-3) + env(safe-area-inset-bottom)) max(calc(var(--edge) - 1px),env(safe-area-inset-left))}
 body.compact :is(#nav-sheet,#more){padding-top:0}   /* their sticky grab band is the top */
 body.compact :is(#nav-sheet-h,#nav-sheet .ns-h,#ns-page label,#trash-h,#help-h,#help h4,#trash-note,#more-label,#more-info,#more .m-l,#more .more-brand,#help .help-legend,#help .help-steps,#help-pins-md){padding-left:var(--space-3)}
-/* A segment control in a sheet is drawn at 36px in its 4px frame: each segment's 44px hit fills the 44px row. */
-@media (pointer:coarse){body.compact :is(#nav-sheet,#more) .seg button{min-height:0;height:var(--control-h-lg);position:relative}
-  body.compact :is(#nav-sheet,#more) .seg button::after{content:'';position:absolute;left:0;right:0;top:50%;height:var(--hit);transform:translateY(-50%)}}
+/* A segmented control in a sheet is the one control (composer.css): a 36px track in a 44px row - rows of them stand 8px apart,
+   their segments' 44px hits meeting. They touched when the track filled the row. */
 body.compact #help-pins-md{display:block}
 body.compact #help td:first-child{padding-left:var(--space-3)}
 body.compact :is(#nav-sheet .ns-head,#help,#trash)>.row>button{background:transparent;border-color:transparent}   /* [닫기] is a ghost, like [더보기]'s */

@@ -35,7 +35,7 @@ function rungLines(lv){return typeof lv.n==='number'?lv.n:lv.hi-lv.lo+1;}
 // or more rungs - one segment is no choice, and '문단 · 1줄' alone read as noise (the owner's phone); the caption then names
 // that rung (rangeCap). data-rungs keeps the count for the CSS and the tests.
 function drawLadder(box,o,isEdit){const n=(o.levels||[]).length; box.dataset.rungs=String(n); box.hidden=n<2;
-  box.innerHTML=n<2?'':levelBtns(o,isEdit); if(n>=2)segReveal(box);}
+  box.innerHTML=n<2?'':'<div class="lad-t">'+levelBtns(o,isEdit)+'</div>'; if(n>=2)segReveal(box);}   // .lad-t: the drawn track inside the scroll box
 // The range caption over the ladder (composer and edit card): '범위 L5-L6 · 2줄' - the lines a save will hand over and their
 // count, whatever set them (a rung, the line buttons, the excerpt). When the ladder is hidden (one rung) and the range is that
 // rung, its name follows ('범위 L5 · 1줄 · 문단'); with a ladder, its pressed segment names it. An edit card's own lines (its

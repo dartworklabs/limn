@@ -40,16 +40,24 @@ button.tg[aria-pressed=true]{border-color:var(--border-strong)}
 .loc{font-family:var(--font-mono);color:var(--primary);font-size:var(--text-base);cursor:copy;overflow-wrap:anywhere}
 .dim{color:var(--muted-foreground);font-size:var(--text-sm)}
 .row{display:flex;align-items:center;gap:var(--space-2);flex-wrap:wrap}
-/* Segment control (range ladder / panel width): a single row, horizontal scroll on overflow. The selected segment shows not as the accent color but as a step-brighter surface. */
+/* The segmented control (docs/handbook/viewer.md §컴포넌트) - every one the same: the composer's and the edit card's kind and
+   range ladder, [더보기]'s sheet height (panel width), theme and language, the navigation sheet's view. One filled track
+   (--muted, --radius-lg) holds its segments 4px in from every edge; the selected one is a raised thumb (--popover) whose radius
+   is the track's less that inset (--radius) and whose shadow (--shadow-xs, 3px of reach) stays inside the inset, so no edge
+   clips it. A range ladder scrolls sideways (.lad): its .seg is the scroll box and its .lad-t the drawn track; every other track
+   lets its segments' hit areas reach past it. On touch the track is drawn at 36px and each segment answers 44px (responsive.css). */
 .seg{position:relative;display:flex;flex-wrap:nowrap;overflow-x:auto;gap:2px;margin:8px 0;padding:var(--space-1);border:0;
   border-radius:var(--radius-lg);background:var(--muted);scrollbar-width:none;overscroll-behavior-x:contain}   /* shadcn Tabs: one filled frame, the selected segment is a raised surface */
+.seg:not(.lad){overflow:visible}
+.seg.lad{padding:0;border-radius:0;background:transparent}
+.lad-t{display:flex;flex:1 0 auto;min-width:100%;gap:2px;padding:var(--space-1);border-radius:var(--radius-lg);background:var(--muted)}
 .seg::-webkit-scrollbar{display:none}
 .seg.fade-r{mask-image:linear-gradient(to right,var(--foreground) calc(100% - 32px),transparent)}
 .seg.fade-l{mask-image:linear-gradient(to left,var(--foreground) calc(100% - 32px),transparent)}
 .seg.fade-l.fade-r{mask-image:linear-gradient(to right,transparent,var(--foreground) 32px,var(--foreground) calc(100% - 32px),transparent)}
 .seg button{flex:1 0 auto;background:transparent;border-color:transparent;border-radius:var(--radius);font-size:var(--text-sm);padding:var(--space-1) var(--space-3);
   white-space:nowrap;color:var(--muted-foreground)}
-.seg button.on{background:var(--popover);border-color:transparent;color:var(--foreground);font-weight:600;box-shadow:var(--shadow-sm)}
+.seg button.on{background:var(--popover);border-color:transparent;color:var(--foreground);font-weight:600;box-shadow:var(--shadow-xs)}
 .seg button .k{font-weight:400;color:var(--muted-foreground)}
 .seg button .k.wn{color:var(--warning)}
 .wn{color:var(--warning)}
