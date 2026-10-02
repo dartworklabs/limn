@@ -2202,6 +2202,129 @@ class BottomActionRow(ViewerBase):
         self.assertGreaterEqual(f["edit"]["top"], f["card"]["top"])
 
 
+class JsonPatched:
+    """A Playwright route whose fulfil passes the JSON body the handler answered through fn (the rest passes through)."""
+
+    def __init__(self, route, fn) -> None:
+        """Wrap route; fn takes the answer's object and returns the one to send."""
+        self._route, self._fn = route, fn
+
+    def __getattr__(self, name: str):
+        """Everything but fulfill is the route's own (the handler reads its request)."""
+        return getattr(self._route, name)
+
+    def fulfill(self, status: int, headers: dict[str, str], body: bytes | str) -> None:
+        """Fulfil the route with fn applied to the handler's JSON answer."""
+        self._route.fulfill(status=status, headers=headers, body=json.dumps(self._fn(json.loads(body))))
+
+
+def one_rung_pick(d: dict[str, Any]) -> dict[str, Any]:
+    """The pick answer for a one-line paragraph: the server merges the dragged line into the paragraph rung, so the
+    ladder is that one rung (level para, merged raw) and the selection is its line."""
+    raw = next(lv for lv in d["levels"] if lv["level"] == "raw")
+    rung = dict(raw, level="para", label="문단", merged=["raw"])
+    return dict(d, levels=[rung], default_level="para", lo=raw["lo"], hi=raw["hi"], kind="paragraph")
+
+
+def one_rung_snippet(d: dict[str, Any]) -> dict[str, Any]:
+    """The snippet answer of an edit card whose ladder is the pin's own lines only (as for a figure pin, P1b)."""
+    return dict(d, levels=[lv for lv in d.get("levels", []) if lv["level"] == "raw"])
+
+
+# The composer's and the edit card's range block as drawn: the caption's text and the copy text of its line range, whether
+# the ladder shows, its accessible name and its segments' names, and the location line's page.
+RANGE_BLOCK = """root => {const q = s => document.querySelector(root + ' ' + s), vis = e => !!e && e.getClientRects().length > 0;
+  const lad = q('.seg[data-rungs]'), cap = q('.rg-cap'), copy = cap && cap.querySelector('[data-copy]');
+  return {cap: cap && vis(cap) ? cap.innerText.replace(/\\s+/g, ' ').trim() : null, copy: copy ? copy.dataset.copy : null,
+    ladder: vis(lad), name: lad && lad.getAttribute('aria-label'), rungs: lad ? [...lad.querySelectorAll('button')].map(b => b.innerText.replace(/\\s+/g, ' ').trim()) : [],
+    page: (document.querySelector('#c-page') || {}).innerText};}"""
+
+
+class RangeLadderAndCaption(ViewerBase):
+    """The range ladder and its caption (docs/handbook/viewer.md §패널 정리 범위 사다리): the owner read the one-segment ladder
+    '문단 · 1줄' as noise and '1쪽 · 줄 직접 지정' as nothing. The ladder shows only with two or more rungs, under its label
+    '범위'; the caption under the label says the lines and their count, and with one rung what that rung is; a range set line
+    by line is told by its lines - '줄 직접 지정' is gone."""
+
+    ONE_RUNG = False
+
+    def route(self, route):
+        """With ONE_RUNG, the pick answers a one-line paragraph and an edit card's ladder is its own lines only."""
+        u = urlparse(route.request.url)
+        if self.ONE_RUNG and u.path == "/api/pick":
+            return super().route(JsonPatched(route, one_rung_pick))
+        if self.ONE_RUNG and u.path == "/api/snippet" and "levels=1" in u.query:
+            return super().route(JsonPatched(route, one_rung_snippet))
+        return super().route(route)
+
+    def compose(self, page):
+        """A touch selection through the real pick path; waits for the composer."""
+        page.evaluate("()=>{LAST_PTR='touch'; pick({page:1,x0:10,y0:10,x1:200,y1:60});}")
+        page.wait_for_function("COMPOSE.current&&!COMPOSE.picking")
+        settle(page)
+
+    def test_one_rung_hides_the_ladder_and_the_caption_names_the_rung(self):
+        """411x908 touch and 1400x850 mouse: a one-line paragraph's single rung shows no segment control; the caption reads
+        '범위 L5 · 1줄 · 문단' and the location line's page is just '1쪽'."""
+        self.ONE_RUNG = True
+        for device in (phone(411, 908), DESK):
+            with self.subTest(width=device["viewport"]["width"]):
+                page = self.view(device)
+                self.compose(page)
+                got = page.evaluate(RANGE_BLOCK, "#composer")
+                self.assertEqual((got["cap"], got["ladder"], got["page"]), ("범위 L5 · 1줄 · 문단", False, "1쪽"))
+
+    def test_a_range_set_line_by_line_is_told_by_its_lines(self):
+        """One line added below the paragraph: the caption reads '범위 L5-L6 · 2줄' (no rung matches, so none is named), the
+        page stays '1쪽', and '직접' is nowhere in the composer."""
+        self.ONE_RUNG = True
+        page = self.view(phone(411, 908))
+        self.compose(page)
+        page.evaluate("()=>{const o=COMPOSE.current; nudge(o,'down-grow'); renderComposer();}")
+        settle(page)
+        got = page.evaluate(RANGE_BLOCK, "#composer")
+        self.assertEqual((got["cap"], got["page"]), ("범위 L5-L6 · 2줄", "1쪽"))
+        self.assertNotIn("직접", page.inner_text("#composer"))
+
+    def test_two_rungs_show_the_ladder_named_range_and_the_caption_leaves_the_name_to_it(self):
+        """The fixture's pick (dragged line L5, paragraph L1-L40): the ladder shows under the caption, named '범위', its
+        segments '드래그한 줄 · 1줄' and '문단 · 40줄'; the caption does not repeat the pressed segment's name."""
+        page = self.view(phone(411, 908))
+        self.compose(page)
+        got = page.evaluate(RANGE_BLOCK, "#composer")
+        self.assertEqual((got["ladder"], got["name"]), (True, "범위"))
+        self.assertEqual(got["rungs"], ["드래그한 줄 · 1줄", "문단 · 40줄"])
+        self.assertRegex(got["cap"], r"^범위 L\d+(-L\d+)? · \d+줄$")
+        lad, cap = (page.locator("#composer " + s).bounding_box() for s in (".seg[data-rungs]", ".rg-cap"))
+        self.assertGreaterEqual(lad["y"], cap["y"] + cap["height"] - 1)
+
+    def test_an_edit_card_with_one_rung_shows_its_caption_and_no_ladder(self):
+        """An edit card whose ladder is the pin's own lines only: no segment control; the caption reads '범위 L4-L5 · 2줄'
+        and its line range copies as 'main.tex L4-L5'. With the fixture's two rungs the ladder is back."""
+        self.ONE_RUNG = True
+        page = self.view(phone(411, 908))
+        page.evaluate("()=>{setSide(true); openEdit(OPEN_ALL.find(p=>p.lo===4).id);}")
+        page.wait_for_function("EDITOR.current&&EDITOR.current.levels.length>0")
+        settle(page)
+        got = page.evaluate(RANGE_BLOCK, ".edit")
+        self.assertEqual((got["cap"], got["ladder"], got["copy"]), ("범위 L4-L5 · 2줄", False, "main.tex L4-L5"))
+        self.ONE_RUNG = False
+        page = self.view(phone(411, 908))
+        page.evaluate("()=>{setSide(true); openEdit(OPEN_ALL.find(p=>p.lo===4).id);}")
+        page.wait_for_function("EDITOR.current&&EDITOR.current.levels.length>0")
+        settle(page)
+        got = page.evaluate(RANGE_BLOCK, ".edit")
+        self.assertEqual((got["ladder"], got["name"]), (True, "범위"))
+
+    def test_the_caption_is_english_in_english(self):
+        """The same one-rung pick in English: 'Range L5 · 1 line · Paragraph', page 'p. 1'."""
+        self.ONE_RUNG = True
+        page = self.view(phone(411, 908), lang="en")
+        self.compose(page)
+        got = page.evaluate(RANGE_BLOCK, "#composer")
+        self.assertEqual((got["cap"], got["page"]), ("Range L5 · 1 line · Paragraph", "p. 1"))
+
+
 # A landscape tablet in the mid layout (the side panel). A portrait tablet is the tablet sheet (TouchLayoutBands).
 TAB_LANDSCAPE = {"viewport": {"width": 1024, "height": 768}, "is_mobile": True, "has_touch": True}
 
@@ -2442,16 +2565,19 @@ class TouchLayoutBands(ViewerBase):
         self.assertAlmostEqual(page.locator("#right").bounding_box()["height"], 0.45 * 900, delta=1)
 
     def test_a_mouse_composing_at_1000px_scrolls_the_panel_as_before(self):
-        """1000x800 with a mouse: picking focuses the note and the panel scrolls it into view as in 0.4.1 - the composer's top
-        at y 11 (the same check passes on 2bdef90); the touch save-row padding scrolled it 32px further (y -21)."""
+        """1000x800 with a mouse: picking focuses the note and the panel scrolls it into view as in 0.4.1, with no scroll
+        padding - the touch save-row padding scrolled the composer 32px further than a focus does. The composer's top is the
+        browser's own scroll for the note: 11 in 0.4.6, 26px higher with the range caption's line over the ladder."""
         page = self.view(MOUSE_MID)
         self.mouse_pick(page)
         page.mouse.move(5, 5)
         settle(page)
         got = page.evaluate(
-            "[document.activeElement.id, Math.round(document.querySelector('#composer').getBoundingClientRect().top),"
+            "(()=>{const c=document.querySelector('#c-cap'); return [document.activeElement.id,"
+            " Math.round(document.querySelector('#composer').getBoundingClientRect().top + c.getBoundingClientRect().height"
+            " + parseFloat(getComputedStyle(c).marginTop)),"
             " getComputedStyle(document.querySelector('#right')).scrollPaddingBottom,"
-            " getComputedStyle(document.querySelector('#right')).scrollPaddingTop]"
+            " getComputedStyle(document.querySelector('#right')).scrollPaddingTop];})()"
         )
         self.assertEqual(got, ["note", 11, "auto", "auto"])
 

@@ -2,7 +2,9 @@
 function lvOf(obj,key){return (obj.levels||[]).find(l=>l.level===key||(l.merged||[]).includes(key));}
 function kindFor(scope,env){if(!scope)return null; if(scope.startsWith('env'))return 'env:'+(env||'?');
   return scope==='para'?'paragraph':'lines';}
-function scopeLabel(o){const lv=o.scope&&lvOf(o,o.scope); if(lv)return levelLabel(lv.label); if(o.scope==='lines')return tr('줄 직접 지정');
+// The name of o's range kind for a description: its rung's, else its kind's; '' for lines set one by one (scope 'lines'),
+// whose lines alone say what they are.
+function scopeLabel(o){const lv=o.scope&&lvOf(o,o.scope); if(lv)return levelLabel(lv.label); if(o.scope==='lines')return '';
   return tr(({float:'그림/표',block:'환경 블록',paragraph:'문단',none:'생성 파일',lines:'줄'})[o.kind]||o.kind||'');}
 // Range-level labels come from the server in Korean ('드래그한 줄', '문단', '환경 table', '환경 table (바깥)').
 function levelLabel(s){s=String(s||''); if(LANG!==UI_LANG.EN)return s; const m=/^환경 (.+?)( \(바깥( 2)?\))?$/.exec(s);
@@ -29,6 +31,20 @@ function levelBtns(o,isEdit){const cur=curLevel(o),ls=o.levels||[]; return ls.ma
     esc(label)+' <span class="k'+(n>50?' wn':'')+'">· '+esc(nl)+'</span></button>';}).join('');}
 // A rung's line count: the server's n, else its lo-hi span (a figure rung may come without n).
 function rungLines(lv){return typeof lv.n==='number'?lv.n:lv.hi-lv.lo+1;}
+// Draws the range ladder of o into box (#c-levels or an edit card's .e-levels): its segments, shown only when there are two
+// or more rungs - one segment is no choice, and '문단 · 1줄' alone read as noise (the owner's phone); the caption then names
+// that rung (rangeCap). data-rungs keeps the count for the CSS and the tests.
+function drawLadder(box,o,isEdit){const n=(o.levels||[]).length; box.dataset.rungs=String(n); box.hidden=n<2;
+  box.innerHTML=n<2?'':levelBtns(o,isEdit); if(n>=2)segReveal(box);}
+// The range caption over the ladder (composer and edit card): '범위 L5-L6 · 2줄' - the lines a save will hand over and their
+// count, whatever set them (a rung, the line buttons, the excerpt). When the ladder is hidden (one rung) and the range is that
+// rung, its name follows ('범위 L5 · 1줄 · 문단'); with a ladder, its pressed segment names it. An edit card's own lines (its
+// 'raw' rung) get no name. A range matching no rung has none either: the lines say what it is ('줄 직접 지정' is gone). In
+// an edit card the range copies as 'file Llo-Lhi' (the composer's location line has its copy).
+function rangeCap(o,isEdit){const ls=o.levels||[],cur=curLevel(o),r=esc(rng(o.lo,o.hi));
+  const named=ls.length<2&&cur&&!(isEdit&&cur.level==='raw')?' · '+esc(levelName(cur,ls)):'';
+  const v=isEdit?'<span class="e-range loc" tabindex="0" data-copy="'+esc(o.name+' L'+o.lo+'-L'+o.hi)+'" data-tip="'+esc(tr('저장하면 핀이 가리킬 원문 줄. 누르면 복사'))+'">'+r+'</span>':'<span class="rg-v">'+r+'</span>';
+  return '<b class="rg-l">'+esc(tr('범위'))+'</b> '+v+' · '+esc(tl('{n}줄',{n:o.hi-o.lo+1}))+named;}
 // Scrolls a horizontally overflowing segment control so the selected segment is visible (vertical scroll is left untouched).
 function segReveal(seg){const on=seg&&seg.querySelector('.on'); if(!on){segFade(seg);return;}
   const l=on.offsetLeft,r=l+on.offsetWidth;

@@ -300,7 +300,6 @@
  "· 이유:": "· Reason:",
  "· 일치": "· match",
  "· 잠금 자동 해제": "· Lock auto-releases",
- "· 줄 직접 지정": "· Specify lines directly",
  "· 쪽": "· page",
  "· 참조": "· Reference",
  "— #번호·[보기]를 누르면 이 문서로 바꿉니다": "— click #number / [View] to switch to this document",
@@ -901,7 +900,6 @@
  "줄 범위가 일부 겹칩니다. 참고만 하고 따로 고쳐도 됩니다": "The line ranges partially overlap. This is just for reference — you can fix them separately",
  "줄 이동": "Line shift",
  "줄 접힘": "Lines collapsed",
- "줄 직접 지정": "Specify lines directly",
  "줄바꿈": "Wrap lines",
  "지금 L": "Current L",
  "지금 {from} · 새 {to}": "Now {from} · new {to}",
@@ -1149,5 +1147,6 @@
  "본문 3/25": "Body 3/25",
  "휴대폰: 문서·원고와 변경사항·쪽 번호·목차로 갑니다": "Phone: go to a document, the manuscript or its changes, a page or a section",
  "선택: 아래 막대의 점선 네모 아이콘입니다. 켜면 한 손가락으로 끌어 영역을 고르고, 탭하면 그 자리 문단을 고릅니다. 두 손가락으로 벌리면 PDF 만 커집니다. 핀을 저장하거나 취소하면 저절로 꺼집니다": "Select: the dashed square icon in the bottom bar. When on, drag with one finger to select a region, or tap to select the paragraph there. Pinch with two fingers to zoom the PDF only. It turns off automatically when you save or cancel the pin",
- "아래 막대 왼쪽의 핀 아이콘과 열린 핀 수입니다. 핀 목록(좁은 화면에서는 아래 시트)을 펴고 접습니다. 눈 아이콘이 붙은 보라 숫자는 검토 대기 수입니다. 카드를 누르면 펼쳐집니다": "The pin icon and the open count at the left of the bottom bar. Opens and closes the pin list (a bottom sheet on narrow screens). The purple number with an eye counts pins awaiting review. Tap a card to expand it"
+ "아래 막대 왼쪽의 핀 아이콘과 열린 핀 수입니다. 핀 목록(좁은 화면에서는 아래 시트)을 펴고 접습니다. 눈 아이콘이 붙은 보라 숫자는 검토 대기 수입니다. 카드를 누르면 펼쳐집니다": "The pin icon and the open count at the left of the bottom bar. Opens and closes the pin list (a bottom sheet on narrow screens). The purple number with an eye counts pins awaiting review. Tap a card to expand it",
+ "범위": "Range"
 }
