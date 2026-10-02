@@ -16,6 +16,7 @@ import json
 import re
 import time
 import unittest
+from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
@@ -3243,6 +3244,23 @@ STATUS_LINE = """() => {const q = s => document.querySelector(s), B = e => {cons
   return {parent: s.parentElement.id, dock: B(q('#status-dock')), sheet: B(q('#right')),
     text: (s.querySelector('.st-tx') || {}).textContent || '', acts: [...s.querySelectorAll('button')].map(b => b.dataset.act),
     bar: bar ? {role: bar.getAttribute('role'), now: bar.getAttribute('aria-valuenow')} : null};}"""
+# The bar's optical ends: [📍]'s gaps from its fill to the pin's ink and from the pill (else the count) to the fill's end,
+# and the room right of [⋯]'s ink to the bar's column edge. Ink = the shapes' boxes widened by half the stroke.
+OPTICAL = """() => {const q = s => document.querySelector(s), b = q('#btn-side').getBoundingClientRect();
+  const ink = svg => {const sc = svg.getBoundingClientRect().width / 24, half = (parseFloat(getComputedStyle(svg).strokeWidth) || 2) * sc / 2;
+    const rs = [...svg.querySelectorAll('path,circle,line,rect,polyline')].map(e => e.getBoundingClientRect());
+    return {l: Math.min(...rs.map(r => r.left)) - half, r: Math.max(...rs.map(r => r.right)) + half};};
+  const pill = q('#btn-side .rv-n'), t = document.createRange(); t.selectNodeContents(q('#side-n'));
+  const end = pill && !pill.hidden ? pill.getBoundingClientRect().right : t.getBoundingClientRect().right;
+  const pin = ink(q('#btn-side .pin-ic svg')), more = ink(q('#btn-more svg'));
+  return {gapL: pin.l - b.left, gapR: b.right - end, moreInk: q('#bar1').getBoundingClientRect().right - more.r};}"""
+# The notification switch made switchable and off: its track's contrast against the [더보기] sheet (WCAG ratio).
+SWITCH_OFF = """() => {const b = document.getElementById('m-notify'); b.disabled = false; b.setAttribute('aria-checked', 'false');
+  const rgb = e => getComputedStyle(e).backgroundColor.match(/[\\d.]+/g).slice(0, 3).map(Number);
+  const lum = c => {const v = c.map(x => {x /= 255; return x <= 0.03928 ? x / 12.92 : Math.pow((x + 0.055) / 1.055, 2.4);});
+    return 0.2126 * v[0] + 0.7152 * v[1] + 0.0722 * v[2];};
+  const a = lum(rgb(b.querySelector('.sw-track'))), m = lum(rgb(document.getElementById('more')));
+  return (Math.max(a, m) + 0.05) / (Math.min(a, m) + 0.05);}"""
 # An outline of three headings over the fixture's two pages (its PDFs carry none), drawn into both outline lists.
 OUTLINE3 = """() => {OUTLINE_ENTRIES = [{title: '서론', page: 1, depth: 0, frac: 0, number: '1', pageLabel: '1'},
   {title: '연구 배경', page: 1, depth: 1, frac: 0.5, number: '1.1', pageLabel: '1'}, {title: '방법', page: 2, depth: 0, frac: 0, number: '2', pageLabel: '2'}];
@@ -3500,11 +3518,57 @@ class BarAndSheets(ViewerBase):
         self.assertFalse(page.is_visible("#btn-rebuild"))
 
     def test_the_tablet_sheet_line_stays_in_its_640_column(self):
-        """820x1180: the line's box spans the screen like the sheet, its content the 640px column."""
-        page = self.stale_view(BAR_TABLETS[0])
-        r = page.locator("#status").bounding_box()
-        self.assertGreaterEqual(r["x"], (820 - 640) / 2 - 0.5)
-        self.assertLessEqual(r["x"] + r["width"], (820 + 640) / 2 + 0.5)
+        """The status line and the changes view's thumb row share the bar's edges: their boxes start where the bar's left
+        cell starts and end where its right cell ends, within 1px - on the tablet sheet's 640px column at 768, 820 and 884
+        (edge 16) and on a phone (edge 12). Review of PR D: at 768 the line's box was the whole column, so its icon sat
+        4px left of [📍]'s fill and [재빌드] 16px past [⋯]; the thumb row's [확인] ended at 704 with the bar at 688."""
+        edges = """(sel) => {const r = e => e.getBoundingClientRect(), q = s => document.querySelector(s);
+          return {box: [r(q(sel)).left, r(q(sel)).right], bar: [r(q('#bar1 .bar-l')).left, r(q('#bar1 .bar-r')).right]};}"""
+        for device in (phone(768, 1024, 2), BAR_TABLETS[0], BAR_TABLETS[1], BAR_PHONES[0]):
+            with self.subTest(width=device["viewport"]["width"]):
+                page = self.stale_view(device)
+                line = page.evaluate(edges, "#status")
+                self.assertAlmostEqual(line["box"][0], line["bar"][0], delta=1, msg=line)
+                self.assertAlmostEqual(line["box"][1], line["bar"][1], delta=1, msg=line)
+                page.evaluate("showChange(REVIEW_ALL[0].id)")
+                page.wait_for_selector("#revision-acts .rp-acts [data-act=confirm]")
+                settle(page)
+                row = page.evaluate(edges, "#revision-acts .rp-acts")
+                self.assertAlmostEqual(row["box"][0], row["bar"][0], delta=1, msg=row)
+                self.assertAlmostEqual(row["box"][1], row["bar"][1], delta=1, msg=row)
+                last = page.evaluate(
+                    "document.querySelector('#revision-acts [data-act=confirm]').getBoundingClientRect().right"
+                )
+                self.assertAlmostEqual(last, row["bar"][1], delta=1)  # [확인] ends where [⋯] ends
+
+    def test_the_line_keeps_its_spoken_label_through_band_changes_and_new_items(self):
+        """The line's spoken label (.st-sr, the live region) always holds the item on screen - also after placeStatus()
+        draws the line again for a rotation and after a second item adds '+1'. Review of PR D: it came
+        back empty, as the label was filled only when it changed. It is announced only when the item changes: the live
+        node stays and its text is not touched while the item is the same (a second item, main sync, adds '+1')."""
+        page = self.stale_view(BAR_PHONES[0])
+        say = "document.querySelector('#status .st-sr').textContent"
+        self.assertEqual(page.evaluate(say), "원고가 PDF보다 새롭습니다")
+        page.evaluate(
+            "()=>{window.SR=document.querySelector('#status .st-sr'); window.SR_CHANGES=0;"
+            "new MutationObserver(m=>{window.SR_CHANGES+=m.length;}).observe(window.SR,{childList:true,characterData:true,subtree:true});}"
+        )
+        for size, band in (((908, 411), "short"), ((411, 908), "phone")):
+            page.set_viewport_size({"width": size[0], "height": size[1]})
+            page.wait_for_function("document.body.classList.contains('band-%s')" % band)
+            settle(page)
+            self.assertEqual(page.evaluate(say), "원고가 PDF보다 새롭습니다", band)
+        page.evaluate("()=>{STATUS_SYNC={state:'checking'}; drawStatus();}")  # a second item: '+1
+        page.wait_for_selector("#status .st-more")
+        self.assertEqual(page.evaluate(say), "원고가 PDF보다 새롭습니다")
+        self.assertEqual(
+            page.evaluate("[document.querySelector('#status .st-sr')===window.SR, window.SR_CHANGES]"), [True, 0]
+        )
+        self.fake_build = {"state": "running", "phase": "latex", "elapsed_s": 3, "last_s": 9, "seq": 0}
+        page.evaluate("pollBuild()")
+        page.wait_for_function(say + "==='LaTeX 컴파일 중'")
+        self.assertGreater(page.evaluate("window.SR_CHANGES"), 0)  # a new item is spoken
+        self.fake_build = None
 
     def test_a_mouse_desktop_keeps_its_rebuild_button_and_chips(self):
         """1440x900 with a mouse: [PDF 재빌드] in the tool bar and the chip row, no status line."""
@@ -3550,6 +3614,52 @@ class BarAndSheets(ViewerBase):
         self.tap(self.cdp(page), *self.center(page, "#btn-pos"))
         page.wait_for_function("document.querySelector('#nav-sheet').open")
         settle(page)
+
+    def test_the_current_documents_check_stands_apart_from_its_name(self):
+        """The current document's row in the navigation sheet: 4-6px between its name and the check (review of PR D: they
+        touched, '본문✓')."""
+        page = self.docs_view(BAR_PHONES[0])
+        self.open_nav(page)
+        gap = page.evaluate(
+            "(()=>{const nm=document.querySelector('#ns-docs-list .dm-item.on .nm'),t=document.createRange();"
+            "t.selectNodeContents(nm.firstChild);return nm.querySelector('svg').getBoundingClientRect().left-t.getBoundingClientRect().right;})()"
+        )
+        self.assertGreaterEqual(gap, 4)
+        self.assertLessEqual(gap, 6)
+
+    def test_the_bars_ends_and_the_pin_button_are_optically_even(self):
+        """[📍 N 👁 M]'s ink sits in the middle of its fill - the pin glyph's left side bearing is compensated (review of
+        PR D: 1.35px right of centre) - with and without the review pill; and [⋯]'s ink ends on the ink line (--ink: 24px
+        from a phone's edge, 28 from the tablet column's), within R2's 2px, as the left end's fill starts on the edge line."""
+        for device, ink in ((BAR_PHONES[0], 24), (BAR_PHONES[1], 24), (BAR_TABLETS[1], 28)):
+            with self.subTest(width=device["viewport"]["width"]):
+                page = self.view(device, init=NO_PNG_CHIP)
+                for pill in (True, False):
+                    if not pill:
+                        page.evaluate("()=>{REVIEW_ALL=[]; updateReviewCount();}")
+                    got = page.evaluate(OPTICAL)
+                    self.assertLessEqual(abs(got["gapL"] - got["gapR"]), 0.5, (pill, got))
+                    self.assertAlmostEqual(got["moreInk"], ink, delta=2, msg=got)
+
+    def test_the_notification_switch_shows_when_off_and_names_its_reason(self):
+        """The switch's off track reaches 3:1 against the sheet where it can be switched (review of PR D: 1.48:1 light,
+        1.7:1 dark); the reason line under it is its description (aria-describedby)."""
+        for dark in (False, True):
+            with self.subTest(dark=dark):
+                page = self.view(BAR_PHONES[0], dark=dark)
+                page.evaluate("openMore()")
+                settle(page)
+                self.assertGreaterEqual(page.evaluate(SWITCH_OFF), 3)
+                self.assertEqual(page.get_attribute("#m-notify", "aria-describedby"), "m-notify-why")
+
+    def test_the_touch_help_names_the_bars_icon_buttons(self):
+        """The help's touch table shows [📍 N] and [⬚] as the icon buttons they are (review of PR D: it still named '핀 N'
+        and '선택' as words, which the bar no longer shows)."""
+        src = (Path(__file__).resolve().parents[1] / "index.html").read_text(encoding="utf-8")
+        self.assertIn("<kbd>{{ic:pin}} N</kbd>", src)
+        self.assertIn("<kbd>{{ic:square-dashed}}</kbd>", src)
+        self.assertNotIn("<kbd>핀 N</kbd>", src)
+        self.assertNotIn("<kbd>선택</kbd>", src)
 
     def test_the_position_button_opens_documents_view_page_and_outline_in_that_order(self):
         """411 and 344: [본문 1/2 ▾] - the document's name from 400px - opens one sheet whose sections run documents, the

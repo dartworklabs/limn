@@ -55,6 +55,7 @@ body:not(.lay-narrow) #coach button{pointer-events:auto}
 #more .m-why{display:block;padding:0 var(--space-3) var(--space-1) calc(var(--space-3) + 16px + var(--space-2));font-size:var(--text-sm);line-height:18px;color:var(--muted-foreground)}
 /* The notifications switch: a 36x20 track whose knob sits right when on; off and disabled where it cannot turn on. */
 #more .sw-track{position:relative;flex:none;width:36px;height:20px;border-radius:var(--radius-lg);background:var(--input)}
+#more [role=switch]:not(:disabled) .sw-track{background:var(--subtle-foreground)}   /* a switchable off track: 3:1 against the sheet; disabled stays faint */
 #more .sw-track::after{content:'';position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;background:var(--sidebar);box-shadow:var(--shadow-sm)}
 #more [role=switch][aria-checked=true] .sw-track{background:var(--primary)}
 #more [role=switch][aria-checked=true] .sw-track::after{left:18px}
@@ -173,6 +174,7 @@ body.compact #bar1 #btn-select[aria-pressed=true]{background:var(--primary);colo
 /* [📍 N 👁 M]: the pin icon carries the draft dot on its top-right corner (no width of its own), the open count is 600 in tabular
    figures, and the review pill is a 14% review tint - not the old solid purple, whose two numbers read as one ('11 1', UX audit P10). */
 #btn-side .pin-ic{position:relative;display:inline-flex}
+body.compact #btn-side .pin-ic{margin-left:calc(-1 * var(--ic-bearing))}   /* the pin's ink, not its glyph box, is 8px in: the fill's two sides match */
 #btn-side .pin-ic .c-dot{position:absolute;top:-2px;right:-3px}
 #btn-side .side-n{font-weight:600;font-variant-numeric:tabular-nums}
 body.compact #btn-side .rv-n{margin-left:var(--space-1);background:color-mix(in srgb,var(--status-review) 14%,var(--sidebar));color:var(--status-review);
@@ -215,6 +217,9 @@ body.lay-narrow #bar1 #btn-pos{flex:0 1 auto;min-width:0}
 @media (max-width:399.98px){body.lay-narrow #bar1 .rv-n .ic{display:none}}
 @media (max-width:359.98px){body.lay-narrow #bar1 :is(.bar-l,.bar-r){gap:var(--space-1)}body.lay-narrow #bar1 button:not(.btn-icon){padding:0 var(--space-1)}}
 body.compact #bar1 #btn-more{flex:0 0 44px;padding:0}   /* utility = ghost (the same convention as notification/theme/help on desktop) */
+/* The phone and tablet bar's right end: [⋯]'s ink ends on the ink line (--ink), as R2 asks of a ghost at a row's end - centred in
+   its 44px box it ended 4px further in (28 on a phone), across from [📍]'s fill on the edge line. */
+body.lay-narrow #bar1 #btn-more{justify-content:flex-end;padding-right:calc(var(--ink) - var(--edge) - var(--ic-bearing))}
 body.compact #composer{max-height:none;overflow:visible}
 /* Touch only (a mouse window scrolls as it always did): a field scrolled into view stays clear of the stuck save row (56px plus the
    bottom safe area) and, on a sheet, of the tool bar stuck at its top (whose hit areas reach 6px below it). */
@@ -419,7 +424,8 @@ body.lay-narrow.has-status:not(.typing) #status-dock{display:block;position:fixe
   border-top:1px solid var(--border-strong);border-radius:var(--radius-lg) var(--radius-lg) 0 0;box-shadow:0 -6px 24px var(--shadow-color);clip-path:inset(-40px -40px 0 -40px)}
 body.lay-narrow.has-status:not(.typing) #right{border-top-color:transparent;border-radius:0}
 #status{display:flex;align-items:center;gap:var(--space-2);min-width:0;font-size:var(--text-sm);line-height:1.4;color:var(--muted-foreground);white-space:nowrap}
-#status-dock #status{height:100%;max-width:640px;margin:0 auto;padding-left:var(--space-3)}
+#status-dock #status{height:100%;max-width:calc(640px - 2 * var(--edge));margin:0 auto;padding-left:var(--space-3)}   /* the bar's cells: the 640 column less its edges */
+#status .st-body{display:contents}   /* drawn again whenever the item changes; the spoken label (.st-sr) beside it stays */
 #status .st-ic{display:inline-flex;align-items:center;justify-content:center;flex:none;width:16px;height:16px}
 #status .st-ic .ic{width:14px;height:14px}
 .st-ic.warn{color:var(--warning)}
@@ -458,6 +464,7 @@ body.band-short #doc-nav #status{flex:none;position:relative;align-self:stretch}
 #status-list .st-ic .ic{width:14px;height:14px}
 /* The navigation sheet's document rows (and their marks): name and path, build state, 'PDF'/'그림', the open-pin count. */
 .dm-item .nm{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dm-item .nm .ic{margin-left:var(--space-1)}   /* the current document's check stands apart from its name */
 .dcnt{font-weight:600}
 .dcnt.z{color:var(--muted-foreground);font-weight:400;background:transparent}
 .dvo,.dfig{flex:none;line-height:14px;padding:0 var(--space-1);letter-spacing:.02em}

@@ -982,7 +982,6 @@
  "카드 펼치기": "Expand card",
  "커밋 전체 비교": "Whole commit",
  "켜면 PDF 위를 끌어서 영역을 고르고, 탭하면 그 자리 문단을 고릅니다. 끄면 보통처럼 스크롤·확대됩니다": "When on, drag on the PDF to select a region, or tap to select the paragraph there. When off, scrolling and zooming work as usual",
- "켜면 한 손가락으로 끌어 영역을 고르고, 탭하면 그 자리 문단을 고릅니다. 두 손가락으로 벌리면 PDF 만 커집니다. 핀을 저장하거나 취소하면 저절로 꺼집니다": "When on, drag with one finger to select a region, or tap to select the paragraph there. Pinch with two fingers to zoom the PDF only. It turns off automatically when you save or cancel the pin",
  "코드 없는 요소": "Element without code",
  "클릭하면 그 쪽으로 이동": "Click to go to that page",
  "클릭하면 메모와 범위를 고칩니다": "Click to edit the note and range",
@@ -1037,11 +1036,9 @@
  "핀 #{id}{p} 같은 곳을 가리킵니다. 한 번에 고치고 함께 닫는 편이 낫습니다": "Points to the same place as pin #{id}. Better to fix them together and close both",
  "핀 #{id}{p} 줄 범위가 일부 겹칩니다. 참고만 하고 따로 고쳐도 됩니다": "Partially overlaps pin #{id}'s line range. For reference only; they can be fixed separately",
  "핀 #{id}의 변경만": "Only pin #{id}'s changes",
- "핀 N": "Pin N",
  "핀 다시 읽기": "Reload pins",
  "핀 다시 읽기·쪽 이동·확대·테마·닫힌 핀·삭제한 핀·도움말": "Reload pins · go to page · zoom · theme · closed pins · deleted pins · help",
  "핀 다시 읽기·쪽 이동·확대·테마·닫힌 핀·삭제한 핀·이 도움말": "Reload pins · go to page · zoom · theme · closed pins · deleted pins · this help",
- "핀 목록 패널(좁은 화면에서는 아래 시트)을 펴고 접습니다. 카드를 누르면 펼쳐집니다": "Expands and collapses the pin list panel (a bottom sheet on narrow screens). Tap a card to expand it",
  "핀 목록과 선택한 자리 패널을 펴고 접습니다. 보라색 숫자는 검토 대기(에이전트가 닫고 사람의 확인을 기다리는 핀) 수입니다": "Expands and collapses the pin list and selected-spot panel. The purple number is the count of pins awaiting review (closed by an agent and waiting for a person's confirmation)",
  "핀 범위 줄 자체는 바뀌지 않았고 바로 곁(±5줄)이 바뀌었습니다 — 가장 가까운 줄을 보입니다": "The pin's range lines themselves didn't change, but nearby lines (±5) did — showing the nearest line",
  "핀 수정": "Edit pin",
@@ -1150,5 +1147,7 @@
  "확대·시트 높이·테마·언어·핀 다시 읽기·알림·휴지통·재빌드·도움말": "Zoom · sheet height · theme · language · reload pins · notifications · Trash · rebuild · help",
  "확대·시트 높이·테마·언어·핀 다시 읽기·알림·휴지통·재빌드·이 도움말": "Zoom · sheet height · theme · language · reload pins · notifications · Trash · rebuild · this help",
  "본문 3/25": "Body 3/25",
- "휴대폰: 문서·원고와 변경사항·쪽 번호·목차로 갑니다": "Phone: go to a document, the manuscript or its changes, a page or a section"
+ "휴대폰: 문서·원고와 변경사항·쪽 번호·목차로 갑니다": "Phone: go to a document, the manuscript or its changes, a page or a section",
+ "선택: 아래 막대의 점선 네모 아이콘입니다. 켜면 한 손가락으로 끌어 영역을 고르고, 탭하면 그 자리 문단을 고릅니다. 두 손가락으로 벌리면 PDF 만 커집니다. 핀을 저장하거나 취소하면 저절로 꺼집니다": "Select: the dashed square icon in the bottom bar. When on, drag with one finger to select a region, or tap to select the paragraph there. Pinch with two fingers to zoom the PDF only. It turns off automatically when you save or cancel the pin",
+ "아래 막대 왼쪽의 핀 아이콘과 열린 핀 수입니다. 핀 목록(좁은 화면에서는 아래 시트)을 펴고 접습니다. 눈 아이콘이 붙은 보라 숫자는 검토 대기 수입니다. 카드를 누르면 펼쳐집니다": "The pin icon and the open count at the left of the bottom bar. Opens and closes the pin list (a bottom sheet on narrow screens). The purple number with an eye counts pins awaiting review. Tap a card to expand it"
 }

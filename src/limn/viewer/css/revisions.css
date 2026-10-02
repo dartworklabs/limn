@@ -16,7 +16,7 @@ body.revision-open #left{display:none}
    action's 44px hit, which reaches 20px up. */
 body.has-status:not(.typing) #revision-acts{bottom:calc(var(--sheet-h,0px) + var(--kb,0px) + 24px);padding-bottom:20px}
 body.lay-narrow.rev-thumb #revision-source,body.lay-narrow.rev-thumb #revision-pdf{padding-bottom:160px}   /* ...and the thumb row */
-#revision-acts .rp-acts{display:flex;justify-content:flex-end;gap:var(--space-2);width:100%;max-width:640px;margin:0 auto}   /* the tablet sheet's 640px column */
+#revision-acts .rp-acts{display:flex;justify-content:flex-end;gap:var(--space-2);width:100%;max-width:calc(640px - 2 * var(--edge));margin:0 auto}   /* the bar's cells: the tablet sheet's 640px column less its edges */
 #revision-acts button{min-height:var(--hit);padding-left:var(--space-4);padding-right:var(--space-4)}
 #revision-diff .rd-pin{background:color-mix(in srgb,var(--status-review) 12%,var(--sidebar))}
 body.lay-narrow #revision-head{padding:var(--space-2) var(--space-3)}

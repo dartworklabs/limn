@@ -76,7 +76,7 @@
 | `DIFF_FORMAT`, `VIEW_MODE` | pdf · source, manuscript · revisions | 뷰어(`index.html`의 `data-format`·`data-mode`) |
 | `UI_LANG` | ko · en | 뷰어(`LANG`) |
 | `NOTIFY_STATE` | on · off · blocked · unsupported · local | 뷰어(`notifyState()`) |
-| `STATUS_KIND` | failed · errors · offline · building · rendering · sync-blocked · stale · sync · png | 뷰어(상태 줄, `statusList()`) |
+| `STATUS_KIND` | failed · errors · offline · building · rendering · sync-blocked · unchanged · stale · sync · png | 뷰어(상태 줄, `statusList()`) |
 
 서버에서 오는 표는 서버 문자열과 정확히 같아야 한다. [`src/limn/viewer/tests/test_viewer_source.py`](../../src/limn/viewer/tests/test_viewer_source.py)의 `ClosedSets`가 표마다 서버의 `Literal`·튜플·생성 함수와 대조한다. 부르는 멤버가 표에 있는지도 본다(`PIN_STATE.REVEIW` 같은 오타는 오류 없이 `undefined`가 된다). `done`·`review`를 직접 읽거나 `pinState()`를 문자열과 비교하는 곳이 없는지도 본다. 사람이 읽는 글, 사유 코드, 브라우저가 정한 이름(키, 태그, 이벤트 종류, 알림 권한)은 표에 두지 않는다. 목록 구획 이름(`SEC.open`)과 표의 값을 키로 쓰는 조회표(`ST_NAME`, `EV_LABEL`, 알림 문구)의 키도 글자 그대로 둔다. 새 표는 `core.js`의 닫힌 값 구획에 더하고, 같은 테스트의 서버 표(`SERVER_SETS`)나 뷰어 표(`VIEWER_SETS`)에 올린다. 어느 쪽에도 없으면 테스트가 실패한다.
 
@@ -296,7 +296,7 @@
 
 작성 패널·도구 줄·카드는 한 간격 체계와 한 줄 배치를 따른다.
 
-**가장자리 격자.** compact의 시트·패널은 x값 둘로 줄을 세운다. 상자(카드, 상태 칩, 작성 패널의 컨트롤, 저장 줄, 이동 시트의 행, 도움말의 표, 아래 시트의 [닫기])는 좌우 `--edge`(휴대폰 12px, 그 밖 16px)에서 시작하고 끝난다. 상자 없는 줄(구획 머리의 꺾쇠와 이름, 시트 제목, 보관함·휴지통 행, 도움말의 글)은 글자를 `--ink`(`--edge` + 12px)에서 시작한다. 카드 안 내용은 테두리와 12px 여백으로 `--ink`에 온다. 도구 줄도 `--edge`에서 시작하고 끝난다(`SheetEdgeGrid`, `BarAndSheets`).
+**가장자리 격자.** compact의 시트·패널은 x값 둘로 줄을 세운다. 상자(카드, 상태 칩, 작성 패널의 컨트롤, 저장 줄, 이동 시트의 행, 도움말의 표, 아래 시트의 [닫기])는 좌우 `--edge`(휴대폰 12px, 그 밖 16px)에서 시작하고 끝난다. 상자 없는 줄(구획 머리의 꺾쇠와 이름, 시트 제목, 보관함·휴지통 행, 도움말의 글)은 글자를 `--ink`(`--edge` + 12px)에서 시작한다. 카드 안 내용은 테두리와 12px 여백으로 `--ink`에 온다. 도구 줄도 `--edge`에서 시작하고 끝난다. 끝의 [⋯]는 44px 상자가 `--edge`에서 끝나고 잉크는 `--ink`에서 끝난다. 상태 줄과 변경 보기의 엄지 줄은 도구 줄 칸과 같은 가장자리에서 시작하고 끝난다(태블릿 시트는 640px 칸 안)(`SheetEdgeGrid`, `BarAndSheets`).
 
 **한 간격 체계.** 8px 격자를 쓰고, 같은 줄의 버튼은 같은 높이다. 터치에서 그린 높이는 세 단계다. 주요 동작(`[취소] [핀 저장]`·`[보내기]`)은 44px, 도구 줄은 40px(`--ctl-touch`), 카드 동작·목록 머리 도구·작은 보조 버튼은 폰 시트 32px·태블릿 패널 36px(`--ctl-touch-sm`)이다. 아이콘 버튼은 36px로 그린다. 단 폰 시트 카드 동작 줄의 아이콘 버튼은 그 줄 높이에 맞춰 32px 정사각형이다. 그린 크기와 무관하게 눌리는 영역은 44×44px이다(§모바일 레이아웃 터치 기기 크기). 48px 단계는 없다. 강조 색(`--primary`, `.btn-default`)은 주요 동작 [핀 저장] 하나에만 칠한다. 카드의 [완료]는 옅은 파랑(`.btn-soft`)이고, [삭제]는 옅은 위험 색(`.btn-destructive`)이다. 나머지는 테두리만 있는 outline이다(§디자인 토큰과 컴포넌트).
 

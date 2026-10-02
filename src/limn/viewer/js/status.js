@@ -4,7 +4,7 @@
 // a short text in the short band's top row and the middle of the mid action row (#status-slot). The desktop (wide) keeps
 // its status chips (#bar2) and draws no line. The line is the compact face of those chips: whenever one of them changes
 // (a MutationObserver on #bar2) it is drawn again from the state they come from.
-let STATUS_SYNC=null,STATUS_SIG='',STATUS_SAID='';   // the last meta `sync`; the drawn item's kind, action and count; the label read out last
+let STATUS_SYNC=null,STATUS_SIG='';   // the last meta `sync`; the drawn item's kind, action and count
 const STATUS_TRANSIENT_MS=6000;   // a passing answer (no changes) stays on the line as long as a toast stays (api-toasts.js)
 
 // A build's countable progress {done, total}: integers with total > 0 and 0 <= done <= total, else null - as if the field were
@@ -94,23 +94,24 @@ function buildUnchanged(b){
 
 // Draws the status line from statusInput(): the first item with its icon, its text (the long form, the short one where the
 // long does not fit and always in the short band's top row, then an ellipsis), '+N' for the rest and its action, and a 2px progress bar while a build runs - counted
-// when the build gives its progress, else one that does not know its end. The screen reader hears an item's label when it
-// changes, never the ticking numbers. Also the [⋯] row [PDF 재빌드]: off with '빌드 중' while a build runs. body.has-status
+// when the build gives its progress, else one that does not know its end, all in .st-body, drawn again when the item, its
+// action or the count changes. The spoken label is a separate live node (.st-sr) that stays: every draw puts the item's label
+// there, and its text changes - and is read out - only when the label does, never for a redraw or the ticking numbers. Also the [⋯] row [PDF 재빌드]: off with '빌드 중' while a build runs. body.has-status
 // says a line is up (the sheet joins it, placeToasts keeps clear of it).
-function drawStatus(){const box=$('#status'),list=statusList(statusInput()),top=list[0],running=!!BUILD.cur;
+function drawStatus(){const box=$('#status'),sr=box.querySelector('.st-sr'),body=box.querySelector('.st-body'),list=statusList(statusInput()),top=list[0],running=!!BUILD.cur;
   const m=$('#m-rebuild'); if(m){m.disabled=running; const tail=m.querySelector('.m-tail'); if(tail)tail.hidden=!running;}
   document.body.classList.toggle('has-status',!!top); box.hidden=!top;
   if($('#status-list').open)drawStatusList(list);
-  if(!top){if(STATUS_SIG){box.replaceChildren(); STATUS_SIG=''; STATUS_SAID='';} return;}
+  if(!top){if(STATUS_SIG){body.replaceChildren(); STATUS_SIG='';} sr.textContent=''; return;}
   const sig=top.kind+'|'+(top.act||'')+'|'+list.length+'|'+(top.state||'');
   if(sig!==STATUS_SIG){STATUS_SIG=sig;
-    box.innerHTML=statusIcon(top)+'<span class="sr-only st-sr"></span><span class="st-tx" aria-hidden="true"></span>'+
+    body.innerHTML=statusIcon(top)+'<span class="st-tx" aria-hidden="true"></span>'+
       (list.length>1?'<button class="btn-sm btn-ghost st-more" data-act="status-more" aria-haspopup="dialog" aria-label="'+esc(tl('상태 {n}건 더 보기',{n:list.length-1}))+'">'+esc(tl('+{n}',{n:list.length-1}))+'</button>':'')+
       statusAct(top)+(running?'<span class="st-bar" role="progressbar" aria-label="'+esc(tr('빌드 진행'))+'"><i></i></span>':'');}
   const tx=box.querySelector('.st-tx'),long=statusText(top,'long'),short=statusText(top,'short');
   tx.textContent=BAND===LAYOUT_BAND.SHORT?short[0]+short[1]:long[0]+long[1];   // the short band's one row always takes the short text
   if(tx.scrollWidth>tx.clientWidth)tx.textContent=short[0]+short[1];
-  if(long[0]!==STATUS_SAID){STATUS_SAID=long[0]; box.querySelector('.st-sr').textContent=long[0];}
+  if(sr.textContent!==long[0])sr.textContent=long[0];
   const bar=box.querySelector('.st-bar'); if(!bar)return; const {done,total}=top.progress||{},pct=top.progress?Math.round(done/total*100):null;
   bar.classList.toggle('indet',pct===null); bar.querySelector('i').style.width=pct===null?'':pct+'%';
   if(pct===null){bar.removeAttribute('aria-valuenow');} else{bar.setAttribute('aria-valuemin','0'); bar.setAttribute('aria-valuemax','100'); bar.setAttribute('aria-valuenow',String(pct));}}
