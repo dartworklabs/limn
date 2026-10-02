@@ -239,11 +239,9 @@ body.compact #bar1 #btn-more{flex:0 0 44px;padding:0}   /* utility = ghost (the 
    its 44px box it ended 4px further in (28 on a phone), across from [📍]'s fill on the edge line. */
 body.lay-narrow #bar1 #btn-more{justify-content:flex-end;padding-right:calc(var(--ink) - var(--edge) - var(--ic-bearing))}
 /* The composer is part of the sheet or panel, on its background (it was --card: a grey box in the white sheet, in the tablet's
-   640px column a box of its own); the line under it parts it from the list. Its [⧉] is a ghost at the row's end (R2), drawn at
-   36px with a 44px hit - it was a 44px bordered box beside the location line. */
+   640px column a box of its own); the line under it parts it from the list. Its [⧉] is a ghost at the row's end (R2, btn-ghost on
+   every band), drawn at 36px with a 44px hit on touch - it was a 44px bordered box beside the location line. */
 body.compact #composer{max-height:none;overflow:visible;background:transparent}
-body.compact #c-copy{background:transparent;border-color:transparent}
-@media (hover:hover){body.compact #c-copy:hover{background:var(--accent)}}
 @media (pointer:coarse){body.compact #c-copy{width:var(--control-h-lg);min-width:var(--control-h-lg);height:var(--control-h-lg);min-height:0;padding:0}}
 /* Touch only (a mouse window scrolls as it always did): a field scrolled into view stays clear of the stuck save row (56px plus the
    bottom safe area) and, on a sheet, of the tool bar stuck at its top (whose hit areas reach 6px below it). */

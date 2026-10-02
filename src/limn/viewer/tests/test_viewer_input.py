@@ -2470,7 +2470,7 @@ class ComposerSamePass(ViewerBase):
 
     def test_the_copy_button_is_a_borderless_icon_answering_44px(self):
         """411x908: [⧉] beside the location line was a 44px bordered box; it is a ghost icon drawn at 36px whose tap
-        still answers a 44px box. A mouse desktop keeps its drawn button."""
+        still answers a 44px box. The mouse desktop's is the same ghost, at its 28px (ComposerOneBorder)."""
         page = self.view(phone(411, 908))
         self.compose(page)
         got = page.evaluate(
@@ -2481,7 +2481,7 @@ class ComposerSamePass(ViewerBase):
         self.assertEqual(page.evaluate(MISSES_44, "#c-copy"), [])
         page = self.view(DESK)
         self.mouse_pick(page)
-        self.assertNotEqual(
+        self.assertEqual(
             page.evaluate("getComputedStyle(document.querySelector('#c-copy')).borderTopColor"), "rgba(0, 0, 0, 0)"
         )
 
@@ -5092,6 +5092,39 @@ class MidComposerOrder(ViewerBase):
                 b = page.evaluate(COMPOSER_BLOCKS, "#composer")
                 self.assertEqual([x[0] for x in b], ["c-loc-row", "note", "c-kind", "c-overlap", "c-range"], b)
                 self.assertEqual({round(n[1] - p[2]) for p, n in zip(b, b[1:], strict=False)}, {8}, b)
+
+
+# The visible buttons and fields of the composer and its save row that draw a border (one that differs from their fill), by id
+# or class.
+COMPOSER_BORDERS = """() => [...document.querySelectorAll('#composer button,#composer input,#composer textarea,#c-actions button')]
+  .filter(e => e.getClientRects().length).filter(e => {const c = getComputedStyle(e);
+    return parseFloat(c.borderTopWidth) > 0 && c.borderTopStyle !== 'none' && c.borderTopColor !== 'rgba(0, 0, 0, 0)' && c.borderTopColor !== c.backgroundColor;})
+  .map(e => e.id || e.className)"""
+
+
+class ComposerOneBorder(ViewerBase):
+    """One border in the composer (docs/handbook/viewer.md §한 겹 담기 - the note field's): the save row's [취소] was an
+    outlined box beside the edit card's filled one in the same bottom row, the overlap notice's [덧붙이기] [따로 저장] were
+    outlined, and the mouse desktop kept [⧉] as a bordered box beside the location line. Every band: [취소] and the overlap
+    actions are the secondary fill the edit card's [취소] has, [⧉] a ghost icon."""
+
+    def test_only_the_note_field_draws_a_border_on_every_band(self):
+        """411x908, 1180x820 (touch) and 1400x850 (mouse): of the composer's and its save row's controls only the note
+        field draws a border; [취소] is filled with --secondary (it and the overlap actions were outlined everywhere, and
+        [⧉] on the desktop)."""
+        sec = "(()=>{const e=document.createElement('i'); e.style.background='var(--secondary)'; document.body.append(e); const c=getComputedStyle(e).backgroundColor; e.remove(); return c;})()"
+        for device in (phone(411, 908), touch_device(1180, 820), DESK):
+            with self.subTest(width=device["viewport"]["width"]):
+                page = self.view(device)
+                if device is DESK:
+                    self.mouse_pick(page)
+                else:
+                    ComposerSamePass.compose(self, page)
+                self.assertEqual(page.evaluate(COMPOSER_BORDERS), ["note"])
+                self.assertEqual(
+                    page.evaluate("getComputedStyle(document.querySelector('#btn-cancel')).backgroundColor"),
+                    page.evaluate(sec),
+                )
 
 
 class MetaWithoutCommit(ViewerBase):

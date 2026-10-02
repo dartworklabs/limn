@@ -92,9 +92,9 @@ function renderOverlapBanner(){
   box.classList.toggle('one',one);
   box.innerHTML=(one?'<span class="ov-t" data-tip="'+esc(full)+'">'+esc(overlapShort(ov.rel,ov.id))+'</span>'
       :'<span>'+overlapText(ov.rel,ov.id)+' <span class="dim">(L'+ov.lo+'-L'+ov.hi+')</span></span>')+
-    '<button class="btn-sm hit" data-act="overlap-append" data-oid="'+ov.id+'" data-tip="'+tl('이 선택의 메모를 #{id} 에 덧붙이고, 지금 선택은 새 핀으로 만들지 않습니다',{id:ov.id})+'">'+
+    '<button class="btn-sm btn-secondary hit" data-act="overlap-append" data-oid="'+ov.id+'" data-tip="'+tl('이 선택의 메모를 #{id} 에 덧붙이고, 지금 선택은 새 핀으로 만들지 않습니다',{id:ov.id})+'">'+
     (one?tr('덧붙이기'):tl('#{id} 메모에 덧붙이기',{id:ov.id}))+'</button>'+
-    '<button class="btn-sm hit" data-act="overlap-separate" data-key="'+ov.id+':'+ov.rel+'" data-tip="겹쳐도 별도 핀으로 저장합니다">'+(one?tr('따로 저장'):'별도 핀으로 저장')+'</button>';
+    '<button class="btn-sm btn-secondary hit" data-act="overlap-separate" data-key="'+ov.id+':'+ov.rel+'" data-tip="겹쳐도 별도 핀으로 저장합니다">'+(one?tr('따로 저장'):'별도 핀으로 저장')+'</button>';
 }
 // The overlap in a few words for the one-line notice: '#4와 같은 범위' - '#4 범위 안' - '#4를 감쌈' - '#4와 일부 겹침' (the card badges' wording).
 function overlapShort(rel,id){const k={equal:'#{id}{p} 같은 범위',inside:'#{id} 범위 안',contains:'#{id}{p} 감쌈',partial:'#{id}{p} 일부 겹침'}[rel]||'#{id}{p} 일부 겹침';
