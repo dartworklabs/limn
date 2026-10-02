@@ -80,6 +80,10 @@ body:not(.lay-narrow) #coach button{pointer-events:auto}
   .seg button{min-height:0;height:var(--control-h);padding:0 var(--space-3);font-size:var(--text-base);position:relative}
   .seg button::after{content:'';position:absolute;left:0;right:0;top:50%;height:var(--hit);transform:translateY(-50%)}
   .seg.lad{padding:var(--space-1) 0;margin:var(--space-1) 0}
+  /* The range excerpt's rows keep their own size (composer.css); each '−' chip answers 44px round its 28px circle. */
+  button.xp-row{min-height:var(--hit);min-width:0;padding:var(--space-2) 0 var(--space-2) var(--space-2);font-size:var(--text-sm)}
+  button.xp-chip{min-height:0;min-width:0;width:var(--chip);height:var(--chip);padding:0;position:relative;overflow:visible}
+  button.xp-chip::after{content:'';position:absolute;left:50%;top:50%;width:var(--hit);height:var(--hit);transform:translate(-50%,-50%)}
   /* The one touch hit-area utility (docs/handbook/viewer.md §모바일 레이아웃): a control drawn smaller than --hit keeps its
      drawn size and gets a centred --hit x --hit box from ::after. Its own overflow is forced visible - a clipping box (the
      assignee chip's overflow:hidden) cut the ::after back to the drawn 20px (input diagnosis P6). A tappable badge (assignee

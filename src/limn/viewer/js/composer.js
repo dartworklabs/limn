@@ -109,7 +109,7 @@ function renderRegionComposer(d){
   const pg=$('#c-page'),fb=figRegionBadge(d.el,isFigureKind(META&&META.kind));
   pg.textContent=fb?fb.t:tr('보기 전용'); pg.dataset.tip=fb?fb.tip:'LaTeX 소스가 없는 PDF입니다 — 줄 번호 없이 쪽·영역과 영역 글자로 핀을 남깁니다';
   $('#c-tag').hidden=true; $('#c-warn').hidden=!d.warn; $('#c-warn').textContent=warnText(d.warn); $('#c-overlap').hidden=true;
-  $('#c-levels').innerHTML=''; $('#c-cap').innerHTML='';
+  $('#c-levels').innerHTML=''; $('#c-cap').innerHTML=''; drawExcerpt(null,$('#c-xp'),false);
   const pre=$('#c-snip'); pre.className='wrap open'; pre.textContent=d.quote?tl('영역 글자: {text}',{text:d.quote}):tr('(이 영역에는 글자가 없습니다)');
   $('#c-expand').hidden=true; renderElement(d,COMPOSE.box);}
 // Draws the composer from COMPOSE.current (location, ladder, source, overlap) and schedules the draft write - every change of the
@@ -131,6 +131,7 @@ function renderComposer(){const d=COMPOSE.current; if(!d)return; saveDraftSoon()
   pre.classList.toggle('clip',!SNIP_OPEN&&over);
   $('#c-expand').hidden=!over; $('#c-expand').textContent=SNIP_OPEN?tr('원문 접기'):tr('원문 펼치기')+(nl>1?' · '+tl('{n}줄',{n:nl}):'');
   $('#c-wrap').setAttribute('aria-pressed',String(WRAP));
+  drawExcerpt(d,$('#c-xp'),false);   // the compact bands' range excerpt (excerpt.js)
 }
 // When a selection ends via save/cancel/append, selection mode is turned off (scrolling resumes) and the narrow sheet collapses (the body comes forward again).
 // The composer panel's pin kind (fix request / question). Reverts to fix request on save or discard (the default for the next pin).

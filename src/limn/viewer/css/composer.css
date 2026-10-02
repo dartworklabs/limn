@@ -64,3 +64,37 @@ button.tg[aria-pressed=true]{border-color:var(--border-strong)}
 .warnline{color:var(--warning);font-size:var(--text-sm);margin-top:var(--space-2)}
 .errline{color:var(--destructive);font-size:var(--text-base);margin-top:var(--space-2)}
 .pin{position:relative;padding:var(--space-2) var(--space-3);margin-bottom:8px}   /* shape follows .card */
+/* The range excerpt (excerpt.js, docs/handbook/viewer.md §패널 정리 범위 발췌): on the compact bands it takes the stepper's and
+   the plain source's place in the composer and the edit card (a region keeps its text). One row per source line - its number,
+   its text (four lines at most, a dimmed neighbour two) and a 44px margin on the right for the row's chip: a tinted '+' on a
+   dimmed line (the row is the button), a neutral '−' on the band's first and last lines (its own button). Each chip is a
+   28px circle on its line's first text line. */
+.xp{display:none}
+body.compact .xp:not([hidden]){display:block}
+body.compact :is(#c-range,.edit) .c-tools{display:none}
+body.compact #composer:not(.region) #c-snip,body.compact .edit:not(.region) .e-snip{display:none}
+.xp-hint{font-size:var(--text-sm);line-height:1.5;color:var(--muted-foreground);margin:0 0 var(--space-2)}
+.xp-list{position:relative;border-radius:var(--radius);background:var(--code);font-family:var(--font-mono);font-size:var(--text-sm);line-height:1.5;
+  --chip:28px}
+.xp-list>:first-child{border-radius:var(--radius) var(--radius) 0 0}   /* the list's corners, without clipping the chips' hits */
+.xp-list>:last-child{border-radius:0 0 var(--radius) var(--radius)}
+.xp-list>:only-child{border-radius:var(--radius)}
+.xp-row{display:grid;grid-template-columns:auto minmax(0,1fr) var(--hit);align-items:start;column-gap:var(--space-2);width:100%;min-height:var(--hit);
+  margin:0;padding:var(--space-2) 0 var(--space-2) var(--space-2);border:0;border-radius:0;background:transparent;text-align:left;
+  font:inherit;color:var(--foreground);-webkit-user-select:text;user-select:text}
+.xp-row .ln{color:var(--muted-foreground);font-variant-numeric:tabular-nums;min-width:3ch;text-align:right}
+.xp-row .tx{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:4;overflow:hidden;white-space:pre-wrap;overflow-wrap:anywhere}
+.xp-list.nowrap .xp-row .tx{display:block;white-space:pre;text-overflow:ellipsis}
+.xp-row.on{background:color-mix(in srgb,var(--primary) 12%,var(--code));box-shadow:inset 3px 0 0 var(--primary)}   /* the band */
+.xp-row.ctx .tx{-webkit-line-clamp:2;color:var(--muted-foreground)}   /* a dimmed neighbour */
+.xp-row.ctx .ln{opacity:.7}
+button.xp-row{cursor:pointer;min-width:0;justify-content:stretch}
+@media (hover:hover){button.xp-row:hover{background:var(--accent)}}
+.xp-fold{padding:var(--space-1) var(--space-2) var(--space-1) calc(var(--space-2) + 3ch + var(--space-2));color:var(--muted-foreground);
+  background:color-mix(in srgb,var(--primary) 12%,var(--code));box-shadow:inset 3px 0 0 var(--primary)}
+.xp-chip{justify-self:center;display:flex;align-items:center;justify-content:center;width:var(--chip);height:var(--chip);
+  margin-top:calc((1.5em - var(--chip)) / 2);border-radius:50%;padding:0;border:0}
+.xp-chip .ic{width:16px;height:16px}
+.xp-chip.add{background:color-mix(in srgb,var(--primary) 16%,transparent);color:var(--primary)}
+.xp-chip.xp-drop{background:var(--popover);color:var(--foreground);box-shadow:inset 0 0 0 1px var(--border-strong)}
+@media (hover:hover){button.xp-row:hover .xp-chip.add{background:color-mix(in srgb,var(--primary) 24%,transparent)}}

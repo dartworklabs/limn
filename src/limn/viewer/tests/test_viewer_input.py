@@ -1248,6 +1248,10 @@ class FoldOverlay(ViewerBase):
         self.long_press_pick(cdp, page)
         for sel in ("#c-levels", "#note"):
             with self.subTest(start=sel):
+                page.evaluate(
+                    "s=>document.querySelector(s).scrollIntoView({block:'center'})", sel
+                )  # under the range excerpt
+                settle(page)
                 x, y = self.center(page, sel)
                 self.assertEqual(self.follow_during(page, cdp, x - 60, y, 150), 0)
                 self.assertTrue(page.evaluate("SIDE_OPEN"))
@@ -2034,10 +2038,10 @@ class PhoneComposer(ViewerBase):
         self.assertEqual(seen, h)
         self.assertEqual(round(page.locator("#c-actions").bounding_box()["height"]), 56)
         order = page.evaluate(
-            "[...document.querySelectorAll('.c-loc-row,#note,#c-overlap,#c-levels,#c-kind,#c-snip')]"
+            "[...document.querySelectorAll('.c-loc-row,#note,#c-overlap,#c-levels,#c-kind,#c-xp')]"
             ".map(e=>[e.id||e.className,Math.round(e.getBoundingClientRect().top)]).sort((a,b)=>a[1]-b[1]).map(a=>a[0])"
         )
-        self.assertEqual(order, ["c-loc-row", "note", "c-kind", "c-overlap", "c-levels", "c-snip"])
+        self.assertEqual(order, ["c-loc-row", "note", "c-kind", "c-overlap", "c-levels", "c-xp"])
 
     def test_with_the_keyboard_up_the_note_and_the_location_line_stay_in_view(self):
         """The keyboard shrinks the layout by 300px: the location line scrolled to y -35 above the note."""
@@ -2360,7 +2364,7 @@ class ComposerSamePass(ViewerBase):
         top = [b[0] for b in page.evaluate(COMPOSER_BLOCKS, "#composer")]
         self.assertEqual(top, ["c-loc-row", "note", "c-kind", "c-overlap", "c-range"], top)
         inner = [b[0] for b in page.evaluate(COMPOSER_BLOCKS, "#c-range")]
-        self.assertEqual(inner, ["c-cap", "c-levels", "c-tools", "c-snip", "snip-foot"], inner)
+        self.assertEqual(inner, ["c-cap", "c-levels", "c-xp", "snip-foot"], inner)
 
     def test_the_phone_composers_blocks_are_one_8px_step_apart(self):
         """411x908 and 768x1024: every gap between the composer's blocks, and inside the range block, is 8px (the kind
@@ -2563,6 +2567,166 @@ class MoreFoot(ViewerBase):
                 ratio = page.evaluate(FOOT)["ratio"]
                 self.assertGreaterEqual(ratio, 1.3)
                 self.assertLessEqual(ratio, 1.5)
+
+
+class RangeExcerptLogic(unittest.TestCase):
+    """The range excerpt's pure decisions (docs/handbook/viewer.md §패널 정리 범위 발췌), run from the served source under node:
+    widening to a tapped line, dropping an end line, and which rows the excerpt draws round a range."""
+
+    def run_js(self, expr):
+        """expr evaluated with widenTo, dropLine and excerptRows from the page; its JSON value."""
+        js = "\n".join(extract_js_fn(n) for n in ("widenTo", "dropLine", "excerptRows"))
+        return node_or_skip(self, js + "\nconsole.log(JSON.stringify(%s));" % expr)
+
+    def test_a_tapped_line_widens_the_range_to_it_on_either_side(self):
+        """L5 widened to L4 is L4-L5, to L6 is L5-L6; a line inside the range leaves it as it is."""
+        self.assertEqual(self.run_js("[widenTo(5,5,4),widenTo(5,5,6),widenTo(4,9,6)]"), [[4, 5], [5, 6], [4, 9]])
+
+    def test_a_dropped_end_line_narrows_the_range_and_one_line_cannot_be_dropped(self):
+        """L4-L5 less L4 is L5, less L5 is L4; a one-line range and a line that is not an end give null (nothing to do)."""
+        self.assertEqual(
+            self.run_js("[dropLine(4,5,4),dropLine(4,5,5),dropLine(5,5,5),dropLine(4,9,6)]"),
+            [[5, 5], [4, 4], None, None],
+        )
+
+    def test_the_rows_are_a_dimmed_neighbour_each_side_and_none_past_the_file(self):
+        """L5 in a 40-line file: a dimmed L4, L5 (both ends), a dimmed L6. L1-L2: no line above line 1. L39-L40: none
+        below the last line. L1-L40 folds its middle (first two, '36 more', last two) unless opened."""
+        got = self.run_js(
+            "[excerptRows(5,5,40,false),excerptRows(1,2,40,false),excerptRows(39,40,40,false),"
+            "excerptRows(1,40,40,false).map(r=>r.kind==='fold'?'fold'+r.n:r.k),excerptRows(1,40,40,true).length]"
+        )
+        self.assertEqual(
+            got[0],
+            [
+                {"k": 4, "kind": "ctx", "edge": False},
+                {"k": 5, "kind": "on", "edge": False},
+                {"k": 6, "kind": "ctx", "edge": False},
+            ],
+        )
+        self.assertEqual(
+            [(r["k"], r["kind"], r["edge"]) for r in got[1]], [(1, "on", True), (2, "on", True), (3, "ctx", False)]
+        )
+        self.assertEqual(
+            [(r["k"], r["kind"], r["edge"]) for r in got[2]], [(38, "ctx", False), (39, "on", True), (40, "on", True)]
+        )
+        self.assertEqual(got[3], [1, 2, "fold36", 39, 40])
+        self.assertEqual(got[4], 40)
+
+
+# The composer's or edit card's excerpt as drawn: its rows' line numbers and kinds ('ctx', 'on', 'fold'), which rows carry '−',
+# the caption, and whether the stepper and the plain source show.
+EXCERPT = """root => {const q = s => document.querySelector(root + ' ' + s), vis = e => !!e && e.getClientRects().length > 0;
+  const rows = [...document.querySelectorAll(root + ' .xp-list > *')].filter(vis)
+    .map(r => r.classList.contains('xp-fold') ? 'fold' : (r.classList.contains('ctx') ? '(' + r.dataset.line + ')' : r.dataset.line));
+  return {rows, drops: [...document.querySelectorAll(root + ' .xp-drop')].filter(vis).map(b => +b.dataset.line),
+    cap: (q('.rg-cap') || {}).innerText, step: vis(q('.step')), pre: vis(q('pre'))};}"""
+
+
+class RangeExcerpt(ViewerBase):
+    """The range excerpt on the compact bands (docs/handbook/viewer.md §패널 정리 범위 발췌): the owner read '위 + − 아래 + −' as
+    moving the pin. The source itself adjusts the range - a tap on a dimmed line above or below widens the range to it, the
+    '−' on the band's first or last line drops that line - in the composer and the edit card alike; the band never jumps
+    under the finger. A mouse desktop keeps its stepper."""
+
+    def compose(self, page):
+        """A touch selection through the real pick path (the paragraph L1-L40 of the fixture); waits for the composer."""
+        page.evaluate("()=>{LAST_PTR='touch'; pick({page:1,x0:10,y0:10,x1:200,y1:60});}")
+        page.wait_for_function("COMPOSE.current&&!COMPOSE.picking")
+        settle(page)
+
+    def tap_row(self, page, sel):
+        """A finger tap on the centre of sel's first match, the row scrolled into view first."""
+        page.evaluate("s=>document.querySelector(s).scrollIntoView({block:'center'})", sel)
+        settle(page)
+        self.tap(self.cdp(page), *self.center(page, sel))
+        settle(page)
+
+    def test_a_tap_on_a_dimmed_line_widens_the_range_and_minus_narrows_it(self):
+        """411x908, the dragged line L5: dimmed L4 and L6 round it, no stepper, no plain source. A tap on L4 makes L4-L5 with
+        '−' on both ends; '−' on L4 makes L5 again; a tap on L6 makes L5-L6."""
+        page = self.view(phone(411, 908))
+        self.compose(page)
+        page.click('#c-levels [data-level="raw"]')
+        settle(page)
+        got = page.evaluate(EXCERPT, "#composer")
+        self.assertEqual((got["rows"], got["drops"], got["step"], got["pre"]), (["(4)", "5", "(6)"], [], False, False))
+        self.tap_row(page, '#c-xp .xp-row.ctx[data-line="4"]')
+        got = page.evaluate(EXCERPT, "#composer")
+        self.assertEqual(
+            (got["rows"], got["drops"], got["cap"]), (["(3)", "4", "5", "(6)"], [4, 5], "범위 L4-L5 · 2줄")
+        )
+        self.tap_row(page, '#c-xp .xp-drop[data-line="4"]')
+        self.assertEqual(page.evaluate("[COMPOSE.current.lo,COMPOSE.current.hi]"), [5, 5])
+        self.tap_row(page, '#c-xp .xp-row.ctx[data-line="6"]')
+        self.assertEqual(
+            page.evaluate("[COMPOSE.current.lo,COMPOSE.current.hi,COMPOSE.current.scope]"), [5, 6, "lines"]
+        )
+
+    def test_line_one_and_the_last_line_have_no_dimmed_neighbour(self):
+        """The paragraph L1-L40 is the whole 40-line file: no dimmed line above line 1 or below line 40, its middle folded;
+        '−' on L1 makes L2-L40 and a dimmed L1 comes back above it."""
+        page = self.view(phone(411, 908))
+        self.compose(page)
+        page.click('#c-levels [data-level="para"]')
+        settle(page)
+        got = page.evaluate(EXCERPT, "#composer")
+        self.assertEqual((got["rows"], got["drops"]), (["1", "2", "fold", "39", "40"], [1, 40]))
+        self.tap_row(page, '#c-xp .xp-drop[data-line="1"]')
+        got = page.evaluate(EXCERPT, "#composer")
+        self.assertEqual(got["rows"][:2], ["(1)", "2"])
+        self.assertEqual(page.evaluate("[COMPOSE.current.lo,COMPOSE.current.hi]"), [2, 40])
+
+    def test_widening_above_keeps_the_band_where_it_was(self):
+        """A tap on the dimmed line above adds a row above the band: L5's row stays at the same height on screen (within 1px)
+        - the sheet scrolls by the row that came - so the band does not jump under the finger."""
+        page = self.view(phone(411, 908))
+        self.compose(page)
+        page.click('#c-levels [data-level="raw"]')
+        settle(page)
+        page.evaluate("document.querySelector('#c-xp .xp-row[data-line=\"5\"]').scrollIntoView({block:'center'})")
+        settle(page)
+        y0 = page.evaluate("document.querySelector('#c-xp .xp-row[data-line=\"5\"]').getBoundingClientRect().top")
+        self.tap(self.cdp(page), *self.center(page, '#c-xp .xp-row.ctx[data-line="4"]'))
+        settle(page)
+        y1 = page.evaluate("document.querySelector('#c-xp .xp-row[data-line=\"5\"]').getBoundingClientRect().top")
+        self.assertEqual(page.evaluate("[COMPOSE.current.lo,COMPOSE.current.hi]"), [4, 5])
+        self.assertLessEqual(abs(y1 - y0), 1)
+
+    def test_its_rows_and_minus_answer_44px(self):
+        """411x908, L4-L5: the dimmed rows and the two '−' answer a 44px tap."""
+        page = self.view(phone(411, 908))
+        self.compose(page)
+        page.click('#c-levels [data-level="raw"]')
+        settle(page)
+        self.tap_row(page, '#c-xp .xp-row.ctx[data-line="4"]')
+        self.assertEqual(page.evaluate(MISSES_44, "#c-xp .xp-row.ctx,#c-xp .xp-drop"), [])
+
+    def test_the_edit_card_takes_the_same_excerpt_and_saves_its_lines(self):
+        """411x908, the pin at L4-L5: its edit card shows dimmed L3 and L6; a tap on L6 and [저장] store L4-L6 (scope
+        'lines')."""
+        page = self.view(phone(411, 908))
+        pid = page.evaluate("OPEN_ALL.find(p=>p.lo===4).id")
+        page.evaluate("id=>{setSide(true); openEdit(id);}", pid)
+        page.wait_for_function("EDITOR.current&&EDITOR.current.levels.length>0")
+        page.evaluate("document.activeElement.blur()")
+        settle(page)
+        self.assertEqual(page.evaluate(EXCERPT, ".edit")["rows"], ["(3)", "4", "5", "(6)"])
+        self.tap_row(page, '.edit .xp-row.ctx[data-line="6"]')
+        page.evaluate("document.querySelector('.edit .b-esave').click()")
+        page.wait_for_function("EDITOR.current===null")
+        settle(page)
+        self.assertEqual(
+            page.evaluate("id=>{const p=OPEN_ALL.find(x=>x.id===id); return [p.lo,p.hi,p.scope];}", pid),
+            [4, 6, "lines"],
+        )
+
+    def test_a_mouse_desktop_keeps_its_stepper(self):
+        """1400x850 with a mouse: the composer keeps '위 + − 아래 + −' and its plain source; no excerpt."""
+        page = self.view(DESK)
+        self.mouse_pick(page)
+        got = page.evaluate(EXCERPT, "#composer")
+        self.assertEqual((got["rows"], got["step"], got["pre"]), ([], True, True))
 
 
 # A landscape tablet in the mid layout (the side panel). A portrait tablet is the tablet sheet (TouchLayoutBands).
@@ -2806,20 +2970,20 @@ class TouchLayoutBands(ViewerBase):
 
     def test_a_mouse_composing_at_1000px_scrolls_the_panel_as_before(self):
         """1000x800 with a mouse: picking focuses the note and the panel scrolls it into view as in 0.4.1, with no scroll
-        padding - the touch save-row padding scrolled the composer 32px further than a focus does. The composer's top is the
-        browser's own scroll for the note: 11 in 0.4.6, 26px higher with the range caption's line over the ladder."""
+        padding - the touch save-row padding scrolled the composer 32px further than a focus does. Where the composer's top
+        lands is the browser's own focus scroll (11 in 0.4.6; the caption and the range excerpt above the note move it), so
+        the check is the note whole between the panel's top and the save row."""
         page = self.view(MOUSE_MID)
         self.mouse_pick(page)
         page.mouse.move(5, 5)
         settle(page)
         got = page.evaluate(
-            "(()=>{const c=document.querySelector('#c-cap'); return [document.activeElement.id,"
-            " Math.round(document.querySelector('#composer').getBoundingClientRect().top + c.getBoundingClientRect().height"
-            " + parseFloat(getComputedStyle(c).marginTop)),"
+            "(()=>{const R=s=>document.querySelector(s).getBoundingClientRect(),n=R('#note'),r=R('#right'),a=R('#c-actions');"
+            " return [document.activeElement.id, n.top>=r.top-0.5&&n.bottom<=a.top+0.5,"
             " getComputedStyle(document.querySelector('#right')).scrollPaddingBottom,"
             " getComputedStyle(document.querySelector('#right')).scrollPaddingTop];})()"
         )
-        self.assertEqual(got, ["note", 11, "auto", "auto"])
+        self.assertEqual(got, ["note", True, "auto", "auto"])
 
     def test_a_mouse_keeps_the_width_only_layouts_at_640_1000_and_1440(self):
         """A fine pointer gets the layouts it had before the bands: 640 the phone sheet (collapsed, no nav bar), 1000 the side
@@ -2973,11 +3137,11 @@ class TouchLayoutBands(ViewerBase):
         page.locator("#note").fill("이 문장은 왜 이렇게 썼나요?")
         settle(page)
         order = page.evaluate(
-            "[...document.querySelectorAll('#composer .c-loc-row,#c-qhint,#c-overlap,#c-levels,#c-kind,#c-snip,#note')]"
+            "[...document.querySelectorAll('#composer .c-loc-row,#c-qhint,#c-overlap,#c-levels,#c-kind,#c-xp,#note')]"
             ".filter(e=>e.getClientRects().length).map(e=>[e.id||e.className,Math.round(e.getBoundingClientRect().top)])"
             ".sort((a,b)=>a[1]-b[1]).map(a=>a[0])"
         )
-        self.assertEqual(order, ["c-loc-row", "note", "c-qhint", "c-kind", "c-overlap", "c-levels", "c-snip"])
+        self.assertEqual(order, ["c-loc-row", "note", "c-qhint", "c-kind", "c-overlap", "c-levels", "c-xp"])
         gap = page.evaluate(
             "Math.round(document.querySelector('#note').getBoundingClientRect().top"
             "-document.querySelector('#composer .c-loc-row').getBoundingClientRect().bottom)"

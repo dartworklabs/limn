@@ -44,7 +44,6 @@
  "(그 뒤에는 다른 쪽이 잡을 수 있습니다). 에이전트가 멈췄으면 [풀기]": "(after that, someone else can claim it). If the agent has stalled, use [Release]",
  "(나 — 알림 없음)": "(me — no notification)",
  "(나)": "(me)",
- "(드래그한 줄 / 문단 / 환경)와 한 줄 버튼(위·아래 +/−)으로 줄 범위를 맞춥니다.": " (dragged lines / paragraph / environment) and the one-line buttons (up/down +/−) adjust the line range.",
  "(메모 없음)": "(no note)",
  "(바깥)": "(outer)",
  "(설정에 없는 문서)": "(document not in settings)",
@@ -1148,5 +1147,11 @@
  "휴대폰: 문서·원고와 변경사항·쪽 번호·목차로 갑니다": "Phone: go to a document, the manuscript or its changes, a page or a section",
  "선택: 아래 막대의 점선 네모 아이콘입니다. 켜면 한 손가락으로 끌어 영역을 고르고, 탭하면 그 자리 문단을 고릅니다. 두 손가락으로 벌리면 PDF 만 커집니다. 핀을 저장하거나 취소하면 저절로 꺼집니다": "Select: the dashed square icon in the bottom bar. When on, drag with one finger to select a region, or tap to select the paragraph there. Pinch with two fingers to zoom the PDF only. It turns off automatically when you save or cancel the pin",
  "아래 막대 왼쪽의 핀 아이콘과 열린 핀 수입니다. 핀 목록(좁은 화면에서는 아래 시트)을 펴고 접습니다. 눈 아이콘이 붙은 보라 숫자는 검토 대기 수입니다. 카드를 누르면 펼쳐집니다": "The pin icon and the open count at the left of the bottom bar. Opens and closes the pin list (a bottom sheet on narrow screens). The purple number with an eye counts pins awaiting review. Tap a card to expand it",
- "범위": "Range"
+ "범위": "Range",
+ "L{n}까지 넓히기": "Widen to L{n}",
+ "이 줄 빼기 (L{n})": "Drop this line (L{n})",
+ "흐린 줄을 누르면 그 줄까지 넓어지고, −를 누르면 그 줄이 빠집니다": "Tap a dimmed line to widen to it; tap − to drop that line",
+ "사다리(드래그한 줄 / 문단 / 환경)로 줄 범위를 고릅니다.": " ladder (dragged lines / paragraph / environment) picks the line range.",
+ "한 줄 버튼 '위 +'·'아래 +'는 그쪽 끝을 한 줄 넓히고, '−'는 한 줄 좁힙니다.": "The one-line buttons 'up +' and 'down +' widen that end by a line; '−' narrows it by one.",
+ "원문에서 흐린 줄을 누르면 그 줄까지 넓어지고, 고른 줄 끝의 −를 누르면 그 줄이 빠집니다.": "Tap a dimmed line in the source to widen the range to it; tap − on an end line to drop it."
 }

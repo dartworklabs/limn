@@ -39,6 +39,8 @@ document.addEventListener('click',e=>{
     case 'expand':SNIP_OPEN=!SNIP_OPEN;renderComposer();break;
     case 'level':{const o=inEdit?EDITOR.current:COMPOSE.current; if(!o)break; useLevel(o,a.dataset.level); if(!inEdit)recomputeOverlap(); inEdit?renderEdit():renderComposer(); break;}
     case 'nudge':{const o=inEdit?EDITOR.current:COMPOSE.current; if(!o||!nudge(o,a.dataset.dir))break; if(!inEdit)recomputeOverlap(); const r=inEdit?renderEdit:renderComposer; r(); refetchSnip(o,r); break;}
+    case 'xp-to':{const o=inEdit?EDITOR.current:COMPOSE.current,k=+a.dataset.line; if(o)applyRange(o,widenTo(o.lo,o.hi,k),k<o.lo?o.hi:o.lo); break;}   // the excerpt: widen to a dimmed line
+    case 'xp-drop':{const o=inEdit?EDITOR.current:COMPOSE.current,k=+a.dataset.line; if(o)applyRange(o,dropLine(o.lo,o.hi,k),k===o.lo?o.hi:o.lo); break;}   // ...or drop an end line
     case 'view':jumpPin(id);break; case 'edit':openEdit(id);break;
     case 'doc':{const inMenu=!!a.closest('#nav-sheet'); switchDoc(a.dataset.doc); if(inMenu)$('#nav-sheet').close(); break;}
     // ^ inMenu is determined before calling switchDoc() - for a cached document, switchDoc finishes synchronously
