@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.4.7 — 2026-10-02
+
+A fix for pin polling. This release does not change `pins.md`, the API's paths or fields, or the state directory: the
+agent contract stays as it is.
+
+### Fixed
+
+- **Pin changes in the same timestamp tick.** The pin list's change token (`pins_rev` in `/api/meta`) was the pins
+  file's modification time and size. A rewrite of the same size that landed in the same filesystem timestamp tick kept
+  the token, so a viewer could miss the change until the next one. The token now also carries the file's inode. The
+  pins file is only written by atomic replace, so two consecutive writes always differ there. `pins_rev` is still an
+  opaque string compared for equality; its value now ends with `:<inode>`. The test that met this under load (#121)
+  now forces the same tick and passes every time.
+
 ## 0.4.6 — 2026-10-02
 
 Phones and tablets get a three-column bottom bar, one status line and two sheets, Navigation and More. A review can
