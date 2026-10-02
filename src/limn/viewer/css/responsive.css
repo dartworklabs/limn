@@ -59,10 +59,15 @@ body:not(.lay-narrow) #coach button{pointer-events:auto}
 #more .sw-track::after{content:'';position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;background:var(--sidebar);box-shadow:var(--shadow-sm)}
 #more [role=switch][aria-checked=true] .sw-track{background:var(--primary)}
 #more [role=switch][aria-checked=true] .sw-track::after{left:18px}
-#more .more-foot{display:flex;align-items:center;gap:var(--space-2);min-height:var(--hit);border-top:1px solid var(--border);padding-top:var(--space-1)}
-#more .more-brand{display:inline-flex;align-items:center;color:var(--foreground)}
-#more .m-ver{font-size:var(--text-sm);color:var(--muted-foreground)}
+/* The foot is one baseline: the wordmark's glyphs ("limn" has no descender; its SVG ends on the baseline), the version and
+   [도움말 ›]. The wordmark is sized from the version's own font - 1.9ex tall, so its x-height (545 of its 740 units) is 1.4
+   times the version's on any font - and stands on the line as an inline image. It was a 20px block centred on the row, its
+   x-height 2.1 times the version's: the version floated 6px above its foot. */
+#more .more-foot{display:flex;align-items:baseline;gap:var(--space-2);min-height:var(--hit);border-top:1px solid var(--border);padding-top:var(--space-1)}
+#more .more-brand{display:inline-block;color:var(--foreground);font-size:var(--text-base);line-height:var(--hit);white-space:nowrap}
+#more .m-ver{color:var(--muted-foreground);font-variant-numeric:tabular-nums;vertical-align:calc(-1 * var(--ink-ver,0px))}
 #more .more-foot button{gap:var(--space-1)}
+#more .more-foot [data-act=help] .ic{transform:translateY(var(--help-chev,0px))}   /* on [도움말]'s ink centre (footInk) */
 @media (hover:hover){#more .seg button:not(.on):hover{background:var(--accent)}}
 @media (pointer:coarse){
   :root{--doc-nav-h:48px;--text-xs:12px}   /* no touch text below 12px: badges, counts, avatar initials and page numbers were 11px (diagnosis P7) */
@@ -70,7 +75,16 @@ body:not(.lay-narrow) #coach button{pointer-events:auto}
   .hint .t-touch{display:inline}
   .hint .t-mouse{display:none}
   button{min-height:44px;min-width:44px;padding:var(--space-2) var(--space-3);font-size:var(--text-lg);-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
-  button.btn-sm,.seg button{min-height:44px;padding:var(--space-2) var(--space-3);font-size:var(--text-base)}
+  button.btn-sm{min-height:44px;padding:var(--space-2) var(--space-3);font-size:var(--text-base)}
+  /* The segmented control on touch (composer.css): 28px segments in the 4px inset, a 36px track; each segment answers 44px. A
+     ladder's scroll box keeps 4px above and below its track for those hits (it clips what passes it). */
+  .seg button{min-height:0;height:var(--control-h);padding:0 var(--space-3);font-size:var(--text-base);position:relative}
+  .seg button::after{content:'';position:absolute;left:0;right:0;top:50%;height:var(--hit);transform:translateY(-50%)}
+  .seg.lad{padding:var(--space-1) 0;margin:var(--space-1) 0}
+  /* The range excerpt's rows keep their own size (composer.css); each '−' chip answers 44px round its 28px circle. */
+  button.xp-row{min-height:var(--hit);min-width:0;padding:var(--space-2) 0 var(--space-2) var(--space-2);font-size:var(--text-sm)}
+  button.xp-chip{min-height:0;min-width:0;width:var(--chip);height:var(--chip);padding:0;position:relative;overflow:visible}
+  button.xp-chip::after{content:'';position:absolute;left:50%;top:50%;width:var(--hit);height:var(--hit);transform:translate(-50%,-50%)}
   /* The one touch hit-area utility (docs/handbook/viewer.md §모바일 레이아웃): a control drawn smaller than --hit keeps its
      drawn size and gets a centred --hit x --hit box from ::after. Its own overflow is forced visible - a clipping box (the
      assignee chip's overflow:hidden) cut the ::after back to the drawn 20px (input diagnosis P6). A tappable badge (assignee
@@ -87,9 +101,13 @@ body:not(.lay-narrow) #coach button{pointer-events:auto}
      earlier's half (observed: '1쪽' answered 16x38, 'L4-L5' 33x38). Each is a real --hit x --hit box instead, its text centred,
      positioned so that it stays above the line below that the compact head's -6px margin lets overlap it. */
   .loc,.pg-link,.pin .n.go{display:inline-flex;align-items:center;justify-content:center;min-height:var(--hit);min-width:var(--hit);position:relative}
+  /* ...but the edit card caption's line range stays in its line of text (its 44px box spread '범위   L15   · 1줄' apart): it
+     keeps its text size and answers a centred 44px box from ::after, as .hit does. */
+  .rg-cap .loc{display:inline;min-height:0;min-width:0}
+  .rg-cap .loc::after{content:'';position:absolute;left:50%;top:50%;width:max(100%,var(--hit));height:var(--hit);transform:translate(-50%,-50%)}
   .pin .go-all{min-height:var(--hit)}
   .pin .head .b-fold{position:relative}   /* above the preview line that the head's -6px margin lets overlap its bottom (it answered 44x38) */
-  .mark b{width:26px;height:26px;left:-28px;font-size:var(--text-base)}
+  .mark b,.sel i{width:26px;height:26px;left:-28px;font-size:var(--text-base)}
   .mark b::after{content:'';position:absolute;inset:-9px}
   #tip{max-width:min(300px,calc(100vw - 16px))}
   #more .m-c .btn-icon{width:var(--control-h-lg);min-width:var(--control-h-lg);height:var(--control-h-lg);min-height:0}   /* icons drawn at 36px, 8px apart: their 44px hits (.hit) meet */
@@ -212,15 +230,21 @@ body.lay-narrow #bar1 #btn-pos{flex:0 1 auto;min-width:0}
 #btn-pos .nm{flex:0 1 auto;min-width:0;margin-right:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 #btn-pos b{flex:none;font-weight:600;font-variant-numeric:tabular-nums;white-space:nowrap}
 #btn-pos :is(.ic,.ddot){flex:none}
-/* The width budget (UX spec §V4 폭 예산): under 400px the review pill drops its eye and keeps the count; under 360px the bar buttons'
-   side padding and the gap in a cell go from 8 to 4px. Decoration only - the layout never changes by width here. */
-@media (max-width:399.98px){body.lay-narrow #bar1 .rv-n .ic{display:none}}
-@media (max-width:359.98px){body.lay-narrow #bar1 :is(.bar-l,.bar-r){gap:var(--space-1)}body.lay-narrow #bar1 button:not(.btn-icon){padding:0 var(--space-1)}}
+/* The width budget (UX spec §V4 폭 예산): under 360px the bar buttons' side padding and the right cell's gap go from 8 to 4px (the
+   pin chip's halves step down on their own, below; the left cell keeps its 8px, which [⬚]'s 44px hit reaches into). Decoration
+   only - the layout never changes by width here. */
+@media (max-width:359.98px){body.lay-narrow #bar1 .bar-r{gap:var(--space-1)}body.lay-narrow #bar1 button:not(.btn-icon){padding:0 var(--space-1)}}
 body.compact #bar1 #btn-more{flex:0 0 44px;padding:0}   /* utility = ghost (the same convention as notification/theme/help on desktop) */
 /* The phone and tablet bar's right end: [⋯]'s ink ends on the ink line (--ink), as R2 asks of a ghost at a row's end - centred in
    its 44px box it ended 4px further in (28 on a phone), across from [📍]'s fill on the edge line. */
 body.lay-narrow #bar1 #btn-more{justify-content:flex-end;padding-right:calc(var(--ink) - var(--edge) - var(--ic-bearing))}
-body.compact #composer{max-height:none;overflow:visible}
+/* The composer is part of the sheet or panel, on its background (it was --card: a grey box in the white sheet, in the tablet's
+   640px column a box of its own); the line under it parts it from the list. Its [⧉] is a ghost at the row's end (R2), drawn at
+   36px with a 44px hit - it was a 44px bordered box beside the location line. */
+body.compact #composer{max-height:none;overflow:visible;background:transparent}
+body.compact #c-copy{background:transparent;border-color:transparent}
+@media (hover:hover){body.compact #c-copy:hover{background:var(--accent)}}
+@media (pointer:coarse){body.compact #c-copy{width:var(--control-h-lg);min-width:var(--control-h-lg);height:var(--control-h-lg);min-height:0;padding:0}}
 /* Touch only (a mouse window scrolls as it always did): a field scrolled into view stays clear of the stuck save row (56px plus the
    bottom safe area) and, on a sheet, of the tool bar stuck at its top (whose hit areas reach 6px below it). */
 @media (pointer:coarse){
@@ -231,13 +255,21 @@ body.compact #composer{max-height:none;overflow:visible}
    overlap notice, then the range ladder, the nudges and the kind, then the source. The note was the fourth block, 328px down, and hid
    below the save row; with the keyboard up the location line scrolled away (diagnosis P2). */
 /* The short band (a landscape phone, ~346px of panel) takes the same order: in the mid order the note was ninth, off screen after a pick. */
-body:is(.lay-narrow,.band-short) #composer{display:flex;flex-direction:column}
+/* After the note come its kind (what the note is), the overlap notice, and last the range block (#c-range: caption, ladder,
+   line buttons, source and its foot), so what changes the range sits with the source it changes - the kind used to sit
+   between them. Every block is one 8px step from the next (they sat 0-20px apart, the kind flush on the source). On these
+   bands the markup is moved into this order too (orderComposer, composer.js), so Tab follows the screen; the order values
+   restate it. */
+body:is(.lay-narrow,.band-short) #composer{display:flex;flex-direction:column;gap:var(--space-2)}
 body:is(.lay-narrow,.band-short) #c-body{display:contents}
-body:is(.lay-narrow,.band-short) #c-overlap{order:2}
-body:is(.lay-narrow,.band-short) :is(#c-levels,.c-tools,#c-kind){order:3}
-body:is(.lay-narrow,.band-short) #c-snip,body:is(.lay-narrow,.band-short) .snip-foot{order:4}
-body:is(.lay-narrow,.band-short) #note{order:1;margin:var(--space-2) 0}
-body:is(.lay-narrow,.band-short) #c-viewer{order:1}
+body:is(.lay-narrow,.band-short) #c-body[hidden]~:is(#c-overlap,#c-range){display:none}   /* moved out of #c-body (orderComposer), they hide with it */
+body:is(.lay-narrow,.band-short) #note{order:1}
+body:is(.lay-narrow,.band-short) :is(#note-mentions,#c-viewer,#c-qhint,#c-assign){order:1}
+body:is(.lay-narrow,.band-short) #c-kind{order:2;z-index:1}   /* its segments' 44px hits over the overlap notice's, which the markup now puts after it */
+body:is(.lay-narrow,.band-short) #c-overlap{order:3}
+body:is(.lay-narrow,.band-short) #c-range{order:4;display:flex;flex-direction:column;gap:var(--space-2)}
+body:is(.lay-narrow,.band-short) #composer :is(#note,#note-mentions,#c-qhint,#c-assign,#c-kind,#c-overlap,#c-cap,#c-levels,.c-tools,#c-snip){margin:0}
+@media (pointer:coarse){body:is(.lay-narrow,.band-short) #composer #c-levels{margin:calc(-1 * var(--space-1)) 0}}   /* its hit padding is not a gap: the track stands 8px from its neighbours */
 /* One line: the short relation shrinks (its tooltip has the sentence), the two actions keep their names. */
 #c-overlap.one{flex-wrap:nowrap;align-items:center;margin:0 0 var(--space-2)}
 #c-overlap.one>.ov-t{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -250,10 +282,31 @@ body.compact #list{overflow:visible;padding-bottom:calc(20px + env(safe-area-ins
 body.compact :is(#bar2,#build-err,#banner,#composer,#list){padding-left:var(--edge);padding-right:var(--edge)}
 body.compact .sec-head{margin-left:calc(-1 * var(--edge));margin-right:calc(-1 * var(--edge));padding-left:var(--ink);padding-right:var(--edge)}
 body.compact .arc-row{padding-left:var(--space-3)}
-/* In compact, #right is the scroll box - the action row is stuck to its bottom. */
-body.compact #c-actions{position:sticky;bottom:0;padding:8px var(--edge) calc(8px + env(safe-area-inset-bottom))}
+/* The bottom action row (docs/handbook/viewer.md §패널 정리 동작 줄): in compact, #right is the scroll box and a flex column whose
+   bottom is the screen's (the sheet's bottom: var(--kb)) or the panel's, on the action row. The save row is stuck to that bottom
+   (sticky) and pushed down to it under a short list (margin-top:auto), so it never follows the list up a raised sheet - on the
+   owner's phone it sat 80% down the screen over blank sheet - nor moves while the sheet is dragged; with the keyboard up the
+   bottom is the keyboard's top. */
+body.compact{--foot-h:calc(var(--control-h-lg) + 2 * var(--space-2) + 1px)}
+body.compact #c-actions{position:sticky;bottom:0;margin-top:auto;padding:8px var(--edge) calc(8px + env(safe-area-inset-bottom))}
 /* The save row is 56px on touch (44px buttons + 12px): it was 65px around 48px buttons (diagnosis P2). */
-@media (pointer:coarse){body.compact #c-actions{padding-top:0;padding-bottom:env(safe-area-inset-bottom);min-height:calc(var(--hit) + var(--space-3) + env(safe-area-inset-bottom));align-content:center}}
+@media (pointer:coarse){body.compact{--foot-h:calc(var(--hit) + var(--space-3))}
+  body.compact #c-actions{padding-top:0;padding-bottom:env(safe-area-inset-bottom);min-height:calc(var(--foot-h) + env(safe-area-inset-bottom));align-content:center}}
+/* The edit card's [위치 다시 잡기][취소][저장] is the same bottom row while no selection is being composed (one bottom row: the
+   composer's wins, and the card keeps its row inside it). It is fixed - a sticky row inside a card can only stick within the
+   card - on the phone and tablet sheet to the screen's bottom (the tablet's 640px column), in mid to the panel's bottom on the
+   action row, across the panel's width; the list keeps that much room under its end. #right never gets a transform, so the
+   viewport stays its containing block (§펼친 화면 레이아웃). */
+body.compact:not(.composing) .edit .e-acts{position:fixed;z-index:4;margin:0;background:var(--sidebar);border-top:1px solid var(--border);
+  padding:var(--space-2) var(--edge) calc(var(--space-2) + env(safe-area-inset-bottom))}
+body.lay-narrow:not(.composing) .edit .e-acts{left:0;right:0;bottom:var(--kb,0px);max-width:640px;margin:0 auto;
+  padding-left:max(var(--edge),env(safe-area-inset-left));padding-right:max(var(--edge),env(safe-area-inset-right))}
+body.lay-mid:not(.composing) .edit .e-acts{left:auto;right:calc(-1 * var(--swipe-x,0px));width:var(--side-w,330px);bottom:calc(var(--mbar-h) + var(--kb,0px));
+  padding-right:calc(var(--edge) + env(safe-area-inset-right))}
+@media (pointer:coarse){body.compact:not(.composing) .edit .e-acts{padding-top:0;padding-bottom:env(safe-area-inset-bottom);
+  min-height:calc(var(--foot-h) + env(safe-area-inset-bottom));align-content:center}}
+body.compact:not(.composing) #list:has(.edit){padding-bottom:calc(var(--foot-h) + 20px + env(safe-area-inset-bottom))}
+@media (pointer:coarse){body.compact:not(.composing) #right:has(.edit){scroll-padding-bottom:calc(var(--foot-h) + var(--space-2) + env(safe-area-inset-bottom))}}
 body.compact #meta-txt,body.compact #me{display:none}
 body.compact #bar2{display:none}   /* compact shows its states on the status line (#status); the chips stay the desktop's */
 body.compact:not(.side-open) #right>:not(#bar1):not(#bar2):not(#banner){display:none}
@@ -300,6 +353,55 @@ body.lay-narrow:not(.side-open) #bar1{padding-bottom:var(--space-2)}   /* the co
   body.lay-narrow .sec-head button{min-height:var(--ctl-touch-sm);height:var(--ctl-touch-sm);padding-top:0;padding-bottom:0;position:relative}
   body.lay-narrow .sec-head button::after{content:'';position:absolute;left:50%;top:0;width:max(100%,var(--hit));height:calc(var(--hit) + 2px);transform:translateX(-50%)}
 }
+/* The phone and tablet sheet's tool row (docs/handbook/viewer.md §모바일 레이아웃, the owner's pick of three redesigns): words
+   first. The pin glyph sat lopsided on its count and the row's fills touched the sheet's edge, in two shapes. Now one split chip
+   [핀 5 | 검토 1] - the right half (#btn-rv) goes to the review list - and the select icon on the same 28px tonal fill
+   (--secondary, --radius-lg; a pressed select is that chip in --primary), then [본문 1/2 ▾] and [⋯] as ghosts. The controls are
+   12px under the sheet's edge with the grabber in that inset (4px from the edge, 4px from them) and 4px above the row's end;
+   one 8px gap (the chip's halves meet); 18px icons; counts, words and the page figures trimmed to their cap height
+   (text-box), so the row centres every icon on the numbers' cap-height centre; each control answers 44px round its centre. */
+.side-l,#btn-rv{display:none}
+body.lay-narrow #bar1{padding-top:var(--space-3);--tb-h:var(--control-h)}
+body.lay-narrow.side-open #bar1{padding-bottom:var(--space-1)}
+body.lay-narrow #bar1 #sheet-grip{position:absolute;grid-column:2/3;left:50%;top:0;transform:translateX(-50%);height:var(--hit);padding-top:var(--space-1)}   /* its bar in the inset, its 44px box the empty middle column */
+body.lay-narrow #bar1 #btn-side{position:relative}
+body.lay-narrow #btn-side .pin-ic{display:contents}   /* no glyph here: it takes no flex slot (nor a gap), its draft dot sits on the chip */
+body.lay-narrow #btn-side .pin-ic svg,body.lay-narrow #bar1 #btn-side .rv-n{display:none}
+body.lay-narrow #btn-side .pin-ic .c-dot{top:var(--space-1);right:var(--space-1)}   /* the draft dot on the chip's corner */
+body.lay-narrow #bar1 .side-l{display:block;color:var(--muted-foreground)}
+body.lay-narrow #bar1 #btn-rv:not([hidden]){display:inline-flex}
+body.lay-narrow #bar1 :is(#btn-side,#btn-rv,#btn-select){background:var(--secondary);color:var(--secondary-foreground);border-radius:var(--radius-lg)}
+body.lay-narrow #bar1 :is(#btn-side,#btn-rv){gap:var(--space-1);padding:0 var(--space-3);min-width:var(--hit);justify-content:center}   /* halves meet: each answers 44px inside itself */
+body.lay-narrow #bar1 .bar-l:has(#btn-rv:not([hidden])) #btn-side{border-radius:var(--radius-lg) 0 0 var(--radius-lg)}
+body.lay-narrow #bar1 #btn-rv{border-radius:0 var(--radius-lg) var(--radius-lg) 0;margin-left:calc(-1 * var(--space-2));box-shadow:inset 1px 0 0 var(--border)}   /* the halves' seam, not a border */
+body.lay-narrow #bar1 #btn-side:focus-visible{z-index:1}   /* its ring over the review half that meets it */
+body.lay-narrow #bar1 #btn-rv,body.lay-narrow #bar1 #btn-rv .side-l{color:var(--status-review)}
+body.lay-narrow #bar1 :is(.side-n,.rv-c){font-weight:600;font-variant-numeric:tabular-nums}
+body.lay-narrow #bar1 :is(.side-n,.side-l,.rv-c,#btn-pos b,#btn-pos .nm){text-box:trim-both cap alphabetic}
+body.lay-narrow #bar1 #btn-select{width:36px;min-width:36px;padding:0;justify-content:center}
+body.lay-narrow #bar1 .ic{width:18px;height:18px}
+body.lay-narrow #bar1 #btn-pos{gap:var(--space-1);padding:0 var(--space-2)}
+body.lay-narrow #bar1 #btn-pos .ic{width:16px;height:16px;color:var(--muted-foreground)}
+@media (pointer:coarse){body.lay-narrow #bar1 :is(#btn-side,#btn-rv,#btn-select,#btn-pos,#btn-more)::after{top:50%;height:var(--hit);transform:translate(-50%,-50%)}
+  body.lay-narrow #bar1 #btn-select::after{left:auto;right:0;transform:translateY(-50%)}   /* the 36px chip's hit reaches left into the gap, never into the grabber's column */
+  /* The chip's halves are each at least 44px wide (min-width) and meet: each answers its own box, set by its edges - a
+     centring translateX of half a fractional width put the review half's hit box a pixel into the pins half (hit testing
+     rounds a transformed box out to whole pixels; the pins half answered 43px on CI's fonts) - and the pins half also
+     4px outwards, into the bar's edge, where no neighbour is. */
+  body.lay-narrow #bar1 :is(#btn-side,#btn-rv)::after{left:0;right:0;width:auto;transform:translateY(-50%)}
+  body.lay-narrow #bar1 #btn-side::after{left:calc(-1 * var(--space-1))}}
+/* The width budget: under 400px the chip's halves pad 8px. When the left cell still overflows (English, three-digit counts, a
+   folded cover) it steps down (fitBarWords): the halves pad one 4px step less (.bar-snug), then the words give way to a dot
+   each, green for the open pins and purple for awaiting review (.bar-tight), so a count never stands alone. The gap before
+   [⬚] stays 8px: its 44px hit reaches into it. Decoration only - the row's layout never changes by width. */
+@media (max-width:399.98px){body.lay-narrow #bar1 :is(#btn-side,#btn-rv){padding:0 var(--space-2)}}
+body.lay-narrow #bar1.bar-snug :is(#btn-side,#btn-rv){padding:0 var(--space-2)}
+@media (max-width:399.98px){body.lay-narrow #bar1.bar-snug :is(#btn-side,#btn-rv){padding:0 var(--space-1)}}
+.side-d{display:none}
+body.lay-narrow #bar1.bar-tight .side-l{display:none}
+body.lay-narrow #bar1.bar-tight .side-d{display:block;flex:none;width:8px;height:8px;border-radius:50%;background:var(--status-open)}   /* centred on the trimmed count */
+body.lay-narrow #bar1.bar-tight #btn-rv .side-d{background:var(--status-review)}
+body.lay-narrow #bar1.bar-tight :is(#btn-side,#btn-rv){gap:2px}   /* dot to count: a three-digit count still fits the 344px cover */
 /* ---- Spread-out folded layout / tablet (mid): the document nav bar on top, the action row on the bottom - both fixed to the full screen
    width, with the panel spread between them (docs/handbook/viewer.md §펼친 화면 레이아웃). It used to have the tool bar follow the panel, so [핀]
    jumped to the top-right when expanded and the bottom-right when collapsed (observed 842x758, y 56->693), and the document-side panel
@@ -483,8 +585,8 @@ body.no-rebuild #btn-rebuild{display:none}
 .ns-grab::before{content:'';width:32px;height:4px;border-radius:var(--radius-sm);background:var(--grabber)}
 #nav-sheet .ns-head .row{flex-wrap:nowrap;min-height:var(--hit)}
 #nav-sheet-h{margin:0;font-size:var(--text-xl)}
-#nav-sheet>:is(section,#ns-view,#ns-page){border-top:1px solid var(--border);margin:0;padding:var(--space-2) 0}
-#nav-sheet>#ns-view{border-top:0;margin:var(--space-2) 0}
+#nav-sheet>:is(section,#ns-page){border-top:1px solid var(--border);margin:0;padding:var(--space-2) 0}
+#nav-sheet>#ns-view{margin:var(--space-2) 0}   /* its own 4px inset: the sections' padding took its sides, and the thumb ran into the edge */
 #nav-sheet .ns-h{margin:0 0 var(--space-1);font-size:var(--text-sm);font-weight:600;color:var(--muted-foreground)}
 #nav-sheet .dm-list{display:flex;flex-direction:column;gap:var(--space-1)}
 #ns-view button{flex:1 1 0}
@@ -516,16 +618,15 @@ body.compact :is(#more,#nav-sheet,#help,#trash){margin:auto auto 0;width:100%;ma
   padding:var(--space-3) max(calc(var(--edge) - 1px),env(safe-area-inset-right)) calc(var(--space-3) + env(safe-area-inset-bottom)) max(calc(var(--edge) - 1px),env(safe-area-inset-left))}
 body.compact :is(#nav-sheet,#more){padding-top:0}   /* their sticky grab band is the top */
 body.compact :is(#nav-sheet-h,#nav-sheet .ns-h,#ns-page label,#trash-h,#help-h,#help h4,#trash-note,#more-label,#more-info,#more .m-l,#more .more-brand,#help .help-legend,#help .help-steps,#help-pins-md){padding-left:var(--space-3)}
-/* A segment control in a sheet is drawn at 36px in its 4px frame: each segment's 44px hit fills the 44px row. */
-@media (pointer:coarse){body.compact :is(#nav-sheet,#more) .seg button{min-height:0;height:var(--control-h-lg);position:relative}
-  body.compact :is(#nav-sheet,#more) .seg button::after{content:'';position:absolute;left:0;right:0;top:50%;height:var(--hit);transform:translateY(-50%)}}
+/* A segmented control in a sheet is the one control (composer.css): a 36px track in a 44px row - rows of them stand 8px apart,
+   their segments' 44px hits meeting. They touched when the track filled the row. */
 body.compact #help-pins-md{display:block}
 body.compact #help td:first-child{padding-left:var(--space-3)}
 body.compact :is(#nav-sheet .ns-head,#help,#trash)>.row>button{background:transparent;border-color:transparent}   /* [닫기] is a ghost, like [더보기]'s */
 @media (hover:hover){body.compact :is(#nav-sheet .ns-head,#help,#trash)>.row>button:hover{background:var(--accent)}}
 body.compact #trash .arc-list{max-height:none;overflow:visible}   /* the sheet scrolls, so a pull down starts at its top */
 /* Selection on a view-only PDF document: no range ladder, stepper, or source expansion (there is no line). The region's text is shown in the source field instead. */
-#composer.region #c-levels,#composer.region .c-tools,#composer.region .snip-foot,#composer.region #c-copy{display:none}
+#composer.region #c-levels,#composer.region #c-cap,#composer.region .c-tools,#composer.region .snip-foot,#composer.region #c-copy{display:none}
 .edit.region .e-levels,.edit.region .c-tools .step{display:none}
 @media (prefers-reduced-motion: reduce){*{animation:none!important;transition:none!important;scroll-behavior:auto!important}}
 /* Label chip/stripe (§Running multiple manuscript instances at once): since its purpose is distinguishing tabs when multiple manuscript viewers are

@@ -1370,7 +1370,7 @@ class FrontendPanelTidyStructure(unittest.TestCase):
         more = HTML[HTML.index('<dialog id="more"') : HTML.index('<dialog id="help"')]
         self.assertIn('id="m-size"', more)
         self.assertIn("case 'size-preset':sizePreset(+a.dataset.i)", HTML)
-        self.assertIn("renderSizeSeg(); d.showModal()", HTML)
+        self.assertIn("renderSizeSeg(); showSheet(d)", HTML)
 
     def test_actions_row_is_fixed_at_panel_bottom_outside_composer(self):
         right = HTML[HTML.index('<div id="right">') : HTML.index('<div id="tip"')]
@@ -2646,6 +2646,7 @@ class FrontendFigure(unittest.TestCase):
             [extract_js_fn(n) for n in ("isFrac", "elName", "elPathText", "drawBox", "snapBox", "renderElement")]
             + [
                 r"""
+            function pendingBadgeSide(){}   // the badge's side needs the page on screen (markBadgeRoom); not this test's
             const nodes={'#c-path':{hidden:true,textContent:'',dataset:{}}}; const $=s=>nodes[s];
             const vals=b=>['left','top','width','height'].map(k=>parseFloat(b.style[k]));
             const cell={id:'B2/c/m07',path:['B2','B2/c','B2/c/m07'],label:'7월',frac:[0.47,0.18,0.07,0.12]};
@@ -3474,7 +3475,7 @@ class FrontendToolbarOneRow(unittest.TestCase):
         self.assertNotIn("<svg", label)
         self.assertIn('<i class="more-dot" aria-hidden="true"></i><b translate="no">__LABEL__</b>', label)
         out = page_for("Long-DemoPaper1", "#1d4ed8")
-        self.assertIn('<dialog id="more" aria-label="더보기 · Long-DemoPaper1">', out)
+        self.assertIn('<dialog id="more" tabindex="-1" aria-label="더보기 · Long-DemoPaper1">', out)
         self.assertIn("#more .more-dot{", css)
         self.assertIn("background:var(--brand)", css[css.index("#more .more-dot{") :][:200])
 

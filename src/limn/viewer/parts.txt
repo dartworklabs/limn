@@ -47,6 +47,7 @@ js/layout.js            # layout by width, the panel's open state and slide, vir
 js/gestures.js          # handle, outline-handle and sheet drags, pull-down, overlay swipe, the back gesture
 js/selection.js         # drag and quick selection on the PDF, double-tap zoom
 js/levels.js            # the range ladder, line nudges, source snippets, the location-confidence badge
+js/excerpt.js           # the range excerpt: the band of selected lines between dimmed neighbours, tapped to widen or narrow
 js/figure.js            # figure documents: the chosen element's box and path
 js/composer.js          # pick() and the composer: overlap banner, kind, question hint, discard and restore
 js/draft.js             # the composer draft kept per tab (sessionStorage)

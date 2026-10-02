@@ -62,7 +62,7 @@ function restoreDraft(){let rec=null,raw=null; const k=META?draftKey(META.label,
   const n=$('#note'); n.value=rec.note||''; n._mentions=rec.mentions&&rec.mentions.length?new Set(rec.mentions):null;
   setKind(rec.kind); Object.assign(ASSIGN_NEW,rec.assign||{}); renderAssignNew(); mentionPreview(n); autoGrow(n);
   if(how==='full'){const c=rec.cur,pg=document.getElementById('p'+c.page);
-    if(pg&&Array.isArray(c.frac)){const b=newBox(pg),f=c.frac; drawBox(b,f[0],f[1],f[0]+f[2],f[1]+f[3]); b.classList.add('pending'); b.innerHTML='<i>새 핀</i>'; COMPOSE.box=b;}
+    if(pg&&Array.isArray(c.frac)){const b=newBox(pg),f=c.frac; drawBox(b,f[0],f[1],f[0]+f[2],f[1]+f[3]); b.classList.add('pending'); pendingBadge(b,'새 핀'); COMPOSE.box=b;}
     COMPOSE.current=c; recomputeOverlap(); SNIP_OPEN=false; $('#c-err').hidden=true; $('#c-body').hidden=false; $('#composer').hidden=false;
     renderComposer(); DRAFT.origin={key:k,value:raw,current:c}; setSide(true); applySide(); if(LAYOUT!==LAYOUT_MODE.WIDE)revealBox(COMPOSE.box);}
   toast(how==='full'?'작성 중이던 메모를 되살렸습니다':'작성 중이던 메모를 되살렸습니다 — PDF가 바뀌어 자리를 다시 골라야 합니다','ok',

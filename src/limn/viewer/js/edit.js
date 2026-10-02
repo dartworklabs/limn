@@ -15,13 +15,14 @@ function openEdit(id){if(viaDoc(id,openEdit))return; const p=PINS.find(x=>x.id==
     '<textarea class="e-note" rows="3" aria-label="메모 고치기" data-tip="메모를 고칩니다. ⌘ Enter / Ctrl+Enter 저장, Esc 취소"></textarea><div class="m-preview" aria-live="polite" hidden></div>'+
     '<div class="e-qhint q-hint" role="status" hidden>'+ic('circle-question-mark')+'<span>질문처럼 보입니다 —</span><button data-act="e-kind" data-kind="question" data-tip="이 핀을 질문으로 바꿉니다">질문으로 보내기</button></div>'+
     '<div class="e-assign assign-row" role="radiogroup" aria-label="담당" hidden></div>'+
-    '<div class="e-levels seg" role="group" aria-label="범위 단계"></div>'+
+    '<div class="rg-cap e-cap" aria-live="polite" aria-atomic="true"></div>'+
+    '<div class="e-levels seg lad" role="group" aria-label="범위" data-rungs="0"></div>'+
     '<div class="c-tools"><div class="step" role="group" aria-label="한 줄씩 넓히고 좁히기">'+
     '<span class="sl" aria-hidden="true">위</span><button data-act="nudge" data-dir="up-grow" aria-label="위로 한 줄 넓히기" data-tip="위로 한 줄 넓힙니다">'+ic('plus')+'</button>'+
     '<button data-act="nudge" data-dir="up-shrink" aria-label="위에서 한 줄 좁히기" data-tip="위에서 한 줄 좁힙니다">'+ic('minus')+'</button>'+
     '<span class="sl" aria-hidden="true">아래</span><button data-act="nudge" data-dir="down-grow" aria-label="아래로 한 줄 넓히기" data-tip="아래로 한 줄 넓힙니다">'+ic('plus')+'</button>'+
-    '<button data-act="nudge" data-dir="down-shrink" aria-label="아래에서 한 줄 좁히기" data-tip="아래에서 한 줄 좁힙니다">'+ic('minus')+'</button></div>'+
-    '<span class="e-range loc" tabindex="0" data-tip="저장하면 핀이 가리킬 원문 줄. 누르면 복사"></span></div>'+
+    '<button data-act="nudge" data-dir="down-shrink" aria-label="아래에서 한 줄 좁히기" data-tip="아래에서 한 줄 좁힙니다">'+ic('minus')+'</button></div></div>'+
+    '<div class="xp e-xp" hidden></div>'+
     '<pre class="e-snip wrap" translate="no">'+esc(tr('원문 읽는 중…'))+'</pre>'+
     '<div class="e-acts"><button class="btn-sm b-repick" data-act="repick" data-tip="'+esc(T.repick)+'">위치 다시 잡기</button>'+
     '<button class="btn-sm b-ecancel" data-act="ecancel" data-tip="'+esc(T.ecancel)+'">취소</button>'+
@@ -49,12 +50,14 @@ async function editSnip(withLevels){const E=EDITOR.current; if(!E)return;
     if(withLevels&&data.levels){E.levels=data.levels; if(!E.scope||!lvOf(E,E.scope)){const cur=E.levels.find(l=>l.lo===E.lo&&l.hi===E.hi);
       if(cur&&!E.scope)E.scope=null;}}
     renderEdit();}catch(e){}}
+// Draws the open edit card from EDITOR.current: the kind, the range caption (a region's page and area instead), the ladder -
+// shown only with two or more rungs - the source (on the compact bands the range excerpt) and the assignee and question hints.
 function renderEdit(){const E=EDITOR.current; if(!E)return; const el=E.el;
   el.querySelectorAll('.e-kind button').forEach(b=>{const on=b.dataset.kind===(E.kind_req||KIND_REQ.FIX); b.classList.toggle('on',on); b.setAttribute('aria-checked',String(on));});
-  el.querySelector('.e-range').textContent=E.region?tl('쪽 {page} · 영역',{page:E.page}):rng(E.lo,E.hi);
-  el.querySelector('.e-range').dataset.copy=E.region?E.name+' 쪽 '+E.page:E.name+' L'+E.lo+'-L'+E.hi;
-  el.querySelector('.e-levels').innerHTML=levelBtns(E,true); segReveal(el.querySelector('.e-levels'));
+  setCap(el.querySelector('.e-cap'),E.region?'<span class="e-range loc" tabindex="0" data-copy="'+esc(E.name+' 쪽 '+E.page)+'">'+esc(tl('쪽 {page} · 영역',{page:E.page}))+'</span>':rangeCap(E,true));
+  drawLadder(el.querySelector('.e-levels'),E,true);
   const pre=el.querySelector('.e-snip'); pre.className='e-snip '+(WRAP?'wrap':'nowrap'); pre.textContent=snipText(E.snippet,false); renderAssignEdit();
+  drawExcerpt(E,el.querySelector('.e-xp'),true);
   qHint(el.querySelector('.e-qhint'),el.querySelector('.e-note').value,E.kind_req);}
 function cancelEdit(){EDITOR.current=null; drawPins();}
 // Saves the open edit card (POST /api/pins/<id>/edit with `base_rev`): only what changed is sent - the note, the kind, the

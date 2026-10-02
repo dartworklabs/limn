@@ -45,10 +45,21 @@ function listOpen(){return SHOW_ALL&&multiDoc()?OPEN_ALL:OPEN_ALL.filter(p=>pdoc
 function listDone(){return SHOW_ALL&&multiDoc()?DONE_ALL:DONE;}
 function listReview(){return SHOW_ALL&&multiDoc()?REVIEW_ALL:REVIEW_ALL.filter(p=>pdoc(p)===DOC||!DOC);}
 // Awaiting-review count: counted across documents (the inbox of work for a person to confirm). The purple number next to [핀 N] (compact) / the tool bar chip (wide).
-// The pill rides on both [핀 N] toggles (the tool bar's and the collapsed wide nav bar's); the chip is the open wide panel's.
+// The phone and tablet sheet bar's left cell steps down until [핀 N | 검토 M] and [⬚] fit it (English, three-digit counts,
+// a folded cover): first the chip's halves pad one 4px step less and the cell's gap is 4px (#bar1.bar-snug); then the words
+// '핀' and '검토' give way to a dot each - green for the open pins, purple for those awaiting review (#bar1.bar-tight) - so a
+// count never stands alone. Measured each time a count or the band changes; decoration only - nothing moves.
+function fitBarWords(){const b=$('#bar1'),l=b.querySelector('.bar-l'); b.classList.remove('bar-snug','bar-tight'); if(LAYOUT!==LAYOUT_MODE.NARROW)return;
+  const over=()=>{const k=[...l.children].filter(e=>e.getClientRects().length);   // the last control's edge, not scrollWidth: the hits overflow too
+    return k.length>0&&k[k.length-1].getBoundingClientRect().right>l.getBoundingClientRect().right+0.05;};   // past the cell, [⬚]'s hit reaches the grabber's column
+  for(const step of ['bar-snug','bar-tight']){if(!over())return; b.classList.add(step);}}
+// The pill rides on both [핀 N] toggles (the tool bar's and the collapsed wide nav bar's); the phone and tablet sheet's bar shows
+// the count as its own half [검토 M] (#btn-rv) instead; the chip is the open wide panel's.
 // The pill is the eye icon and the count, so it never reads as part of the open count beside it ('11 1', UX audit P10).
 function updateReviewCount(){const n=REVIEW_ALL.length,chip=$('#rv-chip');
   for(const pill of $$('#btn-side .rv-n,#nav-side .rv-n')){pill.hidden=!n; pill.innerHTML=ic('eye')+n; pill.setAttribute('aria-label',tl('검토 대기 {n}',{n}));}
+  const rb=$('#btn-rv'); rb.hidden=!n; rb.querySelector('.rv-c').textContent=n; rb.setAttribute('aria-label',tl('검토 {n} · 검토 대기 핀으로 가기',{n}));   // the sheet bar's [검토 M] half: its name starts with what it shows
+  fitBarWords();
   const here=listReview().length; chip.hidden=!n||LAYOUT!==LAYOUT_MODE.WIDE||!SIDE_OPEN; chip.textContent=tl('검토 대기 {n}',{n})+(multiDoc()&&here!==n?' '+tl('(이 문서 {n})',{n:here}):'');}
 function gotoReview(){if(!listReview().length&&REVIEW_ALL.length&&multiDoc())SHOW_ALL=true;
   if(!SEC.review){SEC.review=true; savePrefs({sec:SEC});} drawPins();
@@ -123,7 +134,8 @@ function markBadgeIn(fx,w,pad,reach){return fx*w+pad<reach;}
 function markBadgeRoom(){const L=$('#left'),p=$('#doc .pg'); if(!L||!p)return {pad:0,reach:28};
   return {pad:p.getBoundingClientRect().left-L.getBoundingClientRect().left-L.clientLeft+L.scrollLeft,reach:MQ_COARSE.matches?28:24};}
 // Re-decides every drawn mark's badge side for the page width W and the margin now (a zoom, a re-fit or a band change moves both).
-function markBadgeSides(){const r=markBadgeRoom(); $$('.mark').forEach(m=>m.classList.toggle('in',markBadgeIn(+m.dataset.fx,W,r.pad,r.reach)));}
+function markBadgeSides(){const r=markBadgeRoom(); $$('.mark').forEach(m=>m.classList.toggle('in',markBadgeIn(+m.dataset.fx,W,r.pad,r.reach)));
+  $$('.sel.pending').forEach(pendingBadgeSide);}   // the pending boxes' '+' badges follow the same rule
 // Draws one mark per open or awaiting-review pin of this document on its page: where the pin's element is now for a figure
 // pin (pinPlace), else where it was pinned, then decides each badge's side (markBadgeSides). A pin without a usable box or
 // page draws nothing.

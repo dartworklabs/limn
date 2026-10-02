@@ -38,7 +38,7 @@ function applyLayout(){if(!BAND_IN)BAND_IN=bandInput(); const o=BAND_IN,band=lay
   const sheetToSheet=L===LAYOUT_MODE.NARROW&&LAYOUT===LAYOUT_MODE.NARROW,wasOpen=SIDE_OPEN;
   BAND=band; LAYOUT=L; MID_OVERLAY=overlay; OUTLINE_MID_OPEN=false; const b=document.body,p=prefs(); ZOOMED=false; endSideSlide();
   Object.values(LAYOUT_MODE).forEach(k=>b.classList.toggle('lay-'+k,k===L)); Object.values(LAYOUT_BAND).forEach(k=>b.classList.toggle('band-'+k,k===band));
-  b.classList.toggle('mid-overlay',overlay); b.classList.toggle('compact',L!==LAYOUT_MODE.WIDE);
+  b.classList.toggle('mid-overlay',overlay); b.classList.toggle('compact',L!==LAYOUT_MODE.WIDE); orderComposer();
   SIDE_OPEN=L===LAYOUT_MODE.WIDE?p.sideClosed!==true:(L===LAYOUT_MODE.MID?(typeof p.midClosed==='boolean'?!p.midClosed:!overlay):sheetToSheet&&wasOpen);
   if(!REPICK&&(COMPOSE.current||EDITOR.current||REPLY||!$('#composer').hidden))SIDE_OPEN=true;   // an in-progress note/edit/reply is never left hidden collapsed
   if(band!==LAYOUT_BAND.PHONE&&$('#nav-sheet').open)$('#nav-sheet').close();
@@ -56,8 +56,11 @@ function draftOpen(){return !$('#composer').hidden||!!EDITOR.current||!!REPLY||!
 function applySide(){const open=SIDE_OPEN,b=document.body,dot=!open&&draftOpen(),n=PINS.length,rv=REVIEW_ALL.length,composing=!$('#composer').hidden;
   b.classList.toggle('side-open',open||!!(SIDE_SLIDE&&SIDE_SLIDE.kind==='closing')); b.classList.toggle('composing',composing);
   if(!composing)SHEET_KEPT=false; b.classList.toggle('sheet-up',composing&&!SHEET_KEPT&&BAND===LAYOUT_BAND.PHONE);   // the phone sheet's composing lift; the tablet sheet's is tabletLift (panel-size.js)
-  const label=tr(open?'패널 접기':'패널 펴기')+' · '+tl('열린 핀 {n}',{n})+(rv?' · '+tl('검토 대기 {n}',{n:rv}):'')+(dot?' · '+tr('작성 중'):'');
-  for(const t of [$('#btn-side'),$('#nav-side')]){t.setAttribute('aria-expanded',String(open)); t.setAttribute('aria-label',label);
+  // The toggles' names: the review count only where its pill sits inside them (the mid bars, the wide nav bar); the sheet bar's
+  // [핀 N] names what it shows first and leaves the count to its own half [검토 M].
+  const label=tr(open?'패널 접기':'패널 펴기')+' · '+tl('열린 핀 {n}',{n})+(rv?' · '+tl('검토 대기 {n}',{n:rv}):'')+(dot?' · '+tr('작성 중'):''),
+    sheet=tl('핀 {n}',{n})+' · '+tr(open?'패널 접기':'패널 펴기')+(dot?' · '+tr('작성 중'):'');
+  for(const t of [$('#btn-side'),$('#nav-side')]){t.setAttribute('aria-expanded',String(open)); t.setAttribute('aria-label',t.id==='btn-side'&&LAYOUT===LAYOUT_MODE.NARROW?sheet:label);
     t.querySelector('.side-n').textContent=n; t.querySelector('.c-dot').hidden=!dot;}
   $('#nav-side').hidden=!(LAYOUT===LAYOUT_MODE.WIDE&&!open);
   $('#side-arrow').innerHTML=ic(LAYOUT===LAYOUT_MODE.NARROW?(open?'chevron-down':'chevron-up'):(open?'chevron-right':'chevron-left'));
@@ -111,7 +114,7 @@ function coachSideCollapsed(){if(LAYOUT===LAYOUT_MODE.WIDE&&!SIDE_OPEN)coach('si
 // Re-fits everything to the window: the layout (a changed one redraws the cards, whose action row is ordered per layout), the panel
 // and outline widths, the page width at the same reading spot, the composer, the stuck heads and the section strip - and keeps a
 // panel text field that has focus in view (the keyboard or the short band's hidden top row moved it).
-function relayout(){const a=topAnchor(),changed=applyLayout(); if(changed&&META)drawPins(); applySideWidth(); applyOutlineState();autoW(); restoreAnchor(a); hideTip(); if(COMPOSE.current)renderComposer(); stickTop();updateSectionStrip(); keepFieldInView();}
+function relayout(){const a=topAnchor(),changed=applyLayout(); if(changed&&META)drawPins(); applySideWidth(); applyOutlineState();autoW(); restoreAnchor(a); hideTip(); if(COMPOSE.current)renderComposer(); stickTop();updateSectionStrip(); keepFieldInView(); fitBarWords();}
 // The height a list section header (sticky) sticks below. In compact, #right is the scroll box and the tool bar (#bar1, which holds
 // the sheet handle in narrow) is already stuck above it, so the header sticks below that. In wide, #list itself is the scroll box, so this is 0.
 function stickTop(){let t=0; const b=$('#bar1');
@@ -181,8 +184,33 @@ function coach(key,text){const seen=Object.assign({},prefs().coach||{}); if(seen
 function setSelMode(on){SELMODE=!!on; document.body.classList.toggle('selmode',SELMODE);
   const b=$('#btn-select'); b.setAttribute('aria-pressed',String(SELMODE)); b.querySelector('.lbl').textContent=SELMODE?'선택 중':'선택';
   if(SELMODE)coach('sel','끌어서 고칠 곳을 고르세요 · 탭하면 그 문단 · 두 손가락으로 확대');}
-// Opens [더보기] with its view group drawn for now: the sheet-height or panel-width segment and the zoom figure.
-function openMore(){const d=$('#more'); if(d.open)return; hideTip(); drawZoom(); renderSizeSeg(); d.showModal(); toastHost();}
+// Opens dialog d (a sheet in compact: [더보기], the navigation sheet, the help, the Trash) as a modal with the focus on d itself
+// (tabindex=-1, drawn without a ring), not on its first control: a phone's browser drew the focus ring on [닫기] each time a
+// tap opened one. Tab goes on to [닫기], the first control.
+function showSheet(d){d.showModal(); d.focus({preventScroll:true});}
+// Opens [더보기] with its view group drawn for now: the sheet-height or panel-width segment and the zoom figure, and its foot on
+// one ink line (footInk).
+function openMore(){const d=$('#more'); if(d.open)return; hideTip(); drawZoom(); renderSizeSeg(); showSheet(d); footInk(); toastHost();}
+// How far the foot's wordmark and version drop so their ink bottoms meet [도움말]'s: from the label's Hangul ink descent below
+// the shared baseline and the version's (px, positive = below). The wordmark has none ("limn" ends on the baseline); a label
+// without Hangul ('Help', whose 'p' hangs below by design) counts as none. Pure.
+function inkDrops(labelDescent,versionDescent){return {word:labelDescent,ver:labelDescent-versionDescent};}
+// [더보기]'s foot on one ink line (docs/handbook/viewer.md §모바일 레이아웃): Hangul reaches below the Latin baseline the row
+// shares, so on one baseline [도움말] read lower than "limn" and the version. From the fonts in use - canvas metrics of the
+// very strings, read at 64 times the size because the canvas rounds them to whole pixels - the wordmark and the version drop
+// until their ink bottoms meet the label's Hangul (inkDrops), and the chevron moves to the centre of the label's ink.
+function footInk(){const f=$('#more-foot'),h=f&&f.querySelector('[data-act=help]'),v=f&&f.querySelector('.m-ver'); if(!h||!v)return;
+  const t=[...h.childNodes].find(n=>n.nodeType===3&&n.nodeValue.trim()),ch=h.querySelector('svg'); if(!t)return;
+  const c=footInk.ctx||(footInk.ctx=document.createElement('canvas').getContext('2d')),S=64;
+  const m=(el,s)=>{const cs=getComputedStyle(el); c.font=cs.fontStyle+' '+cs.fontWeight+' '+parseFloat(cs.fontSize)*S+'px '+cs.fontFamily; const x=c.measureText(s);
+    return {a:x.actualBoundingBoxAscent/S,d:x.actualBoundingBoxDescent/S};};
+  const label=t.nodeValue.trim(),hangul=label.replace(/[^\u1100-\u11ff\u3130-\u318f\uac00-\ud7a3]/g,''),hm=m(h,label);
+  const d=inkDrops(hangul?m(h,hangul).d:0,m(v,v.textContent.trim()).d);
+  f.style.setProperty('--ink-word',d.word+'px'); f.style.setProperty('--ink-ver',d.ver+'px'); f.style.setProperty('--help-chev','0px');
+  if(!ch)return; const w=document.createElement('span'),k=document.createElement('span');   // the label's baseline: an empty inline-block on it
+  k.style.cssText='display:inline-block;width:0;height:0'; h.insertBefore(w,t); w.append(t,k); const base=k.getBoundingClientRect().bottom;
+  h.insertBefore(t,w); w.remove(); const mid=base-(hm.a-hm.d)/2,cr=ch.getBoundingClientRect();
+  f.style.setProperty('--help-chev',(mid-(cr.top+cr.height/2))+'px');}
 // Clicking outside a dialog (the backdrop) closes it - only for a click whose target is the dialog itself and that falls outside its
 // box rectangle. The same for [더보기], help, the navigation sheet and the status line's list (and the Trash, below); help and
 // the documents sheet used to stay open (input review 2026-09-26).

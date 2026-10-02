@@ -10,6 +10,12 @@ const c01=v=>Math.min(1,Math.max(0,v));
 const LONGPRESS_MS=450,TAP_SLOP=8,QUICK_W=0.07,QUICK_H=0.006,QUICK_FIG=0.004;
 function fracAt(pg,cx,cy){const r=pg.getBoundingClientRect(); return [c01((cx-r.left)/r.width),c01((cy-r.top)/r.height)];}
 function newBox(pg){const b=document.createElement('div'); b.className='sel'; pg.appendChild(b); return b;}
+// The pending box's badge - the composer's '새 핀', a re-place's '새 위치': a '+' where a saved mark's number badge goes, outside
+// the box's left edge at its top, or in its top-left corner when the page margin has no room (pendingBadgeSide). The old name
+// tag sat 21px above the box, over the line above it; the name is now for screen readers only.
+function pendingBadge(box,name){box.innerHTML='<i aria-hidden="true">'+ic('plus')+'</i><span class="sr-only">'+esc(tr(name))+'</span>'; pendingBadgeSide(box);}
+// Decides a pending box's badge side by the mark rule (markBadgeIn) for its left edge, the page width and the margin now.
+function pendingBadgeSide(box){const r=markBadgeRoom(); box.classList.toggle('in',markBadgeIn((parseFloat(box.style.left)||0)/100,W,r.pad,r.reach));}
 function drawBox(box,sx,sy,x,y){Object.assign(box.style,{left:Math.min(sx,x)*100+'%',top:Math.min(sy,y)*100+'%',
   width:Math.abs(x-sx)*100+'%',height:Math.abs(y-sy)*100+'%'});}
 function cancelDrag(){if(DRAG&&DRAG.box)DRAG.box.remove(); DRAG=null;}
@@ -74,8 +80,8 @@ function finishRect(pg,box,sx,sy,x,y){
   if(w<0.004&&h<0.004){box.remove();return;}
   drawBox(box,sx,sy,x,y);
   box.classList.add('pending');
-  if(REPICK){ if(REPICK.box)REPICK.box.remove(); REPICK.box=box; box.innerHTML='<i>새 위치</i>'; }
-  else { if(COMPOSE.box)COMPOSE.box.remove(); COMPOSE.box=box; box.innerHTML='<i>새 핀</i>'; }
+  if(REPICK){ if(REPICK.box)REPICK.box.remove(); REPICK.box=box; pendingBadge(box,'새 위치'); }
+  else { if(COMPOSE.box)COMPOSE.box.remove(); COMPOSE.box=box; pendingBadge(box,'새 핀'); }
   const page=+pg.dataset.page,p=META.pages[page-1];
   pick({page,x0:Math.min(sx,x)*p.pt_w,y0:Math.min(sy,y)*p.pt_h,x1:Math.max(sx,x)*p.pt_w,y1:Math.max(sy,y)*p.pt_h,
     frac:[Math.min(sx,x),Math.min(sy,y),w,h],pdf_build:META.pages_build||undefined,doc:DOC||undefined});}

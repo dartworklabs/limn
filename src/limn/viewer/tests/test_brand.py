@@ -526,8 +526,8 @@ class LogoInTheBrowser(ChromiumTestCase):
         return page
 
     def test_the_logo_takes_the_themes_brand_colours(self):
-        """Light: 뼈종이 tile, 먹 strokes; dark: 먹 tile, 미색 strokes; the pin 주 in both. The top-bar icon is 16px, the help
-        wordmark and [더보기]'s foot wordmark 20px tall."""
+        """Light: 뼈종이 tile, 먹 strokes; dark: 먹 tile, 미색 strokes; the pin 주 in both. The top-bar icon is 16px and the help
+        wordmark 20px tall; [더보기]'s foot wordmark is the --foot-word token, 16px."""
         expect = {"light": (BONE, INK), "dark": (INK, CREAM)}
         for theme, (tile, stroke) in expect.items():
             with self.subTest(theme=theme):
@@ -547,7 +547,7 @@ class LogoInTheBrowser(ChromiumTestCase):
                     got["fills"],
                     [rgb % tile, rgb % stroke, rgb % VER, rgb % stroke, rgb % VER, rgb % stroke, rgb % VER],
                 )
-                self.assertEqual((got["top"], got["foot"], got["word"]), ([16, 16], 20, 20))
+                self.assertEqual((got["top"], got["foot"], got["word"]), ([16, 16], 16, 20))
 
     def test_favicon_links_are_the_same_in_every_colour_scheme(self):
         """The favicon links do not depend on the browser's colour scheme: a page opened light, opened dark, and one

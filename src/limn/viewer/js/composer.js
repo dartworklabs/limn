@@ -99,9 +99,8 @@ function renderOverlapBanner(){
 // The overlap in a few words for the one-line notice: '#4와 같은 범위' - '#4 범위 안' - '#4를 감쌈' - '#4와 일부 겹침' (the card badges' wording).
 function overlapShort(rel,id){const k={equal:'#{id}{p} 같은 범위',inside:'#{id} 범위 안',contains:'#{id}{p} 감쌈',partial:'#{id}{p} 일부 겹침'}[rel]||'#{id}{p} 일부 겹침';
   return tl(k,{id,p:rel===RANGE_REL.CONTAINS?josa(id,'을','를'):josa(id,'과','와')});}
-// Location is one line: 'file L159' + page + match badge + [copy]. Range kind/line count are never repeated, since the
-// segment control's selected segment already shows them (if adjusted directly via up/down and it doesn't match any
-// segment, '줄 직접 지정' is appended next to the page). The dragged line goes into the description.
+// Location is one line: 'file L159' + page + match badge + [copy]. Range kind/line count are never repeated: the range
+// caption (rangeCap) under it says them, and the ladder's pressed segment. The dragged line goes into the description.
 // Selection on a view-only PDF: the location is '쪽 N - 영역', and the region's text (pdftotext) is shown in the source field. The range ladder/stepper are hidden.
 function renderRegionComposer(d){
   $('#composer').classList.add('region');
@@ -110,9 +109,19 @@ function renderRegionComposer(d){
   const pg=$('#c-page'),fb=figRegionBadge(d.el,isFigureKind(META&&META.kind));
   pg.textContent=fb?fb.t:tr('보기 전용'); pg.dataset.tip=fb?fb.tip:'LaTeX 소스가 없는 PDF입니다 — 줄 번호 없이 쪽·영역과 영역 글자로 핀을 남깁니다';
   $('#c-tag').hidden=true; $('#c-warn').hidden=!d.warn; $('#c-warn').textContent=warnText(d.warn); $('#c-overlap').hidden=true;
-  $('#c-levels').innerHTML='';
+  $('#c-levels').innerHTML=''; setCap($('#c-cap'),''); drawExcerpt(null,$('#c-xp'),false);
   const pre=$('#c-snip'); pre.className='wrap open'; pre.textContent=d.quote?tl('영역 글자: {text}',{text:d.quote}):tr('(이 영역에는 글자가 없습니다)');
   $('#c-expand').hidden=true; renderElement(d,COMPOSE.box);}
+// The composer's markup follows its order on screen, so Tab does (docs/handbook/viewer.md §패널 정리). On the phone and short
+// bands the note and its helpers, the kind, the overlap notice and the range block follow the location line, which #c-body
+// keeps with the warning (a hidden #c-body hides the moved overlap notice and range block too, responsive.css); on the
+// others the overlap notice and the range block are #c-body's and the kind and the note come after it. Run as the band
+// changes (applyLayout); a part that had the focus keeps it.
+function orderComposer(){const c=$('#composer'),b=$('#c-body'),ov=$('#c-overlap'),rg=$('#c-range'),phone=document.body.matches('.lay-narrow,.band-short');
+  if((rg.parentNode===c)===phone)return;
+  const a=document.activeElement,kind=$('#c-kind'),notes=['#note','#note-mentions','#c-viewer','#c-qhint','#c-assign'].map(s=>$(s));
+  if(phone)c.append(...notes,kind,ov,rg); else{b.append(ov,rg); c.append(kind,...notes);}
+  if(a&&a!==document.activeElement&&c.contains(a))a.focus({preventScroll:true});}
 // Draws the composer from COMPOSE.current (location, ladder, source, overlap) and schedules the draft write - every change of the
 // selection (a pick, a level, a nudge, a restore) passes through here.
 function renderComposer(){const d=COMPOSE.current; if(!d)return; saveDraftSoon();
@@ -120,19 +129,19 @@ function renderComposer(){const d=COMPOSE.current; if(!d)return; saveDraftSoon()
   $('#composer').classList.remove('region');
   const copy=d.name+' L'+d.lo+'-L'+d.hi;
   $('#c-loc').textContent=d.name+' '+rng(d.lo,d.hi); $('#c-loc').dataset.copy=copy; renderElement(d,COMPOSE.box);
-  const pg=$('#c-page'),pgn=tl('{page}쪽',{page:d.page}); pg.textContent=pgn+(curLevel(d)?'':' · '+tr('줄 직접 지정'));
-  pg.dataset.tip=pgn+' · '+scopeLabel(d)+' · '+tl('{n}줄',{n:d.hi-d.lo+1})+' · '+tl('드래그한 줄 {range}',{range:rng(d.raw_lo,d.raw_hi)});
+  const pg=$('#c-page'),pgn=tl('{page}쪽',{page:d.page}),sc=scopeLabel(d); pg.textContent=pgn;
+  pg.dataset.tip=pgn+(sc?' · '+sc:'')+' · '+tl('{n}줄',{n:d.hi-d.lo+1})+' · '+tl('드래그한 줄 {range}',{range:rng(d.raw_lo,d.raw_hi)});
   const v=viaTag(d),tg=$('#c-tag'); tg.hidden=!v; if(v){tg.textContent=v.t;tg.dataset.tip=v.tip;tg.classList.toggle('badge-warning',!!v.low);}
   $('#c-warn').hidden=!d.warn; $('#c-warn').textContent=warnText(d.warn);
   renderOverlapBanner();
-  $('#c-levels').innerHTML=levelBtns(d,false);
-  segReveal($('#c-levels'));
+  setCap($('#c-cap'),rangeCap(d,false)); drawLadder($('#c-levels'),d,false);
   const pre=$('#c-snip'); pre.className=(WRAP?'wrap':'nowrap')+(SNIP_OPEN?' open':''); pre.textContent=snipText(d.snippet,SNIP_OPEN);
   // A collapsed source is cut to 4 lines by CSS. Whether it was cut is measured after rendering (a manuscript where one long line wraps into several is common).
   const over=SNIP_OPEN||pre.scrollHeight>pre.clientHeight+2, nl=String(d.snippet||'').split('\n').length;
   pre.classList.toggle('clip',!SNIP_OPEN&&over);
   $('#c-expand').hidden=!over; $('#c-expand').textContent=SNIP_OPEN?tr('원문 접기'):tr('원문 펼치기')+(nl>1?' · '+tl('{n}줄',{n:nl}):'');
   $('#c-wrap').setAttribute('aria-pressed',String(WRAP));
+  drawExcerpt(d,$('#c-xp'),false);   // the compact bands' range excerpt (excerpt.js)
 }
 // When a selection ends via save/cancel/append, selection mode is turned off (scrolling resumes) and the narrow sheet collapses (the body comes forward again).
 // The composer panel's pin kind (fix request / question). Reverts to fix request on save or discard (the default for the next pin).

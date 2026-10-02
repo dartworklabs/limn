@@ -177,7 +177,7 @@ button.th-more{align-self:flex-start;color:var(--muted-foreground)}
 .arc-thread{margin:4px 0 0 var(--space-5)}   /* indentation only - no box */
 .arc-thread .thread{margin:0;padding:0;border:0}
 .edit .c-tools{margin-top:0;flex-wrap:wrap}
-.edit .c-tools .e-range{white-space:nowrap}   /* the line range never wraps character by character - the whole thing drops to the next line if there's no room */
+.edit .e-cap{margin:0 0 var(--space-1)}   /* the line range (.e-range) never wraps character by character (.rg-cap) */
 .pg-link{color:var(--primary);font-size:var(--text-sm);cursor:pointer}
 .au{display:inline-flex;align-items:center;gap:var(--space-1);font-size:var(--text-sm);color:var(--muted-foreground);max-width:150px}
 .au .au-n{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}

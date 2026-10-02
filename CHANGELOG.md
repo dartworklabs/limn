@@ -1,5 +1,42 @@
 # Changelog
 
+## 0.4.8 — 2026-10-02
+
+The pin composer and the edit card on phones and tablets. This release does not change `pins.md`, the API or the
+state directory: the agent contract stays as it is. The wide layout keeps its arrangement and its line stepper; it
+shares the range caption, the ladder rule, the "+" badge and the segmented control.
+
+### Changed
+
+- **The range is set in the source.** In every layout but the wide one (phones, tablets, and a mouse window up to
+  1099 px), the composer and the edit card show the selected lines in a tinted band with one dimmed line above and
+  below. Tap a dimmed line to widen the range to it; tap the − on the band's first or last line to drop that line. A
+  band longer than five lines folds its middle. This replaces the "above + − below + −" stepper, which read as moving
+  the pin. The wide layout keeps the stepper, whatever the pointer, and the help's tour follows the layout. With a
+  keyboard, Enter on + or − keeps the focus in place, so pressing it again repeats the step, and a screen reader hears
+  the new range.
+- **Range caption and ladder.** A caption over the source says the lines a save hands over and how many, such as
+  "Range L5-L6 · 2 lines". The ladder of dragged lines, paragraph and environment shows only when there are two or
+  more choices, under "Range". "Lines set by hand" is gone from the location line.
+- **The save row stays at the bottom.** The composer's Cancel and Save pin, and the edit card's Re-place, Cancel and
+  Save, sit at the bottom of the screen (or the panel), above the keyboard when it is up, instead of following a
+  short list up the sheet.
+- **Composer order.** On phones: location, note, kind, then the range block (caption, ladder, source), one 8 px step
+  apart. Tab follows the same order. The pending box's "New pin" tag is a "+" badge where a saved pin's number goes. The copy button beside the
+  location is a plain icon, and the composer has the sheet's background.
+- **One segmented control.** Kind, range, sheet height, theme, language and the navigation sheet's view use the same
+  track: segments 4 px in from every edge, a raised thumb whose shadow stays inside, 36 px drawn and 44 px to tap on
+  touch. More's rows no longer touch each other.
+- **Bottom bar on phones and tablet sheets.** The left cell is one chip in two halves, "Pin N | Review M": the first
+  opens and closes the sheet, the second (purple, shown only when pins await review) goes to the review list. Select is
+  a corners icon on the same fill. The row sits 12 px under the sheet's edge, with the grabber in that space, and
+  every icon is centred on the numbers. When the cell is too narrow (English, a folded cover's 344 px, three-digit
+  counts), the halves first take less padding, then the words give way to a green and a purple dot. A count never
+  stands alone.
+- **Sheets take the focus themselves.** More, the navigation sheet, Help and the Trash focus the sheet, not its Close
+  button, so a phone no longer draws a focus ring on Close. Tab still reaches Close first.
+- **More's foot.** The wordmark is 16 px, and the wordmark and the version line up with the bottom of "Help".
+
 ## 0.4.7 — 2026-10-02
 
 A fix for pin polling. This release does not change `pins.md`, the API's paths or fields, or the state directory: the
