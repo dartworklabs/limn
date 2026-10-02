@@ -293,7 +293,7 @@ class BrowserLanguage(ChromiumTestCase):
         page = self.open("?lang=en", "ko-KR")
         self.assertEqual(page.evaluate("document.documentElement.lang"), "en")
         self.assertEqual(page.text_content("#btn-rebuild .lbl").strip(), UI_EN["PDF 재빌드"])
-        self.assertEqual(page.get_attribute("#btn-help", "aria-label"), UI_EN["도움말"])
+        self.assertEqual(page.get_attribute("#btn-more", "aria-label"), UI_EN["더보기"])
         # the language segment checks the current language (it showed the other one's name, UX audit P4.4)
         self.assertEqual(page.text_content("#m-lang [aria-checked=true]").strip(), "English")
         page.evaluate("toast('저장을 되돌렸습니다','ok')")
@@ -707,7 +707,7 @@ class EnglishChrome(ChromiumTestCase):
             return str(page.evaluate("document.querySelector('#tip').textContent"))
 
         self.assertEqual(tip('.mark[data-pin="%d"] b' % pin["id"]), "#%d · 완료" % pin["id"])
-        self.assertFalse(HANGUL.search(tip("#btn-help")))
+        self.assertFalse(HANGUL.search(tip("#btn-fit")))
         page.evaluate("document.querySelector('#toasts').replaceChildren()")
         page.bring_to_front()
         page.evaluate(
@@ -889,10 +889,13 @@ class EnglishChrome(ChromiumTestCase):
                     page.evaluate("Math.round(document.querySelector('#right').getBoundingClientRect().width)"), 348
                 )
                 tops = page.evaluate(
-                    "[...document.querySelectorAll('#bar1>*')].filter(e=>e.getClientRects().length&&!e.classList.contains('sp'))"
+                    "[...document.querySelectorAll('#bar1>*,#bar1>:is(.bar-l,.bar-r)>*')]"
+                    ".filter(e=>e.getClientRects().length&&!e.classList.contains('sp'))"
                     ".map(e=>Math.round(e.getBoundingClientRect().top))"
                 )
-                self.assertGreaterEqual(len(tops), 8)
+                self.assertGreaterEqual(
+                    len(tops), 6
+                )  # [PDF 재빌드] [쪽 이동] [−] [+] [↔] [⋯] (the bell, theme and [?] went to [⋯])
                 self.assertEqual(len(set(tops)), 1, tops)
                 self.assertFalse(
                     page.evaluate(

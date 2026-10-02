@@ -1678,7 +1678,8 @@ class LayoutNotPointer(ViewerBase):
     def test_a_mouse_at_1440_keeps_the_desktop_geometry_to_the_pixel(self):
         """1440x900 with a mouse: the page's margins and box, its first mark's badge, the panel's tool bar, section head and
         first card, and the help and Trash dialogs sit where they sat before the touch edge grid (UX audit V2/V6): the
-        desktop layout is unchanged. (The documents sheet, which only the phone opened, is the phone's navigation sheet.)
+        desktop layout is unchanged - but for the tool bar's end, one [⋯] where the bell, the theme button and [?] were (3b of
+        the cross-resolution pass). (The documents sheet, which only the phone opened, is the phone's navigation sheet.)
         What CSS lengths, the viewport or the page size is compared to the pixel. What a label or a wrapped note sizes is
         compared by where it starts and ends, how tall it is and its order, never by its width or by the height its text
         makes - those follow the installed fonts (a tool-bar button was 71px wide here and 79px on CI), so desk_shape()
@@ -1697,17 +1698,20 @@ class LayoutNotPointer(ViewerBase):
 
 
 # Where the desktop's chrome sits at 1440x900 with a mouse on the ViewerBase fixture, as measured in the page: boxes are
-# [x, y, width, height] (rounded), paddings [top, right, bottom, left] (computed). A tool-bar item also carries its left edge
-# from the panel's left edge (start), its right edge from the panel's right edge (end) and whether it follows the spacer
-# (after: the right-aligned group), both taken from the unrounded boxes.
+# [x, y, width, height] (rounded), paddings [top, right, bottom, left] (computed). A tool-bar item - the bar's children, with its
+# two groups' (display:contents) in their place, in screen order - also carries its left edge from the panel's left edge
+# (start), its right edge from the panel's right edge (end) and whether it stands right of the spacer (after: the right-aligned
+# group), all taken from the unrounded boxes.
 DESK_GEOMETRY = """() => {const q = s => document.querySelector(s), R = Math.round, panel = q('#right').getBoundingClientRect(),
     B = e => {const r = e.getBoundingClientRect(); return [R(r.x), R(r.y), R(r.width), R(r.height)];},
     P = e => {const c = getComputedStyle(e); return [c.paddingTop, c.paddingRight, c.paddingBottom, c.paddingLeft];},
     spacer = q('#bar1 .sp'), card = q('#pins .pin');
   return {left: P(q('#left')), page: B(q('#p1')), badge: B(q('.mark b')), right: B(q('#right')), tool: B(q('#bar1')),
-    bar: [...q('#bar1').children].filter(e => e.getClientRects().length).map(e => {const r = e.getBoundingClientRect();
-      return {id: e.id || e.className, box: B(e), start: R(r.left - panel.left), end: R(panel.right - r.right),
-        after: !!(spacer.compareDocumentPosition(e) & Node.DOCUMENT_POSITION_FOLLOWING)};}),
+    bar: [...q('#bar1').children].flatMap(e => getComputedStyle(e).display === 'contents' ? [...e.children] : [e])
+      .filter(e => e.getClientRects().length).sort((a, b) => a.getBoundingClientRect().left - b.getBoundingClientRect().left)
+      .map(e => {const r = e.getBoundingClientRect();
+        return {id: e.id || e.className, box: B(e), start: R(r.left - panel.left), end: R(panel.right - r.right),
+          after: r.left >= spacer.getBoundingClientRect().right};}),
     head: B(q('#sec-open .sec-head')), toggle: B(q('#open-toggle')), chevron: B(q('#open-toggle svg')), card: B(card), card_pad: P(card),
     dot: B(q('#pins .pin .st-dot')), list: P(q('#list'))};}"""
 # One open dialog: its box and paddings, its computed max-height, and how it is anchored in the viewport - its middle and the
@@ -1766,19 +1770,15 @@ DESK_1440 = {
         ["btn-zoom-out", 8, 28, 28],
         ["btn-zoom-in", 8, 28, 28],
         ["btn-fit", 8, 28, 28],
-        ["btn-notify", 8, 28, 28],
-        ["btn-theme", 8, 28, 28],
-        ["btn-help", 8, 28, 28],
+        ["btn-more", 8, 28, 28],
     ],
     "bar_start": 9,
     "bar_ends": {
-        "jump": 200,
-        "btn-zoom-out": 168,
-        "btn-zoom-in": 136,
-        "btn-fit": 104,
-        "btn-notify": 72,
-        "btn-theme": 40,
-        "btn-help": 8,
+        "jump": 136,
+        "btn-zoom-out": 104,
+        "btn-zoom-in": 72,
+        "btn-fit": 40,
+        "btn-more": 8,
     },
     "head": [1093, 108, 347, 31],
     "toggle": [1101, 112, 22],
@@ -5619,6 +5619,98 @@ class ShortRow(ViewerBase):
                         abs(toc - g["ink"] - 0.5), 0.25, g["inkOf"]
                     )  # the glyph's 1.5px bearing, whole pixels
                     self.assertEqual(round(g["seam"], 2), 0)
+
+
+# The wide tool row and [더보기] as drawn: the row's visible controls left to right, whether the bell, theme and help icons are in
+# the page, [⋯]'s box and look (a ghost: no fill, no border), and - with [더보기] open - the dialog's box, its backdrop, and what
+# it holds: the theme and language segments, the notification switch, and the foot's wordmark, version and [도움말].
+DESK_MORE = """() => {const q = s => document.querySelector(s), R = e => (r => [r.left, r.top, r.right, r.bottom])(e.getBoundingClientRect());
+  const vis = e => !!e && e.getClientRects().length > 0 && getComputedStyle(e).visibility !== 'hidden', b = q('#btn-more'), cs = getComputedStyle(b);
+  const d = q('#more'), open = d.open, seg = s => [...document.querySelectorAll(s + ' [role=radio]')].filter(vis).length;
+  return {row: [...q('#bar1').querySelectorAll('button,input')].filter(vis).sort((x, y) => R(x)[0] - R(y)[0]).map(e => e.id),
+    gone: ['#btn-notify', '#btn-theme', '#btn-help'].filter(s => q(s)), more: R(b), ghost: [cs.backgroundColor, cs.borderTopColor],
+    open, box: open ? R(d) : null, vw: innerWidth, backdrop: open ? getComputedStyle(d, '::backdrop').backgroundColor : null,
+    theme: open ? seg('#m-theme') : 0, lang: open ? seg('#m-lang') : 0, notify: open && vis(q('#m-notify')) ? q('#m-notify').getAttribute('role') : null,
+    foot: open ? [vis(q('#more-foot svg.limn-mark-word')), vis(q('#more-foot .m-ver')), vis(q('#more-foot [data-act=help]'))] : null,
+    grab: open && vis(q('#more .ns-grab')), focus: document.activeElement && (document.activeElement.id || document.activeElement.tagName)};}"""
+
+
+class DesktopMoreMenu(ViewerBase):
+    """The desktop's [⋯] (docs/handbook/viewer.md §패널 정리, 3b of the cross-resolution pass): the wide tool row had a bell, a
+    theme button that cycled at each press and [?], and no place to change the language or see the version. They give way to
+    one [⋯] at the row's end that opens the same [더보기] as the phone, as a menu under it - theme and language as segments,
+    notifications as a switch, the wordmark, version and [도움말] at its foot. Esc, a click outside it and a choice that
+    closes it give the focus back to [⋯]."""
+
+    def open_more(self, page):
+        """Click [⋯] and wait for [더보기] to be open; returns DESK_MORE."""
+        page.click("#btn-more")
+        page.wait_for_function("document.querySelector('#more').open")
+        settle(page)
+        return page.evaluate(DESK_MORE)
+
+    def test_the_wide_row_ends_in_one_ghost_more_button_and_the_three_icons_are_gone(self):
+        """1400x850 and 1440x900 (mouse): the bell, the theme button and [?] are not in the page; [⋯] is the row's last
+        control, a ghost (no fill, no border) as tall as the row's other controls."""
+        for device in (DESK, MOUSE_WIDE):
+            with self.subTest(w=device["viewport"]["width"]):
+                page = self.view(device)
+                got = page.evaluate(DESK_MORE)
+                self.assertEqual(got["gone"], [], got)
+                self.assertEqual(got["row"][-1], "btn-more", got)
+                self.assertEqual(got["ghost"], ["rgba(0, 0, 0, 0)", "rgba(0, 0, 0, 0)"], got)
+                fit = page.evaluate("(r=>[r.top,r.bottom])(document.querySelector('#btn-fit').getBoundingClientRect())")
+                self.assertEqual([round(v, 2) for v in got["more"][1::2]], [round(v, 2) for v in fit], got)
+
+    def test_more_opens_as_a_menu_under_its_button_with_segments_a_switch_and_the_foot(self):
+        """1400x850, light and dark: a click on [⋯] opens [더보기] 4px under the button, its right edge on the button's, 360px
+        wide and within the screen; no grab band and a clear backdrop (a menu, not a sheet); three theme segments, two
+        language segments, the notification switch, and the foot's wordmark, version and [도움말]."""
+        for dark in (False, True):
+            with self.subTest(dark=dark):
+                page = self.view(DESK, dark=dark)
+                got = self.open_more(page)
+                self.assertTrue(got["open"])
+                box, more = got["box"], got["more"]
+                self.assertAlmostEqual(box[1], more[3] + 4, delta=0.5)
+                self.assertAlmostEqual(box[2], more[2], delta=0.5)
+                self.assertAlmostEqual(box[2] - box[0], 360, delta=0.5)
+                self.assertGreaterEqual(box[0], 0)
+                self.assertLessEqual(box[3], 850)
+                self.assertFalse(got["grab"])
+                self.assertEqual(got["backdrop"], "rgba(0, 0, 0, 0)")
+                self.assertEqual(
+                    (got["theme"], got["lang"], got["notify"], got["foot"]), (3, 2, "switch", [True, True, True])
+                )
+
+    def test_esc_a_click_outside_and_a_choice_close_it_and_give_the_focus_back(self):
+        """1400x850: Esc closes the menu and the focus is on [⋯]; so does a click outside it (on the PDF), and a row that
+        closes it ([핀 다시 읽기]). From the keyboard - Tab to [⋯], Enter - the focus starts on the menu and Esc gives it
+        back to [⋯] with its ring."""
+        page = self.view(DESK)
+        self.open_more(page)
+        page.keyboard.press("Escape")
+        page.wait_for_function("!document.querySelector('#more').open")
+        self.assertEqual(page.evaluate(DESK_MORE)["focus"], "btn-more")
+        self.open_more(page)
+        page.mouse.click(300, 400)
+        page.wait_for_function("!document.querySelector('#more').open")
+        self.assertEqual(page.evaluate(DESK_MORE)["focus"], "btn-more")
+        self.open_more(page)
+        page.click("#more [data-act=reload]")
+        page.wait_for_function("!document.querySelector('#more').open")
+        self.assertEqual(page.evaluate(DESK_MORE)["focus"], "btn-more")
+        page.evaluate("document.activeElement.blur()")
+        page.focus("#btn-more")
+        page.keyboard.press("Enter")
+        page.wait_for_function("document.querySelector('#more').open")
+        self.assertEqual(page.evaluate("document.activeElement.id"), "more")
+        page.keyboard.press("Escape")
+        page.wait_for_function("!document.querySelector('#more').open")
+        self.assertEqual(
+            page.evaluate("[document.activeElement.id, document.activeElement.matches(':focus-visible')]"),
+            ["btn-more", True],
+        )
 
 
 if __name__ == "__main__":

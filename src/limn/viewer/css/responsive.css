@@ -26,6 +26,14 @@ body:not(.lay-narrow) #coach button{pointer-events:auto}
 #more{max-width:560px;width:100%;margin:auto auto 0;border-radius:var(--radius-lg) var(--radius-lg) 0 0;max-height:calc(var(--vvh,100dvh) - 48px);overflow:auto;
   padding:0 var(--space-4) calc(var(--space-3) + env(safe-area-inset-bottom))}
 #more .more-top{position:sticky;top:0;z-index:1;background:var(--popover)}
+/* The wide desktop's [더보기] is a menu under [⋯] (3b of the cross-resolution pass): its top 4px under the button and its right
+   edge on the button's (placeMore sets --more-top and --more-right as it opens), 360px wide and at most the screen under it high;
+   no grab band and no dimmed backdrop - a menu, not a sheet. Esc, a click outside it and a row that closes it give the focus back
+   to [⋯] (a modal dialog's own return). */
+body.lay-wide #more{position:fixed;inset:var(--more-top,48px) var(--more-right,8px) auto auto;margin:0;width:360px;max-width:calc(100vw - 16px);
+  max-height:calc(100dvh - var(--more-top,48px) - 8px);border-radius:var(--radius-lg);padding:0 var(--space-4) var(--space-3)}
+body.lay-wide #more::backdrop{background:transparent}
+body.lay-wide #more .more-top{padding-top:var(--space-2)}
 #more .more-head{flex-wrap:nowrap;gap:var(--space-2);min-height:var(--hit)}
 #more-label{display:inline-flex;align-items:center;gap:var(--space-2);min-width:0;font-size:var(--text-xl);font-weight:600;color:var(--foreground)}
 #more-label b{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -600,7 +608,7 @@ body.no-rebuild #btn-rebuild{display:none}
    tour. The mouse desktop's centred help and Trash draw no band. */
 #nav-sheet .ns-head,body.compact :is(#help,#trash) .ns-head{position:sticky;top:0;z-index:1;background:var(--popover)}
 .ns-grab{display:flex;justify-content:center;height:12px;padding-top:var(--space-1)}
-body:not(.compact) :is(#help,#trash) .ns-grab{display:none}
+body:not(.compact) :is(#help,#trash,#more) .ns-grab{display:none}
 .ns-grab::before{content:'';width:32px;height:4px;border-radius:var(--radius-sm);background:var(--grabber)}
 #nav-sheet .ns-head .row,body.compact :is(#help,#trash) .ns-head .row{flex-wrap:nowrap;min-height:var(--hit)}
 #nav-sheet-h{margin:0;font-size:var(--text-xl)}

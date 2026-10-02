@@ -18,6 +18,10 @@
   the tablets' action row, 12 px each on the sheet's row (it was 12 over 4 with the sheet open, 12 over 8 collapsed).
   The bottom safe area is added underneath. Every icon, count and label in the row, including the status line's
   [Rebuild], sits on one centre line; [Rebuild]'s label had been drawn 1.9 px high.
+- **One [⋯] on the desktop.** The wide tool row's bell, theme button and help button are replaced by one [⋯] at the
+  row's end. It opens the same More panel as phones and tablets, as a menu under the button: theme and language are
+  segmented controls, notifications a switch, and the foot shows the Limn wordmark, the version and Help. Esc, a click
+  outside it and a row that closes it give the focus back to [⋯].
 - **The landscape phone's top row is 48 px.** It was 44 px, and the instance's colour stripe cut the tops of [Rebuild]
   and the pin chip. The row now has the height of the other touch nav bars, and its controls sit centred between the
   stripe and the row's line. Its icons are 18 px, each centred in its box. Neighbouring controls are 8 px apart. The

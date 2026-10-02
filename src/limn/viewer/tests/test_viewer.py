@@ -653,14 +653,15 @@ class FrontendMobileStructure(unittest.TestCase):
         for gone in ('id="m-done"', 'id="m-jump"'):
             self.assertNotIn(gone, HTML)
         self.assertIn('aria-pressed="false"', re.search(r'<button id="btn-select"[^>]*>', HTML).group(0))
-        # less important buttons are hidden in compact mode (.sec) and live inside [⋯] with the same data-act
+        # less important buttons are hidden in compact mode (.sec) and live inside [⋯] with the same data-act; the desktop's
+        # bell, theme button and [?] are gone - [⋯] opens the same [더보기] there too (3b of the cross-resolution pass)
+        for gone in ('id="btn-notify"', 'id="btn-theme"', 'id="btn-help"'):
+            self.assertNotIn(gone, HTML)
         for bid, act in (
             ("btn-reload", "reload"),
             ("btn-zoom-out", "zoom-out"),
             ("btn-zoom-in", "zoom-in"),
             ("btn-fit", "fit"),
-            ("btn-theme", "theme"),
-            ("btn-help", "help"),
         ):
             tag = re.search(r'<button id="%s"[^>]*>' % bid, HTML).group(0)
             self.assertRegex(tag, r'class="sec( btn-[a-z]+)*"')
@@ -1370,7 +1371,7 @@ class FrontendPanelTidyStructure(unittest.TestCase):
         more = HTML[HTML.index('<dialog id="more"') : HTML.index('<dialog id="help"')]
         self.assertIn('id="m-size"', more)
         self.assertIn("case 'size-preset':sizePreset(+a.dataset.i)", HTML)
-        self.assertIn("renderSizeSeg(); showSheet(d)", HTML)
+        self.assertIn("renderSizeSeg(); placeMore(); showSheet(d)", HTML)
 
     def test_actions_row_is_fixed_at_panel_bottom_outside_composer(self):
         right = HTML[HTML.index('<div id="right">') : HTML.index('<div id="tip"')]
@@ -3178,7 +3179,6 @@ class FrontendIcons(unittest.TestCase):
         self.assertNotIn("__LUCIDE_JSON__", h)
         used = set(re.findall(r"ic\('([a-z0-9-]+)'\)", h)) | set(re.findall(r'class="ic ic-([a-z0-9-]+)"', h))
         used |= set(re.findall(r"'(chevron-(?:up|down|left|right))'", h))
-        used |= set(re.findall(r"THEME_ICON=\{system:'([a-z-]+)',light:'([a-z-]+)',dark:'([a-z-]+)'\}", h)[0])
         self.assertEqual(used - set(viewer_assemble.LUCIDE), set())
         self.assertEqual(set(viewer_assemble.LUCIDE) - used, set())
 
@@ -3199,13 +3199,11 @@ class FrontendIcons(unittest.TestCase):
         for bid, label in (
             ("btn-zoom-out", "축소"),
             ("btn-zoom-in", "확대"),
-            ("btn-help", "도움말"),
             ("btn-more", "더보기"),
             ("c-copy", "위치 복사"),
         ):
             tag = re.search(r'<button[^>]*id="%s"[^>]*>' % bid, HTML).group(0)
             self.assertIn('aria-label="%s"' % label, tag)
-        self.assertIn("b.innerHTML=ic(THEME_ICON[t]);", HTML)
 
 
 # ---------------------------------------------------------------- status stripe / archive (closed, dropped pins)
@@ -4670,7 +4668,7 @@ class FrontendNotify(unittest.TestCase):
         self.assertRegex(h, r'<button id="m-notify" role="switch" aria-checked="false"')
         self.assertIn('id="m-notify-why"', h)
         self.assertIn("m.setAttribute('aria-checked',String(st===NOTIFY_STATE.ON))", extract_js_fn("drawNotify"))
-        self.assertIn('id="btn-notify"', h)
+        self.assertNotIn('id="btn-notify"', h)  # the desktop's bell went with its [⋯]: the switch is the one control
         tog = extract_js_fn("notifyToggle")
         self.assertIn("Notification.requestPermission()", tog)
         self.assertEqual(html_without_comments(h).count("requestPermission("), 1)  # only asked on the click path

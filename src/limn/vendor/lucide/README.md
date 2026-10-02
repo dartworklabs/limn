@@ -17,22 +17,22 @@ Icons are drawn with the original `<svg>` attributes: `viewBox="0 0 24 24"`, `fi
 | Name | Used for |
 | --- | --- |
 | `at-sign` | 'mentions me' and '@name' badges, [pins that mention me N] |
-| `bell` · `bell-off` | browser notifications on/off (desktop toolbar) |
+| `bell` | the browser notifications switch in [More] |
 | `bot` | local/agent avatar (distinct from a person's initial circle) |
 | `check` | closed-pin row head; current document in the document list |
 | `chevron-down` · `chevron-right` | collapse/expand archive sections, card collapse (narrow screens), [Documents] button |
 | `chevron-left` | the collapsed wide panel's [Pins N ‹] (#nav-side) |
 | `circle-check` · `circle-x` | toast lead icon — done/error. Warnings use `triangle-alert` |
-| `circle-question-mark` | help button, 'question' badge |
+| `circle-question-mark` | 'question' badge and hint |
 | `message-square` | reply count in the card head |
 | `clock` | 'in progress' (claimed) badge |
 | `copy` | copy-location button |
-| `ellipsis` | more button (narrow screens) |
+| `ellipsis` | the [More] button (every layout) |
 | `eye` | 'awaiting review' badge (whose turn it is to confirm) |
 | `focus` | [Select] button — four corners round a ring: pick a spot or drag a region on touch devices |
 | `image` | the status line's 'showing PNG' state (compact bands) |
 | `minus` · `plus` | PDF zoom out/in; shrink/grow a range by one line |
-| `moon` · `sun` · `sun-moon` | theme (dark, light, system) |
+| `moon` · `sun` · `sun-moon` | the theme segments in [More] (dark, light, system) |
 | `lock-open` | [풀기] (release the in-progress claim) on a compact card |
 | `move-vertical` | 'lines moved +N' badge |
 | `move-horizontal` | fit PDF width (desktop toolbar) |

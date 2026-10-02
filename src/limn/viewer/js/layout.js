@@ -42,7 +42,7 @@ function applyLayout(){if(!BAND_IN)BAND_IN=bandInput(); const o=BAND_IN,band=lay
   SIDE_OPEN=L===LAYOUT_MODE.WIDE?p.sideClosed!==true:(L===LAYOUT_MODE.MID?(typeof p.midClosed==='boolean'?!p.midClosed:!overlay):sheetToSheet&&wasOpen);
   if(!REPICK&&(COMPOSE.current||EDITOR.current||REPLY||!$('#composer').hidden))SIDE_OPEN=true;   // an in-progress note/edit/reply is never left hidden collapsed
   if(band!==LAYOUT_BAND.PHONE&&$('#nav-sheet').open)$('#nav-sheet').close();
-  applySide(); stickTop(); placeStatus(); if($('#more').open)renderSizeSeg(); if(REV.target)revTargetActs(); return true;}
+  applySide(); stickTop(); placeStatus(); if($('#more').open){renderSizeSeg(); placeMore();} if(REV.target)revTargetActs(); return true;}
 // Whether the outline is an overlay over the document that opens one at a time with the pin panel (OUTLINE_MID_OPEN, never
 // saved): in the mid bands and on the tablet sheet. The phone has no outline; wide keeps it beside the document.
 function outlineOverlay(){return LAYOUT===LAYOUT_MODE.MID||BAND===LAYOUT_BAND.TABLET_SHEET;}
@@ -189,8 +189,14 @@ function setSelMode(on){SELMODE=!!on; document.body.classList.toggle('selmode',S
 // tap opened one. Tab goes on to [닫기], the first control.
 function showSheet(d){d.showModal(); d.focus({preventScroll:true});}
 // Opens [더보기] with its view group drawn for now: the sheet-height or panel-width segment and the zoom figure, and its foot on
-// one ink line (footInk).
-function openMore(){const d=$('#more'); if(d.open)return; hideTip(); drawZoom(); renderSizeSeg(); showSheet(d); footInk(); toastHost();}
+// one ink line (footInk); on the wide desktop it is a menu under [⋯] (placeMore), which says it is open (aria-expanded).
+function openMore(){const d=$('#more'); if(d.open)return; hideTip(); drawZoom(); renderSizeSeg(); placeMore(); showSheet(d); footInk(); toastHost();
+  $('#btn-more').setAttribute('aria-expanded','true');}
+$('#more').addEventListener('close',()=>$('#btn-more').setAttribute('aria-expanded','false'));
+// The wide desktop's [더보기] as a menu under [⋯]: its top 4px under the button and its right edge on the button's - the
+// --more-top and --more-right that body.lay-wide #more reads (the compact sheets ignore them). Again on a relayout while open.
+function placeMore(){const b=$('#btn-more'); if(LAYOUT!==LAYOUT_MODE.WIDE||!b.getClientRects().length)return; const r=b.getBoundingClientRect(),d=$('#more');
+  d.style.setProperty('--more-top',(r.bottom+4)+'px'); d.style.setProperty('--more-right',(document.documentElement.clientWidth-r.right)+'px');}
 // How far the foot's wordmark and version drop so their ink bottoms meet [도움말]'s: from the label's Hangul ink descent below
 // the shared baseline and the version's (px, positive = below). The wordmark has none ("limn" ends on the baseline); a label
 // without Hangul ('Help', whose 'p' hangs below by design) counts as none. Pure.
