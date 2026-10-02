@@ -87,6 +87,10 @@ body:not(.lay-narrow) #coach button{pointer-events:auto}
      earlier's half (observed: '1쪽' answered 16x38, 'L4-L5' 33x38). Each is a real --hit x --hit box instead, its text centred,
      positioned so that it stays above the line below that the compact head's -6px margin lets overlap it. */
   .loc,.pg-link,.pin .n.go{display:inline-flex;align-items:center;justify-content:center;min-height:var(--hit);min-width:var(--hit);position:relative}
+  /* ...but the edit card caption's line range stays in its line of text (its 44px box spread '범위   L15   · 1줄' apart): it
+     keeps its text size and answers a centred 44px box from ::after, as .hit does. */
+  .rg-cap .loc{display:inline;min-height:0;min-width:0}
+  .rg-cap .loc::after{content:'';position:absolute;left:50%;top:50%;width:max(100%,var(--hit));height:var(--hit);transform:translate(-50%,-50%)}
   .pin .go-all{min-height:var(--hit)}
   .pin .head .b-fold{position:relative}   /* above the preview line that the head's -6px margin lets overlap its bottom (it answered 44x38) */
   .mark b,.sel i{width:26px;height:26px;left:-28px;font-size:var(--text-base)}

@@ -2308,6 +2308,9 @@ class RangeLadderAndCaption(ViewerBase):
         settle(page)
         got = page.evaluate(RANGE_BLOCK, ".edit")
         self.assertEqual((got["cap"], got["ladder"], got["copy"]), ("범위 L4-L5 · 2줄", False, "main.tex L4-L5"))
+        # the copyable range keeps the caption one line of text (as a 44px box it spread the line apart) and answers 44px
+        self.assertLessEqual(page.locator(".edit .e-cap").bounding_box()["height"], 24)
+        self.assertEqual(page.evaluate(MISSES_44, ".edit .e-cap .loc"), [])
         self.ONE_RUNG = False
         page = self.view(phone(411, 908))
         page.evaluate("()=>{setSide(true); openEdit(OPEN_ALL.find(p=>p.lo===4).id);}")
