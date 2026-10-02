@@ -109,9 +109,19 @@ function renderRegionComposer(d){
   const pg=$('#c-page'),fb=figRegionBadge(d.el,isFigureKind(META&&META.kind));
   pg.textContent=fb?fb.t:tr('보기 전용'); pg.dataset.tip=fb?fb.tip:'LaTeX 소스가 없는 PDF입니다 — 줄 번호 없이 쪽·영역과 영역 글자로 핀을 남깁니다';
   $('#c-tag').hidden=true; $('#c-warn').hidden=!d.warn; $('#c-warn').textContent=warnText(d.warn); $('#c-overlap').hidden=true;
-  $('#c-levels').innerHTML=''; $('#c-cap').innerHTML=''; drawExcerpt(null,$('#c-xp'),false);
+  $('#c-levels').innerHTML=''; setCap($('#c-cap'),''); drawExcerpt(null,$('#c-xp'),false);
   const pre=$('#c-snip'); pre.className='wrap open'; pre.textContent=d.quote?tl('영역 글자: {text}',{text:d.quote}):tr('(이 영역에는 글자가 없습니다)');
   $('#c-expand').hidden=true; renderElement(d,COMPOSE.box);}
+// The composer's markup follows its order on screen, so Tab does (docs/handbook/viewer.md §패널 정리). On the phone and short
+// bands the note and its helpers, the kind, the overlap notice and the range block follow the location line, which #c-body
+// keeps with the warning (a hidden #c-body hides the moved overlap notice and range block too, responsive.css); on the
+// others the overlap notice and the range block are #c-body's and the kind and the note come after it. Run as the band
+// changes (applyLayout); a part that had the focus keeps it.
+function orderComposer(){const c=$('#composer'),b=$('#c-body'),ov=$('#c-overlap'),rg=$('#c-range'),phone=document.body.matches('.lay-narrow,.band-short');
+  if((rg.parentNode===c)===phone)return;
+  const a=document.activeElement,kind=$('#c-kind'),notes=['#note','#note-mentions','#c-viewer','#c-qhint','#c-assign'].map(s=>$(s));
+  if(phone)c.append(...notes,kind,ov,rg); else{b.append(ov,rg); c.append(kind,...notes);}
+  if(a&&a!==document.activeElement&&c.contains(a))a.focus({preventScroll:true});}
 // Draws the composer from COMPOSE.current (location, ladder, source, overlap) and schedules the draft write - every change of the
 // selection (a pick, a level, a nudge, a restore) passes through here.
 function renderComposer(){const d=COMPOSE.current; if(!d)return; saveDraftSoon();
@@ -124,7 +134,7 @@ function renderComposer(){const d=COMPOSE.current; if(!d)return; saveDraftSoon()
   const v=viaTag(d),tg=$('#c-tag'); tg.hidden=!v; if(v){tg.textContent=v.t;tg.dataset.tip=v.tip;tg.classList.toggle('badge-warning',!!v.low);}
   $('#c-warn').hidden=!d.warn; $('#c-warn').textContent=warnText(d.warn);
   renderOverlapBanner();
-  $('#c-cap').innerHTML=rangeCap(d,false); drawLadder($('#c-levels'),d,false);
+  setCap($('#c-cap'),rangeCap(d,false)); drawLadder($('#c-levels'),d,false);
   const pre=$('#c-snip'); pre.className=(WRAP?'wrap':'nowrap')+(SNIP_OPEN?' open':''); pre.textContent=snipText(d.snippet,SNIP_OPEN);
   // A collapsed source is cut to 4 lines by CSS. Whether it was cut is measured after rendering (a manuscript where one long line wraps into several is common).
   const over=SNIP_OPEN||pre.scrollHeight>pre.clientHeight+2, nl=String(d.snippet||'').split('\n').length;

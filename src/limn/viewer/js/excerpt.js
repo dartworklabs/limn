@@ -1,8 +1,8 @@
 // ------------------------------------------------ Range excerpt (docs/handbook/viewer.md §패널 정리 범위 발췌)
-// On the compact bands the source under the range ladder is the range control itself: the selected lines in a tinted band
+// On the compact layouts the source under the range ladder is the range control itself: the selected lines in a tinted band
 // with one dimmed line above and below. A tap on a dimmed line widens the range to it; the '−' on the band's first or last
 // line drops that line. The owner read the stepper '위 + − 아래 + −' as moving the pin. The composer and the edit card draw
-// the same excerpt; the mouse desktop keeps the stepper and the plain source.
+// the same excerpt; the wide layout keeps the stepper and the plain source, whatever the pointer.
 
 // The range lo..hi widened to line k: [min(lo,k), max(hi,k)]. Pure.
 function widenTo(lo,hi,k){return [Math.min(lo,k),Math.max(hi,k)];}
@@ -38,9 +38,19 @@ async function excerptFetch(o){const n=o.n_lines||o.hi,want=new Set();
 function excerptRedraw(o){if(o===COMPOSE.current)renderComposer(); else if(o===EDITOR.current)renderEdit();}
 // o's excerpt box: the composer's #c-xp or the open edit card's .e-xp, else null.
 function excerptBox(o){return o===COMPOSE.current?$('#c-xp'):o===EDITOR.current?EDITOR.current.el.querySelector('.e-xp'):null;}
-// Draws o's excerpt into box on the compact bands, or clears and hides it (the mouse desktop, a region, no selection).
-// isEdit: an edit card (the composer's [원문 펼치기] unfolds a long band; an edit card's band stays folded).
+// The control to focus after a redraw that took the focused one (a keyboard's Enter or Space on '+' or '−'): the same
+// action on the same line; else the same action on the side the change happened - the next dimmed line above or below, or
+// the band's new end line's '−' - so another press repeats it; else the control nearest that line. was: {act, line}; o has
+// the new range. Pure over the rows' buttons (btns: [{act, line, el}]).
+function excerptFocusTarget(btns,was,o){const at=(act,k)=>btns.find(b=>b.act===act&&b.line===k);
+  const up=was.line<=o.lo,same=at(was.act,was.line)||(was.act==='xp-to'?at('xp-to',up?o.lo-1:o.hi+1):at('xp-drop',up?o.lo:o.hi));
+  if(same)return same;
+  return btns.reduce((m,b)=>!m||Math.abs(b.line-was.line)<Math.abs(m.line-was.line)?b:m,null);}
+// Draws o's excerpt into box on the compact bands, or clears and hides it (the wide layout, a region, no selection).
+// isEdit: an edit card (the composer's [원문 펼치기] unfolds a long band; an edit card's band stays folded). A redraw that
+// takes the focused '+' or '−' puts the focus on its successor (excerptFocusTarget), so a keyboard keeps its place.
 function drawExcerpt(o,box,isEdit){const on=LAYOUT!==LAYOUT_MODE.WIDE&&!!o&&!o.region&&!isRegion(o);
+  const f=document.activeElement,had=box.contains(f)&&f.dataset.act?{act:f.dataset.act,line:+f.dataset.line}:null;
   box.hidden=!on; if(!on){box.innerHTML=''; return;}
   excerptTake(o,o.snippet); excerptFetch(o);
   const L=excerptLines(o),text=k=>{const t=L.get(k); return esc(t==null?'…':t);};
@@ -49,8 +59,10 @@ function drawExcerpt(o,box,isEdit){const on=LAYOUT!==LAYOUT_MODE.WIDE&&!!o&&!o.r
       '<span class="tx">'+text(r.k)+'</span><span class="xp-chip add" aria-hidden="true">'+ic('plus')+'</span></button>':
     '<div class="xp-row on" data-line="'+r.k+'"><span class="ln">'+r.k+'</span><span class="tx">'+text(r.k)+'</span>'+
       (r.edge?'<button class="xp-chip xp-drop" data-act="xp-drop" data-line="'+r.k+'" aria-label="'+esc(tl('이 줄 빼기 (L{n})',{n:r.k}))+'">'+ic('minus')+'</button>':'<span></span>')+'</div>');
-  box.innerHTML='<div class="xp-hint">'+esc(tr('흐린 줄을 누르면 그 줄까지 넓어지고, −를 누르면 그 줄이 빠집니다'))+'</div>'+
+  box.innerHTML='<div class="xp-hint">'+esc(o.hi>o.lo?tr('흐린 줄을 누르면 그 줄까지 넓어지고, −를 누르면 그 줄이 빠집니다'):tr('흐린 줄을 누르면 그 줄까지 넓어집니다'))+'</div>'+
     '<div class="xp-list '+(WRAP?'wrap':'nowrap')+'" translate="no">'+rows.join('')+'</div>';
+  if(had){const t=excerptFocusTarget([...box.querySelectorAll('[data-act]')].map(el=>({act:el.dataset.act,line:+el.dataset.line,el})),had,o);
+    if(t)t.el.focus({preventScroll:true});}
   if(!isEdit){const c=o.hi-o.lo+1; $('#c-expand').hidden=c<=5; $('#c-expand').textContent=SNIP_OPEN?tr('원문 접기'):tr('원문 펼치기')+' · '+tl('{n}줄',{n:c});}}
 // Applies range r ([lo,hi], kept inside the file) to o as lines set by hand (scope 'lines', as the stepper does), then the
 // overlap (composer), the panel and the source text. The sheet scrolls by whatever the redraw moved line anchor's row - the

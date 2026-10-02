@@ -230,9 +230,10 @@ body.lay-narrow #bar1 #btn-pos{flex:0 1 auto;min-width:0}
 #btn-pos .nm{flex:0 1 auto;min-width:0;margin-right:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 #btn-pos b{flex:none;font-weight:600;font-variant-numeric:tabular-nums;white-space:nowrap}
 #btn-pos :is(.ic,.ddot){flex:none}
-/* The width budget (UX spec §V4 폭 예산): under 360px the bar buttons' side padding and the gap in a cell go from 8 to 4px (the
-   pin chip's halves keep 8px, below). Decoration only - the layout never changes by width here. */
-@media (max-width:359.98px){body.lay-narrow #bar1 :is(.bar-l,.bar-r){gap:var(--space-1)}body.lay-narrow #bar1 button:not(.btn-icon){padding:0 var(--space-1)}}
+/* The width budget (UX spec §V4 폭 예산): under 360px the bar buttons' side padding and the right cell's gap go from 8 to 4px (the
+   pin chip's halves step down on their own, below; the left cell keeps its 8px, which [⬚]'s 44px hit reaches into). Decoration
+   only - the layout never changes by width here. */
+@media (max-width:359.98px){body.lay-narrow #bar1 .bar-r{gap:var(--space-1)}body.lay-narrow #bar1 button:not(.btn-icon){padding:0 var(--space-1)}}
 body.compact #bar1 #btn-more{flex:0 0 44px;padding:0}   /* utility = ghost (the same convention as notification/theme/help on desktop) */
 /* The phone and tablet bar's right end: [⋯]'s ink ends on the ink line (--ink), as R2 asks of a ghost at a row's end - centred in
    its 44px box it ended 4px further in (28 on a phone), across from [📍]'s fill on the edge line. */
@@ -256,12 +257,15 @@ body.compact #c-copy{background:transparent;border-color:transparent}
 /* The short band (a landscape phone, ~346px of panel) takes the same order: in the mid order the note was ninth, off screen after a pick. */
 /* After the note come its kind (what the note is), the overlap notice, and last the range block (#c-range: caption, ladder,
    line buttons, source and its foot), so what changes the range sits with the source it changes - the kind used to sit
-   between them. Every block is one 8px step from the next (they sat 0-20px apart, the kind flush on the source). */
+   between them. Every block is one 8px step from the next (they sat 0-20px apart, the kind flush on the source). On these
+   bands the markup is moved into this order too (orderComposer, composer.js), so Tab follows the screen; the order values
+   restate it. */
 body:is(.lay-narrow,.band-short) #composer{display:flex;flex-direction:column;gap:var(--space-2)}
 body:is(.lay-narrow,.band-short) #c-body{display:contents}
+body:is(.lay-narrow,.band-short) #c-body[hidden]~:is(#c-overlap,#c-range){display:none}   /* moved out of #c-body (orderComposer), they hide with it */
 body:is(.lay-narrow,.band-short) #note{order:1}
 body:is(.lay-narrow,.band-short) :is(#note-mentions,#c-viewer,#c-qhint,#c-assign){order:1}
-body:is(.lay-narrow,.band-short) #c-kind{order:2}
+body:is(.lay-narrow,.band-short) #c-kind{order:2;z-index:1}   /* its segments' 44px hits over the overlap notice's, which the markup now puts after it */
 body:is(.lay-narrow,.band-short) #c-overlap{order:3}
 body:is(.lay-narrow,.band-short) #c-range{order:4;display:flex;flex-direction:column;gap:var(--space-2)}
 body:is(.lay-narrow,.band-short) #composer :is(#note,#note-mentions,#c-qhint,#c-assign,#c-kind,#c-overlap,#c-cap,#c-levels,.c-tools,#c-snip){margin:0}
@@ -361,15 +365,16 @@ body.lay-narrow #bar1{padding-top:var(--space-3);--tb-h:var(--control-h)}
 body.lay-narrow.side-open #bar1{padding-bottom:var(--space-1)}
 body.lay-narrow #bar1 #sheet-grip{position:absolute;grid-column:2/3;left:50%;top:0;transform:translateX(-50%);height:var(--hit);padding-top:var(--space-1)}   /* its bar in the inset, its 44px box the empty middle column */
 body.lay-narrow #bar1 #btn-side{position:relative}
-body.lay-narrow #btn-side .pin-ic{position:static;margin:0}
+body.lay-narrow #btn-side .pin-ic{display:contents}   /* no glyph here: it takes no flex slot (nor a gap), its draft dot sits on the chip */
 body.lay-narrow #btn-side .pin-ic svg,body.lay-narrow #bar1 #btn-side .rv-n{display:none}
 body.lay-narrow #btn-side .pin-ic .c-dot{top:var(--space-1);right:var(--space-1)}   /* the draft dot on the chip's corner */
 body.lay-narrow #bar1 .side-l{display:block;color:var(--muted-foreground)}
 body.lay-narrow #bar1 #btn-rv:not([hidden]){display:inline-flex}
 body.lay-narrow #bar1 :is(#btn-side,#btn-rv,#btn-select){background:var(--secondary);color:var(--secondary-foreground);border-radius:var(--radius-lg)}
-body.lay-narrow #bar1 :is(#btn-side,#btn-rv){gap:var(--space-1);padding:0 var(--space-3)}
+body.lay-narrow #bar1 :is(#btn-side,#btn-rv){gap:var(--space-1);padding:0 var(--space-3);min-width:var(--hit);justify-content:center}   /* halves meet: each answers 44px inside itself */
 body.lay-narrow #bar1 .bar-l:has(#btn-rv:not([hidden])) #btn-side{border-radius:var(--radius-lg) 0 0 var(--radius-lg)}
 body.lay-narrow #bar1 #btn-rv{border-radius:0 var(--radius-lg) var(--radius-lg) 0;margin-left:calc(-1 * var(--space-2));box-shadow:inset 1px 0 0 var(--border)}   /* the halves' seam, not a border */
+body.lay-narrow #bar1 #btn-side:focus-visible{z-index:1}   /* its ring over the review half that meets it */
 body.lay-narrow #bar1 #btn-rv,body.lay-narrow #bar1 #btn-rv .side-l{color:var(--status-review)}
 body.lay-narrow #bar1 :is(.side-n,.rv-c){font-weight:600;font-variant-numeric:tabular-nums}
 body.lay-narrow #bar1 :is(.side-n,.side-l,.rv-c,#btn-pos b,#btn-pos .nm){text-box:trim-both cap alphabetic}
@@ -379,11 +384,18 @@ body.lay-narrow #bar1 #btn-pos{gap:var(--space-1);padding:0 var(--space-2)}
 body.lay-narrow #bar1 #btn-pos .ic{width:16px;height:16px;color:var(--muted-foreground)}
 @media (pointer:coarse){body.lay-narrow #bar1 :is(#btn-side,#btn-rv,#btn-select,#btn-pos,#btn-more)::after{top:50%;height:var(--hit);transform:translate(-50%,-50%)}
   body.lay-narrow #bar1 #btn-select::after{left:auto;right:0;transform:translateY(-50%)}}   /* the 36px chip's hit reaches left into the gap, never into the grabber's column */
-/* The width budget: under 400px the chip's halves pad 8px; when the left cell still overflows (English, three-digit counts, a
-   folded cover) the words step aside (fitBarWords, .bar-tight) and the counts stay, the review half still purple. Decoration
-   only - the row's layout never changes by width. */
+/* The width budget: under 400px the chip's halves pad 8px. When the left cell still overflows (English, three-digit counts, a
+   folded cover) it steps down (fitBarWords): the halves pad one 4px step less (.bar-snug), then the words give way to a dot
+   each, green for the open pins and purple for awaiting review (.bar-tight), so a count never stands alone. The gap before
+   [⬚] stays 8px: its 44px hit reaches into it. Decoration only - the row's layout never changes by width. */
 @media (max-width:399.98px){body.lay-narrow #bar1 :is(#btn-side,#btn-rv){padding:0 var(--space-2)}}
+body.lay-narrow #bar1.bar-snug :is(#btn-side,#btn-rv){padding:0 var(--space-2)}
+@media (max-width:399.98px){body.lay-narrow #bar1.bar-snug :is(#btn-side,#btn-rv){padding:0 var(--space-1)}}
+.side-d{display:none}
 body.lay-narrow #bar1.bar-tight .side-l{display:none}
+body.lay-narrow #bar1.bar-tight .side-d{display:block;flex:none;width:8px;height:8px;border-radius:50%;background:var(--status-open)}   /* centred on the trimmed count */
+body.lay-narrow #bar1.bar-tight #btn-rv .side-d{background:var(--status-review)}
+body.lay-narrow #bar1.bar-tight :is(#btn-side,#btn-rv){gap:2px}   /* dot to count: a three-digit count still fits the 344px cover */
 /* ---- Spread-out folded layout / tablet (mid): the document nav bar on top, the action row on the bottom - both fixed to the full screen
    width, with the panel spread between them (docs/handbook/viewer.md §펼친 화면 레이아웃). It used to have the tool bar follow the panel, so [핀]
    jumped to the top-right when expanded and the bottom-right when collapsed (observed 842x758, y 56->693), and the document-side panel

@@ -1607,6 +1607,21 @@ class LayoutNotPointer(ViewerBase):
         box = page.locator("#more").bounding_box()
         self.assertAlmostEqual(box["y"] + box["height"], 800, delta=1)
 
+    def test_the_helps_range_step_follows_the_layout(self):
+        """The tour's range step names the control the layout draws, whatever the pointer: a mouse at 1000x800 (mid, the
+        excerpt) reads the dimmed-line sentence, as a phone does; a mouse at 1440x900 (wide, the stepper) reads the '위 +'
+        one."""
+        for device, compact in ((MOUSE_MID, True), (MOUSE_WIDE, False), (phone(411, 908), True)):
+            with self.subTest(w=device["viewport"]["width"]):
+                page = self.view(device)
+                page.evaluate("openHelp()")
+                settle(page)
+                got = page.evaluate(
+                    "['.compact-only','.wide-only'].map(s=>{const e=document.querySelector('#help '+s); return e.getClientRects().length?e.innerText.trim():'';})"
+                )
+                self.assertEqual([bool(t) for t in got], [compact, not compact])
+                self.assertIn("흐린 줄" if compact else "위 +", got[0] or got[1])
+
     def test_a_mouse_at_wide_width_sees_the_desktop_unchanged(self):
         """1440x900 with a mouse: the panel, card, composer and tool bar are as they were before the compact work - a 348px
         panel, 28px tool bar, the section strip, the card's #N / range / N쪽 and its named grid, the composer's order and its
@@ -2087,6 +2102,13 @@ FOOTERS = """() => {const R = s => {const e = document.querySelector(s); if (!e 
     fits: r.scrollHeight <= r.clientHeight + 1, vh: innerHeight};}"""
 # Every list section shut, so the pin sheet's content is shorter than the sheet raised to its top.
 SECTIONS_SHUT = {"sec": {"open": False, "review": False, "done": False}}
+# A soft keyboard that shrinks only the visual viewport (iOS Safari, a Chrome without interactive-widget): the layout keeps
+# its height, visualViewport.height drops by window.__setKb(n)'s n and a resize event follows.
+KB_VISUAL_ONLY = """window.__kb = 0;
+(() => {const vv = window.visualViewport; if (!vv) return;
+  const real = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(vv), 'height');
+  Object.defineProperty(vv, 'height', {configurable: true, get() {return window.__kb ? document.documentElement.clientHeight - window.__kb : real.get.call(vv);}});
+  window.__setKb = n => {window.__kb = n; vv.dispatchEvent(new Event('resize'));};})();"""
 
 
 class BottomActionRow(ViewerBase):
@@ -2149,6 +2171,23 @@ class BottomActionRow(ViewerBase):
         settle(page)
         f = page.evaluate(FOOTERS)
         self.assertAlmostEqual(f["save"]["bottom"], 908 - 330, delta=1)
+
+    def test_the_save_row_sits_on_a_keyboard_that_shrinks_only_the_visual_viewport(self):
+        """411x908, the note focused, a browser that keeps the layout and shrinks only the visual viewport by 330px (iOS
+        Safari, a Chrome without interactive-widget; stubbed): onViewport sets --kb to 330px and the row ends on the
+        keyboard's top; the keyboard down, --kb is 0 and the row is back on the screen's bottom."""
+        page = self.view(phone(411, 908), prefs=SECTIONS_SHUT, init=KB_VISUAL_ONLY)
+        self.compose(page)
+        page.focus("#note")
+        for kb in (330, 0):
+            with self.subTest(kb=kb):
+                page.evaluate("n=>window.__setKb(n)", kb)
+                settle(page)
+                self.assertEqual(
+                    page.evaluate("[innerHeight, document.documentElement.style.getPropertyValue('--kb')]"),
+                    [908, "%dpx" % kb],
+                )
+                self.assertAlmostEqual(page.evaluate(FOOTERS)["save"]["bottom"], 908 - kb, delta=1)
 
     def test_the_edit_cards_row_is_the_bottom_row_and_the_list_scrolls_clear_of_it(self):
         """411x908 and 768x1024, no selection: the edit card's row ends on the screen's bottom edge, outside its card, and
@@ -2366,6 +2405,56 @@ class ComposerSamePass(ViewerBase):
         self.assertEqual(top, ["c-loc-row", "note", "c-kind", "c-overlap", "c-range"], top)
         inner = [b[0] for b in page.evaluate(COMPOSER_BLOCKS, "#c-range")]
         self.assertEqual(inner, ["c-cap", "c-levels", "c-xp", "snip-foot"], inner)
+
+    def test_tab_follows_the_screen_on_every_band(self):
+        """The markup follows the order on screen, so Tab does (it went location, overlap, range, kind, note on the phone,
+        whose screen shows the note second): on a 411x908 phone the location, the note, the kind, the overlap notice and the
+        range block; with a mouse at 1000x800 (mid) and 1440x900 (wide) the location, the range block, the kind and the note.
+        Each Tab lands on or below the one before. The phone turned into the mid band moves the parts back, and on the phone
+        a hidden #c-body (a failed pick) hides the moved range block too."""
+        tab = """() => {const c = document.querySelector('#composer'), a = document.activeElement; if (!c.contains(a)) return null;
+          const r = a.getBoundingClientRect();
+          return [['.c-loc-row', '#c-kind', '#c-overlap', '#c-range'].find(s => a.closest(s)) || '#note', r.top + r.height / 2 - c.getBoundingClientRect().top];}"""
+        phone_order = [".c-loc-row", "#note", "#c-kind", "#c-overlap", "#c-range"]
+        desk_order = [".c-loc-row", "#c-overlap", "#c-range", "#c-kind", "#note"]
+        for device, touch, order in (
+            (phone(411, 908), True, phone_order),
+            (MOUSE_MID, False, desk_order),
+            (MOUSE_WIDE, False, desk_order),
+        ):
+            with self.subTest(w=device["viewport"]["width"]):
+                page = self.view(device)
+                if touch:
+                    self.compose(page)
+                else:
+                    self.mouse_pick(page)
+                page.focus("#c-loc")
+                seen = [page.evaluate(tab)]
+                for _ in range(40):
+                    page.keyboard.press("Tab")
+                    got = page.evaluate(tab)
+                    if got is None:
+                        break
+                    seen.append(got)
+                blocks = [b for i, (b, _) in enumerate(seen) if i == 0 or seen[i - 1][0] != b]
+                self.assertEqual(blocks, [b for b in order if b in blocks], seen)
+                self.assertTrue({".c-loc-row", "#note", "#c-kind", "#c-range"} <= set(blocks), seen)
+                ys = [y for _, y in seen]
+                self.assertTrue(all(b >= a - 4 for a, b in zip(ys, ys[1:], strict=False)), seen)
+        page = self.view(phone(411, 908))
+        self.compose(page)
+        page.evaluate("document.querySelector('#c-body').hidden=true")
+        self.assertFalse(page.evaluate("document.querySelector('#c-range').getClientRects().length>0"))
+        page.evaluate("document.querySelector('#c-body').hidden=false")
+        page.set_viewport_size({"width": 1000, "height": 800})
+        page.wait_for_function("BAND==='mid-side'")  # a touch band settles after 200ms (settleBand)
+        settle(page)
+        self.assertEqual(
+            page.evaluate(
+                "[document.querySelector('#c-range').parentNode.id, document.querySelector('#note').previousElementSibling.id]"
+            ),
+            ["c-body", "c-kind"],
+        )
 
     def test_the_phone_composers_blocks_are_one_8px_step_apart(self):
         """411x908 and 768x1024: every gap between the composer's blocks, and inside the range block, is 8px (the kind
@@ -2760,12 +2849,62 @@ class RangeExcerpt(ViewerBase):
             [4, 6, "lines"],
         )
 
-    def test_a_mouse_desktop_keeps_its_stepper(self):
-        """1400x850 with a mouse: the composer keeps '위 + − 아래 + −' and its plain source; no excerpt."""
-        page = self.view(DESK)
-        self.mouse_pick(page)
-        got = page.evaluate(EXCERPT, "#composer")
-        self.assertEqual((got["rows"], got["step"], got["pre"]), ([], True, True))
+    def test_the_wide_layout_keeps_its_stepper_and_a_mouse_in_mid_gets_the_excerpt(self):
+        """The layout decides, not the pointer (layout follows width, v0.4.1): 1400x850 with a mouse (wide) keeps '위 + − 아래
+        + −' and its plain source, no excerpt; 1000x800 with a mouse (mid) gets the excerpt and no stepper."""
+        for device, wide in ((DESK, True), (MOUSE_MID, False)):
+            with self.subTest(wide=wide):
+                page = self.view(device)
+                self.mouse_pick(page)
+                got = page.evaluate(EXCERPT, "#composer")
+                self.assertEqual((bool(got["rows"]), got["step"], got["pre"]), (not wide, wide, wide))
+
+    def test_a_keyboard_keeps_its_place_and_hears_the_new_range(self):
+        """411x908 from L5 with a keyboard: the redraw used to drop the focus to the page after every press. Two Enters on
+        dimmed L4 widen the range twice (L3-L5), the focus each time on the dimmed line now above, in view; two Enters on the
+        first line's '−' narrow it twice, the focus on the band's new first '−' and then, the band one line with no '−', on
+        the dimmed line where it was. The caption above is a polite live region that names the range."""
+        page = self.view(phone(411, 908))
+        self.compose(page)
+        page.click('#c-levels [data-level="raw"]')
+        settle(page)
+        self.assertEqual(
+            page.evaluate("['aria-live','aria-atomic'].map(a=>document.querySelector('#c-cap').getAttribute(a))"),
+            ["polite", "true"],
+        )
+        focus = "(()=>{const a=document.activeElement,r=a.getBoundingClientRect(); return [a.dataset.act||a.id,+a.dataset.line,r.top>=0&&r.bottom<=innerHeight];})()"
+        page.focus('#c-xp .xp-row.ctx[data-line="4"]')
+        for lo, at in ((4, ["xp-to", 3, True]), (3, ["xp-to", 2, True])):
+            page.keyboard.press("Enter")
+            settle(page)
+            self.assertEqual(page.evaluate("[COMPOSE.current.lo,COMPOSE.current.hi]"), [lo, 5])
+            self.assertEqual(page.evaluate(focus), at)
+        self.assertEqual(page.evaluate("document.querySelector('#c-cap').innerText"), "범위 L3-L5 · 3줄")
+        page.focus('#c-xp .xp-drop[data-line="3"]')
+        for lo, at in ((4, ["xp-drop", 4, True]), (5, ["xp-to", 4, True])):
+            page.keyboard.press("Enter")
+            settle(page)
+            self.assertEqual(page.evaluate("[COMPOSE.current.lo,COMPOSE.current.hi]"), [lo, 5])
+            self.assertEqual(page.evaluate(focus), at)
+
+    def test_the_hint_breaks_between_words_and_names_minus_only_when_there_is_one(self):
+        """360x800: a one-line band has no '−', so its hint is only the widening half; with two lines it names '−' too, and
+        it wraps between words - its last line holds a word, not one syllable left over."""
+        page = self.view(phone(360, 800, 3))
+        self.compose(page)
+        page.click('#c-levels [data-level="raw"]')
+        settle(page)
+        self.assertEqual(
+            page.evaluate("document.querySelector('#c-xp .xp-hint').innerText"), "흐린 줄을 누르면 그 줄까지 넓어집니다"
+        )
+        self.tap_row(page, '#c-xp .xp-row.ctx[data-line="4"]')
+        got = page.evaluate(
+            """() => {const h = document.querySelector('#c-xp .xp-hint'), r = document.createRange(); r.selectNodeContents(h);
+              const lines = new Map(); for (const b of r.getClientRects()) {const k = Math.round(b.top); lines.set(k, (lines.get(k) || 0) + b.width);}
+              return {text: h.innerText, last: [...lines.values()].pop(), em: parseFloat(getComputedStyle(h).fontSize)};}"""
+        )
+        self.assertIn("−", got["text"])
+        self.assertGreater(got["last"], 1.5 * got["em"], got)
 
 
 # The phone sheet's tool row as drawn: the row's insets from the sheet's top edge (inside its 1px border), the grabber's,
@@ -2840,17 +2979,107 @@ class BarChip(ViewerBase):
                     self.assertTrue(all(abs(o) <= 0.5 for o in got["off"]), got["off"])
                     self.assertEqual(got["words"], ["핀 3", "검토 1"])
 
-    def test_nothing_spills_out_of_its_cell_in_english_at_360(self):
-        """360x800 and the 344px folded cover in English, with the fullest counts: every control stays inside its cell."""
-        for device in (phone(360, 800, 3), phone(344, 882)):
-            with self.subTest(width=device["viewport"]["width"]):
-                page = self.view(device, lang="en")
-                page.evaluate(FULL_BAR)
-                page.evaluate(
-                    "()=>{const b=document.querySelector('#btn-rv'); b.hidden=false; b.querySelector('.rv-c').textContent='12';}"
+    def test_each_half_always_says_what_it_counts_and_nothing_spills(self):
+        """344, 360, 411 and 430 wide, Korean and English, the fixture's counts and the fullest (123 | 12): each half shows
+        its word or its dot - never a bare count (English at 411 read '3 | 1') - every control stays inside its cell and
+        answers 44px. The cell steps down only as far as it must: Korean keeps its words from 360 (snug on the 344 cover),
+        English keeps them at 411 and 430 (snug) and takes the dots at 360 and 344; a dot is green for the pins, purple for
+        the review, centred on its count."""
+        want = {(344, "ko"): "bar-snug", (360, "ko"): "", (411, "ko"): "", (430, "ko"): "", (344, "en"): "bar-tight",
+                (360, "en"): "bar-tight", (411, "en"): "bar-snug", (430, "en"): "bar-snug"}  # fmt: skip
+        for w, h in ((344, 882), (360, 800), (411, 908), (430, 932)):
+            for lang in ("ko", "en"):
+                page = self.view(phone(w, h, 3), lang=lang)
+                for full in (False, True):
+                    with self.subTest(w=w, lang=lang, full=full):
+                        if full:
+                            page.evaluate(FULL_BAR)
+                            settle(page)
+                        got = page.evaluate(BAR_IDS)
+                        if not full:
+                            self.assertEqual(got["step"], want[(w, lang)])
+                        self.assertEqual(
+                            got["ids"], [["word"], ["word"]] if got["step"] != "bar-tight" else [["dot"], ["dot"]]
+                        )
+                        if got["step"] == "bar-tight":
+                            self.assertEqual(got["dots"], got["want"])
+                            self.assertTrue(all(abs(o) <= 0.5 for o in got["off"]), got["off"])
+                        self.assertEqual(page.evaluate(BAR)["spill"], [])
+                        self.assertEqual(page.evaluate(MISSES_44, "#bar1 button,#sheet-grip"), [])
+
+    def test_each_half_is_named_by_what_it_shows_first(self):
+        """411x908: [검토 1]'s name starts with its words ('검토 1 · 검토 대기 핀으로 가기', 'Review 1 · …'), and [핀 3]'s starts with
+        its own and leaves the review count to the other half. In the mid bar the pill sits inside [📍 3] and its name keeps
+        the count. A keyboard's ring on [핀 3] is drawn over the review half that meets it."""
+        for lang, side, rv in (("ko", "핀 3 · ", "검토 1 · "), ("en", "Pin 3 · ", "Review 1 · ")):
+            with self.subTest(lang=lang):
+                page = self.view(phone(411, 908), lang=lang)
+                names = page.evaluate(
+                    "['#btn-side','#btn-rv'].map(s=>document.querySelector(s).getAttribute('aria-label'))"
                 )
+                self.assertTrue(names[0].startswith(side), names)
+                self.assertNotIn("1", names[0].replace(side, ""), names)
+                self.assertTrue(names[1].startswith(rv), names)
+        page = self.view(phone(411, 908))
+        page.focus("#btn-rv")
+        page.keyboard.press("Shift+Tab")
+        self.assertEqual(
+            page.evaluate("[document.activeElement.id, document.activeElement.matches(':focus-visible'),"
+                          " getComputedStyle(document.activeElement).zIndex]"),
+            ["btn-side", True, "1"],
+        )  # fmt: skip
+        page = self.view(MOUSE_MID)
+        self.assertIn("검토 대기 1", page.get_attribute("#btn-side", "aria-label"))
+
+
+# The sheet bar's left cell: its width step (bar-snug, bar-tight or ''), what identifies each visible half ('word' and/or
+# 'dot'), the dots' colours and the colours they should be (--status-open, --status-review), and how far each dot's centre
+# sits from its count's.
+BAR_IDS = """() => {const q = s => document.querySelector(s), vis = e => !!e && e.getClientRects().length > 0, b = q('#bar1');
+  const cy = e => {const r = e.getBoundingClientRect(); return r.top + r.height / 2;};
+  const colour = v => {const i = document.createElement('i'); i.style.color = v; document.body.append(i); const c = getComputedStyle(i).color; i.remove(); return c;};
+  const halves = ['#btn-side', '#btn-rv'].map(q).filter(vis);
+  return {step: ['bar-tight', 'bar-snug'].find(c => b.classList.contains(c)) || '',
+    ids: halves.map(h => [['.side-l', 'word'], ['.side-d', 'dot']].filter(([s]) => vis(h.querySelector(s))).map(([, n]) => n)),
+    dots: halves.map(h => getComputedStyle(h.querySelector('.side-d')).backgroundColor), want: [colour('var(--status-open)'), colour('var(--status-review)')],
+    off: halves.map(h => Math.round((cy(h.querySelector('.side-d')) - cy(h.querySelector('b'))) * 100) / 100)};}"""
+
+
+class SheetFocus(ViewerBase):
+    """A sheet opened by a tap focuses itself, not its [닫기] (review of #130: the owner's phone drew the focus ring on [닫기]
+    each time [더보기] opened, by the browser's own heuristic, where the emulator's :focus-visible did not). [더보기], the
+    navigation sheet, the help and the Trash are tabindex=-1 dialogs that take the first focus with no outline; Tab goes
+    on to [닫기]."""
+
+    STATE = """() => {const a = document.activeElement; return [a.id || a.dataset.act, getComputedStyle(a).outlineStyle];}"""
+
+    def test_a_tapped_sheet_focuses_itself_and_tab_reaches_close(self):
+        """411x908: a tap on [⋯] and on [본문 1/2 ▾], a tap on [도움말] in [더보기], and the Trash opened: each sheet is the
+        focused element, drawn with no outline, and one Tab lands on its [닫기]."""
+        page = self.view(phone(411, 908))
+        cdp = self.cdp(page)
+        for opener, sheet, close in (
+            ("#btn-more", "more", "more-close"),
+            ("#btn-pos", "nav-sheet", "nav-sheet-close"),
+            ("#more [data-act=help]", "help", "help-close"),
+            (None, "trash", "trash-close"),
+        ):
+            with self.subTest(sheet=sheet):
+                if sheet == "help":
+                    page.evaluate("openMore()")
+                    settle(page)
+                if opener:
+                    self.tap(cdp, *self.center(page, opener))
+                else:
+                    page.evaluate("openTrash()")
+                page.wait_for_function("id=>document.getElementById(id).open", arg=sheet)
                 settle(page)
-                self.assertEqual(page.evaluate(BAR)["spill"], [])
+                self.assertEqual(page.evaluate(self.STATE), [sheet, "none"])
+                page.keyboard.press("Tab")
+                self.assertEqual(page.evaluate("document.activeElement.dataset.act"), close)
+                page.keyboard.press("Escape")
+                settle(page)
+                self.before_next_tap(page)
 
 
 # A landscape tablet in the mid layout (the side panel). A portrait tablet is the tablet sheet (TouchLayoutBands).
@@ -4057,7 +4286,8 @@ NAV_SHEET = """() => {const d = document.querySelector('#nav-sheet'), R = d.getB
     .map(e => [e.id, e.getBoundingClientRect().top]).sort((a, b) => a[1] - b[1]);
   const spill = [...d.querySelectorAll('button,input')].filter(vis).filter(e => {const r = e.getBoundingClientRect();
     return r.left < R.left - 0.5 || r.right > R.right + 0.5;}).map(e => e.id || e.className);
-  const a = document.activeElement; return {order, spill, focus: a.dataset.doc || a.dataset.mode || a.id};}"""
+  const a = document.activeElement, cur = [d.querySelector('.dm-item.on'), d.querySelector('#ns-view [aria-checked=true]')].find(vis);
+  return {order, spill, focus: a.id, current: cur.dataset.doc || cur.dataset.mode};}"""
 # The open [더보기]: whether a Limn icon is in the label, the label dot's fill and the instance colour, the meta's distinct line
 # tops and the pieces that break across lines, the foot (wordmark, version text, [도움말]) and the rows that are gone.
 MORE = """() => {const q = s => document.querySelector(s), colour = v => {const e = document.createElement('i'); e.style.background = v;
@@ -4129,27 +4359,23 @@ class BarAndSheets(ViewerBase):
                 self.assertEqual(page.get_attribute("#btn-select", "aria-label"), "선택")
                 self.assertEqual(page.evaluate(MISSES_44, "#bar1 button,#sheet-grip"), [])
 
-    def test_the_width_budget_pads_8px_under_400_and_lets_the_words_step_aside_only_when_they_do_not_fit(self):
-        """The chip's halves pad 12px from 400px and 8px under it; under 360px the gap in a cell is 4px. The words 핀 and
-        검토 stay while they fit - every phone in Korean with the fixture's counts - and step aside (#bar1.bar-tight, the
-        counts staying) for the fullest bar on the 344px cover and in English at 360 (UX spec §V4 폭 예산)."""
-        for device, pad, gap in (
+    def test_the_width_budget_pads_8px_under_400_and_keeps_8px_before_the_select(self):
+        """The chip's halves pad 12px from 400px and 8px under it, then one 4px step less when the cell is snug (344, Korean);
+        the left cell's gap stays 8px at every width - [⬚]'s 44px hit reaches 8px into it - and under 360px only the right
+        cell's gap is 4px (UX spec §V4 폭 예산). BarChip checks the steps."""
+        for device, pad, right in (
             (BAR_PHONES[0], "12px", "8px"),
             (BAR_PHONES[2], "8px", "8px"),
             (BAR_PHONES[1], "8px", "8px"),
-            (BAR_PHONES[4], "8px", "4px"),
+            (BAR_PHONES[4], "4px", "4px"),
         ):
             with self.subTest(width=device["viewport"]["width"]):
                 page = self.view(device)
                 bar = page.evaluate(BAR)
-                self.assertEqual((bar["pad"], bar["gap"]), (pad, gap))
-                self.assertFalse(page.evaluate("document.querySelector('#bar1').classList.contains('bar-tight')"))
-        for device, lang in ((BAR_PHONES[4], "ko"), (BAR_PHONES[1], "en")):
-            with self.subTest(width=device["viewport"]["width"], lang=lang):
-                page = self.view(device, lang=lang)
-                page.evaluate(FULL_BAR)
-                self.assertTrue(page.evaluate("document.querySelector('#bar1').classList.contains('bar-tight')"))
-                self.assertEqual(page.evaluate(BAR)["spill"], [])
+                self.assertEqual((bar["pad"], bar["gap"]), (pad, "8px"))
+                self.assertEqual(
+                    page.evaluate("getComputedStyle(document.querySelector('#bar1 .bar-r')).columnGap"), right
+                )
 
     def test_the_tablet_sheet_bar_has_only_more_in_its_right_cell(self):
         """820x1180: documents, view, page and outline are the nav bar's, so the right cell holds [⋯] alone."""
@@ -4452,8 +4678,8 @@ class BarAndSheets(ViewerBase):
 
     def test_the_position_button_opens_documents_view_page_and_outline_in_that_order(self):
         """411 and 344: [본문 1/2 ▾] - the document's name from 400px - opens one sheet whose sections run documents, the
-        view switch, the page field and the outline, all inside the sheet, with the current document's row focused. P5:
-        the phone had no way to the outline or the changes view."""
+        view switch, the page field and the outline, all inside the sheet, the sheet itself focused (SheetFocus) and the
+        current document's row marked. P5: the phone had no way to the outline or the changes view."""
         for device, name in ((BAR_PHONES[0], "본문"), (BAR_PHONES[4], "")):
             with self.subTest(width=device["viewport"]["width"]):
                 page = self.docs_view(device)
@@ -4462,12 +4688,12 @@ class BarAndSheets(ViewerBase):
                 got = page.evaluate(NAV_SHEET)
                 self.assertEqual([s for s, _ in got["order"]], ["ns-docs", "ns-view", "ns-page", "ns-outline"])
                 self.assertEqual(got["spill"], [])
-                self.assertEqual(got["focus"], "ms")
+                self.assertEqual((got["focus"], got["current"]), ("nav-sheet", "ms"))
                 self.assertEqual(page.evaluate(MISSES_44, "#nav-sheet button,#nav-sheet input"), [])
 
     def test_the_current_section_scrolls_up_only_as_far_as_the_focused_row_stays_under_the_head(self):
         """The sheet brings the outline's current section towards the middle of the space under its sticky head, but never
-        so far that the focused document row goes under the head (the evidence run at 411 found the row 37px under it, a
+        so far that the current document's row goes under the head (the evidence run at 411 found the row 37px under it, a
         cut-off highlighted row). A section already in view stays where it is; a deep one comes as close as that allows."""
         for selected in (2, 25):
             with self.subTest(selected=selected):
@@ -4481,18 +4707,18 @@ class BarAndSheets(ViewerBase):
                 self.open_nav(page)
                 got = page.evaluate(
                     "(()=>{const d=document.getElementById('nav-sheet'),h=d.querySelector('.ns-head').getBoundingClientRect(),"
-                    "f=document.activeElement.getBoundingClientRect(),a=d.querySelector('#ns-outline-items .ol-active')"
+                    "f=d.querySelector('.dm-item.on').getBoundingClientRect(),a=d.querySelector('#ns-outline-items .ol-active')"
                     ".getBoundingClientRect(),D=d.getBoundingClientRect();"
                     "return {gap:Math.round(f.top-h.bottom),st:d.scrollTop,active:[Math.round(a.top),Math.round(a.bottom)],"
-                    "head:Math.round(h.bottom),bottom:Math.round(D.bottom),focus:document.activeElement.dataset.doc};})()"
+                    "head:Math.round(h.bottom),bottom:Math.round(D.bottom),focus:d.querySelector('.dm-item.on').dataset.doc};})()"
                 )
                 self.assertEqual(got["focus"], "ms", got)
-                self.assertGreaterEqual(got["gap"], 0, got)  # the focused row is whole, under the head
+                self.assertGreaterEqual(got["gap"], 0, got)  # the current row is whole, under the head
                 if selected == 2:
                     self.assertEqual(got["st"], 0, got)  # in view already: the sheet opens at its top
                 else:
                     self.assertGreater(got["st"], 0, got)  # a deep section: the sheet scrolls towards it
-                    self.assertEqual(got["gap"], 0, got)  # ...exactly as far as the focused row allows
+                    self.assertEqual(got["gap"], 0, got)  # ...exactly as far as the current row allows
 
     def test_every_choice_goes_there_and_closes_the_sheet(self):
         """Picking is going: [변경사항] opens the changes view (the button then reads 변경사항), a page past the end goes to
@@ -4556,13 +4782,13 @@ class BarAndSheets(ViewerBase):
 
     def test_one_document_and_no_outline_leave_their_sections_out(self):
         """One document: nothing to switch to, so no documents section and no name on the button; a PDF without an outline:
-        no outline section. The view switch then takes the first focus."""
+        no outline section. The view switch's checked radio is then the current row."""
         page = self.view(BAR_PHONES[0], init=NO_PNG_CHIP)
         self.assertEqual(page.evaluate(POS), ["", "1/2", False])
         self.open_nav(page)
         got = page.evaluate(NAV_SHEET)
         self.assertEqual([s for s, _ in got["order"]], ["ns-view", "ns-page"])
-        self.assertEqual(got["focus"], "manuscript")
+        self.assertEqual((got["focus"], got["current"]), ("nav-sheet", "manuscript"))
 
     def test_unfolding_with_the_sheet_open_closes_it_and_keeps_the_note_and_the_spot(self):
         """A folded 344x882 with a note being written and the sheet open, unfolded to 884x1104 (the tablet sheet, whose nav

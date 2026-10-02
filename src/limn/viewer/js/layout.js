@@ -38,7 +38,7 @@ function applyLayout(){if(!BAND_IN)BAND_IN=bandInput(); const o=BAND_IN,band=lay
   const sheetToSheet=L===LAYOUT_MODE.NARROW&&LAYOUT===LAYOUT_MODE.NARROW,wasOpen=SIDE_OPEN;
   BAND=band; LAYOUT=L; MID_OVERLAY=overlay; OUTLINE_MID_OPEN=false; const b=document.body,p=prefs(); ZOOMED=false; endSideSlide();
   Object.values(LAYOUT_MODE).forEach(k=>b.classList.toggle('lay-'+k,k===L)); Object.values(LAYOUT_BAND).forEach(k=>b.classList.toggle('band-'+k,k===band));
-  b.classList.toggle('mid-overlay',overlay); b.classList.toggle('compact',L!==LAYOUT_MODE.WIDE);
+  b.classList.toggle('mid-overlay',overlay); b.classList.toggle('compact',L!==LAYOUT_MODE.WIDE); orderComposer();
   SIDE_OPEN=L===LAYOUT_MODE.WIDE?p.sideClosed!==true:(L===LAYOUT_MODE.MID?(typeof p.midClosed==='boolean'?!p.midClosed:!overlay):sheetToSheet&&wasOpen);
   if(!REPICK&&(COMPOSE.current||EDITOR.current||REPLY||!$('#composer').hidden))SIDE_OPEN=true;   // an in-progress note/edit/reply is never left hidden collapsed
   if(band!==LAYOUT_BAND.PHONE&&$('#nav-sheet').open)$('#nav-sheet').close();
@@ -56,8 +56,11 @@ function draftOpen(){return !$('#composer').hidden||!!EDITOR.current||!!REPLY||!
 function applySide(){const open=SIDE_OPEN,b=document.body,dot=!open&&draftOpen(),n=PINS.length,rv=REVIEW_ALL.length,composing=!$('#composer').hidden;
   b.classList.toggle('side-open',open||!!(SIDE_SLIDE&&SIDE_SLIDE.kind==='closing')); b.classList.toggle('composing',composing);
   if(!composing)SHEET_KEPT=false; b.classList.toggle('sheet-up',composing&&!SHEET_KEPT&&BAND===LAYOUT_BAND.PHONE);   // the phone sheet's composing lift; the tablet sheet's is tabletLift (panel-size.js)
-  const label=tr(open?'패널 접기':'패널 펴기')+' · '+tl('열린 핀 {n}',{n})+(rv?' · '+tl('검토 대기 {n}',{n:rv}):'')+(dot?' · '+tr('작성 중'):'');
-  for(const t of [$('#btn-side'),$('#nav-side')]){t.setAttribute('aria-expanded',String(open)); t.setAttribute('aria-label',label);
+  // The toggles' names: the review count only where its pill sits inside them (the mid bars, the wide nav bar); the sheet bar's
+  // [핀 N] names what it shows first and leaves the count to its own half [검토 M].
+  const label=tr(open?'패널 접기':'패널 펴기')+' · '+tl('열린 핀 {n}',{n})+(rv?' · '+tl('검토 대기 {n}',{n:rv}):'')+(dot?' · '+tr('작성 중'):''),
+    sheet=tl('핀 {n}',{n})+' · '+tr(open?'패널 접기':'패널 펴기')+(dot?' · '+tr('작성 중'):'');
+  for(const t of [$('#btn-side'),$('#nav-side')]){t.setAttribute('aria-expanded',String(open)); t.setAttribute('aria-label',t.id==='btn-side'&&LAYOUT===LAYOUT_MODE.NARROW?sheet:label);
     t.querySelector('.side-n').textContent=n; t.querySelector('.c-dot').hidden=!dot;}
   $('#nav-side').hidden=!(LAYOUT===LAYOUT_MODE.WIDE&&!open);
   $('#side-arrow').innerHTML=ic(LAYOUT===LAYOUT_MODE.NARROW?(open?'chevron-down':'chevron-up'):(open?'chevron-right':'chevron-left'));
@@ -181,9 +184,13 @@ function coach(key,text){const seen=Object.assign({},prefs().coach||{}); if(seen
 function setSelMode(on){SELMODE=!!on; document.body.classList.toggle('selmode',SELMODE);
   const b=$('#btn-select'); b.setAttribute('aria-pressed',String(SELMODE)); b.querySelector('.lbl').textContent=SELMODE?'선택 중':'선택';
   if(SELMODE)coach('sel','끌어서 고칠 곳을 고르세요 · 탭하면 그 문단 · 두 손가락으로 확대');}
+// Opens dialog d (a sheet in compact: [더보기], the navigation sheet, the help, the Trash) as a modal with the focus on d itself
+// (tabindex=-1, drawn without a ring), not on its first control: a phone's browser drew the focus ring on [닫기] each time a
+// tap opened one. Tab goes on to [닫기], the first control.
+function showSheet(d){d.showModal(); d.focus({preventScroll:true});}
 // Opens [더보기] with its view group drawn for now: the sheet-height or panel-width segment and the zoom figure, and its foot on
 // one ink line (footInk).
-function openMore(){const d=$('#more'); if(d.open)return; hideTip(); drawZoom(); renderSizeSeg(); d.showModal(); footInk(); toastHost();}
+function openMore(){const d=$('#more'); if(d.open)return; hideTip(); drawZoom(); renderSizeSeg(); showSheet(d); footInk(); toastHost();}
 // How far the foot's wordmark and version drop so their ink bottoms meet [도움말]'s: from the label's Hangul ink descent below
 // the shared baseline and the version's (px, positive = below). The wordmark has none ("limn" ends on the baseline); a label
 // without Hangul ('Help', whose 'p' hangs below by design) counts as none. Pure.

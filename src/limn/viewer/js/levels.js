@@ -41,6 +41,9 @@ function drawLadder(box,o,isEdit){const n=(o.levels||[]).length; box.dataset.run
 // rung, its name follows ('범위 L5 · 1줄 · 문단'); with a ladder, its pressed segment names it. An edit card's own lines (its
 // 'raw' rung) get no name. A range matching no rung has none either: the lines say what it is ('줄 직접 지정' is gone). In
 // an edit card the range copies as 'file Llo-Lhi' (the composer's location line has its copy).
+// Writes caption html into el only when it changed: the caption is a polite live region (a screen reader hears the new
+// range after a rung, a stepper or excerpt press, not every redraw), and its copyable range keeps its focus.
+function setCap(el,html){if(el._cap!==html){el._cap=html; el.innerHTML=html;}}
 function rangeCap(o,isEdit){const ls=o.levels||[],cur=curLevel(o),r=esc(rng(o.lo,o.hi));
   const named=ls.length<2&&cur&&!(isEdit&&cur.level==='raw')?' · '+esc(levelName(cur,ls)):'';
   const v=isEdit?'<span class="e-range loc" tabindex="0" data-copy="'+esc(o.name+' L'+o.lo+'-L'+o.hi)+'" data-tip="'+esc(tr('저장하면 핀이 가리킬 원문 줄. 누르면 복사'))+'">'+r+'</span>':'<span class="rg-v">'+r+'</span>';

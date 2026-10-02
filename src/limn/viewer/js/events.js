@@ -1,6 +1,6 @@
 // ------------------------------------------------ Help
 let HELP_BACK=null;
-function openHelp(){const d=$('#help'); if(d.open)return; HELP_BACK=document.activeElement; hideTip(); d.showModal(); toastHost();}
+function openHelp(){const d=$('#help'); if(d.open)return; HELP_BACK=document.activeElement; hideTip(); showSheet(d); toastHost();}
 $('#help').addEventListener('close',()=>{if(HELP_BACK&&HELP_BACK.focus)HELP_BACK.focus(); HELP_BACK=null;});
 
 // ------------------------------------------------ Event delegation (no inline handlers)

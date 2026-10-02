@@ -32,7 +32,7 @@ document.documentElement.setAttribute('lang',window.LIMN_LANG);
 <div id="grip" class="hit" role="separator" aria-orientation="vertical" aria-controls="right" aria-label="패널 폭" tabindex="0" data-tip="끌어서 패널 폭을 바꿉니다. 오른쪽 끝까지 끌면 접힙니다. 탭(마우스는 두 번 클릭)하면 좁게 → 보통 → 넓게 순으로 바뀝니다. 키보드: ←/→ 16px, Home/End 최소/최대, Enter 접기·펴기"></div>
 <div id="right">
   <div class="bar" id="bar1" role="toolbar" aria-label="도구">
-    <div class="bar-l"><button id="btn-side" class="cmp" data-act="side" aria-controls="right" aria-expanded="false" data-tip="핀 목록과 선택한 자리 패널을 펴고 접습니다. 보라색 숫자는 검토 대기(에이전트가 닫고 사람의 확인을 기다리는 핀) 수입니다"><span class="pin-ic">{{ic:pin}}<span class="c-dot" hidden></span></span><span class="side-l" aria-hidden="true">핀</span><b id="side-n" class="side-n">0</b><span id="side-rv" class="rv-n" hidden></span><span id="side-arrow" aria-hidden="true">{{ic:chevron-up}}</span></button><button id="btn-rv" class="cmp" data-act="goto-review" hidden data-tip="검토 대기 핀으로 갑니다. 에이전트가 닫고 사람의 확인을 기다리는 핀입니다"><span class="side-l" aria-hidden="true">검토</span><b class="rv-c">0</b></button><button id="btn-select" class="tch" data-act="selmode" aria-pressed="false" aria-label="선택" data-tip="켜면 PDF 위를 끌어서 영역을 고르고, 탭하면 그 자리 문단을 고릅니다. 끄면 보통처럼 스크롤·확대됩니다">{{ic:focus}}<span class="lbl">선택</span></button></div>
+    <div class="bar-l"><button id="btn-side" class="cmp" data-act="side" aria-controls="right" aria-expanded="false" data-tip="핀 목록과 선택한 자리 패널을 펴고 접습니다. 보라색 숫자는 검토 대기(에이전트가 닫고 사람의 확인을 기다리는 핀) 수입니다"><span class="pin-ic">{{ic:pin}}<span class="c-dot" hidden></span></span><span class="side-l" aria-hidden="true">핀</span><i class="side-d" aria-hidden="true"></i><b id="side-n" class="side-n">0</b><span id="side-rv" class="rv-n" hidden></span><span id="side-arrow" aria-hidden="true">{{ic:chevron-up}}</span></button><button id="btn-rv" class="cmp" data-act="goto-review" hidden data-tip="검토 대기 핀으로 갑니다. 에이전트가 닫고 사람의 확인을 기다리는 핀입니다"><span class="side-l" aria-hidden="true">검토</span><i class="side-d" aria-hidden="true"></i><b class="rv-c">0</b></button><button id="btn-select" class="tch" data-act="selmode" aria-pressed="false" aria-label="선택" data-tip="켜면 PDF 위를 끌어서 영역을 고르고, 탭하면 그 자리 문단을 고릅니다. 끄면 보통처럼 스크롤·확대됩니다">{{ic:focus}}<span class="lbl">선택</span></button></div>
     <div id="sheet-grip" role="separator" aria-orientation="horizontal" aria-controls="right" aria-label="시트 높이" tabindex="0" data-tip="끌어서 시트 높이를 바꿉니다. 탭하면 낮게 → 보통 → 높게 순으로 바뀌고, 끝까지 내리면 접힙니다"></div>
     <div class="bar-r"><button id="btn-pos" data-act="nav-sheet" aria-haspopup="dialog" translate="no"><span class="nm" id="btn-pos-n" hidden></span><span id="btn-pos-dot" class="ddot" hidden></span><b id="btn-pos-p">–/–</b>{{ic:chevron-down}}</button><button id="btn-more" class="cmp btn-icon" data-act="more" aria-label="더보기" aria-haspopup="dialog" data-tip="확대·시트 높이·테마·언어·핀 다시 읽기·알림·휴지통·재빌드·도움말">{{ic:ellipsis}}</button></div>
     <div id="status-slot"></div>
@@ -65,7 +65,7 @@ document.documentElement.setAttribute('lang',window.LIMN_LANG);
       <div id="c-warn" class="warnline" hidden></div>
       <div id="c-overlap" hidden></div>
       <div id="c-range" class="c-range">
-      <div id="c-cap" class="rg-cap"></div>
+      <div id="c-cap" class="rg-cap" aria-live="polite" aria-atomic="true"></div>
       <div id="c-levels" class="seg lad" role="group" aria-label="범위" data-rungs="0"></div>
       <div class="c-tools">
         <div class="step" role="group" aria-label="한 줄씩 넓히고 좁히기">
@@ -105,8 +105,8 @@ document.documentElement.setAttribute('lang',window.LIMN_LANG);
 <div id="tip" role="tooltip" translate="no" hidden></div>
 <div id="mention-pop" role="listbox" aria-label="부를 사람" hidden></div>
 <div id="coach" role="status" hidden><span id="coach-t"></span><button class="btn-icon btn-ghost" data-act="coach-close" aria-label="안내 닫기">{{ic:x}}</button></div>
-<dialog id="more" aria-label="더보기 · __LABEL__">
-  <div class="more-top"><span class="ns-grab" aria-hidden="true"></span><div class="row more-head"><span id="more-label" data-tip="__LABEL__ — 이 창이 다루는 논문. 여러 뷰어를 동시에 열었을 때 구분용"><i class="more-dot" aria-hidden="true"></i><b translate="no">__LABEL__</b></span><span class="sp"></span><button class="btn-sm btn-ghost" data-act="more-close" autofocus>닫기</button></div></div>
+<dialog id="more" tabindex="-1" aria-label="더보기 · __LABEL__">
+  <div class="more-top"><span class="ns-grab" aria-hidden="true"></span><div class="row more-head"><span id="more-label" data-tip="__LABEL__ — 이 창이 다루는 논문. 여러 뷰어를 동시에 열었을 때 구분용"><i class="more-dot" aria-hidden="true"></i><b translate="no">__LABEL__</b></span><span class="sp"></span><button class="btn-sm btn-ghost" data-act="more-close">닫기</button></div></div>
   <p class="more-info" id="more-info" translate="no"></p>
   <div class="more-view">
     <div class="m-row"><span class="m-l" id="m-zoom-l">배율</span><div class="m-c"><button class="btn-secondary btn-icon hit" data-act="zoom-out" aria-label="축소" data-tip="PDF 쪽만 축소합니다">{{ic:minus}}</button><output id="m-zoom" aria-live="polite">100%</output><button class="btn-secondary btn-icon hit" data-act="zoom-in" aria-label="확대" data-tip="PDF 쪽만 확대합니다">{{ic:plus}}</button><span class="sp"></span><button class="btn-ghost btn-icon hit" data-act="fit" aria-label="폭 맞춤" data-tip="폭 맞춤: PDF 쪽 폭을 화면 폭에 맞춥니다">{{ic:move-horizontal}}</button></div></div>
@@ -123,24 +123,24 @@ document.documentElement.setAttribute('lang',window.LIMN_LANG);
   <div class="more-foot" id="more-foot"><span class="more-brand">__LIMN_WORDMARK__<span class="m-ver">v__LIMN_VERSION__</span></span><span class="sp"></span><button class="btn-ghost" data-act="help" data-tip="사용법·용어 설명, pins.md 위치">도움말{{ic:chevron-right}}</button></div>
 </dialog>
 <dialog id="status-list" aria-label="상태"><div id="status-list-rows"></div></dialog>
-<dialog id="nav-sheet" aria-labelledby="nav-sheet-h">
+<dialog id="nav-sheet" tabindex="-1" aria-labelledby="nav-sheet-h">
   <div class="ns-head"><span class="ns-grab" aria-hidden="true"></span><div class="row"><h2 id="nav-sheet-h">이동</h2><span class="sp"></span><button class="btn-sm" data-act="nav-sheet-close">닫기</button></div></div>
   <section id="ns-docs" aria-labelledby="ns-docs-h"><h3 class="ns-h" id="ns-docs-h">문서</h3><div class="dm-list" id="ns-docs-list" role="listbox" aria-labelledby="ns-docs-h"></div></section>
   <div id="ns-view" class="seg" role="radiogroup" aria-label="보기"><button role="radio" aria-checked="true" data-act="view-mode" data-mode="manuscript" data-close="1">원고</button><button role="radio" aria-checked="false" data-act="view-mode" data-mode="revisions" data-close="1">변경사항</button></div>
   <div id="ns-page"><label for="ns-page-in">쪽</label><input id="ns-page-in" inputmode="numeric" enterkeyhint="go"><span id="ns-page-n"></span><span class="sp"></span><button class="btn-secondary" data-act="ns-go">이동</button></div>
   <section id="ns-outline" aria-labelledby="ns-outline-h"><div class="ns-oh"><h3 class="ns-h" id="ns-outline-h">목차</h3><input id="ns-outline-search" type="search" placeholder="장·절 찾기" aria-label="목차에서 장·절 찾기"></div><div id="ns-outline-items"></div></section>
 </dialog>
-<dialog id="trash" aria-labelledby="trash-h">
+<dialog id="trash" tabindex="-1" aria-labelledby="trash-h">
   <div class="row"><h2 id="trash-h" style="margin:0">휴지통</h2><span class="sp"></span><button class="btn-sm" data-act="trash-close" data-tip="휴지통 닫기 (Esc)">닫기</button></div>
   <p class="dim trash-note" id="trash-note"></p>
   <div id="trash-list" class="arc-list"></div>
 </dialog>
-<dialog id="help" aria-labelledby="help-h">
+<dialog id="help" tabindex="-1" aria-labelledby="help-h">
   <div class="row"><h2 id="help-h">__LIMN_WORDMARK__<span>— 사용법</span></h2><span class="sp"></span><button class="btn-sm" data-act="help-close" data-tip="도움말 닫기 (Esc)">닫기</button></div>
   <h4>한 바퀴</h4>
   <ol class="help-steps">
     <li><span class="kbd-only">PDF 위에서 고칠 곳을 <b>드래그</b>합니다.</span><span class="touch-only">PDF를 길게 누르거나 [선택]을 켜고 끌어서 고릅니다.</span> 점선 상자('새 핀')가 남습니다.</li>
-    <li><b>범위</b> 사다리(드래그한 줄 / 문단 / 환경)로 줄 범위를 고릅니다.<span class="kbd-only"> 한 줄 버튼 '위 +'·'아래 +'는 그쪽 끝을 한 줄 넓히고, '−'는 한 줄 좁힙니다.</span><span class="touch-only"> 원문에서 흐린 줄을 누르면 그 줄까지 넓어지고, 고른 줄 끝의 −를 누르면 그 줄이 빠집니다.</span></li>
+    <li><b>범위</b> 사다리(드래그한 줄 / 문단 / 환경)로 줄 범위를 고릅니다.<span class="wide-only"> 한 줄 버튼 '위 +'·'아래 +'는 그쪽 끝을 한 줄 넓히고, '−'는 한 줄 좁힙니다.</span><span class="compact-only"> 원문에서 흐린 줄을 누르면 그 줄까지 넓어지고, 고른 줄 끝의 −를 누르면 그 줄이 빠집니다.</span></li>
     <li>메모를 쓰고 <b>핀 저장</b><span class="kbd-only">(⌘ Enter / Ctrl+Enter). 알림의 [되돌리기]로 바로 취소할 수 있습니다.</span><span class="touch-only">. 알림의 [되돌리기]로 바로 취소할 수 있습니다.</span></li>
     <li>에이전트에게 "핀 처리해줘"라고 말합니다. 에이전트는 pins.md 한 장을 읽고 원고를 고친 뒤 핀을 닫습니다.</li>
     <li><b>PDF 재빌드</b>로 결과를 봅니다. 보던 쪽과 쓰던 메모는 그대로 남습니다.</li>

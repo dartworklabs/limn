@@ -45,18 +45,20 @@ function listOpen(){return SHOW_ALL&&multiDoc()?OPEN_ALL:OPEN_ALL.filter(p=>pdoc
 function listDone(){return SHOW_ALL&&multiDoc()?DONE_ALL:DONE;}
 function listReview(){return SHOW_ALL&&multiDoc()?REVIEW_ALL:REVIEW_ALL.filter(p=>pdoc(p)===DOC||!DOC);}
 // Awaiting-review count: counted across documents (the inbox of work for a person to confirm). The purple number next to [핀 N] (compact) / the tool bar chip (wide).
-// The phone and tablet sheet bar's words fit or step aside: when [핀 N | 검토 M] and [⬚] no longer fit their cell (English,
-// three-digit counts, a folded cover), the words '핀' and '검토' go (#bar1.bar-tight) and the counts stay, the review half still
-// purple. Measured each time a count or the band changes; decoration only - nothing moves.
-function fitBarWords(){const b=$('#bar1'),l=b.querySelector('.bar-l'); b.classList.remove('bar-tight'); if(LAYOUT!==LAYOUT_MODE.NARROW)return;
-  const k=[...l.children].filter(e=>e.getClientRects().length),end=k.length?k[k.length-1].getBoundingClientRect().right:0;   // not scrollWidth: the hits overflow too
-  if(end>l.getBoundingClientRect().right+0.5)b.classList.add('bar-tight');}
+// The phone and tablet sheet bar's left cell steps down until [핀 N | 검토 M] and [⬚] fit it (English, three-digit counts,
+// a folded cover): first the chip's halves pad one 4px step less and the cell's gap is 4px (#bar1.bar-snug); then the words
+// '핀' and '검토' give way to a dot each - green for the open pins, purple for those awaiting review (#bar1.bar-tight) - so a
+// count never stands alone. Measured each time a count or the band changes; decoration only - nothing moves.
+function fitBarWords(){const b=$('#bar1'),l=b.querySelector('.bar-l'); b.classList.remove('bar-snug','bar-tight'); if(LAYOUT!==LAYOUT_MODE.NARROW)return;
+  const over=()=>{const k=[...l.children].filter(e=>e.getClientRects().length);   // the last control's edge, not scrollWidth: the hits overflow too
+    return k.length>0&&k[k.length-1].getBoundingClientRect().right>l.getBoundingClientRect().right+0.05;};   // past the cell, [⬚]'s hit reaches the grabber's column
+  for(const step of ['bar-snug','bar-tight']){if(!over())return; b.classList.add(step);}}
 // The pill rides on both [핀 N] toggles (the tool bar's and the collapsed wide nav bar's); the phone and tablet sheet's bar shows
 // the count as its own half [검토 M] (#btn-rv) instead; the chip is the open wide panel's.
 // The pill is the eye icon and the count, so it never reads as part of the open count beside it ('11 1', UX audit P10).
 function updateReviewCount(){const n=REVIEW_ALL.length,chip=$('#rv-chip');
   for(const pill of $$('#btn-side .rv-n,#nav-side .rv-n')){pill.hidden=!n; pill.innerHTML=ic('eye')+n; pill.setAttribute('aria-label',tl('검토 대기 {n}',{n}));}
-  const rb=$('#btn-rv'); rb.hidden=!n; rb.querySelector('.rv-c').textContent=n; rb.setAttribute('aria-label',tl('검토 대기 {n}',{n}));   // the sheet bar's [검토 M] half
+  const rb=$('#btn-rv'); rb.hidden=!n; rb.querySelector('.rv-c').textContent=n; rb.setAttribute('aria-label',tl('검토 {n} · 검토 대기 핀으로 가기',{n}));   // the sheet bar's [검토 M] half: its name starts with what it shows
   fitBarWords();
   const here=listReview().length; chip.hidden=!n||LAYOUT!==LAYOUT_MODE.WIDE||!SIDE_OPEN; chip.textContent=tl('검토 대기 {n}',{n})+(multiDoc()&&here!==n?' '+tl('(이 문서 {n})',{n:here}):'');}
 function gotoReview(){if(!listReview().length&&REVIEW_ALL.length&&multiDoc())SHOW_ALL=true;

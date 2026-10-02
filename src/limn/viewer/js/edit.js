@@ -15,7 +15,7 @@ function openEdit(id){if(viaDoc(id,openEdit))return; const p=PINS.find(x=>x.id==
     '<textarea class="e-note" rows="3" aria-label="메모 고치기" data-tip="메모를 고칩니다. ⌘ Enter / Ctrl+Enter 저장, Esc 취소"></textarea><div class="m-preview" aria-live="polite" hidden></div>'+
     '<div class="e-qhint q-hint" role="status" hidden>'+ic('circle-question-mark')+'<span>질문처럼 보입니다 —</span><button data-act="e-kind" data-kind="question" data-tip="이 핀을 질문으로 바꿉니다">질문으로 보내기</button></div>'+
     '<div class="e-assign assign-row" role="radiogroup" aria-label="담당" hidden></div>'+
-    '<div class="rg-cap e-cap"></div>'+
+    '<div class="rg-cap e-cap" aria-live="polite" aria-atomic="true"></div>'+
     '<div class="e-levels seg lad" role="group" aria-label="범위" data-rungs="0"></div>'+
     '<div class="c-tools"><div class="step" role="group" aria-label="한 줄씩 넓히고 좁히기">'+
     '<span class="sl" aria-hidden="true">위</span><button data-act="nudge" data-dir="up-grow" aria-label="위로 한 줄 넓히기" data-tip="위로 한 줄 넓힙니다">'+ic('plus')+'</button>'+
@@ -54,7 +54,7 @@ async function editSnip(withLevels){const E=EDITOR.current; if(!E)return;
 // shown only with two or more rungs - the source (on the compact bands the range excerpt) and the assignee and question hints.
 function renderEdit(){const E=EDITOR.current; if(!E)return; const el=E.el;
   el.querySelectorAll('.e-kind button').forEach(b=>{const on=b.dataset.kind===(E.kind_req||KIND_REQ.FIX); b.classList.toggle('on',on); b.setAttribute('aria-checked',String(on));});
-  el.querySelector('.e-cap').innerHTML=E.region?'<span class="e-range loc" tabindex="0" data-copy="'+esc(E.name+' 쪽 '+E.page)+'">'+esc(tl('쪽 {page} · 영역',{page:E.page}))+'</span>':rangeCap(E,true);
+  setCap(el.querySelector('.e-cap'),E.region?'<span class="e-range loc" tabindex="0" data-copy="'+esc(E.name+' 쪽 '+E.page)+'">'+esc(tl('쪽 {page} · 영역',{page:E.page}))+'</span>':rangeCap(E,true));
   drawLadder(el.querySelector('.e-levels'),E,true);
   const pre=el.querySelector('.e-snip'); pre.className='e-snip '+(WRAP?'wrap':'nowrap'); pre.textContent=snipText(E.snippet,false); renderAssignEdit();
   drawExcerpt(E,el.querySelector('.e-xp'),true);

@@ -73,7 +73,7 @@ button.tg[aria-pressed=true]{border-color:var(--border-strong)}
 body.compact .xp:not([hidden]){display:block}
 body.compact :is(#c-range,.edit) .c-tools{display:none}
 body.compact #composer:not(.region) #c-snip,body.compact .edit:not(.region) .e-snip{display:none}
-.xp-hint{font-size:var(--text-sm);line-height:1.5;color:var(--muted-foreground);margin:0 0 var(--space-2)}
+.xp-hint{font-size:var(--text-sm);line-height:1.5;color:var(--muted-foreground);margin:0 0 var(--space-2);word-break:keep-all;text-wrap:pretty}   /* Korean breaks between words, never leaving one syllable on a line */
 .xp-list{position:relative;border-radius:var(--radius);background:var(--code);font-family:var(--font-mono);font-size:var(--text-sm);line-height:1.5;
   --chip:28px}
 .xp-list>:first-child{border-radius:var(--radius) var(--radius) 0 0}   /* the list's corners, without clipping the chips' hits */
