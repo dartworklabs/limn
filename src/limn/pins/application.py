@@ -50,10 +50,15 @@ def people_facts(record: Record) -> tuple[Json, ...]:
 
 
 def change_token(path: Path) -> str:
-    """Return the live-file polling signature, or '0' before any pins were written."""
+    """Return the live-file polling signature "<mtime_ns>:<size>:<inode>", or '0' before any pins were written.
+
+    The pins file is only ever written by atomic replace, and the new file is created while the old one still holds
+    its inode, so two consecutive writes always differ in the inode even when the second lands in the first one's
+    timestamp tick with the same size.
+    """
     try:
         st = path.stat()
-        return "%d:%d" % (st.st_mtime_ns, st.st_size)
+        return "%d:%d:%d" % (st.st_mtime_ns, st.st_size, st.st_ino)
     except OSError:
         return "0"
 
