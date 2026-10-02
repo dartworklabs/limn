@@ -1901,10 +1901,14 @@ class FrontendSemanticAudit(unittest.TestCase):
         self.assertIn("if(fromManuscript)REV.back=back", extract_js_fn("showChange"))
         self.assertIn("case 'rev-back':", HTML)
 
-    def test_source_diff_wrap_toggle_defaults_on_touch(self):
-        self.assertIn('id="revision-wrap" class="tg btn-sm" data-act="diff-wrap"', HTML)
-        self.assertIn("setDiffWrap(typeof v==='boolean'?v:MQ_COARSE.matches)", extract_js_fn("initDiffWrap"))
-        self.assertIn("#revision-diff.wrap .rd-code{flex:1;min-width:0;white-space:pre-wrap", self.css)
+    def test_the_source_diff_always_wraps(self):
+        """The [줄바꿈] toggle is gone (the owner's decision): both diffs are always wrapped, a long token breaking too."""
+        self.assertNotIn('id="revision-wrap"', HTML)
+        self.assertNotIn('data-act="diff-wrap"', HTML)
+        self.assertIn('<pre id="revision-diff" class="wrap"></pre>', HTML)
+        self.assertIn(
+            "#revision-diff.wrap .rd-code{flex:1;min-width:0;white-space:pre-wrap;overflow-wrap:anywhere}", self.css
+        )
 
     def test_change_view_on_fold_and_phone(self):
         # [변경 보기] phone/fold QA (2026-09-25): on a fold (the overlay panel, body.mid-overlay), the pin panel floats on top,
@@ -4140,7 +4144,7 @@ class FrontendChangeView(unittest.TestCase):
             'aria-controls="revision-other" hidden>',
             h,
         )
-        self.assertIn('<pre id="revision-other" class="nowrap" hidden></pre>', h)
+        self.assertIn('<pre id="revision-other" class="wrap" hidden></pre>', h)
         self.assertIn(
             '<button id="revision-whole" class="tg btn-sm" data-act="revision-whole" aria-pressed="false" hidden', h
         )

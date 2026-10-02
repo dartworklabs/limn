@@ -98,5 +98,5 @@ input.n{width:58px;text-align:center}
 .busy{opacity:.45}
 pre{background:var(--code);border:0;border-radius:var(--radius);padding:var(--space-2);overflow:auto;font-size:var(--text-sm);
   line-height:1.5;max-height:44vh;font-family:var(--font-mono);tab-size:2;margin:var(--space-2) 0}
-pre.wrap{white-space:pre-wrap;word-break:break-word}
+pre.wrap{white-space:pre-wrap;overflow-wrap:anywhere}   /* a long unbreakable token (a URL, a command) breaks too */
 pre.nowrap{white-space:pre}

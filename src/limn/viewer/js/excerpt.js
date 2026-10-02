@@ -60,7 +60,7 @@ function drawExcerpt(o,box,isEdit){const on=!!o&&!o.region&&!isRegion(o);
     '<div class="xp-row on" data-line="'+r.k+'"><span class="ln">'+r.k+'</span><span class="tx">'+text(r.k)+'</span>'+
       (r.edge?'<button class="xp-chip xp-drop" data-act="xp-drop" data-line="'+r.k+'" aria-label="'+esc(tl('이 줄 빼기 (L{n})',{n:r.k}))+'">'+ic('minus')+'</button>':'<span></span>')+'</div>');
   box.innerHTML='<div class="xp-hint">'+esc(o.hi>o.lo?tr('흐린 줄을 누르면 그 줄까지 넓어지고, −를 누르면 그 줄이 빠집니다'):tr('흐린 줄을 누르면 그 줄까지 넓어집니다'))+'</div>'+
-    '<div class="xp-list '+(WRAP?'wrap':'nowrap')+'" translate="no">'+rows.join('')+'</div>';
+    '<div class="xp-list" translate="no">'+rows.join('')+'</div>';
   if(had){const t=excerptFocusTarget([...box.querySelectorAll('[data-act]')].map(el=>({act:el.dataset.act,line:+el.dataset.line,el})),had,o);
     if(t)t.el.focus({preventScroll:true});}
   if(!isEdit){const c=o.hi-o.lo+1; $('#c-expand').hidden=c<=5; $('#c-expand').textContent=SNIP_OPEN?tr('원문 접기'):tr('원문 펼치기')+' · '+tl('{n}줄',{n:c});}}

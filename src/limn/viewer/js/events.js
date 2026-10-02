@@ -35,7 +35,6 @@ document.addEventListener('click',e=>{
       if(!text){toast('메모를 먼저 써야 덧붙일 수 있습니다','warn');break;}
       appendToPin(+a.dataset.oid,text);break;}
     case 'overlap-separate':COMPOSE.dismissedOverlap=a.dataset.key||null;renderOverlapBanner();break;
-    case 'wrap':WRAP=!WRAP;savePrefs({wrap:WRAP});renderComposer();renderEdit();break;
     case 'copy-cur':if(COMPOSE.current)copyText(COMPOSE.current.name+' L'+COMPOSE.current.lo+'-L'+COMPOSE.current.hi);break;
     case 'expand':SNIP_OPEN=!SNIP_OPEN;renderComposer();break;
     case 'level':{const o=inEdit?EDITOR.current:COMPOSE.current; if(!o)break; useLevel(o,a.dataset.level); if(!inEdit)recomputeOverlap(); inEdit?renderEdit():renderComposer(); break;}
@@ -62,7 +61,6 @@ document.addEventListener('click',e=>{
     case 'assign-new':ASSIGN_NEW.v=a.dataset.v||'agent'; ASSIGN_NEW.touched=true; renderAssignNew(); saveDraftSoon(); break;
     case 'assign-edit':if(EDITOR.current){EDITOR.current.assignee=a.dataset.v||'agent'; renderAssignEdit();} break;
     case 'msg-more':{const k=a.dataset.key; if(!k)break; if(MSG_OPEN.has(k))MSG_OPEN.delete(k); else MSG_OPEN.add(k); drawPins(); break;}
-    case 'diff-wrap':setDiffWrap(!DIFF_WRAP);break;
     case 'revision-other':toggleRevisionOther();break;
     case 'revision-whole':setRevisionWhole(!REV_SCOPE.whole);break;
     case 'mark-jump':revealCard(id);jumpToCard(id);break;

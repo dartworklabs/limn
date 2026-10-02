@@ -126,12 +126,11 @@ function renderComposer(){const d=COMPOSE.current; if(!d)return; saveDraftSoon()
   $('#c-warn').hidden=!d.warn; $('#c-warn').textContent=warnText(d.warn);
   renderOverlapBanner();
   setCap($('#c-cap'),rangeCap(d,false)); drawLadder($('#c-levels'),d,false);
-  const pre=$('#c-snip'); pre.className=(WRAP?'wrap':'nowrap')+(SNIP_OPEN?' open':''); pre.textContent=snipText(d.snippet,SNIP_OPEN);
+  const pre=$('#c-snip'); pre.className='wrap'+(SNIP_OPEN?' open':''); pre.textContent=snipText(d.snippet,SNIP_OPEN);
   // A collapsed source is cut to 4 lines by CSS. Whether it was cut is measured after rendering (a manuscript where one long line wraps into several is common).
   const over=SNIP_OPEN||pre.scrollHeight>pre.clientHeight+2, nl=String(d.snippet||'').split('\n').length;
   pre.classList.toggle('clip',!SNIP_OPEN&&over);
   $('#c-expand').hidden=!over; $('#c-expand').textContent=SNIP_OPEN?tr('원문 접기'):tr('원문 펼치기')+(nl>1?' · '+tl('{n}줄',{n:nl}):'');
-  $('#c-wrap').setAttribute('aria-pressed',String(WRAP));
   drawExcerpt(d,$('#c-xp'),false);   // the range excerpt (excerpt.js)
 }
 // When a selection ends via save/cancel/append, selection mode is turned off (scrolling resumes) and the narrow sheet collapses (the body comes forward again).

@@ -10,11 +10,6 @@ function revisionFiles(patch){
   return starts.map((s,i)=>{const n=s.head.lastIndexOf(' b/');return {
     name:n>=0?s.head.slice(n+3):tl('파일 {n}',{n:i+1}),text:patch.slice(s.at,i+1<starts.length?starts[i+1].at:undefined)};});
 }
-// Source diff wrapping: on by default for touch devices (a manuscript where a paragraph is one line was 6,273px wide on a phone, QA). The on/off value is stored in pinPrefs.diffWrap.
-let DIFF_WRAP=null;
-function setDiffWrap(on){DIFF_WRAP=!!on; savePrefs({diffWrap:DIFF_WRAP}); for(const d of [$('#revision-diff'),$('#revision-other')])if(d)d.className=DIFF_WRAP?'wrap':'nowrap';
-  const b=$('#revision-wrap'); if(b)b.setAttribute('aria-pressed',String(DIFF_WRAP));}
-function initDiffWrap(){const v=prefs().diffWrap; setDiffWrap(typeof v==='boolean'?v:MQ_COARSE.matches);}
 // A patch as numbered lines (file, hunk, add, del, context, meta). The code itself is the manuscript's text, so it is
 // translate="no"; the lines are escaped.
 function renderRevisionDiff(patch){
@@ -84,7 +79,7 @@ function setViewMode(mode){
   drawNavView(); drawPos();
 }
 // Reads the document's recent commits into the changes view. Without history (not Git, a view-only PDF, or no recent commit) the
-// one reason line stays and the unusable [변경 PDF] [소스 diff] [줄바꿈] and the comparison note are hidden; a pin's guide line stays.
+// one reason line stays and the unusable [변경 PDF] [소스 diff] and the comparison note are hidden; a pin's guide line stays.
 async function loadRevisions(){
   const seq=++REV.seq,k=DOC,list=$('#revision-list'),out=$('#revision-diff'),tg=REV.target;
   clearRevisionPdf();list.textContent='최근 변경사항을 읽는 중입니다.';out.textContent='';$('#revision-pin').hidden=!tg;

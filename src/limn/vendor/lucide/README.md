@@ -42,7 +42,6 @@ Icons are drawn with the original `<svg>` attributes: `viewBox="0 0 24 24"`, `fi
 | `refresh-cw` | [Rebuild PDF] |
 | `rotate-ccw` | 'reopened' badge (pin sent back from review) |
 | `rotate-cw` | [Reload pins] in [More] (compact bands) |
-| `text-wrap` | [Wrap] in the source diff |
 | `trash-2` | deleted-pin row head; [삭제] on a compact card |
 | `triangle-alert` | 'location lost' badge, warning toast lead icon |
 | `wifi-off` | the status line's 'disconnected' state (compact bands) |

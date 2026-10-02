@@ -5268,6 +5268,69 @@ class DesktopDialogClose(ViewerBase):
                 page.evaluate("s=>document.querySelector(s).close()", sel)
 
 
+# A long unbreakable token (a URL), as one source line would hold it.
+LONG_TOKEN = "https://example.com/" + "a" * 400
+# Each listed box's horizontal overflow (scrollWidth - clientWidth, CSS px) and its computed overflow-wrap, for the visible ones.
+OVERFLOW = """sels => sels.map(s => {const e = document.querySelector(s); if (!e || !e.getClientRects().length) return [s, null, null];
+  const c = getComputedStyle(e); return [s, e.scrollWidth - e.clientWidth, c.overflowWrap];})"""
+
+
+class SourceAlwaysWraps(ViewerBase):
+    """The source always wraps (the owner's decision after asking what [줄바꿈] was for): the composer's and the changes
+    view's [줄바꿈] toggles, their pinPrefs keys and their words are gone. A long unbreakable token - a URL, a long command -
+    breaks inside the excerpt, the edit card and the source diff rather than run past their right edge."""
+
+    def test_no_wrap_toggle_or_its_stored_key_is_left(self):
+        """411x908 and 1400x850, with pinPrefs.wrap false and pinPrefs.diffWrap false stored by an older release: no
+        [줄바꿈] control on the page, both keys gone from pinPrefs after boot, and the source diff wraps."""
+        for device in (phone(411, 908), DESK):
+            with self.subTest(width=device["viewport"]["width"]):
+                page = self.view(device, prefs={"wrap": False, "diffWrap": False})
+                got = page.evaluate(
+                    "(()=>{const p=JSON.parse(localStorage.getItem('pinPrefs')); return [document.querySelectorAll("
+                    "'[data-act=wrap],[data-act=diff-wrap],#c-wrap,#revision-wrap').length, 'wrap' in p, 'diffWrap' in p,"
+                    " document.querySelector('#revision-diff').className, document.querySelector('#revision-other').className];})()"
+                )
+                self.assertEqual(got, [0, False, False, "wrap", "wrap"])
+
+    def test_a_long_unbreakable_token_breaks_instead_of_running_past_the_edge(self):
+        """411x908 and 1400x850: a 420-character URL as the band's line breaks inside the composer's excerpt and the edit
+        card's (no horizontal overflow, overflow-wrap anywhere); the source diff's code cells and a plain source break the
+        same way."""
+        for device in (phone(411, 908), DESK):
+            with self.subTest(width=device["viewport"]["width"]):
+                page = self.view(device)
+                page.evaluate("()=>{LAST_PTR='touch'; pick({page:1,x0:10,y0:10,x1:200,y1:60});}")
+                page.wait_for_function("COMPOSE.current&&!COMPOSE.picking")
+                settle(page)
+                page.click('#c-levels [data-level="raw"]')
+                settle(page)
+                page.evaluate(
+                    "t=>{const o=COMPOSE.current; excerptLines(o).set(o.lo,t); renderComposer();}", LONG_TOKEN
+                )
+                settle(page)
+                got = page.evaluate(OVERFLOW, ["#c-xp .xp-list", "#right", "#composer"])
+                self.assertEqual(
+                    [g[1] for g in got if g[1] is not None], [0] * len([g for g in got if g[1] is not None]), got
+                )
+                self.assertEqual(
+                    page.evaluate("getComputedStyle(document.querySelector('#c-xp .xp-row .tx')).overflowWrap"),
+                    "anywhere",
+                )
+                page.evaluate("()=>{cancelSelection(true); setSide(true); openEdit(OPEN_ALL[0].id);}")
+                page.wait_for_function("EDITOR.current&&EDITOR.current.levels.length>0")
+                settle(page)
+                page.evaluate("t=>{const o=EDITOR.current; excerptLines(o).set(o.lo,t); renderEdit();}", LONG_TOKEN)
+                settle(page)
+                got = page.evaluate(OVERFLOW, [".edit .xp-list", ".edit"])
+                self.assertEqual([g[1] for g in got], [0, 0], got)
+                styles = page.evaluate(
+                    "(()=>{const s=document.createElement('pre'); s.className='wrap'; document.body.append(s); const c=getComputedStyle(s);"
+                    " const r=[c.whiteSpace,c.overflowWrap]; s.remove(); return r;})()"
+                )
+                self.assertEqual(styles, ["pre-wrap", "anywhere"])
+
+
 class MetaWithoutCommit(ViewerBase):
     """The meta line of a manuscript outside Git (docs/handbook/viewer.md §모바일 레이아웃): the server names no commit ('-'),
     and [더보기] read 'main.tex · 2쪽 · -' and the desktop chip row 'main.tex · 2쪽 · - · <built>'. The empty piece goes, with

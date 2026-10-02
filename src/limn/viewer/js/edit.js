@@ -52,7 +52,7 @@ function renderEdit(){const E=EDITOR.current; if(!E)return; const el=E.el;
   el.querySelectorAll('.e-kind button').forEach(b=>{const on=b.dataset.kind===(E.kind_req||KIND_REQ.FIX); b.classList.toggle('on',on); b.setAttribute('aria-checked',String(on));});
   setCap(el.querySelector('.e-cap'),E.region?'<span class="e-range loc" tabindex="0" data-copy="'+esc(E.name+' 쪽 '+E.page)+'">'+esc(tl('쪽 {page} · 영역',{page:E.page}))+'</span>':rangeCap(E,true));
   drawLadder(el.querySelector('.e-levels'),E,true);
-  const pre=el.querySelector('.e-snip'); pre.className='e-snip '+(WRAP?'wrap':'nowrap'); pre.textContent=snipText(E.snippet,false); renderAssignEdit();
+  const pre=el.querySelector('.e-snip'); pre.className='e-snip wrap'; pre.textContent=snipText(E.snippet,false); renderAssignEdit();
   drawExcerpt(E,el.querySelector('.e-xp'),true);
   qHint(el.querySelector('.e-qhint'),el.querySelector('.e-note').value,E.kind_req);}
 function cancelEdit(){EDITOR.current=null; drawPins();}

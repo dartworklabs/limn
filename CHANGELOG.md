@@ -8,6 +8,9 @@
   overlap notice, then the range block, on the panel's own background. Its range is set in the source like everywhere
   else - click a dimmed line to widen the range to it, the − on the band's first or last line to drop it, or Tab there
   and press Enter - and the "above + − below + −" stepper is gone from every layout. The help's tour has one range step.
+- **The source always wraps.** The Wrap toggles under the composer's source and in the changes view are gone, with
+  their saved settings: the source, the range excerpt, the edit card and both diffs always wrap, and a long token with
+  nowhere to break (a URL, a command) breaks inside the box instead of running past its edge.
 
 ## 0.4.8 — 2026-10-02
 

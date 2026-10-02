@@ -5,7 +5,7 @@ async function boot(){i18nStart();
   // A link /#doc=<key>&pin=<n>[&act=restore] (a notification clicked with no tab open) is read first: the boot below rewrites the
   // hash to #doc=<key> on an instance with several documents, which used to lose pin= (0.2.1 and earlier).
   const link=takeLinkHash();
-  applyTheme(); applyLayout(); initDiffWrap();
+  applyTheme(); applyLayout();
   // There's no keyboard shortcut on a touch device - "핀 저장 Ctrl+Enter" would just get clipped at phone width.
   $('#btn-save').innerHTML=saveBtnLabel();
   await loadDocs(); DOC=initialDoc();
