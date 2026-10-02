@@ -2408,10 +2408,10 @@ class ComposerSamePass(ViewerBase):
 
     def test_tab_follows_the_screen_on_every_band(self):
         """The markup follows the order on screen, so Tab does (it went location, overlap, range, kind, note on the phone,
-        whose screen shows the note second): on a 411x908 phone the location, the note, the kind, the overlap notice and the
-        range block; with a mouse at 1000x800 (mid) and 1440x900 (wide) the location, the range block, the kind and the note.
-        Each Tab lands on or below the one before. The phone turned into the mid band moves the parts back, and on the phone
-        a hidden #c-body (a failed pick) hides the moved range block too."""
+        whose screen shows the note second): on a 411x908 phone and with a mouse at 1000x800 (mid, a compact band) the
+        location, the note, the kind, the overlap notice and the range block; at 1440x900 (wide) the location, the range
+        block, the kind and the note. Each Tab lands on or below the one before. The phone turned into the wide band moves the
+        parts back, and on the phone a hidden #c-body (a failed pick) hides the moved range block too."""
         tab = """() => {const c = document.querySelector('#composer'), a = document.activeElement; if (!c.contains(a)) return null;
           const r = a.getBoundingClientRect();
           return [['.c-loc-row', '#c-kind', '#c-overlap', '#c-range'].find(s => a.closest(s)) || '#note', r.top + r.height / 2 - c.getBoundingClientRect().top];}"""
@@ -2419,7 +2419,7 @@ class ComposerSamePass(ViewerBase):
         desk_order = [".c-loc-row", "#c-overlap", "#c-range", "#c-kind", "#note"]
         for device, touch, order in (
             (phone(411, 908), True, phone_order),
-            (MOUSE_MID, False, desk_order),
+            (MOUSE_MID, False, phone_order),
             (MOUSE_WIDE, False, desk_order),
         ):
             with self.subTest(w=device["viewport"]["width"]):
@@ -2446,8 +2446,8 @@ class ComposerSamePass(ViewerBase):
         page.evaluate("document.querySelector('#c-body').hidden=true")
         self.assertFalse(page.evaluate("document.querySelector('#c-range').getClientRects().length>0"))
         page.evaluate("document.querySelector('#c-body').hidden=false")
-        page.set_viewport_size({"width": 1000, "height": 800})
-        page.wait_for_function("BAND==='mid-side'")  # a touch band settles after 200ms (settleBand)
+        page.set_viewport_size({"width": 1440, "height": 900})
+        page.wait_for_function("BAND==='wide'")  # a touch band settles after 200ms (settleBand)
         settle(page)
         self.assertEqual(
             page.evaluate(
@@ -5072,6 +5072,26 @@ class SegmentedControlMouse(ViewerBase):
                     with self.subTest(width=device["viewport"]["width"], where=where, seg=s["id"]):
                         got = [s["h"], s["top"], s["bottom"], s["left"], s["right"], s["rTrack"] - s["rThumb"]]
                         self.assertEqual(got, [36, 4, 4, 4, 4, 4], s)
+
+
+class MidComposerOrder(ViewerBase):
+    """The composer's order on the mid bands (docs/handbook/viewer.md §패널 정리): the phone, tablet sheet and landscape phone
+    put the note under the location line and the range block last, but the unfolded Fold and the side-panel tablets kept the
+    old order - the range block, the source and the kind before the note, which sat at the panel's foot. Every compact band
+    now draws the one order."""
+
+    compose = ComposerSamePass.compose
+
+    def test_every_compact_band_puts_the_note_second_and_the_range_block_last(self):
+        """880x790 (overlay), 1180x820 (side panel, touch) and 1000x800 (a mouse window): location, note, kind, overlap,
+        range block, each one 8px step from the next."""
+        for device in (touch_device(880, 790), touch_device(1180, 820), MOUSE_MID):
+            with self.subTest(width=device["viewport"]["width"]):
+                page = self.view(device)
+                self.compose(page)
+                b = page.evaluate(COMPOSER_BLOCKS, "#composer")
+                self.assertEqual([x[0] for x in b], ["c-loc-row", "note", "c-kind", "c-overlap", "c-range"], b)
+                self.assertEqual({round(n[1] - p[2]) for p, n in zip(b, b[1:], strict=False)}, {8}, b)
 
 
 class MetaWithoutCommit(ViewerBase):

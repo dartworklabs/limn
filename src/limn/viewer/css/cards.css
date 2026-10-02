@@ -89,20 +89,20 @@ button.badge-assign{overflow:visible}   /* its name ellipsizes by itself (.as-n)
 .assign-row{display:flex;align-items:center;gap:var(--space-2);margin-top:var(--space-2)}
 .assign-row .as-lab{flex:none;color:var(--muted-foreground);font-size:var(--text-sm)}
 .assign-row .as-seg{flex:1;min-width:0;margin:0}
-body:is(.lay-narrow,.band-short) #c-assign{order:1;margin:0 0 8px}
+body.compact #c-assign{order:1;margin:0 0 8px}
 .mention-bad{color:var(--muted-foreground);text-decoration:underline dotted;text-underline-offset:3px}
 .m-preview{display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-1) var(--space-2);margin-top:var(--space-2);font-size:var(--text-sm)}
 .m-preview .m-lab{display:inline-flex;align-items:center;gap:2px;color:var(--muted-foreground)}
 .m-preview .m-lab .ic{width:12px;height:12px}
 .m-preview .m-note{color:var(--muted-foreground)}
-body:is(.lay-narrow,.band-short) #note-mentions{order:1;margin:-4px 0 8px}
+body.compact #note-mentions{order:1;margin:-4px 0 8px}
 /* Question-suggestion line (.q-hint): faded text + a link-style button. No box (single nesting level). Sits below the note field, so the field never shifts while typing. */
 .q-hint{display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-1);margin-top:var(--space-1);font-size:var(--text-sm);color:var(--muted-foreground)}
 .q-hint svg{width:14px;height:14px;flex:none}
 .q-hint button{background:transparent;border-color:transparent;color:var(--primary);padding:0 var(--space-1);font-size:var(--text-sm);text-underline-offset:3px}
 .q-hint button:focus-visible{background:transparent;color:var(--primary);text-decoration:underline}
 @media (hover:hover){.q-hint button:hover{background:transparent;color:var(--primary);text-decoration:underline}}
-body:is(.lay-narrow,.band-short) #c-qhint{order:1;margin:-4px 0 8px}
+body.compact #c-qhint{order:1;margin:-4px 0 8px}
 /* A '#12' inside text = a link to that pin (a navigable string is dotted-underline, solid on hover - the same convention as .pg-link/#number) */
 .pin-ref{color:var(--primary);font-weight:600;cursor:pointer}
 /* '#12' pointing at a deleted pin (in the Trash): faded, struck number + 'deleted pin' - clicking opens the Trash at that row */

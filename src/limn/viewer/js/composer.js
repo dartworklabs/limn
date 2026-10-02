@@ -112,12 +112,12 @@ function renderRegionComposer(d){
   $('#c-levels').innerHTML=''; setCap($('#c-cap'),''); drawExcerpt(null,$('#c-xp'),false);
   const pre=$('#c-snip'); pre.className='wrap open'; pre.textContent=d.quote?tl('영역 글자: {text}',{text:d.quote}):tr('(이 영역에는 글자가 없습니다)');
   $('#c-expand').hidden=true; renderElement(d,COMPOSE.box);}
-// The composer's markup follows its order on screen, so Tab does (docs/handbook/viewer.md §패널 정리). On the phone and short
-// bands the note and its helpers, the kind, the overlap notice and the range block follow the location line, which #c-body
-// keeps with the warning (a hidden #c-body hides the moved overlap notice and range block too, responsive.css); on the
-// others the overlap notice and the range block are #c-body's and the kind and the note come after it. Run as the band
-// changes (applyLayout); a part that had the focus keeps it.
-function orderComposer(){const c=$('#composer'),b=$('#c-body'),ov=$('#c-overlap'),rg=$('#c-range'),phone=document.body.matches('.lay-narrow,.band-short');
+// The composer's markup follows its order on screen, so Tab does (docs/handbook/viewer.md §패널 정리). On every compact band
+// the note and its helpers, the kind, the overlap notice and the range block follow the location line, which #c-body keeps
+// with the warning (a hidden #c-body hides the moved overlap notice and range block too, responsive.css); on the mouse
+// desktop (wide) the overlap notice and the range block are #c-body's and the kind and the note come after it. Run as the
+// band changes (applyLayout); a part that had the focus keeps it.
+function orderComposer(){const c=$('#composer'),b=$('#c-body'),ov=$('#c-overlap'),rg=$('#c-range'),phone=document.body.classList.contains('compact');
   if((rg.parentNode===c)===phone)return;
   const a=document.activeElement,kind=$('#c-kind'),notes=['#note','#note-mentions','#c-viewer','#c-qhint','#c-assign'].map(s=>$(s));
   if(phone)c.append(...notes,kind,ov,rg); else{b.append(ov,rg); c.append(kind,...notes);}

@@ -254,22 +254,24 @@ body.compact #c-copy{background:transparent;border-color:transparent}
 /* Phone sheet composer (docs/handbook/viewer.md §패널 정리): the location line, then the note with its helpers, then the one-line
    overlap notice, then the range ladder, the nudges and the kind, then the source. The note was the fourth block, 328px down, and hid
    below the save row; with the keyboard up the location line scrolled away (diagnosis P2). */
-/* The short band (a landscape phone, ~346px of panel) takes the same order: in the mid order the note was ninth, off screen after a pick. */
+/* Every compact band takes this order - the short band (a landscape phone, ~346px of panel: in the old order the note was
+   ninth, off screen after a pick), and the unfolded Fold and the side-panel tablets, whose note sat at the panel's foot under
+   the range block and the source. The mouse desktop keeps its own (wide). */
 /* After the note come its kind (what the note is), the overlap notice, and last the range block (#c-range: caption, ladder,
    line buttons, source and its foot), so what changes the range sits with the source it changes - the kind used to sit
    between them. Every block is one 8px step from the next (they sat 0-20px apart, the kind flush on the source). On these
    bands the markup is moved into this order too (orderComposer, composer.js), so Tab follows the screen; the order values
    restate it. */
-body:is(.lay-narrow,.band-short) #composer{display:flex;flex-direction:column;gap:var(--space-2)}
-body:is(.lay-narrow,.band-short) #c-body{display:contents}
-body:is(.lay-narrow,.band-short) #c-body[hidden]~:is(#c-overlap,#c-range){display:none}   /* moved out of #c-body (orderComposer), they hide with it */
-body:is(.lay-narrow,.band-short) #note{order:1}
-body:is(.lay-narrow,.band-short) :is(#note-mentions,#c-viewer,#c-qhint,#c-assign){order:1}
-body:is(.lay-narrow,.band-short) #c-kind{order:2;z-index:1}   /* its segments' 44px hits over the overlap notice's, which the markup now puts after it */
-body:is(.lay-narrow,.band-short) #c-overlap{order:3}
-body:is(.lay-narrow,.band-short) #c-range{order:4;display:flex;flex-direction:column;gap:var(--space-2)}
-body:is(.lay-narrow,.band-short) #composer :is(#note,#note-mentions,#c-qhint,#c-assign,#c-kind,#c-overlap,#c-cap,#c-levels,.c-tools,#c-snip){margin:0}
-@media (pointer:coarse){body:is(.lay-narrow,.band-short) #composer #c-levels{margin:calc(-1 * var(--space-1)) 0}}   /* its hit padding is not a gap: the track stands 8px from its neighbours */
+body.compact #composer{display:flex;flex-direction:column;gap:var(--space-2)}
+body.compact #c-body{display:contents}
+body.compact #c-body[hidden]~:is(#c-overlap,#c-range){display:none}   /* moved out of #c-body (orderComposer), they hide with it */
+body.compact #note{order:1}
+body.compact :is(#note-mentions,#c-viewer,#c-qhint,#c-assign){order:1}
+body.compact #c-kind{order:2;z-index:1}   /* its segments' 44px hits over the overlap notice's, which the markup now puts after it */
+body.compact #c-overlap{order:3}
+body.compact #c-range{order:4;display:flex;flex-direction:column;gap:var(--space-2)}
+body.compact #composer :is(#note,#note-mentions,#c-qhint,#c-assign,#c-kind,#c-overlap,#c-cap,#c-levels,.c-tools,#c-snip){margin:0}
+@media (pointer:coarse){body.compact #composer #c-levels{margin:calc(-1 * var(--space-1)) 0}}   /* its hit padding is not a gap: the track stands 8px from its neighbours */
 /* One line: the short relation shrinks (its tooltip has the sentence), the two actions keep their names. */
 #c-overlap.one{flex-wrap:nowrap;align-items:center;margin:0 0 var(--space-2)}
 #c-overlap.one>.ov-t{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
