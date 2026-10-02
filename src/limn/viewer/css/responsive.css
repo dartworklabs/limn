@@ -383,7 +383,13 @@ body.lay-narrow #bar1 .ic{width:18px;height:18px}
 body.lay-narrow #bar1 #btn-pos{gap:var(--space-1);padding:0 var(--space-2)}
 body.lay-narrow #bar1 #btn-pos .ic{width:16px;height:16px;color:var(--muted-foreground)}
 @media (pointer:coarse){body.lay-narrow #bar1 :is(#btn-side,#btn-rv,#btn-select,#btn-pos,#btn-more)::after{top:50%;height:var(--hit);transform:translate(-50%,-50%)}
-  body.lay-narrow #bar1 #btn-select::after{left:auto;right:0;transform:translateY(-50%)}}   /* the 36px chip's hit reaches left into the gap, never into the grabber's column */
+  body.lay-narrow #bar1 #btn-select::after{left:auto;right:0;transform:translateY(-50%)}   /* the 36px chip's hit reaches left into the gap, never into the grabber's column */
+  /* The chip's halves are each at least 44px wide (min-width) and meet: each answers its own box, set by its edges - a
+     centring translateX of half a fractional width put the review half's hit box a pixel into the pins half (hit testing
+     rounds a transformed box out to whole pixels; the pins half answered 43px on CI's fonts) - and the pins half also
+     4px outwards, into the bar's edge, where no neighbour is. */
+  body.lay-narrow #bar1 :is(#btn-side,#btn-rv)::after{left:0;right:0;width:auto;transform:translateY(-50%)}
+  body.lay-narrow #bar1 #btn-side::after{left:calc(-1 * var(--space-1))}}
 /* The width budget: under 400px the chip's halves pad 8px. When the left cell still overflows (English, three-digit counts, a
    folded cover) it steps down (fitBarWords): the halves pad one 4px step less (.bar-snug), then the words give way to a dot
    each, green for the open pins and purple for awaiting review (.bar-tight), so a count never stands alone. The gap before

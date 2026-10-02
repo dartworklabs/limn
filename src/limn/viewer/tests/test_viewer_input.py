@@ -3007,6 +3007,34 @@ class BarChip(ViewerBase):
                         self.assertEqual(page.evaluate(BAR)["spill"], [])
                         self.assertEqual(page.evaluate(MISSES_44, "#bar1 button,#sheet-grip"), [])
 
+    def test_each_half_answers_44px_whatever_the_fonts_draw(self):
+        """CI's fonts drew [핀 3] at its 44px floor and [검토 1] 55.8px wide, and [핀 3] answered 43px: the review half's hit,
+        centred by translating half its fractional width, was rounded out a pixel into the pins half. Independent of the
+        fonts: with the pins half at its floor and the review half every fractional width from 44 to 46px, each half, [⬚],
+        the page and [⋯] answer 44px in every step - words, snug, dots - at 344, 360, 411 and 430, Korean and English;
+        and the halves' hits are their own boxes, set by their edges (no horizontal translate), the pins half's reaching
+        4px outwards."""
+        base = "#bar1 :is(.side-l,.side-n,.rv-c){font-size:4px!important} #bar1 #btn-rv{min-width:var(--rvw)!important}"
+        for w, h in ((344, 882), (360, 800), (411, 908), (430, 932)):
+            for lang in ("ko", "en"):
+                page = self.view(phone(w, h, 3), lang=lang)
+                page.add_style_tag(content=base)
+                for step in ("", "bar-snug", "bar-snug bar-tight"):
+                    with self.subTest(w=w, lang=lang, step=step):
+                        page.evaluate(
+                            "s=>{const b=document.querySelector('#bar1'); b.classList.remove('bar-snug','bar-tight');"
+                            " if(s)b.classList.add(...s.split(' '));}",
+                            step,
+                        )
+                        for rvw in (44, 44.2, 44.5, 44.8, 45.3, 45.8):
+                            page.evaluate("v=>document.documentElement.style.setProperty('--rvw',v+'px')", rvw)
+                            settle(page)
+                            self.assertEqual(page.evaluate(HALF_HITS)["side"], 44)
+                            self.assertEqual(
+                                page.evaluate(MISSES_44, "#btn-side,#btn-rv,#btn-select,#btn-pos,#btn-more"), [], rvw
+                            )
+                        self.assertEqual(page.evaluate(HALF_HITS)["after"], [[-4, 0], [0, 0]])
+
     def test_each_half_is_named_by_what_it_shows_first(self):
         """411x908: [검토 1]'s name starts with its words ('검토 1 · 검토 대기 핀으로 가기', 'Review 1 · …'), and [핀 3]'s starts with
         its own and leaves the review count to the other half. In the mid bar the pill sits inside [📍 3] and its name keeps
@@ -3032,6 +3060,13 @@ class BarChip(ViewerBase):
         self.assertIn("검토 대기 1", page.get_attribute("#btn-side", "aria-label"))
 
 
+# The chip's halves: the pins half's drawn width, and each half's hit box against its own box - [left, right] offsets in px
+# (negative reaches outside), read from the ::after's computed left, right and horizontal translate.
+HALF_HITS = """() => {const q = s => document.querySelector(s);
+  const after = e => {const a = getComputedStyle(e, '::after'), tx = new DOMMatrix(a.transform === 'none' ? undefined : a.transform).m41;
+    const r = e.getBoundingClientRect(), left = parseFloat(a.left) + tx, width = parseFloat(a.width);
+    return [Math.round(left * 100) / 100, Math.round((r.width - left - width) * 100) / 100];};
+  return {side: Math.round(q('#btn-side').getBoundingClientRect().width), after: [after(q('#btn-side')), after(q('#btn-rv'))]};}"""
 # The sheet bar's left cell: its width step (bar-snug, bar-tight or ''), what identifies each visible half ('word' and/or
 # 'dot'), the dots' colours and the colours they should be (--status-open, --status-review), and how far each dot's centre
 # sits from its count's.
