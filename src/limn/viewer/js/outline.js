@@ -43,14 +43,18 @@ function mergeOutlineLabels(entries,labels){
   });
 }
 let OUTLINE_ENTRIES=[],OUTLINE_SELECTED=-1,OUTLINE_ACTIVE_PAGE=0;
-// Draws the outline's entries matching the search. A heading is the manuscript's own words, so each entry is translate="no"
-// (its page label is tl()'d here); the empty-state sentences stay UI.
-function renderOutline(){
-  const box=$('#outline-items'),query=$('#outline-search').value.trim().toLowerCase();
+// Draws the outline into both of its lists - the outline panel and the phone's navigation sheet - each filtered by its own
+// search field; the sheet leaves its outline section out when the PDF has no outline.
+function renderOutline(){outlineList($('#outline-items'),$('#outline-search').value);
+  outlineList($('#ns-outline-items'),$('#ns-outline-search').value); $('#ns-outline').hidden=!OUTLINE_ENTRIES.length;}
+// One outline list in box for the search text q: a row per entry (number, title, printed page), the current section marked,
+// or why there is none. A heading is the manuscript's own words, so each entry is translate="no" (its page label is tl()'d
+// here); the empty-state sentences stay UI.
+function outlineList(box,q){const query=String(q||'').trim().toLowerCase();
   if(!OUTLINE_ENTRIES.length){box.className='outline-empty';box.textContent='이 PDF에는 이동할 수 있는 목차가 없습니다.';return;}
   const rows=OUTLINE_ENTRIES.map((x,i)=>Object.assign({index:i},x)).filter(x=>!query||(x.number+' '+x.title).toLowerCase().includes(query));
   if(!rows.length){box.className='outline-empty';box.textContent='찾은 장·절이 없습니다.';return;}
-  box.className='';box.innerHTML=rows.map(x=>'<button translate="no" class="ol-depth-'+Math.min(x.depth,4)+(x.index===OUTLINE_SELECTED?' ol-active':'')+'" data-act="outline-page" data-index="'+x.index+'" data-page="'+x.page+'" aria-current="'+(x.index===OUTLINE_SELECTED?'location':'false')+'" title="'+esc(x.title)+'"><span class="ol-no">'+esc(x.number||'·')+'</span><span class="ol-name">'+esc(x.title)+'</span><span class="ol-page">'+esc(tl('{page}쪽',{page:x.pageLabel||String(x.page)}))+'</span></button>').join('');
+  box.className='';box.innerHTML=rows.map(x=>'<button translate="no" class="ol-depth-'+Math.min(x.depth,4)+(x.index===OUTLINE_SELECTED?' ol-active':'')+'" data-act="outline-page" data-index="'+x.index+'" data-page="'+x.page+'" data-close="1" aria-current="'+(x.index===OUTLINE_SELECTED?'location':'false')+'" title="'+esc(x.title)+'"><span class="ol-no">'+esc(x.number||'·')+'</span><span class="ol-name">'+esc(x.title)+'</span><span class="ol-page">'+esc(tl('{page}쪽',{page:x.pageLabel||String(x.page)}))+'</span></button>').join('');
 }
 // Where a PDF outline destination sits on its page, as a fraction from the top (0 = top). An XYZ destination carries
 // the top edge in PDF points from the bottom; anything else (Fit, no top) counts as the top of the page.
@@ -64,7 +68,8 @@ function outlineIndexAt(entries,page,frac){let sel=-1;
   return sel<0&&entries.length?0:sel;}
 let OUTLINE_PINNED=null;   // an entry picked in the outline wins until the reader leaves its page
 // The section strip under the nav bar (the section at the reading line and 'page / pages') and the outline's highlight; mid has no
-// strip, so the same page count also goes to the nav bar's right end (#nav-page).
+// strip, so the same page count also goes to the nav bar's right end (#nav-page, a button that turns into a page field) and the
+// phone's position button (drawPos).
 function updateSectionStrip(){
   const L=$('#left'),probe=L?Math.min(160,L.clientHeight/4):0,anchor=topAnchor(probe),page=anchor?anchor.page:1,frac=anchor?anchor.frac:0;
   let sel;
@@ -72,7 +77,9 @@ function updateSectionStrip(){
   else{OUTLINE_PINNED=null; sel=outlineIndexAt(OUTLINE_ENTRIES,page,frac);}
   if(sel!==OUTLINE_SELECTED||page!==OUTLINE_ACTIVE_PAGE){OUTLINE_ACTIVE_PAGE=page;OUTLINE_SELECTED=sel;renderOutline();}
   const x=OUTLINE_ENTRIES[OUTLINE_SELECTED];$('#section-current').textContent=x?(x.number?x.number+'  ':'')+x.title:tr('원고');
-  const pg=tl('{page} / {n}쪽',{page,n:META&&META.pages?META.pages.length:0}); $('#section-page').textContent=pg; $('#nav-page').textContent=pg;
+  const n=META&&META.pages?META.pages.length:0,pg=tl('{page} / {n}쪽',{page,n}); $('#section-page').textContent=pg; $('#nav-page').textContent=pg;
+  $('#nav-page').setAttribute('aria-label',tl('쪽 번호로 이동 · {page} / {n}쪽',{page,n})); drawPos();
 }
 $('#outline-search').addEventListener('input',renderOutline);
+$('#ns-outline-search').addEventListener('input',renderOutline);   // the navigation sheet's search filters its list only
 $('#left').addEventListener('scroll',()=>{if(!document.body.classList.contains('revision-open'))requestAnimationFrame(updateSectionStrip);},{passive:true});

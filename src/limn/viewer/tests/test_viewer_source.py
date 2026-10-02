@@ -325,6 +325,7 @@ VIEWER_SETS = {
     "VIEW_MODE",
     "UI_LANG",
     "NOTIFY_STATE",
+    "STATUS_KIND",
 }
 
 

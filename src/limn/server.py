@@ -170,6 +170,7 @@ def configure_run(a: argparse.Namespace, access_opts: AccessOptions) -> RunStart
         accent=accent,
         repo=repo,
         access=access_opts,
+        ui_lang=a.ui_lang,
     )
     return RunStart(config, docs_of(picked.docs, config.paths) if picked.docs else None)
 
@@ -387,7 +388,7 @@ def start(a: argparse.Namespace) -> StartedServer | StartupRefused:
     if isinstance(run, StartupRefused):
         return run
     app = assemble_application(
-        run.config, new_runtime(serve_viewer(read_viewer(), run.config.label, run.config.accent))
+        run.config, new_runtime(serve_viewer(read_viewer(), run.config.label, run.config.accent, run.config.ui_lang))
     )
     try:
         prepared = prepare(app, run.docs, a.no_build)

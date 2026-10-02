@@ -5,11 +5,12 @@ async function loadPeople(){try{const r=(await api('/api/people',{what:'사람 �
 // A refresh that started earlier must not replace one already applied from a newer request. A failed request claims no snapshot.
 let PINS_LOAD_SEQ=0,PINS_APPLIED_SEQ=0;
 // Classifies one server snapshot without reading viewer state or changing the page. Legacy pins with no doc belong to defaultDoc.
-function derivePinLists(rows,doc,defaultDoc){
+// confirming (optional) holds the ids whose [확인] waits for its undo toast (CONFIRMING): they stay out of the review list.
+function derivePinLists(rows,doc,defaultDoc,confirming){
   const openAll=[],reviewAll=[],doneAll=[],openHere=[],doneHere=[];
   for(const pin of rows){const state=pinState(pin),here=!doc||(pin.doc||defaultDoc)===doc;
     if(state===PIN_STATE.OPEN){openAll.push(pin); if(here)openHere.push(pin);}
-    else if(state===PIN_STATE.REVIEW)reviewAll.push(pin);
+    else if(state===PIN_STATE.REVIEW){if(!(confirming&&confirming.has(pin.id)))reviewAll.push(pin);}
     else if(state===PIN_STATE.DONE){doneAll.push(pin); if(here)doneHere.push(pin);}}
   return {openAll,reviewAll,doneAll,openHere,doneHere};
 }
@@ -35,7 +36,7 @@ async function loadPins(){const seq=++PINS_LOAD_SEQ; let d;
   if(seq<PINS_APPLIED_SEQ)return false;
   loadPeople();
   // All-document lists drive notices; only the current document's open and done pins drive its marks and rows.
-  applyPinLists(d,dropped,derivePinLists(d,DOC,DEFAULT_DOC));
+  applyPinLists(d,dropped,derivePinLists(d,DOC,DEFAULT_DOC,CONFIRMING));
   PINS_APPLIED_SEQ=seq;
   return true;
 }
@@ -69,6 +70,8 @@ function secHead(key,name,ids,all){const b=document.getElementById(key+'-toggle'
   b.setAttribute('aria-expanded',String(open));
   const body=document.getElementById(b.getAttribute('aria-controls')); if(body)body.hidden=!open;}
 function toggleSec(key,force){if(!(key in SEC_DEFAULT))return; SEC[key]=force===undefined?!SEC[key]:!!force; savePrefs({sec:SEC}); drawPins();}
+// Redraws the pin panel from the lists (sections, counts, the Trash count, a reply in progress) - and, while the changes view
+// shows a pin, its guide line's buttons, whose [확인] follows that pin's state (revTargetActs).
 function drawPins(){
   const LIST=listOpen(),LDONE=listDone(),LDROP=listDropped();
   // The '나를 부른 핀' filter: only the open/awaiting-review pins across every document that @-tagged me (a cross-document inbox).
@@ -83,10 +86,9 @@ function drawPins(){
   secHead('open',tr(MENTION_ONLY?'나를 부른 열린 핀':SHOW_ALL&&multiDoc()?'모든 문서의 열린 핀':'열린 핀'),SHOWN.map(p=>p.id),OPEN_ALL.map(p=>p.id));
   const ab=$('#all-docs'); ab.setAttribute('aria-pressed',String(SHOW_ALL)); ab.innerHTML=(SHOW_ALL?ic('check'):'')+esc(tr('모든 문서'));
   $('#side-n').textContent=PINS.length; applySide();
-  // In compact, the done toggle and the Trash are also in [⋯]. On desktop the Trash is the link under the list.
-  $('#m-done').textContent=tl(SEC.done?'닫힌 핀 {n} 숨기기':'닫힌 핀 {n} 보기',{n:LDONE.length});
+  // In compact, the Trash is a row in [⋯] with its count. On desktop the Trash is the link under the list.
   const nTrash=LDROP.filter(p=>!PURGING.has(p.id)).length;
-  $('#m-trash').textContent=tl('휴지통 {n}',{n:nTrash}); $('#trash-link').textContent=tl('휴지통 {n}',{n:nTrash}); $('#trash-link').hidden=!nTrash;
+  $('#m-trash-n').textContent=nTrash; $('#trash-link').textContent=tl('휴지통 {n}',{n:nTrash}); $('#trash-link').hidden=!nTrash;
   $('#empty').hidden=SHOWN.length>0||OPEN_ALL.length>0||REVIEW_ALL.length>0;
   // Empty list: the header's count already says it - a separate '아직 없습니다.' line is never added too (QA). Only a note that another document has pins is left.
   $('#pins').innerHTML=SHOWN.length?SHOWN.map(card).join(''):(multiDoc()&&!SHOW_ALL&&OPEN_ALL.length?'<div class="dim list-empty">'+esc(tl('이 문서에는 없습니다 · 다른 문서에 {n}건',{n:OPEN_ALL.length}))+'</div>':'');
@@ -103,6 +105,7 @@ function drawPins(){
   if($('#trash').open)drawTrash();
   if(REPLY){const slot=document.querySelector('#list .reply-slot'); if(slot)slot.replaceWith(REPLY.el); renderReplyOutcome();   // the pin may have changed state meanwhile
     if(rfocus&&document.contains(rta)){rta.focus(); try{rta.setSelectionRange(rfocus[0],rfocus[1]);}catch(e){}}}
+  if(REV.target)revTargetActs();
 }
 // Location estimation (.est, dashed) is judged by the server and carried as est in /api/pins (pin_est - comparing the
 // manuscript fingerprint of the build the pin was placed on with the current build). Back when the viewer judged this by

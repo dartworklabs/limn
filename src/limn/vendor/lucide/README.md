@@ -29,6 +29,7 @@ Icons are drawn with the original `<svg>` attributes: `viewBox="0 0 24 24"`, `fi
 | `copy` | copy-location button |
 | `ellipsis` | more button (narrow screens) |
 | `eye` | 'awaiting review' badge (whose turn it is to confirm) |
+| `image` | the status line's 'showing PNG' state (compact bands) |
 | `minus` · `plus` | PDF zoom out/in; shrink/grow a range by one line |
 | `moon` · `sun` · `sun-moon` | theme (dark, light, system) |
 | `lock-open` | [풀기] (release the in-progress claim) on a compact card |
@@ -36,12 +37,15 @@ Icons are drawn with the original `<svg>` attributes: `viewBox="0 0 24 24"`, `fi
 | `move-horizontal` | fit PDF width (desktop toolbar) |
 | `panel-left` | open/close the outline (document navigation bar) |
 | `pencil` | 'edited' badge; [수정] on a compact card |
+| `pin` | the pin panel and sheet toggle on compact bars (the icon before the open count) |
 | `refresh-cw` | [Rebuild PDF] |
 | `rotate-ccw` | 'reopened' badge (pin sent back from review) |
+| `rotate-cw` | [Reload pins] in [More] (compact bands) |
 | `square-dashed` | [Select] button — drag to pick a region on touch devices (same shape as the dashed box on the PDF) |
 | `text-wrap` | [Wrap] in the source diff |
 | `trash-2` | deleted-pin row head; [삭제] on a compact card |
 | `triangle-alert` | 'location lost' badge, warning toast lead icon |
+| `wifi-off` | the status line's 'disconnected' state (compact bands) |
 | `x` | close toasts and notices |
 
 ## Updating

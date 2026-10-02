@@ -124,6 +124,7 @@ chk "rejects a manuscript dir that doesn't exist" "! '$PV' add ok1 --manuscript 
 chk "rejects a main .tex that doesn't exist" "! '$PV' add ok1 --manuscript '$ms' --main nope.tex --no-start >/dev/null 2>&1"
 chk "rejects a label containing \$ (so the config file can't become code)" "! '$PV' add ok1 --manuscript '$ms' --label 'a\$(id)' --no-start >/dev/null 2>&1"
 chk "rejects an accent that isn't #rrggbb" "! '$PV' add ok1 --manuscript '$ms' --accent red --no-start >/dev/null 2>&1"
+chk "rejects a --ui-lang other than ko|en" "! '$PV' add ok1 --manuscript '$ms' --ui-lang fr --no-start >/dev/null 2>&1"
 chk "a rejected add leaves no config behind" "[[ ! -e '$T/src/ok1.env' && ! -e '$T/config/ok1.env' ]]"
 
 echo "── 2. add: config, link, automatic port assignment ──"
@@ -550,6 +551,7 @@ badrun "refuses TAILNET_AGENT=1 under AUTH=local" "AUTH=local" "TAILNET_AGENT=1"
 badrun "rejects a malformed PUBLIC_HOSTS" "PUBLIC_HOSTS=https://x.example.com/"
 badrun "rejects a malformed TRUSTED_PROXIES" "TRUSTED_PROXIES=proxy.example.com"
 badrun "rejects a malformed proxy header name" "PROXY_USER_HEADER=X User"
+badrun "rejects a UI_LANG other than ko|en (like ACCENT)" "UI_LANG=fr"
 cp "$T/config/v01.env" "$T/config/insec.env"
 printf 'BIND=0.0.0.0\nEXTRA_ARGS="--no-build --i-know-this-is-insecure"\n' >> "$T/config/insec.env"
 argv=$(LIMN_PRINT_ARGV=1 "$PV" run insec 2> /dev/null)
@@ -571,6 +573,16 @@ chk "add --auth local refuses tailscale serve (every tailnet member would be the
 chk "start refuses to serve an AUTH=local instance" "! '$PV' start acc-add > /dev/null 2> '$T/acc-start.err' && grep -q 'owner' '$T/acc-start.err' && ! grep -q 'serve --bg' '$STUB_LOG'"
 "$PV" doc add acc-add --doc 'rr=답변서:submission/review_response/review_response.tex' > /dev/null 2>&1
 chk "doc add keeps the access keys when it rewrites the config" "grep -qx 'AUTH=local' '$T/src/acc-add.env' && grep -q '^DOCS=' '$T/src/acc-add.env'"
+
+"$PV" add ui-a --manuscript "$ms" --port 19141 --ts-port 19041 --ui-lang en --no-serve --no-start > /dev/null 2>&1
+chk "add --ui-lang en writes UI_LANG=en" "grep -qx 'UI_LANG=en' '$T/src/ui-a.env'"
+chk "add without --ui-lang writes no UI_LANG line (the browser's language decides)" "! grep -q '^UI_LANG=' '$T/src/acc-add.env'"
+sed -i.bak 's#^UI_LANG=.*#UI_LANG=ko#' "$T/src/ui-a.env" && rm -f "$T/src/ui-a.env.bak"
+argv=$(LIMN_PRINT_ARGV=1 "$PV" run ui-a 2> /dev/null)
+chk "UI_LANG=ko → --ui-lang ko" "[[ \$(grep -A1 -x -- --ui-lang <<< \"\$argv\" | sed -n 2p) == ko ]]"
+chk "the packaged server accepts --ui-lang" "\"$PY\" '$ROOT/src/limn/server.py' --help | grep -q -- '--ui-lang'"
+"$PV" doc add ui-a --doc 'rr=답변서:submission/review_response/review_response.tex' > /dev/null 2>&1
+chk "doc add keeps UI_LANG when it rewrites the config" "grep -qx 'UI_LANG=ko' '$T/src/ui-a.env' && grep -q '^DOCS=' '$T/src/ui-a.env'"
 
 echo "── 14. limn token / limn member resolve the instance's state dir ──"
 tok=$("$PV" token create v01 --name ci 2> "$T/tok.err")

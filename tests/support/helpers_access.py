@@ -211,7 +211,8 @@ def configure(mod, src: Path, main: Path, state: Path) -> None:
     if hasattr(mod, "RunConfig"):
         run_cfg = run_config(src, main, state)
         mod.APP = ApplicationFixture(
-            run_cfg, mod.new_runtime(assemble.serve_viewer(VIEWER_FILES, run_cfg.label, run_cfg.accent))
+            run_cfg,
+            mod.new_runtime(assemble.serve_viewer(VIEWER_FILES, run_cfg.label, run_cfg.accent, run_cfg.ui_lang)),
         )
         mod.Handler.app = mod.APP.web
     else:

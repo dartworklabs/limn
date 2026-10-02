@@ -241,6 +241,7 @@ write_conf_docs() {
         printf '# Not sourced by the shell — do not put shell syntax in values.\n'
         emit LABEL "$C_LABEL"
         emit ACCENT "$C_ACCENT"
+        emit UI_LANG "$C_UI_LANG"
         emit MANUSCRIPT "$C_MANUSCRIPT"
         emit DOCS "$docs_str"
         emit PORT "$C_PORT"

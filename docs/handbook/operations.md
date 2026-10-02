@@ -42,6 +42,7 @@ uv run python3 -m unittest discover -s tests
 | `--git-pull` | 원격 main을 fast-forward로 확인하고 빌드 전에 당긴다. 실패·인증·감시 조건은 [build-sync.md](build-sync.md) §재빌드 전 원격 main 당겨오기 (`--git-pull`)가 정한다 |
 | `--pdfjs-dir` | 패키지에 든 PDF.js를 다른 디렉터리로 바꾼다. 필수 파일이 없으면 기동 때 경고하고 뷰어는 PNG를 쓴다. 허용된 파일 경로는 [api.md](api.md) §화면·PDF·정적 파일이 정한다 |
 | `--allow`, `--no-origin-check` | 사람 입장 목록을 좁히거나 Host·Origin 검사를 끈다. 우회 범위와 경고는 아래에서 설명한다 |
+| `--ui-lang` | 뷰어 화면 언어의 인스턴스 기본값(`ko`·`en`)이다. 주지 않으면 기본값이 없고 브라우저 언어를 따른다. 사람이 [더보기]에서 고른 언어가 늘 이긴다. 거부된 첫 화면도 같은 순서를 쓴다([viewer.md](viewer.md) §뷰어 규칙을 바꿀 때). 인스턴스 설정 키는 `UI_LANG`이다. `EXTRA_ARGS`에 넣지 않는다. 이전 버전으로 되돌리면 모르는 인자라 시작이 멈춘다 |
 
 `--allow`를 지정하면 `Tailscale-User-Login` 헤더가 **있는데** 목록 밖인 요청은 `403`을 받는다. 신원 헤더 없이 루프백 `Host`로 온 요청(에이전트의 `curl`)은 목록을 거치지 않고, loopback 에이전트가 켜져 있을 때만 들어온다(아래 '접근 제어 인자' 소절). 토큰을 단 요청도 목록을 거치지 않는다. 신원 헤더 없이 `*.ts.net` `Host`로 온 요청은 `--allow`·`--members-only` 설정과 무관하게 `403`이다. tailscale은 **태그 장치**와 funnel 요청에 신원 헤더를 붙이지 않으므로, 이런 요청을 로컬로 치면 목록을 우회할 수 있기 때문이다. `--tailnet-agent`는 이런 요청을 `로컬/에이전트`로 받게 하지만, 목록이 있으면 여전히 막힌다.
 
@@ -142,7 +143,7 @@ uv run python3 -m unittest discover -s tests
 
 다음 내용의 정본은 [instances.md](instances.md)다.
 
-- 논문별 설정 키(`MANUSCRIPT`·`MAIN`·`DOCS`·`PORT`·`STATE_DIR`·`LABEL`·`ACCENT`·`GIT_PULL`·`EXTRA_ARGS`, 파일 `~/.config/limn/<이름>.env`)
+- 논문별 설정 키(`MANUSCRIPT`·`MAIN`·`DOCS`·`PORT`·`STATE_DIR`·`LABEL`·`ACCENT`·`UI_LANG`·`GIT_PULL`·`EXTRA_ARGS`, 파일 `~/.config/limn/<이름>.env`)
 - 접근 설정 키(`AUTH`·`AGENT_LOOPBACK`·`TAILNET_AGENT`·`BIND`·`PUBLIC_HOSTS`·`TRUSTED_PROXIES`·`PROXY_*_HEADER`·`MEMBERS_ONLY`·`LOCAL_USER`)
 - 서버 머신 에이전트의 토큰 파일(`~/.config/limn/<이름>.token`, `limn token create <이름> --save`)과 `limn run`이 넘기는 `LIMN_AGENT_TOKEN_FILE`
 - 설정 키와 서버 인자의 대응
@@ -212,7 +213,7 @@ ss -ltnp 2>/dev/null | grep ":<port> " || lsof -i tcp:<port>
 
 | 자리 | 무엇이 보이나 |
 | --- | --- |
-| 도구 줄(데스크톱 사이드바 머리, 펼친·접은 폴드 공통 `#bar1`) | 맨 앞에 강조색 배경의 이름표 칩. 좁은 화면에서는 폭이 줄지만 사라지지 않는다 |
+| 탐색 줄(데스크톱) · [더보기] 머리(휴대폰·태블릿·펼친 화면) | 탐색 줄은 Limn 아이콘 + 이름표, [더보기] 머리는 강조색 점 + 이름표 |
 | 화면 맨 위 | 강조색 얇은 띠(4px) |
 | 브라우저 탭 제목 | `<이름표> · 원고 핀 · 열린 N` |
 | 파비콘 | 이름표도 강조색도 싣지 않는다. 모든 인스턴스가 같은 Limn 파비콘(먹 둥근 사각형 위 i)이고 탭은 제목으로 가른다([viewer.md](viewer.md) §마크와 파비콘) |

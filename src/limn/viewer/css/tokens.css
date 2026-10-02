@@ -48,6 +48,7 @@
   --text-xs:11px;--text-sm:12px;--text-base:13px;--text-lg:14px;--text-xl:16px;
   --space-1:4px;--space-2:8px;--space-3:12px;--space-4:16px;--space-5:20px;--space-6:24px;
   --edge:var(--space-4);
+  --ic-bearing:2.67px;   /* a 16px Lucide glyph's ink starts 4/24 in (2px stroke): the optical corrections at a row's ends */
   --grabber:color-mix(in srgb,var(--foreground) 50%,transparent);
   --control-h-sm:24px;--control-h:28px;--control-h-lg:36px;--control-h-touch:44px;--hit:44px;--ctl-touch-sm:36px;--ctl-touch:40px;
   --shadow-sm:0 1px 4px var(--shadow-color);--shadow:0 4px 16px var(--shadow-color);--shadow-lg:0 6px 24px var(--shadow-color);

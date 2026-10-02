@@ -599,10 +599,30 @@ class ErrorPages(unittest.TestCase):
         return h
 
     def test_language_follows_the_query_then_accept_language(self):
-        """?lang= wins; otherwise a first ko* tag gives ko and anything else en."""
-        self.assertEqual(page_lang(self.headers("en-US"), {"lang": ["ko"]}), "ko")
-        self.assertEqual(page_lang(self.headers("ko-KR,en;q=0.8"), {}), "ko")
-        self.assertEqual(page_lang(self.headers("en-US,ko;q=0.8"), {}), "en")
+        """?lang= wins; otherwise, with no instance default, a first ko* tag gives ko and anything else en."""
+        self.assertEqual(page_lang(self.headers("en-US"), {"lang": ["ko"]}, None), "ko")
+        self.assertEqual(page_lang(self.headers("ko-KR,en;q=0.8"), {}, None), "ko")
+        self.assertEqual(page_lang(self.headers("en-US,ko;q=0.8"), {}, None), "en")
+
+    def test_the_instance_default_comes_between_the_query_and_accept_language(self):
+        """The viewer's order (docs/handbook/viewer.md §역할에 따른 화면): ?lang= > the instance's --ui-lang > Accept-Language.
+        A ?lang= other than ko or en is no choice."""
+        self.assertEqual(page_lang(self.headers("en-US"), {}, "ko"), "ko")
+        self.assertEqual(page_lang(self.headers("ko-KR"), {}, "en"), "en")
+        self.assertEqual(page_lang(self.headers("ko-KR"), {"lang": ["en"]}, "ko"), "en")
+        self.assertEqual(page_lang(self.headers("ko-KR"), {"lang": ["fr"]}, "en"), "en")
+
+    def test_the_page_reopens_in_a_saved_language_once(self):
+        """The server cannot see this device's saved choice (localStorage limnLang), so the page carries one fixed line of
+        script: without ?lang=, a saved ko or en other than the page's language reopens /?lang=<it> - which has ?lang=,
+        so it stops there. The script carries no user data."""
+        page = error_page_html(HTTPError(403, "x", reason="not_member", page=("not-member", {"login": "e"})), "ko", {})
+        script = page[page.index("<script>") : page.index("</script>")]
+        self.assertIn("localStorage.getItem('limnLang')", script)
+        self.assertIn("location.search", script)
+        self.assertIn("'/?lang='", script)
+        self.assertIn("!=='ko'", script)
+        self.assertNotIn("e</", script)
 
     def test_ui_text_uses_the_table_in_english_and_the_key_in_korean(self):
         """In en the table's entry (its "other" plural form) with placeholders filled; in ko the Korean key itself."""

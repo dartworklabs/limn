@@ -2,11 +2,22 @@ async function closePin(id){try{const {data}=await api('/api/pins/'+id+'/close',
   if(!data.ok){toast(tl('완료 실패 — 핀 #{id} 이 없습니다',{id}),'err');}
   else {markMine(id); toast(tl(data.state===PIN_STATE.REVIEW?'핀 #{id} 검토 대기로 보냄 — 이 화면에 신원이 없어(로컬) 에이전트가 닫은 것으로 칩니다':'핀 #{id} 완료',{id}),
     'ok',{label:'되돌리기',fn:()=>reopenPin(id)});}}catch(e){} await loadPins();}
-// Awaiting review -> done. The person who confirmed (confirmed_by) is recorded.
-async function confirmPin(id){try{const {data}=await api('/api/pins/'+id+'/confirm',{method:'POST',what:'확인',expect:[409]});
-  if(data&&data.error===PIN_STATE.OPEN)toast(tl('핀 #{id} 은 이미 다시 열렸습니다',{id}),'warn');
-  else if(!data.ok)toast(tl('확인 실패 — 핀 #{id} 이 없습니다',{id}),'err');
-  else{markMine(id); toast(tl('핀 #{id} 확인 · 완료로 옮겼습니다',{id}),'ok');}}catch(e){} await loadPins();}
+// Awaiting review -> done; the person who confirmed (confirmed_by) is recorded. The card's [확인] and the changes view's guide
+// line call this one function. Like a reply it is a deferred send: the card leaves the review section at once (CONFIRMING keeps
+// it out of every pin snapshot meanwhile, derivePinLists), the request goes when the [되돌리기] toast does, and the undo puts
+// the card back with nothing sent. A 409 'open' means someone reopened the pin in between.
+const CONFIRMING=new Set();
+function confirmPin(id){if(CONFIRMING.has(id))return; const at=REVIEW_ALL.findIndex(p=>p.id===id),pin=at<0?null:REVIEW_ALL[at];
+  CONFIRMING.add(id); REVIEW_ALL=REVIEW_ALL.filter(p=>p.id!==id); drawPins(); marks();
+  deferred(tl('핀 #{id} 확인 · 완료로 옮겼습니다',{id}),async()=>{
+      try{const {data}=await api('/api/pins/'+id+'/confirm',{method:'POST',what:'확인',expect:[409],keepalive:true});
+        if(data&&data.error===PIN_STATE.OPEN)toast(tl('핀 #{id} 은 이미 다시 열렸습니다',{id}),'warn');
+        else if(!data.ok)toast(tl('확인 실패 — 핀 #{id} 이 없습니다',{id}),'err');
+        else markMine(id);}catch(e){}
+      CONFIRMING.delete(id); await loadPins();},
+    ()=>{CONFIRMING.delete(id);
+      if(pin&&!REVIEW_ALL.some(p=>p.id===id)){const i=Math.min(at,REVIEW_ALL.length); REVIEW_ALL=[...REVIEW_ALL.slice(0,i),pin,...REVIEW_ALL.slice(i)];}
+      drawPins(); marks();});}
 // Undo of [완료] (the toast's [되돌리기]) - the viewer has no [다시 열기] button any more; a reply reopens by the server rule.
 async function reopenPin(id){try{await api('/api/pins/'+id+'/reopen',{method:'POST',what:'다시 열기'});
   markMine(id); toast(tl('핀 #{id} 완료를 되돌렸습니다',{id}),'ok');}catch(e){} await loadPins();}

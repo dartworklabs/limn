@@ -45,11 +45,11 @@ Requires Python ≥ 3.10, [uv](https://docs.astral.sh/uv/), a TeX distribution w
 (`latexmk`/`pdflatex`) and Poppler (`pdftoppm`, `pdfinfo`).
 
 ```bash
-uv tool install git+https://github.com/dartworklabs/limn@v0.4.5
+uv tool install git+https://github.com/dartworklabs/limn@v0.4.6
 limn version
 ```
 
-With SSH access to GitHub, `git+ssh://git@github.com/dartworklabs/limn@v0.4.5` works too.
+With SSH access to GitHub, `git+ssh://git@github.com/dartworklabs/limn@v0.4.6` works too.
 
 ## Run one server
 
@@ -75,6 +75,7 @@ state (pins, builds) goes to `--state-dir` or `~/.local/share/limn/serve/<manusc
 
 ```bash
 limn add paper2 --manuscript ~/papers/paper2 --git-pull   # ports, config, systemd unit limn@paper2, tailscale serve
+         [--ui-lang <ko|en>]                               # the viewer's default language (a person's choice wins)
 limn list                                                  # label, ports, state, open pins, documents
 limn status paper2 · limn url paper2 · limn snippet paper2 # details · tailnet URL · block for AGENTS.md
 limn update [--dry-run] [--ref vX.Y.Z]                     # reinstall via uv tool, restart running instances
@@ -126,7 +127,7 @@ Personal data in the imported history was replaced with placeholders.
 Nothing is deleted; ports, tailnet addresses and pins carry over.
 
 ```bash
-uv tool install git+https://github.com/dartworklabs/limn@v0.4.5
+uv tool install git+https://github.com/dartworklabs/limn@v0.4.6
 limn migrate --dry-run            # plan: ~/.config/pin-viewer/<name>.env -> ~/.config/limn/<name>.env
 limn migrate                      # copy configs (idempotent; old files stay)
 # per instance:

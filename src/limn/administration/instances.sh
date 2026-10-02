@@ -10,7 +10,7 @@
 #
 # Usage:
 #   limn add <name> --manuscript <manuscript dir> [--main <file.tex>] [--port N] [--ts-port N]
-#                  [--git-pull] [--label <label>] [--accent <#rrggbb>] [--state-dir <dir>]
+#                  [--git-pull] [--label <label>] [--accent <#rrggbb>] [--ui-lang <ko|en>] [--state-dir <dir>]
 #                  [--extra "<server args>"] [--no-serve] [--no-start] [--auth tailscale|local|trusted-proxy]
 #                  [--doc <key>=<display name>:<path> ...]   (not used together with --main. §Multiple documents)
 #                  [--stage auto|initial|revision]        (only for auto-detection without --doc/--main. §Default tab auto-detection)
@@ -218,6 +218,7 @@ load() { # load <name>
     C_FILE=$f
     C_LABEL=$(env_get "$f" LABEL)
     C_ACCENT=$(env_get "$f" ACCENT)
+    C_UI_LANG=$(env_get "$f" UI_LANG)
     C_MANUSCRIPT=$(env_get "$f" MANUSCRIPT)
     C_MAIN=$(env_get "$f" MAIN)
     C_PORT=$(env_get "$f" PORT)
@@ -257,6 +258,8 @@ emit_access() {
 }
 
 valid_auth() { [[ "$1" == tailscale || "$1" == local || "$1" == trusted-proxy ]]; }
+# UI_LANG / --ui-lang: the viewer's interface languages (limn serve --ui-lang), or empty (the browser's language decides).
+valid_ui_lang() { [[ -z "$1" || "$1" == ko || "$1" == en ]]; }
 
 # is_loopback_addr <addr> — the same rule as the server's is_loopback_bind (127.0.0.0/8, ::1, localhost).
 is_loopback_addr() {

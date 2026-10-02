@@ -15,18 +15,20 @@ document.addEventListener('click',e=>{
   const host=a.closest('[data-id]'),id=host?+host.dataset.id:null,inEdit=!!a.closest('.edit');
   const fromMore=!!a.closest('#more');
   if(fromMore&&(a.dataset.close||a.dataset.act==='help'))$('#more').close();
+  if(a.closest('#status-list'))$('#status-list').close();   // a row's action folds the status list
+  if(a.dataset.close&&a.closest('#nav-sheet'))$('#nav-sheet').close();   // a destination in the navigation sheet: go there, the sheet closes
   switch(a.dataset.act){
     case 'side':toggleSide();break;
     case 'selmode':setSelMode(!SELMODE);if(SELMODE&&LAYOUT===LAYOUT_MODE.NARROW&&!COMPOSE.current&&!EDITOR.current)setSide(false);break;
     case 'more':openMore();break; case 'more-close':$('#more').close();break;
     case 'size-preset':sizePreset(+a.dataset.i);break;
-    case 'm-jump':$('#more').close();goPage($('#m-jump').value);break;
     case 'coach-close':$('#coach').hidden=true;break;
     case 'toasts-expand':$('#toasts').classList.add('expanded'); syncToastStack(); break;
     case 'card-toggle':if(id==null)break; if(OPEN_CARDS.has(id))OPEN_CARDS.delete(id); else OPEN_CARDS.add(id); drawPins();break;
     case 'rebuild':rebuild();break; case 'reload':loadPins();break;
+    case 'rebuild-force':BUILD.unchanged=null; drawStatus(); rebuild(true); break;   // the status line's [그래도 빌드]: a cold build
     case 'zoom-in':zoom(1);break; case 'zoom-out':zoom(-1);break; case 'fit':fitW();break;
-    case 'theme':cycleTheme();break; case 'lang':switchLang();break; case 'notify-toggle':notifyToggle();break; case 'help':openHelp();break; case 'help-close':$('#help').close();break;
+    case 'theme':if(a.dataset.theme)setTheme(a.dataset.theme); else cycleTheme(); break; case 'lang':switchLang(a.dataset.lang);break; case 'notify-toggle':notifyToggle();break; case 'help':openHelp();break; case 'help-close':$('#help').close();break;
     case 'save':if(!viewerBlocked())savePin();break; case 'cancel':discardSelection();break;
     case 'overlap-append':{const text=$('#note').value.trim();
       if(!text){toast('메모를 먼저 써야 덧붙일 수 있습니다','warn');break;}
@@ -38,12 +40,13 @@ document.addEventListener('click',e=>{
     case 'level':{const o=inEdit?EDITOR.current:COMPOSE.current; if(!o)break; useLevel(o,a.dataset.level); if(!inEdit)recomputeOverlap(); inEdit?renderEdit():renderComposer(); break;}
     case 'nudge':{const o=inEdit?EDITOR.current:COMPOSE.current; if(!o||!nudge(o,a.dataset.dir))break; if(!inEdit)recomputeOverlap(); const r=inEdit?renderEdit:renderComposer; r(); refetchSnip(o,r); break;}
     case 'view':jumpPin(id);break; case 'edit':openEdit(id);break;
-    case 'doc':{const inMenu=!!a.closest('#docs-menu'); switchDoc(a.dataset.doc); if(inMenu)$('#docs-menu').close(); break;}
+    case 'doc':{const inMenu=!!a.closest('#nav-sheet'); switchDoc(a.dataset.doc); if(inMenu)$('#nav-sheet').close(); break;}
     // ^ inMenu is determined before calling switchDoc() - for a cached document, switchDoc finishes synchronously
-    //   through drawDocTabs, and inside that it redraws the open #docs-menu (drawDocsMenu), detaching a from the DOM.
-    //   Calling a.closest() after switchDoc would return null, leaving the menu open and blocking the next tab
+    //   through drawDocTabs, and inside that it redraws the open #nav-sheet (drawDocsMenu), detaching a from the DOM.
+    //   Calling a.closest() after switchDoc would return null, leaving the sheet open and blocking the next tab
     //   interaction (a touch regression).
-    case 'doc-menu':openDocsMenu();break; case 'docs-menu-close':$('#docs-menu').close();break;
+    case 'nav-sheet':openNavSheet();break; case 'nav-sheet-close':$('#nav-sheet').close();break;
+    case 'ns-go':navGo();break; case 'nav-page':navPageField(true);break;
     case 'view-mode':setViewMode(a.dataset.mode);break;
     case 'rev-back':revBack();break;
     case 'outline':toggleOutline();break;
@@ -70,7 +73,8 @@ document.addEventListener('click',e=>{
     case 'e-kind':if(EDITOR.current){EDITOR.current.kind_req=a.dataset.kind===KIND_REQ.QUESTION?KIND_REQ.QUESTION:KIND_REQ.FIX; renderEdit();}break;
     case 'reply-open':if(id!=null)openReply(id);break;
     case 'reply-flip':if(REPLY){REPLY.flip=!REPLY.flip; renderReplyOutcome();}break;
-    case 'confirm':if(id!=null)confirmPin(id);break;
+    case 'confirm':{if(id==null)break; const inGuide=!!a.closest('#revision-pin,#revision-acts');   // before confirmPin redraws the guide line
+      confirmPin(id); if(inGuide)revBack(); break;}   // the review ends where it is read: back to the manuscript
     case 'change':if(id!=null)showChange(id);break;
     case 'goto-review':gotoReview();break;
     case 'reply-cancel':closeReply();break; case 'reply-send':sendReply();break;
@@ -79,10 +83,11 @@ document.addEventListener('click',e=>{
     case 'esave':saveEdit();break; case 'ecancel':cancelEdit();break;
     case 'repick':startRepick();break; case 'rp-cancel':cancelRepick();break; case 'rp-apply':applyRepick();break;
     case 'sec-toggle':toggleSec(a.dataset.sec);break;
-    case 'done-toggle':toggleSec('done');if(fromMore)revealList('#done-toggle',SEC.done);break;
     case 'trash-open':openTrash();break; case 'trash-close':$('#trash').close();break;
     case 'err-close':hideBuildErr();break;
     case 'build-err-reopen':if(BUILD.error){setSide(true); showBuildErr(BUILD.error);} break;   // the chip floats on a collapsed panel; the log is inside it
+    case 'status-more':toggleStatusList();break;
+    case 'status-why':statusWhy();break;
   }
 });
 $('#doc-select').addEventListener('change',e=>switchDoc(e.target.value));
@@ -111,7 +116,7 @@ document.addEventListener('keydown',e=>{
   // A span with role=button (a card's #number) is also activated by Enter/Space - sent through the same data-act path as a click.
   if((e.key==='Enter'||e.key===' ')&&t&&t.getAttribute&&/^(button|link)$/.test(t.getAttribute('role')||'')&&t.dataset&&t.dataset.act&&!inField){e.preventDefault();t.click();return;}
   if(e.key==='Escape'){
-    if($('#help').open||$('#more').open||$('#docs-menu').open||$('#trash').open)return;
+    if($('#help').open||$('#more').open||$('#nav-sheet').open||$('#trash').open||$('#status-list').open)return;
     if(!TIP.hidden){hideTip(); if(!inField){e.preventDefault(); return;}}
     // Each Esc closes the top thing only; a handled Esc is not also a close request (the back-gesture layer's CloseWatcher).
     if(outlineOverlay()&&OUTLINE_MID_OPEN){e.preventDefault();toggleOutline();return;}

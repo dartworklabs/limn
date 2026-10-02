@@ -10,6 +10,7 @@ LIMN_AGENT_TOKEN_FILE (the default of --agent-token-file), and nothing else.
 import argparse
 import os
 
+from limn.runtime.config import UI_LANGS
 from limn.runtime.startup import LABEL_MAX
 from limn.security.access import AUTH_PROVIDERS
 
@@ -74,6 +75,12 @@ def serve_parser(description: str, version: str, default_envs: str) -> argparse.
         "--accent",
         help="The label's accent color (#rrggbb). If omitted, one is picked from a fixed palette by "
         "hashing the label string (the same label always gets the same color)",
+    )
+    ap.add_argument(
+        "--ui-lang",
+        choices=UI_LANGS,
+        help="The viewer's default interface language for this instance (ko or en). A language a person picks in the "
+        "viewer wins; without this option the browser's language decides",
     )
     acc = ap.add_argument_group("access control (docs/adr/0002-access-control.md)")
     acc.add_argument(

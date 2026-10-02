@@ -15,9 +15,14 @@ function buildDoc(){
 // The page width limit is ZOOM_MIN-ZOOM_MAX times the fit-width (minimum 160px). Overflow scrolls horizontally only within the PDF area (#left).
 const ZOOM_MIN=0.5,ZOOM_MAX=5,ZOOM_STEP=1.2;
 function wBounds(fit){const f=Math.max(160,fit),lo=Math.max(160,Math.round(f*ZOOM_MIN)); return [lo,Math.max(lo,Math.round(f*ZOOM_MAX))];}
-// Sets the page width W within wBounds (saved in wide unless save is false); the marks' badges follow the new width (markBadgeSides).
+// Sets the page width W within wBounds (saved in wide unless save is false); the marks' badges follow the new width (markBadgeSides)
+// and so does [더보기]'s zoom figure (drawZoom).
 function setW(w,save){const b=wBounds(fitWidth()); W=Math.round(Math.min(b[1],Math.max(b[0],w))); $$('.pg').forEach(e=>e.style.width=W+'px');
-  markBadgeSides(); if(save!==false&&LAYOUT===LAYOUT_MODE.WIDE)savePrefs({w:W}); vecInvalidate();}
+  markBadgeSides(); if(save!==false&&LAYOUT===LAYOUT_MODE.WIDE)savePrefs({w:W}); vecInvalidate(); drawZoom();}
+// The zoom as [더보기] shows it: the page width W over the fitted width, in percent, rounded; 100 before a width is known. Pure.
+function zoomPct(w,fit){return fit>0?Math.round(w/fit*100):100;}
+// Writes [더보기]'s zoom figure (a live region: it is read out as it changes).
+function drawZoom(){const z=$('#m-zoom'); if(z)z.textContent=zoomPct(W,fitWidth())+'%';}
 function innerW(){const L=$('#left'),cs=getComputedStyle(L); return L.clientWidth-parseFloat(cs.paddingLeft)-parseFloat(cs.paddingRight);}
 // Fit-width: in compact and on a wide touch screen, the scroller's inner width (innerW: its padding is the gap, which on touch keeps
 // the page off the handles' hit areas); with a mouse in wide, #left.clientWidth minus 48px (left/right margins), as always.
@@ -45,5 +50,19 @@ function fitW(){const a=topAnchor(),L=$('#left');
   restoreAnchor(a); L.scrollLeft=0;}
 function goPage(v){const el=document.getElementById('p'+parseInt(v===undefined?$('#jump').value:v,10)); if(el) el.scrollIntoView({behavior:SMOOTH});}
 $('#jump').addEventListener('keydown',e=>{if(e.key==='Enter')goPage();});
-$('#m-jump').addEventListener('keydown',e=>{if(e.key==='Enter'){$('#more').close(); goPage($('#m-jump').value);}});
+// The page a typed entry v goes to in a document of n pages: a whole number clamped to 1..n; null for an empty or non-number
+// entry, which goes nowhere. Pure.
+function clampPage(v,n){const s=String(v==null?'':v).trim(); if(!/^-?\d+$/.test(s)||!(n>=1))return null; return Math.min(n,Math.max(1,parseInt(s,10)));}
+// The navigation sheet's page field (Enter or [이동]): goes to the clamped page and closes the sheet; nothing typed does nothing.
+function navGo(){const p=clampPage($('#ns-page-in').value,META&&META.pages?META.pages.length:0); if(p===null)return;
+  $('#nav-sheet').close(); if(document.body.classList.contains('revision-open'))setViewMode(VIEW_MODE.MANUSCRIPT); goPage(p);}
+$('#ns-page-in').addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.isComposing){e.preventDefault(); navGo();}});
+// The nav bar's page count (tablet sheet, mid, short) as a page field in its place: the page on screen selected; Enter goes
+// to the clamped page, Esc or leaving it gives the count back.
+function navPageField(on){const b=$('#nav-page'),f=$('#nav-page-in'); b.hidden=on; f.hidden=!on;
+  if(on){f.value=String(OUTLINE_ACTIVE_PAGE||1); f.focus(); f.select();}}
+$('#nav-page-in').addEventListener('keydown',e=>{if(e.isComposing)return;
+  if(e.key==='Enter'){e.preventDefault(); const p=clampPage(e.target.value,META&&META.pages?META.pages.length:0); navPageField(false); $('#nav-page').focus({preventScroll:true}); if(p!==null)goPage(p);}
+  else if(e.key==='Escape'){e.preventDefault(); e.stopPropagation(); navPageField(false); $('#nav-page').focus({preventScroll:true});}});
+$('#nav-page-in').addEventListener('blur',()=>{if(!$('#nav-page-in').hidden)navPageField(false);});
 

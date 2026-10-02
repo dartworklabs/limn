@@ -1,5 +1,48 @@
 # Changelog
 
+## 0.4.6 — 2026-10-02
+
+Phones and tablets get a three-column bottom bar, one status line and two sheets, Navigation and More. A review can
+now end in the changes view. This release does not change `pins.md`, the API or the state directory: the agent
+contract stays as it is. The desktop with a mouse looks the same, apart from the review controls in the changes view.
+
+### Added
+
+- **`--ui-lang ko|en`** (instance key `UI_LANG`, `limn add --ui-lang`) sets an instance's default viewer language. The
+  viewer takes the language a person picked in More first, then this default, then the browser's language. Without
+  the option nothing changes. The page shown to a refused browser follows the same order. Set the key, not
+  `EXTRA_ARGS`: an older server refuses the unknown option.
+- **Confirm in the changes view.** When View changes shows a pin awaiting review, its guide line has Confirm next to
+  "to the manuscript". It confirms the pin and returns to the manuscript. On phones and tablet sheets both buttons sit
+  in a thumb row right above the tool bar.
+
+### Changed
+
+- **Bottom bar.** On phones and tablet sheets the bar has three columns: pins and Select on the left, the sheet
+  grabber exactly in the centre, the position button and More on the right. Phones use the 12 px edge. Below 400 px
+  the position button shows only the page and the review count only its number; below 360 px the buttons' padding
+  narrows. Nothing is cut.
+- **One status line** replaces the row of chips on compact screens. Rebuild appears only when the PDF is older than
+  the manuscript. While a build runs, the line shows its step and elapsed time over a progress bar that has no end:
+  the server sends no page count yet. The viewer is ready to fill the bar from a `progress` field once builds report
+  one. Failure, LaTeX errors, offline and sync problems use the same line. Rebuild PDF moves from the bar into
+  More. A rebuild that changes nothing (0.4.5) says "No changes" on the line with Build anyway for six seconds, as long
+  as a toast stays; the desktop keeps its toast.
+- **Navigation sheet.** On phones, the position button (the document's name and the page, `[본문 3/25 ▾]`) opens one
+  sheet with the documents, Manuscript or Changes, a page field and the outline. Picking an entry goes there and closes
+  the sheet.
+- **More** is rebuilt. It shows the instance label with its colour dot and two lines of build facts that never break
+  inside a word. Zoom shows its percentage. Sheet height, theme and language are segmented controls. Browser
+  notifications are a switch that says why it is off. The foot carries the Limn wordmark, the version and Help.
+- **Confirm can be undone.** Confirm, on a card or in the changes view, takes the card out at once and shows Undo.
+  The request is sent when the toast goes away, as with replies.
+- The changes view hides the PDF, source and wrap controls when the document has no Git history or no recent commit.
+
+### Removed
+
+- The closed-pins row and the page field in More. The list's done section and the navigation sheet do their jobs.
+- The 14 px Limn icon next to the instance label.
+
 ## 0.4.5 — 2026-10-02
 
 Faster builds and faster page loads. On a 25-page manuscript at 150 dpi, measured on a busy 64-thread machine:

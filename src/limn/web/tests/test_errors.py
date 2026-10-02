@@ -388,6 +388,14 @@ class ErrorPage(AccessBase):
         code, hdrs, _ = split_resp(talk_to(ps, req("GET", "/api/pins", b"", CAROL)))
         self.assertEqual((code, hdrs["content-type"].split(";")[0]), (403, "application/json"))  # the API stays JSON
 
+    def test_the_instance_default_language_beats_the_browser_language(self):
+        """--ui-lang ko: an English browser refused at GET / reads the Korean page (the viewer's own order)."""
+        set_config(members_only=True, ui_lang="ko")
+        _, _, body = split_resp(
+            talk_to(ps, req("GET", "/", b"", dict(CAROL, **{"Accept": "text/html", "Accept-Language": "en-US"})))
+        )
+        self.assertIn("이 뷰어의 멤버가 아닙니다", body.decode("utf-8"))
+
     def test_page_escapes_the_login(self):
         set_config(members_only=True)
         h = {"Tailscale-User-Login": "<b>x</b>@example.com", "Tailscale-User-Name": "X", "Accept": "text/html"}

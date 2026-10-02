@@ -29,6 +29,7 @@ from limn.revisions.scope import ScopeUnreadable
 from limn.runtime import config
 from limn.security.access import LOCAL_ACTOR
 from limn.viewer import assemble
+from limn.web.errors import HTTPError, error_page_html
 
 from helpers import (
     HTML,
@@ -63,18 +64,23 @@ UI_ATTRS = ("data-tip", "aria-label", "title", "placeholder")
 
 
 def static_ui_strings(html):
-    """Korean text nodes and UI attributes of the static markup (body up to the first <script>)."""
+    """Korean text nodes and UI attributes of the static markup (body up to the first <script>). Text inside a
+    translate="no" element is not UI to translate (the language segment's own names, a label) and is left out."""
     body = html[html.index("<body") : html.index("<script>", html.index("<body"))]
     found = set()
+    void = {"input", "br", "wbr", "img", "meta", "link", "hr", "source"}
 
     class P(HTMLParser):
-        """Collect visible Korean text and UI attributes outside SVG and style blocks."""
+        """Collect visible Korean text and UI attributes outside SVG and style blocks and translate="no" text."""
 
         skip = 0
+        fixed: list[bool] = []
 
         def handle_starttag(self, tag, attrs):
             if tag in ("svg", "style"):
                 self.skip += 1
+            if tag not in void:
+                self.fixed.append(dict(attrs).get("translate") == "no")
             for k, v in attrs:
                 if k in UI_ATTRS and v and HANGUL.search(v):
                     found.add(v.strip())
@@ -82,10 +88,12 @@ def static_ui_strings(html):
         def handle_endtag(self, tag):
             if tag in ("svg", "style") and self.skip:
                 self.skip -= 1
+            if tag not in void and self.fixed:
+                self.fixed.pop()
 
         def handle_data(self, d):
             d = d.strip()
-            if not self.skip and d and HANGUL.search(d) and not d.startswith("__"):
+            if not self.skip and not any(self.fixed) and d and HANGUL.search(d) and not d.startswith("__"):
                 found.add(d)
 
     P().feed(body)
@@ -229,10 +237,15 @@ class Wiring(unittest.TestCase):
         self.assertNotIn("</script", m.group(1))
 
     def test_language_choice_order(self):
+        """The head script's order (docs/handbook/viewer.md §뷰어 규칙을 바꿀 때): the saved choice (a ?lang= link writes it
+        first), then the instance's --ui-lang (__UI_LANG__, filled per run), then the browser's language."""
         head = HTML[: HTML.index("<body")]
-        i_q, i_saved, i_nav = (head.index(x) for x in ("get('lang')", "getItem('limnLang')", "navigator.language"))
+        i_q, i_saved, i_default, i_nav = (
+            head.index(x) for x in ("get('lang')", "getItem('limnLang')", "'__UI_LANG__'", "navigator.language")
+        )
         self.assertLess(i_q, i_saved)
-        self.assertLess(i_saved, i_nav)
+        self.assertLess(i_saved, i_default)
+        self.assertLess(i_default, i_nav)
         self.assertIn("indexOf('ko')===0?'ko':'en'", head)
 
     def test_toasts_boot_and_switch_are_wired(self):
@@ -243,7 +256,7 @@ class Wiring(unittest.TestCase):
         )
         self.assertIn("async function boot(){i18nStart();", HTML)
         self.assertIn('id="m-lang"', HTML)
-        self.assertIn("case 'lang':switchLang();break;", HTML)
+        self.assertIn("case 'lang':switchLang(a.dataset.lang);break;", HTML)  # the segment says which language
 
 
 class BrowserLanguage(ChromiumTestCase):
@@ -255,14 +268,19 @@ class BrowserLanguage(ChromiumTestCase):
         super().setUpClass()
         cls.html = page_for("A-DEMO", "#2563eb").replace("\nboot();", "\n")
 
-    def open(self, query, locale):
+    def open(self, query, locale, html=None, saved=None):
+        """The page (html, else the class's) at http://viewer.test/<query> in a browser of locale, with limnLang saved
+        first when saved is given; its i18nStart() has run."""
         context = self.browser.new_context(locale=locale)
         self.addCleanup(context.close)
+        if saved:
+            context.add_init_script("try{localStorage.setItem('limnLang',%s)}catch(e){}" % json.dumps(saved))
         page = context.new_page()
+        body = html or self.html
         page.route(
             "**/*",
             lambda route: (
-                route.fulfill(content_type="text/html", body=self.html)
+                route.fulfill(content_type="text/html", body=body)
                 if route.request.url.startswith("http://viewer.test/")
                 else route.abort()
             ),
@@ -276,7 +294,8 @@ class BrowserLanguage(ChromiumTestCase):
         self.assertEqual(page.evaluate("document.documentElement.lang"), "en")
         self.assertEqual(page.text_content("#btn-rebuild .lbl").strip(), UI_EN["PDF 재빌드"])
         self.assertEqual(page.get_attribute("#btn-help", "aria-label"), UI_EN["도움말"])
-        self.assertEqual(page.text_content("#m-lang").strip(), "한국어")
+        # the language segment checks the current language (it showed the other one's name, UX audit P4.4)
+        self.assertEqual(page.text_content("#m-lang [aria-checked=true]").strip(), "English")
         page.evaluate("toast('저장을 되돌렸습니다','ok')")
         self.assertIn("Reverted the save", page.text_content("body"))
 
@@ -286,7 +305,7 @@ class BrowserLanguage(ChromiumTestCase):
         page = self.open("", "ko-KR")
         self.assertEqual(page.evaluate("LANG"), "ko")
         self.assertEqual(page.text_content("#btn-rebuild .lbl").strip(), "PDF 재빌드")
-        self.assertEqual(page.text_content("#m-lang").strip(), "English")
+        self.assertEqual(page.text_content("#m-lang [aria-checked=true]").strip(), "한국어")
 
     def test_saved_choice_wins_over_browser_language(self):
         page = self.open("?lang=ko", "en-US")
@@ -302,6 +321,39 @@ class BrowserLanguage(ChromiumTestCase):
         )
         page2.goto("http://viewer.test/")
         self.assertEqual(page2.evaluate("LANG"), "ko")
+
+    def test_the_instance_default_beats_the_browser_and_loses_to_the_saved_choice(self):
+        """--ui-lang en on a Korean phone with nothing saved: English. The same with Korean saved on the device: Korean.
+        Without --ui-lang the browser decides as before (test_browser_language_decides_without_a_choice)."""
+        html = page_for("A-DEMO", "#2563eb", "en").replace("\nboot();", "\n")
+        self.assertEqual(self.open("", "ko-KR", html).evaluate("LANG"), "en")
+        self.assertEqual(self.open("", "ko-KR", html, saved="ko").evaluate("LANG"), "ko")
+        html = page_for("A-DEMO", "#2563eb", "ko").replace("\nboot();", "\n")
+        self.assertEqual(self.open("", "en-US", html).evaluate("LANG"), "ko")
+
+    def test_a_refused_page_reopens_once_in_the_saved_language(self):
+        """The refused first screen (web/errors.py) is Korean by the server's rule, but this device saved English: its
+        one-line script reopens /?lang=en, which the server answers in English, and it stops there."""
+        context = self.browser.new_context(locale="ko-KR")
+        self.addCleanup(context.close)
+        context.add_init_script("try{localStorage.setItem('limnLang','en')}catch(e){}")
+        page = context.new_page()
+        seen = []
+
+        def answer(route):
+            """The refused page in the language its query asks for, else Korean (the server's rule here)."""
+            url = route.request.url
+            seen.append(url)
+            lang = "en" if url.endswith("?lang=en") else "ko"
+            e = HTTPError(403, "x", reason="not_member", page=("not-member", {"login": "eve@example.com"}))
+            route.fulfill(content_type="text/html", body=error_page_html(e, lang, UI_EN))
+
+        page.route("**/*", answer)
+        page.goto("http://viewer.test/")
+        page.wait_for_url("http://viewer.test/?lang=en")
+        page.wait_for_load_state()
+        self.assertEqual(page.evaluate("document.documentElement.lang"), "en")
+        self.assertEqual(seen, ["http://viewer.test/", "http://viewer.test/?lang=en"])
 
 
 class ComposedMessages(unittest.TestCase):
@@ -488,7 +540,7 @@ class EnglishChrome(ChromiumTestCase):
         (root / "state").mkdir()
         config = run_config(src, src / "main.tex", root / "state", label="Demo")
         ps.APP = ApplicationFixture(
-            config, ps.new_runtime(ps.serve_viewer(ps.read_viewer(), config.label, config.accent))
+            config, ps.new_runtime(ps.serve_viewer(ps.read_viewer(), config.label, config.accent, config.ui_lang))
         )
         ps.Handler.app = ps.APP.web
         fresh_runtime(ps)
@@ -676,11 +728,11 @@ class EnglishChrome(ChromiumTestCase):
         preview, its thread and its author. The translator rewrote every text node that matched the table, so the tabs read
         '본문 · Figure · …' (UX audit P6, docs/handbook/viewer.md §뷰어 규칙을 바꿀 때)."""
         page, pin = self.open_with_ui_words()
-        page.evaluate("id=>{OPEN_CARDS.add(id); drawPins(); openDocsMenu();}", pin["id"])
+        page.evaluate("id=>{OPEN_CARDS.add(id); drawPins(); openNavSheet();}", pin["id"])
         settle(page)
         got = page.evaluate(
             """id => {const c = document.querySelector('.pin[data-id="' + id + '"]'), t = s => (c.querySelector(s) || {}).textContent;
-              return {link: document.querySelector('#doc-links [data-doc=rr]').textContent, sheet: document.querySelector('#docs-menu [data-doc=rr] .nm').textContent,
+              return {link: document.querySelector('#doc-links [data-doc=rr]').textContent, sheet: document.querySelector('#nav-sheet [data-doc=rr] .nm').textContent,
                 note: t('.note'), sum: t('.sum'), post: t('.msg-t'), author: t('.au-n')};}""",
             pin["id"],
         )
@@ -797,12 +849,14 @@ class EnglishChrome(ChromiumTestCase):
 
     def test_the_limn_mark_survives_boot_and_pin_marks(self):
         """After boot has drawn the pins' boxes on the PDF (.mark, removed and redrawn by marks()), the Limn logo is
-        still in all three places (the icon in the top bar and the [더보기] label, the wordmark in the help header) - a
-        first cut shared the .mark class and lost them. The English help title keeps the wordmark before its text."""
+        still in all three places (the icon in the top bar, the wordmark in the help header and [더보기]'s foot - the
+        [더보기] label no longer holds an icon) - a first cut shared the .mark class and lost them. The English help title
+        keeps the wordmark before its text."""
         page = self.open("en", viewport={"width": 1400, "height": 850})
         page.evaluate("marks()")
-        self.assertEqual(page.evaluate("document.querySelectorAll('svg.limn-mark').length"), 2)
+        self.assertEqual(page.evaluate("document.querySelectorAll('svg.limn-mark').length"), 1)
         self.assertEqual(page.evaluate("document.querySelectorAll('#help-h svg.limn-mark-word').length"), 1)
+        self.assertEqual(page.evaluate("document.querySelectorAll('#more-foot svg.limn-mark-word').length"), 1)
         self.assertEqual(page.evaluate("document.querySelector('#help-h').textContent"), "— How to use")
         self.assertEqual(
             page.evaluate("document.querySelector('#paper-identity-mark svg').getBoundingClientRect().width"), 16

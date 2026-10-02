@@ -11,6 +11,7 @@ the disk.
 from dataclasses import dataclass
 from functools import cached_property
 from pathlib import Path
+from typing import Literal
 
 from limn.runtime.documents import RunPaths
 from limn.runtime.paths import AUDIT_FILE, EVENTS_FILE, PEOPLE_FILE, PinFiles
@@ -20,6 +21,10 @@ from limn.security.access import AccessSettings, AuthProvider, HostEntry, IPNetw
 # (--bg #14161a / #e9ebef) and under white text (chip text). One is chosen by hashing the label string -
 # the same label always gets the same color.
 ACCENT_PALETTE = ("#1d4ed8", "#047857", "#be123c", "#6d28d9", "#0e7490", "#c2410c", "#a21caf", "#4d7c0f")
+
+# The viewer's interface languages, the values --ui-lang takes (docs/handbook/operations.md §실행 인자).
+UiLang = Literal["ko", "en"]
+UI_LANGS: tuple[UiLang, ...] = ("ko", "en")
 
 
 @dataclass(frozen=True)
@@ -65,6 +70,7 @@ class RunConfig:
     accent: str  # the label's accent color (#rrggbb)
     repo: str | None  # git origin URL of --manuscript. None if absent
     access: AccessOptions  # --auth, --bind and the other access options
+    ui_lang: UiLang | None  # --ui-lang: the viewer's default interface language (None = the browser's decides)
 
     @property
     def paths(self) -> RunPaths:

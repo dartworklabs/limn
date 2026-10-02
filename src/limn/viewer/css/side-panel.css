@@ -44,6 +44,7 @@ body:not(.lay-wide) #nav-side{display:none}
 /* The tool bar is a single height (--tb-h: 28px desktop, 44px touch). The page field is also the same height/text size as the buttons - taking the
    generic input field rule (14px, 6px padding) as-is made it 8px taller than the buttons with larger text, breaking the row's harmony (author feedback 2026-09-23). Icon buttons are square. */
 #bar1>button,#bar1>input{height:var(--tb-h)}
+#bar1>:is(.bar-l,.bar-r)>button{height:var(--tb-h)}   /* the compact bar's two groups (display:contents outside the sheet grid) */
 #bar1 button{padding:0 var(--space-2);white-space:nowrap}
 #bar1 button.btn-icon{padding:0;width:var(--tb-h);min-width:var(--tb-h)}
 #bar1 input.n{width:54px;flex:100 1 40px;min-width:40px;max-width:54px;padding:0 var(--space-1);font-size:var(--text-base);line-height:normal;border-radius:var(--radius);text-align:left}   /* the single-character '쪽' field read like a button (QA) - left-aligned like a proper input field for '쪽 이동'. Its basis is 40px and it takes the free space first (grow 100, up to 54px) so the longer English labels still fit the 348px panel on one row - a wrapping flex line breaks on the basis, not the shrunk size */

@@ -29,7 +29,10 @@ function settleBand(C,N,typing){if(!C||(!C.coarse&&!N.coarse))return BAND_STEP.S
 // Picks the band for the settled input (BAND_IN; the window's at the first call) and its panel state: the body classes (lay-*, band-*, mid-overlay, compact), then wide follows the
 // per-device pinPrefs.sideClosed (open by default), mid its midClosed (else open beside the document, collapsed as an overlay),
 // narrow starts collapsed - except between the phone and the tablet sheet, both sheets, which keep it as it was. An open draft
-// keeps it open. Returns whether the band or its overlay changed.
+// keeps it open. The status line moves to the band's place (placeStatus); the phone's navigation sheet closes when the band
+// is no longer the phone (the nav bar does its job there); an open [더보기] stays open and redraws its sheet-height or panel-width
+// row; the changes view's guide-line buttons move to the thumb row or back (revTargetActs). Returns whether the band or its
+// overlay changed.
 function applyLayout(){if(!BAND_IN)BAND_IN=bandInput(); const o=BAND_IN,band=layoutFor(o.w,o.h,o.coarse),L=BAND_MODE[band],overlay=L===LAYOUT_MODE.MID&&o.w<=900;
   if(band===BAND&&overlay===MID_OVERLAY)return false;
   const sheetToSheet=L===LAYOUT_MODE.NARROW&&LAYOUT===LAYOUT_MODE.NARROW,wasOpen=SIDE_OPEN;
@@ -38,7 +41,8 @@ function applyLayout(){if(!BAND_IN)BAND_IN=bandInput(); const o=BAND_IN,band=lay
   b.classList.toggle('mid-overlay',overlay); b.classList.toggle('compact',L!==LAYOUT_MODE.WIDE);
   SIDE_OPEN=L===LAYOUT_MODE.WIDE?p.sideClosed!==true:(L===LAYOUT_MODE.MID?(typeof p.midClosed==='boolean'?!p.midClosed:!overlay):sheetToSheet&&wasOpen);
   if(!REPICK&&(COMPOSE.current||EDITOR.current||REPLY||!$('#composer').hidden))SIDE_OPEN=true;   // an in-progress note/edit/reply is never left hidden collapsed
-  applySide(); stickTop(); return true;}
+  if(band!==LAYOUT_BAND.PHONE&&$('#nav-sheet').open)$('#nav-sheet').close();
+  applySide(); stickTop(); placeStatus(); if($('#more').open)renderSizeSeg(); if(REV.target)revTargetActs(); return true;}
 // Whether the outline is an overlay over the document that opens one at a time with the pin panel (OUTLINE_MID_OPEN, never
 // saved): in the mid bands and on the tablet sheet. The phone has no outline; wide keeps it beside the document.
 function outlineOverlay(){return LAYOUT===LAYOUT_MODE.MID||BAND===LAYOUT_BAND.TABLET_SHEET;}
@@ -47,11 +51,12 @@ function outlineOverlay(){return LAYOUT===LAYOUT_MODE.MID||BAND===LAYOUT_BAND.TA
 function draftOpen(){return !$('#composer').hidden||!!EDITOR.current||!!REPLY||!!REPICK;}
 // Draws the panel state (docs/handbook/viewer.md §패널 폭과 시트 높이): the body classes (with the phone sheet's composing lift, the phone only), both [핀 N] toggles - the tool bar's and,
 // for a collapsed wide panel, the nav bar's - with the open count, the draft dot and the arrow, the handle's ARIA and the back-gesture
-// layer. Idempotent and cheap: drawPins() calls it on every redraw. The panel keeps its open layout while it slides out.
-function applySide(){const open=SIDE_OPEN,b=document.body,dot=!open&&draftOpen(),n=PINS.length,composing=!$('#composer').hidden;
+// layer. Their name says what the icons and pills show: '패널 펴기 · 열린 핀 11 · 검토 대기 1' (+ ' · 작성 중' for a draft).
+// Idempotent and cheap: drawPins() calls it on every redraw. The panel keeps its open layout while it slides out.
+function applySide(){const open=SIDE_OPEN,b=document.body,dot=!open&&draftOpen(),n=PINS.length,rv=REVIEW_ALL.length,composing=!$('#composer').hidden;
   b.classList.toggle('side-open',open||!!(SIDE_SLIDE&&SIDE_SLIDE.kind==='closing')); b.classList.toggle('composing',composing);
   if(!composing)SHEET_KEPT=false; b.classList.toggle('sheet-up',composing&&!SHEET_KEPT&&BAND===LAYOUT_BAND.PHONE);   // the phone sheet's composing lift; the tablet sheet's is tabletLift (panel-size.js)
-  const label=tr(open?'패널 접기':'패널 펴기')+' · '+tl('열린 핀 {n}',{n})+(dot?' · '+tr('작성 중'):'');
+  const label=tr(open?'패널 접기':'패널 펴기')+' · '+tl('열린 핀 {n}',{n})+(rv?' · '+tl('검토 대기 {n}',{n:rv}):'')+(dot?' · '+tr('작성 중'):'');
   for(const t of [$('#btn-side'),$('#nav-side')]){t.setAttribute('aria-expanded',String(open)); t.setAttribute('aria-label',label);
     t.querySelector('.side-n').textContent=n; t.querySelector('.c-dot').hidden=!dot;}
   $('#nav-side').hidden=!(LAYOUT===LAYOUT_MODE.WIDE&&!open);
@@ -176,12 +181,13 @@ function coach(key,text){const seen=Object.assign({},prefs().coach||{}); if(seen
 function setSelMode(on){SELMODE=!!on; document.body.classList.toggle('selmode',SELMODE);
   const b=$('#btn-select'); b.setAttribute('aria-pressed',String(SELMODE)); b.querySelector('.lbl').textContent=SELMODE?'선택 중':'선택';
   if(SELMODE)coach('sel','끌어서 고칠 곳을 고르세요 · 탭하면 그 문단 · 두 손가락으로 확대');}
-function openMore(){const d=$('#more'); if(d.open)return; hideTip(); renderSizeSeg(); d.showModal(); toastHost();}
-// Expanding done/dropped pins from [⋯] opens the panel and scrolls to that list.
-function revealList(sel,shown){if(!shown)return; setSide(true); requestAnimationFrame(()=>{const t=$(sel); if(t)t.scrollIntoView({block:'start'});});}
+// Opens [더보기] with its view group drawn for now: the sheet-height or panel-width segment and the zoom figure.
+function openMore(){const d=$('#more'); if(d.open)return; hideTip(); drawZoom(); renderSizeSeg(); d.showModal(); toastHost();}
 // Clicking outside a dialog (the backdrop) closes it - only for a click whose target is the dialog itself and that falls outside its
-// box rectangle. The same for [더보기], help and the documents sheet (and the Trash, below); help and the documents sheet used to
-// stay open (input review 2026-09-26).
-for(const sel of ['#more','#help','#docs-menu'])$(sel).addEventListener('click',e=>{const d=e.currentTarget; if(e.target!==d)return; const r=d.getBoundingClientRect();
+// box rectangle. The same for [더보기], help, the navigation sheet and the status line's list (and the Trash, below); help and
+// the documents sheet used to stay open (input review 2026-09-26).
+for(const sel of ['#more','#help','#nav-sheet','#status-list'])$(sel).addEventListener('click',e=>{const d=e.currentTarget; if(e.target!==d)return; const r=d.getBoundingClientRect();
   if(e.clientX<r.left||e.clientX>r.right||e.clientY<r.top||e.clientY>r.bottom)d.close();});
+// However the navigation sheet closes, the focus goes back to the button that opens it.
+$('#nav-sheet').addEventListener('close',()=>{const b=$('#btn-pos'); if(b.getClientRects().length)b.focus({preventScroll:true});});
 

@@ -1070,8 +1070,9 @@ class TrashOfAnotherDocument(ColdDeepLink):
 # ---------------------------------------------------------------- pin-scoped [View changes] and the viewer's Trash controls (v0.3, issue #9)
 
 
-class ScopedViewer(BrowserBase):
-    """The viewer's [View changes] for a pin on desktop, fold and phone in Korean and English."""
+class RevisionPins(BrowserBase):
+    """A Git manuscript whose pins an agent closed (awaiting review) with references to real commits, and a controlled
+    comparison compiler: the fixture of the [View changes] tests. It has no tests of its own."""
 
     WHO = ALICE
 
@@ -1176,6 +1177,10 @@ class ScopedViewer(BrowserBase):
 
     def wait_pdf(self, page):
         page.wait_for_function("document.querySelectorAll('#revision-pdf .revision-page').length>0", timeout=15000)
+
+
+class ScopedViewer(RevisionPins):
+    """The viewer's [View changes] for a pin on desktop, fold and phone in Korean and English."""
 
     def test_pin_view_folds_other_changes_and_toggles_the_whole_commit_pdf(self):
         """The two controls on desktop/fold/phone x ko/en: fold toggle, [Whole commit] toggle, cached rebuilds, touch sizes."""
@@ -1312,6 +1317,137 @@ class ScopedViewer(BrowserBase):
         self.assertNotIn("blueberries", page.inner_text("#revision-diff"))
 
 
+# The two screens of the review-in-changes checks (docs/superpowers/specs/2026-10-01-viewer-bar-and-sheets-design.md §V11).
+REVIEW_SCREENS = {
+    "phone": {"viewport": {"width": 411, "height": 908}, "is_mobile": True, "has_touch": True},
+    "desktop": {"viewport": {"width": 1440, "height": 900}},
+}
+# Records the viewer's POST /api/pins/<id>/confirm requests in window.CONFIRMS, before they are sent.
+COUNT_CONFIRMS = (
+    "(()=>{window.CONFIRMS=[];const f=window.fetch;window.fetch=function(u,o){"
+    "if(/\\/api\\/pins\\/\\d+\\/confirm/.test(String(u)))window.CONFIRMS.push(String(u));return f.call(this,u,o);};})()"
+)
+
+
+class ReviewInChanges(RevisionPins):
+    """The review ends in the changes view (docs/handbook/viewer.md §변경 보기): an awaiting-review pin's guide line has
+    [확인] (data-act="confirm", the card's), on the phone in the thumb row (#revision-acts) above the status line and the
+    tool bar. It confirms, returns to the manuscript and shows the [되돌리기] toast; the request leaves when the toast does,
+    and undoing sends nothing. Open and done pins have no [확인]."""
+
+    def open_at(self, screen, pid, lang="ko"):
+        """The viewer on screen (REVIEW_SCREENS) with [View changes] of pin pid open and its diff drawn."""
+        page = self._page = self.open(0, lang=lang, init=COUNT_CONFIRMS, **REVIEW_SCREENS[screen])
+        page.evaluate("showChange(%d)" % pid)
+        page.wait_for_function(
+            "REV.sourceCommit&&document.querySelectorAll('#revision-diff .rd-line').length>0", timeout=15000
+        )
+        settle(page)
+        return page
+
+    def acts_host(self, screen):
+        return "#revision-acts" if screen == "phone" else "#revision-pin"
+
+    def reviewing(self, page, pid):
+        """Whether the viewer lists pin pid as awaiting review (its card in the review section)."""
+        return page.evaluate(
+            "REVIEW_ALL.some(p=>p.id===%d)&&!!document.querySelector('#sec-review [data-id=\"%d\"]')" % (pid, pid)
+        )
+
+    def test_the_guide_line_confirms_returns_and_undoes(self):
+        """[확인] in the guide line (the thumb row on the phone): back to the manuscript, the card leaves the review section,
+        nothing is sent while [되돌리기] is up; undo brings the card back with no request; confirming again and dismissing
+        the toast sends one request and the pin is done."""
+        for screen in REVIEW_SCREENS:
+            with self.subTest(screen=screen):
+                self.tearDown()
+                self.setUp()
+                page = self.open_at(screen, self.p2)
+                host = self.acts_host(screen)
+                btn = host + " [data-act=confirm]"
+                self.assertTrue(self.visible(page, btn), screen)
+                self.assertEqual(page.get_attribute(host, "data-id"), str(self.p2))
+                self.assertIn("btn-soft", page.get_attribute(btn, "class"))  # Alice reviews her own pin
+                self.assertTrue(self.visible(page, host + " [data-act=rev-back]"))
+                if screen == "phone":
+                    self.assertFalse(page.evaluate("!!document.querySelector('#revision-pin button')"))
+                    geo = page.evaluate(
+                        "(()=>{const a=document.getElementById('revision-acts').getBoundingClientRect(),"
+                        "s=document.getElementById('right').getBoundingClientRect(),d=document.getElementById('status-dock'),"
+                        "t=d.getClientRects().length?d.getBoundingClientRect().top:s.top,"
+                        "b=[...document.querySelectorAll('#revision-acts button')].map(x=>x.getBoundingClientRect());"
+                        "return {bottom:a.bottom,limit:Math.min(s.top,t),h:Math.min(...b.map(r=>r.height)),"
+                        "right:Math.max(...b.map(r=>r.right)),w:innerWidth}})()"
+                    )
+                    self.assertLessEqual(geo["bottom"], geo["limit"] + 0.5, geo)  # above the status line and the bar
+                    self.assertGreaterEqual(geo["h"], 44, geo)
+                    self.assertLessEqual(geo["right"], geo["w"] - 12 + 0.5, geo)  # the 12px edge
+                else:
+                    self.assertFalse(self.visible(page, "#revision-acts"))
+                page.click(btn)
+                page.wait_for_function("!document.body.classList.contains('revision-open')")
+                page.wait_for_selector(".toast:has-text('%s')" % TXT["ko"]["undo"])
+                page.evaluate("setSide(true); SEC.review=true; drawPins()")
+                self.assertFalse(self.reviewing(page, self.p2))
+                self.assertEqual(page.evaluate("CONFIRMS"), [])
+                page.click(".toast button:has-text('%s')" % TXT["ko"]["undo"])
+                page.wait_for_function("REVIEW_ALL.some(p=>p.id===%d)" % self.p2)
+                settle(page)
+                self.assertTrue(self.reviewing(page, self.p2))
+                self.assertEqual(page.evaluate("CONFIRMS"), [])
+                self.assertEqual(self.state(self.p2), "review")
+                page.evaluate("showChange(%d)" % self.p2)
+                page.wait_for_selector(btn + ":visible", timeout=15000)
+                page.click(btn)
+                page.wait_for_selector(".toast:has-text('%s')" % TXT["ko"]["undo"])
+                page.click(".toast:has-text('%s') [aria-label='알림 닫기']" % TXT["ko"]["undo"])
+                page.wait_for_function("CONFIRMS.length===1")
+                page.wait_for_function("DONE_ALL.some(p=>p.id===%d)" % self.p2, timeout=10000)
+                settle(page)
+                self.assertEqual(self.state(self.p2), "done")
+                self.assertFalse(self.reviewing(page, self.p2))
+
+    def state(self, pid):
+        return pin_state(find_record(ps.APP.snapshot_pins(), pid))
+
+    def test_open_and_done_pins_have_no_confirm(self):
+        """The guide line of an open pin and of a done pin keeps [원고로] and has no [확인], on both screens."""
+        opened = add_pin({"file": str(self.main), "lo": 18, "hi": 18, "page": 1, "note": "still open"}, A).record["id"]
+        ps.APP.pin_lifecycle.confirm_pin(
+            self.p3, post_authority(ps.APP.pin_lifecycle.context().store, A, "confirm", self.p3)
+        )
+        for screen in REVIEW_SCREENS:
+            for pid in (opened, self.p3):
+                with self.subTest(screen=screen, pin=pid):
+                    page = self.open_at(screen, pid)
+                    host = self.acts_host(screen)
+                    self.assertTrue(self.visible(page, host + " [data-act=rev-back]"))
+                    self.assertFalse(
+                        page.evaluate(
+                            "!!document.querySelector('#revision-pin [data-act=confirm],#revision-acts [data-act=confirm]')"
+                        )
+                    )
+
+    def test_the_card_confirm_waits_for_its_toast_and_says_when_it_was_reopened(self):
+        """The card's [확인] is the same deferred send: the card leaves at once, nothing is sent while the toast is up. If
+        someone reopened the pin meanwhile (a person's reply), the send answers 409 and the viewer says so."""
+        page = self._page = self.open(0, init=COUNT_CONFIRMS, **REVIEW_SCREENS["desktop"])
+        page.evaluate("setSide(true); SEC.review=true; OPEN_CARDS.add(%d); drawPins()" % self.p1)
+        settle(page)
+        page.click('#sec-review [data-id="%d"] [data-act=confirm]' % self.p1)
+        page.wait_for_selector(".toast:has-text('%s')" % TXT["ko"]["undo"])
+        self.assertFalse(self.reviewing(page, self.p1))
+        self.assertEqual(page.evaluate("CONFIRMS"), [])
+        ps.APP.pin_lifecycle.reply_pin(
+            self.p1, "아직 아닙니다", post_authority(ps.APP.pin_lifecycle.context().store, A, "reply", self.p1)
+        )
+        page.click(".toast:has-text('%s') [aria-label='알림 닫기']" % TXT["ko"]["undo"])
+        page.wait_for_function("CONFIRMS.length===1")
+        page.wait_for_selector(".toast.warn:has-text('이미 다시 열렸습니다')", timeout=10000)
+        settle(page)
+        self.assertEqual(self.state(self.p1), "open")
+
+
 class ViewerTrashControls(BrowserBase):
     """A viewer can open the Trash and read it, but sees no [되살리기]/[영구 삭제] (the server refuses both with 403 anyway)."""
 
@@ -1425,6 +1561,7 @@ class ViewerRoleUi(BrowserBase):
             post_authority(ps.APP.pin_lifecycle.context().store, dict(LOCAL_ACTOR), "close", rid),
             CloseRequest(reply="고침"),
         )
+        self.rid = rid
 
     def visible_acts(self, page):
         return page.evaluate(
@@ -1454,6 +1591,41 @@ class ViewerRoleUi(BrowserBase):
                 page.evaluate("savePin()")
                 settle(page)
                 self.assertEqual(len(ps.APP.snapshot_pins()), n)
+
+    def test_the_changes_guide_line_has_no_confirm_for_a_viewer_and_no_controls_without_history(self):
+        """A viewer opening [View changes] of an awaiting-review pin: the guide line and [원고로] (the thumb row on the
+        phone), no [확인]. This manuscript is not a Git repository, so the one reason line stays and the unusable
+        [변경 PDF] [소스 diff] [줄바꿈] and the comparison note are hidden."""
+        for name, device in REVIEW_SCREENS.items():
+            with self.subTest(device=name):
+                page = self.open(1, **device)
+                page.evaluate("showChange(%d)" % self.rid)
+                page.wait_for_function(
+                    "/Git/.test(document.getElementById('revision-list').textContent)", timeout=15000
+                )
+                settle(page)
+                host = "#revision-acts" if name == "phone" else "#revision-pin"
+                self.assertTrue(page.is_visible(host + " [data-act=rev-back]"))
+                self.assertEqual(
+                    page.locator("#revision-pin [data-act=confirm],#revision-acts [data-act=confirm]").count(), 0
+                )
+                self.assertTrue(page.is_visible("#revision-list"))
+                self.assertFalse(page.is_visible("#revision-controls"))
+                self.assertFalse(page.is_visible("#revision-note"))
+
+    def test_an_editor_confirms_from_the_changes_view_without_history(self):
+        """Without Git history an editor still gets the guide line with [원고로] and [확인] for an awaiting-review pin."""
+        type(self).WHO = ALICE
+        try:
+            page = self.open(1)
+            page.evaluate("showChange(%d)" % self.rid)
+            page.wait_for_function("/Git/.test(document.getElementById('revision-list').textContent)", timeout=15000)
+            settle(page)
+            self.assertTrue(page.is_visible("#revision-pin [data-act=confirm]"))
+            self.assertTrue(page.is_visible("#revision-pin [data-act=rev-back]"))
+            self.assertFalse(page.is_visible("#revision-controls"))
+        finally:
+            type(self).WHO = CAROL
 
     def test_viewer_notice_is_translated(self):
         page = self.open(1, lang="en")
@@ -1536,10 +1708,10 @@ class FigureDocuments(BrowserBase):
         for lang, word in (("ko", "그림"), ("en", "Figure")):
             with self.subTest(lang=lang):
                 page = self.open(0, lang=lang, init=self.NO_COACH, **DEVICES["phone"])
-                page.evaluate("openDocsMenu()")
-                page.wait_for_selector("#docs-menu[open] .dm-item", timeout=8000)
+                page.evaluate("openNavSheet()")
+                page.wait_for_selector("#nav-sheet[open] .dm-item", timeout=8000)
                 marks = page.eval_on_selector_all(
-                    "#docs-menu-list .dm-item",
+                    "#ns-docs-list .dm-item",
                     "els=>els.map(e=>[e.dataset.doc,(e.querySelector('.dfig')||{}).textContent||'',"
                     "(e.querySelector('.dvo')||{}).textContent||''])",
                 )

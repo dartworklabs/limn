@@ -467,7 +467,7 @@ class FrontendStructure(unittest.TestCase):
 
     def test_doc_menu_closes_even_when_switch_doc_is_synchronous_and_cached(self):
         # regression: when switchDoc() runs synchronously through drawDocTabs->drawDocsMenu for a cached
-        # document, it redraws the open #docs-menu, detaching the clicked <a> from the DOM. Calling
+        # document, it redraws the open #nav-sheet, detaching the clicked <a> from the DOM. Calling
         # a.closest() after switchDoc() then returns null and the menu stays open — inMenu must always
         # be determined *before* calling switchDoc().
         m = re.search(r"case 'doc':\{(.*?)\}", HTML, re.S)
@@ -478,10 +478,10 @@ class FrontendStructure(unittest.TestCase):
             (async()=>{
               const out={};
               const docsMenu={closed:false,close(){this.closed=true;}};
-              function $(sel){return sel==='#docs-menu'?docsMenu:{};}
+              function $(sel){return sel==='#nav-sheet'?docsMenu:{};}
               let detached=false;
               function switchDoc(k){detached=true;}   // 캐시된 문서: 동기로 끝나며 a 를 떼어낸 것을 흉내
-              const a={dataset:{doc:'ms'},closest(sel){return (!detached&&sel==='#docs-menu')?{}:null;}};
+              const a={dataset:{doc:'ms'},closest(sel){return (!detached&&sel==='#nav-sheet')?{}:null;}};
               switch('doc'){case 'doc':{%s}}
               out.closed=docsMenu.closed;
               console.log(JSON.stringify(out));
@@ -493,7 +493,7 @@ class FrontendStructure(unittest.TestCase):
         if out is None:
             self.skipTest("node not available")
         data = json.loads(out)
-        self.assertTrue(data["closed"], "#docs-menu must close even when the selected document is cached")
+        self.assertTrue(data["closed"], "#nav-sheet must close even when the selected document is cached")
 
     def test_pick_resets_overlap_dismissed_and_recounts(self):
         m = re.search(r"async function pick\(r\)\{(.*?)\n\}", HTML, re.S)
@@ -642,12 +642,16 @@ class FrontendMobileStructure(unittest.TestCase):
             '<dialog id="more"',
             'id="coach"',
             'id="more-info"',
-            'id="m-theme"',
-            'id="m-done"',
             'id="m-trash"',
-            'id="m-jump"',
+            'id="more-foot"',
+            'id="btn-pos"',
         ):
             self.assertIn(el, HTML)
+        # theme and language are segments showing the current value; the closed-pins row and the page field are gone (UX spec §V7)
+        for seg in ("m-theme", "m-lang"):
+            self.assertRegex(HTML, r'<div [^>]*id="%s"[^>]*role="radiogroup"' % seg)
+        for gone in ('id="m-done"', 'id="m-jump"'):
+            self.assertNotIn(gone, HTML)
         self.assertIn('aria-pressed="false"', re.search(r'<button id="btn-select"[^>]*>', HTML).group(0))
         # less important buttons are hidden in compact mode (.sec) and live inside [⋯] with the same data-act
         for bid, act in (
@@ -664,7 +668,7 @@ class FrontendMobileStructure(unittest.TestCase):
             self.assertIn('data-act="%s"' % act, more)
         self.assertRegex(HTML, r'<input class="n sec" id="jump"')
         self.assertIn("body.compact .sec{display:none}", HTML)
-        for act in ("side", "selmode", "more", "more-close", "m-jump", "coach-close", "card-toggle"):
+        for act in ("side", "selmode", "more", "more-close", "coach-close", "card-toggle"):
             self.assertIn("case '%s':" % act, HTML)
 
     def test_touch_css_targets_inputs_safe_area_and_selection_touch_action(self):
@@ -1355,9 +1359,12 @@ class FrontendPanelTidyStructure(unittest.TestCase):
         self.assertIn('role="separator"', tag)
         self.assertIn('aria-orientation="horizontal"', tag)
         # the grip is an item of the tool bar's row (input diagnosis P3: its own 24px row took the buttons' top 8px), so it stays
-        # with the tool bar on a collapsed sheet
+        # with the tool bar on a collapsed sheet - its middle column, between the two cells (UX spec §V4)
         bar = HTML[HTML.index('<div class="bar" id="bar1"') : HTML.index('<div class="bar" id="bar2"')]
-        self.assertIn('<div id="sheet-grip"', bar)
+        self.assertRegex(
+            bar,
+            r'^<div class="bar" id="bar1"[^>]*>\s*<div class="bar-l">.*?</div>\s*<div id="sheet-grip"[^>]*></div>\s*<div class="bar-r">',
+        )
         self.assertIn("body.compact:not(.side-open) #right>:not(#bar1):not(#bar2):not(#banner){display:none}", HTML)
         self.assertIn("var(--sheet-f,.64)", HTML)
         more = HTML[HTML.index('<dialog id="more"') : HTML.index('<dialog id="help"')]
@@ -1418,8 +1425,16 @@ class FrontendPanelTidyStructure(unittest.TestCase):
         self.assertIn('class="btn-sm btn-destructive b-drop"', body)
 
     def test_compact_toolbar_is_one_even_row(self):
+        """The phone and tablet-sheet bar is a three-column grid with equal outer columns, the left cell start-aligned and
+        the right one end-aligned (UX spec §V4); the mid bar keeps [⋯] a 44px flex item."""
         css = HTML[HTML.index("<style>") : HTML.index("</style>")]
         self.assertIn("body.compact #bar1 .sp{display:none}", css)
+        self.assertIn(
+            "body.lay-narrow #bar1{display:grid;grid-template-columns:minmax(0,1fr) var(--hit) minmax(0,1fr);", css
+        )
+        self.assertIn("body.lay-narrow #bar1 .bar-l{grid-column:1}", css)
+        self.assertIn("body.lay-narrow #bar1 .bar-r{grid-column:3;justify-content:flex-end}", css)
+        self.assertIn(".bar-l,.bar-r{display:contents}", css)
         self.assertIn("body.compact #bar1 #btn-more{flex:0 0 44px", css)
 
     def test_mid_layout_pins_nav_top_and_action_bar_bottom(self):
@@ -1697,6 +1712,7 @@ class FrontendToasts(unittest.TestCase):
         # doesn't cover the bottom toolbar (the short band has none: its tool bar is in the top row)
         self.assertIn("LAYOUT===LAYOUT_MODE.MID&&BAND!==LAYOUT_BAND.SHORT?['#bar1']", body)
         self.assertIn("right.getBoundingClientRect().top", body)  # narrow: above the sheet
+        self.assertIn("sd.getBoundingClientRect().top-20", body)  # ... and over the status line's action hit
         self.assertIn("innerWidth-rr.right+12", body)  # right edge inside the panel column
         # a nearly-full sheet: drop down so it doesn't cover the toolbar
         self.assertIn("if(top<vh*0.3){top=vh; const ca=$('#c-actions');", body)
@@ -1776,10 +1792,15 @@ class FrontendNoNestedOutlines(unittest.TestCase):
         )
         self.assertIn(".pin .acts button.btn-destructive{background:transparent}", css)
         self.assertIn(".seg button.on{background:var(--popover);border-color:transparent;", css)
-        more = HTML[HTML.index('<div class="more-grid">') :]
+        # [더보기]'s zoom buttons are filled and borderless (secondary); its pin-group rows are rows - an icon and a name on the
+        # sheet, a fill only under a mouse's hover (UX spec §V7)
+        more = HTML[HTML.index('<dialog id="more"') :]
         more = more[: more.index("</dialog>")]
-        for tag in re.findall(r"<button[^>]*>", more):
-            self.assertIn("btn-secondary", tag)  # dialog buttons are filled, borderless too
+        for act in ("zoom-out", "zoom-in"):
+            self.assertRegex(more, r'<button class="btn-secondary[^"]*"[^>]*data-act="%s"' % act)
+        grid = more[more.index('<div class="more-grid">') : more.index('<div class="more-foot"')]
+        for tag in re.findall(r"<button[^>]*>", grid):
+            self.assertNotIn("btn-", tag)
 
     def test_floating_surfaces_are_the_only_shadows_with_hairlines(self):
         for sel in ("dialog", "#mention-pop"):
@@ -1870,8 +1891,10 @@ class FrontendSemanticAudit(unittest.TestCase):
         )
 
     def test_revision_note_wraps_and_returns_to_previous_doc(self):
-        self.assertIn("#revision-pin button{flex:none;margin-left:auto}", self.css)
-        self.assertIn('data-act="rev-back"', extract_js_fn("revTargetNote"))
+        """The guide line's buttons are one group at its right that never shrinks ([원고로], and [확인] for a pin awaiting
+        review); revTargetActs draws them."""
+        self.assertIn("#revision-pin .rp-acts{display:flex;gap:var(--space-2);flex:none;margin-left:auto}", self.css)
+        self.assertIn('data-act="rev-back"', extract_js_fn("revTargetActs"))
         self.assertIn("if(fromManuscript)REV.back=back", extract_js_fn("showChange"))
         self.assertIn("case 'rev-back':", HTML)
 
@@ -2010,6 +2033,16 @@ class FrontendColourRoles(unittest.TestCase):
                 with self.subTest(theme=theme, fg=fg):
                     ratio = contrast(css_colour("var(%s)" % fg, t), css_colour("var(%s)" % bg, t))
                     self.assertGreaterEqual(ratio, 4.5)
+
+    def test_the_bars_review_pill_reads_at_4_5_to_1_in_both_themes(self):
+        """The compact bar's [👁 M] pill is a 14% review tint over the sheet (UX spec §막대 공통 규칙): its 12px review-coloured
+        count reads at 4.5:1 in both themes, whatever fill the [📍 N] button around it has."""
+        sel = "body.compact #btn-side .rv-n"
+        for theme in ("light", "dark"):
+            with self.subTest(theme=theme):
+                t = theme_tokens(theme)
+                ratio = contrast(css_colour(rule_value(sel, "color"), t), css_colour(rule_value(sel, "background"), t))
+                self.assertGreaterEqual(ratio, 4.5)
 
     def test_the_contrast_helper_matches_known_pairs(self):
         """Black on white is 21:1, #a1a1aa on white 2.56:1 (the old handle), and a 50% mix over white is the mix."""
@@ -2188,14 +2221,16 @@ class FrontendDocs(unittest.TestCase):
         css = HTML
         self.assertIn("#doc-select-wrap{display:none;", css)
         self.assertIn("#doc-links{display:none;", css)
-        # the tablet sheet switches documents by the nav bar's links; only the phone sheet has the [문서] button
+        # the tablet sheet switches documents by the nav bar's links; only the phone has [본문 3/25 ▾] - with one document
+        # too, since it also leads to the view, the page and the outline (UX spec §V9)
         self.assertIn(
             "body.docs-multi:not(.lay-narrow) #doc-links,body.docs-multi.band-tablet-sheet #doc-links{display:flex}",
             css,
         )
         self.assertIn("body:not(.lay-narrow) #doc-nav,body.band-tablet-sheet #doc-nav{display:flex}", css)
-        self.assertIn("#btn-doc{display:none;", css)
-        self.assertIn("body.band-phone.docs-multi #btn-doc{display:inline-flex}", css)
+        self.assertIn("#btn-pos{display:none;", css)
+        self.assertIn("body.band-phone #btn-pos{display:inline-flex}", css)
+        self.assertNotIn('id="docs-menu"', HTML)
         self.assertIn("body.no-rebuild #btn-rebuild{display:none}", css)
         self.assertIn('id="all-docs"', css)
         self.assertIn("$('#all-docs').hidden=!multiDoc()", HTML)
@@ -2465,6 +2500,10 @@ class FrontendFigure(unittest.TestCase):
         document's kind, never view_only (a figure document is view_only:false and still has no rebuild)."""
         css = HTML[HTML.index("<style>") : HTML.index("</style>")]
         self.assertIn("body.no-rebuild #btn-rebuild{display:none}", css)
+        # compact bars have no [PDF 재빌드]: the status line and the [⋯] row do it, and neither shows without a rebuild (UX spec §V8)
+        self.assertIn("body.compact #btn-rebuild{display:none}", css)
+        self.assertIn("body.compact:not(.no-rebuild) #m-rebuild{display:flex}", css)
+        self.assertIn("canRebuild:!!META&&buildsFromSource(META.kind)&&!isViewer()", extract_js_fn("statusInput"))
         self.assertNotIn("body.view-only", css)
         self.assertIn(
             "document.body.classList.toggle('no-rebuild',!buildsFromSource(META.kind))", extract_js_fn("drawMeta")
@@ -3422,15 +3461,22 @@ class FrontendToolbarOneRow(unittest.TestCase):
 
     def test_fold_closed_moves_label_into_more_and_keeps_doc_name(self):
         # on a folded fold device (344px), the label shrank to 'C…' and the document button to '본..', unreadable (2026-09-23).
+        # The position button [본문 3/25 ▾] names the document only from 400px; where it does, the name is the one part that
+        # shrinks, and the pages and chevron keep their width (UX spec §V4 폭 예산).
         css = HTML[HTML.index("<style>") : HTML.index("</style>")]
         self.assertIn("body.lay-narrow #bar1 .chip,body.lay-mid #bar1 .chip{display:none}", css)
-        self.assertIn("body.lay-narrow #bar1 #btn-doc{flex:none;overflow:visible}", css)
-        self.assertIn("body.lay-narrow #btn-doc .nm{overflow:visible;text-overflow:clip", css)
+        self.assertIn("#btn-pos .nm{flex:0 1 auto;min-width:0;", css)
+        self.assertIn("#btn-pos b{flex:none;", css)
+        # [더보기]'s label is no chip: the instance colour's dot and the name (translate="no"), no Limn icon (UX spec §V7)
         more = HTML[HTML.index('<dialog id="more"') : HTML.index("</dialog>", HTML.index('<dialog id="more"'))]
-        self.assertIn('<span id="more-label" class="chip" data-tip="__LABEL__ — ', more)
+        label = more[more.index('<span id="more-label"') : more.index("</span>", more.index('<span id="more-label"'))]
+        self.assertNotIn('class="chip"', label)
+        self.assertNotIn("<svg", label)
+        self.assertIn('<i class="more-dot" aria-hidden="true"></i><b translate="no">__LABEL__</b>', label)
         out = page_for("Long-DemoPaper1", "#1d4ed8")
         self.assertIn('<dialog id="more" aria-label="더보기 · Long-DemoPaper1">', out)
-        self.assertIn("#more .more-head .chip{background:var(--brand);", css)
+        self.assertIn("#more .more-dot{", css)
+        self.assertIn("background:var(--brand)", css[css.index("#more .more-dot{") :][:200])
 
     def test_fold_open_also_hides_toolbar_chip_and_relies_on_more(self):
         # regression: an unfolded fold device (884px) also puts #bar1 under flex-wrap:nowrap pressure,
@@ -3462,7 +3508,9 @@ class FrontendToolbarSize(unittest.TestCase):
         self.assertIn("#bar1{flex-wrap:wrap;--tb-h:var(--control-h-touch)}", coarse)
         self.assertIn("#bar1 input.n{width:84px;flex:0 0 84px;max-width:none;font-size:var(--text-xl)}", coarse)
         self.assertRegex(HTML, r'<input class="n sec" id="jump" placeholder="쪽 이동"')
-        self.assertIn('id="m-jump" inputmode="numeric" placeholder="쪽"', HTML)
+        # [더보기] has no page field any more: the phone's navigation sheet and the nav bar's page count take it (UX spec §V7)
+        self.assertRegex(HTML, r'<button id="nav-page" data-act="nav-page"')
+        self.assertIn('<input id="ns-page-in" inputmode="numeric"', HTML)
 
 
 class FrontendSaveWhilePicking(unittest.TestCase):
@@ -3825,13 +3873,13 @@ class FrontendResponsiveBrowser(ChromiumTestCase):
         self.assertEqual(page.locator("#right").bounding_box()["width"], 300)
         page = self.open_viewer(390, True)
         self.assertFalse(page.locator("#doc-nav").is_visible())
-        self.assertTrue(page.locator("#btn-doc").is_visible())
+        self.assertTrue(page.locator("#btn-pos").is_visible())  # the phone's position button, documents or not
         self.assertFalse(page.evaluate("SIDE_OPEN"))
         page.locator("#btn-side").click()
         self.assertTrue(page.evaluate("SIDE_OPEN"))
         self.assertEqual(page.locator("#right").bounding_box()["width"], 390)
-        page.locator("#btn-doc").click()
-        self.assertTrue(page.locator("#docs-menu").is_visible())
+        page.locator("#btn-pos").click()
+        self.assertTrue(page.locator("#nav-sheet").is_visible())
 
 
 class FrontendThread(unittest.TestCase):
@@ -4609,6 +4657,10 @@ class FrontendNotify(unittest.TestCase):
     def test_wiring(self):
         h = HTML
         self.assertIn('id="m-notify"', h)
+        # [더보기]'s row is a switch with its reason line under it (UX spec §V7), its state never in its name
+        self.assertRegex(h, r'<button id="m-notify" role="switch" aria-checked="false"')
+        self.assertIn('id="m-notify-why"', h)
+        self.assertIn("m.setAttribute('aria-checked',String(st===NOTIFY_STATE.ON))", extract_js_fn("drawNotify"))
         self.assertIn('id="btn-notify"', h)
         tog = extract_js_fn("notifyToggle")
         self.assertIn("Notification.requestPermission()", tog)

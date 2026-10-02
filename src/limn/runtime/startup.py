@@ -395,15 +395,20 @@ def run_accent(accent_arg: str | None, label: str) -> str | StartupRefused:
 
 
 def summary_lines(c: RunConfig, multi_doc: bool, access_lines: Sequence[str], pdfjs_found: bool) -> list[str]:
-    """The startup summary: manuscript (the folder with --doc, else the main .tex), label, state folder, address,
-    access (access_lines), the allow list, and the optional features. pdfjs_found says whether both PDF.js files are
-    in c.pdfjs_dir."""
+    """The startup summary: manuscript (the folder with --doc, else the main .tex), label (ending with the interface
+    language, ui-lang=<--ui-lang or browser>), state folder, address, access (access_lines), the allow list, and the
+    optional features. pdfjs_found says whether both PDF.js files are in c.pdfjs_dir."""
     bind = c.access.bind
     host = "[%s]" % bind if ":" in bind else bind
     out = [
         "manuscript  %s" % (c.src if multi_doc else c.main),
-        "label       %s (%s)%s"
-        % (c.label, c.accent, "" if c.repo else " - no git origin, using the folder name as default"),
+        "label       %s (%s)%s; ui-lang=%s"
+        % (
+            c.label,
+            c.accent,
+            "" if c.repo else " - no git origin, using the folder name as default",
+            c.ui_lang or "browser",
+        ),
         "state       %s" % c.state,
     ]
     if is_loopback_bind(bind):

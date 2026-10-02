@@ -59,6 +59,7 @@
 | `STATE_DIR` | 상태 폴더. 다른 인스턴스와 겹치면 `limn add`가 거부한다. 비어 있으면 `<데이터 루트>/<이름>`을 쓴다 |
 | `GIT_PULL` | `1`이면 재빌드마다 원고 체크아웃을 `--ff-only`로 당긴다 |
 | `LABEL` / `ACCENT` | 뷰어 이름표와 강조색(`#rrggbb`) |
+| `UI_LANG` | 뷰어 화면 언어의 인스턴스 기본값 `ko`·`en`. 비우면 브라우저 언어를 따른다. `limn run`이 `--ui-lang`으로 넘긴다 |
 | `EXTRA_ARGS` | 그 밖의 서버 인자(공백으로 나눔). `limn add`의 기본값은 `--no-build`다. 산출물이 없으면 서버가 어차피 빌드한다 |
 | `DOCS` | 여러 문서(본문, 답변서, 보기 전용 PDF 등)를 탭으로 전환한다. `MAIN`과 함께 쓰지 않는다. 아래 '여러 문서 (`DOCS=`)' 절 |
 
@@ -104,6 +105,7 @@ limn add paper2 --manuscript ~/papers/paper2 --git-pull --label Paper2
 | `--git-pull` | 설정에 `GIT_PULL=1`을 쓴다 |
 | `--label <이름표>` | 40자 이하. 생략하면 저장소 이름, 그것도 없으면 인스턴스 이름 |
 | `--accent <#rrggbb>` | 강조색 |
+| `--ui-lang ko\|en` | 설정에 `UI_LANG`을 쓴다. 생략하면 브라우저 언어를 따른다 |
 | `--state-dir <dir>` | 상태 폴더. 절대경로여야 한다 |
 | `--extra "<서버 인자>"` | `EXTRA_ARGS`에 들어간다. 기본은 `--no-build` |
 | `--no-serve` | `tailscale serve`를 걸지 않고 로컬에서만 띄운다 |
@@ -204,7 +206,7 @@ limn add paper2 --manuscript ~/papers/paper2        # 같은 결과를 설정에
 
 템플릿의 나머지 설정은 다음과 같다.
 
-- `ExecStart`는 서버를 직접 부르지 않고 `limn run <이름>`을 거친다. `--git-pull`은 `GIT_PULL=1`일 때만, `LABEL`·`ACCENT`·`DOCS`는 값이 있을 때만 붙는 조건부 인자를 systemd가 표현하지 못하기 때문이다. `limn run`은 설정을 검증한 뒤 서버로 exec한다.
+- `ExecStart`는 서버를 직접 부르지 않고 `limn run <이름>`을 거친다. `--git-pull`은 `GIT_PULL=1`일 때만, `LABEL`·`ACCENT`·`UI_LANG`·`DOCS`는 값이 있을 때만 붙는 조건부 인자를 systemd가 표현하지 못하기 때문이다. `limn run`은 설정을 검증한 뒤 서버로 exec한다.
 - `ConditionPathExists=<설정 폴더>/<이름>.env`: 설정이 없는 이름을 켜면 실패 반복 대신 여기서 멈춘다.
 - `Environment=GIT_TERMINAL_PROMPT=0`과 `GIT_SSH_COMMAND=ssh -o BatchMode=yes`: 유닛 안에는 SSH 에이전트도 tty도 없으므로, 프롬프트를 기다리지 않고 바로 실패한다.
 - `Environment=PYTHONUNBUFFERED=1`: 기동 로그(원고, 상태, 주소)가 곧바로 journal에 간다.

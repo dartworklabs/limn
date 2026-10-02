@@ -10,8 +10,9 @@ here runs at import.
 Placeholders filled here:
 - __APP_CSS__ / __APP_JS__: the parts listed under each marker in parts.txt, joined in order (load_viewer_html).
 - __PDFJS_VERSION__: the vendored PDF.js version, the ?v= that busts the browser cache for /vendor/pdfjs/.
-- __LIMN_MARK_16__ / __LIMN_MARK_14__ / __LIMN_WORDMARK__: the Limn logo's inline SVGs (limn.viewer.mark.MARK_SLOTS) - the
-  icon by the label in the top bar and in the [더보기] label chip, the wordmark in the help header.
+- __LIMN_MARK_16__ / __LIMN_WORDMARK__: the Limn logo's inline SVGs (limn.viewer.mark.MARK_SLOTS) - the icon by the label
+  in the top bar, the wordmark in the help header and [더보기]'s foot.
+- __LIMN_VERSION__: this Limn's version (limn.__version__), beside the wordmark in [더보기]'s foot.
 - __ICON_KEY__: the content key of the icon files (limn.viewer.mark.Brand.key), the ?v= of the favicon links.
 - __LUCIDE_JSON__: the icon table, for the viewer's JS ic().
 - __UI_EN_JSON__: the ko -> en message table (ui_en.json), for the viewer's I18N_EN.
@@ -32,6 +33,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TypeAlias
 
+from limn import __version__
 from limn.viewer.mark import FILES as BRAND_FILES, Brand, Icon, brand
 
 # One entry of the message table: an English string, or plural forms {"one": ..., "other": ...} for a key with {n}.
@@ -54,7 +56,13 @@ def read_viewer() -> "ViewerFiles":
     messages = load_ui_messages(VIEWER_DIR / "ui_en.json")
     logo = read_brand()
     template = viewer_html(
-        VIEWER_DIR, messages, pdfjs_version=PDFJS_VERSION, marks=logo.marks, icon_key=logo.key, icons=LUCIDE
+        VIEWER_DIR,
+        messages,
+        pdfjs_version=PDFJS_VERSION,
+        marks=logo.marks,
+        icon_key=logo.key,
+        icons=LUCIDE,
+        version=__version__,
     )
     return ViewerFiles(template, service_worker(VIEWER_DIR), messages, logo.icons)
 
@@ -94,6 +102,8 @@ LUCIDE = {
     '<path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/>',
     "at-sign": '<circle cx="12" cy="12" r="4"/><path d="M16 8v5a3 3 0 0 0 6 0v-1a10 10 0 1 0-4 8"/>',
     "ellipsis": '<circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/>',
+    "image": '<rect width="18" height="18" x="3" y="3" rx="2" ry="2"/><circle cx="9" cy="9" r="2"/>'
+    '<path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/>',
     "lock-open": '<rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 9.9-1"/>',
     "eye": '<path d="M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0"/>'
     '<circle cx="12" cy="12" r="3"/>',
@@ -107,10 +117,13 @@ LUCIDE = {
     "panel-left": '<rect width="18" height="18" x="3" y="3" rx="2"/><path d="M9 3v18"/>',
     "pencil": '<path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 '
     '.623.622l4.353-1.32a2 2 0 0 0 .83-.497z"/><path d="m15 5 4 4"/>',
+    "pin": '<path d="M12 17v5"/><path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 '
+    '2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z"/>',
     "plus": '<path d="M5 12h14"/><path d="M12 5v14"/>',
     "refresh-cw": '<path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/>'
     '<path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/>',
     "rotate-ccw": '<path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/>',
+    "rotate-cw": '<path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/>',
     "square-dashed": '<path d="M5 3a2 2 0 0 0-2 2"/><path d="M19 3a2 2 0 0 1 2 2"/><path d="M21 19a2 2 0 0 1-2 2"/>'
     '<path d="M5 21a2 2 0 0 1-2-2"/><path d="M9 3h1"/><path d="M9 21h1"/><path d="M14 3h1"/><path d="M14 21h1"/>'
     '<path d="M3 9v1"/><path d="M21 9v1"/><path d="M3 14v1"/><path d="M21 14v1"/>',
@@ -125,6 +138,9 @@ LUCIDE = {
     '<path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>',
     "triangle-alert": '<path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/>'
     '<path d="M12 9v4"/><path d="M12 17h.01"/>',
+    "wifi-off": '<path d="M12 20h.01"/><path d="M8.5 16.429a5 5 0 0 1 7 0"/><path d="M5 12.859a10 10 0 0 1 5.17-2.69"/>'
+    '<path d="M19 12.859a10 10 0 0 0-2.007-1.523"/><path d="M2 8.82a15 15 0 0 1 4.177-2.643"/>'
+    '<path d="M22 8.82a15 15 0 0 0-11.288-3.764"/><path d="m2 2 20 20"/>',
     "x": '<path d="M18 6 6 18"/><path d="m6 6 12 12"/>',
 }
 
@@ -235,12 +251,14 @@ def viewer_html(
     marks: Mapping[str, str],
     icon_key: str,
     icons: Mapping[str, str],
+    version: str,
 ) -> str:
     """The viewer page served at GET /, before the run-time placeholders: run_page() fills those per instance.
 
     The page and its parts come from directory (load_viewer_html); pdfjs_version, the logo's inline SVGs (marks:
-    placeholder -> markup, limn.viewer.mark.Brand.marks, in placeholder order), the favicon links' icon_key, the icon table and
-    the message table fill their placeholders, in that order, and every {{ic:<name>}} token becomes its icon's <svg>.
+    placeholder -> markup, limn.viewer.mark.Brand.marks, in placeholder order), Limn's version, the favicon links' icon_key,
+    the icon table and the message table fill their placeholders, in that order, and every {{ic:<name>}} token becomes its
+    icon's <svg>.
     The JSON forms are sorted by key so the page does not depend on the table's order; the message table's "</" is
     escaped so a string can never close the <script> it sits in. Raises like load_viewer_html, and KeyError for an
     icon token the table lacks.
@@ -249,6 +267,7 @@ def viewer_html(
     page = page.replace("__PDFJS_VERSION__", pdfjs_version)
     for placeholder in sorted(marks):
         page = page.replace(placeholder, marks[placeholder])
+    page = page.replace("__LIMN_VERSION__", html.escape(version, quote=True))
     page = page.replace("__ICON_KEY__", icon_key)
     page = page.replace("__LUCIDE_JSON__", json.dumps(dict(icons), sort_keys=True))
     table = json.dumps(dict(messages), ensure_ascii=False, sort_keys=True).replace("</", "<\\/")
@@ -274,8 +293,8 @@ class ViewerFiles:
 
 @dataclass(frozen=True)
 class ServedViewer:
-    """What the viewer routes of one run answer: the page GET / serves (the template with the run's label and accent,
-    run_page), the service worker GET /sw.js serves, the message table a refused browser's page reads and the icon
+    """What the viewer routes of one run answer: the page GET / serves (the template with the run's interface language,
+    label and accent, run_page), the service worker GET /sw.js serves, the message table a refused browser's page reads and the icon
     each favicon route serves (by GET path; the same for every run - the tile is never the instance colour)."""
 
     page: str
@@ -284,15 +303,20 @@ class ServedViewer:
     icons: Mapping[str, Icon] = field(default_factory=dict)
 
 
-def run_page(template: str, label: str, accent: str) -> str:
-    """The page GET / serves: template (viewer_html) with the run-time placeholders filled in - __LABEL__ with the
-    HTML-escaped label, then __ACCENT__ with the accent (#rrggbb, startup.run_accent checks it), for the stripe and the
-    label chip. The favicons do not depend on the run: tabs of different instances are told apart by their title."""
-    out = template.replace("__LABEL__", html.escape(label, quote=True))
+def run_page(template: str, label: str, accent: str, ui_lang: str | None) -> str:
+    """The page GET / serves: template (viewer_html) with the run-time placeholders filled in - __UI_LANG__ with the
+    instance's interface language (ko or en, --ui-lang; the empty string without it, and the head script then skips
+    that step), then __LABEL__ with the HTML-escaped label, then __ACCENT__ with the accent (#rrggbb, startup.run_accent
+    checks it), for the stripe and the label chip. The favicons do not depend on the run: tabs of different instances
+    are told apart by their title."""
+    out = template.replace("__UI_LANG__", ui_lang or "")
+    out = out.replace("__LABEL__", html.escape(label, quote=True))
     return out.replace("__ACCENT__", accent)
 
 
-def serve_viewer(files: ViewerFiles, label: str, accent: str) -> ServedViewer:
-    """What a run labelled `label` in `accent` serves from the viewer files: the filled page (run_page), and the
-    service worker, the message table and the icons as read."""
-    return ServedViewer(run_page(files.template, label, accent), files.service_worker, files.messages, files.icons)
+def serve_viewer(files: ViewerFiles, label: str, accent: str, ui_lang: str | None) -> ServedViewer:
+    """What a run labelled `label` in `accent` with interface language ui_lang (None = the browser's) serves from the
+    viewer files: the filled page (run_page), and the service worker, the message table and the icons as read."""
+    return ServedViewer(
+        run_page(files.template, label, accent, ui_lang), files.service_worker, files.messages, files.icons
+    )
