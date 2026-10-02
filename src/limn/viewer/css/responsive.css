@@ -629,8 +629,8 @@ body.compact :is(#nav-sheet-h,#nav-sheet .ns-h,#ns-page label,#trash-h,#help-h,#
    their segments' 44px hits meeting. They touched when the track filled the row. */
 body.compact #help-pins-md{display:block}
 body.compact #help td:first-child{padding-left:var(--space-3)}
-body.compact :is(#nav-sheet,#help,#trash) .ns-head>.row>button{background:transparent;border-color:transparent}   /* [닫기] is a ghost, like [더보기]'s */
-@media (hover:hover){body.compact :is(#nav-sheet,#help,#trash) .ns-head>.row>button:hover{background:var(--accent)}}
+:is(#nav-sheet,#help,#trash) .ns-head>.row>button{background:transparent;border-color:transparent}   /* [닫기] is a ghost, like [더보기]'s - the desktop's centred help and Trash too: an outlined [닫기] in a bordered dialog was an outline inside an outline */
+@media (hover:hover){:is(#nav-sheet,#help,#trash) .ns-head>.row>button:hover{background:var(--accent)}}
 body.compact #trash .arc-list{max-height:none;overflow:visible}   /* the sheet scrolls, so a pull down starts at its top */
 /* Selection on a view-only PDF document: no range ladder, stepper, or source expansion (there is no line). The region's text is shown in the source field instead. */
 #composer.region #c-levels,#composer.region #c-cap,#composer.region .c-tools,#composer.region .snip-foot,#composer.region #c-copy{display:none}

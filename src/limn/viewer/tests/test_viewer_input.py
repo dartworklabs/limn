@@ -5222,6 +5222,25 @@ class SheetCloseFocus(ViewerBase):
         self.assertEqual(page.evaluate(self.STATE), ["note", "solid"])
 
 
+class DesktopDialogClose(ViewerBase):
+    """One [닫기] (docs/handbook/viewer.md §한 겹 담기): every compact sheet's [닫기] is a ghost, but the mouse desktop's help
+    and Trash kept an outlined [닫기] inside their bordered dialog - an outline inside an outline."""
+
+    def test_the_desktop_help_and_trash_close_are_ghosts(self):
+        """1400x850: help's and the Trash's [닫기] draw no border and no fill (they drew the --input border)."""
+        page = self.view(DESK)
+        for opener, sel in OPENERS[2:]:
+            with self.subTest(sheet=sel):
+                page.evaluate(opener)
+                settle(page)
+                got = page.evaluate(
+                    "s=>{const b=document.querySelector(s+' [data-act$=close]'),c=getComputedStyle(b); return [c.borderTopColor,c.backgroundColor];}",
+                    sel,
+                )
+                self.assertEqual(got, ["rgba(0, 0, 0, 0)", "rgba(0, 0, 0, 0)"])
+                page.evaluate("s=>document.querySelector(s).close()", sel)
+
+
 class MetaWithoutCommit(ViewerBase):
     """The meta line of a manuscript outside Git (docs/handbook/viewer.md §모바일 레이아웃): the server names no commit ('-'),
     and [더보기] read 'main.tex · 2쪽 · -' and the desktop chip row 'main.tex · 2쪽 · - · <built>'. The empty piece goes, with
