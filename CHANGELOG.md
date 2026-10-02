@@ -11,6 +11,13 @@
 - **The source always wraps.** The Wrap toggles under the composer's source and in the changes view are gone, with
   their saved settings: the source, the range excerpt, the edit card and both diffs always wrap, and a long token with
   nowhere to break (a URL, a command) breaks inside the box instead of running past its edge.
+- **One panel toggle on every compact layout.** The unfolded Fold, the landscape tablets and the landscape phone show
+  the phone's split chip [Pin N | Review M] where the pin icon pill [📍 N 👁 M ›] was, with [Select] on the same fill.
+  The pins half opens and closes the panel; the review half goes to the review list.
+- **Rows centred top to bottom.** The space above a tool row's controls now equals the space below them: 4 px each on
+  the tablets' action row, 12 px each on the sheet's row (it was 12 over 4 with the sheet open, 12 over 8 collapsed).
+  The bottom safe area is added underneath. Every icon, count and label in the row, including the status line's
+  [Rebuild], sits on one centre line; [Rebuild]'s label had been drawn 1.9 px high.
 
 ## 0.4.8 — 2026-10-02
 

@@ -1456,7 +1456,7 @@ class FrontendPanelTidyStructure(unittest.TestCase):
         )
         # thumb order: [select] at the far left, [pin N] at the far right. DOM is shared with the narrow sheet, so only order changes.
         self.assertIn("body.lay-mid #btn-select{order:1}", css)
-        self.assertIn("body.lay-mid #bar1 #btn-side{order:5;", css)
+        self.assertIn("body.lay-mid #bar1 #btn-side{order:5}", css)
         # the toolbar is a fixed child of #right — giving #right a containing-block-creating property would make the action row move with the panel
         for sel, body in re.findall(r"([^{}]*#right[^{}]*)\{([^{}]*)\}", css_nc):
             if "lay-mid" in sel:
@@ -2041,15 +2041,16 @@ class FrontendColourRoles(unittest.TestCase):
                     ratio = contrast(css_colour("var(%s)" % fg, t), css_colour("var(%s)" % bg, t))
                     self.assertGreaterEqual(ratio, 4.5)
 
-    def test_the_bars_review_pill_reads_at_4_5_to_1_in_both_themes(self):
-        """The compact bar's [👁 M] pill is a 14% review tint over the sheet (UX spec §막대 공통 규칙): its 12px review-coloured
-        count reads at 4.5:1 in both themes, whatever fill the [📍 N] button around it has."""
-        sel = "body.compact #btn-side .rv-n"
+    def test_the_bars_review_half_reads_at_4_5_to_1_in_both_themes(self):
+        """Every compact bar's review count is the split chip's right half [검토 M] (the [👁 M] pill inside [📍 N] went with
+        2b of the cross-resolution pass): its review-coloured words and count read at 4.5:1 on the chip's tonal fill in both
+        themes."""
+        fg = rule_value("body.compact #bar1 #btn-rv,body.compact #bar1 #btn-rv .side-l", "color")
+        bg = rule_value("body.compact #bar1 :is(#btn-side,#btn-rv,#btn-select)", "background")
         for theme in ("light", "dark"):
             with self.subTest(theme=theme):
                 t = theme_tokens(theme)
-                ratio = contrast(css_colour(rule_value(sel, "color"), t), css_colour(rule_value(sel, "background"), t))
-                self.assertGreaterEqual(ratio, 4.5)
+                self.assertGreaterEqual(contrast(css_colour(fg, t), css_colour(bg, t)), 4.5)
 
     def test_the_contrast_helper_matches_known_pairs(self):
         """Black on white is 21:1, #a1a1aa on white 2.56:1 (the old handle), and a 50% mix over white is the mix."""

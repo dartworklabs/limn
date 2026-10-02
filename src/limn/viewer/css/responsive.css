@@ -189,17 +189,31 @@ body.compact #bar1 .sp{display:none}
 body.compact #bar1 button{flex:1 1 auto;min-width:0;padding:0 var(--space-2);overflow:hidden;text-overflow:ellipsis;font-size:var(--text-lg);font-weight:400;
   border:0;background:transparent;color:var(--foreground)}
 @media (hover:hover){body.compact #bar1 button:hover{background:var(--accent)}}
-body.compact #bar1 #btn-side{background:var(--secondary);color:var(--secondary-foreground)}
-body.compact #bar1 #btn-side[aria-expanded=true]{background:var(--accent)}
-body.compact #bar1 #btn-select[aria-pressed=true]{background:var(--primary);color:var(--primary-foreground);font-weight:600}
-/* [📍 N 👁 M]: the pin icon carries the draft dot on its top-right corner (no width of its own), the open count is 600 in tabular
-   figures, and the review pill is a 14% review tint - not the old solid purple, whose two numbers read as one ('11 1', UX audit P10). */
+/* The compact bars' panel toggle is one split chip, words first: [핀 5 | 검토 1] - the owner's E2 on the phone and tablet sheet,
+   and 2b of the cross-resolution pass on the unfolded Fold, the landscape tablets and the landscape phone, where the icon pill
+   [📍 5 👁 1 ›] was. The right half (#btn-rv) goes to the review list. The halves and [⬚] share one tonal fill (--secondary,
+   --radius-lg) whether the panel is open or not; a pressed [⬚] is that chip in --primary. Counts, words and labels are
+   trimmed to their cap height (text-box), so the row centres its icons and its numbers on one line; icons are 18px. The pin
+   icon and its draft dot's corner stay for the wide nav bar's [핀 N ‹] (#nav-side). */
 #btn-side .pin-ic{position:relative;display:inline-flex}
-body.compact #btn-side .pin-ic{margin-left:calc(-1 * var(--ic-bearing))}   /* the pin's ink, not its glyph box, is 8px in: the fill's two sides match */
 #btn-side .pin-ic .c-dot{position:absolute;top:-2px;right:-3px}
 #btn-side .side-n{font-weight:600;font-variant-numeric:tabular-nums}
-body.compact #btn-side .rv-n{margin-left:var(--space-1);background:color-mix(in srgb,var(--status-review) 14%,var(--sidebar));color:var(--status-review);
-  font-weight:600;font-variant-numeric:tabular-nums}
+body.compact #btn-side .pin-ic{display:contents}   /* no glyph here: it takes no flex slot (nor a gap), its draft dot sits on the chip */
+body.compact #btn-side .pin-ic svg,body.compact #bar1 #btn-side .rv-n{display:none}
+body.compact #btn-side .pin-ic .c-dot{top:var(--space-1);right:var(--space-1)}   /* the draft dot on the chip's corner */
+body.compact #bar1 .side-l{display:block;color:var(--muted-foreground)}
+body.compact #bar1 #btn-rv:not([hidden]){display:inline-flex}
+body.compact #bar1 :is(#btn-side,#btn-rv,#btn-select){background:var(--secondary);color:var(--secondary-foreground);border-radius:var(--radius-lg)}
+body.compact #bar1 #btn-select[aria-pressed=true]{background:var(--primary);color:var(--primary-foreground);font-weight:600}
+body.compact #bar1 #btn-side{position:relative}
+body.compact #bar1 :is(#btn-side,#btn-rv){gap:var(--space-1);padding:0 var(--space-3);min-width:var(--hit);justify-content:center}   /* halves meet: each answers 44px inside itself */
+body.compact #bar1 .bar-l:has(#btn-rv:not([hidden])) #btn-side{border-radius:var(--radius-lg) 0 0 var(--radius-lg)}
+body.compact #bar1 #btn-rv{border-radius:0 var(--radius-lg) var(--radius-lg) 0;margin-left:calc(-1 * var(--space-2));box-shadow:inset 1px 0 0 var(--border)}   /* the halves' seam, not a border */
+body.compact #bar1 #btn-side:focus-visible{z-index:1}   /* its ring over the review half that meets it */
+body.compact #bar1 #btn-rv,body.compact #bar1 #btn-rv .side-l{color:var(--status-review)}
+body.compact #bar1 :is(.side-n,.rv-c){font-weight:600;font-variant-numeric:tabular-nums}
+body.compact #bar1 :is(.side-n,.side-l,.rv-c,#btn-select .lbl,#btn-pos b,#btn-pos .nm){text-box:trim-both cap alphabetic}
+body.compact #bar1 .ic{width:18px;height:18px}
 /* If there's no room, the label chip shrinks first (the full name is in the description) - this prevents a button's text from getting clipped to something like 'DF 재빌드' */
 body.compact #bar1 .chip{flex:0 50 auto;min-width:28px}
 /* min-width:0 above (body.compact #bar1 button) is more specific (includes an id) than @media(pointer:coarse)'s
@@ -224,7 +238,7 @@ body.lay-narrow #bar1 :is(.bar-l,.bar-r){display:flex;align-items:center;gap:var
 body.lay-narrow #bar1 .bar-l{grid-column:1}
 body.lay-narrow #bar1 .bar-r{grid-column:3;justify-content:flex-end}
 body.lay-narrow #bar1 button{flex:none}
-body.lay-narrow #btn-select .lbl,body.lay-narrow #side-arrow{display:none}   /* the grabber already says it is a sheet; its fill and aria-expanded say open */
+body.lay-narrow #btn-select .lbl{display:none}   /* the sheet's [⬚] is its icon, named by aria-label */
 /* [본문 3/25 ▾] (#btn-pos, the phone only): the document's name is the one item that shrinks (an ellipsis, the whole name in
    aria-label); the pages and the chevron keep their width. */
 #btn-pos{display:none;align-items:center;gap:var(--space-1)}
@@ -330,15 +344,15 @@ body.lay-narrow.side-open #right{height:min(calc(var(--sheet-f,.64) * 100dvh),ca
 body.lay-narrow.side-open.sheet-up #right{height:min(calc(max(var(--sheet-f,.64),.8) * 100dvh),calc(var(--vvh,100dvh) - var(--sheet-gap)))}
 /* The sheet's header is one row (docs/handbook/viewer.md §패널 폭과 시트 높이): the handle is the bar's middle column (44px), its
    32x4px bar drawn in the column's top 4px like a sheet handle. It used to be a 24px row of its own whose hit area took the top 8px
-   of every tool-bar button (diagnosis P3). The row has no vertical padding: the buttons are drawn at --tb-h and their 44px hit areas
-   reach 4px down into the section head below, never up past the sheet's edge (the scroll box would clip them). */
+   of every tool-bar button (diagnosis P3). The buttons are drawn at --tb-h in the row's 12px insets (below), and their 44px hit
+   areas stay inside them: 8px over and under the 28px controls, never up past the sheet's edge (the scroll box would clip them)
+   nor down into the section head. */
 body.lay-narrow #sheet-grip{display:flex;align-items:flex-start;justify-content:center;grid-column:2;width:var(--hit);height:var(--tb-h);
   padding-top:var(--space-1);touch-action:none;cursor:row-resize;position:relative}
 body.lay-narrow #sheet-grip::before{content:'';width:32px;height:4px;border-radius:var(--radius-sm);background:var(--grabber)}
 body.lay-narrow #sheet-grip.on::before{background:var(--primary)}
 body.lay-narrow #bar1{top:0;padding:0 var(--edge);border-bottom:0;touch-action:none}   /* the whole tool bar drags the sheet; its taps still press buttons */
 body.lay-narrow #sec-open>.sec-head{border-top:1px solid var(--border)}   /* the line under the tool bar is the section head's own (40px with it) */
-body.lay-narrow:not(.side-open) #bar1{padding-bottom:var(--space-2)}   /* the collapsed sheet: 8px (plus the bottom safe area) under the row, its hit areas inside */
 @media (pointer:coarse){
   body.lay-narrow #bar1{--tb-h:var(--ctl-touch)}
   body.lay-narrow #bar1 :is(button,#sheet-grip){position:relative;min-height:0;overflow:clip;overflow-clip-margin:var(--space-2)}   /* the label still ellipsizes; the hit area below is not clipped */
@@ -352,29 +366,15 @@ body.lay-narrow:not(.side-open) #bar1{padding-bottom:var(--space-2)}   /* the co
    first. The pin glyph sat lopsided on its count and the row's fills touched the sheet's edge, in two shapes. Now one split chip
    [핀 5 | 검토 1] - the right half (#btn-rv) goes to the review list - and the select icon on the same 28px tonal fill
    (--secondary, --radius-lg; a pressed select is that chip in --primary), then [본문 1/2 ▾] and [⋯] as ghosts. The controls are
-   12px under the sheet's edge with the grabber in that inset (4px from the edge, 4px from them) and 4px above the row's end;
+   12px under the sheet's edge with the grabber in that inset (4px from the edge, 4px from them) and 12px above the row's end -
+   the line over the section head on the open sheet, the screen's bottom (above its safe area) on the collapsed one; the
+   cross-resolution pass found 12 over 4 and 12 over 8 read low and asked for equal space above and below;
    one 8px gap (the chip's halves meet); 18px icons; counts, words and the page figures trimmed to their cap height
    (text-box), so the row centres every icon on the numbers' cap-height centre; each control answers 44px round its centre. */
 .side-l,#btn-rv{display:none}
-body.lay-narrow #bar1{padding-top:var(--space-3);--tb-h:var(--control-h)}
-body.lay-narrow.side-open #bar1{padding-bottom:var(--space-1)}
+body.lay-narrow #bar1{padding-top:var(--space-3);padding-bottom:var(--space-3);--tb-h:var(--control-h)}   /* open or collapsed: 12 above the row, 12 under it (plus the bottom safe area when collapsed) */
 body.lay-narrow #bar1 #sheet-grip{position:absolute;grid-column:2/3;left:50%;top:0;transform:translateX(-50%);height:var(--hit);padding-top:var(--space-1)}   /* its bar in the inset, its 44px box the empty middle column */
-body.lay-narrow #bar1 #btn-side{position:relative}
-body.lay-narrow #btn-side .pin-ic{display:contents}   /* no glyph here: it takes no flex slot (nor a gap), its draft dot sits on the chip */
-body.lay-narrow #btn-side .pin-ic svg,body.lay-narrow #bar1 #btn-side .rv-n{display:none}
-body.lay-narrow #btn-side .pin-ic .c-dot{top:var(--space-1);right:var(--space-1)}   /* the draft dot on the chip's corner */
-body.lay-narrow #bar1 .side-l{display:block;color:var(--muted-foreground)}
-body.lay-narrow #bar1 #btn-rv:not([hidden]){display:inline-flex}
-body.lay-narrow #bar1 :is(#btn-side,#btn-rv,#btn-select){background:var(--secondary);color:var(--secondary-foreground);border-radius:var(--radius-lg)}
-body.lay-narrow #bar1 :is(#btn-side,#btn-rv){gap:var(--space-1);padding:0 var(--space-3);min-width:var(--hit);justify-content:center}   /* halves meet: each answers 44px inside itself */
-body.lay-narrow #bar1 .bar-l:has(#btn-rv:not([hidden])) #btn-side{border-radius:var(--radius-lg) 0 0 var(--radius-lg)}
-body.lay-narrow #bar1 #btn-rv{border-radius:0 var(--radius-lg) var(--radius-lg) 0;margin-left:calc(-1 * var(--space-2));box-shadow:inset 1px 0 0 var(--border)}   /* the halves' seam, not a border */
-body.lay-narrow #bar1 #btn-side:focus-visible{z-index:1}   /* its ring over the review half that meets it */
-body.lay-narrow #bar1 #btn-rv,body.lay-narrow #bar1 #btn-rv .side-l{color:var(--status-review)}
-body.lay-narrow #bar1 :is(.side-n,.rv-c){font-weight:600;font-variant-numeric:tabular-nums}
-body.lay-narrow #bar1 :is(.side-n,.side-l,.rv-c,#btn-pos b,#btn-pos .nm){text-box:trim-both cap alphabetic}
 body.lay-narrow #bar1 #btn-select{width:36px;min-width:36px;padding:0;justify-content:center}
-body.lay-narrow #bar1 .ic{width:18px;height:18px}
 body.lay-narrow #bar1 #btn-pos{gap:var(--space-1);padding:0 var(--space-2)}
 body.lay-narrow #bar1 #btn-pos .ic{width:16px;height:16px;color:var(--muted-foreground)}
 @media (pointer:coarse){body.lay-narrow #bar1 :is(#btn-side,#btn-rv,#btn-select,#btn-pos,#btn-more)::after{top:50%;height:var(--hit);transform:translate(-50%,-50%)}
@@ -414,6 +414,9 @@ body.lay-mid{--mbar-tb:var(--control-h);--mbar-pad:var(--space-2);--mbar-h:calc(
 @media (pointer:coarse){
   body.lay-mid #bar1 button{min-height:0;position:relative;overflow:visible}
   body.lay-mid #bar1 button::after{content:'';position:absolute;left:50%;top:50%;width:max(100%,var(--hit));height:max(100%,var(--hit));transform:translate(-50%,-50%)}
+  /* The chip's halves are each at least 44px wide and meet: each answers its own box (the sheet's rule, d9a5bd6) - a centring
+     translateX of half a fractional width rounds a hit box a pixel into its neighbour. */
+  body.lay-mid #bar1 :is(#btn-side,#btn-rv)::after{left:0;right:0;width:auto;transform:translateY(-50%)}
 }
 body.lay-mid #bar1{position:fixed;left:0;right:0;top:auto;bottom:var(--kb,0px);z-index:30;height:var(--mbar-h);--tb-h:var(--mbar-tb);
   gap:var(--space-2);padding:var(--mbar-pad) max(var(--space-3),env(safe-area-inset-right)) calc(var(--mbar-pad) + env(safe-area-inset-bottom)) max(var(--space-3),env(safe-area-inset-left));
@@ -426,8 +429,8 @@ body.lay-mid #bar1 #btn-more{flex:0 0 var(--tb-h);width:var(--tb-h);padding:0}
 body.lay-mid #bar1 .sp{display:block;flex:1 1 0;order:2;align-self:stretch}
 body.lay-mid #btn-select{order:1}
 body.lay-mid #btn-more{order:4}
-body.lay-mid #bar1 #btn-side{order:5;min-width:calc(2 * var(--control-h-touch));justify-content:center;gap:var(--space-1)}
-body.lay-mid #bar1 #btn-side[aria-expanded=true]{background:var(--accent);border-color:var(--border-strong)}
+body.lay-mid #bar1 #btn-side{order:5}
+body.lay-mid #bar1 #btn-rv{order:6}
 body.lay-mid.side-open #right{width:var(--side-w,clamp(300px,38vw,360px))!important}
 body.lay-mid.side-open #right{padding-right:env(safe-area-inset-right)}   /* a landscape phone's right notch: #c-copy and [핀 저장] sat in it (diagnosis P9) */
 /* Collapsed panel: #right remains an invisible frame, floating only the status chips (#bar2) and the re-place-location banner (#banner) at the bottom-right just above the action row.
@@ -485,7 +488,7 @@ body.mid-overlay.side-open.side-closing #grip{animation:mid-grip-out .18s ease-i
 body.band-short{--doc-nav-h:var(--hit);--mbar-h:0px}
 body.band-short #doc-nav{right:var(--bar1-w,0px);padding-right:var(--space-2)}
 /* Buttons drawn at 40px from 2px down: their 44px hit areas fill the row from its top edge to its line. */
-body.band-short #bar1{top:0;bottom:auto;left:auto;right:0;height:var(--mid-top);gap:var(--space-1);align-items:flex-start;border-top:0;border-bottom:1px solid var(--border);
+body.band-short #bar1{top:0;bottom:auto;left:auto;right:0;height:var(--mid-top);gap:var(--space-2);align-items:flex-start;border-top:0;border-bottom:1px solid var(--border);
   padding:calc(env(safe-area-inset-top) + 2px) max(var(--space-3),env(safe-area-inset-right)) 0 var(--space-2)}
 body.band-short:not(.side-open) #bar1{border-bottom:1px solid var(--border)}
 body.band-short #bar1 .sp{display:none}
@@ -530,6 +533,7 @@ body.lay-narrow.has-status:not(.typing) #right{border-top-color:transparent;bord
 .st-ic .spin{width:12px;height:12px}
 #status .st-tx{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis}
 #bar1 #status button,#status button{flex:none;min-width:0;width:auto}
+#status button .lbl{text-box:trim-both cap alphabetic}   /* the label's cap height is centred in its button, as the tool row's words are */
 #bar1 #status .st-act.btn-default{background:var(--primary);color:var(--primary-foreground);font-weight:600}
 #bar1 #status .st-act.btn-secondary{background:var(--secondary);color:var(--secondary-foreground)}
 #status-dock #status button{min-height:0;height:24px;padding:0 var(--space-2);font-size:var(--text-sm);position:relative;overflow:visible}

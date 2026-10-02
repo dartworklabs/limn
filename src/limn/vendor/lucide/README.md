@@ -21,7 +21,7 @@ Icons are drawn with the original `<svg>` attributes: `viewBox="0 0 24 24"`, `fi
 | `bot` | local/agent avatar (distinct from a person's initial circle) |
 | `check` | closed-pin row head; current document in the document list |
 | `chevron-down` · `chevron-right` | collapse/expand archive sections, card collapse (narrow screens), [Documents] button |
-| `chevron-up` · `chevron-left` | direction of opening/closing the [Pins N] panel and sheet |
+| `chevron-left` | the collapsed wide panel's [Pins N ‹] (#nav-side) |
 | `circle-check` · `circle-x` | toast lead icon — done/error. Warnings use `triangle-alert` |
 | `circle-question-mark` | help button, 'question' badge |
 | `message-square` | reply count in the card head |

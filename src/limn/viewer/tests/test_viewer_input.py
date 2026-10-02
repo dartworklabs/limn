@@ -1836,7 +1836,7 @@ class PhoneTouchSizes(ViewerBase):
                 got = page.evaluate(
                     "()=>{const v=e=>e.getClientRects().length>0, r=document.querySelector('#btn-rv');"
                     " return [r.innerText.replace(/\\s+/g,' ').trim(), v(r), v(document.querySelector('#btn-side .rv-n')),"
-                    " v(document.querySelector('#side-arrow'))];}"
+                    " !!document.querySelector('#side-arrow')];}"
                 )
                 self.assertEqual(got, ["검토 1", True, False, False])
 
@@ -1852,10 +1852,10 @@ class PhoneTouchSizes(ViewerBase):
         )
         self.assertEqual(misses, [])
 
-    def test_the_sheet_header_is_84px_and_its_handle_and_section_tools_answer_44px(self):
+    def test_the_sheet_header_is_92px_and_its_handle_and_section_tools_answer_44px(self):
         """The sheet's stuck header was the handle row 24 + the tool bar 53 + the section head 52 = 129px (diagnosis P3); the handle
-        now sits in the tool bar's row, so the header (below the sheet's 1px edge, as the diagnosis measured it) is the 44px row
-        (its 28px controls 12px under the edge, 4px above the row's end) and the 40px section head, and every control in it -
+        now sits in the tool bar's row, so the header (below the sheet's 1px edge, as the diagnosis measured it) is the 52px row
+        (its 28px controls 12px under the edge and 12px above the row's end) and the 40px section head, and every control in it -
         the handle included (it answered 121x32) - still answers a 44x44 box."""
         page = self.view(PHONE, prefs={"sec": {"open": True, "review": True, "done": True}}, init=NO_PNG_CHIP)
         page.evaluate("()=>{setSide(true); document.querySelector('#right').scrollTop=0;}")
@@ -1864,7 +1864,7 @@ class PhoneTouchSizes(ViewerBase):
             "Math.round(document.querySelector('#sec-open .sec-head').getBoundingClientRect().bottom"
             "-document.querySelector('#bar1').getBoundingClientRect().top)"
         )
-        self.assertLessEqual(head, 84)  # 80 before the row's 12px inset over its 28px controls and 4px under them
+        self.assertLessEqual(head, 92)  # 80 before the row's 12px insets over and under its 28px controls
         self.assertTrue(
             page.evaluate("document.querySelector('#bar1').contains(document.querySelector('#sheet-grip'))")
         )
@@ -2984,9 +2984,9 @@ class BarChip(ViewerBase):
                 page = self.view(device)
                 self.assertEqual(page.evaluate(MISSES_44, "#btn-side,#btn-rv,#btn-select,#btn-pos,#btn-more"), [])
 
-    def test_the_row_is_12px_under_the_edge_and_every_centre_on_one_line(self):
+    def test_the_row_has_12px_over_and_under_its_controls_and_every_centre_on_one_line(self):
         """411x908 (phone, edges 12) and 768x1024 (tablet sheet, 16), light and dark: the controls are 28px high, 12px under
-        the sheet's edge and 4px above the row's end; the grabber 4px from the edge and 4px from the controls, on the centre
+        the sheet's edge and 12px above the row's end (4px before the cross-resolution pass); the grabber 4px from the edge and 4px from the controls, on the centre
         within 1px; gaps 8px (the chip's halves meet); the select icon, the review count and (the phone's) chevron and page
         figures within 0.5px of the open count's cap-height centre; the words '핀 3' and '검토 1'."""
         for (w, h), edge in (((411, 908), 12), ((768, 1024), 16)):
@@ -2997,7 +2997,7 @@ class BarChip(ViewerBase):
                     settle(page)
                     got = page.evaluate(CHIP_ROW)
                     self.assertEqual(
-                        (got["insetTop"], got["insetBottom"], got["height"], got["grabber"]), (12, 4, 28, [4, 4]), got
+                        (got["insetTop"], got["insetBottom"], got["height"], got["grabber"]), (12, 12, 28, [4, 4]), got
                     )
                     self.assertLessEqual(abs(got["centre"]), 1)
                     self.assertEqual(got["gaps"][0], 0)
@@ -3064,8 +3064,8 @@ class BarChip(ViewerBase):
 
     def test_each_half_is_named_by_what_it_shows_first(self):
         """411x908: [검토 1]'s name starts with its words ('검토 1 · 검토 대기 핀으로 가기', 'Review 1 · …'), and [핀 3]'s starts with
-        its own and leaves the review count to the other half. In the mid bar the pill sits inside [📍 3] and its name keeps
-        the count. A keyboard's ring on [핀 3] is drawn over the review half that meets it."""
+        its own and leaves the review count to the other half, in the mid bar too (the same chip there since 2b of the
+        cross-resolution pass). A keyboard's ring on [핀 3] is drawn over the review half that meets it."""
         for lang, side, rv in (("ko", "핀 3 · ", "검토 1 · "), ("en", "Pin 3 · ", "Review 1 · ")):
             with self.subTest(lang=lang):
                 page = self.view(phone(411, 908), lang=lang)
@@ -3084,7 +3084,8 @@ class BarChip(ViewerBase):
             ["btn-side", True, "1"],
         )  # fmt: skip
         page = self.view(MOUSE_MID)
-        self.assertIn("검토 대기 1", page.get_attribute("#btn-side", "aria-label"))
+        names = page.evaluate("['#btn-side','#btn-rv'].map(s=>document.querySelector(s).getAttribute('aria-label'))")
+        self.assertTrue(names[0].startswith("핀 3 · ") and names[1].startswith("검토 1 · "), names)
 
 
 # The chip's halves: the pins half's drawn width, and each half's hit box against its own box - [left, right] offsets in px
@@ -3219,7 +3220,7 @@ class TouchLayoutBands(ViewerBase):
 
     def test_a_landscape_phone_has_one_top_row_and_no_bottom_row(self):
         """844x390: nav bar 48 + action row 49 left the page 293px. The short band has one 44px row on top holding the nav
-        bar and [선택] [⋯] [핀 N] at its right end, nothing at the bottom, and the overlay panel collapsed."""
+        bar and [선택] [⋯] [핀 N | 검토 M] at its right end, nothing at the bottom, and the overlay panel collapsed."""
         page = self.view(LAND_PHONE)
         self.assertEqual(page.evaluate(BODY_BANDS), ["band-short", "lay-mid", "mid-overlay"])
         self.assertFalse(page.evaluate("SIDE_OPEN"))
@@ -3228,7 +3229,7 @@ class TouchLayoutBands(ViewerBase):
         self.assertLessEqual(max(row["nav"]["h"], row["bar"]["h"]), 44)
         self.assertLessEqual(row["nav"]["x"] + row["nav"]["w"], row["bar"]["x"])  # the links end where the tools begin
         self.assertEqual(row["bar"]["x"] + row["bar"]["w"], 844)
-        self.assertEqual(sorted(t[0] for t in row["tools"]), ["btn-more", "btn-select", "btn-side"])
+        self.assertEqual(sorted(t[0] for t in row["tools"]), ["btn-more", "btn-rv", "btn-select", "btn-side"])
         self.assertTrue(all(top < 44 and hit for _, top, hit in row["tools"]), row["tools"])
         self.assertFalse(row["strip"])
         self.assertTrue(row["bottomIsPdf"])
@@ -4409,7 +4410,8 @@ class BarAndSheets(ViewerBase):
     def test_the_phone_bar_draws_no_border_and_its_select_is_an_icon(self):
         """411 and 360: three bordered boxes and two ghosts were mixed (UX audit P3). Now no bar button draws a border (the
         split chip's seam is a shadow), [⬚] shows no word (its name is aria-label), the pins half says 핀 (words first, the
-        owner's pick), the collapsed sheet is 12 + 28 + 8px under the PDF, and every bar control still answers a 44px box."""
+        owner's pick), the collapsed sheet is its 1px edge and 12 + 28 + 12px under the PDF, and every bar control still
+        answers a 44px box."""
         for device in (BAR_PHONES[0], BAR_PHONES[1]):
             with self.subTest(width=device["viewport"]["width"]):
                 page = self.view(device, init=NO_PNG_CHIP)
@@ -4417,7 +4419,7 @@ class BarAndSheets(ViewerBase):
                 self.assertEqual(bar["borders"], [])
                 self.assertEqual(bar["select"], "")
                 self.assertTrue(bar["sideWord"])
-                self.assertAlmostEqual(bar["chrome"], 48, delta=1)
+                self.assertAlmostEqual(bar["chrome"], 53, delta=1)
                 self.assertEqual(page.get_attribute("#btn-select", "aria-label"), "선택")
                 self.assertEqual(page.evaluate(MISSES_44, "#bar1 button,#sheet-grip"), [])
 
@@ -4472,14 +4474,14 @@ class BarAndSheets(ViewerBase):
 
     def test_a_stale_pdf_puts_a_24px_status_line_on_the_sheet_with_rebuild(self):
         """411x908: the 38px chip row over the bar (83px of chrome, UX audit P3) is a 24px line on the sheet's top edge -
-        no gap, 72px of chrome - saying the manuscript is newer, with [재빌드] whose 44px hit reaches up over the PDF. The
+        no gap, 77px of chrome with the sheet's 53 - saying the manuscript is newer, with [재빌드] whose 44px hit reaches up over the PDF. The
         bar has no [PDF 재빌드] and the desktop chip row is not drawn."""
         page = self.stale_view(BAR_PHONES[0])
         got = page.evaluate(STATUS_LINE)
         self.assertEqual(got["parent"], "status-dock")
         self.assertAlmostEqual(got["dock"]["b"], got["sheet"]["y"], delta=0.5)
         self.assertEqual(round(got["dock"]["h"]), 24)
-        self.assertAlmostEqual(908 - got["dock"]["y"], 72, delta=1)
+        self.assertAlmostEqual(908 - got["dock"]["y"], 77, delta=1)
         self.assertEqual(got["text"], "원고가 PDF보다 새롭습니다")
         self.assertEqual(got["acts"], ["rebuild"])
         self.assertEqual(page.evaluate(MISSES_44, "#status button"), [])
@@ -5370,6 +5372,117 @@ class MetaWithoutCommit(ViewerBase):
         )
         page = self.view(DESK)
         self.assertIn("· abc1234 ·", page.evaluate("document.querySelector('#meta-txt').innerText"))
+
+
+# The compact tool row's spacing as drawn: the row's box - inside its borders and above the bottom safe area; the sheet's row
+# ends at the bar, whose safe area is the sheet's own padding under it - the space between it and the controls' fills, the
+# safe area, what is under the bar, and the box of each control drawn: the chip's halves, [⬚], [⋯] and the status line's icon,
+# text and action (fill: the box is a tonal or primary fill, not a ghost).
+ROW_BOXES = """() => {const q = s => document.querySelector(s), vis = e => !!e && e.getClientRects().length > 0, R = e => e.getBoundingClientRect();
+  const bar = q('#bar1'), B = R(bar), cs = getComputedStyle(bar), sheet = document.body.classList.contains('lay-narrow');
+  const probe = document.createElement('div'); probe.style.cssText = 'position:fixed;bottom:0;height:env(safe-area-inset-bottom)';
+  document.body.append(probe); const safe = probe.getBoundingClientRect().height; probe.remove();
+  const top = B.top + parseFloat(cs.borderTopWidth), bottom = sheet ? B.bottom : B.bottom - parseFloat(cs.borderBottomWidth) - safe;
+  const items = [['pins', '#btn-side', 1], ['review', '#btn-rv', 1], ['select', '#btn-select', 1], ['more', '#btn-more', 0],
+    ['icon', '#bar1 #status .st-ic', 0], ['text', '#bar1 #status .st-tx', 0], ['action', '#bar1 #status .st-act', 1]]
+    .filter(([, s]) => vis(q(s))).map(([k, s, fill]) => {const r = R(q(s)); return {k, fill: !!fill, box: [r.left, r.top, r.right, r.bottom]};});
+  const fills = items.filter(i => i.fill);
+  return {top, bottom, safe, under: innerHeight - B.bottom, above: Math.min(...fills.map(i => i.box[1])) - top,
+    below: bottom - Math.max(...fills.map(i => i.box[3])), items};}"""
+# The ink of each box in a screenshot (base64 PNG at the device pixel ratio, boxes in the shot's CSS px): the pixels that differ
+# from the box's own background - read at its left edge, at mid height in a fill, at the top corner of a ghost - each pixel row's
+# coverage the strongest difference over the box's strongest, the top and bottom ink edges counted by their partial rows. A
+# fill is read 6px in from every edge (its rounded corners, the halves' seam), a ghost 3px in from its sides.
+ROW_INK = """async ([b64, dpr, items]) => {const img = new Image(); img.src = 'data:image/png;base64,' + b64; await img.decode();
+  const c = document.createElement('canvas'); c.width = img.width; c.height = img.height; const x = c.getContext('2d'); x.drawImage(img, 0, 0);
+  const D = x.getImageData(0, 0, c.width, c.height).data, W = c.width, out = {};
+  const lum = (X, Y) => {const i = (Y * W + X) * 4; return 0.2126 * D[i] + 0.7152 * D[i + 1] + 0.0722 * D[i + 2];};
+  for (const it of items) {const [l, t, r, b] = it.box, iy = it.fill ? 6 : 0, ix = it.fill ? 6 : 3;
+    const X0 = Math.round((l + ix) * dpr), X1 = Math.round((r - ix) * dpr), Y0 = Math.round((t + iy) * dpr), Y1 = Math.round((b - iy) * dpr);
+    const bg = lum(X0, it.fill ? Math.round((Y0 + Y1) / 2) : Y0);
+    let mx = 0; for (let y = Y0; y < Y1; y++) for (let xx = X0; xx < X1; xx++) mx = Math.max(mx, Math.abs(lum(xx, y) - bg));
+    const cov = []; for (let y = Y0; y < Y1; y++) {let m = 0; for (let xx = X0; xx < X1; xx++) m = Math.max(m, Math.abs(lum(xx, y) - bg) / mx); cov.push(m);}
+    let f = -1, la = -1; cov.forEach((v, i) => {if (v > 0.12) {if (f < 0) f = i; la = i;}});
+    out[it.k] = mx < 8 || f < 0 ? null : ((Y0 + f + 1 - cov[f]) + (Y0 + la + cov[la])) / 2 / dpr;}
+  return out;}"""
+
+
+class CompactRowCentre(ViewerBase):
+    """The compact tool row's spacing (docs/handbook/viewer.md §모바일 레이아웃, 2b of the cross-resolution pass): the owner
+    took the sheet's split chip [핀 N | 검토 M] to the rows of the unfolded Fold and the landscape tablets and asked for the
+    space under the controls to be checked by eye - it did not match. The space above the row's fills equals the space below
+    them, a bottom safe area is added under that, and the ink of every control - the chip's halves, [⬚], [⋯] and the status
+    line's icon, text and [재빌드] - is centred on the row's centre line."""
+
+    def route(self, route):
+        """The fixture's routes, with GET /api/meta (full and light) saying stale_build, so the status line shows [재빌드]."""
+        if urlparse(route.request.url).path == "/api/meta":
+            return self.forward(MetaPatched(route, {"stale_build": True, "src_age_s": 120}))
+        return super().route(route)
+
+    def row(self, device, dark=False, safe=0, open_=None):
+        """The row's geometry (ROW_BOXES) with each control's ink centre minus the row's (CSS px), on device with a stale
+        PDF, a bottom safe area of safe px and, if open_ is given, the panel set to it."""
+        page = self.view(device, init=NO_PNG_CHIP, dark=dark)
+        page.wait_for_function("!document.querySelector('#status').hidden")
+        if safe:
+            self.cdp(page).send("Emulation.setSafeAreaInsetsOverride", {"insets": {"bottom": safe}})
+        if open_ is not None:
+            page.evaluate("setSide(%s)" % ("true" if open_ else "false"))
+        settle(page)
+        g = page.evaluate(ROW_BOXES)
+        y0 = max(0, min([g["top"]] + [i["box"][1] for i in g["items"]]) - 4)
+        y1 = max([g["bottom"]] + [i["box"][3] for i in g["items"]]) + 4
+        shot = page.screenshot(clip={"x": 0, "y": y0, "width": device["viewport"]["width"], "height": y1 - y0})
+        items = [dict(i, box=[i["box"][0], i["box"][1] - y0, i["box"][2], i["box"][3] - y0]) for i in g["items"]]
+        ink = page.evaluate(ROW_INK, [base64.b64encode(shot).decode(), device["device_scale_factor"], items])
+        mid = (g["top"] + g["bottom"]) / 2
+        g["off"] = {k: None if v is None else round(v + y0 - mid, 2) for k, v in ink.items()}
+        return g
+
+    def assert_centred(self, g, controls):
+        """Every control in controls is drawn and its ink centre is within 0.5px of the row's; above and below equal within 0.5px."""
+        self.assertEqual(set(g["off"]), set(controls), g)
+        self.assertTrue(all(v is not None and abs(v) <= 0.5 for v in g["off"].values()), g["off"])
+        self.assertLessEqual(abs(g["above"] - g["below"]), 0.5, g)
+
+    def test_the_mid_rows_have_equal_space_round_their_controls_and_one_centre_line(self):
+        """The unfolded Fold on its side (1104x884), 1180x820 and 1024x768, at DPR 2 and 1, light and dark, a stale PDF on
+        the status line: the fills are as far from the row's top as from its end (4px, within 0.5px) and the ink centres of
+        the chip's halves, [⬚], [⋯], the status icon, its text and [재빌드] are within 0.5px of the row's centre line
+        ([재빌드]'s label sat 1.9px high)."""
+        for w, h in ((1104, 884), (1180, 820), (1024, 768)):
+            for dpr in (2, 1):
+                for dark in (False, True):
+                    with self.subTest(w=w, dpr=dpr, dark=dark):
+                        g = self.row(phone(w, h, dpr), dark=dark)
+                        self.assert_centred(g, {"pins", "review", "select", "more", "icon", "text", "action"})
+                        self.assertEqual((round(g["above"], 2), round(g["below"], 2)), (4, 4), g)
+
+    def test_the_tablet_sheets_row_has_12px_above_and_below_open_or_collapsed(self):
+        """The unfolded Fold upright (884x1104, the tablet sheet) at DPR 2 and 1, light and dark, collapsed and open: 12px
+        from the sheet's edge to the fills and 12px from them to the row's end (12 over 8 collapsed and 12 over 4 open
+        before); the ink centres of the chip's halves, [⬚] and [⋯] within 0.5px of the row's."""
+        for dpr in (2, 1):
+            for dark in (False, True):
+                for open_ in (False, True):
+                    with self.subTest(dpr=dpr, dark=dark, open=open_):
+                        g = self.row(phone(884, 1104, dpr), dark=dark, open_=open_)
+                        self.assert_centred(g, {"pins", "review", "select", "more"})
+                        self.assertEqual((round(g["above"], 2), round(g["below"], 2)), (12, 12), g)
+
+    def test_a_bottom_safe_area_goes_under_the_row(self):
+        """A 20px bottom safe area (a home indicator), DPR 2: the mid row (1180x820) keeps 4px over and under its fills and
+        the area is added under them, inside the bar; the collapsed tablet sheet (884x1104) keeps 12 and 12 and the area is
+        the sheet's, under the bar. The ink stays centred."""
+        g = self.row(phone(1180, 820, 2), safe=20)
+        self.assert_centred(g, {"pins", "review", "select", "more", "icon", "text", "action"})
+        self.assertEqual((g["safe"], round(g["above"], 2), round(g["below"], 2), g["under"]), (20, 4, 4, 0), g)
+        g = self.row(phone(884, 1104, 2), safe=20, open_=False)
+        self.assert_centred(g, {"pins", "review", "select", "more"})
+        self.assertEqual(
+            (g["safe"], round(g["above"], 2), round(g["below"], 2), round(g["under"], 2)), (20, 12, 12, 20), g
+        )
 
 
 if __name__ == "__main__":

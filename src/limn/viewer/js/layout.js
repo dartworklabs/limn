@@ -50,20 +50,20 @@ function outlineOverlay(){return LAYOUT===LAYOUT_MODE.MID||BAND===LAYOUT_BAND.TA
 // drag stops short of it, a swipe only rubber-bands, and a collapsed [핀 N] shows a dot for it.
 function draftOpen(){return !$('#composer').hidden||!!EDITOR.current||!!REPLY||!!REPICK;}
 // Draws the panel state (docs/handbook/viewer.md §패널 폭과 시트 높이): the body classes (with the phone sheet's composing lift, the phone only), both [핀 N] toggles - the tool bar's and,
-// for a collapsed wide panel, the nav bar's - with the open count, the draft dot and the arrow, the handle's ARIA and the back-gesture
-// layer. Their name says what the icons and pills show: '패널 펴기 · 열린 핀 11 · 검토 대기 1' (+ ' · 작성 중' for a draft).
+// for a collapsed wide panel, the nav bar's - with the open count and the draft dot, the handle's ARIA and the back-gesture layer.
+// Their name says what they show: the nav bar's icon and pill '패널 펴기 · 열린 핀 11 · 검토 대기 1', every compact bar's chip half
+// '핀 11 · 패널 펴기' (+ ' · 작성 중' for a draft). No arrow: the open state is the panel itself and aria-expanded.
 // Idempotent and cheap: drawPins() calls it on every redraw. The panel keeps its open layout while it slides out.
 function applySide(){const open=SIDE_OPEN,b=document.body,dot=!open&&draftOpen(),n=PINS.length,rv=REVIEW_ALL.length,composing=!$('#composer').hidden;
   b.classList.toggle('side-open',open||!!(SIDE_SLIDE&&SIDE_SLIDE.kind==='closing')); b.classList.toggle('composing',composing);
   if(!composing)SHEET_KEPT=false; b.classList.toggle('sheet-up',composing&&!SHEET_KEPT&&BAND===LAYOUT_BAND.PHONE);   // the phone sheet's composing lift; the tablet sheet's is tabletLift (panel-size.js)
-  // The toggles' names: the review count only where its pill sits inside them (the mid bars, the wide nav bar); the sheet bar's
-  // [핀 N] names what it shows first and leaves the count to its own half [검토 M].
+  // The toggles' names: the review count only where its pill sits inside them (the wide nav bar); every compact bar's [핀 N]
+  // names what it shows first and leaves the count to its own half [검토 M].
   const label=tr(open?'패널 접기':'패널 펴기')+' · '+tl('열린 핀 {n}',{n})+(rv?' · '+tl('검토 대기 {n}',{n:rv}):'')+(dot?' · '+tr('작성 중'):''),
     sheet=tl('핀 {n}',{n})+' · '+tr(open?'패널 접기':'패널 펴기')+(dot?' · '+tr('작성 중'):'');
-  for(const t of [$('#btn-side'),$('#nav-side')]){t.setAttribute('aria-expanded',String(open)); t.setAttribute('aria-label',t.id==='btn-side'&&LAYOUT===LAYOUT_MODE.NARROW?sheet:label);
+  for(const t of [$('#btn-side'),$('#nav-side')]){t.setAttribute('aria-expanded',String(open)); t.setAttribute('aria-label',t.id==='btn-side'&&LAYOUT!==LAYOUT_MODE.WIDE?sheet:label);
     t.querySelector('.side-n').textContent=n; t.querySelector('.c-dot').hidden=!dot;}
   $('#nav-side').hidden=!(LAYOUT===LAYOUT_MODE.WIDE&&!open);
-  $('#side-arrow').innerHTML=ic(LAYOUT===LAYOUT_MODE.NARROW?(open?'chevron-down':'chevron-up'):(open?'chevron-right':'chevron-left'));
   gripAria(); updateReviewCount(); syncBackLayer();}
 const GRIP_TIP=$('#grip').dataset.tip;   // the open handle's hint (the markup's, translated by tr())
 // The handle's ARIA as a window splitter: the panel width, or 0 (named '패널 폭 · 접힘') while collapsed - a collapsed wide panel's
