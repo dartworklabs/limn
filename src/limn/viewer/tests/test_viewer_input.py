@@ -2073,6 +2073,135 @@ class PhoneComposer(ViewerBase):
         self.assertAlmostEqual(page.locator("#right").bounding_box()["height"] / 780, 0.45, delta=0.01)
 
 
+# The bottom rows as drawn: the composer's save row, the edit card's row, the sheet or panel, the tool bar (the mid action
+# row), the open edit card, and whether the sheet's content fits it without scrolling.
+FOOTERS = """() => {const R = s => {const e = document.querySelector(s); if (!e || !e.getClientRects().length) return null;
+  const b = e.getBoundingClientRect(); return {top: b.top, bottom: b.bottom, left: b.left, right: b.right};};
+  const r = document.querySelector('#right');
+  return {save: R('#c-actions'), edit: R('.edit .e-acts'), card: R('.pin.editing'), sheet: R('#right'), bar: R('#bar1'),
+    fits: r.scrollHeight <= r.clientHeight + 1, vh: innerHeight};}"""
+# Every list section shut, so the pin sheet's content is shorter than the sheet raised to its top.
+SECTIONS_SHUT = {"sec": {"open": False, "review": False, "done": False}}
+
+
+class BottomActionRow(ViewerBase):
+    """The compact bands' bottom action rows (docs/handbook/viewer.md §패널 정리 동작 줄): on the owner's 411x908 phone the
+    composer's [취소][핀 저장] followed a short list up the raised sheet and sat 80% down the screen over blank sheet. The
+    row - and the edit card's [위치 다시 잡기][취소][저장] - is on the screen's bottom edge whatever the sheet's height,
+    while the sheet is dragged and with the keyboard up; in mid it is the panel's bottom, on the action row."""
+
+    def compose(self, page):
+        """A touch selection through the real pick path; waits for the composer."""
+        page.evaluate("()=>{LAST_PTR='touch'; pick({page:1,x0:10,y0:10,x1:200,y1:60});}")
+        page.wait_for_function("COMPOSE.current&&!COMPOSE.picking")
+        settle(page)
+
+    def edit_first(self, page):
+        """Opens the edit card on the first open pin with the sheet or panel open, the keyboard down."""
+        page.evaluate("()=>{setSide(true); openEdit(OPEN_ALL[0].id);}")
+        page.wait_for_function("EDITOR.current&&EDITOR.current.levels.length>0")
+        page.evaluate("document.activeElement.blur()")
+        settle(page)
+
+    def test_the_save_row_is_on_the_screen_bottom_under_a_short_list(self):
+        """411x908 phone and 768x1024 tablet sheet, every section shut and the sheet raised to its top, so its content is
+        shorter than the sheet: the save row ends on the screen's bottom edge, not under the list."""
+        for w, h in ((411, 908), (768, 1024)):
+            with self.subTest(w=w):
+                page = self.view(phone(w, h), prefs=SECTIONS_SHUT)
+                self.compose(page)
+                page.evaluate("setSheetF(1)")
+                settle(page)
+                f = page.evaluate(FOOTERS)
+                self.assertTrue(f["fits"], f)  # the case the owner met: no scrolling, room under the list
+                self.assertAlmostEqual(f["save"]["bottom"], h, delta=1)
+
+    def test_the_save_row_stays_on_the_screen_bottom_while_the_sheet_is_dragged(self):
+        """411x908, a short list: the grabber held and pulled down 160px, then up 300px - the row is on the bottom edge at
+        each point of the drag, and after the release."""
+        page = self.view(phone(411, 908), prefs=SECTIONS_SHUT)
+        self.compose(page)
+        g = page.locator("#sheet-grip").bounding_box()
+        x, y = g["x"] + g["width"] / 2, g["y"] + 6
+        page.mouse.move(x, y)
+        page.mouse.down()
+        for to in (y + 160, y - 140):
+            page.mouse.move(x, to, steps=6)
+            settle(page)
+            with self.subTest(at=round(to)):
+                self.assertAlmostEqual(page.evaluate(FOOTERS)["save"]["bottom"], 908, delta=1)
+        page.mouse.up()
+        settle(page)
+        self.assertAlmostEqual(page.evaluate(FOOTERS)["save"]["bottom"], 908, delta=1)
+
+    def test_the_save_row_sits_on_the_keyboard(self):
+        """411x908 with the note focused and the keyboard up (the layout shrinks by 330px, resizes-content): the row ends on
+        the new bottom edge, the keyboard's top."""
+        page = self.view(phone(411, 908), prefs=SECTIONS_SHUT)
+        self.compose(page)
+        page.focus("#note")
+        page.set_viewport_size({"width": 411, "height": 908 - 330})
+        settle(page)
+        f = page.evaluate(FOOTERS)
+        self.assertAlmostEqual(f["save"]["bottom"], 908 - 330, delta=1)
+
+    def test_the_edit_cards_row_is_the_bottom_row_and_the_list_scrolls_clear_of_it(self):
+        """411x908 and 768x1024, no selection: the edit card's row ends on the screen's bottom edge, outside its card, and
+        the list's end scrolls to above it."""
+        for w, h in ((411, 908), (768, 1024)):
+            with self.subTest(w=w):
+                page = self.view(phone(w, h))
+                self.edit_first(page)
+                f = page.evaluate(FOOTERS)
+                self.assertAlmostEqual(f["edit"]["bottom"], h, delta=1)
+                page.evaluate("()=>{const r=document.querySelector('#right'); r.scrollTop=r.scrollHeight;}")
+                settle(page)
+                last = page.evaluate(
+                    "(()=>{const s=[...document.querySelectorAll('#list .lsec:not([hidden]) .sec-head')];"
+                    " return s[s.length-1].getBoundingClientRect().bottom;})()"
+                )
+                self.assertLessEqual(last, page.evaluate(FOOTERS)["edit"]["top"])
+
+    def test_with_a_selection_open_too_the_edit_card_keeps_its_row(self):
+        """One bottom row: while a selection is being composed, the save row is the bottom row and the open edit card's row
+        stays inside its card."""
+        page = self.view(phone(411, 908))
+        self.edit_first(page)
+        self.compose(page)
+        f = page.evaluate(FOOTERS)
+        self.assertAlmostEqual(f["save"]["bottom"], 908, delta=1)
+        self.assertGreaterEqual(f["edit"]["top"], f["card"]["top"])
+        self.assertLessEqual(f["edit"]["bottom"], f["card"]["bottom"])
+
+    def test_in_mid_both_rows_are_the_panels_bottom_on_the_action_row(self):
+        """1024x768 touch (the side panel): the save row under a short list and the edit card's row end on the action
+        row's top edge, inside the panel's width."""
+        page = self.view(touch_device(1024, 768), prefs=SECTIONS_SHUT)
+        self.compose(page)
+        f = page.evaluate(FOOTERS)
+        self.assertAlmostEqual(f["save"]["bottom"], f["bar"]["top"], delta=1)
+        page = self.view(touch_device(1024, 768))  # the open pins' section open: the card is in it
+        self.edit_first(page)
+        f = page.evaluate(FOOTERS)
+        self.assertAlmostEqual(f["edit"]["bottom"], f["bar"]["top"], delta=1)
+        self.assertAlmostEqual(f["edit"]["left"], f["sheet"]["left"], delta=1)
+        self.assertAlmostEqual(f["edit"]["right"], f["sheet"]["right"], delta=1)
+
+    def test_a_mouse_desktop_keeps_both_rows_where_they_were(self):
+        """1400x850 mouse (wide, unchanged): the save row is the panel's bottom row and the edit card's row is inside its
+        card."""
+        page = self.view(DESK)
+        self.mouse_pick(page)
+        f = page.evaluate(FOOTERS)
+        self.assertAlmostEqual(f["save"]["bottom"], f["sheet"]["bottom"], delta=1)
+        page.evaluate("cancelSelection(true)")
+        settle(page)
+        self.edit_first(page)
+        f = page.evaluate(FOOTERS)
+        self.assertLessEqual(f["edit"]["bottom"], f["card"]["bottom"])
+        self.assertGreaterEqual(f["edit"]["top"], f["card"]["top"])
+
+
 # A landscape tablet in the mid layout (the side panel). A portrait tablet is the tablet sheet (TouchLayoutBands).
 TAB_LANDSCAPE = {"viewport": {"width": 1024, "height": 768}, "is_mobile": True, "has_touch": True}
 

@@ -250,10 +250,31 @@ body.compact #list{overflow:visible;padding-bottom:calc(20px + env(safe-area-ins
 body.compact :is(#bar2,#build-err,#banner,#composer,#list){padding-left:var(--edge);padding-right:var(--edge)}
 body.compact .sec-head{margin-left:calc(-1 * var(--edge));margin-right:calc(-1 * var(--edge));padding-left:var(--ink);padding-right:var(--edge)}
 body.compact .arc-row{padding-left:var(--space-3)}
-/* In compact, #right is the scroll box - the action row is stuck to its bottom. */
-body.compact #c-actions{position:sticky;bottom:0;padding:8px var(--edge) calc(8px + env(safe-area-inset-bottom))}
+/* The bottom action row (docs/handbook/viewer.md §패널 정리 동작 줄): in compact, #right is the scroll box and a flex column whose
+   bottom is the screen's (the sheet's bottom: var(--kb)) or the panel's, on the action row. The save row is stuck to that bottom
+   (sticky) and pushed down to it under a short list (margin-top:auto), so it never follows the list up a raised sheet - on the
+   owner's phone it sat 80% down the screen over blank sheet - nor moves while the sheet is dragged; with the keyboard up the
+   bottom is the keyboard's top. */
+body.compact{--foot-h:calc(var(--control-h-lg) + 2 * var(--space-2) + 1px)}
+body.compact #c-actions{position:sticky;bottom:0;margin-top:auto;padding:8px var(--edge) calc(8px + env(safe-area-inset-bottom))}
 /* The save row is 56px on touch (44px buttons + 12px): it was 65px around 48px buttons (diagnosis P2). */
-@media (pointer:coarse){body.compact #c-actions{padding-top:0;padding-bottom:env(safe-area-inset-bottom);min-height:calc(var(--hit) + var(--space-3) + env(safe-area-inset-bottom));align-content:center}}
+@media (pointer:coarse){body.compact{--foot-h:calc(var(--hit) + var(--space-3))}
+  body.compact #c-actions{padding-top:0;padding-bottom:env(safe-area-inset-bottom);min-height:calc(var(--foot-h) + env(safe-area-inset-bottom));align-content:center}}
+/* The edit card's [위치 다시 잡기][취소][저장] is the same bottom row while no selection is being composed (one bottom row: the
+   composer's wins, and the card keeps its row inside it). It is fixed - a sticky row inside a card can only stick within the
+   card - on the phone and tablet sheet to the screen's bottom (the tablet's 640px column), in mid to the panel's bottom on the
+   action row, across the panel's width; the list keeps that much room under its end. #right never gets a transform, so the
+   viewport stays its containing block (§펼친 화면 레이아웃). */
+body.compact:not(.composing) .edit .e-acts{position:fixed;z-index:4;margin:0;background:var(--sidebar);border-top:1px solid var(--border);
+  padding:var(--space-2) var(--edge) calc(var(--space-2) + env(safe-area-inset-bottom))}
+body.lay-narrow:not(.composing) .edit .e-acts{left:0;right:0;bottom:var(--kb,0px);max-width:640px;margin:0 auto;
+  padding-left:max(var(--edge),env(safe-area-inset-left));padding-right:max(var(--edge),env(safe-area-inset-right))}
+body.lay-mid:not(.composing) .edit .e-acts{left:auto;right:calc(-1 * var(--swipe-x,0px));width:var(--side-w,330px);bottom:calc(var(--mbar-h) + var(--kb,0px));
+  padding-right:calc(var(--edge) + env(safe-area-inset-right))}
+@media (pointer:coarse){body.compact:not(.composing) .edit .e-acts{padding-top:0;padding-bottom:env(safe-area-inset-bottom);
+  min-height:calc(var(--foot-h) + env(safe-area-inset-bottom));align-content:center}}
+body.compact:not(.composing) #list:has(.edit){padding-bottom:calc(var(--foot-h) + 20px + env(safe-area-inset-bottom))}
+@media (pointer:coarse){body.compact:not(.composing) #right:has(.edit){scroll-padding-bottom:calc(var(--foot-h) + var(--space-2) + env(safe-area-inset-bottom))}}
 body.compact #meta-txt,body.compact #me{display:none}
 body.compact #bar2{display:none}   /* compact shows its states on the status line (#status); the chips stay the desktop's */
 body.compact:not(.side-open) #right>:not(#bar1):not(#bar2):not(#banner){display:none}
