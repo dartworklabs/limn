@@ -64,7 +64,8 @@ function drawMeta(){
   document.body.classList.toggle('no-rebuild',!buildsFromSource(META.kind));   // only a LaTeX document builds from source; a view-only PDF and a figure redraw when their files change
   document.body.classList.toggle('role-viewer',isViewer());
   $('#meta-main').textContent=META.main; $('#meta-pages').textContent=tl('{n}쪽',{n:META.pages.length});
-  $('#meta-head').textContent=META.head; $('#meta-built').textContent=String(META.built_at||'').slice(0,16).replace('T',' ');
+  const head=commitShown(META.head); $('#meta-head').textContent=head; $('#meta-head-w').hidden=!head;
+  $('#meta-built').textContent=String(META.built_at||'').slice(0,16).replace('T',' ');
   const me=META.me||{};
   $('#me').innerHTML=avatar(me)+'<span class="au-n" translate="no">'+esc(who(me))+'</span>';
   $('#me').dataset.tip=tl('지금 이 화면을 쓰는 사람: {name}. 핀을 저장·수정·완료하면 이 이름으로 기록됩니다',{name:(isAgent(me)?who(me):me.name||'')+(me.login&&me.login!==LOCAL_LOGIN?' ('+me.login+')':'')});
@@ -80,4 +81,7 @@ function drawMeta(){
 function moreInfo(m,me){const built=String(m.built_at||'').slice(5,16).replace('T',' ');
   const piece=t=>'<span class="mc">'+esc(t).replace(/([/._-])/g,'$1<wbr>')+'</span>';
   const line=a=>a.filter(Boolean).map(piece).join(' · ');
-  return line([m.main,tl('{n}쪽',{n:m.pages.length}),m.head])+'<br>'+line([built&&built!=='?'?built+' '+tr('빌드'):'',tl('나: {name}',{name:who(me)})]);}
+  return line([m.main,tl('{n}쪽',{n:m.pages.length}),commitShown(m.head)])+'<br>'+line([built&&built!=='?'?built+' '+tr('빌드'):'',tl('나: {name}',{name:who(me)})]);}
+// The commit a meta names, or '' when it names none: the server sends '-' for a manuscript outside Git and nothing before
+// the first build. The meta lines leave that piece out with its separator - they read 'main.tex · 2쪽 · -'. Pure.
+function commitShown(h){const s=String(h==null?'':h).trim(); return s==='-'||s==='?'?'':s;}

@@ -4954,5 +4954,58 @@ class BarAndSheets(ViewerBase):
         self.assertEqual(got, [True, True, True])
 
 
+# ---------------------------------------------------------------- the cross-resolution pass (after 0.4.8)
+
+
+# The four sheets and dialogs, by the function that opens each, and its element.
+OPENERS = (
+    ("openMore()", "#more"),
+    ("openNavSheet()", "#nav-sheet"),
+    ("openHelp()", "#help"),
+    ("openTrash()", "#trash"),
+)
+
+
+class MetaWithoutCommit(ViewerBase):
+    """The meta line of a manuscript outside Git (docs/handbook/viewer.md §모바일 레이아웃): the server names no commit ('-'),
+    and [더보기] read 'main.tex · 2쪽 · -' and the desktop chip row 'main.tex · 2쪽 · - · <built>'. The empty piece goes, with
+    its separator."""
+
+    head = "-"
+
+    def route(self, route):
+        """The fixture's routes, with GET /api/meta saying self.head ('-': a manuscript outside Git)."""
+        if urlparse(route.request.url).path == "/api/meta":
+            return self.forward(MetaPatched(route, {"head": self.head}))
+        return super().route(route)
+
+    def test_more_and_the_desktop_meta_leave_out_a_missing_commit(self):
+        """411x908 [더보기]: the first meta line is the file and the pages, no '-' piece; 1400x850: the chip row's text has
+        no ' · - ' and no doubled separator."""
+        page = self.view(phone(411, 908))
+        page.evaluate("openMore()")
+        settle(page)
+        pieces = page.evaluate("[...document.querySelectorAll('#more-info .mc')].map(e=>e.textContent)")
+        self.assertNotIn("-", pieces)
+        self.assertEqual(pieces[:2], ["main.tex", "2쪽"])
+        page = self.view(DESK)
+        txt = page.evaluate("document.querySelector('#meta-txt').innerText")
+        self.assertNotIn(" - ", txt)
+        self.assertNotIn("·  ·", txt)
+        self.assertEqual(txt.count("·"), 2, txt)
+
+    def test_a_commit_still_shows_in_both(self):
+        """A guard: with a commit (abc1234) [더보기]'s first line and the chip row still name it."""
+        self.head = "abc1234"
+        page = self.view(phone(411, 908))
+        page.evaluate("openMore()")
+        settle(page)
+        self.assertIn(
+            "abc1234", page.evaluate("[...document.querySelectorAll('#more-info .mc')].map(e=>e.textContent)")
+        )
+        page = self.view(DESK)
+        self.assertIn("· abc1234 ·", page.evaluate("document.querySelector('#meta-txt').innerText"))
+
+
 if __name__ == "__main__":
     unittest.main()
