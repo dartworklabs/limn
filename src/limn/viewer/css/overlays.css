@@ -36,9 +36,6 @@ dialog[tabindex="-1"]:focus{outline:none}   /* the sheet itself is the first foc
 dialog::backdrop{background:var(--shadow-color)}
 dialog h2{font-size:var(--text-xl);margin:0 0 8px}
 dialog .help-steps{margin:0;padding-left:var(--space-5);font-size:var(--text-base)}
-#help .compact-only{display:none}   /* the tour's range step follows the layout, not the pointer: the stepper is wide's, the excerpt compact's */
-body.compact #help .compact-only{display:inline}
-body.compact #help .wide-only{display:none}
 #help .touch-only{display:none}   /* a mouse's tour starts with the drag */
 dialog .help-legend{font-size:var(--text-base)}
 dialog .help-legend+.help-legend{margin-top:var(--space-1)}

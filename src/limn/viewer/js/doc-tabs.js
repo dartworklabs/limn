@@ -30,12 +30,12 @@ function docTip(d){return d.name+' · '+d.path+(d.view_only?tr(' · 보기 전�
   (d.building?tr(' · 빌드 중'):(d.stale_build?tr(' · 원고가 이 PDF보다 새롭습니다(그 탭에서 [PDF 재빌드])'):''));}
 // Draws the document choosers: the select, the nav bar's links, the phone's position button (drawPos) and an open navigation
 // sheet's rows. A document's name is user text (translate="no"); the UI words beside it (build state, page count, the
-// description) are translated here.
+// description) are translated here. A link's name is a span (.lbl) so CSS can trim it to its cap height, as the view tabs'.
 function drawDocTabs(){
   const box=$('#doc-select');
   box.innerHTML=DOCS.map(d=>'<option translate="no" value="'+esc(d.key)+'">'+esc(d.name)+esc(d.building?tr(' · 빌드 중'):d.stale_build?tr(' · 원고 수정됨'):'')+'</option>').join('');
   if(DOC)box.value=DOC;
-  $('#doc-links').innerHTML=DOCS.map(d=>'<button translate="no" data-act="doc" data-doc="'+esc(d.key)+'" aria-current="'+(d.key===DOC?'page':'false')+'" title="'+esc(docTip(d))+'">'+esc(d.name)+(d.n_pages?'<span class="doc-link-count">'+tl('{n}쪽',{n:d.n_pages})+'</span>':'')+'</button>').join('');
+  $('#doc-links').innerHTML=DOCS.map(d=>'<button translate="no" data-act="doc" data-doc="'+esc(d.key)+'" aria-current="'+(d.key===DOC?'page':'false')+'" title="'+esc(docTip(d))+'"><span class="lbl">'+esc(d.name)+'</span>'+(d.n_pages?'<span class="doc-link-count">'+tl('{n}쪽',{n:d.n_pages})+'</span>':'')+'</button>').join('');
   drawPos();
   if(DOC!==DOC_LINK_SHOWN){DOC_LINK_SHOWN=DOC; docLinksReveal();} else docLinksFade();
   if($('#nav-sheet').open)drawDocsMenu();}

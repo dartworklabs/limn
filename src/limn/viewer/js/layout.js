@@ -38,11 +38,11 @@ function applyLayout(){if(!BAND_IN)BAND_IN=bandInput(); const o=BAND_IN,band=lay
   const sheetToSheet=L===LAYOUT_MODE.NARROW&&LAYOUT===LAYOUT_MODE.NARROW,wasOpen=SIDE_OPEN;
   BAND=band; LAYOUT=L; MID_OVERLAY=overlay; OUTLINE_MID_OPEN=false; const b=document.body,p=prefs(); ZOOMED=false; endSideSlide();
   Object.values(LAYOUT_MODE).forEach(k=>b.classList.toggle('lay-'+k,k===L)); Object.values(LAYOUT_BAND).forEach(k=>b.classList.toggle('band-'+k,k===band));
-  b.classList.toggle('mid-overlay',overlay); b.classList.toggle('compact',L!==LAYOUT_MODE.WIDE); orderComposer();
+  b.classList.toggle('mid-overlay',overlay); b.classList.toggle('compact',L!==LAYOUT_MODE.WIDE);
   SIDE_OPEN=L===LAYOUT_MODE.WIDE?p.sideClosed!==true:(L===LAYOUT_MODE.MID?(typeof p.midClosed==='boolean'?!p.midClosed:!overlay):sheetToSheet&&wasOpen);
   if(!REPICK&&(COMPOSE.current||EDITOR.current||REPLY||!$('#composer').hidden))SIDE_OPEN=true;   // an in-progress note/edit/reply is never left hidden collapsed
   if(band!==LAYOUT_BAND.PHONE&&$('#nav-sheet').open)$('#nav-sheet').close();
-  applySide(); stickTop(); placeStatus(); if($('#more').open)renderSizeSeg(); if(REV.target)revTargetActs(); return true;}
+  applySide(); stickTop(); placeStatus(); if($('#more').open){renderSizeSeg(); placeMore();} if(REV.target)revTargetActs(); return true;}
 // Whether the outline is an overlay over the document that opens one at a time with the pin panel (OUTLINE_MID_OPEN, never
 // saved): in the mid bands and on the tablet sheet. The phone has no outline; wide keeps it beside the document.
 function outlineOverlay(){return LAYOUT===LAYOUT_MODE.MID||BAND===LAYOUT_BAND.TABLET_SHEET;}
@@ -50,20 +50,20 @@ function outlineOverlay(){return LAYOUT===LAYOUT_MODE.MID||BAND===LAYOUT_BAND.TA
 // drag stops short of it, a swipe only rubber-bands, and a collapsed [핀 N] shows a dot for it.
 function draftOpen(){return !$('#composer').hidden||!!EDITOR.current||!!REPLY||!!REPICK;}
 // Draws the panel state (docs/handbook/viewer.md §패널 폭과 시트 높이): the body classes (with the phone sheet's composing lift, the phone only), both [핀 N] toggles - the tool bar's and,
-// for a collapsed wide panel, the nav bar's - with the open count, the draft dot and the arrow, the handle's ARIA and the back-gesture
-// layer. Their name says what the icons and pills show: '패널 펴기 · 열린 핀 11 · 검토 대기 1' (+ ' · 작성 중' for a draft).
+// for a collapsed wide panel, the nav bar's - with the open count and the draft dot, the handle's ARIA and the back-gesture layer.
+// Their name says what they show: the nav bar's icon and pill '패널 펴기 · 열린 핀 11 · 검토 대기 1', every compact bar's chip half
+// '핀 11 · 패널 펴기' (+ ' · 작성 중' for a draft). No arrow: the open state is the panel itself and aria-expanded.
 // Idempotent and cheap: drawPins() calls it on every redraw. The panel keeps its open layout while it slides out.
 function applySide(){const open=SIDE_OPEN,b=document.body,dot=!open&&draftOpen(),n=PINS.length,rv=REVIEW_ALL.length,composing=!$('#composer').hidden;
   b.classList.toggle('side-open',open||!!(SIDE_SLIDE&&SIDE_SLIDE.kind==='closing')); b.classList.toggle('composing',composing);
   if(!composing)SHEET_KEPT=false; b.classList.toggle('sheet-up',composing&&!SHEET_KEPT&&BAND===LAYOUT_BAND.PHONE);   // the phone sheet's composing lift; the tablet sheet's is tabletLift (panel-size.js)
-  // The toggles' names: the review count only where its pill sits inside them (the mid bars, the wide nav bar); the sheet bar's
-  // [핀 N] names what it shows first and leaves the count to its own half [검토 M].
+  // The toggles' names: the review count only where its pill sits inside them (the wide nav bar); every compact bar's [핀 N]
+  // names what it shows first and leaves the count to its own half [검토 M].
   const label=tr(open?'패널 접기':'패널 펴기')+' · '+tl('열린 핀 {n}',{n})+(rv?' · '+tl('검토 대기 {n}',{n:rv}):'')+(dot?' · '+tr('작성 중'):''),
     sheet=tl('핀 {n}',{n})+' · '+tr(open?'패널 접기':'패널 펴기')+(dot?' · '+tr('작성 중'):'');
-  for(const t of [$('#btn-side'),$('#nav-side')]){t.setAttribute('aria-expanded',String(open)); t.setAttribute('aria-label',t.id==='btn-side'&&LAYOUT===LAYOUT_MODE.NARROW?sheet:label);
+  for(const t of [$('#btn-side'),$('#nav-side')]){t.setAttribute('aria-expanded',String(open)); t.setAttribute('aria-label',t.id==='btn-side'&&LAYOUT!==LAYOUT_MODE.WIDE?sheet:label);
     t.querySelector('.side-n').textContent=n; t.querySelector('.c-dot').hidden=!dot;}
   $('#nav-side').hidden=!(LAYOUT===LAYOUT_MODE.WIDE&&!open);
-  $('#side-arrow').innerHTML=ic(LAYOUT===LAYOUT_MODE.NARROW?(open?'chevron-down':'chevron-up'):(open?'chevron-right':'chevron-left'));
   gripAria(); updateReviewCount(); syncBackLayer();}
 const GRIP_TIP=$('#grip').dataset.tip;   // the open handle's hint (the markup's, translated by tr())
 // The handle's ARIA as a window splitter: the panel width, or 0 (named '패널 폭 · 접힘') while collapsed - a collapsed wide panel's
@@ -121,8 +121,8 @@ function stickTop(){let t=0; const b=$('#bar1');
   if(LAYOUT!==LAYOUT_MODE.WIDE&&b){const cs=getComputedStyle(b); if(cs.position==='sticky')t=Math.round((parseFloat(cs.top)||0)+b.offsetHeight);}
   document.documentElement.style.setProperty('--stick-top',t+'px');}
 // The tool bar's width (--bar1-w): the short band draws the tool bar over the right end of its one top row, and the nav bar's
-// links end where it begins.
-function barWidth(){document.documentElement.style.setProperty('--bar1-w',Math.ceil($('#bar1').getBoundingClientRect().width)+'px');}
+// links end where it begins - exactly there: rounded up, the nav bar ended up to a pixel short and the PDF showed through.
+function barWidth(){document.documentElement.style.setProperty('--bar1-w',$('#bar1').getBoundingClientRect().width+'px');}
 if(window.ResizeObserver)new ResizeObserver(()=>{stickTop(); barWidth();}).observe($('#bar1'),{box:'border-box'});   // padding-only changes (the collapsed sheet) count
 let RELAY=0,BAND_T=0;
 // Re-fits on the next frame after a resize, a pointer change or a panel/keyboard change - unless the band input is waiting to
@@ -165,9 +165,18 @@ function typingNow(){const a=document.activeElement; if(!a||a===document.body)re
   return a.tagName==='INPUT'&&!/^(checkbox|radio|button|submit|reset|range|color|file|image|hidden)$/i.test(a.type||'');}
 // The panel's text field that has focus (a note, an edit or a reply), or null.
 function panelField(){const a=document.activeElement; return typingNow()&&$('#right').contains(a)?a:null;}
+let TYPING_PRESS=-1e9;   // performance.now() of the last pointerup: a focus change that soon after is that press's
+document.addEventListener('pointerup',()=>{TYPING_PRESS=performance.now();},true);
 // body.typing while a panel text field has focus: the short band hides its top row then, leaving the keyboard's ~200px to the panel;
-// the tablet sheet re-measures its keyboard lift (applySheet, tabletLift).
-function syncTyping(){document.body.classList.toggle('typing',!!panelField()); if(BAND===LAYOUT_BAND.TABLET_SHEET)applySheet();}
+// the tablet sheet re-measures its keyboard lift (applySheet, tabletLift). When a press takes the focus from the field, the class
+// waits for that press's click (or 350ms): taking the short band's top row back at once moved the panel 48px under the finger
+// between the touch's end and its click, so the click hit what was there now - a first tap on an edit card's dimmed line did
+// nothing and the second worked.
+function syncTyping(){const on=!!panelField(),b=document.body;
+  if(!on&&b.classList.contains('typing')&&performance.now()-TYPING_PRESS<300){if(syncTyping.held)return; syncTyping.held=true;
+    const go=()=>{if(!syncTyping.held)return; syncTyping.held=false; document.removeEventListener('click',go); syncTyping();};
+    document.addEventListener('click',go); setTimeout(go,350); return;}
+  b.classList.toggle('typing',on); if(BAND===LAYOUT_BAND.TABLET_SHEET)applySheet();}
 document.addEventListener('focusin',syncTyping);
 // After the focus has moved on: the typing class, and a band held while a text field had focus gets its turn (settleBand).
 document.addEventListener('focusout',()=>setTimeout(()=>{syncTyping(); if(bandStale())scheduleRelayout();},0));
@@ -189,8 +198,14 @@ function setSelMode(on){SELMODE=!!on; document.body.classList.toggle('selmode',S
 // tap opened one. Tab goes on to [닫기], the first control.
 function showSheet(d){d.showModal(); d.focus({preventScroll:true});}
 // Opens [더보기] with its view group drawn for now: the sheet-height or panel-width segment and the zoom figure, and its foot on
-// one ink line (footInk).
-function openMore(){const d=$('#more'); if(d.open)return; hideTip(); drawZoom(); renderSizeSeg(); showSheet(d); footInk(); toastHost();}
+// one ink line (footInk); on the wide desktop it is a menu under [⋯] (placeMore), which says it is open (aria-expanded).
+function openMore(){const d=$('#more'); if(d.open)return; hideTip(); drawZoom(); renderSizeSeg(); placeMore(); showSheet(d); footInk(); toastHost();
+  $('#btn-more').setAttribute('aria-expanded','true');}
+$('#more').addEventListener('close',()=>$('#btn-more').setAttribute('aria-expanded','false'));
+// The wide desktop's [더보기] as a menu under [⋯]: its top 4px under the button and its right edge on the button's - the
+// --more-top and --more-right that body.lay-wide #more reads (the compact sheets ignore them). Again on a relayout while open.
+function placeMore(){const b=$('#btn-more'); if(LAYOUT!==LAYOUT_MODE.WIDE||!b.getClientRects().length)return; const r=b.getBoundingClientRect(),d=$('#more');
+  d.style.setProperty('--more-top',(r.bottom+4)+'px'); d.style.setProperty('--more-right',(document.documentElement.clientWidth-r.right)+'px');}
 // How far the foot's wordmark and version drop so their ink bottoms meet [도움말]'s: from the label's Hangul ink descent below
 // the shared baseline and the version's (px, positive = below). The wordmark has none ("limn" ends on the baseline); a label
 // without Hangul ('Help', whose 'p' hangs below by design) counts as none. Pure.
@@ -201,16 +216,25 @@ function inkDrops(labelDescent,versionDescent){return {word:labelDescent,ver:lab
 // until their ink bottoms meet the label's Hangul (inkDrops), and the chevron moves to the centre of the label's ink.
 function footInk(){const f=$('#more-foot'),h=f&&f.querySelector('[data-act=help]'),v=f&&f.querySelector('.m-ver'); if(!h||!v)return;
   const t=[...h.childNodes].find(n=>n.nodeType===3&&n.nodeValue.trim()),ch=h.querySelector('svg'); if(!t)return;
-  const c=footInk.ctx||(footInk.ctx=document.createElement('canvas').getContext('2d')),S=64;
-  const m=(el,s)=>{const cs=getComputedStyle(el); c.font=cs.fontStyle+' '+cs.fontWeight+' '+parseFloat(cs.fontSize)*S+'px '+cs.fontFamily; const x=c.measureText(s);
-    return {a:x.actualBoundingBoxAscent/S,d:x.actualBoundingBoxDescent/S};};
-  const label=t.nodeValue.trim(),hangul=label.replace(/[^\u1100-\u11ff\u3130-\u318f\uac00-\ud7a3]/g,''),hm=m(h,label);
-  const d=inkDrops(hangul?m(h,hangul).d:0,m(v,v.textContent.trim()).d);
+  const label=t.nodeValue.trim(),hangul=hangulOf(label),hm=inkMetrics(h,label);
+  const d=inkDrops(hangul?inkMetrics(h,hangul).d:0,inkMetrics(v,v.textContent.trim()).d);
   f.style.setProperty('--ink-word',d.word+'px'); f.style.setProperty('--ink-ver',d.ver+'px'); f.style.setProperty('--help-chev','0px');
   if(!ch)return; const w=document.createElement('span'),k=document.createElement('span');   // the label's baseline: an empty inline-block on it
   k.style.cssText='display:inline-block;width:0;height:0'; h.insertBefore(w,t); w.append(t,k); const base=k.getBoundingClientRect().bottom;
   h.insertBefore(t,w); w.remove(); const mid=base-(hm.a-hm.d)/2,cr=ch.getBoundingClientRect();
   f.style.setProperty('--help-chev',(mid-(cr.top+cr.height/2))+'px');}
+// The ink of s in el's font as {a, d}: how far it rises above and reaches below the baseline (px), from the canvas's text
+// metrics read at 64 times the size, because the canvas rounds them to whole pixels.
+function inkMetrics(el,s){const c=inkMetrics.ctx||(inkMetrics.ctx=document.createElement('canvas').getContext('2d')),S=64,cs=getComputedStyle(el);
+  c.font=cs.fontStyle+' '+cs.fontWeight+' '+parseFloat(cs.fontSize)*S+'px '+cs.fontFamily; const x=c.measureText(s);
+  return {a:x.actualBoundingBoxAscent/S,d:x.actualBoundingBoxDescent/S};}
+// The Hangul letters of s (syllables and jamo) - the glyphs that reach below the Latin baseline. Pure.
+function hangulOf(s){return String(s).replace(/[^ᄀ-ᇿ㄰-㆏가-힣]/g,'');}
+// Help's head on one ink line (docs/handbook/viewer.md §마크와 파비콘), the foot's rule: the wordmark ("limn" ends on the
+// baseline) drops by the title's Hangul ink descent ('— 사용법'), so their ink bottoms meet. Its 20px box was centred on the
+// row and "limn" stood 3.3px below the title's foot. English ('— How to use') has no Hangul and no drop.
+function headInk(){const h=$('#help-h'),t=h&&h.querySelector(':scope>span'); if(!t)return; const hangul=hangulOf(t.textContent);
+  h.style.setProperty('--ink-word',inkDrops(hangul?inkMetrics(t,hangul).d:0,0).word+'px');}
 // Clicking outside a dialog (the backdrop) closes it - only for a click whose target is the dialog itself and that falls outside its
 // box rectangle. The same for [더보기], help, the navigation sheet and the status line's list (and the Trash, below); help and
 // the documents sheet used to stay open (input review 2026-09-26).

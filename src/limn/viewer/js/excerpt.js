@@ -1,8 +1,8 @@
 // ------------------------------------------------ Range excerpt (docs/handbook/viewer.md §패널 정리 범위 발췌)
-// On the compact layouts the source under the range ladder is the range control itself: the selected lines in a tinted band
-// with one dimmed line above and below. A tap on a dimmed line widens the range to it; the '−' on the band's first or last
-// line drops that line. The owner read the stepper '위 + − 아래 + −' as moving the pin. The composer and the edit card draw
-// the same excerpt; the wide layout keeps the stepper and the plain source, whatever the pointer.
+// On every layout the source under the range ladder is the range control itself: the selected lines in a tinted band with
+// one dimmed line above and below. A tap or click on a dimmed line widens the range to it; the '−' on the band's first or last
+// line drops that line; with a keyboard, Enter or Space on the row or the '−' does the same. The composer and the edit card
+// draw the same excerpt.
 
 // The range lo..hi widened to line k: [min(lo,k), max(hi,k)]. Pure.
 function widenTo(lo,hi,k){return [Math.min(lo,k),Math.max(hi,k)];}
@@ -46,10 +46,10 @@ function excerptFocusTarget(btns,was,o){const at=(act,k)=>btns.find(b=>b.act===a
   const up=was.line<=o.lo,same=at(was.act,was.line)||(was.act==='xp-to'?at('xp-to',up?o.lo-1:o.hi+1):at('xp-drop',up?o.lo:o.hi));
   if(same)return same;
   return btns.reduce((m,b)=>!m||Math.abs(b.line-was.line)<Math.abs(m.line-was.line)?b:m,null);}
-// Draws o's excerpt into box on the compact bands, or clears and hides it (the wide layout, a region, no selection).
+// Draws o's excerpt into box, or clears and hides it (a region, no selection).
 // isEdit: an edit card (the composer's [원문 펼치기] unfolds a long band; an edit card's band stays folded). A redraw that
 // takes the focused '+' or '−' puts the focus on its successor (excerptFocusTarget), so a keyboard keeps its place.
-function drawExcerpt(o,box,isEdit){const on=LAYOUT!==LAYOUT_MODE.WIDE&&!!o&&!o.region&&!isRegion(o);
+function drawExcerpt(o,box,isEdit){const on=!!o&&!o.region&&!isRegion(o);
   const f=document.activeElement,had=box.contains(f)&&f.dataset.act?{act:f.dataset.act,line:+f.dataset.line}:null;
   box.hidden=!on; if(!on){box.innerHTML=''; return;}
   excerptTake(o,o.snippet); excerptFetch(o);
@@ -60,16 +60,19 @@ function drawExcerpt(o,box,isEdit){const on=LAYOUT!==LAYOUT_MODE.WIDE&&!!o&&!o.r
     '<div class="xp-row on" data-line="'+r.k+'"><span class="ln">'+r.k+'</span><span class="tx">'+text(r.k)+'</span>'+
       (r.edge?'<button class="xp-chip xp-drop" data-act="xp-drop" data-line="'+r.k+'" aria-label="'+esc(tl('이 줄 빼기 (L{n})',{n:r.k}))+'">'+ic('minus')+'</button>':'<span></span>')+'</div>');
   box.innerHTML='<div class="xp-hint">'+esc(o.hi>o.lo?tr('흐린 줄을 누르면 그 줄까지 넓어지고, −를 누르면 그 줄이 빠집니다'):tr('흐린 줄을 누르면 그 줄까지 넓어집니다'))+'</div>'+
-    '<div class="xp-list '+(WRAP?'wrap':'nowrap')+'" translate="no">'+rows.join('')+'</div>';
+    '<div class="xp-list" translate="no">'+rows.join('')+'</div>';
   if(had){const t=excerptFocusTarget([...box.querySelectorAll('[data-act]')].map(el=>({act:el.dataset.act,line:+el.dataset.line,el})),had,o);
     if(t)t.el.focus({preventScroll:true});}
   if(!isEdit){const c=o.hi-o.lo+1; $('#c-expand').hidden=c<=5; $('#c-expand').textContent=SNIP_OPEN?tr('원문 접기'):tr('원문 펼치기')+' · '+tl('{n}줄',{n:c});}}
-// Applies range r ([lo,hi], kept inside the file) to o as lines set by hand (scope 'lines', as the stepper does), then the
-// overlap (composer), the panel and the source text. The sheet scrolls by whatever the redraw moved line anchor's row - the
+// Sets o's lines by hand: lo..hi, the scope 'lines' and no environment; a figure pick keeps its element (elSel) - lines set
+// in the source are a range edit, not a new place.
+function setLines(o,lo,hi){o.lo=lo; o.hi=hi; o.scope='lines'; o.env=null;}
+// Applies range r ([lo,hi], kept inside the file) to o as lines set by hand (setLines), then the overlap (composer), the
+// panel and the source text. The sheet scrolls by whatever the redraw moved line anchor's row - the
 // end that stayed - so a row that came or went above never shifts the band under the finger. Nothing changed: nothing done.
 function applyRange(o,r,anchor){if(!o||!r)return; const n=o.n_lines||Math.max(r[1],o.hi),lo=Math.max(1,Math.min(r[0],n)),hi=Math.max(lo,Math.min(r[1],n));
   if(lo===o.lo&&hi===o.hi)return;
   const row=()=>{const b=excerptBox(o); return b&&b.querySelector('.xp-row[data-line="'+anchor+'"]');},r0=row(),y0=r0&&r0.getBoundingClientRect().top;
-  o.lo=lo; o.hi=hi; o.scope='lines'; o.env=null; if(o===COMPOSE.current)recomputeOverlap(); excerptRedraw(o);
+  setLines(o,lo,hi); if(o===COMPOSE.current)recomputeOverlap(); excerptRedraw(o);
   const r1=row(); if(r0&&r1)$('#right').scrollTop+=r1.getBoundingClientRect().top-y0;
   refetchSnip(o,()=>excerptRedraw(o));}

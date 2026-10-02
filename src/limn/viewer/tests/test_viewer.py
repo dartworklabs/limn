@@ -502,11 +502,11 @@ class FrontendStructure(unittest.TestCase):
         self.assertGreater(body.index("COMPOSE.dismissedOverlap=null"), cur_idx)
         self.assertGreater(body.index("COMPOSE.current.overlaps=overlapsFor(COMPOSE.current,PINS)"), cur_idx)
 
-    def test_level_and_nudge_recount_overlap_only_for_composer(self):
-        for act in ("level", "nudge"):
-            m = re.search(r"case '%s':\{(.*?)\}\s*\n" % act, HTML)
-            self.assertIsNotNone(m)
-            self.assertIn("if(!inEdit)recomputeOverlap()", m.group(1).replace(" ", ""))
+    def test_level_and_excerpt_lines_recount_overlap_only_for_composer(self):
+        m = re.search(r"case 'level':\{(.*?)\}\s*\n", HTML)
+        self.assertIsNotNone(m)
+        self.assertIn("if(!inEdit)recomputeOverlap()", m.group(1).replace(" ", ""))
+        self.assertIn("if(o===COMPOSE.current)recomputeOverlap()", extract_js_fn("applyRange"))
 
     def test_pdf_build_travels_drag_to_pick_to_save_and_repick(self):
         self.assertIn("pdf_build:META.pages_build", HTML)  # drag -> /api/pick
@@ -653,14 +653,15 @@ class FrontendMobileStructure(unittest.TestCase):
         for gone in ('id="m-done"', 'id="m-jump"'):
             self.assertNotIn(gone, HTML)
         self.assertIn('aria-pressed="false"', re.search(r'<button id="btn-select"[^>]*>', HTML).group(0))
-        # less important buttons are hidden in compact mode (.sec) and live inside [⋯] with the same data-act
+        # less important buttons are hidden in compact mode (.sec) and live inside [⋯] with the same data-act; the desktop's
+        # bell, theme button and [?] are gone - [⋯] opens the same [더보기] there too (3b of the cross-resolution pass)
+        for gone in ('id="btn-notify"', 'id="btn-theme"', 'id="btn-help"'):
+            self.assertNotIn(gone, HTML)
         for bid, act in (
             ("btn-reload", "reload"),
             ("btn-zoom-out", "zoom-out"),
             ("btn-zoom-in", "zoom-in"),
             ("btn-fit", "fit"),
-            ("btn-theme", "theme"),
-            ("btn-help", "help"),
         ):
             tag = re.search(r'<button id="%s"[^>]*>' % bid, HTML).group(0)
             self.assertRegex(tag, r'class="sec( btn-[a-z]+)*"')
@@ -1370,7 +1371,7 @@ class FrontendPanelTidyStructure(unittest.TestCase):
         more = HTML[HTML.index('<dialog id="more"') : HTML.index('<dialog id="help"')]
         self.assertIn('id="m-size"', more)
         self.assertIn("case 'size-preset':sizePreset(+a.dataset.i)", HTML)
-        self.assertIn("renderSizeSeg(); showSheet(d)", HTML)
+        self.assertIn("renderSizeSeg(); placeMore(); showSheet(d)", HTML)
 
     def test_actions_row_is_fixed_at_panel_bottom_outside_composer(self):
         right = HTML[HTML.index('<div id="right">') : HTML.index('<div id="tip"')]
@@ -1398,13 +1399,16 @@ class FrontendPanelTidyStructure(unittest.TestCase):
         seg = re.search(r"\n\.seg\{([^}]*)\}", css).group(1)
         self.assertIn("flex-wrap:nowrap", seg)
         self.assertIn("overflow-x:auto", seg)
-        self.assertIn('<div class="step" role="group"', HTML)
+        self.assertNotIn('class="step"', HTML)  # the stepper is gone from every layout (the range is set in the source)
         # 4 lines + 8px top/bottom padding
         self.assertIn("#c-snip:not(.open){max-height:calc(6em + 16px);overflow:hidden}", css)
         m = re.search(r"\nfunction renderComposer\(\)\{(.*?)\n\}", HTML, re.S)
         self.assertIn("pre.scrollHeight>pre.clientHeight", m.group(1))
-        # on a narrow sheet and in the short band the note field sits above the source snippet (so it doesn't hide under the action row)
-        self.assertIn("body:is(.lay-narrow,.band-short) #note{order:1", css)
+        # on every layout the note field comes before the range block in the markup (so Tab and the screen agree and the
+        # note never hides under the action row)
+        comp = HTML[HTML.index('<div id="composer"') : HTML.index('<div id="list">')]
+        self.assertLess(comp.index('id="note"'), comp.index('id="c-kind"'))
+        self.assertLess(comp.index('id="c-kind"'), comp.index('id="c-range"'))
 
     def test_card_head_tags_row_and_action_grid(self):
         m = re.search(r"\nfunction card\(p\)\{(.*?)\n\}", HTML, re.S)
@@ -1453,7 +1457,7 @@ class FrontendPanelTidyStructure(unittest.TestCase):
         )
         # thumb order: [select] at the far left, [pin N] at the far right. DOM is shared with the narrow sheet, so only order changes.
         self.assertIn("body.lay-mid #btn-select{order:1}", css)
-        self.assertIn("body.lay-mid #bar1 #btn-side{order:5;", css)
+        self.assertIn("body.lay-mid #bar1 #btn-side{order:5}", css)
         # the toolbar is a fixed child of #right — giving #right a containing-block-creating property would make the action row move with the panel
         for sel, body in re.findall(r"([^{}]*#right[^{}]*)\{([^{}]*)\}", css_nc):
             if "lay-mid" in sel:
@@ -1898,10 +1902,14 @@ class FrontendSemanticAudit(unittest.TestCase):
         self.assertIn("if(fromManuscript)REV.back=back", extract_js_fn("showChange"))
         self.assertIn("case 'rev-back':", HTML)
 
-    def test_source_diff_wrap_toggle_defaults_on_touch(self):
-        self.assertIn('id="revision-wrap" class="tg btn-sm" data-act="diff-wrap"', HTML)
-        self.assertIn("setDiffWrap(typeof v==='boolean'?v:MQ_COARSE.matches)", extract_js_fn("initDiffWrap"))
-        self.assertIn("#revision-diff.wrap .rd-code{flex:1;min-width:0;white-space:pre-wrap", self.css)
+    def test_the_source_diff_always_wraps(self):
+        """The [줄바꿈] toggle is gone (the owner's decision): both diffs are always wrapped, a long token breaking too."""
+        self.assertNotIn('id="revision-wrap"', HTML)
+        self.assertNotIn('data-act="diff-wrap"', HTML)
+        self.assertIn('<pre id="revision-diff" class="wrap"></pre>', HTML)
+        self.assertIn(
+            "#revision-diff.wrap .rd-code{flex:1;min-width:0;white-space:pre-wrap;overflow-wrap:anywhere}", self.css
+        )
 
     def test_change_view_on_fold_and_phone(self):
         # [변경 보기] phone/fold QA (2026-09-25): on a fold (the overlay panel, body.mid-overlay), the pin panel floats on top,
@@ -2034,15 +2042,16 @@ class FrontendColourRoles(unittest.TestCase):
                     ratio = contrast(css_colour("var(%s)" % fg, t), css_colour("var(%s)" % bg, t))
                     self.assertGreaterEqual(ratio, 4.5)
 
-    def test_the_bars_review_pill_reads_at_4_5_to_1_in_both_themes(self):
-        """The compact bar's [👁 M] pill is a 14% review tint over the sheet (UX spec §막대 공통 규칙): its 12px review-coloured
-        count reads at 4.5:1 in both themes, whatever fill the [📍 N] button around it has."""
-        sel = "body.compact #btn-side .rv-n"
+    def test_the_bars_review_half_reads_at_4_5_to_1_in_both_themes(self):
+        """Every compact bar's review count is the split chip's right half [검토 M] (the [👁 M] pill inside [📍 N] went with
+        2b of the cross-resolution pass): its review-coloured words and count read at 4.5:1 on the chip's tonal fill in both
+        themes."""
+        fg = rule_value("body.compact #bar1 #btn-rv,body.compact #bar1 #btn-rv .side-l", "color")
+        bg = rule_value("body.compact #bar1 :is(#btn-side,#btn-rv,#btn-select)", "background")
         for theme in ("light", "dark"):
             with self.subTest(theme=theme):
                 t = theme_tokens(theme)
-                ratio = contrast(css_colour(rule_value(sel, "color"), t), css_colour(rule_value(sel, "background"), t))
-                self.assertGreaterEqual(ratio, 4.5)
+                self.assertGreaterEqual(contrast(css_colour(fg, t), css_colour(bg, t)), 4.5)
 
     def test_the_contrast_helper_matches_known_pairs(self):
         """Black on white is 21:1, #a1a1aa on white 2.56:1 (the old handle), and a 50% mix over white is the mix."""
@@ -2672,19 +2681,19 @@ class FrontendFigure(unittest.TestCase):
         self.assertFalse(boxless)
         self.assertEqual(null_frac, [48, 20, 4, 8])
 
-    def test_a_rung_switch_selects_its_element_and_nudged_lines_keep_it(self):
-        """useLevel moves the selection to the rung's lines and element; a nudge makes the lines manual but keeps the
-        element; a rung without an element (a LaTeX rung) leaves the element as it was."""
+    def test_a_rung_switch_selects_its_element_and_lines_set_by_hand_keep_it(self):
+        """useLevel moves the selection to the rung's lines and element; lines set in the excerpt (setLines) are manual but
+        keep the element; a rung without an element (a LaTeX rung) leaves the element as it was."""
         self.node()
         js = "\n".join(
-            [extract_js_fn("lvOf"), extract_js_fn("useLevel"), extract_js_fn("nudge")]
+            [extract_js_fn("lvOf"), extract_js_fn("useLevel"), extract_js_fn("setLines")]
             + [
                 r"""
             const cell={id:'c'},strip={id:'s'};
             const o={lo:24,hi:26,n_lines:40,elSel:cell,levels:[{level:'el',lo:24,hi:26,snippet:'a',el:cell},
               {level:'el2',lo:20,hi:30,snippet:'b',el:strip},{level:'raw',lo:5,hi:5,snippet:'r'}]};
             const out=[]; useLevel(o,'el2'); out.push([o.scope,o.lo,o.hi,o.elSel.id]);
-            nudge(o,'up-grow'); out.push([o.scope,o.lo,o.elSel.id]);
+            setLines(o,o.lo-1,o.hi); out.push([o.scope,o.lo,o.elSel.id]);
             useLevel(o,'raw'); out.push([o.scope,o.elSel.id]);
             console.log(JSON.stringify(out));"""
             ]
@@ -3170,7 +3179,6 @@ class FrontendIcons(unittest.TestCase):
         self.assertNotIn("__LUCIDE_JSON__", h)
         used = set(re.findall(r"ic\('([a-z0-9-]+)'\)", h)) | set(re.findall(r'class="ic ic-([a-z0-9-]+)"', h))
         used |= set(re.findall(r"'(chevron-(?:up|down|left|right))'", h))
-        used |= set(re.findall(r"THEME_ICON=\{system:'([a-z-]+)',light:'([a-z-]+)',dark:'([a-z-]+)'\}", h)[0])
         self.assertEqual(used - set(viewer_assemble.LUCIDE), set())
         self.assertEqual(set(viewer_assemble.LUCIDE) - used, set())
 
@@ -3191,13 +3199,11 @@ class FrontendIcons(unittest.TestCase):
         for bid, label in (
             ("btn-zoom-out", "축소"),
             ("btn-zoom-in", "확대"),
-            ("btn-help", "도움말"),
             ("btn-more", "더보기"),
             ("c-copy", "위치 복사"),
         ):
             tag = re.search(r'<button[^>]*id="%s"[^>]*>' % bid, HTML).group(0)
             self.assertIn('aria-label="%s"' % label, tag)
-        self.assertIn("b.innerHTML=ic(THEME_ICON[t]);", HTML)
 
 
 # ---------------------------------------------------------------- status stripe / archive (closed, dropped pins)
@@ -4137,7 +4143,7 @@ class FrontendChangeView(unittest.TestCase):
             'aria-controls="revision-other" hidden>',
             h,
         )
-        self.assertIn('<pre id="revision-other" class="nowrap" hidden></pre>', h)
+        self.assertIn('<pre id="revision-other" class="wrap" hidden></pre>', h)
         self.assertIn(
             '<button id="revision-whole" class="tg btn-sm" data-act="revision-whole" aria-pressed="false" hidden', h
         )
@@ -4662,7 +4668,7 @@ class FrontendNotify(unittest.TestCase):
         self.assertRegex(h, r'<button id="m-notify" role="switch" aria-checked="false"')
         self.assertIn('id="m-notify-why"', h)
         self.assertIn("m.setAttribute('aria-checked',String(st===NOTIFY_STATE.ON))", extract_js_fn("drawNotify"))
-        self.assertIn('id="btn-notify"', h)
+        self.assertNotIn('id="btn-notify"', h)  # the desktop's bell went with its [⋯]: the switch is the one control
         tog = extract_js_fn("notifyToggle")
         self.assertIn("Notification.requestPermission()", tog)
         self.assertEqual(html_without_comments(h).count("requestPermission("), 1)  # only asked on the click path

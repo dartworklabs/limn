@@ -32,6 +32,10 @@ button.btn-sm{padding:2px var(--space-2);font-size:var(--text-sm)}
 button.btn-icon{flex:none;padding:0;width:var(--control-h);min-width:var(--control-h);height:var(--control-h)}
 button.btn-icon.btn-sm{width:var(--control-h-sm);min-width:var(--control-h-sm);height:var(--control-h-sm)}
 :focus-visible{outline:2px solid var(--ring);outline-offset:1px}
+/* The ring answers the keyboard only (docs/handbook/viewer.md §뜻과 모양): after a press (html[data-input=pointer], tooltip.js)
+   a control a script focuses - [본문 1/2 ▾] as the navigation sheet closes - draws none. A text field keeps it: it shows where
+   the typing goes. */
+:root[data-input=pointer] :focus-visible:not(input,textarea,select){outline:none}
 .badge{display:inline-flex;align-items:center;gap:var(--space-1);padding:1px var(--space-2);border:1px solid transparent;border-radius:var(--radius-sm);
   background:var(--muted);color:var(--muted-foreground);font-size:var(--text-xs);font-weight:500;line-height:1.45;white-space:nowrap}
 /* A badge is a borderless light fill (the shadcn secondary badge) - a bordered badge is never drawn inside a bordered card
@@ -89,10 +93,10 @@ input.n{width:58px;text-align:center}
 #banner{padding:var(--space-2) var(--space-3);border-bottom:1px solid var(--border);background:var(--card);display:flex;gap:var(--space-2);flex-wrap:wrap;
   align-items:center;font-size:var(--text-base)}
 #build-err{padding:var(--space-2) var(--space-3);border-bottom:1px solid var(--border);background:var(--card);font-size:var(--text-base)}
-#composer{flex:none;max-height:62vh;overflow:auto;padding:var(--space-3);border-bottom:1px solid var(--border);background:var(--card)}
+#composer{flex:none;max-height:62vh;overflow:auto;padding:var(--space-3);border-bottom:1px solid var(--border)}   /* the panel's own background on every layout: a --card box sat in the panel */
 #list{flex:1;overflow:auto;padding:0 var(--space-3) 32px;min-height:0}   /* the top padding belongs to the section header (.sec-head) - so a sticky element doesn't sit that far down */
 .busy{opacity:.45}
 pre{background:var(--code);border:0;border-radius:var(--radius);padding:var(--space-2);overflow:auto;font-size:var(--text-sm);
   line-height:1.5;max-height:44vh;font-family:var(--font-mono);tab-size:2;margin:var(--space-2) 0}
-pre.wrap{white-space:pre-wrap;word-break:break-word}
+pre.wrap{white-space:pre-wrap;overflow-wrap:anywhere}   /* a long unbreakable token (a URL, a command) breaks too */
 pre.nowrap{white-space:pre}

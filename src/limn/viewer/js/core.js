@@ -49,7 +49,7 @@ function isFigureKind(kind){return kind===DOC_KIND.FIGURE;}
 // files change, so they have no rebuild and word a finished build as a redraw.
 function buildsFromSource(kind){return kind===DOC_KIND.TEX;}
 let META=null,PINS=[],DONE=[],DROPPED=[],REPICK=null,PICKSEQ=0;
-let SNIP_OPEN=false,W=900,WRAP=true;
+let SNIP_OPEN=false,W=900;
 // Mobile: BAND is a LAYOUT_BAND (layoutFor of BAND_IN, the settled {w,h,coarse} - settleBand) and LAYOUT its LAYOUT_MODE (wide|mid|narrow, BAND_MODE), SIDE_OPEN is whether the panel/sheet is expanded, SELMODE is touch selection mode,
 // ZOOMED is whether the user changed the width via -/+ in compact (while true, it's never auto-fit to the screen width).
 const MQ_COARSE=matchMedia('(pointer:coarse)');

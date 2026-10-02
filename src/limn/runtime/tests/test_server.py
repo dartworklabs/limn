@@ -533,7 +533,7 @@ class OverlapRoutes(Base):
         self.assertEqual(by_id[p2]["rel"], [{"id": p1, "rel": "inside"}])
 
     def test_overlaps_endpoint_recomputes_for_arbitrary_range(self):
-        # must-1: when CUR.lo/hi changes via level switching (useLevel) or up/down (nudge), we
+        # must-1: when CUR.lo/hi changes via level switching (useLevel) or lines set in the range excerpt (setLines), we
         # can't call /api/pick again (it needs coordinates) — there must be a lightweight endpoint that
         # re-asks using only the range so the banner keeps up.
         pid = self.add(4, 9, note="outer")

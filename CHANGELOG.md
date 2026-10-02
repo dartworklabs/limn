@@ -1,5 +1,61 @@
 # Changelog
 
+## 0.4.9 — 2026-10-03
+
+The cross-resolution pass: one composer and one panel toggle on every layout, the desktop's [⋯] menu, and spacing
+measured on phones, the Fold, tablets and the desktop. This release does not change `pins.md`, the API or the state
+directory: the agent contract stays as it is. The composer's Wrap toggle and the line stepper are gone.
+
+### Changed
+
+- **One composer on every layout.** The wide layout takes the composer of phones and tablets: location, note, kind, the
+  overlap notice, then the range block, on the panel's own background. Its range is set in the source like everywhere
+  else - click a dimmed line to widen the range to it, the − on the band's first or last line to drop it, or Tab there
+  and press Enter - and the "above + − below + −" stepper is gone from every layout. The help's tour has one range step.
+- **The source always wraps.** The Wrap toggles under the composer's source and in the changes view are gone, with
+  their saved settings: the source, the range excerpt, the edit card and both diffs always wrap, and a long token with
+  nowhere to break (a URL, a command) breaks inside the box instead of running past its edge.
+- **One panel toggle on every compact layout.** The unfolded Fold, the landscape tablets and the landscape phone show
+  the phone's split chip [Pin N | Review M] where the pin icon pill [📍 N 👁 M ›] was, with [Select] on the same fill.
+  The pins half opens and closes the panel; the review half goes to the review list.
+- **Rows centred top to bottom.** The space above a tool row's controls now equals the space below them: 4 px each on
+  the tablets' action row, 12 px each on the sheet's row (it was 12 over 4 with the sheet open, 12 over 8 collapsed).
+  The bottom safe area is added underneath. Every icon, count and label in the row, including the status line's
+  [Rebuild], sits on one centre line; [Rebuild]'s label had been drawn 1.9 px high.
+- **The landscape phone's top row is 48 px.** It was 44 px, and the instance's colour stripe cut the tops of [Rebuild]
+  and the pin chip. The row now has the height of the other touch nav bars, and its controls sit centred between the
+  stripe and the row's line. Its icons are 18 px, each centred in its box. Neighbouring controls are 8 px apart. The
+  row's ends line up with the panel and the page below it. The hairline where the PDF showed through between the row's
+  two halves is gone.
+- **One [⋯] on the desktop.** The wide tool row's bell, theme button and help button are replaced by one [⋯] at the
+  row's end. It opens the same More panel as phones and tablets, as a menu under the button: theme and language are
+  segmented controls, notifications a switch, and the foot shows the Limn wordmark, the version and Help. Esc, a click
+  outside it and a row that closes it give the focus back to [⋯].
+- **The desktop panel on two lines.** Without changing the panel's insets, every box in the wide panel now starts 12 px
+  in from its edges and every unboxed label 25 px in, where the cards' text already started: the tool row's ends, its
+  [Rebuild PDF] label, the section head's chevron and its tools' labels moved onto these lines.
+- **Spacing measured for symmetry.** The nav bars on tablets, the unfolded Fold and the desktop centre their controls
+  between the instance's colour stripe and their line; they stood 2 to 3 px high. The desktop tool row has 6 px above
+  and below its controls (it had 4 and 8). The tablet rows end on the same edge line as the panel. The sheets' [Close]
+  and the More foot's [Help] end their labels on the same line the titles start on, and help's title no longer stands
+  4 px high. The pin chip's counts use proportional figures, so each half's label is centred.
+
+### Fixed
+
+- **A manuscript outside Git** leaves the commit out of the meta lines: they read `main.tex · 2 pp. · -`.
+- **Help's head is one ink line.** The wordmark ends on the title's ink bottom, as in More's foot; it stood 3.3 px below.
+- **Help and the Trash open under the same sheet head** as More and the navigation sheet on phones and tablets: a grab
+  band and the title row with [Close], which stay at the top while the rest scrolls.
+- **The segmented control is one size with a mouse too**: a 36 px track round 28 px segments.
+- **Every compact layout draws the composer in one order**: location, note, kind, then the range block.
+- **One border in the composer.** [Cancel] and the overlap notice's actions are filled; the copy button is a ghost on
+  every layout.
+- **Touch text fields answer 44 px**: the page fields and the outline search.
+- **The focus a sheet gives back draws no ring after a tap**; it shows for the keyboard only.
+- **The desktop's help and Trash close with the same ghost [Close]** as every sheet.
+- **A first tap on a dimmed line works while a note has focus.** On a landscape phone the top row came back as the
+  tap took the focus from the note and moved the panel under the finger, so only a second tap widened the range.
+
 ## 0.4.8 — 2026-10-02
 
 The pin composer and the edit card on phones and tablets. This release does not change `pins.md`, the API or the

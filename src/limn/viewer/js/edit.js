@@ -17,11 +17,6 @@ function openEdit(id){if(viaDoc(id,openEdit))return; const p=PINS.find(x=>x.id==
     '<div class="e-assign assign-row" role="radiogroup" aria-label="담당" hidden></div>'+
     '<div class="rg-cap e-cap" aria-live="polite" aria-atomic="true"></div>'+
     '<div class="e-levels seg lad" role="group" aria-label="범위" data-rungs="0"></div>'+
-    '<div class="c-tools"><div class="step" role="group" aria-label="한 줄씩 넓히고 좁히기">'+
-    '<span class="sl" aria-hidden="true">위</span><button data-act="nudge" data-dir="up-grow" aria-label="위로 한 줄 넓히기" data-tip="위로 한 줄 넓힙니다">'+ic('plus')+'</button>'+
-    '<button data-act="nudge" data-dir="up-shrink" aria-label="위에서 한 줄 좁히기" data-tip="위에서 한 줄 좁힙니다">'+ic('minus')+'</button>'+
-    '<span class="sl" aria-hidden="true">아래</span><button data-act="nudge" data-dir="down-grow" aria-label="아래로 한 줄 넓히기" data-tip="아래로 한 줄 넓힙니다">'+ic('plus')+'</button>'+
-    '<button data-act="nudge" data-dir="down-shrink" aria-label="아래에서 한 줄 좁히기" data-tip="아래에서 한 줄 좁힙니다">'+ic('minus')+'</button></div></div>'+
     '<div class="xp e-xp" hidden></div>'+
     '<pre class="e-snip wrap" translate="no">'+esc(tr('원문 읽는 중…'))+'</pre>'+
     '<div class="e-acts"><button class="btn-sm b-repick" data-act="repick" data-tip="'+esc(T.repick)+'">위치 다시 잡기</button>'+
@@ -51,12 +46,13 @@ async function editSnip(withLevels){const E=EDITOR.current; if(!E)return;
       if(cur&&!E.scope)E.scope=null;}}
     renderEdit();}catch(e){}}
 // Draws the open edit card from EDITOR.current: the kind, the range caption (a region's page and area instead), the ladder -
-// shown only with two or more rungs - the source (on the compact bands the range excerpt) and the assignee and question hints.
+// shown only with two or more rungs - the range excerpt (a region's text in the plain source) and the assignee and question
+// hints.
 function renderEdit(){const E=EDITOR.current; if(!E)return; const el=E.el;
   el.querySelectorAll('.e-kind button').forEach(b=>{const on=b.dataset.kind===(E.kind_req||KIND_REQ.FIX); b.classList.toggle('on',on); b.setAttribute('aria-checked',String(on));});
   setCap(el.querySelector('.e-cap'),E.region?'<span class="e-range loc" tabindex="0" data-copy="'+esc(E.name+' 쪽 '+E.page)+'">'+esc(tl('쪽 {page} · 영역',{page:E.page}))+'</span>':rangeCap(E,true));
   drawLadder(el.querySelector('.e-levels'),E,true);
-  const pre=el.querySelector('.e-snip'); pre.className='e-snip '+(WRAP?'wrap':'nowrap'); pre.textContent=snipText(E.snippet,false); renderAssignEdit();
+  const pre=el.querySelector('.e-snip'); pre.className='e-snip wrap'; pre.textContent=snipText(E.snippet,false); renderAssignEdit();
   drawExcerpt(E,el.querySelector('.e-xp'),true);
   qHint(el.querySelector('.e-qhint'),el.querySelector('.e-note').value,E.kind_req);}
 function cancelEdit(){EDITOR.current=null; drawPins();}

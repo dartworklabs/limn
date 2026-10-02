@@ -18,6 +18,19 @@ function armTip(el){if(el===tipEl)return; hideTip(); if(!el)return; tipEl=el; ti
 // description used to pop up every time a button was pressed. Touch relies on long-press instead (below).
 const touchRecent=()=>Date.now()-LAST_TOUCH_T<1500;
 document.addEventListener('pointerdown',e=>{LAST_PTR=e.pointerType||'mouse'; if(LAST_PTR!=='mouse')LAST_TOUCH_T=Date.now();},true);
+// Whether a key press makes the keyboard the input the focus ring answers: any key outside a text field (Tab, a shortcut such
+// as '?'), and in a field only a key that leaves it or acts (Tab, Escape, or with Ctrl/⌘/Alt) - typing is not, nor a touch
+// keyboard's 'Unidentified' key or an IME's composing one. Pure.
+function keyNavigates(key,inField,mod){if(!key||key==='Unidentified'||key==='Process')return false;
+  return !inField||key==='Tab'||key==='Escape'||!!mod;}
+// The input the focus ring answers (docs/handbook/viewer.md §뜻과 모양): html[data-input] is 'pointer' after a press and 'key'
+// after a key that navigates, and components.css draws the ring only outside 'pointer'. A sheet takes the first focus itself,
+// but closing one gives the focus back by script ([본문 1/2 ▾], help's opener), and Chrome rings a script focus whenever the
+// last input it counted was a key - on Android a tap on a bar button did not reset that.
+document.addEventListener('pointerdown',()=>{document.documentElement.dataset.input='pointer';},true);
+// Makes the keyboard the input the ring answers when a key press navigates (keyNavigates); a press makes it the pointer (above).
+function inputFromKey(e){if(keyNavigates(e.key,typingNow(),e.ctrlKey||e.metaKey||e.altKey))document.documentElement.dataset.input='key';}
+document.addEventListener('keydown',inputFromKey,true);
 document.addEventListener('mouseover',e=>{if(touchRecent()||MQ_NOHOVER.matches)return; armTip(e.target.closest?e.target.closest('[data-tip]'):null);});
 // A focus tooltip is never shown on an input field (textarea) - it covered the snippet while typing, and the tooltip
 // swallowed the first Esc, so "Esc to cancel -> Ctrl+Enter" ended up saving a pin that was meant to be discarded (observed).

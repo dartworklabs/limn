@@ -71,11 +71,11 @@ function statusIcon(item){const K=STATUS_KIND;
   return '<span class="st-ic"><i class="spin"></i></span>';}
 
 // An item's one action as a button (its data-act; [재빌드] is the line's one primary fill), or '' without one. [그래도 빌드]
-// carries 0.4.5's tip on what a cold build is for.
+// carries 0.4.5's tip on what a cold build is for. The label is a span (.lbl) so CSS can trim it to its cap height.
 function statusAct(item){if(!item.act)return '';
   const force=item.act==='rebuild-force',name=item.act==='rebuild'?tr('재빌드'):item.act==='status-why'?tr('이유'):force?tr(T.buildanyway):tr('보기');
   return '<button class="btn-sm st-act '+(item.act==='rebuild'?'btn-default':'btn-secondary')+'" data-act="'+item.act+'"'+
-    (force?' data-tip="'+esc(T.buildanywaytip)+'"':'')+'>'+esc(name)+'</button>';}
+    (force?' data-tip="'+esc(T.buildanywaytip)+'"':'')+'><span class="lbl">'+esc(name)+'</span></button>';}
 
 // What the status line is drawn from, gathered from the shell: the running build (BUILD.cur) and the last failed one, the
 // light poll's failures, the last meta `sync`, and the chips that already say stale and PNG - plus whether this document and
@@ -106,7 +106,7 @@ function drawStatus(){const box=$('#status'),sr=box.querySelector('.st-sr'),body
   const sig=top.kind+'|'+(top.act||'')+'|'+list.length+'|'+(top.state||'');
   if(sig!==STATUS_SIG){STATUS_SIG=sig;
     body.innerHTML=statusIcon(top)+'<span class="st-tx" aria-hidden="true"></span>'+
-      (list.length>1?'<button class="btn-sm btn-ghost st-more" data-act="status-more" aria-haspopup="dialog" aria-label="'+esc(tl('상태 {n}건 더 보기',{n:list.length-1}))+'">'+esc(tl('+{n}',{n:list.length-1}))+'</button>':'')+
+      (list.length>1?'<button class="btn-sm btn-ghost st-more" data-act="status-more" aria-haspopup="dialog" aria-label="'+esc(tl('상태 {n}건 더 보기',{n:list.length-1}))+'"><span class="lbl">'+esc(tl('+{n}',{n:list.length-1}))+'</span></button>':'')+
       statusAct(top)+(running?'<span class="st-bar" role="progressbar" aria-label="'+esc(tr('빌드 진행'))+'"><i></i></span>':'');}
   const tx=box.querySelector('.st-tx'),long=statusText(top,'long'),short=statusText(top,'short');
   tx.textContent=BAND===LAYOUT_BAND.SHORT?short[0]+short[1]:long[0]+long[1];   // the short band's one row always takes the short text

@@ -1,6 +1,7 @@
 // ------------------------------------------------ Help
 let HELP_BACK=null;
-function openHelp(){const d=$('#help'); if(d.open)return; HELP_BACK=document.activeElement; hideTip(); showSheet(d); toastHost();}
+// Opens help with its head on one ink line (headInk); closing it gives the focus back to what had it.
+function openHelp(){const d=$('#help'); if(d.open)return; HELP_BACK=document.activeElement; hideTip(); showSheet(d); headInk(); toastHost();}
 $('#help').addEventListener('close',()=>{if(HELP_BACK&&HELP_BACK.focus)HELP_BACK.focus(); HELP_BACK=null;});
 
 // ------------------------------------------------ Event delegation (no inline handlers)
@@ -28,17 +29,15 @@ document.addEventListener('click',e=>{
     case 'rebuild':rebuild();break; case 'reload':loadPins();break;
     case 'rebuild-force':BUILD.unchanged=null; drawStatus(); rebuild(true); break;   // the status line's [그래도 빌드]: a cold build
     case 'zoom-in':zoom(1);break; case 'zoom-out':zoom(-1);break; case 'fit':fitW();break;
-    case 'theme':if(a.dataset.theme)setTheme(a.dataset.theme); else cycleTheme(); break; case 'lang':switchLang(a.dataset.lang);break; case 'notify-toggle':notifyToggle();break; case 'help':openHelp();break; case 'help-close':$('#help').close();break;
+    case 'theme':setTheme(a.dataset.theme); break; case 'lang':switchLang(a.dataset.lang);break; case 'notify-toggle':notifyToggle();break; case 'help':openHelp();break; case 'help-close':$('#help').close();break;
     case 'save':if(!viewerBlocked())savePin();break; case 'cancel':discardSelection();break;
     case 'overlap-append':{const text=$('#note').value.trim();
       if(!text){toast('메모를 먼저 써야 덧붙일 수 있습니다','warn');break;}
       appendToPin(+a.dataset.oid,text);break;}
     case 'overlap-separate':COMPOSE.dismissedOverlap=a.dataset.key||null;renderOverlapBanner();break;
-    case 'wrap':WRAP=!WRAP;savePrefs({wrap:WRAP});renderComposer();renderEdit();break;
     case 'copy-cur':if(COMPOSE.current)copyText(COMPOSE.current.name+' L'+COMPOSE.current.lo+'-L'+COMPOSE.current.hi);break;
     case 'expand':SNIP_OPEN=!SNIP_OPEN;renderComposer();break;
     case 'level':{const o=inEdit?EDITOR.current:COMPOSE.current; if(!o)break; useLevel(o,a.dataset.level); if(!inEdit)recomputeOverlap(); inEdit?renderEdit():renderComposer(); break;}
-    case 'nudge':{const o=inEdit?EDITOR.current:COMPOSE.current; if(!o||!nudge(o,a.dataset.dir))break; if(!inEdit)recomputeOverlap(); const r=inEdit?renderEdit:renderComposer; r(); refetchSnip(o,r); break;}
     case 'xp-to':{const o=inEdit?EDITOR.current:COMPOSE.current,k=+a.dataset.line; if(o)applyRange(o,widenTo(o.lo,o.hi,k),k<o.lo?o.hi:o.lo); break;}   // the excerpt: widen to a dimmed line
     case 'xp-drop':{const o=inEdit?EDITOR.current:COMPOSE.current,k=+a.dataset.line; if(o)applyRange(o,dropLine(o.lo,o.hi,k),k===o.lo?o.hi:o.lo); break;}   // ...or drop an end line
     case 'view':jumpPin(id);break; case 'edit':openEdit(id);break;
@@ -62,7 +61,6 @@ document.addEventListener('click',e=>{
     case 'assign-new':ASSIGN_NEW.v=a.dataset.v||'agent'; ASSIGN_NEW.touched=true; renderAssignNew(); saveDraftSoon(); break;
     case 'assign-edit':if(EDITOR.current){EDITOR.current.assignee=a.dataset.v||'agent'; renderAssignEdit();} break;
     case 'msg-more':{const k=a.dataset.key; if(!k)break; if(MSG_OPEN.has(k))MSG_OPEN.delete(k); else MSG_OPEN.add(k); drawPins(); break;}
-    case 'diff-wrap':setDiffWrap(!DIFF_WRAP);break;
     case 'revision-other':toggleRevisionOther();break;
     case 'revision-whole':setRevisionWhole(!REV_SCOPE.whole);break;
     case 'mark-jump':revealCard(id);jumpToCard(id);break;

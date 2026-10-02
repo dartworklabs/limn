@@ -37,12 +37,12 @@ function rungLines(lv){return typeof lv.n==='number'?lv.n:lv.hi-lv.lo+1;}
 function drawLadder(box,o,isEdit){const n=(o.levels||[]).length; box.dataset.rungs=String(n); box.hidden=n<2;
   box.innerHTML=n<2?'':'<div class="lad-t">'+levelBtns(o,isEdit)+'</div>'; if(n>=2)segReveal(box);}   // .lad-t: the drawn track inside the scroll box
 // The range caption over the ladder (composer and edit card): '범위 L5-L6 · 2줄' - the lines a save will hand over and their
-// count, whatever set them (a rung, the line buttons, the excerpt). When the ladder is hidden (one rung) and the range is that
+// count, whatever set them (a rung or the excerpt). When the ladder is hidden (one rung) and the range is that
 // rung, its name follows ('범위 L5 · 1줄 · 문단'); with a ladder, its pressed segment names it. An edit card's own lines (its
 // 'raw' rung) get no name. A range matching no rung has none either: the lines say what it is ('줄 직접 지정' is gone). In
 // an edit card the range copies as 'file Llo-Lhi' (the composer's location line has its copy).
 // Writes caption html into el only when it changed: the caption is a polite live region (a screen reader hears the new
-// range after a rung, a stepper or excerpt press, not every redraw), and its copyable range keeps its focus.
+// range after a rung or an excerpt press, not every redraw), and its copyable range keeps its focus.
 function setCap(el,html){if(el._cap!==html){el._cap=html; el.innerHTML=html;}}
 function rangeCap(o,isEdit){const ls=o.levels||[],cur=curLevel(o),r=esc(rng(o.lo,o.hi));
   const named=ls.length<2&&cur&&!(isEdit&&cur.level==='raw')?' · '+esc(levelName(cur,ls)):'';
@@ -59,14 +59,10 @@ function segFade(seg){if(!seg)return; const over=seg.scrollWidth-seg.clientWidth
   seg.classList.toggle('fade-l',over>1&&seg.scrollLeft>1); seg.classList.toggle('fade-r',over>1&&over-seg.scrollLeft>1);}
 document.addEventListener('scroll',e=>{const t=e.target; if(t&&t.classList&&t.classList.contains('seg'))segFade(t);},true);
 // Applies rung key to o (the composer's selection or an edit card): its lines, scope and source; a figure rung also selects
-// its element (elSel), which a later nudge to other lines keeps.
+// its element (elSel), which lines later set in the excerpt keep (setLines).
 function useLevel(o,key){const lv=lvOf(o,key); if(!lv)return; o.lo=lv.lo;o.hi=lv.hi;o.scope=lv.level;o.env=lv.env||null;o.snippet=lv.snippet; if(lv.el)o.elSel=lv.el;}
-function nudge(o,dir){let lo=o.lo,hi=o.hi; const max=o.n_lines||hi+1;
-  if(dir==='up-grow')lo=Math.max(1,lo-1); else if(dir==='up-shrink')lo=Math.min(hi,lo+1);
-  else if(dir==='down-grow')hi=Math.min(max,hi+1); else if(dir==='down-shrink')hi=Math.max(lo,hi-1);
-  if(lo===o.lo&&hi===o.hi)return false; o.lo=lo;o.hi=hi;o.scope='lines';o.env=null;return true;}
 let snipT=null;
-// Refresh a nudged range's text only while its selection still owns the visit or its edit card still survives.
+// Refreshes the text of a range set in the excerpt only while its selection still owns the visit or its edit card survives.
 function refetchSnip(o,after){const visit=captureVisit(); clearTimeout(snipT); snipT=setTimeout(async()=>{
   try{const {data}=await api(dq('/api/snippet?file='+encodeURIComponent(o.file)+'&lo='+o.lo+'&hi='+o.hi,o.doc),{what:'원문 읽기'});
     if((o===EDITOR.current||(o===COMPOSE.current&&currentVisit(visit)))&&data.lo===o.lo&&data.hi===o.hi){o.snippet=data.snippet;after();}}catch(e){}},250);}

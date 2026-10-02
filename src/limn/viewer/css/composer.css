@@ -1,5 +1,5 @@
 /* ---------------- Composer panel (docs/handbook/viewer.md §패널 정리): an 8px grid, uniform heights, only [핀 저장] gets the accent color (--acc).
-   The location line (file/line + page + match badge + copy) -> range-segment control -> line-by-line stepper -> 4 lines of source -> note -> a fixed action row at the bottom. */
+   The location line (file/line + page + match badge + copy) -> note -> kind -> overlap -> the range block (caption, ladder, excerpt) -> a fixed action row at the bottom. */
 .c-loc-row{display:flex;align-items:center;gap:var(--space-2)}
 .c-loc-main{flex:1;min-width:0;display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-1) var(--space-2)}
 .c-loc-main .loc{font-weight:600}
@@ -10,12 +10,7 @@
 .rg-cap .rg-l{color:var(--foreground);font-weight:600;margin-right:var(--space-1)}
 .rg-cap .rg-v{color:var(--foreground)}
 .rg-cap .e-range{white-space:nowrap}
-.c-tools{display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-2);margin:0 0 8px}
-.step{display:inline-flex;flex:none;border:0;border-radius:var(--radius-lg);overflow:hidden;background:var(--muted);padding:2px;gap:2px}
-.step{align-items:stretch}
-.step button{border:0;border-radius:var(--radius);min-width:30px;padding:var(--space-1);background:transparent}
-@media (hover:hover){.step button:hover{background:var(--popover)}}
-.step .sl{display:inline-flex;align-items:center;padding:0 var(--space-2);font-size:var(--text-sm);color:var(--muted-foreground)}
+/* A toggle button (.tg, the changes view's [커밋 전체 비교]): muted while off, a stronger border while on. */
 button.tg[aria-pressed=false]{color:var(--muted-foreground)}
 button.tg[aria-pressed=true]{border-color:var(--border-strong)}
 #c-snip,.e-snip{margin:0}
@@ -23,11 +18,11 @@ button.tg[aria-pressed=true]{border-color:var(--border-strong)}
 #c-snip.clip:not(.open){-webkit-mask-image:linear-gradient(var(--foreground) 60%,transparent);mask-image:linear-gradient(var(--foreground) 60%,transparent)}
 #c-snip.open{max-height:44vh}
 .e-snip{max-height:calc(9em + 16px)}
-/* One line right below the source: [줄바꿈] on the left, [원문 펼치기] on the right. [줄바꿈] used to sit at the end of the
-   stepper row and dropped alone to the next line in the folded (330px panel) layout (QA 2026-09-25) - since both change how the source is displayed, they're grouped below the source instead. */
-.snip-foot{display:flex;align-items:center;justify-content:space-between;gap:var(--space-2)}
+/* The line right below the source holds [원문 펼치기] at its right end, and goes when that is hidden (no gap left under the
+   source). The source always wraps. */
+.snip-foot{display:flex;align-items:center;justify-content:flex-end;gap:var(--space-2)}
+.snip-foot:not(:has(button:not([hidden]))){display:none}
 .snip-foot button{color:var(--muted-foreground);white-space:nowrap}
-.snip-foot button.tg[aria-pressed=true]{color:var(--foreground);background:var(--accent);border-color:transparent}   /* on = the same filled state as the diff's [줄바꿈] */
 #note{margin-top:8px}
 #c-overlap{display:flex;flex-wrap:wrap;gap:var(--space-2);margin:8px 0;font-size:var(--text-base)}   /* no box, just text + two buttons */
 #c-overlap>span{flex-basis:100%}
@@ -55,7 +50,9 @@ button.tg[aria-pressed=true]{border-color:var(--border-strong)}
 .seg.fade-r{mask-image:linear-gradient(to right,var(--foreground) calc(100% - 32px),transparent)}
 .seg.fade-l{mask-image:linear-gradient(to left,var(--foreground) calc(100% - 32px),transparent)}
 .seg.fade-l.fade-r{mask-image:linear-gradient(to right,transparent,var(--foreground) 32px,var(--foreground) calc(100% - 32px),transparent)}
-.seg button{flex:1 0 auto;background:transparent;border-color:transparent;border-radius:var(--radius);font-size:var(--text-sm);padding:var(--space-1) var(--space-3);
+/* The thumb is a control's height on every pointer (28px): the track is 36px with a mouse too - sized by its text it was 34.8px
+   round 26.8px thumbs, a second segmented control beside the touch one. */
+.seg button{flex:1 0 auto;height:var(--control-h);background:transparent;border-color:transparent;border-radius:var(--radius);font-size:var(--text-sm);padding:0 var(--space-3);
   white-space:nowrap;color:var(--muted-foreground)}
 .seg button.on{background:var(--popover);border-color:transparent;color:var(--foreground);font-weight:600;box-shadow:var(--shadow-xs)}
 .seg button .k{font-weight:400;color:var(--muted-foreground)}
@@ -64,15 +61,12 @@ button.tg[aria-pressed=true]{border-color:var(--border-strong)}
 .warnline{color:var(--warning);font-size:var(--text-sm);margin-top:var(--space-2)}
 .errline{color:var(--destructive);font-size:var(--text-base);margin-top:var(--space-2)}
 .pin{position:relative;padding:var(--space-2) var(--space-3);margin-bottom:8px}   /* shape follows .card */
-/* The range excerpt (excerpt.js, docs/handbook/viewer.md §패널 정리 범위 발췌): on the compact bands it takes the stepper's and
-   the plain source's place in the composer and the edit card (a region keeps its text). One row per source line - its number,
+/* The range excerpt (excerpt.js, docs/handbook/viewer.md §패널 정리 범위 발췌): on every layout it is the source in the composer
+   and the edit card (a region keeps its text), the mouse desktop's too. One row per source line - its number,
    its text (four lines at most, a dimmed neighbour two) and a 44px margin on the right for the row's chip: a tinted '+' on a
    dimmed line (the row is the button), a neutral '−' on the band's first and last lines (its own button). Each chip is a
    28px circle on its line's first text line. */
-.xp{display:none}
-body.compact .xp:not([hidden]){display:block}
-body.compact :is(#c-range,.edit) .c-tools{display:none}
-body.compact #composer:not(.region) #c-snip,body.compact .edit:not(.region) .e-snip{display:none}
+#composer:not(.region) #c-snip,.edit:not(.region) .e-snip{display:none}   /* the excerpt is the source; a region keeps its text */
 .xp-hint{font-size:var(--text-sm);line-height:1.5;color:var(--muted-foreground);margin:0 0 var(--space-2);word-break:keep-all;text-wrap:pretty}   /* Korean breaks between words, never leaving one syllable on a line */
 .xp-list{position:relative;border-radius:var(--radius);background:var(--code);font-family:var(--font-mono);font-size:var(--text-sm);line-height:1.5;
   --chip:28px}
@@ -84,7 +78,6 @@ body.compact #composer:not(.region) #c-snip,body.compact .edit:not(.region) .e-s
   font:inherit;color:var(--foreground);-webkit-user-select:text;user-select:text}
 .xp-row .ln{color:var(--muted-foreground);font-variant-numeric:tabular-nums;min-width:3ch;text-align:right}
 .xp-row .tx{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:4;overflow:hidden;white-space:pre-wrap;overflow-wrap:anywhere}
-.xp-list.nowrap .xp-row .tx{display:block;white-space:pre;text-overflow:ellipsis}
 .xp-row.on{background:color-mix(in srgb,var(--primary) 12%,var(--code));box-shadow:inset 3px 0 0 var(--primary)}   /* the band */
 .xp-row.ctx .tx{-webkit-line-clamp:2;color:var(--muted-foreground)}   /* a dimmed neighbour */
 .xp-row.ctx .ln{opacity:.7}
