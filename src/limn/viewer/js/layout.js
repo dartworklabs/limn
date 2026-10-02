@@ -121,8 +121,8 @@ function stickTop(){let t=0; const b=$('#bar1');
   if(LAYOUT!==LAYOUT_MODE.WIDE&&b){const cs=getComputedStyle(b); if(cs.position==='sticky')t=Math.round((parseFloat(cs.top)||0)+b.offsetHeight);}
   document.documentElement.style.setProperty('--stick-top',t+'px');}
 // The tool bar's width (--bar1-w): the short band draws the tool bar over the right end of its one top row, and the nav bar's
-// links end where it begins.
-function barWidth(){document.documentElement.style.setProperty('--bar1-w',Math.ceil($('#bar1').getBoundingClientRect().width)+'px');}
+// links end where it begins - exactly there: rounded up, the nav bar ended up to a pixel short and the PDF showed through.
+function barWidth(){document.documentElement.style.setProperty('--bar1-w',$('#bar1').getBoundingClientRect().width+'px');}
 if(window.ResizeObserver)new ResizeObserver(()=>{stickTop(); barWidth();}).observe($('#bar1'),{box:'border-box'});   // padding-only changes (the collapsed sheet) count
 let RELAY=0,BAND_T=0;
 // Re-fits on the next frame after a resize, a pointer change or a panel/keyboard change - unless the band input is waiting to

@@ -446,12 +446,13 @@ body.lay-mid:not(.side-open) #right>#bar2,body.lay-mid:not(.side-open) #right>#b
 body.lay-mid #paper-identity{display:none}
 body.lay-mid #doc-nav{position:fixed;top:0;left:0;right:0;z-index:22;height:var(--mid-top);gap:var(--space-2);
   padding:env(safe-area-inset-top) max(var(--space-3),env(safe-area-inset-right)) 0 max(var(--space-3),env(safe-area-inset-left))}
-body:is(.lay-mid,.band-tablet-sheet) #doc-links{gap:var(--space-3);margin-right:0;flex:0 1 auto;scrollbar-width:none}
+body:is(.lay-mid,.band-tablet-sheet) #doc-links{gap:var(--space-2);margin-right:0;flex:0 1 auto;scrollbar-width:none}   /* the row's one 8px gap */
 body:is(.lay-mid,.band-tablet-sheet) #doc-links::-webkit-scrollbar{display:none}
 body:is(.lay-mid,.band-tablet-sheet) #doc-links.fade-r{mask-image:linear-gradient(to right,var(--foreground) calc(100% - 32px),transparent)}
 body:is(.lay-mid,.band-tablet-sheet) #doc-links.fade-l{mask-image:linear-gradient(to left,var(--foreground) calc(100% - 32px),transparent)}
 body:is(.lay-mid,.band-tablet-sheet) #doc-links.fade-l.fade-r{mask-image:linear-gradient(to right,transparent,var(--foreground) 32px,var(--foreground) calc(100% - 32px),transparent)}
-body:is(.lay-mid,.band-tablet-sheet) #view-switch{gap:var(--space-2);padding-left:var(--space-2)}
+body:is(.lay-mid,.band-tablet-sheet) #view-switch{gap:var(--space-2)}
+body.docs-multi:is(.lay-mid,.band-tablet-sheet) #view-switch{padding-left:var(--space-2)}   /* 8px each side of the line after the links; one document has neither */
 body:is(.lay-mid,.band-tablet-sheet) #doc-nav button{white-space:nowrap}
 /* At mid width, the outline overlays on top of the document (#main already starts below the nav bar). On a narrow tablet, pins overlay too, preserving the body's width. */
 body:is(.lay-mid,.band-tablet-sheet) #outline{position:absolute;left:0;top:0;bottom:0;z-index:18;border-right:1px solid var(--border);box-shadow:var(--shadow)}
@@ -481,16 +482,29 @@ body.mid-overlay.side-open.side-closing #right{animation:mid-panel-out .18s ease
 body.mid-overlay.side-open.side-closing #grip{animation:mid-grip-out .18s ease-in forwards}
 @keyframes mid-panel-out{to{right:calc(-1 * var(--side-w,330px))}}
 @keyframes mid-grip-out{to{opacity:0}}
-/* ---- Short band (a landscape phone, touch under 480px high; docs/handbook/viewer.md §모바일 레이아웃): one top row of 44px instead of the
-   nav bar and the bottom action row - [목차] [문서 링크…] ··· [선택] [⋯] [핀 N]. The tool bar is drawn over the nav bar's right end
-   (--bar1-w, barWidth); [PDF 재빌드] moves into [⋯]. The panel spreads from under the row to the bottom of the screen, and while a
-   panel text field has focus (body.typing) the row hides, so the ~200px the keyboard leaves go to the panel. */
-body.band-short{--doc-nav-h:var(--hit);--mbar-h:0px}
-body.band-short #doc-nav{right:var(--bar1-w,0px);padding-right:var(--space-2)}
-/* Buttons drawn at 40px from 2px down: their 44px hit areas fill the row from its top edge to its line. */
-body.band-short #bar1{top:0;bottom:auto;left:auto;right:0;height:var(--mid-top);gap:var(--space-2);align-items:flex-start;border-top:0;border-bottom:1px solid var(--border);
-  padding:calc(env(safe-area-inset-top) + 2px) max(var(--space-3),env(safe-area-inset-right)) 0 var(--space-2)}
-body.band-short:not(.side-open) #bar1{border-bottom:1px solid var(--border)}
+/* ---- Short band (a landscape phone, touch under 480px high; docs/handbook/viewer.md §모바일 레이아웃): one top row instead of the nav
+   bar and the bottom action row - [목차] [문서 링크…] ··· [선택] [⋯] [핀 N | 검토 M]. The tool bar is drawn over the nav bar's right
+   end (--bar1-w, barWidth); [PDF 재빌드] moves into [⋯]. The panel spreads from under the row to the bottom of the screen, and while
+   a panel text field has focus (body.typing) the row hides, so the ~200px the keyboard leaves go to the panel.
+   The row is the touch nav bar's 48px (5b of the cross-resolution pass): at 44px its 40px controls stood from 2px down, so the
+   instance's 4px stripe (#brand-stripe) cut the tops of [재빌드] and the chip. Both bars now lay their controls out under the
+   stripe, centred between it and the row's line. The row's ends are the band's edge and ink lines, as the panel and the page
+   under it: the chip's fill ends on the edge line (--edge, 16) and the outline toggle's box starts on it, its glyph's ink on the
+   ink line (--ink, 28: the panel-left glyph's ink starts 1.5px into its 18px box and icons are drawn at whole pixels, so 28.5);
+   neighbours are one 8px gap apart, the nav bar's padding to the tool bar's first control included. The row's line is drawn
+   under its 48px (a shadow, not a border), so the band between the stripe and the line is 44px: centred in it, 40px controls
+   and 18px icons stand on whole pixels, 2px from the stripe and 2px from the line (inside a border the band was 43px, and
+   every icon was drawn half a pixel low). */
+body.band-short{--doc-nav-h:48px;--mbar-h:0px}
+body.band-short #doc-nav{right:var(--bar1-w,0px);border-bottom:0;box-shadow:0 1px 0 var(--border);
+  padding:calc(env(safe-area-inset-top) + var(--space-1)) var(--space-2) 0 max(var(--edge),env(safe-area-inset-left))}
+/* Buttons drawn at 40px, centred under the stripe: their 44px hit areas fill the row from the stripe to its line. */
+body.band-short #bar1{top:0;bottom:auto;left:auto;right:0;height:var(--mid-top);gap:var(--space-2);align-items:center;border-top:0;border-bottom:0;box-shadow:0 1px 0 var(--border);
+  padding:calc(env(safe-area-inset-top) + var(--space-1)) max(var(--edge),env(safe-area-inset-right)) 0 0}
+/* The outline toggle at the row's start: a 40px ghost on the edge line, its glyph centred, answering 44px. */
+body.band-short #nav-toc-toggle{width:var(--ctl-touch);min-width:0;height:var(--ctl-touch);min-height:0;position:relative}
+body.band-short #nav-toc-toggle::after{content:'';position:absolute;left:50%;top:50%;width:var(--hit);height:var(--hit);transform:translate(-50%,-50%)}
+body.band-short #doc-nav .ic{width:18px;height:18px}   /* the tool row's icon size (18px Lucide, stroke 2) */
 body.band-short #bar1 .sp{display:none}
 body.band-short.typing{--mid-top:0px}
 body.band-short.typing :is(#doc-nav,#bar1){display:none}
@@ -531,7 +545,9 @@ body.lay-narrow.has-status:not(.typing) #right{border-top-color:transparent;bord
 .st-ic.warn{color:var(--warning)}
 .st-stale{display:block;width:8px;height:8px;border-radius:50%;background:var(--warning)}
 .st-ic .spin{width:12px;height:12px}
-#status .st-tx{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis}
+#status .st-tx{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;text-box:trim-both cap alphabetic;padding-block:var(--space-1)}
+/* ^ its cap height centred like the row's words (a Hangul-only short text stood 0.8px high in its line box); the 4px padding
+   keeps the glyphs that reach past the cap height and the baseline inside the box that clips the ellipsis */
 #bar1 #status button,#status button{flex:none;min-width:0;width:auto}
 #status button .lbl{text-box:trim-both cap alphabetic}   /* the label's cap height is centred in its button, as the tool row's words are */
 #bar1 #status .st-act.btn-default{background:var(--primary);color:var(--primary-foreground);font-weight:600}

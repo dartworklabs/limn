@@ -3219,36 +3219,39 @@ class TouchLayoutBands(ViewerBase):
         settle(page)
 
     def test_a_landscape_phone_has_one_top_row_and_no_bottom_row(self):
-        """844x390: nav bar 48 + action row 49 left the page 293px. The short band has one 44px row on top holding the nav
-        bar and [선택] [⋯] [핀 N | 검토 M] at its right end, nothing at the bottom, and the overlay panel collapsed."""
+        """844x390: nav bar 48 + action row 49 left the page 293px. The short band has one 48px row on top (44px before
+        the cross-resolution pass) holding the nav bar and [선택] [⋯] [핀 N | 검토 M] at its right end, nothing at the
+        bottom, and the overlay panel collapsed."""
         page = self.view(LAND_PHONE)
         self.assertEqual(page.evaluate(BODY_BANDS), ["band-short", "lay-mid", "mid-overlay"])
         self.assertFalse(page.evaluate("SIDE_OPEN"))
         row = page.evaluate(TOP_ROW)
         self.assertEqual((row["nav"]["y"], row["bar"]["y"]), (0, 0))
-        self.assertLessEqual(max(row["nav"]["h"], row["bar"]["h"]), 44)
+        self.assertLessEqual(max(row["nav"]["h"], row["bar"]["h"]), 48)
         self.assertLessEqual(row["nav"]["x"] + row["nav"]["w"], row["bar"]["x"])  # the links end where the tools begin
         self.assertEqual(row["bar"]["x"] + row["bar"]["w"], 844)
         self.assertEqual(sorted(t[0] for t in row["tools"]), ["btn-more", "btn-rv", "btn-select", "btn-side"])
-        self.assertTrue(all(top < 44 and hit for _, top, hit in row["tools"]), row["tools"])
+        self.assertTrue(all(top < 48 and hit for _, top, hit in row["tools"]), row["tools"])
         self.assertFalse(row["strip"])
         self.assertTrue(row["bottomIsPdf"])
         self.assertFalse(row["overflow"])
         self.assertEqual(page.evaluate(MISSES_44, "#bar1 button,#nav-toc-toggle"), [])
 
     def test_past_900px_the_short_band_opens_its_panel_beside_the_document(self):
-        """932x430: the same one row; the panel is open beside the document (no overlay) from the top row to the bottom."""
+        """932x430: the same one 48px row; the panel is open beside the document (no overlay) from the top row to the
+        bottom."""
         page = self.view(LAND_PHONE_WIDE)
         self.assertEqual(page.evaluate(BODY_BANDS), ["band-short", "lay-mid"])
         self.assertTrue(page.evaluate("SIDE_OPEN"))
         right = page.locator("#right").bounding_box()
-        self.assertEqual((round(right["y"]), round(right["y"] + right["height"])), (44, 430))
+        self.assertEqual((round(right["y"]), round(right["y"] + right["height"])), (48, 430))
         row = page.evaluate(TOP_ROW)
-        self.assertLessEqual(row["bar"]["h"], 44)
-        self.assertTrue(all(top < 44 and hit for _, top, hit in row["tools"]), row["tools"])
+        self.assertLessEqual(row["bar"]["h"], 48)
+        self.assertTrue(all(top < 48 and hit for _, top, hit in row["tools"]), row["tools"])
 
     def test_focusing_the_note_hides_the_top_row_until_the_focus_leaves(self):
-        """With the keyboard up a landscape phone has about 200px: the row hides while a note field has focus."""
+        """With the keyboard up a landscape phone has about 200px: the row hides while a note field has focus, and the
+        panel starts under the 48px row again once it leaves."""
         page = self.view(LAND_PHONE)
         self.compose(page)
         page.focus("#note")
@@ -3260,7 +3263,7 @@ class TouchLayoutBands(ViewerBase):
         page.evaluate("document.activeElement.blur()")
         settle(page)
         self.assertTrue(page.is_visible("#doc-nav"))
-        self.assertEqual(round(page.locator("#right").bounding_box()["y"]), 44)
+        self.assertEqual(round(page.locator("#right").bounding_box()["y"]), 48)
 
     def test_with_the_keyboard_up_the_whole_note_is_visible(self):
         """844x390 with a 190px keyboard (Chrome on Android shrinks the layout to 844x200): 41 of the note's 92px showed."""
@@ -4586,11 +4589,11 @@ class BarAndSheets(ViewerBase):
                 self.assertFalse(page.is_visible("#bar2"))
 
     def test_the_short_band_keeps_the_page_beside_a_short_status(self):
-        """844x390: the one 44px row keeps its page count while the PDF is stale; the short status sits between the view
+        """844x390: the one 48px row keeps its page count while the PDF is stale; the short status sits between the view
         switch and the page count, and there is no [PDF 재빌드]."""
         page = self.stale_view(LAND_PHONE)
         row = page.evaluate(TOP_ROW)
-        self.assertLessEqual(row["nav"]["h"], 44)
+        self.assertLessEqual(row["nav"]["h"], 48)
         self.assertTrue(page.is_visible("#nav-page"))
         got = page.evaluate(STATUS_LINE)
         self.assertEqual((got["parent"], got["text"]), ("doc-nav", "원고 수정됨"))
@@ -5391,19 +5394,24 @@ ROW_BOXES = """() => {const q = s => document.querySelector(s), vis = e => !!e &
     below: bottom - Math.max(...fills.map(i => i.box[3])), items};}"""
 # The ink of each box in a screenshot (base64 PNG at the device pixel ratio, boxes in the shot's CSS px): the pixels that differ
 # from the box's own background - read at its left edge, at mid height in a fill, at the top corner of a ghost - each pixel row's
-# coverage the strongest difference over the box's strongest, the top and bottom ink edges counted by their partial rows. A
-# fill is read 6px in from every edge (its rounded corners, the halves' seam), a ghost 3px in from its sides.
+# and column's coverage the strongest difference over the box's strongest; the ink's vertical centre and its left and right
+# edges, the partial rows and columns counted by their coverage. A fill is read 6px in from every edge (its rounded corners,
+# the halves' seam), a ghost 3px in from its sides, an icon's box (ix: 0) from its own edges.
 ROW_INK = """async ([b64, dpr, items]) => {const img = new Image(); img.src = 'data:image/png;base64,' + b64; await img.decode();
   const c = document.createElement('canvas'); c.width = img.width; c.height = img.height; const x = c.getContext('2d'); x.drawImage(img, 0, 0);
   const D = x.getImageData(0, 0, c.width, c.height).data, W = c.width, out = {};
   const lum = (X, Y) => {const i = (Y * W + X) * 4; return 0.2126 * D[i] + 0.7152 * D[i + 1] + 0.0722 * D[i + 2];};
-  for (const it of items) {const [l, t, r, b] = it.box, iy = it.fill ? 6 : 0, ix = it.fill ? 6 : 3;
+  const edges = (cov, base) => {let f = -1, la = -1; cov.forEach((v, i) => {if (v > 0.12) {if (f < 0) f = i; la = i;}});
+    return f < 0 ? null : [(base + f + 1 - cov[f]) / dpr, (base + la + cov[la]) / dpr];};
+  for (const it of items) {const [l, t, r, b] = it.box, iy = it.fill ? 6 : 0, ix = it.ix ?? (it.fill ? 6 : 3);
     const X0 = Math.round((l + ix) * dpr), X1 = Math.round((r - ix) * dpr), Y0 = Math.round((t + iy) * dpr), Y1 = Math.round((b - iy) * dpr);
     const bg = lum(X0, it.fill ? Math.round((Y0 + Y1) / 2) : Y0);
     let mx = 0; for (let y = Y0; y < Y1; y++) for (let xx = X0; xx < X1; xx++) mx = Math.max(mx, Math.abs(lum(xx, y) - bg));
-    const cov = []; for (let y = Y0; y < Y1; y++) {let m = 0; for (let xx = X0; xx < X1; xx++) m = Math.max(m, Math.abs(lum(xx, y) - bg) / mx); cov.push(m);}
-    let f = -1, la = -1; cov.forEach((v, i) => {if (v > 0.12) {if (f < 0) f = i; la = i;}});
-    out[it.k] = mx < 8 || f < 0 ? null : ((Y0 + f + 1 - cov[f]) + (Y0 + la + cov[la])) / 2 / dpr;}
+    const rows = [], cols = new Array(X1 - X0).fill(0);
+    for (let y = Y0; y < Y1; y++) {let m = 0; for (let xx = X0; xx < X1; xx++) {const v = Math.abs(lum(xx, y) - bg) / mx; m = Math.max(m, v);
+      cols[xx - X0] = Math.max(cols[xx - X0], v);} rows.push(m);}
+    const vy = mx < 8 ? null : edges(rows, Y0), vx = mx < 8 ? null : edges(cols, X0);
+    out[it.k] = vy && vx ? {mid: (vy[0] + vy[1]) / 2, left: vx[0], right: vx[1]} : null;}
   return out;}"""
 
 
@@ -5437,7 +5445,7 @@ class CompactRowCentre(ViewerBase):
         items = [dict(i, box=[i["box"][0], i["box"][1] - y0, i["box"][2], i["box"][3] - y0]) for i in g["items"]]
         ink = page.evaluate(ROW_INK, [base64.b64encode(shot).decode(), device["device_scale_factor"], items])
         mid = (g["top"] + g["bottom"]) / 2
-        g["off"] = {k: None if v is None else round(v + y0 - mid, 2) for k, v in ink.items()}
+        g["off"] = {k: None if v is None else round(v["mid"] + y0 - mid, 2) for k, v in ink.items()}
         return g
 
     def assert_centred(self, g, controls):
@@ -5483,6 +5491,134 @@ class CompactRowCentre(ViewerBase):
         self.assertEqual(
             (g["safe"], round(g["above"], 2), round(g["below"], 2), round(g["under"], 2)), (20, 12, 12, 20), g
         )
+
+
+# The short band's top row as drawn: the stripe's bottom and the row's line (inside the nav bar's bottom border), the two bars'
+# heights and the seam between them, the edge and ink lines, and every control left to right - its box, whether it is a fill,
+# and its icon's box and stroke width. The status line's icon, text and action count as controls.
+SHORT_ROW = """() => {const q = s => document.querySelector(s), R = e => e.getBoundingClientRect(), box = r => [r.left, r.top, r.right, r.bottom];
+  const vis = e => !!e && e.getClientRects().length > 0 && getComputedStyle(e).visibility !== 'hidden';
+  const px = v => {const d = document.createElement('div'); d.style.width = v; document.body.append(d); const w = R(d).width; d.remove(); return w;};
+  const nav = q('#doc-nav'), N = R(nav), B = R(q('#bar1')), links = [...document.querySelectorAll('#doc-links button')];
+  const els = [...nav.querySelectorAll(':scope>button,#doc-links button,#view-switch button,#status .st-ic,#status .st-tx,#status button'),
+    ...q('#bar1').querySelectorAll('button')].filter(vis);
+  const items = els.map(e => {const s = e.querySelector(':scope>svg');
+    return {k: e.id || (links.includes(e) ? 'link' + links.indexOf(e) : e.className.split(' ')[0]), box: box(R(e)),
+      fill: !/^(rgba\\(0, 0, 0, 0\\)|transparent)$/.test(getComputedStyle(e).backgroundColor),
+      icon: s ? box(R(s)) : null, stroke: s ? s.getAttribute('stroke-width') : null};}).sort((a, b) => a.box[0] - b.box[0]);
+  return {stripe: R(q('#brand-stripe')).bottom, line: N.bottom - parseFloat(getComputedStyle(nav).borderBottomWidth), heights: [N.height, B.height],
+    seam: B.left - N.right, edge: px('var(--edge)'), ink: px('var(--ink)'), vw: innerWidth, items};}"""
+
+
+class ShortRow(ViewerBase):
+    """The landscape phone's one top row (docs/handbook/viewer.md §모바일 레이아웃 짧은 화면, 5b of the cross-resolution pass): it
+    was 44px and its 40px controls stood from 2px down, so the 4px instance stripe cut the tops of [재빌드] and the chip. It is
+    the touch nav bar's 48px and centres every control between the stripe and its line; its icons are 18px Lucide (stroke 2),
+    each centred in its box; its neighbours are 8px apart; the chip's fill ends on the edge line and the outline toggle's
+    glyph starts on the ink line, as the panel and the page under the row do."""
+
+    def route(self, route):
+        """The fixture's routes, with GET /api/meta (full and light) saying stale_build, so the row shows [재빌드]."""
+        if urlparse(route.request.url).path == "/api/meta":
+            return self.forward(MetaPatched(route, {"stale_build": True, "src_age_s": 120}))
+        return super().route(route)
+
+    def row(self, device, dark=False, two_docs=False):
+        """The row (SHORT_ROW) on device with a stale PDF - and, with two_docs, a second document's link (DOCS as two) - and the
+        ink (ROW_INK) of each control, read between the stripe and the current tab's 2px underline over the line, and of each
+        icon, keyed 'icon:<control>'; with the row's centre (mid)."""
+        page = self.view(device, init=NO_PNG_CHIP, dark=dark)
+        page.wait_for_function("!document.querySelector('#status').hidden")
+        if two_docs:
+            page.evaluate(
+                "()=>{DOCS=[DOCS[0],{key:'reply',name:'답변서',path:'reply.tex',n_pages:1}];"
+                " document.body.classList.add('docs-multi'); drawDocTabs();}"
+            )
+        settle(page)
+        g = page.evaluate(SHORT_ROW)
+        top, line = g["stripe"], g["line"]
+        clip = [
+            dict(
+                k=i["k"],
+                fill=i["fill"],
+                box=[i["box"][0], max(i["box"][1], top + 0.5), i["box"][2], min(i["box"][3], line - 3)],
+            )
+            for i in g["items"]
+        ]
+        clip += [dict(k="icon:" + i["k"], fill=False, ix=0, box=i["icon"]) for i in g["items"] if i["icon"]]
+        shot = page.screenshot(clip={"x": 0, "y": 0, "width": g["vw"], "height": line + 2})
+        g["inkOf"] = page.evaluate(ROW_INK, [base64.b64encode(shot).decode(), device["device_scale_factor"], clip])
+        g["mid"] = (top + line) / 2
+        return g
+
+    def test_the_row_is_48px_and_its_controls_clear_the_stripe_on_one_centre_line(self):
+        """844x390 at DPR 3 and 908x411 at 2.625, light and dark, a stale PDF: the nav bar and the tool bar are 48px; every
+        fill ([재빌드], [⬚ 선택], the chip's halves) starts under the stripe and ends above the row's line; every control's box
+        centre and ink centre are within 0.5px of the centre between the stripe and the line."""
+        for device in (phone(844, 390, 3), phone(908, 411)):
+            for dark in (False, True):
+                with self.subTest(w=device["viewport"]["width"], dark=dark):
+                    g = self.row(device, dark=dark)
+                    self.assertEqual([round(h, 2) for h in g["heights"]], [48, 48], g)
+                    fills = [i for i in g["items"] if i["fill"]]
+                    self.assertEqual({i["k"] for i in fills}, {"btn-sm", "btn-select", "btn-side", "btn-rv"}, g)
+                    self.assertTrue(all(i["box"][1] >= g["stripe"] and i["box"][3] <= g["line"] for i in fills), fills)
+                    off = {i["k"]: round((i["box"][1] + i["box"][3]) / 2 - g["mid"], 2) for i in g["items"]}
+                    self.assertTrue(all(abs(v) <= 0.5 for v in off.values()), off)
+                    ink = {i["k"]: g["inkOf"][i["k"]] for i in g["items"]}
+                    self.assertTrue(all(v is not None for v in ink.values()), ink)
+                    off = {k: round(v["mid"] - g["mid"], 2) for k, v in ink.items()}
+                    self.assertTrue(all(abs(v) <= 0.5 for v in off.values()), off)
+
+    def test_its_icons_are_18px_with_stroke_2_and_centred_in_their_boxes(self):
+        """844x390 at DPR 3, light and dark: the outline toggle's, [⬚]'s and [⋯]'s icons are 18px Lucide with stroke 2 and
+        each glyph's ink is centred in its icon box within 0.5px both ways; the toggle's and [⋯]'s icon box is centred in the
+        button's, and the status dot in its 16px box within 0.5px both ways."""
+        for dark in (False, True):
+            with self.subTest(dark=dark):
+                g = self.row(phone(844, 390, 3), dark=dark)
+                icons = {i["k"]: i for i in g["items"] if i["icon"]}
+                self.assertEqual(set(icons), {"nav-toc-toggle", "btn-select", "btn-more"}, g)
+                for k, i in icons.items():
+                    b, ink = i["icon"], g["inkOf"]["icon:" + k]
+                    self.assertEqual((round(b[2] - b[0], 2), round(b[3] - b[1], 2), i["stroke"]), (18, 18, "2"), k)
+                    self.assertLessEqual(abs((ink["left"] + ink["right"]) / 2 - (b[0] + b[2]) / 2), 0.5, (k, ink, b))
+                    self.assertLessEqual(abs(ink["mid"] - (b[1] + b[3]) / 2), 0.5, (k, ink, b))
+                for k in ("nav-toc-toggle", "btn-more"):
+                    b, i = icons[k]["box"], icons[k]["icon"]
+                    self.assertLessEqual(abs((i[0] + i[2]) / 2 - (b[0] + b[2]) / 2), 0.5, k)
+                dot = next(i for i in g["items"] if i["k"] == "st-ic")
+                ink, b = g["inkOf"]["st-ic"], dot["box"]
+                self.assertEqual(round(b[2] - b[0], 2), 16)
+                self.assertLessEqual(abs((ink["left"] + ink["right"]) / 2 - (b[0] + b[2]) / 2), 0.5, ink)
+                self.assertLessEqual(abs(ink["mid"] - (b[1] + b[3]) / 2), 0.5, ink)
+
+    def test_its_neighbours_are_8px_apart_and_its_ends_are_on_the_edge_and_ink_lines(self):
+        """844x390 at DPR 3 and 908x411 at 2.625, with one document and with two: neighbouring controls are 8px apart - but
+        the free space before the page count, the view switch's separator after the document links (8px each side of its 1px
+        line; one document has no links and no line, and the switch's 8px inset made 16) and the chip's halves (they meet);
+        the chip's fill ends on the edge line, 16px from the screen's right; the outline toggle's box starts on it at the
+        left, its glyph's ink on the ink line (28px) - at 28.5, as the panel-left glyph's ink starts 1.5px into its box and
+        icons are drawn at whole pixels; the nav bar and the tool bar meet with no seam (the PDF showed through 0.5px between
+        them)."""
+        for device in (phone(844, 390, 3), phone(908, 411)):
+            for two in (False, True):
+                with self.subTest(w=device["viewport"]["width"], two_docs=two):
+                    g = self.row(device, two_docs=two)
+                    items = g["items"]
+                    gaps = {b["k"]: round(b["box"][0] - a["box"][2], 2) for a, b in zip(items, items[1:], strict=False)}
+                    self.assertGreater(gaps.pop("nav-page"), 8)
+                    self.assertEqual(("link1" in gaps), two, gaps)
+                    want = {"view-manuscript": 17 if two else 8, "btn-rv": 0}
+                    self.assertEqual(gaps, {k: want.get(k, 8) for k in gaps}, gaps)
+                    self.assertEqual((g["edge"], g["ink"]), (16, 28))
+                    self.assertEqual(round(g["vw"] - items[-1]["box"][2], 2), g["edge"])
+                    self.assertEqual((items[0]["k"], round(items[0]["box"][0], 2)), ("nav-toc-toggle", g["edge"]))
+                    toc = g["inkOf"]["icon:nav-toc-toggle"]["left"]
+                    self.assertLessEqual(
+                        abs(toc - g["ink"] - 0.5), 0.25, g["inkOf"]
+                    )  # the glyph's 1.5px bearing, whole pixels
+                    self.assertEqual(round(g["seam"], 2), 0)
 
 
 if __name__ == "__main__":
