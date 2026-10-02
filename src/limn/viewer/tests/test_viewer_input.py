@@ -1813,19 +1813,19 @@ class PhoneTouchSizes(ViewerBase):
         settle(page)
         return card
 
-    def test_the_review_pill_shows_an_eye_beside_its_count(self):
-        """411x908: [📍 N]'s purple pill reads 'eye 1' - a bare '1' after the open count read as '4 1' (UX audit P10). Under
-        400px the bar's width budget drops the eye and keeps the count (UX spec §V4 폭 예산): 384 and 360. The sheet's toggle
-        has no arrow at any width: the grabber says it is a sheet, its fill and aria-expanded say open."""
-        for device, eye in ((phone(411, 908), True), (PHONE, False), (PHONE_360, False)):
+    def test_the_review_count_is_its_own_half_of_the_chip(self):
+        """411x908, 384 and 360: the review count is the chip's right half [검토 1] (#btn-rv) - a bare '1' after the open
+        count read as '4 1' (UX audit P10), and the pill with its eye left the sheet bar for the words-first chip - while the
+        pins half's pill is hidden. The sheet's toggle has no arrow at any width: the grabber says it is a sheet."""
+        for device in (phone(411, 908), PHONE, PHONE_360):
             with self.subTest(width=device["viewport"]["width"]):
                 page = self.view(device)
                 got = page.evaluate(
-                    "()=>{const p=document.querySelector('#btn-side .rv-n'), i=p.querySelector('svg.ic'),"
-                    " a=document.querySelector('#side-arrow'); return [p.textContent, !!i&&i.getClientRects().length>0,"
-                    " a.getClientRects().length>0];}"
+                    "()=>{const v=e=>e.getClientRects().length>0, r=document.querySelector('#btn-rv');"
+                    " return [r.innerText.replace(/\\s+/g,' ').trim(), v(r), v(document.querySelector('#btn-side .rv-n')),"
+                    " v(document.querySelector('#side-arrow'))];}"
                 )
-                self.assertEqual(got, ["1", eye, False])
+                self.assertEqual(got, ["검토 1", True, False, False])
 
     def test_card_head_controls_and_the_tool_bar_answer_a_44px_box(self):
         """The assignee chip answered 72x20 (its overflow clipped the hit area), '1쪽' 16x38 and 'L4-L5' 33x38 (neighbours took
@@ -1839,10 +1839,10 @@ class PhoneTouchSizes(ViewerBase):
         )
         self.assertEqual(misses, [])
 
-    def test_the_sheet_header_is_80px_and_its_handle_and_section_tools_answer_44px(self):
+    def test_the_sheet_header_is_84px_and_its_handle_and_section_tools_answer_44px(self):
         """The sheet's stuck header was the handle row 24 + the tool bar 53 + the section head 52 = 129px (diagnosis P3); the handle
-        now sits in the tool bar's row, so the header (below the sheet's 1px edge, as the diagnosis measured it) is the 40px row
-        and the 40px section head, and every control in it -
+        now sits in the tool bar's row, so the header (below the sheet's 1px edge, as the diagnosis measured it) is the 44px row
+        (its 28px controls 12px under the edge, 4px above the row's end) and the 40px section head, and every control in it -
         the handle included (it answered 121x32) - still answers a 44x44 box."""
         page = self.view(PHONE, prefs={"sec": {"open": True, "review": True, "done": True}}, init=NO_PNG_CHIP)
         page.evaluate("()=>{setSide(true); document.querySelector('#right').scrollTop=0;}")
@@ -1851,7 +1851,7 @@ class PhoneTouchSizes(ViewerBase):
             "Math.round(document.querySelector('#sec-open .sec-head').getBoundingClientRect().bottom"
             "-document.querySelector('#bar1').getBoundingClientRect().top)"
         )
-        self.assertLessEqual(head, 80)
+        self.assertLessEqual(head, 84)  # 80 before the row's 12px inset over its 28px controls and 4px under them
         self.assertTrue(
             page.evaluate("document.querySelector('#bar1').contains(document.querySelector('#sheet-grip'))")
         )
@@ -2766,6 +2766,91 @@ class RangeExcerpt(ViewerBase):
         self.mouse_pick(page)
         got = page.evaluate(EXCERPT, "#composer")
         self.assertEqual((got["rows"], got["step"], got["pre"]), ([], True, True))
+
+
+# The phone sheet's tool row as drawn: the row's insets from the sheet's top edge (inside its 1px border), the grabber's,
+# the controls' height and the gaps in each cell, the grabber's centre against the bar's, the first and last boxes'
+# distance from the bar's edges, and how far the select icon's and the chevron's centres sit from the counts' cap centre.
+CHIP_ROW = """() => {const q = s => document.querySelector(s), R = e => e.getBoundingClientRect(), vis = e => !!e && e.getClientRects().length > 0;
+  const r2 = v => Math.round(v * 100) / 100, cy = e => {const r = R(e); return r.top + r.height / 2;};
+  const bar = q('#bar1'), B = R(bar), grip = q('#sheet-grip'), g = R(grip), gTop = g.top + parseFloat(getComputedStyle(grip).paddingTop);
+  const items = [...bar.querySelectorAll(':scope>.bar-l>*,:scope>.bar-r>*')].filter(vis), I = items.map(R);
+  const top = Math.min(...I.map(b => b.top)), bottom = Math.max(...I.map(b => b.bottom)), gaps = [];
+  for (const cell of bar.querySelectorAll(':scope>.bar-l,:scope>.bar-r')) {const k = [...cell.children].filter(vis).map(R);
+    for (let i = 1; i < k.length; i++) gaps.push(r2(k[i].left - k[i - 1].right));}
+  const n = cy(q('#side-n')), pos = vis(q('#btn-pos'));
+  return {insetTop: r2(top - B.top), insetBottom: r2(B.bottom - bottom), height: r2(bottom - top), grabber: [r2(gTop - B.top), r2(top - gTop - 4)],
+    centre: r2(g.left + g.width / 2 - (B.left + B.width / 2)), gaps, edges: [r2(I[0].left - B.left), r2(B.right - I[I.length - 1].right)],
+    off: [r2(cy(q('#btn-select svg')) - n), r2(cy(q('#btn-rv .rv-c')) - n)].concat(pos ? [r2(cy(q('#btn-pos svg')) - n), r2(cy(q('#btn-pos b')) - n)] : []),
+    words: [q('#btn-side').innerText.replace(/\\s+/g, ' ').trim(), q('#btn-rv').innerText.replace(/\\s+/g, ' ').trim()]};}"""
+
+
+class BarChip(ViewerBase):
+    """The phone and tablet sheet's tool row (docs/handbook/viewer.md §모바일 레이아웃, the owner's pick E2): the pin glyph sat
+    lopsided on its count and the row's fills touched the sheet's edge. The row is words first - one split chip [핀 5 | 검토
+    1], whose right half goes to the review list - with the select icon on the same 28px fill, the controls 12px under the
+    sheet's edge with the grabber in that inset, every icon and count on one centre line."""
+
+    def test_the_pins_half_opens_the_sheet_and_the_review_half_goes_to_the_review_list(self):
+        """411x908: a tap on [핀 3] opens the sheet and another closes it; a tap on [검토 1] opens it at the review section."""
+        page = self.view(phone(411, 908))
+        cdp = self.cdp(page)
+        self.tap(cdp, *self.center(page, "#btn-side"))
+        page.wait_for_function("SIDE_OPEN")
+        self.before_next_tap(page)
+        self.tap(cdp, *self.center(page, "#btn-side"))
+        page.wait_for_function("!SIDE_OPEN")
+        settle(page)
+        self.before_next_tap(page)
+        self.tap(cdp, *self.center(page, "#btn-rv"))
+        page.wait_for_function("SIDE_OPEN")
+        settle(page)
+        top, sheet = page.evaluate(
+            "[document.querySelector('#sec-review').getBoundingClientRect().top, document.querySelector('#right').getBoundingClientRect()]"
+        )
+        self.assertGreaterEqual(top, sheet["top"])
+        self.assertLess(top, sheet["bottom"] - 44)
+
+    def test_the_halves_select_page_and_more_answer_44px(self):
+        """411x908 and 360x800: each control of the row answers a 44px tap."""
+        for device in (phone(411, 908), phone(360, 800, 3)):
+            with self.subTest(width=device["viewport"]["width"]):
+                page = self.view(device)
+                self.assertEqual(page.evaluate(MISSES_44, "#btn-side,#btn-rv,#btn-select,#btn-pos,#btn-more"), [])
+
+    def test_the_row_is_12px_under_the_edge_and_every_centre_on_one_line(self):
+        """411x908 (phone, edges 12) and 768x1024 (tablet sheet, 16), light and dark: the controls are 28px high, 12px under
+        the sheet's edge and 4px above the row's end; the grabber 4px from the edge and 4px from the controls, on the centre
+        within 1px; gaps 8px (the chip's halves meet); the select icon, the review count and (the phone's) chevron and page
+        figures within 0.5px of the open count's cap-height centre; the words '핀 3' and '검토 1'."""
+        for (w, h), edge in (((411, 908), 12), ((768, 1024), 16)):
+            for dark in (False, True):
+                with self.subTest(w=w, dark=dark):
+                    page = self.view(phone(w, h), dark=dark)
+                    page.evaluate("setSide(true)")
+                    settle(page)
+                    got = page.evaluate(CHIP_ROW)
+                    self.assertEqual(
+                        (got["insetTop"], got["insetBottom"], got["height"], got["grabber"]), (12, 4, 28, [4, 4]), got
+                    )
+                    self.assertLessEqual(abs(got["centre"]), 1)
+                    self.assertEqual(got["gaps"][0], 0)
+                    self.assertEqual(set(got["gaps"][1:]), {8})
+                    self.assertEqual(got["edges"], [edge, edge])
+                    self.assertTrue(all(abs(o) <= 0.5 for o in got["off"]), got["off"])
+                    self.assertEqual(got["words"], ["핀 3", "검토 1"])
+
+    def test_nothing_spills_out_of_its_cell_in_english_at_360(self):
+        """360x800 and the 344px folded cover in English, with the fullest counts: every control stays inside its cell."""
+        for device in (phone(360, 800, 3), phone(344, 882)):
+            with self.subTest(width=device["viewport"]["width"]):
+                page = self.view(device, lang="en")
+                page.evaluate(FULL_BAR)
+                page.evaluate(
+                    "()=>{const b=document.querySelector('#btn-rv'); b.hidden=false; b.querySelector('.rv-c').textContent='12';}"
+                )
+                settle(page)
+                self.assertEqual(page.evaluate(BAR)["spill"], [])
 
 
 # A landscape tablet in the mid layout (the side panel). A portrait tablet is the tablet sheet (TouchLayoutBands).
@@ -3986,7 +4071,8 @@ MORE = """() => {const q = s => document.querySelector(s), colour = v => {const 
     gone: [!!q('#m-done'), !!q('#m-jump')]};}"""
 # The fullest bar the width budget plans for: 123 open pins, 12 awaiting review and a draft dot (UX spec §V4 폭 예산).
 FULL_BAR = """() => {document.querySelector('#side-n').textContent = '123'; const p = document.querySelector('#side-rv');
-  p.hidden = false; p.innerHTML = ic('eye') + '12'; document.querySelector('#btn-side .c-dot').hidden = false;}"""
+  p.hidden = false; p.innerHTML = ic('eye') + '12'; document.querySelector('#btn-side .c-dot').hidden = false;
+  const r = document.querySelector('#btn-rv'); r.hidden = false; r.querySelector('.rv-c').textContent = '12'; fitBarWords();}"""
 
 
 class MetaPatched:
@@ -4029,32 +4115,41 @@ class BarAndSheets(ViewerBase):
                     self.assertEqual(bar["spill"], [])
 
     def test_the_phone_bar_draws_no_border_and_its_select_is_an_icon(self):
-        """411 and 360: three bordered boxes and two ghosts were mixed (UX audit P3). Now no bar button draws a border, [⬚]
-        shows no word (its name is aria-label), [📍 N] shows no 핀/Pin, the collapsed sheet is 40 + 8px under the PDF, and
-        every bar control still answers a 44px box."""
+        """411 and 360: three bordered boxes and two ghosts were mixed (UX audit P3). Now no bar button draws a border (the
+        split chip's seam is a shadow), [⬚] shows no word (its name is aria-label), the pins half says 핀 (words first, the
+        owner's pick), the collapsed sheet is 12 + 28 + 8px under the PDF, and every bar control still answers a 44px box."""
         for device in (BAR_PHONES[0], BAR_PHONES[1]):
             with self.subTest(width=device["viewport"]["width"]):
                 page = self.view(device, init=NO_PNG_CHIP)
                 bar = page.evaluate(BAR)
                 self.assertEqual(bar["borders"], [])
                 self.assertEqual(bar["select"], "")
-                self.assertFalse(bar["sideWord"])
+                self.assertTrue(bar["sideWord"])
                 self.assertAlmostEqual(bar["chrome"], 48, delta=1)
                 self.assertEqual(page.get_attribute("#btn-select", "aria-label"), "선택")
                 self.assertEqual(page.evaluate(MISSES_44, "#bar1 button,#sheet-grip"), [])
 
-    def test_the_width_budget_drops_the_eye_under_400_and_tightens_under_360(self):
-        """The review pill keeps its eye from 400px; at 360-399 only the count stays, and under 360 the bar buttons' side
-        padding and the gap in a cell go from 8 to 4px (UX spec §V4 폭 예산)."""
-        for device, eye, pad in (
-            (BAR_PHONES[0], True, "8px"),
-            (BAR_PHONES[2], False, "8px"),
-            (BAR_PHONES[1], False, "8px"),
-            (BAR_PHONES[4], False, "4px"),
+    def test_the_width_budget_pads_8px_under_400_and_lets_the_words_step_aside_only_when_they_do_not_fit(self):
+        """The chip's halves pad 12px from 400px and 8px under it; under 360px the gap in a cell is 4px. The words 핀 and
+        검토 stay while they fit - every phone in Korean with the fixture's counts - and step aside (#bar1.bar-tight, the
+        counts staying) for the fullest bar on the 344px cover and in English at 360 (UX spec §V4 폭 예산)."""
+        for device, pad, gap in (
+            (BAR_PHONES[0], "12px", "8px"),
+            (BAR_PHONES[2], "8px", "8px"),
+            (BAR_PHONES[1], "8px", "8px"),
+            (BAR_PHONES[4], "8px", "4px"),
         ):
             with self.subTest(width=device["viewport"]["width"]):
-                bar = self.view(device).evaluate(BAR)
-                self.assertEqual((bar["eye"], bar["pad"], bar["gap"]), (eye, pad, pad))
+                page = self.view(device)
+                bar = page.evaluate(BAR)
+                self.assertEqual((bar["pad"], bar["gap"]), (pad, gap))
+                self.assertFalse(page.evaluate("document.querySelector('#bar1').classList.contains('bar-tight')"))
+        for device, lang in ((BAR_PHONES[4], "ko"), (BAR_PHONES[1], "en")):
+            with self.subTest(width=device["viewport"]["width"], lang=lang):
+                page = self.view(device, lang=lang)
+                page.evaluate(FULL_BAR)
+                self.assertTrue(page.evaluate("document.querySelector('#bar1').classList.contains('bar-tight')"))
+                self.assertEqual(page.evaluate(BAR)["spill"], [])
 
     def test_the_tablet_sheet_bar_has_only_more_in_its_right_cell(self):
         """820x1180: documents, view, page and outline are the nav bar's, so the right cell holds [⋯] alone."""
@@ -4325,19 +4420,15 @@ class BarAndSheets(ViewerBase):
         self.assertGreaterEqual(gap, 4)
         self.assertLessEqual(gap, 6)
 
-    def test_the_bars_ends_and_the_pin_button_are_optically_even(self):
-        """[📍 N 👁 M]'s ink sits in the middle of its fill - the pin glyph's left side bearing is compensated (review of
-        PR D: 1.35px right of centre) - with and without the review pill; and [⋯]'s ink ends on the ink line (--ink: 24px
-        from a phone's edge, 28 from the tablet column's), within R2's 2px, as the left end's fill starts on the edge line."""
+    def test_the_bars_right_end_is_optically_even(self):
+        """[⋯]'s ink ends on the ink line (--ink: 24px from a phone's edge, 28 from the tablet column's), within R2's 2px, as
+        the left end's chip starts on the edge line. (The pin glyph's side-bearing correction is gone with the glyph: the
+        sheet bar is words first, and BarChip measures its centres.)"""
         for device, ink in ((BAR_PHONES[0], 24), (BAR_PHONES[1], 24), (BAR_TABLETS[1], 28)):
             with self.subTest(width=device["viewport"]["width"]):
                 page = self.view(device, init=NO_PNG_CHIP)
-                for pill in (True, False):
-                    if not pill:
-                        page.evaluate("()=>{REVIEW_ALL=[]; updateReviewCount();}")
-                    got = page.evaluate(OPTICAL)
-                    self.assertLessEqual(abs(got["gapL"] - got["gapR"]), 0.5, (pill, got))
-                    self.assertAlmostEqual(got["moreInk"], ink, delta=2, msg=got)
+                got = page.evaluate(OPTICAL)
+                self.assertAlmostEqual(got["moreInk"], ink, delta=2, msg=got)
 
     def test_the_notification_switch_shows_when_off_and_names_its_reason(self):
         """The switch's off track reaches 3:1 against the sheet where it can be switched (review of PR D: 1.48:1 light,
@@ -4351,12 +4442,12 @@ class BarAndSheets(ViewerBase):
                 self.assertEqual(page.get_attribute("#m-notify", "aria-describedby"), "m-notify-why")
 
     def test_the_touch_help_names_the_bars_icon_buttons(self):
-        """The help's touch table shows [📍 N] and [⬚] as the icon buttons they are (review of PR D: it still named '핀 N'
-        and '선택' as words, which the bar no longer shows)."""
+        """The help's touch table shows the bar's controls as they are drawn: the words-first pair [핀 N] [검토 M] and [⬚]'s
+        four-corner icon (it showed the pin glyph and the dashed square the sheet bar no longer draws)."""
         src = (Path(__file__).resolve().parents[1] / "index.html").read_text(encoding="utf-8")
-        self.assertIn("<kbd>{{ic:pin}} N</kbd>", src)
-        self.assertIn("<kbd>{{ic:square-dashed}}</kbd>", src)
-        self.assertNotIn("<kbd>핀 N</kbd>", src)
+        self.assertIn("<kbd>핀 N</kbd> <kbd>검토 M</kbd>", src)
+        self.assertIn("<kbd>{{ic:focus}}</kbd>", src)
+        self.assertNotIn("<kbd>{{ic:pin}} N</kbd>", src)
         self.assertNotIn("<kbd>선택</kbd>", src)
 
     def test_the_position_button_opens_documents_view_page_and_outline_in_that_order(self):

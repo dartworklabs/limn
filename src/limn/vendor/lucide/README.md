@@ -29,6 +29,7 @@ Icons are drawn with the original `<svg>` attributes: `viewBox="0 0 24 24"`, `fi
 | `copy` | copy-location button |
 | `ellipsis` | more button (narrow screens) |
 | `eye` | 'awaiting review' badge (whose turn it is to confirm) |
+| `focus` | [Select] button — four corners round a ring: pick a spot or drag a region on touch devices |
 | `image` | the status line's 'showing PNG' state (compact bands) |
 | `minus` · `plus` | PDF zoom out/in; shrink/grow a range by one line |
 | `moon` · `sun` · `sun-moon` | theme (dark, light, system) |
@@ -41,7 +42,6 @@ Icons are drawn with the original `<svg>` attributes: `viewBox="0 0 24 24"`, `fi
 | `refresh-cw` | [Rebuild PDF] |
 | `rotate-ccw` | 'reopened' badge (pin sent back from review) |
 | `rotate-cw` | [Reload pins] in [More] (compact bands) |
-| `square-dashed` | [Select] button — drag to pick a region on touch devices (same shape as the dashed box on the PDF) |
 | `text-wrap` | [Wrap] in the source diff |
 | `trash-2` | deleted-pin row head; [삭제] on a compact card |
 | `triangle-alert` | 'location lost' badge, warning toast lead icon |

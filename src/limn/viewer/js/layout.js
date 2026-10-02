@@ -111,7 +111,7 @@ function coachSideCollapsed(){if(LAYOUT===LAYOUT_MODE.WIDE&&!SIDE_OPEN)coach('si
 // Re-fits everything to the window: the layout (a changed one redraws the cards, whose action row is ordered per layout), the panel
 // and outline widths, the page width at the same reading spot, the composer, the stuck heads and the section strip - and keeps a
 // panel text field that has focus in view (the keyboard or the short band's hidden top row moved it).
-function relayout(){const a=topAnchor(),changed=applyLayout(); if(changed&&META)drawPins(); applySideWidth(); applyOutlineState();autoW(); restoreAnchor(a); hideTip(); if(COMPOSE.current)renderComposer(); stickTop();updateSectionStrip(); keepFieldInView();}
+function relayout(){const a=topAnchor(),changed=applyLayout(); if(changed&&META)drawPins(); applySideWidth(); applyOutlineState();autoW(); restoreAnchor(a); hideTip(); if(COMPOSE.current)renderComposer(); stickTop();updateSectionStrip(); keepFieldInView(); fitBarWords();}
 // The height a list section header (sticky) sticks below. In compact, #right is the scroll box and the tool bar (#bar1, which holds
 // the sheet handle in narrow) is already stuck above it, so the header sticks below that. In wide, #list itself is the scroll box, so this is 0.
 function stickTop(){let t=0; const b=$('#bar1');

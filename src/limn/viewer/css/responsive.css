@@ -230,9 +230,8 @@ body.lay-narrow #bar1 #btn-pos{flex:0 1 auto;min-width:0}
 #btn-pos .nm{flex:0 1 auto;min-width:0;margin-right:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 #btn-pos b{flex:none;font-weight:600;font-variant-numeric:tabular-nums;white-space:nowrap}
 #btn-pos :is(.ic,.ddot){flex:none}
-/* The width budget (UX spec §V4 폭 예산): under 400px the review pill drops its eye and keeps the count; under 360px the bar buttons'
-   side padding and the gap in a cell go from 8 to 4px. Decoration only - the layout never changes by width here. */
-@media (max-width:399.98px){body.lay-narrow #bar1 .rv-n .ic{display:none}}
+/* The width budget (UX spec §V4 폭 예산): under 360px the bar buttons' side padding and the gap in a cell go from 8 to 4px (the
+   pin chip's halves keep 8px, below). Decoration only - the layout never changes by width here. */
 @media (max-width:359.98px){body.lay-narrow #bar1 :is(.bar-l,.bar-r){gap:var(--space-1)}body.lay-narrow #bar1 button:not(.btn-icon){padding:0 var(--space-1)}}
 body.compact #bar1 #btn-more{flex:0 0 44px;padding:0}   /* utility = ghost (the same convention as notification/theme/help on desktop) */
 /* The phone and tablet bar's right end: [⋯]'s ink ends on the ink line (--ink), as R2 asks of a ghost at a row's end - centred in
@@ -350,6 +349,41 @@ body.lay-narrow:not(.side-open) #bar1{padding-bottom:var(--space-2)}   /* the co
   body.lay-narrow .sec-head button{min-height:var(--ctl-touch-sm);height:var(--ctl-touch-sm);padding-top:0;padding-bottom:0;position:relative}
   body.lay-narrow .sec-head button::after{content:'';position:absolute;left:50%;top:0;width:max(100%,var(--hit));height:calc(var(--hit) + 2px);transform:translateX(-50%)}
 }
+/* The phone and tablet sheet's tool row (docs/handbook/viewer.md §모바일 레이아웃, the owner's pick of three redesigns): words
+   first. The pin glyph sat lopsided on its count and the row's fills touched the sheet's edge, in two shapes. Now one split chip
+   [핀 5 | 검토 1] - the right half (#btn-rv) goes to the review list - and the select icon on the same 28px tonal fill
+   (--secondary, --radius-lg; a pressed select is that chip in --primary), then [본문 1/2 ▾] and [⋯] as ghosts. The controls are
+   12px under the sheet's edge with the grabber in that inset (4px from the edge, 4px from them) and 4px above the row's end;
+   one 8px gap (the chip's halves meet); 18px icons; counts, words and the page figures trimmed to their cap height
+   (text-box), so the row centres every icon on the numbers' cap-height centre; each control answers 44px round its centre. */
+.side-l,#btn-rv{display:none}
+body.lay-narrow #bar1{padding-top:var(--space-3);--tb-h:var(--control-h)}
+body.lay-narrow.side-open #bar1{padding-bottom:var(--space-1)}
+body.lay-narrow #bar1 #sheet-grip{position:absolute;grid-column:2/3;left:50%;top:0;transform:translateX(-50%);height:var(--hit);padding-top:var(--space-1)}   /* its bar in the inset, its 44px box the empty middle column */
+body.lay-narrow #bar1 #btn-side{position:relative}
+body.lay-narrow #btn-side .pin-ic{position:static;margin:0}
+body.lay-narrow #btn-side .pin-ic svg,body.lay-narrow #bar1 #btn-side .rv-n{display:none}
+body.lay-narrow #btn-side .pin-ic .c-dot{top:var(--space-1);right:var(--space-1)}   /* the draft dot on the chip's corner */
+body.lay-narrow #bar1 .side-l{display:block;color:var(--muted-foreground)}
+body.lay-narrow #bar1 #btn-rv:not([hidden]){display:inline-flex}
+body.lay-narrow #bar1 :is(#btn-side,#btn-rv,#btn-select){background:var(--secondary);color:var(--secondary-foreground);border-radius:var(--radius-lg)}
+body.lay-narrow #bar1 :is(#btn-side,#btn-rv){gap:var(--space-1);padding:0 var(--space-3)}
+body.lay-narrow #bar1 .bar-l:has(#btn-rv:not([hidden])) #btn-side{border-radius:var(--radius-lg) 0 0 var(--radius-lg)}
+body.lay-narrow #bar1 #btn-rv{border-radius:0 var(--radius-lg) var(--radius-lg) 0;margin-left:calc(-1 * var(--space-2));box-shadow:inset 1px 0 0 var(--border)}   /* the halves' seam, not a border */
+body.lay-narrow #bar1 #btn-rv,body.lay-narrow #bar1 #btn-rv .side-l{color:var(--status-review)}
+body.lay-narrow #bar1 :is(.side-n,.rv-c){font-weight:600;font-variant-numeric:tabular-nums}
+body.lay-narrow #bar1 :is(.side-n,.side-l,.rv-c,#btn-pos b,#btn-pos .nm){text-box:trim-both cap alphabetic}
+body.lay-narrow #bar1 #btn-select{width:36px;min-width:36px;padding:0;justify-content:center}
+body.lay-narrow #bar1 .ic{width:18px;height:18px}
+body.lay-narrow #bar1 #btn-pos{gap:var(--space-1);padding:0 var(--space-2)}
+body.lay-narrow #bar1 #btn-pos .ic{width:16px;height:16px;color:var(--muted-foreground)}
+@media (pointer:coarse){body.lay-narrow #bar1 :is(#btn-side,#btn-rv,#btn-select,#btn-pos,#btn-more)::after{top:50%;height:var(--hit);transform:translate(-50%,-50%)}
+  body.lay-narrow #bar1 #btn-select::after{left:auto;right:0;transform:translateY(-50%)}}   /* the 36px chip's hit reaches left into the gap, never into the grabber's column */
+/* The width budget: under 400px the chip's halves pad 8px; when the left cell still overflows (English, three-digit counts, a
+   folded cover) the words step aside (fitBarWords, .bar-tight) and the counts stay, the review half still purple. Decoration
+   only - the row's layout never changes by width. */
+@media (max-width:399.98px){body.lay-narrow #bar1 :is(#btn-side,#btn-rv){padding:0 var(--space-2)}}
+body.lay-narrow #bar1.bar-tight .side-l{display:none}
 /* ---- Spread-out folded layout / tablet (mid): the document nav bar on top, the action row on the bottom - both fixed to the full screen
    width, with the panel spread between them (docs/handbook/viewer.md §펼친 화면 레이아웃). It used to have the tool bar follow the panel, so [핀]
    jumped to the top-right when expanded and the bottom-right when collapsed (observed 842x758, y 56->693), and the document-side panel
