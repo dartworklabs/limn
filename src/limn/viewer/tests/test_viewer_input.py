@@ -5150,6 +5150,78 @@ class TouchFieldsAnswer44(ViewerBase):
         self.assertEqual(page.evaluate(MISSES_44, "#outline-search"), [])
 
 
+class KeyModalityLogic(unittest.TestCase):
+    """keyNavigates(): which key presses make the keyboard the input the focus ring answers (docs/handbook/viewer.md §뜻과
+    모양) - any key outside a text field, and in one only a key that leaves or acts (Tab, Escape, or with Ctrl/⌘/Alt); typing,
+    a touch keyboard's letters and an IME's composing key included, is not."""
+
+    def test_typing_in_a_field_is_not_navigation_but_tab_escape_and_shortcuts_are(self):
+        """Outside a field '?', Tab and Shift count; in a field 'a', Enter and a composing key do not, Tab, Escape and
+        Ctrl+Enter do; an 'Unidentified' key (Android's touch keyboard) never counts."""
+        js = "\n".join(
+            [
+                extract_js_fn("keyNavigates"),
+                "console.log(JSON.stringify([keyNavigates('?',false,false),keyNavigates('Tab',false,false),"
+                "keyNavigates('Shift',false,false),keyNavigates('a',true,false),keyNavigates('Enter',true,false),"
+                "keyNavigates('Process',true,false),keyNavigates('Tab',true,false),keyNavigates('Escape',true,false),"
+                "keyNavigates('Enter',true,true),keyNavigates('Unidentified',false,false)]));",
+            ]
+        )
+        self.assertEqual(node_or_skip(self, js), [True, True, True, False, False, False, True, True, True, False])
+
+
+class SheetCloseFocus(ViewerBase):
+    """The focus a sheet gives back draws no ring after a press (docs/handbook/viewer.md §뜻과 모양). A sheet now takes the
+    first focus itself (SheetFocus), but closing one still hands the focus back by script - the navigation sheet to
+    [본문 1/2 ▾], help to what had it - and Chrome rings a script focus whenever the last input it counted was a key, which a
+    tap on Android did not reset: the owner's ring on [닫기], one step later. html[data-input] says which input the ring
+    answers: after a press no control draws it (a text field excepted); after a key it does."""
+
+    STATE = SheetFocus.STATE
+
+    def press_off_the_controls(self, page, cdp):
+        """A tap on the PDF's top margin: a press that moves no focus, as a tap on Android's bar does not."""
+        x, y = self.on_page(page, 0.9, 0.02)
+        self.tap(cdp, x, y)
+        settle(page)
+
+    def given_back(self, page, opener, sheet):
+        """Opens sheet by opener and closes it: [what has the focus then, its outline style]."""
+        page.evaluate(opener)
+        settle(page)
+        page.evaluate("id=>document.getElementById(id).close()", sheet)
+        settle(page)
+        return page.evaluate(self.STATE)
+
+    def test_the_focus_given_back_after_a_press_draws_no_ring(self):
+        """411x908: a key press, a tap that moves no focus, then the navigation sheet opens and closes - [본문 1/2 ▾] gets
+        the focus back with no outline (it was solid); the same after help, which gives it back to [본문 1/2 ▾] too."""
+        page = self.view(phone(411, 908), init=NO_PNG_CHIP)
+        cdp = self.cdp(page)
+        for opener, sheet in (("openNavSheet()", "nav-sheet"), ("openHelp()", "help")):
+            with self.subTest(sheet=sheet):
+                page.keyboard.press("Shift")
+                self.press_off_the_controls(page, cdp)
+                self.assertEqual(self.given_back(page, opener, sheet), ["btn-pos", "none"])
+
+    def test_the_focus_given_back_after_a_key_keeps_the_ring(self):
+        """A guard, 411x908: a tap, then Tab - the keyboard is the input again - then the navigation sheet opens and closes:
+        [본문 1/2 ▾] is ringed."""
+        page = self.view(phone(411, 908), init=NO_PNG_CHIP)
+        self.press_off_the_controls(page, self.cdp(page))
+        page.keyboard.press("Tab")
+        self.assertEqual(self.given_back(page, "openNavSheet()", "nav-sheet"), ["btn-pos", "solid"])
+
+    def test_a_tapped_text_field_keeps_its_ring(self):
+        """411x908: the note field tapped after a pick keeps its ring - it shows where the typing goes."""
+        page = self.view(phone(411, 908), init=NO_PNG_CHIP)
+        cdp = self.cdp(page)
+        self.long_press_pick(cdp, page)
+        self.tap(cdp, *self.center(page, "#note"))
+        settle(page)
+        self.assertEqual(page.evaluate(self.STATE), ["note", "solid"])
+
+
 class MetaWithoutCommit(ViewerBase):
     """The meta line of a manuscript outside Git (docs/handbook/viewer.md §모바일 레이아웃): the server names no commit ('-'),
     and [더보기] read 'main.tex · 2쪽 · -' and the desktop chip row 'main.tex · 2쪽 · - · <built>'. The empty piece goes, with
