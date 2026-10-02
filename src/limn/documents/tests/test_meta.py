@@ -312,12 +312,12 @@ class Meta(Fixture):
         )
 
     def test_pins_rev_follows_the_pins_file(self):
-        """ "0" with no file; mtime_ns:size once written, changing when the file is replaced."""
+        """ "0" with no file; mtime_ns:size:inode once written, changing when the file is replaced."""
         f = self.state / "pins.jsonl"
         self.assertEqual(pin_change_token(f), "0")
         f.write_text("{}\n", encoding="utf-8")
         first = pin_change_token(f)
-        self.assertEqual(first, "%d:%d" % (f.stat().st_mtime_ns, 3))
+        self.assertEqual(first, "%d:%d:%d" % (f.stat().st_mtime_ns, 3, f.stat().st_ino))
         self.assertEqual(pin_change_token(f), first)
         f.write_text("{}\n{}\n", encoding="utf-8")
         self.assertNotEqual(pin_change_token(f), first)

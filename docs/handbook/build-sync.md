@@ -279,7 +279,7 @@ Limn이 띄우는 git은 모두 [`src/limn/platform/git.py`](../../src/limn/plat
 
 폴링에는 `GET /api/meta?light=1` 을 쓴다. 라이트 meta는 `n_open`·`n_done` 이 빠지고 `snapshot_pins()`(sync 쓰기)를 부르지 않는다. 뷰어는 응답의 두 값이 **바뀌었을 때만** `GET /api/pins`(sync 있음)를 불러 목록을 다시 그린다. 첫 핀 읽기가 실패했거나 이후 핀·휴지통 읽기가 실패·무효화됐으면 읽은 기준값을 갱신하지 않아 다음 폴링에서 재시도한다.
 
-- `pins_rev`: `pins.jsonl` 의 `f"{mtime_ns}:{size}"`. 파일이 없으면 `"0"`(`documents/reads.py`의 `pins_rev`).
+- `pins_rev`: `pins.jsonl` 의 `f"{mtime_ns}:{size}:{inode}"`. 파일이 없으면 `"0"`(`pins/application.py`의 `change_token`). 뷰어는 이 값을 직전 값과 같은지만 비교한다. 핀 파일은 원자적 교체로만 쓰이고 새 파일은 옛 파일이 inode를 쥔 동안 만들어지므로, 같은 시각 틱 안에 같은 크기로 다시 써도 연속한 두 값은 inode가 달라 항상 다르다.
 - `src_mtime`: 아래에서 설명한다.
 
 그래서 변화는 몇 초 안에 화면에 들어오고, 아무 변화가 없는 동안은 `pins.jsonl` 을 건드리지 않는다.
