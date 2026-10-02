@@ -181,8 +181,29 @@ function coach(key,text){const seen=Object.assign({},prefs().coach||{}); if(seen
 function setSelMode(on){SELMODE=!!on; document.body.classList.toggle('selmode',SELMODE);
   const b=$('#btn-select'); b.setAttribute('aria-pressed',String(SELMODE)); b.querySelector('.lbl').textContent=SELMODE?'선택 중':'선택';
   if(SELMODE)coach('sel','끌어서 고칠 곳을 고르세요 · 탭하면 그 문단 · 두 손가락으로 확대');}
-// Opens [더보기] with its view group drawn for now: the sheet-height or panel-width segment and the zoom figure.
-function openMore(){const d=$('#more'); if(d.open)return; hideTip(); drawZoom(); renderSizeSeg(); d.showModal(); toastHost();}
+// Opens [더보기] with its view group drawn for now: the sheet-height or panel-width segment and the zoom figure, and its foot on
+// one ink line (footInk).
+function openMore(){const d=$('#more'); if(d.open)return; hideTip(); drawZoom(); renderSizeSeg(); d.showModal(); footInk(); toastHost();}
+// How far the foot's wordmark and version drop so their ink bottoms meet [도움말]'s: from the label's Hangul ink descent below
+// the shared baseline and the version's (px, positive = below). The wordmark has none ("limn" ends on the baseline); a label
+// without Hangul ('Help', whose 'p' hangs below by design) counts as none. Pure.
+function inkDrops(labelDescent,versionDescent){return {word:labelDescent,ver:labelDescent-versionDescent};}
+// [더보기]'s foot on one ink line (docs/handbook/viewer.md §모바일 레이아웃): Hangul reaches below the Latin baseline the row
+// shares, so on one baseline [도움말] read lower than "limn" and the version. From the fonts in use - canvas metrics of the
+// very strings, read at 64 times the size because the canvas rounds them to whole pixels - the wordmark and the version drop
+// until their ink bottoms meet the label's Hangul (inkDrops), and the chevron moves to the centre of the label's ink.
+function footInk(){const f=$('#more-foot'),h=f&&f.querySelector('[data-act=help]'),v=f&&f.querySelector('.m-ver'); if(!h||!v)return;
+  const t=[...h.childNodes].find(n=>n.nodeType===3&&n.nodeValue.trim()),ch=h.querySelector('svg'); if(!t)return;
+  const c=footInk.ctx||(footInk.ctx=document.createElement('canvas').getContext('2d')),S=64;
+  const m=(el,s)=>{const cs=getComputedStyle(el); c.font=cs.fontStyle+' '+cs.fontWeight+' '+parseFloat(cs.fontSize)*S+'px '+cs.fontFamily; const x=c.measureText(s);
+    return {a:x.actualBoundingBoxAscent/S,d:x.actualBoundingBoxDescent/S};};
+  const label=t.nodeValue.trim(),hangul=label.replace(/[^\u1100-\u11ff\u3130-\u318f\uac00-\ud7a3]/g,''),hm=m(h,label);
+  const d=inkDrops(hangul?m(h,hangul).d:0,m(v,v.textContent.trim()).d);
+  f.style.setProperty('--ink-word',d.word+'px'); f.style.setProperty('--ink-ver',d.ver+'px'); f.style.setProperty('--help-chev','0px');
+  if(!ch)return; const w=document.createElement('span'),k=document.createElement('span');   // the label's baseline: an empty inline-block on it
+  k.style.cssText='display:inline-block;width:0;height:0'; h.insertBefore(w,t); w.append(t,k); const base=k.getBoundingClientRect().bottom;
+  h.insertBefore(t,w); w.remove(); const mid=base-(hm.a-hm.d)/2,cr=ch.getBoundingClientRect();
+  f.style.setProperty('--help-chev',(mid-(cr.top+cr.height/2))+'px');}
 // Clicking outside a dialog (the backdrop) closes it - only for a click whose target is the dialog itself and that falls outside its
 // box rectangle. The same for [더보기], help, the navigation sheet and the status line's list (and the Trash, below); help and
 // the documents sheet used to stay open (input review 2026-09-26).

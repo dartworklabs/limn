@@ -11,7 +11,7 @@ root reads the folder (server.read_brand) and passes the bytes to brand().
   pixel drawings on 먹 (one for light and dark tabs) and their .ico, and the 180 px full-bleed apple-touch-icon.
 - MARK_SLOTS: the viewer page's placeholders for the inline logo and the SVG made for that size - the icon with the
   optical correction of 16 px (top bar), the wordmark drawn for 20 px (help header, 20 px tall, and [더보기]'s foot, where
-  the CSS scales it to the version text's x-height; the page has the placeholder twice). A project's label never holds the Limn logo (docs/handbook/viewer.md §마크와 파비콘).
+  the CSS draws it at the --foot-word token, 16 px; the page has the placeholder twice). A project's label never holds the Limn logo (docs/handbook/viewer.md §마크와 파비콘).
 - parse_svg(): one vendored SVG as a Drawing. The vocabulary is closed (svg, g, path and circle with their geometry
   attributes), and each brand colour becomes the part it paints: 뼈종이 the tile, 먹 a stroke, 주 the pin. Anything
   else is refused, so no markup or colour of the file reaches the page by accident.

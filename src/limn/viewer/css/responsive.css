@@ -65,8 +65,9 @@ body:not(.lay-narrow) #coach button{pointer-events:auto}
    x-height 2.1 times the version's: the version floated 6px above its foot. */
 #more .more-foot{display:flex;align-items:baseline;gap:var(--space-2);min-height:var(--hit);border-top:1px solid var(--border);padding-top:var(--space-1)}
 #more .more-brand{display:inline-block;color:var(--foreground);font-size:var(--text-base);line-height:var(--hit);white-space:nowrap}
-#more .m-ver{color:var(--muted-foreground);font-variant-numeric:tabular-nums}
+#more .m-ver{color:var(--muted-foreground);font-variant-numeric:tabular-nums;vertical-align:calc(-1 * var(--ink-ver,0px))}
 #more .more-foot button{gap:var(--space-1)}
+#more .more-foot [data-act=help] .ic{transform:translateY(var(--help-chev,0px))}   /* on [도움말]'s ink centre (footInk) */
 @media (hover:hover){#more .seg button:not(.on):hover{background:var(--accent)}}
 @media (pointer:coarse){
   :root{--doc-nav-h:48px;--text-xs:12px}   /* no touch text below 12px: badges, counts, avatar initials and page numbers were 11px (diagnosis P7) */

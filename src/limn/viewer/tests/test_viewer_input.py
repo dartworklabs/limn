@@ -12,6 +12,7 @@ The owner-approved findings of the 2026-09-26 input review (docs/handbook/viewer
 Run: uv run pytest -q src/limn/viewer/tests/test_viewer_input.py
 """
 
+import base64
 import json
 import re
 import time
@@ -2527,46 +2528,84 @@ class SegmentedControl(ViewerBase):
                     self.assertLessEqual(s["reach"], 4, s)
 
 
-# The baselines in the open [더보기]'s foot, from zero-size inline-block markers put after the version and [도움말]'s text (an
-# empty inline-block sits on its line's baseline), the wordmark's glyph baseline (the SVG's bottom: its viewBox ends on the
-# baseline, and "limn" has no descender), and the x-heights: the wordmark's (545 of its 740 units) and the version font's 'x'.
-FOOT = """() => {const v = document.querySelector('#more .m-ver'), h = document.querySelector('#more-foot [data-act=help]'),
-    w = document.querySelector('#more-foot svg.limn-mark-word'), mark = e => {const m = document.createElement('span');
-      m.style.cssText = 'display:inline-block;width:0;height:0'; e.append(m); const b = m.getBoundingClientRect().bottom; m.remove(); return b;};
-  const hText = [...h.childNodes].find(n => n.nodeType === 3 && n.nodeValue.trim()), hs = document.createElement('span');
-  h.insertBefore(hs, hText); hs.append(hText); const help = mark(hs); h.insertBefore(hText, hs); hs.remove();
-  const c = document.createElement('canvas').getContext('2d'), cs = getComputedStyle(v);
-  c.font = cs.fontWeight + ' ' + cs.fontSize + ' ' + cs.fontFamily;
-  const W = w.getBoundingClientRect();
-  return {word: W.bottom, version: mark(v), help, ratio: (W.height * 545 / 740) / c.measureText('x').actualBoundingBoxAscent};}"""
+# The open [더보기]'s foot, for an ink measure: the clip round the foot (CSS px) and, inside it, the boxes of the wordmark,
+# the version, [도움말]'s text and its chevron, each with its ink colour's luminance, and the sheet's - plus the wordmark's height.
+FOOT_BOXES = """() => {const f = document.querySelector('#more-foot'), F = f.getBoundingClientRect(), clip = {x: 0, y: F.top - 8, width: innerWidth, height: F.height + 16};
+  const lum = c => {const m = c.match(/[\\d.]+/g).map(Number); return 0.2126 * m[0] + 0.7152 * m[1] + 0.0722 * m[2];};
+  const box = (r, color, pad) => [r.left - clip.x, r.top - clip.y - pad, r.right - clip.x, r.bottom - clip.y + pad, lum(color)];
+  const h = f.querySelector('[data-act=help]'), t = [...h.childNodes].find(n => n.nodeType === 3 && n.nodeValue.trim()), rg = document.createRange();
+  rg.selectNodeContents(t); const w = f.querySelector('svg.limn-mark-word'), v = f.querySelector('.m-ver'), ch = h.querySelector('svg');
+  return {clip, bg: lum(getComputedStyle(document.querySelector('#more')).backgroundColor), height: w.getBoundingClientRect().height,
+    boxes: {word: box(w.getBoundingClientRect(), getComputedStyle(w.querySelector('.limn-mark-stroke')).fill, 2),
+      version: box(v.getBoundingClientRect(), getComputedStyle(v).color, 4), help: box(rg.getBoundingClientRect(), getComputedStyle(h).color, 4),
+      chevron: box(ch.getBoundingClientRect(), getComputedStyle(h).color, 2)}};}"""
+# Reads the ink of each box from a screenshot (base64 PNG at the device pixel ratio): per pixel row the strongest coverage
+# (luminance against the sheet's, over the ink colour's), and the ink's top and bottom edges in CSS px, the partial edge rows
+# counted by their coverage.
+INK = """async ([b64, dpr, boxes, bg]) => {const img = new Image(); img.src = 'data:image/png;base64,' + b64; await img.decode();
+  const c = document.createElement('canvas'); c.width = img.width; c.height = img.height; const x = c.getContext('2d'); x.drawImage(img, 0, 0);
+  const D = x.getImageData(0, 0, c.width, c.height).data, W = c.width, out = {};
+  for (const [k, b] of Object.entries(boxes)) {const X0 = Math.max(0, Math.floor(b[0] * dpr)), X1 = Math.min(W, Math.ceil(b[2] * dpr));
+    const Y0 = Math.max(0, Math.floor(b[1] * dpr)), Y1 = Math.min(c.height, Math.ceil(b[3] * dpr)), cov = [];
+    for (let y = Y0; y < Y1; y++) {let m = 0; for (let xx = X0; xx < X1; xx++) {const i = (y * W + xx) * 4;
+        const l = 0.2126 * D[i] + 0.7152 * D[i + 1] + 0.0722 * D[i + 2]; m = Math.max(m, Math.abs(l - bg) / Math.abs(b[4] - bg));} cov.push(Math.min(1, m));}
+    let first = -1, last = -1; cov.forEach((v, i) => {if (v > 0.05) {if (first < 0) first = i; last = i;}});
+    out[k] = {top: (Y0 + first + 1 - cov[first]) / dpr, bottom: (Y0 + last + cov[last]) / dpr};}
+  return out;}"""
 
 
 class MoreFoot(ViewerBase):
     """[더보기]'s foot (docs/handbook/viewer.md §모바일 레이아웃): the owner found the version beside the 20px wordmark neither
-    bottom- nor centre-aligned, and the wordmark large against the text. The version and [도움말 ›] stand on the wordmark's
-    baseline, and the wordmark's x-height is 1.3-1.5 times the version's."""
+    bottom- nor centre-aligned and the wordmark large, then asked for the wordmark at 16px and the logo and version aligned to
+    the bottom of [도움말]. On one baseline the Hangul label reads lower - its glyphs reach below the Latin baseline - so the
+    three are aligned by their ink: the wordmark and the version drop by the label's ink descent (footInk), and the chevron
+    sits on the label's ink centre."""
 
-    def test_the_wordmark_the_version_and_help_share_one_baseline(self):
-        """411x908, light and dark: the three baselines agree within 0.5px (the version sat 4px above the glyphs' foot)."""
+    def ink(self, page, dpr):
+        """The foot's measured ink edges (CSS px): open [더보기], screenshot the foot, read each box's ink."""
+        page.evaluate("openMore()")
+        settle(page)
+        f = page.evaluate(FOOT_BOXES)
+        b64 = base64.b64encode(page.screenshot(clip=f["clip"])).decode()
+        return f, page.evaluate(INK, [b64, dpr, f["boxes"], f["bg"]])
+
+    def test_the_wordmark_the_version_and_help_end_on_one_ink_line(self):
+        """411x908 at DPR 2.625 and 1, light and dark: the ink bottoms of the wordmark, the version and [도움말] are within
+        0.5px of each other (on one baseline the label's ink sat about 1px lower)."""
+        for dpr in (2.625, 1):
+            for dark in (False, True):
+                with self.subTest(dpr=dpr, dark=dark):
+                    page = self.view(phone(411, 908, dpr), dark=dark)
+                    _, ink = self.ink(page, dpr)
+                    bottoms = [ink[k]["bottom"] for k in ("word", "version", "help")]
+                    self.assertLessEqual(max(bottoms) - min(bottoms), 0.5, ink)
+
+    def test_the_chevron_sits_on_the_labels_ink_centre(self):
+        """411x908 at DPR 2.625, light and dark: the chevron's ink centre is within 0.5px of [도움말]'s."""
         for dark in (False, True):
             with self.subTest(dark=dark):
                 page = self.view(phone(411, 908), dark=dark)
-                page.evaluate("openMore()")
-                settle(page)
-                f = page.evaluate(FOOT)
-                self.assertLessEqual(abs(f["version"] - f["word"]), 0.5, f)
-                self.assertLessEqual(abs(f["help"] - f["word"]), 0.5, f)
+                _, ink = self.ink(page, 2.625)
+                mid = {k: (ink[k]["top"] + ink[k]["bottom"]) / 2 for k in ("help", "chevron")}
+                self.assertLessEqual(abs(mid["help"] - mid["chevron"]), 0.5, ink)
 
-    def test_the_wordmarks_x_height_is_1_3_to_1_5_times_the_versions(self):
-        """411x908 and a 1000x800 mouse window (the same sheet): the ratio of the x-heights is in 1.3-1.5 (it was about 2.3)."""
+    def test_the_wordmark_is_the_foot_word_token_tall_and_english_does_not_drop(self):
+        """The wordmark is --foot-word (16px) tall on touch and with a mouse; in English 'Help' has no descent, so the
+        wordmark stays on the baseline (no drop)."""
         for device in (phone(411, 908), MOUSE_MID):
             with self.subTest(width=device["viewport"]["width"]):
                 page = self.view(device)
                 page.evaluate("openMore()")
                 settle(page)
-                ratio = page.evaluate(FOOT)["ratio"]
-                self.assertGreaterEqual(ratio, 1.3)
-                self.assertLessEqual(ratio, 1.5)
+                self.assertEqual(page.evaluate(FOOT_BOXES)["height"], 16)
+        page = self.view(phone(411, 908), lang="en")
+        page.evaluate("openMore()")
+        settle(page)
+        self.assertAlmostEqual(
+            page.evaluate("parseFloat(document.querySelector('#more-foot').style.getPropertyValue('--ink-word'))"),
+            0,
+            delta=0.3,
+        )
 
 
 class RangeExcerptLogic(unittest.TestCase):
