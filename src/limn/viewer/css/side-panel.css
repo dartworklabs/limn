@@ -48,7 +48,11 @@ body:not(.lay-wide) #nav-side{display:none}
    as wide as it was. Measured before: boxes at 8, 12 and 13px, text at 12, 13, 25 and 31px. The meta row (#bar2) keeps its text
    on the box line with its chips, as the composer keeps its labels with its fields: a chip wraps to the row's start when the text
    is long, and on the text line it would leave the box line. */
-body.lay-wide #bar1{padding:var(--space-2) var(--space-3)}
+/* The instance stripe reaches 4px over the panel's top (less what the safe area takes): half of that goes over the controls and
+   half comes off under them, so they sit in the middle of what shows between the stripe and the line (6 and 6px), the bar 45px
+   tall as before (the symmetry audit: 4 over and 8 under). */
+body.lay-wide #bar1{--stripe-in:max(0px,var(--space-1) - env(safe-area-inset-top));
+  padding:calc(var(--space-2) + var(--stripe-in) / 2) var(--space-3) calc(var(--space-2) - var(--stripe-in) / 2)}
 body.lay-wide .sec-head{padding-left:var(--space-6)}   /* the chevron's box on the text line: the toggle's -4px margin, 1px border and 4px padding */
 body.lay-wide .sec-head button:not(.sec-tg){padding-left:var(--space-3);padding-right:var(--space-3)}   /* a tool's label ends on the text line */
 /* The tool bar is a single height (--tb-h: 28px desktop, 44px touch). The page field is also the same height/text size as the buttons - taking the
@@ -67,13 +71,14 @@ body.lay-wide #bar1 #btn-more[aria-expanded=true]{background:var(--accent);color
 @media (hover:hover){body.lay-wide #bar1 #btn-more:hover{background:var(--accent);color:var(--foreground)}}
 #btn-rebuild:not(.btn-default){background:transparent;border-color:transparent;color:var(--muted-foreground)}
 body.lay-wide #btn-rebuild .ic{display:none}   /* text only on a wide screen - so the 348px panel's tool bar fits on one line */
+body.lay-wide #bar1 #btn-rebuild .lbl{text-box:trim-both cap alphabetic}   /* its words' cap height on the row's middle, as the compact rows' (the symmetry audit: 0.6px high as a line box) */
 body.lay-wide #bar1 #btn-rebuild{padding:0 var(--space-3)}   /* its label on the text line; with one [⋯] for three icons the row fits the 348px panel (at 8px [?] had dropped to a second line) */
 @media (hover:hover){#btn-rebuild:not(.btn-default):hover{background:var(--accent);color:var(--foreground)}}
 #bar1 .chip{height:var(--control-h-sm);display:block;line-height:var(--control-h-sm);padding:0 var(--space-2);flex:0 1 auto;min-width:40px}
 /* Safe areas in the wide layout (an iPad home-screen app or full screen, docs/handbook/viewer.md §모바일 레이아웃): the nav bar and the
    panel start below the status bar, and the composer's action row, the list's end and the floating status chips stay above the home
    indicator. The links and tool-bar buttons used to sit under the status bar and [취소][핀 저장] on the home indicator (diagnosis P9). */
-body.lay-wide #doc-nav{height:calc(var(--doc-nav-h) + env(safe-area-inset-top));padding-top:env(safe-area-inset-top);padding-left:max(var(--space-4),env(safe-area-inset-left))}
+body.lay-wide #doc-nav{height:calc(var(--doc-nav-h) + env(safe-area-inset-top));padding-top:max(env(safe-area-inset-top),var(--space-1));padding-left:max(var(--space-4),env(safe-area-inset-left))}   /* under the stripe (responsive.css) */
 body.lay-wide.side-open #right{padding:env(safe-area-inset-top) env(safe-area-inset-right) 0 0}
 body.lay-wide #c-actions{padding-bottom:calc(var(--space-2) + env(safe-area-inset-bottom))}
 body.lay-wide #composer[hidden]~#list{padding-bottom:calc(32px + env(safe-area-inset-bottom))}   /* only when the action row is not below it */

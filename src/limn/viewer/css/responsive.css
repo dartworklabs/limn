@@ -31,7 +31,9 @@ body:not(.lay-narrow) #coach button{pointer-events:auto}
    no grab band and no dimmed backdrop - a menu, not a sheet. Esc, a click outside it and a row that closes it give the focus back
    to [⋯] (a modal dialog's own return). */
 body.lay-wide #more{position:fixed;inset:var(--more-top,48px) var(--more-right,8px) auto auto;margin:0;width:360px;max-width:calc(100vw - 16px);
-  max-height:calc(100dvh - var(--more-top,48px) - 8px);border-radius:var(--radius-lg);padding:0 var(--space-4) var(--space-3)}
+  max-height:calc(100dvh - var(--more-top,48px) - 8px);border-radius:var(--radius-lg);padding:0 calc(var(--space-3) - 1px) var(--space-3)}
+/* inside, the phone sheet's two lines: boxes 12px in (its 1px border counted), text 24px in */
+body.lay-wide :is(#more-label,#more-info,#more .m-l,#more .more-brand){padding-left:var(--space-3)}
 body.lay-wide #more::backdrop{background:transparent}
 body.lay-wide #more .more-top{padding-top:var(--space-2)}
 #more .more-head{flex-wrap:nowrap;gap:var(--space-2);min-height:var(--hit)}
@@ -219,7 +221,7 @@ body.compact #bar1 .bar-l:has(#btn-rv:not([hidden])) #btn-side{border-radius:var
 body.compact #bar1 #btn-rv{border-radius:0 var(--radius-lg) var(--radius-lg) 0;margin-left:calc(-1 * var(--space-2));box-shadow:inset 1px 0 0 var(--border)}   /* the halves' seam, not a border */
 body.compact #bar1 #btn-side:focus-visible{z-index:1}   /* its ring over the review half that meets it */
 body.compact #bar1 #btn-rv,body.compact #bar1 #btn-rv .side-l{color:var(--status-review)}
-body.compact #bar1 :is(.side-n,.rv-c){font-weight:600;font-variant-numeric:tabular-nums}
+body.compact #bar1 :is(.side-n,.rv-c){font-weight:600}   /* proportional figures: a tabular '1' left the half's label 1px off its centre */
 body.compact #bar1 :is(.side-n,.side-l,.rv-c,#btn-select .lbl,#btn-pos b,#btn-pos .nm){text-box:trim-both cap alphabetic}
 body.compact #bar1 .ic{width:18px;height:18px}
 /* If there's no room, the label chip shrinks first (the full name is in the description) - this prevents a button's text from getting clipped to something like 'DF 재빌드' */
@@ -346,10 +348,12 @@ body.lay-narrow #right{position:fixed;left:0;right:0;bottom:var(--kb,0px);width:
   max-height:calc(var(--vvh,100dvh) - var(--sheet-gap));border-left:0;border-top:1px solid var(--border-strong);border-radius:var(--radius-lg) var(--radius-lg) 0 0;
   box-shadow:0 -6px 24px var(--shadow-color);z-index:20;padding:0 env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left)}
 /* Sheet height: --sheet-f (fraction of screen height, default 0.64) is changed by dragging or pressing the top-edge handle (#sheet-grip). It shrinks to fit within the visible height when the keyboard is up. */
-body.lay-narrow.side-open #right{height:min(calc(var(--sheet-f,.64) * 100dvh),calc(var(--vvh,100dvh) - var(--sheet-gap)))}
+body.lay-narrow.side-open #right{height:round(down,min(calc(var(--sheet-f,.64) * 100dvh),calc(var(--vvh,100dvh) - var(--sheet-gap))),1px)}
+/* ^ to a whole pixel (round()): at a fractional height the sheet's top - and its tool row - fell between pixels, and the row's
+   icons, drawn at whole pixels, stood up to 1px off the row's middle (the symmetry audit) */
 /* While composing the phone sheet rises to 80% (body.sheet-up, never saved) unless the user sets a height meanwhile (panel-size.js SHEET_KEPT);
    the tablet sheet keeps its height and rises only with the keyboard up, through --sheet-f (tabletLift). */
-body.lay-narrow.side-open.sheet-up #right{height:min(calc(max(var(--sheet-f,.64),.8) * 100dvh),calc(var(--vvh,100dvh) - var(--sheet-gap)))}
+body.lay-narrow.side-open.sheet-up #right{height:round(down,min(calc(max(var(--sheet-f,.64),.8) * 100dvh),calc(var(--vvh,100dvh) - var(--sheet-gap))),1px)}
 /* The sheet's header is one row (docs/handbook/viewer.md §패널 폭과 시트 높이): the handle is the bar's middle column (44px), its
    32x4px bar drawn in the column's top 4px like a sheet handle. It used to be a 24px row of its own whose hit area took the top 8px
    of every tool-bar button (diagnosis P3). The buttons are drawn at --tb-h in the row's 12px insets (below), and their 44px hit
@@ -427,7 +431,7 @@ body.lay-mid{--mbar-tb:var(--control-h);--mbar-pad:var(--space-2);--mbar-h:calc(
   body.lay-mid #bar1 :is(#btn-side,#btn-rv)::after{left:0;right:0;width:auto;transform:translateY(-50%)}
 }
 body.lay-mid #bar1{position:fixed;left:0;right:0;top:auto;bottom:var(--kb,0px);z-index:30;height:var(--mbar-h);--tb-h:var(--mbar-tb);
-  gap:var(--space-2);padding:var(--mbar-pad) max(var(--space-3),env(safe-area-inset-right)) calc(var(--mbar-pad) + env(safe-area-inset-bottom)) max(var(--space-3),env(safe-area-inset-left));
+  gap:var(--space-2);padding:var(--mbar-pad) max(var(--edge),env(safe-area-inset-right)) calc(var(--mbar-pad) + env(safe-area-inset-bottom)) max(var(--edge),env(safe-area-inset-left));
   background:var(--sidebar);border-top:1px solid var(--border);border-bottom:0;pointer-events:auto;visibility:visible}
 /* Buttons keep their natural text width (never shrink or grow). Order follows thumb reach: [선택] .... [PDF 재빌드] [⋯] [핀 N].
    DOM order is shared with the narrow sheet, so only CSS order changes it. */
@@ -453,7 +457,17 @@ body.lay-mid:not(.side-open) #right>#bar2,body.lay-mid:not(.side-open) #right>#b
    the overflowing edge faded (fade-l/fade-r, docLinksFade). The current document's link is always scrolled into view. */
 body.lay-mid #paper-identity{display:none}
 body.lay-mid #doc-nav{position:fixed;top:0;left:0;right:0;z-index:22;height:var(--mid-top);gap:var(--space-2);
-  padding:env(safe-area-inset-top) max(var(--space-3),env(safe-area-inset-right)) 0 max(var(--space-3),env(safe-area-inset-left))}
+  padding:max(env(safe-area-inset-top),var(--space-1)) max(var(--edge),env(safe-area-inset-right)) 0 max(var(--edge),env(safe-area-inset-left))}
+/* Every nav bar - mid's, the tablet sheet's, short's and the desktop's (side-panel.css) - lays its controls out under the
+   instance's 4px stripe, or the safe area, whichever reaches lower, and draws its line under its height as a shadow, so the band
+   its controls are centred in is even and they stand on whole pixels (the symmetry audit of the cross-resolution pass: the band
+   between the stripe and the line was 4px shorter than the bar's box, and the controls stood 2-3px above its middle). The touch
+   bars' ends are the band's edge line, as the panel's (they were 12px in where the panel's content is 16). */
+body:is(.lay-mid,.band-tablet-sheet,.lay-wide) #doc-nav{border-bottom:0;box-shadow:0 1px 0 var(--border)}
+/* The document links' and the view tabs' words are trimmed to their cap height (text-box), so each tab centres its words' cap
+   height on the band: as line boxes a bold '원고' stood 1px above the band's middle. */
+:is(#doc-links,#view-switch) button{display:inline-flex;align-items:center}
+:is(#doc-links,#view-switch) button>:is(.lbl,.doc-link-count){text-box:trim-both cap alphabetic}
 body:is(.lay-mid,.band-tablet-sheet) #doc-links{gap:var(--space-2);margin-right:0;flex:0 1 auto;scrollbar-width:none}   /* the row's one 8px gap */
 body:is(.lay-mid,.band-tablet-sheet) #doc-links::-webkit-scrollbar{display:none}
 body:is(.lay-mid,.band-tablet-sheet) #doc-links.fade-r{mask-image:linear-gradient(to right,var(--foreground) calc(100% - 32px),transparent)}
@@ -504,11 +518,11 @@ body.mid-overlay.side-open.side-closing #grip{animation:mid-grip-out .18s ease-i
    and 18px icons stand on whole pixels, 2px from the stripe and 2px from the line (inside a border the band was 43px, and
    every icon was drawn half a pixel low). */
 body.band-short{--doc-nav-h:48px;--mbar-h:0px}
-body.band-short #doc-nav{right:var(--bar1-w,0px);border-bottom:0;box-shadow:0 1px 0 var(--border);
-  padding:calc(env(safe-area-inset-top) + var(--space-1)) var(--space-2) 0 max(var(--edge),env(safe-area-inset-left))}
+body.band-short #doc-nav{right:var(--bar1-w,0px);
+  padding:max(env(safe-area-inset-top),var(--space-1)) var(--space-2) 0 max(var(--edge),env(safe-area-inset-left))}
 /* Buttons drawn at 40px, centred under the stripe: their 44px hit areas fill the row from the stripe to its line. */
 body.band-short #bar1{top:0;bottom:auto;left:auto;right:0;height:var(--mid-top);gap:var(--space-2);align-items:center;border-top:0;border-bottom:0;box-shadow:0 1px 0 var(--border);
-  padding:calc(env(safe-area-inset-top) + var(--space-1)) max(var(--edge),env(safe-area-inset-right)) 0 0}
+  padding:max(env(safe-area-inset-top),var(--space-1)) max(var(--edge),env(safe-area-inset-right)) 0 0}
 /* The outline toggle at the row's start: a 40px ghost on the edge line, its glyph centred, answering 44px. */
 body.band-short #nav-toc-toggle{width:var(--ctl-touch);min-width:0;height:var(--ctl-touch);min-height:0;position:relative}
 body.band-short #nav-toc-toggle::after{content:'';position:absolute;left:50%;top:50%;width:var(--hit);height:var(--hit);transform:translate(-50%,-50%)}
@@ -530,7 +544,7 @@ body.compact:not(.no-rebuild) #m-rebuild{display:flex}
    overlay over the document that opens one at a time with the sheet. */
 body.band-tablet-sheet{--sheet-gap:calc(var(--doc-nav-h) + env(safe-area-inset-top))}
 body.band-tablet-sheet #doc-nav{height:calc(var(--doc-nav-h) + env(safe-area-inset-top));gap:var(--space-2);
-  padding:env(safe-area-inset-top) max(var(--space-3),env(safe-area-inset-right)) 0 max(var(--space-3),env(safe-area-inset-left))}
+  padding:max(env(safe-area-inset-top),var(--space-1)) max(var(--edge),env(safe-area-inset-right)) 0 max(var(--edge),env(safe-area-inset-left))}
 body.band-tablet-sheet #pdf-body{position:relative}   /* the outline overlay's box starts under the nav bar */
 body.band-tablet-sheet #right>*{width:100%;max-width:640px;margin-left:auto;margin-right:auto}
 body.band-tablet-sheet #coach{top:calc(var(--doc-nav-h) + env(safe-area-inset-top) + var(--space-3))}
@@ -650,6 +664,17 @@ body.compact :is(#nav-sheet-h,#nav-sheet .ns-h,#ns-page label,#trash-h,#help-h,#
 body.compact #help-pins-md{display:block}
 body.compact #help td:first-child{padding-left:var(--space-3)}
 :is(#nav-sheet,#help,#trash) .ns-head>.row>button{background:transparent;border-color:transparent}   /* [닫기] is a ghost, like [더보기]'s - the desktop's centred help and Trash too: an outlined [닫기] in a bordered dialog was an outline inside an outline */
+/* A row's trailing ghost - [닫기] in a head, [도움말 ›] in [더보기]'s foot - ends its label on the text line, as the title and the
+   wordmark start theirs: its box on the box line, then its 1px border and 11px (the symmetry audit: it ended 1px past the line,
+   a 1px border and 12px in). On the desktop's centred help and Trash, whose sides are 24px of padding, [닫기]'s box reaches 9px
+   into the padding - its 1px border and 8px padding - so its label ends 24px in, where the title starts. */
+body.compact :is(#nav-sheet,#help,#trash) .ns-head>.row>button,:is(body.compact,body.lay-wide) #more :is(.more-head>button,.more-foot [data-act=help]){padding-right:calc(var(--space-3) - 1px)}
+body:not(.compact) :is(#help,#trash) .ns-head>.row>button{margin-right:calc(-1 * (var(--space-2) + 1px))}
+/* The heads' titles and [닫기] are trimmed to their cap height (text-box), so the row centres one cap height on the other: as line
+   boxes a 16px bold title and a 14px label stood 1-2.6px apart by their ink. Help's title also lost the 8px bottom margin every
+   dialog's h2 has, which stood it 4px above the row's middle; its wordmark ends on the title's ink bottom (headInk), above it. */
+:is(#nav-sheet-h,#trash-h,#help-h,#more-label b),:is(.ns-head>.row,#more .more-head)>button .lbl{text-box:trim-both cap alphabetic}
+.ns-head h2{margin:0}
 @media (hover:hover){:is(#nav-sheet,#help,#trash) .ns-head>.row>button:hover{background:var(--accent)}}
 body.compact #trash .arc-list{max-height:none;overflow:visible}   /* the sheet scrolls, so a pull down starts at its top */
 /* Selection on a view-only PDF document: no range ladder, stepper, or source expansion (there is no line). The region's text is shown in the source field instead. */

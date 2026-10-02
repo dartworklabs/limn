@@ -25,6 +25,11 @@
 - **The desktop panel on two lines.** Without changing the panel's insets, every box in the wide panel now starts 12 px
   in from its edges and every unboxed label 25 px in, where the cards' text already started: the tool row's ends, its
   [Rebuild PDF] label, the section head's chevron and its tools' labels moved onto these lines.
+- **Spacing measured for symmetry.** The nav bars on tablets, the unfolded Fold and the desktop centre their controls
+  between the instance's colour stripe and their line; they stood 2 to 3 px high. The desktop tool row has 6 px above
+  and below its controls (it had 4 and 8). The tablet rows end on the same edge line as the panel. The sheets' [Close]
+  and the More foot's [Help] end their labels on the same line the titles start on, and help's title no longer stands
+  4 px high. The pin chip's counts use proportional figures, so each half's label is centred.
 - **The landscape phone's top row is 48 px.** It was 44 px, and the instance's colour stripe cut the tops of [Rebuild]
   and the pin chip. The row now has the height of the other touch nav bars, and its controls sit centred between the
   stripe and the row's line. Its icons are 18 px, each centred in its box. Neighbouring controls are 8 px apart. The

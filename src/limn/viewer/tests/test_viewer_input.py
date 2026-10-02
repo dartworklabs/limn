@@ -1679,9 +1679,10 @@ class LayoutNotPointer(ViewerBase):
         """1440x900 with a mouse: the page's margins and box, its first mark's badge, the panel's tool bar, section head and
         first card, and the help and Trash dialogs sit where they sat before the touch edge grid (UX audit V2/V6): the
         desktop layout is unchanged - but for the cross-resolution pass: the tool bar ends in one [⋯] where the bell, the theme
-        button and [?] were (3b), and its ends and the section head's chevron moved onto the panel's box and text lines (4a: the
-        tool bar 4px in on either side, the toggle and chevron 12px right). (The documents sheet, which only the phone opened,
-        is the phone's navigation sheet.)
+        button and [?] were (3b), its ends and the section head's chevron moved onto the panel's box and text lines (4a: the
+        tool bar 4px in on either side, the toggle and chevron 12px right), and its controls 2px down, 6px from the instance
+        stripe over the panel's top and 6px from the row's line (the symmetry audit). (The documents sheet, which only the
+        phone opened, is the phone's navigation sheet.)
         What CSS lengths, the viewport or the page size is compared to the pixel. What a label or a wrapped note sizes is
         compared by where it starts and ends, how tall it is and its order, never by its width or by the height its text
         makes - those follow the installed fonts (a tool-bar button was 71px wide here and 79px on CI), so desk_shape()
@@ -1766,13 +1767,13 @@ DESK_1440 = {
     "right": [1092, 0, 348, 900],
     "tool": [1093, 0, 347, 45],
     "bar": [
-        ["btn-rebuild", 8, 28, None],
-        ["sp", 22, 0, None],
-        ["jump", 8, 28, None],
-        ["btn-zoom-out", 8, 28, 28],
-        ["btn-zoom-in", 8, 28, 28],
-        ["btn-fit", 8, 28, 28],
-        ["btn-more", 8, 28, 28],
+        ["btn-rebuild", 10, 28, None],
+        ["sp", 24, 0, None],
+        ["jump", 10, 28, None],
+        ["btn-zoom-out", 10, 28, 28],
+        ["btn-zoom-in", 10, 28, 28],
+        ["btn-fit", 10, 28, 28],
+        ["btn-more", 10, 28, 28],
     ],
     "bar_start": 13,
     "bar_ends": {
@@ -3012,10 +3013,11 @@ class BarChip(ViewerBase):
         """344, 360, 411 and 430 wide, Korean and English, the fixture's counts and the fullest (123 | 12): each half shows
         its word or its dot - never a bare count (English at 411 read '3 | 1') - every control stays inside its cell and
         answers 44px. The cell steps down only as far as it must: Korean keeps its words from 360 (snug on the 344 cover),
-        English keeps them at 411 and 430 (snug) and takes the dots at 360 and 344; a dot is green for the pins, purple for
-        the review, centred on its count."""
+        English keeps them at 411 (snug) and 430 (as is in Pretendard since the counts' figures are proportional, snug in
+        wider fonts) and
+        takes the dots at 360 and 344; a dot is green for the pins, purple for the review, centred on its count."""
         want = {(344, "ko"): "bar-snug", (360, "ko"): "", (411, "ko"): "", (430, "ko"): "", (344, "en"): "bar-tight",
-                (360, "en"): "bar-tight", (411, "en"): "bar-snug", (430, "en"): "bar-snug"}  # fmt: skip
+                (360, "en"): "bar-tight", (411, "en"): "bar-snug", (430, "en"): ("", "bar-snug")}  # fmt: skip
         for w, h in ((344, 882), (360, 800), (411, 908), (430, 932)):
             for lang in ("ko", "en"):
                 page = self.view(phone(w, h, 3), lang=lang)
@@ -3026,7 +3028,10 @@ class BarChip(ViewerBase):
                             settle(page)
                         got = page.evaluate(BAR_IDS)
                         if not full:
-                            self.assertEqual(got["step"], want[(w, lang)])
+                            self.assertIn(
+                                got["step"],
+                                want[(w, lang)] if isinstance(want[(w, lang)], tuple) else (want[(w, lang)],),
+                            )
                         self.assertEqual(
                             got["ids"], [["word"], ["word"]] if got["step"] != "bar-tight" else [["dot"], ["dot"]]
                         )
@@ -5379,6 +5384,14 @@ class MetaWithoutCommit(ViewerBase):
         self.assertIn("· abc1234 ·", page.evaluate("document.querySelector('#meta-txt').innerText"))
 
 
+# Whether text renders in Pretendard, the font the rows' and heads' text ink was tuned against: a canvas string measured with
+# Pretendard first and with the generic monospace only differs when Pretendard is there. Under other fonts (a machine without
+# it, the CI-like font set) a word's ink sits elsewhere against its cap height - by the font, not the layout - so the tests
+# below check text ink only with Pretendard and keep every box and icon check under any font.
+PRETENDARD = """() => {const c = document.createElement('canvas').getContext('2d'), s = '원고 수정됨 Ag 12';
+  c.font = '16px Pretendard, monospace'; const a = c.measureText(s).width; c.font = '16px monospace'; return a !== c.measureText(s).width;}"""
+
+
 # The compact tool row's spacing as drawn: the row's box - inside its borders and above the bottom safe area; the sheet's row
 # ends at the bar, whose safe area is the sheet's own padding under it - the space between it and the controls' fills, the
 # safe area, what is under the bar, and the box of each control drawn: the chip's halves, [⬚], [⋯] and the status line's icon,
@@ -5448,12 +5461,15 @@ class CompactRowCentre(ViewerBase):
         ink = page.evaluate(ROW_INK, [base64.b64encode(shot).decode(), device["device_scale_factor"], items])
         mid = (g["top"] + g["bottom"]) / 2
         g["off"] = {k: None if v is None else round(v["mid"] + y0 - mid, 2) for k, v in ink.items()}
+        g["pretendard"] = page.evaluate(PRETENDARD)
         return g
 
     def assert_centred(self, g, controls):
-        """Every control in controls is drawn and its ink centre is within 0.5px of the row's; above and below equal within 0.5px."""
+        """Every control in controls is drawn and its ink centre is within 0.5px of the row's - the text's only in Pretendard
+        (PRETENDARD), the icons' ([⋯], the status icon) under any font; above and below equal within 0.5px."""
         self.assertEqual(set(g["off"]), set(controls), g)
-        self.assertTrue(all(v is not None and abs(v) <= 0.5 for v in g["off"].values()), g["off"])
+        off = {k: v for k, v in g["off"].items() if g["pretendard"] or k in ("more", "icon")}
+        self.assertTrue(all(v is not None and abs(v) <= 0.5 for v in off.values()), g["off"])
         self.assertLessEqual(abs(g["above"] - g["below"]), 0.5, g)
 
     def test_the_mid_rows_have_equal_space_round_their_controls_and_one_centre_line(self):
@@ -5551,12 +5567,14 @@ class ShortRow(ViewerBase):
         shot = page.screenshot(clip={"x": 0, "y": 0, "width": g["vw"], "height": line + 2})
         g["inkOf"] = page.evaluate(ROW_INK, [base64.b64encode(shot).decode(), device["device_scale_factor"], clip])
         g["mid"] = (top + line) / 2
+        g["pretendard"] = page.evaluate(PRETENDARD)
         return g
 
     def test_the_row_is_48px_and_its_controls_clear_the_stripe_on_one_centre_line(self):
         """844x390 at DPR 3 and 908x411 at 2.625, light and dark, a stale PDF: the nav bar and the tool bar are 48px; every
         fill ([재빌드], [⬚ 선택], the chip's halves) starts under the stripe and ends above the row's line; every control's box
-        centre and ink centre are within 0.5px of the centre between the stripe and the line."""
+        centre and ink centre are within 0.5px of the centre between the stripe and the line (the words' ink in Pretendard
+        only, PRETENDARD)."""
         for device in (phone(844, 390, 3), phone(908, 411)):
             for dark in (False, True):
                 with self.subTest(w=device["viewport"]["width"], dark=dark):
@@ -5569,7 +5587,8 @@ class ShortRow(ViewerBase):
                     self.assertTrue(all(abs(v) <= 0.5 for v in off.values()), off)
                     ink = {i["k"]: g["inkOf"][i["k"]] for i in g["items"]}
                     self.assertTrue(all(v is not None for v in ink.values()), ink)
-                    off = {k: round(v["mid"] - g["mid"], 2) for k, v in ink.items()}
+                    glyphs = ("nav-toc-toggle", "btn-more", "st-ic")  # the text's ink only in Pretendard (PRETENDARD)
+                    off = {k: round(v["mid"] - g["mid"], 2) for k, v in ink.items() if g["pretendard"] or k in glyphs}
                     self.assertTrue(all(abs(v) <= 0.5 for v in off.values()), off)
 
     def test_its_icons_are_18px_with_stroke_2_and_centred_in_their_boxes(self):
@@ -5804,6 +5823,149 @@ class DesktopGrid(ViewerBase):
         self.assertEqual(
             round(self.view(MOUSE_WIDE).evaluate("document.querySelector('#right').getBoundingClientRect().width")), 348
         )
+
+
+# The symmetry audit's geometry of the state on screen (the cross-resolution pass), each pair [left or top, right or bottom]:
+# the nav bar's band - under the instance stripe or the safe area, above its line - against its centred controls' boxes, and its
+# ends against the edge line; each open sheet's or dialog's title start and its trailing [닫기]'s label end from its inner sides,
+# and [더보기]'s foot (wordmark start, [도움말 ›]'s chevron end); the chip halves' paddings; the composer's location row ([⧉]),
+# kind track thumb insets and save row. Boxes for ROW_INK: each head's title text (not help's wordmark or [더보기]'s dot) and
+# [닫기], each chip half's label.
+SYMMETRY = """() => {const q = s => document.querySelector(s), qa = s => [...document.querySelectorAll(s)], R = e => e.getBoundingClientRect();
+  const vis = e => !!e && e.getClientRects().length > 0 && getComputedStyle(e).visibility !== 'hidden', px = v => parseFloat(v) || 0, cs = e => getComputedStyle(e);
+  const r2 = v => Math.round(v * 100) / 100, out = {}, boxes = [];
+  const tb = e => {const w = document.createTreeWalker(e, NodeFilter.SHOW_TEXT); let n, L = 1e9, Rr = -1e9;
+    while ((n = w.nextNode())) {if (!n.nodeValue.trim()) continue; const g = document.createRange(); g.selectNodeContents(n);
+      for (const x of g.getClientRects()) if (x.width > 0.5) {L = Math.min(L, x.left); Rr = Math.max(Rr, x.right);}} return [L, Rr];};
+  const probe = document.createElement('div'); probe.style.cssText = 'position:fixed;top:0;height:env(safe-area-inset-top);width:var(--edge)';
+  document.body.append(probe); const safeTop = R(probe).height, edge = R(probe).width; probe.remove();
+  const nav = q('#doc-nav');
+  if (vis(nav)) {const N = R(nav), top = Math.max(R(q('#brand-stripe')).bottom, safeTop), bot = N.bottom - px(cs(nav).borderBottomWidth);
+    const mid = (top + bot) / 2, cen = qa('#nav-toc-toggle, #nav-page, #doc-links .lbl, #view-switch .lbl').filter(vis).map(R);
+    out.navCentres = cen.map(r => r2((r.top + r.bottom) / 2 - mid));
+    const items = qa('#doc-nav>button, #doc-links button, #view-switch button, #nav-page').filter(vis).map(R).sort((a, b) => a.left - b.left);
+    if (items.length) out.navStart = r2(items[0].left);}
+  const bar = q('#bar1');
+  if (vis(bar) && document.body.classList.contains('lay-wide')) {const B = R(bar), top = Math.max(R(q('#brand-stripe')).bottom, B.top + px(cs(bar).borderTopWidth));
+    const ctrls = qa('#bar1 button, #bar1 input').filter(vis).map(R); out.toolTB = [r2(Math.min(...ctrls.map(r => r.top)) - top), r2(B.bottom - px(cs(bar).borderBottomWidth) - Math.max(...ctrls.map(r => r.bottom)))];}
+  if (vis(bar) && document.body.classList.contains('lay-mid') && !document.body.classList.contains('band-short')) {const B = R(bar), ctrls = qa('#bar1 button').filter(vis).map(R).sort((a, b) => a.left - b.left);
+    out.midEnds = [r2(ctrls[0].left - B.left), r2(B.right - ctrls[ctrls.length - 1].right)];}
+  for (const d of qa('dialog[open]')) {const D = R(d), c = cs(d), L = D.left + px(c.borderLeftWidth), Rt = D.right - px(c.borderRightWidth);
+    const head = d.querySelector('.ns-head .row, .more-head'), t = head && head.querySelector('h2, #more-label'), close = head && [...head.querySelectorAll('button')].filter(vis).pop();
+    if (t && close) {const lead = t.querySelector('.more-dot, svg'), tt = tb(t), H = R(head), cap = R(t.querySelector('b') || t), lbl = R(close.querySelector('.lbl') || close);
+      out.headCap = [r2((cap.top + cap.bottom) / 2), r2((lbl.top + lbl.bottom) / 2)];
+      out.head = [r2((lead ? Math.min(R(lead).left, tt[0]) : tt[0]) - L), r2(Rt - tb(close)[1])];
+      boxes.push({k: 'title', box: [tt[0] - 2, H.top, tt[1] + 2, H.bottom]}, {k: 'close', box: [R(close).left, H.top, R(close).right, H.bottom]});}
+    const foot = d.querySelector('#more-foot'); if (vis(foot)) {const w = foot.querySelector('svg'), ch = foot.querySelector('[data-act=help] svg');
+      out.foot = [r2(R(w).left - L), r2(Rt - R(ch).right)];}}
+  for (const id of ['btn-side', 'btn-rv']) {const e = q('#' + id); if (!vis(e) || q('dialog[open]')) continue; const c = cs(e), B = R(e);
+    out[id] = [px(c.paddingLeft), px(c.paddingRight)]; boxes.push({k: id, fill: true, box: [B.left, B.top, B.right, B.bottom]});}
+  const comp = q('#composer');
+  if (vis(comp) && !comp.hidden) {const C = R(comp), cc = cs(comp), L = C.left + px(cc.paddingLeft), Rt = C.right - px(cc.paddingRight);
+    out.loc = [r2(tb(q('#c-loc'))[0] - L), r2(Rt - R(q('#c-copy')).right)];
+    const k = q('#c-kind'), K = R(k), bs = [...k.querySelectorAll('button')].filter(vis).map(R);
+    out.kind = [r2(bs[0].left - K.left), r2(K.right - bs[bs.length - 1].right), r2(bs[0].top - K.top), r2(K.bottom - bs[0].bottom)];
+    const A = R(q('#c-actions')), ab = qa('#c-actions button').filter(vis).map(R).sort((a, b) => a.left - b.left);
+    out.save = [r2(ab[0].left - A.left), r2(A.right - ab[ab.length - 1].right)];}
+  return {edge, out, boxes};}"""
+
+
+class SymmetryAudit(ViewerBase):
+    """The symmetry audit of the cross-resolution pass (docs/handbook/viewer.md §모바일 레이아웃, §패널 정리), the owner's "diagnose
+    and judge the margins' symmetry very precisely": what it found and fixed stays fixed - the nav bars' band under the
+    instance stripe, the desktop tool row between the stripe and its line, the touch bars' ends on the edge line, the sheet
+    heads' and [더보기]'s foot's trailing labels on the text line, the heads' titles and [닫기] on one ink centre, the chip
+    halves' labels and the composer's rows."""
+
+    def got(self, page, dpr=None, open_=None):
+        """SYMMETRY on page after open_ (JS, then a settle), with the ink (ROW_INK) of its boxes when dpr is given."""
+        if open_:
+            page.evaluate(open_)
+            settle(page)
+        g = page.evaluate(SYMMETRY)
+        if dpr and g["boxes"]:
+            shot = base64.b64encode(page.screenshot()).decode()
+            g["ink"] = page.evaluate(ROW_INK, [shot, dpr, g["boxes"]])
+        g["pretendard"] = page.evaluate(PRETENDARD)
+        return g
+
+    def test_the_nav_bars_centre_their_controls_under_the_stripe_and_start_on_the_edge_line(self):
+        """1180x820 and the unfolded Fold on its side (touch, mid), 884x1104 (the tablet sheet) and 1440x900 (mouse): the outline
+        toggle's and the page count's box centres, and the view tabs' and document links' words trimmed to their cap height,
+        are within 0.5px of the band between the stripe and the bar's line (they stood 2px above it, centred in a box the
+        stripe covers); the touch bars start on the edge line (16, they were 12) and the desktop's on the document's 16px
+        margin; the mid action row ends on the edge line too."""
+        for device in (phone(1180, 820, 2), phone(1104, 884, 2.5), phone(884, 1104, 2.5), MOUSE_WIDE):
+            with self.subTest(w=device["viewport"]["width"]):
+                g = self.got(self.view(device))
+                self.assertTrue(g["out"]["navCentres"] and all(abs(v) <= 0.5 for v in g["out"]["navCentres"]), g)
+                self.assertEqual(g["out"]["navStart"], 16, g)
+                if "midEnds" in g["out"]:
+                    self.assertEqual(g["out"]["midEnds"], [g["edge"], g["edge"]], g)
+
+    def test_the_desktop_tool_row_has_6px_above_and_below_its_controls(self):
+        """1440x900 (mouse): the stripe covers the panel's top 4px, so the tool row's controls stood 4px under it and 8px over
+        the row's line; they stand 6px from either, the row still 45px tall."""
+        page = self.view(MOUSE_WIDE)
+        g = self.got(page)
+        self.assertEqual(g["out"]["toolTB"], [6, 6], g)
+        self.assertEqual(round(page.evaluate("document.querySelector('#bar1').getBoundingClientRect().height")), 45)
+
+    def test_every_head_and_the_foot_start_and_end_their_labels_on_one_line_and_centre_title_and_close(self):
+        """411x908 at DPR 2.625 ([더보기], the navigation sheet, help, the Trash), 1180x820 ([더보기]) and 1440x900 (help, the
+        Trash, the [⋯] menu), light and dark: a head's title starts as far from the sheet's inner side as its [닫기]'s label
+        ends from the other (within 0.5px; [닫기] ended 1px further in, its own 1px border, and on the desktop's dialogs 9px),
+        [더보기]'s wordmark and [도움말 ›]'s chevron likewise. The title and [닫기] are trimmed to their cap height and their
+        boxes share a centre within 0.5px (help's title stood 4px high on its h2 margin); in Pretendard their ink centres are within 0.75px
+        (1 to 2.6px apart as line boxes, 7px for help) - what remains is how far each Hangul word reaches past its cap height
+        and its baseline, which differs by word and size (0 to 0.7px measured), not their placement."""
+        cases = [(phone(411, 908), 2.625, o) for o in ("openMore()", "openNavSheet()", "openHelp()", "openTrash()")]
+        cases += [(phone(1180, 820, 2), 2, "openMore()")]
+        cases += [
+            (dict(MOUSE_WIDE, device_scale_factor=2), 2, o)
+            for o in ("openHelp()", "openTrash()", "document.querySelector('#btn-more').click()")
+        ]
+        for device, dpr, opener in cases:
+            for dark in (False, True):
+                with self.subTest(w=device["viewport"]["width"], open=opener, dark=dark):
+                    g = self.got(self.view(device, dark=dark), dpr, opener)
+                    head = g["out"]["head"]
+                    self.assertLessEqual(abs(head[0] - head[1]), 0.5, g["out"])
+                    if "foot" in g["out"]:
+                        self.assertLessEqual(abs(g["out"]["foot"][0] - g["out"]["foot"][1]), 0.5, g["out"])
+                    self.assertLessEqual(abs(g["out"]["headCap"][0] - g["out"]["headCap"][1]), 0.5, g["out"])
+                    if g["pretendard"]:  # the words' ink, against the font it was tuned for (PRETENDARD)
+                        self.assertLessEqual(abs(g["ink"]["title"]["mid"] - g["ink"]["close"]["mid"]), 0.75, g["ink"])
+
+    def test_the_chip_halves_pad_alike_and_centre_their_labels(self):
+        """411x908 (the sheet) and 1180x820 (mid), light and dark: each half pads 12px either side and its label's ink is
+        centred in it within 0.5px (a tabular '1' left the review half's 1px off)."""
+        for device, dpr in ((phone(411, 908), 2.625), (phone(1180, 820, 2), 2)):
+            for dark in (False, True):
+                with self.subTest(w=device["viewport"]["width"], dark=dark):
+                    g = self.got(self.view(device, dark=dark), dpr)
+                    for half in ("btn-side", "btn-rv"):
+                        self.assertEqual(g["out"][half][0], g["out"][half][1], g["out"])
+                        b, ink = next(x["box"] for x in g["boxes"] if x["k"] == half), g["ink"][half]
+                        self.assertLessEqual(
+                            abs((ink["left"] + ink["right"]) / 2 - (b[0] + b[2]) / 2), 0.5, (half, ink, b)
+                        )
+
+    def test_the_composer_rows_are_symmetric(self):
+        """411x908 and 1440x900, a selection open: the location starts as far in as [⧉] ends (both on the box line), the kind
+        track's thumbs are inset alike on all four sides, and the save row's buttons end as far in as they start."""
+        for device in (phone(411, 908), MOUSE_WIDE):
+            with self.subTest(w=device["viewport"]["width"]):
+                page = self.view(device)
+                page.evaluate(
+                    "()=>{LAST_PTR=matchMedia('(pointer:coarse)').matches?'touch':'mouse'; pick({page:1,x0:10,y0:10,x1:200,y1:60});}"
+                )
+                page.wait_for_function("COMPOSE.current&&!COMPOSE.picking")
+                settle(page)
+                o = self.got(page)["out"]
+                self.assertEqual(o["loc"][0], o["loc"][1], o)
+                self.assertEqual(len(set(o["kind"])), 1, o)
+                self.assertEqual(o["save"][0], o["save"][1], o)
 
 
 if __name__ == "__main__":
