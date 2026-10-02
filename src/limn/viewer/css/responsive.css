@@ -279,9 +279,8 @@ body.compact #composer{max-height:none;overflow:visible}
 /* The composer (docs/handbook/viewer.md §패널 정리) on every layout: the location line, then the note with its helpers, its kind
    (what the note is), the overlap notice, and last the range block (#c-range: caption, ladder, the range excerpt and its foot),
    so what changes the range sits with the source it changes. The markup is in that order, so Tab follows the screen, and a
-   hidden #c-body (a failed pick) hides the range block after it too. Every block is one 8px step from the next. On a phone
-   the note was the fourth block, 328px down, under the save row (diagnosis P2); the unfolded Fold and the side-panel tablets
-   kept it at the panel's foot, and the mouse desktop under its stepper (the cross-resolution pass, 1b). */
+   hidden #c-body (a failed pick) hides the range block after it too. Every block is one 8px step from the next, and the note
+   is the second block on every layout, the mouse desktop's too. */
 #composer{display:flex;flex-direction:column;gap:var(--space-2)}
 #c-body{display:contents}
 #c-body[hidden]~:is(#c-overlap,#c-range){display:none}
@@ -677,7 +676,7 @@ body:not(.compact) :is(#help,#trash) .ns-head>.row>button{margin-right:calc(-1 *
 .ns-head h2{margin:0}
 @media (hover:hover){:is(#nav-sheet,#help,#trash) .ns-head>.row>button:hover{background:var(--accent)}}
 body.compact #trash .arc-list{max-height:none;overflow:visible}   /* the sheet scrolls, so a pull down starts at its top */
-/* Selection on a view-only PDF document: no range ladder, stepper, or source expansion (there is no line). The region's text is shown in the source field instead. */
+/* Selection on a view-only PDF document: no range ladder, range excerpt or source expansion (there is no line). The region's text is shown in the source field instead. */
 #composer.region #c-levels,#composer.region #c-cap,#composer.region .snip-foot,#composer.region #c-copy{display:none}
 .edit.region .e-levels{display:none}
 @media (prefers-reduced-motion: reduce){*{animation:none!important;transition:none!important;scroll-behavior:auto!important}}

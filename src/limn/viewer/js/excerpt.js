@@ -1,8 +1,8 @@
 // ------------------------------------------------ Range excerpt (docs/handbook/viewer.md §패널 정리 범위 발췌)
 // On every layout the source under the range ladder is the range control itself: the selected lines in a tinted band with
 // one dimmed line above and below. A tap or click on a dimmed line widens the range to it; the '−' on the band's first or last
-// line drops that line. The owner read the stepper '위 + − 아래 + −' as moving the pin, and it is gone from the mouse desktop
-// too (the cross-resolution pass, 1b). The composer and the edit card draw the same excerpt.
+// line drops that line; with a keyboard, Enter or Space on the row or the '−' does the same. The composer and the edit card
+// draw the same excerpt.
 
 // The range lo..hi widened to line k: [min(lo,k), max(hi,k)]. Pure.
 function widenTo(lo,hi,k){return [Math.min(lo,k),Math.max(hi,k)];}

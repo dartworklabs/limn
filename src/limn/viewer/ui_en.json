@@ -1061,7 +1061,7 @@
  "PDF 쪽만 축소합니다": "Zooms out the PDF page only",
  "PDF 쪽만 확대합니다": "Zooms in the PDF page only",
  "폭 맞춤: PDF 쪽 폭을 화면 폭에 맞춥니다": "Fit width: fits the PDF page to the screen width",
- "사용법·용어 설명, pins.md 위치": "How to use, terms, where pins.md is",
+ "사용법·단축키·용어 설명, pins.md 위치 (?)": "How to use, shortcuts, terms, and where pins.md is (?)",
  "합니다.": ".",
  "점선 상자('새 핀')가 남습니다.": "A dashed box ('New pin') is left.",
  ". 알림의 [되돌리기]로 바로 취소할 수 있습니다.": ". You can cancel right away with [Undo] in the notification.",
@@ -1125,6 +1125,6 @@
  "핀 N": "Pin N",
  "검토 M": "Review M",
  "검토 대기 핀으로 갑니다. 에이전트가 닫고 사람의 확인을 기다리는 핀입니다": "Go to the pins awaiting review - pins an agent closed that wait for a person's confirmation",
- "휴대폰·태블릿 시트의 아래 막대 왼쪽 묶음입니다. [핀 N]은 열린 핀 수이고 핀 목록(아래 시트)을 펴고 접습니다. [검토 M]은 검토 대기 수이고 누르면 목록의 검토 대기로 갑니다. 펼친 화면에서는 핀 아이콘과 수, 눈 아이콘이 붙은 보라 수입니다. 카드를 누르면 펼쳐집니다": "The left pair of the bottom bar on phones and tablet sheets. [Pin N] is the open count and opens or closes the pin list (a bottom sheet). [Review M] counts the pins awaiting review and goes to them in the list. On wider screens it is the pin icon with the count and a purple count with an eye. Tap a card to expand it",
+ "도구 줄의 둘로 나뉜 칩입니다. [핀 N]은 열린 핀 수이고 핀 목록을 펴고 접습니다. [검토 M]은 검토 대기 수이고 누르면 목록의 검토 대기로 갑니다. 휴대폰·태블릿 시트에서는 아래 막대 왼쪽에, 펼친 화면과 가로 휴대폰에서는 줄의 오른쪽 끝에 있습니다. 카드를 누르면 펼쳐집니다": "The split chip of the tool row. [Pin N] is the open count and opens or closes the pin list. [Review M] counts the pins awaiting review and goes to them in the list. On phones and tablet sheets it is the bottom bar's left pair; on wider screens and landscape phones it sits at the row's right end. Tap a card to expand it",
  "선택: 아래 막대의 네 모서리 아이콘입니다. 켜면 한 손가락으로 끌어 영역을 고르고, 탭하면 그 자리 문단을 고릅니다. 두 손가락으로 벌리면 PDF 만 커집니다. 핀을 저장하거나 취소하면 저절로 꺼집니다": "Select: the four-corner icon in the bottom bar. When on, drag with one finger to select a region, or tap to select the paragraph there. Pinch with two fingers to zoom the PDF only. It turns off automatically when you save or cancel the pin"
 }

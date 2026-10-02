@@ -10,6 +10,7 @@
 .rg-cap .rg-l{color:var(--foreground);font-weight:600;margin-right:var(--space-1)}
 .rg-cap .rg-v{color:var(--foreground)}
 .rg-cap .e-range{white-space:nowrap}
+/* A toggle button (.tg, the changes view's [커밋 전체 비교]): muted while off, a stronger border while on. */
 button.tg[aria-pressed=false]{color:var(--muted-foreground)}
 button.tg[aria-pressed=true]{border-color:var(--border-strong)}
 #c-snip,.e-snip{margin:0}
@@ -18,7 +19,7 @@ button.tg[aria-pressed=true]{border-color:var(--border-strong)}
 #c-snip.open{max-height:44vh}
 .e-snip{max-height:calc(9em + 16px)}
 /* The line right below the source holds [원문 펼치기] at its right end, and goes when that is hidden (no gap left under the
-   source). The source always wraps: the [줄바꿈] toggle that sat at its left is gone. */
+   source). The source always wraps. */
 .snip-foot{display:flex;align-items:center;justify-content:flex-end;gap:var(--space-2)}
 .snip-foot:not(:has(button:not([hidden]))){display:none}
 .snip-foot button{color:var(--muted-foreground);white-space:nowrap}
@@ -61,7 +62,7 @@ button.tg[aria-pressed=true]{border-color:var(--border-strong)}
 .errline{color:var(--destructive);font-size:var(--text-base);margin-top:var(--space-2)}
 .pin{position:relative;padding:var(--space-2) var(--space-3);margin-bottom:8px}   /* shape follows .card */
 /* The range excerpt (excerpt.js, docs/handbook/viewer.md §패널 정리 범위 발췌): on every layout it is the source in the composer
-   and the edit card (a region keeps its text) - the mouse desktop's stepper is gone (the cross-resolution pass, 1b). One row per source line - its number,
+   and the edit card (a region keeps its text), the mouse desktop's too. One row per source line - its number,
    its text (four lines at most, a dimmed neighbour two) and a 44px margin on the right for the row's chip: a tinted '+' on a
    dimmed line (the row is the button), a neutral '−' on the band's first and last lines (its own button). Each chip is a
    28px circle on its line's first text line. */

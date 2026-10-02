@@ -2657,11 +2657,14 @@ class MoreFoot(ViewerBase):
 
     def test_the_wordmark_the_version_and_help_end_on_one_ink_line(self):
         """411x908 at DPR 2.625 and 1, light and dark: the ink bottoms of the wordmark, the version and [도움말] are within
-        0.5px of each other (on one baseline the label's ink sat about 1px lower)."""
+        0.5px of each other (on one baseline the label's ink sat about 1px lower). At DPR 1 only in Pretendard (PRETENDARD):
+        there the glyphs are hinted to whole pixels, and a fallback font's Hangul ink lands a pixel either way by the font."""
         for dpr in (2.625, 1):
             for dark in (False, True):
                 with self.subTest(dpr=dpr, dark=dark):
                     page = self.view(phone(411, 908, dpr), dark=dark)
+                    if dpr == 1 and not page.evaluate(PRETENDARD):
+                        continue
                     _, ink = self.ink(page, dpr)
                     bottoms = [ink[k]["bottom"] for k in ("word", "version", "help")]
                     self.assertLessEqual(max(bottoms) - min(bottoms), 0.5, ink)
@@ -3271,6 +3274,29 @@ class TouchLayoutBands(ViewerBase):
         settle(page)
         self.assertTrue(page.is_visible("#doc-nav"))
         self.assertEqual(round(page.locator("#right").bounding_box()["y"]), 48)
+
+    def test_a_first_tap_on_an_edit_cards_dimmed_line_widens_the_range_while_its_note_has_focus(self):
+        """844x390, an edit card open with its note focused (the top row hidden, body.typing): one touch tap on a dimmed line
+        of its range excerpt widens the range. The tap took the focus from the note, the top row came back at once and moved
+        the panel 48px under the finger before the click, which then missed the line - the first tap did nothing, the second
+        worked. The top row is back after the tap."""
+        page = self.view(LAND_PHONE)
+        cdp = self.cdp(page)
+        page.evaluate("()=>{setSide(true); openEdit(PINS[0].id);}")
+        page.wait_for_selector(".edit .xp-row.ctx")
+        page.focus(".edit textarea")
+        settle(page)
+        self.assertTrue(page.evaluate("document.body.classList.contains('typing')"))
+        before = page.evaluate("[EDITOR.current.lo, EDITOR.current.hi]")
+        x, y = page.evaluate(
+            "()=>{const r=document.querySelector('.edit .xp-row.ctx'); r.scrollIntoView({block:'center'});"
+            " const b=r.getBoundingClientRect(); return [b.left+b.width/2, b.top+b.height/2];}"
+        )
+        self.tap(cdp, x, y)
+        settle(page)
+        after = page.evaluate("[EDITOR.current.lo, EDITOR.current.hi]")
+        self.assertEqual(after[1] - after[0], before[1] - before[0] + 1, (before, after))
+        self.assertFalse(page.evaluate("document.body.classList.contains('typing')"))
 
     def test_with_the_keyboard_up_the_whole_note_is_visible(self):
         """844x390 with a 190px keyboard (Chrome on Android shrinks the layout to 844x200): 41 of the note's 92px showed."""
@@ -5859,7 +5885,8 @@ SYMMETRY = """() => {const q = s => document.querySelector(s), qa = s => [...doc
     const foot = d.querySelector('#more-foot'); if (vis(foot)) {const w = foot.querySelector('svg'), ch = foot.querySelector('[data-act=help] svg');
       out.foot = [r2(R(w).left - L), r2(Rt - R(ch).right)];}}
   for (const id of ['btn-side', 'btn-rv']) {const e = q('#' + id); if (!vis(e) || q('dialog[open]')) continue; const c = cs(e), B = R(e);
-    out[id] = [px(c.paddingLeft), px(c.paddingRight)]; boxes.push({k: id, fill: true, box: [B.left, B.top, B.right, B.bottom]});}
+    out[id] = [px(c.paddingLeft), px(c.paddingRight)]; boxes.push({k: id, fill: true, box: [B.left, B.top, B.right, B.bottom]});
+    const kids = [...e.children].filter(vis).map(R); out[id + 'Content'] = [r2(Math.min(...kids.map(r => r.left)) - B.left), r2(B.right - Math.max(...kids.map(r => r.right)))];}
   const comp = q('#composer');
   if (vis(comp) && !comp.hidden) {const C = R(comp), cc = cs(comp), L = C.left + px(cc.paddingLeft), Rt = C.right - px(cc.paddingRight);
     out.loc = [r2(tb(q('#c-loc'))[0] - L), r2(Rt - R(q('#c-copy')).right)];
@@ -5938,18 +5965,23 @@ class SymmetryAudit(ViewerBase):
                         self.assertLessEqual(abs(g["ink"]["title"]["mid"] - g["ink"]["close"]["mid"]), 0.75, g["ink"])
 
     def test_the_chip_halves_pad_alike_and_centre_their_labels(self):
-        """411x908 (the sheet) and 1180x820 (mid), light and dark: each half pads 12px either side and its label's ink is
-        centred in it within 0.5px (a tabular '1' left the review half's 1px off)."""
+        """411x908 (the sheet) and 1180x820 (mid), light and dark: each half pads 12px either side and its words' and count's
+        boxes stand as far from either side within 0.5px, under any font; in Pretendard (PRETENDARD) the label's ink is
+        centred in it within 0.5px too (a tabular '1' left the review half's 1px off) - under other fonts a glyph's side
+        bearings move its ink by the font, not the layout."""
         for device, dpr in ((phone(411, 908), 2.625), (phone(1180, 820, 2), 2)):
             for dark in (False, True):
                 with self.subTest(w=device["viewport"]["width"], dark=dark):
                     g = self.got(self.view(device, dark=dark), dpr)
                     for half in ("btn-side", "btn-rv"):
                         self.assertEqual(g["out"][half][0], g["out"][half][1], g["out"])
-                        b, ink = next(x["box"] for x in g["boxes"] if x["k"] == half), g["ink"][half]
-                        self.assertLessEqual(
-                            abs((ink["left"] + ink["right"]) / 2 - (b[0] + b[2]) / 2), 0.5, (half, ink, b)
-                        )
+                        content = g["out"][half + "Content"]
+                        self.assertLessEqual(abs(content[0] - content[1]), 0.5, g["out"])
+                        if g["pretendard"]:
+                            b, ink = next(x["box"] for x in g["boxes"] if x["k"] == half), g["ink"][half]
+                            self.assertLessEqual(
+                                abs((ink["left"] + ink["right"]) / 2 - (b[0] + b[2]) / 2), 0.5, (half, ink, b)
+                            )
 
     def test_the_composer_rows_are_symmetric(self):
         """411x908 and 1440x900, a selection open: the location starts as far in as [⧉] ends (both on the box line), the kind

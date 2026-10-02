@@ -165,9 +165,18 @@ function typingNow(){const a=document.activeElement; if(!a||a===document.body)re
   return a.tagName==='INPUT'&&!/^(checkbox|radio|button|submit|reset|range|color|file|image|hidden)$/i.test(a.type||'');}
 // The panel's text field that has focus (a note, an edit or a reply), or null.
 function panelField(){const a=document.activeElement; return typingNow()&&$('#right').contains(a)?a:null;}
+let TYPING_PRESS=-1e9;   // performance.now() of the last pointerup: a focus change that soon after is that press's
+document.addEventListener('pointerup',()=>{TYPING_PRESS=performance.now();},true);
 // body.typing while a panel text field has focus: the short band hides its top row then, leaving the keyboard's ~200px to the panel;
-// the tablet sheet re-measures its keyboard lift (applySheet, tabletLift).
-function syncTyping(){document.body.classList.toggle('typing',!!panelField()); if(BAND===LAYOUT_BAND.TABLET_SHEET)applySheet();}
+// the tablet sheet re-measures its keyboard lift (applySheet, tabletLift). When a press takes the focus from the field, the class
+// waits for that press's click (or 350ms): taking the short band's top row back at once moved the panel 48px under the finger
+// between the touch's end and its click, so the click hit what was there now - a first tap on an edit card's dimmed line did
+// nothing and the second worked.
+function syncTyping(){const on=!!panelField(),b=document.body;
+  if(!on&&b.classList.contains('typing')&&performance.now()-TYPING_PRESS<300){if(syncTyping.held)return; syncTyping.held=true;
+    const go=()=>{if(!syncTyping.held)return; syncTyping.held=false; document.removeEventListener('click',go); syncTyping();};
+    document.addEventListener('click',go); setTimeout(go,350); return;}
+  b.classList.toggle('typing',on); if(BAND===LAYOUT_BAND.TABLET_SHEET)applySheet();}
 document.addEventListener('focusin',syncTyping);
 // After the focus has moved on: the typing class, and a band held while a text field had focus gets its turn (settleBand).
 document.addEventListener('focusout',()=>setTimeout(()=>{syncTyping(); if(bandStale())scheduleRelayout();},0));
