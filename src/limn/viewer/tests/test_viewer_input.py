@@ -5004,6 +5004,55 @@ class HelpHeadInk(ViewerBase):
                     self.assertEqual(f["height"], 20)
 
 
+# An open sheet's head: the grab band's top and its centre's offset from the sheet's (null without one), and, scrolled to its
+# end, how far [닫기] is from the sheet's top and whether it scrolled at all.
+SHEET_HEAD = """sel => {const d = document.querySelector(sel), D = d.getBoundingClientRect(), g = d.querySelector('.ns-grab');
+  const G = g && g.getClientRects().length ? g.getBoundingClientRect() : null;
+  const close = [...d.querySelectorAll('button')].find(b => /^(닫기|Close)$/.test(b.textContent.trim()));
+  d.scrollTop = 1e6; const scrolled = d.scrollTop > 0, C = close.getBoundingClientRect(); d.scrollTop = 0;
+  return {grab: G ? [Math.round(G.top - D.top), Math.round(G.left + G.width / 2 - (D.left + D.width / 2))] : null,
+    close: Math.round(C.top - D.top), scrolled};}"""
+
+
+class OneSheetHead(ViewerBase):
+    """One bottom sheet (docs/handbook/viewer.md §모바일 레이아웃): [더보기] and the navigation sheet open under a grab band
+    whose head (title and [닫기]) stays as the sheet scrolls; help and the Trash, bottom sheets too, had neither - no band,
+    and help's [닫기] scrolled away with its long tour. Every compact sheet now has the band and the sticky head; the mouse
+    desktop's centred dialogs draw no band."""
+
+    def test_every_compact_sheet_has_the_grab_band_and_a_head_that_stays(self):
+        """411x908 and 768x1024: [더보기], the navigation sheet, help and the Trash start with the band right under their
+        1px top border, centred; help scrolled to its end still has [닫기] at its top (it had scrolled 1192px away)."""
+        self.drop_one()
+        for w, h in ((411, 908), (768, 1024)):
+            page = self.view(touch_device(w, h))
+            for opener, sel in OPENERS:
+                with self.subTest(w=w, sheet=sel):
+                    page.evaluate(opener)
+                    settle(page)
+                    got = page.evaluate(SHEET_HEAD, sel)
+                    self.assertEqual(got["grab"], [1, 0], got)
+                    if sel == "#help":
+                        self.assertTrue(got["scrolled"])
+                    self.assertLessEqual(got["close"], 24, got)
+                    page.evaluate("s=>document.querySelector(s).close()", sel)
+                    settle(page)
+
+    def test_the_desktop_dialogs_draw_no_band(self):
+        """1400x850 mouse: help and the Trash stay centred dialogs without the band."""
+        page = self.view(DESK)
+        for opener, sel in OPENERS[2:]:
+            with self.subTest(sheet=sel):
+                page.evaluate(opener)
+                settle(page)
+                self.assertIsNone(page.evaluate(SHEET_HEAD, sel)["grab"])
+                page.evaluate("s=>document.querySelector(s).close()", sel)
+
+    def drop_one(self):
+        """One deleted pin, so the Trash has a row (SheetEdgeGrid.drop_one)."""
+        SheetEdgeGrid.drop_one(self)
+
+
 class MetaWithoutCommit(ViewerBase):
     """The meta line of a manuscript outside Git (docs/handbook/viewer.md §모바일 레이아웃): the server names no commit ('-'),
     and [더보기] read 'main.tex · 2쪽 · -' and the desktop chip row 'main.tex · 2쪽 · - · <built>'. The empty piece goes, with

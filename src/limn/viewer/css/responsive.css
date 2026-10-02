@@ -580,10 +580,14 @@ body.no-rebuild #btn-rebuild{display:none}
    stays and the rest scrolls. */
 #nav-sheet{margin:auto auto 0;width:100%;max-width:560px;max-height:calc(var(--vvh,100dvh) - 48px);overflow:auto;border-radius:var(--radius-lg) var(--radius-lg) 0 0;
   padding:0 var(--space-3) calc(var(--space-3) + env(safe-area-inset-bottom))}
-#nav-sheet .ns-head{position:sticky;top:0;z-index:1;background:var(--popover)}
+/* Every compact sheet's head - the navigation sheet's, help's and the Trash's (and [더보기]'s .more-top) - is the grab band and
+   the title row with [닫기], sticky at the sheet's top: help and the Trash had no band, and help's [닫기] scrolled away with its
+   tour. The mouse desktop's centred help and Trash draw no band. */
+#nav-sheet .ns-head,body.compact :is(#help,#trash) .ns-head{position:sticky;top:0;z-index:1;background:var(--popover)}
 .ns-grab{display:flex;justify-content:center;height:12px;padding-top:var(--space-1)}
+body:not(.compact) :is(#help,#trash) .ns-grab{display:none}
 .ns-grab::before{content:'';width:32px;height:4px;border-radius:var(--radius-sm);background:var(--grabber)}
-#nav-sheet .ns-head .row{flex-wrap:nowrap;min-height:var(--hit)}
+#nav-sheet .ns-head .row,body.compact :is(#help,#trash) .ns-head .row{flex-wrap:nowrap;min-height:var(--hit)}
 #nav-sheet-h{margin:0;font-size:var(--text-xl)}
 #nav-sheet>:is(section,#ns-page){border-top:1px solid var(--border);margin:0;padding:var(--space-2) 0}
 #nav-sheet>#ns-view{margin:var(--space-2) 0}   /* its own 4px inset: the sections' padding took its sides, and the thumb ran into the edge */
@@ -616,14 +620,14 @@ body.no-rebuild #btn-rebuild{display:none}
    Trash were centred cards 92vw and 100vw - 16px wide with 16 and 24px sides (UX audit P9); the desktop keeps them. */
 body.compact :is(#more,#nav-sheet,#help,#trash){margin:auto auto 0;width:100%;max-width:640px;border-radius:var(--radius-lg) var(--radius-lg) 0 0;
   padding:var(--space-3) max(calc(var(--edge) - 1px),env(safe-area-inset-right)) calc(var(--space-3) + env(safe-area-inset-bottom)) max(calc(var(--edge) - 1px),env(safe-area-inset-left))}
-body.compact :is(#nav-sheet,#more){padding-top:0}   /* their sticky grab band is the top */
+body.compact :is(#nav-sheet,#more,#help,#trash){padding-top:0}   /* their sticky grab band is the top */
 body.compact :is(#nav-sheet-h,#nav-sheet .ns-h,#ns-page label,#trash-h,#help-h,#help h4,#trash-note,#more-label,#more-info,#more .m-l,#more .more-brand,#help .help-legend,#help .help-steps,#help-pins-md){padding-left:var(--space-3)}
 /* A segmented control in a sheet is the one control (composer.css): a 36px track in a 44px row - rows of them stand 8px apart,
    their segments' 44px hits meeting. They touched when the track filled the row. */
 body.compact #help-pins-md{display:block}
 body.compact #help td:first-child{padding-left:var(--space-3)}
-body.compact :is(#nav-sheet .ns-head,#help,#trash)>.row>button{background:transparent;border-color:transparent}   /* [닫기] is a ghost, like [더보기]'s */
-@media (hover:hover){body.compact :is(#nav-sheet .ns-head,#help,#trash)>.row>button:hover{background:var(--accent)}}
+body.compact :is(#nav-sheet,#help,#trash) .ns-head>.row>button{background:transparent;border-color:transparent}   /* [닫기] is a ghost, like [더보기]'s */
+@media (hover:hover){body.compact :is(#nav-sheet,#help,#trash) .ns-head>.row>button:hover{background:var(--accent)}}
 body.compact #trash .arc-list{max-height:none;overflow:visible}   /* the sheet scrolls, so a pull down starts at its top */
 /* Selection on a view-only PDF document: no range ladder, stepper, or source expansion (there is no line). The region's text is shown in the source field instead. */
 #composer.region #c-levels,#composer.region #c-cap,#composer.region .c-tools,#composer.region .snip-foot,#composer.region #c-copy{display:none}
