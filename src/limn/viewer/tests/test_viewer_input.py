@@ -1678,8 +1678,10 @@ class LayoutNotPointer(ViewerBase):
     def test_a_mouse_at_1440_keeps_the_desktop_geometry_to_the_pixel(self):
         """1440x900 with a mouse: the page's margins and box, its first mark's badge, the panel's tool bar, section head and
         first card, and the help and Trash dialogs sit where they sat before the touch edge grid (UX audit V2/V6): the
-        desktop layout is unchanged - but for the tool bar's end, one [⋯] where the bell, the theme button and [?] were (3b of
-        the cross-resolution pass). (The documents sheet, which only the phone opened, is the phone's navigation sheet.)
+        desktop layout is unchanged - but for the cross-resolution pass: the tool bar ends in one [⋯] where the bell, the theme
+        button and [?] were (3b), and its ends and the section head's chevron moved onto the panel's box and text lines (4a: the
+        tool bar 4px in on either side, the toggle and chevron 12px right). (The documents sheet, which only the phone opened,
+        is the phone's navigation sheet.)
         What CSS lengths, the viewport or the page size is compared to the pixel. What a label or a wrapped note sizes is
         compared by where it starts and ends, how tall it is and its order, never by its width or by the height its text
         makes - those follow the installed fonts (a tool-bar button was 71px wide here and 79px on CI), so desk_shape()
@@ -1772,17 +1774,17 @@ DESK_1440 = {
         ["btn-fit", 8, 28, 28],
         ["btn-more", 8, 28, 28],
     ],
-    "bar_start": 9,
+    "bar_start": 13,
     "bar_ends": {
-        "jump": 136,
-        "btn-zoom-out": 104,
-        "btn-zoom-in": 72,
-        "btn-fit": 40,
-        "btn-more": 8,
+        "jump": 140,
+        "btn-zoom-out": 108,
+        "btn-zoom-in": 76,
+        "btn-fit": 44,
+        "btn-more": 12,
     },
     "head": [1093, 108, 347, 31],
-    "toggle": [1101, 112, 22],
-    "chevron": [1106, 116, 14, 14],
+    "toggle": [1113, 112, 22],
+    "chevron": [1118, 116, 14, 14],
     "card": [1105, 143, 323],
     "card_pad": ["8px", "12px", "8px", "12px"],
     "dot": [1118, 162, 8, 8],
@@ -5710,6 +5712,97 @@ class DesktopMoreMenu(ViewerBase):
         self.assertEqual(
             page.evaluate("[document.activeElement.id, document.activeElement.matches(':focus-visible')]"),
             ["btn-more", True],
+        )
+
+
+# The desktop panel's x-lines as drawn (4a of the cross-resolution pass), each [from the panel's inner left edge, from its right
+# edge]: what the grid puts on the box line - the tool row's first and last controls, the meta's text, person and review chip, the
+# composer's location row, fields and save row, the section head's last tool, a card - and the unboxed text and glyphs it puts
+# on the text line - the tool row's first label, the section chevron, a card's dot and note, the last section tool's label. A text
+# line is the text's box (a range), not its ink: where it starts does not follow the installed fonts.
+DESK_LINES = """() => {const q = s => document.querySelector(s), vis = e => !!e && e.getClientRects().length > 0 && getComputedStyle(e).visibility !== 'hidden';
+  const P = q('#right').getBoundingClientRect(), L = P.left + parseFloat(getComputedStyle(q('#right')).borderLeftWidth), Rt = P.right;
+  const r2 = v => Math.round(v * 100) / 100, out = {};
+  const box = (k, e) => {if (vis(e)) {const r = e.getBoundingClientRect(); out[k] = [r2(r.left - L), r2(Rt - r.right)];}};
+  const text = (k, e) => {if (!vis(e)) return; const w = document.createTreeWalker(e, NodeFilter.SHOW_TEXT); let n, a = 1e9, b = -1e9;
+    while ((n = w.nextNode())) {if (!n.nodeValue.trim()) continue; const g = document.createRange(); g.selectNodeContents(n);
+      for (const x of g.getClientRects()) if (x.width > 0.5) {a = Math.min(a, x.left); b = Math.max(b, x.right);}}
+    if (a < 1e9) out[k] = [r2(a - L), r2(Rt - b)];};
+  const bar = [...q('#bar1').querySelectorAll('button,input')].filter(vis).sort((a, b) => a.getBoundingClientRect().left - b.getBoundingClientRect().left);
+  box('barFirst', bar[0]); text('barFirstText', bar[0]); box('barLast', bar[bar.length - 1]);
+  text('metaText', q('#meta-txt')); box('metaMe', q('#me')); box('metaChip', q('#rv-chip'));
+  text('loc', q('#c-loc')); box('copy', q('#c-copy')); box('note', q('#note')); box('kind', q('#c-kind')); text('cap', q('#c-cap'));
+  const ca = [...document.querySelectorAll('#c-actions button')].filter(vis); if (ca.length) {box('saveFirst', ca[0]); box('saveLast', ca[ca.length - 1]);}
+  box('chevron', q('#sec-open .sec-tg svg')); const tools = [...document.querySelectorAll('#sec-open .sec-head button:not(.sec-tg)')].filter(vis);
+  if (tools.length) {box('tool', tools[tools.length - 1]); text('toolText', tools[tools.length - 1]);}
+  box('card', q('#pins .pin')); box('cardDot', q('#pins .pin .st-dot')); text('cardNote', q('#pins .pin .note'));
+  return out;}"""
+
+
+class DesktopGrid(ViewerBase):
+    """The desktop panel's two x-lines (docs/handbook/viewer.md §패널 정리, 4a of the cross-resolution pass): its boxes started at
+    8, 12 and 13px from the panel's inner edge and its text at 12, 13, 25 and 31. The insets stay - the panel's content is as wide
+    as it was - and every box the grid covers starts on the box line, 12px in from either edge, and every unboxed text or glyph
+    on the text line, 25px in: where a card's text already was, its 1px border and 12px padding in from the box line, so a
+    control on the box line has its label there too. The meta keeps its text on the box line with its chips, which wrap to the
+    row's start, as the composer keeps its labels with its fields."""
+
+    BOX = (
+        "barFirst",
+        "metaText",
+        "metaMe",
+        "metaChip",
+        "loc",
+        "copy",
+        "note",
+        "kind",
+        "cap",
+        "saveFirst",
+        "saveLast",
+        "tool",
+        "card",
+    )
+    TEXT = ("barFirstText", "chevron", "cardDot", "cardNote")
+
+    def lines(self, device, lang="ko"):
+        """DESK_LINES on device in lang, with the panel open, a review chip in the meta and the composer open on a pick."""
+        page = self.view(device, lang=lang, init=NO_PNG_CHIP)
+        page.evaluate("()=>{LAST_PTR='mouse'; pick({page:1,x0:10,y0:10,x1:200,y1:60});}")
+        page.wait_for_function("COMPOSE.current&&!COMPOSE.picking")
+        settle(page)
+        return page.evaluate(DESK_LINES)
+
+    def test_boxes_start_on_the_box_line_and_unboxed_text_on_the_text_line(self):
+        """1440x900 and 1400x850 with a mouse, Korean and English: the tool row's first and last controls, the meta's text and
+        person, the composer's location row, note, kind, range caption and save row, the section head's last tool and a
+        card start 12px in from the panel's inner edge and the controls end 12px in from its right edge (the tool row was 8);
+        the tool row's first label, the section chevron and a card's dot and note start 25px in (13, 13, 25 and 25 before),
+        and the last section tool's label ends 25px in (21). The meta's review chip ends 12px in when it stands at the row's
+        end and starts 12px in when it wraps to the row's start; the person starts 12px in when it starts its line."""
+        for device in (MOUSE_WIDE, DESK):
+            for lang in ("ko", "en"):
+                with self.subTest(w=device["viewport"]["width"], lang=lang):
+                    got = self.lines(device, lang)
+                    self.assertEqual(set(self.BOX + self.TEXT) - set(got), set(), got)
+                    left = {
+                        k: got[k][0]
+                        for k in ("barFirst", "metaText", "loc", "note", "kind", "cap", "saveFirst", "card")
+                    }
+                    right = {k: got[k][1] for k in ("barLast", "copy", "note", "kind", "saveLast", "tool", "card")}
+                    wrapped = got["metaChip"][0] == got["metaText"][0]  # wrapped to the row's start, or at its end
+                    (left if wrapped else right)["metaChip"] = got["metaChip"][0 if wrapped else 1]
+                    if not wrapped:  # the person starts the next line (after a wrapped chip it follows it)
+                        left["metaMe"] = got["metaMe"][0]
+                    self.assertEqual(set(left.values()) | set(right.values()), {12}, (left, right))
+                    text = {k: got[k][0] for k in self.TEXT}
+                    self.assertEqual(set(text.values()) | {got["toolText"][1]}, {25}, (text, got["toolText"]))
+
+    def test_the_panel_content_is_as_wide_as_before(self):
+        """1440x900: the panel is 348px and a card 323px wide - the insets did not move, only what sat off the two lines."""
+        got = self.lines(MOUSE_WIDE)
+        self.assertEqual((got["card"][0], got["card"][1]), (12, 12))
+        self.assertEqual(
+            round(self.view(MOUSE_WIDE).evaluate("document.querySelector('#right').getBoundingClientRect().width")), 348
         )
 
 

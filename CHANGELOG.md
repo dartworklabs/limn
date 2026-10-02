@@ -22,6 +22,9 @@
   row's end. It opens the same More panel as phones and tablets, as a menu under the button: theme and language are
   segmented controls, notifications a switch, and the foot shows the Limn wordmark, the version and Help. Esc, a click
   outside it and a row that closes it give the focus back to [⋯].
+- **The desktop panel on two lines.** Without changing the panel's insets, every box in the wide panel now starts 12 px
+  in from its edges and every unboxed label 25 px in, where the cards' text already started: the tool row's ends, its
+  [Rebuild PDF] label, the section head's chevron and its tools' labels moved onto these lines.
 - **The landscape phone's top row is 48 px.** It was 44 px, and the instance's colour stripe cut the tops of [Rebuild]
   and the pin chip. The row now has the height of the other touch nav bars, and its controls sit centred between the
   stripe and the row's line. Its icons are 18 px, each centred in its box. Neighbouring controls are 8 px apart. The
