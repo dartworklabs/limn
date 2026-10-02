@@ -1941,11 +1941,12 @@ class FigureDocuments(BrowserBase):
 
     def test_the_edit_card_keeps_a_figure_pins_element_and_kind_unless_its_lines_change(self):
         """The edit card's ladder is the snippet route's raw rung only (P1b), so it shows no segment control - one
-        segment is no choice - and its caption says the lines; saving untouched sends nothing; nudging a line saves the
-        new lines with kind 'lines', and the pin keeps its el (a range edit is no loc). No tooltip reads 'undefined'."""
+        segment is no choice - and its caption says the lines; saving untouched sends nothing; widening the range in the
+        source by one line saves the new lines with kind 'lines', and the pin keeps its el (a range edit is no loc). No
+        tooltip reads 'undefined'."""
         page = self.open_fig()
         pid = self.saved_cell_pin(page, "7월 칸 글자 키우기")
-        for step in ("save untouched", "nudge one line down"):
+        for step in ("save untouched", "widen one line down"):
             with self.subTest(step=step):
                 page.evaluate("id=>openEdit(id)", pid)
                 page.wait_for_function("EDITOR.current&&EDITOR.current.levels.length>0", timeout=8000)
@@ -1954,8 +1955,8 @@ class FigureDocuments(BrowserBase):
                 self.assertEqual(self.text(page, ".edit .e-cap"), "범위 L88-L95 · 8줄")
                 tips = page.eval_on_selector_all(".edit [data-tip]", "bs=>bs.map(b=>b.dataset.tip)")
                 self.assertTrue(tips and all("undefined" not in t for t in tips), tips)
-                if step == "nudge one line down":
-                    page.click('.edit [data-dir="down-grow"]')
+                if step == "widen one line down":
+                    page.click('.edit .xp-row.ctx[data-line="96"]')
                 settle(page)
                 page.click(".edit .b-esave")
                 page.wait_for_function("EDITOR.current===null", timeout=8000)

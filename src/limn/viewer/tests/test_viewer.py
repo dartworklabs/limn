@@ -502,11 +502,11 @@ class FrontendStructure(unittest.TestCase):
         self.assertGreater(body.index("COMPOSE.dismissedOverlap=null"), cur_idx)
         self.assertGreater(body.index("COMPOSE.current.overlaps=overlapsFor(COMPOSE.current,PINS)"), cur_idx)
 
-    def test_level_and_nudge_recount_overlap_only_for_composer(self):
-        for act in ("level", "nudge"):
-            m = re.search(r"case '%s':\{(.*?)\}\s*\n" % act, HTML)
-            self.assertIsNotNone(m)
-            self.assertIn("if(!inEdit)recomputeOverlap()", m.group(1).replace(" ", ""))
+    def test_level_and_excerpt_lines_recount_overlap_only_for_composer(self):
+        m = re.search(r"case 'level':\{(.*?)\}\s*\n", HTML)
+        self.assertIsNotNone(m)
+        self.assertIn("if(!inEdit)recomputeOverlap()", m.group(1).replace(" ", ""))
+        self.assertIn("if(o===COMPOSE.current)recomputeOverlap()", extract_js_fn("applyRange"))
 
     def test_pdf_build_travels_drag_to_pick_to_save_and_repick(self):
         self.assertIn("pdf_build:META.pages_build", HTML)  # drag -> /api/pick
@@ -1398,13 +1398,16 @@ class FrontendPanelTidyStructure(unittest.TestCase):
         seg = re.search(r"\n\.seg\{([^}]*)\}", css).group(1)
         self.assertIn("flex-wrap:nowrap", seg)
         self.assertIn("overflow-x:auto", seg)
-        self.assertIn('<div class="step" role="group"', HTML)
+        self.assertNotIn('class="step"', HTML)  # the stepper is gone from every layout (the range is set in the source)
         # 4 lines + 8px top/bottom padding
         self.assertIn("#c-snip:not(.open){max-height:calc(6em + 16px);overflow:hidden}", css)
         m = re.search(r"\nfunction renderComposer\(\)\{(.*?)\n\}", HTML, re.S)
         self.assertIn("pre.scrollHeight>pre.clientHeight", m.group(1))
-        # on every compact band the note field sits above the source snippet (so it doesn't hide under the action row)
-        self.assertIn("body.compact #note{order:1", css)
+        # on every layout the note field comes before the range block in the markup (so Tab and the screen agree and the
+        # note never hides under the action row)
+        comp = HTML[HTML.index('<div id="composer"') : HTML.index('<div id="list">')]
+        self.assertLess(comp.index('id="note"'), comp.index('id="c-kind"'))
+        self.assertLess(comp.index('id="c-kind"'), comp.index('id="c-range"'))
 
     def test_card_head_tags_row_and_action_grid(self):
         m = re.search(r"\nfunction card\(p\)\{(.*?)\n\}", HTML, re.S)
@@ -2672,19 +2675,19 @@ class FrontendFigure(unittest.TestCase):
         self.assertFalse(boxless)
         self.assertEqual(null_frac, [48, 20, 4, 8])
 
-    def test_a_rung_switch_selects_its_element_and_nudged_lines_keep_it(self):
-        """useLevel moves the selection to the rung's lines and element; a nudge makes the lines manual but keeps the
-        element; a rung without an element (a LaTeX rung) leaves the element as it was."""
+    def test_a_rung_switch_selects_its_element_and_lines_set_by_hand_keep_it(self):
+        """useLevel moves the selection to the rung's lines and element; lines set in the excerpt (setLines) are manual but
+        keep the element; a rung without an element (a LaTeX rung) leaves the element as it was."""
         self.node()
         js = "\n".join(
-            [extract_js_fn("lvOf"), extract_js_fn("useLevel"), extract_js_fn("nudge")]
+            [extract_js_fn("lvOf"), extract_js_fn("useLevel"), extract_js_fn("setLines")]
             + [
                 r"""
             const cell={id:'c'},strip={id:'s'};
             const o={lo:24,hi:26,n_lines:40,elSel:cell,levels:[{level:'el',lo:24,hi:26,snippet:'a',el:cell},
               {level:'el2',lo:20,hi:30,snippet:'b',el:strip},{level:'raw',lo:5,hi:5,snippet:'r'}]};
             const out=[]; useLevel(o,'el2'); out.push([o.scope,o.lo,o.hi,o.elSel.id]);
-            nudge(o,'up-grow'); out.push([o.scope,o.lo,o.elSel.id]);
+            setLines(o,o.lo-1,o.hi); out.push([o.scope,o.lo,o.elSel.id]);
             useLevel(o,'raw'); out.push([o.scope,o.elSel.id]);
             console.log(JSON.stringify(out));"""
             ]

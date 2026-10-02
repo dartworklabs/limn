@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+
+- **One composer on every layout.** The wide layout takes the composer of phones and tablets: location, note, kind, the
+  overlap notice, then the range block, on the panel's own background. Its range is set in the source like everywhere
+  else - click a dimmed line to widen the range to it, the − on the band's first or last line to drop it, or Tab there
+  and press Enter - and the "above + − below + −" stepper is gone from every layout. The help's tour has one range step.
+
 ## 0.4.8 — 2026-10-02
 
 The pin composer and the edit card on phones and tablets. This release does not change `pins.md`, the API or the

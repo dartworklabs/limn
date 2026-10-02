@@ -43,8 +43,8 @@ function elForSave(el){const out={id:el.id,path:Array.isArray(el.path)?el.path.s
 function elKind(el){return Array.isArray(el.path)&&el.path.length<=1?'figure':'el:'+String(el.part||'?').slice(0,77);}
 // Adds a figure pick's fields to a pin body or a re-place loc and returns it: `el`, the element's box as the pin's own
 // `frac` too (a mark drawn without the current map then sits where the person saw the snapped box), and the element's
-// kind when the range is that element's rung (rung given). A pick without an element is left as it is; lines nudged by
-// hand keep the kind the body already has.
+// kind when the range is that element's rung (rung given). A pick without an element is left as it is; lines set by
+// hand in the excerpt keep the kind the body already has.
 function figureFields(body,el,rung){if(!el)return body; body.el=elForSave(el); if(isFrac(el.frac))body.frac=el.frac.slice();
   if(rung&&rung.el)body.kind=elKind(el); return body;}
 // The rung the selection's scope names when it is a figure rung (it carries an element), else null.

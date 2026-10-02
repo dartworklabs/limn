@@ -118,7 +118,7 @@ body:not(.lay-narrow) #coach button{pointer-events:auto}
   #help .kbd-only{display:none}   /* Ctrl, the wheel and Alt+1…9 mean nothing on a touch screen; the touch table above stays */
   #help .touch-only{display:inline}   /* the tour's first step: a long press or [선택], not a drag */
   #trash .arc-acts button{min-height:0;height:var(--ctl-touch-sm);padding-top:0;padding-bottom:0}   /* drawn like a card's actions, 44px hits */
-  button.btn-icon,.step button{width:var(--control-h-touch);min-width:var(--control-h-touch)}
+  button.btn-icon{width:var(--control-h-touch);min-width:var(--control-h-touch)}
   /* button.btn-icon.btn-sm{width:var(--control-h-sm)} (the base rule, 0-0-2-1) is more specific than the
      button.btn-icon above (0-0-1-1), so it stayed at 24px even for touch (observed on the card-collapse .b-fold/toast-close buttons) - re-pinned here at the same specificity. */
   button.btn-icon.btn-sm{width:var(--control-h-touch);min-width:var(--control-h-touch);height:var(--control-h-touch)}
@@ -244,7 +244,7 @@ body.lay-narrow #bar1 #btn-more{justify-content:flex-end;padding-right:calc(var(
 /* The composer is part of the sheet or panel, on its background (it was --card: a grey box in the white sheet, in the tablet's
    640px column a box of its own); the line under it parts it from the list. Its [⧉] is a ghost at the row's end (R2, btn-ghost on
    every band), drawn at 36px with a 44px hit on touch - it was a 44px bordered box beside the location line. */
-body.compact #composer{max-height:none;overflow:visible;background:transparent}
+body.compact #composer{max-height:none;overflow:visible}
 @media (pointer:coarse){body.compact #c-copy{width:var(--control-h-lg);min-width:var(--control-h-lg);height:var(--control-h-lg);min-height:0;padding:0}}
 /* Touch only (a mouse window scrolls as it always did): a field scrolled into view stays clear of the stuck save row (56px plus the
    bottom safe area) and, on a sheet, of the tool bar stuck at its top (whose hit areas reach 6px below it). */
@@ -252,27 +252,19 @@ body.compact #composer{max-height:none;overflow:visible;background:transparent}
   body.compact.composing #right{scroll-padding-bottom:calc(var(--hit) + var(--space-5) + env(safe-area-inset-bottom))}
   body.lay-narrow.composing #right{scroll-padding-top:calc(var(--stick-top,0px) + var(--space-2))}
 }
-/* Phone sheet composer (docs/handbook/viewer.md §패널 정리): the location line, then the note with its helpers, then the one-line
-   overlap notice, then the range ladder, the nudges and the kind, then the source. The note was the fourth block, 328px down, and hid
-   below the save row; with the keyboard up the location line scrolled away (diagnosis P2). */
-/* Every compact band takes this order - the short band (a landscape phone, ~346px of panel: in the old order the note was
-   ninth, off screen after a pick), and the unfolded Fold and the side-panel tablets, whose note sat at the panel's foot under
-   the range block and the source. The mouse desktop keeps its own (wide). */
-/* After the note come its kind (what the note is), the overlap notice, and last the range block (#c-range: caption, ladder,
-   line buttons, source and its foot), so what changes the range sits with the source it changes - the kind used to sit
-   between them. Every block is one 8px step from the next (they sat 0-20px apart, the kind flush on the source). On these
-   bands the markup is moved into this order too (orderComposer, composer.js), so Tab follows the screen; the order values
-   restate it. */
-body.compact #composer{display:flex;flex-direction:column;gap:var(--space-2)}
-body.compact #c-body{display:contents}
-body.compact #c-body[hidden]~:is(#c-overlap,#c-range){display:none}   /* moved out of #c-body (orderComposer), they hide with it */
-body.compact #note{order:1}
-body.compact :is(#note-mentions,#c-viewer,#c-qhint,#c-assign){order:1}
-body.compact #c-kind{order:2;z-index:1}   /* its segments' 44px hits over the overlap notice's, which the markup now puts after it */
-body.compact #c-overlap{order:3}
-body.compact #c-range{order:4;display:flex;flex-direction:column;gap:var(--space-2)}
-body.compact #composer :is(#note,#note-mentions,#c-qhint,#c-assign,#c-kind,#c-overlap,#c-cap,#c-levels,.c-tools,#c-snip){margin:0}
-@media (pointer:coarse){body.compact #composer #c-levels{margin:calc(-1 * var(--space-1)) 0}}   /* its hit padding is not a gap: the track stands 8px from its neighbours */
+/* The composer (docs/handbook/viewer.md §패널 정리) on every layout: the location line, then the note with its helpers, its kind
+   (what the note is), the overlap notice, and last the range block (#c-range: caption, ladder, the range excerpt and its foot),
+   so what changes the range sits with the source it changes. The markup is in that order, so Tab follows the screen, and a
+   hidden #c-body (a failed pick) hides the range block after it too. Every block is one 8px step from the next. On a phone
+   the note was the fourth block, 328px down, under the save row (diagnosis P2); the unfolded Fold and the side-panel tablets
+   kept it at the panel's foot, and the mouse desktop under its stepper (the cross-resolution pass, 1b). */
+#composer{display:flex;flex-direction:column;gap:var(--space-2)}
+#c-body{display:contents}
+#c-body[hidden]~:is(#c-overlap,#c-range){display:none}
+#c-kind{z-index:1}   /* its segments' 44px hits over the overlap notice's, which comes after it */
+#c-range{display:flex;flex-direction:column;gap:var(--space-2)}
+#composer :is(#note,#note-mentions,#c-qhint,#c-assign,#c-kind,#c-overlap,#c-cap,#c-levels,#c-snip){margin:0}
+@media (pointer:coarse){#composer #c-levels{margin:calc(-1 * var(--space-1)) 0}}   /* its hit padding is not a gap: the track stands 8px from its neighbours */
 /* One line: the short relation shrinks (its tooltip has the sentence), the two actions keep their names. */
 #c-overlap.one{flex-wrap:nowrap;align-items:center;margin:0 0 var(--space-2)}
 #c-overlap.one>.ov-t{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -633,8 +625,8 @@ body.compact #help td:first-child{padding-left:var(--space-3)}
 @media (hover:hover){:is(#nav-sheet,#help,#trash) .ns-head>.row>button:hover{background:var(--accent)}}
 body.compact #trash .arc-list{max-height:none;overflow:visible}   /* the sheet scrolls, so a pull down starts at its top */
 /* Selection on a view-only PDF document: no range ladder, stepper, or source expansion (there is no line). The region's text is shown in the source field instead. */
-#composer.region #c-levels,#composer.region #c-cap,#composer.region .c-tools,#composer.region .snip-foot,#composer.region #c-copy{display:none}
-.edit.region .e-levels,.edit.region .c-tools .step{display:none}
+#composer.region #c-levels,#composer.region #c-cap,#composer.region .snip-foot,#composer.region #c-copy{display:none}
+.edit.region .e-levels{display:none}
 @media (prefers-reduced-motion: reduce){*{animation:none!important;transition:none!important;scroll-behavior:auto!important}}
 /* Label chip/stripe (§Running multiple manuscript instances at once): since its purpose is distinguishing tabs when multiple manuscript viewers are
    open at once, the accent color is pinned as a fixed background (inline style) - the label color must stay the same across theme changes. */

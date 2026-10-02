@@ -1607,25 +1607,23 @@ class LayoutNotPointer(ViewerBase):
         box = page.locator("#more").bounding_box()
         self.assertAlmostEqual(box["y"] + box["height"], 800, delta=1)
 
-    def test_the_helps_range_step_follows_the_layout(self):
-        """The tour's range step names the control the layout draws, whatever the pointer: a mouse at 1000x800 (mid, the
-        excerpt) reads the dimmed-line sentence, as a phone does; a mouse at 1440x900 (wide, the stepper) reads the '위 +'
-        one."""
-        for device, compact in ((MOUSE_MID, True), (MOUSE_WIDE, False), (phone(411, 908), True)):
+    def test_the_helps_range_step_is_the_excerpts_on_every_layout(self):
+        """The tour's range step names the excerpt on every layout: a mouse at 1000x800 (mid) and at 1440x900 (wide - it
+        read the stepper's '위 +' sentence until the stepper went) and a phone read the dimmed-line sentence."""
+        for device in (MOUSE_MID, MOUSE_WIDE, phone(411, 908)):
             with self.subTest(w=device["viewport"]["width"]):
                 page = self.view(device)
                 page.evaluate("openHelp()")
                 settle(page)
-                got = page.evaluate(
-                    "['.compact-only','.wide-only'].map(s=>{const e=document.querySelector('#help '+s); return e.getClientRects().length?e.innerText.trim():'';})"
-                )
-                self.assertEqual([bool(t) for t in got], [compact, not compact])
-                self.assertIn("흐린 줄" if compact else "위 +", got[0] or got[1])
+                got = page.evaluate("document.querySelectorAll('#help .help-steps li')[1].innerText")
+                self.assertIn("흐린 줄", got)
+                self.assertNotIn("위 +", got)
 
     def test_a_mouse_at_wide_width_sees_the_desktop_unchanged(self):
-        """1440x900 with a mouse: the panel, card, composer and tool bar are as they were before the compact work - a 348px
-        panel, 28px tool bar, the section strip, the card's #N / range / N쪽 and its named grid, the composer's order and its
-        36px save row. (The same checks pass on 809fc9a.)"""
+        """1440x900 with a mouse: the panel, card and tool bar are as they were before the compact work - a 348px panel,
+        28px tool bar, the section strip, the card's #N / range / N쪽 and its named grid and the 36px save row; the composer
+        has the one order of every layout (location, note, kind, the range block with its excerpt; the cross-resolution
+        pass, 1b)."""
         page = self.view(MOUSE_WIDE)
         self.mouse_pick(page)
         got = page.evaluate(
@@ -1636,7 +1634,7 @@ class LayoutNotPointer(ViewerBase):
                 head: [vis(c.querySelector('.n.go')), vis(c.querySelector('.loc')), vis(c.querySelector('.pg-link')), vis(c.querySelector('.go-all'))],
                 acts: acts.map(b => b.innerText.trim()), even: new Set(acts.map(b => Math.round(b.getBoundingClientRect().width))).size,
                 rowTop: new Set(acts.map(b => Math.round(b.getBoundingClientRect().top))).size,
-                composer: tops('#composer .c-loc-row,#composer #c-levels,#composer .c-tools,#composer #c-snip,#composer #c-kind,#composer #note'),
+                composer: tops('#composer .c-loc-row,#composer #c-levels,#composer #c-xp,#composer #c-snip,#composer #c-kind,#composer #note'),
                 save: Math.round(R('#btn-save').height), lift: document.body.classList.contains('sheet-up')}; }"""
         )
         self.assertEqual(
@@ -1649,7 +1647,7 @@ class LayoutNotPointer(ViewerBase):
                 "acts": ["보기", "수정", "답글", "삭제", "완료"],
                 "even": 1,
                 "rowTop": 1,
-                "composer": ["c-loc-row", "c-levels", "c-tools", "c-snip", "c-kind", "note"],
+                "composer": ["c-loc-row", "note", "c-kind", "c-levels", "c-xp"],
                 "save": 36,
                 "lift": False,
             },
@@ -2324,7 +2322,7 @@ class RangeLadderAndCaption(ViewerBase):
         self.ONE_RUNG = True
         page = self.view(phone(411, 908))
         self.compose(page)
-        page.evaluate("()=>{const o=COMPOSE.current; nudge(o,'down-grow'); renderComposer();}")
+        page.evaluate("()=>{const o=COMPOSE.current; setLines(o,o.lo,o.hi+1); renderComposer();}")
         settle(page)
         got = page.evaluate(RANGE_BLOCK, "#composer")
         self.assertEqual((got["cap"], got["page"]), ("범위 L5-L6 · 2줄", "1쪽"))
@@ -2408,19 +2406,18 @@ class ComposerSamePass(ViewerBase):
 
     def test_tab_follows_the_screen_on_every_band(self):
         """The markup follows the order on screen, so Tab does (it went location, overlap, range, kind, note on the phone,
-        whose screen shows the note second): on a 411x908 phone and with a mouse at 1000x800 (mid, a compact band) the
-        location, the note, the kind, the overlap notice and the range block; at 1440x900 (wide) the location, the range
-        block, the kind and the note. Each Tab lands on or below the one before. The phone turned into the wide band moves the
-        parts back, and on the phone a hidden #c-body (a failed pick) hides the moved range block too."""
+        whose screen shows the note second): on a 411x908 phone, with a mouse at 1000x800 (mid) and at 1440x900 (wide, the
+        owner's pick 1b of the cross-resolution pass) the location, the note, the kind, the overlap notice and the range
+        block. Each Tab lands on or below the one before. The markup is in that order on every band - nothing moves when the
+        band changes - and a hidden #c-body (a failed pick) hides the range block after it too."""
         tab = """() => {const c = document.querySelector('#composer'), a = document.activeElement; if (!c.contains(a)) return null;
           const r = a.getBoundingClientRect();
           return [['.c-loc-row', '#c-kind', '#c-overlap', '#c-range'].find(s => a.closest(s)) || '#note', r.top + r.height / 2 - c.getBoundingClientRect().top];}"""
         phone_order = [".c-loc-row", "#note", "#c-kind", "#c-overlap", "#c-range"]
-        desk_order = [".c-loc-row", "#c-overlap", "#c-range", "#c-kind", "#note"]
         for device, touch, order in (
             (phone(411, 908), True, phone_order),
             (MOUSE_MID, False, phone_order),
-            (MOUSE_WIDE, False, desk_order),
+            (MOUSE_WIDE, False, phone_order),
         ):
             with self.subTest(w=device["viewport"]["width"]):
                 page = self.view(device)
@@ -2453,7 +2450,7 @@ class ComposerSamePass(ViewerBase):
             page.evaluate(
                 "[document.querySelector('#c-range').parentNode.id, document.querySelector('#note').previousElementSibling.id]"
             ),
-            ["c-body", "c-kind"],
+            ["composer", "c-body"],
         )
 
     def test_the_phone_composers_blocks_are_one_8px_step_apart(self):
@@ -2508,8 +2505,9 @@ class ComposerSamePass(ViewerBase):
         self.assertGreaterEqual(got["badge"]["left"], got["page"]["left"] - 0.5)
 
     def test_the_composer_is_on_the_sheet_not_a_grey_card(self):
-        """411x908 and 768x1024: the composer has the sheet's own background (it was --card, a grey box in the white
-        sheet - in the tablet's 640px column a box of its own); the mouse desktop keeps --card."""
+        """411x908, 768x1024 and the 1400x850 mouse desktop: the composer has the panel's own background (it was --card, a
+        grey box in the white sheet - in the tablet's 640px column a box of its own - and the desktop kept it until the
+        cross-resolution pass gave every layout one composer)."""
         bg = "getComputedStyle(document.querySelector('#composer')).backgroundColor"
         for w, h in ((411, 908), (768, 1024)):
             with self.subTest(w=w):
@@ -2518,11 +2516,7 @@ class ComposerSamePass(ViewerBase):
                 self.assertEqual(page.evaluate(bg), "rgba(0, 0, 0, 0)")
         page = self.view(DESK)
         self.mouse_pick(page)
-        card = page.evaluate(
-            "(()=>{const e=document.createElement('i'); e.style.background='var(--card)'; document.body.append(e);"
-            " const c=getComputedStyle(e).backgroundColor; e.remove(); return c;})()"
-        )
-        self.assertEqual(page.evaluate(bg), card)
+        self.assertEqual(page.evaluate(bg), "rgba(0, 0, 0, 0)")
 
 
 # Every visible segmented control under root, as drawn: its drawn track (a ladder's .lad-t, else the .seg itself), the track's
@@ -2755,7 +2749,7 @@ class RangeExcerpt(ViewerBase):
     """The range excerpt on the compact bands (docs/handbook/viewer.md §패널 정리 범위 발췌): the owner read '위 + − 아래 + −' as
     moving the pin. The source itself adjusts the range - a tap on a dimmed line above or below widens the range to it, the
     '−' on the band's first or last line drops that line - in the composer and the edit card alike; the band never jumps
-    under the finger. A mouse desktop keeps its stepper."""
+    under the finger. The mouse desktop sets its range the same way (the owner's pick 1b): the stepper is gone."""
 
     def compose(self, page):
         """A touch selection through the real pick path (the paragraph L1-L40 of the fixture); waits for the composer."""
@@ -2849,15 +2843,48 @@ class RangeExcerpt(ViewerBase):
             [4, 6, "lines"],
         )
 
-    def test_the_wide_layout_keeps_its_stepper_and_a_mouse_in_mid_gets_the_excerpt(self):
-        """The layout decides, not the pointer (layout follows width, v0.4.1): 1400x850 with a mouse (wide) keeps '위 + − 아래
-        + −' and its plain source, no excerpt; 1000x800 with a mouse (mid) gets the excerpt and no stepper."""
-        for device, wide in ((DESK, True), (MOUSE_MID, False)):
-            with self.subTest(wide=wide):
+    def test_every_layout_sets_the_range_in_the_source_and_no_stepper_is_left(self):
+        """1400x850 with a mouse (wide) kept '위 + − 아래 + −' and its plain source; it draws the excerpt like 1000x800 (mid),
+        in the composer and the edit card, and no page holds a stepper any more."""
+        for device in (DESK, MOUSE_MID):
+            with self.subTest(width=device["viewport"]["width"]):
                 page = self.view(device)
                 self.mouse_pick(page)
                 got = page.evaluate(EXCERPT, "#composer")
-                self.assertEqual((bool(got["rows"]), got["step"], got["pre"]), (not wide, wide, wide))
+                self.assertEqual((bool(got["rows"]), got["step"], got["pre"]), (True, False, False))
+                page.evaluate("()=>{cancelSelection(true); setSide(true); openEdit(OPEN_ALL[0].id);}")
+                page.wait_for_function("EDITOR.current&&EDITOR.current.levels.length>0")
+                settle(page)
+                got = page.evaluate(EXCERPT, ".edit")
+                self.assertEqual((bool(got["rows"]), got["step"], got["pre"]), (True, False, False))
+                self.assertEqual(page.evaluate("document.querySelectorAll('.step,[data-act=nudge]').length"), 0)
+
+    def test_a_mouse_and_a_keyboard_set_the_wide_range_in_the_source(self):
+        """1400x850 from the dragged line L5: a click on dimmed L4 widens to L4-L5 and the polite caption says so; Enter on
+        the dimmed line now above (L3) widens again with the focus kept on the next dimmed line (L2); a click on '−' of L3
+        narrows back to L4-L5."""
+        page = self.view(DESK)
+        self.mouse_pick(page)
+        page.click('#c-levels [data-level="raw"]')
+        settle(page)
+        lo = page.evaluate("COMPOSE.current.lo")
+        page.click('#c-xp .xp-row.ctx[data-line="%d"]' % (lo - 1))
+        settle(page)
+        self.assertEqual(page.evaluate("[COMPOSE.current.lo,COMPOSE.current.hi]"), [lo - 1, lo])
+        self.assertEqual(
+            page.evaluate("document.querySelector('#c-cap').innerText"), "범위 L%d-L%d · 2줄" % (lo - 1, lo)
+        )
+        page.focus('#c-xp .xp-row.ctx[data-line="%d"]' % (lo - 2))
+        page.keyboard.press("Enter")
+        settle(page)
+        self.assertEqual(page.evaluate("[COMPOSE.current.lo,COMPOSE.current.hi]"), [lo - 2, lo])
+        self.assertEqual(
+            page.evaluate("[document.activeElement.dataset.act,+document.activeElement.dataset.line]"),
+            ["xp-to", lo - 3],
+        )
+        page.click('#c-xp .xp-drop[data-line="%d"]' % (lo - 2))
+        settle(page)
+        self.assertEqual(page.evaluate("[COMPOSE.current.lo,COMPOSE.current.hi]"), [lo - 1, lo])
 
     def test_a_keyboard_keeps_its_place_and_hears_the_new_range(self):
         """411x908 from L5 with a keyboard: the redraw used to drop the focus to the page after every press. Two Enters on

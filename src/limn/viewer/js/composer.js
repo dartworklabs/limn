@@ -101,7 +101,7 @@ function overlapShort(rel,id){const k={equal:'#{id}{p} 같은 범위',inside:'#{
   return tl(k,{id,p:rel===RANGE_REL.CONTAINS?josa(id,'을','를'):josa(id,'과','와')});}
 // Location is one line: 'file L159' + page + match badge + [copy]. Range kind/line count are never repeated: the range
 // caption (rangeCap) under it says them, and the ladder's pressed segment. The dragged line goes into the description.
-// Selection on a view-only PDF: the location is '쪽 N - 영역', and the region's text (pdftotext) is shown in the source field. The range ladder/stepper are hidden.
+// Selection on a view-only PDF: the location is '쪽 N - 영역', and the region's text (pdftotext) is shown in the source field. The range ladder and excerpt are hidden.
 function renderRegionComposer(d){
   $('#composer').classList.add('region');
   $('#c-loc').textContent=d.name+' · '+tl('쪽 {page} 영역',{page:d.page}); $('#c-loc').dataset.copy=d.name+' 쪽 '+d.page;
@@ -112,18 +112,9 @@ function renderRegionComposer(d){
   $('#c-levels').innerHTML=''; setCap($('#c-cap'),''); drawExcerpt(null,$('#c-xp'),false);
   const pre=$('#c-snip'); pre.className='wrap open'; pre.textContent=d.quote?tl('영역 글자: {text}',{text:d.quote}):tr('(이 영역에는 글자가 없습니다)');
   $('#c-expand').hidden=true; renderElement(d,COMPOSE.box);}
-// The composer's markup follows its order on screen, so Tab does (docs/handbook/viewer.md §패널 정리). On every compact band
-// the note and its helpers, the kind, the overlap notice and the range block follow the location line, which #c-body keeps
-// with the warning (a hidden #c-body hides the moved overlap notice and range block too, responsive.css); on the mouse
-// desktop (wide) the overlap notice and the range block are #c-body's and the kind and the note come after it. Run as the
-// band changes (applyLayout); a part that had the focus keeps it.
-function orderComposer(){const c=$('#composer'),b=$('#c-body'),ov=$('#c-overlap'),rg=$('#c-range'),phone=document.body.classList.contains('compact');
-  if((rg.parentNode===c)===phone)return;
-  const a=document.activeElement,kind=$('#c-kind'),notes=['#note','#note-mentions','#c-viewer','#c-qhint','#c-assign'].map(s=>$(s));
-  if(phone)c.append(...notes,kind,ov,rg); else{b.append(ov,rg); c.append(kind,...notes);}
-  if(a&&a!==document.activeElement&&c.contains(a))a.focus({preventScroll:true});}
-// Draws the composer from COMPOSE.current (location, ladder, source, overlap) and schedules the draft write - every change of the
-// selection (a pick, a level, a nudge, a restore) passes through here.
+// Draws the composer from COMPOSE.current (location, ladder, range excerpt, overlap) and schedules the draft write - every change
+// of the selection (a pick, a level, a line set in the excerpt, a restore) passes through here. Its markup is in the order the
+// screen shows on every layout (docs/handbook/viewer.md §패널 정리), so Tab follows it.
 function renderComposer(){const d=COMPOSE.current; if(!d)return; saveDraftSoon();
   if(isRegion(d)){renderRegionComposer(d); return;}
   $('#composer').classList.remove('region');
@@ -141,7 +132,7 @@ function renderComposer(){const d=COMPOSE.current; if(!d)return; saveDraftSoon()
   pre.classList.toggle('clip',!SNIP_OPEN&&over);
   $('#c-expand').hidden=!over; $('#c-expand').textContent=SNIP_OPEN?tr('원문 접기'):tr('원문 펼치기')+(nl>1?' · '+tl('{n}줄',{n:nl}):'');
   $('#c-wrap').setAttribute('aria-pressed',String(WRAP));
-  drawExcerpt(d,$('#c-xp'),false);   // the compact bands' range excerpt (excerpt.js)
+  drawExcerpt(d,$('#c-xp'),false);   // the range excerpt (excerpt.js)
 }
 // When a selection ends via save/cancel/append, selection mode is turned off (scrolling resumes) and the narrow sheet collapses (the body comes forward again).
 // The composer panel's pin kind (fix request / question). Reverts to fix request on save or discard (the default for the next pin).
