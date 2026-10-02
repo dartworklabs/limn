@@ -96,6 +96,9 @@ body:not(.lay-narrow) #coach button{pointer-events:auto}
   #bar1{flex-wrap:wrap;--tb-h:var(--control-h-touch)}
   #bar1 button{padding:0 var(--space-2)}
   input,textarea,select{font-size:var(--text-xl)}
+  /* A text field answers 44px too: at 16px with 8px padding the navigation sheet's page field and outline search were 43px, the
+     nav bar's page field 36px. */
+  input:not([type=checkbox]):not([type=radio]){min-height:var(--hit)}
   #bar1 input.n{width:84px;flex:0 0 84px;max-width:none;font-size:var(--text-xl)}   /* iOS zooms the screen when focusing an input field smaller than 16px */
   /* Text links (#N, the line range, N쪽) sit 4-8px apart, so centred 44px hit areas would overlap and the later one would take the
      earlier's half (observed: '1쪽' answered 16x38, 'L4-L5' 33x38). Each is a real --hit x --hit box instead, its text centred,

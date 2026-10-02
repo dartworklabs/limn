@@ -5127,6 +5127,29 @@ class ComposerOneBorder(ViewerBase):
                 )
 
 
+class TouchFieldsAnswer44(ViewerBase):
+    """Text fields on touch (docs/handbook/viewer.md §모바일 레이아웃 터치 기기 크기): the 44px floor held for buttons, but the
+    navigation sheet's page field was 43px (16px text, 8px padding), the nav bar's page field 36px and the outline overlay's
+    search 37px."""
+
+    def test_the_page_fields_and_the_outline_searches_answer_44px(self):
+        """411x908: the navigation sheet's page field and outline search; 820x1180: the nav bar's page field once tapped
+        open, and the outline overlay's search."""
+        page = self.view(phone(411, 908))
+        page.evaluate("openNavSheet()")
+        settle(page)
+        self.assertEqual(page.evaluate(MISSES_44, "#ns-page-in,#ns-outline-search"), [])
+        page = self.view(phone(820, 1180, 2))
+        self.tap(self.cdp(page), *self.center(page, "#nav-page"))
+        page.wait_for_function("document.activeElement===document.querySelector('#nav-page-in')")
+        settle(page)
+        self.assertEqual(page.evaluate(MISSES_44, "#nav-page-in"), [])
+        page.keyboard.press("Escape")
+        page.evaluate("toggleOutline&&toggleOutline()")
+        settle(page)
+        self.assertEqual(page.evaluate(MISSES_44, "#outline-search"), [])
+
+
 class MetaWithoutCommit(ViewerBase):
     """The meta line of a manuscript outside Git (docs/handbook/viewer.md §모바일 레이아웃): the server names no commit ('-'),
     and [더보기] read 'main.tex · 2쪽 · -' and the desktop chip row 'main.tex · 2쪽 · - · <built>'. The empty piece goes, with
