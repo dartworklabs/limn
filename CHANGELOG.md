@@ -1,6 +1,10 @@
 # Changelog
 
-## Unreleased
+## 0.4.9 — 2026-10-03
+
+The cross-resolution pass: one composer and one panel toggle on every layout, the desktop's [⋯] menu, and spacing
+measured on phones, the Fold, tablets and the desktop. This release does not change `pins.md`, the API or the state
+directory: the agent contract stays as it is. The composer's Wrap toggle and the line stepper are gone.
 
 ### Changed
 
@@ -18,6 +22,11 @@
   the tablets' action row, 12 px each on the sheet's row (it was 12 over 4 with the sheet open, 12 over 8 collapsed).
   The bottom safe area is added underneath. Every icon, count and label in the row, including the status line's
   [Rebuild], sits on one centre line; [Rebuild]'s label had been drawn 1.9 px high.
+- **The landscape phone's top row is 48 px.** It was 44 px, and the instance's colour stripe cut the tops of [Rebuild]
+  and the pin chip. The row now has the height of the other touch nav bars, and its controls sit centred between the
+  stripe and the row's line. Its icons are 18 px, each centred in its box. Neighbouring controls are 8 px apart. The
+  row's ends line up with the panel and the page below it. The hairline where the PDF showed through between the row's
+  two halves is gone.
 - **One [⋯] on the desktop.** The wide tool row's bell, theme button and help button are replaced by one [⋯] at the
   row's end. It opens the same More panel as phones and tablets, as a menu under the button: theme and language are
   segmented controls, notifications a switch, and the foot shows the Limn wordmark, the version and Help. Esc, a click
@@ -30,11 +39,22 @@
   and below its controls (it had 4 and 8). The tablet rows end on the same edge line as the panel. The sheets' [Close]
   and the More foot's [Help] end their labels on the same line the titles start on, and help's title no longer stands
   4 px high. The pin chip's counts use proportional figures, so each half's label is centred.
-- **The landscape phone's top row is 48 px.** It was 44 px, and the instance's colour stripe cut the tops of [Rebuild]
-  and the pin chip. The row now has the height of the other touch nav bars, and its controls sit centred between the
-  stripe and the row's line. Its icons are 18 px, each centred in its box. Neighbouring controls are 8 px apart. The
-  row's ends line up with the panel and the page below it. The hairline where the PDF showed through between the row's
-  two halves is gone.
+
+### Fixed
+
+- **A manuscript outside Git** leaves the commit out of the meta lines: they read `main.tex · 2 pp. · -`.
+- **Help's head is one ink line.** The wordmark ends on the title's ink bottom, as in More's foot; it stood 3.3 px below.
+- **Help and the Trash open under the same sheet head** as More and the navigation sheet on phones and tablets: a grab
+  band and the title row with [Close], which stay at the top while the rest scrolls.
+- **The segmented control is one size with a mouse too**: a 36 px track round 28 px segments.
+- **Every compact layout draws the composer in one order**: location, note, kind, then the range block.
+- **One border in the composer.** [Cancel] and the overlap notice's actions are filled; the copy button is a ghost on
+  every layout.
+- **Touch text fields answer 44 px**: the page fields and the outline search.
+- **The focus a sheet gives back draws no ring after a tap**; it shows for the keyboard only.
+- **The desktop's help and Trash close with the same ghost [Close]** as every sheet.
+- **A first tap on a dimmed line works while a note has focus.** On a landscape phone the top row came back as the
+  tap took the focus from the note and moved the panel under the finger, so only a second tap widened the range.
 
 ## 0.4.8 — 2026-10-02
 
