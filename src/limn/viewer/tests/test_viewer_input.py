@@ -5053,6 +5053,27 @@ class OneSheetHead(ViewerBase):
         SheetEdgeGrid.drop_one(self)
 
 
+class SegmentedControlMouse(ViewerBase):
+    """The one segmented control with a mouse (docs/handbook/viewer.md §컴포넌트): the touch rule drew the track at 36px with
+    a 28px thumb, but a mouse kept the old segments sized by their text - a 34.8px track round 26.8px thumbs - on the
+    desktop composer and edit card and in the mouse-window [더보기] and navigation sheet. Every track is 36px on every
+    pointer; the thumb is the desktop control height (28px)."""
+
+    compose = SegmentedControl.compose
+    every_control = SegmentedControl.every_control
+
+    def test_every_mouse_track_is_36px_with_its_thumb_inset_4px_and_the_radius_rule(self):
+        """1400x850 (the composer and the edit card) and 1000x800 ([더보기] and the navigation sheet too): 36px tracks, the
+        thumb 4px in all round, its radius the track's less 4 (it was 34.8px round 26.8px thumbs)."""
+        for device in (DESK, MOUSE_MID):
+            page = self.view(device)
+            for where, segs in self.every_control(page):
+                for s in segs:
+                    with self.subTest(width=device["viewport"]["width"], where=where, seg=s["id"]):
+                        got = [s["h"], s["top"], s["bottom"], s["left"], s["right"], s["rTrack"] - s["rThumb"]]
+                        self.assertEqual(got, [36, 4, 4, 4, 4, 4], s)
+
+
 class MetaWithoutCommit(ViewerBase):
     """The meta line of a manuscript outside Git (docs/handbook/viewer.md §모바일 레이아웃): the server names no commit ('-'),
     and [더보기] read 'main.tex · 2쪽 · -' and the desktop chip row 'main.tex · 2쪽 · - · <built>'. The empty piece goes, with

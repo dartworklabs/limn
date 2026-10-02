@@ -55,7 +55,9 @@ button.tg[aria-pressed=true]{border-color:var(--border-strong)}
 .seg.fade-r{mask-image:linear-gradient(to right,var(--foreground) calc(100% - 32px),transparent)}
 .seg.fade-l{mask-image:linear-gradient(to left,var(--foreground) calc(100% - 32px),transparent)}
 .seg.fade-l.fade-r{mask-image:linear-gradient(to right,transparent,var(--foreground) 32px,var(--foreground) calc(100% - 32px),transparent)}
-.seg button{flex:1 0 auto;background:transparent;border-color:transparent;border-radius:var(--radius);font-size:var(--text-sm);padding:var(--space-1) var(--space-3);
+/* The thumb is a control's height on every pointer (28px): the track is 36px with a mouse too - sized by its text it was 34.8px
+   round 26.8px thumbs, a second segmented control beside the touch one. */
+.seg button{flex:1 0 auto;height:var(--control-h);background:transparent;border-color:transparent;border-radius:var(--radius);font-size:var(--text-sm);padding:0 var(--space-3);
   white-space:nowrap;color:var(--muted-foreground)}
 .seg button.on{background:var(--popover);border-color:transparent;color:var(--foreground);font-weight:600;box-shadow:var(--shadow-xs)}
 .seg button .k{font-weight:400;color:var(--muted-foreground)}
