@@ -6,7 +6,7 @@
    `§N` names the numbered heading "N. ...". References chained with a comma (§A, §B) are checked too.
 2. Every backticked `src/...` or `tests/...` path in a Handbook topic exists.
 3. Topics carry no ISO dates (YYYY-MM-DD) outside code fences: history lives in git, CHANGELOG.md and the ADRs
-   (docs/handbook/workflow.md §문서 동기화). The index's ADR table is the one place a date may stand.
+   (docs/handbook/workflow.md §문서 동기화).
 """
 
 import re
@@ -107,11 +107,8 @@ def test_topics_carry_no_dates():
     for topic in sorted(HANDBOOK.glob("*.md")):
         if topic.name in DATES_PENDING:
             continue
-        section = ""
         for n, line in prose_lines(topic):
-            if line.startswith("## "):
-                section = line
-            if DATE.search(line) and not (topic.name == "index.md" and section == "## 결정 기록"):
+            if DATE.search(line):
                 dated.append(f"{topic.name}:{n}: {line.strip()[:80]}")
     assert dated == []
 
