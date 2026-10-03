@@ -104,6 +104,7 @@ function diffToast(prev,d,dropped){
 }
 
 // Announces when a pin that was awaiting review gets confirmed (done) or reopened elsewhere. An action this tab performed (markMine) is swallowed.
+/** @param {Pin} p */
 function pinState(p){return (p&&p.state)||(p&&p.done?(p.review?PIN_STATE.REVIEW:PIN_STATE.DONE):PIN_STATE.OPEN);}
 function reviewToast(prev,d){if(!prev||!prev.length)return; const known=new Map((d||[]).map(p=>[p.id,p]));
   prev.forEach(p=>{const n=known.get(p.id); if(!n)return; const st=pinState(n); if(st===PIN_STATE.REVIEW)return; if(consumeMine(p.id))return;

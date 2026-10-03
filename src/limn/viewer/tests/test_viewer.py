@@ -2900,7 +2900,11 @@ class FrontendFigure(unittest.TestCase):
         )
         self.assertEqual(
             json.loads(run_node(js)),
-            [[6, "mark", "10%", "30%"], [7, "mark st", "10%", "30%"], [8, "mark", "10%", "30%"]],
+            [
+                ["6", "mark", "10%", "30%"],
+                ["7", "mark st", "10%", "30%"],
+                ["8", "mark", "10%", "30%"],
+            ],  # dataset holds strings
         )
 
     def test_the_finished_build_toast_says_rebuilt_for_a_manuscript_and_redrawn_for_a_figure(self):

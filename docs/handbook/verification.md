@@ -174,7 +174,7 @@ pytest는 `tests`와 `src/limn`을 수집하고 `tests/support`에서 공용 도
 | 적용 조건 | 뷰어 JS나 `src/limn/viewer/types/`를 바꿀 때. CI `lint` 작업에서 돈다 |
 | 실행 | `npm ci --ignore-scripts` 뒤 `npm run typecheck`(`tsc -p .`). TypeScript 버전은 `package-lock.json`이 정한다 |
 | 합격 기준 | 출력 없이 0으로 끝난다. 타입을 좁히는 JSDoc 캐스트(`/** @type {HTMLElement} */(e.target)`)는 쓰되, `@ts-ignore`·`@ts-expect-error`는 쓰지 않는다 |
-| 보장 범위 | `strict`를 끈 검사다. `null` 검사 누락과 암묵적 `any`는 보지 않고, API 응답의 모양은 선언한 만큼만 본다. 런타임 동작은 §1이 맡는다 |
+| 보장 범위 | `strict`를 끈 검사다. `null` 검사 누락과 암묵적 `any`는 보지 않는다. 핀 응답의 모양(`types/api.d.ts`)은 `@param {Pin}`을 단 함수에서만 보고, 그 선언이 실제 응답과 맞는지는 §1의 `test_viewer_types`가 계약 스냅샷으로 확인한다. 런타임 동작은 §1이 맡는다 |
 
 ## 10. 기능 경계 검사
 

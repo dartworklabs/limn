@@ -7,12 +7,14 @@
 function isHuman(){const me=typeof META!=='undefined'&&META&&META.me; return !!(me&&me.login&&me.login!==LOCAL_LOGIN&&!String(me.login).startsWith('agent:')&&me.role!==ROLE.AGENT);}
 // Mirrors limn.pins.lifecycle.rules.reopens_on_reply(): an open pin never changes; an explicit override (true/false) wins; otherwise a person's reply
 // on a closed pin reopens it unless it tags a person or the pin is a question. mentioned = the post's resolved @-tags without me.
+/** @param {Pin} p @param {boolean} human @param {string[]} mentioned @param {boolean|null} [override] */
 function replyReopens(p,human,mentioned,override){if(pinState(p)===PIN_STATE.OPEN)return false;
   if(override!==undefined&&override!==null)return !!override;
   if(p.kind_req===KIND_REQ.QUESTION||!human)return false; return !(mentioned&&mentioned.length);}
 // The outcome line: {text, toggle}, or null for an open pin (a reply never changes it). toggle names the one rare override the box
 // offers: 'keep' ([상태 유지], reopen:false) where the rule would reopen, 'reopen' ([다시 열기], reopen:true) where it keeps a closed pin
 // as it is. flip = that toggle is pressed.
+/** @param {Pin} p */
 function replyPreview(p,human,mentioned,flip){if(!p||pinState(p)===PIN_STATE.OPEN)return null; const m=mentioned||[];
   const reopens=replyReopens(p,human,m),toggle=reopens?'keep':'reopen',names=m.map(peopleName).join(', ');
   if(flip&&!reopens)return {text:m.length?tl('보내면 이 핀이 다시 열려 에이전트에게 가고, {names}에게 알림이 갑니다',{names}):tr('보내면 이 핀이 다시 열려 에이전트에게 갑니다'),toggle};
@@ -22,6 +24,7 @@ function replyPreview(p,human,mentioned,flip){if(!p||pinState(p)===PIN_STATE.OPE
   if(!human)return {text:tr('이 화면은 에이전트로 보내므로 상태는 그대로입니다'),toggle};
   return {text:tl('보내면 {names}에게 알림이 가고 상태는 그대로입니다',{names}),toggle};}
 // The empty box's placeholder says the same outcome as the line under it would for a reply without @-tags.
+/** @param {Pin} p */
 function replyPlaceholder(p,human,flip){const closed=!!p&&pinState(p)!==PIN_STATE.OPEN,def=closed&&replyReopens(p,human,[]);
   return tr(closed&&(flip?!def:def)?'무엇이 틀렸는지 적으면 다시 열려 에이전트에게 갑니다 (⌘/Ctrl+Enter 보내기)':'답글 (⌘/Ctrl+Enter 보내기)');}
 // After the deferred send: a note only when the server's decision differs from the preview (the pin changed state while the
@@ -33,6 +36,7 @@ function replyServerNote(id,predicted,data){if(!data||!data.ok||!!data.reopened=
 // Resolved with exactly the hints the request will carry (mentionHints) - the server resolves the same text with the same hints,
 // so an autocompleted '@Robin Lee' later edited down to an ambiguous '@Robin' previews what the server will do (PR #11 review).
 function replyMentioned(ta){const me=meLogin(); return mentionScan(ta.value,new Set(mentionHints(ta))).hit.filter(l=>l!==me&&(PEOPLE.find(x=>x.login===l)||{}).role!==ROLE.AGENT);}
+/** @param {Pin} p */
 function replyEl(p){const el=document.createElement('div'); el.className='reply-box';
   setHtml(el,html`<textarea class="r-text" rows="2" maxlength="1000" aria-label="답글" placeholder="${replyPlaceholder(p,isHuman(),false)}"></textarea><div class="m-preview" aria-live="polite" hidden></div>\
 <div class="r-outcome" aria-live="polite" hidden><span class="r-out-t"></span><button type="button" class="btn-sm r-keep" role="switch" data-act="reply-flip" aria-checked="false"></button></div>\
