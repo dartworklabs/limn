@@ -59,7 +59,7 @@ from limn.platform import files
 from limn.runtime.documents import NO_APART, ApartPaths, Doc, InputSetCache, RunPaths
 from limn.web.errors import HTTPError
 
-from helpers import MINI_PDF, Base, blank_png, figure_map, map_bytes, needs_tex, ps, req
+from helpers import MINI_PDF, Base, GatedBuild, blank_png, figure_map, map_bytes, needs_tex, ps, req
 from helpers_figure import BUILD1, b2_map, figure_doc, write_build
 
 BUILD_PY = Path(build.__file__)
@@ -1376,6 +1376,63 @@ class AsyncBuild(Base):
         self.assertIn(data["state"], ("idle", "running", "ok", "ok_errors", "fail"))
         self.assertIn("phase", data)
         self.assertIn("log_tail", data)
+
+    def build_status(self) -> dict:
+        """GET /api/build through the handler, decoded."""
+        return json.loads(self.talk(req("GET", "/api/build")).split(b"\r\n\r\n", 1)[1])
+
+    def build_status_when(self, cond, seen: list, timeout: float = 10.0) -> dict:
+        """Poll GET /api/build until cond holds for its answer, recording each progress value read in seen."""
+        end = time.monotonic() + timeout
+        while True:
+            st = self.build_status()
+            seen.append(st["progress"])
+            if cond(st):
+                return st
+            if time.monotonic() > end:
+                raise AssertionError("GET /api/build never reached the awaited state: %r" % st)
+            time.sleep(0.02)
+
+    def test_get_api_build_counts_pages_drawn_only_while_the_render_runs(self):
+        """GET /api/build answers progress null before a build and through its TeX pass, then during the page render
+        {done, total}: 0 of 3 once pdfinfo has counted the pages, and one more for each page written, whichever page ends
+        first (the latest started page is let go first), so every value read only grows; after the build, null again.
+        latexmk, pdfinfo and pdftoppm are stand-ins held at gates the test opens (GatedBuild)."""
+        doc = ps.APP.docs[0]
+        gated = GatedBuild(self, Path(self.tmp.name), pages=3)
+        seen: list = []
+        try:
+            self.assertIsNone(self.build_status()["progress"])
+            self.assertIn(b" 202 ", self.talk(req("POST", "/api/rebuild?async=1")).split(b"\r\n", 1)[0])
+            gated.wait_started("latex")
+            st = self.build_status()
+            self.assertEqual((st["state"], st["phase"], st["progress"]), ("running", "latex", None))
+            gated.release("latex")
+            st = self.build_status_when(lambda s: s["progress"] is not None, seen)
+            self.assertEqual((st["phase"], st["progress"]), ("render", {"done": 0, "total": 3}))
+            let_go: list[int] = []
+            for done in (1, 2, 3):
+                end = time.monotonic() + 10
+                while not [p for p in (1, 2, 3) if gated.started(p) and p not in let_go]:
+                    self.assertLess(time.monotonic(), end, "no further page started")
+                    time.sleep(0.02)
+                page = max(p for p in (1, 2, 3) if gated.started(p) and p not in let_go)
+                gated.release(page)
+                let_go.append(page)
+                st = self.build_status_when(
+                    lambda s, done=done: s["state"] != "running" or (s["progress"] or {}).get("done") == done, seen
+                )
+                if done < 3:
+                    self.assertEqual(st["progress"], {"done": done, "total": 3})
+            final = self.build_status_when(lambda s: s["state"] != "running", seen)
+        finally:
+            gated.release_all()
+            self.assertTrue(doc.lock.acquire(timeout=10), "the build never released its document")
+            doc.lock.release()
+        self.assertEqual((final["state"], final["progress"], final["pages"]), ("ok", None, 3))
+        counts = [p["done"] for p in seen if p is not None]
+        self.assertEqual(counts, sorted(counts))
+        self.assertEqual({p["total"] for p in seen if p is not None}, {3})
 
     @needs_tex("latexmk", "pdftoppm")
     def test_real_build_progresses_through_all_phases(self):

@@ -1,4 +1,5 @@
-"""Project finished builds into history and viewer values without reading runtime state."""
+"""Project builds into history and viewer values without reading runtime state: a finished build's history entry and
+build state, and a running build's progress."""
 
 from dataclasses import dataclass
 from typing import Any
@@ -14,6 +15,7 @@ from limn.builds.values import (
     FinishedState,
     Json,
     LatexError,
+    PagesDrawn,
 )
 
 
@@ -178,3 +180,14 @@ def build_pull(res: FinishedBuild) -> Json | None:
             return p
         case BuildAborted():
             return None
+
+
+def render_progress(state: object, phase: object, drawn: PagesDrawn | None) -> dict[str, int] | None:
+    """GET /api/build `progress` from a build state's state, phase and render count: {"done", "total"} - page images
+    written of the PDF's pages - while a running build is in its page render and has counted its pages; None otherwise
+    (docs/handbook/build-sync.md §진행 폴링). A TeX pass, the copy and the pull have no honest share (how many passes
+    latexmk will run is not known ahead), a render has none until pdfinfo has counted the pages, and a finished build
+    is not in progress - so a count an earlier render left in the state never shows. Pure."""
+    if state != "running" or phase != "render" or drawn is None:
+        return None
+    return {"done": drawn.done, "total": drawn.total}

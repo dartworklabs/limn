@@ -8,7 +8,8 @@ let STATUS_SYNC=/** @type {SyncStatus|null} */(null),STATUS_SIG='';   // the las
 const STATUS_TRANSIENT_MS=6000;   // a passing answer (no changes) stays on the line as long as a toast stays (api-toasts.js)
 
 // A build's countable progress {done, total}: integers with total > 0 and 0 <= done <= total, else null - as if the field were
-// missing (GET /api/build `progress`, a proposal; without it the bar does not know its end). Pure.
+// missing (GET /api/build `progress`: the pages drawn of the PDF's while a render runs, null otherwise, absent from an older
+// server; without it the bar does not know its end, docs/handbook/build-sync.md §진행 폴링). Pure.
 function statusProgress(pr){if(!pr||typeof pr!=='object')return null; const {done,total}=pr;
   return Number.isInteger(done)&&Number.isInteger(total)&&total>0&&done>=0&&done<=total?{done,total}:null;}
 
