@@ -474,8 +474,8 @@ def is_agent_actor(actor: Mapping[str, Any] | None) -> bool:
 class Principal(NamedTuple):
     """Who a request is, as identify() decided: what pins record, the role that decides what it may change, and how
     it was identified (admit() treats a header-vouched person differently from a token or the local owner). Besides
-    check_role's route rule, the principal answers the two role questions a handler asks about an action (is_human,
-    review_on_close), so no role comparison lives outside this module."""
+    check_role's route rule, the principal answers the role questions a handler asks about an action (is_human,
+    review_on_close) and about a failure (sees_error_detail), so no role comparison lives outside this module."""
 
     actor: Json  # {login, name, pic?} - what pins record
     role: Role
@@ -493,6 +493,13 @@ class Principal(NamedTuple):
         if asked is None and self.role == "agent":
             return True
         return asked
+
+    def sees_error_detail(self) -> bool:
+        """May an unexpected exception's text reach this principal in a 500 body? Every role but viewer: the owner,
+        editors and agents keep it for diagnosis without the server log. A view-only principal (including an unknown
+        role value and anyone while people.json cannot be used) does not, because the text can carry state paths and
+        implementation details (docs/handbook/api.md §오류 응답)."""
+        return self.role != "viewer"
 
 
 def identify(headers: Message, peer: str, settings: AccessSettings, lookups: AccessLookups) -> Principal:
