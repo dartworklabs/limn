@@ -65,6 +65,8 @@ class PinContext:
     and hm ('HH:MM', stamped on an appended note). Notices are built by make_event and recorded by emit_events, only
     after the pin write committed; audit appends one audit.jsonl line (action, by, details) and flocks and fsyncs, so
     it is called outside the lock. trash_checked is the process's memo of the last Trash expiry check (one element).
+    watches_files and refresh_files answer for a pin record's document: whether its files are watched, and the effect
+    that pulls and imports them before a close awaiting review is written - called outside the lock.
     """
 
     store: PinStore
@@ -85,6 +87,11 @@ class PinContext:
     trash_days: int  # how long a dropped pin stays restorable
     trash_checked: list[float]
     builds: PinBuildQueries = pin_build_queries()
+    # Whether the document a pin record belongs to has its files watched (a figure document, a view-only PDF), and the
+    # effect that brings those files up to date - one fast-forward pull and the import it lets in - before a close
+    # awaiting review is written (lifecycle.rules.refreshes_before_close). By default nothing is watched.
+    watches_files: Callable[[Mapping[str, Any]], bool] = lambda record: False
+    refresh_files: Callable[[Mapping[str, Any]], object] = lambda record: None
 
     @property
     def authority_scope(self) -> AuthorityScope:

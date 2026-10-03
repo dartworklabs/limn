@@ -241,6 +241,7 @@ def assemble_application(config: RunConfig, runtime: RunResources) -> ServerAsse
         audit=lambda action, by, details: security.http_audit(action, by, details),
         now=timestamp,
         remote_base_for=lambda host: access.remote_base_for(host, settings().access.public_hosts, settings().port),
+        refresh_watched=lambda key: sync.service.refresh_watched(key),
     )
     collaboration = assemble_collaboration(
         state=lambda: settings().state,
@@ -268,6 +269,7 @@ def assemble_application(config: RunConfig, runtime: RunResources) -> ServerAsse
             start_build=builds.commands.build_async,
             last_failed=builds.last_failed,
             built_head=builds.published_head,
+            refresh_now=builds.commands.refresh_now,
             git=_git,
             clock=time.time,
         )

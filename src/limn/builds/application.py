@@ -81,6 +81,12 @@ class BuildCommands:
         """Watch file-backed documents until ``stop`` is set."""
         self._requests.watch_pdf_docs(stop, every)
 
+    def refresh_now(self, doc: Doc) -> bool:
+        """Bring a watched document's pages up to date in the caller's thread (BuildRequests.refresh_watched_now): True
+        when an import or redraw ran, whatever its outcome; False when there was nothing to do or the document stayed
+        busy."""
+        return self._requests.refresh_watched_now(doc) is not None
+
 
 @dataclass(frozen=True)
 class BuildSubsystem:

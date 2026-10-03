@@ -23,6 +23,7 @@ from limn.pins.lifecycle.rules import (
     evolve_close,
     evolve_reopen,
     evolve_reply,
+    refreshes_before_close,
     reopen_request,
     reopens_on_reply,
 )
@@ -30,6 +31,41 @@ from limn.pins.model import Agent, DonePin, OpenPin, ReviewPin, parse_pin
 
 from helpers import RULE_CASES, rec_for
 from helpers_pin_rules import AGENT, ALICE_PERSON, AT, open_record, review_record
+
+
+class RefreshBeforeClose(unittest.TestCase):
+    """refreshes_before_close: which closes bring their document's files up to date before they are written and
+    announced (docs/handbook/api.md §닫을 때 사유 남기기)."""
+
+    def test_an_agents_close_with_a_reference_on_a_watched_document_refreshes(self):
+        """The agent's default close awaits review; with a reference on a watched document it refreshes first."""
+        self.assertTrue(refreshes_before_close(AGENT, CloseRequest(ref="PR #3 (abc1234)"), True))
+
+    def test_a_person_asking_for_review_refreshes_too(self):
+        """What counts is that the close awaits review - its notice tells the author to look - not who closes."""
+        self.assertTrue(refreshes_before_close(ALICE_PERSON, CloseRequest(ref="abc1234", review=True), True))
+
+    def test_no_refresh_without_a_reference_a_watch_or_a_review(self):
+        """No reference (absent or blank), a document whose files are not watched, a person's own done close and an
+        agent's close sent as done each close at once."""
+        for name, by, request, watched in (
+            ("no reference", AGENT, CloseRequest(), True),
+            ("blank reference", AGENT, CloseRequest(ref="  "), True),
+            ("not watched", AGENT, CloseRequest(ref="abc1234"), False),
+            ("a person's close", ALICE_PERSON, CloseRequest(ref="abc1234"), True),
+            ("an agent's done close", AGENT, CloseRequest(ref="abc1234", review=False), True),
+        ):
+            with self.subTest(name):
+                self.assertFalse(refreshes_before_close(by, request, watched))
+
+    @given(strategies.booleans(), strategies.sampled_from([None, True, False]), strategies.text(max_size=5))
+    def test_it_refreshes_exactly_when_decide_close_would_await_review(self, agent, review, ref):
+        """On a watched document with a non-blank reference the answer is the close's own review flag."""
+        by = AGENT if agent else ALICE_PERSON
+        request = CloseRequest(ref=ref, review=review)
+        closed = decide_close(parse_pin(open_record()), by, AT, request)
+        assert isinstance(closed, PinClosed)
+        self.assertEqual(refreshes_before_close(by, request, True), closed.review and bool(ref.strip()))
 
 
 class Confirmer(unittest.TestCase):

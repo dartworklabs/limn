@@ -12,6 +12,9 @@ only from helpers modules, never from one another (tests/support/helpers.py).
 The viewer tests (P1c) add viewer_docs(): the manuscript, figure_doc()'s figure and a reviewer's view-only PDF served
 together, each with a two-page build of real page images (the figure's page 1 is 3:1); viewer_map() and
 viewer_rerender() move the July cell, take it to page 2 or drop it, as a re-render does.
+
+The pull tests (P2) add FigureRepo: the manuscript and its figure set committed in a checkout that tracks a bare
+origin, with an upstream clone where a merged re-render is pushed; fake_poppler() stands in for pdftoppm and pdfinfo.
 """
 
 import hashlib
@@ -28,6 +31,7 @@ from limn.builds import engine
 from limn.builds.artifacts import FIGMAP_NAME, BuildBusy, FinishedBuild, PagesNotRendered
 from limn.pins.location import source as pick_source
 from limn.platform import files
+from limn.platform.git import run_git
 from limn.runtime.documents import Doc, RunPaths
 from limn.web.errors import InputRejected
 
@@ -300,6 +304,91 @@ def make_figure_set_docs(src: Path, paths: RunPaths, specs: list[str] | None = N
     docs = startup_documents.make_docs(FIGURE_SET_SPECS if specs is None else specs, src, paths)
     assert isinstance(docs, list), docs
     return docs
+
+
+# ---------------------------------------------------------------- a figure set in a Git checkout with an upstream (P2)
+
+# pdftoppm and pdfinfo stand-ins for an import that must not need Poppler: every PDF has one page, drawn as the 200x100
+# PPM named by LIMN_TEST_PAGE_PNG (builds/tests/test_figure.py keeps its own copy of the same pair).
+FAKE_PDFTOPPM = '#!/bin/sh\ncat "$LIMN_TEST_PAGE_PNG"\n'
+FAKE_PDFINFO = '#!/bin/sh\necho "Pages:          1"\n'
+
+
+def fake_poppler(case: Any, root: Path) -> None:
+    """Put FAKE_PDFTOPPM and FAKE_PDFINFO first on PATH for the rest of case (a unittest.TestCase), with their page
+    image under root/poppler."""
+    bin_dir = root / "poppler"
+    bin_dir.mkdir()
+    for name, text in (("pdftoppm", FAKE_PDFTOPPM), ("pdfinfo", FAKE_PDFINFO)):
+        (bin_dir / name).write_text(text, encoding="utf-8")
+        (bin_dir / name).chmod(0o755)
+    page = bin_dir / "page.ppm"
+    page.write_bytes(b"P6\n200 100\n255\n" + b"\xff" * (200 * 100 * 3))
+    env = mock.patch.dict(
+        os.environ, {"PATH": str(bin_dir) + os.pathsep + os.environ.get("PATH", ""), "LIMN_TEST_PAGE_PNG": str(page)}
+    )
+    env.start()
+    case.addCleanup(env.stop)
+
+
+FIGURE_SPEC = "fig=그림:figs/figures.limnmap.json"  # FigureRepo's figure set as a --doc value
+
+
+class FigureRepo:
+    """A manuscript checkout `src` on branch main that tracks a bare origin, holding figs/ - the drawing script
+    (script_lines()), figures.pdf and the map b2_map() stamped with that PDF's SHA-256 - and a second clone, upstream,
+    where a merged change is made and pushed, as a merged pull request reaches origin. Git runs with the server's clean
+    environment (limn.platform.git.run_git) and each repository's own identity; no network."""
+
+    def __init__(self, src: Path, root: Path) -> None:
+        """Commit src as it is plus figs/ (rendered from minimal_pdf("fig v1")), make root/origin.git from it and clone
+        root/upstream."""
+        self.src, self.origin, self.upstream = src, root / "origin.git", root / "upstream"
+        (src / "figs" / "src").mkdir(parents=True, exist_ok=True)
+        (src / "figs" / "src" / "B2_calendar.py").write_text("\n".join(script_lines()) + "\n", encoding="utf-8")
+        self.render(src, minimal_pdf("fig v1"))
+        self.git(src, "init", "--quiet", "-b", "main")
+        self.identify(src)
+        self.git(src, "add", ".")
+        self.git(src, "commit", "--quiet", "-m", "Initial manuscript and figures")
+        self.git(src, "clone", "--quiet", "--bare", str(src), str(self.origin))
+        self.git(src, "remote", "add", "origin", str(self.origin))
+        self.git(src, "push", "--quiet", "-u", "origin", "main")
+        self.git(src, "clone", "--quiet", str(self.origin), str(self.upstream))
+        self.identify(self.upstream)
+
+    def git(self, cwd: Path, *args: str) -> str:
+        """Run `git <args>` in cwd; its stdout, stripped. A failing command raises AssertionError with git's message."""
+        done = run_git(list(args), cwd, 20)
+        if done.returncode != 0:
+            raise AssertionError("git %s: %s" % (" ".join(args), done.stderr))
+        return done.stdout.strip()
+
+    def identify(self, cwd: Path) -> None:
+        """Give the repository at cwd a committer of its own (never the machine's global identity)."""
+        self.git(cwd, "config", "user.email", "alice@example.com")
+        self.git(cwd, "config", "user.name", "Alice")
+
+    @staticmethod
+    def render(where: Path, pdf: bytes) -> dict[str, Any]:
+        """Render as a figure repository does in the checkout at `where`: figs/figures.pdf first, then the map
+        describing it (b2_map() with its pdf_sha256). Returns the map."""
+        figs = where / "figs"
+        (figs / "figures.pdf").write_bytes(pdf)
+        fmap = {**b2_map(), "pdf_sha256": hashlib.sha256(pdf).hexdigest()}
+        (figs / "figures.limnmap.json").write_text(json.dumps(fmap, ensure_ascii=False), encoding="utf-8")
+        return fmap
+
+    def publish(self, pdf: bytes, subject: str) -> str:
+        """Merge a re-render of the figure (pdf) into origin's main from upstream; the new head's full id."""
+        self.render(self.upstream, pdf)
+        self.git(self.upstream, "commit", "--quiet", "-am", subject)
+        self.git(self.upstream, "push", "--quiet")
+        return self.git(self.upstream, "rev-parse", "HEAD")
+
+    def head(self) -> str:
+        """The checkout's HEAD, full id."""
+        return self.git(self.src, "rev-parse", "HEAD")
 
 
 def age_tree(root: Path, seconds: float = 100.0) -> None:

@@ -66,6 +66,9 @@ class PinCommands:
     role_of: Callable[[str], Role]
     http_audit: Callable[[AuditAction, Json, Json], bool]
     now_str: Callable[[], str]
+    # The composition root's effect that brings a watched document's files up to date (pull, then import) by its key,
+    # run before a close awaiting review is written; by default nothing.
+    refresh_watched: Callable[[str], object] = lambda key: None
     pin_lifecycle: PinLifecycle = field(init=False)
     pin_claims: PinClaims = field(init=False)
     pin_trash: PinTrash = field(init=False)
@@ -127,6 +130,16 @@ class PinCommands:
         """Refresh derived markdown after publication without resynchronizing pins."""
         with self.RT.pin_lock:
             self.render_pins_md(self.read_pins()[0])
+
+    def watches_files(self, r: Record) -> bool:
+        """Whether the document pin record r belongs to (pin_doc_key) has its files watched (Doc.watches_files: a figure
+        document or a view-only PDF); False for a document this run does not serve."""
+        doc = self.doc_by_key(self.pin_doc_key(r))
+        return doc is not None and doc.watches_files
+
+    def refresh_files(self, r: Record) -> None:
+        """Bring the files of the document pin record r belongs to up to date (the refresh_watched port, by key)."""
+        self.refresh_watched(self.pin_doc_key(r))
 
     def doc_by_key(self, key: object) -> Doc | None:
         """The document of this instance whose key is `key`, or None (limn.runtime.documents.doc_by_key)."""
@@ -310,6 +323,8 @@ class PinCommands:
             trash_days=TRASH_DAYS,
             trash_checked=self.RT.trash_checked,
             builds=self.build_view,
+            watches_files=self.watches_files,
+            refresh_files=self.refresh_files,
         )
 
     def render_pins_md(self, pins: Sequence[Pin]) -> None:

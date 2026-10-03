@@ -16,6 +16,7 @@ import io
 import json
 import os
 import tempfile
+import threading
 import time
 import typing
 import unittest
@@ -933,6 +934,41 @@ class FigureDocumentThroughTheServer(Base):
         """refresh_watched answers False for a document built from source and starts nothing."""
         self.assertFalse(ps.APP.build_requests.refresh_watched(ps.APP.docs[0]))
         self.assertEqual(build.state_snapshot(ps.APP.docs[0])["state"], "idle")
+
+    def test_a_refresh_now_imports_a_changed_pair_before_it_returns(self):
+        """refresh_watched_now runs the watch's import in the caller's thread: when it returns BuildOk the new PDF is
+        on screen and counted (seq 2)."""
+        ps.APP.build_requests.init_doc(self.fig, no_build=False, wait=True)
+        self.producer.render(OTHER_PDF)
+        self.assertIsInstance(ps.APP.build_requests.refresh_watched_now(self.fig), BuildOk)
+        self.assertEqual((build.cur_pages(self.fig) / "figures.pdf").read_bytes(), OTHER_PDF)
+        self.assertEqual(build.state_snapshot(self.fig)["seq"], 2)
+
+    def test_a_refresh_now_waits_for_an_import_already_running(self):
+        """While another thread holds the figure's build lock (the watch's own import) refresh_watched_now waits for it,
+        then imports the files as they are; when the lock outlasts its wait it returns None and starts nothing."""
+        ps.APP.build_requests.init_doc(self.fig, no_build=False, wait=True)
+        self.producer.render(OTHER_PDF)
+        self.fig.lock.acquire()
+        released = threading.Timer(0.3, self.fig.lock.release)
+        released.start()
+        self.addCleanup(released.cancel)
+        self.assertIsInstance(ps.APP.build_requests.refresh_watched_now(self.fig, wait=10), BuildOk)
+        self.assertEqual((build.cur_pages(self.fig) / "figures.pdf").read_bytes(), OTHER_PDF)
+        self.producer.render(MINI_PDF)
+        with self.fig.lock:
+            self.assertIsNone(ps.APP.build_requests.refresh_watched_now(self.fig, wait=0.05))
+        self.assertEqual(build.state_snapshot(self.fig)["seq"], 2)
+
+    def test_a_refresh_now_of_unchanged_or_unwatched_files_does_nothing(self):
+        """Nothing changed since the import, or a document built from source: None, and no build is counted."""
+        ps.APP.build_requests.init_doc(self.fig, no_build=False, wait=True)
+        for doc in (self.fig, ps.APP.docs[0]):
+            with self.subTest(doc=doc.key):
+                self.assertIsNone(ps.APP.build_requests.refresh_watched_now(doc))
+        self.assertEqual(
+            (build.state_snapshot(self.fig)["seq"], build.state_snapshot(ps.APP.docs[0])["state"]), (1, "idle")
+        )
 
     def test_rebuild_refuses_a_figure_document_and_its_changes_answer_carries_the_overlay(self):
         """POST /api/rebuild is 400 view_only_no_rebuild (its pages follow its files, whatever pins it takes). The

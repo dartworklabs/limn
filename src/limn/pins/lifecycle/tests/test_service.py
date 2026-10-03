@@ -606,3 +606,56 @@ class ConfirmShownCloseHttp(AccessBase):
         code, d = self.call("POST", "/api/pins/%d/confirm" % pid, {"done_at": 1}, BOB)
         self.assertEqual((code, d["reason"]), (400, "bad_done_at"))
         self.assertEqual(self.call("GET", "/api/pins/%d" % pid)[1]["pin"]["state"], "review")
+
+
+class FilesBeforeClose(ServiceBase):
+    """close_pin brings a watched document's files up to date (the context's refresh_files) before the close is written
+    and before its notice is emitted, so the person who gets the notice already sees the edited figure; no other close
+    calls it (docs/handbook/api.md §닫을 때 사유 남기기)."""
+
+    def setUp(self):
+        """An open pin and an empty log of the refresh and emit calls in the order they happen."""
+        super().setUp()
+        self.pid = self.add()
+        self.log = []
+
+    def close(self, actor, request, watched=True, pid=None):
+        """Close pin pid (default the open pin) as actor with request, over a context whose document is watched (or
+        not) and whose refresh_files and emit_events log what they see: whether the pin is already closed on disk
+        when the files are refreshed, and the notices emitted."""
+
+        def refresh(record):
+            """Log the refresh with the pin's stored state at that moment."""
+            self.log.append(("refresh", record["id"], bool(self.pin(record["id"]).get("done"))))
+
+        def emit(evs):
+            """Log the notices, then record them as the recorder does."""
+            self.log.append(("emit", [e["type"] for e in evs if e]))
+            self.rec.emit(evs)
+
+        ctx = self.context(watches_files=lambda r: watched, refresh_files=refresh, emit_events=emit)
+        pid = self.pid if pid is None else pid
+        return PinLifecycle(lambda: ctx).close_pin(pid, post_authority(ctx.store, actor, "close", pid), request)
+
+    def test_an_agents_close_with_a_reference_refreshes_before_it_is_written_and_announced(self):
+        """The refresh sees the pin still open on disk, and the review_requested notice comes after it."""
+        out = self.close(AGENT, CloseRequest(reply="fixed", ref="PR #3 (abc1234)"))
+        self.assertIsInstance(out, ReviewPin)
+        self.assertEqual(self.log, [("refresh", self.pid, False), ("emit", ["review_requested"])])
+
+    def test_other_closes_close_at_once(self):
+        """A person's close, a close without a reference and a close on a document whose files are not watched never
+        refresh; neither does a second close of a closed pin, nor a close of a pin that does not exist."""
+        for name, actor, request, watched in (
+            ("a person's close", ALICE_ACTOR, CloseRequest(ref="abc1234"), True),
+            ("no reference", AGENT, CloseRequest(reply="fixed"), True),
+            ("not watched", AGENT, CloseRequest(ref="abc1234"), False),
+        ):
+            with self.subTest(name):
+                self.pid, self.log = self.add(), []
+                self.assertIsInstance(self.close(actor, request, watched), ReviewPin | DonePin)
+                self.assertNotIn("refresh", [entry[0] for entry in self.log])
+        self.log = []
+        self.assertIsInstance(self.close(AGENT, CloseRequest(ref="abc1234")), AlreadyClosed)
+        self.assertIsInstance(self.close(AGENT, CloseRequest(ref="abc1234"), pid=999), PinNotFound)
+        self.assertEqual([entry for entry in self.log if entry[0] == "refresh"], [])

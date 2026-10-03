@@ -143,13 +143,27 @@ class AlreadyClosed:
     pin: ReviewPin | DonePin
 
 
+def closes_into_review(by: Actor, request: CloseRequest) -> bool:
+    """Whether a close by `by` awaits review: as the request says (review), else exactly when an agent closes."""
+    return request.review if request.review is not None else isinstance(by, Agent)
+
+
+def refreshes_before_close(by: Actor, request: CloseRequest, watched: bool) -> bool:
+    """Whether a close must bring its document's files up to date before it is written and announced
+    (docs/handbook/api.md §닫을 때 사유 남기기): a close that awaits review (closes_into_review - an agent's by default,
+    whose notice asks the author to look at the result), that names its change with a non-blank close reference
+    (request.ref), on a pin of a document whose files the watch follows (watched: a figure document or a view-only
+    PDF). Then the author's notice comes after the merged change was pulled and imported. Every other close is
+    written at once."""
+    return watched and bool(request.ref and request.ref.strip()) and closes_into_review(by, request)
+
+
 def decide_close(pin: Pin, by: Actor, at: str, request: CloseRequest) -> PinClosed | AlreadyClosed:
-    """What closing does: an open pin is closed (into review when an agent closes it, unless the request says),
-    a closed one is left alone."""
+    """What closing does: an open pin is closed (into review when an agent closes it, unless the request says -
+    closes_into_review), a closed one is left alone."""
     match pin:
         case OpenPin():
-            review = request.review if request.review is not None else isinstance(by, Agent)
-            return PinClosed(by, at, request.reply, request.ref, request.changes, review)
+            return PinClosed(by, at, request.reply, request.ref, request.changes, closes_into_review(by, request))
         case ReviewPin() | DonePin():
             return AlreadyClosed(pin)
 

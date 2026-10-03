@@ -22,6 +22,7 @@ from limn.pins.lifecycle.rules import (
     decide_reply,
     evolve_close,
     evolve_reply,
+    refreshes_before_close,
     reopen_request,
     reopens_on_reply,
 )
@@ -45,10 +46,22 @@ class PinLifecycle:
         and erase who closed it first (observed defect). An agent's close awaits review unless the request says:
         out of 42 observed cases an author reopened an agent-closed pin twice with no record that a person had looked.
         A person with the agent role closes into review because the authority supplies that default.
+
+        A close of an open pin that refreshes_before_close accepts - awaiting review, with a reference, on a document
+        whose files are watched - first calls ctx.refresh_files with the pin's record, outside the pin lock (a pull
+        and an import can take seconds), so the author's notice and the closed pin arrive after the edited figure is
+        on screen. The pin is read again under the lock for the close itself.
         """
         ctx = self.context()
         require_authority(actor, ctx.authority_scope, "close", pid)
         request = replace(request, review=actor.principal.review_on_close(request.review))
+        before = load_pin(ctx.store.read_pins()[0], pid)
+        if (
+            not isinstance(before, PinNotFound)
+            and isinstance(before.pin, OpenPin)
+            and refreshes_before_close(typed_actor(actor), request, ctx.watches_files(before.pin.record))
+        ):
+            ctx.refresh_files(before.pin.record)
         evs: list[Event | None] = []
 
         def fn(pins: list[Pin]) -> tuple[ReviewPin | DonePin | AlreadyClosed | PinNotFound, bool]:
