@@ -15,6 +15,7 @@ uv run shellcheck src/limn/administration/instances.sh src/limn/administration/i
 uv run python tools/check_boundaries.py    # public feature exports and import graph
 uv run mypy                               # strict type check of the package (files in pyproject.toml)
 npm ci --ignore-scripts && npm run typecheck   # type check of the viewer's JS parts (tsconfig.json; dev only, Node 22)
+uv run python tools/strict_ratchet.py     # stricter options' errors per viewer part may only go down (tsconfig.strict.json)
 git config blame.ignoreRevsFile .git-blame-ignore-revs   # once: git blame skips the whole-tree reformat
 ```
 

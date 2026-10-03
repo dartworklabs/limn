@@ -43,6 +43,7 @@ uv run python tools/check_boundaries.py
 uv run mypy
 uv run mypy --platform darwin
 npm ci --ignore-scripts && npm run typecheck
+uv run python tools/strict_ratchet.py
 ```
 
 현재 상태를 바꾼 변경은 해당 Handbook topic을 같은 변경에서 고친다. topic은 현재형으로 쓰고, 날짜·전후 수치·진행 기록·모듈별 줄 수는 PR·CHANGELOG에 둔다([workflow.md](docs/handbook/workflow.md) §문서 동기화).
