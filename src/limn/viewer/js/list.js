@@ -93,7 +93,7 @@ function drawPins(){
   const SHOWN=MENTION_ONLY?OPEN_ALL.filter(mentionsMe):LIST;
   // If the cursor was in the reply input field or the edit card's note, it's restored to that position after redrawing (so auto-sync
   // redrawing the list, or a layout change redrawing the cards, never interrupts typing).
-  const rta=REPLY&&REPLY.el.querySelector('textarea'),rfocus=rta&&document.activeElement===rta?[rta.selectionStart,rta.selectionEnd]:null;
+  const rta=REPLY&&replyNote(REPLY),rfocus=rta&&document.activeElement===rta?[rta.selectionStart,rta.selectionEnd]:null;
   const eta=EDITOR.current&&editNote(EDITOR.current),efocus=eta&&document.activeElement===eta?[eta.selectionStart,eta.selectionEnd]:null;
   secHead('open',tr(MENTION_ONLY?'나를 부른 열린 핀':SHOW_ALL&&multiDoc()?'모든 문서의 열린 핀':'열린 핀'),SHOWN.map(p=>p.id),OPEN_ALL.map(p=>p.id));
   const ab=$('#all-docs'); ab.setAttribute('aria-pressed',String(SHOW_ALL)); setHtml(ab,html`${SHOW_ALL?ic('check'):''}${tr('모든 문서')}`);

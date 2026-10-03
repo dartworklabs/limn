@@ -930,7 +930,7 @@ class FrontendZoom(unittest.TestCase):
         self.assertIn("L.addEventListener('wheel',e=>{if(!(e.ctrlKey||e.metaKey))return; e.preventDefault();", HTML)
         i = HTML.index("L.addEventListener('wheel'")
         self.assertIn("{passive:false}", HTML[i : i + 300])
-        self.assertIn("const L=$('#left')", HTML[i - 200 : i])  # PDF area only — sidebar wheel scrolling is left alone
+        self.assertIn("const L=$('#left')", HTML[i - 500 : i])  # PDF area only — sidebar wheel scrolling is left alone
         self.assertIn("zoomTo(W*f,pt[0],pt[1])", HTML)  # anchored to the pointer
 
     def test_safari_gesture_and_touch_pinch(self):
@@ -3104,7 +3104,7 @@ class FrontendFigure(unittest.TestCase):
         self.assertLess(
             rp.index("if(isRegion(c))loc="), rp.index("figureFields(loc,repickEl(c),isRegion(c)||!lv.el?null:lv);")
         )
-        self.assertIn("snapBox(REPICK.box,repickEl(c));", extract_js_fn("bannerCompare"))
+        self.assertIn("snapBox(R.box,repickEl(c));", extract_js_fn("bannerCompare"))
         self.assertIn("region:!!EDITOR.current.region", extract_js_fn("startRepick"))
         self.assertIn("pinEl:p.el||null", extract_js_fn("openEdit"))
         self.assertIn("(!E.pinEl&&(E.scope||null)!==(E.orig.scope||null))", extract_js_fn("saveEdit"))

@@ -14,9 +14,6 @@
   "src/limn/viewer/js/outline.js": 2,
   "src/limn/viewer/js/pdf-draw.js": 9,
   "src/limn/viewer/js/polling.js": 1,
-  "src/limn/viewer/js/repick.js": 12,
-  "src/limn/viewer/js/reply.js": 15,
   "src/limn/viewer/js/revisions.js": 12,
-  "src/limn/viewer/js/tooltip.js": 4,
-  "src/limn/viewer/js/zoom.js": 15
+  "src/limn/viewer/js/tooltip.js": 4
 }
