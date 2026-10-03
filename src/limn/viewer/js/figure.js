@@ -61,4 +61,4 @@ function pinPlace(p){return hasMark(p)?{page:p.mark_page,frac:p.mark}:{page:p.pa
 // Whether a figure pin's element is gone from the current build's map (`el_sync` lost) - shown like a lost line.
 function elLost(p){return !!p&&p.el_sync===EL_SYNC.LOST;}
 // The card badge of a lost element ('요소 잃음', the warning look of '위치 잃음'), or ''.
-function elLostTag(p){return elLost(p)?'<span class="badge badge-warning" data-tip="'+esc(tr(T.ellost))+'">'+ic('triangle-alert')+esc(tr('요소 잃음'))+'</span>':'';}
+function elLostTag(p){return elLost(p)?html`<span class="badge badge-warning" data-tip="${tr(T.ellost)}">${ic('triangle-alert')}${tr('요소 잃음')}</span>`:null;}

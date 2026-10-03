@@ -27,8 +27,6 @@ MARKUP_PART = "js/markup.js"
 # innerHTML writes each part still makes by hand, waiting to move to setHtml(html`...`). A part's count may only go
 # down: moving a write lowers it here in the same change, and a part not listed may have none.
 LEGACY_SINKS = {
-    "js/cards.js": 1,
-    "js/list.js": 3,
     "js/revisions.js": 8,
 }
 SINK_PROPS = frozenset(["innerHTML", "outerHTML"])

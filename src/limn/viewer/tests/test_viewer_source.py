@@ -153,12 +153,12 @@ class FunctionExtraction(unittest.TestCase):
             helpers_js.function_source(page, "a")
 
     def test_a_brace_in_a_string_does_not_cut_the_function_short(self):
-        """card() builds markup with '{' and '}' inside strings and regexes; the extracted text still ends at the
-        function's own closing brace (the last character) and holds the whole body."""
+        """card() builds markup with '{' and '}' inside strings, regexes and template substitutions; the extracted text
+        still ends at the function's own closing brace (the last character) and holds the whole body."""
         body = extract_js_fn("card")
         self.assertTrue(body.endswith("}"))
         self.assertIn("function card(p){", body)
-        self.assertIn("'</div>')+'</div>';\n}", body)
+        self.assertIn("${head}${body}</div>`;\n}", body)
 
     def test_the_tables_a_function_reads_come_with_it(self):
         """A pulled function that reads a closed set gets it as a `var` before its text, so it runs in a bare harness;

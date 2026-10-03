@@ -135,6 +135,7 @@ def js_thread() -> str:
                 "pinRefExists",
                 "pinRefGone",
                 "fmtText",
+                "pinRefs",
                 "mentionsMe",
                 "addressedTag",
                 "fyiTag",
