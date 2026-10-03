@@ -1311,23 +1311,38 @@ class FrontendPanelWidthLogic(unittest.TestCase):
         )
 
     def test_via_tag_hides_confident_matches_and_flags_uncertain(self):
-        # 90% and above hides the badge; below that shows '위치 불확실' (below 30% gets the warning color). Method/match rate/next step go in the tooltip.
+        """90% and above hides the badge; below that it is '위치 불확실', and below 30% it is low (the warning colour).
+        The tooltip says, in whole sentences and in this order, how the place was found, how much of the dragged text
+        is in the lines, that it may be far off (only when low), and what to check."""
         js = "\n".join(
             [
-                "const T={synctex:'S',text:'X'};",
+                js_tooltips(),
+                js_via_limits(),
                 extract_js_fn("viaTag"),
-                r"""
-            const V="const VIA_HIDE=90,VIA_WARN=30;";
-            console.log(JSON.stringify([viaTag({via:'synctex',score:0.934}),viaTag({via:'synctex',score:0.884}),
-              viaTag({via:'text',score:0.2}),viaTag({via:'synctex',score:1}),viaTag({})]));""",
+                "console.log(JSON.stringify([viaTag({via:'synctex',score:0.934}),viaTag({via:'synctex',score:0.884}),"
+                "viaTag({via:'text',score:0.2}),viaTag({via:'synctex',score:1}),viaTag({})]));",
             ]
         )
-        js = js.replace("function viaTag(", "const VIA_HIDE=90,VIA_WARN=30;\nfunction viaTag(", 1)
         got = json.loads(run_node(js))
         self.assertIsNone(got[0])
-        self.assertEqual(got[1], {"t": "위치 불확실", "tip": "좌표로 찾음 · 일치 88% — S", "low": False})
         self.assertEqual(
-            got[2], {"t": "위치 불확실", "tip": "글자로 찾음 · 일치 20% — X 많이 어긋났을 수 있습니다.", "low": True}
+            got[1],
+            {
+                "t": "위치 불확실",
+                "tip": "PDF 좌표(SyncTeX)로 찾은 위치입니다. 드래그한 글자 중 88%가 이 줄들에 있습니다(드문 낱말일수록"
+                " 크게 셉니다). 원문 칸에서 고칠 곳이 이 줄들에 들어 있는지 확인하세요.",
+                "low": False,
+            },
+        )
+        self.assertEqual(
+            got[2],
+            {
+                "t": "위치 불확실",
+                "tip": "드래그한 글자를 원문에서 직접 찾아 정한 위치입니다. 표나 기호표처럼 좌표로 찾기 어려운 곳에 쓰는"
+                " 방법입니다. 드래그한 글자 중 20%가 이 줄들에 있습니다(드문 낱말일수록 크게 셉니다). 위치가 많이"
+                " 어긋났을 수 있습니다. 원문 칸에서 고칠 곳이 이 줄들에 들어 있는지 확인하세요.",
+                "low": True,
+            },
         )
         self.assertIsNone(got[3])
         self.assertIsNone(got[4])
@@ -2492,12 +2507,25 @@ class FrontendFigure(unittest.TestCase):
             self.skipTest("node not available")
 
     def test_a_figure_pick_under_90_percent_says_it_was_found_by_the_map(self):
-        """A figure pick's badge says '지도로 찾음' and the map's hint in Korean and English; 90 % and up shows no
-        badge, under 30 % the warning colour."""
+        """A figure pick's tooltip says the figure map chose the element, how much of the dragged area lies inside it,
+        and to check the chosen box, in Korean and English; under 30 % it is low and adds that it may be far off; 90 %
+        and up shows no badge."""
         self.node()
-        for lang, head in (
-            ("ko", "지도로 찾음 · 일치 50% — 그림 지도에서 드래그와"),
-            ("en", "Found by the figure map · 50% match — The figure map chose"),
+        for lang, half_tip, weak_tip in (
+            (
+                "ko",
+                "그림 지도에서 드래그와 가장 많이 겹치는 요소를 골랐습니다. 드래그한 영역 중 50%가 이 요소 안에"
+                " 있습니다. 고른 상자가 고칠 곳을 덮는지 확인하세요.",
+                "그림 지도에서 드래그와 가장 많이 겹치는 요소를 골랐습니다. 드래그한 영역 중 20%가 이 요소 안에"
+                " 있습니다. 위치가 많이 어긋났을 수 있습니다. 고른 상자가 고칠 곳을 덮는지 확인하세요.",
+            ),
+            (
+                "en",
+                "The figure map chose the element the drag overlaps most. 50% of the dragged area lies inside this"
+                " element. Check that the chosen box covers the spot to fix.",
+                "The figure map chose the element the drag overlaps most. 20% of the dragged area lies inside this"
+                " element. The location may be significantly off. Check that the chosen box covers the spot to fix.",
+            ),
         ):
             with self.subTest(lang=lang):
                 js = "\n".join(
@@ -2511,10 +2539,9 @@ class FrontendFigure(unittest.TestCase):
                     ]
                 )
                 half, confident, weak = json.loads(run_node(js))
-                self.assertTrue(half["tip"].startswith(head), half["tip"])
-                self.assertFalse(half["low"])
+                self.assertEqual((half["tip"], half["low"]), (half_tip, False))
                 self.assertIsNone(confident)
-                self.assertTrue(weak["low"])
+                self.assertEqual((weak["tip"], weak["low"]), (weak_tip, True))
 
     def test_rebuild_hides_by_document_kind_not_by_view_only(self):
         """Only a LaTeX document builds: the rebuild button and the rebuilt/redrawn wording follow META.kind and a
@@ -2840,13 +2867,30 @@ class FrontendFigure(unittest.TestCase):
         self.assertIn("p.el_sync===EL_SYNC.LOST", extract_js_fn("diffToast"))
 
     def test_a_pin_of_an_unknown_via_gets_a_neutral_hint_not_the_synctex_one(self):
-        """A `via` this page does not know is named as it came ('찾은 방법: ...') with a hint that claims no method, in
-        Korean and English; the three known methods keep their own hints."""
+        """A `via` this page does not know is named as it came, in a tooltip that claims no method and no meaning for the
+        match, in Korean and English; the three known methods keep their own hints (the line paths' in full here)."""
         self.node()
-        for lang, head, neutral in (
-            ("ko", "찾은 방법: ocr · 일치 50% — ", "이 화면이 알지 못하는 방법으로"),
-            ("en", "Found by: ocr · 50% match — ", "This page does not know the method"),
-        ):
+        tips = {
+            "ko": [
+                "이 화면이 모르는 방법(ocr)으로 찾은 위치입니다. 드래그와 맞는 정도는 50%입니다. 고칠 곳이 이 범위에"
+                " 들어 있는지 확인하세요.",
+                "PDF 좌표(SyncTeX)로 찾은 위치입니다. 드래그한 글자 중 50%가 이 줄들에 있습니다(드문 낱말일수록 크게"
+                " 셉니다). 원문 칸에서 고칠 곳이 이 줄들에 들어 있는지 확인하세요.",
+                "드래그한 글자를 원문에서 직접 찾아 정한 위치입니다. 표나 기호표처럼 좌표로 찾기 어려운 곳에 쓰는"
+                " 방법입니다. 드래그한 글자 중 50%가 이 줄들에 있습니다(드문 낱말일수록 크게 셉니다). 원문 칸에서 고칠"
+                " 곳이 이 줄들에 들어 있는지 확인하세요.",
+            ],
+            "en": [
+                "Found by a method this page does not know (ocr). Its match with the drag is 50%. Check that the spot to"
+                " fix is inside this range.",
+                "Found from the PDF coordinates (SyncTeX). 50% of the dragged text is in these lines (rarer words count"
+                " more). Check in the source pane that the spot to fix is in these lines.",
+                "Found by searching the source for the dragged text. It is used where coordinates struggle, such as"
+                " tables and symbol lists. 50% of the dragged text is in these lines (rarer words count more). Check in"
+                " the source pane that the spot to fix is in these lines.",
+            ],
+        }
+        for lang in ("ko", "en"):
             with self.subTest(lang=lang):
                 js = "\n".join(
                     [
@@ -2859,7 +2903,7 @@ class FrontendFigure(unittest.TestCase):
                     ]
                 )
                 unknown, *known = json.loads(run_node(js))
-                self.assertTrue(unknown["tip"].startswith(head + neutral), unknown["tip"])
+                self.assertEqual([unknown["tip"], known[0]["tip"], known[1]["tip"]], tips[lang])
                 self.assertNotIn("SyncTeX", unknown["tip"])
                 self.assertEqual(len({k["tip"] for k in known} | {unknown["tip"]}), 4)
 
