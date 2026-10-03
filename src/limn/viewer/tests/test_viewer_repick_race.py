@@ -4,7 +4,7 @@ import json
 import shutil
 import unittest
 
-from helpers import extract_js_fn, run_node
+from helpers import extract_js_fn, js_markup, run_node
 
 
 class RepickRequestLifetime(unittest.TestCase):
@@ -47,6 +47,7 @@ class RepickRequestLifetime(unittest.TestCase):
                 function bannerCompare(){compares++; if(!REPICK)throw Error('cancelled re-place rendered');}
                 function bannerRepick(){banners++; if(!REPICK)throw Error('cancelled re-place banner rendered');}
                 """,
+                js_markup(),
                 extract_js_fn("cancelRepick"),
                 extract_js_fn("cancelSelection"),
                 extract_js_fn("startRepick"),

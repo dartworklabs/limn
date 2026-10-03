@@ -2577,9 +2577,10 @@ class FrontendFigure(unittest.TestCase):
                         extract_js_fn("pdoc"),
                         extract_js_fn("docCount"),
                         extract_js_fn("isFigureKind"),
+                        js_markup(),
                         extract_js_fn("docBadge"),
                         "console.log(JSON.stringify([{key:'ms',kind:'tex',view_only:false},"
-                        "{key:'fig',kind:'figure',view_only:false},{key:'rv',kind:'pdf',view_only:true}].map(docBadge)));",
+                        "{key:'fig',kind:'figure',view_only:false},{key:'rv',kind:'pdf',view_only:true}].map(d=>String(docBadge(d)))));",
                     ]
                 )
                 tex, fig, pdf = json.loads(run_node(js))
@@ -3104,7 +3105,7 @@ class FrontendFigure(unittest.TestCase):
         of the same shape gets [이 위치로 바꾸기]."""
         self.node()
         js = "\n".join(
-            [js_tooltips(), js_esc()]
+            [js_tooltips(), js_esc(), js_markup()]
             + [
                 extract_js_fn(n)
                 for n in ("isRegion", "lvOf", "levelLabel", "isFrac", "drawBox", "snapBox", "repickEl", "bannerCompare")
