@@ -1,5 +1,5 @@
 // One changes-view visit owns the selected commit, source text and request sequence.
-const REV={seq:0,files:[],whole:'',commit:'',sourceCommit:'',format:/** @type {string} */(DIFF_FORMAT.PDF),scope:null,other:'',target:null,pdfCommit:'',back:null};
+const REV={seq:0,files:[],whole:'',commit:'',sourceCommit:'',format:/** @type {string} */(DIFF_FORMAT.PDF),scope:null,other:'',target:/** @type {RevTarget|null} */(null),pdfCommit:'',back:/** @type {string|null} */(null)};
 // v0.3 (docs/handbook/viewer.md §변경 보기): a pin's view of a commit. REV.scope is the source diff's scope object
 // ({mode:'pin'|'commit', source, hunks, other, ...}); REV_PDF holds the comparison PDF's toggle - whole commit or only this pin.
 const REV_SCOPE={whole:false,partial:false,fallback:false};

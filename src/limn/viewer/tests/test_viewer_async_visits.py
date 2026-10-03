@@ -308,6 +308,7 @@ class VisitLocalContinuations(unittest.TestCase):
         js = "\n".join(
             [
                 extract_js_fn("editorOwns"),
+                extract_js_fn("editNote"),
                 extract_js_fn("saveEdit"),
                 """
                 let DOC='a',SWITCHSEQ=1;
@@ -335,6 +336,7 @@ class VisitLocalContinuations(unittest.TestCase):
         js = "\n".join(
             [
                 extract_js_fn("editorOwns"),
+                extract_js_fn("editNote"),
                 extract_js_fn("saveEdit"),
                 """
                 let DOC='a',SWITCHSEQ=1;
@@ -360,6 +362,7 @@ class VisitLocalContinuations(unittest.TestCase):
         js = "\n".join(
             [
                 extract_js_fn("editorOwns"),
+                extract_js_fn("editNote"),
                 extract_js_fn("saveEdit"),
                 """
                 let DOC='a',SWITCHSEQ=1;

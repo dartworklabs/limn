@@ -19,6 +19,7 @@ from unittest import mock
 from limn.administration import serve_documents
 from limn.builds.artifacts import BuildOkWithErrors
 from limn.pins import model
+from limn.pins.location import mapping, range as ranges
 from limn.platform import files
 from limn.sync import rules as sync_rules
 
@@ -165,7 +166,7 @@ def sync_records() -> list[dict]:
 class DeclaredViewShapes(AccessBase):
     """api.d.ts declares the document, build and people answers as the real handler gives them.
 
-    Three states: one document with an open pin and no build; three documents (a LaTeX file, one in a folder, a
+    Three states: one document with an open pin (and the overlaps a new range over it reports) and no build; three documents (a LaTeX file, one in a folder, a
     view-only PDF) with page images and two people who opened the viewer; one document after a build with LaTeX
     errors. The watch's states come from limn.sync.rules itself, since a test run has no remote to pull."""
 
@@ -184,6 +185,7 @@ class DeclaredViewShapes(AccessBase):
     def run_states(self):
         """Answer every view the viewer reads in each of the three states (see the class docstring)."""
         self.pin_id()
+        self.seen += [("PickOverlap", o) for o in ps.APP.overlaps_for_range(str(self.main), 4, 9)]
         self.answer("Meta", "GET", "/api/meta")
         self.answer("Meta", "GET", "/api/meta?light=1")
         self.answer("BuildStatus", "GET", "/api/build?log=1")
@@ -256,9 +258,73 @@ class DeclaredViewShapes(AccessBase):
             collect(body, name)
         views = ["Meta", "BuildStatus", "DocsAnswer", "PeopleAnswer", "RebuildAnswer", "SyncStatus", "PullRecord"]
         views += ["Me", "PersonSeen", "PageImage", "LatexError", "BuildProgress", "LastBuild", "DocEntry"]
+        views += ["PickOverlap"]
         missing = sorted(
             "%s.%s" % (name, f) for name in views for f in self.shapes[name] if f not in seen.get(name, set())
         )
         self.assertEqual([m for m in missing if m not in UNSEEN], [])
         self.assertEqual(sorted(set(UNSEEN) - set(missing)), [])  # an explained field the states now show leaves UNSEEN
         self.assertTrue(seen["PageImage"] and seen["LatexError"] and seen["PersonSeen"], seen)
+
+
+LATEX = [
+    "\\section{A}",
+    "Para one line.",
+    "",
+    "\\begin{figure}",
+    "\\begin{center}",
+    "x",
+    "\\end{center}",
+    "\\end{figure}",
+    "after",
+]
+
+
+def recorded_rungs() -> list[dict]:
+    """The ladder rungs the server builds: LaTeX ladders from limn.pins.location.mapping (a paragraph, a float
+    environment, a merged raw rung), a figure script's raw ladder (range.raw_ladder), and the element rungs of the recorded figure picks."""
+    ladders = [
+        mapping.compute_levels(LATEX, 6, 6, ["figure"]),
+        mapping.compute_levels(LATEX, 2, 2, ["figure"]),
+        ranges.raw_ladder(LATEX, 1, 3),
+    ]
+    rungs = [r for lad in ladders for r in lad["levels"]]
+    for entry in json.loads(SNAPSHOTS[1].read_text(encoding="utf-8")):
+        if "picks" in entry["step"] and "pins.md" not in entry["step"]:
+            rungs += json.loads(entry["body"]).get("levels", [])
+    return rungs
+
+
+class DeclaredRungs(unittest.TestCase):
+    """api.d.ts's Rung is what the server's ladders hold, LaTeX and figure alike, and each declared field occurs."""
+
+    def test_every_rung_fits_and_every_field_occurs(self):
+        """No rung has an undeclared field or a value of another type, and env, el and merged each appear somewhere."""
+        shapes = interfaces(API_TYPES.read_text(encoding="utf-8"))
+        rungs = recorded_rungs()
+        found = [m for i, r in enumerate(rungs) for m in mismatches(r, "Rung", shapes, "rung %d" % i)]
+        self.assertEqual(found, [])
+        self.assertEqual(sorted(set(shapes["Rung"]) - {k for r in rungs for k in r}), [])
+
+
+def recorded_picks() -> list[dict]:
+    """The recorded POST /api/pick answers that placed a drag: a figure element (the traced-selection keys plus el) and a
+    figure region that fell back (the region keys plus el)."""
+    out = []
+    for entry in json.loads(SNAPSHOTS[1].read_text(encoding="utf-8")):
+        if "picks" in entry["step"] and "pins.md" not in entry["step"]:
+            out.append(json.loads(entry["body"]))
+    return out
+
+
+class DeclaredPicks(unittest.TestCase):
+    """api.d.ts's PickAnswer is the recorded pick answers' shape, and each declared field occurs in one of them."""
+
+    def test_every_pick_fits_and_every_field_occurs(self):
+        """No recorded pick has an undeclared field or another type; every PickAnswer field appears in some pick."""
+        shapes = interfaces(API_TYPES.read_text(encoding="utf-8"))
+        picks = recorded_picks()
+        self.assertEqual(len(picks), 2)
+        found = [m for i, p in enumerate(picks) for m in mismatches(p, "PickAnswer", shapes, "pick %d" % i)]
+        self.assertEqual(found, [])
+        self.assertEqual(sorted(set(shapes["PickAnswer"]) - {k for p in picks for k in p}), [])

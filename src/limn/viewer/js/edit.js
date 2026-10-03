@@ -1,8 +1,11 @@
 // ------------------------------------------------ Edit
 // The active edit card and its save request share a lifetime; a dirty card may remain visible across document switches.
-const EDITOR={current:null,saving:false};
+const EDITOR={current:/** @type {EditCard|null} */(null),saving:false};
 // A dirty edit card survives document switches, so only replacement or cancellation revokes its pending response.
 function editorOwns(card){return EDITOR.current===card;}
+// The note field of edit card E (openEdit puts exactly one in every card).
+/** @param {EditCard} E @returns {HTMLTextAreaElement} */
+function editNote(E){return /** @type {HTMLTextAreaElement} */(E.el.querySelector('.e-note'));}
 // Opens the edit card for pin `id` (the pin's document is switched to first) and focuses its note: builds the card markup,
 // records the pin's current values as the editor's baseline (EDITOR.current, including a figure pin's element) and loads the
 // snippet and range ladder. An edit already open on that pin is left as it is.
@@ -23,7 +26,7 @@ function openEdit(id){if(viaDoc(id,openEdit))return; const p=PINS.find(x=>x.id==
 <button class="btn-sm b-ecancel" data-act="ecancel" data-tip="${T.ecancel}">취소</button>\
 <button class="btn-sm btn-default b-esave" data-act="esave" data-tip="${T.esave}">저장</button></div>`);
   const ta=/** @type {HTMLTextAreaElement} */(el.querySelector('.e-note')); ta.value=p.note||''; ta._mentions=new Set(p.mentions||[]); autoGrow(ta); mentionPreview(ta);
-  EDITOR.current={id,el,base_rev:p.rev||0,file:p.file,name:p.name||String(p.file||p.pdf||'').split('/').pop(),lo:p.lo,hi:p.hi,scope:p.scope||null,
+  EDITOR.current={id,el,base_rev:p.rev||0,file:p.file,name:p.name||String(p.file||p.pdf||'').split('/').pop()||'',lo:p.lo,hi:p.hi,scope:p.scope||null,
     kind:p.kind,env:null,levels:[],n_lines:null,snippet:'',orig:{lo:p.lo,hi:p.hi,scope:p.scope||null,note:p.note||'',kind_req:isQuestion(p)?KIND_REQ.QUESTION:KIND_REQ.FIX,assignee:assigneeOf(p)},
     assignee:assigneeOf(p),
     doc:pdoc(p),region:isRegion(p),pinEl:p.el||null,page:pinPlace(p).page,quote:p.quote||'',kind_req:isQuestion(p)?KIND_REQ.QUESTION:KIND_REQ.FIX};
@@ -31,13 +34,13 @@ function openEdit(id){if(viaDoc(id,openEdit))return; const p=PINS.find(x=>x.id==
   drawPins(); renderEdit(); ta.focus(); editSnip(true);
 }
 // Does the edit field have unsaved changes (whether it's safe to close the edit when switching documents)?
-function editDirty(){const E=EDITOR.current; if(!E)return false; const ta=E.el.querySelector('.e-note');
+function editDirty(){const E=EDITOR.current; if(!E)return false; const ta=editNote(E);
   return (ta&&ta.value!==E.orig.note)||E.lo!==E.orig.lo||E.hi!==E.orig.hi||E.kind_req!==E.orig.kind_req||E.assignee!==E.orig.assignee;}
 function autoGrow(ta){ta.style.height='auto'; const lh=20; ta.style.height=Math.min(12*lh,Math.max(3*lh,ta.scrollHeight+2))+'px';}
 document.addEventListener('input',e=>{const t=/** @type {HTMLElement} */(e.target); if(t.classList&&(t.classList.contains('e-note')||t.classList.contains('r-text')||t.id==='note'))autoGrow(t);});
 async function editSnip(withLevels){const E=EDITOR.current; if(!E)return;
   if(E.region){E.snippet=E.quote?tl('영역 글자: {text}',{text:E.quote}):tr('(영역 글자 없음)'); renderEdit(); return;}   // view-only: there is no source line
-  try{const {status,data}=await api(dq('/api/snippet?file='+encodeURIComponent(E.file)+'&lo='+E.lo+'&hi='+E.hi+(withLevels?'&levels=1':''),E.doc),
+  try{const {status,data}=await api(dq('/api/snippet?file='+encodeURIComponent(String(E.file))+'&lo='+E.lo+'&hi='+E.hi+(withLevels?'&levels=1':''),E.doc),
       {what:'원문 읽기',expect:[400]});
     if(EDITOR.current!==E)return;
     if(status===400){E.snippet=tr('원문을 읽지 못했습니다')+' — '+errText(data)+'\n'+tr('위치 다시 잡기로 고치세요.'); renderEdit(); return;}
@@ -49,12 +52,12 @@ async function editSnip(withLevels){const E=EDITOR.current; if(!E)return;
 // shown only with two or more rungs - the range excerpt (a region's text in the plain source) and the assignee and question
 // hints.
 function renderEdit(){const E=EDITOR.current; if(!E)return; const el=E.el;
-  el.querySelectorAll('.e-kind button').forEach(b=>{const on=b.dataset.kind===(E.kind_req||KIND_REQ.FIX); b.classList.toggle('on',on); b.setAttribute('aria-checked',String(on));});
+  /** @type {NodeListOf<HTMLElement>} */(el.querySelectorAll('.e-kind button')).forEach(b=>{const on=b.dataset.kind===(E.kind_req||KIND_REQ.FIX); b.classList.toggle('on',on); b.setAttribute('aria-checked',String(on));});
   setCap(el.querySelector('.e-cap'),E.region?html`<span class="e-range loc" tabindex="0" data-copy="${E.name+' 쪽 '+E.page}">${tl('쪽 {page} · 영역',{page:E.page})}</span>`:rangeCap(E,true));
   drawLadder(el.querySelector('.e-levels'),E,true);
-  const pre=el.querySelector('.e-snip'); pre.className='e-snip wrap'; pre.textContent=snipText(E.snippet,false); renderAssignEdit();
+  const pre=/** @type {HTMLElement} */(el.querySelector('.e-snip')); pre.className='e-snip wrap'; pre.textContent=snipText(E.snippet,false); renderAssignEdit();
   drawExcerpt(E,el.querySelector('.e-xp'),true);
-  qHint(el.querySelector('.e-qhint'),el.querySelector('.e-note').value,E.kind_req);}
+  qHint(el.querySelector('.e-qhint'),editNote(E).value,E.kind_req);}
 function cancelEdit(){EDITOR.current=null; drawPins();}
 // Saves the open edit card (POST /api/pins/<id>/edit with `base_rev`): only what changed is sent - the note, the kind, the
 // assignee and, when the lines or the ladder rung moved, lo/hi with scope and kind. Nothing changed just closes the card.
@@ -62,11 +65,11 @@ function cancelEdit(){EDITOR.current=null; drawPins();}
 // 409 (a rival edit) the card adopts the stored pin's rev, range, scope, file and element. Always reloads the pins. A viewer
 // role and a save already under way send nothing.
 async function saveEdit(){const E=EDITOR.current; if(!E||EDITOR.saving||viewerBlocked())return;
-  const note=E.el.querySelector('.e-note').value, body={base_rev:E.base_rev};
+  const note=editNote(E).value, body={base_rev:E.base_rev};
   if(note!==E.orig.note)body.note=note;
   if(E.kind_req&&E.kind_req!==E.orig.kind_req)body.kind_req=E.kind_req;
   if(E.assignee&&E.assignee!==E.orig.assignee)body.assignee=E.assignee;
-  if(body.note!==undefined){const mh=mentionHints(E.el.querySelector('.e-note')); if(mh.length)body.mentions=mh;}
+  if(body.note!==undefined){const mh=mentionHints(editNote(E)); if(mh.length)body.mentions=mh;}
   // A figure pin's ladder here is raw/lines only (no element rungs): a rung press alone would trade the element's kind
   // for 'lines', so only changed lines are sent; the pin keeps its el either way (a range edit is not a loc).
   if(E.lo!==E.orig.lo||E.hi!==E.orig.hi||(!E.pinEl&&(E.scope||null)!==(E.orig.scope||null))){body.lo=E.lo;body.hi=E.hi;

@@ -286,3 +286,54 @@ interface RebuildAnswer {
   pages: number;
   pull?: PullRecord | null;
 }
+
+// One rung of a range ladder (POST /api/pick `levels`, GET /api/snippet?levels=1): the lines it covers and their
+// snippet, the environment for an environment rung, the element for a figure's rung, and the rungs it replaced.
+interface Rung {
+  level: string;
+  lo: number;
+  hi: number;
+  n: number;
+  label: string;
+  snippet: string;
+  env?: string;
+  el?: PinElement;
+  merged?: string[];
+}
+
+// An open line pin a not-yet-saved range overlaps (POST /api/pick `overlaps`), and how.
+interface PickOverlap {
+  id: number;
+  lo: number;
+  hi: number;
+  rel: string;
+}
+
+// POST /api/pick's answer for a drag that was placed: lines traced in a LaTeX source (file, lines, ladder), an element
+// of a figure's map (the same plus el), or a region of a view-only PDF or a figure that fell back (doc, pdf, n_chars).
+interface PickAnswer {
+  file?: string;
+  name: string;
+  page: number;
+  lo?: number;
+  hi?: number;
+  raw_lo?: number;
+  raw_hi?: number;
+  kind: string;
+  via?: string;
+  score?: number;
+  warn: string;
+  n_lines?: number;
+  snippet?: string;
+  frac: number[];
+  quote: string;
+  levels?: Rung[];
+  default_level?: string;
+  overlaps: PickOverlap[];
+  pdf_build: string;
+  el?: PinElement;
+  doc?: string;
+  view_only?: boolean;
+  pdf?: string;
+  n_chars?: number;
+}

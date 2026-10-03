@@ -1,4 +1,5 @@
 // ------------------------------------------------ Server calls and notifications
+/** @returns {Promise<{status: number, data: any}>} */
 async function api(url,o){o=o||{};
   const init={method:o.method||'GET',headers:{}}; if(o.keepalive)init.keepalive=true;
   if(o.body!==undefined){init.body=JSON.stringify(o.body);init.headers['Content-Type']='application/json';}

@@ -3,7 +3,7 @@
 // into .reply-slot - so the 5-second auto-sync redrawing the list never loses the draft text or cursor (focus is
 // restored too). There is one [답글] for every state: on a closed pin (awaiting review or done) the server decides whether the
 // reply reopens it (reopens_on_reply), and the line under the box (.r-outcome) previews that decision with the same rule
-// (replyReopens) - [상태 유지] (REPLY.keep) overrides it with reopen:false. Sending is deferred behind an undo toast.
+// (replyReopens) - [상태 유지] (REPLY.flip with REPLY.toggle 'keep') overrides it with reopen:false. Sending is deferred behind an undo toast.
 function isHuman(){const me=typeof META!=='undefined'&&META&&META.me; return !!(me&&me.login&&me.login!==LOCAL_LOGIN&&!String(me.login).startsWith('agent:')&&me.role!==ROLE.AGENT);}
 // Mirrors limn.pins.lifecycle.rules.reopens_on_reply(): an open pin never changes; an explicit override (true/false) wins; otherwise a person's reply
 // on a closed pin reopens it unless it tags a person or the pin is a question. mentioned = the post's resolved @-tags without me.
@@ -44,7 +44,7 @@ function replyEl(p){const el=document.createElement('div'); el.className='reply-
 <div class="r-acts"><button class="btn-sm" data-act="reply-cancel" data-tip="입력 칸을 닫습니다 (Esc). 쓰던 글은 남겨 둡니다">취소</button>\
 <button class="btn-sm btn-default" data-act="reply-send" data-tip="답글을 보냅니다. 알림의 [되돌리기]를 누르면 보내기 전에 취소됩니다">보내기</button></div>`);
   return el;}
-function renderReplyOutcome(){const R=REPLY; if(!R)return; const box=R.el.querySelector('.r-outcome'),ta=R.el.querySelector('textarea'); if(!box||!ta)return;
+function renderReplyOutcome(){const R=REPLY; if(!R)return; const box=/** @type {HTMLElement} */(R.el.querySelector('.r-outcome')),ta=/** @type {HTMLTextAreaElement} */(R.el.querySelector('textarea')); if(!box||!ta)return;
   const p=findAnyPin(R.id),ment=replyMentioned(ta);
   let pv=p&&replyPreview(p,isHuman(),ment,!!R.flip);
   ta.placeholder=replyPlaceholder(p,isHuman(),!!R.flip);
@@ -52,7 +52,7 @@ function renderReplyOutcome(){const R=REPLY; if(!R)return; const box=R.el.queryS
   if(R.toggle&&R.toggle!==pv.toggle&&R.flip){R.flip=false; pv=replyPreview(p,isHuman(),ment,false);}   // the rule changed direction (a tag added/removed): the override resets
   R.toggle=pv.toggle; box.hidden=false; box.querySelector('.r-out-t').textContent=pv.text;
   box.classList.toggle('reopen',replyReopens(p,isHuman(),ment,R.flip?pv.toggle==='reopen':undefined));
-  const k=box.querySelector('[data-act=reply-flip]'),keep=pv.toggle==='keep';
+  const k=/** @type {HTMLElement} */(box.querySelector('[data-act=reply-flip]')),keep=pv.toggle==='keep';
   k.textContent=tr(keep?'상태 유지':'다시 열기'); k.dataset.tip=tr(keep?'보내도 핀을 다시 열지 않고 답글만 남깁니다(드물게 씁니다)':'보내면서 핀을 다시 열어 에이전트에게 보냅니다(드물게 씁니다)');
   k.setAttribute('aria-checked',String(!!R.flip));}
 // Opens the one reply box on pin id with its kept draft; the panel opens if it was collapsed.
@@ -74,7 +74,7 @@ function sendReply(){const R=REPLY; if(!R||viewerBlocked())return; const ta=R.el
   // Back into the box - after [되돌리기], or with an inline error when sending failed (offline), so the draft is visibly kept.
   const back=err=>{REPLY_DRAFT.set('reply:'+id,text); openReply(id);
     if(REPLY&&REPLY.id===id){const t=REPLY.el.querySelector('textarea'); if(hints)t._mentions=hints; REPLY.flip=flip; mentionPreview(t); renderReplyOutcome();
-      const e=REPLY.el.querySelector('.r-err'); if(e){e.textContent=err||''; e.hidden=!err;}}};
+      const e=/** @type {HTMLElement} */(REPLY.el.querySelector('.r-err')); if(e){e.textContent=err||''; e.hidden=!err;}}};
   REPLY_DRAFT.delete('reply:'+id); REPLY=null; drawPins();          // the box closes at once; the post waits for the undo toast
   const d=deferred(tl(reopens?'핀 #{id} 다시 열어 에이전트에게 보냄':'#{id} 에 답글을 남겼습니다',{id}),
     async()=>{markMine(id);
