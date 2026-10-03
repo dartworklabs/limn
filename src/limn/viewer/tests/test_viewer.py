@@ -557,7 +557,7 @@ class FrontendStructure(unittest.TestCase):
         self.assertIn("p.close_reply", body)
         self.assertIn("arcLine('r:'+p.id,p.close_reply", body)  # the reply line is drawn by arcLine, going through esc
         self.assertIn("fmtText(text,logins)", extract_js_fn("arcLine"))  # fmtText goes through esc first
-        self.assertIn("esc(p.close_ref)", body)
+        self.assertIn("${p.close_ref}", body)
 
     def test_close_curl_example_in_skill_md_documents_reply_and_ref(self):
         # whether the close example in SKILL.md's '핀 소비 절차' section was updated to leave reply/ref (§C).
@@ -1227,8 +1227,8 @@ class FrontendMobileLogic(unittest.TestCase):
                 extract_js_fn("cardActs"),  # the open card's action row (its visual order per layout)
                 js_icons(),
                 r"""
-            const a=card({id:1,file:'/m.tex',name:'m.tex',lo:3,hi:5,page:2,note:'첫 줄 <b>\n둘째 줄'});
-            const b=card({id:2,file:'/m.tex',name:'m.tex',lo:3,hi:5,page:2,note:''});
+            const a=String(card({id:1,file:'/m.tex',name:'m.tex',lo:3,hi:5,page:2,note:'첫 줄 <b>\n둘째 줄'}));
+            const b=String(card({id:2,file:'/m.tex',name:'m.tex',lo:3,hi:5,page:2,note:''}));
             const sum=s=>(/<div class="sum" translate="no" data-act="card-toggle">((?:[^<]|<span class="dim">|<\/span>)*)<\/div>/.exec(s)||[])[1];
             console.log(JSON.stringify([sum(a), / open"/.test(a), sum(b), / open"/.test(b), /class="tags"/.test(a),
               /data-act="card-toggle" aria-expanded="false"/.test(a), /aria-expanded="true"/.test(b)]));
@@ -1827,12 +1827,13 @@ class FrontendSemanticAudit(unittest.TestCase):
         js = "\n".join(
             [
                 js_esc(),
+                js_markup(),
                 extract_js_fn("relTime"),
                 extract_js_fn("relSpan"),
                 r"""
             const now=new Date(2026,8,24,15,0).getTime();
             console.log(JSON.stringify(['2026-09-24 15:00:10','2026-09-24 14:57:00','2026-09-24 11:00:00','2026-09-21 10:00:00','2026-09-01 10:00:00','x']
-              .map(s=>relTime(s,now)).concat([relSpan('2026-09-01 10:00','arc-t','닫은 시각')])));""",
+              .map(s=>relTime(s,now)).concat([String(relSpan('2026-09-01 10:00','arc-t','닫은 시각'))])));""",
             ]
         )
         out = json.loads(run_node(js))
@@ -2785,14 +2786,14 @@ class FrontendFigure(unittest.TestCase):
                         js_tooltips(),
                         extract_js_fn("elLost"),
                         extract_js_fn("elLostTag"),
-                        "console.log(JSON.stringify([elLostTag({el_sync:'lost'}),elLostTag({el_sync:'moved'}),elLostTag({})]));",
+                        "console.log(JSON.stringify([String(elLostTag({el_sync:'lost'})),elLostTag({el_sync:'moved'}),elLostTag({})]));",
                     ]
                 )
                 tag, moved, plain = json.loads(run_node(js))
                 self.assertIn(word, tag)
                 self.assertIn('class="badge badge-warning"', tag)
                 self.assertIn("ic-triangle-alert", tag)
-                self.assertEqual((moved, plain), ("", ""))
+                self.assertEqual((moved, plain), (None, None))
 
     def test_a_pin_that_loses_its_element_is_announced_once(self):
         """The list refresh announces '#N 요소를 잃었습니다' when an open pin's element becomes lost, not when it already
@@ -2825,8 +2826,8 @@ class FrontendFigure(unittest.TestCase):
         self.assertIn("const est=isEstimated(p)&&!hasMark(p),lost=p.stale||elLost(p);", m)
         c = extract_js_fn("card")
         # the open and the review card's N쪽, and compact's one head link '#N · L… · N쪽' (input diagnosis U5)
-        self.assertEqual(c.count("{page:pinPlace(p).page}"), 3)
-        self.assertEqual(c.count("p.stale||elLost(p)?CARD_DOT.LOST"), 2)
+        self.assertEqual(c.count("{page:pinPlace(p).page}"), 1)  # one page label for both cards' links
+        self.assertEqual(c.count("p.stale||elLost(p)?CARD_DOT.LOST"), 1)  # one status dot for both cards
         self.assertIn("const lostEl=elLostTag(p); if(lostEl)tags.push(lostEl);", c)
         self.assertIn("figRegionBadge(p.el,isFigureKind((docInfo(pdoc(p))||{}).kind))", c)
         self.assertIn("document.getElementById('p'+pinPlace(p).page)", extract_js_fn("jumpPin"))
@@ -2947,6 +2948,7 @@ class FrontendFigure(unittest.TestCase):
         js = "\n".join(
             [
                 js_esc(),
+                js_markup(),
                 js_tooltips(),
                 *[extract_js_fn(n) for n in ("isFrac", "hasMark", "pinPlace", "isRegion", "locCopy", "rng", "arcLoc")],
                 r"""
@@ -2954,7 +2956,7 @@ class FrontendFigure(unittest.TestCase):
             const home={kind:'region',pdf:'fig.pdf',name:'fig.pdf',page:1,frac:[0.1,0.1,0.2,0.2]};
             const lines={file:'a.py',name:'a.py',page:3,lo:4,hi:6,mark:[0.3,0.4,0.1,0.05],mark_page:2};
             const loc=h=>[/data-copy="([^"]*)"/.exec(h)[1],/>([^<]*)<\/span>$/.exec(h)[1]];
-            console.log(JSON.stringify([locCopy(moved),locCopy(home),locCopy(lines),loc(arcLoc(moved)),loc(arcLoc(home)),loc(arcLoc(lines))]));""",
+            console.log(JSON.stringify([locCopy(moved),locCopy(home),locCopy(lines),loc(String(arcLoc(moved))),loc(String(arcLoc(home))),loc(String(arcLoc(lines)))]));""",
             ]
         )
         self.assertEqual(
@@ -3263,7 +3265,7 @@ class FrontendArchive(unittest.TestCase):
         out = self.run_rows(r"""
             const p={id:7,file:'/m.tex',name:'m.tex',lo:3,hi:5,page:2,done:true,done_at:'2026-09-23 20:40:11',
               closed_by:{name:'에이전트'},close_reply:'제목을 <b>바꿈</b>',close_ref:'PR #227',note:'원래 <메모>'};
-            const a=doneCard(p); ARC_OPEN.add('o:7'); ARC_OPEN.add('r:7'); const b=doneCard(p);
+            const a=String(doneCard(p)); ARC_OPEN.add('o:7'); ARC_OPEN.add('r:7'); const b=String(doneCard(p));
             console.log(JSON.stringify([/class="arc-row done"/.test(a), !/class="pin/.test(a), /ic-check/.test(a),
               /data-act="reply-open"[^>]*>답글</.test(a), /PR #227/.test(a), /class="rt arc-t" data-at="2026-09-23 20:40:11" data-tip="닫은 사람 에이전트 · 닫은 시각 2026-09-23 20:40:11">[^<]+</.test(a),
               /<span class="arc-reply" [^>]*>제목을 &lt;b&gt;바꿈&lt;\/b&gt;<\/span>/.test(a), /arc-orig"/.test(a), /원래 요청<\/button>/.test(a),
@@ -3278,21 +3280,33 @@ class FrontendArchive(unittest.TestCase):
         out = self.run_rows(r"""
             const p={id:9,file:'/m.tex',name:'m.tex',lo:3,hi:5,page:2,done:true,done_at:'2026-09-23 20:40:11',
               closed_by:{name:'에이전트'},close_reply:'고침',thread:[{id:1,by:{name:'에이전트'},at:'2026-09-23 20:40:11',text:'고침',ev:'close'}]};
-            const idle=doneCard(p);
+            const idle=String(doneCard(p));
             REPLY={id:9,el:null};
-            const replying=doneCard(p);
+            const replying=String(doneCard(p));
             console.log(JSON.stringify([!/data-act="reopen"/.test(idle), !/rv-reopen/.test(idle), /data-act="reply-open"/.test(idle),
               /class="reply-slot"/.test(idle), /class="reply-slot"/.test(replying), /class="arc-thread"/.test(replying)]));
             """)
         self.assertEqual(out, [True, True, True, False, True, True])
 
+    def test_thread_toggle_says_whether_the_thread_is_open(self):
+        """A done row's [스레드 N] carries aria-expanded "false" while folded and "true" once open; it once read "null"
+        when no reply box was open, which is no ARIA value."""
+        out = self.run_rows(r"""
+            const p={id:9,file:'/m.tex',name:'m.tex',lo:3,hi:5,page:2,done:true,done_at:'2026-09-23 20:40:11',
+              thread:[{id:1,by:{name:'에이전트'},at:'2026-09-23 20:40:11',text:'고침',ev:'close'},{id:2,by:{name:'S'},at:'2026-09-23 20:41:00',text:'고마워요'}]};
+            const state=()=>(/data-key="t:9" aria-expanded="([^"]*)"/.exec(String(doneCard(p)))||[])[1];
+            const folded=state(); ARC_OPEN.add('t:9'); const open=state();
+            console.log(JSON.stringify([folded,open]));
+            """)
+        self.assertEqual(out, ["false", "true"])
+
     def test_placeholder_ref_dash_is_hidden(self):
         # observed bug: when a QA script or an old caller put '-' in the ref slot, a meaningless reference like '닫음 · -' would show.
         out = self.run_rows(r"""
-            const dash=doneCard({id:1,file:'/m.tex',name:'m.tex',lo:1,hi:1,page:1,done:true,done_at:'2026-09-23 08:05:00',close_ref:'-'});
-            const real=doneCard({id:2,file:'/m.tex',name:'m.tex',lo:1,hi:1,page:1,done:true,done_at:'2026-09-23 08:05:00',close_ref:'PR #9'});
-            const evDash=msgHtml({id:1,by:{name:'에이전트'},at:'2026-09-23 08:05:00',text:'답',ev:'close',ref:'-'});
-            const evReal=msgHtml({id:1,by:{name:'에이전트'},at:'2026-09-23 08:05:00',text:'답',ev:'close',ref:'abc1234'});
+            const dash=String(doneCard({id:1,file:'/m.tex',name:'m.tex',lo:1,hi:1,page:1,done:true,done_at:'2026-09-23 08:05:00',close_ref:'-'}));
+            const real=String(doneCard({id:2,file:'/m.tex',name:'m.tex',lo:1,hi:1,page:1,done:true,done_at:'2026-09-23 08:05:00',close_ref:'PR #9'}));
+            const evDash=String(msgHtml({id:1,by:{name:'에이전트'},at:'2026-09-23 08:05:00',text:'답',ev:'close',ref:'-'}));
+            const evReal=String(msgHtml({id:1,by:{name:'에이전트'},at:'2026-09-23 08:05:00',text:'답',ev:'close',ref:'abc1234'}));
             console.log(JSON.stringify([/arc-ref/.test(dash), /arc-ref/.test(real), /PR #9/.test(real),
               / · -</.test(evDash), evDash.includes(' · -'), evReal.includes(' · abc1234')]));
             """)
@@ -3300,8 +3314,8 @@ class FrontendArchive(unittest.TestCase):
 
     def test_done_row_without_reply_says_so_and_dropped_row_restores(self):
         out = self.run_rows(r"""
-            const a=doneCard({id:3,file:'/m.tex',name:'m.tex',lo:1,hi:1,page:1,done:true,done_at:'2026-09-23 08:05:00'});
-            const d=droppedCard({id:4,file:'/m.tex',name:'m.tex',lo:2,hi:9,page:1,note:'잘못 찍음',dropped_at:'2026-09-23 09:00:00',dropped_by:{name:'김'}});
+            const a=String(doneCard({id:3,file:'/m.tex',name:'m.tex',lo:1,hi:1,page:1,done:true,done_at:'2026-09-23 08:05:00'}));
+            const d=String(droppedCard({id:4,file:'/m.tex',name:'m.tex',lo:2,hi:9,page:1,note:'잘못 찍음',dropped_at:'2026-09-23 09:00:00',dropped_by:{name:'김'}}));
             console.log(JSON.stringify([/설명 없이 닫힘/.test(a), /원래 요청/.test(a), /class="arc-row dropped"/.test(d), /ic-trash-2/.test(d),
               /data-act="restore"[^>]*>되살리기</.test(d), />잘못 찍음</.test(d), /L2-L9/.test(d), /data-act="reopen"/.test(d),
               /data-act="purge"/.test(d)]));
@@ -3375,13 +3389,13 @@ class FrontendArchive(unittest.TestCase):
             self.assertIn(".st-dot.%s{background:var(--status-" % st, css)
         self.assertEqual(css.count("--status-claimed:"), 2)  # both dark and light
         body = extract_js_fn("card")
-        self.assertIn("(claimed?' claimed':'')", body)
+        self.assertIn("${claimed?' claimed':''}", body)
         self.assertIn(
             "stDot(rv?CARD_DOT.REVIEW:p.stale||elLost(p)?CARD_DOT.LOST:claimed?CARD_DOT.CLAIMED:CARD_DOT.OPEN)", body
         )
         self.assertIn("tl('상태: {name}',{name:tr(ST_NAME[st])})", extract_js_fn("stDot"))
-        self.assertIn('role="img" aria-label="\'+t+\'"', extract_js_fn("stDot"))  # not distinguished by color alone
-        self.assertIn("ic('rotate-ccw')+'다시 열림", body)
+        self.assertIn('role="img" aria-label="${t}"', extract_js_fn("stDot"))  # not distinguished by color alone
+        self.assertIn("${ic('rotate-ccw')}다시 열림", body)
         self.assertIn(".arc-row+.arc-row{border-top:1px solid var(--border)}", css)
 
 
@@ -3929,18 +3943,18 @@ class FrontendThread(unittest.TestCase):
         out = self.run_js(r"""
             const th=[1,2,3,4,5].map(i=>({id:i,by:{name:'S'},at:'2026-09-24 10:0'+i+':00',text:'m'+i}));
             const p={id:9,thread:th};
-            const w=threadHtml(p,true), c=threadHtml(p,false); THREAD_OPEN.add(9); const all=threadHtml(p,false);
+            const w=String(threadHtml(p,true)), c=String(threadHtml(p,false)); THREAD_OPEN.add(9); const all=String(threadHtml(p,false));
             const n=s=>(s.match(/class="msg"/g)||[]).length;
             console.log(JSON.stringify([n(w),/이전 2건 보기/.test(w),/m5/.test(w),/m2/.test(w),n(c),/이전 4건 보기/.test(c),/m5/.test(c),
-              n(all),/스레드 접기/.test(all),threadHtml({id:1},true)]));
+              n(all),/스레드 접기/.test(all),String(threadHtml({id:1},true))]));
             """)
         self.assertEqual(out, [3, True, True, False, 1, True, True, 5, True, ""])
 
     def test_messages_escape_and_events_read_as_history(self):
         out = self.run_js(r"""
-            const a=msgHtml({id:1,by:{name:'<b>x</b>'},at:'2026-09-24 10:00:00',text:'<img src=x onerror=1>'});
-            const b=msgHtml({id:2,by:{name:'로컬/에이전트'},at:'2026-09-24 10:05:00',text:'고쳤다',ev:'close',ref:'PR #9'});
-            const c=msgHtml({id:3,by:{name:'S'},at:'2026-09-24 10:06:00',text:'',ev:'confirm'});
+            const a=String(msgHtml({id:1,by:{name:'<b>x</b>'},at:'2026-09-24 10:00:00',text:'<img src=x onerror=1>'}));
+            const b=String(msgHtml({id:2,by:{name:'로컬/에이전트'},at:'2026-09-24 10:05:00',text:'고쳤다',ev:'close',ref:'PR #9'}));
+            const c=String(msgHtml({id:3,by:{name:'S'},at:'2026-09-24 10:06:00',text:'',ev:'confirm'}));
             console.log(JSON.stringify([/&lt;img/.test(a),!/<img/.test(a),/&lt;b&gt;x/.test(a),/class="msg ev ev-close"/.test(b),
               /닫음 · PR #9/.test(b),/>고쳤다</.test(b),/>확인</.test(c),!/msg-t/.test(c),/09-24 10:05/.test(b)]));
             """)
@@ -3949,7 +3963,7 @@ class FrontendThread(unittest.TestCase):
     def test_reply_slot_rendered_for_open_editor(self):
         out = self.run_js(r"""
             REPLY={id:4,mode:'reply'};
-            console.log(JSON.stringify([/reply-slot/.test(threadHtml({id:4},true)),threadHtml({id:5},true)]));
+            console.log(JSON.stringify([/reply-slot/.test(threadHtml({id:4},true)),String(threadHtml({id:5},true))]));
             """)
         self.assertEqual(out, [True, ""])
 
@@ -4024,9 +4038,9 @@ class FrontendReview(unittest.TestCase):
                 r"""
             const base={id:3,file:'/m.tex',name:'m.tex',lo:1,hi:2,page:1,note:'n',done:true,review:true,state:'review',
               closed_by:{login:'local',name:'로컬/에이전트'},thread:[{id:1,by:{name:'로컬/에이전트'},at:'2026-09-24 10:00:00',text:'고침',ev:'close'}]};
-            const mine=card(Object.assign({},base,{author:{login:'bob@example.com',name:'Bob Park'}}));
-            const other=card(Object.assign({},base,{author:{login:'w@example.com',name:'Wendy Kim'}}));
-            const open=card({id:4,file:'/m.tex',name:'m.tex',lo:1,hi:2,page:1,note:'n'});
+            const mine=String(card(Object.assign({},base,{author:{login:'bob@example.com',name:'Bob Park'}})));
+            const other=String(card(Object.assign({},base,{author:{login:'w@example.com',name:'Wendy Kim'}})));
+            const open=String(card({id:4,file:'/m.tex',name:'m.tex',lo:1,hi:2,page:1,note:'n'}));
             console.log(JSON.stringify([/class="pin card review/.test(mine),/내 확인 차례/.test(mine),/b-confirm btn-soft/.test(mine),
               /Wendy Kim님 확인 필요/.test(other),/class="btn-sm b-confirm"/.test(other),!/rv-reopen/.test(other)&&/data-act="reply-open"/.test(other),
               !/data-act="close"/.test(other),!/data-act="drop"/.test(other),/ev-close/.test(other),!/review/.test(open)]));
@@ -4205,6 +4219,7 @@ class FrontendMentions(unittest.TestCase):
                     "pinRefExists",
                     "pinRefGone",
                     "fmtText",
+                    "pinRefs",
                     "mentionsMe",
                     "mentionQuery",
                     "mentionMatches",
@@ -4226,7 +4241,7 @@ class FrontendMentions(unittest.TestCase):
     def test_highlight_does_not_double_wrap_and_escapes(self):
         out = self.run_js(r"""
             console.log(JSON.stringify([fmtText('@Wendy Kim 와 @Wendy <i>',['w@example.com','wo@example.com']), fmtText('@김<b> 안녕',['k@example.com']),
-              fmtText('@Bob Park',[])]));""")
+              fmtText('@Bob Park',[])].map(String)));""")
 
         def tip(name):
             """The tooltip attribute fmtText() puts on a resolved @-tag for name."""
@@ -4247,7 +4262,7 @@ class FrontendMentions(unittest.TestCase):
         # becomes a token; being mentioned gets .me; an unresolved '@word' stays plain text.
         out = self.run_js(r"""
             console.log(JSON.stringify([fmtText('@Bob Park 봐 주세요 @홍길동',['s@example.com']), fmtText('mail a@Bob Park',['s@example.com']),
-              fmtText('@Bob Parkx',['s@example.com']), fmtText('@bob park',['s@example.com'])]));""")
+              fmtText('@Bob Parkx',['s@example.com']), fmtText('@bob park',['s@example.com'])].map(String)));""")
         self.assertEqual(
             out[0],
             '<span class="mention me" data-tip="나를 부름 — 이 핀 알림이 나에게 옵니다">@Bob Park</span> 봐 주세요 @홍길동',
@@ -4263,12 +4278,12 @@ class FrontendMentions(unittest.TestCase):
         out = self.run_js(r"""
             const W=PEOPLE.find(p=>p.name==='Wendy Kim').login;
             console.log(JSON.stringify(['é@Wendy Kim','김@Wendy Kim','𠀀@Wendy Kim','😀@Wendy Kim','(@Wendy Kim)']
-              .map(t=>(fmtText(t,[W]).match(/class="mention"/g)||[]).length)));""")
+              .map(t=>(String(fmtText(t,[W])).match(/class="mention"/g)||[]).length)));""")
         self.assertEqual(out, [0, 0, 0, 1, 1])
 
     def test_pin_refs_link_only_existing_pins_and_skip_entities(self):
         out = self.run_js(r"""
-            console.log(JSON.stringify([fmtText("#12 과 #99 그리고 it's (#3) #40",[]), fmtText('a#12 &#12;',[])]));""")
+            console.log(JSON.stringify([fmtText("#12 과 #99 그리고 it's (#3) #40",[]), fmtText('a#12 &#12;',[])].map(String)));""")
         # 12/3/40 (a dropped pin) — nonexistent 99 stays plain text
         self.assertEqual(out[0].count('data-act="pin-ref"'), 3)
         self.assertIn('data-ref="12"', out[0])
@@ -4344,8 +4359,8 @@ class FrontendMentions(unittest.TestCase):
         self.assertIn(
             "if(E.assignee&&E.assignee!==E.orig.assignee)body.assignee=E.assignee;", extract_js_fn("saveEdit")
         )
-        self.assertIn("assignChip(p)+thn+au", extract_js_fn("card"))
-        self.assertIn("const adr=p.assignee?'':addressedTag(p);", extract_js_fn("card"))
+        self.assertIn("${assignChip(p)}${thn}${au}", extract_js_fn("card"))
+        self.assertIn("const adr=p.assignee?null:addressedTag(p);", extract_js_fn("card"))
         self.assertIn("assigned:5", h)
         self.assertIn("assign:'담당 바꿈'", h)
 
@@ -4930,6 +4945,7 @@ class ViewerFunctions(unittest.TestCase):
         js = "\n".join(
             [
                 js_esc(),
+                js_markup(),
                 r"""
             let PEOPLE=[], META=null; const DROPPED=[{id:12}];
             function findAnyPin(id){return id===3?{id:3}:null;}
@@ -4941,7 +4957,8 @@ class ViewerFunctions(unittest.TestCase):
                 extract_js_fn("pinRefExists"),
                 extract_js_fn("pinRefGone"),
                 extract_js_fn("fmtText"),
-                "console.log(JSON.stringify([fmtText('#3 와 #12 와 #99',[])]));",
+                extract_js_fn("pinRefs"),
+                "console.log(JSON.stringify([fmtText('#3 와 #12 와 #99',[])].map(String)));",
             ]
         )
         out = json.loads(run_node(js))[0]
@@ -5039,7 +5056,7 @@ class ViewerFunctions2(unittest.TestCase):
                 r"""
             const T={loc:'l',restore:'s',purge:'u'}; let SHOW_ALL=false,DOCS=[],DOC='main',DEFAULT_DOC='main',META=null; const ARC_OPEN=new Set();
             function docInfo(){return null;} function authorTip(){return 'tip';} function who(a){return a?a.name:'';}
-            function relSpan(s,cls,tip){return '<span class="rt '+cls+'">7시간 전</span>';} function fmtText(t){return esc(t);}
+            function relSpan(s,cls,tip){return html`<span class="rt ${cls}">7시간 전</span>`;} function fmtText(t){return html`${t}`;}
             const TRASH_DAYS=30;""",
                 extract_js_fn("rng"),
                 extract_js_fn("multiDoc"),
@@ -5054,7 +5071,7 @@ class ViewerFunctions2(unittest.TestCase):
                 extract_js_fn("isViewer"),
                 extract_js_fn("droppedCard"),
                 r"""
-            const h=droppedCard({id:4,file:'/m.tex',name:'m.tex',lo:2,hi:9,page:1,note:'메모',dropped_at:'2026-09-25 09:00:00',dropped_by:{name:'Bob Park'},expires_ts:Date.now()/1000+30*86400-60});
+            const h=String(droppedCard({id:4,file:'/m.tex',name:'m.tex',lo:2,hi:9,page:1,note:'메모',dropped_at:'2026-09-25 09:00:00',dropped_by:{name:'Bob Park'},expires_ts:Date.now()/1000+30*86400-60}));
             console.log(JSON.stringify([h.replace(/<svg.*?<\/svg>/g,'').replace(/<[^>]+>/g,'|').replace(/\|+/g,'|')]));""",
             ]
         )
