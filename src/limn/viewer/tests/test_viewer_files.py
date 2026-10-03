@@ -173,7 +173,8 @@ class ViewerScriptParses(unittest.TestCase):
         page = page_for("Paper", "#2563eb")
         scripts = inline_scripts(page)
         self.assertEqual(len(scripts), 3)
-        self.assertIn(viewer_text("__APP_JS__")[:200], scripts[-1])
+        unfilled = re.split(r"__[A-Z_]+__", viewer_text("__APP_JS__"))[0]  # the parts up to their first placeholder
+        self.assertIn(unfilled[:200], scripts[-1])
         self.assertEqual(script_errors(page), [])
 
     def test_a_syntax_error_planted_in_one_part_fails_the_check_and_names_the_part(self):

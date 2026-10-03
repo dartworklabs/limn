@@ -80,6 +80,17 @@
 
 서버에서 오는 표는 서버 문자열과 정확히 같아야 한다. [`src/limn/viewer/tests/test_viewer_source.py`](../../src/limn/viewer/tests/test_viewer_source.py)의 `ClosedSets`가 표마다 서버의 `Literal`·튜플·생성 함수와 대조한다. 부르는 멤버가 표에 있는지도 본다(`PIN_STATE.REVEIW` 같은 오타는 오류 없이 `undefined`가 된다). `done`·`review`를 직접 읽거나 `pinState()`를 문자열과 비교하는 곳이 없는지도 본다. 사람이 읽는 글, 사유 코드, 브라우저가 정한 이름(키, 태그, 이벤트 종류, 알림 권한)은 표에 두지 않는다. 목록 구획 이름(`SEC.open`)과 표의 값을 키로 쓰는 조회표(`ST_NAME`, `EV_LABEL`, 알림 문구)의 키도 글자 그대로 둔다. 새 표는 `core.js`의 닫힌 값 구획에 더하고, 같은 테스트의 서버 표(`SERVER_SETS`)나 뷰어 표(`VIEWER_SETS`)에 올린다. 어느 쪽에도 없으면 테스트가 실패한다.
 
+### 마크업 만들기
+
+뷰어가 HTML을 쓰는 길은 하나다. [`js/markup.js`](../../src/limn/viewer/js/markup.js)의 `html` 태그 템플릿으로 `Html` 값을 만들고, `setHtml(el, markup)`으로 넣는다. 메모·이름·답글·PDF 목차 제목처럼 사람이나 원고가 쓴 글이 화면에 들어가는데, 문자열을 이어 붙여 `innerHTML`에 넣으면 `esc()`를 한 번만 빠뜨려도 그 글이 마크업으로 실행되기 때문이다.
+
+- `` html`…` `` 안의 값은 `Html`이 아니면 모두 글자로 바뀐다(`esc()`). `Html`(안쪽 `` html`…` ``, `ic()`)은 마크업으로, 배열은 원소를 같은 규칙으로 이어 붙인다. `null`·`undefined`만 빈칸이고 `false`·`0`은 글자 그대로다. 조건부 조각은 `c?x:''`로 쓴다.
+- 값은 요소 내용이나 따옴표로 감싼 속성 값 자리에만 둔다. `esc()`는 따옴표 없는 속성이나 `href` 같은 URL 속성을 안전하게 만들지 않는다.
+- `Html`은 `markup.js`의 `html`과 `ic()`만 만든다. `setHtml()`은 `Html`이 아니면 `TypeError`를 던진다.
+- `` html`…` ``의 결과를 `+`로 잇지 않는다. 문자열이 되어, 바깥 `` html`…` ``에 넣으면 다시 글자로 바뀐다. 여러 조각은 한 템플릿 안에 `${a}${b}`로 넣는다.
+
+아직 손으로 `innerHTML`을 쓰는 조각이 남아 있다. [`test_viewer_markup.py`](../../src/limn/viewer/tests/test_viewer_markup.py)의 `LEGACY_SINKS`가 조각마다 그 수를 고정하므로 새 `innerHTML` 쓰기는 실패하고, 하나를 `setHtml()`로 옮기면 같은 변경에서 그 수를 줄인다. 같은 테스트가 `markup.js` 밖의 `new Html`, 태그가 아닌 `html(...)` 호출, `+`로 이은 `` html`…` ``도 토큰으로 막고, `` html`…` ``의 이스케이프를 node로 확인한다.
+
 ## 조작 한눈에
 
 운영자가 공저자에게 안내할 조작 요약이다. 규칙과 근거는 오른쪽 열의 절에 있다.

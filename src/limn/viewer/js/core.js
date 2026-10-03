@@ -2,9 +2,8 @@
 'use strict';
 const $=s=>document.querySelector(s);
 const $$=s=>Array.from(document.querySelectorAll(s));
-// Lucide icons (vendor/lucide/README.md). Same shape as the server's icon_svg() - size is set by CSS (.ic).
+// Lucide icons (vendor/lucide/README.md), drawn by ic() in markup.js.
 const ICONS=__LUCIDE_JSON__;
-function ic(n){const b=ICONS[n]; return b?'<svg class="ic ic-'+n+'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">'+b+'</svg>':'';}
 const esc=t=>String(t==null?'':t).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const IS_MAC=/Mac|iPhone|iPad/i.test(navigator.platform||navigator.userAgent||'');
 const SMOOTH=matchMedia('(prefers-reduced-motion: reduce)').matches?'auto':'smooth';

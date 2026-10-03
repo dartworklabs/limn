@@ -25,6 +25,7 @@ css/responsive.css      # mobile/touch, the mid and narrow layouts, reduced moti
 
 __APP_JS__
 js/core.js              # strict mode, DOM helpers, icons, shared state, the tooltip texts (T)
+js/markup.js            # html``, ic() and setHtml(): markup with every value escaped, and its one sink
 js/i18n.js              # UI language: tr/tl/trMsg, API error and pick warning text, the English observer
 js/prefs.js             # per-device preferences (pinPrefs), list-section state, theme
 js/api-toasts.js        # api() and toasts: stacking, placement, deferred commit with undo, copy

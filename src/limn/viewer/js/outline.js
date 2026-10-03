@@ -54,7 +54,10 @@ function outlineList(box,q){const query=String(q||'').trim().toLowerCase();
   if(!OUTLINE_ENTRIES.length){box.className='outline-empty';box.textContent='이 PDF에는 이동할 수 있는 목차가 없습니다.';return;}
   const rows=OUTLINE_ENTRIES.map((x,i)=>Object.assign({index:i},x)).filter(x=>!query||(x.number+' '+x.title).toLowerCase().includes(query));
   if(!rows.length){box.className='outline-empty';box.textContent='찾은 장·절이 없습니다.';return;}
-  box.className='';box.innerHTML=rows.map(x=>'<button translate="no" class="ol-depth-'+Math.min(x.depth,4)+(x.index===OUTLINE_SELECTED?' ol-active':'')+'" data-act="outline-page" data-index="'+x.index+'" data-page="'+x.page+'" data-close="1" aria-current="'+(x.index===OUTLINE_SELECTED?'location':'false')+'" title="'+esc(x.title)+'"><span class="ol-no">'+esc(x.number||'·')+'</span><span class="ol-name">'+esc(x.title)+'</span><span class="ol-page">'+esc(tl('{page}쪽',{page:x.pageLabel||String(x.page)}))+'</span></button>').join('');
+  box.className='';
+  setHtml(box,html`${rows.map(x=>{const on=x.index===OUTLINE_SELECTED;
+    const page=tl('{page}쪽',{page:x.pageLabel||String(x.page)});
+    return html`<button translate="no" class="ol-depth-${Math.min(x.depth,4)}${on?' ol-active':''}" data-act="outline-page" data-index="${x.index}" data-page="${x.page}" data-close="1" aria-current="${on?'location':'false'}" title="${x.title}"><span class="ol-no">${x.number||'·'}</span><span class="ol-name">${x.title}</span><span class="ol-page">${page}</span></button>`;})}`);
 }
 // Where a PDF outline destination sits on its page, as a fraction from the top (0 = top). An XYZ destination carries
 // the top edge in PDF points from the bottom; anything else (Fit, no top) counts as the top of the page.
