@@ -27,10 +27,10 @@ No dependencies, server/API/storage changes or manuscript zoom preference writes
 **Files:** docs/handbook/viewer.md, spec and plan.
 **Interfaces:** Document Task 1's actual comparison behavior and limits.
 
-- [ ] Update Handbook comparison PDF section.
-- [ ] Run AGENTS.md verification commands, recording any reproduced pre-existing failures. Expected: no new failures.
-- [ ] Inspect light/dark and narrow/wide real browser screenshots.
-- [ ] Commit documentation, obtain one fresh whole-branch review and fix material findings with regression tests.
+- [x] Update Handbook comparison PDF section.
+- [x] Run AGENTS.md verification commands, recording any reproduced pre-existing failures. Expected: no new failures.
+- [x] Inspect light/dark and narrow/wide real browser screenshots.
+- [x] Commit documentation. The executor then obtains one fresh whole-branch review and fixes material findings with regression tests.
 
 ## Review Focus
 
