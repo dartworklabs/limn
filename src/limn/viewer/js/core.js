@@ -68,7 +68,7 @@ const THREAD_OPEN=new Set(),REPLY_DRAFT=new Map();
 // document that a legacy pin with no doc field belongs to. OPEN_ALL = open pins across all documents (PINS is the subset for the current document - marks/overlap/editing only look at PINS).
 // META_BY = per-document meta cache (instant tab switching), VIEW_BY = per-document viewed position/zoom, BUILD_ERR_BY = per-document last build error,
 // DOC_SEQ = another document's finished-build count (used to notice a build that finished in the background).
-let DOCS=/** @type {DocEntry[]} */([]),DOC=null,DEFAULT_DOC='main',OPEN_ALL=/** @type {Pin[]} */([]),DONE_ALL=/** @type {Pin[]} */([]),SHOW_ALL=false,SWITCHSEQ=0;
+let DOCS=/** @type {DocEntry[]} */([]),DOC=/** @type {string|null} */(null),DEFAULT_DOC='main',OPEN_ALL=/** @type {Pin[]} */([]),DONE_ALL=/** @type {Pin[]} */([]),SHOW_ALL=false,SWITCHSEQ=0;
 // A continuation may paint visit-local UI only while both the document and its visit number still match.
 function captureVisit(){return {doc:DOC,seq:SWITCHSEQ};}
 // Match a captured visit after an await, including leave-and-return to the same document.

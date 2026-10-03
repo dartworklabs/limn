@@ -1,9 +1,9 @@
 // One changes-view visit owns the selected commit, source text and request sequence.
-const REV={seq:0,files:[],whole:'',commit:'',sourceCommit:'',format:/** @type {string} */(DIFF_FORMAT.PDF),scope:null,other:'',target:/** @type {RevTarget|null} */(null),pdfCommit:'',back:/** @type {string|null} */(null)};
+const REV={seq:0,files:[],whole:'',commit:'',sourceCommit:'',format:/** @type {string} */(DIFF_FORMAT.PDF),scope:/** @type {any} */(null),other:'',target:/** @type {RevTarget|null} */(null),pdfCommit:'',back:/** @type {string|null} */(null)};
 // v0.3 (docs/handbook/viewer.md §변경 보기): a pin's view of a commit. REV.scope is the source diff's scope object
 // ({mode:'pin'|'commit', source, hunks, other, ...}); REV_PDF holds the comparison PDF's toggle - whole commit or only this pin.
 const REV_SCOPE={whole:false,partial:false,fallback:false};
-const REV_PDF={doc:null,loading:null,observer:null,tasks:new Set()};
+const REV_PDF={doc:/** @type {any} */(null),loading:/** @type {any} */(null),observer:/** @type {IntersectionObserver|null} */(null),tasks:new Set()};
 function revisionFiles(patch){
   const starts=[];const re=/^diff --git .+$/gm;let m;
   while((m=re.exec(patch))!==null)starts.push({at:m.index,head:m[0]});
@@ -14,7 +14,7 @@ function revisionFiles(patch){
 // it is translate="no"; the lines are text.
 function renderRevisionDiff(patch){
   const lines=String(patch||'').split('\n'); if(lines[lines.length-1]==='')lines.pop();
-  let oldLine=null,newLine=null,inHunk=false;
+  let oldLine=/** @type {number|null} */(null),newLine=/** @type {number|null} */(null),inHunk=false;
   return html`${lines.map(line=>{
     let kind='meta',number=/** @type {number|string} */('');
     if(line.startsWith('diff --git ')){kind='file';inHunk=false;oldLine=newLine=null;}

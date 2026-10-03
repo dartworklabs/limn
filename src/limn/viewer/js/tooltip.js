@@ -39,7 +39,7 @@ document.addEventListener('focusin',e=>{const t=/** @type {HTMLElement} */(e.tar
   armTip(t.closest?t.closest('[data-tip]'):null);});
 // Long-press tooltip (touch/pen): holding for 500ms shows the description, and the one click after release is swallowed (so the button doesn't fire).
 // Over a page image, quick selection (long-press = that paragraph) takes priority, so only badges (.mark b) apply. Input fields keep their paste menu.
-let PRESS=null,SWALLOW_CLICK=0;
+let PRESS=/** @type {{el:HTMLElement,x:number,y:number,t:ReturnType<typeof setTimeout>,shown?:boolean}|null} */(null),SWALLOW_CLICK=0;
 function pressTarget(t){const el=t&&t.closest?t.closest('[data-tip]'):null; if(!el)return null;
   if(el.tagName==='TEXTAREA'||el.tagName==='INPUT')return null;
   if(el.closest('.pg')&&!el.closest('.mark b'))return null; return el;}

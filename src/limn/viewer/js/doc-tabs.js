@@ -43,7 +43,7 @@ function drawDocTabs(){
   if($('#nav-sheet').open)drawDocsMenu();}
 // When the document-links row overflows (e.g. 5 documents in mid): the overflowing edge is faded (fade-l/fade-r) to show there's more,
 // and when the document changes, the current document's link is scrolled into view. A polling redraw never touches wherever the user has scrolled to (only a document change does).
-let DOC_LINK_SHOWN=null;
+let DOC_LINK_SHOWN=/** @type {string|null} */(null);
 function docLinksFade(){const d=$('#doc-links'); if(!d)return; const over=d.scrollWidth-d.clientWidth;
   d.classList.toggle('fade-l',over>1&&d.scrollLeft>1); d.classList.toggle('fade-r',over>1&&over-d.scrollLeft>1);}
 function docLinksReveal(){const d=$('#doc-links'),a=d&&d.querySelector('[aria-current=page]');
