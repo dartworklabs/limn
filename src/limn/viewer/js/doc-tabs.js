@@ -1,6 +1,7 @@
 // ------------------------------------------------ Multiple documents - list/tabs/links (docs/handbook/domain.md §여러 문서)
 function multiDoc(){return DOCS.length>1;}
 function docInfo(k){return DOCS.find(d=>d.key===k)||null;}
+/** @param {Pin} p */
 function pdoc(p){return (p&&p.doc)||DEFAULT_DOC;}
 function isRegion(p){return !!p&&(p.kind==='region'||(!p.file&&!!p.pdf));}
 // Appends ?doc=<key> to a document-scoped path (the server treats it as the first document if absent).

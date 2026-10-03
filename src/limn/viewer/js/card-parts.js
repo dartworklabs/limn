@@ -10,6 +10,7 @@ function avatar(a){if(!a||!(a.name||a.login))return html``; if(isAgent(a))return
 document.addEventListener('error',e=>{const t=/** @type {HTMLImageElement} */(e.target);
   if(t&&t.tagName==='IMG'&&t.classList.contains('av')){BADPIC.add(t.getAttribute('src')); const s=document.createElement('span');s.className='av i';
     s.textContent=t.dataset.ini||'?';t.replaceWith(s);}},true);
+/** @param {Pin} p */
 function authorTip(p){let s=tl('작성: {name} · {at}',{name:p.author?who(p.author):tr('기록 전'),at:p.at||'?'});
   if(p.edited_at)s+=' / '+tl('수정: {name} · {at}',{name:who(p.edited_by)||tr('기록 전'),at:p.edited_at}); return s;}
 // docs/handbook/api.md §겹친 핀과 덧붙이기: one representative among the rel entries - if there's an inside (the outer pin with the smallest range),
@@ -35,6 +36,7 @@ function relBadge(rel,p){
 }
 // The in-progress marker (docs/handbook/api.md §처리 중 표시 (claim)). claim_until is epoch seconds, compared independent of the browser's timezone (numbers
 // instead of a wall-clock string, for the same reason as docs/handbook/build-sync.md §위치 추정). The viewer never places a claim (agent-only) - it only offers [풀기].
+/** @param {Pin} p */
 function claimActive(p){return typeof p.claim_until==='number'&&p.claim_until>Date.now()/1000;}
 // Estimated time to handle (docs/handbook/api.md §처리 중 표시): if an agent gives eta_min on a claim, the server sets eta_ts
 // (epoch). The badge shows '처리 중 · 약 15분 · 20:40쯤' - both the remaining minutes and the time are rounded up to
@@ -43,6 +45,7 @@ function claimActive(p){return typeof p.claim_until==='number'&&p.claim_until>Da
 // '~04:02'), so it's never shown on screen - only in the description. The time is the viewing device's local time. now is injected by tests.
 function ceil5(m){return Math.max(5,Math.ceil(m/5-1e-9)*5);}
 function hhmm(ms){const d=new Date(ms); return String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0');}
+/** @param {Pin} p @param {number} [now] */
 function claimInfo(p,now){now=now==null?Date.now():now; const w=who(p.claimed_by)||'?',st=typeof p.claim_ts==='number'?p.claim_ts*1000:null;
   const tail=' · '+tl('잠금 자동 해제 {time}(그 뒤에는 다른 쪽이 잡을 수 있습니다). 에이전트가 멈췄으면 [풀기]',{time:hhmm(p.claim_until*1000)});
   const head=tl('처리하는 쪽: {name}',{name:w})+(st?' · '+tl('시작 {time}',{time:hhmm(st)}):'');
@@ -52,7 +55,9 @@ function claimInfo(p,now){now=now==null?Date.now():now; const w=who(p.claimed_by
     return {t:tl('예상보다 늦어짐 (+{n}분)',{n:ceil5((now-eta)/60000)}),late:true,tip:head+' · '+tl('예상 완료 {time}였음',{time:hhmm(eta)})+tail};}
   if(st)return {t:tl('처리 중 · {time}부터 ({n}분째)',{time:hhmm(st),n:Math.max(1,Math.ceil((now-st)/60000))}),late:false,tip:head+' · '+tr('예상 시간 없음')+tail};
   return {t:tr('처리 중'),late:false,tip:head+tail};}
+/** @param {Pin} p @param {number} [now] */
 function claimLabel(p,now){return claimInfo(p,now).t;}
+/** @param {Pin} p */
 function claimTag(p){const c=claimInfo(p);
   return html`<span class="badge badge-claimed${c.late?' late':''}" data-claim="${p.id}" data-tip="${c.tip}">${ic('clock')}<span class="ct">${c.t}</span></span>`;}
 // The remaining/elapsed minutes change with time - only the badge text is updated every 30 seconds (the card isn't redrawn). The list is redrawn if any pin's lock has expired.
@@ -63,20 +68,26 @@ function tickClaims(){if(document.hidden)return; let gone=false;
 setInterval(tickClaims,30000);
 // A card's location text: 'L12-L18' for a LaTeX pin, '영역' for a view-only PDF's pin (the page is a separate field). The copy format is 'file L12-L18' / 'x.pdf 쪽 3'; a
 // region's page is the one its mark is on in the current build (pinPlace), which a figure pin's element can move.
+/** @param {Pin} p */
 function locText(p){return isRegion(p)?tr('영역'):rng(p.lo,p.hi);}
+/** @param {Pin} p */
 function locCopy(p){const name=p.name||String(p.file||p.pdf||'').split('/').pop(); return isRegion(p)?name+' 쪽 '+pinPlace(p).page:name+' L'+p.lo+'-L'+p.hi;}
 // The document chip attached to a card header when viewing all documents. Another document's is dashed-bordered - clicking it switches to that document.
 // The name is user text (translate="no"); its description's UI words are translated here.
+/** @param {Pin} p */
 function docChip(p){if(!(SHOW_ALL&&multiDoc()))return html``; const d=docInfo(pdoc(p)),other=pdoc(p)!==DOC;
   const tip=(d?d.name+' · '+d.path:tl('{doc} (설정에 없는 문서)',{doc:pdoc(p)}))+(other?' — '+tr('#번호·[보기]를 누르면 이 문서로 바꿉니다'):'');
   return html`<span class="badge badge-secondary dchip${other?' other':''}" translate="no" data-tip="${tip}">${d?d.name:pdoc(p)}</span>`;}
 // Thread (docs/handbook/viewer.md §스레드와 검토): replies and state-transition records (close/reopen/confirm) form a single line of history, built with html``.
 // wide shows the last 3, compact shows only the last 1, expanded via [이전 N건] (THREAD_OPEN). The input field (REPLY) is inserted in place like EDITOR.current.
+/** @param {Pin} p */
 function isQuestion(p){return !!p&&p.kind_req===KIND_REQ.QUESTION;}
 // The current assignee - the recorded value (p.assignee); for a legacy pin without one, the person the server inferred (the first of p.addressed); if neither, the agent.
+/** @param {Pin} p */
 function assigneeOf(p){if(!p)return ASSIGNEE_AGENT; if(p.assignee)return p.assignee; const a=p.addressed||[]; return a.length?a[0]:ASSIGNEE_AGENT;}
 // The card header's assignee chip: shown only when the assignee is a person (the agent is the default, so it's not shown). The author (or an identity-less local screen) changes it by clicking into [수정].
 // The name is user text (translate="no").
+/** @param {Pin} p */
 function assignChip(p){if(!p.assignee||p.assignee===ASSIGNEE_AGENT)return html``; const me=meLogin(),mine=p.assignee===me,nm=mine?tr('나'):'@'+(String(peopleName(p.assignee)).split(/\s+/)[0]||p.assignee);   // the chip shows the first word of the name; the full name goes in the description
   const canEdit=pinState(p)===PIN_STATE.OPEN&&(isMe(p.author)||!me),tip=tl('담당: {name} — 에이전트는 이 핀을 건너뜁니다',{name:mine?tr('나'):peopleName(p.assignee)})+(canEdit?tr('. 누르면 [수정]에서 담당을 바꿉니다'):'');
   return canEdit?html`<button class="badge badge-assign as-chip${mine?' me':''}" data-act="edit" data-tip="${tip}">${tr('담당')} <span class="as-n" translate="no">${nm}</span></button>`
@@ -85,9 +96,13 @@ function assignChip(p){if(!p.assignee||p.assignee===ASSIGNEE_AGENT)return html``
 const ST_NAME={open:'열림',claimed:'처리 중',review:'검토 대기',lost:'위치 잃음'};
 function stDot(st){const t=tl('상태: {name}',{name:tr(ST_NAME[st])}); return html`<span class="st-dot${st===CARD_DOT.OPEN?'':' '+st}" role="img" aria-label="${t}" data-tip="${t}"></span>`;}
 // Did the current round start with a reopen (a pin that returned from review)? True if the thread's last close/reopen record is a reopen.
+/** @param {Pin} p */
 function reopenedTurn(p){const th=threadOf(p); for(let i=th.length-1;i>=0;i--){const e=th[i].ev; if(e===THREAD_EV.CLOSE||e===THREAD_EV.REOPEN)return e===THREAD_EV.REOPEN?th[i]:null;} return null;}
+/** @param {Pin} p */
 function threadOf(p){return Array.isArray(p&&p.thread)?p.thread:[];}
+/** @param {Pin} p */
 function replyCount(p){return threadOf(p).filter(m=>!m.ev).length;}
+/** @param {ThreadEntry} m */
 function msgText(m){return fmtText(m.text,m.mentions);}
 // Turns '@name' (only resolved mentions) and '#number' (an existing pin) in text into tokens (docs/handbook/viewer.md §@태그).
 // Names and numbers are found in the text as written and the result is built with html``, so the text between and
@@ -131,15 +146,18 @@ function pinRefGone(id){return typeof DROPPED!=='undefined'&&Array.isArray(DROPP
 // (p.addressed, which the server counts only for the current round via thread_round) - the old version scanned the
 // entire thread (threadOf(p).some(...)) and had a defect where an @-tag from an old round kept a pin marked "called me"
 // even after reopening (observed). addressed_to() only has a value on question pins.
+/** @param {Pin} p */
 function mentionsMe(p){const me=META&&META.me; if(!me||!me.login||me.login===LOCAL_LOGIN)return false;
   return (p.addressed||[]).includes(me.login);}
 // The badges of a question pin that calls people: '나를 부름', and the others' names (user text, translate="no").
+/** @param {Pin} p */
 function addressedTag(p){const to=(p.addressed||[]); if(!to.length)return null;
   const me=META&&META.me&&META.me.login,mine=to.includes(me),others=to.filter(x=>x!==me);
   const self=mine?html`<span class="badge badge-mention" data-tip="이 핀이 나를 @태그했습니다 — 에이전트는 이 핀을 건너뜁니다(사용자가 시키면 예외)">${ic('at-sign')}나를 부름</span>`:'';
   const rest=others.length?html`<span class="badge badge-mention" data-tip="사람을 부른 핀입니다 — 에이전트는 사용자가 따로 시키지 않으면 건너뜁니다">${ic('at-sign')}<span translate="no">${others.map(peopleName).join(', ')}</span></span>`:'';
   return html`${self}${rest}`;}
 // A fix pin's FYI @-tags (never skipped) - kept separate from p.addressed (question-pin only) and sent in p.fyi instead.
+/** @param {Pin} p */
 function fyiTag(p){const to=(p.fyi||[]); if(!to.length)return null;
   return html`<span class="badge badge-mention" data-tip="참고로 부른 사람입니다 — 질문이 아니라 수정 요청이라 건너뛰지 않습니다">${ic('at-sign')}${tl('참고 {names}',{names:to.map(peopleName).join(', ')})}</span>`;}
 // Is the reference (ref) a meaningful value? '-' is a placeholder QA scripts/legacy callers use for "no reference" - shown as-is
@@ -151,15 +169,18 @@ const EV_LABEL={close:'닫음',reopen:'다시 엶',confirm:'확인',assign:'담�
 const MSG_OPEN=new Set();
 // A thread entry's text (user text, translate="no") clamped at 6 lines with [더 보기]/[접기] when long; key ('id:index') keeps
 // it open across redraws (MSG_OPEN), and without a key it is drawn whole with no button.
+/** @param {ThreadEntry} m */
 function msgBody(m,key){const long=String(m.text||'').length>280||String(m.text||'').split('\n').length>6,open=!key||MSG_OPEN.has(key);
   const more=long&&key?html`<button class="btn-sm btn-ghost msg-more" data-act="msg-more" data-key="${key}" aria-expanded="${open}">${open?'접기':'더 보기'}</button>`:'';
   return html`<div class="msg-t${long&&!open?' clamp':''}" translate="no">${msgText(m)}</div>${more}`;}
 // One thread entry: a post (avatar, author, time, text) or a state record (who, what, reference, time, optional text).
+/** @param {ThreadEntry} m */
 function msgHtml(m,key){const by=m.by||{},nm=who(by)||'?',mine=isMe(by)?html`<span class="me-tag"> ${tr('(나)')}</span>`:'';
   if(m.ev)return html`<div class="msg ev ev-${m.ev}"><div class="msg-h"><b translate="no">${nm}${mine}</b><span>${tr(EV_LABEL[m.ev]||m.ev)}${hasRef(m.ref)?' · '+m.ref:''}</span>${relSpan(m.at)}</div>${m.text?msgBody(m,key):''}</div>`;
   return html`<div class="msg">${avatar(by)}<div class="msg-b"><div class="msg-h"><b translate="no">${nm}${mine}</b>${relSpan(m.at)}</div>${msgBody(m,key)}</div></div>`;}
 // The thread of p as Html (empty without entries): the last 3 entries in wide, the last 1 elsewhere, unless THREAD_OPEN
 // holds p; the button that shows the rest or folds them; and the reply slot when p's reply box is open.
+/** @param {Pin} p */
 function threadHtml(p,wide){const th=threadOf(p),keep=wide?3:1,all=THREAD_OPEN.has(p.id),hide=all?0:Math.max(0,th.length-keep);
   const more=hide?html`<button class="btn-sm btn-ghost th-more" data-act="thread-more" aria-expanded="false">${tl('이전 {n}건 보기',{n:hide})}</button>`
     :all&&th.length>keep?html`<button class="btn-sm btn-ghost th-more" data-act="thread-more" aria-expanded="true">스레드 접기</button>`:'';

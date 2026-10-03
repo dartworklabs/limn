@@ -66,6 +66,7 @@ function gotoReview(){if(!listReview().length&&REVIEW_ALL.length&&multiDoc())SHO
   setSide(true); requestAnimationFrame(()=>{const t=$('#sec-review'); if(t&&!t.hidden)t.scrollIntoView({block:'start',behavior:SMOOTH});});}
 // The reviewer shown on an awaiting-review card: the author is suggested (anyone can confirm - a trust model). If I'm the author, '내 확인 차례'.
 function isMe(a){const me=META&&META.me; return !!(a&&me&&me.login&&me.login!==LOCAL_LOGIN&&a.login===me.login);}
+/** @param {Pin} p */
 function reviewerLabel(p){if(!p.author||!(p.author.name||p.author.login))return tr('확인 필요'); return isMe(p.author)?tr('내 확인 차례'):tl('{name}님 확인 필요',{name:who(p.author)});}
 function listDropped(){return SHOW_ALL&&multiDoc()?DROPPED:DROPPED.filter(p=>pdoc(p)===DOC||!DOC);}
 // One section header (docs/handbook/viewer.md §목록 구획): chevron, name, count and - while collapsed - 'new N' (ids the section did not show
@@ -122,6 +123,7 @@ function drawPins(){
 // manuscript fingerprint of the build the pin was placed on with the current build). Back when the viewer judged this by
 // wall clock, it was wrong across the board with browser timezone, a note-only edited_at, and a pin placed on a stale
 // PDF (confirmed by independent verification). The viewer just renders the value it's given.
+/** @param {Pin} p */
 function isEstimated(p){return p.est===true;}
 // Whether a mark's number badge goes inside the mark (docs/handbook/viewer.md §모바일 레이아웃): fx is the mark's left as a
 // fraction of the page, w the page width, pad the room left of the page in the PDF scroller (its margin) and reach how far
@@ -145,7 +147,7 @@ function marks(){
   // A figure pin is drawn where the server found its element in this build (see pinPlace), and a found element is no estimate.
   PINS.concat(REVIEW_ALL.filter(p=>pdoc(p)===DOC)).forEach(p=>{const at=pinPlace(p),el=document.getElementById('p'+at.page); if(!el||!isFrac(at.frac))return;
     const est=isEstimated(p)&&!hasMark(p),lost=p.stale||elLost(p);
-    const m=document.createElement('div'); m.className='mark'+(lost?' st':'')+(est?' est':'')+(pinState(p)===PIN_STATE.REVIEW?' rv':''); m.dataset.pin=p.id; m.dataset.fx=at.frac[0];
+    const m=document.createElement('div'); m.className='mark'+(lost?' st':'')+(est?' est':'')+(pinState(p)===PIN_STATE.REVIEW?' rv':''); m.dataset.pin=String(p.id); m.dataset.fx=String(at.frac[0]);
     Object.assign(m.style,{left:at.frac[0]*100+'%',top:at.frac[1]*100+'%',width:at.frac[2]*100+'%',height:at.frac[3]*100+'%'});
     const n=String(p.note||'').replace(/\s+/g,' ').trim();
     const tip='#'+p.id+' · '+(n?(n.length>60?n.slice(0,60)+'…':n):tr('(메모 없음)'))+(est?' '+tr('(PDF가 새로 만들어져 위치는 추정입니다)'):'')+(elLost(p)?' · '+tr('요소 잃음'):'');
@@ -200,6 +202,7 @@ function jumpPin(id){if(viaDoc(id,jumpPin))return; const p=PINS.find(x=>x.id===i
   }
 }
 // Hovering a card highlights its mark, along with any overlapping counterpart marks.
+/** @param {Pin} p */
 function markIdsFor(p){return [p.id].concat((p.rel||[]).map(x=>x.id));}
 $('#pins').addEventListener('mouseover',e=>{const c=e.target.closest('.pin'); if(!c)return;
   const p=PINS.find(x=>x.id===+c.dataset.id); if(!p)return;

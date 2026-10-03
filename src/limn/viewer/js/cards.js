@@ -1,6 +1,7 @@
 // The open or awaiting-review pin card: header, badges, note and actions. A figure pin's page link follows its element, and a
 // lost element is flagged like a lost line. The note, its preview and the author's name are user text (translate="no"); the UI
 // words drawn inside them are translated here.
+/** @param {Pin} p */
 function card(p){
   const loc='L'+p.lo+'-L'+p.hi,name=p.name||String(p.file||'').split('/').pop(),tags=[];   // loc stays in the copy format
   if(p.stale)tags.push(html`<span class="badge badge-warning" data-tip="${T.stale}">${ic('triangle-alert')}위치 잃음</span>`);
@@ -88,16 +89,19 @@ setInterval(tickRel,60000);
 function arcTime(s){s=String(s||''); return /^\d{4}-\d\d-\d\d \d\d:\d\d/.test(s)?s.slice(5,16):s;}
 // The location span of an archive row (done or trashed pin): 'L12-L18' for lines, '쪽 N 영역' for a region, N being the page
 // its mark is on now (pinPlace); the copy text carries the same.
+/** @param {Pin} p */
 function arcLoc(p){const name=p.name||String(p.file||p.pdf||'').split('/').pop();
   return html`<span class="loc" tabindex="0" data-copy="${isRegion(p)?locCopy(p):name+' L'+p.lo+'-L'+p.hi}" data-tip="${T.loc}">${isRegion(p)?tl('쪽 {page} 영역',{page:pinPlace(p).page}):rng(p.lo,p.hi)}</span>`;}
 // One expandable line of an archive row: text (a close reply or a deleted pin's note) is user text (translate="no"), so its
 // Korean description tip is translated here.
 function arcLine(key,text,tip,logins){const open=ARC_OPEN.has(key);
   return html`<span class="arc-reply${open?' open':''}" translate="no" role="button" tabindex="0" data-act="arc-toggle" data-key="${key}" aria-expanded="${open}" data-tip="${trMsg(tip)}">${fmtText(text,logins)}</span>`;}
+/** @param {Pin} p */
 function allMentions(p){const out=(p.mentions||[]).slice(); threadOf(p).forEach(m=>(m.mentions||[]).forEach(l=>{if(!out.includes(l))out.push(l);})); return out;}
 // A done pin's archive row (docs/handbook/viewer.md §보관함): icon, #N, location, reference and time with [답글]; the close
 // reply as one expandable line (user text) with [원래 요청], [변경 보기] and [스레드 N]; the original request and the thread
 // when expanded (ARC_OPEN), the thread also while a reply box is open on it.
+/** @param {Pin} p */
 function doneCard(p){
   const ref=hasRef(p.close_ref)?html`<span class="badge arc-ref" data-tip="닫을 때 남긴 참조 — 같은 값이면 같은 처리에 딸린 핀입니다">${p.close_ref}</span>`:'';
   const reply=p.close_reply?arcLine('r:'+p.id,p.close_reply,'닫으며 남긴 설명 — 누르면 펼치고 접습니다',allMentions(p)):html`<span class="arc-reply none">설명 없이 닫힘</span>`;
@@ -127,6 +131,7 @@ function trashDaysLeft(at,now,exp){if(typeof exp==='number')return Math.max(0,Ma
 function isOwner(){return !!(typeof META!=='undefined'&&META&&META.me&&META.me.role===ROLE.OWNER);}
 // A Trash row: #N, location, when and by whom it was deleted and the days left, the note as one expandable line (user text),
 // and [되살리기] (not for a viewer) and [영구 삭제] (the owner only) after the two lines.
+/** @param {Pin} p */
 function droppedCard(p){
   const line=p.note?arcLine('d:'+p.id,p.note,'삭제한 핀의 메모 — 누르면 펼치고 접습니다',p.mentions):html`<span class="arc-reply none">(메모 없음)</span>`;
   const left=trashDaysLeft(p.dropped_at,null,p.expires_ts),by=who(p.dropped_by)||tr('기록 전');
