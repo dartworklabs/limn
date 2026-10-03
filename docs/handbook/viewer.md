@@ -103,7 +103,8 @@
 - DOM이 넓은 타입을 돌려주는 자리(`e.target`, `querySelector`, `closest`)는 JSDoc 캐스트로 좁힌다. 예: `const t=/** @type {HTMLElement} */(e.target);`. 주석이라 실행 코드는 바뀌지 않는다.
 - 리터럴 하나로 시작해 나중에 다른 값이 들어가는 변수는 시작 값에서 타입을 넓힌다. 예: `let KIND_NEW=/** @type {string} */(KIND_REQ.FIX)`.
 - 함수 객체에 속성을 붙여 상태를 두지 않는다(`f.held=true`). 같은 일은 조각의 `let` 변수로 한다.
-- `strict`는 끈 채로 검사한다. 닫힌 값 표의 오타(`PIN_STATE.REVEIW`), 없는 함수, `Html`이 아닌 값을 기대하는 인자는 지금도 실패한다.
+- `strict` 묶음은 하위 옵션을 하나씩 켠다. 조각이 한 전역 범위를 나눠 쓰므로 파일마다 따로 켤 수 없기 때문이다. 켠 옵션은 `tsconfig.json`이 정본이다. 아직 꺼 둔 것은 `noImplicitAny`와 `strictNullChecks`(그리고 그것에 딸린 `strictPropertyInitialization`)이고, `noFallthroughCasesInSwitch`는 상태 줄의 의도된 fall-through 때문에 켜지 않는다. 그래도 닫힌 값 표의 오타(`PIN_STATE.REVEIW`), 없는 함수, `Html`이 아닌 값을 기대하는 인자, 쓰지 않는 지역 변수는 지금도 실패한다.
+- `catch(e)`의 `e`는 `unknown`이다. 속성을 읽을 때는 `/** @type {Error} */(e).message`처럼 좁힌다.
 
 ## 조작 한눈에
 

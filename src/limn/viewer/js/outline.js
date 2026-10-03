@@ -1,5 +1,5 @@
 async function loadOutline(doc,gen){
-  const box=$('#outline-items'); let entries=[];
+  let entries=[];
   try{const items=await doc.getOutline();
     async function walk(rows,depth){for(const item of rows||[]){if(entries.length>=180)return;
       let dest=item.dest;
