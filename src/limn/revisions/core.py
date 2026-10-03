@@ -357,16 +357,22 @@ def revision_scope(D: RevisionDoc, files: Sequence[Path] | None = None) -> tuple
 
 def _files_scope(D: RevisionDoc, files: Sequence[Path]) -> tuple[Path, list[str]] | None:
     """The repository holding figure document D's folder and files as its pathspec (files_pathspec), or None when the
-    folder is not in a Git repository or none of the files lies in it."""
+    folder is not in a Git repository or none of the files lies in it.
+
+    git answers the repository's resolved path, so each file is compared in the same form: its folder with symlinks
+    resolved, its own name kept (a script that is itself a link is still named by its own path, as git tracks it). A
+    document whose folder is reached through a symlink (macOS's /var -> /private/var) keeps its whole history, as a
+    LaTeX document does (revision_scope resolves its main file's folder the same way)."""
     try:
         root = D.src.resolve()
+        named = [f.parent.resolve() / f.name for f in files]
     except (OSError, RuntimeError):
         return None
     rc, top, _ = git(["-C", str(root), "rev-parse", "--show-toplevel"], root)
     if rc != 0 or not top.strip():
         return None
     repo = Path(top.strip()).resolve()
-    paths = files_pathspec(repo, files, root)
+    paths = files_pathspec(repo, named, root)
     return (repo, paths) if paths else None
 
 

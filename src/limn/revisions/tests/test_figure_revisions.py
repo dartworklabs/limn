@@ -20,6 +20,7 @@ from limn.builds import artifacts
 from limn.builds.figure_map import FigureMap, map_source_files, parse_map
 from limn.platform.git import run_git
 from limn.revisions.core import HISTORY_PATHS_MAX, files_pathspec
+from limn.runtime.documents import Doc
 
 from helpers import map_bytes, ps
 from helpers_access import AccessBase
@@ -149,6 +150,21 @@ class FigureHistory(AccessBase):
         (self.fig.dir / "pages.cur").write_text(BUILD1, encoding="utf-8")
         code, body = self.call("GET", "/api/revisions?doc=fig")
         self.assertEqual((code, body["overlay"]["build"], body["overlay"]["prev_build"]), (200, BUILD1, BUILD0))
+
+    def test_a_figure_folder_reached_through_a_symlink_has_the_same_history(self):
+        """The same figure folder served through a symlinked path (as macOS's /var/folders is one to /private/var):
+        git answers the repository's resolved path, and the history and the source diff are still those of the files
+        the map names."""
+        link = Path(self.tmp.name) / "linked"
+        link.symlink_to(self.src, target_is_directory=True)
+        figs = link / "figs"
+        linked = Doc("fl", "그림", "figure", figs, figs / "out" / "figures.limnmap.json", paths=ps.APP.C.paths)
+        ps.APP.set_docs([*ps.APP.docs, linked])
+        write_build(linked, BUILD1, b2_map())
+        self.assertEqual(self.subjects("fl"), ["render", "component", "script", "initial"])
+        code, body = self.call("GET", "/api/revision-diff?doc=fl&commit=" + self.commits["script"])
+        self.assertEqual(code, 200, body)
+        self.assertIn("+step = redraw()", body["diff"])
 
     def test_the_history_follows_the_files_of_the_current_builds_map(self):
         """A build whose map names a script the old one did not widens the history to that script's commits."""
