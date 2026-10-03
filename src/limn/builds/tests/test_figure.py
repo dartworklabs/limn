@@ -11,6 +11,7 @@ Run: uv run pytest -q src/limn/builds/tests/test_figure.py
 
 import ast
 import contextlib
+import hashlib
 import io
 import json
 import os
@@ -32,6 +33,7 @@ from limn.builds.service import BuildRequests
 from limn.runtime.documents import Doc, RunPaths
 
 from helpers import MINI_PDF, Base, figure_map, map_bytes, ps, req, split_resp
+from helpers_files import replace_in_same_tick, rewrite_in_place
 
 # pdftoppm stand-in (pdftoppm -r DPI -f N -l N -singlefile PDF): the 200x100 PPM named by LIMN_TEST_PAGE_PNG on
 # stdout; exit 1 when LIMN_TEST_PDFTOPPM is "fail".
@@ -131,15 +133,18 @@ class FigureTree(unittest.TestCase):
 
 
 class Signatures(FigureTree):
-    """watch_signature: what one 3-second tick looks at without reading an unchanged map."""
+    """watch_signature: what one 3-second tick looks at - the map's bytes (read, and parsed only when they changed) and
+    the stat of the PDF the map names."""
 
     def test_the_signature_names_the_map_and_the_pdf_it_points_to(self):
-        """mtime_ns:size of the map, a bar, then mtime_ns:size of the PDF the map names."""
+        """mtime_ns:size:inode:digest of the map (the first 32 hex digits of the SHA-256 of its bytes), a bar, then
+        mtime_ns:size:inode of the PDF the map names."""
         self.producer.render()
         m, p = self.map.stat(), self.pdf.stat()
+        digest = hashlib.sha256(self.map.read_bytes()).hexdigest()[:32]
         self.assertEqual(
             figure.watch_signature(self.doc, self.looks),
-            "%d:%d|%d:%d" % (m.st_mtime_ns, m.st_size, p.st_mtime_ns, p.st_size),
+            "%d:%d:%d:%s|%d:%d:%d" % (m.st_mtime_ns, m.st_size, m.st_ino, digest, p.st_mtime_ns, p.st_size, p.st_ino),
         )
 
     def test_no_signature_without_a_map(self):
@@ -155,8 +160,8 @@ class Signatures(FigureTree):
         self.pdf.unlink()
         self.assertTrue(figure.watch_signature(self.doc, self.looks).endswith("|" + figure.NO_FILE))
 
-    def test_a_changed_map_is_read_again_and_its_new_pdf_followed(self):
-        """An unchanged map is not re-read (its memo holds), but once the map changes to name another PDF, the
+    def test_a_changed_map_is_parsed_again_and_its_new_pdf_followed(self):
+        """An unchanged map is not parsed again (its memo holds), but once the map changes to name another PDF, the
         signature follows that PDF."""
         self.producer.render()
         first = figure.watch_signature(self.doc, self.looks)
@@ -168,7 +173,7 @@ class Signatures(FigureTree):
         o = other.stat()
         now = figure.watch_signature(self.doc, self.looks)
         self.assertNotEqual(now, first)
-        self.assertTrue(now.endswith("|%d:%d" % (o.st_mtime_ns, o.st_size)))
+        self.assertTrue(now.endswith("|%d:%d:%d" % (o.st_mtime_ns, o.st_size, o.st_ino)))
 
     def test_two_documents_registering_one_map_share_its_parse(self):
         """The parse is the map's bytes alone, so the memo is keyed by the map's path: fig2, whose folder is the map's
@@ -179,6 +184,88 @@ class Signatures(FigureTree):
         first = figure.watch_signature(self.doc, self.looks)
         with mock.patch.object(figure, "parse_map", side_effect=AssertionError("the parse is shared, not made again")):
             self.assertEqual(figure.watch_signature(fig2, self.looks), first)
+
+
+class SameTickRewrites(FigureTree):
+    """A second version of the map or the PDF that lands in the first one's timestamp tick with the same size (issue
+    #165): the map is told apart by its bytes, the PDF by its inode (an atomic replacement). A signature settled in the
+    old format redraws once. Each scenario first lets the watch settle on a deferral - the state in which a missed
+    second version stays missed until a file changes again."""
+
+    def test_a_map_rewritten_in_place_in_the_same_tick_after_a_mismatch_is_imported(self):
+        """The map names the digest of another PDF than the one on disk: deferred pdf_mismatch and settled. The export
+        tool then overwrites that same file in place with the right digest - the same length, so the same mtime_ns,
+        size and inode. The pair is read again and imported."""
+        self.producer.write(self.pdf, OTHER_PDF)
+        self.producer.write(self.map, map_bytes(figure_map(MINI_PDF)))
+        self.assertIsNone(self.pending())
+        rewrite_in_place(self.map, map_bytes(figure_map(OTHER_PDF)))
+        ready = self.pending()
+        self.assertIsInstance(ready, figure.FigureImport)
+        self.assertEqual(ready.pdf_raw, OTHER_PDF)
+
+    def test_a_pdf_replaced_atomically_in_the_same_tick_after_a_mismatch_is_imported(self):
+        """The map already describes OTHER_PDF while the PDF on disk is the old one: deferred pdf_mismatch and settled.
+        The producer then replaces the PDF atomically with OTHER_PDF, same size and stamped with the old file's mtime_ns
+        (a new inode). The pair is read again and imported."""
+        self.producer.write(self.pdf, MINI_PDF)
+        self.producer.write(self.map, map_bytes(figure_map(OTHER_PDF)))
+        self.assertIsNone(self.pending())
+        replace_in_same_tick(self.pdf, OTHER_PDF)
+        ready = self.pending()
+        self.assertIsInstance(ready, figure.FigureImport)
+        self.assertEqual(ready.pdf_raw, OTHER_PDF)
+
+    def test_the_map_half_follows_the_map_bytes_and_the_pdf_half_the_pdf(self):
+        """An in-place rewrite of the map that keeps mtime_ns, size and inode moves the map half of the signature and
+        leaves the PDF half where it was."""
+        self.producer.render()
+        before = figure.watch_signature(self.doc, self.looks)
+        rewrite_in_place(self.map, map_bytes(figure_map(OTHER_PDF)))
+        after = figure.watch_signature(self.doc, self.looks)
+        self.assertNotEqual(after.split("|")[0], before.split("|")[0])
+        self.assertEqual(after.split("|")[1], before.split("|")[1])
+
+    def test_a_settled_signature_in_the_old_format_imports_once_and_then_settles(self):
+        """Upgrade: SIG_FILE holds "<map mtime_ns>:<size>|<pdf mtime_ns>:<size>" of the unchanged files. The first tick
+        imports the pair once and settles the new format; the ticks after it find nothing to do."""
+        self.producer.render()
+        m, p = self.map.stat(), self.pdf.stat()
+        figure.settle(self.doc, "%d:%d|%d:%d" % (m.st_mtime_ns, m.st_size, p.st_mtime_ns, p.st_size))
+        ready = self.pending()
+        self.assertIsInstance(ready, figure.FigureImport)
+        self.assertIsInstance(figure.render_figure_doc(self.doc, self.cfg, ready), BuildOk)
+        self.assertEqual([self.pending(), self.pending()], [None, None])
+        self.assertEqual(len(list(self.doc.dir.glob("pages-*"))), 1)
+        self.assertEqual(figure.settled_signature(self.doc), figure.watch_signature(self.doc, self.looks))
+
+    def test_an_oversized_map_is_deferred_once_and_then_left_alone(self):
+        """A map over MAP_MAX_BYTES, which the watch now reads on every tick, is read only up to that cap: one
+        map_rejected too_large line, then ticks that log nothing (docs/handbook/build-sync.md §그림 문서)."""
+        self.producer.write(self.pdf, MINI_PDF)
+        self.producer.write(self.map, b" " * (figmap.MAP_MAX_BYTES + 10))
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            ticks = [figure.pending_import(self.doc, self.looks, 72, first=False) for _ in range(3)]
+        self.assertEqual(ticks, [None, None, None])
+        self.assertEqual(err.getvalue().count("map_rejected: too_large"), 1, err.getvalue())
+
+    def test_a_map_that_is_a_symlink_has_no_signature(self):
+        """The map is opened without following a link: a symlink in its place is read as no map at all, so the watch has
+        nothing to look at and nothing to import."""
+        self.producer.render()
+        real = self.figs / "out" / "real.json"
+        real.write_bytes(self.map.read_bytes())
+        self.map.unlink()
+        self.map.symlink_to(real)
+        self.assertIsNone(figure.watch_signature(self.doc, self.looks))
+        self.assertIsNone(self.pending(first=True))
+
+    def test_a_folder_in_place_of_the_pdf_leaves_the_pdf_half_empty(self):
+        """Only a regular file has a signature: the map names dir.pdf, which is a folder, so the PDF half is NO_FILE."""
+        (self.figs / "out" / "dir.pdf").mkdir()
+        self.producer.write(self.map, map_bytes(figure_map(MINI_PDF, "dir.pdf")))
+        self.assertTrue(figure.watch_signature(self.doc, self.looks).endswith("|" + figure.NO_FILE))
 
 
 class ImportDue(unittest.TestCase):
@@ -376,7 +463,7 @@ class Deferral(FigureTree):
 
 class OneLookPerChange(FigureTree):
     """A deferral settles the very signature the next tick's watch_signature computes, whatever its reason, so files
-    that do not agree are read and logged once per change and never on every tick. Each scenario below sets up one
+    that do not agree are checked and logged once per change and never on every tick. Each scenario below sets up one
     way to defer on a tree of its own and returns what must stay active while the ticks run."""
 
     def rule_broken(self) -> contextlib.AbstractContextManager[object]:
@@ -472,7 +559,7 @@ class OneLookPerChange(FigureTree):
 
     def tick(self) -> tuple[figure.FigureImport | None, str, int]:
         """One watch tick of the document: what pending_import returned, what it wrote to stderr, and how many files
-        it opened (figure._read_file)."""
+        it read (figure._read_file): the map on every tick, the PDF only when the pair is checked."""
         err = io.StringIO()
         with mock.patch.object(figure, "_read_file", wraps=figure._read_file) as reads, contextlib.redirect_stderr(err):
             got = figure.pending_import(self.doc, self.looks, 72, first=False)
@@ -482,7 +569,8 @@ class OneLookPerChange(FigureTree):
         """For every reason a deferral can have (map_missing settles nothing), and for the cases where the files
         and what the watch sees can drift apart - a PDF that can be stat'ed but not read, a PDF judged again after
         its link was pointed out of the folder with the map's bytes unchanged: right after the deferring tick,
-        watch_signature equals the settled signature, and the next tick opens no file and logs nothing."""
+        watch_signature equals the settled signature, and the next tick reads the map alone (its digest is part of the
+        signature) - no PDF, no parse, no log line."""
         scenarios = self.scenarios()
         reasons = set(typing.get_args(figure.DeferReason)) - {"map_missing"}
         self.assertEqual({reason for reason, _ in scenarios}, reasons)
@@ -494,19 +582,19 @@ class OneLookPerChange(FigureTree):
                     self.assertIsNone(got)
                     self.assertEqual(log.count("(%s: " % reason), 1, log)
                     self.assertEqual(figure.watch_signature(self.doc, self.looks), figure.settled_signature(self.doc))
-                    self.assertEqual(self.tick(), (None, "", 0))
+                    self.assertEqual(self.tick(), (None, "", 1))
 
     @unittest.skipIf(os.geteuid() == 0, "root opens a file whatever its mode")
     def test_an_unreadable_pdf_is_logged_once_and_imported_once_it_is_written_again(self):
-        """A PDF the server may stat but not open is pdf_missing: one log line, then ticks that open nothing - not a
-        line and a map read every 3 seconds. Its mode changing alone moves neither mtime nor size, so the pair waits
-        for the next write, which is imported."""
+        """A PDF the server may stat but not open is pdf_missing: one log line, then ticks that read the map and
+        nothing else - not a line and a check of the pair every 3 seconds. Its mode changing alone moves neither
+        mtime, size nor inode, so the pair waits for the next write, which is imported."""
         self.producer.render()
         self.pdf.chmod(0)
         self.addCleanup(self.pdf.chmod, 0o644)
         ticks = [self.tick() for _ in range(3)]
         self.assertEqual(ticks[0][1].count("(pdf_missing: "), 1)
-        self.assertEqual(ticks[1:], [(None, "", 0)] * 2)
+        self.assertEqual(ticks[1:], [(None, "", 1)] * 2)
         self.pdf.chmod(0o644)
         self.producer.render()
         self.assertIsInstance(self.pending(), figure.FigureImport)
