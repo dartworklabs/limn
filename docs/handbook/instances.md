@@ -118,6 +118,18 @@ limn add paper2 --manuscript ~/papers/paper2 --git-pull --label Paper2
 
 설정을 다른 저장소(예: dotfiles)에서 관리한다면 `LIMN_SOURCE_DIR`로 그 폴더를 가리킨다. 그러면 `limn add`가 설정 원본을 거기에 쓰고 `~/.config/limn/`에 링크를 건다. 원본 쪽 변경은 그 저장소에서 커밋하라고 `limn`이 알려 준다.
 
+### 화면 기본 언어
+
+원고와 핀을 한국어로 쓰는 인스턴스는 `--ui-lang ko`로 만든다. 설정에는 `UI_LANG=ko`가 들어간다.
+
+```bash
+limn add paper2 --manuscript ~/papers/paper2 --ui-lang ko
+```
+
+이 값이 없으면 뷰어는 브라우저 언어를 따른다. 그래서 영어 로캘 휴대폰에서는 영어 화면이 뜨고, 사람마다 [더보기]의 언어에서 한국어를 한 번 골라야 한다. 고른 언어는 그 기기의 브라우저에 저장되고 인스턴스 기본값보다 늘 앞선다([viewer.md](viewer.md) §뷰어 규칙을 바꿀 때).
+
+이미 있는 인스턴스는 설정 파일 `~/.config/limn/<이름>.env`에 `UI_LANG=ko` 줄을 넣고 `limn stop <이름> && limn start <이름>`으로 재시작한다. 값은 `ko`·`en`만 받는다. 다른 값이면 `limn run`이 서버를 띄우기 전에 멈춘다.
+
 ## 기본 문서 탭 자동 탐지
 
 `--doc`과 `--main` 없이 추가할 때 원고 폴더가 표준 논문 저장소 구조면 탭을 자동으로 만든다.
