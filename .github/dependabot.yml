@@ -1,0 +1,7 @@
+# Bumps the SHA-pinned actions in .github/workflows/ (and the tag comment beside each) once a week.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
