@@ -2333,8 +2333,9 @@ class FrontendDocs(unittest.TestCase):
         js = "\n".join(
             [
                 esc,
+                js_markup(),
                 extract_js_fn("renderRevisionDiff"),
-                "console.log(JSON.stringify(renderRevisionDiff(%s)));" % json.dumps(patch),
+                "console.log(JSON.stringify(String(renderRevisionDiff(%s))));" % json.dumps(patch),
             ]
         )
         out = run_node(js)
@@ -2356,6 +2357,7 @@ class FrontendDocs(unittest.TestCase):
         js = "\n".join(
             [
                 esc,
+                js_markup(),
                 extract_js_fn("renderRevisionDiff"),
                 extract_js_fn("renderRevisionFile"),
                 r"""

@@ -2,9 +2,9 @@
 
 Two halves. Behavior: html`` keeps its literal parts and escapes every value that is not Html, so text a person or a
 PDF wrote (a note, a name, an outline heading) never becomes markup; setHtml() refuses anything else. Source: the parts
-are read as tokens (helpers_js) to hold the rules a browser cannot - no innerHTML write outside setHtml() beyond the
-legacy count each part still has, no Html made outside markup.js, html never called as a plain function, and no html``
-result joined with '+' (that turns it back into a string, which html`` would then escape a second time).
+are read as tokens (helpers_js) to hold the rules a browser cannot - no innerHTML write outside setHtml(), no esc() or
+new Html outside markup.js (so no part builds escaped markup by hand), html never called as a plain function, and no
+html`` result joined with '+' (that turns it back into a string, which setHtml() refuses).
 
 Run: uv run pytest -q src/limn/viewer/tests/test_viewer_markup.py
 """
@@ -24,11 +24,6 @@ from helpers import VIEWER, extract_js_fn, js_esc, js_icons, run_node
 PARTS = assemble.viewer_manifest(VIEWER)["__APP_JS__"]
 MARKUP_PART = "js/markup.js"
 
-# innerHTML writes each part still makes by hand, waiting to move to setHtml(html`...`). A part's count may only go
-# down: moving a write lowers it here in the same change, and a part not listed may have none.
-LEGACY_SINKS = {
-    "js/revisions.js": 8,
-}
 SINK_PROPS = frozenset(["innerHTML", "outerHTML"])
 SINK_CALLS = frozenset(["insertAdjacentHTML", "createContextualFragment", "write", "writeln"])
 
@@ -65,8 +60,8 @@ def sink_writes(src: str) -> int:
 
 
 def markup_misuse(sources: dict[str, str]) -> list[str]:
-    """Each place a part breaks the markup rules: Html made outside markup.js, html used other than as a tag, or an
-    html`` result that is an operand of '+'. Empty when every part keeps them."""
+    """Each place a part breaks the markup rules: Html made or esc() used outside markup.js, html used other than as a
+    tag, or an html`` result that is an operand of '+'. Empty when every part keeps them."""
     found = []
     for name, src in sources.items():
         toks = helpers_js.code(helpers_js.tokenize(src))
@@ -77,6 +72,8 @@ def markup_misuse(sources: dict[str, str]) -> list[str]:
             nxt = toks[k + 1] if k + 1 < len(toks) else None
             if t.text == "Html" and prev == "new" and name != MARKUP_PART:
                 found.append("%s: new Html outside markup.js" % name)
+            if t.text == "esc" and prev not in (".", "?.", "const") and name != MARKUP_PART:  # core.js declares it
+                found.append("%s: esc outside markup.js" % name)
             if t.text != "html" or prev in (".", "?.", "function"):
                 continue
             if nxt is None or nxt.kind != "template" or not nxt.text.startswith("`"):
@@ -155,24 +152,25 @@ class MarkupValues(unittest.TestCase):
 class MarkupSource(unittest.TestCase):
     """The parts write HTML only through setHtml(), make Html only in markup.js, and use html only as a tag."""
 
-    def test_no_part_writes_html_beyond_its_legacy_count(self):
-        """markup.js has exactly setHtml()'s write; every other part has exactly its LEGACY_SINKS count, so a new
-        innerHTML write fails here and a moved one must lower the count."""
+    def test_only_set_html_writes_html(self):
+        """markup.js has exactly setHtml()'s write and no other part has any HTML sink."""
         counts = {name: sink_writes(src) for name, src in part_sources().items()}
         self.assertEqual(counts.pop(MARKUP_PART), 1)
-        self.assertEqual({k: v for k, v in counts.items() if v}, LEGACY_SINKS)
+        self.assertEqual({k: v for k, v in counts.items() if v}, {})
 
     def test_parts_keep_the_markup_rules(self):
-        """No part makes Html outside markup.js, calls html as a function, or joins an html`` result with '+'."""
+        """No part makes Html or calls esc() outside markup.js, calls html as a function, or joins an html`` result
+        with '+'."""
         self.assertEqual(markup_misuse(part_sources()), [])
 
     def test_checks_catch_each_injected_violation(self):
         """Each rule rejects a planted break and accepts the legal form beside it."""
-        legal = "setHtml(a,html`<b>${x}</b>`); const t=`${y}`+z; o.html=1; f(o.html);"
+        legal = "setHtml(a,html`<b>${x}</b>`); const t=`${y}`+z; o.html=1; f(o.html); o.esc=1;"
         self.assertEqual(markup_misuse({"js/a.js": legal}), [])
         self.assertEqual(sink_writes(legal + " el.innerHTML; s=el.innerHTML;"), 0)
         for bad, rule in [
             ("x=new Html(s);", "new Html outside markup.js"),
+            ("x='<b>'+esc(s)+'</b>';", "esc outside markup.js"),
             ("x=html('<b>'+s+'</b>');", "html not used as a tag"),
             ("x=html;", "html not used as a tag"),
             ("x=html`<b>`+s;", "html`` joined with '+'"),
