@@ -66,7 +66,7 @@ function drawMeta(){
   $('#meta-main').textContent=META.main; $('#meta-pages').textContent=tl('{n}쪽',{n:META.pages.length});
   const head=commitShown(META.head); $('#meta-head').textContent=head; $('#meta-head-w').hidden=!head;
   $('#meta-built').textContent=String(META.built_at||'').slice(0,16).replace('T',' ');
-  const me=META.me||{};
+  const me=META.me||/** @type {Me} */({});
   setHtml($('#me'),html`${avatar(me)}<span class="au-n" translate="no">${who(me)}</span>`);
   $('#me').dataset.tip=tl('지금 이 화면을 쓰는 사람: {name}. 핀을 저장·수정·완료하면 이 이름으로 기록됩니다',{name:(isAgent(me)?who(me):me.name||'')+(me.login&&me.login!==LOCAL_LOGIN?' ('+me.login+')':'')});
   updateStaleBadge(META);

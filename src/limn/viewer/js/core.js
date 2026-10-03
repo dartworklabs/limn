@@ -47,7 +47,7 @@ function isFigureKind(kind){return kind===DOC_KIND.FIGURE;}
 // Whether a document of this `kind` is rebuilt from its source: only a LaTeX one. A view-only PDF and a figure redraw when their
 // files change, so they have no rebuild and word a finished build as a redraw.
 function buildsFromSource(kind){return kind===DOC_KIND.TEX;}
-let META=null,PINS=[],DONE=[],DROPPED=[],REPICK=null,PICKSEQ=0;
+let META=/** @type {Meta} */(null),PINS=/** @type {Pin[]} */([]),DONE=/** @type {Pin[]} */([]),DROPPED=/** @type {Pin[]} */([]),REPICK=null,PICKSEQ=0;
 let SNIP_OPEN=false,W=900;
 // Mobile: BAND is a LAYOUT_BAND (layoutFor of BAND_IN, the settled {w,h,coarse} - settleBand) and LAYOUT its LAYOUT_MODE (wide|mid|narrow, BAND_MODE), SIDE_OPEN is whether the panel/sheet is expanded, SELMODE is touch selection mode,
 // ZOOMED is whether the user changed the width via -/+ in compact (while true, it's never auto-fit to the screen width).
@@ -62,19 +62,19 @@ const OPEN_CARDS=new Set();   // ids of pin cards expanded in compact
 // REPLY_DRAFT = a closed input field's draft text ('reply:12').
 let KIND_NEW=/** @type {string} */(KIND_REQ.FIX),REPLY=null;
 // @-tags (docs/handbook/viewer.md §@태그): PEOPLE = /api/people (tailnet people who opened this viewer + pin authors/actors), MENTION_ONLY = viewing only "pins that called me".
-let PEOPLE=[],MENTION_ONLY=false;
+let PEOPLE=/** @type {PersonSeen[]} */([]),MENTION_ONLY=false;
 const THREAD_OPEN=new Set(),REPLY_DRAFT=new Map();
 // Multiple documents (§Multiple documents, docs/handbook/domain.md §여러 문서): DOCS = the /api/docs list, DOC = the current document key, DEFAULT_DOC = the first
 // document that a legacy pin with no doc field belongs to. OPEN_ALL = open pins across all documents (PINS is the subset for the current document - marks/overlap/editing only look at PINS).
 // META_BY = per-document meta cache (instant tab switching), VIEW_BY = per-document viewed position/zoom, BUILD_ERR_BY = per-document last build error,
 // DOC_SEQ = another document's finished-build count (used to notice a build that finished in the background).
-let DOCS=[],DOC=null,DEFAULT_DOC='main',OPEN_ALL=[],DONE_ALL=[],SHOW_ALL=false,SWITCHSEQ=0;
+let DOCS=/** @type {DocEntry[]} */([]),DOC=null,DEFAULT_DOC='main',OPEN_ALL=/** @type {Pin[]} */([]),DONE_ALL=/** @type {Pin[]} */([]),SHOW_ALL=false,SWITCHSEQ=0;
 // A continuation may paint visit-local UI only while both the document and its visit number still match.
 function captureVisit(){return {doc:DOC,seq:SWITCHSEQ};}
 // Match a captured visit after an await, including leave-and-return to the same document.
 function currentVisit(visit){return DOC===visit.doc&&SWITCHSEQ===visit.seq;}
 // Awaiting review (a pin closed by an agent, waiting for a person's [확인], pinState(p)===PIN_STATE.REVIEW). Never put into DONE_ALL - drawn separately from the done archive.
-let REVIEW_ALL=[];
+let REVIEW_ALL=/** @type {Pin[]} */([]);
 const META_BY=new Map(),VIEW_BY=new Map(),BUILD_ERR_BY=new Map(),DOC_SEQ=new Map();
 window.__pinViewerBoot=Date.now();   // a marker for checking reload status from outside
 
