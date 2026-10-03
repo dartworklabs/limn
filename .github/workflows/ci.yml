@@ -43,6 +43,8 @@ jobs:
         run: npm ci --ignore-scripts
       - name: Viewer type check
         run: npm run typecheck
+      - name: Viewer strict ratchet
+        run: uv run python tools/strict_ratchet.py
 
   test:
     runs-on: ubuntu-latest

@@ -172,8 +172,8 @@ pytest는 `tests`와 `src/limn`을 수집하고 `tests/support`에서 공용 도
 | --- | --- |
 | 측정 대상 | `src/limn/viewer/js/` 조각: 정의되지 않은 이름, 닫힌 값 표에 없는 멤버, 없는 속성 접근, 잘못된 인자 타입([viewer.md](viewer.md) §타입 검사) |
 | 적용 조건 | 뷰어 JS나 `src/limn/viewer/types/`를 바꿀 때. CI `lint` 작업에서 돈다 |
-| 실행 | `npm ci --ignore-scripts` 뒤 `npm run typecheck`(`tsc -p .`). TypeScript 버전은 `package-lock.json`이 정한다 |
-| 합격 기준 | 출력 없이 0으로 끝난다. 타입을 좁히는 JSDoc 캐스트(`/** @type {HTMLElement} */(e.target)`)는 쓰되, `@ts-ignore`·`@ts-expect-error`는 쓰지 않는다 |
+| 실행 | `npm ci --ignore-scripts` 뒤 `npm run typecheck`(`tsc -p .`)와 `uv run python tools/strict_ratchet.py`(`tsconfig.strict.json`의 조각별 오류 수가 `tools/strict-baseline.json`과 같은지). TypeScript 버전은 `package-lock.json`이 정한다 |
+| 합격 기준 | `typecheck`는 출력 없이 0으로 끝나고, 래칫은 기준과 같은 수를 알린다. 타입을 좁히는 JSDoc 캐스트(`/** @type {HTMLElement} */(e.target)`)는 쓰되, `@ts-ignore`·`@ts-expect-error`는 쓰지 않는다 |
 | 보장 범위 | `strict`의 하위 옵션 중 `tsconfig.json`에 켠 것만 본다. `null` 검사 누락(`strictNullChecks`)과 암묵적 `any`(`noImplicitAny`)는 아직 보지 않는다. API 응답의 모양(`types/api.d.ts`)은 그 타입을 단 전역 상태와 함수에서만 보고, 그 선언이 실제 응답과 맞는지는 §1의 `test_viewer_types`가 계약 스냅샷·실제 처리기·동기화 생성 함수로 확인한다. 런타임 동작은 §1이 맡는다 |
 
 ## 10. 기능 경계 검사
