@@ -1,17 +1,17 @@
 // ------------------------------------------------ Re-place location
-function banner(markup){const b=$('#banner'); b.innerHTML=markup; b.hidden=false;}
-function bannerRepick(err){banner('<span>'+esc(tl('핀 #{id} 의 새 위치를 PDF에서 드래그하세요 · Esc 취소',{id:REPICK.id}))+'</span>'+
-  (err?'<span class="errline" style="margin:0">'+esc(err)+'</span>':'')+'<span class="sp"></span>'+
-  '<button class="btn-sm" data-act="rp-cancel" data-tip="위치 다시 잡기를 그만둡니다 (Esc)">취소</button>');}
+// Shows the re-place banner with markup (Html) as its content.
+function banner(markup){const b=$('#banner'); setHtml(b,markup); b.hidden=false;}
+function bannerRepick(err){const line=err?html`<span class="errline" style="margin:0">${err}</span>`:'';
+  banner(html`<span>${tl('핀 #{id} 의 새 위치를 PDF에서 드래그하세요 · Esc 취소',{id:REPICK.id})}</span>${line}<span class="sp"></span><button class="btn-sm" data-act="rp-cancel" data-tip="위치 다시 잡기를 그만둡니다 (Esc)">취소</button>`);}
 // The re-place banner compares the current and the new place; on a figure the '새 위치' box snaps to the new element. A
 // candidate of the other shape (a region for a line pin, lines for a region pin) is dropped and the banner asks for
 // another drag: /edit never changes a pin's shape, so no request it would refuse is offered.
 function bannerCompare(){const c=REPICK.cand,lv=lvOf(c,c.default_level)||c,rg=isRegion(c);
   if(rg!==!!REPICK.from.region){REPICK.cand=null; bannerRepick(tr(T.shape)); return;}
-  banner('<span class="loc" data-tip="지금 위치 → 새 위치" tabindex="0">'+esc(rg?tl('지금 쪽 {from} · 새 쪽 {to} 영역',{from:REPICK.from.page,to:c.page}):tl('지금 {from} · 새 {to}',{from:'L'+REPICK.from.lo+'-L'+REPICK.from.hi,to:'L'+lv.lo+'-L'+lv.hi}))+'</span>'+
-    '<span class="dim">('+esc(rg?(c.quote?String(c.quote).slice(0,40):tr('글자 없는 영역')):(lv.label?levelLabel(lv.label):scopeLabel(c)))+')</span><span class="sp"></span>'+
-    '<button class="btn-sm btn-default" data-act="rp-apply" data-tip="번호와 메모는 그대로 두고 위치만 바꿉니다">이 위치로 바꾸기</button>'+
-    '<button class="btn-sm" data-act="rp-cancel" data-tip="위치 다시 잡기를 그만둡니다 (Esc)">취소</button>');
+  const where=rg?tl('지금 쪽 {from} · 새 쪽 {to} 영역',{from:REPICK.from.page,to:c.page}):tl('지금 {from} · 새 {to}',{from:'L'+REPICK.from.lo+'-L'+REPICK.from.hi,to:'L'+lv.lo+'-L'+lv.hi});
+  const what=rg?(c.quote?String(c.quote).slice(0,40):tr('글자 없는 영역')):(lv.label?levelLabel(lv.label):scopeLabel(c));
+  const acts=html`<button class="btn-sm btn-default" data-act="rp-apply" data-tip="번호와 메모는 그대로 두고 위치만 바꿉니다">이 위치로 바꾸기</button><button class="btn-sm" data-act="rp-cancel" data-tip="위치 다시 잡기를 그만둡니다 (Esc)">취소</button>`;
+  banner(html`<span class="loc" data-tip="지금 위치 → 새 위치" tabindex="0">${where}</span><span class="dim">(${what})</span><span class="sp"></span>${acts}`);
   snapBox(REPICK.box,repickEl(c));}
 // On touch, selection mode is turned on during a re-place, and narrow collapses the sheet to reveal the page (the banner stays visible even on the collapsed sheet).
 async function startRepick(){if(!EDITOR.current)return;

@@ -2,9 +2,8 @@
 // Draws the navigation sheet's document rows: the name and path are user text (translate="no"), the badges UI. One document
 // leaves the section out - there is nothing to switch to.
 function drawDocsMenu(){$('#ns-docs').hidden=!multiDoc();
-  $('#ns-docs-list').innerHTML=DOCS.map(d=>{const on=d.key===DOC;
-    return '<button class="dm-item'+(on?' on':'')+'" role="option" aria-selected="'+on+'" data-act="doc" data-doc="'+esc(d.key)+'" data-close="1">'+
-      '<span class="tx"><span class="nm" translate="no">'+esc(d.name)+(on?ic('check'):'')+'</span><span class="ph" translate="no">'+esc(d.path)+'</span></span>'+docBadge(d)+'</button>';}).join('');}
+  setHtml($('#ns-docs-list'),html`${DOCS.map(d=>{const on=d.key===DOC;
+    return html`<button class="dm-item${on?' on':''}" role="option" aria-selected="${on}" data-act="doc" data-doc="${d.key}" data-close="1"><span class="tx"><span class="nm" translate="no">${d.name}${on?ic('check'):''}</span><span class="ph" translate="no">${d.path}</span></span>${docBadge(d)}</button>`;})}`);}
 // The phone's navigation sheet (docs/handbook/viewer.md §모바일 레이아웃): documents, [원고 | 변경사항], the page field and the
 // outline, each a destination - picking one goes there and closes the sheet. The focus is the sheet itself (showSheet) and
 // the outline's current section shows (navSheetReveal) without hiding the current document's row (else the chosen view); the

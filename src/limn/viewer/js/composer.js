@@ -11,7 +11,7 @@ async function pick(r){
   // When a new selection (not a re-place) starts, the previous COMPOSE.current is cleared right away - so that a [핀 저장] within
   // this window (~1.1s) never silently saves the stale COMPOSE.current, and instead goes through the COMPOSE.pendingSave queue (docs/handbook/viewer.md §패널 정리) to
   // save the just-chosen new location (regression: the old location used to get saved on a re-select).
-  if(rp){banner('<span>되짚는 중…</span>');} else {COMPOSE.current=null; $('#composer').hidden=false; setBusy(true); COMPOSE.picking=true; $('#c-err').hidden=true; $('#c-body').hidden=false;
+  if(rp){banner(html`<span>되짚는 중…</span>`);} else {COMPOSE.current=null; $('#composer').hidden=false; setBusy(true); COMPOSE.picking=true; $('#c-err').hidden=true; $('#c-body').hidden=false;
     setSide(true); applySide();   // a collapsed panel opens for a new selection in every layout (wide included)
     if(MID_OVERLAY)relayout();    // composing in the overlay pads the PDF by the panel width (CSS): re-fit now, then reveal the box
     if(LAYOUT!==LAYOUT_MODE.WIDE){$('#right').scrollTop=0; revealBox(COMPOSE.box);}}
