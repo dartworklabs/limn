@@ -10,18 +10,18 @@ function openEdit(id){if(viaDoc(id,openEdit))return; const p=PINS.find(x=>x.id==
   if(document.body.classList.contains('revision-open'))jumpPin(id);
   if(EDITOR.current&&EDITOR.current.id===id)return;
   const el=document.createElement('div'); el.className='edit';
-  el.innerHTML='<div class="e-kind seg kind-seg" role="radiogroup" aria-label="핀 종류"><button data-act="e-kind" data-kind="fix" role="radio" data-tip="고쳐 달라는 요청">수정 요청</button>'+
-    '<button data-act="e-kind" data-kind="question" role="radio" data-tip="'+esc(T.question)+'">질문</button></div>'+
-    '<textarea class="e-note" rows="3" aria-label="메모 고치기" data-tip="메모를 고칩니다. ⌘ Enter / Ctrl+Enter 저장, Esc 취소"></textarea><div class="m-preview" aria-live="polite" hidden></div>'+
-    '<div class="e-qhint q-hint" role="status" hidden>'+ic('circle-question-mark')+'<span>질문처럼 보입니다 —</span><button data-act="e-kind" data-kind="question" data-tip="이 핀을 질문으로 바꿉니다">질문으로 보내기</button></div>'+
-    '<div class="e-assign assign-row" role="radiogroup" aria-label="담당" hidden></div>'+
-    '<div class="rg-cap e-cap" aria-live="polite" aria-atomic="true"></div>'+
-    '<div class="e-levels seg lad" role="group" aria-label="범위" data-rungs="0"></div>'+
-    '<div class="xp e-xp" hidden></div>'+
-    '<pre class="e-snip wrap" translate="no">'+esc(tr('원문 읽는 중…'))+'</pre>'+
-    '<div class="e-acts"><button class="btn-sm b-repick" data-act="repick" data-tip="'+esc(T.repick)+'">위치 다시 잡기</button>'+
-    '<button class="btn-sm b-ecancel" data-act="ecancel" data-tip="'+esc(T.ecancel)+'">취소</button>'+
-    '<button class="btn-sm btn-default b-esave" data-act="esave" data-tip="'+esc(T.esave)+'">저장</button></div>';
+  setHtml(el,html`<div class="e-kind seg kind-seg" role="radiogroup" aria-label="핀 종류"><button data-act="e-kind" data-kind="fix" role="radio" data-tip="고쳐 달라는 요청">수정 요청</button>\
+<button data-act="e-kind" data-kind="question" role="radio" data-tip="${T.question}">질문</button></div>\
+<textarea class="e-note" rows="3" aria-label="메모 고치기" data-tip="메모를 고칩니다. ⌘ Enter / Ctrl+Enter 저장, Esc 취소"></textarea><div class="m-preview" aria-live="polite" hidden></div>\
+<div class="e-qhint q-hint" role="status" hidden>${ic('circle-question-mark')}<span>질문처럼 보입니다 —</span><button data-act="e-kind" data-kind="question" data-tip="이 핀을 질문으로 바꿉니다">질문으로 보내기</button></div>\
+<div class="e-assign assign-row" role="radiogroup" aria-label="담당" hidden></div>\
+<div class="rg-cap e-cap" aria-live="polite" aria-atomic="true"></div>\
+<div class="e-levels seg lad" role="group" aria-label="범위" data-rungs="0"></div>\
+<div class="xp e-xp" hidden></div>\
+<pre class="e-snip wrap" translate="no">${tr('원문 읽는 중…')}</pre>\
+<div class="e-acts"><button class="btn-sm b-repick" data-act="repick" data-tip="${T.repick}">위치 다시 잡기</button>\
+<button class="btn-sm b-ecancel" data-act="ecancel" data-tip="${T.ecancel}">취소</button>\
+<button class="btn-sm btn-default b-esave" data-act="esave" data-tip="${T.esave}">저장</button></div>`);
   const ta=el.querySelector('.e-note'); ta.value=p.note||''; ta._mentions=new Set(p.mentions||[]); autoGrow(ta); mentionPreview(ta);
   EDITOR.current={id,el,base_rev:p.rev||0,file:p.file,name:p.name||String(p.file||p.pdf||'').split('/').pop(),lo:p.lo,hi:p.hi,scope:p.scope||null,
     kind:p.kind,env:null,levels:[],n_lines:null,snippet:'',orig:{lo:p.lo,hi:p.hi,scope:p.scope||null,note:p.note||'',kind_req:isQuestion(p)?KIND_REQ.QUESTION:KIND_REQ.FIX,assignee:assigneeOf(p)},
@@ -50,7 +50,7 @@ async function editSnip(withLevels){const E=EDITOR.current; if(!E)return;
 // hints.
 function renderEdit(){const E=EDITOR.current; if(!E)return; const el=E.el;
   el.querySelectorAll('.e-kind button').forEach(b=>{const on=b.dataset.kind===(E.kind_req||KIND_REQ.FIX); b.classList.toggle('on',on); b.setAttribute('aria-checked',String(on));});
-  setCap(el.querySelector('.e-cap'),E.region?'<span class="e-range loc" tabindex="0" data-copy="'+esc(E.name+' 쪽 '+E.page)+'">'+esc(tl('쪽 {page} · 영역',{page:E.page}))+'</span>':rangeCap(E,true));
+  setCap(el.querySelector('.e-cap'),E.region?html`<span class="e-range loc" tabindex="0" data-copy="${E.name+' 쪽 '+E.page}">${tl('쪽 {page} · 영역',{page:E.page})}</span>`:rangeCap(E,true));
   drawLadder(el.querySelector('.e-levels'),E,true);
   const pre=el.querySelector('.e-snip'); pre.className='e-snip wrap'; pre.textContent=snipText(E.snippet,false); renderAssignEdit();
   drawExcerpt(E,el.querySelector('.e-xp'),true);

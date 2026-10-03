@@ -21,33 +21,32 @@ function rng(lo,hi){return 'L'+lo+(hi!==lo?'-L'+hi:'');}
 // A figure rung is named by its element as the server labelled it (a person's words, not run through levelLabel).
 function levelName(lv,all){if(lv.el)return String(lv.label||elName(lv.el)); if(!lv.env)return levelLabel(lv.label);
   const dup=(all||[]).filter(o=>o.env===lv.env).length>1; return dup?levelLabel(lv.label).replace(/^(환경|Environment) /,''):lv.env;}
-// The range ladder's segments (composer and edit card): one button per rung, the rung matching the range pressed. A
+// The range ladder's segments (composer and edit card) as Html, one button per rung, the rung matching the range pressed. A
 // figure rung (it carries an element) gets the element's tooltip; its line count comes from lo-hi when the rung has no n.
 function levelBtns(o,isEdit){const cur=curLevel(o),ls=o.levels||[]; return ls.map(lv=>{const on=lv===cur,n=rungLines(lv);
   const tip=lv.el?rungTip(lv):isEdit&&lv.level==='raw'?T.cur:(lv.level.startsWith('env')?T.env:T[lv.level]);
   const label=isEdit&&lv.level==='raw'?tr('지금 범위'):levelName(lv,ls),nl=tl('{n}줄',{n});
-  return '<button class="'+(on?'on':'')+'" data-act="level" data-level="'+esc(lv.level)+'" aria-pressed="'+on+'" aria-label="'+
-    esc(label+' '+rng(lv.lo,lv.hi)+' · '+nl)+'" data-tip="'+esc(rng(lv.lo,lv.hi)+' · '+tr(tip))+'">'+
-    esc(label)+' <span class="k'+(n>50?' wn':'')+'">· '+esc(nl)+'</span></button>';}).join('');}
+  return html`<button class="${on?'on':''}" data-act="level" data-level="${lv.level}" aria-pressed="${on}" aria-label="${label+' '+rng(lv.lo,lv.hi)+' · '+nl}" \
+data-tip="${rng(lv.lo,lv.hi)+' · '+tr(tip)}">${label} <span class="k${n>50?' wn':''}">· ${nl}</span></button>`;});}
 // A rung's line count: the server's n, else its lo-hi span (a figure rung may come without n).
 function rungLines(lv){return typeof lv.n==='number'?lv.n:lv.hi-lv.lo+1;}
 // Draws the range ladder of o into box (#c-levels or an edit card's .e-levels): its segments, shown only when there are two
 // or more rungs - one segment is no choice, and '문단 · 1줄' alone read as noise (the owner's phone); the caption then names
 // that rung (rangeCap). data-rungs keeps the count for the CSS and the tests.
 function drawLadder(box,o,isEdit){const n=(o.levels||[]).length; box.dataset.rungs=String(n); box.hidden=n<2;
-  box.innerHTML=n<2?'':'<div class="lad-t">'+levelBtns(o,isEdit)+'</div>'; if(n>=2)segReveal(box);}   // .lad-t: the drawn track inside the scroll box
+  setHtml(box,n<2?html``:html`<div class="lad-t">${levelBtns(o,isEdit)}</div>`); if(n>=2)segReveal(box);}   // .lad-t: the drawn track inside the scroll box
 // The range caption over the ladder (composer and edit card): '범위 L5-L6 · 2줄' - the lines a save will hand over and their
 // count, whatever set them (a rung or the excerpt). When the ladder is hidden (one rung) and the range is that
 // rung, its name follows ('범위 L5 · 1줄 · 문단'); with a ladder, its pressed segment names it. An edit card's own lines (its
 // 'raw' rung) get no name. A range matching no rung has none either: the lines say what it is ('줄 직접 지정' is gone). In
 // an edit card the range copies as 'file Llo-Lhi' (the composer's location line has its copy).
-// Writes caption html into el only when it changed: the caption is a polite live region (a screen reader hears the new
-// range after a rung or an excerpt press, not every redraw), and its copyable range keeps its focus.
-function setCap(el,markup){if(el._cap!==markup){el._cap=markup; el.innerHTML=markup;}}
-function rangeCap(o,isEdit){const ls=o.levels||[],cur=curLevel(o),r=esc(rng(o.lo,o.hi));
-  const named=ls.length<2&&cur&&!(isEdit&&cur.level==='raw')?' · '+esc(levelName(cur,ls)):'';
-  const v=isEdit?'<span class="e-range loc" tabindex="0" data-copy="'+esc(o.name+' L'+o.lo+'-L'+o.hi)+'" data-tip="'+esc(tr('저장하면 핀이 가리킬 원문 줄. 누르면 복사'))+'">'+r+'</span>':'<span class="rg-v">'+r+'</span>';
-  return '<b class="rg-l">'+esc(tr('범위'))+'</b> '+v+' · '+esc(tl('{n}줄',{n:o.hi-o.lo+1}))+named;}
+// Writes the caption markup (Html) into el only when its text changed: the caption is a polite live region (a screen
+// reader hears the new range after a rung or an excerpt press, not every redraw), and its copyable range keeps its focus.
+function setCap(el,markup){if(el._cap!==markup.text){el._cap=markup.text; setHtml(el,markup);}}
+function rangeCap(o,isEdit){const ls=o.levels||[],cur=curLevel(o),r=rng(o.lo,o.hi);
+  const named=ls.length<2&&cur&&!(isEdit&&cur.level==='raw')?' · '+levelName(cur,ls):'';
+  const v=isEdit?html`<span class="e-range loc" tabindex="0" data-copy="${o.name+' L'+o.lo+'-L'+o.hi}" data-tip="${tr('저장하면 핀이 가리킬 원문 줄. 누르면 복사')}">${r}</span>`:html`<span class="rg-v">${r}</span>`;
+  return html`<b class="rg-l">${tr('범위')}</b> ${v} · ${tl('{n}줄',{n:o.hi-o.lo+1})}${named}`;}
 // Scrolls a horizontally overflowing segment control so the selected segment is visible (vertical scroll is left untouched).
 function segReveal(seg){const on=seg&&seg.querySelector('.on'); if(!on){segFade(seg);return;}
   const l=on.offsetLeft,r=l+on.offsetWidth;
