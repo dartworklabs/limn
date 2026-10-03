@@ -58,7 +58,7 @@ function gripKey(key,w,b,collapsed){
 function sideKey(){return LAYOUT===LAYOUT_MODE.MID?'sideMid':'side';}
 function curSideW(){return Math.round($('#right').getBoundingClientRect().width);}
 // The width last shown and its bounds - the handle's ARIA value while the panel is open (gripAria).
-let SIDE_SHOWN=null;
+let SIDE_SHOWN=/** @type {{w:number,min:number,max:number}|null} */(null);
 // Shows a panel width without saving it: #right, --side-w, and the handle's ARIA while the panel is open.
 function showSideW(w,b){$('#right').style.width=w+'px'; document.documentElement.style.setProperty('--side-w',w+'px');
   SIDE_SHOWN={w,min:b.min,max:b.max}; if(SIDE_OPEN)gripAria();}

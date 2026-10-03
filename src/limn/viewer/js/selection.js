@@ -5,7 +5,8 @@
 // handled by this code, two fingers by the app zoom - §PDF 영역 전용 확대).
 // Coordinates are computed as fractions within the page from clientX/Y and getBoundingClientRect on the same
 // basis (the layout viewport), so they stay correct even during a pinch zoom.
-let DRAG=null,LP=null;
+let DRAG=/** @type {{pg:HTMLElement,sx:number,sy:number,id:number,mouse:boolean,cx:number,cy:number,box:HTMLElement|null}|null} */(null),
+  LP=/** @type {{id:number,pg:HTMLElement,cx:number,cy:number,t:ReturnType<typeof setTimeout>}|null} */(null);
 const c01=v=>Math.min(1,Math.max(0,v));
 const LONGPRESS_MS=450,TAP_SLOP=8,QUICK_W=0.07,QUICK_H=0.006,QUICK_FIG=0.004;
 function fracAt(pg,cx,cy){const r=pg.getBoundingClientRect(); return [c01((cx-r.left)/r.width),c01((cy-r.top)/r.height)];}
@@ -25,7 +26,8 @@ $('#doc').addEventListener('mousedown',e=>{if(e.button===0&&e.target.closest('.p
 // A quick selection made by a long-press or a [선택]-mode tap opens the panel or sheet under the finger, and the click that follows
 // the touch would land on it (it opened edits, switched the kind, focused the note) - that one click is swallowed (SWALLOW_CLICK).
 // LP_PICKED = the pointer whose long-press already picked. TAP/LAST_TAP = double-tap zoom (touch, outside [선택] mode).
-let LP_PICKED=null,TAP=null,LAST_TAP=null;
+let LP_PICKED=/** @type {number|null} */(null),TAP=/** @type {{id:number,x:number,y:number,t:number}|null} */(null),
+  LAST_TAP=/** @type {{t:number,x:number,y:number}|null} */(null);
 $('#doc').addEventListener('pointerdown',e=>{
   if(e.target.closest('.mark b'))return;
   if(!e.isPrimary){cancelDrag(); cancelLP(); TAP=null; LAST_TAP=null; return;}   // a second finger = a pinch - the box being drawn is discarded

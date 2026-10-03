@@ -89,7 +89,7 @@ function setSide(open,remember,slide){open=!!open;
   applySide(); hideTip(); if((!open&&!SIDE_SLIDE)||(open&&cut))applySideWidth();}   // reopened mid-slide: back from a drag's minimum to the saved width
 // The panel's slide (0.18s; none with reduced motion, and none beside the document at 901-1099px, where the page re-fits instead).
 // While it slides out the body keeps side-open, so the layout does not jump until it is gone.
-const SLIDE_MS=180; let SIDE_SLIDE=null;
+const SLIDE_MS=180; let SIDE_SLIDE=/** @type {{kind:string,t:ReturnType<typeof setTimeout>}|null} */(null);
 // The slide's length for this layout in ms: 0 with reduced motion, beside the document (901-1099px) and for the narrow sheet.
 function slideMs(){return MQ_REDUCED.matches||!(LAYOUT===LAYOUT_MODE.WIDE||MID_OVERLAY)?0:SLIDE_MS;}
 // Starts the 'opening'/'closing' slide; when it ends the panel settles (a collapsed one gets its saved width back).
@@ -188,7 +188,7 @@ function keepFieldInView(){const f=panelField(); if(!f||!MQ_COARSE.matches)retur
   if(f===$('#note')&&BAND===LAYOUT_BAND.TABLET_SHEET)$('#composer .c-loc-row').scrollIntoView({block:'start'}); f.scrollIntoView({block:'nearest'});}
 
 // Onboarding shown only the first time (remembers that it's been seen in localStorage pinPrefs.coach).
-let COACH_T=null;
+let COACH_T=/** @type {ReturnType<typeof setTimeout>|undefined} */(undefined);
 function coach(key,text){const seen=Object.assign({},prefs().coach||{}); if(seen[key])return; seen[key]=1; savePrefs({coach:seen});
   $('#coach-t').textContent=text; $('#coach').hidden=false; clearTimeout(COACH_T); COACH_T=setTimeout(()=>{$('#coach').hidden=true;},8000);}
 function setSelMode(on){SELMODE=!!on; document.body.classList.toggle('selmode',SELMODE);
@@ -226,7 +226,7 @@ function footInk(){const f=$('#more-foot'),h=f&&f.querySelector('[data-act=help]
   f.style.setProperty('--help-chev',(mid-(cr.top+cr.height/2))+'px');}
 // The ink of s in el's font as {a, d}: how far it rises above and reaches below the baseline (px), from the canvas's text
 // metrics read at 64 times the size, because the canvas rounds them to whole pixels.
-let INK_CTX=null;   // inkMetrics()'s canvas context, made on first use
+let INK_CTX=/** @type {CanvasRenderingContext2D|null} */(null);   // inkMetrics()'s canvas context, made on first use
 function inkMetrics(el,s){const c=INK_CTX||(INK_CTX=document.createElement('canvas').getContext('2d')),S=64,cs=getComputedStyle(el);
   c.font=cs.fontStyle+' '+cs.fontWeight+' '+parseFloat(cs.fontSize)*S+'px '+cs.fontFamily; const x=c.measureText(s);
   return {a:x.actualBoundingBoxAscent/S,d:x.actualBoundingBoxDescent/S};}
