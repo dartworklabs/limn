@@ -279,6 +279,7 @@ GET_ROUTES = (
     "/api/version",
     "/api/meta",
     "/sw.js",
+    "/poc",
     "/api/revisions",
     "/api/revision-diff",
     "/api/revision-build",

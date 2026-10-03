@@ -49,7 +49,8 @@ function listReview(){return SHOW_ALL&&multiDoc()?REVIEW_ALL:REVIEW_ALL.filter(p
 // a folded cover): first the chip's halves pad one 4px step less and the cell's gap is 4px (#bar1.bar-snug); then the words
 // '핀' and '검토' give way to a dot each - green for the open pins, purple for those awaiting review (#bar1.bar-tight) - so a
 // count never stands alone. Measured each time a count or the band changes; decoration only - nothing moves.
-function fitBarWords(){const b=$('#bar1'),l=b.querySelector('.bar-l'); b.classList.remove('bar-snug','bar-tight'); if(LAYOUT!==LAYOUT_MODE.NARROW)return;
+function fitBarWords(){if((typeof POC_Q2==='string'&&POC_Q2))pocSelPlace();   // PoC (#168): the select control's size and place come first
+  const b=$('#bar1'),l=b.querySelector('.bar-l'); b.classList.remove('bar-snug','bar-tight'); if(LAYOUT!==LAYOUT_MODE.NARROW)return;
   const over=()=>{const k=[...l.children].filter(e=>e.getClientRects().length);   // the last control's edge, not scrollWidth: the hits overflow too
     return k.length>0&&k[k.length-1].getBoundingClientRect().right>l.getBoundingClientRect().right+0.05;};   // past the cell, [⬚]'s hit reaches the grabber's column
   for(const step of ['bar-snug','bar-tight']){if(!over())return; b.classList.add(step);}}
@@ -118,6 +119,7 @@ function drawPins(){
   if(REPLY){const slot=document.querySelector('#list .reply-slot'); if(slot)slot.replaceWith(REPLY.el); renderReplyOutcome();   // the pin may have changed state meanwhile
     if(rfocus&&rta&&document.contains(rta)){rta.focus(); try{rta.setSelectionRange(rfocus[0],rfocus[1]);}catch(e){}}}
   if(REV.target)revTargetActs();
+  if((typeof POC_Q1==='string'&&POC_Q1))pocDecorate();   // PoC (#167): notes in cards and rows where cards were
 }
 // Location estimation (.est, dashed) is judged by the server and carried as est in /api/pins (pin_est - comparing the
 // manuscript fingerprint of the build the pin was placed on with the current build). Back when the viewer judged this by
@@ -153,6 +155,7 @@ function marks(){
     const tip='#'+p.id+' · '+(n?(n.length>60?n.slice(0,60)+'…':n):tr('(메모 없음)'))+(est?' '+tr('(PDF가 새로 만들어져 위치는 추정입니다)'):'')+(elLost(p)?' · '+tr('요소 잃음'):'');
     setHtml(m,html`<b translate="no" data-act="mark-jump" data-id="${p.id}" data-tip="${tip}">${p.id}</b>`); el.appendChild(m);});   // the tip carries the note
   markBadgeSides();
+  if((typeof POC_Q1==='string'&&POC_Q1))pocDecorateMarks();   // PoC (#167 a): a chip on a new pin's mark
 }
 // Clicking a badge scrolls to and flashes the card (never calls pick). The mark box itself has pointer-events:none, so
 // a drag over it still becomes a new selection - only the badge (<b>) needs to block mousedown.

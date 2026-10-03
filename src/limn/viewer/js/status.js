@@ -100,6 +100,7 @@ function buildUnchanged(b){
 // says a line is up (the sheet joins it, placeToasts keeps clear of it).
 function drawStatus(){const box=$('#status'),sr=box.querySelector('.st-sr'),body=box.querySelector('.st-body'),list=statusList(statusInput()),top=list[0],running=!!BUILD.cur;
   const m=$('#m-rebuild'); if(m){m.disabled=running; const tail=m.querySelector('.m-tail'); if(tail)tail.hidden=!running;}
+  if((typeof POC_Q1==='string'&&POC_Q1)&&pocDrawLine())return;   // PoC (#167): a message holds the line
   document.body.classList.toggle('has-status',!!top); box.hidden=!top;
   if($('#status-list').open)drawStatusList(list);
   if(!top){if(STATUS_SIG){body.replaceChildren(); STATUS_SIG='';} sr.textContent=''; return;}

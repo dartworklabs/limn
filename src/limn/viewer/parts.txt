@@ -22,12 +22,14 @@ css/cards.css           # pin cards: status, links, thread, @-tags, question hin
 css/list.css            # list sections and the archive rows
 css/overlays.css        # toasts, tooltip, dialogs
 css/responsive.css      # mobile/touch, the mid and narrow layouts, reduced motion, the label chip
+css/poc.css             # PoC only (#167, #168): rules behind body.poc-* (?poc=); nothing without the flag
 
 __APP_JS__
 js/core.js              # strict mode, DOM helpers, icons, shared state, the tooltip texts (T)
 js/markup.js            # html``, ic() and setHtml(): markup with every value escaped, and its one sink
 js/i18n.js              # UI language: tr/tl/trMsg, API error and pick warning text, the English observer
 js/prefs.js             # per-device preferences (pinPrefs), list-section state, theme
+js/poc.js               # PoC only (#167, #168): the ?poc= variants of the messages and the select control
 js/api-toasts.js        # api() and toasts: stacking, placement, deferred commit with undo, copy
 js/tooltip.js           # hover/focus tooltips and the touch long-press tooltip
 js/doc-tabs.js          # several documents: the list, tabs and links

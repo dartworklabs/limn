@@ -1129,5 +1129,17 @@
  "검토 M": "Review M",
  "검토 대기 핀으로 갑니다. 에이전트가 닫고 사람의 확인을 기다리는 핀입니다": "Go to the pins awaiting review - pins an agent closed that wait for a person's confirmation",
  "도구 줄의 둘로 나뉜 칩입니다. [핀 N]은 열린 핀 수이고 핀 목록을 펴고 접습니다. [검토 M]은 검토 대기 수이고 누르면 목록의 검토 대기로 갑니다. 휴대폰·태블릿 시트에서는 아래 막대 왼쪽에, 펼친 화면과 가로 휴대폰에서는 줄의 오른쪽 끝에 있습니다. 카드를 누르면 펼쳐집니다": "The split chip of the tool row. [Pin N] is the open count and opens or closes the pin list. [Review M] counts the pins awaiting review and goes to them in the list. On phones and tablet sheets it is the bottom bar's left pair; on wider screens and landscape phones it sits at the row's right end. Tap a card to expand it",
- "선택: 아래 막대의 네 모서리 아이콘입니다. 켜면 한 손가락으로 끌어 영역을 고르고, 탭하면 그 자리 문단을 고릅니다. 두 손가락으로 벌리면 PDF 만 커집니다. 핀을 저장하거나 취소하면 저절로 꺼집니다": "Select: the four-corner icon in the bottom bar. When on, drag with one finger to select a region, or tap to select the paragraph there. Pinch with two fingers to zoom the PDF only. It turns off automatically when you save or cancel the pin"
+ "선택: 아래 막대의 네 모서리 아이콘입니다. 켜면 한 손가락으로 끌어 영역을 고르고, 탭하면 그 자리 문단을 고릅니다. 두 손가락으로 벌리면 PDF 만 커집니다. 핀을 저장하거나 취소하면 저절로 꺼집니다": "Select: the four-corner icon in the bottom bar. When on, drag with one finger to select a region, or tap to select the paragraph there. Pinch with two fingers to zoom the PDF only. It turns off automatically when you save or cancel the pin",
+ "PDF를 끌면 스크롤합니다. 길게 누르면 그 문단을 고릅니다": "Dragging the PDF scrolls it. A long-press selects the paragraph there",
+ "PDF를 끌면 영역을, 탭하면 그 문단을 고릅니다": "Dragging the PDF selects a region; a tap selects the paragraph there",
+ "PDF를 누르면": "Pressing the PDF",
+ "끌면 영역 · 탭하면 문단": "drag for a region · tap for a paragraph",
+ "끝내기": "Done",
+ "다른 사람": "someone else",
+ "다시 시도": "Try again",
+ "다시 저장": "Save again",
+ "서버에 닿지 않습니다 · 메모는 그대로입니다": "can't reach the server · your note is still here",
+ "저장하지 못했습니다": "Not saved",
+ "핀 #{id} 은 {name}님이 이미 완료했습니다 — 확인할 것이 없습니다": "{name} already completed pin #{id} — nothing to confirm",
+ "핀 #{id} 은 에이전트가 다시 닫았습니다 — 새 결과를 보고 확인하세요": "The agent closed pin #{id} again — look at the new result, then confirm"
 }

@@ -93,15 +93,15 @@ function diffToast(prev,d,dropped){
   byId.forEach((_,id)=>{const n=known.get(id),st=n&&pinState(n);
     if(n&&st!==PIN_STATE.OPEN){if(!consumeMine(id))(st===PIN_STATE.REVIEW?reviewed:closed).push(id);}
     else if(!n){if(!consumeMine(id))droppedIds.push(id);}});
-  if(closed.length)toast(tl('#{ids} 이 완료되었습니다',{ids:closed.join(', #'),n:closed.length}),'ok');
+  if(closed.length)toast(tl('#{ids} 이 완료되었습니다',{ids:closed.join(', #'),n:closed.length}),'ok',null,{poc:{purpose:'background',ids:closed}});
   if(reviewed.length)toast(tl('#{ids} 이 검토 대기로 넘어왔습니다 — 결과를 보고 [확인]하세요',{ids:reviewed.join(', #'),n:reviewed.length}),'ok',null,{keys:reviewed.map(i=>EVENT_TYPE.REVIEW_REQUESTED+':'+i)});
   droppedIds.forEach(id=>{const rec=dropById.get(id),nm=rec?who(rec.dropped_by):'';
     toast(tl('#{id} 을 {name} 가 삭제함',{id,name:nm||tr('다른 세션')}),'warn',{label:'되살리기',fn:()=>restorePin(id)},{keys:[EVENT_TYPE.DROPPED+':'+id]});});
   (d||[]).filter(p=>pinState(p)===PIN_STATE.OPEN).forEach(p=>{const was=byId.get(p.id); if(!was)return;
-    if(!was.stale&&p.stale){toast(tl('#{id} 위치를 잃었습니다',{id:p.id}),'warn');return;}
+    if(!was.stale&&p.stale){toast(tl('#{id} 위치를 잃었습니다',{id:p.id}),'warn',null,{poc:{purpose:'background',id:p.id}});return;}
     if(was.el_sync!==EL_SYNC.LOST&&p.el_sync===EL_SYNC.LOST){toast(tl('#{id} 요소를 잃었습니다',{id:p.id}),'warn');return;}   // a re-render lost a figure pin's element
     const m=/^moved ([+-]\d+)$/.exec(p.sync||''),wm=/^moved ([+-]\d+)$/.exec(was.sync||'');
-    if(m&&(!wm||wm[1]!==m[1]))toast(tl('#{id} 줄 {delta} 이동',{id:p.id,delta:m[1]}),'ok');});
+    if(m&&(!wm||wm[1]!==m[1]))toast(tl('#{id} 줄 {delta} 이동',{id:p.id,delta:m[1]}),'ok',null,{poc:{purpose:'background',id:p.id}});});
 }
 
 // Announces when a pin that was awaiting review gets confirmed (done) or reopened elsewhere. An action this tab performed (markMine) is swallowed.
@@ -109,5 +109,5 @@ function diffToast(prev,d,dropped){
 function pinState(p){return (p&&p.state)||(p&&p.done?(p.review?PIN_STATE.REVIEW:PIN_STATE.DONE):PIN_STATE.OPEN);}
 function reviewToast(prev,d){if(!prev||!prev.length)return; const known=new Map((d||[]).map(p=>[p.id,p]));
   prev.forEach(p=>{const n=known.get(p.id); if(!n)return; const st=pinState(n); if(st===PIN_STATE.REVIEW)return; if(consumeMine(p.id))return;
-    if(st===PIN_STATE.DONE)toast(tl('#{id} 확인됨',{id:p.id})+(n.confirmed_by?' · '+who(n.confirmed_by):''),'ok');
+    if(st===PIN_STATE.DONE)toast(tl('#{id} 확인됨',{id:p.id})+(n.confirmed_by?' · '+who(n.confirmed_by):''),'ok',null,{poc:{purpose:'background'}});
     else toast(tl('#{id} 다시 열림',{id:p.id})+(n.reopened_by?' · '+who(n.reopened_by):''),'warn',null,{keys:[EVENT_TYPE.REOPENED+':'+p.id]});});}

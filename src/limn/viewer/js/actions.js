@@ -1,7 +1,7 @@
-async function closePin(id){try{const {data}=await api('/api/pins/'+id+'/close',{method:'POST',what:'완료'});
+async function closePin(id){const prev=typeof pocPrev==='function'?pocPrev(listOpen(),id):null;try{const {data}=await api('/api/pins/'+id+'/close',{method:'POST',what:'완료'});
   if(!data.ok){toast(tl('완료 실패 — 핀 #{id} 이 없습니다',{id}),'err');}
   else {markMine(id); toast(tl(data.state===PIN_STATE.REVIEW?'핀 #{id} 검토 대기로 보냄 — 이 화면에 신원이 없어(로컬) 에이전트가 닫은 것으로 칩니다':'핀 #{id} 완료',{id}),
-    'ok',{label:'되돌리기',fn:()=>reopenPin(id)});}}catch(e){} await loadPins();}
+    'ok',{label:'되돌리기',fn:()=>reopenPin(id)},{poc:{site:'tomb',id,sec:'open',prev}});}}catch(e){} await loadPins();}
 // Awaiting review -> done; the person who confirmed (confirmed_by) is recorded. The card's [확인] and the changes view's guide
 // line call this one function. Like a reply it is a deferred send: the card leaves the review section at once (CONFIRMING keeps
 // it out of every pin snapshot meanwhile, derivePinLists), the request goes when the [되돌리기] toast does, and the undo puts
@@ -10,26 +10,30 @@ async function closePin(id){try{const {data}=await api('/api/pins/'+id+'/close',
 // reopened and is still open (docs/handbook/api.md §검토 대기).
 const CONFIRMING=new Set();
 function confirmPin(id){if(CONFIRMING.has(id))return; const at=REVIEW_ALL.findIndex(p=>p.id===id),pin=at<0?null:REVIEW_ALL[at];
-  CONFIRMING.add(id); REVIEW_ALL=REVIEW_ALL.filter(p=>p.id!==id); drawPins(); marks();
+  const prev=typeof pocPrev==='function'?pocPrev(listReview(),id):null; CONFIRMING.add(id); REVIEW_ALL=REVIEW_ALL.filter(p=>p.id!==id); drawPins(); marks();
   deferred(tl('핀 #{id} 확인 · 완료로 옮겼습니다',{id}),async()=>{
       try{const {data}=await api('/api/pins/'+id+'/confirm',{method:'POST',what:'확인',expect:[409],keepalive:true,
           body:pin&&pin.done_at?{done_at:pin.done_at}:{}});
         if(data&&data.error===PIN_STATE.OPEN)toast(tl('핀 #{id} 은 이미 다시 열렸습니다',{id}),'warn');
+        // PoC (#167): a 409 conflict names who closed it last - closed again for review, or already done by a person.
+        else if(data&&data.error==='conflict'&&(typeof POC_Q1==='string'&&POC_Q1)){const lp=data.pin,done=!!lp&&pinState(lp)===PIN_STATE.DONE;
+          if(done)toast(tl('핀 #{id} 은 {name}님이 이미 완료했습니다 — 확인할 것이 없습니다',{id,name:who(lp.closed_by)||tr('다른 사람')}),'info',null,{poc:{purpose:'conflict',site:'tomb',id,sec:'review',prev}});
+          else toast(tl('핀 #{id} 은 에이전트가 다시 닫았습니다 — 새 결과를 보고 확인하세요',{id}),'warn',null,{poc:{purpose:'conflict',site:'card',id,sec:'review'}});}
         else if(data&&data.error==='conflict')toast(tl('핀 #{id} 은 다시 닫혔습니다 — 새 결과를 보고 확인하세요',{id}),'warn');
         else if(!data.ok)toast(tl('확인 실패 — 핀 #{id} 이 없습니다',{id}),'err');
         else markMine(id);}catch(e){}
       CONFIRMING.delete(id); await loadPins();},
     ()=>{CONFIRMING.delete(id);
       if(pin&&!REVIEW_ALL.some(p=>p.id===id)){const i=Math.min(at,REVIEW_ALL.length); REVIEW_ALL=[...REVIEW_ALL.slice(0,i),pin,...REVIEW_ALL.slice(i)];}
-      drawPins(); marks();});}
+      drawPins(); marks();},{site:'tomb',id,sec:'review',prev});}
 // Undo of [완료] (the toast's [되돌리기]) - the viewer has no [다시 열기] button any more; a reply reopens by the server rule.
 async function reopenPin(id){try{await api('/api/pins/'+id+'/reopen',{method:'POST',what:'다시 열기'});
   markMine(id); toast(tl('핀 #{id} 완료를 되돌렸습니다',{id}),'ok');}catch(e){} await loadPins();}
 // [삭제] takes the pin off the list at once (no confirmation) and says so next to the action with [되돌리기]; it waits in the Trash.
-async function dropPin(id,undoSave){const was=OPEN_ALL,applied=PINS_APPLIED_SEQ;
+async function dropPin(id,undoSave){const was=OPEN_ALL,applied=PINS_APPLIED_SEQ,prev=typeof pocPrev==='function'?pocPrev(listOpen(),id):null;
   OPEN_ALL=OPEN_ALL.filter(p=>p.id!==id); PINS=PINS.filter(p=>p.id!==id); if(EDITOR.current&&EDITOR.current.id===id)EDITOR.current=null; drawPins(); marks();
   try{await api('/api/pins/'+id+'/drop',{method:'POST',what:'삭제'});
-    markMine(id); toast(tl(undoSave?'핀 #{id} 저장을 되돌렸습니다':'핀 #{id} 삭제됨 · 휴지통에 30일 보관',{id}),'ok',{label:'되돌리기',fn:()=>restorePin(id)});}
+    markMine(id); toast(tl(undoSave?'핀 #{id} 저장을 되돌렸습니다':'핀 #{id} 삭제됨 · 휴지통에 30일 보관',{id}),'ok',{label:'되돌리기',fn:()=>restorePin(id)},{poc:{site:undoSave?'':'tomb',id,sec:'open',prev}});}
   catch(e){if(PINS_APPLIED_SEQ===applied){const old=was.find(p=>p.id===id);
       if(old&&!OPEN_ALL.some(p=>p.id===id)){const next=was.slice(was.indexOf(old)+1).find(p=>OPEN_ALL.some(x=>x.id===p.id));
         const at=next?OPEN_ALL.findIndex(p=>p.id===next.id):OPEN_ALL.length;

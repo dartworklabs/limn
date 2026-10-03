@@ -31,6 +31,7 @@ Icons are drawn with the original `<svg>` attributes: `viewBox="0 0 24 24"`, `fi
 | `eye` | 'awaiting review' badge (whose turn it is to confirm) |
 | `focus` | [Select] button — four corners round a ring: pick a spot or drag a region on touch devices |
 | `image` | the status line's 'showing PNG' state (compact bands) |
+| `info` | PoC only (#167, `?poc=q1*`): the lead icon of an informational message |
 | `minus` · `plus` | PDF zoom out/in; shrink/grow a range by one line |
 | `moon` · `sun` · `sun-moon` | the theme segments in [More] (dark, light, system) |
 | `lock-open` | [풀기] (release the in-progress claim) on a compact card |
@@ -42,6 +43,7 @@ Icons are drawn with the original `<svg>` attributes: `viewBox="0 0 24 24"`, `fi
 | `refresh-cw` | [Rebuild PDF] |
 | `rotate-ccw` | 'reopened' badge (pin sent back from review) |
 | `rotate-cw` | [Reload pins] in [More] (compact bands) |
+| `square-dashed` | PoC only (#168, `?poc=q2*`): the symmetric marquee of the [Select] control |
 | `trash-2` | deleted-pin row head; [삭제] on a compact card |
 | `triangle-alert` | 'location lost' badge, warning toast lead icon |
 | `wifi-off` | the status line's 'disconnected' state (compact bands) |

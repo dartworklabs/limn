@@ -190,10 +190,12 @@ function keepFieldInView(){const f=panelField(); if(!f||!MQ_COARSE.matches)retur
 // Onboarding shown only the first time (remembers that it's been seen in localStorage pinPrefs.coach).
 let COACH_T=/** @type {ReturnType<typeof setTimeout>|undefined} */(undefined);
 function coach(key,text){const seen=Object.assign({},prefs().coach||{}); if(seen[key])return; seen[key]=1; savePrefs({coach:seen});
+  if((typeof POC_Q1==='string'&&POC_Q1)&&pocHint(text))return;   // PoC (#167): the hint goes where the variant puts it
   $('#coach-t').textContent=text; $('#coach').hidden=false; clearTimeout(COACH_T); COACH_T=setTimeout(()=>{$('#coach').hidden=true;},8000);}
 function setSelMode(on){SELMODE=!!on; document.body.classList.toggle('selmode',SELMODE);
   const b=$('#btn-select'); b.setAttribute('aria-pressed',String(SELMODE)); b.querySelector('.lbl').textContent=SELMODE?'선택 중':'선택';
-  if(SELMODE)coach('sel','끌어서 고칠 곳을 고르세요 · 탭하면 그 문단 · 두 손가락으로 확대');}
+  if(SELMODE&&(typeof POC_Q2==='string'&&POC_Q2)!=='c')coach('sel','끌어서 고칠 곳을 고르세요 · 탭하면 그 문단 · 두 손가락으로 확대');   // PoC q2c: its PDF bar says it
+  if((typeof POC_Q2==='string'&&POC_Q2))pocSelSync();}
 // Opens dialog d (a sheet in compact: [더보기], the navigation sheet, the help, the Trash) as a modal with the focus on d itself
 // (tabindex=-1, drawn without a ring), not on its first control: a phone's browser drew the focus ring on [닫기] each time a
 // tap opened one. Tab goes on to [닫기], the first control.

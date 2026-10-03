@@ -51,7 +51,7 @@ async function savePin(){
     if(SEC_SEEN.open)SEC_SEEN.open.add(id);   // my own new pin is never 'new' on a collapsed header
     toast(tl(question?'질문 #{id} 저장됨 · pins.md 갱신':'핀 #{id} 저장됨 · pins.md 갱신',{id}),'ok',
       {label:'되돌리기',fn:()=>{dropPin(id,true); if((cleared||restored)&&DOC===visit.doc&&
-        !COMPOSE.current&&!COMPOSE.box&&!COMPOSE.picking&&!$('#note').value)restoreSelection(snap);}});
+        !COMPOSE.current&&!COMPOSE.box&&!COMPOSE.picking&&!$('#note').value)restoreSelection(snap);}},{poc:{site:'save',id}});
     await loadPins();
   }catch(e){} finally{COMPOSE.saving=false; btn.disabled=false;}
 }

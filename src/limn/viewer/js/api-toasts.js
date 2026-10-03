@@ -5,10 +5,10 @@ async function api(url,o){o=o||{};
   if(o.body!==undefined){init.body=JSON.stringify(o.body);init.headers['Content-Type']='application/json';}
   let r;
   const failed=()=>tl('{what} 실패',{what:tr(o.what||'요청').replace(/…$/,'')});
-  try{r=await fetch(url,init);}catch(e){if(!o.silent)toast(failed()+' — '+tr('서버에 닿지 않습니다'),'err');throw e;}
+  try{r=await fetch(url,init);}catch(e){if(!o.silent)toast(failed()+' — '+tr('서버에 닿지 않습니다'),'err',null,{poc:{purpose:'error',what:o.what||'',net:true}});throw e;}
   let d=null; try{d=await r.json();}catch(e){}
   if(r.status>=400&&!(o.expect||[]).includes(r.status)){
-    if(!o.silent)toast(failed()+' — '+(errText(d)||('HTTP '+r.status)),'err');
+    if(!o.silent)toast(failed()+' — '+(errText(d)||('HTTP '+r.status)),'err',null,{poc:{purpose:'error',what:o.what||''}});
     const err=/** @type {ApiError} */(new Error('HTTP '+r.status)); err.status=r.status; err.data=d; throw err;}
   return {status:r.status,data:d};
 }
@@ -31,6 +31,7 @@ function toastDup(dd){if(!dd||!dd.keys||!dd.keys.length)return false; const now=
 // what people wrote (a document name, a note), so neither trMsg() nor the translator touches its title and description.
 function toast(msg,kind,action,dd){const literal=!!(dd&&dd.literal); msg=literal?String(msg):trMsg(msg);
   if(toastDup(dd))return null;
+  if((typeof POC_Q1==='string'&&POC_Q1))return pocToast(msg,kind,action,dd);   // PoC (#167, ?poc=q1*): the message goes where the variant puts it
   kind=TOAST_IC[kind]?kind:'ok';
   const box=toastHost(),t=document.createElement('div'); t.className='toast '+kind;
   const [title,desc]=toastSplit(msg);
@@ -63,11 +64,11 @@ document.addEventListener('close',e=>{const d=/** @type {HTMLElement} */(e.targe
 // (paused while hovered), on [x], or when the page is hidden - and [되돌리기] cancels it before anything reaches the server. So an
 // agent never sees a reply or permanent delete that was taken back. The page being hidden or closed sends what is pending (fetch keepalive).
 const DEFERRED=new Set();
-function deferred(msg,commit,undo){let done=false,t=/** @type {HTMLElement|null} */(null);
+function deferred(msg,commit,undo,poc){let done=false,t=/** @type {HTMLElement|null} */(null);
   // Committing early (page hidden) also takes the toast away - an [되돌리기] that can no longer cancel anything must not stay on screen.
   const d={run:()=>{if(done)return; done=true; DEFERRED.delete(d); if(t&&t.isConnected){t._gone=null; t.remove();} commit();}};
   DEFERRED.add(d);
-  t=toast(msg,'ok',{label:'되돌리기',tip:'보내기 전에 취소합니다',fn:()=>{if(done)return; done=true; DEFERRED.delete(d); undo();}});
+  t=toast(msg,'ok',{label:'되돌리기',tip:'보내기 전에 취소합니다',fn:()=>{if(done)return; done=true; DEFERRED.delete(d); undo();}},poc?{poc}:undefined);
   d.toast=t; if(t)t._gone=d.run; else d.run();
   return d;}
 function flushDeferred(){Array.from(DEFERRED).forEach(d=>d.run());}

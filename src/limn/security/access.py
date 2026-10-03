@@ -637,6 +637,7 @@ READ_PATHS = frozenset(
         "/apple-touch-icon.png",
         "/api/version",
         "/sw.js",
+        "/poc",  # PoC only (#167, #168): the static list of ?poc= variants (limn.viewer.routes.POC_INDEX)
         "/api/build",
         "/pdf",
         "/api/revisions",

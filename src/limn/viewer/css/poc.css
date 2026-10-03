@@ -1,0 +1,119 @@
+/* ---------------- PoC variants for issues #167 and #168 (js/poc.js): every rule hangs on a body.poc-* class or an element only
+   poc.js creates, so the page without ?poc= is drawn as before. Not a final design. */
+
+/* #167 - one message, wherever its variant puts it: status icon, title (and its description), actions, [x]. */
+.poc-msg{display:flex;align-items:center;gap:var(--space-2);min-width:0;font-size:var(--text-base);line-height:1.4;color:var(--foreground)}
+.poc-msg .pm-ic{display:inline-flex;flex:none;align-items:center;justify-content:center;width:16px;height:16px}
+.poc-msg .pm-ic .ic{width:16px;height:16px}
+.poc-msg.pm-ok .pm-ic{color:var(--success)}
+.poc-msg.pm-warn .pm-ic{color:var(--warning)}
+.poc-msg.pm-err .pm-ic{color:var(--destructive)}
+.poc-msg.pm-info .pm-ic{color:var(--primary)}
+.poc-msg .pm-t{flex:1 1 auto;min-width:0;overflow-wrap:anywhere}
+.poc-msg .pm-ti{font-weight:600}
+.poc-msg .pm-d{display:block;color:var(--muted-foreground);font-size:var(--text-sm)}
+.poc-msg .pm-acts{display:flex;flex:none;align-items:center;gap:var(--space-1)}
+.poc-msg .pm-act{white-space:nowrap}
+
+/* (b, c) The status line: one row, the title then ' · ' and the description, ellipsized; the actions keep their width. */
+#status .poc-line{flex:1 1 auto;font-size:var(--text-sm);color:var(--muted-foreground)}
+#status .poc-line .pm-ic{width:16px;height:16px}
+#status .poc-line .pm-ic .ic{width:14px;height:14px}
+#status .poc-line .pm-t{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-box:trim-both cap alphabetic;padding-block:var(--space-1)}
+#status .poc-line .pm-ti{color:var(--foreground)}
+#status .poc-line .pm-d{display:inline;font-size:inherit}
+#status .poc-line .pm-d::before{content:' · '}
+#status .poc-line .pm-x .ic{width:14px;height:14px}
+#status-dock #status button.pm-x{width:24px;padding:0}
+/* The desktop has no status line; its status is the chip row (#bar2). The message gets a line of its own right under it. */
+#poc-wline{flex:none;padding:var(--space-2) var(--space-4);border-bottom:1px solid var(--border);background:var(--sidebar)}
+#poc-wline .poc-line .pm-d{display:inline}
+#poc-wline .poc-line .pm-d::before{content:' · '}
+#poc-wline .pm-act{height:var(--control-h)}
+
+/* (a errors, c errors and conflicts) A banner on top of the panel the message concerns. */
+.poc-banner{margin:var(--space-2) var(--edge);padding:var(--space-2) var(--space-2) var(--space-2) var(--space-3);border-radius:var(--radius-lg);
+  border:1px solid color-mix(in srgb,var(--primary) 35%,transparent);background:color-mix(in srgb,var(--primary) 8%,var(--sidebar));align-items:flex-start}
+.poc-banner.pm-err{border-color:color-mix(in srgb,var(--destructive) 45%,transparent);background:color-mix(in srgb,var(--destructive) 9%,var(--sidebar))}
+.poc-banner.pm-warn{border-color:color-mix(in srgb,var(--warning) 45%,transparent);background:color-mix(in srgb,var(--warning) 10%,var(--sidebar))}
+.poc-banner.pm-ok{border-color:color-mix(in srgb,var(--success) 40%,transparent);background:color-mix(in srgb,var(--success) 8%,var(--sidebar))}
+.poc-banner .pm-ic{margin-top:2px}
+.poc-banner .pm-acts{align-self:center}
+#composer>.poc-banner{margin:0 0 var(--space-2)}
+.poc-banner{scroll-margin-top:72px;scroll-margin-bottom:72px}
+#sec-review>.poc-banner{margin:0 0 var(--space-2)}
+
+/* (a, c) A note inside the card it concerns, and the card's own outline in the note's colour. */
+.pin.card.poc-hl{border-color:color-mix(in srgb,var(--primary) 55%,transparent)}
+.poc-note{margin:var(--space-2) 0 0;padding:var(--space-1) var(--space-1) var(--space-1) var(--space-2);border-radius:var(--radius);
+  background:color-mix(in srgb,var(--primary) 9%,transparent)}
+.poc-note.pm-ok{background:color-mix(in srgb,var(--success) 10%,transparent)}
+.poc-note.pm-warn{background:color-mix(in srgb,var(--warning) 12%,transparent)}
+.poc-note.pm-err{background:color-mix(in srgb,var(--destructive) 10%,transparent)}
+/* (a, c) The row left where a card was: what happened to it and [되돌리기]. */
+.poc-tomb{margin:0 0 var(--space-2);padding:var(--space-1) var(--space-1) var(--space-1) var(--space-3);border:1px dashed var(--border-strong);
+  border-radius:var(--radius-lg);min-height:var(--hit);color:var(--muted-foreground)}
+.poc-tomb .pm-ti{color:var(--foreground)}
+
+/* (a) The chip on the new pin's mark: above the mark's box, on the PDF where the finger picked. The mark box itself lets
+   presses through (pointer-events:none); the chip takes its own. */
+.mark .poc-markchip{position:absolute;left:0;bottom:calc(100% + var(--space-1));width:max-content;max-width:min(320px,80vw);pointer-events:auto;
+  padding:var(--space-1) var(--space-1) var(--space-1) var(--space-2);border-radius:var(--radius-lg);background:var(--popover);
+  border:1px solid color-mix(in srgb,var(--success) 45%,var(--border));box-shadow:var(--shadow-sm);font-size:var(--text-sm);white-space:nowrap}
+.mark .poc-markchip .pm-d{display:inline;font-size:inherit}
+.mark .poc-markchip .pm-d::before{content:' · '}
+.mark .poc-markchip .pm-act{min-height:0;height:var(--control-h);padding:0 var(--space-2);font-size:var(--text-sm);position:relative}
+.mark .poc-markchip .pm-x{min-height:0;min-width:0;width:var(--control-h);height:var(--control-h);padding:0;position:relative}
+@media (pointer:coarse){.mark .poc-markchip :is(.pm-act,.pm-x)::after{content:'';position:absolute;left:50%;top:50%;width:max(100%,var(--hit));height:var(--hit);transform:translate(-50%,-50%)}}
+/* (a) A failed save, right over [핀 저장] (which reads [다시 저장]). */
+#poc-field{grid-column:1/-1;align-items:flex-start;color:var(--destructive);font-size:var(--text-sm)}
+#poc-field .pm-ti{color:var(--destructive)}
+#poc-field .pm-x{display:none}
+/* (a) The first-visit hint on the PDF itself: a strip stuck to the top of the PDF area until [x] (it covers the page's
+   top margin, not the bar or the sheet). */
+#poc-pdfhint{position:sticky;top:var(--space-2);z-index:6;margin:0 auto var(--space-3);max-width:640px;padding:var(--space-2) var(--space-1) var(--space-2) var(--space-3);border-radius:var(--radius-lg);
+  background:var(--popover);border:1px solid color-mix(in srgb,var(--primary) 45%,transparent);box-shadow:var(--shadow-sm)}
+
+/* Badges: "new since you last looked" - a dot on the control that shows it (c). */
+body:is(.poc-new-rv,.poc-new-side,.poc-new-sel) :is(#btn-rv,#btn-side,#btn-select){position:relative}
+body.poc-new-rv #btn-rv::before,body.poc-new-side #btn-side::before,body.poc-new-sel #btn-select::before,body.poc-new-rv #rv-chip::before{content:'';position:absolute;
+  top:-3px;right:-3px;width:10px;height:10px;border-radius:50%;background:var(--destructive);box-shadow:0 0 0 2px var(--sidebar);z-index:2}
+body.poc-new-rv #rv-chip{position:relative;overflow:visible}
+
+/* #168 (a) The marquee and its name on every band: [⬚ 선택], pressed [⬚ 선택 중] in the accent fill. */
+body.poc-q2a #bar1 #btn-select{justify-content:center}
+body.poc-q2a.lay-narrow #bar1 #btn-select{width:auto;padding:0 var(--space-1);gap:var(--space-1)}
+body.poc-q2a.lay-narrow #btn-select .lbl{display:block}
+/* (b) The segmented control in the button's place: the one component (36px track, 4px inset, 28px thumb), touch only. */
+#poc-selseg{display:none}
+body.poc-q2b #btn-select{display:none!important}
+@media (pointer:coarse){body.poc-q2b #poc-selseg{display:flex}}
+body.poc-q2b #poc-selseg{flex:none;gap:2px;height:var(--control-h-lg);padding:var(--space-1);border-radius:var(--radius-lg);background:var(--muted);margin:0}
+body.poc-q2b #bar1 #poc-selseg{margin:calc((var(--tb-h,var(--control-h)) - var(--control-h-lg)) / 2) 0}
+/* The phone: over the PDF's bottom-left corner, just above the sheet (and above the status line when there is one). */
+body.poc-q2b.band-phone #poc-selseg{position:fixed;left:max(var(--edge),env(safe-area-inset-left));z-index:20;bottom:calc(var(--sheet-h,0px) + var(--kb,0px) + var(--space-2));
+  box-shadow:var(--shadow);outline:1px solid var(--border)}
+body.poc-q2b.band-phone.has-status #poc-selseg{bottom:calc(var(--sheet-h,0px) + var(--kb,0px) + 24px + var(--space-2))}
+body.poc-q2b.band-phone.typing #poc-selseg{display:none}
+body.poc-q2b #poc-selseg button{flex:none;height:var(--control-h);min-height:0;min-width:44px;padding:0 var(--space-2);border-radius:var(--radius);
+  font-size:var(--text-base);background:transparent;color:var(--muted-foreground);font-weight:400;justify-content:center}
+body.poc-q2b #poc-selseg button.on{background:var(--popover);color:var(--foreground);font-weight:600;box-shadow:var(--shadow-xs)}
+body.poc-q2b.selmode #poc-selseg button.on{background:var(--primary);color:var(--primary-foreground)}
+body.poc-q2b #poc-selseg button{position:relative}
+body.poc-q2b #poc-selseg button::after{content:'';position:absolute;left:50%;top:50%;width:max(100%,var(--hit));height:var(--hit);transform:translate(-50%,-50%)}
+body.lay-mid.poc-q2b #poc-selseg{order:1}
+/* (c) While the mode is on, the PDF says so where the eye is: an accent frame round the viewport and a bar at its top with
+   what a drag and a tap do, and [끝내기]. The bar's button is the bar's one way out; [⬚] in the tool bar still toggles. */
+#poc-selbar{display:none}
+body.poc-q2c.selmode #poc-selbar{display:block;position:sticky;top:0;left:0;height:0;z-index:6}
+#poc-selbar .psb{position:absolute;left:50%;top:var(--space-2);transform:translateX(-50%);display:flex;align-items:center;gap:var(--space-2);
+  width:max-content;max-width:calc(100vw - 2 * var(--edge));padding:var(--space-1) var(--space-1) var(--space-1) var(--space-3);border-radius:var(--radius-lg);
+  background:var(--primary);color:var(--primary-foreground);box-shadow:var(--shadow);font-size:var(--text-base)}
+#poc-selbar .psb .ic{flex:none;width:18px;height:18px}
+#poc-selbar .psb-t b{font-weight:600}
+#poc-selbar .psb-t span{opacity:.85}
+#poc-selbar .psb-t span::before{content:' · '}
+#poc-selbar .psb button{flex:none;min-height:0;height:var(--control-h-lg);padding:0 var(--space-3);font-size:var(--text-base);position:relative;
+  background:var(--primary-foreground);color:var(--primary);border-color:transparent;font-weight:600}
+#poc-selbar .psb button::after{content:'';position:absolute;left:50%;top:50%;width:max(100%,var(--hit));height:var(--hit);transform:translate(-50%,-50%)}
+body.poc-q2c.selmode #left{box-shadow:inset 0 0 0 2px var(--primary)}
