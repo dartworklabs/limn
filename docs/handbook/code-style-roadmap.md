@@ -82,11 +82,10 @@ Limn의 코딩 규칙은 팀 스킬 `code-implement`, `code-testing`, `code-secu
 
 보안 검증에는 다음 공백이 있다. 고치는 변경은 해당 검사를 함께 더한다.
 
-- **진입점 목록 검사:** POST 작업 표와 새 경로의 기본 거부는 `test_authority.py`가 확인하지만, 등록된 모든 POST가 작업과 역할 판단을 선언하는지 훑는 검사는 없다. GET 처리기는 경로를 선언하지 않는 클로저라 목록으로 뽑을 수 없고, `/pages/`·`/vendor/pdfjs/` 접두사는 통째로 허용된다.
-- **권한 행렬:** 역할 × 작업은 단위 수준, 주체 × 진입 경로는 `test_access_paths.py`가 일부 변경 작업만 HTTP로 확인한다. 읽기 경로와 나머지 변경 작업(`edit`·`drop`·`restore`·`purge`·`claim`·재빌드·비교 빌드)은 주체별 HTTP 행렬에 없다.
+- **읽기 진입점 목록:** 등록된 모든 POST가 접근 표의 작업으로 선언되는지는 `test_authority.py`의 `test_every_registered_post_declares_an_operation`이 훑는다. GET 처리기는 경로를 선언하지 않는 클로저라 같은 방식으로 뽑을 수 없고, `/pages/`·`/vendor/pdfjs/` 접두사는 통째로 허용된다. GET은 `check_read`의 경로 표와 새 등록의 기본 거부 검사가 대신 막는다.
+- **권한 행렬:** 역할 × 작업은 단위 수준(`test_authority.py`), 역할 × 핀 동작·읽기 경로는 HTTP 수준(`test_access_paths.py`의 `RoleMatrix`)에서 확인한다. 재빌드와 비교 빌드는 역할별 HTTP 행렬에 없다.
 - **주체별 작업 한도:** `viewer`도 부를 수 있는 `/api/pick`(SyncTeX 실행)과 비교 빌드는 주체별 한도가 없다. 비교 빌드 슬롯은 프로세스 전체가 나눠 쓰고, HTTP 서버에는 스레드·연결 상한이 없다.
-- **헤더 파서의 생성 입력:** 요청 본문은 Hypothesis로 검사하지만 Bearer·Host·Origin·네트워크 목록·행위자 헤더 파서는 예제 테스트뿐이다.
-- **오류 응답:** 처리되지 않은 예외의 `500` 응답 본문에 예외 문장이 실린다. 들어온 모든 주체가 내부 경로나 구현 세부를 볼 수 있다.
+- **오류 응답:** 처리되지 않은 예외의 `500` 응답 본문에 예외 문장이 실린다. 들어온 모든 주체가 내부 경로나 구현 세부를 볼 수 있다. 진단 가치와 오류 문장 계약 때문에 지금은 유지하며, 보기 권한에만 고정 문장을 주는 안을 [이슈 #140](https://github.com/dartworklabs/limn/issues/140)에서 검토한다.
 - **CI 공급망:** 액션과 체크아웃은 아래 규칙으로 닫혀 있지만, `uv tool install .`이 쓰는 빌드 백엔드(`hatchling`)와 `setup-uv`가 설치하는 uv 버전은 고정되어 있지 않다.
 
 CI는 남이 바꿀 수 있는 코드를 실행하지 않는다. 워크플로 토큰은 `contents: read`이고 비밀을 쓰지 않는다. 외부 액션은 태그가 아니라 커밋 SHA로 고정한다. 태그는 검토 뒤에도 다른 코드로 옮겨질 수 있기 때문이다. 체크아웃은 `persist-credentials: false`로 토큰을 `.git/config`에 남기지 않는다. 고정값은 Dependabot([`.github/dependabot.yml`](../../.github/dependabot.yml))이 매주 올리고, [`test_ci_pins.py`](../../tests/architecture/test_ci_pins.py)가 두 규칙을 검사한다.
