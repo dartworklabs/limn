@@ -790,15 +790,27 @@ def commit_pages(D: BuildDoc, newdir: Path, on_swap: Callable[[], None] | None =
 # ---------------------------------------------------------------- View-only PDF documents
 #
 # A PDF with no LaTeX source (reviewer comments, etc.) has no rebuild. Instead, when that PDF file changes
-# (mtime/size), the page images are re-rendered - since it goes through the same tracked build (run_tracked ->
+# (mtime/size/inode), the page images are re-rendered - since it goes through the same tracked build (run_tracked ->
 # history/build_seq), the viewer updates the screen exactly as it would for a LaTeX rebuild.
 
 
+def stat_signature(st: os.stat_result) -> str:
+    """ "<mtime_ns>:<size>:<inode>" of a stat result: the version signature of every file a watch follows (a view-only
+    PDF, a figure document's PDF and, as the first part of its signature, its map).
+
+    A rewrite of the same size that lands in the same filesystem timestamp tick keeps (mtime_ns, size). The inode tells
+    such a version apart when the writer replaced the file atomically (wrote a new file and renamed it over): the new
+    file is created while the old one still holds its inode, so two consecutive versions differ in it. An overwrite in
+    place keeps all three, which this signature cannot see (docs/handbook/build-sync.md §보기 전용 PDF 문서)."""
+    return "%d:%d:%d" % (st.st_mtime_ns, st.st_size, st.st_ino)
+
+
 def pdf_signature(D: BuildDoc) -> str | None:
-    """ "<mtime_ns>:<size>" of view-only document D's PDF, or None when it cannot be read (missing)."""
+    """stat_signature ("<mtime_ns>:<size>:<inode>") of view-only document D's PDF, or None when it cannot be read
+    (missing). pdf_sig.txt holds it as of the last render, and a value in the older "<mtime_ns>:<size>" format differs
+    from every new one, so the first watch pass after an upgrade renders each view-only PDF once more."""
     try:
-        st = D.main.stat()
-        return "%d:%d" % (st.st_mtime_ns, st.st_size)
+        return stat_signature(D.main.stat())
     except OSError:
         return None
 

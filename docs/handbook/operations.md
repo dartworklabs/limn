@@ -369,5 +369,5 @@ curl -s -X POST http://127.0.0.1:<port>/api/rebuild | head -c 200   # state 가 
 ├── pins.jsonl · pins.seq · pins.dropped.jsonl · pins.md   # 문서 전체에 하나(핀 번호가 문서를 가로질러 유일)
 └── docs/
     ├── rr/                   # build/ · pages.cur · pages-<build_id>/ · builds.json · built_at.txt · head.txt …(위와 같은 이름)
-    └── rv/                   # 보기 전용: pages.cur · pages-<id>/(쪽 PNG + PDF 사본) · builds.json · pdf_sig.txt(그린 PDF 의 mtime:크기)
+    └── rv/                   # 보기 전용: pages.cur · pages-<id>/(쪽 PNG + PDF 사본) · builds.json · pdf_sig.txt(그린 PDF 의 mtime_ns:크기:inode)
 ```
