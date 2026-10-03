@@ -136,6 +136,7 @@ class FrontendLogic(unittest.TestCase):
             const COMPOSE={current:null,dismissedOverlap:null}; let PINS=[{id:5,file:'/m.tex',lo:405,hi:406}];
             const esc=s=>String(s);
             """,
+                js_markup(),
                 extract_js_fn("selRel"),
                 extract_js_fn("pinState"),
                 extract_js_fn("overlapsFor"),
@@ -2616,7 +2617,7 @@ class FrontendFigure(unittest.TestCase):
         tooltip says the element's lines, or the whole figure's for the root."""
         self.node()
         js = "\n".join(
-            [js_esc(), js_tooltips()]
+            [js_esc(), js_markup(), js_tooltips()]
             + [
                 extract_js_fn(n)
                 for n in (
@@ -2638,7 +2639,7 @@ class FrontendFigure(unittest.TestCase):
               {level:'el2',lo:20,hi:30,n:11,label:'달력',snippet:'',el:{id:'B2/c',path:['B2','B2/c']}},
               {level:'fig',lo:1,hi:40,label:'B2',snippet:'',el:{id:'B2',path:['B2']}}]};
             const re=/data-level="([^"]+)" aria-pressed="([^"]+)"[^>]*data-tip="([^"]*)">([^<]*)<span class="k[^"]*">· ([^<]*)</g;
-            console.log(JSON.stringify([...levelBtns(o,false).matchAll(re)].map(m=>[m[1],m[2],m[3],m[4].trim(),m[5]])));"""
+            console.log(JSON.stringify([...html`${levelBtns(o,false)}`.text.matchAll(re)].map(m=>[m[1],m[2],m[3],m[4].trim(),m[5]])));"""
             ]
         )
         el = "이 요소를 그린 코드 줄입니다. 대기 상자가 그림의 이 요소에 맞춰집니다"
@@ -4075,7 +4076,7 @@ class FrontendReview(unittest.TestCase):
         # box previews the server rule (FrontendReplyRule checks every row of helpers.RULE_CASES).
         body = extract_js_fn("replyEl")
         # from the same outcome as the line below
-        self.assertIn("placeholder=\"'+esc(replyPlaceholder(p,isHuman(),false))+'\"", body)
+        self.assertIn('placeholder="${replyPlaceholder(p,isHuman(),false)}"', body)
         self.assertIn(
             "'무엇이 틀렸는지 적으면 다시 열려 에이전트에게 갑니다 (⌘/Ctrl+Enter 보내기)'",
             extract_js_fn("replyPlaceholder"),
@@ -4337,7 +4338,7 @@ class FrontendMentions(unittest.TestCase):
     def test_assign_controls_in_composer_edit_and_card(self):
         h = HTML
         self.assertIn('<div id="c-assign" class="assign-row" role="radiogroup" aria-label="담당" hidden></div>', h)
-        self.assertIn('\'<div class="e-assign assign-row" role="radiogroup" aria-label="담당" hidden></div>\'', h)
+        self.assertIn('<div class="e-assign assign-row" role="radiogroup" aria-label="담당" hidden></div>', h)
         self.assertIn("body.assignee=ASSIGN_NEW.v||ASSIGNEE_AGENT;", extract_js_fn("savePin"))
         self.assertIn(
             "if(E.assignee&&E.assignee!==E.orig.assignee)body.assignee=E.assignee;", extract_js_fn("saveEdit")

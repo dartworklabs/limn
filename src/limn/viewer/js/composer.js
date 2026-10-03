@@ -90,11 +90,12 @@ function renderOverlapBanner(){
   box.hidden=false; box.dataset.rel=ov.rel;
   const one=LAYOUT===LAYOUT_MODE.NARROW,full=overlapText(ov.rel,ov.id)+' (L'+ov.lo+'-L'+ov.hi+')';
   box.classList.toggle('one',one);
-  box.innerHTML=(one?'<span class="ov-t" data-tip="'+esc(full)+'">'+esc(overlapShort(ov.rel,ov.id))+'</span>'
-      :'<span>'+overlapText(ov.rel,ov.id)+' <span class="dim">(L'+ov.lo+'-L'+ov.hi+')</span></span>')+
-    '<button class="btn-sm btn-secondary hit" data-act="overlap-append" data-oid="'+ov.id+'" data-tip="'+tl('이 선택의 메모를 #{id} 에 덧붙이고, 지금 선택은 새 핀으로 만들지 않습니다',{id:ov.id})+'">'+
-    (one?tr('덧붙이기'):tl('#{id} 메모에 덧붙이기',{id:ov.id}))+'</button>'+
-    '<button class="btn-sm btn-secondary hit" data-act="overlap-separate" data-key="'+ov.id+':'+ov.rel+'" data-tip="겹쳐도 별도 핀으로 저장합니다">'+(one?tr('따로 저장'):'별도 핀으로 저장')+'</button>';
+  const text=one?html`<span class="ov-t" data-tip="${full}">${overlapShort(ov.rel,ov.id)}</span>`
+    :html`<span>${overlapText(ov.rel,ov.id)} <span class="dim">(L${ov.lo}-L${ov.hi})</span></span>`;
+  const appendTip=tl('이 선택의 메모를 #{id} 에 덧붙이고, 지금 선택은 새 핀으로 만들지 않습니다',{id:ov.id});
+  setHtml(box,html`${text}\
+<button class="btn-sm btn-secondary hit" data-act="overlap-append" data-oid="${ov.id}" data-tip="${appendTip}">${one?tr('덧붙이기'):tl('#{id} 메모에 덧붙이기',{id:ov.id})}</button>\
+<button class="btn-sm btn-secondary hit" data-act="overlap-separate" data-key="${ov.id+':'+ov.rel}" data-tip="겹쳐도 별도 핀으로 저장합니다">${one?tr('따로 저장'):'별도 핀으로 저장'}</button>`);
 }
 // The overlap in a few words for the one-line notice: '#4와 같은 범위' - '#4 범위 안' - '#4를 감쌈' - '#4와 일부 겹침' (the card badges' wording).
 function overlapShort(rel,id){const k={equal:'#{id}{p} 같은 범위',inside:'#{id} 범위 안',contains:'#{id}{p} 감쌈',partial:'#{id}{p} 일부 겹침'}[rel]||'#{id}{p} 일부 겹침';
@@ -109,7 +110,7 @@ function renderRegionComposer(d){
   const pg=$('#c-page'),fb=figRegionBadge(d.el,isFigureKind(META&&META.kind));
   pg.textContent=fb?fb.t:tr('보기 전용'); pg.dataset.tip=fb?fb.tip:'LaTeX 소스가 없는 PDF입니다 — 줄 번호 없이 쪽·영역과 영역 글자로 핀을 남깁니다';
   $('#c-tag').hidden=true; $('#c-warn').hidden=!d.warn; $('#c-warn').textContent=warnText(d.warn); $('#c-overlap').hidden=true;
-  $('#c-levels').innerHTML=''; setCap($('#c-cap'),''); drawExcerpt(null,$('#c-xp'),false);
+  $('#c-levels').replaceChildren(); setCap($('#c-cap'),html``); drawExcerpt(null,$('#c-xp'),false);
   const pre=$('#c-snip'); pre.className='wrap open'; pre.textContent=d.quote?tl('영역 글자: {text}',{text:d.quote}):tr('(이 영역에는 글자가 없습니다)');
   $('#c-expand').hidden=true; renderElement(d,COMPOSE.box);}
 // Draws the composer from COMPOSE.current (location, ladder, range excerpt, overlap) and schedules the draft write - every change

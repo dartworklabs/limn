@@ -34,11 +34,11 @@ function replyServerNote(id,predicted,data){if(!data||!data.ok||!!data.reopened=
 // so an autocompleted '@Robin Lee' later edited down to an ambiguous '@Robin' previews what the server will do (PR #11 review).
 function replyMentioned(ta){const me=meLogin(); return mentionScan(ta.value,new Set(mentionHints(ta))).hit.filter(l=>l!==me&&(PEOPLE.find(x=>x.login===l)||{}).role!==ROLE.AGENT);}
 function replyEl(p){const el=document.createElement('div'); el.className='reply-box';
-  el.innerHTML='<textarea class="r-text" rows="2" maxlength="1000" aria-label="답글" placeholder="'+esc(replyPlaceholder(p,isHuman(),false))+'"></textarea><div class="m-preview" aria-live="polite" hidden></div>'+
-    '<div class="r-outcome" aria-live="polite" hidden><span class="r-out-t"></span><button type="button" class="btn-sm r-keep" role="switch" data-act="reply-flip" aria-checked="false"></button></div>'+
-    '<div class="r-err errline" role="alert" hidden></div>'+
-    '<div class="r-acts"><button class="btn-sm" data-act="reply-cancel" data-tip="입력 칸을 닫습니다 (Esc). 쓰던 글은 남겨 둡니다">취소</button>'+
-    '<button class="btn-sm btn-default" data-act="reply-send" data-tip="답글을 보냅니다. 알림의 [되돌리기]를 누르면 보내기 전에 취소됩니다">보내기</button></div>';
+  setHtml(el,html`<textarea class="r-text" rows="2" maxlength="1000" aria-label="답글" placeholder="${replyPlaceholder(p,isHuman(),false)}"></textarea><div class="m-preview" aria-live="polite" hidden></div>\
+<div class="r-outcome" aria-live="polite" hidden><span class="r-out-t"></span><button type="button" class="btn-sm r-keep" role="switch" data-act="reply-flip" aria-checked="false"></button></div>\
+<div class="r-err errline" role="alert" hidden></div>\
+<div class="r-acts"><button class="btn-sm" data-act="reply-cancel" data-tip="입력 칸을 닫습니다 (Esc). 쓰던 글은 남겨 둡니다">취소</button>\
+<button class="btn-sm btn-default" data-act="reply-send" data-tip="답글을 보냅니다. 알림의 [되돌리기]를 누르면 보내기 전에 취소됩니다">보내기</button></div>`);
   return el;}
 function renderReplyOutcome(){const R=REPLY; if(!R)return; const box=R.el.querySelector('.r-outcome'),ta=R.el.querySelector('textarea'); if(!box||!ta)return;
   const p=findAnyPin(R.id),ment=replyMentioned(ta);
