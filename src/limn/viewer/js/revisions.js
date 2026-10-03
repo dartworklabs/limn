@@ -50,12 +50,15 @@ function revisionPinFor(id){const tg=REV.target; return tg&&!tg.region&&tg.commi
 function setRevisionWhole(on){REV_SCOPE.whole=!!on;++REV.seq;REV.pdfCommit='';
   clearRevisionPdf();$('#revision-warning').hidden=true;setRevisionFormat(DIFF_FORMAT.PDF);}
 function revisionCurrent(seq,k,id){return seq===REV.seq&&k===DOC&&id===REV.commit&&document.body.classList.contains('revision-open');}
+/** Release comparison rendering and PDF.js resources on visit or scope change. */
 function clearRevisionPdf(){
+  disposeRevisionZoom();
   if(REV_PDF.observer){REV_PDF.observer.disconnect();REV_PDF.observer=null;}
   REV_PDF.tasks.forEach(t=>{try{t.cancel();}catch(e){}});REV_PDF.tasks.clear();
-  if(REV_PDF.loading){try{REV_PDF.loading.destroy();}catch(e){}REV_PDF.loading=null;}
+  if(REV_PDF.loading){try{void REV_PDF.loading.destroy().catch(()=>{});}catch(e){}REV_PDF.loading=null;}
   REV_PDF.doc=null;$('#revision-pdf').replaceChildren();
 }
+/** Switch formats while retaining comparison scale for the selected commit. */
 function setRevisionFormat(format){REV.format=format===DIFF_FORMAT.SOURCE?DIFF_FORMAT.SOURCE:DIFF_FORMAT.PDF;
   $('#revision-pdf-tab').setAttribute('aria-pressed',String(REV.format===DIFF_FORMAT.PDF));
   $('#revision-source-tab').setAttribute('aria-pressed',String(REV.format===DIFF_FORMAT.SOURCE));
@@ -65,7 +68,8 @@ function setRevisionFormat(format){REV.format=format===DIFF_FORMAT.SOURCE?DIFF_F
   // The comparison PDF is only built when that format is actually viewed - [변경 보기] goes straight to the source diff, so it never wastes a latexdiff build.
   if(REV.format===DIFF_FORMAT.PDF&&REV.commit&&REV.pdfCommit!==REV.commit){REV.pdfCommit=REV.commit;
     $('#revision-status').textContent='비교 PDF 상태를 확인하는 중입니다.'; loadRevisionPdf(REV.commit,REV.seq,DOC);}
-  syncRevisionWhole();
+  syncRevisionWhole();drawRevisionZoom();
+  if(revisionPdfActive())layoutRevisionPdf(RZ.anchor);
   if(REV.target)revTargetNote();
 }
 // Shows the manuscript or the changes view: the nav bar's tabs, the navigation sheet's switch and the phone's position button
@@ -98,7 +102,9 @@ async function loadRevisions(){
     tg.commit=pick.id; tg.via=pick.via; tg.hit=pick.hit; showRevision(pick.id,DIFF_FORMAT.SOURCE); return;}
   showRevision(data.revisions.some(r=>r.id===REV.commit)?REV.commit:data.revisions[0].id);
 }
+/** A newly selected commit starts with fit width. */
 async function showRevision(id,format){
+  RZ.ratio=1;
   ++REV.seq;REV.commit=id;REV.sourceCommit='';REV.pdfCommit='';clearRevisionPdf();
   const select=$('#revision-select');if(select)select.value=id;
   REV.scope=null;REV_SCOPE.whole=REV_SCOPE.partial=REV_SCOPE.fallback=false;drawRevisionOther(null);
@@ -190,6 +196,7 @@ async function showChange(id){const p=findAnyPin(id); if(!p)return; const k=pdoc
   if(LAYOUT===LAYOUT_MODE.NARROW)setSide(false);
   if(document.body.classList.contains('revision-open'))loadRevisions(); else setViewMode(VIEW_MODE.REVISIONS);}
 // Start or read the comparison PDF for this revision; late responses and module imports cannot attach to another view.
+/** Load one comparison visit; mounting owns zoomable page geometry. */
 async function loadRevisionPdf(id,seq,k){
   const statusBox=$('#revision-status'),warningBox=$('#revision-warning'),tg=REV.target;
   // v0.3: for a pin, the comparison is old + only that pin's hunks unless [커밋 전체 비교] is on or that build already failed
@@ -223,28 +230,13 @@ async function loadRevisionPdf(id,seq,k){
     lib.GlobalWorkerOptions.workerSrc='/vendor/pdfjs/pdf.worker.min.mjs?v='+PDFJS_V;
     const loading=lib.getDocument({data:bytes,isEvalSupported:false,useWasm:false,enableXfa:false});REV_PDF.loading=loading;
     const pdf=await loading.promise;
-    if(!revisionCurrent(seq,k,id)){try{loading.destroy();}catch(e){}return;}
+    if(!revisionCurrent(seq,k,id)){try{void loading.destroy().catch(()=>{});}catch(e){}return;}
     REV_PDF.doc=pdf;
     const lead=pin&&status.scope===SCOPE_MODE.PIN?tl('핀 #{id}의 변경만',{id:pin})+' · ':REV_SCOPE.fallback&&tg?tr('이 핀의 변경만으로는 비교 PDF를 만들지 못해 커밋 전체를 비교합니다')+' · ':'';
     statusBox.textContent=lead+tl('첫 부모 {base} → {head} · {n}쪽 · 읽기 전용 · 빨강 삭제 / 파랑 추가',{base:String(status.base||'').slice(0,8),head:id.slice(0,8),n:pdf.numPages});
-    const box=$('#revision-pdf');setHtml(box,html`${Array.from({length:pdf.numPages},(_,i)=>html`<div class="revision-page" data-page="${i+1}" aria-label="${tl('비교 PDF {page}쪽',{page:i+1})}"></div>`)}`);
-    if(window.IntersectionObserver){const io=REV_PDF.observer=new IntersectionObserver(rows=>{for(const row of rows)if(row.isIntersecting){
-      io.unobserve(row.target);renderRevisionPage(row.target,pdf,seq,k,id);
-    }},{root:box,rootMargin:'600px 0px'});box.querySelectorAll('.revision-page').forEach(el=>io.observe(el));}
-    else for(const el of box.querySelectorAll('.revision-page'))renderRevisionPage(el,pdf,seq,k,id);
-    if(REV.target&&REV.target.page){const el=box.querySelector('.revision-page[data-page="'+Math.min(REV.target.page,pdf.numPages)+'"]'); if(el)el.scrollIntoView({block:'start'}); revTargetNote();}
+    await mountRevisionPdf(pdf,seq,k,id);
   }catch(e){if(revisionCurrent(seq,k,id)){
+    clearRevisionPdf();
     statusBox.textContent=tl('비교 PDF: {error} 소스 diff에서 변경 내용을 확인할 수 있습니다.',{error:e&&/** @type {Error} */(e).message?/** @type {Error} */(e).message:tr('표시하지 못했습니다.')});
   }}
-}
-async function renderRevisionPage(el,pdf,seq,k,id){
-  if(el.dataset.state||!revisionCurrent(seq,k,id))return;el.dataset.state='loading';
-  try{const page=await pdf.getPage(Number(el.dataset.page));if(!revisionCurrent(seq,k,id))return;
-    const base=page.getViewport({scale:1}),cssWidth=Math.min(780,$('#revision-pdf').clientWidth-24),scale=Math.max(0.25,cssWidth/base.width);
-    const viewport=page.getViewport({scale}),dpr=Math.min(2,window.devicePixelRatio||1),canvas=document.createElement('canvas');
-    canvas.width=Math.ceil(viewport.width*dpr);canvas.height=Math.ceil(viewport.height*dpr);
-    canvas.style.width=viewport.width+'px';canvas.style.height=viewport.height+'px';el.style.minHeight=viewport.height+'px';el.append(canvas);
-    const task=page.render({canvasContext:canvas.getContext('2d'),viewport,transform:[dpr,0,0,dpr,0,0]});REV_PDF.tasks.add(task);
-    try{await task.promise;el.dataset.state='ready';}finally{REV_PDF.tasks.delete(task);}
-  }catch(e){if(revisionCurrent(seq,k,id)){$('#revision-status').textContent='일부 비교 PDF 쪽을 그리지 못했습니다. 소스 diff를 확인할 수 있습니다.';el.dataset.state='error';}}
 }

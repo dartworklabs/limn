@@ -5,6 +5,11 @@ function openHelp(){const d=$('#help'); if(d.open)return; HELP_BACK=/** @type {H
 $('#help').addEventListener('close',()=>{if(HELP_BACK&&HELP_BACK.focus)HELP_BACK.focus(); HELP_BACK=null;});
 
 // ------------------------------------------------ Event delegation (no inline handlers)
+/** Route shared zoom controls to the visible PDF, leaving source views unchanged. */
+function zoomVisiblePdf(action){
+  if(document.body.classList.contains('revision-open'))revisionZoom(action);
+  else if(action==='fit')fitW();else zoom(action==='in'?1:-1);
+}
 // compact: a click on a collapsed card that hit nothing of its own opens the card, as its preview line and chevron do (the card's
 // 44px links and chips keep their own action). wide cards are always open.
 function openTappedCard(t){const c=t&&t.closest&&t.closest('.pin.card:not(.open):not(.editing)');
@@ -28,7 +33,7 @@ document.addEventListener('click',e=>{const target=/** @type {HTMLElement} */(e.
     case 'card-toggle':if(id==null)break; if(OPEN_CARDS.has(id))OPEN_CARDS.delete(id); else OPEN_CARDS.add(id); drawPins();break;
     case 'rebuild':rebuild();break; case 'reload':loadPins();break;
     case 'rebuild-force':BUILD.unchanged=null; drawStatus(); rebuild(true); break;   // the status line's [그래도 빌드]: a cold build
-    case 'zoom-in':zoom(1);break; case 'zoom-out':zoom(-1);break; case 'fit':fitW();break;
+    case 'zoom-in':zoomVisiblePdf('in');break; case 'zoom-out':zoomVisiblePdf('out');break; case 'fit':zoomVisiblePdf('fit');break;
     case 'theme':setTheme(a.dataset.theme); break; case 'lang':switchLang(a.dataset.lang);break; case 'notify-toggle':notifyToggle();break; case 'help':openHelp();break; case 'help-close':$('#help').close();break;
     case 'save':if(!viewerBlocked())savePin();break; case 'cancel':discardSelection();break;
     case 'overlap-append':{const text=$('#note').value.trim();
@@ -62,6 +67,7 @@ document.addEventListener('click',e=>{const target=/** @type {HTMLElement} */(e.
     case 'assign-edit':if(EDITOR.current){EDITOR.current.assignee=a.dataset.v||'agent'; renderAssignEdit();} break;
     case 'msg-more':{const k=a.dataset.key; if(!k)break; if(MSG_OPEN.has(k))MSG_OPEN.delete(k); else MSG_OPEN.add(k); drawPins(); break;}
     case 'revision-other':toggleRevisionOther();break;
+    case 'revision-zoom':revisionZoom(a.dataset.zoom);break;
     case 'revision-whole':setRevisionWhole(!REV_SCOPE.whole);break;
     case 'mark-jump':revealCard(id);jumpToCard(id);break;
     case 'close':closePin(id);break; case 'drop':dropPin(id,false);break;
@@ -98,7 +104,9 @@ document.addEventListener('keydown',e=>{
   const t=/** @type {HTMLElement} */(e.target),inField=t&&(t.tagName==='TEXTAREA'||t.tagName==='INPUT'||t.tagName==='SELECT'||t.isContentEditable);
   // Ctrl(Cmd) + = / - / 0 zooms/fits just the PDF page instead of the browser zoom. Left to the browser inside an input field.
   if((e.ctrlKey||e.metaKey)&&!e.altKey&&!inField){const z=zoomKey(e);
-    if(z){e.preventDefault(); if(z==='fit')fitW(); else zoom(z==='in'?1:-1); return;}}
+    if(z){if(document.body.classList.contains('revision-open')){
+      if(!revisionPdfActive())return;}
+      e.preventDefault();zoomVisiblePdf(z);return;}}
   // Document switching (multiple documents): Ctrl+PgUp/PgDn is previous/next, Alt+1...9 is that index (e.code - Option+digit on Mac produces a different character).
   // The selector uses default keyboard handling. Global shortcuts are never used inside an input field.
   if(multiDoc()&&!inField){

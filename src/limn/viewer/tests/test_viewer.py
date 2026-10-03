@@ -685,7 +685,7 @@ class FrontendMobileStructure(unittest.TestCase):
         self.assertIn("--text-xl:16px", css)
         self.assertIn("env(safe-area-inset-bottom)", css)
         self.assertIn("var(--kb,0px)", css)
-        # touch-action: the PDF area (#left) allows only scroll and blocks browser pinch (two fingers do
+        # touch-action: the PDF areas allow only scroll and block browser pinch (two fingers do
         # app-level zoom, §PDF 영역 전용 확대). A page in selection mode is none (one-finger drag = select).
         # The width/height grips are none so they don't fight scroll while dragging. The panel is pan-y pinch-zoom
         # (a horizontal drag stays a pointer stream for the overlay's swipe; pinch keeps the browser's zoom), and
@@ -696,6 +696,7 @@ class FrontendMobileStructure(unittest.TestCase):
             [
                 "#left",
                 "#outline-grip",
+                "#revision-pdf",
                 "#grip",
                 "#right",
                 "body.selmode .pg",
@@ -943,10 +944,11 @@ class FrontendZoom(unittest.TestCase):
         self.assertIn("{passive:false}", blk)
 
     def test_keyboard_zoom_skips_inputs(self):
+        """Only modifier shortcuts outside fields reach the visible PDF's controller."""
         m = re.search(r"document\.addEventListener\('keydown',e=>\{(.*?)\n\}\);", HTML, re.S)
         body = m.group(1)
         self.assertIn("if((e.ctrlKey||e.metaKey)&&!e.altKey&&!inField){const z=zoomKey(e);", body)
-        self.assertIn("e.preventDefault(); if(z==='fit')fitW(); else zoom(z==='in'?1:-1)", body)
+        self.assertIn("e.preventDefault();zoomVisiblePdf(z)", body)
         self.assertLess(body.index("inField="), body.index("zoomKey(e)"))
 
     def test_zoom_bounds_and_anchor(self):
