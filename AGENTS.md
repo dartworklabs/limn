@@ -18,7 +18,7 @@ Limn은 LaTeX 원고 PDF에서 드래그한 영역을 `.tex` 파일·줄 범위�
 | 테스트·합격 기준 | [verification.md](docs/handbook/verification.md) |
 | 변경 절차·ADR·릴리스 | [workflow.md](docs/handbook/workflow.md) |
 
-결정 이유는 [`docs/adr/`](docs/adr/)에 있다.
+전체 topic 목록은 [index.md](docs/handbook/index.md)의 목록이 정본이다. 현재 규칙의 이유는 각 topic 본문에 있고, [`docs/adr/`](docs/adr/index.md)는 결정의 경위와 출처를 담는다.
 
 ## 반드시 지킬 것
 
@@ -43,7 +43,7 @@ uv run python tools/check_boundaries.py
 uv run mypy
 ```
 
-현재 상태를 바꾼 변경은 해당 Handbook topic을 같은 변경에서 고친다. topic은 현재형으로 쓰고, 날짜·전후 수치·진행 기록·모듈별 줄 수는 PR·CHANGELOG·ADR에 둔다([workflow.md](docs/handbook/workflow.md) §문서 동기화).
+현재 상태를 바꾼 변경은 해당 Handbook topic을 같은 변경에서 고친다. topic은 현재형으로 쓰고, 날짜·전후 수치·진행 기록·모듈별 줄 수는 PR·CHANGELOG에 둔다([workflow.md](docs/handbook/workflow.md) §문서 동기화).
 
 ## 스킬
 

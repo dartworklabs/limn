@@ -27,10 +27,10 @@ dependency-free. Rendering needs a TeX distribution with SyncTeX (`latexmk`/`pdf
 The System Handbook in [docs/handbook/](docs/handbook/index.md) (Korean) is where the design lives:
 purpose and sources of truth, architecture and invariants, the pin domain, the viewer, build and sync,
 the HTTP API contract, operations, verification gates, the change workflow, and our coding rules.
-Decisions and their reasons are in [docs/adr/](docs/adr/).
+The chapters hold the current rules and their reasons; [docs/adr/](docs/adr/index.md) keeps the history and sources of decisions.
 Read the chapters that touch your change before you start, and update them in the same pull request
 when the current behaviour changes. The chapters state the current behaviour in the present tense;
-dates, before/after numbers and progress notes go in the pull request, the CHANGELOG or an ADR.
+dates, before/after numbers and progress notes go in the pull request or the CHANGELOG.
 
 ## Conventions
 
