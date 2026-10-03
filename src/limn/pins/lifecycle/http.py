@@ -10,6 +10,7 @@ from limn.pins.lifecycle.rules import (
     AlreadyClosed,
     AlreadyDone,
     PinStillOpen,
+    ShownCloseChanged,
     ThreadFull,
     last_entry,
 )
@@ -82,9 +83,10 @@ def reopen(app: LifecycleApp, pid: int, actor: PostAuthority, body: dict[str, An
     return state_answer(app.pin_lifecycle.reopen_pin(pid, actor, reason, hints), app.public, app.pin_state)
 
 
-def confirm(app: LifecycleApp, pid: int, actor: PostAuthority) -> Body:
-    """Decide and answer POST /api/pins/{id}/confirm after shared guards."""
-    return confirm_answer(app.pin_lifecycle.confirm_pin(pid, actor), app.public)
+def confirm(app: LifecycleApp, pid: int, actor: PostAuthority, body: dict[str, Any]) -> Body:
+    """Parse, decide, and answer POST /api/pins/{id}/confirm after shared guards."""
+    shown = accepted(lifecycle_input.parse_confirm(body))
+    return confirm_answer(app.pin_lifecycle.confirm_pin(pid, actor, shown), app.public)
 
 
 def state_answer(
@@ -100,8 +102,11 @@ def state_answer(
             return {"ok": False, "pin": None, "state": None}
 
 
-def confirm_answer(result: DonePin | AlreadyDone | PinStillOpen | AgentCannotConfirm | PinNotFound, show: Show) -> Body:
-    """POST /api/pins/{id}/confirm for every outcome, with the statuses and bodies of the agent contract."""
+def confirm_answer(
+    result: DonePin | AlreadyDone | PinStillOpen | ShownCloseChanged | AgentCannotConfirm | PinNotFound, show: Show
+) -> Body:
+    """POST /api/pins/{id}/confirm for every outcome, with the statuses and bodies of the agent contract. A close
+    redone since the person saw it is the edit's 409 conflict shape, with the pin as it stands."""
     match result:
         case DonePin(record=record) | AlreadyDone(pin=DonePin(record=record)):
             return {"ok": True, "pin": show(record), "state": "done"}
@@ -111,6 +116,8 @@ def confirm_answer(result: DonePin | AlreadyDone | PinStillOpen | AgentCannotCon
             raise HTTPError(403, CONFIRM_BY_HUMAN, reason="confirm_by_human")
         case PinStillOpen(pin=OpenPin(record=record)):
             raise HTTPError(409, "open", pin=show(record), detail=CONFIRM_OPEN_DETAIL, reason="open")
+        case ShownCloseChanged(pin=ReviewPin(record=record) | DonePin(record=record)):
+            raise HTTPError(409, "conflict", pin=show(record), reason="conflict")
 
 
 def reply_answer(

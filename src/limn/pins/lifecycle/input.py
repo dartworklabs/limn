@@ -19,6 +19,7 @@ CLOSE_REF_MAX = 80  # reference (e.g. PR number) - matching values let the UI gr
 CLOSE_CHANGES_MAX = 50
 CHANGE_LINE_MAX = 1_000_000  # a line number past this is not a manuscript line
 THREAD_TEXT_MAX = 1000  # one reply or reopen reason
+DONE_AT_MAX = 64  # a close's done_at as a confirm names it; stored values are "YYYY-MM-DD HH:MM:SS"
 
 
 def parse_thread_text(v: object, what: str = "text", required: bool = True) -> str | None | InputRejected:
@@ -40,6 +41,22 @@ def parse_thread_text(v: object, what: str = "text", required: bool = True) -> s
         if required:
             return InputRejected("%s 가 비어 있습니다." % what, "text_empty")
         return None
+    return v
+
+
+def parse_confirm(d: Json) -> str | None | InputRejected:
+    """The confirm body's optional done_at: the close the person saw (docs/handbook/api.md §검토 대기).
+
+    Absent or null is None - confirm whatever close the pin holds, as before the field existed. Otherwise it must be a
+    non-blank string no longer than DONE_AT_MAX; it is compared with the pin's done_at as is, never parsed as a time.
+    """
+    v = d.get("done_at")
+    if v is None:
+        return None
+    if not isinstance(v, str) or not v.strip() or len(v) > DONE_AT_MAX:
+        return InputRejected(
+            "done_at 은 확인하려는 닫기의 done_at 문자열이어야 합니다(%d자 이하)." % DONE_AT_MAX, "bad_done_at"
+        )
     return v
 
 

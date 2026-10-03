@@ -29,6 +29,14 @@ class PinStillOpen:
 
 
 @dataclass(frozen=True)
+class ShownCloseChanged:
+    """The person confirms a close the pin no longer holds: it was reopened and closed again after they saw it. The pin
+    as it stands travels along for the 409 body, so the person can look at the new result before confirming it."""
+
+    pin: ReviewPin | DonePin
+
+
+@dataclass(frozen=True)
 class AlreadyDone:
     """The pin is already done; confirming it again changes nothing and is not an error."""
 
@@ -44,9 +52,18 @@ def confirmer(actor: Actor) -> Person | AgentCannotConfirm:
             return AgentCannotConfirm()
 
 
-def confirm(pin: Pin, by: Person, at: str) -> DonePin | AlreadyDone | PinStillOpen:
-    """Confirm a pin awaiting review; a done pin comes back as AlreadyDone and an open one as PinStillOpen."""
+def confirm(
+    pin: Pin, by: Person, at: str, shown: str | None = None
+) -> DonePin | AlreadyDone | PinStillOpen | ShownCloseChanged:
+    """Confirm a pin awaiting review; a done pin comes back as AlreadyDone and an open one as PinStillOpen.
+
+    shown is the done_at of the close the person saw, when the request names one. A closed pin whose close is another
+    one comes back as ShownCloseChanged and is not confirmed, so an approval never lands on a result nobody looked at.
+    Without shown any close is confirmed, as before the field existed.
+    """
     match pin:
+        case ReviewPin() | DonePin() if shown is not None and pin.close.at != shown:
+            return ShownCloseChanged(pin)
         case ReviewPin():
             return confirm_review(pin, by, at)
         case DonePin():

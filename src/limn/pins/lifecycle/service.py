@@ -13,6 +13,7 @@ from limn.pins.lifecycle.rules import (
     PinReopened,
     PinStillOpen,
     Replied,
+    ShownCloseChanged,
     ThreadFull,
     confirm,
     confirmer,
@@ -102,13 +103,14 @@ class PinLifecycle:
         return out
 
     def confirm_pin(
-        self, pid: int, actor: PostAuthority
-    ) -> DonePin | AlreadyDone | PinStillOpen | AgentCannotConfirm | PinNotFound:
+        self, pid: int, actor: PostAuthority, shown: str | None = None
+    ) -> DonePin | AlreadyDone | PinStillOpen | ShownCloseChanged | AgentCannotConfirm | PinNotFound:
         """Awaiting review -> done, by a person only (docs/handbook/api.md §검토 대기).
 
         An agent is refused before the store is touched. Otherwise the pin is loaded under the pin lock
-        (transact) and lifecycle.confirm() decides; only a new DonePin is written, in the pin's place, so the saved line
-        keeps its field order. Every other outcome is returned unchanged for the HTTP layer to answer. No notice.
+        (transact) and lifecycle.confirm() decides, with shown - the done_at of the close the person saw, or None for
+        any close; only a new DonePin is written, in the pin's place, so the saved line keeps its field order. Every
+        other outcome, ShownCloseChanged included, is returned unchanged and writes nothing. No notice.
         """
         ctx = self.context()
         require_authority(actor, ctx.authority_scope, "confirm", pid)
@@ -117,13 +119,13 @@ class PinLifecycle:
             return by
         person = by
 
-        def fn(pins: list[Pin]) -> tuple[DonePin | AlreadyDone | PinStillOpen | PinNotFound, bool]:
+        def fn(pins: list[Pin]) -> tuple[DonePin | AlreadyDone | PinStillOpen | ShownCloseChanged | PinNotFound, bool]:
             """The transact() step: confirm pin pid; written only when it becomes done."""
             found = load_pin(pins, pid)
             if isinstance(found, PinNotFound):
                 return found, False
             i, pin = found
-            result = confirm(pin, person, ctx.now())
+            result = confirm(pin, person, ctx.now(), shown)
             if isinstance(result, DonePin):
                 pins[i] = result
                 return result, True

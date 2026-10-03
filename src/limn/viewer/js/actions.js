@@ -5,13 +5,17 @@ async function closePin(id){try{const {data}=await api('/api/pins/'+id+'/close',
 // Awaiting review -> done; the person who confirmed (confirmed_by) is recorded. The card's [확인] and the changes view's guide
 // line call this one function. Like a reply it is a deferred send: the card leaves the review section at once (CONFIRMING keeps
 // it out of every pin snapshot meanwhile, derivePinLists), the request goes when the [되돌리기] toast does, and the undo puts
-// the card back with nothing sent. A 409 'open' means someone reopened the pin in between.
+// the card back with nothing sent. The request names the close the card showed (done_at), so a pin reopened and closed
+// again in between answers 409 'conflict' instead of confirming a result nobody looked at; a 409 'open' means it was
+// reopened and is still open (docs/handbook/api.md §검토 대기).
 const CONFIRMING=new Set();
 function confirmPin(id){if(CONFIRMING.has(id))return; const at=REVIEW_ALL.findIndex(p=>p.id===id),pin=at<0?null:REVIEW_ALL[at];
   CONFIRMING.add(id); REVIEW_ALL=REVIEW_ALL.filter(p=>p.id!==id); drawPins(); marks();
   deferred(tl('핀 #{id} 확인 · 완료로 옮겼습니다',{id}),async()=>{
-      try{const {data}=await api('/api/pins/'+id+'/confirm',{method:'POST',what:'확인',expect:[409],keepalive:true});
+      try{const {data}=await api('/api/pins/'+id+'/confirm',{method:'POST',what:'확인',expect:[409],keepalive:true,
+          body:pin&&pin.done_at?{done_at:pin.done_at}:{}});
         if(data&&data.error===PIN_STATE.OPEN)toast(tl('핀 #{id} 은 이미 다시 열렸습니다',{id}),'warn');
+        else if(data&&data.error==='conflict')toast(tl('핀 #{id} 은 다시 닫혔습니다 — 새 결과를 보고 확인하세요',{id}),'warn');
         else if(!data.ok)toast(tl('확인 실패 — 핀 #{id} 이 없습니다',{id}),'err');
         else markMine(id);}catch(e){}
       CONFIRMING.delete(id); await loadPins();},
