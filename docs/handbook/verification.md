@@ -131,7 +131,7 @@ pytest는 `tests`와 `src/limn`을 수집하고 `tests/support`에서 공용 도
 | 실제 테일넷 다중 사용자 접속 | CI 러너가 테일넷에 조인할 수 없다 | `--auth trusted-proxy`와 `src/limn/security/tests/test_access.py`의 헤더 시뮬레이션으로 대조 |
 | 실제 TeX 엔진의 다양한 원고 | TeX Live 전체 설치는 CI에서 너무 무겁다 | 최소 fixture 원고와 `test_cross_engine.py`로 핵심 경로만 확인 |
 | 브라우저 알림(Service Worker) 실기 동작 | 헤드리스 브라우저에서 푸시 알림 환경이 제한된다 | `sw.js` 구문 검사와 `test_notifications.py`의 이벤트 스트림 검사로 분할 |
-| 뷰어 JS 단위 테스트 프레임워크 | 브라우저 JS 린터나 Jest 같은 별도 러너를 두지 않는다 | `test_viewer_source.py`의 AST 토큰 검사와 `test_viewer_browser.py`의 Playwright 통합으로 대체 |
+| 뷰어 JS 단위 테스트 프레임워크 | 브라우저 JS 린터나 Jest 같은 별도 러너를 두지 않는다(타입 검사 `tsc`만 둔다, §9) | `test_viewer_source.py`의 AST 토큰 검사와 `test_viewer_browser.py`의 Playwright 통합으로 대체 |
 | Handbook 같은 파일 안의 §참조 | 정규식만으로 같은 파일의 앵커 존재를 완벽히 가리기 어렵다 | PR 리뷰에서 사람이 링크를 직접 클릭해 확인 |
 | private 도우미와 테스트 함수·메서드·fixture의 docstring | docstring 검사(Ruff)는 프로덕션 공개 항목과 테스트 모듈·클래스의 존재만 본다. 기존 테스트 함수의 누락이 많아 테스트 경로에서 `D102`–`D107`을 끈다 | 새로 쓰거나 고친 항목은 리뷰가 docstring의 존재와, 그 설명이 단언과 맞는지 확인한다([code-style-roadmap.md](code-style-roadmap.md) §R9) |
 | 스냅샷 흐름 밖의 계약 | 경로별 테스트가 응답의 관련 필드를 확인한다(§4) | 스냅샷에 없는 경로의 응답 전체 바이트는 비교하지 않는다 |
@@ -154,7 +154,7 @@ pytest는 `tests`와 `src/limn`을 수집하고 `tests/support`에서 공용 도
 | 적용 조건 | 모든 변경. CI `lint` 작업이 항상 돈다 |
 | 실행 | `uv sync --group dev` 뒤 `uv run ruff check`, `uv run ruff format --check`, `uv run shellcheck src/limn/administration/instances.sh src/limn/administration/instance_*.sh src/limn/administration/tests/test_instances.sh`. 포매팅이 어긋나면 `uv run ruff format`이 고친다. 두 도구 모두 개발 의존성이라 로컬과 CI가 `uv.lock`의 같은 버전을 쓴다 |
 | 합격 기준 | 세 명령이 0으로 끝난다. 규칙을 끄려면 그 줄에 이유를 적은 주석과 함께 끈다 (예: `# shellcheck disable=SC2016` 위에 이유 한 줄). 포매터를 `# fmt: off`로 끄는 것은 정말 표 모양인 데이터에만 쓴다 |
-| 보장 범위 | 켠 규칙만이다. 규칙 목록과 끈 규칙은 `pyproject.toml`의 `[tool.ruff.lint]`가 정본이고, 끈 이유는 [code-style-roadmap.md](code-style-roadmap.md) §R4에 있다. docstring은 프로덕션 공개 항목과 테스트 모듈·클래스의 누락을 검사하며 private 도우미·테스트 함수·메서드는 제외한다 (§6). 타입은 §9가 본다. 뷰어 JS에는 린터가 없고, §1의 `test_viewer_files`가 node로 문법을, `test_viewer_source`가 토큰으로 죽은 함수·주석에 삼켜진 문장·닫힌 값 표를, `test_viewer_markup`이 HTML 싱크와 `html` 태그 규칙([viewer.md](viewer.md) §마크업 만들기)을 본다 |
+| 보장 범위 | 켠 규칙만이다. 규칙 목록과 끈 규칙은 `pyproject.toml`의 `[tool.ruff.lint]`가 정본이고, 끈 이유는 [code-style-roadmap.md](code-style-roadmap.md) §R4에 있다. docstring은 프로덕션 공개 항목과 테스트 모듈·클래스의 누락을 검사하며 private 도우미·테스트 함수·메서드는 제외한다 (§6). 타입은 §9가 본다. 뷰어 JS에는 린터가 없다. 타입은 §9의 `tsc`가 보고, §1의 `test_viewer_files`가 node로 문법을, `test_viewer_source`가 토큰으로 죽은 함수·주석에 삼켜진 문장·닫힌 값 표를, `test_viewer_markup`이 HTML 싱크와 `html` 태그 규칙([viewer.md](viewer.md) §마크업 만들기)을 본다 |
 
 ## 9. 타입 검사
 
@@ -165,6 +165,16 @@ pytest는 `tests`와 `src/limn`을 수집하고 `tests/support`에서 공용 도
 | 실행 | `uv run mypy` |
 | 합격 기준 | `Success: no issues found`로 끝나야 한다. `type: ignore`는 외부 라이브러리 타입 스텁 부재 등 불가피한 경우에만 이유 주석과 함께 허용한다 |
 | 보장 범위 | 정적 타입 규칙 위반을 잡는다. 런타임 값의 범위나 비즈니스 불변식은 보장하지 않는다(§1 파이썬 테스트가 맡는다) |
+
+뷰어 JS도 같은 절의 게이트다.
+
+| 항목 | 내용 |
+| --- | --- |
+| 측정 대상 | `src/limn/viewer/js/` 조각: 정의되지 않은 이름, 닫힌 값 표에 없는 멤버, 없는 속성 접근, 잘못된 인자 타입([viewer.md](viewer.md) §타입 검사) |
+| 적용 조건 | 뷰어 JS나 `src/limn/viewer/types/`를 바꿀 때. CI `lint` 작업에서 돈다 |
+| 실행 | `npm ci --ignore-scripts` 뒤 `npm run typecheck`(`tsc -p .`). TypeScript 버전은 `package-lock.json`이 정한다 |
+| 합격 기준 | 출력 없이 0으로 끝난다. 타입을 좁히는 JSDoc 캐스트(`/** @type {HTMLElement} */(e.target)`)는 쓰되, `@ts-ignore`·`@ts-expect-error`는 쓰지 않는다 |
+| 보장 범위 | `strict`를 끈 검사다. `null` 검사 누락과 암묵적 `any`는 보지 않고, API 응답의 모양은 선언한 만큼만 본다. 런타임 동작은 §1이 맡는다 |
 
 ## 10. 기능 경계 검사
 

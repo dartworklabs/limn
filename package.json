@@ -1,0 +1,12 @@
+{
+  "name": "limn-viewer-dev",
+  "private": true,
+  "description": "Development tools for the Limn viewer: type checking of its JS parts only. The viewer has no build step and the server installs none of this.",
+  "license": "AGPL-3.0-only",
+  "scripts": {
+    "typecheck": "tsc -p ."
+  },
+  "devDependencies": {
+    "typescript": "7.0.2"
+  }
+}

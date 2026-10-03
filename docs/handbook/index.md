@@ -55,6 +55,7 @@ catalog_schema: 1
 | `tools/check_boundaries.py`, `tests/architecture/test_boundaries.py` | 기능 비공개 접근·기능 쌍/진입점별 import 허용목록·경계 코드의 기능 의존·순환 검사 | import 해석·소유권·검증 규칙 변경 | verification.md, architecture.md |
 | `src/limn/vendor/**` | 번들한 PDF.js와 Lucide | 버전 교체·파일 추가 | viewer.md, 해당 vendor README |
 | `src/limn/**/tests/**`, `tests/**` | 소유 패키지의 동작과 교차 기능 계약·구조 게이트 | 검사 추가·이동·합격 기준 변경 | verification.md |
+| `package.json`, `package-lock.json`, `tsconfig.json`, `src/limn/viewer/types/*` | 뷰어 JS 타입 검사 도구와 그 설정·선언(서버와 휠에 들어가지 않는다) | 검사 범위·도구 버전·전역 선언 변경 | viewer.md, verification.md |
 | `pyproject.toml`, `uv.lock`, `.github/workflows/*`, `.github/dependabot.yml` | 지원 Python·의존성·수집/패키징·병렬 실행·정적 게이트·CI 액션 고정과 갱신 | 실행 환경·검증 구성 변경 | architecture.md, verification.md, workflow.md |
 | `skill/*` | 에이전트 절차의 영어·한국어 계약 | 에이전트 행동 규칙 변경 | api.md와 함께 두 언어 |
 | `docs/handbook/book.json`, `tools/handbook-publish/*` | Handbook 출판 설정과 출판기 | 폰트·도구 버전·출판기 교체 | verification.md |

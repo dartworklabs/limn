@@ -31,8 +31,8 @@ function cancelRepick(){const was=!!REPICK; if(was)PICKSEQ++; if(REPICK&&REPICK.
 // on success it syncs the open editor with the stored pin. Does nothing without a candidate.
 async function applyRepick(){const R=REPICK; if(!R||!R.cand)return; const c=R.cand,lv=lvOf(c,c.default_level)||c;
   const visit=captureVisit(),E=EDITOR.current;
-  let loc={file:c.file,page:c.page,lo:lv.lo,hi:lv.hi,raw_lo:c.raw_lo,raw_hi:c.raw_hi,via:c.via,score:c.score,frac:c.frac,pdf_build:c.pdf_build||undefined,
-    scope:lv.level||null,kind:lv.level?kindFor(lv.level,lv.env):c.kind};
+  let loc=/** @type {Record<string, unknown>} */({file:c.file,page:c.page,lo:lv.lo,hi:lv.hi,raw_lo:c.raw_lo,raw_hi:c.raw_hi,via:c.via,score:c.score,frac:c.frac,pdf_build:c.pdf_build||undefined,
+    scope:lv.level||null,kind:lv.level?kindFor(lv.level,lv.env):c.kind});
   if(!loc.scope)delete loc.scope;
   if(isRegion(c))loc={page:c.page,frac:c.frac,quote:c.quote,pdf_build:c.pdf_build||undefined};   // view-only: only the region is re-placed
   figureFields(loc,repickEl(c),isRegion(c)||!lv.el?null:lv);   // a new loc names its element or none: a loc without el drops the pin's el

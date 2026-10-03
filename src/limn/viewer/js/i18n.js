@@ -51,13 +51,13 @@ function i18nTree(root){if(LANG!==UI_LANG.EN||!root)return;
   while((n=w.nextNode())){if(n.nodeType===3)i18nText(n); else i18nEl(n);}}
 // Checks the current language in [더보기]'s language segment, then in English translates the page once and everything drawn or
 // changed after it (text nodes and UI attributes), leaving user text alone (i18nUser).
-function i18nStart(){for(const r of document.querySelectorAll('#m-lang [role=radio]')){const on=r.dataset.lang===LANG; r.setAttribute('aria-checked',String(on)); r.classList.toggle('on',on);}
+function i18nStart(){for(const r of /** @type {NodeListOf<HTMLElement>} */(document.querySelectorAll('#m-lang [role=radio]'))){const on=r.dataset.lang===LANG; r.setAttribute('aria-checked',String(on)); r.classList.toggle('on',on);}
   if(LANG!==UI_LANG.EN)return; i18nTree(document.body);
   new MutationObserver(ms=>{for(const m of ms){
     if(m.type==='childList')m.addedNodes.forEach(i18nTree);
     else if(m.type==='characterData')i18nText(m.target);
-    else if(m.type==='attributes'&&m.target.nodeType===1&&!i18nUser(m.target)){const v=m.target.getAttribute(m.attributeName);
-      if(v){const e=trMsg(v); if(e!==v)m.target.setAttribute(m.attributeName,e);}}}})
+    else if(m.type==='attributes'&&m.target.nodeType===1&&!i18nUser(m.target)){const el=/** @type {Element} */(m.target),v=el.getAttribute(m.attributeName);
+      if(v){const e=trMsg(v); if(e!==v)el.setAttribute(m.attributeName,e);}}}})
     .observe(document.body,{childList:true,subtree:true,characterData:true,attributes:true,attributeFilter:I18N_ATTRS});}
 // [더보기]'s language segment: saves lang (ko or en) as this device's choice and reloads in it - the tab's draft is kept
 // (sessionStorage). The language on screen does nothing; nothing asks first.

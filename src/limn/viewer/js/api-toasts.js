@@ -8,7 +8,7 @@ async function api(url,o){o=o||{};
   let d=null; try{d=await r.json();}catch(e){}
   if(r.status>=400&&!(o.expect||[]).includes(r.status)){
     if(!o.silent)toast(failed()+' — '+(errText(d)||('HTTP '+r.status)),'err');
-    const err=new Error('HTTP '+r.status); err.status=r.status; err.data=d; throw err;}
+    const err=/** @type {ApiError} */(new Error('HTTP '+r.status)); err.status=r.status; err.data=d; throw err;}
   return {status:r.status,data:d};
 }
 // Toasts (docs/handbook/viewer.md §알림(토스트)): one title line + one faded description line. Text is split into title/description at the first ' — ' (or the first ' · ' if none).
@@ -35,7 +35,7 @@ function toast(msg,kind,action,dd){const literal=!!(dd&&dd.literal); msg=literal
   const [title,desc]=toastSplit(msg);
   setHtml(t,html`${TOAST_IC[kind]()}<div class="t-body"><div class="t-title"></div>${desc?html`<div class="t-desc"></div>`:''}</div><div class="t-acts"></div>`);
   t.querySelector('.t-title').textContent=title; if(desc)t.querySelector('.t-desc').textContent=desc;
-  if(literal)t.querySelector('.t-body').translate=false;
+  if(literal)/** @type {HTMLElement} */(t.querySelector('.t-body')).translate=false;
   const acts=t.querySelector('.t-acts');
   let timer=null; const kill=()=>{clearTimeout(timer);t.remove();hideTip();toastGone(t);};
   const arm=()=>{clearTimeout(timer);timer=setTimeout(kill,6000);};
@@ -57,7 +57,7 @@ function toastGone(t){const g=t&&t._gone; if(g){t._gone=null; g();}}
 // moves into the open modal dialog and back to <body> when it closes.
 function toastHost(){const box=$('#toasts'),d=document.querySelector('dialog[open]:modal'),host=d||document.body;
   if(box.parentNode!==host)host.appendChild(box); return box;}
-document.addEventListener('close',e=>{if(e.target&&e.target.tagName==='DIALOG'){const box=$('#toasts'); if(box.parentNode===e.target)document.body.appendChild(box);}},true);
+document.addEventListener('close',e=>{const d=/** @type {HTMLElement} */(e.target); if(d&&d.tagName==='DIALOG'){const box=$('#toasts'); if(box.parentNode===d)document.body.appendChild(box);}},true);
 // Deferred commit with an undo toast (docs/handbook/viewer.md §알림(토스트)): the change is sent when the toast goes away - after its 6 seconds
 // (paused while hovered), on [x], or when the page is hidden - and [되돌리기] cancels it before anything reaches the server. So an
 // agent never sees a reply or permanent delete that was taken back. The page being hidden or closed sends what is pending (fetch keepalive).

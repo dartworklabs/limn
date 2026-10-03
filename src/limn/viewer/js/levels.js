@@ -56,7 +56,7 @@ function segReveal(seg){const on=seg&&seg.querySelector('.on'); if(!on){segFade(
 // segment (after 'minipage - 43 lines') used to just get clipped with no indication there was more (QA 2026-09-24). The same idea as the document-links row (docLinksFade).
 function segFade(seg){if(!seg)return; const over=seg.scrollWidth-seg.clientWidth;
   seg.classList.toggle('fade-l',over>1&&seg.scrollLeft>1); seg.classList.toggle('fade-r',over>1&&over-seg.scrollLeft>1);}
-document.addEventListener('scroll',e=>{const t=e.target; if(t&&t.classList&&t.classList.contains('seg'))segFade(t);},true);
+document.addEventListener('scroll',e=>{const t=/** @type {HTMLElement} */(e.target); if(t&&t.classList&&t.classList.contains('seg'))segFade(t);},true);
 // Applies rung key to o (the composer's selection or an edit card): its lines, scope and source; a figure rung also selects
 // its element (elSel), which lines later set in the excerpt keep (setLines).
 function useLevel(o,key){const lv=lvOf(o,key); if(!lv)return; o.lo=lv.lo;o.hi=lv.hi;o.scope=lv.level;o.env=lv.env||null;o.snippet=lv.snippet; if(lv.el)o.elSel=lv.el;}

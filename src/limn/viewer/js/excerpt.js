@@ -50,7 +50,7 @@ function excerptFocusTarget(btns,was,o){const at=(act,k)=>btns.find(b=>b.act===a
 // isEdit: an edit card (the composer's [원문 펼치기] unfolds a long band; an edit card's band stays folded). A redraw that
 // takes the focused '+' or '−' puts the focus on its successor (excerptFocusTarget), so a keyboard keeps its place.
 function drawExcerpt(o,box,isEdit){const on=!!o&&!o.region&&!isRegion(o);
-  const f=document.activeElement,had=box.contains(f)&&f.dataset.act?{act:f.dataset.act,line:+f.dataset.line}:null;
+  const f=/** @type {HTMLElement} */(document.activeElement),had=box.contains(f)&&f.dataset.act?{act:f.dataset.act,line:+f.dataset.line}:null;
   box.hidden=!on; if(!on){box.replaceChildren(); return;}
   excerptTake(o,o.snippet); excerptFetch(o);
   const L=excerptLines(o),text=k=>{const t=L.get(k); return t==null?'…':t;};

@@ -15,6 +15,7 @@ class Html{
 // anything else as escaped text (esc()), so false reads "false" (an aria-pressed value), not nothing. Write a
 // condition as c?x:''. Values must sit in element content or a quoted attribute; esc() does not make an unquoted
 // attribute or a URL attribute safe. Called as a function rather than a tag, it throws a TypeError.
+/** @param {TemplateStringsArray} parts @param {...unknown} values @returns {Html} */
 function html(parts,...values){
   if(!Array.isArray(parts)||!Array.isArray(parts.raw))throw new TypeError('html is a template tag: html`...`');
   let out=parts[0];

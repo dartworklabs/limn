@@ -14,7 +14,7 @@ function vecRelease(n){if(VEC.cur&&VEC.cur.n===n)vecCancel(); const s=VEC.st.get
 function vecReleaseAll(){vecCancel(); Array.from(VEC.st.keys()).forEach(vecRelease);}
 function vecCancel(){const c=VEC.cur; VEC.cur=null; if(c&&c.task){try{c.task.cancel();}catch(e){}}}
 function vecObserve(){if(VEC.io)VEC.io.disconnect(); vecReleaseAll(); VEC.near.clear(); if(!window.IntersectionObserver)return;
-  VEC.io=new IntersectionObserver(es=>{es.forEach(en=>{const n=+en.target.dataset.page;
+  VEC.io=new IntersectionObserver(es=>{es.forEach(en=>{const n=+/** @type {HTMLElement} */(en.target).dataset.page;
       if(en.isIntersecting)VEC.near.add(n); else {VEC.near.delete(n); vecRelease(n);}}); vecSchedule(0);},
     {root:$('#left'),rootMargin:VEC_KEEP});
   $$('.pg').forEach(pg=>VEC.io.observe(pg));}

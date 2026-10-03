@@ -6,5 +6,8 @@ build/
 .pytest_cache/
 *.egg-info/
 
+# Viewer type-check tools (package.json); npm ci installs them
+node_modules/
+
 # Handbook publisher: local font and build output
 .handbook/

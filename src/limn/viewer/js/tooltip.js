@@ -31,10 +31,10 @@ document.addEventListener('pointerdown',()=>{document.documentElement.dataset.in
 // Makes the keyboard the input the ring answers when a key press navigates (keyNavigates); a press makes it the pointer (above).
 function inputFromKey(e){if(keyNavigates(e.key,typingNow(),e.ctrlKey||e.metaKey||e.altKey))document.documentElement.dataset.input='key';}
 document.addEventListener('keydown',inputFromKey,true);
-document.addEventListener('mouseover',e=>{if(touchRecent()||MQ_NOHOVER.matches)return; armTip(e.target.closest?e.target.closest('[data-tip]'):null);});
+document.addEventListener('mouseover',e=>{if(touchRecent()||MQ_NOHOVER.matches)return; const t=/** @type {HTMLElement} */(e.target); armTip(t.closest?t.closest('[data-tip]'):null);});
 // A focus tooltip is never shown on an input field (textarea) - it covered the snippet while typing, and the tooltip
 // swallowed the first Esc, so "Esc to cancel -> Ctrl+Enter" ended up saving a pin that was meant to be discarded (observed).
-document.addEventListener('focusin',e=>{const t=e.target;
+document.addEventListener('focusin',e=>{const t=/** @type {HTMLElement} */(e.target);
   if((t&&t.tagName==='TEXTAREA')||touchRecent()||MQ_NOHOVER.matches){if(Date.now()>=SWALLOW_CLICK)hideTip();return;}
   armTip(t.closest?t.closest('[data-tip]'):null);});
 // Long-press tooltip (touch/pen): holding for 500ms shows the description, and the one click after release is swallowed (so the button doesn't fire).
@@ -55,7 +55,7 @@ document.addEventListener('click',e=>{if(Date.now()<SWALLOW_CLICK){SWALLOW_CLICK
 // Inside that window a touch's compatibility mousedown must not move focus either: after a quick pick opened the sheet under
 // the finger it focused the note field and raised the virtual keyboard (input review 2026-09-26, s12_seltap).
 document.addEventListener('mousedown',e=>{if(Date.now()<SWALLOW_CLICK&&LAST_PTR!=='mouse')e.preventDefault();},true);
-document.addEventListener('contextmenu',e=>{if(LAST_PTR==='mouse')return; const t=e.target;
+document.addEventListener('contextmenu',e=>{if(LAST_PTR==='mouse')return; const t=/** @type {HTMLElement} */(e.target);
   if(t&&t.closest&&(t.closest('.pg')||pressTarget(t)))e.preventDefault();});
 document.addEventListener('input',hideTip,true);
 document.addEventListener('focusout',hideTip);

@@ -10,10 +10,10 @@ $('#help').addEventListener('close',()=>{if(HELP_BACK&&HELP_BACK.focus)HELP_BACK
 function openTappedCard(t){const c=t&&t.closest&&t.closest('.pin.card:not(.open):not(.editing)');
   if(!c||LAYOUT===LAYOUT_MODE.WIDE||t.closest('[data-copy],button,input,textarea'))return;
   OPEN_CARDS.add(+c.dataset.id); drawPins();}
-document.addEventListener('click',e=>{
-  const cp=e.target.closest('[data-copy]'); if(cp){copyText(cp.dataset.copy);return;}
-  const a=e.target.closest('[data-act]'); if(!a){openTappedCard(e.target); return;}
-  const host=a.closest('[data-id]'),id=host?+host.dataset.id:null,inEdit=!!a.closest('.edit');
+document.addEventListener('click',e=>{const target=/** @type {HTMLElement} */(e.target);
+  const cp=/** @type {HTMLElement} */(target.closest('[data-copy]')); if(cp){copyText(cp.dataset.copy);return;}
+  const a=/** @type {HTMLElement} */(target.closest('[data-act]')); if(!a){openTappedCard(target); return;}
+  const host=/** @type {HTMLElement} */(a.closest('[data-id]')),id=host?+host.dataset.id:null,inEdit=!!a.closest('.edit');
   const fromMore=!!a.closest('#more');
   if(fromMore&&(a.dataset.close||a.dataset.act==='help'))$('#more').close();
   if(a.closest('#status-list'))$('#status-list').close();   // a row's action folds the status list
@@ -95,7 +95,7 @@ $('#revision-list').addEventListener('change',e=>{if(e.target.id==='revision-sel
 $('#revision-file').addEventListener('change',renderRevisionFile);
 document.addEventListener('keydown',e=>{
   if(e.isComposing||e.keyCode===229)return;
-  const t=e.target,inField=t&&(t.tagName==='TEXTAREA'||t.tagName==='INPUT'||t.tagName==='SELECT'||t.isContentEditable);
+  const t=/** @type {HTMLElement} */(e.target),inField=t&&(t.tagName==='TEXTAREA'||t.tagName==='INPUT'||t.tagName==='SELECT'||t.isContentEditable);
   // Ctrl(Cmd) + = / - / 0 zooms/fits just the PDF page instead of the browser zoom. Left to the browser inside an input field.
   if((e.ctrlKey||e.metaKey)&&!e.altKey&&!inField){const z=zoomKey(e);
     if(z){e.preventDefault(); if(z==='fit')fitW(); else zoom(z==='in'?1:-1); return;}}

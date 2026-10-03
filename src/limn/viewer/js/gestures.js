@@ -196,7 +196,7 @@ function syncBackLayer(){const want=MQ_COARSE.matches&&!!backLayer(BAND,MID_OVER
 for(const d of $$('#nav-sheet,#more,#help,#trash,#status-list'))new MutationObserver(()=>syncBackLayer()).observe(d,{attributes:true,attributeFilter:['open']});
 // Stands one CloseWatcher for the open layer, or pushes one history entry (same URL) where CloseWatcher is missing.
 function armBack(){
-  if(window.CloseWatcher){try{const w=new CloseWatcher(); BACK={kind:'watcher',w}; w.onclose=()=>{if(BACK&&BACK.w===w){BACK=null; closeTopLayer();}}; return;}catch(e){}}
+  if(window.CloseWatcher){try{const w=new window.CloseWatcher(); BACK={kind:'watcher',w}; w.onclose=()=>{if(BACK&&BACK.w===w){BACK=null; closeTopLayer();}}; return;}catch(e){}}
   history.pushState({limnLayer:1},'',location.href); BACK={kind:'history'};}
 // Removes the layer without closing anything: destroys the watcher, or pops our entry (that popstate is skipped).
 function disarmBack(){const b=BACK; BACK=null;
@@ -204,11 +204,11 @@ function disarmBack(){const b=BACK; BACK=null;
   if(history.state&&history.state.limnLayer){BACK_SKIP=true; history.back();}}
 // The back gesture's action: close the open sheet dialog or the outline overlay, or collapse the sheet or overlay panel
 // (remembered, with the slide).
-function closeTopLayer(){const d=sheetDialog(),k=backLayer(BAND,MID_OVERLAY,SIDE_OPEN,OUTLINE_MID_OPEN,!!d);
+function closeTopLayer(){const d=/** @type {HTMLDialogElement} */(sheetDialog()),k=backLayer(BAND,MID_OVERLAY,SIDE_OPEN,OUTLINE_MID_OPEN,!!d);
   if(k==='dialog')d.close(); else if(k==='outline')toggleOutline(); else if(k==='side'){setSide(false,true,true); focusSideToggle();}}
 window.addEventListener('popstate',()=>{const ours=BACK_SKIP||(BACK&&BACK.kind==='history'); if(!ours)return;
   if(DOC)setHash(DOC);   // the entry below may carry an older #doc= - the document on screen stays
   if(BACK_SKIP){BACK_SKIP=false; return;} BACK=null;
-  const d=document.querySelector('dialog[open]'); if(d){d.close(); syncBackLayer(); return;}   // a dialog over the sheet closes first
+  const d=/** @type {HTMLDialogElement} */(document.querySelector('dialog[open]')); if(d){d.close(); syncBackLayer(); return;}   // a dialog over the sheet closes first
   closeTopLayer();});
 

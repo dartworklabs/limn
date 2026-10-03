@@ -724,7 +724,9 @@ class FrontendMobileStructure(unittest.TestCase):
     def test_touch_does_not_autofocus_note_or_pop_hover_tips(self):
         m = re.search(r"async function pick\(r\)\{(.*?)\n\}", HTML, re.S)
         self.assertIn("if(LAST_PTR==='mouse')$('#note').focus(", m.group(1))
-        self.assertIn("if(touchRecent()||MQ_NOHOVER.matches)return; armTip(", HTML)
+        self.assertIn(
+            "if(touchRecent()||MQ_NOHOVER.matches)return; const t=/** @type {HTMLElement} */(e.target); armTip(", HTML
+        )
         # devices without hover don't show the focus tooltip either (QA phone: the tooltip stayed stuck over the list after a tap). The card as a whole gets no tooltip.
         self.assertIn("||touchRecent()||MQ_NOHOVER.matches){if(Date.now()>=SWALLOW_CLICK)hideTip();return;}", HTML)
         self.assertNotIn("data-doc=\"'+esc(pdoc(p))+'\" data-tip=\"'+tip+'\"", extract_js_fn("card"))
@@ -2412,7 +2414,7 @@ class FrontendDocs(unittest.TestCase):
         i = body.index("if(multiDoc()&&!inField){")
         self.assertIn("e.key==='PageUp'||e.key==='PageDown'", body[i:])
         self.assertIn("/^Digit[1-9]$/.test(e.code||'')", body[i:])
-        self.assertLess(body.index("const t=e.target,inField="), i)
+        self.assertLess(body.index("const t=/** @type {HTMLElement} */(e.target),inField="), i)
 
     def test_view_memory_and_pdfjs_cache_are_bounded(self):
         self.assertIn("const VEC_CACHE_MAX=3;", HTML)

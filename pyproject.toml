@@ -39,7 +39,7 @@ path = "src/limn/__init__.py"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/limn"]
-exclude = ["**/tests/**", "**/test_*.py"]
+exclude = ["**/tests/**", "**/test_*.py", "src/limn/viewer/types/**"]
 
 [tool.hatch.build.targets.sdist]
 include = ["src/limn", "tests", "tools", "docs", "skill", "README.md", "README.ko.md", "LICENSE", "NOTICE", "THIRD_PARTY_NOTICES.md"]
