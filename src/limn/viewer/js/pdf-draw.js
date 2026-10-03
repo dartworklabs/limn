@@ -76,7 +76,7 @@ async function vecRun(job){
   VEC.cur={n,task};
   try{await task.promise;}
   catch(e){if(VEC.cur&&VEC.cur.task===task)VEC.cur=null; vecDrop(cv);
-    if(e&&e.name==='RenderingCancelledException')return;
+    if(e&&/** @type {Error} */(e).name==='RenderingCancelledException')return;
     if(gen===VEC.gen)vecFail('쪽을 그리지 못했습니다',e); return;}
   if(VEC.cur&&VEC.cur.task===task)VEC.cur=null;
   const t2=gen===VEC.gen&&VEC.near.has(n)&&document.contains(pg)?vecTargetOf(pg):null;

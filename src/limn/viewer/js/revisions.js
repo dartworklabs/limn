@@ -99,7 +99,7 @@ async function loadRevisions(){
   showRevision(data.revisions.some(r=>r.id===REV.commit)?REV.commit:data.revisions[0].id);
 }
 async function showRevision(id,format){
-  const seq=++REV.seq,k=DOC;REV.commit=id;REV.sourceCommit='';REV.pdfCommit='';clearRevisionPdf();
+  ++REV.seq;REV.commit=id;REV.sourceCommit='';REV.pdfCommit='';clearRevisionPdf();
   const select=$('#revision-select');if(select)select.value=id;
   REV.scope=null;REV_SCOPE.whole=REV_SCOPE.partial=REV_SCOPE.fallback=false;drawRevisionOther(null);
   $('#revision-diff').textContent='';$('#revision-file-row').hidden=true;$('#revision-warning').hidden=true;
@@ -234,7 +234,7 @@ async function loadRevisionPdf(id,seq,k){
     else for(const el of box.querySelectorAll('.revision-page'))renderRevisionPage(el,pdf,seq,k,id);
     if(REV.target&&REV.target.page){const el=box.querySelector('.revision-page[data-page="'+Math.min(REV.target.page,pdf.numPages)+'"]'); if(el)el.scrollIntoView({block:'start'}); revTargetNote();}
   }catch(e){if(revisionCurrent(seq,k,id)){
-    statusBox.textContent=tl('비교 PDF: {error} 소스 diff에서 변경 내용을 확인할 수 있습니다.',{error:e&&e.message?e.message:tr('표시하지 못했습니다.')});
+    statusBox.textContent=tl('비교 PDF: {error} 소스 diff에서 변경 내용을 확인할 수 있습니다.',{error:e&&/** @type {Error} */(e).message?/** @type {Error} */(e).message:tr('표시하지 못했습니다.')});
   }}
 }
 async function renderRevisionPage(el,pdf,seq,k,id){
