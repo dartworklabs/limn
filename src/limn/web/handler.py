@@ -30,6 +30,19 @@ from limn.web.reply import Reply, json_reply as _json_reply
 from limn.web.routes import GetRequest, OtherPostRequest, PinActionRequest, PostDocRequest
 
 MAX_BODY = 1 << 20
+INTERNAL_ERROR = "서버 내부 오류"  # the 500 sentence; the contract of its two forms is internal_error_body's
+
+
+def internal_error_body(principal: Principal | None, error: BaseException) -> Json:
+    """The 500 body of an unexpected exception (docs/handbook/api.md §오류 응답), reason `internal` either way.
+
+    An admitted principal whose role may read the exception (Principal.sees_error_detail: owner, editor, agent) gets
+    `서버 내부 오류: <exception text>`. A viewer, and a request that failed before it was admitted (principal None:
+    an exception while its identity was resolved or admitted), get the fixed `서버 내부 오류` - the closed default,
+    since the text can name state paths. Pure: the caller logs the traceback and sends the body."""
+    if principal is not None and principal.sees_error_detail():
+        return {"error": "%s: %s" % (INTERNAL_ERROR, error), "reason": "internal"}
+    return {"error": INTERNAL_ERROR, "reason": "internal"}
 
 
 class Server(ThreadingHTTPServer):
@@ -65,6 +78,7 @@ class Handler(BaseHTTPRequestHandler):
 
     app: ClassVar[WebApplication]
     principal: Principal
+    _admitted: Principal | None  # this request's principal once _guard admits it; None before (reset per request)
     _raw: bytes
 
     def log_message(self, format: str, *args: Any) -> None:  # noqa: A002 - the base class's parameter name
@@ -199,14 +213,15 @@ class Handler(BaseHTTPRequestHandler):
             )
 
     def _guard(self) -> Json:
-        """Every request: read the body, check Host/Origin, identify (401), admit (403). Leaves the principal on
-        self.principal and returns its actor (what pins record)."""
+        """Every request: read the body, check Host/Origin, identify (401), admit (403). Leaves the admitted principal
+        on self.principal and self._admitted (what a 500 body is chosen by) and returns its actor (what pins record)."""
         self._read_raw()
         self._check_origin()
         peer = self.client_address[0] if isinstance(self.client_address, tuple) and self.client_address else ""
         p = self.app.guards.identify(self.headers, peer)
         self.app.guards.admit(p, self.headers.get("Host"), self.headers)
         self.principal = p
+        self._admitted = p
         return p.actor
 
     def _record(self, actor: Json) -> None:
@@ -236,8 +251,11 @@ class Handler(BaseHTTPRequestHandler):
 
     def _run(self, fn: Callable[[], None]) -> None:
         """Runs one request handler and turns its refusal into the response: HTTPError as is (the answers raise it for
-        every refused outcome), a dropped connection silently, anything else as a 500 with the traceback on stderr. A
-        browser opening / gets an HTML page instead of JSON."""
+        every refused outcome), a dropped connection silently, anything else as a 500 with the traceback on stderr and
+        the body internal_error_body chooses for this request's admitted principal - none until _guard admits one,
+        so a failure while identifying gets the fixed sentence, and a keep-alive connection's earlier request never
+        lends its principal. A browser opening / gets an HTML page instead of JSON."""
+        self._admitted = None
         try:
             fn()
         except HTTPError as err:
@@ -247,7 +265,7 @@ class Handler(BaseHTTPRequestHandler):
         except Exception as e:  # noqa: BLE001 — reports as JSON instead of dropping the connection
             traceback.print_exc(file=sys.stderr)
             try:
-                self._json({"error": "서버 내부 오류: %s" % e, "reason": "internal"}, 500)
+                self._json(internal_error_body(self._admitted, e), 500)
             except OSError:
                 self.close_connection = True
 

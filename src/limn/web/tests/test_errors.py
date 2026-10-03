@@ -1,7 +1,8 @@
 """API error bodies: every refusal carries a stable `reason` code next to the Korean `error` text.
 
 The Korean `error` text is part of the agent contract and must not change by a byte; `reason` is additive
-(docs/handbook/api.md §오류 응답). The viewer shows English in en mode by looking the reason up in its message
+(docs/handbook/api.md §오류 응답). The one role-dependent text is the 500 of an unexpected exception: a viewer, and a
+request that fails before it is admitted, get the fixed sentence without the exception text (issue #140). The viewer shows English in en mode by looking the reason up in its message
 table (`reason:<code>` in src/limn/viewer/ui_en.json) and falls back to the server text (docs/handbook/viewer.md). A
 person who is not a member gets a readable HTML page instead of JSON (ErrorPage, v0.2.1 QA).
 
@@ -9,6 +10,8 @@ Run: uv run pytest -q src/limn/web/tests/test_errors.py
 """
 
 import ast
+import contextlib
+import io
 import json
 import re
 import typing
@@ -24,12 +27,14 @@ from limn.pins.location.http import PICK_REFUSALS
 from limn.pins.location.service import PinLocationService
 from limn.revisions import core as revisions
 from limn.revisions.answer import REVISION_FAILURES, SCOPE_REJECTIONS, scope_http_error
+from limn.security.access import Principal
+from limn.security.application import SecurityApplication
 from limn.security.guidance import UNAUTHENTICATED
 from limn.web import handler as web_handler
 from limn.web.errors import HTTPError, InputRejected
 
 from helpers import UI_EN, extract_js_fn, ps, req, run_node, set_config, split_resp
-from helpers_access import BOB, CAROL, AccessBase, talk_to
+from helpers_access import A_LOGIN, ALICE, B_LOGIN, BOB, CAROL, AccessBase, talk_to, token_create
 
 # The modules that build error bodies or statuses: server.py, the services moved out of it (limn/revisions/core.py: the
 # comparison worker's own "build_failed" status; limn/revisions/scope.py, limn/runtime/documents.py: the refusal values), the access boundary (limn/security/access.py: identify,
@@ -305,14 +310,113 @@ class RefusalBodies(AccessBase):
         self.assertEqual((code, d["reason"], d["pdf_build_gone"]), (404, "pdf_missing", False))
         self.assertTrue(d["error"].startswith("그 빌드의 PDF 가 없습니다"))
 
-    def test_internal_error(self):
-        """An unexpected exception is a 500 with the same text and reason internal."""
+    def overlaps_raising(self, text, headers=None, token=None):
+        """GET /api/overlaps as the given identity while the overlap lookup raises RuntimeError(text) ->
+        (status, body, what the server wrote to stderr)."""
+        err = io.StringIO()
         with (
-            mock.patch.object(PinLocationService, "overlaps", side_effect=RuntimeError("boom")),
-            mock.patch.object(web_handler.traceback, "print_exc"),
+            mock.patch.object(PinLocationService, "overlaps", side_effect=RuntimeError(text)),
+            contextlib.redirect_stderr(err),
         ):
-            code, d = self.call("GET", "/api/overlaps?file=%s&lo=1&hi=2" % self.main)
-        self.assertEqual((code, d), (500, {"error": "서버 내부 오류: boom", "reason": "internal"}))
+            code, d = self.call("GET", "/api/overlaps?file=%s&lo=1&hi=2" % self.main, headers=headers, token=token)
+        return code, d, err.getvalue()
+
+    def role_of(self, headers=None, token=None):
+        """The role GET /api/meta reports for the given identity (its `me`), so a case knows whom it exercises."""
+        code, d = self.call("GET", "/api/meta", headers=headers, token=token)
+        self.assertEqual(code, 200, d)
+        return d["me"]["role"]
+
+    def test_internal_error(self):
+        """An unexpected exception is a 500 with the same text and reason internal for every role that may read the
+        exception: the owner, an editor and an agent (the loopback agent and a token) all get `서버 내부 오류: boom`."""
+        self.set_people(
+            [
+                {"login": A_LOGIN, "name": "Alice", "role": "owner"},
+                {"login": B_LOGIN, "name": "Bob", "role": "editor"},
+            ]
+        )
+        _, tok = token_create(ps.APP.C.state, "ci")
+        for role, headers, token in (
+            ("owner", ALICE, None),
+            ("editor", BOB, None),
+            ("agent", None, None),
+            ("agent", None, tok),
+        ):
+            with self.subTest(role=role, token=token is not None):
+                self.assertEqual(self.role_of(headers, token), role)
+                code, d, _ = self.overlaps_raising("boom", headers, token)
+                self.assertEqual((code, d), (500, {"error": "서버 내부 오류: boom", "reason": "internal"}))
+
+    def test_a_viewer_gets_the_fixed_internal_error_without_the_exception_text(self):
+        """Issue #140: a view-only principal - the viewer role, an unknown role value (closed to viewer) and anyone a
+        header admits while people.json cannot be read - gets the fixed `서버 내부 오류`; the exception text, which can
+        name a state path, reaches only stderr with its traceback."""
+        cases = {
+            "viewer role": '{"version": 1, "people": [{"login": "bob@example.com", "name": "Bob", "role": "viewer"}]}',
+            "unknown role": '{"version": 1, "people": [{"login": "bob@example.com", "name": "Bob", "role": "admin"}]}',
+            "unreadable people.json": '{"version": 1, "people": [',
+        }
+        for case, people in cases.items():
+            with self.subTest(case):
+                ps.APP.C.people_file.write_text(people, encoding="utf-8")
+                self.assertEqual(self.role_of(BOB), "viewer")
+                code, d, err = self.overlaps_raising("cannot read /state/pins.jsonl", BOB)
+                self.assertEqual((code, d), (500, {"error": "서버 내부 오류", "reason": "internal"}))
+                self.assertIn("Traceback", err)
+                self.assertIn("RuntimeError: cannot read /state/pins.jsonl", err)
+
+    def test_a_failure_before_the_role_is_known_gets_the_fixed_internal_error(self):
+        """An exception while the request's identity is still being resolved (here: reading people.json's roles) is
+        the closed default: the fixed `서버 내부 오류`, never the exception text; stderr still has the traceback."""
+        err = io.StringIO()
+        with (
+            mock.patch.object(
+                SecurityApplication, "people_roles", side_effect=RuntimeError("cannot read /state/people.json")
+            ),
+            contextlib.redirect_stderr(err),
+        ):
+            code, d = self.call("GET", "/api/pins", headers=BOB)
+        self.assertEqual((code, d), (500, {"error": "서버 내부 오류", "reason": "internal"}))
+        self.assertIn("RuntimeError: cannot read /state/people.json", err.getvalue())
+
+    def test_a_reused_connection_does_not_lend_the_previous_requests_role_to_a_failure(self):
+        """Keep-alive: after an agent's request succeeds on a connection, the next request on it that fails before its
+        own role is known still gets the fixed sentence - the earlier request's role does not carry over."""
+        first = req("GET", "/api/version")
+        second = req("GET", "/api/pins", b"", BOB)
+        with (
+            mock.patch.object(
+                SecurityApplication, "people_roles", side_effect=RuntimeError("cannot read /state/people.json")
+            ),
+            contextlib.redirect_stderr(io.StringIO()),
+        ):
+            out = talk_to(ps, first + second)
+        self.assertEqual(split_resp(out)[0], 200)
+        code, _, body = split_resp(out[out.rindex(b"HTTP/1.1 ") :])
+        self.assertEqual((code, json.loads(body)), (500, {"error": "서버 내부 오류", "reason": "internal"}))
+
+
+class InternalErrorBody(unittest.TestCase):
+    """internal_error_body(): the pure choice of the 500 sentence from the admitted principal (issue #140)."""
+
+    def test_the_sentence_follows_the_admitted_principals_role(self):
+        """owner, editor and agent read the exception text; viewer and a request not yet admitted (None) get the
+        fixed sentence; the reason is internal for all."""
+        actor = {"login": "alice@example.com", "name": "Alice"}
+        error = RuntimeError("cannot read /state/pins.jsonl")
+        detail = {"error": "서버 내부 오류: cannot read /state/pins.jsonl", "reason": "internal"}
+        fixed = {"error": "서버 내부 오류", "reason": "internal"}
+        cases = [
+            (Principal(actor, "owner", "header"), detail),
+            (Principal(actor, "editor", "header"), detail),
+            (Principal(actor, "agent", "token"), detail),
+            (Principal(actor, "viewer", "header"), fixed),
+            (None, fixed),
+        ]
+        for principal, want in cases:
+            with self.subTest(role=None if principal is None else principal.role):
+                self.assertEqual(web_handler.internal_error_body(principal, error), want)
 
 
 class ErrText(unittest.TestCase):
