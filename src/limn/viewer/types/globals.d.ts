@@ -29,6 +29,12 @@ interface HTMLElement {
   _mentions?: Set<string>;
 }
 
+// A notification's buttons (notify.js), which the DOM library leaves out of NotificationOptions though the service
+// worker's showNotification() takes them.
+interface NotificationOptions {
+  actions?: { action: string; title: string }[];
+}
+
 // An api() failure (api-toasts.js): the HTTP status and the parsed body ride on the Error.
 interface ApiError extends Error {
   status?: number;

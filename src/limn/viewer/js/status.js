@@ -4,7 +4,7 @@
 // a short text in the short band's top row and the middle of the mid action row (#status-slot). The desktop (wide) keeps
 // its status chips (#bar2) and draws no line. The line is the compact face of those chips: whenever one of them changes
 // (a MutationObserver on #bar2) it is drawn again from the state they come from.
-let STATUS_SYNC=null,STATUS_SIG='';   // the last meta `sync`; the drawn item's kind, action and count
+let STATUS_SYNC=/** @type {SyncStatus|null} */(null),STATUS_SIG='';   // the last meta `sync`; the drawn item's kind, action and count
 const STATUS_TRANSIENT_MS=6000;   // a passing answer (no changes) stays on the line as long as a toast stays (api-toasts.js)
 
 // A build's countable progress {done, total}: integers with total > 0 and 0 <= done <= total, else null - as if the field were
@@ -121,7 +121,7 @@ function drawStatus(){const box=$('#status'),sr=box.querySelector('.st-sr'),body
 function drawStatusList(list){setHtml($('#status-list-rows'),html`${list.map(it=>{const t=statusText(it,'long');
   return html`<div class="st-row">${statusIcon(it)}<span class="st-row-t">${t[0]+t[1]}</span>${statusAct(it)}</div>`;})}`);}
 // [이유] of blocked main sync: the reason's sentence as a warning toast.
-function statusWhy(){const s=STATUS_SYNC||{}; toast(tr('main 동기화 막힘')+' — '+tr(SYNC_REASON[s.reason]||s.reason||'')+' · '+tr('기존 PDF가 보일 수 있습니다'),'warn');}
+function statusWhy(){const s=STATUS_SYNC||/** @type {SyncStatus} */({}); toast(tr('main 동기화 막힘')+' — '+tr(SYNC_REASON[s.reason]||s.reason||'')+' · '+tr('기존 PDF가 보일 수 있습니다'),'warn');}
 // Opens the '+N' list just over the status line (under it in the short band's top row), or folds it on a second press.
 function toggleStatusList(){const d=$('#status-list'); if(d.open){d.close(); return;}
   drawStatusList(statusList(statusInput())); const r=$('#status').getBoundingClientRect(),short=BAND===LAYOUT_BAND.SHORT;

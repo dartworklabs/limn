@@ -6,7 +6,7 @@
 // the pin number, so the same pin collapses into one slot. If the tab is visible and focused, a toast is shown instead of a notification.
 // This only works in a secure context (an https tailnet address, or http://127.0.0.1/localhost) - the browser blocks plain http on other hosts.
 const NOTIFY_RANK={dropped:6,assigned:5,mention:4,reopened:3,review_requested:2,replied:1};
-let SW_REG=null;
+let SW_REG=/** @type {ServiceWorkerRegistration|null} */(null);
 function notifySupported(){return !!(window.isSecureContext&&'serviceWorker' in navigator&&'Notification' in window);}
 function notifyPerm(){return 'Notification' in window?Notification.permission:'unsupported';}
 function notifyOn(){return !!prefs().notify&&notifySupported()&&notifyPerm()==='granted';}

@@ -12,7 +12,7 @@ const SEC_DEFAULT={open:true,review:true,done:false};
 function secState(saved){const o=Object.assign({},SEC_DEFAULT); if(saved&&typeof saved==='object')for(const k in SEC_DEFAULT)if(typeof saved[k]==='boolean')o[k]=saved[k]; return o;}
 function secNewCount(seen,ids){if(!seen)return 0; return ids.filter(id=>!seen.has(id)).length;}
 let SEC=secState(prefs().sec);
-const SEC_SEEN={open:null,review:null,done:null};
+const SEC_SEEN={open:/** @type {Set<number>|null} */(null),review:/** @type {Set<number>|null} */(null),done:/** @type {Set<number>|null} */(null)};
 
 const THEMES=['system','light','dark'],THEME_NAME={system:'시스템',light:'밝게',dark:'어둡게'};
 // Applies the saved theme (system, light or dark; light by default): the page's data-theme and [더보기]'s theme segments - the

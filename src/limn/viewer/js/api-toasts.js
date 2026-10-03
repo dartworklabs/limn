@@ -38,7 +38,7 @@ function toast(msg,kind,action,dd){const literal=!!(dd&&dd.literal); msg=literal
   t.querySelector('.t-title').textContent=title; if(desc)t.querySelector('.t-desc').textContent=desc;
   if(literal)/** @type {HTMLElement} */(t.querySelector('.t-body')).translate=false;
   const acts=t.querySelector('.t-acts');
-  let timer=null; const kill=()=>{clearTimeout(timer);t.remove();hideTip();toastGone(t);};
+  let timer=/** @type {ReturnType<typeof setTimeout>|undefined} */(undefined); const kill=()=>{clearTimeout(timer);t.remove();hideTip();toastGone(t);};
   const arm=()=>{clearTimeout(timer);timer=setTimeout(kill,6000);};
   if(action){const b=document.createElement('button');b.className='btn-sm';b.textContent=action.label;b.dataset.tip=action.tip||T.undo;
     b.addEventListener('click',()=>{t._gone=null;kill();action.fn();});acts.appendChild(b);}

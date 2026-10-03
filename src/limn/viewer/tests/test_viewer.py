@@ -1339,7 +1339,7 @@ class FrontendPanelTidyStructure(unittest.TestCase):
         tag = re.search(r'<div id="grip"[^>]*>', HTML).group(0)
         for part in ('role="separator"', 'aria-orientation="vertical"', 'tabindex="0"', 'aria-controls="right"'):
             self.assertIn(part, tag)
-        self.assertIn("$('#grip'); let D=null;", HTML)
+        self.assertIn("(function(){const g=$('#grip');\n  let D=/** @type {", HTML)  # the handle's own drag state
         self.assertIn("g.setPointerCapture(e.pointerId)", HTML)
         self.assertNotIn("$('#grip').addEventListener('mousedown'", HTML)  # no old mouse-only path remains
         self.assertNotIn("body.compact #grip{display:none}", HTML)  # still visible in mid too

@@ -10,8 +10,10 @@
 // No text-selection layer is added - since dragging means selecting a region, it would conflict with text selection.
 const PDFJS_V='__PDFJS_VERSION__';
 const VEC_PIX_CAP=16777216, VEC_KEEP='150% 0px', VEC_DT_MARGIN=0.25;
-const VEC={lib:null,doc:null,build:null,gen:0,failed:null,io:null,near:new Set(),st:new Map(),cur:null,
-  pumping:false,timer:0,stats:[],tFirst:null,tDoc:null,cache:new Map()};
+// PDF.js has no type declarations here, so its library, document and render task are `any`.
+const VEC={lib:/** @type {any} */(null),doc:/** @type {any} */(null),build:/** @type {string|null} */(null),gen:0,failed:/** @type {string|null} */(null),
+  io:/** @type {IntersectionObserver|null} */(null),near:new Set(),st:new Map(),cur:/** @type {{n:number,task:any}|null} */(null),
+  pumping:false,timer:0,stats:[],tFirst:/** @type {number|null} */(null),tDoc:/** @type {number|null} */(null),cache:new Map()};
 // Multiple documents: holds up to VEC_CACHE_MAX recently opened PDF document objects keyed by 'document|build' - switching tabs back
 // draws immediately without re-fetching. Beyond that, the least recently used is closed first (worker memory). An old build of the same document is closed when a new build opens.
 const VEC_CACHE_MAX=3;

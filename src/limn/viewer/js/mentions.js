@@ -2,7 +2,7 @@
 // Typing '@' in the note/edit/reply field shows known people (PEOPLE, excluding me). Picking one inserts '@name ' and
 // remembers that login on the field (ta._mentions), carried as a hint (mentions) when sending - the server re-resolves
 // it from the text (dropped if the name was deleted from the text). There is no external notification.
-const MENTION={ta:null,start:0,items:[],sel:0};
+const MENTION={ta:/** @type {HTMLTextAreaElement|null} */(null),start:0,items:/** @type {PersonSeen[]} */([]),sel:0};
 function mentionQuery(ta){const pos=ta.selectionStart; if(pos==null||pos!==ta.selectionEnd)return null;
   const m=/(^|[^\p{L}\p{N}._@-])@([^\s@]{0,30})$/u.exec(ta.value.slice(0,pos)); return m?{start:pos-m[2].length-1,q:m[2]}:null;}
 function mentionMatches(q,people,meLogin){q=String(q||'').toLowerCase();
@@ -22,9 +22,9 @@ function mentionClose(){MENTION.ta=null; $('#mention-pop').hidden=true;}
 // known before saving whether a tag will actually become a notification. It is the server's resolve_mentions() step for
 // step (tests/viewer/test_mentions_parity.py runs one corpus through both): hit is what the server records, in first-seen order.
 function mentionScan(text,hints){text=String(text||''); const toks=mentionTokens(PEOPLE);
-  const hit=[],bad=[],low=text.toLowerCase(),hs=hints||new Set(); let first=null;
+  const hit=[],bad=[],low=text.toLowerCase(),hs=hints||new Set(); let first=/** @type {string|null} */(null);
   for(let i=0;i<text.length;i++){if(text[i]!=='@'||mentionAfterWord(text,i))continue;
-    const rest=low.slice(i+1); let got=null;
+    const rest=low.slice(i+1); let got=/** @type {string[]|null} */(null);
     for(const x of toks){if(!rest.startsWith(x.t))continue;
       const nx=rest.charAt(x.t.length); if(/[a-z0-9]$/.test(x.t)&&/[a-z0-9_]/.test(nx))continue;
       const pick=x.lg.length===1?x.lg:x.lg.filter(l=>hs.has(l)); if(pick.length){got=pick;break;}}

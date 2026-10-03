@@ -60,7 +60,7 @@ document.addEventListener('scroll',e=>{const t=/** @type {HTMLElement} */(e.targ
 // Applies rung key to o (the composer's selection or an edit card): its lines, scope and source; a figure rung also selects
 // its element (elSel), which lines later set in the excerpt keep (setLines).
 function useLevel(o,key){const lv=lvOf(o,key); if(!lv)return; o.lo=lv.lo;o.hi=lv.hi;o.scope=lv.level;o.env=lv.env||null;o.snippet=lv.snippet; if(lv.el)o.elSel=lv.el;}
-let snipT=null;
+let snipT=/** @type {ReturnType<typeof setTimeout>|undefined} */(undefined);
 // Refreshes the text of a range set in the excerpt only while its selection still owns the visit or its edit card survives.
 function refetchSnip(o,after){const visit=captureVisit(); clearTimeout(snipT); snipT=setTimeout(async()=>{
   try{const {data}=await api(dq('/api/snippet?file='+encodeURIComponent(o.file)+'&lo='+o.lo+'&hi='+o.hi,o.doc),{what:'원문 읽기'});

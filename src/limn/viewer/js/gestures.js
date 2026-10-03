@@ -7,7 +7,8 @@
 // A collapsed wide panel leaves the handle as a 6px rail at the right edge: dragging it left past half the minimum opens
 // the panel at the minimum and then follows; a double-click (a tap on touch) opens it at the saved width. A tap on an open
 // handle (double-click with a mouse) cycles the presets. Keys follow gripKey() (WAI-ARIA window splitter).
-(function(){const g=$('#grip'); let D=null;
+(function(){const g=$('#grip');
+  let D=/** @type {{id:number,x:number,w:number,rail:boolean,moved:boolean,mouse:boolean,zone:string|null}|null} */(null);
   // The drag's cues: the handle turns primary once it stops at the minimum; the collapse preview fades the panel's contents
   // (never #right itself - see §펼친 화면 레이아웃) and the blocked zone shows not-allowed.
   const cue=(zone,rail)=>{const b=document.body; g.classList.toggle('snap-min',!!zone&&zone!=='follow'&&!(rail&&(zone==='collapse'||zone==='blocked')));
@@ -45,7 +46,8 @@
     else{if(!SIDE_OPEN)setSide(true,true,true); setSideWidth(k.w);}});
 })();
 // Outline width is independent of the right work panel's handle. While dragging, only the width changes; the PDF position is restored when it ends.
-(function(){const g=$('#outline-grip');let D=null;
+(function(){const g=$('#outline-grip');
+  let D=/** @type {{id:number,x:number,w:number}|null} */(null);
   g.addEventListener('pointerdown',e=>{if(LAYOUT===LAYOUT_MODE.NARROW||document.body.classList.contains('outline-collapsed')||(e.pointerType==='mouse'&&e.button!==0))return;
     e.preventDefault();D={id:e.pointerId,x:e.clientX,w:Math.round($('#outline').getBoundingClientRect().width)};
     try{g.setPointerCapture(e.pointerId);}catch(_){}g.classList.add('on');document.body.classList.add('resizing');});
@@ -78,7 +80,8 @@ function dragSheetTo(h){keepSheet(); document.documentElement.style.setProperty(
 // the tool bar a vertical move of more than 8px on a button turns into a sheet drag and swallows that button's click. Dragging
 // up opens a collapsed sheet; the release is sheetRelease(). A tap on the handle opens it or cycles the heights, and swallows the
 // ghost click that would otherwise land on whatever moved under the finger.
-(function(){const g=$('#sheet-grip'),bar=$('#bar1'); let D=null;
+(function(){const g=$('#sheet-grip'),bar=$('#bar1');
+  let D=/** @type {{id:number,x:number,y:number,h:number,moved:boolean,lazy:boolean,el:HTMLElement,pts:{y:number,t:number}[]}|null} */(null);
   // grab = the drag owns the pointer (capture, cues); down = the handle grabs at once, the tool bar only once the move is vertical
   // (lazy - its buttons keep their taps); end = settle by sheetRelease(), or a handle tap.
   const grab=e=>{try{D.el.setPointerCapture(e.pointerId);}catch(_){} D.el.classList.add('on'); document.body.classList.add('resizing');};
@@ -110,7 +113,7 @@ function dragSheetTo(h){keepSheet(); document.documentElement.style.setProperty(
 // because the browser cancels a pointer stream as soon as it starts its own scroll. The first move decides - down, mostly
 // vertical, the box at scrollTop 0, not in a text field or a nested scroller - and from then on the move is the sheet's
 // (preventDefault). ok(e) filters the touchstart; onMove(dy) follows; onEnd(dy, v) settles (dy null = cancelled; v px/ms, down +).
-function pullDown(box,ok,onStart,onMove,onEnd){let P=null;
+function pullDown(box,ok,onStart,onMove,onEnd){let P=/** @type {{x:number,y:number,on:boolean,pts:{y:number,t:number}[]}|null} */(null);
   box.addEventListener('touchstart',e=>{if(P&&P.on)onEnd(null,0); P=null; const t=e.touches[0];   // a second finger cancels a pull
     if(e.touches.length!==1||!ok(e)||(e.target.closest&&e.target.closest('textarea,input,select,pre,.seg')))return;
     P={x:t.clientX,y:t.clientY,on:false,pts:[]};},{passive:true});
@@ -150,7 +153,8 @@ function swipeFollow(dx,composing){dx=Math.max(0,dx); return composing?Math.min(
 // A dismiss gesture's release (the panel swipe, the documents sheet): d = the distance moved toward closing, size = the panel's
 // size along it, v = the release speed toward closing in px/ms. Past 35% of the size, or a fling (more than 24px at 0.5px/ms or faster), closes.
 function dismissOutcome(d,size,v){return d>=0.35*size||(d>24&&v>=0.5)?'close':'back';}
-(function(){const R=$('#right'),SKIP='.seg,pre.nowrap,textarea,input,select,#grip,#bar1'; let S=null;
+(function(){const R=$('#right'),SKIP='.seg,pre.nowrap,textarea,input,select,#grip,#bar1';
+  let S=/** @type {{id:number,x:number,y:number,t:number,axis:string|null,w:number,pts:{x:number,t:number}[]}|null} */(null);
   // setX moves the panel (and handle) by px through --swipe-x; settle ends a swipe - 'close' slides it out and collapses it
   // (remembered), 'back' springs it back - and always leaves --swipe-x at 0.
   const setX=px=>document.documentElement.style.setProperty('--swipe-x',Math.round(px)+'px');
@@ -178,7 +182,7 @@ function dismissOutcome(d,size,v){return d>=0.35*size||(d>24&&v>=0.5)?'close':'b
 // CloseWatcher stands for it (Chrome on Android routes back there; modal dialogs have their own); without CloseWatcher, one history
 // entry does (popstate). Closing the layer any other way removes it again, so back never has a dead press, and document
 // switches never add entries (they replace the hash). Mouse devices have no system back, so nothing is registered there.
-let BACK=null,BACK_SKIP=false;
+let BACK=/** @type {{kind:string,w?:CloseWatcher}|null} */(null),BACK_SKIP=false;
 // Which layer covers the document for a band (overlay = MID_OVERLAY): an open bottom-sheet dialog on top (dialogOpen - the
 // caller passes it only without CloseWatcher, where a modal dialog takes the back gesture itself), then the outline overlay
 // (the mid bands and the tablet sheet), then a sheet (phone, tablet) or the overlay panel (mid-overlay, a short band up to

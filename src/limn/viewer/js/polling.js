@@ -1,5 +1,6 @@
 // ------------------------------------------------ Auto sync - lightweight meta polling (docs/handbook/build-sync.md §자동 동기화 (가벼운 meta 폴링))
-let LAST_PINS_REV=null,LAST_SRC_MTIME=null,POLL_FAILS=0,LIGHT_TIMER=null,LIGHT_INFLIGHT=null;
+let LAST_PINS_REV=/** @type {string|null} */(null),LAST_SRC_MTIME=/** @type {string|number|null} */(null),POLL_FAILS=0,
+  LIGHT_TIMER=/** @type {ReturnType<typeof setInterval>|undefined} */(undefined),LIGHT_INFLIGHT=/** @type {Promise<void>|null} */(null);
 // Single-flight: same pattern as pollBuild - even if visibilitychange/focus/the 5-second timer overlap and
 // call this together (e.g. focus returning at the same moment as a tab switch), /api/meta and loadPins only go out once (observed defect: overlapping calls fired loadPins 3 times).
 function pollLight(){
@@ -11,7 +12,7 @@ function pollLight(){
 // While the tab is hidden, the list is never redrawn (observed defect: a hidden tab received no notifications at all), but if notifications
 // are on (notifyOn), a light (slow - the browser throttles it anyway) /api/meta?light=1 call is still made just to surface events as notifications.
 // This is a notification-only branch splitting off at the same point as pollLight's document.hidden bailout - it never touches the screen.
-let NOTIFY_HIDDEN_TIMER=null,NOTIFY_HIDDEN_INFLIGHT=null;
+let NOTIFY_HIDDEN_TIMER=/** @type {ReturnType<typeof setInterval>|undefined} */(undefined),NOTIFY_HIDDEN_INFLIGHT=/** @type {Promise<void>|null} */(null);
 const NOTIFY_HIDDEN_INTERVAL_MS=20000;
 function pollHiddenNotify(){
   if(!document.hidden||!notifyOn())return Promise.resolve();

@@ -55,7 +55,7 @@ const MQ_COARSE=matchMedia('(pointer:coarse)');
 // A device with no hover (phone/tablet): hover/focus tooltips are never shown at all - a tap sent a simulated mouseover and left the description stuck over the list (phone QA). Only long-press is used.
 const MQ_NOHOVER=matchMedia('(hover:none)');
 let OUTLINE_MID_OPEN=false,MID_OVERLAY=false;
-let LAYOUT=null,BAND=null,BAND_IN=null,SIDE_OPEN=true,SELMODE=false,ZOOMED=false,LAST_PTR='mouse',LAST_TOUCH_T=0;
+let LAYOUT=/** @type {string|null} */(null),BAND=/** @type {string|null} */(null),BAND_IN=/** @type {{w:number,h:number,coarse:boolean}|null} */(null),SIDE_OPEN=true,SELMODE=false,ZOOMED=false,LAST_PTR='mouse',LAST_TOUCH_T=0;
 const OPEN_CARDS=new Set();   // ids of pin cards expanded in compact
 // Pin kind/thread (docs/handbook/viewer.md §스레드와 검토): KIND_NEW = the composer panel's kind (fix|question), REPLY = the open reply/reopen
 // input field {id,mode,el} (holds onto the DOM like EDITOR.current does, and re-inserts it in place when the list redraws), THREAD_OPEN = cards with the thread fully expanded,
@@ -68,7 +68,7 @@ const THREAD_OPEN=new Set(),REPLY_DRAFT=new Map();
 // document that a legacy pin with no doc field belongs to. OPEN_ALL = open pins across all documents (PINS is the subset for the current document - marks/overlap/editing only look at PINS).
 // META_BY = per-document meta cache (instant tab switching), VIEW_BY = per-document viewed position/zoom, BUILD_ERR_BY = per-document last build error,
 // DOC_SEQ = another document's finished-build count (used to notice a build that finished in the background).
-let DOCS=/** @type {DocEntry[]} */([]),DOC=null,DEFAULT_DOC='main',OPEN_ALL=/** @type {Pin[]} */([]),DONE_ALL=/** @type {Pin[]} */([]),SHOW_ALL=false,SWITCHSEQ=0;
+let DOCS=/** @type {DocEntry[]} */([]),DOC=/** @type {string|null} */(null),DEFAULT_DOC='main',OPEN_ALL=/** @type {Pin[]} */([]),DONE_ALL=/** @type {Pin[]} */([]),SHOW_ALL=false,SWITCHSEQ=0;
 // A continuation may paint visit-local UI only while both the document and its visit number still match.
 function captureVisit(){return {doc:DOC,seq:SWITCHSEQ};}
 // Match a captured visit after an await, including leave-and-return to the same document.

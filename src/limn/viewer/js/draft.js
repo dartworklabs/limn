@@ -4,7 +4,8 @@
 // page - a reload, the back gesture past the sheet - never loses it, and this tab's next boot restores it (restoreDraft). Saving
 // clears it; a discard clears it once its undo window is over (DRAFT.holds has that document's toast). Only this tab sees it.
 // The tab owns the debounce timer and the active document's draft key; discard toasts hold their own document's keys.
-const DRAFT={timer:0,ready:false,holds:new Map(),key:null,origin:null};
+const DRAFT={timer:/** @type {ReturnType<typeof setTimeout>|0} */(0),ready:false,holds:new Map(),key:/** @type {string|null} */(null),
+  origin:/** @type {{key:string|null,value:string|null,current:Selection|null}|null} */(null)};
 // Keep a discarded draft until its undo toast leaves, unless a newer draft replaced it first.
 function holdDraftUntil(toastEl){let value=null; try{if(DRAFT.key)value=sessionStorage.getItem(DRAFT.key);}catch(e){}
   const held={toast:toastEl,key:DRAFT.key,value}; if(held.key)DRAFT.holds.set(held.key,held);

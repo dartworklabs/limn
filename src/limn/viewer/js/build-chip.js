@@ -9,7 +9,8 @@
 // The active document visit owns one poll timer, request and completion baseline; the error panel follows that visit.
 // BUILD.cur is the running build's last /api/build answer (null when none runs): the status line reads its phase and seconds.
 // BUILD.unchanged is {pull} while the status line answers an unchanged rebuild of this tab (buildUnchanged), else null.
-const BUILD={timer:null,error:null,lastSeq:null,booted:false,inflight:null,asked:false,cur:null,unchanged:null};
+const BUILD={timer:/** @type {ReturnType<typeof setInterval>|null} */(null),error:/** @type {any} */(null),lastSeq:/** @type {number|null} */(null),booted:false,
+  inflight:/** @type {Promise<void>|null} */(null),asked:false,cur:/** @type {BuildStatus|null} */(null),unchanged:/** @type {{pull:string}|null} */(null)};
 // Reset the visible build controls and baseline when a different document takes the screen.
 function resetBuildForDoc(){if(BUILD.timer){clearInterval(BUILD.timer);BUILD.timer=null;}
   BUILD.cur=null; BUILD.unchanged=null; $('#build-chip').hidden=true; $('#btn-rebuild').disabled=false;

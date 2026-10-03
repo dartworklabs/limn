@@ -69,7 +69,7 @@ function destFrac(dest,ptH){const top=Array.isArray(dest)&&dest[1]&&dest[1].name
 function outlineIndexAt(entries,page,frac){let sel=-1;
   for(let i=0;i<entries.length;i++){const e=entries[i]; if(e.page<page||(e.page===page&&(e.frac||0)<=frac+1e-6))sel=i;}
   return sel<0&&entries.length?0:sel;}
-let OUTLINE_PINNED=null;   // an entry picked in the outline wins until the reader leaves its page
+let OUTLINE_PINNED=/** @type {{page:number,index:number}|null} */(null);   // an entry picked in the outline wins until the reader leaves its page
 // The section strip under the nav bar (the section at the reading line and 'page / pages') and the outline's highlight; mid has no
 // strip, so the same page count also goes to the nav bar's right end (#nav-page, a button that turns into a page field) and the
 // phone's position button (drawPos).

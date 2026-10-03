@@ -35,7 +35,7 @@ function autoW(){if(LAYOUT!==LAYOUT_MODE.WIDE){if(!ZOOMED)setW(innerW(),false);r
 // Without coordinates, the center of the PDF area is used (keyboard/button).
 function zoomAnchor(cx,cy){const L=$('#left'),lr=L.getBoundingClientRect();
   if(cx==null){cx=lr.left+L.clientWidth/2; cy=lr.top+L.clientHeight/2;}
-  let best=null,bd=Infinity;
+  let best=/** @type {{pg:HTMLElement,r:DOMRect}|null} */(null),bd=Infinity;
   for(const pg of $$('.pg')){const r=pg.getBoundingClientRect(),d=cy<r.top?r.top-cy:(cy>r.bottom?cy-r.bottom:0);
     if(d<bd){bd=d; best={pg,r};} if(d===0)break;}
   return best?{pg:best.pg,cx,cy,fx:(cx-best.r.left)/best.r.width,fy:(cy-best.r.top)/best.r.height}:null;}
