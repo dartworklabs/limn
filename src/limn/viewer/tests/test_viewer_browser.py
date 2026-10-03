@@ -1467,6 +1467,30 @@ class ReviewInChanges(RevisionPins):
         settle(page)
         self.assertEqual(self.state(self.p1), "review")
 
+    def test_the_card_confirm_of_a_pin_a_person_closed_to_done_says_there_is_nothing_to_confirm(self):
+        """If a person reopened the pin and closed it straight to done while the deferred [확인]'s toast was up, the send
+        answers 409 conflict with a done pin: the viewer says it was already closed and there is nothing to confirm,
+        not "closed again - look and confirm" (the pin has no [확인] any more), and nothing is confirmed."""
+        page = self._page = self.open(0, init=COUNT_CONFIRMS, **REVIEW_SCREENS["desktop"])
+        page.evaluate("setSide(true); SEC.review=true; OPEN_CARDS.add(%d); drawPins()" % self.p1)
+        settle(page)
+        page.click('#sec-review [data-id="%d"] [data-act=confirm]' % self.p1)
+        page.wait_for_selector(".toast:has-text('%s')" % TXT["ko"]["undo"])
+        store = ps.APP.pin_lifecycle.context().store
+        with mock.patch.object(ps.APP.assembly.pins.commands, "now_str", return_value="2099-01-01 00:00:00"):
+            ps.APP.pin_lifecycle.reopen_pin(self.p1, post_authority(store, A, "reopen", self.p1))
+            ps.APP.pin_lifecycle.close_pin(self.p1, post_authority(store, A, "close", self.p1), CloseRequest())
+        self.assertEqual(self.state(self.p1), "done")
+        page.click(".toast:has-text('%s') [aria-label='알림 닫기']" % TXT["ko"]["undo"])
+        page.wait_for_function("CONFIRMS.length===1")
+        page.wait_for_selector(".toast.warn:has-text('이미 완료로 닫혔습니다')", timeout=10000)
+        settle(page)
+        self.assertFalse(
+            page.evaluate("[...document.querySelectorAll('.toast')].some(t=>t.textContent.includes('다시 닫혔습니다'))")
+        )
+        record = find_record(ps.APP.snapshot_pins(), self.p1)
+        self.assertEqual((pin_state(record), record.get("confirmed_by")), ("done", None))
+
 
 class ViewerTrashControls(BrowserBase):
     """A viewer can open the Trash and read it, but sees no [되살리기]/[영구 삭제] (the server refuses both with 403 anyway)."""
