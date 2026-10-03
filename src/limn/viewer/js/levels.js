@@ -68,11 +68,16 @@ function refetchSnip(o,after){const visit=captureVisit(); clearTimeout(snipT); s
 function snipText(text,open){const ls=String(text||'').split('\n');
   return (open||ls.length<=8)?ls.join('\n'):ls.slice(0,8).join('\n')+'\n      … '+tl('{n}줄 접힘',{n:ls.length-8});}
 // Location match-rate badge: hidden at 90% or above (a number on a location you can trust is just noise). Below that, '위치 불확실';
-// below 30%, the warning color. The method used (coordinates, text, or the figure map - whose score is how much of the drag lies in
-// the chosen element), the match rate and what to check go in the description. Shared by the composer panel and cards.
+// below 30%, the warning color. The description is whole sentences in this order: how the place was found (coordinates, text, the
+// figure map, or a method this page does not know, named as it came), how much of the drag it matches (the line paths: the dragged
+// words in these lines, rarer words weighing more; the map: the dragged area inside the chosen element), that it may be far off
+// (only below 30%), and what to check. Shared by the composer panel and cards.
 const VIA_HIDE=90,VIA_WARN=30;
 function viaTag(p){if(!p.via)return null; const pct=Math.round((+p.score||0)*100);
   if(pct>=VIA_HIDE)return null; const low=pct<VIA_WARN;
-  const how=p.via===VIA.SYNCTEX?tr('좌표로 찾음'):p.via===VIA.TEXT?tr('글자로 찾음'):p.via===VIA.MAP?tr('지도로 찾음'):tl('찾은 방법: {via}',{via:p.via});
-  const why=tr(p.via===VIA.SYNCTEX?T.synctex:p.via===VIA.TEXT?T.text:p.via===VIA.MAP?T.map:T.viaother);
-  return {t:tr('위치 불확실'),tip:tl('{how} · 일치 {pct}% — {why}',{how,pct,why})+(low?' '+tr('많이 어긋났을 수 있습니다.'):''),low};}
+  const lines=p.via===VIA.SYNCTEX||p.via===VIA.TEXT,map=p.via===VIA.MAP;
+  const how=p.via===VIA.SYNCTEX?tr(T.synctex):p.via===VIA.TEXT?tr(T.text):map?tr(T.map):tl('이 화면이 모르는 방법({via})으로 찾은 위치입니다.',{via:p.via});
+  const match=lines?tl('드래그한 글자 중 {pct}%가 이 줄들에 있습니다(드문 낱말일수록 크게 셉니다).',{pct})
+    :map?tl('드래그한 영역 중 {pct}%가 이 요소 안에 있습니다.',{pct}):tl('드래그와 맞는 정도는 {pct}%입니다.',{pct});
+  const check=lines?tr('원문 칸에서 고칠 곳이 이 줄들에 들어 있는지 확인하세요.'):map?tr('고른 상자가 고칠 곳을 덮는지 확인하세요.'):tr('고칠 곳이 이 범위에 들어 있는지 확인하세요.');
+  return {t:tr('위치 불확실'),tip:[how,match,...(low?[tr('위치가 많이 어긋났을 수 있습니다.')]:[]),check].join(' '),low};}
