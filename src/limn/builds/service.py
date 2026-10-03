@@ -2,6 +2,7 @@
 
 import sys
 import threading
+import time
 import traceback
 from collections.abc import Callable, Sequence
 from typing import Any
@@ -23,7 +24,6 @@ from limn.runtime.documents import Doc, document_authority_target
 from limn.security.access import AuthorityScope, PostAuthority, require_authority
 
 Json = dict[str, Any]
-REFRESH_WAIT_S = 60.0  # how long refresh_watched_now waits for a build of the same document already running
 
 
 class BuildRequests:
@@ -152,23 +152,31 @@ class BuildRequests:
                     except Exception:  # noqa: BLE001 — the watch thread must never die
                         traceback.print_exc(file=sys.stderr)
 
-    def refresh_watched_now(self, doc: Doc, wait: float = REFRESH_WAIT_S) -> FinishedBuild | None:
-        """The watch tick for doc run in the caller's thread, which waits for its build: first up to `wait` seconds
-        for doc's build lock (an import or redraw the watch thread already started finishes first), then, holding it,
-        the import of doc's map and PDF when they changed and agree (figure.pending_import), or the redraw of its
-        view-only PDF when that changed (engine.pdf_changed), through the tracked build. Returns that build's outcome;
-        None when doc's files are not watched, nothing changed, or the lock was still held after `wait`. An agent's
-        close calls this through the sync service so the author's notice comes after the new pages
-        (docs/handbook/api.md §닫을 때 사유 남기기)."""
-        if not doc.watches_files or not doc.lock.acquire(timeout=wait):
-            return None
-        try:
-            if doc.has_element_map:
-                ready = figure.pending_import(doc, self.figure_looks, self.settings().dpi, first=False)
-                return None if ready is None else self.tracked(doc, ready)
-            return self.tracked(doc) if engine.pdf_changed(doc) else None
-        finally:
+    def refresh_watched_now(self, doc: Doc, wait: float) -> bool:
+        """The watch tick for doc, waited for within `wait` seconds: first doc's build lock (an import or redraw the
+        watch thread already started finishes first), then, when doc's files changed, the watch's own background
+        import of its map and PDF (figure.pending_import, import_figure) or redraw of its view-only PDF
+        (engine.refresh_pdf_doc), until it is done. True when an import or redraw this call started finished within
+        `wait`; False when doc's files are not watched, nothing changed, or a build of doc is still running when the
+        wait is over - that build goes on by itself and nothing is cancelled. An agent's close calls this through the
+        sync service so the author's notice comes after the new pages (docs/handbook/api.md §닫을 때 사유 남기기)."""
+        deadline = time.monotonic() + wait
+
+        def free() -> bool:
+            """Whether doc's build lock came free before the deadline (it is not kept)."""
+            if not doc.lock.acquire(timeout=max(0.0, deadline - time.monotonic())):
+                return False
             doc.lock.release()
+            return True
+
+        if not doc.watches_files or not free():
+            return False
+        if doc.has_element_map:
+            ready = figure.pending_import(doc, self.figure_looks, self.settings().dpi, first=False)
+            started = ready is not None and not isinstance(self.import_figure(doc, ready, wait=False), BuildBusy)
+        else:
+            started = engine.refresh_pdf_doc(doc, self.build_async)
+        return started and free()
 
     def refresh_watched(self, doc: Doc) -> bool:
         """One watch tick for doc. A document with an element map imports its map and PDF once they agree

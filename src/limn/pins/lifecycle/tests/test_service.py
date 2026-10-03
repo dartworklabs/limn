@@ -1,5 +1,7 @@
 """Lifecycle service and HTTP behavior over real pin storage and explicit collaborators."""
 
+import contextlib
+import io
 import json
 from unittest import mock
 
@@ -659,3 +661,24 @@ class FilesBeforeClose(ServiceBase):
         self.assertIsInstance(self.close(AGENT, CloseRequest(ref="abc1234")), AlreadyClosed)
         self.assertIsInstance(self.close(AGENT, CloseRequest(ref="abc1234"), pid=999), PinNotFound)
         self.assertEqual([entry for entry in self.log if entry[0] == "refresh"], [])
+
+    def test_a_refresh_that_raises_still_closes_and_announces(self):
+        """A pull or import that raises never keeps the pin open: the error goes to stderr once, as the watch logs
+        its own, and the close is written and announced as if the refresh had found nothing."""
+
+        def broken(record):
+            """A refresh that fails the way a full disk makes it fail."""
+            raise OSError("No space left on device")
+
+        ctx = self.context(watches_files=lambda r: True, refresh_files=broken)
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            out = PinLifecycle(lambda: ctx).close_pin(
+                self.pid, post_authority(ctx.store, AGENT, "close", self.pid), CloseRequest(ref="PR #3 (abc1234)")
+            )
+        self.assertIsInstance(out, ReviewPin)
+        self.assertTrue(self.pin(self.pid)["done"])
+        self.assertEqual(
+            self.rec.emitted[-1], [{"type": "review_requested", "pin": self.pid, "to": ["alice@example.com"]}]
+        )
+        self.assertEqual(err.getvalue().count("OSError: No space left on device"), 1)

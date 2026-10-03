@@ -14,6 +14,7 @@ timeout per call), the clock and the build starter on every call, and owns the o
 
 import sys
 import threading
+import time
 import traceback
 from collections.abc import Callable, Iterable, Sequence
 from datetime import datetime
@@ -48,9 +49,18 @@ PULL_SHARE_S = 20  # seconds - if another document already pulled within this wi
 SYNC_EVERY_S = 60  # interval for checking remote main. Checked even when no browser is open.
 DEFERRED_RETRY_S = 3.0  # a round deferred by a running build retries this soon (or at `every`, if sooner)
 
-Git: TypeAlias = Callable[[Sequence[str], Path | str], tuple[int | None, str, str]]  # limn.platform.git.git
 Clock: TypeAlias = Callable[[], float]
 Stamp: TypeAlias = Callable[[], str]
+
+
+class Git(Protocol):
+    """The git runner (limn.platform.git.git): `git <args>` in cwd, stopped after timeout seconds -> (its exit status,
+    or None when it ran out of time or could not start, stdout, stderr). The watch leaves the timeout to the runner; a
+    close's refresh gives each call no more than what is left of its budget."""
+
+    def __call__(self, args: Sequence[str], cwd: Path | str, timeout: float = ...) -> tuple[int | None, str, str]:
+        """Run one git command."""
+        ...
 
 
 class SyncDoc(Protocol):
@@ -113,6 +123,21 @@ def pull(manuscript: Path, main_only: bool, git: Git) -> PullOutcome:
         return PullSkipped("diverged", head)
     rc, out, _ = git(["-C", root, "rev-parse", "HEAD"], root)
     return merged(head, rc, out)
+
+
+def within(git: Git, deadline: float, ticks: Clock) -> Git:
+    """git with every call given at most what is left before deadline (a ticks() reading) as its timeout, so a hung
+    fetch cannot outlast a close's refresh budget. A call made when nothing is left is not run and reads as one that
+    ran out of time: (None, "", "")."""
+
+    def bounded(args: Sequence[str], cwd: Path | str, timeout: float | None = None) -> tuple[int | None, str, str]:
+        """Run git within what is left of the budget (and within timeout when one is given)."""
+        left = deadline - ticks()
+        if left <= 0:
+            return None, "", ""
+        return git(args, cwd, timeout=left if timeout is None else min(timeout, left))
+
+    return bounded
 
 
 class PullShare:
@@ -203,6 +228,8 @@ class SyncWatch:
         stamp: Stamp,
         clock: Clock,
         built_head: Callable[[Doc], str],
+        deadline: float | None = None,
+        ticks: Clock = time.monotonic,
     ) -> Json:
         """One round: pull remote main and start the build of each document built from source that the pull left
         behind. Also run on a --no-build startup.
@@ -210,24 +237,38 @@ class SyncWatch:
         A round is deferred ("deferred", building) when any document built from source is building. Otherwise the
         build lock of every such document is held during the pull, so a fast-forward never lands while a build is
         mid-copy. The pull is shared-recorded (PullShare) like a build's. Returns the round's status; "updating" when
-        builds were started."""
+        builds were started.
+
+        deadline (a ticks() reading; None for the watch) makes the round wait for those build locks and for the pull
+        lock until then instead of deferring at once: a close's refresh must see the pull another round is making end,
+        then pull itself. Past the deadline it is deferred like the watch's round. The locks are taken in document
+        order, so two waiting rounds never hold each other up."""
         if not enabled:
             return disabled()
         source_docs = [D for D in docs if D.builds_from_source]
+
+        def take(lock: threading.Lock) -> bool:
+            """lock taken: at once for the watch, or within what is left before the deadline."""
+            if deadline is None:
+                return lock.acquire(blocking=False)
+            return lock.acquire(timeout=max(0.0, deadline - ticks()))
+
         held: list[threading.Lock] = []
-        for D in source_docs:
-            if not D.lock.acquire(blocking=False):
-                for lock in reversed(held):
-                    lock.release()
+        for D in [*source_docs, None]:
+            lock = share.lock if D is None else D.lock
+            if D is None and deadline is None:
+                lock.acquire()  # the watch's round waits for a shared pull as it always did
+            elif not take(lock):
+                for other in reversed(held):
+                    other.release()
                 out = deferred(stamp())
                 with self.lock:
                     self.record.update(out)
                 return out
-            held.append(D.lock)
+            held.append(lock)
         try:
-            with share.lock:
-                outcome = run()
-                share.remember(outcome, clock())
+            outcome = run()
+            share.remember(outcome, clock())
         finally:
             for lock in reversed(held):
                 lock.release()

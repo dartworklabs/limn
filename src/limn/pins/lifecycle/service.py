@@ -1,5 +1,7 @@
 """Pin lifecycle transactions owned by the feature."""
 
+import sys
+import traceback
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, replace
 from typing import Any
@@ -48,9 +50,11 @@ class PinLifecycle:
         A person with the agent role closes into review because the authority supplies that default.
 
         A close of an open pin that refreshes_before_close accepts - awaiting review, with a reference, on a document
-        whose files are watched - first calls ctx.refresh_files with the pin's record, outside the pin lock (a pull
-        and an import can take seconds), so the author's notice and the closed pin arrive after the edited figure is
-        on screen. The pin is read again under the lock for the close itself.
+        whose files are watched - first calls ctx.refresh_files with the pin's record, outside the pin lock (the pull
+        and the import take up to their budget, limn.sync.service.REFRESH_BUDGET_S), so the author's notice and the
+        closed pin arrive after the edited figure is on screen. A refresh that raises never keeps the pin open: the
+        error is printed to stderr, as the watch prints its own, and the close goes on; the watch catches up. The pin is
+        read again under the lock for the close itself.
         """
         ctx = self.context()
         require_authority(actor, ctx.authority_scope, "close", pid)
@@ -61,7 +65,10 @@ class PinLifecycle:
             and isinstance(before.pin, OpenPin)
             and refreshes_before_close(typed_actor(actor), request, ctx.watches_files(before.pin.record))
         ):
-            ctx.refresh_files(before.pin.record)
+            try:
+                ctx.refresh_files(before.pin.record)
+            except Exception:  # noqa: BLE001 — a failed pull or import must not keep the pin open; the watch retries
+                traceback.print_exc(file=sys.stderr)
         evs: list[Event | None] = []
 
         def fn(pins: list[Pin]) -> tuple[ReviewPin | DonePin | AlreadyClosed | PinNotFound, bool]:

@@ -37,9 +37,10 @@ from helpers import MINI_PDF, Base, figure_map, map_bytes, ps, req, split_resp
 from helpers_files import replace_in_same_tick, rewrite_in_place
 
 # pdftoppm stand-in (pdftoppm -r DPI -f N -l N -singlefile PDF): the 200x100 PPM named by LIMN_TEST_PAGE_PNG on
-# stdout; exit 1 when LIMN_TEST_PDFTOPPM is "fail".
+# stdout; exit 1 when LIMN_TEST_PDFTOPPM is "fail", and first sleep LIMN_TEST_PDFTOPPM_SLEEP seconds when that is set.
 FAKE_PDFTOPPM = """#!/bin/sh
 [ "$LIMN_TEST_PDFTOPPM" = fail ] && exit 1
+[ -n "$LIMN_TEST_PDFTOPPM_SLEEP" ] && sleep "$LIMN_TEST_PDFTOPPM_SLEEP"
 cat "$LIMN_TEST_PAGE_PNG"
 """
 # pdfinfo stand-in: every PDF has one page.
@@ -936,36 +937,49 @@ class FigureDocumentThroughTheServer(Base):
         self.assertEqual(build.state_snapshot(ps.APP.docs[0])["state"], "idle")
 
     def test_a_refresh_now_imports_a_changed_pair_before_it_returns(self):
-        """refresh_watched_now runs the watch's import in the caller's thread: when it returns BuildOk the new PDF is
-        on screen and counted (seq 2)."""
+        """refresh_watched_now starts the watch's import and waits for it: when it returns True the new PDF is on screen
+        and counted (seq 2)."""
         ps.APP.build_requests.init_doc(self.fig, no_build=False, wait=True)
         self.producer.render(OTHER_PDF)
-        self.assertIsInstance(ps.APP.build_requests.refresh_watched_now(self.fig), BuildOk)
+        self.assertTrue(ps.APP.build_requests.refresh_watched_now(self.fig, 10))
         self.assertEqual((build.cur_pages(self.fig) / "figures.pdf").read_bytes(), OTHER_PDF)
         self.assertEqual(build.state_snapshot(self.fig)["seq"], 2)
 
     def test_a_refresh_now_waits_for_an_import_already_running(self):
         """While another thread holds the figure's build lock (the watch's own import) refresh_watched_now waits for it,
-        then imports the files as they are; when the lock outlasts its wait it returns None and starts nothing."""
+        then imports the files as they are; when the lock outlasts its wait it returns False and starts nothing."""
         ps.APP.build_requests.init_doc(self.fig, no_build=False, wait=True)
         self.producer.render(OTHER_PDF)
         self.fig.lock.acquire()
         released = threading.Timer(0.3, self.fig.lock.release)
         released.start()
         self.addCleanup(released.cancel)
-        self.assertIsInstance(ps.APP.build_requests.refresh_watched_now(self.fig, wait=10), BuildOk)
+        self.assertTrue(ps.APP.build_requests.refresh_watched_now(self.fig, 10))
         self.assertEqual((build.cur_pages(self.fig) / "figures.pdf").read_bytes(), OTHER_PDF)
         self.producer.render(MINI_PDF)
         with self.fig.lock:
-            self.assertIsNone(ps.APP.build_requests.refresh_watched_now(self.fig, wait=0.05))
+            self.assertFalse(ps.APP.build_requests.refresh_watched_now(self.fig, 0.05))
         self.assertEqual(build.state_snapshot(self.fig)["seq"], 2)
 
+    def test_a_refresh_now_returns_at_its_wait_while_a_slow_import_goes_on(self):
+        """An import whose render outlasts the wait: refresh_watched_now returns False when the wait is over, and the
+        import it started still finishes on its own and puts the new PDF on screen."""
+        ps.APP.build_requests.init_doc(self.fig, no_build=False, wait=True)
+        self.producer.render(OTHER_PDF)
+        with mock.patch.dict(os.environ, {"LIMN_TEST_PDFTOPPM_SLEEP": "1.5"}):
+            began = time.monotonic()
+            self.assertFalse(ps.APP.build_requests.refresh_watched_now(self.fig, 0.3))
+            self.assertLess(time.monotonic() - began, 0.3 + 0.5)
+            self.assertTrue(self.fig.lock.acquire(timeout=10))  # the import runs on until it is done
+        self.fig.lock.release()
+        self.assertEqual((build.cur_pages(self.fig) / "figures.pdf").read_bytes(), OTHER_PDF)
+
     def test_a_refresh_now_of_unchanged_or_unwatched_files_does_nothing(self):
-        """Nothing changed since the import, or a document built from source: None, and no build is counted."""
+        """Nothing changed since the import, or a document built from source: False, and no build is counted."""
         ps.APP.build_requests.init_doc(self.fig, no_build=False, wait=True)
         for doc in (self.fig, ps.APP.docs[0]):
             with self.subTest(doc=doc.key):
-                self.assertIsNone(ps.APP.build_requests.refresh_watched_now(doc))
+                self.assertFalse(ps.APP.build_requests.refresh_watched_now(doc, 10))
         self.assertEqual(
             (build.state_snapshot(self.fig)["seq"], build.state_snapshot(ps.APP.docs[0])["state"]), (1, "idle")
         )
