@@ -9,13 +9,19 @@ async function closePin(id){try{const {data}=await api('/api/pins/'+id+'/close',
 // again in between answers 409 'conflict' instead of confirming a result nobody looked at; a 409 'open' means it was
 // reopened and is still open (docs/handbook/api.md §검토 대기).
 const CONFIRMING=new Set();
+// The warning for a confirm answered 409 'conflict', chosen by the pin that 409 carries: still awaiting review means it
+// was closed again - look at the new result, then confirm; any other state (a person closed it straight to done) has
+// nothing to confirm. A body without the pin (an older server) keeps the closed-again warning.
+function confirmConflictText(id,pin){return pin&&pinState(pin)!==PIN_STATE.REVIEW
+  ?tl('핀 #{id} 은 이미 완료로 닫혔습니다 — 확인할 것이 없습니다',{id})
+  :tl('핀 #{id} 은 다시 닫혔습니다 — 새 결과를 보고 확인하세요',{id});}
 function confirmPin(id){if(CONFIRMING.has(id))return; const at=REVIEW_ALL.findIndex(p=>p.id===id),pin=at<0?null:REVIEW_ALL[at];
   CONFIRMING.add(id); REVIEW_ALL=REVIEW_ALL.filter(p=>p.id!==id); drawPins(); marks();
   deferred(tl('핀 #{id} 확인 · 완료로 옮겼습니다',{id}),async()=>{
       try{const {data}=await api('/api/pins/'+id+'/confirm',{method:'POST',what:'확인',expect:[409],keepalive:true,
           body:pin&&pin.done_at?{done_at:pin.done_at}:{}});
         if(data&&data.error===PIN_STATE.OPEN)toast(tl('핀 #{id} 은 이미 다시 열렸습니다',{id}),'warn');
-        else if(data&&data.error==='conflict')toast(tl('핀 #{id} 은 다시 닫혔습니다 — 새 결과를 보고 확인하세요',{id}),'warn');
+        else if(data&&data.error==='conflict')toast(confirmConflictText(id,data.pin),'warn');
         else if(!data.ok)toast(tl('확인 실패 — 핀 #{id} 이 없습니다',{id}),'err');
         else markMine(id);}catch(e){}
       CONFIRMING.delete(id); await loadPins();},
