@@ -4185,13 +4185,13 @@ class FrontendMentions(unittest.TestCase):
         js = "\n".join(
             [
                 js_esc(),
+                js_icons(),
                 r"""
             let PEOPLE=[{login:'w@example.com',name:'Wendy Kim'},{login:'wo@example.com',name:'Wendy'},{login:'s@example.com',name:'Bob Park'},{login:'k@example.com',name:'김<b>'}];
             let META={me:{login:'s@example.com',name:'Bob Park'}};
             function threadOf(p){return Array.isArray(p&&p.thread)?p.thread:[];}
             const PINSET={12:1,3:1}; function findAnyPin(id){return PINSET[id]?{id}:null;} let DROPPED=[{id:40}];
             function tr(s){return s;}
-            function ic(n){return '<svg class="ic ic-'+n+'"></svg>';}
             """,
             ]
             + [
@@ -4324,7 +4324,7 @@ class FrontendMentions(unittest.TestCase):
         word '@Wendy' drops that hint, so the server tags nobody; the row must then offer nobody and default to the
         agent. It used to offer and default to Wendy Kim, saving a pin handed to someone its note never tagged."""
         out = self.run_js(r"""
-            const W=PEOPLE.find(p=>p.name==='Wendy Kim').login, box=()=>({hidden:true,innerHTML:''});
+            const W=PEOPLE.find(p=>p.name==='Wendy Kim').login, box=()=>({hidden:true,innerHTML:'',replaceChildren(){this.innerHTML='';}});
             const note={value:'@Wendy 봐 주세요',_mentions:new Set([W])},cbox=box();
             function $(s){return s==='#note'?note:s==='#c-assign'?cbox:null;}
             let KIND_NEW='fix'; const ASSIGN_NEW={v:'agent',touched:false};
@@ -4355,7 +4355,7 @@ class FrontendMentions(unittest.TestCase):
         self.assertEqual(h.count('</textarea><div class="m-preview" aria-live="polite" hidden></div>'), 2)
         body = extract_js_fn("mentionPreview")
         self.assertIn("등록된 사람이 아님", body)
-        self.assertIn("ic('at-sign')+'알림</span>'", body)
+        self.assertIn("${ic('at-sign')}알림</span>", body)
         css = h[h.index("<style>") : h.index("</style>")]
         self.assertRegex(
             css, r"\.mention\{color:var\(--primary\);font-weight:600;background:color-mix\(in srgb,var\(--primary\) 12%"
@@ -4502,11 +4502,11 @@ class FrontendMentionTypingNotFlagged(unittest.TestCase):
         js = "\n".join(
             [
                 js_esc(),
+                js_icons(),
                 r"""
             let PEOPLE=[{login:'sam@example.com',name:'Sam Lee'}], META={me:{login:'me@example.com',name:'Me'}};
-            function ic(n){return '<svg class="ic ic-'+n+'"></svg>';}
             const document={activeElement:null};
-            function field(v){const box={hidden:true,innerHTML:'',classList:{contains:c=>c==='m-preview'}};
+            function field(v){const box={hidden:true,innerHTML:'',replaceChildren(){this.innerHTML='';},classList:{contains:c=>c==='m-preview'}};
               return {value:v,selectionStart:v.length,selectionEnd:v.length,nextElementSibling:box};}
             function show(v,focused){const ta=field(v); document.activeElement=focused?ta:null; mentionPreview(ta);
               const b=ta.nextElementSibling; return b.hidden?null:(b.innerHTML.match(/mention-bad[^>]*>@[^<]*/g)||[]).map(s=>s.split('>')[1]);}
