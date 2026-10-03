@@ -1,5 +1,32 @@
 # Changelog
 
+## 0.4.13 — 2026-10-04
+
+Figure documents P2: a changes view that overlays the previous import, a figure pin's close that brings the edited
+figure first, and element names on the path row. `pins.md` and the state directory are unchanged; the HTTP API only
+gains optional fields. Reload viewer tabs opened before the upgrade: until then a figure document's changes view
+there asks for a comparison PDF and gets `404 commit_not_recent`.
+
+### Added
+
+- **Changes view for figure documents.** History covers the files the current map names (scripts, shared components,
+  the map and its PDF). [겹쳐 보기] lays the previous import's pages over the current ones and `[이전 | 지금]` flips
+  them; [이전] is the previous import, not the state before a pin's `ref`. `GET /api/revisions` gains `overlay` for
+  figure documents; no comparison PDF is built for them. The LaTeX changes view is unchanged (#126).
+- **A close brings the edited files first.** A close that goes to review with a `ref`, on a document whose files the
+  watch follows (a figure document or a view-only PDF), first pulls (with `--git-pull`) and imports or redraws, then
+  writes the close and notifies the author, so the edited figure is already on screen. The refresh has one budget of
+  30 s, waits for a pull or build already in flight, and never keeps the pin open: past the budget or on an error the
+  close goes ahead and the watch catches up. SKILL notes that such a close can take up to 30 s and that a retried
+  close is safe (#126).
+- **Path names.** `POST /api/pick` on a figure gains `path_names`, and the path row names each element (`B2 › 달력 ›
+  8월`) instead of its id (#126).
+
+### Fixed
+
+- **A figure folder reached through a symlink keeps its history.** Paths are compared with their folder resolved, as
+  the LaTeX history does, so the history no longer drops script and component commits on macOS (`/var` → `/private/var`).
+
 ## 0.4.12 — 2026-10-04
 
 Comparison PDFs now mark changes inside a document's own text macros, such as a reply letter's `\response{...}`.
