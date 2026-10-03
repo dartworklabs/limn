@@ -31,7 +31,7 @@ function mergeOutlineLabels(entries,labels){
   const depthGuard=labels.some(l=>l.level==='section'&&entries.some(e=>e.depth===0&&norm(e.title)===norm(l.title)));
   let cursor=0;
   return entries.map(entry=>{
-    const title=norm(entry.title);let matched=null;
+    const title=norm(entry.title);let matched=/** @type {any} */(null);
     if(title)for(let i=cursor;i<labels.length;i++){
       const label=labels[i];if(norm(label.title)!==title)continue;
       if(/^\d+$/.test(String(label.page||''))&&Number(label.page)!==entry.page)continue;

@@ -14,10 +14,10 @@ function vecRelease(n){if(VEC.cur&&VEC.cur.n===n)vecCancel(); const s=VEC.st.get
 function vecReleaseAll(){vecCancel(); Array.from(VEC.st.keys()).forEach(vecRelease);}
 function vecCancel(){const c=VEC.cur; VEC.cur=null; if(c&&c.task){try{c.task.cancel();}catch(e){}}}
 function vecObserve(){if(VEC.io)VEC.io.disconnect(); vecReleaseAll(); VEC.near.clear(); if(!window.IntersectionObserver)return;
-  VEC.io=new IntersectionObserver(es=>{es.forEach(en=>{const n=+/** @type {HTMLElement} */(en.target).dataset.page;
+  const io=VEC.io=new IntersectionObserver(es=>{es.forEach(en=>{const n=Number(/** @type {HTMLElement} */(en.target).dataset.page);
       if(en.isIntersecting)VEC.near.add(n); else {VEC.near.delete(n); vecRelease(n);}}); vecSchedule(0);},
     {root:$('#left'),rootMargin:VEC_KEEP});
-  $$('.pg').forEach(pg=>VEC.io.observe(pg));}
+  $$('.pg').forEach(pg=>io.observe(pg));}
 function vecSchedule(ms){clearTimeout(VEC.timer); VEC.timer=setTimeout(vecPump,ms||0);}
 // Zoom, window size, or DPR changed - whatever was being drawn (the old size) is discarded and redrawn shortly after. Meanwhile, the old canvas is shown stretched.
 function vecInvalidate(){if(!VEC.doc)return; vecCancel(); vecSchedule(150);}
@@ -61,7 +61,7 @@ async function vecRun(job){
   let page; try{page=await doc.getPage(n);}catch(e){if(gen===VEC.gen)vecFail('쪽을 읽지 못했습니다',e); return;}
   if(gen!==VEC.gen||!VEC.near.has(n)||!document.contains(pg))return;
   const t=vecTargetOf(pg); if(!t)return;
-  const vp1=page.getViewport({scale:1}),cv=document.createElement('canvas'); let scale,tf,reg=null;
+  const vp1=page.getViewport({scale:1}),cv=document.createElement('canvas'); let scale,tf,reg=/** @type {{x:number,y:number,w:number,h:number}|null} */(null);
   // Width and height are fit independently (the transform's vertical scale) - the page box's aspect ratio comes from
   // the PNG pixel dimensions and differs from the PDF page's aspect ratio by less than 0.1%. Since PNG was also drawn
   // filling that same box, this is needed for the canvas's text to land at the same % position it did for PNG.
@@ -86,13 +86,14 @@ async function vecRun(job){
   const s=vecState(n);
   if(job.kind==='base'){vecDrop(s.base); s.base=cv; s.bw=t.bw; s.bh=t.bh; s.stale=false; cv.className='vb';
     pg.prepend(cv); pg.classList.add('drawn'); if(VEC.tFirst===null)VEC.tFirst=performance.now();}
-  else{vecDrop(s.dt); s.dt=cv; s.reg=reg; s.dtCw=t.cw; s.dtK=t.k; cv.className='dt';
-    Object.assign(cv.style,{left:reg.x*100+'%',top:reg.y*100+'%',width:reg.w*100+'%',height:reg.h*100+'%'});
+  else{const r=/** @type {{x:number,y:number,w:number,h:number}} */(reg);   // a detail job always measured its region above
+    vecDrop(s.dt); s.dt=cv; s.reg=r; s.dtCw=t.cw; s.dtK=t.k; cv.className='dt';
+    Object.assign(cv.style,{left:r.x*100+'%',top:r.y*100+'%',width:r.w*100+'%',height:r.h*100+'%'});
     if(s.base)s.base.after(cv); else pg.prepend(cv);}
 }
 $('#left').addEventListener('scroll',()=>{if(VEC.doc)vecSchedule(120);},{passive:true});
 // devicePixelRatio changes with browser zoom (Ctrl+wheel outside the PDF, etc.) or moving the window to a different screen - redraws at that scale.
 (function watchDpr(){if(!window.matchMedia)return;
   matchMedia('(resolution: '+(window.devicePixelRatio||1)+'dppx)').addEventListener('change',()=>{vecInvalidate(); watchDpr();},{once:true});})();
-if(window.visualViewport)visualViewport.addEventListener('resize',()=>{if(VEC.doc)vecSchedule(300);});
+{const vv=window.visualViewport; if(vv)vv.addEventListener('resize',()=>{if(VEC.doc)vecSchedule(300);});}
 

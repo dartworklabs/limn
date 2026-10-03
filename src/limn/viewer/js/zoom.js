@@ -17,8 +17,9 @@ function zoomKey(e){const k=e.key,c=e.code;
 function wheelFactor(dy,mode){if(!dy)return 1;
   if(mode===1||mode===2||Math.abs(dy)>=50)return dy<0?ZOOM_STEP:1/ZOOM_STEP;
   return Math.exp(-Math.max(-18,Math.min(18,dy))/100);}
-(function(){const L=$('#left'); let acc=1,pt=null,raf=0,G=null,TP=null;
-  const flush=()=>{raf=0; if(acc===1)return; const f=acc; acc=1; zoomTo(W*f,pt[0],pt[1]);};
+(function(){const L=$('#left'); let acc=1,pt=/** @type {number[]|null} */(null),raf=0,G=/** @type {{w:number}|null} */(null),
+    TP=/** @type {{d:number,w:number,a:ReturnType<typeof zoomAnchor>}|null} */(null);
+  const flush=()=>{raf=0; if(acc===1||!pt)return; const f=acc; acc=1; zoomTo(W*f,pt[0],pt[1]);};
   L.addEventListener('wheel',e=>{if(!(e.ctrlKey||e.metaKey))return; e.preventDefault();
     acc*=wheelFactor(e.deltaY,e.deltaMode); pt=[e.clientX,e.clientY]; if(!raf)raf=requestAnimationFrame(flush);},{passive:false});
   L.addEventListener('gesturestart',e=>{e.preventDefault(); if(!TP)G={w:W};},{passive:false});
@@ -26,7 +27,7 @@ function wheelFactor(dy,mode){if(!dy)return 1;
   L.addEventListener('gestureend',e=>{e.preventDefault(); G=null;},{passive:false});
   const mid=(a,b)=>[(a.clientX+b.clientX)/2,(a.clientY+b.clientY)/2];
   const dist=(a,b)=>Math.hypot(a.clientX-b.clientX,a.clientY-b.clientY)||1;
-  let tr=0,last=null;
+  let tr=0,last=/** @type {{d:number,m:number[]}|null} */(null);
   const apply=()=>{tr=0; if(!TP||!last)return; const w=TP.w*last.d/TP.d;
     setW(w); if(LAYOUT!==LAYOUT_MODE.WIDE)ZOOMED=true; zoomRestore(TP.a,last.m[0],last.m[1]);};
   L.addEventListener('touchstart',e=>{if(e.touches.length!==2){if(e.touches.length>2)TP=null; return;}

@@ -13,7 +13,7 @@ function openTappedCard(t){const c=t&&t.closest&&t.closest('.pin.card:not(.open)
 document.addEventListener('click',e=>{const target=/** @type {HTMLElement} */(e.target);
   const cp=/** @type {HTMLElement} */(target.closest('[data-copy]')); if(cp){copyText(cp.dataset.copy);return;}
   const a=/** @type {HTMLElement} */(target.closest('[data-act]')); if(!a){openTappedCard(target); return;}
-  const host=/** @type {HTMLElement} */(a.closest('[data-id]')),id=host?+host.dataset.id:null,inEdit=!!a.closest('.edit');
+  const host=/** @type {HTMLElement} */(a.closest('[data-id]')),id=host?Number(host.dataset.id):null,inEdit=!!a.closest('.edit');
   const fromMore=!!a.closest('#more');
   if(fromMore&&(a.dataset.close||a.dataset.act==='help'))$('#more').close();
   if(a.closest('#status-list'))$('#status-list').close();   // a row's action folds the status list
@@ -22,7 +22,7 @@ document.addEventListener('click',e=>{const target=/** @type {HTMLElement} */(e.
     case 'side':toggleSide();break;
     case 'selmode':setSelMode(!SELMODE);if(SELMODE&&LAYOUT===LAYOUT_MODE.NARROW&&!COMPOSE.current&&!EDITOR.current)setSide(false);break;
     case 'more':openMore();break; case 'more-close':$('#more').close();break;
-    case 'size-preset':sizePreset(+a.dataset.i);break;
+    case 'size-preset':sizePreset(Number(a.dataset.i));break;
     case 'coach-close':$('#coach').hidden=true;break;
     case 'toasts-expand':$('#toasts').classList.add('expanded'); syncToastStack(); break;
     case 'card-toggle':if(id==null)break; if(OPEN_CARDS.has(id))OPEN_CARDS.delete(id); else OPEN_CARDS.add(id); drawPins();break;
@@ -33,13 +33,13 @@ document.addEventListener('click',e=>{const target=/** @type {HTMLElement} */(e.
     case 'save':if(!viewerBlocked())savePin();break; case 'cancel':discardSelection();break;
     case 'overlap-append':{const text=$('#note').value.trim();
       if(!text){toast('메모를 먼저 써야 덧붙일 수 있습니다','warn');break;}
-      appendToPin(+a.dataset.oid,text);break;}
+      appendToPin(Number(a.dataset.oid),text);break;}
     case 'overlap-separate':COMPOSE.dismissedOverlap=a.dataset.key||null;renderOverlapBanner();break;
     case 'copy-cur':if(COMPOSE.current)copyText(COMPOSE.current.name+' L'+COMPOSE.current.lo+'-L'+COMPOSE.current.hi);break;
     case 'expand':SNIP_OPEN=!SNIP_OPEN;renderComposer();break;
     case 'level':{const o=inEdit?EDITOR.current:COMPOSE.current; if(!o)break; useLevel(o,a.dataset.level); if(!inEdit)recomputeOverlap(); inEdit?renderEdit():renderComposer(); break;}
-    case 'xp-to':{const o=inEdit?EDITOR.current:COMPOSE.current,k=+a.dataset.line; if(o)applyRange(o,widenTo(o.lo,o.hi,k),k<o.lo?o.hi:o.lo); break;}   // the excerpt: widen to a dimmed line
-    case 'xp-drop':{const o=inEdit?EDITOR.current:COMPOSE.current,k=+a.dataset.line; if(o)applyRange(o,dropLine(o.lo,o.hi,k),k===o.lo?o.hi:o.lo); break;}   // ...or drop an end line
+    case 'xp-to':{const o=inEdit?EDITOR.current:COMPOSE.current,k=Number(a.dataset.line); if(o&&o.lo!=null&&o.hi!=null)applyRange(o,widenTo(o.lo,o.hi,k),k<o.lo?o.hi:o.lo); break;}   // the excerpt: widen to a dimmed line
+    case 'xp-drop':{const o=inEdit?EDITOR.current:COMPOSE.current,k=Number(a.dataset.line); if(o&&o.lo!=null&&o.hi!=null)applyRange(o,dropLine(o.lo,o.hi,k),k===o.lo?o.hi:o.lo); break;}   // ...or drop an end line
     case 'view':jumpPin(id);break; case 'edit':openEdit(id);break;
     case 'doc':{const inMenu=!!a.closest('#nav-sheet'); switchDoc(a.dataset.doc); if(inMenu)$('#nav-sheet').close(); break;}
     // ^ inMenu is determined before calling switchDoc() - for a cached document, switchDoc finishes synchronously
@@ -56,8 +56,8 @@ document.addEventListener('click',e=>{const target=/** @type {HTMLElement} */(e.
     case 'revision-format':setRevisionFormat(a.dataset.format);break;
     case 'all-docs':SHOW_ALL=!SHOW_ALL;drawPins();break;
     case 'mention-filter':MENTION_ONLY=!MENTION_ONLY;drawPins();break;
-    case 'mention-pick':mentionApply(+a.dataset.i);break;
-    case 'pin-ref':gotoPinRef(+a.dataset.ref);break;
+    case 'mention-pick':mentionApply(Number(a.dataset.i));break;
+    case 'pin-ref':gotoPinRef(Number(a.dataset.ref));break;
     case 'assign-new':ASSIGN_NEW.v=a.dataset.v||'agent'; ASSIGN_NEW.touched=true; renderAssignNew(); saveDraftSoon(); break;
     case 'assign-edit':if(EDITOR.current){EDITOR.current.assignee=a.dataset.v||'agent'; renderAssignEdit();} break;
     case 'msg-more':{const k=a.dataset.key; if(!k)break; if(MSG_OPEN.has(k))MSG_OPEN.delete(k); else MSG_OPEN.add(k); drawPins(); break;}

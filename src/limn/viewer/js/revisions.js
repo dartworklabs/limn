@@ -1,5 +1,5 @@
 // One changes-view visit owns the selected commit, source text and request sequence.
-const REV={seq:0,files:[],whole:'',commit:'',sourceCommit:'',format:/** @type {string} */(DIFF_FORMAT.PDF),scope:/** @type {any} */(null),other:'',target:/** @type {RevTarget|null} */(null),pdfCommit:'',back:/** @type {string|null} */(null)};
+const REV={seq:0,files:/** @type {{name:string,text:string}[]} */([]),whole:'',commit:'',sourceCommit:'',format:/** @type {string} */(DIFF_FORMAT.PDF),scope:/** @type {any} */(null),other:'',target:/** @type {RevTarget|null} */(null),pdfCommit:'',back:/** @type {string|null} */(null)};
 // v0.3 (docs/handbook/viewer.md §변경 보기): a pin's view of a commit. REV.scope is the source diff's scope object
 // ({mode:'pin'|'commit', source, hunks, other, ...}); REV_PDF holds the comparison PDF's toggle - whole commit or only this pin.
 const REV_SCOPE={whole:false,partial:false,fallback:false};
@@ -26,7 +26,7 @@ function renderRevisionDiff(patch){
     else if(!inHunk&&(line.startsWith('--- ')||line.startsWith('+++ '))){kind='meta';}
     else if(line.startsWith('+')){kind='add';if(newLine!==null)number=newLine++;}
     else if(line.startsWith('-')){kind='del';if(oldLine!==null)number=oldLine++;}
-    else if(line.startsWith(' ')){kind='context';if(newLine!==null){number=newLine++;oldLine++;}}
+    else if(line.startsWith(' ')){kind='context';if(newLine!==null){number=newLine++; if(oldLine!==null)oldLine++;}}
     return html`<span class="rd-line rd-${kind}"><span class="rd-no" aria-hidden="true">${number}</span><span class="rd-code" translate="no">${line}</span></span>`;
   })}`;
 }
@@ -164,19 +164,19 @@ function revTargetActs(){const tg=REV.target,row=$('#revision-acts'),narrow=LAYO
   $$('.rp-acts').forEach(e=>e.remove());
   if(!tg||$('#revision-pin').hidden){row.hidden=true; document.body.classList.remove('rev-thumb'); return;}
   const p=findAnyPin(tg.id),confirm=!!p&&pinState(p)===PIN_STATE.REVIEW&&!tg.region&&!isViewer();
-  const back=REV.back&&REV.back!==DOC&&docInfo(REV.back)?docInfo(REV.back).name:null,acts=document.createElement('span');
+  const backDoc=REV.back&&REV.back!==DOC?docInfo(REV.back):null,back=backDoc?backDoc.name:null,acts=document.createElement('span');
   acts.className='rp-acts';
   const ok=confirm?html`<button class="btn-sm b-confirm ${isMe(p.author)?'btn-soft':'btn-secondary'}" data-act="confirm" data-tip="${T.confirm}">확인</button>`:'';
   setHtml(acts,html`<button class="btn-sm" data-act="rev-back" data-tip="${back?tl('{name} 원고 보기로 돌아갑니다',{name:back}):tr('원고 보기로 돌아갑니다')}">${back?tl('{name}(으)로',{name:back}):tr('원고로')}</button>${ok}`);
   (narrow?row:$('#revision-pin')).appendChild(acts);
   row.dataset.id=tg.id; row.hidden=!narrow; document.body.classList.toggle('rev-thumb',narrow);}
-function revHighlight(tg){const rows=$$('#revision-diff .rd-line'); let first=null;
+function revHighlight(tg){const rows=$$('#revision-diff .rd-line'); let first=/** @type {Element|null} */(null);
   rows.forEach(el=>{if(!(el.classList.contains('rd-add')||el.classList.contains('rd-context')))return; const n=+el.querySelector('.rd-no').textContent;
     if(n>=tg.lo&&n<=tg.hi){el.classList.add('rd-pin'); if(!first)first=el;}});
   tg.hit=!!first||touchesPin(REV.files,tg,5); tg.near=!first&&tg.hit;   // when only a neighboring line changed, it's never described as "the highlighted line" (there is none)
   if(!first){const f=pinFileIndex(REV.files,tg.file); if(f<0)tg.hit=false;
-    else{let best=null,dist=Infinity; rows.forEach(el=>{const n=+el.querySelector('.rd-no').textContent; if(!n)return; const d=Math.min(Math.abs(n-tg.lo),Math.abs(n-tg.hi)); if(d<dist){dist=d;best=el;}}); first=best;}}
-  revTargetNote(); if(first)requestAnimationFrame(()=>first.scrollIntoView({block:'center'}));}
+    else{let best=/** @type {Element|null} */(null),dist=Infinity; rows.forEach(el=>{const n=+el.querySelector('.rd-no').textContent; if(!n)return; const d=Math.min(Math.abs(n-tg.lo),Math.abs(n-tg.hi)); if(d<dist){dist=d;best=el;}}); first=best;}}
+  revTargetNote(); const top=first; if(top)requestAnimationFrame(()=>top.scrollIntoView({block:'center'}));}
 function findAnyPin(id){return OPEN_ALL.find(p=>p.id===id)||REVIEW_ALL.find(p=>p.id===id)||DONE_ALL.find(p=>p.id===id)||null;}
 // REV.back remembers the manuscript document that opened [변경 보기], so [원고로] returns there.
 // [원고로] and Esc in the changes view: back to the manuscript view, and to the document it was opened from.
@@ -185,7 +185,7 @@ function revBack(){const b=REV.back; REV.back=null; setViewMode(VIEW_MODE.MANUSC
 async function showChange(id){const p=findAnyPin(id); if(!p)return; const k=pdoc(p),back=DOC,fromManuscript=!document.body.classList.contains('revision-open');
   if(k!==DOC&&docInfo(k)){const opening=switchDoc(k),visit=SWITCHSEQ; await opening; if(DOC!==k||visit!==SWITCHSEQ)return;}
   if(fromManuscript)REV.back=back;
-  REV.target={id:p.id,file:p.file||p.pdf||'',name:p.name||String(p.file||p.pdf||'').split('/').pop(),lo:p.lo,hi:p.hi,page:p.page,ref:p.close_ref||'',region:isRegion(p)};
+  REV.target={id:p.id,file:p.file||p.pdf||'',name:p.name||String(p.file||p.pdf||'').split('/').pop()||'',lo:p.lo,hi:p.hi,page:p.page,ref:p.close_ref||'',region:isRegion(p)};
   const m=/\b[0-9a-f]{7,40}\b/.exec(REV.target.ref); REV.target.tokOf=m?m[0]:'';
   if(LAYOUT===LAYOUT_MODE.NARROW)setSide(false);
   if(document.body.classList.contains('revision-open'))loadRevisions(); else setViewMode(VIEW_MODE.REVISIONS);}
@@ -193,7 +193,7 @@ async function showChange(id){const p=findAnyPin(id); if(!p)return; const k=pdoc
 async function loadRevisionPdf(id,seq,k){
   const statusBox=$('#revision-status'),warningBox=$('#revision-warning'),tg=REV.target;
   // v0.3: for a pin, the comparison is old + only that pin's hunks unless [커밋 전체 비교] is on or that build already failed
-  const pin=revisionPinFor(id)&&!REV_SCOPE.whole&&!REV_SCOPE.fallback?tg.id:null,pq=pin?'&pin='+pin:'';
+  const pin=tg&&revisionPinFor(id)&&!REV_SCOPE.whole&&!REV_SCOPE.fallback?tg.id:null,pq=pin?'&pin='+pin:'';
   try{
     let status=(await api('/api/revision-build',{method:'POST',body:pin?{commit:id,doc:k,pin}:{commit:id,doc:k},what:'비교 PDF 만들기',silent:true})).data;
     if(!revisionCurrent(seq,k,id))return;
@@ -228,9 +228,9 @@ async function loadRevisionPdf(id,seq,k){
     const lead=pin&&status.scope===SCOPE_MODE.PIN?tl('핀 #{id}의 변경만',{id:pin})+' · ':REV_SCOPE.fallback&&tg?tr('이 핀의 변경만으로는 비교 PDF를 만들지 못해 커밋 전체를 비교합니다')+' · ':'';
     statusBox.textContent=lead+tl('첫 부모 {base} → {head} · {n}쪽 · 읽기 전용 · 빨강 삭제 / 파랑 추가',{base:String(status.base||'').slice(0,8),head:id.slice(0,8),n:pdf.numPages});
     const box=$('#revision-pdf');setHtml(box,html`${Array.from({length:pdf.numPages},(_,i)=>html`<div class="revision-page" data-page="${i+1}" aria-label="${tl('비교 PDF {page}쪽',{page:i+1})}"></div>`)}`);
-    if(window.IntersectionObserver){REV_PDF.observer=new IntersectionObserver(rows=>{for(const row of rows)if(row.isIntersecting){
-      REV_PDF.observer.unobserve(row.target);renderRevisionPage(row.target,pdf,seq,k,id);
-    }},{root:box,rootMargin:'600px 0px'});box.querySelectorAll('.revision-page').forEach(el=>REV_PDF.observer.observe(el));}
+    if(window.IntersectionObserver){const io=REV_PDF.observer=new IntersectionObserver(rows=>{for(const row of rows)if(row.isIntersecting){
+      io.unobserve(row.target);renderRevisionPage(row.target,pdf,seq,k,id);
+    }},{root:box,rootMargin:'600px 0px'});box.querySelectorAll('.revision-page').forEach(el=>io.observe(el));}
     else for(const el of box.querySelectorAll('.revision-page'))renderRevisionPage(el,pdf,seq,k,id);
     if(REV.target&&REV.target.page){const el=box.querySelector('.revision-page[data-page="'+Math.min(REV.target.page,pdf.numPages)+'"]'); if(el)el.scrollIntoView({block:'start'}); revTargetNote();}
   }catch(e){if(revisionCurrent(seq,k,id)){

@@ -84,7 +84,7 @@ function dragSheetTo(h){keepSheet(); document.documentElement.style.setProperty(
   let D=/** @type {{id:number,x:number,y:number,h:number,moved:boolean,lazy:boolean,el:HTMLElement,pts:{y:number,t:number}[]}|null} */(null);
   // grab = the drag owns the pointer (capture, cues); down = the handle grabs at once, the tool bar only once the move is vertical
   // (lazy - its buttons keep their taps); end = settle by sheetRelease(), or a handle tap.
-  const grab=e=>{try{D.el.setPointerCapture(e.pointerId);}catch(_){} D.el.classList.add('on'); document.body.classList.add('resizing');};
+  const grab=e=>{if(!D)return; try{D.el.setPointerCapture(e.pointerId);}catch(_){} D.el.classList.add('on'); document.body.classList.add('resizing');};
   const down=(e,lazy)=>{if(LAYOUT!==LAYOUT_MODE.NARROW||!e.isPrimary||(e.pointerType==='mouse'&&e.button!==0))return;
     if(lazy&&e.target.closest&&e.target.closest('input,textarea,select,#sheet-grip'))return;   // the handle (inside the bar) already grabbed
     D={id:e.pointerId,x:e.clientX,y:e.clientY,h:$('#right').getBoundingClientRect().height,moved:false,lazy,el:lazy?bar:g,pts:[]};
@@ -203,8 +203,8 @@ function armBack(){
   if(window.CloseWatcher){try{const w=new window.CloseWatcher(); BACK={kind:'watcher',w}; w.onclose=()=>{if(BACK&&BACK.w===w){BACK=null; closeTopLayer();}}; return;}catch(e){}}
   history.pushState({limnLayer:1},'',location.href); BACK={kind:'history'};}
 // Removes the layer without closing anything: destroys the watcher, or pops our entry (that popstate is skipped).
-function disarmBack(){const b=BACK; BACK=null;
-  if(b.kind==='watcher'){b.w.destroy(); return;}
+function disarmBack(){const b=BACK; BACK=null; if(!b)return;
+  if(b.kind==='watcher'){if(b.w)b.w.destroy(); return;}
   if(history.state&&history.state.limnLayer){BACK_SKIP=true; history.back();}}
 // The back gesture's action: close the open sheet dialog or the outline overlay, or collapse the sheet or overlay panel
 // (remembered, with the slide).

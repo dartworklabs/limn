@@ -103,8 +103,9 @@
 - DOM이 넓은 타입을 돌려주는 자리(`e.target`, `querySelector`, `closest`)는 JSDoc 캐스트로 좁힌다. 예: `const t=/** @type {HTMLElement} */(e.target);`. 주석이라 실행 코드는 바뀌지 않는다.
 - 리터럴 하나로 시작해 나중에 다른 값이 들어가는 변수는 시작 값에서 타입을 넓힌다. 예: `let KIND_NEW=/** @type {string} */(KIND_REQ.FIX)`.
 - 함수 객체에 속성을 붙여 상태를 두지 않는다(`f.held=true`). 같은 일은 조각의 `let` 변수로 한다.
-- `strict` 묶음은 하위 옵션을 하나씩 켠다. 조각이 한 전역 범위를 나눠 쓰므로 파일마다 따로 켤 수 없기 때문이다. 켠 옵션은 `tsconfig.json`이 정본이다. 아직 꺼 둔 것은 `noImplicitAny`와 `strictNullChecks`(그리고 그것에 딸린 `strictPropertyInitialization`)이고, `noFallthroughCasesInSwitch`는 상태 줄의 의도된 fall-through 때문에 켜지 않는다. 그래도 닫힌 값 표의 오타(`PIN_STATE.REVEIW`), 없는 함수, `Html`이 아닌 값을 기대하는 인자, 쓰지 않는 지역 변수는 지금도 실패한다.
-- 다음에 켤 옵션은 `tsconfig.strict.json`에 미리 켜 둔다(지금은 `strictNullChecks`). [`tools/strict_ratchet.py`](../../tools/strict_ratchet.py)가 그 설정으로 `tsc`를 돌려 조각마다 오류 수를 [`tools/strict-baseline.json`](../../tools/strict-baseline.json)과 비교한다. 기준보다 많으면 새 코드가 그 규칙을 지키지 않은 것이라 실패하고, 적으면 `--update`로 기준을 낮추라며 실패한다. 그래서 수는 줄기만 한다. 기준이 비면 그 옵션을 `tsconfig.json`으로 옮기고 다음 옵션을 올린다.
+- `strict` 묶음은 하위 옵션을 하나씩 켠다. 조각이 한 전역 범위를 나눠 쓰므로 파일마다 따로 켤 수 없기 때문이다. 켠 옵션은 `tsconfig.json`이 정본이다. `strictNullChecks`도 켜져 있어 `null`이 될 수 있는 값을 확인 없이 읽으면 실패한다. 아직 꺼 둔 것은 `noImplicitAny`와 `strictPropertyInitialization`(클래스 필드용)이고, `noFallthroughCasesInSwitch`는 상태 줄의 의도된 fall-through 때문에 켜지 않는다. 그래도 닫힌 값 표의 오타(`PIN_STATE.REVEIW`), 없는 함수, `Html`이 아닌 값을 기대하는 인자, 쓰지 않는 지역 변수는 지금도 실패한다.
+- 다음에 켤 옵션은 `tsconfig.strict.json`에 미리 켜 둔다(지금은 비어 있다). [`tools/strict_ratchet.py`](../../tools/strict_ratchet.py)가 그 설정으로 `tsc`를 돌려 조각마다 오류 수를 [`tools/strict-baseline.json`](../../tools/strict-baseline.json)과 비교한다. 기준보다 많으면 새 코드가 그 규칙을 지키지 않은 것이라 실패하고, 적으면 `--update`로 기준을 낮추라며 실패한다. 그래서 수는 줄기만 한다. 기준이 비면 그 옵션을 `tsconfig.json`으로 옮기고 다음 옵션을 올린다.
+- 처음에 `null`인 상태 변수는 잡을 값의 타입을 선언과 함께 적는다(`let X=/** @type {T|null} */(null)`). 화면 상태 객체의 모양은 [`types/state.d.ts`](../../src/limn/viewer/types/state.d.ts)에 둔다. 의미상 늘 있는 값(고정 마크업 안의 요소, 바로 위에서 정한 값)은 캐스트로 단언하고, 실제로 없을 수 있는 값은 가드로 거른다.
 - `catch(e)`의 `e`는 `unknown`이다. 속성을 읽을 때는 `/** @type {Error} */(e).message`처럼 좁힌다.
 
 ## 조작 한눈에

@@ -1,7 +1,8 @@
 // ------------------------------------------------ Tooltip
-const TIP=$('#tip'); let tipT=null,tipEl=null,TIPXY=null;
+const TIP=$('#tip'); let tipT=/** @type {ReturnType<typeof setTimeout>|undefined} */(undefined),tipEl=/** @type {HTMLElement|null} */(null),
+  TIPXY=/** @type {number[]|null} */(null);
 document.addEventListener('mousemove',e=>{TIPXY=[e.clientX,e.clientY];},{passive:true});
-function hideTip(){clearTimeout(tipT);tipT=null;tipEl=null;TIP.hidden=true;}
+function hideTip(){clearTimeout(tipT);tipT=undefined;tipEl=null;TIP.hidden=true;}
 // Shows el's description over it. The box is translate="no": a description is already in the UI language (the translator
 // rewrote the attribute, or the code drew it with tr()), and one that quotes a note ('#38 · 완료') must not be rewritten again.
 function showTip(el){const txt=el.dataset.tip; if(!txt||!document.contains(el))return;
@@ -45,7 +46,7 @@ function pressTarget(t){const el=t&&t.closest?t.closest('[data-tip]'):null; if(!
   if(el.closest('.pg')&&!el.closest('.mark b'))return null; return el;}
 document.addEventListener('pointerdown',e=>{if(e.pointerType==='mouse')return; if(!TIP.hidden)hideTip();
   const el=pressTarget(e.target); if(!el)return;
-  PRESS={el,x:e.clientX,y:e.clientY,t:setTimeout(()=>{showTip(el); PRESS.shown=true; SWALLOW_CLICK=Date.now()+900;
+  PRESS={el,x:e.clientX,y:e.clientY,t:setTimeout(()=>{showTip(el); if(PRESS)PRESS.shown=true; SWALLOW_CLICK=Date.now()+900;
     setTimeout(()=>{if(!TIP.hidden&&TIP.textContent===el.dataset.tip)hideTip();},4000);},500)};},true);
 function endPress(){if(PRESS){clearTimeout(PRESS.t); PRESS=null;}}
 document.addEventListener('pointermove',e=>{if(PRESS&&Math.hypot(e.clientX-PRESS.x,e.clientY-PRESS.y)>10)endPress();},true);

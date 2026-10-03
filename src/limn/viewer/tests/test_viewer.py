@@ -500,9 +500,9 @@ class FrontendStructure(unittest.TestCase):
     def test_pick_resets_overlap_dismissed_and_recounts(self):
         m = re.search(r"async function pick\(r\)\{(.*?)\n\}", HTML, re.S)
         body = m.group(1)
-        cur_idx = body.index("COMPOSE.current=d;")
+        cur_idx = body.index("COMPOSE.current=sel;")
         self.assertGreater(body.index("COMPOSE.dismissedOverlap=null"), cur_idx)
-        self.assertGreater(body.index("COMPOSE.current.overlaps=overlapsFor(COMPOSE.current,PINS)"), cur_idx)
+        self.assertGreater(body.index("sel.overlaps=overlapsFor(sel,PINS)"), cur_idx)
 
     def test_level_and_excerpt_lines_recount_overlap_only_for_composer(self):
         m = re.search(r"case 'level':\{(.*?)\}\s*\n", HTML)
@@ -733,7 +733,7 @@ class FrontendMobileStructure(unittest.TestCase):
         self.assertIn("document.addEventListener('contextmenu'", HTML)
 
     def test_keyboard_and_resize_hooks(self):
-        self.assertIn("visualViewport.addEventListener('resize',onViewport)", HTML)
+        self.assertIn("vv.addEventListener('resize',onViewport)", HTML)
         self.assertIn("new ResizeObserver(", HTML)
         m = re.search(r"\nfunction relayout\(\)\{(.*?)\}\n", HTML, re.S)
         self.assertIn("topAnchor()", m.group(1))
@@ -930,7 +930,7 @@ class FrontendZoom(unittest.TestCase):
         self.assertIn("L.addEventListener('wheel',e=>{if(!(e.ctrlKey||e.metaKey))return; e.preventDefault();", HTML)
         i = HTML.index("L.addEventListener('wheel'")
         self.assertIn("{passive:false}", HTML[i : i + 300])
-        self.assertIn("const L=$('#left')", HTML[i - 200 : i])  # PDF area only — sidebar wheel scrolling is left alone
+        self.assertIn("const L=$('#left')", HTML[i - 500 : i])  # PDF area only — sidebar wheel scrolling is left alone
         self.assertIn("zoomTo(W*f,pt[0],pt[1])", HTML)  # anchored to the pointer
 
     def test_safari_gesture_and_touch_pinch(self):
@@ -1374,7 +1374,7 @@ class FrontendPanelTidyStructure(unittest.TestCase):
         self.assertIn("var(--sheet-f,.64)", HTML)
         more = HTML[HTML.index('<dialog id="more"') : HTML.index('<dialog id="help"')]
         self.assertIn('id="m-size"', more)
-        self.assertIn("case 'size-preset':sizePreset(+a.dataset.i)", HTML)
+        self.assertIn("case 'size-preset':sizePreset(Number(a.dataset.i))", HTML)
         self.assertIn("renderSizeSeg(); placeMore(); showSheet(d)", HTML)
 
     def test_actions_row_is_fixed_at_panel_bottom_outside_composer(self):
@@ -2718,7 +2718,7 @@ class FrontendFigure(unittest.TestCase):
         self.assertIn('<div class="c-loc-main"><span id="c-path" hidden></span><span id="c-loc"', HTML)
         for fn in ("renderComposer", "renderRegionComposer"):
             self.assertIn("renderElement(d,COMPOSE.box)", extract_js_fn(fn), fn)
-        self.assertIn("COMPOSE.current.elSel=d.el||null;", extract_js_fn("pick"))
+        self.assertIn("sel.elSel=d.el||null;", extract_js_fn("pick"))
         self.assertIn("if(lv.el)o.elSel=lv.el;", extract_js_fn("useLevel"))
         for fn in ("elPathText", "snapBox", "renderElement"):
             self.assertNotIn("api(", extract_js_fn(fn), fn)
@@ -3104,7 +3104,7 @@ class FrontendFigure(unittest.TestCase):
         self.assertLess(
             rp.index("if(isRegion(c))loc="), rp.index("figureFields(loc,repickEl(c),isRegion(c)||!lv.el?null:lv);")
         )
-        self.assertIn("snapBox(REPICK.box,repickEl(c));", extract_js_fn("bannerCompare"))
+        self.assertIn("snapBox(R.box,repickEl(c));", extract_js_fn("bannerCompare"))
         self.assertIn("region:!!EDITOR.current.region", extract_js_fn("startRepick"))
         self.assertIn("pinEl:p.el||null", extract_js_fn("openEdit"))
         self.assertIn("(!E.pinEl&&(E.scope||null)!==(E.orig.scope||null))", extract_js_fn("saveEdit"))

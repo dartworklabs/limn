@@ -56,8 +56,8 @@ function i18nStart(){for(const r of /** @type {NodeListOf<HTMLElement>} */(docum
   new MutationObserver(ms=>{for(const m of ms){
     if(m.type==='childList')m.addedNodes.forEach(i18nTree);
     else if(m.type==='characterData')i18nText(m.target);
-    else if(m.type==='attributes'&&m.target.nodeType===1&&!i18nUser(m.target)){const el=/** @type {Element} */(m.target),v=el.getAttribute(m.attributeName);
-      if(v){const e=trMsg(v); if(e!==v)el.setAttribute(m.attributeName,e);}}}})
+    else if(m.type==='attributes'&&m.target.nodeType===1&&!i18nUser(m.target)){const el=/** @type {Element} */(m.target),name=m.attributeName||'',v=el.getAttribute(name);
+      if(v){const e=trMsg(v); if(e!==v)el.setAttribute(name,e);}}}})
     .observe(document.body,{childList:true,subtree:true,characterData:true,attributes:true,attributeFilter:I18N_ATTRS});}
 // [더보기]'s language segment: saves lang (ko or en) as this device's choice and reloads in it - the tab's draft is kept
 // (sessionStorage). The language on screen does nothing; nothing asks first.

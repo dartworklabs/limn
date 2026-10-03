@@ -20,8 +20,8 @@ function applyPinLists(rows,dropped,lists){
   diffToast(prevOpen,rows,dropped); reviewToast(prevReview,rows);
   OPEN_ALL=lists.openAll; REVIEW_ALL=lists.reviewAll; DONE_ALL=lists.doneAll; DROPPED=dropped;
   PINS=lists.openHere; DONE=lists.doneHere;
-  if(EDITOR.current&&!OPEN_ALL.some(p=>p.id===EDITOR.current.id)){toast(tl('편집 중이던 핀 #{id} 이 목록에서 빠졌습니다(다른 쪽에서 닫았거나 지움)',{id:EDITOR.current.id}),'warn'); EDITOR.current=null;}
-  if(REPLY&&!rows.some(p=>p.id===REPLY.id)){closeReply(false); toast('답글을 쓰던 핀이 목록에서 빠졌습니다(지워짐) — 쓰던 글은 남겨 둡니다','warn');}
+  const E=EDITOR.current; if(E&&!OPEN_ALL.some(p=>p.id===E.id)){toast(tl('편집 중이던 핀 #{id} 이 목록에서 빠졌습니다(다른 쪽에서 닫았거나 지움)',{id:E.id}),'warn'); EDITOR.current=null;}
+  const R=REPLY; if(R&&!rows.some(p=>p.id===R.id)){closeReply(false); toast('답글을 쓰던 핀이 목록에서 빠졌습니다(지워짐) — 쓰던 글은 남겨 둡니다','warn');}
   if(!SEC_SEEN.open){SEC_SEEN.open=new Set(OPEN_ALL.map(p=>p.id)); SEC_SEEN.review=new Set(REVIEW_ALL.map(p=>p.id)); SEC_SEEN.done=new Set(DONE_ALL.map(p=>p.id));}
   drawPins(); marks(); drawDocTabs();
   if(COMPOSE.current){recomputeOverlap(); renderOverlapBanner();}   // if the list changes (someone else's save/completion), overlap is recomputed too
@@ -80,7 +80,7 @@ function secHead(key,name,ids,all){const b=document.getElementById(key+'-toggle'
   const fresh=nn?html`<span class="sec-new">${tl('새 {n}',{n:nn})}</span>`:'';
   setHtml(b,html`${ic(open?'chevron-down':'chevron-right')}<span class="sec-name" id="${SEC_NAME_ID[key]}">${name} <span class="badge badge-secondary sec-n">${ids.length}</span></span>${fresh}`);
   b.setAttribute('aria-expanded',String(open));
-  const body=document.getElementById(b.getAttribute('aria-controls')); if(body)body.hidden=!open;}
+  const body=document.getElementById(b.getAttribute('aria-controls')||''); if(body)body.hidden=!open;}
 function toggleSec(key,force){if(!(key in SEC_DEFAULT))return; SEC[key]=force===undefined?!SEC[key]:!!force; savePrefs({sec:SEC}); drawPins();}
 // Redraws the pin panel from the lists (sections, counts, the Trash count, a reply in progress) - and, while the changes view
 // shows a pin, its guide line's buttons, whose [확인] follows that pin's state (revTargetActs).
@@ -93,7 +93,7 @@ function drawPins(){
   const SHOWN=MENTION_ONLY?OPEN_ALL.filter(mentionsMe):LIST;
   // If the cursor was in the reply input field or the edit card's note, it's restored to that position after redrawing (so auto-sync
   // redrawing the list, or a layout change redrawing the cards, never interrupts typing).
-  const rta=REPLY&&REPLY.el.querySelector('textarea'),rfocus=rta&&document.activeElement===rta?[rta.selectionStart,rta.selectionEnd]:null;
+  const rta=REPLY&&replyNote(REPLY),rfocus=rta&&document.activeElement===rta?[rta.selectionStart,rta.selectionEnd]:null;
   const eta=EDITOR.current&&editNote(EDITOR.current),efocus=eta&&document.activeElement===eta?[eta.selectionStart,eta.selectionEnd]:null;
   secHead('open',tr(MENTION_ONLY?'나를 부른 열린 핀':SHOW_ALL&&multiDoc()?'모든 문서의 열린 핀':'열린 핀'),SHOWN.map(p=>p.id),OPEN_ALL.map(p=>p.id));
   const ab=$('#all-docs'); ab.setAttribute('aria-pressed',String(SHOW_ALL)); setHtml(ab,html`${SHOW_ALL?ic('check'):''}${tr('모든 문서')}`);
@@ -105,7 +105,7 @@ function drawPins(){
   // Empty list: the header's count already says it - a separate '아직 없습니다.' line is never added too (QA). Only a note that another document has pins is left.
   setHtml($('#pins'),SHOWN.length?html`${SHOWN.map(card)}`:multiDoc()&&!SHOW_ALL&&OPEN_ALL.length?html`<div class="dim list-empty">${tl('이 문서에는 없습니다 · 다른 문서에 {n}건',{n:OPEN_ALL.length})}</div>`:html``);
   if(EDITOR.current){const slot=$('#pins .edit-slot'); if(slot)slot.replaceWith(EDITOR.current.el);
-    if(efocus&&document.contains(eta)){eta.focus(); try{eta.setSelectionRange(efocus[0],efocus[1]);}catch(e){}}}
+    if(efocus&&eta&&document.contains(eta)){eta.focus(); try{eta.setSelectionRange(efocus[0],efocus[1]);}catch(e){}}}
   // Awaiting-review section: between open pins and done. Hidden when empty. The card looks the same as an open pin (thread/replies); only the actions are [확인]/[답글].
   const LREV=MENTION_ONLY?REVIEW_ALL.filter(mentionsMe):listReview();
   $('#sec-review').hidden=!LREV.length; secHead('review',tr('검토 대기'),LREV.map(p=>p.id),REVIEW_ALL.map(p=>p.id));
@@ -116,7 +116,7 @@ function drawPins(){
   if(SEC.done)setHtml($('#done-list'),LDONE.length?html`${LDONE.slice().reverse().map(doneCard)}`:html`<div class="dim">없습니다.</div>`);
   if($('#trash').open)drawTrash();
   if(REPLY){const slot=document.querySelector('#list .reply-slot'); if(slot)slot.replaceWith(REPLY.el); renderReplyOutcome();   // the pin may have changed state meanwhile
-    if(rfocus&&document.contains(rta)){rta.focus(); try{rta.setSelectionRange(rfocus[0],rfocus[1]);}catch(e){}}}
+    if(rfocus&&rta&&document.contains(rta)){rta.focus(); try{rta.setSelectionRange(rfocus[0],rfocus[1]);}catch(e){}}}
   if(REV.target)revTargetActs();
 }
 // Location estimation (.est, dashed) is judged by the server and carried as est in /api/pins (pin_est - comparing the
