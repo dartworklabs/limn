@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.4.12 — 2026-10-04
+
+Comparison PDFs now mark changes inside a document's own text macros, such as a reply letter's `\response{...}`.
+`pins.md`, the HTTP API and the state directory are unchanged; cached comparison PDFs are rebuilt once.
+
+### Fixed
+
+- **The comparison PDF marks changes inside the document's own text macros.** latexdiff took a call such as
+  `\response{...}` as one token, so a changed argument's old text was hidden and its new text drawn unmarked; a reply
+  letter showed changes only in its plain opening paragraphs (#162). The comparison now passes latexdiff the commands
+  that the new side's preamble defines with `\newcommand`/`\renewcommand`/`\providecommand` and whose last argument is
+  typeset as text. Labels, file names, lengths, options and math are left as before. If a run with those commands does
+  not build, the comparison is built once more with plain latexdiff, as before this release, and says so in its
+  warnings. Macros defined in `\input` files, `.sty` files, `\NewDocumentCommand` or `\def` are not detected. Cached
+  comparisons are rebuilt once (cache version `latex-pdf-v2`).
+
 ## 0.4.11 — 2026-10-04
 
 Comparison PDFs zoom, the status line counts the pages it draws, and a batch of fixes: watched files rewritten within
