@@ -41,6 +41,7 @@ uv run ruff format --check
 uv run shellcheck src/limn/administration/instances.sh src/limn/administration/instance_*.sh src/limn/administration/tests/test_instances.sh
 uv run python tools/check_boundaries.py
 uv run mypy
+uv run mypy --platform darwin
 npm ci --ignore-scripts && npm run typecheck
 ```
 

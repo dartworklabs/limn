@@ -613,11 +613,18 @@ PART_DIR_RE = re.compile(r"\.pages-.*\.part")  # a page folder being drawn: no c
 
 def available_cpus() -> int:
     """The CPUs this process may run on: its affinity set where the platform has one (Linux - a container or a
-    taskset narrows it), else os.cpu_count(), and one when neither is known."""
+    taskset narrows it), else os.cpu_count(), and one when neither is known.
+
+    os.sched_getaffinity is looked up when called, not named statically: macOS and Windows lack it, and typeshed
+    declares it only for the other platforms, so a static reference fails mypy on a macOS checkout while CI (Linux)
+    passes."""
+    affinity = getattr(os, "sched_getaffinity", None)
     try:
-        return max(1, len(os.sched_getaffinity(0)))
+        if affinity is not None:
+            return max(1, len(affinity(0)))
     except (AttributeError, OSError):
-        return os.cpu_count() or 1
+        pass
+    return os.cpu_count() or 1
 
 
 def render_workers() -> int:
