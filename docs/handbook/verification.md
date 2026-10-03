@@ -137,7 +137,7 @@ pytest는 `tests`와 `src/limn`을 수집하고 `tests/support`에서 공용 도
 | 적용 조건 | 모든 변경. CI `lint` 작업이 항상 돈다 |
 | 실행 | `uv sync --group dev` 뒤 `uv run ruff check`, `uv run ruff format --check`, `uv run shellcheck src/limn/administration/instances.sh src/limn/administration/instance_*.sh src/limn/administration/tests/test_instances.sh`. 포매팅이 어긋나면 `uv run ruff format`이 고친다. 두 도구 모두 개발 의존성이라 로컬과 CI가 `uv.lock`의 같은 버전을 쓴다 |
 | 합격 기준 | 세 명령이 0으로 끝난다. 규칙을 끄려면 그 줄에 이유를 적은 주석과 함께 끈다 (예: `# shellcheck disable=SC2016` 위에 이유 한 줄). 포매터를 `# fmt: off`로 끄는 것은 정말 표 모양인 데이터에만 쓴다 |
-| 보장 범위 | 켠 규칙만이다. 규칙 목록과 끈 규칙은 `pyproject.toml`의 `[tool.ruff.lint]`가 정본이고, 끈 이유는 [code-style-roadmap.md](code-style-roadmap.md) §R4에 있다. docstring은 프로덕션 공개 항목과 테스트 모듈·클래스의 누락을 검사하며 private 도우미·테스트 함수·메서드는 제외한다 (§6). 타입은 §9가 본다. 뷰어 JS에는 린터가 없고, §1의 `test_viewer_files`가 node로 문법을, `test_viewer_source`가 토큰으로 죽은 함수·주석에 삼켜진 문장·닫힌 값 표를 본다 |
+| 보장 범위 | 켠 규칙만이다. 규칙 목록과 끈 규칙은 `pyproject.toml`의 `[tool.ruff.lint]`가 정본이고, 끈 이유는 [code-style-roadmap.md](code-style-roadmap.md) §R4에 있다. docstring은 프로덕션 공개 항목과 테스트 모듈·클래스의 누락을 검사하며 private 도우미·테스트 함수·메서드는 제외한다 (§6). 타입은 §9가 본다. 뷰어 JS에는 린터가 없고, §1의 `test_viewer_files`가 node로 문법을, `test_viewer_source`가 토큰으로 죽은 함수·주석에 삼켜진 문장·닫힌 값 표를, `test_viewer_markup`이 HTML 싱크와 `html` 태그 규칙([viewer.md](viewer.md) §마크업 만들기)을 본다 |
 
 ## 9. 타입 검사
 

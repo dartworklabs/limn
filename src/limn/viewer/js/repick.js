@@ -1,5 +1,5 @@
 // ------------------------------------------------ Re-place location
-function banner(html){const b=$('#banner'); b.innerHTML=html; b.hidden=false;}
+function banner(markup){const b=$('#banner'); b.innerHTML=markup; b.hidden=false;}
 function bannerRepick(err){banner('<span>'+esc(tl('핀 #{id} 의 새 위치를 PDF에서 드래그하세요 · Esc 취소',{id:REPICK.id}))+'</span>'+
   (err?'<span class="errline" style="margin:0">'+esc(err)+'</span>':'')+'<span class="sp"></span>'+
   '<button class="btn-sm" data-act="rp-cancel" data-tip="위치 다시 잡기를 그만둡니다 (Esc)">취소</button>');}

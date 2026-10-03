@@ -3189,7 +3189,10 @@ class FrontendIcons(unittest.TestCase):
     def test_js_ic_matches_server_icon_svg(self):
         if not shutil.which("node"):
             self.skipTest("node not available")
-        js = js_icons() + "\nconsole.log(JSON.stringify(['check','clock','x'].map(ic).concat([ic('nope')])));"
+        js = (
+            js_icons()
+            + "\nconsole.log(JSON.stringify(['check','clock','x','nope'].map(n=>{const h=ic(n); return h instanceof Html&&h.text;})));"
+        )
         self.assertEqual(
             json.loads(run_node(js)),
             [viewer_assemble.icon_svg("check"), viewer_assemble.icon_svg("clock"), viewer_assemble.icon_svg("x"), ""],

@@ -13,7 +13,7 @@ function newBox(pg){const b=document.createElement('div'); b.className='sel'; pg
 // The pending box's badge - the composer's '새 핀', a re-place's '새 위치': a '+' where a saved mark's number badge goes, outside
 // the box's left edge at its top, or in its top-left corner when the page margin has no room (pendingBadgeSide). The old name
 // tag sat 21px above the box, over the line above it; the name is now for screen readers only.
-function pendingBadge(box,name){box.innerHTML='<i aria-hidden="true">'+ic('plus')+'</i><span class="sr-only">'+esc(tr(name))+'</span>'; pendingBadgeSide(box);}
+function pendingBadge(box,name){setHtml(box,html`<i aria-hidden="true">${ic('plus')}</i><span class="sr-only">${tr(name)}</span>`); pendingBadgeSide(box);}
 // Decides a pending box's badge side by the mark rule (markBadgeIn) for its left edge, the page width and the margin now.
 function pendingBadgeSide(box){const r=markBadgeRoom(); box.classList.toggle('in',markBadgeIn((parseFloat(box.style.left)||0)/100,W,r.pad,r.reach));}
 function drawBox(box,sx,sy,x,y){Object.assign(box.style,{left:Math.min(sx,x)*100+'%',top:Math.min(sy,y)*100+'%',

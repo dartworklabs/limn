@@ -109,5 +109,5 @@ function renderSizeSeg(){const box=$('#m-size'); if(!box)return; const narrow=LA
   let names,cur;
   if(narrow){names=['낮게','보통','높게']; const f=sheetF(); cur=SHEET_F.findIndex(x=>Math.abs(x-f)<=0.02);}
   else{names=['좁게','보통','넓게']; cur=presetIndex(sideBounds(LAYOUT,innerWidth).presets,curSideW());}
-  box.innerHTML=names.map((n,i)=>'<button class="'+(i===cur?'on':'')+'" aria-pressed="'+(i===cur)+'" data-act="size-preset" data-i="'+i+'">'+n+'</button>').join('');}
+  setHtml(box,html`${names.map((n,i)=>html`<button class="${i===cur?'on':''}" aria-pressed="${i===cur}" data-act="size-preset" data-i="${i}">${n}</button>`)}`);}
 function sizePreset(i){if(LAYOUT===LAYOUT_MODE.NARROW){setSheetF(SHEET_F[i]);return;} setSideWidth(sideBounds(LAYOUT,innerWidth).presets[i]);}

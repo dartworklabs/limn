@@ -43,7 +43,7 @@ function drawLadder(box,o,isEdit){const n=(o.levels||[]).length; box.dataset.run
 // an edit card the range copies as 'file Llo-Lhi' (the composer's location line has its copy).
 // Writes caption html into el only when it changed: the caption is a polite live region (a screen reader hears the new
 // range after a rung or an excerpt press, not every redraw), and its copyable range keeps its focus.
-function setCap(el,html){if(el._cap!==html){el._cap=html; el.innerHTML=html;}}
+function setCap(el,markup){if(el._cap!==markup){el._cap=markup; el.innerHTML=markup;}}
 function rangeCap(o,isEdit){const ls=o.levels||[],cur=curLevel(o),r=esc(rng(o.lo,o.hi));
   const named=ls.length<2&&cur&&!(isEdit&&cur.level==='raw')?' · '+esc(levelName(cur,ls)):'';
   const v=isEdit?'<span class="e-range loc" tabindex="0" data-copy="'+esc(o.name+' L'+o.lo+'-L'+o.hi)+'" data-tip="'+esc(tr('저장하면 핀이 가리킬 원문 줄. 누르면 복사'))+'">'+r+'</span>':'<span class="rg-v">'+r+'</span>';

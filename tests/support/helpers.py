@@ -79,10 +79,18 @@ def extract_js_fn(name: str) -> str:
     return helpers_js.closed_set_prelude(VIEWER_CLOSED_SETS, fn) + fn
 
 
+def js_markup() -> str:
+    """The viewer's markup part (js/markup.js: Html, html``, ic(), setHtml()) exactly as served, for node harnesses that
+    run functions building markup. It needs esc() (js_esc()) and, to draw an icon, ICONS (js_icons() brings both)."""
+    return (VIEWER / "js" / "markup.js").read_text(encoding="utf-8")
+
+
 def js_icons() -> str:
-    """The viewer's Lucide icon table (ICONS) and ic() — included together when running icon-drawing functions like card()/archiveRow() under node."""
+    """The viewer's Lucide icon table (ICONS) with the markup part that draws it (ic(), html``) — included together when
+    running icon-drawing functions like card()/archiveRow() under node. Brings no esc(); add js_esc() if the harness
+    has none."""
     m = re.search(r"const ICONS=\{.*?\};", HTML)
-    return m.group(0) + "\n" + extract_js_fn("ic")
+    return m.group(0) + "\n" + js_markup()
 
 
 def js_esc() -> str:
