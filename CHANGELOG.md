@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- **[Confirm] binds to the close you saw.** `POST /api/pins/{id}/confirm` takes an optional body `{"done_at": "<the
+  close's done_at>"}`. If the agent reopened the pin and closed it again after you looked, the request answers
+  `409 {"error": "conflict", "reason": "conflict", "pin": <latest>}` and changes nothing; the viewer sends the card's
+  `done_at` and says the pin was closed again. A request without the field confirms the current close, as before.
+  A `done_at` that is not a non-blank string of at most 64 characters is `400 bad_done_at`. Agents never confirm, so
+  the agent contract (`pins.md`, SKILL) is unchanged; the HTTP API only gains the optional field and the new code.
+
 ## 0.4.9 — 2026-10-03
 
 The cross-resolution pass: one composer and one panel toggle on every layout, the desktop's [⋯] menu, and spacing

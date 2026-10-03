@@ -2,6 +2,8 @@
 
 import unittest
 
+from hypothesis import given, strategies
+
 from limn.pins.lifecycle.rules import (
     AgentCannotConfirm,
     AlreadyClosed,
@@ -11,6 +13,7 @@ from limn.pins.lifecycle.rules import (
     PinReopened,
     PinStillOpen,
     Replied,
+    ShownCloseChanged,
     ThreadFull,
     confirm,
     confirmer,
@@ -39,6 +42,49 @@ class Confirmer(unittest.TestCase):
     def test_agent_is_refused(self):
         """An agent gets the refusal value, not an exception."""
         self.assertEqual(confirmer(Agent("local", "agent")), AgentCannotConfirm())
+
+
+class ConfirmShownClose(unittest.TestCase):
+    """confirm() with the done_at of the close the person saw (docs/handbook/api.md §검토 대기)."""
+
+    SHOWN = "2026-10-03 09:00:00"
+
+    def test_the_close_the_person_saw_is_confirmed(self):
+        """The same done_at confirms the pin awaiting review, as without one."""
+        pin = ReviewPin.from_record(review_record(done_at=self.SHOWN))
+        self.assertEqual(confirm(pin, ALICE_PERSON, AT, self.SHOWN), confirm(pin, ALICE_PERSON, AT))
+        self.assertIsInstance(confirm(pin, ALICE_PERSON, AT, self.SHOWN), DonePin)
+
+    def test_a_pin_closed_again_since_is_refused_with_the_pin(self):
+        """Another done_at means the pin was reopened and closed again; it comes back unchanged for the 409 body."""
+        pin = ReviewPin.from_record(review_record(done_at="2026-10-03 09:05:00"))
+        self.assertEqual(confirm(pin, ALICE_PERSON, AT, self.SHOWN), ShownCloseChanged(pin))
+
+    def test_a_done_pin_with_the_same_close_is_already_done(self):
+        """Confirming the shown close again stays idempotent."""
+        pin = DonePin.from_record({"id": 1, "done": True, "done_at": self.SHOWN})
+        self.assertEqual(confirm(pin, ALICE_PERSON, AT, self.SHOWN), AlreadyDone(pin))
+
+    def test_a_done_pin_with_another_close_is_refused(self):
+        """A pin closed again and confirmed by someone else since is not the close this person saw."""
+        pin = DonePin.from_record({"id": 1, "done": True, "done_at": "2026-10-03 09:05:00"})
+        self.assertEqual(confirm(pin, ALICE_PERSON, AT, self.SHOWN), ShownCloseChanged(pin))
+
+    def test_an_open_pin_stays_still_open(self):
+        """A reopened pin answers as before: there is nothing to confirm."""
+        pin = OpenPin.from_record({"id": 1, "done": False, "done_at": self.SHOWN})
+        self.assertEqual(confirm(pin, ALICE_PERSON, AT, self.SHOWN), PinStillOpen(pin))
+
+    @given(strategies.text(max_size=40), strategies.text(max_size=40))
+    def test_any_other_shown_close_changes_nothing(self, stored, shown):
+        """For any stored and shown done_at that differ, the closed pin comes back exactly as it was."""
+        if stored == shown:
+            return
+        for pin in (
+            ReviewPin.from_record(review_record(done_at=stored)),
+            DonePin.from_record({"id": 1, "done": True, "done_at": stored}),
+        ):
+            self.assertEqual(confirm(pin, ALICE_PERSON, AT, shown), ShownCloseChanged(pin))
 
 
 class Confirm(unittest.TestCase):

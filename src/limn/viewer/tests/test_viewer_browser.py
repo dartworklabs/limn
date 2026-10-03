@@ -1447,6 +1447,26 @@ class ReviewInChanges(RevisionPins):
         settle(page)
         self.assertEqual(self.state(self.p1), "open")
 
+    def test_the_card_confirm_refuses_a_close_redone_while_its_toast_was_up(self):
+        """The deferred [확인] names the close the card showed. If the agent reopened and closed the pin again meanwhile,
+        the send answers 409 conflict, the viewer says so, and the pin stays awaiting review with the new close."""
+        page = self._page = self.open(0, init=COUNT_CONFIRMS, **REVIEW_SCREENS["desktop"])
+        page.evaluate("setSide(true); SEC.review=true; OPEN_CARDS.add(%d); drawPins()" % self.p1)
+        settle(page)
+        page.click('#sec-review [data-id="%d"] [data-act=confirm]' % self.p1)
+        page.wait_for_selector(".toast:has-text('%s')" % TXT["ko"]["undo"])
+        store = ps.APP.pin_lifecycle.context().store
+        with mock.patch.object(ps.APP.assembly.pins.commands, "now_str", return_value="2099-01-01 00:00:00"):
+            ps.APP.pin_lifecycle.reopen_pin(self.p1, post_authority(store, dict(LOCAL_ACTOR), "reopen", self.p1))
+            ps.APP.pin_lifecycle.close_pin(
+                self.p1, post_authority(store, dict(LOCAL_ACTOR), "close", self.p1), CloseRequest()
+            )
+        page.click(".toast:has-text('%s') [aria-label='알림 닫기']" % TXT["ko"]["undo"])
+        page.wait_for_function("CONFIRMS.length===1")
+        page.wait_for_selector(".toast.warn:has-text('다시 닫혔습니다')", timeout=10000)
+        settle(page)
+        self.assertEqual(self.state(self.p1), "review")
+
 
 class ViewerTrashControls(BrowserBase):
     """A viewer can open the Trash and read it, but sees no [되살리기]/[영구 삭제] (the server refuses both with 403 anyway)."""

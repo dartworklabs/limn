@@ -6,7 +6,7 @@ from unittest import mock
 from limn.pins import runtime as pin_runtime
 from limn.pins.claims.rules import ClaimClosedPin
 from limn.pins.lifecycle import input as lifecycle_input
-from limn.pins.lifecycle.rules import AlreadyClosed, CloseRequest, ThreadFull
+from limn.pins.lifecycle.rules import AlreadyClosed, AlreadyDone, CloseRequest, ShownCloseChanged, ThreadFull
 from limn.pins.lifecycle.service import PinLifecycle
 from limn.pins.listing.projection import pin_state
 from limn.pins.model import DonePin, OpenPin, PinNotFound, ReviewPin
@@ -22,7 +22,7 @@ from helpers import (
     req,
     split_resp,
 )
-from helpers_access import ALICE_ACTOR, BOB_ACTOR, AccessBase
+from helpers_access import ALICE_ACTOR, BOB, BOB_ACTOR, AccessBase
 from helpers_authority import post_authority
 from helpers_pin_service import AGENT, ServiceBase, parse_rec, parse_trash
 
@@ -511,3 +511,98 @@ class PinKindAndThread(Base):
         )
         # the old field is left in place too (compat with old viewers/agents)
         self.assertEqual(self.pin(pid)["close_reply"], "제목을 고침")
+
+
+class ConfirmShownClose(ServiceBase):
+    """confirm_pin with the done_at of the close the person saw, over real pin storage and an injected clock."""
+
+    def setUp(self):
+        """A clock this test moves, so a reopen and a second close happen at a later second than the first close."""
+        super().setUp()
+        self.clock = ["2026-10-03 09:00:00"]
+        self.ctx = self.context(now=lambda: self.clock[0])
+        self.life = PinLifecycle(lambda: self.ctx)
+
+    def act(self, actor, operation, pid):
+        """Authority for actor to run operation on pid, issued over this test's store."""
+        return post_authority(self.ctx.store, actor, operation, pid)
+
+    def closed_by_the_agent(self):
+        """A pin the agent closed into review at the clock's first second -> (id, the done_at a person sees)."""
+        pid = self.add()
+        self.life.close_pin(pid, self.act(AGENT, "close", pid), CloseRequest())
+        return pid, self.pin(pid)["done_at"]
+
+    def test_a_close_redone_after_the_person_looked_is_not_confirmed(self):
+        """The agent reopens and closes again; confirming the close the person saw changes nothing on disk."""
+        pid, seen = self.closed_by_the_agent()
+        self.clock[0] = "2026-10-03 09:05:00"
+        self.life.reopen_pin(pid, self.act(AGENT, "reopen", pid))
+        self.life.close_pin(pid, self.act(AGENT, "close", pid), CloseRequest())
+        before = self.pins_bytes()
+        result = self.life.confirm_pin(pid, self.act(ALICE_ACTOR, "confirm", pid), seen)
+        self.assertIsInstance(result, ShownCloseChanged)
+        self.assertEqual(self.pins_bytes(), before)
+        self.assertTrue(self.pin(pid)["review"])
+
+    def test_the_close_the_person_saw_is_confirmed_once(self):
+        """The same done_at confirms the pin; a second confirm of that close is AlreadyDone and writes nothing."""
+        pid, seen = self.closed_by_the_agent()
+        self.assertIsInstance(self.life.confirm_pin(pid, self.act(ALICE_ACTOR, "confirm", pid), seen), DonePin)
+        before = self.pins_bytes()
+        self.assertIsInstance(self.life.confirm_pin(pid, self.act(ALICE_ACTOR, "confirm", pid), seen), AlreadyDone)
+        self.assertEqual(self.pins_bytes(), before)
+
+
+class ConfirmInput(Base):
+    """The confirm body's optional done_at: absent is None, a timestamp string passes, anything else is bad_done_at."""
+
+    def test_absent_or_null_done_at_is_none(self):
+        """No body field, or null, confirms whatever close the pin holds, as before the field existed."""
+        self.assertIsNone(lifecycle_input.parse_confirm({}))
+        self.assertIsNone(lifecycle_input.parse_confirm({"done_at": None}))
+
+    def test_a_done_at_string_is_kept(self):
+        """The close's done_at comes back as sent."""
+        self.assertEqual(lifecycle_input.parse_confirm({"done_at": "2026-10-03 09:00:00"}), "2026-10-03 09:00:00")
+
+    def test_other_values_are_refused(self):
+        """A number, a list, a blank string or one longer than a timestamp is refused before the pin is read."""
+        for value in (5, ["x"], "", "   ", "x" * 65):
+            with self.subTest(value=value):
+                refused = lifecycle_input.parse_confirm({"done_at": value})
+                self.assertIsInstance(refused, InputRejected)
+                self.assertEqual(refused.reason, "bad_done_at")
+
+
+class ConfirmShownCloseHttp(AccessBase):
+    """POST /api/pins/{id}/confirm with done_at through the real handler (docs/handbook/api.md §검토 대기)."""
+
+    def review_pin(self):
+        """A pin the loopback agent closed into review -> (id, its done_at as GET /api/pins/{id} shows it)."""
+        pid = self.add()
+        self.assertEqual(self.call("POST", "/api/pins/%d/close" % pid)[1]["state"], "review")
+        return pid, self.call("GET", "/api/pins/%d" % pid)[1]["pin"]["done_at"]
+
+    def test_another_close_is_a_conflict_with_the_pin(self):
+        """A done_at that is not the pin's close answers 409 conflict with the current pin and writes nothing."""
+        pid, _ = self.review_pin()
+        before = ps.APP.C.pins_jsonl.read_bytes()
+        code, d = self.call("POST", "/api/pins/%d/confirm" % pid, {"done_at": "1999-01-01 00:00:00"}, BOB)
+        self.assertEqual((code, d["error"], d["reason"], d["pin"]["id"]), (409, "conflict", "conflict", pid))
+        self.assertEqual(ps.APP.C.pins_jsonl.read_bytes(), before)
+
+    def test_the_shown_close_is_confirmed(self):
+        """The pin's own done_at confirms it, and sending it again is the idempotent ok."""
+        pid, seen = self.review_pin()
+        code, d = self.call("POST", "/api/pins/%d/confirm" % pid, {"done_at": seen}, BOB)
+        self.assertEqual((code, d["ok"], d["state"]), (200, True, "done"))
+        code, d = self.call("POST", "/api/pins/%d/confirm" % pid, {"done_at": seen}, BOB)
+        self.assertEqual((code, d["ok"], d["state"]), (200, True, "done"))
+
+    def test_a_malformed_done_at_is_bad_done_at(self):
+        """A done_at that is not a string is a 400 bad_done_at and the pin stays awaiting review."""
+        pid, _ = self.review_pin()
+        code, d = self.call("POST", "/api/pins/%d/confirm" % pid, {"done_at": 1}, BOB)
+        self.assertEqual((code, d["reason"]), (400, "bad_done_at"))
+        self.assertEqual(self.call("GET", "/api/pins/%d" % pid)[1]["pin"]["state"], "review")

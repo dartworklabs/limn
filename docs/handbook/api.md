@@ -48,7 +48,7 @@ JSON 객체는 중첩된 객체까지 키가 한 번만 나와야 한다. 같은
 | 경로 | `404` | `not_found`(없는 경로·vendor 파일), `pdf_build_gone`(`?build=` 나 `/pages/<빌드>/` 의 빌드가 없음, pick 의 옛 빌드), `pdf_missing`(`?build=` 없이 지금 빌드의 PDF 가 없음) |
 | 문서 | `400`·`404` | `bad_doc`·`doc_mismatch`·`unknown_doc`·`no_source_lines`(보기 전용 문서나 영역 핀에 줄을 보냄)·`view_only_no_rebuild` |
 | 핀 | `404`·`409` | `pin_not_found`·`not_in_trash`·`pin_exists`, `409` 코드 `done`·`conflict`·`open`·`full`·`claimed` |
-| 핀 입력 | `400` | `not_integer`·`not_number`·`too_small`·`bad_note`·`note_too_long`·`bad_note_append`·`note_append_empty`·`note_append_too_long`·`bad_reply`·`reply_too_long`·`bad_ref`·`ref_too_long`·`bad_changes`·`too_many_changes`·`change_outside_manuscript`·`bad_pin`·`bad_assignee`·`unknown_assignee`·`bad_kind_req`·`bad_kind`·`bad_via`·`bad_scope`·`bad_el`·`bad_quote`·`bad_loc`·`bad_mentions`·`bad_event_cursor`·`bad_reopen`·`bad_review`·`text_required`·`bad_text`·`text_too_long`·`text_empty`·`base_rev_required`·`nothing_to_change`·`unknown_fields`·`confirm_required` |
+| 핀 입력 | `400` | `not_integer`·`not_number`·`too_small`·`bad_note`·`note_too_long`·`bad_note_append`·`note_append_empty`·`note_append_too_long`·`bad_reply`·`reply_too_long`·`bad_ref`·`ref_too_long`·`bad_changes`·`too_many_changes`·`change_outside_manuscript`·`bad_pin`·`bad_assignee`·`unknown_assignee`·`bad_kind_req`·`bad_kind`·`bad_via`·`bad_scope`·`bad_el`·`bad_quote`·`bad_loc`·`bad_mentions`·`bad_event_cursor`·`bad_reopen`·`bad_review`·`text_required`·`bad_text`·`text_too_long`·`text_empty`·`base_rev_required`·`bad_done_at`·`nothing_to_change`·`unknown_fields`·`confirm_required` |
 | 위치 | `400` | `bad_file`·`file_outside_manuscript`·`file_not_found`·`range_outside_file`·`pin_outside_manuscript`·`bad_page`·`page_out_of_range`·`bad_frac`·`frac_outside_page`·`bad_pdf_build` |
 | pick(`200`) | `200` | `pdf_build_gone`·`generated_file`·`synctex_outside`·`source_unreadable`·`no_source_here` |
 | 변경 보기 | `400`·`404`·`503` | `bad_commit`·`no_history`·`commit_not_recent`·`diff_unreadable`·`not_in_repo`·`pin_not_in_doc`·`revision_not_ready`·`revision_pdf_missing` |
@@ -271,7 +271,7 @@ curl -s -H "Authorization: Bearer $(cat ~/.config/limn/<인스턴스>.token)" ht
 | `POST` | `/api/pins/{id}/edit` | 제자리 수정 — §핀 수정 (`/api/pins/{id}/edit`) |
 | `POST` | `/api/pins/{id}/close` | 핀 한 건을 닫는다(`done: true`, `closed_by`). 에이전트가 닫으면 검토 대기(`review: true`), 사람이 닫으면 완료다 — §검토 대기. 선택 본문 `{"reply", "ref", "changes", "review"}` — §닫을 때 사유 남기기. 레코드는 남는다. `<state_dir>/pins.md` 에서는 열린 표에서 빠지고 머리줄 건수로만 남는다(§pins.md 형식). 응답은 `{ok, pin, state}`. 그 id가 없으면 `200 {"ok": false, "pin": null}` 이다(reopen도 같다). **이미 닫힌 핀을 다시 닫으면 `{ok: true, pin}` 을 그대로 돌려주고 아무 필드도 바꾸지 않는다.** `rev` 도 그대로다(규칙은 [domain.md](domain.md) §전이에 딸린 규칙) |
 | `POST` | `/api/pins/{id}/reopen` | 닫은 핀을 되돌린다(`reopened_by`). `close_reply`·`close_ref`·`changes`·`review`·`confirmed_*` 가 있었으면 지운다. 다시 닫을 때 새로 남기기 위해서다. 선택 본문 `{"reason"}` 은 스레드에 남는다 → `{ok, pin, state}`. 뷰어에는 [다시 열기] 버튼이 없고 사람의 답글이 규칙으로 다시 연다(§스레드 (답글)). 이 경로는 에이전트와 뷰어의 [완료] 되돌리기가 쓴다 |
-| `POST` | `/api/pins/{id}/confirm` | 검토 대기 → 완료. 사람만 누를 수 있다. 에이전트 역할(토큰 포함)이면 `403` 이다 → `{ok, pin, state}` — §검토 대기, §인증 |
+| `POST` | `/api/pins/{id}/confirm` | 검토 대기 → 완료. 사람만 누를 수 있다. 에이전트 역할(토큰 포함)이면 `403` 이다. 선택 본문 `{"done_at"}` 은 사람이 본 닫기다. 지금 닫기가 아니면 `409 conflict` 이다 → `{ok, pin, state}` — §검토 대기, §인증 |
 | `POST` | `/api/pins/{id}/reply` | 답글 `{"text", "mentions"?, "reopen"?}` → `{ok, pin, msg, state, reopened}`. 닫힌 핀에 사람이 단 답글은 규칙에 따라 핀을 다시 열 수 있다 — §스레드 (답글) |
 | `POST` | `/api/pins/{id}/drop` | 핀을 목록에서 빼 휴지통(`pins.dropped.jsonl`)으로 옮긴다(`dropped_by`) → `{ok}`. 없는 id면 `200 {"ok": false}`. 작성자가 아닌 쪽이 지우면 작성자에게 `dropped` 이벤트가 간다(§이벤트). 같은 쓰기에서 30일이 지난 휴지통 항목을 뺀다 |
 | `POST` | `/api/pins/{id}/restore` | 삭제한 핀을 같은 id로 되살린다. 서버를 다시 띄운 뒤에도 된다(`restored_by`). 응답은 `200 {ok, pin}`, 휴지통에 없으면(30일이 지난 항목 포함) `404`, 같은 id가 이미 있으면 `409` |
@@ -469,10 +469,15 @@ curl -s -X POST <base>/api/pins/12/reply -H 'Content-Type: application/json' -d 
 | `POST /confirm` | 에이전트 역할의 요청(토큰, 헤더 없는 루프백 요청, `agent` 역할인 사람) | `403`, 메시지는 `확인은 사람이 합니다 — …` |
 | `POST /confirm` | `viewer` 역할 | `403`(§인증의 역할 검사) |
 | `POST /confirm` | 사람 신원으로 완료 / 열림 / 없음 | 멱등 `{ok:true}` / `409 {"error":"open"}` / `200 {"ok":false}` |
+| `POST /confirm` 본문 `{"done_at": "<보여준 닫기의 done_at>"}` | 검토 대기·완료이고 그 값이 지금 닫기의 `done_at` 과 다름 | `409 {"error":"conflict","reason":"conflict","pin":<최신>}`. 아무것도 바꾸지 않는다. 같으면 본문이 없을 때와 같다. 문자열이 아니거나 비었거나 64자를 넘으면 `400 bad_done_at` |
 | `POST /reopen` | 닫힌 핀(검토 대기·완료) | 열림. `review`·`confirmed_*`·`close_reply`·`close_ref` 를 지우고 스레드에 `ev:reopen` 을 남긴다. 선택 `{"reason"}`(≤1000자)이 그 글이다 |
 | `POST /reply` | 닫힌 핀에 사람이, 사람을 @태그하지 않은 답글 | `POST /reopen` 과 같다. 답글이 그 글이다(§답글이 핀을 다시 여는 규칙 (0.2.2)) |
 
 토큰은 늘 `agent` 역할이라 토큰으로는 확인할 수 없다.
+
+> **핵심**
+>
+> 확인은 사람이 **본** 닫기에만 묶인다. 사람이 카드를 보는 사이 에이전트가 핀을 다시 열고 다른 결과로 다시 닫으면, 본 적 없는 결과가 확인되면 안 되기 때문이다. 그래서 뷰어는 [확인]을 그린 카드의 `done_at` 을 함께 보내고, 다르면 `409 conflict` 를 받아 "다시 닫혔습니다"를 알린 뒤 새 결과를 다시 보인다. `rev` 가 아니라 `done_at` 에 묶는 것은 `rev` 가 원고 줄 맞춤에도 올라 결과가 같아도 확인을 막기 때문이다. `done_at` 은 초 단위라 같은 초 안에 다시 열고 다시 닫은 닫기는 구별하지 못한다. 본문 없는 요청은 지금 닫기를 확인한다([ADR-0013](../adr/0013-confirm-binds-shown-close.md)).
 
 - 검토 대기도 `done:true` 라서 `GET /api/pins`(열린 핀만)에 나오지 않고 `claim` 은 `409 done` 이다. `review` 가 없는 `done:true` 는 완료다([domain.md](domain.md) §전이에 딸린 규칙).
 - 응답과 `GET /api/pins` 항목에는 계산 필드 `state`(`open`|`review`|`done`)가 붙는다. 저장하지 않는다. `/api/meta` 는 `n_open`·`n_review`·`n_done` 을 싣는다. `n_done` 은 완료만 센다.
