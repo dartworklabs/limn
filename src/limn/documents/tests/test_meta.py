@@ -101,7 +101,7 @@ CAPABILITY_TABLE = {
         "builds_from_source": False,
         "watches_files": True,
         "takes_line_pins": True,
-        "shows_revisions": False,
+        "shows_revisions": True,
         "view_only": False,
         "has_element_map": True,
     },

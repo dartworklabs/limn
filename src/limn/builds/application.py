@@ -20,7 +20,7 @@ from limn.builds.artifacts import (
     FinishedBuild,
     ViewOnlyNoRebuild,
 )
-from limn.builds.contracts import DocumentBuildQueries, PinBuildQueries
+from limn.builds.contracts import DocumentBuildQueries, PinBuildQueries, RevisionBuildQueries
 from limn.builds.queries import BuildQueries
 from limn.builds.service import BuildRequests
 from limn.runtime.config import RunConfig
@@ -88,6 +88,7 @@ class BuildSubsystem:
 
     documents: DocumentBuildQueries
     pins: PinBuildQueries
+    revisions: RevisionBuildQueries
     last_failed: Callable[[BuildStateHolder], bool]
     published_head: Callable[[Doc], str]
     commands: BuildCommands
@@ -126,6 +127,7 @@ def assemble_builds(
     return BuildSubsystem(
         queries.documents(),
         queries.pins(),
+        queries.revisions(lambda: settings().dpi),
         artifacts.last_build_failed,
         queries.published_head,
         commands,

@@ -1,5 +1,7 @@
-// One changes-view visit owns the selected commit, source text and request sequence.
-const REV={seq:0,files:/** @type {{name:string,text:string}[]} */([]),whole:'',commit:'',sourceCommit:'',format:/** @type {string} */(DIFF_FORMAT.PDF),scope:/** @type {any} */(null),other:'',target:/** @type {RevTarget|null} */(null),pdfCommit:'',back:/** @type {string|null} */(null)};
+// One changes-view visit owns the selected commit, source text and request sequence. overlay is a figure document's two
+// builds from /api/revisions (null for any other document), side the one its overlay shows, history whether it has commits.
+const REV={seq:0,files:/** @type {{name:string,text:string}[]} */([]),whole:'',commit:'',sourceCommit:'',format:/** @type {string} */(DIFF_FORMAT.PDF),scope:/** @type {any} */(null),other:'',target:/** @type {RevTarget|null} */(null),pdfCommit:'',back:/** @type {string|null} */(null),
+  overlay:/** @type {RevisionOverlay|null} */(null),side:/** @type {string} */(OVERLAY_SIDE.CUR),history:false};
 // v0.3 (docs/handbook/viewer.md §변경 보기): a pin's view of a commit. REV.scope is the source diff's scope object
 // ({mode:'pin'|'commit', source, hunks, other, ...}); REV_PDF holds the comparison PDF's toggle - whole commit or only this pin.
 const REV_SCOPE={whole:false,partial:false,fallback:false};
@@ -58,11 +60,21 @@ function clearRevisionPdf(){
   if(REV_PDF.loading){try{void REV_PDF.loading.destroy().catch(()=>{});}catch(e){}REV_PDF.loading=null;}
   REV_PDF.doc=null;$('#revision-pdf').replaceChildren();
 }
-/** Switch formats while retaining comparison scale for the selected commit. */
-function setRevisionFormat(format){REV.format=format===DIFF_FORMAT.SOURCE?DIFF_FORMAT.SOURCE:DIFF_FORMAT.PDF;
+// The format a document's changes show for the one asked (docs/handbook/viewer.md §변경 보기): the source diff when asked;
+// otherwise a figure document's overlay of two builds, and a LaTeX document's comparison PDF - never the overlay. Pure.
+function revisionFormatFor(asked,figure){return asked===DIFF_FORMAT.SOURCE?DIFF_FORMAT.SOURCE:figure?DIFF_FORMAT.OVERLAY:DIFF_FORMAT.PDF;}
+// Shows REV.format: the pressed tab, the pane, [이전 | 지금] with the overlay, and the overlay's status line on a figure
+// document (its source diff has none). Loads nothing.
+function drawRevisionFormat(){
   $('#revision-pdf-tab').setAttribute('aria-pressed',String(REV.format===DIFF_FORMAT.PDF));
+  $('#revision-overlay-tab').setAttribute('aria-pressed',String(REV.format===DIFF_FORMAT.OVERLAY));
   $('#revision-source-tab').setAttribute('aria-pressed',String(REV.format===DIFF_FORMAT.SOURCE));
+  $('#revision-view').dataset.format=REV.format;
   $('#revision-pdf').hidden=REV.format!==DIFF_FORMAT.PDF;$('#revision-source').hidden=REV.format!==DIFF_FORMAT.SOURCE;
+  $('#revision-overlay').hidden=$('#revision-side').hidden=REV.format!==DIFF_FORMAT.OVERLAY;
+  if(REV.overlay)$('#revision-status').textContent=REV.format===DIFF_FORMAT.OVERLAY?overlayStatus(REV.overlay):'';}
+/** Switch formats while retaining comparison scale for the selected commit. */
+function setRevisionFormat(format){REV.format=revisionFormatFor(format,!!REV.overlay); drawRevisionFormat();
   if(REV.format===DIFF_FORMAT.SOURCE&&REV.commit&&REV.sourceCommit!==REV.commit)
     loadRevisionSource(REV.commit,REV.seq,DOC);
   // The comparison PDF is only built when that format is actually viewed - [변경 보기] goes straight to the source diff, so it never wastes a latexdiff build.
@@ -70,6 +82,7 @@ function setRevisionFormat(format){REV.format=format===DIFF_FORMAT.SOURCE?DIFF_F
     $('#revision-status').textContent='비교 PDF 상태를 확인하는 중입니다.'; loadRevisionPdf(REV.commit,REV.seq,DOC);}
   syncRevisionWhole();drawRevisionZoom();
   if(revisionPdfActive())resizeRevisionPdf();
+  if(REV.format===DIFF_FORMAT.OVERLAY&&REV.target)scrollOverlayTo(REV.target.page);
   if(REV.target)revTargetNote();
 }
 // Shows the manuscript or the changes view: the nav bar's tabs, the navigation sheet's switch and the phone's position button
@@ -79,11 +92,13 @@ function setViewMode(mode){
   $('#view-manuscript').setAttribute('aria-pressed',String(!revisions));
   $('#view-revisions').setAttribute('aria-pressed',String(revisions));
   if(!revisions)REV.target=null;
-  if(revisions)loadRevisions(); else{++REV.seq;clearRevisionPdf();$('#revision-pin').hidden=true;revTargetActs();if(VEC.doc)vecSchedule(0);updateSectionStrip();}
+  if(revisions)loadRevisions(); else{++REV.seq;clearRevisionPdf();setRevisionOverlay(null);$('#revision-pin').hidden=true;revTargetActs();if(VEC.doc)vecSchedule(0);updateSectionStrip();}
   drawNavView(); drawPos();
 }
 // Reads the document's recent commits into the changes view. Without history (not Git, a view-only PDF, or no recent commit) the
 // one reason line stays and the unusable [변경 PDF] [소스 diff] and the comparison note are hidden; a pin's guide line stays.
+// A figure document's answer carries its two builds (overlay): its [겹쳐 보기] takes the place of [변경 PDF] and opens first,
+// with or without history; its [소스 diff] shows only with history.
 async function loadRevisions(){
   const seq=++REV.seq,k=DOC,list=$('#revision-list'),out=$('#revision-diff'),tg=REV.target;
   clearRevisionPdf();list.textContent='최근 변경사항을 읽는 중입니다.';out.textContent='';$('#revision-pin').hidden=!tg;
@@ -91,18 +106,26 @@ async function loadRevisions(){
   let data; try{data=(await api(dq('/api/revisions',k),{what:'변경사항 읽기',silent:true})).data;}
   catch(e){if(seq===REV.seq)list.textContent='변경사항을 읽지 못했습니다.';return;}
   if(seq!==REV.seq||k!==DOC)return;
-  $('#revision-controls').hidden=$('#revision-note').hidden=!data.available||!data.revisions.length;
+  REV.history=!!data.available&&data.revisions.length>0; setRevisionOverlay(data.overlay||null);
+  const fig=!!REV.overlay; REV.format=revisionFormatFor(REV.format,fig); drawRevisionFormat();   // a LaTeX document after a figure leaves the overlay
+  $('#revision-controls').hidden=!REV.history&&!fig; $('#revision-note').hidden=!REV.history;
+  $('#revision-pdf-tab').hidden=fig; $('#revision-overlay-tab').hidden=!fig; $('#revision-source-tab').hidden=!REV.history;
   if(!data.available){list.textContent='이 문서의 Git 변경사항을 볼 수 없습니다.';
+    if(fig){setRevisionFormat(DIFF_FORMAT.OVERLAY);return;}
     if(tg)revTargetNote(tg.region?'보기 전용 PDF 문서의 핀이라 Git 변경사항이 없습니다 — 고친 곳은 LaTeX 문서(본문 등)의 변경사항에서 찾으세요.':
       '이 문서는 Git 이력을 읽을 수 없어(Git 저장소가 아니거나 경로가 밖) 핀 자리를 변경과 맞출 수 없습니다.'); return;}
-  if(!data.revisions.length){list.textContent='이 문서의 최근 변경사항이 없습니다.'; if(tg)revTargetNote('이 문서의 최근 12개 커밋에 변경이 없습니다.'); return;}
+  if(!data.revisions.length){list.textContent='이 문서의 최근 변경사항이 없습니다.';
+    if(fig)setRevisionFormat(DIFF_FORMAT.OVERLAY); else if(tg)revTargetNote('이 문서의 최근 12개 커밋에 변경이 없습니다.'); return;}
   const options=data.revisions.map(r=>html`<option value="${r.id}">${r.subject} · ${r.date} · ${r.id.slice(0,8)}</option>`);
   setHtml(list,html`<label class="sr-only" for="revision-select">비교할 커밋</label><select id="revision-select" aria-label="비교할 커밋">${options}</select>`);
   if(tg){const pick=await pickRevisionFor(tg,data.revisions,seq,k); if(seq!==REV.seq||k!==DOC||REV.target!==tg)return;
-    tg.commit=pick.id; tg.via=pick.via; tg.hit=pick.hit; showRevision(pick.id,DIFF_FORMAT.SOURCE); return;}
-  showRevision(data.revisions.some(r=>r.id===REV.commit)?REV.commit:data.revisions[0].id);
+    tg.commit=pick.id; tg.via=pick.via; tg.hit=pick.hit;
+    // a figure's lines and pictures are both exact: its overlay opens first; a LaTeX pin's lines exist only in the source diff
+    if(fig)showRevision(pick.id,DIFF_FORMAT.OVERLAY); else showRevision(pick.id,DIFF_FORMAT.SOURCE); return;}
+  showRevision(data.revisions.some(r=>r.id===REV.commit)?REV.commit:data.revisions[0].id,fig?DIFF_FORMAT.OVERLAY:undefined);
 }
-/** A newly selected commit starts with fit width. */
+/** A newly selected commit starts with fit width. Without a format a LaTeX document shows its comparison PDF and a figure
+ * document stays in the format it shows (choosing a commit in its source diff keeps the source diff). */
 async function showRevision(id,format){
   RZ.ratio=1;
   ++REV.seq;REV.commit=id;REV.sourceCommit='';REV.pdfCommit='';clearRevisionPdf();
@@ -110,8 +133,59 @@ async function showRevision(id,format){
   REV.scope=null;REV_SCOPE.whole=REV_SCOPE.partial=REV_SCOPE.fallback=false;drawRevisionOther(null);
   $('#revision-diff').textContent='';$('#revision-file-row').hidden=true;$('#revision-warning').hidden=true;
   $('#revision-status').textContent='';
-  setRevisionFormat(format||DIFF_FORMAT.PDF);
+  setRevisionFormat(format||(REV.overlay?REV.format:DIFF_FORMAT.PDF));
 }
+// ------------------------------------------------ A figure document's overlay (docs/handbook/viewer.md §변경 보기)
+// A figure has no comparison PDF: its changes view lays the previous build's page images over the current ones, page by page in
+// one box, and [이전 | 지금] (#revision-side) shows one of the two at a time. The images are the page routes' own
+// (/pages/<build>/<file>); the two builds come with /api/revisions.
+
+/** The overlay's pages: each page of the build on screen paired with the same page of the previous build, as the box that
+ * holds both ({page, ratio}) and each image's name and share of that box in percent ({name, w, h}; null when that build has
+ * no such page). The box is as wide and as tall as the larger of the two, and each image keeps its own size from the top
+ * left, so a figure that grew or shrank is never stretched to the other. Pure.
+ * @param {RevisionOverlay} ov */
+function overlayPages(ov){const cur=ov.pages||[],prev=ov.prev_pages||[],out=[];
+  for(let i=0;i<Math.max(cur.length,prev.length);i++){const c=cur[i],p=prev[i];
+    const w=Math.max(c?c.pt_w:0,p?p.pt_w:0),h=Math.max(c?c.pt_h:0,p?p.pt_h:0);
+    const share=x=>x?{name:x.name,w:Math.round(x.pt_w/w*1e4)/100,h:Math.round(x.pt_h/h*1e4)/100}:null;
+    out.push({page:i+1,ratio:w+' / '+h,cur:share(c),prev:share(p)});}
+  return out;}
+// A build as a person reads it: a page folder name pages-<YYYYmmddHHMMSS>[-<n>] as 'MM-DD HH:MM:SS', with ' (n)' for a second
+// build in the same second; any other name as it is. Pure.
+function buildStamp(name){const s=String(name||''),m=/^pages-\d{4}(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})(?:-(\d+))?$/.exec(s);
+  return m?m[1]+'-'+m[2]+' '+m[3]+':'+m[4]+':'+m[5]+(m[6]?' ('+m[6]+')':''):s;}
+/** The overlay's status line: which two builds it lays one over the other, or that there is no previous build.
+ * @param {RevisionOverlay} ov */
+function overlayStatus(ov){
+  if(!ov.prev_build)return tr('이전 빌드가 없습니다 — 그림을 다시 가져오면 직전 빌드와 겹쳐 볼 수 있습니다.');
+  return tl('직전 빌드 {prev} → 지금 {cur} · {n}쪽 · [이전]·[지금]으로 같은 자리를 바꿔 봅니다',
+    {prev:buildStamp(ov.prev_build),cur:buildStamp(ov.build),n:Math.max(ov.pages.length,ov.prev_pages.length)});}
+// Takes a document's two builds from /api/revisions (null: not a figure document) and draws them anew, the current one shown.
+/** @param {RevisionOverlay|null} ov */
+function setRevisionOverlay(ov){REV.overlay=ov; REV.side=OVERLAY_SIDE.CUR; renderRevisionOverlay(); drawRevisionSide();}
+// Draws the overlay's pages (overlayPages) into #revision-overlay: per page a box holding the current build's image and the
+// previous build's, each at its share of the box; a build without that page has a line saying so in its place.
+function renderRevisionOverlay(){const ov=REV.overlay,box=$('#revision-overlay'); box.replaceChildren(); if(!ov)return;
+  const side=(x,build,cls,alt,none)=>x&&build?
+    html`<img class="${cls}" loading="lazy" draggable="false" alt="${alt}" src="${dq('/pages/'+encodeURIComponent(build)+'/'+encodeURIComponent(x.name))}">`:
+    html`<span class="ov-none ${cls}">${none}</span>`;
+  for(const pg of overlayPages(ov)){const d=document.createElement('div'); d.className='ov-page'; d.dataset.page=String(pg.page); d.style.aspectRatio=pg.ratio;
+    setHtml(d,html`${side(pg.cur,ov.build,'ov-cur',tl('지금 {page}쪽',{page:pg.page}),tr('지금 빌드에 없는 쪽'))}\
+${side(pg.prev,ov.prev_build,'ov-prev',tl('이전 {page}쪽',{page:pg.page}),tr('이전 빌드에 없는 쪽'))}<span class="ov-no">${pg.page}</span>`);
+    for(const [sel,x] of [['img.ov-cur',pg.cur],['img.ov-prev',pg.prev]]){const img=/** @type {HTMLElement|null} */(d.querySelector(sel));
+      if(img&&x){img.style.width=x.w+'%'; img.style.height=x.h+'%';}}
+    box.appendChild(d);}}
+// [이전 | 지금]: the side the overlay shows. [이전] cannot be pressed when there is no previous build.
+function drawRevisionSide(){const ov=REV.overlay,none=!ov||!ov.prev_build;
+  for(const b of /** @type {HTMLButtonElement[]} */($$('#revision-side [role=radio]'))){const on=b.dataset.side===REV.side;
+    b.setAttribute('aria-checked',String(on)); b.classList.toggle('on',on); b.disabled=none&&b.dataset.side===OVERLAY_SIDE.PREV;}
+  $('#revision-overlay').dataset.side=REV.side;}
+// Shows the previous build's pages (side PREV, when there is one) or the current build's.
+function setRevisionSide(side){REV.side=side===OVERLAY_SIDE.PREV&&REV.overlay&&REV.overlay.prev_build?OVERLAY_SIDE.PREV:OVERLAY_SIDE.CUR; drawRevisionSide();}
+// Brings page n of the overlay to the top of its view, once it is laid out ([변경 보기] of a pin on that page).
+function scrollOverlayTo(n){requestAnimationFrame(()=>{const box=$('#revision-overlay'),pg=box.querySelector('.ov-page[data-page="'+n+'"]');
+  if(pg)box.scrollTop+=pg.getBoundingClientRect().top-box.getBoundingClientRect().top;});}
 async function loadRevisionSource(id,seq,k){
   const out=$('#revision-diff');out.textContent='소스 변경 내용을 읽는 중입니다.';$('#revision-file-row').hidden=true;
   const tg0=revisionPinFor(id),pq=tg0?'&pin='+tg0.id:'';
@@ -157,7 +231,8 @@ function revTargetNote(msg){const tg=REV.target,box=$('#revision-pin'); if(!tg){
   const where=tg.region?tl('쪽 {page} 영역',{page:tg.page}):tg.name+' '+rng(tg.lo,tg.hi);
   const sc=REV.format===DIFF_FORMAT.SOURCE&&REV.scope&&REV.scope.mode===SCOPE_MODE.PIN?REV.scope:null;
   const scopeMsg=sc?tl('이 핀의 변경 {n}곳만 보입니다',{n:sc.hunks})+' ('+tr(sc.source===SCOPE_SOURCE.CHANGES?'에이전트가 기록한 줄':'핀 자리로 추정')+') · ':'';
-  let t=msg?tr(msg):scopeMsg+(REV.format===DIFF_FORMAT.PDF?tl('비교 PDF에는 줄 대응이 없어 원고 {page}쪽 근처로만 옮겼습니다(삭제 문장이 끼어 쪽이 밀릴 수 있음). 정확한 줄은 [소스 diff]',{page:tg.page}):
+  let t=msg?tr(msg):REV.format===DIFF_FORMAT.OVERLAY?tl('직전 빌드와 지금 빌드의 {page}쪽을 겹쳐 보입니다 — [이전]·[지금]으로 바꿔 보세요',{page:tg.page})+
+    (REV.history?' · '+tr('고친 줄은 [소스 diff]'):''):scopeMsg+(REV.format===DIFF_FORMAT.PDF?tl('비교 PDF에는 줄 대응이 없어 원고 {page}쪽 근처로만 옮겼습니다(삭제 문장이 끼어 쪽이 밀릴 수 있음). 정확한 줄은 [소스 diff]',{page:tg.page}):
     tr(tg.hit===false?'이 커밋의 diff에서 핀 범위를 찾지 못했습니다 — 가장 가까운 줄을 보입니다':
      tg.near?'핀 범위 줄 자체는 바뀌지 않았고 바로 곁(±5줄)이 바뀌었습니다 — 가장 가까운 줄을 보입니다':'강조한 줄이 핀 범위입니다'));
   setHtml(box,html`<span><b>${tl('핀 #{id}',{id:tg.id})}</b> · ${where}${tg.ref?' · '+tl('참조 {ref}',{ref:tg.ref}):''}${via?' · '+via:''}</span><span class="rp-msg">${t}</span>`);
@@ -191,7 +266,7 @@ function revBack(){const b=REV.back; REV.back=null; setViewMode(VIEW_MODE.MANUSC
 async function showChange(id){const p=findAnyPin(id); if(!p)return; const k=pdoc(p),back=DOC,fromManuscript=!document.body.classList.contains('revision-open');
   if(k!==DOC&&docInfo(k)){const opening=switchDoc(k),visit=SWITCHSEQ; await opening; if(DOC!==k||visit!==SWITCHSEQ)return;}
   if(fromManuscript)REV.back=back;
-  REV.target={id:p.id,file:p.file||p.pdf||'',name:p.name||String(p.file||p.pdf||'').split('/').pop()||'',lo:p.lo,hi:p.hi,page:p.page,ref:p.close_ref||'',region:isRegion(p)};
+  REV.target={id:p.id,file:p.file||p.pdf||'',name:p.name||String(p.file||p.pdf||'').split('/').pop()||'',lo:p.lo,hi:p.hi,page:pinPlace(p).page,ref:p.close_ref||'',region:isRegion(p)};
   const m=/\b[0-9a-f]{7,40}\b/.exec(REV.target.ref); REV.target.tokOf=m?m[0]:'';
   if(LAYOUT===LAYOUT_MODE.NARROW)setSide(false);
   if(document.body.classList.contains('revision-open'))loadRevisions(); else setViewMode(VIEW_MODE.REVISIONS);}

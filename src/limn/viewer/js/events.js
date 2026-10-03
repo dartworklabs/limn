@@ -59,6 +59,7 @@ document.addEventListener('click',e=>{const target=/** @type {HTMLElement} */(e.
     case 'outline-page':if(outlineOverlay()&&OUTLINE_MID_OPEN)toggleOutline();OUTLINE_SELECTED=Number(a.dataset.index);OUTLINE_ACTIVE_PAGE=Number(a.dataset.page);OUTLINE_PINNED={index:OUTLINE_SELECTED,page:OUTLINE_ACTIVE_PAGE};renderOutline();updateSectionStrip();setViewMode('manuscript');goPage(a.dataset.page);break;
     case 'revision':showRevision(a.dataset.commit);break;
     case 'revision-format':setRevisionFormat(a.dataset.format);break;
+    case 'revision-side':setRevisionSide(a.dataset.side);break;
     case 'all-docs':SHOW_ALL=!SHOW_ALL;drawPins();break;
     case 'mention-filter':MENTION_ONLY=!MENTION_ONLY;drawPins();break;
     case 'mention-pick':mentionApply(Number(a.dataset.i));break;

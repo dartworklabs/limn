@@ -23,6 +23,7 @@ if TYPE_CHECKING:
         PinBuildQueries as PinBuildQueries,
         PositionHistory as PositionHistory,
         Publication as Publication,
+        RevisionBuildQueries as RevisionBuildQueries,
         SelectionUnavailable as SelectionUnavailable,
     )
     from .queries import document_build_queries as document_build_queries, pin_build_queries as pin_build_queries
@@ -39,6 +40,7 @@ __all__ = [
     "PinBuildQueries",
     "PositionHistory",
     "Publication",
+    "RevisionBuildQueries",
     "SelectionUnavailable",
     "BuildMapCache",
     "BuildCommands",
@@ -61,6 +63,7 @@ _EXPORTS = {
     "PinBuildQueries": ("contracts", "PinBuildQueries"),
     "PositionHistory": ("contracts", "PositionHistory"),
     "Publication": ("contracts", "Publication"),
+    "RevisionBuildQueries": ("contracts", "RevisionBuildQueries"),
     "SelectionUnavailable": ("contracts", "SelectionUnavailable"),
     "BuildMapCache": ("artifacts", "BuildMapCache"),
     "BuildCommands": ("application", "BuildCommands"),

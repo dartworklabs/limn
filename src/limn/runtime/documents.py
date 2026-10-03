@@ -318,8 +318,10 @@ class Doc:
 
     @property
     def shows_revisions(self) -> bool:
-        """The changes view is available: the Git history of its manuscript files and the latexdiff comparison."""
-        return self.kind == "tex"
+        """The changes view is available: the Git history of its files - a LaTeX document's manuscript files, compared
+        as a latexdiff PDF; a figure document's map, PDF and drawing files, compared by laying the previous build's
+        pages over the current ones (docs/handbook/viewer.md §변경 보기)."""
+        return self.kind in ("tex", "figure")
 
     @property
     def view_only(self) -> bool:

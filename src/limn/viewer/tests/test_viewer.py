@@ -3189,6 +3189,77 @@ class FrontendFigure(unittest.TestCase):
         )
 
 
+class FrontendFigureOverlay(unittest.TestCase):
+    """The figure document's changes view (docs/handbook/viewer.md §변경 보기): which format a document's changes open
+    on, how each overlay page holds the two builds' images, and how a build is named. Pure functions run under node;
+    the wiring is read from the served source."""
+
+    def node(self) -> None:
+        """Skip the calling check when node is missing."""
+        if not shutil.which("node"):
+            self.skipTest("node not available")
+
+    def test_a_figure_opens_on_the_overlay_and_a_latex_document_never_does(self):
+        """A figure's changes are the overlay unless the source diff is asked for; a LaTeX document's are the comparison
+        PDF unless the source diff is asked for, even when the overlay is asked for."""
+        self.node()
+        js = "\n".join(
+            [
+                extract_js_fn("revisionFormatFor"),
+                "const F=['pdf','source','overlay'];"
+                "console.log(JSON.stringify([F.map(f=>revisionFormatFor(f,true)),F.map(f=>revisionFormatFor(f,false))]));",
+            ]
+        )
+        self.assertEqual(json.loads(run_node(js)), [["overlay", "source", "overlay"], ["pdf", "source", "pdf"]])
+
+    def test_each_overlay_page_holds_both_builds_at_their_own_size(self):
+        """A page both builds have is a box as wide and as tall as the larger of the two, and each image takes its own
+        share from the top left: a figure that shrank is not stretched to the other. A page only one build has keeps
+        that side alone."""
+        self.node()
+        js = "\n".join(
+            [
+                extract_js_fn("overlayPages"),
+                "console.log(JSON.stringify(overlayPages({build:'b',pages:[{name:'page-1.png',pt_w:720,pt_h:480},"
+                "{name:'page-2.png',pt_w:720,pt_h:480}],prev_build:'a',prev_pages:[{name:'page-1.png',pt_w:360,pt_h:960}]})));",
+            ]
+        )
+        self.assertEqual(
+            json.loads(run_node(js)),
+            [
+                {
+                    "page": 1,
+                    "ratio": "720 / 960",
+                    "cur": {"name": "page-1.png", "w": 100, "h": 50},
+                    "prev": {"name": "page-1.png", "w": 50, "h": 100},
+                },
+                {"page": 2, "ratio": "720 / 480", "cur": {"name": "page-2.png", "w": 100, "h": 100}, "prev": None},
+            ],
+        )
+
+    def test_a_build_is_named_by_its_time(self):
+        """A page folder name reads as its month, day and time, with its same-second number after it; any other name
+        is shown as it is."""
+        self.node()
+        js = "\n".join(
+            [
+                extract_js_fn("buildStamp"),
+                "console.log(JSON.stringify(['pages-20260926100000','pages-20260926100000-2','pages','x'].map(buildStamp)));",
+            ]
+        )
+        self.assertEqual(json.loads(run_node(js)), ["09-26 10:00:00", "09-26 10:00:00 (2)", "pages", "x"])
+
+    def test_the_side_control_is_one_segmented_control_beside_the_tabs(self):
+        """[이전 | 지금] is the one segmented control (.seg, radios) in the changes view's controls row, hidden until a
+        figure's overlay is shown; the overlay tab is a sibling of the comparison PDF tab."""
+        controls = HTML[HTML.index('<div id="revision-controls">') : HTML.index('<div id="revision-status"')]
+        self.assertIn('id="revision-side" class="seg" role="radiogroup"', controls)
+        self.assertIn('data-act="revision-side" data-side="prev"', controls)
+        self.assertIn('data-act="revision-side" data-side="cur"', controls)
+        self.assertLess(controls.index('id="revision-pdf-tab"'), controls.index('id="revision-overlay-tab"'))
+        self.assertIn('<div id="revision-overlay" hidden></div>', HTML)
+
+
 # ---------------------------------------------------------------- icons: Lucide only, no emoji/symbol glyphs
 # Emoji/basic-character icons (⏳ ▾ ☾ ✎ etc.) looked ugly because they render differently per
 # device/font (author feedback 2026-09-23). Icons only use inline SVG elements from Lucide

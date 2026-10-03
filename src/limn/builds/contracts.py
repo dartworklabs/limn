@@ -115,6 +115,18 @@ class DocumentBuildQueries:
 
 
 @dataclass(frozen=True)
+class RevisionBuildQueries:
+    """Only the build queries the changes view uses. history_files answers which files' Git history a figure document's
+    changes are - its map, the PDF its current build's map names and every script and shared component that map names
+    - and None for a document without an element map. overlay answers the two builds a figure document's changes view
+    lays one over the other, as the completed JSON fragment {build, pages, prev_build, prev_pages}, and None for a
+    document without an element map. No map, history entry or page folder crosses."""
+
+    history_files: Callable[[Doc], tuple[Path, ...] | None]
+    overlay: Callable[[Doc], dict[str, Any] | None]
+
+
+@dataclass(frozen=True)
 class PinBuildQueries:
     """Completed publication, source-equivalence and element answers for pin placement."""
 

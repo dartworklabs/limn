@@ -151,6 +151,15 @@ interface PageImage {
   pt_h: number;
 }
 
+// A figure document's two builds in GET /api/revisions (`overlay`): the build on screen and the build before it, with their
+// page images; prev_build is null and prev_pages empty when the previous build is not kept.
+interface RevisionOverlay {
+  build: string;
+  pages: PageImage[];
+  prev_build: string | null;
+  prev_pages: PageImage[];
+}
+
 // One LaTeX error of a build: the manuscript line when the log names one.
 interface LatexError {
   line: number | null;

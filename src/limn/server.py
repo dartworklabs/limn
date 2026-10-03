@@ -293,6 +293,8 @@ def assemble_application(config: RunConfig, runtime: RunResources) -> ServerAsse
         pins=pins.revision,
         cache=lambda: resources().scope_cache,
         jobs=lambda: resources().revision_jobs,
+        history_files=builds.revisions.history_files,
+        overlay=builds.revisions.overlay,
     )
     viewer = assemble_viewer(settings, lambda: resources().viewer)
     routes = merge_routes(

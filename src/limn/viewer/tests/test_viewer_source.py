@@ -322,6 +322,7 @@ VIEWER_SETS = {
     "BAND_STEP",
     "CARD_DOT",
     "DIFF_FORMAT",
+    "OVERLAY_SIDE",
     "VIEW_MODE",
     "UI_LANG",
     "NOTIFY_STATE",

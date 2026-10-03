@@ -934,12 +934,14 @@ class FigureDocumentThroughTheServer(Base):
         self.assertFalse(ps.APP.build_requests.refresh_watched(ps.APP.docs[0]))
         self.assertEqual(build.state_snapshot(ps.APP.docs[0])["state"], "idle")
 
-    def test_rebuild_and_revisions_refuse_a_figure_document(self):
-        """POST /api/rebuild is 400 view_only_no_rebuild (its pages follow its files, whatever pins it takes) and the
-        changes view is unavailable - as for a view-only PDF. A snippet is no longer refused: a figure document takes
-        line pins (see pins/editing/tests/test_figure_pins.py)."""
+    def test_rebuild_refuses_a_figure_document_and_its_changes_answer_carries_the_overlay(self):
+        """POST /api/rebuild is 400 view_only_no_rebuild (its pages follow its files, whatever pins it takes). The
+        changes answer of this figure folder outside Git has no history but carries the overlay of its builds (see
+        revisions/tests/test_figure_revisions.py). A snippet is no longer refused: a figure document takes line pins
+        (see pins/editing/tests/test_figure_pins.py)."""
         code, _, body = split_resp(self.talk(req("POST", "/api/rebuild?doc=fig")))
         self.assertEqual((code, json.loads(body)["reason"]), (400, "view_only_no_rebuild"))
         self.assertNotIn("보기 전용", json.loads(body)["error"])  # the sentence holds for a figure document too
         code, _, body = split_resp(self.talk(req("GET", "/api/revisions?doc=fig")))
         self.assertEqual((code, json.loads(body)["available"]), (200, False))
+        self.assertIn("overlay", json.loads(body))

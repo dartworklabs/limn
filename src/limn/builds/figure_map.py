@@ -577,3 +577,17 @@ def follow_element(m: FigureMap, el_id: str, page_then: int, frac_then: Frac) ->
     page, el = found
     same = page.page == page_then and all(abs(a - b) <= FOLLOW_EPS for a, b in zip(el.frac, frac_then, strict=True))
     return ElementFollow(page.page, el.frac, "ok" if same else "moved")
+
+
+def map_source_files(m: FigureMap) -> tuple[str, ...]:
+    """Every distinct file map m names as an element's src.file or impl.file - the drawing scripts and the shared
+    components - in map order (pages, then elements, then src before impl), each once. The paths are as the map gives
+    them, relative to the figure document's folder; nothing here asks where they lead. A figure document's changes view
+    reads the Git history of these files (docs/handbook/api.md §변경 보기와 비교 PDF)."""
+    seen: dict[str, None] = {}
+    for page in m.pages:
+        for el in page.elements:
+            for ref in (el.src, el.impl):
+                if ref is not None:
+                    seen.setdefault(ref.file, None)
+    return tuple(seen)

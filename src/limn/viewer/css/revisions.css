@@ -15,14 +15,14 @@ body.revision-open #left{display:none}
 /* With the status line (24px on the sheet's top edge) the row sits on it, and its buttons end 20px above it - clear of the status
    action's 44px hit, which reaches 20px up. */
 body.has-status:not(.typing) #revision-acts{bottom:calc(var(--sheet-h,0px) + var(--kb,0px) + 24px);padding-bottom:20px}
-body.lay-narrow.rev-thumb #revision-source,body.lay-narrow.rev-thumb #revision-pdf{padding-bottom:160px}   /* ...and the thumb row */
+body.lay-narrow.rev-thumb #revision-source,body.lay-narrow.rev-thumb #revision-pdf,body.lay-narrow.rev-thumb #revision-overlay{padding-bottom:160px}   /* ...and the thumb row */
 #revision-acts .rp-acts{display:flex;justify-content:flex-end;gap:var(--space-2);width:100%;max-width:calc(640px - 2 * var(--edge));margin:0 auto}   /* the bar's cells: the tablet sheet's 640px column less its edges */
 #revision-acts button{min-height:var(--hit);padding-left:var(--space-4);padding-right:var(--space-4)}
 #revision-diff .rd-pin{background:color-mix(in srgb,var(--status-review) 12%,var(--sidebar))}
 body.lay-narrow #revision-head{padding:var(--space-2) var(--space-3)}
 body.lay-narrow #revision-head h2{display:none}
 body.lay-narrow #revision-view{height:100%}
-body.lay-narrow #revision-source,body.lay-narrow #revision-pdf{padding-bottom:84px}   /* the folded sheet's tool bar covers the bottom */
+body.lay-narrow #revision-source,body.lay-narrow #revision-pdf,body.lay-narrow #revision-overlay{padding-bottom:84px}   /* the folded sheet's tool bar covers the bottom */
 #revision-inner{height:100%;display:flex;flex-direction:column;min-height:0}
 #revision-head{display:flex;align-items:center;gap:var(--space-3);padding:var(--space-2) var(--space-4);background:var(--sidebar);border-bottom:1px solid var(--border)}
 #revision-head h2{font-size:var(--text-sm);margin:0;white-space:nowrap}
@@ -62,6 +62,21 @@ body.lay-narrow #revision-source,body.lay-narrow #revision-pdf{padding-bottom:84
 .revision-pages{margin:0 auto;display:flow-root}
 .revision-page{margin:0 0 var(--space-4);background:var(--sidebar);box-shadow:var(--shadow-page)}
 .revision-page canvas{display:block;width:100%;height:100%}
+/* A figure document's overlay (docs/handbook/viewer.md §변경 보기): per page one box holding the current build's image and the
+   previous build's from its top left, each at its own size (set by revisions.js), and [이전 | 지금] (#revision-side, the one
+   segmented control) showing one of the two. The commit list and its note speak of the source diff, so they step aside here;
+   on the narrow sheet the then empty header goes too. */
+#revision-view[data-format=overlay] #revision-list,#revision-view[data-format=overlay] #revision-note{display:none}
+body.lay-narrow #revision-view[data-format=overlay] #revision-head{display:none}
+#revision-side.seg{margin:0}
+#revision-overlay{flex:1;min-height:0;overflow:auto;background:var(--background);padding:var(--space-3)}
+.ov-page{position:relative;width:100%;margin:0 auto var(--space-4);overflow:hidden;background:var(--sidebar);box-shadow:var(--shadow-page)}
+.ov-page>img{position:absolute;left:0;top:0;display:block}
+#revision-overlay[data-side=cur] .ov-prev,#revision-overlay[data-side=prev] .ov-cur{visibility:hidden}
+.ov-none{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;padding:var(--space-4);
+  color:var(--muted-foreground);font-size:var(--text-sm);text-align:center}
+.ov-no{position:absolute;top:var(--space-2);left:var(--space-2);color:var(--muted-foreground);font-size:var(--text-xs);background:var(--card);
+  padding:1px var(--space-2);border-radius:var(--radius-sm);box-shadow:var(--shadow-sm);line-height:1.5}
 #revision-zoom{display:flex;align-items:center;gap:var(--space-1);margin-left:auto}
 #revision-zoom button{min-width:var(--hit);min-height:var(--hit)}
 #revision-zoom-value{min-width:4ch;text-align:center;font-size:var(--text-sm);font-variant-numeric:tabular-nums}

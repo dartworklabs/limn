@@ -2111,3 +2111,143 @@ class FigureDocuments(BrowserBase):
         self.assertGreater(after["rev"], before["rev"])
         self.assert_frac(after["frac"], [round(v, 6) for v in loc["frac"]])
         self.assertGreater(after["frac"][0], before["frac"][0] + 0.2)
+
+
+# The two screens of the figure overlay checks: a phone held upright (touch) and a desktop.
+OVERLAY_SCREENS = {
+    "phone": {"viewport": {"width": 411, "height": 908}, "is_mobile": True, "has_touch": True},
+    "desktop": {"viewport": {"width": 1440, "height": 900}},
+}
+# Each overlay page's two images as [src of the current build's, src of the previous build's, visibility of each].
+OVERLAY_IMAGES = """()=>[...document.querySelectorAll('#revision-overlay .ov-page')].map(p=>{
+  const c=p.querySelector('img.ov-cur'),v=p.querySelector('img.ov-prev');
+  return [c&&c.getAttribute('src'),v&&v.getAttribute('src'),c&&getComputedStyle(c).visibility,v&&getComputedStyle(v).visibility];})"""
+
+
+class FigureOverlay(BrowserBase):
+    """The changes view of a figure document (docs/handbook/viewer.md §변경 보기): the previous build's pages laid over the
+    current ones, one shown at a time by [이전 | 지금], and nothing of it on the manuscript's changes view. The figure
+    was rendered twice: BUILD2 is on screen and BUILD1, the build before it, is kept."""
+
+    WHO = ALICE
+
+    def setUp(self):
+        """helpers_figure.viewer_docs' three documents (manuscript, figure, reviewer's PDF), then a re-render of the
+        figure into BUILD2 (the July cell moved)."""
+        super().setUp()
+        self.ms, self.fig, self.rv = helpers_figure.viewer_docs(ps.APP, ps.APP.C.src)
+        self.addCleanup(ps.APP.set_docs, None)
+        helpers_figure.viewer_rerender(self.fig, july=(0.30, 0.18, 0.07, 0.12))
+
+    def open_fig(self, **device):
+        """The viewer switched to the figure document and settled, first-visit coach marks off."""
+        page = self.open(0, init=FigureDocuments.NO_COACH, **device)
+        page.evaluate("async()=>await switchDoc('fig')")
+        page.wait_for_function("DOC==='fig'&&document.querySelectorAll('#doc .pg').length===2", timeout=8000)
+        settle(page)
+        return page
+
+    text = staticmethod(FigureDocuments.text)
+
+    def open_overlay(self, **device):
+        """The viewer on the figure with its changes view open and both overlay pages drawn."""
+        page = self.open_fig(**device)
+        page.evaluate("setViewMode(VIEW_MODE.REVISIONS)")
+        page.wait_for_function("document.querySelectorAll('#revision-overlay .ov-page').length===2", timeout=8000)
+        settle(page)
+        return page
+
+    def shown(self, page, sel):
+        """Whether sel matches an element that is laid out and not inside a hidden ancestor."""
+        return page.evaluate(
+            "s=>{const e=document.querySelector(s);return !!e&&!e.closest('[hidden]')&&e.getClientRects().length>0;}",
+            sel,
+        )
+
+    def test_the_figures_changes_view_lays_the_previous_build_over_the_current_one(self):
+        """On a phone and a desktop the figure's changes view opens on [겹쳐 보기] - no comparison PDF tab - with each
+        page's current image (BUILD2) shown over the previous one (BUILD1) in one box; [이전] shows the previous image in
+        its place and [지금] the current one again. The control's segments answer 44px on touch and no page is wider
+        than the view."""
+        for screen, device in OVERLAY_SCREENS.items():
+            with self.subTest(screen=screen):
+                page = self.open_overlay(**device)
+                self.assertTrue(self.shown(page, "#revision-overlay-tab"))
+                self.assertEqual(page.get_attribute("#revision-overlay-tab", "aria-pressed"), "true")
+                self.assertFalse(self.shown(page, "#revision-pdf-tab"))
+                self.assertTrue(self.shown(page, "#revision-side"))
+                cur, prev = helpers_figure.BUILD2, helpers_figure.BUILD1
+                pages = page.evaluate(OVERLAY_IMAGES)
+                self.assertEqual(
+                    [(c.split("/")[2], p.split("/")[2]) for c, p, _, _ in pages], [(cur, prev), (cur, prev)]
+                )
+                self.assertEqual([(a, b) for _, _, a, b in pages], [("visible", "hidden")] * 2)
+                self.assertTrue(page.evaluate("document.querySelector('#revision-overlay img.ov-cur').naturalWidth>0"))
+                page.click("#revision-side [data-side=prev]")
+                settle(page)
+                self.assertEqual([(a, b) for _, _, a, b in page.evaluate(OVERLAY_IMAGES)], [("hidden", "visible")] * 2)
+                self.assertEqual(page.get_attribute("#revision-side [data-side=prev]", "aria-checked"), "true")
+                self.assertTrue(page.evaluate("document.querySelector('#revision-overlay img.ov-prev').naturalWidth>0"))
+                page.click("#revision-side [data-side=cur]")
+                settle(page)
+                self.assertEqual([(a, b) for _, _, a, b in page.evaluate(OVERLAY_IMAGES)], [("visible", "hidden")] * 2)
+                box = page.evaluate(
+                    "(()=>{const o=document.getElementById('revision-overlay');return [o.scrollWidth,o.clientWidth];})()"
+                )
+                self.assertLessEqual(box[0], box[1])
+                if screen == "phone":
+                    hits = page.eval_on_selector_all(
+                        "#revision-side button", "bs=>bs.map(b=>parseFloat(getComputedStyle(b,'::after').height))"
+                    )
+                    self.assertEqual(hits, [44.0, 44.0])
+
+    def test_a_figure_without_a_previous_build_says_so_and_offers_no_choice(self):
+        """When only the build on screen is kept the pages show it alone, [이전] cannot be pressed and the status line
+        says there is no previous build."""
+        shutil.rmtree(self.fig.dir / helpers_figure.BUILD1)
+        page = self.open_overlay()
+        self.assertTrue(page.evaluate("document.querySelector('#revision-side [data-side=prev]').disabled"))
+        self.assertFalse(page.evaluate("!!document.querySelector('#revision-overlay img.ov-prev')"))
+        self.assertIn("이전 빌드가 없습니다", self.text(page, "#revision-status"))
+
+    def test_the_manuscripts_changes_view_after_the_figures_has_no_overlay(self):
+        """After the figure's changes view, the manuscript's (a folder outside Git here) shows its reason line and no
+        overlay tab, control or page; its comparison PDF tab is back in place and the format is the comparison PDF."""
+        page = self.open_overlay()
+        page.evaluate("async()=>await switchDoc('ms')")
+        page.wait_for_function("DOC==='ms'", timeout=8000)
+        page.evaluate("setViewMode(VIEW_MODE.REVISIONS)")
+        page.wait_for_function("document.getElementById('revision-list').textContent.includes('Git')", timeout=8000)
+        settle(page)
+        for sel in ("#revision-overlay-tab", "#revision-side", "#revision-overlay .ov-page"):
+            with self.subTest(sel=sel):
+                self.assertFalse(self.shown(page, sel))
+        self.assertTrue(self.shown(page, "#revision-list"))
+        self.assertFalse(page.evaluate("document.getElementById('revision-pdf-tab').hidden"))
+        self.assertEqual(page.evaluate("[REV.format,REV.overlay]"), ["pdf", None])
+
+    def test_view_changes_on_a_figure_pin_opens_the_overlay_at_its_page(self):
+        """[변경 보기] of a pin the agent closed on the figure's page 2 opens the overlay with page 2 at the top of the
+        view, and the guide line names the overlay."""
+        pid = add_pin(
+            {"doc": "fig", "file": str(self.src_script()), "lo": 1, "hi": 10, "page": 2, "note": "흐름도 화살표"}, A
+        ).record["id"]
+        loc = dict(LOCAL_ACTOR)
+        ps.APP.pin_lifecycle.close_pin(
+            pid, post_authority(ps.APP.pin_lifecycle.context().store, loc, "close", pid), CloseRequest(ref="abc1234")
+        )
+        page = self.open_fig()
+        page.evaluate("id=>showChange(id)", pid)
+        page.wait_for_function("document.querySelectorAll('#revision-overlay .ov-page').length===2", timeout=8000)
+        settle(page)
+        self.assertEqual(page.evaluate("REV.format"), "overlay")
+        top = page.evaluate(
+            """()=>{const p=document.querySelector('#revision-overlay .ov-page[data-page="2"]').getBoundingClientRect(),
+            o=document.getElementById('revision-overlay').getBoundingClientRect();return [p.top,o.top,o.bottom];}"""
+        )
+        self.assertTrue(top[1] - 1 <= top[0] < top[2], top)
+        self.assertIn("겹쳐", self.text(page, "#revision-pin .rp-msg"))
+
+    def src_script(self):
+        """The figure's drawing script (helpers_figure.figure_doc's figs/src/B2_calendar.py)."""
+        return self.fig.src / "src" / "B2_calendar.py"

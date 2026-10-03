@@ -246,13 +246,15 @@ curl -s -H "Authorization: Bearer $(cat ~/.config/limn/<인스턴스>.token)" ht
 
 | 메서드 | 경로 | 설명 |
 | --- | --- | --- |
-| `GET` | `/api/revisions?doc=<키>` | 선택한 메인 `.tex` 폴더의 `.tex`·`.bib`·`.sty`·`.cls`·`.bst` 파일을 바꾼 최근 Git 커밋 12개 → `{available,revisions:[{id,date,subject}]}`. Git 저장소가 아니거나 보기 전용 PDF면 `available:false` |
+| `GET` | `/api/revisions?doc=<키>` | 선택한 메인 `.tex` 폴더의 `.tex`·`.bib`·`.sty`·`.cls`·`.bst` 파일을 바꾼 최근 Git 커밋 12개 → `{available,revisions:[{id,date,subject}]}`. Git 저장소가 아니거나 보기 전용 PDF면 `available:false`. 그림 문서는 화면 빌드의 지도에 나오는 `src.file`·`impl.file`(문서 폴더 기준)과 지도 파일, 지도가 가리키는 PDF를 바꾼 커밋이다. 그 파일이 200개를 넘으면 문서 폴더 전체가 범위다. 그림 문서의 답에는 `overlay:{build,pages,prev_build,prev_pages}` 가 더 붙는다(Git 이력이 없어도 붙는다). `build`·`pages` 는 화면 빌드와 그 쪽 목록(`/api/meta` 의 `pages_build`·`pages` 와 같은 모양), `prev_build`·`prev_pages` 는 그 바로 앞 빌드다. 앞 빌드의 쪽 폴더가 없으면 `null`·`[]` 이다. 쪽 그림은 `/pages/<빌드>/<파일>` 로 받는다. 뷰어의 겹쳐 보기가 이것을 쓴다([viewer.md](viewer.md) §변경 보기). 다른 문서의 답은 두 키 그대로다 |
 | `GET` | `/api/revision-diff?doc=<키>&commit=<40자리 SHA-1>` | 위 목록에 나온 커밋의 실제 unified diff → `{id,diff,truncated}`. 선택한 메인 파일 폴더 안의 같은 원고 확장자만 포함하고 최대 256 KiB를 보낸다. 잘못된 ID는 `400`, 목록 밖 ID와 보기 전용 PDF는 `404`. 선택 `&pin=<번호>`(0.3+)를 주면 `scope` 를 더한다(§핀 단위 변경 보기). 빈 `pin=` 은 없는 것과 같다. `pin` 이 양의 정수가 아니면 `400`, 이 문서의 핀이 아니면 `404` |
 | `POST` | `/api/revision-build` | 본문 `{commit,doc?,pin?}`. 선택 커밋의 첫 부모 → 선택 커밋 비교 PDF를 비동기로 시작한다. `202 {state:"running",job_id,base,head,engine,warnings,error,reason}`, 성공 캐시가 있으면 `200 {state:"ready",…}`. `doc` 은 쿼리로도 받는다. 선택 `pin`(정수, 0.3+)을 주면 그 핀의 변경만 적용한 비교가 되고 상태에 `scope`·`pin`·`source`·`hunks`·`other` 가 더해진다(§핀 단위 변경 보기). 그 밖의 필드가 있거나 `pin` 이 정수가 아니면 `400` |
 | `GET` | `/api/revision-build?doc=<키>&commit=<40자리 SHA-1>[&pin=<번호>]` | 같은 상태 스키마를 조회한다. `state` 는 `idle`(미실행·만료), `running`, `ready`, `error`. `error` 는 설명, `reason` 은 오류 분류다. 매번 현재 문서의 최근 커밋 목록을 다시 확인한다 |
 | `GET` | `/api/revision-pdf?doc=<키>&commit=<40자리 SHA-1>[&pin=<번호>]` | 성공한 같은 비교의 PDF(`Cache-Control: private, max-age=600`). 미완성·실패·만료는 `404` 이며 현재 원고 PDF로 대체하지 않는다. 현재 쪽·SyncTeX·핀 좌표와 무관한 열람 전용 결과다 |
 
 실행 조건과 캐시는 아래 §비교 PDF 실행과 캐시에, 핀 하나의 변경만 가르는 규칙은 §핀 단위 변경 보기에 있다.
+
+그림 문서는 `/api/revision-diff` 가 위 범위의 diff를 준다(스크립트·지도의 텍스트 diff, PDF는 바이너리 한 줄). 그림 문서에는 비교 PDF가 없다. 그래서 `/api/revision-build`·`/api/revision-pdf` 는 이력이 없는 문서처럼 `404 commit_not_recent` 이고, git이나 latexdiff를 부르지 않는다. 비교는 뷰어가 `overlay` 의 두 빌드를 겹쳐 보인다.
 
 ### 핀 읽기
 

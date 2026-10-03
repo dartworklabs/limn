@@ -23,12 +23,21 @@ class RevisionRequests:
         return AuthorityScope(self, "", (context.jobs, context.cache))
 
     def history(self, doc: Doc) -> dict[str, Any]:
-        """List recent commits of this document."""
-        return revisions.revision_history(doc)
+        """List recent commits of this document. A figure document's list covers the files its current build's map
+        names (RevisionBuildQueries.history_files), and its answer adds `overlay`, the two builds the viewer lays one
+        over the other - present even when the folder has no Git history. Any other document's answer keeps its two
+        keys."""
+        context = self.context()
+        out = revisions.revision_history(doc, context.history_files(doc))
+        overlay = context.overlay(doc)
+        if overlay is not None:
+            out["overlay"] = overlay
+        return out
 
     def diff(self, doc: Doc, commit: str, pin: int | None = None) -> dict[str, Any] | DiffRefusal:
-        """Read the source changes between a commit and its parent."""
-        return revisions.revision_diff(doc, commit, pin, self.context())
+        """Read the source changes between a commit and its parent, scoped like history()."""
+        context = self.context()
+        return revisions.revision_diff(doc, commit, pin, context, context.history_files(doc))
 
     def status(self, doc: Doc, commit: str, pin: int | None = None) -> dict[str, Any] | StatusRefusal:
         """Read a comparison job or cached PDF state."""
