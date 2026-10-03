@@ -1,6 +1,6 @@
 // ------------------------------------------------ composer
 // The active selection owns its PDF box, in-flight pick/save, and overlap choice for one composer visit.
-const COMPOSE={current:null,box:null,picking:false,pendingSave:false,saving:false,dismissedOverlap:null};
+const COMPOSE={current:/** @type {Selection|null} */(null),box:/** @type {HTMLElement|null} */(null),picking:false,pendingSave:false,saving:false,dismissedOverlap:null};
 // A completed save may clear only the selection and box that sent the request in this document visit.
 function composeOwns(selection,box,visit){return currentVisit(visit)&&COMPOSE.current===selection&&COMPOSE.box===box;}
 function setBusy(on){$('#c-spin').hidden=!on; $('#c-body').classList.toggle('busy',on);}

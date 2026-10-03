@@ -166,7 +166,7 @@ def sync_records() -> list[dict]:
 class DeclaredViewShapes(AccessBase):
     """api.d.ts declares the document, build and people answers as the real handler gives them.
 
-    Three states: one document with an open pin and no build; three documents (a LaTeX file, one in a folder, a
+    Three states: one document with an open pin (and the overlaps a new range over it reports) and no build; three documents (a LaTeX file, one in a folder, a
     view-only PDF) with page images and two people who opened the viewer; one document after a build with LaTeX
     errors. The watch's states come from limn.sync.rules itself, since a test run has no remote to pull."""
 
@@ -185,6 +185,7 @@ class DeclaredViewShapes(AccessBase):
     def run_states(self):
         """Answer every view the viewer reads in each of the three states (see the class docstring)."""
         self.pin_id()
+        self.seen += [("PickOverlap", o) for o in ps.APP.overlaps_for_range(str(self.main), 4, 9)]
         self.answer("Meta", "GET", "/api/meta")
         self.answer("Meta", "GET", "/api/meta?light=1")
         self.answer("BuildStatus", "GET", "/api/build?log=1")
@@ -257,6 +258,7 @@ class DeclaredViewShapes(AccessBase):
             collect(body, name)
         views = ["Meta", "BuildStatus", "DocsAnswer", "PeopleAnswer", "RebuildAnswer", "SyncStatus", "PullRecord"]
         views += ["Me", "PersonSeen", "PageImage", "LatexError", "BuildProgress", "LastBuild", "DocEntry"]
+        views += ["PickOverlap"]
         missing = sorted(
             "%s.%s" % (name, f) for name in views for f in self.shapes[name] if f not in seen.get(name, set())
         )
@@ -303,3 +305,26 @@ class DeclaredRungs(unittest.TestCase):
         found = [m for i, r in enumerate(rungs) for m in mismatches(r, "Rung", shapes, "rung %d" % i)]
         self.assertEqual(found, [])
         self.assertEqual(sorted(set(shapes["Rung"]) - {k for r in rungs for k in r}), [])
+
+
+def recorded_picks() -> list[dict]:
+    """The recorded POST /api/pick answers that placed a drag: a figure element (the traced-selection keys plus el) and a
+    figure region that fell back (the region keys plus el)."""
+    out = []
+    for entry in json.loads(SNAPSHOTS[1].read_text(encoding="utf-8")):
+        if "picks" in entry["step"] and "pins.md" not in entry["step"]:
+            out.append(json.loads(entry["body"]))
+    return out
+
+
+class DeclaredPicks(unittest.TestCase):
+    """api.d.ts's PickAnswer is the recorded pick answers' shape, and each declared field occurs in one of them."""
+
+    def test_every_pick_fits_and_every_field_occurs(self):
+        """No recorded pick has an undeclared field or another type; every PickAnswer field appears in some pick."""
+        shapes = interfaces(API_TYPES.read_text(encoding="utf-8"))
+        picks = recorded_picks()
+        self.assertEqual(len(picks), 2)
+        found = [m for i, p in enumerate(picks) for m in mismatches(p, "PickAnswer", shapes, "pick %d" % i)]
+        self.assertEqual(found, [])
+        self.assertEqual(sorted(set(shapes["PickAnswer"]) - {k for p in picks for k in p}), [])

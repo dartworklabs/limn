@@ -26,3 +26,46 @@ interface EditCard {
   quote: string;
   kind_req: string;
 }
+
+// The composer's selection (composer.js COMPOSE.current): the pick's answer plus what the composer chose on it - the
+// ladder rung (scope) and its environment, the element the range follows (elSel), and the overlap it reports (rel).
+interface Selection extends PickAnswer {
+  scope?: string | null;
+  env?: string | null;
+  elSel?: PinElement | null;
+  rel?: PickOverlap[];
+}
+
+// A pin's location being placed again (repick.js REPICK): the pin, where it was, the drawn box and the new candidate.
+interface Repick {
+  id: number;
+  from: { lo?: number; hi?: number; page: number; region: boolean };
+  box: HTMLElement | null;
+  cand: PickAnswer | null;
+}
+
+// The open reply box (reply.js REPLY): its pin, its element, and whether the outcome toggle is flipped and which way.
+interface ReplyBox {
+  id: number;
+  flip: boolean;
+  toggle: string | null;
+  el: HTMLElement;
+}
+
+// The pin the changes view was opened for (revisions.js REV.target), and how the commit was chosen for it (via, and
+// tokOf, the commit id its close reference names).
+interface RevTarget {
+  id: number;
+  file: string;
+  name: string;
+  lo?: number;
+  hi?: number;
+  page: number;
+  ref: string;
+  region: boolean;
+  commit?: string;
+  via?: string;
+  hit?: boolean;
+  near?: boolean;
+  tokOf?: string;
+}
