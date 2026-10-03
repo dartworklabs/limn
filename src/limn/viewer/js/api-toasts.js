@@ -33,7 +33,7 @@ function toast(msg,kind,action,dd){const literal=!!(dd&&dd.literal); msg=literal
   kind=TOAST_IC[kind]?kind:'ok';
   const box=toastHost(),t=document.createElement('div'); t.className='toast '+kind;
   const [title,desc]=toastSplit(msg);
-  t.innerHTML=TOAST_IC[kind]()+'<div class="t-body"><div class="t-title"></div>'+(desc?'<div class="t-desc"></div>':'')+'</div><div class="t-acts"></div>';
+  setHtml(t,html`${TOAST_IC[kind]()}<div class="t-body"><div class="t-title"></div>${desc?html`<div class="t-desc"></div>`:''}</div><div class="t-acts"></div>`);
   t.querySelector('.t-title').textContent=title; if(desc)t.querySelector('.t-desc').textContent=desc;
   if(literal)t.querySelector('.t-body').translate=false;
   const acts=t.querySelector('.t-acts');
@@ -41,7 +41,7 @@ function toast(msg,kind,action,dd){const literal=!!(dd&&dd.literal); msg=literal
   const arm=()=>{clearTimeout(timer);timer=setTimeout(kill,6000);};
   if(action){const b=document.createElement('button');b.className='btn-sm';b.textContent=action.label;b.dataset.tip=action.tip||T.undo;
     b.addEventListener('click',()=>{t._gone=null;kill();action.fn();});acts.appendChild(b);}
-  const c=document.createElement('button');c.className='btn-icon btn-sm btn-ghost';c.innerHTML=ic('x');
+  const c=document.createElement('button');c.className='btn-icon btn-sm btn-ghost';setHtml(c,ic('x'));
   c.setAttribute('aria-label','알림 닫기');c.addEventListener('click',kill);acts.appendChild(c);
   t.addEventListener('mouseenter',()=>clearTimeout(timer)); t.addEventListener('mouseleave',arm);
   placeToasts(); box.insertBefore(t,box.firstChild); arm();

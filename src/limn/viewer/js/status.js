@@ -63,19 +63,19 @@ function statusText(item,fit){const long=fit!=='short';
 // The leading mark of an item: a warning triangle for a failure or blocked sync, the lost-connection icon, a spinner while
 // work runs (a check once main sync is applied), an 8px warning dot for a stale PDF, the image icon for PNG.
 function statusIcon(item){const K=STATUS_KIND;
-  if(item.kind===K.FAILED||item.kind===K.ERRORS||item.kind===K.SYNC_BLOCKED)return '<span class="st-ic warn">'+ic('triangle-alert')+'</span>';
-  if(item.kind===K.OFFLINE)return '<span class="st-ic">'+ic('wifi-off')+'</span>';
-  if(item.kind===K.STALE)return '<span class="st-ic"><i class="st-stale"></i></span>';
-  if(item.kind===K.PNG)return '<span class="st-ic">'+ic('image')+'</span>';
-  if(item.kind===K.UNCHANGED||item.kind===K.SYNC&&item.state===SYNC_STATE.UPDATED)return '<span class="st-ic">'+ic('check')+'</span>';
-  return '<span class="st-ic"><i class="spin"></i></span>';}
+  if(item.kind===K.FAILED||item.kind===K.ERRORS||item.kind===K.SYNC_BLOCKED)return html`<span class="st-ic warn">${ic('triangle-alert')}</span>`;
+  if(item.kind===K.OFFLINE)return html`<span class="st-ic">${ic('wifi-off')}</span>`;
+  if(item.kind===K.STALE)return html`<span class="st-ic"><i class="st-stale"></i></span>`;
+  if(item.kind===K.PNG)return html`<span class="st-ic">${ic('image')}</span>`;
+  if(item.kind===K.UNCHANGED||item.kind===K.SYNC&&item.state===SYNC_STATE.UPDATED)return html`<span class="st-ic">${ic('check')}</span>`;
+  return html`<span class="st-ic"><i class="spin"></i></span>`;}
 
 // An item's one action as a button (its data-act; [재빌드] is the line's one primary fill), or '' without one. [그래도 빌드]
 // carries 0.4.5's tip on what a cold build is for. The label is a span (.lbl) so CSS can trim it to its cap height.
-function statusAct(item){if(!item.act)return '';
+function statusAct(item){if(!item.act)return html``;
   const force=item.act==='rebuild-force',name=item.act==='rebuild'?tr('재빌드'):item.act==='status-why'?tr('이유'):force?tr(T.buildanyway):tr('보기');
-  return '<button class="btn-sm st-act '+(item.act==='rebuild'?'btn-default':'btn-secondary')+'" data-act="'+item.act+'"'+
-    (force?' data-tip="'+esc(T.buildanywaytip)+'"':'')+'><span class="lbl">'+esc(name)+'</span></button>';}
+  const tip=force?html` data-tip="${T.buildanywaytip}"`:'';
+  return html`<button class="btn-sm st-act ${item.act==='rebuild'?'btn-default':'btn-secondary'}" data-act="${item.act}"${tip}><span class="lbl">${name}</span></button>`;}
 
 // What the status line is drawn from, gathered from the shell: the running build (BUILD.cur) and the last failed one, the
 // light poll's failures, the last meta `sync`, and the chips that already say stale and PNG - plus whether this document and
@@ -105,9 +105,9 @@ function drawStatus(){const box=$('#status'),sr=box.querySelector('.st-sr'),body
   if(!top){if(STATUS_SIG){body.replaceChildren(); STATUS_SIG='';} sr.textContent=''; return;}
   const sig=top.kind+'|'+(top.act||'')+'|'+list.length+'|'+(top.state||'');
   if(sig!==STATUS_SIG){STATUS_SIG=sig;
-    body.innerHTML=statusIcon(top)+'<span class="st-tx" aria-hidden="true"></span>'+
-      (list.length>1?'<button class="btn-sm btn-ghost st-more" data-act="status-more" aria-haspopup="dialog" aria-label="'+esc(tl('상태 {n}건 더 보기',{n:list.length-1}))+'"><span class="lbl">'+esc(tl('+{n}',{n:list.length-1}))+'</span></button>':'')+
-      statusAct(top)+(running?'<span class="st-bar" role="progressbar" aria-label="'+esc(tr('빌드 진행'))+'"><i></i></span>':'');}
+    const more=list.length>1?html`<button class="btn-sm btn-ghost st-more" data-act="status-more" aria-haspopup="dialog" aria-label="${tl('상태 {n}건 더 보기',{n:list.length-1})}"><span class="lbl">${tl('+{n}',{n:list.length-1})}</span></button>`:'';
+    const bar=running?html`<span class="st-bar" role="progressbar" aria-label="${tr('빌드 진행')}"><i></i></span>`:'';
+    setHtml(body,html`${statusIcon(top)}<span class="st-tx" aria-hidden="true"></span>${more}${statusAct(top)}${bar}`);}
   const tx=box.querySelector('.st-tx'),long=statusText(top,'long'),short=statusText(top,'short');
   tx.textContent=BAND===LAYOUT_BAND.SHORT?short[0]+short[1]:long[0]+long[1];   // the short band's one row always takes the short text
   if(tx.scrollWidth>tx.clientWidth)tx.textContent=short[0]+short[1];
@@ -118,8 +118,8 @@ function drawStatus(){const box=$('#status'),sr=box.querySelector('.st-sr'),body
 
 // The '+N' list: every item as a 44px row with its long text and its action. A modal dialog over the line, so an outside tap,
 // Esc and the back gesture fold it like the sheets; a row's action folds it too.
-function drawStatusList(list){$('#status-list-rows').innerHTML=list.map(it=>{const t=statusText(it,'long');
-  return '<div class="st-row">'+statusIcon(it)+'<span class="st-row-t">'+esc(t[0]+t[1])+'</span>'+statusAct(it)+'</div>';}).join('');}
+function drawStatusList(list){setHtml($('#status-list-rows'),html`${list.map(it=>{const t=statusText(it,'long');
+  return html`<div class="st-row">${statusIcon(it)}<span class="st-row-t">${t[0]+t[1]}</span>${statusAct(it)}</div>`;})}`);}
 // [이유] of blocked main sync: the reason's sentence as a warning toast.
 function statusWhy(){const s=STATUS_SYNC||{}; toast(tr('main 동기화 막힘')+' — '+tr(SYNC_REASON[s.reason]||s.reason||'')+' · '+tr('기존 PDF가 보일 수 있습니다'),'warn');}
 // Opens the '+N' list just over the status line (under it in the short band's top row), or folds it on a second press.

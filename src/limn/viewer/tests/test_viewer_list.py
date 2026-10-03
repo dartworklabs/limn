@@ -4,7 +4,7 @@ import json
 import shutil
 import unittest
 
-from helpers import extract_js_fn, run_node
+from helpers import extract_js_fn, js_esc, js_markup, run_node
 
 
 class PinListLoading(unittest.TestCase):
@@ -253,6 +253,8 @@ class PinListLoading(unittest.TestCase):
                 extract_js_fn("derivePinLists"),
                 extract_js_fn("applyPinLists"),
                 extract_js_fn("loadPins"),
+                js_esc(),
+                js_markup(),
                 extract_js_fn("boot"),
                 extract_js_fn("pollLightOnce"),
                 """
@@ -277,7 +279,7 @@ class PinListLoading(unittest.TestCase):
                 function $(sel){return {hidden:true,innerHTML:''};}
                 function i18nStart(){} function takeLinkHash(){return {};}
                 function applyTheme(){} function applyLayout(){} function initDiffWrap(){}
-                function saveBtnLabel(){return 'save';} async function loadDocs(){}
+                function saveBtnLabel(){return html`save`;} async function loadDocs(){}
                 function initialDoc(){return 'main';} function multiDoc(){return false;}
                 function loadViews(){} function drawMeta(){} function applySideWidth(){}
                 function applyOutlineState(){} function applyViewWidth(){return false;}
@@ -312,6 +314,8 @@ class PinListLoading(unittest.TestCase):
         """A successful first pin read records meta's baseline, so an unchanged light poll does not fetch again."""
         js = "\n".join(
             [
+                js_esc(),
+                js_markup(),
                 extract_js_fn("boot"),
                 extract_js_fn("pollLightOnce"),
                 """
@@ -325,7 +329,7 @@ class PinListLoading(unittest.TestCase):
                 function $(sel){return {hidden:true,innerHTML:''};}
                 function i18nStart(){} function takeLinkHash(){return {};}
                 function applyTheme(){} function applyLayout(){} function initDiffWrap(){}
-                function saveBtnLabel(){return 'save';} async function loadDocs(){}
+                function saveBtnLabel(){return html`save`;} async function loadDocs(){}
                 function initialDoc(){return 'main';} function multiDoc(){return false;}
                 function loadViews(){} function drawMeta(){} function applySideWidth(){}
                 function applyOutlineState(){} function applyViewWidth(){return false;}

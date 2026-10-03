@@ -3,10 +3,10 @@ function who(a){if(a&&a.login===LOCAL_LOGIN)return tr(a.name||'로컬/에이전�
 const BADPIC=new Set();   // an avatar URL that has already failed is never requested again (otherwise console errors would pile up on every re-render)
 // A person = a photo or an initial circle (primary color); local/agent = a faded circle with a robot icon - distinguishes people from agents at a glance.
 function isAgent(a){return !!a&&(a.login===LOCAL_LOGIN||String(a.login).startsWith('agent:'));}
-function avatar(a){if(!a||!(a.name||a.login))return ''; if(isAgent(a))return '<span class="av i agent" aria-hidden="true">'+ic('bot')+'</span>';
-  const ini=esc((who(a).trim()[0]||'?').toUpperCase());
-  return a.pic&&!BADPIC.has(a.pic)?'<img class="av" src="'+esc(a.pic)+'" alt="" referrerpolicy="no-referrer" data-ini="'+ini+'">'
-    :'<span class="av i" aria-hidden="true">'+ini+'</span>';}
+function avatar(a){if(!a||!(a.name||a.login))return html``; if(isAgent(a))return html`<span class="av i agent" aria-hidden="true">${ic('bot')}</span>`;
+  const ini=(who(a).trim()[0]||'?').toUpperCase();
+  return a.pic&&!BADPIC.has(a.pic)?html`<img class="av" src="${a.pic}" alt="" referrerpolicy="no-referrer" data-ini="${ini}">`
+    :html`<span class="av i" aria-hidden="true">${ini}</span>`;}
 document.addEventListener('error',e=>{const t=e.target;
   if(t&&t.tagName==='IMG'&&t.classList.contains('av')){BADPIC.add(t.getAttribute('src')); const s=document.createElement('span');s.className='av i';
     s.textContent=t.dataset.ini||'?';t.replaceWith(s);}},true);

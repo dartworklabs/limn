@@ -7,7 +7,7 @@ async function boot(){i18nStart();
   const link=takeLinkHash();
   applyTheme(); applyLayout();
   // There's no keyboard shortcut on a touch device - "핀 저장 Ctrl+Enter" would just get clipped at phone width.
-  $('#btn-save').innerHTML=saveBtnLabel();
+  setHtml($('#btn-save'),saveBtnLabel());
   await loadDocs(); DOC=initialDoc();
   try{META=(await api(dq('/api/meta'),{what:'화면 정보 읽기'})).data;}catch(e){return;}
   if(META.doc)DOC=META.doc; META_BY.set(DOC,META); loadViews(); const v=VIEW_BY.get(DOC);
@@ -67,21 +67,21 @@ function drawMeta(){
   const head=commitShown(META.head); $('#meta-head').textContent=head; $('#meta-head-w').hidden=!head;
   $('#meta-built').textContent=String(META.built_at||'').slice(0,16).replace('T',' ');
   const me=META.me||{};
-  $('#me').innerHTML=avatar(me)+'<span class="au-n" translate="no">'+esc(who(me))+'</span>';
+  setHtml($('#me'),html`${avatar(me)}<span class="au-n" translate="no">${who(me)}</span>`);
   $('#me').dataset.tip=tl('지금 이 화면을 쓰는 사람: {name}. 핀을 저장·수정·완료하면 이 이름으로 기록됩니다',{name:(isAgent(me)?who(me):me.name||'')+(me.login&&me.login!==LOCAL_LOGIN?' ('+me.login+')':'')});
   updateStaleBadge(META);
   updateSyncBadge(META.sync);
   $('#help-pins-md').textContent=META.pins_md||'';
-  $('#more-info').innerHTML=moreInfo(META,me);
+  setHtml($('#more-info'),moreInfo(META,me));
 }
 // [더보기]'s meta (compact, where #bar2's line is hidden) as two lines: the file · pages · commit, then the build time · me. Each
 // piece keeps its words together and the lines break only between pieces; a piece longer than the line (a long file name)
 // breaks after / . _ - (<wbr>), never cut - it was one line cut at '…', its rest only in a 500ms long-press tip (UX audit P4.2).
 // The words are the viewer's (tr/tl), the names the user's: #more-info is translate="no".
 function moreInfo(m,me){const built=String(m.built_at||'').slice(5,16).replace('T',' ');
-  const piece=t=>'<span class="mc">'+esc(t).replace(/([/._-])/g,'$1<wbr>')+'</span>';
-  const line=a=>a.filter(Boolean).map(piece).join(' · ');
-  return line([m.main,tl('{n}쪽',{n:m.pages.length}),commitShown(m.head)])+'<br>'+line([built&&built!=='?'?built+' '+tr('빌드'):'',tl('나: {name}',{name:who(me)})]);}
+  const piece=t=>html`<span class="mc">${String(t).split(/([/._-])/).map((s,i)=>i%2?html`${s}<wbr>`:s)}</span>`;
+  const line=a=>a.filter(Boolean).map((t,i)=>i?html` · ${piece(t)}`:piece(t));
+  return html`${line([m.main,tl('{n}쪽',{n:m.pages.length}),commitShown(m.head)])}<br>${line([built&&built!=='?'?built+' '+tr('빌드'):'',tl('나: {name}',{name:who(me)})])}`;}
 // The commit a meta names, or '' when it names none: the server sends '-' for a manuscript outside Git and nothing before
 // the first build. The meta lines leave that piece out with its separator - they read 'main.tex · 2쪽 · -'. Pure.
 function commitShown(h){const s=String(h==null?'':h).trim(); return s==='-'||s==='?'?'':s;}
