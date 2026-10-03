@@ -1,19 +1,32 @@
 """Source snippets and overlap reads for validated manuscript ranges."""
 
 from collections.abc import Callable, Sequence
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, NamedTuple
+from typing import Any
 
 from limn.pins.location.mapping import compute_levels, snippet
+from limn.platform.values import is_int
 
 
-class SourceRange(NamedTuple):
-    """A validated range of a manuscript file: the file, its lines as read, and 1 <= lo <= hi <= len(lines)."""
+@dataclass(frozen=True, init=False)
+class SourceRange:
+    """An immutable manuscript snapshot with integer endpoints satisfying 1 <= lo <= hi <= len(lines)."""
 
     file: Path
-    lines: list[str]
+    lines: tuple[str, ...]
     lo: int
     hi: int
+
+    def __init__(self, file: Path, lines: Sequence[str], lo: int, hi: int) -> None:
+        """Copy the source lines and freeze the range; invalid integer endpoints or bounds raise ValueError."""
+        snapshot = tuple(lines)
+        if not is_int(lo) or not is_int(hi) or not 1 <= lo <= hi <= len(snapshot):
+            raise ValueError("source range requires integer endpoints within its source lines")
+        object.__setattr__(self, "file", file)
+        object.__setattr__(self, "lines", snapshot)
+        object.__setattr__(self, "lo", lo)
+        object.__setattr__(self, "hi", hi)
 
 
 def overlaps_api(rng: SourceRange, overlaps: Callable[[str, int, int], list[dict[str, Any]]]) -> dict[str, Any]:
