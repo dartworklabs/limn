@@ -157,7 +157,7 @@ function onViewport(){const vv=window.visualViewport; if(!vv)return;
   const a=document.activeElement;
   if(prev!==kb+'px'&&a&&(a.tagName==='TEXTAREA'||a.tagName==='INPUT')&&$('#right').contains(a))
     requestAnimationFrame(()=>a.scrollIntoView({block:'center'}));}
-if(window.visualViewport){visualViewport.addEventListener('resize',onViewport); visualViewport.addEventListener('scroll',onViewport);}
+{const vv=window.visualViewport; if(vv){vv.addEventListener('resize',onViewport); vv.addEventListener('scroll',onViewport);}}
 document.addEventListener('focusin',e=>{const t=/** @type {HTMLElement} */(e.target);
   if(LAYOUT!==LAYOUT_MODE.WIDE&&t&&t.tagName==='TEXTAREA'&&$('#right').contains(t))setTimeout(()=>{if(BAND===LAYOUT_BAND.TABLET_SHEET)keepFieldInView(); else t.scrollIntoView({block:'center'});},350);});
 // Whether a text field has focus - a textarea, a text input or editable content - which on a touch screen means the keyboard is up.
@@ -227,7 +227,7 @@ function footInk(){const f=$('#more-foot'),h=f&&f.querySelector('[data-act=help]
 // The ink of s in el's font as {a, d}: how far it rises above and reaches below the baseline (px), from the canvas's text
 // metrics read at 64 times the size, because the canvas rounds them to whole pixels.
 let INK_CTX=/** @type {CanvasRenderingContext2D|null} */(null);   // inkMetrics()'s canvas context, made on first use
-function inkMetrics(el,s){const c=INK_CTX||(INK_CTX=document.createElement('canvas').getContext('2d')),S=64,cs=getComputedStyle(el);
+function inkMetrics(el,s){const c=/** @type {CanvasRenderingContext2D} */(INK_CTX||(INK_CTX=document.createElement('canvas').getContext('2d'))),S=64,cs=getComputedStyle(el);
   c.font=cs.fontStyle+' '+cs.fontWeight+' '+parseFloat(cs.fontSize)*S+'px '+cs.fontFamily; const x=c.measureText(s);
   return {a:x.actualBoundingBoxAscent/S,d:x.actualBoundingBoxDescent/S};}
 // The Hangul letters of s (syllables and jamo) - the glyphs that reach below the Latin baseline. Pure.

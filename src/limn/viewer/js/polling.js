@@ -27,7 +27,7 @@ async function pollHiddenNotifyOnce(){
 }
 // If the tab hides while notifications are on, the slow timer is started; it's stopped when the tab returns or notifications are turned off (avoids duplicate polling).
 function syncHiddenNotifyTimer(){
-  clearInterval(NOTIFY_HIDDEN_TIMER); NOTIFY_HIDDEN_TIMER=null;
+  clearInterval(NOTIFY_HIDDEN_TIMER); NOTIFY_HIDDEN_TIMER=undefined;
   if(document.hidden&&notifyOn()){pollHiddenNotify(); NOTIFY_HIDDEN_TIMER=setInterval(pollHiddenNotify,NOTIFY_HIDDEN_INTERVAL_MS);}
 }
 // Applies connection and document status only to the visit that sent the request; notifications remain independent of document visits.

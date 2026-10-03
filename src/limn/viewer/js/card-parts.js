@@ -25,7 +25,7 @@ function relBadge(rel,p){
     if(same.length){const n=Math.min.apply(null,same.map(x=>x.id)); return {id:n,rel:RANGE_REL.EQUAL,label:tl('#{id}{p} 같은 범위',{id:n,p:josa(n,'과','와')})};}}
   const insides=rel.filter(x=>x.rel===RANGE_REL.INSIDE);
   if(insides.length){
-    const span=x=>{const o=byId.get(x.id); return o?(o.hi-o.lo):Number.MAX_SAFE_INTEGER;};
+    const span=x=>{const o=byId.get(x.id); return o?(/** @type {number} */(o.hi)-/** @type {number} */(o.lo)):Number.MAX_SAFE_INTEGER;};   // rel names line pins
     const best=insides.reduce((a,b)=>{const sa=span(a),sb=span(b);
       return (sb<sa||(sb===sa&&b.id<a.id))?b:a;});
     return {id:best.id,rel:RANGE_REL.INSIDE,label:tl('#{id} 범위 안',{id:best.id})};
@@ -47,7 +47,7 @@ function ceil5(m){return Math.max(5,Math.ceil(m/5-1e-9)*5);}
 function hhmm(ms){const d=new Date(ms); return String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0');}
 /** @param {Pin} p @param {number} [now] */
 function claimInfo(p,now){now=now==null?Date.now():now; const w=who(p.claimed_by)||'?',st=typeof p.claim_ts==='number'?p.claim_ts*1000:null;
-  const tail=' · '+tl('잠금 자동 해제 {time}(그 뒤에는 다른 쪽이 잡을 수 있습니다). 에이전트가 멈췄으면 [풀기]',{time:hhmm(p.claim_until*1000)});
+  const tail=' · '+tl('잠금 자동 해제 {time}(그 뒤에는 다른 쪽이 잡을 수 있습니다). 에이전트가 멈췄으면 [풀기]',{time:hhmm(/** @type {number} */(p.claim_until)*1000)});   // claimInfo runs for an active claim (claimActive)
   const head=tl('처리하는 쪽: {name}',{name:w})+(st?' · '+tl('시작 {time}',{time:hhmm(st)}):'');
   if(typeof p.eta_ts==='number'){const eta=p.eta_ts*1000;
     if(now<=eta)return {t:tl('처리 중 · 약 {n}분 · {time}쯤',{n:ceil5((eta-now)/60000),time:hhmm(Math.ceil(eta/300000)*300000)}),late:false,
@@ -99,7 +99,7 @@ function stDot(st){const t=tl('상태: {name}',{name:tr(ST_NAME[st])}); return h
 /** @param {Pin} p */
 function reopenedTurn(p){const th=threadOf(p); for(let i=th.length-1;i>=0;i--){const e=th[i].ev; if(e===THREAD_EV.CLOSE||e===THREAD_EV.REOPEN)return e===THREAD_EV.REOPEN?th[i]:null;} return null;}
 /** @param {Pin} p */
-function threadOf(p){return Array.isArray(p&&p.thread)?p.thread:[];}
+function threadOf(p){const th=p&&p.thread; return Array.isArray(th)?th:[];}
 /** @param {Pin} p */
 function replyCount(p){return threadOf(p).filter(m=>!m.ev).length;}
 /** @param {ThreadEntry} m */

@@ -13,7 +13,7 @@ const VEC_PIX_CAP=16777216, VEC_KEEP='150% 0px', VEC_DT_MARGIN=0.25;
 // PDF.js has no type declarations here, so its library, document and render task are `any`.
 const VEC={lib:/** @type {any} */(null),doc:/** @type {any} */(null),build:/** @type {string|null} */(null),gen:0,failed:/** @type {string|null} */(null),
   io:/** @type {IntersectionObserver|null} */(null),near:new Set(),st:new Map(),cur:/** @type {{n:number,task:any}|null} */(null),
-  pumping:false,timer:0,stats:[],tFirst:/** @type {number|null} */(null),tDoc:/** @type {number|null} */(null),cache:new Map()};
+  pumping:false,timer:0,stats:/** @type {{n:number,kind:string,ms:number,w:number,h:number}[]} */([]),tFirst:/** @type {number|null} */(null),tDoc:/** @type {number|null} */(null),cache:new Map()};
 // Multiple documents: holds up to VEC_CACHE_MAX recently opened PDF document objects keyed by 'document|build' - switching tabs back
 // draws immediately without re-fetching. Beyond that, the least recently used is closed first (worker memory). An old build of the same document is closed when a new build opens.
 const VEC_CACHE_MAX=3;

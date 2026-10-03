@@ -50,7 +50,6 @@ def test_equal_counts_pass():
 
 
 def test_the_baseline_lists_only_viewer_parts_with_errors():
-    """The committed baseline names viewer JS parts only, each with a positive count."""
+    """The committed baseline names viewer JS parts only, each with a positive count (empty once an option is met)."""
     baseline = json.loads((ROOT / "tools" / "strict-baseline.json").read_text(encoding="utf-8"))
-    assert baseline
     assert all(k.startswith("src/limn/viewer/js/") and k.endswith(".js") and v > 0 for k, v in baseline.items())

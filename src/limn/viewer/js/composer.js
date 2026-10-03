@@ -28,9 +28,9 @@ async function pick(r){
     // Even a pending save is never carried out if pick fails - only the existing error panel is shown (regression: prevents a silent save failure).
     COMPOSE.current=null; clearPendingSave(); $('#c-err').textContent=errText(d); $('#c-err').hidden=false; $('#c-body').hidden=true; return;}
   if(rp){rp.cand=d; bannerCompare(); return;}
-  COMPOSE.current=d; COMPOSE.current.scope=null; COMPOSE.current.elSel=d.el||null; if(!isRegion(d)){useLevel(COMPOSE.current,d.default_level); if(!COMPOSE.current.scope){COMPOSE.current.lo=d.lo;COMPOSE.current.hi=d.hi;}}
+  const sel=/** @type {Selection} */(d); COMPOSE.current=sel; sel.scope=null; sel.elSel=d.el||null; if(!isRegion(d)){useLevel(sel,d.default_level); if(!sel.scope){sel.lo=d.lo;sel.hi=d.hi;}}
   COMPOSE.dismissedOverlap=null;   // a freshly chosen selection - re-notified even if [별도 핀으로 저장] was pressed for a previous selection
-  COMPOSE.current.overlaps=overlapsFor(COMPOSE.current,PINS);
+  sel.overlaps=overlapsFor(sel,PINS);
   // If a pin the server saw as overlapping isn't in this tab's PINS (someone else just saved it), the list is re-fetched - loadPins recomputes overlap too.
   if((d.overlaps||[]).some(o=>!PINS.some(p=>p.id===o.id)))loadPins();
   SNIP_OPEN=false; $('#c-err').hidden=true; $('#c-body').hidden=false; renderComposer();
@@ -122,7 +122,7 @@ function renderComposer(){const d=COMPOSE.current; if(!d)return; saveDraftSoon()
   const copy=d.name+' L'+d.lo+'-L'+d.hi;
   $('#c-loc').textContent=d.name+' '+rng(d.lo,d.hi); $('#c-loc').dataset.copy=copy; renderElement(d,COMPOSE.box);
   const pg=$('#c-page'),pgn=tl('{page}쪽',{page:d.page}),sc=scopeLabel(d); pg.textContent=pgn;
-  pg.dataset.tip=pgn+(sc?' · '+sc:'')+' · '+tl('{n}줄',{n:d.hi-d.lo+1})+' · '+tl('드래그한 줄 {range}',{range:rng(d.raw_lo,d.raw_hi)});
+  pg.dataset.tip=pgn+(sc?' · '+sc:'')+' · '+tl('{n}줄',{n:/** @type {number} */(d.hi)-/** @type {number} */(d.lo)+1})+' · '+tl('드래그한 줄 {range}',{range:rng(d.raw_lo,d.raw_hi)});
   const v=viaTag(d),tg=$('#c-tag'); tg.hidden=!v; if(v){tg.textContent=v.t;tg.dataset.tip=v.tip;tg.classList.toggle('badge-warning',!!v.low);}
   $('#c-warn').hidden=!d.warn; $('#c-warn').textContent=warnText(d.warn);
   renderOverlapBanner();

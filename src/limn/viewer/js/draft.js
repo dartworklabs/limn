@@ -7,7 +7,7 @@
 const DRAFT={timer:/** @type {ReturnType<typeof setTimeout>|0} */(0),ready:false,holds:new Map(),key:/** @type {string|null} */(null),
   origin:/** @type {{key:string|null,value:string|null,current:Selection|null}|null} */(null)};
 // Keep a discarded draft until its undo toast leaves, unless a newer draft replaced it first.
-function holdDraftUntil(toastEl){let value=null; try{if(DRAFT.key)value=sessionStorage.getItem(DRAFT.key);}catch(e){}
+function holdDraftUntil(toastEl){let value=/** @type {string|null} */(null); try{if(DRAFT.key)value=sessionStorage.getItem(DRAFT.key);}catch(e){}
   const held={toast:toastEl,key:DRAFT.key,value}; if(held.key)DRAFT.holds.set(held.key,held);
   toastEl._gone=()=>{if(!held.key||DRAFT.holds.get(held.key)!==held)return; DRAFT.holds.delete(held.key);
     if(DRAFT.key===held.key&&DRAFT.ready&&draftRecord()){syncDraft();return;}   // a restored or newer active draft wins, even with identical bytes
@@ -56,7 +56,7 @@ document.addEventListener('visibilitychange',()=>{if(document.hidden)syncDraft()
 // Boot: brings back this tab's draft for the document on screen and says so with [버리기]. A full restore redraws the box and
 // opens a collapsed panel or sheet (not remembered); a note-only one leaves the note in the note field for the next pick.
 // [버리기] is the usual discard (a full draft gets its undo toast; the draft goes once that window is over).
-function restoreDraft(){let rec=null,raw=null; const k=META?draftKey(META.label,DOC):null; DRAFT.origin=null;
+function restoreDraft(){let rec=/** @type {any} */(null),raw=/** @type {string|null} */(null); const k=META?draftKey(META.label,DOC):null; DRAFT.origin=null;
   try{raw=k?sessionStorage.getItem(k):null; rec=JSON.parse(raw||'null');}catch(e){rec=null;}
   const how=draftRestore(rec,DOC,META&&META.pages_build); DRAFT.key=rec?k:null; DRAFT.ready=true;
   if(!how){syncDraft(); return;}

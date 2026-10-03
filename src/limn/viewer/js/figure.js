@@ -5,6 +5,7 @@
 // the pin will get - and the location line names its path. The selection keeps the element it shows as elSel.
 
 // Whether f is a page box [x, y, w, h] of four finite numbers - the shape of a pin's frac and an element's frac.
+/** @param {unknown} f @returns {f is number[]} */
 function isFrac(f){return Array.isArray(f)&&f.length===4&&f.every(v=>typeof v==='number'&&Number.isFinite(v));}
 // A person's name for an element: its label, else its part, else its id - the rule the pick answer's rung labels follow.
 function elName(el){return String((el&&(el.label||el.part||el.id))||'');}

@@ -35,9 +35,9 @@ function toast(msg,kind,action,dd){const literal=!!(dd&&dd.literal); msg=literal
   const box=toastHost(),t=document.createElement('div'); t.className='toast '+kind;
   const [title,desc]=toastSplit(msg);
   setHtml(t,html`${TOAST_IC[kind]()}<div class="t-body"><div class="t-title"></div>${desc?html`<div class="t-desc"></div>`:''}</div><div class="t-acts"></div>`);
-  t.querySelector('.t-title').textContent=title; if(desc)t.querySelector('.t-desc').textContent=desc;
+  /** @type {HTMLElement} */(t.querySelector('.t-title')).textContent=title; if(desc)/** @type {HTMLElement} */(t.querySelector('.t-desc')).textContent=desc;
   if(literal)/** @type {HTMLElement} */(t.querySelector('.t-body')).translate=false;
-  const acts=t.querySelector('.t-acts');
+  const acts=/** @type {HTMLElement} */(t.querySelector('.t-acts'));
   let timer=/** @type {ReturnType<typeof setTimeout>|undefined} */(undefined); const kill=()=>{clearTimeout(timer);t.remove();hideTip();toastGone(t);};
   const arm=()=>{clearTimeout(timer);timer=setTimeout(kill,6000);};
   if(action){const b=document.createElement('button');b.className='btn-sm';b.textContent=action.label;b.dataset.tip=action.tip||T.undo;
@@ -63,7 +63,7 @@ document.addEventListener('close',e=>{const d=/** @type {HTMLElement} */(e.targe
 // (paused while hovered), on [x], or when the page is hidden - and [되돌리기] cancels it before anything reaches the server. So an
 // agent never sees a reply or permanent delete that was taken back. The page being hidden or closed sends what is pending (fetch keepalive).
 const DEFERRED=new Set();
-function deferred(msg,commit,undo){let done=false,t=null;
+function deferred(msg,commit,undo){let done=false,t=/** @type {HTMLElement|null} */(null);
   // Committing early (page hidden) also takes the toast away - an [되돌리기] that can no longer cancel anything must not stay on screen.
   const d={run:()=>{if(done)return; done=true; DEFERRED.delete(d); if(t&&t.isConnected){t._gone=null; t.remove();} commit();}};
   DEFERRED.add(d);

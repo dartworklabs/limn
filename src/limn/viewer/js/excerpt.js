@@ -37,7 +37,7 @@ async function excerptFetch(o){const n=o.n_lines||o.hi,want=new Set();
 // Redraws the panel o belongs to (the composer's selection or the open edit card); a stale o draws nothing.
 function excerptRedraw(o){if(o===COMPOSE.current)renderComposer(); else if(o===EDITOR.current)renderEdit();}
 // o's excerpt box: the composer's #c-xp or the open edit card's .e-xp, else null.
-function excerptBox(o){return o===COMPOSE.current?$('#c-xp'):o===EDITOR.current?EDITOR.current.el.querySelector('.e-xp'):null;}
+function excerptBox(o){const E=EDITOR.current; return o===COMPOSE.current?$('#c-xp'):E&&o===E?E.el.querySelector('.e-xp'):null;}
 // The control to focus after a redraw that took the focused one (a keyboard's Enter or Space on '+' or '−'): the same
 // action on the same line; else the same action on the side the change happened - the next dimmed line above or below, or
 // the band's new end line's '−' - so another press repeats it; else the control nearest that line. was: {act, line}; o has
@@ -50,7 +50,7 @@ function excerptFocusTarget(btns,was,o){const at=(act,k)=>btns.find(b=>b.act===a
 // isEdit: an edit card (the composer's [원문 펼치기] unfolds a long band; an edit card's band stays folded). A redraw that
 // takes the focused '+' or '−' puts the focus on its successor (excerptFocusTarget), so a keyboard keeps its place.
 function drawExcerpt(o,box,isEdit){const on=!!o&&!o.region&&!isRegion(o);
-  const f=/** @type {HTMLElement} */(document.activeElement),had=box.contains(f)&&f.dataset.act?{act:f.dataset.act,line:+f.dataset.line}:null;
+  const f=/** @type {HTMLElement} */(document.activeElement),had=box.contains(f)&&f.dataset.act?{act:f.dataset.act,line:Number(f.dataset.line)}:null;
   box.hidden=!on; if(!on){box.replaceChildren(); return;}
   excerptTake(o,o.snippet); excerptFetch(o);
   const L=excerptLines(o),text=k=>{const t=L.get(k); return t==null?'…':t;};
