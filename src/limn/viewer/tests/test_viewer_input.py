@@ -26,7 +26,7 @@ from limn.pins.lifecycle.rules import CloseRequest
 from limn.security.access import LOCAL_ACTOR
 
 import helpers_figure
-from helpers import HTML, UI_EN, add_pin, extract_js_fn, ps, run_node
+from helpers import HTML, UI_EN, GatedBuild, add_pin, extract_js_fn, ps, run_node
 from helpers_access import ALICE, BOB, actor
 from helpers_authority import post_authority
 from helpers_browser import BrowserBase, booted, nothing_follows, settle, watch_idle
@@ -1283,6 +1283,34 @@ class FoldOverlay(ViewerBase):
         box = page.locator(".sel.pending").bounding_box()
         panel = page.locator("#right").bounding_box()
         self.assertLessEqual(box["x"] + box["width"], panel["x"])
+
+    def test_with_no_note_written_a_long_press_in_the_band_left_of_the_handle_picks_the_pdf(self):
+        """842x758 and a landscape phone 844x390, the overlay panel open and no note being written: the page lies under
+        the handle, whose touch box reached 36px left of its 8px bar down its whole height, so a long press on the PDF
+        there grabbed the handle (issue #127). Now the band answers the PDF - the long press picks that spot, and the
+        pending box takes it in - while the handle still answers 44px round its grab mark."""
+        for device in (FOLD, LAND_PHONE):
+            with self.subTest(width=device["viewport"]["width"], height=device["viewport"]["height"]):
+                page = self.view(device)
+                cdp = self.cdp(page)
+                self.open_panel(page, cdp)
+                page.evaluate("document.querySelector('#left').scrollTop=0")
+                settle(page)
+                self.assertEqual(page.evaluate(MISSES_44, "#grip"), [])
+                g, p1 = page.locator("#grip").bounding_box(), page.locator("#p1").bounding_box()
+                x, y = g["x"] - 18, p1["y"] + p1["height"] * 0.1  # mid-band, above the grab mark, clear of the marks
+                self.assertLess(y, g["y"] + g["height"] / 2 - 30)
+                self.assertEqual(
+                    page.evaluate(
+                        "([x,y])=>{const e=document.elementFromPoint(x,y); return (e.closest('.pg')||e).id}", [x, y]
+                    ),
+                    "p1",
+                )
+                fx = (x - p1["x"]) / p1["width"]
+                self.long_press_pick(cdp, page, x, y)
+                left, width = page.evaluate("[parseFloat(COMPOSE.box.style.left),parseFloat(COMPOSE.box.style.width)]")
+                self.assertLessEqual(left / 100, fx)
+                self.assertGreaterEqual((left + width) / 100, fx)
 
     def test_tapping_the_handle_never_clicks_what_lands_under_the_finger(self):
         """s07: a tap cycles the width, and the ghost click that followed opened edits and cards."""
@@ -4355,6 +4383,8 @@ STATUS_LINE = """() => {const q = s => document.querySelector(s), B = e => {cons
   return {parent: s.parentElement.id, dock: B(q('#status-dock')), sheet: B(q('#right')),
     text: (s.querySelector('.st-tx') || {}).textContent || '', acts: [...s.querySelectorAll('button')].map(b => b.dataset.act),
     bar: bar ? {role: bar.getAttribute('role'), now: bar.getAttribute('aria-valuenow')} : null};}"""
+# The status line's progress bar has the value %s (aria-valuenow); false while it has none or there is no bar.
+BAR_NOW = "document.querySelector('#status .st-bar')?.getAttribute('aria-valuenow')==='%s'"
 # The bar's optical ends: [📍]'s gaps from its fill to the pin's ink and from the pill (else the count) to the fill's end,
 # and the room right of [⋯]'s ink to the bar's column edge. Ink = the shapes' boxes widened by half the stroke.
 OPTICAL = """() => {const q = s => document.querySelector(s), b = q('#btn-side').getBoundingClientRect();
@@ -4537,6 +4567,45 @@ class BarAndSheets(ViewerBase):
         self.fake_build = dict(self.fake_build, phase="render", elapsed_s=30, progress={"done": 12, "total": 25})
         page.wait_for_function("document.querySelector('#status .st-bar').getAttribute('aria-valuenow')==='48'")
         self.assertEqual(page.evaluate(STATUS_LINE)["text"], "쪽 그리는 중 · 12/25쪽")
+        self.fake_build = None
+        page.wait_for_function("document.querySelector('#status').hidden")
+
+    def test_a_real_build_fills_the_bar_with_the_pages_drawn(self):
+        """411x908, a rebuild through the real server: through the TeX pass the bar does not know its end; once the
+        pages are counted it shows 0 of 3, and with one page drawn of three it fills to 33% and says '1/3쪽'. The build
+        then ends and the line goes. latexmk, pdfinfo and pdftoppm are stand-ins held at gates (GatedBuild)."""
+        gated = GatedBuild(self, Path(self.tmp.name), pages=3)
+        page = self.view(BAR_PHONES[0], init=NO_PNG_CHIP)
+        page.evaluate("rebuild()")
+        gated.wait_started("latex")
+        page.wait_for_function("BUILD.cur&&BUILD.cur.phase==='latex'&&!!document.querySelector('#status .st-bar')")
+        self.assertEqual(page.evaluate(STATUS_LINE)["bar"], {"role": "progressbar", "now": None})
+        gated.release("latex")
+        page.wait_for_function(BAR_NOW % "0", timeout=15000)
+        self.assertEqual(page.evaluate(STATUS_LINE)["text"], "쪽 그리는 중 · 0/3쪽")
+        gated.wait_started(1)
+        gated.release(1)
+        page.wait_for_function(BAR_NOW % "33", timeout=15000)
+        got = page.evaluate(STATUS_LINE)
+        self.assertEqual((got["text"], got["bar"]), ("쪽 그리는 중 · 1/3쪽", {"role": "progressbar", "now": "33"}))
+        self.assertEqual(page.evaluate("document.querySelector('#status .st-bar i').style.width"), "33%")
+        gated.release_all()
+        page.wait_for_function("BUILD.cur===null&&document.querySelector('#status').hidden", timeout=20000)
+
+    def test_without_a_progress_field_the_render_keeps_the_seconds_and_a_bar_that_does_not_know_its_end(self):
+        """An older server's build answer has no progress field: its page render reads as before this field - the phase
+        name with the seconds and the last build's, over a bar with no value that runs its band (indet) and no fill."""
+        page = self.view(BAR_PHONES[0], init=NO_PNG_CHIP)
+        self.fake_build = {"state": "running", "phase": "render", "elapsed_s": 30, "last_s": 67, "seq": 0}
+        page.evaluate("pollBuild()")
+        page.wait_for_function("!!document.querySelector('#status .st-bar')")
+        got = page.evaluate(STATUS_LINE)
+        self.assertEqual(got["text"], "쪽 그리는 중 · 30초 (지난번 67초)")
+        self.assertEqual(got["bar"], {"role": "progressbar", "now": None})
+        bar = page.evaluate(
+            "(()=>{const b=document.querySelector('#status .st-bar'); return [b.classList.contains('indet'), b.querySelector('i').style.width];})()"
+        )
+        self.assertEqual(bar, [True, ""])
         self.fake_build = None
         page.wait_for_function("document.querySelector('#status').hidden")
 

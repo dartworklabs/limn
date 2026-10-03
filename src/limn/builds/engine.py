@@ -36,6 +36,7 @@ from limn.builds.artifacts import (
     Json,
     ManuscriptCopyError,
     OutputFailureKind,
+    PagesDrawn,
     PagesNotRendered,
 )
 from limn.platform.files import atomic_write
@@ -683,25 +684,41 @@ def draw_page(pdf: Path, page: int, dpi: int, dest: Path, deadline: float) -> st
     return None
 
 
-def draw_pages(pdf: Path, folder: Path, dpi: int, workers: int) -> str | None:
+def draw_pages(
+    pdf: Path, folder: Path, dpi: int, workers: int, on_drawn: Callable[[PagesDrawn], None] | None = None
+) -> str | None:
     """Draw every page of pdf into folder as page-<n>.png, n zero-padded to the page count's digits as
     `pdftoppm -png` names them, with at most `workers` pdftoppm processes at once, page 1 first. None when every page
-    is written; otherwise the first failure's detail - the pages not yet started are not drawn."""
+    is written; otherwise the first failure's detail - the pages not yet started are not drawn.
+
+    on_drawn, when given, hears the count: PagesDrawn(0, n) once pdfinfo has counted n pages, then one more for each
+    page written, in the order pages finish. The calls are serialized, so the counts it hears only grow; a PDF without
+    a page count gets none, and a failed page stops them short of n."""
     deadline = time.monotonic() + RENDER_TIMEOUT_S
     n = page_count(pdf, max(0.001, deadline - time.monotonic()))
     if isinstance(n, str):
         return n
     width = len(str(n))
     stop = threading.Event()
+    counting = threading.Lock()
+    drawn = 0
+    if on_drawn is not None:
+        on_drawn(PagesDrawn(0, n))
 
     def one(page: int) -> str | None:
-        """Draw one page unless another page already failed."""
+        """Draw one page unless another page already failed, and count it once written."""
+        nonlocal drawn
         if stop.is_set():
             return None
         why = draw_page(pdf, page, dpi, folder / ("page-%0*d.png" % (width, page)), deadline)
         if why is not None:
             stop.set()
-        return why
+            return why
+        with counting:
+            drawn += 1
+            if on_drawn is not None:
+                on_drawn(PagesDrawn(drawn, n))
+        return None
 
     with ThreadPoolExecutor(max_workers=max(1, workers)) as pool:
         futures = [pool.submit(one, page) for page in range(1, n + 1)]
@@ -733,6 +750,8 @@ def render_pages(
 ) -> Path | PagesNotRendered:
     """Renders pages into a new directory and drops in a copy of the PDF (and extra - synctex, .aux, a figure map), and
     notes - small text files by name (a LaTeX build's recipe.json), written into it before it is published.
+    D's build state turns to phase render with no count, then holds the count of pages drawn (draw_pages) under
+    "drawn"; state_snapshot answers it as `progress` while the build runs (completion.render_progress).
     Pages are drawn in parallel (draw_pages, at most `workers` at once, render_workers() by default) into a hidden
     folder (.<name>.part) that no client can name; only when every page and companion is in place does it get its
     pages-<build> name, in one rename. The screen keeps showing the old directory until commit_pages. Returns the new
@@ -745,8 +764,10 @@ def render_pages(
     name = _new_build_name(D)
     part = D.dir / ("." + name + ".part")
     part.mkdir(parents=True)
-    build.state_update(D, phase="render")
-    why = draw_pages(pdf, part, dpi, render_workers() if workers is None else workers)
+    build.state_update(D, phase="render", drawn=None)
+    why = draw_pages(
+        pdf, part, dpi, render_workers() if workers is None else workers, lambda c: build.state_update(D, drawn=c)
+    )
     if why is not None:
         shutil.rmtree(part, ignore_errors=True)
         return PagesNotRendered("render", why)

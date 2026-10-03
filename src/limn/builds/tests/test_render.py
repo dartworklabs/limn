@@ -23,6 +23,7 @@ from unittest import mock
 
 from limn.builds import artifacts as build, engine as build_engine, png
 from limn.builds.artifacts import PagesNotRendered
+from limn.builds.values import PagesDrawn
 
 from helpers import needs_tex
 
@@ -314,6 +315,46 @@ class RenderWithStandIns(unittest.TestCase):
         self.assertTrue(listed, "the stand-in never listed the folder")
         self.assertFalse([n for n in listed if build.valid_build_name(n)], listed)
         self.assertEqual(sorted(p.name for p in out.iterdir()), ["main.pdf"] + ["page-%d.png" % i for i in range(1, 5)])
+
+    def test_the_drawn_count_rises_one_page_at_a_time_from_none_to_all(self):
+        """draw_pages reports 0 of 6 once pdfinfo has counted the pages, then one more for each page written - counted
+        as pages finish, in whatever order the two pdftoppm processes end - and last 6 of 6, so the count only grows."""
+        seen: list[PagesDrawn] = []
+        folder = self.D.dir / "drawn"
+        folder.mkdir()
+        with mock.patch.dict(os.environ, {"LIMN_TEST_PAGES": "6", "LIMN_TEST_SLEEP": "0.05"}):
+            why = build_engine.draw_pages(self.pdf, folder, 72, 2, seen.append)
+        self.assertIsNone(why)
+        self.assertEqual(seen, [PagesDrawn(k, 6) for k in range(7)])
+
+    def test_a_failed_page_stops_the_count_short_of_all(self):
+        """Page 2 of 5 failing, one pdftoppm at a time: the count says 0 and then 1 of 5 (page 1) and never reaches 5 of
+        5 - the pages not started are not drawn, and the failure is what the render answers."""
+        seen: list[PagesDrawn] = []
+        folder = self.D.dir / "drawn"
+        folder.mkdir()
+        with mock.patch.dict(os.environ, {"LIMN_TEST_PAGES": "5", "LIMN_TEST_FAIL_PAGE": "2"}):
+            why = build_engine.draw_pages(self.pdf, folder, 72, 1, seen.append)
+        self.assertIn("page 2", why or "")
+        self.assertEqual(seen, [PagesDrawn(0, 5), PagesDrawn(1, 5)])
+
+    def test_a_pdf_without_pages_reports_no_count(self):
+        """pdfinfo failing or counting no page: nothing is reported - there is no total to count against."""
+        for env in ({"LIMN_TEST_PDFINFO": "fail"}, {"LIMN_TEST_PAGES": "0"}):
+            with self.subTest(env=env):
+                seen: list[PagesDrawn] = []
+                with mock.patch.dict(os.environ, env):
+                    why = build_engine.draw_pages(self.pdf, self.D.dir, 72, 2, seen.append)
+                self.assertIsNotNone(why)
+                self.assertEqual(seen, [])
+
+    def test_a_render_publishes_its_count_in_the_document_build_state(self):
+        """render_pages hands the count to the document's build state: a running build in its render answers progress
+        3 of 3 once its three pages are written (state_snapshot, what GET /api/build serves)."""
+        out = self.render(LIMN_TEST_PAGES="3")
+        self.assertIsInstance(out, Path)
+        snap = build.state_snapshot(self.D)
+        self.assertEqual((snap["phase"], snap["progress"]), ("render", {"done": 3, "total": 3}))
 
     def test_a_name_from_the_history_is_never_used_again(self):
         """A page folder name that builds.json still lists - its folder long deleted - is not reused even when the

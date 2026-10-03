@@ -22,6 +22,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, NamedTuple, Protocol, TypeGuard, TypeVar
 
+from limn.builds.completion import render_progress
 from limn.builds.figure_map import MAP_MAX_BYTES, FigureMap, MapRejected, parse_map
 from limn.builds.values import (
     BUILD_STATES as BUILD_STATES,
@@ -44,6 +45,7 @@ from limn.builds.values import (
     Json as Json,
     LatexError as LatexError,
     OutputFailureKind as OutputFailureKind,
+    PagesDrawn as PagesDrawn,
     PagesNotRendered as PagesNotRendered,
     RenderFailureKind as RenderFailureKind,
     ViewOnlyNoRebuild as ViewOnlyNoRebuild,
@@ -446,10 +448,13 @@ def state_update(D: BuildDoc, **kw: Any) -> None:
 
 
 def state_snapshot(D: BuildDoc) -> dict[str, Any]:
-    """The shape GET /api/build returns. If a build is running, elapsed_s is re-measured against the current time."""
+    """The shape GET /api/build returns. If a build is running, elapsed_s is re-measured against the current time.
+    The render's count of pages drawn (the state's "drawn", a PagesDrawn) is answered as `progress`, {done, total}
+    while a running build renders and null otherwise (completion.render_progress)."""
     with D.bstate_lock:
         d = dict(D.bstate)
     t0 = d.pop("start_ts", None)
+    d["progress"] = render_progress(d.get("state"), d.get("phase"), d.pop("drawn", None))
     d["elapsed_s"] = round(time.time() - t0, 1) if d.get("state") == "running" and t0 else d.get("elapsed_s") or 0.0
     if d.get("built_at") is None:
         try:

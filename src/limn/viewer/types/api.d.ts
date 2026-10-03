@@ -254,10 +254,18 @@ interface Meta {
   src_sig?: string;
 }
 
-// GET /api/build (log=1 keeps the whole log tail).
+// A running render's count: page images written of the PDF's pages (GET /api/build `progress`).
+interface PagesDrawn {
+  done: number;
+  total: number;
+}
+
+// GET /api/build (log=1 keeps the whole log tail). progress is null outside a running render and absent from an older
+// server.
 interface BuildStatus {
   state: string;
   phase: string | null;
+  progress?: PagesDrawn | null;
   started_at: string | null;
   last_s: number | null;
   pages: number;

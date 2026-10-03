@@ -162,6 +162,27 @@ class BuildSkipped:
 
 
 @dataclass(frozen=True)
+class PagesDrawn:
+    """How far a render has got: done page images written of the total pages pdfinfo counted in the PDF.
+
+    The one measure of a build's progress (docs/handbook/build-sync.md §진행 폴링): pages finish in any order on the
+    parallel pdftoppm pool, and done counts finished pages, so it only grows. Made only with plain integers (not bool)
+    where total > 0 and 0 <= done <= total; anything else raises ValueError, so no answer carries a share outside 0..1."""
+
+    done: int
+    total: int
+
+    def __post_init__(self) -> None:
+        """Refuse a count that is not a share of a PDF with pages."""
+        if (
+            type(self.done) is not int
+            or type(self.total) is not int
+            or not (self.total > 0 and 0 <= self.done <= self.total)
+        ):
+            raise ValueError("not a page count: %r of %r" % (self.done, self.total))
+
+
+@dataclass(frozen=True)
 class PagesNotRendered:
     """render_pages made no page directory: pdftoppm failed (render), or the PDF and its companions could not be
     copied next to the pages (pdf_copy; detail is the OSError)."""

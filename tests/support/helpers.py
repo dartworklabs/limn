@@ -24,9 +24,11 @@ import struct
 import subprocess
 import tempfile
 import threading
+import time
 import unittest
 import zlib
 from pathlib import Path
+from unittest import mock
 
 import pytest
 
@@ -617,6 +619,86 @@ def blank_png(w: int, h: int) -> bytes:
         + chunk(b"IDAT", zlib.compress(raw, 9))
         + chunk(b"IEND", b"")
     )
+
+
+# Stand-in TeX-side tools held at gates (GatedBuild). Each one leaves a file named for its step in $LIMN_TEST_GATES when it
+# starts - `latex`, or the page number - and waits until the test creates `go-<step>` there (20 s at most, then it fails),
+# so a test reads the build's state between its steps. latexmk copies main.tex to the PDF and writes SyncTeX and an empty
+# log; pdfinfo says $LIMN_TEST_PAGES pages; pdftoppm (-r DPI -f N -l N -singlefile PDF) writes page N as a 2x1 PPM.
+GATED_LATEXMK = """#!/bin/sh
+for a; do main=$a; done
+stem=${main%.tex}
+touch "$LIMN_TEST_GATES/latex"
+i=0
+until [ -e "$LIMN_TEST_GATES/go-latex" ]; do i=$((i + 1)); [ "$i" -gt 800 ] && exit 9; sleep 0.025; done
+cp "$main" "$stem.pdf"
+printf 'synctex' > "$stem.synctex.gz"
+: > "$stem.log"
+"""
+GATED_PDFINFO = """#!/bin/sh
+echo "Pages:          $LIMN_TEST_PAGES"
+"""
+GATED_PDFTOPPM = """#!/bin/sh
+page=$4
+touch "$LIMN_TEST_GATES/$page"
+i=0
+until [ -e "$LIMN_TEST_GATES/go-$page" ]; do i=$((i + 1)); [ "$i" -gt 800 ] && exit 9; sleep 0.025; done
+printf 'P6\\n2 1\\n255\\n\\377\\377\\377\\0\\0\\0'
+"""
+
+
+class GatedBuild:
+    """A real build whose latexmk and per-page pdftoppm wait at gates the test opens, so the test can read the build
+    state (GET /api/build, the viewer's status line) between the TeX pass and each page. The stand-ins (GATED_LATEXMK,
+    GATED_PDFINFO, GATED_PDFTOPPM) go first on PATH for the test's duration - an environment patch the in-process
+    server's subprocesses inherit - and every gate is opened when the test ends, so a failed test never leaves a build
+    waiting. A step is 'latex' or a page number."""
+
+    def __init__(self, test: unittest.TestCase, root: Path, pages: int) -> None:
+        """Write the stand-ins under root and patch PATH for test; the PDF they make has `pages` pages."""
+        self.gates = root / "gates"
+        self.gates.mkdir()
+        bin_dir = root / "gated-bin"
+        bin_dir.mkdir()
+        for name, text in (("latexmk", GATED_LATEXMK), ("pdfinfo", GATED_PDFINFO), ("pdftoppm", GATED_PDFTOPPM)):
+            (bin_dir / name).write_text(text, encoding="utf-8")
+            (bin_dir / name).chmod(0o755)
+        env = mock.patch.dict(
+            os.environ,
+            {
+                "PATH": str(bin_dir) + os.pathsep + os.environ.get("PATH", ""),
+                "LIMN_TEST_GATES": str(self.gates),
+                "LIMN_TEST_PAGES": str(pages),
+            },
+        )
+        env.start()
+        test.addCleanup(env.stop)
+        test.addCleanup(self.release_all)
+        self.pages = pages
+
+    def started(self, step: str | int) -> bool:
+        """Whether the stand-in of step has started (and so waits at its gate, or has passed it)."""
+        return (self.gates / str(step)).exists()
+
+    def wait_started(self, step: str | int, timeout: float = 10.0) -> None:
+        """Wait until step's stand-in has started; fail after timeout seconds."""
+        end = time.monotonic() + timeout
+        while not self.started(step):
+            if time.monotonic() > end:
+                raise AssertionError("the %s stand-in never started" % step)
+            time.sleep(0.02)
+
+    def release(self, step: str | int) -> None:
+        """Open step's gate: its stand-in finishes its work."""
+        (self.gates / ("go-%s" % step)).touch()
+
+    def release_all(self) -> None:
+        """Open every gate (the TeX pass and each page). Nothing to open once the test's folder is gone (a fixture's
+        tearDown removes it before the cleanups run): the stand-ins then give up after their 20 s."""
+        if not self.gates.is_dir():
+            return
+        for step in ["latex", *range(1, self.pages + 1)]:
+            self.release(step)
 
 
 # The viewer's build-free source folder (index.html, parts.txt, css/, js/).
