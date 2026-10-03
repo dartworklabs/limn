@@ -4239,6 +4239,7 @@ class FrontendMentions(unittest.TestCase):
                     "assignPeople",
                     "assignSeg",
                     "renderAssignNew",
+                    "editNote",
                     "renderAssignEdit",
                 )
             ]

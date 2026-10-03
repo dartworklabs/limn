@@ -53,13 +53,13 @@ function figRung(o){const lv=o&&o.scope&&lvOf(o,o.scope); return lv&&lv.el?lv:nu
 function repickEl(c){const lv=lvOf(c,c.default_level); return (lv&&lv.el)||c.el||null;}
 // Whether the server found this figure pin's element in the current build: the read-time `mark` box on `mark_page`.
 /** @param {Pin} p */
-function hasMark(p){return isFrac(p.mark)&&Number.isInteger(p.mark_page)&&p.mark_page>=1;}
+function hasMark(p){return isFrac(p.mark)&&typeof p.mark_page==='number'&&Number.isInteger(p.mark_page)&&p.mark_page>=1;}
 // Where a pin's mark goes (docs/handbook/viewer.md §상태 표현): its element's box in the current build when the server found
 // it, else the page and box the pin was placed on - a manuscript pin, a view-only pin, a figure pin whose element was
 // lost or whose map is unreadable. The box can be null (a stored box that is not finite reads null as a whole): the caller
 // draws nothing for it.
 /** @param {Pin} p */
-function pinPlace(p){return hasMark(p)?{page:p.mark_page,frac:p.mark}:{page:p.page,frac:p.frac};}
+function pinPlace(p){return hasMark(p)?{page:/** @type {number} */(p.mark_page),frac:p.mark}:{page:p.page,frac:p.frac};}
 // Whether a figure pin's element is gone from the current build's map (`el_sync` lost) - shown like a lost line.
 /** @param {Pin} p */
 function elLost(p){return !!p&&p.el_sync===EL_SYNC.LOST;}

@@ -61,7 +61,7 @@ function renderAssignNew(){const ta=$('#note'),box=$('#c-assign'); if(!ta||!box)
   if(!ASSIGN_NEW.touched||(ASSIGN_NEW.v!==ASSIGNEE_AGENT&&!ppl.includes(ASSIGN_NEW.v))){ASSIGN_NEW.v=defaultAssignee(ta.value,KIND_NEW,hs); ASSIGN_NEW.touched=false;}
   if(!ppl.length){ASSIGN_NEW.v=ASSIGNEE_AGENT; box.hidden=true; box.replaceChildren(); return;}
   setHtml(box,assignSeg(ppl,ASSIGN_NEW.v,'assign-new')); box.hidden=false;}
-function renderAssignEdit(){const E=EDITOR.current; if(!E)return; const ta=E.el.querySelector('.e-note'),box=E.el.querySelector('.e-assign'); if(!ta||!box)return;
+function renderAssignEdit(){const E=EDITOR.current; if(!E)return; const ta=editNote(E),box=/** @type {HTMLElement} */(E.el.querySelector('.e-assign')); if(!ta||!box)return;
   const ppl=assignPeople(ta.value,new Set(mentionHints(ta)),E.assignee);
   if(!ppl.length){box.hidden=true; box.replaceChildren(); return;}
   setHtml(box,assignSeg(ppl,E.assignee,'assign-edit')); box.hidden=false;}

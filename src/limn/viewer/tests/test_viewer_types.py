@@ -19,6 +19,7 @@ from unittest import mock
 from limn.administration import serve_documents
 from limn.builds.artifacts import BuildOkWithErrors
 from limn.pins import model
+from limn.pins.location import mapping, range as ranges
 from limn.platform import files
 from limn.sync import rules as sync_rules
 
@@ -262,3 +263,43 @@ class DeclaredViewShapes(AccessBase):
         self.assertEqual([m for m in missing if m not in UNSEEN], [])
         self.assertEqual(sorted(set(UNSEEN) - set(missing)), [])  # an explained field the states now show leaves UNSEEN
         self.assertTrue(seen["PageImage"] and seen["LatexError"] and seen["PersonSeen"], seen)
+
+
+LATEX = [
+    "\\section{A}",
+    "Para one line.",
+    "",
+    "\\begin{figure}",
+    "\\begin{center}",
+    "x",
+    "\\end{center}",
+    "\\end{figure}",
+    "after",
+]
+
+
+def recorded_rungs() -> list[dict]:
+    """The ladder rungs the server builds: LaTeX ladders from limn.pins.location.mapping (a paragraph, a float
+    environment, a merged raw rung), a figure script's raw ladder (range.raw_ladder), and the element rungs of the recorded figure picks."""
+    ladders = [
+        mapping.compute_levels(LATEX, 6, 6, ["figure"]),
+        mapping.compute_levels(LATEX, 2, 2, ["figure"]),
+        ranges.raw_ladder(LATEX, 1, 3),
+    ]
+    rungs = [r for lad in ladders for r in lad["levels"]]
+    for entry in json.loads(SNAPSHOTS[1].read_text(encoding="utf-8")):
+        if "picks" in entry["step"] and "pins.md" not in entry["step"]:
+            rungs += json.loads(entry["body"]).get("levels", [])
+    return rungs
+
+
+class DeclaredRungs(unittest.TestCase):
+    """api.d.ts's Rung is what the server's ladders hold, LaTeX and figure alike, and each declared field occurs."""
+
+    def test_every_rung_fits_and_every_field_occurs(self):
+        """No rung has an undeclared field or a value of another type, and env, el and merged each appear somewhere."""
+        shapes = interfaces(API_TYPES.read_text(encoding="utf-8"))
+        rungs = recorded_rungs()
+        found = [m for i, r in enumerate(rungs) for m in mismatches(r, "Rung", shapes, "rung %d" % i)]
+        self.assertEqual(found, [])
+        self.assertEqual(sorted(set(shapes["Rung"]) - {k for r in rungs for k in r}), [])

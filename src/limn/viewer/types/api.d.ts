@@ -286,3 +286,17 @@ interface RebuildAnswer {
   pages: number;
   pull?: PullRecord | null;
 }
+
+// One rung of a range ladder (POST /api/pick `levels`, GET /api/snippet?levels=1): the lines it covers and their
+// snippet, the environment for an environment rung, the element for a figure's rung, and the rungs it replaced.
+interface Rung {
+  level: string;
+  lo: number;
+  hi: number;
+  n: number;
+  label: string;
+  snippet: string;
+  env?: string;
+  el?: PinElement;
+  merged?: string[];
+}
