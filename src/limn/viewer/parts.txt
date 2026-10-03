@@ -43,6 +43,7 @@ js/pages.js             # the page elements, page width and zoom steps, page jum
 js/pdf-open.js          # PDF.js: loading, the document cache, opening the current build
 js/outline.js           # the PDF outline and the section strip
 js/pdf-draw.js          # PDF.js: canvases, what to draw next, rendering pages
+js/revision-zoom.js     # Comparison PDF geometry, rendering and input
 js/zoom.js              # PDF-area zoom input: Ctrl+wheel, pinch, keys
 js/layout.js            # layout by width, the panel's open state and slide, virtual keyboard, coach, dialogs
 js/gestures.js          # handle, outline-handle and sheet drags, pull-down, overlay swipe, the back gesture

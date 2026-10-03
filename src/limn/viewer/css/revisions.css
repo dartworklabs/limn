@@ -52,12 +52,16 @@ body.lay-narrow #revision-source,body.lay-narrow #revision-pdf{padding-bottom:84
 #revision-warning{font-size:var(--text-xs);color:var(--warning);padding:0 var(--space-4);background:var(--sidebar)}
 #revision-warning summary{cursor:pointer}
 #revision-warning pre{white-space:pre-wrap;max-height:8em;overflow:auto;margin:4px 0}
-#revision-pdf{flex:1;min-height:0;overflow:auto;background:var(--background);padding:var(--space-3);text-align:center}
+#revision-pdf{flex:1;min-height:0;overflow:auto;background:var(--background);padding:var(--space-3);touch-action:pan-x pan-y}
 #revision-source{flex:1;min-height:0;overflow:auto}
 /* v0.3: the pin's own hunks come first; the rest of the commit folds under one control and expands inline below them */
 #revision-other-toggle{display:flex;align-items:center;gap:var(--space-1);width:100%;justify-content:flex-start;border-radius:0;
   border-top:1px solid var(--border);color:var(--muted-foreground);font-size:var(--text-sm)}
 #revision-other-toggle[aria-expanded=true] .ic{transform:rotate(90deg)}
 #revision-other{border-top:1px solid var(--border)}
-.revision-page{width:min(100%,780px);min-height:500px;margin:0 auto var(--space-4);background:var(--sidebar);box-shadow:var(--shadow-page)}
-.revision-page canvas{display:block;max-width:100%;margin:auto}
+.revision-pages{margin:0 auto;display:flow-root}
+.revision-page{margin:0 0 var(--space-4);background:var(--sidebar);box-shadow:var(--shadow-page)}
+.revision-page canvas{display:block;width:100%;height:100%}
+#revision-zoom{display:flex;align-items:center;gap:var(--space-1);margin-left:auto}
+#revision-zoom button{min-width:var(--hit);min-height:var(--hit)}
+#revision-zoom-value{min-width:4ch;text-align:center;font-size:var(--text-sm);font-variant-numeric:tabular-nums}
