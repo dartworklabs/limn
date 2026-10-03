@@ -496,6 +496,10 @@ body.mid-overlay.side-open #revision-view{padding-right:var(--side-w,330px)}
    to the space left of it (or scrolls there when zoomed). */
 body.mid-overlay.side-open.composing #left{padding-right:var(--side-w,330px)}
 @media (pointer:coarse){body.mid-overlay.side-open.composing #left{--doc-end:calc(var(--side-w,330px) + var(--space-2) + var(--hit) - var(--space-1));padding-right:var(--doc-end)}}   /* clear of the 8px bar's 44px touch hit */
+/* With no note being written nothing keeps the page out of that hit: the page lies under the overlay, and the hit's 36px band left
+   of the bar, down its whole height, took the PDF there (a long press or a [선택] tap grabbed the handle, issue #127). The hit is
+   then the 44px square on the bar's grab mark (::before, its middle), so the rest of the band picks and scrolls the PDF. */
+@media (pointer:coarse){body.mid-overlay.side-open:not(.composing) #grip.hit::after{height:var(--hit)}}
 body.mid-overlay.side-open #grip{position:fixed;right:calc(var(--side-w,330px) - var(--swipe-x,0px));top:var(--mid-top);bottom:calc(var(--mbar-h) + var(--kb,0px));z-index:21;
   animation:mid-grip-in .18s ease-out}
 /* Collapsing (a drag past the threshold, [핀], Esc) slides it back out the same way - right only. */

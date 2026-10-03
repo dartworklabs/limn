@@ -1284,6 +1284,34 @@ class FoldOverlay(ViewerBase):
         panel = page.locator("#right").bounding_box()
         self.assertLessEqual(box["x"] + box["width"], panel["x"])
 
+    def test_with_no_note_written_a_long_press_in_the_band_left_of_the_handle_picks_the_pdf(self):
+        """842x758 and a landscape phone 844x390, the overlay panel open and no note being written: the page lies under
+        the handle, whose touch box reached 36px left of its 8px bar down its whole height, so a long press on the PDF
+        there grabbed the handle (issue #127). Now the band answers the PDF - the long press picks that spot, and the
+        pending box takes it in - while the handle still answers 44px round its grab mark."""
+        for device in (FOLD, LAND_PHONE):
+            with self.subTest(width=device["viewport"]["width"], height=device["viewport"]["height"]):
+                page = self.view(device)
+                cdp = self.cdp(page)
+                self.open_panel(page, cdp)
+                page.evaluate("document.querySelector('#left').scrollTop=0")
+                settle(page)
+                self.assertEqual(page.evaluate(MISSES_44, "#grip"), [])
+                g, p1 = page.locator("#grip").bounding_box(), page.locator("#p1").bounding_box()
+                x, y = g["x"] - 18, p1["y"] + p1["height"] * 0.1  # mid-band, above the grab mark, clear of the marks
+                self.assertLess(y, g["y"] + g["height"] / 2 - 30)
+                self.assertEqual(
+                    page.evaluate(
+                        "([x,y])=>{const e=document.elementFromPoint(x,y); return (e.closest('.pg')||e).id}", [x, y]
+                    ),
+                    "p1",
+                )
+                fx = (x - p1["x"]) / p1["width"]
+                self.long_press_pick(cdp, page, x, y)
+                left, width = page.evaluate("[parseFloat(COMPOSE.box.style.left),parseFloat(COMPOSE.box.style.width)]")
+                self.assertLessEqual(left / 100, fx)
+                self.assertGreaterEqual((left + width) / 100, fx)
+
     def test_tapping_the_handle_never_clicks_what_lands_under_the_finger(self):
         """s07: a tap cycles the width, and the ghost click that followed opened edits and cards."""
         page = self.view(FOLD)
