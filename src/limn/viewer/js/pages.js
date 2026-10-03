@@ -4,7 +4,7 @@ function pageSrc(p){const b=META.pages_build;
   return dq(b?'/pages/'+encodeURIComponent(b)+'/'+encodeURIComponent(p.name):'/pages/'+encodeURIComponent(p.name)+'?v='+encodeURIComponent(META.built_at));}
 function buildDoc(){
   const doc=$('#doc'); doc.replaceChildren(); COMPOSE.box=null;
-  META.pages.forEach((p,i)=>{const d=document.createElement('div'); d.className='pg'; d.id='p'+(i+1); d.dataset.page=i+1;
+  META.pages.forEach((p,i)=>{const d=document.createElement('div'); d.className='pg'; d.id='p'+(i+1); d.dataset.page=String(i+1);
     d.style.width=W+'px'; d.style.aspectRatio=p.pt_w+' / '+p.pt_h;
     setHtml(d,html`<span class="no">${i+1}</span><img loading="lazy" draggable="false" alt="${tl('{page}쪽',{page:i+1})}" src="${pageSrc(p)}">`);
     doc.appendChild(d);});

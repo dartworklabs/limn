@@ -14,10 +14,16 @@ import json
 import re
 import unittest
 from pathlib import Path
+from unittest import mock
 
+from limn.administration import serve_documents
+from limn.builds.artifacts import BuildOkWithErrors
 from limn.pins import model
+from limn.platform import files
+from limn.sync import rules as sync_rules
 
-from helpers import VIEWER
+from helpers import MINI_PDF, TEX, VIEWER, ps
+from helpers_access import ALICE, BOB, AccessBase
 
 API_TYPES = VIEWER / "types" / "api.d.ts"
 SNAPSHOTS = [
@@ -45,8 +51,13 @@ def interfaces(text: str) -> dict[str, dict[str, str]]:
 def mismatches(value: object, type_text: str, shapes: dict[str, dict[str, str]], where: str) -> list[str]:
     """Where a JSON value does not fit a declared type: a field the interface lacks, or a value of another JSON type.
 
-    type_text is a primitive (string, number, boolean), an interface name, an inline object type, or any of those
-    with `[]`; an interface's fields are checked against value's keys, recursively."""
+    type_text is a primitive (string, number, boolean, null), an interface name, an inline object type, any of those
+    with `[]`, or a union of them (`A | null`); an interface's fields are checked against value's keys, recursively."""
+    if " | " in type_text:
+        tried = [mismatches(value, alt, shapes, where) for alt in type_text.split(" | ")]
+        return [] if any(not t for t in tried) else ["%s: %r fits none of %s" % (where, value, type_text)]
+    if type_text == "null":
+        return [] if value is None else ["%s: %r is not null" % (where, value)]
     if type_text.endswith("[]"):
         if not isinstance(value, list):
             return ["%s: %s is not an array" % (where, type(value).__name__)]
@@ -125,3 +136,129 @@ class DeclaredPinShapes(unittest.TestCase):
         self.assertEqual(
             mismatches({**pin, "author": author}, "Pin", self.shapes, "p"), ["p.author.email: not declared in Person"]
         )
+
+
+PAGE_PNG = b"\x89PNG\r\n\x1a\n" + b"\x00\x00\x00\rIHDR" + (417).to_bytes(4, "big") * 2 + b"\x08\x02\x00\x00\x00"
+# Declared fields the set-up states below never answer, each with where the server adds it.
+UNSEEN = {
+    "RebuildAnswer.pull": "only a run with --git-pull pulls before a rebuild (limn.builds.answer)",
+}
+
+
+def sync_records() -> list[dict]:
+    """Every sync status and pull record shape the server's producers return, one per outcome and watch state."""
+    outcomes = [
+        sync_rules.Pulled("a1", "b2"),
+        sync_rules.UpToDate("a1"),
+        sync_rules.PullSkipped("dirty", "a1"),
+        sync_rules.PullFailed("fetch", None),
+    ]
+    return [
+        sync_rules.initial_status(),
+        sync_rules.disabled(),
+        sync_rules.deferred("2026-09-26 10:00:00"),
+        sync_rules.unexpected("2026-09-26 10:00:00"),
+        *[sync_rules.after_pull(o, "2026-09-26 10:00:00") for o in outcomes],
+    ], [sync_rules.pull_record(o) for o in outcomes]
+
+
+class DeclaredViewShapes(AccessBase):
+    """api.d.ts declares the document, build and people answers as the real handler gives them.
+
+    Three states: one document with an open pin and no build; three documents (a LaTeX file, one in a folder, a
+    view-only PDF) with page images and two people who opened the viewer; one document after a build with LaTeX
+    errors. The watch's states come from limn.sync.rules itself, since a test run has no remote to pull."""
+
+    def setUp(self):
+        super().setUp()
+        self.shapes = interfaces(API_TYPES.read_text(encoding="utf-8"))
+        self.seen: list[tuple[str, object]] = []
+
+    def answer(self, interface, method, path, headers=None):
+        """Call path and keep its body as an instance of interface."""
+        code, body = self.call(method, path, headers=headers)
+        self.assertEqual(code, 200, (path, body))
+        self.seen.append((interface, body))
+        return body
+
+    def run_states(self):
+        """Answer every view the viewer reads in each of the three states (see the class docstring)."""
+        self.pin_id()
+        self.answer("Meta", "GET", "/api/meta")
+        self.answer("Meta", "GET", "/api/meta?light=1")
+        self.answer("BuildStatus", "GET", "/api/build?log=1")
+        self.answer("DocsAnswer", "GET", "/api/docs")
+        self.answer("PeopleAnswer", "GET", "/api/people")
+
+        def built(D=None, force=False):
+            """A finished build with two LaTeX errors, one without a line."""
+            errors = [{"line": 3, "msg": "Undefined control sequence"}, {"line": None, "msg": "x"}]
+            return BuildOkWithErrors(errors, "log a\nlog b", 0.5, None, 1.0, None, "-", "", 1)
+
+        with mock.patch.object(ps.APP.build_requests, "compile", side_effect=built):
+            self.answer("RebuildAnswer", "POST", "/api/rebuild")
+        self.answer("BuildStatus", "GET", "/api/build?log=1")
+        self.answer("Meta", "GET", "/api/meta")
+
+        (self.src / "rr").mkdir()
+        (self.src / "rr" / "rr.tex").write_text(TEX, encoding="utf-8")
+        (self.src / "review.pdf").write_bytes(MINI_PDF)
+        docs = serve_documents.make_docs(
+            ["ms=본문:main.tex", "rr=답변서:rr/rr.tex", "rv=리뷰어:review.pdf"], self.src, ps.APP.C
+        )
+        ps.APP.set_docs(docs)
+        self.addCleanup(ps.APP.set_docs, None)
+        for D in docs:
+            pages = D.dir / "pages-20260101000000"
+            pages.mkdir(parents=True, exist_ok=True)
+            for i in (1, 2):
+                (pages / ("page-%d.png" % i)).write_bytes(PAGE_PNG)
+            (pages / D.pdf_name).write_bytes(MINI_PDF)
+            files.atomic_write(D.dir / "pages.cur", pages.name)
+        alice = {**ALICE, "Tailscale-User-Profile-Pic": "https://example.com/alice.png"}  # a tailnet photo
+        self.answer("Meta", "GET", "/api/meta?doc=ms", headers=alice)
+        self.answer("Meta", "GET", "/api/meta?doc=rv&light=1", headers=BOB)
+        self.answer("DocsAnswer", "GET", "/api/docs")
+        self.answer("PeopleAnswer", "GET", "/api/people", headers=alice)
+        statuses, pulls = sync_records()
+        self.seen += [("SyncStatus", r) for r in statuses] + [("PullRecord", r) for r in pulls]
+
+    def test_every_answered_field_is_declared_with_its_type(self):
+        """No answer in the three states, and no record the sync producers return, has an undeclared field or a value
+        of another JSON type than declared."""
+        self.run_states()
+        found = [
+            m
+            for i, (name, body) in enumerate(self.seen)
+            for m in mismatches(body, name, self.shapes, "%d %s" % (i, name))
+        ]
+        self.assertEqual(found, [])
+
+    def test_declared_fields_are_answered_or_explained(self):
+        """Each field these interfaces declare is a key of some answer of its interface, or is in UNSEEN with the reason
+        the set-up states cannot show it; the states show pages, several documents, people and LaTeX errors."""
+        self.run_states()
+        seen: dict[str, set[str]] = {}
+
+        def collect(value, type_text):
+            """Record the keys value shows for each declared interface it is (or holds) an instance of."""
+            for alt in type_text.split(" | "):
+                alt = alt[:-2] if alt.endswith("[]") else alt
+                if alt in self.shapes:
+                    for item in value if isinstance(value, list) else [value]:
+                        if isinstance(item, dict):
+                            seen.setdefault(alt, set()).update(item)
+                            for k, v in item.items():
+                                if k in self.shapes[alt]:
+                                    collect(v, self.shapes[alt][k])
+
+        for name, body in self.seen:
+            collect(body, name)
+        views = ["Meta", "BuildStatus", "DocsAnswer", "PeopleAnswer", "RebuildAnswer", "SyncStatus", "PullRecord"]
+        views += ["Me", "PersonSeen", "PageImage", "LatexError", "BuildProgress", "LastBuild", "DocEntry"]
+        missing = sorted(
+            "%s.%s" % (name, f) for name in views for f in self.shapes[name] if f not in seen.get(name, set())
+        )
+        self.assertEqual([m for m in missing if m not in UNSEEN], [])
+        self.assertEqual(sorted(set(UNSEEN) - set(missing)), [])  # an explained field the states now show leaves UNSEEN
+        self.assertTrue(seen["PageImage"] and seen["LatexError"] and seen["PersonSeen"], seen)
