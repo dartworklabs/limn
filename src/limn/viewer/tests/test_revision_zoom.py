@@ -254,6 +254,26 @@ class RevisionZoom(BrowserBase):
         self.assertFalse(page.locator("#revision-zoom-in").is_enabled())
         self.assertTrue(page.evaluate("REV_PDF.loading===null&&REV_PDF.doc===null"))
 
+    def test_resize_preserves_the_reading_point_at_the_new_center(self):
+        """Width and height-only resize keep the same page point visibly centered."""
+        page = self.comparison(viewport={"width": 1400, "height": 850})
+        page.evaluate("revisionZoomTo(2);document.querySelector('#revision-pdf').scrollTop=5000")
+        page.wait_for_function("RZ.anchor&&RZ.anchor.el.dataset.page==='4'")
+        point = page.evaluate("({page:RZ.anchor.el.dataset.page,fx:RZ.anchor.fx,fy:RZ.anchor.fy})")
+        for size in ({"width": 1400, "height": 400}, {"width": 600, "height": 350}):
+            page.set_viewport_size(size)
+            page.wait_for_function(
+                """p=>{
+              const box=document.querySelector('#revision-pdf'),b=box.getBoundingClientRect();
+              const pg=box.querySelector(`[data-page="${p.page}"]`),r=pg.getBoundingClientRect();
+              return Math.abs(r.left+r.width*p.fx-(b.left+box.clientWidth/2))<2 &&
+                Math.abs(r.top+r.height*p.fy-(b.top+box.clientHeight/2))<2;
+            }""",
+                arg=point,
+                timeout=3000,
+            )
+            self.assertEqual(page.locator("#revision-zoom-value").inner_text(), "200%")
+
 
 def test_ratio_properties():
     """Generated finite ratios clamp monotonically and idempotently."""

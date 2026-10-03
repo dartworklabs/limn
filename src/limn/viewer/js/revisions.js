@@ -69,7 +69,7 @@ function setRevisionFormat(format){REV.format=format===DIFF_FORMAT.SOURCE?DIFF_F
   if(REV.format===DIFF_FORMAT.PDF&&REV.commit&&REV.pdfCommit!==REV.commit){REV.pdfCommit=REV.commit;
     $('#revision-status').textContent='비교 PDF 상태를 확인하는 중입니다.'; loadRevisionPdf(REV.commit,REV.seq,DOC);}
   syncRevisionWhole();drawRevisionZoom();
-  if(revisionPdfActive())layoutRevisionPdf(RZ.anchor);
+  if(revisionPdfActive())resizeRevisionPdf();
   if(REV.target)revTargetNote();
 }
 // Shows the manuscript or the changes view: the nav bar's tabs, the navigation sheet's switch and the phone's position button

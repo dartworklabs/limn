@@ -2,7 +2,7 @@
  * @typedef {{el:HTMLElement,page:any,base:{width:number,height:number},canvas:HTMLCanvasElement|null,task:any}} RevisionPage
  * @typedef {{el:HTMLElement,fx:number,fy:number,x:number,y:number}} RevisionAnchor
  */
-const RZ={ratio:1,fit:0,gen:0,busy:0,frame:0,repaint:false,pages:/** @type {RevisionPage[]} */([]),
+const RZ={ratio:1,fit:0,height:0,gen:0,busy:0,frame:0,repaint:false,pages:/** @type {RevisionPage[]} */([]),
   anchor:/** @type {RevisionAnchor|null} */(null),resetInput:()=>{}};
 
 /** Clamp a requested ratio, including non-finite input, to the comparison range. */
@@ -32,7 +32,7 @@ function dropRevisionPage(item){
 function disposeRevisionZoom(){
   ++RZ.gen;RZ.resetInput();RZ.repaint=false;
   if(RZ.frame){cancelAnimationFrame(RZ.frame);RZ.frame=0;}
-  RZ.pages.forEach(dropRevisionPage);RZ.pages=[];RZ.anchor=null;RZ.fit=0;
+  RZ.pages.forEach(dropRevisionPage);RZ.pages=[];RZ.anchor=null;RZ.fit=RZ.height=0;
   drawRevisionZoom();
 }
 
@@ -56,13 +56,24 @@ function restoreRevisionAnchor(anchor,x,y){
   box.scrollTop+=r.top+r.height*anchor.fy-(y??br.top+anchor.y);
 }
 
+/** Measure usable width, excluding scroll-area padding and its scrollbar. */
+function revisionFitWidth(){
+  const box=$('#revision-pdf'),style=getComputedStyle(box);
+  return box.clientWidth-parseFloat(style.paddingLeft)-parseFloat(style.paddingRight);
+}
+
+/** Move the retained reading point to the resized viewport's new center. */
+function resizeRevisionPdf(){
+  const box=$('#revision-pdf'),anchor=RZ.anchor?{...RZ.anchor,x:box.clientWidth/2,y:box.clientHeight/2}:null;
+  layoutRevisionPdf(anchor);
+}
+
 /** Resize all page boxes before restoring the anchor; redraw at the new width. */
 function layoutRevisionPdf(anchor){
   if(!revisionPdfActive())return;
-  const box=$('#revision-pdf'),style=getComputedStyle(box);
-  const fit=box.clientWidth-parseFloat(style.paddingLeft)-parseFloat(style.paddingRight);
+  const box=$('#revision-pdf'),fit=revisionFitWidth();
   if(fit<=0)return;
-  RZ.fit=fit;++RZ.gen;RZ.pages.forEach(dropRevisionPage);
+  RZ.fit=fit;RZ.height=box.clientHeight;++RZ.gen;RZ.pages.forEach(dropRevisionPage);
   const width=fit*RZ.ratio,group=box.firstElementChild;
   if(group instanceof HTMLElement)group.style.width=width+'px';
   for(const item of RZ.pages){item.el.style.width=width+'px';item.el.style.height=width*item.base.height/item.base.width+'px';}
@@ -164,9 +175,12 @@ async function paintRevisionPdf(){
     revisionZoomTo(touch.ratio*p.distance/touch.distance,p.x,p.y,touch.anchor);},{passive:false});
   box.addEventListener('touchend',e=>{if(e.touches.length!==2)touch=null;});
   box.addEventListener('touchcancel',()=>{touch=null;});
-  box.addEventListener('scroll',()=>{if(revisionPdfActive()){RZ.anchor=revisionAnchor();scheduleRevisionPaint();}},{passive:true});
+  box.addEventListener('scroll',()=>{if(revisionPdfActive()){
+    // Resize may clamp scroll before its observer runs; retain the previous reading point until layout handles it.
+    if(Math.abs(revisionFitWidth()-RZ.fit)<=.5&&box.clientHeight===RZ.height)RZ.anchor=revisionAnchor();
+    scheduleRevisionPaint();
+  }},{passive:true});
   const observer=new ResizeObserver(()=>{if(!revisionPdfActive())return;
-    const style=getComputedStyle(box),fit=box.clientWidth-parseFloat(style.paddingLeft)-parseFloat(style.paddingRight);
-    if(Math.abs(fit-RZ.fit)>.5)layoutRevisionPdf(RZ.anchor);
+    if(Math.abs(revisionFitWidth()-RZ.fit)>.5||box.clientHeight!==RZ.height)resizeRevisionPdf();
   });observer.observe(box);
 })();
