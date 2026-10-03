@@ -88,8 +88,9 @@ class PickedRegion:
     """A selection on a document whose pins are regions: its key, the page and page-relative box (frac), the PDF's
     path from the manuscript root and file name (for a document with an element map, the PDF the map of the drag's
     build names), the region's printed text as a quote and its length, and the page directory. blank: the region has
-    no printed text (a figure or scan); redrawing: the pages are being redrawn now. el and fallback are set for a drag
-    on a figure document that fell back to the region: the element it chose, if any, and why (figure.FigureFallback)."""
+    no printed text (a figure or scan); redrawing: the pages are being redrawn now. el, path_names and fallback are set
+    for a drag on a figure document that fell back to the region: the element it chose, if any, the names of that
+    element's path, and why (figure.FigureFallback)."""
 
     doc: str
     page: int
@@ -103,6 +104,7 @@ class PickedRegion:
     pdf_build: str
     el: PinElement | None = None
     fallback: figure.FigureFallbackReason | None = None
+    path_names: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -178,7 +180,7 @@ def pick(D: Doc, request: Selection, ctx: PickContext) -> Picked | figure.Picked
     rtext = source.region_text(pdf, page, x0, y0, x1, y1)
     if fallback is not None:
         region = _pick_region(D, pdir, page, box, (pw, ph), frac, rtext, ctx.root, publication)
-        return replace(region, el=fallback.el, fallback=fallback.reason)
+        return replace(region, el=fallback.el, fallback=fallback.reason, path_names=fallback.path_names)
     if D.view_only:
         return _pick_region(D, pdir, page, (x0, y0, x1, y1), (pw, ph), frac, rtext, ctx.root, publication)
     sy = source.by_synctex(pdf, page, x0, y0, x1, y1)

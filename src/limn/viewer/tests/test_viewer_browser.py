@@ -1818,6 +1818,13 @@ class FigureDocuments(BrowserBase):
             [["el", "7월", "true"], ["el2", "달력", "false"], ["fig", "B2", "false"]],
         )
 
+    def test_a_drag_on_a_cell_drawn_without_code_names_every_element_of_its_path(self):
+        """The August cell has no code lines, so the pick answers a region with no rungs: the path row still names the
+        strip by the map's name ('달력'), not by its id."""
+        page = self.open_fig()
+        self.drag(page, helpers_figure.AUGUST_DRAG)
+        self.assertEqual(self.text(page, "#c-path"), "B2 › 달력 › 8월 ·")
+
     def test_a_rung_moves_the_box_path_and_lines_without_asking_the_server(self):
         """Pressing strip, figure, then cell moves '새 핀', the path and the lines each time, and no pick is requested."""
         page = self.open_fig()

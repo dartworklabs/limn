@@ -2646,6 +2646,41 @@ class FrontendFigure(unittest.TestCase):
         )
         self.assertEqual(json.loads(run_node(js)), ["B2 › 달력 › 7월", "B2 › 달력", "B2 › B2/c › 7월", "B9 › Box", ""])
 
+    def test_the_path_names_each_element_by_the_maps_name_when_the_answer_gives_one(self):
+        """With the pick's path_names (one per id of el.path, root first) every element the map names reads by that
+        name - an ancestor with no rung too, and every element of a region answer, which has no rungs; an id the map
+        names nothing ("") or a path_names that is missing, short or not strings keeps today's name, its rung's or
+        its id."""
+        self.node()
+        js = "\n".join(
+            [extract_js_fn("elName"), extract_js_fn("elPathText")]
+            + [
+                r"""
+            const cell={id:'B2/c/m07',path:['B2','B2/c','B2/c/m07'],label:'7월'},root={id:'B2',path:['B2']};
+            const merged=[{level:'el',lo:20,hi:30,label:'7월',merged:['el2'],el:cell},{level:'fig',lo:1,hi:40,label:'B2',el:root}];
+            const aug={id:'B2/c/m08',path:['B2','B2/c','B2/c/m08'],label:'8월'};
+            const names=['','달력','8월'];
+            console.log(JSON.stringify([
+              elPathText({levels:merged,el:cell,elSel:cell,path_names:['','달력','7월']}),
+              elPathText({kind:'region',el:aug,elSel:aug,path_names:names}),
+              elPathText({kind:'region',el:aug,elSel:aug}),
+              elPathText({kind:'region',el:aug,elSel:aug,path_names:['','달력']}),
+              elPathText({kind:'region',el:aug,elSel:aug,path_names:[null,3,'8월']}),
+              elPathText({kind:'region',el:aug,elSel:aug,path_names:'달력'})]));"""
+            ]
+        )
+        self.assertEqual(
+            json.loads(run_node(js)),
+            [
+                "B2 › 달력 › 7월",
+                "B2 › 달력 › 8월",
+                "B2 › B2/c › 8월",
+                "B2 › 달력 › 8월",
+                "B2 › B2/c › 8월",
+                "B2 › B2/c › 8월",
+            ],
+        )
+
     def test_figure_rungs_are_named_by_their_element_with_a_line_count(self):
         """A figure rung's segment reads its element's name and line count (derived when the rung has no n); its
         tooltip says the element's lines, or the whole figure's for the root."""

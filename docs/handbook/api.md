@@ -720,7 +720,7 @@ curl -s -X POST http://127.0.0.1:<port>/api/pins/3/unclaim
 
 `kind:"figure"` 문서는 그림 저장소가 낸 PDF와 요소 지도(`limn-figure-map/1`)를 가져온 문서다. 핀은 그림을 그린 코드의 줄 핀이고, 선택 필드 `el` 로 어느 요소인지 적는다. 되짚는 규칙은 [domain.md](domain.md) §그림 문서의 요소 pick 에 있다.
 
-**pick.** 요청 형식은 원고와 같다. 그 빌드(`pdf_build`)의 지도로 줄을 찾으면 원고 pick 과 같은 키를 같은 순서로 주고(`page` 는 드래그한 쪽), 끝에 `el` 을 더한다.
+**pick.** 요청 형식은 원고와 같다. 그 빌드(`pdf_build`)의 지도로 줄을 찾으면 원고 pick 과 같은 키를 같은 순서로 주고(`page` 는 드래그한 쪽), 끝에 `el` 과 `path_names` 를 더한다.
 
 | 필드 | 값 |
 | --- | --- |
@@ -734,12 +734,13 @@ curl -s -X POST http://127.0.0.1:<port>/api/pins/3/unclaim
 | `quote` | 고른 요소의 `label`, 없으면 `""` |
 | `overlaps` | 기본 단계의 줄과 겹치는 같은 파일의 열린 핀(§겹친 핀과 덧붙이기) |
 | `el` | `{id, path, label?, part?, impl?: {file, lo, hi}, frac}`. `path` 는 뿌리부터 그 요소까지의 id, `impl` 은 공통 부품(구현)의 줄이고 `impl.file` 은 문서 폴더 기준 상대 경로, `frac` 은 이 빌드에서 그 요소의 영역 `[x, y, w, h]` 다 |
+| `path_names` | `el.path` 의 id마다 하나씩, 지도가 그 요소에 준 사람이 읽을 이름. 그 요소의 `label`, 없으면 `part`, 둘 다 없으면 `""` 다(그림의 뿌리는 보통 `""`). 뷰어의 위치 줄이 단계가 없는 상위 요소까지 이름으로 적을 때 쓴다(`B2 › 달력 › 7월`). 저장하는 `el` 의 필드가 아니다. pick 의 `el` 을 그대로 `POST /api/pin` 에 보내도 되고, 모르는 키처럼 버려진다 |
 | `warn` | 고른 요소의 `score`(줄이기 전 값)가 0.3 미만이면 약한 일치 문장이고, 쪽을 다시 그리는 중이면 그 문장이 이어진다. 원고 pick 의 오래된 PDF·두 경로 불일치 문장은 없다. 아무것도 없으면 `""` |
 
 **줄을 줄 수 없으면 영역 답을 준다.** 보기 전용 PDF 의 답(`{doc, kind:"region", view_only:true, page, frac, pdf, name, quote, n_chars, warn, overlaps:[], pdf_build}`)과 같은 모양이다. 이 답의 `view_only: true` 는 그 답이 영역뿐이고 코드 줄이 없다는 뜻이다. `/api/docs` 의 `view_only` 는 문서의 능력이고 그림 문서에서는 `false` 다. 줄을 줄 수 없는 경우는 둘이다.
 
 - 지도를 읽지 못한다: 그 빌드에 지도 사본이 없거나, 지도가 검사를 어겼거나, 그 쪽이 지도에 없다. 이때 답에 `el` 이 없다.
-- 고른 요소의 코드 줄을 줄 수 없다: 요소에 `src` 가 없거나, 그 파일을 문서 폴더 안에서 읽지 못하거나, 줄 범위가 지금 파일을 넘는다. 이때 답에 그 요소의 `el` 이 붙는다.
+- 고른 요소의 코드 줄을 줄 수 없다: 요소에 `src` 가 없거나, 그 파일을 문서 폴더 안에서 읽지 못하거나, 줄 범위가 지금 파일을 넘는다. 이때 답에 그 요소의 `el` 과 `path_names` 가 붙는다.
 
 두 경우 `warn` 은 이유 문장으로 시작한다. 이유는 그 한국어 문장으로만 드러나고, 답에 이유 코드 필드는 없다(`figure_map_unavailable`·`element_without_source` 는 서버 안의 이름이다). 두 경우를 기계가 가르려면 답에 `el` 이 있는지 본다. `quote` 는 그 빌드의 PDF 사본에서 pdftotext 로 뽑은 영역 글자다. 영역 답과 영역 핀의 PDF 는 다음과 같다.
 

@@ -66,7 +66,8 @@ class OutlineInput:
 
 @dataclass(frozen=True)
 class ElementFact:
-    """One selected element's pin identity and source span, not a traversable map node."""
+    """One selected element's pin identity and source span, not a traversable map node. names holds, for each id of
+    path (root first), the name the map gives that element - its label, else its part - or "" where it gives none."""
 
     id: str
     path: tuple[str, ...]
@@ -75,6 +76,7 @@ class ElementFact:
     impl: SourceLines | None
     frac: Frac
     source: SourceLines | None
+    names: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)

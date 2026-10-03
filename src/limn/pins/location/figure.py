@@ -27,10 +27,12 @@ FigureFallbackReason: TypeAlias = Literal["figure_map_unavailable", "element_wit
 
 @dataclass(frozen=True)
 class FigureFallback:
-    """A drag on a figure that cannot be given code lines: why, and the element it chose when it chose one."""
+    """A drag on a figure that cannot be given code lines: why, the element it chose when it chose one, and the names of
+    that element's path (ElementFact.names; () without an element)."""
 
     reason: FigureFallbackReason
     el: PinElement | None
+    path_names: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -55,7 +57,8 @@ class PickedElement:
     and the document's folder) and its line count, the page, the viewer's frac as sent, the pin kind (element_kind),
     the element's cover of the drag (score), the ladder rungs (the chosen element's own first - the default), the quote
     (the element's label or ""), the element as a pin records it, the stored open pins the default rung overlaps, the
-    page directory it was traced in, and whether the pages are being redrawn now."""
+    page directory it was traced in, whether the pages are being redrawn now, and the name the map gives each element of
+    the element's path (ElementFact.names: label, else part, else "")."""
 
     file: Path
     n_lines: int
@@ -69,6 +72,7 @@ class PickedElement:
     overlaps: list[dict[str, Any]]
     pdf_build: str
     redrawing: bool
+    path_names: tuple[str, ...] = ()
 
 
 def drag_frac(box: tuple[float, float, float, float], size: tuple[float, float]) -> tuple[float, float, float, float]:
@@ -156,7 +160,7 @@ def pick_figure(
     source = read_source(D, chosen.source[0], root, state) if chosen.source is not None else None
     rungs = element_rungs(pick, source[1]) if source is not None else ()
     if source is None or not rungs:
-        return FigureFallback("element_without_source", pin_element(chosen))
+        return FigureFallback("element_without_source", pin_element(chosen), chosen.names)
     found, lines = source
     first = rungs[0]
     return PickedElement(
@@ -172,4 +176,5 @@ def pick_figure(
         overlaps=overlaps(str(found), first.lo, first.hi),
         pdf_build=pdir.name,
         redrawing=redrawing,
+        path_names=chosen.names,
     )

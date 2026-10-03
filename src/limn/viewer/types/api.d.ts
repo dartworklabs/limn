@@ -349,6 +349,7 @@ interface PickAnswer {
   overlaps: PickOverlap[];
   pdf_build: string;
   el?: PinElement;
+  path_names?: string[];
   doc?: string;
   view_only?: boolean;
   pdf?: string;

@@ -158,10 +158,10 @@ def pick_warning(p: Picked) -> str:
 
 def _element_body(p: PickedElement) -> Body:
     """The body of a drag traced through a figure's map: the traced-selection body's keys in their contract order -
-    the default rung's lines, via "map", the element's kind and name - then el (docs/handbook/api.md §그림 문서의
-    pick·핀). The score is rounded to two decimals like a traced selection's: full containment
-    computes a cover a hair under 1.0. Only the body is rounded - element_warning still tests the unrounded score
-    against WEAK_SCORE."""
+    the default rung's lines, via "map", the element's kind and name - then el and path_names, the name the map gives
+    each id of el.path (label, else part, else "") (docs/handbook/api.md §그림 문서의 pick·핀). The score is rounded
+    to two decimals like a traced selection's: full containment computes a cover a hair under 1.0. Only the body is
+    rounded - element_warning still tests the unrounded score against WEAK_SCORE."""
     first = p.rungs[0]
     return {
         "file": str(p.file),
@@ -184,6 +184,7 @@ def _element_body(p: PickedElement) -> Body:
         "overlaps": p.overlaps,
         "pdf_build": p.pdf_build,
         "el": p.el.to_record(),
+        "path_names": list(p.path_names),
     }
 
 
@@ -216,7 +217,7 @@ def element_warning(p: PickedElement) -> str:
 def _region_body(r: PickedRegion) -> Body:
     """The body of a selection answered as a region - a view-only document's, or a figure's that fell back - keys in
     the order the agent contract has always had them. A figure's fallback leads the warn with its reason's sentence
-    and adds el, the element it chose, after the contract keys."""
+    and adds el, the element it chose, and path_names, the names of its path, after the contract keys."""
     warn = PICK_WARNINGS[r.fallback] if r.fallback is not None else ""
     if r.blank:
         warn = (warn + " " if warn else "") + PICK_WARNINGS["blank"]
@@ -238,4 +239,5 @@ def _region_body(r: PickedRegion) -> Body:
     }
     if r.el is not None:
         body["el"] = r.el.to_record()
+        body["path_names"] = list(r.path_names)
     return body

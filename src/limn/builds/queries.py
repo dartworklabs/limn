@@ -75,17 +75,20 @@ def position_basis(
 
 
 def _element(page: MapPage, el: MapElement) -> ElementFact:
-    """Detach just the selected identity, source span and display-only implementation span."""
+    """Detach just the selected identity, source span and display-only implementation span, with the name a person
+    reads for each element of its path (root first): its label, else its part, else ""."""
     source = None if el.src is None else (el.src.file, el.src.lo, el.src.hi)
     impl = None if el.impl is None else (el.impl.file, el.impl.lo, el.impl.hi)
+    chain = tuple(reversed((el, *page.ancestors(el))))
     return ElementFact(
         el.id,
-        tuple(e.id for e in reversed((el, *page.ancestors(el)))),
+        tuple(e.id for e in chain),
         el.label or None,
         el.part or None,
         impl,
         el.frac,
         source,
+        tuple(e.label or e.part or "" for e in chain),
     )
 
 
