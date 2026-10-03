@@ -1,5 +1,57 @@
 # Changelog
 
+## 0.4.11 — 2026-10-04
+
+Comparison PDFs zoom, the status line counts the pages it draws, and a batch of fixes: watched files rewritten within
+one timestamp tick, provider logins, a viewer's 500 body, the [Confirm] notice and the band beside the overlay's
+handle. `pins.md` is unchanged. The HTTP API gains the optional `progress` field on `GET /api/build`, and a viewer's
+`500` body no longer carries the exception text. In the state directory `pdf_sig.txt` changes format, so each view-only
+PDF is drawn once more after the upgrade.
+
+### Added
+
+- **Comparison PDFs zoom.** 50–500%, fit width, scrolling, keyboard shortcuts, wheel and trackpad gestures and touch
+  pinch. Zoom keeps the page point under the pointer, a resize keeps the reading point at the centre, and the
+  comparison's scale is independent of the manuscript's (#161).
+- **The status line's progress bar counts pages.** `GET /api/build` gains an optional field
+  `progress: {"done", "total"}` while a running build draws its page images, and `null` otherwise. On phones and tablets
+  the bar fills to that share and reads `쪽 그리는 중 · 3/9쪽`. The TeX pass keeps the indeterminate bar, since
+  latexmk's number of runs is not known ahead. A viewer on an older server looks as before (#127).
+
+### Changed
+
+- **A viewer's 500 no longer shows the exception.** An unexpected error answers the viewer role, and a request that
+  fails before it is admitted, with the fixed `서버 내부 오류`. Owner, editor and agent still get
+  `서버 내부 오류: <exception>`. Status 500, `reason: internal` and the stderr traceback are unchanged (#140).
+- **A plainer "위치 불확실" tooltip.** In whole sentences, it now says how the place was found, how much of the drag it
+  matches, that it may be far off (below 30%), and what to check. The badge and its 90%/30% limits are unchanged (#163).
+- **[Confirm] on a pin a person already closed.** When the pin was reopened and closed straight to done while your
+  confirm waited, the viewer now says it was already closed and there is nothing to confirm. It no longer asks you to
+  look and confirm again.
+
+### Fixed
+
+- **Same-tick rewrites of watched PDFs and figure maps.** The watch for view-only PDFs and figure documents told two
+  versions of a file apart by modification time and size. A same-size rewrite in the same timestamp tick kept the
+  signature, so the screen stayed on the first version, and a figure document stuck on `pdf_mismatch`.
+  - The signatures now carry the inode, which differs after an atomic replace.
+  - A figure map is also signed with a digest of its bytes, so the watch reads the map (at most 4 MiB) on every tick.
+  - An in-place, same-size overwrite of a PDF within one tick is still not seen; the handbook records this limit.
+  - `pdf_sig.txt` changes format, so each view-only PDF is redrawn once and each figure document imported once,
+    then they settle (#165).
+- **Provider logins are validated whole.** A login was cleaned and truncated before the role lookup, so a malformed
+  value could become another member's login. The identity is now decoded and checked apart from its display text,
+  and a malformed value gets the existing `401 unauthenticated`. `SourceRange` checks its integer bounds when it is
+  built and freezes its source snapshot.
+- **The PDF beside the overlay panel's handle answers again.** On an unfolded Fold or a landscape phone with the panel
+  open and no note being written, the handle's touch area covered a 36 px band of the PDF down the whole screen. The
+  handle now answers a 44 px square on its grab mark; the rest of the band picks and scrolls the PDF (#127).
+
+### Docs
+
+- **Default language.** The instances guide says to start an instance written in Korean with `--ui-lang ko`
+  (`UI_LANG=ko`), so phones with an English locale open in Korean.
+
 ## 0.4.10 — 2026-10-03
 
 [Confirm] binds to the close you saw, and the viewer's internals are hardened: its markup goes through one escaping
