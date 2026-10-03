@@ -350,3 +350,52 @@ def test_unknown_document_does_not_record_the_person(request_context):
     code, body = request_context.call("POST", "/api/pin?doc=unknown", {}, BOB)
     assert (code, body["reason"]) == (404, "unknown_doc")
     assert ps.APP.C.people_file.read_bytes() == before
+
+
+def undeclared_posts(bundle):
+    """The POST entry points of a route bundle that the access table does not declare as an operation.
+
+    A declared operation is one access.post_operation names, which is what check_role and authorize_post decide on; a
+    registered route outside that table could only ever answer 404, so it is a registration nobody authorized.
+    """
+    paths = [route.path for route in bundle.post_documents]
+    paths += ["/api/pins/7/%s" % name for name in bundle.pin_actions]
+    paths += list(bundle.other_posts)
+    undeclared = []
+    for path in paths:
+        try:
+            access.post_operation(path)
+        except HTTPError:
+            undeclared.append(path)
+    return undeclared
+
+
+def test_every_registered_post_declares_an_operation(request_context):
+    """Each POST the running application registers has an authorization decision in the access table.
+
+    GET handlers are closures that declare no path, so they cannot be listed here; check_read's path table and
+    test_new_registered_routes_cannot_execute cover them instead.
+    """
+    from helpers import ps
+
+    bundle = ps.Handler.app.routes.bundle
+    assert bundle.post_documents and bundle.pin_actions and bundle.other_posts
+    assert undeclared_posts(bundle) == []
+
+
+def test_undeclared_post_registrations_are_listed(request_context):
+    """A document, pin and exact-path POST registered without a declared operation is each reported."""
+    from dataclasses import replace
+
+    from limn.web.routes import PostDocRoute
+
+    from helpers import ps
+
+    bundle = ps.Handler.app.routes.bundle
+    added = replace(
+        bundle,
+        post_documents=(*bundle.post_documents, PostDocRoute("/api/future", lambda _request: {})),
+        pin_actions={**bundle.pin_actions, "future": lambda _request: {}},
+        other_posts={**bundle.other_posts, "/api/also-future": lambda _request: {}},
+    )
+    assert undeclared_posts(added) == ["/api/future", "/api/pins/7/future", "/api/also-future"]

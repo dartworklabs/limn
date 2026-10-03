@@ -1,8 +1,10 @@
 """Who may do what through which entry path: every principal (loopback agent, tailnet person, token, trusted proxy)
-over loopback, the tailnet and a proxy, for read, pin, reply, close, confirm and clear.
+over loopback, the tailnet and a proxy, for read, pin, reply, close, confirm and clear; and every role over the other
+pin actions and the reads.
 
 The v0.2.1 QA (finding B) found a headerless request through `tailscale serve` treated as the loopback agent.
-PrincipalMatrix pins every principal x entry path; ProxyHardening the security-review follow-ups (more proxy markers
+PrincipalMatrix pins every principal x entry path; RoleMatrix every role x the remaining pin actions and reads;
+ProxyHardening the security-review follow-ups (more proxy markers
 refuse the headerless agent, --auth local refuses proxied requests, people.json stays 0600). The identity providers,
 tokens and roles one by one are test_access.py; the access rules without a server are test_access_module.py.
 
@@ -17,7 +19,7 @@ from limn.security import access
 from limn.security.access import LOCAL_ACTOR
 
 from helpers import ps, set_config
-from helpers_access import ALICE, BOB, CLEAR_BODY, TS_HOST, AccessBase, member_add, token_create
+from helpers_access import ALICE, BOB, CAROL, CLEAR_BODY, TS_HOST, AccessBase, member_add, token_create
 from helpers_authority import post_authority
 
 
@@ -142,6 +144,98 @@ class PrincipalMatrix(AccessBase):
     def test_loopback_agent_off_is_401_even_on_loopback(self):
         set_config(agent_loopback=False)
         self.expect(self.run_ops(), **self.REFUSED_401)
+
+
+class RoleMatrix(AccessBase):
+    """Every role x the pin actions and reads PrincipalMatrix leaves out, end to end through the handler.
+
+    The oracle is the role rule in docs/handbook/api.md §인증: a viewer changes nothing, only the owner purges, and every
+    admitted role reads. A role refusal is a 403 with its reason and leaves the pin files as they were. Each pin is
+    prepared in the state its action needs, so an allowed action answers 200; anything else is reported with its body.
+    """
+
+    ACTIONS = ("edit", "claim", "unclaim", "reopen", "drop", "restore", "purge")
+    READS = (
+        "/pins.md",
+        "/api/pins",
+        "/api/pins/dropped",
+        "/api/pins/{id}",
+        "/api/meta",
+        "/api/people",
+        "/api/docs",
+        "/api/build",
+        "/api/revisions",
+        "/api/outline-labels",
+        "/api/version",
+    )
+    OK = "ok"
+    WANT = {
+        "owner": dict.fromkeys(ACTIONS, OK),
+        "editor": dict(dict.fromkeys(ACTIONS, OK), purge="owner_only"),
+        "viewer": dict.fromkeys(ACTIONS, "viewer_only"),
+        "agent": dict(dict.fromkeys(ACTIONS, OK), purge="owner_only"),
+    }
+
+    def setUp(self):
+        """Owner Alice, editor Bob and viewer Carol in people.json, and an API token for the agent role."""
+        super().setUp()
+        self.set_people(
+            [
+                {"login": "alice@example.com", "name": "Alice", "role": "owner"},
+                {"login": "bob@example.com", "name": "Bob", "role": "editor"},
+                {"login": "carol@example.com", "name": "Carol", "role": "viewer"},
+            ]
+        )
+        _, self.token = token_create(ps.APP.C.state, "ci")
+
+    def as_role(self, role):
+        """The call keywords that make a request come from role."""
+        return {"owner": dict(headers=ALICE), "editor": dict(headers=BOB), "viewer": dict(headers=CAROL)}.get(
+            role, dict(token=self.token)
+        )
+
+    def ready_pin(self, action):
+        """A fresh pin in the state action needs, prepared by the loopback agent (the files are then read as before)."""
+        pid = self.add()
+        if action == "unclaim":
+            self.assertEqual(self.call("POST", "/api/pins/%d/claim" % pid)[0], 200)
+        elif action == "reopen":
+            self.assertEqual(self.call("POST", "/api/pins/%d/close" % pid)[0], 200)
+        elif action in ("restore", "purge"):
+            self.assertEqual(self.call("POST", "/api/pins/%d/drop" % pid)[0], 200)
+        return pid
+
+    def body_for(self, action, pid):
+        """The request body action takes; an edit sends the pin's current revision."""
+        if action == "edit":
+            return {"note": "edited", "base_rev": self.call("GET", "/api/pins/%d" % pid)[1]["pin"]["rev"]}
+        return None
+
+    def outcome(self, role, action):
+        """OK for a 200; the reason of a 403 after checking that it wrote nothing; otherwise the status and body."""
+        pid = self.ready_pin(action)
+        files = (ps.APP.C.pins_jsonl, ps.APP.C.state / "pins.dropped.jsonl")
+        before = [f.read_bytes() if f.exists() else None for f in files]
+        code, d = self.call("POST", "/api/pins/%d/%s" % (pid, action), self.body_for(action, pid), **self.as_role(role))
+        if code == 200:
+            return self.OK
+        if code != 403:
+            return "%d %s" % (code, d)
+        self.assertEqual([f.read_bytes() if f.exists() else None for f in files], before, (role, action))
+        return d["reason"]
+
+    def test_pin_actions_follow_the_role_rule(self):
+        for role, want in self.WANT.items():
+            with self.subTest(role=role):
+                self.assertEqual({a: self.outcome(role, a) for a in self.ACTIONS}, want)
+
+    def test_every_admitted_role_reads(self):
+        pid = self.add()
+        for role in self.WANT:
+            for path in self.READS:
+                with self.subTest(role=role, path=path):
+                    code, d = self.call("GET", path.format(id=pid), **self.as_role(role))
+                    self.assertEqual(code, 200, d)
 
 
 class ProxyHardening(AccessBase):
