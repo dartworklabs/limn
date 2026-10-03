@@ -30,6 +30,10 @@ jobs:
         run: uv run shellcheck src/limn/administration/instances.sh src/limn/administration/instance_*.sh src/limn/administration/tests/test_instances.sh
       - name: Mypy
         run: uv run mypy
+      # Contributors type-check on macOS too, where the standard library declares fewer names (os.sched_getaffinity):
+      # check that platform from here as well, so a checkout is clean on both.
+      - name: Mypy (as on macOS)
+        run: uv run mypy --platform darwin
       - name: Feature boundaries
         run: uv run python tools/check_boundaries.py
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
