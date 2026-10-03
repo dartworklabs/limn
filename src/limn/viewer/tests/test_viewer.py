@@ -1895,7 +1895,7 @@ class FrontendSemanticAudit(unittest.TestCase):
         self.assertIn("' '+tl('(이 문서 {n})',{n:here})", extract_js_fn("updateReviewCount"))
         body = extract_js_fn("drawPins")
         self.assertIn(
-            "mf.innerHTML=ic('at-sign')+MINE.length; mf.setAttribute('aria-label',tl('나를 부른 핀 {n}',{n:MINE.length}));",
+            "setHtml(mf,html`${ic('at-sign')}${MINE.length}`); mf.setAttribute('aria-label',tl('나를 부른 핀 {n}',{n:MINE.length}));",
             body,
         )
 
@@ -2869,6 +2869,7 @@ class FrontendFigure(unittest.TestCase):
             const page1={appendChild:m=>drawn.push([m.dataset.pin,m.className,m.style.left,m.style.width])};
             const document={getElementById:id=>id==='p1'?page1:null,
               createElement:()=>({dataset:{},style:{},className:'',set innerHTML(v){}})};""",
+                js_markup(),
                 js_i18n(),
                 *[
                     extract_js_fn(n)

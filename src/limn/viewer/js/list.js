@@ -57,7 +57,7 @@ function fitBarWords(){const b=$('#bar1'),l=b.querySelector('.bar-l'); b.classLi
 // the count as its own half [검토 M] (#btn-rv) instead; the chip is the open wide panel's.
 // The pill is the eye icon and the count, so it never reads as part of the open count beside it ('11 1', UX audit P10).
 function updateReviewCount(){const n=REVIEW_ALL.length,chip=$('#rv-chip');
-  for(const pill of $$('#btn-side .rv-n,#nav-side .rv-n')){pill.hidden=!n; pill.innerHTML=ic('eye')+n; pill.setAttribute('aria-label',tl('검토 대기 {n}',{n}));}
+  for(const pill of $$('#btn-side .rv-n,#nav-side .rv-n')){pill.hidden=!n; setHtml(pill,html`${ic('eye')}${n}`); pill.setAttribute('aria-label',tl('검토 대기 {n}',{n}));}
   const rb=$('#btn-rv'); rb.hidden=!n; rb.querySelector('.rv-c').textContent=n; rb.setAttribute('aria-label',tl('검토 {n} · 검토 대기 핀으로 가기',{n}));   // the sheet bar's [검토 M] half: its name starts with what it shows
   fitBarWords();
   const here=listReview().length; chip.hidden=!n||LAYOUT!==LAYOUT_MODE.WIDE||!SIDE_OPEN; chip.textContent=tl('검토 대기 {n}',{n})+(multiDoc()&&here!==n?' '+tl('(이 문서 {n})',{n:here}):'');}
@@ -76,8 +76,8 @@ const SEC_NAME_ID={open:'list-h',review:'review-h',done:'done-h'};
 function secHead(key,name,ids,all){const b=document.getElementById(key+'-toggle'); if(!b)return; const open=!!SEC[key],seen=SEC_SEEN[key];
   if(open&&seen)(all||ids).forEach(id=>seen.add(id));
   const nn=open?0:secNewCount(seen,ids);
-  b.innerHTML=ic(open?'chevron-down':'chevron-right')+'<span class="sec-name" id="'+SEC_NAME_ID[key]+'">'+esc(name)+' <span class="badge badge-secondary sec-n">'+ids.length+'</span></span>'+
-    (nn?'<span class="sec-new">'+esc(tl('새 {n}',{n:nn}))+'</span>':'');
+  const fresh=nn?html`<span class="sec-new">${tl('새 {n}',{n:nn})}</span>`:'';
+  setHtml(b,html`${ic(open?'chevron-down':'chevron-right')}<span class="sec-name" id="${SEC_NAME_ID[key]}">${name} <span class="badge badge-secondary sec-n">${ids.length}</span></span>${fresh}`);
   b.setAttribute('aria-expanded',String(open));
   const body=document.getElementById(b.getAttribute('aria-controls')); if(body)body.hidden=!open;}
 function toggleSec(key,force){if(!(key in SEC_DEFAULT))return; SEC[key]=force===undefined?!SEC[key]:!!force; savePrefs({sec:SEC}); drawPins();}
@@ -88,14 +88,14 @@ function drawPins(){
   // The '나를 부른 핀' filter: only the open/awaiting-review pins across every document that @-tagged me (a cross-document inbox).
   const MINE=OPEN_ALL.concat(REVIEW_ALL).filter(mentionsMe),mf=$('#mention-filter');
   if(MENTION_ONLY&&!MINE.length)MENTION_ONLY=false;
-  mf.hidden=!MINE.length; mf.setAttribute('aria-pressed',String(MENTION_ONLY)); mf.innerHTML=ic('at-sign')+MINE.length; mf.setAttribute('aria-label',tl('나를 부른 핀 {n}',{n:MINE.length}));
+  mf.hidden=!MINE.length; mf.setAttribute('aria-pressed',String(MENTION_ONLY)); setHtml(mf,html`${ic('at-sign')}${MINE.length}`); mf.setAttribute('aria-label',tl('나를 부른 핀 {n}',{n:MINE.length}));
   const SHOWN=MENTION_ONLY?OPEN_ALL.filter(mentionsMe):LIST;
   // If the cursor was in the reply input field or the edit card's note, it's restored to that position after redrawing (so auto-sync
   // redrawing the list, or a layout change redrawing the cards, never interrupts typing).
   const rta=REPLY&&REPLY.el.querySelector('textarea'),rfocus=rta&&document.activeElement===rta?[rta.selectionStart,rta.selectionEnd]:null;
   const eta=EDITOR.current&&EDITOR.current.el.querySelector('.e-note'),efocus=eta&&document.activeElement===eta?[eta.selectionStart,eta.selectionEnd]:null;
   secHead('open',tr(MENTION_ONLY?'나를 부른 열린 핀':SHOW_ALL&&multiDoc()?'모든 문서의 열린 핀':'열린 핀'),SHOWN.map(p=>p.id),OPEN_ALL.map(p=>p.id));
-  const ab=$('#all-docs'); ab.setAttribute('aria-pressed',String(SHOW_ALL)); ab.innerHTML=(SHOW_ALL?ic('check'):'')+esc(tr('모든 문서'));
+  const ab=$('#all-docs'); ab.setAttribute('aria-pressed',String(SHOW_ALL)); setHtml(ab,html`${SHOW_ALL?ic('check'):''}${tr('모든 문서')}`);
   $('#side-n').textContent=PINS.length; applySide();
   // In compact, the Trash is a row in [⋯] with its count. On desktop the Trash is the link under the list.
   const nTrash=LDROP.filter(p=>!PURGING.has(p.id)).length;
@@ -149,7 +149,7 @@ function marks(){
     Object.assign(m.style,{left:at.frac[0]*100+'%',top:at.frac[1]*100+'%',width:at.frac[2]*100+'%',height:at.frac[3]*100+'%'});
     const n=String(p.note||'').replace(/\s+/g,' ').trim();
     const tip='#'+p.id+' · '+(n?(n.length>60?n.slice(0,60)+'…':n):tr('(메모 없음)'))+(est?' '+tr('(PDF가 새로 만들어져 위치는 추정입니다)'):'')+(elLost(p)?' · '+tr('요소 잃음'):'');
-    m.innerHTML='<b translate="no" data-act="mark-jump" data-id="'+p.id+'" data-tip="'+esc(tip)+'">'+p.id+'</b>'; el.appendChild(m);});   // the tip carries the note
+    setHtml(m,html`<b translate="no" data-act="mark-jump" data-id="${p.id}" data-tip="${tip}">${p.id}</b>`); el.appendChild(m);});   // the tip carries the note
   markBadgeSides();
 }
 // Clicking a badge scrolls to and flashes the card (never calls pick). The mark box itself has pointer-events:none, so
