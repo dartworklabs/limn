@@ -20,7 +20,10 @@ from limn.revisions.core import (
     RevisionSpec,
     StepFailed,
 )
+from limn.revisions.macros import PREAMBLE_MAX, text_macros
 from limn.revisions.scope import ScopeRefusal, ScopeUnwritable, UnsafePath, plan_scope_writes
+
+TEXT_COMMANDS_FILE = "textcmd.txt"  # in a job's work folder, beside the old/ and new/ snapshots
 
 
 @dataclass(frozen=True)
@@ -151,6 +154,25 @@ def revision_apply_scope(spec: RevisionSpec, dest: Path) -> None | ScopeRefusal:
     return None
 
 
+def revision_text_commands(work: Path, main: Path) -> list[str]:
+    """The latexdiff arguments that mark changes inside the commands the new side's main file defines as text
+    (limn.revisions.macros.text_macros): ["--append-textcmd=/work/textcmd.txt"] after writing their names, one per
+    line, to work/textcmd.txt - outside both snapshots, so neither the diff nor the build sees it - or [] when there
+    are none or the main file cannot be read. latexdiff takes the new side's preamble, so the old side's definitions
+    do not count. Reads at most PREAMBLE_MAX bytes of work/new/main; a name list is never passed inline, because
+    latexdiff reads an existing file of that name instead."""
+    try:
+        with (work / "new" / main).open("rb") as f:
+            head = f.read(PREAMBLE_MAX)
+    except OSError:
+        return []
+    names = text_macros(head.decode("utf-8", errors="replace"))
+    if not names:
+        return []
+    (work / TEXT_COMMANDS_FILE).write_text("".join(name + "\n" for name in names), encoding="ascii")
+    return ["--append-textcmd=/work/" + TEXT_COMMANDS_FILE]
+
+
 def revision_sandbox(work: Path, main_parent: Path, tool: str, args: list[str]) -> list[str] | StepFailed:
     """The bwrap command that runs tool (latexdiff or latexmk) on work: only the TeX installation and throwaway
     snapshots are visible; no host home or network. A missing sandbox or tool, or one outside /usr, is a step failure;
@@ -207,9 +229,10 @@ def revision_sandbox(work: Path, main_parent: Path, tool: str, args: list[str]) 
 
 def revision_compile(spec: RevisionSpec, jobdir: Path, timeout: int) -> ComparisonBuilt | BuildFailure:
     """Builds the comparison PDF of spec into jobdir/revision.pdf (and jobdir/build.log) inside the bwrap sandbox:
-    snapshots of both sides - for a pin scope, old + only its blocks (revision_apply_scope) - then latexdiff, then
-    latexmk with timeout seconds. Returns ComparisonBuilt with the warnings to show, or the first step that failed (a
-    StepFailed as before 0.3, or a ScopeRefusal from the scope step); the worker records either."""
+    snapshots of both sides - for a pin scope, old + only its blocks (revision_apply_scope) - then latexdiff (told the
+    new side's own text commands, revision_text_commands), then latexmk with timeout seconds. Returns ComparisonBuilt
+    with the warnings to show, or the first step that failed (a StepFailed as before 0.3, or a ScopeRefusal from the
+    scope step); the worker records either."""
     warnings = [
         "수식 내부와 같은 파일명의 그림 내용 변경은 강조되지 않을 수 있습니다. 그림·서지·스타일 변경은 소스 변경사항도 확인하세요."
     ]
@@ -231,6 +254,7 @@ def revision_compile(spec: RevisionSpec, jobdir: Path, timeout: int) -> Comparis
             "--math-markup=off",
             "--add-to-config",
             "ARRENV=tabularx;tabular;tabular[*]",
+            *revision_text_commands(work, spec.main),
             "--label",
             spec.base[:8],
             "--label",
