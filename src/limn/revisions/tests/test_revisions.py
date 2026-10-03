@@ -15,6 +15,7 @@ import os
 import shutil
 import signal
 import subprocess
+import tempfile
 import threading
 import time
 import unittest
@@ -769,6 +770,67 @@ class ManuscriptRevisions(Base):
         text = self.comparison_text(head)
         self.assertIn("oldopening", text)
         self.assertIn("newopening", text)
+
+    def build_comparison(self, head: str, forced: tuple[str, ...] | None = None):
+        """Builds the whole-commit comparison of head in the real sandbox, in a new job folder, and returns (outcome, job
+        folder). forced, when given, is the text-command list latexdiff gets instead of the classifier's
+        (revision_compile's seam)."""
+        dest = Path(tempfile.mkdtemp(prefix="job-", dir=self.repo))
+        seam = {} if forced is None else {"text_commands_of": lambda source: forced}
+        return revision_execution.revision_compile(revision_spec(head), dest, 60, **seam), dest
+
+    @needs_tex("bwrap", "latexdiff", "latexmk", "pdftotext")
+    def test_a_text_command_that_breaks_the_build_falls_back_to_plain_latexdiff(self):
+        """A comparison that built before issue #162's fix never stops building because of the text-command list. The
+        classifier is strict enough that no accepted macro was found whose marked argument breaks the build, so this
+        forces one through the seam: \\see hands its argument to \\ref, and latexdiff's markup inside it does not
+        compile. The comparison is built again with plain latexdiff, shows the plain paragraph's change, and says so
+        in its warnings and its build log."""
+        self.commit_main(SEE_ALSO, "cross-reference")
+        head = self.commit_main(
+            SEE_ALSO.replace("oldopening", "newopening").replace("\\see{sec:alpha}", "\\see{sec:beta}"),
+            "point at the other section",
+        )
+        built, dest = self.build_comparison(head, forced=("see",))
+        self.assertIsInstance(built, revisions.ComparisonBuilt, built)
+        self.assertEqual(
+            built.warnings[:2], [revision_execution.COMPARISON_NOTE, revision_execution.TEXT_COMMANDS_FALLBACK_NOTE]
+        )
+        self.assertTrue((dest / "build.log").read_text().startswith(revision_execution.TEXT_COMMANDS_FALLBACK_LOG))
+        text = subprocess.check_output(["pdftotext", str(dest / "revision.pdf"), "-"], text=True)
+        self.assertIn("oldopening", text)
+        self.assertIn("newopening", text)
+
+    @needs_tex("bwrap", "latexdiff", "latexmk", "pdftotext")
+    def test_a_text_command_run_that_builds_is_kept_without_fallback(self):
+        """When the run with the document's text commands builds, it is the comparison: no fallback note in the
+        warnings or the log, and the deleted words inside the macros are there (a plain latexdiff run would hide
+        them)."""
+        self.commit_main(REPLY_LETTER, "reply letter")
+        head = self.commit_main(
+            REPLY_LETTER.replace("oldsecond", "newsecond").replace("oldthird", "newthird"), "reword the replies"
+        )
+        built, dest = self.build_comparison(head)
+        self.assertIsInstance(built, revisions.ComparisonBuilt, built)
+        self.assertNotIn(revision_execution.TEXT_COMMANDS_FALLBACK_NOTE, built.warnings)
+        self.assertFalse((dest / "build.log").read_text().startswith(revision_execution.TEXT_COMMANDS_FALLBACK_LOG))
+        text = subprocess.check_output(["pdftotext", str(dest / "revision.pdf"), "-"], text=True)
+        self.assertIn("oldsecond", text)
+        self.assertIn("oldthird", text)
+
+    @needs_tex("bwrap", "latexdiff", "latexmk")
+    def test_a_comparison_that_does_not_build_is_retried_only_after_a_text_command_run(self):
+        """A new side that does not compile fails either way. Without text commands the one run is already plain
+        latexdiff's, so it is not repeated (no fallback line in the log); with a list the plain run follows, and its
+        failure, compile_failed, is the answer."""
+        self.commit_main(SEE_ALSO, "cross-reference")
+        head = self.commit_main(SEE_ALSO.replace("oldopening", "\\undefinedcommand newopening"), "break the build")
+        for forced, retried in (((), False), (("see",), True)):
+            with self.subTest(forced=forced):
+                built, dest = self.build_comparison(head, forced=forced)
+                self.assertEqual(built, revisions.StepFailed("compile_failed"))
+                log = (dest / "build.log").read_text()
+                self.assertEqual(log.startswith(revision_execution.TEXT_COMMANDS_FALLBACK_LOG), retried)
 
 
 # ---------------------------------------------------------------- pin-scoped changes (v0.3, issue #9): the scoped source diff and comparison PDF
