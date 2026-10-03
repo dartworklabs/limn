@@ -1,11 +1,10 @@
 // ------------------------------------------------ Markup: html``, ic() and setHtml(), the one way the viewer writes HTML
 // docs/handbook/viewer.md §마크업 만들기. A value put into html`` is text unless it is Html the viewer made itself, so a
 // note, a name or a PDF heading never becomes markup because one esc() was forgotten. Html is made only here (html``
-// and ic()), and setHtml() is the one sink; src/limn/viewer/tests/test_viewer_markup.py holds both to that and counts
-// the innerHTML writes not moved here yet.
+// and ic()), and setHtml() is the one sink; src/limn/viewer/tests/test_viewer_markup.py holds every part to both.
 
 // Markup the viewer built: html`` escaped every value in it, or ic() drew it from the bundled icon table. toString()
-// gives the markup, so an Html still joins an older '<b>'+...+'</b>' string while those parts move to html``.
+// gives the markup text (for tests and debugging); a string made from it is no Html, so setHtml() refuses it.
 class Html{
   constructor(text){this.text=text;}
   toString(){return this.text;}

@@ -86,10 +86,12 @@
 
 - `` html`…` `` 안의 값은 `Html`이 아니면 모두 글자로 바뀐다(`esc()`). `Html`(안쪽 `` html`…` ``, `ic()`)은 마크업으로, 배열은 원소를 같은 규칙으로 이어 붙인다. `null`·`undefined`만 빈칸이고 `false`·`0`은 글자 그대로다. 조건부 조각은 `c?x:''`로 쓴다.
 - 값은 요소 내용이나 따옴표로 감싼 속성 값 자리에만 둔다. `esc()`는 따옴표 없는 속성이나 `href` 같은 URL 속성을 안전하게 만들지 않는다.
-- `Html`은 `markup.js`의 `html`과 `ic()`만 만든다. `setHtml()`은 `Html`이 아니면 `TypeError`를 던진다.
+- `Html`은 `markup.js`의 `html`과 `ic()`만 만든다. `setHtml()`은 `Html`이 아니면 `TypeError`를 던진다. `String(h)`는 마크업 글자를 주지만(테스트·디버깅용) 그 문자열은 `Html`이 아니라 `setHtml()`에 넣을 수 없다.
+- 있을 수도 없을 수도 있는 조각(배지 등)은 없을 때 `null`을 돌려준다. `` html`…` ``은 `null`을 빈칸으로 그리고, `` html`` `` 빈 값과 달리 `if(x)`로 걸러진다.
 - `` html`…` ``의 결과를 `+`로 잇지 않는다. 문자열이 되어, 바깥 `` html`…` ``에 넣으면 다시 글자로 바뀐다. 여러 조각은 한 템플릿 안에 `${a}${b}`로 넣는다.
+- 긴 템플릿은 줄 끝의 `\`(템플릿 줄 이음)로 소스 줄만 나눈다. 그냥 줄을 바꾸면 그 줄바꿈이 마크업 안의 공백 글자가 된다.
 
-아직 손으로 `innerHTML`을 쓰는 조각이 남아 있다. [`test_viewer_markup.py`](../../src/limn/viewer/tests/test_viewer_markup.py)의 `LEGACY_SINKS`가 조각마다 그 수를 고정하므로 새 `innerHTML` 쓰기는 실패하고, 하나를 `setHtml()`로 옮기면 같은 변경에서 그 수를 줄인다. 같은 테스트가 `markup.js` 밖의 `new Html`, 태그가 아닌 `html(...)` 호출, `+`로 이은 `` html`…` ``도 토큰으로 막고, `` html`…` ``의 이스케이프를 node로 확인한다.
+[`test_viewer_markup.py`](../../src/limn/viewer/tests/test_viewer_markup.py)가 이 규칙을 토큰으로 지킨다. `setHtml()` 밖의 `innerHTML`·`outerHTML` 쓰기와 `insertAdjacentHTML` 같은 HTML 싱크, `markup.js` 밖의 `esc()`·`new Html`, 태그가 아닌 `html(...)` 호출, `+`로 이은 `` html`…` ``은 실패한다. `esc()`를 `markup.js`만 쓰게 하는 이유는 손으로 이스케이프해 마크업 문자열을 짜는 길을 아예 닫기 위해서다. 같은 테스트가 `` html`…` ``의 이스케이프를 node로 확인한다. 화면을 비우는 일은 `el.replaceChildren()`으로 한다.
 
 ## 조작 한눈에
 

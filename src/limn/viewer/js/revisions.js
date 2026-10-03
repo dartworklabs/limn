@@ -10,12 +10,12 @@ function revisionFiles(patch){
   return starts.map((s,i)=>{const n=s.head.lastIndexOf(' b/');return {
     name:n>=0?s.head.slice(n+3):tl('파일 {n}',{n:i+1}),text:patch.slice(s.at,i+1<starts.length?starts[i+1].at:undefined)};});
 }
-// A patch as numbered lines (file, hunk, add, del, context, meta). The code itself is the manuscript's text, so it is
-// translate="no"; the lines are escaped.
+// A patch as Html of numbered lines (file, hunk, add, del, context, meta). The code itself is the manuscript's text, so
+// it is translate="no"; the lines are text.
 function renderRevisionDiff(patch){
   const lines=String(patch||'').split('\n'); if(lines[lines.length-1]==='')lines.pop();
   let oldLine=null,newLine=null,inHunk=false;
-  return lines.map(line=>{
+  return html`${lines.map(line=>{
     let kind='meta',number='';
     if(line.startsWith('diff --git ')){kind='file';inHunk=false;oldLine=newLine=null;}
     else if(line.startsWith('@@ ')){
@@ -27,19 +27,19 @@ function renderRevisionDiff(patch){
     else if(line.startsWith('+')){kind='add';if(newLine!==null)number=newLine++;}
     else if(line.startsWith('-')){kind='del';if(oldLine!==null)number=oldLine++;}
     else if(line.startsWith(' ')){kind='context';if(newLine!==null){number=newLine++;oldLine++;}}
-    return '<span class="rd-line rd-'+kind+'"><span class="rd-no" aria-hidden="true">'+number+'</span><span class="rd-code" translate="no">'+esc(line)+'</span></span>';
-  }).join('');
+    return html`<span class="rd-line rd-${kind}"><span class="rd-no" aria-hidden="true">${number}</span><span class="rd-code" translate="no">${line}</span></span>`;
+  })}`;
 }
 function renderRevisionFile(){const v=$('#revision-file').value,i=Number(v);
-  $('#revision-diff').innerHTML=renderRevisionDiff(v==='all'?REV.whole:(REV.files[i]&&REV.files[i].text)||REV.whole);}
+  setHtml($('#revision-diff'),renderRevisionDiff(v==='all'?REV.whole:(REV.files[i]&&REV.files[i].text)||REV.whole));}
 // The rest of the commit, folded under one control (v0.3). Hidden when the pin owns the whole commit or the view is not a pin's.
 function drawRevisionOther(sc){const b=$('#revision-other-toggle'),o=$('#revision-other');
-  o.hidden=true;o.innerHTML='';b.setAttribute('aria-expanded','false');
+  o.hidden=true;o.replaceChildren();b.setAttribute('aria-expanded','false');
   REV.other=sc&&sc.mode===SCOPE_MODE.PIN?String(sc.other_diff||'')+(sc.other_truncated?'\n\n'+tr('변경 내용이 커서 앞부분만 표시했습니다. 저장소에서 전체 diff를 확인하세요.'):''):'';
   b.hidden=!REV.other;if(REV.other)b.querySelector('span').textContent=tl('이 커밋의 다른 변경 {n}곳',{n:sc.other});}
 function toggleRevisionOther(){const b=$('#revision-other-toggle'),o=$('#revision-other'),open=b.getAttribute('aria-expanded')!=='true';
   b.setAttribute('aria-expanded',String(open));o.hidden=!open;
-  if(open&&!o.innerHTML)o.innerHTML=renderRevisionDiff(REV.other);}
+  if(open&&!o.firstChild)setHtml(o,renderRevisionDiff(REV.other));}
 // [커밋 전체 비교]: shown only for the PDF of a pin that owns part of the commit, and not after a fallback (there is nothing to switch to).
 function syncRevisionWhole(){const b=$('#revision-whole');
   b.hidden=!(REV.format===DIFF_FORMAT.PDF&&revisionPinFor(REV.commit)&&REV_SCOPE.partial&&!REV_SCOPE.fallback);
@@ -92,7 +92,8 @@ async function loadRevisions(){
     if(tg)revTargetNote(tg.region?'보기 전용 PDF 문서의 핀이라 Git 변경사항이 없습니다 — 고친 곳은 LaTeX 문서(본문 등)의 변경사항에서 찾으세요.':
       '이 문서는 Git 이력을 읽을 수 없어(Git 저장소가 아니거나 경로가 밖) 핀 자리를 변경과 맞출 수 없습니다.'); return;}
   if(!data.revisions.length){list.textContent='이 문서의 최근 변경사항이 없습니다.'; if(tg)revTargetNote('이 문서의 최근 12개 커밋에 변경이 없습니다.'); return;}
-  list.innerHTML='<label class="sr-only" for="revision-select">비교할 커밋</label><select id="revision-select" aria-label="비교할 커밋">'+data.revisions.map(r=>'<option value="'+esc(r.id)+'">'+esc(r.subject)+' · '+esc(r.date)+' · '+esc(r.id.slice(0,8))+'</option>').join('')+'</select>';
+  const options=data.revisions.map(r=>html`<option value="${r.id}">${r.subject} · ${r.date} · ${r.id.slice(0,8)}</option>`);
+  setHtml(list,html`<label class="sr-only" for="revision-select">비교할 커밋</label><select id="revision-select" aria-label="비교할 커밋">${options}</select>`);
   if(tg){const pick=await pickRevisionFor(tg,data.revisions,seq,k); if(seq!==REV.seq||k!==DOC||REV.target!==tg)return;
     tg.commit=pick.id; tg.via=pick.via; tg.hit=pick.hit; showRevision(pick.id,DIFF_FORMAT.SOURCE); return;}
   showRevision(data.revisions.some(r=>r.id===REV.commit)?REV.commit:data.revisions[0].id);
@@ -116,7 +117,7 @@ async function loadRevisionSource(id,seq,k){
     const cut='\n\n'+tr('변경 내용이 커서 앞부분만 표시했습니다. 저장소에서 전체 diff를 확인하세요.');
     REV.whole=sc?sc.diff+(sc.truncated?cut:''):(r.diff||tr('이 커밋에서 표시할 원고 텍스트 변경이 없습니다.'))+(r.truncated?cut:'');
     REV.files=revisionFiles(sc?sc.diff:(r.diff||''));drawRevisionOther(sc);
-    const select=$('#revision-file');select.innerHTML='<option value="all">전체 파일</option>'+REV.files.map((f,i)=>'<option value="'+i+'">'+esc(f.name)+'</option>').join('');
+    const select=$('#revision-file');setHtml(select,html`<option value="all">전체 파일</option>${REV.files.map((f,i)=>html`<option value="${i}">${f.name}</option>`)}`);
     select.value='all';$('#revision-file-row').hidden=REV.files.length<2;REV.sourceCommit=id;
     const tg=REV.target,fi=tg?pinFileIndex(REV.files,tg.file):-1;
     if(fi>=0&&REV.files.length>1)select.value=String(fi);
@@ -153,7 +154,7 @@ function revTargetNote(msg){const tg=REV.target,box=$('#revision-pin'); if(!tg){
   let t=msg?tr(msg):scopeMsg+(REV.format===DIFF_FORMAT.PDF?tl('비교 PDF에는 줄 대응이 없어 원고 {page}쪽 근처로만 옮겼습니다(삭제 문장이 끼어 쪽이 밀릴 수 있음). 정확한 줄은 [소스 diff]',{page:tg.page}):
     tr(tg.hit===false?'이 커밋의 diff에서 핀 범위를 찾지 못했습니다 — 가장 가까운 줄을 보입니다':
      tg.near?'핀 범위 줄 자체는 바뀌지 않았고 바로 곁(±5줄)이 바뀌었습니다 — 가장 가까운 줄을 보입니다':'강조한 줄이 핀 범위입니다'));
-  box.innerHTML='<span><b>'+esc(tl('핀 #{id}',{id:tg.id}))+'</b> · '+esc(where)+(tg.ref?' · '+esc(tl('참조 {ref}',{ref:tg.ref})):'')+(via?' · '+esc(via):'')+'</span><span class="rp-msg">'+esc(t)+'</span>';
+  setHtml(box,html`<span><b>${tl('핀 #{id}',{id:tg.id})}</b> · ${where}${tg.ref?' · '+tl('참조 {ref}',{ref:tg.ref}):''}${via?' · '+via:''}</span><span class="rp-msg">${t}</span>`);
   box.dataset.id=tg.id; box.hidden=false; revTargetActs();}
 // The guide line's buttons (docs/handbook/viewer.md §변경 보기): [원고로] and, for a pin awaiting review that this person may confirm
 // (not a viewer, not a view-only region pin), the card's [확인] - the same data-act="confirm" and confirmPin(), soft for the
@@ -165,8 +166,8 @@ function revTargetActs(){const tg=REV.target,row=$('#revision-acts'),narrow=LAYO
   const p=findAnyPin(tg.id),confirm=!!p&&pinState(p)===PIN_STATE.REVIEW&&!tg.region&&!isViewer();
   const back=REV.back&&REV.back!==DOC&&docInfo(REV.back)?docInfo(REV.back).name:null,acts=document.createElement('span');
   acts.className='rp-acts';
-  acts.innerHTML='<button class="btn-sm" data-act="rev-back" data-tip="'+esc(back?tl('{name} 원고 보기로 돌아갑니다',{name:back}):tr('원고 보기로 돌아갑니다'))+'">'+esc(back?tl('{name}(으)로',{name:back}):tr('원고로'))+'</button>'+
-    (confirm?'<button class="btn-sm b-confirm '+(isMe(p.author)?'btn-soft':'btn-secondary')+'" data-act="confirm" data-tip="'+esc(T.confirm)+'">확인</button>':'');
+  const ok=confirm?html`<button class="btn-sm b-confirm ${isMe(p.author)?'btn-soft':'btn-secondary'}" data-act="confirm" data-tip="${T.confirm}">확인</button>`:'';
+  setHtml(acts,html`<button class="btn-sm" data-act="rev-back" data-tip="${back?tl('{name} 원고 보기로 돌아갑니다',{name:back}):tr('원고 보기로 돌아갑니다')}">${back?tl('{name}(으)로',{name:back}):tr('원고로')}</button>${ok}`);
   (narrow?row:$('#revision-pin')).appendChild(acts);
   row.dataset.id=tg.id; row.hidden=!narrow; document.body.classList.toggle('rev-thumb',narrow);}
 function revHighlight(tg){const rows=$$('#revision-diff .rd-line'); let first=null;
@@ -226,7 +227,7 @@ async function loadRevisionPdf(id,seq,k){
     REV_PDF.doc=pdf;
     const lead=pin&&status.scope===SCOPE_MODE.PIN?tl('핀 #{id}의 변경만',{id:pin})+' · ':REV_SCOPE.fallback&&tg?tr('이 핀의 변경만으로는 비교 PDF를 만들지 못해 커밋 전체를 비교합니다')+' · ':'';
     statusBox.textContent=lead+tl('첫 부모 {base} → {head} · {n}쪽 · 읽기 전용 · 빨강 삭제 / 파랑 추가',{base:String(status.base||'').slice(0,8),head:id.slice(0,8),n:pdf.numPages});
-    const box=$('#revision-pdf');box.innerHTML=Array.from({length:pdf.numPages},(_,i)=>'<div class="revision-page" data-page="'+(i+1)+'" aria-label="'+esc(tl('비교 PDF {page}쪽',{page:i+1}))+'"></div>').join('');
+    const box=$('#revision-pdf');setHtml(box,html`${Array.from({length:pdf.numPages},(_,i)=>html`<div class="revision-page" data-page="${i+1}" aria-label="${tl('비교 PDF {page}쪽',{page:i+1})}"></div>`)}`);
     if(window.IntersectionObserver){REV_PDF.observer=new IntersectionObserver(rows=>{for(const row of rows)if(row.isIntersecting){
       REV_PDF.observer.unobserve(row.target);renderRevisionPage(row.target,pdf,seq,k,id);
     }},{root:box,rootMargin:'600px 0px'});box.querySelectorAll('.revision-page').forEach(el=>REV_PDF.observer.observe(el));}

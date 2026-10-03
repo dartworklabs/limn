@@ -70,7 +70,7 @@ function locCopy(p){const name=p.name||String(p.file||p.pdf||'').split('/').pop(
 function docChip(p){if(!(SHOW_ALL&&multiDoc()))return html``; const d=docInfo(pdoc(p)),other=pdoc(p)!==DOC;
   const tip=(d?d.name+' · '+d.path:tl('{doc} (설정에 없는 문서)',{doc:pdoc(p)}))+(other?' — '+tr('#번호·[보기]를 누르면 이 문서로 바꿉니다'):'');
   return html`<span class="badge badge-secondary dchip${other?' other':''}" translate="no" data-tip="${tip}">${d?d.name:pdoc(p)}</span>`;}
-// Thread (docs/handbook/viewer.md §스레드와 검토): replies and state-transition records (close/reopen/confirm) form a single line of history. Text goes through esc().
+// Thread (docs/handbook/viewer.md §스레드와 검토): replies and state-transition records (close/reopen/confirm) form a single line of history, built with html``.
 // wide shows the last 3, compact shows only the last 1, expanded via [이전 N건] (THREAD_OPEN). The input field (REPLY) is inserted in place like EDITOR.current.
 function isQuestion(p){return !!p&&p.kind_req===KIND_REQ.QUESTION;}
 // The current assignee - the recorded value (p.assignee); for a legacy pin without one, the person the server inferred (the first of p.addressed); if neither, the agent.
