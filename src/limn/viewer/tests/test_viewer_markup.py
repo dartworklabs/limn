@@ -29,7 +29,6 @@ MARKUP_PART = "js/markup.js"
 LEGACY_SINKS = {
     "js/cards.js": 1,
     "js/list.js": 8,
-    "js/mentions.js": 7,
     "js/revisions.js": 8,
 }
 SINK_PROPS = frozenset(["innerHTML", "outerHTML"])

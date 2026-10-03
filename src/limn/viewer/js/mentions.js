@@ -47,38 +47,39 @@ function defaultAssignee(text,kind,hints){const r=mentionScan(text,hints),me=meL
   if(r.first&&r.first!==me)return r.first; if(kind===KIND_REQ.QUESTION&&hit.length)return hit[0]; return ASSIGNEE_AGENT;}
 function assignPeople(text,hints,keep){const me=meLogin(),out=mentionScan(text,hints).hit.filter(l=>l!==me);
   if(keep&&keep!==ASSIGNEE_AGENT&&!out.includes(keep))out.push(keep); return out;}
-function assignSeg(people,value,act){if(!people.length)return '';
-  const opt=(v,label,tip)=>'<button type="button" role="radio" data-act="'+act+'" data-v="'+esc(v)+'" aria-checked="'+(v===value)+'"'+(v===value?' class="on"':'')+
-    ' data-tip="'+esc(tip)+'">'+label+'</button>';
-  return '<span class="as-lab">'+esc(tr('담당'))+'</span><div class="seg as-seg">'+opt(ASSIGNEE_AGENT,esc(tr('에이전트')),tr('에이전트가 이 핀을 처리합니다 — @태그한 사람에게는 알림만 갑니다'))+
-    people.map(l=>opt(l,'@'+esc(peopleName(l)),tl('{name}에게 맡깁니다 — 에이전트는 이 핀을 건너뜁니다',{name:peopleName(l)}))).join('')+'</div>';}
+// The assignee row (Html) for people, value pressed; empty Html without people. Each option carries act as its data-act.
+function assignSeg(people,value,act){if(!people.length)return html``;
+  const opt=(v,label,tip)=>html`<button type="button" role="radio" data-act="${act}" data-v="${v}" aria-checked="${v===value}"${v===value?html` class="on"`:''} data-tip="${tip}">${label}</button>`;
+  const agent=opt(ASSIGNEE_AGENT,tr('에이전트'),tr('에이전트가 이 핀을 처리합니다 — @태그한 사람에게는 알림만 갑니다'));
+  const others=people.map(l=>opt(l,'@'+peopleName(l),tl('{name}에게 맡깁니다 — 에이전트는 이 핀을 건너뜁니다',{name:peopleName(l)})));
+  return html`<span class="as-lab">${tr('담당')}</span><div class="seg as-seg">${agent}${others}</div>`;}
 // The composer panel's assignee: before the user picks one (touched=false), the default is re-chosen every time the note changes. If the picked person disappears from the note, it falls back to the default.
 // Both assignee rows read the note with the hints the save carries (mentionHints), so they offer exactly whom the server tags.
 const ASSIGN_NEW={v:ASSIGNEE_AGENT,touched:false};
 function renderAssignNew(){const ta=$('#note'),box=$('#c-assign'); if(!ta||!box)return;
   const hs=new Set(mentionHints(ta)),ppl=assignPeople(ta.value,hs);
   if(!ASSIGN_NEW.touched||(ASSIGN_NEW.v!==ASSIGNEE_AGENT&&!ppl.includes(ASSIGN_NEW.v))){ASSIGN_NEW.v=defaultAssignee(ta.value,KIND_NEW,hs); ASSIGN_NEW.touched=false;}
-  if(!ppl.length){ASSIGN_NEW.v=ASSIGNEE_AGENT; box.hidden=true; box.innerHTML=''; return;}
-  box.innerHTML=assignSeg(ppl,ASSIGN_NEW.v,'assign-new'); box.hidden=false;}
+  if(!ppl.length){ASSIGN_NEW.v=ASSIGNEE_AGENT; box.hidden=true; box.replaceChildren(); return;}
+  setHtml(box,assignSeg(ppl,ASSIGN_NEW.v,'assign-new')); box.hidden=false;}
 function renderAssignEdit(){const E=EDITOR.current; if(!E)return; const ta=E.el.querySelector('.e-note'),box=E.el.querySelector('.e-assign'); if(!ta||!box)return;
   const ppl=assignPeople(ta.value,new Set(mentionHints(ta)),E.assignee);
-  if(!ppl.length){box.hidden=true; box.innerHTML=''; return;}
-  box.innerHTML=assignSeg(ppl,E.assignee,'assign-edit'); box.hidden=false;}
+  if(!ppl.length){box.hidden=true; box.replaceChildren(); return;}
+  setHtml(box,assignSeg(ppl,E.assignee,'assign-edit')); box.hidden=false;}
 function mentionPreview(ta){if(!ta)return; const box=ta.nextElementSibling; if(!box||!box.classList.contains('m-preview'))return;
   const r=mentionScan(ta.value,new Set(mentionHints(ta))),me=meLogin();   // the same hints the save/send carries
   r.bad=mentionBadSettled(r.bad,ta.value,document.activeElement===ta?mentionQuery(ta):null);
-  if(!r.hit.length&&!r.bad.length){box.hidden=true; box.innerHTML=''; return;}
-  box.innerHTML=(r.hit.length?'<span class="m-lab">'+ic('at-sign')+'알림</span>'+r.hit.map(l=>'<span class="mention'+(l===me?' me':'')+'">'+esc(peopleName(l))+(l===me?' '+esc(tr('(나 — 알림 없음)')):'')+'</span>').join(''):'')+
-    r.bad.map(w=>'<span class="mention-bad" data-tip="등록된 사람이 아님 — 이 이름으로는 알림이 가지 않습니다. 이 뷰어를 연 테일넷 사람만 부를 수 있습니다">@'+esc(w)+'</span>').join('')+
-    (r.bad.length?'<span class="m-note">등록된 사람이 아님</span>':'');
+  if(!r.hit.length&&!r.bad.length){box.hidden=true; box.replaceChildren(); return;}
+  const hits=r.hit.length?html`<span class="m-lab">${ic('at-sign')}알림</span>${r.hit.map(l=>html`<span class="mention${l===me?' me':''}">${peopleName(l)}${l===me?' '+tr('(나 — 알림 없음)'):''}</span>`)}`:'';
+  const bad=r.bad.map(w=>html`<span class="mention-bad" data-tip="등록된 사람이 아님 — 이 이름으로는 알림이 가지 않습니다. 이 뷰어를 연 테일넷 사람만 부를 수 있습니다">@${w}</span>`);
+  setHtml(box,html`${hits}${bad}${r.bad.length?html`<span class="m-note">등록된 사람이 아님</span>`:''}`);
   box.hidden=false;}
 function mentionUpdate(ta){const q=mentionQuery(ta); if(!q){if(MENTION.ta===ta)mentionClose(); return;}
   const me=META&&META.me&&META.me.login; MENTION.ta=ta; MENTION.start=q.start; MENTION.items=mentionMatches(q.q,PEOPLE,me);
   MENTION.sel=Math.min(MENTION.sel,Math.max(0,MENTION.items.length-1));
   const pop=$('#mention-pop');
-  pop.innerHTML=MENTION.items.length?MENTION.items.map((p,i)=>'<button type="button" role="option" aria-selected="'+(i===MENTION.sel)+'" data-act="mention-pick" data-i="'+i+'">'+
-    avatar(p)+'<span>'+esc(p.name)+'</span><span class="ml">'+esc(p.login)+'</span></button>').join(''):
-    '<div class="dim">'+esc((q.q?tl("'{q}' 와 맞는 사람이 없습니다",{q:q.q}):tr('부를 수 있는 사람이 없습니다'))+' — '+tr('이 뷰어를 연 테일넷 사람만 부를 수 있습니다'))+'</div>';
+  const none=(q.q?tl("'{q}' 와 맞는 사람이 없습니다",{q:q.q}):tr('부를 수 있는 사람이 없습니다'))+' — '+tr('이 뷰어를 연 테일넷 사람만 부를 수 있습니다');
+  setHtml(pop,MENTION.items.length?html`${MENTION.items.map((p,i)=>html`<button type="button" role="option" aria-selected="${i===MENTION.sel}" data-act="mention-pick" data-i="${i}">\
+${avatar(p)}<span>${p.name}</span><span class="ml">${p.login}</span></button>`)}`:html`<div class="dim">${none}</div>`);
   pop.hidden=false; const r=ta.getBoundingClientRect(),h=pop.offsetHeight,w=pop.offsetWidth,vv=window.visualViewport;
   const g=mentionGuard(ta); pop.style.top=mentionTop(r,g?g.getBoundingClientRect():null,h,vv?vv.offsetTop:0,vv?vv.offsetTop+vv.height:innerHeight)+'px';
   pop.style.left=Math.max(4,Math.min(r.left,innerWidth-w-4))+'px';}
