@@ -15,6 +15,7 @@ import os
 import shutil
 import signal
 import subprocess
+import tempfile
 import threading
 import time
 import unittest
@@ -57,6 +58,36 @@ from helpers import (
 )
 from helpers_access import REPO_NEW as NEW, REPO_OLD as OLD, AccessBase, ScopedRepo, talk_to
 from helpers_authority import post_authority
+
+# Issue #162 (synthetic): a short reply letter. Its opening paragraph is running text; the second sits in a macro that
+# typesets its argument after a label, the third in a macro that sets its argument, a list, in a quote.
+REPLY_LETTER = r"""\documentclass{article}
+\newcommand{\reply}[1]{\par\noindent\textbf{Reply:}\ \normalsize #1\par}
+\newcommand{\revised}[1]{%
+  \begin{quote}
+    \textbf{Revised}\par
+    \itshape #1
+  \end{quote}}
+\begin{document}
+The opening paragraph thanks the editor for an oldopening reading.
+
+\reply{The second paragraph answers the first comment with oldsecond evidence.}
+
+\revised{\begin{itemize}
+\item The third paragraph lists one oldthird change.
+\end{itemize}}
+\end{document}
+"""
+
+# A macro whose argument is a label, not text: marking inside it would not compile.
+SEE_ALSO = r"""\documentclass{article}
+\newcommand{\see}[1]{see Section~\ref{#1}}
+\begin{document}
+\section{Alpha}\label{sec:alpha}
+\section{Beta}\label{sec:beta}
+The paragraph mentions oldopening words, \see{sec:alpha}.
+\end{document}
+"""
 
 
 class ManuscriptRevisions(Base):
@@ -690,6 +721,116 @@ class ManuscriptRevisions(Base):
         self.assertIn("New", text)
         self.assertEqual(before, {p.name: p.read_bytes() for p in self.src.iterdir()})
         self.assertFalse(list(dest.glob("work-*")))
+
+    def commit_main(self, text: str, message: str) -> str:
+        """Writes text as the main file, commits it and returns the commit's full SHA-1."""
+        self.main.write_text(text, encoding="utf-8")
+        for cmd in (["git", "add", "ms"], ["git", "commit", "-qm", message]):
+            subprocess.run(cmd, cwd=self.repo, check=True, capture_output=True)
+        return subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=self.repo, text=True).strip()
+
+    def comparison_text(self, head: str) -> str:
+        """Builds the whole-commit comparison of head in the real sandbox and returns its PDF's text; fails the test
+        when the build does not succeed."""
+        dest = self.repo / ("job-" + head[:8])
+        dest.mkdir()
+        built = revision_execution.revision_compile(revision_spec(head), dest, 60)
+        self.assertIsInstance(built, revisions.ComparisonBuilt, built)
+        return subprocess.check_output(["pdftotext", str(dest / "revision.pdf"), "-"], text=True)
+
+    @needs_tex("bwrap", "latexdiff", "latexmk", "pdftotext")
+    def test_changes_inside_the_documents_own_text_macros_are_marked_in_every_paragraph(self):
+        """Issue #162: a reply letter keeps its second and third paragraphs in its own one-argument macros. latexdiff
+        took each such call as one opaque token, so the comparison PDF marked only the plain first paragraph; the old
+        text of the later ones was commented out and their new text drawn unmarked. Now every changed paragraph shows
+        its deleted words (struck through, so the PDF's text still has them) next to the new ones."""
+        self.commit_main(REPLY_LETTER, "reply letter")
+        head = self.commit_main(
+            REPLY_LETTER.replace("oldopening", "newopening")
+            .replace("oldsecond", "newsecond")
+            .replace("oldthird", "newthird"),
+            "reword every paragraph",
+        )
+        text = self.comparison_text(head)
+        for paragraph in ("opening", "second", "third"):
+            with self.subTest(paragraph=paragraph):
+                self.assertIn("old" + paragraph, text)
+                self.assertIn("new" + paragraph, text)
+
+    @needs_tex("bwrap", "latexdiff", "latexmk", "pdftotext")
+    def test_a_macro_whose_argument_is_a_label_stays_whole_and_the_comparison_still_builds(self):
+        """The negative side of issue #162: marking inside an argument that is not text (here a cross-reference label)
+        breaks the comparison's compile, so a macro that hands its argument to \\ref is not marked inside. The changed
+        call stays latexdiff's opaque token and the comparison of the plain paragraph still builds."""
+        self.commit_main(SEE_ALSO, "cross-reference")
+        head = self.commit_main(
+            SEE_ALSO.replace("oldopening", "newopening").replace("\\see{sec:alpha}", "\\see{sec:beta}"),
+            "point at the other section",
+        )
+        text = self.comparison_text(head)
+        self.assertIn("oldopening", text)
+        self.assertIn("newopening", text)
+
+    def build_comparison(self, head: str, forced: tuple[str, ...] | None = None):
+        """Builds the whole-commit comparison of head in the real sandbox, in a new job folder, and returns (outcome, job
+        folder). forced, when given, is the text-command list latexdiff gets instead of the classifier's
+        (revision_compile's seam)."""
+        dest = Path(tempfile.mkdtemp(prefix="job-", dir=self.repo))
+        seam = {} if forced is None else {"text_commands_of": lambda source: forced}
+        return revision_execution.revision_compile(revision_spec(head), dest, 60, **seam), dest
+
+    @needs_tex("bwrap", "latexdiff", "latexmk", "pdftotext")
+    def test_a_text_command_that_breaks_the_build_falls_back_to_plain_latexdiff(self):
+        """A comparison that built before issue #162's fix never stops building because of the text-command list. The
+        classifier is strict enough that no accepted macro was found whose marked argument breaks the build, so this
+        forces one through the seam: \\see hands its argument to \\ref, and latexdiff's markup inside it does not
+        compile. The comparison is built again with plain latexdiff, shows the plain paragraph's change, and says so
+        in its warnings and its build log."""
+        self.commit_main(SEE_ALSO, "cross-reference")
+        head = self.commit_main(
+            SEE_ALSO.replace("oldopening", "newopening").replace("\\see{sec:alpha}", "\\see{sec:beta}"),
+            "point at the other section",
+        )
+        built, dest = self.build_comparison(head, forced=("see",))
+        self.assertIsInstance(built, revisions.ComparisonBuilt, built)
+        self.assertEqual(
+            built.warnings[:2], [revision_execution.COMPARISON_NOTE, revision_execution.TEXT_COMMANDS_FALLBACK_NOTE]
+        )
+        self.assertTrue((dest / "build.log").read_text().startswith(revision_execution.TEXT_COMMANDS_FALLBACK_LOG))
+        text = subprocess.check_output(["pdftotext", str(dest / "revision.pdf"), "-"], text=True)
+        self.assertIn("oldopening", text)
+        self.assertIn("newopening", text)
+
+    @needs_tex("bwrap", "latexdiff", "latexmk", "pdftotext")
+    def test_a_text_command_run_that_builds_is_kept_without_fallback(self):
+        """When the run with the document's text commands builds, it is the comparison: no fallback note in the
+        warnings or the log, and the deleted words inside the macros are there (a plain latexdiff run would hide
+        them)."""
+        self.commit_main(REPLY_LETTER, "reply letter")
+        head = self.commit_main(
+            REPLY_LETTER.replace("oldsecond", "newsecond").replace("oldthird", "newthird"), "reword the replies"
+        )
+        built, dest = self.build_comparison(head)
+        self.assertIsInstance(built, revisions.ComparisonBuilt, built)
+        self.assertNotIn(revision_execution.TEXT_COMMANDS_FALLBACK_NOTE, built.warnings)
+        self.assertFalse((dest / "build.log").read_text().startswith(revision_execution.TEXT_COMMANDS_FALLBACK_LOG))
+        text = subprocess.check_output(["pdftotext", str(dest / "revision.pdf"), "-"], text=True)
+        self.assertIn("oldsecond", text)
+        self.assertIn("oldthird", text)
+
+    @needs_tex("bwrap", "latexdiff", "latexmk")
+    def test_a_comparison_that_does_not_build_is_retried_only_after_a_text_command_run(self):
+        """A new side that does not compile fails either way. Without text commands the one run is already plain
+        latexdiff's, so it is not repeated (no fallback line in the log); with a list the plain run follows, and its
+        failure, compile_failed, is the answer."""
+        self.commit_main(SEE_ALSO, "cross-reference")
+        head = self.commit_main(SEE_ALSO.replace("oldopening", "\\undefinedcommand newopening"), "break the build")
+        for forced, retried in (((), False), (("see",), True)):
+            with self.subTest(forced=forced):
+                built, dest = self.build_comparison(head, forced=forced)
+                self.assertEqual(built, revisions.StepFailed("compile_failed"))
+                log = (dest / "build.log").read_text()
+                self.assertEqual(log.startswith(revision_execution.TEXT_COMMANDS_FALLBACK_LOG), retried)
 
 
 # ---------------------------------------------------------------- pin-scoped changes (v0.3, issue #9): the scoped source diff and comparison PDF

@@ -5,6 +5,7 @@ import re
 import shutil
 import tempfile
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -20,7 +21,18 @@ from limn.revisions.core import (
     RevisionSpec,
     StepFailed,
 )
+from limn.revisions.macros import PREAMBLE_MAX, text_macros
 from limn.revisions.scope import ScopeRefusal, ScopeUnwritable, UnsafePath, plan_scope_writes
+
+TEXT_COMMANDS_FILE = "textcmd.txt"  # in a job's work folder, beside the old/ and new/ snapshots
+COMPARISON_NOTE = "수식 내부와 같은 파일명의 그림 내용 변경은 강조되지 않을 수 있습니다. 그림·서지·스타일 변경은 소스 변경사항도 확인하세요."
+# Issue #162: the run with the document's text commands did not build, so the comparison shown is plain latexdiff's.
+TEXT_COMMANDS_FALLBACK_NOTE = (
+    "원고가 정의한 명령 안까지 강조한 비교가 만들어지지 않아, 그 명령 안의 변경은 강조하지 않고 비교했습니다."
+)
+TEXT_COMMANDS_FALLBACK_LOG = (
+    "limn: the run with the document's text commands (--append-textcmd) did not build; this is plain latexdiff's.\n"
+)
 
 
 @dataclass(frozen=True)
@@ -151,6 +163,27 @@ def revision_apply_scope(spec: RevisionSpec, dest: Path) -> None | ScopeRefusal:
     return None
 
 
+def revision_text_commands(
+    work: Path, main: Path, text_commands_of: Callable[[str], tuple[str, ...]] = text_macros
+) -> list[str]:
+    """The latexdiff arguments that mark changes inside the commands the new side's main file defines as text
+    (text_commands_of, by default limn.revisions.macros.text_macros): ["--append-textcmd=/work/textcmd.txt"] after writing their names, one per
+    line, to work/textcmd.txt - outside both snapshots, so neither the diff nor the build sees it - or [] when there
+    are none or the main file cannot be read. latexdiff takes the new side's preamble, so the old side's definitions
+    do not count. Reads at most PREAMBLE_MAX bytes of work/new/main; a name list is never passed inline, because
+    latexdiff reads an existing file of that name instead."""
+    try:
+        with (work / "new" / main).open("rb") as f:
+            head = f.read(PREAMBLE_MAX)
+    except OSError:
+        return []
+    names = text_commands_of(head.decode("utf-8", errors="replace"))
+    if not names:
+        return []
+    (work / TEXT_COMMANDS_FILE).write_text("".join(name + "\n" for name in names), encoding="ascii")
+    return ["--append-textcmd=/work/" + TEXT_COMMANDS_FILE]
+
+
 def revision_sandbox(work: Path, main_parent: Path, tool: str, args: list[str]) -> list[str] | StepFailed:
     """The bwrap command that runs tool (latexdiff or latexmk) on work: only the TeX installation and throwaway
     snapshots are visible; no host home or network. A missing sandbox or tool, or one outside /usr, is a step failure;
@@ -205,14 +238,17 @@ def revision_sandbox(work: Path, main_parent: Path, tool: str, args: list[str]) 
     return cmd + ["--", str(exe)] + args
 
 
-def revision_compile(spec: RevisionSpec, jobdir: Path, timeout: int) -> ComparisonBuilt | BuildFailure:
+def revision_compile(
+    spec: RevisionSpec, jobdir: Path, timeout: int, text_commands_of: Callable[[str], tuple[str, ...]] = text_macros
+) -> ComparisonBuilt | BuildFailure:
     """Builds the comparison PDF of spec into jobdir/revision.pdf (and jobdir/build.log) inside the bwrap sandbox:
-    snapshots of both sides - for a pin scope, old + only its blocks (revision_apply_scope) - then latexdiff, then
-    latexmk with timeout seconds. Returns ComparisonBuilt with the warnings to show, or the first step that failed (a
-    StepFailed as before 0.3, or a ScopeRefusal from the scope step); the worker records either."""
-    warnings = [
-        "수식 내부와 같은 파일명의 그림 내용 변경은 강조되지 않을 수 있습니다. 그림·서지·스타일 변경은 소스 변경사항도 확인하세요."
-    ]
+    snapshots of both sides - for a pin scope, old + only its blocks (revision_apply_scope) - then latexdiff, told the
+    commands text_commands_of finds in the new side's main file (revision_text_commands; the parameter is the seam
+    tests use to force a list), then latexmk with timeout seconds (_diff_and_build). When a run with a list ends in
+    diff_failed or compile_failed, it is built once more with plain latexdiff, and a success says so in its warnings
+    (TEXT_COMMANDS_FALLBACK_NOTE) and build log (TEXT_COMMANDS_FALLBACK_LOG). Returns ComparisonBuilt with the warnings
+    to show, or the first step that failed (a StepFailed as before 0.3 - after a fallback, the plain run's - or a
+    ScopeRefusal from the scope step); the worker records either."""
     with tempfile.TemporaryDirectory(prefix="work-", dir=jobdir) as tmp:
         work = Path(tmp)
         failed: BuildFailure | None = revision_snapshot(spec, spec.base, work / "old")
@@ -223,68 +259,93 @@ def revision_compile(spec: RevisionSpec, jobdir: Path, timeout: int) -> Comparis
                 failed = revision_snapshot(spec, spec.head, work / "new")
         if failed is not None:
             return failed
-        main = spec.main.as_posix()
-        head_label = spec.head[:8] + ("+scoped" if spec.scope else "")
-        args = [
-            "--encoding=utf8",
-            "--flatten",
-            "--math-markup=off",
-            "--add-to-config",
-            "ARRENV=tabularx;tabular;tabular[*]",
-            "--label",
-            spec.base[:8],
-            "--label",
-            head_label,
-            "/work/old/" + main,
-            "/work/new/" + main,
-        ]
-        cmd = revision_sandbox(work, spec.main.parent, "latexdiff", args)
-        if isinstance(cmd, StepFailed):
-            return cmd
-        ran = core.revision_exec(cmd, work, 60)
-        if isinstance(ran, StepFailed):
-            return ran
-        rc, diff, err = ran
-        log = err.decode("utf-8", errors="replace")
-        if rc != 0 or b"\\begin{document}" not in diff or "Could not find" in log:
-            atomic_write(jobdir / "build.log", log[-8000:])
-            return StepFailed("diff_failed")
-        if not re.search(rb"\\DIF(?:add|del)(?:begin|\{)", diff.split(b"\\begin{document}", 1)[1]):
-            warnings.append("본문에 강조할 문장 차이가 없습니다. 서지·스타일 또는 주석만 바뀌었을 수 있습니다.")
-        out = work / "new" / spec.main.parent
-        # Tracked artifacts must never satisfy the fresh-PDF check or influence latexmk.
-        for stale in out.glob("pin_revision.*"):
-            if stale.is_file():
-                stale.unlink()
-        (out / "pin_revision.tex").write_bytes(diff)
-        args = ["-norc", "-pdf", "-no-shell-escape", "-interaction=nonstopmode", "-halt-on-error", "pin_revision.tex"]
-        cmd = revision_sandbox(work, spec.main.parent, "latexmk", args)
-        if isinstance(cmd, StepFailed):
-            return cmd
-        ran = core.revision_exec(cmd, work, timeout)
-        if isinstance(ran, StepFailed):
-            return ran
-        rc, stdout, stderr = ran
-        log += (stdout + stderr).decode("utf-8", errors="replace")
-        atomic_write(jobdir / "build.log", log[-8000:])
-        pdf = out / "pin_revision.pdf"
-        if rc != 0 or not pdf.is_file() or pdf.stat().st_size > REVISION_PDF_MAX:
-            return StepFailed("compile_failed")
-        if not pdf.read_bytes().startswith(b"%PDF-"):
-            return StepFailed("invalid_pdf")
-        # Earlier latexmk passes normally contain unresolved citations. Report the final
-        # engine log only, otherwise a successful BibTeX pass looks like a broken PDF.
-        final_log = out / "pin_revision.log"
-        final_text = (
-            final_log.read_text(encoding="utf-8", errors="replace")
-            if final_log.is_file() and final_log.stat().st_size <= 8 * 1024 * 1024
-            else log
-        )
-        warning_lines = [
-            line.strip()
-            for line in final_text.splitlines()
-            if "Warning:" in line or "undefined" in line or "Missing character:" in line
-        ]
-        warnings += list(dict.fromkeys(warning_lines))[:12]
-        os.replace(pdf, jobdir / "revision.pdf")
-    return ComparisonBuilt(warnings)
+        text_commands = revision_text_commands(work, spec.main, text_commands_of)
+        built = _diff_and_build(spec, work, jobdir, timeout, text_commands, "")
+        if text_commands and isinstance(built, StepFailed) and built.kind in ("diff_failed", "compile_failed"):
+            # A comparison that built before issue #162 must not stop building because of the list: a macro judged
+            # text whose argument is not costs only the markup inside macros. Once, and only after a run with a list
+            # (without one the run was already plain). The answer is cached like any other: a ready one is served
+            # from the cache, so later requests never repeat the failing run. Only when the plain run fails too is a
+            # failure stored, and a whole commit's failure is built again on the next POST by design (it may be
+            # transient); that repeats one extra run for a comparison that does not build either way.
+            built = _diff_and_build(spec, work, jobdir, timeout, [], TEXT_COMMANDS_FALLBACK_LOG)
+            if not isinstance(built, StepFailed):
+                built.insert(0, TEXT_COMMANDS_FALLBACK_NOTE)
+    return built if isinstance(built, StepFailed) else ComparisonBuilt([COMPARISON_NOTE] + built)
+
+
+def _diff_and_build(
+    spec: RevisionSpec, work: Path, jobdir: Path, timeout: int, text_commands: list[str], log_note: str
+) -> list[str] | StepFailed:
+    """One latexdiff + latexmk run over the snapshots in work, with the extra latexdiff arguments text_commands. On
+    success the PDF is moved to jobdir/revision.pdf and the notes to show after COMPARISON_NOTE are returned (no
+    marked difference, then up to 12 warning lines of the final engine log); otherwise the step that failed. Either
+    way a run that got to latexdiff leaves its log tail, after log_note, in jobdir/build.log. Removes the previous
+    run's pin_revision.* files first, so a second run starts clean."""
+    main = spec.main.as_posix()
+    head_label = spec.head[:8] + ("+scoped" if spec.scope else "")
+    args = [
+        "--encoding=utf8",
+        "--flatten",
+        "--math-markup=off",
+        "--add-to-config",
+        "ARRENV=tabularx;tabular;tabular[*]",
+        *text_commands,
+        "--label",
+        spec.base[:8],
+        "--label",
+        head_label,
+        "/work/old/" + main,
+        "/work/new/" + main,
+    ]
+    cmd = revision_sandbox(work, spec.main.parent, "latexdiff", args)
+    if isinstance(cmd, StepFailed):
+        return cmd
+    ran = core.revision_exec(cmd, work, 60)
+    if isinstance(ran, StepFailed):
+        return ran
+    rc, diff, err = ran
+    log = err.decode("utf-8", errors="replace")
+    keep = 8000 - len(log_note)
+    if rc != 0 or b"\\begin{document}" not in diff or "Could not find" in log:
+        atomic_write(jobdir / "build.log", log_note + log[-keep:])
+        return StepFailed("diff_failed")
+    notes = []
+    if not re.search(rb"\\DIF(?:add|del)(?:begin|\{)", diff.split(b"\\begin{document}", 1)[1]):
+        notes.append("본문에 강조할 문장 차이가 없습니다. 서지·스타일 또는 주석만 바뀌었을 수 있습니다.")
+    out = work / "new" / spec.main.parent
+    # Tracked artifacts (and a previous run's) must never satisfy the fresh-PDF check or influence latexmk.
+    for stale in out.glob("pin_revision.*"):
+        if stale.is_file():
+            stale.unlink()
+    (out / "pin_revision.tex").write_bytes(diff)
+    args = ["-norc", "-pdf", "-no-shell-escape", "-interaction=nonstopmode", "-halt-on-error", "pin_revision.tex"]
+    cmd = revision_sandbox(work, spec.main.parent, "latexmk", args)
+    if isinstance(cmd, StepFailed):
+        return cmd
+    ran = core.revision_exec(cmd, work, timeout)
+    if isinstance(ran, StepFailed):
+        return ran
+    rc, stdout, stderr = ran
+    log += (stdout + stderr).decode("utf-8", errors="replace")
+    atomic_write(jobdir / "build.log", log_note + log[-keep:])
+    pdf = out / "pin_revision.pdf"
+    if rc != 0 or not pdf.is_file() or pdf.stat().st_size > REVISION_PDF_MAX:
+        return StepFailed("compile_failed")
+    if not pdf.read_bytes().startswith(b"%PDF-"):
+        return StepFailed("invalid_pdf")
+    # Earlier latexmk passes normally contain unresolved citations. Report the final
+    # engine log only, otherwise a successful BibTeX pass looks like a broken PDF.
+    final_log = out / "pin_revision.log"
+    final_text = (
+        final_log.read_text(encoding="utf-8", errors="replace")
+        if final_log.is_file() and final_log.stat().st_size <= 8 * 1024 * 1024
+        else log
+    )
+    warning_lines = [
+        line.strip()
+        for line in final_text.splitlines()
+        if "Warning:" in line or "undefined" in line or "Missing character:" in line
+    ]
+    os.replace(pdf, jobdir / "revision.pdf")
+    return notes + list(dict.fromkeys(warning_lines))[:12]

@@ -300,6 +300,13 @@ latexdiff --flatten --math-markup=off
 latexmk -norc -pdf -no-shell-escape -interaction=nonstopmode -halt-on-error
 ```
 
+latexdiff는 본문 글과, 자기가 아는 글 명령(`\textbf`·`\section`·`\footnote` 등)의 마지막 인자 안에서만 낱말 단위로 강조한다. 그 밖의 인자를 받는 명령은 통째로 한 토큰이다. 인자가 바뀌면 옛 호출은 주석으로 빠지고 새 호출은 아무것도 그리지 않는 표시 사이에 들어간다. 그래서 답변서처럼 글 대부분이 원고가 정의한 `\response{…}` 같은 명령 안에 있으면, 그대로는 평문 문단 밖에 강조가 없다. 이를 막으려고 새 판 메인 `.tex` 프리앰블에서 그런 명령을 골라 `--append-textcmd`로 넘긴다(`revisions/macros.py`). latexdiff가 새 판의 프리앰블을 쓰므로 새 판의 정의만 본다. 이름 목록은 작업 폴더의 `textcmd.txt`(두 스냅숏 밖)에 적어 넘긴다.
+
+- 고르는 정의는 프리앰블(최대 1 MiB, 주석 제외)의 `\newcommand`·`\renewcommand`·`\providecommand` 가운데 인자가 있는 것이다.
+- 마지막 인자를 어디에 쓰는지로 판정한다. 평문, 꾸밈 없는 묶음, 알려진 글 명령(`\textbf`·`\emph`·`\textcolor`·`\parbox` 등)의 글 인자에만 쓰면 넘긴다. 다른 명령의 인자(`\ref`·`\includegraphics`·`\color` 등), 선택 인자 `[…]`, 낱말에 붙은 묶음(`m{…}`), 수식에 쓰면 넘기지 않는다. 조건문·`\csname`·`\def`·`@` 이름처럼 TeX을 프로그래밍하는 본문도 넘기지 않는다. 레이블·파일 이름·길이 안에 강조를 넣으면 비교 PDF가 컴파일되지 않기 때문이다. 판정이 틀려 넘기지 않으면 latexdiff 기본 동작으로 남을 뿐이다.
+- 같은 이름의 정의가 여럿이면 모두 위 조건을 지켜야 한다. `\def`·`\let`·`\NewDocumentCommand` 로 정의했거나 기본값·본문을 읽지 못한 이름은 넘기지 않는다.
+- 판정이 틀려 글이 아닌 인자를 넘겨도 그 때문에 비교 PDF가 실패하지는 않는다. 목록을 넘긴 실행이 `diff_failed`·`compile_failed` 로 끝나면 목록 없이 한 번 더 만든다(전과 같은 latexdiff). 그 PDF에는 경고 `원고가 정의한 명령 안까지 강조한 비교가 만들어지지 않아, …` 가 붙고, `build.log` 는 다시 만든 실행의 것이며 첫 줄이 그렇게 적는다. 잃는 것은 명령 안의 강조뿐이다. 목록이 비었으면 다시 만들지 않는다. 다시 만든 결과도 다른 결과처럼 캐시되므로 다음 요청이 실패하는 실행을 되풀이하지 않는다. 다시 만든 실행도 실패하면 그 실패를 돌려준다. 그 실패가 커밋 전체 비교의 것이면 원래대로 다음 POST에 다시 만들고, 그때 두 실행을 되풀이한다.
+
 격리 실행이 불가능하면 실패한다. 격리 없이 다시 시도하지 않는다. Ubuntu 24.04처럼 AppArmor가 권한 없는 사용자 네임스페이스를 막는 호스트(`kernel.apparmor_restrict_unprivileged_userns=1`)에서는 `/usr/bin/bwrap`에 `userns`를 허용하는 AppArmor 프로필이 있어야 bwrap이 뜬다. CI `tex` 작업이 그 프로필을 설치한다([verification.md](verification.md) §1 파이썬 테스트). 현재 비교 엔진은 pdfLaTeX다. XeLaTeX·LuaLaTeX 전용 원고는 소스 변경사항으로 확인한다. kotex 같은 원고 패키지를 임의로 제거하지 않는다.
 
 ### 한도
@@ -332,6 +339,8 @@ latexmk -norc -pdf -no-shell-escape -interaction=nonstopmode -halt-on-error
 - 삭제된 문장이 옛 라벨을 참조하면 `??` 가 생길 수 있다.
 - 수식 내부의 변경과, 같은 파일명인 그림 바이너리의 변경은 강조되지 않을 수 있다.
 - 서지·스타일·주석만 바뀐 커밋은 본문에 강조가 없을 수 있다.
+- 원고가 정의한 명령 가운데 위 §실행 환경과 격리의 판정에 들지 않는 것(다른 파일·`\NewDocumentCommand` 로 정의한 것 포함)은 인자 안의 변경이 강조되지 않는다. 옛 글은 보이지 않고 새 글은 표시 없이 나온다.
+- 원고가 정의한 명령 안까지 강조한 비교가 컴파일되지 않아 목록 없이 다시 만든 비교는 모든 명령 안의 변경이 강조되지 않는다(위와 같은 모양). 경고가 그렇게 알린다.
 
 응답은 `warnings` 를 싣고, 원래 소스 diff 경로를 함께 제공한다. 서버 쪽 `build.log` 는 마지막 8,000자만 보존한다. HTTP 응답에는 로그 전체를 노출하지 않는다.
 

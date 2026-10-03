@@ -27,7 +27,7 @@ Limn은 하나의 `dartwork-limn` 배포 안에서 기능 소유권으로 나눈
 | 빌드 | `builds/` | 결과 값(`values.py`), 산출물·이력·원고 지문(`artifacts.py`), 요청 시점의 파일·쪽 사실(`document_facts.py`), 컴파일·재빌드·PDF 감시·그림 지도 파싱(`figure_map.py`)·PDF/지도 가져오기(`figure.py`)와 응답 |
 | 협업 | `collaboration/` | 사람 후보·방문 기록 연결, `events.jsonl`, 멘션 알림·폴링. 핀의 태그·차례 규칙은 핀 소유권에 남고 공개 값·동작으로 받는다 |
 | 문서 조회 | `documents/` | 문서 탭·meta·목차 응답과 파싱. 실행별 문서 자원은 `runtime/documents.py`가 소유한다 |
-| 비교 | `revisions/` | Git 이력·원고 diff·격리 비교 PDF·작업 캐시와 응답. `scope.py`가 diff 파싱·핀 범위 귀속·범위 패치와 사본 쓰기 계획을 소유한다 |
+| 비교 | `revisions/` | Git 이력·원고 diff·격리 비교 PDF·작업 캐시와 응답. `scope.py`가 diff 파싱·핀 범위 귀속·범위 패치와 사본 쓰기 계획을, `macros.py`가 latexdiff에 글 명령으로 넘길 원고 정의 명령의 판정을 소유한다 |
 | 동기화 | `sync/` | 원격 main 감시·fast-forward·문서별 재빌드 선택 |
 | 관리 | `administration/` | 토큰·멤버 명령, 문서 실행 인자, 이관, 인스턴스 셸과 `systemd/` 템플릿 |
 | 뷰어 | `viewer/` | HTML·CSS·JS, `ui_en.json`, 마크·브랜드 파일(`brand/`), 페이지 조립과 제공 경로 |
