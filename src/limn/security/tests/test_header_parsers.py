@@ -90,15 +90,21 @@ def test_a_loopback_host_accepts_only_a_loopback_origin(scheme, name, port, host
 
 @given(LONG_TEXT, LONG_TEXT, LONG_TEXT | st.text(alphabet=LATIN1, max_size=1100).map("https://".__add__))
 def test_actor_of_keeps_identity_fields_within_their_bounds(login, name, pic):
-    """Any Tailscale-User-* values give a login of at most 200 and a name of at most 100 characters, and a picture
-    only when it is an https URL of at most 1000 characters; without a login the request is the local actor."""
-    actor, from_header = access.actor_of(
-        headers(Tailscale_User_Login=login, Tailscale_User_Name=name, Tailscale_User_Profile_Pic=pic)
-    )
+    """Malformed logins are refused; accepted identities and display fields stay within their bounds.
+
+    Only an empty login selects the local actor; pictures require HTTPS and at most 1000 characters."""
+    try:
+        actor, from_header = access.actor_of(
+            headers(Tailscale_User_Login=login, Tailscale_User_Name=name, Tailscale_User_Profile_Pic=pic)
+        )
+    except HTTPError as refused:
+        assert (refused.code, refused.body["reason"]) == (401, "unauthenticated")
+        return
     if not from_header:
+        assert not login
         assert actor == access.LOCAL_ACTOR
         return
-    assert 0 < len(actor["login"]) <= 200 and len(actor["name"]) <= 100
+    assert access.valid_login(actor["login"]) and len(actor["name"]) <= 100
     assert "pic" not in actor or (actor["pic"].startswith("https://") and len(actor["pic"]) <= 1000)
 
 

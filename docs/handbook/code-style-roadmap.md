@@ -14,6 +14,8 @@ Limn의 코딩 규칙은 팀 스킬 `code-implement`, `code-testing`, `code-secu
 
 레코드 왕복은 [`test_model.py`](../../src/limn/pins/tests/test_model.py)와 [`pin_records.jsonl`](../../tests/data/pin_records.jsonl)이 확인한다. 직접 생성하는 명령 값의 잘못된 필드는 [`editing/tests/test_rules.py`](../../src/limn/pins/editing/tests/test_rules.py)와 [`lifecycle/tests/test_rules.py`](../../src/limn/pins/lifecycle/tests/test_rules.py)가 확인한다. 상태마다 데이터와 동작이 같은 빌드 상태에는 이 타입 분리를 강제하지 않는다.
 
+원고의 [`SourceRange`](../../src/limn/pins/location/range.py)는 생성자에서 bool이 아닌 정수 줄 번호와 `1 <= lo <= hi <= len(lines)`를 검사한다. 읽은 줄은 tuple로 복사하고 범위 객체를 동결하므로 HTTP 파서를 거치지 않은 호출과 호출자 목록의 사후 변경에서도 불변식을 유지한다. [`test_source_range.py`](../../src/limn/pins/location/tests/test_source_range.py)가 생성 입력의 범위 성질과 목록 변경 후 스니펫을 확인한다.
+
 ## R3 경계에서 파싱하고, 안쪽은 HTTP를 모른다
 
 입력은 언어이며(LangSec), 경계에서 완전한 값으로 단 한 번 파싱한다 (`parse, don't validate`). 요청 본문과 쿼리는 기능별 [`input.py`](../../src/limn/pins/lifecycle/input.py)와 공통 [`web/parse.py`](../../src/limn/web/parse.py)가 요청 값이나 `InputRejected`로 바꾼다. 서비스는 파싱된 값만 받고 HTTP 상태 코드를 고르지 않는다. 기능별 [`http.py`](../../src/limn/pins/lifecycle/http.py)가 거절을 [api.md](api.md) §오류 응답의 `reason`과 상태 코드로 바꾼다. 시작 거절은 `StartupRefused` 값이며 프로세스 종료는 `server.main()`이 맡는다. [`test_web_parse.py`](../../src/limn/web/tests/test_web_parse.py)와 [`test_errors.py`](../../src/limn/web/tests/test_errors.py)가 요청 및 오류 경계를 확인한다.
@@ -68,6 +70,7 @@ Limn의 코딩 규칙은 팀 스킬 `code-implement`, `code-testing`, `code-secu
 - **보여준 것을 승인한다 (WYSIWYS):** 사람의 승인은 보여준 대상에 묶인다. 뷰어의 [확인]은 카드가 보인 닫기의 `done_at`을 보내고, 판단 `confirm()`은 핀의 지금 닫기가 그것이 아니면 `ShownCloseChanged`로 거절해 아무것도 쓰지 않는다([api.md](api.md) §검토 대기, [ADR-0013](../adr/0013-confirm-binds-shown-close.md)). 본문 없이 부르는 옛 클라이언트는 지금 닫기를 확인하고, 같은 초 안의 재닫기는 구별하지 못한다.
 - **허용은 기록된 결정만:** 공개 자원과 실패 시 열리는 읽기는 없다. 모든 경로가 신원 판단을 거친다. 허용 목록이 없는 인스턴스에서 닿는 사람을 `editor`로 들이는 것과, 에이전트 역할이 사람 확인 없이 할 수 있는 일의 범위는 [ADR-0002](../adr/0002-access-control.md)의 신원·권한 층 결정이며, 현재 규칙은 [api.md](api.md) §인증이 정한다. 이 밖의 허용을 넓히려면 같은 수준의 결정 기록이 필요하다.
 - **입력은 언어이며 완전히 인식 (LangSec):** 경계에서 단 한 번 완전한 값으로 파싱하며 애매한 입력은 거부한다(§R3).
+- **신원은 전체 값으로 검증:** 신뢰한 헤더의 로그인은 전송 인코딩 해독 뒤 길이·공백·제어 문자·예약 이름을 검사하고, 잘못된 값은 `401 unauthenticated`로 거절한다. 표시용 문자열 정리와 분리해 잘라내기나 문자 제거로 다른 사람의 역할을 상속하지 않게 한다. [`test_identity_integrity.py`](../../src/limn/security/tests/test_identity_integrity.py)가 변형된 소유자 로그인 거절과 정상 Unicode 신원 보존을 확인한다.
 - **위험한 싱크는 안전하게 구성 가능한 타입만 수용 (Secure by Construction):** 원고 파일을 읽는 싱크는 검사 생성자가 만든 `ManuscriptFile`만 받는다. Git·latexdiff·latexmk 실행은 검토된 인자 조립, 리비전 형식 검사, 시간 제한에 기대며 타입으로 강제되지 않는다(§경계 집행과 검증의 한계).
 - **비밀은 키에만 두고 필요한 데이터만 유지 (Kerckhoffs):** 표준 암호 프리미티브와 상수 시간 비교를 사용하며, 토큰 원문이나 불필요한 민감 정보를 로그나 응답에 남기지 않는다. 서버 바인드와 인증의 멈춤 신호는 [architecture.md](architecture.md) §멈춤 신호, 실제 HTTP 계약은 [api.md](api.md) §인증이 정한다.
 

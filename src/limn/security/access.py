@@ -32,6 +32,7 @@ import sys
 import threading
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
+from email.errors import HeaderParseError
 from email.header import decode_header, make_header
 from email.message import Message
 from pathlib import Path
@@ -202,18 +203,45 @@ def hdr_text(v: object) -> str:
 
 def actor_of(headers: Message) -> tuple[Json, bool]:
     """(actor, whether it came from a header) from the Tailscale-User-* headers. identify() only calls this for a
-    loopback peer under --auth tailscale - tailscale serve connects from loopback; any other peer's headers are ignored."""
-    login = hdr_text(headers.get("Tailscale-User-Login"))
-    if not login:
+    loopback peer under --auth tailscale - tailscale serve connects from loopback; any other peer's headers are ignored.
+    A nonempty malformed login raises 401 unauthenticated rather than becoming another login or the local actor."""
+    raw_login = headers.get("Tailscale-User-Login")
+    if not raw_login:
         return dict(LOCAL_ACTOR), False
+    login = _identity_login(raw_login)
     a: Json = {
-        "login": login[:200],
+        "login": login,
         "name": (hdr_text(headers.get("Tailscale-User-Name")) or login.split("@")[0])[:100],
     }
     pic = hdr_text(headers.get("Tailscale-User-Profile-Pic"))
     if pic.startswith("https://") and len(pic) <= 1000:
         a["pic"] = pic
     return a, True
+
+
+def _identity_login(value: str) -> str:
+    """Decode a provider's complete login without display cleanup; refuse malformed identities with 401.
+
+    Decode RFC 2047 and raw UTF-8 carried as Latin-1 without replacement characters. Reject surrounding
+    whitespace and raw ASCII controls before decoding, then check length, whitespace, controls and reserved
+    names before a role lookup. Display cleanup and truncation never apply to a login."""
+    if value != value.strip() or any(ord(char) < 32 or ord(char) == 127 for char in value):
+        raise HTTPError(401, UNAUTHENTICATED, reason="unauthenticated")
+    login = value
+    if "=?" in login:
+        try:
+            login = "".join(
+                part.decode(charset or "ascii") if isinstance(part, bytes) else part
+                for part, charset in decode_header(login)
+            )
+        except (HeaderParseError, LookupError, UnicodeError, ValueError):
+            raise HTTPError(401, UNAUTHENTICATED, reason="unauthenticated") from None
+    else:
+        with contextlib.suppress(UnicodeEncodeError, UnicodeDecodeError):
+            login = login.encode("latin-1").decode("utf-8")
+    if not valid_login(login):
+        raise HTTPError(401, UNAUTHENTICATED, reason="unauthenticated")
+    return login
 
 
 def split_host(v: str) -> tuple[str, int | None]:
@@ -403,13 +431,14 @@ def local_owner_actor(local_user: str | None) -> Json:
 
 def proxy_actor(headers: Message, settings: AccessSettings) -> Json | None:
     """The person an authenticating proxy vouches for, or None without the user header. With --proxy-email-header
-    the e-mail (when present) is the login, so people.json / --allow can list e-mail addresses."""
-    user = hdr_text(headers.get(settings.proxy_user_header))
+    the e-mail (when present) is the login, so people.json / --allow can list e-mail addresses. A nonempty malformed
+    login raises 401 unauthenticated; display cleanup applies only to the person's name."""
+    user = headers.get(settings.proxy_user_header)
     if not user:
         return None
-    email = hdr_text(headers.get(settings.proxy_email_header)) if settings.proxy_email_header else ""
-    login = (email or user)[:LOGIN_MAX]
-    name = (hdr_text(headers.get(settings.proxy_name_header)) or user.split("@")[0])[:NAME_MAX]
+    email = headers.get(settings.proxy_email_header) if settings.proxy_email_header else None
+    login = _identity_login(email or user)
+    name = (hdr_text(headers.get(settings.proxy_name_header)) or hdr_text(user).split("@")[0])[:NAME_MAX]
     return {"login": login, "name": name}
 
 

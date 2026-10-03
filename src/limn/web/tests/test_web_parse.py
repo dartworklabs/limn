@@ -716,7 +716,7 @@ class Locations(Tree):
     def test_source_range_reads_the_file_before_the_numbers(self):
         """A snippet's file is checked, then lo/hi as int() of the text, then the range against the lines read."""
         rng = location_input.parse_source_range({"file": ["main.tex"], "lo": ["2"], "hi": ["3"]}, self.facts)
-        self.assertEqual((rng.file, rng.lines[:2], rng.lo, rng.hi), (self.root / "main.tex", ["a", "b"], 2, 3))
+        self.assertEqual((rng.file, rng.lines[:2], rng.lo, rng.hi), (self.root / "main.tex", ("a", "b"), 2, 3))
         self.assertEqual(
             location_input.parse_source_range({"file": ["nope.tex"], "lo": ["x"]}, self.facts).reason, "file_not_found"
         )
