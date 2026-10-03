@@ -368,7 +368,7 @@ section 단계는 두지 않는다. 절 전체를 범위로 잡으면 수백 줄
 | `builds_from_source` | 원고에서 빌드한다. latexmk, `--git-pull` 뒤 재빌드, `POST /api/rebuild`, 원고가 더 새롭다는 `stale_build`, `.aux` 목차, 원고 트리의 지문과 `src_mtime`이 여기에 걸린다 | 예 | 아니요 | 아니요 |
 | `watches_files` | 감시 스레드가 파일이 바뀌면 쪽을 다시 그린다. 기동 때도 파일이 바뀌었거나 지금 dpi의 쪽 이미지가 없으면 `--no-build`와 상관없이 그린다 | 아니요 | 예 | 예 |
 | `takes_line_pins` | 줄 핀(`file`·`lo`·`hi`)과 anchor 재동기화를 받는다. 파일만 준 요청은 이 능력이 있는 문서 가운데서 찾는다(`doc_for_file`, §그림 문서) | 예 | 아니요 | 예 |
-| `shows_revisions` | 변경 보기가 있다. 원고 Git 이력과 latexdiff 비교다 | 예 | 아니요 | 아니요 |
+| `shows_revisions` | 변경 보기가 있다. LaTeX는 원고 Git 이력과 latexdiff 비교, 그림 문서는 지도에 나오는 파일의 Git 이력과 직전 빌드 쪽의 겹쳐 보기다 | 예 | 아니요 | 예 |
 | `view_only` | 핀이 쪽·영역뿐이다. 늘 `takes_line_pins`의 반대이며, API의 `view_only`가 이 값이다 | 아니요 | 예 | 아니요 |
 | `has_element_map` | 요소 지도를 가진다. 감시가 지도와 그 PDF를 함께 가져오고 쪽 폴더마다 지도를 보관한다 | 아니요 | 아니요 | 예 |
 

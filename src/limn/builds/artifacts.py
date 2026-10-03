@@ -212,6 +212,38 @@ def pages_dir_for(D: BuildDoc, name: object) -> Path:
     return cur_pages(D)
 
 
+def _build_order(name: str) -> tuple[str, int]:
+    """Where page directory `name` falls in time: its 14-digit stamp, then its -<n> suffix as a number (0 without one),
+    so pages-<t>-10 comes after pages-<t>-9. The legacy name pages comes before every stamped one."""
+    stamp, _, n = name.removeprefix("pages").removeprefix("-").partition("-")
+    return stamp, int(n) if n else 0
+
+
+def previous_build(names: Iterable[str], current: str) -> str | None:
+    """The page directory shown just before `current`: of names (a document folder's entries), the latest page
+    directory name (valid_build_name) older than current, or None when there is none. Pure.
+
+    commit_pages keeps current and the one it replaced, so this is that replaced build. A directory newer than current
+    - an import that has published its folder and not yet moved pages.cur - is never the previous build. Names are
+    ordered by _build_order, the order _new_build_name gives them."""
+    if not valid_build_name(current):
+        return None
+    now = _build_order(current)
+    older = [n for n in names if valid_build_name(n) and _build_order(n) < now]
+    return max(older, key=_build_order) if older else None
+
+
+def previous_pages(D: BuildDoc) -> Path | None:
+    """The page directory of the build D showed before the one on screen (previous_build over D's folder), or None
+    when it is not kept or there was none. Lists D.dir; reads no file."""
+    try:
+        names = [entry.name for entry in os.scandir(D.dir) if entry.is_dir(follow_symlinks=False)]
+    except OSError:
+        return None
+    name = previous_build(names, cur_pages(D).name)
+    return None if name is None else D.dir / name
+
+
 def build_pdf(D: BuildDoc, name: object) -> Path | None:
     """The PDF GET /pdf?build=<name> serves - only the copy that matches that build's page images (pages-<build>/<main>.pdf).
 

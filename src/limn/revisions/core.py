@@ -38,6 +38,7 @@ from limn.revisions.scope import (
     scope_meta,
     scope_payload,
 )
+from limn.runtime.documents import Doc
 
 if TYPE_CHECKING:
     from limn.revisions.jobs import RunningComparison
@@ -61,6 +62,7 @@ REVISION_SCOPED_KEEP = 6  # pin-scoped comparisons, counted apart so they never 
 SCOPED_MARK = "scoped"  # empty file in a pin-scoped comparison's cache folder
 REVISION_CACHE_TTL = 24 * 3600
 SCOPE_META = ("scope", "pin", "source", "hunks", "other")  # per-request fields; never stored in a (shared) status
+HISTORY_PATHS_MAX = 200  # files a figure document's history names one by one; more are named by their folder
 
 
 class RevisionDoc(Protocol):
@@ -74,6 +76,12 @@ class RevisionDoc(Protocol):
     @property
     def shows_revisions(self) -> bool:
         """Whether it has a manuscript history to show (limn.runtime.documents.Doc.shows_revisions); a view-only PDF has none."""
+        ...
+
+    @property
+    def builds_from_source(self) -> bool:
+        """Whether latexmk builds it (limn.runtime.documents.Doc.builds_from_source): only such a document has a
+        comparison PDF; a figure document's changes are its pages overlaid in the viewer."""
         ...
 
     @property
@@ -265,6 +273,10 @@ class RevisionContext:
     cache: ScopeCache
     jobs: RevisionJobs
     describe: Callable[[BuildFailure], tuple[str, str]]  # (message, API reason) a failed build records
+    # The build owner's answers for a figure document, injected by the composition root: which files' history its
+    # changes are, and the two builds its overlay lays one over the other; both None for any other document.
+    history_files: Callable[[Doc], tuple[Path, ...] | None]
+    overlay: Callable[[Doc], dict[str, Any] | None]
 
 
 class RevisionSpec(NamedTuple):
@@ -287,14 +299,41 @@ class RevisionSpec(NamedTuple):
 # ---------------------------------------------------------------- history and the source diff
 
 
-def revision_scope(D: RevisionDoc) -> tuple[Path, list[str]] | None:
-    """Returns a Git pathspec scoped to just the manuscript text inside the chosen main .tex's folder, or None for a
-    document without revisions (not D.shows_revisions), a main file outside its build root, or a folder outside Git.
+def files_pathspec(repo: Path, files: Sequence[Path], folder: Path) -> list[str]:
+    """files (absolute paths) as literal Git pathspecs relative to repo, in order, each once; a file that is not inside
+    repo, or is repo itself, is left out. More than HISTORY_PATHS_MAX of them are named by folder instead (a literal
+    pathspec of a folder covers every file under it), so the git command line stays short; [] when that folder is not
+    inside repo either. Lexical: the paths are compared as given, so callers pass resolved folders. Pure."""
+    out: list[str] = []
+    for f in files:
+        try:
+            rel = f.relative_to(repo).as_posix()
+        except ValueError:
+            continue
+        spec = ":(literal)" + rel
+        if rel != "." and spec not in out:
+            out.append(spec)
+    if len(out) <= HISTORY_PATHS_MAX:
+        return out
+    try:
+        return [":(literal)" + folder.relative_to(repo).as_posix()]
+    except ValueError:
+        return []
 
-    D.src is the build-copy scope, so multiple documents can share the same root. The change history must
-    be filtered to D.main.parent, or commits from the body, highlights, and cover letter get mixed together."""
+
+def revision_scope(D: RevisionDoc, files: Sequence[Path] | None = None) -> tuple[Path, list[str]] | None:
+    """Returns the repository and Git pathspec of document D's history, or None for a document without revisions (not
+    D.shows_revisions), a main file outside its build root, or a folder outside Git.
+
+    files None: a LaTeX document - just the manuscript text inside the chosen main .tex's folder. D.src is the
+    build-copy scope, so multiple documents can share the same root. The change history must be filtered to
+    D.main.parent, or commits from the body, highlights, and cover letter get mixed together.
+    files given: a figure document - exactly those files (RevisionBuildQueries.history_files: its map, the PDF the map
+    names and the map's scripts and shared components), found from the repository holding D.src (files_pathspec)."""
     if not D.shows_revisions:
         return None
+    if files is not None:
+        return _files_scope(D, files)
     root = D.main.resolve().parent
     try:
         root.relative_to(D.src.resolve())
@@ -316,10 +355,32 @@ def revision_scope(D: RevisionDoc) -> tuple[Path, list[str]] | None:
     return repo, paths
 
 
-def revision_history(D: RevisionDoc) -> Json:
+def _files_scope(D: RevisionDoc, files: Sequence[Path]) -> tuple[Path, list[str]] | None:
+    """The repository holding figure document D's folder and files as its pathspec (files_pathspec), or None when the
+    folder is not in a Git repository or none of the files lies in it.
+
+    git answers the repository's resolved path, so each file is compared in the same form: its folder with symlinks
+    resolved, its own name kept (a script that is itself a link is still named by its own path, as git tracks it). A
+    document whose folder is reached through a symlink (macOS's /var -> /private/var) keeps its whole history, as a
+    LaTeX document does (revision_scope resolves its main file's folder the same way)."""
+    try:
+        root = D.src.resolve()
+        named = [f.parent.resolve() / f.name for f in files]
+    except (OSError, RuntimeError):
+        return None
+    rc, top, _ = git(["-C", str(root), "rev-parse", "--show-toplevel"], root)
+    if rc != 0 or not top.strip():
+        return None
+    repo = Path(top.strip()).resolve()
+    paths = files_pathspec(repo, named, root)
+    return (repo, paths) if paths else None
+
+
+def revision_history(D: RevisionDoc, files: Sequence[Path] | None = None) -> Json:
     """GET /api/revisions: the document's 12 most recent manuscript commits {id, date, subject}, newest first, or
-    available: false when it has no history."""
-    found = revision_scope(D)
+    available: false when it has no history. files are a figure document's history files (revision_scope); None for
+    a LaTeX document."""
+    found = revision_scope(D, files)
     if found is None:
         return {"available": False, "revisions": []}
     repo, paths = found
@@ -340,16 +401,20 @@ def _stop_git_group(proc: subprocess.Popen[bytes]) -> None:
         os.killpg(proc.pid, signal.SIGKILL)
 
 
-def revision_diff(D: RevisionDoc, commit: str, pin: int | None, ctx: RevisionContext) -> Json | DiffRefusal:
+def revision_diff(
+    D: RevisionDoc, commit: str, pin: int | None, ctx: RevisionContext, files: Sequence[Path] | None = None
+) -> Json | DiffRefusal:
     """GET /api/revision-diff: the selected commit's unified diff (commit is a full SHA-1, checked by the request
     parser). With pin (v0.3), an additive `scope` says which of its hunks belong to that pin (scope_payload); the
-    whole-commit `diff` is returned unchanged either way. Only a commit in the document's recent list is read."""
-    found = revision_scope(D)
+    whole-commit `diff` is returned unchanged either way. Only a commit in the document's recent list is read. files
+    are a figure document's history files, which scope both the list and the diff (revision_scope); None for a LaTeX
+    document."""
+    found = revision_scope(D, files)
     if found is None:
         return NoHistory()
     repo, paths = found
     # Only read commits that appear in the current document's recent list. Never exposes arbitrary Git objects or another document's history.
-    revisions = revision_history(D)["revisions"]
+    revisions = revision_history(D, files)["revisions"]
     if commit not in {row["id"] for row in revisions}:
         return CommitNotRecent()
     cap = scope_REVISION_DIFF_MAX
@@ -576,7 +641,11 @@ def revision_spec(D: RevisionDoc, commit: str, pin: int | None, ctx: RevisionCon
     commit or none of it, in which case the spec (and its cache entry) is the whole-commit one. The cache identity of a
     scoped comparison is (commit, block set) - two pins with the same blocks share one PDF. Refused for a commit not in
     the document's recent list (as before 0.3; a malformed one was refused by the request parser), a build root outside
-    the repository, a first commit, and a pin D does not have."""
+    the repository, a first commit, and a pin D does not have. A document not built from LaTeX source has no comparison
+    PDF - a figure document's changes are its pages overlaid in the viewer - and is refused as a document without
+    history is (CommitNotRecent), before any git call."""
+    if not D.builds_from_source:
+        return CommitNotRecent()
     found = revision_scope(D)
     revisions = revision_history(D)["revisions"] if found is not None else []
     if found is None or commit not in {r["id"] for r in revisions}:

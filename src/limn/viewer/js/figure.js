@@ -10,11 +10,15 @@ function isFrac(f){return Array.isArray(f)&&f.length===4&&f.every(v=>typeof v===
 // A person's name for an element: its label, else its part, else its id - the rule the pick answer's rung labels follow.
 function elName(el){return String((el&&(el.label||el.part||el.id))||'');}
 // The selected element's path, root first, as the location line shows it ('B2 › 달력 › 7월'). Each id is named by the
-// rung that carries it, else by the pick's own element, else by the id itself: an ancestor merged into an inner rung,
-// past the ladder's cap or drawn in another file has no rung, and its id still says where it is.
+// name the map gives it - the pick's path_names, one per id of its el.path (label, else part) - else by the rung that
+// carries it, else by the pick's own element, else by the id itself: an ancestor merged into an inner rung, past the
+// ladder's cap, drawn in another file or above a region answer's element has no rung, and the map's name or its id
+// still says where it is.
 function elPathText(o){const el=o&&o.elSel; if(!el||!Array.isArray(el.path))return '';
   const names=new Map(); if(o.el&&o.el.id)names.set(o.el.id,elName(o.el));
   (o.levels||[]).forEach(lv=>{if(lv.el&&lv.el.id)names.set(lv.el.id,String(lv.label||elName(lv.el)));});
+  const ids=o.el&&Array.isArray(o.el.path)?o.el.path:[],given=Array.isArray(o.path_names)?o.path_names:[];
+  ids.forEach((id,i)=>{const name=given[i]; if(typeof name==='string'&&name)names.set(id,name);});
   return el.path.map(id=>names.get(id)||String(id)).join(' › ');}
 // A figure rung's tooltip text: the whole figure's lines for the page's root (its path is itself), else the element's.
 function rungTip(lv){return Array.isArray(lv.el.path)&&lv.el.path.length<=1?T.fig:T.el;}

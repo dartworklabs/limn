@@ -246,13 +246,15 @@ curl -s -H "Authorization: Bearer $(cat ~/.config/limn/<인스턴스>.token)" ht
 
 | 메서드 | 경로 | 설명 |
 | --- | --- | --- |
-| `GET` | `/api/revisions?doc=<키>` | 선택한 메인 `.tex` 폴더의 `.tex`·`.bib`·`.sty`·`.cls`·`.bst` 파일을 바꾼 최근 Git 커밋 12개 → `{available,revisions:[{id,date,subject}]}`. Git 저장소가 아니거나 보기 전용 PDF면 `available:false` |
+| `GET` | `/api/revisions?doc=<키>` | 선택한 메인 `.tex` 폴더의 `.tex`·`.bib`·`.sty`·`.cls`·`.bst` 파일을 바꾼 최근 Git 커밋 12개 → `{available,revisions:[{id,date,subject}]}`. Git 저장소가 아니거나 보기 전용 PDF면 `available:false`. 그림 문서는 화면 빌드의 지도에 나오는 `src.file`·`impl.file`(문서 폴더 기준)과 지도 파일, 지도가 가리키는 PDF를 바꾼 커밋이다. 그 파일이 200개를 넘으면 문서 폴더 전체가 범위다. 그림 문서의 답에는 `overlay:{build,pages,prev_build,prev_pages}` 가 더 붙는다(Git 이력이 없어도 붙는다). `build`·`pages` 는 화면 빌드와 그 쪽 목록(`/api/meta` 의 `pages_build`·`pages` 와 같은 모양), `prev_build`·`prev_pages` 는 그 바로 앞 빌드다. 앞 빌드의 쪽 폴더가 없으면 `null`·`[]` 이다. 쪽 그림은 `/pages/<빌드>/<파일>` 로 받는다. 뷰어의 겹쳐 보기가 이것을 쓴다([viewer.md](viewer.md) §변경 보기). 다른 문서의 답은 두 키 그대로다 |
 | `GET` | `/api/revision-diff?doc=<키>&commit=<40자리 SHA-1>` | 위 목록에 나온 커밋의 실제 unified diff → `{id,diff,truncated}`. 선택한 메인 파일 폴더 안의 같은 원고 확장자만 포함하고 최대 256 KiB를 보낸다. 잘못된 ID는 `400`, 목록 밖 ID와 보기 전용 PDF는 `404`. 선택 `&pin=<번호>`(0.3+)를 주면 `scope` 를 더한다(§핀 단위 변경 보기). 빈 `pin=` 은 없는 것과 같다. `pin` 이 양의 정수가 아니면 `400`, 이 문서의 핀이 아니면 `404` |
 | `POST` | `/api/revision-build` | 본문 `{commit,doc?,pin?}`. 선택 커밋의 첫 부모 → 선택 커밋 비교 PDF를 비동기로 시작한다. `202 {state:"running",job_id,base,head,engine,warnings,error,reason}`, 성공 캐시가 있으면 `200 {state:"ready",…}`. `doc` 은 쿼리로도 받는다. 선택 `pin`(정수, 0.3+)을 주면 그 핀의 변경만 적용한 비교가 되고 상태에 `scope`·`pin`·`source`·`hunks`·`other` 가 더해진다(§핀 단위 변경 보기). 그 밖의 필드가 있거나 `pin` 이 정수가 아니면 `400` |
 | `GET` | `/api/revision-build?doc=<키>&commit=<40자리 SHA-1>[&pin=<번호>]` | 같은 상태 스키마를 조회한다. `state` 는 `idle`(미실행·만료), `running`, `ready`, `error`. `error` 는 설명, `reason` 은 오류 분류다. 매번 현재 문서의 최근 커밋 목록을 다시 확인한다 |
 | `GET` | `/api/revision-pdf?doc=<키>&commit=<40자리 SHA-1>[&pin=<번호>]` | 성공한 같은 비교의 PDF(`Cache-Control: private, max-age=600`). 미완성·실패·만료는 `404` 이며 현재 원고 PDF로 대체하지 않는다. 현재 쪽·SyncTeX·핀 좌표와 무관한 열람 전용 결과다 |
 
 실행 조건과 캐시는 아래 §비교 PDF 실행과 캐시에, 핀 하나의 변경만 가르는 규칙은 §핀 단위 변경 보기에 있다.
+
+그림 문서는 `/api/revision-diff` 가 위 범위의 diff를 준다(스크립트·지도의 텍스트 diff, PDF는 바이너리 한 줄). 그림 문서에는 비교 PDF가 없다. 그래서 `/api/revision-build`·`/api/revision-pdf` 는 이력이 없는 문서처럼 `404 commit_not_recent` 이고, git이나 latexdiff를 부르지 않는다. 비교는 뷰어가 `overlay` 의 두 빌드를 겹쳐 보인다.
 
 ### 핀 읽기
 
@@ -427,6 +429,13 @@ curl -s -X POST http://127.0.0.1:<port>/api/pins/3/close \
 - 문자열이 아니거나 상한을 넘으면 `400` 이고 아무것도 바뀌지 않는다. 값은 다른 필드처럼 뷰어에서 `esc()` 로 이스케이프해 렌더한다.
 - 성공하면 핀에 `close_reply`·`close_ref` 로 저장되고 닫힌 카드에 보인다. 같은 `ref` 를 가진 닫힌 핀은 UI가 묶어 보일 수 있다.
 - 토큰 없는 에이전트의 `curl` 은 신원 헤더가 없으므로 `closed_by` 가 `{"login":"local","name":"로컬/에이전트"}` 로 남는다. 토큰을 붙이면 `{"login":"agent:<토큰 이름>","name":"<토큰 이름>"}` 이다(§인증).
+- **파일을 감시하는 문서의 핀은 닫기 전에 고친 파일을 들여온다.** 대상은 정확히 이 세 조건을 모두 갖춘 닫기다. 검토 대기로 가고(에이전트의 닫기는 기본으로, 사람의 닫기는 `review: true` 를 보낼 때), 비어 있지 않은 `ref` 가 있고, 핀의 문서가 파일을 감시하는 문서(`watches_files`: 그림 문서와 보기 전용 PDF 문서)다. 보기 전용 PDF 문서의 핀도 여기에 든다. 서버는 이 닫기를 쓰기 전에 두 가지를 한다.
+  - 먼저 `--git-pull` 인스턴스에서 원격 main을 한 번 당긴다. 60초 자동 확인과 같은 라운드이고 규칙도 같다. fast-forward만 하고, `main` 만, 깨끗한 트리에서만 당긴다([build-sync.md](build-sync.md) §자동 확인). 다만 다른 라운드(다른 닫기의 당기기, 자동 확인)가 당기는 중이거나 LaTeX 빌드가 도는 중이면, 미루지 않고 그것이 끝나기를 기다린 뒤 당긴다. 동시에 닫은 두 핀도 둘 다 머지된 그림으로 알린다.
+  - 그다음 그 문서의 파일이 바뀌었으면 감시와 같은 가져오기(보기 전용 PDF는 다시 그리기)를 시작하고 끝나기를 기다린다. 감시 스레드가 이미 가져오는 중이면 그것을 기다린다.
+  - 둘을 합쳐 30초(`REFRESH_BUDGET_S`) 안에서만 기다린다. 에이전트는 `curl` 을 시간 제한 없이 부르고, 에이전트의 셸은 명령을 120초에 끊을 수 있기 때문이다. git 호출마다 남은 시간만 준다. 시간이 다 되면 그 자리에서 닫기를 쓰고 알린다. 하던 가져오기는 그대로 끝나고, 못 한 것은 감시가 뒤에 들여온다.
+  - 당기기나 가져오기가 예외로 실패해도(디스크가 가득 찬 경우 등) 닫기는 막히지 않는다. 오류를 서버 로그(stderr)에 한 번 남기고 닫기를 쓰고 알린다.
+
+  그래서 작성자에게 가는 알림(`review_requested`)과 닫힌 핀이 보일 때 화면은 대개 이미 머지된 그림이다. 그동안 핀 잠금은 잡지 않는다. 닫기 응답은 이 시간만큼 늦어질 수 있다. 시간이 다 돼 응답을 못 받은 에이전트가 같은 닫기를 다시 보내도 안전하다. 이미 닫힌 핀이라 같은 핀과 `200` 을 돌려주고 알림을 다시 보내지 않는다(아래 주의). `--git-pull` 이 꺼져 있으면 당기지 않는다. 체크아웃은 인스턴스가 당길 때만 움직인다. 세 조건 가운데 하나라도 빠진 닫기(검토 대기로 가지 않는 닫기, `ref` 없는 닫기, LaTeX 문서의 핀)는 바로 닫는다. 응답과 필드는 그대로다.
 
 > **주의**
 >
@@ -717,7 +726,7 @@ curl -s -X POST http://127.0.0.1:<port>/api/pins/3/unclaim
 
 `kind:"figure"` 문서는 그림 저장소가 낸 PDF와 요소 지도(`limn-figure-map/1`)를 가져온 문서다. 핀은 그림을 그린 코드의 줄 핀이고, 선택 필드 `el` 로 어느 요소인지 적는다. 되짚는 규칙은 [domain.md](domain.md) §그림 문서의 요소 pick 에 있다.
 
-**pick.** 요청 형식은 원고와 같다. 그 빌드(`pdf_build`)의 지도로 줄을 찾으면 원고 pick 과 같은 키를 같은 순서로 주고(`page` 는 드래그한 쪽), 끝에 `el` 을 더한다.
+**pick.** 요청 형식은 원고와 같다. 그 빌드(`pdf_build`)의 지도로 줄을 찾으면 원고 pick 과 같은 키를 같은 순서로 주고(`page` 는 드래그한 쪽), 끝에 `el` 과 `path_names` 를 더한다.
 
 | 필드 | 값 |
 | --- | --- |
@@ -731,12 +740,13 @@ curl -s -X POST http://127.0.0.1:<port>/api/pins/3/unclaim
 | `quote` | 고른 요소의 `label`, 없으면 `""` |
 | `overlaps` | 기본 단계의 줄과 겹치는 같은 파일의 열린 핀(§겹친 핀과 덧붙이기) |
 | `el` | `{id, path, label?, part?, impl?: {file, lo, hi}, frac}`. `path` 는 뿌리부터 그 요소까지의 id, `impl` 은 공통 부품(구현)의 줄이고 `impl.file` 은 문서 폴더 기준 상대 경로, `frac` 은 이 빌드에서 그 요소의 영역 `[x, y, w, h]` 다 |
+| `path_names` | `el.path` 의 id마다 하나씩, 지도가 그 요소에 준 사람이 읽을 이름. 그 요소의 `label`, 없으면 `part`, 둘 다 없으면 `""` 다(그림의 뿌리는 보통 `""`). 뷰어의 위치 줄이 단계가 없는 상위 요소까지 이름으로 적을 때 쓴다(`B2 › 달력 › 7월`). 저장하는 `el` 의 필드가 아니다. pick 의 `el` 을 그대로 `POST /api/pin` 에 보내도 되고, 모르는 키처럼 버려진다 |
 | `warn` | 고른 요소의 `score`(줄이기 전 값)가 0.3 미만이면 약한 일치 문장이고, 쪽을 다시 그리는 중이면 그 문장이 이어진다. 원고 pick 의 오래된 PDF·두 경로 불일치 문장은 없다. 아무것도 없으면 `""` |
 
 **줄을 줄 수 없으면 영역 답을 준다.** 보기 전용 PDF 의 답(`{doc, kind:"region", view_only:true, page, frac, pdf, name, quote, n_chars, warn, overlaps:[], pdf_build}`)과 같은 모양이다. 이 답의 `view_only: true` 는 그 답이 영역뿐이고 코드 줄이 없다는 뜻이다. `/api/docs` 의 `view_only` 는 문서의 능력이고 그림 문서에서는 `false` 다. 줄을 줄 수 없는 경우는 둘이다.
 
 - 지도를 읽지 못한다: 그 빌드에 지도 사본이 없거나, 지도가 검사를 어겼거나, 그 쪽이 지도에 없다. 이때 답에 `el` 이 없다.
-- 고른 요소의 코드 줄을 줄 수 없다: 요소에 `src` 가 없거나, 그 파일을 문서 폴더 안에서 읽지 못하거나, 줄 범위가 지금 파일을 넘는다. 이때 답에 그 요소의 `el` 이 붙는다.
+- 고른 요소의 코드 줄을 줄 수 없다: 요소에 `src` 가 없거나, 그 파일을 문서 폴더 안에서 읽지 못하거나, 줄 범위가 지금 파일을 넘는다. 이때 답에 그 요소의 `el` 과 `path_names` 가 붙는다.
 
 두 경우 `warn` 은 이유 문장으로 시작한다. 이유는 그 한국어 문장으로만 드러나고, 답에 이유 코드 필드는 없다(`figure_map_unavailable`·`element_without_source` 는 서버 안의 이름이다). 두 경우를 기계가 가르려면 답에 `el` 이 있는지 본다. `quote` 는 그 빌드의 PDF 사본에서 pdftotext 로 뽑은 영역 글자다. 영역 답과 영역 핀의 PDF 는 다음과 같다.
 

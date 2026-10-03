@@ -32,6 +32,20 @@ def test_historical_selection_does_not_follow_current_map(tmp_path):
     assert tuple(level for level, _ in selected.ladder) == ("el", "el2", "fig")
 
 
+def test_a_selected_element_names_each_element_on_its_path(tmp_path):
+    """The chosen element carries, root first, each path element's name a person reads: its label, else its part,
+    else "" (the root of b2_map() has neither); a strip without a label is named by its part."""
+    doc = figure_doc(
+        tmp_path / "paper", RunPaths(tmp_path / "paper", tmp_path / "paper" / "main.tex", tmp_path / "state")
+    )
+    fmap = b2_map()
+    del fmap["pages"][0]["elements"][1]["label"]
+    write_build(doc, BUILD1, fmap)
+    selected = queries().selection(doc, BUILD1, 1, JULY)
+    assert selected.chosen.names == ("", "CalendarStrip", "7월")
+    assert [el.names for _, el in selected.ladder] == [("", "CalendarStrip", "7월"), ("", "CalendarStrip"), ("",)]
+
+
 def test_missing_markers_are_interpreted_by_owner(tmp_path):
     """Absent stamps retain light-poll defaults and an empty outline."""
     doc = figure_doc(

@@ -21,6 +21,7 @@ from limn.builds.contracts import (
     PinBuildQueries,
     PositionHistory,
     Publication,
+    RevisionBuildQueries,
     SelectionUnavailable,
 )
 from limn.builds.figure_map import (
@@ -30,6 +31,7 @@ from limn.builds.figure_map import (
     element_kind,
     follow_element,
     ladder_scopes,
+    map_source_files,
     pick_element,
 )
 from limn.platform.values import is_num
@@ -73,17 +75,20 @@ def position_basis(
 
 
 def _element(page: MapPage, el: MapElement) -> ElementFact:
-    """Detach just the selected identity, source span and display-only implementation span."""
+    """Detach just the selected identity, source span and display-only implementation span, with the name a person
+    reads for each element of its path (root first): its label, else its part, else ""."""
     source = None if el.src is None else (el.src.file, el.src.lo, el.src.hi)
     impl = None if el.impl is None else (el.impl.file, el.impl.lo, el.impl.hi)
+    chain = tuple(reversed((el, *page.ancestors(el))))
     return ElementFact(
         el.id,
-        tuple(e.id for e in reversed((el, *page.ancestors(el)))),
+        tuple(e.id for e in chain),
         el.label or None,
         el.part or None,
         impl,
         el.frac,
         source,
+        tuple(e.label or e.part or "" for e in chain),
     )
 
 
@@ -219,6 +224,42 @@ class BuildQueries:
             return None
         fmap = self.maps().get(doc, artifacts.cur_pages(doc).name)
         return element_follower(fmap if isinstance(fmap, FigureMap) else None)
+
+    def history_files(self, doc: Doc) -> tuple[Path, ...] | None:
+        """The files whose Git history is figure document doc's changes, in this order: its map file, the PDF the map of
+        the build on screen names (artifacts.figure_pdf, only when it lies inside doc.src), and every script and shared
+        component that map names, joined to doc.src as the map gives them (figure_map.map_source_files). Just the map
+        file when the build on screen has no loadable map; None for a document without an element map. Reads the map
+        copy through the run's cache, and no file the map names."""
+        if not doc.has_element_map:
+            return None
+        fmap = self.maps().get(doc, artifacts.cur_pages(doc).name)
+        if not isinstance(fmap, FigureMap):
+            return (doc.main,)
+        pdf = artifacts.figure_pdf(doc, fmap)
+        named = tuple(doc.src / rel for rel in map_source_files(fmap))
+        return (doc.main, *(() if pdf is None else (pdf,)), *named)
+
+    def overlay(self, doc: Doc, dpi: int) -> dict[str, Any] | None:
+        """The two builds figure document doc's changes view lays one over the other, as the JSON fragment
+        {build, pages, prev_build, prev_pages}: the build on screen and its page images, and the build shown before it
+        (artifacts.previous_pages) with its page images, or None and [] when that is not kept. Pages are
+        artifacts.page_list's {name, pt_w, pt_h} at dpi, as meta's pages are. None for a document without an element
+        map."""
+        if not doc.has_element_map:
+            return None
+        cur = artifacts.cur_pages(doc)
+        prev = artifacts.previous_pages(doc)
+        return {
+            "build": cur.name,
+            "pages": artifacts.page_list(cur, dpi),
+            "prev_build": None if prev is None else prev.name,
+            "prev_pages": [] if prev is None else artifacts.page_list(prev, dpi),
+        }
+
+    def revisions(self, dpi: Callable[[], int]) -> RevisionBuildQueries:
+        """Bind only the changes view's completed queries; dpi is read on each overlay, as the run's settings give it."""
+        return RevisionBuildQueries(self.history_files, lambda doc: self.overlay(doc, dpi()))
 
     def documents(self) -> DocumentBuildQueries:
         """Bind only the document consumer's completed queries."""

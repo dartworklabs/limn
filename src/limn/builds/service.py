@@ -2,6 +2,7 @@
 
 import sys
 import threading
+import time
 import traceback
 from collections.abc import Callable, Sequence
 from typing import Any
@@ -150,6 +151,32 @@ class BuildRequests:
                         self.refresh_watched(doc)
                     except Exception:  # noqa: BLE001 — the watch thread must never die
                         traceback.print_exc(file=sys.stderr)
+
+    def refresh_watched_now(self, doc: Doc, wait: float) -> bool:
+        """The watch tick for doc, waited for within `wait` seconds: first doc's build lock (an import or redraw the
+        watch thread already started finishes first), then, when doc's files changed, the watch's own background
+        import of its map and PDF (figure.pending_import, import_figure) or redraw of its view-only PDF
+        (engine.refresh_pdf_doc), until it is done. True when an import or redraw this call started finished within
+        `wait`; False when doc's files are not watched, nothing changed, or a build of doc is still running when the
+        wait is over - that build goes on by itself and nothing is cancelled. An agent's close calls this through the
+        sync service so the author's notice comes after the new pages (docs/handbook/api.md §닫을 때 사유 남기기)."""
+        deadline = time.monotonic() + wait
+
+        def free() -> bool:
+            """Whether doc's build lock came free before the deadline (it is not kept)."""
+            if not doc.lock.acquire(timeout=max(0.0, deadline - time.monotonic())):
+                return False
+            doc.lock.release()
+            return True
+
+        if not doc.watches_files or not free():
+            return False
+        if doc.has_element_map:
+            ready = figure.pending_import(doc, self.figure_looks, self.settings().dpi, first=False)
+            started = ready is not None and not isinstance(self.import_figure(doc, ready, wait=False), BuildBusy)
+        else:
+            started = engine.refresh_pdf_doc(doc, self.build_async)
+        return started and free()
 
     def refresh_watched(self, doc: Doc) -> bool:
         """One watch tick for doc. A document with an element map imports its map and PDF once they agree

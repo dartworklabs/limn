@@ -20,7 +20,7 @@ from limn.builds.artifacts import (
     FinishedBuild,
     ViewOnlyNoRebuild,
 )
-from limn.builds.contracts import DocumentBuildQueries, PinBuildQueries
+from limn.builds.contracts import DocumentBuildQueries, PinBuildQueries, RevisionBuildQueries
 from limn.builds.queries import BuildQueries
 from limn.builds.service import BuildRequests
 from limn.runtime.config import RunConfig
@@ -81,6 +81,12 @@ class BuildCommands:
         """Watch file-backed documents until ``stop`` is set."""
         self._requests.watch_pdf_docs(stop, every)
 
+    def refresh_now(self, doc: Doc, wait: float) -> bool:
+        """Bring a watched document's pages up to date, waiting at most `wait` seconds (BuildRequests.
+        refresh_watched_now): True when an import or redraw started here finished in time; False when there was
+        nothing to do or a build of the document is still running."""
+        return self._requests.refresh_watched_now(doc, wait)
+
 
 @dataclass(frozen=True)
 class BuildSubsystem:
@@ -88,6 +94,7 @@ class BuildSubsystem:
 
     documents: DocumentBuildQueries
     pins: PinBuildQueries
+    revisions: RevisionBuildQueries
     last_failed: Callable[[BuildStateHolder], bool]
     published_head: Callable[[Doc], str]
     commands: BuildCommands
@@ -126,6 +133,7 @@ def assemble_builds(
     return BuildSubsystem(
         queries.documents(),
         queries.pins(),
+        queries.revisions(lambda: settings().dpi),
         artifacts.last_build_failed,
         queries.published_head,
         commands,

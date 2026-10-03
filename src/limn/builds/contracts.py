@@ -66,7 +66,8 @@ class OutlineInput:
 
 @dataclass(frozen=True)
 class ElementFact:
-    """One selected element's pin identity and source span, not a traversable map node."""
+    """One selected element's pin identity and source span, not a traversable map node. names holds, for each id of
+    path (root first), the name the map gives that element - its label, else its part - or "" where it gives none."""
 
     id: str
     path: tuple[str, ...]
@@ -75,6 +76,7 @@ class ElementFact:
     impl: SourceLines | None
     frac: Frac
     source: SourceLines | None
+    names: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -112,6 +114,18 @@ class DocumentBuildQueries:
 
     summary: Callable[[Doc, Path, int], DocumentBuild]
     outline: Callable[[Doc], OutlineInput]
+
+
+@dataclass(frozen=True)
+class RevisionBuildQueries:
+    """Only the build queries the changes view uses. history_files answers which files' Git history a figure document's
+    changes are - its map, the PDF its current build's map names and every script and shared component that map names
+    - and None for a document without an element map. overlay answers the two builds a figure document's changes view
+    lays one over the other, as the completed JSON fragment {build, pages, prev_build, prev_pages}, and None for a
+    document without an element map. No map, history entry or page folder crosses."""
+
+    history_files: Callable[[Doc], tuple[Path, ...] | None]
+    overlay: Callable[[Doc], dict[str, Any] | None]
 
 
 @dataclass(frozen=True)

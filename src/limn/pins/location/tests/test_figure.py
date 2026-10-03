@@ -269,12 +269,13 @@ class RegionBodies(unittest.TestCase):
         self.assertEqual(body["warn"], PICK_WARNINGS["blank"])
 
     def test_a_figure_fallback_names_its_reason_first_and_adds_the_element(self):
-        """The reason's sentence leads the warn, and el follows the contract keys."""
+        """The reason's sentence leads the warn, and el and the names of its path follow the contract keys."""
         el08 = PinElement("B2/m08", ("B2", "B2/m08"))
-        body = pick_answer(replace(self.REGION, el=el08, fallback="element_without_source"))
-        self.assertEqual(list(body), REGION_KEYS + ["el"])
+        body = pick_answer(replace(self.REGION, el=el08, fallback="element_without_source", path_names=("", "8월")))
+        self.assertEqual(list(body), REGION_KEYS + ["el", "path_names"])
         self.assertEqual(body["warn"], PICK_WARNINGS["element_without_source"] + " " + PICK_WARNINGS["blank"])
         self.assertEqual(body["el"], {"id": "B2/m08", "path": ["B2", "B2/m08"]})
+        self.assertEqual(body["path_names"], ["", "8월"])
 
     def test_a_fallback_without_an_element_has_no_el_and_a_redraw_sentence_comes_last(self):
         """figure_map_unavailable names no element (no el key); with a text-bearing region being redrawn the warn is
@@ -358,7 +359,7 @@ class FigurePick(Base):
             d = pick(
                 {"doc": "fig", "page": 1, "x0": x0, "y0": y0, "x1": x1, "y1": y1, "pdf_build": BUILD1}, doc=self.fig
             )
-        self.assertEqual(list(d), LATEX_KEYS + ["el"])
+        self.assertEqual(list(d), LATEX_KEYS + ["el", "path_names"])
         self.assertEqual(
             (d["file"], d["name"], d["lo"], d["hi"], d["raw_lo"], d["raw_hi"], d["n_lines"]),
             (str(self.script), "B2_calendar.py", 88, 95, 88, 95, 140),
@@ -401,6 +402,19 @@ class FigurePick(Base):
         self.assertEqual((d["kind"], d["el"]["id"]), ("region", "B2/calendar/m08"))
         self.assertTrue(d["warn"].startswith(PICK_WARNINGS["element_without_source"]))
         self.assertNotIn("lo", d)
+
+    def test_every_answer_with_an_element_names_each_element_on_its_path(self):
+        """path_names gives, root first, each element of el.path the name the map gives it - label, else part - and
+        "" where it gives none (the figure's root): for the July cell's lines, the August cell's region (whose strip
+        has no rung to name it) and the whole figure."""
+        for box, path, names in (
+            (JULY_BOX, ["B2", "B2/calendar", "B2/calendar/m07"], ["", "달력", "7월"]),
+            (AUGUST_BOX, ["B2", "B2/calendar", "B2/calendar/m08"], ["", "달력", "8월"]),
+            (EMPTY_BOX, ["B2"], [""]),
+        ):
+            with self.subTest(box=box):
+                d = self.drag(box)
+                self.assertEqual((d["el"]["path"], d["path_names"]), (path, names))
 
     def test_no_loadable_map_answers_the_region_without_an_element(self):
         """No map copy, a copy the parser refuses, or a page the map does not describe: the region, no el."""
