@@ -1,6 +1,10 @@
 # Changelog
 
-## Unreleased
+## 0.4.10 — 2026-10-03
+
+[Confirm] binds to the close you saw, and the viewer's internals are hardened: its markup goes through one escaping
+tag and its JS parts are type-checked with strict null checks. `pins.md` and the state directory are unchanged; the
+HTTP API gains one optional field on confirm and its `409` answer. The screens are the same as 0.4.9.
 
 ### Added
 
@@ -10,6 +14,20 @@
   `done_at` and says the pin was closed again. A request without the field confirms the current close, as before.
   A `done_at` that is not a non-blank string of at most 64 characters is `400 bad_done_at`. Agents never confirm, so
   the agent contract (`pins.md`, SKILL) is unchanged; the HTTP API only gains the optional field and the new code.
+
+### Internal
+
+- **Viewer markup goes through one escaping tag.** Every part that builds HTML from data - toasts, the status line,
+  page frames, the document choosers, the composer, the edit card, the reply box, pin cards, archive and Trash rows,
+  the @-list and the changes view - writes it with an `html` template tag that escapes each interpolated value, into
+  one sink. On the demo manuscript the phone, tablet and desktop screens, the composer, the edit card, the reply box,
+  the More menu and the changes view render pixel for pixel as in 0.4.9.
+- **The viewer's JS is type-checked.** CI runs `tsc` over the viewer's parts with `strictNullChecks`, and the pin,
+  document, build and people answers are declared and checked against the handlers and the contract snapshot.
+- **Security tests.** A role × action/read matrix, a check that every POST entry point is registered, and property
+  tests for the header parser.
+- **CI.** Actions are pinned to commit SHAs, checkout keeps no credentials, Dependabot watches the actions, and mypy
+  also checks as macOS.
 
 ## 0.4.9 — 2026-10-03
 
