@@ -19,10 +19,10 @@ async function refreshDoc(meta){const a=topAnchor(),k=DOC,seq=SWITCHSEQ;
 // seconds there used to be no way to see it again. Even after closing it, #build-err-chip remains to reopen it (as long as BUILD.error exists).
 function showBuildErr(r){BUILD.error=r; if(DOC)BUILD_ERR_BY.set(DOC,r); const b=$('#build-err');
   const title=tr(r.state===BUILD_STATE.FAIL?'빌드 실패 — 화면은 이전 PDF입니다':'PDF를 재빌드했지만 LaTeX 오류가 있습니다');
-  b.innerHTML='<div class="row"><b>'+esc(title)+'</b><span class="sp"></span>'+
-    '<button class="btn-sm" data-act="err-close" data-tip="이 알림을 닫습니다(다시 보기는 위 배지로)">닫기</button></div>'+
-    (r.errors||[]).map(e=>'<div class="dim">'+(e.line?'L'+e.line+' · ':'')+esc(e.msg)+'</div>').join('')+
-    '<pre class="nowrap" style="max-height:30vh">'+esc(String(r.log_tail||r.log||'').split('\n').slice(-20).join('\n'))+'</pre>';
+  const log=String(r.log_tail||r.log||'').split('\n').slice(-20).join('\n');
+  const close=html`<button class="btn-sm" data-act="err-close" data-tip="이 알림을 닫습니다(다시 보기는 위 배지로)">닫기</button>`;
+  const errors=(r.errors||[]).map(e=>html`<div class="dim">${e.line?'L'+e.line+' · ':''}${e.msg}</div>`);
+  setHtml(b,html`<div class="row"><b>${title}</b><span class="sp"></span>${close}</div>${errors}<pre class="nowrap" style="max-height:30vh">${log}</pre>`);
   b.hidden=false; $('#build-err-chip').hidden=true;}
 function hideBuildErr(){$('#build-err').hidden=true; $('#build-err-chip').hidden=!BUILD.error;}
 // docs/handbook/build-sync.md §비동기 재빌드: rebuild is async - the POST returns immediately, and the #build-chip poller (startBuildPolling) shows

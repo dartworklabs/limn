@@ -38,6 +38,7 @@ from helpers import (
     js_esc,
     js_i18n,
     js_icons,
+    js_markup,
     js_thread,
     page_for,
     ps,
@@ -1872,10 +1873,13 @@ class FrontendSemanticAudit(unittest.TestCase):
     def test_long_messages_clamp_and_identity_marks(self):
         self.assertIn(".msg-t.clamp{display:-webkit-box;-webkit-line-clamp:6;", self.css)
         self.assertIn('data-act="msg-more"', extract_js_fn("msgBody"))
-        self.assertIn(
-            "if(isAgent(a))return '<span class=\"av i agent\" aria-hidden=\"true\">'+ic('bot')+'</span>';",
-            extract_js_fn("avatar"),
+        agent = run_node(
+            "\n".join(
+                [js_esc(), js_icons(), extract_js_fn("isAgent"), extract_js_fn("avatar")]
+                + ["console.log(String(avatar({login:'agent:x',name:'Bot'})));"]
+            )
         )
+        self.assertTrue(agent.startswith('<span class="av i agent" aria-hidden="true"><svg class="ic ic-bot"'), agent)
         self.assertIn("(나)", extract_js_fn("msgHtml"))
         self.assertIn("(나)", extract_js_fn("card"))
 
@@ -3573,6 +3577,8 @@ class FrontendSaveWhilePicking(unittest.TestCase):
         return "\n".join(
             [
                 stub,
+                js_esc(),
+                js_markup(),
                 extract_js_fn("captureVisit"),
                 extract_js_fn("currentVisit"),
                 extract_js_fn("saveBtnLabel"),
@@ -3605,7 +3611,7 @@ class FrontendSaveWhilePicking(unittest.TestCase):
               out.curSetBeforeSave = !!COMPOSE.current || out.pinCallsAfterResolve>0;
               pinResolve({data:{id:42}});
               await Promise.resolve(); await Promise.resolve(); await Promise.resolve();
-              out.btnLabelRestored = els['#btn-save'].innerHTML===saveBtnLabel();
+              out.btnLabelRestored = els['#btn-save'].innerHTML===saveBtnLabel().text;
               console.log(JSON.stringify(out));
             })();
             """)
@@ -3657,7 +3663,7 @@ class FrontendSaveWhilePicking(unittest.TestCase):
               out.queued = COMPOSE.pendingSave;
               savePin();   // 같은 버튼을 다시 누르면 대기를 취소(토글)
               out.canceled = COMPOSE.pendingSave===false;
-              out.btnLabelRestored = els['#btn-save'].innerHTML===saveBtnLabel();
+              out.btnLabelRestored = els['#btn-save'].innerHTML===saveBtnLabel().text;
               pickResolve({data:{file:'/m.tex',name:'m.tex',lo:5,hi:5,raw_lo:5,raw_hi:5,page:1,
                 default_level:null,overlaps:[],via:null,score:1,frac:0,quote:'',kind:'line'}});
               await p;

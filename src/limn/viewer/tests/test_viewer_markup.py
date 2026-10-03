@@ -19,7 +19,7 @@ from hypothesis import given, settings, strategies as st
 from limn.viewer import assemble
 
 import helpers_js
-from helpers import VIEWER, js_esc, js_icons, run_node
+from helpers import VIEWER, extract_js_fn, js_esc, js_icons, run_node
 
 PARTS = assemble.viewer_manifest(VIEWER)["__APP_JS__"]
 MARKUP_PART = "js/markup.js"
@@ -27,8 +27,6 @@ MARKUP_PART = "js/markup.js"
 # innerHTML writes each part still makes by hand, waiting to move to setHtml(html`...`). A part's count may only go
 # down: moving a write lowers it here in the same change, and a part not listed may have none.
 LEGACY_SINKS = {
-    "js/api-toasts.js": 2,
-    "js/boot.js": 3,
     "js/cards.js": 1,
     "js/composer.js": 2,
     "js/doc-switch.js": 1,
@@ -38,13 +36,9 @@ LEGACY_SINKS = {
     "js/levels.js": 2,
     "js/list.js": 8,
     "js/mentions.js": 7,
-    "js/pages.js": 2,
-    "js/rebuild.js": 1,
     "js/repick.js": 1,
     "js/reply.js": 1,
     "js/revisions.js": 8,
-    "js/save.js": 2,
-    "js/status.js": 2,
 }
 SINK_PROPS = frozenset(["innerHTML", "outerHTML"])
 SINK_CALLS = frozenset(["insertAdjacentHTML", "createContextualFragment", "write", "writeln"])
@@ -205,3 +199,29 @@ class MarkupSource(unittest.TestCase):
         ):
             with self.subTest(bad=bad):
                 self.assertEqual(sink_writes(bad), 1)
+
+
+class MovedMarkup(unittest.TestCase):
+    """Parts moved to html`` draw the same markup as before, with what people wrote still escaped."""
+
+    def setUp(self):
+        node_or_skip(self)
+
+    def test_more_info_breaks_long_names_after_separators_and_escapes_them(self):
+        """[더보기]'s meta keeps each piece whole, allows a break after / . _ - only, and escapes the file and person."""
+        out = run_markup(
+            "\n".join(
+                [
+                    extract_js_fn("who"),
+                    extract_js_fn("commitShown"),
+                    extract_js_fn("moreInfo"),
+                    "console.log(JSON.stringify(String(moreInfo({main:'a<b>/c_d.tex',pages:[1,2],head:'-',"
+                    "built_at:'2026-01-02T03:04:05'},{name:'Kim & Lee'}))));",
+                ]
+            )
+        )
+        self.assertEqual(
+            out,
+            '<span class="mc">a&lt;b&gt;/<wbr>c_<wbr>d.<wbr>tex</span> · <span class="mc">2쪽</span><br>'
+            '<span class="mc">01-<wbr>02 03:04 빌드</span> · <span class="mc">나: Kim &amp; Lee</span>',
+        )
