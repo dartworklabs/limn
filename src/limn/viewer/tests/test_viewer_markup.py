@@ -28,7 +28,7 @@ MARKUP_PART = "js/markup.js"
 # down: moving a write lowers it here in the same change, and a part not listed may have none.
 LEGACY_SINKS = {
     "js/cards.js": 1,
-    "js/list.js": 8,
+    "js/list.js": 3,
     "js/revisions.js": 8,
 }
 SINK_PROPS = frozenset(["innerHTML", "outerHTML"])
