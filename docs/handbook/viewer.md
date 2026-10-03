@@ -93,6 +93,16 @@
 
 [`test_viewer_markup.py`](../../src/limn/viewer/tests/test_viewer_markup.py)가 이 규칙을 토큰으로 지킨다. `setHtml()` 밖의 `innerHTML`·`outerHTML` 쓰기와 `insertAdjacentHTML` 같은 HTML 싱크, `markup.js` 밖의 `esc()`·`new Html`, 태그가 아닌 `html(...)` 호출, `+`로 이은 `` html`…` ``은 실패한다. `esc()`를 `markup.js`만 쓰게 하는 이유는 손으로 이스케이프해 마크업 문자열을 짜는 길을 아예 닫기 위해서다. 같은 테스트가 `` html`…` ``의 이스케이프를 node로 확인한다. 화면을 비우는 일은 `el.replaceChildren()`으로 한다.
 
+### 타입 검사
+
+뷰어 JS는 빌드 없이 그대로 내보내지만, 개발할 때 TypeScript의 `tsc`가 조각의 타입을 검사한다(`npm run typecheck`, [verification.md](verification.md) §9). `tsc`는 아무것도 만들지 않으므로 서버와 배포에는 Node나 npm이 필요 없다. 설정은 저장소 루트의 `tsconfig.json`이고, `js/*.js`를 `checkJs`로 하나의 전역 범위에서 읽는다. 조각이 실제로 고전 스크립트 하나의 범위를 나눠 쓰기 때문이다(§뷰어 규칙을 바꿀 때).
+
+- 조각이 스스로 말할 수 없는 것은 [`types/globals.d.ts`](../../src/limn/viewer/types/globals.d.ts)에 선언한다. 서버가 채우는 자리 표시자(`__LUCIDE_JSON__` 등), 머리 스크립트와 테스트가 쓰는 `window` 속성, 뷰어가 자기 요소에 붙이는 필드(`_gone` 등), `api()` 오류의 모양이다. 이 폴더는 휠에 들어가지 않는다.
+- DOM이 넓은 타입을 돌려주는 자리(`e.target`, `querySelector`, `closest`)는 JSDoc 캐스트로 좁힌다. 예: `const t=/** @type {HTMLElement} */(e.target);`. 주석이라 실행 코드는 바뀌지 않는다.
+- 리터럴 하나로 시작해 나중에 다른 값이 들어가는 변수는 시작 값에서 타입을 넓힌다. 예: `let KIND_NEW=/** @type {string} */(KIND_REQ.FIX)`.
+- 함수 객체에 속성을 붙여 상태를 두지 않는다(`f.held=true`). 같은 일은 조각의 `let` 변수로 한다.
+- `strict`는 끈 채로 검사한다. 닫힌 값 표의 오타(`PIN_STATE.REVEIW`), 없는 함수, `Html`이 아닌 값을 기대하는 인자는 지금도 실패한다.
+
 ## 조작 한눈에
 
 운영자가 공저자에게 안내할 조작 요약이다. 규칙과 근거는 오른쪽 열의 절에 있다.

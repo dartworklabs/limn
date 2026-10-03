@@ -167,7 +167,7 @@ function secOpenFor(id){const p=findAnyPin(id); if(!p)return false; const st=pin
 function revealCard(id){if(secOpenFor(id))drawPins(); setSide(true); if(LAYOUT===LAYOUT_MODE.WIDE)return;
   if(!OPEN_CARDS.has(id)&&(PINS.some(p=>p.id===id)||REVIEW_ALL.some(p=>p.id===id))){OPEN_CARDS.add(id); drawPins();}}
 function jumpToCard(id){if(secOpenFor(id))drawPins();
-  const el=document.querySelector('.pin[data-id="'+id+'"]'); if(!el)return;
+  const el=/** @type {HTMLElement} */(document.querySelector('.pin[data-id="'+id+'"]')); if(!el)return;
   el.scrollIntoView({behavior:SMOOTH,block:'nearest'});
   $$('.pin.cur').forEach(x=>{if(x!==el)x.classList.remove('cur');});
   clearTimeout(el._curT);
@@ -180,7 +180,7 @@ function gotoPinRef(id){const p=findAnyPin(id); if(!p){if(DROPPED.some(x=>x.id==
   if(multiDoc()&&DOC&&pdoc(p)!==DOC)SHOW_ALL=true;
   if(st===PIN_STATE.DONE)SEC.done=true; else{OPEN_CARDS.add(id); SEC[st===PIN_STATE.REVIEW?'review':'open']=true;} savePrefs({sec:SEC});
   setSide(true); drawPins();
-  requestAnimationFrame(()=>{const el=document.querySelector('.pin[data-id="'+id+'"],.arc-row[data-id="'+id+'"]'); if(!el)return;
+  requestAnimationFrame(()=>{const el=/** @type {HTMLElement} */(document.querySelector('.pin[data-id="'+id+'"],.arc-row[data-id="'+id+'"]')); if(!el)return;
     el.scrollIntoView({behavior:SMOOTH,block:'nearest'}); el.classList.remove('flash'); void el.offsetWidth; el.classList.add('flash');
     clearTimeout(el._flT); el._flT=setTimeout(()=>el.classList.remove('flash'),1200);});}
 // Scrolls the mark of pin id into view and flashes it (switching to the pin's document first); a pin whose mark is not drawn
@@ -190,7 +190,7 @@ function jumpPin(id){if(viaDoc(id,jumpPin))return; const p=PINS.find(x=>x.id===i
     opening.then(()=>{if(DOC===k&&visit===SWITCHSEQ)jumpPin(id);});} return;}
   if(document.body.classList.contains('revision-open'))setViewMode(VIEW_MODE.MANUSCRIPT);
   if(LAYOUT===LAYOUT_MODE.NARROW)setSide(false);   // collapsed first so the sheet doesn't cover the page, then measured
-  const m=document.querySelector('.mark[data-pin="'+id+'"]');
+  const m=/** @type {HTMLElement} */(document.querySelector('.mark[data-pin="'+id+'"]'));
   if(m){
     const L=$('#left'),lr=L.getBoundingClientRect(),mr=m.getBoundingClientRect();
     L.scrollTop+=(mr.top-(lr.top+lr.height*0.30));

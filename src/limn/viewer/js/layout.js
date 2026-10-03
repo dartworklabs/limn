@@ -158,10 +158,10 @@ function onViewport(){const vv=window.visualViewport; if(!vv)return;
   if(prev!==kb+'px'&&a&&(a.tagName==='TEXTAREA'||a.tagName==='INPUT')&&$('#right').contains(a))
     requestAnimationFrame(()=>a.scrollIntoView({block:'center'}));}
 if(window.visualViewport){visualViewport.addEventListener('resize',onViewport); visualViewport.addEventListener('scroll',onViewport);}
-document.addEventListener('focusin',e=>{const t=e.target;
+document.addEventListener('focusin',e=>{const t=/** @type {HTMLElement} */(e.target);
   if(LAYOUT!==LAYOUT_MODE.WIDE&&t&&t.tagName==='TEXTAREA'&&$('#right').contains(t))setTimeout(()=>{if(BAND===LAYOUT_BAND.TABLET_SHEET)keepFieldInView(); else t.scrollIntoView({block:'center'});},350);});
 // Whether a text field has focus - a textarea, a text input or editable content - which on a touch screen means the keyboard is up.
-function typingNow(){const a=document.activeElement; if(!a||a===document.body)return false; if(a.isContentEditable||a.tagName==='TEXTAREA')return true;
+function typingNow(){const a=/** @type {HTMLInputElement} */(document.activeElement); if(!a||a===document.body)return false; if(a.isContentEditable||a.tagName==='TEXTAREA')return true;
   return a.tagName==='INPUT'&&!/^(checkbox|radio|button|submit|reset|range|color|file|image|hidden)$/i.test(a.type||'');}
 // The panel's text field that has focus (a note, an edit or a reply), or null.
 function panelField(){const a=document.activeElement; return typingNow()&&$('#right').contains(a)?a:null;}
@@ -172,9 +172,10 @@ document.addEventListener('pointerup',()=>{TYPING_PRESS=performance.now();},true
 // waits for that press's click (or 350ms): taking the short band's top row back at once moved the panel 48px under the finger
 // between the touch's end and its click, so the click hit what was there now - a first tap on an edit card's dimmed line did
 // nothing and the second worked.
+let TYPING_HELD=false;   // syncTyping() is waiting for the press that took the focus (its click or 350ms)
 function syncTyping(){const on=!!panelField(),b=document.body;
-  if(!on&&b.classList.contains('typing')&&performance.now()-TYPING_PRESS<300){if(syncTyping.held)return; syncTyping.held=true;
-    const go=()=>{if(!syncTyping.held)return; syncTyping.held=false; document.removeEventListener('click',go); syncTyping();};
+  if(!on&&b.classList.contains('typing')&&performance.now()-TYPING_PRESS<300){if(TYPING_HELD)return; TYPING_HELD=true;
+    const go=()=>{if(!TYPING_HELD)return; TYPING_HELD=false; document.removeEventListener('click',go); syncTyping();};
     document.addEventListener('click',go); setTimeout(go,350); return;}
   b.classList.toggle('typing',on); if(BAND===LAYOUT_BAND.TABLET_SHEET)applySheet();}
 document.addEventListener('focusin',syncTyping);
@@ -225,7 +226,8 @@ function footInk(){const f=$('#more-foot'),h=f&&f.querySelector('[data-act=help]
   f.style.setProperty('--help-chev',(mid-(cr.top+cr.height/2))+'px');}
 // The ink of s in el's font as {a, d}: how far it rises above and reaches below the baseline (px), from the canvas's text
 // metrics read at 64 times the size, because the canvas rounds them to whole pixels.
-function inkMetrics(el,s){const c=inkMetrics.ctx||(inkMetrics.ctx=document.createElement('canvas').getContext('2d')),S=64,cs=getComputedStyle(el);
+let INK_CTX=null;   // inkMetrics()'s canvas context, made on first use
+function inkMetrics(el,s){const c=INK_CTX||(INK_CTX=document.createElement('canvas').getContext('2d')),S=64,cs=getComputedStyle(el);
   c.font=cs.fontStyle+' '+cs.fontWeight+' '+parseFloat(cs.fontSize)*S+'px '+cs.fontFamily; const x=c.measureText(s);
   return {a:x.actualBoundingBoxAscent/S,d:x.actualBoundingBoxDescent/S};}
 // The Hangul letters of s (syllables and jamo) - the glyphs that reach below the Latin baseline. Pure.

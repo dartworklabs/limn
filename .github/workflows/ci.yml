@@ -32,6 +32,13 @@ jobs:
         run: uv run mypy
       - name: Feature boundaries
         run: uv run python tools/check_boundaries.py
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "22"
+      - name: Install viewer type checker
+        run: npm ci --ignore-scripts
+      - name: Viewer type check
+        run: npm run typecheck
 
   test:
     runs-on: ubuntu-latest

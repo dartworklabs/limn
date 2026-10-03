@@ -60,7 +60,7 @@ const OPEN_CARDS=new Set();   // ids of pin cards expanded in compact
 // Pin kind/thread (docs/handbook/viewer.md §스레드와 검토): KIND_NEW = the composer panel's kind (fix|question), REPLY = the open reply/reopen
 // input field {id,mode,el} (holds onto the DOM like EDITOR.current does, and re-inserts it in place when the list redraws), THREAD_OPEN = cards with the thread fully expanded,
 // REPLY_DRAFT = a closed input field's draft text ('reply:12').
-let KIND_NEW=KIND_REQ.FIX,REPLY=null;
+let KIND_NEW=/** @type {string} */(KIND_REQ.FIX),REPLY=null;
 // @-tags (docs/handbook/viewer.md §@태그): PEOPLE = /api/people (tailnet people who opened this viewer + pin authors/actors), MENTION_ONLY = viewing only "pins that called me".
 let PEOPLE=[],MENTION_ONLY=false;
 const THREAD_OPEN=new Set(),REPLY_DRAFT=new Map();

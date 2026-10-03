@@ -33,7 +33,7 @@ async function notifyShow(e){const t=notifyText(e);
       :{label:'열기',tip:'그 핀으로 갑니다',fn:()=>openPinFromLink(e.doc,e.pin)};
     toast(t.title+' — '+t.body,e.type===EVENT_TYPE.DROPPED?'warn':'ok',act,{keys:[e.type+':'+e.pin],rank:2,literal:true});return;}
   try{const reg=SW_REG||await navigator.serviceWorker.ready;
-    await reg.showNotification(t.title,{body:t.body,tag:'pin-'+e.pin,icon:(document.querySelector('link[rel=apple-touch-icon]')||document.querySelector('link[rel=icon]')||{}).href,
+    await reg.showNotification(t.title,{body:t.body,tag:'pin-'+e.pin,icon:(/** @type {HTMLLinkElement} */(document.querySelector('link[rel=apple-touch-icon]')||document.querySelector('link[rel=icon]'))||{href:undefined}).href,
       actions:e.type===EVENT_TYPE.DROPPED&&!isViewer()?[{action:'restore',title:tr('되살리기')}]:[],   // [되살리기] on "X deleted your pin" (the service worker hands it to this tab)
       data:{pin:e.pin,doc:e.doc,url:'/#doc='+encodeURIComponent(e.doc||'')+'&pin='+e.pin}});}catch(err){}}
 function notifyHandle(d){if(!d||typeof d.ev_seq!=='number')return;

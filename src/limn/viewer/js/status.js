@@ -131,7 +131,7 @@ function toggleStatusList(){const d=$('#status-list'); if(d.open){d.close(); ret
 // Moves #status to the band's place - the dock over the sheet (phone, tablet sheet, and wide, where the dock is hidden), the
 // short band's top row after the view switch, the mid action row's middle - keeping a focus that was inside it, then draws it.
 // An open '+N' list folds: it was placed for the old band.
-function placeStatus(){const s=$('#status'),a=document.activeElement,had=s.contains(a); if($('#status-list').open)$('#status-list').close();
+function placeStatus(){const s=$('#status'),a=/** @type {HTMLElement} */(document.activeElement),had=s.contains(a); if($('#status-list').open)$('#status-list').close();
   if(BAND===LAYOUT_BAND.SHORT){if(s.previousElementSibling!==$('#view-switch'))$('#view-switch').after(s);}
   else if(LAYOUT===LAYOUT_MODE.MID){if(s.parentNode!==$('#status-slot'))$('#status-slot').appendChild(s);}
   else if(s.parentNode!==$('#status-dock'))$('#status-dock').appendChild(s);

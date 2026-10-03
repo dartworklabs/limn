@@ -7,7 +7,7 @@ function avatar(a){if(!a||!(a.name||a.login))return html``; if(isAgent(a))return
   const ini=(who(a).trim()[0]||'?').toUpperCase();
   return a.pic&&!BADPIC.has(a.pic)?html`<img class="av" src="${a.pic}" alt="" referrerpolicy="no-referrer" data-ini="${ini}">`
     :html`<span class="av i" aria-hidden="true">${ini}</span>`;}
-document.addEventListener('error',e=>{const t=e.target;
+document.addEventListener('error',e=>{const t=/** @type {HTMLImageElement} */(e.target);
   if(t&&t.tagName==='IMG'&&t.classList.contains('av')){BADPIC.add(t.getAttribute('src')); const s=document.createElement('span');s.className='av i';
     s.textContent=t.dataset.ini||'?';t.replaceWith(s);}},true);
 function authorTip(p){let s=tl('작성: {name} · {at}',{name:p.author?who(p.author):tr('기록 전'),at:p.at||'?'});
