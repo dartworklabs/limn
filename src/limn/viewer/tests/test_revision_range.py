@@ -15,8 +15,9 @@ import unittest
 from unittest import mock
 
 from limn.revisions import core as revisions, execution as revision_execution
+from limn.security.access import LOCAL_ACTOR
 
-from helpers import extract_js_fn, ps, run_node
+from helpers import add_pin, extract_js_fn, jreq, ps, run_node
 from helpers_browser import BrowserBase
 
 PHONE = {"viewport": {"width": 411, "height": 908}, "is_mobile": True, "has_touch": True}
@@ -315,6 +316,18 @@ class RangePicker(PickerBase):
         page.click("#view-manuscript")
         self.assertEqual(self.stored_seen(page), self.commits[-1])
 
+    def test_a_record_older_than_the_window_says_so_and_is_kept(self):
+        """With a window of 5, the last-seen c1 is this document's commit but older than the window: the segment says
+        so (not "not found") and cannot be pressed, and leaving keeps the record."""
+        with mock.patch.object(revisions, "REVISION_HISTORY_MAX", 5):
+            page = self.changes(self.open(0, init=self.seen_script(self.commits[1])))
+            page.wait_for_function("REV.seenState==='old'", timeout=15000)
+            last = self.segment(page, "last")
+            self.assertTrue(last.is_disabled())
+            self.assertIn("기록한 커밋이 최근 500개보다 오래됨", last.inner_text())
+            page.click("#view-manuscript")
+            self.assertEqual(self.stored_seen(page), self.commits[1])
+
     def test_an_unresolved_record_is_never_overwritten(self):
         """When the server cannot answer for the last-seen commit (a failed request), leaving keeps the record."""
         page = self.open(0, init=self.seen_script(self.commits[4]))
@@ -471,3 +484,59 @@ class MergedPicker(PickerBase):
         self.assertEqual(self.painted(page), want)
         new = page.eval_on_selector_all("#revision-commits .rc-row.new", "rs=>rs.map(r=>r.dataset.commit)")
         self.assertEqual(set(new), want)
+
+
+class OldSidePin(PickerBase):
+    """Re-review of #188: a side line dated before trunk and merged after it fills the first 12 rows; a pin closed on
+    the older trunk commit B5 by hash must still open on B5, as the server resolves it."""
+
+    def setUp(self):
+        """root; side S1..S12 (January, own files); trunk B1..B12 (September, line n+2 of main.tex); a pin on B5's
+        line closed by the agent with B5's hash; then the --no-ff merge of the side line."""
+        super().setUp()
+        self.fake_builds()
+        self.sha: dict[str, str] = {}
+        self.dated("2026-09-01T08:00:00+09:00", "init", "-q", "-b", "main")
+        self.save("root", "2026-09-01T08:00:00+09:00")
+        self.dated("2026-09-01T08:00:00+09:00", "checkout", "-q", "-b", "side")
+        for n in range(1, 13):
+            (self.main.parent / ("s%d.tex" % n)).write_text("Side %d.\n" % n, encoding="utf-8")
+            self.save("S%d" % n, "2026-01-%02dT08:00:00+09:00" % n)
+        self.dated("2026-09-01T08:00:00+09:00", "checkout", "-q", "main")
+        for n in range(1, 13):
+            lines = self.main.read_text(encoding="utf-8").splitlines(keepends=True)
+            lines[n + 1] = "Trunk line %d.\n" % n
+            self.main.write_text("".join(lines), encoding="utf-8")
+            self.save("B%d" % n, "2026-09-%02dT08:00:00+09:00" % (n + 1))
+        pin = add_pin({"file": str(self.main), "lo": 7, "hi": 7, "page": 1, "note": "five"}, dict(LOCAL_ACTOR))
+        self.pin = pin.record["id"]
+        close = {"ref": "fixed in %s" % self.sha["B5"][:8], "changes": [{"file": "main.tex", "lo": 7, "hi": 7}]}
+        status, _, body = self.talk(jreq("POST", "/api/pins/%d/close" % self.pin, close))
+        self.assertEqual(status, 200, body)
+        self.dated("2026-09-20T08:00:00+09:00", "merge", "-q", "--no-ff", "-m", "merge side", "side")
+
+    def dated(self, when: str, *args: str) -> str:
+        """Run Git at the fixed time when; its stdout, stripped."""
+        env = dict(
+            os.environ,
+            GIT_AUTHOR_DATE=when,
+            GIT_COMMITTER_DATE=when,
+            GIT_AUTHOR_NAME="Alice Kim",
+            GIT_COMMITTER_NAME="Alice Kim",
+            GIT_AUTHOR_EMAIL="a@example.com",
+            GIT_COMMITTER_EMAIL="a@example.com",
+        )
+        return subprocess.check_output(["git", *args], cwd=self.main.parent, text=True, env=env).strip()
+
+    def save(self, name: str, when: str) -> None:
+        """Commit everything at when as name; its SHA under name."""
+        self.dated(when, "add", "-A")
+        self.dated(when, "commit", "-qm", name)
+        self.sha[name] = self.dated(when, "rev-parse", "HEAD")
+
+    def test_a_pin_closed_by_hash_opens_on_that_commit(self):
+        """[변경 보기] of the pin opens B5 (via its hash), not the newest commit that touched the line."""
+        page = self.open(0)
+        page.evaluate("showChange(%d)" % self.pin)
+        page.wait_for_function("REV.target&&REV.target.commit", timeout=15000)
+        self.assertEqual(page.evaluate("[REV.target.commit,REV.target.via]"), [self.sha["B5"], "sha"])

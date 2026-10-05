@@ -135,10 +135,10 @@ async function loadRevisions(){
   if(!rows.length){list.textContent='이 문서의 최근 변경사항이 없습니다.'; drawRange();
     if(fig)setRevisionFormat(DIFF_FORMAT.OVERLAY); else if(tg)revTargetNote('이 문서의 최근 12개 커밋에 변경이 없습니다.'); return;}
   list.hidden=true; list.textContent='';
-  // A pin's commit is picked among the window's first rows - the same rows, in the same order, the server resolves the
-  // pin's close_ref among (api.md §두 커밋 사이).
+  // A pin's commit is picked by the server's rule over the same window (api.md §두 커밋 사이): a hash anywhere in it, a PR
+  // number or the lines in its first rows.
   if(tg){if(REV.seenState===SEEN_STATE.PENDING)resolveSeen(k||'',rows[0].id);
-    const pick=await pickRevisionFor(tg,rows.slice(0,REVISION_RECENT),seq,k); if(seq!==REV.seq||k!==DOC||REV.target!==tg)return;
+    const pick=await pickRevisionFor(tg,seq,k); if(seq!==REV.seq||k!==DOC||REV.target!==tg)return;
     tg.commit=pick.id; tg.via=pick.via; tg.hit=pick.hit; REV.range={mode:RANGE_MODE.ONE,start:pick.id,end:pick.id,endSet:false};
     // a figure's lines and pictures are both exact: its overlay opens first; a LaTeX pin's lines exist only in the source diff
     if(fig)showRevision(pick.id,DIFF_FORMAT.OVERLAY); else showRevision(pick.id,DIFF_FORMAT.SOURCE); drawRange(); return;}
@@ -213,7 +213,7 @@ function drawRange(){const rows=REV.rows,rg=REV.range,st=REV.seenState;
     if(b.dataset.range!==RANGE_MODE.LAST)continue;
     const lbl=b.querySelector('.lbl'),k=b.querySelector('.k');
     b.hidden=st===SEEN_STATE.NONE; b.disabled=st!==SEEN_STATE.OK&&st!==SEEN_STATE.PENDING||st===SEEN_STATE.OK&&REV.seenN===0;
-    if(lbl)lbl.textContent=tr(st===SEEN_STATE.GONE?'기록한 커밋을 찾을 수 없음':'마지막으로 본 뒤');
+    if(lbl)lbl.textContent=tr(st===SEEN_STATE.GONE?'기록한 커밋을 찾을 수 없음':st===SEEN_STATE.OLD?'기록한 커밋이 최근 500개보다 오래됨':'마지막으로 본 뒤');
     if(k)k.textContent=st===SEEN_STATE.OK?String(REV.seenN):st===SEEN_STATE.PENDING?'…':'';}
   renderCommitList();}
 // A commit's time as the list shows it: MM-DD HH:MM of its ISO commit time (the committer's own clock), else its date.
@@ -249,10 +249,15 @@ ${more?html`<button id="revision-more" class="btn-ghost" data-act="revision-more
 async function moreRevisions(){
   if(LAYOUT===LAYOUT_MODE.NARROW&&!REV.listOpen&&REV.rows.length>REVISION_PHONE_ROWS){REV.listOpen=true; renderCommitList(); return;}
   if(!REV.more||!REV.rows.length)return; REV.listOpen=true;
-  const k=DOC,last=REV.rows[REV.rows.length-1].id; let data;
-  try{data=(await api(dq('/api/revisions?before='+encodeURIComponent(last)+'&limit='+REVISION_PAGE,k),{what:'변경사항 읽기'})).data;}catch(e){return;}
-  if(k!==DOC||REV.rowsDoc!==k||!REV.rows.length||REV.rows[REV.rows.length-1].id!==last)return;
-  REV.rows=REV.rows.concat(data.revisions||[]); REV.more=!!data.more; renderCommitList();}
+  if(await moreRows(DOC||'',REVISION_PAGE))renderCommitList();}
+// Reads the next page (up to limit rows) of document k's window onto REV.rows; whether it did. Nothing when the list is
+// another document's or was replaced meanwhile.
+/** @param {string} k @param {number} limit */
+async function moreRows(k,limit){if(!REV.more||!REV.rows.length)return false;
+  const last=REV.rows[REV.rows.length-1].id; let data;
+  try{data=(await api(dq('/api/revisions?before='+encodeURIComponent(last)+'&limit='+limit,k),{what:'변경사항 읽기',silent:true})).data;}catch(e){return false;}
+  if(k!==DOC||REV.rowsDoc!==k||!REV.rows.length||REV.rows[REV.rows.length-1].id!==last)return false;
+  REV.rows=REV.rows.concat(data.revisions||[]); REV.more=!!data.more; return true;}
 // ------------------------------------------------ The last-seen commit (docs/handbook/viewer.md §변경 보기)
 // This browser's last-seen commit per document (localStorage limnRevSeen: {<doc>:{id, at}}). No server state: another
 // browser or device keeps its own. The server says what it is (resolveSeen): how many commits it compares with the newest,
@@ -266,13 +271,14 @@ function revSeen(k){const v=revSeenAll()[k]; return v&&typeof v.id==='string'?{i
 function openSeen(seen,rows){REV.seen=seen; REV.seenIds=new Set(); REV.seenN=0;
   REV.seenState=!seen?SEEN_STATE.NONE:rows.length&&rows[0].id===seen.id?SEEN_STATE.OK:SEEN_STATE.PENDING;}
 // The server's answer for the last-seen range (seen..newest): its count and commits, or why it has none. A refusal that says
-// the commit is not in this document's history (or shares none with it) is a record the history no longer has; any other
-// failure leaves the record unread, and so kept.
+// the commit is not in this document's history (or shares none with it) is a record the history no longer has; base_too_old
+// is a record still in the history but older than the window (SEEN_STATE.OLD, kept); any other failure leaves the record
+// unread, and so kept.
 /** @param {any} r the /api/revision-diff answer with base */
 function seenAnswered(r){REV.seenState=SEEN_STATE.OK; REV.seenN=Number(r.commits)||0; REV.seenIds=new Set(r.commit_ids||[]);}
 /** @param {unknown} e */
 function seenFailed(e){const d=/** @type {any} */(e&&/** @type {ApiError} */(e).data),why=d&&d.reason;
-  REV.seenState=why==='commit_not_recent'||why==='no_merge_base'||why==='base_after_head'?SEEN_STATE.GONE:SEEN_STATE.ERROR;}
+  REV.seenState=why==='base_too_old'?SEEN_STATE.OLD:why==='commit_not_recent'||why==='no_merge_base'||why==='base_after_head'?SEEN_STATE.GONE:SEEN_STATE.ERROR;}
 // Asks the server about the last-seen commit when the view does not open on its range (a pin's [변경 보기], a figure's overlay).
 /** @param {string} k @param {string} newest */
 async function resolveSeen(k,newest){const seen=REV.seen; if(!seen)return;
@@ -282,10 +288,11 @@ async function resolveSeen(k,newest){const seen=REV.seen; if(!seen)return;
   if(k===DOC&&REV.seen===seen)drawRange();}
 // Leaving the changes view (to the manuscript, another document, or closing the page): once the server has answered for the
 // record (or there was none), the document's newest loaded commit becomes its last-seen one, with this moment as MM-DD HH:MM.
-// A record still being asked about, or one the server could not answer for, is kept. The list is forgotten, so coming back
+// A record still being asked about, one the server could not answer for, or one older than the window (still in the
+// history, so not to be lost) is kept. The list is forgotten, so coming back
 // starts afresh.
 function leaveRevisions(){const k=REV.rowsDoc,top=REV.rows[0]; REV.rowsDoc=''; if(!k||!top)return;
-  if(REV.seenState===SEEN_STATE.PENDING||REV.seenState===SEEN_STATE.ERROR)return;
+  if(REV.seenState===SEEN_STATE.PENDING||REV.seenState===SEEN_STATE.ERROR||REV.seenState===SEEN_STATE.OLD)return;
   const d=new Date(),p=n=>String(n).padStart(2,'0'),all=revSeenAll();
   all[k]={id:top.id,at:p(d.getMonth()+1)+'-'+p(d.getDate())+' '+p(d.getHours())+':'+p(d.getMinutes())};
   try{localStorage.setItem('limnRevSeen',JSON.stringify(all));}catch(e){}}
@@ -377,7 +384,7 @@ async function loadRevisionSource(id,seq,k){
     out.textContent=why?tl('소스 변경 내용을 읽지 못했습니다: {error}',{error:why}):tr('소스 변경 내용을 읽지 못했습니다.');
     // the last-seen range could not be compared: say why on its segment, and show the newest commit alone instead
     if(base&&REV.range.mode===RANGE_MODE.LAST&&REV.seen&&base===REV.seen.id){seenFailed(e);
-      if(REV.seenState===SEEN_STATE.GONE&&REV.rows.length){const top=REV.rows[0].id; showRange({mode:RANGE_MODE.ONE,start:top,end:top,endSet:false});}
+      if((REV.seenState===SEEN_STATE.GONE||REV.seenState===SEEN_STATE.OLD)&&REV.rows.length){const top=REV.rows[0].id; showRange({mode:RANGE_MODE.ONE,start:top,end:top,endSet:false});}
       else drawRange();}}}
 }
 // A range's summary on the status line (its source diff): the two ends, the commits and files in it, the merge base when the
@@ -393,10 +400,13 @@ function rangeSummary(r){const files=Array.isArray(r.files)?r.files:[];
 // ('(#236)'/'pull request #236') > among the last 12 commits, the most recent one that touched the pin's file/lines (+-5 lines) > the most recent commit.
 // Line matching exists only for the source diff - a line whose new-side line number falls within the pin's range is highlighted and scrolled to.
 // The comparison PDF (latexdiff) has no SyncTeX mapping, so it only moves to roughly the pin's page.
-function matchRevision(ref,revs){ref=String(ref||'');
-  for(const m of ref.matchAll(/\b[0-9a-f]{7,40}\b/g)){const r=revs.find(x=>x.id.startsWith(m[0])); if(r)return {id:r.id,via:'sha',tok:m[0]};}
-  for(const m of ref.matchAll(/#(\d+)/g)){const n=m[1],re=new RegExp('\\(#'+n+'\\)|pull request #'+n+'\\b|#'+n+'\\b');
-    const r=revs.find(x=>re.test(x.subject||'')); if(r)return {id:r.id,via:'pr',tok:'#'+n};}
+// The commit a close reference names among revs (the window's rows, in order) - the server's _ref_commit rule: a 7-40 digit
+// hash in every row, a PR number only in the first `recent` rows (REVISION_RECENT; a #N deeper is another PR's). Pure.
+/** @param {unknown} ref @param {{id:string,subject?:string}[]} revs @param {number} [recent] */
+function matchRevision(ref,revs,recent){const text=String(ref||'');
+  for(const m of text.matchAll(/\b[0-9a-f]{7,40}\b/g)){const r=revs.find(x=>x.id.startsWith(m[0])); if(r)return {id:r.id,via:'sha',tok:m[0]};}
+  for(const m of text.matchAll(/#(\d+)/g)){const n=m[1],re=new RegExp('\\(#'+n+'\\)|pull request #'+n+'\\b|#'+n+'\\b');
+    const r=revs.slice(0,recent).find(x=>re.test(x.subject||'')); if(r)return {id:r.id,via:'pr',tok:'#'+n};}
   return null;}
 function pinFileIndex(files,file){file=String(file||''); let best=-1,len=0;
   files.forEach((f,i)=>{const n=f.name; if(n&&(file===n||file.endsWith('/'+n))&&n.length>len){best=i;len=n.length;}}); return best;}
@@ -404,8 +414,15 @@ function hunkRanges(text){const out=[]; for(const m of String(text||'').matchAll
   const a=+m[1],n=m[2]===undefined?1:+m[2]; out.push([a,a+Math.max(n,1)-1]);} return out;}
 function touchesPin(files,tg,slack){const i=pinFileIndex(files,tg.file); if(i<0)return false; slack=slack==null?5:slack;
   return hunkRanges(files[i].text).some(([a,b])=>b>=tg.lo-slack&&a<=tg.hi+slack);}
-async function pickRevisionFor(tg,revs,seq,k){
-  const m=matchRevision(tg.ref,revs); if(m)return m;
+// A pin's commit: the one its close_ref names (matchRevision over the whole window - a hash not among the loaded rows reads
+// further pages until found or the window ends, as the server resolves it), else the most recent of the first REVISION_RECENT
+// rows that touched the pin's lines, else the newest.
+async function pickRevisionFor(tg,seq,k){
+  let m=matchRevision(tg.ref,REV.rows,REVISION_RECENT);
+  while(!m&&/\b[0-9a-f]{7,40}\b/.test(String(tg.ref||''))&&REV.more&&seq===REV.seq&&k===DOC){
+    if(!await moreRows(k,50))break; m=matchRevision(tg.ref,REV.rows,REVISION_RECENT);}
+  if(m)return m;
+  const revs=REV.rows.slice(0,REVISION_RECENT);
   if(!tg.region&&tg.file){for(const r of revs){if(seq!==REV.seq||k!==DOC)break;
     try{const d=(await api(dq('/api/revision-diff?commit='+encodeURIComponent(r.id),k),{what:'변경 내용 읽기',silent:true})).data;
       if(touchesPin(revisionFiles(d.diff||''),tg))return {id:r.id,via:'lines'};}catch(e){}}}
