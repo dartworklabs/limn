@@ -435,10 +435,13 @@ def parse_log_row(line: str) -> Json | None:
     }
 
 
-def _log_rows(repo: Path, paths: Sequence[str], count: int) -> list[Json] | None:
+def _log_rows(repo: Path, paths: Sequence[str], count: int, topo: bool = False) -> list[Json] | None:
     """The count most recent commits of the pathspec paths in repo, newest first, as history rows (parse_log_row), or
-    None when git fails. One `git log` call; rows that do not parse are left out."""
-    rc, out, _ = git(["-C", str(repo), "log", "-%d" % count, _LOG_FORMAT, "--"] + list(paths), repo)
+    None when git fails. One `git log` call; rows that do not parse are left out. topo orders them by ancestry
+    (--topo-order: no parent before its children, a merged line's commits together below its merge) instead of git's
+    default date order."""
+    order = ["--topo-order"] if topo else []
+    rc, out, _ = git(["-C", str(repo), "log", "-%d" % count, *order, _LOG_FORMAT, "--"] + list(paths), repo)
     if rc != 0:
         return None
     return [row for row in map(parse_log_row, out.splitlines()) if row is not None]
@@ -475,13 +478,19 @@ def revision_history(
     """GET /api/revisions: the document's manuscript commits, newest first, each {id, date, subject, author, time,
     parents}, or available: false when it has no history. Without page, the REVISION_RECENT most recent ones and the
     two keys {available, revisions}, as before paging; with page, that page of the history window (history_page) with
-    `more` added, or CommitNotRecent for a before outside it. files are a figure document's history files
+    `more` added, or CommitNotRecent for a before outside it. A page lists the window in ancestry order (topo), so a
+    commit listed above another is never its ancestor and a merged line sits below its merge; the unpaged answer keeps
+    git's date order. files are a figure document's history files
     (revision_scope); None for a LaTeX document."""
     found = revision_scope(D, files)
     if found is None:
         return {"available": False, "revisions": []}
     repo, paths = found
-    rows = _log_rows(repo, paths, REVISION_RECENT if page is None else REVISION_HISTORY_MAX)
+    rows = (
+        _log_rows(repo, paths, REVISION_RECENT)
+        if page is None
+        else _log_rows(repo, paths, REVISION_HISTORY_MAX, topo=True)
+    )
     if rows is None:
         return {"available": False, "revisions": []}
     if page is None:

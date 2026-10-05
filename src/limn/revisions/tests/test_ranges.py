@@ -236,14 +236,17 @@ class RangeHistory(RangeRepo):
 
     def test_pages_follow_before_and_limit_and_say_whether_more_remain(self):
         """limit=n gives the n newest rows and more; before=<id> continues after that row; the last page has
-        more: false."""
+        more: false. Pages list by ancestry: the merged branch's commit (beta) right below its merge, before trunk's
+        older gamma - where the unpaged list keeps date order."""
         code, first = self.call("GET", "/api/revisions?limit=3")
         self.assertEqual(code, 200)
         ids = [r["id"] for r in first["revisions"]]
-        self.assertEqual(ids, [self.sha["after"], self.sha["merge"], self.sha["gamma"]])
+        self.assertEqual(ids, [self.sha["after"], self.sha["merge"], self.sha["beta"]])
         self.assertTrue(first["more"])
         code, second = self.call("GET", "/api/revisions?before=%s&limit=3" % ids[-1])
-        self.assertEqual([r["id"] for r in second["revisions"]], [self.sha[n] for n in ("beta", "rename", "alpha")])
+        self.assertEqual([r["id"] for r in second["revisions"]], [self.sha[n] for n in ("gamma", "rename", "alpha")])
+        unpaged = [r["id"] for r in self.call("GET", "/api/revisions")[1]["revisions"]]
+        self.assertEqual(unpaged[:3], [self.sha["after"], self.sha["merge"], self.sha["gamma"]])
         self.assertTrue(second["more"])
         code, last = self.call("GET", "/api/revisions?before=%s&limit=3" % self.sha["alpha"])
         self.assertEqual(([r["id"] for r in last["revisions"]], last["more"]), ([self.sha["root"]], False))
