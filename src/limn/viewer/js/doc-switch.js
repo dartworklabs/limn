@@ -4,14 +4,14 @@
 function drawDocsMenu(){$('#ns-docs').hidden=!multiDoc();
   setHtml($('#ns-docs-list'),html`${DOCS.map(d=>{const on=d.key===DOC;
     return html`<button class="dm-item${on?' on':''}" role="option" aria-selected="${on}" data-act="doc" data-doc="${d.key}" data-close="1"><span class="tx"><span class="nm" translate="no">${d.name}${on?ic('check'):''}</span><span class="ph" translate="no">${d.path}</span></span>${docBadge(d)}</button>`;})}`);}
-// The phone's navigation sheet (docs/handbook/viewer.md §모바일 레이아웃): documents, [원고 | 변경사항], the page field and the
-// outline, each a destination - picking one goes there and closes the sheet. The focus is the sheet itself (showSheet) and
+// The phone's navigation sheet (docs/handbook/viewer.md §모바일 레이아웃): documents, [원고 | 변경사항], the page field with the
+// page rows under it (drawSheetPages, scrolled to the current page) and the outline, each a destination - picking one goes there and closes the sheet. The focus is the sheet itself (showSheet) and
 // the outline's current section shows (navSheetReveal) without hiding the current document's row (else the chosen view); the
 // page field gets no focus, so no keyboard covers the sheet.
 function openNavSheet(){const d=$('#nav-sheet'); if(d.open)return; hideTip(); drawDocsMenu(); drawNavView(); renderOutline();
   const n=META&&META.pages?META.pages.length:0,f=$('#ns-page-in');
-  f.value=''; f.placeholder=String(OUTLINE_ACTIVE_PAGE||1); $('#ns-page-n').textContent=tl('/ {n}쪽',{n});
-  showSheet(d); d.scrollTop=0; const on=(multiDoc()&&d.querySelector('.dm-item.on'))||d.querySelector('#ns-view [aria-checked=true]');
+  f.value=''; f.placeholder=String(OUTLINE_ACTIVE_PAGE||1); $('#ns-page-n').textContent=tl('/ {n}쪽',{n}); drawSheetPages();
+  showSheet(d); d.scrollTop=0; revealPageRow($('#ns-pages')); const on=(multiDoc()&&d.querySelector('.dm-item.on'))||d.querySelector('#ns-view [aria-checked=true]');
   navSheetReveal(d,on);}
 // The outline's current section in the open sheet d: left where it is when it is already in view under the sticky head, else
 // the sheet scrolls it towards the middle of that space - but never so far that the current row (keep: the document's or

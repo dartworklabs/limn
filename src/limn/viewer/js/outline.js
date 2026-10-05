@@ -71,8 +71,8 @@ function outlineIndexAt(entries,page,frac){let sel=-1;
   return sel<0&&entries.length?0:sel;}
 let OUTLINE_PINNED=/** @type {{page:number,index:number}|null} */(null);   // an entry picked in the outline wins until the reader leaves its page
 // The section strip under the nav bar (the section at the reading line and 'page / pages') and the outline's highlight; mid has no
-// strip, so the same page count also goes to the nav bar's right end (#nav-page, a button that turns into a page field) and the
-// phone's position button (drawPos).
+// strip, so the same page count also goes to the nav bar's right end (#nav-page) and the phone's position button (drawPos). Both
+// page counts open the page list (openPageList).
 function updateSectionStrip(){
   const L=$('#left'),probe=L?Math.min(160,L.clientHeight/4):0,anchor=topAnchor(probe),page=anchor?anchor.page:1,frac=anchor?anchor.frac:0;
   let sel;
@@ -80,8 +80,8 @@ function updateSectionStrip(){
   else{OUTLINE_PINNED=null; sel=outlineIndexAt(OUTLINE_ENTRIES,page,frac);}
   if(sel!==OUTLINE_SELECTED||page!==OUTLINE_ACTIVE_PAGE){OUTLINE_ACTIVE_PAGE=page;OUTLINE_SELECTED=sel;renderOutline();}
   const x=OUTLINE_ENTRIES[OUTLINE_SELECTED];$('#section-current').textContent=x?(x.number?x.number+'  ':'')+x.title:tr('원고');
-  const n=META&&META.pages?META.pages.length:0,pg=tl('{page} / {n}쪽',{page,n}); $('#section-page').textContent=pg; $('#nav-page').textContent=pg;
-  $('#nav-page').setAttribute('aria-label',tl('쪽 번호로 이동 · {page} / {n}쪽',{page,n})); drawPos();
+  const n=META&&META.pages?META.pages.length:0,pg=tl('{page} / {n}쪽',{page,n}); $('#section-page-t').textContent=pg; $('#nav-page').textContent=pg;
+  const name=tl('쪽 번호로 이동 · {page} / {n}쪽',{page,n}); $('#section-page').setAttribute('aria-label',name); $('#nav-page').setAttribute('aria-label',name); drawPos();
 }
 $('#outline-search').addEventListener('input',renderOutline);
 $('#ns-outline-search').addEventListener('input',renderOutline);   // the navigation sheet's search filters its list only

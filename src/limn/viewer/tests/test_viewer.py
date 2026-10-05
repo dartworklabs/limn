@@ -3669,6 +3669,8 @@ class FrontendToolbarSize(unittest.TestCase):
     """Whether the toolbar's 쪽 (page) field matches the buttons' height/font size (desktop 28px, touch 44px). Measured live with Playwright."""
 
     def test_page_field_matches_toolbar_buttons(self):
+        """The tool bar's page field is as tall as its buttons (28px, 44px on touch) and reads as a field; the other ways to a
+        page stay: the navigation sheet's page field and the nav bar's page count, which opens the page list."""
         css = HTML[HTML.index("<style>") : HTML.index("</style>")]
         self.assertIn("#bar1{flex-wrap:wrap;gap:var(--space-1);padding:var(--space-2);--tb-h:var(--control-h)}", css)
         self.assertIn("--control-h:28px", css)
@@ -3685,8 +3687,8 @@ class FrontendToolbarSize(unittest.TestCase):
         self.assertIn("#bar1{flex-wrap:wrap;--tb-h:var(--control-h-touch)}", coarse)
         self.assertIn("#bar1 input.n{width:84px;flex:0 0 84px;max-width:none;font-size:var(--text-xl)}", coarse)
         self.assertRegex(HTML, r'<input class="n sec" id="jump" placeholder="쪽 이동"')
-        # [더보기] has no page field any more: the phone's navigation sheet and the nav bar's page count take it (UX spec §V7)
-        self.assertRegex(HTML, r'<button id="nav-page" data-act="nav-page"')
+        # [더보기] has no page field any more: the phone's navigation sheet and the nav bar's page count (its page list) take it (UX spec §V7)
+        self.assertRegex(HTML, r'<button id="nav-page" data-act="page-list"')
         self.assertIn('<input id="ns-page-in" inputmode="numeric"', HTML)
 
 
