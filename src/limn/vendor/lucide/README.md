@@ -43,6 +43,7 @@ Icons are drawn with the original `<svg>` attributes: `viewBox="0 0 24 24"`, `fi
 | `rotate-ccw` | 'reopened' badge (pin sent back from review) |
 | `rotate-cw` | [Reload pins] in [More] (compact bands) |
 | `square-dashed` | [Select] button and the select mode's bar — a dashed square, symmetric both ways: pick a spot or drag a region on touch devices |
+| `text-quote` | the line of PDF text a drag chose, under the composer's location line and above a card's note |
 | `trash-2` | deleted-pin row head; [삭제] on a compact card |
 | `triangle-alert` | 'location lost' badge, a warning message's lead icon |
 | `wifi-off` | the status line's 'disconnected' state (compact bands) |

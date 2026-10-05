@@ -164,6 +164,15 @@ function fyiTag(p){const to=(p.fyi||[]); if(!to.length)return null;
 // it would produce meaningless text like '닫음 · -' (observed defect). An empty or whitespace-only value is filtered out the same way.
 function hasRef(v){return !!v&&String(v).trim()!==''&&String(v).trim()!=='-';}
 const EV_LABEL={close:'닫음',reopen:'다시 엶',confirm:'확인',assign:'담당 바꿈'};
+// The cards whose quote line is open ('<doc>:<id>', toggleQuote), kept across redraws.
+const QUOTE_OPEN=new Set();
+// A card's quote line, right above its note: the composer's line for the pin's saved quote (shownQuote, quoteInner), folded to
+// one line with the whole text as its tooltip until it is pressed. null when the pin shows no quote.
+/** @param {Pin} p @returns {Html|null} */
+function cardQuote(p){const q=shownQuote(p,(docInfo(pdoc(p))||{}).kind); if(!q)return null;
+  const k=pdoc(p)+':'+p.id,open=QUOTE_OPEN.has(k);
+  return html`<div class="quote hit${open?' open':''}" role="button" tabindex="0" data-act="quote" data-key="${k}" aria-expanded="${String(open)}"\
+ data-tip="${open?null:q}" translate="no">${quoteInner(q)}</div>`;}
 // A long post collapses at 6 lines with [더 보기] (keyed 'id:index' in MSG_OPEN). If the author is me, '(나)'. The post and its
 // author's name are user text (translate="no"); '(나)' is translated here.
 const MSG_OPEN=new Set();

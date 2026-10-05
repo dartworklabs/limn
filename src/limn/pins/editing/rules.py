@@ -155,7 +155,7 @@ class LinePlace:
                 raise ValueError("line place frac must contain four finite numbers")
         if "scope" in fields and not is_scope(fields["scope"]):
             raise ValueError("line place scope must name a range level")
-        if "quote" in fields and (not isinstance(fields["quote"], str) or len(fields["quote"]) > 60):
+        if "quote" in fields and (not isinstance(fields["quote"], str) or len(fields["quote"]) > PDF_QUOTE_MAX):
             raise ValueError("line place quote must be a short string")
         if "pdf_build" in fields and (not isinstance(fields["pdf_build"], str) or not fields["pdf_build"]):
             raise ValueError("line place pdf_build must be a nonempty string")

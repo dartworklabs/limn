@@ -1044,6 +1044,8 @@ class PinsMdV2(Base):
         self.assertEqual(mapping.truncate_quote("x" * 60, 60), "x" * 60)  # exactly at the boundary, nothing is appended
 
     def test_quote_truncated_with_ellipsis_in_pins_md(self):
+        """A line pin keeps its quote up to 160 characters for the viewer (issue #185), while pins.md still quotes 60
+        with an ellipsis - the agent's search hint is unchanged. A stored quote already cut at 60 renders as it was."""
         # bug: when a quote was cut past 60 chars, the missing ellipsis made it look like a complete sentence.
         long_line = "y" * 650
         f = self.src / "long2.tex"
@@ -1052,10 +1054,23 @@ class PinsMdV2(Base):
             {"file": str(f), "lo": 1, "hi": 1, "page": 1, "note": "n", "scope": "raw", "quote": "가" * 90},
             dict(LOCAL_ACTOR),
         ).record["id"]
-        stored = self.pin(pid)["quote"]
-        self.assertEqual(stored, "가" * 59 + "…")
+        self.assertEqual(self.pin(pid)["quote"], "가" * 90)
         md = ps.APP.C.pins_md.read_text(encoding="utf-8")
-        self.assertIn("«" + stored + "»", md)  # render_quote doesn't re-truncate a value that already has … appended
+        self.assertIn("«" + "가" * 59 + "…»", md)
+        self.assertNotIn("가" * 60, md)
+        pid2 = add_pin(
+            {"file": str(f), "lo": 1, "hi": 1, "page": 1, "note": "n2", "scope": "raw", "quote": "나" * 200},
+            dict(LOCAL_ACTOR),
+        ).record["id"]
+        self.assertEqual(self.pin(pid2)["quote"], "나" * 159 + "…")
+        rows = records(ps.APP.snapshot_pins())
+        for r in rows:
+            if r["id"] == pid2:
+                r["quote"] = "다" * 59 + "…"  # a pin saved before the limit was raised
+        write_records(rows)
+        md = ps.APP.C.pins_md.read_text(encoding="utf-8")
+        # render_quote doesn't re-truncate a value that already has … appended
+        self.assertIn("«" + "다" * 59 + "…»", md)
 
     def test_location_col_escapes_pipe_in_filename(self):
         # bug: a pipe in the filename in the location column could break the table's column structure (note/quote were already escaped).

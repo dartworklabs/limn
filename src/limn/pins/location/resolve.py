@@ -206,7 +206,7 @@ def pick(D: Doc, request: Selection, ctx: PickContext) -> Picked | figure.Picked
         n_lines=len(lines),
         snippet=snippet(lines, traced.lo, traced.hi),
         frac=frac,
-        quote=truncate_quote(norm(rtext), 60),
+        quote=truncate_quote(norm(rtext), PDF_QUOTE_MAX),
         overlaps=ctx.overlaps(str(found), traced.lo, traced.hi),
         pdf_build=pdir.name,
         stale=publication.stale,

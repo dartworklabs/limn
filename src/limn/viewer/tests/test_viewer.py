@@ -1211,6 +1211,8 @@ class FrontendMobileLogic(unittest.TestCase):
         )
 
     def test_card_accordion_summary_is_first_note_line(self):
+        """A compact card collapses to its note's first line (escaped, or '(메모 없음)'), opens from OPEN_CARDS, and keeps its
+        badges row and fold toggle."""
         js = "\n".join(
             [
                 js_esc(),
@@ -1237,6 +1239,9 @@ class FrontendMobileLogic(unittest.TestCase):
                 extract_js_fn("elLost"),
                 extract_js_fn("elLostTag"),
                 extract_js_fn("figRegionBadge"),
+                extract_js_fn("isFigureKind"),
+                extract_js_fn("shownQuote"),  # the card's quote line (none here: these pins carry no quote)
+                extract_js_fn("cardQuote"),
                 extract_js_fn("card"),
                 extract_js_fn("cardActs"),  # the open card's action row (its visual order per layout)
                 js_icons(),
@@ -4140,9 +4145,12 @@ class FrontendThread(unittest.TestCase):
         self.assertIn("deferredNote(d,NOTICE_PLACE.CARD,", send)
 
     def test_compact_collapsed_card_hides_thread(self):
+        """A collapsed compact card hides its badges, quote line, author, note, actions and thread - only the head and
+        the note's preview stay."""
         css = HTML[HTML.index("<style>") : HTML.index("</style>")]
         self.assertIn(
-            "body.compact .pin:not(.open):not(.editing) :is(.tags,.au,.note,.acts,.head>.sp,.thread){display:none}", css
+            "body.compact .pin:not(.open):not(.editing) :is(.tags,.quote,.au,.note,.acts,.head>.sp,.thread){display:none}",
+            css,
         )
 
 
@@ -4154,6 +4162,8 @@ class FrontendReview(unittest.TestCase):
             self.skipTest("node not available")
 
     def test_review_card_suggests_author_and_offers_confirm_and_reply(self):
+        """An awaiting-review card names whose turn it is to confirm (soft [확인] for the author), offers [변경 보기], [답글]
+        and [확인] but not [완료] or [삭제], and an open card is not drawn as a review card."""
         js = "\n".join(
             [
                 js_esc(),
@@ -4181,6 +4191,9 @@ class FrontendReview(unittest.TestCase):
                 extract_js_fn("elLost"),
                 extract_js_fn("elLostTag"),
                 extract_js_fn("figRegionBadge"),
+                extract_js_fn("isFigureKind"),
+                extract_js_fn("shownQuote"),  # the card's quote line (none here: these pins carry no quote)
+                extract_js_fn("cardQuote"),
                 extract_js_fn("card"),
                 extract_js_fn("cardActs"),  # the open card's action row (its visual order per layout)
                 js_icons(),

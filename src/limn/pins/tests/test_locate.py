@@ -344,6 +344,16 @@ class PickOutcomes(Base):
             (got.n_lines, got.quote, got.pdf_build, got.building), (20, "Body line seven betaunique.", "pages", False)
         )
 
+    def test_a_long_selection_is_quoted_to_160_characters_with_an_ellipsis(self):
+        """The dragged text is quoted whitespace-normalized up to 160 characters, a view-only region's length, so the
+        composer's one ellipsized line and its tooltip have the whole of a long drag (issue #185); longer is cut with …."""
+        text = "Body  line seven\nbetaunique " * 20
+        got = self.pick((str(ps.APP.docs[0].build / "main.tex"), 8, 8), text)
+        self.assertIsInstance(got, pick_resolve.Picked)
+        self.assertEqual(got.quote, " ".join(text.split())[:159] + "…")
+        short = self.pick((str(ps.APP.docs[0].build / "main.tex"), 8, 8), "x" * 160)
+        self.assertEqual(short.quote, "x" * 160)
+
 
 # ---------------------------------------------------------------- location estimation (.est) — server-side judgment
 

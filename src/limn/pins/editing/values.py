@@ -17,8 +17,10 @@ Scope: TypeAlias = Literal[
     "raw", "para", "env", "env2", "env3", "lines", "el", "el2", "el3", "el4", "el5", "el6", "el7", "el8", "fig"
 ]
 SCOPES: tuple[Scope, ...] = get_args(Scope)
-# The region text a view-only PDF pin keeps as its quote - longer than a line pin's 60 characters, since the text is
-# all an agent has to find the place by.
+# The longest quote a pick gives and a pin keeps: the PDF text a drag chose, whitespace-normalized. A view-only PDF's
+# region needs it all, since the text is all an agent has to find the place by; a line pin keeps as much so that the
+# viewer's quote line and its tooltip show a long drag whole (issue #185). pins.md still quotes a line pin at 60
+# (limn.pins.listing.render.PINS_MD_QUOTE_MAX).
 PDF_QUOTE_MAX = 160
 
 

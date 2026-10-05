@@ -370,7 +370,7 @@ body.compact .pin .sum{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orie
   margin:0 0 var(--space-1);color:var(--muted-foreground);font-size:var(--text-base);line-height:1.5;cursor:pointer}
 body.compact .pin .head{flex-wrap:nowrap;margin:-6px 0}
 body.compact .pin.open .sum,body.compact .pin.editing .sum{display:none}
-body.compact .pin:not(.open):not(.editing) :is(.tags,.au,.note,.acts,.head>.sp,.thread){display:none}
+body.compact .pin:not(.open):not(.editing) :is(.tags,.quote,.au,.note,.acts,.head>.sp,.thread){display:none}
 body.compact .pin .au .au-n{display:none}
 body.lay-narrow{display:block;--ctl-touch-sm:32px;--sheet-gap:48px}   /* the phone sheet's small touch controls are drawn at 32px, a tablet panel's at 36px (tokens.css) */
 body.lay-narrow #main{height:100%}

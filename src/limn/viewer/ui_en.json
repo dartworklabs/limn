@@ -84,6 +84,7 @@
  "PDF 내려받기": "Download PDF",
  "지금 화면의 빌드를 PDF 파일로 내려받습니다. 파일 이름은 문서 이름입니다": "Saves the build on screen as a PDF file. The file is named after the document",
  "PDF 목차를 읽는 중입니다.": "Reading the PDF outline…",
+ "PDF에서 고른 글자": "Text chosen in the PDF",
  "PDF 위를 길게 누르면 그 자리 문단을 고릅니다. 스크롤·확대는 평소처럼 됩니다": "Long-press on the PDF to select the paragraph there. Scrolling and zooming still work as usual",
  "PDF 위에서": "On the PDF",
  "PDF 위에서 고칠 곳을": "On the PDF, select the spot to fix",

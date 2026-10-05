@@ -161,9 +161,11 @@ DEMO_TEX = (
 
 class BrowserBase(ChromiumTestCase):
     """The real viewer against the in-process server (same approach as test_i18n.EnglishChrome), as the tailnet
-    person WHO. /api/pick is answered with a computed pick result, since the test has no PDF or SyncTeX."""
+    person WHO. /api/pick is answered with a computed pick result, since the test has no PDF or SyncTeX; a test sets
+    PICK to replace fields of that answer (its quote, or a region's shape)."""
 
     WHO = ALICE
+    PICK: dict = {}
 
     def setUp(self):
         """A fresh 37-line manuscript with a finished two-page build (blank page images), default access settings, and
@@ -233,6 +235,7 @@ class BrowserBase(ChromiumTestCase):
                 "overlaps": [],
                 "pdf_build": cur_pages(ps.APP.docs[0]).name,
             }
+            d.update(self.PICK)
             return route.fulfill(status=200, headers={"content-type": "application/json"}, body=json.dumps(d))
         return self.forward(route)
 

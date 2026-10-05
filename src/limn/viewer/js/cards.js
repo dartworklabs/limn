@@ -35,6 +35,7 @@ function card(p){
   const adr=p.assignee?null:addressedTag(p); if(adr)tags.push(adr);   // a pin with a recorded assignee already says the same thing via the header's assignee chip
   const fyi=fyiTag(p); if(fyi)tags.push(fyi);   // a fix pin's FYI @-tags - this line once sat after the comment above and never executed (QA 2026-09-24)
   const rv=pinState(p)===PIN_STATE.REVIEW;
+  const quote=cardQuote(p);   // the dragged PDF text, one line above the note (issue #185)
   if(rv)tags.unshift(html`<span class="badge badge-review" data-tip="${tr(T.review)+' · '+tl('닫은 쪽: {name}',{name:who(p.closed_by)||'?'})+' · '+(p.done_at||'')}">${ic('eye')}${reviewerLabel(p)}</span>`);
   const ro=!rv&&reopenedTurn(p);
   if(ro)tags.unshift(html`<span class="badge badge-reopen" data-tip="${tl('검토에서 되돌아온 핀 — {name} · {time}',{name:who(ro.by)||'?',time:arcTime(ro.at)})+(ro.text?' · '+tl('이유: {text}',{text:ro.text}):'')}">${ic('rotate-ccw')}다시 열림</span>`);
@@ -52,12 +53,12 @@ function card(p){
 <button class="btn-icon btn-sm btn-ghost cmp b-fold" data-act="card-toggle" aria-expanded="${unfold}" aria-label="${open?'카드 접기':'카드 펼치기'}">${ic(unfold?'chevron-down':'chevron-right')}</button></div>\
 ${sum}<div class="tags">${tags}</div>`;
   if(rv)return html`<div class="pin card review${open?' open':''}" data-id="${p.id}" data-doc="${pdoc(p)}">${head}\
-<div class="note" translate="no">${p.note?fmtText(p.note,p.mentions):noNote}</div>${threadHtml(p,LAYOUT===LAYOUT_MODE.WIDE)}\
+${quote}<div class="note" translate="no">${p.note?fmtText(p.note,p.mentions):noNote}</div>${threadHtml(p,LAYOUT===LAYOUT_MODE.WIDE)}\
 <div class="acts"><button class="btn-sm b-change" data-act="change" data-tip="${T.change}">변경 보기</button>\
 <button class="btn-sm b-reply" data-act="reply-open" data-tip="${T.reply}">답글</button>\
 <button class="btn-sm b-confirm${isMe(p.author)?' btn-soft':''}" data-act="confirm" data-tip="${T.confirm}">확인</button></div></div>`;
   const body=editing?html`<div class="edit-slot"></div>`
-    :html`<div class="note" translate="no" data-act="edit" data-tip="${tr('클릭하면 메모와 범위를 고칩니다')}">${p.note?fmtText(p.note,p.mentions):noNote}</div>\
+    :html`${quote}<div class="note" translate="no" data-act="edit" data-tip="${tr('클릭하면 메모와 범위를 고칩니다')}">${p.note?fmtText(p.note,p.mentions):noNote}</div>\
 ${threadHtml(p,LAYOUT===LAYOUT_MODE.WIDE)}<div class="acts">${cardActs(claimed,LAYOUT!==LAYOUT_MODE.WIDE)}</div>`;
   return html`<div class="pin card${p.stale||elLost(p)?' st':''}${claimed?' claimed':''}${editing?' editing':''}${open?' open':''}" data-id="${p.id}" data-doc="${pdoc(p)}">${head}${body}</div>`;
 }

@@ -113,7 +113,7 @@ function renderRegionComposer(d){
   $('#c-tag').hidden=true; $('#c-warn').hidden=!d.warn; $('#c-warn').textContent=warnText(d.warn); $('#c-overlap').hidden=true;
   $('#c-levels').replaceChildren(); setCap($('#c-cap'),html``); drawExcerpt(null,$('#c-xp'),false);
   const pre=$('#c-snip'); pre.className='wrap open'; pre.textContent=d.quote?tl('영역 글자: {text}',{text:d.quote}):tr('(이 영역에는 글자가 없습니다)');
-  $('#c-expand').hidden=true; renderElement(d,COMPOSE.box);}
+  $('#c-expand').hidden=true; drawComposerQuote(d); renderElement(d,COMPOSE.box);}
 // Draws the composer from COMPOSE.current (location, ladder, range excerpt, overlap) and schedules the draft write - every change
 // of the selection (a pick, a level, a line set in the excerpt, a restore) passes through here. Its markup is in the order the
 // screen shows on every layout (docs/handbook/viewer.md §패널 정리), so Tab follows it.
@@ -134,7 +134,38 @@ function renderComposer(){const d=COMPOSE.current; if(!d)return; saveDraftSoon()
   pre.classList.toggle('clip',!SNIP_OPEN&&over);
   $('#c-expand').hidden=!over; $('#c-expand').textContent=SNIP_OPEN?tr('원문 접기'):tr('원문 펼치기')+(nl>1?' · '+tl('{n}줄',{n:nl}):'');
   drawExcerpt(d,$('#c-xp'),false);   // the range excerpt (excerpt.js)
+  drawComposerQuote(d);
 }
+// ---------------- The PDF text a drag chose (docs/handbook/viewer.md §패널 정리 '드래그한 글자', issue #185)
+// The selection whose quote line is open, or null: a new pick is a new object, so it starts folded, while a range change
+// (the same object) keeps it open.
+let QUOTE_SEL=/** @type {Selection|null} */(null);
+// What a pick or a pin shows of its quote (the dragged PDF text, whitespace-normalized by the server): the text trimmed, or ''
+// for none - no text (a tap or a long press), a region (a view-only PDF or a figure region shows its text as the source
+// already) or a line of a figure document (its quote is the element's name, which the location line names). A document of
+// an unknown kind is a LaTeX one. Pure.
+/** @param {{kind?:string,file?:string,pdf?:string,quote?:string}|null} p @param {string|undefined} docKind @returns {string} */
+function shownQuote(p,docKind){if(!p||isRegion(p)||isFigureKind(docKind))return ''; return String(p.quote||'').trim();}
+// The quote line's inside: the icon, a name for screen readers and the text. The line is the manuscript's text and is drawn
+// translate="no", so the name is put in the screen's language here (tr). CSS cuts the text to one line until it is opened.
+/** @param {string} q @returns {Html} */
+function quoteInner(q){return html`<span class="q-ic" aria-hidden="true">${ic('text-quote')}</span><span class="sr-only">${tr('PDF에서 고른 글자')}: </span><span class="q-t">${q}</span>`;}
+// Opens or folds a quote line (the composer's #c-quote or a card's .quote) where it is, without redrawing, so the focus stays
+// on it. Open, the whole text is on screen and the tooltip that repeated it goes; folded, it comes back. The state is kept
+// for the next draw: the composer's per selection (QUOTE_SEL), a card's per pin (QUOTE_OPEN).
+/** @param {HTMLElement} el */
+function toggleQuote(el){const open=el.getAttribute('aria-expanded')!=='true',t=el.querySelector('.q-t');
+  el.classList.toggle('open',open); el.setAttribute('aria-expanded',String(open)); hideTip();
+  if(open)delete el.dataset.tip; else el.dataset.tip=t?t.textContent||'':'';
+  if(el.id==='c-quote')QUOTE_SEL=open?COMPOSE.current:null;
+  else{const k=el.dataset.key||''; if(open)QUOTE_OPEN.add(k); else QUOTE_OPEN.delete(k);}}
+// The composer's quote line, right under the location line: shown for a LaTeX line pick with text, open if it was opened for
+// this selection. Nothing, and no gap, otherwise.
+/** @param {Selection|null} d */
+function drawComposerQuote(d){const el=$('#c-quote'),q=shownQuote(d,META?META.kind:undefined); el.hidden=!q;
+  if(!q){el.replaceChildren(); delete el.dataset.tip; return;}
+  const open=!!d&&QUOTE_SEL===d; setHtml(el,quoteInner(q)); el.classList.toggle('open',open); el.setAttribute('aria-expanded',String(open));
+  if(open)delete el.dataset.tip; else el.dataset.tip=q;}
 // When a selection ends via save/cancel/append, selection mode is turned off (scrolling resumes) and the narrow sheet collapses (the body comes forward again).
 // The composer panel's pin kind (fix request / question). Reverts to fix request on save or discard (the default for the next pin).
 function setKind(k){KIND_NEW=k===KIND_REQ.QUESTION?KIND_REQ.QUESTION:KIND_REQ.FIX; saveDraftSoon();
