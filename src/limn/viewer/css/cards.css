@@ -13,7 +13,7 @@ button.badge-review{font-weight:600}
 .rv-n{display:inline-flex;align-items:center;justify-content:center;gap:2px;min-width:18px;height:18px;padding:0 var(--space-1);margin-left:2px;border-radius:var(--radius-lg);
   background:var(--status-review);color:var(--status-review-foreground);font-size:var(--text-xs);font-weight:700;line-height:1}
 .rv-n .ic{width:12px;height:12px}   /* the eye says what the purple count is (docs/handbook/viewer.md §토큰, UX audit P10) */
-.rv-close{margin-top:4px;color:var(--muted-foreground);font-size:var(--text-sm)}
+.rv-close{margin-top:var(--space-1);color:var(--muted-foreground);font-size:var(--text-sm)}
 .rv-close b{color:var(--card-foreground);font-weight:600}
 .pin.st{border-color:var(--warning)}
 .pin.editing{border-color:var(--primary)}
@@ -21,7 +21,7 @@ button.badge-review{font-weight:600}
 .pin.flash{animation:pinflash 1.2s ease-in-out 1}
 @keyframes pinflash{0%,100%{box-shadow:0 0 0 2px var(--primary)}50%{box-shadow:0 0 0 5px var(--primary)}}
 .pin .n{color:var(--card-foreground);font-weight:700}
-.pin .n.go{cursor:pointer;color:var(--primary);border-radius:var(--radius);padding:0 var(--space-1);margin:0 -4px}
+.pin .n.go{cursor:pointer;color:var(--primary);border-radius:var(--radius);padding:0 var(--space-1);margin:0 calc(-1 * var(--space-1))}
 /* One unified link style (QA 2026-09-24): the card header's #number/line-range/N페이지 and a #12 inside a post are all "a reference
    that navigates or copies on click" - there used to be three distinct looks: bold dotted underline, blue, gray dotted underline. Now one:
    primary-color text, no underline at rest, solid underline on hover/focus. Gray text is non-clickable information (author/timestamp).
@@ -29,9 +29,9 @@ button.badge-review{font-weight:600}
 :is(.loc,.pg-link,.pin .n.go,.pin-ref){text-decoration:none;text-underline-offset:3px}
 :is(.loc,.pg-link,.pin .n.go,.pin-ref):focus-visible{text-decoration:underline}
 @media (hover:hover){:is(.loc,.pg-link,.pin .n.go,.pin-ref):hover{text-decoration:underline}}
-.pin .note{margin-top:4px;white-space:pre-wrap;word-break:break-word;cursor:text}
+.pin .note{margin-top:var(--space-1);white-space:pre-wrap;word-break:break-word;cursor:text}
 /* Card header: number/range/page on the left, author/collapse on the right. Badges are a single row below the header. Actions form an equal-width grid; only [완료] is emphasized and [삭제] is in the destructive color. */
-.pin .head{flex-wrap:wrap;gap:var(--space-1) var(--space-2);min-height:28px}
+.pin .head{flex-wrap:wrap;gap:var(--space-1) var(--space-2);min-height:var(--control-h)}
 .pin .head .loc{white-space:nowrap}
 .pin .head .pg-link{white-space:nowrap;flex:none}
 /* Header right-side group (.h-meta = assignee chip - reply count - author): when space runs out, the whole
@@ -41,9 +41,9 @@ button.badge-review{font-weight:600}
 .pin .head .h-meta{display:inline-flex;align-items:center;gap:var(--space-2);margin-left:auto;min-width:0;max-width:100%}
 .h-meta .au{flex:0 1 auto;min-width:0;max-width:14em}
 .h-meta .badge-assign{flex:0 100 auto;min-width:4.5em}
-.pin .tags{display:flex;flex-wrap:wrap;gap:var(--space-1);margin-top:4px}
+.pin .tags{display:flex;flex-wrap:wrap;gap:var(--space-1);margin-top:var(--space-1)}
 .pin .tags:empty{display:none}
-.pin .acts{display:grid;grid-auto-flow:column;grid-auto-columns:1fr;gap:var(--space-2);margin-top:8px}
+.pin .acts{display:grid;grid-auto-flow:column;grid-auto-columns:1fr;gap:var(--space-2);margin-top:var(--space-2)}
 .pin .acts button{min-width:0;padding-left:var(--space-1);padding-right:var(--space-1)}
 /* The card's head link and its row of actions (docs/handbook/viewer.md §패널 정리 핀 카드). wide: the head's #N, line range and N쪽 and the
    named grid [보기] [수정] [답글] [삭제] [완료]. compact: '#N · L… · N쪽' is one link (= [보기]), and the row is [삭제] [수정] [풀기] as
@@ -70,9 +70,9 @@ button.b-close{font-weight:600}
 @media (hover:hover){.pin :is(.acts,.e-acts,.r-acts) button:not(.btn-soft):not(.btn-destructive):not(.btn-default):hover{background:var(--accent)}}
 .pin .acts button.btn-destructive{background:transparent}
 @media (hover:hover){.pin .acts button.btn-destructive:hover{background:color-mix(in srgb,var(--destructive) 12%,transparent)}}   /* [완료] = soft, [삭제] = destructive - the variant is set by the class in the markup */
-.e-acts{display:grid;grid-template-columns:1.4fr 1fr 1fr;gap:var(--space-2);margin-top:8px}
+.e-acts{display:grid;grid-template-columns:1.4fr 1fr 1fr;gap:var(--space-2);margin-top:var(--space-2)}
 /* Pin kind (fix request / question) and thread (docs/handbook/viewer.md §스레드와 검토). The question badge has a primary-color border; the thread is set apart by a dotted line below the note. */
-.kind-seg{margin:8px 0 0}
+.kind-seg{margin:var(--space-2) 0 0}
 .kind-seg button{flex:1 1 0}
 .edit .kind-seg{margin:0 0 var(--space-2)}
 .badge-question{background:color-mix(in srgb,var(--primary) 14%,transparent);color:var(--primary)}
@@ -123,7 +123,7 @@ body.band-phone #trash .arc-l1{grid-column:1/-1}
 body.band-phone #trash .arc-acts{grid-row:2}
 body.band-phone #trash .arc-l2{grid-column:1}
 .arc-acts{flex:none;display:inline-flex;gap:var(--space-1);margin-left:auto}
-#trash-link{display:flex;margin:12px auto 0;color:var(--muted-foreground);background:transparent;border-color:transparent}
+#trash-link{display:flex;margin:var(--space-3) auto 0;color:var(--muted-foreground);background:transparent;border-color:transparent}
 @media (hover:hover){#trash-link:hover{background:var(--accent);color:var(--foreground)}}
 body.compact #trash-link{display:none}   /* compact: the Trash is in [⋯], like the other secondary lists */
 .arc-row.flash{animation:pinflash 1.2s ease-in-out 1;border-radius:var(--radius)}
@@ -151,7 +151,7 @@ button.th-more{align-self:flex-start;color:var(--muted-foreground)}
 .th-n{display:inline-flex;align-items:center;gap:2px;flex:none;color:var(--muted-foreground);font-size:var(--text-xs);cursor:pointer;border-radius:var(--radius);padding:0 2px;position:relative}
 @media (hover:hover){.th-n:hover{background:var(--accent);color:var(--foreground)}}
 .th-n .ic{width:12px;height:12px}
-.reply-box{display:flex;flex-direction:column;gap:var(--space-2);margin-top:8px}
+.reply-box{display:flex;flex-direction:column;gap:var(--space-2);margin-top:var(--space-2)}
 .reply-box textarea{min-height:3.2em}
 .r-acts{display:grid;grid-template-columns:1fr 2fr;gap:var(--space-2)}
 .pin:has(.reply-box)>.acts{display:none}   /* while the input field is open, its own [취소]/[보내기] act as this card's action row - otherwise the two rows overlapped */
@@ -171,7 +171,7 @@ button.th-more{align-self:flex-start;color:var(--muted-foreground)}
 .reply-box .r-err{margin:0}
 #trash .arc-l2 .arc-reply:not(.open){white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .arc-sep{flex:none;color:var(--subtle-foreground)}
-.arc-thread{margin:4px 0 0 var(--space-5)}   /* indentation only - no box */
+.arc-thread{margin:var(--space-1) 0 0 var(--space-5)}   /* indentation only - no box */
 .arc-thread .thread{margin:0;padding:0;border:0}
 .edit .e-cap{margin:0 0 var(--space-1)}   /* the line range (.e-range) never wraps character by character (.rg-cap) */
 .pg-link{color:var(--primary);font-size:var(--text-sm);cursor:pointer}

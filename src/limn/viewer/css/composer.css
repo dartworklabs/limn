@@ -23,8 +23,8 @@ button.tg[aria-pressed=true]{border-color:var(--border-strong)}
 .snip-foot{display:flex;align-items:center;justify-content:flex-end;gap:var(--space-2)}
 .snip-foot:not(:has(button:not([hidden]))){display:none}
 .snip-foot button{color:var(--muted-foreground);white-space:nowrap}
-#note{margin-top:8px}
-#c-overlap{display:flex;flex-wrap:wrap;gap:var(--space-2);margin:8px 0;font-size:var(--text-base)}   /* no box, just text + two buttons */
+#note{margin-top:var(--space-2)}
+#c-overlap{display:flex;flex-wrap:wrap;gap:var(--space-2);margin:var(--space-2) 0;font-size:var(--text-base)}   /* no box, just text + two buttons */
 #c-overlap>span{flex-basis:100%}
 #c-overlap button{flex:1 1 0;min-width:0}
 /* The action row is fixed to the bottom of the panel (visible while scrolling the list, or with the virtual keyboard up). It hides along with the composer panel closing. */
@@ -41,7 +41,7 @@ button.tg[aria-pressed=true]{border-color:var(--border-strong)}
    is the track's less that inset (--radius) and whose shadow (--shadow-xs, 3px of reach) stays inside the inset, so no edge
    clips it. A range ladder scrolls sideways (.lad): its .seg is the scroll box and its .lad-t the drawn track; every other track
    lets its segments' hit areas reach past it. On touch the track is drawn at 36px and each segment answers 44px (responsive.css). */
-.seg{position:relative;display:flex;flex-wrap:nowrap;overflow-x:auto;gap:2px;margin:8px 0;padding:var(--space-1);border:0;
+.seg{position:relative;display:flex;flex-wrap:nowrap;overflow-x:auto;gap:2px;margin:var(--space-2) 0;padding:var(--space-1);border:0;
   border-radius:var(--radius-lg);background:var(--muted);scrollbar-width:none;overscroll-behavior-x:contain}   /* shadcn Tabs: one filled frame, the selected segment is a raised surface */
 .seg:not(.lad){overflow:visible}
 .seg.lad{padding:0;border-radius:0;background:transparent}
@@ -60,7 +60,7 @@ button.tg[aria-pressed=true]{border-color:var(--border-strong)}
 .wn{color:var(--warning)}
 .warnline{color:var(--warning);font-size:var(--text-sm);margin-top:var(--space-2)}
 .errline{color:var(--destructive);font-size:var(--text-base);margin-top:var(--space-2)}
-.pin{position:relative;padding:var(--space-2) var(--space-3);margin-bottom:8px}   /* shape follows .card */
+.pin{position:relative;padding:var(--space-2) var(--space-3);margin-bottom:var(--space-2)}   /* shape follows .card */
 /* The range excerpt (excerpt.js, docs/handbook/viewer.md §패널 정리 범위 발췌): on every layout it is the source in the composer
    and the edit card (a region keeps its text), the mouse desktop's too. One row per source line - its number,
    its text (four lines at most, a dimmed neighbour two) and a 44px margin on the right for the row's chip: a tinted '+' on a

@@ -14,7 +14,7 @@ body.revision-open #left{display:none}
   background:var(--card);border-top:1px solid var(--border)}
 /* With the status line (24px on the sheet's top edge) the row sits on it, and its buttons end 20px above it - clear of the status
    action's 44px hit, which reaches 20px up. */
-body.has-status:not(.typing) #revision-acts{bottom:calc(var(--sheet-h,0px) + var(--kb,0px) + 24px);padding-bottom:20px}
+body.has-status:not(.typing) #revision-acts{bottom:calc(var(--sheet-h,0px) + var(--kb,0px) + 24px);padding-bottom:var(--space-5)}
 body.lay-narrow.rev-thumb #revision-source,body.lay-narrow.rev-thumb #revision-pdf,body.lay-narrow.rev-thumb #revision-overlay{padding-bottom:160px}   /* ...and the thumb row */
 #revision-acts .rp-acts{display:flex;justify-content:flex-end;gap:var(--space-2);width:100%;max-width:calc(640px - 2 * var(--edge));margin:0 auto}   /* the bar's cells: the tablet sheet's 640px column less its edges */
 #revision-acts button{min-height:var(--hit);padding-left:var(--space-4);padding-right:var(--space-4)}
@@ -28,7 +28,7 @@ body.lay-narrow #revision-source,body.lay-narrow #revision-pdf,body.lay-narrow #
 #revision-head h2{font-size:var(--text-sm);margin:0;white-space:nowrap}
 #revision-list{min-width:0;flex:1}
 #revision-list select{width:100%;max-width:470px;min-width:0;background:var(--sidebar);font-size:var(--text-sm)}
-#revision-note{color:var(--muted-foreground);font-size:var(--text-xs);padding:4px var(--space-4);background:var(--sidebar)}
+#revision-note{color:var(--muted-foreground);font-size:var(--text-xs);padding:var(--space-1) var(--space-4);background:var(--sidebar)}
 #revision-file-row{display:flex;align-items:center;gap:var(--space-2);margin-bottom:var(--space-2);font-size:var(--text-sm)}
 #revision-file-row select{max-width:min(100%,500px);background:var(--sidebar)}
 #revision-other,#revision-diff{white-space:pre;max-height:none;overflow:auto;margin:0;padding:0;background:var(--sidebar);font-size:var(--text-sm);line-height:1.7}
@@ -48,10 +48,10 @@ body.lay-narrow #revision-source,body.lay-narrow #revision-pdf,body.lay-narrow #
   color:color-mix(in srgb,var(--destructive) 75%,var(--foreground))}
 #revision-controls{display:flex;align-items:center;gap:var(--space-2);flex-wrap:wrap;padding:var(--space-1) var(--space-4);background:var(--sidebar);border-bottom:1px solid var(--border)}
 #revision-controls button[aria-pressed=true]{background:var(--accent);color:var(--foreground)}
-#revision-status{font-size:var(--text-xs);color:var(--muted-foreground);padding:4px var(--space-4);background:var(--sidebar)}
+#revision-status{font-size:var(--text-xs);color:var(--muted-foreground);padding:var(--space-1) var(--space-4);background:var(--sidebar)}
 #revision-warning{font-size:var(--text-xs);color:var(--warning);padding:0 var(--space-4);background:var(--sidebar)}
 #revision-warning summary{cursor:pointer}
-#revision-warning pre{white-space:pre-wrap;max-height:8em;overflow:auto;margin:4px 0}
+#revision-warning pre{white-space:pre-wrap;max-height:8em;overflow:auto;margin:var(--space-1) 0}
 #revision-pdf{flex:1;min-height:0;overflow:auto;background:var(--background);padding:var(--space-3);touch-action:pan-x pan-y}
 #revision-source{flex:1;min-height:0;overflow:auto}
 /* v0.3: the pin's own hunks come first; the rest of the commit folds under one control and expands inline below them */
@@ -78,5 +78,4 @@ body.lay-narrow #revision-view[data-format=overlay] #revision-head{display:none}
 .ov-no{position:absolute;top:var(--space-2);left:var(--space-2);color:var(--muted-foreground);font-size:var(--text-xs);background:var(--card);
   padding:1px var(--space-2);border-radius:var(--radius-sm);box-shadow:var(--shadow-sm);line-height:1.5}
 #revision-zoom{display:flex;align-items:center;gap:var(--space-1);margin-left:auto}
-#revision-zoom button{min-width:var(--hit);min-height:var(--hit)}
 #revision-zoom-value{min-width:4ch;text-align:center;font-size:var(--text-sm);font-variant-numeric:tabular-nums}
