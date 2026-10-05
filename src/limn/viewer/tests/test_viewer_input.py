@@ -4838,10 +4838,12 @@ class BarAndSheets(ViewerBase):
 
     def test_the_touch_help_names_the_bars_icon_buttons(self):
         """The help's touch table shows the bar's controls as they are drawn: the words-first pair [핀 N] [검토 M] and [⬚]'s
-        four-corner icon (it showed the pin glyph and the dashed square the sheet bar no longer draws)."""
+        symmetric dashed square (issue #168; it showed the pin glyph and then the four-corner focus icon the bar no longer
+        draws)."""
         src = (Path(__file__).resolve().parents[1] / "index.html").read_text(encoding="utf-8")
         self.assertIn("<kbd>핀 N</kbd> <kbd>검토 M</kbd>", src)
-        self.assertIn("<kbd>{{ic:focus}}</kbd>", src)
+        self.assertIn("<kbd>{{ic:square-dashed}}</kbd>", src)
+        self.assertNotIn("{{ic:focus}}", src)
         self.assertNotIn("<kbd>{{ic:pin}} N</kbd>", src)
         self.assertNotIn("<kbd>선택</kbd>", src)
 
@@ -6067,6 +6069,276 @@ class SymmetryAudit(ViewerBase):
                 self.assertEqual(o["loc"][0], o["loc"][1], o)
                 self.assertEqual(len(set(o["kind"])), 1, o)
                 self.assertEqual(o["save"][0], o["save"][1], o)
+
+
+# ---------------------------------------------------------------- the select control and its mode bar (issue #168)
+
+
+class SelectModeLogic(unittest.TestCase):
+    """selModeScrollTop(top0, now, moved): where the PDF scroller goes when the select mode's bar reserve above page 1
+    comes or goes (docs/handbook/viewer.md §모바일 레이아웃 선택 모드)."""
+
+    def scroll(self, cases):
+        """[(top0, now, moved)] -> [selModeScrollTop(...)] from the shipped source."""
+        js = extract_js_fn("selModeScrollTop") + "\nconsole.log(JSON.stringify(%s.map(c=>selModeScrollTop(...c))));" % (
+            json.dumps(cases)
+        )
+        return node_or_skip(self, js)
+
+    def test_at_the_very_top_the_scroller_stays_at_zero_so_the_reserve_uncovers_page_one(self):
+        """Scrolled to the top, the pages move down by the reserve (or back up without it): scrollTop stays 0, whatever
+        the move and whatever a browser's scroll anchoring did meanwhile."""
+        self.assertEqual(self.scroll([(0, 0, 52), (0, 0, -52), (0, 40, 52), (-1, 0, 52)]), [0, 0, 0, 0])
+
+    def test_the_bar_width_rounds_up_so_both_sides_fall_on_whole_pixels(self):
+        """selBarWidth(w, a): the mode bar's natural width w rounded up to a whole pixel, one more where the area a would
+        leave the two sides an odd remainder - so (a - W) / 2 is whole - and a width already whole (a wrapped bar as wide
+        as the area allows) is kept."""
+        js = extract_js_fn("selBarWidth") + (
+            "\nconsole.log(JSON.stringify([[293.05,570],[293.05,571],[293,570],[387,411],[386.2,411],[44,820]]"
+            ".map(c=>selBarWidth(...c))));"
+        )
+        self.assertEqual(node_or_skip(self, js), [294, 295, 294, 387, 387, 44])
+
+    def test_anywhere_else_the_pages_keep_their_place_on_screen(self):
+        """Scrolled into the document, the scroller follows the pages by as far as they moved, from where it is now - a
+        browser that already anchored them (moved 0) is left alone - and never goes above the top."""
+        self.assertEqual(
+            self.scroll([(300, 300, 52), (352, 352, -52), (300, 352, 0), (20, 20, -52)]), [352, 300, 352, 0]
+        )
+
+
+# The select control, the mode bar and page 1 as drawn: the mode, the toggle's state, words and box, its fill and the
+# primary and secondary fills it should take; the mode bar's box, words, [끝내기]'s words and the live region's words and
+# role (or None while the bar is hidden); the frame round the PDF area (its box-shadow) and the area's box; page 1's box
+# and the PDF scroller's position. Boxes are [left, top, right, bottom].
+SEL_STATE = """() => {const q = s => document.querySelector(s), vis = e => !!e && e.getClientRects().length > 0;
+  const box = e => {if (!vis(e)) return null; const r = e.getBoundingClientRect(); return [r.left, r.top, r.right, r.bottom];};
+  const colour = v => {const i = document.createElement('i'); i.style.background = v; document.body.append(i);
+    const c = getComputedStyle(i).backgroundColor; i.remove(); return c;};
+  const b = q('#btn-select'), bar = q('#sel-bar'), sr = q('#sel-sr'), t = q('#sel-bar-t'), end = q('#sel-end'), area = q('#sel-mode');
+  return {on: SELMODE, pressed: b.getAttribute('aria-pressed'), label: b.innerText.trim(), button: box(b),
+    fill: getComputedStyle(b).backgroundColor, primary: colour('var(--primary)'), secondary: colour('var(--secondary)'),
+    bar: box(bar), text: vis(bar) && t ? t.textContent : null, done: vis(bar) && end ? end.innerText.trim() : null,
+    said: sr ? sr.textContent : null, role: sr ? sr.getAttribute('role') : null,
+    frame: area ? getComputedStyle(area).boxShadow : null, area: box(area), page: box(q('#p1')), top: q('#left').scrollTop};}"""
+# The mode bar's parts and the toggle's glyph: boxes of the bar, the PDF area, the icon's tile and its svg, the words,
+# [끝내기], the toggle and its svg ([left, top, right, bottom]), and the words' and [끝내기]'s font sizes (px).
+SEL_PARTS = """() => {const q = s => document.querySelector(s), box = e => {const r = e.getBoundingClientRect(); return [r.left, r.top, r.right, r.bottom];};
+  return {bar: box(q('#sel-bar')), area: box(q('#sel-mode')), tile: box(q('#sel-bar .sb-ic')), icon: box(q('#sel-bar .sb-ic svg')),
+    text: box(q('#sel-bar-t')), end: box(q('#sel-end')), button: box(q('#btn-select')), glyph: box(q('#btn-select svg')),
+    sizes: [parseFloat(getComputedStyle(q('#sel-bar-t')).fontSize), parseFloat(getComputedStyle(q('#sel-end')).fontSize)]};}"""
+# The portrait phone, the landscape phone, the portrait tablet and the unfolded Fold upright (the owner's four sizes).
+SEL_DEVICES = (phone(411, 908), phone(908, 411), phone(820, 1180, 2), phone(884, 1104, 2.5))
+# The words the mode bar says, Korean and English.
+SEL_WORDS = {
+    "ko": ("선택 중 · 끌면 영역 · 탭하면 문단", "끝내기"),
+    "en": ("Selecting · drag for an area · tap for a paragraph", "Done"),
+}
+
+
+def mid(a: float, b: float) -> float:
+    """The middle of a and b."""
+    return (a + b) / 2
+
+
+class SelectModeBar(ViewerBase):
+    """The pin-select control on compact layouts (issue #168, docs/handbook/viewer.md §모바일 레이아웃 선택 모드): the bar
+    keeps a symmetric dashed-square [⬚] in its slot, filled with the accent while on and named [⬚ 선택] / [⬚ 선택 중] where
+    the bar has room; while the mode is on, a mode bar at the top of the PDF area says what a drag and a tap do and has
+    [끝내기], a thin accent frame goes round the area, and page 1 starts below the bar."""
+
+    def turn(self, page, on):
+        """Press the toggle with a finger until the mode is on (on=True) or off, and let the page settle."""
+        self.tap(self.cdp(page), *self.center(page, "#btn-select"))
+        page.wait_for_function("SELMODE===%s" % ("true" if on else "false"))
+        settle(page)
+
+    def test_the_toggle_reports_its_state_with_aria_pressed_and_the_accent_fill(self):
+        """411x908, light and dark: off, [⬚] is the tonal chip (--secondary) and aria-pressed is false; a tap turns the
+        mode on - aria-pressed true, the accent fill (--primary) - and another turns it off again."""
+        for dark in (False, True):
+            with self.subTest(dark=dark):
+                page = self.view(phone(411, 908), dark=dark)
+                s = page.evaluate(SEL_STATE)
+                self.assertEqual((s["on"], s["pressed"], s["fill"]), (False, "false", s["secondary"]), s)
+                self.turn(page, True)
+                s = page.evaluate(SEL_STATE)
+                self.assertEqual((s["on"], s["pressed"], s["fill"]), (True, "true", s["primary"]), s)
+                self.before_next_tap(page)
+                self.turn(page, False)
+                s = page.evaluate(SEL_STATE)
+                self.assertEqual((s["on"], s["pressed"], s["fill"]), (False, "false", s["secondary"]), s)
+
+    def test_the_mode_bar_shows_while_on_says_so_and_done_ends_the_mode(self):
+        """411x908 in Korean and English: off, no mode bar, no frame and nothing said; on, the bar reads 'selecting, a
+        drag selects an area, a tap a paragraph' with [끝내기] (Done), the live region (role=status) says the same and an
+        accent frame goes round the PDF area; one tap on [끝내기] ends the mode - no bar, no frame, nothing said, the
+        toggle not pressed."""
+        for lang in ("ko", "en"):
+            with self.subTest(lang=lang):
+                page = self.view(phone(411, 908), lang=lang)
+                s = page.evaluate(SEL_STATE)
+                self.assertEqual((s["bar"], s["said"], s["role"], s["frame"]), (None, "", "status", "none"), s)
+                self.turn(page, True)
+                s = page.evaluate(SEL_STATE)
+                self.assertIsNotNone(s["bar"], s)
+                self.assertEqual((s["text"], s["done"]), SEL_WORDS[lang], s)
+                self.assertEqual(s["said"], s["text"], s)
+                self.assertIn(s["primary"].replace(" ", ""), s["frame"].replace(" ", ""), s)
+                self.before_next_tap(page)
+                self.tap(self.cdp(page), *self.center(page, "#sel-end"))
+                page.wait_for_function("!SELMODE")
+                settle(page)
+                s = page.evaluate(SEL_STATE)
+                self.assertEqual((s["bar"], s["said"], s["frame"], s["pressed"]), (None, "", "none", "false"), s)
+
+    def test_esc_ends_the_mode_where_a_keyboard_exists(self):
+        """884x1104 with a keyboard attached: Esc ends the select mode (nothing else is open), and a focus that was on
+        [끝내기] goes to the toggle instead of the page."""
+        page = self.view(phone(884, 1104, 2.5))
+        self.turn(page, True)
+        page.focus("#sel-end")
+        page.keyboard.press("Escape")
+        page.wait_for_function("!SELMODE")
+        settle(page)
+        self.assertEqual(page.evaluate(SEL_STATE)["bar"], None)
+        self.assertEqual(page.evaluate("document.activeElement.id"), "btn-select")
+
+    def test_the_mouse_desktop_has_no_select_control_and_no_mode_bar(self):
+        """1440x900 with a mouse: the desktop is unchanged - no select toggle, no mode bar, no frame."""
+        page = self.view(MOUSE_WIDE)
+        s = page.evaluate(SEL_STATE)
+        self.assertEqual((s["button"], s["bar"], s["frame"]), (None, None, "none"), s)
+
+    def test_the_label_shows_where_the_bar_has_room_and_not_on_the_portrait_phone(self):
+        """The landscape phone, the portrait tablet and the unfolded Fold say [⬚ 선택] and [⬚ 선택 중] (Select,
+        Selecting) and keep one width in both states, so pressing it moves nothing; the portrait phone keeps the 36px
+        icon in both states."""
+        for device in SEL_DEVICES:
+            w = device["viewport"]["width"]
+            for lang in ("ko", "en") if w in (411, 884) else ("ko",):
+                with self.subTest(w=w, lang=lang):
+                    page = self.view(device, lang=lang)
+                    off = page.evaluate(SEL_STATE)
+                    self.turn(page, True)
+                    on = page.evaluate(SEL_STATE)
+                    width = [round(s["button"][2] - s["button"][0], 2) for s in (off, on)]
+                    if w == 411:
+                        self.assertEqual((off["label"], on["label"], width), ("", "", [36, 36]), (off, on))
+                    else:
+                        want = {"ko": ("선택", "선택 중"), "en": ("Select", "Selecting")}[lang]
+                        self.assertEqual((off["label"], on["label"]), want, (off, on))
+                        self.assertLessEqual(abs(width[0] - width[1]), 0.5, width)
+                        self.assertAlmostEqual(off["button"][0], on["button"][0], delta=0.5, msg=(off, on))
+
+    def test_the_select_control_never_shrinks_the_pin_chip(self):
+        """[핀 N | 검토 M] keeps its words and its width whether the mode is on or off: on the portrait phone (411, 430;
+        Korean and English) its step is the same in both states and never the dots, and on the tablet sheets - the
+        narrowest (600), the portrait tablet and the unfolded Fold, Korean and English, the fixture's counts and the
+        fullest 123 | 12 - it is never stepped down: the select label gives way first."""
+        for (w, h, dpr), langs in (((411, 908, 2.625), ("ko", "en")), ((430, 932, 3), ("en",)), ((600, 960, 2), ("ko", "en")),
+                                   ((820, 1180, 2), ("ko", "en")), ((884, 1104, 2.5), ("ko", "en"))):  # fmt: skip
+            for lang in langs:
+                page = self.view(phone(w, h, dpr), lang=lang)
+                for full in (False, True) if w >= 600 else (False,):
+                    with self.subTest(w=w, lang=lang, full=full):
+                        if full:
+                            page.evaluate("setSelMode(false)")
+                            page.evaluate(FULL_BAR)
+                            settle(page)
+                        chip = "['#btn-side','#btn-rv'].map(s=>Math.round(document.querySelector(s).getBoundingClientRect().width*100)/100)"
+                        off = (page.evaluate(BAR_IDS), page.evaluate(chip))
+                        page.evaluate("setSelMode(true)")
+                        settle(page)
+                        on = (page.evaluate(BAR_IDS), page.evaluate(chip))
+                        self.assertEqual((off[0]["step"], off[1]), (on[0]["step"], on[1]))
+                        self.assertNotEqual(on[0]["step"], "bar-tight", on)
+                        self.assertEqual(on[0]["ids"], [["word"], ["word"]], on)
+                        if w >= 600:
+                            self.assertEqual(on[0]["step"], "", on)
+
+    def test_page_one_is_not_covered_at_the_scroll_top_and_nothing_moves_further_down(self):
+        """The four sizes and the Fold on its side (842x758): scrolled to the top, turning the mode on moves page 1 below
+        the mode bar - 8px or more between them, so its first line is never under the bar - and turning it off puts it
+        back; scrolled into the document, turning it on or off leaves the pages where they are (within 1px)."""
+        for device in SEL_DEVICES + (FOLD,):
+            with self.subTest(w=device["viewport"]["width"]):
+                page = self.view(device)
+                page.evaluate("document.querySelector('#left').scrollTop=0")
+                settle(page)
+                before = page.evaluate(SEL_STATE)
+                self.turn(page, True)
+                s = page.evaluate(SEL_STATE)
+                self.assertEqual(s["top"], 0, s)
+                self.assertGreaterEqual(s["page"][1] - s["bar"][3], 8, s)
+                page.evaluate("setSelMode(false)")
+                settle(page)
+                self.assertAlmostEqual(page.evaluate(SEL_STATE)["page"][1], before["page"][1], delta=0.5)
+                page.evaluate("document.querySelector('#left').scrollTop=300")
+                settle(page)
+                y0 = page.evaluate(SEL_STATE)["page"][1]
+                for on in ("true", "false"):
+                    page.evaluate("setSelMode(%s)" % on)
+                    settle(page)
+                    self.assertAlmostEqual(page.evaluate(SEL_STATE)["page"][1], y0, delta=1, msg=on)
+
+    def test_the_icon_and_the_mode_bar_are_symmetric_on_the_grid(self):
+        """The four sizes, light and dark, the mode on: [⬚]'s glyph ink is centred in its 18px box within 0.5px both ways
+        (and in the portrait phone's 36px chip); the mode bar is 44px high on the 4px grid, 8px under the PDF area's top,
+        centred in the area, its two inner margins equal (the icon's 36px tile and the 36px [끝내기] each 4px from the
+        bar's ends), the words' box and [끝내기] centred on its centre line within 0.5px (the words' ink too, in
+        Pretendard) with the icon's ink centred in its tile; touch text 12px or more; [끝내기] and [⬚] answer 44px."""
+        for device in SEL_DEVICES:
+            for dark in (False, True):
+                with self.subTest(w=device["viewport"]["width"], dark=dark):
+                    page = self.view(device, dark=dark)
+                    page.evaluate("setSelMode(true)")
+                    settle(page)
+                    g = page.evaluate(SEL_PARTS)
+                    bar, area, tile, icon, text, end = (g[k] for k in ("bar", "area", "tile", "icon", "text", "end"))
+                    self.assertEqual((round(bar[3] - bar[1], 2), round(end[3] - end[1], 2)), (44, 36), g)
+                    self.assertEqual((round(tile[2] - tile[0], 2), round(icon[2] - icon[0], 2)), (36, 18), g)
+                    self.assertEqual(round(bar[1] - area[1], 2), 8, g)
+                    self.assertLessEqual(abs((bar[0] - area[0]) - (area[2] - bar[2])), 0.5, g)
+                    self.assertLessEqual(abs((tile[0] - bar[0]) - (bar[2] - end[2])), 0.5, g)
+                    self.assertEqual(round(tile[0] - bar[0], 2), 4, g)
+                    centre = mid(bar[1], bar[3])
+                    for k in ("tile", "text", "end"):
+                        self.assertLessEqual(abs(mid(g[k][1], g[k][3]) - centre), 0.5, (k, g))
+                    self.assertTrue(all(s >= 12 for s in g["sizes"]), g)
+                    self.assertEqual(page.evaluate(MISSES_44, "#sel-end,#btn-select"), [])
+                    clip = {
+                        "x": 0,
+                        "y": 0,
+                        "width": device["viewport"]["width"],
+                        "height": device["viewport"]["height"],
+                    }
+                    shot = page.screenshot(clip=clip)
+                    items = [
+                        {"k": "icon", "fill": False, "ix": 0, "box": icon},
+                        {"k": "glyph", "fill": False, "ix": 0, "box": g["glyph"]},
+                        # the words between the bar's insets: Hangul ink reaches past the trimmed box, and the bar's own
+                        # fill is read at its top corner
+                        {"k": "text", "fill": False, "ix": 0, "box": [text[0], bar[1] + 2, text[2], bar[3] - 2]},
+                        {"k": "end", "fill": True, "box": end},
+                    ]
+                    ink = page.evaluate(
+                        ROW_INK, [base64.b64encode(shot).decode(), device["device_scale_factor"], items]
+                    )
+                    for k, b in (("icon", icon), ("glyph", g["glyph"])):
+                        self.assertLessEqual(
+                            abs(mid(ink[k]["left"], ink[k]["right"]) - mid(b[0], b[2])), 0.5, (k, ink, b)
+                        )
+                        self.assertLessEqual(abs(ink[k]["mid"] - mid(b[1], b[3])), 0.5, (k, ink, b))
+                    if device["viewport"]["width"] == 411:
+                        b = g["button"]
+                        self.assertLessEqual(
+                            abs(mid(ink["glyph"]["left"], ink["glyph"]["right"]) - mid(b[0], b[2])), 0.5
+                        )
+                    if page.evaluate(PRETENDARD):
+                        for k in ("text", "end"):
+                            self.assertLessEqual(abs(ink[k]["mid"] - centre), 0.5, (k, ink, centre))
 
 
 if __name__ == "__main__":

@@ -43,7 +43,7 @@
    pair for the theme. */
 :root{--brand:__ACCENT__;--brand-foreground:#ffffff;
   --limn-ink:#15161a;--limn-ver:#e8452c;--limn-bone:#fbf1e6;--limn-cream:#f4ede1;
-  --outline-width:240px;--doc-nav-h:44px;
+  --outline-width:240px;--doc-nav-h:44px;--strip-h:38px;
   --radius-sm:4px;--radius:6px;--radius-lg:10px;
   --text-xs:11px;--text-sm:12px;--text-base:13px;--text-lg:14px;--text-xl:16px;
   --space-1:4px;--space-2:8px;--space-3:12px;--space-4:16px;--space-5:20px;--space-6:24px;
