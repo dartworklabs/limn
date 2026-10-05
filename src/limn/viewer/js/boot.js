@@ -64,6 +64,7 @@ function viewerBlocked(){if(!isViewer())return false; bannerNote(undefined,'보�
 function drawMeta(){
   document.body.classList.toggle('no-rebuild',!buildsFromSource(META.kind));   // only a LaTeX document builds from source; a view-only PDF and a figure redraw when their files change
   document.body.classList.toggle('role-viewer',isViewer());
+  $('#m-download').disabled=!META.pages_build;   // no build on screen, no PDF to save
   $('#meta-main').textContent=META.main; $('#meta-pages').textContent=tl('{n}쪽',{n:META.pages.length});
   const head=commitShown(META.head); $('#meta-head').textContent=head; $('#meta-head-w').hidden=!head;
   $('#meta-built').textContent=String(META.built_at||'').slice(0,16).replace('T',' ');

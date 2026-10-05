@@ -42,6 +42,12 @@ def parse_build_name(q: Query) -> str:
     return query_first(q, "build", "") or ""
 
 
+def parse_download(q: Query) -> bool:
+    """GET /pdf's ?download=1: save the PDF as a file. On only for exactly "1" (parse_flag); any other value is the plain
+    inline answer, never a refusal."""
+    return parse_flag(q, "download")
+
+
 class RebuildQuery(NamedTuple):
     """POST /api/rebuild switches: full response log, background execution, and a forced cold build (no skip)."""
 

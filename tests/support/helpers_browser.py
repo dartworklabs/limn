@@ -259,9 +259,10 @@ class BrowserBase(ChromiumTestCase):
             + "\r\n"
         ).encode("latin-1") + body
         code, hdrs, data = self.talk(raw)
-        route.fulfill(
-            status=code, headers={"content-type": hdrs.get("content-type", "application/octet-stream")}, body=data
-        )
+        out = {"content-type": hdrs.get("content-type", "application/octet-stream")}
+        if "content-disposition" in hdrs:  # a download's name, which the browser reads from the answer
+            out["content-disposition"] = hdrs["content-disposition"]
+        route.fulfill(status=code, headers=out, body=data)
 
     def open(self, n_open, lang="ko", init=None, **device):
         """Open the viewer in a new context and return the page once boot() has finished and the page has settled: the
