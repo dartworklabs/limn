@@ -22,6 +22,7 @@ from limn.revisions.core import (
     DiffFailed,
     DiffUnavailable,
     DocumentBusy,
+    EmptyRange,
     NoHistory,
     NoMergeBase,
     NoParent,
@@ -83,6 +84,7 @@ def answer_of(refusal) -> HTTPError:
 RANGE_REFUSALS = {
     BaseAfterHead: (422, "비교 기준 커밋이 대상 커밋보다 새롭습니다.", "base_after_head"),
     NoMergeBase: (422, "두 커밋에 공통 조상이 없어 비교할 수 없습니다.", "no_merge_base"),
+    EmptyRange: (422, "기준과 대상이 같은 커밋이라 비교 PDF를 만들 수 없습니다.", "empty_range"),
 }
 
 
@@ -95,11 +97,13 @@ class RangeRefusalTable(unittest.TestCase):
         self.assertEqual(revision_answer.RANGE_REJECTIONS, RANGE_REFUSALS)
 
     def test_a_range_refusal_is_answered_with_its_status_reason_and_text(self):
-        """revision_answer raises HTTPError(status, text, reason) for each range refusal, nothing more."""
-        for kind, (status, text, reason) in RANGE_REFUSALS.items():
-            with self.subTest(refusal=kind.__name__), self.assertRaises(HTTPError) as cm:
-                revision_answer.revision_answer(kind())
-            self.assertEqual((cm.exception.code, cm.exception.body), (status, {"error": text, "reason": reason}))
+        """revision_answer (JSON routes) and revision_pdf_answer (the PDF route) answer each range refusal with an
+        HTTPError of its status, text and reason, nothing more."""
+        for route in (revision_answer.revision_answer, revision_answer.revision_pdf_answer):
+            for kind, (status, text, reason) in RANGE_REFUSALS.items():
+                with self.subTest(route=route.__name__, refusal=kind.__name__), self.assertRaises(HTTPError) as cm:
+                    route(kind())
+                self.assertEqual((cm.exception.code, cm.exception.body), (status, {"error": text, "reason": reason}))
 
 
 class RevisionRefusalTable(unittest.TestCase):

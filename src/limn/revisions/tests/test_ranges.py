@@ -21,6 +21,7 @@ from unittest import mock
 
 from limn.revisions import core as revisions, execution as revision_execution
 
+from helpers import ps
 from helpers_access import REPO_OLD, AccessBase
 
 SNAPSHOT = Path(__file__).resolve().parents[4] / "tests" / "data" / "revision_snapshot.json"
@@ -125,6 +126,12 @@ class RangeRepo(AccessBase):
             text = text.replace(sha, "<%s>" % name).replace(sha[:8], "<%s:8>" % name)
         return json.loads(text)
 
+    def call(self, method, path, body=None, headers=None, peer="127.0.0.1", token=None):
+        """AccessBase.call, keeping a PDF answer's text in self.last_body_text."""
+        code, out = super().call(method, path, body, headers, peer, token)
+        self.last_body_text = out if isinstance(out, str) else None
+        return code, out
+
     def wait_build(self, query: str) -> dict:
         """GET /api/revision-build?<query> until the job is no longer running (5 s at most)."""
         deadline = time.monotonic() + 5
@@ -197,12 +204,6 @@ class RangeSnapshot(RangeRepo):
         self.assertEqual([s["step"] for s in seen], [s["step"] for s in recorded])
         for got, want in zip(seen, recorded, strict=True):
             self.assertEqual(got, want, got["step"])
-
-    def call(self, method, path, body=None, headers=None, peer="127.0.0.1", token=None):
-        """AccessBase.call, keeping a PDF answer's text in self.last_body_text."""
-        code, out = super().call(method, path, body, headers, peer, token)
-        self.last_body_text = out if isinstance(out, str) else None
-        return code, out
 
 
 class RangeHistory(RangeRepo):
@@ -357,3 +358,110 @@ class RangeSourceDiff(RangeRepo):
         plain = self.call("GET", "/api/revision-diff?commit=" + self.sha["after"])
         empty = self.call("GET", "/api/revision-diff?commit=%s&base=" % self.sha["after"])
         self.assertEqual(plain, empty)
+
+
+class RangePdf(RangeRepo):
+    """The comparison PDF of a range: POST/GET /api/revision-build and GET /api/revision-pdf with base."""
+
+    def range_query(self, base: str, commit: str) -> str:
+        """commit=<commit>&base=<base> for two named commits."""
+        return "commit=%s&base=%s" % (self.sha[commit], self.sha[base])
+
+    def build(self, base: str, commit: str) -> tuple[int, dict]:
+        """POST /api/revision-build for the range base..commit with the fake build -> (status, body) of the POST."""
+        return self.call("POST", "/api/revision-build", {"commit": self.sha[commit], "base": self.sha[base]})
+
+    def cache_dir(self, body: dict) -> Path:
+        """The cache folder of a status answer's job."""
+        return ps.APP.C.state / "revisions" / body["job_id"]
+
+    def test_a_range_build_compares_its_two_ends(self):
+        """base=alpha, commit=after: the job's sides are alpha and after, its status says so, the PDF is served for
+        the same query, and the cache folder is marked ranged."""
+        with mock.patch.object(revision_execution, "revision_compile", side_effect=fake_compile):
+            code, started = self.build("alpha", "after")
+            self.assertEqual(code, 202, started)
+            self.assertEqual((started["base"], started["head"]), (self.sha["alpha"], self.sha["after"]))
+            status = self.wait_build(self.range_query("alpha", "after"))
+        self.assertEqual(status["state"], "ready", status)
+        self.assertNotIn("merge_base", status)
+        code, _ = self.call("GET", "/api/revision-pdf?" + self.range_query("alpha", "after"))
+        self.assertEqual(code, 200)
+        self.assertEqual(self.last_body_text, "%PDF-1.4\n" + self.sha["alpha"] + ".." + self.sha["after"])
+        self.assertTrue((self.cache_dir(status) / revisions.RANGED_MARK).is_file())
+
+    def test_a_side_branch_range_builds_from_the_merge_base(self):
+        """base=beta (on the branch), commit=gamma: the comparison starts at their merge base, named in base and in
+        merge_base; merge_base is a field of the request, never stored in the shared status."""
+        with mock.patch.object(revision_execution, "revision_compile", side_effect=fake_compile):
+            code, started = self.build("beta", "gamma")
+            self.assertEqual(code, 202, started)
+            status = self.wait_build(self.range_query("beta", "gamma"))
+        self.assertEqual((status["base"], status["merge_base"]), (self.sha["rename"], self.sha["rename"]))
+        stored = json.loads((self.cache_dir(status) / "status.json").read_text(encoding="utf-8"))
+        self.assertNotIn("merge_base", stored)
+
+    def test_a_first_parent_base_shares_the_single_commit_comparison(self):
+        """A range whose old side is the commit's first parent is the single commit's comparison: same key, found in
+        the cache the single-commit request filled, not marked ranged."""
+        with mock.patch.object(revision_execution, "revision_compile", side_effect=fake_compile):
+            self.call("POST", "/api/revision-build", {"commit": self.sha["after"]})
+            single = self.wait_build("commit=" + self.sha["after"])
+        code, ranged = self.call("GET", "/api/revision-build?" + self.range_query("merge", "after"))
+        self.assertEqual((code, ranged["state"], ranged["job_id"]), (200, "ready", single["job_id"]))
+        self.assertFalse((self.cache_dir(single) / revisions.RANGED_MARK).exists())
+
+    def test_the_range_refusals_of_the_build_routes(self):
+        """base == commit is 422 empty_range (no comparison to build), base after commit 422 base_after_head, a base
+        outside the history 404 commit_not_recent - on POST, the status and the PDF alike."""
+        cases = [
+            (self.range_query("gamma", "gamma"), 422, "empty_range"),
+            (self.range_query("after", "alpha"), 422, "base_after_head"),
+            ("commit=%s&base=%s" % (self.sha["after"], "0" * 40), 404, "commit_not_recent"),
+        ]
+        for query, status, reason in cases:
+            commit, base = (part.split("=")[1] for part in query.split("&"))
+            code, body = self.call("POST", "/api/revision-build", {"commit": commit, "base": base})
+            self.assertEqual((code, body["reason"]), (status, reason), query)
+            for path in ("/api/revision-build?", "/api/revision-pdf?"):
+                code, body = self.call("GET", path + query)
+                self.assertEqual((code, body["reason"]), (status, reason), path + query)
+
+    def test_unrelated_histories_have_no_merge_base(self):
+        """A commit from a history merged in with --allow-unrelated-histories shares no ancestor with a trunk commit
+        from before that merge: 422 no_merge_base for the source diff and the comparison PDF."""
+        self.git("checkout", "--quiet", "--orphan", "loose")
+        self.git("rm", "-r", "--quiet", "--cached", ".")
+        (self.src / "extra.tex").write_text("Loose text.\n", encoding="utf-8")
+        self.commit("loose", "loose history", "Alice Kim", paths=("ms/extra.tex",))
+        self.git("clean", "-fdq", "ms/sec")
+        self.git("checkout", "--quiet", "-f", "main")
+        self.tick()
+        self.git("merge", "--quiet", "--allow-unrelated-histories", "-m", "join loose", "loose")
+        query = self.range_query("loose", "after")
+        code, body = self.call("GET", "/api/revision-diff?" + query)
+        self.assertEqual((code, body.get("reason")), (422, "no_merge_base"), body)
+        code, body = self.call("GET", "/api/revision-build?" + query)
+        self.assertEqual((code, body.get("reason")), (422, "no_merge_base"), body)
+
+    def test_ranged_comparisons_are_counted_apart_and_kept_at_most_four(self):
+        """Ranged cache entries have their own limit (REVISION_RANGED_KEEP, 4): many ranges never push out
+        single-commit or pin-scoped comparisons, and the oldest ranges go first."""
+        from limn.revisions import jobs as revision_jobs
+
+        root = revision_jobs.revision_cache_root(ps.APP.docs[0])
+        whole = [root / ("%064x" % i) for i in range(3)]
+        scoped = [root / ("%064x" % (50 + i)) for i in range(2)]
+        ranged = [root / ("%064x" % (100 + i)) for i in range(revisions.REVISION_RANGED_KEEP + 3)]
+        for i, d in enumerate(whole + scoped + ranged):
+            d.mkdir()
+            if d in scoped:
+                (d / revisions.SCOPED_MARK).write_text("")
+            if d in ranged:
+                (d / revisions.RANGED_MARK).write_text("")
+            t = time.time() - 1000 + (500 + i if d in ranged else i)  # every ranged entry is newer
+            os.utime(d, (t, t))
+        revision_jobs.revision_prune(root, "f" * 64, ps.APP.RT.revision_jobs.active)
+        self.assertTrue(all(d.exists() for d in whole + scoped))
+        self.assertEqual([d.exists() for d in ranged], [False] * 3 + [True] * revisions.REVISION_RANGED_KEEP)
+        self.assertEqual(revisions.REVISION_RANGED_KEEP, 4)

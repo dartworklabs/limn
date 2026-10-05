@@ -53,14 +53,16 @@ class RevisionRequests:
         context = self.context()
         return revisions.revision_diff(doc, commit, pin, context, context.history_files(doc), base)
 
-    def status(self, doc: Doc, commit: str, pin: int | None = None) -> dict[str, Any] | StatusRefusal:
-        """Read a comparison job or cached PDF state."""
-        return jobs.revision_status(doc, commit, pin, self.context())
+    def status(
+        self, doc: Doc, commit: str, pin: int | None = None, base: str | None = None
+    ) -> dict[str, Any] | StatusRefusal | RangeRefusal:
+        """Read a comparison job or cached PDF state (of the range from base when given)."""
+        return jobs.revision_status(doc, commit, pin, self.context(), base)
 
     def start(
-        self, doc: Doc, commit: str, pin: int | None = None, *, authority: PostAuthority
-    ) -> dict[str, Any] | StartRefusal:
-        """Start a comparison PDF job using this instance's slots and cache."""
+        self, doc: Doc, commit: str, pin: int | None = None, *, authority: PostAuthority, base: str | None = None
+    ) -> dict[str, Any] | StartRefusal | RangeRefusal:
+        """Start a comparison PDF job (of the range from base when given) using this instance's slots and cache."""
         context = self.context()
         require_authority(
             authority,
@@ -68,8 +70,10 @@ class RevisionRequests:
             "revision-build",
             document_authority_target(doc),
         )
-        return jobs.revision_start(doc, commit, pin, context)
+        return jobs.revision_start(doc, commit, pin, context, base)
 
-    def pdf(self, doc: Doc, commit: str, pin: int | None = None) -> bytes | PdfRefusal:
-        """Read the comparison PDF, or return the existing refusal outcome."""
-        return jobs.revision_pdf(doc, commit, pin, self.context())
+    def pdf(
+        self, doc: Doc, commit: str, pin: int | None = None, base: str | None = None
+    ) -> bytes | PdfRefusal | RangeRefusal:
+        """Read the comparison PDF (of the range from base when given), or return the existing refusal outcome."""
+        return jobs.revision_pdf(doc, commit, pin, self.context(), base)

@@ -10,6 +10,7 @@ from limn.revisions.core import (
     DiffFailed,
     DiffUnavailable,
     DocumentBusy,
+    EmptyRange,
     FailureKind,
     NoHistory,
     NoMergeBase,
@@ -62,6 +63,7 @@ def revision_refused(result: RevisionRefusal) -> NoReturn:
 RANGE_REJECTIONS: dict[type[RangeRefusal], tuple[int, str, str]] = {
     BaseAfterHead: (422, "비교 기준 커밋이 대상 커밋보다 새롭습니다.", "base_after_head"),
     NoMergeBase: (422, "두 커밋에 공통 조상이 없어 비교할 수 없습니다.", "no_merge_base"),
+    EmptyRange: (422, "기준과 대상이 같은 커밋이라 비교 PDF를 만들 수 없습니다.", "empty_range"),
 }
 
 
@@ -76,22 +78,25 @@ def revision_answer(result: dict[str, Any] | RevisionRefusal | RangeRefusal) -> 
     answer: a range's own through RANGE_REJECTIONS, every other through revision_refused."""
     if isinstance(result, dict):
         return result
-    if isinstance(result, BaseAfterHead | NoMergeBase):
+    if isinstance(result, BaseAfterHead | NoMergeBase | EmptyRange):
         raise range_http_error(result)
     revision_refused(result)
 
 
-def revision_start_answer(result: dict[str, Any] | RevisionRefusal) -> tuple[dict[str, Any], int]:
+def revision_start_answer(result: dict[str, Any] | RevisionRefusal | RangeRefusal) -> tuple[dict[str, Any], int]:
     """POST /api/revision-build: the comparison build's status with 202 while it is running (just started or already
     under way), 200 once it has an answer (ready or failed); a refusal through revision_refused."""
     body = revision_answer(result)
     return body, 202 if body["state"] == "running" else 200
 
 
-def revision_pdf_answer(result: bytes | RevisionRefusal) -> bytes:
-    """GET /api/revision-pdf: the comparison PDF's bytes, or its refusal's answer."""
+def revision_pdf_answer(result: bytes | RevisionRefusal | RangeRefusal) -> bytes:
+    """GET /api/revision-pdf: the comparison PDF's bytes, or its refusal's answer (a range's own through
+    RANGE_REJECTIONS)."""
     if isinstance(result, bytes):
         return result
+    if isinstance(result, BaseAfterHead | NoMergeBase | EmptyRange):
+        raise range_http_error(result)
     revision_refused(result)
 
 

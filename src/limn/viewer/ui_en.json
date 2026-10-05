@@ -176,6 +176,7 @@
  "reason:conflict": "Someone else changed this pin first. Reload it and try again.",
  "reason:diff_failed": "latexdiff couldn't compare the manuscript. Check for missing included files.",
  "reason:diff_unreadable": "Couldn't read changes.",
+ "reason:empty_range": "The base and the commit are the same, so there is no comparison PDF to build.",
  "reason:doc_mismatch": "The document differs between the address and the request body.",
  "reason:done": "The pin is already closed.",
  "reason:file_not_found": "There is no such file in the manuscript.",

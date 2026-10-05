@@ -60,8 +60,11 @@ REVISION_PDF_MAX = 32 * 1024 * 1024
 REVISION_CACHE_KEEP = 6
 REVISION_SCOPED_KEEP = 6  # pin-scoped comparisons, counted apart so they never evict whole-commit ones
 SCOPED_MARK = "scoped"  # empty file in a pin-scoped comparison's cache folder
+REVISION_RANGED_KEEP = 4  # comparisons of a range (issue #188), counted apart so they never evict single-commit ones
+RANGED_MARK = "ranged"  # empty file in a ranged comparison's cache folder
 REVISION_CACHE_TTL = 24 * 3600
-SCOPE_META = ("scope", "pin", "source", "hunks", "other")  # per-request fields; never stored in a (shared) status
+# per-request fields; never stored in a (shared) status. merge_base: a range whose base was on another line (#188)
+SCOPE_META = ("scope", "pin", "source", "hunks", "other", "merge_base")
 HISTORY_PATHS_MAX = 200  # files a figure document's history names one by one; more are named by their folder
 REVISION_RECENT = 12  # rows of GET /api/revisions without paging; a pin's close_ref is resolved among these
 REVISION_HISTORY_MAX = 500  # the history window: the commits a request may name (issue #188, ADR-0014)
@@ -175,11 +178,17 @@ class NoMergeBase:
     """The range's base is not an ancestor of its commit and the two have no common ancestor to compare from."""
 
 
+@dataclass(frozen=True)
+class EmptyRange:
+    """The range's base is its commit: there is nothing to compare, so no comparison PDF is built (the source diff
+    answers an empty diff instead)."""
+
+
 # A range's own refusals (issue #188), answered from limn.revisions.answer.RANGE_REJECTIONS; the other refusals a range
 # meets (CommitNotRecent, DiffFailed, ...) are the single commit's.
-RangeRefusal: TypeAlias = BaseAfterHead | NoMergeBase
+RangeRefusal: TypeAlias = BaseAfterHead | NoMergeBase | EmptyRange
 DiffRefusal: TypeAlias = NoHistory | CommitNotRecent | DiffFailed | DiffUnavailable | PinNotInDoc
-SpecRefusal: TypeAlias = CommitNotRecent | NotInRepo | NoParent | PinNotInDoc
+SpecRefusal: TypeAlias = CommitNotRecent | NotInRepo | NoParent | PinNotInDoc | DiffFailed
 StatusRefusal: TypeAlias = SpecRefusal | UnsafeCache
 StartRefusal: TypeAlias = SpecRefusal | UnsafeCache | AllSlotsBusy | DocumentBusy
 PdfRefusal: TypeAlias = SpecRefusal | UnsafeCache | RevisionNotReady | RevisionPdfMissing
@@ -297,9 +306,10 @@ class RevisionContext:
 
 
 class RevisionSpec(NamedTuple):
-    """One comparison to build: repo, build root (source, relative to repo) and main (relative to it), the first parent
-    base and the commit head, and key - the cache identity (revision_spec). For a pin that owns part of the commit,
-    scope names the blocks the new side applies; meta carries the per-request status fields for a pin request."""
+    """One comparison to build: repo, build root (source, relative to repo) and main (relative to it), the old side
+    base (the commit's first parent, or a range's old side) and the commit head, and key - the cache identity
+    (revision_spec). For a pin that owns part of the commit, scope names the blocks the new side applies; meta carries
+    the per-request status fields for a pin request."""
 
     repo: Path
     source: str
@@ -311,6 +321,8 @@ class RevisionSpec(NamedTuple):
     scope: tuple[ScopeItem, ...] = ()  # v0.3: the pin's blocks (scope_key); () = the whole commit
     pin: int | None = None  # the pin that asked, when the request named one
     meta: ScopeMeta | None = None  # additive status fields for a pin request: scope, pin, source, hunks, other
+    merge_base: str | None = None  # a range whose base is on another line: base is this merge base (issue #188)
+    ranged: bool = False  # a range whose old side is not head's first parent: cached apart (RANGED_MARK)
 
 
 # ---------------------------------------------------------------- history and the source diff
@@ -875,14 +887,17 @@ def revision_first_parent(repo: Path, commit: str) -> str | None:
 # ---------------------------------------------------------------- comparison PDFs - independent from the current manuscript build
 
 
-def revision_spec(D: RevisionDoc, commit: str, pin: int | None, ctx: RevisionContext) -> RevisionSpec | SpecRefusal:
+def revision_spec(
+    D: RevisionDoc, commit: str, pin: int | None, ctx: RevisionContext, base: str | None = None
+) -> RevisionSpec | SpecRefusal | RangeRefusal:
     """What to compare. With pin (v0.3) the new side is old + only that pin's blocks - unless the pin owns the whole
     commit or none of it, in which case the spec (and its cache entry) is the whole-commit one. The cache identity of a
-    scoped comparison is (commit, block set) - two pins with the same blocks share one PDF. Refused for a commit not in
-    the document's history window (as before 0.3; a malformed one was refused by the request parser), a build root outside
-    the repository, a first commit, and a pin D does not have. A document not built from LaTeX source has no comparison
-    PDF - a figure document's changes are its pages overlaid in the viewer - and is refused as a document without
-    history is (CommitNotRecent), before any git call."""
+    scoped comparison is (commit, block set) - two pins with the same blocks share one PDF. With base (issue #188, never
+    with pin) the old side is the range's (range_spec). Refused for a commit not in the document's history window (as
+    before 0.3; a malformed one was refused by the request parser), a build root outside the repository, a first
+    commit, and a pin D does not have. A document not built from LaTeX source has no comparison PDF - a figure
+    document's changes are its pages overlaid in the viewer - and is refused as a document without history is
+    (CommitNotRecent), before any git call."""
     if not D.builds_from_source:
         return CommitNotRecent()
     window = revision_window(D)
@@ -894,14 +909,16 @@ def revision_spec(D: RevisionDoc, commit: str, pin: int | None, ctx: RevisionCon
         main = D.main.resolve().relative_to(D.src.resolve())
     except ValueError:
         return NotInRepo()
+    if base is not None:
+        return range_spec(repo, source, main, paths, window[2], commit, base)
     rc, out, _ = git(["rev-list", "--parents", "-n", "1", commit], repo)
     parents = out.strip().split()
     if rc != 0 or len(parents) < 2 or not REVISION_ID_RE.fullmatch(parents[1]):
         return NoParent()
     base = parents[1]
-    identity: list[Any] = [REVISION_CACHE_VERSION, str(repo), source, main.as_posix(), base, commit, "pdflatex"]
     blocks: tuple[ScopeItem, ...] = ()
     meta = None
+    extra: list[Any] = []
     if pin is not None:
         sc = revision_pin_scope(D, repo, paths, base, commit, pin, revisions, ctx)
         if isinstance(sc, PinNotInDoc):
@@ -909,9 +926,38 @@ def revision_spec(D: RevisionDoc, commit: str, pin: int | None, ctx: RevisionCon
         meta = scope_meta(sc)
         if sc.mode == "pin":
             blocks = sc.blocks  # keyed by the block set, not the pin: pins on the same fix share it
-            identity += ["blocks", [list(b) for b in blocks]]
-    key = hashlib.sha256(json.dumps(identity).encode()).hexdigest()
+            extra = ["blocks", [list(b) for b in blocks]]
+    key = comparison_key(repo, source, main, base, commit, extra)
     return RevisionSpec(repo, source, main, base, commit, key, paths, blocks, pin, meta)
+
+
+def comparison_key(repo: Path, source: str, main: Path, base: str, head: str, extra: Sequence[Any] = ()) -> str:
+    """The cache identity of a comparison: the SHA-256 of [REVISION_CACHE_VERSION, repo, source, main, base, head,
+    engine] and, for a pin's subset, its block set (extra). A range keys the same way with its old side as base, so a
+    range starting at head's first parent is the single commit's comparison. Pure."""
+    identity: list[Any] = [REVISION_CACHE_VERSION, str(repo), source, main.as_posix(), base, head, "pdflatex", *extra]
+    return hashlib.sha256(json.dumps(identity).encode()).hexdigest()
+
+
+def range_spec(
+    repo: Path, source: str, main: Path, paths: tuple[str, ...], rows: Sequence[Json], commit: str, base: str
+) -> RevisionSpec | CommitNotRecent | DiffFailed | RangeRefusal:
+    """The comparison of the range base..commit (issue #188): base must be in the history window rows or the first
+    parent of one of them (window_base), and is resolved like the source diff's (resolve_range: the merge base for a
+    base on another line). An empty range is EmptyRange - nothing to build. A range whose old side is commit's first
+    parent is the single commit's comparison (same key, not ranged); any other is ranged, cached apart."""
+    if not window_base(rows, base):
+        return CommitNotRecent()
+    ends = resolve_range(repo, base, commit)
+    if not isinstance(ends, RangeEnds):
+        return ends
+    if ends.old == commit:
+        return EmptyRange()
+    first: list[str] = next((row["parents"][:1] for row in rows if row["id"] == commit), [])
+    key = comparison_key(repo, source, main, ends.old, commit)
+    return RevisionSpec(
+        repo, source, main, ends.old, commit, key, paths, merge_base=ends.merge_base, ranged=first != [ends.old]
+    )
 
 
 def revision_exec(
