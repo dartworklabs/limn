@@ -40,6 +40,8 @@ from helpers_figure import b2_map, write_build
 
 PKG = Path(documents.__file__).parents[1]
 SERVER_GLOBALS = {"C", "cur_doc", "using_doc", "DOCS", "LEGACY_DOC", "BUILD_STATE", "BUILD_LOCK"}
+# The build supplier the reads are given here: the reads are called without a run, so nothing assembles one.
+BUILDS = build_queries.document_build_queries()
 PNG = (
     b"\x89PNG\r\n\x1a\n"
     + b"\x00\x00\x00\rIHDR"
@@ -224,7 +226,7 @@ class OutlineLabels(Fixture):
         self.ms.build.mkdir(parents=True)
         (self.ms.build / "main.aux").write_text(AUX.replace("Intro", "Stale"), encoding="utf-8")
         self.assertEqual(
-            meta.outline_labels(self.ms),
+            meta.outline_labels(self.ms, BUILDS),
             {
                 "build": d.name,
                 "labels": [{"number": "1", "title": "Intro", "page": "1", "level": "section", "anchor": "section.1"}],
@@ -233,14 +235,14 @@ class OutlineLabels(Fixture):
 
     def test_no_labels_without_an_aux_or_before_any_build(self):
         """A build without .aux, and a document never built (the legacy pages folder), give no labels."""
-        self.assertEqual(meta.outline_labels(self.ms), {"build": "pages", "labels": []})
+        self.assertEqual(meta.outline_labels(self.ms, BUILDS), {"build": "pages", "labels": []})
         d = self.pages(self.ms)
-        self.assertEqual(meta.outline_labels(self.ms), {"build": d.name, "labels": []})
+        self.assertEqual(meta.outline_labels(self.ms, BUILDS), {"build": d.name, "labels": []})
 
     def test_no_labels_for_a_view_only_document(self):
         """A PDF has no .aux; even a file of that name is not read."""
         d = self.pages(self.rv, aux=AUX)
-        self.assertEqual(meta.outline_labels(self.rv), {"build": d.name, "labels": []})
+        self.assertEqual(meta.outline_labels(self.rv, BUILDS), {"build": d.name, "labels": []})
 
     def test_symlinked_or_oversized_aux_is_not_read(self):
         """A symlink could point anywhere; a file over AUX_MAX_BYTES is not worth parsing on a poll."""
@@ -248,12 +250,12 @@ class OutlineLabels(Fixture):
         target = Path(self.tmp.name) / "elsewhere.aux"
         target.write_text(AUX, encoding="utf-8")
         (d / "main.aux").symlink_to(target)
-        self.assertEqual(meta.outline_labels(self.ms)["labels"], [])
+        self.assertEqual(meta.outline_labels(self.ms, BUILDS)["labels"], [])
         (d / "main.aux").unlink()
         with open(d / "main.aux", "w", encoding="utf-8") as fh:
             fh.write(AUX)
             fh.truncate(build_queries.AUX_MAX_BYTES + 1)
-        self.assertEqual(meta.outline_labels(self.ms)["labels"], [])
+        self.assertEqual(meta.outline_labels(self.ms, BUILDS)["labels"], [])
 
 
 class Meta(Fixture):
@@ -265,7 +267,7 @@ class Meta(Fixture):
         (self.state / "head.txt").write_text("abc1234\n", encoding="utf-8")
         mtime = os.stat(self.src / "main.tex").st_mtime
         out = meta.meta(
-            self.legacy, {"login": "local"}, self.settings, [self.legacy], {"state": "disabled"}, mtime + 10
+            self.legacy, {"login": "local"}, self.settings, [self.legacy], {"state": "disabled"}, mtime + 10, BUILDS
         )
         self.assertEqual(list(out), LIGHT_KEYS)
         self.assertEqual(out["pages"], [{"name": "page-1.png", "pt_w": 144.0, "pt_h": 72.0}])
@@ -278,7 +280,7 @@ class Meta(Fixture):
         """With more than one document, docs lists each one's brief and src_sig their manuscript mtimes."""
         self.pages(self.rr)
         docs = [self.ms, self.rr, self.rv]
-        out = meta.meta(self.rr, {}, self.settings, docs, {}, 0.0)
+        out = meta.meta(self.rr, {}, self.settings, docs, {}, 0.0, BUILDS)
         self.assertEqual(list(out), LIGHT_KEYS + ["docs", "src_sig"])
         self.assertEqual([d["key"] for d in out["docs"]], ["ms", "rr", "rv"])
         self.assertEqual(out["docs"][1]["n_pages"], 1)
@@ -295,11 +297,11 @@ class Meta(Fixture):
         for name in ("main.tex", "review.pdf"):
             os.utime(self.src / name, (later, later))
         docs = [self.ms, self.rv]
-        briefs = meta.docs_payload(docs, {}, 0, self.state)["docs"]
+        briefs = meta.docs_payload(docs, {}, 0, self.state, BUILDS)["docs"]
         self.assertEqual(
             [(b["key"], b["stale_build"], b["view_only"]) for b in briefs], [("ms", True, False), ("rv", False, True)]
         )
-        light = [meta.meta(D, {}, self.settings, docs, {}, later) for D in docs]
+        light = [meta.meta(D, {}, self.settings, docs, {}, later, BUILDS) for D in docs]
         self.assertEqual(
             [(m["doc"], m["stale_build"], m["view_only"]) for m in light], [("ms", True, False), ("rv", False, True)]
         )
@@ -329,7 +331,7 @@ class DocsPayload(Fixture):
     def test_counts_open_pins_per_document_and_orphans(self):
         """Done pins are not counted; a key no document serves goes to other_open; the first document is default."""
         docs = [self.ms, self.rr, self.rv]
-        out = meta.docs_payload(docs, {"ms": 1, "rr": 2, "gone": 1}, 1, self.state)
+        out = meta.docs_payload(docs, {"ms": 1, "rr": 2, "gone": 1}, 1, self.state, BUILDS)
         self.assertEqual([(d["key"], d["n_open"]) for d in out["docs"]], [("ms", 1), ("rr", 2), ("rv", 0)])
         self.assertEqual((out["default"], out["multi"], out["other_open"]), ("ms", True, 1))
         self.assertEqual(out["docs"][1]["path"], "rr/rr.tex")
@@ -516,18 +518,18 @@ class FigureDocumentReads(Fixture):
         self.pages(self.fig)
         later = time.time() + 60
         os.utime(self.map, (later, later))
-        brief = meta.doc_brief(self.fig, self.state)
+        brief = meta.doc_brief(self.fig, self.state, BUILDS)
         self.assertEqual(
             (brief["kind"], brief["view_only"], brief["stale_build"], brief["main"], brief["path"]),
             ("figure", False, False, "figures.limnmap.json", "figs/out/figures.limnmap.json"),
         )
-        out = meta.meta(self.fig, {}, self.settings, [self.ms, self.fig], {}, time.time())
+        out = meta.meta(self.fig, {}, self.settings, [self.ms, self.fig], {}, time.time(), BUILDS)
         self.assertEqual((out["kind"], out["view_only"], out["stale_build"]), ("figure", False, False))
 
     def test_it_has_no_outline_labels(self):
         """Nothing is compiled, so no .aux is read even if a file of that name sits in its page directory."""
         d = self.pages(self.fig, aux=AUX)
-        self.assertEqual(meta.outline_labels(self.fig), {"build": d.name, "labels": []})
+        self.assertEqual(meta.outline_labels(self.fig, BUILDS), {"build": d.name, "labels": []})
 
     def test_a_file_under_a_figure_folder_routes_to_the_figure_document_inside(self):
         """The figure folder lies inside the body's build root and deeper: a file-only request (agent curl) goes to the

@@ -4,9 +4,8 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 
-from limn.builds import DocumentBuildQueries, document_build_queries
 from limn.documents import reads
-from limn.pins import PinCountQueries
+from limn.documents.needs import BuildFacts, PinCounts
 from limn.runtime.documents import Doc
 
 Json = dict[str, Any]
@@ -14,15 +13,16 @@ Json = dict[str, Any]
 
 @dataclass(frozen=True)
 class DocumentViews:
-    """The run's current document summaries and published outline."""
+    """The run's current document summaries and published outline. pins and builds are supplied by the composition
+    root (limn.documents.needs); there is no default for either."""
 
     settings: Callable[[], reads.MetaSettings]
     docs: Sequence[Doc]
     sync_status: Callable[[], Mapping[str, Any]]
-    pins: PinCountQueries
+    pins: PinCounts
     events_since: Callable[[Json, int | None], Json]
     now: Callable[[], float]
-    builds: DocumentBuildQueries = document_build_queries()
+    builds: BuildFacts
 
     def meta(self, doc: Doc, actor: Json, light: bool = False) -> Json:
         """The document's current viewer state; a full read also resynchronizes pin counts."""

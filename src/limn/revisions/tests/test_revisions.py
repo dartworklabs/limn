@@ -22,7 +22,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from limn.builds import engine as build_engine
+from limn.builds import document_build_queries, engine as build_engine
 from limn.documents import reads as limn_meta
 from limn.pins.lifecycle import input as lifecycle_input
 from limn.pins.lifecycle.rules import CloseRequest
@@ -321,7 +321,7 @@ class ManuscriptRevisions(Base):
         )
         ps.APP.C.build.mkdir()
         (ps.APP.C.build / "main.aux").write_text("wrong next build")
-        data = limn_meta.outline_labels(ps.APP.docs[0])
+        data = limn_meta.outline_labels(ps.APP.docs[0], document_build_queries())
         self.assertEqual(data["build"], current.name)
         self.assertEqual(
             data["labels"],
@@ -342,7 +342,7 @@ class ManuscriptRevisions(Base):
         (ps.APP.C.build / "main.aux").write_text(
             r"\@writefile{toc}{\contentsline {section}{\numberline {9}Stale}{1}{section.9}}"
         )
-        self.assertEqual(limn_meta.outline_labels(ps.APP.docs[0])["labels"], [])
+        self.assertEqual(limn_meta.outline_labels(ps.APP.docs[0], document_build_queries())["labels"], [])
 
     def _wait_revision(self):
         deadline = time.monotonic() + 5
@@ -745,7 +745,9 @@ class ManuscriptRevisions(Base):
         self.assertIsInstance(pages, Path, pages)
         (ps.APP.C.state / "pages.cur").write_text(pages.name)
         aux.write_text("changed by a failed next build")
-        self.assertEqual(limn_meta.outline_labels(ps.APP.docs[0])["labels"][0]["title"], "Before")
+        self.assertEqual(
+            limn_meta.outline_labels(ps.APP.docs[0], document_build_queries())["labels"][0]["title"], "Before"
+        )
 
     @needs_tex("bwrap", "latexdiff", "latexmk", "pdftotext")
     def test_actual_sandbox_build_tracks_changed_input_and_preserves_sources(self):
