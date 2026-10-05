@@ -27,6 +27,7 @@ Icons are drawn with the original `<svg>` attributes: `viewBox="0 0 24 24"`, `fi
 | `message-square` | reply count in the card head |
 | `clock` | 'in progress' (claimed) badge |
 | `copy` | copy-location button |
+| `download` | [PDF 내려받기] in [More] |
 | `ellipsis` | the [More] button (every layout) |
 | `eye` | 'awaiting review' badge (whose turn it is to confirm) |
 | `image` | the status line's 'showing PNG' state (compact bands) |
