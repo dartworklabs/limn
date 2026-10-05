@@ -54,6 +54,11 @@ def parse_base(v: object) -> str | None | InputRejected:
 def _with_base(commit: str, pin: int | None, base: object) -> RevisionQuery | InputRejected:
     """The query of commit and pin with base parsed (parse_base); a pin and a base together are pin_with_base."""
     parsed = parse_base(base)
+    return _combined(commit, pin, parsed)
+
+
+def _combined(commit: str, pin: int | None, parsed: str | None | InputRejected) -> RevisionQuery | InputRejected:
+    """The query of commit, pin and a parsed base (or its refusal); a pin and a base together are pin_with_base."""
     if isinstance(parsed, InputRejected):
         return parsed
     if parsed is not None and pin is not None:
@@ -75,7 +80,8 @@ def parse_revision_query(q: Query) -> RevisionQuery | InputRejected:
 
 def parse_revision_build(d: Json) -> RevisionQuery | InputRejected:
     """POST /api/revision-build's body: only commit, base, doc and pin; pin, when present, a JSON integer in range;
-    then the commit (parse_commit), then base (parse_base; not together with pin)."""
+    then the commit (parse_commit), then base when the body names it - a full SHA-1 string (null and "" are refused,
+    unlike the query's empty base=), never together with pin."""
     if set(d) - REVISION_BUILD_FIELDS:
         return InputRejected("허용되지 않는 비교 PDF 요청 필드입니다.", "unknown_fields")
     if "pin" in d and not is_int(d["pin"]):
@@ -86,7 +92,12 @@ def parse_revision_build(d: Json) -> RevisionQuery | InputRejected:
     commit = parse_commit(d.get("commit"))
     if isinstance(commit, InputRejected):
         return commit
-    return _with_base(commit, pin, d.get("base"))
+    if "base" not in d:
+        return RevisionQuery(commit, pin)
+    base = d["base"]  # in a body, a named base is a range: null and "" are refused, never read as absent
+    if not isinstance(base, str) or not REVISION_ID_RE.fullmatch(base):
+        return InputRejected("올바른 기준 커밋 ID가 아닙니다.", "bad_commit")
+    return _combined(commit, pin, base)
 
 
 def parse_history_query(q: Query) -> HistoryPage | None | InputRejected:

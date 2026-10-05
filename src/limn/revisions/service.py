@@ -37,7 +37,7 @@ class RevisionRequests:
         the other - present even when the folder has no Git history. Any other document's unpaged answer keeps its two
         keys."""
         context = self.context()
-        out = revisions.revision_history(doc, context.history_files(doc), page)
+        out = revisions.revision_history(doc, context.history_files(doc), page, context.windows)
         if isinstance(out, CommitNotRecent):
             return out
         overlay = context.overlay(doc)

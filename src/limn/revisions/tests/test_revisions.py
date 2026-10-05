@@ -392,7 +392,9 @@ class ManuscriptRevisions(Base):
         self.assertEqual(self.main.read_bytes(), original)
         self.assertEqual(marker.read_text(), "pages-20260924000000")
         self.assertEqual(ps.APP.docs[0].bstate, before)
-        with mock.patch.object(revisions, "_log_rows", return_value=[]):  # git lists nothing: no commit may be read
+        with mock.patch.object(
+            revisions.WindowCache, "rows", return_value=[]
+        ):  # the window lists nothing: no commit may be read
             self.assertEqual(split_resp(self.talk(req("GET", "/api/revision-pdf?commit=" + self.latest)))[0], 404)
             self.assertEqual(ps.APP.revision_requests.status(ps.APP.docs[0], self.latest), revisions.CommitNotRecent())
 

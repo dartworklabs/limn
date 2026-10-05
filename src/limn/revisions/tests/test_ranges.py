@@ -155,7 +155,8 @@ class RangeSnapshot(RangeRepo):
     def test_answers_without_base_are_the_recorded_ones(self):
         """The source diff of every listed commit, the pin's scoped diff, the build status, POST and PDF of every
         commit with a parent, and the refusals - status and body - equal tests/data/revision_snapshot.json; the
-        history's rows keep their id, date and subject. LIMN_RECORD_SNAPSHOT=1 re-records."""
+        history's rows keep their id, date and subject (as a set). LIMN_RECORD_SNAPSHOT=1 re-records - from the code
+        before `base` (03c5b0e), so the file stays the old answers."""
         seen = []
 
         def step(method: str, path: str, body: object | None = None) -> None:
@@ -164,9 +165,13 @@ class RangeSnapshot(RangeRepo):
             seen.append({"step": "%s %s" % (method, self.masked(path)), "status": code, "body": self.masked(out)})
 
         code, history = self.call("GET", "/api/revisions")
-        rows = [{k: r[k] for k in ("id", "date", "subject")} for r in history["revisions"]]
+        # The unpaged list keeps its rows (id, date, subject) but is in ancestry order since 0.4.18 (api.md §두 커밋
+        # 사이): compared as a set here; RangeHistory and OneWindow pin its order.
+        rows = sorted(
+            ({k: r[k] for k in ("id", "date", "subject")} for r in history["revisions"]), key=lambda r: r["id"]
+        )
         seen.append({"step": "GET /api/revisions", "status": code, "body": self.masked(dict(history, revisions=rows))})
-        ids = [r["id"] for r in history["revisions"]]
+        ids = [self.sha[n] for n in ("after", "merge", "gamma", "beta", "rename", "alpha", "root")]
         for commit in ids:
             step("GET", "/api/revision-diff?commit=" + commit)
         step("GET", "/api/revision-diff?commit=%s&pin=%d" % (self.sha["alpha"], self.pin_alpha))
@@ -237,7 +242,7 @@ class RangeHistory(RangeRepo):
     def test_pages_follow_before_and_limit_and_say_whether_more_remain(self):
         """limit=n gives the n newest rows and more; before=<id> continues after that row; the last page has
         more: false. Pages list by ancestry: the merged branch's commit (beta) right below its merge, before trunk's
-        older gamma - where the unpaged list keeps date order."""
+        gamma, and the unpaged list is the same order (one window, OneWindow)."""
         code, first = self.call("GET", "/api/revisions?limit=3")
         self.assertEqual(code, 200)
         ids = [r["id"] for r in first["revisions"]]
@@ -246,7 +251,7 @@ class RangeHistory(RangeRepo):
         code, second = self.call("GET", "/api/revisions?before=%s&limit=3" % ids[-1])
         self.assertEqual([r["id"] for r in second["revisions"]], [self.sha[n] for n in ("gamma", "rename", "alpha")])
         unpaged = [r["id"] for r in self.call("GET", "/api/revisions")[1]["revisions"]]
-        self.assertEqual(unpaged[:3], [self.sha["after"], self.sha["merge"], self.sha["gamma"]])
+        self.assertEqual(unpaged[:3], [self.sha["after"], self.sha["merge"], self.sha["beta"]])
         self.assertTrue(second["more"])
         code, last = self.call("GET", "/api/revisions?before=%s&limit=3" % self.sha["alpha"])
         self.assertEqual(([r["id"] for r in last["revisions"]], last["more"]), ([self.sha["root"]], False))
@@ -328,7 +333,7 @@ class RangeSourceDiff(RangeRepo):
         """base == commit answers an empty diff with commits 0 and no files."""
         code, body = self.diff("gamma", "gamma")
         self.assertEqual(code, 200, body)
-        self.assertEqual((body["diff"], body["commits"], body["files"]), ("", 0, []))
+        self.assertEqual((body["diff"], body["commits"], body["commit_ids"], body["files"]), ("", 0, [], []))
 
     def test_a_base_outside_the_history_is_not_read(self):
         """A commit neither in the document's history nor a first parent of one is 404 commit_not_recent - however
@@ -468,3 +473,149 @@ class RangePdf(RangeRepo):
         self.assertTrue(all(d.exists() for d in whole + scoped))
         self.assertEqual([d.exists() for d in ranged], [False] * 3 + [True] * revisions.REVISION_RANGED_KEEP)
         self.assertEqual(revisions.REVISION_RANGED_KEEP, 4)
+
+
+class OneWindow(AccessBase):
+    """One order and one set for every path that names commits (review of #188): the unpaged list, the paged list (the
+    viewer's), the commits a pin's close_ref is resolved among, and the commits a request may name. The repository has
+    a merged side line with dates older than everything on trunk, so date order and ancestry order disagree."""
+
+    def setUp(self):
+        """root; side line S1..S3 (dated in January) off root; trunk B1..B10 (September); the --no-ff merge of the
+        side line; B11 and B12. A pin on the line S2 changes, closed with S2's hash and that line."""
+        super().setUp()
+        if not shutil.which("git"):
+            self.skipTest("git not available")
+        self.repo = self.src.parent
+        self.sha: dict[str, str] = {}
+        self.git("2026-09-01T08:00:00+09:00", "init", "--quiet", "--initial-branch=main")
+        self.main.write_text("".join("Line %d.\n" % n for n in range(1, 41)), encoding="utf-8")
+        self.commit("root", "2026-09-01T08:00:00+09:00")
+        self.git("2026-09-01T08:00:00+09:00", "checkout", "--quiet", "-b", "side")
+        for n in (1, 2, 3):
+            self.edit(30 + n, "Side %d." % n)
+            self.commit("S%d" % n, "2026-01-0%dT08:00:00+09:00" % n)
+        self.git("2026-09-01T08:00:00+09:00", "checkout", "--quiet", "main")
+        for n in range(1, 11):
+            self.edit(n, "Trunk %d." % n)
+            self.commit("B%d" % n, "2026-09-%02dT08:00:00+09:00" % (n + 1))
+        self.git("2026-09-20T08:00:00+09:00", "merge", "--quiet", "--no-ff", "-m", "merge side", "side")
+        self.sha["M"] = self.git("2026-09-20T08:00:00+09:00", "rev-parse", "HEAD").strip()
+        for n in (11, 12):
+            self.edit(n, "Trunk %d." % n)
+            self.commit("B%d" % n, "2026-09-%02dT08:00:00+09:00" % (n + 10))
+        self.pin = self.add(lo=32, hi=32, note="side two")
+        self.call(
+            "POST",
+            "/api/pins/%d/close" % self.pin,
+            {"ref": self.sha["S2"][:8], "changes": [{"file": "main.tex", "lo": 32, "hi": 32}]},
+        )
+
+    def git(self, when: str, *args: str) -> str:
+        """Run git at the fixed time when (author and committer); its stdout."""
+        env = dict(
+            os.environ,
+            GIT_AUTHOR_DATE=when,
+            GIT_COMMITTER_DATE=when,
+            GIT_AUTHOR_NAME="Alice Kim",
+            GIT_COMMITTER_NAME="Alice Kim",
+            GIT_AUTHOR_EMAIL="a@example.com",
+            GIT_COMMITTER_EMAIL="a@example.com",
+        )
+        return subprocess.run(["git", *args], cwd=self.repo, check=True, capture_output=True, text=True, env=env).stdout
+
+    def edit(self, line: int, text: str) -> None:
+        """Replace line `line` of main.tex with text."""
+        lines = self.main.read_text(encoding="utf-8").splitlines(keepends=True)
+        lines[line - 1] = text + "\n"
+        self.main.write_text("".join(lines), encoding="utf-8")
+
+    def commit(self, name: str, when: str) -> None:
+        """Commit ms/ at when and record the SHA under name."""
+        self.git(when, "add", "ms")
+        self.git(when, "commit", "--quiet", "-m", name)
+        self.sha[name] = self.git(when, "rev-parse", "HEAD").strip()
+
+    def names(self, ids) -> list[str]:
+        """The fixture names of ids, in order."""
+        back = {v: k for k, v in self.sha.items()}
+        return [back.get(i, i[:8]) for i in ids]
+
+    def test_the_lists_share_one_ancestry_order(self):
+        """The unpaged answer is the first 12 rows of the paged one, in the same (ancestry) order: the merged line sits
+        under its merge although its dates are older than all of trunk."""
+        _, unpaged = self.call("GET", "/api/revisions")
+        _, paged = self.call("GET", "/api/revisions?limit=50")
+        ids = [r["id"] for r in paged["revisions"]]
+        self.assertEqual([r["id"] for r in unpaged["revisions"]], ids[:12])
+        self.assertEqual(self.names(ids[:6]), ["B12", "B11", "M", "S3", "S2", "S1"])
+
+    def test_a_close_ref_on_the_side_line_is_resolved_among_the_listed_commits(self):
+        """S2 is among the first 12 listed commits, so the pin's ref resolves to it and its recorded line is used."""
+        code, body = self.call("GET", "/api/revision-diff?commit=%s&pin=%d" % (self.sha["S2"], self.pin))
+        self.assertEqual(code, 200, body)
+        self.assertEqual(body["scope"]["source"], "changes", body["scope"])
+
+    def test_every_listed_commit_may_be_named(self):
+        """With a window of 10, every commit the pages list is accepted and nothing else: the validation window and the
+        list are one set."""
+        with mock.patch.object(revisions, "REVISION_HISTORY_MAX", 10):
+            listed, before = [], ""
+            while True:
+                _, page = self.call("GET", "/api/revisions?limit=4" + before)
+                listed += [r["id"] for r in page["revisions"]]
+                if not page["more"]:
+                    break
+                before = "&before=" + listed[-1]
+            self.assertEqual(len(listed), 10)
+            for commit in listed:
+                code, body = self.call("GET", "/api/revision-diff?commit=" + commit)
+                self.assertEqual(code, 200, (self.names([commit]), body))
+            unlisted = [c for c in self.sha.values() if c not in listed]
+            code, body = self.call("GET", "/api/revision-diff?commit=" + unlisted[0])
+            self.assertEqual((code, body["reason"]), (404, "commit_not_recent"))
+
+    def test_the_window_is_read_once_per_head(self):
+        """Repeated requests at the same HEAD (a comparison's status poll) read the history once; a new commit reads it
+        again."""
+        calls = []
+        real = revisions._log_rows
+
+        def counted(*args, **kwargs):
+            """_log_rows, recording each call."""
+            calls.append(args)
+            return real(*args, **kwargs)
+
+        with mock.patch.object(revisions, "_log_rows", side_effect=counted):
+            for _ in range(3):
+                self.assertEqual(self.call("GET", "/api/revision-diff?commit=" + self.sha["B12"])[0], 200)
+            self.assertEqual(len(calls), 1)
+            self.edit(40, "Last.")
+            self.commit("B13", "2026-09-30T08:00:00+09:00")
+            self.assertEqual(self.call("GET", "/api/revision-diff?commit=" + self.sha["B13"])[0], 200)
+            self.assertEqual(len(calls), 2)
+
+
+class RangeBodyBase(RangeRepo):
+    """POST /api/revision-build's body base is a full SHA-1 string when present (review of #188, api.md)."""
+
+    def test_a_null_or_empty_body_base_is_refused(self):
+        """A body base of null or "" is 400 bad_commit - not read as absent - so a body that names base always means
+        a range; only the query's empty base= is absent, like pin=."""
+        for base in (None, "", 5):
+            code, body = self.call("POST", "/api/revision-build", {"commit": self.sha["after"], "base": base})
+            self.assertEqual((code, body["reason"]), (400, "bad_commit"), base)
+
+
+class RangeCommitIds(RangeRepo):
+    """A range answer names the document's commits it covers, so the viewer paints what is compared (review of #188)."""
+
+    def test_commit_ids_are_the_ranges_commits_in_ancestry_order(self):
+        """commit_ids is `git rev-list --topo-order <old>..<commit>` over the manuscript - for a side-line base, from
+        the merge base - and commits is its length; an empty range names none."""
+        for base, commit in (("alpha", "after"), ("beta", "gamma"), ("notes", "rename"), ("gamma", "gamma")):
+            code, body = self.call("GET", "/api/revision-diff?commit=%s&base=%s" % (self.sha[commit], self.sha[base]))
+            self.assertEqual(code, 200, body)
+            want = self.git("rev-list", "--topo-order", "%s..%s" % (body["base"], self.sha[commit]), "--", "ms").split()
+            self.assertEqual(body["commit_ids"], want, (base, commit))
+            self.assertEqual(body["commits"], len(want))

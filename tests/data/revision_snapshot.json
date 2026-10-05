@@ -6,24 +6,9 @@
    "available": true,
    "revisions": [
     {
-     "id": "<after>",
+     "id": "<root>",
      "date": "2026-09-21",
-     "subject": "after the merge"
-    },
-    {
-     "id": "<merge>",
-     "date": "2026-09-21",
-     "subject": "merge feature"
-    },
-    {
-     "id": "<gamma>",
-     "date": "2026-09-21",
-     "subject": "gamma on trunk"
-    },
-    {
-     "id": "<beta>",
-     "date": "2026-09-21",
-     "subject": "beta on the branch"
+     "subject": "draft"
     },
     {
      "id": "<rename>",
@@ -31,14 +16,29 @@
      "subject": "rename method to methods"
     },
     {
+     "id": "<gamma>",
+     "date": "2026-09-21",
+     "subject": "gamma on trunk"
+    },
+    {
      "id": "<alpha>",
      "date": "2026-09-21",
      "subject": "alpha and filler"
     },
     {
-     "id": "<root>",
+     "id": "<merge>",
      "date": "2026-09-21",
-     "subject": "draft"
+     "subject": "merge feature"
+    },
+    {
+     "id": "<after>",
+     "date": "2026-09-21",
+     "subject": "after the merge"
+    },
+    {
+     "id": "<beta>",
+     "date": "2026-09-21",
+     "subject": "beta on the branch"
     }
    ]
   }
