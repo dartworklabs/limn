@@ -120,7 +120,7 @@ class RevisionZoom(BrowserBase):
             "wheel", {"ctrlKey": True, "deltaY": -100, "clientX": 200, "clientY": 350}
         )
         page.wait_for_function("document.querySelector('#revision-zoom-value').textContent==='144%'")
-        page.select_option("#revision-select", self.commits[1])
+        page.locator("#revision-commits .rc-row[data-commit='%s']" % self.commits[1]).click()
         page.wait_for_selector('.revision-page[data-state="ready"] canvas')
         self.assertEqual(page.locator("#revision-zoom-value").inner_text(), "100%")
         page.click("#revision-zoom-in")
@@ -241,7 +241,9 @@ class RevisionZoom(BrowserBase):
     def test_safari_gesture_and_input_field_routing(self):
         """Safari-style gesture events stay local; fields keep native shortcuts."""
         page = self.comparison()
-        page.locator("#revision-select").focus()
+        page.evaluate(
+            "(f=>{f.id='t-field';document.getElementById('revision-head').appendChild(f);f.focus();})(document.createElement('input'))"
+        )
         page.keyboard.press("Control+Equal")
         self.assertEqual(page.locator("#revision-zoom-value").inner_text(), "100%")
         page.evaluate("""() => {
@@ -277,7 +279,8 @@ class RevisionZoom(BrowserBase):
         """Width and height-only resize keep the same page point visibly centered."""
         page = self.comparison(viewport={"width": 1400, "height": 850})
         page.evaluate("revisionZoomTo(2);document.querySelector('#revision-pdf').scrollTop=5000")
-        page.wait_for_function("RZ.anchor&&RZ.anchor.el.dataset.page==='4'")
+        # the page under the centre depends on the comparison's width (the commit list takes 304px beside it, #188)
+        page.wait_for_function("RZ.anchor&&Number(RZ.anchor.el.dataset.page)>2")
         point = page.evaluate("({page:RZ.anchor.el.dataset.page,fx:RZ.anchor.fx,fy:RZ.anchor.fy})")
         for size in ({"width": 1400, "height": 400}, {"width": 600, "height": 350}):
             page.set_viewport_size(size)

@@ -1,7 +1,16 @@
 // One changes-view visit owns the selected commit, source text and request sequence. overlay is a figure document's two
 // builds from /api/revisions (null for any other document), side the one its overlay shows, history whether it has commits.
+// Issue #188: base is a range's old side ('' for one commit against its first parent); rows the loaded commits (newest
+// first, REVISION_PAGE a page) of rowsDoc, more whether older ones remain; range the quick range and its ends (RevRange);
+// seen this browser's last-seen commit of the document; listOpen whether the phone shows every loaded row; rangeLine the
+// range's summary for the status line.
 const REV={seq:0,files:/** @type {{name:string,text:string}[]} */([]),whole:'',commit:'',sourceCommit:'',format:/** @type {string} */(DIFF_FORMAT.PDF),scope:/** @type {any} */(null),other:'',target:/** @type {RevTarget|null} */(null),pdfCommit:'',back:/** @type {string|null} */(null),
-  overlay:/** @type {RevisionOverlay|null} */(null),side:/** @type {string} */(OVERLAY_SIDE.CUR),history:false};
+  overlay:/** @type {RevisionOverlay|null} */(null),side:/** @type {string} */(OVERLAY_SIDE.CUR),history:false,
+  base:'',rows:/** @type {RevisionRow[]} */([]),rowsDoc:'',more:false,range:/** @type {RevRange} */({mode:RANGE_MODE.ONE,start:'',end:'',endSet:false}),
+  seen:/** @type {RevSeen|null} */(null),listOpen:false,rangeLine:''};
+const REVISION_PAGE=30;   // rows of one /api/revisions page (the server's history window is 500, api.md)
+const REVISION_RECENT=12;   // the commits [변경 보기] picks a pin's commit among - the server resolves a close_ref among the same
+const REVISION_PHONE_ROWS=5;   // rows the phone's list shows before [더 보기]
 // v0.3 (docs/handbook/viewer.md §변경 보기): a pin's view of a commit. REV.scope is the source diff's scope object
 // ({mode:'pin'|'commit', source, hunks, other, ...}); REV_PDF holds the comparison PDF's toggle - whole commit or only this pin.
 const REV_SCOPE={whole:false,partial:false,fallback:false};
@@ -47,8 +56,9 @@ function syncRevisionWhole(){const b=$('#revision-whole');
   b.hidden=!(REV.format===DIFF_FORMAT.PDF&&revisionPinFor(REV.commit)&&REV_SCOPE.partial&&!REV_SCOPE.fallback);
   b.setAttribute('aria-pressed',String(REV_SCOPE.whole));}
 // The pin whose hunks a commit's view is scoped to: only the commit picked for the pin ([변경 보기]); any other commit
-// chosen in the list is shown whole (review M1 - another commit's lines are not this pin's).
-function revisionPinFor(id){const tg=REV.target; return tg&&!tg.region&&tg.commit&&id===tg.commit?tg:null;}
+// chosen in the list is shown whole (review M1 - another commit's lines are not this pin's), and so is a range (#188:
+// pin scoping and ranges do not combine yet; the server refuses pin with base).
+function revisionPinFor(id){const tg=REV.target; return tg&&!tg.region&&tg.commit&&id===tg.commit&&!REV.base?tg:null;}
 function setRevisionWhole(on){REV_SCOPE.whole=!!on;++REV.seq;REV.pdfCommit='';
   clearRevisionPdf();$('#revision-warning').hidden=true;setRevisionFormat(DIFF_FORMAT.PDF);}
 function revisionCurrent(seq,k,id){return seq===REV.seq&&k===DOC&&id===REV.commit&&document.body.classList.contains('revision-open');}
@@ -75,10 +85,11 @@ function drawRevisionFormat(){
   if(REV.overlay)$('#revision-status').textContent=REV.format===DIFF_FORMAT.OVERLAY?overlayStatus(REV.overlay):'';}
 /** Switch formats while retaining comparison scale for the selected commit. */
 function setRevisionFormat(format){REV.format=revisionFormatFor(format,!!REV.overlay); drawRevisionFormat();
-  if(REV.format===DIFF_FORMAT.SOURCE&&REV.commit&&REV.sourceCommit!==REV.commit)
+  if(REV.format===DIFF_FORMAT.SOURCE&&REV.commit&&REV.sourceCommit!==revKey())
     loadRevisionSource(REV.commit,REV.seq,DOC);
-  // The comparison PDF is only built when that format is actually viewed - [변경 보기] goes straight to the source diff, so it never wastes a latexdiff build.
-  if(REV.format===DIFF_FORMAT.PDF&&REV.commit&&REV.pdfCommit!==REV.commit){REV.pdfCommit=REV.commit;
+  if(REV.format===DIFF_FORMAT.SOURCE&&REV.base&&REV.sourceCommit===revKey())$('#revision-status').textContent=REV.rangeLine;
+  // The comparison PDF is only built when that format is actually viewed - [변경 보기] and a range go straight to the source diff, so neither wastes a latexdiff build.
+  if(REV.format===DIFF_FORMAT.PDF&&REV.commit&&REV.pdfCommit!==revKey()){REV.pdfCommit=revKey();
     $('#revision-status').textContent='비교 PDF 상태를 확인하는 중입니다.'; loadRevisionPdf(REV.commit,REV.seq,DOC);}
   syncRevisionWhole();drawRevisionZoom();
   if(revisionPdfActive())resizeRevisionPdf();
@@ -88,7 +99,8 @@ function setRevisionFormat(format){REV.format=revisionFormatFor(format,!!REV.ove
 // Shows the manuscript or the changes view: the nav bar's tabs, the navigation sheet's switch and the phone's position button
 // ([변경사항 ▾] in the changes view) follow; leaving the changes view forgets the pin it was opened for and redraws the pages.
 function setViewMode(mode){
-  const revisions=mode===VIEW_MODE.REVISIONS; document.body.classList.toggle('revision-open',revisions);
+  const revisions=mode===VIEW_MODE.REVISIONS; if(!revisions&&document.body.classList.contains('revision-open'))leaveRevisions();
+  document.body.classList.toggle('revision-open',revisions);
   $('#view-manuscript').setAttribute('aria-pressed',String(!revisions));
   $('#view-revisions').setAttribute('aria-pressed',String(revisions));
   if(!revisions)REV.target=null;
@@ -100,36 +112,150 @@ function setViewMode(mode){
 // A figure document's answer carries its two builds (overlay): its [겹쳐 보기] takes the place of [변경 PDF] and opens first,
 // with or without history; its [소스 diff] shows only with history.
 async function loadRevisions(){
-  const seq=++REV.seq,k=DOC,list=$('#revision-list'),out=$('#revision-diff'),tg=REV.target;
-  clearRevisionPdf();list.textContent='최근 변경사항을 읽는 중입니다.';out.textContent='';$('#revision-pin').hidden=!tg;
+  const seq=++REV.seq,k=DOC,list=$('#revision-list'),out=$('#revision-diff'),tg=REV.target,again=!tg&&REV.rowsDoc===k&&REV.rows.length>0;
+  clearRevisionPdf();list.hidden=false;list.textContent='최근 변경사항을 읽는 중입니다.';out.textContent='';$('#revision-pin').hidden=!tg;
   if(tg)revTargetNote('변경사항을 읽는 중입니다.'); else revTargetActs();
-  let data; try{data=(await api(dq('/api/revisions',k),{what:'변경사항 읽기',silent:true})).data;}
+  let data; try{data=(await api(dq('/api/revisions?limit='+REVISION_PAGE,k),{what:'변경사항 읽기',silent:true})).data;}
   catch(e){if(seq===REV.seq)list.textContent='변경사항을 읽지 못했습니다.';return;}
   if(seq!==REV.seq||k!==DOC)return;
-  REV.history=!!data.available&&data.revisions.length>0; setRevisionOverlay(data.overlay||null);
+  const rows=/** @type {RevisionRow[]} */(data.available?data.revisions:[]),kept=REV.range;
+  REV.rows=rows; REV.rowsDoc=k||''; REV.more=!!data.more; REV.seen=revSeen(k||''); if(!again)REV.listOpen=false;
+  REV.history=!!data.available&&rows.length>0; setRevisionOverlay(data.overlay||null);
   const fig=!!REV.overlay; REV.format=revisionFormatFor(REV.format,fig); drawRevisionFormat();   // a LaTeX document after a figure leaves the overlay
   $('#revision-controls').hidden=!REV.history&&!fig; $('#revision-note').hidden=!REV.history;
   $('#revision-pdf-tab').hidden=fig; $('#revision-overlay-tab').hidden=!fig; $('#revision-source-tab').hidden=!REV.history;
-  if(!data.available){list.textContent='이 문서의 Git 변경사항을 볼 수 없습니다.';
+  if(!data.available){list.textContent='이 문서의 Git 변경사항을 볼 수 없습니다.'; drawRange();
     if(fig){setRevisionFormat(DIFF_FORMAT.OVERLAY);return;}
     if(tg)revTargetNote(tg.region?'보기 전용 PDF 문서의 핀이라 Git 변경사항이 없습니다 — 고친 곳은 LaTeX 문서(본문 등)의 변경사항에서 찾으세요.':
       '이 문서는 Git 이력을 읽을 수 없어(Git 저장소가 아니거나 경로가 밖) 핀 자리를 변경과 맞출 수 없습니다.'); return;}
-  if(!data.revisions.length){list.textContent='이 문서의 최근 변경사항이 없습니다.';
+  if(!rows.length){list.textContent='이 문서의 최근 변경사항이 없습니다.'; drawRange();
     if(fig)setRevisionFormat(DIFF_FORMAT.OVERLAY); else if(tg)revTargetNote('이 문서의 최근 12개 커밋에 변경이 없습니다.'); return;}
-  const options=data.revisions.map(r=>html`<option value="${r.id}">${r.subject} · ${r.date} · ${r.id.slice(0,8)}</option>`);
-  setHtml(list,html`<label class="sr-only" for="revision-select">비교할 커밋</label><select id="revision-select" aria-label="비교할 커밋">${options}</select>`);
-  if(tg){const pick=await pickRevisionFor(tg,data.revisions,seq,k); if(seq!==REV.seq||k!==DOC||REV.target!==tg)return;
-    tg.commit=pick.id; tg.via=pick.via; tg.hit=pick.hit;
+  list.hidden=true; list.textContent='';
+  if(tg){const pick=await pickRevisionFor(tg,rows.slice(0,REVISION_RECENT),seq,k); if(seq!==REV.seq||k!==DOC||REV.target!==tg)return;
+    tg.commit=pick.id; tg.via=pick.via; tg.hit=pick.hit; REV.range={mode:RANGE_MODE.ONE,start:pick.id,end:pick.id,endSet:false};
     // a figure's lines and pictures are both exact: its overlay opens first; a LaTeX pin's lines exist only in the source diff
-    if(fig)showRevision(pick.id,DIFF_FORMAT.OVERLAY); else showRevision(pick.id,DIFF_FORMAT.SOURCE); return;}
-  showRevision(data.revisions.some(r=>r.id===REV.commit)?REV.commit:data.revisions[0].id,fig?DIFF_FORMAT.OVERLAY:undefined);
+    drawRange(); if(fig)showRevision(pick.id,DIFF_FORMAT.OVERLAY); else showRevision(pick.id,DIFF_FORMAT.SOURCE); return;}
+  // The same document read again while the view is open (a new build) keeps the range shown, moved to the newest commit.
+  if(again&&rows.some(r=>r.id===kept.start)){showRange(kept.mode===RANGE_MODE.ONE?kept:{...kept,end:kept.endSet?kept.end:rows[0].id},REV.format);return;}
+  if(seenCount(rows,REV.seen)>0&&!fig){showRange(rangeMode(rows,REV.range,RANGE_MODE.LAST,REV.seen));return;}
+  const id=rows.some(r=>r.id===REV.commit)?REV.commit:rows[0].id;
+  REV.range={mode:RANGE_MODE.ONE,start:id,end:id,endSet:false}; drawRange();
+  showRevision(id,fig?DIFF_FORMAT.OVERLAY:undefined);
 }
-/** A newly selected commit starts with fit width. Without a format a LaTeX document shows its comparison PDF and a figure
- * document stays in the format it shows (choosing a commit in its source diff keeps the source diff). */
-async function showRevision(id,format){
+// ------------------------------------------------ Comparing two commits (issue #188, docs/handbook/viewer.md §변경 보기)
+// The quick range [마지막으로 본 뒤 N | 이 커밋부터 | 이 커밋만] (#revision-range) and the commit list that stays on screen
+// (#revision-commits). The rules below are pure functions of the loaded rows (newest first); showRange() shows their request.
+
+/** How many loaded rows are newer than the last-seen commit seen: 0 when it is the newest, -1 without a record or when it is
+ * not among the rows. Pure. @param {{id:string}[]} rows @param {RevSeen|null} seen */
+function seenCount(rows,seen){return seen?rows.findIndex(r=>r.id===seen.id):-1;}
+/** The range after a row press (id): in [이 커밋만] that commit alone; otherwise that commit to the newest - except that, right
+ * after such a press, a newer row ends the range there, and the start pressed again is that commit alone. Pure.
+ * @param {{id:string}[]} rows @param {RevRange} rg @param {string} id @returns {RevRange} */
+function rangePress(rows,rg,id){const at=x=>rows.findIndex(r=>r.id===x),newest=rows.length?rows[0].id:id;
+  if(rg.mode===RANGE_MODE.ONE)return {mode:RANGE_MODE.ONE,start:id,end:id,endSet:false};
+  if(rg.mode===RANGE_MODE.FROM&&id===rg.start)return {mode:RANGE_MODE.FROM,start:id,end:id,endSet:true};
+  if(rg.mode===RANGE_MODE.FROM&&!rg.endSet&&at(id)>=0&&at(id)<at(rg.start))return {mode:RANGE_MODE.FROM,start:rg.start,end:id,endSet:true};
+  return {mode:RANGE_MODE.FROM,start:id,end:newest,endSet:false};}
+/** The range after a segment press: [마지막으로 본 뒤] the commits after the last-seen one; [이 커밋부터] the commit in focus to
+ * the newest; [이 커밋만] the commit in focus alone (the newest after [마지막으로 본 뒤]). Pure.
+ * @param {{id:string}[]} rows @param {RevRange} rg @param {string} mode @param {RevSeen|null} seen @returns {RevRange} */
+function rangeMode(rows,rg,mode,seen){const newest=rows.length?rows[0].id:rg.end;
+  if(mode===RANGE_MODE.LAST){const n=seenCount(rows,seen); return {mode,start:n>0?rows[n-1].id:newest,end:newest,endSet:false};}
+  const focus=rg.mode===RANGE_MODE.LAST&&mode===RANGE_MODE.ONE?rg.end:rg.start;
+  return {mode,start:focus,end:mode===RANGE_MODE.FROM?newest:focus,endSet:false};}
+/** What a range asks the server: {commit, base}, base '' for one commit against its first parent. [마지막으로 본 뒤] compares
+ * the last-seen commit with the newest; [이 커밋부터] the start's first parent with the end - a start that is the end, or a
+ * root commit (no parent), is that commit alone. Pure. @param {{id:string,parents:string[]}[]} rows @param {RevRange} rg
+ * @param {RevSeen|null} seen @returns {{commit:string,base:string}} */
+function rangeRequest(rows,rg,seen){
+  if(rg.mode===RANGE_MODE.LAST&&seen)return {commit:rg.end,base:seen.id};
+  if(rg.mode!==RANGE_MODE.FROM||rg.start===rg.end)return {commit:rg.start,base:''};
+  const s=rows.find(r=>r.id===rg.start);
+  return s&&s.parents.length?{commit:rg.end,base:s.parents[0]}:{commit:rg.start,base:''};}
+/** The loaded rows a range covers, by their place in the list (newest first). Pure.
+ * @param {{id:string}[]} rows @param {RevRange} rg @param {RevSeen|null} seen @returns {string[]} */
+function rangeIds(rows,rg,seen){const at=x=>rows.findIndex(r=>r.id===x);
+  if(rg.mode===RANGE_MODE.LAST)return rows.slice(0,Math.max(seenCount(rows,seen),0)).map(r=>r.id);
+  const a=at(rg.end),b=at(rg.start); return a<0||b<0?[rg.start]:rows.slice(Math.min(a,b),Math.max(a,b)+1).map(r=>r.id);}
+/** The rows of merged lines: those between a merge and its first parent, when that parent is loaded. Pages come in ancestry
+ * order (the server's --topo-order), so a merged line's commits sit right below their merge; a merge whose first parent is
+ * not loaded marks nothing. Pure. @param {{id:string,parents:string[]}[]} rows @returns {Set<string>} */
+function sideRows(rows){const out=new Set();
+  rows.forEach((r,i)=>{if(r.parents.length<2)return; const j=rows.findIndex(x=>x.id===r.parents[0]); for(let k=i+1;k<j;k++)out.add(rows[k].id);});
+  return out;}
+// The key a source diff or comparison PDF was loaded for: the commit, or base..commit for a range.
+function revKey(){return REV.base?REV.base+'..'+REV.commit:REV.commit;}
+// Shows range rg: draws the picker and opens what it asks - a range in its source diff first (its comparison PDF is built only
+// when [변경 PDF] is pressed), one commit as a list choice always opened (format undefined: the comparison PDF of a LaTeX
+// document, the format shown of a figure document).
+/** @param {RevRange} rg @param {string} [format] */
+function showRange(rg,format){REV.range=rg; const q=rangeRequest(REV.rows,rg,REV.seen); drawRange();
+  showRevision(q.commit,q.base?format||DIFF_FORMAT.SOURCE:format,q.base);}
+// A row of the list pressed (rangePress) and a quick-range segment pressed (rangeMode).
+function pressRevisionRow(id){if(id)showRange(rangePress(REV.rows,REV.range,id));}
+function setRevisionRange(mode){if(!REV.rows.length||mode===REV.range.mode)return; showRange(rangeMode(REV.rows,REV.range,mode,REV.seen));}
+// Draws the quick range: the pressed segment, and [마지막으로 본 뒤 N] - hidden without a record of this document in this
+// browser, not pressable when nothing is new (N = 0). Then the list.
+function drawRange(){const rows=REV.rows,rg=REV.range,n=seenCount(rows,REV.seen);
+  $('#revision-range').hidden=!rows.length;
+  for(const b of /** @type {HTMLButtonElement[]} */($$('#revision-range [role=radio]'))){const on=b.dataset.range===rg.mode;
+    b.setAttribute('aria-checked',String(on)); b.classList.toggle('on',on);
+    if(b.dataset.range===RANGE_MODE.LAST){b.hidden=n<0; b.disabled=n===0; const k=b.querySelector('.k'); if(k)k.textContent=n>=0?String(n):'';}}
+  renderCommitList();}
+// A commit's time as the list shows it: MM-DD HH:MM of its ISO commit time (the committer's own clock), else its date.
+/** @param {RevisionRow} r */
+function rowWhen(r){const t=String(r.time||'');return /^\d{4}-\d\d-\d\dT\d\d:\d\d/.test(t)?t.slice(5,10)+' '+t.slice(11,16):String(r.date||'');}
+// The commit list (#revision-commits): a row per loaded commit with its subject, author, time and short hash; a merged line's
+// rows indented under their merge (sideRows); the range's rows on the rail, its ends bold, the commits after the last-seen one marked new below a line saying where reading stopped. The
+// phone shows REVISION_PHONE_ROWS rows until [더 보기]; [더 보기] then reads the next page while the server has more.
+function renderCommitList(){const box=$('#revision-commits'),rows=REV.rows,rg=REV.range,seen=REV.seen,n=seenCount(rows,seen);
+  box.hidden=!rows.length; if(!rows.length){box.replaceChildren();return;}
+  const focused=/** @type {HTMLElement|null} */(document.activeElement),refocus=focused&&focused.classList.contains('rc-row')?focused.dataset.commit:null;
+  const ids=rangeIds(rows,rg,seen),inside=new Set(ids),side=sideRows(rows),ends=new Set([ids[0],ids[ids.length-1]]),base=rangeRequest(rows,rg,seen).base;
+  const cut=LAYOUT===LAYOUT_MODE.NARROW&&!REV.listOpen?Math.min(REVISION_PHONE_ROWS,rows.length):rows.length;
+  const items=rows.map((r,i)=>{const cls=['rc-row'];
+    if(inside.has(r.id))cls.push('in'); if(ends.has(r.id))cls.push('end'); if(r.parents.length>1)cls.push('merge'); if(side.has(r.id))cls.push('side');
+    if(r.id===base)cls.push('base'); if(n>0&&i<n)cls.push('new'); if(i===0)cls.push('first'); if(i===rows.length-1)cls.push('last');
+    const line=n>0&&i===n?html`<div class="rc-seen" data-i="${i}">${seen&&seen.at?tl('{when} 여기까지 봄',{when:seen.at}):tr('여기까지 봄')}</div>`:'';
+    return html`${line}<button class="${cls.join(' ')}" data-act="revision-row" data-commit="${r.id}" data-i="${i}" aria-pressed="${inside.has(r.id)}">\
+<span class="rc-rail" aria-hidden="true"><span class="rc-dot"></span></span><span class="rc-txt"><span class="rc-t" translate="no">${r.subject}</span>\
+<span class="rc-m"><span translate="no">${r.author||''}</span> · ${rowWhen(r)} · <span class="rc-code" translate="no">${r.id.slice(0,7)}</span></span></span>\
+${n>0&&i<n?html`<span class="rc-tag">새로</span>`:''}</button>`;});
+  const more=cut<rows.length?tl('이전 커밋 {n}개 더 보기',{n:rows.length-cut}):REV.more?tr('이전 커밋 더 보기'):'';
+  const hint=rg.mode===RANGE_MODE.ONE?'최신이 위 · 누르면 그 커밋 하나':'최신이 위 · 누르면 그 커밋부터 지금까지';
+  setHtml(box,html`<div class="rc-head">${tr(hint)}</div><div class="rc-list">${items}</div>\
+${more?html`<button id="revision-more" class="btn-ghost" data-act="revision-more">${ic('chevron-down')}<span>${more}</span></button>`:''}`);
+  for(const el of /** @type {HTMLElement[]} */($$('#revision-commits [data-i]')))el.hidden=Number(el.dataset.i)>=cut;
+  if(refocus){const again=/** @type {HTMLElement|null} */(box.querySelector('.rc-row[data-commit="'+refocus+'"]')); if(again)again.focus();}}
+// [더 보기]: the phone's first press shows every loaded row; after that (and on a wide screen) the next page of the history.
+async function moreRevisions(){
+  if(LAYOUT===LAYOUT_MODE.NARROW&&!REV.listOpen&&REV.rows.length>REVISION_PHONE_ROWS){REV.listOpen=true; renderCommitList(); return;}
+  if(!REV.more||!REV.rows.length)return; REV.listOpen=true;
+  const k=DOC,last=REV.rows[REV.rows.length-1].id; let data;
+  try{data=(await api(dq('/api/revisions?before='+encodeURIComponent(last)+'&limit='+REVISION_PAGE,k),{what:'변경사항 읽기'})).data;}catch(e){return;}
+  if(k!==DOC||REV.rowsDoc!==k||!REV.rows.length||REV.rows[REV.rows.length-1].id!==last)return;
+  REV.rows=REV.rows.concat(data.revisions||[]); REV.more=!!data.more; renderCommitList();}
+// This browser's last-seen commit per document (localStorage limnRevSeen: {<doc>:{id, at}}). No server state: another
+// browser or device keeps its own.
+/** @returns {Record<string,RevSeen>} */
+function revSeenAll(){try{const v=JSON.parse(localStorage.getItem('limnRevSeen')||'{}');return v&&typeof v==='object'?v:{};}catch(e){return {};}}
+/** @param {string} k @returns {RevSeen|null} */
+function revSeen(k){const v=revSeenAll()[k]; return v&&typeof v.id==='string'?{id:v.id,at:String(v.at||'')}:null;}
+// Leaving the changes view (to the manuscript, another document, or closing the page): the document's newest loaded commit
+// becomes its last-seen one, with this moment as MM-DD HH:MM. The list is forgotten, so coming back starts afresh.
+function leaveRevisions(){const k=REV.rowsDoc,top=REV.rows[0]; REV.rowsDoc=''; if(!k||!top)return;
+  const d=new Date(),p=n=>String(n).padStart(2,'0'),all=revSeenAll();
+  all[k]={id:top.id,at:p(d.getMonth()+1)+'-'+p(d.getDate())+' '+p(d.getHours())+':'+p(d.getMinutes())};
+  try{localStorage.setItem('limnRevSeen',JSON.stringify(all));}catch(e){}}
+addEventListener('pagehide',()=>{if(document.body.classList.contains('revision-open'))leaveRevisions();});
+/** A newly selected commit (or range, from base) starts with fit width. Without a format a LaTeX document shows its
+ * comparison PDF and a figure document stays in the format it shows (choosing a commit in its source diff keeps the source
+ * diff). @param {string} id @param {string} [format] @param {string} [base] */
+async function showRevision(id,format,base){
   RZ.ratio=1;
-  ++REV.seq;REV.commit=id;REV.sourceCommit='';REV.pdfCommit='';clearRevisionPdf();
-  const select=$('#revision-select');if(select)select.value=id;
+  ++REV.seq;REV.commit=id;REV.base=base||'';REV.rangeLine='';REV.sourceCommit='';REV.pdfCommit='';clearRevisionPdf();
+  $('#revision-note').textContent=REV.base?'두 커밋 사이의 누적 변경 · 이 문서의 Git 이력 · 미커밋 수정 제외':'선택 커밋의 첫 부모와 비교 · 이 문서의 Git 이력 · 미커밋 수정 제외';
   REV.scope=null;REV_SCOPE.whole=REV_SCOPE.partial=REV_SCOPE.fallback=false;drawRevisionOther(null);
   $('#revision-diff').textContent='';$('#revision-file-row').hidden=true;$('#revision-warning').hidden=true;
   $('#revision-status').textContent='';
@@ -188,22 +314,32 @@ function scrollOverlayTo(n){requestAnimationFrame(()=>{const box=$('#revision-ov
   if(pg)box.scrollTop+=pg.getBoundingClientRect().top-box.getBoundingClientRect().top;});}
 async function loadRevisionSource(id,seq,k){
   const out=$('#revision-diff');out.textContent='소스 변경 내용을 읽는 중입니다.';$('#revision-file-row').hidden=true;
-  const tg0=revisionPinFor(id),pq=tg0?'&pin='+tg0.id:'';
+  const tg0=revisionPinFor(id),base=REV.base,pq=tg0?'&pin='+tg0.id:base?'&base='+encodeURIComponent(base):'';
   try{const r=(await api(dq('/api/revision-diff?commit='+encodeURIComponent(id)+pq,k),{what:'변경 내용 읽기',silent:true})).data;
     if(!revisionCurrent(seq,k,id))return;
+    if(base){REV.rangeLine=rangeSummary(r); if(REV.format===DIFF_FORMAT.SOURCE)$('#revision-status').textContent=REV.rangeLine;}
     // v0.3: a pin's own hunks when it owns part of the commit; otherwise the whole commit exactly as before
     const sc=r.scope&&r.scope.mode===SCOPE_MODE.PIN?r.scope:null;REV.scope=r.scope||null;
     if(sc){REV_SCOPE.partial=true;syncRevisionWhole();}
     const cut='\n\n'+tr('변경 내용이 커서 앞부분만 표시했습니다. 저장소에서 전체 diff를 확인하세요.');
-    REV.whole=sc?sc.diff+(sc.truncated?cut:''):(r.diff||tr('이 커밋에서 표시할 원고 텍스트 변경이 없습니다.'))+(r.truncated?cut:'');
+    REV.whole=sc?sc.diff+(sc.truncated?cut:''):(r.diff||tr(base?'이 범위에서 표시할 원고 텍스트 변경이 없습니다.':'이 커밋에서 표시할 원고 텍스트 변경이 없습니다.'))+(r.truncated?cut:'');
     REV.files=revisionFiles(sc?sc.diff:(r.diff||''));drawRevisionOther(sc);
     const select=$('#revision-file');setHtml(select,html`<option value="all">전체 파일</option>${REV.files.map((f,i)=>html`<option value="${i}">${f.name}</option>`)}`);
-    select.value='all';$('#revision-file-row').hidden=REV.files.length<2;REV.sourceCommit=id;
+    select.value='all';$('#revision-file-row').hidden=REV.files.length<2;REV.sourceCommit=revKey();
     const tg=REV.target,fi=tg?pinFileIndex(REV.files,tg.file):-1;
     if(fi>=0&&REV.files.length>1)select.value=String(fi);
     renderRevisionFile(); if(tg)revHighlight(tg);
-  }catch(e){if(revisionCurrent(seq,k,id))out.textContent='소스 변경 내용을 읽지 못했습니다.';}
+  }catch(e){if(revisionCurrent(seq,k,id)){const why=e&&/** @type {ApiError} */(e).data?errText(/** @type {ApiError} */(e).data):'';
+    out.textContent=why?tl('소스 변경 내용을 읽지 못했습니다: {error}',{error:why}):tr('소스 변경 내용을 읽지 못했습니다.');}}
 }
+// A range's summary on the status line (its source diff): the two ends, the commits and files in it, the merge base when the
+// base was on another line, and a warning when the range is wide enough for its comparison PDF to fail (more than 60
+// manuscript files, or a diff cut at the server's limit). @param {any} r the /api/revision-diff answer with base
+function rangeSummary(r){const files=Array.isArray(r.files)?r.files:[];
+  let t=tl('{base} → {head} · 커밋 {commits}개 · 파일 {files}개',{base:String(r.base||'').slice(0,8),head:String(r.id||'').slice(0,8),commits:r.commits,files:files.length});
+  if(r.merge_base)t+=' · '+tl('공통 조상 {mb}부터 비교',{mb:String(r.merge_base).slice(0,8)});
+  if(files.length>60||r.truncated)t+=' · '+tr('범위가 넓어 비교 PDF가 실패할 수 있습니다');
+  return t;}
 // ------------------------------------------------ [변경 보기] (docs/handbook/viewer.md §변경 보기): opens the changes tab from an awaiting-review/done pin.
 // Commit selection: the commit hash (7+ characters) in the close-time reference (ref) > a commit whose subject contains the reference's PR number
 // ('(#236)'/'pull request #236') > among the last 12 commits, the most recent one that touched the pin's file/lines (+-5 lines) > the most recent commit.
@@ -275,14 +411,14 @@ async function showChange(id){const p=findAnyPin(id); if(!p)return; const k=pdoc
 async function loadRevisionPdf(id,seq,k){
   const statusBox=$('#revision-status'),warningBox=$('#revision-warning'),tg=REV.target;
   // v0.3: for a pin, the comparison is old + only that pin's hunks unless [커밋 전체 비교] is on or that build already failed
-  const pin=tg&&revisionPinFor(id)&&!REV_SCOPE.whole&&!REV_SCOPE.fallback?tg.id:null,pq=pin?'&pin='+pin:'';
+  const pin=tg&&revisionPinFor(id)&&!REV_SCOPE.whole&&!REV_SCOPE.fallback?tg.id:null,base=REV.base,pq=pin?'&pin='+pin:base?'&base='+encodeURIComponent(base):'';
   try{
-    let status=(await api('/api/revision-build',{method:'POST',body:pin?{commit:id,doc:k,pin}:{commit:id,doc:k},what:'비교 PDF 만들기',silent:true})).data;
+    let status=(await api('/api/revision-build',{method:'POST',body:pin?{commit:id,doc:k,pin}:base?{commit:id,doc:k,base}:{commit:id,doc:k},what:'비교 PDF 만들기',silent:true})).data;
     if(!revisionCurrent(seq,k,id))return;
     if(pin&&status.scope){REV_SCOPE.partial=status.scope===SCOPE_MODE.PIN;syncRevisionWhole();}
     for(let tries=0;status.state===REVISION_STATE.RUNNING&&tries<180;tries++){
       if(!revisionCurrent(seq,k,id))return;
-      statusBox.textContent='선택 커밋의 비교 PDF를 만드는 중입니다. 원고와 핀은 그대로 사용할 수 있습니다.';
+      statusBox.textContent=base?'두 커밋 사이의 비교 PDF를 만드는 중입니다. 원고와 핀은 그대로 사용할 수 있습니다.':'선택 커밋의 비교 PDF를 만드는 중입니다. 원고와 핀은 그대로 사용할 수 있습니다.';
       await new Promise(resolve=>setTimeout(resolve,1000));
       if(!revisionCurrent(seq,k,id))return;
       status=(await api(dq('/api/revision-build?commit='+encodeURIComponent(id)+pq,k),{what:'비교 PDF 상태',silent:true})).data;
@@ -308,10 +444,14 @@ async function loadRevisionPdf(id,seq,k){
     if(!revisionCurrent(seq,k,id)){try{void loading.destroy().catch(()=>{});}catch(e){}return;}
     REV_PDF.doc=pdf;
     const lead=pin&&status.scope===SCOPE_MODE.PIN?tl('핀 #{id}의 변경만',{id:pin})+' · ':REV_SCOPE.fallback&&tg?tr('이 핀의 변경만으로는 비교 PDF를 만들지 못해 커밋 전체를 비교합니다')+' · ':'';
-    statusBox.textContent=lead+tl('첫 부모 {base} → {head} · {n}쪽 · 읽기 전용 · 빨강 삭제 / 파랑 추가',{base:String(status.base||'').slice(0,8),head:id.slice(0,8),n:pdf.numPages});
+    const sides={base:String(status.base||'').slice(0,8),head:id.slice(0,8),n:pdf.numPages};
+    statusBox.textContent=lead+(base?tl('기준 {base} → {head} · {n}쪽 · 읽기 전용 · 빨강 삭제 / 파랑 추가',sides)+
+      (status.merge_base?' · '+tl('공통 조상 {mb}부터 비교',{mb:String(status.merge_base).slice(0,8)}):''):
+      tl('첫 부모 {base} → {head} · {n}쪽 · 읽기 전용 · 빨강 삭제 / 파랑 추가',sides));
     await mountRevisionPdf(pdf,seq,k,id);
   }catch(e){if(revisionCurrent(seq,k,id)){
     clearRevisionPdf();
-    statusBox.textContent=tl('비교 PDF: {error} 소스 diff에서 변경 내용을 확인할 수 있습니다.',{error:e&&/** @type {Error} */(e).message?/** @type {Error} */(e).message:tr('표시하지 못했습니다.')});
+    const data=/** @type {any} */(e&&/** @type {ApiError} */(e).data);
+    statusBox.textContent=tl('비교 PDF: {error} 소스 diff에서 변경 내용을 확인할 수 있습니다.',{error:data&&data.error?errText(data):e&&/** @type {Error} */(e).message?/** @type {Error} */(e).message:tr('표시하지 못했습니다.')});
   }}
 }

@@ -1327,7 +1327,7 @@ class ScopedViewer(RevisionPins):
         page = self.open_change("desktop", "ko", self.p2)
         urls = []
         page.on("request", lambda r: urls.append(r.url))
-        page.select_option("#revision-select", self.solo)  # another commit: the list opens its PDF
+        page.locator("#revision-commits .rc-row[data-commit='%s']" % self.solo).click()  # another commit: its PDF opens
         self.wait_pdf(page)
         self.assertFalse(self.visible(page, "#revision-whole"))
         self.assertEqual(self.builds[-1], (self.solo, ()))
@@ -1338,7 +1338,9 @@ class ScopedViewer(RevisionPins):
         seen = [u for u in urls if "/api/revision-" in u and self.solo in u]
         self.assertTrue(seen)
         self.assertFalse([u for u in seen if "pin=" in u], seen)
-        page.select_option("#revision-select", self.fix)  # back to the pin's own commit: scoped again
+        page.locator(
+            "#revision-commits .rc-row[data-commit='%s']" % self.fix
+        ).click()  # the pin's own commit: scoped again
         self.wait_pdf(page)
         page.wait_for_function("!document.getElementById('revision-whole').hidden", timeout=15000)
         self.assertEqual(self.builds[-1][0], self.fix)

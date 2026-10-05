@@ -58,9 +58,12 @@ document.addEventListener('click',e=>{const target=/** @type {HTMLElement} */(e.
     case 'rev-back':revBack();break;
     case 'outline':toggleOutline();break;
     case 'outline-page':if(outlineOverlay()&&OUTLINE_MID_OPEN)toggleOutline();OUTLINE_SELECTED=Number(a.dataset.index);OUTLINE_ACTIVE_PAGE=Number(a.dataset.page);OUTLINE_PINNED={index:OUTLINE_SELECTED,page:OUTLINE_ACTIVE_PAGE};renderOutline();updateSectionStrip();setViewMode('manuscript');goPage(a.dataset.page);break;
-    case 'revision':showRevision(a.dataset.commit);break;
+    case 'revision':showRevision(a.dataset.commit||'');break;
     case 'revision-format':setRevisionFormat(a.dataset.format);break;
     case 'revision-side':setRevisionSide(a.dataset.side);break;
+    case 'revision-row':pressRevisionRow(a.dataset.commit);break;
+    case 'revision-range':setRevisionRange(a.dataset.range);break;
+    case 'revision-more':moreRevisions();break;
     case 'all-docs':SHOW_ALL=!SHOW_ALL;drawPins();break;
     case 'mention-filter':MENTION_ONLY=!MENTION_ONLY;drawPins();break;
     case 'mention-pick':mentionApply(Number(a.dataset.i));break;
@@ -100,7 +103,6 @@ document.addEventListener('click',e=>{const target=/** @type {HTMLElement} */(e.
   }
 });
 $('#doc-select').addEventListener('change',e=>switchDoc(e.target.value));
-$('#revision-list').addEventListener('change',e=>{if(e.target.id==='revision-select')showRevision(e.target.value);});
 $('#revision-file').addEventListener('change',renderRevisionFile);
 document.addEventListener('keydown',e=>{
   if(e.isComposing||e.keyCode===229)return;

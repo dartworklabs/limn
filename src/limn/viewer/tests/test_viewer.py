@@ -1926,11 +1926,13 @@ class FrontendSemanticAudit(unittest.TestCase):
         )
 
     def test_change_view_on_fold_and_phone(self):
+        """On a fold the changes view yields the overlay panel's width; on touch the file picker and the build-warning
+        toggle answer 44px; a nearby-only change never claims a highlighted line."""
         # [변경 보기] phone/fold QA (2026-09-25): on a fold (the overlay panel, body.mid-overlay), the pin panel floats on top,
         # hiding the right half of the diff and the [원고로] button — only the change view yields space
         # equal to the panel width. Commit picking / build-warning expand are 44px on touch.
         self.assertIn("body.mid-overlay.side-open #revision-view{padding-right:var(--side-w,330px)}", self.css)
-        self.assertIn("#revision-list select,#revision-file-row select{min-height:var(--control-h-touch)}", self.css)
+        self.assertIn("#revision-file-row select{min-height:var(--control-h-touch)}", self.css)
         self.assertIn("#revision-warning summary{line-height:var(--control-h-touch)}", self.css)
         # if the pin's range line isn't in the diff and only nearby lines changed, don't say "the highlighted line is the pin's range" (there is no highlighted line).
         self.assertIn("tg.near=!first&&tg.hit", extract_js_fn("revHighlight"))
@@ -4446,6 +4448,8 @@ class FrontendChangeView(unittest.TestCase):
         self.assertEqual(out, [0, -1, [[10, 13], [81, 81]], True, False, True, False])
 
     def test_wiring(self):
+        """[변경 보기] is wired from the cards to showChange, a pin's commit opens in the source diff, and the comparison
+        PDF is requested only for a commit or range (revKey) not yet loaded in that format."""
         h = HTML
         self.assertIn('data-act="change"', extract_js_fn("doneCard"))
         self.assertIn('data-act="change"', extract_js_fn("card"))
@@ -4454,7 +4458,7 @@ class FrontendChangeView(unittest.TestCase):
         self.assertIn("showRevision(pick.id,DIFF_FORMAT.SOURCE)", extract_js_fn("loadRevisions"))
         fmt = extract_js_fn("setRevisionFormat")
         # the comparison PDF is only built while viewing that format
-        self.assertIn("REV.pdfCommit!==REV.commit", fmt)
+        self.assertIn("REV.pdfCommit!==revKey()", fmt)
         css = h[h.index("<style>") : h.index("</style>")]
         self.assertIn("body.revision-open #revision-view{display:block}", css)  # it opens even on a folded fold device
 
