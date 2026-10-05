@@ -64,6 +64,25 @@ def test_new_read_registration_is_denied():
     assert error.value.code == 404
 
 
+@pytest.mark.parametrize("path", ("/vendor/pdfjs/pdf.min.mjs", "/vendor/pretendard/pretendard.css"))
+def test_the_bundled_library_families_are_declared_reads(path):
+    """The PDF.js and Pretendard folders are the two bundled-file families an admitted identity reads; their routes
+    validate the leaf name."""
+    access.check_read(path)
+
+
+@pytest.mark.parametrize(
+    "path",
+    ("/vendor/lucide/LICENSE", "/vendor/", "/vendor/pretendardx/a.css", "/vendor/pretendard", "/vendor/x/y.woff2"),
+)
+def test_other_vendor_paths_are_denied(path):
+    """A folder of vendor/ that is not a served family (Lucide is inlined, never served), the bare prefixes and a
+    look-alike family name are not reads."""
+    with pytest.raises(HTTPError) as error:
+        access.check_read(path)
+    assert error.value.code == 404
+
+
 @pytest.fixture
 def store_context():
     """Use the same real transactional store and files as the service contract tests."""

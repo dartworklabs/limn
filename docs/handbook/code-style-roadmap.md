@@ -85,7 +85,7 @@ Limn의 코딩 규칙은 팀 스킬 `code-implement`, `code-testing`, `code-secu
 
 보안 검증에는 다음 공백이 있다. 고치는 변경은 해당 검사를 함께 더한다.
 
-- **읽기 진입점 목록:** 등록된 모든 POST가 접근 표의 작업으로 선언되는지는 `test_authority.py`의 `test_every_registered_post_declares_an_operation`이 훑는다. GET 처리기는 경로를 선언하지 않는 클로저라 같은 방식으로 뽑을 수 없고, `/pages/`·`/vendor/pdfjs/` 접두사는 통째로 허용된다. GET은 `check_read`의 경로 표와 새 등록의 기본 거부 검사가 대신 막는다.
+- **읽기 진입점 목록:** 등록된 모든 POST가 접근 표의 작업으로 선언되는지는 `test_authority.py`의 `test_every_registered_post_declares_an_operation`이 훑는다. GET 처리기는 경로를 선언하지 않는 클로저라 같은 방식으로 뽑을 수 없고, `/pages/`·`/vendor/pdfjs/`·`/vendor/pretendard/` 접두사는 통째로 허용되고, 이름은 그 경로의 검사(`platform/files.py`의 `vendor_file` 등)가 거른다. GET은 `check_read`의 경로 표와 새 등록의 기본 거부 검사가 대신 막는다.
 - **권한 행렬:** 역할 × 작업은 단위 수준(`test_authority.py`), 역할 × 핀 동작·읽기 경로는 HTTP 수준(`test_access_paths.py`의 `RoleMatrix`)에서 확인한다. 재빌드와 비교 빌드는 역할별 HTTP 행렬에 없다.
 - **주체별 작업 한도:** `viewer`도 부를 수 있는 `/api/pick`(SyncTeX 실행)과 비교 빌드는 주체별 한도가 없다. 비교 빌드 슬롯은 프로세스 전체가 나눠 쓰고, HTTP 서버에는 스레드·연결 상한이 없다.
 - **오류 응답:** 처리되지 않은 예외의 `500` 응답 본문에 `owner`·`editor`·`agent` 는 예외 문장을 받는다. 이 주체들은 내부 경로나 구현 세부를 볼 수 있다. 진단 가치와 오류 문장 계약 때문에 유지한다. `viewer` 와 입장 전에 실패한 요청은 고정 문장만 받는다([api.md](api.md) §오류 응답). [`test_errors.py`](../../src/limn/web/tests/test_errors.py)가 역할별 문장과 keep-alive 연결에서 앞 요청의 역할이 넘어오지 않는 것을 확인한다.

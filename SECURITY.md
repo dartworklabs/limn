@@ -29,7 +29,8 @@ What the server does defend against:
   with `--public-host`; `--no-origin-check` turns this off — use it only if a proxy forwards unexpected values).
 - Forged identity headers: they are ignored unless the TCP peer is loopback (`tailscale`) or a configured proxy
   (`trusted-proxy`).
-- Path traversal: static files are limited to the vendored PDF.js files by name.
+- Path traversal: static files are limited by name to the vendored PDF.js modules and the vendored Pretendard font
+  slices and stylesheet: one name in the folder, no subpath, with a suffix the folder serves.
 - Reading files that are not manuscript: every route that takes a file name (`/api/snippet`, `/api/overlaps`, a new
   pin, an edit's `loc`, a close's `changes`) accepts only files under `--manuscript`, symlinks resolved, and never one
   under a dot-named part of it (`.git`, `.env`, `.ssh`, `.latexmkrc`, …): those hold repository and machine secrets,

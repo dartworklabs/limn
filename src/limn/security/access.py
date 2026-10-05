@@ -679,7 +679,7 @@ def check_read(path: str) -> None:
     """Admitted principals may read declared paths; new registrations start denied."""
     if path in READ_PATHS or re.fullmatch(r"/api/pins/\d+", path):
         return
-    if path.startswith(("/pages/", "/vendor/pdfjs/")):
+    if path.startswith(("/pages/", "/vendor/pdfjs/", "/vendor/pretendard/")):
         return  # These declared resource families validate their leaf names at their sink.
     raise HTTPError(404, "없는 경로입니다: %s" % path, reason="not_found")
 

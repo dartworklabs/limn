@@ -31,13 +31,16 @@ import re
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TypeAlias
+from typing import Literal, TypeAlias
 
 from limn import __version__
 from limn.viewer.mark import FILES as BRAND_FILES, Brand, Icon, brand
 
 # One entry of the message table: an English string, or plural forms {"one": ..., "other": ...} for a key with {n}.
 Message: TypeAlias = str | dict[str, str]
+# The bundled libraries GET /vendor/<library>/<file> serves: PDF.js (default_pdfjs_dir) and the Pretendard font
+# (default_pretendard_dir). Lucide's icons are inlined in the page, never served.
+VendorLibrary: TypeAlias = Literal["pdfjs", "pretendard"]
 
 
 def default_pdfjs_dir() -> Path:

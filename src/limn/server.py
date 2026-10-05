@@ -348,7 +348,7 @@ def report(app: ServerAssembly, documents: list[Doc] | None) -> None:
     """Print the configured run summary after startup preparation succeeds."""
     config = app.environment.C
     pdfjs = config.pdfjs_dir or default_pdfjs_dir()
-    pdfjs_found = bool(find_vendor_file(pdfjs, "pdf.min.mjs") and find_vendor_file(pdfjs, "pdf.worker.min.mjs"))
+    pdfjs_found = all(find_vendor_file(pdfjs, name, (".mjs",)) for name in ("pdf.min.mjs", "pdf.worker.min.mjs"))
     access_lines = startup.access_log_lines(
         config.access, len(app.security.current_tokens()), file_present(config.access.agent_token_file)
     )
