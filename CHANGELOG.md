@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.4.14 — 2026-10-05
+
+The touch select control says what it is and when it is on. `pins.md`, the HTTP API and the state directory are
+unchanged; the desktop is unchanged.
+
+### Changed
+
+- **The select control says what it is and when it is on (#168).** The touch select button is now a symmetric dashed
+  square. While select mode is on, a bar at the top of the PDF reads `선택 중 · 끌면 영역 · 탭하면 문단` (Selecting ·
+  drag for an area · tap for a paragraph) with [끝내기] (Done), and a thin accent frame goes round the PDF area. At the
+  top, page 1 starts below the bar. [끝내기] or Esc ends the mode in one step. Tablets, the landscape phone and the
+  unfolded Fold label the button [⬚ 선택] / [⬚ 선택 중] at one width; the portrait phone keeps the icon, so
+  [핀 N | 검토 M] never shrinks. The mode's first-use hint and the dashed outline round each page are gone.
+
+### Docs
+
+- `api.md` marks the first version of `progress` (0.4.11+), `overlay` and `path_names` (0.4.13+).
+
 ## 0.4.13 — 2026-10-04
 
 Figure documents P2: a changes view that overlays the previous import, a figure pin's close that brings the edited
