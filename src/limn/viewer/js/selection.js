@@ -48,16 +48,50 @@ window.addEventListener('pointermove',e=>{
   if(!DRAG.box){if(Math.hypot(e.clientX-DRAG.cx,e.clientY-DRAG.cy)<TAP_SLOP)return; DRAG.box=newBox(DRAG.pg);}
   const [x,y]=fracAt(DRAG.pg,e.clientX,e.clientY); drawBox(DRAG.box,DRAG.sx,DRAG.sy,x,y);});
 window.addEventListener('pointerup',e=>{
+  const off=PRESS_OFF&&PRESS_OFF.id===e.pointerId?PRESS_OFF:null; PRESS_OFF=null;   // this press, if it could be a click-off
+  const picked=LP_PICKED===e.pointerId;   // a long press has already picked: its release is no tap
   if(LP&&e.pointerId===LP.id)cancelLP();
-  if(LP_PICKED===e.pointerId){LP_PICKED=null; SWALLOW_CLICK=Date.now()+400;}
-  if(TAP&&e.pointerId===TAP.id){const tp=TAP,now=performance.now(); TAP=null;
-    if(now-tp.t<300){const cur={t:now,x:e.clientX,y:e.clientY}; if(isDoubleTap(LAST_TAP,cur)){LAST_TAP=null; doubleTapZoom(cur.x,cur.y);} else LAST_TAP=cur;}}
+  if(picked){LP_PICKED=null; SWALLOW_CLICK=Date.now()+400;}
+  let tapped=false,doubled=false;   // touch outside [선택] mode: the press stayed under TAP_SLOP, and a double tap
+  if(TAP&&e.pointerId===TAP.id){const tp=TAP,now=performance.now(); TAP=null; tapped=!picked;
+    if(now-tp.t<300){const cur={t:now,x:e.clientX,y:e.clientY}; if(isDoubleTap(LAST_TAP,cur)){LAST_TAP=null; doubled=true; clickOffStop(); doubleTapZoom(cur.x,cur.y);} else LAST_TAP=cur;}}
+  if(off&&!off.mouse&&tapped&&!doubled)clickOffSoon(off.box);   // a finger's tap waits out the double-tap window first
+  if(off&&off.mouse&&!(DRAG&&e.pointerId===DRAG.id)&&Math.hypot(e.clientX-off.x,e.clientY-off.y)<TAP_SLOP)clickOffNow(off.box);   // a press off the pages
   if(!DRAG||e.pointerId!==DRAG.id)return;
   const D=DRAG; DRAG=null;
   if(!D.box){quickPick(D.pg,e.clientX,e.clientY); SWALLOW_CLICK=Date.now()+400; return;}   // a tap in selection mode = quick selection
-  const [x,y]=fracAt(D.pg,e.clientX,e.clientY); finishRect(D.pg,D.box,D.sx,D.sy,x,y);});
-window.addEventListener('pointercancel',e=>{if(LP&&e.pointerId===LP.id)cancelLP(); if(DRAG&&e.pointerId===DRAG.id)cancelDrag();
+  const [x,y]=fracAt(D.pg,e.clientX,e.clientY);
+  if(!finishRect(D.pg,D.box,D.sx,D.sy,x,y)&&off&&off.mouse)clickOffNow(off.box);});   // too small for a box: a click
+window.addEventListener('pointercancel',e=>{if(PRESS_OFF&&PRESS_OFF.id===e.pointerId)PRESS_OFF=null; if(LP&&e.pointerId===LP.id)cancelLP(); if(DRAG&&e.pointerId===DRAG.id)cancelDrag();
   if(TAP&&e.pointerId===TAP.id)TAP=null; if(LP_PICKED===e.pointerId)LP_PICKED=null;});
+// ------------------------------------------------ Click-off: a short press outside the selection cancels it
+// With a selection open (the dashed box and the composer), a short press on the PDF area outside the box is [취소]/Esc (discardSelection,
+// so a typed note keeps its `선택 취소됨 · [되돌리기]`). Short: the mouse moves under a drag (finishRect's size, the one that makes a
+// box), the finger under TAP_SLOP and is not a long press (that picks a paragraph). Never a cancel: a press inside the box or its
+// badge, on a pin mark, on a control, one that becomes a drag (a new selection) or a pinch, a double tap (app zoom) and - on touch - any
+// tap in [선택] mode (a quick selection: it is no TAP, so it never reaches clickOffSoon). A finger's cancel waits CLICKOFF_WAIT_MS, past the 300ms double-tap window (isDoubleTap),
+// so the first tap of a double tap does not close the composer under the zoom. PRESS_OFF is the press that may become one (set on
+// pointerdown, resolved on pointerup); CLICKOFF_T the finger's wait.
+const CLICKOFF_WAIT_MS=350;
+let PRESS_OFF=/** @type {{id:number,mouse:boolean,x:number,y:number,box:HTMLElement|null}|null} */(null),CLICKOFF_T=/** @type {ReturnType<typeof setTimeout>|null} */(null);
+// Whether the point (x, y) lies in one of rects ({left, top, right, bottom}), each grown by pad px. Pure.
+function hitsAny(rects,x,y,pad){return rects.some(r=>x>=r.left-pad&&x<=r.right+pad&&y>=r.top-pad&&y<=r.bottom+pad);}
+// A selection is open and nothing above it is the thing to close first - Esc's order: a re-place, a reply, an edit, then the selection.
+function selectionOpen(){return !!(COMPOSE.current||!$('#composer').hidden)&&!REPICK&&!REPLY&&!EDITOR.current;}
+// Whether the press of pointerdown event e is outside the selection on the PDF area: not on a control or a pin's number badge, not on the
+// scrollbar, and not in the box, its badge or a pin mark (their boxes ignore the pointer, so the page is what the press lands on).
+function pressOutsideSelection(e){const t=/** @type {Element} */(e.target); if(!selectionOpen())return false;
+  if(t.closest('.mark b,button,a,input,textarea,select,[data-act],[role=button]'))return false;
+  const L=$('#left'); if(t===L&&(e.offsetX>=L.clientWidth||e.offsetY>=L.clientHeight))return false;
+  const inside=[...document.querySelectorAll('.mark'),...(COMPOSE.box?[COMPOSE.box,...COMPOSE.box.querySelectorAll('i')]:[])].map(n=>n.getBoundingClientRect());
+  return !hitsAny(inside,e.clientX,e.clientY,0);}
+$('#left').addEventListener('pointerdown',e=>{
+  PRESS_OFF=e.isPrimary&&pressOutsideSelection(e)
+    ?{id:e.pointerId,mouse:e.pointerType==='mouse',x:e.clientX,y:e.clientY,box:COMPOSE.box}:null;});
+// Cancels the selection the press began on, if it is still the one open and still the thing to close.
+function clickOffNow(box){if(!selectionOpen()||COMPOSE.box!==box)return; discardSelection(); SWALLOW_CLICK=Date.now()+400;}   // the panel may move under the click that follows
+function clickOffStop(){if(CLICKOFF_T!==null){clearTimeout(CLICKOFF_T); CLICKOFF_T=null;}}
+function clickOffSoon(box){clickOffStop(); CLICKOFF_T=setTimeout(()=>{CLICKOFF_T=null; clickOffNow(box);},CLICKOFF_WAIT_MS);}
 // Double-tap on the PDF (touch, outside [선택] mode - the browser's own double-tap zoom is off there): a second tap within 300ms
 // and 24px of the first. At fit width it zooms to 2x, from any other width back to fit width - both around the tapped point.
 function isDoubleTap(a,b){return !!a&&!!b&&b.t-a.t<=300&&Math.hypot(b.x-a.x,b.y-a.y)<=24;}
@@ -77,16 +111,19 @@ function quickPick(pg,cx,cy){const [x,y]=fracAt(pg,cx,cy),b=quickBox(x,y,isFigur
 // an outer one.
 function quickBox(x,y,figure){const w=figure?QUICK_FIG:QUICK_W,h=figure?QUICK_FIG:QUICK_H;
   return [c01(x-w),c01(y-h),c01(x+w),c01(y+h)];}
+// Turns a drawn rectangle into a selection and asks the server for its lines. Returns false, drawing nothing and removing the
+// box, when the rectangle is smaller than a drag (under 0.4% of the page in both directions) - a click, not a selection.
 function finishRect(pg,box,sx,sy,x,y){
   const w=Math.abs(x-sx),h=Math.abs(y-sy);
-  if(w<0.004&&h<0.004){box.remove();return;}
+  if(w<0.004&&h<0.004){box.remove();return false;}
   drawBox(box,sx,sy,x,y);
   box.classList.add('pending');
   if(REPICK){ if(REPICK.box)REPICK.box.remove(); REPICK.box=box; pendingBadge(box,'새 위치'); }
   else { if(COMPOSE.box)COMPOSE.box.remove(); COMPOSE.box=box; pendingBadge(box,'새 핀'); }
   const page=+pg.dataset.page,p=META.pages[page-1];
   pick({page,x0:Math.min(sx,x)*p.pt_w,y0:Math.min(sy,y)*p.pt_h,x1:Math.max(sx,x)*p.pt_w,y1:Math.max(sy,y)*p.pt_h,
-    frac:[Math.min(sx,x),Math.min(sy,y),w,h],pdf_build:META.pages_build||undefined,doc:DOC||undefined});}
+    frac:[Math.min(sx,x),Math.min(sy,y),w,h],pdf_build:META.pages_build||undefined,doc:DOC||undefined});
+  return true;}
 // If the sheet/panel covers the selection box, the body scrolls up until the box is visible (compact only). The view's top
 // is 28px into the PDF area, or 8px under the select mode's bar while it shows, so the box never stays under the bar.
 function revealBox(box){if(!box||LAYOUT===LAYOUT_MODE.WIDE||!document.contains(box))return;
