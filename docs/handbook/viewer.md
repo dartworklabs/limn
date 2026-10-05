@@ -1060,7 +1060,7 @@ compact(`narrow`·`mid`)는 한 번 더 줄인다. 279px 태블릿 패널에서 
 - 글에서 잰 값은 조각이 도착할 때마다 다시 잰다. 시트 막대의 단계(`fitBarWords`)와 열린 [더보기]·도움말의 잉크 선(`footInk`·`headInk`)을 `document.fonts`의 `loadingdone`에서 다시 계산한다. 폴백으로 잰 값이 남지 않게 하기 위해서다.
 - 다른 출처에는 요청하지 않는다. 서비스 워커(`/sw.js`)는 `fetch` 처리기가 없어 글꼴을 캐시하지 않고, 브라우저의 HTTP 캐시만 쓴다.
 
-**확인.** `PretendardFiles`는 조각이 `SHA256SUMS`와 같고 스타일시트가 조각마다 버전 붙은 `url()` 하나만 쓰는지, `PretendardRoute`·`VendorReads`는 경로와 접근 규칙이 PDF.js와 같은지, `PageLinksTheFont`는 페이지의 링크와 글꼴 순서를 본다. `BundledFontInBrowser`는 크로미엄이 인터페이스 글을 실제로 웹 글꼴 Pretendard Variable로 그리는지(`CSS.getPlatformFontsForNode`), 요청이 페이지 출처의 `/vendor/pretendard/` 조각뿐인지, 조각을 늦게 보내도 막대 단계와 잉크 선이 글꼴이 처음부터 있던 페이지와 같아지는지를 본다. CI 러너에는 Pretendard가 깔려 있지 않으므로 거기서 담은 글꼴이 그려지는지가 확인된다. 브라우저 테스트의 `settle()`은 글꼴 로딩이 끝날 때까지 기다린다.
+**확인.** `PretendardFiles`는 조각이 `SHA256SUMS`와 같고 스타일시트가 조각마다 버전 붙은 `url()` 하나만 쓰는지, `PretendardRoute`·`VendorReads`는 경로와 접근 규칙이 PDF.js와 같은지, `PageLinksTheFont`는 페이지의 링크와 글꼴 순서를 본다. `BundledFontInBrowser`는 크로미엄이 인터페이스 글을 실제로 웹 글꼴 Pretendard Variable로 그리는지(`CSS.getPlatformFontsForNode`), 요청이 페이지 출처의 `/vendor/pretendard/` 조각뿐인지, 조각을 늦게 보내도 막대 단계와 잉크 선이 글꼴이 처음부터 있던 페이지와 같아지는지를 본다. CI 러너에는 Pretendard가 깔려 있지 않으므로 거기서 담은 글꼴이 그려지는지가 확인된다. 브라우저 테스트의 `settle()`은 글꼴 로딩이 끝날 때까지 기다린다. 글의 잉크 가운데를 재는 검사(`MoreFoot`·`CompactRowCentre`·`ShortRow`·`SymmetryAudit`·`SelectModeBar`)와 막대 단계 검사(`BarChip`)는 `fonts_ready()` 뒤에 화면을 찍으며, 어느 기계에서나 이 글꼴로 돈다. 다른 글꼴로 일부러 그려 보는 검사는 넓은 한글 글꼴로 자르는 상자를 보는 `HangulInkInClippingBoxes`다.
 
 ### 마크와 파비콘
 

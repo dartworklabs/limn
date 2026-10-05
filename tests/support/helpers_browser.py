@@ -91,6 +91,14 @@ def settle(page, timeout=15000):
     page.wait_for_function(QUIET, timeout=timeout, polling="raf")
 
 
+def fonts_ready(page):
+    """Wait for document.fonts.ready - every web font load the page has started has finished, so its text is drawn in
+    the bundled Pretendard Variable and not a fallback it shows meanwhile (docs/handbook/viewer.md §글꼴) - and return
+    document.fonts.status. A test that reads text ink from a screenshot calls it right before the shot: settle() waits for
+    font loads as well, and this says where the ink depends on it."""
+    return page.evaluate("document.fonts.ready.then(() => document.fonts.status)")
+
+
 def nothing_follows(page, ms=500):
     """The one bounded negative wait: settle, then let ms pass, so that an event only the browser would still send - a
     click it synthesizes after a tap, a back navigation from an overscroll swipe - has had the time to arrive before the
