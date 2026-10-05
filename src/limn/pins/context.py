@@ -10,7 +10,7 @@ from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any, NamedTuple, Protocol, TypeAlias
 
-from limn.builds import PinBuildQueries, pin_build_queries
+from limn.builds import PinBuildQueries
 from limn.pins.location.lookup import PinLocation
 from limn.pins.mentions import NoteTags
 from limn.pins.model import Actor, Agent, EventType, Person, Pin, PinNotFound
@@ -65,8 +65,10 @@ class PinContext:
     and hm ('HH:MM', stamped on an appended note). Notices are built by make_event and recorded by emit_events, only
     after the pin write committed; audit appends one audit.jsonl line (action, by, details) and flocks and fsyncs, so
     it is called outside the lock. trash_checked is the process's memo of the last Trash expiry check (one element).
-    watches_files and refresh_files answer for a pin record's document: whether its files are watched, and the effect
-    that pulls and imports them before a close awaiting review is written - called outside the lock.
+    builds is the build owner's query bundle of this run: required, because whoever assembles the context injects the
+    one the composition root wired and no pin module makes its own. watches_files and refresh_files answer for a pin
+    record's document: whether its files are watched, and the effect that pulls and imports them before a close
+    awaiting review is written - called outside the lock.
     """
 
     store: PinStore
@@ -86,7 +88,7 @@ class PinContext:
     thread_max: int  # cap on one pin's replies
     trash_days: int  # how long a dropped pin stays restorable
     trash_checked: list[float]
-    builds: PinBuildQueries = pin_build_queries()
+    builds: PinBuildQueries
     # Whether the document a pin record belongs to has its files watched (a figure document, a view-only PDF), and the
     # effect that brings those files up to date - one fast-forward pull and the import it lets in - before a close
     # awaiting review is written (lifecycle.rules.refreshes_before_close). By default nothing is watched.

@@ -5,7 +5,7 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Protocol, TypeAlias
 
-from limn.builds import PinBuildQueries, Publication, pin_build_queries
+from limn.builds import PinBuildQueries, Publication
 from limn.pins.editing.values import PDF_QUOTE_MAX
 from limn.pins.element import PinElement
 from limn.pins.location import figure, source
@@ -52,14 +52,14 @@ class PickContext:
     refused), the float environments of the range ladder (--float-envs), the state folder (for the "PDF older than the
     manuscript" check, and never part of the tree), the process's token-weight cache, the overlaps of a range with the
     stored open pins (file, lo, hi) -> [{"id", "lo", "hi", "rel"}], and build-owned queries for the requested
-    publication's assets, status and detached figure selection."""
+    publication's assets, status and detached figure selection - the run's injected bundle, required of every caller."""
 
     root: Path
     envs: Sequence[str]
     state: Path
     tokens: TokenCache
     overlaps: Callable[[str, int, int], list[dict[str, Any]]]
-    builds: PinBuildQueries = pin_build_queries()
+    builds: PinBuildQueries
 
 
 @dataclass(frozen=True)

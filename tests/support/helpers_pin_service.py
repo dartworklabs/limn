@@ -5,6 +5,7 @@ import threading
 import unittest
 from pathlib import Path
 
+from limn.builds import pin_build_queries
 from limn.pins.context import PinContext
 from limn.pins.editing import service as add_edit
 from limn.pins.editing.rules import AddRequest, LinePlace
@@ -99,7 +100,8 @@ class ServiceBase(unittest.TestCase):
         self.tmp.cleanup()
 
     def context(self, **over):
-        """A PinContext over this test's store and recorder; keyword arguments replace single collaborators."""
+        """A PinContext over this test's store and recorder, with build queries (and their map cache) made for this
+        call alone; keyword arguments replace single collaborators."""
         fields = dict(
             store=self.store,
             now=lambda: STAMP,
@@ -118,6 +120,7 @@ class ServiceBase(unittest.TestCase):
             thread_max=3,
             trash_days=30,
             trash_checked=self.checked,
+            builds=pin_build_queries(),
         )
         fields.update(over)
         return PinContext(**fields)

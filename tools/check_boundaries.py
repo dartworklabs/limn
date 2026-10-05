@@ -20,7 +20,6 @@ CROSSING_NAMES: CrossingNames = {
     ("limn.documents", "limn.pins"): {"PinCountQueries"},
     ("limn.pins", "limn.builds"): {
         "PinBuildQueries",
-        "pin_build_queries",
         "ElementFollower",
         "ElementFact",
         "ElementSelection",

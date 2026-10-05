@@ -13,6 +13,7 @@ from typing import Any
 
 import pytest
 
+from limn.builds import pin_build_queries
 from limn.pins.claims import http
 from limn.pins.claims.input import CLAIM_ETA_MAX, CLAIM_TTL_DEFAULT, CLAIM_TTL_MAX, ClaimBody, parse_claim_body
 from limn.pins.claims.service import PinClaims
@@ -46,7 +47,8 @@ def make_test_store(state: Path, initial_pins: Sequence[Pin]) -> PinStore:
 
 
 def make_test_context(store: PinStore, now_epoch: float = 1790000000.0) -> PinContext:
-    """Bind a real store to fixed time and inert notification sinks for claim service checks."""
+    """Bind a real store to fixed time, inert notification sinks and build queries made for this context alone, for
+    claim service checks."""
     return PinContext(
         store=store,
         now=lambda: "2026-09-28 12:00:00",
@@ -65,6 +67,7 @@ def make_test_context(store: PinStore, now_epoch: float = 1790000000.0) -> PinCo
         thread_max=100,
         trash_days=30,
         trash_checked=[0.0],
+        builds=pin_build_queries(),
     )
 
 
