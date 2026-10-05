@@ -13,7 +13,7 @@ POST_PATH = "/api/revision-build"
 def get(path: str, query: Query, doc: Doc, requests: RevisionRequests) -> Reply | None:
     """Answer one revision GET route, or let the next registered route match."""
     if path == "/api/revisions":
-        return json_reply(http.history(requests, doc))
+        return json_reply(http.history(requests, doc, query))
     if path == "/api/revision-diff":
         return json_reply(http.diff(requests, doc, query))
     if path == "/api/revision-build":

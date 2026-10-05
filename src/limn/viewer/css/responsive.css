@@ -169,7 +169,9 @@ body.lay-wide #more .more-top{padding-top:var(--space-2)}
   .arc-reply{min-height:var(--hit);display:flex;align-items:center}
   .q-hint,.q-hint button{font-size:var(--text-base)}   /* the suggestion button is also 44px (the global button rule); the text is bumped up a step */
   /* [변경 보기] phone/folded-layout QA (2026-09-25): commit selection was 18px, [빌드 경고 보기] was 16px tall */
-  #revision-list select,#revision-file-row select{min-height:var(--control-h-touch)}
+  #revision-file-row select{min-height:var(--control-h-touch)}
+  button.rc-row{min-height:var(--row-h-touch);padding:0 var(--space-3) 0 0;font-size:var(--text-base)}
+  button.rc-row.side{min-height:var(--row-h)}
   #revision-warning summary{line-height:var(--control-h-touch)}
   .arc-reply.open{display:block;padding:var(--space-2) 0}
   .th-n{min-height:var(--hit);min-width:var(--hit);justify-content:center}

@@ -124,3 +124,18 @@ interface RevTarget {
   near?: boolean;
   tokOf?: string;
 }
+
+// The changes view's quick range (revisions.js REV.range, issue #188): mode is a RANGE_MODE value, start and end the
+// commits it spans (start the older; equal for one commit), endSet whether the end was pressed after the start.
+interface RevRange {
+  mode: string;
+  start: string;
+  end: string;
+  endSet: boolean;
+}
+
+// The last-seen commit of a document in this browser (localStorage limnRevSeen): its id and when, as MM-DD HH:MM.
+interface RevSeen {
+  id: string;
+  at: string;
+}

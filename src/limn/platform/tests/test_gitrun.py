@@ -223,9 +223,9 @@ class CallSites(unittest.TestCase):
         return result
 
     def test_every_call_site_runs_a_clean_git(self):
-        """run_git, gitrun.git and git_exec, the history and the streamed diff, the --git-pull steps, the build's
-        head, the startup label's origin URL and the token file's repository check each start git cleanly - and,
-        despite GIT_DIR pointing nowhere, read the right repository."""
+        """run_git, gitrun.git and git_exec, the history and the streamed diff (through the window cache), the --git-pull
+        steps, the build's head, the startup label's origin URL and the token file's repository check each start git
+        cleanly - and, despite GIT_DIR pointing nowhere, read the right repository."""
         repo, (first, second) = self.repo, self.commits
         doc = SimpleNamespace(shows_revisions=True, main=repo / "main.tex", src=repo)
 
@@ -238,7 +238,9 @@ class CallSites(unittest.TestCase):
 
         history = self.assert_hygienic("revision_history", lambda: revisions.revision_history(doc))
         self.assertEqual([r["id"] for r in history["revisions"]], [second, first])
-        diff = self.assert_hygienic("revision_diff", lambda: revisions.revision_diff(doc, second, None, None))
+        # the request context's only part a plain diff reads is the run's window cache (its HEAD check runs git too)
+        context = SimpleNamespace(windows=revisions.WindowCache())
+        diff = self.assert_hygienic("revision_diff", lambda: revisions.revision_diff(doc, second, None, context))
         self.assertIn("+two", diff["diff"])
         changes = self.assert_hygienic(
             "revision_changes", lambda: revisions.revision_changes(repo, first, second, ["main.tex"])

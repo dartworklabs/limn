@@ -144,6 +144,17 @@ interface PeopleAnswer {
   me: Me;
 }
 
+// One commit of GET /api/revisions (newest first): its full id, commit date, subject, author name, ISO 8601 commit time and
+// full parent ids (first parent first; none for a root commit). author, time and parents since issue #188.
+interface RevisionRow {
+  id: string;
+  date: string;
+  subject: string;
+  author: string;
+  time: string;
+  parents: string[];
+}
+
 // One page image of the current build (meta `pages`), with its size in PDF points.
 interface PageImage {
   name: string;

@@ -4,15 +4,20 @@ from typing import Any, NoReturn
 
 from limn.revisions.core import (
     AllSlotsBusy,
+    BaseAfterHead,
+    BaseTooOld,
     BuildFailure,
     CommitNotRecent,
     DiffFailed,
     DiffUnavailable,
     DocumentBusy,
+    EmptyRange,
     FailureKind,
     NoHistory,
+    NoMergeBase,
     NoParent,
     NotInRepo,
+    RangeRefusal,
     RevisionNotReady,
     RevisionPdfMissing,
     RevisionRefusal,
@@ -54,24 +59,46 @@ def revision_refused(result: RevisionRefusal) -> NoReturn:
             raise scope_http_error(result)
 
 
-def revision_answer(result: dict[str, Any] | RevisionRefusal) -> dict[str, Any]:
-    """A revision route's JSON body (the source diff, or a comparison build's status), or its refusal's answer."""
+# A range's own refusals (issue #188, limn.revisions.core.RangeRefusal) -> (HTTP status, Korean text, API reason). A
+# table beside SCOPE_REJECTIONS, read by range_http_error; the text is contract like every error text.
+RANGE_REJECTIONS: dict[type[RangeRefusal], tuple[int, str, str]] = {
+    BaseAfterHead: (422, "비교 기준 커밋이 대상 커밋보다 새롭습니다.", "base_after_head"),
+    NoMergeBase: (422, "두 커밋에 공통 조상이 없어 비교할 수 없습니다.", "no_merge_base"),
+    EmptyRange: (422, "기준과 대상이 같은 커밋이라 비교 PDF를 만들 수 없습니다.", "empty_range"),
+    BaseTooOld: (404, "비교 기준 커밋이 이 문서의 최근 500개 커밋보다 오래됐습니다.", "base_too_old"),
+}
+
+
+def range_http_error(e: RangeRefusal) -> HTTPError:
+    """The HTTP form of a range's own refusal, from RANGE_REJECTIONS."""
+    code, msg, reason = RANGE_REJECTIONS[type(e)]
+    return HTTPError(code, msg, reason=reason)
+
+
+def revision_answer(result: dict[str, Any] | RevisionRefusal | RangeRefusal) -> dict[str, Any]:
+    """A revision route's JSON body (the history, the source diff, or a comparison build's status), or its refusal's
+    answer: a range's own through RANGE_REJECTIONS, every other through revision_refused."""
     if isinstance(result, dict):
         return result
+    if isinstance(result, BaseAfterHead | NoMergeBase | EmptyRange | BaseTooOld):
+        raise range_http_error(result)
     revision_refused(result)
 
 
-def revision_start_answer(result: dict[str, Any] | RevisionRefusal) -> tuple[dict[str, Any], int]:
+def revision_start_answer(result: dict[str, Any] | RevisionRefusal | RangeRefusal) -> tuple[dict[str, Any], int]:
     """POST /api/revision-build: the comparison build's status with 202 while it is running (just started or already
     under way), 200 once it has an answer (ready or failed); a refusal through revision_refused."""
     body = revision_answer(result)
     return body, 202 if body["state"] == "running" else 200
 
 
-def revision_pdf_answer(result: bytes | RevisionRefusal) -> bytes:
-    """GET /api/revision-pdf: the comparison PDF's bytes, or its refusal's answer."""
+def revision_pdf_answer(result: bytes | RevisionRefusal | RangeRefusal) -> bytes:
+    """GET /api/revision-pdf: the comparison PDF's bytes, or its refusal's answer (a range's own through
+    RANGE_REJECTIONS)."""
     if isinstance(result, bytes):
         return result
+    if isinstance(result, BaseAfterHead | NoMergeBase | EmptyRange | BaseTooOld):
+        raise range_http_error(result)
     revision_refused(result)
 
 

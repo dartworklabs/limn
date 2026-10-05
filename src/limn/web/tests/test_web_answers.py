@@ -17,11 +17,15 @@ import unittest
 from limn.revisions import answer as revision_answer, core as revisions
 from limn.revisions.core import (
     AllSlotsBusy,
+    BaseAfterHead,
+    BaseTooOld,
     CommitNotRecent,
     DiffFailed,
     DiffUnavailable,
     DocumentBusy,
+    EmptyRange,
     NoHistory,
+    NoMergeBase,
     NoParent,
     NotInRepo,
     RevisionNotReady,
@@ -75,6 +79,33 @@ def answer_of(refusal) -> HTTPError:
     except HTTPError as e:
         return e
     raise AssertionError("revision_refused returned for %r" % (refusal,))
+
+
+# A range's own refusals (issue #188): answered from RANGE_REJECTIONS, beside the table above.
+RANGE_REFUSALS = {
+    BaseAfterHead: (422, "비교 기준 커밋이 대상 커밋보다 새롭습니다.", "base_after_head"),
+    NoMergeBase: (422, "두 커밋에 공통 조상이 없어 비교할 수 없습니다.", "no_merge_base"),
+    EmptyRange: (422, "기준과 대상이 같은 커밋이라 비교 PDF를 만들 수 없습니다.", "empty_range"),
+    BaseTooOld: (404, "비교 기준 커밋이 이 문서의 최근 500개 커밋보다 오래됐습니다.", "base_too_old"),
+}
+
+
+class RangeRefusalTable(unittest.TestCase):
+    """A range's own refusals have their own table and are answered by every route answer the range reaches."""
+
+    def test_the_table_names_every_range_refusal(self):
+        """RANGE_REJECTIONS covers exactly limn.revisions.core.RangeRefusal, with the pinned texts and codes."""
+        self.assertEqual(set(typing.get_args(revisions.RangeRefusal)), set(RANGE_REFUSALS))
+        self.assertEqual(revision_answer.RANGE_REJECTIONS, RANGE_REFUSALS)
+
+    def test_a_range_refusal_is_answered_with_its_status_reason_and_text(self):
+        """revision_answer (JSON routes) and revision_pdf_answer (the PDF route) answer each range refusal with an
+        HTTPError of its status, text and reason, nothing more."""
+        for route in (revision_answer.revision_answer, revision_answer.revision_pdf_answer):
+            for kind, (status, text, reason) in RANGE_REFUSALS.items():
+                with self.subTest(route=route.__name__, refusal=kind.__name__), self.assertRaises(HTTPError) as cm:
+                    route(kind())
+                self.assertEqual((cm.exception.code, cm.exception.body), (status, {"error": text, "reason": reason}))
 
 
 class RevisionRefusalTable(unittest.TestCase):

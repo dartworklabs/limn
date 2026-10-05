@@ -11,14 +11,16 @@ import traceback
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, TypeAlias
+from typing import Any, Literal, TypeAlias
 
 from limn.platform.files import atomic_write
 from limn.revisions import core, execution
 from limn.revisions.core import (
+    RANGED_MARK,
     REVISION_CACHE_KEEP,
     REVISION_CACHE_TTL,
     REVISION_PDF_MAX,
+    REVISION_RANGED_KEEP,
     REVISION_SCOPED_KEEP,
     SCOPE_META,
     SCOPED_MARK,
@@ -28,6 +30,7 @@ from limn.revisions.core import (
     DocumentBusy,
     Json,
     PdfRefusal,
+    RangeRefusal,
     RevisionContext,
     RevisionDoc,
     RevisionNotReady,
@@ -117,9 +120,11 @@ def answered_from_cache(cached: CachedComparison, scoped: bool) -> bool:
 
 def status_body(status: ComparisonStatus, spec: RevisionSpec) -> Json:
     """The JSON a revision-build route answers with for spec in status: the stored or running fields with spec's
-    identity (job_id, base, head, engine) and, for a pin request, its per-request fields (spec.meta). A running job's
-    fields already carry the identity. Pure."""
-    meta: Mapping[str, Any] = spec.meta or {}
+    identity (job_id, base, head, engine) and its per-request fields - a pin request's (spec.meta), and merge_base for
+    a range compared from the merge base (issue #188). A running job's fields already carry the identity. Pure."""
+    meta: dict[str, Any] = dict(spec.meta or {})
+    if spec.merge_base is not None:
+        meta["merge_base"] = spec.merge_base
     identity = dict({"job_id": spec.key, "base": spec.base, "head": spec.head, "engine": "pdflatex"}, **meta)
     match status:
         case RunningComparison(fields=fields):
@@ -156,28 +161,48 @@ def revision_cached(spec: RevisionSpec, root: Path) -> CachedComparison:
         return IdleComparison()
 
 
-def revision_prune(root: Path, keep_key: str, running: Mapping[str, RunningComparison]) -> None:
-    """Removes expired comparisons and, newest first, those beyond the limits - REVISION_CACHE_KEEP whole-commit and
-    REVISION_SCOPED_KEEP pin-scoped ones (SCOPED_MARK), counted apart so pins never push out whole-commit PDFs. The
-    entry about to be built (keep_key, counted as one whole-commit slot as before) and running jobs are kept."""
+CacheClass: TypeAlias = Literal["whole", "scoped", "ranged"]
+CACHE_LIMITS: dict[CacheClass, int] = {
+    "whole": REVISION_CACHE_KEEP,
+    "scoped": REVISION_SCOPED_KEEP,
+    "ranged": REVISION_RANGED_KEEP,
+}
+
+
+def cache_class(path: Path) -> CacheClass:
+    """Which count a cached comparison folder belongs to: pin-scoped (SCOPED_MARK), ranged (RANGED_MARK) or whole."""
+    if (path / SCOPED_MARK).is_file():
+        return "scoped"
+    return "ranged" if (path / RANGED_MARK).is_file() else "whole"
+
+
+def revision_prune(
+    root: Path, keep_key: str, running: Mapping[str, RunningComparison], keep_class: CacheClass = "whole"
+) -> None:
+    """Removes expired comparisons and, newest first, those beyond the limits - REVISION_CACHE_KEEP whole-commit,
+    REVISION_SCOPED_KEEP pin-scoped (SCOPED_MARK) and REVISION_RANGED_KEEP ranged ones (RANGED_MARK), each counted
+    apart so pins and ranges never push out whole-commit PDFs. The entry about to be built (keep_key, counted as one
+    slot of keep_class: a range's for a ranged spec, else whole-commit as before) and running jobs are kept."""
     entries = [p for p in root.iterdir() if re.fullmatch(r"[0-9a-f]{64}", p.name) and p.is_dir() and not p.is_symlink()]
     entries.sort(key=lambda p: p.stat().st_mtime, reverse=True)
-    kept = {False: 1, True: 0}
+    kept: dict[CacheClass, int] = {"whole": 0, "scoped": 0, "ranged": 0}
+    kept[keep_class] += 1
     for path in entries:
         if path.name == keep_key or str(path) in running:
             continue
-        scoped = (path / SCOPED_MARK).is_file()
-        limit = REVISION_SCOPED_KEEP if scoped else REVISION_CACHE_KEEP
-        if kept[scoped] >= limit or time.time() - path.stat().st_mtime > REVISION_CACHE_TTL:
+        kind = cache_class(path)
+        if kept[kind] >= CACHE_LIMITS[kind] or time.time() - path.stat().st_mtime > REVISION_CACHE_TTL:
             shutil.rmtree(path)
         else:
-            kept[scoped] += 1
+            kept[kind] += 1
 
 
-def revision_status(D: RevisionDoc, commit: str, pin: int | None, ctx: RevisionContext) -> Json | StatusRefusal:
-    """GET /api/revision-build: the running job's status or the cached one, re-authorising the commit (and pin) on
-    every poll."""
-    spec = core.revision_spec(D, commit, pin, ctx)  # Reauthorize cache hits and poll requests too.
+def revision_status(
+    D: RevisionDoc, commit: str, pin: int | None, ctx: RevisionContext, base: str | None = None
+) -> Json | StatusRefusal | RangeRefusal:
+    """GET /api/revision-build: the running job's status or the cached one, re-authorising the commit (and pin, or a
+    range's base) on every poll."""
+    spec = core.revision_spec(D, commit, pin, ctx, base)  # Reauthorize cache hits and poll requests too.
     if not isinstance(spec, RevisionSpec):
         return spec
     with ctx.jobs.lock:
@@ -188,11 +213,13 @@ def revision_status(D: RevisionDoc, commit: str, pin: int | None, ctx: RevisionC
         return status_body(running if running is not None else revision_cached(spec, root), spec)
 
 
-def revision_start(D: RevisionDoc, commit: str, pin: int | None, ctx: RevisionContext) -> Json | StartRefusal:
+def revision_start(
+    D: RevisionDoc, commit: str, pin: int | None, ctx: RevisionContext, base: str | None = None
+) -> Json | StartRefusal | RangeRefusal:
     """POST /api/revision-build: returns the running job's status, or the cached one when answered_from_cache says so,
     or starts a worker thread and returns "running". Refused when both build slots or this document's lock are taken,
-    for an unsafe cache folder, and for what revision_spec refuses."""
-    spec = core.revision_spec(D, commit, pin, ctx)
+    for an unsafe cache folder, and for what revision_spec refuses (a range's refusals with base)."""
+    spec = core.revision_spec(D, commit, pin, ctx, base)
     if not isinstance(spec, RevisionSpec):
         return spec
     with ctx.jobs.lock:
@@ -227,7 +254,7 @@ def _start_job(
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError:
             return DocumentBusy()
-        revision_prune(root, spec.key, jobs.active)
+        revision_prune(root, spec.key, jobs.active, "ranged" if spec.ranged else "whole")
         if jobdir.is_symlink():
             return UnsafeCache()
         if jobdir.exists():
@@ -235,6 +262,8 @@ def _start_job(
         jobdir.mkdir()
         if spec.scope:
             (jobdir / SCOPED_MARK).write_text("")
+        if spec.ranged:
+            (jobdir / RANGED_MARK).write_text("")
         running = RunningComparison(
             dict(_without_meta(status_body(cached, spec)), state="running", error=None, reason=None, warnings=[])
         )
@@ -290,10 +319,12 @@ def _run_job(
             owned.close()
 
 
-def revision_pdf(D: RevisionDoc, commit: str, pin: int | None, ctx: RevisionContext) -> bytes | PdfRefusal:
-    """GET /api/revision-pdf: the finished comparison PDF of the commit (or of the pin's part of it). Refused when it is
-    not ready, has expired or cannot be read, and for what revision_spec refuses."""
-    spec = core.revision_spec(D, commit, pin, ctx)
+def revision_pdf(
+    D: RevisionDoc, commit: str, pin: int | None, ctx: RevisionContext, base: str | None = None
+) -> bytes | PdfRefusal | RangeRefusal:
+    """GET /api/revision-pdf: the finished comparison PDF of the commit (or of the pin's part of it, or of the range
+    from base). Refused when it is not ready, has expired or cannot be read, and for what revision_spec refuses."""
+    spec = core.revision_spec(D, commit, pin, ctx, base)
     if not isinstance(spec, RevisionSpec):
         return spec
     with ctx.jobs.lock:

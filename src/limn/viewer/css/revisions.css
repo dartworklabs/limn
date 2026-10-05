@@ -29,7 +29,7 @@ body.lay-narrow #revision-source,body.lay-narrow #revision-pdf,body.lay-narrow #
 #revision-list{min-width:0;flex:1}
 #revision-list select{width:100%;max-width:470px;min-width:0;background:var(--sidebar);font-size:var(--text-sm)}
 #revision-note{color:var(--muted-foreground);font-size:var(--text-xs);padding:var(--space-1) var(--space-4);background:var(--sidebar)}
-#revision-file-row{display:flex;align-items:center;gap:var(--space-2);margin-bottom:var(--space-2);font-size:var(--text-sm)}
+#revision-file-row{display:flex;align-items:center;gap:var(--space-2);margin-bottom:var(--space-2);padding:var(--space-2) var(--space-3) 0;font-size:var(--text-sm)}
 #revision-file-row select{max-width:min(100%,500px);background:var(--sidebar)}
 #revision-other,#revision-diff{white-space:pre;max-height:none;overflow:auto;margin:0;padding:0;background:var(--sidebar);font-size:var(--text-sm);line-height:1.7}
 #revision-other .rd-line,#revision-diff .rd-line{display:block;width:max-content;min-width:100%;min-height:1.7em}
@@ -79,3 +79,61 @@ body.lay-narrow #revision-view[data-format=overlay] #revision-head{display:none}
   padding:1px var(--space-2);border-radius:var(--radius-sm);box-shadow:var(--shadow-sm);line-height:1.5}
 #revision-zoom{display:flex;align-items:center;gap:var(--space-1);margin-left:auto}
 #revision-zoom-value{min-width:4ch;text-align:center;font-size:var(--text-sm);font-variant-numeric:tabular-nums}
+/* Comparing two commits (issue #188, docs/handbook/viewer.md §변경 보기): the quick range (#revision-range, the one segmented
+   control) in the header, and the commit list (#revision-commits) beside the changes - a 304px column on a wide screen, above
+   them on the phone (responsive.css). Each row is a commit on one rail, newest first: the range's rows ride a primary rail, its
+   ends bold, a merge's dot ringed, the base (left out of the range) a hollow primary dot, the commits after the last-seen one
+   tagged new below the line that says where reading stopped. The overlay of a figure document compares builds, not commits:
+   the picker steps aside there. */
+#revision-range.seg{margin:0;flex:0 1 480px;min-width:0}
+#revision-range button{flex:1 1 auto;min-width:0}
+#revision-range button .k{margin-left:var(--space-1)}
+#revision-range button .lbl{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#revision-view[data-format=overlay] #revision-range,#revision-view[data-format=overlay] #revision-commits{display:none}
+#revision-body{flex:1;min-height:0;display:flex}
+#revision-pane{flex:1;min-width:0;min-height:0;display:flex;flex-direction:column}
+#revision-commits{flex:none;width:304px;display:flex;flex-direction:column;min-height:0;overflow:auto;background:var(--sidebar);
+  border-right:1px solid var(--border)}
+.rc-head{padding:var(--space-2) var(--space-3);font-size:var(--text-xs);color:var(--muted-foreground);border-bottom:1px solid var(--border)}
+.rc-list{display:flex;flex-direction:column}
+button.rc-row{position:relative;display:flex;align-items:stretch;justify-content:flex-start;gap:var(--space-2);width:100%;min-height:var(--row-h);
+  padding:0 var(--space-3) 0 0;border:0;border-radius:0;background:transparent;color:var(--foreground);text-align:left;font-weight:400}
+.rc-rail{position:relative;flex:none;width:32px}
+.rc-rail::before{content:'';position:absolute;left:15px;top:0;bottom:0;width:2px;background:var(--border)}
+.rc-row.first .rc-rail::before{top:50%}
+.rc-row.last .rc-rail::before{bottom:50%}
+.rc-dot{position:absolute;left:10px;top:calc(50% - 6px);width:12px;height:12px;border-radius:50%;box-sizing:border-box;
+  background:var(--sidebar);border:2px solid var(--border-strong)}
+.rc-row.merge .rc-dot{border-width:4px;border-style:double}
+.rc-row.side .rc-rail{width:52px}
+.rc-row.side .rc-rail::after{content:'';position:absolute;left:15px;top:0;width:22px;height:50%;border-left:2px solid var(--border);
+  border-bottom:2px solid var(--border);border-bottom-left-radius:var(--radius-lg)}
+.rc-row.side.in .rc-rail::after{border-color:var(--primary)}
+.rc-row.side .rc-dot{left:34px;top:calc(50% - 5px);width:10px;height:10px}
+.rc-row.side .rc-t{font-size:var(--text-sm)}
+.rc-txt{display:flex;flex-direction:column;justify-content:center;gap:2px;flex:1;min-width:0;padding:var(--space-1) 0}
+.rc-t{font-size:var(--text-base);line-height:16px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rc-m{font-size:var(--text-xs);line-height:16px;color:var(--muted-foreground);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rc-code{font-family:var(--font-mono);color:var(--subtle-foreground)}
+.rc-tag{align-self:center;flex:none;padding:0 var(--space-2);border-radius:var(--radius-sm);font-size:var(--text-xs);line-height:20px;font-weight:600;
+  background:color-mix(in srgb,var(--success) 14%,transparent);color:var(--success)}
+.rc-row.in{background:color-mix(in srgb,var(--primary) 7%,transparent)}
+.rc-row.in .rc-rail::before{background:var(--primary)}
+.rc-row.in .rc-dot{border-color:var(--primary);background:var(--primary)}
+.rc-row.end .rc-t{font-weight:600}
+.rc-row.base .rc-dot{border-color:var(--primary)}
+.rc-seen{display:flex;align-items:center;gap:var(--space-2);min-height:28px;padding:0 var(--space-3) 0 var(--space-2);font-size:var(--text-xs);color:var(--success)}
+.rc-seen::before,.rc-seen::after{content:'';flex:1;height:1px;background:color-mix(in srgb,var(--success) 50%,transparent)}
+.rc-seen::before{flex:0 0 16px}
+#revision-more{width:100%;justify-content:flex-start;padding-left:var(--space-3);padding-right:var(--space-3);border-radius:0;
+  border-top:1px solid var(--border);color:var(--muted-foreground);font-size:var(--text-sm)}
+@media (hover:hover){button.rc-row:hover{background:var(--accent);color:var(--accent-foreground)}}
+/* The phone and tablet sheet: the quick range spans the header, the list sits above the changes (REVISION_PHONE_ROWS rows until
+   [더 보기]) and scrolls with the source diff in one box; the comparison PDF keeps its own scroll box, a view tall, below it. */
+body.lay-narrow #revision-range.seg{flex:1 1 auto}
+body.lay-narrow #revision-body{flex-direction:column;overflow-y:auto}
+body.lay-narrow #revision-commits{width:auto;overflow:visible;border-right:0;border-bottom:1px solid var(--border)}
+body.lay-narrow .rc-head{display:none}
+body.lay-narrow #revision-pane{flex:none;height:100%}
+body.lay-narrow #revision-view[data-format=source] #revision-pane{height:auto}
+body.lay-narrow #revision-view[data-format=source] #revision-source{flex:none;overflow:visible}

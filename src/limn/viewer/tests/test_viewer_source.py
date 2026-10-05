@@ -323,6 +323,8 @@ VIEWER_SETS = {
     "CARD_DOT",
     "DIFF_FORMAT",
     "OVERLAY_SIDE",
+    "RANGE_MODE",
+    "SEEN_STATE",
     "VIEW_MODE",
     "UI_LANG",
     "NOTIFY_STATE",
