@@ -2,12 +2,15 @@
 // builds from /api/revisions (null for any other document), side the one its overlay shows, history whether it has commits.
 // Issue #188: base is a range's old side ('' for one commit against its first parent); rows the loaded commits (newest
 // first, REVISION_PAGE a page) of rowsDoc, more whether older ones remain; range the quick range and its ends (RevRange);
-// seen this browser's last-seen commit of the document; listOpen whether the phone shows every loaded row; rangeLine the
-// range's summary for the status line.
+// seen this browser's last-seen commit of the document, seenState what the server said of it (SEEN_STATE), seenN how many
+// commits it compares with the newest and seenIds which (the server's count, never the list's positions); rangeIds the
+// commits the shown range compares (the server's commit_ids; null until it answers), rangeBase its old side; listOpen
+// whether the phone shows every loaded row; rangeLine the range's summary for the status line.
 const REV={seq:0,files:/** @type {{name:string,text:string}[]} */([]),whole:'',commit:'',sourceCommit:'',format:/** @type {string} */(DIFF_FORMAT.PDF),scope:/** @type {any} */(null),other:'',target:/** @type {RevTarget|null} */(null),pdfCommit:'',back:/** @type {string|null} */(null),
   overlay:/** @type {RevisionOverlay|null} */(null),side:/** @type {string} */(OVERLAY_SIDE.CUR),history:false,
   base:'',rows:/** @type {RevisionRow[]} */([]),rowsDoc:'',more:false,range:/** @type {RevRange} */({mode:RANGE_MODE.ONE,start:'',end:'',endSet:false}),
-  seen:/** @type {RevSeen|null} */(null),listOpen:false,rangeLine:''};
+  seen:/** @type {RevSeen|null} */(null),seenState:/** @type {string} */(SEEN_STATE.NONE),seenN:0,seenIds:/** @type {Set<string>} */(new Set()),
+  rangeIds:/** @type {string[]|null} */(null),rangeBase:'',listOpen:false,rangeLine:''};
 const REVISION_PAGE=30;   // rows of one /api/revisions page (the server's history window is 500, api.md)
 const REVISION_RECENT=12;   // the commits [변경 보기] picks a pin's commit among - the server resolves a close_ref among the same
 const REVISION_PHONE_ROWS=5;   // rows the phone's list shows before [더 보기]
@@ -119,7 +122,8 @@ async function loadRevisions(){
   catch(e){if(seq===REV.seq)list.textContent='변경사항을 읽지 못했습니다.';return;}
   if(seq!==REV.seq||k!==DOC)return;
   const rows=/** @type {RevisionRow[]} */(data.available?data.revisions:[]),kept=REV.range;
-  REV.rows=rows; REV.rowsDoc=k||''; REV.more=!!data.more; REV.seen=revSeen(k||''); if(!again)REV.listOpen=false;
+  REV.rows=rows; REV.rowsDoc=k||''; REV.more=!!data.more; if(!again)REV.listOpen=false;
+  if(!again||!REV.seen||REV.seenState!==SEEN_STATE.OK)openSeen(revSeen(k||''),rows);
   REV.history=!!data.available&&rows.length>0; setRevisionOverlay(data.overlay||null);
   const fig=!!REV.overlay; REV.format=revisionFormatFor(REV.format,fig); drawRevisionFormat();   // a LaTeX document after a figure leaves the overlay
   $('#revision-controls').hidden=!REV.history&&!fig; $('#revision-note').hidden=!REV.history;
@@ -131,24 +135,29 @@ async function loadRevisions(){
   if(!rows.length){list.textContent='이 문서의 최근 변경사항이 없습니다.'; drawRange();
     if(fig)setRevisionFormat(DIFF_FORMAT.OVERLAY); else if(tg)revTargetNote('이 문서의 최근 12개 커밋에 변경이 없습니다.'); return;}
   list.hidden=true; list.textContent='';
-  if(tg){const pick=await pickRevisionFor(tg,rows.slice(0,REVISION_RECENT),seq,k); if(seq!==REV.seq||k!==DOC||REV.target!==tg)return;
+  // A pin's commit is picked among the window's first rows - the same rows, in the same order, the server resolves the
+  // pin's close_ref among (api.md §두 커밋 사이).
+  if(tg){if(REV.seenState===SEEN_STATE.PENDING)resolveSeen(k||'',rows[0].id);
+    const pick=await pickRevisionFor(tg,rows.slice(0,REVISION_RECENT),seq,k); if(seq!==REV.seq||k!==DOC||REV.target!==tg)return;
     tg.commit=pick.id; tg.via=pick.via; tg.hit=pick.hit; REV.range={mode:RANGE_MODE.ONE,start:pick.id,end:pick.id,endSet:false};
     // a figure's lines and pictures are both exact: its overlay opens first; a LaTeX pin's lines exist only in the source diff
-    drawRange(); if(fig)showRevision(pick.id,DIFF_FORMAT.OVERLAY); else showRevision(pick.id,DIFF_FORMAT.SOURCE); return;}
-  // The same document read again while the view is open (a new build) keeps the range shown, moved to the newest commit.
-  if(again&&rows.some(r=>r.id===kept.start)){showRange(kept.mode===RANGE_MODE.ONE?kept:{...kept,end:kept.endSet?kept.end:rows[0].id},REV.format);return;}
-  if(seenCount(rows,REV.seen)>0&&!fig){showRange(rangeMode(rows,REV.range,RANGE_MODE.LAST,REV.seen));return;}
+    if(fig)showRevision(pick.id,DIFF_FORMAT.OVERLAY); else showRevision(pick.id,DIFF_FORMAT.SOURCE); drawRange(); return;}
+  // The same document read again while the view is open (a new build) keeps the range shown, moved to the newest commit;
+  // a range comes back in its source diff, so a new build never starts its comparison PDF (only [변경 PDF] does).
+  if(again&&rows.some(r=>r.id===kept.start)){if(REV.seenState===SEEN_STATE.OK&&kept.mode!==RANGE_MODE.LAST)resolveSeen(k||'',rows[0].id);
+    showRange(kept.mode===RANGE_MODE.ONE?kept:{...kept,end:kept.endSet?kept.end:rows[0].id},REV.format);return;}
+  if(REV.seenState===SEEN_STATE.PENDING&&!fig){showRange(rangeMode(rows,REV.range,RANGE_MODE.LAST,REV.seen));return;}
+  if(REV.seenState===SEEN_STATE.PENDING)resolveSeen(k||'',rows[0].id);
   const id=rows.some(r=>r.id===REV.commit)?REV.commit:rows[0].id;
-  REV.range={mode:RANGE_MODE.ONE,start:id,end:id,endSet:false}; drawRange();
-  showRevision(id,fig?DIFF_FORMAT.OVERLAY:undefined);
+  REV.range={mode:RANGE_MODE.ONE,start:id,end:id,endSet:false};
+  showRevision(id,fig?DIFF_FORMAT.OVERLAY:undefined); drawRange();
 }
 // ------------------------------------------------ Comparing two commits (issue #188, docs/handbook/viewer.md §변경 보기)
 // The quick range [마지막으로 본 뒤 N | 이 커밋부터 | 이 커밋만] (#revision-range) and the commit list that stays on screen
 // (#revision-commits). The rules below are pure functions of the loaded rows (newest first); showRange() shows their request.
+// What is painted and counted comes from the server's range answer (commit_ids, commits): a range follows ancestry, which the
+// list's positions do not show (a merged line, a base on another line, a pull that merged older commits).
 
-/** How many loaded rows are newer than the last-seen commit seen: 0 when it is the newest, -1 without a record or when it is
- * not among the rows. Pure. @param {{id:string}[]} rows @param {RevSeen|null} seen */
-function seenCount(rows,seen){return seen?rows.findIndex(r=>r.id===seen.id):-1;}
 /** The range after a row press (id): in [이 커밋만] that commit alone; otherwise that commit to the newest - except that, right
  * after such a press, a newer row ends the range there, and the start pressed again is that commit alone. Pure.
  * @param {{id:string}[]} rows @param {RevRange} rg @param {string} id @returns {RevRange} */
@@ -157,11 +166,11 @@ function rangePress(rows,rg,id){const at=x=>rows.findIndex(r=>r.id===x),newest=r
   if(rg.mode===RANGE_MODE.FROM&&id===rg.start)return {mode:RANGE_MODE.FROM,start:id,end:id,endSet:true};
   if(rg.mode===RANGE_MODE.FROM&&!rg.endSet&&at(id)>=0&&at(id)<at(rg.start))return {mode:RANGE_MODE.FROM,start:rg.start,end:id,endSet:true};
   return {mode:RANGE_MODE.FROM,start:id,end:newest,endSet:false};}
-/** The range after a segment press: [마지막으로 본 뒤] the commits after the last-seen one; [이 커밋부터] the commit in focus to
+/** The range after a segment press: [마지막으로 본 뒤] the last-seen commit to the newest; [이 커밋부터] the commit in focus to
  * the newest; [이 커밋만] the commit in focus alone (the newest after [마지막으로 본 뒤]). Pure.
  * @param {{id:string}[]} rows @param {RevRange} rg @param {string} mode @param {RevSeen|null} seen @returns {RevRange} */
 function rangeMode(rows,rg,mode,seen){const newest=rows.length?rows[0].id:rg.end;
-  if(mode===RANGE_MODE.LAST){const n=seenCount(rows,seen); return {mode,start:n>0?rows[n-1].id:newest,end:newest,endSet:false};}
+  if(mode===RANGE_MODE.LAST)return {mode,start:newest,end:newest,endSet:false};
   const focus=rg.mode===RANGE_MODE.LAST&&mode===RANGE_MODE.ONE?rg.end:rg.start;
   return {mode,start:focus,end:mode===RANGE_MODE.FROM?newest:focus,endSet:false};}
 /** What a range asks the server: {commit, base}, base '' for one commit against its first parent. [마지막으로 본 뒤] compares
@@ -173,11 +182,10 @@ function rangeRequest(rows,rg,seen){
   if(rg.mode!==RANGE_MODE.FROM||rg.start===rg.end)return {commit:rg.start,base:''};
   const s=rows.find(r=>r.id===rg.start);
   return s&&s.parents.length?{commit:rg.end,base:s.parents[0]}:{commit:rg.start,base:''};}
-/** The loaded rows a range covers, by their place in the list (newest first). Pure.
- * @param {{id:string}[]} rows @param {RevRange} rg @param {RevSeen|null} seen @returns {string[]} */
-function rangeIds(rows,rg,seen){const at=x=>rows.findIndex(r=>r.id===x);
-  if(rg.mode===RANGE_MODE.LAST)return rows.slice(0,Math.max(seenCount(rows,seen),0)).map(r=>r.id);
-  const a=at(rg.end),b=at(rg.start); return a<0||b<0?[rg.start]:rows.slice(Math.min(a,b),Math.max(a,b)+1).map(r=>r.id);}
+/** The commits the list paints for request req: one commit itself; a range the commits the server's answer names (ids,
+ * its commit_ids), none while that answer is unknown. Pure. @param {{commit:string,base:string}} req
+ * @param {string[]|null} ids @returns {string[]} */
+function paintedIds(req,ids){return req.base?(ids||[]).slice():[req.commit];}
 /** The rows of merged lines: those between a merge and its first parent, when that parent is loaded. Pages come in ancestry
  * order (the server's --topo-order), so a merged line's commits sit right below their merge; a merge whose first parent is
  * not loaded marks nothing. Pure. @param {{id:string,parents:string[]}[]} rows @returns {Set<string>} */
@@ -186,44 +194,53 @@ function sideRows(rows){const out=new Set();
   return out;}
 // The key a source diff or comparison PDF was loaded for: the commit, or base..commit for a range.
 function revKey(){return REV.base?REV.base+'..'+REV.commit:REV.commit;}
-// Shows range rg: draws the picker and opens what it asks - a range in its source diff first (its comparison PDF is built only
-// when [변경 PDF] is pressed), one commit as a list choice always opened (format undefined: the comparison PDF of a LaTeX
-// document, the format shown of a figure document).
+// Shows range rg: opens what it asks, then draws the picker - a range always in its source diff (its comparison PDF is built
+// only when [변경 PDF] is pressed, whatever format was shown), one commit as a list choice always opened (format undefined:
+// the comparison PDF of a LaTeX document, the format shown of a figure document).
 /** @param {RevRange} rg @param {string} [format] */
-function showRange(rg,format){REV.range=rg; const q=rangeRequest(REV.rows,rg,REV.seen); drawRange();
-  showRevision(q.commit,q.base?format||DIFF_FORMAT.SOURCE:format,q.base);}
+function showRange(rg,format){REV.range=rg; const q=rangeRequest(REV.rows,rg,REV.seen);
+  showRevision(q.commit,q.base?format===DIFF_FORMAT.OVERLAY?format:DIFF_FORMAT.SOURCE:format,q.base); drawRange();}
 // A row of the list pressed (rangePress) and a quick-range segment pressed (rangeMode).
 function pressRevisionRow(id){if(id)showRange(rangePress(REV.rows,REV.range,id));}
 function setRevisionRange(mode){if(!REV.rows.length||mode===REV.range.mode)return; showRange(rangeMode(REV.rows,REV.range,mode,REV.seen));}
 // Draws the quick range: the pressed segment, and [마지막으로 본 뒤 N] - hidden without a record of this document in this
-// browser, not pressable when nothing is new (N = 0). Then the list.
-function drawRange(){const rows=REV.rows,rg=REV.range,n=seenCount(rows,REV.seen);
+// browser; N is the server's count ('…' while it is asked); not pressable when nothing is new (N = 0) or the record could not
+// be read; a record the history no longer has says so (SEEN_STATE.GONE). Then the list.
+function drawRange(){const rows=REV.rows,rg=REV.range,st=REV.seenState;
   $('#revision-range').hidden=!rows.length;
   for(const b of /** @type {HTMLButtonElement[]} */($$('#revision-range [role=radio]'))){const on=b.dataset.range===rg.mode;
     b.setAttribute('aria-checked',String(on)); b.classList.toggle('on',on);
-    if(b.dataset.range===RANGE_MODE.LAST){b.hidden=n<0; b.disabled=n===0; const k=b.querySelector('.k'); if(k)k.textContent=n>=0?String(n):'';}}
+    if(b.dataset.range!==RANGE_MODE.LAST)continue;
+    const lbl=b.querySelector('.lbl'),k=b.querySelector('.k');
+    b.hidden=st===SEEN_STATE.NONE; b.disabled=st!==SEEN_STATE.OK&&st!==SEEN_STATE.PENDING||st===SEEN_STATE.OK&&REV.seenN===0;
+    if(lbl)lbl.textContent=tr(st===SEEN_STATE.GONE?'기록한 커밋을 찾을 수 없음':'마지막으로 본 뒤');
+    if(k)k.textContent=st===SEEN_STATE.OK?String(REV.seenN):st===SEEN_STATE.PENDING?'…':'';}
   renderCommitList();}
 // A commit's time as the list shows it: MM-DD HH:MM of its ISO commit time (the committer's own clock), else its date.
 /** @param {RevisionRow} r */
 function rowWhen(r){const t=String(r.time||'');return /^\d{4}-\d\d-\d\dT\d\d:\d\d/.test(t)?t.slice(5,10)+' '+t.slice(11,16):String(r.date||'');}
 // The commit list (#revision-commits): a row per loaded commit with its subject, author, time and short hash; a merged line's
-// rows indented under their merge (sideRows); the range's rows on the rail, its ends bold, the commits after the last-seen one marked new below a line saying where reading stopped. The
-// phone shows REVISION_PHONE_ROWS rows until [더 보기]; [더 보기] then reads the next page while the server has more.
-function renderCommitList(){const box=$('#revision-commits'),rows=REV.rows,rg=REV.range,seen=REV.seen,n=seenCount(rows,seen);
+// rows indented under their merge (sideRows). The commits the shown comparison covers (paintedIds - the server's, never the
+// rows' positions) ride the rail, the first and last of them bold, its old side (left out) a hollow dot; the commits the
+// server counts since the last-seen one are marked new, with a line above the last-seen row saying where reading stopped.
+// The phone shows REVISION_PHONE_ROWS rows until [더 보기]; [더 보기] then reads the next page while the server has more.
+function renderCommitList(){const box=$('#revision-commits'),rows=REV.rows,seen=REV.seen;
   box.hidden=!rows.length; if(!rows.length){box.replaceChildren();return;}
   const focused=/** @type {HTMLElement|null} */(document.activeElement),refocus=focused&&focused.classList.contains('rc-row')?focused.dataset.commit:null;
-  const ids=rangeIds(rows,rg,seen),inside=new Set(ids),side=sideRows(rows),ends=new Set([ids[0],ids[ids.length-1]]),base=rangeRequest(rows,rg,seen).base;
+  const inside=new Set(paintedIds({commit:REV.commit,base:REV.base},REV.rangeIds)),side=sideRows(rows),fresh=REV.seenState===SEEN_STATE.OK?REV.seenIds:new Set();
+  const order=rows.filter(r=>inside.has(r.id)).map(r=>r.id),ends=new Set([order[0],order[order.length-1]]),base=REV.base?REV.rangeBase||REV.base:'';
+  const seenAt=REV.seenState===SEEN_STATE.OK&&seen?rows.findIndex(r=>r.id===seen.id):-1;
   const cut=LAYOUT===LAYOUT_MODE.NARROW&&!REV.listOpen?Math.min(REVISION_PHONE_ROWS,rows.length):rows.length;
   const items=rows.map((r,i)=>{const cls=['rc-row'];
     if(inside.has(r.id))cls.push('in'); if(ends.has(r.id))cls.push('end'); if(r.parents.length>1)cls.push('merge'); if(side.has(r.id))cls.push('side');
-    if(r.id===base)cls.push('base'); if(n>0&&i<n)cls.push('new'); if(i===0)cls.push('first'); if(i===rows.length-1)cls.push('last');
-    const line=n>0&&i===n?html`<div class="rc-seen" data-i="${i}">${seen&&seen.at?tl('{when} 여기까지 봄',{when:seen.at}):tr('여기까지 봄')}</div>`:'';
+    if(r.id===base)cls.push('base'); if(fresh.has(r.id))cls.push('new'); if(i===0)cls.push('first'); if(i===rows.length-1)cls.push('last');
+    const line=i===seenAt&&i>0?html`<div class="rc-seen" data-i="${i}">${seen&&seen.at?tl('{when} 여기까지 봄',{when:seen.at}):tr('여기까지 봄')}</div>`:'';
     return html`${line}<button class="${cls.join(' ')}" data-act="revision-row" data-commit="${r.id}" data-i="${i}" aria-pressed="${inside.has(r.id)}">\
 <span class="rc-rail" aria-hidden="true"><span class="rc-dot"></span></span><span class="rc-txt"><span class="rc-t" translate="no">${r.subject}</span>\
 <span class="rc-m"><span translate="no">${r.author||''}</span> · ${rowWhen(r)} · <span class="rc-code" translate="no">${r.id.slice(0,7)}</span></span></span>\
-${n>0&&i<n?html`<span class="rc-tag">새로</span>`:''}</button>`;});
+${fresh.has(r.id)?html`<span class="rc-tag">새로</span>`:''}</button>`;});
   const more=cut<rows.length?tl('이전 커밋 {n}개 더 보기',{n:rows.length-cut}):REV.more?tr('이전 커밋 더 보기'):'';
-  const hint=rg.mode===RANGE_MODE.ONE?'최신이 위 · 누르면 그 커밋 하나':'최신이 위 · 누르면 그 커밋부터 지금까지';
+  const hint=REV.range.mode===RANGE_MODE.ONE?'최신이 위 · 누르면 그 커밋 하나':'최신이 위 · 누르면 그 커밋부터 지금까지';
   setHtml(box,html`<div class="rc-head">${tr(hint)}</div><div class="rc-list">${items}</div>\
 ${more?html`<button id="revision-more" class="btn-ghost" data-act="revision-more">${ic('chevron-down')}<span>${more}</span></button>`:''}`);
   for(const el of /** @type {HTMLElement[]} */($$('#revision-commits [data-i]')))el.hidden=Number(el.dataset.i)>=cut;
@@ -236,15 +253,39 @@ async function moreRevisions(){
   try{data=(await api(dq('/api/revisions?before='+encodeURIComponent(last)+'&limit='+REVISION_PAGE,k),{what:'변경사항 읽기'})).data;}catch(e){return;}
   if(k!==DOC||REV.rowsDoc!==k||!REV.rows.length||REV.rows[REV.rows.length-1].id!==last)return;
   REV.rows=REV.rows.concat(data.revisions||[]); REV.more=!!data.more; renderCommitList();}
+// ------------------------------------------------ The last-seen commit (docs/handbook/viewer.md §변경 보기)
 // This browser's last-seen commit per document (localStorage limnRevSeen: {<doc>:{id, at}}). No server state: another
-// browser or device keeps its own.
+// browser or device keeps its own. The server says what it is (resolveSeen): how many commits it compares with the newest,
+// or that it is no longer in the history. A record is never overwritten until the server has answered for it.
 /** @returns {Record<string,RevSeen>} */
 function revSeenAll(){try{const v=JSON.parse(localStorage.getItem('limnRevSeen')||'{}');return v&&typeof v==='object'?v:{};}catch(e){return {};}}
 /** @param {string} k @returns {RevSeen|null} */
 function revSeen(k){const v=revSeenAll()[k]; return v&&typeof v.id==='string'?{id:v.id,at:String(v.at||'')}:null;}
-// Leaving the changes view (to the manuscript, another document, or closing the page): the document's newest loaded commit
-// becomes its last-seen one, with this moment as MM-DD HH:MM. The list is forgotten, so coming back starts afresh.
+// Takes the document's record for this visit: none, the newest commit itself (0 new, nothing to ask), or one to ask about.
+/** @param {RevSeen|null} seen @param {RevisionRow[]} rows */
+function openSeen(seen,rows){REV.seen=seen; REV.seenIds=new Set(); REV.seenN=0;
+  REV.seenState=!seen?SEEN_STATE.NONE:rows.length&&rows[0].id===seen.id?SEEN_STATE.OK:SEEN_STATE.PENDING;}
+// The server's answer for the last-seen range (seen..newest): its count and commits, or why it has none. A refusal that says
+// the commit is not in this document's history (or shares none with it) is a record the history no longer has; any other
+// failure leaves the record unread, and so kept.
+/** @param {any} r the /api/revision-diff answer with base */
+function seenAnswered(r){REV.seenState=SEEN_STATE.OK; REV.seenN=Number(r.commits)||0; REV.seenIds=new Set(r.commit_ids||[]);}
+/** @param {unknown} e */
+function seenFailed(e){const d=/** @type {any} */(e&&/** @type {ApiError} */(e).data),why=d&&d.reason;
+  REV.seenState=why==='commit_not_recent'||why==='no_merge_base'||why==='base_after_head'?SEEN_STATE.GONE:SEEN_STATE.ERROR;}
+// Asks the server about the last-seen commit when the view does not open on its range (a pin's [변경 보기], a figure's overlay).
+/** @param {string} k @param {string} newest */
+async function resolveSeen(k,newest){const seen=REV.seen; if(!seen)return;
+  try{const r=(await api(dq('/api/revision-diff?commit='+encodeURIComponent(newest)+'&base='+encodeURIComponent(seen.id),k),{what:'변경사항 읽기',silent:true})).data;
+    if(k===DOC&&REV.seen===seen)seenAnswered(r);}
+  catch(e){if(k===DOC&&REV.seen===seen)seenFailed(e);}
+  if(k===DOC&&REV.seen===seen)drawRange();}
+// Leaving the changes view (to the manuscript, another document, or closing the page): once the server has answered for the
+// record (or there was none), the document's newest loaded commit becomes its last-seen one, with this moment as MM-DD HH:MM.
+// A record still being asked about, or one the server could not answer for, is kept. The list is forgotten, so coming back
+// starts afresh.
 function leaveRevisions(){const k=REV.rowsDoc,top=REV.rows[0]; REV.rowsDoc=''; if(!k||!top)return;
+  if(REV.seenState===SEEN_STATE.PENDING||REV.seenState===SEEN_STATE.ERROR)return;
   const d=new Date(),p=n=>String(n).padStart(2,'0'),all=revSeenAll();
   all[k]={id:top.id,at:p(d.getMonth()+1)+'-'+p(d.getDate())+' '+p(d.getHours())+':'+p(d.getMinutes())};
   try{localStorage.setItem('limnRevSeen',JSON.stringify(all));}catch(e){}}
@@ -254,7 +295,7 @@ addEventListener('pagehide',()=>{if(document.body.classList.contains('revision-o
  * diff). @param {string} id @param {string} [format] @param {string} [base] */
 async function showRevision(id,format,base){
   RZ.ratio=1;
-  ++REV.seq;REV.commit=id;REV.base=base||'';REV.rangeLine='';REV.sourceCommit='';REV.pdfCommit='';clearRevisionPdf();
+  ++REV.seq;REV.commit=id;REV.base=base||'';REV.rangeLine='';REV.rangeIds=null;REV.rangeBase='';REV.sourceCommit='';REV.pdfCommit='';clearRevisionPdf();
   $('#revision-note').textContent=REV.base?'두 커밋 사이의 누적 변경 · 이 문서의 Git 이력 · 미커밋 수정 제외':'선택 커밋의 첫 부모와 비교 · 이 문서의 Git 이력 · 미커밋 수정 제외';
   REV.scope=null;REV_SCOPE.whole=REV_SCOPE.partial=REV_SCOPE.fallback=false;drawRevisionOther(null);
   $('#revision-diff').textContent='';$('#revision-file-row').hidden=true;$('#revision-warning').hidden=true;
@@ -317,7 +358,10 @@ async function loadRevisionSource(id,seq,k){
   const tg0=revisionPinFor(id),base=REV.base,pq=tg0?'&pin='+tg0.id:base?'&base='+encodeURIComponent(base):'';
   try{const r=(await api(dq('/api/revision-diff?commit='+encodeURIComponent(id)+pq,k),{what:'변경 내용 읽기',silent:true})).data;
     if(!revisionCurrent(seq,k,id))return;
-    if(base){REV.rangeLine=rangeSummary(r); if(REV.format===DIFF_FORMAT.SOURCE)$('#revision-status').textContent=REV.rangeLine;}
+    if(base){REV.rangeLine=rangeSummary(r); if(REV.format===DIFF_FORMAT.SOURCE)$('#revision-status').textContent=REV.rangeLine;
+      REV.rangeIds=Array.isArray(r.commit_ids)?r.commit_ids:[]; REV.rangeBase=String(r.base||'');
+      if(REV.range.mode===RANGE_MODE.LAST&&REV.seen&&base===REV.seen.id)seenAnswered(r);
+      drawRange();}
     // v0.3: a pin's own hunks when it owns part of the commit; otherwise the whole commit exactly as before
     const sc=r.scope&&r.scope.mode===SCOPE_MODE.PIN?r.scope:null;REV.scope=r.scope||null;
     if(sc){REV_SCOPE.partial=true;syncRevisionWhole();}
@@ -330,7 +374,11 @@ async function loadRevisionSource(id,seq,k){
     if(fi>=0&&REV.files.length>1)select.value=String(fi);
     renderRevisionFile(); if(tg)revHighlight(tg);
   }catch(e){if(revisionCurrent(seq,k,id)){const why=e&&/** @type {ApiError} */(e).data?errText(/** @type {ApiError} */(e).data):'';
-    out.textContent=why?tl('소스 변경 내용을 읽지 못했습니다: {error}',{error:why}):tr('소스 변경 내용을 읽지 못했습니다.');}}
+    out.textContent=why?tl('소스 변경 내용을 읽지 못했습니다: {error}',{error:why}):tr('소스 변경 내용을 읽지 못했습니다.');
+    // the last-seen range could not be compared: say why on its segment, and show the newest commit alone instead
+    if(base&&REV.range.mode===RANGE_MODE.LAST&&REV.seen&&base===REV.seen.id){seenFailed(e);
+      if(REV.seenState===SEEN_STATE.GONE&&REV.rows.length){const top=REV.rows[0].id; showRange({mode:RANGE_MODE.ONE,start:top,end:top,endSet:false});}
+      else drawRange();}}}
 }
 // A range's summary on the status line (its source diff): the two ends, the commits and files in it, the merge base when the
 // base was on another line, and a warning when the range is wide enough for its comparison PDF to fail (more than 60

@@ -135,6 +135,7 @@
  "{when} 여기까지 봄": "Read up to here, {when}",
  "최신이 위 · 누르면 그 커밋 하나": "Newest first · press one to see that commit",
  "최신이 위 · 누르면 그 커밋부터 지금까지": "Newest first · press one to see from it to now",
+ "기록한 커밋을 찾을 수 없음": "Last-seen commit not found",
  "여기까지 봄": "Read up to here",
  "새로": "New",
  "이전 커밋 {n}개 더 보기": {"one": "Show {n} older commit", "other": "Show {n} older commits"},

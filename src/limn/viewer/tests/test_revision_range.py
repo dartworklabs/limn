@@ -9,6 +9,7 @@ Run: LIMN_TEST_REQUIRE_BROWSER=1 uv run pytest -q src/limn/viewer/tests/test_rev
 """
 
 import json
+import os
 import subprocess
 import unittest
 from unittest import mock
@@ -44,7 +45,7 @@ class RangeRules(unittest.TestCase):
 
     def run_rules(self, expr: str):
         """Evaluate expr under node with the served rule functions and ROWS defined; its JSON value."""
-        js = "".join(extract_js_fn(n) + "\n" for n in ("rangePress", "rangeRequest", "rangeMode", "seenCount"))
+        js = "".join(extract_js_fn(n) + "\n" for n in ("rangePress", "rangeRequest", "rangeMode", "paintedIds"))
         out = run_node(js + "const ROWS=%s;\nconsole.log(JSON.stringify(%s));" % (json.dumps(self.ROWS), expr))
         if out is None:
             self.skipTest("node not available")
@@ -88,12 +89,9 @@ class RangeRules(unittest.TestCase):
             ],
         )
 
-    def test_segments_and_the_count_since_last_seen(self):
-        """seenCount is the rows newer than the last-seen commit (-1 when it is not loaded); the segments keep the
-        commit in focus: 'from' starts at it, 'one' shows it, 'last' starts after the last-seen commit."""
-        self.assertEqual(
-            self.run_rules("[seenCount(ROWS,{id:'c2'}),seenCount(ROWS,{id:'c4'}),seenCount(ROWS,null)]"), [2, 0, -1]
-        )
+    def test_segments_keep_the_commit_in_focus(self):
+        """'from' starts at the commit in focus, 'one' shows it, 'last' compares the last-seen commit with the newest
+        (how many commits that is, the server says - never the list's positions)."""
         modes = self.run_rules(
             "["
             "rangeMode(ROWS,{mode:'one',start:'c2',end:'c2'},'from',null),"
@@ -106,9 +104,18 @@ class RangeRules(unittest.TestCase):
             [
                 {"mode": "from", "start": "c2", "end": "c4", "endSet": False},
                 {"mode": "one", "start": "c2", "end": "c2", "endSet": False},
-                {"mode": "last", "start": "c3", "end": "c4", "endSet": False},
+                {"mode": "last", "start": "c4", "end": "c4", "endSet": False},
             ],
         )
+
+    def test_the_rows_painted_are_the_servers(self):
+        """A range paints the commits the server's answer names (commit_ids), nothing while it is unknown; one commit
+        paints itself."""
+        painted = self.run_rules(
+            "[paintedIds({commit:'c4',base:'c1'},['c4','x9','c3']),paintedIds({commit:'c4',base:'c1'},null),"
+            "paintedIds({commit:'c3',base:''},null)]"
+        )
+        self.assertEqual(painted, [["c4", "x9", "c3"], [], ["c3"]])
 
 
 class SideRows(unittest.TestCase):
@@ -131,29 +138,12 @@ class SideRows(unittest.TestCase):
         self.assertEqual(json.loads(out), ["s2", "s1"])
 
 
-class RangePicker(BrowserBase):
-    """The picker in Chromium against a real eight-commit history (c0 oldest .. c7 newest)."""
+class PickerBase(BrowserBase):
+    """The picker's helpers in Chromium: opening the changes view, its segments, the last-seen record; the comparison
+    build faked."""
 
-    def setUp(self):
-        """Eight commits, each adding a line 'Change n' to main.tex, by two authors; the comparison build faked."""
-        super().setUp()
-        self.commits = []
-        for n in range(8):
-            with self.main.open("a", encoding="utf-8") as stream:
-                stream.write("%% Change %d\n" % n)
-            if n == 0:
-                self.git("init", "-q")
-            self.git("add", "main.tex")
-            self.git(
-                "-c",
-                "user.name=%s" % ("Alice Kim" if n % 2 else "Bob Park"),
-                "-c",
-                "user.email=a@example.com",
-                "commit",
-                "-qm",
-                "Change %d" % n,
-            )
-            self.commits.append(self.git("rev-parse", "HEAD"))
+    def fake_builds(self) -> None:
+        """Answer every comparison build with fake_compile for this test."""
         patcher = mock.patch.object(revision_execution, "revision_compile", side_effect=fake_compile)
         patcher.start()
         self.addCleanup(patcher.stop)
@@ -183,6 +173,32 @@ class RangePicker(BrowserBase):
         """The quick-range segment for mode."""
         return page.locator("#revision-range [data-range=%s]" % mode)
 
+
+class RangePicker(PickerBase):
+    """The picker against a real eight-commit history (c0 oldest .. c7 newest)."""
+
+    def setUp(self):
+        """Eight commits, each adding a line 'Change n' to main.tex, by two authors; the comparison build faked."""
+        super().setUp()
+        self.commits = []
+        for n in range(8):
+            with self.main.open("a", encoding="utf-8") as stream:
+                stream.write("%% Change %d\n" % n)
+            if n == 0:
+                self.git("init", "-q")
+            self.git("add", "main.tex")
+            self.git(
+                "-c",
+                "user.name=%s" % ("Alice Kim" if n % 2 else "Bob Park"),
+                "-c",
+                "user.email=a@example.com",
+                "commit",
+                "-qm",
+                "Change %d" % n,
+            )
+            self.commits.append(self.git("rev-parse", "HEAD"))
+        self.fake_builds()
+
     def test_without_a_record_the_newest_commit_opens_alone(self):
         """No last-seen record: [마지막으로 본 뒤] is hidden, [이 커밋만] is on and the newest commit opens alone (its
         comparison PDF first, as before); the list shows every loaded commit with author and short hash."""
@@ -203,6 +219,7 @@ class RangePicker(BrowserBase):
         page = self.open(0, init=self.seen_script(self.commits[4]))
         page.on("request", lambda r: urls.append(r.url))
         self.changes(page)
+        page.wait_for_function("REV.seenState==='ok'", timeout=15000)
         last = self.segment(page, "last")
         self.assertEqual(last.get_attribute("aria-checked"), "true")
         self.assertIn("3", last.inner_text())
@@ -255,10 +272,84 @@ class RangePicker(BrowserBase):
         self.git("-c", "user.name=Alice Kim", "-c", "user.email=a@example.com", "commit", "-qam", "Change 8")
         newest = self.git("rev-parse", "HEAD")
         self.changes(page)
-        page.wait_for_function("REV.commit===%s" % json.dumps(newest), timeout=15000)
+        page.wait_for_function("REV.commit===%s&&REV.seenState==='ok'" % json.dumps(newest), timeout=15000)
         self.assertEqual(self.segment(page, "last").get_attribute("aria-checked"), "true")
         self.assertIn("1", self.segment(page, "last").inner_text())
         self.assertEqual(page.evaluate("REV.base"), self.commits[-1])
+
+    def stored_seen(self, page) -> str:
+        """The last-seen commit this browser holds for the document."""
+        return json.loads(page.evaluate("localStorage.getItem('limnRevSeen')"))[ps.APP.docs[0].key]["id"]
+
+    def commit_more(self, n: int) -> None:
+        """n more commits, each adding a line."""
+        for k in range(n):
+            with self.main.open("a", encoding="utf-8") as stream:
+                stream.write("%% More %d\n" % k)
+            self.git("-c", "user.name=Alice Kim", "-c", "user.email=a@example.com", "commit", "-qam", "More %d" % k)
+            self.commits.append(self.git("rev-parse", "HEAD"))
+
+    def test_a_record_beyond_the_first_page_is_counted_by_the_server(self):
+        """34 commits after the last-seen one (more than a page of 30): [마지막으로 본 뒤 34] opens that range, every
+        loaded row is new, and leaving records the newest commit."""
+        seen = self.commits[-1]
+        self.commit_more(34)
+        page = self.changes(self.open(0, init=self.seen_script(seen)))
+        page.wait_for_function("REV.seenState==='ok'", timeout=15000)
+        self.assertIn("34", self.segment(page, "last").inner_text())
+        self.assertEqual(page.evaluate("[REV.base,REV.commit]"), [seen, self.commits[-1]])
+        self.assertEqual(page.locator("#revision-commits .rc-row.new").count(), 30)
+        page.click("#view-manuscript")
+        self.assertEqual(self.stored_seen(page), self.commits[-1])
+
+    def test_a_record_the_history_no_longer_has_says_so(self):
+        """A last-seen commit the server cannot find (rewritten history): the segment says so and cannot be pressed,
+        the newest commit opens alone, and leaving then records the newest."""
+        page = self.changes(self.open(0, init=self.seen_script("0" * 40)))
+        page.wait_for_function("REV.seenState==='gone'&&REV.base===''", timeout=15000)
+        last = self.segment(page, "last")
+        self.assertTrue(last.is_visible())
+        self.assertTrue(last.is_disabled())
+        self.assertIn("기록한 커밋을 찾을 수 없음", last.inner_text())
+        self.assertEqual(page.evaluate("REV.commit"), self.commits[-1])
+        page.click("#view-manuscript")
+        self.assertEqual(self.stored_seen(page), self.commits[-1])
+
+    def test_an_unresolved_record_is_never_overwritten(self):
+        """When the server cannot answer for the last-seen commit (a failed request), leaving keeps the record."""
+        page = self.open(0, init=self.seen_script(self.commits[4]))
+
+        def fail_ranges(route):
+            """Answer a range request with 503; let the rest through."""
+            if "base=" in route.request.url:
+                return route.fulfill(
+                    status=503, content_type="application/json", body='{"error":"x","reason":"diff_unreadable"}'
+                )
+            return route.fallback()
+
+        page.route("**/api/revision-diff*", fail_ranges)
+        self.changes(page)
+        page.wait_for_function("REV.seenState==='error'", timeout=15000)
+        page.click("#view-manuscript")
+        self.assertEqual(self.stored_seen(page), self.commits[4])
+
+    def test_a_new_build_never_builds_a_range_pdf(self):
+        """A range's comparison PDF is built only on [변경 PDF]: when the document is read again while it is shown (a
+        new build), the range comes back in its source diff and no build is started."""
+        posts = []
+        page = self.open(0, init=self.seen_script(self.commits[4]))
+        page.on(
+            "request", lambda r: posts.append(r.url) if r.method == "POST" and "/api/revision-build" in r.url else None
+        )
+        self.changes(page)
+        page.wait_for_function("REV.seenState==='ok'", timeout=15000)
+        page.click("#revision-pdf-tab")
+        page.wait_for_selector('.revision-page[data-state="ready"] canvas', timeout=15000)
+        self.assertEqual(len(posts), 1)
+        page.evaluate("loadRevisions()")
+        page.wait_for_function("REV.rowsDoc===DOC&&REV.format==='source'&&REV.sourceCommit!==''", timeout=15000)
+        page.wait_for_timeout(500)
+        self.assertEqual(len(posts), 1, posts)
 
     def test_desktop_lays_the_list_beside_the_changes(self):
         """At 1440x900 the list is a 304px column left of the changes, rows at least 48px, the quick range in the
@@ -301,3 +392,82 @@ class RangePicker(BrowserBase):
         self.assertLessEqual(rng["x"] + rng["width"], 411)
         page.click("#revision-more")
         self.assertEqual(sum(rows.nth(i).is_visible() for i in range(rows.count())), 8)
+
+
+class MergedPicker(PickerBase):
+    """The picker over a history with a merged side line dated before all of trunk: what is painted is what the
+    server compares, never the rows' positions."""
+
+    def setUp(self):
+        """root, a side line S1..S3 dated in January, trunk B1..B6, the --no-ff merge M of the side line, then B7."""
+        super().setUp()
+        self.fake_builds()
+        self.sha: dict[str, str] = {}
+        self.dated("2026-09-01T08:00:00+09:00", "init", "-q", "-b", "main")
+        self.step("root", "2026-09-01T08:00:00+09:00")
+        self.dated("2026-09-01T08:00:00+09:00", "checkout", "-q", "-b", "side")
+        for n in (1, 2, 3):
+            self.step("S%d" % n, "2026-01-0%dT08:00:00+09:00" % n)
+        self.dated("2026-09-01T08:00:00+09:00", "checkout", "-q", "main")
+        for n in range(1, 7):
+            self.step("B%d" % n, "2026-09-%02dT08:00:00+09:00" % (n + 1))
+        self.dated("2026-09-20T08:00:00+09:00", "merge", "-q", "--no-ff", "-m", "M", "side")
+        self.sha["M"] = self.dated("2026-09-20T08:00:00+09:00", "rev-parse", "HEAD")
+        self.step("B7", "2026-09-21T08:00:00+09:00")
+        self.commits = [self.sha["B7"]]
+
+    def dated(self, when: str, *args: str) -> str:
+        """Run Git at the fixed time when; its stdout, stripped."""
+        env = dict(
+            os.environ,
+            GIT_AUTHOR_DATE=when,
+            GIT_COMMITTER_DATE=when,
+            GIT_AUTHOR_NAME="Alice Kim",
+            GIT_COMMITTER_NAME="Alice Kim",
+            GIT_AUTHOR_EMAIL="a@example.com",
+            GIT_COMMITTER_EMAIL="a@example.com",
+        )
+        return subprocess.check_output(["git", *args], cwd=self.main.parent, text=True, env=env).strip()
+
+    def step(self, name: str, when: str) -> None:
+        """A commit named name at when, writing its own file (so branches merge cleanly); its SHA under name."""
+        (self.main.parent / ("%s.tex" % name)).write_text("%s\n" % name, encoding="utf-8")
+        self.dated(when, "add", "-A")
+        self.dated(when, "commit", "-qm", name)
+        self.sha[name] = self.dated(when, "rev-parse", "HEAD")
+
+    def painted(self, page) -> set:
+        """The commits the list paints as in the range."""
+        return set(page.eval_on_selector_all("#revision-commits .rc-row.in", "rs=>rs.map(r=>r.dataset.commit)"))
+
+    def compared(self, base: str, head: str) -> set:
+        """What the server compares for base..head: the manuscript commits git lists in that span."""
+        return set(self.dated("2026-09-21T08:00:00+09:00", "rev-list", "%s..%s" % (base, head), "--", ".").split())
+
+    def test_a_side_row_paints_every_commit_its_range_compares(self):
+        """[이 커밋부터] on S1 compares S1's parent (root) with the newest: all of trunk and the side line are painted,
+        though S1 sits mid-list."""
+        page = self.changes(self.open(0))
+        self.segment(page, "from").click()
+        page.locator("#revision-commits .rc-row[data-commit='%s']" % self.sha["S1"]).click()
+        page.wait_for_function("REV.base===%s&&REV.rangeIds" % json.dumps(self.sha["root"]), timeout=15000)
+        self.assertEqual(self.painted(page), self.compared(self.sha["root"], self.sha["B7"]))
+
+    def test_the_first_commit_paints_only_itself(self):
+        """[이 커밋부터] on the root commit opens that commit alone, and only it is painted."""
+        page = self.changes(self.open(0))
+        self.segment(page, "from").click()
+        page.locator("#revision-commits .rc-row[data-commit='%s']" % self.sha["root"]).click()
+        page.wait_for_function("REV.commit===%s&&REV.base===''" % json.dumps(self.sha["root"]), timeout=15000)
+        self.assertEqual(self.painted(page), {self.sha["root"]})
+
+    def test_since_last_seen_counts_what_a_merge_brought(self):
+        """Last seen at B6, then the side line was merged and B7 pushed: N is every commit the range compares (the
+        merged line, the merge and B7), and those are the rows painted and marked new."""
+        page = self.changes(self.open(0, init=self.seen_script(self.sha["B6"])))
+        page.wait_for_function("REV.seenState==='ok'&&REV.rangeIds", timeout=15000)
+        want = self.compared(self.sha["B6"], self.sha["B7"])
+        self.assertIn(str(len(want)), self.segment(page, "last").inner_text())
+        self.assertEqual(self.painted(page), want)
+        new = page.eval_on_selector_all("#revision-commits .rc-row.new", "rs=>rs.map(r=>r.dataset.commit)")
+        self.assertEqual(set(new), want)

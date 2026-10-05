@@ -88,6 +88,7 @@ body.lay-narrow #revision-view[data-format=overlay] #revision-head{display:none}
 #revision-range.seg{margin:0;flex:0 1 480px;min-width:0}
 #revision-range button{flex:1 1 auto;min-width:0}
 #revision-range button .k{margin-left:var(--space-1)}
+#revision-range button .lbl{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 #revision-view[data-format=overlay] #revision-range,#revision-view[data-format=overlay] #revision-commits{display:none}
 #revision-body{flex:1;min-height:0;display:flex}
 #revision-pane{flex:1;min-width:0;min-height:0;display:flex;flex-direction:column}
