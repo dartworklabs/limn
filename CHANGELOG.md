@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.4.20 — 2026-10-06
+
+The figure pick threshold D6 is measured and set. `pins.md`, the HTTP API and the state directory are unchanged.
+
+### Changed
+
+- **Figure picks: `cover ≥ 0.4` (was 0.6), `fill ≥ 0.5` unchanged (ADR-0015, #126).**
+  - **How it was measured.** The first real map-producing tool now exists: the paper's concept figures, 24 pages with
+    7,855 elements. 59,492 seeded drags modelled on a person's hand were run through Limn's own pick.
+  - **What changes.** A drag aimed at one element now picks it 61.4% of the time (was 47.4%). Answers too shallow to
+    fix by stepping up the ladder fall from 20.3% to 12.1%.
+  - **The trade-off.** A drag split evenly over two neighbours picks one of them, and their parent is the next ladder
+    rung.
+  - **What it does not fix.** Thin lines and dots, which no threshold reaches, remain a separate design question
+    (#209).
+
 ## 0.4.19 — 2026-10-06
 
 Compare two commits in the changes view, a note popover under the selection box, and the download row's icon.
