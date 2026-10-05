@@ -87,10 +87,11 @@ function finishRect(pg,box,sx,sy,x,y){
   const page=+pg.dataset.page,p=META.pages[page-1];
   pick({page,x0:Math.min(sx,x)*p.pt_w,y0:Math.min(sy,y)*p.pt_h,x1:Math.max(sx,x)*p.pt_w,y1:Math.max(sy,y)*p.pt_h,
     frac:[Math.min(sx,x),Math.min(sy,y),w,h],pdf_build:META.pages_build||undefined,doc:DOC||undefined});}
-// If the sheet/panel covers the selection box, the body scrolls up until the box is visible (compact only).
+// If the sheet/panel covers the selection box, the body scrolls up until the box is visible (compact only). The view's top
+// is 28px into the PDF area, or 8px under the select mode's bar while it shows, so the box never stays under the bar.
 function revealBox(box){if(!box||LAYOUT===LAYOUT_MODE.WIDE||!document.contains(box))return;
-  const L=$('#left'),lr=L.getBoundingClientRect(),br=box.getBoundingClientRect();
+  const L=$('#left'),lr=L.getBoundingClientRect(),br=box.getBoundingClientRect(),bar=$('#sel-bar');
   let bottom=lr.bottom; if(LAYOUT===LAYOUT_MODE.NARROW&&SIDE_OPEN)bottom=Math.min(bottom,$('#right').getBoundingClientRect().top);
-  const top=lr.top+28; if(br.top>=top&&br.bottom<=bottom-8)return;
+  const top=Math.max(lr.top+28,bar.getClientRects().length?bar.getBoundingClientRect().bottom+8:0); if(br.top>=top&&br.bottom<=bottom-8)return;
   L.scrollTop+=br.top-top-Math.max(0,(bottom-top-br.height)/3);}
 

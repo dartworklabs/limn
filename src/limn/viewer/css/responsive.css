@@ -10,7 +10,39 @@
 .hint .t-touch{display:none}
 .pg{-webkit-touch-callout:none}
 #btn-select[aria-pressed=true]{background:var(--primary);color:var(--primary-foreground);border-color:var(--primary);font-weight:600}   /* on = looks like btn-default */
-body.selmode .pg{touch-action:none;outline:2px dashed var(--primary);outline-offset:3px}
+body.selmode .pg{touch-action:none}
+/* The select mode (docs/handbook/viewer.md §모바일 레이아웃 선택 모드). While it is on (body.selmode), the PDF area (#sel-mode, laid
+   over #left in #pdf-center) draws a thin accent frame and, 8px under its top, the mode bar: the dashed square, '선택 중 · 끌면
+   영역 · 탭하면 문단' and [끝내기]. The bar floats over the pages, which scroll under it, and #left reserves the bar's height
+   above page 1 (--sel-bar-h, setSelMode), so at the top page 1's first line is never under it. The area is the part of the
+   PDF nothing else covers: under the phone's instance stripe (or its notch), under the wide section strip, above the sheet
+   and its status line, left of an overlay panel and its 8px handle. The frame lets every press through to the pages; the
+   bar takes only its own. The live region (#sel-sr) stays drawn, so it is read as the mode turns on.
+   The bar is 44px on the 4px grid: 4px round the icon's 36px tile and the 36px [끝내기] - equal inner margins - with the
+   words' cap height and [끝내기] on its centre line. */
+body{--sel-area:0px}
+body.band-phone{--sel-area:max(4px,env(safe-area-inset-top))}
+#sel-mode{position:absolute;inset:var(--sel-area) 0 0 0;z-index:6;pointer-events:none}
+body.revision-open #sel-mode{display:none}
+body.lay-wide #sel-mode{top:var(--strip-h)}
+body.lay-narrow #sel-mode{bottom:var(--sheet-h,0px)}
+body.lay-narrow.has-status:not(.typing) #sel-mode{bottom:calc(var(--sheet-h,0px) + 24px)}
+body.mid-overlay.side-open #sel-mode{right:calc(var(--side-w,330px) + 8px)}
+body.selmode #sel-mode{box-shadow:inset 0 0 0 2px var(--primary)}
+#sel-bar{display:none;position:absolute;top:var(--space-2);left:var(--edge);right:var(--edge);width:fit-content;margin:0 auto;padding:var(--space-1);
+  align-items:center;border-radius:var(--radius-lg);background:var(--primary);color:var(--primary-foreground);box-shadow:var(--shadow);
+  font-size:var(--text-lg);line-height:18px;pointer-events:auto;min-width:var(--sel-bar-w,0px)}   /* whole-pixel sides (selBarWidth) */
+body.selmode #sel-bar{display:flex}
+#sel-bar .sb-ic{display:flex;flex:none;align-items:center;justify-content:center;width:var(--control-h-lg);height:var(--control-h-lg)}
+#sel-bar .sb-ic .ic{width:18px;height:18px}
+#sel-bar .sb-t{flex:1 1 auto;min-width:0;text-box:trim-both cap alphabetic;text-wrap:balance}   /* two even lines where it wraps (English on a phone) */
+#sel-bar .sb-t b{font-weight:600}
+#sel-bar button{flex:none;margin-left:var(--space-3);min-width:0;min-height:0;height:var(--control-h-lg);padding:0 var(--space-3);border:0;
+  border-radius:var(--radius);background:var(--primary-foreground);color:var(--primary);font-size:var(--text-lg);font-weight:600;position:relative}
+#sel-bar button .lbl{text-box:trim-both cap alphabetic}
+#sel-bar button::after{content:'';position:absolute;left:50%;top:50%;width:max(100%,var(--hit));height:var(--hit);transform:translate(-50%,-50%)}   /* 44px, inside the bar's 4px */
+#sel-bar button:focus-visible{outline-color:var(--primary-foreground)}   /* the ring's --primary would vanish on the bar */
+body.selmode:not(.revision-open) #left{padding-top:calc(var(--sel-area) + var(--space-2) + var(--sel-bar-h,var(--hit)) + var(--space-3))}
 #coach{position:fixed;left:50%;transform:translateX(-50%);top:calc(var(--space-3) + env(safe-area-inset-top));z-index:60;background:var(--primary);
   color:var(--primary-foreground);border-radius:var(--radius-lg);padding:var(--space-1) var(--space-1) var(--space-1) var(--space-3);display:flex;gap:var(--space-2);align-items:center;
   width:max-content;max-width:calc(100vw - 16px);font-size:var(--text-lg);box-shadow:var(--shadow-lg)}
@@ -248,7 +280,12 @@ body.lay-narrow #bar1 :is(.bar-l,.bar-r){display:flex;align-items:center;gap:var
 body.lay-narrow #bar1 .bar-l{grid-column:1}
 body.lay-narrow #bar1 .bar-r{grid-column:3;justify-content:flex-end}
 body.lay-narrow #bar1 button{flex:none}
-body.lay-narrow #btn-select .lbl{display:none}   /* the sheet's [⬚] is its icon, named by aria-label */
+/* [⬚] says its name where the bar has room (docs/handbook/viewer.md §모바일 레이아웃 선택 모드): [⬚ 선택], pressed [⬚ 선택 중], on
+   the tablet sheet as on the mid and short rows, as wide as its pressed face (--sel-w, holdSelectWidth) with its content
+   centred. The portrait phone keeps the icon, named by aria-label, so [핀 N | 검토 M] never gives way for a word; a tablet
+   sheet whose cell is too narrow (fitBarWords) drops the word the same way before the chip steps down. */
+body.band-phone #btn-select .lbl,body.lay-narrow #bar1.bar-sel-icon #btn-select .lbl{display:none}
+body.compact:not(.band-phone) #bar1:not(.bar-sel-icon) #btn-select{min-width:var(--sel-w,var(--hit));justify-content:center}
 /* [본문 3/25 ▾] (#btn-pos, the phone only): the document's name is the one item that shrinks (an ellipsis, the whole name in
    aria-label); the pages and the chevron keep their width. */
 #btn-pos{display:none;align-items:center;gap:var(--space-1)}
@@ -385,7 +422,8 @@ body.lay-narrow #sec-open>.sec-head{border-top:1px solid var(--border)}   /* the
 .side-l,#btn-rv{display:none}
 body.lay-narrow #bar1{padding-top:var(--space-3);padding-bottom:var(--space-3);--tb-h:var(--control-h)}   /* open or collapsed: 12 above the row, 12 under it (plus the bottom safe area when collapsed) */
 body.lay-narrow #bar1 #sheet-grip{position:absolute;grid-column:2/3;left:50%;top:0;transform:translateX(-50%);height:var(--hit);padding-top:var(--space-1)}   /* its bar in the inset, its 44px box the empty middle column */
-body.lay-narrow #bar1 #btn-select{width:36px;min-width:36px;padding:0;justify-content:center}
+body.lay-narrow #bar1 #btn-select{padding:0 var(--space-3)}   /* the tablet sheet's [⬚ 선택] pads like the chip's halves */
+body.band-phone #bar1 #btn-select,body.lay-narrow #bar1.bar-sel-icon #btn-select{width:36px;min-width:36px;padding:0;justify-content:center}
 body.lay-narrow #bar1 #btn-pos{gap:var(--space-1);padding:0 var(--space-2)}
 body.lay-narrow #bar1 #btn-pos .ic{width:16px;height:16px;color:var(--muted-foreground)}
 @media (pointer:coarse){body.lay-narrow #bar1 :is(#btn-side,#btn-rv,#btn-select,#btn-pos,#btn-more)::after{top:50%;height:var(--hit);transform:translate(-50%,-50%)}

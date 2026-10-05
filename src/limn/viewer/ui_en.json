@@ -358,7 +358,6 @@
  "기존 PDF가 보일 수 있습니다": "the previous PDF may be showing",
  "길게 누르기": "Long-press",
  "길게 누르면": "long-press",
- "끌어서 고칠 곳을 고르세요 · 탭하면 그 문단 · 두 손가락으로 확대": "Drag to select the spot to fix · tap for that paragraph · pinch with two fingers to zoom",
  "끌어서 목차 폭을 바꿉니다. ←/→ 키로 16px씩 바꿀 수 있습니다": "Drag to change the outline width. Use ←/→ to change it by 16px at a time",
  "끌어서 시트 높이를 바꿉니다. 탭하면 낮게 → 보통 → 높게 순으로 바뀌고, 끝까지 내리면 접힙니다": "Drag to change the sheet height. Tap to cycle low → normal → high, and dragging it all the way down collapses it",
  "끌어서 패널 폭을 바꿉니다. 오른쪽 끝까지 끌면 접힙니다. 탭(마우스는 두 번 클릭)하면 좁게 → 보통 → 넓게 순으로 바뀝니다. 키보드: ←/→ 16px, Home/End 최소/최대, Enter 접기·펴기": "Drag to change the panel width; drag it all the way right to collapse the panel. Tap (double-click with a mouse) to cycle narrow → normal → wide. Keys: ←/→ 16px, Home/End minimum/maximum, Enter collapse/expand",
@@ -612,7 +611,7 @@
  "생성 파일": "Generated file",
  "서버에 닿지 않습니다": "can't reach the server",
  "선택": "Select",
- "선택 중": "Selecting…",
+ "선택 중": "Selecting",
  "선택 취소됨": "Selection discarded",
  "선택 커밋의 비교 PDF를 만드는 중입니다. 원고와 핀은 그대로 사용할 수 있습니다.": "Building the comparison PDF for the selected commit. The manuscript and pins remain usable in the meantime.",
  "선택 커밋의 첫 부모와 비교 · 이 문서의 Git 이력 · 미커밋 수정 제외": "Compares against the selected commit's first parent · this document's Git history · uncommitted edits excluded",
@@ -1148,5 +1147,8 @@
  "검토 M": "Review M",
  "검토 대기 핀으로 갑니다. 에이전트가 닫고 사람의 확인을 기다리는 핀입니다": "Go to the pins awaiting review - pins an agent closed that wait for a person's confirmation",
  "도구 줄의 둘로 나뉜 칩입니다. [핀 N]은 열린 핀 수이고 핀 목록을 펴고 접습니다. [검토 M]은 검토 대기 수이고 누르면 목록의 검토 대기로 갑니다. 휴대폰·태블릿 시트에서는 아래 막대 왼쪽에, 펼친 화면과 가로 휴대폰에서는 줄의 오른쪽 끝에 있습니다. 카드를 누르면 펼쳐집니다": "The split chip of the tool row. [Pin N] is the open count and opens or closes the pin list. [Review M] counts the pins awaiting review and goes to them in the list. On phones and tablet sheets it is the bottom bar's left pair; on wider screens and landscape phones it sits at the row's right end. Tap a card to expand it",
- "선택: 아래 막대의 네 모서리 아이콘입니다. 켜면 한 손가락으로 끌어 영역을 고르고, 탭하면 그 자리 문단을 고릅니다. 두 손가락으로 벌리면 PDF 만 커집니다. 핀을 저장하거나 취소하면 저절로 꺼집니다": "Select: the four-corner icon in the bottom bar. When on, drag with one finger to select a region, or tap to select the paragraph there. Pinch with two fingers to zoom the PDF only. It turns off automatically when you save or cancel the pin"
+ "선택: 점선 상자 아이콘입니다. 켜면 PDF 위에 '선택 중' 막대가 뜨고, 한 손가락으로 끌어 영역을 고르고, 탭하면 그 자리 문단을 고릅니다. 두 손가락으로 벌리면 PDF 만 커집니다. 막대의 [끝내기]를 누르거나 핀을 저장·취소하면 꺼집니다": "Select: the dashed-square icon. When on, a 'Selecting' bar shows over the PDF; drag with one finger to select a region, or tap to select the paragraph there. Pinch with two fingers to zoom the PDF only. It turns off with the bar's [Done], or when you save or cancel the pin",
+ "끌면 영역": "drag for an area",
+ "탭하면 문단": "tap for a paragraph",
+ "끝내기": "Done"
 }

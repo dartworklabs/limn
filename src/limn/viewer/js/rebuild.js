@@ -1,8 +1,13 @@
 // ------------------------------------------------ PDF rebuild
-function topAnchor(off){const L=$('#left'),top=L.getBoundingClientRect().top+(off||0);
-  for(const pg of $$('.pg')){const r=pg.getBoundingClientRect(); if(r.bottom>top+1)return {page:+pg.dataset.page,frac:Math.max(0,(top-r.top)/r.height)};}
+// The reading spot: the page at the PDF scroller's top edge (or off px below it) and how far down that page the edge is
+// (frac, 0-1), with whether the scroller is at its very top on a touch screen (atTop); null with no pages.
+function topAnchor(off){const L=$('#left'),top=L.getBoundingClientRect().top+(off||0),atTop=MQ_COARSE.matches&&L.scrollTop<=0;
+  for(const pg of $$('.pg')){const r=pg.getBoundingClientRect(); if(r.bottom>top+1)return {page:+pg.dataset.page,frac:Math.max(0,(top-r.top)/r.height),atTop};}
   return null;}
-function restoreAnchor(a){if(!a)return; const pg=document.getElementById('p'+a.page); if(!pg)return; const L=$('#left');
+// Scrolls the PDF back to a reading spot from topAnchor() after a re-fit. On a touch screen - where the select mode lives - a
+// spot taken at the very top stays at the top, so the space above page 1 (its margin, or the select mode's reserve that keeps
+// the mode bar off its first line) is kept rather than scrolled away; a mouse window re-fits as it always did.
+function restoreAnchor(a){if(!a)return; if(a.atTop){$('#left').scrollTop=0; return;} const pg=document.getElementById('p'+a.page); if(!pg)return; const L=$('#left');
   L.scrollTop+=pg.getBoundingClientRect().top-L.getBoundingClientRect().top+a.frac*pg.getBoundingClientRect().height;}
 // Apply a supplied meta snapshot, or fetch one for the current document. A switch away and back invalidates an
 // in-flight refresh even when the document key matches again; its old pages must not replace the new visit.

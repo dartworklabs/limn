@@ -26,6 +26,7 @@ document.addEventListener('click',e=>{const target=/** @type {HTMLElement} */(e.
   switch(a.dataset.act){
     case 'side':toggleSide();break;
     case 'selmode':setSelMode(!SELMODE);if(SELMODE&&LAYOUT===LAYOUT_MODE.NARROW&&!COMPOSE.current&&!EDITOR.current)setSide(false);break;
+    case 'selmode-end':setSelMode(false);break;   // the mode bar's [끝내기]: one press, no confirmation
     case 'more':openMore();break; case 'more-close':$('#more').close();break;
     case 'size-preset':sizePreset(Number(a.dataset.i));break;
     case 'coach-close':$('#coach').hidden=true;break;
@@ -133,6 +134,7 @@ document.addEventListener('keydown',e=>{
     if(REPLY){e.preventDefault();closeReply();return;}
     if(EDITOR.current){e.preventDefault();cancelEdit();return;}
     if(COMPOSE.current||!$('#composer').hidden){e.preventDefault();discardSelection();return;}
+    if(SELMODE){e.preventDefault();setSelMode(false);return;}   // a keyboard ends the select mode as [끝내기] does
     // The 701-900px overlay panel covers the document: Esc collapses it (a selection above was cancelled first).
     if(LAYOUT===LAYOUT_MODE.MID&&MID_OVERLAY&&SIDE_OPEN){e.preventDefault();setSide(false,true,true);focusSideToggle();return;}
     if(document.body.classList.contains('revision-open')){e.preventDefault();revBack();return;}   // Esc in [변경 보기] = [원고로]

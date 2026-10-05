@@ -191,9 +191,36 @@ function keepFieldInView(){const f=panelField(); if(!f||!MQ_COARSE.matches)retur
 let COACH_T=/** @type {ReturnType<typeof setTimeout>|undefined} */(undefined);
 function coach(key,text){const seen=Object.assign({},prefs().coach||{}); if(seen[key])return; seen[key]=1; savePrefs({coach:seen});
   $('#coach-t').textContent=text; $('#coach').hidden=false; clearTimeout(COACH_T); COACH_T=setTimeout(()=>{$('#coach').hidden=true;},8000);}
-function setSelMode(on){SELMODE=!!on; document.body.classList.toggle('selmode',SELMODE);
-  const b=$('#btn-select'); b.setAttribute('aria-pressed',String(SELMODE)); b.querySelector('.lbl').textContent=SELMODE?'선택 중':'선택';
-  if(SELMODE)coach('sel','끌어서 고칠 곳을 고르세요 · 탭하면 그 문단 · 두 손가락으로 확대');}
+// The touch select mode (docs/handbook/viewer.md §모바일 레이아웃 선택 모드), on or off. Effects: body.selmode (the pages take
+// one-finger drags, the PDF area gets its accent frame and the mode bar), the toggle's aria-pressed and its label ('선택' /
+// '선택 중' where the bar shows one), the live region's words (the bar's, said once as it turns on; empty when off), and
+// the mode bar's height for the reserve above page 1 (--sel-bar-h). The reserve comes and goes with the mode: scrolled to
+// the top, page 1 moves below the bar; anywhere else the pages keep their place (selModeScrollTop). A focus left on the
+// hidden bar's [끝내기] goes to the toggle. Idempotent; no coach mark - the bar says what a drag and a tap do.
+function setSelMode(on){const was=SELMODE,L=$('#left'),doc=$('#doc'),top0=L.scrollTop,y0=doc.getBoundingClientRect().top;
+  SELMODE=!!on; document.body.classList.toggle('selmode',SELMODE);
+  const b=$('#btn-select'); b.setAttribute('aria-pressed',String(SELMODE)); /** @type {HTMLElement} */(b.querySelector('.lbl')).textContent=tr(SELMODE?'선택 중':'선택');
+  $('#sel-sr').textContent=SELMODE?$('#sel-bar-t').textContent:'';
+  if(SELMODE)selBarFit(); else if($('#sel-bar').contains(document.activeElement))b.focus({preventScroll:true});
+  if(was!==SELMODE)L.scrollTop=selModeScrollTop(top0,L.scrollTop,doc.getBoundingClientRect().top-y0);}
+// Where the PDF scroller goes (px) when the select mode's reserve above page 1 comes or goes and the pages move by moved px
+// (down positive): at the very top (top0, the position before, at 0 or above) it stays at 0, so the reserve uncovers page 1's
+// first line rather than the bar covering it; anywhere else the pages keep their place on screen - from now (the position
+// after, which a browser's scroll anchoring may already have moved, then moved is 0) by as far as they moved, never above
+// the top. Pure.
+function selModeScrollTop(top0,now,moved){return top0<=0?0:Math.max(0,now+moved);}
+// Fits the mode bar to what is around it: its width as --sel-bar-w (selBarWidth, from its natural width and the PDF area's)
+// and its drawn height as --sel-bar-h, which the reserve above page 1 adds up (responsive.css). Once as the mode turns on
+// (setSelMode reads the height in the same task) and whenever the bar or the PDF area changes size (words wrapping anew, a
+// rotation, the overlay panel). A hidden bar (0 high) leaves the last values.
+function selBarFit(){const b=$('#sel-bar'); if(!b.offsetHeight)return; b.style.removeProperty('--sel-bar-w');
+  b.style.setProperty('--sel-bar-w',selBarWidth(b.getBoundingClientRect().width,$('#sel-mode').clientWidth)+'px');
+  document.documentElement.style.setProperty('--sel-bar-h',b.offsetHeight+'px');}
+// The mode bar's width (px) for its natural width w in a PDF area a px wide: the next whole pixel up, and one more when that
+// leaves the two sides an odd remainder, so the centred bar's edges - and the icon tile and [끝내기] 4px inside them - fall on
+// whole pixels. Icons are drawn at whole pixels: a bar centred at x.47 drew its icon half a pixel off its tile. Pure.
+function selBarWidth(w,a){let W=Math.ceil(w-0.01); if((Math.round(a)-W)%2)W++; return W;}
+if(window.ResizeObserver){const o=new ResizeObserver(selBarFit); o.observe($('#sel-bar')); o.observe($('#sel-mode'));}
 // Opens dialog d (a sheet in compact: [더보기], the navigation sheet, the help, the Trash) as a modal with the focus on d itself
 // (tabindex=-1, drawn without a ring), not on its first control: a phone's browser drew the focus ring on [닫기] each time a
 // tap opened one. Tab goes on to [닫기], the first control.
