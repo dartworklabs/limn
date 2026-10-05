@@ -734,8 +734,10 @@ class FrontendMobileStructure(unittest.TestCase):
         self.assertIn("LONGPRESS_MS", HTML)
 
     def test_touch_does_not_autofocus_note_or_pop_hover_tips(self):
+        """A pick focuses a note field only after a mouse drag (the popover's by the box while it is open, else the
+        composer's), never on touch, and hover/focus tooltips stay off on touch and on devices without hover."""
         m = re.search(r"async function pick\(r\)\{(.*?)\n\}", HTML, re.S)
-        self.assertIn("if(LAST_PTR==='mouse')$('#note').focus(", m.group(1))
+        self.assertIn("if(LAST_PTR==='mouse')(selPopOpen()?SEL_POP_FIELD:$('#note')).focus(", m.group(1))
         self.assertIn(
             "if(touchRecent()||MQ_NOHOVER.matches)return; const t=/** @type {HTMLElement} */(e.target); armTip(", HTML
         )
@@ -3741,6 +3743,7 @@ class FrontendSaveWhilePicking(unittest.TestCase):
             function banner(){} function bannerRepick(){} function bannerCompare(){} function revealBox(){}
             async function refreshDoc(){} function setSide(){} function setSelMode(){} function dropPin(){}
             function endTopic(){} function undoNote(){return null;} function settleChip(){} function endNotice(){} const BANNERS=new Map();
+            function closeSelPop(){} function drawSelPop(){} function selPopOpen(){return false;}   // the note popover by the box (sel-popover.js)
             const apiCalls=[]; let pickResolve=null, pickReject=null, pinResolve=null;
             function api(url){apiCalls.push(url);
               if(url==='/api/pick')return new Promise((res,rej)=>{pickResolve=res;pickReject=rej;});

@@ -79,11 +79,12 @@ function hitsAny(rects,x,y,pad){return rects.some(r=>x>=r.left-pad&&x<=r.right+p
 // A selection is open and nothing above it is the thing to close first - Esc's order: a re-place, a reply, an edit, then the selection.
 function selectionOpen(){return !!(COMPOSE.current||!$('#composer').hidden)&&!REPICK&&!REPLY&&!EDITOR.current;}
 // Whether the press of pointerdown event e is outside the selection on the PDF area: not on a control or a pin's number badge, not on the
-// scrollbar, and not in the box, its badge or a pin mark (their boxes ignore the pointer, so the page is what the press lands on).
+// scrollbar, and not in the box, its badge, its note popover (sel-popover.js, which counts as the box) or a pin mark (their boxes
+// ignore the pointer, so the page is what the press lands on).
 function pressOutsideSelection(e){const t=/** @type {Element} */(e.target); if(!selectionOpen())return false;
-  if(t.closest('.mark b,button,a,input,textarea,select,[data-act],[role=button]'))return false;
+  if(t.closest('.mark b,button,a,input,textarea,select,[data-act],[role=button],#sel-pop'))return false;
   const L=$('#left'); if(t===L&&(e.offsetX>=L.clientWidth||e.offsetY>=L.clientHeight))return false;
-  const inside=[...document.querySelectorAll('.mark'),...(COMPOSE.box?[COMPOSE.box,...COMPOSE.box.querySelectorAll('i')]:[])].map(n=>n.getBoundingClientRect());
+  const inside=[...document.querySelectorAll('.mark'),...(COMPOSE.box?[COMPOSE.box,...COMPOSE.box.querySelectorAll('i')]:[]),...(selPopOpen()?[SEL_POP]:[])].map(n=>n.getBoundingClientRect());
   return !hitsAny(inside,e.clientX,e.clientY,0);}
 $('#left').addEventListener('pointerdown',e=>{
   PRESS_OFF=e.isPrimary&&pressOutsideSelection(e)
@@ -120,9 +121,10 @@ function finishRect(pg,box,sx,sy,x,y){
   box.classList.add('pending');
   if(REPICK){ if(REPICK.box)REPICK.box.remove(); REPICK.box=box; pendingBadge(box,'새 위치'); }
   else { if(COMPOSE.box)COMPOSE.box.remove(); COMPOSE.box=box; pendingBadge(box,'새 핀'); }
-  const page=+pg.dataset.page,p=META.pages[page-1];
+  const page=+pg.dataset.page,p=META.pages[page-1],repick=!!REPICK;
   pick({page,x0:Math.min(sx,x)*p.pt_w,y0:Math.min(sy,y)*p.pt_h,x1:Math.max(sx,x)*p.pt_w,y1:Math.max(sy,y)*p.pt_h,
     frac:[Math.min(sx,x),Math.min(sy,y),w,h],pdf_build:META.pages_build||undefined,doc:DOC||undefined});
+  if(!repick)openSelPop(box);   // a mouse drag's note popover (sel-popover.js); pick() has opened the composer
   return true;}
 // If the sheet/panel covers the selection box, the body scrolls up until the box is visible (compact only). The view's top
 // is 28px into the PDF area, or 8px under the select mode's bar while it shows, so the box never stays under the bar.

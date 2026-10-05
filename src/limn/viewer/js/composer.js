@@ -19,7 +19,7 @@ async function pick(r){
   let d;
   try{d=(await api('/api/pick',{method:'POST',body:r,what:'위치 찾기'})).data;}
   catch(e){if(seq!==PICKSEQ)return; setBusy(false); if(!rp){COMPOSE.picking=false; clearPendingSave();}
-    if(rp){bannerRepick();} else {if(COMPOSE.box){COMPOSE.box.remove();COMPOSE.box=null;} if(!COMPOSE.current){$('#composer').hidden=true; applySide();}} return;}
+    if(rp){bannerRepick();} else {if(COMPOSE.box){COMPOSE.box.remove();COMPOSE.box=null;} if(!COMPOSE.current){$('#composer').hidden=true; applySide();} drawSelPop();} return;}
   if(seq!==PICKSEQ)return;
   setBusy(false); if(!rp)COMPOSE.picking=false;
   if(d.error){
@@ -27,7 +27,7 @@ async function pick(r){
       if(rp&&rp.box){rp.box.remove();rp.box=null;} else if(!rp&&COMPOSE.box){COMPOSE.box.remove();COMPOSE.box=null;}}
     if(rp){bannerRepick(errText(d));return;}
     // Even a pending save is never carried out if pick fails - only the existing error panel is shown (regression: prevents a silent save failure).
-    COMPOSE.current=null; clearPendingSave(); $('#c-err').textContent=errText(d); $('#c-err').hidden=false; $('#c-body').hidden=true; return;}
+    COMPOSE.current=null; clearPendingSave(); $('#c-err').textContent=errText(d); $('#c-err').hidden=false; $('#c-body').hidden=true; drawSelPop(); return;}
   if(rp){rp.cand=d; bannerCompare(); return;}
   const sel=/** @type {Selection} */(d); COMPOSE.current=sel; sel.scope=null; sel.elSel=d.el||null; if(!isRegion(d)){useLevel(sel,d.default_level); if(!sel.scope){sel.lo=d.lo;sel.hi=d.hi;}}
   COMPOSE.dismissedOverlap=null;   // a freshly chosen selection - re-notified even if [별도 핀으로 저장] was pressed for a previous selection
@@ -37,8 +37,9 @@ async function pick(r){
   SNIP_OPEN=false; $('#c-err').hidden=true; $('#c-body').hidden=false; renderComposer();
   $('#composer').scrollTop=0;   // so a second drag's new location/ladder never hides above the scroll (the note stays as-is)
   if(LAYOUT!==LAYOUT_MODE.WIDE)$('#right').scrollTop=0;
-  // Drag -> straight into the note field. Never focused on touch - the virtual keyboard would pop up immediately and cover the range ladder and page.
-  if(LAST_PTR==='mouse')$('#note').focus({preventScroll:true});
+  // Drag -> straight into the note field - the popover's by the box while it is open (sel-popover.js), else the composer's. Never
+  // focused on touch - the virtual keyboard would pop up immediately and cover the range ladder and page.
+  if(LAST_PTR==='mouse')(selPopOpen()?SEL_POP_FIELD:$('#note')).focus({preventScroll:true});
   // If [핀 저장] was pressed while pick was still slow (~1.1s), the queued save runs here (COMPOSE.current has just been filled in).
   if(COMPOSE.pendingSave){clearPendingSave(); savePin();}
 }
@@ -113,7 +114,7 @@ function renderRegionComposer(d){
   $('#c-tag').hidden=true; $('#c-warn').hidden=!d.warn; $('#c-warn').textContent=warnText(d.warn); $('#c-overlap').hidden=true;
   $('#c-levels').replaceChildren(); setCap($('#c-cap'),html``); drawExcerpt(null,$('#c-xp'),false);
   const pre=$('#c-snip'); pre.className='wrap open'; pre.textContent=d.quote?tl('영역 글자: {text}',{text:d.quote}):tr('(이 영역에는 글자가 없습니다)');
-  $('#c-expand').hidden=true; drawComposerQuote(d); renderElement(d,COMPOSE.box);}
+  $('#c-expand').hidden=true; drawComposerQuote(d); renderElement(d,COMPOSE.box); drawSelPop();}
 // Draws the composer from COMPOSE.current (location, ladder, range excerpt, overlap) and schedules the draft write - every change
 // of the selection (a pick, a level, a line set in the excerpt, a restore) passes through here. Its markup is in the order the
 // screen shows on every layout (docs/handbook/viewer.md §패널 정리), so Tab follows it.
@@ -135,6 +136,7 @@ function renderComposer(){const d=COMPOSE.current; if(!d)return; saveDraftSoon()
   $('#c-expand').hidden=!over; $('#c-expand').textContent=SNIP_OPEN?tr('원문 접기'):tr('원문 펼치기')+(nl>1?' · '+tl('{n}줄',{n:nl}):'');
   drawExcerpt(d,$('#c-xp'),false);   // the range excerpt (excerpt.js)
   drawComposerQuote(d);
+  drawSelPop();   // the popover by the box shows the same location
 }
 // ---------------- The PDF text a drag chose (docs/handbook/viewer.md §패널 정리 '드래그한 글자', issue #185)
 // The selection whose quote line is open, or null: a new pick is a new object, so it starts folded, while a range change
@@ -183,7 +185,7 @@ function looksQuestion(text){let t=String(text||'').trim();
 function qHint(box,text,kind){if(box)box.hidden=kind===KIND_REQ.QUESTION||!looksQuestion(text);}
 // Drops the current selection and its box (clearNote also empties the note, kind and assignee). No undo here -
 // discardSelection() is the user's Esc/[취소], which offers one.
-function cancelSelection(clearNote){if(REPICK)cancelRepick(); COMPOSE.current=null; PICKSEQ++; COMPOSE.picking=false; clearPendingSave(); if(COMPOSE.box){COMPOSE.box.remove();COMPOSE.box=null;} saveDraftSoon();
+function cancelSelection(clearNote){if(REPICK)cancelRepick(); closeSelPop(); COMPOSE.current=null; PICKSEQ++; COMPOSE.picking=false; clearPendingSave(); if(COMPOSE.box){COMPOSE.box.remove();COMPOSE.box=null;} saveDraftSoon();
   COMPOSE.dismissedOverlap=null; setBusy(false); $('#composer').hidden=true; if(clearNote){$('#note').value=''; $('#note')._mentions=null; ASSIGN_NEW.touched=false; mentionPreview($('#note')); setKind(KIND_REQ.FIX);}
   if(!REPICK)setSelMode(false); if(LAYOUT===LAYOUT_MODE.NARROW&&!EDITOR.current)setSide(false); applySide();}
 // What a discarded or saved selection needs to come back (restoreSelection): the pick (COMPOSE.current), its box on the page, the note with its

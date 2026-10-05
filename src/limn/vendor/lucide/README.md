@@ -16,6 +16,7 @@ Icons are drawn with the original `<svg>` attributes: `viewBox="0 0 24 24"`, `fi
 
 | Name | Used for |
 | --- | --- |
+| `arrow-right` | [자세히 →] in the note popover by the selection box: on to the full composer in the panel |
 | `at-sign` | 'mentions me' and '@name' badges, [pins that mention me N] |
 | `bell` | the browser notifications switch in [More] |
 | `bot` | local/agent avatar (distinct from a person's initial circle) |

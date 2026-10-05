@@ -57,6 +57,7 @@ js/figure.js            # figure documents: the chosen element's box and path
 js/composer.js          # pick() and the composer: overlap banner, kind, question hint, discard and restore
 js/draft.js             # the composer draft kept per tab (sessionStorage)
 js/save.js              # saving a pin, appending to one, the queued save
+js/sel-popover.js       # the note popover by the selection box (mouse layouts)
 js/card-parts.js        # what a card is built from: people, badges, claims, @-tags and #refs in text, the thread
 js/cards.js             # the open and review card, archive and Trash rows, the Trash dialog
 js/list.js              # loading pins, list sections, drawPins, marks on the PDF, jumping to a pin or card
