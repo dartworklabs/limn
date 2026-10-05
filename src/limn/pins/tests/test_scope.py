@@ -20,6 +20,7 @@ import sys
 import tempfile
 import typing
 import unittest
+from dataclasses import replace
 from pathlib import Path
 
 from limn.pins.location.mapping import anchor_of
@@ -38,9 +39,9 @@ PURE_IMPORTS = {
     "collections.abc",
     "dataclasses",
     "typing",
-    "limn.pins",
-    "limn.pins.location.mapping",
+    "limn.revisions.needs",  # the slice's own Protocols for the injected pin facts; itself checked below
 }
+NEEDS_IMPORTS = {"collections.abc", "pathlib", "typing"}  # declarations only: no feature, no effect
 
 
 def imports_of(path: Path) -> set:
@@ -58,8 +59,11 @@ class Boundaries(unittest.TestCase):
     """What each module may reach."""
 
     def test_scope_imports_only_pure_modules(self):
-        """A file, subprocess or HTTP import in revisions.scope would put an effect inside the decision."""
+        """A file, subprocess or HTTP import in revisions.scope would put an effect inside the decision, and an import
+        of another feature would tie the decision to that feature's types - directly or through the slice's own
+        declarations of what it needs supplied (needs.py)."""
         self.assertLessEqual(imports_of(PKG / "revisions/scope.py"), PURE_IMPORTS)
+        self.assertLessEqual(imports_of(PKG / "revisions/needs.py"), NEEDS_IMPORTS)
 
     def test_neither_module_reads_server_globals(self):
         """The document and the instance's settings arrive as arguments (R5): no C., no cur_doc()."""
@@ -174,8 +178,10 @@ def anchored(lo, hi, text=OLD, **extra):
 
 
 def projected(record, rel="ms/main.tex", head="", revisions=()):
-    """Build the pin-owned projection used by pure attribution tests."""
-    return matching_pin_changes(revision_pin(record, relative_path=rel), head, revisions)
+    """The pin-owned projection of record as attribution sees it for commit head: its recorded changes are only those
+    revisions counts on that commit (matching_pin_changes over the history rows `revisions`)."""
+    pin = revision_pin(record, relative_path=rel)
+    return replace(pin, changes=tuple(matching_pin_changes(pin, head, revisions)))
 
 
 class BlockParsing(unittest.TestCase):

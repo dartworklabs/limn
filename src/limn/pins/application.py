@@ -14,9 +14,9 @@ from limn.pins.revision import RevisionPin, revision_pin as project_revision_pin
 
 if TYPE_CHECKING:
     from limn.builds import PinBuildQueries
-    from limn.collaboration import Notice
     from limn.pins.editing.http import EditingRequests
     from limn.pins.location.source import TokenCache
+    from limn.pins.notice import PinNotice
     from limn.pins.runtime import PinCommands
     from limn.runtime.config import RunConfig
     from limn.runtime.documents import Doc
@@ -158,7 +158,7 @@ def assemble_pins(
     docs: list[Doc],
     builds: PinBuildQueries,
     known_people: Callable[[Sequence[Json] | None], dict[str, Json]],
-    notice_sink: Callable[[Notice], Json | None],
+    notice_sink: Callable[[PinNotice], Json | None],
     emit_events: Callable[[list[Json | None]], None],
     recent_events: Callable[[], Sequence[Json]],
     role_of: Callable[[str], Role],

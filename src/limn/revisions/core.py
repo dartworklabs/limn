@@ -15,12 +15,12 @@ import subprocess
 import threading
 import time
 from collections.abc import Callable, Iterator, Mapping, Sequence
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, NamedTuple, Protocol, TypeAlias
 
-from limn.pins import RevisionPin, RevisionPinQuery
 from limn.platform.git import GIT_TIMEOUT, git, git_command, git_env, open_git
+from limn.revisions.needs import PinChange, PinProjection, PinQuery
 from limn.revisions.scope import (
     REVISION_DIFF_MAX as scope_REVISION_DIFF_MAX,
     Block as scope_Block,
@@ -335,7 +335,7 @@ class RevisionContext:
     """What a revision service needs from the instance, made per request by the composition root."""
 
     timeout: int  # --build-timeout; a comparison is bounded by min(180, it)
-    pins: RevisionPinQuery
+    pins: PinQuery  # the pin owner's read for one pin of a document, injected by the composition root
     cache: ScopeCache
     jobs: RevisionJobs
     describe: Callable[[BuildFailure], tuple[str, str]]  # (message, API reason) a failed build records
@@ -801,10 +801,11 @@ def range_diff(
     }
 
 
-def matching_pin_changes(pin: RevisionPin, head: str, revisions: Sequence[Record]) -> RevisionPin:
-    """Apply revision-owned Git/PR reference resolution (_ref_commit over the history window rows) to detached pin
-    change candidates."""
-    return pin if _ref_commit(pin.close_ref, revisions) == head else replace(pin, changes=())
+def matching_pin_changes(pin: PinProjection, head: str, revisions: Sequence[Record]) -> Sequence[PinChange]:
+    """The pin's recorded changes that count on commit head: all of them when its close_ref names head among
+    revisions (revision-owned Git/PR reference resolution, _ref_commit over the history window rows), else none - on
+    any other commit the pin's own range decides."""
+    return pin.changes if _ref_commit(pin.close_ref, revisions) == head else ()
 
 
 _REF_SHA_RE = re.compile(r"\b[0-9a-f]{7,40}\b", re.ASCII)
@@ -917,6 +918,26 @@ def _repo_rel(repo: Path, path: str) -> str | None:
         return None
 
 
+def _scope_facts(pin: PinProjection, changes: Sequence[RepoRange]) -> str:
+    """The pin facts one scope decision is cached under (ScopeCache), as one string: every projected fact, with changes
+    - the ranges that count on the commit asked about - in place of the pin's recorded ones. Two pins get the same
+    string only when all of these facts are equal. Each fact is read by name, so the key does not depend on how the
+    injected value prints."""
+    anchor = pin.anchor
+    return json.dumps(
+        [
+            pin.id,
+            pin.relative_path,
+            pin.lo,
+            pin.hi,
+            pin.stale,
+            None if anchor is None else [anchor.head, anchor.tail, anchor.head_off, anchor.tail_off],
+            changes,
+            pin.close_ref,
+        ]
+    )
+
+
 def revision_pin_scope(
     D: RevisionDoc,
     repo: Path,
@@ -942,15 +963,16 @@ def revision_pin_scope(
     )
     if projected is None:
         return PinNotInDoc()
-    pin: RevisionPin = matching_pin_changes(projected, head, revisions)
-    changes = [RepoRange(change.file, change.lo, change.hi) for change in pin.changes]
-    key = (str(repo), base, head, json.dumps([pin, changes], default=str))
+    changes = [
+        RepoRange(change.file, change.lo, change.hi) for change in matching_pin_changes(projected, head, revisions)
+    ]
+    key = (str(repo), base, head, _scope_facts(projected, changes))
     hit = ctx.cache.get(key)
     if hit is not None:
         return hit
     with ctx.cache.slot() as got:
         files = revision_changes(repo, base, head, paths) if got else None
-    out = pin_scope(files, pin, [c for c in changes if c.path])
+    out = pin_scope(files, projected, [c for c in changes if c.path])
     if files is not None:
         ctx.cache.put(key, out)
     return out
