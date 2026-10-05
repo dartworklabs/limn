@@ -34,7 +34,7 @@ class RepickRequestLifetime(unittest.TestCase):
                 function docInfo(k){return k==='other';}
                 function dq(path,k){return path+'?doc='+k;}
                 function clearPendingSave(){COMPOSE.pendingSave=false;clears++;} function applySide(){} function tl(s){return s;}
-                function saveDraftSoon(){}
+                function saveDraftSoon(){} function endTopic(){}
                 function errText(d){return d.error;}
                 function lvOf(){return null;} function isRegion(){return false;}
                 function scopeLabel(){return '';} function levelLabel(){return '';}

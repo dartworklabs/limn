@@ -27,8 +27,9 @@ function cancelRepick(){const was=!!REPICK; if(was)PICKSEQ++; if(REPICK&&REPICK.
   if(was){if(!COMPOSE.current)setSelMode(false); if(EDITOR.current&&LAYOUT!==LAYOUT_MODE.WIDE)setSide(true);}}
 // Sends the re-place candidate as the pin's new location (POST /api/pins/<id>/edit with `loc` and the `base_rev` the editor
 // holds). The loc carries the candidate's range, its element and that element's box on a figure, or only the region on a
-// view-only page; one without an element drops the pin's el. On 409 it keeps the editor's rev current and reloads the pins;
-// on success it syncs the open editor with the stored pin. Does nothing without a candidate.
+// view-only page; one without an element drops the pin's el. On 409 a warning banner on top of the panel says why, and it keeps
+// the editor's rev current and reloads the pins; on success (silent: the mark moves; read out only) it syncs the open editor
+// with the stored pin. Does nothing without a candidate.
 async function applyRepick(){const R=REPICK; if(!R||!R.cand)return; const c=R.cand,lv=lvOf(c,c.default_level)||c;
   const visit=captureVisit(),E=EDITOR.current;
   let loc=/** @type {Record<string, unknown>} */({file:c.file,page:c.page,lo:lv.lo,hi:lv.hi,raw_lo:c.raw_lo,raw_hi:c.raw_hi,via:c.via,score:c.score,frac:c.frac,pdf_build:c.pdf_build||undefined,
@@ -37,8 +38,8 @@ async function applyRepick(){const R=REPICK; if(!R||!R.cand)return; const c=R.ca
   if(isRegion(c))loc={page:c.page,frac:c.frac,quote:c.quote,pdf_build:c.pdf_build||undefined};   // view-only: only the region is re-placed
   figureFields(loc,repickEl(c),isRegion(c)||!lv.el?null:lv);   // a new loc names its element or none: a loc without el drops the pin's el
   const base=EDITOR.current&&EDITOR.current.id===R.id?EDITOR.current.base_rev:0;
-  try{const {status,data}=await api('/api/pins/'+R.id+'/edit',{method:'POST',body:{loc,base_rev:base},what:'위치 바꾸기',expect:[409]});
-    if(status===409){toast(data&&data.error===PIN_STATE.DONE?'닫힌 핀은 위치를 바꿀 수 없습니다':'다른 쪽이 이 핀을 먼저 바꿨습니다 — 최신 값을 불러왔습니다','warn');
+  try{const {status,data}=await api('/api/pins/'+R.id+'/edit',{method:'POST',body:{loc,base_rev:base},what:'위치 바꾸기',where:NOTICE_HOST.LIST,expect:[409],intent:'loc'});
+    if(status===409){bannerNote(NOTICE_HOST.LIST,data&&data.error===PIN_STATE.DONE?'닫힌 핀은 위치를 바꿀 수 없습니다':'다른 쪽이 이 핀을 먼저 바꿨습니다 — 최신 값을 불러왔습니다',NOTICE_KIND.WARN);
       if(EDITOR.current===E&&E&&data.pin)E.base_rev=data.pin.rev;
       if(currentVisit(visit)&&REPICK===R)cancelRepick();
       await loadPins(); return;}
@@ -46,5 +47,5 @@ async function applyRepick(){const R=REPICK; if(!R||!R.cand)return; const c=R.ca
     if(currentVisit(visit)&&REPICK===R)cancelRepick();
     if(EDITOR.current===E&&E&&E.id===p.id){Object.assign(E,{base_rev:p.rev,lo:p.lo,hi:p.hi,file:p.file,name:p.name,scope:p.scope||null,page:pinPlace(p).page,quote:p.quote||'',pinEl:p.el||null});
       E.orig.lo=p.lo;E.orig.hi=p.hi;E.orig.scope=p.scope||null; editSnip(true);}
-    toast(tl('핀 #{id} 위치를 {where} 로 바꿨습니다',{id:p.id,where:isRegion(p)?tl('쪽 {page} 영역',{page:pinPlace(p).page}):'L'+p.lo+'-L'+p.hi}),'ok'); await loadPins();
+    quietNote(tl('핀 #{id} 위치를 {where} 로 바꿨습니다',{id:p.id,where:isRegion(p)?tl('쪽 {page} 영역',{page:pinPlace(p).page}):'L'+p.lo+'-L'+p.hi})); await loadPins();
   }catch(e){}}

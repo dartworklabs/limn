@@ -39,7 +39,13 @@ const OVERLAY_SIDE=Object.freeze({PREV:'prev',CUR:'cur'});   // which build a fi
 const VIEW_MODE=Object.freeze({MANUSCRIPT:'manuscript',REVISIONS:'revisions'});   // the manuscript or the changes view; index.html data-mode
 const UI_LANG=Object.freeze({KO:'ko',EN:'en'});   // LANG
 const NOTIFY_STATE=Object.freeze({ON:'on',OFF:'off',BLOCKED:'blocked',UNSUPPORTED:'unsupported',LOCAL:'local'});   // browser notifications on this device (notifyState)
-const STATUS_KIND=Object.freeze({FAILED:'failed',ERRORS:'errors',OFFLINE:'offline',BUILDING:'building',RENDERING:'rendering',SYNC_BLOCKED:'sync-blocked',UNCHANGED:'unchanged',STALE:'stale',SYNC:'sync',PNG:'png'});   // an item of the status line (statusList)
+const STATUS_KIND=Object.freeze({NOTICE:'notice',FAILED:'failed',ERRORS:'errors',OFFLINE:'offline',BUILDING:'building',RENDERING:'rendering',SYNC_BLOCKED:'sync-blocked',UNCHANGED:'unchanged',STALE:'stale',SYNC:'sync',PNG:'png'});   // an item of the status line (statusList)
+const NOTICE_KIND=Object.freeze({OK:'ok',WARN:'warn',ERR:'err',INFO:'info'});   // what a message reports (notices.js): its icon, colour and how it is read out
+const NOTICE_PLACE=Object.freeze({LINE:'line',BANNER:'banner',CHIP:'chip',ROW:'row',CARD:'card',TRASH:'trash'});   // where a message is drawn (notices.js)
+const NOTICE_HOST=Object.freeze({COMPOSER:'composer',LIST:'list',REVIEW:'review',TRASH:'trash',LINE:'line'});   // a banner's panel or section; LINE puts an api() error on the status line
+const NOTICE_LIFE=Object.freeze({STICKY:'sticky',CLICK:'click',TIMER:'timer'});   // how long a message stays (armNotice)
+const NOTICE_DOT=Object.freeze({SIDE:'side',RV:'rv'});   // the chip a background message marks, [핀 N] or [검토 M]; also the body class dot-<value>
+const NOTICE_TOPIC=Object.freeze({PICK:'pick',SIDE:'side'});   // what a first-visit hint asks for (endTopic): a selection, the panel opened
 // Each band's layout mode (docs/handbook/viewer.md §모바일 레이아웃): the sheet (narrow), the panel between the nav bar and the
 // action row (mid) or the desktop (wide). Code that only asks which of the three reads LAYOUT; code that differs per band reads BAND.
 const BAND_MODE=Object.freeze({[LAYOUT_BAND.PHONE]:LAYOUT_MODE.NARROW,[LAYOUT_BAND.TABLET_SHEET]:LAYOUT_MODE.NARROW,[LAYOUT_BAND.SHORT]:LAYOUT_MODE.MID,[LAYOUT_BAND.MID_OVERLAY]:LAYOUT_MODE.MID,[LAYOUT_BAND.MID_SIDE]:LAYOUT_MODE.MID,[LAYOUT_BAND.WIDE]:LAYOUT_MODE.WIDE});
@@ -87,11 +93,11 @@ const T={
   loc:'핀이 가리키는 원문 줄. 클릭하면 복사',
   view:'PDF에서 이 핀 자리로 가서 깜빡입니다', edit:'메모와 범위를 고칩니다. 번호는 그대로입니다',
   close:"처리됨으로 표시해 목록과 pins.md에서 뺍니다. 아래 '닫힌 핀'에서 되돌릴 수 있습니다",
-  drop:'핀을 휴지통으로 보냅니다. 알림의 [되돌리기]나 휴지통에서 같은 번호 그대로 되살릴 수 있습니다(30일 보관)',
+  drop:'핀을 휴지통으로 보냅니다. 카드 자리에 남는 [되돌리기]나 휴지통에서 같은 번호 그대로 되살릴 수 있습니다(30일 보관)',
   repick:'번호와 메모는 그대로 두고 PDF에서 새 위치를 드래그해 바꿉니다 (Esc 취소)',
   esave:'수정한 내용을 저장합니다 (⌘ Enter / Ctrl+Enter)', ecancel:'수정을 버립니다 (Esc)',
   restore:'삭제한 핀을 같은 번호로 되살려 열린 핀에 올립니다',
-  purge:'휴지통에서 영구 삭제합니다(소유자만). 알림이 떠 있는 동안 [되돌리기]로 취소할 수 있고, 알림이 사라지면 지웁니다',
+  purge:'휴지통에서 영구 삭제합니다(소유자만). 그 자리에 6초 동안 남는 [되돌리기]로 취소할 수 있고, 그 줄이 사라지면 지웁니다',
   synctex:'PDF 좌표(SyncTeX)로 찾은 위치입니다.',
   text:'드래그한 글자를 원문에서 직접 찾아 정한 위치입니다. 표나 기호표처럼 좌표로 찾기 어려운 곳에 쓰는 방법입니다.',
   map:'그림 지도에서 드래그와 가장 많이 겹치는 요소를 골랐습니다.',

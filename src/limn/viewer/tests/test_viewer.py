@@ -175,9 +175,11 @@ class FrontendLogic(unittest.TestCase):
         self.assertEqual(out[6], [False])
 
     def test_poll_build_single_flight_and_once_per_seq(self):
+        """pollBuild is single-flight and handles one completion (one seq) once: a success is said once on the status
+        line; a failure opens the error panel and says nothing else (the panel is its place); a freshly opened tab
+        shows an already-failed build in the panel only."""
         # design 4: pollBuild is single-flight — no matter how many times it's called concurrently,
-        # /api/build fires once and completion (one seq) is handled once. A freshly opened tab shows an
-        # already-failed build in the panel only, with no toast.
+        # /api/build fires once and completion (one seq) is handled once.
         js = "\n".join(
             [
                 r"""
@@ -186,8 +188,8 @@ class FrontendLogic(unittest.TestCase):
             const els={}; const $=s=>(els[s]=els[s]||el());
             let calls=0, resolveApi=null, nextState=null;
             function api(url){calls++; return new Promise(r=>{resolveApi=()=>r({data:nextState});});}
-            const toasts=[], panels=[]; let refreshes=0;
-            function toast(m,k){toasts.push(k);} function showBuildErr(b){panels.push(b.state);} function hideBuildErr(){}
+            const said=[], panels=[]; let refreshes=0;
+            function lineNote(m,k){said.push(k);} function showBuildErr(b){panels.push(b.state);} function hideBuildErr(){}
             async function refreshDoc(){refreshes++;}
             const META={pages:[1,2]};
             let timers=0; function setInterval(){timers++; return 1;} function clearInterval(){}
@@ -206,35 +208,35 @@ class FrontendLogic(unittest.TestCase):
               // 부팅: 이미 ok_errors 로 끝난 빌드(seq 그대로) → 패널만, 토스트 없음
               nextState={state:'ok_errors',seq:3,errors:[]};
               const p=pollBuild(); resolveApi(); await p;
-              out.boot={calls, toasts:toasts.slice(), panels:panels.slice(), refreshes};
+              out.boot={calls, said:said.slice(), panels:panels.slice(), refreshes};
               // 동시 세 번 → 요청 한 번, 완료 처리 한 번
-              calls=0; toasts.length=0; panels.length=0;
+              calls=0; said.length=0; panels.length=0;
               nextState={state:'ok',seq:4,elapsed_s:3};
               const a=pollBuild(), b=pollBuild(), c=pollBuild();
               out.same=(a===b&&b===c);
               resolveApi(); await Promise.all([a,b,c]);
-              out.burst={calls, toasts:toasts.slice(), refreshes};
+              out.burst={calls, said:said.slice(), refreshes};
               // 같은 seq 를 다시 봐도 아무 일 없음
               const d=pollBuild(); resolveApi(); await d;
-              out.again={calls, toasts:toasts.slice(), refreshes};
+              out.again={calls, said:said.slice(), refreshes};
               // 숨은 탭은 요청하지 않는다
               document.hidden=true; await pollBuild(); out.hidden=calls; document.hidden=false;
               // 5초 틈새에 두 빌드가 지나감(seq 4→6, 마지막 fail) → 한 번만, fail 토스트
               nextState={state:'fail',seq:6,errors:[]};
               const e=pollBuild(); resolveApi(); await e;
-              out.skip={toasts:toasts.slice(), panels:panels.slice()};
+              out.skip={said:said.slice(), panels:panels.slice()};
               console.log(JSON.stringify(out));
             })();
             """,
             ]
         )
         out = json.loads(run_node(js))
-        self.assertEqual(out["boot"], {"calls": 1, "toasts": [], "panels": ["ok_errors"], "refreshes": 0})
+        self.assertEqual(out["boot"], {"calls": 1, "said": [], "panels": ["ok_errors"], "refreshes": 0})
         self.assertTrue(out["same"])
-        self.assertEqual(out["burst"], {"calls": 1, "toasts": ["ok"], "refreshes": 1})
-        self.assertEqual(out["again"], {"calls": 2, "toasts": ["ok"], "refreshes": 1})
+        self.assertEqual(out["burst"], {"calls": 1, "said": ["ok"], "refreshes": 1})
+        self.assertEqual(out["again"], {"calls": 2, "said": ["ok"], "refreshes": 1})
         self.assertEqual(out["hidden"], 2)
-        self.assertEqual(out["skip"], {"toasts": ["ok", "err"], "panels": ["fail"]})
+        self.assertEqual(out["skip"], {"said": ["ok"], "panels": ["fail"]})  # the failure's place is its panel
 
     def test_rel_badge_matches_python_smallest_inside_rule(self):
         # bug: relBadge (JS, card tag) used to pick insides[0] (the order the server happened to send,
@@ -296,7 +298,9 @@ class FrontendLogic(unittest.TestCase):
         self.assertEqual(out["mid"], [True, True])  # right after clicking: both .cur and .flash are present
         self.assertEqual(out["after"], [False, False])  # after 1.2s: the highlight clears (static box-shadow bug fixed)
 
-    def test_diff_toast_distinguishes_dropped_from_closed(self):
+    def test_pin_changes_tell_a_dropped_pin_from_a_closed_one(self):
+        """A pin gone from the list and from every snapshot was dropped ('#2 을 Bob 가 삭제함', a warning with
+        [되살리기]); one still in the snapshot as done was completed ('#3 이 완료되었습니다') - each a status-line message."""
         # §A: the old implementation reported every pin that disappeared from the open list as "done" —
         # even a pin a coauthor dropped showed up on the author's screen as '#N 이 완료되었습니다' (observed).
         # id 2 is dropped because it's absent from d (open+closed) entirely; id 3 is done because it's in d with done:true.
@@ -304,21 +308,21 @@ class FrontendLogic(unittest.TestCase):
             [
                 r"""
             function who(a){return (a&&(a.name||a.login))||'';}
-            const TOASTS=[]; const RESTORED=[];
-            function toast(msg,kind,action){TOASTS.push({msg,kind,hasAction:!!action});}
+            const SAID=[]; const RESTORED=[];
+            function lineNote(msg,kind,action){SAID.push({msg,kind,hasAction:!!action});}
             function restorePin(id){RESTORED.push(id);}
             const MY_ACTIONS=new Map();
             """,
                 extract_js_fn("markMine"),
                 extract_js_fn("consumeMine"),
                 extract_js_fn("pinState"),
-                extract_js_fn("diffToast"),
+                extract_js_fn("notePinChanges"),
                 r"""
             const prev=[{id:1},{id:2},{id:3}];
             const d=[{id:1,done:false},{id:3,done:true}];
             const dropped=[{id:2,dropped_by:{name:'Bob'}}];
-            diffToast(prev,d,dropped);
-            console.log(JSON.stringify(TOASTS));
+            notePinChanges(prev,d,dropped);
+            console.log(JSON.stringify(SAID));
             """,
             ]
         )
@@ -334,22 +338,23 @@ class FrontendLogic(unittest.TestCase):
         self.assertEqual(dropped[0]["kind"], "warn")
         self.assertTrue(dropped[0]["hasAction"])  # the [되살리기] (restore) action is attached
 
-    def test_diff_toast_dropped_action_calls_restore_pin(self):
+    def test_a_pin_dropped_elsewhere_offers_restore(self):
+        """The dropped pin's message carries [되살리기], which restores that pin."""
         js = "\n".join(
             [
                 r"""
             function who(a){return (a&&(a.name||a.login))||'';}
             let CAPTURED=null; const RESTORED=[];
-            function toast(msg,kind,action){if(action)CAPTURED=action;}
+            function lineNote(msg,kind,action){if(action)CAPTURED=action;}
             function restorePin(id){RESTORED.push(id);}
             const MY_ACTIONS=new Map();
             """,
                 extract_js_fn("markMine"),
                 extract_js_fn("consumeMine"),
                 extract_js_fn("pinState"),
-                extract_js_fn("diffToast"),
+                extract_js_fn("notePinChanges"),
                 r"""
-            diffToast([{id:9}],[],[{id:9,dropped_by:{login:'x'}}]);
+            notePinChanges([{id:9}],[],[{id:9,dropped_by:{login:'x'}}]);
             CAPTURED.fn();
             console.log(JSON.stringify(RESTORED));
             """,
@@ -357,22 +362,24 @@ class FrontendLogic(unittest.TestCase):
         )
         self.assertEqual(json.loads(run_node(js)), [9])
 
-    def test_diff_toast_unknown_dropper_falls_back_to_generic_label(self):
+    def test_a_pin_dropped_by_someone_unknown_names_another_session(self):
+        """A pin gone from every list but missing from the Trash too (a polling race) is still said to be dropped, by
+        '다른 세션'."""
         js = "\n".join(
             [
                 r"""
             function who(a){return (a&&(a.name||a.login))||'';}
-            const TOASTS=[]; function toast(msg,kind,action){TOASTS.push(msg);}
+            const SAID=[]; function lineNote(msg,kind,action){SAID.push(msg);}
             function restorePin(id){}
             const MY_ACTIONS=new Map();
             """,
                 extract_js_fn("markMine"),
                 extract_js_fn("consumeMine"),
                 extract_js_fn("pinState"),
-                extract_js_fn("diffToast"),
+                extract_js_fn("notePinChanges"),
                 r"""
-            diffToast([{id:5}],[],[]);   // dropped 목록에도 없음(폴링 경합) — 그래도 삭제로는 알린다
-            console.log(JSON.stringify(TOASTS));
+            notePinChanges([{id:5}],[],[]);   // dropped 목록에도 없음(폴링 경합) — 그래도 삭제로는 알린다
+            console.log(JSON.stringify(SAID));
             """,
             ]
         )
@@ -381,29 +388,30 @@ class FrontendLogic(unittest.TestCase):
         self.assertIn("#5 을", out[0])
         self.assertIn("삭제함", out[0])
 
-    def test_diff_toast_suppresses_own_recent_action_but_not_others(self):
-        # bug: a pin the same tab just closed or dropped would also flow straight through diffToast
-        # without markMine, doubling up with the local toast. An id marked via markMine(id) should be
+    def test_pin_changes_skip_this_tabs_own_action_but_not_others(self):
+        """This tab's own close or drop (markMine) is not said again; another tab's is."""
+        # bug: a pin the same tab just closed or dropped would also flow straight through the list comparison
+        # without markMine, doubling up with what the action itself said. An id marked via markMine(id) should be
         # swallowed exactly once; an unmarked id (= done by another tab) must still be reported.
         js = "\n".join(
             [
                 r"""
             function who(a){return (a&&(a.name||a.login))||'';}
-            const TOASTS=[]; function toast(msg,kind,action){TOASTS.push(msg);}
+            const SAID=[]; function lineNote(msg,kind,action){SAID.push(msg);}
             function restorePin(id){}
             const MY_ACTIONS=new Map();
             """,
                 extract_js_fn("markMine"),
                 extract_js_fn("consumeMine"),
                 extract_js_fn("pinState"),
-                extract_js_fn("diffToast"),
+                extract_js_fn("notePinChanges"),
                 r"""
             markMine(1); markMine(2);   // 이 탭이 방금 #1 을 완료, #2 를 삭제했다
             const prev=[{id:1},{id:2},{id:3},{id:4}];
             const d=[{id:1,done:true},{id:3,done:true}];   // #2,#4 는 d 에 없음=삭제
             const dropped=[{id:2,dropped_by:{login:'me'}},{id:4,dropped_by:{name:'Coauthor'}}];
-            diffToast(prev,d,dropped);
-            console.log(JSON.stringify(TOASTS));
+            notePinChanges(prev,d,dropped);
+            console.log(JSON.stringify(SAID));
             """,
             ]
         )
@@ -532,13 +540,15 @@ class FrontendStructure(unittest.TestCase):
         self.assertIn("case 'restore':restorePin(id)", HTML)
 
     def test_load_pins_fetches_dropped_list_for_diff_and_panel(self):
+        """loadPins reads the Trash too, and applyPinLists hands it to the list comparison that tells a drop from a
+        close (notePinChanges) before it keeps it for the panel."""
         m = re.search(r"async function loadPins\(\)\{(.*?)\n\}", HTML, re.S)
         self.assertIsNotNone(m)
         body = m.group(1)
         self.assertIn("/api/pins/dropped", body)
         applied = extract_js_fn("applyPinLists")
         self.assertIn("DROPPED=dropped", applied)
-        self.assertIn("diffToast(prevOpen,rows,dropped)", applied)
+        self.assertIn("notePinChanges(prevOpen,rows,dropped)", applied)
 
     def test_draw_pins_counts_the_trash(self):
         body = extract_js_fn("drawPins")
@@ -588,7 +598,8 @@ class FrontendClaimUI(unittest.TestCase):
     def test_build_status_fetch_requests_full_log(self):
         self.assertIn("/api/build?log=1", HTML)
 
-    def test_pull_chip_and_toast_wiring(self):
+    def test_pull_line_wiring(self):
+        """The pull phase has its words, and a build's completion carries the pull's line (pullSuffix)."""
         self.assertIn("원격 main 당겨오는 중", HTML)
         self.assertIn("function pullSuffix(", HTML)
         self.assertIn("pullSuffix(b)", HTML)
@@ -636,13 +647,14 @@ class FrontendMobileStructure(unittest.TestCase):
         self.assertIn("body.mid-overlay.side-open #right{", css)
 
     def test_compact_toolbar_elements_and_more_menu(self):
+        """The compact tool bar and [더보기] have their elements and actions; the desktop's own bell, theme and help
+        buttons are gone, and so is the first-visit chip (#coach), whose hints are on the status line now."""
         for el in (
             'id="btn-side"',
             'id="side-n"',
             'id="btn-select"',
             'id="btn-more"',
             '<dialog id="more"',
-            'id="coach"',
             'id="more-info"',
             'id="m-trash"',
             'id="more-foot"',
@@ -657,7 +669,7 @@ class FrontendMobileStructure(unittest.TestCase):
         self.assertIn('aria-pressed="false"', re.search(r'<button id="btn-select"[^>]*>', HTML).group(0))
         # less important buttons are hidden in compact mode (.sec) and live inside [⋯] with the same data-act; the desktop's
         # bell, theme button and [?] are gone - [⋯] opens the same [더보기] there too (3b of the cross-resolution pass)
-        for gone in ('id="btn-notify"', 'id="btn-theme"', 'id="btn-help"'):
+        for gone in ('id="btn-notify"', 'id="btn-theme"', 'id="btn-help"', 'id="coach"'):
             self.assertNotIn(gone, HTML)
         for bid, act in (
             ("btn-reload", "reload"),
@@ -671,7 +683,7 @@ class FrontendMobileStructure(unittest.TestCase):
             self.assertIn('data-act="%s"' % act, more)
         self.assertRegex(HTML, r'<input class="n sec" id="jump"')
         self.assertIn("body.compact .sec{display:none}", HTML)
-        for act in ("side", "selmode", "more", "more-close", "coach-close", "card-toggle"):
+        for act in ("side", "selmode", "more", "more-close", "card-toggle"):
             self.assertIn("case '%s':" % act, HTML)
 
     def test_touch_css_targets_inputs_safe_area_and_selection_touch_action(self):
@@ -708,9 +720,6 @@ class FrontendMobileStructure(unittest.TestCase):
         self.assertRegex(css_nc, r"\n#left\{[^}]*touch-action:pan-x pan-y\}")
         self.assertIn("body.selmode .pg{touch-action:none", css)
         self.assertNotIn("touch-action:pinch-zoom", css)
-        # toasts move to a spot that doesn't overlap the sheet/panel toolbar row
-        self.assertIn("body.lay-narrow #toasts{", css)
-        self.assertIn("body.lay-mid #toasts{", css)
 
     def test_selection_uses_pointer_events_one_path(self):
         self.assertIn("$('#doc').addEventListener('pointerdown'", HTML)
@@ -1463,6 +1472,7 @@ class FrontendPanelTidyStructure(unittest.TestCase):
         self.assertIn("body.compact #bar1 #btn-more{flex:0 0 44px", css)
 
     def test_mid_layout_pins_nav_top_and_action_bar_bottom(self):
+        """mid: the nav row is pinned at the top and the action row at the bottom, full width; the panel never moves them."""
         # unfolded fold devices / tablets (mid): the action row doesn't follow the panel — it's pinned
         # full-width at the bottom of the screen, and the nav row is pinned full-width at the top
         # (docs/handbook/viewer.md §펼친 화면 레이아웃). Live browser measurements are in FrontendResponsiveBrowser.
@@ -1489,9 +1499,6 @@ class FrontendPanelTidyStructure(unittest.TestCase):
                     sel,
                 )
         self.assertRegex(css_nc, r"@keyframes mid-panel-in\{from\{right:")  # the opening animation moves only via right
-        # the first-run coach mark sits above the action row ([select] above), not over the nav row. Toasts sit right above the action row, panel side (FrontendToasts).
-        self.assertIn("body.lay-mid #coach{top:auto;bottom:calc(var(--mbar-h)", css)
-        self.assertIn("body.lay-mid #toasts{", css)
         # an overflowing document-link row fades at the edge instead of showing a scrollbar
         self.assertIn(
             "body:is(.lay-mid,.band-tablet-sheet) #doc-links.fade-r{mask-image:", css
@@ -1698,87 +1705,59 @@ class FrontendDesignTokens(unittest.TestCase):
             self.assertNotIn(old, css)  # old display-only classes were removed
 
 
-# ---------------------------------------------------------------- toasts — docs/handbook/viewer.md §알림(토스트)
-# author feedback (2026-09-24): saving a pin used to pop an "undo" toast at the bottom-left, far from the
-# right-hand panel (1,100px+ away), with a tacky left color stripe. It now appears sonner-style right
-# where you just clicked (bottom-right of the panel column, just above the action row; on narrow, above the sheet).
-class FrontendToasts(unittest.TestCase):
-    """Guard toast layout, stacking, placement, and accessible message structure."""
+# ---------------------------------------------------------------- messages in context — docs/handbook/viewer.md §알림 자리
+# Issue #167: there is no toast. A message is drawn where it happened (notices.js): a banner, an undo row or note, a chip on
+# a mark, the status line. The floating toast box, its stack and its placement code are gone.
+class FrontendNotices(unittest.TestCase):
+    """Guard that no toast or first-visit chip is left in the page and that the messages keep one look."""
 
     css = HTML[HTML.index("<style>") : HTML.index("</style>")]
 
     def rules(self, pat):
+        """The CSS rules whose selector matches pat, as (selector, {property: value})."""
         return [(sel, dict(d)) for sel, d in css_rules() if re.search(pat, sel)]
 
-    def test_toast_has_no_left_stripe_and_is_a_single_floating_surface(self):
-        for sel, d in self.rules(r"\.toast"):
+    def test_no_toast_or_first_visit_chip_is_left_in_the_page(self):
+        """The toast box (#toasts) and the first-visit chip (#coach), their CSS, their strings' functions and their
+        actions are gone from the served page."""
+        for gone in (
+            'id="toasts"',
+            'id="coach"',
+            "#toasts",
+            ".toast",
+            "function toast(",
+            "function placeToasts(",
+            "toast-in",
+            "coach-close",
+            "toasts-expand",
+            "toastHost",
+        ):
+            self.assertNotIn(gone, HTML)
+
+    def test_messages_have_no_left_stripe_and_show_their_kind_by_icon_and_tint(self):
+        """No message has a left colour stripe; each kind has its own lead icon, and a banner is tinted by its kind."""
+        for sel, d in self.rules(r"\.nt\b"):
             self.assertFalse([k for k in d if k.startswith("border-left")], sel)
-        base = dict(self.rules(r"^\.toast$")[0][1])
-        self.assertEqual(base["border"], "1px solid var(--border)")
-        self.assertEqual(base["border-radius"], "var(--radius-lg)")
-        self.assertEqual(base["background"], "var(--popover)")
-        self.assertIn("box-shadow", base)
-        # state is shown via the leading icon's color — not a stripe
-        for kind, icon in (("ok", "circle-check"), ("warn", "triangle-alert"), ("err", "circle-x")):
-            self.assertIn("%s:()=>ic('%s')" % (kind, icon), HTML)
-        self.assertIn(".toast.warn>.ic{color:var(--warning)}", self.css)
-        self.assertIn(".toast.err>.ic{color:var(--destructive)}", self.css)
+        for kind, icon in (("OK", "circle-check"), ("WARN", "triangle-alert"), ("ERR", "circle-x"), ("INFO", "info")):
+            self.assertIn("[NOTICE_KIND.%s]:()=>ic('%s')" % (kind, icon), HTML)
+        for kind, color in (("err", "destructive"), ("warn", "warning"), ("ok", "success")):
+            self.assertIn(".nt-banner.nk-%s{border-color:color-mix(in srgb,var(--%s)" % (kind, color), self.css)
 
-    def test_toast_anchored_per_layout_near_the_action(self):
-        box = dict(self.rules(r"^#toasts$")[0][1])
-        self.assertEqual(box["right"], "var(--toast-r,var(--space-3))")
-        self.assertEqual(box["bottom"], "var(--toast-b,var(--space-3))")
-        self.assertNotIn("left", box)  # formerly: pinned bottom-left
-        self.assertIn("body.lay-narrow #toasts{", self.css)
-        self.assertIn("body.lay-mid #toasts{", self.css)
-        self.assertNotRegex(self.css, r"body\.lay-mid #toasts\{[^}]*top:")  # formerly: top-left of the body
-        body = extract_js_fn("placeToasts")
-        self.assertIn("'#c-actions'", body)  # doesn't cover the save/cancel buttons
-        # doesn't cover the bottom toolbar (the short band has none: its tool bar is in the top row)
-        self.assertIn("LAYOUT===LAYOUT_MODE.MID&&BAND!==LAYOUT_BAND.SHORT?['#bar1']", body)
-        self.assertIn("right.getBoundingClientRect().top", body)  # narrow: above the sheet
-        self.assertIn("sd.getBoundingClientRect().top-20", body)  # ... and over the status line's action hit
-        self.assertIn("innerWidth-rr.right+12", body)  # right edge inside the panel column
-        # a nearly-full sheet: drop down so it doesn't cover the toolbar
-        self.assertIn("if(top<vh*0.3){top=vh; const ca=$('#c-actions');", body)
+    def test_the_chip_takes_presses_and_touch_buttons_answer_44px(self):
+        """A save's chip takes presses although its mark lets them through, and on touch every message button answers a
+        44px hit from its ::after."""
+        chip = dict(self.rules(r"^\.mark>\.nt-chip$")[0][1])
+        self.assertEqual(chip["pointer-events"], "auto")
+        coarse = self.css[self.css.index("@media (pointer:coarse){\n  .nt-acts button{") :]
         self.assertIn(
-            "@media (pointer:coarse){.toast{pointer-events:none}.toast button{pointer-events:auto}}", self.css
-        )
-        for v in ("--toast-b", "--toast-r", "--toast-w"):
-            self.assertIn("setProperty('%s'" % v, body)
-
-    def test_toast_stacks_newest_on_top_and_collapses_after_three(self):
-        """Newest toast on top, 6s life, more than three fold (hover, focus or the '+N' button opens them), no motion when reduced."""
-        body = extract_js_fn("toast")
-        self.assertIn("box.insertBefore(t,box.firstChild)", body)
-        self.assertIn("setTimeout(kill,6000)", body)
-        self.assertIn(
-            "#toasts:not(:hover):not(:focus-within):not(.expanded) .toast:nth-child(n+4){display:none}", self.css
-        )  # + the '+N' button on touch
-        self.assertIn("@keyframes toast-in", self.css)
-        self.assertIn("@media (prefers-reduced-motion: reduce){*{animation:none!important", self.css)
-
-    def test_toast_title_and_description_split(self):
-        if not shutil.which("node"):
-            self.skipTest("node not available")
-        js = (
-            extract_js_fn("toastSplit")
-            + "\nconsole.log(JSON.stringify(['핀 #3 저장됨 · pins.md 갱신','빌드 실패 — 화면은 이전 PDF입니다','복사함','핀 #10 · 본문 — 서준님이 불렀습니다: 봐 주세요'].map(toastSplit)));"
-        )
-        self.assertEqual(
-            json.loads(run_node(js)),
-            [
-                ["핀 #3 저장됨", "pins.md 갱신"],
-                ["빌드 실패", "화면은 이전 PDF입니다"],
-                ["복사함", ""],
-                ["핀 #10 · 본문", "서준님이 불렀습니다: 봐 주세요"],
-            ],
+            ".nt-acts button::after{content:'';position:absolute;left:50%;top:50%;width:max(100%,var(--hit));height:var(--hit)",
+            coarse,
         )
 
 
 # ---------------------------------------------------------------- no outline inside an outline (docs/handbook/viewer.md §한 겹 담기)
 # author feedback (2026-09-24): drawing a bordered box inside another bordered box looks tacky. There is
-# exactly one containing layer — a card (one thin border) or a floating surface (dialog/toast/@-list).
+# exactly one containing layer — a card (one thin border) or a floating surface (dialog/@-list).
 # Everything inside it — badges, buttons, segmented controls, steppers, source, overlap banner, thread —
 # is separated only by fill, spacing, and dividers.
 class FrontendNoNestedOutlines(unittest.TestCase):
@@ -1862,28 +1841,28 @@ class FrontendSemanticAudit(unittest.TestCase):
         # formerly: it could wrap to '09-24 1…'
         self.assertIn(".arc-t{flex:none;font-size:var(--text-xs);white-space:nowrap}", self.css)
 
-    def test_one_toast_per_event_notify_wins(self):
+    def test_one_message_per_event_notify_wins(self):
+        """The two paths that say one event - the browser-notification path (rank 2) and the list comparison (rank 1) -
+        carry the same '<event>:<pin>' keys, and noticeDupe keeps one message: the notification path replaces the list
+        comparison's, a later list comparison is suppressed, the same path's next event is not."""
         if not shutil.which("node"):
             self.skipTest("node not available")
         js = "\n".join(
             [
-                "const TOAST_KEYS=[];",
-                extract_js_fn("toastDup"),
+                extract_js_fn("noticeDupe"),
                 r"""
-            const el=()=>({isConnected:true,removed:false,remove(){this.removed=true;this.isConnected=false;}});
-            const a=el(); TOAST_KEYS.push({keys:['review_requested:37'],rank:1,el:a,t:Date.now()});
-            const r1=toastDup({keys:['review_requested:37'],rank:2});           // 알림 경로가 이긴다 — 옛 것을 걷고 띄운다
-            const b=el(); TOAST_KEYS.push({keys:['review_requested:37'],rank:2,el:b,t:Date.now()});
-            const r2=toastDup({keys:['review_requested:37'],rank:1});           // 뒤늦은 목록 비교 알림은 띄우지 않는다
-            const r3=toastDup({keys:['reopened:37'],rank:1}), r4=toastDup(null);
-            const r5=toastDup({keys:['review_requested:37'],rank:2});           // 같은 경로의 다음 사건(두 번째 검토 대기)은 막지 않는다
-            console.log(JSON.stringify([r1,a.removed,r2,r3,r4,r5]));""",
+            const now=Date.now(),a={keys:['review_requested:37'],rank:1,at:now},b={keys:['review_requested:37'],rank:2,at:now};
+            const r1=noticeDupe([a],['review_requested:37'],2,now);           // 알림 경로가 이긴다 — 옛 것을 걷고 띄운다
+            const r2=noticeDupe([b],['review_requested:37'],1,now);           // 뒤늦은 목록 비교 알림은 띄우지 않는다
+            const r3=noticeDupe([b],['reopened:37'],1,now), r4=noticeDupe([b],[],1,now);
+            const r5=noticeDupe([b],['review_requested:37'],2,now);           // 같은 경로의 다음 사건(두 번째 검토 대기)은 막지 않는다
+            console.log(JSON.stringify([r1.skip,r1.drop[0]===a,r2.skip,r3.skip,r4.skip,r5.skip]));""",
             ]
         )
         self.assertEqual(json.loads(run_node(js)), [False, True, True, False, False, False])
-        self.assertIn("{keys:[e.type+':'+e.pin],rank:2,literal:true}", extract_js_fn("notifyShow"))
-        self.assertIn("{keys:reviewed.map(i=>EVENT_TYPE.REVIEW_REQUESTED+':'+i)}", extract_js_fn("diffToast"))
-        self.assertIn("{keys:[EVENT_TYPE.REOPENED+':'+p.id]}", extract_js_fn("reviewToast"))
+        self.assertIn("{keys:[e.type+':'+e.pin],rank:2,literal:true,", extract_js_fn("notifyShow"))
+        self.assertIn("{keys:reviewed.map(i=>EVENT_TYPE.REVIEW_REQUESTED+':'+i),", extract_js_fn("notePinChanges"))
+        self.assertIn("{keys:[EVENT_TYPE.REOPENED+':'+p.id],", extract_js_fn("noteReviewChanges"))
 
     def test_closed_cards_drop_position_badges_and_thread_count_opens_reply(self):
         body = extract_js_fn("card")
@@ -2180,9 +2159,11 @@ class PinNumberJump(unittest.TestCase):
         self.assertIn("case 'view':jumpPin(id);break;", HTML)
 
     def test_touch_media_query_wins_over_btn_icon_btn_sm_specificity(self):
+        """On touch a small icon button (.btn-icon.btn-sm: a card's fold, a message's [x]) is 44px: the touch rule is pinned
+        at the base rule's own specificity."""
         # regression: button.btn-icon.btn-sm{width:var(--control-h-sm)} (base rule, 0-0-2-1) is more
         # specific than the touch rule button.btn-icon{width:var(--control-h-touch)} (0-0-1-1), so the
-        # card fold button (.b-fold) and the toast close button stayed at 24px even on touch (observed).
+        # card fold button (.b-fold) and the old toast's close button stayed at 24px even on touch (observed).
         # It has to be pinned again at the same specificity (.btn-icon.btn-sm) inside @media(pointer:coarse) to win.
         css = HTML[HTML.index("<style>") : HTML.index("</style>")]
         coarse = css[css.index("@media (pointer:coarse){") :]
@@ -2192,9 +2173,9 @@ class PinNumberJump(unittest.TestCase):
             "height:var(--control-h-touch)}",
             coarse,
         )
-        # real usage: both the card fold button and the toast close button use the .btn-icon.btn-sm combination.
+        # real usage: both the card fold button and a message's close button use the .btn-icon.btn-sm combination.
         self.assertIn("btn-icon btn-sm btn-ghost cmp b-fold", HTML)
-        self.assertIn("c.className='btn-icon btn-sm btn-ghost'", HTML)
+        self.assertIn('class="btn-icon btn-sm btn-ghost nt-x"', HTML)
 
     def test_compact_bar1_buttons_keep_touch_min_width_despite_shrink_to_fit(self):
         # regression: body.compact #bar1 button{min-width:0} (specific due to the id) beat the touch rule
@@ -2864,25 +2845,25 @@ class FrontendFigure(unittest.TestCase):
                 self.assertEqual((moved, plain), (None, None))
 
     def test_a_pin_that_loses_its_element_is_announced_once(self):
-        """The list refresh announces '#N 요소를 잃었습니다' when an open pin's element becomes lost, not when it already
-        was, and not for a move."""
+        """The list refresh says '#N 요소를 잃었습니다' on the status line (a warning, with a dot on [핀 N]) when an open
+        pin's element becomes lost, not when it already was, and not for a move."""
         self.node()
         js = "\n".join(
             [
                 r"""
             function who(a){return (a&&(a.name||a.login))||'';}
-            const TOASTS=[]; function toast(m,k){TOASTS.push([m,k]);} function restorePin(){}
+            const SAID=[]; function lineNote(m,k,a,o){SAID.push([m,k,o&&o.dot]);} function restorePin(){}
             const MY_ACTIONS=new Map();""",
                 extract_js_fn("markMine"),
                 extract_js_fn("consumeMine"),
                 extract_js_fn("pinState"),
-                extract_js_fn("diffToast"),
+                extract_js_fn("notePinChanges"),
                 r"""
-            diffToast([{id:1,el_sync:'ok'},{id:2,el_sync:'lost'},{id:3}],[{id:1,el_sync:'lost'},{id:2,el_sync:'lost'},{id:3,el_sync:'moved'}],[]);
-            console.log(JSON.stringify(TOASTS));""",
+            notePinChanges([{id:1,el_sync:'ok'},{id:2,el_sync:'lost'},{id:3}],[{id:1,el_sync:'lost'},{id:2,el_sync:'lost'},{id:3,el_sync:'moved'}],[]);
+            console.log(JSON.stringify(SAID));""",
             ]
         )
-        self.assertEqual(json.loads(run_node(js)), [["#1 요소를 잃었습니다", "warn"]])
+        self.assertEqual(json.loads(run_node(js)), [["#1 요소를 잃었습니다", "warn", "side"]])
 
     def test_marks_and_cards_place_a_figure_pin_where_its_element_is(self):
         """marks() and the card's page link use pinPlace; a placed mark is not dashed; a lost element marks the card and
@@ -2899,7 +2880,7 @@ class FrontendFigure(unittest.TestCase):
         self.assertIn("const lostEl=elLostTag(p); if(lostEl)tags.push(lostEl);", c)
         self.assertIn("figRegionBadge(p.el,isFigureKind((docInfo(pdoc(p))||{}).kind))", c)
         self.assertIn("document.getElementById('p'+pinPlace(p).page)", extract_js_fn("jumpPin"))
-        self.assertIn("p.el_sync===EL_SYNC.LOST", extract_js_fn("diffToast"))
+        self.assertIn("p.el_sync===EL_SYNC.LOST", extract_js_fn("notePinChanges"))
 
     def test_a_pin_of_an_unknown_via_gets_a_neutral_hint_not_the_synctex_one(self):
         """A `via` this page does not know is named as it came, in a tooltip that claims no method and no meaning for the
@@ -2950,7 +2931,7 @@ class FrontendFigure(unittest.TestCase):
         js = "\n".join(
             [
                 r"""
-            const DOC='d', DEFAULT_DOC='d', markBadgeSides=()=>{}; let PINS=[], REVIEW_ALL=[]; const drawn=[];
+            const DOC='d', DEFAULT_DOC='d', markBadgeSides=()=>{}, drawChips=()=>{}; let PINS=[], REVIEW_ALL=[]; const drawn=[];
             const $$=()=>[]; const esc=s=>String(s);
             const page1={appendChild:m=>drawn.push([m.dataset.pin,m.className,m.style.left,m.style.width])};
             const document={getElementById:id=>id==='p1'?page1:null,
@@ -2988,9 +2969,9 @@ class FrontendFigure(unittest.TestCase):
             ],  # dataset holds strings
         )
 
-    def test_the_finished_build_toast_says_rebuilt_for_a_manuscript_and_redrawn_for_a_figure(self):
-        """The toast after a finished build of the document on screen, and the one for another document's finished
-        build, say 'PDF 재빌드 완료' for a LaTeX document and that the pages were redrawn for a figure or a view-only
+    def test_the_finished_build_message_says_rebuilt_for_a_manuscript_and_redrawn_for_a_figure(self):
+        """The status-line message after a finished build of the document on screen, and the one for another document's
+        finished build, say 'PDF 재빌드 완료' for a LaTeX document and that the pages were redrawn for a figure or a view-only
         PDF, in Korean and English."""
         self.node()
         words = {
@@ -3008,13 +2989,13 @@ class FrontendFigure(unittest.TestCase):
                         [
                             js_i18n(lang),
                             r"""
-                        let DOC='a', SWITCHSEQ=1, META={kind:%s,pages:[1,2]}; const TOASTS=[]; let REPLY;
+                        let DOC='a', SWITCHSEQ=1, META={kind:%s,pages:[1,2]}; const SAID=[]; let REPLY;
                         const BUILD={timer:null,error:null,lastSeq:0,booted:true,inflight:null};
                         const DOC_SEQ=new Map(), BUILD_ERR_BY=new Map(), META_BY=new Map();
                         const chip={hidden:false,textContent:''}, btn={disabled:false}; const $=s=>s==='#build-chip'?chip:btn;
                         const dq=u=>u; const pullSuffix=()=>''; const hideBuildErr=()=>{}; const showBuildErr=()=>{};
                         const api=async()=>REPLY; const refreshDoc=async()=>{};
-                        const toast=(m,k)=>TOASTS.push([m,k]); const switchDoc=()=>{}; const drawDocTabs=()=>{};
+                        const lineNote=(m,k)=>SAID.push([m,k]); const switchDoc=()=>{}; const drawDocTabs=()=>{};
                         const DOCS=[{key:'b',name:'Fig B',kind:%s}]; const docInfo=k=>DOCS.find(d=>d.key===k)||null;"""
                             % (json.dumps(kind), json.dumps(kind)),
                             *[extract_js_fn(n) for n in ("buildsFromSource", "pollBuildOnce", "noteOtherDocs")],
@@ -3022,7 +3003,7 @@ class FrontendFigure(unittest.TestCase):
                         (async()=>{
                           REPLY={data:{state:'ok',seq:1,elapsed_s:3}}; await pollBuildOnce();
                           DOC_SEQ.set('b',1); noteOtherDocs([{key:'b',build_seq:2,last_state:'ok'}]);
-                          console.log(JSON.stringify(TOASTS.map(t=>t[0])));})();""",
+                          console.log(JSON.stringify(SAID.map(t=>t[0])));})();""",
                         ]
                     )
                     on_screen, other = json.loads(run_node(js))
@@ -3534,11 +3515,12 @@ class FrontendArchive(unittest.TestCase):
         self.assertIn("const LIST=listOpen(),LDONE=listDone(),LDROP=listDropped();", body)
 
     def test_status_without_stripes_dot_badge_and_icons(self):
+        """No card, archive row, message or document row draws a left colour stripe; status is a dot, a badge or an icon."""
         # author feedback (2026-09-24): a left color stripe looks tacky. Status uses a dot in the card
         # header plus a badge with the same meaning; the archive uses a leading icon.
         css = HTML[HTML.index("<style>") : HTML.index("</style>")]
         for sel, decls in css_rules():
-            if re.search(r"\.pin\b|\.arc-row|\.toast|#revision-pin|\.dm-item", sel):
+            if re.search(r"\.pin\b|\.arc-row|\.nt\b|#revision-pin|\.dm-item", sel):
                 keys = [k for k, _ in decls]
                 self.assertFalse([k for k in keys if k.startswith("border-left")], sel)
                 self.assertNotIn("::before", sel.replace(".pin .n.go::before", ""))  # no overlaid stripe either
@@ -3728,6 +3710,8 @@ class FrontendSaveWhilePicking(unittest.TestCase):
         )
 
     def _harness(self, extra_body):
+        """The real pick()/savePin() and the pending-save functions under node with stand-ins for the page (the message
+        homes do nothing), then extra_body; returns the script."""
         stub = r"""
             const MQ_COARSE={matches:false}; const IS_MAC=false;
             function el(){return {hidden:true,textContent:'',innerHTML:'',value:'',dataset:{},
@@ -3744,7 +3728,8 @@ class FrontendSaveWhilePicking(unittest.TestCase):
             async function loadPins(){} function useLevel(){} function isRegion(){return false;} function kindFor(){return 'line';}
             function figureFields(b){return b;} function figRung(){return null;}
             function banner(){} function bannerRepick(){} function bannerCompare(){} function revealBox(){}
-            async function refreshDoc(){} function setSide(){} function setSelMode(){} function toast(){} function dropPin(){}
+            async function refreshDoc(){} function setSide(){} function setSelMode(){} function dropPin(){}
+            function endTopic(){} function undoNote(){return null;} function settleChip(){} function endNotice(){} const BANNERS=new Map();
             const apiCalls=[]; let pickResolve=null, pickReject=null, pinResolve=null;
             function api(url){apiCalls.push(url);
               if(url==='/api/pick')return new Promise((res,rej)=>{pickResolve=res;pickReject=rej;});
@@ -4145,10 +4130,11 @@ class FrontendThread(unittest.TestCase):
         self.assertIn("if(REPLY){e.preventDefault();closeReply();return;}", HTML)  # Esc closes the input field first
         self.assertIn('id="c-kind"', HTML)
         send = extract_js_fn("sendReply")
-        # one path; the server decides
-        self.assertIn("api('/api/pins/'+id+'/reply',{method:'POST',body,what:'답글',keepalive:true})", send)
+        # one path; the server decides - and silent, as the reply box's own error line says a failed send (one alert)
+        self.assertIn("api('/api/pins/'+id+'/reply',{method:'POST',body,what:'답글',silent:true,keepalive:true})", send)
         self.assertIn("body.reopen=R.toggle==='reopen'", send)  # the one override: [상태 유지] / [다시 열기]
-        self.assertIn("deferred(", send)  # sent when the undo toast goes away
+        self.assertIn("deferred(", send)  # sent when its undo in the card goes away
+        self.assertIn("deferredNote(d,NOTICE_PLACE.CARD,", send)
 
     def test_compact_collapsed_card_hides_thread(self):
         css = HTML[HTML.index("<style>") : HTML.index("</style>")]
@@ -4209,25 +4195,27 @@ class FrontendReview(unittest.TestCase):
         )
         self.assertEqual(json.loads(run_node(js)), [True] * 10)
 
-    def test_review_toast_and_partition(self):
+    def test_review_messages_and_partition(self):
+        """What the list comparison says on the status line about review: a pin closed elsewhere is done or awaiting
+        review; a review pin confirmed or reopened elsewhere is said once, and this tab's own confirm is not."""
         js = "\n".join(
             [
                 r"""
             function who(a){return (a&&(a.name||a.login))||'';}
-            const TOASTS=[]; function toast(m,k){TOASTS.push(m);} function restorePin(){}
+            const SAID=[]; function lineNote(m,k){SAID.push(m);} function restorePin(){} function gotoReview(){}
             const MY_ACTIONS=new Map();
             """,
                 extract_js_fn("markMine"),
                 extract_js_fn("consumeMine"),
                 extract_js_fn("pinState"),
-                extract_js_fn("diffToast"),
+                extract_js_fn("notePinChanges"),
                 extract_js_fn("pinState"),
-                extract_js_fn("reviewToast"),
+                extract_js_fn("noteReviewChanges"),
                 r"""
-            diffToast([{id:1},{id:2}],[{id:1,done:true,review:true},{id:2,done:true}],[]);
-            reviewToast([{id:5},{id:6},{id:7}],[{id:5,done:true,confirmed_by:{name:'W'}},{id:6,done:false},{id:7,done:true,review:true}]);
-            markMine(8); reviewToast([{id:8}],[{id:8,done:true}]);
-            console.log(JSON.stringify(TOASTS));
+            notePinChanges([{id:1},{id:2}],[{id:1,done:true,review:true},{id:2,done:true}],[]);
+            noteReviewChanges([{id:5},{id:6},{id:7}],[{id:5,done:true,confirmed_by:{name:'W'}},{id:6,done:false},{id:7,done:true,review:true}]);
+            markMine(8); noteReviewChanges([{id:8}],[{id:8,done:true}]);
+            console.log(JSON.stringify(SAID));
             """,
             ]
         )

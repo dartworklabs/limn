@@ -43,12 +43,6 @@ body.selmode #sel-bar{display:flex}
 #sel-bar button::after{content:'';position:absolute;left:50%;top:50%;width:max(100%,var(--hit));height:var(--hit);transform:translate(-50%,-50%)}   /* 44px, inside the bar's 4px */
 #sel-bar button:focus-visible{outline-color:var(--primary-foreground)}   /* the ring's --primary would vanish on the bar */
 body.selmode:not(.revision-open) #left{padding-top:calc(var(--sel-area) + var(--space-2) + var(--sel-bar-h,var(--hit)) + var(--space-3))}
-#coach{position:fixed;left:50%;transform:translateX(-50%);top:calc(var(--space-3) + env(safe-area-inset-top));z-index:60;background:var(--primary);
-  color:var(--primary-foreground);border-radius:var(--radius-lg);padding:var(--space-1) var(--space-1) var(--space-1) var(--space-3);display:flex;gap:var(--space-2);align-items:center;
-  width:max-content;max-width:calc(100vw - 16px);font-size:var(--text-lg);box-shadow:var(--shadow-lg)}
-#coach button{background:transparent;color:inherit;border-color:transparent}
-body:not(.lay-narrow) #coach{top:94px;pointer-events:none}
-body:not(.lay-narrow) #coach button{pointer-events:auto}
 /* [더보기] (compact only, docs/handbook/viewer.md §모바일 레이아웃) is a bottom sheet like the navigation sheet. Under a sticky grab
    band and head - the instance colour's dot and the name, and [닫기]; no Limn icon, which read as the label's decoration (UX audit
    P4.1) - the meta in two lines that break only between pieces, never cut (P4.2); the view group (zoom with its figure, sheet height
@@ -162,7 +156,7 @@ body.lay-wide #more .more-top{padding-top:var(--space-2)}
   #trash .arc-acts button{min-height:0;height:var(--ctl-touch-sm);padding-top:0;padding-bottom:0}   /* drawn like a card's actions, 44px hits */
   button.btn-icon{width:var(--control-h-touch);min-width:var(--control-h-touch)}
   /* button.btn-icon.btn-sm{width:var(--control-h-sm)} (the base rule, 0-0-2-1) is more specific than the
-     button.btn-icon above (0-0-1-1), so it stayed at 24px even for touch (observed on the card-collapse .b-fold/toast-close buttons) - re-pinned here at the same specificity. */
+     button.btn-icon above (0-0-1-1), so it stayed at 24px even for touch (observed on the card-collapse .b-fold and message-close buttons) - re-pinned here at the same specificity. */
   button.btn-icon.btn-sm{width:var(--control-h-touch);min-width:var(--control-h-touch);height:var(--control-h-touch)}
   #c-actions button{min-height:var(--hit);font-size:var(--text-lg)}
   /* Card actions are drawn at --ctl-touch-sm (32px on the phone sheet, 36px in a tablet panel), each with the 44px hit area. */
@@ -366,9 +360,6 @@ body.compact #meta-txt,body.compact #me{display:none}
 body.compact #bar2{display:none}   /* compact shows its states on the status line (#status); the chips stay the desktop's */
 body.compact:not(.side-open) #right>:not(#bar1):not(#bar2):not(#banner){display:none}
 body.compact:not(.side-open) #bar1{order:3;border-bottom:0}
-/* Toast placement (placeToasts): narrow is the full screen width right above the sheet; mid is the panel side just above the action row (inside its column if the panel is open). */
-body.lay-narrow #toasts{left:var(--space-2);right:var(--space-2);width:auto;max-width:none}
-body.lay-mid #toasts{max-width:calc(100vw - 2 * var(--space-3))}
 /* Collapsed card (compact): one header line (number/location/page ... assignee/reply count/collapse) + two lines of note preview below it. The preview
    used to be squeezed into the header line's leftover width, showing just a fragment like '[C...', with most of the card's height wasted as empty space (QA 2026-09-24). The header's 44px hit area overlaps the card's padding. */
 body.compact .pin .sum{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;overflow-wrap:anywhere;
@@ -516,10 +507,6 @@ body:is(.lay-mid,.band-tablet-sheet) #doc-nav button{white-space:nowrap}
 /* At mid width, the outline overlays on top of the document (#main already starts below the nav bar). On a narrow tablet, pins overlay too, preserving the body's width. */
 body:is(.lay-mid,.band-tablet-sheet) #outline{position:absolute;left:0;top:0;bottom:0;z-index:18;border-right:1px solid var(--border);box-shadow:var(--shadow)}
 body.lay-mid #outline-grip{display:none}
-/* First-time onboarding: shown as a small chip just above the action row, on the left, right above the [선택] it points at - it never covers the nav bar or panel. */
-body.lay-mid #coach{top:auto;bottom:calc(var(--mbar-h) + var(--kb,0px) + var(--space-2));left:max(var(--space-3),env(safe-area-inset-left));transform:none;
-  max-width:calc(100vw - 2 * var(--space-3));padding:var(--space-1) var(--space-1) var(--space-1) var(--space-3);font-size:var(--text-base)}
-body.lay-mid.side-open #coach{max-width:calc(100vw - var(--side-w,330px) - 3 * var(--space-3))}
 @keyframes mid-panel-in{from{right:calc(-1 * var(--side-w,330px))}}
 @keyframes mid-grip-in{from{opacity:0}}
 /* The overlay panel (body.mid-overlay: the mid-overlay band, and the short band up to 900px): it floats over the document. */
@@ -588,8 +575,6 @@ body.band-tablet-sheet #doc-nav{height:calc(var(--doc-nav-h) + env(safe-area-ins
   padding:max(env(safe-area-inset-top),var(--space-1)) max(var(--edge),env(safe-area-inset-right)) 0 max(var(--edge),env(safe-area-inset-left))}
 body.band-tablet-sheet #pdf-body{position:relative}   /* the outline overlay's box starts under the nav bar */
 body.band-tablet-sheet #right>*{width:100%;max-width:640px;margin-left:auto;margin-right:auto}
-body.band-tablet-sheet #coach{top:calc(var(--doc-nav-h) + env(safe-area-inset-top) + var(--space-3))}
-body.band-tablet-sheet #toasts{max-width:640px;margin:0 auto}
 /* ---- The status line (docs/handbook/viewer.md §모바일 레이아웃, 상태는 한 줄이다; status.js): one #status, placed per band. On the
    phone and tablet sheet it is a 24px line in #status-dock, fixed on the sheet's top edge (--sheet-h, the sheet's height); while it
    is up the sheet hides its top border and drops its corners so the two read as one surface, and the dock's shadow stops at its bottom

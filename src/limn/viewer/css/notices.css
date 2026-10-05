@@ -1,0 +1,89 @@
+/* ---------------- Messages in context (docs/handbook/viewer.md §알림 자리; notices.js). No toast: a message is drawn where it
+   happened - a banner on top of a panel or section, a row in a card's place, a note in a card, a chip on a new pin's mark, a
+   message on the status line - and a red dot marks the chip a background event leads to. One element for all of them (.nt):
+   status icon, title and description, its action and [x]. Sizes stay on the 4px grid; touch draws the buttons smaller than
+   44px and gives each a 44px hit (::after), as the card's buttons do. */
+.nt{display:flex;align-items:center;gap:var(--space-2);min-width:0;font-size:var(--text-base);line-height:20px;color:var(--foreground)}
+.nt-ic{display:inline-flex;flex:none;align-items:center;justify-content:center;width:16px;height:20px;color:var(--success)}
+.nt.nk-warn .nt-ic,.st-ic.nk-warn{color:var(--warning)}
+.nt.nk-err .nt-ic,.st-ic.nk-err{color:var(--destructive)}
+.nt.nk-info .nt-ic,.st-ic.nk-info{color:var(--primary)}
+.st-ic.nk-ok{color:var(--success)}
+.nt-t{flex:1 1 auto;min-width:0;overflow-wrap:anywhere}
+.nt-ti{font-weight:600}
+.nt-d{display:block;color:var(--muted-foreground);font-size:var(--text-sm);line-height:16px}
+.nt-acts{display:flex;flex:none;align-items:center;gap:var(--space-1)}
+.nt-acts button{min-height:0;height:var(--control-h-sm);padding:0 var(--space-2);font-size:var(--text-sm);line-height:16px;position:relative}
+.nt-acts button.nt-x{width:var(--control-h-sm);min-width:var(--control-h-sm);padding:0;color:var(--muted-foreground)}
+.nt-acts .lbl{white-space:nowrap}
+.nt-act[aria-busy=true]{opacity:.6;cursor:progress}   /* its request is out (noticeAct): the message waits for the answer */
+@media (pointer:coarse){
+  .nt-acts button{height:var(--ctl-touch-sm);min-width:0;padding:0 var(--space-3);font-size:var(--text-base)}
+  .nt-acts button.nt-x{width:var(--ctl-touch-sm);min-width:var(--ctl-touch-sm);height:var(--ctl-touch-sm)}   /* not .btn-icon.btn-sm's drawn 44px */
+  .nt-acts button::after{content:'';position:absolute;left:50%;top:50%;width:max(100%,var(--hit));height:var(--hit);transform:translate(-50%,-50%)}}
+
+/* A banner (errors and conflicts, bannerNote): a tinted box on top of its panel or section - the list, the review section,
+   the Trash - or right above the composer's save row. Its icon keeps to the title's line; its buttons centre on the text. */
+.nt-banner{margin:var(--space-2) 0;padding:var(--space-2) var(--space-1) var(--space-2) var(--space-3);border-radius:var(--radius-lg);align-items:flex-start;
+  border:1px solid color-mix(in srgb,var(--primary) 35%,transparent);background:color-mix(in srgb,var(--primary) 8%,var(--sidebar))}
+.nt-banner.nk-err{border-color:color-mix(in srgb,var(--destructive) 45%,transparent);background:color-mix(in srgb,var(--destructive) 9%,var(--sidebar))}
+.nt-banner.nk-warn{border-color:color-mix(in srgb,var(--warning) 45%,transparent);background:color-mix(in srgb,var(--warning) 10%,var(--sidebar))}
+.nt-banner.nk-ok{border-color:color-mix(in srgb,var(--success) 40%,transparent);background:color-mix(in srgb,var(--success) 8%,var(--sidebar))}
+.nt-banner .nt-acts{align-self:center}
+#c-actions>.nt-banner{grid-column:1/-1;margin:0}   /* the save row's grid: one row across both buttons, right above them */
+#c-actions .nt-acts button{min-height:0;font-size:var(--text-sm)}   /* not the save row's own 36px / 44px buttons */
+@media (pointer:coarse){#c-actions .nt-acts button{font-size:var(--text-base)}}
+#sec-review>.nt-banner{margin-top:0}
+#trash>.nt-banner{margin:0 0 var(--space-2)}
+.nt-banner{scroll-margin:var(--space-6) 0 72px}   /* scrolled into view clear of a stuck section head and the save row */
+
+/* An undo in a card's place (closed, deleted, confirmed) and in the Trash in a row's place: a dashed row of a card's size. */
+.nt-row{min-height:var(--hit);margin:0 0 var(--space-2);padding:var(--space-1) var(--space-1) var(--space-1) var(--space-3);
+  border:1px dashed var(--border-strong);border-radius:var(--radius-lg);color:var(--foreground)}
+#trash-list>.nt-row{margin:var(--space-1) 0}
+/* An undo inside a card (a reply waiting to be sent): a tinted line above the card's buttons. */
+.nt-note{margin:var(--space-2) 0 0;padding:var(--space-1) var(--space-1) var(--space-1) var(--space-2);border-radius:var(--radius);
+  background:color-mix(in srgb,var(--success) 10%,transparent)}
+
+/* A save's or an append's undo on the new pin's mark ('저장됨 [되돌리기]'): a small chip just above the mark's box, on the PDF
+   where the pin was picked - so it is there with the phone's sheet folded. The mark lets presses through (pointer-events:none);
+   the chip takes its own, and notices.js keeps a press on it from starting a selection. */
+.mark:has(>.nt-chip){z-index:4}
+.mark>.nt-chip{position:absolute;left:0;bottom:calc(100% + var(--space-1));box-sizing:border-box;height:32px;width:max-content;max-width:min(320px,80vw);
+  padding:0 var(--space-1) 0 var(--space-2);gap:var(--space-1);border-radius:var(--radius-lg);background:var(--popover);color:var(--popover-foreground);
+  border:1px solid color-mix(in srgb,var(--success) 45%,var(--border));box-shadow:var(--shadow-sm);font-size:var(--text-sm);line-height:16px;white-space:nowrap;
+  pointer-events:auto;cursor:default}
+.mark>.nt-chip .nt-ic{height:16px}
+.mark>.nt-chip .nt-ti{font-weight:600}
+@media (pointer:coarse){.mark>.nt-chip{height:40px;padding:0 var(--space-1) 0 var(--space-3)}
+  .mark>.nt-chip .nt-acts button{height:32px}}
+
+/* The status line's messages (statusList): its icon by kind, its action as the line's other actions, [x] square. */
+#status button.nt-act{background:var(--secondary);color:var(--secondary-foreground);border-color:transparent}
+#status button.nt-x{width:var(--control-h-sm);min-width:var(--control-h-sm);padding:0;color:var(--muted-foreground)}
+#status-dock #status button.nt-x{width:24px;min-width:24px}
+#status-slot #status button.nt-x{width:var(--tb-h,var(--control-h));min-width:var(--tb-h,var(--control-h))}
+/* The desktop's status line: a 40px line under the status chips (#bar2), only while it has something to say - a message or a
+   rebuild's 'no changes' (statusShown); its chips say the rest. A collapsed panel floats it with the chips. */
+#status-wide{display:none}
+body.lay-wide.has-status #status-wide{display:flex;align-items:center;min-height:40px;padding:0 var(--space-3);border-bottom:1px solid var(--border);background:var(--sidebar)}
+#status-wide #status{flex:1 1 auto;gap:var(--space-2);font-size:var(--text-sm)}
+#status-wide #status .st-tx{flex:1 1 auto}
+#status-wide #status button{min-height:0;height:var(--control-h-sm);padding:0 var(--space-2);font-size:var(--text-sm)}
+#status-wide #status button.nt-x{width:var(--control-h-sm);padding:0}
+body.lay-wide:not(.side-open) #right>#status-wide{max-width:min(420px,calc(100vw - 2 * var(--space-6)))}
+
+/* A background event's dot (noticeDot): a red 8px dot on the chip that leads to it - [핀 N] (its top-left: its right edge meets
+   [검토 M]) or the collapsed desktop's [핀 N], [검토 M] or the review chip - until the person looks there (noticeSeen). The
+   dot's 2px ring is the bar's own colour, so it stands off the chip. */
+body.dot-side :is(#btn-side,#nav-side),body.dot-rv :is(#btn-rv,#rv-chip,#nav-side){position:relative;overflow:visible}
+body.dot-side :is(#btn-side,#nav-side)::before,body.dot-rv :is(#btn-rv,#rv-chip,#nav-side)::before{content:'';position:absolute;top:-2px;right:-2px;
+  width:8px;height:8px;border-radius:50%;background:var(--destructive);box-shadow:0 0 0 2px var(--sidebar);pointer-events:none;z-index:2}
+body.dot-side.compact #bar1 #btn-side::before{right:auto;left:-2px}
+
+/* A copy control that just copied (copiedMark, COPIED_MS): a check and '복사됨' in the success colour where it was - the
+   composer's icon button grows to fit the word, a location keeps at least its own width. */
+.copied,button.copied{display:inline-flex;align-items:center;gap:var(--space-1);color:var(--success)}
+@media (hover:hover){button.copied:hover{color:var(--success)}}   /* the mouse that just pressed it is still on it */
+.copied svg{flex:none;width:16px;height:16px}
+body #c-copy.copied,button.btn-icon.copied{width:auto;padding:0 var(--space-2)}

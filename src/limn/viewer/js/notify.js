@@ -3,7 +3,7 @@
 // carries "events addressed to the current identity" in the 5-second poll (/api/meta?light=1&ev=<cursor>), and this tab shows them as
 // notifications. The cursor (pinNotifyCursor) is kept in this browser's localStorage, so a reload or two tabs never announce the same
 // event twice. Display always goes through the service worker's showNotification() (Chrome on Android blocks new Notification()); tag is
-// the pin number, so the same pin collapses into one slot. If the tab is visible and focused, a toast is shown instead of a notification.
+// the pin number, so the same pin collapses into one slot. If the tab is visible and focused, the status line says it instead.
 // This only works in a secure context (an https tailnet address, or http://127.0.0.1/localhost) - the browser blocks plain http on other hosts.
 const NOTIFY_RANK={dropped:6,assigned:5,mention:4,reopened:3,review_requested:2,replied:1};
 let SW_REG=/** @type {ServiceWorkerRegistration|null} */(null);
@@ -25,17 +25,23 @@ function notifyText(e){const nm=who(e.by)||tr('누군가'),ex=String(e.excerpt||
     replied:tl('{name}님 답글: {text}',q),reopened:ex?tl('{name}님이 다시 열었습니다: {text}',q):tl('{name}님이 다시 열었습니다',q),
     assigned:tl('{name}님이 담당으로 지정했습니다: {text}',q),dropped:tl('{name}님이 삭제했습니다: {text}',q)}[e.type]||ex;
   return {title:tl('핀 #{id}',{id:e.pin})+' · '+(e.doc_name||e.doc||(META&&META.label)||''),body};}
-// Shows one event: a toast while this tab has focus, else a system notification. notifyText() already speaks the UI
-// language and quotes the document's name and the post, so the toast is literal (a document named '그림' stays '그림').
+// Shows one event: a status-line message while this tab has focus, else a system notification. notifyText() already speaks
+// the UI language and quotes the document's name and the post, so the message is literal (a document named '그림' stays
+// '그림'). It marks [검토 M] for a review request and [핀 N] for the rest on this document (notifyDot).
 async function notifyShow(e){const t=notifyText(e);
   if(document.visibilityState==='visible'&&document.hasFocus()){
-    const act=e.type===EVENT_TYPE.DROPPED?(isViewer()?{label:'열기',tip:'휴지통에서 봅니다',fn:()=>openPinFromLink(e.doc,e.pin)}:{label:'되살리기',tip:'휴지통에서 같은 번호로 되살립니다',fn:()=>restorePin(e.pin)})
+    const act=e.type===EVENT_TYPE.DROPPED?(isViewer()?{label:'열기',tip:'휴지통에서 봅니다',fn:()=>openPinFromLink(e.doc,e.pin)}:{label:'되살리기',tip:'휴지통에서 같은 번호로 되살립니다',wait:true,fn:()=>restorePin(e.pin)})
       :{label:'열기',tip:'그 핀으로 갑니다',fn:()=>openPinFromLink(e.doc,e.pin)};
-    toast(t.title+' — '+t.body,e.type===EVENT_TYPE.DROPPED?'warn':'ok',act,{keys:[e.type+':'+e.pin],rank:2,literal:true});return;}
+    lineNote(t.title+' — '+t.body,e.type===EVENT_TYPE.DROPPED?NOTICE_KIND.WARN:NOTICE_KIND.OK,act,
+      {keys:[e.type+':'+e.pin],rank:2,literal:true,dot:notifyDot(e.type,!e.doc||e.doc===DOC)});return;}
   try{const reg=SW_REG||await navigator.serviceWorker.ready;
     await reg.showNotification(t.title,{body:t.body,tag:'pin-'+e.pin,icon:(/** @type {HTMLLinkElement} */(document.querySelector('link[rel=apple-touch-icon]')||document.querySelector('link[rel=icon]'))||{href:undefined}).href,
       actions:e.type===EVENT_TYPE.DROPPED&&!isViewer()?[{action:'restore',title:tr('되살리기')}]:[],   // [되살리기] on "X deleted your pin" (the service worker hands it to this tab)
       data:{pin:e.pin,doc:e.doc,url:'/#doc='+encodeURIComponent(e.doc||'')+'&pin='+e.pin}});}catch(err){}}
+// The chip an event's message marks (a NOTICE_DOT, or ''): a review request [검토 M], which counts every document; anything
+// else on this document (here) [핀 N]; another document's nothing - its pins are not in this panel. Pure.
+/** @param {string} type @param {boolean} here @returns {string} */
+function notifyDot(type,here){return type===EVENT_TYPE.REVIEW_REQUESTED?NOTICE_DOT.RV:here?NOTICE_DOT.SIDE:'';}
 function notifyHandle(d){if(!d||typeof d.ev_seq!=='number')return;
   if(!notifyOn())return;
   const c=notifyCursor(); if(c==null){setNotifyCursor(d.ev_seq); return;}   // first time enabled in this browser - never floods with a backlog of past events
@@ -63,16 +69,21 @@ function drawNotify(){const st=notifyState(),m=$('#m-notify');
     st===NOTIFY_STATE.LOCAL?tr('테일넷 주소로 열면 켤 수 있습니다'):'';
   m.setAttribute('aria-checked',String(st===NOTIFY_STATE.ON)); m.disabled=!!why; m.dataset.tip=tip;
   const w=$('#m-notify-why'); w.textContent=why; w.hidden=!why;}
+// [더보기]'s notification switch: off when on; on (asking the browser's permission from within this press) when off. Where it
+// cannot turn on, the switch is disabled and the line under it (#m-notify-why) says why (drawNotify), so a press there changes
+// nothing; a permission not given says so on that line too (blocked: drawNotify's reason; no choice made: notifyWhy). Turning
+// it on or off is silent - the switch shows it - and read out.
 async function notifyToggle(){const st=notifyState();
-  if(st===NOTIFY_STATE.LOCAL){toast('테일넷 주소로 열면 켤 수 있습니다','warn'); return;}
-  if(st===NOTIFY_STATE.ON){savePrefs({notify:false}); drawNotify(); syncHiddenNotifyTimer(); toast('이 기기의 브라우저 알림을 껐습니다','ok'); return;}
-  if(st===NOTIFY_STATE.UNSUPPORTED){toast('브라우저 알림은 https 테일넷 주소나 http://127.0.0.1 에서만 됩니다','warn'); return;}
-  if(st===NOTIFY_STATE.BLOCKED){toast('브라우저가 알림을 막았습니다 — 주소창 자물쇠 → 알림 → 허용으로 바꾼 뒤 다시 누르세요','warn'); return;}
+  if(st===NOTIFY_STATE.LOCAL||st===NOTIFY_STATE.UNSUPPORTED||st===NOTIFY_STATE.BLOCKED){drawNotify(); return;}
+  if(st===NOTIFY_STATE.ON){savePrefs({notify:false}); drawNotify(); syncHiddenNotifyTimer(); quietNote('이 기기의 브라우저 알림을 껐습니다'); return;}
   let pm=notifyPerm(); if(pm!=='granted'){try{pm=await Notification.requestPermission();}catch(e){pm='denied';}}   // only ever asked from within this click
-  if(pm!=='granted'){drawNotify(); toast(pm==='denied'?'알림을 허용하지 않아 켜지 않았습니다':'알림 허용을 고르지 않았습니다','warn'); return;}
+  if(pm!=='granted'){drawNotify(); notifyWhy(pm==='denied'?$('#m-notify-why').textContent:tr('알림 허용을 고르지 않았습니다')); return;}
   await notifyRegister(); savePrefs({notify:true});
   try{const d=(await api(dq('/api/meta?light=1'),{silent:true})).data; if(notifyCursor()==null)setNotifyCursor(d.ev_seq);}catch(e){}
-  drawNotify(); syncHiddenNotifyTimer(); toast('이 기기에서 브라우저 알림을 켰습니다 — 나를 부르거나 내 핀에 일이 생기면 알립니다','ok');}
+  drawNotify(); syncHiddenNotifyTimer(); quietNote('이 기기에서 브라우저 알림을 켰습니다 — 나를 부르거나 내 핀에 일이 생기면 알립니다');}
+// Says text on the line under the notification switch until it is drawn again (drawNotify), and reads it out.
+/** @param {string} text */
+function notifyWhy(text){const w=$('#m-notify-why'); w.textContent=text; w.hidden=false; announce(text);}
 // Clicking a notification (service worker -> postMessage, or a new tab's #doc=<key>&pin=<number>) switches to that document and opens that pin.
 function hashPin(){const m=/(?:^#|[#&])pin=(\d{1,9})(?:&|$)/.exec(location.hash||''); return m?+m[1]:null;}
 // Reads a one-shot pin link (#doc=<key>&pin=<n>[&act=restore]) and removes pin=/act= from the address right away, so a

@@ -52,6 +52,61 @@ interface ReplyBox {
   el: HTMLElement;
 }
 
+// A message's one action (notices.js): its button's label (Korean, translated when drawn), its description and what it does;
+// wait = it sends a request, and the message stays (busy) until that is answered (noticeAct).
+interface NoticeAct {
+  label: string;
+  tip?: string;
+  wait?: boolean;
+  fn: () => unknown;
+}
+
+// A message in context (notices.js, docs/handbook/viewer.md §알림 자리): what it says and how (a chip shows its short label),
+// where it is drawn (place, and the banner host, the pin, list section and pin before it for an undo; away once a row's card
+// has left), how long it lives, the chip it marks (dot), the hint topic, the duplicate keys of the status line, whether it is
+// read out as an alert and comes first on the line (alert), whether its action's request is out (busy), the error source it
+// stands for (one entry each), whether it offers an undo (never evicted), whether a mouse is on it (hover) and its window is
+// held (held), and what runs when it leaves (gone). el is made once and moved.
+interface Notice {
+  n: number;
+  place: string;
+  host: string;
+  pin: number | null;
+  sec: string;
+  prev: number | null;
+  kind: string;
+  title: string;
+  desc: string;
+  label: string;
+  away: boolean;
+  act: NoticeAct | null;
+  literal: boolean;
+  keys: string[];
+  rank: number;
+  at: number;
+  life: string;
+  dot: string;
+  topic: string;
+  save: boolean;
+  pending: boolean;
+  alert: boolean;
+  busy: boolean;
+  source: string;
+  undo: boolean;
+  hover: boolean;
+  held: boolean;
+  timer: ReturnType<typeof setTimeout> | undefined;
+  gone: (() => void) | null;
+  el: HTMLElement | null;
+}
+
+// A send held back behind its undo (notices.js deferred()): run sends it now, cancel takes it back unsent; note is its undo.
+interface Deferred {
+  note: Notice | null;
+  run: () => void;
+  cancel: () => void;
+}
+
 // The pin the changes view was opened for (revisions.js REV.target), and how the commit was chosen for it (via, and
 // tokOf, the commit id its close reference names).
 interface RevTarget {

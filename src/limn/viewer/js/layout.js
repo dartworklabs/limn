@@ -53,6 +53,7 @@ function draftOpen(){return !$('#composer').hidden||!!EDITOR.current||!!REPLY||!
 // for a collapsed wide panel, the nav bar's - with the open count and the draft dot, the handle's ARIA and the back-gesture layer.
 // Their name says what they show: the nav bar's icon and pill '패널 펴기 · 열린 핀 11 · 검토 대기 1', every compact bar's chip half
 // '핀 11 · 패널 펴기' (+ ' · 작성 중' for a draft). No arrow: the open state is the panel itself and aria-expanded.
+// Also the build error chip, which shows while the panel holding the error is collapsed (syncBuildErrChip).
 // Idempotent and cheap: drawPins() calls it on every redraw. The panel keeps its open layout while it slides out.
 function applySide(){const open=SIDE_OPEN,b=document.body,dot=!open&&draftOpen(),n=PINS.length,rv=REVIEW_ALL.length,composing=!$('#composer').hidden;
   b.classList.toggle('side-open',open||!!(SIDE_SLIDE&&SIDE_SLIDE.kind==='closing')); b.classList.toggle('composing',composing);
@@ -64,7 +65,7 @@ function applySide(){const open=SIDE_OPEN,b=document.body,dot=!open&&draftOpen()
   for(const t of [$('#btn-side'),$('#nav-side')]){t.setAttribute('aria-expanded',String(open)); t.setAttribute('aria-label',t.id==='btn-side'&&LAYOUT!==LAYOUT_MODE.WIDE?sheet:label);
     t.querySelector('.side-n').textContent=n; t.querySelector('.c-dot').hidden=!dot;}
   $('#nav-side').hidden=!(LAYOUT===LAYOUT_MODE.WIDE&&!open);
-  gripAria(); updateReviewCount(); syncBackLayer();}
+  gripAria(); updateReviewCount(); syncBackLayer(); syncBuildErrChip();}
 const GRIP_TIP=$('#grip').dataset.tip;   // the open handle's hint (the markup's, translated by tr())
 // The handle's ARIA as a window splitter: the panel width, or 0 (named '패널 폭 · 접힘') while collapsed - a collapsed wide panel's
 // handle is the rail at the right edge, and its hint says how to bring the panel back.
@@ -78,8 +79,9 @@ function gripAria(){const g=$('#grip'),s=SIDE_SHOWN;
 // mid in midClosed; narrow always starts collapsed. slide = move with the 0.18s slide where the layout has one (wide, and the
 // 701-900px overlay, whose opening slide is CSS's own); things that merely need the panel (a pick, a link) open it at once.
 // Opening the mid panel or the tablet sheet closes the outline overlay (one at a time). Collapsing never touches the saved width -
-// once collapsed, the panel's width is put back to it for the next opening.
+// once collapsed, the panel's width is put back to it for the next opening. Opening counts as seeing the list (noticeSeen).
 function setSide(open,remember,slide){open=!!open;
+  if(open)noticeSeen(NOTICE_DOT.SIDE);   // the panel is on screen: [핀 N]'s dot and the hint on how to open it go
   if(open&&outlineOverlay()){OUTLINE_MID_OPEN=false;applyOutlineState();}
   if(remember&&LAYOUT===LAYOUT_MODE.MID)savePrefs({midClosed:!open});
   if(remember&&LAYOUT===LAYOUT_MODE.WIDE)savePrefs({sideClosed:!open});
@@ -187,10 +189,11 @@ document.addEventListener('focusout',()=>setTimeout(()=>{syncTyping(); if(bandSt
 function keepFieldInView(){const f=panelField(); if(!f||!MQ_COARSE.matches)return;   // touch only: a mouse window scrolls as it always did
   if(f===$('#note')&&BAND===LAYOUT_BAND.TABLET_SHEET)$('#composer .c-loc-row').scrollIntoView({block:'start'}); f.scrollIntoView({block:'nearest'});}
 
-// Onboarding shown only the first time (remembers that it's been seen in localStorage pinPrefs.coach).
-let COACH_T=/** @type {ReturnType<typeof setTimeout>|undefined} */(undefined);
+// A first-visit hint (docs/handbook/viewer.md §알림 자리): shown once per device and key (pinPrefs.coach remembers it), on the
+// status line until [x] or until the person does what it says - picks ('touch', 'mouse') or opens the panel ('side').
+/** @param {string} key @param {string} text */
 function coach(key,text){const seen=Object.assign({},prefs().coach||{}); if(seen[key])return; seen[key]=1; savePrefs({coach:seen});
-  $('#coach-t').textContent=text; $('#coach').hidden=false; clearTimeout(COACH_T); COACH_T=setTimeout(()=>{$('#coach').hidden=true;},8000);}
+  lineNote(text,NOTICE_KIND.INFO,null,{topic:key==='side'?NOTICE_TOPIC.SIDE:NOTICE_TOPIC.PICK});}
 // The touch select mode (docs/handbook/viewer.md §모바일 레이아웃 선택 모드), on or off. Effects: body.selmode (the pages take
 // one-finger drags, the PDF area gets its accent frame and the mode bar), the toggle's aria-pressed and its label ('선택' /
 // '선택 중' where the bar shows one), the live region's words (the bar's, said once as it turns on; empty when off), and
@@ -227,7 +230,7 @@ if(window.ResizeObserver){const o=new ResizeObserver(selBarFit); o.observe($('#s
 function showSheet(d){d.showModal(); d.focus({preventScroll:true});}
 // Opens [더보기] with its view group drawn for now: the sheet-height or panel-width segment and the zoom figure, and its foot on
 // one ink line (footInk); on the wide desktop it is a menu under [⋯] (placeMore), which says it is open (aria-expanded).
-function openMore(){const d=$('#more'); if(d.open)return; hideTip(); drawZoom(); renderSizeSeg(); placeMore(); showSheet(d); footInk(); toastHost();
+function openMore(){const d=$('#more'); if(d.open)return; hideTip(); drawZoom(); renderSizeSeg(); placeMore(); showSheet(d); footInk();
   $('#btn-more').setAttribute('aria-expanded','true');}
 $('#more').addEventListener('close',()=>$('#btn-more').setAttribute('aria-expanded','false'));
 // The wide desktop's [더보기] as a menu under [⋯]: its top 4px under the button and its right edge on the button's - the

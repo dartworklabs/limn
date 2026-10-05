@@ -5,7 +5,7 @@ async function loadPeople(){try{const r=(await api('/api/people',{what:'사람 �
 // A refresh that started earlier must not replace one already applied from a newer request. A failed request claims no snapshot.
 let PINS_LOAD_SEQ=0,PINS_APPLIED_SEQ=0;
 // Classifies one server snapshot without reading viewer state or changing the page. Legacy pins with no doc belong to defaultDoc.
-// confirming (optional) holds the ids whose [확인] waits for its undo toast (CONFIRMING): they stay out of the review list.
+// confirming (optional) holds the ids whose [확인] waits for its undo (CONFIRMING): they stay out of the review list.
 function derivePinLists(rows,doc,defaultDoc,confirming){
   const openAll=[],reviewAll=[],doneAll=[],openHere=[],doneHere=[];
   for(const pin of rows){const state=pinState(pin),here=!doc||(pin.doc||defaultDoc)===doc;
@@ -14,22 +14,24 @@ function derivePinLists(rows,doc,defaultDoc,confirming){
     else if(state===PIN_STATE.DONE){doneAll.push(pin); if(here)doneHere.push(pin);}}
   return {openAll,reviewAll,doneAll,openHere,doneHere};
 }
-// Applies an accepted snapshot: announces transitions, keeps active editors honest, then redraws the current document.
+// Applies an accepted snapshot: announces transitions on the status line, keeps active editors honest (an edit or reply whose
+// pin left says so there too, with a dot on [핀 N]), then redraws the current document.
 function applyPinLists(rows,dropped,lists){
   const prevOpen=OPEN_ALL,prevReview=REVIEW_ALL;
-  diffToast(prevOpen,rows,dropped); reviewToast(prevReview,rows);
+  notePinChanges(prevOpen,rows,dropped); noteReviewChanges(prevReview,rows);
   OPEN_ALL=lists.openAll; REVIEW_ALL=lists.reviewAll; DONE_ALL=lists.doneAll; DROPPED=dropped;
   PINS=lists.openHere; DONE=lists.doneHere;
-  const E=EDITOR.current; if(E&&!OPEN_ALL.some(p=>p.id===E.id)){toast(tl('편집 중이던 핀 #{id} 이 목록에서 빠졌습니다(다른 쪽에서 닫았거나 지움)',{id:E.id}),'warn'); EDITOR.current=null;}
-  const R=REPLY; if(R&&!rows.some(p=>p.id===R.id)){closeReply(false); toast('답글을 쓰던 핀이 목록에서 빠졌습니다(지워짐) — 쓰던 글은 남겨 둡니다','warn');}
+  const E=EDITOR.current; if(E&&!OPEN_ALL.some(p=>p.id===E.id)){lineNote(tl('편집 중이던 핀 #{id} 이 목록에서 빠졌습니다(다른 쪽에서 닫았거나 지움)',{id:E.id}),NOTICE_KIND.WARN,null,{dot:NOTICE_DOT.SIDE}); EDITOR.current=null;}
+  const R=REPLY; if(R&&!rows.some(p=>p.id===R.id)){closeReply(false); lineNote('답글을 쓰던 핀이 목록에서 빠졌습니다(지워짐) — 쓰던 글은 남겨 둡니다',NOTICE_KIND.WARN,null,{dot:NOTICE_DOT.SIDE});}
   if(!SEC_SEEN.open){SEC_SEEN.open=new Set(OPEN_ALL.map(p=>p.id)); SEC_SEEN.review=new Set(REVIEW_ALL.map(p=>p.id)); SEC_SEEN.done=new Set(DONE_ALL.map(p=>p.id));}
   drawPins(); marks(); drawDocTabs();
   if(COMPOSE.current){recomputeOverlap(); renderOverlapBanner();}   // if the list changes (someone else's save/completion), overlap is recomputed too
   docTitle(true);
 }
-// Fetches one pin snapshot and its Trash. Returns whether it applied; only a newer applied snapshot supersedes it.
+// Fetches one pin snapshot and its Trash. Returns whether it applied; only a newer applied snapshot supersedes it. A failed
+// read is a banner on top of the panel with [다시 시도].
 async function loadPins(){const seq=++PINS_LOAD_SEQ; let d;
-  try{d=(await api('/api/pins?all=1',{what:'핀 읽기'})).data;}catch(e){return false;}
+  try{d=(await api('/api/pins?all=1',{what:'핀 읽기',where:NOTICE_HOST.LIST,retry:()=>{loadPins();}})).data;}catch(e){return false;}
   if(seq<PINS_APPLIED_SEQ)return false;
   let dropped=[];
   try{dropped=(await api('/api/pins/dropped',{what:'삭제한 핀',silent:true})).data.dropped||[];}catch(e){return false;}
@@ -72,7 +74,8 @@ function updateReviewCount(){const n=REVIEW_ALL.length,chip=$('#rv-chip');
   const rb=$('#btn-rv'); rb.hidden=!n; rb.querySelector('.rv-c').textContent=n; rb.setAttribute('aria-label',tl('검토 {n} · 검토 대기 핀으로 가기',{n}));   // the sheet bar's [검토 M] half: its name starts with what it shows
   fitBarWords();
   const here=listReview().length; chip.hidden=!n||LAYOUT!==LAYOUT_MODE.WIDE||!SIDE_OPEN; chip.textContent=tl('검토 대기 {n}',{n})+(multiDoc()&&here!==n?' '+tl('(이 문서 {n})',{n:here}):'');}
-function gotoReview(){if(!listReview().length&&REVIEW_ALL.length&&multiDoc())SHOW_ALL=true;
+// [검토 M], the review chip and a review message's [보기]: the review section, opened and scrolled to; its dot goes (seen).
+function gotoReview(){noticeSeen(NOTICE_DOT.RV); if(!listReview().length&&REVIEW_ALL.length&&multiDoc())SHOW_ALL=true;
   if(!SEC.review){SEC.review=true; savePrefs({sec:SEC});} drawPins();
   setSide(true); requestAnimationFrame(()=>{const t=$('#sec-review'); if(t&&!t.hidden)t.scrollIntoView({block:'start',behavior:SMOOTH});});}
 // The reviewer shown on an awaiting-review card: the author is suggested (anyone can confirm - a trust model). If I'm the author, '내 확인 차례'.
@@ -93,10 +96,13 @@ function secHead(key,name,ids,all){const b=document.getElementById(key+'-toggle'
   b.setAttribute('aria-expanded',String(open));
   const body=document.getElementById(b.getAttribute('aria-controls')||''); if(body)body.hidden=!open;}
 function toggleSec(key,force){if(!(key in SEC_DEFAULT))return; SEC[key]=force===undefined?!SEC[key]:!!force; savePrefs({sec:SEC}); drawPins();}
-// Redraws the pin panel from the lists (sections, counts, the Trash count, a reply in progress) - and, while the changes view
-// shows a pin, its guide line's buttons, whose [확인] follows that pin's state (revTargetActs).
-function drawPins(){
+// Redraws the pin panel from the lists (sections, counts, the Trash count, a reply in progress, the undo rows and notes and the
+// banners of notices.js, keeping a focus that was in one) - and, while the changes view shows a pin, its guide line's buttons,
+// whose [확인] follows that pin's state (revTargetActs). The status line's review arrivals follow the review list it draws:
+// those whose pins left it go, with [검토 M]'s dot (dropStaleReview).
+function drawPins(){dropStaleReview();
   const LIST=listOpen(),LDONE=listDone(),LDROP=listDropped();
+  const nfocus=noticeFocus();   // a focus in an undo row or note, given back once they are drawn again (drawOffers)
   // The '나를 부른 핀' filter: only the open/awaiting-review pins across every document that @-tagged me (a cross-document inbox).
   const MINE=OPEN_ALL.concat(REVIEW_ALL).filter(mentionsMe),mf=$('#mention-filter');
   if(MENTION_ONLY&&!MINE.length)MENTION_ONLY=false;
@@ -117,9 +123,10 @@ function drawPins(){
   setHtml($('#pins'),SHOWN.length?html`${SHOWN.map(card)}`:multiDoc()&&!SHOW_ALL&&OPEN_ALL.length?html`<div class="dim list-empty">${tl('이 문서에는 없습니다 · 다른 문서에 {n}건',{n:OPEN_ALL.length})}</div>`:html``);
   if(EDITOR.current){const slot=$('#pins .edit-slot'); if(slot)slot.replaceWith(EDITOR.current.el);
     if(efocus&&eta&&document.contains(eta)){eta.focus(); try{eta.setSelectionRange(efocus[0],efocus[1]);}catch(e){}}}
-  // Awaiting-review section: between open pins and done. Hidden when empty. The card looks the same as an open pin (thread/replies); only the actions are [확인]/[답글].
+  // Awaiting-review section: between open pins and done. Hidden when empty - but not while a confirm's undo row stands in it
+  // (offersIn). The card looks the same as an open pin (thread/replies); only the actions are [확인]/[답글].
   const LREV=MENTION_ONLY?REVIEW_ALL.filter(mentionsMe):listReview();
-  $('#sec-review').hidden=!LREV.length; secHead('review',tr('검토 대기'),LREV.map(p=>p.id),REVIEW_ALL.map(p=>p.id));
+  $('#sec-review').hidden=!LREV.length&&!offersIn('review'); secHead('review',tr('검토 대기'),LREV.map(p=>p.id),REVIEW_ALL.map(p=>p.id));
   setHtml($('#review-pins'),html`${LREV.map(card)}`);
   updateReviewCount();
   // Done section: hidden header and all if empty. The header stays stuck to the top while scrolling.
@@ -128,6 +135,7 @@ function drawPins(){
   if($('#trash').open)drawTrash();
   if(REPLY){const slot=document.querySelector('#list .reply-slot'); if(slot)slot.replaceWith(REPLY.el); renderReplyOutcome();   // the pin may have changed state meanwhile
     if(rfocus&&rta&&document.contains(rta)){rta.focus(); try{rta.setSelectionRange(rfocus[0],rfocus[1]);}catch(e){}}}
+  drawOffers(nfocus); drawBanners();
   if(REV.target)revTargetActs();
 }
 // Location estimation (.est, dashed) is judged by the server and carried as est in /api/pins (pin_est - comparing the
@@ -150,8 +158,8 @@ function markBadgeRoom(){const L=$('#left'),p=$('#doc .pg'); if(!L||!p)return {p
 function markBadgeSides(){const r=markBadgeRoom(); $$('.mark').forEach(m=>m.classList.toggle('in',markBadgeIn(+m.dataset.fx,W,r.pad,r.reach)));
   $$('.sel.pending').forEach(pendingBadgeSide);}   // the pending boxes' '+' badges follow the same rule
 // Draws one mark per open or awaiting-review pin of this document on its page: where the pin's element is now for a figure
-// pin (pinPlace), else where it was pinned, then decides each badge's side (markBadgeSides). A pin without a usable box or
-// page draws nothing.
+// pin (pinPlace), else where it was pinned, then decides each badge's side (markBadgeSides) and puts a save's or an append's
+// undo chip back on its mark (drawChips). A pin without a usable box or page draws nothing.
 function marks(){
   $$('.mark').forEach(m=>m.remove());
   // Awaiting-review pins are also drawn as purple marks - so the reviewer can see right there what was fixed (unrelated to an open pin's overlap/editing).
@@ -163,7 +171,7 @@ function marks(){
     const n=String(p.note||'').replace(/\s+/g,' ').trim();
     const tip='#'+p.id+' · '+(n?(n.length>60?n.slice(0,60)+'…':n):tr('(메모 없음)'))+(est?' '+tr('(PDF가 새로 만들어져 위치는 추정입니다)'):'')+(elLost(p)?' · '+tr('요소 잃음'):'');
     setHtml(m,html`<b translate="no" data-act="mark-jump" data-id="${p.id}" data-tip="${tip}">${p.id}</b>`); el.appendChild(m);});   // the tip carries the note
-  markBadgeSides();
+  markBadgeSides(); drawChips();
 }
 // Clicking a badge scrolls to and flashes the card (never calls pick). The mark box itself has pointer-events:none, so
 // a drag over it still becomes a new selection - only the badge (<b>) needs to block mousedown.

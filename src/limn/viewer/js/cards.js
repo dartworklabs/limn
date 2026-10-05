@@ -122,7 +122,7 @@ ${relSpan(p.done_at,'arc-t',tl('닫은 사람 {name} · 닫은 시각',{name:who
 <button class="btn-sm btn-secondary arc-b b-reply" data-act="reply-open" data-tip="${T.reply}">답글</button></div>\
 <div class="arc-l2">${reply}${origT}<button class="arc-orig-t b-change" data-act="change" data-tip="${T.change}">변경 보기</button>${threadT}</div>${orig}${thread}</div>`;}
 // A Trash row (docs/handbook/viewer.md §휴지통): who deleted it and when, how many days are left before it is purged, [되살리기], and -
-// for the owner only - [영구 삭제] (sent after its undo toast goes away, like a reply). The buttons follow the two lines in the
+// for the owner only - [영구 삭제] (sent after its undo row goes away, like a reply). The buttons follow the two lines in the
 // markup; CSS sets them beside the meta line, or on a phone beside the note line (two lines, not three).
 const TRASH_DAYS=30;
 function trashDaysLeft(at,now,exp){if(typeof exp==='number')return Math.max(0,Math.ceil((exp*1000-(now==null?Date.now():now))/86400000));
@@ -145,12 +145,15 @@ ${relSpan(p.dropped_at,'arc-t',tl('삭제한 사람 {name} · 삭제한 시각',
 <span class="arc-sep" aria-hidden="true">·</span><span class="arc-t trash-by">${tl('{name} 삭제',{name:by})}</span>${leftT}<span class="sp"></span>\
 </div><div class="arc-l2">${line}</div><span class="arc-acts">${restore}${purge}</span></div>`;}
 let TRASH_ALL=false;   // the Trash shows every document while open for another document's pin - the list's own filter (SHOW_ALL) is untouched
+// Draws the Trash's rows, newest first (all documents with TRASH_ALL), leaving out a row whose permanent delete waits, whose
+// undo row (notices.js) goes in its place.
 function drawTrash(){const L=TRASH_ALL?DROPPED:listDropped(),box=$('#trash-list'); if(!box)return;
   $('#trash-note').textContent=tl('삭제한 핀은 {n}일 동안 여기 있다가 저절로 지워집니다. 되살리면 같은 번호로 돌아옵니다',{n:TRASH_DAYS});
-  setHtml(box,L.length?html`${L.slice().reverse().filter(p=>!PURGING.has(p.id)).map(droppedCard)}`:html`<div class="dim">${tr('휴지통이 비어 있습니다')}</div>`);}
+  setHtml(box,L.length?html`${L.slice().reverse().filter(p=>!PURGING.has(p.id)).map(droppedCard)}`:html`<div class="dim">${tr('휴지통이 비어 있습니다')}</div>`);
+  drawTrashOffers();}
 function openTrash(flashId){const d=$('#trash');
   if(flashId!=null&&!listDropped().some(p=>p.id===flashId)&&DROPPED.some(p=>p.id===flashId))TRASH_ALL=true;   // another document's pin
-  drawTrash(); if(!d.open){hideTip(); showSheet(d); toastHost();}
+  drawTrash(); if(!d.open){hideTip(); showSheet(d);}
   if(flashId!=null)requestAnimationFrame(()=>{const el=/** @type {HTMLElement} */(document.querySelector('#trash .arc-row[data-id="'+flashId+'"]')); if(!el)return;
     el.scrollIntoView({block:'nearest'}); el.classList.remove('flash'); void el.offsetWidth; el.classList.add('flash');});}
 $('#trash').addEventListener('close',()=>{TRASH_ALL=false;});

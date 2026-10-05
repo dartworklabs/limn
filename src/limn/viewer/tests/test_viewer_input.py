@@ -1,7 +1,7 @@
 """Mouse and touch input of the viewer: collapsing the pin panel, touch gestures, and the usability fixes of 0.3.x.
 
 The owner-approved findings of the 2026-09-26 input review (docs/handbook/viewer.md §패널 폭과 시트 높이, §펼친 화면 레이아웃,
-§모바일 레이아웃, §알림(토스트), §뜻과 모양). Two kinds of test:
+§모바일 레이아웃, §알림 자리, §뜻과 모양). Two kinds of test:
 
 - ``...Logic`` classes run the pure decision functions of ``app.js`` under node (skipped without node), in the style of
   ``test_viewer.FrontendPanelWidthLogic``: where a handle drag lands, which keys do what, how a swipe or a sheet drag ends.
@@ -754,7 +754,7 @@ class DesktopPanelCollapse(ViewerBase):
         self.assertAlmostEqual(s["prefs"].get("side"), 360, delta=2)
 
     def test_a_draft_stops_the_drag_at_the_minimum_without_collapsing(self):
-        """Composing: past T the cursor says not-allowed, the release keeps the panel open at its minimum, no toast."""
+        """Composing: past T the cursor says not-allowed, the release keeps the panel open at its minimum, no message."""
         page = self.view(DESK)
         self.mouse_pick(page)
         (s,) = self.drag_grip(page, [300], release=False)
@@ -763,7 +763,7 @@ class DesktopPanelCollapse(ViewerBase):
         settle(page)
         s = page.evaluate(PROBE)
         self.assertEqual((s["open"], s["w"]), (True, 280))
-        self.assertEqual(page.locator("#toasts .toast").count(), 0)
+        self.assertEqual(page.evaluate("NOTICES.size"), 0)
 
     def test_pointercancel_restores_the_width_and_state_from_before_the_drag(self):
         """A cancelled drag (the browser took the pointer) leaves the panel as it was."""
@@ -824,8 +824,9 @@ class DesktopPanelCollapse(ViewerBase):
                 page.keyboard.press("Control+Backslash")
                 page.wait_for_function("SIDE_OPEN===%s" % ("false" if was else "true"))
 
-    def test_collapsed_panel_floats_status_chips_and_toasts_at_the_pdf_bottom_right(self):
-        """Collapsed wide: #bar2's chips become a floating card at the PDF area's bottom-right, toasts sit above it."""
+    def test_collapsed_panel_floats_status_chips_and_the_status_line_at_the_pdf_bottom_right(self):
+        """Collapsed wide: #bar2's chips become a floating card at the PDF area's bottom-right, and the status line under
+        them (#status-wide), when it has a message, floats right under that card inside the PDF area."""
         page = self.view(DESK, prefs={"sideClosed": True})
         page.evaluate("updateStaleBadge({stale_build:true,src_age_s:120})")
         s = page.evaluate(PROBE)
@@ -833,13 +834,16 @@ class DesktopPanelCollapse(ViewerBase):
         self.assertLessEqual(s["bar2"]["r"], s["grip"]["x"])
         self.assertGreater(s["bar2"]["b"], s["vh"] - 40)
         self.assertFalse(page.locator("#meta-txt").is_visible())
-        page.evaluate("toast('핀 #1 저장됨 · pins.md 갱신','ok')")
-        t = page.locator("#toasts .toast").bounding_box()
+        page.evaluate("lineNote('PDF 재빌드 완료 · 2쪽 · 3초',NOTICE_KIND.OK)")
+        settle(page)
+        t = page.locator("#status-wide").bounding_box()
         left = page.evaluate(
             "(()=>{const L=document.querySelector('#left'),r=L.getBoundingClientRect();return r.left+L.clientLeft+L.clientWidth;})()"
         )
         self.assertLessEqual(t["x"] + t["width"], left)
-        self.assertLessEqual(t["y"] + t["height"], s["bar2"]["y"])
+        bar2 = page.locator("#bar2").bounding_box()
+        self.assertGreaterEqual(t["y"], bar2["y"] + bar2["height"])
+        self.assertLessEqual(t["y"] + t["height"], s["vh"])
         self.assertFalse(page.locator("#rv-chip").is_visible())  # the review count rides on [핀 N]
 
     def test_whatever_needs_the_panel_opens_a_collapsed_one_without_remembering(self):
@@ -866,17 +870,20 @@ class DesktopPanelCollapse(ViewerBase):
         page.wait_for_function("SIDE_OPEN")
 
     def test_first_drag_collapse_explains_how_to_reopen_once(self):
-        """One coach mark, the first time only: [핀 N] (top right) or Ctrl+\\."""
+        """One hint on the status line, the first time only: [핀 N] (top right) or Ctrl+\\. Opening the panel does what it
+        says and it goes; a second collapse says nothing."""
         for lang, needle in (("ko", "Ctrl+\\"), ("en", "Ctrl+\\")):
             with self.subTest(lang=lang):
                 page = self.view(DESK, lang=lang)
                 self.collapse(page)
-                text = page.locator("#coach-t").inner_text()
+                text = page.evaluate("LINE.map(n=>n.title+' '+n.desc).join('|')")
                 self.assertIn(needle, text)
                 self.assertEqual(bool(HANGUL.search(text)), lang == "ko")
-                page.evaluate("document.querySelector('#coach').hidden=true; setSide(true,true)")
+                self.assertTrue(page.locator("#status-wide #status").is_visible())  # floated with the chips
+                page.evaluate("setSide(true,true)")
+                self.assertEqual(page.evaluate("LINE.length"), 0)
                 self.collapse(page)
-                self.assertTrue(page.locator("#coach").is_hidden())
+                self.assertEqual(page.evaluate("LINE.length"), 0)
 
     def test_tooltip_hides_as_soon_as_the_handle_is_pressed(self):
         """The handle's description no longer stays over the PDF while dragging."""
@@ -1023,13 +1030,12 @@ class DraftPersistence(ViewerBase):
         return page.evaluate("COMPOSE.current.lo")
 
     def restored(self, page):
-        """[composer shown, COMPOSE.current.lo, note, kind, pending box, the restore toast's text]."""
+        """[composer shown, COMPOSE.current.lo, note, kind, pending box, the status line's message titles]."""
         return page.evaluate("""() => [!document.querySelector('#composer').hidden, COMPOSE.current&&COMPOSE.current.lo, document.querySelector('#note').value,
-          KIND_NEW, !!document.querySelector('.sel.pending'),
-          [...document.querySelectorAll('#toasts .toast .t-title')].map(t=>t.textContent).join('|')]""")
+          KIND_NEW, !!document.querySelector('.sel.pending'), LINE.map(n=>n.title).join('|')]""")
 
-    def test_a_reload_restores_the_selection_note_kind_and_box_with_a_discard_toast(self):
-        """Korean and English: everything comes back, and the toast offers [버리기] / [Discard]."""
+    def test_a_reload_restores_the_selection_note_kind_and_box_with_a_discard_offer(self):
+        """Korean and English: everything comes back, and the status line says so with [버리기] / [Discard]."""
         for lang, title, button in (("ko", "작성 중이던 메모를 되살렸습니다", "버리기"), ("en", None, None)):
             with self.subTest(lang=lang):
                 page = self.view(DESK, lang=lang)
@@ -1039,7 +1045,7 @@ class DraftPersistence(ViewerBase):
                 self.assertEqual(got[:5], [True, lo, "다시 올 메모", "question", True])
                 if lang == "ko":
                     self.assertIn(title, got[5])
-                    self.assertTrue(page.locator("#toasts .toast button", has_text=button).is_visible())
+                    self.assertTrue(page.locator("#status [data-act=notice-act]", has_text=button).is_visible())
                 else:
                     self.assertTrue(got[5])
                     self.assertFalse(HANGUL.search(got[5]), got[5])
@@ -1064,20 +1070,20 @@ class DraftPersistence(ViewerBase):
         self.assertEqual(got[:3], [True, lo, "폰에서 쓰던 메모"])
         self.assertTrue(page.evaluate("SIDE_OPEN"))  # a restored draft opens the collapsed sheet
 
-    def test_discard_on_the_restore_toast_clears_the_draft_after_its_undo_window(self):
-        """[버리기] goes through the usual discard (with its own undo); once that toast is gone nothing is kept."""
+    def test_discard_on_the_restore_message_clears_the_draft_after_its_undo_window(self):
+        """[버리기] goes through the usual discard (with its own undo); once that undo is gone nothing is kept."""
         page = self.view(DESK)
         self.draft(page, "버릴 메모")
         self.reload(page)
-        page.locator("#toasts button", has_text="버리기").click()
+        page.locator("#status [data-act=notice-act]", has_text="버리기").click()
         self.assertEqual(
             page.evaluate("[document.querySelector('#composer').hidden, document.querySelector('#note').value]"),
             [True, ""],
         )
-        undo = page.locator("#toasts .toast", has_text="선택 취소됨")
+        undo = page.locator("#status", has_text="선택 취소됨")
         self.assertTrue(undo.is_visible())
         self.assertEqual(len(page.evaluate(DRAFT_KEYS)), 1)  # still restorable during the undo window
-        undo.locator("button[aria-label]").click()  # [x] ends the window
+        undo.locator("[data-act=notice-x]").click()  # [x] ends the window
         settle(page)
         self.assertEqual(page.evaluate(DRAFT_KEYS), [])
         self.reload(page)
@@ -1092,13 +1098,13 @@ class DraftPersistence(ViewerBase):
         self.assertEqual(self.restored(page)[:3], [True, lo, "되돌릴 수 있던 메모"])
         page.locator("#note").focus()
         page.keyboard.press("Escape")
-        page.locator("#toasts .toast", has_text="선택 취소됨").locator("button[aria-label]").click()
+        page.locator("#status", has_text="선택 취소됨").locator("[data-act=notice-x]").click()
         settle(page)
         self.reload(page)
         self.assertEqual(self.restored(page)[:3], [False, None, ""])
 
     def test_a_saved_pin_leaves_no_draft(self):
-        """Save and reload right away: no composer, no toast, nothing in sessionStorage."""
+        """Save and reload right away: no composer, no message, nothing in sessionStorage."""
         page = self.view(DESK)
         self.draft(page, "저장할 메모")
         page.keyboard.press("Control+Enter")
@@ -1108,7 +1114,8 @@ class DraftPersistence(ViewerBase):
         self.assertEqual(self.restored(page), [False, None, "", "fix", False, ""])
 
     def test_a_draft_from_another_build_brings_back_only_the_note(self):
-        """After a rebuild the box would point at the wrong spot: the note returns for the next pick, and the toast says so."""
+        """After a rebuild the box would point at the wrong spot: the note returns for the next pick, and the status line
+        says so."""
         page = self.view(DESK)
         self.draft(page, "빌드가 바뀐 메모")
         page.evaluate(
@@ -1571,16 +1578,16 @@ class PhoneSheet(ViewerBase):
         self.swipe(cdp, 190, r["y"] + 20, 190, r["y"] + 20 + r["height"] * 0.6, steps=10, dt=0.02)
         page.wait_for_function("!document.querySelector('#nav-sheet').open")
 
-    def test_stacked_toasts_open_on_a_tap(self):
-        """More than three toasts: a '+N' button under the stack opens it on touch (hover/focus only did before)."""
+    def test_more_messages_than_the_line_shows_open_from_plus_n_on_a_tap(self):
+        """Five messages on the phone's status line: the newest shows with '+4', and a tap on it lists them all, each with
+        its [x]."""
         page = self.view(PHONE)
-        page.evaluate("for(let i=1;i<=5;i++)toast('알림 '+i,'ok')")
-        visible = "[...document.querySelectorAll('#toasts .toast')].filter(t=>t.getClientRects().length).length"
-        self.assertEqual(page.evaluate(visible), 3)
-        more = page.locator("#toasts-more")
-        self.assertTrue(more.is_visible())
-        self.tap(self.cdp(page), *self.center(page, "#toasts-more"))
-        page.wait_for_function(visible + "===5")
+        page.evaluate("for(let i=1;i<=5;i++)lineNote('알림 '+i,NOTICE_KIND.OK)")
+        settle(page)
+        self.assertIn("알림 5", page.inner_text("#status .st-tx"))
+        self.tap(self.cdp(page), *self.center(page, "#status .st-more"))
+        page.wait_for_selector("#status-list[open]")
+        self.assertEqual(page.locator("#status-list .st-row [data-act=notice-x]").count(), 5)
 
 
 # Every visible element matching the selector whose tap area is under 44px wide or high, as "name WxH(hit wxh)": from its
@@ -4258,7 +4265,8 @@ class DesktopMisc(ViewerBase):
     """Undo for a discarded selection and after saving, Esc in the change view, dialogs, hit targets, the first hint."""
 
     def test_escape_or_cancel_with_a_note_offers_undo_that_brings_it_all_back(self):
-        """Discarding a selection with a written note is undoable for the toast's 6 seconds: selection, note and box."""
+        """Discarding a selection with a written note is undoable from the status line until the next press elsewhere:
+        selection, note and box."""
         for how in ("escape", "cancel"):
             with self.subTest(how=how):
                 page = self.view(DESK)
@@ -4270,7 +4278,9 @@ class DesktopMisc(ViewerBase):
                 else:
                     page.locator("#btn-cancel").click()
                 self.assertTrue(page.evaluate("document.querySelector('#composer').hidden&&!COMPOSE.current"))
-                page.locator("#toasts .toast", has_text="선택 취소됨").locator("button", has_text="되돌리기").click()
+                page.locator("#status", has_text="선택 취소됨").locator(
+                    "[data-act=notice-act]", has_text="되돌리기"
+                ).click()
                 self.assertEqual(
                     page.evaluate(
                         "[!document.querySelector('#composer').hidden, COMPOSE.current&&COMPOSE.current.lo, "
@@ -4280,21 +4290,21 @@ class DesktopMisc(ViewerBase):
                 )
 
     def test_escape_with_an_empty_note_needs_no_undo(self):
-        """Nothing written, nothing to lose: no toast."""
+        """Nothing written, nothing to lose: no undo, no message."""
         page = self.view(DESK)
         self.mouse_pick(page)
         page.keyboard.press("Escape")
-        self.assertEqual(page.locator("#toasts .toast").count(), 0)
+        self.assertEqual(page.evaluate("NOTICES.size"), 0)
 
     def test_undo_right_after_saving_reopens_the_composer_with_the_same_selection_and_note(self):
-        """[되돌리기] on '핀 #N 저장됨' takes the pin back and hands the selection and note back for another try."""
+        """[되돌리기] on the new pin's '저장됨' chip takes the pin back and hands the selection and note back for another try."""
         page = self.view(DESK)
         self.mouse_pick(page)
         lo = page.evaluate("COMPOSE.current.lo")
         page.locator("#note").fill("저장 뒤 되돌리기")
         page.keyboard.press("Control+Enter")
         page.wait_for_function("OPEN_ALL.length===4")
-        page.locator("#toasts button", has_text="되돌리기").first.click()
+        page.locator(".mark .nt-chip [data-act=notice-act]", has_text="되돌리기").click()
         page.wait_for_function("OPEN_ALL.length===3&&!document.querySelector('#composer').hidden")
         self.assertEqual(
             page.evaluate("[COMPOSE.current&&COMPOSE.current.lo, document.querySelector('#note').value]"),
@@ -4338,12 +4348,12 @@ class DesktopMisc(ViewerBase):
         self.assertEqual(bad, [])
 
     def test_mouse_users_get_a_crosshair_and_a_one_time_hint(self):
-        """The PDF shows a crosshair, and the first visit says how to pin (Korean and English)."""
+        """The PDF shows a crosshair, and the first visit says how to pin on the status line (Korean and English)."""
         for lang in ("ko", "en"):
             with self.subTest(lang=lang):
                 page = self.view(DESK, lang=lang, prefs={"coach": {}})
                 self.assertEqual(page.evaluate("getComputedStyle(document.querySelector('.pg')).cursor"), "crosshair")
-                text = page.locator("#coach-t").inner_text()
+                text = page.locator("#status .st-tx").inner_text()
                 self.assertTrue(text)
                 self.assertEqual(bool(HANGUL.search(text)), lang == "ko")
                 self.assertEqual(page.evaluate("prefs().coach.mouse"), 1)
@@ -4531,10 +4541,13 @@ class BarAndSheets(ViewerBase):
         return super().route(route)
 
     def stale_view(self, device, **kw):
-        """A view of device with a stale PDF (meta says stale_build), once the status line shows it."""
+        """A view of device with a stale PDF (meta says stale_build), once the status line shows it - or, on the desktop,
+        whose line carries only messages, once the chip row's stale badge does."""
         self.stale = True
         page = self.view(device, init=NO_PNG_CHIP, **kw)
-        page.wait_for_function("!document.querySelector('#status').hidden")
+        page.wait_for_function(
+            "!document.querySelector('#status').hidden||!document.querySelector('#meta-stale').hidden"
+        )
         settle(page)
         return page
 
@@ -4611,8 +4624,8 @@ class BarAndSheets(ViewerBase):
 
     def test_a_rebuild_that_changed_nothing_says_so_on_the_line_with_build_anyway(self):
         """411x908, a stale PDF: [재빌드] on the line, and the build answers ok, unchanged, the same seq (0.4.5). On compact
-        bands the line, where rebuild lives, says '변경 없음' with [그래도 빌드] - no toast. That posts force=1 and the line
-        moves on. Left alone, the answer goes after a toast's six seconds and the stale PDF shows again."""
+        bands the line, where rebuild lives, says '변경 없음' with [그래도 빌드] - no other message. That posts force=1 and
+        the line moves on. Left alone, the answer goes after six seconds and the stale PDF shows again."""
         self.rebuilds = []
         page = self.stale_view(BAR_PHONES[0])
         self.fake_build = {"state": "ok", "seq": page.evaluate("BUILD.lastSeq"), "unchanged": True, "elapsed_s": 0.2}
@@ -4620,7 +4633,7 @@ class BarAndSheets(ViewerBase):
         page.wait_for_selector("#status [data-act=rebuild-force]")
         got = page.evaluate(STATUS_LINE)
         self.assertEqual((got["text"], got["acts"]), ("변경 없음", ["rebuild-force"]))
-        self.assertEqual(page.locator("#toasts .toast").count(), 0)
+        self.assertEqual(page.evaluate("NOTICES.size"), 0)
         self.assertEqual(page.evaluate(MISSES_44, "#status button"), [])
         self.fake_build = None
         page.click("#status [data-act=rebuild-force]")
@@ -4634,15 +4647,9 @@ class BarAndSheets(ViewerBase):
         page.wait_for_selector("#status [data-act=rebuild]", timeout=10000)
         self.assertGreaterEqual(time.monotonic() - shown, 5.5)
 
-    def test_typing_hides_the_status_line_and_a_toast_floats_over_its_hit(self):
-        """While the note has focus the line steps aside for the keyboard; a toast sits above the line's action hit (20px
-        over the line), never on it."""
+    def test_typing_hides_the_status_line(self):
+        """While the note has focus the line steps aside for the keyboard."""
         page = self.stale_view(BAR_PHONES[0])
-        page.evaluate("toast('핀 #1 저장됨 · pins.md 갱신','ok')")
-        settle(page)
-        t = page.locator("#toasts .toast").bounding_box()
-        dock = page.locator("#status-dock").bounding_box()
-        self.assertLessEqual(t["y"] + t["height"], dock["y"] - 20)
         self.long_press_pick(self.cdp(page), page)
         page.focus("#note")
         page.wait_for_function("!document.querySelector('#status-dock').getClientRects().length")
@@ -4759,7 +4766,8 @@ class BarAndSheets(ViewerBase):
         self.fake_build = None
 
     def test_a_mouse_desktop_keeps_its_rebuild_button_and_chips(self):
-        """1440x900 with a mouse: [PDF 재빌드] in the tool bar and the chip row, no status line."""
+        """1440x900 with a mouse: [PDF 재빌드] in the tool bar and the chip row; the line under the chips stays empty, as the
+        chips say the PDF is stale (it carries messages only)."""
         page = self.stale_view(MOUSE_WIDE)
         self.assertTrue(page.is_visible("#btn-rebuild"))
         self.assertTrue(page.is_visible("#meta-stale"))

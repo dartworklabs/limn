@@ -51,13 +51,14 @@ function restoreView(v){if(!v)return; restoreAnchor({page:v.page,frac:v.frac}); 
 addEventListener('pagehide',saveView);
 // Switches documents. Remembers the current view and draft, then opens only the destination document's draft.
 // If a meta cache exists, that document is drawn immediately without waiting, then the latest meta is fetched in the background, and pages are swapped only if the build changed.
+// A document that cannot be opened says so on the status line, with [다시 시도] when the server could not be reached.
 async function switchDoc(k){
   if(!k||k===DOC||!docInfo(k))return; const seq=++SWITCHSEQ;
   if(document.body.classList.contains('revision-open'))setViewMode(VIEW_MODE.MANUSCRIPT);
   saveView(); parkDraft(); cancelRepick(); if(COMPOSE.current||!$('#composer').hidden)cancelSelection(false);
   if(EDITOR.current&&!editDirty())cancelEdit();
   let m=META_BY.get(k),cached=!!m;
-  if(!m){try{m=(await api(dq('/api/meta',k),{what:'문서 열기'})).data;}catch(e){if(seq===SWITCHSEQ)restoreDraft(); return;} if(seq!==SWITCHSEQ)return;}
+  if(!m){try{m=(await api(dq('/api/meta',k),{what:'문서 열기',where:NOTICE_HOST.LINE,retry:()=>{switchDoc(k);}})).data;}catch(e){if(seq===SWITCHSEQ)restoreDraft(); return;} if(seq!==SWITCHSEQ)return;}
   DOC=k; META=m; META_BY.set(k,m); savePrefs({lastDoc:k}); setHash(k);
   hideTip(); showDoc(VIEW_BY.get(k)); openDraftDoc();
   if(cached){try{const f=(await api(dq('/api/meta',k),{what:'문서 열기',silent:true})).data;

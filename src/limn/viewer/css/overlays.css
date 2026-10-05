@@ -1,33 +1,3 @@
-/* Notifications (toast, docs/handbook/viewer.md §알림(토스트)): appear near where you just clicked - they used to show at the bottom-left (desktop) or
-   top-left of the body (mid), ending up more than 1,100px from where the eye was after clicking [핀 저장] in the right panel (observed 2026-09-24).
-   The horizontal position (--toast-r/--toast-w) and bottom height (--toast-b) are measured by placeToasts(): for wide/mid, bottom-right
-   inside the panel column, just above the action row/save button; for narrow, above the sheet.
-   The look is a single floating surface like sonner (thin border + shadow - only floating surfaces get a shadow). Status is a leading icon instead of a color stripe.
-   New notifications stack at the top, and once there are more than 3, the rest collapse (expand on hover). */
-#toasts{position:fixed;z-index:50;right:var(--toast-r,var(--space-3));bottom:var(--toast-b,var(--space-3));width:var(--toast-w,360px);
-  max-width:calc(100vw - 2 * var(--space-2));display:flex;flex-direction:column;gap:var(--space-2);pointer-events:none}
-.toast{pointer-events:auto;display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;column-gap:var(--space-2);
-  padding:var(--space-3);background:var(--popover);color:var(--popover-foreground);border:1px solid var(--border);border-radius:var(--radius-lg);
-  box-shadow:var(--shadow);font-size:var(--text-base);line-height:1.45;animation:toast-in .16s ease-out}
-.toast>.ic{margin-top:1px;color:var(--success)}
-.toast.warn>.ic{color:var(--warning)}
-.toast.err>.ic{color:var(--destructive)}
-.toast .t-body{min-width:0;overflow-wrap:anywhere}
-.toast .t-title{font-weight:600}
-.toast .t-desc{color:var(--muted-foreground);font-size:var(--text-sm)}
-.toast .t-acts{display:flex;align-items:center;gap:var(--space-1);margin:-3px -5px -3px 0}
-/* A mouse opens the fold by hovering; a touch screen has no hover (a tap would leave it stuck open), so there only the focus and
-   the '+N' button (.expanded) open it. */
-@media (hover:hover){#toasts:not(:hover):not(:focus-within):not(.expanded) .toast:nth-child(n+4){display:none}}
-@media not all and (hover:hover){#toasts:not(:focus-within):not(.expanded) .toast:nth-child(n+4){display:none}}
-/* The '+N' under a folded stack (syncToastStack): the way to open it on touch, where hover does not exist. A mouse's hover or
-   focus already opens the stack, so the button goes; on touch only its own click hides it (syncToastStack) - hidden by the focus
-   its tap gives it, it lost that click. */
-#toasts .t-more{pointer-events:auto;align-self:flex-end;background:var(--popover);box-shadow:var(--shadow-sm)}
-@media (hover:hover){#toasts:is(:hover,:focus-within) .t-more{display:none}}
-/* Touch: the toast body passes taps through (only its buttons receive them) - so a toast floating right above a phone's sheet never intercepts a PDF long-press or the tool bar. */
-@media (pointer:coarse){.toast{pointer-events:none}.toast button{pointer-events:auto}}
-@keyframes toast-in{from{opacity:0;transform:translateY(6px)}}
 #tip{position:fixed;z-index:100;max-width:300px;background:var(--tooltip);color:var(--tooltip-foreground);font-size:var(--text-sm);line-height:1.5;
   padding:var(--space-1) var(--space-2);border-radius:var(--radius);pointer-events:none;box-shadow:var(--shadow);left:0;top:0}
 dialog{background:var(--popover);color:var(--popover-foreground);border:1px solid var(--border);border-radius:var(--radius-lg);box-shadow:var(--shadow-lg);max-width:680px;

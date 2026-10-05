@@ -32,8 +32,8 @@ class PinListLoading(unittest.TestCase):
         )
         self.assertEqual(json.loads(run_node(js)), [[1, 4], [2], [3], [1], []])
 
-    def test_a_confirm_waiting_for_its_undo_toast_stays_out_of_the_review_list(self):
-        """A pin whose [확인] waits for its undo toast (CONFIRMING) is left out of every snapshot's review list, so a poll
+    def test_a_confirm_waiting_for_its_undo_stays_out_of_the_review_list(self):
+        """A pin whose [확인] waits for its undo (CONFIRMING) is left out of every snapshot's review list, so a poll
         in those six seconds does not bring its card back; the other lists are as they were."""
         js = "\n".join(
             [
@@ -49,7 +49,7 @@ class PinListLoading(unittest.TestCase):
         self.assertEqual(json.loads(run_node(js)), [[1], [5], [3]])
 
     def test_newer_refresh_wins_when_older_trash_request_finishes_last(self):
-        """An older response never restores stale rows or emits stale transition toasts after a newer refresh."""
+        """An older response never restores stale rows or says stale transitions after a newer refresh."""
         js = "\n".join(
             [
                 extract_js_fn("pinState"),
@@ -59,7 +59,7 @@ class PinListLoading(unittest.TestCase):
                 """
                 let DOC='main',DEFAULT_DOC='main',OPEN_ALL=[],REVIEW_ALL=[],DONE_ALL=[],PINS=[],DONE=[],DROPPED=[];
                 let REPLY=null,COMPOSE={current:null},PINS_LOAD_SEQ=0,PINS_APPLIED_SEQ=0; const CONFIRMING=new Set(); const EDITOR={current:null,saving:false};
-                const SEC_SEEN={open:null,review:null,done:null},calls=[],reads=[],toasts=[];
+                const SEC_SEEN={open:null,review:null,done:null},calls=[],reads=[],said=[];
                 let firstTrash;
                 function api(url){
                   if(url==='/api/pins?all=1')return Promise.resolve({data:reads.shift()});
@@ -70,9 +70,9 @@ class PinListLoading(unittest.TestCase):
                   throw Error(url);
                 }
                 function loadPeople(){} function pdoc(p){return p.doc||DEFAULT_DOC;}
-                function diffToast(prev,rows){calls.push(['diff',prev.map(p=>p.id),rows.map(p=>p.id)]);}
-                function reviewToast(prev,rows){calls.push(['review',prev.map(p=>p.id),rows.map(p=>p.id)]);}
-                function toast(msg){toasts.push(msg);} function tl(s){return s;}
+                function notePinChanges(prev,rows){calls.push(['diff',prev.map(p=>p.id),rows.map(p=>p.id)]);}
+                function noteReviewChanges(prev,rows){calls.push(['review',prev.map(p=>p.id),rows.map(p=>p.id)]);}
+                function lineNote(msg){said.push(msg);} function tl(s){return s;}
                 function drawPins(){calls.push(['draw',OPEN_ALL.map(p=>p.id)]);}
                 function marks(){} function drawDocTabs(){} function docTitle(){}
                 function recomputeOverlap(){} function renderOverlapBanner(){} function closeReply(){}
@@ -81,7 +81,7 @@ class PinListLoading(unittest.TestCase):
                 setImmediate(async()=>{
                   const newest=loadPins(); await newest;
                   firstTrash({data:{dropped:[{id:99}]}}); await old;
-                  console.log(JSON.stringify({open:OPEN_ALL.map(p=>p.id),dropped:DROPPED.map(p=>p.id),calls,toasts}));
+                  console.log(JSON.stringify({open:OPEN_ALL.map(p=>p.id),dropped:DROPPED.map(p=>p.id),calls,said}));
                 });
                 """,
             ]
@@ -90,7 +90,7 @@ class PinListLoading(unittest.TestCase):
         self.assertEqual(result["open"], [2])
         self.assertEqual(result["dropped"], [])
         self.assertEqual(result["calls"], [["diff", [], [2]], ["review", [], [2]], ["draw", [2]]])
-        self.assertEqual(result["toasts"], [])
+        self.assertEqual(result["said"], [])
 
     def test_old_pin_response_does_not_fetch_trash_after_newer_refresh(self):
         """A late pin-list response stops before people, Trash, transition notices, or rendering effects."""
@@ -118,8 +118,8 @@ class PinListLoading(unittest.TestCase):
                   throw Error(url);
                 }
                 function loadPeople(){peopleReads++;}
-                function diffToast(prev,rows){calls.push(['diff',rows.map(p=>p.id)]);}
-                function reviewToast(prev,rows){calls.push(['review',rows.map(p=>p.id)]);}
+                function notePinChanges(prev,rows){calls.push(['diff',rows.map(p=>p.id)]);}
+                function noteReviewChanges(prev,rows){calls.push(['review',rows.map(p=>p.id)]);}
                 function drawPins(){calls.push(['draw',OPEN_ALL.map(p=>p.id)]);}
                 function marks(){} function drawDocTabs(){} function docTitle(){}
                 function recomputeOverlap(){} function renderOverlapBanner(){} function closeReply(){}
@@ -172,7 +172,7 @@ class PinListLoading(unittest.TestCase):
                 function notifyHandle(){} function updateStaleBadge(){} function updateSyncBadge(){}
                 function noteOtherDocs(){} function loadPeople(){} function pollBuild(){}
                 function $(sel){return {hidden:true};}
-                function diffToast(){} function reviewToast(){}
+                function notePinChanges(){} function noteReviewChanges(){}
                 function drawPins(){drawn.push(OPEN_ALL.map(p=>p.id));}
                 function marks(){} function drawDocTabs(){} function docTitle(){}
                 function recomputeOverlap(){} function renderOverlapBanner(){} function closeReply(){}
@@ -219,7 +219,7 @@ class PinListLoading(unittest.TestCase):
                 function notifyHandle(){} function updateStaleBadge(){} function updateSyncBadge(){}
                 function noteOtherDocs(){} function loadPeople(){} function pollBuild(){}
                 function $(sel){return {hidden:true};}
-                function diffToast(){} function reviewToast(){}
+                function notePinChanges(){} function noteReviewChanges(){}
                 function drawPins(){drawn.push(OPEN_ALL.map(p=>p.id));}
                 function marks(){} function drawDocTabs(){} function docTitle(){}
                 function recomputeOverlap(){} function renderOverlapBanner(){} function closeReply(){}
@@ -287,7 +287,7 @@ class PinListLoading(unittest.TestCase):
                 function restoreView(){} function drawDocTabs(){} function restoreDraft(){} function updateSectionStrip(){}
                 function coach(){} function startLightPolling(){} function startBuildPolling(){}
                 function drawNotify(){} function prefs(){return {};}
-                function loadPeople(){} function diffToast(){} function reviewToast(){}
+                function loadPeople(){} function notePinChanges(){} function noteReviewChanges(){}
                 function drawPins(){} function marks(){} function docTitle(){}
                 function recomputeOverlap(){} function renderOverlapBanner(){} function closeReply(){}
                 function notifyHandle(){} function updateStaleBadge(){} function updateSyncBadge(){}
@@ -428,6 +428,7 @@ class PinListLoading(unittest.TestCase):
                 function topAnchor(){return null;} function restoreAnchor(){}
                 function vecReleaseAll(){} function $$(){return [];}
                 function vecOpen(){} function loadPins(){return Promise.resolve();}
+                function rebuildSources(){return [];} function sourceOk(){}   // a refresh ends a failed rebuild's error
                 function dq(u,k){return u+(k||DOC);}
                 function api(url){requests.push(url);return Promise.resolve({data:{pages:[{id:'new'}],pages_build:'v2'}});}
                 (async()=>{await switchDoc('b');console.log(JSON.stringify({requests,build:META.pages_build}));})();
@@ -536,8 +537,8 @@ class ViewerPollingVisits(unittest.TestCase):
         )
         self.assertEqual(json.loads(run_node(js)), {"seen": [], "booted": False})
 
-    def test_build_completion_from_previous_visit_does_not_toast_after_refresh(self):
-        """A document switch during build refresh suppresses the old visit's completion toast."""
+    def test_build_completion_from_previous_visit_is_not_said_after_refresh(self):
+        """A document switch during build refresh suppresses the old visit's completion message."""
         js = "\n".join(
             [
                 extract_js_fn("pollBuildOnce"),
@@ -550,7 +551,7 @@ class ViewerPollingVisits(unittest.TestCase):
                 function api(){return Promise.resolve({data:{state:'ok',seq:4,elapsed_s:1}});}
                 function $(sel){return {hidden:true,disabled:false};}
                 function refreshDoc(){return new Promise(resolve=>{resolveRefresh=resolve;});}
-                function toast(){seen.push('toast');}
+                function lineNote(){seen.push('said');}function showBuildErr(){seen.push('panel');}
                 function pullSuffix(){return '';} function hideBuildErr(){}
                 (async()=>{
                   const old=pollBuildOnce();

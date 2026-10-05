@@ -3,9 +3,9 @@
 // nothing to do (already settled into idle/ok/fail). There are only three places it starts: this tab pressing rebuild(),
 // pollLight (the 5-second poll) seeing build.state==='running', and catching an already-running build at boot.
 // A finished build is counted via build_seq (the server bumps it by 1 per build). BUILD.lastSeq is the value this tab
-// has already processed - processing (swapping the screen, toasting) happens exactly once per seq. Counting via the
+// has already processed - processing (swapping the screen, saying so) happens exactly once per seq. Counting via the
 // started_at string or "was running ever observed" instead missed a build that finished within a 5-second gap, or
-// double-processed the same completion when a hidden tab came back via two paths at once (observed: toast x2).
+// double-processed the same completion when a hidden tab came back via two paths at once (observed: said twice).
 // The active document visit owns one poll timer, request and completion baseline; the error panel follows that visit.
 // BUILD.cur is the running build's last /api/build answer (null when none runs): the status line reads its phase and seconds.
 // BUILD.unchanged is {pull} while the status line answers an unchanged rebuild of this tab (buildUnchanged), else null.
@@ -23,7 +23,7 @@ function buildChipText(b){
   return tr(label)+' · '+tl('{s}초',{s:el})+last;
 }
 // --git-pull (docs/handbook/build-sync.md §재빌드 전 원격 main 당겨오기): appends one line about the pull result to the
-// build-complete toast. ok gets the applied commit range,
+// build's completion (the status line's message, or the error panel's title). ok gets the applied commit range,
 // skipped/error just the reason - up_to_date has nothing worth reporting, so nothing is appended.
 function pullSuffix(b){
   const p=b&&b.pull; if(!p||!p.state)return '';
@@ -40,9 +40,11 @@ function pollBuild(){
   return BUILD.inflight;
 }
 // One /api/build poll for the document on screen: shows or hides the progress chip and the 1-second timer, and processes a
-// finished build exactly once per `seq` (refresh the pages, toast, error panel). A rebuild this tab asked for that kept
-// the pages (unchanged: true, the same seq) gets one "no changes" answer whose [그래도 빌드] forces a cold rebuild
-// (buildUnchanged: a toast on the desktop, the status line elsewhere). A reply that arrives after a document switch is dropped. Resolves with nothing and never throws; a failed request is ignored (the next poll retries).
+// finished build exactly once per `seq` (refresh the pages; a success says so on the status line for NOTICE_MS, a failure or
+// LaTeX errors open the error panel, and the line's failure item and the chips keep it). A rebuild this tab asked for that kept
+// the pages (unchanged: true, the same seq) gets one "no changes" answer on the status line whose [그래도 빌드] forces a cold
+// rebuild (buildUnchanged). A reply that arrives after a document switch is dropped. Resolves with nothing and never throws; a
+// failed request is ignored (the next poll retries).
 async function pollBuildOnce(){
   let b; const k=DOC,visit=SWITCHSEQ;
   try{b=(await api(dq('/api/build?log=1'),{what:'빌드 상태',silent:true})).data;}catch(e){return;}
@@ -66,11 +68,10 @@ async function pollBuildOnce(){
     try{await refreshDoc();}catch(e){}
     if(k!==DOC||visit!==SWITCHSEQ)return;
     const secs=Math.round(b.elapsed_s||0);
-    if(b.state===BUILD_STATE.OK){toast(tr(!buildsFromSource(META.kind)?'PDF가 바뀌어 쪽을 새로 그렸습니다':'PDF 재빌드 완료')+' · '+tl('{n}쪽',{n:META.pages.length})+' · '+tl('{s}초',{s:secs})+pullSuffix(b),'ok'); BUILD.error=null; BUILD_ERR_BY.delete(k); hideBuildErr();}
-    else if(b.state===BUILD_STATE.OK_ERRORS){toast(tr('PDF를 재빌드했지만 LaTeX 오류가 있습니다')+pullSuffix(b),'warn'); showBuildErr(b);}
-    else if(b.state===BUILD_STATE.FAIL){toast(tr('빌드 실패 — 화면은 이전 PDF입니다')+pullSuffix(b),'err'); showBuildErr(b);}
+    if(b.state===BUILD_STATE.OK){lineNote(tr(!buildsFromSource(META.kind)?'PDF가 바뀌어 쪽을 새로 그렸습니다':'PDF 재빌드 완료')+' · '+tl('{n}쪽',{n:META.pages.length})+' · '+tl('{s}초',{s:secs})+pullSuffix(b),NOTICE_KIND.OK,null,{life:NOTICE_LIFE.TIMER}); BUILD.error=null; BUILD_ERR_BY.delete(k); hideBuildErr();}
+    else if(b.state===BUILD_STATE.OK_ERRORS||b.state===BUILD_STATE.FAIL)showBuildErr(b,true);   // its panel opens and it is read out; the line and the chips keep the failure
   }else if(!booted&&(b.state===BUILD_STATE.FAIL||b.state===BUILD_STATE.OK_ERRORS)){
-    showBuildErr(b);   // a freshly opened tab - a build that already failed just opens the panel/chip with no toast (leaves a way to look at it again)
+    showBuildErr(b);   // a freshly opened tab - a build that already failed just opens the panel/chip (leaves a way to look at it again)
   }
 }
 function startBuildPolling(){
