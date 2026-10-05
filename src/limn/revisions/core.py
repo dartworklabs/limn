@@ -179,6 +179,12 @@ class NoMergeBase:
 
 
 @dataclass(frozen=True)
+class BaseTooOld:
+    """The range's base is this document's commit (it changed the manuscript and is an ancestor of HEAD) but older than
+    the history window: it cannot be compared, yet it is not gone (CommitNotRecent says that)."""
+
+
+@dataclass(frozen=True)
 class EmptyRange:
     """The range's base is its commit: there is nothing to compare, so no comparison PDF is built (the source diff
     answers an empty diff instead)."""
@@ -186,7 +192,7 @@ class EmptyRange:
 
 # A range's own refusals (issue #188), answered from limn.revisions.answer.RANGE_REJECTIONS; the other refusals a range
 # meets (CommitNotRecent, DiffFailed, ...) are the single commit's.
-RangeRefusal: TypeAlias = BaseAfterHead | NoMergeBase | EmptyRange
+RangeRefusal: TypeAlias = BaseAfterHead | NoMergeBase | EmptyRange | BaseTooOld
 DiffRefusal: TypeAlias = NoHistory | CommitNotRecent | DiffFailed | DiffUnavailable | PinNotInDoc
 SpecRefusal: TypeAlias = CommitNotRecent | NotInRepo | NoParent | PinNotInDoc | DiffFailed
 StatusRefusal: TypeAlias = SpecRefusal | UnsafeCache
@@ -552,6 +558,17 @@ def window_base(rows: Sequence[Json], base: str) -> bool:
     return any(row["id"] == base or row["parents"][:1] == [base] for row in rows)
 
 
+def outside_base(repo: Path, paths: Sequence[str], base: str) -> CommitNotRecent | BaseTooOld:
+    """Why base (a full SHA-1 that window_base refused) cannot be a range's base: BaseTooOld when it is this document's
+    commit beyond the window - an ancestor of HEAD that changed the pathspec paths - else CommitNotRecent. Says only
+    whether the commit is in the document's own history, never what it holds."""
+    rc, _, _ = git(["merge-base", "--is-ancestor", base, "HEAD"], repo)
+    if rc != 0:
+        return CommitNotRecent()
+    rc, out, _ = git(["rev-list", "-1", base, "--"] + list(paths), repo)
+    return BaseTooOld() if rc == 0 and out.strip() == base else CommitNotRecent()
+
+
 def resolve_range(repo: Path, base: str, head: str) -> RangeEnds | BaseAfterHead | NoMergeBase | DiffFailed:
     """The sides a range from base to head compares: base itself when it is head or an ancestor of head; the merge base
     of the two when base is on another line (like a three-dot comparison); BaseAfterHead when base descends from head,
@@ -582,13 +599,16 @@ def range_ends(
     D: RevisionDoc, commit: str, base: str, files: Sequence[Path] | None = None, windows: WindowCache | None = None
 ) -> tuple[Path, list[str], RangeEnds] | NoHistory | CommitNotRecent | DiffFailed | RangeRefusal:
     """The repository, pathspec and resolved ends of document D's range base..commit: commit must be in the history
-    window and base in it or the first parent of one of its commits (window_base); then resolve_range."""
+    window and base in it or the first parent of one of its commits (window_base; otherwise outside_base says why);
+    then resolve_range."""
     window = revision_window(D, files, windows)
     if isinstance(window, NoHistory):
         return window
     repo, paths, rows = window
-    if commit not in {row["id"] for row in rows} or not window_base(rows, base):
+    if commit not in {row["id"] for row in rows}:
         return CommitNotRecent()
+    if not window_base(rows, base):
+        return outside_base(repo, paths, base)
     ends = resolve_range(repo, base, commit)
     return ends if not isinstance(ends, RangeEnds) else (repo, paths, ends)
 
@@ -689,7 +709,7 @@ def revision_diff(
     # Only read commits that appear in the current document's history. Never exposes arbitrary Git objects or another document's history.
     if commit not in {row["id"] for row in rows}:
         return CommitNotRecent()
-    revisions = rows[:REVISION_RECENT]  # a pin's close_ref is resolved among the first rows the list shows
+    revisions = rows  # a pin's close_ref: a hash anywhere in the window, a PR number in its first rows (_ref_commit)
     cmd = [
         "-C",
         str(repo),
@@ -782,7 +802,8 @@ def range_diff(
 
 
 def matching_pin_changes(pin: RevisionPin, head: str, revisions: Sequence[Record]) -> RevisionPin:
-    """Apply revision-owned Git/PR reference resolution to detached pin change candidates."""
+    """Apply revision-owned Git/PR reference resolution (_ref_commit over the history window rows) to detached pin
+    change candidates."""
     return pin if _ref_commit(pin.close_ref, revisions) == head else replace(pin, changes=())
 
 
@@ -791,7 +812,10 @@ _REF_PR_RE = re.compile(r"#(\d+)", re.ASCII)
 
 
 def _ref_commit(ref: object, revisions: Sequence[Record]) -> str | None:
-    """Return the recent commit named by a close reference."""
+    """The commit a close reference names, among revisions (the history window rows, in their order): a 7-40 digit hash
+    is looked for in every row, a PR number (`(#N)`, `pull request #N`, `#N` in the subject) only in the first
+    REVISION_RECENT - a hash names one commit wherever it is, a #N deeper in the history is another PR's. The viewer's
+    matchRevision applies the same rule (tests compare the two)."""
     text = ref if isinstance(ref, str) else ""
     for token in _REF_SHA_RE.findall(text):
         for revision in revisions:
@@ -799,7 +823,7 @@ def _ref_commit(ref: object, revisions: Sequence[Record]) -> str | None:
                 return str(revision["id"])
     for number in _REF_PR_RE.findall(text):
         pattern = re.compile(r"\(#%s\)|pull request #%s\b|#%s\b" % (number, number, number), re.ASCII)
-        for revision in revisions:
+        for revision in revisions[:REVISION_RECENT]:
             if pattern.search(revision.get("subject") or ""):
                 return str(revision["id"])
     return None
@@ -904,7 +928,7 @@ def revision_pin_scope(
     ctx: RevisionContext,
 ) -> PinScope | PinNotInDoc:
     """How pin pid of document D sees commit head (compared with its first parent base).
-    Revisions are the document's recent commits (revision_history); recorded changes count only on the commit the
+    Revisions are the document's history window rows (revision_window); recorded changes count only on the commit the
     pin's close_ref names. Their paths are resolved by the pin-owned read view with the same rule as the pin's own file
     (issue #24) - so a moved or cloned checkout keeps the agent's lines; a path the rule cannot place is dropped and
     the pin's hunks are inferred as before. Unless the same pin facts were decided for this commit before (ctx.cache),
@@ -959,7 +983,7 @@ def revision_spec(
     window = revision_window(D, None, ctx.windows)
     if isinstance(window, NoHistory) or commit not in {r["id"] for r in window[2]}:
         return CommitNotRecent()
-    repo, paths, revisions = window[0], tuple(window[1]), window[2][:REVISION_RECENT]
+    repo, paths, revisions = window[0], tuple(window[1]), window[2]
     try:
         source = D.src.resolve().relative_to(repo).as_posix()
         main = D.main.resolve().relative_to(D.src.resolve())
@@ -999,11 +1023,11 @@ def range_spec(
     repo: Path, source: str, main: Path, paths: tuple[str, ...], rows: Sequence[Json], commit: str, base: str
 ) -> RevisionSpec | CommitNotRecent | DiffFailed | RangeRefusal:
     """The comparison of the range base..commit (issue #188): base must be in the history window rows or the first
-    parent of one of them (window_base), and is resolved like the source diff's (resolve_range: the merge base for a
+    parent of one of them (window_base; otherwise outside_base says why), and is resolved like the source diff's (resolve_range: the merge base for a
     base on another line). An empty range is EmptyRange - nothing to build. A range whose old side is commit's first
     parent is the single commit's comparison (same key, not ranged); any other is ranged, cached apart."""
     if not window_base(rows, base):
-        return CommitNotRecent()
+        return outside_base(repo, paths, base)
     ends = resolve_range(repo, base, commit)
     if not isinstance(ends, RangeEnds):
         return ends

@@ -18,6 +18,7 @@ from limn.revisions import answer as revision_answer, core as revisions
 from limn.revisions.core import (
     AllSlotsBusy,
     BaseAfterHead,
+    BaseTooOld,
     CommitNotRecent,
     DiffFailed,
     DiffUnavailable,
@@ -85,6 +86,7 @@ RANGE_REFUSALS = {
     BaseAfterHead: (422, "비교 기준 커밋이 대상 커밋보다 새롭습니다.", "base_after_head"),
     NoMergeBase: (422, "두 커밋에 공통 조상이 없어 비교할 수 없습니다.", "no_merge_base"),
     EmptyRange: (422, "기준과 대상이 같은 커밋이라 비교 PDF를 만들 수 없습니다.", "empty_range"),
+    BaseTooOld: (404, "비교 기준 커밋이 이 문서의 최근 500개 커밋보다 오래됐습니다.", "base_too_old"),
 }
 
 

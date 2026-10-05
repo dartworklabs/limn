@@ -5,6 +5,7 @@ from typing import Any, NoReturn
 from limn.revisions.core import (
     AllSlotsBusy,
     BaseAfterHead,
+    BaseTooOld,
     BuildFailure,
     CommitNotRecent,
     DiffFailed,
@@ -64,6 +65,7 @@ RANGE_REJECTIONS: dict[type[RangeRefusal], tuple[int, str, str]] = {
     BaseAfterHead: (422, "비교 기준 커밋이 대상 커밋보다 새롭습니다.", "base_after_head"),
     NoMergeBase: (422, "두 커밋에 공통 조상이 없어 비교할 수 없습니다.", "no_merge_base"),
     EmptyRange: (422, "기준과 대상이 같은 커밋이라 비교 PDF를 만들 수 없습니다.", "empty_range"),
+    BaseTooOld: (404, "비교 기준 커밋이 이 문서의 최근 500개 커밋보다 오래됐습니다.", "base_too_old"),
 }
 
 
@@ -78,7 +80,7 @@ def revision_answer(result: dict[str, Any] | RevisionRefusal | RangeRefusal) -> 
     answer: a range's own through RANGE_REJECTIONS, every other through revision_refused."""
     if isinstance(result, dict):
         return result
-    if isinstance(result, BaseAfterHead | NoMergeBase | EmptyRange):
+    if isinstance(result, BaseAfterHead | NoMergeBase | EmptyRange | BaseTooOld):
         raise range_http_error(result)
     revision_refused(result)
 
@@ -95,7 +97,7 @@ def revision_pdf_answer(result: bytes | RevisionRefusal | RangeRefusal) -> bytes
     RANGE_REJECTIONS)."""
     if isinstance(result, bytes):
         return result
-    if isinstance(result, BaseAfterHead | NoMergeBase | EmptyRange):
+    if isinstance(result, BaseAfterHead | NoMergeBase | EmptyRange | BaseTooOld):
         raise range_http_error(result)
     revision_refused(result)
 

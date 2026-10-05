@@ -21,7 +21,7 @@ from unittest import mock
 
 from limn.revisions import core as revisions, execution as revision_execution
 
-from helpers import ps
+from helpers import extract_js_fn, ps, run_node
 from helpers_access import REPO_OLD, AccessBase
 
 SNAPSHOT = Path(__file__).resolve().parents[4] / "tests" / "data" / "revision_snapshot.json"
@@ -475,7 +475,42 @@ class RangePdf(RangeRepo):
         self.assertEqual(revisions.REVISION_RANGED_KEEP, 4)
 
 
-class OneWindow(AccessBase):
+class DatedRepo(AccessBase):
+    """A manuscript repository whose commits carry fixed dates (author and committer), for histories whose date order
+    and ancestry order disagree."""
+
+    def git(self, when: str, *args: str) -> str:
+        """Run git at the fixed time when (author and committer); its stdout."""
+        env = dict(
+            os.environ,
+            GIT_AUTHOR_DATE=when,
+            GIT_COMMITTER_DATE=when,
+            GIT_AUTHOR_NAME="Alice Kim",
+            GIT_COMMITTER_NAME="Alice Kim",
+            GIT_AUTHOR_EMAIL="a@example.com",
+            GIT_COMMITTER_EMAIL="a@example.com",
+        )
+        return subprocess.run(["git", *args], cwd=self.repo, check=True, capture_output=True, text=True, env=env).stdout
+
+    def edit(self, line: int, text: str) -> None:
+        """Replace line `line` of main.tex with text."""
+        lines = self.main.read_text(encoding="utf-8").splitlines(keepends=True)
+        lines[line - 1] = text + "\n"
+        self.main.write_text("".join(lines), encoding="utf-8")
+
+    def commit(self, name: str, when: str, subject: str | None = None) -> None:
+        """Commit ms/ at when (subject: the message, name when None) and record the SHA under name."""
+        self.git(when, "add", "ms")
+        self.git(when, "commit", "--quiet", "-m", subject or name)
+        self.sha[name] = self.git(when, "rev-parse", "HEAD").strip()
+
+    def names(self, ids) -> list[str]:
+        """The fixture names of ids, in order."""
+        back = {v: k for k, v in self.sha.items()}
+        return [back.get(i, i[:8]) for i in ids]
+
+
+class OneWindow(DatedRepo):
     """One order and one set for every path that names commits (review of #188): the unpaged list, the paged list (the
     viewer's), the commits a pin's close_ref is resolved among, and the commits a request may name. The repository has
     a merged side line with dates older than everything on trunk, so date order and ancestry order disagree."""
@@ -510,36 +545,6 @@ class OneWindow(AccessBase):
             "/api/pins/%d/close" % self.pin,
             {"ref": self.sha["S2"][:8], "changes": [{"file": "main.tex", "lo": 32, "hi": 32}]},
         )
-
-    def git(self, when: str, *args: str) -> str:
-        """Run git at the fixed time when (author and committer); its stdout."""
-        env = dict(
-            os.environ,
-            GIT_AUTHOR_DATE=when,
-            GIT_COMMITTER_DATE=when,
-            GIT_AUTHOR_NAME="Alice Kim",
-            GIT_COMMITTER_NAME="Alice Kim",
-            GIT_AUTHOR_EMAIL="a@example.com",
-            GIT_COMMITTER_EMAIL="a@example.com",
-        )
-        return subprocess.run(["git", *args], cwd=self.repo, check=True, capture_output=True, text=True, env=env).stdout
-
-    def edit(self, line: int, text: str) -> None:
-        """Replace line `line` of main.tex with text."""
-        lines = self.main.read_text(encoding="utf-8").splitlines(keepends=True)
-        lines[line - 1] = text + "\n"
-        self.main.write_text("".join(lines), encoding="utf-8")
-
-    def commit(self, name: str, when: str) -> None:
-        """Commit ms/ at when and record the SHA under name."""
-        self.git(when, "add", "ms")
-        self.git(when, "commit", "--quiet", "-m", name)
-        self.sha[name] = self.git(when, "rev-parse", "HEAD").strip()
-
-    def names(self, ids) -> list[str]:
-        """The fixture names of ids, in order."""
-        back = {v: k for k, v in self.sha.items()}
-        return [back.get(i, i[:8]) for i in ids]
 
     def test_the_lists_share_one_ancestry_order(self):
         """The unpaged answer is the first 12 rows of the paged one, in the same (ancestry) order: the merged line sits
@@ -619,3 +624,84 @@ class RangeCommitIds(RangeRepo):
             want = self.git("rev-list", "--topo-order", "%s..%s" % (body["base"], self.sha[commit]), "--", "ms").split()
             self.assertEqual(body["commit_ids"], want, (base, commit))
             self.assertEqual(body["commits"], len(want))
+
+
+class OldSideMergedLate(DatedRepo):
+    """Re-review of #188: a side line dated before all of trunk and merged after it fills the window's first 12 rows,
+    so a pin closed on an older trunk commit names a commit beyond them."""
+
+    def setUp(self):
+        """root; side S1..S12 (January, each its own file); trunk B1..B12 (September, line n of main.tex; B3's subject
+        names #5); a pin on line 5 closed with B5's hash and that line; then the --no-ff merge M of the side line."""
+        super().setUp()
+        if not shutil.which("git"):
+            self.skipTest("git not available")
+        self.repo = self.src.parent
+        self.sha = {}
+        self.git("2026-09-01T08:00:00+09:00", "init", "--quiet", "--initial-branch=main")
+        self.main.write_text("".join("Line %d.\n" % n for n in range(1, 41)), encoding="utf-8")
+        self.commit("root", "2026-09-01T08:00:00+09:00")
+        self.git("2026-09-01T08:00:00+09:00", "checkout", "--quiet", "-b", "side")
+        for n in range(1, 13):
+            (self.src / ("s%d.tex" % n)).write_text("Side %d.\n" % n, encoding="utf-8")
+            self.commit("S%d" % n, "2026-01-%02dT08:00:00+09:00" % n)
+        self.git("2026-09-01T08:00:00+09:00", "checkout", "--quiet", "main")
+        for n in range(1, 13):
+            self.edit(n, "Trunk %d." % n)
+            self.commit("B%d" % n, "2026-09-%02dT08:00:00+09:00" % (n + 1), "B3 (#5)" if n == 3 else None)
+        self.pin = self.add(lo=5, hi=5, note="trunk five")
+        self.call(
+            "POST",
+            "/api/pins/%d/close" % self.pin,
+            {"ref": "fixed in %s" % self.sha["B5"][:8], "changes": [{"file": "main.tex", "lo": 5, "hi": 5}]},
+        )
+        self.git("2026-09-20T08:00:00+09:00", "merge", "--quiet", "--no-ff", "-m", "merge side", "side")
+        self.sha["M"] = self.git("2026-09-20T08:00:00+09:00", "rev-parse", "HEAD").strip()
+
+    def test_the_side_line_fills_the_first_rows(self):
+        """The fixture is the repro: B5 is not among the window's first 12 rows."""
+        _, unpaged = self.call("GET", "/api/revisions")
+        self.assertNotIn(self.sha["B5"], [r["id"] for r in unpaged["revisions"]])
+
+    def test_a_hash_close_ref_is_found_in_the_whole_window(self):
+        """The pin's ref names B5 by hash: it is resolved in the whole window, so B5's view uses the recorded line."""
+        code, body = self.call("GET", "/api/revision-diff?commit=%s&pin=%d" % (self.sha["B5"], self.pin))
+        self.assertEqual(code, 200, body)
+        self.assertEqual(body["scope"]["source"], "changes", body["scope"])
+
+    def test_the_viewer_matches_a_hash_in_every_row_and_a_pr_number_in_the_first_12(self):
+        """matchRevision, given the paged rows, finds B5 by hash beyond the first 12 rows - as the server does - and
+        looks for a PR number only in the first 12 (a #N deeper in the history is not this pin's)."""
+        if not shutil.which("node"):
+            self.skipTest("node not available")
+        _, paged = self.call("GET", "/api/revisions?limit=50")
+        rows = paged["revisions"]
+        js = extract_js_fn("matchRevision")
+        refs = ["fixed in %s" % self.sha["B5"][:8], "#5"]
+        out = run_node(
+            js
+            + "\nconsole.log(JSON.stringify(%s.map(r=>matchRevision(r,%s,12))));" % (json.dumps(refs), json.dumps(rows))
+        )
+        by_hash, by_pr = json.loads(out)
+        self.assertEqual((by_hash["id"], by_hash["via"]), (self.sha["B5"], "sha"))
+        self.assertIsNone(by_pr)
+
+
+class BaseTooOld(RangeRepo):
+    """A base that is this document's commit but older than the window is told apart from one the history does not
+    have (re-review of #188): the viewer keeps such a last-seen record."""
+
+    def test_an_older_document_commit_is_base_too_old(self):
+        """With a window of 4, alpha (a manuscript commit, an ancestor of HEAD) is 404 base_too_old; a commit the
+        document's history does not have stays 404 commit_not_recent, and so does notes (not a manuscript commit)."""
+        with mock.patch.object(revisions, "REVISION_HISTORY_MAX", 4):
+            query = "/api/revision-diff?commit=%s&base=" % self.sha["after"]
+            code, body = self.call("GET", query + self.sha["alpha"])
+            self.assertEqual((code, body["reason"]), (404, "base_too_old"), body)
+            code, body = self.call(
+                "GET", "/api/revision-build?commit=%s&base=%s" % (self.sha["after"], self.sha["alpha"])
+            )
+            self.assertEqual((code, body["reason"]), (404, "base_too_old"), body)
+            for other in ("0" * 40, self.sha["notes"]):
+                code, body = self.call("GET", query + other)
+                self.assertEqual((code, body["reason"]), (404, "commit_not_recent"), other)
