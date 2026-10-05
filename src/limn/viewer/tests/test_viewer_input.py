@@ -14,6 +14,8 @@ Run: uv run pytest -q src/limn/viewer/tests/test_viewer_input.py
 
 import base64
 import json
+import math
+import os
 import re
 import time
 import unittest
@@ -22,11 +24,12 @@ from typing import Any
 from urllib.parse import urlparse
 
 from limn import __version__
+from limn.administration import serve_documents
 from limn.pins.lifecycle.rules import CloseRequest
 from limn.security.access import LOCAL_ACTOR
 
 import helpers_figure
-from helpers import HTML, UI_EN, GatedBuild, add_pin, extract_js_fn, ps, run_node
+from helpers import HTML, UI_EN, GatedBuild, add_pin, blank_png, extract_js_fn, ps, run_node, serve_viewer
 from helpers_access import ALICE, BOB, actor
 from helpers_authority import post_authority
 from helpers_browser import BrowserBase, booted, nothing_follows, settle, watch_idle
@@ -6077,6 +6080,189 @@ class SymmetryAudit(ViewerBase):
                 self.assertEqual(o["loc"][0], o["loc"][1], o)
                 self.assertEqual(len(set(o["kind"])), 1, o)
                 self.assertEqual(o["save"][0], o["save"][1], o)
+
+
+# ---------------------------------------------------------------- Hangul ink inside the boxes that clip it
+
+# Families whose Hangul ink reaches further past the cap height and below the baseline than Pretendard's, as a phone without
+# Pretendard draws it: the owner's Android Chrome falls back to a system Korean font. WenQuanYi Zen Hei is the one
+# `playwright install --with-deps chromium` puts on CI's Ubuntu runner (fonts-wqy-zenhei); Noto Sans CJK KR is Android's.
+# The page draws in the first one installed.
+WIDE_HANGUL = ("WenQuanYi Zen Hei", "Noto Sans CJK KR")
+# Puts WIDE_HANGUL in --font-sans before the viewer lays anything out (it measures its bars as it boots).
+WIDE_HANGUL_INIT = (
+    "document.addEventListener('DOMContentLoaded',()=>{const s=document.createElement('style');"
+    "s.textContent=':root:root{--font-sans:%s,sans-serif}';document.head.append(s);});"
+    % ",".join('"%s"' % f for f in WIDE_HANGUL)
+)
+# The first of the given families the browser has, or null: a family it lacks measures as the monospace it falls back to.
+FIRST_FONT = """(fams) => {const c = document.createElement('canvas').getContext('2d'), s = '본문 핀 검토 선택';
+  c.font = '16px monospace'; const m = c.measureText(s).width;
+  return fams.find(f => {c.font = '16px "' + f + '", monospace'; return c.measureText(s).width !== m;}) || null;}"""
+# Every drawn text in the elements the selectors match that a box clips: each element with text of its own whose box, or an
+# ancestor's up to the matched element, has overflow other than visible. The walk stops at a scroll box, which clips what is
+# scrolled away rather than what is drawn, and a line-clamped text is left out (forcing it visible draws its hidden lines).
+# Per text: its words, its box and where its clips meet (left, top, right, bottom). Text i's element is marked
+# data-clip-text=i and each clipping box data-clips with the indices of the texts it clips (FORCE_VISIBLE).
+CLIPPED_TEXT = """(sels) => {const R = e => e.getBoundingClientRect(), px = v => parseFloat(v) || 0, out = [];
+  const drawn = e => e.getClientRects().length > 0 && getComputedStyle(e).visibility !== 'hidden';
+  document.querySelectorAll('[data-clips],[data-clip-text]').forEach(e => {e.removeAttribute('data-clips'); e.removeAttribute('data-clip-text');});
+  for (const root of sels.flatMap(s => [...document.querySelectorAll(s)]).filter(drawn)) {
+    for (const e of [root, ...root.querySelectorAll('*')]) {
+      if (!drawn(e) || getComputedStyle(e).webkitLineClamp !== 'none'
+        || ![...e.childNodes].some(n => n.nodeType === 3 && n.nodeValue.trim())) continue;
+      const clips = []; let l = -1e9, t = -1e9, r = 1e9, b = 1e9;
+      for (let a = e; a; a = a === root ? null : a.parentElement) {const c = getComputedStyle(a);
+        if (c.overflowX === 'visible' && c.overflowY === 'visible') continue;
+        if (/auto|scroll/.test(c.overflowX + c.overflowY)) break;
+        const A = R(a), m = c.overflowY === 'clip' ? px(c.overflowClipMargin) : 0; clips.push(a);
+        l = Math.max(l, A.left + px(c.borderLeftWidth)); r = Math.min(r, A.right - px(c.borderRightWidth));
+        if (c.overflowY !== 'visible') {t = Math.max(t, A.top + px(c.borderTopWidth) - m); b = Math.min(b, A.bottom - px(c.borderBottomWidth) + m);}}
+      if (!clips.length) continue;
+      const i = out.length, E = R(e);
+      e.setAttribute('data-clip-text', String(i));
+      clips.forEach(a => a.setAttribute('data-clips', (a.getAttribute('data-clips') || '') + ' ' + i + ' '));
+      out.push({text: e.textContent.trim(), box: [E.left, E.top, E.right, E.bottom], clip: [l, t, r, b]});}}
+  return out;}"""
+# Forces overflow:visible on every box that clips text i (CLIPPED_TEXT's marks), or takes it off again; returns text i's
+# box after, so a caller sees whether the forcing moved it.
+FORCE_VISIBLE = """([i, on]) => {for (const a of document.querySelectorAll('[data-clips~="' + i + '"]'))
+    if (on) a.style.setProperty('overflow', 'visible', 'important'); else a.style.removeProperty('overflow');
+  const E = document.querySelector('[data-clip-text="' + i + '"]').getBoundingClientRect(); return [E.left, E.top, E.right, E.bottom];}"""
+# How two screenshots of one clip (PNG, base64) differ: the number of pixels whose colour differs in the device rows outside
+# [skip[0], skip[1]) - the rows of the box that clips, where ink the clip cut can never be. Inside them the shots differ for
+# other reasons: an ellipsis gives way to the whole words, and Chromium antialiases a clipped text slightly differently.
+PIXEL_DIFF = """async ([a, b, skip]) => {const load = async s => {const i = new Image(); i.src = 'data:image/png;base64,' + s;
+    await i.decode(); const c = document.createElement('canvas'); c.width = i.width; c.height = i.height;
+    const x = c.getContext('2d'); x.drawImage(i, 0, 0); return x.getImageData(0, 0, c.width, c.height);};
+  const A = await load(a), B = await load(b); let n = 0;
+  for (let y = 0; y < A.height; y++) {if (y >= skip[0] && y < skip[1]) continue;
+    for (let x = 0; x < A.width; x++) {const k = (y * A.width + x) * 4;
+      if (A.data[k] !== B.data[k] || A.data[k + 1] !== B.data[k + 1] || A.data[k + 2] !== B.data[k + 2]) n++;}}
+  return n;}"""
+
+
+class HangulInkInClippingBoxes(ViewerBase):
+    """A text in a box that clips keeps all its ink (docs/handbook/viewer.md §패널 정리): on the owner's phone (Android Chrome
+    in English, 0.4.15) the sheet bar's document name in [본문 1/25 ⌄] lost the foot of its ㄴ and ㅜ. The name was trimmed
+    to its cap height over the baseline (text-box) and clipped for its ellipsis, and Hangul from a system Korean font reaches
+    past both; Pretendard's barely does, so the desktop never showed it. Every clipped text of the compact bars, the status
+    line, the select mode's bar, the sheets' heads, banners, undo rows and chips is drawn in a wide-extent Hangul font
+    (WIDE_HANGUL) and compared with itself drawn with overflow:visible forced on each box that clips it: a pixel that
+    differs over or under the clip is ink the clip had cut."""
+
+    def setUp(self):
+        """ViewerBase's pins (three open, one awaiting review) in the first of two documents, 본문 and 답변서, so the phone's
+        position button names its document, on an instance labelled in Hangul (논문: [더보기]'s head, the desktop's chip)."""
+        super().setUp()
+        serve_viewer("논문", "#2563eb", ps)
+        src = ps.APP.C.src
+        (src / "reply.tex").write_text(self.main.read_text(encoding="utf-8"), encoding="utf-8")
+        ps.APP.set_docs(serve_documents.make_docs(["main=본문:main.tex", "rr=답변서:reply.tex"], src, ps.APP.C.paths))
+        self.addCleanup(ps.APP.set_docs, None)
+        for D in ps.APP.docs:
+            pages = D.dir / "pages-20260925100000"
+            pages.mkdir(parents=True, exist_ok=True)
+            for i in (1, 2):
+                (pages / ("page-%d.png" % i)).write_bytes(blank_png(1275, 1650))
+            (D.dir / "pages.cur").write_text(pages.name)
+            (D.dir / "built_at.txt").write_text("2026-09-25 10:00:00")
+            (D.dir / "head.txt").write_text("abc1234")
+
+    def route(self, route):
+        """The fixture's routes, with GET /api/meta (full and light) saying stale_build, so the status line has a message."""
+        if urlparse(route.request.url).path == "/api/meta":
+            return self.forward(MetaPatched(route, {"stale_build": True, "src_age_s": 120}))
+        return super().route(route)
+
+    def cut_ink(self, device, sels, lang="ko", opener=None):
+        """{text: pixels its clips cut} for every clipped text (CLIPPED_TEXT) in the elements sels match, on device in lang
+        after opener (JS) when given. Each text's columns inside its clip, from 8px over its box and clip to 8px under them,
+        are shot as drawn and with its clips forced visible (FORCE_VISIBLE), and the rows over and under the clip compared
+        (PIXEL_DIFF; one device row more on each side of the clip is left out, for the shot's rounding). Fails when
+        forcing the clips moves the text, which would make the shots differ for another reason. Skips without a
+        WIDE_HANGUL font - fails under LIMN_TEST_REQUIRE_BROWSER=1 - since under another font the clip may not show."""
+        page = self.view(device, lang=lang, init=NO_PNG_CHIP + WIDE_HANGUL_INIT)
+        if page.evaluate(FIRST_FONT, list(WIDE_HANGUL)) is None:
+            fonts = ", ".join(WIDE_HANGUL)
+            reason = "no wide-extent Hangul font (%s): install fonts-wqy-zenhei or fonts-noto-cjk" % fonts
+            if os.environ.get("LIMN_TEST_REQUIRE_BROWSER") == "1":
+                self.fail(reason)
+            self.skipTest(reason)
+        status_up = "document.body.classList.contains('lay-wide')||!document.querySelector('#status').hidden"
+        page.wait_for_function(status_up)  # the stale PDF's message is on a compact band's status line
+        if opener:
+            page.evaluate("async()=>{%s}" % opener)
+        settle(page)
+        dpr, vh = device.get("device_scale_factor", 1), device["viewport"]["height"]
+        cut = {}
+        for i, t in enumerate(page.evaluate(CLIPPED_TEXT, sels)):
+            x0, x1 = max(t["box"][0], t["clip"][0]), min(t["box"][2], t["clip"][2])
+            y0 = max(0, min(t["box"][1], t["clip"][1]) - 8)
+            y1 = min(vh, max(t["box"][3], t["clip"][3]) + 8)
+            if x1 - x0 < 1 or y1 - y0 < 1:
+                continue  # outside its clip or off the screen: nothing of it is drawn
+            clip = {"x": x0, "y": y0, "width": x1 - x0, "height": y1 - y0}
+            drawn = page.screenshot(clip=clip)
+            freed_box = page.evaluate(FORCE_VISIBLE, [i, True])
+            freed = page.screenshot(clip=clip)
+            page.evaluate(FORCE_VISIBLE, [i, False])
+            self.assertEqual(freed_box, t["box"], "forcing %r's clips visible moved it" % t["text"])
+            skip = [math.floor((t["clip"][1] - y0) * dpr) - 1, math.ceil((t["clip"][3] - y0) * dpr) + 1]
+            pair = [base64.b64encode(drawn).decode(), base64.b64encode(freed).decode(), skip]
+            cut[t["text"]] = max(cut.get(t["text"], 0), page.evaluate(PIXEL_DIFF, pair))
+        return cut
+
+    def assert_whole(self, cut, words):
+        """Every text in cut keeps its ink (no pixel cut), and the texts include words - so the check saw the labels it is
+        about, each inside a box that clips it."""
+        self.assertLessEqual(set(words), set(cut), cut)
+        self.assertEqual({k: v for k, v in cut.items() if v}, {}, cut)
+
+    def test_the_compact_bars_and_the_status_line_keep_their_hangul_ink(self):
+        """The phone's sheet bar at 411x908 (DPR 2.625) in Korean and in English - the owner's case: an English screen and a
+        Korean document name, '본문' in [본문 1/2 ⌄] - the tablet sheet at 820x1180, the landscape phone's row at 908x411 and
+        the desktop at 1440x900, with a stale PDF on the status line: no text of the bars, the nav bar or the status line
+        loses ink to a box that clips it ('본문' lost 150-200 device pixels of its top and foot)."""
+        stale = "원고가 PDF보다 새롭습니다"
+        note = "lineNote('핀 #2 에 답글이 달렸습니다',NOTICE_KIND.INFO,null,{life:NOTICE_LIFE.STICKY})"
+        for device, lang, sels, words, opener in (
+            (phone(411, 908), "ko", ["#bar1", "#status-dock"], {"본문", "핀", "검토", stale}, None),
+            (phone(411, 908), "en", ["#bar1", "#status-dock"], {"본문"}, None),
+            (phone(820, 1180, 2), "ko", ["#bar1", "#doc-nav", "#status-dock"], {"핀", "검토", "선택", stale}, None),
+            (phone(908, 411), "ko", ["#bar1", "#doc-nav"], {"원고 수정됨"}, None),
+            (MOUSE_WIDE, "ko", ["#bar1", "#doc-nav", "#status-wide"], {"논문", "핀 #2 에 답글이 달렸습니다"}, note),
+        ):
+            with self.subTest(w=device["viewport"]["width"], lang=lang):
+                self.assert_whole(self.cut_ink(device, sels, lang, opener), words)
+
+    def test_the_select_bar_and_the_sheet_heads_keep_their_ink(self):
+        """411x908: the select mode's bar and the heads of [더보기] (the instance's name, which ellipsizes), the navigation
+        sheet, help and the Trash keep their words' ink ([더보기]'s name lost its top or foot)."""
+        for opener, sels, words in (
+            ("setSelMode(true)", ["#sel-bar"], set()),
+            ("openMore()", ["#more .more-head"], {"논문"}),
+            ("openNavSheet()", ["#nav-sheet .ns-head"], set()),
+            ("openHelp()", ["#help .ns-head"], set()),
+            ("openTrash()", ["#trash .ns-head"], set()),
+        ):
+            with self.subTest(open=opener):
+                self.assert_whole(self.cut_ink(phone(411, 908), sels, opener=opener), words)
+
+    def test_banners_undo_rows_and_chips_keep_their_ink(self):
+        """411x908 with the sheet open: a list banner with its action, an undo row in a card's place, an undo note in a card
+        and the save chip on a mark ('저장됨 [되돌리기]') keep every word's ink."""
+        opener = (
+            "setSide(true);"
+            "bannerNote(NOTICE_HOST.LIST,'완료 실패 — 핀 #9 이 없습니다',NOTICE_KIND.ERR,{label:'다시 시도',fn:()=>{}},"
+            "{life:NOTICE_LIFE.STICKY});"
+            "undoNote(NOTICE_PLACE.ROW,'핀 #9 완료',{label:'되돌리기',fn:()=>{}},{pin:9,sec:'open',life:NOTICE_LIFE.STICKY});"
+            "undoNote(NOTICE_PLACE.CARD,'답글 보냄',{label:'되돌리기',fn:()=>{}},{pin:OPEN_ALL[0].id,life:NOTICE_LIFE.STICKY});"
+            "undoNote(NOTICE_PLACE.CHIP,'핀 #1 저장됨',{label:'되돌리기',fn:()=>{}},"
+            "{pin:OPEN_ALL[0].id,label:tr('저장됨'),life:NOTICE_LIFE.STICKY});"
+        )
+        cut = self.cut_ink(phone(411, 908), ["#list .nt", "#list .pin", ".mark .nt-chip"], opener=opener)
+        self.assert_whole(cut, set())
 
 
 # ---------------------------------------------------------------- the select control and its mode bar (issue #168)
