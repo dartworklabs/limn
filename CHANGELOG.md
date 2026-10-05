@@ -1,5 +1,31 @@
 # Changelog
 
+## 0.4.15 — 2026-10-05
+
+No toasts: every message is said where it happened. `pins.md`, the HTTP API and the state directory are unchanged.
+
+### Changed
+
+- **No toasts: every message is said where it happened (#167).**
+  - **Undo.** A save's or an append's undo is a chip `저장됨 [되돌리기]` (Saved [Undo]) on the new pin's mark for 6 s,
+    and it is there even with the phone's sheet folded. Deleting, completing and confirming leave a row with [되돌리기]
+    in the card's place. A reply keeps its undo inside the card, and a permanent delete leaves its undo in the Trash
+    row's place.
+  - **Errors and conflicts** are a banner on top of the panel or section concerned, with its action. A failed save shows
+    right above the save row, and the button reads [다시 저장] (Save again).
+  - **Background events and first-visit hints** go to the status line, which on the desktop is a line under the status
+    chips. A red dot stays on [핀 N] or [검토 M] until they are seen. Copying shows "✓ 복사됨" for a moment.
+- **Where each kind of notice goes** (the new rules, in `viewer.md` §알림 자리):
+  - An error shows where it can be seen now. Otherwise it goes on the status line, read out, with a dot. Errors come
+    before other notices, and a build failure or a lost connection comes first.
+  - An undo lives its full 6 s unless it is used or dismissed. Several undos can be open at once, and the notice limit
+    never removes one.
+  - A repeated error replaces the earlier one, and the next success of the same request clears it.
+  - Moving the mouse over an undo pauses its timer. A message drawn under a pointer that is not moving does not count.
+  - Sends that wait behind an undo still wait 6 s, and are sent at once when the page is left.
+- **Nothing covers the select-mode bar any more.** In 0.4.14 the first-visit hint covered it on the phone. The hint is
+  now on the status line.
+
 ## 0.4.14 — 2026-10-05
 
 The touch select control says what it is and when it is on. `pins.md`, the HTTP API and the state directory are
