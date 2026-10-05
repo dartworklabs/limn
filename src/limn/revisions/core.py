@@ -404,8 +404,8 @@ def _stop_git_group(proc: subprocess.Popen[bytes]) -> None:
 def revision_diff(
     D: RevisionDoc, commit: str, pin: int | None, ctx: RevisionContext, files: Sequence[Path] | None = None
 ) -> Json | DiffRefusal:
-    """GET /api/revision-diff: the selected commit's unified diff (commit is a full SHA-1, checked by the request
-    parser). With pin (v0.3), an additive `scope` says which of its hunks belong to that pin (scope_payload); the
+    """GET /api/revision-diff: the selected commit's unified diff against its first parent (a merge too, as in the
+    comparison PDF; a root commit against nothing) (commit is a full SHA-1, checked by the request parser). With pin (v0.3), an additive `scope` says which of its hunks belong to that pin (scope_payload); the
     whole-commit `diff` is returned unchanged either way. Only a commit in the document's recent list is read. files
     are a figure document's history files, which scope both the list and the diff (revision_scope); None for a LaTeX
     document."""
@@ -423,6 +423,8 @@ def revision_diff(
         str(repo),
         "show",
         "--format=",
+        "-m",  # a merge is shown against its parents one by one (not as a combined diff, which is usually empty) ...
+        "--first-parent",  # ... and only against the first, as the comparison PDF does; no effect on other commits
         "--no-ext-diff",
         "--no-textconv",
         "--no-renames",
