@@ -73,16 +73,38 @@ class Pick(unittest.TestCase):
         self.assertEqual(got.chosen.id, "F/cal/m07")
         self.assertAlmostEqual(got.score, 1.0)
 
-    def test_a_box_inside_the_parent_across_siblings_picks_the_parent(self):
-        """Each cell covers only half of a box straddling both; the strip holding the whole box covers it."""
-        self.assertEqual(pick_element(CAL_PAGE, (0.3, 0.25, 0.2, 0.1)).chosen.id, "F/cal")
+    def test_the_thresholds_are_the_values_measured_on_a_real_figure_set(self):
+        """D6 (ADR-0011): cover 0.4 and fill 0.5, measured with modelled drags on a figure tool's real map
+        (docs/handbook/domain.md §그림 문서의 요소 pick). A change needs a new measurement, not a feel."""
+        self.assertEqual((COVER_MIN, FILL_MIN), (0.4, 0.5))
+
+    def test_a_loose_box_around_a_leaf_picks_the_leaf_not_its_parent(self):
+        """A person drags around a cell with air on every side (a quarter of its size): the cell holds 0.44 of the
+        drag and the strip 0.56. Both pass COVER_MIN, so the deeper cell wins, not the strip that only frames it."""
+        got = pick_element(CAL_PAGE, (0.15, 0.15, 0.3, 0.3))
+        self.assertEqual(got.chosen.id, "F/cal/m07")
+        self.assertAlmostEqual(got.score, 0.04 / 0.09)
+
+    def test_a_box_straddling_two_cells_picks_a_cell_and_climbs_to_their_parent(self):
+        """Each cell holds half of a box straddling both, at least COVER_MIN: the deeper cells win over the strip,
+        equal depth and area go by map order, and the ladder's next rung is the strip holding both."""
+        got = pick_element(CAL_PAGE, (0.3, 0.25, 0.2, 0.1))
+        self.assertEqual([e.id for e in got.ladder], ["F/cal/m07", "F/cal", "F"])
+
+    def test_a_box_across_siblings_none_holding_enough_picks_the_parent(self):
+        """Across three cells of a strip, no cell holds COVER_MIN of the box; the strip holding the whole box does."""
+        strip = el("F/s", "F", (0.2, 0.2, 0.6, 0.2), src=(10, 30))
+        cells = [el(f"F/s/c{i}", "F/s", (0.2 + 0.2 * i, 0.2, 0.2, 0.2), src=(12 + i, 12 + i)) for i in range(3)]
+        got = pick_element(page(strip, *cells), (0.22, 0.25, 0.56, 0.1))
+        self.assertEqual(got.chosen.id, "F/s")
+        self.assertAlmostEqual(got.score, 1.0)
 
     def test_a_box_across_siblings_and_beyond_their_parent_picks_the_common_ancestor(self):
-        """The box reaches past the strip (its cover 0.5 < COVER_MIN) but fills both cells: their nearest common
+        """The box reaches far past the strip (its cover 1/3 < COVER_MIN) but fills both cells: their nearest common
         ancestor is chosen and scored by its own cover."""
-        got = pick_element(CAL_PAGE, (0.25, 0.1, 0.3, 0.4))
+        got = pick_element(CAL_PAGE, (0.25, 0.0, 0.3, 0.6))
         self.assertEqual(got.chosen.id, "F/cal")
-        self.assertAlmostEqual(got.score, 0.5)
+        self.assertAlmostEqual(got.score, 1 / 3)
 
     def test_a_drag_across_branches_of_a_parsed_map_ends_at_the_root_and_never_raises(self):
         """Through parse_map (the only way a served page is made): two elements in separate branches under the root are
