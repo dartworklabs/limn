@@ -148,6 +148,49 @@ class ManuscriptRevisions(Base):
         code, _, _ = split_resp(self.talk(req("GET", "/api/revision-diff?commit=HEAD")))
         self.assertEqual(code, 400)
 
+    def git(self, *args: str) -> str:
+        """Run git in the repository; returns its stdout (a failure raises)."""
+        return subprocess.run(["git", *args], cwd=self.repo, check=True, capture_output=True, text=True).stdout
+
+    def merge_of_two_tex_branches(self) -> str:
+        """A --no-ff merge of a branch that edits main.tex into a line that added ms/side.tex: the merge tree differs
+        from both parents, so the history lists it, yet `git show` gives it a combined diff that is empty."""
+        trunk = self.git("rev-parse", "--abbrev-ref", "HEAD").strip()
+        self.git("checkout", "--quiet", "-b", "feature")
+        self.main.write_text(TEX + "New manuscript sentence.\nMerged-in branch sentence.\n", encoding="utf-8")
+        self.git("commit", "--quiet", "-am", "branch edit")
+        self.git("checkout", "--quiet", trunk)
+        (self.src / "side.tex").write_text("Trunk side file.\n", encoding="utf-8")
+        self.git("add", "ms/side.tex")
+        self.git("commit", "--quiet", "-m", "trunk adds side.tex")
+        self.git("merge", "--quiet", "--no-ff", "-m", "merge feature", "feature")
+        return self.git("rev-parse", "HEAD").strip()
+
+    def test_a_merge_commit_diff_is_against_its_first_parent(self):
+        """The source diff of a merge is the first-parent diff, like the comparison PDF (it was empty: `git show`
+        gives a merge a combined diff)."""
+        merge = self.merge_of_two_tex_branches()
+        self.assertIn(merge, [r["id"] for r in revisions.revision_history(ps.APP.docs[0])["revisions"]])
+        code, _, raw = split_resp(self.talk(req("GET", "/api/revision-diff?commit=" + merge)))
+        self.assertEqual(code, 200)
+        out = json.loads(raw)
+        self.assertEqual(out["diff"], self.git("diff", "--no-renames", merge + "^1", merge, "--", "ms/"))
+        self.assertIn("+Merged-in branch sentence.", out["diff"])
+        self.assertIn("+++ b/ms/main.tex", out["diff"])
+        self.assertNotIn("Trunk side file.", out["diff"])  # the first parent already had it
+        self.assertEqual(out["diff"].count("diff --git"), 1)
+        self.assertFalse(out["truncated"])
+
+    def test_a_normal_commit_and_the_root_commit_keep_their_diffs(self):
+        """A one-parent commit is diffed against its parent, a root commit against nothing, as before."""
+        d = ps.APP.revision_requests.diff(ps.APP.docs[0], self.latest)
+        self.assertIn("+New manuscript sentence.", d["diff"])
+        self.assertEqual(d["diff"].count("diff --git"), 1)
+        root = ps.APP.revision_requests.diff(ps.APP.docs[0], self.first)
+        self.assertIn("--- /dev/null", root["diff"])
+        self.assertIn("+\\documentclass{article}", root["diff"])
+        self.assertNotIn("New manuscript sentence.", root["diff"])
+
     def test_rejects_arbitrary_commit_and_bad_id(self):
         """Only a full SHA-1 parses (400 bad_commit otherwise), and only a commit in the document's recent list is read:
         even a name that got past the parser is never handed to git."""
