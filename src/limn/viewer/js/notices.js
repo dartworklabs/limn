@@ -115,7 +115,7 @@ function isUndo(n){return n.undo||!!n.gone;}
 /** @param {Notice} n @param {string} text @param {string} kind @returns {boolean} */
 function sameWords(n,text,kind){const [t,d]=msgSplit(text); return n.kind===kind&&n.title===t&&n.desc===d;}
 // The message an error source has standing (one at most - a repeat replaces it), or null. A source is a request (its method
-// and URL, which names its pin and document - api()) or a named one (a document's rebuild, rebuildSource).
+// and URL, which names its pin and document, with what it asks of that URL - api()'s intent) or a named one.
 /** @param {string} source @returns {Notice|null} */
 function sourceEntry(source){for(const n of NOTICES.values())if(n.source===source)return n; return null;}
 // Source succeeded - its request was answered, or a build of its document came: its error is no longer true and goes.
@@ -193,15 +193,25 @@ let LINE_HOVER=false;
 function lineHeld(){return LINE_HOVER||$('#status-list').open;}
 function holdLine(){LINE.forEach(n=>{if(n.life===NOTICE_LIFE.TIMER&&!n.held)armNotice(n);});}
 function releaseLine(){LINE.forEach(n=>{if(n.held)armNotice(n);});}
-// A mouse comes onto the line (a touch never holds: its pointer leaves as it lifts).
-/** @param {{pointerType?:string}} e */
-function lineHoverIn(e){if(!e||e.pointerType!=='mouse')return; LINE_HOVER=true; holdLine();}
+// A mouse moves over the line: the hover starts with a real movement (realMove), never with the line drawn under a resting
+// pointer - that would hold every undo appearing there. A touch never holds: its pointer leaves as it lifts.
+/** @param {{pointerType?:string,movementX?:number,movementY?:number,clientX?:number,clientY?:number}} e */
+function lineHoverIn(e){if(LINE_HOVER||!e||!realMove(e))return; LINE_HOVER=true; holdLine();}
+// The pointer's position at the last move the page saw (document pointermove, after the element's own listener has run).
+let PT_LAST=/** @type {{x:number,y:number}|null} */(null);
+// Whether pointer move e is a mouse really moving: a non-zero delta, by its own movement or against the last position seen.
+// A move the browser makes up under a resting pointer when the page changes under it has neither, so a message drawn under
+// a still pointer is not hovered until the mouse moves over it.
+/** @param {{pointerType?:string,movementX?:number,movementY?:number,clientX?:number,clientY?:number}} e @returns {boolean} */
+function realMove(e){if(e.pointerType!=='mouse')return false; if(e.movementX||e.movementY)return true;
+  const p=PT_LAST; return !!p&&(p.x!==e.clientX||p.y!==e.clientY);}
+document.addEventListener('pointermove',e=>{PT_LAST={x:e.clientX,y:e.clientY};},{passive:true});
 // The pointer is off the line, for whatever reason: the hover ends and the windows run again.
 function lineHoverOut(){if(!LINE_HOVER)return; LINE_HOVER=false; releaseLine();}
 // The line shows (drawStatus) or hides: hidden - nothing to show, or moved to another band - it holds nothing.
 /** @param {boolean} shown */
 function lineVisible(shown){if(!shown)lineHoverOut();}
-$('#status').addEventListener('pointerenter',lineHoverIn);
+$('#status').addEventListener('pointermove',lineHoverIn,{passive:true});
 for(const t of ['pointerleave','pointercancel'])$('#status').addEventListener(t,lineHoverOut);
 document.addEventListener('pointerout',e=>{if(!e.relatedTarget)lineHoverOut();});   // out of the window
 window.addEventListener('blur',lineHoverOut);
@@ -261,14 +271,15 @@ document.addEventListener('click',e=>{const t=/** @type {HTMLElement} */(e.targe
 
 // One message's element, made once and kept on n.el (a redraw moves it, so a focus inside survives and an alert is not read
 // out again): status icon, title and description (already in the UI language, so translate="no"), its action, and [x] -
-// none on a chip, which goes by itself. ERR and WARN banners are alerts. A TIMER message holds while a mouse is on it (armNotice).
+// none on a chip, which goes by itself. ERR and WARN banners are alerts. A TIMER message holds while a mouse is on it - from
+// a real movement over it (realMove), not from being drawn under a resting pointer - until the pointer leaves (armNotice).
 /** @param {Notice} n @param {string} cls @returns {HTMLElement} */
 function noticeEl(n,cls){if(n.el)return n.el; const e=document.createElement('div'); e.className='nt '+cls+' nk-'+n.kind; e.dataset.n=String(n.n);
   if(n.place===NOTICE_PLACE.BANNER&&(n.kind===NOTICE_KIND.ERR||n.kind===NOTICE_KIND.WARN))e.setAttribute('role','alert');
   const chip=n.place===NOTICE_PLACE.CHIP,title=chip&&n.label?n.label:n.title,desc=chip?'':n.desc;
   setHtml(e,html`<span class="nt-ic">${noticeIcon(n.kind)}</span><span class="nt-t" translate="no"><span class="nt-ti">${title}</span>${desc?html`<span class="nt-d">${desc}</span>`:''}</span><span class="nt-acts">${noticeButtons(n,!chip)}</span>`);
   if(chip)for(const t of ['pointerdown','mousedown'])e.addEventListener(t,ev=>ev.stopPropagation());   // a press on the chip never starts a selection on the page under it
-  if(n.life===NOTICE_LIFE.TIMER){e.addEventListener('pointerenter',ev=>{if(ev.pointerType==='mouse'&&NOTICES.has(n.n)){n.hover=true; armNotice(n);}});
+  if(n.life===NOTICE_LIFE.TIMER){e.addEventListener('pointermove',ev=>{if(!n.hover&&realMove(ev)&&NOTICES.has(n.n)){n.hover=true; armNotice(n);}},{passive:true});
     for(const t of ['pointerleave','pointercancel'])e.addEventListener(t,()=>{if(n.hover&&NOTICES.has(n.n)){n.hover=false; armNotice(n);}});}
   n.el=e; return e;}
 // A message's buttons: its action (with its description, if any; aria-busy while its request is out) and, with close, [x]

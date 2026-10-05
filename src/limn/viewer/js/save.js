@@ -3,7 +3,7 @@
 async function appendToPin(id,text){
   const visit=captureVisit(),selection=COMPOSE.current,box=COMPOSE.box,prior=PINS.find(p=>p.id===id),priorNote=prior?(prior.note||''):'';
   const draft=savedDraftSnapshot();
-  try{const {data}=await api('/api/pins/'+id+'/edit',{method:'POST',body:{note_append:text},what:'메모 덧붙이기',where:NOTICE_HOST.COMPOSER});
+  try{const {data}=await api('/api/pins/'+id+'/edit',{method:'POST',body:{note_append:text},what:'메모 덧붙이기',where:NOTICE_HOST.COMPOSER,intent:'append'});
     if(composeOwns(selection,box,visit)){COMPOSE.box=null; cancelSelection(true); if(box)box.remove(); syncDraft();}
     else if(restoredDraftOwns(draft)){cancelSelection(true); syncDraft();}
     else clearSavedDraft(draft);
@@ -15,7 +15,7 @@ async function appendToPin(id,text){
 // Resolves with whether it went back (its chip waits for it, noticeAct).
 /** @param {number} id @param {string} note @param {number} rev @returns {Promise<boolean>} */
 async function undoAppend(id,note,rev){let ok=false;
-  try{await api('/api/pins/'+id+'/edit',{method:'POST',body:{note:note,base_rev:rev},what:'되돌리기',where:NOTICE_HOST.LIST});
+  try{await api('/api/pins/'+id+'/edit',{method:'POST',body:{note:note,base_rev:rev},what:'되돌리기',where:NOTICE_HOST.LIST,intent:'append-undo'});
     ok=true; quietNote(tl('#{id} 메모를 되돌렸습니다',{id}));}catch(e){} await loadPins(); return ok;}
 // The save-pin button's label (boot, clearing the pending state, syncSaveBtn): [다시 저장] while the composer's banner says a
 // save failed, else [핀 저장]; with the shortcut where there is a keyboard.

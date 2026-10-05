@@ -38,7 +38,7 @@ async function applyRepick(){const R=REPICK; if(!R||!R.cand)return; const c=R.ca
   if(isRegion(c))loc={page:c.page,frac:c.frac,quote:c.quote,pdf_build:c.pdf_build||undefined};   // view-only: only the region is re-placed
   figureFields(loc,repickEl(c),isRegion(c)||!lv.el?null:lv);   // a new loc names its element or none: a loc without el drops the pin's el
   const base=EDITOR.current&&EDITOR.current.id===R.id?EDITOR.current.base_rev:0;
-  try{const {status,data}=await api('/api/pins/'+R.id+'/edit',{method:'POST',body:{loc,base_rev:base},what:'위치 바꾸기',where:NOTICE_HOST.LIST,expect:[409]});
+  try{const {status,data}=await api('/api/pins/'+R.id+'/edit',{method:'POST',body:{loc,base_rev:base},what:'위치 바꾸기',where:NOTICE_HOST.LIST,expect:[409],intent:'loc'});
     if(status===409){bannerNote(NOTICE_HOST.LIST,data&&data.error===PIN_STATE.DONE?'닫힌 핀은 위치를 바꿀 수 없습니다':'다른 쪽이 이 핀을 먼저 바꿨습니다 — 최신 값을 불러왔습니다',NOTICE_KIND.WARN);
       if(EDITOR.current===E&&E&&data.pin)E.base_rev=data.pin.rev;
       if(currentVisit(visit)&&REPICK===R)cancelRepick();

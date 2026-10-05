@@ -3,9 +3,10 @@
 // o.silent it is said first (apiFailed): o.what names the request ('핀 저장'), o.where the place (a NOTICE_HOST), o.retry the
 // action a network failure offers, o.save that it was a pin's save. o.expect lists the statuses the caller handles itself;
 // o.keepalive lets the request outlive the page. Its error is keyed by its source - o.source, else its method and URL (which
-// name its pin and document): a repeat replaces it, and an answer from the same source clears it (sourceOk).
+// name its pin and document) with o.intent, what it asks of a URL several actions share (a pin's edit: 'edit', 'loc',
+// 'append', 'append-undo'): a repeat replaces it, and an answer from the same source - the same intent - clears it (sourceOk).
 /** @returns {Promise<{status: number, data: any}>} */
-async function api(url,o){o={...(o||{})}; o.source=o.source||(o.method||'GET')+' '+url;
+async function api(url,o){o={...(o||{})}; o.source=o.source||(o.method||'GET')+' '+url+(o.intent?' '+o.intent:'');
   const init={method:o.method||'GET',headers:{}}; if(o.keepalive)init.keepalive=true;
   if(o.body!==undefined){init.body=JSON.stringify(o.body);init.headers['Content-Type']='application/json';}
   let r;

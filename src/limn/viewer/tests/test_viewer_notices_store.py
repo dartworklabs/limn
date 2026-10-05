@@ -31,7 +31,7 @@ STORE_FNS = [
     "msgSplit", "noticeDupe", "noticeDot", "makeNotice", "lineNote", "endNotice", "noticeText", "armNotice",
     "noticeHeld", "lineHeld", "holdLine", "releaseLine", "lineHoverIn", "lineHoverOut", "lineVisible", "noticeAct",
     "noticeClose", "deferred", "deferredNote", "undoNote", "offerSeen", "sourceEntry", "sourceOk", "flushDeferred",
-    "isUndo", "lineCap", "sameWords",
+    "isUndo", "lineCap", "sameWords", "realMove",
 ]  # fmt: skip
 STORE_CONSTS = r"^const (?:NOTICE_MS|NOTICE_HOLD_MAX|LINE_MAX)=\d+;"
 
@@ -50,18 +50,22 @@ const document={body:{classList:{add:c=>BODY.add(c),remove:c=>BODY.delete(c),con
 const window={addEventListener(){}};
 let SIDE_OPEN=false,STATUS_TOP=0; const SEC={},T={undo:'되돌리기'};
 function announce(){} function drawOffer(){} function drawBanners(){} function syncSaveBtn(){}
-const NOTICES=new Map(),LINE=[],BANNERS=new Map(),DEFERRED=new Set(); let NOTICE_SEQ=0,LINE_HOVER=false;
+const NOTICES=new Map(),LINE=[],BANNERS=new Map(),DEFERRED=new Set(); let NOTICE_SEQ=0,LINE_HOVER=false,PT_LAST=null;
 function drawStatus(){lineVisible(LINE.length>0);}
 """
 
 # Random sequences of: add an undo (a deferred send on the line, as with the panel closed), add an error or a piece of
-# information, a source's success, press an undo, dismiss any message, a mouse onto and off the line, the line hiding,
-# pagehide, and time passing. The invariants are checked after every step, and at the end once every window has run out.
+# information, a source's success, press an undo, dismiss any message, a mouse moving over the line, the line drawn under a
+# resting pointer, the pointer off the line, the line hiding, pagehide, and time passing. Hover steps go through the
+# pointer-movement rule (lineHoverIn, realMove). The invariants are checked after every step, and at the end once every
+# window has run out.
 MODEL_RUN = r"""
 function rng(seed){return ()=>{seed=seed+0x6D2B79F5|0; let t=Math.imul(seed^seed>>>15,1|seed); t=t+Math.imul(t^t>>>7,61|t)^t; return ((t^t>>>14)>>>0)/4294967296;};}
-const bad=[],OPS=['undo','undo','error','error','info','ok','press','dismiss','in','out','hide','pagehide','tick','tick','tick'];
+const bad=[],OPS=['undo','undo','error','error','info','ok','press','dismiss','move','still','out','hide','pagehide','tick','tick','tick'];
+// A mouse move over the line as the page sees it: its listener runs, then the page notes the position (PT_LAST).
+const over=(x,y,dx)=>{lineHoverIn({pointerType:'mouse',movementX:dx,movementY:0,clientX:x,clientY:y}); PT_LAST={x,y};};
 for(let s=1;s<=SEEDS;s++){
-  NOTICES.clear(); LINE.length=0; BANNERS.clear(); DEFERRED.clear(); Q.length=0; BODY.clear(); NOW=0; LINE_HOVER=false;
+  NOTICES.clear(); LINE.length=0; BANNERS.clear(); DEFERRED.clear(); Q.length=0; BODY.clear(); NOW=0; LINE_HOVER=false; PT_LAST=null;
   const R=rng(s),pick=a=>a[Math.floor(R()*a.length)],undos=[]; let free=false;
   const note=(k,what)=>{if(bad.length<20)bad.push([s,k,what]);};
   for(let k=0;k<STEPS;k++){const op=pick(OPS);
@@ -74,7 +78,9 @@ for(let s=1;s<=SEEDS;s++){
       if([...NOTICES.values()].some(n=>n.source===src))note(k,'an error survived a later success of '+src);}
     else if(op==='press'){const u=[...NOTICES.values()].filter(n=>n.gone&&n.act); if(u.length)noticeAct(pick(u).n);}
     else if(op==='dismiss'){const all=[...NOTICES.values()]; if(all.length){free=true; noticeClose(pick(all).n); free=false;}}
-    else if(op==='in')lineHoverIn({pointerType:'mouse'});
+    else if(op==='move')over(100+Math.floor(R()*80),20,3);   // a real movement over the line: it holds
+    else if(op==='still'){const p=PT_LAST||{x:100,y:20},was=LINE_HOVER; over(p.x,p.y,0);   // the line drawn under a resting pointer
+      if(!was&&LINE_HOVER)note(k,'a resting pointer started a hold');}
     else if(op==='out')lineHoverOut();
     else if(op==='hide'){lineVisible(false); if(LINE_HOVER||LINE.some(n=>n.held))note(k,'a pause survived the line hiding');}
     else if(op==='pagehide'){free=true; flushDeferred(); free=false;}
@@ -98,8 +104,8 @@ class NoticeStoreModel(unittest.TestCase):
     def test_random_sequences_keep_the_stores_promises(self):
         """300 seeded sequences of 60 steps: every undo sends exactly once or is cancelled exactly once (never both,
         never neither by the end), and none is sent before its window ended unless dismissed or flushed by pagehide;
-        no pause survives the line hiding; at most one entry per error source; no error survives a later success of
-        its source."""
+        no pause survives the line hiding; a resting pointer never starts one; at most one entry per error source; no
+        error survives a later success of its source."""
         consts = "\n".join(re.findall(STORE_CONSTS, HTML, re.M))
         script = "\n".join(
             [js_i18n("ko"), MODEL_PRELUDE, consts]
@@ -231,6 +237,97 @@ class StoreFlows(NoticePage, BrowserBase):
         self.assertEqual(page.evaluate("CONFIRMS.length"), 0)
         page.wait_for_function("CONFIRMS.length===1", timeout=9000)
         self.assertGreater(time.monotonic() - t0, 5.0)
+
+    def review_pins(self, *los):
+        """Pins by Alice on page 1 at lines lo, each closed by the agent (awaiting review); their ids."""
+        ids = [self.pin(lo, "검토할 핀 %d" % lo) for lo in los]
+        for pid in ids:
+            self.agent_close(pid)
+        return ids
+
+    def test_6_an_undo_drawn_under_a_still_pointer_keeps_its_6_s(self):
+        """Desktop, a long list scrolled to its end: [확인] on the last card by a mouse click, the pointer left still -
+        the list closes up and the undo row lands under the pointer: the confirm goes when its 6 s end, not 30 s later.
+        A real movement onto the next undo row still holds it, and it goes once the pointer moves off."""
+        for lo in range(3, 33, 3):
+            self.pin(lo, "열린 핀 %d" % lo)
+        first, second = self.review_pins(34, 36)
+        page = self.view("desktop", init=SEEN + ";" + COUNT_CONFIRMS, n_open=10)
+        page.evaluate(
+            "setSide(true); SEC.review=true; OPEN_CARDS.add(%d); OPEN_CARDS.add(%d); drawPins()" % (first, second)
+        )
+        page.evaluate("(()=>{const l=document.getElementById('list'); l.scrollTop=l.scrollHeight;})()")
+        settle(page)
+        last = '#review-pins [data-id="%d"] [data-act=confirm]' % second
+        bb = page.locator(last).bounding_box()
+        page.click(last)
+        page.locator("#review-pins .nt-row").wait_for(state="visible")
+        settle(page)
+        under = page.evaluate(
+            "([x,y])=>!!document.elementFromPoint(x,y).closest('.nt-row')",
+            [bb["x"] + bb["width"] / 2, bb["y"] + bb["height"] / 2],
+        )
+        self.assertTrue(under)  # the row was drawn under the resting pointer
+        t0 = time.monotonic()
+        page.wait_for_function("CONFIRMS.length===1", timeout=9000)
+        self.assertLess(time.monotonic() - t0, 7.5)
+        settle(page)
+        page.click('#review-pins [data-id="%d"] [data-act=confirm]' % first)
+        row = page.locator("#review-pins .nt-row")
+        row.wait_for(state="visible")
+        box = row.bounding_box()
+        page.mouse.move(box["x"] + 20, box["y"] + box["height"] / 2, steps=4)  # a real movement onto the row
+        page.wait_for_timeout(7000)
+        self.assertEqual(page.evaluate("CONFIRMS.length"), 1)  # held while the mouse is on it
+        page.mouse.move(700, 300, steps=4)
+        page.wait_for_function("CONFIRMS.length===2", timeout=9000)
+
+    def test_7_an_undo_on_the_line_under_a_still_pointer_keeps_its_6_s(self):
+        """Desktop, the panel closed: the pointer rests where the status line appears; a [확인]'s undo then appears on
+        the line under it - the confirm goes when its 6 s end."""
+        (pid,) = self.review_pins(6)
+        page = self.view("desktop", init=SEEN + ";" + COUNT_CONFIRMS)
+        page.evaluate("setSide(false)")
+        page.evaluate("lineNote('자리 재기',NOTICE_KIND.INFO)")
+        settle(page)
+        box = page.locator("#status .st-tx").bounding_box()
+        page.evaluate("LINE.slice().forEach(n=>endNotice(n,false))")  # gone without the mouse: the line hides
+        settle(page)
+        page.mouse.move(box["x"] + 10, box["y"] + box["height"] / 2, steps=4)
+        page.evaluate("confirmPin(%d)" % pid)
+        settle(page)
+        self.assertTrue(page.evaluate("(()=>{const r=document.querySelector('#status .st-tx').getBoundingClientRect();"
+                                      "return r.width>0;})()"))  # fmt: skip
+        t0 = time.monotonic()
+        page.wait_for_function("CONFIRMS.length===1", timeout=9000)
+        self.assertLess(time.monotonic() - t0, 7.5)
+
+    def test_8_a_note_edit_does_not_clear_a_failed_append(self):
+        """Desktop: appending to a pin's note fails; a later edit of that pin's note (the same URL, another intent)
+        succeeds and the append's failure stays; a later append that goes through clears it."""
+        pid = self.pin(6, "덧붙일 핀")
+        page = self.view("desktop", n_open=1)
+
+        def edits(route):
+            """POST /api/pins/<pid>/edit: an append fails, anything else reaches the server."""
+            if "note_append" in (route.request.post_data or ""):
+                return route.abort()
+            return self.route(route)
+
+        page.route("**/api/pins/%d/edit" % pid, edits)
+        page.evaluate("appendToPin(%d,'덧붙인 줄')" % pid)
+        settle(page)
+        self.assertTrue(self.line_has(page, "메모 덧붙이기 실패"))
+        page.evaluate("openEdit(%d)" % pid)
+        page.fill('.pin[data-id="%d"] textarea.e-note' % pid, "고친 메모")
+        page.evaluate("saveEdit()")
+        settle(page)
+        self.assertEqual(page.evaluate("PINS.find(p=>p.id===%d).note" % pid), "고친 메모")
+        self.assertTrue(self.line_has(page, "메모 덧붙이기 실패"))
+        page.unroute("**/api/pins/%d/edit" % pid)
+        page.evaluate("appendToPin(%d,'덧붙인 줄')" % pid)
+        settle(page)
+        self.assertFalse(self.line_has(page, "메모 덧붙이기 실패"))
 
 
 if __name__ == "__main__":

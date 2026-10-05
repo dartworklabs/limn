@@ -77,7 +77,7 @@ async function saveEdit(){const E=EDITOR.current; if(!E||EDITOR.saving||viewerBl
     if(E.scope){body.scope=E.scope; body.kind=kindFor(E.scope,E.env);}}
   if(Object.keys(body).length===1){cancelEdit();return;}
   EDITOR.saving=true;
-  try{const {status,data}=await api('/api/pins/'+E.id+'/edit',{method:'POST',body,what:'핀 수정',where:NOTICE_HOST.LIST,expect:[409]});
+  try{const {status,data}=await api('/api/pins/'+E.id+'/edit',{method:'POST',body,what:'핀 수정',where:NOTICE_HOST.LIST,expect:[409],intent:'edit'});
     if(status===409){
       if(data&&data.error===PIN_STATE.DONE){bannerNote(NOTICE_HOST.LIST,tl('핀 #{id} 은 이미 닫혀 범위를 바꿀 수 없습니다 — 메모만 고칠 수 있습니다',{id:E.id}),NOTICE_KIND.WARN); if(editorOwns(E))EDITOR.current=null; await loadPins(); return;}
       const p=data.pin; bannerNote(NOTICE_HOST.LIST,'다른 쪽(에이전트나 자동 줄 맞춤)이 이 핀을 먼저 바꿨습니다 — 최신 위치를 불러왔습니다',NOTICE_KIND.WARN);
