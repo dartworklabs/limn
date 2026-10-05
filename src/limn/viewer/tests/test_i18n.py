@@ -248,12 +248,12 @@ class Wiring(unittest.TestCase):
         self.assertLess(i_default, i_nav)
         self.assertIn("indexOf('ko')===0?'ko':'en'", head)
 
-    def test_toasts_boot_and_switch_are_wired(self):
-        # a toast translates its message, unless the caller already did and it quotes user text (dd.literal, notifyShow)
-        self.assertIn(
-            "function toast(msg,kind,action,dd){const literal=!!(dd&&dd.literal); msg=literal?String(msg):trMsg(msg);",
-            HTML,
-        )
+    def test_messages_boot_and_switch_are_wired(self):
+        """A status-line message and a banner translate their text when made, unless the caller already did and it
+        quotes what people wrote (o.literal: notifyShow, another document's name); boot starts the translator first; the
+        language segment says which language it switches to."""
+        for fn in ("lineNote", "bannerNote"):
+            self.assertIn("msg:o.literal?String(msg):trMsg(msg)", extract_js_fn(fn), fn)
         self.assertIn("async function boot(){i18nStart();", HTML)
         self.assertIn('id="m-lang"', HTML)
         self.assertIn("case 'lang':switchLang(a.dataset.lang);break;", HTML)  # the segment says which language
@@ -290,14 +290,15 @@ class BrowserLanguage(ChromiumTestCase):
         return page
 
     def test_query_parameter_english(self):
+        """?lang=en wins over a Korean browser: the chrome, the language segment and a status-line message are English."""
         page = self.open("?lang=en", "ko-KR")
         self.assertEqual(page.evaluate("document.documentElement.lang"), "en")
         self.assertEqual(page.text_content("#btn-rebuild .lbl").strip(), UI_EN["PDF 재빌드"])
         self.assertEqual(page.get_attribute("#btn-more", "aria-label"), UI_EN["더보기"])
         # the language segment checks the current language (it showed the other one's name, UX audit P4.4)
         self.assertEqual(page.text_content("#m-lang [aria-checked=true]").strip(), "English")
-        page.evaluate("toast('저장을 되돌렸습니다','ok')")
-        self.assertIn("Reverted the save", page.text_content("body"))
+        page.evaluate("lineNote('저장을 되돌렸습니다',NOTICE_KIND.OK)")
+        self.assertIn("Reverted the save", page.text_content("#status"))
 
     def test_browser_language_decides_without_a_choice(self):
         page = self.open("", "en-US")
@@ -694,10 +695,10 @@ class EnglishChrome(ChromiumTestCase):
         self.addCleanup(lambda: setattr(self, "canned", {}))
         return self.open("en", viewport={"width": 1400, "height": 850}), pin
 
-    def test_a_description_and_a_notification_toast_quote_user_text_as_written(self):
-        """en: the mark's description '#N · 완료' (its note) and the notification toast 'Pin #N · 그림' (the document's name)
-        were translated a second time on screen - the description box and the toast's text re-ran the table, splitting at
-        ' · ', and read '#N · Done' and 'Pin #N · Figure'. A UI description still shows in English."""
+    def test_a_description_and_a_notification_message_quote_user_text_as_written(self):
+        """en: the mark's description '#N · 완료' (its note) and the notification's status-line message 'Pin #N · 그림' (the
+        document's name) were translated a second time on screen - the description box and the message's text re-ran the
+        table, splitting at ' · ', and read '#N · Done' and 'Pin #N · Figure'. A UI description still shows in English."""
         page, pin = self.open_with_ui_words()
 
         def tip(sel: str) -> str:
@@ -708,19 +709,21 @@ class EnglishChrome(ChromiumTestCase):
 
         self.assertEqual(tip('.mark[data-pin="%d"] b' % pin["id"]), "#%d · 완료" % pin["id"])
         self.assertFalse(HANGUL.search(tip("#btn-fit")))
-        page.evaluate("document.querySelector('#toasts').replaceChildren()")
+        page.evaluate("NOTICES.forEach(n=>endNotice(n,false))")
         page.bring_to_front()
         page.evaluate(
             "id=>notifyShow({type:'replied',pin:id,doc:'rr',doc_name:'그림',seq:99,"
             "by:{login:'bob@example.com',name:'Bob Lee'},excerpt:'완료'})",
             pin["id"],
         )
-        page.wait_for_selector("#toasts .toast")
-        title, desc = page.evaluate(
-            "[document.querySelector('#toasts .t-title').textContent,document.querySelector('#toasts .t-desc').textContent]"
+        page.wait_for_function("LINE.length===1")
+        settle(page)
+        title, desc, said = page.evaluate(
+            "[LINE[0].title,LINE[0].desc,document.querySelector('#status .st-sr').textContent]"
         )
         self.assertEqual(title, "Pin #%d · 그림" % pin["id"])
         self.assertTrue(desc.endswith(": 완료") and not HANGUL.search(desc[: -len("완료")]), desc)
+        self.assertEqual(said, title + " · " + desc)  # as drawn and read out: not translated again
 
     def test_user_text_reads_as_written_even_when_it_is_a_ui_word(self):
         """en: a document named '그림' (the table's word for 'Figure'), a note and a reply that read '완료' ('Done') and an
@@ -781,10 +784,10 @@ class EnglishChrome(ChromiumTestCase):
                 page.click("#btn-more")
                 self.assert_english(page, name + " more menu")
 
-    def error_toasts(self, lang):
-        """Drive the common refusals through the viewer's own functions and collect each error toast as
-        (reason, the server's Korean error text, the toast's title, the toast's description). The requests are
-        refused, so the shared fixture state never changes."""
+    def error_banners(self, lang):
+        """Drive the common refusals through the viewer's own functions and collect each error banner as
+        (reason, the server's Korean error text, the banner's title, its description). The requests are refused, so the
+        shared fixture state never changes."""
         page = self.open(lang, viewport={"width": 1400, "height": 850})
         pid = page.evaluate("PINS.find(p=>p.note==='Tighten this sentence').id")
         scope = scope_http_error(ScopeUnreadable())  # built by the worker; no git in this fixture
@@ -821,29 +824,29 @@ class EnglishChrome(ChromiumTestCase):
         out = []
         for reason, server_text, who, call in cases:
             self.who = who
-            page.evaluate("document.querySelector('#toasts').replaceChildren()")
+            page.evaluate("BANNERS.forEach(n=>endNotice(n,false))")
             page.evaluate("async()=>{await %s;}" % call)
-            page.wait_for_selector("#toasts .toast.err")
+            page.wait_for_selector(".nt-banner.nk-err", state="attached")
             title, desc = page.evaluate(
-                "(()=>{const t=document.querySelector('#toasts .toast.err');"
-                "return [t.querySelector('.t-title').textContent,(t.querySelector('.t-desc')||{}).textContent||''];})()"
+                "(()=>{const t=document.querySelector('.nt-banner.nk-err');"
+                "return [t.querySelector('.nt-ti').textContent,(t.querySelector('.nt-d')||{}).textContent||''];})()"
             )
             out.append((reason, server_text, title, desc))
         return page, out
 
-    def test_error_toasts_are_english(self):
-        """en: each refusal's toast shows the English message for its reason code, with no Hangul left in it."""
-        page, toasts = self.error_toasts("en")
-        for reason, _, title, desc in toasts:
+    def test_error_banners_are_english(self):
+        """en: each refusal's banner shows the English message for its reason code, with no Hangul left in it."""
+        page, banners = self.error_banners("en")
+        for reason, _, title, desc in banners:
             with self.subTest(reason=reason):
                 self.assertEqual(desc, UI_EN["reason:" + reason])
                 self.assertFalse(HANGUL.search(title + desc), (title, desc))
-        self.assert_english(page, "after the error toasts")
+        self.assert_english(page, "after the error banners")
 
-    def test_error_toasts_keep_the_server_text_in_korean(self):
-        """ko: each refusal's toast shows the server's Korean error text exactly, as before."""
-        _, toasts = self.error_toasts("ko")
-        for reason, server_text, _, desc in toasts:
+    def test_error_banners_keep_the_server_text_in_korean(self):
+        """ko: each refusal's banner shows the server's Korean error text exactly, as before."""
+        _, banners = self.error_banners("ko")
+        for reason, server_text, _, desc in banners:
             with self.subTest(reason=reason):
                 self.assertEqual(desc, server_text)
 

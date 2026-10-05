@@ -1,17 +1,26 @@
-// ------------------------------------------------ Server calls and notifications
+// ------------------------------------------------ Server calls
+// Calls the server (JSON in and out) and returns {status, data}; a network failure or an unexpected status >= 400 throws. Unless
+// o.silent it is said first (apiFailed): o.what names the request ('핀 저장'), o.where the place (a NOTICE_HOST), o.retry the
+// action a network failure offers, o.save that it was a pin's save. o.expect lists the statuses the caller handles itself;
+// o.keepalive lets the request outlive the page.
 /** @returns {Promise<{status: number, data: any}>} */
 async function api(url,o){o=o||{};
   const init={method:o.method||'GET',headers:{}}; if(o.keepalive)init.keepalive=true;
   if(o.body!==undefined){init.body=JSON.stringify(o.body);init.headers['Content-Type']='application/json';}
   let r;
-  const failed=()=>tl('{what} 실패',{what:tr(o.what||'요청').replace(/…$/,'')});
-  try{r=await fetch(url,init);}catch(e){if(!o.silent)toast(failed()+' — '+tr('서버에 닿지 않습니다'),'err');throw e;}
+  try{r=await fetch(url,init);}catch(e){if(!o.silent)apiFailed(o,tr('서버에 닿지 않습니다'),true);throw e;}
   let d=null; try{d=await r.json();}catch(e){}
   if(r.status>=400&&!(o.expect||[]).includes(r.status)){
-    if(!o.silent)toast(failed()+' — '+(errText(d)||('HTTP '+r.status)),'err');
+    if(!o.silent)apiFailed(o,errText(d)||('HTTP '+r.status),false);
     const err=/** @type {ApiError} */(new Error('HTTP '+r.status)); err.status=r.status; err.data=d; throw err;}
   return {status:r.status,data:d};
 }
+// Says that request o failed ('{what} 실패 — {why}'): on the status line when o.where is NOTICE_HOST.LINE, else in a banner at
+// that host (bannerNote). [다시 시도] (o.retry) only when the server could not be reached - a refusal would refuse again.
+/** @param {{what?:string,where?:string,retry?:()=>void,save?:boolean}} o @param {string} why @param {boolean} unreachable */
+function apiFailed(o,why,unreachable){const msg=tl('{what} 실패',{what:tr(o.what||'요청').replace(/…$/,'')})+' — '+why;
+  const act=unreachable&&o.retry?{label:'다시 시도',fn:o.retry}:null;
+  if(o.where===NOTICE_HOST.LINE)lineNote(msg,NOTICE_KIND.ERR,act); else bannerNote(o.where,msg,NOTICE_KIND.ERR,act,{save:!!o.save});}
 // Toasts (docs/handbook/viewer.md §알림(토스트)): one title line + one faded description line. Text is split into title/description at the first ' — ' (or the first ' · ' if none).
 const TOAST_IC={ok:()=>ic('circle-check'),warn:()=>ic('triangle-alert'),err:()=>ic('circle-x')};
 // If ' — ' is present, everything before it is the title (the title of '핀 #10 · 본문 — 서준님이 불렀습니다: …' is '핀 #10 · 본문'), otherwise everything before the first ' · '.
@@ -59,20 +68,6 @@ function toastGone(t){const g=t&&t._gone; if(g){t._gone=null; g();}}
 function toastHost(){const box=$('#toasts'),d=document.querySelector('dialog[open]:modal'),host=d||document.body;
   if(box.parentNode!==host)host.appendChild(box); return box;}
 document.addEventListener('close',e=>{const d=/** @type {HTMLElement} */(e.target); if(d&&d.tagName==='DIALOG'){const box=$('#toasts'); if(box.parentNode===d)document.body.appendChild(box);}},true);
-// Deferred commit with an undo toast (docs/handbook/viewer.md §알림(토스트)): the change is sent when the toast goes away - after its 6 seconds
-// (paused while hovered), on [x], or when the page is hidden - and [되돌리기] cancels it before anything reaches the server. So an
-// agent never sees a reply or permanent delete that was taken back. The page being hidden or closed sends what is pending (fetch keepalive).
-const DEFERRED=new Set();
-function deferred(msg,commit,undo){let done=false,t=/** @type {HTMLElement|null} */(null);
-  // Committing early (page hidden) also takes the toast away - an [되돌리기] that can no longer cancel anything must not stay on screen.
-  const d={run:()=>{if(done)return; done=true; DEFERRED.delete(d); if(t&&t.isConnected){t._gone=null; t.remove();} commit();}};
-  DEFERRED.add(d);
-  t=toast(msg,'ok',{label:'되돌리기',tip:'보내기 전에 취소합니다',fn:()=>{if(done)return; done=true; DEFERRED.delete(d); undo();}});
-  d.toast=t; if(t)t._gone=d.run; else d.run();
-  return d;}
-function flushDeferred(){Array.from(DEFERRED).forEach(d=>d.run());}
-window.addEventListener('pagehide',flushDeferred);
-document.addEventListener('visibilitychange',()=>{if(document.hidden)flushDeferred();});
 // Toast placement: near where you just clicked. wide/mid is bottom-right of the panel column - just above the top edge of whichever action row is
 // visible (#c-actions: save/cancel, mid's bottom tool bar - none in the short band, whose tool bar is on top - or the status chips floating in collapsed mid). narrow is just above the sheet's top edge - or 20px over the status line on it, clear of its action's hit, or over the changes view's thumb row - at most 640px wide and centred on the tablet sheet
 // (or above the screen if the sheet nearly fills it). While showing, the position is re-measured (watchToasts) whenever the panel opens/closes or the
@@ -108,10 +103,11 @@ function syncToastStack(){const box=$('#toasts'),n=box.querySelectorAll('.toast'
   if(box.lastElementChild!==m)box.appendChild(m);   // after the toasts, so the newest-first order and nth-child stay as they are
   m.hidden=n<=3||box.classList.contains('expanded'); if(!m.hidden)m.textContent=tl('알림 {n}건 더 보기',{n:n-3});}
 new MutationObserver(syncToastStack).observe($('#toasts'),{childList:true});
+// Copies s to the clipboard (a textarea and execCommand where the Clipboard API is refused). A silent success: read out only.
 async function copyText(s){
   try{await navigator.clipboard.writeText(s);}catch(e){
     const ta=document.createElement('textarea');ta.value=s;document.body.appendChild(ta);ta.select();
     try{document.execCommand('copy');}catch(e2){} ta.remove();}
-  toast(tl('복사함: {text}',{text:s}),'ok');
+  quietNote(tl('복사함: {text}',{text:s}));
 }
 

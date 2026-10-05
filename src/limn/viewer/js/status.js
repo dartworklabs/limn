@@ -1,11 +1,13 @@
 // ------------------------------------------------ The status line (docs/handbook/viewer.md §모바일 레이아웃, 상태는 한 줄이다)
-// One element, #status, shows one state at a time on every compact band, in the band's place (placeStatus): a 24px line
-// on the phone and tablet sheet's top edge (#status-dock, outside the sheet so its action can reach 44px up over the PDF),
-// a short text in the short band's top row and the middle of the mid action row (#status-slot). The desktop (wide) keeps
-// its status chips (#bar2) and draws no line. The line is the compact face of those chips: whenever one of them changes
-// (a MutationObserver on #bar2) it is drawn again from the state they come from.
+// One element, #status, shows one state at a time on every band, in the band's place (placeStatus): a 24px line on the phone
+// and tablet sheet's top edge (#status-dock, outside the sheet so its action can reach 44px up over the PDF), a short text in
+// the short band's top row and the middle of the mid action row (#status-slot), and on the desktop (wide) a line under the
+// status chips (#status-wide). The line is the compact face of those chips: whenever one of them changes (a MutationObserver
+// on #bar2) it is drawn again from the state they come from. It also carries the messages of notices.js (LINE): background
+// events, first-visit hints and an undo whose place has left the screen - the only items the desktop's line shows besides
+// a rebuild's 'no changes', since its chips say the rest (statusShown).
 let STATUS_SYNC=/** @type {SyncStatus|null} */(null),STATUS_SIG='';   // the last meta `sync`; the drawn item's kind, action and count
-const STATUS_TRANSIENT_MS=6000;   // a passing answer (no changes) stays on the line as long as a toast stays (api-toasts.js)
+const STATUS_TRANSIENT_MS=6000;   // a passing answer (no changes) stays on the line as long as an undo's window (NOTICE_MS)
 
 // A build's countable progress {done, total}: integers with total > 0 and 0 <= done <= total, else null - as if the field were
 // missing (GET /api/build `progress`: the pages drawn of the PDF's while a render runs, null otherwise, absent from an older
@@ -13,15 +15,17 @@ const STATUS_TRANSIENT_MS=6000;   // a passing answer (no changes) stays on the 
 function statusProgress(pr){if(!pr||typeof pr!=='object')return null; const {done,total}=pr;
   return Number.isInteger(done)&&Number.isInteger(total)&&total>0&&done>=0&&done<=total?{done,total}:null;}
 
-// The items the status line shows for s = {build, buildErr, offline, sync, stale, png, canRebuild, unchanged} (statusInput),
-// highest priority first: the last build failed or had LaTeX errors; the connection is lost; a build runs (rendering in the
-// page render, else building); main sync is blocked; this tab's rebuild changed nothing (unchanged, for a toast's time);
+// The items the status line shows for s = {notices, build, buildErr, offline, sync, stale, png, canRebuild, unchanged}
+// (statusInput), highest priority first: the line's messages, newest first (notices, notices.js LINE; act 'notice'); the last
+// build failed or had LaTeX errors; the connection is lost; a build runs (rendering in the
+// page render, else building); main sync is blocked; this tab's rebuild changed nothing (unchanged, for STATUS_TRANSIENT_MS);
 // the PDF is older than its source - not while a build runs, which clears it, nor while the unchanged answer says the
 // rebuild found nothing new (the line would contradict itself); main sync is under way; the PDF shows as PNG. Each item is {kind, act} plus what
 // its text needs; act is the data-act of its one action, or null - [재빌드] and [그래도 빌드] (rebuild-force, a cold build)
 // only where canRebuild (a LaTeX document and a person who may build). The phase whose work can
 // be counted - the page render, whose progress field gives pages done of total - is looked up, not compared. Pure.
 function statusList(s){const out=[],b=s.build,running=!!b&&b.state===BUILD_STATE.RUNNING,e=s.buildErr,sy=s.sync&&s.sync.state;
+  (s.notices||[]).forEach(n=>out.push({kind:STATUS_KIND.NOTICE,notice:n,act:'notice'}));
   if(e&&e.state===BUILD_STATE.FAIL)out.push({kind:STATUS_KIND.FAILED,act:'build-err-reopen'});
   else if(e&&e.state===BUILD_STATE.OK_ERRORS)out.push({kind:STATUS_KIND.ERRORS,n:(e.errors||[]).length,act:'build-err-reopen'});
   if(s.offline)out.push({kind:STATUS_KIND.OFFLINE,act:null});
@@ -33,6 +37,9 @@ function statusList(s){const out=[],b=s.build,running=!!b&&b.state===BUILD_STATE
   if(sy===SYNC_STATE.CHECKING||sy===SYNC_STATE.DEFERRED||sy===SYNC_STATE.UPDATING||sy===SYNC_STATE.UPDATED)out.push({kind:STATUS_KIND.SYNC,state:sy,act:null});
   if(s.png)out.push({kind:STATUS_KIND.PNG,act:null});
   return out;}
+// The items a band's line shows of statusList's: all of them on the compact bands; on the desktop (wide) only the messages
+// and a rebuild's 'no changes' - its status chips (#bar2) already show the build, the connection, sync, staleness and PNG. Pure.
+function statusShown(list,wide){return wide?list.filter(i=>i.kind===STATUS_KIND.NOTICE||i.kind===STATUS_KIND.UNCHANGED):list;}
 
 // A filled template's text as [label, tail], cut at the template's first placeholder: the words before it (without the
 // separator) are the label, the rest - the numbers - the tail. tl('쪽 {done}/{total}',{done:3,total:9}) is ['쪽', ' 3/9'].
@@ -43,6 +50,7 @@ function statusSplit(key,p){const tpl=tl(key,{}),i=tpl.indexOf('{'),head=(i<0?tp
 // reader hears when the item appears, the tail the seconds and pages that tick (drawn aria-hidden). Only tr/tl beyond itself.
 function statusText(item,fit){const long=fit!=='short';
   switch(item.kind){
+    case STATUS_KIND.NOTICE:{const n=item.notice; return [long&&n.desc?n.title+' · '+n.desc:n.title,''];}   // already in the UI language
     case STATUS_KIND.FAILED:return [long?tr('빌드 실패 · 이전 PDF를 보는 중'):tr('빌드 실패'),''];
     case STATUS_KIND.ERRORS:return [long?tl('LaTeX 오류 {n}건 · 새 PDF',{n:item.n}):tl('LaTeX 오류 {n}',{n:item.n}),''];
     case STATUS_KIND.OFFLINE:return [long?tr('연결 끊김 · 다시 잇는 중'):tr('연결 끊김'),''];
@@ -61,9 +69,11 @@ function statusText(item,fit){const long=fit!=='short';
   }
   return ['',''];}
 
-// The leading mark of an item: a warning triangle for a failure or blocked sync, the lost-connection icon, a spinner while
-// work runs (a check once main sync is applied), an 8px warning dot for a stale PDF, the image icon for PNG.
+// The leading mark of an item: a message's own (by its kind, notices.js noticeIcon), a warning triangle for a failure or
+// blocked sync, the lost-connection icon, a spinner while work runs (a check once main sync is applied), an 8px warning dot
+// for a stale PDF, the image icon for PNG.
 function statusIcon(item){const K=STATUS_KIND;
+  if(item.kind===K.NOTICE)return html`<span class="st-ic nk-${item.notice.kind}">${noticeIcon(item.notice.kind)}</span>`;
   if(item.kind===K.FAILED||item.kind===K.ERRORS||item.kind===K.SYNC_BLOCKED)return html`<span class="st-ic warn">${ic('triangle-alert')}</span>`;
   if(item.kind===K.OFFLINE)return html`<span class="st-ic">${ic('wifi-off')}</span>`;
   if(item.kind===K.STALE)return html`<span class="st-ic"><i class="st-stale"></i></span>`;
@@ -72,39 +82,41 @@ function statusIcon(item){const K=STATUS_KIND;
   return html`<span class="st-ic"><i class="spin"></i></span>`;}
 
 // An item's one action as a button (its data-act; [재빌드] is the line's one primary fill), or '' without one. [그래도 빌드]
-// carries 0.4.5's tip on what a cold build is for. The label is a span (.lbl) so CSS can trim it to its cap height.
-function statusAct(item){if(!item.act)return html``;
-  const force=item.act==='rebuild-force',name=item.act==='rebuild'?tr('재빌드'):item.act==='status-why'?tr('이유'):force?tr(T.buildanyway):tr('보기');
-  const tip=force?html` data-tip="${T.buildanywaytip}"`:'';
+// carries 0.4.5's tip on what a cold build is for, [이유] the reason itself (statusWhy). A message brings its own action and
+// [x] (noticeButtons). The label is a span (.lbl) so CSS can trim it to its cap height.
+function statusAct(item){if(!item.act)return html``; if(item.kind===STATUS_KIND.NOTICE)return noticeButtons(item.notice,true);
+  const force=item.act==='rebuild-force',why=item.act==='status-why',name=item.act==='rebuild'?tr('재빌드'):why?tr('이유'):force?tr(T.buildanyway):tr('보기');
+  const tip=force?html` data-tip="${T.buildanywaytip}"`:why?html` data-tip="${syncWhyText(STATUS_SYNC)}"`:'';
   return html`<button class="btn-sm st-act ${item.act==='rebuild'?'btn-default':'btn-secondary'}" data-act="${item.act}"${tip}><span class="lbl">${name}</span></button>`;}
 
-// What the status line is drawn from, gathered from the shell: the running build (BUILD.cur) and the last failed one, the
-// light poll's failures, the last meta `sync`, and the chips that already say stale and PNG - plus whether this document and
-// person may rebuild.
-function statusInput(){return {build:BUILD.cur,buildErr:BUILD.error,offline:POLL_FAILS>=2,sync:STATUS_SYNC,stale:!$('#meta-stale').hidden,
+// What the status line is drawn from, gathered from the shell: its messages (LINE), the running build (BUILD.cur) and the last
+// failed one, the light poll's failures, the last meta `sync`, and the chips that already say stale and PNG - plus whether
+// this document and person may rebuild.
+function statusInput(){return {notices:LINE,build:BUILD.cur,buildErr:BUILD.error,offline:POLL_FAILS>=2,sync:STATUS_SYNC,stale:!$('#meta-stale').hidden,
   png:!$('#vec-chip').hidden,canRebuild:!!META&&buildsFromSource(META.kind)&&!isViewer(),unchanged:BUILD.unchanged};}
 
 // The answer to this tab's rebuild that kept the pages (0.4.5: ok, unchanged, the same seq), with [그래도 빌드] for a cold
-// build. The desktop says it in a toast, as 0.4.5 does. The compact bands keep rebuild on the status line, so the line says
-// it, for as long as a toast would stay (STATUS_TRANSIENT_MS), then shows what it showed before; a build that starts, a
-// document switch or [그래도 빌드] ends it sooner.
+// build: the status line says it on every band - the desktop's line under its chips too - for STATUS_TRANSIENT_MS, then shows
+// what it showed before; a build that starts, a document switch or [그래도 빌드] ends it sooner.
 function buildUnchanged(b){
-  if(LAYOUT===LAYOUT_MODE.WIDE){toast(tr(T.nochange)+pullSuffix(b),'ok',{label:T.buildanyway,tip:T.buildanywaytip,fn:()=>rebuild(true)}); return;}
   const mark={pull:pullSuffix(b)}; BUILD.unchanged=mark; drawStatus();
   setTimeout(()=>{if(BUILD.unchanged!==mark)return; BUILD.unchanged=null; drawStatus();},STATUS_TRANSIENT_MS);}
 
-// Draws the status line from statusInput(): the first item with its icon, its text (the long form, the short one where the
-// long does not fit and always in the short band's top row, then an ellipsis), '+N' for the rest and its action, and a 2px progress bar while a build runs - counted
+// Draws the status line from statusInput() - the items the band shows (statusShown): the first item with its icon, its text
+// (the long form, the short one where the long does not fit and always in the short band's top row, then an ellipsis), '+N' for
+// the rest and its action (a message's and its [x]), and a 2px progress bar while a build runs - counted
 // when the build gives its progress, else one that does not know its end, all in .st-body, drawn again when the item, its
 // action or the count changes. The spoken label is a separate live node (.st-sr) that stays: every draw puts the item's label
-// there, and its text changes - and is read out - only when the label does, never for a redraw or the ticking numbers. Also the [⋯] row [PDF 재빌드]: off with '빌드 중' while a build runs. body.has-status
-// says a line is up (the sheet joins it, placeToasts keeps clear of it).
-function drawStatus(){const box=$('#status'),sr=box.querySelector('.st-sr'),body=box.querySelector('.st-body'),list=statusList(statusInput()),top=list[0],running=!!BUILD.cur;
+// there, and its text changes - and is read out - only when the label does, never for a redraw or the ticking numbers; an
+// error message is left out there, as lineNote read it out assertively. Also the [⋯] row [PDF 재빌드]: off with '빌드 중' while
+// a build runs. body.has-status says a line is up (the sheet joins it).
+function drawStatus(){const box=$('#status'),sr=box.querySelector('.st-sr'),body=box.querySelector('.st-body'),running=!!BUILD.cur;
+  const list=statusShown(statusList(statusInput()),LAYOUT===LAYOUT_MODE.WIDE),top=list[0];
   const m=$('#m-rebuild'); if(m){m.disabled=running; const tail=m.querySelector('.m-tail'); if(tail)tail.hidden=!running;}
   document.body.classList.toggle('has-status',!!top); box.hidden=!top;
   if($('#status-list').open)drawStatusList(list);
   if(!top){if(STATUS_SIG){body.replaceChildren(); STATUS_SIG='';} sr.textContent=''; return;}
-  const sig=top.kind+'|'+(top.act||'')+'|'+list.length+'|'+(top.state||'');
+  const sig=top.kind+'|'+(top.act||'')+'|'+list.length+'|'+(top.state||'')+'|'+(top.notice?top.notice.n:'');
   if(sig!==STATUS_SIG){STATUS_SIG=sig;
     const more=list.length>1?html`<button class="btn-sm btn-ghost st-more" data-act="status-more" aria-haspopup="dialog" aria-label="${tl('상태 {n}건 더 보기',{n:list.length-1})}"><span class="lbl">${tl('+{n}',{n:list.length-1})}</span></button>`:'';
     const bar=running?html`<span class="st-bar" role="progressbar" aria-label="${tr('빌드 진행')}"><i></i></span>`:'';
@@ -112,7 +124,7 @@ function drawStatus(){const box=$('#status'),sr=box.querySelector('.st-sr'),body
   const tx=box.querySelector('.st-tx'),long=statusText(top,'long'),short=statusText(top,'short');
   tx.textContent=BAND===LAYOUT_BAND.SHORT?short[0]+short[1]:long[0]+long[1];   // the short band's one row always takes the short text
   if(tx.scrollWidth>tx.clientWidth)tx.textContent=short[0]+short[1];
-  if(sr.textContent!==long[0])sr.textContent=long[0];
+  const say=top.notice&&top.notice.kind===NOTICE_KIND.ERR?'':long[0]; if(sr.textContent!==say)sr.textContent=say;
   const bar=box.querySelector('.st-bar'); if(!bar)return; const {done,total}=top.progress||{},pct=top.progress?Math.round(done/total*100):null;
   bar.classList.toggle('indet',pct===null); bar.querySelector('i').style.width=pct===null?'':pct+'%';
   if(pct===null){bar.removeAttribute('aria-valuenow');} else{bar.setAttribute('aria-valuemin','0'); bar.setAttribute('aria-valuemax','100'); bar.setAttribute('aria-valuenow',String(pct));}}
@@ -120,21 +132,28 @@ function drawStatus(){const box=$('#status'),sr=box.querySelector('.st-sr'),body
 // The '+N' list: every item as a 44px row with its long text and its action. A modal dialog over the line, so an outside tap,
 // Esc and the back gesture fold it like the sheets; a row's action folds it too.
 function drawStatusList(list){setHtml($('#status-list-rows'),html`${list.map(it=>{const t=statusText(it,'long');
-  return html`<div class="st-row">${statusIcon(it)}<span class="st-row-t">${t[0]+t[1]}</span>${statusAct(it)}</div>`;})}`);}
-// [이유] of blocked main sync: the reason's sentence as a warning toast.
-function statusWhy(){const s=STATUS_SYNC||/** @type {SyncStatus} */({}); toast(tr('main 동기화 막힘')+' — '+tr(SYNC_REASON[s.reason]||s.reason||'')+' · '+tr('기존 PDF가 보일 수 있습니다'),'warn');}
+  return html`<div class="st-row">${statusIcon(it)}<span class="st-row-t" translate="no">${t[0]+t[1]}</span>${statusAct(it)}</div>`;})}`);}
+// The sentence [이유] of blocked main sync explains: main sync is blocked, why (SYNC_REASON), and that the previous PDF may be
+// showing. Only tr/tl beyond its argument.
+/** @param {SyncStatus|null} s */
+function syncWhyText(s){const r=s&&s.reason||''; return tr('main 동기화 막힘')+' — '+tr(SYNC_REASON[r]||r)+' · '+tr('기존 PDF가 보일 수 있습니다');}
+// [이유] of blocked main sync: its sentence (syncWhyText, also the button's description) shown right at the button - or,
+// pressed in the '+N' list, which has just folded, at the line - and read out.
+/** @param {HTMLElement} btn */
+function statusWhy(btn){const text=syncWhyText(STATUS_SYNC); showTipText(btn.getClientRects().length?btn:$('#status'),text); announce(text);}
 // Opens the '+N' list just over the status line (under it in the short band's top row), or folds it on a second press.
 function toggleStatusList(){const d=$('#status-list'); if(d.open){d.close(); return;}
-  drawStatusList(statusList(statusInput())); const r=$('#status').getBoundingClientRect(),short=BAND===LAYOUT_BAND.SHORT;
+  drawStatusList(statusShown(statusList(statusInput()),LAYOUT===LAYOUT_MODE.WIDE)); const r=$('#status').getBoundingClientRect(),short=BAND===LAYOUT_BAND.SHORT;
   d.style.top=short?Math.round(r.bottom+4)+'px':'auto'; d.style.bottom=short?'auto':Math.round(innerHeight-r.top+4)+'px';
   hideTip(); d.showModal();}
 
-// Moves #status to the band's place - the dock over the sheet (phone, tablet sheet, and wide, where the dock is hidden), the
-// short band's top row after the view switch, the mid action row's middle - keeping a focus that was inside it, then draws it.
-// An open '+N' list folds: it was placed for the old band.
+// Moves #status to the band's place - the dock over the sheet (phone, tablet sheet), the short band's top row after the view
+// switch, the mid action row's middle, the desktop's line under its status chips (#status-wide) - keeping a focus that was
+// inside it, then draws it. An open '+N' list folds: it was placed for the old band.
 function placeStatus(){const s=$('#status'),a=/** @type {HTMLElement} */(document.activeElement),had=s.contains(a); if($('#status-list').open)$('#status-list').close();
   if(BAND===LAYOUT_BAND.SHORT){if(s.previousElementSibling!==$('#view-switch'))$('#view-switch').after(s);}
   else if(LAYOUT===LAYOUT_MODE.MID){if(s.parentNode!==$('#status-slot'))$('#status-slot').appendChild(s);}
+  else if(LAYOUT===LAYOUT_MODE.WIDE){if(s.parentNode!==$('#status-wide'))$('#status-wide').appendChild(s);}
   else if(s.parentNode!==$('#status-dock'))$('#status-dock').appendChild(s);
   if(had&&a.focus)a.focus({preventScroll:true});
   STATUS_SIG=''; drawStatus();}

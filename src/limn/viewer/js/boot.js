@@ -9,7 +9,7 @@ async function boot(){i18nStart();
   // There's no keyboard shortcut on a touch device - "핀 저장 Ctrl+Enter" would just get clipped at phone width.
   setHtml($('#btn-save'),saveBtnLabel());
   await loadDocs(); DOC=initialDoc();
-  try{META=(await api(dq('/api/meta'),{what:'화면 정보 읽기'})).data;}catch(e){return;}
+  try{META=(await api(dq('/api/meta'),{what:'화면 정보 읽기',where:NOTICE_HOST.LINE})).data;}catch(e){return;}
   if(META.doc)DOC=META.doc; META_BY.set(DOC,META); loadViews(); const v=VIEW_BY.get(DOC);
   if(multiDoc()){setHash(DOC); savePrefs({lastDoc:DOC});}
   drawMeta(); applySideWidth(); applyOutlineState(); const hadW=applyViewWidth(v); buildDoc(); if(!hadW)autoW(); vecBoot(); const pinsLoaded=await loadPins();
@@ -55,8 +55,9 @@ function updateSyncBadge(s){STATUS_SYNC=s||null; const b=$('#meta-sync'); if(!b)
   b.dataset.tip=reason?(b.textContent+' · '+reason+' · '+tr('기존 PDF가 보일 수 있습니다')):b.textContent;
 }
 function isViewer(){return !!(typeof META!=='undefined'&&META&&META.me&&META.me.role===ROLE.VIEWER);}
-// A state change the viewer role cannot make (the server answers 403 anyway): say so once instead of sending it.
-function viewerBlocked(){if(!isViewer())return false; toast('보기 권한(viewer)만 있는 계정이라 바꿀 수 없습니다','warn'); return true;}
+// A state change the viewer role cannot make (the server answers 403 anyway): say so once instead of sending it, in a banner
+// over the composer while one is open, else on top of the panel (bannerHost).
+function viewerBlocked(){if(!isViewer())return false; bannerNote(undefined,'보기 권한(viewer)만 있는 계정이라 바꿀 수 없습니다',NOTICE_KIND.WARN); return true;}
 // Paints the header and the info line from META (the document on screen): names, page count, commit, build time, who is
 // signed in, the stale and sync badges and the pins.md help text; the rebuild button is hidden unless the document builds
 // from source. Reads META only and sends nothing.

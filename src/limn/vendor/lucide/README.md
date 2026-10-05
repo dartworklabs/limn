@@ -22,7 +22,7 @@ Icons are drawn with the original `<svg>` attributes: `viewBox="0 0 24 24"`, `fi
 | `check` | closed-pin row head; current document in the document list |
 | `chevron-down` · `chevron-right` | collapse/expand archive sections, card collapse (narrow screens), [Documents] button |
 | `chevron-left` | the collapsed wide panel's [Pins N ‹] (#nav-side) |
-| `circle-check` · `circle-x` | toast lead icon — done/error. Warnings use `triangle-alert` |
+| `circle-check` · `circle-x` | a message's lead icon (banners, undo rows and chips, the status line) — done/error. Warnings use `triangle-alert` |
 | `circle-question-mark` | 'question' badge and hint |
 | `message-square` | reply count in the card head |
 | `clock` | 'in progress' (claimed) badge |
@@ -30,6 +30,7 @@ Icons are drawn with the original `<svg>` attributes: `viewBox="0 0 24 24"`, `fi
 | `ellipsis` | the [More] button (every layout) |
 | `eye` | 'awaiting review' badge (whose turn it is to confirm) |
 | `image` | the status line's 'showing PNG' state (compact bands) |
+| `info` | the lead icon of an informational message (a first-visit hint, a restored draft, a conflict with nothing to do) |
 | `minus` · `plus` | PDF zoom out/in; shrink/grow a range by one line |
 | `moon` · `sun` · `sun-moon` | the theme segments in [More] (dark, light, system) |
 | `lock-open` | [풀기] (release the in-progress claim) on a compact card |
@@ -43,9 +44,9 @@ Icons are drawn with the original `<svg>` attributes: `viewBox="0 0 24 24"`, `fi
 | `rotate-cw` | [Reload pins] in [More] (compact bands) |
 | `square-dashed` | [Select] button and the select mode's bar — a dashed square, symmetric both ways: pick a spot or drag a region on touch devices |
 | `trash-2` | deleted-pin row head; [삭제] on a compact card |
-| `triangle-alert` | 'location lost' badge, warning toast lead icon |
+| `triangle-alert` | 'location lost' badge, a warning message's lead icon |
 | `wifi-off` | the status line's 'disconnected' state (compact bands) |
-| `x` | close toasts and notices |
+| `x` | close messages and notices |
 
 ## Updating
 

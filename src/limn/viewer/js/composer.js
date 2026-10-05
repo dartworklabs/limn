@@ -5,9 +5,10 @@ const COMPOSE={current:/** @type {Selection|null} */(null),box:/** @type {HTMLEl
 function composeOwns(selection,box,visit){return currentVisit(visit)&&COMPOSE.current===selection&&COMPOSE.box===box;}
 function setBusy(on){$('#c-spin').hidden=!on; $('#c-body').classList.toggle('busy',on);}
 // Turns a dragged PDF region into source lines (/api/pick) and fills the composer - or, while relocating, the banner.
-// A new selection opens a collapsed panel; stale responses (PICKSEQ) are dropped; a save queued meanwhile runs after it.
+// A new selection opens a collapsed panel; stale responses (PICKSEQ) are dropped; a save queued meanwhile runs after it. The
+// first-visit hint on how to pick goes (endTopic): it has been done.
 async function pick(r){
-  const seq=++PICKSEQ,rp=REPICK;
+  const seq=++PICKSEQ,rp=REPICK; endTopic(NOTICE_TOPIC.PICK);   // the first-visit hint on how to pick has been done
   // When a new selection (not a re-place) starts, the previous COMPOSE.current is cleared right away - so that a [핀 저장] within
   // this window (~1.1s) never silently saves the stale COMPOSE.current, and instead goes through the COMPOSE.pendingSave queue (docs/handbook/viewer.md §패널 정리) to
   // save the just-chosen new location (regression: the old location used to get saved on a re-select).
@@ -161,22 +162,23 @@ function selectionSnapshot(){if(!COMPOSE.current&&!COMPOSE.picking&&$('#composer
     assign:{v:ASSIGN_NEW.v,touched:ASSIGN_NEW.touched},doc:DOC,build:META&&META.pages_build};}
 // Brings a snapshot back - the undo of a discard or of a save: the note, kind and assignee always; the selection, its box and the
 // composer when they still belong to the pages on screen (same document and build; the box if its page is still there). Never over
-// a newer selection - that one wins.
+// a newer selection - that one wins. When only the note can come back (the PDF changed), the status line says so.
 // Returns whether anything came back.
 function restoreSelection(snap){if(!snap||COMPOSE.current||COMPOSE.picking||REPICK||!$('#composer').hidden)return false;
   const n=$('#note'); if(n.value)return false;   // a note-only draft also belongs to the current document
   n.value=snap.note; n._mentions=snap.mentions; setKind(snap.kind); Object.assign(ASSIGN_NEW,snap.assign);
   renderAssignNew(); mentionPreview(n); autoGrow(n);
-  if(!(snap.cur&&snap.doc===DOC&&META&&snap.build===META.pages_build)){toast('메모만 되살렸습니다 — PDF가 바뀌어 자리를 다시 골라야 합니다','warn'); return true;}
+  if(!(snap.cur&&snap.doc===DOC&&META&&snap.build===META.pages_build)){lineNote('메모만 되살렸습니다 — PDF가 바뀌어 자리를 다시 골라야 합니다',NOTICE_KIND.WARN); return true;}
   if(COMPOSE.box)COMPOSE.box.remove(); COMPOSE.box=null;
   if(snap.box&&snap.page&&document.contains(snap.page)){COMPOSE.box=snap.box; snap.page.appendChild(snap.box);}
   COMPOSE.current=snap.cur; recomputeOverlap(); SNIP_OPEN=false; $('#c-err').hidden=true; $('#c-body').hidden=false; $('#composer').hidden=false;
   renderComposer(); setSide(true); applySide(); if(LAYOUT!==LAYOUT_MODE.WIDE)revealBox(COMPOSE.box); if(LAST_PTR==='mouse')n.focus({preventScroll:true});
   return true;}
-// Esc and [취소] on a selection (docs/handbook/viewer.md §패널 정리): it goes at once, and when its note had text the toast offers
-// [되돌리기] for its 6 seconds, bringing back the selection, the note and the box - an undo instead of a confirmation. The stored
-// draft stays for that window (a page left meanwhile still restores it) and is removed when the toast goes.
+// Esc and [취소] on a selection (docs/handbook/viewer.md §패널 정리): it goes at once, and when its note had text the status line
+// offers [되돌리기] until the next press elsewhere (its place, the composer, is gone), bringing back the selection, the note and
+// the box - an undo instead of a confirmation. The stored draft stays for that window (a page left meanwhile still restores it)
+// and is removed when the offer goes.
 function discardSelection(){syncDraft(); const snap=selectionSnapshot(); cancelSelection(true);
   if(!(snap&&snap.cur&&snap.note.trim())){syncDraft(); return;}
-  const t=toast('선택 취소됨','ok',{label:'되돌리기',tip:'선택과 메모를 되살립니다',fn:()=>restoreSelection(snap)});
-  if(t)holdDraftUntil(t);}   // the kept draft goes when the window does
+  const n=lineNote('선택 취소됨',NOTICE_KIND.OK,{label:'되돌리기',tip:'선택과 메모를 되살립니다',fn:()=>restoreSelection(snap)},{life:NOTICE_LIFE.CLICK});
+  if(n)holdDraftUntil(n);}   // the kept draft goes when the window does

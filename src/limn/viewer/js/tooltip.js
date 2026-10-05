@@ -5,7 +5,11 @@ document.addEventListener('mousemove',e=>{TIPXY=[e.clientX,e.clientY];},{passive
 function hideTip(){clearTimeout(tipT);tipT=undefined;tipEl=null;TIP.hidden=true;}
 // Shows el's description over it. The box is translate="no": a description is already in the UI language (the translator
 // rewrote the attribute, or the code drew it with tr()), and one that quotes a note ('#38 · 완료') must not be rewritten again.
-function showTip(el){const txt=el.dataset.tip; if(!txt||!document.contains(el))return;
+function showTip(el){showTipText(el,el.dataset.tip||'');}
+// Shows txt over el as its description box (showTip's drawing; statusWhy shows [이유]'s sentence at the line this way). Nothing
+// without a text or for an element no longer in the page.
+/** @param {HTMLElement} el @param {string} txt */
+function showTipText(el,txt){if(!txt||!document.contains(el))return;
   TIP.textContent=txt; TIP.hidden=false;
   const r=el.getBoundingClientRect(),tw=TIP.offsetWidth,th=TIP.offsetHeight;
   let top=r.top-th-8, cx=r.left+r.width/2;

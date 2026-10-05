@@ -38,7 +38,7 @@ document.addEventListener('click',e=>{const target=/** @type {HTMLElement} */(e.
     case 'theme':setTheme(a.dataset.theme); break; case 'lang':switchLang(a.dataset.lang);break; case 'notify-toggle':notifyToggle();break; case 'help':openHelp();break; case 'help-close':$('#help').close();break;
     case 'save':if(!viewerBlocked())savePin();break; case 'cancel':discardSelection();break;
     case 'overlap-append':{const text=$('#note').value.trim();
-      if(!text){toast('메모를 먼저 써야 덧붙일 수 있습니다','warn');break;}
+      if(!text){bannerNote(NOTICE_HOST.COMPOSER,'메모를 먼저 써야 덧붙일 수 있습니다',NOTICE_KIND.WARN);break;}
       appendToPin(Number(a.dataset.oid),text);break;}
     case 'overlap-separate':COMPOSE.dismissedOverlap=a.dataset.key||null;renderOverlapBanner();break;
     case 'copy-cur':if(COMPOSE.current)copyText(COMPOSE.current.name+' L'+COMPOSE.current.lo+'-L'+COMPOSE.current.hi);break;
@@ -95,7 +95,8 @@ document.addEventListener('click',e=>{const target=/** @type {HTMLElement} */(e.
     case 'err-close':hideBuildErr();break;
     case 'build-err-reopen':if(BUILD.error){setSide(true); showBuildErr(BUILD.error);} break;   // the chip floats on a collapsed panel; the log is inside it
     case 'status-more':toggleStatusList();break;
-    case 'status-why':statusWhy();break;
+    case 'status-why':statusWhy(a);break;
+    case 'notice-act':noticeAct(Number(a.dataset.n));break; case 'notice-x':noticeClose(Number(a.dataset.n));break;
   }
 });
 $('#doc-select').addEventListener('change',e=>switchDoc(e.target.value));

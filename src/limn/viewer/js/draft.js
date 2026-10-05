@@ -2,14 +2,15 @@
 // A draft - the composer's selection, box, note, kind and assignee, or a note waiting for the next pick - is written to
 // sessionStorage on every edit (debounced 300ms, flushed when the page hides) under draftKey(label, document), so leaving the
 // page - a reload, the back gesture past the sheet - never loses it, and this tab's next boot restores it (restoreDraft). Saving
-// clears it; a discard clears it once its undo window is over (DRAFT.holds has that document's toast). Only this tab sees it.
-// The tab owns the debounce timer and the active document's draft key; discard toasts hold their own document's keys.
+// clears it; a discard clears it once its undo window is over (DRAFT.holds has that document's undo). Only this tab sees it.
+// The tab owns the debounce timer and the active document's draft key; a discard's undo holds its own document's key.
 const DRAFT={timer:/** @type {ReturnType<typeof setTimeout>|0} */(0),ready:false,holds:new Map(),key:/** @type {string|null} */(null),
   origin:/** @type {{key:string|null,value:string|null,current:Selection|null}|null} */(null)};
-// Keep a discarded draft until its undo toast leaves, unless a newer draft replaced it first.
-function holdDraftUntil(toastEl){let value=/** @type {string|null} */(null); try{if(DRAFT.key)value=sessionStorage.getItem(DRAFT.key);}catch(e){}
-  const held={toast:toastEl,key:DRAFT.key,value}; if(held.key)DRAFT.holds.set(held.key,held);
-  toastEl._gone=()=>{if(!held.key||DRAFT.holds.get(held.key)!==held)return; DRAFT.holds.delete(held.key);
+// Keep a discarded draft until its undo (note, on the status line) leaves, unless a newer draft replaced it first.
+/** @param {Notice} note */
+function holdDraftUntil(note){let value=/** @type {string|null} */(null); try{if(DRAFT.key)value=sessionStorage.getItem(DRAFT.key);}catch(e){}
+  const held={note,key:DRAFT.key,value}; if(held.key)DRAFT.holds.set(held.key,held);
+  note.gone=()=>{if(!held.key||DRAFT.holds.get(held.key)!==held)return; DRAFT.holds.delete(held.key);
     if(DRAFT.key===held.key&&DRAFT.ready&&draftRecord()){syncDraft();return;}   // a restored or newer active draft wins, even with identical bytes
     if(held.key&&held.value){try{if(sessionStorage.getItem(held.key)===held.value){sessionStorage.removeItem(held.key);
       if(DRAFT.key===held.key)DRAFT.key=null;}}catch(e){}}};}
@@ -28,11 +29,11 @@ function draftRecord(){const n=$('#note'),open=!$('#composer').hidden,note=n.val
     mentions:n._mentions?Array.from(n._mentions):[],kind:KIND_NEW,assign:{v:ASSIGN_NEW.v,touched:ASSIGN_NEW.touched}};}
 // Every edit schedules a write (no-op until the boot restore has run, so booting never overwrites the stored draft).
 function saveDraftSoon(){if(!DRAFT.ready)return; clearTimeout(DRAFT.timer); DRAFT.timer=setTimeout(syncDraft,300);}
-// Writes the draft now, or removes it when there is nothing to keep - unless a discard's undo toast still holds it.
+// Writes the draft now, or removes it when there is nothing to keep - unless a discard's undo still holds it.
 function syncDraft(){clearTimeout(DRAFT.timer); DRAFT.timer=0; if(!DRAFT.ready||!META)return; const rec=draftRecord();
   try{if(rec){const k=draftKey(META.label,rec.doc); DRAFT.holds.delete(k);   // a newer draft replaces a discarded one
       sessionStorage.setItem(k,JSON.stringify(rec)); DRAFT.key=k; return;}
-    const held=DRAFT.holds.get(DRAFT.key); if(held&&held.toast.isConnected)return;
+    const held=DRAFT.holds.get(DRAFT.key); if(held&&NOTICES.has(held.note.n))return;
     if(DRAFT.key)sessionStorage.removeItem(DRAFT.key); DRAFT.key=null;}catch(e){}}
 // Bind an in-flight pin save to the exact stored draft it sent; later documents and selections own their own records.
 function savedDraftSnapshot(){syncDraft(); if(!DRAFT.key)return null;
@@ -53,9 +54,10 @@ function openDraftDoc(){const n=$('#note'); n.value=''; n._mentions=null; ASSIGN
   setKind(KIND_REQ.FIX); mentionPreview(n); autoGrow(n); restoreDraft();}
 addEventListener('pagehide',syncDraft);
 document.addEventListener('visibilitychange',()=>{if(document.hidden)syncDraft();});
-// Boot: brings back this tab's draft for the document on screen and says so with [버리기]. A full restore redraws the box and
-// opens a collapsed panel or sheet (not remembered); a note-only one leaves the note in the note field for the next pick.
-// [버리기] is the usual discard (a full draft gets its undo toast; the draft goes once that window is over).
+// Boot: brings back this tab's draft for the document on screen and says so on the status line with [버리기], until the next
+// press elsewhere. A full restore redraws the box and opens a collapsed panel or sheet (not remembered); a note-only one leaves
+// the note in the note field for the next pick. [버리기] is the usual discard (a full draft gets its undo; the draft goes once
+// that window is over).
 function restoreDraft(){let rec=/** @type {any} */(null),raw=/** @type {string|null} */(null); const k=META?draftKey(META.label,DOC):null; DRAFT.origin=null;
   try{raw=k?sessionStorage.getItem(k):null; rec=JSON.parse(raw||'null');}catch(e){rec=null;}
   const how=draftRestore(rec,DOC,META&&META.pages_build); DRAFT.key=rec?k:null; DRAFT.ready=true;
@@ -66,5 +68,6 @@ function restoreDraft(){let rec=/** @type {any} */(null),raw=/** @type {string|n
     if(pg&&Array.isArray(c.frac)){const b=newBox(pg),f=c.frac; drawBox(b,f[0],f[1],f[0]+f[2],f[1]+f[3]); b.classList.add('pending'); pendingBadge(b,'새 핀'); COMPOSE.box=b;}
     COMPOSE.current=c; recomputeOverlap(); SNIP_OPEN=false; $('#c-err').hidden=true; $('#c-body').hidden=false; $('#composer').hidden=false;
     renderComposer(); DRAFT.origin={key:k,value:raw,current:c}; setSide(true); applySide(); if(LAYOUT!==LAYOUT_MODE.WIDE)revealBox(COMPOSE.box);}
-  toast(how==='full'?'작성 중이던 메모를 되살렸습니다':'작성 중이던 메모를 되살렸습니다 — PDF가 바뀌어 자리를 다시 골라야 합니다','ok',
-    {label:'버리기',tip:'되살린 선택과 메모를 버립니다',fn:()=>{if(!$('#composer').hidden)discardSelection(); else{cancelSelection(true); syncDraft();}}});}
+  lineNote(how==='full'?'작성 중이던 메모를 되살렸습니다':'작성 중이던 메모를 되살렸습니다 — PDF가 바뀌어 자리를 다시 골라야 합니다',NOTICE_KIND.INFO,
+    {label:'버리기',tip:'되살린 선택과 메모를 버립니다',fn:()=>{if(!$('#composer').hidden)discardSelection(); else{cancelSelection(true); syncDraft();}}},
+    {life:NOTICE_LIFE.CLICK});}

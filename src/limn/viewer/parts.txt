@@ -22,13 +22,15 @@ css/cards.css           # pin cards: status, links, thread, @-tags, question hin
 css/list.css            # list sections and the archive rows
 css/overlays.css        # toasts, tooltip, dialogs
 css/responsive.css      # mobile/touch, the mid and narrow layouts, reduced motion, the label chip
+css/notices.css         # messages in context: banners, undo rows, notes and chips, the status line's messages, dots
 
 __APP_JS__
 js/core.js              # strict mode, DOM helpers, icons, shared state, the tooltip texts (T)
 js/markup.js            # html``, ic() and setHtml(): markup with every value escaped, and its one sink
 js/i18n.js              # UI language: tr/tl/trMsg, API error and pick warning text, the English observer
 js/prefs.js             # per-device preferences (pinPrefs), list-section state, theme
-js/api-toasts.js        # api() and toasts: stacking, placement, deferred commit with undo, copy
+js/api.js               # api() and how a failed request is said, copy
+js/notices.js           # messages in context: banners, undos where the action was, status-line messages, dots, deferred sends
 js/tooltip.js           # hover/focus tooltips and the touch long-press tooltip
 js/doc-tabs.js          # several documents: the list, tabs and links
 js/revisions.js         # the changes view: source diff, comparison PDF, [변경 보기] from a pin

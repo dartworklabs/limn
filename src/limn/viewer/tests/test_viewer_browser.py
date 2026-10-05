@@ -31,7 +31,7 @@ from limn.revisions import core as revisions, execution as revision_execution
 from limn.security.access import LOCAL_ACTOR
 
 import helpers_figure
-from helpers import SW_JS, add_pin, blank_png, find_record, minimal_pdf, ps, records, trash_records
+from helpers import SW_JS, add_pin, blank_png, edit_stored, find_record, minimal_pdf, ps, records, trash_records
 from helpers_access import ALICE, BOB, CAROL, REPO_NEW as NEW, REPO_OLD as OLD, actor
 from helpers_authority import post_authority
 from helpers_browser import BrowserBase, booted, settle, watch_idle
@@ -149,8 +149,10 @@ class ViewerFlows(BrowserBase):
         settle(page)
         return page
 
-    def toast(self, page, text):
-        return page.locator("#toasts .toast").filter(has_text=text).first
+    def held(self, page, text):
+        """The message on screen that says text (an undo row or card note, a banner, or the status line holding it):
+        its [되돌리기] is its button of that name, its [x] its icon button (docs/handbook/viewer.md §알림 자리)."""
+        return page.locator(".nt, #status").filter(has_text=text).first
 
     def english_only(self, page, sel):
         text = page.inner_text(sel)
@@ -170,7 +172,11 @@ class ViewerFlows(BrowserBase):
     # -- 1. one Reply: the rule, the preview, keep state, undo
 
     def test_reply_reopens_with_preview_and_undo(self):
+        """A review card offers [답글], not [다시 열기]; the reply previews that it reopens, nothing is sent while its
+        [되돌리기] waits in the card, the undo puts the text back, and [x] on it sends the reopen at once."""
+
         def flow(page, device, lang):
+            """One device and language: the preview, the undo, then the send by [x]."""
             t = TXT[lang]
             card = '#review-pins .pin[data-id="%d"]' % self.rv
             acts = page.evaluate(
@@ -189,7 +195,7 @@ class ViewerFlows(BrowserBase):
             if lang == "en":
                 self.english_only(page, card + " .reply-box")
             page.click(card + " [data-act=reply-send]")
-            tst = self.toast(page, t["undo"])
+            tst = self.held(page, t["undo"])
             tst.wait_for(state="visible")
             self.assertEqual(self.state(self.rv), "review")  # nothing sent while undo is possible
             tst.get_by_role("button", name=t["undo"]).click()
@@ -198,9 +204,9 @@ class ViewerFlows(BrowserBase):
             settle(page)  # a request the undo failed to cancel would have been answered by now
             self.assertEqual(self.state(self.rv), "review")
             page.click(card + " [data-act=reply-send]")
-            tst = self.toast(page, t["undo"])
+            tst = self.held(page, t["undo"])
             tst.wait_for(state="visible")
-            tst.locator("button.btn-icon").click()  # dismissing the toast sends at once
+            tst.locator("button.btn-icon").click()  # dismissing the undo sends at once
             self.wait_state(self.rv, "open")
             last = find_record(ps.APP.snapshot_pins(), self.rv)["thread"][-1]
             self.assertEqual((last.get("ev"), last["text"]), ("reopen", "식 번호가 아직 틀립니다"))
@@ -209,7 +215,10 @@ class ViewerFlows(BrowserBase):
         self.run_matrix(flow)
 
     def test_keep_state_sends_a_comment(self):
+        """[상태 유지] turns the reply into a comment: [x] on its undo sends it and the pin stays in review."""
+
         def flow(page, device, lang):
+            """One device and language: keep state on, send, dismiss the undo."""
             t = TXT[lang]
             card = '#review-pins .pin[data-id="%d"]' % self.rv
             page.click(card + " .acts [data-act=reply-open]")
@@ -218,14 +227,16 @@ class ViewerFlows(BrowserBase):
             self.assertEqual(page.get_attribute(card + " [data-act=reply-flip]", "aria-checked"), "true")
             self.assertEqual(page.inner_text(card + " .r-outcome .r-out-t"), t["keep"])
             page.click(card + " [data-act=reply-send]")
-            self.toast(page, t["undo"]).locator("button.btn-icon").click()
-            settle(page)  # the reply the dismissed toast sends has been answered
+            self.held(page, t["undo"]).locator("button.btn-icon").click()
+            settle(page)  # the reply the dismissed undo sends has been answered
             last = find_record(ps.APP.snapshot_pins(), self.rv)["thread"][-1]
             self.assertEqual((last.get("ev"), last["text"], self.state(self.rv)), (None, "내일 다시 볼게요", "review"))
 
         self.run_matrix(flow)
 
     def test_mention_preview_keeps_state(self):
+        """A reply that @-tags a person keeps the state by default; [다시 열기] overrides it, and [x] on the undo sends
+        the reopen."""
         page = self.page_for("desktop", "ko")
         card = '#review-pins .pin[data-id="%d"]' % self.rv
         page.click(card + " .acts [data-act=reply-open]")
@@ -241,11 +252,14 @@ class ViewerFlows(BrowserBase):
             "보내면 이 핀이 다시 열려 에이전트에게 가고, Bob Park에게 알림이 갑니다",
         )
         page.click(card + " [data-act=reply-send]")
-        self.toast(page, "되돌리기").locator("button.btn-icon").click()
+        self.held(page, "되돌리기").locator("button.btn-icon").click()
         self.wait_state(self.rv, "open")
 
     def test_done_row_offers_reply_not_reopen(self):
+        """A done row offers [답글], not [다시 열기]; its reply previews the reopen and [x] on the undo sends it."""
+
         def flow(page, device, lang):
+            """One device and language: open the done section, reply, dismiss the undo."""
             page.click("#done-toggle")
             row = '#done-list .arc-row[data-id="%d"]' % self.dn
             page.wait_for_selector(row)
@@ -256,31 +270,41 @@ class ViewerFlows(BrowserBase):
             page.fill(row + " textarea.r-text", "다시 보니 문장이 어색합니다")
             self.assertEqual(page.inner_text(row + " .r-outcome .r-out-t"), TXT[lang]["reopen"])
             page.click(row + " [data-act=reply-send]")
-            self.toast(page, TXT[lang]["undo"]).locator("button.btn-icon").click()
+            self.held(page, TXT[lang]["undo"]).locator("button.btn-icon").click()
             self.wait_state(self.dn, "open")
 
         self.run_matrix(flow)
 
     def test_hidden_page_sends_at_once_and_drops_the_undo(self):
+        """The page hidden while a reply waits: it is sent at once and its [되돌리기], which could no longer cancel, goes."""
         page = self.page_for("desktop", "ko")
         card = '#review-pins .pin[data-id="%d"]' % self.rv
         page.click(card + " .acts [data-act=reply-open]")
         page.fill(card + " textarea.r-text", "숨기기 전에 보냄")
         page.click(card + " [data-act=reply-send]")
-        self.toast(page, "되돌리기").wait_for(state="visible")
+        self.held(page, "되돌리기").wait_for(state="visible")
         page.evaluate("window.dispatchEvent(new Event('pagehide'))")
         self.wait_state(self.rv, "open")
         settle(page)
-        self.assertEqual(self.toast(page, "되돌리기").count(), 0)  # an undo that could no longer work is gone
+        self.assertEqual(
+            page.locator(".nt", has_text="되돌리기").count(), 0
+        )  # an undo that could no longer work is gone
 
-    def test_newer_toasts_pushing_it_out_send_it(self):
+    def test_its_undo_window_ending_sends_it(self):
+        """Nothing is sent while the reply's [되돌리기] waits in its card; when that window (NOTICE_MS, 6s) ends the reply
+        is sent and the undo goes - the end of the window, not a newer message, is what sends it."""
         page = self.page_for("desktop", "ko")
         card = '#review-pins .pin[data-id="%d"]' % self.rv
         page.click(card + " .acts [data-act=reply-open]")
-        page.fill(card + " textarea.r-text", "밀려나면 보냄")
+        page.fill(card + " textarea.r-text", "기다리면 보냄")
         page.click(card + " [data-act=reply-send]")
-        page.evaluate("for(let i=0;i<6;i++)toast('다른 알림 '+i,'ok')")
+        self.held(page, "되돌리기").wait_for(state="visible")
+        page.mouse.move(1, 1)  # off the note: a pointer on it holds its window
+        settle(page)
+        self.assertEqual(self.state(self.rv), "review")
+        page.wait_for_function("!document.querySelector('.nt-note')", timeout=10000)  # the 6s window, waited out
         self.wait_state(self.rv, "open")
+        self.assertEqual(page.locator(".nt", has_text="되돌리기").count(), 0)
 
     def test_outcome_line_follows_a_state_change_while_typing(self):
         """A concurrent close updates the reply outcome preview without discarding the text being typed."""
@@ -309,10 +333,11 @@ class ViewerFlows(BrowserBase):
                 page.wait_for_selector('#pins .pin[data-id="%d"]' % self.open_id, state="visible")
                 self.assertEqual(page.get_attribute("#open-toggle", "aria-expanded"), "true")
 
-    def test_delete_toast_undo_restores(self):
+    def test_delete_undo_restores(self):
+        """[삭제] leaves a row with [되돌리기] in the card's place; it restores the pin, and the Trash is empty again."""
         page = self.page_for("desktop", "ko")
         page.click('#pins .pin[data-id="%d"] [data-act=drop]' % self.open_id)
-        self.toast(page, "되돌리기").get_by_role("button", name="되돌리기").click()
+        self.held(page, "되돌리기").get_by_role("button", name="되돌리기").click()
         page.wait_for_function("OPEN_ALL.some(p=>p.id===%d)" % self.open_id, timeout=5000)
         self.assertIsNotNone(find_record(ps.APP.snapshot_pins(), self.open_id))
         self.assertEqual(trash_records(), [])
@@ -328,11 +353,15 @@ class ViewerFlows(BrowserBase):
         page.wait_for_selector("#trash[open]")
 
     def test_delete_undo_and_trash_restore(self):
+        """[삭제] removes the card and leaves its [되돌리기] in its place; the pin is in the Trash at once, and a person
+        who is not the owner restores it from there (no [영구 삭제])."""
+
         def flow(page, device, lang):
+            """One device and language: delete, check the Trash, restore from it."""
             t = TXT[lang]
             page.click('#pins .pin[data-id="%d"] [data-act=drop]' % self.open_id)
             page.wait_for_function("!document.querySelector('#pins .pin[data-id=\"%d\"]')" % self.open_id, timeout=3000)
-            self.toast(page, t["undo"]).wait_for(state="visible")
+            self.held(page, t["undo"]).wait_for(state="visible")
             settle(page)  # the drop has been answered
             self.assertIsNone(find_record(ps.APP.snapshot_pins(), self.open_id))
             page.wait_for_function("DROPPED.length===1", timeout=5000)
@@ -353,7 +382,8 @@ class ViewerFlows(BrowserBase):
         self.run_matrix(flow)
 
     def test_owner_deletes_forever_with_undo(self):
-        """Trash purge stays undoable until the toast is dismissed, then removes the persisted trash record."""
+        """Trash purge stays undoable while its row waits in the Trash, and dismissing that row removes the persisted
+        trash record."""
         ps.APP.C.people_file.write_text(
             json.dumps(
                 {
@@ -374,13 +404,13 @@ class ViewerFlows(BrowserBase):
         row = '#trash .arc-row[data-id="%d"]' % self.open_id
         page.wait_for_selector(row + " [data-act=purge]")
         page.click(row + " [data-act=purge]")
-        tst = self.toast(page, "되돌리기")
+        tst = self.held(page, "되돌리기")
         tst.get_by_role("button", name="되돌리기").click()
         settle(page)
         self.assertEqual([r["id"] for r in trash_records()], [self.open_id])
         page.click(row + " [data-act=purge]")
-        self.toast(page, "되돌리기").locator("button.btn-icon").click()
-        settle(page)  # the permanent delete the dismissed toast sends has been answered
+        self.held(page, "되돌리기").locator("button.btn-icon").click()
+        settle(page)  # the permanent delete the dismissed undo sends has been answered
         self.assertEqual(trash_records(), [])
 
     def test_ref_to_deleted_pin_in_a_thread(self):
@@ -485,6 +515,16 @@ class ColdDeepLink(BrowserBase):
         page.wait_for_function("typeof OPEN_ALL!=='undefined'&&OPEN_ALL.length>=20&&META", timeout=20000)
         self.addCleanup(lambda: self.assertEqual(errors, []))
         return page
+
+    def press_on_line(self, page, text, act):
+        """Presses act ('notice-act': the message's action, 'notice-x': its [x]) on the status line's message that says
+        text - on the line itself, or in its '+N' list when a newer message stands on the line (docs/handbook/viewer.md
+        §알림 자리: the line shows the newest message, the list every one)."""
+        line = page.locator("#status", has_text=text)
+        if not line.count():
+            page.locator("#status [data-act=status-more]").click()
+            line = page.locator("#status-list .st-row", has_text=text)
+        line.locator("[data-act=%s]" % act).click()
 
     def assert_card_shown(self, page, pid, device):
         page.wait_for_function(
@@ -770,12 +810,12 @@ class ColdDeepLink(BrowserBase):
         page.evaluate("discardSelection()")
         page.evaluate("async()=>await switchDoc('hl')")
         page.wait_for_function("DOC==='hl'&&document.querySelector('#note').value==='Existing B note'", timeout=8000)
-        page.locator("#toasts .toast", has_text="선택 취소됨").locator("button", has_text="되돌리기").click()
+        self.press_on_line(page, "선택 취소됨", "notice-act")
         self.assertEqual(page.locator("#note").input_value(), "Existing B note")
         self.assertIsNotNone(page.evaluate("sessionStorage.getItem(draftKey(META.label,'hl'))"))
         self.assertIsNotNone(page.evaluate("sessionStorage.getItem(draftKey(META.label,'ms'))"))
 
-    def test_a_discard_toast_expiry_does_not_remove_b_draft(self):
+    def test_a_discard_undo_ending_does_not_remove_b_draft(self):
         """Ending A's discard window removes only A's held version after B has written a draft."""
         page = self.cold("#doc=ms", "desktop")
         self.open_composer(page)
@@ -786,13 +826,13 @@ class ColdDeepLink(BrowserBase):
         self.open_composer(page)
         page.locator("#note").fill("B note")
         page.wait_for_function("DRAFT.timer===0&&!!sessionStorage.getItem(draftKey(META.label,'hl'))", timeout=8000)
-        page.locator("#toasts .toast", has_text="선택 취소됨").locator("button[aria-label]").click()
+        self.press_on_line(page, "선택 취소됨", "notice-x")
         self.assertIsNone(page.evaluate("sessionStorage.getItem(draftKey(META.label,'ms'))"))
         self.assertIsNotNone(page.evaluate("sessionStorage.getItem(draftKey(META.label,'hl'))"))
         self.assertEqual(page.locator("#note").input_value(), "B note")
 
-    def test_old_discard_toast_does_not_remove_a_new_a_draft(self):
-        """An old A toast loses ownership once a later A draft has replaced its stored version."""
+    def test_old_discard_undo_does_not_remove_a_new_a_draft(self):
+        """An old A undo loses ownership once a later A draft has replaced its stored version."""
         page = self.cold("#doc=ms", "desktop")
         self.open_composer(page)
         page.locator("#note").fill("Old A note")
@@ -805,10 +845,10 @@ class ColdDeepLink(BrowserBase):
         page.wait_for_function(
             "DRAFT.timer===0&&sessionStorage.getItem(draftKey(META.label,'ms')).includes('New A note')", timeout=8000
         )
-        page.locator("#toasts .toast", has_text="선택 취소됨").locator("button[aria-label]").click()
+        self.press_on_line(page, "선택 취소됨", "notice-x")
         self.assertIn("New A note", page.evaluate("sessionStorage.getItem(draftKey(META.label,'ms'))"))
 
-    def test_old_discard_toast_does_not_remove_the_restored_a_draft(self):
+    def test_old_discard_undo_does_not_remove_the_restored_a_draft(self):
         """A restored selection owns its draft even when its stored bytes still match the old held version."""
         page = self.cold("#doc=ms", "desktop")
         self.open_composer(page)
@@ -818,7 +858,7 @@ class ColdDeepLink(BrowserBase):
         for key in ("hl", "ms"):
             page.evaluate("async key=>await switchDoc(key)", key)
         page.wait_for_function("COMPOSE.current&&!document.querySelector('#composer').hidden", timeout=8000)
-        page.locator("#toasts .toast", has_text="선택 취소됨").locator("button[aria-label]").click()
+        self.press_on_line(page, "선택 취소됨", "notice-x")
         self.assertIn("A note", page.evaluate("sessionStorage.getItem(draftKey(META.label,'ms'))"))
 
     def test_repick_releases_waiting_selection_without_losing_note(self):
@@ -916,6 +956,8 @@ class PreviewEqualsServer(BrowserBase):
             self.pins.append(pid)
 
     def run_case(self, page, pid, pick, text):
+        """Replies text on review pin pid (with pick chosen from the @-list, if any), sends it by [x] on its undo, and
+        returns (the preview shown before sending, whether the pin is open after, the names the reply @-tagged)."""
         card = '#review-pins .pin[data-id="%d"]' % pid
         page.evaluate("OPEN_CARDS.add(%d); drawPins()" % pid)
         page.click(card + " .acts [data-act=reply-open]")
@@ -929,8 +971,8 @@ class PreviewEqualsServer(BrowserBase):
         settle(page)
         preview = page.inner_text(card + " .r-outcome .r-out-t")
         page.click(card + " [data-act=reply-send]")
-        page.locator("#toasts .toast").first.locator("button.btn-icon").click()
-        settle(page)  # the reply the dismissed toast sends has been answered
+        page.locator(card + " .nt-note [data-act=notice-x]").click()
+        settle(page)  # the reply the dismissed undo sends has been answered
         r = find_record(ps.APP.snapshot_pins(), pid)
         last = r["thread"][-1]
         return (
@@ -982,13 +1024,14 @@ class ReplyKeyboardAndFailure(BrowserBase):
         return card
 
     def test_ctrl_enter_moves_focus_to_undo(self):
+        """A reply sent with Ctrl+Enter puts the focus on its [되돌리기] in the card, so Enter takes it back unsent."""
         page = self.open(0)
         card = self.box(page)
         page.fill(card + " textarea.r-text", "키보드로 보냄")
         page.focus(card + " textarea.r-text")
         page.keyboard.press("Control+Enter")
         page.wait_for_function(
-            "document.activeElement&&document.activeElement.closest('.toast')&&document.activeElement.textContent==='되돌리기'"
+            "document.activeElement&&!!document.activeElement.closest('.pin .nt-note')&&document.activeElement.textContent==='되돌리기'"
         )
         page.keyboard.press("Enter")
         page.wait_for_selector(card + " textarea.r-text")
@@ -997,12 +1040,13 @@ class ReplyKeyboardAndFailure(BrowserBase):
         self.assertEqual(pin_state(find_record(ps.APP.snapshot_pins(), self.rv)), "review")
 
     def test_offline_failure_reopens_the_box_with_the_draft_and_an_error(self):
+        """A reply that cannot reach the server comes back into its box with its text and the error line under it."""
         page = self.open(0)
         page.route("**/api/pins/*/reply", lambda r: r.abort())
         card = self.box(page)
         page.fill(card + " textarea.r-text", "오프라인에서 쓴 글")
         page.click(card + " [data-act=reply-send]")
-        page.locator("#toasts .toast").first.locator("button.btn-icon").click()
+        page.locator(card + " .nt-note [data-act=notice-x]").click()
         page.wait_for_selector(card + " .reply-box .r-err:not([hidden])", timeout=5000)
         self.assertEqual(page.input_value(card + " textarea.r-text"), "오프라인에서 쓴 글")
         self.assertEqual(pin_state(find_record(ps.APP.snapshot_pins(), self.rv)), "review")
@@ -1332,7 +1376,8 @@ COUNT_CONFIRMS = (
 class ReviewInChanges(RevisionPins):
     """The review ends in the changes view (docs/handbook/viewer.md §변경 보기): an awaiting-review pin's guide line has
     [확인] (data-act="confirm", the card's), on the phone in the thumb row (#revision-acts) above the status line and the
-    tool bar. It confirms, returns to the manuscript and shows the [되돌리기] toast; the request leaves when the toast does,
+    tool bar. It confirms, returns to the manuscript and leaves its [되돌리기] (in the card's place, or on the status line
+    while the panel is closed); the request leaves when that undo does,
     and undoing sends nothing. Open and done pins have no [확인]."""
 
     def open_at(self, screen, pid, lang="ko"):
@@ -1357,7 +1402,7 @@ class ReviewInChanges(RevisionPins):
     def test_the_guide_line_confirms_returns_and_undoes(self):
         """[확인] in the guide line (the thumb row on the phone): back to the manuscript, the card leaves the review section,
         nothing is sent while [되돌리기] is up; undo brings the card back with no request; confirming again and dismissing
-        the toast sends one request and the pin is done."""
+        the undo sends one request and the pin is done."""
         for screen in REVIEW_SCREENS:
             with self.subTest(screen=screen):
                 self.tearDown()
@@ -1386,11 +1431,11 @@ class ReviewInChanges(RevisionPins):
                     self.assertFalse(self.visible(page, "#revision-acts"))
                 page.click(btn)
                 page.wait_for_function("!document.body.classList.contains('revision-open')")
-                page.wait_for_selector(".toast:has-text('%s')" % TXT["ko"]["undo"])
+                page.wait_for_selector(":is(.nt,#status):has-text('%s')" % TXT["ko"]["undo"])
                 page.evaluate("setSide(true); SEC.review=true; drawPins()")
                 self.assertFalse(self.reviewing(page, self.p2))
                 self.assertEqual(page.evaluate("CONFIRMS"), [])
-                page.click(".toast button:has-text('%s')" % TXT["ko"]["undo"])
+                page.click(":is(.nt,#status) [data-act=notice-act]:has-text('%s')" % TXT["ko"]["undo"])
                 page.wait_for_function("REVIEW_ALL.some(p=>p.id===%d)" % self.p2)
                 settle(page)
                 self.assertTrue(self.reviewing(page, self.p2))
@@ -1399,8 +1444,8 @@ class ReviewInChanges(RevisionPins):
                 page.evaluate("showChange(%d)" % self.p2)
                 page.wait_for_selector(btn + ":visible", timeout=15000)
                 page.click(btn)
-                page.wait_for_selector(".toast:has-text('%s')" % TXT["ko"]["undo"])
-                page.click(".toast:has-text('%s') [aria-label='알림 닫기']" % TXT["ko"]["undo"])
+                page.wait_for_selector(":is(.nt,#status):has-text('%s')" % TXT["ko"]["undo"])
+                page.click(":is(.nt,#status):has-text('%s') [data-act=notice-x]" % TXT["ko"]["undo"])
                 page.wait_for_function("CONFIRMS.length===1")
                 page.wait_for_function("DONE_ALL.some(p=>p.id===%d)" % self.p2, timeout=10000)
                 settle(page)
@@ -1408,7 +1453,13 @@ class ReviewInChanges(RevisionPins):
                 self.assertFalse(self.reviewing(page, self.p2))
 
     def state(self, pid):
+        """Pin pid's state on the server."""
         return pin_state(find_record(ps.APP.snapshot_pins(), pid))
+
+    def shown_close_long_ago(self, pid):
+        """Puts the close pin pid shows (its done_at) in the past, so a close made during the test is another one -
+        done_at is to the second - and a confirm naming the shown close answers 409 conflict."""
+        edit_stored(lambda rows: [r.update(done_at="2020-01-01 00:00:00") for r in rows if r["id"] == pid])
 
     def test_open_and_done_pins_have_no_confirm(self):
         """The guide line of an open pin and of a done pin keeps [원고로] and has no [확인], on both screens."""
@@ -1428,65 +1479,65 @@ class ReviewInChanges(RevisionPins):
                         )
                     )
 
-    def test_the_card_confirm_waits_for_its_toast_and_says_when_it_was_reopened(self):
-        """The card's [확인] is the same deferred send: the card leaves at once, nothing is sent while the toast is up. If
+    def test_the_card_confirm_waits_for_its_undo_and_says_when_it_was_reopened(self):
+        """The card's [확인] is the same deferred send: the card leaves at once, nothing is sent while its undo is up. If
         someone reopened the pin meanwhile (a person's reply), the send answers 409 and the viewer says so."""
         page = self._page = self.open(0, init=COUNT_CONFIRMS, **REVIEW_SCREENS["desktop"])
         page.evaluate("setSide(true); SEC.review=true; OPEN_CARDS.add(%d); drawPins()" % self.p1)
         settle(page)
         page.click('#sec-review [data-id="%d"] [data-act=confirm]' % self.p1)
-        page.wait_for_selector(".toast:has-text('%s')" % TXT["ko"]["undo"])
+        page.wait_for_selector(":is(.nt,#status):has-text('%s')" % TXT["ko"]["undo"])
         self.assertFalse(self.reviewing(page, self.p1))
         self.assertEqual(page.evaluate("CONFIRMS"), [])
         ps.APP.pin_lifecycle.reply_pin(
             self.p1, "아직 아닙니다", post_authority(ps.APP.pin_lifecycle.context().store, A, "reply", self.p1)
         )
-        page.click(".toast:has-text('%s') [aria-label='알림 닫기']" % TXT["ko"]["undo"])
+        page.click(":is(.nt,#status):has-text('%s') [data-act=notice-x]" % TXT["ko"]["undo"])
         page.wait_for_function("CONFIRMS.length===1")
-        page.wait_for_selector(".toast.warn:has-text('이미 다시 열렸습니다')", timeout=10000)
+        page.wait_for_selector(".nt-banner.nk-warn[role=alert]:has-text('이미 다시 열렸습니다')", timeout=10000)
         settle(page)
         self.assertEqual(self.state(self.p1), "open")
 
-    def test_the_card_confirm_refuses_a_close_redone_while_its_toast_was_up(self):
+    def test_the_card_confirm_refuses_a_close_redone_while_its_undo_was_up(self):
         """The deferred [확인] names the close the card showed. If the agent reopened and closed the pin again meanwhile,
         the send answers 409 conflict, the viewer says so, and the pin stays awaiting review with the new close."""
+        self.shown_close_long_ago(self.p1)
         page = self._page = self.open(0, init=COUNT_CONFIRMS, **REVIEW_SCREENS["desktop"])
         page.evaluate("setSide(true); SEC.review=true; OPEN_CARDS.add(%d); drawPins()" % self.p1)
         settle(page)
         page.click('#sec-review [data-id="%d"] [data-act=confirm]' % self.p1)
-        page.wait_for_selector(".toast:has-text('%s')" % TXT["ko"]["undo"])
+        page.wait_for_selector(":is(.nt,#status):has-text('%s')" % TXT["ko"]["undo"])
         store = ps.APP.pin_lifecycle.context().store
-        with mock.patch.object(ps.APP.assembly.pins.commands, "now_str", return_value="2099-01-01 00:00:00"):
-            ps.APP.pin_lifecycle.reopen_pin(self.p1, post_authority(store, dict(LOCAL_ACTOR), "reopen", self.p1))
-            ps.APP.pin_lifecycle.close_pin(
-                self.p1, post_authority(store, dict(LOCAL_ACTOR), "close", self.p1), CloseRequest()
-            )
-        page.click(".toast:has-text('%s') [aria-label='알림 닫기']" % TXT["ko"]["undo"])
+        ps.APP.pin_lifecycle.reopen_pin(self.p1, post_authority(store, dict(LOCAL_ACTOR), "reopen", self.p1))
+        ps.APP.pin_lifecycle.close_pin(
+            self.p1, post_authority(store, dict(LOCAL_ACTOR), "close", self.p1), CloseRequest()
+        )
+        page.click(":is(.nt,#status):has-text('%s') [data-act=notice-x]" % TXT["ko"]["undo"])
         page.wait_for_function("CONFIRMS.length===1")
-        page.wait_for_selector(".toast.warn:has-text('다시 닫혔습니다')", timeout=10000)
+        page.wait_for_selector(".nt-banner.nk-warn[role=alert]:has-text('다시 닫혔습니다')", timeout=10000)
         settle(page)
         self.assertEqual(self.state(self.p1), "review")
 
     def test_the_card_confirm_of_a_pin_a_person_closed_to_done_says_there_is_nothing_to_confirm(self):
-        """If a person reopened the pin and closed it straight to done while the deferred [확인]'s toast was up, the send
+        """If a person reopened the pin and closed it straight to done while the deferred [확인]'s undo was up, the send
         answers 409 conflict with a done pin: the viewer says it was already closed and there is nothing to confirm,
         not "closed again - look and confirm" (the pin has no [확인] any more), and nothing is confirmed."""
+        self.shown_close_long_ago(self.p1)
         page = self._page = self.open(0, init=COUNT_CONFIRMS, **REVIEW_SCREENS["desktop"])
         page.evaluate("setSide(true); SEC.review=true; OPEN_CARDS.add(%d); drawPins()" % self.p1)
         settle(page)
         page.click('#sec-review [data-id="%d"] [data-act=confirm]' % self.p1)
-        page.wait_for_selector(".toast:has-text('%s')" % TXT["ko"]["undo"])
+        page.wait_for_selector(":is(.nt,#status):has-text('%s')" % TXT["ko"]["undo"])
         store = ps.APP.pin_lifecycle.context().store
-        with mock.patch.object(ps.APP.assembly.pins.commands, "now_str", return_value="2099-01-01 00:00:00"):
-            ps.APP.pin_lifecycle.reopen_pin(self.p1, post_authority(store, A, "reopen", self.p1))
-            ps.APP.pin_lifecycle.close_pin(self.p1, post_authority(store, A, "close", self.p1), CloseRequest())
+        ps.APP.pin_lifecycle.reopen_pin(self.p1, post_authority(store, A, "reopen", self.p1))
+        ps.APP.pin_lifecycle.close_pin(self.p1, post_authority(store, A, "close", self.p1), CloseRequest())
         self.assertEqual(self.state(self.p1), "done")
-        page.click(".toast:has-text('%s') [aria-label='알림 닫기']" % TXT["ko"]["undo"])
+        page.click(":is(.nt,#status):has-text('%s') [data-act=notice-x]" % TXT["ko"]["undo"])
         page.wait_for_function("CONFIRMS.length===1")
-        page.wait_for_selector(".toast.warn:has-text('이미 완료로 닫혔습니다')", timeout=10000)
+        page.wait_for_selector(".nt-banner.nk-info:has-text('이미 완료로 닫혔습니다')", timeout=10000)
         settle(page)
         self.assertFalse(
-            page.evaluate("[...document.querySelectorAll('.toast')].some(t=>t.textContent.includes('다시 닫혔습니다'))")
+            page.evaluate("[...document.querySelectorAll('.nt')].some(t=>t.textContent.includes('다시 닫혔습니다'))")
         )
         record = find_record(ps.APP.snapshot_pins(), self.p1)
         self.assertEqual((pin_state(record), record.get("confirmed_by")), ("done", None))
@@ -2059,7 +2110,7 @@ class FigureDocuments(BrowserBase):
 
     def test_a_lost_element_shows_element_lost_like_a_lost_line(self):
         """The re-render drops the cell: the card gets '요소 잃음', the lost dot and the warning border, the mark stays
-        where the pin was placed in the warning colour, and one toast says so."""
+        where the pin was placed in the warning colour, and one status-line message says so."""
         page = self.open_fig()
         pid = self.saved_cell_pin(page, "7월 칸 글자 키우기")
         self.rerender_and_refresh(page, july=None)
@@ -2071,7 +2122,7 @@ class FigureDocuments(BrowserBase):
         self.assertTrue(page.evaluate("s=>document.querySelector(s).classList.contains('st')", card))
         self.assertTrue(page.evaluate("s=>document.querySelector(s).classList.contains('st')", mark))
         self.assert_box(page, mark, 1, helpers_figure.JULY)
-        self.assertEqual(page.locator("#toasts .toast").filter(has_text="#%d 요소를 잃었습니다" % pid).count(), 1)
+        self.assertEqual(page.evaluate("t=>LINE.filter(n=>n.title===t).length", "#%d 요소를 잃었습니다" % pid), 1)
 
     def test_a_region_pins_card_and_edit_card_name_the_page_its_element_is_on_now(self):
         """The August cell is drawn without code, so it is pinned as a region with its element. After a re-render takes

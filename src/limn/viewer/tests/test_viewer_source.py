@@ -327,6 +327,12 @@ VIEWER_SETS = {
     "UI_LANG",
     "NOTIFY_STATE",
     "STATUS_KIND",
+    "NOTICE_KIND",
+    "NOTICE_PLACE",
+    "NOTICE_HOST",
+    "NOTICE_LIFE",
+    "NOTICE_DOT",
+    "NOTICE_TOPIC",
 }
 
 

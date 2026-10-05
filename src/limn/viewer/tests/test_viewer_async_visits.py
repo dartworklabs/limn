@@ -28,7 +28,7 @@ class AsyncDocumentVisits(unittest.TestCase):
                 function $(name){if(!nodes.has(name))nodes.set(name,{hidden:false});return nodes.get(name);}
                 function api(url){calls.push(url);return new Promise(resolve=>{finish=resolve;});}
                 function pollBuild(){calls.push('poll:'+DOC);}
-                function toast(){calls.push('toast');}
+                function lineNote(){calls.push('said');}
                 (async()=>{
                   const old=rebuild();DOC='b';SWITCHSEQ++;
                   finish({status:200});await old;
@@ -142,7 +142,8 @@ class VisitLocalContinuations(unittest.TestCase):
                 function savedDraftSnapshot(){return null;} function restoredDraftOwns(){return false;} function clearSavedDraft(){}
                 function restoreSelection(){restores++;}
                 function dropPin(){drops++;}
-                function tl(s){return s;}function toast(msg,type,action){undo=action.fn;}
+                function tl(s){return s;}function tr(s){return s;}const BANNERS=new Map();function endNotice(){}
+                function undoNote(place,msg,act){undo=act.fn;return null;}function settleChip(){}
                 function loadPins(){loads++;return Promise.resolve();}
                 function api(){return new Promise(resolve=>{finish=resolve;});}
                 """,
@@ -228,26 +229,26 @@ class VisitLocalContinuations(unittest.TestCase):
                 extract_js_fn("appendToPin"),
                 """
                 let DOC='a',SWITCHSEQ=1,PINS=[{id:7,note:'old'}]; const COMPOSE={current:{doc:'a'},box:{remove(){removed++;}}};
-                let finish,removed=0,cleared=0,toasts=0,loads=0;
+                let finish,removed=0,cleared=0,said=0,loads=0;
                 function api(){return new Promise(resolve=>{finish=resolve;});}
                 function cancelSelection(){cleared++;COMPOSE.current=null;}
                 function syncDraft(){} function savedDraftSnapshot(){return null;}
                 function restoredDraftOwns(){return false;} function clearSavedDraft(){}
-                function toast(){toasts++;}function tl(s){return s;}
+                function undoNote(){said++;return null;}function settleChip(){}function tl(s){return s;}function tr(s){return s;}
                 function loadPins(){loads++;return Promise.resolve();}
                 function undoAppend(){}
                 (async()=>{
                   const old=appendToPin(7,'new');COMPOSE.current={doc:'a',newSelection:true};
                   COMPOSE.box={remove(){removed++;}};
                   finish({data:{pin:{rev:2}}});await old;
-                  console.log(JSON.stringify({newSelection:COMPOSE.current.newSelection,pending:!!COMPOSE.box,removed,cleared,toasts,loads}));
+                  console.log(JSON.stringify({newSelection:COMPOSE.current.newSelection,pending:!!COMPOSE.box,removed,cleared,said,loads}));
                 })();
                 """,
             ]
         )
         self.assertEqual(
             json.loads(run_node(js)),
-            {"newSelection": True, "pending": True, "removed": 0, "cleared": 0, "toasts": 1, "loads": 1},
+            {"newSelection": True, "pending": True, "removed": 0, "cleared": 0, "said": 1, "loads": 1},
         )
 
     def test_failed_drop_restores_global_pin_without_restoring_old_document_rows(self):
@@ -261,7 +262,7 @@ class VisitLocalContinuations(unittest.TestCase):
                 let DOC='a',SWITCHSEQ=1,PINS_APPLIED_SEQ=0,OPEN_ALL=[{id:1,doc:'a'},{id:2,doc:'b'}],PINS=[OPEN_ALL[0]]; const EDITOR={current:null,saving:false};
                 let fail,draws=0,marksCount=0,loads=0;
                 function pdoc(p){return p.doc;}
-                function drawPins(){draws++;}function marks(){marksCount++;}
+                function drawPins(){draws++;}function marks(){marksCount++;}function $(){return {};}function drawnBefore(){return null;}
                 function api(){return new Promise((resolve,reject)=>{fail=reject;});}
                 function loadPins(){loads++;return Promise.resolve(false);}
                 (async()=>{
@@ -285,7 +286,7 @@ class VisitLocalContinuations(unittest.TestCase):
                 const pending={};let loads=0;
                 function pdoc(p){return p.doc;}
                 function drawPins(){}function marks(){}function markMine(){}
-                function tl(s){return s;}function toast(){}function restorePin(){}
+                function tl(s){return s;}function undoNote(){}function quietNote(){}function restorePin(){}function $(){return {};}function drawnBefore(){return null;}
                 function api(url){const id=Number(url.split('/')[3]);return new Promise((resolve,reject)=>{pending[id]={resolve,reject};});}
                 function loadPins(){loads++;return Promise.resolve(false);}
                 (async()=>{
@@ -313,22 +314,22 @@ class VisitLocalContinuations(unittest.TestCase):
                 """
                 let DOC='a',SWITCHSEQ=1;
                 const first={id:1,base_rev:1,lo:1,hi:1,orig:{note:'old',lo:1,hi:1},el:{querySelector(){return {value:'changed'};}}};
-                const EDITOR={current:first,saving:false};let finish,loads=0,toasts=0;
+                const EDITOR={current:first,saving:false};let finish,loads=0,said=0;
                 function viewerBlocked(){return false;}
-                function mentionHints(){return [];}function toast(){toasts++;}function tl(s){return s;}
+                function mentionHints(){return [];}function quietNote(){said++;}function bannerNote(){said++;}function tl(s){return s;}
                 function loadPins(){loads++;return Promise.resolve();}
                 function api(){return new Promise(resolve=>{finish=resolve;});}
                 (async()=>{
                   const old=saveEdit();EDITOR.current={id:2,newEditor:true};
                   finish({status:200,data:{pin:{id:1}}});await old;
-                  console.log(JSON.stringify({id:EDITOR.current.id,newEditor:EDITOR.current.newEditor,loads,toasts,saving:EDITOR.saving}));
+                  console.log(JSON.stringify({id:EDITOR.current.id,newEditor:EDITOR.current.newEditor,loads,said,saving:EDITOR.saving}));
                 })();
                 """,
             ]
         )
         self.assertEqual(
             json.loads(run_node(js)),
-            {"id": 2, "newEditor": True, "loads": 1, "toasts": 1, "saving": False},
+            {"id": 2, "newEditor": True, "loads": 1, "said": 1, "saving": False},
         )
 
     def test_save_edit_conflict_after_document_switch_refreshes_owned_editor(self):
@@ -341,21 +342,21 @@ class VisitLocalContinuations(unittest.TestCase):
                 """
                 let DOC='a',SWITCHSEQ=1;
                 const first={id:1,base_rev:1,lo:1,hi:1,orig:{note:'old',lo:1,hi:1},el:{querySelector(){return {value:'changed'};}}};
-                const EDITOR={current:first,saving:false};let finish,loads=0,snips=0,toasts=0;
+                const EDITOR={current:first,saving:false};let finish,loads=0,snips=0,said=0;
                 function viewerBlocked(){return false;}
-                function mentionHints(){return [];}function toast(){toasts++;}
+                function mentionHints(){return [];}function quietNote(){said++;}function bannerNote(){said++;}
                 function loadPins(){loads++;return Promise.resolve();}
                 function assigneeOf(){return 'agent';}function editSnip(){snips++;}
                 function api(){return new Promise(resolve=>{finish=resolve;});}
                 (async()=>{
                   const old=saveEdit();DOC='b';SWITCHSEQ++;
                   finish({status:409,data:{pin:{rev:2,lo:4,hi:5,file:'new.tex',note:'remote'}}});await old;
-                  console.log(JSON.stringify({rev:EDITOR.current.base_rev,lo:EDITOR.current.lo,snips,loads,toasts}));
+                  console.log(JSON.stringify({rev:EDITOR.current.base_rev,lo:EDITOR.current.lo,snips,loads,said}));
                 })();
                 """,
             ]
         )
-        self.assertEqual(json.loads(run_node(js)), {"rev": 2, "lo": 4, "snips": 1, "loads": 1, "toasts": 1})
+        self.assertEqual(json.loads(run_node(js)), {"rev": 2, "lo": 4, "snips": 1, "loads": 1, "said": 1})
 
     def test_save_edit_success_after_same_document_revisit_closes_owned_editor(self):
         """A saved card that survives A→B→A closes when its successful POST completes."""
@@ -367,20 +368,20 @@ class VisitLocalContinuations(unittest.TestCase):
                 """
                 let DOC='a',SWITCHSEQ=1;
                 const card={id:1,base_rev:1,lo:1,hi:1,orig:{note:'old',lo:1,hi:1},el:{querySelector(){return {value:'changed'};}}};
-                const EDITOR={current:card,saving:false};let finish,loads=0,toasts=0;
+                const EDITOR={current:card,saving:false};let finish,loads=0,said=0;
                 function viewerBlocked(){return false;}
-                function mentionHints(){return [];}function toast(){toasts++;}function tl(s){return s;}
+                function mentionHints(){return [];}function quietNote(){said++;}function bannerNote(){said++;}function tl(s){return s;}
                 function loadPins(){loads++;return Promise.resolve();}
                 function api(){return new Promise(resolve=>{finish=resolve;});}
                 (async()=>{
                   const old=saveEdit();DOC='b';SWITCHSEQ++;DOC='a';SWITCHSEQ++;
                   finish({status:200,data:{pin:{id:1}}});await old;
-                  console.log(JSON.stringify({kept:EDITOR.current===card,loads,toasts,saving:EDITOR.saving}));
+                  console.log(JSON.stringify({kept:EDITOR.current===card,loads,said,saving:EDITOR.saving}));
                 })();
                 """,
             ]
         )
-        self.assertEqual(json.loads(run_node(js)), {"kept": False, "loads": 1, "toasts": 1, "saving": False})
+        self.assertEqual(json.loads(run_node(js)), {"kept": False, "loads": 1, "said": 1, "saving": False})
 
     def test_repick_result_does_not_cancel_new_repick(self):
         """A completed location change keeps global feedback and leaves a later repick in place."""
@@ -392,28 +393,28 @@ class VisitLocalContinuations(unittest.TestCase):
                 """
                 let DOC='a',SWITCHSEQ=1;
                 const prior={id:1,cand:{file:'a.tex',page:1,lo:2,hi:3,kind:'line'}};
-                let REPICK=prior,finish,loads=0,toasts=0,cancels=0,snips=0;
+                let REPICK=prior,finish,loads=0,said=0,cancels=0,snips=0;
                 const EDITOR={current:{id:1,base_rev:1,orig:{lo:1,hi:1}},saving:false};
                 function lvOf(){return null;}function isRegion(){return false;}function figureFields(b){return b;}function repickEl(){return null;}function pinPlace(p){return {page:p.page};}
-                function tl(s){return s;}function toast(){toasts++;}
+                function tl(s){return s;}function quietNote(){said++;}function bannerNote(){said++;}
                 function cancelRepick(){cancels++;REPICK=null;}
                 function editSnip(){snips++;}function loadPins(){loads++;return Promise.resolve();}
                 function api(){return new Promise(resolve=>{finish=resolve;});}
                 (async()=>{
                   const old=applyRepick();REPICK={id:2,cand:{}};EDITOR.current={id:2,base_rev:1};
                   finish({status:200,data:{pin:{id:1,rev:2,lo:2,hi:3,file:'a.tex'}}});await old;
-                  console.log(JSON.stringify({repick:REPICK.id,edit:EDITOR.current.id,cancels,snips,loads,toasts}));
+                  console.log(JSON.stringify({repick:REPICK.id,edit:EDITOR.current.id,cancels,snips,loads,said}));
                 })();
                 """,
             ]
         )
         self.assertEqual(
             json.loads(run_node(js)),
-            {"repick": 2, "edit": 2, "cancels": 0, "snips": 0, "loads": 1, "toasts": 1},
+            {"repick": 2, "edit": 2, "cancels": 0, "snips": 0, "loads": 1, "said": 1},
         )
 
-    def test_repick_success_toast_names_the_page_the_mark_is_on_now(self):
-        """A re-placed figure region whose element the server found on another page is announced with that page (pinPlace),
+    def test_repick_success_is_read_out_naming_the_page_the_mark_is_on_now(self):
+        """A re-placed figure region whose element the server found on another page is read out with that page (pinPlace),
         not with the page it was first placed on; a pin without a found element keeps its own page."""
         for pin, expected_page in (
             ({"id": 1, "rev": 2, "page": 1, "mark": [0.1, 0.1, 0.2, 0.2], "mark_page": 3}, 3),
@@ -431,12 +432,12 @@ class VisitLocalContinuations(unittest.TestCase):
                         """
                         let DOC='a',SWITCHSEQ=1;
                         let REPICK={id:1,cand:{page:1,kind:'region',frac:[0,0,1,1]}};
-                        const EDITOR={current:null,saving:false}; const TOASTS=[];
+                        const EDITOR={current:null,saving:false}; const SAID=[];
                         function lvOf(){return null;}function isRegion(){return true;}function figureFields(b){return b;}function repickEl(){return null;}
-                        function tl(s,v){return s.replace(/\\{(\\w+)\\}/g,(m,k)=>v[k]);}function toast(m,k){TOASTS.push(m);}
+                        function tl(s,v){return s.replace(/\\{(\\w+)\\}/g,(m,k)=>v[k]);}function quietNote(m){SAID.push(m);}
                         function cancelRepick(){REPICK=null;}function editSnip(){}function loadPins(){return Promise.resolve();}
                         function api(){return Promise.resolve({status:200,data:{pin:PIN}});}
-                        (async()=>{await applyRepick(); console.log(JSON.stringify(TOASTS));})();
+                        (async()=>{await applyRepick(); console.log(JSON.stringify(SAID));})();
                         """.replace("PIN", json.dumps(pin)),
                     ]
                 )
@@ -457,11 +458,11 @@ class VisitLocalContinuations(unittest.TestCase):
                         """
                         let DOC='a',SWITCHSEQ=1;
                         const prior={id:1,cand:{file:'a.tex',page:1,lo:2,hi:3,kind:'line'}};
-                        let REPICK=prior,finish,loads=0,toasts=0,cancels=0,snips=0;
+                        let REPICK=prior,finish,loads=0,said=0,cancels=0,snips=0;
                         const card={id:1,base_rev:1,lo:1,hi:1,orig:{lo:1,hi:1}};
                         const EDITOR={current:card,saving:false};
                         function lvOf(){return null;}function isRegion(){return false;}function figureFields(b){return b;}function repickEl(){return null;}function pinPlace(p){return {page:p.page};}
-                        function tl(s){return s;}function toast(){toasts++;}
+                        function tl(s){return s;}function quietNote(){said++;}function bannerNote(){said++;}
                         function cancelRepick(){cancels++;REPICK=null;}
                         function editSnip(){snips++;}function loadPins(){loads++;return Promise.resolve();}
                         function api(){return new Promise(resolve=>{finish=resolve;});}
@@ -469,7 +470,7 @@ class VisitLocalContinuations(unittest.TestCase):
                           const pending=applyRepick();DOC='b';SWITCHSEQ++;cancelRepick();
                           finish(RESPONSE);await pending;
                           console.log(JSON.stringify({same:EDITOR.current===card,rev:card.base_rev,lo:card.lo,
-                            banner:REPICK,cancels,snips,loads,toasts}));
+                            banner:REPICK,cancels,snips,loads,said}));
                         })();
                         """.replace("RESPONSE", json.dumps({"status": status, "data": {"pin": pin}})),
                     ]
@@ -484,7 +485,7 @@ class VisitLocalContinuations(unittest.TestCase):
                         "cancels": 1,
                         "snips": expected_snips,
                         "loads": 1,
-                        "toasts": 1,
+                        "said": 1,
                     },
                 )
 

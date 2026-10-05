@@ -5,7 +5,7 @@ carries the pin as it stands. confirmConflictText chooses the warning from that 
 closed again and the person should look at the new result and confirm; any other state (a person closed it straight
 to done) leaves nothing to confirm. Run under node with the real confirmConflictText, pinState and message functions.
 
-Run: uv run pytest -q src/limn/viewer/tests/test_confirm_conflict_toast.py
+Run: uv run pytest -q src/limn/viewer/tests/test_confirm_conflict.py
 """
 
 import json
