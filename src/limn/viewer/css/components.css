@@ -94,7 +94,7 @@ input.n{width:58px;text-align:center}
   align-items:center;font-size:var(--text-base)}
 #build-err{padding:var(--space-2) var(--space-3);border-bottom:1px solid var(--border);background:var(--card);font-size:var(--text-base)}
 #composer{flex:none;max-height:62vh;overflow:auto;padding:var(--space-3);border-bottom:1px solid var(--border)}   /* the panel's own background on every layout: a --card box sat in the panel */
-#list{flex:1;overflow:auto;padding:0 var(--space-3) 32px;min-height:0}   /* the top padding belongs to the section header (.sec-head) - so a sticky element doesn't sit that far down */
+#list{flex:1;overflow:auto;padding:0 var(--space-3) var(--list-end);min-height:0}   /* the top padding belongs to the section header (.sec-head) - so a sticky element doesn't sit that far down */
 .busy{opacity:.45}
 pre{background:var(--code);border:0;border-radius:var(--radius);padding:var(--space-2);overflow:auto;font-size:var(--text-sm);
   line-height:1.5;max-height:44vh;font-family:var(--font-mono);tab-size:2;margin:var(--space-2) 0}

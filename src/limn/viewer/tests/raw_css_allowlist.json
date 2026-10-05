@@ -1,0 +1,93 @@
+{
+  "about": "Raw values the viewer CSS may keep outside tokens.css (test_viewer_raw_css.py, docs/handbook/viewer.md §리터럴 예외). Every entry names its file, selector, property and the raw value, with the reason no token fits. A new entry needs a reason; an entry that no longer matches a declaration fails the test.",
+  "hairline": {
+    "values": ["1px", "2px", "-1px", "-2px"],
+    "reason": "Hairlines and optical corrections in padding, margin and gap: a badge's 1px above and below, a segmented control's 2px between segments, a border's 1px taken off an edge. They are the width of a line, not a spacing step."
+  },
+  "entries": [
+    {
+      "file": "cards.css",
+      "selector": ".msg.ev",
+      "property": "padding-left",
+      "value": "28px",
+      "reason": "An event line starts where a post's text does: the thread avatar's 20px plus its 8px gap."
+    },
+    {
+      "file": "cards.css",
+      "selector": ".reply-box textarea",
+      "property": "min-height",
+      "value": "3.2em",
+      "reason": "A text field's height in lines of its own text (two lines), so it follows the touch text size."
+    },
+    {
+      "file": "components.css",
+      "selector": "textarea",
+      "property": "min-height",
+      "value": "4.8em",
+      "reason": "A text field's height in lines of its own text (three lines), so it follows the touch text size."
+    },
+    {
+      "file": "composer.css",
+      "selector": ".xp-chip",
+      "property": "margin-top",
+      "value": "1.5em",
+      "reason": "Centres the chip on its row's first text line, whose line box is 1.5em."
+    },
+    {
+      "file": "responsive.css",
+      "selector": "#more .m-why",
+      "property": "padding",
+      "value": "16px",
+      "reason": "The reason line starts under its row's label: the row's 16px leading icon plus the spacing tokens around it."
+    },
+    {
+      "file": "responsive.css",
+      "selector": "body.compact .pin .head",
+      "property": "margin",
+      "value": "-6px",
+      "reason": "A collapsed card's head lets its 44px hit boxes overlap the card's padding above and the preview below, so the head draws 32px tall."
+    },
+    {
+      "file": "responsive.css",
+      "selector": "body.mid-overlay.side-open #revision-view",
+      "property": "padding-right",
+      "value": "330px",
+      "reason": "The fallback of the panel width JS measures (--side-w) before its first measurement."
+    },
+    {
+      "file": "responsive.css",
+      "selector": "body.mid-overlay.side-open.composing #left",
+      "property": "padding-right",
+      "value": "330px",
+      "reason": "The fallback of the panel width JS measures (--side-w) before its first measurement."
+    },
+    {
+      "file": "revisions.css",
+      "selector": "body.lay-narrow.rev-thumb #revision-source,body.lay-narrow.rev-thumb #revision-pdf,body.lay-narrow.rev-thumb #revision-overlay",
+      "property": "padding-bottom",
+      "value": "160px",
+      "reason": "Room under the changes view for the folded sheet's tool bar plus the thumb row over it - a layout place, not a spacing step."
+    },
+    {
+      "file": "revisions.css",
+      "selector": "body.lay-narrow #revision-source,body.lay-narrow #revision-pdf,body.lay-narrow #revision-overlay",
+      "property": "padding-bottom",
+      "value": "84px",
+      "reason": "Room under the changes view for the folded sheet's tool bar - a layout place, not a spacing step."
+    },
+    {
+      "file": "side-panel.css",
+      "selector": "to",
+      "property": "margin-right",
+      "value": "348px",
+      "reason": "The fallback of the panel width JS measures (--side-w) in the panel's slide-out keyframes."
+    },
+    {
+      "file": "side-panel.css",
+      "selector": "from",
+      "property": "margin-right",
+      "value": "348px",
+      "reason": "The fallback of the panel width JS measures (--side-w) in the panel's slide-in keyframes."
+    }
+  ]
+}

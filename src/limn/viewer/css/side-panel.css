@@ -82,5 +82,5 @@ body.lay-wide #bar1 #btn-rebuild{padding:0 var(--space-3)}   /* its label on the
 body.lay-wide #doc-nav{height:calc(var(--doc-nav-h) + env(safe-area-inset-top));padding-top:max(env(safe-area-inset-top),var(--space-1));padding-left:max(var(--space-4),env(safe-area-inset-left))}   /* under the stripe (responsive.css) */
 body.lay-wide.side-open #right{padding:env(safe-area-inset-top) env(safe-area-inset-right) 0 0}
 body.lay-wide #c-actions{padding-bottom:calc(var(--space-2) + env(safe-area-inset-bottom))}
-body.lay-wide #composer[hidden]~#list{padding-bottom:calc(32px + env(safe-area-inset-bottom))}   /* only when the action row is not below it */
+body.lay-wide #composer[hidden]~#list{padding-bottom:calc(var(--list-end) + env(safe-area-inset-bottom))}   /* only when the action row is not below it */
 body.lay-wide:not(.side-open) #right{bottom:calc(var(--space-3) + env(safe-area-inset-bottom))}

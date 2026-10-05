@@ -30,7 +30,7 @@ document.addEventListener('click',e=>{const target=/** @type {HTMLElement} */(e.
     case 'more':openMore();break; case 'more-close':$('#more').close();break;
     case 'size-preset':sizePreset(Number(a.dataset.i));break;
     case 'card-toggle':if(id==null)break; if(OPEN_CARDS.has(id))OPEN_CARDS.delete(id); else OPEN_CARDS.add(id); drawPins();break;
-    case 'rebuild':rebuild();break; case 'reload':loadPins();break;
+    case 'rebuild':rebuild();break; case 'reload':loadPins();break; case 'pdf-download':downloadPdf();break;
     case 'rebuild-force':BUILD.unchanged=null; drawStatus(); rebuild(true); break;   // the status line's [그래도 빌드]: a cold build
     case 'zoom-in':zoomVisiblePdf('in');break; case 'zoom-out':zoomVisiblePdf('out');break; case 'fit':zoomVisiblePdf('fit');break;
     case 'theme':setTheme(a.dataset.theme); break; case 'lang':switchLang(a.dataset.lang);break; case 'notify-toggle':notifyToggle();break; case 'help':openHelp();break; case 'help-close':$('#help').close();break;

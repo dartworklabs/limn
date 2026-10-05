@@ -84,11 +84,20 @@ class Handler(BaseHTTPRequestHandler):
     def log_message(self, format: str, *args: Any) -> None:  # noqa: A002 - the base class's parameter name
         """No access log: requests carry identities and pin text, and the server prints what it needs itself."""
 
-    def _send(self, code: int, body: bytes, ctype: str, cache: str | None = None, etag: str | None = None) -> None:
+    def _send(
+        self,
+        code: int,
+        body: bytes,
+        ctype: str,
+        cache: str | None = None,
+        etag: str | None = None,
+        disposition: str | None = None,
+    ) -> None:
         """Send one complete response: status, Content-Type/Length, Cache-Control (no-store unless given; page images
         cache privately for 10 minutes - they are manuscript pages, like the PDFs), the ETag when given, nosniff,
         WWW-Authenticate on 401, Connection: close on every error, and the anti-framing pair end_headers adds. A 200
-        with an ETag that the request's If-None-Match names is sent as 304 Not Modified without a body."""
+        with an ETag that the request's If-None-Match names is sent as 304 Not Modified without a body. The
+        Content-Disposition value (a download's) goes out on a success only, never on an error or a 304."""
         if etag is not None and code == 200 and etag_matches(self.headers.get("If-None-Match"), etag):
             self.send_response(304)
             self.send_header("ETag", etag)
@@ -108,6 +117,8 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Cache-Control", cache)
         if etag is not None and code < 400:
             self.send_header("ETag", etag)
+        if disposition is not None and code < 400:
+            self.send_header("Content-Disposition", disposition)
         self.send_header("X-Content-Type-Options", "nosniff")
         if code == 401:
             self.send_header("WWW-Authenticate", 'Bearer realm="limn"')

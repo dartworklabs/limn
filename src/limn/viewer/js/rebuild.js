@@ -68,3 +68,12 @@ async function rebuild(force){
     if(k!==DOC||visit!==SWITCHSEQ)return;
     BUILD.asked=true; await pollBuild();
   }catch(e){}}
+
+// [더보기]'s [PDF 내려받기]: saves the PDF of the build on screen (META.pages_build) of this document as a file. The server names it
+// after the document (GET /pdf?download=1 adds Content-Disposition: attachment, docs/handbook/api.md); a click on a link that carries
+// the download attribute is the browser's own save, so the page stays where it is. Nothing is sent when no build is on screen.
+function downloadPdf(){
+  if(!META||!META.pages_build)return;
+  const a=document.createElement('a');
+  a.href=dq('/pdf?build='+encodeURIComponent(META.pages_build)+'&download=1'); a.download=''; a.hidden=true;
+  document.body.appendChild(a); a.click(); a.remove();}

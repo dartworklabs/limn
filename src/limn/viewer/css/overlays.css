@@ -4,7 +4,7 @@ dialog{background:var(--popover);color:var(--popover-foreground);border:1px soli
   width:92vw;padding:var(--space-4) var(--space-6);max-height:88vh}
 dialog[tabindex="-1"]:focus{outline:none}   /* the sheet itself is the first focus (showSheet), with no ring; Tab goes on to [닫기] */
 dialog::backdrop{background:var(--shadow-color)}
-dialog h2{font-size:var(--text-xl);margin:0 0 8px}
+dialog h2{font-size:var(--text-xl);margin:0 0 var(--space-2)}
 dialog .help-steps{margin:0;padding-left:var(--space-5);font-size:var(--text-base)}
 #help .touch-only{display:none}   /* a mouse's tour starts with the drag */
 dialog .help-legend{font-size:var(--text-base)}
@@ -13,7 +13,7 @@ dialog h4{margin:var(--space-4) 0 var(--space-1);font-size:var(--text-base)}
 dialog table{border-collapse:collapse;font-size:var(--text-base);width:100%}
 dialog td{border-top:1px solid var(--border);padding:var(--space-1) var(--space-2);vertical-align:top}
 dialog code{font-size:var(--text-sm);word-break:break-all}
-.sw{display:inline-block;width:14px;height:10px;border:2px solid var(--status-open);vertical-align:middle;margin-right:4px}
+.sw{display:inline-block;width:14px;height:10px;border:2px solid var(--status-open);vertical-align:middle;margin-right:var(--space-1)}
 .sw.w{border-color:var(--warning)}
 .sw.a{border-color:var(--primary);border-style:dashed}
-dialog .help-legend .st-dot{display:inline-block;vertical-align:middle;margin:0 4px 0 2px}
+dialog .help-legend .st-dot{display:inline-block;vertical-align:middle;margin:0 var(--space-1) 0 2px}

@@ -692,7 +692,8 @@ class FrontendMobileStructure(unittest.TestCase):
         css = HTML[HTML.index("<style>") : HTML.index("</style>")]
         coarse = css[css.index("@media (pointer:coarse){") :]
         coarse = coarse[: coarse.index("\n}")]
-        self.assertIn("min-height:44px", coarse)
+        self.assertIn("  button{min-height:var(--hit);min-width:var(--hit);", coarse)
+        self.assertIn("--hit:44px", css)
         # prevents iOS zoom-in — 16px or larger
         self.assertIn("input,textarea,select{font-size:var(--text-xl)}", coarse)
         self.assertIn("--text-xl:16px", css)
@@ -1470,7 +1471,7 @@ class FrontendPanelTidyStructure(unittest.TestCase):
         self.assertIn("body.lay-narrow #bar1 .bar-l{grid-column:1}", css)
         self.assertIn("body.lay-narrow #bar1 .bar-r{grid-column:3;justify-content:flex-end}", css)
         self.assertIn(".bar-l,.bar-r{display:contents}", css)
-        self.assertIn("body.compact #bar1 #btn-more{flex:0 0 44px", css)
+        self.assertIn("body.compact #bar1 #btn-more{flex:0 0 var(--hit)", css)
 
     def test_mid_layout_pins_nav_top_and_action_bar_bottom(self):
         """mid: the nav row is pinned at the top and the action row at the bottom, full width; the panel never moves them."""
@@ -1885,11 +1886,12 @@ class FrontendSemanticAudit(unittest.TestCase):
         self.assertIn("(나)", extract_js_fn("card"))
 
     def test_touch_targets_in_archive_rows(self):
+        """On touch an archive row's [원래 요청], its reply line and the reply count each answer the 44px hit (--hit)."""
         coarse = self.css[self.css.index("@media (pointer:coarse){") :]
         coarse = coarse[: coarse.index("\n}")]
-        self.assertIn("button.arc-orig-t{min-height:44px;min-width:44px;", coarse)
-        self.assertIn(".arc-reply{min-height:44px;", coarse)
-        self.assertIn(".th-n{min-height:44px;min-width:44px;", coarse)
+        self.assertIn("button.arc-orig-t{min-height:var(--hit);min-width:var(--hit);", coarse)
+        self.assertIn(".arc-reply{min-height:var(--hit);", coarse)
+        self.assertIn(".th-n{min-height:var(--hit);min-width:var(--hit);", coarse)
 
     def test_review_count_labels_scope_and_filter_is_compact(self):
         self.assertIn("' '+tl('(이 문서 {n})',{n:here})", extract_js_fn("updateReviewCount"))
@@ -2179,15 +2181,16 @@ class PinNumberJump(unittest.TestCase):
         self.assertIn('class="btn-icon btn-sm btn-ghost nt-x"', HTML)
 
     def test_compact_bar1_buttons_keep_touch_min_width_despite_shrink_to_fit(self):
+        """A compact tool-bar button keeps the 44px touch width (--hit) although the compact bar lets it shrink."""
         # regression: body.compact #bar1 button{min-width:0} (specific due to the id) beat the touch rule
         # button{min-width:44px}, so on a narrow screen like lay-mid the [select] button shrank to 40px
         # (observed). The same selector is pinned again inside @media(pointer:coarse) to keep the 44px floor.
         css = HTML[HTML.index("<style>") : HTML.index("</style>")]
         self.assertIn("body.compact #bar1 button{flex:1 1 auto;min-width:0;", css)
-        self.assertIn("@media (pointer:coarse){body.compact #bar1 button{min-width:44px}}", css)
+        self.assertIn("@media (pointer:coarse){body.compact #bar1 button{min-width:var(--hit)}}", css)
         # this override must come after the min-width:0 rule in source order to win at equal specificity.
         self.assertGreater(
-            css.index("@media (pointer:coarse){body.compact #bar1 button{min-width:44px}}"),
+            css.index("@media (pointer:coarse){body.compact #bar1 button{min-width:var(--hit)}}"),
             css.index("body.compact #bar1 button{flex:1 1 auto;min-width:0;"),
         )
 
