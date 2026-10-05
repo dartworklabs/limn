@@ -3461,12 +3461,14 @@ class TouchLayoutBands(ViewerBase):
         self.assertAlmostEqual(page.locator("#right").bounding_box()["height"], 0.45 * 900, delta=1)
 
     def test_a_mouse_composing_at_1000px_scrolls_the_panel_as_before(self):
-        """1000x800 with a mouse: picking focuses the note and the panel scrolls it into view as in 0.4.1, with no scroll
-        padding - the touch save-row padding scrolled the composer 32px further than a focus does. Where the composer's top
-        lands is the browser's own focus scroll (11 in 0.4.6; the caption and the range excerpt above the note move it), so
-        the check is the note whole between the panel's top and the save row."""
+        """1000x800 with a mouse: the note popover's [자세히 →] (a pick focuses the popover's field by the box, #192) focuses
+        the note and the panel scrolls it into view as in 0.4.1, with no scroll padding - the touch save-row padding
+        scrolled the composer 32px further than a focus does. Where the composer's top lands is the browser's own focus
+        scroll (11 in 0.4.6; the caption and the range excerpt above the note move it), so the check is the note whole
+        between the panel's top and the save row."""
         page = self.view(MOUSE_MID)
         self.mouse_pick(page)
+        page.click("#sel-pop [data-act=pop-more]")
         page.mouse.move(5, 5)
         settle(page)
         got = page.evaluate(

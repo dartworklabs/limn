@@ -34,7 +34,8 @@ document.addEventListener('click',e=>{const target=/** @type {HTMLElement} */(e.
     case 'rebuild-force':BUILD.unchanged=null; drawStatus(); rebuild(true); break;   // the status line's [그래도 빌드]: a cold build
     case 'zoom-in':zoomVisiblePdf('in');break; case 'zoom-out':zoomVisiblePdf('out');break; case 'fit':zoomVisiblePdf('fit');break;
     case 'theme':setTheme(a.dataset.theme); break; case 'lang':switchLang(a.dataset.lang);break; case 'notify-toggle':notifyToggle();break; case 'help':openHelp();break; case 'help-close':$('#help').close();break;
-    case 'save':if(!viewerBlocked())savePin();break; case 'cancel':discardSelection();break;
+    case 'save':case 'pop-save':if(!viewerBlocked())savePin();break; case 'cancel':discardSelection();break;
+    case 'pop-more':selPopMore();break;   // the note popover by the box hands over to the composer in the panel
     case 'overlap-append':{const text=$('#note').value.trim();
       if(!text){bannerNote(NOTICE_HOST.COMPOSER,'메모를 먼저 써야 덧붙일 수 있습니다',NOTICE_KIND.WARN);break;}
       appendToPin(Number(a.dataset.oid),text);break;}
@@ -118,7 +119,7 @@ document.addEventListener('keydown',e=>{
   // Ctrl(Cmd)+\ opens and collapses the pin panel at every width (docs/handbook/viewer.md §패널 폭과 시트 높이) - not inside a text field.
   if((e.ctrlKey||e.metaKey)&&!e.altKey&&!inField&&(e.code==='Backslash'||e.key==='\\')){e.preventDefault(); toggleSide(); return;}
   if(e.key==='Enter'&&(e.metaKey||e.ctrlKey)){
-    if(t&&(t.id==='note'||(t.closest&&t.closest('#composer')&&!$('#composer').hidden&&!inField))){e.preventDefault(); if(!viewerBlocked())savePin();}
+    if(t&&(t.id==='note'||(t.closest&&t.closest('#sel-pop'))||(t.closest&&t.closest('#composer')&&!$('#composer').hidden&&!inField))){e.preventDefault(); if(!viewerBlocked())savePin();}
     else if(t&&t.classList&&t.classList.contains('e-note')){e.preventDefault();saveEdit();}
     else if(t&&t.classList&&t.classList.contains('r-text')){e.preventDefault();sendReply();}
     return;}

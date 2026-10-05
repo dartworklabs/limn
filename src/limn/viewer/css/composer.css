@@ -103,3 +103,19 @@ button.xp-row{cursor:pointer;min-width:0;justify-content:stretch}
 .xp-chip.add{background:color-mix(in srgb,var(--primary) 16%,transparent);color:var(--primary)}
 .xp-chip.xp-drop{background:var(--popover);color:var(--foreground);box-shadow:inset 0 0 0 1px var(--border-strong)}
 @media (hover:hover){button.xp-row:hover .xp-chip.add{background:color-mix(in srgb,var(--primary) 24%,transparent)}}
+/* The note popover by the selection box (#sel-pop, sel-popover.js, docs/handbook/viewer.md §패널 정리 '선택 상자 곁 메모'): a
+   floating surface on the popover tokens, 320px wide, three rows on one left and one right edge at its 12px padding - the
+   location and [Esc], the note field (two lines), [자세히 →] ... [저장]. [자세히]'s ghost padding is pulled out so its text
+   stands on that edge with the location's; each row centres its text. Placed by JS in the PDF area's free part. */
+#sel-pop{position:fixed;z-index:15;left:0;top:0;width:320px;padding:var(--space-2) var(--space-3) var(--space-3);background:var(--popover);
+  color:var(--popover-foreground);border:1px solid var(--border);border-radius:var(--radius-lg);box-shadow:var(--shadow-lg);font-size:var(--text-sm)}
+#sel-pop[hidden]{display:none}
+#sel-pop .sp-head{display:flex;align-items:center;gap:var(--space-2);min-height:var(--control-h-sm);line-height:16px}
+#sel-pop .sp-loc{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:var(--font-mono);color:var(--primary)}
+#sel-pop kbd{flex:none;color:var(--muted-foreground);line-height:16px}
+#sel-pop textarea{display:block;width:100%;min-height:0;margin:var(--space-1) 0 var(--space-2);resize:none}
+#sel-pop .sp-acts{display:flex;align-items:center;gap:var(--space-2)}
+#sel-pop .sp-acts .sp{flex:1}
+#sel-pop [data-act=pop-more]{gap:var(--space-1);margin-left:calc(-1 * var(--space-2) - 1px);color:var(--muted-foreground)}   /* its padding and 1px border */
+#sel-pop [data-act=pop-more] .ic{width:14px;height:14px}
+@media not all and (pointer:coarse){#sel-pop .sp-acts button{min-height:var(--control-h-sm)}}   /* a mouse hit of 24px; touch keeps its 44px */

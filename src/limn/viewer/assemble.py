@@ -98,6 +98,7 @@ PRETENDARD_VERSION = "1.3.9"
 # (e.g. hourglass, chevron, moon, pencil) are avoided since they render differently across devices and fonts.
 LUCIDE_VERSION = "1.47.0"
 LUCIDE = {
+    "arrow-right": '<path d="M5 12h14"/><path d="m12 5 7 7-7 7"/>',
     "bell": '<path d="M10.268 21a2 2 0 0 0 3.464 0"/><path d="M3.262 15.326A1 1 0 0 0 4 17h16a1 1 0 0 0 .74-1.673C19.41 '
     '13.956 18 12.499 18 8A6 6 0 0 0 6 8c0 4.499-1.411 5.956-2.738 7.326"/>',
     "bot": '<path d="M12 8V4H8"/><rect width="16" height="12" x="4" y="8" rx="2"/><path d="M2 14h2"/><path d="M20 14h2"/><path d="M15 13v2"/><path d="M9 13v2"/>',
