@@ -1,5 +1,34 @@
 # Changelog
 
+## 0.4.19 — 2026-10-06
+
+Compare two commits in the changes view, a note popover under the selection box, and the download row's icon.
+`pins.md` and SKILL are unchanged. The HTTP API gains optional fields and refusal reasons; the few answers that
+change without `base` are listed in `api.md` and ADR-0014.
+
+### Added
+
+- **The changes view compares two commits (#188, ADR-0014).** A quick range control
+  `[마지막으로 본 뒤 N | 이 커밋부터 | 이 커밋만]` sits above a commit list that stays on screen. Side-branch commits
+  are indented under their merge. Pressing a row shows that commit through now. The list is painted with exactly the
+  commits the server compared, and N is the server's count. A range opens its source diff first; the comparison PDF
+  is built only on [변경 PDF]. "Last seen" is kept per document in the browser and is never silently lost: a commit
+  gone from history and one older than the latest 500 each say so.
+  - API: an optional `base` on `/api/revision-diff`, `/api/revision-build` and `/api/revision-pdf`. A range answer
+    adds `base`, `merge_base`, `commits`, `commit_ids` and `files`. `/api/revisions` rows gain `author`, `time`
+    and `parents`, and `?before=&limit=` pages through the latest 500. New reasons: `base_after_head`,
+    `no_merge_base`, `empty_range`, `pin_with_base`, `bad_limit`, `base_too_old`.
+  - One history window (`git log -500 --topo-order`, read once per HEAD) now serves the list, validation, a pin's
+    [변경 보기] and its `close_ref`. A pin closed with a commit hash is found anywhere in that window.
+- **A note popover right under the selection box (#192).** After a mouse drag, a popover with the location, the
+  note, [자세히 →] and [저장] opens 8 px under the box. The note is the composer's note. [저장] and Ctrl/⌘+Enter
+  save through the usual path, with its 6 s undo. It flips and shifts at the edges and never covers the select-mode
+  bar, the overlay panel or the save row. Touch and phones are unchanged.
+
+### Changed
+
+- **[더보기]'s [PDF 내려받기] row has the Lucide `download` icon**, aligned with the other rows.
+
 ## 0.4.18 — 2026-10-06
 
 Quoted text, a page list, PDF download, click-off cancel, panel seams and one component standard. `pins.md` and the
