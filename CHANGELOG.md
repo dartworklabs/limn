@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.4.17 — 2026-10-05
+
+The interface is drawn in the bundled Pretendard Variable on every device. `pins.md`, the existing HTTP API and the
+state directory are unchanged; one GET path is added.
+
+### Changed
+
+- **The interface is drawn in the bundled Pretendard Variable on every device.**
+  - **What ships.** The viewer now ships Pretendard 1.3.9 (SIL OFL 1.1). It is the font's official unicode-range subset.
+  - **How it is served.** The server serves it at `GET /vendor/pretendard/<file>`, with immutable, versioned URLs and
+    the same access rules as `/vendor/pdfjs/`. No external origin is involved.
+  - **What a page loads.** A phone loads only the slices its text uses: about 200 KB on a Korean page, plus the
+    53 KB stylesheet, on the first visit.
+  - **Fallback fonts are gone.** Phones without Pretendard no longer fall back to a wider system Korean font.
+  - **First visit.** It shows the fallback until the slices arrive (`font-display: swap`). The bar's steps and
+    [더보기]'s ink line are measured again once they have.
+  - **Install size.** The wheel grows from 1.3 MB to 4.3 MB.
+- **Text-ink checks run everywhere.** The alignment tests that measured text ink only where Pretendard happened to be
+  installed now run on every machine, CI included.
+
 ## 0.4.16 — 2026-10-05
 
 Hangul is no longer clipped in the phone bar. `pins.md`, the HTTP API and the state directory are unchanged.
