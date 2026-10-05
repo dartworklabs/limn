@@ -128,10 +128,11 @@ class VendorLeafNames(unittest.TestCase):
         self.tmp.cleanup()
 
     def test_a_leaf_name_with_an_admitted_suffix_is_its_file(self):
-        """The served files by their names, and a link to one of them inside the folder, are that file."""
+        """The served files by their names, and a link to one of them inside the folder, are that file - its resolved
+        path, as vendor_file returns (on macOS the temporary folder itself lies behind /var -> /private/var)."""
         for name, want in (("a.woff2", "a.woff2"), ("font.css", "font.css"), ("same.woff2", "a.woff2")):
             with self.subTest(name=name):
-                self.assertEqual(files.vendor_file(self.base, name, FONT_SUFFIXES), self.base / want)
+                self.assertEqual(files.vendor_file(self.base, name, FONT_SUFFIXES), (self.base / want).resolve())
 
     def test_every_other_name_is_none(self):
         """A suffix not admitted (the record, a .mjs asked of the font folder), a subpath, a path out of the folder, an
