@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.4.16 — 2026-10-05
+
+Hangul is no longer clipped in the phone bar. `pins.md`, the HTTP API and the state directory are unchanged.
+
+### Fixed
+
+- **Hangul no longer clipped in the phone bar.** On phones without Pretendard, the document name in [본문 1/25 ⌄]
+  and the instance name in the [더보기] head lost the feet of their Hangul. Under some fonts "본문" read as "부무".
+  Both labels are trimmed to their cap height and clipped for their ellipsis; they now have room for the full ink
+  inside the clip, and the row's centre line does not move. A browser test renders the labels under a wide-extent
+  Korean font and fails if any glyph pixel is cut.
+
 ## 0.4.15 — 2026-10-05
 
 No toasts: every message is said where it happened. `pins.md`, the HTTP API and the state directory are unchanged.
