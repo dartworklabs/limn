@@ -5,9 +5,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from limn.pins import RevisionPinQuery
 from limn.revisions.answer import revision_failure_text
 from limn.revisions.core import RevisionContext, RevisionJobs, ScopeCache, WindowCache
+from limn.revisions.needs import PinQuery
 from limn.revisions.service import RevisionRequests
 from limn.runtime.documents import Doc
 from limn.web.routes import PostDocRoute, RouteBundle
@@ -24,7 +24,7 @@ class RevisionSubsystem:
 def assemble_revisions(
     *,
     timeout: Callable[[], int],
-    pins: RevisionPinQuery,
+    pins: PinQuery,
     cache: Callable[[], ScopeCache],
     jobs: Callable[[], RevisionJobs],
     history_files: Callable[[Doc], tuple[Path, ...] | None],
@@ -33,7 +33,8 @@ def assemble_revisions(
     """Bind revision resources and adapters while keeping failure rendering at its owner; the history windows are cached
     per assembly (one server run). history_files and overlay
     are the build owner's answers for a figure document - the files whose history its changes are, and the two builds
-    the viewer lays one over the other - that the composition root injects (None for any other document)."""
+    the viewer lays one over the other - that the composition root injects (None for any other document). pins is the
+    pin owner's read for one pin of a document (limn.revisions.needs.PinQuery), injected the same way."""
     from limn.revisions.routes import POST_PATH, get, post
 
     windows = WindowCache()  # this run's history windows, read once per HEAD

@@ -1076,6 +1076,25 @@ class SquashMergedPins(AccessBase):
         _, d = self.call("GET", "/api/revision-diff?commit=%s&pin=%d" % (self.squash, self.pins[1]))
         self.assertEqual((d["scope"]["mode"], d["scope"]["source"]), ("commit", "none"))
 
+    def test_a_scope_decided_before_the_pin_changed_is_decided_again(self):
+        """A decided scope is remembered per pin facts, not per pin number: once the recorded changes are gone, and
+        once the pin's own lines differ, the same pin and commit get a new answer instead of the remembered one."""
+        beta = self.pins[1]
+        url = "/api/revision-diff?commit=%s&pin=%d" % (self.squash, beta)
+        _, d = self.call("GET", url)
+        self.assertEqual((d["scope"]["mode"], d["scope"]["source"]), ("pin", "changes"))
+        rows = records(ps.APP.snapshot_pins())
+        find_pin(rows, beta).pop("changes")
+        write_records(rows)
+        _, d = self.call("GET", url)
+        self.assertEqual((d["scope"]["mode"], d["scope"]["source"]), ("commit", "none"))
+        rows = records(ps.APP.snapshot_pins())
+        find_pin(rows, beta).update(lo=self.new_lines["gamma"], hi=self.new_lines["gamma"])
+        write_records(rows)
+        _, d = self.call("GET", url)
+        self.assertEqual((d["scope"]["mode"], d["scope"]["source"]), ("pin", "inferred"))
+        self.assertIn("+Gamma paragraph talks about plums.", d["scope"]["diff"])
+
     def test_viewer_finds_the_squash_commit_from_a_pr_and_hash_ref(self):
         """The viewer's matchRevision picks the merged commit from ref = PR #N (hash)."""
         if not shutil.which("node"):
