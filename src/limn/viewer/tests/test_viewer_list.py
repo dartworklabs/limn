@@ -428,6 +428,7 @@ class PinListLoading(unittest.TestCase):
                 function topAnchor(){return null;} function restoreAnchor(){}
                 function vecReleaseAll(){} function $$(){return [];}
                 function vecOpen(){} function loadPins(){return Promise.resolve();}
+                function rebuildSources(){return [];} function sourceOk(){}   // a refresh ends a failed rebuild's error
                 function dq(u,k){return u+(k||DOC);}
                 function api(url){requests.push(url);return Promise.resolve({data:{pages:[{id:'new'}],pages_build:'v2'}});}
                 (async()=>{await switchDoc('b');console.log(JSON.stringify({requests,build:META.pages_build}));})();

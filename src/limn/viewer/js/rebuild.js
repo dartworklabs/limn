@@ -11,11 +11,12 @@ function restoreAnchor(a){if(!a)return; if(a.atTop){$('#left').scrollTop=0; retu
   L.scrollTop+=pg.getBoundingClientRect().top-L.getBoundingClientRect().top+a.frac*pg.getBoundingClientRect().height;}
 // Apply a supplied meta snapshot, or fetch one for the current document. A switch away and back invalidates an
 // in-flight refresh even when the document key matches again; its old pages must not replace the new visit. A failed read
-// is said on the status line (api, NOTICE_HOST.LINE) and throws.
+// is said on the status line (api, NOTICE_HOST.LINE) and throws. A refresh means a new build of the document is here (a
+// completed build, one met on returning to the document or on a pick): a failed request to rebuild it is over (rebuildSources).
 async function refreshDoc(meta){const a=topAnchor(),k=DOC,seq=SWITCHSEQ;
   const m=meta===undefined?(await api(dq('/api/meta'),{what:'화면 정보 읽기',where:NOTICE_HOST.LINE})).data:meta;
   if(k!==DOC||seq!==SWITCHSEQ)return;
-  META_BY.set(k,m);
+  rebuildSources(k).forEach(sourceOk); META_BY.set(k,m);
   const same=META&&m.pages.length===META.pages.length; META=m; drawMeta();
   // The canvas was drawn from the old PDF - it's torn down to show the new PNG first, then redrawn once the new build's PDF is opened.
   if(same){vecReleaseAll(); $$('.pg').forEach((pg,i)=>{const p=META.pages[i]; pg.style.aspectRatio=p.pt_w+' / '+p.pt_h; pg.querySelector('img').src=pageSrc(p);});}
@@ -33,6 +34,11 @@ function showBuildErr(r,say){BUILD.error=r; if(DOC)BUILD_ERR_BY.set(DOC,r); cons
   const errors=(r.errors||[]).map(e=>html`<div class="dim">${e.line?'L'+e.line+' · ':''}${e.msg}</div>`);
   setHtml(b,html`<div class="row"><b>${title}</b><span class="sp"></span>${close}</div>${errors}<pre class="nowrap" style="max-height:30vh">${log}</pre>`);
   b.hidden=false; syncBuildErrChip();}
+// The error sources of document k's rebuild (notices.js sourceEntry): the requests rebuild() sends, plain and forced
+// (api's source is the method and URL). A failed [PDF 재빌드] says itself under its own; an answered one clears it, and so
+// does a later build of that document, which refreshDoc shows.
+/** @param {string|null} k @returns {string[]} */
+function rebuildSources(k){return ['/api/rebuild?async=1','/api/rebuild?async=1&force=1'].map(u=>'POST '+dq(u,k||undefined));}
 // The title of build r's failure (fail) or its LaTeX errors (ok_errors), with the pull's line: the error panel's, and what
 // showBuildErr reads out.
 /** @param {any} r @returns {string} */

@@ -23,14 +23,9 @@ from helpers import add_pin, edit_stored, extract_js_fn, find_record, js_i18n, p
 from helpers_access import ALICE, actor
 from helpers_authority import post_authority
 from helpers_browser import BrowserBase, settle
-from helpers_notices import SCREENS, SEEN, WATCH_TOASTS, node_or_skip
+from helpers_notices import COUNT_CONFIRMS, SCREENS, SEEN, WATCH_TOASTS, node_or_skip
 
 A = actor(ALICE)
-# Records the viewer's POST /api/pins/<id>/confirm requests in window.CONFIRMS, before they are sent.
-COUNT_CONFIRMS = (
-    "(()=>{window.CONFIRMS=[];const f=window.fetch;window.fetch=function(u,o){"
-    "if(/\\/api\\/pins\\/\\d+\\/confirm/.test(String(u)))window.CONFIRMS.push(String(u));return f.call(this,u,o);};})()"
-)
 
 
 class PureRules(unittest.TestCase):

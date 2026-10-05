@@ -125,7 +125,7 @@ function drawStatus(){const box=$('#status'),sr=box.querySelector('.st-sr'),body
   const m=$('#m-rebuild'); if(m){m.disabled=running; const tail=m.querySelector('.m-tail'); if(tail)tail.hidden=!running;}
   document.body.classList.toggle('has-status',!!top); box.hidden=!top;
   if($('#status-list').open)drawStatusList(list);
-  if(!top){if(STATUS_SIG){body.replaceChildren(); STATUS_SIG='';} sr.textContent=''; return;}
+  if(!top){if(STATUS_SIG){body.replaceChildren(); STATUS_SIG='';} sr.textContent=''; lineVisible(false); return;}   // hidden: it holds nothing
   const sig=top.kind+'|'+(top.act||'')+'|'+list.length+'|'+(top.state||'')+'|'+(top.notice?top.notice.n:'');
   if(sig!==STATUS_SIG){STATUS_SIG=sig;
     const more=list.length>1?html`<button class="btn-sm btn-ghost st-more" data-act="status-more" aria-haspopup="dialog" aria-label="${tl('상태 {n}건 더 보기',{n:list.length-1})}"><span class="lbl">${tl('+{n}',{n:list.length-1})}</span></button>`:'';
@@ -176,6 +176,7 @@ function toggleStatusList(){const d=$('#status-list'); if(d.open){d.close(); ret
 // switch, the mid action row's middle, the desktop's line under its status chips (#status-wide) - keeping a focus that was
 // inside it, then draws it. An open '+N' list folds: it was placed for the old band.
 function placeStatus(){const s=$('#status'),a=/** @type {HTMLElement} */(document.activeElement),had=s.contains(a); if($('#status-list').open)$('#status-list').close();
+  lineVisible(false);   // moved out from under the pointer: no hover is left holding its windows
   if(BAND===LAYOUT_BAND.SHORT){if(s.previousElementSibling!==$('#view-switch'))$('#view-switch').after(s);}
   else if(LAYOUT===LAYOUT_MODE.MID){if(s.parentNode!==$('#status-slot'))$('#status-slot').appendChild(s);}
   else if(LAYOUT===LAYOUT_MODE.WIDE){if(s.parentNode!==$('#status-wide'))$('#status-wide').appendChild(s);}

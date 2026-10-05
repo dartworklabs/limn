@@ -180,5 +180,5 @@ function restoreSelection(snap){if(!snap||COMPOSE.current||COMPOSE.picking||REPI
 // and is removed when the offer goes.
 function discardSelection(){syncDraft(); const snap=selectionSnapshot(); cancelSelection(true);
   if(!(snap&&snap.cur&&snap.note.trim())){syncDraft(); return;}
-  const n=lineNote('선택 취소됨',NOTICE_KIND.OK,{label:'되돌리기',tip:'선택과 메모를 되살립니다',fn:()=>restoreSelection(snap)},{life:NOTICE_LIFE.TIMER});
+  const n=lineNote('선택 취소됨',NOTICE_KIND.OK,{label:'되돌리기',tip:'선택과 메모를 되살립니다',fn:()=>restoreSelection(snap)},{life:NOTICE_LIFE.TIMER,undo:true});
   if(n)holdDraftUntil(n);}   // the kept draft goes when the window does
