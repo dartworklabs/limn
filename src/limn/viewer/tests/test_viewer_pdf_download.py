@@ -24,6 +24,17 @@ DEVICES = {
 SAVED_AS = {"ms": "본문.pdf", "fig": "그림.pdf", "rv": "리뷰어.pdf"}
 
 
+# Every visible row of [더보기]'s pin group, by id or its data-act: the x of its first icon and of its label's first glyph,
+# and the icon's size. The label's x is read from its text (a Range), so padding on the label counts, not only its box.
+MORE_ROWS = """() => [...document.querySelectorAll('#more .more-grid button')].filter(b => b.offsetParent).map(b => {
+    const ic = b.querySelector('.ic'), lbl = b.querySelector('.lbl'), r = document.createRange();
+    r.selectNodeContents(lbl);
+    return {row: b.id || b.dataset.act, icon: ic && ic.getBoundingClientRect().left, label: r.getBoundingClientRect().left,
+            size: ic && [ic.getBoundingClientRect().width, ic.getBoundingClientRect().height],
+            name: ic && ic.getAttribute('class')};
+})"""
+
+
 class PdfDownloadRow(BrowserBase):
     """The [PDF 내려받기] row of [더보기] saves the build on screen under the document's label."""
 
@@ -86,6 +97,25 @@ class PdfDownloadRow(BrowserBase):
                     self.assertEqual(Path(got.path()).read_bytes(), (doc.dir / pages / doc.pdf_name).read_bytes())
                     settle(page)
                     self.assertFalse(page.evaluate("document.getElementById('more').open"))
+
+    def test_the_row_has_the_download_icon_and_its_icon_and_label_stand_where_the_other_rows_do(self):
+        """The row carries the Lucide download icon at the size of its neighbours' icons, and its icon and its label's
+        first glyph sit at the same x as theirs, within 0.5px: [PDF 재빌드] on the phone's sheet (the desktop's tool row
+        holds that one, so the menu there has no such row), [휴지통] and [핀 다시 읽기] on both."""
+        for device in DEVICES:
+            with self.subTest(device=device):
+                page = self.open_real(**DEVICES[device])
+                self.open_more(page, device)
+                settle(page)
+                rows = {r["row"]: r for r in page.evaluate(MORE_ROWS)}
+                row = rows.pop("m-download")
+                self.assertEqual(row["name"], "ic ic-download", row)
+                self.assertIn("m-trash", rows)
+                self.assertEqual("m-rebuild" in rows, device == "phone", rows)
+                for other in rows.values():
+                    self.assertEqual(row["size"], other["size"], (row, other))
+                    self.assertAlmostEqual(row["icon"], other["icon"], delta=0.5, msg=(row, other))
+                    self.assertAlmostEqual(row["label"], other["label"], delta=0.5, msg=(row, other))
 
     def test_the_row_asks_for_the_build_that_is_on_screen_now(self):
         """After a newer build replaces the one on screen, the next download is that build's PDF."""
