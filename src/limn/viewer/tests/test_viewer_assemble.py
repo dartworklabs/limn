@@ -1,6 +1,6 @@
 """limn/viewer/assemble.py: the viewer page as one string, from the viewer folder and the explicit inputs only.
 
-viewer_html() joins index.html with its parts and fills the build-time placeholders (PDF.js version, the logo's
+viewer_html() joins index.html with its parts and fills the build-time placeholders (PDF.js and font versions, the logo's
 inline SVGs and icon key, the icon table, the message table, {{ic:...}} tokens) from its arguments; the run-time ones
 (label, accent) are left for run_page(). These tests drive it with a small viewer folder of their own, so the contract is
 checked apart from the real page; src/limn/viewer/tests/test_viewer_files.py checks the packaged page itself.
@@ -20,7 +20,7 @@ BRAND_DIR = Path(mark.__file__).with_name("brand")  # the vendored logo files (s
 
 PAGE = (
     "<html><style>__APP_CSS__</style><title>__LABEL__</title>{{ic:x}}<i>__LIMN_MARK_16__</i><b>__LIMN_WORDMARK__</b><u>v__LIMN_VERSION__</u>"
-    '<link href="/favicon.ico?v=__ICON_KEY__">'
+    '<link href="/favicon.ico?v=__ICON_KEY__"><link rel="stylesheet" href="/f.css?v=__PRETENDARD_VERSION__">'
     "<script>const V='__PDFJS_VERSION__';const ICONS=__LUCIDE_JSON__;const I18N_EN=__UI_EN_JSON__;\n"
     "__APP_JS__</script></html>"
 )
@@ -40,7 +40,8 @@ def viewer_folder(root: Path, page: str = PAGE) -> Path:
 
 
 class ViewerHtml(unittest.TestCase):
-    """viewer_html(directory, messages, pdfjs_version=, marks=, icon_key=, icons=, version=) -> the page before run_page()."""
+    """viewer_html(directory, messages, pdfjs_version=, pretendard_version=, marks=, icon_key=, icons=, version=) -> the
+    page before run_page()."""
 
     def setUp(self):
         """A fresh viewer folder per test."""
@@ -54,6 +55,7 @@ class ViewerHtml(unittest.TestCase):
             self.dir,
             {"가": "A"} if messages is None else messages,
             pdfjs_version="9.9.9",
+            pretendard_version="8.8.8",
             marks={"__LIMN_MARK_16__": "<svg id=m/>", "__LIMN_WORDMARK__": "<svg id=w/>"},
             icon_key="0123456789ab",
             icons=icons,
@@ -61,7 +63,7 @@ class ViewerHtml(unittest.TestCase):
         )
 
     def test_every_build_time_placeholder_is_filled_from_the_arguments(self):
-        """The exact page: parts joined in order, the PDF.js version, each logo placeholder its markup, Limn's version
+        """The exact page: parts joined in order, the PDF.js and font versions, each logo placeholder its markup, Limn's version
         ([더보기]'s foot), the icon key, both JSON tables (sorted), icon tokens in the page and inside a part replaced - and the run-time __LABEL__ left for
         run_page()."""
         svg = lambda name: assemble.icon_svg(name, ICONS)  # noqa: E731 - a local shorthand
@@ -69,7 +71,7 @@ class ViewerHtml(unittest.TestCase):
             "<html><style>b{}\n</style><title>__LABEL__</title>"
             + svg("x")
             + "<i><svg id=m/></i><b><svg id=w/></b><u>v1.2.3</u>"
-            '<link href="/favicon.ico?v=0123456789ab">'
+            '<link href="/favicon.ico?v=0123456789ab"><link rel="stylesheet" href="/f.css?v=8.8.8">'
             "<script>const V='9.9.9';const ICONS="
             + json.dumps(ICONS, sort_keys=True)
             + ';const I18N_EN={"가": "A"};\nf();\ng('
@@ -104,7 +106,16 @@ class ViewerHtml(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             broken = viewer_folder(Path(d), PAGE.replace("__APP_JS__", ""))
             with self.assertRaises(ValueError):
-                assemble.viewer_html(broken, {}, pdfjs_version="1", marks={}, icon_key="k", icons=ICONS, version="1")
+                assemble.viewer_html(
+                    broken,
+                    {},
+                    pdfjs_version="1",
+                    pretendard_version="1",
+                    marks={},
+                    icon_key="k",
+                    icons=ICONS,
+                    version="1",
+                )
 
     def test_the_packaged_page_keeps_only_the_run_time_placeholders(self):
         """The real folder with the real tables and logo: no build-time placeholder or icon token survives, and the
@@ -114,6 +125,7 @@ class ViewerHtml(unittest.TestCase):
             assemble.VIEWER_DIR,
             {},
             pdfjs_version=assemble.PDFJS_VERSION,
+            pretendard_version=assemble.PRETENDARD_VERSION,
             marks=logo.marks,
             icon_key=logo.key,
             icons=assemble.LUCIDE,
@@ -123,6 +135,7 @@ class ViewerHtml(unittest.TestCase):
             "__APP_CSS__",
             "__APP_JS__",
             "__PDFJS_VERSION__",
+            "__PRETENDARD_VERSION__",
             "__LIMN_",
             "__ICON_KEY__",
             "__LUCIDE_JSON__",

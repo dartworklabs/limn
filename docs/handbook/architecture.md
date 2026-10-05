@@ -109,7 +109,7 @@ Python의 비공개 이름은 런타임 접근을 봉인하지 않는다. 검사
 
 ### 2. 서버 런타임은 표준 라이브러리만 쓴다
 
-`pyproject.toml`의 `dependencies = []`가 이 규칙의 실행 정본이다. Python 3.10 이상에서 돈다. 뷰어도 React·Tailwind·빌드 단계·CDN 없이 번들한 PDF.js와 Lucide만 쓴다. 뷰어의 CSS·JS가 여러 조각 파일이어도 번들러나 모듈 로더를 들이지 않는다. 서버가 `parts.txt` 순서대로 조각을 이어 인라인 `<style>`·`<script>` 하나씩으로 내보낸다. 배포가 패키지 설치 하나로 끝나야 연구실 머신에서 유지할 수 있기 때문이다. 개발 의존성(pytest, pytest-xdist, hypothesis, Playwright, Ruff, ShellCheck, mypy, 그리고 `package.json`의 TypeScript)은 이 규칙과 무관하다. TypeScript는 뷰어 JS의 타입을 검사만 하고 아무것도 만들지 않는다.
+`pyproject.toml`의 `dependencies = []`가 이 규칙의 실행 정본이다. Python 3.10 이상에서 돈다. 뷰어도 React·Tailwind·빌드 단계·CDN 없이 번들한 PDF.js, Pretendard 글꼴, Lucide만 쓴다. 뷰어의 CSS·JS가 여러 조각 파일이어도 번들러나 모듈 로더를 들이지 않는다. 서버가 `parts.txt` 순서대로 조각을 이어 인라인 `<style>`·`<script>` 하나씩으로 내보낸다. 배포가 패키지 설치 하나로 끝나야 연구실 머신에서 유지할 수 있기 때문이다. 개발 의존성(pytest, pytest-xdist, hypothesis, Playwright, Ruff, ShellCheck, mypy, 그리고 `package.json`의 TypeScript)은 이 규칙과 무관하다. TypeScript는 뷰어 JS의 타입을 검사만 하고 아무것도 만들지 않는다.
 
 ### 3. 에이전트 계약은 호환을 깨지 않는다
 

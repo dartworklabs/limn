@@ -12,7 +12,7 @@ parsers (limn.web.parse) turn its refusals into 400 answers, the selection resol
 message. A close's recorded changes (limn.web.parse) and a stored pin path (limn.pins.location.lookup) are judged by tree_part too.
 
 tex_lines is how every line number is counted when a manuscript file is read; vendor_file is the name guard of the
-bundled PDF.js files the viewer loads.
+bundled library files the viewer loads (PDF.js, the Pretendard font).
 """
 
 from __future__ import annotations
@@ -23,7 +23,7 @@ import os
 import re
 import stat
 import threading
-from collections.abc import Iterator
+from collections.abc import Collection, Iterator
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TypeAlias
@@ -223,21 +223,26 @@ def tex_lines(file: ManuscriptFile) -> list[str]:
     return file.snapshot()[0]
 
 
-VENDOR_FILE_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]*(\.[A-Za-z0-9_-]+)*\.mjs")
+VENDOR_FILE_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]*(\.[A-Za-z0-9_-]+)+")
 
 
-def vendor_file(base: Path, name: object) -> Path | None:
-    """The file of the bundled-library directory `base` that GET /vendor/pdfjs/<name> serves, or None. Accepts only a
-    single (.mjs) name component and never points outside the directory: the name pattern already filters out '/',
-    '..' and '%', and resolve() adds a second check against escaping via symlinks and the like. A missing directory
-    or file is None."""
+def vendor_file(base: Path, name: object, suffixes: Collection[str]) -> Path | None:
+    """The file of the bundled-library directory `base` that GET /vendor/<library>/<name> serves, or None.
+
+    Accepts only a single name component - letters, digits, '_' and '-' in dot-separated parts, ending in one of
+    `suffixes` (each like ".mjs", compared case-sensitively) - and never points outside the directory: the pattern
+    already filters out '/', '..', '%' and a leading dot, and resolve() adds a second check against escaping via
+    symlinks and the like. The resolved file must lie directly in the directory and keep an admitted suffix, so a link
+    to the folder's README is not served as a stylesheet. A missing directory or file is None."""
     if not isinstance(name, str) or not VENDOR_FILE_RE.fullmatch(name) or ".." in name:
+        return None
+    if Path(name).suffix not in suffixes:
         return None
     try:
         base = base.resolve()
         f = (base / name).resolve()
     except (OSError, RuntimeError):
         return None
-    if f.parent != base or not f.is_file():
+    if f.parent != base or f.suffix not in suffixes or not f.is_file():
         return None
     return f

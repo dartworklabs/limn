@@ -238,6 +238,58 @@ class RoleMatrix(AccessBase):
                     self.assertEqual(code, 200, d)
 
 
+class VendorReads(AccessBase):
+    """The bundled files are read like every other path (docs/handbook/api.md §인증): a Pretendard slice and its
+    stylesheet are answered as PDF.js is, for every principal and entry path - each admitted role, the viewer role
+    included, reads them; a headerless tailnet request, an unidentified tailnet peer, a foreign Host or Origin and a
+    loopback request with the loopback agent off are refused before any file is read."""
+
+    PATHS = (
+        "/vendor/pdfjs/pdf.min.mjs",
+        "/vendor/pretendard/pretendard.css",
+        "/vendor/pretendard/PretendardVariable.subset.0.woff2",
+    )
+
+    def setUp(self):
+        """Owner Alice, editor Bob and viewer Carol in people.json, and an API token for the agent role."""
+        super().setUp()
+        self.set_people(
+            [
+                {"login": "alice@example.com", "name": "Alice", "role": "owner"},
+                {"login": "bob@example.com", "name": "Bob", "role": "editor"},
+                {"login": "carol@example.com", "name": "Carol", "role": "viewer"},
+            ]
+        )
+        _, self.token = token_create(ps.APP.C.state, "ci")
+
+    def codes(self, **kw):
+        """The status of each of PATHS for one principal (call keywords)."""
+        return [self.call("GET", path, **kw)[0] for path in self.PATHS]
+
+    def test_every_admitted_principal_reads_them_and_the_rest_are_refused_alike(self):
+        """Owner, editor and viewer over the tailnet, the agent's token and the headerless loopback agent: 200 for all
+        three files; headerless over the tailnet 403, an unidentified tailnet peer 401, a foreign Host or Origin 403."""
+        want = {
+            "owner": (dict(headers=dict(ALICE, Host=TS_HOST)), 200),
+            "editor": (dict(headers=dict(BOB, Host=TS_HOST)), 200),
+            "viewer": (dict(headers=dict(CAROL, Host=TS_HOST)), 200),
+            "agent token": (dict(token=self.token, headers={"Host": TS_HOST}), 200),
+            "loopback agent": ({}, 200),
+            "tailnet headerless": (dict(headers={"Host": TS_HOST}), 403),
+            "unidentified peer": (dict(peer="100.64.0.9"), 401),
+            "foreign host": (dict(headers=dict(ALICE, Host="evil.example")), 403),
+            "foreign origin": (dict(headers=dict(ALICE, Host=TS_HOST, Origin="https://evil.example")), 403),
+        }
+        for who, (kw, code) in want.items():
+            with self.subTest(who=who):
+                self.assertEqual(self.codes(**kw), [code] * len(self.PATHS))
+
+    def test_with_the_loopback_agent_off_a_headerless_loopback_request_is_401_for_them_too(self):
+        """--agent-loopback off: the headerless loopback request is unauthenticated for the font as for PDF.js."""
+        set_config(agent_loopback=False)
+        self.assertEqual(self.codes(), [401] * len(self.PATHS))
+
+
 class ProxyHardening(AccessBase):
     """Security review follow-ups (L1, L2, L4)."""
 

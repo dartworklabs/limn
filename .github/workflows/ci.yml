@@ -149,7 +149,8 @@ jobs:
           limn help | head -5
           python_dir=$(uv tool dir)/dartwork-limn
           # Each missing file fails the step (a `find | grep -q . && echo` line only fails it when it is the last one).
-          for f in vendor/pdfjs/pdf.min.mjs administration/systemd/limn@.service administration/instances.sh \
+          for f in vendor/pdfjs/pdf.min.mjs vendor/pretendard/LICENSE vendor/pretendard/pretendard.css \
+                   vendor/pretendard/PretendardVariable.subset.0.woff2 administration/systemd/limn@.service administration/instances.sh \
                    administration/instance_update.sh administration/instance_documents.sh \
                    administration/instance_lifecycle.sh administration/instance_inspection.sh \
                    viewer/index.html viewer/parts.txt viewer/css/tokens.css viewer/js/events.js \
@@ -158,6 +159,11 @@ jobs:
             find "$python_dir" -path "*limn/$f" | grep -q . || { echo "not packaged: $f"; exit 1; }
             echo "packaged: $f"
           done
+          # Every Pretendard slice the stylesheet names, byte for byte: SHA256SUMS lists them all, so a slice the wheel
+          # dropped fails here instead of drawing its characters in a fallback font.
+          fonts=$(dirname "$(find "$python_dir" -path "*limn/vendor/pretendard/SHA256SUMS")")
+          (cd "$fonts" && sha256sum --check --quiet SHA256SUMS) || { echo "Pretendard slices missing or changed"; exit 1; }
+          echo "packaged: $(wc -l < "$fonts/SHA256SUMS") Pretendard slices"
           # What start() reads before it serves: the viewer package and every brand file limn.viewer.mark names. A file the
           # wheel dropped fails here instead of on every instance's restart after `limn update`.
           "$python_dir/bin/python" -c "from limn import server; from limn.viewer import mark; v = server.read_viewer(); assert sorted(v.icons) == sorted(mark.ICON_ROUTES), sorted(v.icons); print('startup read:', len(v.icons), 'icons,', len(v.template), 'bytes of page')"

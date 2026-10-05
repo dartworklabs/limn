@@ -32,7 +32,7 @@ import helpers_figure
 from helpers import HTML, UI_EN, GatedBuild, add_pin, blank_png, extract_js_fn, ps, run_node, serve_viewer
 from helpers_access import ALICE, BOB, actor
 from helpers_authority import post_authority
-from helpers_browser import BrowserBase, booted, nothing_follows, settle, watch_idle
+from helpers_browser import BrowserBase, booted, fonts_ready, nothing_follows, settle, watch_idle
 
 HANGUL = re.compile(r"[가-힣]")
 # boot() has finished on the ViewerBase fixture (three open pins).
@@ -2686,23 +2686,24 @@ class MoreFoot(ViewerBase):
     sits on the label's ink centre."""
 
     def ink(self, page, dpr):
-        """The foot's measured ink edges (CSS px): open [더보기], screenshot the foot, read each box's ink."""
+        """The foot's measured ink edges (CSS px): open [더보기], wait for its text's font (fonts_ready), screenshot the
+        foot, read each box's ink."""
         page.evaluate("openMore()")
         settle(page)
+        self.assertEqual(fonts_ready(page), "loaded")
         f = page.evaluate(FOOT_BOXES)
         b64 = base64.b64encode(page.screenshot(clip=f["clip"])).decode()
         return f, page.evaluate(INK, [b64, dpr, f["boxes"], f["bg"]])
 
     def test_the_wordmark_the_version_and_help_end_on_one_ink_line(self):
         """411x908 at DPR 2.625 and 1, light and dark: the ink bottoms of the wordmark, the version and [도움말] are within
-        0.5px of each other (on one baseline the label's ink sat about 1px lower). At DPR 1 only in Pretendard (PRETENDARD):
-        there the glyphs are hinted to whole pixels, and a fallback font's Hangul ink lands a pixel either way by the font."""
+        0.5px of each other (on one baseline the label's ink sat about 1px lower). The label is drawn in the bundled
+        Pretendard on every machine (docs/handbook/viewer.md §글꼴), so DPR 1 - where glyphs are hinted to whole pixels - is
+        checked everywhere too."""
         for dpr in (2.625, 1):
             for dark in (False, True):
                 with self.subTest(dpr=dpr, dark=dark):
                     page = self.view(phone(411, 908, dpr), dark=dark)
-                    if dpr == 1 and not page.evaluate(PRETENDARD):
-                        continue
                     _, ink = self.ink(page, dpr)
                     bottoms = [ink[k]["bottom"] for k in ("word", "version", "help")]
                     self.assertLessEqual(max(bottoms) - min(bottoms), 0.5, ink)
@@ -3054,11 +3055,10 @@ class BarChip(ViewerBase):
         """344, 360, 411 and 430 wide, Korean and English, the fixture's counts and the fullest (123 | 12): each half shows
         its word or its dot - never a bare count (English at 411 read '3 | 1') - every control stays inside its cell and
         answers 44px. The cell steps down only as far as it must: Korean keeps its words from 360 (snug on the 344 cover),
-        English keeps them at 411 (snug) and 430 (as is in Pretendard since the counts' figures are proportional, snug in
-        wider fonts) and
-        takes the dots at 360 and 344; a dot is green for the pins, purple for the review, centred on its count."""
+        English keeps them at 411 (snug) and 430 (as is: the bundled Pretendard's figures are proportional) and takes the
+        dots at 360 and 344; a dot is green for the pins, purple for the review, centred on its count."""
         want = {(344, "ko"): "bar-snug", (360, "ko"): "", (411, "ko"): "", (430, "ko"): "", (344, "en"): "bar-tight",
-                (360, "en"): "bar-tight", (411, "en"): "bar-snug", (430, "en"): ("", "bar-snug")}  # fmt: skip
+                (360, "en"): "bar-tight", (411, "en"): "bar-snug", (430, "en"): ""}  # fmt: skip
         for w, h in ((344, 882), (360, 800), (411, 908), (430, 932)):
             for lang in ("ko", "en"):
                 page = self.view(phone(w, h, 3), lang=lang)
@@ -5492,12 +5492,10 @@ class MetaWithoutCommit(ViewerBase):
         self.assertIn("· abc1234 ·", page.evaluate("document.querySelector('#meta-txt').innerText"))
 
 
-# Whether text renders in Pretendard, the font the rows' and heads' text ink was tuned against: a canvas string measured with
-# Pretendard first and with the generic monospace only differs when Pretendard is there. Under other fonts (a machine without
-# it, the CI-like font set) a word's ink sits elsewhere against its cap height - by the font, not the layout - so the tests
-# below check text ink only with Pretendard and keep every box and icon check under any font.
-PRETENDARD = """() => {const c = document.createElement('canvas').getContext('2d'), s = '원고 수정됨 Ag 12';
-  c.font = '16px Pretendard, monospace'; const a = c.measureText(s).width; c.font = '16px monospace'; return a !== c.measureText(s).width;}"""
+# The rows' and heads' text ink was tuned in Pretendard, which the viewer bundles and draws on every machine
+# (docs/handbook/viewer.md §글꼴): the tests below read text ink after fonts_ready() under any installed fonts. Under another
+# font a word's ink sits elsewhere against its cap height - by the font, not the layout - which HangulInkInClippingBoxes
+# checks on purpose.
 
 
 # The compact tool row's spacing as drawn: the row's box - inside its borders and above the bottom safe area; the sheet's row
@@ -5553,7 +5551,7 @@ class CompactRowCentre(ViewerBase):
 
     def row(self, device, dark=False, safe=0, open_=None):
         """The row's geometry (ROW_BOXES) with each control's ink centre minus the row's (CSS px), on device with a stale
-        PDF, a bottom safe area of safe px and, if open_ is given, the panel set to it."""
+        PDF, a bottom safe area of safe px and, if open_ is given, the panel set to it; read once the fonts are ready."""
         page = self.view(device, init=NO_PNG_CHIP, dark=dark)
         page.wait_for_function("!document.querySelector('#status').hidden")
         if safe:
@@ -5561,6 +5559,7 @@ class CompactRowCentre(ViewerBase):
         if open_ is not None:
             page.evaluate("setSide(%s)" % ("true" if open_ else "false"))
         settle(page)
+        self.assertEqual(fonts_ready(page), "loaded")
         g = page.evaluate(ROW_BOXES)
         y0 = max(0, min([g["top"]] + [i["box"][1] for i in g["items"]]) - 4)
         y1 = max([g["bottom"]] + [i["box"][3] for i in g["items"]]) + 4
@@ -5569,15 +5568,13 @@ class CompactRowCentre(ViewerBase):
         ink = page.evaluate(ROW_INK, [base64.b64encode(shot).decode(), device["device_scale_factor"], items])
         mid = (g["top"] + g["bottom"]) / 2
         g["off"] = {k: None if v is None else round(v["mid"] + y0 - mid, 2) for k, v in ink.items()}
-        g["pretendard"] = page.evaluate(PRETENDARD)
         return g
 
     def assert_centred(self, g, controls):
-        """Every control in controls is drawn and its ink centre is within 0.5px of the row's - the text's only in Pretendard
-        (PRETENDARD), the icons' ([⋯], the status icon) under any font; above and below equal within 0.5px."""
+        """Every control in controls is drawn and its ink centre - its text's and its icon's alike - is within 0.5px of
+        the row's; above and below equal within 0.5px."""
         self.assertEqual(set(g["off"]), set(controls), g)
-        off = {k: v for k, v in g["off"].items() if g["pretendard"] or k in ("more", "icon")}
-        self.assertTrue(all(v is not None and abs(v) <= 0.5 for v in off.values()), g["off"])
+        self.assertTrue(all(v is not None and abs(v) <= 0.5 for v in g["off"].values()), g["off"])
         self.assertLessEqual(abs(g["above"] - g["below"]), 0.5, g)
 
     def test_the_mid_rows_have_equal_space_round_their_controls_and_one_centre_line(self):
@@ -5652,7 +5649,7 @@ class ShortRow(ViewerBase):
     def row(self, device, dark=False, two_docs=False):
         """The row (SHORT_ROW) on device with a stale PDF - and, with two_docs, a second document's link (DOCS as two) - and the
         ink (ROW_INK) of each control, read between the stripe and the current tab's 2px underline over the line, and of each
-        icon, keyed 'icon:<control>'; with the row's centre (mid)."""
+        icon, keyed 'icon:<control>'; with the row's centre (mid). Read once the fonts are ready."""
         page = self.view(device, init=NO_PNG_CHIP, dark=dark)
         page.wait_for_function("!document.querySelector('#status').hidden")
         if two_docs:
@@ -5661,6 +5658,7 @@ class ShortRow(ViewerBase):
                 " document.body.classList.add('docs-multi'); drawDocTabs();}"
             )
         settle(page)
+        self.assertEqual(fonts_ready(page), "loaded")
         g = page.evaluate(SHORT_ROW)
         top, line = g["stripe"], g["line"]
         clip = [
@@ -5675,14 +5673,13 @@ class ShortRow(ViewerBase):
         shot = page.screenshot(clip={"x": 0, "y": 0, "width": g["vw"], "height": line + 2})
         g["inkOf"] = page.evaluate(ROW_INK, [base64.b64encode(shot).decode(), device["device_scale_factor"], clip])
         g["mid"] = (top + line) / 2
-        g["pretendard"] = page.evaluate(PRETENDARD)
         return g
 
     def test_the_row_is_48px_and_its_controls_clear_the_stripe_on_one_centre_line(self):
         """844x390 at DPR 3 and 908x411 at 2.625, light and dark, a stale PDF: the nav bar and the tool bar are 48px; every
         fill ([재빌드], [⬚ 선택], the chip's halves) starts under the stripe and ends above the row's line; every control's box
-        centre and ink centre are within 0.5px of the centre between the stripe and the line (the words' ink in Pretendard
-        only, PRETENDARD)."""
+        centre and ink centre - the words' and the icons' alike - are within 0.5px of the centre between the stripe and the
+        line."""
         for device in (phone(844, 390, 3), phone(908, 411)):
             for dark in (False, True):
                 with self.subTest(w=device["viewport"]["width"], dark=dark):
@@ -5695,8 +5692,7 @@ class ShortRow(ViewerBase):
                     self.assertTrue(all(abs(v) <= 0.5 for v in off.values()), off)
                     ink = {i["k"]: g["inkOf"][i["k"]] for i in g["items"]}
                     self.assertTrue(all(v is not None for v in ink.values()), ink)
-                    glyphs = ("nav-toc-toggle", "btn-more", "st-ic")  # the text's ink only in Pretendard (PRETENDARD)
-                    off = {k: round(v["mid"] - g["mid"], 2) for k, v in ink.items() if g["pretendard"] or k in glyphs}
+                    off = {k: round(v["mid"] - g["mid"], 2) for k, v in ink.items()}
                     self.assertTrue(all(abs(v) <= 0.5 for v in off.values()), off)
 
     def test_its_icons_are_18px_with_stroke_2_and_centred_in_their_boxes(self):
@@ -5987,15 +5983,16 @@ class SymmetryAudit(ViewerBase):
     halves' labels and the composer's rows."""
 
     def got(self, page, dpr=None, open_=None):
-        """SYMMETRY on page after open_ (JS, then a settle), with the ink (ROW_INK) of its boxes when dpr is given."""
+        """SYMMETRY on page after open_ (JS, then a settle), with the ink (ROW_INK) of its boxes when dpr is given, read
+        once the fonts are ready."""
         if open_:
             page.evaluate(open_)
             settle(page)
         g = page.evaluate(SYMMETRY)
         if dpr and g["boxes"]:
+            self.assertEqual(fonts_ready(page), "loaded")
             shot = base64.b64encode(page.screenshot()).decode()
             g["ink"] = page.evaluate(ROW_INK, [shot, dpr, g["boxes"]])
-        g["pretendard"] = page.evaluate(PRETENDARD)
         return g
 
     def test_the_nav_bars_centre_their_controls_under_the_stripe_and_start_on_the_edge_line(self):
@@ -6025,9 +6022,10 @@ class SymmetryAudit(ViewerBase):
         Trash, the [⋯] menu), light and dark: a head's title starts as far from the sheet's inner side as its [닫기]'s label
         ends from the other (within 0.5px; [닫기] ended 1px further in, its own 1px border, and on the desktop's dialogs 9px),
         [더보기]'s wordmark and [도움말 ›]'s chevron likewise. The title and [닫기] are trimmed to their cap height and their
-        boxes share a centre within 0.5px (help's title stood 4px high on its h2 margin); in Pretendard their ink centres are within 0.75px
-        (1 to 2.6px apart as line boxes, 7px for help) - what remains is how far each Hangul word reaches past its cap height
-        and its baseline, which differs by word and size (0 to 0.7px measured), not their placement."""
+        boxes share a centre within 0.5px (help's title stood 4px high on its h2 margin); their ink centres, in the bundled
+        Pretendard, are within 0.75px (1 to 2.6px apart as line boxes, 7px for help) - what remains is how far each Hangul
+        word reaches past its cap height and its baseline, which differs by word and size (0 to 0.7px measured), not their
+        placement."""
         cases = [(phone(411, 908), 2.625, o) for o in ("openMore()", "openNavSheet()", "openHelp()", "openTrash()")]
         cases += [(phone(1180, 820, 2), 2, "openMore()")]
         cases += [
@@ -6043,14 +6041,13 @@ class SymmetryAudit(ViewerBase):
                     if "foot" in g["out"]:
                         self.assertLessEqual(abs(g["out"]["foot"][0] - g["out"]["foot"][1]), 0.5, g["out"])
                     self.assertLessEqual(abs(g["out"]["headCap"][0] - g["out"]["headCap"][1]), 0.5, g["out"])
-                    if g["pretendard"]:  # the words' ink, against the font it was tuned for (PRETENDARD)
-                        self.assertLessEqual(abs(g["ink"]["title"]["mid"] - g["ink"]["close"]["mid"]), 0.75, g["ink"])
+                    self.assertLessEqual(abs(g["ink"]["title"]["mid"] - g["ink"]["close"]["mid"]), 0.75, g["ink"])
 
     def test_the_chip_halves_pad_alike_and_centre_their_labels(self):
         """411x908 (the sheet) and 1180x820 (mid), light and dark: each half pads 12px either side and its words' and count's
-        boxes stand as far from either side within 0.5px, under any font; in Pretendard (PRETENDARD) the label's ink is
-        centred in it within 0.5px too (a tabular '1' left the review half's 1px off) - under other fonts a glyph's side
-        bearings move its ink by the font, not the layout."""
+        boxes stand as far from either side within 0.5px, and the label's ink - in the bundled Pretendard, whose side
+        bearings it was tuned against - is centred in the half within 0.5px too (a tabular '1' left the review half's 1px
+        off)."""
         for device, dpr in ((phone(411, 908), 2.625), (phone(1180, 820, 2), 2)):
             for dark in (False, True):
                 with self.subTest(w=device["viewport"]["width"], dark=dark):
@@ -6059,11 +6056,10 @@ class SymmetryAudit(ViewerBase):
                         self.assertEqual(g["out"][half][0], g["out"][half][1], g["out"])
                         content = g["out"][half + "Content"]
                         self.assertLessEqual(abs(content[0] - content[1]), 0.5, g["out"])
-                        if g["pretendard"]:
-                            b, ink = next(x["box"] for x in g["boxes"] if x["k"] == half), g["ink"][half]
-                            self.assertLessEqual(
-                                abs((ink["left"] + ink["right"]) / 2 - (b[0] + b[2]) / 2), 0.5, (half, ink, b)
-                            )
+                        b, ink = next(x["box"] for x in g["boxes"] if x["k"] == half), g["ink"][half]
+                        self.assertLessEqual(
+                            abs((ink["left"] + ink["right"]) / 2 - (b[0] + b[2]) / 2), 0.5, (half, ink, b)
+                        )
 
     def test_the_composer_rows_are_symmetric(self):
         """411x908 and 1440x900, a selection open: the location starts as far in as [⧉] ends (both on the box line), the kind
@@ -6481,7 +6477,7 @@ class SelectModeBar(ViewerBase):
         """The four sizes, light and dark, the mode on: [⬚]'s glyph ink is centred in its 18px box within 0.5px both ways
         (and in the portrait phone's 36px chip); the mode bar is 44px high on the 4px grid, 8px under the PDF area's top,
         centred in the area, its two inner margins equal (the icon's 36px tile and the 36px [끝내기] each 4px from the
-        bar's ends), the words' box and [끝내기] centred on its centre line within 0.5px (the words' ink too, in
+        bar's ends), the words' box and [끝내기] centred on its centre line within 0.5px (their ink too, in the bundled
         Pretendard) with the icon's ink centred in its tile; touch text 12px or more; [끝내기] and [⬚] answer 44px."""
         for device in SEL_DEVICES:
             for dark in (False, True):
@@ -6508,6 +6504,7 @@ class SelectModeBar(ViewerBase):
                         "width": device["viewport"]["width"],
                         "height": device["viewport"]["height"],
                     }
+                    self.assertEqual(fonts_ready(page), "loaded")
                     shot = page.screenshot(clip=clip)
                     items = [
                         {"k": "icon", "fill": False, "ix": 0, "box": icon},
@@ -6530,9 +6527,8 @@ class SelectModeBar(ViewerBase):
                         self.assertLessEqual(
                             abs(mid(ink["glyph"]["left"], ink["glyph"]["right"]) - mid(b[0], b[2])), 0.5
                         )
-                    if page.evaluate(PRETENDARD):
-                        for k in ("text", "end"):
-                            self.assertLessEqual(abs(ink[k]["mid"] - centre), 0.5, (k, ink, centre))
+                    for k in ("text", "end"):
+                        self.assertLessEqual(abs(ink[k]["mid"] - centre), 0.5, (k, ink, centre))
 
 
 if __name__ == "__main__":

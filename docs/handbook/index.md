@@ -53,7 +53,7 @@ catalog_schema: 1
 | `src/limn/server.py`, `src/limn/cli.py`, `src/limn/__main__.py` | 실행 자원 생성·기능 조립·명령 전달 | 시작/종료 연결·기능별 조립 계약 변경 | architecture.md, operations.md, 연결된 기능 topic |
 | `src/limn/*/__init__.py` | 기능 공개 표면과 요청한 값만 불러오는 지연 export | 공개 동작·값·기능 소유권 변경 | architecture.md, code-style-roadmap.md, verification.md |
 | `tools/check_boundaries.py`, `tests/architecture/test_boundaries.py` | 기능 비공개 접근·기능 쌍/진입점별 import 허용목록·경계 코드의 기능 의존·순환 검사 | import 해석·소유권·검증 규칙 변경 | verification.md, architecture.md |
-| `src/limn/vendor/**` | 번들한 PDF.js와 Lucide | 버전 교체·파일 추가 | viewer.md, 해당 vendor README |
+| `src/limn/vendor/**` | 번들한 PDF.js, Pretendard 글꼴 조각과 스타일시트, Lucide 출처 | 버전 교체·파일 추가 | viewer.md, api.md, 해당 vendor README |
 | `src/limn/**/tests/**`, `tests/**` | 소유 패키지의 동작과 교차 기능 계약·구조 게이트 | 검사 추가·이동·합격 기준 변경 | verification.md |
 | `package.json`, `package-lock.json`, `tsconfig.json`, `tsconfig.strict.json`, `tools/strict_ratchet.py`, `tools/strict-baseline.json`, `src/limn/viewer/types/*` | 뷰어 JS 타입 검사 도구와 그 설정·선언(서버와 휠에 들어가지 않는다) | 검사 범위·도구 버전·전역 선언 변경 | viewer.md, verification.md |
 | `pyproject.toml`, `uv.lock`, `.github/workflows/*`, `.github/dependabot.yml` | 지원 Python·의존성·수집/패키징·병렬 실행·정적 게이트·CI 액션 고정과 갱신 | 실행 환경·검증 구성 변경 | architecture.md, verification.md, workflow.md |
