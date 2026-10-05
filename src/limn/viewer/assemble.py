@@ -45,6 +45,12 @@ def default_pdfjs_dir() -> Path:
     return Path(__file__).resolve().parent.parent / "vendor" / "pdfjs"
 
 
+def default_pretendard_dir() -> Path:
+    """Return the package's bundled Pretendard directory: the font's slices and the stylesheet that names them. There is
+    no run setting for another one - the viewer's measures are taken in this build (vendor/pretendard/README.md)."""
+    return Path(__file__).resolve().parent.parent / "vendor" / "pretendard"
+
+
 def read_brand(directory: Path | None = None) -> Brand:
     """Read packaged logo files; missing or malformed assets refuse startup."""
     directory = directory or BRAND_DIR
@@ -77,6 +83,10 @@ SERVICE_WORKER = "sw.js"
 
 # PDF.js renders the PDF as vectors in the viewer (vendor/pdfjs/README.md). The version is also the ?v= value that busts the browser cache.
 PDFJS_VERSION = "6.3.289"
+
+# The interface font, Pretendard Variable (vendor/pretendard/README.md). Every URL of it - the stylesheet the page links
+# and each slice the stylesheet names - carries this version as its ?v=, so a cached copy never needs revalidating.
+PRETENDARD_VERSION = "1.3.9"
 
 # Viewer icons - Lucide (ISC, vendor/lucide/README.md). Only the <svg> inner elements of the icons in use are
 # copied verbatim from the npm lucide-static source (only whitespace trimmed). Emoji/default character icons
