@@ -86,6 +86,7 @@ body.lay-wide #more .more-top{padding-top:var(--space-2)}
 #more .more-grid button{justify-content:flex-start;gap:var(--space-2);text-align:left;white-space:nowrap;background:transparent;border-color:transparent;font-size:var(--text-lg)}
 @media (hover:hover){#more .more-grid button:hover{background:var(--accent)}}   /* a tapped row stayed grey (sticky :hover, UX audit P4.6) */
 #more .more-grid .lbl{flex:1;min-width:0}
+#more #m-download .lbl{padding-left:calc(16px + var(--space-2))}   /* the one row with no icon: its text stands where the other rows' text does */
 #more .m-n{color:var(--muted-foreground);font-variant-numeric:tabular-nums}
 #more .more-grid button>.ic:last-child:not(:first-child){color:var(--muted-foreground)}
 #more .m-why{display:block;padding:0 var(--space-3) var(--space-1) calc(var(--space-3) + 16px + var(--space-2));font-size:var(--text-sm);line-height:18px;color:var(--muted-foreground)}
