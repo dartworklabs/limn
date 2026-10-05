@@ -38,9 +38,9 @@ body:not(.lay-wide) #nav-side{display:none}
 /* A draft the collapsed panel is holding (draftOpen): a dot on [핀 N] - the note is only hidden, not gone. */
 .c-dot{flex:none;width:7px;height:7px;border-radius:50%;background:var(--primary)}
 #sheet-grip{display:none}
-#right{width:348px;min-width:280px;max-width:80vw;border-left:1px solid var(--border);background:var(--sidebar);
+#right{width:348px;min-width:280px;max-width:80vw;border-left:1px solid var(--border-seam);background:var(--sidebar);
   display:flex;flex-direction:column;flex:none;min-height:0;touch-action:pan-y pinch-zoom}   /* horizontal drags stay pointer events (the overlay's swipe); pinch keeps the browser's zoom */
-.bar{padding:var(--space-2) var(--space-3);border-bottom:1px solid var(--border);display:flex;gap:var(--space-1);align-items:center;flex-wrap:wrap}
+.bar{padding:var(--space-2) var(--space-3);border-bottom:1px solid var(--border-seam);display:flex;gap:var(--space-1);align-items:center;flex-wrap:wrap}
 #bar1{flex-wrap:wrap;gap:var(--space-1);padding:var(--space-2);--tb-h:var(--control-h)}   /* wraps to two lines in a narrowed panel - so it never overflows horizontally */
 /* The desktop panel's two x-lines (docs/handbook/viewer.md §패널 정리, 4a of the cross-resolution pass). Boxes stand on the box line,
    12px in from the panel's inner edges, where the cards, the composer and the save row already stood; unboxed text and glyphs on

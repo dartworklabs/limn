@@ -11,6 +11,7 @@ whole feature flows in a real browser are src/limn/viewer/tests/test_viewer_brow
 Run: uv run pytest src/limn/viewer/tests/test_viewer.py
 """
 
+import base64
 import json
 import re
 import shutil
@@ -4061,6 +4062,134 @@ class FrontendResponsiveBrowser(ChromiumTestCase):
         self.assertEqual(page.locator("#right").bounding_box()["width"], 390)
         page.locator("#btn-pos").click()
         self.assertTrue(page.locator("#nav-sheet").is_visible())
+
+    SEAM_PROBE = """([sel, side, token]) => {
+      const e = document.querySelector(sel), c = getComputedStyle(e), t = document.createElement('i');
+      const cap = side[0].toUpperCase() + side.slice(1), colour = v => { t.style.color = v; document.body.append(t);
+        const x = getComputedStyle(t).color; t.remove(); return x; };
+      return {shown: e.getClientRects().length > 0, width: c['border' + cap + 'Width'], colour: c['border' + cap + 'Color'],
+        shadow: c.boxShadow, seam: colour('var(--' + token + ')'), defined: !!getComputedStyle(document.documentElement).getPropertyValue('--' + token).trim(),
+        border: colour('var(--border)'), strong: colour('var(--border-strong)')};
+    }"""
+    # A 1px line along `side` as an offset box shadow without blur ("rgb() x y blur spread [inset]"): the lines the layout
+    # draws without taking room (the nav bar's, the outline's) and that a border would shift by a pixel.
+    SHADOW_LINES = {
+        "bottom": ((0, 1), (0, -1)),
+        "top": ((0, -1), (0, 1)),
+        "left": ((-1, 0), (1, 0)),
+        "right": ((1, 0), (-1, 0)),
+    }
+
+    def seam_colour_on(self, page, sel, side):
+        """(colour, probe, inside) of the 1px line sel draws along its `side` - its border, or a blur-free box shadow -
+        where inside says the line is within the box (a border or an inset shadow); the colour is None without a line."""
+        got = page.evaluate(self.SEAM_PROBE, [sel, side, "border-seam"])
+        self.assertTrue(got["shown"], sel)
+        if got["width"] == "1px":
+            return got["colour"], got, True
+        outer, inner = self.SHADOW_LINES[side]
+        for colour, x, y, blur, spread, inset in re.findall(
+            r"(rgba?\([^)]*\))\s+(-?[\d.]+)px\s+(-?[\d.]+)px\s+([\d.]+)px\s+(-?[\d.]+)px(\s+inset)?", got["shadow"]
+        ):
+            if float(blur) == 0 and float(spread) == 0 and (float(x), float(y)) == (inner if inset else outer):
+                return colour, got, bool(inset)
+        return None, got, False
+
+    PIXEL_AT = """async ([b64]) => {
+      const img = new Image(); img.src = 'data:image/png;base64,' + b64; await img.decode();
+      const c = document.createElement('canvas'); c.width = c.height = 1; const g = c.getContext('2d'); g.drawImage(img, 0, 0);
+      const d = g.getImageData(0, 0, 1, 1).data; return 'rgb(' + d[0] + ', ' + d[1] + ', ' + d[2] + ')';
+    }"""
+
+    def painted_at(self, page, sel, side, drawn_by_border):
+        """The colour Chromium paints on the 1px line along sel's `side`, mid-way along the edge (a screenshot of that pixel):
+        the border's row inside the box (a layout edge at a fraction of a pixel snaps to the nearest row), the shadow's row outside it - so a line something later in the page paints over
+        reads as that something's colour."""
+        r = page.evaluate(
+            "s => { const r = document.querySelector(s).getBoundingClientRect(); return [r.left, r.top, r.right, r.bottom]; }",
+            sel,
+        )
+        left, top, right, bottom = r
+        along_x, along_y = left + (right - left) * 0.97, (top + bottom) / 2
+        inside = {
+            "bottom": (along_x, bottom - 1),
+            "top": (along_x, top),
+            "left": (left, along_y),
+            "right": (right - 1, along_y),
+        }
+        outside = {
+            "bottom": (along_x, bottom),
+            "top": (along_x, top - 1),
+            "left": (left - 1, along_y),
+            "right": (right, along_y),
+        }
+        x, y = (inside if drawn_by_border else outside)[side]
+        shot = page.screenshot(clip={"x": round(x), "y": round(y), "width": 1, "height": 1})
+        return page.evaluate(self.PIXEL_AT, [base64.b64encode(shot).decode()])
+
+    def test_the_panels_meet_on_a_seam_one_step_stronger_than_the_border(self):
+        """Red first for #190 (variant A): wherever the nav bar, the outline and the panel's header and tool rows meet, a 1px
+        line in --border-seam - between --border and --border-strong in both themes - runs along the edge, on the desktop
+        and on the tablet (beside the document and the sheet, the outline's overlay open)."""
+        # (name, width, height, touch, edges drawn at first, edges once the outline's toggle has been pressed)
+        screens = (
+            (
+                "desktop",
+                1440,
+                900,
+                False,
+                (
+                    ("#doc-nav", "bottom"),
+                    ("#outline", "right"),
+                    ("#section-strip", "bottom"),
+                    ("#right", "left"),
+                    ("#bar1", "bottom"),
+                    ("#bar2", "bottom"),
+                ),
+                (),
+            ),
+            (
+                "tablet beside",
+                1024,
+                768,
+                True,
+                (("#doc-nav", "bottom"), ("#grip", "left"), ("#right", "left"), ("#bar1", "top")),
+                (("#outline", "right"),),
+            ),
+            ("tablet sheet", 820, 1180, True, (("#doc-nav", "bottom"),), (("#outline", "right"),)),
+            ("tablet short", 932, 430, True, (("#doc-nav", "bottom"), ("#right", "left"), ("#bar1", "bottom")), ()),
+        )
+        for theme in ("light", "dark"):
+            for name, width, height, touch, edges, overlay_edges in screens:
+                with self.subTest(theme=theme, screen=name):
+                    page = self.open_viewer(width, touch, {"theme": theme}, height=height)
+                    for step, group in enumerate((edges, overlay_edges)):
+                        if step:
+                            page.locator("#nav-toc-toggle").click()
+                        for sel, side in group:
+                            colour, got, inside = self.seam_colour_on(page, sel, side)
+                            self.assertTrue(got["defined"], "--border-seam is not defined")
+                            self.assertEqual(colour, got["seam"], "%s %s: %r" % (sel, side, got))
+                            self.assertEqual(
+                                self.painted_at(page, sel, side, inside), got["seam"], "%s %s" % (sel, side)
+                            )
+                            self.assertNotEqual(got["seam"], got["border"])
+                            lo, hi = ([int(v) for v in re.findall(r"\d+", got[k])[:3]] for k in ("border", "strong"))
+                            mid = [int(v) for v in re.findall(r"\d+", got["seam"])[:3]]
+                            for a, b, c in zip(lo, mid, hi, strict=True):
+                                self.assertTrue(min(a, c) < b < max(a, c), (sel, lo, mid, hi))
+
+    def test_the_change_view_head_and_tool_row_end_on_the_seam(self):
+        """Red first for #190: the change view's head (#revision-head) and its tool row (#revision-controls) end on the seam."""
+        for theme in ("light", "dark"):
+            with self.subTest(theme=theme):
+                page = self.open_viewer(1440, False, {"theme": theme})
+                page.evaluate("document.body.classList.add('revision-open')")
+                for sel in ("#revision-head", "#revision-controls"):
+                    colour, got, inside = self.seam_colour_on(page, sel, "bottom")
+                    self.assertTrue(got["defined"], "--border-seam is not defined")
+                    self.assertEqual(colour, got["seam"], "%s: %r" % (sel, got))
+                    self.assertEqual(self.painted_at(page, sel, "bottom", inside), got["seam"], sel)
 
 
 class FrontendThread(unittest.TestCase):
