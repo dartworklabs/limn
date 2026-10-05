@@ -267,6 +267,11 @@ function hangulOf(s){return String(s).replace(/[^ᄀ-ᇿ㄰-㆏가-힣]/g,'');}
 // row and "limn" stood 3.3px below the title's foot. English ('— How to use') has no Hangul and no drop.
 function headInk(){const h=$('#help-h'),t=h&&h.querySelector(':scope>span'); if(!t)return; const hangul=hangulOf(t.textContent);
   h.style.setProperty('--ink-word',inkDrops(hangul?inkMetrics(t,hangul).d:0,0).word+'px');}
+// The interface font arrives after the first layout (docs/handbook/viewer.md §글꼴): font-display: swap draws a text in a
+// fallback until its slice of Pretendard has loaded, and a slice loads when a character of its range first shows. What
+// was measured from text in the meantime - the sheet bar's steps (fitBarWords) and an open sheet's ink line (footInk,
+// headInk) - is measured again each time a load finishes.
+document.fonts.addEventListener('loadingdone',()=>{fitBarWords(); if($('#more').open)footInk(); if($('#help').open)headInk();});
 // Clicking outside a dialog (the backdrop) closes it - only for a click whose target is the dialog itself and that falls outside its
 // box rectangle. The same for [더보기], help, the navigation sheet and the status line's list (and the Trash, below); help and
 // the documents sheet used to stay open (input review 2026-09-26).

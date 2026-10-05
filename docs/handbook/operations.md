@@ -10,7 +10,7 @@
 
 ## 요구 환경
 
-서버는 Python 3.10 이상의 표준 라이브러리만 쓴다. 외부 패키지, CDN, 빌드 단계가 없다. 뷰어가 PDF를 벡터로 그릴 때 쓰는 PDF.js는 패키지 안 `src/limn/vendor/pdfjs/`에 담겨 기본으로 제공된다. 그래서 가상환경 없이 시스템 Python 3.10으로도 돈다. 3.10은 하한이다. 3.9 이하는 `server.py`가 가져오는 `limn.*` 모듈(`match` 문, `typing.TypeAlias`)을 읽지 못해 시작하자마자 `ImportError`나 `SyntaxError`로 멈춘다. macOS의 `/usr/bin/python3`이 3.9다.
+서버는 Python 3.10 이상의 표준 라이브러리만 쓴다. 외부 패키지, CDN, 빌드 단계가 없다. 뷰어가 PDF를 벡터로 그릴 때 쓰는 PDF.js는 패키지 안 `src/limn/vendor/pdfjs/`에, 인터페이스 글꼴 Pretendard는 `src/limn/vendor/pretendard/`에 담겨 기본으로 제공된다. 그래서 가상환경 없이 시스템 Python 3.10으로도 돈다. 3.10은 하한이다. 3.9 이하는 `server.py`가 가져오는 `limn.*` 모듈(`match` 문, `typing.TypeAlias`)을 읽지 못해 시작하자마자 `ImportError`나 `SyntaxError`로 멈춘다. macOS의 `/usr/bin/python3`이 3.9다.
 
 재빌드에는 외부 도구가 필요하다.
 
@@ -174,7 +174,7 @@ ss -ltnp 2>/dev/null | grep ":<port> " || lsof -i tcp:<port>
 
 ## 설치와 버전 교체
 
-`limn`은 `uv tool install git+https://github.com/dartworklabs/limn@v<버전>`처럼 설치해 쓰는 독립 패키지다. 레포를 체크아웃해 스크립트를 직접 실행하지 않는다. `vendor/pdfjs/`는 패키지 안에 같이 설치되므로 옆에 따로 둘 필요가 없다.
+`limn`은 `uv tool install git+https://github.com/dartworklabs/limn@v<버전>`처럼 설치해 쓰는 독립 패키지다. 레포를 체크아웃해 스크립트를 직접 실행하지 않는다. `vendor/pdfjs/`와 `vendor/pretendard/`는 패키지 안에 같이 설치되므로 옆에 따로 둘 필요가 없다.
 
 새 버전으로 올리려면 그 버전을 다시 설치하고 상시 인스턴스를 재시작한다. `limn update`가 이 두 단계를 한 번에 한다([instances.md](instances.md) §업데이트와 되돌리기).
 

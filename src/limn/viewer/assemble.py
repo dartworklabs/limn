@@ -10,6 +10,7 @@ here runs at import.
 Placeholders filled here:
 - __APP_CSS__ / __APP_JS__: the parts listed under each marker in parts.txt, joined in order (load_viewer_html).
 - __PDFJS_VERSION__: the vendored PDF.js version, the ?v= that busts the browser cache for /vendor/pdfjs/.
+- __PRETENDARD_VERSION__: the vendored font's version, the ?v= of the stylesheet link to /vendor/pretendard/.
 - __LIMN_MARK_16__ / __LIMN_WORDMARK__: the Limn logo's inline SVGs (limn.viewer.mark.MARK_SLOTS) - the icon by the label
   in the top bar, the wordmark in the help header and [더보기]'s foot.
 - __LIMN_VERSION__: this Limn's version (limn.__version__), beside the wordmark in [더보기]'s foot.
@@ -68,6 +69,7 @@ def read_viewer() -> "ViewerFiles":
         VIEWER_DIR,
         messages,
         pdfjs_version=PDFJS_VERSION,
+        pretendard_version=PRETENDARD_VERSION,
         marks=logo.marks,
         icon_key=logo.key,
         icons=LUCIDE,
@@ -258,6 +260,7 @@ def viewer_html(
     messages: Mapping[str, Message],
     *,
     pdfjs_version: str,
+    pretendard_version: str,
     marks: Mapping[str, str],
     icon_key: str,
     icons: Mapping[str, str],
@@ -265,16 +268,17 @@ def viewer_html(
 ) -> str:
     """The viewer page served at GET /, before the run-time placeholders: run_page() fills those per instance.
 
-    The page and its parts come from directory (load_viewer_html); pdfjs_version, the logo's inline SVGs (marks:
-    placeholder -> markup, limn.viewer.mark.Brand.marks, in placeholder order), Limn's version, the favicon links' icon_key,
-    the icon table and the message table fill their placeholders, in that order, and every {{ic:<name>}} token becomes its
-    icon's <svg>.
+    The page and its parts come from directory (load_viewer_html); pdfjs_version, pretendard_version, the logo's inline
+    SVGs (marks: placeholder -> markup, limn.viewer.mark.Brand.marks, in placeholder order), Limn's version, the favicon
+    links' icon_key, the icon table and the message table fill their placeholders, in that order, and every
+    {{ic:<name>}} token becomes its icon's <svg>.
     The JSON forms are sorted by key so the page does not depend on the table's order; the message table's "</" is
     escaped so a string can never close the <script> it sits in. Raises like load_viewer_html, and KeyError for an
     icon token the table lacks.
     """
     page = load_viewer_html(directory)
     page = page.replace("__PDFJS_VERSION__", pdfjs_version)
+    page = page.replace("__PRETENDARD_VERSION__", pretendard_version)
     for placeholder in sorted(marks):
         page = page.replace(placeholder, marks[placeholder])
     page = page.replace("__LIMN_VERSION__", html.escape(version, quote=True))

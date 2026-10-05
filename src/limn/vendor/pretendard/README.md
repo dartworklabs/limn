@@ -1,6 +1,6 @@
 # Pretendard (vendored)
 
-The Pretendard Variable font the viewer's interface text is set in. The viewer runs inside a private network, so it does not use an external CDN; the server serves these files itself at `GET /vendor/pretendard/<file>`. The endpoint contract is in [docs/handbook/api.md](../../../../docs/handbook/api.md).
+The Pretendard Variable font the viewer's interface text is set in. The viewer runs inside a private network, so it does not use an external CDN; the server serves these files itself at `GET /vendor/pretendard/<file>`. The endpoint contract is in [docs/handbook/api.md](../../../../docs/handbook/api.md), and why the viewer bundles a font and how the page loads it is in [docs/handbook/viewer.md](../../../../docs/handbook/viewer.md) §글꼴.
 
 | Item | Value |
 | --- | --- |

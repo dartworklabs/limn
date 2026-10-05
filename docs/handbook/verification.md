@@ -57,7 +57,7 @@ Limn에서 "테스트가 녹색"은 합격의 필요조건이지 충분조건이
 
 ### 브라우저 테스트의 기다림
 
-브라우저가 닿는 테스트(`src/limn/viewer/tests/test_viewer_browser.py`, `src/limn/viewer/tests/test_viewer.py`의 `Frontend*` 가드)는 **임의의 시간(`sleep`, `wait_for_timeout`)을 기다리지 않는다.** 이벤트·DOM 상태·통신 완료를 가리키는 술어(`expect(...)`, `wait_for_selector`, `wait_for_function`)를 기다린다. 시간으로 기다리면 빠른 머신에서는 시간을 낭비하고 느린 CI에서는 무작위로 깨진다.
+브라우저가 닿는 테스트(`src/limn/viewer/tests/test_viewer_browser.py`, `src/limn/viewer/tests/test_viewer.py`의 `Frontend*` 가드)는 **임의의 시간(`sleep`, `wait_for_timeout`)을 기다리지 않는다.** 이벤트·DOM 상태·통신 완료를 가리키는 술어(`expect(...)`, `wait_for_selector`, `wait_for_function`)를 기다린다. 공용 대기 `settle()`(`tests/support/helpers_browser.py`)은 짧은 타이머·`fetch`·CSS 애니메이션과 함께 웹 글꼴 로딩(`document.fonts.status`)이 끝나기를 기다린다. 담은 글꼴의 조각은 그 글자가 처음 화면에 나올 때 받아서, 그 전에 잰 글은 폴백 글꼴의 값이기 때문이다([viewer.md](viewer.md) §글꼴). 시간으로 기다리면 빠른 머신에서는 시간을 낭비하고 느린 CI에서는 무작위로 깨진다.
 
 뷰어 화면의 시간 의존 동작(폴링 간격, 알림 배지 깜빡임, 날짜 포맷)을 테스트할 때는 브라우저의 시계를 얼린다(`clock.set_fixed_time()`).
 

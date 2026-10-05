@@ -61,15 +61,17 @@ IDLE_WATCH = (
     % IDLE_TIMER_MS
 )
 
-# settle()'s check, run on every animation frame: nothing pending (IDLE_WATCH) and no finite CSS animation or transition
-# running (an infinite one - a spinner - never ends), on two frames in a row, so that a requestAnimationFrame callback
-# queued behind the first check has run too.
+# settle()'s check, run on every animation frame: nothing pending (IDLE_WATCH), no web font loading (the bundled
+# Pretendard's slices load as their characters first show, and the text swaps from a fallback when they arrive -
+# docs/handbook/viewer.md §글꼴) and no finite CSS animation or transition running (an infinite one - a spinner - never
+# ends), on two frames in a row, so that a requestAnimationFrame callback queued behind the first check has run too.
 QUIET = """() => {
   const idle = window.__limnIdle;
   if (!idle) throw new Error('settle(): this page has no idle watch - add it to the context with watch_idle()');
   const moving = document.getAnimations().some(a => a.playState === 'running' && a.effect
     && a.effect.getComputedTiming().iterations !== Infinity);
-  idle.quiet = idle.timers.size === 0 && idle.fetches === 0 && !moving ? idle.quiet + 1 : 0;
+  const fonts = document.fonts.status === 'loaded';
+  idle.quiet = idle.timers.size === 0 && idle.fetches === 0 && fonts && !moving ? idle.quiet + 1 : 0;
   return idle.quiet >= 2;
 }"""
 
@@ -80,10 +82,11 @@ def watch_idle(context):
 
 
 def settle(page, timeout=15000):
-    """Wait until the page has settled: no short timer pending, no fetch in flight, no CSS animation or transition
-    running, on two animation frames in a row. After it, whatever the last action set in motion - a debounced save, a
-    slide, a server round trip and its redraw - has finished, so the next step reads the state it produced, and a check
-    that something did not happen reads the page after everything that could have made it happen."""
+    """Wait until the page has settled: no short timer pending, no fetch in flight, no web font loading, no CSS
+    animation or transition running, on two animation frames in a row. After it, whatever the last action set in
+    motion - a debounced save, a slide, a server round trip and its redraw, a font slice for new text and the swap -
+    has finished, so the next step reads the state it produced, and a check that something did not happen reads the
+    page after everything that could have made it happen."""
     page.evaluate("window.__limnIdle && (window.__limnIdle.quiet = 0)")
     page.wait_for_function(QUIET, timeout=timeout, polling="raf")
 
