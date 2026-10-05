@@ -76,31 +76,29 @@ def test_production_crossings_are_the_reviewed_query_contracts():
     assert {
         ("limn.pins", "limn.builds"): {
             "PinBuildQueries",
-            "pin_build_queries",
             "ElementFollower",
             "ElementFact",
             "ElementSelection",
             "SelectionUnavailable",
             "Publication",
         },
-        ("limn.pins", "limn.collaboration"): {"Notice"},
-        ("limn.revisions", "limn.pins"): {"RevisionPinQuery", "RevisionPin"},
     } == checker.CROSSING_NAMES
 
 
-def test_revisions_imports_only_the_pin_projection_contract():
-    """Revision algorithms cannot reach pin storage, models, or scope helpers."""
+def test_revisions_imports_no_other_feature():
+    """Revision code names no other feature, its public surface included: the pin facts it reads are Protocols of its
+    own (limn.revisions.needs) and the composition root injects the supplier."""
     code = checker.sources(ROOT / "src" / "limn")
     packages = {name for name in code if (ROOT / "src" / "limn" / Path(*name.split(".")[1:]) / "__init__.py").is_file()}
     imported = {
-        symbol
+        (name, base, symbol)
         for name, source in code.items()
         if checker.owner(name) == "limn.revisions"
         for base, symbol in checker.imports(name, checker.ast.parse(source), packages)
-        if base == "limn.pins"
+        if checker.owner(base) not in (None, "limn.revisions")
     }
 
-    assert imported == {"RevisionPin", "RevisionPinQuery"}
+    assert imported == set()
 
 
 @pytest.mark.parametrize("statement", ["import limn.builds.private", "from limn.builds import private"])

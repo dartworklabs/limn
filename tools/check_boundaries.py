@@ -18,15 +18,12 @@ EntrypointImports: TypeAlias = Mapping[str, set[str]]
 CROSSING_NAMES: CrossingNames = {
     ("limn.pins", "limn.builds"): {
         "PinBuildQueries",
-        "pin_build_queries",
         "ElementFollower",
         "ElementFact",
         "ElementSelection",
         "SelectionUnavailable",
         "Publication",
     },
-    ("limn.pins", "limn.collaboration"): {"Notice"},
-    ("limn.revisions", "limn.pins"): {"RevisionPinQuery", "RevisionPin"},
 }
 ENTRYPOINT_IMPORTS: EntrypointImports = {
     "limn.server": {

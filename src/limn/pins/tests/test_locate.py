@@ -18,7 +18,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from limn.builds import artifacts as limn_build, run as build_run
+from limn.builds import artifacts as limn_build, pin_build_queries, run as build_run
 from limn.builds.answer import build_failure_log
 from limn.builds.artifacts import BuildFailed, BuildOk, BuildOkWithErrors, BuildUnchanged
 from limn.pins.location import (
@@ -440,7 +440,7 @@ class Estimate(Base):
         # a legacy pin without pdf_build: the server resolves at (server local-time string) to epoch and compares against built_at / the build-start src_mtime.
         (ps.APP.C.state / "built_at.txt").write_text("2026-09-22T10:00:00+09:00")
         limn_build.write_built_src_mtime(ps.APP.docs[0], ps.APP.C.state, position.epoch("2026-09-22T09:30:00+09:00"))
-        ctx = locate.est_context(ps.APP.docs[0])
+        ctx = locate.est_context(ps.APP.docs[0], pin_build_queries())
         old = {"at": "2026-09-22T09:00:00+09:00", "sync": "ok"}
         self.assertTrue(position.pin_est(old, ctx))
         # editing just the note pushes edited_at past the build, but estimated stays true (must-2 a) — the only criterion is at
