@@ -52,7 +52,7 @@ document.addEventListener('click',e=>{const target=/** @type {HTMLElement} */(e.
     //   Calling a.closest() after switchDoc would return null, leaving the sheet open and blocking the next tab
     //   interaction (a touch regression).
     case 'nav-sheet':openNavSheet();break; case 'nav-sheet-close':$('#nav-sheet').close();break;
-    case 'ns-go':navGo();break; case 'nav-page':navPageField(true);break;
+    case 'ns-go':navGo();break; case 'page-list':togglePageList(a);break; case 'page-go':goListedPage(Number(a.dataset.page));break;
     case 'view-mode':setViewMode(a.dataset.mode);break;
     case 'rev-back':revBack();break;
     case 'outline':toggleOutline();break;
@@ -112,8 +112,8 @@ document.addEventListener('keydown',e=>{
   // Document switching (multiple documents): Ctrl+PgUp/PgDn is previous/next, Alt+1...9 is that index (e.code - Option+digit on Mac produces a different character).
   // The selector uses default keyboard handling. Global shortcuts are never used inside an input field.
   if(multiDoc()&&!inField){
-    if(e.ctrlKey&&!e.altKey&&!e.metaKey&&(e.key==='PageUp'||e.key==='PageDown')){e.preventDefault(); cycleDoc(e.key==='PageDown'?1:-1); return;}
-    if(e.altKey&&!e.ctrlKey&&!e.metaKey&&/^Digit[1-9]$/.test(e.code||'')){const d=DOCS[+e.code.slice(5)-1]; if(d){e.preventDefault(); switchDoc(d.key);} return;}
+    if(e.ctrlKey&&!e.altKey&&!e.metaKey&&(e.key==='PageUp'||e.key==='PageDown')){e.preventDefault(); closePageList(false); cycleDoc(e.key==='PageDown'?1:-1); return;}
+    if(e.altKey&&!e.ctrlKey&&!e.metaKey&&/^Digit[1-9]$/.test(e.code||'')){const d=DOCS[+e.code.slice(5)-1]; if(d){e.preventDefault(); closePageList(false); switchDoc(d.key);} return;}
   }
   // Ctrl(Cmd)+\ opens and collapses the pin panel at every width (docs/handbook/viewer.md §패널 폭과 시트 높이) - not inside a text field.
   if((e.ctrlKey||e.metaKey)&&!e.altKey&&!inField&&(e.code==='Backslash'||e.key==='\\')){e.preventDefault(); toggleSide(); return;}
@@ -127,6 +127,7 @@ document.addEventListener('keydown',e=>{
   if((e.key==='Enter'||e.key===' ')&&t&&t.getAttribute&&/^(button|link)$/.test(t.getAttribute('role')||'')&&t.dataset&&t.dataset.act&&!inField){e.preventDefault();t.click();return;}
   if(e.key==='Escape'){
     if($('#help').open||$('#more').open||$('#nav-sheet').open||$('#trash').open||$('#status-list').open)return;
+    if(!$('#page-pop').hidden){e.preventDefault();closePageList(true);return;}   // the page list first: it floats over everything below
     if(!TIP.hidden){hideTip(); if(!inField){e.preventDefault(); return;}}
     // Each Esc closes the top thing only; a handled Esc is not also a close request (the back-gesture layer's CloseWatcher).
     if(outlineOverlay()&&OUTLINE_MID_OPEN){e.preventDefault();toggleOutline();return;}

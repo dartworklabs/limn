@@ -4992,24 +4992,6 @@ class BarAndSheets(ViewerBase):
             page.evaluate("[document.querySelector('#note').value, topAnchor().page]"), ["펼치기 전 메모", spot]
         )
 
-    def test_the_nav_bars_page_count_becomes_a_page_field(self):
-        """820x1180: the nav bar's '1 / 2쪽' is a button named for what it does; a tap turns it into a page field with the
-        page selected, Enter goes there, and Esc gives the count back without moving."""
-        page = self.view(BAR_TABLETS[0], init=NO_PNG_CHIP)
-        self.assertEqual(page.get_attribute("#nav-page", "aria-label"), "쪽 번호로 이동 · 1 / 2쪽")
-        self.tap(self.cdp(page), *self.center(page, "#nav-page"))
-        page.wait_for_function("document.activeElement.id==='nav-page-in'")
-        self.assertEqual(page.evaluate("[document.activeElement.value, document.activeElement.selectionEnd]"), ["1", 1])
-        page.keyboard.type("2")
-        page.keyboard.press("Enter")
-        page.wait_for_function("topAnchor().page===2&&document.querySelector('#nav-page-in').hidden")
-        self.assertTrue(page.is_visible("#nav-page"))
-        self.tap(self.cdp(page), *self.center(page, "#nav-page"))
-        page.wait_for_function("document.activeElement.id==='nav-page-in'")
-        page.keyboard.press("Escape")
-        page.wait_for_function("document.querySelector('#nav-page-in').hidden")
-        self.assertEqual(page.evaluate("topAnchor().page"), 2)
-
     # ---- [더보기] (V7)
 
     def more_view(self, device, **kw):
@@ -5102,6 +5084,217 @@ class BarAndSheets(ViewerBase):
             "f=document.querySelector('#more-foot').getBoundingClientRect(); return [h.top-d.top<=1.5, f.bottom<=d.bottom+0.5, document.querySelector('#more').scrollTop>0];}"
         )
         self.assertEqual(got, [True, True, True])
+
+
+# ---------------------------------------------------------------- the page list (#187)
+
+
+# The rows of the open page list in box sel: each row's page text, its section names, whether it is the selected option and
+# whether it draws the check, and its height.
+PAGE_ROWS = """sel => [...document.querySelectorAll(sel + ' [role=option]')].map(r => ({
+  n: r.querySelector('.pl-n').textContent, names: r.querySelector('.pl-s').textContent,
+  on: r.getAttribute('aria-selected') === 'true', check: !!r.querySelector('svg'),
+  h: Math.round(r.getBoundingClientRect().height * 100) / 100}))"""
+# Whether the page list popover is open (shown and its trigger expanded).
+POP_OPEN = "!document.querySelector('#page-pop').hidden"
+POP_SHUT = "document.querySelector('#page-pop').hidden"
+
+
+class PageSectionsLogic(unittest.TestCase):
+    """pageSections(entries, n): the section names a page list row shows for each of n pages (docs/handbook/viewer.md §조작
+    한눈에 쪽 목록)."""
+
+    def sections(self, entries, n):
+        """pageSections(entries, n) from the shipped source."""
+        js = extract_js_fn("pageSections") + "\nconsole.log(JSON.stringify(pageSections(%s,%d)));" % (
+            json.dumps(entries),
+            n,
+        )
+        return node_or_skip(self, js)
+
+    def test_a_page_names_the_top_sections_that_start_on_it_else_the_one_it_continues(self):
+        """Top-level headings that start on a page are joined with ' · '; a page with none continues the last one before it
+        ('… 3 Data'); pages before the first heading and subsections name nothing."""
+        e = [
+            {"title": "Introduction", "page": 2, "depth": 0, "number": "1"},
+            {"title": "Details", "page": 2, "depth": 1, "number": "1.1"},
+            {"title": "Related work", "page": 2, "depth": 0, "number": "2"},
+            {"title": "Data", "page": 3, "depth": 0, "number": "3"},
+            {"title": "Appendix", "page": 5, "depth": 0, "number": ""},
+        ]
+        self.assertEqual(
+            self.sections(e, 6),
+            ["", "1 Introduction · 2 Related work", "3 Data", "… 3 Data", "Appendix", "… Appendix"],
+        )
+
+    def test_no_outline_names_nothing(self):
+        """Without an outline every page's names are empty, one per page."""
+        self.assertEqual(self.sections([], 3), ["", "", ""])
+
+
+class PageList(ViewerBase):
+    """Going to a page without typing (issue #187, variant A; docs/handbook/viewer.md §조작 한눈에): the page count above the
+    page (desktop) or at the nav bar's end (tablet) opens a list of the pages with the sections that start on each, the
+    current page checked and in view, a page field on top; the phone's navigation sheet carries the same rows."""
+
+    def docs_view(self, device, **kw):
+        """Three documents (the manuscript, a figure and a view-only PDF, two pages each) with a three-heading outline on
+        the manuscript, once booted."""
+        helpers_figure.viewer_docs(ps.APP, ps.APP.C.src)
+        self.addCleanup(ps.APP.set_docs, None)
+        page = self.view(device, init=NO_PNG_CHIP, **kw)
+        page.evaluate(OUTLINE3)
+        settle(page)
+        return page
+
+    def open_list(self, page, trigger="#section-page"):
+        """Click the page count and wait for the list."""
+        page.click(trigger)
+        page.wait_for_function(POP_OPEN)
+        settle(page)
+
+    def test_the_desktop_page_count_opens_the_list_and_a_row_goes_there(self):
+        """1400x850: '1 / 2쪽' above the page is a button with a chevron; it opens one row per page with the sections that
+        start there, rows 28px on the 4px grid; choosing page 2 goes there at once and closes the list."""
+        page = self.docs_view(DESK)
+        self.assertEqual(page.get_attribute("#section-page", "aria-expanded"), "false")
+        self.assertTrue(page.evaluate("!!document.querySelector('#section-page svg')"))
+        self.open_list(page)
+        self.assertEqual(page.get_attribute("#section-page", "aria-expanded"), "true")
+        rows = page.evaluate(PAGE_ROWS, "#page-pop")
+        self.assertEqual([(r["n"], r["names"]) for r in rows], [("1쪽", "1 서론"), ("2쪽", "2 방법")])
+        for r in rows:
+            self.assertGreaterEqual(r["h"], 24)
+            self.assertEqual(r["h"] % 4, 0)
+        page.click("#page-pop [role=option] >> nth=1")
+        page.wait_for_function(POP_SHUT + "&&topAnchor().page===2")
+        self.assertEqual(page.get_attribute("#section-page", "aria-expanded"), "false")
+
+    def test_the_current_page_carries_the_check(self):
+        """The page on screen is the one selected option and the only row with a check; after going to page 2 the check
+        follows."""
+        page = self.docs_view(DESK)
+        self.open_list(page)
+        self.assertEqual(
+            [(r["on"], r["check"]) for r in page.evaluate(PAGE_ROWS, "#page-pop")], [(True, True), (False, False)]
+        )
+        page.click("#page-pop [role=option] >> nth=1")
+        page.wait_for_function(POP_SHUT + "&&topAnchor().page===2&&OUTLINE_ACTIVE_PAGE===2")
+        self.open_list(page)
+        self.assertEqual(
+            [(r["on"], r["check"]) for r in page.evaluate(PAGE_ROWS, "#page-pop")], [(False, False), (True, True)]
+        )
+
+    def test_a_long_document_opens_the_list_scrolled_to_the_current_page(self):
+        """Forty pages, reading page 30: the list scrolls inside its box and opens with page 30's row whole in view."""
+        pages = ps.APP.C.state / (ps.APP.C.state / "pages.cur").read_text()
+        for i in range(3, 41):
+            (pages / ("page-%d.png" % i)).write_bytes(blank_png(1275, 1650))
+        page = self.view(DESK, init=NO_PNG_CHIP, reduced=True)
+        page.wait_for_function("document.querySelectorAll('#doc .pg').length===40")
+        page.evaluate("goPage(30)")
+        page.wait_for_function("OUTLINE_ACTIVE_PAGE===30")
+        self.open_list(page)
+        got = page.evaluate(
+            "(()=>{const l=document.querySelector('#page-pop .pl-list'),L=l.getBoundingClientRect(),"
+            "c=l.querySelector('[aria-selected=true]').getBoundingClientRect();"
+            "return {st:l.scrollTop,over:l.scrollHeight>l.clientHeight,in:c.top>=L.top-0.5&&c.bottom<=L.bottom+0.5,"
+            "n:l.querySelector('[aria-selected=true] .pl-n').textContent,pop:document.querySelector('#page-pop')"
+            ".getBoundingClientRect().bottom<=innerHeight};})()"
+        )
+        self.assertEqual(got, {"st": got["st"], "over": True, "in": True, "n": "30쪽", "pop": True})
+        self.assertGreater(got["st"], 0)
+
+    def test_a_typed_page_still_goes_there(self):
+        """The list's page field takes the focus on a mouse; a typed page past the end goes to the last page and closes
+        the list. The tool bar's [쪽 이동] field still works too."""
+        page = self.docs_view(DESK)
+        self.open_list(page)
+        self.assertEqual(page.evaluate("document.activeElement.id"), "page-pop-in")
+        page.keyboard.type("99")
+        page.keyboard.press("Enter")
+        page.wait_for_function(POP_SHUT + "&&topAnchor().page===2")
+        page.fill("#jump", "1")
+        page.press("#jump", "Enter")
+        page.wait_for_function("topAnchor().page===1")
+
+    def test_the_tablet_nav_bars_page_count_opens_the_same_list(self):
+        """820x1180: the nav bar's '1 / 2쪽' opens the list (44px rows, a 44px page field on top) instead of turning into a
+        field; a tapped row goes there, and Esc closes the list without moving."""
+        page = self.docs_view(BAR_TABLETS[0])
+        cdp = self.cdp(page)
+        self.assertEqual(page.get_attribute("#nav-page", "aria-label"), "쪽 번호로 이동 · 1 / 2쪽")
+        self.tap(cdp, *self.center(page, "#nav-page"))
+        page.wait_for_function(POP_OPEN)
+        settle(page)
+        rows = page.evaluate(PAGE_ROWS, "#page-pop")
+        self.assertEqual([(r["n"], r["names"], r["h"]) for r in rows], [("1쪽", "1 서론", 44), ("2쪽", "2 방법", 44)])
+        self.assertEqual(page.evaluate(MISSES_44, "#page-pop-in"), [])
+        self.tap(cdp, *self.center(page, "#page-pop [role=option] >> nth=1"))
+        page.wait_for_function(POP_SHUT + "&&topAnchor().page===2")
+        self.tap(cdp, *self.center(page, "#nav-page"))
+        page.wait_for_function(POP_OPEN)
+        page.keyboard.press("Escape")
+        page.wait_for_function(POP_SHUT)
+        self.assertEqual(page.evaluate("topAnchor().page"), 2)
+
+    def test_the_phone_sheet_lists_the_pages_under_its_field(self):
+        """411x908: the navigation sheet's page rows sit right under its page field, 44px each with the section names and
+        the current page checked; a tapped row goes there and closes the sheet."""
+        page = self.docs_view(BAR_PHONES[0])
+        self.tap(self.cdp(page), *self.center(page, "#btn-pos"))
+        page.wait_for_function("document.querySelector('#nav-sheet').open")
+        settle(page)
+        self.assertEqual(page.evaluate("document.querySelector('#ns-page').nextElementSibling.id"), "ns-pages")
+        rows = page.evaluate(PAGE_ROWS, "#ns-pages")
+        self.assertEqual(
+            [(r["n"], r["names"], r["on"], r["check"], r["h"]) for r in rows],
+            [("1쪽", "1 서론", True, True, 44), ("2쪽", "2 방법", False, False, 44)],
+        )
+        self.tap(self.cdp(page), *self.center(page, "#ns-pages [role=option] >> nth=1"))
+        page.wait_for_function("!document.querySelector('#nav-sheet').open&&topAnchor().page===2")
+
+    def test_figure_and_view_only_documents_list_page_numbers_only(self):
+        """A figure and a view-only PDF list their pages without section names, even with an outline loaded; the
+        manuscript keeps its names."""
+        page = self.docs_view(DESK)
+        for key, names in (("fig", ["", ""]), ("rv", ["", ""]), ("ms", ["1 서론", "2 방법"])):
+            with self.subTest(doc=key):
+                page.evaluate("async k=>await switchDoc(k)", key)
+                page.wait_for_function("k=>DOC===k&&document.querySelectorAll('#doc .pg').length===2", arg=key)
+                settle(page)
+                page.evaluate(OUTLINE3)
+                self.open_list(page)
+                rows = page.evaluate(PAGE_ROWS, "#page-pop")
+                self.assertEqual([r["n"] for r in rows], ["1쪽", "2쪽"])
+                self.assertEqual([r["names"] for r in rows], names)
+                page.keyboard.press("Escape")
+                page.wait_for_function(POP_SHUT)
+
+    def test_arrow_keys_move_and_enter_chooses(self):
+        """From the keyboard: Enter on the page count opens the list with the field focused; ↓ goes to the current page's
+        row, ↓/↑ move one row, Home/End to the ends, Enter goes there and gives the focus back to the page count. Esc
+        closes it the same way, and a click outside closes it without moving."""
+        page = self.docs_view(DESK)
+        page.focus("#section-page")
+        page.keyboard.press("Enter")
+        page.wait_for_function(POP_OPEN + "&&document.activeElement.id==='page-pop-in'")
+        focused = "document.activeElement.querySelector('.pl-n')?.textContent"
+        steps = []
+        for key in ("ArrowDown", "ArrowDown", "ArrowUp", "End", "Home", "ArrowDown"):
+            page.keyboard.press(key)
+            steps.append(page.evaluate(focused))
+        self.assertEqual(steps, ["1쪽", "2쪽", "1쪽", "2쪽", "1쪽", "2쪽"])
+        page.keyboard.press("Enter")
+        page.wait_for_function(POP_SHUT + "&&topAnchor().page===2&&document.activeElement.id==='section-page'")
+        page.keyboard.press("Enter")
+        page.wait_for_function(POP_OPEN)
+        page.keyboard.press("Escape")
+        page.wait_for_function(POP_SHUT + "&&document.activeElement.id==='section-page'")
+        self.open_list(page)
+        page.click("#section-current")
+        page.wait_for_function(POP_SHUT)
+        self.assertEqual(page.evaluate("topAnchor().page"), 2)
 
 
 # ---------------------------------------------------------------- the cross-resolution pass (after 0.4.8)
@@ -5285,17 +5478,17 @@ class TouchFieldsAnswer44(ViewerBase):
     search 37px."""
 
     def test_the_page_fields_and_the_outline_searches_answer_44px(self):
-        """411x908: the navigation sheet's page field and outline search; 820x1180: the nav bar's page field once tapped
-        open, and the outline overlay's search."""
+        """411x908: the navigation sheet's page field and outline search; 820x1180: the page list's field once the nav
+        bar's page count opens it, and the outline overlay's search."""
         page = self.view(phone(411, 908))
         page.evaluate("openNavSheet()")
         settle(page)
         self.assertEqual(page.evaluate(MISSES_44, "#ns-page-in,#ns-outline-search"), [])
         page = self.view(phone(820, 1180, 2))
         self.tap(self.cdp(page), *self.center(page, "#nav-page"))
-        page.wait_for_function("document.activeElement===document.querySelector('#nav-page-in')")
+        page.wait_for_function("!document.querySelector('#page-pop').hidden")
         settle(page)
-        self.assertEqual(page.evaluate(MISSES_44, "#nav-page-in"), [])
+        self.assertEqual(page.evaluate(MISSES_44, "#page-pop-in"), [])
         page.keyboard.press("Escape")
         page.evaluate("toggleOutline&&toggleOutline()")
         settle(page)
