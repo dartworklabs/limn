@@ -97,6 +97,11 @@ document.documentElement.setAttribute('lang',window.LIMN_LANG);
     <button class="btn-default" id="btn-save" data-act="save" data-tip="메모와 위치를 핀으로 저장해 pins.md에 올립니다. 에이전트는 이 파일을 읽고 작업합니다 (⌘ Enter / Ctrl+Enter)">핀 저장</button>
   </div>
 </div>
+<div id="sel-pop" role="dialog" aria-label="메모" hidden>
+  <div class="sp-head"><span class="sp-loc" translate="no"></span><kbd data-tip="이 선택을 버립니다 (Esc)">Esc</kbd></div>
+  <textarea class="sp-note" rows="2" aria-label="메모"></textarea>
+  <div class="sp-acts"><button class="btn-ghost btn-sm" data-act="pop-more" data-tip="오른쪽 작성 패널에서 종류·범위·겹침까지 고릅니다"><span class="lbl">자세히</span>{{ic:arrow-right}}</button><span class="sp"></span><button class="btn-default btn-sm" data-act="pop-save" data-tip="메모와 위치를 핀으로 저장해 pins.md에 올립니다. 에이전트는 이 파일을 읽고 작업합니다 (⌘ Enter / Ctrl+Enter)"><span class="lbl">저장</span></button></div>
+</div>
 <div id="tip" role="tooltip" translate="no" hidden></div>
 <div id="mention-pop" role="listbox" aria-label="부를 사람" hidden></div>
 <div id="page-pop" role="dialog" aria-label="쪽 이동" hidden><div class="pl-head"><label for="page-pop-in">쪽 이동</label><span class="sp"></span><input id="page-pop-in" inputmode="numeric" enterkeyhint="go" autocomplete="off" aria-label="쪽 번호로 이동"></div><div id="page-pop-list" class="pl-list" role="listbox" aria-label="쪽"></div></div>
