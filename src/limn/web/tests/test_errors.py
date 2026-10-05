@@ -26,7 +26,7 @@ from limn.pins.location import resolve as pick_resolve
 from limn.pins.location.http import PICK_REFUSALS
 from limn.pins.location.service import PinLocationService
 from limn.revisions import core as revisions
-from limn.revisions.answer import REVISION_FAILURES, SCOPE_REJECTIONS, scope_http_error
+from limn.revisions.answer import RANGE_REJECTIONS, REVISION_FAILURES, SCOPE_REJECTIONS, scope_http_error
 from limn.security.access import Principal
 from limn.security.application import SecurityApplication
 from limn.security.guidance import UNAUTHENTICATED
@@ -128,9 +128,11 @@ def input_rejections(tree):
 
 def emitted_reasons():
     """Every reason code the server can put in an error body or error status: HTTPError reason= literals, the
-    InputRejected reasons, the SCOPE_REJECTIONS, REVISION_FAILURES and PICK_REFUSALS tables and error dict literals."""
+    InputRejected reasons, the SCOPE_REJECTIONS, RANGE_REJECTIONS, REVISION_FAILURES and PICK_REFUSALS tables and error
+    dict literals."""
     codes = (
         {reason for _, _, reason in SCOPE_REJECTIONS.values()}
+        | {reason for _, _, reason in RANGE_REJECTIONS.values()}
         | {reason for _, reason in REVISION_FAILURES.values()}
         | {reason for _, reason in PICK_REFUSALS.values()}
     )
@@ -148,14 +150,15 @@ class EveryErrorHasAReason(unittest.TestCase):
 
     def test_every_http_error_names_a_reason_code(self):
         """Each HTTPError(...) passes reason=, a snake_case literal (or a conditional of two) - except where it passes
-        on a reason carried by a value: scope_http_error (SCOPE_REJECTIONS) and the answers to an InputRejected."""
+        on a reason carried by a value: scope_http_error (SCOPE_REJECTIONS), range_http_error (RANGE_REJECTIONS) and
+        the answers to an InputRejected."""
         missing = []
         for name, tree in parsed():
             for line, reason in http_error_calls(tree):
                 if (isinstance(reason, ast.Name) and reason.id == "reason") or (
                     isinstance(reason, ast.Attribute) and reason.attr == "reason"
                 ):
-                    continue  # carried: SCOPE_REJECTIONS or InputRejected.reason
+                    continue  # carried: SCOPE_REJECTIONS, RANGE_REJECTIONS or InputRejected.reason
                 codes = _codes(reason)
                 if not codes or not all(CODE.fullmatch(c) for c in codes):
                     missing.append("%s:%d" % (name, line))

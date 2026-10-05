@@ -399,11 +399,11 @@ class Fields(unittest.TestCase):
         self.assertEqual(claims_input.parse_claim_body({"ttl_min": 480, "eta_min": 241}), (120, 240))
 
     def test_revision_parameters(self):
-        """The pin is parsed before the commit; POST names only commit, doc and pin, pin is a JSON integer, and the commit
-        is a full lowercase SHA-1."""
+        """The pin is parsed before the commit, the base after it; POST names only commit, base, doc and pin, pin is a
+        JSON integer, the commit and a base are full lowercase SHA-1s, and a pin never comes with a base."""
         sha = "0123456789abcdef0123456789abcdef01234567"
         bad_commit = InputRejected("올바른 커밋 ID가 아닙니다.", "bad_commit")
-        self.assertEqual(revision_input.parse_revision_query({"commit": [sha], "pin": ["12"]}), (sha, 12))
+        self.assertEqual(revision_input.parse_revision_query({"commit": [sha], "pin": ["12"]}), (sha, 12, None))
         self.assertEqual(revision_input.parse_revision_query({"commit": ["abc"], "pin": ["12"]}), bad_commit)
         self.assertEqual(revision_input.parse_revision_query({}), bad_commit)
         self.assertEqual(
@@ -412,7 +412,19 @@ class Fields(unittest.TestCase):
         )
         self.assertEqual(revision_input.parse_revision_build({"commit": sha.upper(), "pin": 3}), bad_commit)
         self.assertEqual(revision_input.parse_revision_build({"commit": 5}), bad_commit)
-        self.assertEqual(revision_input.parse_revision_build({"commit": sha, "pin": 3}), (sha, 3))
+        self.assertEqual(revision_input.parse_revision_build({"commit": sha, "pin": 3}), (sha, 3, None))
+        other = "f" * 40
+        self.assertEqual(revision_input.parse_revision_query({"commit": [sha], "base": [other]}), (sha, None, other))
+        self.assertEqual(revision_input.parse_revision_query({"commit": [sha], "base": [""]}), (sha, None, None))
+        self.assertEqual(revision_input.parse_revision_build({"commit": sha, "base": other}), (sha, None, other))
+        self.assertEqual(
+            revision_input.parse_revision_build({"commit": sha, "base": 5}),
+            InputRejected("올바른 기준 커밋 ID가 아닙니다.", "bad_commit"),
+        )
+        self.assertEqual(
+            revision_input.parse_revision_query({"commit": [sha], "base": [other], "pin": ["2"]}),
+            InputRejected("핀 단위 변경 보기는 두 커밋 사이 비교와 함께 쓸 수 없습니다.", "pin_with_base"),
+        )
         self.assertEqual(
             revision_input.parse_revision_build({"x": 1, "pin": "1"}),
             InputRejected("허용되지 않는 비교 PDF 요청 필드입니다.", "unknown_fields"),

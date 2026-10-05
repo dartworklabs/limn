@@ -4,6 +4,7 @@ from typing import Any, NoReturn
 
 from limn.revisions.core import (
     AllSlotsBusy,
+    BaseAfterHead,
     BuildFailure,
     CommitNotRecent,
     DiffFailed,
@@ -11,8 +12,10 @@ from limn.revisions.core import (
     DocumentBusy,
     FailureKind,
     NoHistory,
+    NoMergeBase,
     NoParent,
     NotInRepo,
+    RangeRefusal,
     RevisionNotReady,
     RevisionPdfMissing,
     RevisionRefusal,
@@ -54,10 +57,27 @@ def revision_refused(result: RevisionRefusal) -> NoReturn:
             raise scope_http_error(result)
 
 
-def revision_answer(result: dict[str, Any] | RevisionRefusal) -> dict[str, Any]:
-    """A revision route's JSON body (the source diff, or a comparison build's status), or its refusal's answer."""
+# A range's own refusals (issue #188, limn.revisions.core.RangeRefusal) -> (HTTP status, Korean text, API reason). A
+# table beside SCOPE_REJECTIONS, read by range_http_error; the text is contract like every error text.
+RANGE_REJECTIONS: dict[type[RangeRefusal], tuple[int, str, str]] = {
+    BaseAfterHead: (422, "비교 기준 커밋이 대상 커밋보다 새롭습니다.", "base_after_head"),
+    NoMergeBase: (422, "두 커밋에 공통 조상이 없어 비교할 수 없습니다.", "no_merge_base"),
+}
+
+
+def range_http_error(e: RangeRefusal) -> HTTPError:
+    """The HTTP form of a range's own refusal, from RANGE_REJECTIONS."""
+    code, msg, reason = RANGE_REJECTIONS[type(e)]
+    return HTTPError(code, msg, reason=reason)
+
+
+def revision_answer(result: dict[str, Any] | RevisionRefusal | RangeRefusal) -> dict[str, Any]:
+    """A revision route's JSON body (the history, the source diff, or a comparison build's status), or its refusal's
+    answer: a range's own through RANGE_REJECTIONS, every other through revision_refused."""
     if isinstance(result, dict):
         return result
+    if isinstance(result, BaseAfterHead | NoMergeBase):
+        raise range_http_error(result)
     revision_refused(result)
 
 

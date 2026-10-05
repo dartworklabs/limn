@@ -63,6 +63,10 @@ SCOPED_MARK = "scoped"  # empty file in a pin-scoped comparison's cache folder
 REVISION_CACHE_TTL = 24 * 3600
 SCOPE_META = ("scope", "pin", "source", "hunks", "other")  # per-request fields; never stored in a (shared) status
 HISTORY_PATHS_MAX = 200  # files a figure document's history names one by one; more are named by their folder
+REVISION_RECENT = 12  # rows of GET /api/revisions without paging; a pin's close_ref is resolved among these
+REVISION_HISTORY_MAX = 500  # the history window: the commits a request may name (issue #188, ADR-0014)
+REVISION_PAGE_MAX = 50  # rows of one page of GET /api/revisions?limit=
+RANGE_FILES_MAX = 2 * 1024 * 1024  # bytes of `git diff --numstat -z` read for a range's file list
 
 
 class RevisionDoc(Protocol):
@@ -111,8 +115,8 @@ class NoHistory:
 
 @dataclass(frozen=True)
 class CommitNotRecent:
-    """The commit is not among the document's recent commits - arbitrary objects and other documents' history are
-    never read."""
+    """The commit (or a range's base) is not in the document's history window (revision_window) - arbitrary objects
+    and other documents' history are never read."""
 
 
 @dataclass(frozen=True)
@@ -161,6 +165,19 @@ class RevisionPdfMissing:
     """The cache says the comparison is ready, but its PDF could not be read."""
 
 
+@dataclass(frozen=True)
+class BaseAfterHead:
+    """The range's base is a descendant of its commit (newer than the head): the server never swaps the two ends."""
+
+
+@dataclass(frozen=True)
+class NoMergeBase:
+    """The range's base is not an ancestor of its commit and the two have no common ancestor to compare from."""
+
+
+# A range's own refusals (issue #188), answered from limn.revisions.answer.RANGE_REJECTIONS; the other refusals a range
+# meets (CommitNotRecent, DiffFailed, ...) are the single commit's.
+RangeRefusal: TypeAlias = BaseAfterHead | NoMergeBase
 DiffRefusal: TypeAlias = NoHistory | CommitNotRecent | DiffFailed | DiffUnavailable | PinNotInDoc
 SpecRefusal: TypeAlias = CommitNotRecent | NotInRepo | NoParent | PinNotInDoc
 StatusRefusal: TypeAlias = SpecRefusal | UnsafeCache
@@ -376,23 +393,173 @@ def _files_scope(D: RevisionDoc, files: Sequence[Path]) -> tuple[Path, list[str]
     return (repo, paths) if paths else None
 
 
-def revision_history(D: RevisionDoc, files: Sequence[Path] | None = None) -> Json:
-    """GET /api/revisions: the document's 12 most recent manuscript commits {id, date, subject}, newest first, or
-    available: false when it has no history. files are a figure document's history files (revision_scope); None for
-    a LaTeX document."""
+class HistoryPage(NamedTuple):
+    """One page of GET /api/revisions: the rows after commit before (None: from the newest), at most limit of them."""
+
+    before: str | None
+    limit: int
+
+
+_LOG_FORMAT = "--format=%H%x1f%P%x1f%an%x1f%cI%x1f%cs%x1f%s"
+
+
+def parse_log_row(line: str) -> Json | None:
+    """One line of `git log` in _LOG_FORMAT as a history row {id, date, subject, author, time, parents}, or None when
+    it does not parse (the id or a parent is not a full SHA-1). The subject is cut to 180 characters and the author's
+    name to 120. Pure."""
+    parts = line.split("\x1f", 5)
+    if len(parts) != 6 or not REVISION_ID_RE.fullmatch(parts[0]):
+        return None
+    parents = parts[1].split()
+    if not all(REVISION_ID_RE.fullmatch(p) for p in parents):
+        return None
+    return {
+        "id": parts[0],
+        "date": parts[4],
+        "subject": parts[5][:180],
+        "author": parts[2][:120],
+        "time": parts[3],
+        "parents": parents,
+    }
+
+
+def _log_rows(repo: Path, paths: Sequence[str], count: int) -> list[Json] | None:
+    """The count most recent commits of the pathspec paths in repo, newest first, as history rows (parse_log_row), or
+    None when git fails. One `git log` call; rows that do not parse are left out."""
+    rc, out, _ = git(["-C", str(repo), "log", "-%d" % count, _LOG_FORMAT, "--"] + list(paths), repo)
+    if rc != 0:
+        return None
+    return [row for row in map(parse_log_row, out.splitlines()) if row is not None]
+
+
+def revision_window(
+    D: RevisionDoc, files: Sequence[Path] | None = None
+) -> tuple[Path, list[str], list[Json]] | NoHistory:
+    """The document's history window: its repository, pathspec (revision_scope) and its REVISION_HISTORY_MAX most
+    recent commits as history rows, newest first - the only commits a revision request may name (no rows when git
+    cannot list them). NoHistory for a document without history."""
+    found = revision_scope(D, files)
+    if found is None:
+        return NoHistory()
+    repo, paths = found
+    return repo, paths, _log_rows(repo, paths, REVISION_HISTORY_MAX) or []
+
+
+def history_page(rows: Sequence[Json], page: HistoryPage) -> Json | CommitNotRecent:
+    """The page of rows (newest first) after the row page.before, at most page.limit of them, and whether more rows
+    follow: {revisions, more}; CommitNotRecent when before is not one of rows. Pure."""
+    at = 0
+    if page.before is not None:
+        ids = [row["id"] for row in rows]
+        if page.before not in ids:
+            return CommitNotRecent()
+        at = ids.index(page.before) + 1
+    return {"revisions": list(rows[at : at + page.limit]), "more": len(rows) > at + page.limit}
+
+
+def revision_history(
+    D: RevisionDoc, files: Sequence[Path] | None = None, page: HistoryPage | None = None
+) -> Json | CommitNotRecent:
+    """GET /api/revisions: the document's manuscript commits, newest first, each {id, date, subject, author, time,
+    parents}, or available: false when it has no history. Without page, the REVISION_RECENT most recent ones and the
+    two keys {available, revisions}, as before paging; with page, that page of the history window (history_page) with
+    `more` added, or CommitNotRecent for a before outside it. files are a figure document's history files
+    (revision_scope); None for a LaTeX document."""
     found = revision_scope(D, files)
     if found is None:
         return {"available": False, "revisions": []}
     repo, paths = found
-    rc, out, _ = git(["-C", str(repo), "log", "-12", "--format=%H%x1f%cs%x1f%s", "--"] + paths, repo)
-    if rc != 0:
+    rows = _log_rows(repo, paths, REVISION_RECENT if page is None else REVISION_HISTORY_MAX)
+    if rows is None:
         return {"available": False, "revisions": []}
-    rows = []
-    for line in out.splitlines():
-        parts = line.split("\x1f", 2)
-        if len(parts) == 3 and REVISION_ID_RE.fullmatch(parts[0]):
-            rows.append({"id": parts[0], "date": parts[1], "subject": parts[2][:180]})
-    return {"available": True, "revisions": rows}
+    if page is None:
+        return {"available": True, "revisions": rows}
+    paged = history_page(rows, page)
+    return paged if isinstance(paged, CommitNotRecent) else {"available": True, **paged}
+
+
+class RangeEnds(NamedTuple):
+    """The two sides a range compares: old, the commit the diff starts from (the requested base, or the merge base when
+    base is not an ancestor of the head), merge_base that merge base (None when base itself is used), and head."""
+
+    old: str
+    head: str
+    merge_base: str | None
+
+
+def window_base(rows: Sequence[Json], base: str) -> bool:
+    """Whether base may be a range's base: a commit of the window rows, or the first parent of one (what "from this
+    commit" sends, even when that parent did not touch the manuscript). Pure."""
+    return any(row["id"] == base or row["parents"][:1] == [base] for row in rows)
+
+
+def resolve_range(repo: Path, base: str, head: str) -> RangeEnds | BaseAfterHead | NoMergeBase | DiffFailed:
+    """The sides a range from base to head compares: base itself when it is head or an ancestor of head; the merge base
+    of the two when base is on another line (like a three-dot comparison); BaseAfterHead when base descends from head,
+    NoMergeBase when the two share no ancestor, DiffFailed when git cannot tell. Both are full SHA-1s the caller has
+    checked against the history window."""
+    if base == head:
+        return RangeEnds(base, head, None)
+    rc, _, _ = git(["merge-base", "--is-ancestor", base, head], repo)
+    if rc == 0:
+        return RangeEnds(base, head, None)
+    if rc != 1:
+        return DiffFailed()
+    rc, _, _ = git(["merge-base", "--is-ancestor", head, base], repo)
+    if rc == 0:
+        return BaseAfterHead()
+    if rc != 1:
+        return DiffFailed()
+    rc, out, _ = git(["merge-base", base, head], repo)
+    mb = out.strip()
+    if rc == 1 or (rc == 0 and not mb):
+        return NoMergeBase()
+    if rc != 0 or not REVISION_ID_RE.fullmatch(mb):
+        return DiffFailed()
+    return RangeEnds(mb, head, mb)
+
+
+def range_ends(
+    D: RevisionDoc, commit: str, base: str, files: Sequence[Path] | None = None
+) -> tuple[Path, list[str], RangeEnds] | NoHistory | CommitNotRecent | DiffFailed | RangeRefusal:
+    """The repository, pathspec and resolved ends of document D's range base..commit: commit must be in the history
+    window and base in it or the first parent of one of its commits (window_base); then resolve_range."""
+    window = revision_window(D, files)
+    if isinstance(window, NoHistory):
+        return window
+    repo, paths, rows = window
+    if commit not in {row["id"] for row in rows} or not window_base(rows, base):
+        return CommitNotRecent()
+    ends = resolve_range(repo, base, commit)
+    return ends if not isinstance(ends, RangeEnds) else (repo, paths, ends)
+
+
+def parse_numstat(raw: bytes) -> list[Json]:
+    """`git diff --numstat -z -M` output as [{path, old_path?, add, del}] in git's order: old_path only for a rename or
+    copy, add and del the changed line counts (None for a binary file). Paths are decoded as UTF-8 with replacement.
+    Pure."""
+    out: list[Json] = []
+    fields = raw.split(b"\0")
+    i = 0
+    while i < len(fields):
+        head = fields[i]
+        i += 1
+        if not head:
+            continue
+        add, _, rest = head.partition(b"\t")
+        dele, _, path = rest.partition(b"\t")
+        row: Json = {}
+        if path:
+            row["path"] = path.decode("utf-8", errors="replace")
+        else:  # a rename: the old and the new path follow as two fields
+            old, new = fields[i : i + 2] if i + 1 < len(fields) else (b"", b"")
+            i += 2
+            row["path"] = new.decode("utf-8", errors="replace")
+            row["old_path"] = old.decode("utf-8", errors="replace")
+        row["add"] = int(add) if add.isdigit() else None
+        row["del"] = int(dele) if dele.isdigit() else None
+        out.append(row)
+    return out
 
 
 def _stop_git_group(proc: subprocess.Popen[bytes]) -> None:
@@ -401,37 +568,11 @@ def _stop_git_group(proc: subprocess.Popen[bytes]) -> None:
         os.killpg(proc.pid, signal.SIGKILL)
 
 
-def revision_diff(
-    D: RevisionDoc, commit: str, pin: int | None, ctx: RevisionContext, files: Sequence[Path] | None = None
-) -> Json | DiffRefusal:
-    """GET /api/revision-diff: the selected commit's unified diff against its first parent (a merge too, as in the
-    comparison PDF; a root commit against nothing) (commit is a full SHA-1, checked by the request parser). With pin (v0.3), an additive `scope` says which of its hunks belong to that pin (scope_payload); the
-    whole-commit `diff` is returned unchanged either way. Only a commit in the document's recent list is read. files
-    are a figure document's history files, which scope both the list and the diff (revision_scope); None for a LaTeX
-    document."""
-    found = revision_scope(D, files)
-    if found is None:
-        return NoHistory()
-    repo, paths = found
-    # Only read commits that appear in the current document's recent list. Never exposes arbitrary Git objects or another document's history.
-    revisions = revision_history(D, files)["revisions"]
-    if commit not in {row["id"] for row in revisions}:
-        return CommitNotRecent()
+def _read_capped(cmd: list[str], repo: Path) -> tuple[bytes, bool] | DiffFailed | DiffUnavailable:
+    """The stdout of `git <cmd>` cut at REVISION_DIFF_MAX bytes and whether it was longer (the process group is stopped
+    as soon as it is), within GIT_TIMEOUT seconds. DiffFailed when git exits with an error before the cap,
+    DiffUnavailable when it cannot start or runs out of time."""
     cap = scope_REVISION_DIFF_MAX
-    cmd = [
-        "-C",
-        str(repo),
-        "show",
-        "--format=",
-        "-m",  # a merge is shown against its parents one by one (not as a combined diff, which is usually empty) ...
-        "--first-parent",  # ... and only against the first, as the comparison PDF does; no effect on other commits
-        "--no-ext-diff",
-        "--no-textconv",
-        "--no-renames",
-        "--unified=3",
-        commit,
-        "--",
-    ] + paths
     chunks: list[bytes] = []
     try:
         with open_git(cmd, repo) as proc:
@@ -462,7 +603,52 @@ def revision_diff(
                 return DiffFailed()
     except (OSError, subprocess.TimeoutExpired):
         return DiffUnavailable()
-    out: Json = {"id": commit, "diff": b"".join(chunks)[:cap].decode("utf-8", errors="replace"), "truncated": too_large}
+    return b"".join(chunks)[:cap], too_large
+
+
+def revision_diff(
+    D: RevisionDoc,
+    commit: str,
+    pin: int | None,
+    ctx: RevisionContext,
+    files: Sequence[Path] | None = None,
+    base: str | None = None,
+) -> Json | DiffRefusal | RangeRefusal:
+    """GET /api/revision-diff: the selected commit's unified diff against its first parent (a merge too, as in the
+    comparison PDF; a root commit against nothing) (commit is a full SHA-1, checked by the request parser). With pin
+    (v0.3), an additive `scope` says which of its hunks belong to that pin (scope_payload); the whole-commit `diff` is
+    returned unchanged either way. With base (issue #188, never together with pin - the request parser refuses that),
+    the range's answer instead (range_diff). Only a commit in the document's history window is read. files are a
+    figure document's history files, which scope both the list and the diff (revision_scope); None for a LaTeX
+    document."""
+    if base is not None:
+        return range_diff(D, commit, base, files)
+    window = revision_window(D, files)
+    if isinstance(window, NoHistory):
+        return window
+    repo, paths, rows = window
+    # Only read commits that appear in the current document's history. Never exposes arbitrary Git objects or another document's history.
+    if commit not in {row["id"] for row in rows}:
+        return CommitNotRecent()
+    revisions = rows[:REVISION_RECENT]  # a pin's close_ref is resolved among the recent commits, as before the window
+    cmd = [
+        "-C",
+        str(repo),
+        "show",
+        "--format=",
+        "-m",  # a merge is shown against its parents one by one (not as a combined diff, which is usually empty) ...
+        "--first-parent",  # ... and only against the first, as the comparison PDF does; no effect on other commits
+        "--no-ext-diff",
+        "--no-textconv",
+        "--no-renames",
+        "--unified=3",
+        commit,
+        "--",
+    ] + paths
+    read = _read_capped(cmd, repo)
+    if not isinstance(read, tuple):
+        return read
+    out: Json = {"id": commit, "diff": read[0].decode("utf-8", errors="replace"), "truncated": read[1]}
     if pin is not None:
         base = revision_first_parent(repo, commit)
         if base:
@@ -474,6 +660,57 @@ def revision_diff(
             return sc
         out["scope"] = scope_payload(sc)
     return out
+
+
+def range_diff(
+    D: RevisionDoc, commit: str, base: str, files: Sequence[Path] | None = None
+) -> Json | DiffRefusal | RangeRefusal:
+    """GET /api/revision-diff with base: the cumulative diff of the manuscript from the range's old side to commit
+    (range_ends: base, or the merge base for a base on another line), renames paired (-M, ranges only), cut like a
+    commit's. The answer adds base (the old side used), merge_base (only when the merge base was used), commits (the
+    document's commits in the range) and files ([{path, old_path?, add, del}], complete even when diff is cut). An
+    empty range (base == commit) answers an empty diff, commits 0 and no files."""
+    found = range_ends(D, commit, base, files)
+    if not isinstance(found, tuple):
+        return found
+    repo, paths, ends = found
+    tail: Json = {"base": ends.old}
+    if ends.merge_base is not None:
+        tail["merge_base"] = ends.merge_base
+    if ends.old == commit:
+        return {"id": commit, "diff": "", "truncated": False, **tail, "commits": 0, "files": []}
+    cmd = [
+        "-C",
+        str(repo),
+        "diff",
+        "--no-color",
+        "--no-ext-diff",
+        "--no-textconv",
+        "-M",
+        "--unified=3",
+        ends.old,
+        commit,
+    ]
+    read = _read_capped(cmd + ["--"] + paths, repo)
+    if not isinstance(read, tuple):
+        return read
+    rc, count, _ = git(["rev-list", "--count", "%s..%s" % (ends.old, commit), "--"] + paths, repo)
+    stat = git_exec(
+        ["diff", "--numstat", "-z", "-M", "--no-ext-diff", ends.old, commit, "--"] + paths,
+        repo,
+        GIT_TIMEOUT,
+        RANGE_FILES_MAX,
+    )
+    if rc != 0 or not count.strip().isdigit() or isinstance(stat, StepFailed) or stat[0] != 0:
+        return DiffUnavailable()
+    return {
+        "id": commit,
+        "diff": read[0].decode("utf-8", errors="replace"),
+        "truncated": read[1],
+        **tail,
+        "commits": int(count.strip()),
+        "files": parse_numstat(stat[1]),
+    }
 
 
 def matching_pin_changes(pin: RevisionPin, head: str, revisions: Sequence[Record]) -> RevisionPin:
@@ -642,17 +879,16 @@ def revision_spec(D: RevisionDoc, commit: str, pin: int | None, ctx: RevisionCon
     """What to compare. With pin (v0.3) the new side is old + only that pin's blocks - unless the pin owns the whole
     commit or none of it, in which case the spec (and its cache entry) is the whole-commit one. The cache identity of a
     scoped comparison is (commit, block set) - two pins with the same blocks share one PDF. Refused for a commit not in
-    the document's recent list (as before 0.3; a malformed one was refused by the request parser), a build root outside
+    the document's history window (as before 0.3; a malformed one was refused by the request parser), a build root outside
     the repository, a first commit, and a pin D does not have. A document not built from LaTeX source has no comparison
     PDF - a figure document's changes are its pages overlaid in the viewer - and is refused as a document without
     history is (CommitNotRecent), before any git call."""
     if not D.builds_from_source:
         return CommitNotRecent()
-    found = revision_scope(D)
-    revisions = revision_history(D)["revisions"] if found is not None else []
-    if found is None or commit not in {r["id"] for r in revisions}:
+    window = revision_window(D)
+    if isinstance(window, NoHistory) or commit not in {r["id"] for r in window[2]}:
         return CommitNotRecent()
-    repo, paths = found[0], tuple(found[1])
+    repo, paths, revisions = window[0], tuple(window[1]), window[2][:REVISION_RECENT]
     try:
         source = D.src.resolve().relative_to(repo).as_posix()
         main = D.main.resolve().relative_to(D.src.resolve())

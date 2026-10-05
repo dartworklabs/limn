@@ -354,6 +354,8 @@ class ManuscriptRevisions(Base):
         self.fail("revision worker did not finish")
 
     def test_async_revision_http_deduplicates_caches_and_preserves_current_build(self):
+        """A second POST joins the running build, the PDF is served once ready and cached, the manuscript, its build
+        marker and state stay as they were, and a commit git no longer lists is refused even with a cached PDF."""
         entered, release = threading.Event(), threading.Event()
         original = self.main.read_bytes()
         marker = ps.APP.C.state / "pages.cur"
@@ -390,7 +392,7 @@ class ManuscriptRevisions(Base):
         self.assertEqual(self.main.read_bytes(), original)
         self.assertEqual(marker.read_text(), "pages-20260924000000")
         self.assertEqual(ps.APP.docs[0].bstate, before)
-        with mock.patch.object(revisions, "revision_history", return_value={"available": True, "revisions": []}):
+        with mock.patch.object(revisions, "_log_rows", return_value=[]):  # git lists nothing: no commit may be read
             self.assertEqual(split_resp(self.talk(req("GET", "/api/revision-pdf?commit=" + self.latest)))[0], 404)
             self.assertEqual(ps.APP.revision_requests.status(ps.APP.docs[0], self.latest), revisions.CommitNotRecent())
 
