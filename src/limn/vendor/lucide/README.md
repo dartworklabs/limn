@@ -19,8 +19,8 @@ Icons are drawn with the original `<svg>` attributes: `viewBox="0 0 24 24"`, `fi
 | `at-sign` | 'mentions me' and '@name' badges, [pins that mention me N] |
 | `bell` | the browser notifications switch in [More] |
 | `bot` | local/agent avatar (distinct from a person's initial circle) |
-| `check` | closed-pin row head; current document in the document list |
-| `chevron-down` · `chevron-right` | collapse/expand archive sections, card collapse (narrow screens), [Documents] button |
+| `check` | closed-pin row head; current document in the document list; current page in the page list |
+| `chevron-down` · `chevron-right` | collapse/expand archive sections, card collapse (narrow screens), [Documents] button, the page count that opens the page list |
 | `chevron-left` | the collapsed wide panel's [Pins N ‹] (#nav-side) |
 | `circle-check` · `circle-x` | a message's lead icon (banners, undo rows and chips, the status line) — done/error. Warnings use `triangle-alert` |
 | `circle-question-mark` | 'question' badge and hint |

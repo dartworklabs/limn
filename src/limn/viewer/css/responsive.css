@@ -137,6 +137,8 @@ body.lay-wide #more .more-top{padding-top:var(--space-2)}
      nav bar's page field 36px. */
   input:not([type=checkbox]):not([type=radio]){min-height:var(--hit)}
   #bar1 input.n{width:84px;flex:0 0 84px;max-width:none;font-size:var(--text-xl)}   /* iOS zooms the screen when focusing an input field smaller than 16px */
+  #page-pop-in{width:84px;height:var(--hit);font-size:var(--text-xl)}   /* the page list's field (overlays.css), 16px like every touch field */
+  button.pl-row{height:var(--hit);padding:0 var(--space-3);font-size:var(--text-base)}   /* the page list's rows: 44px */
   /* Text links (#N, the line range, N쪽) sit 4-8px apart, so centred 44px hit areas would overlap and the later one would take the
      earlier's half (observed: '1쪽' answered 16x38, 'L4-L5' 33x38). Each is a real --hit x --hit box instead, its text centred,
      positioned so that it stays above the line below that the compact head's -6px margin lets overlap it. */

@@ -90,13 +90,10 @@ body.outline-collapsed #outline-grip,body.band-phone #outline,body.lay-narrow #o
 #section-strip{display:flex;align-items:center;gap:var(--space-2);height:var(--strip-h);flex:none;padding:0 var(--space-4);background:var(--muted);
   border-bottom:1px solid var(--border);font-size:var(--text-sm);color:var(--muted-foreground)}
 #section-current{color:var(--foreground);font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-#section-page{margin-left:auto;white-space:nowrap}
 body.revision-open #section-strip{display:none}
 body.lay-narrow #section-strip,body.lay-mid #section-strip{display:none}   /* mid: it repeated the nav bar's 원고 tab (38px, diagnosis P4); its page count is #nav-page */
-/* The page count at the nav bar's right end (tablet sheet, mid, short) is a button: a tap turns it into a page field in its place
-   (#nav-page-in, navPageField) - the way to a page where [더보기] has no page field. */
+/* The page count at the nav bar's right end (tablet sheet, mid, short) is a button: it opens the page list (overlays.css) - the
+   way to a page where [더보기] has no page field. */
 #nav-page{display:none;flex:none;margin-left:auto;padding:0 var(--space-1);background:transparent;border:0;font-size:var(--text-sm);
   color:var(--muted-foreground);white-space:nowrap;font-variant-numeric:tabular-nums}
-#nav-page-in{display:none;flex:none;margin-left:auto;width:72px;height:var(--control-h-lg);padding:0 var(--space-2)}
 body.lay-mid #nav-page,body.band-tablet-sheet #nav-page{display:inline-flex}
-body.lay-mid #nav-page-in,body.band-tablet-sheet #nav-page-in{display:block}

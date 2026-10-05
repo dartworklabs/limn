@@ -57,12 +57,4 @@ function clampPage(v,n){const s=String(v==null?'':v).trim(); if(!/^-?\d+$/.test(
 function navGo(){const p=clampPage($('#ns-page-in').value,META&&META.pages?META.pages.length:0); if(p===null)return;
   $('#nav-sheet').close(); if(document.body.classList.contains('revision-open'))setViewMode(VIEW_MODE.MANUSCRIPT); goPage(p);}
 $('#ns-page-in').addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.isComposing){e.preventDefault(); navGo();}});
-// The nav bar's page count (tablet sheet, mid, short) as a page field in its place: the page on screen selected; Enter goes
-// to the clamped page, Esc or leaving it gives the count back.
-function navPageField(on){const b=$('#nav-page'),f=$('#nav-page-in'); b.hidden=on; f.hidden=!on;
-  if(on){f.value=String(OUTLINE_ACTIVE_PAGE||1); f.focus(); f.select();}}
-$('#nav-page-in').addEventListener('keydown',e=>{if(e.isComposing)return;
-  if(e.key==='Enter'){e.preventDefault(); const p=clampPage(e.target.value,META&&META.pages?META.pages.length:0); navPageField(false); $('#nav-page').focus({preventScroll:true}); if(p!==null)goPage(p);}
-  else if(e.key==='Escape'){e.preventDefault(); e.stopPropagation(); navPageField(false); $('#nav-page').focus({preventScroll:true});}});
-$('#nav-page-in').addEventListener('blur',()=>{if(!$('#nav-page-in').hidden)navPageField(false);});
 
