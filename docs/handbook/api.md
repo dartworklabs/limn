@@ -247,7 +247,7 @@ curl -s -H "Authorization: Bearer $(cat ~/.config/limn/<인스턴스>.token)" ht
 
 | 메서드 | 경로 | 설명 |
 | --- | --- | --- |
-| `GET` | `/api/revisions?doc=<키>[&before=<40자리 SHA-1>][&limit=<1..50>]` | 선택한 메인 `.tex` 폴더의 `.tex`·`.bib`·`.sty`·`.cls`·`.bst` 파일을 바꾼 최근 Git 커밋 12개 → `{available,revisions:[{id,date,subject,author,time,parents}]}`. `author`(작성자 이름)·`time`(ISO 8601 커밋 시각)·`parents`(전체 SHA, 첫 부모가 먼저, 첫 커밋은 `[]`)는 0.4.18+다. 선택 `before`·`limit`(0.4.18+)를 주면 이 문서의 이력 창(§두 커밋 사이) 안에서 `before` 커밋 다음부터 `limit` 개(없으면 12)를 주고 `more`(뒤에 더 있는지)를 더한다. 쪽 답은 조상 관계 순서(`git log --topo-order`)다. 위의 커밋은 아래 커밋의 조상이 아니고, 병합된 곁가지의 커밋은 그 병합 바로 아래에 모인다. 쪽 매개변수가 없는 답은 지금처럼 날짜 순서다. `limit` 이 1–50 밖이거나 숫자가 아니면 `400 bad_limit`, `before` 가 40자리 SHA-1이 아니면 `400 bad_commit`, 창 밖이면 `404 commit_not_recent`. Git 저장소가 아니거나 보기 전용 PDF면 `available:false`. 그림 문서는 화면 빌드의 지도에 나오는 `src.file`·`impl.file`(문서 폴더 기준)과 지도 파일, 지도가 가리키는 PDF를 바꾼 커밋이다. 그 파일이 200개를 넘으면 문서 폴더 전체가 범위다. 그림 문서의 답에는 `overlay:{build,pages,prev_build,prev_pages}`(0.4.13+)가 더 붙는다(Git 이력이 없어도 붙는다). `build`·`pages` 는 화면 빌드와 그 쪽 목록(`/api/meta` 의 `pages_build`·`pages` 와 같은 모양), `prev_build`·`prev_pages` 는 그 바로 앞 빌드다. 앞 빌드의 쪽 폴더가 없으면 `null`·`[]` 이다. 쪽 그림은 `/pages/<빌드>/<파일>` 로 받는다. 뷰어의 겹쳐 보기가 이것을 쓴다([viewer.md](viewer.md) §변경 보기). 다른 문서의 답은 두 키 그대로다 |
+| `GET` | `/api/revisions?doc=<키>[&before=<40자리 SHA-1>][&limit=<1..50>]` | 선택한 메인 `.tex` 폴더의 `.tex`·`.bib`·`.sty`·`.cls`·`.bst` 파일을 바꾼 최근 Git 커밋 12개(이력 창의 첫 12행, §두 커밋 사이) → `{available,revisions:[{id,date,subject,author,time,parents}]}`. `author`(작성자 이름)·`time`(ISO 8601 커밋 시각)·`parents`(전체 SHA, 첫 부모가 먼저, 첫 커밋은 `[]`)는 0.4.18+다. 선택 `before`·`limit`(0.4.18+)를 주면 이 문서의 이력 창(§두 커밋 사이) 안에서 `before` 커밋 다음부터 `limit` 개(없으면 12)를 주고 `more`(뒤에 더 있는지)를 더한다. 행은 쪽 답이든 아니든 이력 창의 조상 관계 순서(`git log --topo-order`)다. 위의 커밋은 아래 커밋의 조상이 아니고, 병합된 곁가지의 커밋은 그 병합 바로 아래에 모인다. `limit` 이 1–50 밖이거나 숫자가 아니면 `400 bad_limit`, `before` 가 40자리 SHA-1이 아니면 `400 bad_commit`, 창 밖이면 `404 commit_not_recent`. Git 저장소가 아니거나 보기 전용 PDF면 `available:false`. 그림 문서는 화면 빌드의 지도에 나오는 `src.file`·`impl.file`(문서 폴더 기준)과 지도 파일, 지도가 가리키는 PDF를 바꾼 커밋이다. 그 파일이 200개를 넘으면 문서 폴더 전체가 범위다. 그림 문서의 답에는 `overlay:{build,pages,prev_build,prev_pages}`(0.4.13+)가 더 붙는다(Git 이력이 없어도 붙는다). `build`·`pages` 는 화면 빌드와 그 쪽 목록(`/api/meta` 의 `pages_build`·`pages` 와 같은 모양), `prev_build`·`prev_pages` 는 그 바로 앞 빌드다. 앞 빌드의 쪽 폴더가 없으면 `null`·`[]` 이다. 쪽 그림은 `/pages/<빌드>/<파일>` 로 받는다. 뷰어의 겹쳐 보기가 이것을 쓴다([viewer.md](viewer.md) §변경 보기). 다른 문서의 답은 두 키 그대로다 |
 | `GET` | `/api/revision-diff?doc=<키>&commit=<40자리 SHA-1>[&base=<40자리 SHA-1>]` | 이 문서의 이력 창에 있는 커밋의 실제 unified diff(첫 부모 기준 — 합병 커밋도 비교 PDF처럼 첫 부모와 비교하고, 부모가 없는 첫 커밋은 빈 트리와 비교한다) → `{id,diff,truncated}`. 선택한 메인 파일 폴더 안의 같은 원고 확장자만 포함하고 최대 256 KiB를 보낸다. 잘못된 ID는 `400`, 이력 창 밖 ID와 보기 전용 PDF는 `404`. 선택 `&pin=<번호>`(0.3+)를 주면 `scope` 를 더한다(§핀 단위 변경 보기). 빈 `pin=` 은 없는 것과 같다. `pin` 이 양의 정수가 아니면 `400`, 이 문서의 핀이 아니면 `404`. 선택 `&base=`(0.4.18+)를 주면 두 커밋 사이의 누적 diff다(§두 커밋 사이). `pin` 과 함께면 `400 pin_with_base` |
 | `POST` | `/api/revision-build` | 본문 `{commit,base?,doc?,pin?}`. 선택 커밋의 첫 부모 → 선택 커밋 비교 PDF를 비동기로 시작한다. `202 {state:"running",job_id,base,head,engine,warnings,error,reason}`, 성공 캐시가 있으면 `200 {state:"ready",…}`. `doc` 은 쿼리로도 받는다. 선택 `pin`(정수, 0.3+)을 주면 그 핀의 변경만 적용한 비교가 되고 상태에 `scope`·`pin`·`source`·`hunks`·`other` 가 더해진다(§핀 단위 변경 보기). 선택 `base`(0.4.18+)를 주면 두 커밋 사이의 비교다(§두 커밋 사이). 그 밖의 필드가 있거나 `pin` 이 정수가 아니면 `400` |
 | `GET` | `/api/revision-build?doc=<키>&commit=<40자리 SHA-1>[&pin=<번호>\|&base=<40자리 SHA-1>]` | 같은 상태 스키마를 조회한다. `state` 는 `idle`(미실행·만료), `running`, `ready`, `error`. `error` 는 설명, `reason` 은 오류 분류다. 매번 현재 문서의 이력 창을 다시 확인한다 |
@@ -257,9 +257,19 @@ curl -s -H "Authorization: Bearer $(cat ~/.config/limn/<인스턴스>.token)" ht
 
 ### 두 커밋 사이
 
-변경 보기의 세 경로(`/api/revision-diff`, `/api/revision-build`, `/api/revision-pdf`)는 `commit` 옆에 선택 `base`(0.4.18+)를 받는다. `commit` 은 비교의 새 쪽, `base` 는 옛 쪽이다. `base` 가 없거나 빈 요청의 답은 이 필드가 생기기 전과 바이트까지 같다. 결정의 경위는 [ADR-0014](../adr/0014-two-commit-comparison.md)다.
+변경 보기의 세 경로(`/api/revision-diff`, `/api/revision-build`, `/api/revision-pdf`)는 `commit` 옆에 선택 `base`(0.4.18+)를 받는다. `commit` 은 비교의 새 쪽, `base` 는 옛 쪽이다. 결정의 경위는 [ADR-0014](../adr/0014-two-commit-comparison.md)다.
 
-- **이력 창.** 요청이 이름 붙일 수 있는 커밋은 이 문서의 경로 한정 이력 가운데 최근 500개(`REVISION_HISTORY_MAX`)다. 단일 커밋 요청의 `commit` 도 이 창 안이면 된다. `base` 는 창의 커밋이거나 창의 커밋의 첫 부모다(그 커밋부터의 범위를 보내려면 첫 부모가 필요한데, 그 부모가 원고를 건드리지 않았으면 창에 없다). 그 밖은 `404 commit_not_recent` 다. 임의 SHA는 읽지 않는다. 핀의 `close_ref` 는 그대로 최근 12개 안에서 찾는다.
+`base` 가 없는 요청(쿼리의 빈 `base=` 포함)은 0.4.17에서 성공하던 요청이면 같은 답을 받는다. diff·상태·PDF 바이트는 그대로이고, `tests/data/revision_snapshot.json`(0.4.17 코드로 기록)이 대조한다. 바뀐 것은 아래뿐이며 모두 더하기거나 거절이 답으로 바뀐 것이다.
+
+| 바뀐 것 | 0.4.17 | 지금 | 왜 호환인가 |
+| --- | --- | --- | --- |
+| `GET /api/revisions`(쪽 매개변수 없음)의 행 | 날짜 순서 최근 12개, `{id,date,subject}` | 이력 창의 첫 12행(조상 관계 순서), 행마다 `author`·`time`·`parents` 를 더한다 | 필드는 더하기만 했다. 선형 이력이나 날짜가 조상 관계를 따르는 이력에서는 같은 12개가 같은 순서다. 병합한 곁가지의 날짜가 앞뒤로 섞이면 12개와 그 순서가 달라질 수 있다. 이 순서를 계약으로 읽는 경로(SKILL·`pins.md`)는 없다 |
+| 단일 커밋 요청이 이름 붙일 수 있는 커밋 | 최근 12개(그 밖은 `404 commit_not_recent`) | 이력 창 500개 | 13–500번째 커밋은 `404` 대신 `200`(첫 커밋의 비교 PDF는 `422 no_parent`)이다. 거절이 답으로 바뀌었을 뿐 이미 답하던 요청은 그대로다. 뷰어는 `404` 를 오류 문장으로만 보이고, 에이전트 흐름(SKILL)은 이 경로를 쓰지 않는다 |
+| 핀의 `close_ref` 를 찾는 커밋 | 날짜 순서 최근 12개 | 이력 창의 첫 12행 | 목록·쪽 답·뷰어의 커밋 고르기와 한 집합이 되게 했다. 위 행과 같은 경우에만 다르다 |
+| `POST /api/revision-build` 본문의 `base` | 어떤 값이든 `400 unknown_fields` | 40자리 SHA-1 문자열이면 범위, `null`·`""`·그 밖은 `400 bad_commit` | 전에 받던 본문은 없었다. 본문에 `base` 를 적으면 언제나 범위이고, 없는 것으로 읽지 않는다 |
+
+
+- **이력 창.** 커밋을 이름 붙이는 모든 경로는 한 목록을 읽는다. 이 문서의 경로 한정 이력 가운데 최근 500개(`REVISION_HISTORY_MAX`)를 조상 관계 순서(`git log -500 --topo-order`)로 읽은 것이다(`revisions/core.py` 의 `revision_window`). `GET /api/revisions` 의 목록과 쪽 답은 이 목록의 행이고, 요청의 `commit` 은 이 목록의 커밋이어야 한다. `base` 는 이 목록의 커밋이거나 그 첫 부모다(그 커밋부터의 범위를 보내려면 첫 부모가 필요한데, 그 부모가 원고를 건드리지 않았으면 목록에 없다). 그 밖은 `404 commit_not_recent` 다. 임의 SHA는 읽지 않는다. 핀의 `close_ref` 는 이 목록의 첫 12행에서 찾는다. 뷰어가 핀의 커밋을 고르는 행도 같은 12행이다. 서버는 이 목록을 실행마다 HEAD별로 한 번 읽어 둔다(`WindowCache`). 비교 PDF 상태를 1초마다 물어도 HEAD가 그대로면 이력을 다시 걷지 않는다.
 - **옛 쪽.** `base` 가 `commit` 의 조상이면(같은 커밋 포함) `base` 를 쓴다. `base` 가 `commit` 의 자손이면 `422 base_after_head` 이고 서버는 두 끝을 뒤집지 않는다. 둘 다 아니면(곁가지) `git merge-base` 를 옛 쪽으로 쓰고 답에 `merge_base` 로 적는다(GitHub의 세 점 비교와 같다). 공통 조상이 없으면 `422 no_merge_base` 다.
 - **`pin` 과 함께 쓰지 않는다.** 핀 단위 보기(§핀 단위 변경 보기)는 한 커밋의 줄 번호에 묶여 있어 `pin` 과 `base` 를 함께 주면 `400 pin_with_base` 다.
 
@@ -270,9 +280,10 @@ curl -s -H "Authorization: Bearer $(cat ~/.config/limn/<인스턴스>.token)" ht
 | `base` | 실제로 쓴 옛 쪽 SHA(병합 기준을 썼으면 그 SHA) |
 | `merge_base` | 병합 기준을 썼을 때만. 그 SHA |
 | `commits` | 옛 쪽 → `commit` 사이의 이 문서 커밋 수 |
+| `commit_ids` | 그 커밋들(조상 관계 순서, 최대 500개). 뷰어는 목록에서 이 커밋을 칠한다 |
 | `files` | `[{path,old_path?,add,del}]`. `git diff --numstat -z -M` 의 순서. `old_path` 는 이름 바꾸기에만, `add`·`del` 은 바뀐 줄 수(바이너리는 `null`). diff가 잘려도 다 실린다 |
 
-`base == commit` 이면 빈 diff, `commits:0`, `files:[]` 다.
+`base == commit` 이면 빈 diff, `commits:0`, `commit_ids:[]`, `files:[]` 다.
 
 비교 PDF는 옛 쪽 스냅숏과 `commit` 스냅숏을 비교한다(§비교 PDF 실행과 캐시의 같은 파이프라인). 상태 응답의 `base` 는 실제 옛 쪽이고, 병합 기준을 썼으면 `merge_base` 가 붙는다. `merge_base` 는 요청마다의 필드라 상태 파일에 저장하지 않는다. `base == commit` 이면 만들 것이 없으므로 `422 empty_range` 다. 첫 부모가 없는 `commit` 도 `base` 가 있으면 `no_parent` 가 아니다. 범위의 거절 셋(`base_after_head`·`no_merge_base`·`empty_range`)은 `revisions/answer.py` 의 표 `RANGE_REJECTIONS` 가 상태·문장·`reason` 을 정한다.
 
@@ -382,7 +393,7 @@ latexdiff는 본문 글과, 자기가 아는 글 명령(`\textbf`·`\section`·`
 | 2 | 1이 아무것도 못 고르면, 핀 범위를 커밋에 비춰 겹치는 블록 | `inferred` |
 | 3 | 2도 못 고르면 없음. 커밋 전체를 보인다 | `none` |
 
-- `changes` 는 기록한 커밋의 줄 번호다. 그래서 요청한 커밋이 `close_ref` 가 가리키는 커밋일 때만 쓴다. 가리키는 커밋은 뷰어의 `matchRevision` 과 같은 규칙으로 찾는다(`ref_commit`, 두 구현을 테스트가 대조한다): 최근 커밋 가운데 7–40자리 해시가 앞부분인 커밋, 없으면 제목에 `(#N)`·`pull request #N`·`#N` 이 든 커밋(스쿼시·머지 커밋)이다. 다른 커밋에서는 같은 줄이 다른 핀의 수정일 수 있으므로 2의 추정만 쓰고, `source` 도 `inferred` 로 말한다.
+- `changes` 는 기록한 커밋의 줄 번호다. 그래서 요청한 커밋이 `close_ref` 가 가리키는 커밋일 때만 쓴다. 가리키는 커밋은 뷰어의 `matchRevision` 과 같은 규칙으로 찾는다(`ref_commit`, 두 구현을 테스트가 대조한다): 이력 창의 첫 12행(§두 커밋 사이) 가운데 7–40자리 해시가 앞부분인 커밋, 없으면 제목에 `(#N)`·`pull request #N`·`#N` 이 든 커밋(스쿼시·머지 커밋)이다. 다른 커밋에서는 같은 줄이 다른 핀의 수정일 수 있으므로 2의 추정만 쓰고, `source` 도 `inferred` 로 말한다.
 - 2의 핀 범위는 이렇게 정한다. 닫힌 핀은 마지막 줄 맞춤의 번호를 지니는데, 그 번호가 커밋의 새 쪽인지 옛 쪽인지는 기록이 없다. 그래서 anchor를 새 쪽과 옛 쪽 모두에서 기록된 줄 가까이 찾고(`sync_all()` 과 같은 규칙), 기록된 줄에 더 가까운 쪽부터 쓴다(같으면 새 쪽). 거기서 블록이 안 겹치면 다음 후보로 간다. 마지막 후보는 날 범위다. `stale` 이면 옛 쪽, 아니면 새 쪽으로 읽는다.
 - 핀 파일은 짝의 옛 이름이든 새 이름이든 맞으면 된다.
 - 한쪽이 빈 블록(순수 삽입·삭제)은 그 자리 앞뒤 줄에 닿은 것으로 본다. 지운 줄 바로 앞이나 뒤를 가리켜도 그 삭제를 고른다.
