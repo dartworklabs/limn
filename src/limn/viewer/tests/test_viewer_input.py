@@ -6531,5 +6531,212 @@ class SelectModeBar(ViewerBase):
                         self.assertLessEqual(abs(ink[k]["mid"] - centre), 0.5, (k, ink, centre))
 
 
+# ---------------------------------------------------------------- a short click outside the selection cancels it
+
+# A point on a page of the PDF area, in viewport coordinates, that is clear of the pending box, every pin mark and the
+# badges left of them (34px) and is not under the panel or a sheet: where a click is "outside the selection on the PDF".
+BLANK_SPOT = """() => {
+  const L = document.querySelector('#left').getBoundingClientRect();
+  const bad = [...document.querySelectorAll('.sel, .mark')].map(e => e.getBoundingClientRect());
+  for (let y = L.top + 12; y < Math.min(L.bottom, innerHeight) - 12; y += 12)
+    for (let x = L.left + 12; x < Math.min(L.right, innerWidth) - 12; x += 12) {
+      const e = document.elementFromPoint(x, y);
+      if (!e || !e.closest('.pg')) continue;
+      if (bad.some(r => x > r.left - 34 && x < r.right + 10 && y > r.top - 10 && y < r.bottom + 10)) continue;
+      return [x, y];
+    }
+  return null;
+}"""
+NO_SELECTION = "COMPOSE.current===null&&COMPOSE.box===null&&document.querySelector('#composer').hidden"
+HAS_SELECTION = "!!COMPOSE.current&&!!COMPOSE.box&&!document.querySelector('#composer').hidden"
+MOUSE_DEVICES = {"desktop": DESK, "mid": MOUSE_MID}
+TOUCH_DEVICES = {"fold": FOLD, "phone": PHONE}
+
+
+class ClickOffCancelsSelection(ViewerBase):
+    """With a PDF region selected (the dashed box and the composer open), a short press outside the box on the PDF area
+    cancels the selection exactly as [취소] and Esc do, including the undo of a typed note (docs/handbook/viewer.md §패널
+    정리, §알림 자리). A press that becomes a drag still starts a new selection; a press inside the box, on a pin mark, a
+    long press, a pinch and a double tap never cancel."""
+
+    def select(self, page, device):
+        """A selection made the way the device makes one: a mouse drag, or a long press on touch; returns (cdp or None)."""
+        if device in MOUSE_DEVICES.values():
+            self.mouse_pick(page)
+            return None
+        cdp = self.cdp(page)
+        self.long_press_pick(cdp, page)
+        return cdp
+
+    def blank(self, page):
+        """BLANK_SPOT, which every layout of the fixture has while a selection is open."""
+        at = page.evaluate(BLANK_SPOT)
+        self.assertIsNotNone(at)
+        return at
+
+    def press(self, page, cdp, x, y, jitter=0):
+        """A short press at (x, y): the mouse (moved by `jitter` px before it lifts) or a tap of the finger."""
+        if cdp is None:
+            page.mouse.move(x, y)
+            page.mouse.down()
+            if jitter:
+                page.mouse.move(x + jitter, y)
+            page.mouse.up()
+        else:
+            self.tap(cdp, x, y)
+
+    def test_a_short_click_outside_the_box_cancels_the_selection_on_every_layout(self):
+        """Mouse (wide and mid) and a finger (an unfolded Fold and a phone): the box and the composer go, as with [취소]."""
+        for name, device in {**MOUSE_DEVICES, **TOUCH_DEVICES}.items():
+            for jitter in (0, 1) if device in MOUSE_DEVICES.values() else (0,):
+                with self.subTest(device=name, jitter=jitter):
+                    page = self.view(device)
+                    cdp = self.select(page, device)
+                    x, y = self.blank(page)
+                    self.press(page, cdp, x, y, jitter)
+                    page.wait_for_function(NO_SELECTION, timeout=5000)
+                    settle(page)
+                    self.assertEqual(page.locator(".sel").count(), 0)
+                    self.assertFalse(page.evaluate("LINE.some(n=>n.undo)"))  # no note: no undo to offer
+
+    def test_a_click_outside_with_a_typed_note_cancels_with_an_undo_that_restores_it(self):
+        """The note makes it the [취소] of a selection with a note: `선택 취소됨 · [되돌리기]`, which another press on the
+        PDF does not end and which brings back the selection, its box and the note."""
+        for name, device in {"desktop": DESK, "fold": FOLD, "phone": PHONE}.items():
+            with self.subTest(device=name):
+                page = self.view(device)
+                cdp = self.select(page, device)
+                page.locator("#note").fill("이 문장을 고쳐 주세요")
+                lo = page.evaluate("COMPOSE.current.lo")
+                x, y = self.blank(page)
+                self.press(page, cdp, x, y)
+                page.wait_for_function(NO_SELECTION, timeout=5000)
+                undo = page.locator("#status", has_text="선택 취소됨")
+                undo.wait_for()
+                self.assertEqual(page.evaluate("document.querySelector('#note').value"), "")
+                self.press(page, cdp, *self.blank(page))  # another press on the PDF does not end the offer
+                nothing_follows(page)
+                self.assertTrue(undo.is_visible())
+                undo.locator("[data-act=notice-act]", has_text="되돌리기").click()
+                page.wait_for_function(HAS_SELECTION, timeout=5000)
+                self.assertEqual(
+                    page.evaluate("[COMPOSE.current.lo, document.querySelector('#note').value]"),
+                    [lo, "이 문장을 고쳐 주세요"],
+                )
+                self.assertEqual(page.locator(".sel.pending").count(), 1)
+
+    def test_a_drag_outside_the_box_starts_a_new_selection_and_keeps_the_note(self):
+        """A mouse drag, and a drag of the finger in [선택] mode, are the new box as before; nothing is cancelled."""
+        for name, device in {"desktop": DESK, "mid": MOUSE_MID, "fold": FOLD}.items():
+            with self.subTest(device=name):
+                page = self.view(device)
+                cdp = self.select(page, device)
+                page.locator("#note").fill("남을 메모")
+                page.evaluate("window.__old = COMPOSE.box")
+                if cdp is not None:
+                    page.evaluate("setSelMode(true)")  # the mode's bar moves the page down: look for the spot after it
+                    settle(page)
+                x, y = self.blank(page)
+                if cdp is None:
+                    page.mouse.move(x, y)
+                    page.mouse.down()
+                    page.mouse.move(x + 40, y + 24, steps=4)
+                    page.mouse.up()
+                else:
+                    self.swipe(cdp, x, y, x + 40, y + 24)
+                page.wait_for_function("COMPOSE.box!==window.__old&&COMPOSE.current&&COMPOSE.current.lo", timeout=8000)
+                nothing_follows(page)
+                self.assertTrue(page.evaluate(HAS_SELECTION))
+                self.assertEqual(page.evaluate("document.querySelector('#note').value"), "남을 메모")
+                self.assertFalse(page.evaluate("LINE.some(n=>n.undo)"))
+
+    def test_a_press_inside_the_box_or_on_a_pin_mark_keeps_the_selection(self):
+        """The dashed box is the selection; a pin's number badge jumps to its card. Neither is outside."""
+        for name, device in {**MOUSE_DEVICES, "fold": FOLD}.items():
+            with self.subTest(device=name):
+                page = self.view(device)
+                cdp = self.select(page, device)
+                box = page.locator(".sel.pending").bounding_box()
+                self.press(page, cdp, box["x"] + box["width"] / 2, box["y"] + box["height"] / 2)
+                nothing_follows(page, 700)
+                self.assertTrue(page.evaluate(HAS_SELECTION))
+                badge = page.evaluate(
+                    """() => {for (const b of document.querySelectorAll('.mark b')) {const r = b.getBoundingClientRect();
+                      const e = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2);
+                      if (e === b) return [r.x + r.width / 2, r.y + r.height / 2];} return null;}"""
+                )
+                body = page.evaluate(
+                    """() => {for (const m of document.querySelectorAll('.mark')) {const r = m.getBoundingClientRect();
+                      const x = r.x + r.width * 0.7, y = r.y + r.height / 2, e = document.elementFromPoint(x, y);
+                      if (e && e.closest('.pg')) return [x, y];} return null;}"""
+                )
+                for what, at in (("badge", badge), ("mark", body)):
+                    if at is not None:  # a spot the panel or sheet leaves uncovered
+                        self.press(page, cdp, *at)
+                        nothing_follows(page, 700)
+                        self.assertTrue(page.evaluate(HAS_SELECTION), what)
+                self.assertTrue(body is not None or device["viewport"]["width"] < 1000, "no mark body was reachable")
+
+    def test_a_long_press_elsewhere_still_picks_that_paragraph(self):
+        """Touch: the long press is the quick selection - the box moves to it - and its release is no tap that cancels."""
+        page = self.view(FOLD)
+        cdp = self.select(page, FOLD)
+        page.evaluate("window.__old = COMPOSE.box")
+        x, y = self.blank(page)
+        self.touch(cdp, "touchStart", [(x, y)])
+        page.wait_for_function("LP===null&&LP_PICKED!==null", timeout=8000)
+        self.touch(cdp, "touchEnd", [])
+        page.wait_for_function("COMPOSE.box!==window.__old&&COMPOSE.current&&COMPOSE.current.lo", timeout=8000)
+        nothing_follows(page, 700)  # a tap's pending cancel would have run by now
+        self.assertTrue(page.evaluate(HAS_SELECTION))
+
+    def test_a_double_tap_zooms_and_a_pinch_never_cancels(self):
+        """Outside [선택] mode a double tap is the app zoom and two fingers are a pinch; neither leaves the first press
+        behind as a click-off."""
+        page = self.view(FOLD)
+        cdp = self.select(page, FOLD)
+        x, y = self.blank(page)
+        w0 = page.evaluate("W")
+        page.clock.install()
+        page.clock.pause_at(time.time() * 1000 + 1000)  # performance.now() and the timers stand still
+        self.tap(cdp, x, y)
+        self.tap(cdp, x, y)
+        page.wait_for_function("w=>Math.abs(W-w)>2", arg=w0, timeout=10000)
+        page.clock.run_for(2000)  # every timer the two taps left runs now
+        self.assertTrue(page.evaluate(HAS_SELECTION))
+        x, y = self.blank(page)
+        self.touch(cdp, "touchStart", [(x, y)])
+        self.touch(cdp, "touchStart", [(x, y), (x + 40, y)])
+        self.touch(cdp, "touchMove", [(x - 20, y), (x + 60, y)])
+        self.touch(cdp, "touchEnd", [])
+        page.clock.run_for(2000)
+        self.assertTrue(page.evaluate(HAS_SELECTION))
+
+    def test_the_select_mode_bar_never_cancels_and_a_tap_there_is_still_a_quick_selection(self):
+        """In [선택] mode a tap on the PDF is the quick selection, not a click-off; a press on the mode's own bar leaves
+        the selection alone."""
+        for name, device in TOUCH_DEVICES.items():
+            with self.subTest(device=name):
+                page = self.view(device)
+                cdp = self.cdp(page)
+                self.tap(cdp, *self.center(page, "#btn-select"))
+                page.wait_for_function("SELMODE")
+                settle(page)
+                x, y = self.blank(page)
+                self.tap(cdp, x, y)
+                page.wait_for_function(HAS_SELECTION + "&&COMPOSE.current.lo", timeout=8000)
+                settle(page)
+                page.evaluate("window.__old = COMPOSE.box")
+                self.before_next_tap(page)
+                self.tap(cdp, *self.center(page, "#sel-bar .sb-t"))
+                nothing_follows(page, 700)
+                self.assertTrue(page.evaluate(HAS_SELECTION + "&&SELMODE"))
+                x, y = self.blank(page)
+                self.tap(cdp, x, y)
+                page.wait_for_function("COMPOSE.box!==window.__old&&COMPOSE.current&&COMPOSE.current.lo", timeout=8000)
+                nothing_follows(page, 700)
+                self.assertTrue(page.evaluate(HAS_SELECTION))
+
+
 if __name__ == "__main__":
     unittest.main()
