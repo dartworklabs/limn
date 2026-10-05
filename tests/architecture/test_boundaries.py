@@ -74,8 +74,6 @@ def test_server_has_no_application_service_locator():
 def test_production_crossings_are_the_reviewed_query_contracts():
     """Public helpers cannot silently widen any current cross-capability dependency."""
     assert {
-        ("limn.documents", "limn.builds"): {"DocumentBuildQueries", "document_build_queries"},
-        ("limn.documents", "limn.pins"): {"PinCountQueries"},
         ("limn.pins", "limn.builds"): {
             "PinBuildQueries",
             "pin_build_queries",

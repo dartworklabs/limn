@@ -14,7 +14,7 @@ from pathlib import Path
 
 from limn.builds import artifacts as limn_build
 from limn.builds.artifacts import BuildOk, BuildUnchanged
-from limn.builds.queries import BuildQueries
+from limn.builds.queries import BuildQueries, document_build_queries
 from limn.documents import reads as meta
 from limn.security.access import LOCAL_ACTOR
 
@@ -28,6 +28,8 @@ from helpers_figure import (
     write_figure_set_tree,
 )
 
+# The build supplier for reads called directly, apart from the run's own bindings behind ps.APP.document_views.
+BUILDS = document_build_queries()
 FLS_HEAD = "PWD /build\n"
 
 
@@ -70,7 +72,7 @@ class Fixture(Base):
         """What the viewer and the pick read about ms: its /api/docs brief, /api/meta, the pick's Publication, its
         src_mtime and its fingerprint, with the 2 second memo expired."""
         self.ms.mcache[2] = 0.0
-        brief = next(b for b in meta.docs_payload(ps.APP.docs, {}, 0, self.state)["docs"] if b["key"] == "ms")
+        brief = next(b for b in meta.docs_payload(ps.APP.docs, {}, 0, self.state, BUILDS)["docs"] if b["key"] == "ms")
         light = ps.APP.document_views.meta(self.ms, dict(LOCAL_ACTOR), light=True)
         pub = BuildQueries(lambda: limn_build.BuildMapCache()).publication(
             self.ms, limn_build.cur_pages(self.ms).name, self.state
@@ -128,11 +130,11 @@ class FigureSetInsideManuscript(Fixture):
         self.on_screen_without_tex()
         for d in ps.APP.docs:
             d.mcache[2] = 0.0
-        before = {b["key"]: b["src_mtime"] for b in meta.docs_payload(ps.APP.docs, {}, 0, self.state)["docs"]}
+        before = {b["key"]: b["src_mtime"] for b in meta.docs_payload(ps.APP.docs, {}, 0, self.state, BUILDS)["docs"]}
         rewrite_ahead(self.src / "figs" / "figures.limnmap.json")
         for d in ps.APP.docs:
             d.mcache[2] = 0.0
-        after = {b["key"]: b["src_mtime"] for b in meta.docs_payload(ps.APP.docs, {}, 0, self.state)["docs"]}
+        after = {b["key"]: b["src_mtime"] for b in meta.docs_payload(ps.APP.docs, {}, 0, self.state, BUILDS)["docs"]}
         self.assertGreater(after["fig"], before["fig"])
         self.assertEqual(after["ms"], before["ms"])
 

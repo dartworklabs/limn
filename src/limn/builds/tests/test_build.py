@@ -53,7 +53,7 @@ from limn.builds.artifacts import (
 )
 from limn.builds.contracts import PinBuildQueries
 from limn.builds.figure_map import FigureMap, MapRejected
-from limn.builds.queries import BuildQueries
+from limn.builds.queries import BuildQueries, document_build_queries
 from limn.documents import reads as limn_meta
 from limn.platform import files
 from limn.runtime.documents import NO_APART, ApartPaths, Doc, InputSetCache, RunPaths
@@ -1459,7 +1459,7 @@ class AsyncBuild(Base):
         self.assertTrue(limn_build.cur_pdf(ps.APP.docs[0]).exists())
         aux = limn_build.cur_pages(ps.APP.docs[0]) / "main.aux"
         self.assertTrue(aux.is_file(), "successful build must publish its matching .aux with PDF pages")
-        labels = limn_meta.outline_labels(ps.APP.docs[0])
+        labels = limn_meta.outline_labels(ps.APP.docs[0], document_build_queries())
         self.assertEqual(labels["build"], res.build)
         self.assertEqual(
             [(row["number"], row["title"]) for row in labels["labels"][:2]], [("1", "Intro"), ("1.1", "Next")]

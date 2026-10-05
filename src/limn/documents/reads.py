@@ -7,8 +7,10 @@ pins file's size and mtime, a build's .aux - so the light poll every few seconds
 
 Every function takes the document, the other documents and the run settings it reads as arguments (coding rule R5):
 nothing here reads the server's run arguments or imports it. What only the composition root knows is passed in as a
-value - the --git-pull sync status, the pins as read, which document a pin belongs to. The keys and their order are
-the agent contract; a change here must keep every body byte-identical.
+value - the --git-pull sync status, the pins as read, which document a pin belongs to. What the builds own - the
+pages on screen, staleness, build state, the published .aux - is asked of builds (limn.documents.needs.BuildFacts),
+which every caller passes: there is no default, so this module imports no other capability. The keys and their order
+are the agent contract; a change here must keep every body byte-identical.
 """
 
 from collections.abc import Mapping, Sequence
@@ -16,11 +18,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from limn.builds import DocumentBuildQueries, document_build_queries
+from limn.documents.needs import BuildFacts
 from limn.documents.outline import toc_labels
 from limn.runtime.documents import Doc
-
-_DEFAULT_BUILDS = document_build_queries()
 
 
 @dataclass(frozen=True)
@@ -37,7 +37,7 @@ class MetaSettings:
     dpi: int
 
 
-def doc_brief(D: Doc, state_dir: Path, builds: DocumentBuildQueries = _DEFAULT_BUILDS) -> dict[str, Any]:
+def doc_brief(D: Doc, state_dir: Path, builds: BuildFacts) -> dict[str, Any]:
     """A summary of document D - an entry of /api/docs and (with several documents) of /api/meta's docs: kind, whether
     its pins are regions only (view_only), path, staleness against its manuscript (only for a document built from
     source), build in progress and last result, the page directory on screen and its page count. Never writes (called
@@ -50,7 +50,7 @@ def docs_payload(
     open_counts: Mapping[str, int],
     other_open: int,
     state_dir: Path,
-    builds: DocumentBuildQueries = _DEFAULT_BUILDS,
+    builds: BuildFacts,
 ) -> dict[str, Any]:
     """GET /api/docs: every document of docs (the first is the default) with its open-pin count, from the pin records
     rows as read (doc_of says which document a record belongs to). Open pins of a key no document serves any more are
@@ -70,7 +70,7 @@ def meta(
     docs: Sequence[Doc],
     sync: Mapping[str, Any],
     now: float,
-    builds: DocumentBuildQueries = _DEFAULT_BUILDS,
+    builds: BuildFacts,
     pin_revision: str = "0",
 ) -> dict[str, Any]:
     """GET /api/meta for document D without the pin counts - exactly the light poll's body: its pages (sized at
@@ -125,7 +125,7 @@ def pin_counts(states: Sequence[str]) -> dict[str, int]:
     return {"n_open": states.count("open"), "n_done": states.count("done"), "n_review": states.count("review")}
 
 
-def outline_labels(D: Doc, builds: DocumentBuildQueries = _DEFAULT_BUILDS) -> dict[str, Any]:
+def outline_labels(D: Doc, builds: BuildFacts) -> dict[str, Any]:
     """GET /api/outline-labels for document D: {build, labels} - the name of the page directory on screen and the
     outline rows (limn.documents.outline.toc_labels) of the .aux that same build published next to its PDF. Never the .aux in
     the mutable build copy, which a later failed build may have overwritten. No labels for a document not built from

@@ -16,8 +16,6 @@ CrossingNames: TypeAlias = Mapping[CrossingKey, set[str]]
 EntrypointImports: TypeAlias = Mapping[str, set[str]]
 
 CROSSING_NAMES: CrossingNames = {
-    ("limn.documents", "limn.builds"): {"DocumentBuildQueries", "document_build_queries"},
-    ("limn.documents", "limn.pins"): {"PinCountQueries"},
     ("limn.pins", "limn.builds"): {
         "PinBuildQueries",
         "pin_build_queries",
