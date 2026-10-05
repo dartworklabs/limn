@@ -7,7 +7,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Protocol
 
-from limn.builds import ElementFollower, PinBuildQueries, pin_build_queries
+from limn.builds import ElementFollower, PinBuildQueries
 from limn.pins.element import element_of
 from limn.pins.listing.projection import element_marks
 from limn.pins.listing.render import (
@@ -64,11 +64,12 @@ class MarkdownDeps(Protocol):
 
 @dataclass
 class PinMarkdown:
-    """One run's pins.md input assembly and rendering."""
+    """One run's pins.md input assembly and rendering. builds is the run's injected build query bundle, which answers
+    each document's heading stamps; it is required, since this module makes none."""
 
     deps: MarkdownDeps
     known_people: Callable[[Sequence[Pin] | None], dict[str, Json]]
-    builds: PinBuildQueries = pin_build_queries()
+    builds: PinBuildQueries
 
     def current_text(self, base: str) -> str:
         """GET /pins.md after its shared guards and remote base calculation."""

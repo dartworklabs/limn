@@ -9,7 +9,7 @@ from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 from typing import Any, NamedTuple, Protocol, TypeAlias
 
-from limn.builds import PinBuildQueries, pin_build_queries
+from limn.builds import PinBuildQueries
 from limn.pins.location import position
 from limn.pins.location.mapping import norm, pin_rel_path
 from limn.pins.location.position import EstContext, resync
@@ -19,7 +19,6 @@ from limn.runtime.documents import Doc
 
 # One stored pin as the store reads it: a JSON object (limn.pins.store.Row).
 Row: TypeAlias = dict[str, Any]
-_DEFAULT_BUILDS = pin_build_queries()
 
 # ---------------------------------------------------------------- Where a pin's file is now (ADR-0006)
 
@@ -190,7 +189,8 @@ def sync_all(pins: list[Pin], locate: Locator) -> bool:
 # ---------------------------------------------------------------- Location estimation (.est)
 
 
-def est_context(D: Doc, builds: PinBuildQueries = _DEFAULT_BUILDS) -> EstContext:
-    """Estimation facts answered by the build owner once for document D."""
+def est_context(D: Doc, builds: PinBuildQueries) -> EstContext:
+    """Estimation facts answered by the build owner once for document D. builds is the run's injected query bundle;
+    the caller passes it, since this module makes none."""
     facts = builds.position(D)
     return EstContext(facts.cur, facts.exact_builds, facts.built_at, facts.built_src_mtime)
