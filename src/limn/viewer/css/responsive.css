@@ -86,7 +86,7 @@ body.lay-wide #more .more-top{padding-top:var(--space-2)}
 #more .more-grid button{justify-content:flex-start;gap:var(--space-2);text-align:left;white-space:nowrap;background:transparent;border-color:transparent;font-size:var(--text-lg)}
 @media (hover:hover){#more .more-grid button:hover{background:var(--accent)}}   /* a tapped row stayed grey (sticky :hover, UX audit P4.6) */
 #more .more-grid .lbl{flex:1;min-width:0}
-#more #m-download .lbl{padding-left:calc(16px + var(--space-2))}   /* the one row with no icon: its text stands where the other rows' text does */
+#more #m-download .lbl{padding-left:calc(var(--space-4) + var(--space-2))}   /* the one row with no icon: its text stands where the other rows' text does (a 16px icon = --space-4, plus the row gap) */
 #more .m-n{color:var(--muted-foreground);font-variant-numeric:tabular-nums}
 #more .more-grid button>.ic:last-child:not(:first-child){color:var(--muted-foreground)}
 #more .m-why{display:block;padding:0 var(--space-3) var(--space-1) calc(var(--space-3) + 16px + var(--space-2));font-size:var(--text-sm);line-height:18px;color:var(--muted-foreground)}
@@ -203,7 +203,7 @@ body.lay-wide #more .more-top{padding-top:var(--space-2)}
 }
 body.lay-narrow #grip,body.lay-mid:not(.side-open) #grip{display:none}
 /* mid: shows a grab bar in the middle of the handle (easier to find by touch) */
-body.lay-mid #grip{width:8px;background:var(--sidebar);border-left:1px solid var(--border)}
+body.lay-mid #grip{width:8px;background:var(--sidebar);border-left:1px solid var(--border-seam)}
 body.lay-mid #grip::before{content:'';position:absolute;left:50%;top:50%;width:4px;height:44px;border-radius:var(--radius-sm);
   background:var(--grabber);transform:translate(-50%,-50%)}
 body.lay-mid #grip.on::before{background:var(--primary)}
@@ -466,7 +466,7 @@ body.lay-mid{--mbar-tb:var(--control-h);--mbar-pad:var(--space-2);--mbar-h:calc(
 }
 body.lay-mid #bar1{position:fixed;left:0;right:0;top:auto;bottom:var(--kb,0px);z-index:30;height:var(--mbar-h);--tb-h:var(--mbar-tb);
   gap:var(--space-2);padding:var(--mbar-pad) max(var(--edge),env(safe-area-inset-right)) calc(var(--mbar-pad) + env(safe-area-inset-bottom)) max(var(--edge),env(safe-area-inset-left));
-  background:var(--sidebar);border-top:1px solid var(--border);border-bottom:0;pointer-events:auto;visibility:visible}
+  background:var(--sidebar);border-top:1px solid var(--border-seam);border-bottom:0;pointer-events:auto;visibility:visible}
 /* Buttons keep their natural text width (never shrink or grow). Order follows thumb reach: [선택] .... [PDF 재빌드] [⋯] [핀 N].
    DOM order is shared with the narrow sheet, so only CSS order changes it. */
 body.lay-mid #bar1 button{flex:none;min-width:var(--tb-h);padding:0 var(--space-3);overflow:visible}
@@ -497,7 +497,8 @@ body.lay-mid #doc-nav{position:fixed;top:0;left:0;right:0;z-index:22;height:var(
    its controls are centred in is even and they stand on whole pixels (the symmetry audit of the cross-resolution pass: the band
    between the stripe and the line was 4px shorter than the bar's box, and the controls stood 2-3px above its middle). The touch
    bars' ends are the band's edge line, as the panel's (they were 12px in where the panel's content is 16). */
-body:is(.lay-mid,.band-tablet-sheet,.lay-wide) #doc-nav{border-bottom:0;box-shadow:0 1px 0 var(--border)}
+body:is(.lay-mid,.band-tablet-sheet,.lay-wide) #doc-nav{border-bottom:0;box-shadow:0 1px 0 var(--border-seam)}
+body:is(.band-tablet-sheet,.lay-wide) #doc-nav{position:relative;z-index:7}   /* its line is a shadow below the box (the border would move the centring half a pixel): above the outline, the strip, the grips and the pages' shadows that would paint over it (mid's bar is fixed already) */
 /* The document links' and the view tabs' words are trimmed to their cap height (text-box), so each tab centres its words' cap
    height on the band: as line boxes a bold '원고' stood 1px above the band's middle. */
 :is(#doc-links,#view-switch) button{display:inline-flex;align-items:center}
@@ -511,7 +512,7 @@ body:is(.lay-mid,.band-tablet-sheet) #view-switch{gap:var(--space-2)}
 body.docs-multi:is(.lay-mid,.band-tablet-sheet) #view-switch{padding-left:var(--space-2)}   /* 8px each side of the line after the links; one document has neither */
 body:is(.lay-mid,.band-tablet-sheet) #doc-nav button{white-space:nowrap}
 /* At mid width, the outline overlays on top of the document (#main already starts below the nav bar). On a narrow tablet, pins overlay too, preserving the body's width. */
-body:is(.lay-mid,.band-tablet-sheet) #outline{position:absolute;left:0;top:0;bottom:0;z-index:18;border-right:1px solid var(--border);box-shadow:var(--shadow)}
+body:is(.lay-mid,.band-tablet-sheet) #outline{position:absolute;left:0;top:0;bottom:0;z-index:18;border-right:1px solid var(--border-seam);box-shadow:var(--shadow)}
 body.lay-mid #outline-grip{display:none}
 @keyframes mid-panel-in{from{right:calc(-1 * var(--side-w,330px))}}
 @keyframes mid-grip-in{from{opacity:0}}
@@ -555,7 +556,7 @@ body.band-short{--doc-nav-h:48px;--mbar-h:0px}
 body.band-short #doc-nav{right:var(--bar1-w,0px);
   padding:max(env(safe-area-inset-top),var(--space-1)) var(--space-2) 0 max(var(--edge),env(safe-area-inset-left))}
 /* Buttons drawn at 40px, centred under the stripe: their 44px hit areas fill the row from the stripe to its line. */
-body.band-short #bar1{top:0;bottom:auto;left:auto;right:0;height:var(--mid-top);gap:var(--space-2);align-items:center;border-top:0;border-bottom:0;box-shadow:0 1px 0 var(--border);
+body.band-short #bar1{top:0;bottom:auto;left:auto;right:0;height:var(--mid-top);gap:var(--space-2);align-items:center;border-top:0;border-bottom:0;box-shadow:0 1px 0 var(--border-seam);
   padding:max(env(safe-area-inset-top),var(--space-1)) max(var(--edge),env(safe-area-inset-right)) 0 0}
 /* The outline toggle at the row's start: a 40px ghost on the edge line, its glyph centred, answering 44px. */
 body.band-short #nav-toc-toggle{width:var(--ctl-touch);min-width:0;height:var(--ctl-touch);min-height:0;position:relative}
