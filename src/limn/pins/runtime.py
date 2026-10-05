@@ -8,7 +8,6 @@ from pathlib import Path
 from typing import Any
 
 from limn.builds import ElementFollower, PinBuildQueries
-from limn.collaboration import Notice
 from limn.pins.application import people_facts
 from limn.pins.claims.service import PinClaims
 from limn.pins.context import Json, PinContext, who
@@ -35,6 +34,7 @@ from limn.pins.location.service import PinLocationService
 from limn.pins.location.source import TokenCache
 from limn.pins.mentions import note_tags as pin_note_tags
 from limn.pins.model import EventType, Pin, Record, TrashedPin
+from limn.pins.notice import PinNotice
 from limn.pins.record import Broken, parse_record as record_parse_record, parse_trashed as record_parse_trashed
 from limn.pins.store import PinFiles, PinStore, Row
 from limn.pins.trash.service import PinTrash
@@ -60,7 +60,7 @@ class PinCommands:
     docs: list[Doc]
     build_view: PinBuildQueries
     known_people: Callable[[Sequence[Json] | None], dict[str, Json]]
-    notice_sink: Callable[[Notice], Json | None]
+    notice_sink: Callable[[PinNotice], Json | None]
     emit_events: Callable[[list[Json | None]], None]
     recent_events: Callable[[], Sequence[Json]]
     role_of: Callable[[str], Role]
@@ -275,9 +275,9 @@ class PinCommands:
         msg: Mapping[str, Any] | None = None,
         text: str | None = None,
     ) -> Json | None:
-        """Extract pin/thread context here; collaboration receives only completed notice facts."""
+        """Extract pin/thread context here; the injected sink receives only completed notice facts."""
         return self.notice_sink(
-            Notice(
+            PinNotice(
                 typ,
                 r.get("id"),
                 self.pin_doc_key(r),

@@ -21,12 +21,12 @@ from pathlib import Path
 from unittest import mock
 
 from limn.collaboration import events
-from limn.collaboration.contracts import Notice
 from limn.collaboration.events import EventLog, events_since, make_event
 from limn.pins.location import mapping
 
 from helpers import Base, ps, req, split_resp
 from helpers_access import ALICE, BOB, CAROL, configure, reset_access, talk_to
+from helpers_events import NoticeFacts
 
 EVENTS_PY = Path(events.__file__)
 ALICE_PICTURED = {"login": "alice@example.com", "name": "Alice Kim", "pic": "https://example.com/a.png"}
@@ -46,7 +46,7 @@ def doc_of(r):
 def notice(typ, r, actor, to, **kw):
     """make_event with this file's who/doc_of and the headerless agent's login 'local'."""
     msg, text = kw.get("msg"), kw.get("text")
-    facts = Notice(
+    facts = NoticeFacts(
         typ,
         r.get("id"),
         doc_of(r),

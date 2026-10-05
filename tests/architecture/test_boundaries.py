@@ -85,7 +85,6 @@ def test_production_crossings_are_the_reviewed_query_contracts():
             "SelectionUnavailable",
             "Publication",
         },
-        ("limn.pins", "limn.collaboration"): {"Notice"},
     } == checker.CROSSING_NAMES
 
 
