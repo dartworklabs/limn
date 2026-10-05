@@ -446,7 +446,8 @@ def _tree_rejection(elements: tuple[MapElement, ...], where: str) -> MapRejected
 #
 # docs/handbook/domain.md §그림 문서의 요소 pick and §그림 핀의 요소 위치 — 읽을 때 계산한다 describe these rules.
 
-COVER_MIN = 0.6  # an element holding at least this share of the drag is a candidate (step 1)
+# D6 (ADR-0011), measured with modelled drags on a figure tool's real map: docs/handbook/domain.md §그림 문서의 요소 pick.
+COVER_MIN = 0.4  # an element holding at least this share of the drag is a candidate (step 1)
 FILL_MIN = 0.5  # an element the drag covers at least this share of joins the common-ancestor step (step 2)
 LADDER_MAX = 8  # element rungs below the root: "el", "el2", ..., "el8"; the root rung is "fig"
 FOLLOW_EPS = 1e-4  # a box component moved by no more than this is where it was
