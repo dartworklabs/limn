@@ -176,6 +176,25 @@ class RevisionZoom(BrowserBase):
         self.assertEqual(page.locator(".revision-page canvas").count(), 0)
         self.assertTrue(page.evaluate("REV_PDF.tasks.size===0"))
 
+    def test_desktop_zoom_buttons_follow_the_row_button_standard(self):
+        """With a mouse the zoom buttons are the row's standard buttons (docs/handbook/viewer.md §컴포넌트 규격): as
+        tall as the format tabs beside them (--control-h), the icons square, and drawn as the unpressed tab is
+        (outline) - they were 44px ghosts in a row of 28px outline buttons (issue 189)."""
+        page = self.comparison(viewport={"width": 1400, "height": 850})
+        look = (
+            "s=>{const e=document.querySelector(s),c=getComputedStyle(e),r=e.getBoundingClientRect();"
+            "return {h:r.height,w:r.width,bg:c.backgroundColor,border:c.borderTopColor}}"
+        )
+        tab = page.evaluate(look, "#revision-source-tab")
+        self.assertAlmostEqual(tab["h"], 28, delta=0.5)  # a text button's padding and line box: 28.2px
+        for selector in ("#revision-zoom-in", "#revision-zoom-out", "#revision-fit"):
+            with self.subTest(selector=selector):
+                got = page.evaluate(look, selector)
+                self.assertAlmostEqual(got["h"], tab["h"], delta=0.5)
+                self.assertEqual((got["bg"], got["border"]), (tab["bg"], tab["border"]))
+        for selector in ("#revision-zoom-in", "#revision-zoom-out"):
+            self.assertEqual(page.evaluate(look, selector)["w"], 28)
+
     def test_phone_pinch_anchor_and_touch_controls(self):
         """Two-finger pinch anchors the page and phone controls retain full hit areas."""
         page = self.comparison(viewport={"width": 384, "height": 832}, has_touch=True, is_mobile=True)

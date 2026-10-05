@@ -110,8 +110,8 @@ body.lay-wide #more .more-top{padding-top:var(--space-2)}
   button.tch{display:inline-flex}
   .hint .t-touch{display:inline}
   .hint .t-mouse{display:none}
-  button{min-height:44px;min-width:44px;padding:var(--space-2) var(--space-3);font-size:var(--text-lg);-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
-  button.btn-sm{min-height:44px;padding:var(--space-2) var(--space-3);font-size:var(--text-base)}
+  button{min-height:var(--hit);min-width:var(--hit);padding:var(--space-2) var(--space-3);font-size:var(--text-lg);-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
+  button.btn-sm{min-height:var(--hit);padding:var(--space-2) var(--space-3);font-size:var(--text-base)}
   /* The segmented control on touch (composer.css): 28px segments in the 4px inset, a 36px track; each segment answers 44px. A
      ladder's scroll box keeps 4px above and below its track for those hits (it clips what passes it). */
   .seg button{min-height:0;height:var(--control-h);padding:0 var(--space-3);font-size:var(--text-base);position:relative}
@@ -163,14 +163,14 @@ body.lay-wide #more .more-top{padding-top:var(--space-2)}
   .pin .acts button{min-height:0;height:var(--ctl-touch-sm);padding-top:0;padding-bottom:0}
   body.compact .pin .acts :is(.b-edit,.b-drop,.b-unclaim){width:var(--ctl-touch-sm);min-width:var(--ctl-touch-sm)}
   /* To keep an archive row flat, [원래 요청] is drawn at 28px and only its hit area is widened to 44px via ::after */
-  button.arc-orig-t{min-height:44px;min-width:44px;padding:0 var(--space-1);font-size:var(--text-base)}   /* the box itself is 44px (QA: used to be 58x28) */
-  .arc-reply{min-height:44px;display:flex;align-items:center}
+  button.arc-orig-t{min-height:var(--hit);min-width:var(--hit);padding:0 var(--space-1);font-size:var(--text-base)}   /* the box itself is 44px (QA: used to be 58x28) */
+  .arc-reply{min-height:var(--hit);display:flex;align-items:center}
   .q-hint,.q-hint button{font-size:var(--text-base)}   /* the suggestion button is also 44px (the global button rule); the text is bumped up a step */
   /* [변경 보기] phone/folded-layout QA (2026-09-25): commit selection was 18px, [빌드 경고 보기] was 16px tall */
   #revision-list select,#revision-file-row select{min-height:var(--control-h-touch)}
   #revision-warning summary{line-height:var(--control-h-touch)}
   .arc-reply.open{display:block;padding:var(--space-2) 0}
-  .th-n{min-height:44px;min-width:44px;justify-content:center}
+  .th-n{min-height:var(--hit);min-width:var(--hit);justify-content:center}
   .thread :is(button.msg-more,button.th-more){padding-left:var(--space-1);padding-right:var(--space-1)}
   /* The panel handle and the outline handle are .hit: their 6-8px bars answer 44px (they answered 25 and 24px). The box lies on
      the PDF side of the bar - left of the panel handle, right of the outline handle - so it never takes the edge of a card or an
@@ -255,7 +255,7 @@ body.compact #bar1 .chip{flex:0 50 auto;min-width:28px}
 /* min-width:0 above (body.compact #bar1 button) is more specific (includes an id) than @media(pointer:coarse)'s
    button{min-width:44px} (line 3647), so it won for narrow screens (lay-mid), and that's why [선택] used to shrink all the way to 40px (observed).
    The same selector is re-pinned here, touch-only - since it comes later in source order than the rule above, it wins the specificity tie. */
-@media (pointer:coarse){body.compact #bar1 button{min-width:44px}}
+@media (pointer:coarse){body.compact #bar1 button{min-width:var(--hit)}}
 /* Folded (narrow): the label text is pulled out of the tool bar and placed on [더보기]'s first line - shrinking it to 28px left only 'C...', unreadable (2026-09-23).
    The label-color stripe at the very top (#brand-stripe) distinguishes the instance instead. The [문서] button always shows the short document name in full
    (body/response/cover letter) without shrinking. The spread-out folded layout (mid, 884px) is under the same flex-wrap:nowrap pressure and its label
@@ -295,7 +295,7 @@ body.lay-narrow #bar1 #btn-pos{flex:0 1 auto;min-width:0}
    pin chip's halves step down on their own, below; the left cell keeps its 8px, which [⬚]'s 44px hit reaches into). Decoration
    only - the layout never changes by width here. */
 @media (max-width:359.98px){body.lay-narrow #bar1 .bar-r{gap:var(--space-1)}body.lay-narrow #bar1 button:not(.btn-icon){padding:0 var(--space-1)}}
-body.compact #bar1 #btn-more{flex:0 0 44px;padding:0}   /* utility = ghost (the same convention as notification/theme/help on desktop) */
+body.compact #bar1 #btn-more{flex:0 0 var(--hit);padding:0}   /* utility = ghost (the same convention as notification/theme/help on desktop) */
 /* The phone and tablet bar's right end: [⋯]'s ink ends on the ink line (--ink), as R2 asks of a ghost at a row's end - centred in
    its 44px box it ended 4px further in (28 on a phone), across from [📍]'s fill on the edge line. */
 body.lay-narrow #bar1 #btn-more{justify-content:flex-end;padding-right:calc(var(--ink) - var(--edge) - var(--ic-bearing))}
@@ -327,7 +327,7 @@ body.compact #composer{max-height:none;overflow:visible}
 #c-overlap.one>.ov-t{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 #c-overlap.one button{flex:none}
 @media (pointer:coarse){#c-overlap.one button{min-height:var(--ctl-touch-sm);padding-top:0;padding-bottom:0}}
-body.compact #list{overflow:visible;padding-bottom:calc(20px + env(safe-area-inset-bottom))}
+body.compact #list{overflow:visible;padding-bottom:calc(var(--space-5) + env(safe-area-inset-bottom))}
 /* The pin sheet's and panel's edge grid (docs/handbook/viewer.md §패널 정리, UX audit R1/R2): every box - a card, a status chip,
    the composer's controls, the save row - starts and ends on --edge, and a line without a box - a section head's chevron and
    name, an archive row's icon and text - starts on --ink. They were spread over 8, 12, 13, 16 and 25px (UX audit P8). */
@@ -340,7 +340,7 @@ body.compact .arc-row{padding-left:var(--space-3)}
    owner's phone it sat 80% down the screen over blank sheet - nor moves while the sheet is dragged; with the keyboard up the
    bottom is the keyboard's top. */
 body.compact{--foot-h:calc(var(--control-h-lg) + 2 * var(--space-2) + 1px)}
-body.compact #c-actions{position:sticky;bottom:0;margin-top:auto;padding:8px var(--edge) calc(8px + env(safe-area-inset-bottom))}
+body.compact #c-actions{position:sticky;bottom:0;margin-top:auto;padding:var(--space-2) var(--edge) calc(var(--space-2) + env(safe-area-inset-bottom))}
 /* The save row is 56px on touch (44px buttons + 12px): it was 65px around 48px buttons (diagnosis P2). */
 @media (pointer:coarse){body.compact{--foot-h:calc(var(--hit) + var(--space-3))}
   body.compact #c-actions{padding-top:0;padding-bottom:env(safe-area-inset-bottom);min-height:calc(var(--foot-h) + env(safe-area-inset-bottom));align-content:center}}
@@ -357,7 +357,7 @@ body.lay-mid:not(.composing) .edit .e-acts{left:auto;right:calc(-1 * var(--swipe
   padding-right:calc(var(--edge) + env(safe-area-inset-right))}
 @media (pointer:coarse){body.compact:not(.composing) .edit .e-acts{padding-top:0;padding-bottom:env(safe-area-inset-bottom);
   min-height:calc(var(--foot-h) + env(safe-area-inset-bottom));align-content:center}}
-body.compact:not(.composing) #list:has(.edit){padding-bottom:calc(var(--foot-h) + 20px + env(safe-area-inset-bottom))}
+body.compact:not(.composing) #list:has(.edit){padding-bottom:calc(var(--foot-h) + var(--space-5) + env(safe-area-inset-bottom))}
 @media (pointer:coarse){body.compact:not(.composing) #right:has(.edit){scroll-padding-bottom:calc(var(--foot-h) + var(--space-2) + env(safe-area-inset-bottom))}}
 body.compact #meta-txt,body.compact #me{display:none}
 body.compact #bar2{display:none}   /* compact shows its states on the status line (#status); the chips stay the desktop's */
@@ -603,7 +603,7 @@ body.lay-narrow.has-status:not(.typing) #right{border-top-color:transparent;bord
 #status button .lbl{text-box:trim-both cap alphabetic}   /* the label's cap height is centred in its button, as the tool row's words are */
 #bar1 #status .st-act.btn-default{background:var(--primary);color:var(--primary-foreground);font-weight:600}
 #bar1 #status .st-act.btn-secondary{background:var(--secondary);color:var(--secondary-foreground)}
-#status-dock #status button{min-height:0;height:24px;padding:0 var(--space-2);font-size:var(--text-sm);position:relative;overflow:visible}
+#status-dock #status button{min-height:0;height:var(--control-h-sm);padding:0 var(--space-2);font-size:var(--text-sm);position:relative;overflow:visible}
 #status-dock #status button::after{content:'';position:absolute;left:50%;bottom:0;width:max(100%,var(--hit));height:var(--hit);transform:translateX(-50%)}
 /* The 2px progress bar on the line's lower edge: filled to its share when the build counts its work, else a 30% band that crosses
    in 1.2s - the last build's time is a reference, not a forecast, so it never fills the bar. Reduced motion: the faint track only. */

@@ -49,19 +49,19 @@
    where the pin was picked - so it is there with the phone's sheet folded. The mark lets presses through (pointer-events:none);
    the chip takes its own, and notices.js keeps a press on it from starting a selection. */
 .mark:has(>.nt-chip){z-index:4}
-.mark>.nt-chip{position:absolute;left:0;bottom:calc(100% + var(--space-1));box-sizing:border-box;height:32px;width:max-content;max-width:min(320px,80vw);
+.mark>.nt-chip{position:absolute;left:0;bottom:calc(100% + var(--space-1));box-sizing:border-box;height:calc(var(--control-h-sm) + 2 * var(--space-1));width:max-content;max-width:min(320px,80vw);
   padding:0 var(--space-1) 0 var(--space-2);gap:var(--space-1);border-radius:var(--radius-lg);background:var(--popover);color:var(--popover-foreground);
   border:1px solid color-mix(in srgb,var(--success) 45%,var(--border));box-shadow:var(--shadow-sm);font-size:var(--text-sm);line-height:16px;white-space:nowrap;
   pointer-events:auto;cursor:default}
 .mark>.nt-chip .nt-ic{height:16px}
 .mark>.nt-chip .nt-ti{font-weight:600}
-@media (pointer:coarse){.mark>.nt-chip{height:40px;padding:0 var(--space-1) 0 var(--space-3)}
-  .mark>.nt-chip .nt-acts button{height:32px}}
+@media (pointer:coarse){.mark>.nt-chip{height:var(--ctl-touch);padding:0 var(--space-1) 0 var(--space-3)}
+  .mark>.nt-chip .nt-acts button{height:calc(var(--ctl-touch) - 2 * var(--space-1))}}
 
 /* The status line's messages (statusList): its icon by kind, its action as the line's other actions, [x] square. */
 #status button.nt-act{background:var(--secondary);color:var(--secondary-foreground);border-color:transparent}
 #status button.nt-x{width:var(--control-h-sm);min-width:var(--control-h-sm);padding:0;color:var(--muted-foreground)}
-#status-dock #status button.nt-x{width:24px;min-width:24px}
+#status-dock #status button.nt-x{width:var(--control-h-sm);min-width:var(--control-h-sm)}
 #status-slot #status button.nt-x{width:var(--tb-h,var(--control-h));min-width:var(--tb-h,var(--control-h))}
 /* The desktop's status line: a 40px line under the status chips (#bar2), only while it has something to say - a message or a
    rebuild's 'no changes' (statusShown); its chips say the rest. A collapsed panel floats it with the chips. */
