@@ -1,5 +1,40 @@
 # Changelog
 
+## 0.4.18 — 2026-10-06
+
+Quoted text, a page list, PDF download, click-off cancel, panel seams and one component standard. `pins.md` and the
+state directory are unchanged; the HTTP API gains optional behaviour only (`GET /pdf?download=1`, a longer `quote`).
+
+### Added
+
+- **Download the PDF you are viewing (#186).** [더보기] has a [PDF 내려받기] row that saves the build on screen as
+  `<document name>.pdf`. `GET /pdf?download=1` adds only `Content-Disposition: attachment` (an ASCII `filename` plus a
+  UTF-8 `filename*`). Bytes, caching and access rules are the plain route's. Any other `download` value is ignored.
+- **Go to a page without typing (#187).** The page count above the page (desktop) and in the nav bar (tablet) opens
+  a list with one row per page and the sections that start on it. The current page is checked and scrolled into
+  view, a page field sits on top, and choosing a row goes there at once. The phone's navigation sheet shows the same
+  rows. Figure documents and view-only PDFs list page numbers only.
+- **The dragged PDF text is shown (#185).** For LaTeX documents, one line with the dragged text sits under the
+  composer's location row and above each pin card's note. It is ellipsized with the full text in a tooltip, and a
+  press expands it. Pick and pin `quote` now keep up to 160 characters; `pins.md` still prints 60.
+
+### Changed
+
+- **A short press outside the selection cancels it (#191).** It works like [취소] or Esc, including the 6 s undo
+  for a typed note. Drags still start a new selection. Presses inside the box, on pin marks or controls, pinches,
+  double taps, long presses and select-mode taps are unaffected.
+- **A seam line where the nav bar, outline and panel heads meet (#190).** A new `--border-seam` token, one step
+  darker than `--border`, is used in light and dark. Phones are unchanged.
+- **One component standard (#189).** `viewer.md` §컴포넌트 규격 defines buttons, inputs, popovers, sheets and
+  chips, and the CSS uses tokens throughout. The comparison PDF's zoom buttons are now standard 28 px outline
+  buttons, and the desktop outline toggle is 28 px. A test fails on new raw CSS values outside `tokens.css` unless
+  an allowlist entry gives a reason.
+
+### Fixed
+
+- **A merge commit's source diff is no longer empty.** It is now taken against the first parent, like the
+  comparison PDF.
+
 ## 0.4.17 — 2026-10-05
 
 The interface is drawn in the bundled Pretendard Variable on every device. `pins.md`, the existing HTTP API and the
