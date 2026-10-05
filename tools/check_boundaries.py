@@ -27,7 +27,6 @@ CROSSING_NAMES: CrossingNames = {
         "SelectionUnavailable",
         "Publication",
     },
-    ("limn.pins", "limn.collaboration"): {"Notice"},
     ("limn.revisions", "limn.pins"): {"RevisionPinQuery", "RevisionPin"},
 }
 ENTRYPOINT_IMPORTS: EntrypointImports = {

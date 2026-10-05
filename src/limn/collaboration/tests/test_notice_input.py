@@ -2,11 +2,13 @@
 
 from limn.collaboration import events
 
+from helpers_events import NoticeFacts
+
 
 def test_completed_notice_keeps_message_zero_and_filters_recipients():
     """Message id zero is present; recipients keep order, without actor or local duplicates."""
     assert hasattr(events, "Notice"), "collaboration still consumes pin and thread records"
-    notice = events.Notice(
+    notice = NoticeFacts(
         "replied",
         7,
         "fig",
