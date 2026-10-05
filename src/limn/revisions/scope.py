@@ -16,7 +16,7 @@ from collections.abc import Callable, Sequence, Set as AbstractSet
 from dataclasses import dataclass
 from typing import Literal, NamedTuple, TypeAlias, TypedDict
 
-from limn.pins import RevisionPin
+from limn.revisions.needs import LocatedPin
 
 SCOPE_CONTEXT = 3  # context lines around a scoped hunk, git's default
 REVISION_DIFF_MAX = 256 * 1024  # response/memory cap of a source diff. Review large changes in the repo instead.
@@ -217,7 +217,7 @@ def _hits(rng: tuple[int, int], lo: int, hi: int) -> bool:
     return rng[0] <= hi and rng[1] >= lo
 
 
-def pin_range_candidates(f: FileChange, pin: RevisionPin) -> list[Placement]:
+def pin_range_candidates(f: FileChange, pin: LocatedPin) -> list[Placement]:
     """Where the pin's range may sit in this commit, best first; the pin must have a range (lo/hi not None).
 
     A closed pin keeps the lines of its last sync, and nothing records which version that was: the commit's new side
@@ -265,14 +265,14 @@ def _pin_lines(lines: tuple[bytes, ...]) -> tuple[list[str], Callable[[int], int
 
 
 def attribute_blocks(
-    files: Sequence[FileChange], pin: RevisionPin, changes: Sequence[RepoRange]
+    files: Sequence[FileChange], pin: LocatedPin, changes: Sequence[RepoRange]
 ) -> tuple[ScopeSource, set[BlockId]]:
     """(source, block ids) - the blocks of this commit that belong to the pin.
 
-    changes are the pin's recorded new-side ranges for this commit (recorded_changes). If none of them hits a block
-    (a wrong path, lines the commit did not touch) the pin's own range decides (pin_range_candidates; pin.rel is its
-    repo-relative file), and if that hits nothing either the answer is ("none", set()) and the caller shows the whole
-    commit as before."""
+    changes are the pin's recorded new-side ranges that count on this commit (core.matching_pin_changes). If none of
+    them hits a block (a wrong path, lines the commit did not touch) the pin's own range decides (pin_range_candidates;
+    pin.relative_path is its repo-relative file), and if that hits nothing either the answer is ("none", set()) and
+    the caller shows the whole commit as before."""
     chosen = set()
     for fi, f in enumerate(files):
         if f.new_path is None:
@@ -423,7 +423,7 @@ def scope_key(files: Sequence[FileChange], chosen: AbstractSet[BlockId]) -> tupl
     return tuple(sorted(_item(files[fi], files[fi].blocks[bi]) for fi, bi in chosen))
 
 
-def pin_scope(files: Sequence[FileChange] | None, pin: RevisionPin, changes: Sequence[RepoRange]) -> PinScope:
+def pin_scope(files: Sequence[FileChange] | None, pin: LocatedPin, changes: Sequence[RepoRange]) -> PinScope:
     """The decision for one pin and one commit's files (None = the commit could not be read for scoping, which
     shows the whole commit). Mode "pin" only when the pin owns some but not all places of the commit. The patches
     are kept cut at REVISION_DIFF_MAX + 1 bytes - one byte more than a response sends, so truncation still shows."""

@@ -28,7 +28,6 @@ CROSSING_NAMES: CrossingNames = {
         "Publication",
     },
     ("limn.pins", "limn.collaboration"): {"Notice"},
-    ("limn.revisions", "limn.pins"): {"RevisionPinQuery", "RevisionPin"},
 }
 ENTRYPOINT_IMPORTS: EntrypointImports = {
     "limn.server": {
