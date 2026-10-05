@@ -3,7 +3,7 @@ routes, the paged history and its window, and the answers that must not move whe
 
 One deterministic repository (fixed authors and dates, so every SHA is the same on every machine) holds a root commit,
 an edit, a commit outside the manuscript, a rename, a side branch merged back with --no-ff and a commit after the
-merge. RangeSnapshot drives every request the viewer made before 0.4.18 - each commit's source diff, a pin's scoped
+merge. RangeSnapshot drives every request the viewer made before 0.4.19 - each commit's source diff, a pin's scoped
 diff, the comparison build's status, POST and PDF, and the refusals - and compares the answers with
 tests/data/revision_snapshot.json, recorded from the code before `base` existed: without `base` the bytes stay. A
 deliberate change re-records it: LIMN_RECORD_SNAPSHOT=1 uv run pytest -q src/limn/revisions/tests/test_ranges.py.
@@ -165,7 +165,7 @@ class RangeSnapshot(RangeRepo):
             seen.append({"step": "%s %s" % (method, self.masked(path)), "status": code, "body": self.masked(out)})
 
         code, history = self.call("GET", "/api/revisions")
-        # The unpaged list keeps its rows (id, date, subject) but is in ancestry order since 0.4.18 (api.md §두 커밋
+        # The unpaged list keeps its rows (id, date, subject) but is in ancestry order since 0.4.19 (api.md §두 커밋
         # 사이): compared as a set here; RangeHistory and OneWindow pin its order.
         rows = sorted(
             ({k: r[k] for k in ("id", "date", "subject")} for r in history["revisions"]), key=lambda r: r["id"]
