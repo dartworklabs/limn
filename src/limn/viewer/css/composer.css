@@ -5,6 +5,18 @@
 .c-loc-main .loc{font-weight:600}
 #c-path{color:var(--muted-foreground);font-size:var(--text-sm);overflow-wrap:anywhere}   /* a figure element's path before its code lines */
 #c-page{color:var(--muted-foreground);font-size:var(--text-sm)}
+/* The PDF text a drag chose (#c-quote under the location line, a card's .quote above its note, issue #185): an icon and one
+   muted line cut with an ellipsis, the whole text in the tooltip; pressed (.open) it wraps in full. The row is its 4px padding
+   around 16px lines (24px, the mouse hit); touch draws 20px lines (28px) and answers 44px from the .hit utility, whose box
+   reaches into the 8px gaps above and below and no further. A folded line sits in the row's middle; an opened one starts there. */
+.quote{display:flex;align-items:flex-start;gap:var(--space-1);min-width:0;padding-block:var(--space-1);line-height:16px;
+  font-size:var(--text-sm);color:var(--muted-foreground);cursor:pointer;border-radius:var(--radius-sm)}
+.quote .q-ic{flex:none;display:inline-grid;place-items:center;width:16px;height:16px;color:var(--subtle-foreground)}
+.quote .q-ic .ic{width:14px;height:14px}
+.quote .q-t{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.quote.open .q-t{white-space:normal;overflow-wrap:anywhere;color:var(--foreground)}
+@media (hover:hover){.quote:hover .q-t{color:var(--foreground)}}
+@media (pointer:coarse){.quote{line-height:20px} .quote .q-ic{height:20px}}
 /* The range caption over the ladder (rangeCap): '범위' and the lines a save hands over, their count, and with one rung its name. */
 .rg-cap{margin:var(--space-2) 0 0;font-size:var(--text-sm);line-height:1.5;color:var(--muted-foreground);font-variant-numeric:tabular-nums}
 .rg-cap .rg-l{color:var(--foreground);font-weight:600;margin-right:var(--space-1)}

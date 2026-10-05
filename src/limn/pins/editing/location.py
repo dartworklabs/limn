@@ -230,7 +230,7 @@ def parse_loc(d: Json, facts: DocumentFacts) -> LineLoc | InputRejected:
     if quote is not None:
         if not isinstance(quote, str):
             return InputRejected("quote 는 문자열입니다.", "bad_quote")
-        quote = truncate_quote(quote, 60)
+        quote = truncate_quote(quote, PDF_QUOTE_MAX)
     pdf_build = d.get("pdf_build")  # the build on screen at drag time (pdf_build from the pick response)
     if pdf_build is not None and not facts.valid_build_name(pdf_build):
         return InputRejected(PDF_BUILD_REFUSAL, "bad_pdf_build")

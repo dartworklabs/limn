@@ -61,6 +61,7 @@ document.documentElement.setAttribute('lang',window.LIMN_LANG);
           <span id="c-page"></span><span id="c-tag" class="badge" hidden data-tip="원문 줄을 찾은 방법과 일치율"></span><span id="c-spin" class="spin" hidden aria-label="찾는 중"></span></div>
         <button class="btn-ghost btn-icon hit" id="c-copy" data-act="copy-cur" aria-label="위치 복사" data-tip="'파일 L시작-L끝'을 복사합니다. 채팅창에 붙이면 에이전트가 바로 그 줄을 엽니다">{{ic:copy}}</button>
       </div>
+      <div id="c-quote" class="quote hit" role="button" tabindex="0" data-act="quote" aria-expanded="false" translate="no" hidden></div>
       <div id="c-warn" class="warnline" hidden></div>
     </div>
     <textarea id="note" rows="3" placeholder="메모: 여기를 어떻게 고칠지 (비워도 됩니다) · @이름으로 사람을 부릅니다" aria-label="메모" data-tip="여기를 어떻게 고칠지 적습니다. 다른 곳을 다시 드래그해도 지워지지 않습니다"></textarea><div id="note-mentions" class="m-preview" aria-live="polite" hidden></div><div id="c-viewer" class="q-hint" role="status">{{ic:eye}}<span>보기 권한만 있습니다 — 위치와 원문만 볼 수 있고 핀은 남길 수 없습니다. 소유자에게 편집 권한을 요청하세요</span></div><div id="c-qhint" class="q-hint" role="status" hidden>{{ic:circle-question-mark}}<span>질문처럼 보입니다 —</span><button data-act="kind" data-kind="question" data-tip="이 핀을 질문으로 바꿉니다. 답이 이 핀의 스레드에 달립니다">질문으로 보내기</button></div><div id="c-assign" class="assign-row" role="radiogroup" aria-label="담당" hidden></div>

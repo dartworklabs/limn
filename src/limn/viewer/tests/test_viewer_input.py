@@ -2172,6 +2172,8 @@ class BottomActionRow(ViewerBase):
     def test_the_save_row_is_on_the_screen_bottom_under_a_short_list(self):
         """411x908 phone and 768x1024 tablet sheet, every section shut and the sheet raised to its top, so its content is
         shorter than the sheet: the save row ends on the screen's bottom edge, not under the list."""
+        # a tap's pick, without a line of dragged text: the content stays shorter than the sheet
+        self.PICK = {"quote": ""}
         for w, h in ((411, 908), (768, 1024)):
             with self.subTest(w=w):
                 page = self.view(phone(w, h), prefs=SECTIONS_SHUT)
@@ -2436,12 +2438,12 @@ class ComposerSamePass(ViewerBase):
         settle(page)
 
     def test_the_phone_order_puts_the_kind_by_the_note_and_the_range_block_last(self):
-        """411x908 with the overlap notice: location, note, kind, overlap, then the range block - caption, ladder, line
-        buttons, source and its foot - so what changes the range sits with the source it changes."""
+        """411x908 with the overlap notice: location, the dragged text's line, note, kind, overlap, then the range block -
+        caption, ladder, line buttons, source and its foot - so what changes the range sits with the source it changes."""
         page = self.view(phone(411, 908))
         self.compose(page)
         top = [b[0] for b in page.evaluate(COMPOSER_BLOCKS, "#composer")]
-        self.assertEqual(top, ["c-loc-row", "note", "c-kind", "c-overlap", "c-range"], top)
+        self.assertEqual(top, ["c-loc-row", "c-quote", "note", "c-kind", "c-overlap", "c-range"], top)
         inner = [b[0] for b in page.evaluate(COMPOSER_BLOCKS, "#c-range")]
         self.assertEqual(inner, ["c-cap", "c-levels", "c-xp", "snip-foot"], inner)
 
@@ -3632,11 +3634,12 @@ class TouchLayoutBands(ViewerBase):
             ".sort((a,b)=>a[1]-b[1]).map(a=>a[0])"
         )
         self.assertEqual(order, ["c-loc-row", "note", "c-qhint", "c-kind", "c-overlap", "c-levels", "c-xp"])
-        gap = page.evaluate(
-            "Math.round(document.querySelector('#note').getBoundingClientRect().top"
-            "-document.querySelector('#composer .c-loc-row').getBoundingClientRect().bottom)"
+        # one 8px step from the location line to the dragged text's line (the pick's quote, issue #185) and on to the note
+        gaps = page.evaluate(
+            "(()=>{const b=s=>document.querySelector(s).getBoundingClientRect();"
+            "return [Math.round(b('#c-quote').top-b('#composer .c-loc-row').bottom),Math.round(b('#note').top-b('#c-quote').bottom)];})()"
         )
-        self.assertEqual(gap, 8)
+        self.assertEqual(gaps, [8, 8])
         overlap = page.evaluate(
             "Math.round(document.querySelector('#note').getBoundingClientRect().bottom"
             "-document.querySelector('#c-qhint').getBoundingClientRect().top)"
@@ -5423,14 +5426,16 @@ class MidComposerOrder(ViewerBase):
     compose = ComposerSamePass.compose
 
     def test_every_compact_band_puts_the_note_second_and_the_range_block_last(self):
-        """880x790 (overlay), 1180x820 (side panel, touch) and 1000x800 (a mouse window): location, note, kind, overlap,
-        range block, each one 8px step from the next."""
+        """880x790 (overlay), 1180x820 (side panel, touch) and 1000x800 (a mouse window): location, the dragged text's line,
+        note, kind, overlap, range block, each one 8px step from the next."""
         for device in (touch_device(880, 790), touch_device(1180, 820), MOUSE_MID):
             with self.subTest(width=device["viewport"]["width"]):
                 page = self.view(device)
                 self.compose(page)
                 b = page.evaluate(COMPOSER_BLOCKS, "#composer")
-                self.assertEqual([x[0] for x in b], ["c-loc-row", "note", "c-kind", "c-overlap", "c-range"], b)
+                self.assertEqual(
+                    [x[0] for x in b], ["c-loc-row", "c-quote", "note", "c-kind", "c-overlap", "c-range"], b
+                )
                 self.assertEqual({round(n[1] - p[2]) for p, n in zip(b, b[1:], strict=False)}, {8}, b)
 
 

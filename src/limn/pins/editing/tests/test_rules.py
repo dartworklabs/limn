@@ -94,6 +94,15 @@ class PlaceInvariants(unittest.TestCase):
             )
             self.assertEqual((place.fields["via"], place.fields["scope"]), ("map", scope))
 
+    def test_a_line_place_quote_holds_the_pick_quote_up_to_160_characters(self):
+        """A line place carries a quote as long as a pick gives (160 characters, issue #185) and refuses a longer one or
+        one that is not text."""
+        line = {"file": "/ms/main.tex", "name": "main.tex", "lo": 2, "hi": 3, "page": 1}
+        self.assertEqual(LinePlace({**line, "quote": "q" * 160}, frozenset()).fields["quote"], "q" * 160)
+        for bad in ("q" * 161, 7):
+            with self.subTest(bad=bad), self.assertRaises(ValueError):
+                LinePlace({**line, "quote": bad}, frozenset())
+
     def test_line_place_requires_a_named_fraction_to_exist(self):
         """A direct caller cannot claim a replacement frac that would erase the old build identity without coordinates."""
         fields = {"file": "/ms/main.tex", "name": "main.tex", "lo": 2, "hi": 3, "page": 1}

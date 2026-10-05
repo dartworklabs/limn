@@ -611,7 +611,7 @@ class Locations(Tree):
             InputRejected("줄 범위가 파일(5줄) 밖입니다: L2-L9", "range_outside_file"),
         )
         request = editing_input.parse_add(
-            {"file": "main.tex", "lo": 2, "hi": 3, "note": "n", "quote": "q" * 70}, (), self.facts
+            {"file": "main.tex", "lo": 2, "hi": 3, "note": "n", "quote": "q" * 170}, (), self.facts
         )
         self.assertIsInstance(request.place, LinePlace)
         self.assertEqual(

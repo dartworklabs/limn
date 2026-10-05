@@ -41,6 +41,7 @@ document.addEventListener('click',e=>{const target=/** @type {HTMLElement} */(e.
     case 'overlap-separate':COMPOSE.dismissedOverlap=a.dataset.key||null;renderOverlapBanner();break;
     case 'copy-cur':if(COMPOSE.current)copyText(COMPOSE.current.name+' L'+COMPOSE.current.lo+'-L'+COMPOSE.current.hi,a);break;
     case 'expand':SNIP_OPEN=!SNIP_OPEN;renderComposer();break;
+    case 'quote':toggleQuote(a);break;   // the dragged PDF text's line: open in full, or fold back to one line
     case 'level':{const o=inEdit?EDITOR.current:COMPOSE.current; if(!o)break; useLevel(o,a.dataset.level); if(!inEdit)recomputeOverlap(); inEdit?renderEdit():renderComposer(); break;}
     case 'xp-to':{const o=inEdit?EDITOR.current:COMPOSE.current,k=Number(a.dataset.line); if(o&&o.lo!=null&&o.hi!=null)applyRange(o,widenTo(o.lo,o.hi,k),k<o.lo?o.hi:o.lo); break;}   // the excerpt: widen to a dimmed line
     case 'xp-drop':{const o=inEdit?EDITOR.current:COMPOSE.current,k=Number(a.dataset.line); if(o&&o.lo!=null&&o.hi!=null)applyRange(o,dropLine(o.lo,o.hi,k),k===o.lo?o.hi:o.lo); break;}   // ...or drop an end line

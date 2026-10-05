@@ -43,6 +43,8 @@ button.badge-review{font-weight:600}
 .h-meta .badge-assign{flex:0 100 auto;min-width:4.5em}
 .pin .tags{display:flex;flex-wrap:wrap;gap:var(--space-1);margin-top:var(--space-1)}
 .pin .tags:empty{display:none}
+.pin .quote{margin-top:var(--space-1)}   /* the dragged PDF text, one line above the note (composer.css .quote) */
+@media (pointer:coarse){.pin .quote{margin-block:var(--space-2)}}   /* 8px each side holds its 44px hit clear of the badges and the note */
 .pin .acts{display:grid;grid-auto-flow:column;grid-auto-columns:1fr;gap:var(--space-2);margin-top:var(--space-2)}
 .pin .acts button{min-width:0;padding-left:var(--space-1);padding-right:var(--space-1)}
 /* The card's head link and its row of actions (docs/handbook/viewer.md §패널 정리 핀 카드). wide: the head's #N, line range and N쪽 and the

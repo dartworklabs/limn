@@ -18,11 +18,15 @@ from limn.pins.element import (
     canonical_impl_path as is_canonical_path,
     element_of,
 )
-from limn.pins.location.mapping import flat
+from limn.pins.location.mapping import flat, truncate_quote
 from limn.pins.model import OpenPin, Record, ReviewPin, ThreadEntry, is_region_pin, state_of
 from limn.pins.thread import claim_holds
 from limn.platform.values import is_int, is_num
 from limn.security.guidance import token_file_curl
+
+# How much of a line pin's quote pins.md shows: a search hint, not the text. A pin keeps up to 160 characters for the
+# viewer (limn.pins.editing.values.PDF_QUOTE_MAX); pins.md quotes 60 of them, as it always has.
+PINS_MD_QUOTE_MAX = 60
 
 
 @dataclass(frozen=True)
@@ -172,7 +176,8 @@ def range_label(r: Record) -> str:
 def render_quote(r: Record, facts: PinFacts) -> str:
     """The «quote...» exception: only when the pin range is a single line, that line exceeds 600 characters, and scope is raw/para/absent.
     Always attached for a view-only PDF's pin - with no line number, the region text is the agent's only clue to the source.
-    The line's length is facts.line_len (None when the file is outside the tree - never read - or has no such line)."""
+    The line's length is facts.line_len (None when the file is outside the tree - never read - or has no such line).
+    A line pin's quote is cut to PINS_MD_QUOTE_MAX characters (with …); a region pin's is shown as stored."""
     if is_region_pin(r):
         q = r.get("quote")
         return "«%s» " % md_cell(q) if q else ""
@@ -187,10 +192,9 @@ def render_quote(r: Record, facts: PinFacts) -> str:
         return ""
     if facts.line_len is None or facts.line_len <= 600:
         return ""
-    # q was already truncated by truncate_quote() when it was saved (an ellipsis is already attached if it
-    # was cut) - truncating again to 60 characters here would cut into that ellipsis and look
-    # double-truncated. Only the pipe character is escaped.
-    return "«%s» " % md_cell(q)
+    # A quote saved before line pins kept 160 characters is at most 60 already, its ellipsis included, so cutting at
+    # 60 leaves it as it was; a longer one is cut once, with a fresh ellipsis. Only the pipe character is escaped.
+    return "«%s» " % md_cell(truncate_quote(q, PINS_MD_QUOTE_MAX))
 
 
 def josa(n: object, cons: str, vowel: str) -> str:
