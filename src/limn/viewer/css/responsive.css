@@ -64,7 +64,7 @@ body.lay-wide #more::backdrop{background:transparent}
 body.lay-wide #more .more-top{padding-top:var(--space-2)}
 #more .more-head{flex-wrap:nowrap;gap:var(--space-2);min-height:var(--hit)}
 #more-label{display:inline-flex;align-items:center;gap:var(--space-2);min-width:0;font-size:var(--text-xl);font-weight:600;color:var(--foreground)}
-#more-label b{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#more-label b{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding-block:var(--space-1)}   /* trimmed (text-box) and clipped: room for the ink past the cap height and the baseline, as #btn-pos .nm */
 #more .more-dot{flex:none;width:10px;height:10px;border-radius:50%;background:var(--brand)}
 #more .more-info{margin:0 0 var(--space-2);font-size:var(--text-sm);line-height:18px;color:var(--muted-foreground)}
 #more .more-info .mc{display:inline-block;max-width:100%;overflow-wrap:anywhere}   /* moves to the next line whole; breaks inside only when wider than a line */
@@ -285,7 +285,10 @@ body.compact:not(.band-phone) #bar1:not(.bar-sel-icon) #btn-select{min-width:var
 #btn-pos{display:none;align-items:center;gap:var(--space-1)}
 body.band-phone #btn-pos{display:inline-flex}
 body.lay-narrow #bar1 #btn-pos{flex:0 1 auto;min-width:0}
-#btn-pos .nm{flex:0 1 auto;min-width:0;margin-right:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#btn-pos .nm{flex:0 1 auto;min-width:0;margin-right:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding-block:var(--space-1)}
+/* ^ trimmed to its cap height (text-box) and clipped for the ellipsis: the 4px above and below keep the Hangul that reaches past
+   the cap height and the baseline inside the clip - a phone's system Korean font cut the foot of '본문' (0.4.15) - and, equal,
+   keep its cap height on the row's centre line */
 #btn-pos b{flex:none;font-weight:600;font-variant-numeric:tabular-nums;white-space:nowrap}
 #btn-pos :is(.ic,.ddot){flex:none}
 /* The width budget (UX spec §V4 폭 예산): under 360px the bar buttons' side padding and the right cell's gap go from 8 to 4px (the
