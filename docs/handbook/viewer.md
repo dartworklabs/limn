@@ -955,13 +955,21 @@ compact(`narrow`·`mid`)는 한 번 더 줄인다. 279px 태블릿 패널에서 
 | 동작 | `--secondary`·`--secondary-foreground` | 채운 보조 버튼·셈 배지 |
 | 동작 | `--accent`·`--accent-foreground` | hover 면 |
 | 동작 | `--destructive`·`--destructive-foreground` | 삭제·오류 |
-| 선 | `--border`·`--border-strong`·`--input`·`--outline-bg`·`--grabber` | 구분선·강조 선(배지 테두리)·컨트롤 테두리·outline 버튼 바탕·시트와 패널 손잡이 막대(글자색 50%, 두 테마 모두 `--sidebar` 대비 3:1 이상, `FrontendColourRoles`) |
+| 선 | `--border`·`--border-seam`·`--border-strong`·`--input`·`--outline-bg`·`--grabber` | 구분선·구획 이음선(아래 §구획 이음선)·강조 선(배지 테두리)·컨트롤 테두리·outline 버튼 바탕·시트와 패널 손잡이 막대(글자색 50%, 두 테마 모두 `--sidebar` 대비 3:1 이상, `FrontendColourRoles`) |
 | 상태 | `--success`·`--warning`(+`-foreground`) | 알림 아이콘·경고 글자 |
 | 상태 | `--status-open`·`--status-claimed`·`--status-review`·`--status-closed`·`--status-dropped`·`--status-warning` | 마크·열림 점 / 처리 중 점 / 검토 대기 점 / 완료 아이콘 / 삭제 아이콘 / 위치 잃음·늦어짐·다시 열림(§상태 표현) |
 | 기타 | `--tooltip`·`--tooltip-foreground`·`--shadow-color`·`--shadow-page` | 툴팁·그림자 색·쪽 그림자 |
 | 인스턴스 | `--brand`·`--brand-foreground` | 이름표 색(`--accent` 인자로 서버가 채움, 테마와 무관)·그 위 흰 글자. 맨 위 띠·[더보기] 이름표의 점·탐색 줄의 현재 문서 밑줄과 보기 전환(`원고`/`변경사항`) 밑줄에만 칠하고, 수 배지에는 쓰지 않는다. 붉은 수 배지는 읽지 않은 알림이나 오류로 읽힌다(이동 시트의 현재 문서 수는 중립 `--secondary`) |
 | 브랜드 | `--limn-ink`·`--limn-ver`·`--limn-bone`·`--limn-cream` | Limn 브랜드 색. `limn-brand.js`의 `COLOR`과 같은 값이다(먹·주·뼈종이·미색). 테마와 무관해 세 번째 `:root` 블록에 있다. 주는 로고의 점에만 쓴다 |
 | 브랜드 | `--mark-tile`·`--mark-stroke` | 로고의 타일·획. 라이트는 뼈종이·먹, 다크는 먹·미색이다(§마크와 파비콘) |
+
+### 구획 이음선
+
+탐색 줄(`#doc-nav`)·목차(`#outline`)·메인 패널 머리(절 표시줄 `#section-strip`, 변경 보기의 `#revision-head`·`#revision-controls`)·오른쪽 패널의 도구 줄(`#bar1`·`#bar2`)은 모두 `--sidebar` 한 면이라, 라이트 테마에서 `--border`(zinc-200) 한 줄만으로는 서로 이어져 보였다. 이 구획들이 **맞닿는 가장자리**는 1px 선을 `--border-seam`으로 긋는다. 값은 `--border`와 `--border-strong` 사이다(라이트 `#bfbfc5`, 다크 `#3f3f45`). 면 색을 더하지 않고 그림자도 쓰지 않는다. 구획 *안쪽*의 구분선(카드·목록 행·대화상자)은 그대로 `--border`다.
+
+- **자리**: 탐색 줄 아래, 목차 오른쪽, 절 표시줄 아래, 오른쪽 패널의 왼쪽과 그 도구 줄들 아래, 변경 보기의 머리·도구 줄 아래. 태블릿에서는 같은 규칙이 있는 가장자리에만 건다: 문서 옆 패널의 왼쪽 손잡이(`#grip`)와 그 아래 동작 줄 위, 목차 오버레이 오른쪽, 가로 짧은 띠의 도구 줄 아래, 시트 높이의 탐색 줄 아래. 폰은 탐색 줄·목차가 없고 시트 위 선(`--border-strong`)이 이미 있어 바뀐 데가 없다.
+- **이음선은 자리를 차지하지 않는다**: 탐색 줄 아래 선은 테두리가 아니라 박스 밖 `box-shadow:0 1px 0`이고(테두리는 44px 줄 안의 가운데 맞춤을 0.5px 옮긴다), 데스크톱 목차 오른쪽 선은 안쪽 `inset -1px 0 0`이다(목차가 240px와 안쪽 폭을 그대로 갖는다). 그림자로 그린 선은 뒤따르는 면(목차·절 표시줄·손잡이·쪽 그림자)이 덮지 못하게 탐색 줄을 `position:relative;z-index:7`로 올린다(데스크톱과 시트 높이. 중간 폭에서는 탐색 줄이 이미 `fixed`다).
+- **지키는 시험**: `FrontendResponsiveBrowser.test_the_panels_meet_on_a_seam_one_step_stronger_than_the_border`가 두 테마·데스크톱·태블릿 세 띠에서 각 가장자리의 계산된 선(테두리 또는 그림자)이 `--border-seam`이고 그 값이 `--border`와 `--border-strong` 사이임을 보고, 그 자리를 스크린샷 한 픽셀로 찍어 실제로 그 색이 칠리는지 본다. 계산값만 보면 뒤따르는 면이 덮은 선을 놓친다.
 
 테마와 무관한 척도는 세 번째 `:root` 블록에 있다.
 

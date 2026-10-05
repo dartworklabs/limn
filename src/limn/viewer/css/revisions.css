@@ -24,7 +24,7 @@ body.lay-narrow #revision-head h2{display:none}
 body.lay-narrow #revision-view{height:100%}
 body.lay-narrow #revision-source,body.lay-narrow #revision-pdf,body.lay-narrow #revision-overlay{padding-bottom:84px}   /* the folded sheet's tool bar covers the bottom */
 #revision-inner{height:100%;display:flex;flex-direction:column;min-height:0}
-#revision-head{display:flex;align-items:center;gap:var(--space-3);padding:var(--space-2) var(--space-4);background:var(--sidebar);border-bottom:1px solid var(--border)}
+#revision-head{display:flex;align-items:center;gap:var(--space-3);padding:var(--space-2) var(--space-4);background:var(--sidebar);border-bottom:1px solid var(--border-seam)}
 #revision-head h2{font-size:var(--text-sm);margin:0;white-space:nowrap}
 #revision-list{min-width:0;flex:1}
 #revision-list select{width:100%;max-width:470px;min-width:0;background:var(--sidebar);font-size:var(--text-sm)}
@@ -46,7 +46,7 @@ body.lay-narrow #revision-source,body.lay-narrow #revision-pdf,body.lay-narrow #
   color:color-mix(in srgb,var(--success) 75%,var(--foreground))}
 #revision-other .rd-del,#revision-diff .rd-del{background:color-mix(in srgb,var(--destructive) 8%,var(--sidebar));
   color:color-mix(in srgb,var(--destructive) 75%,var(--foreground))}
-#revision-controls{display:flex;align-items:center;gap:var(--space-2);flex-wrap:wrap;padding:var(--space-1) var(--space-4);background:var(--sidebar);border-bottom:1px solid var(--border)}
+#revision-controls{display:flex;align-items:center;gap:var(--space-2);flex-wrap:wrap;padding:var(--space-1) var(--space-4);background:var(--sidebar);border-bottom:1px solid var(--border-seam)}
 #revision-controls button[aria-pressed=true]{background:var(--accent);color:var(--foreground)}
 #revision-status{font-size:var(--text-xs);color:var(--muted-foreground);padding:4px var(--space-4);background:var(--sidebar)}
 #revision-warning{font-size:var(--text-xs);color:var(--warning);padding:0 var(--space-4);background:var(--sidebar)}

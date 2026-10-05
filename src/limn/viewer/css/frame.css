@@ -19,7 +19,7 @@ html,body{overscroll-behavior-x:none}
 #pdf-body{flex:1;display:flex;min-height:0;min-width:0}
 #pdf-center{flex:1;display:flex;flex-direction:column;min-width:0;min-height:0;position:relative}   /* holds the select mode's frame and bar (#sel-mode) */
 #doc-nav{display:none;flex:none;align-items:center;gap:var(--space-3);height:var(--doc-nav-h);padding:0 var(--space-4);
-  background:var(--sidebar);border-bottom:1px solid var(--border);font-size:var(--text-base)}
+  background:var(--sidebar);border-bottom:1px solid var(--border-seam);font-size:var(--text-base)}
 body:not(.lay-narrow) #doc-nav,body.band-tablet-sheet #doc-nav{display:flex}   /* the tablet sheet keeps the nav bar above its document */
 #doc-nav .nav-sp{flex:1}
 #paper-identity{display:inline-flex;align-items:center;gap:var(--space-2);flex:0 1 auto;min-width:0;max-width:180px;margin-right:var(--space-3);padding-right:var(--space-3);
@@ -60,7 +60,7 @@ body.docs-multi #view-switch{border-left:1px solid var(--border);padding-left:va
 #view-switch button[aria-pressed=true]{color:var(--foreground);font-weight:600}
 #view-switch button[aria-pressed=true]::after{content:'';position:absolute;bottom:-1px;left:0;right:0;height:2px;background:var(--brand)}
 #outline{display:block;flex:none;width:var(--outline-width);min-width:var(--outline-width);overflow:auto;padding:var(--space-3) var(--space-2);
-  background:var(--sidebar);font-size:var(--text-sm)}
+  background:var(--sidebar);font-size:var(--text-sm);box-shadow:inset -1px 0 0 var(--border-seam)}   /* the seam against the PDF area, drawn inside so the outline keeps its 240px and its content width */
 body.outline-collapsed #outline{display:none}
 body.outline-collapsed #outline-items,body.outline-collapsed #outline-search,body.outline-collapsed .outline-title{display:none}
 .outline-head{display:flex;align-items:center;min-height:32px;gap:var(--space-2);padding:0 var(--space-2) var(--space-2)}
@@ -88,7 +88,7 @@ body.outline-collapsed #outline-items,body.outline-collapsed #outline-search,bod
 @media (hover:hover){#outline-grip:hover{background:var(--border-strong)}}
 body.outline-collapsed #outline-grip,body.band-phone #outline,body.lay-narrow #outline-grip{display:none}
 #section-strip{display:flex;align-items:center;gap:var(--space-2);height:var(--strip-h);flex:none;padding:0 var(--space-4);background:var(--muted);
-  border-bottom:1px solid var(--border);font-size:var(--text-sm);color:var(--muted-foreground)}
+  border-bottom:1px solid var(--border-seam);font-size:var(--text-sm);color:var(--muted-foreground)}
 #section-current{color:var(--foreground);font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 #section-page{margin-left:auto;white-space:nowrap}
 body.revision-open #section-strip{display:none}
