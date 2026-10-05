@@ -153,7 +153,7 @@ function drawTrash(){const L=TRASH_ALL?DROPPED:listDropped(),box=$('#trash-list'
   drawTrashOffers();}
 function openTrash(flashId){const d=$('#trash');
   if(flashId!=null&&!listDropped().some(p=>p.id===flashId)&&DROPPED.some(p=>p.id===flashId))TRASH_ALL=true;   // another document's pin
-  drawTrash(); if(!d.open){hideTip(); showSheet(d); toastHost();}
+  drawTrash(); if(!d.open){hideTip(); showSheet(d);}
   if(flashId!=null)requestAnimationFrame(()=>{const el=/** @type {HTMLElement} */(document.querySelector('#trash .arc-row[data-id="'+flashId+'"]')); if(!el)return;
     el.scrollIntoView({block:'nearest'}); el.classList.remove('flash'); void el.offsetWidth; el.classList.add('flash');});}
 $('#trash').addEventListener('close',()=>{TRASH_ALL=false;});

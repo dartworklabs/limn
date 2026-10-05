@@ -20,7 +20,7 @@ css/components.css      # buttons, icons, badges, fields; pages, marks and the s
 css/composer.css        # the composer: location line, range ladder, source, note, action row
 css/cards.css           # pin cards: status, links, thread, @-tags, question hint, Trash, @-list, reply outcome
 css/list.css            # list sections and the archive rows
-css/overlays.css        # toasts, tooltip, dialogs
+css/overlays.css        # tooltip, dialogs
 css/responsive.css      # mobile/touch, the mid and narrow layouts, reduced motion, the label chip
 css/notices.css         # messages in context: banners, undo rows, notes and chips, the status line's messages, dots
 
@@ -36,7 +36,7 @@ js/doc-tabs.js          # several documents: the list, tabs and links
 js/revisions.js         # the changes view: source diff, comparison PDF, [변경 보기] from a pin
 js/doc-switch.js        # the documents sheet, remembered view positions, switching documents
 js/boot.js              # boot() and the header: meta, stale and sync badges, viewer role
-js/polling.js           # meta polling, other documents' builds, toasts for pins changed elsewhere
+js/polling.js           # meta polling, other documents' builds, status-line messages for pins changed elsewhere
 js/notify.js            # browser notifications and pin links (#doc=&pin=)
 js/build-chip.js        # build progress polling and its chip
 js/status.js            # the status line: its items, text, progress bar and place per band

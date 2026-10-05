@@ -31,7 +31,7 @@ from helpers import ApplicationFixture, blank_png, ps, run_config, serve_viewer,
 from helpers_access import ALICE, reset_access, talk_to
 
 # The timers settle() waits for: the viewer's debounces, slides and long-press timers run 0-1000ms. Longer ones are
-# lifetimes no test waits out - a toast's 6s, the coach mark's 8s, a tooltip's 4s.
+# lifetimes no test waits out - an undo's 6s window, a tooltip's 4s.
 IDLE_TIMER_MS = 1000
 
 # Counts the page's pending work for settle(): every short timer not yet run and every fetch whose body has not been read

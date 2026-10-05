@@ -188,8 +188,8 @@ class FrontendLogic(unittest.TestCase):
             const els={}; const $=s=>(els[s]=els[s]||el());
             let calls=0, resolveApi=null, nextState=null;
             function api(url){calls++; return new Promise(r=>{resolveApi=()=>r({data:nextState});});}
-            const toasts=[], panels=[]; let refreshes=0;
-            function lineNote(m,k){toasts.push(k);} function showBuildErr(b){panels.push(b.state);} function hideBuildErr(){}
+            const said=[], panels=[]; let refreshes=0;
+            function lineNote(m,k){said.push(k);} function showBuildErr(b){panels.push(b.state);} function hideBuildErr(){}
             async function refreshDoc(){refreshes++;}
             const META={pages:[1,2]};
             let timers=0; function setInterval(){timers++; return 1;} function clearInterval(){}
@@ -208,35 +208,35 @@ class FrontendLogic(unittest.TestCase):
               // 부팅: 이미 ok_errors 로 끝난 빌드(seq 그대로) → 패널만, 토스트 없음
               nextState={state:'ok_errors',seq:3,errors:[]};
               const p=pollBuild(); resolveApi(); await p;
-              out.boot={calls, toasts:toasts.slice(), panels:panels.slice(), refreshes};
+              out.boot={calls, said:said.slice(), panels:panels.slice(), refreshes};
               // 동시 세 번 → 요청 한 번, 완료 처리 한 번
-              calls=0; toasts.length=0; panels.length=0;
+              calls=0; said.length=0; panels.length=0;
               nextState={state:'ok',seq:4,elapsed_s:3};
               const a=pollBuild(), b=pollBuild(), c=pollBuild();
               out.same=(a===b&&b===c);
               resolveApi(); await Promise.all([a,b,c]);
-              out.burst={calls, toasts:toasts.slice(), refreshes};
+              out.burst={calls, said:said.slice(), refreshes};
               // 같은 seq 를 다시 봐도 아무 일 없음
               const d=pollBuild(); resolveApi(); await d;
-              out.again={calls, toasts:toasts.slice(), refreshes};
+              out.again={calls, said:said.slice(), refreshes};
               // 숨은 탭은 요청하지 않는다
               document.hidden=true; await pollBuild(); out.hidden=calls; document.hidden=false;
               // 5초 틈새에 두 빌드가 지나감(seq 4→6, 마지막 fail) → 한 번만, fail 토스트
               nextState={state:'fail',seq:6,errors:[]};
               const e=pollBuild(); resolveApi(); await e;
-              out.skip={toasts:toasts.slice(), panels:panels.slice()};
+              out.skip={said:said.slice(), panels:panels.slice()};
               console.log(JSON.stringify(out));
             })();
             """,
             ]
         )
         out = json.loads(run_node(js))
-        self.assertEqual(out["boot"], {"calls": 1, "toasts": [], "panels": ["ok_errors"], "refreshes": 0})
+        self.assertEqual(out["boot"], {"calls": 1, "said": [], "panels": ["ok_errors"], "refreshes": 0})
         self.assertTrue(out["same"])
-        self.assertEqual(out["burst"], {"calls": 1, "toasts": ["ok"], "refreshes": 1})
-        self.assertEqual(out["again"], {"calls": 2, "toasts": ["ok"], "refreshes": 1})
+        self.assertEqual(out["burst"], {"calls": 1, "said": ["ok"], "refreshes": 1})
+        self.assertEqual(out["again"], {"calls": 2, "said": ["ok"], "refreshes": 1})
         self.assertEqual(out["hidden"], 2)
-        self.assertEqual(out["skip"], {"toasts": ["ok"], "panels": ["fail"]})  # the failure's place is its panel
+        self.assertEqual(out["skip"], {"said": ["ok"], "panels": ["fail"]})  # the failure's place is its panel
 
     def test_rel_badge_matches_python_smallest_inside_rule(self):
         # bug: relBadge (JS, card tag) used to pick insides[0] (the order the server happened to send,
@@ -598,7 +598,8 @@ class FrontendClaimUI(unittest.TestCase):
     def test_build_status_fetch_requests_full_log(self):
         self.assertIn("/api/build?log=1", HTML)
 
-    def test_pull_chip_and_toast_wiring(self):
+    def test_pull_line_wiring(self):
+        """The pull phase has its words, and a build's completion carries the pull's line (pullSuffix)."""
         self.assertIn("원격 main 당겨오는 중", HTML)
         self.assertIn("function pullSuffix(", HTML)
         self.assertIn("pullSuffix(b)", HTML)
@@ -646,13 +647,14 @@ class FrontendMobileStructure(unittest.TestCase):
         self.assertIn("body.mid-overlay.side-open #right{", css)
 
     def test_compact_toolbar_elements_and_more_menu(self):
+        """The compact tool bar and [더보기] have their elements and actions; the desktop's own bell, theme and help
+        buttons are gone, and so is the first-visit chip (#coach), whose hints are on the status line now."""
         for el in (
             'id="btn-side"',
             'id="side-n"',
             'id="btn-select"',
             'id="btn-more"',
             '<dialog id="more"',
-            'id="coach"',
             'id="more-info"',
             'id="m-trash"',
             'id="more-foot"',
@@ -667,7 +669,7 @@ class FrontendMobileStructure(unittest.TestCase):
         self.assertIn('aria-pressed="false"', re.search(r'<button id="btn-select"[^>]*>', HTML).group(0))
         # less important buttons are hidden in compact mode (.sec) and live inside [⋯] with the same data-act; the desktop's
         # bell, theme button and [?] are gone - [⋯] opens the same [더보기] there too (3b of the cross-resolution pass)
-        for gone in ('id="btn-notify"', 'id="btn-theme"', 'id="btn-help"'):
+        for gone in ('id="btn-notify"', 'id="btn-theme"', 'id="btn-help"', 'id="coach"'):
             self.assertNotIn(gone, HTML)
         for bid, act in (
             ("btn-reload", "reload"),
@@ -681,7 +683,7 @@ class FrontendMobileStructure(unittest.TestCase):
             self.assertIn('data-act="%s"' % act, more)
         self.assertRegex(HTML, r'<input class="n sec" id="jump"')
         self.assertIn("body.compact .sec{display:none}", HTML)
-        for act in ("side", "selmode", "more", "more-close", "coach-close", "card-toggle"):
+        for act in ("side", "selmode", "more", "more-close", "card-toggle"):
             self.assertIn("case '%s':" % act, HTML)
 
     def test_touch_css_targets_inputs_safe_area_and_selection_touch_action(self):
@@ -718,9 +720,6 @@ class FrontendMobileStructure(unittest.TestCase):
         self.assertRegex(css_nc, r"\n#left\{[^}]*touch-action:pan-x pan-y\}")
         self.assertIn("body.selmode .pg{touch-action:none", css)
         self.assertNotIn("touch-action:pinch-zoom", css)
-        # toasts move to a spot that doesn't overlap the sheet/panel toolbar row
-        self.assertIn("body.lay-narrow #toasts{", css)
-        self.assertIn("body.lay-mid #toasts{", css)
 
     def test_selection_uses_pointer_events_one_path(self):
         self.assertIn("$('#doc').addEventListener('pointerdown'", HTML)
@@ -1473,6 +1472,7 @@ class FrontendPanelTidyStructure(unittest.TestCase):
         self.assertIn("body.compact #bar1 #btn-more{flex:0 0 44px", css)
 
     def test_mid_layout_pins_nav_top_and_action_bar_bottom(self):
+        """mid: the nav row is pinned at the top and the action row at the bottom, full width; the panel never moves them."""
         # unfolded fold devices / tablets (mid): the action row doesn't follow the panel — it's pinned
         # full-width at the bottom of the screen, and the nav row is pinned full-width at the top
         # (docs/handbook/viewer.md §펼친 화면 레이아웃). Live browser measurements are in FrontendResponsiveBrowser.
@@ -1499,9 +1499,6 @@ class FrontendPanelTidyStructure(unittest.TestCase):
                     sel,
                 )
         self.assertRegex(css_nc, r"@keyframes mid-panel-in\{from\{right:")  # the opening animation moves only via right
-        # the first-run coach mark sits above the action row ([select] above), not over the nav row. Toasts sit right above the action row, panel side (FrontendToasts).
-        self.assertIn("body.lay-mid #coach{top:auto;bottom:calc(var(--mbar-h)", css)
-        self.assertIn("body.lay-mid #toasts{", css)
         # an overflowing document-link row fades at the edge instead of showing a scrollbar
         self.assertIn(
             "body:is(.lay-mid,.band-tablet-sheet) #doc-links.fade-r{mask-image:", css
@@ -1708,87 +1705,59 @@ class FrontendDesignTokens(unittest.TestCase):
             self.assertNotIn(old, css)  # old display-only classes were removed
 
 
-# ---------------------------------------------------------------- toasts — docs/handbook/viewer.md §알림(토스트)
-# author feedback (2026-09-24): saving a pin used to pop an "undo" toast at the bottom-left, far from the
-# right-hand panel (1,100px+ away), with a tacky left color stripe. It now appears sonner-style right
-# where you just clicked (bottom-right of the panel column, just above the action row; on narrow, above the sheet).
-class FrontendToasts(unittest.TestCase):
-    """Guard toast layout, stacking, placement, and accessible message structure."""
+# ---------------------------------------------------------------- messages in context — docs/handbook/viewer.md §알림 자리
+# Issue #167: there is no toast. A message is drawn where it happened (notices.js): a banner, an undo row or note, a chip on
+# a mark, the status line. The floating toast box, its stack and its placement code are gone.
+class FrontendNotices(unittest.TestCase):
+    """Guard that no toast or first-visit chip is left in the page and that the messages keep one look."""
 
     css = HTML[HTML.index("<style>") : HTML.index("</style>")]
 
     def rules(self, pat):
+        """The CSS rules whose selector matches pat, as (selector, {property: value})."""
         return [(sel, dict(d)) for sel, d in css_rules() if re.search(pat, sel)]
 
-    def test_toast_has_no_left_stripe_and_is_a_single_floating_surface(self):
-        for sel, d in self.rules(r"\.toast"):
+    def test_no_toast_or_first_visit_chip_is_left_in_the_page(self):
+        """The toast box (#toasts) and the first-visit chip (#coach), their CSS, their strings' functions and their
+        actions are gone from the served page."""
+        for gone in (
+            'id="toasts"',
+            'id="coach"',
+            "#toasts",
+            ".toast",
+            "function toast(",
+            "function placeToasts(",
+            "toast-in",
+            "coach-close",
+            "toasts-expand",
+            "toastHost",
+        ):
+            self.assertNotIn(gone, HTML)
+
+    def test_messages_have_no_left_stripe_and_show_their_kind_by_icon_and_tint(self):
+        """No message has a left colour stripe; each kind has its own lead icon, and a banner is tinted by its kind."""
+        for sel, d in self.rules(r"\.nt\b"):
             self.assertFalse([k for k in d if k.startswith("border-left")], sel)
-        base = dict(self.rules(r"^\.toast$")[0][1])
-        self.assertEqual(base["border"], "1px solid var(--border)")
-        self.assertEqual(base["border-radius"], "var(--radius-lg)")
-        self.assertEqual(base["background"], "var(--popover)")
-        self.assertIn("box-shadow", base)
-        # state is shown via the leading icon's color — not a stripe
-        for kind, icon in (("ok", "circle-check"), ("warn", "triangle-alert"), ("err", "circle-x")):
-            self.assertIn("%s:()=>ic('%s')" % (kind, icon), HTML)
-        self.assertIn(".toast.warn>.ic{color:var(--warning)}", self.css)
-        self.assertIn(".toast.err>.ic{color:var(--destructive)}", self.css)
+        for kind, icon in (("OK", "circle-check"), ("WARN", "triangle-alert"), ("ERR", "circle-x"), ("INFO", "info")):
+            self.assertIn("[NOTICE_KIND.%s]:()=>ic('%s')" % (kind, icon), HTML)
+        for kind, color in (("err", "destructive"), ("warn", "warning"), ("ok", "success")):
+            self.assertIn(".nt-banner.nk-%s{border-color:color-mix(in srgb,var(--%s)" % (kind, color), self.css)
 
-    def test_toast_anchored_per_layout_near_the_action(self):
-        box = dict(self.rules(r"^#toasts$")[0][1])
-        self.assertEqual(box["right"], "var(--toast-r,var(--space-3))")
-        self.assertEqual(box["bottom"], "var(--toast-b,var(--space-3))")
-        self.assertNotIn("left", box)  # formerly: pinned bottom-left
-        self.assertIn("body.lay-narrow #toasts{", self.css)
-        self.assertIn("body.lay-mid #toasts{", self.css)
-        self.assertNotRegex(self.css, r"body\.lay-mid #toasts\{[^}]*top:")  # formerly: top-left of the body
-        body = extract_js_fn("placeToasts")
-        self.assertIn("'#c-actions'", body)  # doesn't cover the save/cancel buttons
-        # doesn't cover the bottom toolbar (the short band has none: its tool bar is in the top row)
-        self.assertIn("LAYOUT===LAYOUT_MODE.MID&&BAND!==LAYOUT_BAND.SHORT?['#bar1']", body)
-        self.assertIn("right.getBoundingClientRect().top", body)  # narrow: above the sheet
-        self.assertIn("sd.getBoundingClientRect().top-20", body)  # ... and over the status line's action hit
-        self.assertIn("innerWidth-rr.right+12", body)  # right edge inside the panel column
-        # a nearly-full sheet: drop down so it doesn't cover the toolbar
-        self.assertIn("if(top<vh*0.3){top=vh; const ca=$('#c-actions');", body)
+    def test_the_chip_takes_presses_and_touch_buttons_answer_44px(self):
+        """A save's chip takes presses although its mark lets them through, and on touch every message button answers a
+        44px hit from its ::after."""
+        chip = dict(self.rules(r"^\.mark>\.nt-chip$")[0][1])
+        self.assertEqual(chip["pointer-events"], "auto")
+        coarse = self.css[self.css.index("@media (pointer:coarse){\n  .nt-acts button{") :]
         self.assertIn(
-            "@media (pointer:coarse){.toast{pointer-events:none}.toast button{pointer-events:auto}}", self.css
-        )
-        for v in ("--toast-b", "--toast-r", "--toast-w"):
-            self.assertIn("setProperty('%s'" % v, body)
-
-    def test_toast_stacks_newest_on_top_and_collapses_after_three(self):
-        """Newest toast on top, 6s life, more than three fold (hover, focus or the '+N' button opens them), no motion when reduced."""
-        body = extract_js_fn("toast")
-        self.assertIn("box.insertBefore(t,box.firstChild)", body)
-        self.assertIn("setTimeout(kill,6000)", body)
-        self.assertIn(
-            "#toasts:not(:hover):not(:focus-within):not(.expanded) .toast:nth-child(n+4){display:none}", self.css
-        )  # + the '+N' button on touch
-        self.assertIn("@keyframes toast-in", self.css)
-        self.assertIn("@media (prefers-reduced-motion: reduce){*{animation:none!important", self.css)
-
-    def test_toast_title_and_description_split(self):
-        if not shutil.which("node"):
-            self.skipTest("node not available")
-        js = (
-            extract_js_fn("toastSplit")
-            + "\nconsole.log(JSON.stringify(['핀 #3 저장됨 · pins.md 갱신','빌드 실패 — 화면은 이전 PDF입니다','복사함','핀 #10 · 본문 — 서준님이 불렀습니다: 봐 주세요'].map(toastSplit)));"
-        )
-        self.assertEqual(
-            json.loads(run_node(js)),
-            [
-                ["핀 #3 저장됨", "pins.md 갱신"],
-                ["빌드 실패", "화면은 이전 PDF입니다"],
-                ["복사함", ""],
-                ["핀 #10 · 본문", "서준님이 불렀습니다: 봐 주세요"],
-            ],
+            ".nt-acts button::after{content:'';position:absolute;left:50%;top:50%;width:max(100%,var(--hit));height:var(--hit)",
+            coarse,
         )
 
 
 # ---------------------------------------------------------------- no outline inside an outline (docs/handbook/viewer.md §한 겹 담기)
 # author feedback (2026-09-24): drawing a bordered box inside another bordered box looks tacky. There is
-# exactly one containing layer — a card (one thin border) or a floating surface (dialog/toast/@-list).
+# exactly one containing layer — a card (one thin border) or a floating surface (dialog/@-list).
 # Everything inside it — badges, buttons, segmented controls, steppers, source, overlap banner, thread —
 # is separated only by fill, spacing, and dividers.
 class FrontendNoNestedOutlines(unittest.TestCase):
@@ -2190,9 +2159,11 @@ class PinNumberJump(unittest.TestCase):
         self.assertIn("case 'view':jumpPin(id);break;", HTML)
 
     def test_touch_media_query_wins_over_btn_icon_btn_sm_specificity(self):
+        """On touch a small icon button (.btn-icon.btn-sm: a card's fold, a message's [x]) is 44px: the touch rule is pinned
+        at the base rule's own specificity."""
         # regression: button.btn-icon.btn-sm{width:var(--control-h-sm)} (base rule, 0-0-2-1) is more
         # specific than the touch rule button.btn-icon{width:var(--control-h-touch)} (0-0-1-1), so the
-        # card fold button (.b-fold) and the toast close button stayed at 24px even on touch (observed).
+        # card fold button (.b-fold) and the old toast's close button stayed at 24px even on touch (observed).
         # It has to be pinned again at the same specificity (.btn-icon.btn-sm) inside @media(pointer:coarse) to win.
         css = HTML[HTML.index("<style>") : HTML.index("</style>")]
         coarse = css[css.index("@media (pointer:coarse){") :]
@@ -2202,9 +2173,9 @@ class PinNumberJump(unittest.TestCase):
             "height:var(--control-h-touch)}",
             coarse,
         )
-        # real usage: both the card fold button and the toast close button use the .btn-icon.btn-sm combination.
+        # real usage: both the card fold button and a message's close button use the .btn-icon.btn-sm combination.
         self.assertIn("btn-icon btn-sm btn-ghost cmp b-fold", HTML)
-        self.assertIn("c.className='btn-icon btn-sm btn-ghost'", HTML)
+        self.assertIn('class="btn-icon btn-sm btn-ghost nt-x"', HTML)
 
     def test_compact_bar1_buttons_keep_touch_min_width_despite_shrink_to_fit(self):
         # regression: body.compact #bar1 button{min-width:0} (specific due to the id) beat the touch rule
@@ -3544,11 +3515,12 @@ class FrontendArchive(unittest.TestCase):
         self.assertIn("const LIST=listOpen(),LDONE=listDone(),LDROP=listDropped();", body)
 
     def test_status_without_stripes_dot_badge_and_icons(self):
+        """No card, archive row, message or document row draws a left colour stripe; status is a dot, a badge or an icon."""
         # author feedback (2026-09-24): a left color stripe looks tacky. Status uses a dot in the card
         # header plus a badge with the same meaning; the archive uses a leading icon.
         css = HTML[HTML.index("<style>") : HTML.index("</style>")]
         for sel, decls in css_rules():
-            if re.search(r"\.pin\b|\.arc-row|\.toast|#revision-pin|\.dm-item", sel):
+            if re.search(r"\.pin\b|\.arc-row|\.nt\b|#revision-pin|\.dm-item", sel):
                 keys = [k for k, _ in decls]
                 self.assertFalse([k for k in keys if k.startswith("border-left")], sel)
                 self.assertNotIn("::before", sel.replace(".pin .n.go::before", ""))  # no overlaid stripe either
@@ -4159,7 +4131,9 @@ class FrontendThread(unittest.TestCase):
         self.assertIn('id="c-kind"', HTML)
         send = extract_js_fn("sendReply")
         # one path; the server decides
-        self.assertIn("api('/api/pins/'+id+'/reply',{method:'POST',body,what:'답글',where:NOTICE_HOST.LIST,keepalive:true})", send)
+        self.assertIn(
+            "api('/api/pins/'+id+'/reply',{method:'POST',body,what:'답글',where:NOTICE_HOST.LIST,keepalive:true})", send
+        )
         self.assertIn("body.reopen=R.toggle==='reopen'", send)  # the one override: [상태 유지] / [다시 열기]
         self.assertIn("deferred(", send)  # sent when its undo in the card goes away
         self.assertIn("deferredNote(d,NOTICE_PLACE.CARD,", send)

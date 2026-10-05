@@ -1,7 +1,7 @@
 // ------------------------------------------------ Help
 let HELP_BACK=/** @type {HTMLElement|null} */(null);
 // Opens help with its head on one ink line (headInk); closing it gives the focus back to what had it.
-function openHelp(){const d=$('#help'); if(d.open)return; HELP_BACK=/** @type {HTMLElement|null} */(document.activeElement); hideTip(); showSheet(d); headInk(); toastHost();}
+function openHelp(){const d=$('#help'); if(d.open)return; HELP_BACK=/** @type {HTMLElement|null} */(document.activeElement); hideTip(); showSheet(d); headInk();}
 $('#help').addEventListener('close',()=>{if(HELP_BACK&&HELP_BACK.focus)HELP_BACK.focus(); HELP_BACK=null;});
 
 // ------------------------------------------------ Event delegation (no inline handlers)
@@ -29,8 +29,6 @@ document.addEventListener('click',e=>{const target=/** @type {HTMLElement} */(e.
     case 'selmode-end':setSelMode(false);break;   // the mode bar's [끝내기]: one press, no confirmation
     case 'more':openMore();break; case 'more-close':$('#more').close();break;
     case 'size-preset':sizePreset(Number(a.dataset.i));break;
-    case 'coach-close':$('#coach').hidden=true;break;
-    case 'toasts-expand':$('#toasts').classList.add('expanded'); syncToastStack(); break;
     case 'card-toggle':if(id==null)break; if(OPEN_CARDS.has(id))OPEN_CARDS.delete(id); else OPEN_CARDS.add(id); drawPins();break;
     case 'rebuild':rebuild();break; case 'reload':loadPins();break;
     case 'rebuild-force':BUILD.unchanged=null; drawStatus(); rebuild(true); break;   // the status line's [그래도 빌드]: a cold build

@@ -230,7 +230,7 @@ if(window.ResizeObserver){const o=new ResizeObserver(selBarFit); o.observe($('#s
 function showSheet(d){d.showModal(); d.focus({preventScroll:true});}
 // Opens [더보기] with its view group drawn for now: the sheet-height or panel-width segment and the zoom figure, and its foot on
 // one ink line (footInk); on the wide desktop it is a menu under [⋯] (placeMore), which says it is open (aria-expanded).
-function openMore(){const d=$('#more'); if(d.open)return; hideTip(); drawZoom(); renderSizeSeg(); placeMore(); showSheet(d); footInk(); toastHost();
+function openMore(){const d=$('#more'); if(d.open)return; hideTip(); drawZoom(); renderSizeSeg(); placeMore(); showSheet(d); footInk();
   $('#btn-more').setAttribute('aria-expanded','true');}
 $('#more').addEventListener('close',()=>$('#btn-more').setAttribute('aria-expanded','false'));
 // The wide desktop's [더보기] as a menu under [⋯]: its top 4px under the button and its right edge on the button's - the
