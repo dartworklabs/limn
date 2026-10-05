@@ -47,7 +47,7 @@
 
 화면 규칙은 [`test_viewer.py`](../../src/limn/viewer/tests/test_viewer.py)의 구조·순수 판단 검사와 실제 Chromium 레이아웃 검사로 확인한다. [`test_viewer_files.py`](../../src/limn/viewer/tests/test_viewer_files.py)는 조각 목록·조립 결과와 내보낸 스크립트의 `node --check`를, [`test_viewer_source.py`](../../src/limn/viewer/tests/test_viewer_source.py)는 중복·죽은 함수와 주석에 삼켜진 코드를 본다. 브라우저·node 실행 조건과 합격 범위는 [verification.md](verification.md) §1이 정한다. 번역 대응과 영어 화면은 [`test_i18n.py`](../../src/limn/viewer/tests/test_i18n.py)가 확인한다.
 
-**리터럴 예외를 바꾸면 두 곳을 고친다.** 토큰 밖에 리터럴을 허용하는 자리는 §리터럴 예외(허용 목록)의 표와 `src/limn/viewer/tests/test_viewer.py`의 허용 목록 상수(`TOKEN_SELECTORS`·`INLINE_STYLE_OK`·`RADIUS_OK`)에 함께 있다. 한쪽만 고치면 문서와 가드가 어긋난다. JS가 재서 넣는 CSS 변수(`--kb`·`--side-w` 등)는 따로 적지 않는다. 가드가 코드의 `setProperty('--…')` 호출에서 목록을 뽑는다.
+**리터럴 예외를 바꾸면 두 곳을 고친다.** 토큰 밖에 리터럴을 허용하는 자리는 §리터럴 예외(허용 목록)의 표와 `src/limn/viewer/tests/test_viewer.py`의 허용 목록 상수(`TOKEN_SELECTORS`·`INLINE_STYLE_OK`·`RADIUS_OK`)에 함께 있다. 간격·컨트롤 높이의 리터럴은 [`raw_css_allowlist.json`](../../src/limn/viewer/tests/raw_css_allowlist.json)이 자리마다 이유와 함께 적는다. 한쪽만 고치면 문서와 가드가 어긋난다. JS가 재서 넣는 CSS 변수(`--kb`·`--side-w` 등)는 따로 적지 않는다. 가드가 코드의 `setProperty('--…')` 호출에서 목록을 뽑는다.
 
 ### 닫힌 값 표
 
@@ -969,7 +969,7 @@ compact(`narrow`·`mid`)는 한 번 더 줄인다. 279px 태블릿 패널에서 
 | --- | --- |
 | radius | `--radius-sm` 4px(배지·kbd·작은 막대) · `--radius` 6px(버튼·입력·툴팁) · `--radius-lg` 10px(카드·대화상자·시트 모서리·셈 알약). 원형 점·아바타·스피너만 `50%`, 모서리를 없앨 때만 `0` |
 | 글자 | `--text-xs` 11px(배지·쪽 번호, 터치에서는 12px) · `--text-sm` 12px(작은 버튼·보조 글자) · `--text-base` 13px(버튼·입력·알림) · `--text-lg` 14px(본문, 터치 버튼) · `--text-xl` 16px(대화상자 제목, 터치 입력 — iOS 확대 방지) |
-| 간격 | `--space-1..6` = 4·8·12·16·20·24px. padding·margin·gap은 모두 이 토큰으로 쓰고, 음수는 `calc(-1 * var(--space-N))`이다. 1–2px 머리카락 선·광학 보정만 리터럴로 둔다. `--list-end` 32px는 핀 목록 마지막 카드 아래 여백이다(패널 아래 끝에서 떨어져 스크롤이 끝나게). 가드 `FrontendSpacingGrid` |
+| 간격 | `--space-1..6` = 4·8·12·16·20·24px. padding·margin·gap은 모두 이 토큰으로 쓰고, 음수는 `calc(-1 * var(--space-N))`이다. 1–2px 머리카락 선·광학 보정만 리터럴로 둔다. `--list-end` 32px는 핀 목록 마지막 카드 아래 여백이다(패널 아래 끝에서 떨어져 스크롤이 끝나게). 가드 `FrontendSpacingGrid`·`RawCssValues` |
 | 컨트롤 높이 | `--control-h-sm` 24 · `--control-h` 28(도구 줄 `--tb-h`) · `--control-h-lg` 36(동작 줄) · `--control-h-touch` 44 · `--hit` 44(터치 히트 상자, §모바일 레이아웃) · `--ctl-touch` 40(터치 도구 줄) · `--ctl-touch-sm` 36(터치 작은 컨트롤, 폰 시트에서는 32) |
 | 그림자 | `--shadow-sm`·`--shadow`·`--shadow-lg` |
 | 글꼴 | `--font-sans`(담은 Pretendard Variable이 먼저, §글꼴)·`--font-mono` |
@@ -1044,7 +1044,8 @@ compact(`narrow`·`mid`)는 한 번 더 줄인다. 279px 태블릿 패널에서 
 | `src/limn/viewer/brand/`의 그림 파일(파비콘·홈 화면 아이콘·로고 SVG) | 브랜드 색 | CSS 밖의 이미지이고 브랜드 원본의 바이트 그대로다. 뷰어 안의 인라인 로고는 예외가 아니다 — `parse_svg`가 색을 역할 클래스로 바꾸고 토큰이 칠한다(§마크와 파비콘) |
 | PDF 쪽(PNG·PDF.js 캔버스) | 종이 색 | 원고 PDF의 색이다. 테마는 종이 색을 바꾸지 않는다 |
 | `src/limn/vendor/pdfjs`·Lucide 원본 | — | 외부 코드다(Lucide는 `currentColor`라 글자색을 따른다) |
-| 크기의 자리 값(폭·높이, 음수 margin, 위치 좌표, `calc`) | px | 척도로 반올림하면 레이아웃이 움직인다. 간격(padding·margin·gap)은 예외가 아니다 — 1–2px만 둔다 |
+| 크기의 자리 값(폭·높이, 위치 좌표, `calc`) | px | 척도로 반올림하면 레이아웃이 움직인다. 간격(padding·margin·gap)과 컨트롤 높이는 예외가 아니다 — 1–2px 머리카락 선만 두고, 나머지는 아래 허용 목록 파일에 있다 |
+| [`raw_css_allowlist.json`](../../src/limn/viewer/tests/raw_css_allowlist.json)의 자리 | px·em | 레이아웃 자리(접힌 시트 도구 줄 아래 여백 84·160px), JS가 재는 패널 폭의 대체값(`--side-w`), 글자 줄 수로 정한 입력 칸 높이(em) 같은 값이다. 항목마다 파일·선택자·속성·값·이유가 있다 |
 
 가드는 [`src/limn/viewer/tests/test_viewer.py`](../../src/limn/viewer/tests/test_viewer.py)의 `FrontendDesignTokens`다. 인라인 CSS를 파싱해 다음을 막는다.
 
@@ -1053,6 +1054,8 @@ compact(`narrow`·`mid`)는 한 번 더 줄인다. 279px 태블릿 패널에서 
 - 인라인 `style`·JS의 색·글자 리터럴
 - 정의되지 않은 `var()`. 단 JS가 넣는 `--kb`·`--vvh`·`--side-w`·`--sheet-f`·`--stick-top`은 제외한다.
 - 두 테마의 색 토큰 불일치
+
+[`test_viewer_raw_css.py`](../../src/limn/viewer/tests/test_viewer_raw_css.py)의 `RawCssValues`는 `tokens.css` 밖의 CSS 조각을 파일마다 읽어 토큰이 있는 자리의 리터럴을 막는다. 대상은 색(`color`·`background*`·`border*-color`), radius, `font-size`, 간격(`padding*`·`margin*`·`gap`), 컨트롤(`button`·`input`·`select`·`textarea`·`.btn-*`·`.seg`가 주어인 선택자)의 `height`·`min-height`다. 머리카락 선(±1–2px)과 허용 목록 파일의 항목만 통과하고, 더는 맞는 선언이 없는 항목도 실패한다. 선택자로 컨트롤을 알아보므로 id만으로 고른 버튼(`#nav-toc-toggle`)의 높이는 잡지 못한다. 그런 자리는 리뷰가 §컴포넌트 규격과 대조한다.
 
 > **주의**
 >
