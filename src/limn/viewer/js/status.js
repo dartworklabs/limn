@@ -7,6 +7,7 @@
 // events, first-visit hints and an undo whose place has left the screen - the only items the desktop's line shows besides
 // a rebuild's 'no changes', since its chips say the rest (statusShown).
 let STATUS_SYNC=/** @type {SyncStatus|null} */(null),STATUS_SIG='';   // the last meta `sync`; the drawn item's kind, action and count
+let STATUS_TOP=0;   // the number of the message the line shows (0: none, or another item): lineNote reads out one it does not
 const STATUS_TRANSIENT_MS=6000;   // a passing answer (no changes) stays on the line as long as an undo's window (NOTICE_MS)
 
 // A build's countable progress {done, total}: integers with total > 0 and 0 <= done <= total, else null - as if the field were
@@ -16,8 +17,9 @@ function statusProgress(pr){if(!pr||typeof pr!=='object')return null; const {don
   return Number.isInteger(done)&&Number.isInteger(total)&&total>0&&done>=0&&done<=total?{done,total}:null;}
 
 // The items the status line shows for s = {notices, build, buildErr, offline, sync, stale, png, canRebuild, unchanged}
-// (statusInput), highest priority first: the line's messages, newest first (notices, notices.js LINE; act 'notice'); the last
-// build failed or had LaTeX errors; the connection is lost; a build runs (rendering in the
+// (statusInput), highest priority first - errors before information (docs/handbook/viewer.md §알림 자리, rule 1): the line's
+// error messages (alert, or kind ERR), newest first (notices, notices.js LINE; act 'notice'); the last build failed or had
+// LaTeX errors; the connection is lost; the line's other messages, newest first; a build runs (rendering in the
 // page render, else building); main sync is blocked; this tab's rebuild changed nothing (unchanged, for STATUS_TRANSIENT_MS);
 // the PDF is older than its source - not while a build runs, which clears it, nor while the unchanged answer says the
 // rebuild found nothing new (the line would contradict itself); main sync is under way; the PDF shows as PNG. Each item is {kind, act} plus what
@@ -25,10 +27,12 @@ function statusProgress(pr){if(!pr||typeof pr!=='object')return null; const {don
 // only where canRebuild (a LaTeX document and a person who may build). The phase whose work can
 // be counted - the page render, whose progress field gives pages done of total - is looked up, not compared. Pure.
 function statusList(s){const out=[],b=s.build,running=!!b&&b.state===BUILD_STATE.RUNNING,e=s.buildErr,sy=s.sync&&s.sync.state;
-  (s.notices||[]).forEach(n=>out.push({kind:STATUS_KIND.NOTICE,notice:n,act:'notice'}));
+  const notes=s.notices||[],alert=(/** @type {Notice} */ n)=>!!n.alert||n.kind===NOTICE_KIND.ERR;
+  notes.filter(alert).forEach(n=>out.push({kind:STATUS_KIND.NOTICE,notice:n,act:'notice'}));
   if(e&&e.state===BUILD_STATE.FAIL)out.push({kind:STATUS_KIND.FAILED,act:'build-err-reopen'});
   else if(e&&e.state===BUILD_STATE.OK_ERRORS)out.push({kind:STATUS_KIND.ERRORS,n:(e.errors||[]).length,act:'build-err-reopen'});
   if(s.offline)out.push({kind:STATUS_KIND.OFFLINE,act:null});
+  notes.filter(n=>!alert(n)).forEach(n=>out.push({kind:STATUS_KIND.NOTICE,notice:n,act:'notice'}));
   if(running)out.push({kind:{render:STATUS_KIND.RENDERING}[b.phase]||STATUS_KIND.BUILDING,phase:b.phase||'',el:Math.round(b.elapsed_s||0),
     last:b.last_s?Math.round(b.last_s):0,progress:statusProgress(b.progress),act:null});
   if(sy===SYNC_STATE.BLOCKED||sy===SYNC_STATE.ERROR)out.push({kind:STATUS_KIND.SYNC_BLOCKED,reason:s.sync.reason||'',act:'status-why'});
@@ -108,10 +112,16 @@ function buildUnchanged(b){
 // when the build gives its progress, else one that does not know its end, all in .st-body, drawn again when the item, its
 // action or the count changes. The spoken label is a separate live node (.st-sr) that stays: every draw puts the item's label
 // there, and its text changes - and is read out - only when the label does, never for a redraw or the ticking numbers; an
-// error message is left out there, as lineNote read it out assertively. Also the [⋯] row [PDF 재빌드]: off with '빌드 중' while
-// a build runs. body.has-status says a line is up (the sheet joins it).
+// alert (an error message, a warning whose banner had no place on screen, a failed build, a lost connection) is left out
+// there, as it was read out assertively when it came (lineNote, showBuildErr, pollLightOnce). A message whose button has the
+// keyboard focus keeps the line while the focus is on it, and a redraw puts the focus back on that button (statusFocus): a
+// new message never takes it from a [되돌리기] that is still there. Also the [⋯] row [PDF 재빌드]: off with '빌드 중' while a
+// build runs. body.has-status says a line is up (the sheet joins it).
 function drawStatus(){const box=$('#status'),sr=box.querySelector('.st-sr'),body=box.querySelector('.st-body'),running=!!BUILD.cur;
-  const list=statusShown(statusList(statusInput()),LAYOUT===LAYOUT_MODE.WIDE),top=list[0];
+  const f=statusFocus(); let list=statusShown(statusList(statusInput()),LAYOUT===LAYOUT_MODE.WIDE);
+  const held=f&&f.n?list.findIndex(i=>!!i.notice&&String(i.notice.n)===f.n):-1;
+  if(held>0)list=[list[held],...list.slice(0,held),...list.slice(held+1)];
+  const top=list[0]; STATUS_TOP=top&&top.notice?top.notice.n:0;
   const m=$('#m-rebuild'); if(m){m.disabled=running; const tail=m.querySelector('.m-tail'); if(tail)tail.hidden=!running;}
   document.body.classList.toggle('has-status',!!top); box.hidden=!top;
   if($('#status-list').open)drawStatusList(list);
@@ -124,13 +134,28 @@ function drawStatus(){const box=$('#status'),sr=box.querySelector('.st-sr'),body
   const tx=box.querySelector('.st-tx'),long=statusText(top,'long'),short=statusText(top,'short');
   tx.textContent=BAND===LAYOUT_BAND.SHORT?short[0]+short[1]:long[0]+long[1];   // the short band's one row always takes the short text
   if(tx.scrollWidth>tx.clientWidth)tx.textContent=short[0]+short[1];
-  const say=top.notice&&top.notice.kind===NOTICE_KIND.ERR?'':long[0]; if(sr.textContent!==say)sr.textContent=say;
+  const said=top.notice?top.notice.alert:top.kind===STATUS_KIND.FAILED||top.kind===STATUS_KIND.ERRORS||top.kind===STATUS_KIND.OFFLINE;
+  const say=said?'':long[0]; if(sr.textContent!==say)sr.textContent=say;
+  refocusStatus(f);
   const bar=box.querySelector('.st-bar'); if(!bar)return; const {done,total}=top.progress||{},pct=top.progress?Math.round(done/total*100):null;
   bar.classList.toggle('indet',pct===null); bar.querySelector('i').style.width=pct===null?'':pct+'%';
   if(pct===null){bar.removeAttribute('aria-valuenow');} else{bar.setAttribute('aria-valuemin','0'); bar.setAttribute('aria-valuemax','100'); bar.setAttribute('aria-valuenow',String(pct));}}
 
+// The button of the line or its '+N' list that has the keyboard focus, as its data-act and data-n ('' for an item's own
+// action), or null: the line's redraw gives the focus back to it (refocusStatus).
+/** @returns {{act:string,n:string}|null} */
+function statusFocus(){const a=/** @type {HTMLElement|null} */(document.activeElement);
+  return a&&a.closest&&a.closest('#status,#status-list')&&a.dataset.act?{act:a.dataset.act,n:a.dataset.n||''}:null;}
+// Puts the focus back on the button f named (statusFocus) when a redraw replaced it: in the open '+N' list, else on the line.
+/** @param {{act:string,n:string}|null} f */
+function refocusStatus(f){if(!f)return; const a=document.activeElement; if(a&&a!==document.body&&document.contains(a))return;
+  const sel='[data-act="'+f.act+'"]'+(f.n?'[data-n="'+f.n+'"]':''),l=$('#status-list');
+  const b=/** @type {HTMLElement|null} */((l.open&&l.querySelector(sel))||$('#status').querySelector(sel)); if(b)b.focus({preventScroll:true});}
+// The line follows the focus: when it leaves a message's button, the line shows again what comes first.
+$('#status').addEventListener('focusout',()=>setTimeout(()=>{if(!statusFocus())drawStatus();},0));
 // The '+N' list: every item as a 44px row with its long text and its action. A modal dialog over the line, so an outside tap,
-// Esc and the back gesture fold it like the sheets; a row's action folds it too.
+// Esc and the back gesture fold it like the sheets; a row's action folds it too. While it is open the line's undo windows
+// wait (notices.js lineHeld).
 function drawStatusList(list){setHtml($('#status-list-rows'),html`${list.map(it=>{const t=statusText(it,'long');
   return html`<div class="st-row">${statusIcon(it)}<span class="st-row-t" translate="no">${t[0]+t[1]}</span>${statusAct(it)}</div>`;})}`);}
 // The sentence [이유] of blocked main sync explains: main sync is blocked, why (SYNC_REASON), and that the previous PDF may be
@@ -145,7 +170,7 @@ function statusWhy(btn){const text=syncWhyText(STATUS_SYNC); showTipText(btn.get
 function toggleStatusList(){const d=$('#status-list'); if(d.open){d.close(); return;}
   drawStatusList(statusShown(statusList(statusInput()),LAYOUT===LAYOUT_MODE.WIDE)); const r=$('#status').getBoundingClientRect(),short=BAND===LAYOUT_BAND.SHORT;
   d.style.top=short?Math.round(r.bottom+4)+'px':'auto'; d.style.bottom=short?'auto':Math.round(innerHeight-r.top+4)+'px';
-  hideTip(); d.showModal();}
+  hideTip(); d.showModal(); holdLine();}
 
 // Moves #status to the band's place - the dock over the sheet (phone, tablet sheet), the short band's top row after the view
 // switch, the mid action row's middle, the desktop's line under its status chips (#status-wide) - keeping a focus that was

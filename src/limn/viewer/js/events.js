@@ -16,7 +16,7 @@ function openTappedCard(t){const c=t&&t.closest&&t.closest('.pin.card:not(.open)
   if(!c||LAYOUT===LAYOUT_MODE.WIDE||t.closest('[data-copy],button,input,textarea'))return;
   OPEN_CARDS.add(+c.dataset.id); drawPins();}
 document.addEventListener('click',e=>{const target=/** @type {HTMLElement} */(e.target);
-  const cp=/** @type {HTMLElement} */(target.closest('[data-copy]')); if(cp){copyText(cp.dataset.copy);return;}
+  const cp=/** @type {HTMLElement} */(target.closest('[data-copy]')); if(cp){copyText(cp.dataset.copy||'',cp);return;}
   const a=/** @type {HTMLElement} */(target.closest('[data-act]')); if(!a){openTappedCard(target); return;}
   const host=/** @type {HTMLElement} */(a.closest('[data-id]')),id=host?Number(host.dataset.id):null,inEdit=!!a.closest('.edit');
   const fromMore=!!a.closest('#more');
@@ -39,7 +39,7 @@ document.addEventListener('click',e=>{const target=/** @type {HTMLElement} */(e.
       if(!text){bannerNote(NOTICE_HOST.COMPOSER,'메모를 먼저 써야 덧붙일 수 있습니다',NOTICE_KIND.WARN);break;}
       appendToPin(Number(a.dataset.oid),text);break;}
     case 'overlap-separate':COMPOSE.dismissedOverlap=a.dataset.key||null;renderOverlapBanner();break;
-    case 'copy-cur':if(COMPOSE.current)copyText(COMPOSE.current.name+' L'+COMPOSE.current.lo+'-L'+COMPOSE.current.hi);break;
+    case 'copy-cur':if(COMPOSE.current)copyText(COMPOSE.current.name+' L'+COMPOSE.current.lo+'-L'+COMPOSE.current.hi,a);break;
     case 'expand':SNIP_OPEN=!SNIP_OPEN;renderComposer();break;
     case 'level':{const o=inEdit?EDITOR.current:COMPOSE.current; if(!o)break; useLevel(o,a.dataset.level); if(!inEdit)recomputeOverlap(); inEdit?renderEdit():renderComposer(); break;}
     case 'xp-to':{const o=inEdit?EDITOR.current:COMPOSE.current,k=Number(a.dataset.line); if(o&&o.lo!=null&&o.hi!=null)applyRange(o,widenTo(o.lo,o.hi,k),k<o.lo?o.hi:o.lo); break;}   // the excerpt: widen to a dimmed line
@@ -121,7 +121,7 @@ document.addEventListener('keydown',e=>{
     else if(t&&t.classList&&t.classList.contains('e-note')){e.preventDefault();saveEdit();}
     else if(t&&t.classList&&t.classList.contains('r-text')){e.preventDefault();sendReply();}
     return;}
-  if(e.key==='Enter'&&t&&t.dataset&&t.dataset.copy!==undefined&&!inField){copyText(t.dataset.copy);return;}
+  if(e.key==='Enter'&&t&&t.dataset&&t.dataset.copy!==undefined&&!inField){copyText(t.dataset.copy,t);return;}
   // A span with role=button (a card's #number) is also activated by Enter/Space - sent through the same data-act path as a click.
   if((e.key==='Enter'||e.key===' ')&&t&&t.getAttribute&&/^(button|link)$/.test(t.getAttribute('role')||'')&&t.dataset&&t.dataset.act&&!inField){e.preventDefault();t.click();return;}
   if(e.key==='Escape'){

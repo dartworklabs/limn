@@ -52,17 +52,20 @@ interface ReplyBox {
   el: HTMLElement;
 }
 
-// A message's one action (notices.js): its button's label (Korean, translated when drawn), its description and what it does.
+// A message's one action (notices.js): its button's label (Korean, translated when drawn), its description and what it does;
+// wait = it sends a request, and the message stays (busy) until that is answered (noticeAct).
 interface NoticeAct {
   label: string;
   tip?: string;
-  fn: () => void;
+  wait?: boolean;
+  fn: () => unknown;
 }
 
 // A message in context (notices.js, docs/handbook/viewer.md §알림 자리): what it says and how (a chip shows its short label),
 // where it is drawn (place, and the banner host, the pin, list section and pin before it for an undo; away once a row's card
-// has left), how long it lives, the chip it marks (dot), the hint topic, the duplicate keys of the status line, and what runs
-// when it leaves (gone). el is made once and moved.
+// has left), how long it lives, the chip it marks (dot), the hint topic, the duplicate keys of the status line, whether it is
+// read out as an alert and comes first on the line (alert), whether its action's request is out (busy), and what runs when it
+// leaves (gone). el is made once and moved.
 interface Notice {
   n: number;
   place: string;
@@ -85,6 +88,8 @@ interface Notice {
   topic: string;
   save: boolean;
   pending: boolean;
+  alert: boolean;
+  busy: boolean;
   timer: ReturnType<typeof setTimeout> | undefined;
   gone: (() => void) | null;
   el: HTMLElement | null;

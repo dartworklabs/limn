@@ -20,11 +20,14 @@ declare class CloseWatcher {
   destroy(): void;
 }
 
-// Fields the viewer keeps on its own elements: a card's flash timers (list.js), a note field's resolved @-tags (edit.js).
+// Fields the viewer keeps on its own elements: a card's flash timers (list.js), a note field's resolved @-tags (edit.js), a
+// copy control's own content and timer while it says '복사됨' (api.js copiedMark).
 interface HTMLElement {
   _curT?: ReturnType<typeof setTimeout>;
   _flT?: ReturnType<typeof setTimeout>;
   _mentions?: Set<string>;
+  _copied?: ChildNode[];
+  _copiedT?: ReturnType<typeof setTimeout>;
 }
 
 // A notification's buttons (notify.js), which the DOM library leaves out of NotificationOptions though the service

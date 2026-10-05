@@ -3,9 +3,12 @@
 // - A success is silent unless it can be undone; a silent one is still read out (#sr-news, quietNote). An undo sits where the
 //   action was (undoNote): a chip on the new pin's mark, a row in the card's place, a note in the card, a row in the Trash -
 //   or the status line when that place is not on screen.
-// - An error or a conflict is a banner at the top of the panel or section concerned (bannerNote), with its action.
+// - An error or a conflict is a banner at the top of the panel or section concerned (bannerNote), with its action - or, when
+//   that place is not on screen now, the same on the status line, read out as an alert, with a dot on the chip that leads
+//   there (rule 1: an error appears where the person can see it now; errors come first on the line).
 // - Background events and first-visit hints go to the status line (lineNote); a background event also puts a red dot on the
 //   chip that leads to it ([핀 N], [검토 M]) until the person looks there.
+// - An undo lives its full NOTICE_MS window, or until the person dismisses or uses it; other presses never end it (rule 2).
 // Every message is a Notice in NOTICES, numbered n; its buttons carry data-act="notice-act"/"notice-x" and data-n.
 const NOTICE_MS=6000;   // the undo window: a deferred send goes when it ends (deferred()), and a save's chip stays as long
 const LINE_MAX=5;       // the status line keeps the newest five messages; its '+N' lists the rest
@@ -42,6 +45,11 @@ function noticeDupe(shown,keys,rank,now){const drop=/** @type {Notice[]} */([]);
 // the panel. Pure.
 /** @param {string|undefined} want @param {{trashOpen:boolean,composerOpen:boolean}} v @returns {string} */
 function bannerHost(want,v){if(v.trashOpen)return NOTICE_HOST.TRASH; if(want)return want; return v.composerOpen?NOTICE_HOST.COMPOSER:NOTICE_HOST.LIST;}
+// Whether a banner host is on screen now (rule 1): the Trash while it is open; the composer while one is open in the shown
+// panel (the phone's unfolded sheet); the list and the review section while the panel is shown. A banner whose host is not
+// goes to the status line instead (bannerNote). Pure.
+/** @param {string} host @param {{sideOpen:boolean,trashOpen:boolean,composerOpen:boolean}} v @returns {boolean} */
+function bannerShown(host,v){if(host===NOTICE_HOST.TRASH)return v.trashOpen; if(host===NOTICE_HOST.COMPOSER)return v.sideOpen&&v.composerOpen; return v.sideOpen;}
 
 // Whether an undo can be shown where its action happened; if not it goes to the status line. A row or a card note needs the
 // panel open and its section expanded, a Trash row the Trash open; a chip waits for its mark (drawChips). Pure.
@@ -60,7 +68,7 @@ function makeNotice(o){const [title,desc]=msgSplit(o.msg);
   const n=/** @type {Notice} */({n:++NOTICE_SEQ,place:o.place||NOTICE_PLACE.LINE,host:o.host||'',pin:o.pin==null?null:o.pin,sec:o.sec||'',
     prev:o.prev==null?null:o.prev,kind:o.kind||NOTICE_KIND.OK,title,desc,label:o.label||'',act:o.act||null,literal:!!o.literal,keys:o.keys||[],
     rank:o.rank||1,at:Date.now(),life:o.life||NOTICE_LIFE.STICKY,dot:o.dot||'',topic:o.topic||'',save:!!o.save,pending:!!o.pending,away:false,
-    timer:undefined,gone:o.gone||null,el:null});
+    alert:!!o.alert,busy:false,timer:undefined,gone:o.gone||null,el:null});
   NOTICES.set(n.n,n); return n;}
 
 // Reads text out politely (#sr-news: a silent success, an undo drawn where it happened, an info banner) or assertively
@@ -76,37 +84,45 @@ function quietNote(msg){announce(trMsg(msg));}
 // Puts a message on the status line, newest first, and returns it - or null when it repeats one already there (noticeDupe).
 // o: literal (msg is already in the UI language and quotes what people wrote, so it is not translated), keys and rank, life
 // (NOTICE_LIFE: STICKY until [x] or its action, CLICK until a press elsewhere, TIMER for NOTICE_MS), dot (the chip it marks,
-// noticeDot), topic (a hint's, endTopic), gone (runs when it leaves other than by its action). Past LINE_MAX the oldest
-// leaves. The line reads it out (drawStatus); an error is read out assertively instead.
+// noticeDot), topic (a hint's, endTopic), gone (runs when it leaves other than by its action), alert (a warning read out as
+// an alert: a banner whose place was not on screen). An error is always an alert: read out assertively (#sr-alert), first on
+// the line (statusList), and past LINE_MAX the oldest other message leaves before it does. Any other message is read out by
+// the line when it shows it, else - another one holds the line - politely (#sr-news).
 /** @param {string} msg @param {string} kind @param {NoticeAct|null} [act] @param {Partial<Notice>} [o] @returns {Notice|null} */
 function lineNote(msg,kind,act,o){o=o||{}; const keys=o.keys||[],rank=o.rank||1;
   const d=noticeDupe(LINE,keys,rank,Date.now()); if(d.skip)return null; d.drop.forEach(x=>endNotice(x,false));
-  const n=makeNotice({...o,msg:o.literal?String(msg):trMsg(msg),kind,act:act||null,place:NOTICE_PLACE.LINE,pending:false,dot:noticeDot(o.dot||'',SIDE_OPEN)});
-  LINE.unshift(n); while(LINE.length>LINE_MAX)endNotice(LINE[LINE.length-1],false);
+  const n=makeNotice({...o,msg:o.literal?String(msg):trMsg(msg),kind,act:act||null,place:NOTICE_PLACE.LINE,pending:false,
+    alert:kind===NOTICE_KIND.ERR||!!o.alert,dot:noticeDot(o.dot||'',SIDE_OPEN)});
+  LINE.unshift(n); while(LINE.length>LINE_MAX)endNotice(LINE.slice(1).reverse().find(x=>!x.alert)||LINE[LINE.length-1],false);
   if(n.dot)document.body.classList.add('dot-'+n.dot);
-  armNotice(n); drawStatus(); if(kind===NOTICE_KIND.ERR)announce(noticeText(n),true);
+  drawStatus(); armNotice(n);
+  if(n.alert)announce(noticeText(n),true); else if(STATUS_TOP!==n.n)announce(noticeText(n));
   return n;}
 
 // Puts a banner on top of its host's panel or section (bannerHost), replacing the one there, and scrolls it into view. ERR and
 // WARN banners are alerts, read out when drawn; OK and INFO ones are read out politely. o.save marks a failed save: the
-// composer's button then reads [다시 저장]. A banner in a closed panel puts the dot on [핀 N].
-/** @param {string|undefined} host @param {string} msg @param {string} kind @param {NoticeAct|null} [act] @param {Partial<Notice>} [o] @returns {Notice} */
+// composer's button then reads [다시 저장]. A host not on screen now (bannerShown) - the Trash closed, the panel collapsed,
+// the phone's sheet folded - gets nothing: the message goes to the status line instead, ERR and WARN as alerts, with the dot
+// on the chip that leads there ([검토 M] for the review section's, else [핀 N]). Returns the message drawn.
+/** @param {string|undefined} host @param {string} msg @param {string} kind @param {NoticeAct|null} [act] @param {Partial<Notice>} [o] @returns {Notice|null} */
 function bannerNote(host,msg,kind,act,o){o=o||{};
-  const h=bannerHost(host,{trashOpen:$('#trash').open,composerOpen:!$('#composer').hidden});
+  const v={sideOpen:SIDE_OPEN,trashOpen:$('#trash').open,composerOpen:!$('#composer').hidden},h=bannerHost(host,v);
+  if(!bannerShown(h,v))return lineNote(msg,kind,act,{...o,alert:kind===NOTICE_KIND.ERR||kind===NOTICE_KIND.WARN,
+    dot:h===NOTICE_HOST.REVIEW?NOTICE_DOT.RV:NOTICE_DOT.SIDE});
   const old=BANNERS.get(h); if(old)endNotice(old,false);
   const n=makeNotice({...o,msg:o.literal?String(msg):trMsg(msg),kind,act:act||null,place:NOTICE_PLACE.BANNER,host:h});
   BANNERS.set(h,n); drawBanners();
-  if((h===NOTICE_HOST.LIST||h===NOTICE_HOST.REVIEW)&&!SIDE_OPEN)document.body.classList.add('dot-'+NOTICE_DOT.SIDE);
   if(kind!==NOTICE_KIND.ERR&&kind!==NOTICE_KIND.WARN)announce(noticeText(n));
   if(n.el&&n.el.getClientRects().length)n.el.scrollIntoView({block:'nearest'});
   return n;}
 
 // Offers an undo where the action happened (place CHIP, ROW, CARD or TRASH; offerSeen) or, when that place is not on screen,
 // on the status line. o: pin, sec (its list section: 'open', 'review' or 'done') and prev (the pin drawn before it), label (a
-// chip's short text; the whole message is what is read out), life (a chip's is TIMER, the rest CLICK unless given), gone,
-// pending (a chip whose mark comes only with the next list reload: settleChip). act.tip defaults to T.undo.
+// chip's short text; the whole message is what is read out), life (TIMER: NOTICE_MS, unless given - rule 2, no other press
+// ends it), gone, pending (a chip whose mark comes only with the next list reload: settleChip). act.tip defaults to T.undo;
+// act.wait = its action sends a request, and the undo stays until that is answered (noticeAct).
 /** @param {string} place @param {string} msg @param {NoticeAct} act @param {Partial<Notice>} o @returns {Notice} */
-function undoNote(place,msg,act,o){const a={tip:T.undo,...act},life=o.life||(place===NOTICE_PLACE.CHIP?NOTICE_LIFE.TIMER:NOTICE_LIFE.CLICK);
+function undoNote(place,msg,act,o){const a={tip:T.undo,...act},life=o.life||NOTICE_LIFE.TIMER;
   if(!offerSeen(place,{sideOpen:SIDE_OPEN,secOpen:!o.sec||!!SEC[o.sec],trashOpen:$('#trash').open}))
     return /** @type {Notice} */(lineNote(msg,NOTICE_KIND.OK,a,{...o,life}));   // no keys: never suppressed
   const n=makeNotice({...o,life,msg:trMsg(msg),kind:NOTICE_KIND.OK,act:a,place});
@@ -118,7 +134,7 @@ function offersIn(sec){for(const n of NOTICES.values())if(n.place===NOTICE_PLACE
 
 // The id of the element drawn just before pin id's in box (both matching sel: '.pin.card', '.arc-row'), or null - where a
 // row left in its place goes. Reads the page.
-/** @param {HTMLElement} box @param {string} sel @param {number} id @returns {number|null} */
+/** @param {HTMLElement} box @param {string} sel @param {number|null} id @returns {number|null} */
 function drawnBefore(box,sel,id){const c=box.querySelector(sel+'[data-id="'+id+'"]'); let p=c&&c.previousElementSibling;
   while(p&&!p.matches(sel))p=p.previousElementSibling; return p?Number(/** @type {HTMLElement} */(p).dataset.id):null;}
 
@@ -130,11 +146,22 @@ function noticeText(n){return n.title+(n.desc?' · '+n.desc:'');}
 /** @param {Notice} n */
 function drawOffer(n){if(n.place===NOTICE_PLACE.CHIP)drawChips(); else if(n.place===NOTICE_PLACE.TRASH)drawTrashOffers(); else drawOffers();}
 
-// Starts a message's life: a TIMER one ends after NOTICE_MS (paused while the pointer is on it and from the start again when it
-// leaves, as the toast did - not by the focus, which a reply sent with Ctrl+Enter puts on its [되돌리기], so the send would
-// wait for the focus to move); CLICK and STICKY ones wait for the press listener below, [x] or their action.
+// Starts a message's life: a TIMER one ends after NOTICE_MS - paused while a mouse is on it, or for one on the status line while
+// the line holds (lineHeld), and from the start again when that ends, as the toast did; not by the focus, which a reply sent
+// with Ctrl+Enter puts on its [되돌리기], so the send would wait for the focus to move; nor while its action's request is out
+// (busy). CLICK and STICKY ones wait for the press listener below, [x] or their action.
 /** @param {Notice} n */
-function armNotice(n){if(n.life!==NOTICE_LIFE.TIMER)return; clearTimeout(n.timer); n.timer=setTimeout(()=>endNotice(n,false),NOTICE_MS);}
+function armNotice(n){if(n.life!==NOTICE_LIFE.TIMER)return; clearTimeout(n.timer); n.timer=undefined;
+  if(n.busy||n.place===NOTICE_PLACE.LINE&&lineHeld())return; n.timer=setTimeout(()=>endNotice(n,false),NOTICE_MS);}
+// The status line holds its messages' windows while a mouse is on it (LINE_HOVER) or its '+N' list is open: what it shows
+// there is being read. holdLine stops them; releaseLine starts each again once nothing holds.
+let LINE_HOVER=false;
+function lineHeld(){return LINE_HOVER||$('#status-list').open;}
+function holdLine(){LINE.forEach(n=>{if(n.life===NOTICE_LIFE.TIMER){clearTimeout(n.timer); n.timer=undefined;}});}
+function releaseLine(){if(lineHeld())return; LINE.forEach(n=>{if(n.life===NOTICE_LIFE.TIMER&&n.timer===undefined)armNotice(n);});}
+$('#status').addEventListener('pointerenter',e=>{if(e.pointerType!=='mouse')return; LINE_HOVER=true; holdLine();});
+$('#status').addEventListener('pointerleave',()=>{if(!LINE_HOVER)return; LINE_HOVER=false; releaseLine();});
+$('#status-list').addEventListener('close',releaseLine);
 
 // Takes a message away from its store and the screen. acted = its own action ended it: gone does not run (the action replaces
 // it). acted or seen ([x]) = the person has read it: its dot goes unless another message on the line still holds it. Idempotent.
@@ -147,22 +174,41 @@ function endNotice(n,acted,seen){if(!NOTICES.has(n.n))return; NOTICES.delete(n.n
   if(n.place===NOTICE_PLACE.LINE)drawStatus(); if(n.place===NOTICE_PLACE.BANNER)syncSaveBtn();
   if(!acted&&n.gone){const g=n.gone; n.gone=null; g();}}
 
-// [되돌리기], [다시 시도], [보기]… on message num: the message goes and its action runs.
+// [되돌리기], [다시 시도], [보기]… on message num: the message goes and its action runs. An action that sends a request
+// (act.wait: restoring, undoing a close, a delete, a save or an append) keeps its message, busy and with its window stopped,
+// until the request is answered (rule 1: not cleared as if it had worked) - a failure then says itself where it can be seen.
 /** @param {number} num */
-function noticeAct(num){const n=NOTICES.get(num); if(!n)return; const a=n.act; endNotice(n,true); if(a)a.fn();}
+function noticeAct(num){const n=NOTICES.get(num); if(!n||n.busy)return; const a=n.act;
+  if(!a||!a.wait){endNotice(n,true); if(a)a.fn(); return;}
+  n.busy=true; clearTimeout(n.timer); n.timer=undefined;
+  document.querySelectorAll('[data-act="notice-act"][data-n="'+n.n+'"]').forEach(b=>b.setAttribute('aria-busy','true'));
+  Promise.resolve(a.fn()).catch(()=>false).then(()=>endNotice(n,true));}
 // [x] on message num: it goes as read (with its dot), and what it held runs (gone: a deferred send goes now).
 /** @param {number} num */
 function noticeClose(num){const n=NOTICES.get(num); if(n)endNotice(n,false,true);}
 // A hint goes once the person does what it says (NOTICE_TOPIC.PICK: a selection was made; SIDE: the panel was opened).
 /** @param {string} topic */
 function endTopic(topic){NOTICES.forEach(n=>{if(n.topic===topic)endNotice(n,false,true);});}
-// The person looks where a dot points (the panel opened, the review section gone to): that dot goes, and with the panel open
-// the hint on how to open it.
+// The person looks where a dot points (the panel opened, the review section gone to): that dot goes, with the panel open the
+// hint on how to open it, and with the review section the messages about pins sent to review (seen).
 /** @param {string} dot */
-function noticeSeen(dot){document.body.classList.remove('dot-'+dot); if(dot===NOTICE_DOT.SIDE)endTopic(NOTICE_TOPIC.SIDE);}
+function noticeSeen(dot){if(dot===NOTICE_DOT.RV)LINE.slice().forEach(n=>{if(reviewPins(n.keys).length)endNotice(n,false,true);});
+  document.body.classList.remove('dot-'+dot); if(dot===NOTICE_DOT.SIDE)endTopic(NOTICE_TOPIC.SIDE);}
+// The pins a message's keys say were sent to review ('review_requested:<id>', noticeDupe's keys). Pure.
+/** @param {string[]} keys @returns {number[]} */
+function reviewPins(keys){const p=EVENT_TYPE.REVIEW_REQUESTED+':'; return keys.filter(k=>k.startsWith(p)).map(k=>Number(k.slice(p.length)));}
+// Whether a message about pins sent to review is stale: it names some, and none of them awaits review any more (confirmed,
+// reopened or deleted - here or elsewhere). inReview = the ids awaiting review. Pure.
+/** @param {string[]} keys @param {number[]} inReview @returns {boolean} */
+function reviewNewsStale(keys,inReview){const ids=reviewPins(keys); return ids.length>0&&!ids.some(i=>inReview.includes(i));}
+// Each time the list is drawn (drawPins: after a reload, a confirm): the stale review arrivals go (reviewNewsStale), and
+// [검토 M]'s dot - on the collapsed desktop's [핀 N] too - once no message on the line holds it.
+function dropStaleReview(){const ids=REVIEW_ALL.map(p=>p.id); LINE.slice().forEach(n=>{if(reviewNewsStale(n.keys,ids))endNotice(n,false,true);});
+  if(!LINE.some(n=>n.dot===NOTICE_DOT.RV))document.body.classList.remove('dot-'+NOTICE_DOT.RV);}
 
-// A CLICK message lasts until the next press somewhere else: a click (a tap, Enter on a button) outside it ends it; a scroll
-// does not. The press that made it has passed by the time it exists.
+// A CLICK message - a passing notice that is not an undo (a restored draft's [버리기]) - lasts until the next press somewhere
+// else: a click (a tap, Enter on a button) outside it ends it; a scroll does not. The press that made it has passed by the time
+// it exists. An undo is never CLICK (rule 2).
 document.addEventListener('click',e=>{const t=/** @type {HTMLElement} */(e.target);
   NOTICES.forEach(n=>{if(n.life!==NOTICE_LIFE.CLICK)return;
     const own=n.place===NOTICE_PLACE.LINE?!!(t.closest&&t.closest('#status,#status-list')):!!(n.el&&n.el.contains(t));
@@ -170,19 +216,21 @@ document.addEventListener('click',e=>{const t=/** @type {HTMLElement} */(e.targe
 
 // One message's element, made once and kept on n.el (a redraw moves it, so a focus inside survives and an alert is not read
 // out again): status icon, title and description (already in the UI language, so translate="no"), its action, and [x] -
-// none on a chip, which goes by itself. ERR and WARN banners are alerts. A TIMER message holds while hovered (armNotice).
+// none on a chip, which goes by itself. ERR and WARN banners are alerts. A TIMER message holds while a mouse is on it (armNotice).
 /** @param {Notice} n @param {string} cls @returns {HTMLElement} */
 function noticeEl(n,cls){if(n.el)return n.el; const e=document.createElement('div'); e.className='nt '+cls+' nk-'+n.kind; e.dataset.n=String(n.n);
   if(n.place===NOTICE_PLACE.BANNER&&(n.kind===NOTICE_KIND.ERR||n.kind===NOTICE_KIND.WARN))e.setAttribute('role','alert');
   const chip=n.place===NOTICE_PLACE.CHIP,title=chip&&n.label?n.label:n.title,desc=chip?'':n.desc;
   setHtml(e,html`<span class="nt-ic">${noticeIcon(n.kind)}</span><span class="nt-t" translate="no"><span class="nt-ti">${title}</span>${desc?html`<span class="nt-d">${desc}</span>`:''}</span><span class="nt-acts">${noticeButtons(n,!chip)}</span>`);
   if(chip)for(const t of ['pointerdown','mousedown'])e.addEventListener(t,ev=>ev.stopPropagation());   // a press on the chip never starts a selection on the page under it
-  if(n.life===NOTICE_LIFE.TIMER){e.addEventListener('pointerenter',()=>clearTimeout(n.timer)); e.addEventListener('pointerleave',()=>{if(NOTICES.has(n.n))armNotice(n);});}
+  if(n.life===NOTICE_LIFE.TIMER){e.addEventListener('pointerenter',ev=>{if(ev.pointerType==='mouse'){clearTimeout(n.timer); n.timer=undefined;}});
+    e.addEventListener('pointerleave',ev=>{if(ev.pointerType==='mouse'&&NOTICES.has(n.n))armNotice(n);});}
   n.el=e; return e;}
-// A message's buttons: its action (with its description, if any) and, with close, [x] named '알림 닫기'.
+// A message's buttons: its action (with its description, if any; aria-busy while its request is out) and, with close, [x]
+// named '알림 닫기'.
 /** @param {Notice} n @param {boolean} close @returns {Html} */
-function noticeButtons(n,close){const a=n.act,tip=a&&a.tip?html` data-tip="${a.tip}"`:'';
-  return html`${a?html`<button type="button" class="btn-sm btn-secondary nt-act" data-act="notice-act" data-n="${n.n}"${tip}><span class="lbl">${tr(a.label)}</span></button>`:''}\
+function noticeButtons(n,close){const a=n.act,tip=a&&a.tip?html` data-tip="${a.tip}"`:'',busy=n.busy?html` aria-busy="true"`:'';
+  return html`${a?html`<button type="button" class="btn-sm btn-secondary nt-act" data-act="notice-act" data-n="${n.n}"${tip}${busy}><span class="lbl">${tr(a.label)}</span></button>`:''}\
 ${close?html`<button type="button" class="btn-icon btn-sm btn-ghost nt-x" data-act="notice-x" data-n="${n.n}" aria-label="알림 닫기">${ic('x')}</button>`:''}`;}
 
 // The focused element inside a drawn message, if any: a redraw that detaches it gives the focus back (noticeRefocus).

@@ -785,9 +785,9 @@ class EnglishChrome(ChromiumTestCase):
                 self.assert_english(page, name + " more menu")
 
     def error_banners(self, lang):
-        """Drive the common refusals through the viewer's own functions and collect each error banner as
-        (reason, the server's Korean error text, the banner's title, its description). The requests are refused, so the
-        shared fixture state never changes."""
+        """Drive the common refusals through the viewer's own functions and collect each error message - a banner, or
+        the status line where the banner's place is not on screen - as (reason, the server's Korean error text, the
+        message's title, its description). The requests are refused, so the shared fixture state never changes."""
         page = self.open(lang, viewport={"width": 1400, "height": 850})
         pid = page.evaluate("PINS.find(p=>p.note==='Tighten this sentence').id")
         scope = scope_http_error(ScopeUnreadable())  # built by the worker; no git in this fixture
@@ -824,12 +824,14 @@ class EnglishChrome(ChromiumTestCase):
         out = []
         for reason, server_text, who, call in cases:
             self.who = who
-            page.evaluate("BANNERS.forEach(n=>endNotice(n,false))")
+            page.evaluate("NOTICES.forEach(n=>endNotice(n,false))")
             page.evaluate("async()=>{await %s;}" % call)
-            page.wait_for_selector(".nt-banner.nk-err", state="attached")
+            # a banner where its place is on screen, else the status line (docs/handbook/viewer.md §알림 자리, rule 1)
+            page.wait_for_function("[...NOTICES.values()].some(n=>n.kind==='err')")
             title, desc = page.evaluate(
-                "(()=>{const t=document.querySelector('.nt-banner.nk-err');"
-                "return [t.querySelector('.nt-ti').textContent,(t.querySelector('.nt-d')||{}).textContent||''];})()"
+                "(()=>{const n=[...NOTICES.values()].filter(n=>n.kind==='err').pop();"
+                "const e=n.el||document.querySelector('#status');"
+                "return e.textContent.includes(n.title)?[n.title,n.desc]:['not drawn',''];})()"
             )
             out.append((reason, server_text, title, desc))
         return page, out

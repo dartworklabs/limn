@@ -4130,10 +4130,8 @@ class FrontendThread(unittest.TestCase):
         self.assertIn("if(REPLY){e.preventDefault();closeReply();return;}", HTML)  # Esc closes the input field first
         self.assertIn('id="c-kind"', HTML)
         send = extract_js_fn("sendReply")
-        # one path; the server decides
-        self.assertIn(
-            "api('/api/pins/'+id+'/reply',{method:'POST',body,what:'답글',where:NOTICE_HOST.LIST,keepalive:true})", send
-        )
+        # one path; the server decides - and silent, as the reply box's own error line says a failed send (one alert)
+        self.assertIn("api('/api/pins/'+id+'/reply',{method:'POST',body,what:'답글',silent:true,keepalive:true})", send)
         self.assertIn("body.reopen=R.toggle==='reopen'", send)  # the one override: [상태 유지] / [다시 열기]
         self.assertIn("deferred(", send)  # sent when its undo in the card goes away
         self.assertIn("deferredNote(d,NOTICE_PLACE.CARD,", send)

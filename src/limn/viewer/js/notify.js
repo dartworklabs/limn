@@ -30,7 +30,7 @@ function notifyText(e){const nm=who(e.by)||tr('누군가'),ex=String(e.excerpt||
 // '그림'). It marks [검토 M] for a review request and [핀 N] for the rest on this document (notifyDot).
 async function notifyShow(e){const t=notifyText(e);
   if(document.visibilityState==='visible'&&document.hasFocus()){
-    const act=e.type===EVENT_TYPE.DROPPED?(isViewer()?{label:'열기',tip:'휴지통에서 봅니다',fn:()=>openPinFromLink(e.doc,e.pin)}:{label:'되살리기',tip:'휴지통에서 같은 번호로 되살립니다',fn:()=>restorePin(e.pin)})
+    const act=e.type===EVENT_TYPE.DROPPED?(isViewer()?{label:'열기',tip:'휴지통에서 봅니다',fn:()=>openPinFromLink(e.doc,e.pin)}:{label:'되살리기',tip:'휴지통에서 같은 번호로 되살립니다',wait:true,fn:()=>restorePin(e.pin)})
       :{label:'열기',tip:'그 핀으로 갑니다',fn:()=>openPinFromLink(e.doc,e.pin)};
     lineNote(t.title+' — '+t.body,e.type===EVENT_TYPE.DROPPED?NOTICE_KIND.WARN:NOTICE_KIND.OK,act,
       {keys:[e.type+':'+e.pin],rank:2,literal:true,dot:notifyDot(e.type,!e.doc||e.doc===DOC)});return;}

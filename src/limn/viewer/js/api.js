@@ -21,11 +21,22 @@ async function api(url,o){o=o||{};
 function apiFailed(o,why,unreachable){const msg=tl('{what} 실패',{what:tr(o.what||'요청').replace(/…$/,'')})+' — '+why;
   const act=unreachable&&o.retry?{label:'다시 시도',fn:o.retry}:null;
   if(o.where===NOTICE_HOST.LINE)lineNote(msg,NOTICE_KIND.ERR,act); else bannerNote(o.where,msg,NOTICE_KIND.ERR,act,{save:!!o.save});}
-// Copies s to the clipboard (a textarea and execCommand where the Clipboard API is refused). A silent success: read out only.
-async function copyText(s){
+// Copies s to the clipboard (a textarea and execCommand where the Clipboard API is refused). Said where it happened: the
+// control that copied (el) reads '복사됨' with a check for a moment (copiedMark), and it is read out politely.
+/** @param {string} s @param {HTMLElement|null} [el] */
+async function copyText(s,el){
   try{await navigator.clipboard.writeText(s);}catch(e){
     const ta=document.createElement('textarea');ta.value=s;document.body.appendChild(ta);ta.select();
     try{document.execCommand('copy');}catch(e2){} ta.remove();}
-  quietNote(tl('복사함: {text}',{text:s}));
+  quietNote(tl('복사함: {text}',{text:s})); if(el)copiedMark(el);
 }
+const COPIED_MS=1500;   // how long a copy control says it copied
+// Control el says it copied: a check and '복사됨' in place of what it shows, never narrower than it was, for COPIED_MS; then
+// what it showed comes back. A second copy meanwhile starts the moment again. Its name (aria-label) stays: the copy is read
+// out by copyText.
+/** @param {HTMLElement} el */
+function copiedMark(el){if(el._copiedT)clearTimeout(el._copiedT);
+  else{el._copied=[...el.childNodes]; el.style.minWidth=Math.ceil(el.getBoundingClientRect().width)+'px';}
+  el.classList.add('copied'); setHtml(el,html`${ic('check')}<span class="lbl">${tr('복사됨')}</span>`);
+  el._copiedT=setTimeout(()=>{el.classList.remove('copied'); el.replaceChildren(...(el._copied||[])); el._copied=undefined; el._copiedT=undefined; el.style.minWidth='';},COPIED_MS);}
 

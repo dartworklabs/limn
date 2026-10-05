@@ -35,7 +35,8 @@ async function pollLightOnce(){
   let d; const k=DOC,visit=SWITCHSEQ;
   try{d=(await api(dq('/api/meta?light=1')+notifyQuery(),{what:'상태 확인',silent:true})).data;}
   catch(e){if(k!==DOC||visit!==SWITCHSEQ)return;
-    POLL_FAILS++; if(POLL_FAILS>=2)$('#conn-lost').hidden=false; return;}
+    POLL_FAILS++; if(POLL_FAILS===2)announce(tr('연결 끊김 · 다시 잇는 중'),true);   // read out once, as it is lost (rule 1)
+    if(POLL_FAILS>=2)$('#conn-lost').hidden=false; return;}
   notifyHandle(d);                      // browser notifications - independent of the document (handled first even mid document-switch)
   if(k!==DOC||visit!==SWITCHSEQ)return;  // a return to the same document is a new visit too
   POLL_FAILS=0; $('#conn-lost').hidden=true;
@@ -103,7 +104,7 @@ function notePinChanges(prev,d,dropped){
   if(reviewed.length)lineNote(tl('#{ids} 이 검토 대기로 넘어왔습니다 — 결과를 보고 [확인]하세요',{ids:reviewed.join(', #'),n:reviewed.length}),NOTICE_KIND.OK,
     {label:'보기',tip:'검토 대기 핀으로 갑니다',fn:gotoReview},{keys:reviewed.map(i=>EVENT_TYPE.REVIEW_REQUESTED+':'+i),dot:NOTICE_DOT.RV});
   droppedIds.forEach(id=>{const rec=dropById.get(id),nm=rec?who(rec.dropped_by):'';
-    lineNote(tl('#{id} 을 {name} 가 삭제함',{id,name:nm||tr('다른 세션')}),NOTICE_KIND.WARN,{label:'되살리기',fn:()=>restorePin(id)},
+    lineNote(tl('#{id} 을 {name} 가 삭제함',{id,name:nm||tr('다른 세션')}),NOTICE_KIND.WARN,{label:'되살리기',wait:true,fn:()=>restorePin(id)},
       {keys:[EVENT_TYPE.DROPPED+':'+id],dot:NOTICE_DOT.SIDE,literal:true});});   // tl() spoke the UI language; the name is as written
   (d||[]).filter(p=>pinState(p)===PIN_STATE.OPEN).forEach(p=>{const was=byId.get(p.id); if(!was)return;
     if(!was.stale&&p.stale){lineNote(tl('#{id} 위치를 잃었습니다',{id:p.id}),NOTICE_KIND.WARN,null,{dot:NOTICE_DOT.SIDE});return;}

@@ -98,8 +98,9 @@ function secHead(key,name,ids,all){const b=document.getElementById(key+'-toggle'
 function toggleSec(key,force){if(!(key in SEC_DEFAULT))return; SEC[key]=force===undefined?!SEC[key]:!!force; savePrefs({sec:SEC}); drawPins();}
 // Redraws the pin panel from the lists (sections, counts, the Trash count, a reply in progress, the undo rows and notes and the
 // banners of notices.js, keeping a focus that was in one) - and, while the changes view shows a pin, its guide line's buttons,
-// whose [확인] follows that pin's state (revTargetActs).
-function drawPins(){
+// whose [확인] follows that pin's state (revTargetActs). The status line's review arrivals follow the review list it draws:
+// those whose pins left it go, with [검토 M]'s dot (dropStaleReview).
+function drawPins(){dropStaleReview();
   const LIST=listOpen(),LDONE=listDone(),LDROP=listDropped();
   const nfocus=noticeFocus();   // a focus in an undo row or note, given back once they are drawn again (drawOffers)
   // The '나를 부른 핀' filter: only the open/awaiting-review pins across every document that @-tagged me (a cross-document inbox).

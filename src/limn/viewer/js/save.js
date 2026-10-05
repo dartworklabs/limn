@@ -7,14 +7,16 @@ async function appendToPin(id,text){
     if(composeOwns(selection,box,visit)){COMPOSE.box=null; cancelSelection(true); if(box)box.remove(); syncDraft();}
     else if(restoredDraftOwns(draft)){cancelSelection(true); syncDraft();}
     else clearSavedDraft(draft);
-    const chip=undoNote(NOTICE_PLACE.CHIP,tl('#{id} 에 덧붙였습니다',{id}),{label:'되돌리기',fn:()=>undoAppend(id,priorNote,data.pin.rev)},
+    const chip=undoNote(NOTICE_PLACE.CHIP,tl('#{id} 에 덧붙였습니다',{id}),{label:'되돌리기',wait:true,fn:()=>undoAppend(id,priorNote,data.pin.rev)},
       {pin:id,pending:true,label:tr('덧붙임')});
     await loadPins(); settleChip(chip);
   }catch(e){}}
 // Undo of an append: the note goes back to what it was before (base_rev = the append's revision). Silent - the card shows it.
-async function undoAppend(id,note,rev){
+// Resolves with whether it went back (its chip waits for it, noticeAct).
+/** @param {number} id @param {string} note @param {number} rev @returns {Promise<boolean>} */
+async function undoAppend(id,note,rev){let ok=false;
   try{await api('/api/pins/'+id+'/edit',{method:'POST',body:{note:note,base_rev:rev},what:'되돌리기',where:NOTICE_HOST.LIST});
-    quietNote(tl('#{id} 메모를 되돌렸습니다',{id}));}catch(e){} await loadPins();}
+    ok=true; quietNote(tl('#{id} 메모를 되돌렸습니다',{id}));}catch(e){} await loadPins(); return ok;}
 // The save-pin button's label (boot, clearing the pending state, syncSaveBtn): [다시 저장] while the composer's banner says a
 // save failed, else [핀 저장]; with the shortcut where there is a keyboard.
 function saveBtnLabel(){const b=BANNERS.get(NOTICE_HOST.COMPOSER),t=tr(b&&b.save?'다시 저장':'핀 저장');
@@ -29,8 +31,10 @@ function togglePendingSave(){if(COMPOSE.pendingSave){clearPendingSave();return;}
 function clearPendingSave(){if(!COMPOSE.pendingSave)return; COMPOSE.pendingSave=false;
   const btn=$('#btn-save'); delete btn.dataset.pending; setHtml(btn,saveBtnLabel());}
 // Saves the selection as a pin (or queues the save while pick runs). Saved: a chip '저장됨 [되돌리기]' on the new pin's mark
-// for NOTICE_MS, visible with the phone's sheet folded; its [되돌리기] drops the pin again and reopens the composer with the
-// same selection and note. Failed: a banner over the save row, whose button then reads [다시 저장] (api's save flag).
+// for NOTICE_MS, visible with the phone's sheet folded; its [되돌리기] drops the pin again and - only once that delete went
+// through - reopens the composer with the same selection and note. A failed undo keeps the pin and no composer (a second
+// save would duplicate it); its failure's [다시 시도] runs the whole undo again. Failed save: a banner over the save row,
+// whose button then reads [다시 저장] (api's save flag).
 async function savePin(){
   if(COMPOSE.saving)return;
   if(!COMPOSE.current){if(COMPOSE.picking)togglePendingSave(); return;}   // pick hasn't finished yet - queue it (toggle) or cancel the pending save
@@ -56,9 +60,12 @@ async function savePin(){
     else if(restored){cancelSelection(true); syncDraft();}
     else clearSavedDraft(draft);
     if(SEC_SEEN.open)SEC_SEEN.open.add(id);   // my own new pin is never 'new' on a collapsed header
+    /** @type {()=>Promise<boolean>} */
+    const undo=async()=>{const ok=await dropPin(id,true,undo);
+      if(ok&&(cleared||restored)&&DOC===visit.doc&&!COMPOSE.current&&!COMPOSE.box&&!COMPOSE.picking&&!$('#note').value)restoreSelection(snap);
+      return ok;};
     const chip=undoNote(NOTICE_PLACE.CHIP,tl(question?'질문 #{id} 저장됨 · pins.md 갱신':'핀 #{id} 저장됨 · pins.md 갱신',{id}),
-      {label:'되돌리기',fn:()=>{dropPin(id,true); if((cleared||restored)&&DOC===visit.doc&&
-        !COMPOSE.current&&!COMPOSE.box&&!COMPOSE.picking&&!$('#note').value)restoreSelection(snap);}},{pin:id,pending:true,label:tr('저장됨')});
+      {label:'되돌리기',wait:true,fn:undo},{pin:id,pending:true,label:tr('저장됨')});
     await loadPins(); settleChip(chip);
   }catch(e){} finally{COMPOSE.saving=false; btn.disabled=false;}
 }

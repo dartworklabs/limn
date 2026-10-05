@@ -16,6 +16,7 @@
 .nt-acts button{min-height:0;height:var(--control-h-sm);padding:0 var(--space-2);font-size:var(--text-sm);line-height:16px;position:relative}
 .nt-acts button.nt-x{width:var(--control-h-sm);min-width:var(--control-h-sm);padding:0;color:var(--muted-foreground)}
 .nt-acts .lbl{white-space:nowrap}
+.nt-act[aria-busy=true]{opacity:.6;cursor:progress}   /* its request is out (noticeAct): the message waits for the answer */
 @media (pointer:coarse){
   .nt-acts button{height:var(--ctl-touch-sm);min-width:0;padding:0 var(--space-3);font-size:var(--text-base)}
   .nt-acts button.nt-x{width:var(--ctl-touch-sm);min-width:var(--ctl-touch-sm);height:var(--ctl-touch-sm)}   /* not .btn-icon.btn-sm's drawn 44px */
@@ -79,3 +80,10 @@ body.dot-side :is(#btn-side,#nav-side),body.dot-rv :is(#btn-rv,#rv-chip,#nav-sid
 body.dot-side :is(#btn-side,#nav-side)::before,body.dot-rv :is(#btn-rv,#rv-chip,#nav-side)::before{content:'';position:absolute;top:-2px;right:-2px;
   width:8px;height:8px;border-radius:50%;background:var(--destructive);box-shadow:0 0 0 2px var(--sidebar);pointer-events:none;z-index:2}
 body.dot-side.compact #bar1 #btn-side::before{right:auto;left:-2px}
+
+/* A copy control that just copied (copiedMark, COPIED_MS): a check and '복사됨' in the success colour where it was - the
+   composer's icon button grows to fit the word, a location keeps at least its own width. */
+.copied,button.copied{display:inline-flex;align-items:center;gap:var(--space-1);color:var(--success)}
+@media (hover:hover){button.copied:hover{color:var(--success)}}   /* the mouse that just pressed it is still on it */
+.copied svg{flex:none;width:16px;height:16px}
+body #c-copy.copied,button.btn-icon.copied{width:auto;padding:0 var(--space-2)}

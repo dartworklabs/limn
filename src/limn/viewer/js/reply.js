@@ -78,17 +78,23 @@ function sendReply(){const R=REPLY; if(!R||viewerBlocked())return; const ta=repl
   const id=R.id,p=findAnyPin(id),body={text},mh=mentionHints(ta),hints=ta._mentions,flip=!!R.flip; if(mh.length)body.mentions=mh;
   if(flip&&p&&pinState(p)!==PIN_STATE.OPEN&&R.toggle)body.reopen=R.toggle==='reopen';
   const reopens=!!p&&replyReopens(p,isHuman(),replyMentioned(ta),body.reopen);
-  // Back into the box - after [되돌리기], or with an inline error when sending failed (offline), so the draft is visibly kept.
+  // Back into the box - after [되돌리기], or with an inline error when sending failed, so the draft is visibly kept. That
+  // error line (an alert) is the one place a failed send is said; with the box off screen (the panel closed) the status line
+  // says it instead (rule 1).
   const back=err=>{REPLY_DRAFT.set('reply:'+id,text); openReply(id);
+    const e=REPLY&&REPLY.id===id?/** @type {HTMLElement} */(REPLY.el.querySelector('.r-err')):null;
     if(REPLY&&REPLY.id===id){const t=replyNote(REPLY); if(hints)t._mentions=hints; REPLY.flip=flip; mentionPreview(t); renderReplyOutcome();
-      const e=/** @type {HTMLElement} */(REPLY.el.querySelector('.r-err')); if(e){e.textContent=err||''; e.hidden=!err;}}};
+      if(e){e.textContent=err||''; e.hidden=!err;}}
+    if(err&&!(SIDE_OPEN&&e&&e.getClientRects().length))lineNote(err,NOTICE_KIND.ERR,null,{dot:NOTICE_DOT.SIDE,literal:true});};
   REPLY_DRAFT.delete('reply:'+id); REPLY=null; drawPins();          // the box closes at once; the post waits for its undo
   const sec=!p?'open':pinState(p)===PIN_STATE.REVIEW?'review':pinState(p)===PIN_STATE.DONE?'done':'open';
   const d=deferred(async()=>{markMine(id);
-      try{const {data}=await api('/api/pins/'+id+'/reply',{method:'POST',body,what:'답글',where:NOTICE_HOST.LIST,keepalive:true});
+      try{const {data}=await api('/api/pins/'+id+'/reply',{method:'POST',body,what:'답글',silent:true,keepalive:true});
         if(!data.ok)bannerNote(NOTICE_HOST.LIST,tl('핀 #{id} 이 없습니다',{id}),NOTICE_KIND.ERR);
         else{const note=replyServerNote(id,reopens,data); if(note)bannerNote(NOTICE_HOST.LIST,note,NOTICE_KIND.WARN);}}
-      catch(e){back(tr('보내지 못했습니다 — 글은 그대로 두었습니다. 연결을 확인하고 다시 보내세요'));}
+      catch(e){const err=/** @type {ApiError} */(e);   // silent above: the box's own line says it, once
+        back(err.status?tr('보내지 못했습니다')+' — '+(errText(err.data)||'HTTP '+err.status)
+          :tr('보내지 못했습니다 — 글은 그대로 두었습니다. 연결을 확인하고 다시 보내세요'));}
       await loadPins();},
     ()=>back(null));
   const n=deferredNote(d,NOTICE_PLACE.CARD,tl(reopens?'핀 #{id} 다시 열어 에이전트에게 보냄':'#{id} 에 답글을 남겼습니다',{id}),{pin:id,sec});

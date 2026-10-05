@@ -1,10 +1,11 @@
 // [완료] on an open card. Done (or sent to review, for a screen without identity): a row in the card's place with [되돌리기]
-// (reopenPin) until the next press elsewhere (docs/handbook/viewer.md §알림 자리). A refusal: a banner on top of the panel.
+// (reopenPin) for NOTICE_MS - other presses never end it (docs/handbook/viewer.md §알림 자리). A refusal: a banner on top
+// of the panel.
 async function closePin(id){const prev=drawnBefore($('#pins'),'.pin.card',id);
   try{const {data}=await api('/api/pins/'+id+'/close',{method:'POST',what:'완료',where:NOTICE_HOST.LIST,retry:()=>closePin(id)});
   if(!data.ok){bannerNote(NOTICE_HOST.LIST,tl('완료 실패 — 핀 #{id} 이 없습니다',{id}),NOTICE_KIND.ERR);}
   else {markMine(id); undoNote(NOTICE_PLACE.ROW,tl(data.state===PIN_STATE.REVIEW?'핀 #{id} 검토 대기로 보냄 — 이 화면에 신원이 없어(로컬) 에이전트가 닫은 것으로 칩니다':'핀 #{id} 완료',{id}),
-    {label:'되돌리기',fn:()=>reopenPin(id)},{pin:id,sec:'open',prev});}}catch(e){} await loadPins();}
+    {label:'되돌리기',wait:true,fn:()=>reopenPin(id)},{pin:id,sec:'open',prev});}}catch(e){} await loadPins();}
 // Awaiting review -> done; the person who confirmed (confirmed_by) is recorded. The card's [확인] and the changes view's guide
 // line call this one function. Like a reply it is a deferred send: the card leaves the review section at once (CONFIRMING keeps
 // it out of every pin snapshot meanwhile, derivePinLists), a row in its place offers [되돌리기] for NOTICE_MS and the request
@@ -43,22 +44,26 @@ function confirmPin(id){if(CONFIRMING.has(id))return; const at=REVIEW_ALL.findIn
       drawPins(); marks();});
   deferredNote(d,NOTICE_PLACE.ROW,tl('핀 #{id} 확인 · 완료로 옮겼습니다',{id}),{pin:id,sec:'review',prev});}
 // Undo of [완료] (its row's [되돌리기]) - the viewer has no [다시 열기] button any more; a reply reopens by the server rule.
-// Silent: the card comes back.
-async function reopenPin(id){try{await api('/api/pins/'+id+'/reopen',{method:'POST',what:'다시 열기',where:NOTICE_HOST.LIST});
-  markMine(id); quietNote(tl('핀 #{id} 완료를 되돌렸습니다',{id}));}catch(e){} await loadPins();}
-// [삭제] takes the pin off the list at once (no confirmation) and leaves a row in its place with [되돌리기] until the next press
-// elsewhere; it waits in the Trash. undoSave = the save chip's [되돌리기]: silent, as the composer comes back with the selection.
-async function dropPin(id,undoSave){const was=OPEN_ALL,applied=PINS_APPLIED_SEQ,prev=drawnBefore($('#pins'),'.pin.card',id);
+// Silent: the card comes back. Resolves with whether the pin was reopened (the row waits for it, noticeAct).
+/** @param {number} id @returns {Promise<boolean>} */
+async function reopenPin(id){let ok=false; try{await api('/api/pins/'+id+'/reopen',{method:'POST',what:'다시 열기',where:NOTICE_HOST.LIST});
+  ok=true; markMine(id); quietNote(tl('핀 #{id} 완료를 되돌렸습니다',{id}));}catch(e){} await loadPins(); return ok;}
+// [삭제] takes the pin off the list at once (no confirmation) and leaves a row in its place with [되돌리기] for NOTICE_MS; it
+// waits in the Trash. A failure puts the card back. undoSave = the save chip's [되돌리기]: silent, as the composer comes back
+// with the selection - and again = what that failure's [다시 시도] runs (the whole undo, so the composer comes back too).
+// Resolves with whether the pin was deleted.
+/** @param {number|null} id @param {boolean} undoSave @param {()=>unknown} [again] @returns {Promise<boolean>} */
+async function dropPin(id,undoSave,again){const was=OPEN_ALL,applied=PINS_APPLIED_SEQ,prev=drawnBefore($('#pins'),'.pin.card',id); let ok=false;
   OPEN_ALL=OPEN_ALL.filter(p=>p.id!==id); PINS=PINS.filter(p=>p.id!==id); if(EDITOR.current&&EDITOR.current.id===id)EDITOR.current=null; drawPins(); marks();
-  try{await api('/api/pins/'+id+'/drop',{method:'POST',what:'삭제',where:NOTICE_HOST.LIST,retry:()=>dropPin(id,undoSave)});
-    markMine(id);
+  try{await api('/api/pins/'+id+'/drop',{method:'POST',what:'삭제',where:NOTICE_HOST.LIST,retry:again||(()=>{dropPin(id,undoSave);})});
+    ok=true; markMine(id);
     if(undoSave)quietNote(tl('핀 #{id} 저장을 되돌렸습니다',{id}));
-    else undoNote(NOTICE_PLACE.ROW,tl('핀 #{id} 삭제됨 · 휴지통에 30일 보관',{id}),{label:'되돌리기',fn:()=>restorePin(id)},{pin:id,sec:'open',prev});}
+    else undoNote(NOTICE_PLACE.ROW,tl('핀 #{id} 삭제됨 · 휴지통에 30일 보관',{id}),{label:'되돌리기',wait:true,fn:()=>restorePin(id)},{pin:id,sec:'open',prev});}
   catch(e){if(PINS_APPLIED_SEQ===applied){const old=was.find(p=>p.id===id);
       if(old&&!OPEN_ALL.some(p=>p.id===id)){const next=was.slice(was.indexOf(old)+1).find(p=>OPEN_ALL.some(x=>x.id===p.id));
         const at=next?OPEN_ALL.findIndex(p=>p.id===next.id):OPEN_ALL.length;
         OPEN_ALL=[...OPEN_ALL.slice(0,at),old,...OPEN_ALL.slice(at)];
-        PINS=OPEN_ALL.filter(p=>pdoc(p)===DOC); drawPins(); marks();}}} await loadPins();}
+        PINS=OPEN_ALL.filter(p=>pdoc(p)===DOC); drawPins(); marks();}}} await loadPins(); return ok;}
 // [영구 삭제] (owner): the row leaves the Trash at once and a row in its place offers [되돌리기]; the request goes out when that
 // row does (deferred, NOTICE_MS).
 const PURGING=new Set();
@@ -68,8 +73,11 @@ function purgePin(id){const prev=drawnBefore($('#trash-list'),'.arc-row',id); PU
     ()=>{PURGING.delete(id); drawTrash(); drawPins();});
   deferredNote(d,NOTICE_PLACE.TRASH,tl('핀 #{id} 영구 삭제',{id}),{pin:id,prev});}
 // [되살리기] (the Trash, a deleted pin's row, a background message): the pin is back as it was. Silent - its card is there.
-async function restorePin(id){try{await api('/api/pins/'+id+'/restore',{method:'POST',what:'되살리기',where:NOTICE_HOST.LIST,retry:()=>restorePin(id)});
-  markMine(id); quietNote(tl('핀 #{id} 되살림',{id}));}catch(e){} await loadPins();}
+// Resolves with whether it was restored: a message whose action this is stays until then (noticeAct); a failure says itself
+// where it can be seen (bannerNote: the status line while the panel is closed).
+/** @param {number|null} id @returns {Promise<boolean>} */
+async function restorePin(id){let ok=false; try{await api('/api/pins/'+id+'/restore',{method:'POST',what:'되살리기',where:NOTICE_HOST.LIST,retry:()=>{restorePin(id);}});
+  ok=true; markMine(id); quietNote(tl('핀 #{id} 되살림',{id}));}catch(e){} await loadPins(); return ok;}
 // [풀기]: the in-progress mark goes. Silent - the badge goes with it.
 async function unclaimPin(id){try{await api('/api/pins/'+id+'/unclaim',{method:'POST',what:'처리 중 풀기',where:NOTICE_HOST.LIST,retry:()=>unclaimPin(id)});
   markMine(id); quietNote(tl('핀 #{id} 처리 중 표시를 풀었습니다',{id}));}catch(e){} await loadPins();}

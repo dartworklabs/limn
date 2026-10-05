@@ -69,7 +69,7 @@ async function pollBuildOnce(){
     if(k!==DOC||visit!==SWITCHSEQ)return;
     const secs=Math.round(b.elapsed_s||0);
     if(b.state===BUILD_STATE.OK){lineNote(tr(!buildsFromSource(META.kind)?'PDF가 바뀌어 쪽을 새로 그렸습니다':'PDF 재빌드 완료')+' · '+tl('{n}쪽',{n:META.pages.length})+' · '+tl('{s}초',{s:secs})+pullSuffix(b),NOTICE_KIND.OK,null,{life:NOTICE_LIFE.TIMER}); BUILD.error=null; BUILD_ERR_BY.delete(k); hideBuildErr();}
-    else if(b.state===BUILD_STATE.OK_ERRORS||b.state===BUILD_STATE.FAIL)showBuildErr(b);   // its panel opens; the line and the chips keep the failure
+    else if(b.state===BUILD_STATE.OK_ERRORS||b.state===BUILD_STATE.FAIL)showBuildErr(b,true);   // its panel opens and it is read out; the line and the chips keep the failure
   }else if(!booted&&(b.state===BUILD_STATE.FAIL||b.state===BUILD_STATE.OK_ERRORS)){
     showBuildErr(b);   // a freshly opened tab - a build that already failed just opens the panel/chip (leaves a way to look at it again)
   }

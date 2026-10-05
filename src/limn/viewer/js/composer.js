@@ -175,10 +175,10 @@ function restoreSelection(snap){if(!snap||COMPOSE.current||COMPOSE.picking||REPI
   renderComposer(); setSide(true); applySide(); if(LAYOUT!==LAYOUT_MODE.WIDE)revealBox(COMPOSE.box); if(LAST_PTR==='mouse')n.focus({preventScroll:true});
   return true;}
 // Esc and [취소] on a selection (docs/handbook/viewer.md §패널 정리): it goes at once, and when its note had text the status line
-// offers [되돌리기] until the next press elsewhere (its place, the composer, is gone), bringing back the selection, the note and
+// offers [되돌리기] for NOTICE_MS, which no other press ends (its place, the composer, is gone), bringing back the selection, the note and
 // the box - an undo instead of a confirmation. The stored draft stays for that window (a page left meanwhile still restores it)
 // and is removed when the offer goes.
 function discardSelection(){syncDraft(); const snap=selectionSnapshot(); cancelSelection(true);
   if(!(snap&&snap.cur&&snap.note.trim())){syncDraft(); return;}
-  const n=lineNote('선택 취소됨',NOTICE_KIND.OK,{label:'되돌리기',tip:'선택과 메모를 되살립니다',fn:()=>restoreSelection(snap)},{life:NOTICE_LIFE.CLICK});
+  const n=lineNote('선택 취소됨',NOTICE_KIND.OK,{label:'되돌리기',tip:'선택과 메모를 되살립니다',fn:()=>restoreSelection(snap)},{life:NOTICE_LIFE.TIMER});
   if(n)holdDraftUntil(n);}   // the kept draft goes when the window does

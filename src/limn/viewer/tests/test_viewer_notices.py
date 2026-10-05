@@ -13,8 +13,6 @@ Run: uv run pytest -q src/limn/viewer/tests/test_viewer_notices.py
 """
 
 import json
-import os
-import shutil
 import unittest
 
 from limn.pins.lifecycle.rules import CloseRequest
@@ -25,40 +23,14 @@ from helpers import add_pin, edit_stored, extract_js_fn, find_record, js_i18n, p
 from helpers_access import ALICE, actor
 from helpers_authority import post_authority
 from helpers_browser import BrowserBase, settle
+from helpers_notices import SCREENS, SEEN, WATCH_TOASTS, node_or_skip
 
 A = actor(ALICE)
-SCREENS = {
-    "phone": {
-        "viewport": {"width": 411, "height": 908},
-        "device_scale_factor": 2.63,
-        "is_mobile": True,
-        "has_touch": True,
-    },
-    "desktop": {"viewport": {"width": 1440, "height": 900}},
-}
-# First-visit hints already seen, so the status line starts empty unless a test wants a hint.
-SEEN = "try{localStorage.setItem('pinPrefs',JSON.stringify({coach:{touch:1,mouse:1,sel:1,side:1}}))}catch(e){}"
-# Records every toast-like element the page ever adds: #toasts, #coach, or anything of class toast - from the first
-# script on, so the boot's own messages count too.
-WATCH_TOASTS = (
-    "(()=>{const seen=window.TOASTS_SEEN=[];const hit=n=>n.nodeType===1&&(n.id==='toasts'||n.id==='coach'||"
-    "(n.classList&&n.classList.contains('toast'))||!!(n.querySelector&&n.querySelector('#toasts,#coach,.toast')));"
-    "new MutationObserver(ms=>{for(const m of ms)for(const n of m.addedNodes)if(hit(n))seen.push(n.id||n.className);})"
-    ".observe(document,{childList:true,subtree:true});})()"
-)
 # Records the viewer's POST /api/pins/<id>/confirm requests in window.CONFIRMS, before they are sent.
 COUNT_CONFIRMS = (
     "(()=>{window.CONFIRMS=[];const f=window.fetch;window.fetch=function(u,o){"
     "if(/\\/api\\/pins\\/\\d+\\/confirm/.test(String(u)))window.CONFIRMS.push(String(u));return f.call(this,u,o);};})()"
 )
-
-
-def node_or_skip(case):
-    """Skip without node, unless LIMN_TEST_REQUIRE_NODE=1 makes that a failure."""
-    if not shutil.which("node"):
-        if os.environ.get("LIMN_TEST_REQUIRE_NODE") == "1":
-            case.fail("node required (LIMN_TEST_REQUIRE_NODE=1) but not installed")
-        case.skipTest("node not available")
 
 
 class PureRules(unittest.TestCase):
@@ -160,15 +132,16 @@ class PureRules(unittest.TestCase):
         )
         self.assertEqual(got, [True, False, False, False, True])
 
-    def test_the_line_puts_its_messages_first(self):
-        """statusList: the line's messages (newest first) come before every build and sync item."""
+    def test_the_line_puts_its_messages_after_a_failure_and_before_the_rest(self):
+        """statusList: the line's messages that are not errors (newest first) come after a build failure and a lost
+        connection - errors outrank information - and before every other build and sync item."""
         got = self.run_js(
             ["statusProgress", "statusList"],
             """const n1={n:1},n2={n:2};
             const L=statusList({notices:[n2,n1],build:null,buildErr:{state:'fail'},offline:true,sync:null,stale:true,png:false,canRebuild:true,unchanged:null});
             console.log(JSON.stringify(L.map(i=>i.kind+(i.notice?i.notice.n:''))));""",
         )
-        self.assertEqual(got, ["notice2", "notice1", "failed", "offline", "stale"])
+        self.assertEqual(got, ["failed", "offline", "notice2", "notice1", "stale"])
 
     def test_a_confirm_conflict_warns_when_closed_again_and_informs_when_already_done(self):
         """confirmConflictKind follows confirmConflictText's rule: a pin still awaiting review (or none, an older server)
@@ -462,7 +435,7 @@ class NoticeFlows(BrowserBase):
     def test_a_delete_leaves_a_row_with_undo_in_the_cards_place(self):
         """[삭제]: the card goes and a row '핀 #N 삭제됨 · 휴지통에 30일 보관 [되돌리기]' takes its place between its
         neighbours, read out politely; its text and buttons centred and, on touch, its buttons 44px hits. [되돌리기]
-        brings the pin back and the row goes; a later delete's row goes at the next press elsewhere."""
+        brings the pin back and the row goes; a later delete's row stays through a press elsewhere, and [x] takes it."""
         for screen in SCREENS:
             with self.subTest(screen=screen):
                 self.tearDown()
@@ -495,6 +468,8 @@ class NoticeFlows(BrowserBase):
                 page.click('#pins .pin[data-id="%d"] [data-act=drop]' % mid)
                 page.locator("#pins > .nt-row").wait_for(state="visible")
                 page.evaluate("document.body.click()")  # a press elsewhere
+                self.assertEqual(page.locator(".nt-row").count(), 1)
+                page.locator("#pins > .nt-row [data-act=notice-x]").click()
                 self.assertEqual(page.locator(".nt-row").count(), 0)
                 self.no_toast(page)
 

@@ -23,14 +23,20 @@ async function refreshDoc(meta){const a=topAnchor(),k=DOC,seq=SWITCHSEQ;
   restoreAnchor(a); vecOpen(); if(document.body.classList.contains('revision-open'))loadRevisions(); await loadPins();}
 // On ok_errors|fail, the panel itself is opened right away: it is where a failed build is said (with the pull's line,
 // pullSuffix), and the status line's failure item (compact) and #build-err-chip (the desktop's chips, while the panel is not on
-// screen: syncBuildErrChip) keep a way to open it again as long as BUILD.error exists.
-function showBuildErr(r){BUILD.error=r; if(DOC)BUILD_ERR_BY.set(DOC,r); const b=$('#build-err');
-  const title=tr(r.state===BUILD_STATE.FAIL?'빌드 실패 — 화면은 이전 PDF입니다':'PDF를 재빌드했지만 LaTeX 오류가 있습니다')+pullSuffix(r);
+// screen: syncBuildErrChip) keep a way to open it again as long as BUILD.error exists. say = a build this visit watched has
+// just failed: its title is read out as an alert too (rule 1) - the desktop's panel and chip are no live region.
+/** @param {any} r @param {boolean} [say] */
+function showBuildErr(r,say){BUILD.error=r; if(DOC)BUILD_ERR_BY.set(DOC,r); const b=$('#build-err');
+  const title=buildErrTitle(r); if(say)announce(title,true);
   const log=String(r.log_tail||r.log||'').split('\n').slice(-20).join('\n');
   const close=html`<button class="btn-sm" data-act="err-close" data-tip="이 알림을 닫습니다(다시 보기는 위 배지로)">닫기</button>`;
   const errors=(r.errors||[]).map(e=>html`<div class="dim">${e.line?'L'+e.line+' · ':''}${e.msg}</div>`);
   setHtml(b,html`<div class="row"><b>${title}</b><span class="sp"></span>${close}</div>${errors}<pre class="nowrap" style="max-height:30vh">${log}</pre>`);
   b.hidden=false; syncBuildErrChip();}
+// The title of build r's failure (fail) or its LaTeX errors (ok_errors), with the pull's line: the error panel's, and what
+// showBuildErr reads out.
+/** @param {any} r @returns {string} */
+function buildErrTitle(r){return tr(r.state===BUILD_STATE.FAIL?'빌드 실패 — 화면은 이전 PDF입니다':'PDF를 재빌드했지만 LaTeX 오류가 있습니다')+pullSuffix(r);}
 // Closes the build error panel; its chip stays while the error does (syncBuildErrChip).
 function hideBuildErr(){$('#build-err').hidden=true; syncBuildErrChip();}
 // #build-err-chip ('빌드 오류 · 다시 보기') shows while there is a build error whose panel is not on screen: closed, or inside a
