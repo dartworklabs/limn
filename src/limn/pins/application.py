@@ -167,7 +167,7 @@ def assemble_pins(
     remote_base_for: Callable[[str], str],
     refresh_watched: Callable[[str], object] = lambda key: None,
 ) -> PinSubsystem:
-    """Assemble pin reads, transactions, routes and startup using explicit deferred ports. refresh_watched brings the
+    """Assemble pin reads, transactions, routes and startup using explicit deferred collaborators. refresh_watched brings the
     files of a watched document (by key) up to date - the sync capability's pull and the builds' import, wired by the
     composition root - and runs before an agent's close of one of its pins is written
     (docs/handbook/api.md §닫을 때 사유 남기기)."""

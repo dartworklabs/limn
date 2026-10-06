@@ -19,14 +19,14 @@
 
 ## 현재 구조
 
-Limn은 하나의 `dartwork-limn` 배포 안에서 기능 소유권으로 나눈다. `src/limn/` 바로 아래에는 기능 패키지와 경계 패키지가 있고, Python 파일은 버전 선언과 CLI·서버 진입점만 둔다. 핀의 모델·저장·렌더·위치 계산·요청 처리는 모두 하나의 `pins/`가 소유한다. `features/`나 별도의 공통 핀 패키지를 두지 않는다. 여러 기능에서 읽는다는 이유로 코드를 공용으로 빼지 않고, 소유 기능의 공개 동작과 값으로 접근한다.
+Limn은 하나의 `dartwork-limn` 배포 안에서 기능 소유권으로 나눈다. `src/limn/` 바로 아래에는 기능 패키지와 경계 패키지가 있고, Python 파일은 버전 선언과 CLI·서버 진입점만 둔다. 핀의 모델·저장·렌더·위치 계산·요청 처리는 모두 하나의 `pins/`가 소유한다. `features/`나 별도의 공통 핀 패키지를 두지 않는다. 여러 기능에서 읽는다는 이유로 코드를 공용으로 빼지 않고, 소유 기능이 답하는 조회를 조립 지점에서 주입받는다.
 
 | 소유권 | 경로 | 함께 바뀌는 것 |
 | --- | --- | --- |
-| 핀 | `pins/` | 모델·레코드·스레드 규칙, `store.py`의 트랜잭션, `context.py`의 실행 협력자, `revision.py`의 비교용 핀 사실. `application.py`와 `runtime.py`가 조회 계약·실행 협력자·경로를 조립한다. 만들기·편집은 `editing/`, 처리 중 표시는 `claims/`, 전이는 `lifecycle/`, 삭제·복원은 `trash/`, 조회·Markdown은 `listing/`, 원문·PDF 위치 계산은 `location/` |
+| 핀 | `pins/` | 모델·레코드·스레드 규칙, `store.py`의 트랜잭션, `context.py`의 실행 협력자, `revision.py`의 비교용 핀 사실. `application.py`와 `runtime.py`가 조회 계약·실행 협력자·경로를 조립한다. `needs.py`는 주입받는 빌드 조회와 그 답에서 읽는 멤버를 Protocol로 선언하고, `notice.py`는 핀이 내보내는 알림 값 `PinNotice`를 소유한다. 만들기·편집은 `editing/`, 처리 중 표시는 `claims/`, 전이는 `lifecycle/`, 삭제·복원은 `trash/`, 조회·Markdown은 `listing/`, 원문·PDF 위치 계산은 `location/` |
 | 빌드 | `builds/` | 결과 값(`values.py`), 산출물·이력·원고 지문(`artifacts.py`), 요청 시점의 파일·쪽 사실(`document_facts.py`), 컴파일·재빌드·PDF 감시·그림 지도 파싱(`figure_map.py`)·PDF/지도 가져오기(`figure.py`)와 응답 |
-| 협업 | `collaboration/` | 사람 후보·방문 기록 연결, `events.jsonl`, 멘션 알림·폴링. 핀의 태그·차례 규칙은 핀 소유권에 남고 공개 값·동작으로 받는다 |
-| 문서 조회 | `documents/` | 문서 탭·meta·목차 응답과 파싱. 실행별 문서 자원은 `runtime/documents.py`가 소유한다 |
+| 협업 | `collaboration/` | 사람 후보·방문 기록 연결, `events.jsonl`, 멘션 알림·폴링. 핀의 태그·차례 규칙은 핀 소유권에 남고 조립 지점이 주입하는 값·동작으로 받는다. 받는 알림의 필드는 `contracts.py`의 `Notice` Protocol로 선언한다 |
+| 문서 조회 | `documents/` | 문서 탭·meta·목차 응답과 파싱. `needs.py`는 주입받는 핀 수 조회·빌드 사실 조회와 그 답에서 읽는 멤버를 Protocol로 선언한다. 실행별 문서 자원은 `runtime/documents.py`가 소유한다 |
 | 비교 | `revisions/` | Git 이력·원고 diff·격리 비교 PDF·작업 캐시와 응답. `scope.py`가 diff 파싱·핀 범위 귀속·범위 패치와 사본 쓰기 계획을, `macros.py`가 latexdiff에 글 명령으로 넘길 원고 정의 명령의 판정을 소유한다. `needs.py`는 주입받는 핀 조회와 그 답에서 읽는 필드를 Protocol로 선언한다 |
 | 동기화 | `sync/` | 원격 main 감시·fast-forward·문서별 재빌드 선택 |
 | 관리 | `administration/` | 토큰·멤버 명령, 문서 실행 인자, 이관, 인스턴스 셸과 `systemd/` 템플릿 |
@@ -34,27 +34,27 @@ Limn은 하나의 `dartwork-limn` 배포 안에서 기능 소유권으로 나눈
 | 실행 자원 | `runtime/` | 시작 규칙·인자·얼린 설정, 실행별 문서와 잠금, 상태 파일의 고정 위치(`paths.py`), `resources.py`의 자원 수명과 감시 스레드 정리 |
 | 보안 | `security/` | 신원·Host/Origin·역할·권한 발급, 사람 사실, 인증 안내, 감사 파일 |
 | 기능 독립 장치 | `platform/` | 원자적 파일 교체·검사된 원고 핸들(`files.py`), Git 프로세스(`git.py`), JSON 숫자 판정(`values.py`), 제한된 텍스트(`text.py`) |
-| HTTP 전송 | `web/` | 처리기·요청 파서·응답과 경로 등록 계약. `WebApplication`은 요청 경계의 구체 포트만 묶으며 기능 서비스와 오류 표를 소유하지 않는다 |
+| HTTP 전송 | `web/` | 처리기·요청 파서·응답과 경로 등록 계약. `WebApplication`은 요청 경계의 구체 협력자만 묶으며 기능 서비스와 오류 표를 소유하지 않는다 |
 | 조립·진입점 | `server.py`, `cli.py`, `__main__.py` | 자원 생성과 기능 연결·명령 전달. 서버는 기능별 조립 결과를 연결하고 시작·리스닝·종료 순서를 정한다 |
 
 각 기능의 테스트는 같은 패키지의 `tests/`에 있다. 루트 `tests/`에는 여러 기능을 관통하는 계약·아키텍처 검사와 공용 테스트 도우미·고정 입력만 둔다. 경로별 변경 trigger는 [index.md](index.md) §파일 지도에 있다.
 
 ## 의존 방향
 
-의존 방향은 폴더 깊이가 아니라 실제 import 그래프로 정한다. 기능은 다른 기능의 `__init__.py`에 선언된 값·동작만 사용한다. 핀의 여섯 동작 폴더는 서로 다른 공용 도메인을 가진 별도 슬라이스가 아니라 하나의 핀 소유권 안의 동작 묶음이다.
+의존 방향은 폴더 깊이가 아니라 실제 import 그래프로 정한다. 기능은 다른 기능을 import하지 않는다. 공개한 이름이든 내부 모듈이든, 모듈 맨 위든 `TYPE_CHECKING` 아래나 함수 안이든 같다. 다른 기능의 사실이 필요한 기능은 받을 모양을 자기 안에 선언한다. 구조를 가진 값은 읽을 멤버만 담은 읽기 전용 Protocol로 `needs.py`에 두고(협업이 받는 알림은 `contracts.py`), 평범한 값만 받는 조회는 조립 함수의 인자 타입이 선언이다. 값을 내보내는 기능은 그 값을 스스로 소유한다. 조립 지점(`server.py`·`cli.py`)만 기능의 표면을 import해서 공급자를 주입한다. 공급자가 넘기는 값이 소비자의 선언을 충족하는지는 `server.py`를 검사하는 mypy가 확인한다. 핀의 여섯 동작 폴더는 서로 다른 공용 도메인을 가진 별도 슬라이스가 아니라 하나의 핀 소유권 안의 동작 묶음이다.
 
 ```text
 server.py / cli.py                 실행 자원 생성·기능 조립
         │
         ▼
-기능 패키지                       공개 동작·값으로만 기능 간 호출
+기능 패키지                       서로 import하지 않고 주입받은 값·동작만 사용
         │
         ▼
 runtime/ · security/ · platform/ · web/   기능 구현을 import하지 않는 경계
 ```
 
-- 기능의 공개 표면은 `__init__.py`의 `__all__`로 선언한다. 기능별 조립 함수·조회/명령 계약·조립에 필요한 자원과 결과값만 공개한다. 저장소·파서·렌더·라우트 구현은 내부에 둔다. 요청한 export만 지연 로드하므로 조회 계약을 가져오는 일이 HTTP나 실행 자원을 초기화하지 않는다. 소유 기능 안에서는 내부 모듈을 직접 import할 수 있다.
-- `tools/check_boundaries.py`가 모든 기능의 비공개 접근·경계 코드의 기능 의존·기능 순환을 검사한다. `CROSSING_NAMES`는 기능 쌍마다 허용한 이름을, `ENTRYPOINT_IMPORTS`는 진입점의 조립 import를 제한한다. 공개 이름을 추가하는 것만으로 다른 기능의 접근이 허용되지 않는다. 공용 모듈 여러 개를 거친 경로와 패키지 초기화도 계산한다([verification.md](verification.md) §10).
+- 기능의 표면은 `__init__.py`의 `__all__`로 선언한다. `__all__`에는 진입점이 import하는 이름(조립 함수와 그 결과 타입, 조립에 필요한 자원 타입, CLI 명령)과 `tools/check_boundaries.py`의 `TEST_EXPORTS`에 사유와 함께 적은 이름만 둔다. `TEST_EXPORTS`의 이름은 다른 슬라이스의 테스트가 공급자의 실제 값을 만들어 넘길 때 쓴다. 조회 계약의 타입과 저장소·파서·렌더·라우트 구현은 정의된 모듈에 남고 프로덕션 코드에서는 같은 기능 안에서만 import한다. 요청한 export만 지연 로드하므로 이름 하나를 가져오는 일이 HTTP나 실행 자원을 초기화하지 않는다. 소유 기능 안에서는 내부 모듈을 직접 import할 수 있다.
+- `tools/check_boundaries.py`가 이 규칙을 모든 기능에 집행한다. 기능 모듈이 다른 기능의 것을 import하면 공개한 이름이어도 실패한다. 진입점은 `ENTRYPOINT_IMPORTS`에 적은 이름만 기능 패키지에서 import하고, 진입점을 import하는 것은 진입점뿐이다. `__all__`의 이름마다 승인된 진입점 import나 `TEST_EXPORTS` 항목이 있어야 하고, 쓰이지 않는 승인도 실패하므로 두 목록은 실제 import와 같다. 경계 코드가 기능에 닿는 경로는 공용 모듈 여러 개와 패키지 초기화를 거친 것까지 계산한다([verification.md](verification.md) §10).
 - 핀 모델·레코드·스레드·전이 규칙, 위치 계산과 순수 렌더는 I/O·HTTP를 import하지 않는다. 같은 `pins/` 안의 `store.py`·서비스·HTTP 어댑터는 부수효과를 담당한다. 패키지 전체를 순수 도메인이라고 부르지 않는다.
 - `runtime/documents.py`의 문서는 실행별 경로·잠금·상태를 가진다. 빌드 산출물을 읽는 `DocumentFacts`는 `builds/document_facts.py`에 있고, 실행 설정은 기능 구현을 import하지 않는다.
 - 빌드 실패 문구는 `builds/answer.py`, 비교·핀 범위 실패 문구는 `revisions/answer.py`가 소유한다. 공통 HTTP 오류 모듈은 이 기능들을 import하지 않는다.
@@ -62,20 +62,20 @@ runtime/ · security/ · platform/ · web/   기능 구현을 import하지 않�
 - 예상된 거절은 결과 값으로 전달하고 기능의 HTTP 입구가 상태 코드로 바꾼다. 신원·권한 실패와 요청 크기 초과는 `HTTPError`로 처리기에서 즉시 거부한다.
 - `RuntimeResources`는 실행별 잠금·캐시·감시 스레드를 소유한다. 기능 자원의 구체 타입은 조립 지점에서 연결하므로 실행 경계가 기능을 import하지 않는다. 서버 두 벌의 상태는 서로 공유하지 않는다. 시작 도중 실패하면 그 실행에서 시작한 감시만 정리한다. 소켓 닫기가 실패해도 감시 스레드를 정리하고 최초 오류를 보존한다.
 
-각 기능의 `assemble_*()`는 자신의 서비스와 HTTP 경로를 묶은 subsystem을 반환한다. `server.py`의 `ServerAssembly`는 이 결과들을 보관하는 값이며 기능 동작을 대신 수행하지 않는다. `WebApplication`에는 보안 검사, 문서 선택, 경로 등록과 방문 기록 포트만 전달한다. 뷰어 오류 메시지와 설정도 명시적인 읽기 함수로 받는다. HTTP 처리기가 저장소나 기능 서비스 전체를 찾아 쓰는 구조를 허용하지 않는다.
+각 기능의 `assemble_*()`는 자신의 서비스와 HTTP 경로를 묶은 subsystem을 반환한다. `server.py`의 `ServerAssembly`는 이 결과들을 보관하는 값이며 기능 동작을 대신 수행하지 않는다. `WebApplication`에는 보안 검사, 문서 선택, 경로 등록과 방문 기록 협력자만 전달한다. 뷰어 오류 메시지와 설정도 명시적인 읽기 함수로 받는다. HTTP 처리기가 저장소나 기능 서비스 전체를 찾아 쓰는 구조를 허용하지 않는다.
 
-기능 간 조회 계약은 아래와 같다. 소비자는 공급자의 자료를 재조립하지 않고 필요한 사실을 질의한다. 쓰기·알림·동기화처럼 import 방향과 별개인 실행 연결은 조립 지점이 구체 명령이나 작은 콜백을 넘긴다. 범용 컨테이너나 이벤트 버스는 두지 않는다.
+기능 사이에 오가는 사실은 아래와 같다. 모든 행에서 조립 지점이 공급자의 조회나 콜백을 주입하고, 소비 기능은 공급 기능을 import하지 않는다. 소비자는 공급자의 자료를 재조립하지 않고 필요한 사실을 질의한다. 쓰기·알림·동기화처럼 import 방향과 별개인 실행 연결은 조립 지점이 구체 명령이나 작은 콜백을 넘긴다. 범용 컨테이너나 이벤트 버스는 두지 않는다.
 
-| 소비 기능 | 공급 기능 | 허용 계약과 목적 |
+| 소비 기능 | 공급 기능 | 주입받는 것과 목적 |
 | --- | --- | --- |
-| 협업 | 핀 | 조립 지점이 주입하는 참여자 조회: `login`·`name`·`pic`만 가진 평탄한 배우 사실. 작성자·스레드의 해석은 핀이 수행하며 원문 위치·메모·저장 레코드는 넘기지 않는다 |
-| 문서 조회 | 핀 | 조립 지점이 주입하는 핀 수 조회(`PinCountQueries`): 문서별 열린 핀 수·상태 요약·변경 토큰. 받는 모양은 소비 기능이 `needs.py`에 선언한 Protocol(`PinCounts`)이고 문서 조회는 핀을 import하지 않는다. 파일의 위치와 stat 해석은 핀이 소유한다 |
-| 문서 조회 | 빌드 | 조립 지점이 주입하는 빌드 사실 조회(`DocumentBuildQueries`): 완성된 문서/meta의 빌드 응답 조각과 크기를 제한한 목차 입력. 받는 모양은 소비 기능이 `needs.py`에 선언한 Protocol(`BuildFacts`·`BuildSummary`·`PublishedOutline`)이고 문서 조회는 빌드를 import하지 않는다. 기본 공급자가 없으므로 조회 함수의 호출자가 공급자를 넘긴다. 소비자는 쪽 폴더를 glob하거나 marker를 읽지 않는다 |
-| 핀 | 빌드 | 조립 지점이 주입하는 빌드 조회 묶음(`PinBuildQueries`): 선택된 발행본의 PDF 자산·상태, 원고가 같은 빌드 집합, 머리말, 선택된 요소·사다리 사실, 요소 따라가기 결과, 입력 파싱용 문서 사실. 받는 모양은 핀이 `needs.py`에 선언한 읽기 전용 Protocol(묶음 `BuildAnswers`와 그 답 `BuildOnScreen`·`EstimationFacts`·`HeadingStamps`·`ElementChoice`·`FigureMapUnavailable`·`FigureElement`·`FollowedElement`)이고 핀은 빌드를 포함한 어떤 기능도 import하지 않는다. 핀은 자신이 읽는 멤버만 선언하며, 빌드가 넘기는 값이 이 Protocol을 충족하는지는 `server.py`의 타입 검사가 확인한다. 요소 선택의 두 답은 실행 중에 `reason` 멤버의 유무로 가르므로(`FigureMapUnavailable`은 런타임 검사가 되는 Protocol이다) 선택된 요소 쪽 값은 `reason`을 갖지 않는다. 핀은 이 조회 묶음을 직접 만들지 않고 `assemble_pins()`가 받은 것을 필수 인자로 내려 쓴다. 지도 객체·원본 이력·상태는 빌드 안에 남는다 |
-| 핀 | 협업 | 조립 지점이 주입하는 알림 전달 콜백. 핀은 자신이 소유한 값 `PinNotice`(`pins/notice.py`)에 문서·행위자·수신자·본문 사실을 담아 넘기고 협업을 import하지 않는다. 협업은 읽는 필드만 `Notice` Protocol(`collaboration/contracts.py`)로 선언하고 알림 값을 만들지 않으며, 수신자 필터·발췌·직렬화·전달을 소유하고 핀이나 스레드 레코드를 해석하지 않는다. 조립 지점은 값을 변환하지 않고 그대로 넘기므로 두 선언의 일치는 `server.py`의 타입 검사가 확인한다 |
-| 비교 | 핀 | 조립 지점이 주입하는 핀 조회(`revisions/needs.py`의 `PinQuery`): 현재 위치로 해석한 비교용 투영과 닫힘 참조. 비교는 자신이 읽는 필드만 `needs.py`에 읽기 전용 Protocol(`PinProjection`·`LocatedPin`·`PinAnchor`·`PinChange`)로 선언하고 핀을 포함한 어떤 기능도 import하지 않는다. 핀이 넘기는 값이 이 Protocol을 충족하는지는 `server.py`의 타입 검사가 확인한다. 순수 귀속 판단(`scope.py`)은 위치 사실(`LocatedPin`)만 받는다. Git/PR 참조 해석·변경 후보 선택·diff 해석·범위 귀속은 비교가 수행하며 Git 이력을 핀에 넘기지 않는다 |
-| 동기화 | 빌드 | 조립 지점이 주입하는 발행 커밋·마지막 실패 조회: 재빌드 선택과 상태 정착 판단은 동기화가 수행하며 marker 경로·빌드 상태 표현은 읽지 않는다 |
-| 비교 | 빌드 | 조립 지점이 주입하는 그림 문서 조회(`RevisionBuildQueries`): 이력을 볼 파일 목록과 겹쳐 보기의 두 빌드(완성된 JSON 조각). 지도·쪽 폴더·빌드 이력은 빌드 안에 남고, Git 범위와 이력 읽기는 비교가 수행한다 |
+| 협업 | 핀 | 참여자 조회: `login`·`name`·`pic`만 가진 평탄한 배우 사실. 작성자·스레드의 해석은 핀이 수행하며 원문 위치·메모·저장 레코드는 넘기지 않는다 |
+| 문서 조회 | 핀 | 핀 수 조회(핀의 `PinCountQueries`): 문서별 열린 핀 수·상태 요약·변경 토큰. 받는 모양은 `documents/needs.py`의 `PinCounts`다. 파일의 위치와 stat 해석은 핀이 소유한다 |
+| 문서 조회 | 빌드 | 빌드 사실 조회(빌드의 `DocumentBuildQueries`): 완성된 문서/meta의 빌드 응답 조각과 크기를 제한한 목차 입력. 받는 모양은 `documents/needs.py`의 `BuildFacts`·`BuildSummary`·`PublishedOutline`이다. 기본 공급자가 없으므로 조회 함수의 호출자가 공급자를 넘긴다. 소비자는 쪽 폴더를 glob하거나 marker를 읽지 않는다 |
+| 핀 | 빌드 | 빌드 조회 묶음(빌드의 `PinBuildQueries`): 선택된 발행본의 PDF 자산·상태, 원고가 같은 빌드 집합, 머리말, 선택된 요소·사다리 사실, 요소 따라가기 결과, 입력 파싱용 문서 사실. 받는 모양은 `pins/needs.py`의 묶음 `BuildAnswers`와 그 답 `BuildOnScreen`·`EstimationFacts`·`HeadingStamps`·`ElementChoice`·`FigureMapUnavailable`·`FigureElement`·`FollowedElement`이며 핀은 자신이 읽는 멤버만 선언한다. 요소 선택의 두 답은 실행 중에 `reason` 멤버의 유무로 가르므로(`FigureMapUnavailable`은 런타임 검사가 되는 Protocol이다) 선택된 요소 쪽 값은 `reason`을 갖지 않는다. 핀은 이 조회 묶음을 직접 만들지 않고 `assemble_pins()`가 받은 것을 필수 인자로 내려 쓴다. 지도 객체·원본 이력·상태는 빌드 안에 남는다 |
+| 핀 | 협업 | 알림 전달 콜백. 핀은 자신이 소유한 값 `PinNotice`(`pins/notice.py`)에 문서·행위자·수신자·본문 사실을 담아 넘긴다. 협업은 읽는 필드만 `Notice` Protocol(`collaboration/contracts.py`)로 선언하고 알림 값을 만들지 않으며, 수신자 필터·발췌·직렬화·전달을 소유하고 핀이나 스레드 레코드를 해석하지 않는다. 조립 지점은 값을 변환하지 않고 그대로 넘긴다 |
+| 비교 | 핀 | 핀 조회(`revisions/needs.py`의 `PinQuery`): 현재 위치로 해석한 비교용 투영과 닫힘 참조. 받는 모양은 같은 파일의 `PinProjection`·`LocatedPin`·`PinAnchor`·`PinChange`이며 비교는 자신이 읽는 필드만 선언한다. 순수 귀속 판단(`scope.py`)은 위치 사실(`LocatedPin`)만 받는다. Git/PR 참조 해석·변경 후보 선택·diff 해석·범위 귀속은 비교가 수행하며 Git 이력을 핀에 넘기지 않는다 |
+| 동기화 | 빌드 | 발행 커밋·마지막 실패 조회: 재빌드 선택과 상태 정착 판단은 동기화가 수행하며 marker 경로·빌드 상태 표현은 읽지 않는다 |
+| 비교 | 빌드 | 그림 문서 조회(빌드의 `RevisionBuildQueries`): 이력을 볼 파일 목록과 겹쳐 보기의 두 빌드(완성된 JSON 조각). 지도·쪽 폴더·빌드 이력은 빌드 안에 남고, Git 범위와 이력 읽기는 비교가 수행한다 |
 
 빌드는 marker·발행본 경로·원고 지문과 지도 그래프를 해석하는 유일한 기능이다. 드래그는 화면에 있던 발행본으로 질의하며 현재 발행본으로 대체하지 않는다. 지도 캐시는 실행별 자원이며 원고를 읽을 때의 검사된 파일 핸들을 대신하지 않는다. 소비자에게 넘기는 PDF 경로는 SyncTeX·텍스트 추출의 실제 입력이고, 다른 산출물 경로를 추측하는 손잡이가 아니다. `BuildView`와 `PinReadView` 같은 여러 소비자의 내부 자료를 한꺼번에 노출하는 공개 조회 표면은 두지 않는다.
 

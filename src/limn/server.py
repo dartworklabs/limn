@@ -36,7 +36,7 @@ from typing import ClassVar, TypeAlias
 if __package__ in (None, ""):
     # Run as a file (python .../limn/server.py, how instances start): make the sibling modules importable as limn.*.
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-# Capability implementations assemble their own routes; this entrypoint only wires run ports.
+# Capability implementations assemble their own routes; this entrypoint only wires what the run supplies.
 from limn.administration import doc_start_line, docs_of, pick_documents
 from limn.builds import (
     BuildMapCache,
@@ -205,7 +205,7 @@ def timestamp() -> str:
 
 
 def assemble_application(config: RunConfig, runtime: RunResources) -> ServerAssembly:
-    """Wire capability ports without reading or writing application files."""
+    """Wire the capabilities to their collaborators without reading or writing application files."""
     environment = RunEnvironment(config, runtime)
 
     def settings() -> RunConfig:

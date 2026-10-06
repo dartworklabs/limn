@@ -166,7 +166,7 @@ class NoServerState(unittest.TestCase):
     def test_importing_build_view_does_not_load_http_adapters(self):
         """The cross-capability read contract must not initialize route or HTTP modules."""
         code = (
-            "import sys; from limn.builds import PinBuildQueries; "
+            "import sys; from limn.builds.contracts import PinBuildQueries; "
             "print(sorted(n for n in sys.modules if n in {'limn.builds.http', 'limn.builds.routes'}))"
         )
         result = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, check=False)

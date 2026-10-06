@@ -4,29 +4,18 @@ from importlib import import_module
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from .application import ViewerSubsystem as ViewerSubsystem, assemble_viewer as assemble_viewer
+    from .application import assemble_viewer as assemble_viewer
     from .assemble import (
         ServedViewer as ServedViewer,
-        ViewerFiles as ViewerFiles,
         default_pdfjs_dir as default_pdfjs_dir,
         read_viewer as read_viewer,
         serve_viewer as serve_viewer,
     )
 
-__all__ = [
-    "ServedViewer",
-    "ViewerFiles",
-    "ViewerSubsystem",
-    "assemble_viewer",
-    "default_pdfjs_dir",
-    "read_viewer",
-    "serve_viewer",
-]
+__all__ = ["ServedViewer", "assemble_viewer", "default_pdfjs_dir", "read_viewer", "serve_viewer"]
 
 _EXPORTS = {
     "ServedViewer": ("assemble", "ServedViewer"),
-    "ViewerFiles": ("assemble", "ViewerFiles"),
-    "ViewerSubsystem": ("application", "ViewerSubsystem"),
     "assemble_viewer": ("application", "assemble_viewer"),
     "default_pdfjs_dir": ("assemble", "default_pdfjs_dir"),
     "read_viewer": ("assemble", "read_viewer"),

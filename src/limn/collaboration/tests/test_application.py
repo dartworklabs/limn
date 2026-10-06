@@ -7,7 +7,7 @@ import threading
 import unittest
 from pathlib import Path
 
-from limn.collaboration import PeopleView
+from limn.collaboration.application import PeopleView
 from limn.pins.application import PinReadView
 from limn.pins.model import parse_pin
 from limn.security import people
@@ -43,7 +43,7 @@ class PeopleViewTests(unittest.TestCase):
     def test_importing_people_view_does_not_load_http_adapters(self) -> None:
         """The people contract remains importable without collaboration routes."""
         code = (
-            "import sys; from limn.collaboration import PeopleView; "
+            "import sys; from limn.collaboration.application import PeopleView; "
             "print(sorted(n for n in sys.modules if n.startswith('limn.collaboration.') and (n.endswith('.http') or n.endswith('.routes'))))"
         )
         result = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, check=False)

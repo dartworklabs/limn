@@ -2,7 +2,7 @@
 
 Every route's statuses, headers and bodies are pinned end to end through the handler in test_server.py, test_access.py
 and the feature files. Here: the binding contract (server.py provides everything limn.web.app.App names, and the
-handler sees a route port replaced on its bound application), the import direction (limn.web never imports server.py), the
+handler sees a route table replaced on its bound application), the import direction (limn.web never imports server.py), the
 package name (server.py still runs as a file), the handler's shape read from its source (no route reads the body or
 query itself; it raises only its own transport refusals), the order of the guard checks on every route, and the answers
 and error pages as plain functions.
@@ -101,7 +101,7 @@ class Binding(Base):
         self.assertEqual(not_callable, [])
 
     def test_handler_has_no_capability_service_locator(self):
-        """The HTTP application exposes only its concrete request-boundary ports."""
+        """The HTTP application exposes only its concrete request-boundary collaborators."""
         self.assertEqual(
             set(app_members()), {"settings", "guards", "selector", "routes", "recorder", "messages", "header_text"}
         )
@@ -112,7 +112,7 @@ class Binding(Base):
             self.assertEqual(response.split(b"\r\n\r\n", 1)[1], b"<p>rebound</p>")
 
     def test_handler_subclasses_can_use_distinct_app_collaborators(self):
-        """Two listeners can replace route ports without mutating each other's assembly."""
+        """Two listeners can replace route tables without mutating each other's assembly."""
         original = ps.Handler.app
         pages = []
         for label in ("First", "Second"):

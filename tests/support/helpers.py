@@ -434,7 +434,7 @@ Tail paragraph zetaunique.
 
 
 class ApplicationFixture:
-    """Adapt legacy test helpers to an assembly without widening the production HTTP ports."""
+    """Adapt legacy test helpers to an assembly without widening the production HTTP collaborators."""
 
     def __init__(self, settings, runtime, module=ps):
         """Create an isolated assembly; callbacks read its current test settings and resources."""
