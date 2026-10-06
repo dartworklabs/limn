@@ -1,6 +1,8 @@
 """Shared pin predicates and purity boundaries remain independent of mutation features."""
 
 import ast
+import subprocess
+import sys
 import unittest
 from pathlib import Path
 
@@ -57,12 +59,13 @@ PURE_TEXT_IMPORTS = {
 
 # What limn.pins.needs may import - declarations only: no feature, no effect.
 NEEDS_IMPORTS = {
+    "__future__",
     "collections.abc",
     "pathlib",
     "typing",
     "limn.pins.element",  # the element box shape; pure (src/limn/pins/tests/test_element.py)
     "limn.runtime.documents",  # Doc, the argument of every build question
-    "limn.web.parse",  # DocumentFacts, the boundary type one question answers
+    "limn.web.parse",  # DocumentFacts, the boundary type one question answers; under TYPE_CHECKING only (checked below)
 }
 
 
@@ -134,6 +137,15 @@ class NeedsPurity(unittest.TestCase):
             elif isinstance(node, ast.ImportFrom):
                 imported.add(node.module or "")
         self.assertLessEqual(imported, NEEDS_IMPORTS)
+
+    def test_loading_the_needs_module_loads_no_http_or_file_module(self):
+        """Importing needs.py in a fresh interpreter loads neither the HTTP layer nor the file module: the boundary
+        type it names (limn.web.parse.DocumentFacts) is imported for type checking only, so the pure pin modules
+        that name a build fact do not pull those in at run time."""
+        code = "import sys, limn.pins.needs; print(*sorted(m for m in sys.modules if m.startswith('limn.')))"
+        loaded = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, check=True).stdout.split()
+        self.assertIn("limn.pins.needs", loaded)
+        self.assertEqual([m for m in loaded if m.startswith("limn.web") or m == "limn.platform.files"], [])
 
 
 class States(unittest.TestCase):

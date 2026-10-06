@@ -6,13 +6,19 @@ members named here. Only the members pins reads are declared, and every one is r
 and never rebuilds, stores or writes back the supplier's value. No element map, build history or marker file crosses.
 """
 
+from __future__ import annotations
+
 from collections.abc import Callable, Sequence
 from pathlib import Path
-from typing import Protocol, TypeAlias, runtime_checkable
+from typing import TYPE_CHECKING, Protocol, TypeAlias, runtime_checkable
 
 from limn.pins.element import ElementFrac
 from limn.runtime.documents import Doc
-from limn.web.parse import DocumentFacts
+
+if TYPE_CHECKING:
+    # Named only in an annotation: importing it at run time would load the HTTP parser and the file module with every
+    # pure pin module that names a build fact.
+    from limn.web.parse import DocumentFacts
 
 # Lines lo..hi (1-based, inclusive) of a file named relative to the figure document's folder: (file, lo, hi).
 SourceSpan: TypeAlias = tuple[str, int, int]
