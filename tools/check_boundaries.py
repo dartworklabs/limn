@@ -15,16 +15,7 @@ CrossingKey: TypeAlias = tuple[str, str]
 CrossingNames: TypeAlias = Mapping[CrossingKey, set[str]]
 EntrypointImports: TypeAlias = Mapping[str, set[str]]
 
-CROSSING_NAMES: CrossingNames = {
-    ("limn.pins", "limn.builds"): {
-        "PinBuildQueries",
-        "ElementFollower",
-        "ElementFact",
-        "ElementSelection",
-        "SelectionUnavailable",
-        "Publication",
-    },
-}
+CROSSING_NAMES: CrossingNames = {}
 ENTRYPOINT_IMPORTS: EntrypointImports = {
     "limn.server": {
         "doc_start_line",

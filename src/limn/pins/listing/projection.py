@@ -18,11 +18,11 @@ already computed over all rows, when a Trash entry expires, and the clock.
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from typing import Any, TypeAlias
 
-from limn.builds import ElementFollower
 from limn.pins.element import element_of
 from limn.pins.location.position import EstContext, epoch, pin_est
 from limn.pins.mentions import addressed_to, fyi_mentions_to
 from limn.pins.model import OpenPin, StateName, TrashedPin, parse_pin, state_of
+from limn.pins.needs import FollowElement
 from limn.pins.thread import claim_holds
 from limn.platform.values import is_finite_num, is_int, is_num, wire_value
 
@@ -96,7 +96,7 @@ def no_figure_maps(key: str) -> None:
     return None
 
 
-def element_marks(r: Row, fmap: ElementFollower | None) -> Json:
+def element_marks(r: Row, fmap: FollowElement | None) -> Json:
     """The read-time position of pin r's element on its figure document's current map: {} unless r carries a well-formed
     el (limn.pins.element) and fmap answers its current position; else el_sync and, when the
     element still exists, mark ([x, y, w, h]) and mark_page before it. Where the element was when pinned is el.frac
@@ -117,7 +117,7 @@ def element_marks(r: Row, fmap: ElementFollower | None) -> Json:
 
 
 def pin_view(
-    r: Row, shown: Json, rel: list[Json], est: bool, doc: str, now: float, fmap: ElementFollower | None = None
+    r: Row, shown: Json, rel: list[Json], est: bool, doc: str, now: float, fmap: FollowElement | None = None
 ) -> Json:
     """One GET /api/pins record: shown (r as the API shows it) followed by rel, est, doc, state, addressed and fyi, in
     that order, then - for a figure pin with an element on fmap, its document's current map - mark, mark_page and
@@ -142,7 +142,7 @@ def pins_payload(
     doc_of: Callable[[Row], str],
     est_context: Callable[[str], EstContext | None],
     now: float,
-    figure_map: Callable[[str], ElementFollower | None] = no_figure_maps,
+    figure_map: Callable[[str], FollowElement | None] = no_figure_maps,
 ) -> list[Json]:
     """GET /api/pins: the open pins of rows in row order (every pin when allp), each as pin_view() gives it.
 
@@ -153,7 +153,7 @@ def pins_payload(
     figure_map binds a build-owned element-position query by document key, never a parsed map;
     it is asked at most once per document, and only for a document with a listed pin that carries an el."""
     ctxs: dict[str, EstContext | None] = {}
-    maps: dict[str, ElementFollower | None] = {}
+    maps: dict[str, FollowElement | None] = {}
     out = []
     for r in rows:
         if not (allp or state_of(r) is OpenPin):

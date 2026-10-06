@@ -5,10 +5,10 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any, Protocol
 
-from limn.builds import ElementFollower
 from limn.pins.listing import projection as view
 from limn.pins.location.position import EstContext
 from limn.pins.model import Pin, PinNotFound, Record
+from limn.pins.needs import FollowElement
 from limn.pins.retention import expires_ts, unexpired, without_live_shadows
 from limn.pins.store import PinStore
 
@@ -42,7 +42,7 @@ class ListingDeps(Protocol):
         """Current build facts for one document."""
         ...
 
-    def element_follower(self, key: str) -> ElementFollower | None:
+    def element_follower(self, key: str) -> FollowElement | None:
         """The loadable map of the build on screen of the figure document key names, or None."""
         ...
 

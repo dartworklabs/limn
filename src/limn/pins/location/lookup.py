@@ -9,11 +9,11 @@ from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 from typing import Any, NamedTuple, Protocol, TypeAlias
 
-from limn.builds import PinBuildQueries
 from limn.pins.location import position
 from limn.pins.location.mapping import norm, pin_rel_path
 from limn.pins.location.position import EstContext, resync
 from limn.pins.model import DonePin, LineSpan, OpenPin, Pin, PinCore, ReviewPin
+from limn.pins.needs import BuildAnswers
 from limn.platform.files import ManuscriptFile, file_in_tree, tree_part
 from limn.runtime.documents import Doc
 
@@ -189,7 +189,7 @@ def sync_all(pins: list[Pin], locate: Locator) -> bool:
 # ---------------------------------------------------------------- Location estimation (.est)
 
 
-def est_context(D: Doc, builds: PinBuildQueries) -> EstContext:
+def est_context(D: Doc, builds: BuildAnswers) -> EstContext:
     """Estimation facts answered by the build owner once for document D. builds is the run's injected query bundle;
     the caller passes it, since this module makes none."""
     facts = builds.position(D)

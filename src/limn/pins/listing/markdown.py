@@ -7,7 +7,6 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Protocol
 
-from limn.builds import ElementFollower, PinBuildQueries
 from limn.pins.element import element_of
 from limn.pins.listing.projection import element_marks
 from limn.pins.listing.render import (
@@ -20,6 +19,7 @@ from limn.pins.listing.render import (
 from limn.pins.location.lookup import PinLocation, doc_scope
 from limn.pins.mentions import addressed_to, fyi_mentions_to, thread_round
 from limn.pins.model import DonePin, OpenPin, Pin, Record, is_region_pin, state_of
+from limn.pins.needs import BuildAnswers, FollowElement
 from limn.pins.thread import pin_reopened_in_round
 from limn.platform.files import tex_lines
 from limn.platform.values import is_int
@@ -57,7 +57,7 @@ class MarkdownDeps(Protocol):
         """The document that owns this pin."""
         ...
 
-    def element_follower(self, key: str) -> ElementFollower | None:
+    def element_follower(self, key: str) -> FollowElement | None:
         """The loadable map of the build on screen of the figure document key names, or None."""
         ...
 
@@ -69,7 +69,7 @@ class PinMarkdown:
 
     deps: MarkdownDeps
     known_people: Callable[[Sequence[Pin] | None], dict[str, Json]]
-    builds: PinBuildQueries
+    builds: BuildAnswers
 
     def current_text(self, base: str) -> str:
         """GET /pins.md after its shared guards and remote base calculation."""
@@ -97,7 +97,7 @@ class PinMarkdown:
         rel = self.deps.overlaps_by_id(pins)
         by_id = {r["id"]: r for r in rows}
         sources: dict[Path, list[str]] = {}
-        maps: dict[str, ElementFollower | None] = {}
+        maps: dict[str, FollowElement | None] = {}
         facts: dict[int, PinFacts] = {}
         for pin in pins:
             r = pin.record
@@ -147,7 +147,7 @@ class PinMarkdown:
         )
 
     def _element_facts(
-        self, r: Record, doc_key: str, maps: dict[str, ElementFollower | None]
+        self, r: Record, doc_key: str, maps: dict[str, FollowElement | None]
     ) -> tuple[str | None, str | None]:
         """A figure pin's facts for its row: el_sync on its document's current map (asked at most once per document per
         render, kept in maps) and impl_scope, the folder of its document relative to --manuscript (doc_scope) when the

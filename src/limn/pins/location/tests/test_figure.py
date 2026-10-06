@@ -15,12 +15,26 @@ from dataclasses import replace
 from pathlib import Path
 from unittest import mock
 
-from limn.builds import artifacts as limn_build, figure_map as figmap
+from limn.builds import (
+    ElementFact,
+    ElementSelection,
+    SelectionUnavailable,
+    artifacts as limn_build,
+    figure_map as figmap,
+)
 from limn.builds.figure_map import FigureMap, MapElement, MapPage, SourceRef
 from limn.builds.queries import _element, select_element
 from limn.pins.element import ElementImpl, PinElement
 from limn.pins.location import resolve as pick_resolve, source as pick_source
-from limn.pins.location.figure import drag_frac, element_rungs, pin_element as to_pin_element, read_source
+from limn.pins.location.figure import (
+    FigureFallback,
+    PickedElement,
+    drag_frac,
+    element_rungs,
+    pick_figure,
+    pin_element as to_pin_element,
+    read_source,
+)
 from limn.pins.location.http import PICK_WARNINGS, pick_answer
 from limn.pins.location.input import PickRequest
 from limn.pins.location.mapping import compute_levels, snippet
@@ -255,6 +269,48 @@ class ReadSource(unittest.TestCase):
         """A state folder inside the figure folder is never manuscript text."""
         self.assertIsNone(read_source(self.doc, "kept/a.py", self.root, self.figs / "kept"))
         self.assertIsNotNone(read_source(self.doc, "kept/a.py", self.root, self.state))
+
+
+class SupplierAnswers(unittest.TestCase):
+    """pick_figure tells the build owner's two answers apart without naming their classes: it asks only whether the
+    answer has a `reason` member (limn.pins.needs.FigureMapUnavailable). Both tests pass the supplier's own values, so
+    a supplier whose element selection gains a `reason` - which would send every pick to the region - fails here."""
+
+    def setUp(self):
+        """A manuscript root with the figure folder figs/ and a two-line script in it, and the figure document."""
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.root = Path(tmp.name).resolve()
+        self.figs = self.root / "figs"
+        (self.figs / "src").mkdir(parents=True)
+        (self.figs / "src" / "a.py").write_text("one\ntwo\n", encoding="utf-8")
+        self.state = self.root / "state"
+        self.state.mkdir()
+        paths = RunPaths(self.root, self.root / "main.tex", self.state)
+        self.doc = Doc("fig", "그림", "figure", self.figs, self.figs / "out" / "m.json", paths=paths)
+
+    def pick(self, selection):
+        """pick_figure for a drag on page 1 of the build `pages` answered with selection; no pin overlaps it and
+        nothing is being redrawn."""
+        box, size = (0.0, 0.0, 72.0, 48.0), (720.0, 480.0)
+        pdir = self.figs / "pages"
+        return pick_figure(
+            self.doc, 1, box, size, None, pdir, selection, self.root, self.state, lambda file, lo, hi: [], False
+        )
+
+    def test_the_suppliers_unavailable_answer_falls_back_without_an_element(self):
+        """limn.builds.SelectionUnavailable is the map fallback: its reason, and no element."""
+        self.assertEqual(self.pick(SelectionUnavailable()), FigureFallback("figure_map_unavailable", None))
+
+    def test_the_suppliers_selection_is_traced_to_the_chosen_elements_lines(self):
+        """limn.builds.ElementSelection is an element pick: the chosen element, its kind and its script lines."""
+        cell = ElementFact(
+            "F/a", ("F", "F/a"), "칸", "Cell", None, (0.0, 0.0, 0.1, 0.1), ("src/a.py", 1, 2), ("", "칸")
+        )
+        got = self.pick(ElementSelection(cell, "el:Cell", 1.0, (("el", cell),)))
+        self.assertIsInstance(got, PickedElement)
+        self.assertEqual((got.el.id, got.kind, got.n_lines), ("F/a", "el:Cell", 2))
+        self.assertEqual([(r.level, r.lo, r.hi) for r in got.rungs], [("el", 1, 2)])
 
 
 class RegionBodies(unittest.TestCase):

@@ -5,12 +5,12 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Protocol, TypeAlias
 
-from limn.builds import PinBuildQueries, Publication
 from limn.pins.editing.values import PDF_QUOTE_MAX
 from limn.pins.element import PinElement
 from limn.pins.location import figure, source
 from limn.pins.location.mapping import Traced, norm, snippet, trace_range, truncate_quote
 from limn.pins.location.source import TokenCache
+from limn.pins.needs import BuildAnswers, BuildOnScreen
 from limn.platform.files import ManuscriptFile, file_in_tree, tex_lines
 from limn.runtime.documents import Doc, to_source
 
@@ -59,7 +59,7 @@ class PickContext:
     state: Path
     tokens: TokenCache
     overlaps: Callable[[str, int, int], list[dict[str, Any]]]
-    builds: PinBuildQueries
+    builds: BuildAnswers
 
 
 @dataclass(frozen=True)
@@ -223,7 +223,7 @@ def _pick_region(
     frac: list[float] | None,
     rtext: str,
     root: Path,
-    publication: Publication,
+    publication: BuildOnScreen,
 ) -> PickedRegion:
     """pick for a document whose pins are regions - only page/region and the region's text (pdftotext), no SyncTeX.
     If frac wasn't sent (agent curl), it's built from the coordinates - for such a pin, the region is the whole
@@ -249,7 +249,7 @@ def _pick_region(
     )
 
 
-def _region_pdf(D: Doc, root: Path, publication: Publication) -> tuple[str, str]:
+def _region_pdf(D: Doc, root: Path, publication: BuildOnScreen) -> tuple[str, str]:
     """Display the selected publication's region PDF without deriving artifact names."""
     named = publication.region_pdf
     if D.has_element_map and named != D.main:
