@@ -6,19 +6,13 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from .application import (
         CollaborationSubsystem as CollaborationSubsystem,
-        NoticeSink as NoticeSink,
-        PeopleView as PeopleView,
         assemble_collaboration as assemble_collaboration,
     )
-    from .contracts import Notice as Notice
 
-__all__ = ["Notice", "CollaborationSubsystem", "NoticeSink", "PeopleView", "assemble_collaboration"]
+__all__ = ["CollaborationSubsystem", "assemble_collaboration"]
 
 _EXPORTS = {
-    "Notice": ("contracts", "Notice"),
     "CollaborationSubsystem": ("application", "CollaborationSubsystem"),
-    "NoticeSink": ("application", "NoticeSink"),
-    "PeopleView": ("application", "PeopleView"),
     "assemble_collaboration": ("application", "assemble_collaboration"),
 }
 

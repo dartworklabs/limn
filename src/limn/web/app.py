@@ -1,4 +1,4 @@
-"""Concrete HTTP application containing only request-boundary ports."""
+"""Concrete HTTP application containing only request-boundary collaborators."""
 
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -41,7 +41,7 @@ class RouteRegistry:
 
 @dataclass(frozen=True)
 class WebApplication:
-    """A listener's guards, target selection, dispatch and visit-recording ports."""
+    """A listener's guards, target selection, dispatch and visit-recording collaborators."""
 
     settings: Callable[[], RunConfig]
     guards: RequestGuards

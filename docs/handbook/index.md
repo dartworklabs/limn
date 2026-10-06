@@ -49,10 +49,10 @@ catalog_schema: 1
 | `src/limn/runtime/**` | 시작·설정·실행별 문서·잠금·캐시·감시 수명·고정 상태 경로 | 실행 수명·설정·문서 경로 변경 | architecture.md, operations.md, domain.md |
 | `src/limn/security/**` | 신원·Host/Origin·역할·권한 발급·사람 사실·감사·인증 안내 | 신뢰·권한·사람 기록·감사 변경 | architecture.md, api.md, operations.md, SECURITY.md |
 | `src/limn/platform/**` | 원고 핸들·원자적 쓰기·파일 잠금·Git 프로세스·숫자와 텍스트 장치 | 파일 접근·프로세스 인자/환경·JSON 값 판정 변경 | domain.md, build-sync.md, architecture.md |
-| `src/limn/web/**` | 공통 HTTP 처리기·요청 경계 포트·요청 파서·응답·경로 계약 | 요청 한도·디스패치·공통 오류 형식 변경 | api.md, architecture.md |
+| `src/limn/web/**` | 공통 HTTP 처리기·요청 경계 협력자·요청 파서·응답·경로 계약 | 요청 한도·디스패치·공통 오류 형식 변경 | api.md, architecture.md |
 | `src/limn/server.py`, `src/limn/cli.py`, `src/limn/__main__.py` | 실행 자원 생성·기능 조립·명령 전달 | 시작/종료 연결·기능별 조립 계약 변경 | architecture.md, operations.md, 연결된 기능 topic |
-| `src/limn/*/__init__.py` | 기능 공개 표면과 요청한 값만 불러오는 지연 export | 공개 동작·값·기능 소유권 변경 | architecture.md, code-style-roadmap.md, verification.md |
-| `tools/check_boundaries.py`, `tests/architecture/test_boundaries.py` | 기능 비공개 접근·기능 쌍/진입점별 import 허용목록·경계 코드의 기능 의존·순환 검사 | import 해석·소유권·검증 규칙 변경 | verification.md, architecture.md |
+| `src/limn/*/__init__.py` | 진입점과 다른 슬라이스의 테스트가 import하는 기능 표면, 요청한 값만 불러오는 지연 export | 진입점이 import하는 이름·테스트용 export·기능 소유권 변경 | architecture.md, code-style-roadmap.md, verification.md |
+| `tools/check_boundaries.py`, `tests/architecture/test_boundaries.py` | 기능 사이의 import 금지·진입점 import 승인 목록·테스트용 export 목록·승인된 importer가 없는 표면 이름·경계 코드의 기능 의존 검사 | import 해석·소유권·검증 규칙 변경 | verification.md, architecture.md |
 | `src/limn/vendor/**` | 번들한 PDF.js, Pretendard 글꼴 조각과 스타일시트, Lucide 출처 | 버전 교체·파일 추가 | viewer.md, api.md, 해당 vendor README |
 | `src/limn/**/tests/**`, `tests/**` | 소유 패키지의 동작과 교차 기능 계약·구조 게이트 | 검사 추가·이동·합격 기준 변경 | verification.md |
 | `package.json`, `package-lock.json`, `tsconfig.json`, `tsconfig.strict.json`, `tools/strict_ratchet.py`, `tools/strict-baseline.json`, `src/limn/viewer/types/*` | 뷰어 JS 타입 검사 도구와 그 설정·선언(서버와 휠에 들어가지 않는다) | 검사 범위·도구 버전·전역 선언 변경 | viewer.md, verification.md |

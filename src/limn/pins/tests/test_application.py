@@ -72,7 +72,7 @@ class PinReadViewTests(unittest.TestCase):
     def test_importing_pin_read_view_does_not_load_http_adapters(self) -> None:
         """The read contract remains importable without initializing pin routes."""
         code = (
-            "import sys; from limn.pins import PinCountQueries; "
+            "import sys; from limn.pins.contracts import PinCountQueries; "
             "print(sorted(n for n in sys.modules if n.startswith('limn.pins.') and (n.endswith('.http') or n.endswith('.routes'))))"
         )
         result = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, check=False)

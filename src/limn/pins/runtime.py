@@ -53,7 +53,7 @@ TRASH_DAYS = 30
 
 @dataclass
 class PinCommands:
-    """Bind pin transactions, source placement and HTTP adapters to explicit run ports."""
+    """Bind pin transactions, source placement and HTTP adapters to what the run supplies."""
 
     settings: Callable[[], RunConfig]
     resources: Callable[[], RuntimeResources[object, object, object, object, object, TokenCache, object]]
@@ -94,7 +94,7 @@ class PinCommands:
         return self.resources()
 
     def __post_init__(self) -> None:
-        """Bind pin services after all deferred collaboration ports are supplied."""
+        """Bind pin services after all deferred collaborators are supplied."""
         self.pin_lifecycle = PinLifecycle(self.pin_context)
         self.pin_claims = PinClaims(self.pin_context)
         self.pin_trash = PinTrash(self.pin_context)
@@ -138,7 +138,7 @@ class PinCommands:
         return doc is not None and doc.watches_files
 
     def refresh_files(self, r: Record) -> None:
-        """Bring the files of the document pin record r belongs to up to date (the refresh_watched port, by key)."""
+        """Bring the files of the document pin record r belongs to up to date (the refresh_watched collaborator, by key)."""
         self.refresh_watched(self.pin_doc_key(r))
 
     def doc_by_key(self, key: object) -> Doc | None:

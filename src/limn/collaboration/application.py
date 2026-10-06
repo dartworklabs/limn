@@ -104,7 +104,7 @@ def assemble_collaboration(
     stamp: Callable[[], str],
     docs: Callable[[], Sequence[Doc]],
 ) -> CollaborationSubsystem:
-    """Assemble people and notice ports without importing HTTP adapters."""
+    """Assemble the people view and notice delivery without importing HTTP adapters."""
     people_view = PeopleView.create(
         state=state,
         people_file=people_file,

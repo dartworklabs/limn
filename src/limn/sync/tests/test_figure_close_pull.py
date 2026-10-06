@@ -198,7 +198,7 @@ class FigureCloseThroughTheServer(AccessBase):
         self.before = self.repo.head()
         self.merged = self.repo.publish(minimal_pdf("fig v2"), "Enlarge the July cell")
         self.seen = []
-        emit = ps.APP.emit_events  # the pin capability's notice port (PinCommands.emit_events)
+        emit = ps.APP.emit_events  # the pin capability's notice delivery (PinCommands.emit_events)
 
         def at_emit(events):
             """Log what is on disk when the notices go out, then emit them."""
