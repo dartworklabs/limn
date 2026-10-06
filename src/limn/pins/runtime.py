@@ -7,7 +7,6 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from limn.builds import ElementFollower, PinBuildQueries
 from limn.pins.application import people_facts
 from limn.pins.claims.service import PinClaims
 from limn.pins.context import Json, PinContext, who
@@ -34,6 +33,7 @@ from limn.pins.location.service import PinLocationService
 from limn.pins.location.source import TokenCache
 from limn.pins.mentions import note_tags as pin_note_tags
 from limn.pins.model import EventType, Pin, Record, TrashedPin
+from limn.pins.needs import BuildAnswers, FollowElement
 from limn.pins.notice import PinNotice
 from limn.pins.record import Broken, parse_record as record_parse_record, parse_trashed as record_parse_trashed
 from limn.pins.store import PinFiles, PinStore, Row
@@ -58,7 +58,7 @@ class PinCommands:
     settings: Callable[[], RunConfig]
     resources: Callable[[], RuntimeResources[object, object, object, object, object, TokenCache, object]]
     docs: list[Doc]
-    build_view: PinBuildQueries
+    build_view: BuildAnswers
     known_people: Callable[[Sequence[Json] | None], dict[str, Json]]
     notice_sink: Callable[[PinNotice], Json | None]
     emit_events: Callable[[list[Json | None]], None]
@@ -121,7 +121,7 @@ class PinCommands:
 
     pin_state = staticmethod(pin_state)
 
-    def element_follower(self, key: str) -> ElementFollower | None:
+    def element_follower(self, key: str) -> FollowElement | None:
         """Query current element positions without exposing a map to pin services."""
         doc = self.doc_by_key(key)
         return None if doc is None else self.build_view.elements(doc)

@@ -15,9 +15,9 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Literal, TypeAlias
 
-from limn.builds import ElementFact, ElementSelection, SelectionUnavailable
 from limn.pins.element import ElementImpl, PinElement
 from limn.pins.location.mapping import snippet
+from limn.pins.needs import ElementChoice, FigureElement, FigureMapUnavailable
 from limn.platform.files import ManuscriptFile, file_in_tree, tex_lines, tree_part
 from limn.runtime.documents import Doc
 
@@ -28,7 +28,7 @@ FigureFallbackReason: TypeAlias = Literal["figure_map_unavailable", "element_wit
 @dataclass(frozen=True)
 class FigureFallback:
     """A drag on a figure that cannot be given code lines: why, the element it chose when it chose one, and the names of
-    that element's path (ElementFact.names; () without an element)."""
+    that element's path (FigureElement.names; () without an element)."""
 
     reason: FigureFallbackReason
     el: PinElement | None
@@ -58,7 +58,7 @@ class PickedElement:
     the element's cover of the drag (score), the ladder rungs (the chosen element's own first - the default), the quote
     (the element's label or ""), the element as a pin records it, the stored open pins the default rung overlaps, the
     page directory it was traced in, whether the pages are being redrawn now, and the name the map gives each element of
-    the element's path (ElementFact.names: label, else part, else "")."""
+    the element's path (FigureElement.names: label, else part, else "")."""
 
     file: Path
     n_lines: int
@@ -84,7 +84,7 @@ def drag_frac(box: tuple[float, float, float, float], size: tuple[float, float])
     return (x0 / pw, y0 / ph, (x1 - x0) / pw, (y1 - y0) / ph)
 
 
-def pin_element(el: ElementFact) -> PinElement:
+def pin_element(el: FigureElement) -> PinElement:
     """A detached selected element as a pin records it (limn.pins.element): its id, the ids from the page root down to it, its label and
     part, its shared implementation's file and lines when the map names them, and its box on this build. The build owner has already
     normalized absent display names; no parser representation enters the pin record."""
@@ -92,7 +92,7 @@ def pin_element(el: ElementFact) -> PinElement:
     return PinElement(el.id, el.path, el.label, el.part, impl, el.frac)
 
 
-def element_rungs(pick: ElementSelection, lines: Sequence[str]) -> tuple[Rung, ...]:
+def element_rungs(pick: ElementChoice, lines: Sequence[str]) -> tuple[Rung, ...]:
     """The range ladder of a map pick in the chosen element's source file, whose current lines are `lines`: one rung per
     ladder element (level names supplied by the build owner), nearest first, for each element whose src names that same file
     and fits in it (1 <= lo <= hi <= len(lines)). A rung with the same lines as an earlier one merges into it: the
@@ -141,19 +141,23 @@ def pick_figure(
     size: tuple[float, float],
     frac: list[float] | None,
     pdir: Path,
-    selection: ElementSelection | SelectionUnavailable,
+    selection: ElementChoice | FigureMapUnavailable,
     root: Path,
     state: Path,
     overlaps: Callable[[str, int, int], list[dict[str, Any]]],
     redrawing: bool,
 ) -> PickedElement | FigureFallback:
     """A drag on figure document D's page page_no (box in points, size the page's, frac the viewer's as sent) traced
-    through fmap, the map of the page directory pdir it was made on: the element's lines (PickedElement), or why not
-    (FigureFallback) - no loadable map or no such page in it (figure_map_unavailable, no element), or a chosen element
-    whose src is missing, unreadable, outside D.src or longer than its file now (element_without_source, with that
-    element). overlaps gives the stored open pins the default rung overlaps; redrawing says the pages are being
-    redrawn. Reads the chosen element's source file once; never the PDF."""
-    if isinstance(selection, SelectionUnavailable):
+    through selection, the build owner's answer for that drag on the map of the page directory pdir it was made on:
+    the element's lines (PickedElement), or why not (FigureFallback) - no loadable map or no such page in it
+    (figure_map_unavailable, no element), or a chosen element whose src is missing, unreadable, outside D.src or
+    longer than its file now (element_without_source, with that element). overlaps gives the stored open pins the
+    default rung overlaps; redrawing says the pages are being redrawn. Reads the chosen element's source file once;
+    never the PDF.
+
+    The two answers are told apart by isinstance against this slice's own FigureMapUnavailable
+    (limn.pins.needs), which holds for any value with a `reason` member - so an element choice must never have one."""
+    if isinstance(selection, FigureMapUnavailable):
         return FigureFallback("figure_map_unavailable", None)
     pick = selection
     chosen = pick.chosen

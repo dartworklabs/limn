@@ -72,17 +72,9 @@ def test_server_has_no_application_service_locator():
 
 
 def test_production_crossings_are_the_reviewed_query_contracts():
-    """Public helpers cannot silently widen any current cross-capability dependency."""
-    assert {
-        ("limn.pins", "limn.builds"): {
-            "PinBuildQueries",
-            "ElementFollower",
-            "ElementFact",
-            "ElementSelection",
-            "SelectionUnavailable",
-            "Publication",
-        },
-    } == checker.CROSSING_NAMES
+    """No feature may import a name of another feature: the reviewed list of crossings is empty, so a public helper
+    cannot silently open a cross-capability dependency."""
+    assert checker.CROSSING_NAMES == {}
 
 
 def test_revisions_imports_no_other_feature():

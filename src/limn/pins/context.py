@@ -10,10 +10,10 @@ from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any, NamedTuple, Protocol, TypeAlias
 
-from limn.builds import PinBuildQueries
 from limn.pins.location.lookup import PinLocation
 from limn.pins.mentions import NoteTags
 from limn.pins.model import Actor, Agent, EventType, Person, Pin, PinNotFound
+from limn.pins.needs import BuildAnswers
 from limn.pins.store import PinStore, pin_index
 from limn.security.access import AuthorityScope, Role, is_agent_actor
 from limn.security.audit import AuditAction
@@ -88,7 +88,7 @@ class PinContext:
     thread_max: int  # cap on one pin's replies
     trash_days: int  # how long a dropped pin stays restorable
     trash_checked: list[float]
-    builds: PinBuildQueries
+    builds: BuildAnswers
     # Whether the document a pin record belongs to has its files watched (a figure document, a view-only PDF), and the
     # effect that brings those files up to date - one fast-forward pull and the import it lets in - before a close
     # awaiting review is written (lifecycle.rules.refreshes_before_close). By default nothing is watched.

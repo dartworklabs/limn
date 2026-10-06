@@ -24,7 +24,7 @@ PURE_IMPORTS = {
     "math",
     "re",
     "typing",
-    "limn.builds",  # projection.py follows elements on a figure map: figure_map values only (checked below)
+    "limn.pins.needs",  # the slice's own Protocols for the injected build facts; itself checked below
     "limn.pins.element",  # a figure pin's el shape; pure (src/limn/pins/tests/test_element.py)
     "limn.pins.model",
     "limn.pins.thread",
@@ -53,6 +53,16 @@ PURE_TEXT_IMPORTS = {
     "limn.platform.values",
     "limn.platform.text",
     "limn.security.values",
+}
+
+# What limn.pins.needs may import - declarations only: no feature, no effect.
+NEEDS_IMPORTS = {
+    "collections.abc",
+    "pathlib",
+    "typing",
+    "limn.pins.element",  # the element box shape; pure (src/limn/pins/tests/test_element.py)
+    "limn.runtime.documents",  # Doc, the argument of every build question
+    "limn.web.parse",  # DocumentFacts, the boundary type one question answers
 }
 
 
@@ -108,26 +118,22 @@ class Purity(unittest.TestCase):
             self.assertNotIn("pathlib", {a.name for n in ast.walk(tree) if isinstance(n, ast.Import) for a in n.names})
 
 
-class BuildsSurfacePurity(unittest.TestCase):
-    """The pure pin modules may take names from the builds surface (limn.builds) only where those names are the pure
-    figure map's (limn.builds.figure_map): the surface itself loads just the name asked for, so the purity above holds
-    as long as no other builds module is reached."""
+class NeedsPurity(unittest.TestCase):
+    """The pure pin modules name the build facts they are handed through the slice's own declarations
+    (limn.pins.needs), never through another feature's surface: the purity above holds as long as that module only
+    declares."""
 
-    def test_names_from_the_builds_surface_are_figure_map_values(self):
-        """Every name the pure listing modules (projection.py, render.py) import from limn.builds is the same object in
-        limn.builds.figure_map; at least one such name is imported, so the check is not vacuous."""
-        import limn.builds
-        from limn.builds import contracts
-
-        taken = []
-        for path in (PINS_DIR / "listing/projection.py", PINS_DIR / "listing/render.py"):
-            tree = ast.parse(path.read_text(encoding="utf-8"))
-            for node in ast.walk(tree):
-                if isinstance(node, ast.ImportFrom) and node.module == "limn.builds":
-                    taken += [(path.name, alias.name) for alias in node.names]
-        self.assertTrue(taken)
-        for module, name in taken:
-            self.assertIs(getattr(limn.builds, name), getattr(contracts, name, None), (module, name))
+    def test_the_needs_module_imports_no_feature_and_no_effect(self):
+        """needs.py imports typing helpers, the pure element shape and the two boundary types its questions name - no
+        feature package and no module that does I/O."""
+        tree = ast.parse((PINS_DIR / "needs.py").read_text(encoding="utf-8"))
+        imported = set()
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                imported |= {a.name for a in node.names}
+            elif isinstance(node, ast.ImportFrom):
+                imported.add(node.module or "")
+        self.assertLessEqual(imported, NEEDS_IMPORTS)
 
 
 class States(unittest.TestCase):
