@@ -427,6 +427,7 @@ async function pickRevisionFor(tg,seq,k){
     try{const d=(await api(dq('/api/revision-diff?commit='+encodeURIComponent(r.id),k),{what:'변경 내용 읽기',silent:true})).data;
       if(touchesPin(revisionFiles(d.diff||''),tg))return {id:r.id,via:'lines'};}catch(e){}}}
   return {id:revs[0].id,via:'latest'};}
+/** Explain the shown change and review access for the current pin, retaining the existing source/PDF scope guidance. */
 function revTargetNote(msg){const tg=REV.target,box=$('#revision-pin'); if(!tg){box.hidden=true;return;}
   const via={sha:tl('참조의 커밋 {tok}',{tok:tg.tokOf||''}),pr:tr('참조의 PR'),lines:tr('이 줄을 바꾼 가장 최근 커밋'),latest:tr('참조로 커밋을 찾지 못해 가장 최근 커밋')}[tg.via]||'';
   const where=tg.region?tl('쪽 {page} 영역',{page:tg.page}):tg.name+' '+rng(tg.lo,tg.hi);
@@ -436,16 +437,18 @@ function revTargetNote(msg){const tg=REV.target,box=$('#revision-pin'); if(!tg){
     (REV.history?' · '+tr('고친 줄은 [소스 diff]'):''):scopeMsg+(REV.format===DIFF_FORMAT.PDF?tl('비교 PDF에는 줄 대응이 없어 원고 {page}쪽 근처로만 옮겼습니다(삭제 문장이 끼어 쪽이 밀릴 수 있음). 정확한 줄은 [소스 diff]',{page:tg.page}):
     tr(tg.hit===false?'이 커밋의 diff에서 핀 범위를 찾지 못했습니다 — 가장 가까운 줄을 보입니다':
      tg.near?'핀 범위 줄 자체는 바뀌지 않았고 바로 곁(±5줄)이 바뀌었습니다 — 가장 가까운 줄을 보입니다':'강조한 줄이 핀 범위입니다'));
-  setHtml(box,html`<span><b>${tl('핀 #{id}',{id:tg.id})}</b> · ${where}${tg.ref?' · '+tl('참조 {ref}',{ref:tg.ref}):''}${via?' · '+via:''}</span><span class="rp-msg">${t}</span>`);
+  const p=findAnyPin(tg.id),access=p&&pinState(p)===PIN_STATE.REVIEW&&!canConfirmReview()?confirmAccessText():'';
+  setHtml(box,html`<span><b>${tl('핀 #{id}',{id:tg.id})}</b> · ${where}${tg.ref?' · '+tl('참조 {ref}',{ref:tg.ref}):''}${via?' · '+via:''}</span><span class="rp-msg">${t}${access?html` <span class="review-access">${access}</span>`:''}</span>`);
   box.dataset.id=tg.id; box.hidden=false; revTargetActs();}
 // The guide line's buttons (docs/handbook/viewer.md §변경 보기): [원고로] and, for a pin awaiting review that this person may confirm
-// (not a viewer, not a view-only region pin), the card's [확인] - the same data-act="confirm" and confirmPin(), soft for the
+// (a person with write access, not a view-only region pin), the card's [확인] - the same data-act="confirm" and confirmPin(), soft for the
 // author as on the card. On the phone and tablet sheet they sit in the thumb row (#revision-acts) right above the status line
 // and the tool bar; in the other bands at the guide line's right. Redrawn on a band change and whenever the pin lists change.
+/** Draw the current pin's navigation and human-only confirmation controls in the changes guide or compact action row. */
 function revTargetActs(){const tg=REV.target,row=$('#revision-acts'),narrow=LAYOUT===LAYOUT_MODE.NARROW;
   $$('.rp-acts').forEach(e=>e.remove());
   if(!tg||$('#revision-pin').hidden){row.hidden=true; document.body.classList.remove('rev-thumb'); return;}
-  const p=findAnyPin(tg.id),confirm=!!p&&pinState(p)===PIN_STATE.REVIEW&&!tg.region&&!isViewer();
+  const p=findAnyPin(tg.id),confirm=!!p&&pinState(p)===PIN_STATE.REVIEW&&!tg.region&&canConfirmReview();
   const backDoc=REV.back&&REV.back!==DOC?docInfo(REV.back):null,back=backDoc?backDoc.name:null,acts=document.createElement('span');
   acts.className='rp-acts';
   const ok=confirm?html`<button class="btn-sm b-confirm ${isMe(p.author)?'btn-soft':'btn-secondary'}" data-act="confirm" data-tip="${T.confirm}">확인</button>`:'';

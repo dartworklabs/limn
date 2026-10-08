@@ -3733,6 +3733,7 @@ class FrontendSaveWhilePicking(unittest.TestCase):
               scrollTop:0,disabled:false,classList:{toggle(){}},focus(){},remove(){}};}
             const els={}; const $=s=>(els[s]=els[s]||el());
             let PICKSEQ=0,REPICK=null; const COMPOSE={current:null,box:null,saving:false,picking:false,pendingSave:false,dismissedOverlap:null};
+            const document={querySelectorAll:()=>[$('#btn-save')]};
             let LAYOUT='wide', LAST_PTR='mouse', SNIP_OPEN=false, PINS=[], DOC=undefined, SWITCHSEQ=0; const EDITOR={current:null,saving:false};
             let KIND_NEW='fix'; function setKind(k){KIND_NEW=k==='question'?'question':'fix';} function mentionHints(){return [];}
             const ASSIGN_NEW={v:'agent',touched:false}; function renderAssignNew(){} function mentionPreview(){}
@@ -3763,6 +3764,8 @@ class FrontendSaveWhilePicking(unittest.TestCase):
                 extract_js_fn("togglePendingSave"),
                 extract_js_fn("clearPendingSave"),
                 extract_js_fn("composeOwns"),
+                extract_js_fn("composeFields"),
+                extract_js_fn("syncComposeSaveButtons"),
                 extract_js_fn("savePin"),
                 extract_js_fn("cancelSelection"),
                 extract_js_fn("pick"),
@@ -4305,7 +4308,7 @@ class FrontendReview(unittest.TestCase):
                 js_esc(),
                 r"""
             const T={stale:'s',n:'n',loc:'l',view:'v',edit:'e',close:'c',drop:'d',review:'r',confirm:'k',reply:'y'};
-            let  PINS=[], META={me:{login:'bob@example.com',name:'Bob Park'}}; const EDITOR={current:null,saving:false};
+            let  PINS=[], META={me:{login:'bob@example.com',name:'Bob Park',role:'editor'}}; const EDITOR={current:null,saving:false};
             const OPEN_CARDS=new Set();
             function viaTag(){return null;} function relBadge(){return null;} function claimActive(){return false;}
             function authorTip(){return 'tip';} function who(a){return a?(a.name||a.login):'';} function avatar(){return '';}
@@ -4321,6 +4324,10 @@ class FrontendReview(unittest.TestCase):
                 extract_js_fn("docChip"),
                 extract_js_fn("arcTime"),
                 js_thread(),
+                extract_js_fn("isHuman"),
+                extract_js_fn("isViewer"),
+                extract_js_fn("canConfirmReview"),
+                extract_js_fn("confirmAccessText"),
                 extract_js_fn("isFrac"),
                 extract_js_fn("hasMark"),
                 extract_js_fn("pinPlace"),
@@ -4655,6 +4662,7 @@ class FrontendMentions(unittest.TestCase):
         self.assertEqual(out, [["agent", True, True], [True, False]])
 
     def test_assign_controls_in_composer_edit_and_card(self):
+        """Keep composer and editor assignment wiring; native browser tests own card placement and interaction."""
         h = HTML
         self.assertIn('<div id="c-assign" class="assign-row" role="radiogroup" aria-label="담당" hidden></div>', h)
         self.assertIn('<div class="e-assign assign-row" role="radiogroup" aria-label="담당" hidden></div>', h)
@@ -4662,7 +4670,6 @@ class FrontendMentions(unittest.TestCase):
         self.assertIn(
             "if(E.assignee&&E.assignee!==E.orig.assignee)body.assignee=E.assignee;", extract_js_fn("saveEdit")
         )
-        self.assertIn("${assignChip(p)}${thn}${au}", extract_js_fn("card"))
         self.assertIn("const adr=p.assignee?null:addressedTag(p);", extract_js_fn("card"))
         self.assertIn("assigned:5", h)
         self.assertIn("assign:'담당 바꿈'", h)

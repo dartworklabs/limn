@@ -102,7 +102,7 @@ def js_esc() -> str:
 
 
 def js_thread() -> str:
-    """The functions that render a thread (called by card()/doneCard()). Callers must set up who·avatar·esc·arcTime·ic·THREAD_OPEN·REPLY."""
+    """The native thread and card context renderers; callers supply actors, icons, and viewer state."""
     ev = re.search(r"^const EV_LABEL=.*;$", HTML, re.M).group(0)
     st = re.search(r"^const ST_NAME=.*;$", HTML, re.M).group(0)
     mo = re.search(r"^const MSG_OPEN=.*;$", HTML, re.M).group(0)
@@ -118,6 +118,8 @@ def js_thread() -> str:
                 "isQuestion",
                 "assigneeOf",
                 "assignChip",
+                "cardMetadata",
+                "isViewer",
                 "stDot",
                 "reopenedTurn",
                 "threadOf",

@@ -34,13 +34,10 @@ button.badge-review{font-weight:600}
 .pin .head{flex-wrap:wrap;gap:var(--space-1) var(--space-2);min-height:var(--control-h)}
 .pin .head .loc{white-space:nowrap}
 .pin .head .pg-link{white-space:nowrap;flex:none}
-/* Header right-side group (.h-meta = assignee chip - reply count - author): when space runs out, the whole
-   group drops to the next line, right-aligned. It used to be crammed onto one line, so an assignee chip could truncate the author's name down to a single
-   letter 'W' (QA 2026-09-24). Within the group, the assignee chip's name truncates first, then the author's name. compact (a collapsed card) keeps a single
-   line (author shown as just an avatar) and shrinks in the same order. */
+/* Reply count and author stay together at the right of the header, wrapping as one
+   group when needed. The recorded assignee lives in the note-level metadata row. */
 .pin .head .h-meta{display:inline-flex;align-items:center;gap:var(--space-2);margin-left:auto;min-width:0;max-width:100%}
 .h-meta .au{flex:0 1 auto;min-width:0;max-width:14em}
-.h-meta .badge-assign{flex:0 100 auto;min-width:4.5em}
 .pin .tags{display:flex;flex-wrap:wrap;gap:var(--space-1);margin-top:var(--space-1)}
 .pin .tags:empty{display:none}
 .pin .quote{margin-top:var(--space-1)}   /* the dragged PDF text, one line above the note (composer.css .quote) */
@@ -84,10 +81,17 @@ button.b-close{font-weight:600}
   white-space:nowrap}   /* so a name never splits across a line break into two pills, '@Bob' / 'Lee' */
 /* A resolved @-tag = primary-color text + a light-tint pill (like Slack/GitHub). A tag that mentions me is one shade darker. An unresolved '@word' is plain text. */
 .mention.me{background:color-mix(in srgb,var(--primary) 28%,transparent);color:var(--foreground)}
-.badge-assign{background:color-mix(in srgb,var(--primary) 14%,transparent);color:var(--foreground);font-weight:600;flex:0 0 auto;max-width:12em;overflow:hidden;justify-content:flex-start}
-.badge-assign .as-n{min-width:0;overflow:hidden;text-overflow:ellipsis}
-button.badge-assign{overflow:visible}   /* its name ellipsizes by itself (.as-n); a clipping chip would clip its hit area too */
-.badge-assign.me{background:color-mix(in srgb,var(--primary) 28%,transparent)}
+/* One quiet context line follows the note or its collapsed preview. A native badge
+   retains detailed state wording; the row repeats that context only while collapsed. */
+.pin .card-meta{margin-top:var(--space-1);font-size:var(--text-sm);line-height:1.5;color:var(--muted-foreground);overflow-wrap:anywhere}
+.pin .card-meta-context{display:none}
+body.compact .pin:not(.open):not(.editing) .card-meta-context{display:inline}
+.pin .card-meta .as-chip{display:inline-flex;align-items:baseline;gap:var(--space-1);padding:0;border:0;border-radius:0;background:transparent;color:inherit;font:inherit;line-height:inherit;font-weight:400;min-width:0;min-height:0;max-width:100%;overflow:visible;vertical-align:baseline;white-space:normal;text-underline-offset:3px}
+.pin .card-meta .as-chip .as-n{overflow:visible;text-overflow:clip;overflow-wrap:anywhere}
+.pin .card-meta button.as-chip:focus-visible{text-decoration:underline}
+@media (hover:hover){.pin .card-meta button.as-chip:hover{background:transparent;color:var(--foreground);text-decoration:underline}}
+/* Retain the shared button.badge 44px touch hit, clear of nearby thread controls. */
+@media (pointer:coarse){.pin .card-meta:has(button.as-chip){padding-block:var(--space-3)}}
 .assign-row{display:flex;align-items:center;gap:var(--space-2);margin-top:var(--space-2)}
 .assign-row .as-lab{flex:none;color:var(--muted-foreground);font-size:var(--text-sm)}
 .assign-row .as-seg{flex:1;min-width:0;margin:0}

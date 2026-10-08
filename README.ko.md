@@ -52,6 +52,15 @@ GitHub SSH 접근이 있으면 `git+ssh://git@github.com/dartworklabs/limn@v0.4.
 
 ## 서버 하나 띄우기
 
+자기 머신에서 혼자 검토할 때는 로컬 신원 방식을 쓴다. 브라우저는 로컬 소유자로 접속해 에이전트가
+처리한 핀을 확인할 수 있고, 에이전트는 API 토큰으로 접속한다.
+
+```bash
+limn serve --manuscript ~/papers/paper2 --main main.tex --port 18300 --auth local
+```
+
+`http://127.0.0.1:18300/` 을 연다. 테일넷에서 공동 작업할 때는 기본 tailscale 신원 방식을 쓴다.
+
 ```bash
 limn serve --manuscript ~/papers/paper2 --main main.tex --port 18300
 # 여러 문서를 탭으로:
@@ -59,8 +68,10 @@ limn serve --manuscript ~/papers/paper2 \
   --doc 'ms=본문:manuscript/main.tex' --doc 'rr=답변서:submission/review_response/review_response.tex'
 ```
 
-기본으로 `127.0.0.1` 에만 붙는다. `http://127.0.0.1:18300/` 을 연다. 테일넷에 나누려면
-`tailscale serve --bg --https=18200 http://127.0.0.1:18300`. 옵션은 `limn serve --help`. 상태(핀·빌드)는
+기본으로 `127.0.0.1` 에만 붙는다. tailscale 인스턴스를 나누려면
+`tailscale serve --bg --https=18200 http://127.0.0.1:18300` 으로 노출하고, 사람 신원이 전달되는 테일넷 HTTPS
+주소를 연다. 기본 신원 방식에서 신원 헤더 없이 루프백 주소를 열면 옛 로컬 에이전트 신원으로 접속해
+검토를 확인할 수 없다. 옵션은 `limn serve --help`. 상태(핀·빌드)는
 `--state-dir` 또는 `~/.local/share/limn/serve/<원고>-<해시>` 에 쌓인다.
 
 > **보안:** 신원 방식(identity provider) 없이 Limn 을 밖에 열지 않는다. 기본값(`--auth tailscale`)은

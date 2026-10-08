@@ -1,5 +1,35 @@
 # Changelog
 
+## 0.4.21 — Unreleased
+
+Preserve later edits and chosen reply recipients, rebuild changed recorded inputs, and improve figure picking and
+native viewer controls. `pins.md`, the HTTP API, stored pin records, authentication and runtime dependencies are unchanged.
+
+### Fixed
+
+- **Later input survives a pending save.** Composer, append and edit submissions retain text and metadata edited
+  while their requests are pending. A stale append refuses without losing its draft, its undo is bound to the saved
+  revision, and repeated create/append gestures cannot send the same submission twice.
+- **Reply drafts retain chosen recipients.** Cancelling or switching pins preserves autocomplete login hints along
+  with the text, including duplicate display names. An older deferred reply's undo or late failure cannot replace a
+  newer live or cached draft, recipient, outcome override or cursor. A late failure is reported on the existing status
+  line. Reply drafts remain confined to the current page, with one draft per pin.
+- **Changed recorded inputs rebuild even with unchanged size and mtime.** Warm builds recompile changed input
+  content, while unchanged builds and DPI-only page rendering retain their existing reuse behavior.
+- **Thin figure marks and unrelated branches are picked more consistently.** Selection-only padding admits nearby
+  narrow marks with sufficient overlap; eligible descendants beat ancestors, and unrelated branches compare original
+  area and map order. Stored element geometry, location ladders and original-box scores retain their contracts.
+- **Outline titles, numbers and page labels share their first line.** Both outline lists keep adjacent selected and
+  hovered rows separated, omit page suffixes and retain touch target sizes.
+- **Native collaboration controls keep their permissions and keyboard behavior.** Confirmation controls follow the
+  existing human-review rule in cards and the changes view. Pin marks support Tab, Enter and Space, and card metadata
+  retains native author editing plus question, claim, review and location-warning badges.
+
+### Development
+
+- Critical save flows run in Chromium, Firefox and WebKit. Revision fixtures do not depend on a contributor's
+  automatic Git signing settings. Browser automation does not establish physical phone or tablet behavior.
+
 ## 0.4.20 — 2026-10-06
 
 The figure pick threshold D6 is measured and set. `pins.md`, the HTTP API and the state directory are unchanged.

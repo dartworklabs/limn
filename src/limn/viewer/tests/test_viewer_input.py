@@ -854,7 +854,7 @@ class DesktopPanelCollapse(ViewerBase):
         page = self.view(DESK, prefs={"sideClosed": True})
         steps = [
             ("pick", lambda: self.mouse_pick(page)),
-            ("mark", lambda: page.locator(".mark b").first.click()),
+            ("mark", lambda: page.locator(".mark [data-act=mark-jump]").first.click()),
             ("link", lambda: page.evaluate("openPinFromLink(DOC,1)")),
             ("review", lambda: page.evaluate("gotoReview()")),
             ("ref", lambda: page.evaluate("gotoPinRef(2)")),
@@ -1343,7 +1343,9 @@ class FoldOverlay(ViewerBase):
 
     def test_select_mode_tap_pick_never_clicks_the_panel_that_opens_under_it(self):
         """s12: a tap-pick in [선택] mode opened the panel under the finger and its ghost click (and ghost focus) hit it."""
-        for dev, (x, y) in ((FOLD, (650, 300)), (FOLD, (700, 500)), (PHONE, (190, 600)), (PHONE, (100, 700))):
+        # Chromium adjusts taps near (100, 700) to the native page-two badge. The clear PDF spot below
+        # still becomes covered by the opening sheet, so its ghost click must be swallowed.
+        for dev, (x, y) in ((FOLD, (650, 300)), (FOLD, (700, 500)), (PHONE, (190, 600)), (PHONE, (140, 700))):
             with self.subTest(width=dev["viewport"]["width"], at=(x, y)):
                 page = self.view(dev)
                 cdp = self.cdp(page)
@@ -1353,7 +1355,12 @@ class FoldOverlay(ViewerBase):
                 page.evaluate(CLICKS)
                 self.tap(cdp, x, y)
                 page.wait_for_function("COMPOSE.current&&COMPOSE.current.lo", timeout=8000)
-                nothing_follows(page)  # the tap-pick's ghost click and focus
+                nothing_follows(page)  # the tap-pick's ghost click and focus, after the opening transition
+                panel = page.locator("#right").bounding_box()
+                self.assertLessEqual(panel["x"], x)
+                self.assertLessEqual(x, panel["x"] + panel["width"])
+                self.assertLessEqual(panel["y"], y)
+                self.assertLessEqual(y, panel["y"] + panel["height"])
                 self.assertEqual(page.evaluate("window.__clicks"), [])
                 self.assertEqual(page.evaluate("KIND_NEW"), "fix")
                 self.assertNotEqual(page.evaluate("document.activeElement.id"), "note")
@@ -1747,7 +1754,7 @@ DESK_GEOMETRY = """() => {const q = s => document.querySelector(s), R = Math.rou
     B = e => {const r = e.getBoundingClientRect(); return [R(r.x), R(r.y), R(r.width), R(r.height)];},
     P = e => {const c = getComputedStyle(e); return [c.paddingTop, c.paddingRight, c.paddingBottom, c.paddingLeft];},
     spacer = q('#bar1 .sp'), card = q('#pins .pin');
-  return {left: P(q('#left')), page: B(q('#p1')), badge: B(q('.mark b')), right: B(q('#right')), tool: B(q('#bar1')),
+  return {left: P(q('#left')), page: B(q('#p1')), badge: B(q('.mark [data-act=mark-jump]')), right: B(q('#right')), tool: B(q('#bar1')),
     bar: [...q('#bar1').children].flatMap(e => getComputedStyle(e).display === 'contents' ? [...e.children] : [e])
       .filter(e => e.getClientRects().length).sort((a, b) => a.getBoundingClientRect().left - b.getBoundingClientRect().left)
       .map(e => {const r = e.getBoundingClientRect();
@@ -1948,26 +1955,29 @@ class PhoneTouchSizes(ViewerBase):
         self.assertRegex(head[0], r"^#\d+ · L30-L31 · 1쪽$")
         self.assertEqual(page.evaluate(MISSES_44, card + " .acts button," + card + " .head [data-act=view]"), [])
 
-    def test_the_card_row_sits_one_step_under_the_note_and_its_icons_match(self):
-        """Controller review of the after-shots: a 22-60px band sat between the note and the row (the note's 44px min-height),
-        [삭제] had no fill while [수정] and [풀기] did, and [풀기] was a circled x that reads as close. Now the row is one spacing
-        step (8px) under the note, the three icons share the neutral fill and size with only the delete glyph red, [삭제] keeps one
-        more step from [수정], and [풀기] is an open lock."""
+    def test_the_card_row_sits_one_step_under_metadata_and_its_icons_match(self):
+        """Actions follow the note's readable metadata by 8px, leaving its touch padding intact.
+
+        The three icons share neutral fills and size; delete stays red and one spacing step
+        further from edit, while unclaim uses an open lock.
+        """
         page = self.view(PHONE)
         card = self.open_card(page)
-        page.evaluate(
-            "s=>{const id=+document.querySelector(s).dataset.id; OPEN_ALL.concat(PINS).filter(p=>p.id===id)"
-            ".forEach(p=>{p.claim_until=Date.now()/1000+600;}); drawPins();}",
-            card,
+        pid = int(page.locator(card).get_attribute("data-id"))
+        ps.APP.pin_claims.claim_pin(
+            pid, post_authority(ps.APP.pin_claims.context().store, dict(LOCAL_ACTOR), "claim", pid), 30
         )
+        page.evaluate("loadPins()")
         settle(page)
         got = page.evaluate(
             """s => {
               const c = document.querySelector(s), q = x => c.querySelector(x), R = x => q(x).getBoundingClientRect();
               const cs = x => getComputedStyle(q(x));
-              const g = document.createRange(); g.selectNodeContents(q('.note'));
-              const text = Math.max(...[...g.getClientRects()].filter(r => r.height > 0).map(r => r.bottom));   // the note's last line, not its box
-              return {gap: Math.round(R('.acts').top - text), boxGap: Math.round(R('.acts').top - R('.note').bottom),
+              const g = document.createRange(); g.selectNodeContents(q('.card-meta'));
+              const text = Math.max(...[...g.getClientRects()].filter(r => r.height > 0).map(r => r.bottom));
+              return {gap: Math.round(R('.acts').top - text), boxGap: Math.round(R('.acts').top - R('.card-meta').bottom),
+                metadataAfterNote: R('.card-meta').top >= R('.note').bottom,
+                touchPadding: parseFloat(cs('.card-meta').paddingBottom),
                 fills: ['.b-drop', '.b-edit', '.b-unclaim'].map(x => cs(x).backgroundColor),
                 sizes: ['.b-drop', '.b-edit', '.b-unclaim'].map(x => Math.round(R(x).width) + 'x' + Math.round(R(x).height)),
                 glyphs: [cs('.b-drop').color, cs('.b-edit').color],
@@ -1975,9 +1985,8 @@ class PhoneTouchSizes(ViewerBase):
                 lock: !!q('.b-unclaim svg.ic-lock-open')}; }""",
             card,
         )
-        self.assertLessEqual(
-            got["gap"], 12
-        )  # the 8px step plus the last line's half-leading (21.7px line, ~14px glyphs)
+        self.assertTrue(got["metadataAfterNote"])
+        self.assertLessEqual(got["gap"], 12 + got["touchPadding"])
         self.assertEqual(got["boxGap"], 8)
         self.assertEqual(len(set(got["fills"])), 1, got["fills"])
         self.assertNotIn(got["fills"][0], ("rgba(0, 0, 0, 0)", "transparent"))
@@ -3939,7 +3948,7 @@ class EvenPageMargins(ViewerBase):
 
 # Each page-1 mark: its fraction x, whether its badge is inside (.in), wholly in the PDF column, and within the mark's box.
 MARK_BADGES = """() => {const L = document.querySelector('#left'), lr = L.getBoundingClientRect(), x0 = lr.left + L.clientLeft;
-  return [...document.querySelectorAll('#p1 .mark')].map(m => {const b = m.querySelector('b').getBoundingClientRect(), r = m.getBoundingClientRect();
+  return [...document.querySelectorAll('#p1 .mark')].map(m => {const b = m.querySelector('[data-act=mark-jump]').getBoundingClientRect(), r = m.getBoundingClientRect();
     return {fx: +m.dataset.fx, inside: m.classList.contains('in'), shown: b.left >= x0 && b.right <= x0 + L.clientWidth,
       within: b.left >= r.left && b.top >= r.top, gap: Math.round(r.left - b.left)};}); }"""
 
@@ -4340,7 +4349,7 @@ class DesktopMisc(ViewerBase):
         page = self.view(DESK)
         page.evaluate("SEC.done=true; drawPins()")
         bad = page.evaluate("""() => {
-          const sel = 'button,[data-act],[role=button],[data-copy],.mark b';
+          const sel = 'button,[data-act],[role=button],[data-copy],.mark [data-act=mark-jump]';
           const out = [];
           for (const e of document.querySelectorAll(sel)) {
             if (e.closest('#more,#help,#trash,#nav-sheet,#revision-view,#outline') || e.matches('.note,.sum,.arc-reply,.pin-ref,#grip,#outline-grip,textarea'))
@@ -4468,6 +4477,49 @@ class MetaPatched:
         data = json.loads(body)
         data.update(self._patch)
         self._route.fulfill(status=status, headers=headers, body=json.dumps(data))
+
+
+class OutlineRows(ViewerBase):
+    """Outline numbers follow the first title line, with distinct row fills and bare printed-page labels."""
+
+    def test_wrapped_titles_keep_numbers_at_the_top_and_adjacent_rows_apart(self):
+        """Desktop and phone outlines separate adjacent highlights without shrinking a touch row below 44px."""
+        for device, selector in ((DESK, "#outline-items"), (PHONE, "#ns-outline-items")):
+            with self.subTest(selector=selector):
+                page = self.view(device, prefs={"outlineClosed": False})
+                page.evaluate(
+                    """() => {
+                      OUTLINE_ENTRIES = [
+                        {title: 'A deliberately long section title that wraps onto several lines in the outline',
+                         page: 1, depth: 1, frac: 0, number: '4.1', pageLabel: 'iv'},
+                        {title: 'Next section', page: 2, depth: 0, frac: 0, number: '5', pageLabel: ''}];
+                      OUTLINE_SELECTED = 0;
+                      renderOutline();
+                    }"""
+                )
+                if selector == "#ns-outline-items":
+                    page.click("#btn-pos")
+                    page.wait_for_function("document.querySelector('#nav-sheet').open")
+                settle(page)
+                got = page.evaluate(
+                    """selector => {
+                      const rows = [...document.querySelectorAll(selector + ' button')];
+                      const [first, next] = rows.map(row => row.getBoundingClientRect());
+                      const top = name => rows[0].querySelector(name).getBoundingClientRect().top;
+                      const range = document.createRange(); range.selectNodeContents(rows[0].querySelector('.ol-name'));
+                      return {numberTop: top('.ol-no'), titleTop: top('.ol-name'), pageTop: top('.ol-page'),
+                        titleLines: range.getClientRects().length, gap: next.top - first.bottom,
+                        height: next.height, pages: rows.map(row => row.querySelector('.ol-page').textContent)};
+                    }""",
+                    selector,
+                )
+                self.assertGreaterEqual(got["titleLines"], 2, got)
+                self.assertAlmostEqual(got["numberTop"], got["titleTop"], delta=0.5, msg=got)
+                self.assertAlmostEqual(got["pageTop"], got["titleTop"], delta=0.5, msg=got)
+                self.assertGreaterEqual(got["gap"], 4, got)
+                self.assertEqual(got["pages"], ["iv", "2"])
+                if selector == "#ns-outline-items":
+                    self.assertGreaterEqual(got["height"], 44, got)
 
 
 class BarAndSheets(ViewerBase):
@@ -6861,7 +6913,7 @@ class ClickOffCancelsSelection(ViewerBase):
                 nothing_follows(page, 700)
                 self.assertTrue(page.evaluate(HAS_SELECTION))
                 badge = page.evaluate(
-                    """() => {for (const b of document.querySelectorAll('.mark b')) {const r = b.getBoundingClientRect();
+                    """() => {for (const b of document.querySelectorAll('.mark [data-act=mark-jump]')) {const r = b.getBoundingClientRect();
                       const e = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2);
                       if (e === b) return [r.x + r.width / 2, r.y + r.height / 2];} return null;}"""
                 )

@@ -707,7 +707,7 @@ class EnglishChrome(ChromiumTestCase):
             settle(page)
             return str(page.evaluate("document.querySelector('#tip').textContent"))
 
-        self.assertEqual(tip('.mark[data-pin="%d"] b' % pin["id"]), "#%d · 완료" % pin["id"])
+        self.assertEqual(tip('.mark[data-pin="%d"] [data-act=mark-jump]' % pin["id"]), "#%d · 완료" % pin["id"])
         self.assertFalse(HANGUL.search(tip("#btn-fit")))
         page.evaluate("NOTICES.forEach(n=>endNotice(n,false))")
         page.bring_to_front()

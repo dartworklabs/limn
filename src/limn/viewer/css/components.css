@@ -80,14 +80,15 @@ input.n{width:58px;text-align:center}
 .mark.st{border-color:var(--warning);background:color-mix(in srgb,var(--status-warning) 8%,transparent)}
 .mark.est{border-style:dashed}
 .mark.hi{border-width:3px}
-.mark b{position:absolute;top:-2px;left:-24px;background:var(--status-open);color:var(--status-open-foreground);border-radius:50%;
-  width:22px;height:22px;display:flex;align-items:center;justify-content:center;font-size:var(--text-sm);pointer-events:auto;cursor:pointer}
+.mark button.mark-jump{position:absolute;top:-2px;left:-24px;background:var(--status-open);color:var(--status-open-foreground);border-radius:50%;
+  width:var(--pin-badge-size);height:var(--pin-badge-size);min-width:0;min-height:0;border:0;padding:0;display:flex;align-items:center;justify-content:center;
+  font-size:var(--text-sm);font-weight:700;line-height:1.55;pointer-events:auto;cursor:pointer}
 /* A mark whose badge has no room outside - the page margin plus the mark's offset short of the badge's reach - has it in its
    own top-left corner (markBadgeIn): outside, it would be clipped. */
-.mark.in b{left:0;top:0}
-.mark.st b{background:var(--warning);color:var(--warning-foreground)}
+.mark.in button.mark-jump{left:0;top:0}
+.mark.st button.mark-jump{background:var(--warning);color:var(--warning-foreground)}
 .mark.rv{border-color:var(--status-review);background:color-mix(in srgb,var(--status-review) 8%,transparent)}
-.mark.rv b{background:var(--status-review);color:var(--status-review-foreground)}
+.mark.rv button.mark-jump{background:var(--status-review);color:var(--status-review-foreground)}
 .mark.flash{animation:flash .6s ease-in-out 3}
 @keyframes flash{50%{box-shadow:0 0 0 5px var(--primary)}}
 #banner{padding:var(--space-2) var(--space-3);border-bottom:1px solid var(--border);background:var(--card);display:flex;gap:var(--space-2);flex-wrap:wrap;

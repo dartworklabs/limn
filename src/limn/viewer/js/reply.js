@@ -59,31 +59,38 @@ function renderReplyOutcome(){const R=REPLY; if(!R)return; const box=/** @type {
   const k=/** @type {HTMLElement} */(box.querySelector('[data-act=reply-flip]')),keep=pv.toggle==='keep';
   k.textContent=tr(keep?'상태 유지':'다시 열기'); k.dataset.tip=tr(keep?'보내도 핀을 다시 열지 않고 답글만 남깁니다(드물게 씁니다)':'보내면서 핀을 다시 열어 에이전트에게 보냅니다(드물게 씁니다)');
   k.setAttribute('aria-checked',String(!!R.flip));}
-// Opens the one reply box on pin id with its kept draft; the panel opens if it was collapsed.
+/** Focus the existing box, or open pin id with copied draft hints and a reset override; expand the panel for a new box. */
 function openReply(id){
   if(REPLY&&REPLY.id===id){const t=replyNote(REPLY); if(t)t.focus(); return;}
   if(REPLY)closeReply(false);
   const p=findAnyPin(id);
+  REPLY_VISITS.set(id,(REPLY_VISITS.get(id)||0)+1);
   REPLY={id,flip:false,toggle:null,el:replyEl(p)}; OPEN_CARDS.add(id); setSide(true); drawPins();
-  const ta=replyNote(REPLY); ta.value=REPLY_DRAFT.get('reply:'+id)||''; autoGrow(ta); mentionPreview(ta); renderReplyOutcome(); ta.focus();
+  const ta=replyNote(REPLY),draft=REPLY_DRAFT.get('reply:'+id); ta.value=draft?draft.text:''; ta._mentions=new Set(draft?draft.mentions:[]);
+  autoGrow(ta); mentionPreview(ta); renderReplyOutcome(); ta.focus();
   REPLY.el.scrollIntoView({block:'nearest'});}
+/** Keep a nonblank reply's text and only the recipient hints its remaining tags carry; optionally redraw after closing. */
 function closeReply(redraw){if(!REPLY)return; const ta=replyNote(REPLY);
-  if(ta&&ta.value.trim())REPLY_DRAFT.set('reply:'+REPLY.id,ta.value); else REPLY_DRAFT.delete('reply:'+REPLY.id);
+  if(ta&&ta.value.trim())REPLY_DRAFT.set('reply:'+REPLY.id,{text:ta.value,mentions:mentionHints(ta)}); else REPLY_DRAFT.delete('reply:'+REPLY.id);
   REPLY=null; if(redraw!==false)drawPins();}
-// Sends the reply box's text: the box closes at once and the post waits NOTICE_MS behind [되돌리기] in its card (deferred). An
-// empty box says so on its own error line; a failed send puts the text back in the box with the reason there.
+/** Defer a nonblank reply; recover its input only before a newer visit, reporting a late failure on the status line. */
 function sendReply(){const R=REPLY; if(!R||viewerBlocked())return; const ta=replyNote(R),text=ta.value.trim();
   const rerr=/** @type {HTMLElement} */(R.el.querySelector('.r-err'));
   if(!text){rerr.textContent=tr('답글이 비어 있습니다'); rerr.hidden=false; ta.focus(); return;}
-  const id=R.id,p=findAnyPin(id),body={text},mh=mentionHints(ta),hints=ta._mentions,flip=!!R.flip; if(mh.length)body.mentions=mh;
+  const id=R.id,visit=REPLY_VISITS.get(id),p=findAnyPin(id),body={text},mh=mentionHints(ta),flip=!!R.flip; if(mh.length)body.mentions=mh;
   if(flip&&p&&pinState(p)!==PIN_STATE.OPEN&&R.toggle)body.reopen=R.toggle==='reopen';
   const reopens=!!p&&replyReopens(p,isHuman(),replyMentioned(ta),body.reopen);
   // Back into the box - after [되돌리기], or with an inline error when sending failed, so the draft is visibly kept. That
   // error line (an alert) is the one place a failed send is said; with the box off screen (the panel closed) the status line
   // says it instead (rule 1).
-  const back=err=>{REPLY_DRAFT.set('reply:'+id,text); openReply(id);
+  const back=err=>{
+    if(REPLY_VISITS.get(id)!==visit){
+      if(err)lineNote(tr('보내지 못했습니다')+' — #'+id,NOTICE_KIND.ERR,null,{dot:NOTICE_DOT.SIDE,literal:true});
+      return;
+    }
+    REPLY_DRAFT.set('reply:'+id,{text,mentions:mh}); openReply(id);
     const e=REPLY&&REPLY.id===id?/** @type {HTMLElement} */(REPLY.el.querySelector('.r-err')):null;
-    if(REPLY&&REPLY.id===id){const t=replyNote(REPLY); if(hints)t._mentions=hints; REPLY.flip=flip; mentionPreview(t); renderReplyOutcome();
+    if(REPLY&&REPLY.id===id){const t=replyNote(REPLY); t._mentions=new Set(mh); REPLY.flip=flip; mentionPreview(t); renderReplyOutcome();
       if(e){e.textContent=err||''; e.hidden=!err;}}
     if(err&&!(SIDE_OPEN&&e&&e.getClientRects().length))lineNote(err,NOTICE_KIND.ERR,null,{dot:NOTICE_DOT.SIDE,literal:true});};
   REPLY_DRAFT.delete('reply:'+id); REPLY=null; drawPins();          // the box closes at once; the post waits for its undo

@@ -47,16 +47,16 @@ let OUTLINE_ENTRIES=[],OUTLINE_SELECTED=-1,OUTLINE_ACTIVE_PAGE=0;
 // search field; the sheet leaves its outline section out when the PDF has no outline.
 function renderOutline(){outlineList($('#outline-items'),$('#outline-search').value);
   outlineList($('#ns-outline-items'),$('#ns-outline-search').value); $('#ns-outline').hidden=!OUTLINE_ENTRIES.length;}
-// One outline list in box for the search text q: a row per entry (number, title, printed page), the current section marked,
-// or why there is none. A heading is the manuscript's own words, so each entry is translate="no" (its page label is tl()'d
-// here); the empty-state sentences stay UI.
+/** Draw one filtered outline with bare printed-page labels and the current section marked.
+ * Entries keep manuscript wording unchanged; empty-state sentences remain translatable UI text.
+ */
 function outlineList(box,q){const query=String(q||'').trim().toLowerCase();
   if(!OUTLINE_ENTRIES.length){box.className='outline-empty';box.textContent='이 PDF에는 이동할 수 있는 목차가 없습니다.';return;}
   const rows=OUTLINE_ENTRIES.map((x,i)=>Object.assign({index:i},x)).filter(x=>!query||(x.number+' '+x.title).toLowerCase().includes(query));
   if(!rows.length){box.className='outline-empty';box.textContent='찾은 장·절이 없습니다.';return;}
   box.className='';
   setHtml(box,html`${rows.map(x=>{const on=x.index===OUTLINE_SELECTED;
-    const page=tl('{page}쪽',{page:x.pageLabel||String(x.page)});
+    const page=x.pageLabel||String(x.page);
     return html`<button translate="no" class="ol-depth-${Math.min(x.depth,4)}${on?' ol-active':''}" data-act="outline-page" data-index="${x.index}" data-page="${x.page}" data-close="1" aria-current="${on?'location':'false'}" title="${x.title}"><span class="ol-no">${x.number||'·'}</span><span class="ol-name">${x.title}</span><span class="ol-page">${page}</span></button>`;})}`);
 }
 // Where a PDF outline destination sits on its page, as a fraction from the top (0 = top). An XYZ destination carries

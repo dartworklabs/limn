@@ -55,6 +55,11 @@ function updateSyncBadge(s){STATUS_SYNC=s||null; const b=$('#meta-sync'); if(!b)
   b.dataset.tip=reason?(b.textContent+' · '+reason+' · '+tr('기존 PDF가 보일 수 있습니다')):b.textContent;
 }
 function isViewer(){return !!(typeof META!=='undefined'&&META&&META.me&&META.me.role===ROLE.VIEWER);}
+/** Whether this server-provided identity is a person with write access; server authorization remains authoritative. */
+function canConfirmReview(){return isHuman()&&!isViewer();}
+/** Explain why this screen cannot confirm a reviewed result, without offering a request the server will refuse. */
+function confirmAccessText(){return tr(isViewer()?'보기 권한만 있습니다 — 편집 권한이 있는 사람이 확인합니다':
+  '에이전트 권한으로 접속 중입니다 — 사람 신원으로 접속해 확인하세요');}
 // A state change the viewer role cannot make (the server answers 403 anyway): say so once instead of sending it, in a banner
 // over the composer while one is open, else on top of the panel (bannerHost).
 function viewerBlocked(){if(!isViewer())return false; bannerNote(undefined,'보기 권한(viewer)만 있는 계정이라 바꿀 수 없습니다',NOTICE_KIND.WARN); return true;}

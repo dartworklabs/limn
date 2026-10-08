@@ -429,6 +429,7 @@
  "다른 열린 핀과 줄 범위가 겹친다는 배지. 앞의 둘은 한 번에 고치고 함께 닫는 편이 낫고, 일부 겹침은 참고만 합니다": "A badge showing the line range overlaps another open pin. The first two are best fixed and closed together; a partial overlap is just for reference",
  "다른 쪽(에이전트나 자동 줄 맞춤)이 이 핀을 먼저 바꿨습니다 — 최신 위치를 불러왔습니다": "Someone else (an agent or auto line-alignment) changed this pin first — loaded the latest location",
  "다른 쪽이 이 핀을 먼저 바꿨습니다 — 최신 값을 불러왔습니다": "Someone else changed this pin first — loaded the latest values",
+ "다른 쪽이 이 핀을 먼저 바꿨습니다 — 최신 메모를 확인하고 다시 덧붙이세요": "Someone else changed this pin first — check the latest note and append again",
  "다시 여는 이유": "Reason for reopening",
  "다시 여는 이유 한 줄 — 에이전트가 이 글을 읽고 다시 고칩니다": "A one-line reason for reopening — the agent reads it and fixes it again",
  "다시 여는 이유를 한 줄 적어 주세요 — 에이전트가 그것을 읽고 다시 고칩니다": "Write a one-line reason for reopening — the agent reads it and fixes it again",
@@ -532,6 +533,7 @@
  "문서 열기": "Open document",
  "문서 전환(문서가 여럿일 때, 입력 칸 밖에서). 브라우저가 이 키를 먼저 가져가면 PDF 위 문서 탭을 누르세요. 문서마다 보던 자리·확대를 기억합니다": "Switches documents (when there is more than one, outside input fields). If the browser intercepts this key, click the document tab above the PDF instead. Each document remembers its own view position and zoom",
  "문서|빌드": "Document|Build",
+ "미지정": "Unassigned",
  "밝게": "Light",
  "방금": "Just now",
  "방금 한 저장·완료·삭제를 되돌립니다": "Undoes the save, done, or delete you just did",
@@ -1184,5 +1186,8 @@
  "다시 시도": "Try again",
  "저장됨": "Saved",
  "덧붙임": "Appended",
- "검토 대기 핀으로 갑니다": "Go to the pins awaiting review"
+ "검토 대기 핀으로 갑니다": "Go to the pins awaiting review",
+ "보기 권한만 있습니다 — 편집 권한이 있는 사람이 확인합니다": "This screen is read-only; a person with edit access confirms the result",
+ "에이전트 권한으로 접속 중입니다 — 사람 신원으로 접속해 확인하세요": "This screen uses agent access; open as a person to confirm the result",
+ "핀 #{id} 카드로 이동": "Go to pin #{id}"
 }

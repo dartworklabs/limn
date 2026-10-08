@@ -446,7 +446,11 @@ def _signature(f: Path) -> tuple[int, int, int] | None:
 
 
 def _compile(D: BuildDoc, cfg: BuildConfig, pull: Callable[[], Json] | None, force: bool) -> FinishedBuild:
-    """compile_tex's build itself: pull, copy, the no-change skip, latexmk and the render (compile_tex)."""
+    """Pull and copy the manuscript, skip a proven unchanged build, otherwise compile and publish its pages.
+
+    Changed or unknown recorded inputs force latexmk's rules while retaining warm byproducts, so unchanged file
+    metadata cannot hide an input edit. Copy, compilation, and rendering failures return their build outcomes.
+    """
     t0 = time.time()
     D.build.mkdir(parents=True, exist_ok=True)
     pulled: Json | None = None
@@ -485,12 +489,13 @@ def _compile(D: BuildDoc, cfg: BuildConfig, pull: Callable[[], Json] | None, for
     cur = build.cur_pages(D)
     stored = _stored_recipe(cur)
     stored_reads = warm.stored_reads(stored) if (cur / (D.main.stem + ".fls")).is_file() else None
+    digest_now = _reads_digest(D, stored_reads) if stored_reads is not None else None
     cold_now = _cold_digest(D, warm.stored_styles(stored))
-    if not force and scan is not None and stored_reads is not None:
+    if not force and scan is not None and stored_reads is not None and digest_now is not None:
         cur_reads = build.read_in_scan(scan, build.build_inputs(D, cur.name))
         seen = build.fingerprint_of(build.without_apart(D, scan, cur_reads))
         pages = len(list(cur.glob("page-*.png")))
-        holds = warm.recipe_matches(stored, cfg.dpi, main_rel, LATEXMK_ARGS, _reads_digest(D, stored_reads), cold_now)
+        holds = warm.recipe_matches(stored, cfg.dpi, main_rel, LATEXMK_ARGS, digest_now, cold_now)
         if pages and holds and warm.keeps_pages(build.load_builds(D), cur.name, seen):
             compiled_at = max(compiled_at, build.newest_read_apart(D, scan, cur_reads))
             head = _published_head(D)
@@ -513,8 +518,14 @@ def _compile(D: BuildDoc, cfg: BuildConfig, pull: Callable[[], Json] | None, for
     before = {f: _signature(f) for f in (pdf, syn, texlog, aux, fls)}
 
     build.state_update(D, phase="latex")
+    # latexmk can skip hashing a source whose size and whole-second mtime match its database. Limn's recorded-input
+    # digest compares the copy's bytes, so a changed digest must force rules even for that metadata collision. Without
+    # trusted reads (recorder off or a shipped .fls), the same shortcut is unproven and must also force rules. -g keeps
+    # warm byproducts; dpi-only rebuilds with unchanged trusted reads still reuse the PDF without compiling.
+    changed_reads = digest_now is not None and isinstance(stored, dict) and stored.get("digest") != digest_now
+    rerun = ["-g"] if digest_now is None or changed_reads else []
     # A single document runs in the build root as before; a --doc document runs in the folder holding its main .tex (Doc.out).
-    rc, out, timed_out = run_logged(["latexmk", *LATEXMK_ARGS, D.main.name], D.out, cfg.timeout)
+    rc, out, timed_out = run_logged(["latexmk", *LATEXMK_ARGS, *rerun, D.main.name], D.out, cfg.timeout)
     with contextlib.suppress(OSError):
         atomic_write(D.dir / "build.log", out)
     tail = "\n".join(out.splitlines()[-40:])[-4000:]

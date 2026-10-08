@@ -1,10 +1,11 @@
-"""Shared fixtures of the real-browser tests: one Chromium launcher for every browser test class, and BrowserBase -
+"""Shared fixtures of the real-browser tests: one browser launcher for every test class, and BrowserBase -
 the real viewer against the in-process server.
 
 Every browser test class uses them (test_brand, test_i18n, test_viewer, test_viewer_input, test_viewer_browser).
 Chromium is $LIMN_CHROMIUM, a system Chrome/Chromium, or Playwright's bundled one (`playwright install chromium`), in
 that order. Without Playwright or a browser the class is skipped, unless
-LIMN_TEST_REQUIRE_BROWSER=1 (CI), where that is a failure. Every class that launches Chromium carries the pytest marker
+LIMN_TEST_REQUIRE_BROWSER=1 (CI), where that is a failure. Classes selecting Firefox or WebKit use Playwright's
+bundled engine (`playwright install firefox webkit`). Every class that launches a browser carries the pytest marker
 `browser`, so `pytest -m "not browser"` runs the rest.
 
 The browser tests never wait a fixed time for the page to get somewhere: they wait on the state the next step reads (a
@@ -19,6 +20,7 @@ import shutil
 import tempfile
 import unittest
 from pathlib import Path
+from typing import Literal
 from urllib.parse import urlparse
 
 import pytest
@@ -115,15 +117,17 @@ def booted(n_open):
 
 
 class ChromiumTestCase(unittest.TestCase):
-    """A test class sharing one Chromium (cls.browser, driven through cls.pw) across its tests. A subclass that needs
+    """A test class sharing one browser (cls.browser, driven through cls.pw) across its tests, defaulting to Chromium.
+    BROWSER_ENGINE may select bundled Firefox or WebKit. A subclass that needs
     more class setup calls super().setUpClass() first and super().tearDownClass() last. Every subclass carries the
     pytest marker `browser` (pytest reads pytestmark through the class hierarchy)."""
 
     pytestmark = pytest.mark.browser
+    BROWSER_ENGINE: Literal["chromium", "firefox", "webkit"] = "chromium"
 
     @classmethod
     def setUpClass(cls):
-        """Start Playwright and launch Chromium; skip the class when either is unavailable, unless
+        """Start Playwright and launch the selected engine; skip the class when either is unavailable, unless
         LIMN_TEST_REQUIRE_BROWSER=1, where the error propagates."""
         super().setUpClass()
         required = os.environ.get("LIMN_TEST_REQUIRE_BROWSER") == "1"
@@ -133,19 +137,22 @@ class ChromiumTestCase(unittest.TestCase):
             if required:
                 raise
             raise unittest.SkipTest("Playwright unavailable") from None
-        exe = os.environ.get("LIMN_CHROMIUM") or shutil.which("google-chrome") or shutil.which("chromium")
         cls.pw = sync_playwright().start()
         try:
-            cls.browser = cls.pw.chromium.launch(executable_path=exe or None, args=["--no-sandbox"])
+            if cls.BROWSER_ENGINE == "chromium":
+                exe = os.environ.get("LIMN_CHROMIUM") or shutil.which("google-chrome") or shutil.which("chromium")
+                cls.browser = cls.pw.chromium.launch(executable_path=exe or None, args=["--no-sandbox"])
+            else:
+                cls.browser = getattr(cls.pw, cls.BROWSER_ENGINE).launch()
         except Exception as e:  # no bundled or system browser
             cls.pw.stop()
             if required:
                 raise
-            raise unittest.SkipTest("Chromium unavailable: %s" % e) from e
+            raise unittest.SkipTest("%s unavailable: %s" % (cls.BROWSER_ENGINE.capitalize(), e)) from e
 
     @classmethod
     def tearDownClass(cls):
-        """Close Chromium and stop Playwright."""
+        """Close the selected browser and stop Playwright."""
         cls.browser.close()
         cls.pw.stop()
         super().tearDownClass()
