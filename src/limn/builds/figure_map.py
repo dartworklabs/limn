@@ -449,6 +449,7 @@ def _tree_rejection(elements: tuple[MapElement, ...], where: str) -> MapRejected
 # D6 (ADR-0011), measured with modelled drags on a figure tool's real map: docs/handbook/domain.md §그림 문서의 요소 pick.
 COVER_MIN = 0.4  # an element holding at least this share of the drag is a candidate (step 1)
 FILL_MIN = 0.5  # an element the drag covers at least this share of joins the common-ancestor step (step 2)
+PICK_MIN_SIDE = 0.012  # selection-only minimum axis length, in page fractions; actual geometry remains unchanged
 LADDER_MAX = 8  # element rungs below the root: "el", "el2", ..., "el8"; the root rung is "fig"
 FOLLOW_EPS = 1e-4  # a box component moved by no more than this is where it was
 KIND_PART_MAX = 77  # "el:" + part stays within a pin kind's 80 characters
@@ -493,6 +494,19 @@ def _fill(box: Frac, drag: Frac) -> float:
     return min(1.0, _overlap(box, drag) / _area(box)) if _area(box) > 0 else 0.0
 
 
+def _selection_box(box: Frac) -> Frac:
+    """Expand only small axes around their centre to PICK_MIN_SIDE and clip to the page.
+
+    This transient hit box admits padded drags around thin marks; the element's stored box and score use its
+    original geometry. Input is a parsed positive-area page box, so clipping retains positive width and height.
+    """
+    x, y, w, h = box
+    pad_x, pad_y = max(0.0, PICK_MIN_SIDE - w) / 2, max(0.0, PICK_MIN_SIDE - h) / 2
+    left, top = max(0.0, x - pad_x), max(0.0, y - pad_y)
+    right, bottom = min(1.0, x + w + pad_x), min(1.0, y + h + pad_y)
+    return (left, top, right - left, bottom - top)
+
+
 def _common_ancestor(page: MapPage, els: Sequence[MapElement]) -> MapElement:
     """The deepest element of page that is each of els or an ancestor of it (an element counts as its own ancestor).
     els is not empty and holds no root (pick_element passes page elements other than the root).
@@ -522,8 +536,9 @@ def pick_element(page: MapPage, drag: Frac) -> ElementPick:
 
     Only the page's non-root elements compete in steps 1 and 2 (the root spans the page, so it always covers the
     drag and would hide both steps):
-    1. the deepest element whose cover of the drag (_cover) is at least COVER_MIN - ties go to the smaller box, then
-       to the earlier element in the map;
+    1. candidates cover at least COVER_MIN of the drag. If no actual candidate is also filled to FILL_MIN and the
+       drag has area, add elements filled to FILL_MIN whose selection-only box covers COVER_MIN. Eligible descendants
+       displace their ancestors; unrelated candidates go by smaller actual area, then earlier map order;
     2. else the nearest common ancestor of the elements the drag fills to at least FILL_MIN (_fill) - a drag across
        siblings (a drag without area fills nothing);
     3. else the root, the whole figure.
@@ -532,8 +547,18 @@ def pick_element(page: MapPage, drag: Frac) -> ElementPick:
     others = [e for e in page.elements if e.id != root.id]
     order = {e.id: i for i, e in enumerate(page.elements)}
     covering = [e for e in others if _cover(e.frac, drag) >= COVER_MIN]
+    if _area(drag) > 0 and not any(_fill(e.frac, drag) >= FILL_MIN for e in covering):
+        original_ids = {e.id for e in covering}
+        covering.extend(
+            e
+            for e in others
+            if e.id not in original_ids
+            and _fill(e.frac, drag) >= FILL_MIN
+            and _cover(_selection_box(e.frac), drag) >= COVER_MIN
+        )
     if covering:
-        chosen = min(covering, key=lambda e: (-len(page.ancestors(e)), _area(e.frac), order[e.id]))
+        ancestors = {a.id for e in covering for a in page.ancestors(e)}
+        chosen = min((e for e in covering if e.id not in ancestors), key=lambda e: (_area(e.frac), order[e.id]))
     else:
         filled = [e for e in others if _fill(e.frac, drag) >= FILL_MIN]
         chosen = _common_ancestor(page, filled) if filled else root

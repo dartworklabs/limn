@@ -865,27 +865,32 @@ class WarmWithLatexmk(unittest.TestCase):
         self.assertIsInstance(res, BuildOk)
         self.assertIn("\\newlabel{sec:c}", (self.D.dir / res.build / "main.aux").read_text())
 
-    @needs_tex("latexmk", "pdftoppm", "pdfinfo")
+    @needs_tex("latexmk", "pdftoppm", "pdfinfo", "pdftotext")
     def test_an_edited_csv_the_manuscript_inputs_is_rebuilt(self):
-        """A .csv the manuscript reads with \\input is outside the fingerprint but in the build's .fls: an unchanged
-        rebuild is skipped, and after editing the .csv the rebuild runs and its PDF differs."""
-        (self.main.parent / "data.csv").write_text("12,34\n", encoding="utf-8")
+        """A same-size CSV edit with its exact mtime preserved must appear in the rebuilt PDF, even though
+        latexmk's timestamp shortcut would otherwise leave the preceding PDF untouched."""
+        csv = self.main.parent / "data.csv"
+        csv.write_text("12,34\n", encoding="utf-8")
         self.edit("WORD.", "WORD. \\input{data.csv}")
         first = self.tracked()
         self.assertIsInstance(first, BuildOk)
+        self.assertIn("12,34", self.text_of(first))
         self.assertIsInstance(self.tracked(), BuildUnchanged)
-        (self.main.parent / "data.csv").write_text("56,78\n", encoding="utf-8")
+        before = csv.stat()
+        csv.write_text("56,78\n", encoding="utf-8")
+        os.utime(csv, ns=(before.st_atime_ns, before.st_mtime_ns))
+        self.assertEqual((csv.stat().st_size, csv.stat().st_mtime_ns), (before.st_size, before.st_mtime_ns))
         res = self.tracked()
         self.assertIsInstance(res, BuildOk)
-        self.assertNotEqual(
-            (self.D.dir / res.build / "main.pdf").read_bytes(), (self.D.dir / first.build / "main.pdf").read_bytes()
-        )
+        self.assertIn("56,78", self.text_of(res))
+        self.assertNotIn("12,34", self.text_of(res))
+        self.assertIsInstance(self.tracked(), BuildUnchanged)
 
     @needs_tex("latexmk", "pdftoppm", "pdfinfo", "pdftotext")
     def test_a_recorder_switched_off_never_publishes_the_old_recorder_file(self):
         """(A) The first build reads data1.csv with the recorder on. A latexmkrc then turns the recorder off and the
         .tex switches to data2.csv: that build publishes no .fls (the copy's is the old one, naming data1.csv) and a
-        recipe without reads, so editing data2.csv afterwards rebuilds and the PDF shows the edit."""
+        recipe without reads, so a same-size, same-mtime data2.csv edit still reaches the next warm PDF."""
         folder = self.main.parent
         (folder / "data1.csv").write_text("11,11\n", encoding="utf-8")
         (folder / "data2.csv").write_text("22,22\n", encoding="utf-8")
@@ -898,16 +903,23 @@ class WarmWithLatexmk(unittest.TestCase):
         self.assertIsInstance(second, BuildOk)
         self.assertFalse((self.D.dir / second.build / "main.fls").exists())
         self.assertIsNone(json.loads((self.D.dir / second.build / "recipe.json").read_text())["digest"])  # no reads
-        (folder / "data2.csv").write_text("99,99\n", encoding="utf-8")
+        csv = folder / "data2.csv"
+        before = csv.stat()
+        csv.write_text("99,99\n", encoding="utf-8")
+        os.utime(csv, ns=(before.st_atime_ns, before.st_mtime_ns))
+        self.assertEqual((csv.stat().st_size, csv.stat().st_mtime_ns), (before.st_size, before.st_mtime_ns))
         third = self.tracked()
         self.assertIsInstance(third, BuildOk)
         self.assertIn("99,99", self.text_of(third))
+        self.assertNotIn("22,22", self.text_of(third))
+        self.assertFalse((self.D.dir / third.build / "main.fls").exists())
+        self.assertEqual(self.pdflatex_runs(), 1)
 
     @needs_tex("latexmk", "pdftoppm", "pdfinfo", "pdftotext")
     def test_a_shipped_recorder_file_is_never_published(self):
         """(B) The manuscript ships an old main.fls (naming data1.csv) and turns the recorder off. Neither the cold build
         that copies it nor, once it is removed from the manuscript, the warm build that finds it left in the copy
-        publishes it, and an edit of data2.csv rebuilds."""
+        publishes it, and a same-size, same-mtime data2.csv edit rebuilds warm with its actual new text."""
         folder = self.main.parent
         (folder / "data1.csv").write_text("11,11\n", encoding="utf-8")
         (folder / "data2.csv").write_text("22,22\n", encoding="utf-8")
@@ -921,10 +933,17 @@ class WarmWithLatexmk(unittest.TestCase):
         second = self.tracked()
         self.assertIsInstance(second, BuildOk)
         self.assertFalse((self.D.dir / second.build / "main.fls").exists())
-        (folder / "data2.csv").write_text("77,77\n", encoding="utf-8")
+        csv = folder / "data2.csv"
+        before = csv.stat()
+        csv.write_text("77,77\n", encoding="utf-8")
+        os.utime(csv, ns=(before.st_atime_ns, before.st_mtime_ns))
+        self.assertEqual((csv.stat().st_size, csv.stat().st_mtime_ns), (before.st_size, before.st_mtime_ns))
         third = self.tracked()
         self.assertIsInstance(third, BuildOk)
         self.assertIn("77,77", self.text_of(third))
+        self.assertNotIn("22,22", self.text_of(third))
+        self.assertFalse((self.D.dir / third.build / "main.fls").exists())
+        self.assertEqual(self.pdflatex_runs(), 1)
 
     @needs_tex("latexmk", "pdftoppm", "pdfinfo")
     def test_an_out_dir_in_latexmkrc_fails_instead_of_showing_the_old_pdf(self):

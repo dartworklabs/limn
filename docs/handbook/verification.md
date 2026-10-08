@@ -65,6 +65,10 @@ Limn에서 "테스트가 녹색"은 합격의 필요조건이지 충분조건이
 
 같은 코드에서 통과와 실패를 오가는 테스트는 원인을 찾아 고친다. 원인은 공유 상태, 시간, 실행 순서, 동시성, 자원 수명, 환경, 실제와 다른 대역 가운데 하나다. 시계를 주입하고, 상태를 격리하고, 실제 조건을 기다리는 식으로 그 원인을 없앤다. 재시도, 더 긴 타임아웃, `sleep`, 격리 실행은 영향을 줄일 뿐 고치지 않는다. 녹색이 나올 때까지 다시 돌리지 않는다. 바로 고칠 수 없으면 추적 이슈를 남기고 그 이유와 함께 게이트에서 뺀다. 재실행 플러그인을 두지 않는 것도 같은 이유다.
 
+[`test_token_file.py`](../../src/limn/administration/tests/test_token_file.py)의 실제 서버 기동 검사는 자식 프로세스의 stdout·stderr를 테스트별 파일에 보존한다. 기동 실패는 종료 상태·인터프리터·실제 거절 문장을 함께 보고하고, 자식이 살아서 멈춘 경우에는 30초 기동 한도 전에 `faulthandler`가 25초 시점의 스택을 남긴다. 대기 시간을 늘리거나 재시도하지 않고 실패 원인을 확인하기 위한 증거다. 정상 기동은 그 자식의 리스너 준비 표식과 실제 소켓 응답을 함께 확인한다. 다른 프로세스가 같은 포트를 듣는 것만으로 통과하지 않는다. 종료 정리는 먼저 정상 종료를 요청하고 제한 시간에 끝나지 않으면 강제 종료한 뒤 자식을 회수한다. 로그는 자식 정리 뒤에 닫는다.
+
+[`test_server_listener.py`](../../src/limn/web/tests/test_server_listener.py)는 역방향 이름 확인이 응답하지 않는 조건에서 IPv4·IPv6의 실제 리스너가 활성화되고 TCP 연결을 받는지 확인한다. 사용 중인 포트의 기동 거절은 [`test_token_file.py`](../../src/limn/administration/tests/test_token_file.py)의 실제 점유 포트 회귀 검사가 확인한다. 이 검사는 이름 확인이 멈추는 조건에서의 소켓 기동을 검증하며, 과거 CI 실패가 같은 원인이었다는 증거를 대신하지 않는다.
+
 ### 테스트 파일의 배치
 
 기능·보안·HTTP·실행 자원·플랫폼 테스트는 소유 패키지의 `tests/`에 둔다. 새 테스트는 그것이 검증하는 슬라이스 안에 두고, 둘 수 없으면 루트 `tests/`에 슬라이스 경로를 따라 두고 이유를 PR에 적는다. 기존 테스트는 승인 없이 옮기지 않는다. 핀의 각 동작 테스트는 `pins/<동작>/tests/`, 모델·레코드·저장·위치 계산을 함께 검증하는 테스트는 `pins/tests/`에 있다. 뷰어의 자산·JavaScript·Chromium 검사도 `viewer/tests/`가 소유한다. 각 파일의 구체적인 관찰 범위는 모듈 docstring에 있다.
@@ -74,7 +78,7 @@ Limn에서 "테스트가 녹색"은 합격의 필요조건이지 충분조건이
 | `src/limn/*/tests/`, `src/limn/pins/*/tests/` | 소유 기능과 경계의 값·규칙·입력·저장·HTTP·실행·뷰어 동작 |
 | `src/limn/administration/tests/test_instances.sh` | 인스턴스 셸 명령·실행 인자·유닛 생성·업데이트 |
 | `tests/contracts/` | 여러 기능의 HTTP·`pins.md` 스냅샷과 성질 검증. 그림 문서 흐름(지도 pick, 요소 핀, 다시 렌더 뒤의 계산 필드)은 `test_contract_snapshot.py`가 [`tests/data/contract_snapshot_figure.json`](../../tests/data/contract_snapshot_figure.json)과 따로 비교한다. `test_figure_rollback.py`는 이전 릴리스가 그림 핀 레코드를 읽고 바이트 그대로 되쓰는지 본다 |
-| `tests/architecture/` | 공개 표면·import 경계, Handbook 참조, 이름·개인정보 규칙, CI 액션의 커밋 고정과 체크아웃 자격 증명 |
+| `tests/architecture/` | 공개 표면·import 경계, Handbook 참조, 이름·개인정보 규칙, CI 액션의 커밋 고정·체크아웃 자격 증명·uv와 빌드 백엔드 버전 고정 |
 | `tests/tools/` | 테스트 식별자 이동 대조 도구 |
 | `tests/support/`, `tests/data/` | 수집하지 않는 공용 테스트 도우미와 고정 입력·스냅샷. 그림 문서 fixture(그림 스크립트·공통 부품·요소 지도·빌드 폴더와, pick 답을 뷰어처럼 저장하는 도우미, 뷰어 테스트가 쓰는 세 문서(원고·그림·보기 전용 PDF)의 등록과 다시 렌더)는 [`tests/support/helpers_figure.py`](../../tests/support/helpers_figure.py)에 있다 |
 
@@ -101,6 +105,8 @@ pytest는 `tests`와 `src/limn`을 수집하고 `tests/support`에서 공용 도
 | 실행 | `uv tool install .` 뒤 `limn version`, `limn serve --help`, `limn help`를 실행하고, 설치된 패키지에 뷰어·브랜드·번들 라이브러리(PDF.js, Pretendard)·인스턴스 셸·systemd 템플릿 파일이 있고, Pretendard 조각이 `SHA256SUMS`와 바이트까지 같으며, 테스트 파일이 없는지 확인한다. 정확한 단계는 `ci.yml`의 `install` 작업이 정본이다. 로컬에서 빌드만 볼 때는 `uv build && uv run --isolated python -m limn --help` |
 | 합격 기준 | 설치가 성공하고, 설치된 명령이 오류 없이 출력하며, 빠진 패키지 파일과 새어 든 테스트 파일이 없어야 한다 |
 | 보장 범위 | 패키징과 진입점 연결을 보장한다. 인스턴스를 실제로 띄워 브라우저로 접속하는 것은 보장하지 않는다 |
+
+CI는 uv `0.12.23`을 쓰고, 패키지 빌드는 Hatchling `1.32.4`를 요구한다. 개발 의존성의 잠금 파일과 별개로 설치 도구·격리 빌드 백엔드도 검토한 버전을 쓰기 위해서다. 실행 정본은 `ci.yml`의 `setup-uv` 설정과 `pyproject.toml`의 `[build-system]`이고, [`test_ci_pins.py`](../../tests/architecture/test_ci_pins.py)가 누락되거나 정확히 고정되지 않은 버전을 거부한다.
 
 ## 4. 에이전트 계약 호환
 
@@ -216,3 +222,5 @@ pytest는 `tests`와 `src/limn`을 수집하고 `tests/support`에서 공용 도
 ## 요청과 자원 권한 경계
 
 `src/limn/web/tests/test_request_boundary.py`와 `src/limn/web/tests/test_request_input.py`는 중복 키·헤더·잘못된 인코딩을 거부하고 연결을 닫으며 상태를 쓰지 않는지 확인한다. `src/limn/security/tests/test_authority.py`는 역할별 기존 허용 동작, 새 경로 등록의 기본 거부, 등록된 모든 POST의 작업 선언, 작업·대상·인스턴스가 다른 권한의 거부와 신원 스냅샷을 검증한다. `src/limn/security/tests/test_access_paths.py`는 주체 × 진입 경로와 역할 × 핀 동작·읽기 경로를 실제 처리기로 확인한다. `src/limn/security/tests/test_header_parsers.py`는 Bearer·Host·Origin·신원 헤더·신뢰 프록시 목록 파서가 생성한 어떤 입력에도 값이나 정해진 거절만 내고, 루프백 Host가 루프백 Origin만 받는지 확인한다. `src/limn/platform/tests/test_manuscript_files.py`는 원고 제외 경로, 검사 뒤 심볼릭 링크 교체, 일반 파일 제한과 디스크립터 정리를 실제 파일로 확인한다. `src/limn/pins/tests/test_pin_sequences.py`는 생성한 전이 시퀀스의 상태·식별자·revision·레코드 왕복을 확인한다.
+
+[`test_build_access.py`](../../src/limn/security/tests/test_build_access.py)는 owner·editor·viewer·agent의 재빌드·비교 빌드 HTTP 권한을 실제 Git 이력·파일·문서 잠금·작업 스레드로 확인한다. viewer의 동기·비동기 재빌드, 신원 없는 요청, 잘못되거나 폐기된 토큰과 허용 목록 밖 신원은 거절되며 원고·상태 파일과 빌드 상태가 그대로다. 허용된 비교는 실제 작업을 만들고 현재 원고·발행 빌드를 바꾸지 않는다. TeX 표식의 검사는 허용된 재빌드의 실제 PDF와 viewer 비교의 샌드박스 PDF를 확인한다. 도구가 없는 일반 검사의 작업 생성 확인은 PDF 완성 검증을 대신하지 않는다. 주체별 작업 한도나 HTTP 연결 상한을 새로 집행하는 검사는 아니며, 그 정책의 공백은 [code-style-roadmap.md](code-style-roadmap.md) §경계 집행과 검증의 한계에 남는다.
