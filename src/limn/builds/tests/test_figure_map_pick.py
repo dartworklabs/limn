@@ -3,8 +3,8 @@ ladder above it, and where a pinned element is on a later build's map - pure fun
 
 The parser half of the module (parse_map) is tested with P1a's tests. Here pages are built from the value types
 directly, so each rule is seen without JSON, files or a server. docs/handbook/domain.md §그림 문서의 요소 pick
-describes the ladder the rules feed; the Hypothesis properties at the end check them on generated element trees against
-an oracle written from that description.
+describes the ladder the rules feed; the Hypothesis properties check ancestry, actual geometry, and absence of
+false hits on generated element trees and drags.
 
 Run: uv run pytest -q src/limn/builds/tests/test_figure_map_pick.py
 """
@@ -60,10 +60,10 @@ def fmap(*pages):
 
 
 class Pick(unittest.TestCase):
-    """pick_element: the deepest covering element, else the common ancestor of the filled ones, else the root."""
+    """Eligible descendants displace ancestors; unrelated boxes compete by area, with guarded padding for thin marks."""
 
     def test_a_point_picks_the_deepest_element_holding_it(self):
-        """A click (a drag without area) is its point: every box holding it covers it fully and the deepest wins."""
+        """A click is its centre point; along the calendar's ancestor chain the deepest holding box wins."""
         got = pick_element(CAL_PAGE, (0.3, 0.3, 0.0, 0.0))
         self.assertEqual((got.chosen.id, got.score), ("F/cal/m07", 1.0))
 
@@ -168,6 +168,49 @@ class Pick(unittest.TestCase):
     def test_a_line_drag_counts_as_its_centre_point(self):
         """A drag with width but no height has no area: it is the point at its centre (0.3, 0.3)."""
         self.assertEqual(pick_element(CAL_PAGE, (0.25, 0.3, 0.1, 0.0)).chosen.id, "F/cal/m07")
+
+    def test_a_padded_thin_line_wins_over_its_background_with_its_actual_score(self):
+        """A box around a hairline selects the line while its score still describes the real, thin geometry."""
+        background = el("F/bg", "F", (0.1, 0.1, 0.8, 0.8))
+        line = el("F/line", "F", (0.2, 0.4, 0.6, 0.001))
+        got = pick_element(page(background, line), (0.2, 0.39, 0.6, 0.02))
+        self.assertEqual(got.chosen, line)
+        self.assertEqual(got.chosen.frac, (0.2, 0.4, 0.6, 0.001))
+        self.assertAlmostEqual(got.score, 0.05)
+
+    def test_a_padded_dot_wins_over_its_background(self):
+        """A tiny dot inside a padded positive-area drag can compete with the large box behind it."""
+        background = el("F/bg", "F", (0.1, 0.1, 0.8, 0.8))
+        dot = el("F/dot", "F", (0.3995, 0.3995, 0.001, 0.001))
+        got = pick_element(page(background, dot), (0.3945, 0.3945, 0.011, 0.011))
+        self.assertEqual(got.chosen, dot)
+        self.assertAlmostEqual(got.score, 1 / 121)
+
+    def test_a_small_padded_label_wins_over_its_background(self):
+        """Padding a short label should not force the answer to the background spanning its page."""
+        background = el("F/bg", "F", (0.1, 0.1, 0.8, 0.8))
+        label = el("F/label", "F", (0.3, 0.3, 0.04, 0.004), part="Text")
+        self.assertEqual(pick_element(page(background, label), (0.297, 0.294, 0.046, 0.016)).chosen, label)
+
+    def test_an_unrelated_deeper_branch_does_not_outrank_a_smaller_covering_box(self):
+        """Depth orders an ancestor chain, so an unrelated branch's nesting cannot hide a more specific box."""
+        group = el("F/group", "F", (0.1, 0.1, 0.8, 0.8))
+        nested = el("F/group/big", "F/group", (0.2, 0.2, 0.2, 0.2))
+        small = el("F/small", "F", (0.3, 0.3, 0.04, 0.04))
+        self.assertEqual(pick_element(page(group, nested, small), (0.31, 0.31, 0.02, 0.02)).chosen, small)
+
+    def test_a_strong_actual_match_is_not_stolen_by_a_neighboring_inflated_dot(self):
+        """When the drag and an existing candidate substantially cover each other, added hit padding stays out."""
+        target = el("F/target", "F", (0.4, 0.4, 0.008, 0.008))
+        neighbor = el("F/dot", "F", (0.403, 0.403, 0.0005, 0.0005))
+        self.assertEqual(pick_element(page(target, neighbor), (0.4004, 0.4004, 0.0072, 0.0072)).chosen, target)
+
+    def test_hit_padding_does_not_select_an_element_outside_the_drag(self):
+        """A nearby drag sharing no actual element area and a nearby click both remain on the figure root."""
+        dot = el("F/dot", "F", (0.4, 0.4, 0.001, 0.001))
+        for drag in ((0.402, 0.4, 0.001, 0.001), (0.403, 0.4005, 0.0, 0.0)):
+            with self.subTest(drag=drag):
+                self.assertEqual(pick_element(page(dot), drag).chosen, ROOT)
 
 
 class Ladder(unittest.TestCase):
@@ -293,31 +336,32 @@ def fill(box, d):
     return min(1.0, overlap(box, d) / (box[2] * box[3]))
 
 
-def common_ancestor(pg, els):
-    """The oracle's nearest common ancestor (an element counts as its own ancestor)."""
-    chains = [[e.id, *(a.id for a in pg.ancestors(e))] for e in els]
-    return pg.by_id(next(i for i in chains[0] if all(i in c for c in chains)))
-
-
 class Properties(unittest.TestCase):
     """The rules hold for every generated page and drag."""
 
     @settings(deadline=None, max_examples=200)
     @given(pages(), drags())
-    def test_the_choice_is_the_deepest_cover_else_the_common_ancestor_else_the_root(self, pg, d):
-        """Total, and never another element: step 1 by depth, step 2 by the filled elements, step 3 the root;
-        score is the chosen element's cover."""
+    def test_actual_candidates_do_not_lose_to_ancestors_and_scores_use_original_geometry(self, pg, d):
+        """Strong actual matches exclude hit-only candidates; no eligible actual descendant loses to its ancestor."""
         got = pick_element(pg, d)
         others = pg.elements[1:]
         covering = [e for e in others if cover(e.frac, d) >= COVER_MIN]
-        if covering:
+        self.assertIn(got.chosen, pg.elements)
+        if any(fill(e.frac, d) >= FILL_MIN for e in covering):
             self.assertGreaterEqual(cover(got.chosen.frac, d), COVER_MIN)
-            self.assertEqual(len(pg.ancestors(got.chosen)), max(len(pg.ancestors(e)) for e in covering))
-        else:
-            filled = [e for e in others if fill(e.frac, d) >= FILL_MIN]
-            want = common_ancestor(pg, filled) if filled else pg.root()
-            self.assertEqual(got.chosen.id, want.id)
+        if covering:
+            for candidate in covering:
+                self.assertNotIn(got.chosen, pg.ancestors(candidate))
         self.assertEqual(got.score, cover(got.chosen.frac, d))
+
+    @settings(deadline=None, max_examples=100)
+    @given(st.floats(0.2, 0.7), st.floats(0.0001, 0.004), st.floats(0.0001, 0.004))
+    def test_hit_padding_never_picks_a_small_element_when_the_drag_has_no_actual_overlap(self, x, w, h):
+        """Nearby positive-area drags and point clicks sharing no actual geometry still choose the root."""
+        dot = el("F/dot", "F", (x, 0.3, w, h))
+        pg = page(dot)
+        for d in ((x + w + 0.0001, 0.3, 0.001, h), (x + w + 0.0001, 0.3 + h / 2, 0.0, 0.0)):
+            self.assertEqual(pick_element(pg, d).chosen, ROOT)
 
     @settings(deadline=None, max_examples=200)
     @given(pages(), drags())

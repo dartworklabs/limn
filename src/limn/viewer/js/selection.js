@@ -29,7 +29,7 @@ $('#doc').addEventListener('mousedown',e=>{if(e.button===0&&e.target.closest('.p
 let LP_PICKED=/** @type {number|null} */(null),TAP=/** @type {{id:number,x:number,y:number,t:number}|null} */(null),
   LAST_TAP=/** @type {{t:number,x:number,y:number}|null} */(null);
 $('#doc').addEventListener('pointerdown',e=>{
-  if(e.target.closest('.mark b'))return;
+  if(e.target.closest('.mark [data-act=mark-jump]'))return;
   if(!e.isPrimary){cancelDrag(); cancelLP(); TAP=null; LAST_TAP=null; return;}   // a second finger = a pinch - the box being drawn is discarded
   const pg=e.target.closest('.pg'); if(!pg)return;
   const mouse=e.pointerType==='mouse';
@@ -81,8 +81,9 @@ function selectionOpen(){return !!(COMPOSE.current||!$('#composer').hidden)&&!RE
 // Whether the press of pointerdown event e is outside the selection on the PDF area: not on a control or a pin's number badge, not on the
 // scrollbar, and not in the box, its badge, its note popover (sel-popover.js, which counts as the box) or a pin mark (their boxes
 // ignore the pointer, so the page is what the press lands on).
+/** Whether a primary press can cancel the open selection; pin badge buttons, controls and marks never cancel it. */
 function pressOutsideSelection(e){const t=/** @type {Element} */(e.target); if(!selectionOpen())return false;
-  if(t.closest('.mark b,button,a,input,textarea,select,[data-act],[role=button],#sel-pop'))return false;
+  if(t.closest('.mark [data-act=mark-jump],button,a,input,textarea,select,[data-act],[role=button],#sel-pop'))return false;
   const L=$('#left'); if(t===L&&(e.offsetX>=L.clientWidth||e.offsetY>=L.clientHeight))return false;
   const inside=[...document.querySelectorAll('.mark'),...(COMPOSE.box?[COMPOSE.box,...COMPOSE.box.querySelectorAll('i')]:[]),...(selPopOpen()?[SEL_POP]:[])].map(n=>n.getBoundingClientRect());
   return !hitsAny(inside,e.clientX,e.clientY,0);}
@@ -133,4 +134,3 @@ function revealBox(box){if(!box||LAYOUT===LAYOUT_MODE.WIDE||!document.contains(b
   let bottom=lr.bottom; if(LAYOUT===LAYOUT_MODE.NARROW&&SIDE_OPEN)bottom=Math.min(bottom,$('#right').getBoundingClientRect().top);
   const top=Math.max(lr.top+28,bar.getClientRects().length?bar.getBoundingClientRect().bottom+8:0); if(br.top>=top&&br.bottom<=bottom-8)return;
   L.scrollTop+=br.top-top-Math.max(0,(bottom-top-br.height)/3);}
-

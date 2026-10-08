@@ -69,11 +69,15 @@ let LAYOUT=/** @type {string|null} */(null),BAND=/** @type {string|null} */(null
 const OPEN_CARDS=new Set();   // ids of pin cards expanded in compact
 // Pin kind/thread (docs/handbook/viewer.md §스레드와 검토): KIND_NEW = the composer panel's kind (fix|question), REPLY = the open reply/reopen
 // input field {id,mode,el} (holds onto the DOM like EDITOR.current does, and re-inserts it in place when the list redraws), THREAD_OPEN = cards with the thread fully expanded,
-// REPLY_DRAFT = a closed input field's draft text ('reply:12').
+// REPLY_DRAFT = a closed input field's text and selected recipient hints ('reply:12').
 let KIND_NEW=/** @type {string} */(KIND_REQ.FIX),REPLY=/** @type {ReplyBox|null} */(null);
 // @-tags (docs/handbook/viewer.md §@태그): PEOPLE = /api/people (tailnet people who opened this viewer + pin authors/actors), MENTION_ONLY = viewing only "pins that called me".
 let PEOPLE=/** @type {PersonSeen[]} */([]),MENTION_ONLY=false;
-const THREAD_OPEN=new Set(),REPLY_DRAFT=new Map();
+const THREAD_OPEN=new Set();
+/** Closed reply drafts keyed by pin; these snapshots stay within the current page. @type {Map<string, ReplyDraft>} */
+const REPLY_DRAFT=new Map();
+/** Latest reply visit for each pin, including visits closed empty or already sent. @type {Map<number, number>} */
+const REPLY_VISITS=new Map();
 // Multiple documents (§Multiple documents, docs/handbook/domain.md §여러 문서): DOCS = the /api/docs list, DOC = the current document key, DEFAULT_DOC = the first
 // document that a legacy pin with no doc field belongs to. OPEN_ALL = open pins across all documents (PINS is the subset for the current document - marks/overlap/editing only look at PINS).
 // META_BY = per-document meta cache (instant tab switching), VIEW_BY = per-document viewed position/zoom, BUILD_ERR_BY = per-document last build error,

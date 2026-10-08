@@ -47,11 +47,11 @@ include = ["src/limn", "tests", "tools", "docs", "skill", "README.md", "README.k
 [tool.pytest.ini_options]
 testpaths = ["tests", "src/limn"]
 pythonpath = ["tests/support"]
-# Keep class-scoped Chromium resources together; -n 0 remains available for debugging.
+# Keep class-scoped browser resources together; -n 0 remains available for debugging.
 addopts = "--import-mode=importlib -n 4 --dist loadscope"
 markers = [
     "tex: runs real TeX-side tools (tests/support/helpers.py needs_tex); the CI tex job selects these with -m tex",
-    "browser: launches Chromium (every tests/support/helpers_browser.py ChromiumTestCase class); -m 'not browser' runs the rest",
+    "browser: launches Chromium, Firefox, or WebKit (tests/support/helpers_browser.py); -m 'not browser' runs the rest",
 ]
 
 [tool.ruff]

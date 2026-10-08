@@ -127,6 +127,8 @@ class VisitLocalContinuations(unittest.TestCase):
                 extract_js_fn("captureVisit"),
                 extract_js_fn("currentVisit"),
                 extract_js_fn("composeOwns"),
+                extract_js_fn("composeFields"),
+                extract_js_fn("syncComposeSaveButtons"),
                 extract_js_fn("savePin"),
                 """
                 let DOC='a',SWITCHSEQ=1; const COMPOSE={current:{doc:'a',file:'a.tex',page:1,lo:1,hi:1},box:{remove(){removes++;}},saving:false,picking:false};
@@ -134,6 +136,7 @@ class VisitLocalContinuations(unittest.TestCase):
                 const SEC_SEEN={open:new Set()},ASSIGN_NEW={v:'agent'};
                 let finish,undo;
                 function $(name){return name==='#note'?{value:'note'}:{disabled:false};}
+                const document={querySelectorAll:()=>[$('#btn-save')]};
                 function isRegion(){return false;}function kindFor(){return 'line';}function figureFields(b){return b;}function figRung(){return null;}
                 function mentionHints(){return [];}function renderAssignNew(){}
                 function selectionSnapshot(){return {};}
@@ -226,9 +229,16 @@ class VisitLocalContinuations(unittest.TestCase):
                 extract_js_fn("captureVisit"),
                 extract_js_fn("currentVisit"),
                 extract_js_fn("composeOwns"),
+                extract_js_fn("composeFields"),
+                extract_js_fn("syncComposeSaveButtons"),
+                extract_js_fn("isViewer"),
+                extract_js_fn("viewerBlocked"),
                 extract_js_fn("appendToPin"),
                 """
                 let DOC='a',SWITCHSEQ=1,PINS=[{id:7,note:'old'}]; const COMPOSE={current:{doc:'a'},box:{remove(){removed++;}}};
+                const KIND_NEW='fix',ASSIGN_NEW={v:'agent',touched:false};
+                function $(name){return name==='#note'?{value:'note'}:{disabled:false};}
+                const document={querySelectorAll:()=>[$('#btn-save')]};
                 let finish,removed=0,cleared=0,said=0,loads=0;
                 function api(){return new Promise(resolve=>{finish=resolve;});}
                 function cancelSelection(){cleared++;COMPOSE.current=null;}
@@ -310,6 +320,8 @@ class VisitLocalContinuations(unittest.TestCase):
             [
                 extract_js_fn("editorOwns"),
                 extract_js_fn("editNote"),
+                extract_js_fn("editFields"),
+                extract_js_fn("syncEditSaveButton"),
                 extract_js_fn("saveEdit"),
                 """
                 let DOC='a',SWITCHSEQ=1;
@@ -320,7 +332,7 @@ class VisitLocalContinuations(unittest.TestCase):
                 function loadPins(){loads++;return Promise.resolve();}
                 function api(){return new Promise(resolve=>{finish=resolve;});}
                 (async()=>{
-                  const old=saveEdit();EDITOR.current={id:2,newEditor:true};
+                  const old=saveEdit();EDITOR.current={id:2,newEditor:true,el:first.el};
                   finish({status:200,data:{pin:{id:1}}});await old;
                   console.log(JSON.stringify({id:EDITOR.current.id,newEditor:EDITOR.current.newEditor,loads,said,saving:EDITOR.saving}));
                 })();
@@ -338,6 +350,8 @@ class VisitLocalContinuations(unittest.TestCase):
             [
                 extract_js_fn("editorOwns"),
                 extract_js_fn("editNote"),
+                extract_js_fn("editFields"),
+                extract_js_fn("syncEditSaveButton"),
                 extract_js_fn("saveEdit"),
                 """
                 let DOC='a',SWITCHSEQ=1;
@@ -364,6 +378,8 @@ class VisitLocalContinuations(unittest.TestCase):
             [
                 extract_js_fn("editorOwns"),
                 extract_js_fn("editNote"),
+                extract_js_fn("editFields"),
+                extract_js_fn("syncEditSaveButton"),
                 extract_js_fn("saveEdit"),
                 """
                 let DOC='a',SWITCHSEQ=1;

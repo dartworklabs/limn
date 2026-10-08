@@ -1,4 +1,5 @@
-// ------------------------------------------------ Pin card parts: people, badges, claims, @-tags and #refs in text, the thread
+/** Native pin-card markup, including participant text, state badges and threads.
+ * User-provided names and notes enter markup only through the escaping Html template. */
 function who(a){if(a&&a.login===LOCAL_LOGIN)return tr(a.name||'로컬/에이전트'); return (a&&(a.name||a.login))||'';}   // the stored local name is Korean ('로컬/에이전트'); shown in the UI language
 const BADPIC=new Set();   // an avatar URL that has already failed is never requested again (otherwise console errors would pile up on every re-render)
 // A person = a photo or an initial circle (primary color); local/agent = a faded circle with a robot icon - distinguishes people from agents at a glance.
@@ -85,13 +86,20 @@ function isQuestion(p){return !!p&&p.kind_req===KIND_REQ.QUESTION;}
 // The current assignee - the recorded value (p.assignee); for a legacy pin without one, the person the server inferred (the first of p.addressed); if neither, the agent.
 /** @param {Pin} p */
 function assigneeOf(p){if(!p)return ASSIGNEE_AGENT; if(p.assignee)return p.assignee; const a=p.addressed||[]; return a.length?a[0]:ASSIGNEE_AGENT;}
-// The card header's assignee chip: shown only when the assignee is a person (the agent is the default, so it's not shown). The author (or an identity-less local screen) changes it by clicking into [수정].
-// The name is user text (translate="no").
-/** @param {Pin} p */
-function assignChip(p){if(!p.assignee||p.assignee===ASSIGNEE_AGENT)return html``; const me=meLogin(),mine=p.assignee===me,nm=mine?tr('나'):'@'+(String(peopleName(p.assignee)).split(/\s+/)[0]||p.assignee);   // the chip shows the first word of the name; the full name goes in the description
-  const canEdit=pinState(p)===PIN_STATE.OPEN&&(isMe(p.author)||!me),tip=tl('담당: {name} — 에이전트는 이 핀을 건너뜁니다',{name:mine?tr('나'):peopleName(p.assignee)})+(canEdit?tr('. 누르면 [수정]에서 담당을 바꿉니다'):'');
+/** Render the recorded assignee once as plain metadata, without inferring a legacy default.
+ * Only an open pin's author or identity-less local screen gets the existing edit action;
+ * read-only viewers and other participants retain readable text. Names remain escaped.
+ * @param {Pin} p @returns {Html} */
+function assignChip(p){if(!p.assignee||p.assignee===ASSIGNEE_AGENT)return html`<span class="as-chip">${tr('담당')} ${tr(p.assignee?'에이전트':'미지정')}</span>`;
+  const me=meLogin(),mine=p.assignee===me,nm=mine?tr('나'):peopleName(p.assignee);
+  const canEdit=!isViewer()&&pinState(p)===PIN_STATE.OPEN&&(isMe(p.author)||!me),tip=tl('담당: {name} — 에이전트는 이 핀을 건너뜁니다',{name:nm})+(canEdit?tr('. 누르면 [수정]에서 담당을 바꿉니다'):'');
   return canEdit?html`<button class="badge badge-assign as-chip${mine?' me':''}" data-act="edit" data-tip="${tip}">${tr('담당')} <span class="as-n" translate="no">${nm}</span></button>`
     :html`<span class="badge badge-assign as-chip${mine?' me':''}" data-tip="${tip}">${tr('담당')} <span class="as-n" translate="no">${nm}</span></span>`;}
+/** Return one note-level context row; native badges keep their richer expanded meaning.
+ * Context duplicated by a visible kind/state badge is exposed only when the card is collapsed.
+ * The caller supplies the same status facts used to build the native badges.
+ * @param {Pin} p @param {string} statusLabel @param {boolean} duplicateStatus @returns {Html} */
+function cardMetadata(p,statusLabel,duplicateStatus){return html`<div class="card-meta"><span class="${isQuestion(p)?'card-meta-context':''}">${tr(isQuestion(p)?'질문':'수정 요청')} · </span>${assignChip(p)}<span class="${duplicateStatus?'card-meta-context':''}"> · ${tr(statusLabel)}</span></div>`;}
 // Status dot (docs/handbook/viewer.md §상태 표현): color + a readable name (aria-label/description). A badge states the same meaning in text once more.
 const ST_NAME={open:'열림',claimed:'처리 중',review:'검토 대기',lost:'위치 잃음'};
 function stDot(st){const t=tl('상태: {name}',{name:tr(ST_NAME[st])}); return html`<span class="st-dot${st===CARD_DOT.OPEN?'':' '+st}" role="img" aria-label="${t}" data-tip="${t}"></span>`;}

@@ -43,11 +43,12 @@ document.addEventListener('focusin',e=>{const t=/** @type {HTMLElement} */(e.tar
   if((t&&t.tagName==='TEXTAREA')||touchRecent()||MQ_NOHOVER.matches){if(Date.now()>=SWALLOW_CLICK)hideTip();return;}
   armTip(t.closest?t.closest('[data-tip]'):null);});
 // Long-press tooltip (touch/pen): holding for 500ms shows the description, and the one click after release is swallowed (so the button doesn't fire).
-// Over a page image, quick selection (long-press = that paragraph) takes priority, so only badges (.mark b) apply. Input fields keep their paste menu.
+// Over a page image, quick selection (long-press = that paragraph) takes priority, so only badges (.mark [data-act=mark-jump]) apply. Input fields keep their paste menu.
 let PRESS=/** @type {{el:HTMLElement,x:number,y:number,t:ReturnType<typeof setTimeout>,shown?:boolean}|null} */(null),SWALLOW_CLICK=0;
+/** Find a touch tooltip target while preserving native input menus and paragraph selection outside pin badges. */
 function pressTarget(t){const el=t&&t.closest?t.closest('[data-tip]'):null; if(!el)return null;
   if(el.tagName==='TEXTAREA'||el.tagName==='INPUT')return null;
-  if(el.closest('.pg')&&!el.closest('.mark b'))return null; return el;}
+  if(el.closest('.pg')&&!el.closest('.mark [data-act=mark-jump]'))return null; return el;}
 document.addEventListener('pointerdown',e=>{if(e.pointerType==='mouse')return; if(!TIP.hidden)hideTip();
   const el=pressTarget(e.target); if(!el)return;
   PRESS={el,x:e.clientX,y:e.clientY,t:setTimeout(()=>{showTip(el); if(PRESS)PRESS.shown=true; SWALLOW_CLICK=Date.now()+900;
@@ -67,4 +68,3 @@ document.addEventListener('focusout',hideTip);
 document.addEventListener('scroll',hideTip,true);
 // Releasing right after a long-press opens it, Chrome sends a simulated mousedown - that alone must never close it.
 document.addEventListener('mousedown',()=>{if(Date.now()>=SWALLOW_CLICK)hideTip();},true);
-

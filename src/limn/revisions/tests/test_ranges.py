@@ -32,7 +32,8 @@ class RangeRepo(AccessBase):
     """The fixed repository of this module and a server pointed at its manuscript folder ms/."""
 
     def setUp(self):
-        """Commit, in order: root (main.tex + sec/method.tex), alpha (two places, a pin on one of them closed with
+        """Create unsigned commits, independent of the contributor's signing settings, in order: root
+        (main.tex + sec/method.tex), alpha (two places, a pin on one of them closed with
         the commit), notes (outside the manuscript), rename (sec/method.tex -> sec/methods.tex with one line
         changed), then a branch `feature` with beta, trunk's gamma, the --no-ff merge of feature, and after (filler
         line). self.sha names each commit."""
@@ -43,6 +44,7 @@ class RangeRepo(AccessBase):
         self.clock = 0
         self.sha: dict[str, str] = {}
         self.git("init", "--quiet", "--initial-branch=main")
+        self.git("config", "commit.gpgsign", "false")
         self.main.write_text(REPO_OLD, encoding="utf-8")
         (self.src / "sec").mkdir()
         (self.repo / SIDE).write_text("Method one.\nMethod two.\nMethod three.\n", encoding="utf-8")

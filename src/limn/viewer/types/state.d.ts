@@ -3,6 +3,7 @@
 
 // The open edit card (edit.js EDITOR.current): the pin it edits, its card element, the request's base revision, the
 // range being edited with its ladder and snippet, the values it opened with (orig) to tell what changed.
+/** An active card keeps original values and copied mention hints so later changes can be saved against its baseline. */
 interface EditCard {
   id: number;
   el: HTMLElement;
@@ -17,7 +18,7 @@ interface EditCard {
   levels: Rung[];
   n_lines: number | null;
   snippet: string;
-  orig: { lo?: number; hi?: number; scope: string | null; note: string; kind_req: string; assignee: string };
+  orig: { lo?: number; hi?: number; scope: string | null; note: string; mentions: readonly string[]; kind_req: string; assignee: string };
   assignee: string;
   doc: string;
   region: boolean;
@@ -42,6 +43,12 @@ interface Repick {
   from: { lo?: number; hi?: number; page: number; region: boolean };
   box: HTMLElement | null;
   cand: PickAnswer | null;
+}
+
+/** A closed nonblank reply keeps its text and the recipient logins selected for tags that remain in that text. */
+interface ReplyDraft {
+  readonly text: string;
+  readonly mentions: readonly string[];
 }
 
 // The open reply box (reply.js REPLY): its pin, its element, and whether the outcome toggle is flipped and which way.

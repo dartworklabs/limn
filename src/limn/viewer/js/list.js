@@ -16,12 +16,15 @@ function derivePinLists(rows,doc,defaultDoc,confirming){
 }
 // Applies an accepted snapshot: announces transitions on the status line, keeps active editors honest (an edit or reply whose
 // pin left says so there too, with a dot on [핀 N]), then redraws the current document.
+/** Apply a fresh snapshot while retaining dirty or saving editors whose pin is still present, including a rival close. */
 function applyPinLists(rows,dropped,lists){
   const prevOpen=OPEN_ALL,prevReview=REVIEW_ALL;
   notePinChanges(prevOpen,rows,dropped); noteReviewChanges(prevReview,rows);
   OPEN_ALL=lists.openAll; REVIEW_ALL=lists.reviewAll; DONE_ALL=lists.doneAll; DROPPED=dropped;
   PINS=lists.openHere; DONE=lists.doneHere;
-  const E=EDITOR.current; if(E&&!OPEN_ALL.some(p=>p.id===E.id)){lineNote(tl('편집 중이던 핀 #{id} 이 목록에서 빠졌습니다(다른 쪽에서 닫았거나 지움)',{id:E.id}),NOTICE_KIND.WARN,null,{dot:NOTICE_DOT.SIDE}); EDITOR.current=null;}
+  const E=EDITOR.current; if(E&&!OPEN_ALL.some(p=>p.id===E.id)){
+    if(rows.some(p=>p.id===E.id)&&(EDITOR.saving||editDirty()))SEC.open=true;
+    else{lineNote(tl('편집 중이던 핀 #{id} 이 목록에서 빠졌습니다(다른 쪽에서 닫았거나 지움)',{id:E.id}),NOTICE_KIND.WARN,null,{dot:NOTICE_DOT.SIDE}); EDITOR.current=null;}}
   const R=REPLY; if(R&&!rows.some(p=>p.id===R.id)){closeReply(false); lineNote('답글을 쓰던 핀이 목록에서 빠졌습니다(지워짐) — 쓰던 글은 남겨 둡니다',NOTICE_KIND.WARN,null,{dot:NOTICE_DOT.SIDE});}
   if(!SEC_SEEN.open){SEC_SEEN.open=new Set(OPEN_ALL.map(p=>p.id)); SEC_SEEN.review=new Set(REVIEW_ALL.map(p=>p.id)); SEC_SEEN.done=new Set(DONE_ALL.map(p=>p.id));}
   drawPins(); marks(); drawDocTabs();
@@ -100,6 +103,7 @@ function toggleSec(key,force){if(!(key in SEC_DEFAULT))return; SEC[key]=force===
 // banners of notices.js, keeping a focus that was in one) - and, while the changes view shows a pin, its guide line's buttons,
 // whose [확인] follows that pin's state (revTargetActs). The status line's review arrivals follow the review list it draws:
 // those whose pins left it go, with [검토 M]'s dot (dropStaleReview).
+/** Redraw active lists and retain the live editor, even when a rival close moved its pin out of the open list. */
 function drawPins(){dropStaleReview();
   const LIST=listOpen(),LDONE=listDone(),LDROP=listDropped();
   const nfocus=noticeFocus();   // a focus in an undo row or note, given back once they are drawn again (drawOffers)
@@ -118,10 +122,10 @@ function drawPins(){dropStaleReview();
   // In compact, the Trash is a row in [⋯] with its count. On desktop the Trash is the link under the list.
   const nTrash=LDROP.filter(p=>!PURGING.has(p.id)).length;
   $('#m-trash-n').textContent=nTrash; $('#trash-link').textContent=tl('휴지통 {n}',{n:nTrash}); $('#trash-link').hidden=!nTrash;
-  $('#empty').hidden=SHOWN.length>0||OPEN_ALL.length>0||REVIEW_ALL.length>0;
+  $('#empty').hidden=SHOWN.length>0||OPEN_ALL.length>0||REVIEW_ALL.length>0||!!EDITOR.current;
   // Empty list: the header's count already says it - a separate '아직 없습니다.' line is never added too (QA). Only a note that another document has pins is left.
   setHtml($('#pins'),SHOWN.length?html`${SHOWN.map(card)}`:multiDoc()&&!SHOW_ALL&&OPEN_ALL.length?html`<div class="dim list-empty">${tl('이 문서에는 없습니다 · 다른 문서에 {n}건',{n:OPEN_ALL.length})}</div>`:html``);
-  if(EDITOR.current){const slot=$('#pins .edit-slot'); if(slot)slot.replaceWith(EDITOR.current.el);
+  if(EDITOR.current){const slot=$('#pins .edit-slot'); if(slot)slot.replaceWith(EDITOR.current.el); else $('#pins').appendChild(EDITOR.current.el); renderEdit();
     if(efocus&&eta&&document.contains(eta)){eta.focus(); try{eta.setSelectionRange(efocus[0],efocus[1]);}catch(e){}}}
   // Awaiting-review section: between open pins and done. Hidden when empty - but not while a confirm's undo row stands in it
   // (offersIn). The card looks the same as an open pin (thread/replies); only the actions are [확인]/[답글].
@@ -160,6 +164,7 @@ function markBadgeSides(){const r=markBadgeRoom(); $$('.mark').forEach(m=>m.clas
 // Draws one mark per open or awaiting-review pin of this document on its page: where the pin's element is now for a figure
 // pin (pinPlace), else where it was pinned, then decides each badge's side (markBadgeSides) and puts a save's or an append's
 // undo chip back on its mark (drawChips). A pin without a usable box or page draws nothing.
+/** Draw native, named pin badge buttons at the current mark coordinates, preserving mark and undo-chip geometry. */
 function marks(){
   $$('.mark').forEach(m=>m.remove());
   // Awaiting-review pins are also drawn as purple marks - so the reviewer can see right there what was fixed (unrelated to an open pin's overlap/editing).
@@ -170,13 +175,13 @@ function marks(){
     Object.assign(m.style,{left:at.frac[0]*100+'%',top:at.frac[1]*100+'%',width:at.frac[2]*100+'%',height:at.frac[3]*100+'%'});
     const n=String(p.note||'').replace(/\s+/g,' ').trim();
     const tip='#'+p.id+' · '+(n?(n.length>60?n.slice(0,60)+'…':n):tr('(메모 없음)'))+(est?' '+tr('(PDF가 새로 만들어져 위치는 추정입니다)'):'')+(elLost(p)?' · '+tr('요소 잃음'):'');
-    setHtml(m,html`<b translate="no" data-act="mark-jump" data-id="${p.id}" data-tip="${tip}">${p.id}</b>`); el.appendChild(m);});   // the tip carries the note
+    setHtml(m,html`<button type="button" class="mark-jump" translate="no" data-act="mark-jump" data-id="${p.id}" aria-label="${tl('핀 #{id} 카드로 이동',{id:p.id})}" data-tip="${tip}">${p.id}</button>`); el.appendChild(m);});   // the tip carries the note
   markBadgeSides(); drawChips();
 }
 // Clicking a badge scrolls to and flashes the card (never calls pick). The mark box itself has pointer-events:none, so
-// a drag over it still becomes a new selection - only the badge (<b>) needs to block mousedown.
+// a drag over it still becomes a new selection - only the badge button needs to block mousedown.
 $('#doc').addEventListener('mousedown',e=>{
-  if(e.target.closest('.mark b')){e.stopPropagation();e.preventDefault();}
+  if(e.target.closest('.mark [data-act=mark-jump]')){e.stopPropagation();e.preventDefault();}
 },true);
 // Clicking a badge -> scroll to the card + .cur highlight (spec) + a 1.2-second flash. The highlight is never left on -
 // it releases; when it was a static box-shadow, it stayed on the card until the next click.

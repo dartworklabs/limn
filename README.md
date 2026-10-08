@@ -53,6 +53,15 @@ With SSH access to GitHub, `git+ssh://git@github.com/dartworklabs/limn@v0.4.20` 
 
 ## Run one server
 
+For one person reviewing on their own machine, use local authentication. The browser is the local owner and can
+confirm an agent's completed work; agents connect with API tokens.
+
+```bash
+limn serve --manuscript ~/papers/paper2 --main main.tex --port 18300 --auth local
+```
+
+Open `http://127.0.0.1:18300/`. For collaboration on your tailnet, use the default tailscale authentication instead:
+
 ```bash
 limn serve --manuscript ~/papers/paper2 --main main.tex --port 18300
 # several documents as tabs:
@@ -60,8 +69,10 @@ limn serve --manuscript ~/papers/paper2 \
   --doc 'ms=Manuscript:manuscript/main.tex' --doc 'rr=Response:submission/review_response/review_response.tex'
 ```
 
-It listens on `127.0.0.1` by default. Open `http://127.0.0.1:18300/`. To share it on your tailnet:
-`tailscale serve --bg --https=18200 http://127.0.0.1:18300`. `limn serve --help` lists all options;
+It listens on `127.0.0.1` by default. Share the tailscale instance with
+`tailscale serve --bg --https=18200 http://127.0.0.1:18300` and open its tailnet HTTPS address so the browser receives
+your person identity. With default authentication, opening the loopback address without identity headers uses the
+legacy local-agent identity and cannot confirm reviews. `limn serve --help` lists all options;
 state (pins, builds) goes to `--state-dir` or `~/.local/share/limn/serve/<manuscript>-<hash>`.
 
 > **Security:** never expose Limn without an identity provider in front of it. The default (`--auth tailscale`)

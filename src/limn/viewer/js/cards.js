@@ -1,7 +1,8 @@
-// The open or awaiting-review pin card: header, badges, note and actions. A figure pin's page link follows its element, and a
-// lost element is flagged like a lost line. The note, its preview and the author's name are user text (translate="no"); the UI
-// words drawn inside them are translated here.
-/** @param {Pin} p */
+/** Native active/review cards and archive rows preserve their state-specific actions.
+ * Notes and participant names use escaping Html templates and disable browser translation;
+ * UI words inside those regions are translated before rendering. */
+/** Render a pin's request, status and available actions; confirmation is offered only to a person with write access.
+ * @param {Pin} p */
 function card(p){
   const loc='L'+p.lo+'-L'+p.hi,name=p.name||String(p.file||'').split('/').pop(),tags=[];   // loc stays in the copy format
   if(p.stale)tags.push(html`<span class="badge badge-warning" data-tip="${T.stale}">${ic('triangle-alert')}위치 잃음</span>`);
@@ -22,7 +23,7 @@ function card(p){
     :html`<span class="au old" data-tip="${tip}">기록 전</span>`;
   const editing=!!(EDITOR.current&&EDITOR.current.id===p.id),open=OPEN_CARDS.has(p.id);
   // Header line: number/line-range/page on the left, author/collapse on the right. Badges (.tags) drop to one line below the header.
-  // compact accordion: a collapsed card shows only number/location/page/the note's first line (.sum); clicking expands badges/note/buttons (CSS).
+  // compact accordion: the collapsed header and note preview (.sum) retain the note-level metadata; clicking expands badges/note/buttons (CSS).
   // In wide, .sum and the collapse button are hidden and the card is always expanded. Actions form an equal-width grid; only [완료] is emphasized, [삭제] is the destructive color.
   const first=String(p.note||'').split('\n')[0].trim(),noNote=html`<span class="dim">${tr('(메모 없음)')}</span>`;
   // Collapsed card's (compact) note preview: up to two lines on its own line below the header. It used to only get the
@@ -32,13 +33,14 @@ function card(p){
   if(isRegion(p)){const fb=figRegionBadge(p.el,isFigureKind((docInfo(pdoc(p))||{}).kind));   // a figure region: element without code, or map unreadable
     tags.unshift(fb?html`<span class="badge" data-tip="${fb.tip}">${fb.t}</span>`:html`<span class="badge" data-tip="보기 전용 PDF의 핀 — 줄 번호 없이 쪽·영역과 영역 글자로 가리킵니다">보기 전용</span>`);}
   if(isQuestion(p))tags.unshift(html`<span class="badge badge-question" data-tip="${T.question}">${ic('circle-question-mark')}질문</span>`);
-  const adr=p.assignee?null:addressedTag(p); if(adr)tags.push(adr);   // a pin with a recorded assignee already says the same thing via the header's assignee chip
+  const adr=p.assignee?null:addressedTag(p); if(adr)tags.push(adr);   // a recorded assignee already appears in the note-level metadata
   const fyi=fyiTag(p); if(fyi)tags.push(fyi);   // a fix pin's FYI @-tags - this line once sat after the comment above and never executed (QA 2026-09-24)
   const rv=pinState(p)===PIN_STATE.REVIEW;
   const quote=cardQuote(p);   // the dragged PDF text, one line above the note (issue #185)
   if(rv)tags.unshift(html`<span class="badge badge-review" data-tip="${tr(T.review)+' · '+tl('닫은 쪽: {name}',{name:who(p.closed_by)||'?'})+' · '+(p.done_at||'')}">${ic('eye')}${reviewerLabel(p)}</span>`);
   const ro=!rv&&reopenedTurn(p);
   if(ro)tags.unshift(html`<span class="badge badge-reopen" data-tip="${tl('검토에서 되돌아온 핀 — {name} · {time}',{name:who(ro.by)||'?',time:arcTime(ro.at)})+(ro.text?' · '+tl('이유: {text}',{text:ro.text}):'')}">${ic('rotate-ccw')}다시 열림</span>`);
+  const lost=!!(p.stale||lostEl),metadata=cardMetadata(p,rv?'검토 대기':lost?'위치 잃음':claimed?'처리 중':'열림',!!(rv||lost||claimed||ro));
   // compact's head link (CSS shows it in place of #N, the line range and N쪽, diagnosis P6/U5): one 44px target that does what
   // [보기] does - the same data-act, so it also replaces the row's [보기] there.
   const page=tl('{page}쪽',{page:pinPlace(p).page});
@@ -49,17 +51,18 @@ function card(p){
   const head=html`<div class="row head">${dot}${go}<span class="n go" role="button" tabindex="0" data-act="view" data-tip="${T.n}">#${p.id}</span>${docChip(p)}\
 <span class="loc" tabindex="0" data-copy="${isRegion(p)?locCopy(p):name+' '+loc}" data-tip="${isRegion(p)?'영역이 있는 PDF 쪽. 클릭하면 복사':T.loc}">${locText(p)}</span>\
 <span class="pg-link" tabindex="0" data-act="view" data-tip="클릭하면 그 쪽으로 이동">${page}</span>\
-<span class="sp"></span><span class="h-meta">${assignChip(p)}${thn}${au}</span>\
+<span class="sp"></span><span class="h-meta">${thn}${au}</span>\
 <button class="btn-icon btn-sm btn-ghost cmp b-fold" data-act="card-toggle" aria-expanded="${unfold}" aria-label="${open?'카드 접기':'카드 펼치기'}">${ic(unfold?'chevron-down':'chevron-right')}</button></div>\
 ${sum}<div class="tags">${tags}</div>`;
   if(rv)return html`<div class="pin card review${open?' open':''}" data-id="${p.id}" data-doc="${pdoc(p)}">${head}\
-${quote}<div class="note" translate="no">${p.note?fmtText(p.note,p.mentions):noNote}</div>${threadHtml(p,LAYOUT===LAYOUT_MODE.WIDE)}\
+${quote}<div class="note" translate="no">${p.note?fmtText(p.note,p.mentions):noNote}</div>${metadata}${threadHtml(p,LAYOUT===LAYOUT_MODE.WIDE)}\
 <div class="acts"><button class="btn-sm b-change" data-act="change" data-tip="${T.change}">변경 보기</button>\
 <button class="btn-sm b-reply" data-act="reply-open" data-tip="${T.reply}">답글</button>\
-<button class="btn-sm b-confirm${isMe(p.author)?' btn-soft':''}" data-act="confirm" data-tip="${T.confirm}">확인</button></div></div>`;
-  const body=editing?html`<div class="edit-slot"></div>`
+${canConfirmReview()?html`<button class="btn-sm b-confirm${isMe(p.author)?' btn-soft':''}" data-act="confirm" data-tip="${T.confirm}">확인</button>`:''}</div>\
+${canConfirmReview()?'':html`<div class="dim review-access">${confirmAccessText()}</div>`}</div>`;
+  const body=editing?html`<div class="edit-slot"></div>${metadata}`
     :html`${quote}<div class="note" translate="no" data-act="edit" data-tip="${tr('클릭하면 메모와 범위를 고칩니다')}">${p.note?fmtText(p.note,p.mentions):noNote}</div>\
-${threadHtml(p,LAYOUT===LAYOUT_MODE.WIDE)}<div class="acts">${cardActs(claimed,LAYOUT!==LAYOUT_MODE.WIDE)}</div>`;
+${metadata}${threadHtml(p,LAYOUT===LAYOUT_MODE.WIDE)}<div class="acts">${cardActs(claimed,LAYOUT!==LAYOUT_MODE.WIDE)}</div>`;
   return html`<div class="pin card${p.stale||elLost(p)?' st':''}${claimed?' claimed':''}${editing?' editing':''}${open?' open':''}" data-id="${p.id}" data-doc="${pdoc(p)}">${head}${body}</div>`;
 }
 // An open card's action row, in the order it is seen so that Tab follows it. wide: [보기] [수정] [답글] ([풀기]) [삭제] [완료], by name.

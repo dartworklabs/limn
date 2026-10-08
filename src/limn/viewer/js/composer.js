@@ -1,8 +1,12 @@
 // ------------------------------------------------ composer
 // The active selection owns its PDF box, in-flight pick/save, and overlap choice for one composer visit.
 const COMPOSE={current:/** @type {Selection|null} */(null),box:/** @type {HTMLElement|null} */(null),picking:false,pendingSave:false,saving:false,dismissedOverlap:/** @type {string|null} */(null)};
-// A completed save may clear only the selection and box that sent the request in this document visit.
-function composeOwns(selection,box,visit){return currentVisit(visit)&&COMPOSE.current===selection&&COMPOSE.box===box;}
+/** Capture editable composer fields by value; derived overlap and snippet updates do not count as new input. */
+function composeFields(){const d=COMPOSE.current,n=$('#note');
+  return JSON.stringify({note:n.value,mentions:Array.from(n._mentions||[]),kind:KIND_NEW,assign:{...ASSIGN_NEW},
+    range:d&&{lo:d.lo,hi:d.hi,scope:d.scope,kind:d.kind,env:d.env,elSel:d.elSel}});}
+/** A successful request may clear its original selection only when every submitted editable field is still unchanged. */
+function composeOwns(selection,box,visit,fields){return currentVisit(visit)&&COMPOSE.current===selection&&COMPOSE.box===box&&composeFields()===fields;}
 function setBusy(on){$('#c-spin').hidden=!on; $('#c-body').classList.toggle('busy',on);}
 // Turns a dragged PDF region into source lines (/api/pick) and fills the composer - or, while relocating, the banner.
 // A new selection opens a collapsed panel; stale responses (PICKSEQ) are dropped; a save queued meanwhile runs after it. The
@@ -85,6 +89,7 @@ function recomputeOverlap(){if(COMPOSE.current)COMPOSE.current.overlaps=overlaps
 // Draws the overlap notice for the current selection, or hides it. On the phone sheet it is one line (diagnosis P2: three lines
 // took 72px above the note): the short relation ('#4와 같은 범위', the full sentence and the lines in its tooltip) and the two
 // actions with short names; elsewhere the sentence with the lines and the two full-named buttons.
+/** Render the current overlap choice; its append control shares the composer's in-flight submission lock. */
 function renderOverlapBanner(){
   const box=$('#c-overlap'); const d=COMPOSE.current;
   const ov=d?pickOverlap(d.overlaps):null;
@@ -96,7 +101,7 @@ function renderOverlapBanner(){
     :html`<span>${overlapText(ov.rel,ov.id)} <span class="dim">(L${ov.lo}-L${ov.hi})</span></span>`;
   const appendTip=tl('이 선택의 메모를 #{id} 에 덧붙이고, 지금 선택은 새 핀으로 만들지 않습니다',{id:ov.id});
   setHtml(box,html`${text}\
-<button class="btn-sm btn-secondary hit" data-act="overlap-append" data-oid="${ov.id}" data-tip="${appendTip}">${one?tr('덧붙이기'):tl('#{id} 메모에 덧붙이기',{id:ov.id})}</button>\
+<button class="btn-sm btn-secondary hit" data-act="overlap-append" data-oid="${ov.id}" data-tip="${appendTip}"${COMPOSE.saving?html` disabled`:''}>${one?tr('덧붙이기'):tl('#{id} 메모에 덧붙이기',{id:ov.id})}</button>\
 <button class="btn-sm btn-secondary hit" data-act="overlap-separate" data-key="${ov.id+':'+ov.rel}" data-tip="겹쳐도 별도 핀으로 저장합니다">${one?tr('따로 저장'):'별도 핀으로 저장'}</button>`);
 }
 // The overlap in a few words for the one-line notice: '#4와 같은 범위' - '#4 범위 안' - '#4를 감쌈' - '#4와 일부 겹침' (the card badges' wording).
@@ -118,7 +123,8 @@ function renderRegionComposer(d){
 // Draws the composer from COMPOSE.current (location, ladder, range excerpt, overlap) and schedules the draft write - every change
 // of the selection (a pick, a level, a line set in the excerpt, a restore) passes through here. Its markup is in the order the
 // screen shows on every layout (docs/handbook/viewer.md §패널 정리), so Tab follows it.
-function renderComposer(){const d=COMPOSE.current; if(!d)return; saveDraftSoon();
+/** Render and persist the chosen location without enabling a new submission while another create or append is pending. */
+function renderComposer(){const d=COMPOSE.current; if(!d)return; saveDraftSoon(); syncComposeSaveButtons();
   if(isRegion(d)){renderRegionComposer(d); return;}
   $('#composer').classList.remove('region');
   const copy=d.name+' L'+d.lo+'-L'+d.hi;
