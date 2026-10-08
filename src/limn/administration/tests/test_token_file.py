@@ -16,6 +16,7 @@ Run: uv run pytest -q src/limn/administration/tests/test_token_file.py
 import json
 import os
 import shutil
+import signal
 import socket
 import stat
 import subprocess
@@ -44,6 +45,54 @@ def run_limn(*args: str, env: dict, timeout: int = 60) -> subprocess.CompletedPr
     return subprocess.run(
         [sys.executable, "-m", "limn", *args], capture_output=True, text=True, timeout=timeout, env=e, check=False
     )
+
+
+def stop_server_process(proc: subprocess.Popen, grace_seconds: float = 10) -> int:
+    """Reap one probe child, escalating ignored termination to SIGKILL before its files close.
+
+    Wait at most grace_seconds after SIGTERM and another ten seconds after SIGKILL. Return the exit status;
+    propagate a final wait failure instead of reporting an unreaped process as stopped.
+    """
+    if proc.poll() is None:
+        proc.terminate()
+    try:
+        return proc.wait(timeout=grace_seconds)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        return proc.wait(timeout=10)
+
+
+class ChildServerCleanup(unittest.TestCase):
+    """The probe owns its real child until it is reaped, even when graceful termination is ignored."""
+
+    def test_cleanup_kills_and_reaps_a_child_that_ignores_sigterm(self):
+        """Ignoring SIGTERM cannot leak a child or keep writing after its startup output is closed."""
+        proc = subprocess.Popen(
+            [
+                sys.executable,
+                "-u",
+                "-c",
+                "import signal, threading; signal.signal(signal.SIGTERM, signal.SIG_IGN); "
+                "print('ready', flush=True); threading.Event().wait()",
+            ],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        try:
+            self.assertEqual(proc.stdout.readline(), "ready\n")
+            try:
+                status = stop_server_process(proc, grace_seconds=0.05)
+            except subprocess.TimeoutExpired:
+                self.fail("cleanup left the child alive after its termination deadline")
+            self.assertEqual(status, -signal.SIGKILL)
+            self.assertIsNotNone(proc.poll())
+        finally:
+            if proc.poll() is None:
+                proc.kill()
+            proc.wait(timeout=5)
+            proc.stdout.close()
+            proc.stderr.close()
 
 
 class Sandbox:
@@ -484,6 +533,7 @@ class InstanceManagerProbes(SandboxTest):
     changes."""
 
     def setUp(self):
+        """Give every probe its own process, config, stub adapters and diagnostic output."""
         super().setUp()
         (self.box.ms / "paper.pdf").write_bytes(MINIMAL_PDF)
         self.port = free_port()
@@ -523,37 +573,83 @@ class InstanceManagerProbes(SandboxTest):
         )
 
     def serve(self, loopback_agent: bool) -> None:
-        """Start the real server for this test's instance; stopped at cleanup. The free port can be taken between
-        free_port() and the server's bind, so an early exit is retried on a new port (three tries)."""
-        for _ in range(3):
-            args = [
-                sys.executable,
-                str(SRC / "limn" / "server.py"),
-                "--manuscript",
-                str(self.box.ms),
-                "--doc",
-                "main=Paper:paper.pdf",
-                "--port",
-                str(self.port),
-                "--state-dir",
-                str(self.box.state),
-                "--no-build",
-            ]
-            if not loopback_agent:
-                args.append("--no-agent-loopback")
-            proc = subprocess.Popen(args, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, env=self.box.env)
-            self.addCleanup(lambda p=proc: (p.terminate(), p.wait(10)))
-            deadline = time.monotonic() + 30
-            while time.monotonic() < deadline and proc.poll() is None:
+        """Start one real server and retain its refusal or stalled stack when it cannot listen.
+
+        Keep the existing 30-second readiness budget. A stack dump before that deadline diagnoses a live child;
+        an exited child reports its actual output immediately. Cleanup stops the process before closing its log.
+        """
+        log_path = self.box.root / "server-startup.log"
+        output = log_path.open("wb")
+        self.addCleanup(output.close)
+        script = '''
+import faulthandler
+import runpy
+import sys
+
+faulthandler.dump_traceback_later(25)
+namespace = runpy.run_path(sys.argv.pop(1), run_name="limn_probe_server")
+entry = namespace["main"]
+listen = entry.__globals__["listen"]
+refused = namespace["StartupRefused"]
+
+def listen_with_readiness(app):
+    """Report readiness only after this child's own listener has bound and activated."""
+    result = listen(app)
+    if not isinstance(result, refused):
+        print("LIMN_PROBE_LISTENING", flush=True)
+    return result
+
+entry.__globals__["listen"] = listen_with_readiness
+entry()
+'''
+        args = [
+            sys.executable,
+            "-u",
+            "-c",
+            script,
+            str(SRC / "limn" / "server.py"),
+            "--manuscript",
+            str(self.box.ms),
+            "--doc",
+            "main=Paper:paper.pdf",
+            "--port",
+            str(self.port),
+            "--state-dir",
+            str(self.box.state),
+            "--no-build",
+        ]
+        if not loopback_agent:
+            args.append("--no-agent-loopback")
+        proc = subprocess.Popen(args, stdout=output, stderr=subprocess.STDOUT, env=self.box.env)
+        self.addCleanup(stop_server_process, proc)
+        deadline = time.monotonic() + 30
+        while time.monotonic() < deadline and proc.poll() is None:
+            if "LIMN_PROBE_LISTENING" in log_path.read_text(encoding="utf-8", errors="replace").splitlines():
                 with socket.socket() as s:
                     if s.connect_ex(("127.0.0.1", self.port)) == 0:
                         return
-                time.sleep(0.1)
-            if proc.poll() is None:
-                self.fail("the server did not listen within 30 s")
-            self.port = free_port()
+            time.sleep(0.1)
+        failure = "the server did not listen within 30 s" if proc.poll() is None else "the server exited"
+        self.fail(
+            "%s (status %s, interpreter %s):\n%s"
+            % (failure, proc.returncode, sys.executable, log_path.read_text(encoding="utf-8", errors="replace"))
+        )
+
+    def test_startup_failure_reports_the_child_refusal(self):
+        """An invalid instance must expose the server's refusal instead of hiding it behind a generic retry error."""
+        (self.box.ms / "paper.pdf").unlink()
+        with self.assertRaisesRegex(AssertionError, r"--doc main:.*paper\.pdf"):
+            self.serve(loopback_agent=True)
+
+    def test_another_listener_cannot_satisfy_child_readiness(self):
+        """A real unrelated listener cannot make a child that refuses the occupied port look ready."""
+        with socket.socket() as unrelated:
+            unrelated.bind(("127.0.0.1", 0))
+            unrelated.listen()
+            self.port = unrelated.getsockname()[1]
             self.write_config()
-        self.fail("the server exited three times (last status %s)" % proc.returncode)
+            with self.assertRaisesRegex(AssertionError, "already in use"):
+                self.serve(loopback_agent=True)
 
     def sent_tokens(self) -> str:
         """What curl read from stdin (the headers the instance manager sent), '' if nothing."""

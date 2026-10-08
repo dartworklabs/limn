@@ -18,6 +18,7 @@ import sys
 import traceback
 from collections.abc import Callable
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from socketserver import TCPServer
 from typing import Any, ClassVar
 from urllib.parse import urlparse
 
@@ -46,10 +47,20 @@ def internal_error_body(principal: Principal | None, error: BaseException) -> Js
 
 
 class Server(ThreadingHTTPServer):
-    """The IPv4 server: one daemon thread per connection, and a backlog deep enough for bursts."""
+    """The IPv4 listener: daemon request threads, a burst-sized backlog and no reverse DNS during binding."""
 
     daemon_threads = True
     request_queue_size = 128  # so dozens of concurrent requests don't stall a second at a time on SYN retransmits
+
+    def server_bind(self) -> None:
+        """Bind the real socket and retain its address without HTTPServer's blocking reverse lookup.
+
+        The display name is the bound address; request authority still uses the configured Host/Origin guards.
+        Propagate binding errors unchanged so startup can report an occupied or unavailable address.
+        """
+        TCPServer.server_bind(self)
+        host, self.server_port = self.server_address[:2]
+        self.server_name = str(host)
 
 
 class Server6(Server):

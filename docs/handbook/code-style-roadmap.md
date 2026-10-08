@@ -83,14 +83,14 @@ Limn의 코딩 규칙은 팀 스킬 `code-implement`, `code-testing`, `code-secu
 
 성질 테스트는 입력 파싱, 핀 전이 시퀀스, 값·범위·왕복·빌드 결과를 검증한다. 생성한 입력 밖의 모든 상태와 동시 실행 순서를 완전 탐색한다는 뜻은 아니다. private docstring의 내용과 테스트 대역의 적절성도 도구 통과만으로 증명되지 않는다. 문서화 규칙은 새로 쓰거나 고친 코드에 적용하며, 내용이 그대로인 이동이나 미수정 테스트 전체에 기계적인 설명을 덧붙이지 않는다.
 
+**권한 행렬:** 역할 × 작업은 단위 수준(`test_authority.py`), 역할 × 핀 동작·읽기 경로는 HTTP 수준(`test_access_paths.py`의 `RoleMatrix`)에서 확인한다. [`test_build_access.py`](../../src/limn/security/tests/test_build_access.py)는 재빌드와 비교 빌드의 기존 역할 규칙을 HTTP로 확인한다. 재빌드는 owner·editor·agent에게 허용되고 viewer에게 거절되며, 비교 빌드는 네 역할 모두 허용된다. 거절된 요청은 원고·상태 파일과 빌드 상태를 바꾸지 않는다. 실제 PDF 발행은 도구가 있는 TeX 게이트에서 확인한다.
+
 보안 검증에는 다음 공백이 있다. 고치는 변경은 해당 검사를 함께 더한다.
 
 - **읽기 진입점 목록:** 등록된 모든 POST가 접근 표의 작업으로 선언되는지는 `test_authority.py`의 `test_every_registered_post_declares_an_operation`이 훑는다. GET 처리기는 경로를 선언하지 않는 클로저라 같은 방식으로 뽑을 수 없고, `/pages/`·`/vendor/pdfjs/`·`/vendor/pretendard/` 접두사는 통째로 허용되고, 이름은 그 경로의 검사(`platform/files.py`의 `vendor_file` 등)가 거른다. GET은 `check_read`의 경로 표와 새 등록의 기본 거부 검사가 대신 막는다.
-- **권한 행렬:** 역할 × 작업은 단위 수준(`test_authority.py`), 역할 × 핀 동작·읽기 경로는 HTTP 수준(`test_access_paths.py`의 `RoleMatrix`)에서 확인한다. 재빌드와 비교 빌드는 역할별 HTTP 행렬에 없다.
 - **주체별 작업 한도:** `viewer`도 부를 수 있는 `/api/pick`(SyncTeX 실행)과 비교 빌드는 주체별 한도가 없다. 비교 빌드 슬롯은 프로세스 전체가 나눠 쓰고, HTTP 서버에는 스레드·연결 상한이 없다.
 - **오류 응답:** 처리되지 않은 예외의 `500` 응답 본문에 `owner`·`editor`·`agent` 는 예외 문장을 받는다. 이 주체들은 내부 경로나 구현 세부를 볼 수 있다. 진단 가치와 오류 문장 계약 때문에 유지한다. `viewer` 와 입장 전에 실패한 요청은 고정 문장만 받는다([api.md](api.md) §오류 응답). [`test_errors.py`](../../src/limn/web/tests/test_errors.py)가 역할별 문장과 keep-alive 연결에서 앞 요청의 역할이 넘어오지 않는 것을 확인한다.
-- **CI 공급망:** 액션과 체크아웃은 아래 규칙으로 닫혀 있지만, `uv tool install .`이 쓰는 빌드 백엔드(`hatchling`)와 `setup-uv`가 설치하는 uv 버전은 고정되어 있지 않다.
 
-CI는 남이 바꿀 수 있는 코드를 실행하지 않는다. 워크플로 토큰은 `contents: read`이고 비밀을 쓰지 않는다. 외부 액션은 태그가 아니라 커밋 SHA로 고정한다. 태그는 검토 뒤에도 다른 코드로 옮겨질 수 있기 때문이다. 체크아웃은 `persist-credentials: false`로 토큰을 `.git/config`에 남기지 않는다. 고정값은 Dependabot([`.github/dependabot.yml`](../../.github/dependabot.yml))이 매주 올리고, [`test_ci_pins.py`](../../tests/architecture/test_ci_pins.py)가 두 규칙을 검사한다.
+CI는 검토한 액션 코드를 실행한다. 워크플로 토큰은 `contents: read`이고 비밀을 쓰지 않는다. 외부 액션은 태그가 아니라 커밋 SHA로 고정한다. 태그는 검토 뒤에도 다른 코드로 옮겨질 수 있기 때문이다. 체크아웃은 `persist-credentials: false`로 토큰을 `.git/config`에 남기지 않는다. 액션 고정값은 Dependabot([`.github/dependabot.yml`](../../.github/dependabot.yml))이 매주 올린다. CI의 `setup-uv`는 uv `0.12.23`을 설치하고 [`pyproject.toml`](../../pyproject.toml)의 빌드 백엔드는 Hatchling `1.32.4`로 고정한다. 설치 게이트가 잠금 파일 밖에서 임의의 최신 도구·백엔드를 고르지 않게 하기 위해서다. [`test_ci_pins.py`](../../tests/architecture/test_ci_pins.py)는 액션·체크아웃 규칙과 이 도구·백엔드 버전 고정을 검사한다. 버전 고정은 다운로드한 배포 파일의 바이트까지 검증한다는 뜻은 아니다.
 
 입력·권한 정책을 강화하는 변경은 동작 보존 리팩토링과 구분하고 [architecture.md](architecture.md) §멈춤 신호에 따라 설계한다.
