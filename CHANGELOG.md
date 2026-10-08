@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.4.21.dev1 — Unreleased functional artifact
+
+- Recompile changed recorded inputs even when their size and modification time are unchanged.
+- Select thin figure elements with guarded padding and compare unrelated branches by actual area.
+- Bind IPv4/IPv6 listeners without waiting for reverse DNS; improve startup probe diagnostics and cleanup.
+- Pin the reviewed build tooling and verify existing build-role permissions.
+- Preserve v0.4.20 viewer/vendor assets and existing HTTP, pin, authentication and state contracts.
+
 ## 0.4.20 — 2026-10-06
 
 The figure pick threshold D6 is measured and set. `pins.md`, the HTTP API and the state directory are unchanged.

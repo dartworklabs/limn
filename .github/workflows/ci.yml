@@ -20,6 +20,8 @@ jobs:
         with:
           persist-credentials: false
       - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          version: "0.12.23"
       - name: Install dev dependencies
         run: uv sync --group dev --locked
       - name: Ruff
@@ -72,6 +74,7 @@ jobs:
           fetch-depth: 0
       - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
         with:
+          version: "0.12.23"
           python-version: ${{ matrix.python }}
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
@@ -96,6 +99,7 @@ jobs:
           fetch-depth: 0
       - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
         with:
+          version: "0.12.23"
           python-version: "3.12"
       - name: Install dev dependencies
         run: uv sync --group dev --locked
@@ -126,6 +130,7 @@ jobs:
           persist-credentials: false
       - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
         with:
+          version: "0.12.23"
           python-version: "3.12"
       - name: Install dev dependencies
         run: uv sync --group dev --locked
@@ -139,6 +144,8 @@ jobs:
         with:
           persist-credentials: false
       - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          version: "0.12.23"
       - name: Install as a uv tool from the checkout
         run: uv tool install .
       - name: Smoke-test the installed command
@@ -186,6 +193,7 @@ jobs:
           persist-credentials: false
       - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
         with:
+          version: "0.12.23"
           python-version: "3.12"
       - name: Install TeX, Poppler and bubblewrap
         run: |

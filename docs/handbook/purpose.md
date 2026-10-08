@@ -54,7 +54,7 @@ Limn은 LaTeX 원고와 벡터 그래픽을 PDF로 띄우고 그 위에 핀을 �
 | 변경 절차 | Handbook [workflow.md](workflow.md), 기여 조건은 [CONTRIBUTING.md](../../CONTRIBUTING.md)와 [CLA.md](../../CLA.md) | **정본** |
 | 코딩 규칙 | 팀 스킬 `code-implement`, `code-testing`, `code-security` | [code-style-roadmap.md](code-style-roadmap.md)가 Limn의 적용 경계와 현재 검증 범위를 설명한다 |
 | 현재 설계의 이유 | 각 Handbook topic의 본문 | **정본.** 현재 규칙과 그 이유·감수한 비용을 본문에 완결해 적는다 |
-| 결정의 경위와 출처 | [`docs/adr/`](../adr/)의 번호 기록과 [index](../adr/index.md) | 안내판. ADR은 결정 당시의 맥락과 대안을 보존할 뿐 현재 값의 정본이 아니다. 절차는 [workflow.md](workflow.md) §결정 기록 |
+| 결정의 경위와 출처 | [`docs/adr/`](../adr/index.md)의 번호 기록과 [index](../adr/index.md) | 안내판. ADR은 결정 당시의 맥락과 대안을 보존할 뿐 현재 값의 정본이 아니다. 절차는 [workflow.md](workflow.md) §결정 기록 |
 | 보안 정책·신고 | [SECURITY.md](../../SECURITY.md) | 안내판 |
 | 릴리스 기록 | [CHANGELOG.md](../../CHANGELOG.md), git 태그 `v*` | 안내판 |
 
