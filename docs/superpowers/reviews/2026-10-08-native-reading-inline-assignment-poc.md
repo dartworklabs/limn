@@ -1,112 +1,109 @@
-# Native reading and inline assignment PoC evidence
+# Native direct PDF find and inline assignment PoC evidence
 
-Status: ready for the owner's desktop/mobile/tablet/foldable presentation;
-production adoption and physical-device validation remain pending.
+Status: candidate implementation and local tool checks complete; owner viewport
+presentation, production adoption and physical-device validation remain pending.
 
 Scope: [bounded spec](../specs/2026-10-08-native-reading-inline-assignment-poc.md)
 and [spike checklist](../plans/2026-10-08-native-reading-inline-assignment-poc.md).
-The user's every-appearance PoC rule is reflected in project `AGENTS.md`,
-`docs/handbook/workflow.md` and the tool README. Native production rules remain
-the current authority; the candidate exists only in the anonymous proposal.
+The candidate is disposable. Current screen rules remain in native viewer
+code/tests; `purpose`, `architecture`, `viewer`, `verification` and `workflow`
+Handbook responsibilities were read. No product, API, persistence, identity,
+server-runtime dependency or service configuration changes enter this revision.
 
-## Observed behavior
+## Current candidate
 
-Bundled PDF.js extracts the real anonymous PDF: page 1 has 746 characters in 144
-text items, page 2 has 336 characters in 26 items, and page 3 has no text items.
-The two `thermal` occurrences both map to page 2, at different searchable
-offsets. `온도` has hits on pages 1 and 2. The reader renders the extracted runs
-and identifies page 3 as having no extractable text. The fixture's authored
-geometry remains the source-location stand-in; it is no longer the search or
-reader input. English math symbols and Korean text are sample observations,
-not arbitrary-document fidelity promises.
+The latest direction replaces the two Find/Reading buttons with one persistent
+upper-right manuscript search input. The extracted-text Reading surface is
+removed because reviewing two-column text or mathematics needs PDF/source
+correspondence. A nonempty active query shows a compact results-only strip.
+The input uses native tokens, the existing toolbar's right end and existing
+height. Mid-width native navigation spans the screen above an open side panel;
+that band therefore places the input at screen-right.
 
-The desktop real-drag test opens the native selection-local note, chooses the
-second `Robin Lee` login from native autocomplete, and hands the same text and
-login hint to the panel. Adding a later `@동료` produces FYI while the native
-saved card displays `Robin Lee` as assignee. Typing the ambiguous name without
-a hint, deleting a colleague tag, no tags and a self tag retain the agent.
-The coarse tablet test retains the exact chosen login and note through reading
-and native document-draft parking/return.
+Plain Cmd+F/Ctrl+F focuses/selects the query. Active unchanged query/index survives
+refocusing and the shortcut. Enter/Shift+Enter navigate inside the query; native
+result buttons retain Enter/Space activation. Alt, Shift, combined Cmd+Ctrl,
+IME composition/keyCode 229 and open native dialogs are excluded from the
+find chord. Escape hides results and paint, keeps the query and restores the
+prior visible control. A selection-local note hidden by native positioning
+falls back to the panel note. Native selection and drafts are preserved.
 
-## Actual coarse-pointer browser contexts
+Actual bundled PDF.js extraction still yields two `thermal` hits on page 2 and
+`온도` hits on pages 1 and 2. Search uses actual anonymous PDF bytes, while source
+location/selection geometry remains the authored fixture. Highlights cover PDF
+text-item bounds. Empty queries hide the strip; no-hit queries disable its
+navigation. Search/build/document generations and existing extraction bounds
+remain. Page/pin/document/build/view changes dismiss results. The input is
+explicitly disabled in 변경사항, so it cannot paint or navigate the hidden
+manuscript; comparison-PDF search remains outside this candidate.
 
-Every row reports actual `matchMedia('(pointer:coarse)') === true`, native body
-classes, 0px horizontal overflow, and unchanged `#left` height against current.
-The phone tools overlay a 102×44px area at the top-right, with separate 44×44px
-buttons. They preserve PDF viewport height and occlude that small content area.
-Tablet/foldable contexts retain their existing 48px main navigation row.
+Inline assignment still uses existing native autocomplete in both note fields.
+The first resolved non-self colleague anywhere becomes the candidate assignee;
+later colleagues are FYI. Selected login hints distinguish the two anonymous
+Robin Lee identities through handoff and document-draft parking/return. No tag,
+removed tags, an unresolved ambiguous display name and self tags retain agent.
+This remains a fixture-only proposal rather than server assignment behavior.
 
-| State | CSS viewport | Native band | Current/proposal PDF height |
-| --- | --- | --- | --- |
-| Small phone | 320×720 | phone | 720 / 720px |
-| Phone | 390×844 | phone | 844 / 844px |
-| Foldable outside | 344×882 | phone | 882 / 882px |
-| Tablet portrait | 768×1024 | tablet-sheet | 976 / 976px |
-| Tablet landscape | 1024×768 | mid-side | 671 / 671px |
-| Foldable inside portrait | 673×960 | tablet-sheet | 912 / 912px |
-| Foldable inside portrait | 717×960 | tablet-sheet | 912 / 912px |
-| Foldable inside landscape | 960×717 | mid-side | 620 / 620px |
+## Measured viewport behavior
 
-Each context exercises real page-2 search paint, next occurrence, extracted
-reading, the textless page, closing find and returning to the PDF. These are
-repository browser-harness emulations. The owner's native T3 browser has fine
-pointer/width-resize evidence, which must be recorded separately. Neither
-establishes physical keyboards, pinch/rotation, hinge transitions, safe insets,
-stylus or assistive technology.
+Actual coarse-pointer Chromium contexts report native bands, 0px horizontal
+overflow and unchanged PDF height against current at 320×720, 390×844,
+344×882, 768×1024, 1024×768, 673×960, 717×960 and 960×717.
+The phone field overlays a 148×44px area at top-right, preserving PDF height
+while occluding that region. Coarse non-phone bars retain 48px height with
+44px search/result targets. The result strip remains inside the viewport with
+the pin panel open and closed.
 
-## Checks, failures and limits
+Fine-pointer 1440×900, 1024×768, 768×1024, 717×960 and 673×960 contexts preserve
+PDF height and have no horizontal overflow. Fine compact non-phone fields draw
+at native control height within the existing bar rather than bleeding below it.
+At fine-pointer 673px the native band is phone, so its intentional overlay is
+measured separately from a nonexistent navigation row.
 
-- Final tool suite: `uv run pytest -n 0 -q -s tests/tools/test_ux_poc_serve.py`:
-  138 passed, 8 subtests passed in 14.21s.
-- First actual-gesture run: 2 failed, 136 passed, 8 subtests passed. Both note
-  tests exposed the fixture parser rejecting native pick coordinates
-  `x0/y0/x1/y1`. Accepting those finite numeric fields restored native selection;
-  the next browser run had 3 passed and 8 subtests passed in 13.93s.
-- A mutation of only the isolated test server's extraction response removed hit
-  geometry while retaining counts. All 8 viewport subtests failed `0 != 1` for
-  page-2 paint. The checkout and persistent preview were never mutated for this
-  experiment. The initial note failures and this mutation cover the new tests'
-  failure sensitivity. No new property generator was added: these checks own
-  concrete PDF/gesture integration observations; existing Host/parser property
-  tests continue to gate the tool's input boundary.
-- `ruff check`: 0 errors; `ruff format --check`: 4 files already formatted.
-  Node syntax checks and the separate PoC TypeScript check passed. The parent's
-  integrated product gates are a separate result.
+These browser emulations are distinct from the owner's native T3 width-only
+screenshots. Neither establishes physical keyboards, hinge/rotation behavior,
+safe insets, stylus, mobile browser differences or assistive technology.
+Physical-device validation was explicitly postponed.
 
-Raw records live outside the product repository under the machine log directory:
-`limn-native-device-poc-extraction.json`, `*-extraction-probe.log`,
-`*-tool-tests.log`, `*-browser-tests.log`, `*-final-tool-tests.log`,
-`*-mutation.log`, `*-runtime.json`, `*-launch-before/after.txt` and
-`*-serve-before/after.json`.
+## Checks and failure sensitivity
 
-The direct Node extraction probe uses real bundled PDF.js and its worker. Since
-Node lacks browser rendering globals, it installs a `DOMMatrix` constructor that
-throws if invoked; extraction completes without invoking it. Node rendering is
-not claimed. Browser checks use actual Chromium DOM and PDF.js.
+- `uv run pytest -q tests/tools/test_ux_poc_serve.py`: 141 passed and 13
+  viewport subtests passed in 13.71s; raw output is preserved in
+  `limn-search-input-poc-final-tool-tests.log` outside the repository.
+- The direct-field shortcut test failed before implementation because no
+  persistent query was visible; `limn-search-input-poc-red.log` preserves it.
+  Initial candidate checks exposed re-focus resetting the active index and
+  hidden selection-local focus restoration; both were fixed and rechecked.
+- The isolated mutation server reads external mutant JS/CSS leaves rather than
+  changing this checkout or persistent preview. Mutations intercept button
+  Enter, keep revision search enabled, clear native note on dismissal, shrink
+  coarse input and draw fine compact fields too tall. Five browser test methods
+  produce 14 assertion failures and 0 errors. The script and raw output are
+  `limn-search-input-poc-mutation.py` and `*-mutation.log` outside the repository.
+- `ruff check` reports 0 errors; `ruff format --check` passes for the changed
+  tool test. Node syntax checks pass for `native.js` and `native-pdf.mjs`.
+  The standalone PoC TypeScript check uses checked-in native surface/fixture
+  declarations and wire/screen types, including the verified `setViewMode`
+  signature. Production type configuration is unchanged.
+- `uv run pytest -q tests/architecture/test_handbook_refs.py`: 4 passed.
+  The independent reviewer probe passes real keyboard result buttons,
+  modal/legacy-IME exclusions, revision ownership and Escape while extraction
+  is pending; its raw log is `limn-search-field-independent-probe-final.log`.
 
-## Persistent review runtime
+No property generator was added: changed tests observe concrete DOM/PDF/native
+transition outcomes, while existing Host/parser properties still run. Chromium,
+real PDF bytes, bundled PDF.js and the real fixture server were used. Production
+integration gates were not rerun for this tool-only scope. General mathematical
+or CJK fidelity, glyph-precise highlighting, scans/OCR, actual rebuild/source
+mapping and physical-device behavior remain unproven.
 
-The canonical dotfiles preview plist changes only its working directory and
-worktree environment value. Its exact prior contents are preserved outside the
-repo for rollback. The existing installer dry-run/start passed; launchd reports
-the delivery worktree and running PID 68203 with RunAtLoad and KeepAlive.
-The complete before/after Tailscale Serve JSON is identical. All actual page,
-proposal, PDF, vendor, PNG and font resources checked over the derived Tailnet
-HTTPS URL returned 200. An initial extra probe guessed a nonexistent font CSS
-name and received 404; checking the stylesheet linked by the rendered HTML and
-its font leaf returned 200. It was a probe-path error, not a missing UI resource.
+## Review handoff and evidence identity
 
-The anonymous static server keeps exact Host checks, loopback binding, resource
-allowlisting and refusal of API reads/HTTP mutations. New routes are static
-anonymous samples under that existing grant. No production instance, owner
-token, manuscript, Serve route, identity rule or deployment changed. Reviewers
-need an authorized connected Tailnet device; the host/user login and Tailscale
-must remain available. No claim is made about an untested reviewer's ACL.
-
-## Pending owner review
-
-The owner must inspect the whole native viewer at desktop/phone/tablet/foldable
-widths, with pin panel and find/reading opened and closed, and compare phone
-content occlusion against retained viewport height. The candidate's semantic
-choice, body control placement, screen appearance and limits require review
-before any production implementation. No commit, push, PR or release is made.
+Baseline JS/CSS/README bytes from clean HEAD `a78cfd1` are preserved outside the
+repo as `limn-search-input-poc-baseline.*`. The owner captured the previous
+proposal before edits and owns final desktop/phone/tablet/foldable screenshots,
+HTTPS asset responses, persistent launchd/Serve checks and Git/PR delivery.
+This worker changed only the tool candidate, its existing tests/type seam and
+these existing exploration records. Exact diff and hashes are retained outside
+the repository; final owner evidence must be added before claiming its visual
+presentation/runtime verification complete. No adoption approval is inferred.

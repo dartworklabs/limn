@@ -340,10 +340,11 @@ class NativePreviewBrowser(ChromiumTestCase):
           return {width:innerWidth,height:innerHeight,coarse:matchMedia('(pointer:coarse)').matches,
             classes:document.body.className,overflow:document.documentElement.scrollWidth-innerWidth,
             pdf:r(document.querySelector('#left')),top:r(document.querySelector('#doc-nav')),
-            tools:Array.from(document.querySelectorAll('#ux-doc-tools button')).map(r)};
+            tools:Array.from(document.querySelectorAll('#ux-doc-tools input')).map(r),
+            native:Array.from(document.querySelectorAll('#doc-nav button')).filter(e=>e.getBoundingClientRect().width>0&&!e.hidden).map(r)};
         }""")
 
-    def test_coarse_phone_tablet_foldable_find_read_and_native_geometry(self):
+    def test_coarse_phone_tablet_foldable_direct_find_and_native_geometry(self):
         """Real coarse media preserves native bands and maps repeated PDF hits to true page 2."""
         matrix = (
             ("phone-small", 320, 720, "phone"),
@@ -369,22 +370,36 @@ class NativePreviewBrowser(ChromiumTestCase):
                     self.assertGreaterEqual(target["w"], 44)
                     self.assertGreaterEqual(target["h"], 44)
                     self.assertLessEqual(target["right"], width)
-                page.locator("#ux-find").tap()
+                self.assertTrue(page.locator("#ux-body-query").is_visible())
+                self.assertTrue(page.locator("#ux-body-find").is_hidden())
+                for target in observed["native"]:
+                    self.assertLessEqual(target["right"], width)
+                    self.assertGreaterEqual(target["x"], 0)
                 page.locator("#ux-body-query").fill("thermal")
                 page.wait_for_function("document.querySelector('#ux-body-count').textContent==='1/2 · 2쪽'")
                 self.assertEqual(page.locator("#p2 .ux-body-hit").count(), 1)
                 self.assertEqual(page.locator("#p1 .ux-body-hit").count(), 0)
+                for opened in (True, False):
+                    page.evaluate("opened=>setSide(opened)", opened)
+                    settle(page)
+                    bounds = page.locator("#ux-body-find").bounding_box()
+                    assert bounds is not None
+                    self.assertGreaterEqual(bounds["x"], 0)
+                    self.assertLessEqual(bounds["x"] + bounds["width"], width)
+                    self.assertTrue(page.locator("#ux-body-query").is_visible())
+                for control in page.locator("#ux-body-find button").all():
+                    box = control.bounding_box()
+                    assert box is not None
+                    self.assertGreaterEqual(box["width"], 44)
+                    self.assertGreaterEqual(box["height"], 44)
                 page.locator("[data-ux=find-next]").tap()
                 self.assertEqual(page.locator("#ux-body-count").inner_text(), "2/2 · 2쪽")
-                page.locator("#ux-read").tap()
-                page.wait_for_function("document.querySelectorAll('#ux-reading section').length===3")
-                self.assertIn("thermal", page.locator("#ux-reading-page-2").inner_text())
-                self.assertIn("추출 가능한 텍스트가 없습니다", page.locator("#ux-reading-page-3").inner_text())
-                self.assertEqual(page.locator("#ux-reading .ux-reading-hit").count(), 1)
-                self.assertEqual(page.locator("#ux-reading").evaluate("e=>getComputedStyle(e).userSelect"), "text")
-                page.locator("[data-ux=find-close]").tap()
-                page.locator("#ux-read").tap()
-                settle(page)
+                page.locator("#ux-body-query").press("Shift+Enter")
+                self.assertEqual(page.locator("#ux-body-count").inner_text(), "1/2 · 2쪽")
+                page.locator("#ux-body-query").press("Escape")
+                self.assertTrue(page.locator("#ux-body-find").is_hidden())
+                self.assertEqual(page.locator(".ux-body-hit").count(), 0)
+                self.assertEqual(page.locator("#ux-body-query").input_value(), "thermal")
                 self.assertFalse(page.locator("#doc").is_hidden())
                 print("NATIVE_POC_COARSE " + json.dumps({"scenario": name, "current": baseline, "proposal": observed}))
                 current.context.close()
@@ -440,15 +455,15 @@ class NativePreviewBrowser(ChromiumTestCase):
         page.locator("#note").fill("@Alice Please check")
         self.assertEqual(page.evaluate("ASSIGN_NEW.v"), "agent")
 
-    def test_coarse_assignment_draft_survives_reading_and_document_return(self):
-        """A touch tablet keeps the selected colleague and note through reading and native document drafts."""
+    def test_coarse_assignment_draft_survives_search_and_document_return(self):
+        """A touch tablet keeps the selected colleague and note through direct search and native document drafts."""
         page = self.open_preview(717, 960, touch=True)
         self.select_note(page, touch=True)
         page.locator("#note").fill("Please check @Ro")
         page.locator('#mention-pop button:has-text("robin.one@example.com")').tap()
-        page.locator("#ux-read").tap()
-        page.wait_for_function("document.querySelectorAll('#ux-reading section').length===3")
-        page.locator("#ux-read").tap()
+        page.locator("#ux-body-query").fill("thermal")
+        page.wait_for_function("document.querySelector('#ux-body-count').textContent==='1/2 · 2쪽'")
+        page.locator("#ux-body-query").press("Escape")
         self.assertEqual(page.locator("#note").input_value(), "Please check @Robin Lee ")
         self.assertEqual(page.locator("#note").evaluate("e=>Array.from(e._mentions)"), ["robin.one@example.com"])
         self.assertEqual(page.evaluate("ASSIGN_NEW.v"), "robin.one@example.com")
@@ -458,3 +473,125 @@ class NativePreviewBrowser(ChromiumTestCase):
         page.wait_for_function("DOC==='main'&&META.doc==='main'&&COMPOSE.current")
         self.assertEqual(page.locator("#note").input_value(), "Please check @Robin Lee ")
         self.assertEqual(page.locator("#note").evaluate("e=>Array.from(e._mentions)"), ["robin.one@example.com"])
+
+    def test_plain_find_shortcuts_select_query_and_restore_native_draft_focus(self):
+        """Only plain find chords intercept browser find; Escape preserves note, selection and query."""
+        page = self.open_preview(1440, 900)
+        self.assertTrue(page.locator("#ux-body-query").is_visible())
+        self.select_note(page)
+        note = page.locator("#sel-pop textarea")
+        note.fill("Keep this native draft")
+        selection = page.evaluate("JSON.stringify(COMPOSE.current)")
+        note.press("Control+f")
+        self.assertTrue(page.locator("#ux-body-query").evaluate("e=>e===document.activeElement"))
+        page.locator("#ux-body-query").fill("thermal")
+        page.wait_for_function("document.querySelector('#ux-body-count').textContent==='1/2 · 2쪽'")
+        page.locator("#ux-body-query").press("Enter")
+        self.assertEqual(page.locator("#ux-body-count").inner_text(), "2/2 · 2쪽")
+        page.locator("#ux-body-query").press("Escape")
+        self.assertTrue(page.locator("#note").evaluate("e=>e===document.activeElement"))
+        self.assertEqual(note.input_value(), "Keep this native draft")
+        self.assertEqual(page.evaluate("JSON.stringify(COMPOSE.current)"), selection)
+        page.locator("#note").press("Meta+f")
+        self.assertEqual(page.locator("#ux-body-query").evaluate("e=>[e.selectionStart,e.selectionEnd]"), [0, 7])
+        page.wait_for_function("document.querySelector('#ux-body-count').textContent==='1/2 · 2쪽'")
+        page.locator("[data-ux=find-next]").focus()
+        page.locator("[data-ux=find-next]").press("Enter")
+        self.assertEqual(page.locator("#ux-body-count").inner_text(), "2/2 · 2쪽")
+        page.locator("#ux-body-query").focus()
+        page.locator("#ux-body-query").press("Shift+Enter")
+        self.assertEqual(page.locator("#ux-body-count").inner_text(), "1/2 · 2쪽")
+        page.locator("#ux-body-query").press("Enter")
+        page.locator("#ux-body-query").press("Meta+f")
+        self.assertEqual(page.locator("#ux-body-count").inner_text(), "2/2 · 2쪽")
+        page.locator("[data-ux=find-prev]").focus()
+        page.locator("[data-ux=find-prev]").press("Enter")
+        self.assertEqual(page.locator("#ux-body-count").inner_text(), "1/2 · 2쪽")
+        page.locator("[data-ux=find-close]").focus()
+        page.locator("[data-ux=find-close]").press("Enter")
+        self.assertTrue(page.locator("#ux-body-find").is_hidden())
+        page.locator("#note").press("Control+f")
+        page.wait_for_function("document.querySelector('#ux-body-count').textContent==='1/2 · 2쪽'")
+        for excluded in (
+            {"altKey": True},
+            {"shiftKey": True},
+            {"isComposing": True},
+            {"keyCode": 229},
+            {"ctrlKey": True},
+        ):
+            # Synthetic events observe cancellation without invoking a browser menu or find window.
+            actual = page.evaluate(
+                """options => {
+              const event=new KeyboardEvent('keydown',{key:'f',metaKey:true,bubbles:true,cancelable:true,...options});
+              document.dispatchEvent(event);return event.defaultPrevented;
+            }""",
+                excluded,
+            )
+            self.assertFalse(actual)
+        page.locator("#ux-body-query").fill("absent phrase")
+        page.wait_for_function("document.querySelector('#ux-body-count').textContent==='0'")
+        self.assertEqual(page.locator(".ux-body-hit").count(), 0)
+        self.assertTrue(page.locator("[data-ux=find-next]").is_disabled())
+        page.locator("#ux-body-query").fill("")
+        self.assertTrue(page.locator("#ux-body-find").is_hidden())
+
+    def test_search_is_dismissed_for_native_page_document_build_and_revision_changes(self):
+        """Native transitions invalidate body paint; revisions cannot search the hidden manuscript PDF."""
+        page = self.open_preview(1440, 900)
+        query = page.locator("#ux-body-query")
+        query.fill("thermal")
+        page.wait_for_function("document.querySelector('#ux-body-count').textContent==='1/2 · 2쪽'")
+        query.fill("온도")
+        page.wait_for_function("document.querySelector('#ux-body-count').textContent.endsWith('1쪽')")
+        self.assertEqual(page.locator("#p2 .ux-body-hit").count(), 0)
+        page.evaluate("goPage('3')")
+        self.assertTrue(page.locator("#ux-body-find").is_hidden())
+        self.assertEqual(page.locator(".ux-body-hit").count(), 0)
+        query.fill("thermal")
+        page.wait_for_function("document.querySelector('#ux-body-count').textContent==='1/2 · 2쪽'")
+        page.locator("#view-revisions").click()
+        page.wait_for_function("document.body.classList.contains('revision-open')")
+        self.assertTrue(query.is_disabled())
+        self.assertTrue(page.locator("#ux-body-find").is_hidden())
+        self.assertEqual(page.locator(".ux-body-hit").count(), 0)
+        self.assertFalse(
+            page.evaluate("""() => {
+          const event=new KeyboardEvent('keydown',{key:'f',ctrlKey:true,bubbles:true,cancelable:true});
+          document.dispatchEvent(event);return event.defaultPrevented;
+        }""")
+        )
+        page.locator("#view-manuscript").click()
+        self.assertFalse(query.is_disabled())
+        query.fill("thermal")
+        page.wait_for_function("document.querySelector('#ux-body-count').textContent==='1/2 · 2쪽'")
+        page.evaluate("switchDoc('supplement')")
+        page.wait_for_function("DOC==='supplement'&&META.doc==='supplement'")
+        self.assertTrue(page.locator("#ux-body-find").is_hidden())
+        self.assertEqual(page.locator(".ux-body-hit").count(), 0)
+        query.fill("thermal")
+        page.wait_for_function("document.querySelector('#ux-body-count').textContent==='1/2 · 2쪽'")
+        page.evaluate("refreshDoc({...META,pages_build:'demo-build-2'})")
+        self.assertTrue(page.locator("#ux-body-find").is_hidden())
+        self.assertEqual(page.locator(".ux-body-hit").count(), 0)
+
+    def test_fine_pointer_search_stays_within_native_document_bar(self):
+        """Fine-pointer compact fields align within the native band without consuming PDF height."""
+        for width, height in ((1440, 900), (1024, 768), (768, 1024), (717, 960), (673, 960)):
+            with self.subTest(width=width):
+                current = self.open_preview(width, height, variant="current")
+                baseline = self.geometry(current)
+                page = self.open_preview(width, height)
+                observed = self.geometry(page)
+                self.assertFalse(observed["coarse"])
+                self.assertEqual(observed["overflow"], 0)
+                self.assertEqual(observed["pdf"]["h"], baseline["pdf"]["h"])
+                field = observed["tools"][0]
+                if "band-phone" in observed["classes"]:
+                    self.assertEqual(field["h"], 44)
+                    self.assertLessEqual(field["right"], width)
+                else:
+                    self.assertGreaterEqual(field["y"], observed["top"]["y"])
+                    self.assertLessEqual(field["bottom"], observed["top"]["bottom"])
+                    self.assertLessEqual(field["right"], observed["top"]["right"])
+                current.context.close()
+                page.context.close()

@@ -1,19 +1,17 @@
-/** Bounded native-viewer spike: actual PDF text and candidate inline assignment.
+/** Bounded native-viewer spike: actual PDF find and candidate inline assignment.
  * All API effects remain in native-fixture.js; production rules are unchanged.
  */
 (() => {
   'use strict';
   if(!window.LimnDemo)return;
-  const pageNative=goPage,jumpNative=jumpPin,switchNative=switchDoc,refreshNative=refreshDoc;
+  const pageNative=goPage,jumpNative=jumpPin,switchNative=switchDoc,refreshNative=refreshDoc,viewNative=setViewMode;
   const applyMentionNative=mentionApply,previewNative=mentionPreview,guardNative=mentionGuard;
   const assignNative=renderAssignNew,openPopNative=openSelPop;
-  let reading=false,readScroll=0,readRequest=0,searchRequest=0,extractionGeneration=0;
-  /** @type {HTMLElement|null} */
-  let readArticle=null;
+  let searchRequest=0,extractionGeneration=0,findActive=false;
   /** @type {HTMLElement|null} */
   let findPanel=null;
-  /** @type {import('./native-pdf.mjs').TextPage[]} */
-  let pages=[];
+  /** @type {HTMLElement|null} */
+  let returnFocus=null;
   /** @type {import('./native-pdf.mjs').TextHit[]} */
   let hits=[];
   /** @type {{key:string,promise:Promise<import('./native-pdf.mjs').TextPage[]>}|null} */
@@ -42,19 +40,26 @@
     if(icon)setHtml(element,ic(icon));else element.textContent=label;
     return element;
   }
-  /** Add direct actions inside the native main document topbar, without another row. */
+  /** Install one persistent PDF search field and an on-demand results strip at the document's right edge. */
   function installDocumentTools() {
-    const group=document.createElement('div');group.id='ux-doc-tools';
-    group.setAttribute('role','group');group.setAttribute('aria-label','본문 읽기와 찾기');
-    const find=button('본문 찾기','body-search');find.id='ux-find';
-    const long=document.createElement('span');long.className='ux-find-label';long.textContent='본문 찾기';
-    const short=document.createElement('span');short.className='ux-find-short';short.textContent='찾기';short.setAttribute('aria-hidden','true');
-    find.replaceChildren(long,short);find.setAttribute('aria-controls','ux-body-find');find.setAttribute('aria-expanded','false');
-    const read=button('본문 읽기','reading','text-quote');read.id='ux-read';read.setAttribute('aria-pressed','false');
-    const label=document.createElement('span');label.className='lbl';label.textContent='읽기';read.appendChild(label);
-    group.append(find,read);node('#view-switch').after(group);
+    const group=document.createElement('div');group.id='ux-doc-tools';group.setAttribute('role','search');
+    const input=document.createElement('input');input.type='search';input.id='ux-body-query';input.maxLength=200;
+    input.placeholder='본문 찾기';input.setAttribute('aria-label','원고 PDF 본문 검색');input.setAttribute('aria-keyshortcuts','Meta+F Control+F');
+    input.setAttribute('aria-controls','ux-body-find');input.setAttribute('aria-expanded','false');
+    input.addEventListener('focus',event=>{
+      if(event.relatedTarget instanceof HTMLElement&&!event.relatedTarget.closest('#ux-doc-tools,#ux-body-find'))returnFocus=event.relatedTarget;
+      if(!findActive)void searchBody(input.value);
+    });
+    input.addEventListener('input',()=>{void searchBody(input.value);});
+    group.append(input);node('#doc-nav').appendChild(group);
+    const panel=document.createElement('div');panel.id='ux-body-find';panel.hidden=true;
+    panel.setAttribute('role','group');panel.setAttribute('aria-label','본문 검색 결과');
+    const count=document.createElement('output');count.id='ux-body-count';count.setAttribute('aria-live','polite');count.textContent='0';
+    const previous=button('이전 결과','find-prev','chevron-down');previous.classList.add('ux-prev');
+    panel.append(count,previous,button('다음 결과','find-next','chevron-down'),button('검색 닫기','find-close','x'));
+    document.body.appendChild(panel);findPanel=panel;updateFindControls();
   }
-  /** Key extracted text to the actual displayed document/build, never the authored reading fixture. */
+  /** Key extracted text to the actual displayed document/build, never the authored source-location fixture. */
   function documentKey() { return (DOC||'main')+'|'+(META?.pages_build||''); }
   /** Extract actual PDF bytes once per displayed build; destroy this spike's worker after projection. */
   async function ensurePages() {
@@ -73,109 +78,63 @@
       try {
         const pdf=await task.promise,result=await text.extractPages(pdf,lib.Util);
         if(generation!==extractionGeneration||key!==documentKey())return [];
-        pages=result;return result;
+        return result;
       }finally{if(loadingTask===task)loadingTask=null;await task.destroy();}
     })();
     extraction={key,promise};return promise;
   }
-  /** Create the reader on demand; plain text is selectable and never interpreted as markup. */
-  function ensureReading() {
-    if(readArticle)return readArticle;
-    const article=document.createElement('article');article.id='ux-reading';article.hidden=true;
-    article.setAttribute('aria-label','PDF 본문');node('#left').appendChild(article);readArticle=article;return article;
-  }
-  /** Present actual extracted runs in PDF content-stream order with real page labels. */
-  function renderReading() {
-    const article=ensureReading();article.replaceChildren();
-    for(const page of pages) {
-      const section=document.createElement('section');section.id='ux-reading-page-'+page.page;section.tabIndex=-1;
-      const title=document.createElement('h2');title.textContent=page.page+'쪽';
-      const paragraph=document.createElement('p');paragraph.setAttribute('translate','no');
-      if(!page.runs.length)paragraph.textContent='추출 가능한 텍스트가 없습니다.';
-      let end=0;
-      page.runs.forEach((run,index)=>{
-        paragraph.append(document.createTextNode(page.search.slice(end,run.start)));
-        const span=document.createElement('span');span.id='ux-run-'+page.page+'-'+index;span.textContent=run.text;
-        paragraph.appendChild(span);end=run.end;
-      });
-      section.append(title,paragraph);article.appendChild(section);
-    }
-  }
-  /** Switch reading without cancelling the native selection or note; late extraction cannot switch a newer visit. @param {boolean} value */
-  async function setReading(value) {
-    const request=++readRequest;
-    if(value&&!reading)readScroll=node('#left').scrollTop;
-    reading=value;if(value){setSelMode(false);closeSelPop();}
-    const article=ensureReading();article.hidden=!value;node('#doc').hidden=value;
-    document.body.classList.toggle('ux-reading-mode',value);
-    const action=node('#ux-read');action.setAttribute('aria-pressed',String(value));
-    action.setAttribute('aria-label',value?'PDF로 돌아가기':'본문 읽기');
-    const label=action.querySelector('.lbl');if(label)label.textContent=value?'PDF':'읽기';
-    if(!value){node('#left').scrollTop=readScroll;if(hits.length&&findPanel&&!findPanel.hidden)gotoHit(hitIndex);return;}
-    article.textContent='본문을 읽는 중입니다.';article.setAttribute('aria-busy','true');node('#left').scrollTop=0;
-    try{await ensurePages();if(request!==readRequest||!reading)return;renderReading();if(hits.length)gotoHit(hitIndex);}
-    catch(error){if(request===readRequest&&reading)article.textContent='본문 텍스트를 읽지 못했습니다.';console.error('Demo PDF text extraction failed',error);}
-    finally{if(request===readRequest)article.removeAttribute('aria-busy');}
-  }
-  /** Keep the transient find panel below its current native topbar action and inside the viewport. */
+  /** Keep the transient results below the field and inside its current document/viewport edge. */
   function placeFind() {
     if(!findPanel||findPanel.hidden)return;
-    const rect=node('#ux-find').getBoundingClientRect();
+    const rect=node('#ux-body-query').getBoundingClientRect();
     findPanel.style.top=rect.bottom+4+'px';
-    findPanel.style.right=Math.max(8,innerWidth-node('#doc-nav').getBoundingClientRect().right)+'px';
+    findPanel.style.right=Math.max(8,innerWidth-rect.right)+'px';
   }
-  /** Open one compact find row; its query searches only extracted PDF text. */
-  function openBodySearch() {
-    if(!findPanel) {
-      const panel=document.createElement('div');panel.id='ux-body-find';panel.setAttribute('role','search');
-      const input=document.createElement('input');input.type='search';input.id='ux-body-query';input.maxLength=200;
-      input.placeholder='본문 찾기';input.setAttribute('aria-label','PDF 본문 검색');
-      input.addEventListener('input',()=>{void searchBody(input.value);});
-      input.addEventListener('keydown',event=>{
-        if(event.isComposing)return;
-        if(event.key==='Enter'||event.key==='ArrowDown'||event.key==='ArrowUp'){
-          event.preventDefault();event.stopPropagation();gotoHit(hitIndex+(event.key==='ArrowUp'||event.shiftKey?-1:1));
-        }else if(event.key==='Escape'){event.preventDefault();event.stopPropagation();hideBodySearch();node('#ux-find').focus();}
-      });
-      const count=document.createElement('output');count.id='ux-body-count';count.setAttribute('aria-live','polite');count.textContent='0';
-      const previous=button('이전 결과','find-prev','chevron-down');previous.classList.add('ux-prev');
-      panel.append(input,count,previous,button('다음 결과','find-next','chevron-down'),button('닫기','find-close','x'));
-      document.body.appendChild(panel);findPanel=panel;
-    }
-    findPanel.hidden=false;node('#ux-find').setAttribute('aria-expanded','true');placeFind();
-    const input=findPanel.querySelector('input');if(input instanceof HTMLInputElement){input.focus();void searchBody(input.value);}
+  /** Select a retained query without replacing native draft or region selection. */
+  function focusBodySearch() {
+    const active=document.activeElement;
+    if(active instanceof HTMLElement&&!active.closest('#ux-doc-tools,#ux-body-find'))returnFocus=active;
+    const input=node('#ux-body-query');
+    if(input instanceof HTMLInputElement){input.focus();input.select();if(!findActive)void searchBody(input.value);}
+  }
+  /** Synchronize disabled result actions and field disclosure with the actual search state. */
+  function updateFindControls() {
+    if(!findPanel)return;
+    findPanel.querySelectorAll('[data-ux=find-prev],[data-ux=find-next]').forEach(element=>{
+      if(element instanceof HTMLButtonElement)element.disabled=!hits.length;
+    });
+    node('#ux-body-query').setAttribute('aria-expanded',String(!findPanel.hidden));
   }
   /** Clear search paint separately from native annotation marks and selections. */
-  function clearHits() {
-    node('#doc').querySelectorAll('.ux-body-hit').forEach(element=>element.remove());
-    readArticle?.querySelectorAll('.ux-reading-hit').forEach(element=>element.classList.remove('ux-reading-hit'));
-  }
-  /** Close the transient find row and its paint while retaining reading and the native draft. */
-  function hideBodySearch() {
-    searchRequest++;if(findPanel)findPanel.hidden=true;
-    node('#ux-find').setAttribute('aria-expanded','false');clearHits();
+  function clearHits() {node('#doc').querySelectorAll('.ux-body-hit').forEach(element=>element.remove());}
+  /** Dismiss results/paint, retain query, and optionally restore a connected visible prior control. @param {boolean} [restore] */
+  function hideBodySearch(restore=false) {
+    searchRequest++;findActive=false;hits=[];if(findPanel)findPanel.hidden=true;
+    clearHits();updateFindControls();
+    if(restore){
+      if(returnFocus?.isConnected&&returnFocus.getClientRects().length&&getComputedStyle(returnFocus).visibility==='visible')returnFocus.focus({preventScroll:true});
+      if(document.activeElement!==returnFocus){
+        if(returnFocus?.classList.contains('sp-note')&&field('#note').getClientRects().length)field('#note').focus({preventScroll:true});
+        else if(document.activeElement instanceof HTMLElement)document.activeElement.blur();
+      }
+    }
   }
   /** Resolve every literal occurrence from actual PDF extraction; stale queries never replace newer results. @param {string} query */
   async function searchBody(query) {
     const request=++searchRequest;clearHits();hits=[];hitIndex=0;
-    const count=node('#ux-body-count');count.textContent=query.trim()?'읽는 중…':'0';
-    if(!query.trim())return;
+    const count=node('#ux-body-count');findActive=Boolean(query.trim());
+    if(findPanel)findPanel.hidden=!findActive;updateFindControls();placeFind();
+    count.textContent=findActive?'읽는 중…':'0';if(!findActive)return;
     try{
       const result=await ensurePages(),text=await import('./native-pdf.mjs');
-      if(request!==searchRequest||!findPanel||findPanel.hidden)return;
-      hits=text.findHits(result,query);count.textContent=hits.length?'1/'+hits.length:'0';if(hits.length)gotoHit(0);
+      if(request!==searchRequest||!findActive)return;
+      hits=text.findHits(result,query);count.textContent=hits.length?'1/'+hits.length:'0';updateFindControls();if(hits.length)gotoHit(0);
     }catch(error){if(request===searchRequest)count.textContent='읽기 실패';console.error('Demo body find failed',error);}
   }
-  /** Paint matched PDF text-item bounds on the true page, or reveal the corresponding selectable reader runs. @param {number} index */
+  /** Paint whole matched PDF text-item bounds on the actual page and bring that result into view. @param {number} index */
   function gotoHit(index) {
-    if(!hits.length)return;clearHits();hitIndex=(index+hits.length)%hits.length;
+    if(!findActive||!hits.length)return;clearHits();hitIndex=(index+hits.length)%hits.length;
     const hit=hits[hitIndex];node('#ux-body-count').textContent=(hitIndex+1)+'/'+hits.length+' · '+hit.page+'쪽';
-    if(reading) {
-      const page=pages.find(item=>item.page===hit.page);if(!page)return;
-      for(const run of hit.runs)document.getElementById('ux-run-'+hit.page+'-'+page.runs.indexOf(run))?.classList.add('ux-reading-hit');
-      const target=readArticle?.querySelector('.ux-reading-hit')||document.getElementById('ux-reading-page-'+hit.page);
-      if(target instanceof HTMLElement)target.scrollIntoView({block:'center'});return;
-    }
     const page=document.getElementById('p'+hit.page);if(!page)return;
     for(const run of hit.runs) {
       const mark=document.createElement('div');mark.className='ux-body-hit';
@@ -184,13 +143,23 @@
     }
     const target=page.querySelector('.ux-body-hit')||page;target.scrollIntoView({block:'center'});
   }
-  /** Leave only the spike's reading/find surfaces before native PDF navigation. */
-  function leaveReading() {void setReading(false);hideBodySearch();}
+  /** Intercept only plain find chords or active search keys before native global shortcuts. @param {KeyboardEvent} event */
+  function searchKeys(event) {
+    if(event.isComposing||event.keyCode===229||document.body.classList.contains('revision-open')||document.querySelector('dialog[open]'))return;
+    if(event.key.toLowerCase()==='f'&&(event.ctrlKey!==event.metaKey)&&!event.altKey&&!event.shiftKey){
+      event.preventDefault();event.stopImmediatePropagation();focusBodySearch();return;
+    }
+    if(!(event.target instanceof Element)||!event.target.closest('#ux-doc-tools,#ux-body-find'))return;
+    if(event.key==='Escape'){
+      event.preventDefault();event.stopImmediatePropagation();hideBodySearch(true);
+    }else if(event.target.id==='ux-body-query'&&event.key==='Enter'&&!event.altKey&&!event.ctrlKey&&!event.metaKey){
+      event.preventDefault();event.stopImmediatePropagation();gotoHit(hitIndex+(event.shiftKey?-1:1));
+    }
+  }
   /** Forget document-scoped text and stop a pending worker on switch/rebuild. */
   function resetExtraction() {
-    extractionGeneration++;extraction=null;pages=[];hits=[];readRequest++;searchRequest++;
+    extractionGeneration++;extraction=null;hideBodySearch();
     if(loadingTask){void loadingTask.destroy();loadingTask=null;}
-    readArticle?.replaceChildren();clearHits();
   }
   /** Sync both native note surfaces and login hints, preserving their one-draft ownership. @param {HTMLTextAreaElement} source */
   function syncSharedNote(source) {
@@ -237,24 +206,30 @@
     const control=event.target.closest('[data-ux]');if(!(control instanceof HTMLElement))return;
     event.preventDefault();event.stopImmediatePropagation();
     switch(control.dataset.ux) {
-      case 'reading':void setReading(!reading);break;
-      case 'body-search':if(findPanel&&!findPanel.hidden)hideBodySearch();else openBodySearch();break;
-      case 'find-close':hideBodySearch();node('#ux-find').focus();break;
+      case 'find-close':hideBodySearch(true);break;
       case 'find-prev':gotoHit(hitIndex-1);break;
       case 'find-next':gotoHit(hitIndex+1);break;
     }
   }
 
   installDocumentTools();installInlineAssignment();
-  /** Native page navigation restores PDF while retaining its selection/draft semantics. */
-  goPage=function(value){leaveReading();pageNative(value);};
+  /** Native page navigation dismisses search while retaining its selection/draft semantics. */
+  goPage=function(value){hideBodySearch();pageNative(value);};
   /** A native pin jump restores its PDF before applying native location behavior. */
-  jumpPin=function(id){leaveReading();jumpNative(id);};
+  jumpPin=function(id){hideBodySearch();jumpNative(id);};
+  /** Revision search is outside this candidate; keep hidden manuscript hits and shortcuts inactive. */
+  setViewMode=function(mode){
+    hideBodySearch();viewNative(mode);
+    const input=node('#ux-body-query');
+    if(input instanceof HTMLInputElement){
+      input.disabled=document.body.classList.contains('revision-open');
+      input.placeholder=input.disabled?'원고에서 찾기':'본문 찾기';
+    }
+  };
   /** A valid native document switch parks its own draft and invalidates only the spike's text. */
-  switchDoc=async function(key){if(key&&key!==DOC&&docInfo(key)){leaveReading();resetExtraction();}await switchNative(key);};
+  switchDoc=async function(key){if(key&&key!==DOC&&docInfo(key)){hideBodySearch();resetExtraction();}await switchNative(key);};
   /** A native rebuild invalidates extracted text only when the displayed document/build changes. */
-  refreshDoc=async function(meta){const key=documentKey();await refreshNative(meta);if(key!==documentKey()){leaveReading();resetExtraction();}};
-  node('#left').addEventListener('pointerdown',event=>{if(reading&&event.target instanceof Element&&event.target.closest('#ux-reading'))event.stopImmediatePropagation();},true);
-  document.addEventListener('click',clickExtension,true);window.addEventListener('resize',()=>requestAnimationFrame(placeFind));
+  refreshDoc=async function(meta){const key=documentKey();await refreshNative(meta);if(key!==documentKey()){hideBodySearch();resetExtraction();}};
+  document.addEventListener('keydown',searchKeys,true);document.addEventListener('click',clickExtension,true);window.addEventListener('resize',()=>requestAnimationFrame(placeFind));
   window.addEventListener('pagehide',resetExtraction);
 })();

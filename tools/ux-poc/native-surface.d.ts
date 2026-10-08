@@ -29,6 +29,8 @@ declare let drawSelPop: ()=>void;
 declare let cancelSelection: (clearNote?:boolean)=>void;
 declare let syncComposeSaveButtons: ()=>void;
 declare let refreshDoc: (meta?:Meta)=>Promise<void>;
+/** Native manuscript/revision selection updates its existing view and navigation. */
+declare let setViewMode: (mode:string)=>void;
 /** Native public screen commands and projections keep their actual outcomes. */
 declare function closeSelPop(): void;
 declare function setKind(value:string): void;

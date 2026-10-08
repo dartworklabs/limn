@@ -7,14 +7,14 @@ and resolved identity. Author and reply count remain in the header; meaningful
 native badges retain expanded context. The current variant receives native
 HTML, CSS, JavaScript, fonts and icons without proposal overrides.
 
-The proposal variant adds direct reading/find controls to the main document top
-bar and connects both native note fields to inline @mention autocomplete. Its
+The proposal variant adds a directly available search input at the main document top
+bar's right end and connects both native note fields to inline @mention autocomplete. Its
 candidate assigns the first resolved non-self colleague anywhere in the note;
 later colleagues are FYI. With no colleague tag, the existing agent default
 remains. Native editing assignment and reply controls retain ownership.
 Neither variant contains a PoC status header or scenario navigation. The user
 approved only the last assignee/card metadata refinement with “수정시안 적용”.
-Main-bar reading/find and the inline assignment candidate remain outside that
+Main-bar body find and the inline assignment candidate remain outside that
 approval. Every appearance change, regardless of size, requires presentation of
 desktop, mobile, tablet and foldable PoCs before production adoption. Foldable
 outside and inside portrait/landscape states are recorded separately. Width-only
@@ -86,17 +86,30 @@ its route with `tailscale serve --https=5174 off`.
 
 | Proposal | Native interaction to try |
 | --- | --- |
-| Reading and body find | Choose **본문 찾기** or **읽기** directly in the main document top bar. Find `thermal` (two hits on page 2) or `온도` (pages 1 and 2), press Enter/Shift+Enter or arrows, and return to PDF with the draft retained. Reading does not automatically open find. Page 3 contains only a figure and has no extracted text. |
+| Body find | Type into **본문 찾기** at the document top-right, or press Cmd+F/Ctrl+F to focus and select its query. Find `thermal` (two hits on page 2) or `온도` (pages 1 and 2). Enter/Shift+Enter move next/previous; result buttons retain native keyboard activation. Escape dismisses results/highlights, keeps the query and returns to the prior visible control (or the panel note if its selection-local field is hidden). Page 3 contains only a figure and has no extracted text. |
 | Pin metadata and assignment | Inspect desktop and collapsed/expanded compact cards. Assignment appears once below the note, with kind and native status context. Human assignment retains the native edit action with hover/focus underline; agent assignment is plain text. Native question/review/claim/location badges and actions retain their meaning when expanded. |
 | Inline @mention candidate | Select a region and type a middle-of-note `@` in the panel or desktop selection-local field. Choose a colleague from the native list, then inspect the existing preview and saved native card. `Robin Lee` has two anonymous logins: typing the ambiguous name alone assigns nobody, while autocomplete preserves the chosen login through handoff. Delete the tag, try no tag or self `@Alice`, and inspect the agent default. |
 
 Inspect 1440px desktop, 768/1024px tablets, 390/320px phones and a foldable's
 344px outside plus 673–717px inside portrait/landscape states, with pin panel
-closed/open and reading/find closed/open. Desktop/tablet keep their existing
-main-bar height. The phone's direct topbar tools float over the PDF without
-reserving an extra 44px row; its native lower navigation remains the document
-selection route. Find opens one transient floating row below those controls.
+closed/open and find inactive/active. Desktop/tablet keep their existing
+main-bar height. The phone's 148×44px field floats over the PDF without
+reserving an extra row; its native lower navigation remains the document
+selection route. Only an active nonempty query opens the small results strip
+below the field. Its result arrows are disabled when there are no hits.
 Measure the overlay's content occlusion as well as the preserved viewport height.
+
+There is no Reading button or extracted-text reader in this candidate: PDF/source
+correspondence remains the review surface. Search covers the manuscript PDF.
+The input is disabled with **원고에서 찾기** while native 변경사항 is open;
+Cmd+F/Ctrl+F remains browser-owned there and during native modal dialogs.
+The candidate intercepts only a plain Cmd or Ctrl chord, excluding Alt, Shift,
+combined Cmd+Ctrl and IME composition (including keyCode 229). Page/pin
+navigation, document switches and changed builds dismiss stale hits/results
+without changing native drafts. The query is retained for explicit reactivation.
+The native mid-width toolbar spans the screen even while a side panel is open;
+the field follows its right end in that band. This placement is still a PoC
+choice awaiting visual review.
 
 The user rejected pin search/work filters, explicit reply intent, work-start/ETA
 controls and separate assignment controls. Those extensions are removed.
@@ -120,7 +133,7 @@ composer assignment controls and other workflows retain their existing behavior.
 ## What this comparison establishes
 
 The real anonymous three-page PDF is rendered and extracted by bundled PDF.js.
-Find and selectable reading use the actual bytes; `native-reading.json` remains
+Find uses the actual bytes; `native-reading.json` remains
 only the authored source-location/selection fixture and PDF generation input.
 The PDF contains Korean/English prose, repeated hits, simple math and a textless
 figure. Outline, page navigation and selection/card controls are native.
@@ -138,15 +151,14 @@ The comparison establishes actual sample extraction, repeated-hit page mapping,
 interface placement and fixture interaction. It does not establish real source
 mapping, rebuild accuracy, semantic column order, arbitrary CJK/math fidelity,
 rotated text, scans/OCR, physical gestures/keyboards or screen-reader usability.
-Search highlights whole PDF text items, not individual glyphs. Reading keeps PDF
-content-stream order. The on-demand extraction limit is 12 pages, 30,000 items
+Search highlights whole PDF text items, not individual glyphs. The on-demand extraction limit is 12 pages, 30,000 items
 per page and 200,000 characters; PDF bytes are bounded to 20MiB after download.
 No production document service is exposed by this bounded fixture.
 
 `uv run pytest -q tests/tools/test_ux_poc_serve.py` uses the existing repository
 browser harness for actual coarse-pointer contexts. The test measures native
-bands/overflow/viewport cost and checks page-2 hits, selectable reading and note
-hints. These emulations are separate from the parent's width-only native-browser
+bands/overflow/viewport cost and checks page-2 hits, shortcuts, native view
+transitions and note hints. These emulations are separate from the parent's width-only native-browser
 screenshots and are not physical-device validation.
 
 Production adoption of the other workflow proposals remains subject to user review.
