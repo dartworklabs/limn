@@ -6,7 +6,8 @@ Status: authorized bounded exploration; production adoption is pending.
 
 The user authorized continuing the pending UX work and requires desktop, phone,
 tablet and foldable PoCs before adopting any appearance change. This spike asks
-whether the native whole viewer can expose a persistent PDF search input at the main topbar's right edge,
+whether the native whole viewer can expose desktop PDF search and mobile
+disclosure at the main topbar's right edge,
 map repeated find hits to their actual pages, and show inline `@` assignment in
 both native note surfaces while retaining existing selection/drafts/card actions.
 It ends when those interactions are reviewable with a real anonymous multi-page
@@ -59,7 +60,9 @@ the full page wording. The duplicate wide section-strip page count is hidden,
 while its current-section context remains.
 
 The phone replaces the floating PDF overlay with a reserved top row: 44px for
-controls plus the larger of the native 4px stripe or top safe area. Its existing
+controls plus the larger of the native 4px stripe or top safe area and 4px bottom
+breathing space. Idle phones show a magnifier; activation reveals search in this
+same row. Its existing
 `btn-pos` moves to that row, keeps native document/view/page-sheet behavior, and
 returns to its original lower-bar home on leaving the phone band. The measured
 phone PDF height cost is explicit; input and page control never cover PDF text.
@@ -83,17 +86,56 @@ tags, ambiguity, deletion, no tag, and handoff between popover and panel.
 Record width, height, pointer media, native band, stable overflow and viewport
 cost. Actual coarse-pointer and physical-device checks remain separately named.
 
+## Mobile disclosure refinement scope and exit
+
+The user's latest review requests a distinct mobile interface because the
+persistent field is too large and flush against the row. This remains the same
+authorized disposable exploration. Before implementation, the resolved geometry
+is a 44px control area with native 4px top stripe/safe-area padding and 4px bottom
+breathing space: 52px total without safe insets, with 12px horizontal/safe-area
+edges. Idle phone layout shows only a 16px native magnifier in a 44px button,
+followed by the existing trailing numeric position control. Activation reveals a
+transparent 16px search field and a 44px close button in this reserved row.
+Empty search can therefore be dismissed without opening a results panel.
+The final active-phone review removes the duplicate result-strip close: the
+phone row close handles both empty and active search, while the strip contains
+only count/page and two arrows. Non-phone result strips retain their close.
+The browser's native search-input clear remains a distinct query-clear action.
+Entering the phone band retains active search disclosure so its strip has a
+visible input anchor. A focused close that the new band hides transfers focus
+to the visible close with the same action in either direction. Input/caret and
+ordinary pointer-media changes receive no new focus effects.
+
+Phone disclosure follows the settled native band, including native typing holds.
+The input remains focused through coarse-pointer resizing/IME, and leaving the
+phone band restores the persistent field and original position-control home.
+Only wide fine-pointer fields retain the faint platform hint. Compact bands
+and coarse-pointer fields show only `본문 검색`; media changes update the hint, without inferring keyboard
+presence. Actual hardware Cmd/Ctrl+F events still reveal/focus supported search.
+Native revision/modal ownership and hidden-row guards preserve browser find.
+Explicit close/Escape retains query/native drafts and returns phone focus to the
+magnifier. Document/build/page/view dismissal blurs a field before hiding it,
+invalidates search generation, and never leaves stale results or invisible focus.
+
+Exit requires tap/open/type/clear/dismiss, hardware activation, native band
+restoration/typing hold, revision guards, and observed bounds/spacing/page
+projection to pass in isolated Chromium. The owner presents paired native T3
+captures across the required device matrix. Physical-device checks and product
+adoption remain pending.
+
 ## Direct-input interaction contract
 
-Plain Cmd+F or Ctrl+F focuses and selects the persistent query; Alt, Shift, both
+Plain hardware Cmd+F or Ctrl+F reveals, focuses and selects the retained query; Alt, Shift, both
 modifiers, IME composition and native open dialogs remain excluded. Enter moves
 next and Shift+Enter previous only inside the input; result buttons use their
 normal Enter/Space activation. Escape hides results/highlights and retains the
-query, restoring the prior visible control or the panel note if its local
-selection composer is hidden. Native selection/drafts are not cleared.
+query, collapsing phone disclosure to its magnifier and restoring focus there.
+Desktop restores the prior visible control or panel note if its local selection
+composer is hidden. Native selection/drafts are not cleared.
 
 The results strip appears only for an active nonempty query. It shows count and
-page with previous/next/close; navigation is disabled for no hits. Searches and
+page with previous/next, plus close outside the phone band. Phones use only the
+row close to dismiss search; navigation is disabled for no hits. Searches and
 extractions retain stale-query/document/build generation guards and bounds.
 Result navigation centers its actual hit, then advances to that page's head if
 the preceding page would remain above it. Native scroll-based page projection

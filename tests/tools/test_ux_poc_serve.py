@@ -340,7 +340,7 @@ class NativePreviewBrowser(ChromiumTestCase):
           return {width:innerWidth,height:innerHeight,coarse:matchMedia('(pointer:coarse)').matches,
             classes:document.body.className,overflow:document.documentElement.scrollWidth-innerWidth,
             pdf:r(document.querySelector('#left')),top:r(document.querySelector('#doc-nav')),
-            tools:Array.from(document.querySelectorAll('#ux-doc-tools input')).map(r),
+            tools:Array.from(document.querySelectorAll('#ux-doc-tools input')).filter(e=>e.getClientRects().length).map(r),
             native:Array.from(document.querySelectorAll('#doc-nav button')).filter(e=>e.getBoundingClientRect().width>0&&!e.hidden).map(r)};
         }""")
 
@@ -368,8 +368,11 @@ class NativePreviewBrowser(ChromiumTestCase):
                 cost = observed["top"]["h"] if band == "phone" else 0
                 self.assertEqual(observed["pdf"]["h"], baseline["pdf"]["h"] - cost)
                 if band == "phone":
-                    self.assertEqual(cost, 48)
+                    self.assertEqual(cost, 52)
                     self.assertEqual(observed["pdf"]["y"], baseline["pdf"]["y"] + cost)
+                    self.assertTrue(page.locator("#ux-body-query").is_hidden())
+                    page.locator("#ux-find-open").tap()
+                    observed = self.geometry(page)
                 for target in observed["tools"]:
                     self.assertGreaterEqual(target["w"], 44)
                     self.assertGreaterEqual(target["h"], 44)
@@ -391,10 +394,12 @@ class NativePreviewBrowser(ChromiumTestCase):
                     settle(page)
                     bounds = page.locator("#ux-body-find").bounding_box()
                     assert bounds is not None
-                    self.assertGreaterEqual(bounds["x"], 0)
-                    self.assertLessEqual(bounds["x"] + bounds["width"], width)
+                    self.assertGreaterEqual(bounds["x"], 8)
+                    self.assertLessEqual(bounds["x"] + bounds["width"], width - 8)
                     self.assertTrue(page.locator("#ux-body-query").is_visible())
-                for control in page.locator("#ux-body-find button").all():
+                self.assertEqual(page.locator("#ux-body-find button:visible").count(), 2 if band == "phone" else 3)
+                self.assertEqual(page.locator("[data-ux=find-close]").is_visible(), band != "phone")
+                for control in page.locator("#ux-body-find button:visible").all():
                     box = control.bounding_box()
                     assert box is not None
                     self.assertGreaterEqual(box["width"], 44)
@@ -597,6 +602,8 @@ class NativePreviewBrowser(ChromiumTestCase):
                 current = self.open_preview(width, height, variant="current")
                 baseline = self.geometry(current)
                 page = self.open_preview(width, height)
+                if page.evaluate("document.body.classList.contains('band-phone')"):
+                    page.locator("#ux-find-open").click()
                 observed = self.geometry(page)
                 self.assertFalse(observed["coarse"])
                 self.assertEqual(observed["overflow"], 0)
@@ -632,6 +639,9 @@ class NativePreviewBrowser(ChromiumTestCase):
                 phone = page.evaluate("document.body.classList.contains('band-phone')")
                 counter = page.locator("#btn-pos" if phone else "#nav-page")
                 query = page.locator("#ux-body-query")
+                if phone:
+                    self.assertTrue(query.is_hidden())
+                    page.locator("#ux-find-open").click()
                 self.assertTrue(counter.is_visible())
                 self.assertEqual(counter.inner_text().strip(), "1/3")
                 self.assertTrue(counter.get_attribute("aria-label"))
@@ -644,7 +654,10 @@ class NativePreviewBrowser(ChromiumTestCase):
                 self.assertLessEqual(count["x"] + count["width"], row["x"] + row["width"])
                 self.assertGreaterEqual(page.locator("#left").bounding_box()["y"], row["y"] + row["height"])
                 self.assertEqual(page.locator("#nav-page:visible,#section-page:visible,#btn-pos:visible").count(), 1)
-                self.assertRegex(query.get_attribute("placeholder"), r"Search.*(?:⌘ F|Ctrl F)")
+                if phone or touch:
+                    self.assertEqual(query.get_attribute("placeholder"), "본문 검색")
+                else:
+                    self.assertRegex(query.get_attribute("placeholder"), r"Search.*(?:⌘ F|Ctrl F)")
                 if touch:
                     self.assertEqual(query.evaluate("e=>getComputedStyle(e).fontSize"), "16px")
                     self.assertGreaterEqual(count["height"], 44)
@@ -668,3 +681,158 @@ class NativePreviewBrowser(ChromiumTestCase):
                         page.locator("#nav-page:visible,#section-page:visible,#btn-pos:visible").count(), 1
                     )
                 page.context.close()
+
+    def test_phone_search_discloses_clears_and_dismisses_without_losing_query_or_note(self):
+        """The phone has a quiet accessible entry, an empty-query exit, and retained query/native draft."""
+        page = self.open_preview(390, 844, touch=True)
+        query, trigger = page.locator("#ux-body-query"), page.locator("#ux-find-open")
+        self.assertTrue(query.is_hidden())
+        self.assertEqual(trigger.get_attribute("aria-expanded"), "false")
+        self.assertTrue(trigger.locator("svg").is_visible())
+        self.assertEqual(trigger.inner_text(), "")
+        target = trigger.bounding_box()
+        row = page.locator("#doc-nav").bounding_box()
+        assert target is not None and row is not None
+        self.assertGreaterEqual(target["width"], 44)
+        self.assertGreaterEqual(target["height"], 44)
+        self.assertGreater(target["y"], row["y"])
+        self.assertLess(target["y"] + target["height"], row["y"] + row["height"])
+        trigger.tap()
+        self.assertTrue(query.evaluate("e=>e===document.activeElement"))
+        self.assertEqual(trigger.get_attribute("aria-expanded"), "true")
+        self.assertEqual(query.get_attribute("placeholder"), "본문 검색")
+        self.assertEqual(query.evaluate("e=>getComputedStyle(e).fontSize"), "16px")
+        self.assertTrue(page.locator("#ux-body-find").is_hidden())
+        page.locator("#ux-find-dismiss").tap()
+        self.assertTrue(query.is_hidden())
+        self.assertTrue(trigger.evaluate("e=>e===document.activeElement"))
+        # Native button keyboard activation works independently of find chords.
+        trigger.press("Enter")
+        query.fill("thermal")
+        page.wait_for_function("document.querySelector('#ux-body-count').textContent==='1/2 · 2쪽'")
+        self.assertTrue(page.locator("[data-ux=find-close]").is_hidden())
+        self.assertEqual(page.locator("#ux-body-find button:visible").count(), 2)
+        query.fill("")
+        self.assertTrue(page.locator("#ux-body-find").is_hidden())
+        self.assertTrue(query.is_visible())
+        query.fill("thermal")
+        page.wait_for_function("document.querySelector('#ux-body-count').textContent==='1/2 · 2쪽'")
+        query.press("Escape")
+        self.assertTrue(query.is_hidden())
+        self.assertEqual(query.input_value(), "thermal")
+        self.assertEqual(page.locator(".ux-body-hit").count(), 0)
+        self.assertTrue(trigger.evaluate("e=>e===document.activeElement"))
+        trigger.press("Control+f")
+        self.assertTrue(query.evaluate("e=>e===document.activeElement"))
+        self.assertEqual(query.evaluate("e=>[e.selectionStart,e.selectionEnd]"), [0, 7])
+        page.wait_for_function("document.querySelector('#ux-body-count').textContent==='1/2 · 2쪽'")
+        page.locator("#ux-find-dismiss").tap()
+        self.assertTrue(query.is_hidden())
+        self.select_note(page, touch=True)
+        page.locator("#note").fill("Keep mobile note")
+        selection = page.evaluate("JSON.stringify(COMPOSE.current)")
+        page.locator("#note").press("Meta+f")
+        page.wait_for_function("document.querySelector('#ux-body-count').textContent==='1/2 · 2쪽'")
+        query.press("Escape")
+        self.assertEqual(page.locator("#note").input_value(), "Keep mobile note")
+        self.assertEqual(page.evaluate("JSON.stringify(COMPOSE.current)"), selection)
+
+    def test_active_search_keeps_visible_close_focus_when_entering_phone_band(self):
+        """A non-phone result close hands focus to the phone row exit while search stays coherently disclosed."""
+        page = self.open_preview(1440, 900)
+        query = page.locator("#ux-body-query")
+        query.fill("thermal")
+        page.wait_for_function("document.querySelector('#ux-body-count').textContent==='1/2 · 2쪽'")
+        result_close = page.locator("[data-ux=find-close]")
+        self.assertTrue(result_close.is_visible())
+        result_close.focus()
+        page.set_viewport_size({"width": 390, "height": 844})
+        page.wait_for_function("document.body.classList.contains('band-phone')")
+        settle(page)
+        self.assertTrue(query.is_visible())
+        self.assertTrue(result_close.is_hidden())
+        self.assertTrue(page.locator("#ux-find-dismiss").evaluate("e=>e===document.activeElement"))
+        self.assertTrue(page.locator("#ux-body-find").is_visible())
+        self.assertEqual(page.locator("#ux-body-find button:visible").count(), 2)
+        row = page.locator("#doc-nav").bounding_box()
+        results = page.locator("#ux-body-find").bounding_box()
+        assert row is not None and results is not None
+        self.assertGreaterEqual(results["y"], row["y"] + row["height"])
+        self.assertGreaterEqual(results["x"], 8)
+        self.assertLessEqual(results["x"] + results["width"], 390 - 8)
+        self.assertEqual(page.locator("#btn-pos-p").inner_text().strip(), "2/3")
+        page.set_viewport_size({"width": 1440, "height": 900})
+        page.wait_for_function("document.body.classList.contains('band-wide')")
+        self.assertTrue(result_close.is_visible())
+        self.assertTrue(result_close.evaluate("e=>e===document.activeElement"))
+        page.set_viewport_size({"width": 390, "height": 844})
+        page.wait_for_function("document.body.classList.contains('band-phone')")
+        self.assertTrue(page.locator("#ux-find-dismiss").evaluate("e=>e===document.activeElement"))
+        page.locator("#ux-find-dismiss").press("Enter")
+        self.assertTrue(query.is_hidden())
+        self.assertTrue(page.locator("#ux-body-find").is_hidden())
+        self.assertEqual(query.input_value(), "thermal")
+        self.assertTrue(page.locator("#ux-find-open").evaluate("e=>e===document.activeElement"))
+
+    def test_touch_search_keeps_focus_and_caret_until_native_band_can_settle(self):
+        """A search/IME typing hold survives keyboard resize, then restores tablet and phone native controls."""
+        page = self.open_preview(390, 844, touch=True)
+        query = page.locator("#ux-body-query")
+        page.locator("#ux-find-open").tap()
+        query.fill("온도")
+        query.evaluate(
+            "e=>{e.setSelectionRange(1,1);e.dispatchEvent(new CompositionEvent('compositionstart',{bubbles:true}));}"
+        )
+        page.set_viewport_size({"width": 768, "height": 430})
+        settle(page)
+        self.assertIn("band-phone", page.locator("body").get_attribute("class"))
+        self.assertTrue(query.evaluate("e=>e===document.activeElement"))
+        self.assertEqual(query.evaluate("e=>[e.selectionStart,e.selectionEnd]"), [1, 1])
+        self.assertFalse(
+            query.evaluate(
+                "e=>{const k=new KeyboardEvent('keydown',{key:'Escape',isComposing:true,bubbles:true,cancelable:true});e.dispatchEvent(k);return k.defaultPrevented;}"
+            )
+        )
+        query.evaluate("e=>e.dispatchEvent(new CompositionEvent('compositionend',{bubbles:true}))")
+        page.set_viewport_size({"width": 768, "height": 1024})
+        page.locator("#ux-find-dismiss").tap()
+        page.wait_for_function("document.body.classList.contains('band-tablet-sheet')")
+        self.assertTrue(query.is_visible())
+        self.assertFalse(query.evaluate("e=>e===document.activeElement"))
+        self.assertEqual(query.get_attribute("placeholder"), "본문 검색")
+        self.assertTrue(page.locator("#nav-page").is_visible())
+        page.set_viewport_size({"width": 390, "height": 844})
+        page.wait_for_function("document.body.classList.contains('band-phone')")
+        self.assertTrue(query.is_hidden())
+        self.assertTrue(page.locator("#ux-find-open").is_visible())
+        self.assertTrue(page.locator("#btn-pos").is_visible())
+
+    def test_phone_native_transitions_hide_search_without_invisible_focus(self):
+        """Page/build/document/revision transitions dismiss phone disclosure and keep browser find ownership."""
+        page = self.open_preview(390, 844, touch=True)
+        query = page.locator("#ux-body-query")
+        for transition in (
+            "goPage('3')",
+            "refreshDoc({...META,pages_build:'demo-build-2'})",
+            "switchDoc('supplement')",
+            "setViewMode('revisions')",
+        ):
+            page.locator("#ux-find-open").tap()
+            query.fill("thermal")
+            page.wait_for_function("document.querySelector('#ux-body-count').textContent==='1/2 · 2쪽'")
+            page.evaluate(transition)
+            settle(page)
+            self.assertTrue(query.is_hidden())
+            self.assertFalse(query.evaluate("e=>e===document.activeElement"))
+            self.assertTrue(page.locator("#ux-body-find").is_hidden())
+            self.assertEqual(page.locator(".ux-body-hit").count(), 0)
+        self.assertTrue(query.is_disabled())
+        self.assertTrue(page.locator("#ux-find-open").is_disabled())
+        self.assertFalse(
+            page.evaluate(
+                "() => {const e=new KeyboardEvent('keydown',{key:'f',ctrlKey:true,bubbles:true,cancelable:true});document.dispatchEvent(e);return e.defaultPrevented;}"
+            )
+        )
+        page.evaluate("setViewMode('manuscript')")
+        self.assertFalse(page.locator("#ux-find-open").is_disabled())
+        self.assertTrue(query.is_hidden())

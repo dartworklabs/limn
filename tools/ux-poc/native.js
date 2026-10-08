@@ -8,6 +8,8 @@
   const applyMentionNative=mentionApply,previewNative=mentionPreview,guardNative=mentionGuard;
   const assignNative=renderAssignNew,openPopNative=openSelPop;
   let searchRequest=0,extractionGeneration=0,findActive=false;
+  let phoneSearchOpen=false,wasPhone=false;
+  const coarsePointer=matchMedia('(pointer:coarse)');
   /** @type {HTMLElement|null} */
   let findPanel=null;
   /** @type {HTMLElement|null} */
@@ -47,20 +49,29 @@
     if(!positionHome)throw new Error('Missing native position-control home');
     const group=document.createElement('div');group.id='ux-doc-tools';group.setAttribute('role','search');
     const input=document.createElement('input');input.type='search';input.id='ux-body-query';input.maxLength=200;
-    const shortcut=/Mac|iPhone|iPad|iPod/.test(navigator.platform)?'⌘ F':'Ctrl F';
-    input.placeholder='Search  '+shortcut;input.setAttribute('aria-label','원고 PDF 본문 검색');input.setAttribute('aria-keyshortcuts','Meta+F Control+F');
+    input.setAttribute('aria-label','원고 PDF 본문 검색');input.setAttribute('aria-keyshortcuts','Meta+F Control+F');
     input.setAttribute('aria-controls','ux-body-find');input.setAttribute('aria-expanded','false');
+    const open=button('본문 검색 열기','find-open');open.id='ux-find-open';
+    // This native-token PoC adds only fixed search artwork; the product's bundled icon table is unchanged.
+    const svg=document.createElementNS('http://www.w3.org/2000/svg','svg');
+    for(const [name,value] of Object.entries({class:'ic',viewBox:'0 0 24 24',fill:'none',stroke:'currentColor','stroke-width':'2','stroke-linecap':'round','stroke-linejoin':'round','aria-hidden':'true',focusable:'false'}))svg.setAttribute(name,value);
+    const circle=document.createElementNS(svg.namespaceURI,'circle'),handle=document.createElementNS(svg.namespaceURI,'path');
+    circle.setAttribute('cx','11');circle.setAttribute('cy','11');circle.setAttribute('r','8');
+    handle.setAttribute('d','m21 21-4.3-4.3');svg.append(circle,handle);open.replaceChildren(svg);
+    open.setAttribute('aria-controls',input.id);open.setAttribute('aria-expanded','false');
+    const close=button('본문 검색 닫기','find-dismiss','x');close.id='ux-find-dismiss';
     input.addEventListener('focus',event=>{
       if(event.relatedTarget instanceof HTMLElement&&!event.relatedTarget.closest('#ux-doc-tools,#ux-body-find'))returnFocus=event.relatedTarget;
       if(!findActive)void searchBody(input.value);
     });
     input.addEventListener('input',()=>{void searchBody(input.value);});
-    group.append(input);nav.insertBefore(node('#nav-side'),page);nav.insertBefore(group,page);
+    group.append(open,input,close);nav.insertBefore(node('#nav-side'),page);nav.insertBefore(group,page);
     /** Native settled bands, including typing holds, own relocation; restore the original node and tab order. */
     function placePosition() {
       if(document.body.classList.contains('band-phone')) {
         if(position.parentElement!==nav)nav.appendChild(position);
       }else if(positionHome&&position.parentElement!==positionHome)positionHome.insertBefore(position,positionNext);
+      syncSearchDisclosure();placeFind();
     }
     /** Compact only native numeric page text; its full accessible name and page-list behavior stay native. */
     function compactPage() {
@@ -73,8 +84,9 @@
     bandObserver.observe(document.body,{attributes:true,attributeFilter:['class']});
     pageObserver.observe(page,{childList:true,characterData:true,subtree:true});
     placePosition();compactPage();
+    coarsePointer.addEventListener('change',syncSearchDisclosure);
     window.addEventListener('pagehide',event=>{
-      if(!event.persisted){bandObserver.disconnect();pageObserver.disconnect();}
+      if(!event.persisted){bandObserver.disconnect();pageObserver.disconnect();coarsePointer.removeEventListener('change',syncSearchDisclosure);}
     });
     const panel=document.createElement('div');panel.id='ux-body-find';panel.hidden=true;
     panel.setAttribute('role','group');panel.setAttribute('aria-label','본문 검색 결과');
@@ -82,6 +94,32 @@
     const previous=button('이전 결과','find-prev','chevron-down');previous.classList.add('ux-prev');
     panel.append(count,previous,button('다음 결과','find-next','chevron-down'),button('검색 닫기','find-close','x'));
     document.body.appendChild(panel);findPanel=panel;updateFindControls();
+  }
+  /** Follow settled bands/media; retain active search and transfer only a close action hidden by its new band. */
+  function syncSearchDisclosure() {
+    const input=node('#ux-body-query'),open=node('#ux-find-open'),close=node('#ux-find-dismiss');
+    if(!(input instanceof HTMLInputElement)||!(open instanceof HTMLButtonElement))return;
+    const active=document.activeElement;
+    const phone=document.body.classList.contains('band-phone'),revision=document.body.classList.contains('revision-open');
+    if(phone&&!wasPhone&&(active===input||findActive))phoneSearchOpen=true;
+    if(!phone||revision)phoneSearchOpen=false;
+    wasPhone=phone;
+    const hidden=phone&&!phoneSearchOpen;
+    if((hidden||revision)&&active===input)input.blur();
+    if(!phone&&active===open)open.blur();
+    input.hidden=hidden;input.disabled=revision;open.disabled=revision;
+    open.hidden=!phone||phoneSearchOpen;close.hidden=!phone||!phoneSearchOpen;
+    const resultClose=document.querySelector('[data-ux=find-close]');
+    if(phone&&active===resultClose&&resultClose instanceof HTMLElement){
+      if(phoneSearchOpen)close.focus({preventScroll:true});else resultClose.blur();
+    }
+    if(!phone&&active===close){
+      if(findActive&&resultClose instanceof HTMLElement)resultClose.focus({preventScroll:true});else close.blur();
+    }
+    open.setAttribute('aria-expanded',String(phoneSearchOpen));
+    node('#ux-doc-tools').classList.toggle('ux-search-open',phoneSearchOpen);
+    const shortcut=/Mac|iPhone|iPad|iPod/.test(navigator.platform)?'⌘ F':'Ctrl F';
+    input.placeholder=document.body.classList.contains('compact')||phone||coarsePointer.matches?'본문 검색':'Search  '+shortcut;
   }
   /** Key extracted text to the actual displayed document/build, never the authored source-location fixture. */
   function documentKey() { return (DOC||'main')+'|'+(META?.pages_build||''); }
@@ -112,14 +150,18 @@
     if(!findPanel||findPanel.hidden)return;
     const rect=node('#ux-body-query').getBoundingClientRect();
     findPanel.style.top=rect.bottom+4+'px';
-    findPanel.style.right=Math.max(8,innerWidth-rect.right)+'px';
+    const rightLimit=innerWidth-findPanel.getBoundingClientRect().width-8;
+    findPanel.style.right=Math.max(8,Math.min(innerWidth-rect.right,rightLimit))+'px';
   }
-  /** Select a retained query without replacing native draft or region selection. */
+  /** Reveal/focus synchronously within activation, retaining native drafts; return false for unavailable rows. */
   function focusBodySearch() {
+    const input=node('#ux-body-query'),nav=node('#doc-nav');
+    if(!(input instanceof HTMLInputElement)||input.disabled||!nav.getClientRects().length||getComputedStyle(nav).visibility!=='visible')return false;
     const active=document.activeElement;
     if(active instanceof HTMLElement&&!active.closest('#ux-doc-tools,#ux-body-find'))returnFocus=active;
-    const input=node('#ux-body-query');
-    if(input instanceof HTMLInputElement){input.focus();input.select();if(!findActive)void searchBody(input.value);}
+    if(document.body.classList.contains('band-phone')){phoneSearchOpen=true;syncSearchDisclosure();}
+    input.focus();input.select();if(!findActive)void searchBody(input.value);
+    return true;
   }
   /** Synchronize disabled result actions and field disclosure with the actual search state. */
   function updateFindControls() {
@@ -133,9 +175,12 @@
   function clearHits() {node('#doc').querySelectorAll('.ux-body-hit').forEach(element=>element.remove());}
   /** Dismiss results/paint, retain query, and optionally restore a connected visible prior control. @param {boolean} [restore] */
   function hideBodySearch(restore=false) {
+    const phone=document.body.classList.contains('band-phone');
     searchRequest++;findActive=false;hits=[];if(findPanel)findPanel.hidden=true;
+    phoneSearchOpen=false;syncSearchDisclosure();
     clearHits();updateFindControls();
     if(restore){
+      if(phone){const open=node('#ux-find-open');if(!open.hidden)open.focus({preventScroll:true});return;}
       if(returnFocus?.isConnected&&returnFocus.getClientRects().length&&getComputedStyle(returnFocus).visibility==='visible')returnFocus.focus({preventScroll:true});
       if(document.activeElement!==returnFocus){
         if(returnFocus?.classList.contains('sp-note')&&field('#note').getClientRects().length)field('#note').focus({preventScroll:true});
@@ -173,7 +218,7 @@
   function searchKeys(event) {
     if(event.isComposing||event.keyCode===229||document.body.classList.contains('revision-open')||document.querySelector('dialog[open]'))return;
     if(event.key.toLowerCase()==='f'&&(event.ctrlKey!==event.metaKey)&&!event.altKey&&!event.shiftKey){
-      event.preventDefault();event.stopImmediatePropagation();focusBodySearch();return;
+      if(focusBodySearch()){event.preventDefault();event.stopImmediatePropagation();}return;
     }
     if(!(event.target instanceof Element)||!event.target.closest('#ux-doc-tools,#ux-body-find'))return;
     if(event.key==='Escape'){
@@ -232,6 +277,8 @@
     const control=event.target.closest('[data-ux]');if(!(control instanceof HTMLElement))return;
     event.preventDefault();event.stopImmediatePropagation();
     switch(control.dataset.ux) {
+      case 'find-open':focusBodySearch();break;
+      case 'find-dismiss':hideBodySearch(true);break;
       case 'find-close':hideBodySearch(true);break;
       case 'find-prev':gotoHit(hitIndex-1);break;
       case 'find-next':gotoHit(hitIndex+1);break;
@@ -246,10 +293,7 @@
   /** Revision search is outside this candidate; keep hidden manuscript hits and shortcuts inactive. */
   setViewMode=function(mode){
     hideBodySearch();viewNative(mode);
-    const input=node('#ux-body-query');
-    if(input instanceof HTMLInputElement){
-      input.disabled=document.body.classList.contains('revision-open');
-    }
+    syncSearchDisclosure();
   };
   /** A valid native document switch parks its own draft and invalidates only the spike's text. */
   switchDoc=async function(key){if(key&&key!==DOC&&docInfo(key)){hideBodySearch();resetExtraction();}await switchNative(key);};

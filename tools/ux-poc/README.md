@@ -7,8 +7,8 @@ and resolved identity. Author and reply count remain in the header; meaningful
 native badges retain expanded context. The current variant receives native
 HTML, CSS, JavaScript, fonts and icons without proposal overrides.
 
-The proposal variant places a quiet search input immediately before the native
-page control at the document bar's far right and connects both native note fields
+The proposal variant places desktop search and mobile magnifier disclosure
+immediately before the native page control at the document bar's far right and connects both native note fields
 to inline @mention autocomplete. Its
 candidate assigns the first resolved non-self colleague anywhere in the note;
 later colleagues are FYI. With no colleague tag, the existing agent default
@@ -87,7 +87,7 @@ its route with `tailscale serve --https=5174 off`.
 
 | Proposal | Native interaction to try |
 | --- | --- |
-| Body find | Type into **본문 찾기** at the document top-right, or press Cmd+F/Ctrl+F to focus and select its query. Find `thermal` (two hits on page 2) or `온도` (pages 1 and 2). Enter/Shift+Enter move next/previous; result buttons retain native keyboard activation. Escape dismisses results/highlights, keeps the query and returns to the prior visible control (or the panel note if its selection-local field is hidden). Page 3 contains only a figure and has no extracted text. |
+| Body find | On phones tap the top-right magnifier to reveal **본문 검색**; elsewhere type into the persistent field, or press hardware Cmd+F/Ctrl+F to reveal/focus and select its query. Find `thermal` (two hits on page 2) or `온도` (pages 1 and 2). Enter/Shift+Enter move next/previous; result buttons retain native keyboard activation. Escape dismisses results/highlights and keeps the query; phones collapse to the magnifier and return focus there, while desktop restores the prior visible control (or the panel note if its selection-local field is hidden). The phone row has a close button even with an empty query. Page 3 contains only a figure and has no extracted text. |
 | Pin metadata and assignment | Inspect desktop and collapsed/expanded compact cards. Assignment appears once below the note, with kind and native status context. Human assignment retains the native edit action with hover/focus underline; agent assignment is plain text. Native question/review/claim/location badges and actions retain their meaning when expanded. |
 | Inline @mention candidate | Select a region and type a middle-of-note `@` in the panel or desktop selection-local field. Choose a colleague from the native list, then inspect the existing preview and saved native card. `Robin Lee` has two anonymous logins: typing the ambiguous name alone assigns nobody, while autocomplete preserves the chosen login through handoff. Delete the tag, try no tag or self `@Alice`, and inspect the agent default. |
 
@@ -95,15 +95,29 @@ Inspect 1440px desktop, 768/1024px tablets, 390/320px phones and a foldable's
 344px outside plus 673–717px inside portrait/landscape states, with pin panel
 closed/open and find inactive/active. Desktop/tablet keep their existing
 main-bar height. The phone reserves a 44px control row plus the larger of its
-4px stripe or top safe area. This costs 48px of PDF height with no safe-area
-inset. Its original position control opens the native document/view/page sheet
-from that row and returns to its lower-bar home outside the phone band.
-Search stays immediately left of the compact `1/3` page control; native full
-page names remain available to assistive technology. The empty field shows a
-small, faint **Search ⌘ F** hint on Apple platforms or **Search Ctrl F** elsewhere;
-typed queries keep normal contrast, and coarse inputs keep 16px text and 44px
-targets. Only an active nonempty query opens the small results strip
-below the field. Its result arrows are disabled when there are no hits.
+4px stripe or top safe area and 4px bottom breathing space. This costs 52px of
+PDF height without a safe-area inset. Its original position control opens the
+native document/view/page sheet from that row and returns to its lower-bar home
+outside the settled phone band. Idle phones show a small native-style magnifier
+in a 44px button immediately left of the compact `1/3` page control; native full
+page names remain available to assistive technology. A tap synchronously reveals
+and focuses a quiet transparent input with 16px text and a 44px close button in
+the same reserved row. Its 12px horizontal edges respect safe-area insets.
+Only wide fine-pointer fields show the small faint platform hint **Search ⌘ F**
+or **Search Ctrl F**. Compact bands and coarse pointers show **본문 검색** only,
+including width-only native desktop screenshots. This is a conservative display
+rule, not detection of a physical keyboard. Actual Cmd/Ctrl+F events still open
+supported search. The settled native typing hold retains input/caret through
+coarse-pointer resizing and IME; blur permits the new band to settle. Typed
+queries keep normal contrast and touch targets remain 44px. Only an active
+nonempty query opens the small results strip below the field. Its arrows are
+disabled with no hits and its bounds remain inside narrow viewports. Phone
+strips contain only count/page and two arrows; the 44px row close dismisses both
+empty and active search. Other bands retain the result-strip close. Native input
+clear remains a separate query-clear action. Active search stays disclosed when
+entering the phone band; if that hides a focused close, its focus transfers only
+to the visible close with the same action. Ordinary pointer changes preserve
+input focus and caret.
 Measure the reserved row's viewport cost and verify it does not cover PDF text.
 
 There is no Reading button or extracted-text reader in this candidate: PDF/source
@@ -113,7 +127,9 @@ Cmd+F/Ctrl+F remains browser-owned there and during native modal dialogs.
 The candidate intercepts only a plain Cmd or Ctrl chord, excluding Alt, Shift,
 combined Cmd+Ctrl and IME composition (including keyCode 229). Page/pin
 navigation, document switches and changed builds dismiss stale hits/results
-without changing native drafts. The query is retained for explicit reactivation.
+without changing native drafts. Phone disclosure closes and blurs the input
+before hiding it; the query is retained for explicit reactivation. Hidden native
+rows do not intercept browser find.
 The native mid-width toolbar spans the screen even while a side panel is open;
 the field follows its right end in that band. This placement is still a PoC
 choice awaiting visual review.
