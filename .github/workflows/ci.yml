@@ -6,6 +6,12 @@ on:
     tags: ["v*"]
   pull_request:
 
+# A new PR revision supersedes that PR's older read-only checks. Main and tag
+# runs keep a unique group so every integration and release tree is validated.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: true
+
 # Every job reads only. Third-party actions are pinned to a commit SHA (the tag in the comment is for people and
 # Dependabot), and checkout keeps no token in .git/config: no step pushes or fetches after it
 # (tests/architecture/test_ci_pins.py).
