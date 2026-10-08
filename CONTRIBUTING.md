@@ -34,6 +34,12 @@ Read the chapters that touch your change before you start, and update them in th
 when the current behaviour changes. The chapters state the current behaviour in the present tense;
 dates, before/after numbers and progress notes go in the pull request or the CHANGELOG.
 
+Present browser previews and anonymous UX PoCs through a persistent machine
+harness on Tailnet HTTPS, and verify the page and assets before sharing the
+link. Keep machine configuration and operating logs outside the product
+repository; hosting a PoC does not approve production UX adoption. See the
+Handbook [change workflow](docs/handbook/workflow.md).
+
 ## Conventions
 
 - Code, comments, docstrings, test names, commit messages, CLI help and log messages are in

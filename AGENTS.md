@@ -30,6 +30,18 @@ Limn은 LaTeX 원고 PDF에서 드래그한 영역을 `.tex` 파일·줄 범위�
 - 앱 이름은 Limn 하나. 실제 이메일·홈 경로·호스트 이름을 넣지 않는다 (`alice@example.com` 형식을 쓴다).
 - [architecture.md](docs/handbook/architecture.md) §멈춤 신호에 걸리면 코드를 쓰기 전에 멈추고 묻는다.
 
+## 브라우저 미리보기·PoC
+
+UI 미리보기·PoC는 해당 머신의 preview 하네스로 지속 실행하고 Tailnet HTTPS 링크로 전달한다.
+외관을 바꾸는 모든 변경은 크기와 관계없이 제품 채택 전에 데스크톱·모바일·태블릿·폴더블
+PoC를 사용자에게 제시한다. 폴더블은 좁은 바깥 화면과 펼친 안쪽 화면의 세로·가로 상태를
+구분하고, 폭만 바꾼 화면과 실제 coarse-pointer·물리 기기 증거를 구별한다.
+하네스는 로그인·부팅 때 자동 시작하고 비정상 종료 뒤 재시작해야 한다. 링크를 전달하기 전에
+최종 HTTPS URL과 화면 자원의 실제 응답을 확인하며, 실패하면 미확인 상태와 이유를 알린다.
+localhost는 내부 진단에만 쓴다. 기존 Tailscale Serve 설정을 보존하고 공개 Funnel이나 인증
+약화로 우회하지 않는다. 실행·확인 절차는 [tools/ux-poc/README.md](tools/ux-poc/README.md)를
+따르고, 머신별 운영 설정·로그·상태는 제품 저장소 밖에 둔다.
+
 ## 검증
 
 ```bash
