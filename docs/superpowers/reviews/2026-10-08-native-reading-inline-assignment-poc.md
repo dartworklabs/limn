@@ -12,13 +12,20 @@ server-runtime dependency or service configuration changes enter this revision.
 
 ## Current candidate
 
-The latest direction replaces the two Find/Reading buttons with one persistent
-upper-right manuscript search input. The extracted-text Reading surface is
+The latest direction places the quiet manuscript search immediately before one
+native page control at the far right. Native document/view context stays left;
+the collapsed-desktop pin toggle also precedes the single flexible gap. The
+empty input shows a small faint platform hint, `Search ⌘ F` or `Search Ctrl F`,
+and actual queries retain normal foreground contrast. The extracted-text Reading surface is
 removed because reviewing two-column text or mathematics needs PDF/source
 correspondence. A nonempty active query shows a compact results-only strip.
-The input uses native tokens, the existing toolbar's right end and existing
-height. Mid-width native navigation spans the screen above an open side panel;
-that band therefore places the input at screen-right.
+Desktop/tablet reuse their existing document row and native page-list trigger.
+The wide current-section strip remains, with its duplicate page count hidden.
+The phone reserves a compact top row and relocates its original position/sheet
+control there; the settled native band class owns relocation and restoration
+to its lower-bar home. Native document-name, status-dot and accessible-name
+projections remain intact. Observers survive persisted `pagehide` and disconnect
+when their document is discarded.
 
 Plain Cmd+F/Ctrl+F focuses/selects the query. Active unchanged query/index survives
 refocusing and the shortcut. Enter/Shift+Enter navigate inside the query; native
@@ -36,6 +43,9 @@ navigation. Search/build/document generations and existing extraction bounds
 remain. Page/pin/document/build/view changes dismiss results. The input is
 explicitly disabled in 변경사항, so it cannot paint or navigate the hidden
 manuscript; comparison-PDF search remains outside this candidate.
+Hit navigation advances to the actual hit page's head if centering would leave
+the previous page above it. Native scroll-derived `2/3` therefore agrees with
+the sample's page-2 result; no synthetic native-page override is applied.
 
 Inline assignment still uses existing native autocomplete in both note fields.
 The first resolved non-self colleague anywhere becomes the candidate assignee;
@@ -46,19 +56,20 @@ This remains a fixture-only proposal rather than server assignment behavior.
 
 ## Measured viewport behavior
 
-Actual coarse-pointer Chromium contexts report native bands, 0px horizontal
-overflow and unchanged PDF height against current at 320×720, 390×844,
+Actual coarse-pointer Chromium contexts report native bands and 0px horizontal
+overflow against current at 320×720, 390×844,
 344×882, 768×1024, 1024×768, 673×960, 717×960 and 960×717.
-The phone field overlays a 148×44px area at top-right, preserving PDF height
-while occluding that region. Coarse non-phone bars retain 48px height with
-44px search/result targets. The result strip remains inside the viewport with
-the pin panel open and closed.
+The reserved phone row costs 48px of PDF height with zero safe-area inset:
+44px controls below the native 4px stripe. Search and position control share
+one vertical center above the PDF. Non-phone PDF height is unchanged. Coarse
+inputs retain 16px query text and 44px search/page/result targets. The result
+strip remains inside the viewport with the pin panel open and closed.
 
-Fine-pointer 1440×900, 1024×768, 768×1024, 717×960 and 673×960 contexts preserve
-PDF height and have no horizontal overflow. Fine compact non-phone fields draw
-at native control height within the existing bar rather than bleeding below it.
-At fine-pointer 673px the native band is phone, so its intentional overlay is
-measured separately from a nonexistent navigation row.
+Fine-pointer 1440×900, 320×720, 344×882, 1024×768, 960×717, 768×1024,
+717×960 and 673×960 contexts have no horizontal overflow with the pin panel
+open and closed. Phone bands incur the reserved-row cost; non-phone PDF height
+is unchanged and fields remain inside the native bar. Native page selection
+and phone→tablet→phone control restoration pass in the isolated browser.
 
 These browser emulations are distinct from the owner's native T3 width-only
 screenshots. Neither establishes physical keyboards, hinge/rotation behavior,
@@ -67,9 +78,18 @@ Physical-device validation was explicitly postponed.
 
 ## Checks and failure sensitivity
 
-- `uv run pytest -q tests/tools/test_ux_poc_serve.py`: 141 passed and 13
-  viewport subtests passed in 13.71s; raw output is preserved in
-  `limn-search-input-poc-final-tool-tests.log` outside the repository.
+- `uv run pytest -q -s tests/tools/test_ux_poc_serve.py`: 142 passed and 19
+  viewport subtests passed in 19.37s; raw output is preserved in
+  `limn-toolbar-polish-worker/tool-tests.log` outside the repository.
+- The new toolbar/native-page test reproduced three pre-polish viewport
+  failures; `limn-toolbar-polish-worker/red.log` retains them. Search/page
+  projection assertions reproduced five coarse portrait mismatches before the
+  actual-scroll correction; `search-page-red.log` retains them. The final suite
+  confirms page-2 hits and native `2/3` agree.
+- A focused synthetic persisted-`pagehide` probe confirms that band relocation
+  and numeric-page observers remain active across settled native band changes
+  and page-2 search. `limn-toolbar-polish-worker/lifecycle-final.log` retains
+  the result. This checks event handling, not actual browser BFcache eligibility.
 - The direct-field shortcut test failed before implementation because no
   persistent query was visible; `limn-search-input-poc-red.log` preserves it.
   Initial candidate checks exposed re-focus resetting the active index and
@@ -82,9 +102,10 @@ Physical-device validation was explicitly postponed.
   `limn-search-input-poc-mutation.py` and `*-mutation.log` outside the repository.
 - `ruff check` reports 0 errors; `ruff format --check` passes for the changed
   tool test. Node syntax checks pass for `native.js` and `native-pdf.mjs`.
-  The standalone PoC TypeScript check uses checked-in native surface/fixture
-  declarations and wire/screen types, including the verified `setViewMode`
-  signature. Production type configuration is unchanged.
+  The standalone strict PoC TypeScript check uses checked-in native
+  surface/fixture declarations and API/state/globals types. No type seam or
+  production type configuration changes. `limn-toolbar-polish-worker/types.log`
+  retains its clean result.
 - `uv run pytest -q tests/architecture/test_handbook_refs.py`: 4 passed.
   The independent reviewer probe passes real keyboard result buttons,
   modal/legacy-IME exclusions, revision ownership and Escape while extraction

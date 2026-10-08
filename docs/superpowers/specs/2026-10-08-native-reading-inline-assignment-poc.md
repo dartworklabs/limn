@@ -49,11 +49,22 @@ The existing mention preview communicates who receives assignment/FYI, and the
 saved native card shows the chosen assignee. There is no separate new assignment
 control, scenario panel, status header, pin search or new reply category.
 
-The latest user direction replaces the Find launcher with a persistent search
-input and removes Reading mode. Desktop/tablet reuse the main topbar's height
-and rightmost position. Where the phone has no native document row, a compact
-148×44px input overlays the PDF at the top-right without reserving a row. The existing lower
-navigation remains the phone's document-selection route.
+The latest user direction polishes the persistent search field with a faint
+empty-field hint (`Search  ⌘ F` on Apple platforms, `Search  Ctrl F` elsewhere).
+The actual query keeps normal foreground contrast. Native document/view context
+stays left, followed by one flexible gap, search, and the compact numeric page
+control at the far right. Desktop/tablet reuse the existing document-row height;
+the native `nav-page` opens the native page list and its accessible name retains
+the full page wording. The duplicate wide section-strip page count is hidden,
+while its current-section context remains.
+
+The phone replaces the floating PDF overlay with a reserved top row: 44px for
+controls plus the larger of the native 4px stripe or top safe area. Its existing
+`btn-pos` moves to that row, keeps native document/view/page-sheet behavior, and
+returns to its original lower-bar home on leaving the phone band. The measured
+phone PDF height cost is explicit; input and page control never cover PDF text.
+Coarse-pointer input text remains 16px and touch targets remain at least 44px.
+No second page control, extra status strip, or feature change is added.
 
 ## Extraction and review boundaries
 
@@ -84,6 +95,9 @@ selection composer is hidden. Native selection/drafts are not cleared.
 The results strip appears only for an active nonempty query. It shows count and
 page with previous/next/close; navigation is disabled for no hits. Searches and
 extractions retain stale-query/document/build generation guards and bounds.
+Result navigation centers its actual hit, then advances to that page's head if
+the preceding page would remain above it. Native scroll-based page projection
+therefore agrees with the search result without a forced counter override.
 Native page/pin/doc/build/view transitions dismiss search. In 변경사항 the input
 is disabled and browser find remains available; comparison-PDF search is outside
 this candidate. Mid-width native navigation spans the screen above the side

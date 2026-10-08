@@ -365,7 +365,11 @@ class NativePreviewBrowser(ChromiumTestCase):
                 self.assertTrue(observed["coarse"])
                 self.assertIn("band-" + band, observed["classes"])
                 self.assertEqual(observed["overflow"], 0)
-                self.assertEqual(observed["pdf"]["h"], baseline["pdf"]["h"])
+                cost = observed["top"]["h"] if band == "phone" else 0
+                self.assertEqual(observed["pdf"]["h"], baseline["pdf"]["h"] - cost)
+                if band == "phone":
+                    self.assertEqual(cost, 48)
+                    self.assertEqual(observed["pdf"]["y"], baseline["pdf"]["y"] + cost)
                 for target in observed["tools"]:
                     self.assertGreaterEqual(target["w"], 44)
                     self.assertGreaterEqual(target["h"], 44)
@@ -377,6 +381,9 @@ class NativePreviewBrowser(ChromiumTestCase):
                     self.assertGreaterEqual(target["x"], 0)
                 page.locator("#ux-body-query").fill("thermal")
                 page.wait_for_function("document.querySelector('#ux-body-count').textContent==='1/2 · 2쪽'")
+                settle(page)
+                counter = page.locator("#btn-pos-p" if band == "phone" else "#nav-page")
+                self.assertEqual(counter.inner_text().strip(), "2/3")
                 self.assertEqual(page.locator("#p2 .ux-body-hit").count(), 1)
                 self.assertEqual(page.locator("#p1 .ux-body-hit").count(), 0)
                 for opened in (True, False):
@@ -575,8 +582,17 @@ class NativePreviewBrowser(ChromiumTestCase):
         self.assertEqual(page.locator(".ux-body-hit").count(), 0)
 
     def test_fine_pointer_search_stays_within_native_document_bar(self):
-        """Fine-pointer compact fields align within the native band without consuming PDF height."""
-        for width, height in ((1440, 900), (1024, 768), (768, 1024), (717, 960), (673, 960)):
+        """Fine-pointer fields align with the page control; only phones reserve extra PDF height."""
+        for width, height in (
+            (1440, 900),
+            (320, 720),
+            (344, 882),
+            (1024, 768),
+            (960, 717),
+            (768, 1024),
+            (717, 960),
+            (673, 960),
+        ):
             with self.subTest(width=width):
                 current = self.open_preview(width, height, variant="current")
                 baseline = self.geometry(current)
@@ -584,7 +600,8 @@ class NativePreviewBrowser(ChromiumTestCase):
                 observed = self.geometry(page)
                 self.assertFalse(observed["coarse"])
                 self.assertEqual(observed["overflow"], 0)
-                self.assertEqual(observed["pdf"]["h"], baseline["pdf"]["h"])
+                cost = observed["top"]["h"] if "band-phone" in observed["classes"] else 0
+                self.assertEqual(observed["pdf"]["h"], baseline["pdf"]["h"] - cost)
                 field = observed["tools"][0]
                 if "band-phone" in observed["classes"]:
                     self.assertEqual(field["h"], 44)
@@ -593,5 +610,61 @@ class NativePreviewBrowser(ChromiumTestCase):
                     self.assertGreaterEqual(field["y"], observed["top"]["y"])
                     self.assertLessEqual(field["bottom"], observed["top"]["bottom"])
                     self.assertLessEqual(field["right"], observed["top"]["right"])
+                for opened in (False, True):
+                    page.evaluate("opened=>setSide(opened)", opened)
+                    settle(page)
+                    page_control = page.locator("#btn-pos" if cost else "#nav-page").bounding_box()
+                    query = page.locator("#ux-body-query").bounding_box()
+                    assert page_control is not None and query is not None
+                    self.assertLessEqual(query["x"] + query["width"], page_control["x"])
+                    self.assertAlmostEqual(
+                        query["y"] + query["height"] / 2, page_control["y"] + page_control["height"] / 2, delta=1
+                    )
+                    self.assertEqual(self.geometry(page)["overflow"], 0)
                 current.context.close()
+                page.context.close()
+
+    def test_search_and_native_page_control_share_one_row_and_keep_navigation(self):
+        """Search precedes one trailing native page control, whose navigation survives band changes."""
+        for width, height, touch in ((1440, 900, False), (320, 720, True), (717, 960, True)):
+            with self.subTest(width=width):
+                page = self.open_preview(width, height, touch=touch)
+                phone = page.evaluate("document.body.classList.contains('band-phone')")
+                counter = page.locator("#btn-pos" if phone else "#nav-page")
+                query = page.locator("#ux-body-query")
+                self.assertTrue(counter.is_visible())
+                self.assertEqual(counter.inner_text().strip(), "1/3")
+                self.assertTrue(counter.get_attribute("aria-label"))
+                row = page.locator("#doc-nav").bounding_box()
+                field = query.bounding_box()
+                count = counter.bounding_box()
+                assert row is not None and field is not None and count is not None
+                self.assertLessEqual(field["x"] + field["width"], count["x"])
+                self.assertAlmostEqual(field["y"] + field["height"] / 2, count["y"] + count["height"] / 2, delta=1)
+                self.assertLessEqual(count["x"] + count["width"], row["x"] + row["width"])
+                self.assertGreaterEqual(page.locator("#left").bounding_box()["y"], row["y"] + row["height"])
+                self.assertEqual(page.locator("#nav-page:visible,#section-page:visible,#btn-pos:visible").count(), 1)
+                self.assertRegex(query.get_attribute("placeholder"), r"Search.*(?:⌘ F|Ctrl F)")
+                if touch:
+                    self.assertEqual(query.evaluate("e=>getComputedStyle(e).fontSize"), "16px")
+                    self.assertGreaterEqual(count["height"], 44)
+                counter.click()
+                surface = "#nav-sheet" if phone else "#page-pop"
+                self.assertTrue(page.locator(surface).is_visible())
+                page.locator(surface + " .pl-row[data-page='2']").click()
+                page.wait_for_function("topAnchor().page===2")
+                self.assertTrue(page.locator(surface).is_hidden())
+                if phone:
+                    page.set_viewport_size({"width": 768, "height": 1024})
+                    page.wait_for_function("document.body.classList.contains('band-tablet-sheet')")
+                    page.wait_for_function(
+                        "document.querySelector('#btn-pos').parentElement.classList.contains('bar-r')"
+                    )
+                    self.assertTrue(page.locator("#nav-page").is_visible())
+                    page.set_viewport_size({"width": 320, "height": 720})
+                    page.wait_for_function("document.body.classList.contains('band-phone')")
+                    page.wait_for_function("document.querySelector('#btn-pos').parentElement.id==='doc-nav'")
+                    self.assertEqual(
+                        page.locator("#nav-page:visible,#section-page:visible,#btn-pos:visible").count(), 1
+                    )
                 page.context.close()

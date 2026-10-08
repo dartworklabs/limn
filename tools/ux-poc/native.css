@@ -1,21 +1,29 @@
 /* Disposable native-viewer candidate; token, font, icon and card ownership stay native. */
 #c-assign{display:none}
-#ux-doc-tools{display:flex;align-items:center;flex:0 0 auto;margin-left:auto;height:100%}
-#ux-body-query{width:180px;min-width:0;height:var(--control-h);font-size:var(--text-sm);padding-inline:var(--space-2);border:1px solid var(--border);border-radius:var(--radius);background:var(--background);color:var(--foreground)}
-#ux-body-query::placeholder{color:var(--muted-foreground);opacity:1}
+#ux-doc-tools{display:flex;align-items:center;flex:0 1 180px;min-width:120px;margin-left:auto;height:100%}
+#ux-body-query{width:100%;min-width:0;height:var(--control-h);font-size:var(--text-sm);padding-inline:var(--space-2);border:1px solid var(--border);border-radius:var(--radius);background:var(--background);color:var(--foreground)}
+#ux-body-query::placeholder{font-size:var(--text-xs);color:var(--muted-foreground);opacity:.75}
+#doc-nav #nav-side{margin-left:0}
+#doc-nav #nav-page{display:inline-flex;align-items:center;justify-content:center;margin-left:0;min-width:var(--hit);height:var(--control-h)}
+#section-page{display:none}
 #ux-body-find{position:fixed;z-index:45;display:flex;align-items:center;gap:var(--space-1);width:max-content;max-width:calc(100vw - var(--space-4));padding:var(--space-1);border:1px solid var(--border);border-radius:var(--radius);background:var(--popover);box-shadow:var(--shadow)}
 #ux-body-count{font-size:var(--text-xs);white-space:nowrap;color:var(--muted-foreground);padding-inline:var(--space-1)}
 #ux-body-find button{display:inline-flex;align-items:center;justify-content:center;flex:none;padding:0;width:var(--control-h);height:var(--control-h)}
 #ux-body-find .ux-prev .ic{transform:rotate(180deg)}
 .ux-body-hit{position:absolute;pointer-events:none;border:1px solid var(--warning);background:color-mix(in srgb,var(--warning) 25%,transparent);z-index:2}
 #sel-pop .m-preview{margin-block:var(--space-2);font-size:var(--text-xs)}
-body.compact #ux-body-query{width:148px;height:var(--hit);font-size:var(--text-base)}
+body.compact #ux-body-query{height:var(--hit);font-size:16px}
 body.compact #ux-body-find button{height:var(--hit);width:var(--hit)}
-/* The phone field floats over the PDF without reserving a navigation row.
-   Its native lower document/location/selection controls keep their geometry. */
-body.band-phone #doc-nav{display:contents}
-body.band-phone #doc-nav>:not(#ux-doc-tools){display:none}
-body.band-phone #ux-doc-tools{position:absolute;top:max(var(--space-2),env(safe-area-inset-top));right:max(var(--space-3),env(safe-area-inset-right));height:var(--hit);z-index:22;box-shadow:var(--shadow)}
+/* A reserved phone row costs 44px plus stripe/safe area; no field covers PDF text.
+   The original position button still opens the native document/view/page sheet. */
+body.band-phone{--sel-area:0px;--sheet-gap:calc(var(--hit) + max(var(--space-1),env(safe-area-inset-top)))}
+body.band-phone #doc-nav{display:flex;position:relative;z-index:22;gap:var(--space-2);height:var(--sheet-gap);padding:max(var(--space-1),env(safe-area-inset-top)) max(var(--space-3),env(safe-area-inset-right)) 0 max(var(--space-3),env(safe-area-inset-left));border-bottom:0;box-shadow:0 1px 0 var(--border-seam)}
+body.band-phone #doc-nav>:not(#ux-doc-tools):not(#btn-pos){display:none}
+body.band-phone #ux-doc-tools{max-width:200px;flex:1 1 180px}
+body.band-phone #doc-nav #btn-pos{flex:0 1 auto;min-width:var(--hit);height:var(--hit);padding:0 var(--space-2);gap:var(--space-1);background:transparent;border:0;font-size:var(--text-sm);color:var(--muted-foreground)}
+body.band-phone #doc-nav #btn-pos :is(b,.nm){text-box:trim-both cap alphabetic}
+body.band-phone #doc-nav #btn-pos .ic{width:16px;height:16px;color:var(--muted-foreground)}
 /* Fine-pointer compact bars keep the native 4px stripe plus control band.
    Coarse bars remain 48px and retain a full 44px input target. */
 @media (pointer:fine){body.compact:not(.band-phone) #ux-body-query{height:var(--control-h)}}
+@media (pointer:coarse){#ux-body-query{height:var(--hit);font-size:16px}#doc-nav #nav-page{height:var(--hit)}}

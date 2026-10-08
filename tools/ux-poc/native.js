@@ -40,18 +40,42 @@
     if(icon)setHtml(element,ic(icon));else element.textContent=label;
     return element;
   }
-  /** Install one persistent PDF search field and an on-demand results strip at the document's right edge. */
+  /** Install search before the native trailing page control; native navigation retains event ownership. */
   function installDocumentTools() {
+    const nav=node('#doc-nav'),page=node('#nav-page'),position=node('#btn-pos');
+    const positionHome=position.parentElement,positionNext=position.nextSibling;
+    if(!positionHome)throw new Error('Missing native position-control home');
     const group=document.createElement('div');group.id='ux-doc-tools';group.setAttribute('role','search');
     const input=document.createElement('input');input.type='search';input.id='ux-body-query';input.maxLength=200;
-    input.placeholder='본문 찾기';input.setAttribute('aria-label','원고 PDF 본문 검색');input.setAttribute('aria-keyshortcuts','Meta+F Control+F');
+    const shortcut=/Mac|iPhone|iPad|iPod/.test(navigator.platform)?'⌘ F':'Ctrl F';
+    input.placeholder='Search  '+shortcut;input.setAttribute('aria-label','원고 PDF 본문 검색');input.setAttribute('aria-keyshortcuts','Meta+F Control+F');
     input.setAttribute('aria-controls','ux-body-find');input.setAttribute('aria-expanded','false');
     input.addEventListener('focus',event=>{
       if(event.relatedTarget instanceof HTMLElement&&!event.relatedTarget.closest('#ux-doc-tools,#ux-body-find'))returnFocus=event.relatedTarget;
       if(!findActive)void searchBody(input.value);
     });
     input.addEventListener('input',()=>{void searchBody(input.value);});
-    group.append(input);node('#doc-nav').appendChild(group);
+    group.append(input);nav.insertBefore(node('#nav-side'),page);nav.insertBefore(group,page);
+    /** Native settled bands, including typing holds, own relocation; restore the original node and tab order. */
+    function placePosition() {
+      if(document.body.classList.contains('band-phone')) {
+        if(position.parentElement!==nav)nav.appendChild(position);
+      }else if(positionHome&&position.parentElement!==positionHome)positionHome.insertBefore(position,positionNext);
+    }
+    /** Compact only native numeric page text; its full accessible name and page-list behavior stay native. */
+    function compactPage() {
+      const match=page.textContent?.match(/^\s*(\d+)\s*\/\s*(\d+)/);
+      if(!match)return;
+      const compact=match[1]+'/'+match[2];
+      if(page.textContent!==compact)page.textContent=compact;
+    }
+    const bandObserver=new MutationObserver(placePosition),pageObserver=new MutationObserver(compactPage);
+    bandObserver.observe(document.body,{attributes:true,attributeFilter:['class']});
+    pageObserver.observe(page,{childList:true,characterData:true,subtree:true});
+    placePosition();compactPage();
+    window.addEventListener('pagehide',event=>{
+      if(!event.persisted){bandObserver.disconnect();pageObserver.disconnect();}
+    });
     const panel=document.createElement('div');panel.id='ux-body-find';panel.hidden=true;
     panel.setAttribute('role','group');panel.setAttribute('aria-label','본문 검색 결과');
     const count=document.createElement('output');count.id='ux-body-count';count.setAttribute('aria-live','polite');count.textContent='0';
@@ -129,9 +153,9 @@
       const result=await ensurePages(),text=await import('./native-pdf.mjs');
       if(request!==searchRequest||!findActive)return;
       hits=text.findHits(result,query);count.textContent=hits.length?'1/'+hits.length:'0';updateFindControls();if(hits.length)gotoHit(0);
-    }catch(error){if(request===searchRequest)count.textContent='읽기 실패';console.error('Demo body find failed',error);}
+    }catch(error){if(request===searchRequest)count.textContent='검색 실패';console.error('Demo body find failed',error);}
   }
-  /** Paint whole matched PDF text-item bounds on the actual page and bring that result into view. @param {number} index */
+  /** Paint the actual PDF hit and scroll into its page so native position agrees with the result. @param {number} index */
   function gotoHit(index) {
     if(!findActive||!hits.length)return;clearHits();hitIndex=(index+hits.length)%hits.length;
     const hit=hits[hitIndex];node('#ux-body-count').textContent=(hitIndex+1)+'/'+hits.length+' · '+hit.page+'쪽';
@@ -142,6 +166,8 @@
       page.appendChild(mark);
     }
     const target=page.querySelector('.ux-body-hit')||page;target.scrollIntoView({block:'center'});
+    const scroller=node('#left'),head=page.getBoundingClientRect().top-scroller.getBoundingClientRect().top;
+    if(head>0)scroller.scrollTop+=head;
   }
   /** Intercept only plain find chords or active search keys before native global shortcuts. @param {KeyboardEvent} event */
   function searchKeys(event) {
@@ -223,7 +249,6 @@
     const input=node('#ux-body-query');
     if(input instanceof HTMLInputElement){
       input.disabled=document.body.classList.contains('revision-open');
-      input.placeholder=input.disabled?'원고에서 찾기':'본문 찾기';
     }
   };
   /** A valid native document switch parks its own draft and invalidates only the spike's text. */

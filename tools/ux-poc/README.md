@@ -7,8 +7,9 @@ and resolved identity. Author and reply count remain in the header; meaningful
 native badges retain expanded context. The current variant receives native
 HTML, CSS, JavaScript, fonts and icons without proposal overrides.
 
-The proposal variant adds a directly available search input at the main document top
-bar's right end and connects both native note fields to inline @mention autocomplete. Its
+The proposal variant places a quiet search input immediately before the native
+page control at the document bar's far right and connects both native note fields
+to inline @mention autocomplete. Its
 candidate assigns the first resolved non-self colleague anywhere in the note;
 later colleagues are FYI. With no colleague tag, the existing agent default
 remains. Native editing assignment and reply controls retain ownership.
@@ -93,15 +94,21 @@ its route with `tailscale serve --https=5174 off`.
 Inspect 1440px desktop, 768/1024px tablets, 390/320px phones and a foldable's
 344px outside plus 673–717px inside portrait/landscape states, with pin panel
 closed/open and find inactive/active. Desktop/tablet keep their existing
-main-bar height. The phone's 148×44px field floats over the PDF without
-reserving an extra row; its native lower navigation remains the document
-selection route. Only an active nonempty query opens the small results strip
+main-bar height. The phone reserves a 44px control row plus the larger of its
+4px stripe or top safe area. This costs 48px of PDF height with no safe-area
+inset. Its original position control opens the native document/view/page sheet
+from that row and returns to its lower-bar home outside the phone band.
+Search stays immediately left of the compact `1/3` page control; native full
+page names remain available to assistive technology. The empty field shows a
+small, faint **Search ⌘ F** hint on Apple platforms or **Search Ctrl F** elsewhere;
+typed queries keep normal contrast, and coarse inputs keep 16px text and 44px
+targets. Only an active nonempty query opens the small results strip
 below the field. Its result arrows are disabled when there are no hits.
-Measure the overlay's content occlusion as well as the preserved viewport height.
+Measure the reserved row's viewport cost and verify it does not cover PDF text.
 
 There is no Reading button or extracted-text reader in this candidate: PDF/source
 correspondence remains the review surface. Search covers the manuscript PDF.
-The input is disabled with **원고에서 찾기** while native 변경사항 is open;
+The input is disabled while native 변경사항 is open;
 Cmd+F/Ctrl+F remains browser-owned there and during native modal dialogs.
 The candidate intercepts only a plain Cmd or Ctrl chord, excluding Alt, Shift,
 combined Cmd+Ctrl and IME composition (including keyCode 229). Page/pin
