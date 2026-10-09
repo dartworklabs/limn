@@ -61,6 +61,10 @@ dates, before/after numbers and progress notes go in the pull request or the CHA
 
 Keep changes focused, add or update tests with behaviour changes, and make sure CI is green.
 
+A change to how the viewer looks or is operated, however small, is shown to the owner as a rendered before/after
+proof of concept on four device classes before it merges. The device list and what counts as a proof of concept are in
+[`docs/handbook/workflow.md`](docs/handbook/workflow.md) (§화면 변경은 PoC를 먼저 보인다).
+
 ## Contributor license agreement
 
 Contributions are accepted only under [CLA.md](CLA.md). To agree, tick the CLA box in the pull request
