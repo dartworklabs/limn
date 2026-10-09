@@ -29,16 +29,17 @@ button.badge-review{font-weight:600}
 :is(.loc,.pg-link,.pin .n.go,.pin-ref){text-decoration:none;text-underline-offset:3px}
 :is(.loc,.pg-link,.pin .n.go,.pin-ref):focus-visible{text-decoration:underline}
 @media (hover:hover){:is(.loc,.pg-link,.pin .n.go,.pin-ref):hover{text-decoration:underline}}
-.pin .note{margin-top:var(--space-1);white-space:pre-wrap;word-break:break-word;cursor:text}
+.pin .note{margin-top:var(--space-1);line-height:round(1.55em,1px);white-space:pre-wrap;word-break:break-word;cursor:text}   /* the body's 1.55 on a whole pixel (21.7 -> 22): every card under a note then starts on a whole pixel, where its head row's words and icons are painted on one line */
 /* Card header: number/range/page on the left, author/collapse on the right. Badges are a single row below the header. Actions form an equal-width grid; only [완료] is emphasized and [삭제] is in the destructive color. */
 .pin .head{flex-wrap:wrap;gap:var(--space-1) var(--space-2);min-height:var(--control-h)}
 .pin .head .loc{white-space:nowrap}
 .pin .head .pg-link{white-space:nowrap;flex:none}
-/* With a mouse the head's #N, line range and N쪽 are trimmed to their cap height (text-box), so the row centres one cap height
-   on the dot and the avatar: as line boxes the monospace range stood 1.9px over them and #N 0.8px. The author's name stays a
-   line box: its ink depends on the name ('Alice Kim (나)' reaches 0.7px lower than 'Bob Park'), and a line box holds both
-   within 0.52px of the row's centre. */
-@media (pointer:fine){.pin .head>:is(.n.go,.loc,.pg-link){text-box:trim-both cap alphabetic}}
+/* With a mouse the head's #N, line range, N쪽 and the author's name are trimmed to their cap height (text-box), so the row
+   centres one cap height on the dot and the avatar in any font (docs/handbook/viewer.md §글자 가운데): as line boxes the
+   monospace range stood 1.9px over them, #N 0.8px and the name 0.6px. Each keeps a step over and under its trimmed line: the
+   name is clipped for its ellipsis and needs the room for the ink past the cap height and the baseline, and a link's focus
+   ring then clears its glyphs and holds its underline (round a box of the cap height alone the ring touched the digits). */
+@media (pointer:fine){.pin .head>:is(.n.go,.loc,.pg-link),.pin .head .au-n{padding-block:var(--space-1);text-box:trim-both cap alphabetic}}
 /* Reply count and author stay together at the right of the header, wrapping as one
    group when needed. The recorded assignee lives in the note-level metadata row. */
 .pin .head .h-meta{display:inline-flex;align-items:center;gap:var(--space-2);margin-left:auto;min-width:0;max-width:100%}
@@ -90,20 +91,27 @@ button.b-close{font-weight:600}
 .mention.me{background:color-mix(in srgb,var(--primary) 28%,transparent);color:var(--foreground)}
 /* The facts line follows the note or its collapsed preview (docs/handbook/viewer.md §모바일 레이아웃 핀 카드는 아코디언이다): the
    pin's kind, assignee and status, of which only what differs from the default is drawn - a fix request, for the agent, open
-   takes no room (its words are .sr-only, and a line with nothing to draw is taken out of the flow). The line is one line on
-   one baseline: its words keep their spaces (pre), ' · ' stands between the drawn ones, the kind and the status are never
+   takes no room (its words are .sr-only, and a line with nothing to draw is taken out of the flow). The line is one line:
+   its words keep their spaces (pre), ' · ' stands between the drawn ones, the kind and the status are never
    shortened, and the assignee's name takes what is left and ends in an ellipsis - the full name stays its text and its
    tooltip. The name alone clips (the pressable assignee's own overflow stays visible for its hit area). A native badge
-   retains detailed state wording: an open card does not repeat the kind and the status under its badges. */
-.pin .card-meta{display:flex;align-items:baseline;min-width:0;margin-top:var(--space-1);font-size:var(--text-sm);line-height:1.5;color:var(--card-foreground);white-space:pre}
+   retains detailed state wording: an open card does not repeat the kind and the status under its badges.
+   Every word is trimmed to its cap height (text-box) and the line, one line box tall by min-height, centres them: the cap
+   height's centre is the line's in any font (docs/handbook/viewer.md §글자 가운데). As line boxes on one baseline the words
+   stood where the font's ascent put them, 0.3px over the middle in Pretendard. The clipped name keeps a step over and under
+   its trimmed line for the ink past the cap height and the baseline.
+   The line is the quietest text of the card - the muted colour at the small size - so a card reads head link, note, facts:
+   in the card's own foreground it was darker than the request above it. */
+.pin .card-meta{display:flex;align-items:center;min-width:0;min-height:1lh;margin-top:var(--space-1);font-size:var(--text-sm);line-height:1.5;color:var(--muted-foreground);white-space:pre}
 .pin .card-meta>*{flex:none}
+.pin .card-meta :is(.cm-i,.cm-sep,.as-l,.as-n){text-box:trim-both cap alphabetic}
 .pin .card-meta-context:not(.sr-only){display:none}
 body.compact .pin:not(.open):not(.editing) .card-meta-context:not(.sr-only){display:block}
-.pin .card-meta .cm-sep{color:var(--muted-foreground)}
 :is(.pin.open,.pin.editing,body:not(.compact) .pin) .card-meta.hide-open,
-body.compact .pin:not(.open):not(.editing) .card-meta.hide-folded{position:absolute;width:1px;height:1px;margin:-1px;overflow:hidden;clip:rect(0,0,0,0)}
-.pin .card-meta .as-chip{display:flex;flex:0 1 auto;align-items:baseline;justify-content:flex-start;gap:0;padding:0;border:0;border-radius:0;background:transparent;color:inherit;font:inherit;line-height:inherit;font-weight:400;min-width:0;min-height:0;overflow:visible;white-space:pre;text-underline-offset:3px}
-.pin .card-meta .as-chip .as-n{min-width:0;overflow:hidden;text-overflow:ellipsis}
+body.compact .pin:not(.open):not(.editing) .card-meta.hide-folded{position:absolute;width:1px;height:1px;min-height:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0)}
+.pin .card-meta .as-chip{display:flex;flex:0 1 auto;align-items:center;justify-content:flex-start;gap:0;padding:0;border:0;border-radius:0;background:transparent;color:inherit;font:inherit;line-height:inherit;font-weight:400;min-width:0;min-height:0;overflow:visible;white-space:pre;text-underline-offset:3px}
+.pin .card-meta .as-chip .as-n{min-width:0;padding-block:var(--space-1);overflow:hidden;text-overflow:ellipsis}
+.pin .card-meta .as-chip .ic{flex:none;width:12px;height:12px;margin-left:var(--space-1);color:var(--muted-foreground)}   /* the pencil of the assignee that can be pressed (a mouse only) */
 .pin .card-meta button.as-chip:focus-visible{text-decoration:underline}
 @media (hover:hover){.pin .card-meta button.as-chip:hover{background:transparent;color:var(--primary);text-decoration:underline}}
 /* The pressable assignee's 44px touch hit comes from the hit utility (button.badge::after) and never from padding, so the line
@@ -111,19 +119,26 @@ body.compact .pin:not(.open):not(.editing) .card-meta.hide-folded{position:absol
    line is pressed (cards.js). */
 /* The assignee row (docs/handbook/viewer.md §담당): its label and the standard segmented track, which scrolls sideways inside
    the row when the names are longer than it (.seg.lad, the range ladder's rule) - the row never grows past the composer. The
-   label's and the segments' words are trimmed to their cap height (text-box), so they share the track's middle in any font. On
-   touch the scroll box's 4px of hit padding is not a gap (as #c-levels): the track stands 8px from its neighbours. */
+   label's and the segments' words are trimmed to their cap height (text-box), so they share the track's middle in any font. The
+   label is as large as the segments' words (larger on touch): two sizes on one cap-height centre have baselines a third of a
+   pixel apart, and a browser that draws a baseline on a whole pixel painted the label 0.8px over the segments. On touch the
+   scroll box's 4px of hit padding is not a gap (as #c-levels): the track stands 8px from its neighbours. */
 .assign-row{display:flex;align-items:center;gap:var(--space-2);margin-top:var(--space-2)}
 .assign-row :is(.as-lab,.as-t){text-box:trim-both cap alphabetic}
 .assign-row .as-lab{flex:none;color:var(--muted-foreground);font-size:var(--text-sm)}
 .assign-row .seg.as-seg{flex:1;min-width:0;margin:0}
-@media (pointer:coarse){.assign-row .seg.as-seg{margin:calc(-1 * var(--space-1)) 0}}
+@media (pointer:coarse){.assign-row .as-lab{font-size:var(--text-base)} .assign-row .seg.as-seg{margin:calc(-1 * var(--space-1)) 0}}
 .mention-bad{color:var(--muted-foreground);text-decoration:underline dotted;text-underline-offset:3px}
-.m-preview{display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-1) var(--space-2);margin-top:var(--space-2);font-size:var(--text-sm)}
-/* A label's icon stands on the baseline and moves down to centre on the label's cap height, so it shares one centre with the
-   names in any font. The agent as the assignee (.m-who) is plain text: a pill is a tagged person. */
-.m-preview .m-lab{display:inline-flex;align-items:baseline;gap:2px;color:var(--muted-foreground)}
-.m-preview .m-lab .ic{width:12px;height:12px;translate:0 calc((100% - 1cap) / 2)}
+/* The preview line under a note field (docs/handbook/viewer.md §@태그 입력 중 미리 보기): labels, pills and plain words, each
+   one line in a block container as a badge is - the line is trimmed to its cap height (text-box) and centred in a box one
+   line tall (the badge's line, a whole number of px), and a label's icon is centred on the same cap height (vertical-align),
+   so every item's cap height is on the row's middle in any font (§글자 가운데). As line boxes of the body's 1.55 the row was
+   18.6px, what follows it began between pixels, and the words stood 0.6px over its middle. The agent as the assignee (.m-who)
+   is plain text: a pill is a tagged person. */
+.m-preview{display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-1) var(--space-2);margin-top:var(--space-2);font-size:var(--text-sm);line-height:calc(var(--line-label) + 2px)}
+.m-preview>*{align-content:center;min-height:1lh;text-box:trim-both cap alphabetic}
+.m-preview .m-lab{color:var(--muted-foreground)}
+.m-preview .m-lab .ic{width:12px;height:12px;vertical-align:calc(.5cap - 6px);margin-right:2px}
 .m-preview .m-note{color:var(--muted-foreground)}
 .m-preview .m-who{color:var(--foreground)}
 /* Question-suggestion line (.q-hint): faded text + a link-style button. No box (single nesting level). Sits below the note field, so the field never shifts while typing. */
@@ -165,6 +180,7 @@ body.compact #trash-link{display:none}   /* compact: the Trash is in [⋯], like
 #mention-pop button{display:flex;width:100%;justify-content:flex-start;gap:var(--space-2);border:0;border-radius:0;background:transparent;text-align:left;padding:var(--space-2) var(--space-3)}   /* a selected row = a full-width flat band (shadcn Command) - never a rounded box within a box (single nesting level) */
 #mention-pop button[aria-selected=true]{background:var(--accent)}
 #mention-pop .ml{color:var(--muted-foreground);font-size:var(--text-sm);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+:is(.as-seg,.m-preview) .ml{color:var(--muted-foreground);font-weight:400}   /* the login beside a name two people share (personLabel) */
 #mention-pop .dim{padding:var(--space-2) var(--space-3)}
 .thread{display:flex;flex-direction:column;gap:var(--space-2);margin-top:var(--space-2);padding-top:var(--space-2);border-top:1px solid var(--border)}   /* a single divider - not a box */
 .thread:empty{display:none}
@@ -173,7 +189,7 @@ body.compact #trash-link{display:none}   /* compact: the Trash is in [⋯], like
 .msg-b{flex:1;min-width:0}
 .msg-h{display:flex;flex-wrap:wrap;align-items:baseline;gap:0 var(--space-2);color:var(--muted-foreground);font-size:var(--text-sm)}
 .msg-h b{color:var(--foreground);font-weight:600}
-.msg-t{white-space:pre-wrap;word-break:break-word}
+.msg-t{line-height:round(down,1.5em,1px);white-space:pre-wrap;word-break:break-word}   /* a whole pixel per line (13px: 19, not 19.5), as the note's: the cards under a thread then start on whole pixels */
 .msg-t.clamp{display:-webkit-box;-webkit-line-clamp:6;-webkit-box-orient:vertical;overflow:hidden}   /* a single 1,000-character reply stretched a card to 1,390px (QA) */
 button.msg-more{align-self:flex-start;margin-top:2px;color:var(--muted-foreground)}
 .thread :is(button.msg-more,button.th-more){justify-content:flex-start;padding-left:var(--space-1);padding-right:var(--space-1);margin-left:calc(-1 * var(--space-1))}   /* the text aligns with the thread posts' left edge */

@@ -16,6 +16,7 @@ page state announces (docs/handbook/verification.md §브라우저 테스트의 
 
 import json
 import os
+import re
 import shutil
 import tempfile
 import unittest
@@ -135,6 +136,53 @@ ROW_INK = """async ([b64, dpr, items]) => {const img = new Image(); img.src = 'd
     out[it.k] = vy && vx ? {mid: (vy[0] + vy[1]) / 2, left: vx[0], right: vx[1]} : null;}
   return out;}"""
 
+# window.__m: layout readings that leave the measured element alone.
+#   label(el, box) - el's first text against box (default el): its first glyph's x, its baseline, and how far the centres of
+#   its cap height ('H'), of the digits, of its own ink and of its Hangul letters lie under the box's centre (inkMetrics).
+#   hit(el) - how far a press still answers el from its centre to the left, right, top and bottom (elementFromPoint, to
+#   0.1px, 60px at most), so an ::after extension and a neighbour that takes part of it both count.
+MEASURE = """() => {
+  const asc = {};
+  const ascent = el => {const c = getComputedStyle(el), key = [c.fontStyle, c.fontWeight, c.fontSize, c.fontFamily].join('|');
+    if (!(key in asc)) {const s = document.createElement('span'), k = document.createElement('span'), t = document.createTextNode('H');
+      s.style.cssText = 'position:absolute;left:-9999px;top:0;white-space:nowrap;line-height:normal';
+      for (const p of ['fontStyle', 'fontWeight', 'fontSize', 'fontFamily']) s.style[p] = c[p];
+      k.style.cssText = 'display:inline-block;width:0;height:0'; s.append(t, k); document.body.append(s);
+      const r = document.createRange(); r.selectNodeContents(t);
+      asc[key] = k.getBoundingClientRect().bottom - r.getClientRects()[0].top; s.remove();}
+    return asc[key];};
+  const first = el => {const w = document.createTreeWalker(el, NodeFilter.SHOW_TEXT); let n;
+    while ((n = w.nextNode())) {const s = n.nodeValue, i = s.search(/\\S/); if (i < 0) continue;
+      const r = document.createRange(); r.setStart(n, i); r.setEnd(n, i + 1); const box = r.getClientRects()[0];
+      if (box && box.width) return {node: n, box, text: s.trim()};}
+    return null;};
+  const label = (el, box) => {const f = first(el), p = f.node.parentElement, base = f.box.top + ascent(p);
+    const R = (box || el).getBoundingClientRect(), mid = R.top + R.height / 2, hangul = hangulOf(f.text);
+    const under = s => {const m = inkMetrics(p, s); return base + (m.d - m.a) / 2 - mid;};
+    return {text: f.text, x: f.box.left, baseline: base, cap: under('H'), digits: under('0123456789'), ink: under(f.text),
+      hangul: hangul ? under(hangul) : null, top: R.top, height: R.height};};
+  const hit = el => {const r = el.getBoundingClientRect(), cx = r.left + r.width / 2, cy = r.top + r.height / 2;
+    const own = (x, y) => {const n = document.elementFromPoint(x, y); return !!n && (n === el || el.contains(n));};
+    const reach = (dx, dy) => {if (!own(cx, cy)) return 0; let lo = 0, hi = 60; if (own(cx + dx * hi, cy + dy * hi)) return hi;
+      while (hi - lo > 0.1) {const m = (lo + hi) / 2; if (own(cx + dx * m, cy + dy * m)) lo = m; else hi = m;} return lo;};
+    return {l: reach(-1, 0), r: reach(1, 0), t: reach(0, -1), b: reach(0, 1)};};
+  window.__m = {label, hit};}"""
+# For drawn_faces(): a scratch element off the measured ones carrying text in the font of the element sel, laid out.
+FACE_SPAN = """([sel, text]) => {const c = getComputedStyle(document.querySelector(sel)), s = document.createElement('span');
+  s.id = 'face-probe'; s.textContent = text; s.style.cssText = 'position:fixed;left:0;top:0;white-space:nowrap;opacity:0;pointer-events:none';
+  for (const p of ['fontStyle', 'fontWeight', 'fontSize', 'fontFamily']) s.style[p] = c[p];
+  document.body.append(s); return s.getBoundingClientRect().width;}"""
+# The font families whose Hangul ink the handbook gives a tolerance for (docs/handbook/viewer.md §글자 가운데): the bundled
+# Pretendard and Noto Sans CJK, the stack's Korean fallback - its regional faces (KR, JP, ...) carry the same Hangul glyphs.
+# Another font's Hangul may be drawn further from its capitals than 0.5px (WenQuanYi Zen Hei: 0.6-1.0px lower), which no
+# layout can undo, so a test holds only the cap-height centre there.
+HANGUL_INK_FACES = ("Pretendard", "Noto Sans CJK")
+# Interface font stacks for a screen that draws without the bundled font, as a phone's system fonts do until Pretendard has
+# loaded: a Korean system family first, and a Latin family whose Hangul is whatever the system picks. Which face draws each
+# depends on the machine - one without Noto Sans CJK draws both stacks' Hangul in WenQuanYi Zen Hei, which Playwright's
+# dependencies bring - so a test asks drawn_faces() instead of reading the stack.
+FALLBACK_FONTS = ("'Noto Sans CJK KR','WenQuanYi Zen Hei',sans-serif", "'DejaVu Sans',sans-serif")
+
 
 # The fixed viewport list of the 2026-10-09 UX pass, at device scale factor 2: a mouse desktop (the wide layout) and touch
 # screens reaching the phone, tablet-sheet, mid-overlay and mid-side bands (docs/handbook/viewer.md §모바일 레이아웃).
@@ -172,6 +220,37 @@ def fonts_ready(page):
     document.fonts.status. A test that reads text ink from a screenshot calls it right before the shot: settle() waits for
     font loads as well, and this says where the ink depends on it."""
     return page.evaluate("document.fonts.ready.then(() => document.fonts.status)")
+
+
+def drawn_faces(page, sel, text):
+    """The font families Chromium drew text with (give letters without spaces: a space is drawn in the stack's first
+    family whatever draws the letters), in the font of the element sel - the browser's own record of the faces
+    it shaped the glyphs from (CDP CSS.getPlatformFontsForNode), which the computed font-family (a list of wishes) and
+    document.fonts (what was loaded) do not say: a family the machine lacks falls through to whatever the system picks.
+    The session is left attached: detaching it resets the pointer and touch emulation of the page under test."""
+    page.evaluate(FACE_SPAN, [sel, text])
+    cdp = page.context.new_cdp_session(page)
+    cdp.send("DOM.enable")
+    cdp.send("CSS.enable")
+    root = cdp.send("DOM.getDocument")["root"]["nodeId"]
+    node = cdp.send("DOM.querySelector", {"nodeId": root, "selector": "#face-probe"})["nodeId"]
+    fonts = cdp.send("CSS.getPlatformFontsForNode", {"nodeId": node})["fonts"]
+    page.evaluate("document.querySelector('#face-probe').remove()")
+    return {re.sub(r"\s*\([^)]*\)$", "", font["familyName"]) for font in fonts}
+
+
+def hangul_ink_holds(faces):
+    """Whether every face of faces (drawn_faces) is one whose Hangul ink the handbook gives a tolerance for
+    (HANGUL_INK_FACES); false for no face at all."""
+    return bool(faces) and all(face.startswith(HANGUL_INK_FACES) for face in faces)
+
+
+def off_centre(labels, hangul, tol=0.5):
+    """The label readings (MEASURE's label()) that are off the ink reference (docs/handbook/viewer.md §글자 가운데): the
+    cap-height centre or the digits' centre further than tol px from the box's centre - and, when hangul is true, the ink
+    centre of the label's Hangul letters."""
+    keys = ("cap", "digits", "hangul") if hangul else ("cap", "digits")
+    return [lb for lb in labels if any(lb[key] is not None and abs(lb[key]) > tol for key in keys)]
 
 
 def nothing_follows(page, ms=500):

@@ -117,6 +117,7 @@ def js_thread() -> str:
                 "isAgent",
                 "isQuestion",
                 "assigneeOf",
+                "assigneeWord",
                 "assignChip",
                 "cardMetadata",
                 "isViewer",
