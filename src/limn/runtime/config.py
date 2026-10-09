@@ -59,6 +59,7 @@ class RunConfig:
     main: Path  # the main .tex (the first LaTeX --doc document's, else --main's or the detected one)
     state: Path  # the instance state folder
     port: int
+    max_connections: int | None  # --max-connections: listener admission cap; None preserves unbounded transport
     dpi: int
     envs: tuple[str, ...]  # --float-envs
     timeout: int  # --build-timeout, seconds

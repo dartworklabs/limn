@@ -75,6 +75,18 @@ your person identity. With default authentication, opening the loopback address 
 legacy local-agent identity and cannot confirm reviews. `limn serve --help` lists all options;
 state (pins, builds) goes to `--state-dir` or `~/.local/share/limn/serve/<manuscript>-<hash>`.
 
+Direct `limn serve --max-connections N` optionally caps each listener's admitted live TCP connections with a
+positive integer N. It counts pending workers, active requests and idle keep-alive sockets until physical cleanup.
+Excess sockets close before HTTP, without an HTTP error response. Omitting the option keeps the existing unlimited
+admission and worker-start failure behavior.
+
+When enabled, uncertain worker startup stops admission and exits nonzero after existing runtime cleanup; other
+requests, daemon builds or comparisons may be interrupted. Watcher joins do not set a total exit deadline, and this
+adds no drain, rollback or universal child cleanup. Operators choose activation and N later from their host limits,
+legitimate demand, proxy behavior and rollback budget; removing the option restores unlimited admission. It does
+not limit per-person work cost or provide complete DoS protection. See [operations](docs/handbook/operations.md#선택형-연결-입장-상한)
+and [ADR-0016](docs/adr/0016-optional-connection-admission.md).
+
 > **Security:** never expose Limn without an identity provider in front of it. The default (`--auth tailscale`)
 > binds `127.0.0.1` and trusts the identity headers of `tailscale serve`; everyone on your tailnet who reaches
 > the port is a collaborator unless you narrow it (`--members-only`, roles via `limn member`). `--auth local` is

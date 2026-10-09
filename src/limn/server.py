@@ -80,6 +80,7 @@ from limn.viewer import (
     serve_viewer as serve_viewer,
 )
 from limn.web.app import DocumentSelector, RouteRegistry, WebApplication
+from limn.web.connections import BoundedServer, BoundedServer6, FatalConnectionStart
 from limn.web.errors import HTTPError as HTTPError
 from limn.web.handler import Handler as WebHandler, Server, Server6
 from limn.web.routes import merge_routes
@@ -159,6 +160,7 @@ def configure_run(a: argparse.Namespace, access_opts: AccessOptions) -> RunStart
         main=picked.main,
         state=state,
         port=port,
+        max_connections=a.max_connections,
         dpi=a.dpi,
         envs=tuple(e.strip() for e in a.float_envs.split(",") if e.strip()),
         timeout=a.build_timeout,
@@ -358,11 +360,14 @@ def report(app: ServerAssembly, documents: list[Doc] | None) -> None:
 
 
 def listen(app: WebApplication) -> Server | StartupRefused:
-    """Bind one listener to its concrete HTTP application or return the existing port refusal."""
+    """Bind the legacy listener unless a cap selects bounded admission; keep the existing port refusal."""
     config = app.settings()
     handler = type("RunHandler", (Handler,), {"app": app})
     try:
-        return (Server6 if ":" in config.access.bind else Server)((config.access.bind, config.port), handler)
+        if config.max_connections is None:
+            return (Server6 if ":" in config.access.bind else Server)((config.access.bind, config.port), handler)
+        listener = BoundedServer6 if ":" in config.access.bind else BoundedServer
+        return listener((config.access.bind, config.port), handler, max_connections=config.max_connections)
     except OSError as error:
         return startup.listen_refusal(config.access.bind, config.port, error)
 
@@ -415,7 +420,8 @@ def main() -> None:
     pin store and builds, starts the watch threads and opens the server; serve until stopped, then close the
     listening socket and stop the application's watch threads, even if
     socket closure fails. A serving error retains priority over cleanup errors; secondary cleanup errors are
-    warned on stderr. The one place the process exits on a refused start: its message on stderr, status 1."""
+    warned on stderr. Explicit fatal connection failures stay nonzero even if warning output fails.
+    The one place the process exits on a refused start: its message on stderr, status 1."""
     started = start(build_arg_parser().parse_args())
     if isinstance(started, StartupRefused):
         sys.exit(started.message)
@@ -426,22 +432,26 @@ def main() -> None:
         serving_error = e
         raise
     finally:
-        cleanup_errors: list[BaseException] = []
         try:
-            started.server.server_close()
-        except BaseException as e:
-            cleanup_errors.append(e)
-        try:
-            started.runtime.stop()
-        except BaseException as e:
-            cleanup_errors.append(e)
-        if cleanup_errors:
-            if serving_error is None:
-                for error in cleanup_errors[1:]:
+            cleanup_errors: list[BaseException] = []
+            try:
+                started.server.server_close()
+            except BaseException as e:
+                cleanup_errors.append(e)
+            try:
+                started.runtime.stop()
+            except BaseException as e:
+                cleanup_errors.append(e)
+            if cleanup_errors:
+                if serving_error is None:
+                    for error in cleanup_errors[1:]:
+                        print(f"warning: server cleanup failed: {error}", file=sys.stderr)
+                    raise cleanup_errors[0]
+                for error in cleanup_errors:
                     print(f"warning: server cleanup failed: {error}", file=sys.stderr)
-                raise cleanup_errors[0]
-            for error in cleanup_errors:
-                print(f"warning: server cleanup failed: {error}", file=sys.stderr)
+        finally:
+            if isinstance(serving_error, FatalConnectionStart):
+                raise serving_error from serving_error.original
 
 
 if __name__ == "__main__":
