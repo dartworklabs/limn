@@ -127,7 +127,7 @@ body.lay-wide #more .more-top{padding-top:var(--space-2)}
      assignee chip's overflow:hidden) cut the ::after back to the drawn 20px (input diagnosis P6). A tappable badge (assignee
      chip/awaiting review/build error) is one: growing it via min-height:44px turned the chip into a 44px blue slab.
      The list keeps class-level specificity (:where for the Trash's id) so the handles' own placements (#grip.hit::after) win. */
-  button.badge{min-height:0;min-width:0;padding:1px var(--space-2)}
+  button.badge{min-width:0}   /* its height stays the badge's (components.css) */
   :is(.hit,button.badge,.pin .acts button,.pin .go-all,:where(#trash) .arc-acts button){position:relative;overflow:visible}
   :is(.hit,button.badge,.pin .acts button,.pin .go-all,:where(#trash) .arc-acts button)::after{content:'';position:absolute;left:50%;top:50%;width:max(100%,var(--hit));height:max(100%,var(--hit));transform:translate(-50%,-50%)}
   #bar1{flex-wrap:wrap;--tb-h:var(--control-h-touch)}
@@ -176,7 +176,7 @@ body.lay-wide #more .more-top{padding-top:var(--space-2)}
   #revision-warning summary{line-height:var(--control-h-touch)}
   .arc-reply.open{display:block;padding:var(--space-2) 0}
   .th-n{min-height:var(--hit);min-width:var(--hit);justify-content:center}
-  .thread :is(button.msg-more,button.th-more){padding-left:var(--space-1);padding-right:var(--space-1)}
+  .thread :is(button.msg-more,button.th-more){padding-left:var(--space-1);padding-right:var(--space-1);text-align:left}   /* 44px wide at least: a short label stays on the posts' left edge */
   /* The panel handle and the outline handle are .hit: their 6-8px bars answer 44px (they answered 25 and 24px). The box lies on
      the PDF side of the bar - left of the panel handle, right of the outline handle - so it never takes the edge of a card or an
      outline entry; the collapsed wide rail at the screen's right edge gets the whole 44px on screen. */
@@ -684,7 +684,7 @@ body:not(.compact) :is(#help,#trash,#more) .ns-grab{display:none}
 #ns-outline-items.outline-empty{color:var(--muted-foreground);padding:var(--space-2) var(--space-3);font-size:var(--text-sm)}
 .dm-item{display:flex;align-items:center;gap:var(--space-3);width:100%;text-align:left;padding:var(--space-3)}
 .dm-item .tx{flex:1;min-width:0;display:flex;flex-direction:column}
-.dm-item .ph{font-size:var(--text-sm);color:var(--muted-foreground);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dm-item .ph{font-size:var(--text-sm);line-height:var(--line-label);color:var(--muted-foreground);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}   /* its own line: the row's is the name's */
 .dm-item{border-color:transparent;background:transparent}
 .dm-item.on{background:var(--accent)}
 /* One bottom sheet (docs/handbook/viewer.md §패널 정리): in compact, [더보기], the navigation sheet, help and the Trash rise from

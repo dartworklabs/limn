@@ -1,10 +1,12 @@
 /* ---------------- Components (docs/handbook/viewer.md §컴포넌트). Classes borrowing shadcn/ui's variant names - every button/badge uses this one set.
    Button variants: (no class) = outline - .btn-default (primary action, one per panel) - .btn-secondary - .btn-soft ([완료]) - .btn-ghost - .btn-destructive
-   Button sizes: (no class) = default (28px) - .btn-sm (around 24px) - .btn-icon (square, a smaller square when combined with .btn-sm)
-   Badges: .badge (= outline) - .badge-default - .badge-secondary - .badge-destructive - status .badge-claimed - .badge-warning */
+   Button sizes: (no class) = default (28px) - .btn-sm (24px) - .btn-icon (square, a smaller square when combined with .btn-sm)
+   Badges: .badge (= outline) - .badge-default - .badge-secondary - .badge-destructive - status .badge-claimed - .badge-warning
+   A button's lines are --line-label, a whole even number of px: at 13px x 1.4 a button was 28.2px, and everything under it
+   started between pixels. */
 button{display:inline-flex;align-items:center;justify-content:center;gap:var(--space-1);
   background:var(--outline-bg);color:var(--foreground);border:1px solid var(--input);border-radius:var(--radius);
-  padding:var(--space-1) var(--space-3);cursor:pointer;font:inherit;font-size:var(--text-base);line-height:1.4;
+  padding:var(--space-1) var(--space-3);cursor:pointer;font:inherit;font-size:var(--text-base);line-height:var(--line-label);
   transition:background-color .12s,border-color .12s,color .12s}
 /* Icons (Lucide, vendor/lucide/README.md): outline icons that follow the text color. Inside a button they sit next to the text with a 4px gap. */
 .ic{width:16px;height:16px;flex:none;display:inline-block;vertical-align:-3px;pointer-events:none}
@@ -28,7 +30,14 @@ button.btn-soft{background:color-mix(in srgb,var(--primary) 14%,transparent);col
 @media (hover:hover){button.btn-soft:hover{background:color-mix(in srgb,var(--primary) 14%,transparent);color:var(--primary);border-color:color-mix(in srgb,var(--primary) 45%,transparent)}}   /* darkening the background further drops light-mode text contrast below 4.5 - shown via a border instead */
 button.btn-destructive{background:color-mix(in srgb,var(--destructive) 10%,transparent);color:var(--destructive);border-color:transparent}
 @media (hover:hover){button.btn-destructive:hover{background:color-mix(in srgb,var(--destructive) 18%,transparent);color:var(--destructive)}}
-button.btn-sm{padding:2px var(--space-2);font-size:var(--text-sm)}
+/* The small button is --control-h-sm tall by its token, not by its text (12px x 1.4 + padding made 22.8px), and its label's
+   centre is its cap height's (docs/handbook/viewer.md §글자 가운데): a small button of words alone is a block container, so its
+   line can be trimmed to the cap height over the baseline (text-box) and the button centres that; a label beside an icon is
+   trimmed as .lbl. As a line box the words stood 0.6-0.9px over the middle in Pretendard and elsewhere in every other font.
+   (A trim does not reach a bare text in a flex container.) */
+button.btn-sm{min-height:var(--control-h-sm);padding:2px var(--space-2);font-size:var(--text-sm)}
+button.btn-sm:where(:not(:has(*))){display:inline-block;align-content:center;text-box:trim-both cap alphabetic}
+button.btn-sm>.lbl{text-box:trim-both cap alphabetic}
 button.btn-icon{flex:none;padding:0;width:var(--control-h);min-width:var(--control-h);height:var(--control-h)}
 button.btn-icon.btn-sm{width:var(--control-h-sm);min-width:var(--control-h-sm);height:var(--control-h-sm)}
 :focus-visible{outline:2px solid var(--ring);outline-offset:1px}
@@ -36,11 +45,16 @@ button.btn-icon.btn-sm{width:var(--control-h-sm);min-width:var(--control-h-sm);h
    a control a script focuses - [본문 1/2 ▾] as the navigation sheet closes - draws none. A text field keeps it: it shows where
    the typing goes. */
 :root[data-input=pointer] :focus-visible:not(input,textarea,select){outline:none}
-.badge{display:inline-flex;align-items:center;gap:var(--space-1);padding:1px var(--space-2);border:1px solid transparent;border-radius:var(--radius-sm);
-  background:var(--muted);color:var(--muted-foreground);font-size:var(--text-xs);font-weight:500;line-height:1.45;white-space:nowrap}
+/* A badge is one line in a block container: the line is trimmed to its cap height over the baseline (text-box) and centred in
+   the badge's height - its line box and the 1px border above and below, 20px by default and whole px in every variant that
+   names its own line - and its icon is centred on the same cap height (vertical-align), so the words and the icon share the
+   badge's middle in any font. As a flex row its words were a line box: their ink 0.8-1.0px over the middle and the icon's. */
+.badge{display:inline-block;align-content:center;min-height:calc(1lh + 2px);padding:0 var(--space-2);border:1px solid transparent;border-radius:var(--radius-sm);
+  background:var(--muted);color:var(--muted-foreground);font-size:var(--text-xs);font-weight:500;line-height:calc(var(--line-label) + 2px);white-space:nowrap;
+  text-box:trim-both cap alphabetic}
 /* A badge is a borderless light fill (the shadcn secondary badge) - a bordered badge is never drawn inside a bordered card
    (author feedback 2026-09-24: an outline inside an outline). A meaningful badge is that color's light tint background + text in that color. */
-.badge .ic{width:12px;height:12px}
+.badge .ic{width:12px;height:12px;vertical-align:calc(.5cap - 6px);margin-right:var(--space-1)}
 .badge-default{background:var(--primary);color:var(--primary-foreground)}
 .badge-secondary{background:var(--secondary);border-color:transparent;color:var(--secondary-foreground)}
 .badge-destructive{background:color-mix(in srgb,var(--destructive) 14%,transparent);color:var(--destructive)}
@@ -49,11 +63,12 @@ button.btn-icon.btn-sm{width:var(--control-h-sm);min-width:var(--control-h-sm);h
 .badge-claimed .ic{color:var(--status-claimed)}
 .badge-claimed.late{background:color-mix(in srgb,var(--status-warning) 14%,transparent);color:var(--status-warning)}
 .badge-claimed.late .ic{color:var(--status-warning)}
-button.badge{cursor:pointer;padding:1px var(--space-2);border-radius:var(--radius-sm);font-size:var(--text-xs);line-height:1.45}
+button.badge{cursor:pointer;padding:0 var(--space-2);border-radius:var(--radius-sm);font-size:var(--text-xs);line-height:calc(var(--line-label) + 2px)}
 @media (hover:hover){button.badge:hover{background:var(--accent);border-color:var(--border-strong)}}
 .card{background:var(--card);color:var(--card-foreground);border:1px solid var(--border);border-radius:var(--radius-lg)}
 input,textarea{background:var(--field);color:var(--foreground);border:1px solid var(--input);border-radius:var(--radius);padding:var(--space-2);
   font:inherit;width:100%}
+input{line-height:var(--line-field)}   /* a whole number of px tall: at 12px x 1.55 the outline's search field was 36.6px and every row under it began between pixels */
 input::placeholder,textarea::placeholder{color:var(--muted-foreground)}
 textarea{resize:vertical;min-height:4.8em}
 input.n{width:58px;text-align:center}
@@ -80,9 +95,11 @@ input.n{width:58px;text-align:center}
 .mark.st{border-color:var(--warning);background:color-mix(in srgb,var(--status-warning) 8%,transparent)}
 .mark.est{border-style:dashed}
 .mark.hi{border-width:3px}
+/* The badge's number is trimmed to its cap height (text-box), which the button centres in the circle: as a line box the
+   digit stood 0.5-0.75px over the middle. */
 .mark button.mark-jump{position:absolute;top:-2px;left:-24px;background:var(--status-open);color:var(--status-open-foreground);border-radius:50%;
-  width:var(--pin-badge-size);height:var(--pin-badge-size);min-width:0;min-height:0;border:0;padding:0;display:flex;align-items:center;justify-content:center;
-  font-size:var(--text-sm);font-weight:700;line-height:1.55;pointer-events:auto;cursor:pointer}
+  width:var(--pin-badge-size);height:var(--pin-badge-size);min-width:0;min-height:0;border:0;padding:0;display:block;align-content:center;
+  text-box:trim-both cap alphabetic;font-size:var(--text-sm);font-weight:700;pointer-events:auto;cursor:pointer}
 /* A mark whose badge has no room outside - the page margin plus the mark's offset short of the badge's reach - has it in its
    own top-left corner (markBadgeIn): outside, it would be clipped. */
 .mark.in button.mark-jump{left:0;top:0}

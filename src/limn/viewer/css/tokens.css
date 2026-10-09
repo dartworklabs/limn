@@ -52,6 +52,8 @@
   --ic-bearing:2.67px;   /* a 16px Lucide glyph's ink starts 4/24 in (2px stroke): the optical corrections at a row's ends */
   --grabber:color-mix(in srgb,var(--foreground) 50%,transparent);
   --control-h-sm:24px;--control-h:28px;--control-h-lg:36px;--control-h-touch:44px;--hit:44px;--ctl-touch-sm:36px;--ctl-touch:40px;
+  --line-label:round(1.4em,2px);   /* a control label's line box: 1.4 of its text to the nearest even px, so a control's height is whole px and its label's box starts on one */
+  --line-field:round(1.55em,2px);   /* a one-line text field's line box: the body's 1.55 to the nearest even px, so the field and what follows it stand on whole px */
   --row-h:48px;--row-h-touch:56px;   /* a two-line list row (the changes view's commit list): subject + author line, a touch row taller */
   --pin-badge-size:22px;   /* native mark buttons retain the existing round badge geometry; touch changes this to 26px */
   --foot-word:16px;   /* [더보기]'s foot wordmark height (the owner's pick); its x-height reads about 1.7 times the version's */
@@ -59,3 +61,4 @@
   --shadow-sm:0 1px 4px var(--shadow-color);--shadow:0 4px 16px var(--shadow-color);--shadow-lg:0 6px 24px var(--shadow-color);
   --font-sans:"Pretendard Variable",-apple-system,BlinkMacSystemFont,"Pretendard","Noto Sans KR",sans-serif;
   --font-mono:"JetBrains Mono",ui-monospace,monospace}
+@supports not (line-height:round(1.4em,2px)){:root{--line-label:1.4;--line-field:1.55}}   /* without round(): the plain ratios; control heights still come from their tokens */
