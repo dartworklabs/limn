@@ -95,7 +95,7 @@ CORPUS = [
 ]
 
 # The viewer functions mentionScan() reaches, pulled from the served page.
-SCAN_FNS = ("mentionTokens", "mentionAfterWord", "mentionScan")
+SCAN_FNS = ("mentionTokens", "mentionAfterWord", "mentionResolve", "mentionScan")
 
 
 def server_logins(people, text, hints):

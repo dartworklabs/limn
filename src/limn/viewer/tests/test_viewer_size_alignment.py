@@ -25,7 +25,7 @@ from limn.security.access import LOCAL_ACTOR
 from helpers import add_pin, extract_js_fn, ps, run_node
 from helpers_access import ALICE, actor
 from helpers_authority import post_authority
-from helpers_browser import BrowserBase, fonts_ready, settle
+from helpers_browser import MEASURE, BrowserBase, fonts_ready, settle
 
 DESK = {"viewport": {"width": 1440, "height": 900}}
 PHONE = {"viewport": {"width": 390, "height": 844}, "is_mobile": True, "has_touch": True, "device_scale_factor": 2}
@@ -55,40 +55,11 @@ FALLBACK_INIT = (
 FIRST_FONT = """fams => {const c = document.createElement('canvas').getContext('2d'), s = '본문 핀 검토 선택';
   c.font = '16px monospace'; const m = c.measureText(s).width;
   return fams.find(f => {c.font = '16px "' + f + '", monospace'; return c.measureText(s).width !== m;}) || null;}"""
-# window.__m: layout readings that leave the measured element alone.
-#   label(el, box) - el's first text against box (default el): its first glyph's x, its baseline, and how far the centres of
-#   its cap height ('H'), of the digits, of its own ink and of its Hangul letters lie under the box's centre (inkMetrics).
-#   hit(el) - how far a press still answers el from its centre to the left, right, top and bottom (elementFromPoint, to
-#   0.1px, 60px at most), so an ::after extension and a neighbour that takes part of it both count.
 # window.__colSettled(): whether the PDF column's present size has been reported by a ResizeObserver made after the viewer's
 #   own and a frame has run since. Observers are called in the order they were made, so the viewer's re-fit for that size,
 #   which it schedules for the next frame (scheduleRelayout), has run by then.
-MEASURE = """() => {
-  const asc = {};
-  const ascent = el => {const c = getComputedStyle(el), key = [c.fontStyle, c.fontWeight, c.fontSize, c.fontFamily].join('|');
-    if (!(key in asc)) {const s = document.createElement('span'), k = document.createElement('span'), t = document.createTextNode('H');
-      s.style.cssText = 'position:absolute;left:-9999px;top:0;white-space:nowrap;line-height:normal';
-      for (const p of ['fontStyle', 'fontWeight', 'fontSize', 'fontFamily']) s.style[p] = c[p];
-      k.style.cssText = 'display:inline-block;width:0;height:0'; s.append(t, k); document.body.append(s);
-      const r = document.createRange(); r.selectNodeContents(t);
-      asc[key] = k.getBoundingClientRect().bottom - r.getClientRects()[0].top; s.remove();}
-    return asc[key];};
-  const first = el => {const w = document.createTreeWalker(el, NodeFilter.SHOW_TEXT); let n;
-    while ((n = w.nextNode())) {const s = n.nodeValue, i = s.search(/\\S/); if (i < 0) continue;
-      const r = document.createRange(); r.setStart(n, i); r.setEnd(n, i + 1); const box = r.getClientRects()[0];
-      if (box && box.width) return {node: n, box, text: s.trim()};}
-    return null;};
-  const label = (el, box) => {const f = first(el), p = f.node.parentElement, base = f.box.top + ascent(p);
-    const R = (box || el).getBoundingClientRect(), mid = R.top + R.height / 2, hangul = hangulOf(f.text);
-    const under = s => {const m = inkMetrics(p, s); return base + (m.d - m.a) / 2 - mid;};
-    return {text: f.text, x: f.box.left, baseline: base, cap: under('H'), digits: under('0123456789'), ink: under(f.text),
-      hangul: hangul ? under(hangul) : null, top: R.top, height: R.height};};
-  const hit = el => {const r = el.getBoundingClientRect(), cx = r.left + r.width / 2, cy = r.top + r.height / 2;
-    const own = (x, y) => {const n = document.elementFromPoint(x, y); return !!n && (n === el || el.contains(n));};
-    const reach = (dx, dy) => {if (!own(cx, cy)) return 0; let lo = 0, hi = 60; if (own(cx + dx * hi, cy + dy * hi)) return hi;
-      while (hi - lo > 0.1) {const m = (lo + hi) / 2; if (own(cx + dx * m, cy + dy * m)) lo = m; else hi = m;} return lo;};
-    return {l: reach(-1, 0), r: reach(1, 0), t: reach(0, -1), b: reach(0, 1)};};
-  window.__m = {label, hit};
+# MEASURE (helpers_browser) installs window.__m; this adds the column reading beside it.
+COLUMN_SETTLED = """() => {
   const L = document.querySelector('#left'), col = {seen: null, after: false};
   const size = () => L.getClientRects().length ? [L.clientWidth, L.clientHeight] : [0, 0];
   new ResizeObserver(() => {col.seen = String(size()); col.after = false; requestAnimationFrame(() => {col.after = true;});}).observe(L);
@@ -140,7 +111,7 @@ PRESSED = """([x, y]) => {const n = document.elementFromPoint(x, y), b = n && n.
 
 
 def laid_out(page) -> None:
-    """Wait until the page has settled and the viewer has answered the PDF column's present size (MEASURE's
+    """Wait until the page has settled and the viewer has answered the PDF column's present size (COLUMN_SETTLED's
     __colSettled), then settle again for what that answer started. settle() covers one frame, and the viewer re-fits the
     pages in the frame after its ResizeObserver reports a new size: a reading taken in between saw pages fitted to the
     column's previous size (under load, a mark badge's press measured on a column hidden a moment before)."""
@@ -216,6 +187,7 @@ class SizeAlignmentBase(BrowserBase):
         page = self.open(0, init=PREFS + init, **device)
         self.assertEqual(fonts_ready(page), "loaded")
         page.evaluate(MEASURE)
+        page.evaluate(COLUMN_SETTLED)
         laid_out(page)
         return page
 

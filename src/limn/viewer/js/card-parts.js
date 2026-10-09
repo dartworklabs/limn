@@ -86,18 +86,24 @@ function isQuestion(p){return !!p&&p.kind_req===KIND_REQ.QUESTION;}
 // The current assignee - the recorded value (p.assignee); for a legacy pin without one, the person the server inferred (the first of p.addressed); if neither, the agent.
 /** @param {Pin} p */
 function assigneeOf(p){if(!p)return ASSIGNEE_AGENT; if(p.assignee)return p.assignee; const a=p.addressed||[]; return a.length?a[0]:ASSIGNEE_AGENT;}
+// The words for an assignee: the agent, me, a person's name, and '미지정' for a record without one.
+/** @param {string|null|undefined} a @returns {string} */
+function assigneeWord(a){return !a?tr('미지정'):a===ASSIGNEE_AGENT?tr('에이전트'):a===meLogin()?tr('나'):peopleName(a);}
 /** Render the recorded assignee once as plain metadata, without inferring a legacy default.
  * The agent - the default - is said to screen readers only (.sr-only); a person, me and a record without an assignee
  * are drawn. Only an open pin's author or identity-less local screen gets the existing edit action, and only where it
- * can be pressed (pressable: a folded card, or any card under a mouse); read-only viewers and other participants
- * retain readable text. Names remain escaped.
+ * can be pressed (pressable: under a mouse); read-only viewers, other participants and every touch card retain
+ * readable text. The pressable one ends in a pencil, so it does not look like the one that only reads. Names remain
+ * escaped. The label and the name are elements of their own (.as-l, .as-n), so each
+ * line can be trimmed to its cap height: a trim does not reach a bare text in the chip's flex row.
  * @param {Pin} p @param {boolean} pressable @returns {Html} */
-function assignChip(p,pressable){if(p.assignee===ASSIGNEE_AGENT)return html`<span class="cm-i as-chip sr-only">${tr('담당')} ${tr('에이전트')}</span>`;
-  if(!p.assignee)return html`<span class="cm-i as-chip">${tr('담당')} ${tr('미지정')}</span>`;
-  const me=meLogin(),mine=p.assignee===me,nm=mine?tr('나'):peopleName(p.assignee);
+function assignChip(p,pressable){if(p.assignee===ASSIGNEE_AGENT)return html`<span class="cm-i as-chip sr-only">${tr('담당')} ${assigneeWord(p.assignee)}</span>`;
+  if(!p.assignee)return html`<span class="cm-i as-chip"><span class="as-l">${tr('담당')} ${assigneeWord(null)}</span></span>`;
+  const me=meLogin(),mine=p.assignee===me,shared=!mine&&nameShared(p.assignee),nm=assigneeWord(p.assignee)+(shared?' '+p.assignee:'');
   const canEdit=pressable&&!isViewer()&&pinState(p)===PIN_STATE.OPEN&&(isMe(p.author)||!me),tip=tl('담당: {name} — 에이전트는 이 핀을 건너뜁니다',{name:nm})+(canEdit?tr('. 누르면 [수정]에서 담당을 바꿉니다'):'');
-  return canEdit?html`<button class="cm-i badge badge-assign as-chip${mine?' me':''}" data-act="edit" data-tip="${tip}">${tr('담당')} <span class="as-n" translate="no">${nm}</span></button>`
-    :html`<span class="cm-i badge badge-assign as-chip${mine?' me':''}" data-tip="${tip}">${tr('담당')} <span class="as-n" translate="no">${nm}</span></span>`;}
+  const shown=shared?personLabel(p.assignee):html`${nm}`;   // a name another known person shares carries the login, as the composer's
+  return canEdit?html`<button class="cm-i badge badge-assign as-chip${mine?' me':''}" data-act="edit" data-tip="${tip}"><span class="as-l">${tr('담당')} </span><span class="as-n" translate="no">${shown}</span>${ic('pencil')}</button>`
+    :html`<span class="cm-i badge badge-assign as-chip${mine?' me':''}" data-tip="${tip}"><span class="as-l">${tr('담당')} </span><span class="as-n" translate="no">${shown}</span></span>`;}
 /** Return the card's facts line: kind, assignee and status, of which only what differs from the default is drawn.
  * The default - a fix request, for the agent, open - is in the line for screen readers (.sr-only) and takes no room,
  * so a pin with nothing to report shows no line at all (hide-folded). The line is one line of text with ' · ' between

@@ -29,6 +29,7 @@ const EVENT_TYPE=Object.freeze({MENTION:'mention',REVIEW_REQUESTED:'review_reque
 const VIA=Object.freeze({SYNCTEX:'synctex',TEXT:'text',MAP:'map'});   // how a pick traced its range: a pick's and a pin's `via` (limn.pins.location.mapping.Via)
 const DOC_KIND=Object.freeze({TEX:'tex',PDF:'pdf',FIGURE:'figure'});   // a document's `kind` in /api/docs and /api/meta (limn.runtime.documents.DocKind)
 const EL_SYNC=Object.freeze({OK:'ok',MOVED:'moved',LOST:'lost'});   // where a figure pin's element is in the current build: a pin's `el_sync` (limn.builds.figure_map.ElSync)
+const SAVE_MODE=Object.freeze({NEW:'new',APPEND:'append'});   // what a save of the composer's note does: a new pin, or the note joins the open pin the selection overlaps (assignOutcome)
 const LOCAL_LOGIN='local',ASSIGNEE_AGENT='agent';   // the identity-less local login (access.LOCAL_LOGIN); the assignee meaning "the agent" (pins.edit.ASSIGNEE_AGENT)
 const LAYOUT_MODE=Object.freeze({WIDE:'wide',MID:'mid',NARROW:'narrow'});   // LAYOUT, the band's mode (BAND_MODE)
 const LAYOUT_BAND=Object.freeze({PHONE:'phone',TABLET_SHEET:'tablet-sheet',SHORT:'short',MID_OVERLAY:'mid-overlay',MID_SIDE:'mid-side',WIDE:'wide'});   // BAND, by window width, height and primary pointer (layoutFor)

@@ -139,6 +139,7 @@ class VisitLocalContinuations(unittest.TestCase):
                 const document={querySelectorAll:()=>[$('#btn-save')]};
                 function isRegion(){return false;}function kindFor(){return 'line';}function figureFields(b){return b;}function figRung(){return null;}
                 function mentionHints(){return [];}function renderAssignNew(){}
+                function composeAsk(mode){return {mode};} function assignOutcome(){return {kind:KIND_NEW,assignee:ASSIGN_NEW.v};}
                 function selectionSnapshot(){return {};}
                 function cancelSelection(){clears++;COMPOSE.current=null;}
                 function syncDraft(){drafts++;}
@@ -246,7 +247,7 @@ class VisitLocalContinuations(unittest.TestCase):
                 function restoredDraftOwns(){return false;} function clearSavedDraft(){}
                 function undoNote(){said++;return null;}function settleChip(){}function tl(s){return s;}function tr(s){return s;}
                 function loadPins(){loads++;return Promise.resolve();}
-                function undoAppend(){}
+                function undoAppend(){} function mentionHints(){return [];}
                 (async()=>{
                   const old=appendToPin(7,'new');COMPOSE.current={doc:'a',newSelection:true};
                   COMPOSE.box={remove(){removed++;}};

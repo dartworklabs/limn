@@ -47,7 +47,7 @@ function placeSelPop(){if(SEL_POP.hidden||!SEL_POP_BOX)return; if(!selPopWanted(
   SEL_POP.style.left=p.left+'px'; SEL_POP.style.top=p.top+'px'; SEL_POP.dataset.side=p.side; SEL_POP.style.visibility=p.shown?'':'hidden';}
 // One note: what is typed here is the composer's note (its @-tag preview, assignee row, question hint and draft follow), and
 // what is typed in the composer shows here.
-SEL_POP_FIELD.addEventListener('input',()=>{const n=/** @type {HTMLTextAreaElement} */($('#note')); n.value=SEL_POP_FIELD.value; autoGrow(n);
+SEL_POP_FIELD.addEventListener('input',()=>{const n=/** @type {HTMLTextAreaElement} */($('#note')); n.value=SEL_POP_FIELD.value; mentionEdited(n,SEL_POP_FIELD.selectionStart); autoGrow(n);
   renderAssignNew(); qHint($('#c-qhint'),n.value,KIND_NEW); saveDraftSoon();});
 $('#note').addEventListener('input',()=>{const v=/** @type {HTMLTextAreaElement} */($('#note')).value; if(selPopOpen()&&SEL_POP_FIELD.value!==v)SEL_POP_FIELD.value=v;});
 SEL_POP_FIELD.addEventListener('focus',()=>{SEL_POP_FIELD.value=/** @type {HTMLTextAreaElement} */($('#note')).value;});

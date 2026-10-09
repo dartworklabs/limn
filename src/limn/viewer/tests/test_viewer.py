@@ -126,6 +126,8 @@ class FrontendLogic(unittest.TestCase):
         self.assertEqual(json.loads(run_node(js)), [6, 2, 2, 7, 8])
 
     def test_overlap_banner_follows_level_change_and_dismiss_resets(self):
+        """The overlap notice follows the selection's range and [따로 저장] silences only the relation it was pressed
+        for, until a fresh pick; the assignee row and the preview line are redrawn with it (renderAssignNew, stubbed)."""
         # must-1 live path: drag (default level = env, wraps the pin) -> switch to [paragraph] level to
         # match an existing pin's range -> the banner switches to "same range". [Save as separate pin]
         # only turns off that relation and comes back on a fresh drag (pick's reset).
@@ -135,7 +137,7 @@ class FrontendLogic(unittest.TestCase):
             const box={hidden:true,dataset:{},innerHTML:'',cls:new Set(),classList:{toggle(c,on){on?box.cls.add(c):box.cls.delete(c);}}};
             const $=s=>box;
             const COMPOSE={current:null,dismissedOverlap:null}; let PINS=[{id:5,file:'/m.tex',lo:405,hi:406}];
-            const esc=s=>String(s);
+            const esc=s=>String(s); function renderAssignNew(){}   // the row and the line that follow the notice
             """,
                 js_markup(),
                 extract_js_fn("selRel"),
@@ -145,6 +147,7 @@ class FrontendLogic(unittest.TestCase):
                 extract_js_fn("josa"),
                 extract_js_fn("overlapText"),
                 extract_js_fn("recomputeOverlap"),
+                extract_js_fn("appendTarget"),
                 extract_js_fn("renderOverlapBanner"),
                 extract_js_fn("overlapShort"),
                 "let LAYOUT=LAYOUT_MODE.WIDE;",
@@ -3742,6 +3745,7 @@ class FrontendSaveWhilePicking(unittest.TestCase):
             let LAYOUT='wide', LAST_PTR='mouse', SNIP_OPEN=false, PINS=[], DOC=undefined, SWITCHSEQ=0; const EDITOR={current:null,saving:false};
             let KIND_NEW='fix'; function setKind(k){KIND_NEW=k==='question'?'question':'fix';} function mentionHints(){return [];}
             const ASSIGN_NEW={v:'agent',touched:false}; function renderAssignNew(){} function mentionPreview(){}
+            function composeAsk(mode){return {mode};} function assignOutcome(){return {kind:KIND_NEW,assignee:ASSIGN_NEW.v};}
             function setBusy(){} function renderComposer(){} function overlapsFor(){return [];} function applySide(){}
             function selectionSnapshot(){return null;} function restoreSelection(){} let MID_OVERLAY=false; function relayout(){}
             function saveDraftSoon(){} function syncDraft(){} function savedDraftSnapshot(){return null;}
@@ -4276,7 +4280,8 @@ class FrontendThread(unittest.TestCase):
         dp = extract_js_fn("drawPins")
         self.assertIn("slot.replaceWith(REPLY.el)", dp)
         self.assertIn("rta.focus()", dp)
-        self.assertIn("body.kind_req=KIND_NEW;", extract_js_fn("savePin"))
+        self.assertIn("body.kind_req=out.kind;", extract_js_fn("savePin"))
+        self.assertIn("kind:KIND_NEW,", extract_js_fn("composeAsk"))
         self.assertIn("setKind(KIND_REQ.FIX)", extract_js_fn("cancelSelection"))
         self.assertIn("KIND_NEW===KIND_REQ.QUESTION?'무엇이 궁금한지 적어 주세요'", extract_js_fn("setKind"))
         self.assertIn("if(REPLY){e.preventDefault();closeReply();return;}", HTML)  # Esc closes the input field first
@@ -4524,6 +4529,7 @@ class FrontendMentions(unittest.TestCase):
             function threadOf(p){return Array.isArray(p&&p.thread)?p.thread:[];}
             const PINSET={12:1,3:1}; function findAnyPin(id){return PINSET[id]?{id}:null;} let DROPPED=[{id:40}];
             function tr(s){return s;}
+            const KIND_NEW='fix'; function appendTarget(){return null;}   // no overlapped pin on offer
             """,
             ]
             + [
@@ -4541,12 +4547,17 @@ class FrontendMentions(unittest.TestCase):
                     "mentionQuery",
                     "mentionMatches",
                     "mentionHints",
+                    "mentionBind",
+                    "mentionTags",
                     "mentionAfterWord",
                     "mentionTokens",
+                    "mentionResolve",
                     "mentionScan",
-                    "defaultAssignee",
                     "assignPeople",
                     "assignOutcome",
+                    "composeAsk",
+                    "nameShared",
+                    "personLabel",
                     "assignSeg",
                     "segReveal",
                     "segFade",
@@ -4631,18 +4642,19 @@ class FrontendMentions(unittest.TestCase):
         (s@example.com) am never chosen, an unresolved word names nobody, and the tag need not start the note (a
         mid-sentence tag on a fix request used to leave the pin with the agent)."""
         out = self.run_js(r"""
+            const me=META.me.login,first=text=>assignOutcome({text,kind:'fix',hints:[],people:PEOPLE,me,mode:'new',pick:{v:'agent',touched:false}}).assignee;
             console.log(JSON.stringify([
-              defaultAssignee('@Wendy Kim 확인 부탁',new Set()),
-              defaultAssignee('  @Wendy Kim 확인 부탁',new Set()),
-              defaultAssignee('이거 콜링 작동하나 @Wendy Kim 확인 부탁',new Set()),
-              defaultAssignee('이 구간이 뭔가요 @Wendy Kim',new Set()),
-              defaultAssignee('@Bob Park 메모',new Set()),
-              defaultAssignee('@Bob Park @Wendy Kim 뭔가요',new Set()),
-              defaultAssignee('@김<b> 먼저, 그리고 @Wendy Kim',new Set()),
-              defaultAssignee('@홍길동 확인',new Set()),
-              defaultAssignee('그냥 메모',new Set()),
-              assignPeople('@Bob Park @Wendy Kim 봐 주세요',new Set()),
-              assignPeople('메모',new Set(),'k@example.com')]));""")
+              first('@Wendy Kim 확인 부탁'),
+              first('  @Wendy Kim 확인 부탁'),
+              first('이거 콜링 작동하나 @Wendy Kim 확인 부탁'),
+              first('이 구간이 뭔가요 @Wendy Kim'),
+              first('@Bob Park 메모'),
+              first('@Bob Park @Wendy Kim 뭔가요'),
+              first('@김<b> 먼저, 그리고 @Wendy Kim'),
+              first('@홍길동 확인'),
+              first('그냥 메모'),
+              assignPeople('@Bob Park @Wendy Kim 봐 주세요',[],PEOPLE,me),
+              assignPeople('메모',[],PEOPLE,me,'k@example.com')]));""")
         self.assertEqual(
             out,
             [
@@ -4682,7 +4694,10 @@ class FrontendMentions(unittest.TestCase):
         h = HTML
         self.assertIn('<div id="c-assign" class="assign-row" role="radiogroup" aria-label="담당" hidden></div>', h)
         self.assertIn('<div class="e-assign assign-row" role="radiogroup" aria-label="담당" hidden></div>', h)
-        self.assertIn("body.assignee=ASSIGN_NEW.v||ASSIGNEE_AGENT;", extract_js_fn("savePin"))
+        self.assertIn(
+            "const out=assignOutcome(composeAsk(SAVE_MODE.NEW)); body.kind_req=out.kind; body.assignee=out.assignee;",
+            extract_js_fn("savePin"),
+        )
         self.assertIn(
             "if(E.assignee&&E.assignee!==E.orig.assignee)body.assignee=E.assignee;", extract_js_fn("saveEdit")
         )
@@ -4810,7 +4825,12 @@ MENTION_PREVIEW_FNS = (
     "mentionQuery",
     "mentionHints",
     "mentionBadSettled",
+    "mentionBind",
+    "mentionTags",
+    "mentionResolve",
     "mentionScan",
+    "nameShared",
+    "personLabel",
     "mentionPreview",
 )
 

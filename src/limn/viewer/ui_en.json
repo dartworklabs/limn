@@ -1110,6 +1110,7 @@
  "휴지통이 비어 있습니다": "The Trash is empty",
  "#{id}{p} 감쌈": "Encloses #{id}",
  "따로 저장": "Save apart",
+ "따로 저장하면 담당": "If saved apart, assignee",
  "PDF 쪽만 축소합니다": "Zooms out the PDF page only",
  "PDF 쪽만 확대합니다": "Zooms in the PDF page only",
  "폭 맞춤: PDF 쪽 폭을 화면 폭에 맞춥니다": "Fit width: fits the PDF page to the screen width",

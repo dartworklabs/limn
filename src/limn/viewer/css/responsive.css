@@ -378,9 +378,10 @@ body.compact .pin .sum{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orie
 /* ^ a whole pixel per line (19px, not 19.5): a folded card is then a whole number of pixels tall, so every head row stands on
    whole pixels - at 19.5 every other card stood half a pixel off, where icons (drawn at whole pixels) sat 0.5px under their row's words */
 body.compact .pin .head{flex-wrap:nowrap;margin:-6px 0}
-/* On touch the head is the 32px row it draws: its 44px controls reach 6px over and under it themselves (the overlap sat on the
-   row, whose box then lay 6px into the preview, 2px into the badges and 2px short of the dragged-text line - now 0, 4 and 8). */
-@media (pointer:coarse){body.compact .pin .head{margin:0} body.compact .pin .head>*{margin-block:-6px}}
+/* On touch the head is the 32px row it draws - a 44px control less the 12px it shares with the card's padding and the preview -
+   and its 44px controls, centred in it, reach over and under it themselves (the overlap sat on the row as a margin, whose box
+   then lay 6px into the preview, 2px into the badges and 2px short of the dragged-text line - now 0, 4 and 8). */
+@media (pointer:coarse){body.compact .pin .head{margin:0;height:calc(var(--hit) - var(--space-3));min-height:0}}
 .pin :is(.go-all,.th-n) .lbl{text-box:trim-both cap alphabetic}   /* the head's words on its dot's and chevron's centre, in any font (as line boxes they stood 0.3-0.8px over it, 2.2px in a fallback font) */
 body.compact .pin.open .sum,body.compact .pin.editing .sum{display:none}
 body.compact .pin:not(.open):not(.editing) :is(.tags,.quote,.au,.note,.acts,.head>.sp,.thread,.review-access){display:none}

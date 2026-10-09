@@ -7,7 +7,11 @@ async function appendToPin(id,text){
   COMPOSE.saving=true; syncComposeSaveButtons();
   const visit=captureVisit(),selection=COMPOSE.current,box=COMPOSE.box,priorNote=prior.note||'',fields=composeFields();
   const draft=savedDraftSnapshot();
-  try{const {status,data}=await api('/api/pins/'+id+'/edit',{method:'POST',body:{note_append:text,base_rev:prior.rev||0},what:'메모 덧붙이기',where:NOTICE_HOST.COMPOSER,intent:'append',expect:[409]});
+  // The hints go along, as on a new pin and an edit: the pin's own first (its note's tags), then the ones picked for this
+  // text - without them a name two people share would tag nobody, while the preview line named whom it tells.
+  const mh=[...new Set((prior.mentions||[]).concat(mentionHints($('#note'))))],body=/** @type {Record<string, unknown>} */({note_append:text,base_rev:prior.rev||0});
+  if(mh.length)body.mentions=mh;
+  try{const {status,data}=await api('/api/pins/'+id+'/edit',{method:'POST',body,what:'메모 덧붙이기',where:NOTICE_HOST.COMPOSER,intent:'append',expect:[409]});
     if(status===409){bannerNote(NOTICE_HOST.COMPOSER,'다른 쪽이 이 핀을 먼저 바꿨습니다 — 최신 메모를 확인하고 다시 덧붙이세요',NOTICE_KIND.WARN,null,{source:'POST /api/pins/'+id+'/edit append'});
       await loadPins();return;}
     if(composeOwns(selection,box,visit,fields)){COMPOSE.box=null; cancelSelection(true); if(box)box.remove(); syncDraft();}
@@ -56,12 +60,14 @@ async function savePin(){
   if(isRegion(d))body={page:d.page,frac:d.frac,note:note,quote:d.quote,pdf_build:d.pdf_build||undefined};   // view-only: page/region only
   figureFields(body,d.elSel,isRegion(d)?null:figRung(d));   // a figure pick: its element as el, the element's box as frac, its kind
   body.doc=d.doc||DOC||undefined;
-  body.kind_req=KIND_NEW;
+  // The kind and the assignee are assignOutcome's answer for the note as it is at this moment - the answer the preview line
+  // and the assignee row draw - never a value an earlier drawing left behind: a restored pick whose person cannot be looked
+  // up yet is not sent. A pin created by the viewer always records an assignee (otherwise a legacy pin's inference applies).
+  const out=assignOutcome(composeAsk(SAVE_MODE.NEW)); body.kind_req=out.kind; body.assignee=out.assignee;
   const mh=mentionHints($('#note')); if(mh.length)body.mentions=mh;
-  renderAssignNew(); body.assignee=ASSIGN_NEW.v||ASSIGNEE_AGENT;   // a pin created by the viewer always records an assignee (otherwise a legacy pin's inference rule applies): the outcome the preview line shows (assignOutcome)
   const snap=selectionSnapshot(),fields=composeFields();   // [되돌리기] takes the pin back and hands this selection and note back for another try
   const draft=savedDraftSnapshot();
-  const question=KIND_NEW===KIND_REQ.QUESTION;
+  const question=out.kind===KIND_REQ.QUESTION;
   try{const {data}=await api('/api/pin',{method:'POST',body,what:'핀 저장',where:NOTICE_HOST.COMPOSER,save:true});
     const id=data.id,failed=BANNERS.get(NOTICE_HOST.COMPOSER);
     if(failed&&failed.save)endNotice(failed,false);   // this save went through: its earlier failure is over

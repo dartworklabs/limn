@@ -49,13 +49,6 @@
     },
     {
       "file": "responsive.css",
-      "selector": "body.compact .pin .head>*",
-      "property": "margin-block",
-      "value": "-6px",
-      "reason": "On touch the head's 44px controls carry that overlap themselves, so the row's own box is the 32px it draws and the blocks under it start on the grid."
-    },
-    {
-      "file": "responsive.css",
       "selector": "body.mid-overlay.side-open #revision-view",
       "property": "padding-right",
       "value": "330px",

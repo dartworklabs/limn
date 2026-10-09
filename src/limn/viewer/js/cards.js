@@ -41,10 +41,11 @@ function card(p){
   const ro=!rv&&reopenedTurn(p);
   if(ro)tags.unshift(html`<span class="badge badge-reopen" data-tip="${tl('검토에서 되돌아온 핀 — {name} · {time}',{name:who(ro.by)||'?',time:arcTime(ro.at)})+(ro.text?' · '+tl('이유: {text}',{text:ro.text}):'')}">${ic('rotate-ccw')}다시 열림</span>`);
   // The one status word of the facts line: what the dot says, and '다시 열림' for an open pin back from review (the dot is the open one's).
-  // The assignee is a button in a folded card, the one place a press on it saves a step. In an open card on touch it is text: the
-  // note right over it and [수정] right under it open the same editor, and between them a 44px hit has no room (it took 12px of
-  // padding over and under the line). A mouse's 24px fits, so there it stays a button; never while the card is being edited.
-  const folded=LAYOUT!==LAYOUT_MODE.WIDE&&!open&&!editing,pressable=!editing&&(folded||!MQ_COARSE.matches);
+  // The assignee is a button only under a mouse, whose 24px hit fits the line. On touch it is text, folded and open alike, and is
+  // changed through [수정]: a 44px hit has no room there - in a folded card it lay over the note's preview, where a tap means
+  // "unfold" and instead opened the editor and raised the keyboard; in an open card the note right over it and [수정] right
+  // under it open the same editor. Never a button while the card is being edited.
+  const pressable=!editing&&!MQ_COARSE.matches;
   const lost=!!(p.stale||lostEl),metadata=cardMetadata(p,rv?'검토 대기':lost?'위치 잃음':claimed?'처리 중':ro?'다시 열림':'열림',pressable);
   // compact's head link (CSS shows it in place of #N, the line range and N쪽, diagnosis P6/U5): one 44px target that does what
   // [보기] does - the same data-act, so it also replaces the row's [보기] there.
