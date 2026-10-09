@@ -88,6 +88,7 @@ MAP_BYTES = make_map_bytes(PDF)
 
 @pytest.fixture(scope="module")
 def fmap() -> FigureMap:
+    """The made-up map parsed by the real parser, so the tests judge picks on the structure the picker sees."""
     parsed = parse_map(MAP_BYTES)
     assert isinstance(parsed, FigureMap)
     return parsed
@@ -95,6 +96,7 @@ def fmap() -> FigureMap:
 
 @pytest.fixture(scope="module")
 def drags(fmap):
+    """The model's drags for the made-up map and PDF at the default seed, shared by the tests that inspect them."""
     return d6.make_drags(fmap, d6.page_sizes(PDF))
 
 
@@ -102,6 +104,8 @@ def drags(fmap):
 
 
 def test_page_sizes_are_the_media_boxes_in_file_order():
+    """Page sizes come from each /MediaBox in file order, because they turn page fractions into points for every
+    drag."""
     assert d6.page_sizes(make_pdf([(200, 100), (150, 150), (612, 792)])) == [(200, 100), (150, 150), (612, 792)]
     assert d6.page_sizes(b"%PDF-1.4 /MediaBox [ 10 20  110.5 70.25 ]") == [(100.5, 50.25)]
 
@@ -148,6 +152,8 @@ def test_the_stream_is_the_originals_seed_sampling_order_and_draw_order(fmap, dr
 
 
 def test_drags_are_fixed_by_the_seed(fmap):
+    """One seed gives one drag list and another seed gives another, so two pickers can be compared on the very same
+    drags."""
     sizes = d6.page_sizes(PDF)
     assert d6.make_drags(fmap, sizes) == d6.make_drags(fmap, sizes)
     assert d6.make_drags(fmap, sizes, seed=7) == d6.make_drags(fmap, sizes, seed=7)
@@ -202,6 +208,8 @@ def test_every_drag_is_on_the_page_and_at_least_three_pixels(drags):
 
 
 def test_drags_refuse_a_pdf_with_another_page_count(fmap):
+    """A PDF whose page count differs from the map's is refused, not paired short, which would silently drop pages from
+    the measurement."""
     with pytest.raises(d6.InputError, match="2 pages but the PDF has 1 /MediaBox"):
         d6.make_drags(fmap, d6.page_sizes(make_pdf([(200, 100)])))
 
@@ -210,6 +218,7 @@ def test_drags_refuse_a_pdf_with_another_page_count(fmap):
 
 
 def el(fmap, el_id):
+    """The map element with this id, to hand the classifier a picked answer built by hand."""
     return fmap.find(el_id)[1]
 
 
@@ -229,6 +238,8 @@ def el(fmap, el_id):
     ],
 )
 def test_single_target_outcomes(fmap, target, chosen, outcome):
+    """Each relation between a pick and its target (itself or same box, descendant, ancestor, unrelated, root) gets its
+    own outcome name, which is how every table column is counted."""
     assert d6.OUT[d6.classify(fmap.pages[0], target, el(fmap, chosen), None)] == outcome
 
 
@@ -248,6 +259,8 @@ def test_single_target_outcomes(fmap, target, chosen, outcome):
     ],
 )
 def test_span2_outcomes(fmap, target, partner, chosen, code):
+    """A drag over a pair is judged against the pair's nearest common ancestor, so the span2 columns tell reaching it
+    from stopping at a part, overshooting or missing."""
     assert d6.classify(fmap.pages[0], target, el(fmap, chosen), partner) == code
 
 
@@ -282,6 +295,8 @@ def test_a_drag_on_the_group_picks_a_part_until_the_cover_floor_passes_the_parts
 
 
 def test_hand_made_drags_land_in_each_outcome_at_every_threshold(fmap):
+    """Drags with the same answer at all 169 cells land in the expected outcome through the whole worker path, so
+    classification and grid agree end to end."""
     grid = len(d6.COVERS)
     assert by_cover(codes_of(fmap, "F1/L", (0.70, 0.20, 0.20, 0.40))) == [0] * grid  # exactly L
     assert by_cover(codes_of(fmap, "F1/L", (0.30, 0.75, 0.10, 0.15))) == [3] * grid  # exactly M: unrelated to L
@@ -290,6 +305,8 @@ def test_hand_made_drags_land_in_each_outcome_at_every_threshold(fmap):
 
 
 def test_the_cells_run_cover_major_and_the_thresholds_are_put_back(fmap, monkeypatch):
+    """The grid runs cover-major, which the reports index by, and the picker's constants are restored, so an in-process
+    caller keeps the shipped thresholds."""
     monkeypatch.setattr(figure_map, "COVER_MIN", 0.42)
     monkeypatch.setattr(figure_map, "FILL_MIN", 0.57)
     codes = codes_of(fmap, "F1/G", (0.10, 0.10, 0.40, 0.50))
@@ -317,10 +334,13 @@ def test_the_nearest_sibling_is_the_smallest_gap_then_the_nearest_centre():
 
 @pytest.fixture(scope="module")
 def measured():
+    """The made-up map measured once in-process, shared by the result and command-line tests."""
     return d6.measure(MAP_BYTES, PDF, workers=1)
 
 
 def test_measure_holds_every_drag_over_the_whole_grid(measured, drags):
+    """A results file holds one row per drag with all 169 codes and a meta record of seed and input hashes, which is
+    what makes two files comparable."""
     assert measured["covers"] == d6.COVERS and measured["fills"] == d6.FILLS and measured["outcomes"] == d6.OUT
     assert len(measured["rows"]) == len(drags)
     first = measured["rows"][0]
@@ -344,6 +364,7 @@ def test_an_isolated_large_leaf_is_picked_by_tight_and_air_drags_at_the_recommen
 
 
 def run_tool(*args):
+    """Run the tool as a script in a child process, as uv run python tools/... does, and return the finished process."""
     return subprocess.run([sys.executable, str(TOOL), *map(str, args)], capture_output=True, text=True, check=False)
 
 
@@ -444,6 +465,8 @@ def test_the_compare_pairs_drags_and_counts_gains_and_losses():
 
 
 def test_compare_accepts_the_same_file_twice():
+    """Comparing a file with itself gains and loses nothing, the baseline that shows the pairing adds no differences of
+    its own."""
     report = d6.format_compare(BEFORE, BEFORE, (0.4, 0.5))
     assert "gained correct 0, lost correct 0, net 0" in report
 
@@ -452,6 +475,8 @@ def test_compare_accepts_the_same_file_twice():
 
 
 def test_compare_refuses_results_that_are_not_the_same_drags():
+    """Files of another length, drag order, grid, map or seed are refused, because a pairing of different drags would
+    pass for a picker difference."""
     shorter = dict(AFTER, rows=AFTER["rows"][:-1])
     with pytest.raises(d6.InputError, match="8 and 7 drags"):
         d6.format_compare(BEFORE, shorter, (0.4, 0.5))
@@ -468,6 +493,8 @@ def test_compare_refuses_results_that_are_not_the_same_drags():
 
 
 def test_a_pair_off_the_grid_is_refused():
+    """A threshold pair that is not a measured grid cell is refused, not read from the nearest cell, which would report
+    numbers for a pair nobody measured."""
     with pytest.raises(d6.InputError, match="0.42/0.5 is not a measured threshold pair"):
         d6.format_table(BEFORE, [(0.6, 0.5), (0.42, 0.5)])
     with pytest.raises(d6.InputError, match="0.95/0.5 is not a measured threshold pair"):
@@ -475,6 +502,8 @@ def test_a_pair_off_the_grid_is_refused():
 
 
 def test_results_from_the_original_harness_load_without_a_meta_record(tmp_path):
+    """Files written by the recovered scripts, which have no meta record, still load while malformed and truncated files
+    are refused, so old measurements stay usable."""
     original = {k: v for k, v in BEFORE.items() if k != "meta"}
     (tmp_path / "r.json").write_text(json.dumps(original))
     assert d6.load_results(tmp_path / "r.json")["meta"] == {}
@@ -490,6 +519,7 @@ def test_results_from_the_original_harness_load_without_a_meta_record(tmp_path):
 
 
 def write_inputs(tmp_path, map_bytes, pdf=PDF):
+    """Write the made-up map and a PDF into tmp_path and return the measure arguments for them with one worker."""
     (tmp_path / "m.json").write_bytes(map_bytes)
     (tmp_path / "f.pdf").write_bytes(pdf)
     return [
@@ -504,6 +534,8 @@ def write_inputs(tmp_path, map_bytes, pdf=PDF):
 
 
 def test_a_rejected_map_is_refused_with_its_reason(tmp_path, capsys):
+    """A map the parser rejects ends the run with status 2, the reason in the message and no results file, so a bad map
+    is never measured."""
     argv = write_inputs(tmp_path, make_map_bytes(PDF, format="limn-figure-map/9"))
     with pytest.raises(SystemExit) as stop:
         d6.main(argv)
@@ -514,6 +546,7 @@ def test_a_rejected_map_is_refused_with_its_reason(tmp_path, capsys):
 
 
 def test_a_map_that_is_not_json_is_refused(tmp_path, capsys):
+    """Bytes that are not JSON are refused with the parser's reason, like any other rejected map."""
     with pytest.raises(SystemExit) as stop:
         d6.main(write_inputs(tmp_path, b"{"))
     assert stop.value.code == 2
@@ -521,6 +554,8 @@ def test_a_map_that_is_not_json_is_refused(tmp_path, capsys):
 
 
 def test_a_pdf_with_another_page_count_is_refused(tmp_path, capsys):
+    """The command refuses a PDF with another page count and names both counts, so the mismatch can be fixed from the
+    message."""
     with pytest.raises(SystemExit) as stop:
         d6.main(write_inputs(tmp_path, MAP_BYTES, make_pdf([(200, 100)])))
     assert stop.value.code == 2
@@ -528,6 +563,8 @@ def test_a_pdf_with_another_page_count_is_refused(tmp_path, capsys):
 
 
 def test_a_missing_input_and_a_bad_worker_count_are_refused(tmp_path, capsys):
+    """An unreadable input and a worker count below 1 end the command with a message and status 2, not a traceback or a
+    hung pool."""
     argv = write_inputs(tmp_path, MAP_BYTES)
     (tmp_path / "f.pdf").unlink()
     with pytest.raises(SystemExit) as stop:
@@ -541,6 +578,8 @@ def test_a_missing_input_and_a_bad_worker_count_are_refused(tmp_path, capsys):
 
 
 def test_the_default_worker_count_is_the_cpu_count():
+    """--workers defaults to the machine's CPU count and --seed to the seed ADR-0015's drags were drawn with, so a bare
+    run reproduces them."""
     args = d6.build_parser().parse_args(["measure", "m", "p", "-o", "r"])
     assert args.workers == (os.cpu_count() or 1)
     assert args.seed == 20261006

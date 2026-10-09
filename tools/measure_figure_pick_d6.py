@@ -405,6 +405,8 @@ def format_table(res: Results, pairs: Sequence[tuple[float, float]]) -> str:
     ]
 
     def line(name: str, sel: Sequence[Row], measure_of: Callable[[Sequence[Row], int], list[float]] = shares) -> None:
+        """Append one table row for sel, or nothing when the group has no drags; measure_of turns sel into percentages
+        per pair."""
         if sel:
             lines.append(f"{name} {len(sel)} | " + " | ".join(_cells(measure_of(sel, k)) for k in cols))
 
