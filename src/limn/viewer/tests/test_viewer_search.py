@@ -1181,34 +1181,40 @@ class SearchScope(SearchBase):
 
 
 # The break-rule page: where a query may and may not cross a line's end, laid out as TeX lays out its cases at 12pt on a 24pt
-# pitch - a column whose lines end inside Latin words that a break would glue ('in' / 'to'), a hyphenated word, a compound
-# broken at its hyphen, an en dash at a line's end (F2: Helvetica's WinAnsi has no en dash here), a table whose cells share
-# a baseline, two columns side by side, Hangul broken inside a word and a line far below the rest.
+# pitch - a column whose lines end inside Latin words that a break would glue ('in' / 'to'), a compound broken at its hyphen
+# and an en dash at a line's end, both on lines TeX stretched (F2: Helvetica's WinAnsi has no en dash here), a hyphenated
+# word, a table whose cells share a baseline, two columns side by side, Hangul broken inside a word and a line far below.
 EDGE = [
     [
         (72, 740, [("F1", "We stand in")]),
         (72, 716, [("F1", "to the cold water and do not")]),
         (72, 692, [("F1", "ice the hull; the cat")]),
         (72, 668, [("F1", "alog lists each boat for")]),
-        (72, 644, [("F1", "mat review. A well-")]),
-        (72, 620, [("F2", "known tide range is 2009" + chr(0x2013))]),
-        (72, 596, [("F1", "2010 and an e-")]),
-        (72, 572, [("F1", "mail goes out at sta-")]),
-        (72, 548, [("F1", "tion five.")]),
-        (72, 500, [("F1", "Station")]),
-        (220, 500, [("F1", "North")]),
-        (72, 476, [("F1", "Harbour")]),
-        (220, 476, [("F1", "Tide")]),
-        (72, 452, [("F1", "Delta")]),
-        (220, 452, [("F1", "Bay")]),
-        (72, 404, [("F1", "Left column ends with harbour")]),
-        (72, 380, [("F1", "lights and says ebb")]),
-        (330, 404, [("F1", "tide begins the right column")]),
-        (330, 380, [("F1", "and says flood.")]),
-        (72, 332, [("F2", "관측소의 조류")]),
-        (72, 308, [("F2", "기록은 여섯 분마다 적는다. 바닷")]),
-        (72, 284, [("F2", "물의 높이가 달라진다.")]),
-        (72, 200, [("F1", "far below the rest")]),
+        (72, 644, [("F1", "mat review.")]),
+        (72, 620, [("F1", "A")]),  # a line TeX stretched (a forced line end): its words spread wider than an em
+        (300, 620, [("F1", "well-")]),
+        (72, 596, [("F1", "known")]),
+        (160, 596, [("F1", "tide")]),
+        (240, 596, [("F1", "range")]),
+        (320, 596, [("F1", "is")]),
+        (360, 596, [("F2", "2009" + chr(0x2013))]),
+        (72, 572, [("F1", "2010 and an e-")]),
+        (72, 548, [("F1", "mail goes out at sta-")]),
+        (72, 524, [("F1", "tion five.")]),
+        (72, 476, [("F1", "Station")]),  # a table: its cells share a baseline and a column's cells start at one x
+        (220, 476, [("F1", "North")]),
+        (72, 452, [("F1", "Harbour")]),
+        (220, 452, [("F1", "Tide")]),
+        (72, 428, [("F1", "Delta")]),
+        (220, 428, [("F1", "Bay")]),
+        (72, 380, [("F1", "Left column ends with harbour")]),
+        (72, 356, [("F1", "lights and says ebb")]),
+        (330, 380, [("F1", "tide begins the right column")]),
+        (330, 356, [("F1", "and says flood.")]),
+        (72, 308, [("F2", "관측소의 조류")]),
+        (72, 284, [("F2", "기록은 여섯 분마다 적는다. 바닷")]),
+        (72, 260, [("F2", "물의 높이가 달라진다.")]),
+        (72, 176, [("F1", "far below the rest")]),
     ]
 ]
 # What the rule gives on EDGE, stated case by case (None: either is right - the PDF cannot tell a hyphenated word from a
@@ -1224,7 +1230,9 @@ EDGE_EXPECTED = {
     "for mat": 1,
     "well-known": 1,
     "wellknown": None,
+    "a well-known": 1,
     "2009-2010": 1,
+    "is 2009-2010": 1,
     "20092010": 0,
     "2009 2010": 0,
     "e-mail": 1,
@@ -1252,7 +1260,8 @@ EDGE_EM = {"F1": 6.6, "F2": 12.0}
 
 def rule_hits(page, query):
     """The rule's count of `query` on one EDGE-shaped page, worked out from the fixture's own lines - not with the viewer's
-    code or its pattern. Lines on one baseline more than an em apart are separate cells; a line joins the next one only
+    code or its pattern. Pieces on one baseline are one line, joined by a space, unless the line is a table row - a piece of
+    it starts where one starts in the line above or below - whose pieces are separate cells; a line joins the next one only
     when that one starts below it, at most 1.5 of the page's line pitch lower, and overlaps it sideways. A joined break
     is a hyphen break after a line-final '-', a dash break after a line-final en dash (folded to '-'), an optional space
     beside Hangul, else a word space. A brute-force matcher walks the text with those breaks; hits are counted left to
@@ -1263,11 +1272,37 @@ def rule_hits(page, query):
         text = unicodedata.normalize("NFKC", text).lower().replace(EN_DASH, "-")
         return " ".join(text.split())
 
-    segs = []
+    rows = []  # the fixture's lines on one baseline, in order: one line of the page
     for x, y, runs in page:
         text = "".join(t for _, t in runs)
-        width = sum(EDGE_EM[f] * len(t) for f, t in runs)
-        segs.append({"y": y, "x0": x, "x1": x + width, "text": fold(text), "end": text.rstrip()[-1:]})
+        piece = {"x0": x, "x1": x + sum(EDGE_EM[f] * len(t) for f, t in runs), "text": text}
+        if rows and rows[-1][0]["y"] == y:
+            rows[-1].append(dict(piece, y=y))
+        else:
+            rows.append([dict(piece, y=y)])
+
+    def starts(row):
+        """Where the pieces after the first of a line start: a table's column starts."""
+        return [p["x0"] for p in row[1:]]
+
+    segs = []
+    for n, row in enumerate(rows):
+        others = [starts(rows[m]) for m in (n - 1, n + 1) if 0 <= m < len(rows)]
+        table = len(row) > 1 and any(abs(a - b) <= 1 for o in others for a in starts(row) for b in o)
+        for part in (
+            row
+            if table
+            else [{"y": row[0]["y"], "x0": row[0]["x0"], "x1": row[-1]["x1"], "text": " ".join(p["text"] for p in row)}]
+        ):
+            segs.append(
+                {
+                    "y": part["y"],
+                    "x0": part["x0"],
+                    "x1": part["x1"],
+                    "text": fold(part["text"]),
+                    "end": part["text"].rstrip()[-1:],
+                }
+            )
     steps = sorted(a["y"] - b["y"] for a, b in zip(segs, segs[1:], strict=False) if 0 < a["y"] - b["y"] <= 36)
     pitch = steps[len(steps) // 2]
     tokens = []

@@ -27,23 +27,36 @@ function searchFold(s){const plain={'\u2018':"'",'\u2019':"'",'\u201A':"'",'\u20
     for(let k=0;k<p.length;k++){if(p[k]===' '&&t[t.length-1]===' ')continue; t.push(p[k]); at.push(/** @type {number} */(m.index));}}
   at.push(s.length); return {t:t.join(''),at};}
 // A page's lines from PDF.js text items: the items up to one marked hasEOL are one line, whatever their fonts, so a query may
-// span them - but a jump across a gap wider than the font's size (a table's next cell, the gutter to another column) starts
-// another line there, which never joins the one before it (searchJoin). Each line is {t, at, parts, end, box}: its text folded
-// (searchFold: at maps into the line's unfolded text), per item with text the item's index i and where its text starts in the
-// unfolded line (from), the last character of its own text (end: a line-final hyphen is told from a dash by it), and where it
-// stands on the page in PDF units - {x0, x1, y: baseline, size: font size} - for upright horizontal text, else null. Blank
-// lines are left out. Pure.
+// span them. A table row is cut into its cells, which never join (searchJoin): a line is a table row when it jumps across a
+// gap wider than its font's size and a line next to it jumps to the same place (a cell starting or ending within 1pt of one
+// in that line) - a column of cells. A wide gap alone is not a cell: a justified line that TeX had to stretch (a forced line
+// end, a narrow column) spreads its words that far too. Each line is {t, at, parts, end, box}: its text folded (searchFold:
+// at maps into the line's unfolded text), per item with text the item's index i and where its text starts in the unfolded
+// line (from), the last character of its own text (end: a line-final hyphen is told from a dash by it), and where it stands
+// on the page in PDF units - {x0, x1, y: baseline, size: font size} - for upright horizontal text, else null. Blank lines are
+// left out. Pure.
 /** @param {any[]} items */
-function searchLines(items){const lines=/** @type {any[]} */([]); let raw='',parts=/** @type {{i:number,from:number}[]} */([]),g=/** @type {any} */(null);
-  const end=()=>{if(raw.trim()){const f=searchFold(raw); lines.push({t:f.t,at:f.at,parts,end:raw.trimEnd().slice(-1),box:g&&g.ok?{x0:g.x0,x1:g.x1,y:g.y,size:g.size}:null});}
-    raw=''; parts=[]; g=null;};
-  items.forEach((it,i)=>{if(typeof it.str!=='string')return; const T=it.transform;
-    if(it.str.trim()){const ok=Array.isArray(T)&&T.length===6&&!T[1]&&!T[2]&&T[0]>0&&T[3]>0,x=ok?T[4]:0,w=Number(it.width)||0;
-      if(ok&&g&&g.ok&&x-g.x1>g.size)end();   // across a gap wider than the font: another cell or column
-      if(!g)g={ok,x0:x,x1:x+w,y:ok?T[5]:0,size:ok?T[3]:0};
-      else{g.ok=g.ok&&ok; if(ok){g.x0=Math.min(g.x0,x); g.x1=Math.max(g.x1,x+w); g.size=Math.max(g.size,T[3]);}}}
-    if(it.str){parts.push({i,from:raw.length}); raw+=it.str;} if(it.hasEOL)end();});
-  end(); return lines;}
+function searchLines(items){const rows=/** @type {any[][]} */([]); let row=/** @type {any[]} */([]);
+  items.forEach((it,i)=>{if(typeof it.str!=='string')return; const T=it.transform,ok=Array.isArray(T)&&T.length===6&&!T[1]&&!T[2]&&T[0]>0&&T[3]>0;
+    row.push({i,it,ok,x:ok?T[4]:0,w:Number(it.width)||0,y:ok?T[5]:0,size:ok?T[3]:0}); if(it.hasEOL){rows.push(row); row=[];}});
+  if(row.length)rows.push(row);
+  // the wide gaps of each row: the index of the item after the gap, where the gap starts (e) and where the next item starts (x)
+  const cuts=rows.map(r=>{const out=/** @type {{k:number,e:number,x:number}[]} */([]); let last=/** @type {any} */(null);
+    r.forEach((p,k)=>{if(!p.it.str.trim())return; if(!p.ok){last=null; return;}
+      if(last&&p.x-last.e>last.size)out.push({k,e:last.e,x:p.x}); last={e:last?Math.max(last.e,p.x+p.w):p.x+p.w,size:p.size};});
+    return out;});
+  const near=(A,B)=>A.some(c=>B.some(d=>Math.abs(c.x-d.x)<=1||Math.abs(c.e-d.e)<=1));
+  const lines=/** @type {any[]} */([]);
+  rows.forEach((r,n)=>{const table=cuts[n].length>0&&((n>0&&near(cuts[n],cuts[n-1]))||(n+1<rows.length&&near(cuts[n],cuts[n+1])));
+    const at=new Set(table?cuts[n].map(c=>c.k):[]); let raw='',parts=/** @type {{i:number,from:number}[]} */([]),g=/** @type {any} */(null);
+    const end=()=>{if(raw.trim()){const f=searchFold(raw); lines.push({t:f.t,at:f.at,parts,end:raw.trimEnd().slice(-1),box:g&&g.ok?{x0:g.x0,x1:g.x1,y:g.y,size:g.size}:null});}
+      raw=''; parts=[]; g=null;};
+    r.forEach((p,k)=>{if(at.has(k))end();   // a table's next cell
+      if(p.it.str.trim()){if(!g)g={ok:p.ok,x0:p.x,x1:p.x+p.w,y:p.y,size:p.size};
+        else{g.ok=g.ok&&p.ok; if(p.ok){g.x0=Math.min(g.x0,p.x); g.x1=Math.max(g.x1,p.x+p.w); g.size=Math.max(g.size,p.size);}}}
+      if(p.it.str){parts.push({i:p.i,from:raw.length}); raw+=p.it.str;}});
+    end();});
+  return lines;}
 // How a line meets the next one in a page's flow (searchFlow), as the mark put between them: a query crosses a line's end only
 // where TeX may have broken a run of text, which is between two lines of one column - the next line starts below the line,
 // at most 1.5 of the page's line pitch lower, and overlaps it sideways. Anything else (a table's cells and rows, another column,
