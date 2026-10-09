@@ -74,6 +74,16 @@ limn serve --manuscript ~/papers/paper2 \
 검토를 확인할 수 없다. 옵션은 `limn serve --help`. 상태(핀·빌드)는
 `--state-dir` 또는 `~/.local/share/limn/serve/<원고>-<해시>` 에 쌓인다.
 
+직접 `limn serve --max-connections N`에 양의 정수 N을 주면 리스너별 admitted TCP 연결 수를 제한한다.
+pending worker·active 요청·idle keep-alive 소켓을 물리적 정리까지 센다. 포화 소켓은 HTTP 전에 닫고
+HTTP 오류 응답을 보내지 않는다. 옵션을 생략하면 기존 무제한 입장과 worker 시작 실패 동작을 유지한다.
+
+켠 상태에서 worker 시작이 불확실하면 입장을 막고 기존 runtime 정리 뒤 nonzero로 끝내며 다른 요청·daemon
+빌드·비교가 중단될 수 있다. watcher join은 전체 종료 시간 한도가 아니고 drain·rollback·모든 자식 정리를
+더하지 않는다. 운영자가 호스트 한도·합법적 수요·프록시 동작·되돌리기 예산으로 활성화와 N을 따로 결정하며,
+옵션을 빼면 무제한 입장으로 돌아간다. 주체별 작업 비용 한도나 완전한 DoS 방어는 아니다.
+[운영 설명](docs/handbook/operations.md#선택형-연결-입장-상한)과 [ADR-0016](docs/adr/0016-optional-connection-admission.md)을 본다.
+
 > **보안:** 신원 방식(identity provider) 없이 Limn 을 밖에 열지 않는다. 기본값(`--auth tailscale`)은
 > `127.0.0.1` 에 붙고 `tailscale serve` 가 붙여 주는 신원 헤더를 믿는다. 포트에 닿는 테일넷 사람은 누구나
 > 공동 작업자이며, 좁히려면 `--members-only` 와 `limn member` 역할을 쓴다. `--auth local` 은 자기 머신의 한

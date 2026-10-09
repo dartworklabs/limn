@@ -80,7 +80,7 @@ from limn.viewer import (
     serve_viewer as serve_viewer,
 )
 from limn.web.app import DocumentSelector, RouteRegistry, WebApplication
-from limn.web.connections import FatalConnectionStart
+from limn.web.connections import BoundedServer, BoundedServer6, FatalConnectionStart
 from limn.web.errors import HTTPError as HTTPError
 from limn.web.handler import Handler as WebHandler, Server, Server6
 from limn.web.routes import merge_routes
@@ -160,6 +160,7 @@ def configure_run(a: argparse.Namespace, access_opts: AccessOptions) -> RunStart
         main=picked.main,
         state=state,
         port=port,
+        max_connections=a.max_connections,
         dpi=a.dpi,
         envs=tuple(e.strip() for e in a.float_envs.split(",") if e.strip()),
         timeout=a.build_timeout,
@@ -359,11 +360,14 @@ def report(app: ServerAssembly, documents: list[Doc] | None) -> None:
 
 
 def listen(app: WebApplication) -> Server | StartupRefused:
-    """Bind one listener to its concrete HTTP application or return the existing port refusal."""
+    """Bind the legacy listener unless a cap selects bounded admission; keep the existing port refusal."""
     config = app.settings()
     handler = type("RunHandler", (Handler,), {"app": app})
     try:
-        return (Server6 if ":" in config.access.bind else Server)((config.access.bind, config.port), handler)
+        if config.max_connections is None:
+            return (Server6 if ":" in config.access.bind else Server)((config.access.bind, config.port), handler)
+        listener = BoundedServer6 if ":" in config.access.bind else BoundedServer
+        return listener((config.access.bind, config.port), handler, max_connections=config.max_connections)
     except OSError as error:
         return startup.listen_refusal(config.access.bind, config.port, error)
 

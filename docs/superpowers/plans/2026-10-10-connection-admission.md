@@ -10,6 +10,8 @@
 
 **Spec:** [approved spec](../specs/2026-10-10-connection-admission.md); [ADR-0016](../../adr/0016-optional-connection-admission.md) D1–D5. The [owner approval record](https://github.com/dartworklabs/limn/issues/222#issuecomment-6085831493) approves the exact V2 design and implementation. No same-scope reapproval or method choice is pending. This plan does not claim that formal brainstorming ran during the earlier scoped research.
 
+**Execution status:** Tasks 1 and 2 have independent spec and quality approval. Task 3 implementation and declared local commands are ready for independent review. The existing final-head remote CI matrix, merge and production activation have not been completed by this worker. The final [implementation projection](../specs/2026-10-10-connection-admission.md#implementation-and-validation-projection) distinguishes the full-suite snapshot from its subsequent fixture cleanup and final focused green.
+
 ## Global Constraints
 
 - Omission preserves existing unbounded admission and existing thread-start/failure behavior.
@@ -50,6 +52,7 @@ Base inspected: `5abde98648ebd524c05959f8dae95916a9dbad6c`. Root has created the
 | Create `src/limn/web/tests/test_connection_policy.py`, `test_connections.py`, `connection_support.py` | Pure properties and real TCP/lifecycle/fatal process tests colocated with transport |
 | Create `src/limn/runtime/tests/test_connection_admission.py` | CLI/listen/main integration with real isolated assembly and process boundaries |
 | Create `tests/contracts/test_connection_admission_work.py` | Narrow active pin/build cross-feature contract at process exit |
+| Create `src/limn/web/tests/test_admitted_http.py`, `tests/support/connection_work_child.py` | Focused admitted HTTP contracts and an owned actual-main/process fixture for Task 3 |
 | Modify existing runtime constructors found by `rg 'RunConfig\('` | Supply the explicit default; do not change their existing assertions or move tests |
 | Modify Handbook and bilingual README | Current optional-control behavior, why, cost, remaining gaps, and test observation limits |
 
@@ -313,7 +316,7 @@ Put this protection around the cleanup body, not merely after potentially raisin
 
 ### Task 3: Wire the opt-in CLI and preserve user contracts
 
-**Files:** `runtime/args.py`, `runtime/config.py`, `server.py:configure_run/listen`, explicit fixture constructors in `tests/support/helpers.py` and current tests found by `rg`; `runtime/tests/test_connection_admission.py`; `web/tests/test_connections.py`; `tests/contracts/test_connection_admission_work.py`; `docs/handbook/architecture.md`, `operations.md`, `api.md`, `verification.md`, `code-style-roadmap.md`; `README.md`, `README.ko.md`, `CHANGELOG.md`; paired `skill/SKILL.md`/`SKILL.ko.md` only if their user guidance changes. No viewer assets, manager scripts, service templates or CI settings change.
+**Files:** `runtime/args.py`, `runtime/config.py`, `server.py:configure_run/listen`, explicit fixture constructors in `tests/support/helpers.py` and current tests found by `rg`; `runtime/tests/test_connection_admission.py`; focused `web/tests/test_admitted_http.py`; `tests/contracts/test_connection_admission_work.py` and its owned child fixture `tests/support/connection_work_child.py`; `docs/handbook/architecture.md`, `operations.md`, `api.md`, `verification.md`, `code-style-roadmap.md`; `README.md`, `README.ko.md`, `CHANGELOG.md`; paired `skill/SKILL.md`/`SKILL.ko.md` only if their user guidance changes. The Task 3 HTTP contracts have their own focused file so lifecycle success coverage in `test_connections.py` remains separate; subprocess protocol lives in its fixture, outside collected test modules. No viewer assets, manager scripts, service templates or CI settings change.
 
 **Consumes:** Task 2's complete bounded listener and fatal escape, existing `serve_parser`, `RunConfig`, `configure_run`, `listen`, `assemble_application` and `new_runtime`. **Produces:** optional direct CLI behavior, unchanged omitted-option path, production contract tests, and current Handbook explanation. This is the first task that selects bounded listeners from production settings.
 
@@ -422,7 +425,8 @@ CI retains `test` Linux Python 3.10/3.12 core/browser, `macos` Python 3.12 core,
 ## 현재 상태 투영
 
 - **영향받는 현재 권위:** `runtime/args.py`, `runtime/config.py`, `web/connections.py`, `web/connection_policy.py`, `server.py`와 실제 테스트·bilingual README.
-- **갱신할 Handbook role/path:** architecture / `architecture.md`; verification / `verification.md`; 일반 주제 / `operations.md`, `api.md`, `code-style-roadmap.md`.
-- **Handbook에 풀어 쓸 내용:** D1–D5의 optional default, lease 수명·원자성·식별자, HTTP 전 close, start 불확실성 실패 종료, 기존 정리 비용·활성화/공정성 한계를 출처와 함께 완결한다.
-- **효력 형태:** 구현 뒤 현실 변경.
-- **완료 증거:** 새 코드에서 opt-in/default separation을 관찰하고 TCP·process·pure/fault·active-work 테스트 및 기존 CI gates/독립 리뷰와 Handbook diff를 대조한다. 승인이나 ADR만으로 완료를 선언하지 않는다.
+- **갱신한 Handbook role/path:** architecture / `architecture.md`; verification / `verification.md`; 일반 주제 / `operations.md`, `api.md`, `code-style-roadmap.md`.
+- **Handbook의 현재 내용:** D1–D5의 optional default, lease 수명·원자성·식별자, HTTP 전 close, start 불확실성 실패 종료, 기존 정리 비용·활성화/공정성 한계를 출처와 함께 설명한다. API 오류 JSON은 admitted HTTP 요청에 적용한다.
+- **효력 형태:** 검토 브랜치에 구현한 현실을 반영한다. merge·배포·운영 N 활성화는 별도다.
+- **로컬 증거:** 필수 Python 전체 실행은 3,697 tests·2,557 subtests 통과, 21 skips이며 instance script는 202 checks 통과다. 전체 실행 뒤 HTTP fixture의 응답 stream과 두 리스너 소유 정리만 보완했고 최종 소스의 CLI·HTTP·active-work 48 cases가 통과했다. 두 snapshot 사이 production 소스는 같다. dev locked sync와 모든 선언된 static·npm 명령도 통과했다.
+- **미확인·재개 조건:** `bwrap` 부재 9 cases, opt-in real-state 1 case, wide Hangul font 부재 11 cases는 로컬 skip이다. 로컬 Python·node·OS는 CI matrix 증거를 대신하지 않는다. root의 Task 3 독립 리뷰와 최종 HEAD의 기존 Linux/macOS·browser·real TeX/sandbox·install CI가 통과해야 merge-ready로 판단한다. ADR은 검토 동안 `제안`을 유지한다.

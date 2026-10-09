@@ -5,6 +5,15 @@
 Preserve later edits and chosen reply recipients, rebuild changed recorded inputs, and improve figure picking and
 native viewer controls. `pins.md`, the HTTP API, stored pin records, authentication and runtime dependencies are unchanged.
 
+### Added
+
+- **Optional connection admission control (#222, ADR-0016).** Direct `limn serve --max-connections N` accepts a
+  positive integer and counts pending, active and idle keep-alive sockets per listener through physical cleanup.
+  Saturation closes the transport before HTTP. Omission preserves the existing unlimited admission and startup-failure
+  behavior; no default cap or production activation is selected. In enabled mode uncertain native worker startup
+  closes the listener and exits nonzero after existing cleanup, with the accepted cost of interrupting other daemon
+  work. It adds no whole-process exit SLA, graceful drain, rollback or universal child-reaping policy.
+
 ### Fixed
 
 - **Later input survives a pending save.** Composer, append and edit submissions retain text and metadata edited

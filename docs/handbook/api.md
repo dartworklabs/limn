@@ -6,9 +6,11 @@ Limn 서버(`limn serve`, 구현은 [`src/limn/server.py`](../../src/limn/server
 
 > **핵심**
 >
-> 이 API와 pins.md 형식은 다른 저장소의 에이전트가 읽는 안정 계약이다. 경로, JSON 필드 이름, 상태 이름, pins.md 형식(열, 번호 칸 표시, 한국어 머리말 낱말)은 버전을 붙인 이관 계획 없이 바꾸지 않는다. 새 필드와 새 경로는 덧붙이기만 한다. 오류 응답은 언제나 한국어 메시지와 이유 코드를 담은 `{"error": ..., "reason": ...}` JSON이다(§오류 응답). 이 원칙의 정본은 [CONTRIBUTING.md](../../CONTRIBUTING.md) 다. 필드나 경로 뒤의 `(0.3.4+)` 같은 표시는 그것이 처음 들어간 버전이다.
+> 이 API와 pins.md 형식은 다른 저장소의 에이전트가 읽는 안정 계약이다. 경로, JSON 필드 이름, 상태 이름, pins.md 형식(열, 번호 칸 표시, 한국어 머리말 낱말)은 버전을 붙인 이관 계획 없이 바꾸지 않는다. 새 필드와 새 경로는 덧붙이기만 한다. HTTP 전송 입장을 통과한 API 오류 응답은 한국어 메시지와 이유 코드를 담은 `{"error": ..., "reason": ...}` JSON이다(§오류 응답). 이 원칙의 정본은 [CONTRIBUTING.md](../../CONTRIBUTING.md) 다. 필드나 경로 뒤의 `(0.3.4+)` 같은 표시는 그것이 처음 들어간 버전이다.
 
 ## 요청 형식과 경계
+
+`--max-connections N`은 기본 비활성인 리스너별 선택형 TCP 입장 상한이다. 양의 N을 주면 pending·active·idle keep-alive의 소켓 수명을 모두 세고 물리적 정리 뒤 자리를 돌려준다. 상한에 찬 새 소켓은 HTTP·신원을 읽기 전에 EOF 또는 reset으로 닫는다. HTTP `503`·`429`나 JSON·`reason`을 추가하지 않으며 프록시의 오류 변환·재시도는 이 API 계약 밖이다. 생략하면 기존 무제한 동작이다. 입장한 연결의 요청은 매번 기존 본문·Host/Origin·신원·역할·오류와 30초 timeout 규칙을 지킨다. 실제 worker 시작의 불확실성은 입장을 막고 기존 runtime 정리 뒤 nonzero로 끝내며 다른 daemon 작업을 끊을 수 있다. 작업 완료·rollback·모든 파생 파일의 동시 완료나 전체 종료 SLA는 보장하지 않는다. 설정·운영 비용과 별도 활성화는 [operations.md](operations.md) §선택형 연결 입장 상한이 설명한다. 출처: [ADR-0016 D1–D5](../adr/0016-optional-connection-admission.md#결정).
 
 요청 본문은 1 MiB 이하의 JSON 객체여야 하고 `Content-Type: application/json` 을 달아야 한다. 어기면 `400`·`413`·`415` 중 하나가 온다. 본문이 없는 POST는 헤더 없이도 통과한다. 에이전트의 `curl -X POST …/close` 가 이런 요청이다.
 
@@ -16,7 +18,7 @@ JSON 객체는 중첩된 객체까지 키가 한 번만 나와야 한다. 같은
 
 `Host`·`Origin`·`Content-Type`·Tailscale 신원 헤더와 trusted-proxy 방식의 설정된 신원 헤더는 같은 값이어도 중복이면 `400 duplicate_header`다. `Authorization` 중복은 `401 bad_bearer`, `Content-Length` 중복은 `400 bad_content_length`다. 목록형 전달·언어 협상 헤더에는 이 단일값 규칙을 적용하지 않는다. 본문·쿼리의 전송 형식 파싱이 거부된 요청은 사람 목록이나 핀을 기록하지 않는다. 기능별 필드 검사는 그 뒤에 수행한다.
 
-오류 응답은 항상 `{"error": "<한국어 메시지>", "reason": "<이유 코드>"}` JSON이다(§오류 응답). 예상 밖 예외도 연결을 끊지 않고 `500` JSON으로 돌려준다.
+HTTP 전송 입장을 통과한 API 오류 응답은 `{"error": "<한국어 메시지>", "reason": "<이유 코드>"}` JSON이다(§오류 응답). 입장한 요청의 예상 밖 예외도 연결을 끊지 않고 `500` JSON으로 돌려준다.
 
 - **본문을 먼저 끝까지 읽는다.** 서버는 어떤 응답보다 먼저 본문을 Content-Length 만큼 읽는다. 오류(`4xx`·`5xx`)를 보낸 뒤에는 연결을 닫는다. 읽지 않은 본문이 남으면 같은 keep-alive 연결의 다음 요청으로 해석된다. 그러면 신원 확인, `--allow`·`--members-only` 입장 검사, 작성자 기록을 우회할 수 있다. `tailscale serve` 는 백엔드 연결을 재사용하므로 이 틈이 실제로 열린다.
 - **`Transfer-Encoding` 요청은 `400`** 이다. Content-Length 가 여러 개이거나 음이 아닌 정수가 아니어도 `400` 이다.
@@ -37,7 +39,7 @@ JSON 객체는 중첩된 객체까지 키가 한 번만 나와야 한다. 같은
 
 - `error` 는 사람이 읽는 한국어 문장이고 계약이다. 글자 하나 바꾸지 않는다. `409` 의 `done`·`conflict`·`open`·`full`·`claimed` 처럼 `error` 가 이미 코드인 응답도 그대로다.
 - 예상 밖 예외의 `500 internal` 만 받는 쪽에 따라 문장이 둘이다. `owner`·`editor`·`agent` 는 `서버 내부 오류: <예외 문장>` 을 받는다. 서버 로그 없이 원인을 바로 보라는 것이다. `viewer`(알 수 없는 `role` 값과 `people.json` 을 쓸 수 없는 동안의 사람 포함)는 고정 문장 `서버 내부 오류` 를 받는다. 예외 문장에는 상태 폴더 경로나 구현 세부가 들어갈 수 있고, 보기 권한에는 그것을 볼 이유가 없기 때문이다. 신원 판단·입장 검사를 마치기 전에 실패한 요청도 역할을 모르므로 닫힌 쪽인 고정 문장을 받는다. 예외 문장과 traceback은 역할과 관계없이 서버 stderr에 남는다. 문장을 고르는 곳은 HTTP 처리기(`src/limn/web/handler.py` 의 `internal_error_body`)이고, 역할 판단은 `Principal.sees_error_detail` 이다.
-- `reason`(0.3.4+) 은 같은 거절의 안정 코드다(영문 소문자·숫자·`_`). 모든 오류 본문에 붙고, 이 필드를 모르는 에이전트는 지나쳐도 된다. 있는 코드는 바꾸지 않고, 새 거절에는 새 코드를 더한다. `error` 가 이미 코드인 `409` 는 `reason` 도 같은 값이다.
+- `reason`(0.3.4+) 은 같은 거절의 안정 코드다(영문 소문자·숫자·`_`). 입장을 통과한 API 오류 본문에 붙고, 이 필드를 모르는 에이전트는 지나쳐도 된다. 있는 코드는 바꾸지 않고, 새 거절에는 새 코드를 더한다. `error` 가 이미 코드인 `409` 는 `reason` 도 같은 값이다.
 - 한 코드가 뜻이 같은 여러 문장을 묶을 수 있다. 예를 들어 `bad_changes` 는 `changes` 모양이 틀린 네 경우다. 거절을 가르는 값(필드 이름, 한도, 줄 수)은 `error` 문장에만 있다.
 - 비교 PDF 상태(`state:"error"`)의 `reason`(§상태와 캐시)과 `POST /api/pick` 이 `200` 으로 돌려주는 `{error, reason}` 도 같은 코드 집합이다.
 - 뷰어는 영어 화면에서 이 코드로 메시지 표(`viewer/ui_en.json` 의 `reason:<코드>`)를 찾는다([viewer.md](viewer.md) §뷰어 규칙을 바꿀 때). 서버가 내는 코드마다 영어 문장이 있어야 하고, 서버가 내지 않는 코드의 문장은 없어야 한다(`src/limn/web/tests/test_errors.py`).
