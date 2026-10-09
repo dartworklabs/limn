@@ -29,7 +29,7 @@ class ChildResult:
 
 
 def run_fatal_child(directory: Path, scenario: str, effect: str = "none", *, main: bool = False) -> ChildResult:
-    """Drive a real MainThread accepting loop; timeout cleanup always fails the observation."""
+    """Probe claimed ownership before permitting cleanup; every phase and child retirement is bounded."""
     env = os.environ.copy()
     source = Path(__file__).resolve().parents[3]
     support = source.parent / "tests" / "support"
@@ -61,9 +61,29 @@ def run_fatal_child(directory: Path, scenario: str, effect: str = "none", *, mai
             sockets.enter_context(socket.create_connection(address, timeout=2))
             if scenario == "cleanup-barrier":
                 sockets.enter_context(socket.create_connection(address, timeout=2))
-            output, errors = child.communicate("start\n", timeout=10)
+            live_phase = None
+            if scenario == "claimed":
+                assert child.stdin is not None
+                child.stdin.write("start\n")
+                child.stdin.flush()
+                assert select.select([child.stdout], [], [], 5)[0], "Child did not publish held claimed ownership"
+                live_phase = json.loads(child.stdout.readline())
+                assert live_phase["phase"] == "claimed-held", live_phase
+                assert live_phase["held_before_cleanup"] == 1, live_phase
+                assert live_phase["parent_closed_connection"], live_phase
+                assert live_phase["handler_before_release"] and live_phase["cleanup_withheld"], live_phase
+                assert child.poll() is None, "Child retired before the live TCP probe"
+                assert_live_tcp_refused(address)
+                assert child.poll() is None, "Child retired during the live TCP probe"
+                live_phase["child_alive_during_probe"] = True
+                live_phase["tcp_refused_before_cleanup"] = True
+                output, errors = child.communicate("cleanup\n", timeout=10)
+            else:
+                output, errors = child.communicate("start\n", timeout=10)
         records = [json.loads(line) for line in output.splitlines()]
         assert len(records) == 1, (child.returncode, startup, output, errors)
+        if live_phase is not None:
+            records[0]["claimed_live_phase"] = live_phase
         return ChildResult(address, child.returncode, records[0], errors)
     except subprocess.TimeoutExpired as error:
         raise AssertionError("Fatal child did not exit naturally within the supervisor safety deadline") from error
@@ -75,6 +95,16 @@ def run_fatal_child(directory: Path, scenario: str, effect: str = "none", *, mai
             except subprocess.TimeoutExpired:
                 child.kill()
                 child.communicate(timeout=2)
+
+
+def assert_live_tcp_refused(address: tuple[str, int]) -> None:
+    """Require actual loopback connect refusal while the child is alive and claimed cleanup is withheld."""
+    try:
+        client = socket.create_connection(address, timeout=2)
+    except ConnectionRefusedError:
+        return
+    client.close()
+    raise AssertionError("Live child listener accepted TCP while claimed cleanup was withheld")
 
 
 def assert_retired_port(address: tuple[str, int]) -> None:
@@ -219,13 +249,18 @@ def fatal_child(directory: Path, scenario: str, effect: str, use_main: bool) -> 
     assert sys.stdin.readline() == "start\n"
 
     def observe_cleanup(runtime=None):
-        """Record real FD/held ownership, release deterministic gates and retire real registered watchers."""
+        """Keep claimed ownership held through a live supervisor probe before cleanup and watcher retirement."""
         observed["main_thread"] = threading.current_thread() is threading.main_thread()
         observed["held_before_cleanup"] = admitted(listener._admission)
         observed["listener_closed"] = listener.socket.fileno() == -1
         observed["parent_closed_connection"] = listener.accepted.fileno() == -1
         observed["handler_before_release"] = marker.exists()
         observed["admission_fenced"] = listener._admission.stopped or listener._fatal is not None
+        if scenario == "claimed":
+            observed["cleanup_withheld"] = not permit_cleanup.is_set() and not cleanup_done.is_set()
+            print(json.dumps({"phase": "claimed-held", **observed}), flush=True)
+            assert select.select([sys.stdin], [], [], 5)[0], "Supervisor did not grant claimed cleanup permission"
+            assert sys.stdin.readline() == "cleanup\n", "Supervisor granted invalid claimed cleanup permission"
         permit_entry.set()
         permit_cleanup.set()
         if scenario not in ("no-worker", "construction"):

@@ -29,7 +29,7 @@ def test_invoked_start_failure_exits_nonzero_with_safe_diagnostic(tmp_path, scen
 
 @pytest.mark.parametrize("scenario", ["pending", "claimed", "no-worker"])
 def test_uncertain_worker_keeps_lease_until_its_own_cleanup(tmp_path, scenario):
-    """Parent real FD closure cannot return a possible worker's lease or allow pending handler entry."""
+    """Claimed cleanup stays held through live TCP refusal; parent closure cannot return worker ownership."""
     result = run_fatal_child(tmp_path, scenario)
     assert result.status > 0, result
     seen = result.observation
@@ -37,6 +37,11 @@ def test_uncertain_worker_keeps_lease_until_its_own_cleanup(tmp_path, scenario):
     assert seen["parent_closed_connection"], result
     assert seen["held_after_cleanup"] == (1 if scenario == "no-worker" else 0), result
     assert seen["handler_after_release"] == (scenario == "claimed"), result
+    if scenario == "claimed":
+        phase = seen["claimed_live_phase"]
+        assert phase["held_before_cleanup"] == 1 and phase["parent_closed_connection"], result
+        assert phase["cleanup_withheld"] and phase["child_alive_during_probe"], result
+        assert phase["tcp_refused_before_cleanup"], result
     assert_retired_port(result.address)
 
 
