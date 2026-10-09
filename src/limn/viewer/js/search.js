@@ -15,39 +15,72 @@
 
 // The text as it is matched: Unicode NFKC (Hangul jamo composed, a letter and its combining mark joined, ligatures and
 // full-width forms unfolded), lower case, curly quotes and dashes as ' " and -, soft hyphens and zero-width marks dropped, every
-// run of white space one space. Returns {t, at}: the folded text and, for each of its UTF-16 units, the index in s where the
+// run of white space one space; control characters dropped (the flow's break marks, searchFlow, never come from a page). Returns {t, at}: the folded text and, for each of its UTF-16 units, the index in s where the
 // cluster it came from starts, then s.length - so a match in t maps back to a run of s. Pure.
 /** @param {string} s @returns {{t:string,at:number[]}} */
 function searchFold(s){const plain={'\u2018':"'",'\u2019':"'",'\u201A':"'",'\u201C':'"','\u201D':'"','\u201E':'"'},t=[],at=[]; s=String(s);
   // a cluster: Hangul jamo that compose one syllable, or one character, each with the combining marks after it; or a run of spaces
   const cluster=/[\u1100-\u115F\uA960-\uA97C]+[\u1160-\u11A7\uD7B0-\uD7C6]*[\u11A8-\u11FF\uD7CB-\uD7FB]*\p{M}*|\s+|[^]\p{M}*/gu;
   for(const m of s.matchAll(cluster)){
-    const p=/^\s+$/.test(m[0])?' ':m[0].normalize('NFKC').toLowerCase().replace(/[\u00AD\u200B-\u200D\u2060\uFEFF]/g,'')
+    const p=/^\s+$/.test(m[0])?' ':m[0].normalize('NFKC').toLowerCase().replace(/[\u0000-\u0008\u000E-\u001F\u007F\u00AD\u200B-\u200D\u2060\uFEFF]/g,'')
       .replace(/[\u2018\u2019\u201A\u201C\u201D\u201E]/g,c=>plain[c]).replace(/[\u2010-\u2015\u2212]/g,'-').replace(/\s+/g,' ');
     for(let k=0;k<p.length;k++){if(p[k]===' '&&t[t.length-1]===' ')continue; t.push(p[k]); at.push(/** @type {number} */(m.index));}}
   at.push(s.length); return {t:t.join(''),at};}
 // A page's lines from PDF.js text items: the items up to one marked hasEOL are one line, whatever their fonts, so a query may
-// span them. Each line is {t, at, parts}: its text folded (searchFold: at maps into the line's unfolded text) and, per item
-// with text, the item's index i and where its text starts in the unfolded line (from). Blank lines are left out. Pure.
+// span them - but a jump across a gap wider than the font's size (a table's next cell, the gutter to another column) starts
+// another line there, which never joins the one before it (searchJoin). Each line is {t, at, parts, end, box}: its text folded
+// (searchFold: at maps into the line's unfolded text), per item with text the item's index i and where its text starts in the
+// unfolded line (from), the last character of its own text (end: a line-final hyphen is told from a dash by it), and where it
+// stands on the page in PDF units - {x0, x1, y: baseline, size: font size} - for upright horizontal text, else null. Blank
+// lines are left out. Pure.
 /** @param {any[]} items */
-function searchLines(items){const lines=/** @type {{t:string,at:number[],parts:{i:number,from:number}[]}[]} */([]); let raw='',parts=/** @type {{i:number,from:number}[]} */([]);
-  const end=()=>{if(raw.trim()){const f=searchFold(raw); lines.push({t:f.t,at:f.at,parts});} raw=''; parts=[];};
-  items.forEach((it,i)=>{if(typeof it.str!=='string')return; if(it.str){parts.push({i,from:raw.length}); raw+=it.str;} if(it.hasEOL)end();});
+function searchLines(items){const lines=/** @type {any[]} */([]); let raw='',parts=/** @type {{i:number,from:number}[]} */([]),g=/** @type {any} */(null);
+  const end=()=>{if(raw.trim()){const f=searchFold(raw); lines.push({t:f.t,at:f.at,parts,end:raw.trimEnd().slice(-1),box:g&&g.ok?{x0:g.x0,x1:g.x1,y:g.y,size:g.size}:null});}
+    raw=''; parts=[]; g=null;};
+  items.forEach((it,i)=>{if(typeof it.str!=='string')return; const T=it.transform;
+    if(it.str.trim()){const ok=Array.isArray(T)&&T.length===6&&!T[1]&&!T[2]&&T[0]>0&&T[3]>0,x=ok?T[4]:0,w=Number(it.width)||0;
+      if(ok&&g&&g.ok&&x-g.x1>g.size)end();   // across a gap wider than the font: another cell or column
+      if(!g)g={ok,x0:x,x1:x+w,y:ok?T[5]:0,size:ok?T[3]:0};
+      else{g.ok=g.ok&&ok; if(ok){g.x0=Math.min(g.x0,x); g.x1=Math.max(g.x1,x+w); g.size=Math.max(g.size,T[3]);}}}
+    if(it.str){parts.push({i,from:raw.length}); raw+=it.str;} if(it.hasEOL)end();});
   end(); return lines;}
+// How a line meets the next one in a page's flow (searchFlow), as the mark put between them: a query crosses a line's end only
+// where TeX may have broken a run of text, which is between two lines of one column - the next line starts below the line,
+// at most 1.5 of the page's line pitch lower, and overlaps it sideways. Anything else (a table's cells and rows, another column,
+// a caption, a heading far above) is HARD and never crossed. Between two lines of a column: a line that ends in a hyphen
+// (-, U+2010 or a soft hyphen) was hyphenated - HYPH, the hyphen may be typed or left out; one that ends in a dash (an en or em
+// dash, folded to -) runs on with no space - DASH, the dash must be typed; a Hangul or CJK character on either side of the
+// break - CJK, the break is a space or nothing, as such text breaks inside a word; else - SPACE, a word space that a query must
+// type, as TeX never breaks a Latin word without a hyphen.
+const SEARCH_BREAK=Object.freeze({SPACE:'\n',CJK:'\u0002',HYPH:'\u0003',DASH:'\u0004',HARD:'\u0005'});
+const SEARCH_CJK=/[\p{Script=Hangul}\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}]/u;
+// The page's line pitch: the middle distance from one line's baseline to the next one's below it, over the lines up to three
+// font sizes apart (0 without such a pair). Pure.
+/** @param {any[]} lines */
+function searchPitch(lines){const d=[]; for(let i=1;i<lines.length;i++){const a=lines[i-1].box,b=lines[i].box; if(!a||!b)continue; const dy=a.y-b.y; if(dy>0&&dy<=3*a.size)d.push(dy);}
+  d.sort((x,y)=>x-y); return d.length?d[d.length>>1]:0;}
+// The break between line a and the next line b of a page whose line pitch is pitch (searchPitch): a SEARCH_BREAK mark. Pure.
+/** @param {any} a @param {any} b @param {number} pitch */
+function searchJoin(a,b,pitch){const A=a.box,B=b.box; if(!A||!B)return SEARCH_BREAK.HARD;
+  const dy=A.y-B.y; if(!(dy>0)||dy>1.5*(pitch||1.2*A.size)+0.5||B.x0>=A.x1||B.x1<=A.x0)return SEARCH_BREAK.HARD;
+  if(/[-‐­]/.test(a.end))return SEARCH_BREAK.HYPH;
+  const x=a.t.trimEnd().slice(-1),y=b.t.trimStart().charAt(0);
+  if(x==='-')return SEARCH_BREAK.DASH;
+  return SEARCH_CJK.test(x)||SEARCH_CJK.test(y)?SEARCH_BREAK.CJK:SEARCH_BREAK.SPACE;}
 // A page's lines as one flow of text, so a query may run over a line's end: each line's folded text (searchLines), trimmed,
-// joined to the next by a line feed. Returns {t, rows}: the flow and, for each line, where it starts in the flow (at), how
-// many folded characters the trim took off its head (cut) and its trimmed length (n). Pure.
-/** @param {{t:string}[]} lines */
-function searchFlow(lines){let t=''; const rows=/** @type {{at:number,cut:number,n:number}[]} */([]);
-  lines.forEach((L,i)=>{const body=L.t.trim(); if(i)t+='\n'; rows.push({at:t.length,cut:L.t.length-L.t.trimStart().length,n:body.length}); t+=body;});
+// joined to the next by the mark of how they meet (searchJoin). Returns {t, rows}: the flow and, for each line, where it starts
+// in the flow (at), how many folded characters the trim took off its head (cut) and its trimmed length (n). Pure.
+/** @param {any[]} lines */
+function searchFlow(lines){let t=''; const rows=/** @type {{at:number,cut:number,n:number}[]} */([]),pitch=searchPitch(lines);
+  lines.forEach((L,i)=>{const body=L.t.trim(); if(i)t+=searchJoin(lines[i-1],L,pitch); rows.push({at:t.length,cut:L.t.length-L.t.trimStart().length,n:body.length}); t+=body;});
   return {t,rows};}
-// The folded query q as a pattern over a page's flow (searchFlow): every character is itself, a space is a space or a line
-// break, and between two characters there may be a line break with or without a hyphen before it. So a query finds a phrase
-// that wraps, a word hyphenated at a line's end whether or not the hyphen is typed, and a word broken with no hyphen (Hangul).
-// null for an empty query. Pure.
+// The folded query q as a pattern over a page's flow (searchFlow): every character is itself; a space is a space, a SPACE break
+// or a CJK one; between two characters there may be a CJK break, a HYPH break (with the line's hyphen before it, or after the
+// hyphen when the query types it) or a DASH break. A SPACE break is crossed only by a typed space and a HARD one never. null for
+// an empty query. Pure.
 /** @param {string} q @returns {RegExp|null} */
 function searchPattern(q){const cs=[...q]; if(!cs.length)return null; let p='';
-  cs.forEach((c,i)=>{if(c===' '){p+='[ \\n]'; return;} p+=/[\\^$.*+?()[\]{}|]/.test(c)?'\\'+c:c; if(i<cs.length-1&&cs[i+1]!==' ')p+='(?:-?\\n)?';});
+  cs.forEach((c,i)=>{if(c===' '){p+='[ \\n\\u0002]'; return;} p+=/[\\^$.*+?()[\]{}|]/.test(c)?'\\'+c:c; if(i<cs.length-1&&cs[i+1]!==' ')p+='(?:\\u0002|-?\\u0003|\\u0004)?';});
   return new RegExp(p,'gu');}
 // Where pattern re matches in flow F, left to right and without overlap. Each hit is its pieces [line, from, to] - one for
 // every line it lies on, from-to in that line's folded text - in reading order; nothing without a pattern. Pure.
@@ -142,17 +175,22 @@ function searchBusy(){return !!SEARCH.q&&(!SEARCH.doc||searchPages(SEARCH.doc).s
 function searchUnread(){return SEARCH.q&&SEARCH.doc?searchPages(SEARCH.doc).filter((p,i)=>!p&&SEARCH.failed.has(i+1)).length:0;}
 // Hits in document order.
 function searchOrder(x,y){return x.page-y.page||x.line-y.line||x.a-y.a;}
-// The part of the PDF area nothing covers (selPopArea), above the phone's search row while it is up: where a hit is shown.
-function searchArea(){const a=selPopArea(),nav=$('#doc-nav');
-  if(BAND===LAYOUT_BAND.PHONE&&nav.getClientRects().length)a.bottom=Math.min(a.bottom,nav.getBoundingClientRect().top);
+// The part of the PDF area nothing covers (selPopArea), above the phone's search rows - and the status line standing on them -
+// while they are up: where a hit is shown.
+function searchArea(){const a=selPopArea(),nav=$('#doc-nav'),dock=$('#status-dock');
+  if(BAND===LAYOUT_BAND.PHONE&&nav.getClientRects().length){a.bottom=Math.min(a.bottom,nav.getBoundingClientRect().top);
+    if(dock.getClientRects().length)a.bottom=Math.min(a.bottom,dock.getBoundingClientRect().top);}
   return a;}
-// Scrolls hit h into the free part of the PDF area - its first line 30% down it, as [보기] puts a mark - unless every line of
-// it already is, with 8px to spare; sideways only when a zoomed page has its start off to a side. Its page counts as near the
-// view from here on.
+// The phone's search rows' height (--search-rows): the status line stands on them while the search is open (search.css).
+function searchRows(){if(BAND===LAYOUT_BAND.PHONE&&SEARCH.open)document.documentElement.style.setProperty('--search-rows',Math.round($('#doc-nav').getBoundingClientRect().height)+'px');}
+// Scrolls hit h into the free part of the PDF area unless every line of it already is there, with 8px to spare: its first line
+// 30% down the area, as [보기] puts a mark, or higher so that its last line still shows when it runs over lines; a hit taller
+// than the area shows its first line at the area's top. Sideways only when a zoomed page has its start off to a side. Its page
+// counts as near the view from here on.
 function searchReveal(h){const pg=document.getElementById('p'+h.page); if(!pg)return; const bs=searchBoxes(h),L=$('#left'),a=searchArea();
   const r=pg.getBoundingClientRect(),x=r.left+pg.clientLeft,y=r.top+pg.clientTop,w=pg.clientWidth,ht=pg.clientHeight;
   const top=y+Math.min(...bs.map(b=>b[1]))*ht,bottom=y+Math.max(...bs.map(b=>b[1]+b[3]))*ht,left=x+bs[0][0]*w,right=left+bs[0][2]*w;
-  if(top<a.top+8||bottom>a.bottom-8)L.scrollTop+=top-(a.top+(a.bottom-a.top)*0.3);
+  if(top<a.top+8||bottom>a.bottom-8){const want=bottom-top>a.bottom-a.top-16?a.top+8:Math.min(a.top+(a.bottom-a.top)*0.3,a.bottom-8-(bottom-top)); L.scrollTop+=top-want;}
   if(left<a.left+8||right>a.right-8)L.scrollLeft+=(left+right)/2-(a.left+a.right)/2;
   SEARCH.near.add(h.page);}   // in view now: its boxes are drawn at once, ahead of the observer
 // Picks the current hit when there is none: the first at or after the reference, once every page between the two has been
@@ -168,7 +206,7 @@ function searchPaint(){const n=SEARCH.hits.length,i=SEARCH.cur?SEARCH.hits.index
   const miss=lost?' · '+tl('못 읽은 쪽 {n}',{n:lost}):'';
   $('#search-count').textContent=SEARCH.q?i+'/'+n+(busy?'…':miss):'';
   $('#search-prev').disabled=$('#search-next').disabled=!n;
-  SEARCH.near.forEach(searchDrawPage); searchCover();
+  SEARCH.near.forEach(searchDrawPage); searchCover(); searchRows();
   if(busy||SEARCH.composing)return; const sr=$('#search-sr');
   const say=!SEARCH.q?'':(n?tl('{m}개 중 {n}번째 · {page}쪽',{n:i,m:n,page:SEARCH.cur?SEARCH.cur.page:0}):tr('결과 없음'))+miss;
   if(sr.textContent!==say)sr.textContent=say;}
@@ -224,36 +262,52 @@ function searchFit(){const s=$('#doc-search'),nav=$('#doc-nav');
   s.dataset.mode=w?'inline':'icon'; s.style.width=w?w+'px':'';
   s.style.setProperty('--search-cap',Math.max(0,s.getBoundingClientRect().right-left)+'px'); searchInk(); searchCover();}
 // While the opened field lies over the bar, every neighbour its box meets - or comes within the bar's gap of - is taken off
-// the bar whole (.search-covered: not drawn, no press, no focus; it keeps its place, so nothing moves and closing puts it
-// back as it was), and the field takes their place: --search-span widens it to the left, from where it ends to one bar gap
-// after the last neighbour left on its left (the bar's content edge when none is), so no blank run is left where they
-// stood. The others stay whole. The field's natural box is measured first and the span set in the same task, so the field
-// is drawn at its full span in the frame it opens and its text does not move after. Nothing is covered on the phone (it has
-// no bar) or while the field is closed.
-function searchCover(){const s=$('#doc-search'),nav=$('#doc-nav'),box=$('#search-box');
+// the bar whole (.search-covered: not drawn, no press, no focus; it keeps its place, so closing puts it back as it was), and
+// the field takes their place: --search-span widens it to the left, from where it ends to one bar gap after the last neighbour
+// left on its left (the bar's content edge when none is), so no blank run is left where they stood. The status line is never
+// taken off (the short band holds it in this row): it moves to stand right after what is left on the left (.search-kept, flex
+// order); when the field needs more room, the neighbours on its left are taken off too, the nearest first, while the status's
+// text alone cannot give it, and then the text is shortened - the status keeps its icon and action, drawn, pressable, spoken. The natural box is
+// measured first and the span set in the same task, so the field is drawn at its full span in the frame it opens and its text
+// does not move after. Nothing is covered on the phone (it has no bar) or while the field is closed.
+function searchCover(){const s=$('#doc-search'),nav=$('#doc-nav'),box=$('#search-box'),kids=/** @type {HTMLElement[]} */([...nav.children]).filter(k=>k!==s);
   if(s.style.getPropertyValue('--search-span'))s.style.removeProperty('--search-span');   // the natural box first: the span is worked out from it
-  const b=SEARCH.open&&!s.hidden&&BAND!==LAYOUT_BAND.PHONE&&box.getClientRects().length?box.getBoundingClientRect():null;
-  const cs=b?getComputedStyle(nav):null,gap=cs?parseFloat(cs.columnGap)||0:0; let edge=cs?nav.getBoundingClientRect().left+nav.clientLeft+(parseFloat(cs.paddingLeft)||0):0,took=false;   // closed: nothing is measured
-  for(const k of nav.children){if(k===s)continue; const r=b?k.getBoundingClientRect():null,off=!!(b&&r&&r.width>0&&r.right>b.left-gap+0.5&&r.left<b.right+gap-0.5);
-    k.classList.toggle('search-covered',off); took=took||off;
-    if(b&&r&&!off&&r.width>0&&r.right<=b.left)edge=Math.max(edge,r.right+gap);}
-  if(b&&took)s.style.setProperty('--search-span',Math.max(b.width,b.right-edge)+'px');}
+  for(const k of kids){if(k.matches('.search-covered,.search-left,.search-kept'))k.classList.remove('search-covered','search-left','search-kept'); if(k.style.maxWidth)k.style.maxWidth='';}
+  const b=SEARCH.open&&!s.hidden&&BAND!==LAYOUT_BAND.PHONE&&box.getClientRects().length?box.getBoundingClientRect():null; if(!b)return;   // closed: nothing is measured
+  const cs=getComputedStyle(nav),gap=parseFloat(cs.columnGap)||0,keep=/** @type {HTMLElement[]} */([]),off=/** @type {HTMLElement[]} */([]),left=/** @type {HTMLElement[]} */([]);
+  for(const k of kids){const r=k.getBoundingClientRect(); if(!r.width)continue;
+    if(r.right>b.left-gap+0.5&&r.left<b.right+gap-0.5)(k.matches('[role=status],[aria-live]')||k.querySelector('[role=status],[aria-live]')?keep:off).push(k);
+    else if(r.right<=b.left)left.push(k);}
+  if(!off.length&&!keep.length)return;
+  off.forEach(k=>k.classList.add('search-covered')); left.forEach(k=>k.classList.add('search-left')); keep.forEach(k=>k.classList.add('search-kept'));
+  const edge=()=>[...left,...keep].reduce((e,k)=>Math.max(e,k.getBoundingClientRect().right+gap),nav.getBoundingClientRect().left+nav.clientLeft+(parseFloat(cs.paddingLeft)||0));
+  let span=b.right-edge();
+  if(keep.length){const k=keep[keep.length-1],tx=k.querySelector('.st-tx'),text=()=>tx?tx.getBoundingClientRect().width:0;
+    // the status keeps its icon and action: neighbours on the left are taken off, the nearest first, while its text alone
+    // cannot give the field its room; then the text gives up what is still missing (an ellipsis)
+    while(span<b.width&&b.width-span>text()&&left.length){const m=/** @type {HTMLElement} */(left.pop()); m.classList.replace('search-left','search-covered'); span=b.right-edge();}
+    if(span<b.width){k.style.maxWidth=Math.max(0,Math.floor(k.getBoundingClientRect().width-(b.width-span)))+'px'; span=b.right-edge();}}
+  s.style.setProperty('--search-span',Math.max(b.width,span)+'px');}
 // The field's text on the row's ink reference (docs/handbook/viewer.md §글자 가운데): its neighbours' labels are trimmed to
 // their cap height (text-box: trim-both cap alphabetic) and centred, which an <input> cannot be - trimming does not reach its
 // text. So the field holds that reference itself: #search-ref-row is a trimmed line at the row labels' size and
-// #search-ref-own one at the field's own size, both centred in the field as a label would be. The row label's baseline is
-// its trimmed line's bottom on a whole pixel, where the engine paints it; the field's text gets the baseline that puts its
-// own cap height on the same centre, and --search-ink moves the input there from where its line box stands (#search-probe:
-// the input's line laid out as an element, its baseline marked) - by whole device pixels, as a transform, so the text stays
-// crisp. Without text-box-trim there is no reference and the text stays on its line box. Measured with every fit of the
-// field, when it is disclosed and when a font arrives.
+// #search-ref-own one at the field's own size, both centred in the field as a label would be. --search-ink moves the input,
+// as a transform, from where its line box puts its baseline (#search-probe: the input's line laid out as an element, its
+// baseline marked):
+// - text of the labels' size (a mouse: 12px): onto the baseline a trimmed label is painted on - its layout baseline rounded to
+//   a whole pixel - by whole pixels, so field and labels are painted alike, pixel for pixel;
+// - text of another size (touch: 16px beside 12px labels): to where its cap height's centre is the row line's, exactly, in
+//   layout; painting snaps the text and the labels to device pixels each in its own way, so their inks agree within one
+//   device pixel (a fraction of a pixel in a transform does not blur text: it is drawn on the device grid).
+// Without text-box-trim there is no reference and the text stays on its line box. Measured with every fit of the field, when
+// it is disclosed and when a font arrives.
 function searchInk(){const q=$('#search-q'),row=$('#search-ref-row'),own=$('#search-ref-own'),p=$('#search-probe');
   if(!q.getClientRects().length||!row.getClientRects().length||!p.getClientRects().length)return;
   let ink=0;
-  if(window.CSS&&CSS.supports('text-box-trim','trim-both')){const R=row.getBoundingClientRect(),O=own.getBoundingClientRect(),dpr=window.devicePixelRatio||1;
-    const base=/** @type {Element} */(p.firstElementChild).getBoundingClientRect().bottom-p.getBoundingClientRect().top;
-    const stands=Math.round(q.getBoundingClientRect().top-SEARCH.ink+base),wanted=Math.round(R.bottom)-R.height/2+O.height/2;
-    ink=Math.round((wanted-stands)*dpr)/dpr;}
+  if(window.CSS&&CSS.supports('text-box-trim','trim-both')){const R=row.getBoundingClientRect(),O=own.getBoundingClientRect();
+    const base=/** @type {Element} */(p.firstElementChild).getBoundingClientRect().bottom-p.getBoundingClientRect().top,stands=q.getBoundingClientRect().top-SEARCH.ink+base;
+    ink=getComputedStyle(row).fontSize===getComputedStyle(own).fontSize?Math.round(R.bottom)-Math.round(stands)
+      :Math.round(((R.top+R.bottom)/2+O.height/2-stands)*1000)/1000;}
   if(ink!==SEARCH.ink){SEARCH.ink=ink; q.style.setProperty('--search-ink',ink+'px');}}
 // Whether the search is offered: not in the changes view (its PDF is a comparison, not the manuscript) and not while the PDF
 // on screen cannot be read (PNG fallback, or not open yet). Hides the field and the navigation sheet's row otherwise, and a
@@ -264,7 +318,7 @@ function searchOffer(){const off=document.body.classList.contains('revision-open
 // moving the focus.
 function searchShow(){if(SEARCH.open)return; SEARCH.open=true; document.body.classList.add('search-open'); $('#search-open').setAttribute('aria-expanded','true');
   if(BAND===LAYOUT_BAND.PHONE){SEARCH.side=SIDE_OPEN; if(SIDE_OPEN)setSide(false);}
-  searchInk(); searchCover();}   // the box is laid out only now where it was folded
+  searchInk(); searchCover(); searchRows();}   // the box is laid out only now where it was folded
 // Remembers what had the focus as the field is entered from outside it: element a, or nothing when that is the page, the
 // magnifier (which leads here) or a control of a sheet that closes for the search. Moving inside the field changes nothing.
 /** @param {Element|null} a */
@@ -282,21 +336,35 @@ function searchHide(){if(!SEARCH.open)return; SEARCH.open=false; SEARCH.back=nul
 // that is hidden that way keeps its boxes.
 /** @param {HTMLElement} e */
 function searchShown(e){return document.contains(e)&&e.getClientRects().length>0&&getComputedStyle(e).visibility!=='hidden';}
-// Puts the focus on the PDF's scroller - where the keys then scroll - for as long as it stays there: it is not a tab stop.
+// Brings what the search was opened from back into view when it went out of it meanwhile: the note popover with its selection
+// box (scrolled back to where [보기] puts a mark) or the composer's field in its panel.
+/** @param {HTMLElement} to */
+function searchBringBack(to){if($('#sel-pop').contains(to)&&SEL_POP_BOX){const b=SEL_POP_BOX.getBoundingClientRect(),a=selPopArea(),L=$('#left');
+    if(b.top<a.top+8||b.bottom>a.bottom-8)L.scrollTop+=b.top-(a.top+(a.bottom-a.top)*0.3);
+    if(b.left<a.left+8||b.right>a.right-8)L.scrollLeft+=(b.left+b.right)/2-(a.left+a.right)/2;
+    placeSelPop();}
+  else if($('#composer').contains(to))to.scrollIntoView({block:'nearest',inline:'nearest'});}
+// Puts the focus on the PDF's scroller - where the keys then scroll - for as long as it stays there: it is not a tab stop and
+// draws no ring (search.css).
 function searchToPage(){const L=$('#left'); L.tabIndex=-1; L.addEventListener('blur',()=>L.removeAttribute('tabindex'),{once:true}); L.focus({preventScroll:true});}
 // Esc, [검색 닫기] and leaving the manuscript: the query and its hits go and the field folds away. back moves the focus out
-// of the closed field: to what had it before the field was entered if that is still on screen, else to the PDF's scroller;
-// with nothing remembered, to the control that leads to the search (the magnifier, the phone's position button) and without
-// one to the PDF's scroller. The focus is never left in the closed field.
+// of the closed field: to what had it before the field was entered if that is still on screen - the note popover or the
+// composer is brought back into view for it - else to the PDF's scroller; with nothing remembered, to the control that leads
+// to the search (the magnifier, the phone's position button) and without one to the PDF's scroller. The focus is never left
+// in the closed field.
 function searchClose(back){const s=$('#doc-search'),q=/** @type {HTMLInputElement} */($('#search-q')),had=s.contains(document.activeElement),to=SEARCH.back,was=SEARCH.open;
   q.value=''; searchRun(); if(!was)return; searchHide();   // (clearing disables the arrows: one that had the focus loses it there, and the field folds at once)
   if(!back||!had)return;
+  if(to&&!searchShown(to)&&to.closest('#sel-pop,#composer'))searchBringBack(to);
   const next=to?(searchShown(to)?to:null):BAND===LAYOUT_BAND.PHONE?$('#btn-pos'):s.dataset.mode==='icon'?$('#search-open'):null;
   if(next)next.focus({preventScroll:true});
   if(!next||document.activeElement!==next)searchToPage();}   // a control that would not take the focus leaves it on the page, never in the field
-// Another document or another build is on screen (vecOpen): the query, its hits and the reading of the old text end; the
-// field stays as it is.
-function searchClear(){/** @type {HTMLInputElement} */($('#search-q')).value=''; searchRun();}
+// Another build is on screen (vecOpen): the query, its hits and the reading of the old text end; the field stays open while it
+// has the focus, else it folds away with the bar whole again.
+function searchClear(){/** @type {HTMLInputElement} */($('#search-q')).value=''; searchRun(); if(SEARCH.open&&!$('#doc-search').contains(document.activeElement))searchHide();}
+// Another document is being opened (switchDoc, by any route): the search ends at once - query, hits and the open field, the
+// bar whole again in this frame - and a focus that was in the field goes back as Esc gives it.
+function searchLeave(){searchClose(true);}
 $('#search-q').addEventListener('input',searchRun);
 // An input method composing in the field (Hangul): its states between keys are searched as typed - but for a jamo standing
 // alone (searchRun) - and none of them is announced; the result is announced once the composition ends.

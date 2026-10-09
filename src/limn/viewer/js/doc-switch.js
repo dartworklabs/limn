@@ -53,7 +53,7 @@ addEventListener('pagehide',saveView);
 // If a meta cache exists, that document is drawn immediately without waiting, then the latest meta is fetched in the background, and pages are swapped only if the build changed.
 // A document that cannot be opened says so on the status line, with [다시 시도] when the server could not be reached.
 async function switchDoc(k){
-  if(!k||k===DOC||!docInfo(k))return; const seq=++SWITCHSEQ;
+  if(!k||k===DOC||!docInfo(k))return; const seq=++SWITCHSEQ; searchLeave();   // the search belongs to the document left (search.js)
   if(document.body.classList.contains('revision-open'))setViewMode(VIEW_MODE.MANUSCRIPT);
   saveView(); parkDraft(); cancelRepick(); if(COMPOSE.current||!$('#composer').hidden)cancelSelection(false);
   if(EDITOR.current&&!editDirty())cancelEdit();

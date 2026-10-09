@@ -28,14 +28,22 @@ body.search-open #doc-search #search-box{display:grid;position:absolute;right:0;
 /* A neighbour the open field lies over (searchCover): not drawn, no press, no focus - and still in its place, so the bar
    does not move. Nothing of it is left beside the field: no cut word, no underline, no separator. */
 #doc-nav>.search-covered{visibility:hidden}
+/* The status line is never taken off (the short band holds it in this row, status.js): what stays on the field's left keeps its
+   place first, then the status, then the neighbours taken off - so the status stands one gap after what is left and the field
+   one gap after the status. searchCover shortens its text (max-width) when the field needs the room. */
+#doc-nav>.search-left{order:-2}
+#doc-nav>.search-kept{order:-1}
+/* Esc puts the focus on the PDF's scroller when nothing else can take it back (searchClose): it is not a stop anyone tabs to,
+   and a ring round the whole PDF read as the select mode's frame. The next Tab draws the ring where the focus goes. */
+#left:focus-visible{outline:none}
 #search-field{display:flex;align-items:center;align-self:stretch;gap:var(--space-2);position:relative;min-width:0;padding:0 var(--space-2);cursor:text}
 #search-field .ic{color:var(--muted-foreground)}
 /* The input draws nothing but its text and is one line box high (--line-field, the fields' line), centred in the field: a
    whole number of pixels above and below it. Its text is the row labels' size with a mouse. The row's labels stand on their
    cap height's centre (§글자 가운데: text-box trimming), which does not reach an input's text, so the field carries the
    reference itself - #search-ref, two trimmed lines centred in the field, one at the row labels' size and one at the field's
-   own - and searchInk() moves the input (--search-ink: whole device pixels, a transform) to where a trimmed label of its
-   size would be painted. #search-probe is the input's line laid out where its baseline can be read. */
+   own - and searchInk() moves the input (--search-ink, a transform) so its cap height's centre is the row line's in layout;
+   painting puts both on the device grid. #search-probe is the input's line laid out where its baseline can be read. */
 #search-q,#search-probe,#search-ref-own{font-size:var(--text-sm);line-height:var(--line-field)}
 #search-q{flex:1;min-width:0;min-height:0;padding:0;border:0;border-radius:0;background:transparent;color:inherit;
   outline:none;appearance:none;-webkit-appearance:none;transform:translateY(var(--search-ink,0px))}
@@ -80,7 +88,10 @@ body.band-phone #doc-nav>:not(#doc-search){display:none}
 body.band-phone.search-open #doc-nav{display:block;position:fixed;left:0;right:0;bottom:var(--kb,0px);z-index:24;height:auto;
   padding:var(--space-2) max(var(--edge),env(safe-area-inset-right)) calc(var(--space-2) + env(safe-area-inset-bottom)) max(var(--edge),env(safe-area-inset-left));
   background:var(--sidebar);border-top:1px solid var(--border-strong);border-bottom:0;border-radius:var(--radius-lg) var(--radius-lg) 0 0;box-shadow:0 -6px 24px var(--shadow-color)}
-body.band-phone.search-open #status-dock{display:none}   /* the status line would stand in the search row */
+/* The status line stays up while searching: it stands on the search rows (--search-rows, their height, searchRows) as it stands
+   on the sheet at rest, so it is drawn, pressable and spoken, and the result row never covers it. Its own rule (responsive.css,
+   §상태 줄) places it on the sheet; this one, as specific, comes later. */
+body.lay-narrow.band-phone.has-status.search-open:not(.typing) #status-dock{bottom:calc(var(--search-rows,53px) + var(--kb,0px))}
 body.band-phone #doc-search{display:block;width:auto;height:auto;margin:0}
 body.band-phone.search-open #doc-search #search-box{position:static;grid-auto-flow:row;grid-template-columns:minmax(0,1fr) auto;gap:var(--space-2);width:auto;min-width:0;height:auto;
   border:0;border-radius:0;background:transparent;outline:none}

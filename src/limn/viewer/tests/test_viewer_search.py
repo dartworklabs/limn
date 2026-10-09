@@ -55,7 +55,7 @@ PAGES = [
     [
         (72, 700, [("F1", "master of the quay. Midday: the tide is high.")]),
         (72, 676, [("F2", "조류는 하루에 두 번 바뀐다")]),
-        (72, 652, [("F1", "wind    speed   4.1")]),  # runs of spaces
+        (72, 652, [("F1", "wind   speed   4.1")]),  # runs of spaces (narrower than an em: one cell)
         (420, 628, [("F1", "the far lighthouse")]),  # at the page's right: off to the side once the page is zoomed
     ],
     [
@@ -179,6 +179,14 @@ def fns(*names):
     return "\n".join(extract_js_fn(n) for n in names)
 
 
+def consts(*names):
+    """The source lines of search.js that define the named constants (`const NAME=...;` on one line), joined."""
+    src = (Path(__file__).resolve().parents[1] / "js" / "search.js").read_text(encoding="utf-8")
+    found = [line for line in src.splitlines() for n in names if line.startswith("const %s=" % n)]
+    assert len(found) == len(names), names
+    return "\n".join(found)
+
+
 class SearchLogic(unittest.TestCase):
     """The search's pure functions on the served source: what counts as the same text, what a line is, what a query
     finds across line breaks, how the hits wrap, how wide the field is, which key is the shortcut and where a hit's box
@@ -248,42 +256,96 @@ class SearchLogic(unittest.TestCase):
         )
 
     def found(self, lines, queries):
-        """What each query finds in a page of these lines (their folded text): the hits as lists of [line, from, to]
-        pieces, one piece a line the hit lies on."""
-        js = fns("searchFlow", "searchPattern", "searchFind") + (
-            "\nconst F=searchFlow(%s.map(t=>({t})));"
-            "console.log(JSON.stringify(%s.map(q=>searchFind(F,searchPattern(q)))));"
-            % (json.dumps(lines), json.dumps(queries))
+        """What each query finds in a page of these lines: each line is its text, or (text, x0, x1, baseline y) - a 12pt
+        line standing there on the page (a bare text stands at x 72-500, each one 14pt below the one before, as a
+        column's lines do). The hits as lists of [line, from, to] pieces, one piece a line the hit lies on."""
+        segs = []
+        for i, line in enumerate(lines):
+            text, x0, x1, y = (line, 72, 500, 700 - 14 * i) if isinstance(line, str) else line
+            segs.append({"text": text, "box": {"x0": x0, "x1": x1, "y": y, "size": 12}})
+        js = (
+            consts("SEARCH_BREAK", "SEARCH_CJK")
+            + "\n"
+            + fns("searchFold", "searchPitch", "searchJoin", "searchFlow", "searchPattern", "searchFind")
+            + (
+                "\nconst F=searchFlow(%s.map(s=>({t:searchFold(s.text).t,end:s.text.trimEnd().slice(-1),box:s.box})));"
+                "console.log(JSON.stringify(%s.map(q=>searchFind(F,searchPattern(searchFold(q).t.trim())))));"
+                % (json.dumps(segs), json.dumps(queries))
+            )
         )
         return node_json(self, js)
 
-    def test_a_line_break_is_optional_white_space_and_a_line_final_hyphen_is_optional(self):
-        """Across a break a query matches with a space ('first reading'), without one (Hangul broken inside a word -
-        and so 'firstreading' too: the break may be nothing) and over a line-final hyphen with or without typing it
-        ('observation', 'north-west'); a hit that crosses a break is one hit with a piece on each line. A space inside
-        a line is not optional."""
-        lines = ["the first", "reading of ob-", "servation north-", "west 물때가 바뀌", "고 달라진다"]
-        got = self.found(
-            lines,
-            [
-                "first reading",
-                "observation",
-                "north-west",
-                "northwest",
-                "바뀌고",
-                "firstreading",
-                "the  first",
-                "of ob",
-            ],
+    def test_a_line_break_between_latin_letters_is_a_word_space_and_beside_hangul_may_be_none(self):
+        """TeX never breaks a Latin word without a hyphen: a break between two Latin letters or digits is a word space, so
+        'first reading' crosses it and 'firstreading' or 'into' (in / to) does not. Beside Hangul the break may be a space
+        or nothing ('바뀌고', '바뀌 고'). A line-final hyphen may be typed or left out ('observation', 'ob-servation');
+        a line-final dash (en dash, folded to -) must be typed and stands with no space ('2009-2010', not '20092010').
+        A hit that crosses a break is one hit with a piece on each line. A space inside a line is not optional."""
+        lines = ["the first", "reading of ob-", "servation in", "to 2009" + EN_DASH, "2010 물때가 바뀌", "고 달라진다"]
+        queries = [
+            "first reading",
+            "firstreading",
+            "into",
+            "in to",
+            "observation",
+            "ob-servation",
+            "2009-2010",
+            "20092010",
+            "2009 2010",
+            "바뀌고",
+            "바뀌 고",
+            "the  first",
+            "of ob",
+        ]
+        got = dict(zip(queries, self.found(lines, queries), strict=True))
+        self.assertEqual(got["first reading"], [[[0, 4, 9], [1, 0, 7]]])
+        self.assertEqual((got["firstreading"], got["into"]), ([], []))
+        self.assertEqual(got["in to"], [[[2, 10, 12], [3, 0, 2]]])
+        self.assertEqual(got["observation"], [[[1, 11, 14], [2, 0, 9]]])
+        self.assertEqual(got["ob-servation"], got["observation"])
+        self.assertEqual(got["2009-2010"], [[[3, 3, 8], [4, 0, 4]]])
+        self.assertEqual((got["20092010"], got["2009 2010"]), ([], []))
+        self.assertEqual(got["바뀌고"], [[[4, 9, 11], [5, 0, 1]]])
+        self.assertEqual(got["바뀌 고"], got["바뀌고"])
+        self.assertEqual(got["the  first"], [[[0, 0, 9]]])  # a query is folded first: its runs of spaces are one
+        self.assertEqual(got["of ob"], [[[1, 8, 13]]])
+
+    def test_only_the_next_line_of_a_column_is_crossed(self):
+        """A break is crossed only into the next line of the same column: one that starts below, at most 1.5 line
+        pitches lower, and overlaps the line sideways. Table cells on one baseline, the next row's first cell (not
+        under the last cell), the top of the next column and a line far below are never joined."""
+        lines = [
+            ("Station", 72, 120, 700),
+            ("North", 200, 240, 700),  # one table row: two cells
+            ("Harbour", 72, 125, 686),
+            ("Tide", 200, 230, 686),
+            ("harbour", 72, 280, 640),
+            ("lights and ebb", 72, 280, 626),  # a column
+            ("tide begins", 320, 500, 640),  # the next column, from the top
+            ("far below", 72, 200, 560),
+        ]
+        queries = [
+            "station north",
+            "north harbour",
+            "harbour tide",
+            "harbour lights",
+            "harbourlights",
+            "ebb tide",
+            "begins far",
+        ]
+        got = dict(zip(queries, [len(h) for h in self.found(lines, queries)], strict=True))
+        self.assertEqual(
+            got,
+            {
+                "station north": 0,
+                "north harbour": 0,
+                "harbour tide": 0,
+                "harbour lights": 1,
+                "harbourlights": 0,
+                "ebb tide": 0,
+                "begins far": 0,
+            },
         )
-        self.assertEqual(got[0], [[[0, 4, 9], [1, 0, 7]]])
-        self.assertEqual(got[1], [[[1, 11, 14], [2, 0, 9]]])
-        self.assertEqual(got[2], [[[2, 10, 16], [3, 0, 4]]])
-        self.assertEqual(got[3], got[2])
-        self.assertEqual(got[4], [[[3, 9, 11], [4, 0, 1]]])
-        self.assertEqual(got[5], got[0])  # nothing tells a break inside a word from one between words
-        self.assertEqual(got[6], [])  # (a query is folded before it gets here: its runs of spaces are one)
-        self.assertEqual(got[7], [[[1, 8, 13]]])
 
     def test_find_lists_every_occurrence_without_overlap_and_reads_a_query_literally(self):
         """Occurrences are listed in reading order and never overlap; an empty query finds nothing; characters that mean
@@ -679,6 +741,19 @@ class SearchFinds(SearchBase):
         self.assertEqual(self.count(page), "1/7")
         self.assertEqual(len(self.current(page)["boxes"]), 1)
 
+    def test_a_hit_over_two_lines_is_shown_whole(self):
+        """'first reading' lies on two lines of page 1. Scrolled so that its first line sits just above the foot of the
+        PDF area and its second line below it, searching for it scrolls until both lines show - not only the first."""
+        page = self.view()
+        page.evaluate(
+            """() => {const L = document.querySelector('#left'), g = document.getElementById('p1'), a = selPopArea(), r = g.getBoundingClientRect();
+              const first = r.top + g.clientTop + (792 - 652 + 3) / 792 * g.clientHeight; L.scrollTop += first - (a.bottom - 14);}"""
+        )
+        settle(page)
+        self.search(page, "first reading")
+        cur = self.current(page)
+        self.assertEqual((cur["page"], [b["shows"] for b in cur["boxes"]]), (1, [True, True]))
+
     def test_the_first_hit_is_the_first_one_from_the_page_on_screen(self):
         """Scrolled to page 3, 'tide' starts at its first hit there: 5/7."""
         page = self.view()
@@ -867,7 +942,9 @@ class SearchKeys(SearchBase):
 
     def test_esc_goes_to_the_pdf_when_nothing_can_take_the_focus_back(self):
         """The field entered with the mouse (nothing had the focus) and Esc pressed on [이전 결과]: the search closes and
-        the focus is on the PDF's scroller - not left in the closed search - so the next Esc is the viewer's again."""
+        the focus is on the PDF's scroller - not left in the closed search - so the next Esc is the viewer's again. The
+        scroller draws no ring (it is not a stop a person tabs to; a ring round the whole PDF read as the select mode's
+        frame), and the next Tab shows the ring where the focus goes."""
         page = self.view()
         page.click("#search-q")
         page.keyboard.type("tide")
@@ -877,9 +954,15 @@ class SearchKeys(SearchBase):
         settle(page)
         self.assertEqual(page.input_value("#search-q"), "")
         self.assertEqual(self.focus_id(page), "left")
+        ring = "(e=>{const c=getComputedStyle(e); return [c.outlineStyle,c.outlineWidth,c.boxShadow];})(document.activeElement)"
+        self.assertEqual(page.evaluate(ring)[0], "none")
+        self.assertEqual(page.evaluate(ring)[2], "none")
         self.watch_keys(page)
         page.keyboard.press("Escape")
         self.assertEqual(page.evaluate("window.__kd"), [["Escape", False]])
+        page.keyboard.press("Tab")
+        self.assertNotEqual(self.focus_id(page), "left")
+        self.assertEqual(page.evaluate(ring)[:2], ["solid", "2px"])
 
     def test_the_close_button_does_what_esc_does(self):
         """[검색 닫기] empties the field, removes the hits and returns the focus."""
@@ -944,25 +1027,28 @@ class SearchKeys(SearchBase):
         self.assertTrue(page.is_visible("#sel-pop"))
         self.assertTrue(page.evaluate("document.activeElement===document.querySelector('#sel-pop textarea')"))
 
-    def test_esc_with_the_note_popover_scrolled_away_keeps_the_draft_and_leaves_the_field(self):
+    def test_esc_with_the_note_popover_scrolled_away_brings_it_back_with_the_focus_in_its_note(self):
         """The popover's note had the focus, then a hit two pages away scrolled the popover out of view: Esc closes the
-        search and puts the focus on the PDF's scroller - the popover's note is not on screen to take it - with the
-        draft kept; the next Esc is the viewer's own and cancels the selection."""
+        search, brings the selection and its popover back into view and puts the focus in the popover's note with the
+        draft as typed - so the next Esc, from where the person was writing, is the one that cancels the selection."""
         page = self.view()
         self.drag_a_region(page)
         page.keyboard.press("Control+f")
         page.keyboard.type("ebb")
         page.wait_for_function(COUNTED)
         settle(page)
-        self.assertFalse(page.is_visible("#sel-pop"))
+        shown = "(e=>e.getClientRects().length>0&&getComputedStyle(e).visibility!=='hidden')(document.querySelector('#sel-pop'))"
+        self.assertFalse(page.evaluate(shown))
         page.keyboard.press("Escape")
         settle(page)
-        self.assertEqual(page.evaluate("document.activeElement.id"), "left")
+        self.assertTrue(page.evaluate(shown))
+        self.assertTrue(page.evaluate("document.activeElement===document.querySelector('#sel-pop textarea')"))
+        self.assertEqual(page.input_value("#sel-pop textarea"), "초안 메모")
         self.assertEqual(page.input_value("#note"), "초안 메모")
-        self.assertTrue(page.is_visible("#composer"))
-        page.keyboard.press("Escape")
-        settle(page)
-        self.assertFalse(page.is_visible("#composer"))
+        box = page.evaluate(
+            "(()=>{const b=document.querySelector('.pg .sel').getBoundingClientRect(),a=selPopArea(); return [b.top>=a.top,b.bottom<=a.bottom];})()"
+        )
+        self.assertEqual(box, [True, True])  # the selection box is on screen with it
 
     def test_select_mode_stays_on_through_a_search(self):
         """On a tablet with [선택] on, a search opened, typed and closed leaves the mode on and its bar showing."""
@@ -1092,6 +1178,185 @@ class SearchScope(SearchBase):
         page.evaluate("window.__kd=[]; addEventListener('keydown',e=>window.__kd.push([e.key,e.defaultPrevented]))")
         page.keyboard.press("Control+f")
         self.assertEqual(page.evaluate("window.__kd.filter(k=>k[0]==='f')"), [["f", False]])
+
+
+# The break-rule page: where a query may and may not cross a line's end, laid out as TeX lays out its cases at 12pt on a 24pt
+# pitch - a column whose lines end inside Latin words that a break would glue ('in' / 'to'), a hyphenated word, a compound
+# broken at its hyphen, an en dash at a line's end (F2: Helvetica's WinAnsi has no en dash here), a table whose cells share
+# a baseline, two columns side by side, Hangul broken inside a word and a line far below the rest.
+EDGE = [
+    [
+        (72, 740, [("F1", "We stand in")]),
+        (72, 716, [("F1", "to the cold water and do not")]),
+        (72, 692, [("F1", "ice the hull; the cat")]),
+        (72, 668, [("F1", "alog lists each boat for")]),
+        (72, 644, [("F1", "mat review. A well-")]),
+        (72, 620, [("F2", "known tide range is 2009" + chr(0x2013))]),
+        (72, 596, [("F1", "2010 and an e-")]),
+        (72, 572, [("F1", "mail goes out at sta-")]),
+        (72, 548, [("F1", "tion five.")]),
+        (72, 500, [("F1", "Station")]),
+        (220, 500, [("F1", "North")]),
+        (72, 476, [("F1", "Harbour")]),
+        (220, 476, [("F1", "Tide")]),
+        (72, 452, [("F1", "Delta")]),
+        (220, 452, [("F1", "Bay")]),
+        (72, 404, [("F1", "Left column ends with harbour")]),
+        (72, 380, [("F1", "lights and says ebb")]),
+        (330, 404, [("F1", "tide begins the right column")]),
+        (330, 380, [("F1", "and says flood.")]),
+        (72, 332, [("F2", "관측소의 조류")]),
+        (72, 308, [("F2", "기록은 여섯 분마다 적는다. 바닷")]),
+        (72, 284, [("F2", "물의 높이가 달라진다.")]),
+        (72, 200, [("F1", "far below the rest")]),
+    ]
+]
+# What the rule gives on EDGE, stated case by case (None: either is right - the PDF cannot tell a hyphenated word from a
+# compound broken at its hyphen).
+EDGE_EXPECTED = {
+    "into": 0,
+    "in to": 1,
+    "notice": 0,
+    "do not ice": 1,
+    "catalog": 0,
+    "cat alog": 1,
+    "format": 0,
+    "for mat": 1,
+    "well-known": 1,
+    "wellknown": None,
+    "2009-2010": 1,
+    "20092010": 0,
+    "2009 2010": 0,
+    "e-mail": 1,
+    "email": None,
+    "station": 2,
+    "sta-tion": 1,
+    "station north": 0,
+    "north harbour": 0,
+    "harbour tide": 0,
+    "tide delta": 0,
+    "harbour lights": 1,
+    "harbourlights": 0,
+    "ebb tide": 0,
+    "바닷물의": 1,
+    "바닷 물의": 1,
+    "조류 기록은": 1,
+    "조류기록은": 1,
+    "달라진다. far": 0,
+    "달라진다.far": 0,
+}
+# Rough widths of the fixture's fonts at 12pt, enough for the oracle's sideways overlap: Helvetica's lower case runs about
+# half an em, F2 is one em a character.
+EDGE_EM = {"F1": 6.6, "F2": 12.0}
+
+
+def rule_hits(page, query):
+    """The rule's count of `query` on one EDGE-shaped page, worked out from the fixture's own lines - not with the viewer's
+    code or its pattern. Lines on one baseline more than an em apart are separate cells; a line joins the next one only
+    when that one starts below it, at most 1.5 of the page's line pitch lower, and overlaps it sideways. A joined break
+    is a hyphen break after a line-final '-', a dash break after a line-final en dash (folded to '-'), an optional space
+    beside Hangul, else a word space. A brute-force matcher walks the text with those breaks; hits are counted left to
+    right without overlap."""
+
+    def fold(text):
+        """Lower case, NFKC, dashes as '-', runs of spaces as one."""
+        text = unicodedata.normalize("NFKC", text).lower().replace(EN_DASH, "-")
+        return " ".join(text.split())
+
+    segs = []
+    for x, y, runs in page:
+        text = "".join(t for _, t in runs)
+        width = sum(EDGE_EM[f] * len(t) for f, t in runs)
+        segs.append({"y": y, "x0": x, "x1": x + width, "text": fold(text), "end": text.rstrip()[-1:]})
+    steps = sorted(a["y"] - b["y"] for a, b in zip(segs, segs[1:], strict=False) if 0 < a["y"] - b["y"] <= 36)
+    pitch = steps[len(steps) // 2]
+    tokens = []
+    for i, seg in enumerate(segs):
+        if i:
+            a = segs[i - 1]
+            below = 0 < a["y"] - seg["y"] <= 1.5 * pitch and seg["x0"] < a["x1"] and seg["x1"] > a["x0"]
+            hangul = any(unicodedata.name(c, "").startswith("HANGUL") for c in (a["text"][-1], seg["text"][0]))
+            kind = (
+                "hard"
+                if not below
+                else "hyph"
+                if a["end"] == "-"
+                else "dash"
+                if a["end"] == EN_DASH
+                else "cjk"
+                if hangul
+                else "space"
+            )
+            tokens.append(("break", kind))
+        tokens.extend(("char", c) for c in seg["text"])
+    q = fold(query)
+
+    def match(i, j):
+        """The token index after a match of q[j:] from token i, or None."""
+        if j == len(q):
+            return i
+        if i >= len(tokens):
+            return None
+        kind, value = tokens[i]
+        if kind == "char" and value == "-" and tokens[i + 1 : i + 2] == [("break", "hyph")] and q[j] not in "- ":
+            return match(i + 2, j)  # a line-final hyphen left out of the query
+        if kind == "char":
+            return match(i + 1, j + 1) if value == q[j] else None
+        if value == "space" or (value == "cjk" and q[j] == " "):
+            return match(i + 1, j + 1) if q[j] == " " else None
+        if value in ("cjk", "hyph", "dash") and q[j] != " ":
+            return match(i + 1, j)
+        return None
+
+    hits, i = 0, 0
+    while i < len(tokens):
+        end = match(i, 0) if tokens[i][0] == "char" else None
+        if end:
+            hits, i = hits + 1, end
+        else:
+            i += 1
+    return hits
+
+
+class SearchBreakRule(SearchBase):
+    """A query crosses a line's end only where TeX broke a run of text (docs/handbook/viewer.md §본문 검색 찾는 규칙),
+    checked on a page of the hard cases against an oracle worked out from the page's own lines (rule_hits)."""
+
+    def setUp(self):
+        """The manuscript's build is the one-page EDGE fixture (the three-page build's other page images go)."""
+        super().setUp()
+        for extra in ("page-2.png", "page-3.png"):
+            (self.pages_dir / extra).unlink()
+        put_build(self.doc, build_dir(self.doc).name, search_pdf(EDGE), 1)
+
+    def test_the_count_of_every_case_is_the_rules(self):
+        """For each case the count shown is the oracle's, and the oracle agrees with the case's stated count: Latin
+        words glued across a break ('into', 'notice', 'catalog', 'format', 'harbourlights') find nothing, the same
+        words with their space find one; a table's cells, its rows, the next column and a far line are not crossed;
+        hyphens and dashes and Hangul breaks are."""
+        self.assertEqual(rule_hits(EDGE[0], "harbour lights"), 1)
+        page = self.view()
+        got = {}
+        for query, stated in EDGE_EXPECTED.items():
+            with self.subTest(query=query):
+                self.search(page, query)
+                shown = int(self.count(page).split("/")[1])
+                oracle = rule_hits(EDGE[0], query)
+                got[query] = (shown, oracle)
+                if stated is not None:
+                    self.assertEqual(oracle, stated, query)
+                self.assertEqual(shown, oracle, query)
+
+    def test_a_hit_over_a_break_draws_a_box_on_each_of_its_lines(self):
+        """'in to' crosses from the first line to the second: two boxes, the first at the first line's end and the
+        second at the next line's start, both the current hit."""
+        page = self.view()
+        self.search(page, "in to")
+        upper, lower = sorted(self.hits(page), key=lambda h: h["box"][1])
+        self.assertTrue(upper["cur"] and lower["cur"])
+        self.assertAlmostEqual(lower["box"][1] - upper["box"][1], 24 / 792, delta=0.002)
+        self.assertAlmostEqual(lower["box"][0], 72 / 612, delta=0.004)
+        self.assertGreater(upper["box"][0], 100 / 612)
 
 
 FIVE = [
@@ -1412,6 +1677,37 @@ class SearchCrowdedBar(FiveDocsBase):
         self.assertIn({"view-switch"}, seen)  # some neighbours off and some left: the document links stay
         self.assertIn({"doc-links", "view-switch"}, seen)
 
+    def test_switching_documents_with_the_focus_elsewhere_closes_the_search_in_the_same_frame(self):
+        """In the 760px mouse window, with a query and the focus taken off the field, Ctrl+PgDn opens the next document:
+        in the first frame after it the field is closed and empty and every document link - the new current one too -
+        is drawn again."""
+        page = self.open_folded("mouse 760x800")
+        page.evaluate("document.activeElement.blur()")
+        settle(page)
+        page.keyboard.press("Control+PageDown")
+        got = page.evaluate(
+            """() => new Promise(r => requestAnimationFrame(() => r({open: document.body.classList.contains('search-open'), value: document.querySelector('#search-q').value,
+              covered: [...document.querySelectorAll('#doc-nav>*')].filter(e => getComputedStyle(e).visibility === 'hidden').map(e => e.id),
+              box: document.querySelector('#search-box').getClientRects().length})))"""
+        )
+        self.assertEqual(got, {"open": False, "value": "", "covered": [], "box": 0})
+        page.wait_for_function(
+            "document.querySelector('#doc-links [aria-current=page]').textContent.includes('Response letter')"
+        )
+        self.assertEqual(page.locator("#doc-links button:visible").count(), 5)
+
+    def test_closing_the_field_draws_the_neighbours_in_the_same_frame(self):
+        """Esc on the open field over the crowded bar: in the first frame after it every neighbour the field had taken
+        off is drawn again."""
+        for name in ("fold inner 673x841", "mouse 760x800"):
+            with self.subTest(viewport=name):
+                page = self.open_folded(name)
+                page.keyboard.press("Escape")
+                hidden = page.evaluate(
+                    "new Promise(r=>requestAnimationFrame(()=>r([...document.querySelectorAll('#doc-nav>*')].filter(e=>getComputedStyle(e).visibility==='hidden').map(e=>e.id))))"
+                )
+                self.assertEqual(hidden, [])
+
     def test_esc_on_the_closed_search_is_the_viewers(self):
         """In the 760px mouse window the field is closed with Esc (the focus back on the magnifier) and the pin panel
         opened over the page: Esc on the magnifier is the viewer's again and folds the panel away."""
@@ -1474,6 +1770,74 @@ class SearchCrowdedBar(FiveDocsBase):
                 self.assertTrue(page.evaluate("document.body.classList.contains('side-open')"))
                 self.press(page, "#search-close")
                 page.wait_for_function("document.getElementById('p1').getBoundingClientRect().width===%r" % wide)
+
+
+# The status line (#status) as drawn and as a screen reader meets it: shown or not, its box, its spoken region's text and
+# whether that region is in the accessibility tree (not display:none or visibility:hidden on it or an ancestor), and its
+# action button's box with what a press at its centre reaches.
+STATUS = """() => {const s = document.querySelector('#status'), sr = s.querySelector('[role=status]'), b = s.querySelector('button');
+  const tree = e => {for (let x = e; x; x = x.parentElement) {const c = getComputedStyle(x); if (c.display === 'none' || c.visibility === 'hidden') return false;} return true;};
+  const R = e => {const r = e.getBoundingClientRect(); return {l: r.left, t: r.top, r: r.right, b: r.bottom, w: r.width, h: r.height};};
+  const at = e => {const r = e.getBoundingClientRect(), h = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2); return !!h && (h === e || e.contains(h));};
+  return {shown: tree(s) && s.getClientRects().length > 0, box: s.getClientRects().length ? R(s) : null, said: sr ? sr.textContent : null, inTree: !!sr && tree(sr),
+    action: b ? {box: R(b), reached: at(b), text: b.textContent.trim()} : null, text: s.querySelector('.st-body').textContent.trim()};}"""
+# A status message with an action, as the viewer raises one (lineNote): the arrival has no control to press.
+NOTE = "lineNote('연결이 끊겼습니다 — 다시 연결하는 중입니다', NOTICE_KIND.WARN, {label: '다시 시도', fn: () => {}})"
+
+
+class SearchStatusLine(FiveDocsBase):
+    """The status line stays drawn, pressable and spoken while the search is open (docs/handbook/viewer.md §본문 검색):
+    the short band's top row holds it beside the field, and the phone's search rows stand under it."""
+
+    def test_the_short_bands_open_field_leaves_the_status_line_whole_and_spoken(self):
+        """On a landscape phone (844x390, 908x411) the status sits in the one top row. With a status up and the field
+        opened over the row: the status is drawn, its action answers a press at its centre and its spoken region is in
+        the accessibility tree; the field starts one bar gap after it and nothing is drawn between the outline toggle
+        and the field wider than the bar's gap. A message arriving while the field is open is shown and said."""
+        for name, dev in (("short 844x390", device(844, 390)), ("short 908x411", device(908, 411))):
+            with self.subTest(viewport=name):
+                page = self.view(dev)
+                page.evaluate(NOTE)
+                settle(page)
+                self.assertTrue(page.evaluate(STATUS)["shown"])
+                self.press(page, "#search-open")
+                page.keyboard.type("tide")
+                page.wait_for_function(COUNTED, timeout=8000)
+                settle(page)
+                st = page.evaluate(STATUS)
+                self.assertTrue(st["shown"] and st["inTree"], st)
+                self.assertTrue(st["action"]["reached"], st)
+                g = page.evaluate(OVER_BAR)
+                self.assertIn("status", [k["id"] for k in g["kids"] if k["shows"]])
+                self.assertLessEqual(st["box"]["r"], g["box"][0] - g["gap"] + 0.5, (st, g["box"]))
+                gaps, before = SearchCrowdedBar.drawn_gaps(g)
+                self.assertTrue(all(x <= g["gap"] + 0.5 for x, _ in gaps), (name, gaps))
+                self.assertAlmostEqual(before, g["gap"], delta=0.5)
+                page.evaluate("lineNote('다시 연결했습니다', NOTICE_KIND.OK)")
+                page.wait_for_function(
+                    "document.querySelector('#status [role=status]').textContent.includes('다시 연결했습니다')"
+                )
+                self.assertTrue(page.evaluate(STATUS)["shown"])
+
+    def test_the_phones_status_line_stands_above_the_search_rows(self):
+        """On each phone, with a status up and the search open from the navigation sheet with a query: the status line
+        is drawn above the result row - its bottom at the rows' top, nothing over it - its action answers a press at
+        its centre, its region is spoken, and a hit is shown above it."""
+        for name, dev in PHONES.items():
+            with self.subTest(viewport=name):
+                page = self.view(dev)
+                page.evaluate(NOTE)
+                settle(page)
+                self.search(page, "tide")
+                st = page.evaluate(STATUS)
+                rows = page.evaluate("document.querySelector('#doc-nav').getBoundingClientRect().top")
+                self.assertTrue(st["shown"] and st["inTree"], st)
+                self.assertAlmostEqual(st["box"]["b"], rows, delta=1, msg=(name, st["box"], rows))
+                self.assertTrue(st["action"]["reached"], st)
+                cur = self.current(page)
+                self.assertTrue(
+                    all(b["shows"] and b["bottom"] <= st["box"]["t"] for b in cur["boxes"]), (cur, st["box"])
+                )
 
 
 # The navigation sheet's search row as a finger meets it: how many px of its height answer a tap down its middle (nothing
@@ -1769,6 +2133,28 @@ class SearchInk(SearchBase):
         for dpr in (2, 3):
             with self.subTest(scale=dpr):
                 self.assert_on_the_rows_line(device(768, 1024, dpr=dpr), dpr)
+
+    def test_on_touch_the_layout_is_exact_and_the_paint_within_one_device_pixel(self):
+        """16px text in the field beside 12px labels (a touch tablet's bar) and in the phone's row, at scale factors 1,
+        1.25, 1.5 and 2. In layout - before painting - the field's cap-height centre is the trimmed reference's (the
+        labels' line, the field's middle on the phone) within 0.1px. Painted, the text and the labels are snapped to
+        device pixels each in its own way, so the ink centres agree within one device pixel."""
+        layout = """() => {const q = document.querySelector('#search-q').getBoundingClientRect(), p = document.querySelector('#search-probe'), R = document.querySelector('#search-ref-row').getBoundingClientRect();
+          const base = p.firstElementChild.getBoundingClientRect().bottom - p.getBoundingClientRect().top, own = document.querySelector('#search-ref-own').getBoundingClientRect().height;
+          return (q.top + base - own / 2) - (R.top + R.bottom) / 2;}"""
+        for name, (w, h) in (("tablet 768x1024", (768, 1024)), ("phone 390x844", (390, 844))):
+            for dpr in (1, 1.25, 1.5, 2):
+                with self.subTest(viewport=name, scale=dpr):
+                    page = self.view(device(w, h, dpr=dpr))
+                    if name.startswith("phone"):
+                        self.disclose(page)
+                    page.fill("#search-q", "H1080")
+                    page.evaluate("document.activeElement.blur()")
+                    settle(page)
+                    self.assertLessEqual(abs(page.evaluate(layout)), 0.1)
+                    if name.startswith("tablet"):
+                        caps = self.inks(page, dpr, typed="H1080", write="H1080")
+                        self.assertLessEqual(abs(caps["field"] - caps["other"]), 1 / dpr + 0.01, caps)
 
 
 class SearchTouch(SearchBase):
