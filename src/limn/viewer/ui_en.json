@@ -1189,5 +1189,12 @@
  "검토 대기 핀으로 갑니다": "Go to the pins awaiting review",
  "보기 권한만 있습니다 — 편집 권한이 있는 사람이 확인합니다": "This screen is read-only; a person with edit access confirms the result",
  "에이전트 권한으로 접속 중입니다 — 사람 신원으로 접속해 확인하세요": "This screen uses agent access; open as a person to confirm the result",
- "핀 #{id} 카드로 이동": "Go to pin #{id}"
+ "핀 #{id} 카드로 이동": "Go to pin #{id}",
+ "본문 검색": "Search the text",
+ "이전 결과": "Previous result",
+ "다음 결과": "Next result",
+ "검색 닫기": "Close search",
+ "본문에서 글자를 찾습니다 (Ctrl/⌘+F)": "Find text in the document (Ctrl/⌘+F)",
+ "{m}개 중 {n}번째 · {page}쪽": "{n} of {m} · page {page}",
+ "결과 없음": "No results"
 }

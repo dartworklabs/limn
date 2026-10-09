@@ -23,6 +23,7 @@ Icons are drawn with the original `<svg>` attributes: `viewBox="0 0 24 24"`, `fi
 | `check` | closed-pin row head; current document in the document list; current page in the page list |
 | `chevron-down` · `chevron-right` | collapse/expand archive sections, card collapse (narrow screens), [Documents] button, the page count that opens the page list |
 | `chevron-left` | the collapsed wide panel's [Pins N ‹] (#nav-side) |
+| `chevron-up` | previous hit of the in-document search (`chevron-down` is next) |
 | `circle-check` · `circle-x` | a message's lead icon (banners, undo rows and chips, the status line) — done/error. Warnings use `triangle-alert` |
 | `circle-question-mark` | 'question' badge and hint |
 | `message-square` | reply count in the card head |
@@ -44,6 +45,7 @@ Icons are drawn with the original `<svg>` attributes: `viewBox="0 0 24 24"`, `fi
 | `refresh-cw` | [Rebuild PDF] |
 | `rotate-ccw` | 'reopened' badge (pin sent back from review) |
 | `rotate-cw` | [Reload pins] in [More] (compact bands) |
+| `search` | the in-document search: the field's lead icon, the magnifier it folds to, the phone's navigation-sheet row |
 | `square-dashed` | [Select] button and the select mode's bar — a dashed square, symmetric both ways: pick a spot or drag a region on touch devices |
 | `text-quote` | the line of PDF text a drag chose, under the composer's location line and above a card's note |
 | `trash-2` | deleted-pin row head; [삭제] on a compact card |

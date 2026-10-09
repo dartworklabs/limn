@@ -830,8 +830,12 @@ class FrontendVector(unittest.TestCase):
         self.assertIn("vecInvalidate()", self.fn("setW"))  # redraw when the zoom changes
 
     def test_no_text_layer(self):
-        for s in ("getTextContent", "TextLayer", "textLayer"):
+        """No text-selection layer is drawn over a page - a drag there is a region selection. The page's text is read
+        in one place only, for the in-document search (search.js), which draws boxes and no text."""
+        for s in ("TextLayer", "textLayer"):
             self.assertNotIn(s, HTML)
+        self.assertEqual(HTML.count(".getTextContent("), 1)
+        self.assertIn(".getTextContent(", (PKG / "viewer" / "js" / "search.js").read_text(encoding="utf-8"))
 
 
 class FrontendVectorLogic(unittest.TestCase):
@@ -861,10 +865,9 @@ class FrontendVectorLogic(unittest.TestCase):
             self.assertTrue(row[3])
 
     def test_vecopen_stale_doc_not_touched_while_new_pdf_is_fetching(self):
-        # reproducing the observed case: if vecOpen is called for a new 27-page document while VEC.doc
-        # still points at the old document (1 page), VEC.doc must be null before the fetch finishes
-        # (so vecNextJob can't pull any work), and a vecRun queued in the meantime must not call the old
-        # doc.getPage (it throws here if it does).
+        """The observed case: vecOpen() is called for a new 27-page document while VEC.doc still points at the old
+        one-page document. VEC.doc is null before the fetch finishes, so vecNextJob() pulls no work, and nothing queued
+        in the meantime calls the old doc.getPage (which throws here); the search hooks vecOpen() calls are stubbed."""
         js = "\n".join(
             [
                 "const VEC_CACHE_MAX=3;",
@@ -881,6 +884,8 @@ class FrontendVectorLogic(unittest.TestCase):
             function dq(u){return u;}
             function vecSchedule(){}
             function loadOutline(){}
+            function searchClear(){}
+            function searchOffer(){}
             function vecFail(msg){throw new Error('vecFail: '+msg);}
             global.document={getElementById:(id)=>({})};
 

@@ -108,7 +108,7 @@ function setViewMode(mode){
   $('#view-revisions').setAttribute('aria-pressed',String(revisions));
   if(!revisions)REV.target=null;
   if(revisions)loadRevisions(); else{++REV.seq;clearRevisionPdf();setRevisionOverlay(null);$('#revision-pin').hidden=true;revTargetActs();if(VEC.doc)vecSchedule(0);updateSectionStrip();}
-  drawNavView(); drawPos();
+  drawNavView(); drawPos(); searchOffer();   // the changes view has no search
 }
 // Reads the document's recent commits into the changes view. Without history (not Git, a view-only PDF, or no recent commit) the
 // one reason line stays and the unusable [변경 PDF] [소스 diff] and the comparison note are hidden; a pin's guide line stays.
