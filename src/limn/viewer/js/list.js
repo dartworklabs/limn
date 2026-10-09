@@ -158,9 +158,32 @@ function markBadgeIn(fx,w,pad,reach){return fx*w+pad<reach;}
 // reach for the primary pointer: {pad, reach}.
 function markBadgeRoom(){const L=$('#left'),p=$('#doc .pg'); if(!L||!p)return {pad:0,reach:28};
   return {pad:p.getBoundingClientRect().left-L.getBoundingClientRect().left-L.clientLeft+L.scrollLeft,reach:MQ_COARSE.matches?28:24};}
-// Re-decides every drawn mark's badge side for the page width W and the margin now (a zoom, a re-fit or a band change moves both).
+// Re-decides every drawn mark's badge side for the page width W and the margin now (a zoom, a re-fit or a band change moves both),
+// then how far each badge's press area reaches (markHitSides: the badges' distances follow the same width).
 function markBadgeSides(){const r=markBadgeRoom(); $$('.mark').forEach(m=>m.classList.toggle('in',markBadgeIn(+m.dataset.fx,W,r.pad,r.reach)));
-  $$('.sel.pending').forEach(pendingBadgeSide);}   // the pending boxes' '+' badges follow the same rule
+  $$('.sel.pending').forEach(pendingBadgeSide); markHitSides();}   // the pending boxes' '+' badges follow the same rule
+// How far each mark badge's press area may reach on each side (docs/handbook/viewer.md §모바일 레이아웃): boxes are the badges'
+// drawn boxes {x,y,w,h} in one coordinate space and reach the press area's full size.
+// Two badges whose press areas would overlap split the gap between their drawn boxes in half, along the axis on which their
+// centres are further apart - so a press goes to the nearer badge, and a badge with no close neighbour keeps its whole area.
+// Returns one {t,r,b,l} per box: the room in px on that side, or null where no neighbour limits it; 0 where the drawn
+// boxes touch or overlap. Pure.
+function markHitRooms(boxes,reach){const rooms=boxes.map(()=>({t:null,r:null,b:null,l:null}));
+  const cut=(room,side,v)=>{room[side]=room[side]===null?v:Math.min(room[side],v);};
+  boxes.forEach((a,i)=>{for(let j=i+1;j<boxes.length;j++){const b=boxes[j];
+    const dx=b.x+b.w/2-(a.x+a.w/2),dy=b.y+b.h/2-(a.y+a.h/2); if(Math.abs(dx)>=reach||Math.abs(dy)>=reach)continue;
+    if(Math.abs(dy)>=Math.abs(dx)){const v=Math.max(0,(Math.abs(dy)-(a.h+b.h)/2)/2); cut(rooms[i],dy>=0?'b':'t',v); cut(rooms[j],dy>=0?'t':'b',v);}
+    else{const v=Math.max(0,(Math.abs(dx)-(a.w+b.w)/2)/2); cut(rooms[i],dx>=0?'r':'l',v); cut(rooms[j],dx>=0?'l':'r',v);}}});
+  return rooms;}
+// Gives every drawn badge its sides' room (markHitRooms) as --room-t/-r/-b/-l, which the badge's ::after caps its reach by
+// (components.css); a side no neighbour limits has no property and reaches the whole way. The boxes are read in the
+// viewport, so badges on two pages are neighbours too; the press area is the touch one, 44px (a mouse's 24px lies inside it).
+// Badges that are not laid out (the changes view hides the pages) have no boxes to read: nothing is set, and setViewMode
+// measures when the pages show again.
+function markHitSides(){const bs=/** @type {HTMLElement[]} */($$('.mark button.mark-jump')); if(bs.some(b=>!b.getClientRects().length))return;
+  const rooms=markHitRooms(bs.map(b=>{const r=b.getBoundingClientRect(); return {x:r.left,y:r.top,w:r.width,h:r.height};}),44);
+  bs.forEach((b,i)=>{const r=rooms[i],px=v=>v===null?'':v+'px';   // '' takes the property off
+    b.style.setProperty('--room-t',px(r.t)); b.style.setProperty('--room-r',px(r.r)); b.style.setProperty('--room-b',px(r.b)); b.style.setProperty('--room-l',px(r.l));});}
 // Draws one mark per open or awaiting-review pin of this document on its page: where the pin's element is now for a figure
 // pin (pinPlace), else where it was pinned, then decides each badge's side (markBadgeSides) and puts a save's or an append's
 // undo chip back on its mark (drawChips). A pin without a usable box or page draws nothing.

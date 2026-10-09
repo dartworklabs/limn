@@ -100,6 +100,12 @@ input.n{width:58px;text-align:center}
 .mark button.mark-jump{position:absolute;top:-2px;left:-24px;background:var(--status-open);color:var(--status-open-foreground);border-radius:50%;
   width:var(--pin-badge-size);height:var(--pin-badge-size);min-width:0;min-height:0;border:0;padding:0;display:block;align-content:center;
   text-box:trim-both cap alphabetic;font-size:var(--text-sm);font-weight:700;pointer-events:auto;cursor:pointer}
+/* A badge's press area (docs/handbook/viewer.md §모바일 레이아웃): --mark-hit round its centre, and toward a neighbour no further
+   than half the gap between their circles (--room-*, markHitRooms) - each press goes to the nearer badge. Overlapping
+   boxes gave the whole overlap to the badge drawn later: 21px apart, the centre of one badge pressed the next. */
+.mark button.mark-jump::after{content:'';position:absolute;--reach:calc((var(--mark-hit) - var(--pin-badge-size)) / 2);
+  inset:calc(-1 * min(var(--reach),var(--room-t,var(--reach)))) calc(-1 * min(var(--reach),var(--room-r,var(--reach))))
+    calc(-1 * min(var(--reach),var(--room-b,var(--reach)))) calc(-1 * min(var(--reach),var(--room-l,var(--reach))))}
 /* A mark whose badge has no room outside - the page margin plus the mark's offset short of the badge's reach - has it in its
    own top-left corner (markBadgeIn): outside, it would be clipped. */
 .mark.in button.mark-jump{left:0;top:0}

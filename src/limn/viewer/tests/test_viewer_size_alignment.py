@@ -13,13 +13,14 @@ button of words alone stops being a block container once it has a child - and in
 """
 
 import json
+import math
 import os
 import unittest
 
 from limn.pins.lifecycle.rules import CloseRequest
 from limn.security.access import LOCAL_ACTOR
 
-from helpers import add_pin, ps
+from helpers import add_pin, extract_js_fn, ps, run_node
 from helpers_access import ALICE, actor
 from helpers_authority import post_authority
 from helpers_browser import BrowserBase, fonts_ready, settle
@@ -27,6 +28,12 @@ from helpers_browser import BrowserBase, fonts_ready, settle
 DESK = {"viewport": {"width": 1440, "height": 900}}
 PHONE = {"viewport": {"width": 390, "height": 844}, "is_mobile": True, "has_touch": True, "device_scale_factor": 2}
 TABLET = {"viewport": {"width": 768, "height": 1024}, "is_mobile": True, "has_touch": True, "device_scale_factor": 2}
+TAB_LANDSCAPE = {
+    "viewport": {"width": 1024, "height": 768},
+    "is_mobile": True,
+    "has_touch": True,
+    "device_scale_factor": 2,
+}
 TOL = 0.5  # the audit's tolerance for an offset or a spread, in CSS px
 WHOLE = 0.01  # a length counts as a whole number of px within this
 
@@ -114,6 +121,13 @@ LABELS = """sels => sels.flatMap(s => [...document.querySelectorAll(s)].filter(e
 BADGE_ICONS = """() => [...document.querySelectorAll('.pin .tags .badge')].filter(b => b.querySelector('svg')).map(b => {
   const R = b.getBoundingClientRect(), i = b.querySelector('svg').getBoundingClientRect(), t = __m.label(b);
   return {text: t.text, cap: t.cap, icon: i.top + i.height / 2 - (R.top + R.height / 2)};})"""
+# The mark badges top to bottom: pin id, centre, size and the drawn box's top and bottom.
+MARKS = """() => [...document.querySelectorAll('.mark button.mark-jump')].map(b => {const r = b.getBoundingClientRect();
+  return {id: +b.dataset.id, x: r.left + r.width / 2, y: r.top + r.height / 2, size: r.width, top: r.top, bottom: r.bottom};})
+  .sort((a, b) => a.y - b.y)"""
+# The pin whose mark badge answers a press at (x, y), or null.
+PRESSED = """([x, y]) => {const n = document.elementFromPoint(x, y), b = n && n.closest('.mark button.mark-jump');
+  return b ? +b.dataset.id : null;}"""
 
 
 def whole(v: float) -> bool:
@@ -124,6 +138,54 @@ def whole(v: float) -> bool:
 def spread(values: list[float]) -> float:
     """The distance between the smallest and the largest of values."""
     return max(values) - min(values)
+
+
+class MarkHitRoomsLogic(unittest.TestCase):
+    """markHitRooms(): how far each mark badge's press area may reach toward its neighbours (docs/handbook/viewer.md
+    §모바일 레이아웃). The rule in one sentence: a press goes to the nearer badge."""
+
+    def rooms(self, boxes: list[dict[str, float]]) -> list[dict[str, float | None]]:
+        """markHitRooms(boxes, 44) as the served page defines it, run under node; skips without node."""
+        out = run_node(
+            extract_js_fn("markHitRooms") + "\nconsole.log(JSON.stringify(markHitRooms(%s,44)));" % json.dumps(boxes)
+        )
+        if out is None:
+            self.skipTest("node not available")
+        rooms: list[dict[str, float | None]] = json.loads(out)
+        return rooms
+
+    def test_two_badges_closer_than_the_press_area_split_the_gap_between_their_circles(self):
+        """Two 26px badges 30px apart, one under the other: 4px lie between the circles, and each gets 2px of it - the
+        upper one below, the lower one above - and keeps every other side whole."""
+        a, b = self.rooms([{"x": 0, "y": 0, "w": 26, "h": 26}, {"x": 0, "y": 30, "w": 26, "h": 26}])
+        self.assertEqual(a, {"t": None, "r": None, "b": 2, "l": None})
+        self.assertEqual(b, {"t": 2, "r": None, "b": None, "l": None})
+
+    def test_badges_a_press_area_apart_or_more_keep_every_side(self):
+        """44px apart (the areas touch) or further, in either direction, nothing is cut."""
+        free = {"t": None, "r": None, "b": None, "l": None}
+        self.assertEqual(
+            self.rooms([{"x": 0, "y": 0, "w": 26, "h": 26}, {"x": 0, "y": 44, "w": 26, "h": 26}]), [free, free]
+        )
+        self.assertEqual(
+            self.rooms([{"x": 0, "y": 0, "w": 26, "h": 26}, {"x": 60, "y": 10, "w": 26, "h": 26}]), [free, free]
+        )
+
+    def test_the_gap_is_split_along_the_axis_the_centres_are_further_apart_on(self):
+        """A neighbour to the right and a little lower (30px across, 10px down) cuts the sides that face it - right and
+        left - and not the top or the bottom; with three in a column the middle one is cut above and below."""
+        a, b = self.rooms([{"x": 0, "y": 0, "w": 26, "h": 26}, {"x": 30, "y": 10, "w": 26, "h": 26}])
+        self.assertEqual((a["r"], a["b"], b["l"], b["t"]), (2, None, 2, None))
+        column = self.rooms([{"x": 0, "y": y, "w": 26, "h": 26} for y in (0, 30, 64)])
+        self.assertEqual((column[1]["t"], column[1]["b"]), (2, 4))
+
+    def test_circles_that_touch_or_overlap_leave_no_room_between_them(self):
+        """Badges 26px apart or closer have no gap to share: the room toward each other is 0, never negative, so a press
+        area never reaches into the neighbour's drawn circle."""
+        for dy in (26, 20, 0):
+            with self.subTest(dy=dy):
+                a, b = self.rooms([{"x": 0, "y": 0, "w": 26, "h": 26}, {"x": 0, "y": dy, "w": 26, "h": 26}])
+                self.assertEqual((a["b"], b["t"]), (0, 0))
 
 
 class SizeAlignmentBase(BrowserBase):
@@ -345,6 +407,128 @@ class LabelInkCentre(CardFixture):
                 family = page.evaluate("getComputedStyle(document.querySelector('.pin .acts button')).fontFamily")
                 self.assertTrue(family.startswith('"%s"' % FALLBACKS[0]), family)
                 self.assert_centred(page, hangul=font == "Noto Sans CJK KR", required=required)
+
+
+class MarkHitSplit(SizeAlignmentBase):
+    """A press on a mark badge goes to the nearer badge (docs/handbook/viewer.md §모바일 레이아웃): each badge's press
+    area reaches --mark-hit round its centre and, toward a neighbour, half the gap between their circles. The 44px
+    boxes overlapped and the badge drawn later took the whole overlap - on a phone the centre of #1 pressed #2."""
+
+    def marks_apart(self, device: dict, px: float) -> tuple:
+        """The viewer on device with two pins whose marks start px apart (within a device pixel: a mark's place is a
+        fraction of its page), one under the other, on page 1 -> (page, upper badge, lower badge, their distance) as
+        MARKS gives them."""
+        page = self.view(device)
+        height = page.evaluate("document.querySelector('#p1').getBoundingClientRect().height")
+        for i, y in enumerate((0.3, 0.3 + px / height)):
+            add_pin(
+                {
+                    "file": str(self.main),
+                    "lo": 4 + i,
+                    "hi": 4 + i,
+                    "page": 1,
+                    "note": "핀",
+                    "frac": [0.3, y, 0.4, 0.01],
+                },
+                actor(ALICE),
+            )
+        page.evaluate("loadPins()")
+        page.wait_for_function("document.querySelectorAll('.mark button.mark-jump').length===2")
+        settle(page)
+        upper, lower = page.evaluate(MARKS)
+        apart = lower["y"] - upper["y"]
+        self.assertAlmostEqual(apart, px, delta=0.5)
+        return page, upper, lower, apart
+
+    def hit(self, page, mark: dict) -> dict:
+        """How far a press answers mark's badge from its centre on each side (MEASURE's hit)."""
+        got: dict = page.evaluate(
+            "id => __m.hit(document.querySelector('.mark-jump[data-id=\"' + id + '\"]'))", mark["id"]
+        )
+        return got
+
+    def test_two_marks_30px_apart_split_the_gap_and_keep_the_rest_of_their_44px(self):
+        """Touch, two 26px badges 30px apart: a press on either centre and anywhere on either circle reaches that
+        badge; the 4px between the circles is split in half, so each answers half the distance (15px) toward the other,
+        the whole 22px away from it and the whole 44px across."""
+        page, upper, lower, apart = self.marks_apart(PHONE, 30)
+        self.assertEqual((upper["size"], lower["size"]), (26, 26))
+        for m in (upper, lower):
+            for dy in (-12, 0, 12):  # the circle's top, centre and bottom
+                self.assertEqual(page.evaluate(PRESSED, [m["x"], m["y"] + dy]), m["id"], (m, dy))
+        middle = (upper["y"] + lower["y"]) / 2
+        self.assertEqual(page.evaluate(PRESSED, [upper["x"], middle - 1]), upper["id"])
+        self.assertEqual(page.evaluate(PRESSED, [upper["x"], middle + 1]), lower["id"])
+        for got, away, toward in ((self.hit(page, upper), "t", "b"), (self.hit(page, lower), "b", "t")):
+            self.assertAlmostEqual(got[away], 22, delta=1, msg=got)  # a hit test answers whole device pixels
+            self.assertAlmostEqual(got[toward], apart / 2, delta=1, msg=got)
+            self.assertAlmostEqual(got["l"] + got["r"], 44, delta=1, msg=got)
+
+    def test_marks_a_press_area_apart_keep_44px_each(self):
+        """Touch, 60px apart: nothing is cut - each badge answers 44x44."""
+        page, upper, lower, _ = self.marks_apart(PHONE, 60)
+        for m in (upper, lower):
+            got = self.hit(page, m)
+            self.assertAlmostEqual(got["t"] + got["b"], 44, delta=1, msg=got)  # a hit test answers whole device pixels
+            self.assertAlmostEqual(got["l"] + got["r"], 44, delta=1, msg=got)
+
+    def test_marks_redrawn_under_the_changes_view_are_split_when_the_pages_show_again(self):
+        """Marks drawn while the changes view hides the pages (a pin list reload) have no boxes to measure: back in the
+        manuscript the two badges 30px apart are split again - neither loses its reach to a measure of nothing, and
+        neither takes the other's centre."""
+        page, upper, lower, apart = self.marks_apart(PHONE, 30)
+        page.evaluate("setViewMode(VIEW_MODE.REVISIONS)")
+        page.wait_for_function("document.querySelector('#left').getClientRects().length===0")
+        page.evaluate("marks()")
+        page.evaluate("setViewMode(VIEW_MODE.MANUSCRIPT)")
+        settle(page)
+        upper, lower = page.evaluate(MARKS)
+        middle = (upper["y"] + lower["y"]) / 2
+        self.assertEqual(page.evaluate(PRESSED, [upper["x"], upper["y"]]), upper["id"])
+        self.assertEqual(page.evaluate(PRESSED, [upper["x"], middle - 1]), upper["id"])
+        self.assertEqual(page.evaluate(PRESSED, [upper["x"], middle + 1]), lower["id"])
+        for got, away, toward in ((self.hit(page, upper), "t", "b"), (self.hit(page, lower), "b", "t")):
+            self.assertAlmostEqual(got[away], 22, delta=1, msg=got)
+            self.assertAlmostEqual(got[toward], apart / 2, delta=1, msg=got)
+
+    def test_a_mouse_press_on_a_circle_never_reaches_the_circle_next_to_it(self):
+        """Mouse, two 22px badges 22px apart (their circles touch): the 24px press areas overlapped by 2px, so the last
+        pixel row of the upper circle pressed the lower badge and the first row of the lower one the upper. Every whole
+        pixel row inside a circle's box answers that circle's badge (the browser hit-tests whole pixels), and each keeps
+        its 1px on the side away from the other."""
+        page, upper, lower, _ = self.marks_apart(DESK, 22)
+        self.assertEqual((upper["size"], lower["size"]), (22, 22))
+        for m in (upper, lower):
+            rows = range(math.ceil(m["top"]), math.floor(m["bottom"]))
+            owners = {page.evaluate(PRESSED, [round(m["x"]), y]) for y in rows}
+            self.assertEqual(owners, {m["id"]}, (m, lower))
+        self.assertEqual(page.evaluate(PRESSED, [round(upper["x"]), math.floor(upper["top"]) - 1]), upper["id"])
+        self.assertEqual(page.evaluate(PRESSED, [round(lower["x"]), math.ceil(lower["bottom"])]), lower["id"])
+
+
+class RevisionGuideClearOfGrip(CardFixture):
+    """The changes view beside the side panel on a touch tablet (docs/handbook/viewer.md §패널 폭과 시트 높이): the panel
+    handle's hit, which lies on the PDF side of the handle, is only the 44px square on the handle's middle while the
+    changes view is open - its rows run to the handle. Down the handle's whole height the hit took the right end of the
+    guide row: [확인], the row's last button, answered 28px of its width at 1024x768."""
+
+    def test_confirm_answers_44px_beside_the_panel_handle(self):
+        """1024x768 touch (the panel beside the document): [확인] and [원고로] in the guide row each answer 44x44 or
+        more through their centres, and the handle still answers 44x44 round its own middle."""
+        page = self.view(TAB_LANDSCAPE)
+        page.evaluate("showChange(%d)" % self.review)
+        page.wait_for_selector("#revision-pin [data-act=confirm]")
+        settle(page)
+        self.assertTrue(
+            page.evaluate(
+                "document.body.classList.contains('side-open')&&!document.body.classList.contains('mid-overlay')"
+            )
+        )
+        for sel in ("#revision-pin [data-act=confirm]", "#revision-pin [data-act=rev-back]", "#grip"):
+            with self.subTest(control=sel):
+                got = page.evaluate("s => __m.hit(document.querySelector(s))", sel)
+                self.assertGreaterEqual(got["l"] + got["r"], 44 - 0.2, got)
+                self.assertGreaterEqual(got["t"] + got["b"], 44 - 0.2, got)
 
 
 if __name__ == "__main__":
