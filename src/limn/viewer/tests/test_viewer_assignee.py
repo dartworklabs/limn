@@ -18,6 +18,7 @@ Run: uv run pytest -q src/limn/viewer/tests/test_viewer_assignee.py
 
 import base64
 import json
+import math
 import os
 import shutil
 import time
@@ -1110,6 +1111,48 @@ class AssigneeRowGeometry(ComposerBase):
                         "['#c-assign .as-lab', '#c-assign .as-t'].map(s => getComputedStyle(document.querySelector(s)).fontSize)"
                     )
                     self.assertEqual(len(set(sizes)), 1, sizes)
+
+    def test_nothing_scrolls_sideways_unless_the_names_cannot_fit(self):
+        """Every viewport of the list, Korean and English, a selection over an open pin: in append mode and then, after
+        [따로 저장], in new-pin mode with one, two and three colleagues (short names, and three long ones), the composer
+        and the assignee row are never wider than their boxes, and the row's track scrolls only when its segments at
+        their narrowest do not fit - by what they lack, never by a rounding pixel. With one or two short names the
+        segments always fit, in Korean and English: at 320px the 13px label left the track 1.09px short of Bob's and
+        Carol's segments and it scrolled by 1px; in English the label 'Assignee' left it 20px short."""
+        self.tag_three()
+        add_pin({"file": str(self.main), "lo": 5, "hi": 5, "page": 1, "note": "먼저 쓴 메모"}, actor(ALICE))
+        notes = {
+            "one": "@Bob Park 확인",
+            "two": "@Bob Park 확인, @Carol Lee 참고",
+            "three": "@Bob Park 확인, @Carol Lee 참고 @한지우",
+            "three long": LONG_NOTE,
+        }
+        widths = """() => {const q = s => document.querySelector(s), wide = e => e ? e.scrollWidth - e.clientWidth : 0;
+          const seg = q('#c-assign .as-seg'), t = seg && (seg.querySelector('.lad-t') || seg), cs = t && getComputedStyle(t);
+          const need = t ? [...t.children].reduce((n, b) => {const c = getComputedStyle(b), w = b.querySelector('.as-t').getBoundingClientRect().width;
+            return n + w + parseFloat(c.paddingLeft) + parseFloat(c.paddingRight) + parseFloat(c.borderLeftWidth) + parseFloat(c.borderRightWidth);}, 0) + parseFloat(cs.columnGap || 0) * (t.children.length - 1)
+            + parseFloat(cs.paddingLeft) + parseFloat(cs.paddingRight) : 0;
+          return {composer: wide(q('#composer')), row: wide(q('#c-assign')), track: wide(seg), fits: !!seg && need <= seg.getBoundingClientRect().width,
+            need, box: seg && seg.getBoundingClientRect().width, appendLine: wide(q('#note-mentions'))};}"""
+        for name, device in VIEWPORTS.items():
+            for lang in ("ko", "en"):
+                with self.subTest(name, lang=lang):
+                    page = self.view(device, 1, lang=lang)
+                    self.compose(page, notes["two"], separate=False, device=device)
+                    got = page.evaluate(widths)
+                    self.assertEqual((got["composer"], got["appendLine"]), (0, 0), ("append", got))
+                    self.separate(page, device)
+                    for label, note in notes.items():
+                        self.rewrite(page, note, device)
+                        got = page.evaluate(widths)
+                        self.assertEqual((got["composer"], got["row"]), (0, 0), (label, got))
+                        if label in ("one", "two"):
+                            self.assertTrue(got["fits"], (label, got))
+                        if got["fits"]:
+                            self.assertEqual(got["track"], 0, (label, got))
+                        else:
+                            self.assertGreaterEqual(got["track"], math.floor(got["need"] - got["box"]), (label, got))
+                    page.context.close()
 
     def test_three_long_names_at_320_scroll_inside_the_row(self):
         """320x720, three long names: the track is longer than the row and scrolls sideways inside it, as the range
