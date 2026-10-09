@@ -1247,10 +1247,10 @@ class SearchCrowdedBar(FiveDocsBase):
     @staticmethod
     def drawn_gaps(g):
         """The open bar as drawn, left to right (OVER_BAR): the gaps between consecutive drawn things - neighbours
-        still shown and the open field - and the gap from the last neighbour left of the field to the field (None
-        when none is left of it)."""
-        things = sorted([(k["l"], k["r"]) for k in g["kids"] if k["shows"]] + [(g["box"][0], g["box"][2])])
-        gaps = [round(b[0] - a[1], 2) for a, b in zip(things, things[1:], strict=False)]
+        still shown and the open field - as (gap, whether the field is one of the two), and the gap from the last
+        neighbour left of the field to the field (None when none is left of it)."""
+        things = sorted([(k["l"], k["r"], False) for k in g["kids"] if k["shows"]] + [(g["box"][0], g["box"][2], True)])
+        gaps = [(round(b[0] - a[1], 2), a[2] or b[2]) for a, b in zip(things, things[1:], strict=False)]
         before = [k["r"] for k in g["kids"] if k["shows"] and k["r"] <= g["box"][0] + 0.01]
         return gaps, (round(g["box"][0] - max(before), 2) if before else None)
 
@@ -1282,7 +1282,7 @@ class SearchCrowdedBar(FiveDocsBase):
                         self.assertLessEqual(kid["cut"], 0, kid)
                 self.assertLessEqual(set(g["above"]) | set(g["below"]), {"search", "doc-nav"}, g)
                 gaps, before = self.drawn_gaps(g)
-                self.assertTrue(all(x <= g["gap"] + 0.5 for x in gaps), (name, gaps, g["gap"]))  # no blank run
+                self.assertTrue(all(x <= g["gap"] + 0.5 for x, _ in gaps), (name, gaps, g["gap"]))  # no blank run
                 self.assertAlmostEqual(before, g["gap"], delta=0.5, msg=name)  # one gap after what is left
                 self.assertAlmostEqual(g["box"][2], g["end"], delta=0.01, msg=name)  # it ends where it ended
                 self.assertGreaterEqual(g["box"][0], g["nav"][0])
@@ -1380,15 +1380,16 @@ class SearchCrowdedBar(FiveDocsBase):
         self.assertEqual(page.evaluate(where), rest)
 
     def test_what_stays_beside_the_opened_field_keeps_the_bars_gap(self):
-        """A mouse window with the field open and a query, narrowed from 1096 to 704px: at every width each neighbour
+        """A mouse window with the field open and a query, narrowed from 1440 to 704px: at every width each neighbour
         still drawn ends at least one bar gap left of the open field, or right of it - nothing stands cramped against
         the field's border - and no neighbour the field meets is drawn. Wherever the field takes neighbours off, it
-        starts exactly one bar gap after the last neighbour left on its left and no gap in the bar is wider - also
-        at the widths where only the view switch is taken off and the document links stay."""
-        page = self.view(device(1096, 800, touch=False))
+        starts exactly one bar gap after the last neighbour left on its left and no gap beside it is wider (gaps
+        between two neighbours are the bar's own, as at rest: the paper's name keeps its wider margin) - also at
+        the widths where only the view switch is taken off and the document links stay."""
+        page = self.view(device(1440, 800, touch=False))
         self.search(page, "tide")
         seen = []
-        for width in range(1096, 700, -8):
+        for width in range(1440, 700, -8):
             page.set_viewport_size({"width": width, "height": 800})
             page.wait_for_function("innerWidth===%d" % width)
             settle(page)
@@ -1404,7 +1405,7 @@ class SearchCrowdedBar(FiveDocsBase):
             hidden = {kid["id"] for kid in g["kids"] if not kid["shows"]}
             if hidden:
                 gaps, before = self.drawn_gaps(g)
-                self.assertTrue(all(x <= g["gap"] + 0.5 for x in gaps), (width, gaps, hidden))
+                self.assertTrue(all(x <= g["gap"] + 0.5 for x, field in gaps if field), (width, gaps, hidden))
                 self.assertAlmostEqual(before, g["gap"], delta=0.5, msg=(width, hidden))
                 self.assertAlmostEqual(g["box"][2], g["end"], delta=0.01, msg=width)
             seen.append(hidden)
