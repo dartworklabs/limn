@@ -5,7 +5,8 @@
    answering 44px (.hit) - and takes no height of its own. Its width is --search-w down to --search-min as the bar's room
    allows (searchFit sets it); with less room it folds to a magnifier (data-mode=icon) and opens over the bar. While it is
    open it is --search-open wide - more when the count needs it, so the query keeps --search-q-min - anchored to its right
-   end, so nothing beside it moves; what it lies over is taken off the bar whole (.search-covered).
+   end, so nothing beside it moves; what it lies over is taken off the bar whole (.search-covered) and the field takes its
+   place, from one bar gap after what is left on its left (--search-span, searchCover) - no blank run, no animation.
    Parts, left to right: the magnifier glyph and the input (#search-field, a <label>), the shortcut hint while empty (mouse
    only), the count and the two arrows once there is a query (#search-nav), the close button. The field's border is the one
    outline: nothing inside it has a border, and its focus ring is the field's. */
@@ -21,7 +22,7 @@ body.search-open #search-open{visibility:hidden}   /* the open field stands in i
   border:1px solid var(--input);border-radius:var(--radius);background:var(--field);color:var(--foreground)}
 /* Open, the field's column is never under the query's minimum plus the glyph and the field's padding (16 + 8 + 8 + 8), and the
    box is never under what its columns need: a long count widens the box to the left instead of squeezing the query. */
-body.search-open #doc-search #search-box{display:grid;position:absolute;right:0;top:0;z-index:2;width:max(100%,min(var(--search-open),var(--search-cap,100vw)));min-width:min-content;
+body.search-open #doc-search #search-box{display:grid;position:absolute;right:0;top:0;z-index:2;width:var(--search-span,max(100%,min(var(--search-open),var(--search-cap,100vw))));min-width:min-content;
   grid-template-columns:minmax(calc(var(--search-q-min) + var(--space-4) + 3 * var(--space-2)),1fr)}
 #search-box:has(#search-q:focus-visible){outline:2px solid var(--ring);outline-offset:1px}
 /* A neighbour the open field lies over (searchCover): not drawn, no press, no focus - and still in its place, so the bar

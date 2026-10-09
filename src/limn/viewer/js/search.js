@@ -224,13 +224,20 @@ function searchFit(){const s=$('#doc-search'),nav=$('#doc-nav');
   s.dataset.mode=w?'inline':'icon'; s.style.width=w?w+'px':'';
   s.style.setProperty('--search-cap',Math.max(0,s.getBoundingClientRect().right-left)+'px'); searchInk(); searchCover();}
 // While the opened field lies over the bar, every neighbour its box meets - or comes within the bar's gap of - is taken off
-// the bar whole (.search-covered: not drawn, no press, no focus; it keeps its place, so nothing moves), and the others stay
-// whole: no cut word, underline or separator is left beside the field. Nothing is covered on the phone (it has no bar) or
-// while the field is closed.
+// the bar whole (.search-covered: not drawn, no press, no focus; it keeps its place, so nothing moves and closing puts it
+// back as it was), and the field takes their place: --search-span widens it to the left, from where it ends to one bar gap
+// after the last neighbour left on its left (the bar's content edge when none is), so no blank run is left where they
+// stood. The others stay whole. The field's natural box is measured first and the span set in the same task, so the field
+// is drawn at its full span in the frame it opens and its text does not move after. Nothing is covered on the phone (it has
+// no bar) or while the field is closed.
 function searchCover(){const s=$('#doc-search'),nav=$('#doc-nav'),box=$('#search-box');
-  const b=SEARCH.open&&!s.hidden&&BAND!==LAYOUT_BAND.PHONE&&box.getClientRects().length?box.getBoundingClientRect():null,gap=b?parseFloat(getComputedStyle(nav).columnGap)||0:0;
-  for(const k of nav.children){if(k===s)continue; const r=b?k.getBoundingClientRect():null;
-    k.classList.toggle('search-covered',!!(b&&r&&r.width>0&&r.right>b.left-gap+0.5&&r.left<b.right+gap-0.5));}}
+  s.style.removeProperty('--search-span');   // the natural box first: the span is worked out from it
+  const b=SEARCH.open&&!s.hidden&&BAND!==LAYOUT_BAND.PHONE&&box.getClientRects().length?box.getBoundingClientRect():null;
+  const cs=getComputedStyle(nav),gap=b?parseFloat(cs.columnGap)||0:0; let edge=nav.getBoundingClientRect().left+nav.clientLeft+(parseFloat(cs.paddingLeft)||0),took=false;
+  for(const k of nav.children){if(k===s)continue; const r=b?k.getBoundingClientRect():null,off=!!(b&&r&&r.width>0&&r.right>b.left-gap+0.5&&r.left<b.right+gap-0.5);
+    k.classList.toggle('search-covered',off); took=took||off;
+    if(b&&r&&!off&&r.width>0&&r.right<=b.left)edge=Math.max(edge,r.right+gap);}
+  if(b&&took)s.style.setProperty('--search-span',Math.max(b.width,b.right-edge)+'px');}
 // The field's text on the row's ink reference (docs/handbook/viewer.md §글자 가운데): its neighbours' labels are trimmed to
 // their cap height (text-box: trim-both cap alphabetic) and centred, which an <input> cannot be - trimming does not reach its
 // text. So the field holds that reference itself: #search-ref-row is a trimmed line at the row labels' size and

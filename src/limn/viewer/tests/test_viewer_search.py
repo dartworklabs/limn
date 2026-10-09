@@ -1199,6 +1199,7 @@ OVER_BAR = """() => {const q = s => document.querySelector(s), box = q('#search-
   const reach = y => {const ids = new Set(); for (let x = Math.ceil(box.left) + 1; x < box.right - 1; x += 3) {const e = document.elementFromPoint(x, y);
     ids.add(e ? (e.closest('#doc-search') ? 'search' : e.id || (e.closest('#doc-nav>*') || e).id || e.tagName) : 'none');} return [...ids];};
   return {box: [box.left, box.top, box.right, box.bottom], nav: [nav.getBoundingClientRect().left, nav.getBoundingClientRect().right], kids, gap: parseFloat(getComputedStyle(nav).columnGap),
+    end: q('#doc-search').getBoundingClientRect().right,
     above: reach(box.top - 2), below: reach(box.bottom + 2), mode: q('#doc-search').dataset.mode};}"""
 # The bar's pixels in the strips above and below the open box, within its width: in each strip, how many pixels differ from
 # the commonest colour of their own row (the bar's background or its bottom line - each one colour across).
@@ -1243,6 +1244,16 @@ class SearchCrowdedBar(FiveDocsBase):
         self.assertEqual(modes[-1], "icon")
         self.assertTrue(any(m == "inline" and 200 <= w < 240 for m, w in seen), seen)
 
+    @staticmethod
+    def drawn_gaps(g):
+        """The open bar as drawn, left to right (OVER_BAR): the gaps between consecutive drawn things - neighbours
+        still shown and the open field - and the gap from the last neighbour left of the field to the field (None
+        when none is left of it)."""
+        things = sorted([(k["l"], k["r"]) for k in g["kids"] if k["shows"]] + [(g["box"][0], g["box"][2])])
+        gaps = [round(b[0] - a[1], 2) for a, b in zip(things, things[1:], strict=False)]
+        before = [k["r"] for k in g["kids"] if k["shows"] and k["r"] <= g["box"][0] + 0.01]
+        return gaps, (round(g["box"][0] - max(before), 2) if before else None)
+
     def open_folded(self, name):
         """The viewer on the crowded viewport `name` with the folded field opened by its magnifier and 'tide' typed.
         The browser's own tap highlight is turned off: Chrome washes the tapped magnifier's 44px box for a while after
@@ -1258,7 +1269,9 @@ class SearchCrowdedBar(FiveDocsBase):
         scale factors 2 and 1). Opened with a query: every part of the bar that the field's box meets is not drawn and
         answers no press, every part still drawn is whole (not cut, clear of the box), a press 2px above or below the
         box reaches the search or the bare bar, and the rows of pixels above and below the box are the bar's own
-        colour - no underline, separator or clipped word left over."""
+        colour - no underline, separator or clipped word left over. The field takes the place of what it took off:
+        it starts one bar gap after the last neighbour left on its left and ends where it ended, so no gap in the
+        open bar is wider than the bar's gap - no blank run where the neighbours were."""
         for name, dev in CROWDED.items():
             with self.subTest(viewport=name):
                 page = self.open_folded(name)
@@ -1268,6 +1281,10 @@ class SearchCrowdedBar(FiveDocsBase):
                     if kid["shows"]:
                         self.assertLessEqual(kid["cut"], 0, kid)
                 self.assertLessEqual(set(g["above"]) | set(g["below"]), {"search", "doc-nav"}, g)
+                gaps, before = self.drawn_gaps(g)
+                self.assertTrue(all(x <= g["gap"] + 0.5 for x in gaps), (name, gaps, g["gap"]))  # no blank run
+                self.assertAlmostEqual(before, g["gap"], delta=0.5, msg=name)  # one gap after what is left
+                self.assertAlmostEqual(g["box"][2], g["end"], delta=0.01, msg=name)  # it ends where it ended
                 self.assertGreaterEqual(g["box"][0], g["nav"][0])
                 self.assertLessEqual(g["box"][2], g["nav"][1])
                 page.evaluate("document.activeElement.blur()")  # no caret or ring in the shot
@@ -1285,6 +1302,28 @@ class SearchCrowdedBar(FiveDocsBase):
                     ],
                 )
                 self.assertEqual(stray, [0, 0], name)
+
+    def test_the_opened_fields_text_stays_put_from_its_first_frame(self):
+        """In every crowded bar, from the first frame the field is open in - opened by its magnifier - through typing a
+        query and its count arriving, the field's left edge and its text's left edge stay where they are: the field
+        takes the neighbours' place in the frame it opens, not a frame later, and the count does not push the text."""
+        record = """() => {window.__at = []; window.__stop = false; const tick = () => {
+          if (document.body.classList.contains('search-open')) {const q = document.querySelector('#search-q').getBoundingClientRect(), b = document.querySelector('#search-box').getBoundingClientRect();
+            window.__at.push([Math.round(b.left * 100) / 100, Math.round(q.left * 100) / 100]);}
+          if (!window.__stop) requestAnimationFrame(tick);}; requestAnimationFrame(tick);}"""
+        for name, dev in CROWDED.items():
+            with self.subTest(viewport=name):
+                page = self.view(dev)
+                page.evaluate(record)
+                self.press(page, "#search-open")
+                page.wait_for_function("document.activeElement===document.querySelector('#search-q')")
+                page.keyboard.type("tide")
+                page.wait_for_function(COUNTED, timeout=8000)
+                settle(page)
+                page.evaluate("window.__stop = true")
+                at = page.evaluate("window.__at")
+                self.assertGreater(len(at), 2, name)
+                self.assertEqual(sorted(set(map(tuple, at))), [tuple(at[-1])], name)
 
     def test_a_press_just_under_the_opened_field_does_not_reach_a_covered_tab(self):
         """In the 760px mouse window, a click 2px under the open field where [변경사항] lies covered leaves the
@@ -1325,8 +1364,12 @@ class SearchCrowdedBar(FiveDocsBase):
         self.assertEqual(back[0], "nav-toc-toggle")
 
     def test_closing_the_opened_field_brings_the_neighbours_back(self):
-        """Esc folds the field to its magnifier with the focus on it, and every link and both tabs are drawn again."""
-        page = self.open_folded("mouse 760x800")
+        """Esc folds the field to its magnifier with the focus on it, and every link and both tabs are drawn again,
+        each exactly where it stood before the field opened."""
+        page = self.view(CROWDED["mouse 760x800"])
+        where = "[...document.querySelectorAll('#doc-nav>*,#doc-links button,#view-switch button')].filter(e=>e.getClientRects().length).map(e=>{const r=e.getBoundingClientRect(); return [e.id||e.textContent,r.left,r.top,r.width,r.height];})"
+        rest = page.evaluate(where)
+        self.search(page, "tide")
         page.keyboard.press("Escape")
         settle(page)
         self.assertEqual(page.evaluate("document.activeElement.id"), "search-open")
@@ -1334,11 +1377,14 @@ class SearchCrowdedBar(FiveDocsBase):
         self.assertEqual((g["mode"], g["box"]), ("icon", None))
         self.assertTrue(g["links"] and g["view"])
         self.assertEqual(page.locator("#doc-links button:visible").count(), 5)
+        self.assertEqual(page.evaluate(where), rest)
 
     def test_what_stays_beside_the_opened_field_keeps_the_bars_gap(self):
         """A mouse window with the field open and a query, narrowed from 1096 to 704px: at every width each neighbour
         still drawn ends at least one bar gap left of the open field, or right of it - nothing stands cramped against
-        the field's border - and no neighbour the field meets is drawn."""
+        the field's border - and no neighbour the field meets is drawn. Wherever the field takes neighbours off, it
+        starts exactly one bar gap after the last neighbour left on its left and no gap in the bar is wider - also
+        at the widths where only the view switch is taken off and the document links stay."""
         page = self.view(device(1096, 800, touch=False))
         self.search(page, "tide")
         seen = []
@@ -1355,8 +1401,15 @@ class SearchCrowdedBar(FiveDocsBase):
                 self.assertTrue(
                     kid["r"] <= left - g["gap"] + 0.01 or kid["l"] >= right + g["gap"] - 0.01, (width, kid, g["box"])
                 )
-            seen.append(sum(1 for kid in g["kids"] if not kid["shows"]))
-        self.assertTrue(any(seen), seen)  # the field lay over a neighbour at some width
+            hidden = {kid["id"] for kid in g["kids"] if not kid["shows"]}
+            if hidden:
+                gaps, before = self.drawn_gaps(g)
+                self.assertTrue(all(x <= g["gap"] + 0.5 for x in gaps), (width, gaps, hidden))
+                self.assertAlmostEqual(before, g["gap"], delta=0.5, msg=(width, hidden))
+                self.assertAlmostEqual(g["box"][2], g["end"], delta=0.01, msg=width)
+            seen.append(hidden)
+        self.assertIn({"view-switch"}, seen)  # some neighbours off and some left: the document links stay
+        self.assertIn({"doc-links", "view-switch"}, seen)
 
     def test_esc_on_the_closed_search_is_the_viewers(self):
         """In the 760px mouse window the field is closed with Esc (the focus back on the magnifier) and the pin panel
