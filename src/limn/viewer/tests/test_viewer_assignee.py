@@ -584,39 +584,70 @@ class PickLifetime(ComposerBase):
         return page
 
 
-class AppendToAnOverlappedPin(ComposerBase):
-    """While the composer offers [덧붙이기] for the pin its selection overlaps, the line under the note says both saves
-    and no assignee row is drawn; each button then does what the line said."""
+# The preview line as drawn while [덧붙이기] is on offer: its words, its separators' boxes, and for each group between
+# separators the tops of the items in it; a pill's height (one line, so no name breaks inside).
+APPEND_LINE = """() => {const box = document.querySelector('#note-mentions'), top = e => Math.round(e.getBoundingClientRect().top);
+  const kids = [...box.children], groups = kids.filter(e => e.classList.contains('m-grp'));
+  return {words: box.innerText.replace(/\\s+/g, ' ').trim(), hidden: box.hidden, groups: groups.map(g => [...g.children].map(top)),
+    seps: kids.filter(e => e.classList.contains('m-sep')).map(top), lineTops: [...new Set(kids.map(top))],
+    pills: [...box.querySelectorAll('.mention')].map(e => e.getBoundingClientRect().height)};}"""
 
-    def start(self, stored):
-        """An open pin of mine assigned to stored on the fixture's paragraph, then a selection over it with a note
-        tagging Carol; returns (the page, the pin's id)."""
+
+class AppendToAnOverlappedPin(ComposerBase):
+    """While the composer offers [덧붙이기] for the pin its selection overlaps, the line under the note says only what
+    each action changes - whom appending tells, and whom a separate save makes the assignee - and no assignee row is
+    drawn; each button then does what the line said."""
+
+    def start(self, stored, note="@Carol Lee 답해 주세요", device=DESKTOP):
+        """An open pin of mine assigned to stored on the fixture's paragraph, then a selection over it with note;
+        returns (the page, the pin's id)."""
         body = {"file": str(self.main), "lo": 5, "hi": 5, "page": 1, "note": "먼저 쓴 메모", "assignee": stored}
         pid = add_pin(body, actor(ALICE)).record["id"]
-        page = self.view(DESKTOP, 1)
-        self.compose(page, "@Carol Lee 답해 주세요", separate=False)
+        page = self.view(device, 1)
+        self.compose(page, note, separate=False, device=device)
         self.assertTrue(page.is_visible('#c-overlap [data-act="overlap-append"]'))
         return page, pid
 
-    def assert_both_saves_said(self, stored, word):
-        """Over a pin assigned to stored the line reads '덧붙이면 담당 <word> 그대로', '새 핀이면 담당 Carol Lee',
-        '알림 Carol Lee', and no assignee row is drawn."""
-        page, _ = self.start(stored)
-        self.assertEqual(
-            page.locator("#note-mentions").inner_text().split(),
-            ("덧붙이면 담당 %s 그대로 새 핀이면 담당 Carol Lee 알림 Carol Lee" % word).split(),
-        )
-        self.assertIsNone(page.evaluate(ASSIGN_ROW))
+    def test_the_line_says_what_each_action_changes_and_no_row_is_offered(self):
+        """Over an agent pin and over a pin of Bob's alike: '@ 알림 Carol Lee · 따로 저장하면 담당 Carol Lee'. Appending
+        changes nothing about the pin's assignee, so the line names neither the agent nor Bob (it said '덧붙이면 담당
+        에이전트 그대로' and wrapped). No assignee row: it would choose nothing for an append (it showed '담당 Carol
+        Lee' with her segment pressed)."""
+        for stored in (AGENT, B):
+            with self.subTest(stored=stored):
+                page, _ = self.start(stored)
+                line = page.evaluate(APPEND_LINE)
+                self.assertEqual(
+                    line["words"].split(), ["알림", "Carol", "Lee", "·", "따로", "저장하면", "담당", "Carol", "Lee"]
+                )
+                self.assertIsNone(page.evaluate(ASSIGN_ROW))
 
-    def test_over_an_agent_pin_the_line_says_both_saves_and_no_row_is_offered(self):
-        """The line names the agent as the assignee an append keeps, Carol as the new pin's, and Carol as told by
-        either - and no assignee row, which would choose nothing for an append (it showed '담당 Carol Lee' with her
-        segment pressed)."""
-        self.assert_both_saves_said(AGENT, "에이전트")
+    def test_the_line_is_one_line_at_390_and_breaks_only_at_its_separator_at_320(self):
+        """Phone 390 and the desktop: the line is one line. Phone 320: it may wrap, only after the separator - each
+        group ('@ 알림 Carol Lee', '따로 저장하면 담당 Carol Lee') stays on one line and no pill breaks."""
+        for name in ("phone 390x844", "desktop 1440x900", "phone 320x720"):
+            device = VIEWPORTS[name]
+            with self.subTest(name):
+                page, _ = self.start(AGENT, device=device)
+                line = page.evaluate(APPEND_LINE)
+                self.assertEqual(len(line["groups"]), 2, line)
+                self.assertEqual([len(set(tops)) for tops in line["groups"]], [1, 1], line)
+                self.assertEqual(set(line["pills"]), {18}, line)
+                if name != "phone 320x720":
+                    self.assertEqual(len(line["lineTops"]), 1, line)
+                else:
+                    self.assertLessEqual(len(line["lineTops"]), 2, line)
+                    self.assertEqual(line["seps"], [line["groups"][0][0]], line)  # the separator ends the first line
 
-    def test_over_a_colleagues_pin_the_line_names_that_colleague_as_kept(self):
-        """Over a pin of Bob's the append keeps Bob."""
-        self.assert_both_saves_said(B, "Bob Park")
+    def test_without_a_colleague_the_line_is_the_usual_one(self):
+        """A note that tags only me says whom it tells as a new pin's line does ('@ 알림 Alice Kim (나 — 알림 없음)'),
+        with nothing about a separate save; a note without a tag has no line."""
+        page, _ = self.start(AGENT, note="@Alice Kim 나중에 다시 보기")
+        line = page.evaluate(APPEND_LINE)
+        self.assertEqual(line["words"].split(), ["알림", "Alice", "Kim", "(나", "—", "알림", "없음)"])
+        self.assertEqual(line["groups"], [])
+        self.rewrite(page, "태그 없는 메모")
+        self.assertTrue(page.evaluate(APPEND_LINE)["hidden"])
 
     def test_the_append_keeps_the_pins_assignee_and_tells_the_tagged_colleague(self):
         """[덧붙이기]: one edit request carrying the note and no assignee; the pin stays the agent's, Carol gets

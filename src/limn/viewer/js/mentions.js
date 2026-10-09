@@ -111,9 +111,11 @@ function renderAssignEdit(){const E=EDITOR.current; if(!E)return; const ta=editN
 // The preview line under a mention field: what sending the text does. The composer's note says who handles the pin first -
 // '담당' and the assignee the save sends (assignOutcome, SAVE_MODE.NEW) - then '알림' and the people who are only notified:
 // the assignee is told through the assignment and is not listed again. While the note may also join an existing pin
-// (appendTarget - the overlap notice's [덧붙이기]) the line says both saves: '덧붙이면 담당' and that pin's assignee, which
-// stays, '새 핀이면 담당' and the assignee [핀 저장] sends, and under '알림' everyone the note tags, whom either save tells.
-// An edit or a reply assigns nobody and lists whom it notifies. Hidden while the text has no '@' word to report.
+// (appendTarget - the overlap notice's [덧붙이기]) the line says only what each action changes: '알림' and everyone the
+// note tags, whom appending tells, then - once a colleague is tagged - ' · 따로 저장하면 담당' and the assignee a separate
+// save sends. Appending leaves that pin's assignee as it is, so the line says nothing of it. The two are groups (.m-grp)
+// that wrap only at the separator. An edit or a reply assigns nobody and lists whom it notifies. Hidden while the text
+// has no '@' word to report.
 function mentionPreview(ta){if(!ta)return; const box=ta.nextElementSibling; if(!box||!box.classList.contains('m-preview'))return;
   const r=mentionScan(ta.value,mentionHints(ta)),me=meLogin();   // the same hints the save/send carries
   r.bad=mentionBadSettled(r.bad,ta.value,document.activeElement===ta?mentionQuery(ta):null);
@@ -121,11 +123,11 @@ function mentionPreview(ta){if(!ta)return; const box=ta.nextElementSibling; if(!
   const o=ta.id==='note'?assignOutcome(composeAsk(SAVE_MODE.NEW)):null,join=o&&appendTarget()?assignOutcome(composeAsk(SAVE_MODE.APPEND)):null;
   const told=o&&!join?r.hit.filter(l=>l!==o.assignee):r.hit;
   const name=l=>l===ASSIGNEE_AGENT?html`<span class="m-who">${tr('에이전트')}</span>`:html`<span class="mention">${personLabel(l)}</span>`;
-  const kept=join?html`<span class="m-lab">${tr('덧붙이면 담당')}</span><span class="m-who">${tl('{name} 그대로',{name:assigneeWord(join.assignee)})}</span>`:'';
-  const who=!o?'':html`${kept}<span class="m-lab">${tr(join?'새 핀이면 담당':'담당')}</span>${name(/** @type {string} */(o.assignee))}`;
   const hits=told.length?html`<span class="m-lab">${ic('at-sign')}알림</span>${told.map(l=>html`<span class="mention${l===me?' me':''}">${personLabel(l)}${l===me?' '+tr('(나 — 알림 없음)'):''}</span>`)}`:'';
+  const assigns=o?html`<span class="m-lab">${tr(join?'따로 저장하면 담당':'담당')}</span>${name(/** @type {string} */(o.assignee))}`:html``;
+  const head=!o?hits:!join?html`${assigns}${hits}`:join.told.length?html`<span class="m-grp">${hits}</span><span class="m-sep">·</span><span class="m-grp">${assigns}</span>`:hits;
   const bad=r.bad.map(w=>html`<span class="mention-bad" data-tip="등록된 사람이 아님 — 이 이름으로는 알림이 가지 않습니다. 이 뷰어를 연 테일넷 사람만 부를 수 있습니다">@${w}</span>`);
-  setHtml(box,html`${who}${hits}${bad}${r.bad.length?html`<span class="m-note">등록된 사람이 아님</span>`:''}`);
+  setHtml(box,html`${head}${bad}${r.bad.length?html`<span class="m-note">등록된 사람이 아님</span>`:''}`);
   box.hidden=false;}
 function mentionUpdate(ta){const q=mentionQuery(ta); if(!q){if(MENTION.ta===ta)mentionClose(); return;}
   const me=META&&META.me&&META.me.login; MENTION.ta=ta; MENTION.start=q.start; MENTION.items=mentionMatches(q.q,PEOPLE,me);

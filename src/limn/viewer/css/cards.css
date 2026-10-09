@@ -136,7 +136,11 @@ body.compact .pin:not(.open):not(.editing) .card-meta.hide-folded{position:absol
    18.6px, what follows it began between pixels, and the words stood 0.6px over its middle. The agent as the assignee (.m-who)
    is plain text: a pill is a tagged person. */
 .m-preview{display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-1) var(--space-2);margin-top:var(--space-2);font-size:var(--text-sm);line-height:calc(var(--line-label) + 2px)}
-.m-preview>*{align-content:center;min-height:1lh;text-box:trim-both cap alphabetic}
+.m-preview>:not(.m-grp),.m-preview .m-grp>*{align-content:center;min-height:1lh;text-box:trim-both cap alphabetic}
+/* While [덧붙이기] is on offer the line is two groups, whom appending tells and whom a separate save assigns, which wrap only
+   at the separator between them: a group moves to the next line whole, so a label never ends a line without its name. */
+.m-preview .m-grp{display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-1) var(--space-2);min-width:0}
+.m-preview .m-sep{color:var(--muted-foreground)}
 .m-preview .m-lab{color:var(--muted-foreground)}
 .m-preview .m-lab .ic{width:12px;height:12px;vertical-align:calc(.5cap - 6px);margin-right:2px}
 .m-preview .m-note{color:var(--muted-foreground)}
