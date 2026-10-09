@@ -86,14 +86,18 @@ function overlapText(rel,id){const k={equal:'열린 핀 #{id}{p} 같은 범위�
 // relationship, and reset on a fresh drag (pick) - prevents a regression where one press permanently silenced it for every later selection.
 
 function recomputeOverlap(){if(COMPOSE.current)COMPOSE.current.overlaps=overlapsFor(COMPOSE.current,PINS);}
+// The open pin the composer's note may join instead of becoming a pin: the overlap its notice offers [덧붙이기] for - or
+// null without one, and once the author chose [따로 저장] for it.
+/** @returns {{id:number,lo:number,hi:number,rel:string}|null} */
+function appendTarget(){const d=COMPOSE.current,ov=d?pickOverlap(d.overlaps):null; return ov&&COMPOSE.dismissedOverlap!==ov.id+':'+ov.rel?ov:null;}
 // Draws the overlap notice for the current selection, or hides it. On the phone sheet it is one line (diagnosis P2: three lines
 // took 72px above the note): the short relation ('#4와 같은 범위', the full sentence and the lines in its tooltip) and the two
 // actions with short names; elsewhere the sentence with the lines and the two full-named buttons.
-/** Render the current overlap choice; its append control shares the composer's in-flight submission lock. */
+/** Render the current overlap choice; its append control shares the composer's in-flight submission lock. The assignee
+ *  row and the preview line follow it (renderAssignNew): while an append is on offer they say what it does. */
 function renderOverlapBanner(){
-  const box=$('#c-overlap'); const d=COMPOSE.current;
-  const ov=d?pickOverlap(d.overlaps):null;
-  if(!ov||COMPOSE.dismissedOverlap===ov.id+':'+ov.rel){box.hidden=true;return;}
+  const box=$('#c-overlap'),ov=appendTarget();
+  if(!ov){box.hidden=true; renderAssignNew(); return;}
   box.hidden=false; box.dataset.rel=ov.rel;
   const one=LAYOUT===LAYOUT_MODE.NARROW,full=overlapText(ov.rel,ov.id)+' (L'+ov.lo+'-L'+ov.hi+')';
   box.classList.toggle('one',one);
@@ -103,6 +107,7 @@ function renderOverlapBanner(){
   setHtml(box,html`${text}\
 <button class="btn-sm btn-secondary hit" data-act="overlap-append" data-oid="${ov.id}" data-tip="${appendTip}"${COMPOSE.saving?html` disabled`:''}>${one?tr('덧붙이기'):tl('#{id} 메모에 덧붙이기',{id:ov.id})}</button>\
 <button class="btn-sm btn-secondary hit" data-act="overlap-separate" data-key="${ov.id+':'+ov.rel}" data-tip="겹쳐도 별도 핀으로 저장합니다">${one?tr('따로 저장'):'별도 핀으로 저장'}</button>`);
+  renderAssignNew();
 }
 // The overlap in a few words for the one-line notice: '#4와 같은 범위' - '#4 범위 안' - '#4를 감쌈' - '#4와 일부 겹침' (the card badges' wording).
 function overlapShort(rel,id){const k={equal:'#{id}{p} 같은 범위',inside:'#{id} 범위 안',contains:'#{id}{p} 감쌈',partial:'#{id}{p} 일부 겹침'}[rel]||'#{id}{p} 일부 겹침';

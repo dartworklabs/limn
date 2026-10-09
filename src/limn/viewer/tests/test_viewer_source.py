@@ -324,6 +324,7 @@ VIEWER_SETS = {
     "DIFF_FORMAT",
     "OVERLAY_SIDE",
     "RANGE_MODE",
+    "SAVE_MODE",
     "SEEN_STATE",
     "VIEW_MODE",
     "UI_LANG",

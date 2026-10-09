@@ -47,15 +47,31 @@ function rangeCap(o,isEdit){const ls=o.levels||[],cur=curLevel(o),r=rng(o.lo,o.h
   const named=ls.length<2&&cur&&!(isEdit&&cur.level==='raw')?' · '+levelName(cur,ls):'';
   const v=isEdit?html`<span class="e-range loc" tabindex="0" data-copy="${o.name+' L'+o.lo+'-L'+o.hi}" data-tip="${tr('저장하면 핀이 가리킬 원문 줄. 누르면 복사')}">${r}</span>`:html`<span class="rg-v">${r}</span>`;
   return html`<b class="rg-l">${tr('범위')}</b> ${v} · ${tl('{n}줄',{n:o.hi-o.lo+1})}${named}`;}
+const SEG_FADE=32;   // how wide a scrolling segment control's edge fade is at most (composer.css)
 // Scrolls a horizontally overflowing segment control so the selected segment is visible (vertical scroll is left untouched).
+// A control that asks for the whole segment (data-reveal="whole": the assignee row, whose segments are names nearly as long
+// as the row) brings it clear of the edge fades too - a fade's width in from an edge that has more to scroll to, or centred
+// when it is too long for that; segFade then keeps each fade off it.
 function segReveal(seg){const on=seg&&seg.querySelector('.on'); if(!on){segFade(seg);return;}
-  const l=on.offsetLeft,r=l+on.offsetWidth;
-  if(l<seg.scrollLeft)seg.scrollLeft=Math.max(0,l-4); else if(r>seg.scrollLeft+seg.clientWidth)seg.scrollLeft=r-seg.clientWidth+4;
+  const l=on.offsetLeft,r=l+on.offsetWidth,w=seg.clientWidth;
+  if(seg.dataset.reveal==='whole')seg.scrollLeft=segWholeAt(l,r,w,seg.scrollWidth,seg.scrollLeft);
+  else if(l<seg.scrollLeft)seg.scrollLeft=Math.max(0,l-4); else if(r>seg.scrollLeft+w)seg.scrollLeft=r-w+4;
   segFade(seg);}
+// Where a scroll box w wide over content `full` wide, now at `at`, stands to show the segment from l to r whole and clear of
+// the edge fades: the nearest place that leaves SEG_FADE on each side of it, or the segment centred when the box has no room
+// for both; never past either end. Pure.
+/** @param {number} l @param {number} r @param {number} w @param {number} full @param {number} at @returns {number} */
+function segWholeAt(l,r,w,full,at){const end=Math.max(0,full-w),fits=r-l+2*SEG_FADE<=w;
+  return Math.max(0,Math.min(end,fits?Math.max(r-w+SEG_FADE,Math.min(l-SEG_FADE,at)):l-(w-(r-l))/2));}
 // If the range ladder is longer than the panel, the overflowing edge is faded - since the scrollbar is hidden, the right-side
 // segment (after 'minipage - 43 lines') used to just get clipped with no indication there was more (QA 2026-09-24). The same idea as the document-links row (docLinksFade).
+// A control that shows its selected segment whole (data-reveal="whole") narrows each fade to the room between that segment and
+// the edge (--fade-l, --fade-r), so the fade lies on what there is more of and never on the selected segment.
 function segFade(seg){if(!seg)return; const over=seg.scrollWidth-seg.clientWidth;
-  seg.classList.toggle('fade-l',over>1&&seg.scrollLeft>1); seg.classList.toggle('fade-r',over>1&&over-seg.scrollLeft>1);}
+  seg.classList.toggle('fade-l',over>1&&seg.scrollLeft>1); seg.classList.toggle('fade-r',over>1&&over-seg.scrollLeft>1);
+  const on=seg.dataset.reveal==='whole'?/** @type {HTMLElement|null} */(seg.querySelector('.on')):null; if(!on)return;
+  const S=seg.getBoundingClientRect(),O=on.getBoundingClientRect(),room=px=>Math.max(0,Math.min(SEG_FADE,Math.floor(px)))+'px';
+  seg.style.setProperty('--fade-l',room(O.left-S.left)); seg.style.setProperty('--fade-r',room(S.right-O.right));}
 document.addEventListener('scroll',e=>{const t=/** @type {HTMLElement} */(e.target); if(t&&t.classList&&t.classList.contains('seg'))segFade(t);},true);
 // Applies rung key to o (the composer's selection or an edit card): its lines, scope and source; a figure rung also selects
 // its element (elSel), which lines later set in the excerpt keep (setLines).
