@@ -1226,7 +1226,7 @@ class FrontendMobileLogic(unittest.TestCase):
             function claimLabel(){return '';} function authorTip(){return 'tip';} function who(a){return a?a.name:'';}
             function avatar(){return '';}
             let SHOW_ALL=false, DOCS=[], DOC='main', DEFAULT_DOC='main'; function docInfo(){return null;}
-            let LAYOUT='mid', REPLY=null, META=null; const THREAD_OPEN=new Set();
+            let LAYOUT='mid', REPLY=null, META=null; const THREAD_OPEN=new Set(), MQ_COARSE={matches:true};
             """,
                 extract_js_fn("rng"),
                 extract_js_fn("multiDoc"),
@@ -4284,11 +4284,12 @@ class FrontendThread(unittest.TestCase):
         self.assertIn("deferredNote(d,NOTICE_PLACE.CARD,", send)
 
     def test_compact_collapsed_card_hides_thread(self):
-        """A collapsed compact card hides its badges, quote line, author, note, actions and thread - only the head and
-        the note's preview stay."""
+        """A collapsed compact card hides its badges, quote line, author, note, actions, thread and the review access
+        sentence - only the head, the note's preview and the facts line stay."""
         css = HTML[HTML.index("<style>") : HTML.index("</style>")]
         self.assertIn(
-            "body.compact .pin:not(.open):not(.editing) :is(.tags,.quote,.au,.note,.acts,.head>.sp,.thread){display:none}",
+            "body.compact .pin:not(.open):not(.editing) "
+            ":is(.tags,.quote,.au,.note,.acts,.head>.sp,.thread,.review-access){display:none}",
             css,
         )
 
@@ -4313,7 +4314,7 @@ class FrontendReview(unittest.TestCase):
             function viaTag(){return null;} function relBadge(){return null;} function claimActive(){return false;}
             function authorTip(){return 'tip';} function who(a){return a?(a.name||a.login):'';} function avatar(){return '';}
             let SHOW_ALL=false, DOCS=[], DOC='main', DEFAULT_DOC='main', LAYOUT='wide', REPLY=null; function docInfo(){return null;}
-            const THREAD_OPEN=new Set();
+            const THREAD_OPEN=new Set(), MQ_COARSE={matches:false};
             """,
                 extract_js_fn("rng"),
                 extract_js_fn("multiDoc"),

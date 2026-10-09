@@ -34,6 +34,11 @@ button.badge-review{font-weight:600}
 .pin .head{flex-wrap:wrap;gap:var(--space-1) var(--space-2);min-height:var(--control-h)}
 .pin .head .loc{white-space:nowrap}
 .pin .head .pg-link{white-space:nowrap;flex:none}
+/* With a mouse the head's #N, line range and N쪽 are trimmed to their cap height (text-box), so the row centres one cap height
+   on the dot and the avatar: as line boxes the monospace range stood 1.9px over them and #N 0.8px. The author's name stays a
+   line box: its ink depends on the name ('Alice Kim (나)' reaches 0.7px lower than 'Bob Park'), and a line box holds both
+   within 0.52px of the row's centre. */
+@media (pointer:fine){.pin .head>:is(.n.go,.loc,.pg-link){text-box:trim-both cap alphabetic}}
 /* Reply count and author stay together at the right of the header, wrapping as one
    group when needed. The recorded assignee lives in the note-level metadata row. */
 .pin .head .h-meta{display:inline-flex;align-items:center;gap:var(--space-2);margin-left:auto;min-width:0;max-width:100%}
@@ -41,7 +46,9 @@ button.badge-review{font-weight:600}
 .pin .tags{display:flex;flex-wrap:wrap;gap:var(--space-1);margin-top:var(--space-1)}
 .pin .tags:empty{display:none}
 .pin .quote{margin-top:var(--space-1)}   /* the dragged PDF text, one line above the note (composer.css .quote) */
-@media (pointer:coarse){.pin .quote{margin-block:var(--space-2)}}   /* 8px each side holds its 44px hit clear of the badges and the note */
+/* 8px each side holds its 44px hit clear of the badges and the note. Right under the head (no badge between) it stands 16px
+   down: the head's 44px controls reach 6px under their row, and at 8px the line's hit took that strip from the link and the fold button. */
+@media (pointer:coarse){.pin .quote{margin-block:var(--space-2)} .pin .tags:empty+.quote{margin-top:var(--space-4)}}
 .pin .acts{display:grid;grid-auto-flow:column;grid-auto-columns:1fr;gap:var(--space-2);margin-top:var(--space-2)}
 .pin .acts button{min-width:0;padding-left:var(--space-1);padding-right:var(--space-1)}
 /* The card's head link and its row of actions (docs/handbook/viewer.md §패널 정리 핀 카드). wide: the head's #N, line range and N쪽 and the
@@ -81,17 +88,27 @@ button.b-close{font-weight:600}
   white-space:nowrap}   /* so a name never splits across a line break into two pills, '@Bob' / 'Lee' */
 /* A resolved @-tag = primary-color text + a light-tint pill (like Slack/GitHub). A tag that mentions me is one shade darker. An unresolved '@word' is plain text. */
 .mention.me{background:color-mix(in srgb,var(--primary) 28%,transparent);color:var(--foreground)}
-/* One quiet context line follows the note or its collapsed preview. A native badge
-   retains detailed state wording; the row repeats that context only while collapsed. */
-.pin .card-meta{margin-top:var(--space-1);font-size:var(--text-sm);line-height:1.5;color:var(--muted-foreground);overflow-wrap:anywhere}
-.pin .card-meta-context{display:none}
-body.compact .pin:not(.open):not(.editing) .card-meta-context{display:inline}
-.pin .card-meta .as-chip{display:inline-flex;align-items:baseline;gap:var(--space-1);padding:0;border:0;border-radius:0;background:transparent;color:inherit;font:inherit;line-height:inherit;font-weight:400;min-width:0;min-height:0;max-width:100%;overflow:visible;vertical-align:baseline;white-space:normal;text-underline-offset:3px}
-.pin .card-meta .as-chip .as-n{overflow:visible;text-overflow:clip;overflow-wrap:anywhere}
+/* The facts line follows the note or its collapsed preview (docs/handbook/viewer.md §모바일 레이아웃 핀 카드는 아코디언이다): the
+   pin's kind, assignee and status, of which only what differs from the default is drawn - a fix request, for the agent, open
+   takes no room (its words are .sr-only, and a line with nothing to draw is taken out of the flow). The line is one line on
+   one baseline: its words keep their spaces (pre), ' · ' stands between the drawn ones, the kind and the status are never
+   shortened, and the assignee's name takes what is left and ends in an ellipsis - the full name stays its text and its
+   tooltip. The name alone clips (the pressable assignee's own overflow stays visible for its hit area). A native badge
+   retains detailed state wording: an open card does not repeat the kind and the status under its badges. */
+.pin .card-meta{display:flex;align-items:baseline;min-width:0;margin-top:var(--space-1);font-size:var(--text-sm);line-height:1.5;color:var(--card-foreground);white-space:pre}
+.pin .card-meta>*{flex:none}
+.pin .card-meta-context:not(.sr-only){display:none}
+body.compact .pin:not(.open):not(.editing) .card-meta-context:not(.sr-only){display:block}
+.pin .card-meta .cm-sep{color:var(--muted-foreground)}
+:is(.pin.open,.pin.editing,body:not(.compact) .pin) .card-meta.hide-open,
+body.compact .pin:not(.open):not(.editing) .card-meta.hide-folded{position:absolute;width:1px;height:1px;margin:-1px;overflow:hidden;clip:rect(0,0,0,0)}
+.pin .card-meta .as-chip{display:flex;flex:0 1 auto;align-items:baseline;justify-content:flex-start;gap:0;padding:0;border:0;border-radius:0;background:transparent;color:inherit;font:inherit;line-height:inherit;font-weight:400;min-width:0;min-height:0;overflow:visible;white-space:pre;text-underline-offset:3px}
+.pin .card-meta .as-chip .as-n{min-width:0;overflow:hidden;text-overflow:ellipsis}
 .pin .card-meta button.as-chip:focus-visible{text-decoration:underline}
-@media (hover:hover){.pin .card-meta button.as-chip:hover{background:transparent;color:var(--foreground);text-decoration:underline}}
-/* Retain the shared button.badge 44px touch hit, clear of nearby thread controls. */
-@media (pointer:coarse){.pin .card-meta:has(button.as-chip){padding-block:var(--space-3)}}
+@media (hover:hover){.pin .card-meta button.as-chip:hover{background:transparent;color:var(--primary);text-decoration:underline}}
+/* The pressable assignee's 44px touch hit comes from the hit utility (button.badge::after) and never from padding, so the line
+   is as tall on every card. The assignee is a button only where that box has room: in a folded card, where nothing else by the
+   line is pressed (cards.js). */
 /* The assignee row (docs/handbook/viewer.md §담당): its label and the standard segmented track, which scrolls sideways inside
    the row when the names are longer than it (.seg.lad, the range ladder's rule) - the row never grows past the composer. The
    label's and the segments' words are trimmed to their cap height (text-box), so they share the track's middle in any font. On
