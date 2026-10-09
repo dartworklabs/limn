@@ -293,9 +293,13 @@ function searchCover(){const s=$('#doc-search'),nav=$('#doc-nav'),box=$('#search
   for(const k of kids){if(k.matches('.search-covered,.search-left,.search-kept,.search-tight'))k.classList.remove('search-covered','search-left','search-kept','search-tight'); if(k.style.maxWidth)k.style.maxWidth='';}
   const b=SEARCH.open&&!s.hidden&&BAND!==LAYOUT_BAND.PHONE&&box.getClientRects().length?box.getBoundingClientRect():null; if(!b)return;   // closed: nothing is measured
   const cs=getComputedStyle(nav),gap=parseFloat(cs.columnGap)||0,keep=/** @type {HTMLElement[]} */([]),off=/** @type {HTMLElement[]} */([]),left=/** @type {HTMLElement[]} */([]);
-  for(const k of kids){const r=k.getBoundingClientRect(); if(!r.width)continue;
-    if(r.right>b.left-gap+0.5&&r.left<b.right+gap-0.5)(k.matches('[role=status],[aria-live]')||k.querySelector('[role=status],[aria-live]')?keep:off).push(k);
-    else if(r.right<=b.left)left.push(k);}
+  // Each neighbour before the search in the bar is left in place (it ends a gap short of the field), kept (the status line)
+  // or taken off - also one the bar has squeezed to no width (a long status line at rest does that to the document links),
+  // which would come back under the field as soon as the status is shortened.
+  for(const k of kids){if(!k.getClientRects().length||!(k.compareDocumentPosition(s)&Node.DOCUMENT_POSITION_FOLLOWING))continue;
+    const r=k.getBoundingClientRect();
+    if(r.width&&r.right<=b.left-gap+0.5)left.push(k);
+    else if(r.width||!(r.left>=b.right))(k.matches('[role=status],[aria-live]')||k.querySelector('[role=status],[aria-live]')?keep:off).push(k);}
   if(!off.length&&!keep.length)return;
   off.forEach(k=>k.classList.add('search-covered')); left.forEach(k=>k.classList.add('search-left')); keep.forEach(k=>k.classList.add('search-kept'));
   const edge=()=>[...left,...keep].reduce((e,k)=>Math.max(e,k.getBoundingClientRect().right+gap),nav.getBoundingClientRect().left+nav.clientLeft+(parseFloat(cs.paddingLeft)||0));
