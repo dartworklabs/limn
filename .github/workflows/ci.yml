@@ -18,9 +18,12 @@ concurrency:
 permissions:
   contents: read
 
+# Linux jobs name their image. `ubuntu-latest` moves to the next release on GitHub's schedule, which would change
+# the system packages under Playwright's `--with-deps`, bwrap and the shell tests without any change here. Move to a
+# newer image in its own pull request, where a failure is attributable to the image.
 jobs:
   lint:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -55,7 +58,7 @@ jobs:
         run: uv run python tools/strict_ratchet.py
 
   test:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
       matrix:
@@ -129,7 +132,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        os: [ubuntu-24.04, macos-latest]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -144,7 +147,7 @@ jobs:
         run: bash src/limn/administration/tests/test_instances.sh
 
   install:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
