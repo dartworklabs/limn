@@ -60,8 +60,8 @@ PAGES = [
     ],
     [
         (72, 700, [("F1", "Evening tide. TIDE. tide")]),
-        (72, 676, [("F1", "A long breakwater")]),  # 'breakwater shelters' crosses into the next line, near a page's top
-        (72, 652, [("F1", "shelters the boats.")]),
+        (72, 676, [("F2", "a long and narrow breakwater")], (330 / 336, 0, 0, 1)),  # a full line: 'breakwater shelters'
+        (72, 661, [("F2", "shelters the boats.")]),  # crosses into the next one, near the page's top
         (72, 300, [("F1", "The last line of the fixture mentions the ebb once.")]),
     ],
 ]
@@ -266,32 +266,47 @@ class SearchLogic(unittest.TestCase):
         )
 
     def found(self, lines, queries):
-        """What each query finds in a page of these lines: each line is its text, or (text, x0, x1, baseline y) - a 12pt
-        line standing there on the page (a bare text stands at x 72-500, each one 14pt below the one before, as a
-        column's lines do). The hits as lists of [line, from, to] pieces, one piece a line the hit lies on."""
+        """What each query finds in a page of these lines: each line is its text - a full line of a 12pt paragraph at
+        x 72-500, each 14pt below the one before - or (text, x0, x1, baseline y[, size, plain]) standing there. The hits
+        as lists of [line, from, to] pieces, one piece a line the hit lies on."""
         segs = []
         for i, line in enumerate(lines):
-            text, x0, x1, y = (line, 72, 500, 700 - 14 * i) if isinstance(line, str) else line
-            segs.append({"text": text, "box": {"x0": x0, "x1": x1, "y": y, "size": 12}})
+            text, x0, x1, y, size, plain = (
+                (line, 72, 500, 700 - 14 * i, 12, True) if isinstance(line, str) else (*line, 12, True)[:6]
+            )
+            segs.append({"text": text, "plain": plain, "box": {"x0": x0, "x1": x1, "y": y, "size": size, "ang": 0}})
         js = (
-            consts("SEARCH_BREAK", "SEARCH_CJK")
+            consts("SEARCH_BREAK", "SEARCH_CJK", "SEARCH_EDGE_PT")
             + "\n"
-            + fns("searchFold", "searchPitch", "searchJoin", "searchFlow", "searchPattern", "searchFind")
+            + fns("searchFold", "searchEdges", "searchJoin", "searchFlow", "searchPattern", "searchFind")
             + (
-                "\nconst F=searchFlow(%s.map(s=>({t:searchFold(s.text).t,end:s.text.trimEnd().slice(-1),box:s.box})));"
+                "\nconst F=searchFlow(%s.map(s=>({t:searchFold(s.text).t,end:s.text.trimEnd().slice(-1),plain:s.plain,box:s.box})));"
                 "console.log(JSON.stringify(%s.map(q=>searchFind(F,searchPattern(searchFold(q).t.trim())))));"
                 % (json.dumps(segs), json.dumps(queries))
             )
         )
         return node_json(self, js)
 
+    def counts(self, lines, queries):
+        """How many hits each query finds on a page of these lines (found)."""
+        return dict(zip(queries, [len(h) for h in self.found(lines, queries)], strict=True))
+
     def test_a_line_break_between_latin_letters_is_a_word_space_and_beside_hangul_may_be_none(self):
-        """TeX never breaks a Latin word without a hyphen: a break between two Latin letters or digits is a word space, so
-        'first reading' crosses it and 'firstreading' or 'into' (in / to) does not. Beside Hangul the break may be a space
-        or nothing ('바뀌고', '바뀌 고'). A line-final hyphen may be typed or left out ('observation', 'ob-servation');
-        a line-final dash (en dash, folded to -) must be typed and stands with no space ('2009-2010', not '20092010').
-        A hit that crosses a break is one hit with a piece on each line. A space inside a line is not optional."""
-        lines = ["the first", "reading of ob-", "servation in", "to 2009" + EN_DASH, "2010 물때가 바뀌", "고 달라진다"]
+        """Between full lines of a paragraph: TeX never breaks a Latin word without a hyphen, so a break between two Latin
+        letters or digits is a word space - 'first reading' crosses it, 'firstreading' and 'into' (in / to) do not. With
+        Hangul on either side the break may be a space or nothing ('바뀌고', '바뀌 고', and 'tide조류' across tide /
+        조류). A line-final hyphen may be typed or left out ('observation', 'ob-servation'); a line-final dash (en dash,
+        folded to -) must be typed and stands with no space ('2009-2010', not '20092010'). A hit that crosses a break is
+        one hit with a piece on each line. A space inside a line is not optional."""
+        lines = [
+            "the first",
+            "reading of ob-",
+            "servation in",
+            "to 2009" + EN_DASH,
+            "2010 물때가 바뀌",
+            "고 달라진다 tide",
+            "조류 기록",
+        ]
         queries = [
             "first reading",
             "firstreading",
@@ -304,6 +319,8 @@ class SearchLogic(unittest.TestCase):
             "2009 2010",
             "바뀌고",
             "바뀌 고",
+            "tide조류",
+            "tide 조류",
             "the  first",
             "of ob",
         ]
@@ -317,45 +334,45 @@ class SearchLogic(unittest.TestCase):
         self.assertEqual((got["20092010"], got["2009 2010"]), ([], []))
         self.assertEqual(got["바뀌고"], [[[4, 9, 11], [5, 0, 1]]])
         self.assertEqual(got["바뀌 고"], got["바뀌고"])
+        self.assertEqual(got["tide조류"], [[[5, 7, 11], [6, 0, 2]]])  # Latin on one side, Hangul on the other
+        self.assertEqual(got["tide 조류"], got["tide조류"])
         self.assertEqual(got["the  first"], [[[0, 0, 9]]])  # a query is folded first: its runs of spaces are one
         self.assertEqual(got["of ob"], [[[1, 8, 13]]])
 
-    def test_only_the_next_line_of_a_column_is_crossed(self):
-        """A break is crossed only into the next line of the same column: one that starts below, at most 1.5 line
-        pitches lower, and overlaps the line sideways. Table cells on one baseline, the next row's first cell (not
-        under the last cell), the top of the next column and a line far below are never joined."""
-        lines = [
-            ("Station", 72, 120, 700),
-            ("North", 200, 240, 700),  # one table row: two cells
-            ("Harbour", 72, 125, 686),
-            ("Tide", 200, 230, 686),
-            ("harbour", 72, 280, 640),
-            ("lights and ebb", 72, 280, 626),  # a column
-            ("tide begins", 320, 500, 640),  # the next column, from the top
-            ("far below", 72, 200, 560),
-        ]
-        queries = [
-            "station north",
-            "north harbour",
-            "harbour tide",
-            "harbour lights",
-            "harbourlights",
-            "ebb tide",
-            "begins far",
-        ]
-        got = dict(zip(queries, [len(h) for h in self.found(lines, queries)], strict=True))
+    def test_a_hyphen_u2010_or_a_soft_hyphen_ending_a_line_may_be_left_out(self):
+        """A line that ends in U+2010 (a typeset hyphen) or in a soft hyphen was hyphenated, as one ending in '-': the
+        word is found with the hyphen left out ('wellknown', 'email'); a line ending in an en dash is not hyphenated
+        ('20092010' finds nothing)."""
+        lines = ["a well" + chr(0x2010), "known pier and an e" + SHY, "mail from 2009" + EN_DASH, "2010 on"]
         self.assertEqual(
-            got,
-            {
-                "station north": 0,
-                "north harbour": 0,
-                "harbour tide": 0,
-                "harbour lights": 1,
-                "harbourlights": 0,
-                "ebb tide": 0,
-                "begins far": 0,
-            },
+            self.counts(lines, ["wellknown", "email", "20092010", "2009-2010"]),
+            {"wellknown": 1, "email": 1, "20092010": 0, "2009-2010": 1},
         )
+
+    def test_only_consecutive_lines_of_a_wrapped_paragraph_are_joined(self):
+        """Each pair below is a full line (it reaches the column's right edge at 500) and a line under it that would
+        continue it, but for one thing - and so is not joined: the next line 2 font sizes lower (a looser pitch than one
+        line), of another font size, starting with a hanging indent of 2.5 font sizes (a list item), or above; the
+        first line short (ends at 400, a paragraph's last line), starting mid-column (a right-aligned line), or cut in
+        pieces (a table row, an \\hfill line). The control pair - 14pt lower, at the left edge - and one with a paragraph
+        indent of 1.25 font sizes are joined."""
+        cases = {
+            "control": ([("alpha one", 72, 500, 700), ("beta", 72, 300, 686)], 1),
+            "indent": ([("alpha one", 72, 500, 700), ("beta", 87, 300, 686)], 1),
+            "two sizes lower": ([("alpha one", 72, 500, 700), ("beta", 72, 300, 676)], 0),
+            "another size": ([("alpha one", 72, 500, 700), ("beta", 72, 300, 686, 10)], 0),
+            "hanging indent": ([("alpha one", 72, 500, 700), ("beta", 102, 300, 686)], 0),
+            "above": ([("alpha one", 72, 500, 700), ("beta", 72, 300, 714)], 0),
+            "short first": ([("alpha one", 72, 400, 700), ("beta", 72, 500, 686)], 0),
+            "right-aligned": ([("alpha one", 300, 500, 700), ("beta", 72, 500, 686), ("gamma", 72, 500, 600)], 0),
+            "cut in pieces": (
+                [("alpha one", 300, 500, 700, 12, False), ("beta", 72, 500, 686), ("gamma", 72, 500, 600)],
+                0,
+            ),
+        }
+        for name, (lines, want) in cases.items():
+            with self.subTest(case=name):
+                self.assertEqual(self.counts(lines, ["one beta"])["one beta"], want)
 
     def test_find_lists_every_occurrence_without_overlap_and_reads_a_query_literally(self):
         """Occurrences are listed in reading order and never overlap; an empty query finds nothing; characters that mean
@@ -699,22 +716,16 @@ class SearchFinds(SearchBase):
         self.search(page, "wind speed 4.1")
         self.assertEqual(self.count(page), "1/1")
 
-    def test_a_hit_crosses_a_line_break_as_one_hit_with_a_box_on_each_line(self):
-        """'first reading' breaks between two words, '바뀌고' inside a Hangul word and 'observation' at a line-final
-        hyphen: each is one hit, counted once, drawn as two boxes - one on each line - that are both the current hit."""
+    def test_ragged_lines_far_apart_are_not_joined(self):
+        """The three-page fixture's lines are ragged and 24pt apart - twice their font size, not one line pitch: no query
+        crosses them ('first reading', 'observation' over 'ob-' / 'servation', '바뀌고'), while each word is found."""
         page = self.view()
-        for query in ("first reading", "바뀌고", "observation"):
+        for query, words in (("first reading", "reading"), ("observation", "servation"), ("바뀌고", "바뀌")):
             with self.subTest(query=query):
                 self.search(page, query)
-                self.assertEqual(self.count(page), "1/1")
-                self.assertEqual(self.said(page), "1개 중 1번째 · 1쪽")
-                upper, lower = sorted(self.hits(page), key=lambda h: h["box"][1])
-                self.assertTrue(upper["cur"] and lower["cur"])
-                self.assertAlmostEqual(lower["box"][1] - upper["box"][1], 24 / 792, delta=0.002)  # the next line
-                self.assertAlmostEqual(lower["box"][0], 72 / 612, delta=0.004)  # which the hit starts
-                self.assertGreater(upper["box"][0], 80 / 612)  # after ending the line above
-        page.keyboard.press("Enter")  # one hit: Enter stays on it, both boxes still current
-        self.assertEqual([h["cur"] for h in self.hits(page)], [True, True])
+                self.assertEqual(self.count(page), "0/0")
+                self.search(page, words)
+                self.assertNotEqual(self.count(page), "0/0")
 
     def test_a_page_break_is_not_crossed(self):
         """'harbour master' ends page 1 and begins page 2: not found - 0/0, no box, the arrows off, and the screen
@@ -763,7 +774,7 @@ class SearchFinds(SearchBase):
         )
         settle(page)
         where = page.evaluate(
-            "line => {const at = eval(line); return [at(676 - 3), at(652 - 3), selPopArea().bottom];}", line
+            "line => {const at = eval(line); return [at(676 - 3), at(661 - 3), selPopArea().bottom];}", line
         )
         self.assertLess(where[0], where[2] - 8)  # the first line shows ...
         self.assertGreater(where[1], where[2])  # ... and the second does not
@@ -1140,6 +1151,83 @@ class SearchComposition(SearchBase):
         self.assertEqual(self.count(page), "2/7")
 
 
+class SearchShortcutFocus(SearchBase):
+    """The shortcut is taken only when the field takes the focus (docs/handbook/viewer.md §본문 검색 키와 초점): where the
+    field's row is hidden for typing it comes back for it; where the field cannot take the focus the key is the browser's;
+    the search is never left open without the focus in its field."""
+
+    def long_press(self, page, x, y):
+        """A long press on the PDF at (x, y): a region is picked and the composer opens with its location."""
+        cdp = page.context.new_cdp_session(page)
+        cdp.send("Input.dispatchTouchEvent", {"type": "touchStart", "touchPoints": [{"x": x, "y": y}]})
+        page.wait_for_selector("#composer", state="visible", timeout=8000)
+        cdp.send("Input.dispatchTouchEvent", {"type": "touchEnd", "touchPoints": []})
+        page.wait_for_function("document.querySelector('#c-loc').textContent.trim()!==''", timeout=8000)
+        settle(page)
+
+    def test_from_the_composers_note_on_a_landscape_phone_the_row_comes_back_for_the_field(self):
+        """On a landscape phone (844x390, 908x411, a keyboard attached) a note is being written in the composer, so the
+        top row is hidden for typing. Ctrl+F brings the row back and puts the focus in the field: what is typed next is
+        the query, not the note; Esc closes the search and gives the focus back to the note with the draft as written."""
+        for name, dev in (("short 844x390", device(844, 390)), ("short 908x411", device(908, 411))):
+            with self.subTest(viewport=name):
+                page = self.view(dev)
+                self.long_press(page, 200, 200)
+                page.focus("#note")
+                page.keyboard.type("draft")
+                settle(page)
+                self.assertFalse(page.is_visible("#doc-nav"))  # hidden while the note is typed in
+                page.keyboard.press("Control+f")
+                self.assertEqual(page.evaluate("document.activeElement.id"), "search-q")
+                self.assertTrue(page.is_visible("#search-q"))
+                page.keyboard.type("tide")
+                page.wait_for_function(COUNTED, timeout=8000)
+                self.assertEqual((page.input_value("#search-q"), page.input_value("#note")), ("tide", "draft"))
+                page.keyboard.press("Escape")
+                settle(page)
+                self.assertEqual(page.evaluate("document.activeElement.id"), "note")
+                self.assertEqual(page.input_value("#note"), "draft")
+                self.assertTrue(page.is_visible("#composer"))
+
+    def test_from_the_note_popover_in_a_landscape_mouse_window_the_field_takes_the_typing(self):
+        """In an 844x390 mouse window a region is dragged and a note typed in the popover by it; Ctrl+F puts the focus in
+        the field and the typing goes there; Esc gives the focus back to the popover's note, the draft as written."""
+        page = self.view(device(844, 390, touch=False))
+        box = page.evaluate(
+            "(()=>{const r=document.getElementById('p1').getBoundingClientRect(); return [r.left+r.width*0.2,r.top+r.height*0.12,r.left+r.width*0.5,r.top+r.height*0.17];})()"
+        )  # inside the 390px-high window
+        page.mouse.move(box[0], box[1])
+        page.mouse.down()
+        page.mouse.move(box[2], box[3], steps=4)
+        page.mouse.up()
+        page.wait_for_selector("#sel-pop:not([hidden])", timeout=8000)
+        page.wait_for_function("document.querySelector('#c-loc').textContent.trim()!==''", timeout=8000)
+        page.keyboard.type("draft")
+        page.keyboard.press("Control+f")
+        self.assertEqual(page.evaluate("document.activeElement.id"), "search-q")
+        page.keyboard.type("tide")
+        page.wait_for_function(COUNTED, timeout=8000)
+        self.assertEqual((page.input_value("#search-q"), page.input_value("#sel-pop textarea")), ("tide", "draft"))
+        page.keyboard.press("Escape")
+        settle(page)
+        self.assertTrue(page.evaluate("document.activeElement===document.querySelector('#sel-pop textarea')"))
+        self.assertEqual(page.input_value("#note"), "draft")
+
+    def test_where_the_field_cannot_take_the_focus_the_shortcut_is_the_browsers(self):
+        """With the field's row out of the layout (a state where no rule brings it back - here the bar is taken out by a
+        style), Ctrl+F is not intercepted - the browser's find - and the search does not open."""
+        page = self.view()
+        page.add_style_tag(content="#doc-nav{display:none!important}")
+        page.focus("#jump")
+        page.evaluate("window.__kd=[]; addEventListener('keydown',e=>window.__kd.push([e.key,e.defaultPrevented]))")
+        page.keyboard.press("Control+f")
+        self.assertEqual(page.evaluate("window.__kd.filter(k=>k[0]==='f')"), [["f", False]])
+        self.assertEqual(
+            page.evaluate("[document.body.classList.contains('search-open'),document.activeElement.id]"),
+            [False, "jump"],
+        )
+
+
 class SearchScope(SearchBase):
     """Where the search ends: a new build, the changes view, a PDF that cannot be read."""
 
@@ -1197,184 +1285,97 @@ class SearchScope(SearchBase):
         self.assertEqual(page.evaluate("window.__kd.filter(k=>k[0]==='f')"), [["f", False]])
 
 
-# The break-rule page: where a query may and may not cross a line's end, laid out as TeX lays out its cases at 12pt on a 24pt
-# pitch - a column whose lines end inside Latin words that a break would glue ('in' / 'to'), a compound broken at its hyphen
-# and an en dash at a line's end, both on lines TeX stretched (F2: Helvetica's WinAnsi has no en dash here), a hyphenated
-# word, a table whose cells share a baseline, two columns side by side, Hangul broken inside a word and a line far below.
+def full(x, y, text, width=288):
+    """A full line of a paragraph: `text` in F2 (12pt, one em a character) at (x, y), squeezed sideways to `width`pt so
+    that it reaches the column's right edge as a justified line does (squeezed, never stretched: its spaces stay within
+    one em, so the line is one piece)."""
+    assert 12 * len(text) >= width, text
+    return (x, y, [("F2", text)], (round(width / (12 * len(text)), 6), 0, 0, 1))
+
+
+# The break-rule page: the column is x 72-360 (full lines are 288pt wide; nothing on it reaches further), lines 15pt apart
+# (1.25 of the 12pt font: one line pitch). What is joined and what is not is stated per query in EDGE_EXPECTED.
 EDGE = [
     [
-        (72, 740, [("F1", "We stand in")]),
-        (72, 716, [("F1", "to the cold water and do not")]),
-        (72, 692, [("F1", "ice the hull; the cat")]),
-        (72, 668, [("F1", "alog lists each boat for")]),
-        (72, 644, [("F1", "mat review.")]),
-        (72, 620, [("F1", "A")]),  # a line TeX stretched (a forced line end): its words spread wider than an em
-        (300, 620, [("F1", "well-")]),
-        (72, 596, [("F1", "known")]),
-        (160, 596, [("F1", "tide")]),
-        (240, 596, [("F1", "range")]),
-        (320, 596, [("F1", "is")]),
-        (360, 596, [("F2", "2009" + chr(0x2013))]),
-        (72, 572, [("F1", "2010 and an e-")]),
-        (72, 548, [("F1", "mail goes out at sta-")]),
-        (72, 524, [("F1", "tion five.")]),
-        (72, 476, [("F1", "Station")]),  # a table: its cells share a baseline and a column's cells start at one x
-        (220, 476, [("F1", "North")]),
-        (72, 452, [("F1", "Harbour")]),
-        (220, 452, [("F1", "Tide")]),
-        (72, 428, [("F1", "Delta")]),
-        (220, 428, [("F1", "Bay")]),
-        (72, 380, [("F1", "Left column ends with harbour")]),
-        (72, 356, [("F1", "lights and says ebb")]),
-        (330, 380, [("F1", "tide begins the right column")]),
-        (330, 356, [("F1", "and says flood.")]),
-        (72, 308, [("F2", "관측소의 조류")]),
-        (72, 284, [("F2", "기록은 여섯 분마다 적는다. 바닷")]),
-        (72, 260, [("F2", "물의 높이가 달라진다.")]),
-        (72, 176, [("F1", "far below the rest")]),
-        (
-            520,
-            120,
-            [("F1", "turned text ends with harbour")],
-            (0, 1, -1, 0),
-        ),  # a block set sideways, its lines running up
-        (544, 120, [("F1", "lights in its own column")], (0, 1, -1, 0)),
+        full(72, 740, "the boats wait and we stand in"),
+        full(72, 725, "to the cold water and do not"),
+        full(72, 710, "ice the hull while the cat"),
+        full(72, 695, "alog lists each little boat for"),
+        (72, 680, [("F2", "mat review.")]),
+        full(72, 650, "the guide called it a well-"),
+        full(72, 635, "known spot on the map from 2009" + EN_DASH),
+        full(72, 620, "2010 and then he wrote an e" + chr(0x2010)),
+        full(72, 605, "mail to the pier and the sta" + SHY),
+        (72, 590, [("F2", "tion five.")]),
+        full(72, 560, "관측소의 조류 기록은 여섯 분마다 적는다. 그날 바닷"),
+        full(72, 545, "물의 높이를 적은 그 기록의 이름은 tide"),
+        (72, 530, [("F2", "조류 표.")]),
+        (72, 500, [("F2", "the short line ends")]),  # a paragraph's last line: it stops short of the edge
+        full(72, 485, "here and goes on below it"),
+        (72, 460, [("F2", "Tables")], (4, 0, 0, 1.5)),  # a heading: 18pt, as wide as the column
+        full(72, 442, "tables of the keeper begin here"),
+        full(72, 410, "1. the first item of the list"),
+        (102, 395, [("F2", "wraps onto a second.")]),  # a list item's hanging indent: 2.5 font sizes in
+        full(87, 365, "an indented paragraph starts", 273),  # a paragraph's first line, indented 1.25 font sizes
+        (72, 350, [("F2", "here and runs on.")]),
+        (240, 320, [("F2", "North cell")]),  # a right-aligned table: one cell a row, each ending on the column's edge
+        (276, 305, [("F2", "Harbour")]),
+        (90, 275, [("F2", "Station")]),  # a centred table: three cells a row, apart by more than an em
+        (200, 275, [("F2", "North")]),
+        (290, 275, [("F2", "Gauge")]),
+        (84, 260, [("F2", "Harbour")]),
+        (206, 260, [("F2", "Tide")]),
+        (302, 260, [("F2", "Bay")]),
+        (72, 230, [("F2", "Port Office")]),  # a letter head: the date set to the right edge by \\hfill
+        (228, 230, [("F2", "12 May 2010")]),
+        (72, 215, [("F2", "Pier Road")]),
+        full(72, 180, "the gauge reads low at the"),  # two full lines 30pt apart: a looser pitch than one line
+        full(72, 150, "ebb and rises with the flood"),
+        (520, 100, [("F2", "turned text ends with harbour")], (0, 288 / 348, -1, 0)),  # a block set sideways, its lines
+        (535, 100, [("F2", "lights in its column")], (0, 1, -1, 0)),  # running up: a full line and the one after
     ]
 ]
-# What the rule gives on EDGE, stated case by case (None: either is right - the PDF cannot tell a hyphenated word from a
-# compound broken at its hyphen).
-EDGE_EXPECTED = {
-    "into": 0,
-    "in to": 1,
-    "notice": 0,
-    "do not ice": 1,
-    "catalog": 0,
-    "cat alog": 1,
-    "format": 0,
-    "for mat": 1,
-    "well-known": 1,
-    "wellknown": None,
-    "a well-known": 1,
-    "2009-2010": 1,
-    "is 2009-2010": 1,
-    "20092010": 0,
-    "2009 2010": 0,
-    "e-mail": 1,
-    "email": None,
-    "station": 2,
-    "sta-tion": 1,
-    "station north": 0,
-    "north harbour": 0,
-    "harbour tide": 0,
-    "tide delta": 0,
-    "ebb tide": 0,
-    "바닷물의": 1,
-    "바닷 물의": 1,
-    "조류 기록은": 1,
-    "조류기록은": 1,
-    "달라진다. far": 0,
-    "달라진다.far": 0,
-    "harbour lights": 2,
-    "harbourlights": 0,
-    "rest turned": 0,
-}
-# Rough widths of the fixture's fonts at 12pt, enough for the oracle's sideways overlap: Helvetica's lower case runs about
-# half an em, F2 is one em a character.
-EDGE_EM = {"F1": 6.6, "F2": 12.0}
-
-
-def rule_hits(page, query):
-    """The rule's count of `query` on one EDGE-shaped page, worked out from the fixture's own lines - not with the viewer's
-    code or its pattern. Pieces on one baseline are one line, joined by a space, unless the line is a table row - a piece of
-    it starts where one starts in the line above or below - whose pieces are separate cells; a line joins the next one only
-    when that one starts below it, at most 1.5 of the page's line pitch lower, and overlaps it sideways. A joined break
-    is a hyphen break after a line-final '-', a dash break after a line-final en dash (folded to '-'), an optional space
-    beside Hangul, else a word space. A brute-force matcher walks the text with those breaks; hits are counted left to
-    right without overlap."""
-
-    def fold(text):
-        """Lower case, NFKC, dashes as '-', runs of spaces as one."""
-        text = unicodedata.normalize("NFKC", text).lower().replace(EN_DASH, "-")
-        return " ".join(text.split())
-
-    rows = []  # the fixture's lines on one baseline, in order: one line of the page
-    for line in page:
-        x, y, runs = line[:3]
-        a, b, c, d = line[3] if len(line) > 3 else (1, 0, 0, 1)
-        along, across = x * a + y * b, x * c + y * d  # where it stands in its own direction (c, d: its up vector)
-        text = "".join(t for _, t in runs)
-        width = sum(EDGE_EM[f] * len(t) for f, t in runs)
-        piece = {"x0": along, "x1": along + width, "text": text, "y": across, "ang": (a, b)}
-        if rows and rows[-1][0]["y"] == across and rows[-1][0]["ang"] == (a, b):
-            rows[-1].append(piece)
-        else:
-            rows.append([piece])
-
-    def starts(row):
-        """Where the pieces after the first of a line start: a table's column starts."""
-        return [p["x0"] for p in row[1:]]
-
-    segs = []
-    for n, row in enumerate(rows):
-        others = [starts(rows[m]) for m in (n - 1, n + 1) if 0 <= m < len(rows)]
-        table = len(row) > 1 and any(abs(a - b) <= 1 for o in others for a in starts(row) for b in o)
-        merged = dict(row[0], x1=row[-1]["x1"], text=" ".join(p["text"] for p in row))
-        for part in row if table else [merged]:
-            segs.append(dict(part, text=fold(part["text"]), end=part["text"].rstrip()[-1:]))
-    steps = sorted(a["y"] - b["y"] for a, b in zip(segs, segs[1:], strict=False) if 0 < a["y"] - b["y"] <= 36)
-    pitch = steps[len(steps) // 2]
-    tokens = []
-    for i, seg in enumerate(segs):
-        if i:
-            a = segs[i - 1]
-            same = a["ang"] == seg["ang"]
-            below = same and 0 < a["y"] - seg["y"] <= 1.5 * pitch and seg["x0"] < a["x1"] and seg["x1"] > a["x0"]
-            hangul = any(unicodedata.name(c, "").startswith("HANGUL") for c in (a["text"][-1], seg["text"][0]))
-            kind = (
-                "hard"
-                if not below
-                else "hyph"
-                if a["end"] == "-"
-                else "dash"
-                if a["end"] == EN_DASH
-                else "cjk"
-                if hangul
-                else "space"
-            )
-            tokens.append(("break", kind))
-        tokens.extend(("char", c) for c in seg["text"])
-    q = fold(query)
-
-    def match(i, j):
-        """The token index after a match of q[j:] from token i, or None."""
-        if j == len(q):
-            return i
-        if i >= len(tokens):
-            return None
-        kind, value = tokens[i]
-        if kind == "char" and value == "-" and tokens[i + 1 : i + 2] == [("break", "hyph")] and q[j] not in "- ":
-            return match(i + 2, j)  # a line-final hyphen left out of the query
-        if kind == "char":
-            return match(i + 1, j + 1) if value == q[j] else None
-        if value == "space" or (value == "cjk" and q[j] == " "):
-            return match(i + 1, j + 1) if q[j] == " " else None
-        if value in ("cjk", "hyph", "dash") and q[j] != " ":
-            return match(i + 1, j)
-        return None
-
-    hits, i = 0, 0
-    while i < len(tokens):
-        end = match(i, 0) if tokens[i][0] == "char" else None
-        if end:
-            hits, i = hits + 1, end
-        else:
-            i += 1
-    return hits
+# What the rule gives on EDGE, query by query, with the reason - counted by hand from the text above, not computed.
+EDGE_EXPECTED = [
+    ("into", 0, "'in' / 'to' are Latin words at a break: a word space must be typed"),
+    ("in to", 1, "the same break with its space typed"),
+    ("notice", 0, "'not' / 'ice': a word space between Latin letters"),
+    ("not ice", 1, "with the space"),
+    ("catalog", 0, "'cat' / 'alog': a word space between Latin letters"),
+    ("cat alog", 1, "with the space"),
+    ("format", 0, "'for' / 'mat': a word space between Latin letters"),
+    ("for mat", 1, "with the space; the second line need not be full"),
+    ("well-known", 1, "'well-' / 'known': a line-final hyphen may be typed"),
+    ("wellknown", 1, "... or left out"),
+    ("2009-2010", 1, "'2009' + en dash / '2010': a dash runs on with no space"),
+    ("20092010", 0, "a dash is not a hyphen: it must be typed"),
+    ("2009 2010", 0, "nor is it a space"),
+    ("e-mail", 1, "'e' + U+2010 / 'mail': a typeset hyphen, typed"),
+    ("email", 1, "... or left out"),
+    ("station", 1, "'sta' + soft hyphen / 'tion': hyphenated"),
+    ("바닷물의", 1, "'바닷' / '물의': Hangul breaks inside a word"),
+    ("바닷 물의", 1, "... and a space there is allowed"),
+    ("tide조류", 1, "'tide' / '조류': with Hangul on one side the break may be nothing"),
+    ("tide 조류", 1, "... or a space"),
+    ("ends here", 0, "'the short line ends' does not reach the column's edge: a paragraph's last line"),
+    ("tables tables", 0, "the 18pt heading 'Tables' and the 12pt line under it differ in size"),
+    ("list wraps", 0, "the list item's next line starts 2.5 font sizes in: a hanging indent, not the column's edge"),
+    ("starts here", 1, "a paragraph's indented first line (1.25 font sizes) is full; the next starts at the edge"),
+    ("cell harbour", 0, "a right-aligned table's rows start mid-column"),
+    ("north harbour", 0, "... nor across its rows"),
+    ("station north", 0, "a centred table's cells are pieces of one line, apart by more than an em"),
+    ("gauge harbour", 0, "... and its rows are never joined"),
+    ("bay", 1, "each cell is still found"),
+    ("2010 pier road", 0, "the letter head's date is a piece of an \\hfill line ('Port Office ... 12 May 2010')"),
+    ("pier road", 1, "the next line itself is found"),
+    ("the ebb", 0, "two full lines 30pt apart: more than one line pitch"),
+    ("harbour lights", 1, "the sideways block's full line and the one after it, read in their own direction"),
+]
 
 
 class SearchBreakRule(SearchBase):
-    """A query crosses a line's end only where TeX broke a run of text (docs/handbook/viewer.md §본문 검색 찾는 규칙),
-    checked on a page of the hard cases against an oracle worked out from the page's own lines (rule_hits)."""
+    """A query crosses a line's end only between consecutive lines of one wrapped paragraph (docs/handbook/viewer.md
+    §본문 검색 찾는 규칙), on a page of the cases that are and are not, against counts stated by hand (EDGE_EXPECTED)."""
 
     def setUp(self):
         """The manuscript's build is the one-page EDGE fixture (the three-page build's other page images go)."""
@@ -1383,34 +1384,31 @@ class SearchBreakRule(SearchBase):
             (self.pages_dir / extra).unlink()
         put_build(self.doc, build_dir(self.doc).name, search_pdf(EDGE), 1)
 
-    def test_the_count_of_every_case_is_the_rules(self):
-        """For each case the count shown is the oracle's, and the oracle agrees with the case's stated count: Latin
-        words glued across a break ('into', 'notice', 'catalog', 'format', 'harbourlights') find nothing, the same
-        words with their space find one; a table's cells, its rows, the next column and a far line are not crossed;
-        hyphens and dashes and Hangul breaks are, and a block set sideways reads in its own direction."""
-        self.assertEqual(rule_hits(EDGE[0], "harbour lights"), 2)  # the left column's and the sideways block's
+    def test_the_count_of_every_case_is_the_stated_one(self):
+        """Each case of EDGE_EXPECTED shows its stated count: Latin words glued across a break find nothing, the same
+        words with their space find one; hyphens (-, U+2010, soft) may be left out, a dash may not; Hangul breaks are
+        optional; a short line, a heading, a hanging indent, tables, an \\hfill line and a loose pitch are never
+        crossed; a block set sideways reads in its own direction."""
         page = self.view()
-        got = {}
-        for query, stated in EDGE_EXPECTED.items():
+        for query, stated, why in EDGE_EXPECTED:
             with self.subTest(query=query):
                 self.search(page, query)
-                shown = int(self.count(page).split("/")[1])
-                oracle = rule_hits(EDGE[0], query)
-                got[query] = (shown, oracle)
-                if stated is not None:
-                    self.assertEqual(oracle, stated, query)
-                self.assertEqual(shown, oracle, query)
+                self.assertEqual(int(self.count(page).split("/")[1]), stated, why)
 
     def test_a_hit_over_a_break_draws_a_box_on_each_of_its_lines(self):
-        """'in to' crosses from the first line to the second: two boxes, the first at the first line's end and the
-        second at the next line's start, both the current hit."""
+        """'in to' crosses from the first line's end to the second's start: one hit, counted once, drawn as two boxes -
+        the first at the end of the full line, the second at the next line's start one pitch (15pt) lower - both the
+        current hit; Enter stays on it."""
         page = self.view()
         self.search(page, "in to")
+        self.assertEqual((self.count(page), self.said(page)), ("1/1", "1개 중 1번째 · 1쪽"))
         upper, lower = sorted(self.hits(page), key=lambda h: h["box"][1])
         self.assertTrue(upper["cur"] and lower["cur"])
-        self.assertAlmostEqual(lower["box"][1] - upper["box"][1], 24 / 792, delta=0.002)
+        self.assertAlmostEqual(lower["box"][1] - upper["box"][1], 15 / 792, delta=0.002)
         self.assertAlmostEqual(lower["box"][0], 72 / 612, delta=0.004)
-        self.assertGreater(upper["box"][0], 100 / 612)
+        self.assertGreater(upper["box"][0], 300 / 612)
+        page.keyboard.press("Enter")
+        self.assertEqual([h["cur"] for h in self.hits(page)], [True, True])
 
 
 FIVE = [
@@ -1762,6 +1760,21 @@ class SearchCrowdedBar(FiveDocsBase):
                 )
                 self.assertEqual(hidden, [])
 
+    def test_a_new_build_folds_an_open_field_that_has_no_focus(self):
+        """In the 760px mouse window the field is open over the bar with a query and the focus is taken off it; a new
+        build of the manuscript arrives (refreshDoc, as the build poll calls it): the query goes and the field folds to
+        its magnifier, every document link drawn again - it is not left open, empty, over the bar."""
+        page = self.open_folded("mouse 760x800")
+        page.evaluate("document.activeElement.blur()")
+        settle(page)
+        newer = put_build(self.doc, "pages-20260925110000", search_pdf(long_pages(), outline=True), N_LONG)
+        page.evaluate("refreshDoc()")
+        page.wait_for_function("META.pages_build==='%s'&&%s" % (newer.name, PDF_READY), timeout=8000)
+        settle(page)
+        g = page.evaluate(BAR)
+        self.assertEqual((g["mode"], g["box"], page.input_value("#search-q")), ("icon", None, ""))
+        self.assertEqual(page.locator("#doc-links button:visible").count(), 5)
+
     def test_esc_on_the_closed_search_is_the_viewers(self):
         """In the 760px mouse window the field is closed with Esc (the focus back on the magnifier) and the pin panel
         opened over the page: Esc on the magnifier is the viewer's again and folds the panel away."""
@@ -1849,7 +1862,8 @@ ROWS = """() => {const q = s => document.querySelector(s), R = s => {const e = q
   return {W: innerWidth, edge: px('--edge'), ink: px('--edge') + px('--space-3'), gap: px('--space-2'), field: R('#search-field'), count: range.getBoundingClientRect().left,
     next: R('#search-next .ic'), close: R('#search-close .ic'), stX: R('#status .nt-x .ic'), stIcon: R('#status .st-ic'),
     dock: R('#status-dock'), status: R('#status'), nav: R('#doc-nav'), countRow: R('#search-nav'), fieldRow: R('#search-field'),
-    dockIn: q('#status-dock').getBoundingClientRect().top + q('#status-dock').clientTop, navIn: q('#doc-nav').getBoundingClientRect().top + q('#doc-nav').clientTop};}"""
+    dockIn: q('#status-dock').getBoundingClientRect().top + q('#status-dock').clientTop, navIn: q('#doc-nav').getBoundingClientRect().top + q('#doc-nav').clientTop,
+    words: (t => t ? t.getBoundingClientRect().top + parseFloat(getComputedStyle(t).paddingTop) : null)(q('#status .st-tx'))};}"""
 
 
 class SearchStatusLine(FiveDocsBase):
@@ -1914,12 +1928,68 @@ class SearchStatusLine(FiveDocsBase):
                 self.assertLessEqual(st["box"]["r"], g["box"][0] - g["gap"] + 0.5)
                 self.assertIn("nav-toc-toggle", [k["id"] for k in g["kids"] if k["shows"]])  # the outline toggle stays
 
+    def test_in_every_short_band_and_for_any_message_nothing_overlaps(self):
+        """Landscape phones 720x320, 844x390 and 908x411, the field open with 'tide': with the stale-manuscript line, and
+        then with a long message arriving while the field is open, the status line and the field never overlap (the
+        field starts one bar gap after the status), every button of the status answers a press at its centre, no
+        neighbour the field took off is drawn, and the status's words are shortened only once its dismiss button is
+        gone."""
+        long = "lineNote('핀 #12 을 다른 사람이 고쳤습니다. 다시 읽은 뒤 저장하세요 — 지금 쓰던 메모는 그대로 둡니다', NOTICE_KIND.WARN)"
+        check = """() => {const s = document.querySelector('#status'), box = document.querySelector('#search-box').getBoundingClientRect(), nav = document.querySelector('#doc-nav');
+          const at = e => {const r = e.getBoundingClientRect(), h = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2); return !!h && (h === e || e.contains(h));};
+          const t = s.querySelector('.st-tx'), x = s.querySelector('.nt-x');
+          return {gap: parseFloat(getComputedStyle(nav).columnGap), right: s.getBoundingClientRect().right, left: box.left,
+            buttons: [...s.querySelectorAll('button')].filter(b => b.getClientRects().length).map(b => [b.textContent.trim() || b.getAttribute('aria-label'), at(b)]),
+            drawnCovered: [...nav.querySelectorAll(':scope>.search-covered')].filter(e => getComputedStyle(e).visibility !== 'hidden').map(e => e.id),
+            cut: t ? t.scrollWidth - t.clientWidth : 0, dismiss: !!x && x.getClientRects().length > 0};}"""
+        for name, dev in (
+            ("short 720x320", device(720, 320)),
+            ("short 844x390", device(844, 390)),
+            ("short 908x411", device(908, 411)),
+        ):
+            with self.subTest(viewport=name):
+                page = self.view(dev)
+                self.assertTrue(page.evaluate("document.body.classList.contains('band-short')"))
+                page.evaluate(STALE)
+                settle(page)
+                self.press(page, "#search-open")
+                page.keyboard.type("tide")
+                page.wait_for_function(COUNTED, timeout=8000)
+                settle(page)
+                for message in ("stale", "long"):
+                    if message == "long":
+                        page.evaluate(long)
+                        settle(page)
+                    m = page.evaluate(check)
+                    self.assertLessEqual(m["right"], m["left"] - m["gap"] + 0.5, (message, m))
+                    self.assertTrue(m["buttons"] and all(ok for _, ok in m["buttons"]), (message, m))
+                    self.assertEqual(m["drawnCovered"], [], (message, m))
+                    if m["cut"] > 0:
+                        self.assertFalse(m["dismiss"], (message, m))
+
+    def test_an_empty_search_costs_the_pdf_no_height_with_or_without_a_status_line(self):
+        """On each phone, opening the search from the navigation sheet with nothing typed leaves the PDF its visible height
+        - the status line and the search row together are as high as the status line and the sheet's bar at rest."""
+        free = """() => {const top = document.querySelector('#brand-stripe').getBoundingClientRect().bottom;
+          const tops = [...document.querySelectorAll('#right,#doc-nav,#status-dock')].filter(e => e.getClientRects().length && getComputedStyle(e).display !== 'none').map(e => e.getBoundingClientRect().top);
+          return Math.min(...tops) - top;}"""
+        for name, dev in PHONES.items():
+            for status in (False, True):
+                with self.subTest(viewport=name, status=status):
+                    page = self.view(dev)
+                    if status:
+                        page.evaluate(STALE)
+                        settle(page)
+                    rest = page.evaluate(free)
+                    self.disclose(page)
+                    self.assertEqual(page.evaluate(free), rest)
+
     def test_the_phones_rows_share_their_edges_and_one_rhythm(self):
         """On each phone, with and without a status line, the search open with a query: the field's box starts on
         --edge and the count's text on --ink, as the status's icon does; the icons of each row's last button - next,
         close and the status's dismiss - stand in one column; and top to bottom the status row, the count row and the
-        field row are --space-2 apart, the status row --space-2 under the sheet's top as the count row is when there is
-        no status line."""
+        field row are --space-2 apart; the status row is the sheet's first row, 24px from its top edge, with --space-2
+        (within half a pixel) above its words - as the count row has --space-2 above it when there is no status line."""
         for name, dev in PHONES.items():
             for status in (False, True):
                 with self.subTest(viewport=name, status=status):
@@ -1937,7 +2007,13 @@ class SearchStatusLine(FiveDocsBase):
                     if status:
                         self.assertAlmostEqual(m["stIcon"]["l"], m["ink"], delta=0.5, msg=m)
                         self.assertAlmostEqual(m["stX"]["c"], m["close"]["c"], delta=0.5, msg=m)
-                        self.assertAlmostEqual(m["status"]["t"] - m["dockIn"], m["gap"], delta=0.5, msg=m)
+                        self.assertAlmostEqual(
+                            m["status"]["t"], m["dockIn"], delta=0.01, msg=m
+                        )  # the sheet's first row
+                        self.assertAlmostEqual(m["status"]["b"] - m["status"]["t"], 24, delta=0.01, msg=m)
+                        self.assertAlmostEqual(
+                            m["words"] - m["dockIn"], m["gap"], delta=0.5, msg=m
+                        )  # space above the words
                         self.assertAlmostEqual(m["countRow"]["t"] - m["status"]["b"], m["gap"], delta=0.5, msg=m)
 
     def test_the_phones_status_line_stands_above_the_search_rows(self):
@@ -2454,6 +2530,10 @@ class SearchAccessible(SearchBase):
         english = self.view(lang="en")
         self.search(english, "tide")
         self.assertEqual(self.said(english), "1 of 7 · page 1")
+
+
+if __name__ == "__main__":
+    unittest.main()
 
 
 if __name__ == "__main__":

@@ -27,15 +27,14 @@ function searchFold(s){const plain={'\u2018':"'",'\u2019':"'",'\u201A':"'",'\u20
     for(let k=0;k<p.length;k++){if(p[k]===' '&&t[t.length-1]===' ')continue; t.push(p[k]); at.push(/** @type {number} */(m.index));}}
   at.push(s.length); return {t:t.join(''),at};}
 // A page's lines from PDF.js text items: the items up to one marked hasEOL are one line, whatever their fonts, so a query may
-// span them. A table row is cut into its cells, which never join (searchJoin): a line is a table row when it jumps across a
-// gap wider than its font's size and a line next to it jumps to the same place (a cell starting or ending within 1pt of one
-// in that line) - a column of cells. A wide gap alone is not a cell: a justified line that TeX had to stretch (a forced line
-// end, a narrow column) spreads its words that far too. Each line is {t, at, parts, end, box}: its text folded (searchFold:
-// at maps into the line's unfolded text), per item with text the item's index i and where its text starts in the unfolded
-// line (from), the last character of its own text (end: a line-final hyphen is told from a dash by it), and where it stands
-// in PDF units measured in its own direction - {x0, x1 along the line, y: across it, up being +, size: font size, ang: the
-// line's angle in whole degrees}, so a page set sideways (a landscape page, a turned table) reads as an upright one - or null
-// for text that is skewed, mirrored or of mixed directions. Blank lines are left out. Pure.
+// span them. A line that jumps across a gap wider than its font's size - a table's cells, a centred row, an \hfill, a line TeX
+// had to stretch - is cut there into pieces that are never joined to each other or to the lines around them (searchJoin: only
+// a line in one piece is plain). Each piece is {t, at, parts, end, plain, box}: its text folded (searchFold: at maps into the
+// piece's unfolded text), per item with text the item's index i and where its text starts in the unfolded piece (from), the
+// last character of its own text (end: a line-final hyphen is told from a dash by it), whether its line is in one piece, and
+// where it stands in PDF units measured in its own direction - {x0, x1 along the line, y: across it, up being +, size: font
+// size, ang: the line's angle in whole degrees}, so a page set sideways reads as an upright one - or null for text that is
+// skewed, mirrored or of mixed directions. Blank pieces are left out. Pure.
 /** @param {any[]} items */
 function searchLines(items){const rows=/** @type {any[][]} */([]); let row=/** @type {any[]} */([]);
   items.forEach((it,i)=>{if(typeof it.str!=='string')return; const T=Array.isArray(it.transform)&&it.transform.length===6?it.transform:[0,0,0,0,0,0];
@@ -43,43 +42,45 @@ function searchLines(items){const rows=/** @type {any[][]} */([]); let row=/** @
     const ux=ok?T[0]/su:1,uy=ok?T[1]/su:0,vx=ok?T[2]/sv:0,vy=ok?T[3]/sv:1;   // the line's direction and its up
     row.push({i,it,ok,x:T[4]*ux+T[5]*uy,w:Number(it.width)||0,y:T[4]*vx+T[5]*vy,size:sv,ang:Math.round(Math.atan2(uy,ux)*180/Math.PI)}); if(it.hasEOL){rows.push(row); row=[];}});
   if(row.length)rows.push(row);
-  // the wide gaps of each row: the index of the item after the gap, where the gap starts (e) and where the next item starts (x)
-  const cuts=rows.map(r=>{const out=/** @type {{k:number,e:number,x:number}[]} */([]); let last=/** @type {any} */(null);
-    r.forEach((p,k)=>{if(!p.it.str.trim())return; if(!p.ok||(last&&last.ang!==p.ang)){last=null; return;}
-      if(last&&p.x-last.e>last.size)out.push({k,e:last.e,x:p.x}); last={e:last?Math.max(last.e,p.x+p.w):p.x+p.w,size:p.size,ang:p.ang};});
-    return out;});
-  const near=(A,B)=>A.some(c=>B.some(d=>Math.abs(c.x-d.x)<=1||Math.abs(c.e-d.e)<=1));
   const lines=/** @type {any[]} */([]);
-  rows.forEach((r,n)=>{const table=cuts[n].length>0&&((n>0&&near(cuts[n],cuts[n-1]))||(n+1<rows.length&&near(cuts[n],cuts[n+1])));
-    const at=new Set(table?cuts[n].map(c=>c.k):[]); let raw='',parts=/** @type {{i:number,from:number}[]} */([]),g=/** @type {any} */(null);
-    const end=()=>{if(raw.trim()){const f=searchFold(raw); lines.push({t:f.t,at:f.at,parts,end:raw.trimEnd().slice(-1),box:g&&g.ok?{x0:g.x0,x1:g.x1,y:g.y,size:g.size,ang:g.ang}:null});}
+  rows.forEach(r=>{const mine=/** @type {any[]} */([]); let raw='',parts=/** @type {{i:number,from:number}[]} */([]),g=/** @type {any} */(null);
+    const end=()=>{if(raw.trim()){const f=searchFold(raw); mine.push({t:f.t,at:f.at,parts,end:raw.trimEnd().slice(-1),plain:true,box:g&&g.ok?{x0:g.x0,x1:g.x1,y:g.y,size:g.size,ang:g.ang}:null});}
       raw=''; parts=[]; g=null;};
-    r.forEach((p,k)=>{if(at.has(k))end();   // a table's next cell
-      if(p.it.str.trim()){if(!g)g={ok:p.ok,x0:p.x,x1:p.x+p.w,y:p.y,size:p.size,ang:p.ang};
+    r.forEach(p=>{if(p.it.str.trim()){
+        if(g&&g.ok&&p.ok&&p.ang===g.ang&&p.x-g.x1>g.size)end();   // a gap wider than the font: another piece
+        if(!g)g={ok:p.ok,x0:p.x,x1:p.x+p.w,y:p.y,size:p.size,ang:p.ang};
         else{g.ok=g.ok&&p.ok&&p.ang===g.ang; if(g.ok){g.x0=Math.min(g.x0,p.x); g.x1=Math.max(g.x1,p.x+p.w); g.size=Math.max(g.size,p.size);}}}
       if(p.it.str){parts.push({i:p.i,from:raw.length}); raw+=p.it.str;}});
-    end();});
+    end(); if(mine.length>1)mine.forEach(L=>{L.plain=false;}); lines.push(...mine);});
   return lines;}
-// How a line meets the next one in a page's flow (searchFlow), as the mark put between them: a query crosses a line's end only
-// where TeX may have broken a run of text, which is between two lines of one column - the next line starts below the line,
-// at most 1.5 of the page's line pitch lower, and overlaps it sideways. Anything else (a table's cells and rows, another column,
-// a caption, a heading far above) is HARD and never crossed. Between two lines of a column: a line that ends in a hyphen
-// (-, U+2010 or a soft hyphen) was hyphenated - HYPH, the hyphen may be typed or left out; one that ends in a dash (an en or em
-// dash, folded to -) runs on with no space - DASH, the dash must be typed; a Hangul or CJK character on either side of the
-// break - CJK, the break is a space or nothing, as such text breaks inside a word; else - SPACE, a word space that a query must
-// type, as TeX never breaks a Latin word without a hyphen.
+// How a line meets the next one in a page's flow (searchFlow), as the mark put between them. A query crosses a line's end only
+// between two consecutive lines of one wrapped paragraph, as TeX breaks a paragraph into lines; a false hit - a highlight on
+// text that does not hold the query - is worse than a missed one, so everything else is HARD and never crossed (headings,
+// centred and short lines, list items with hanging indents, table rows, \hfill lines, equations, captions, another column).
+// Two lines are consecutive lines of a paragraph when both are plain (searchLines), run the same way at the same font size,
+// the first reaches its column's right edge and starts at the column's left edge or a paragraph indent, and the second starts
+// at the left edge or a paragraph indent directly below - one line pitch of that font lower (1 to 1.5 font sizes). The column's
+// edges are those of the lines that overlap the line sideways (searchEdges), within SEARCH_EDGE_PT; a paragraph indent is 1 to
+// 2 font sizes in from the left edge. Between two such lines: a line that ends in a hyphen (-, U+2010 or a soft hyphen) was
+// hyphenated - HYPH, the hyphen may be typed or left out; one that ends in a dash (an en or em dash, folded to -) runs on with
+// no space - DASH, the dash must be typed; a Hangul or CJK character on either side - CJK, the break is a space or nothing, as
+// such text breaks inside a word; else - SPACE, a word space that a query must type, as TeX never breaks a Latin word without a
+// hyphen.
 const SEARCH_BREAK=Object.freeze({SPACE:'\n',CJK:'\u0002',HYPH:'\u0003',DASH:'\u0004',HARD:'\u0005'});
 const SEARCH_CJK=/[\p{Script=Hangul}\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}]/u;
-// The page's line pitch: the middle distance from one line's baseline to the next one's below it, over the lines up to three
-// font sizes apart (0 without such a pair). Pure.
+const SEARCH_EDGE_PT=3;   // how near a column's edge a line ends or starts to count as reaching it, in PDF points
+// The column edges of each line: the least x0 and the greatest x1 over the lines running its way that overlap it sideways
+// (itself included), or null for a line without geometry. Pure.
 /** @param {any[]} lines */
-function searchPitch(lines){const d=[]; for(let i=1;i<lines.length;i++){const a=lines[i-1].box,b=lines[i].box; if(!a||!b||a.ang!==b.ang)continue; const dy=a.y-b.y; if(dy>0&&dy<=3*a.size)d.push(dy);}
-  d.sort((x,y)=>x-y); return d.length?d[d.length>>1]:0;}
-// The break between line a and the next line b of a page whose line pitch is pitch (searchPitch): a SEARCH_BREAK mark. Pure.
-/** @param {any} a @param {any} b @param {number} pitch */
-function searchJoin(a,b,pitch){const A=a.box,B=b.box; if(!A||!B||A.ang!==B.ang)return SEARCH_BREAK.HARD;
-  const dy=A.y-B.y; if(!(dy>0)||dy>1.5*(pitch||1.2*A.size)+0.5||B.x0>=A.x1||B.x1<=A.x0)return SEARCH_BREAK.HARD;
-  if(/[-‐­]/.test(a.end))return SEARCH_BREAK.HYPH;
+function searchEdges(lines){return lines.map(L=>{const A=L.box; if(!A)return null; let l=A.x0,r=A.x1;
+  for(const M of lines){const B=M.box; if(B&&B.ang===A.ang&&B.x0<A.x1&&B.x1>A.x0){l=Math.min(l,B.x0); r=Math.max(r,B.x1);}}
+  return {l,r};});}
+// The break between line a and the next line b, with their column edges ea and eb (searchEdges): a SEARCH_BREAK mark. Pure.
+/** @param {any} a @param {any} b @param {{l:number,r:number}|null} ea @param {{l:number,r:number}|null} eb */
+function searchJoin(a,b,ea,eb){const A=a.box,B=b.box; if(!A||!B||!ea||!eb||!a.plain||!b.plain||A.ang!==B.ang||Math.abs(A.size-B.size)>0.1)return SEARCH_BREAK.HARD;
+  const dy=A.y-B.y,starts=(x,e,size)=>x-e.l<=SEARCH_EDGE_PT||(x-e.l>=size&&x-e.l<=2*size);
+  if(dy<A.size-0.01||dy>1.5*A.size+0.01||ea.r-A.x1>SEARCH_EDGE_PT||!starts(A.x0,ea,A.size)||!starts(B.x0,eb,B.size))return SEARCH_BREAK.HARD;
+  if(/[-\u2010\u00AD]/.test(a.end))return SEARCH_BREAK.HYPH;
   const x=a.t.trimEnd().slice(-1),y=b.t.trimStart().charAt(0);
   if(x==='-')return SEARCH_BREAK.DASH;
   return SEARCH_CJK.test(x)||SEARCH_CJK.test(y)?SEARCH_BREAK.CJK:SEARCH_BREAK.SPACE;}
@@ -87,8 +88,8 @@ function searchJoin(a,b,pitch){const A=a.box,B=b.box; if(!A||!B||A.ang!==B.ang)r
 // joined to the next by the mark of how they meet (searchJoin). Returns {t, rows}: the flow and, for each line, where it starts
 // in the flow (at), how many folded characters the trim took off its head (cut) and its trimmed length (n). Pure.
 /** @param {any[]} lines */
-function searchFlow(lines){let t=''; const rows=/** @type {{at:number,cut:number,n:number}[]} */([]),pitch=searchPitch(lines);
-  lines.forEach((L,i)=>{const body=L.t.trim(); if(i)t+=searchJoin(lines[i-1],L,pitch); rows.push({at:t.length,cut:L.t.length-L.t.trimStart().length,n:body.length}); t+=body;});
+function searchFlow(lines){let t=''; const rows=/** @type {{at:number,cut:number,n:number}[]} */([]),edges=searchEdges(lines);
+  lines.forEach((L,i)=>{const body=L.t.trim(); if(i)t+=searchJoin(lines[i-1],L,edges[i-1],edges[i]); rows.push({at:t.length,cut:L.t.length-L.t.trimStart().length,n:body.length}); t+=body;});
   return {t,rows};}
 // The folded query q as a pattern over a page's flow (searchFlow): every character is itself; a space is a space, a SPACE break
 // or a CJK one; between two characters there may be a CJK break, a HYPH break (with the line's hyphen before it, or after the
@@ -288,6 +289,7 @@ function searchFit(){const s=$('#doc-search'),nav=$('#doc-nav');
 // does not move after. Nothing is covered on the phone (it has no bar) or while the field is closed.
 function searchCover(){const s=$('#doc-search'),nav=$('#doc-nav'),box=$('#search-box'),kids=/** @type {HTMLElement[]} */([...nav.children]).filter(k=>k!==s);
   if(s.style.getPropertyValue('--search-span'))s.style.removeProperty('--search-span');   // the natural box first: the span is worked out from it
+  s.classList.remove('search-squeezed');
   for(const k of kids){if(k.matches('.search-covered,.search-left,.search-kept,.search-tight'))k.classList.remove('search-covered','search-left','search-kept','search-tight'); if(k.style.maxWidth)k.style.maxWidth='';}
   const b=SEARCH.open&&!s.hidden&&BAND!==LAYOUT_BAND.PHONE&&box.getClientRects().length?box.getBoundingClientRect():null; if(!b)return;   // closed: nothing is measured
   const cs=getComputedStyle(nav),gap=parseFloat(cs.columnGap)||0,keep=/** @type {HTMLElement[]} */([]),off=/** @type {HTMLElement[]} */([]),left=/** @type {HTMLElement[]} */([]);
@@ -297,7 +299,7 @@ function searchCover(){const s=$('#doc-search'),nav=$('#doc-nav'),box=$('#search
   if(!off.length&&!keep.length)return;
   off.forEach(k=>k.classList.add('search-covered')); left.forEach(k=>k.classList.add('search-left')); keep.forEach(k=>k.classList.add('search-kept'));
   const edge=()=>[...left,...keep].reduce((e,k)=>Math.max(e,k.getBoundingClientRect().right+gap),nav.getBoundingClientRect().left+nav.clientLeft+(parseFloat(cs.paddingLeft)||0));
-  let span=b.right-edge();
+  let span=s.getBoundingClientRect().right-edge();
   if(!keep.length){s.style.setProperty('--search-span',Math.max(b.width,span)+'px'); return;}
   // The status line's words are what it says; as the row narrows they give way last. First the field shrinks, down to its
   // least width (the open box's min-content: the query keeps --search-q-min); then the neighbours left of the status are
@@ -306,10 +308,15 @@ function searchCover(){const s=$('#doc-search'),nav=$('#doc-nav'),box=$('#search
   // only then do its words shorten to an ellipsis.
   const k=keep[keep.length-1];
   s.style.setProperty('--search-span','0px'); const least=box.getBoundingClientRect().width;   // min-width:min-content holds it there
-  while(span<least&&left.length>1){const m=/** @type {HTMLElement} */(left.pop()); m.classList.replace('search-left','search-covered'); span=b.right-edge();}   // the first (the outline toggle) stays
-  if(span<least){k.classList.add('search-tight'); span=b.right-edge();}
-  if(span<least){k.style.maxWidth=Math.max(0,Math.floor(k.getBoundingClientRect().width-(least-span)))+'px'; span=b.right-edge();}
-  s.style.setProperty('--search-span',Math.max(least,span)+'px');}
+  while(span<least&&left.length>1){const m=/** @type {HTMLElement} */(left.pop()); m.classList.replace('search-left','search-covered'); span=s.getBoundingClientRect().right-edge();}   // the first (the outline toggle) stays
+  if(span<least){k.classList.add('search-tight'); span=s.getBoundingClientRect().right-edge();}
+  if(span<least){const w=k.getBoundingClientRect().width,tx=k.querySelector('.st-tx'),floor=Math.ceil(w-(tx?tx.getBoundingClientRect().width:0));   // its icon and actions
+    k.style.maxWidth=Math.max(floor,Math.floor(w-(least-span)))+'px'; span=s.getBoundingClientRect().right-edge();}
+  // (The field's right end is measured again each time: a status line wider than the bar at rest pushes the search to the
+  // right until it is shortened.)
+  // Last, when even the status's icon and actions leave the field less than its least width, the field goes under it
+  // (.search-squeezed: its query shorter than --search-q-min) rather than over the status: nothing overlaps.
+  s.classList.toggle('search-squeezed',span<least); s.style.setProperty('--search-span',(span<least?span:Math.max(least,span))+'px');}
 // The field's text on the row's ink reference (docs/handbook/viewer.md §글자 가운데): its neighbours' labels are trimmed to
 // their cap height (text-box: trim-both cap alphabetic) and centred, which an <input> cannot be - trimming does not reach its
 // text. So the field holds that reference itself: #search-ref-row is a trimmed line at the row labels' size and
@@ -347,9 +354,17 @@ function searchShow(){if(SEARCH.open)return; SEARCH.open=true; document.body.cla
 function searchFrom(a){if(a&&$('#search-box').contains(a))return;
   SEARCH.back=a instanceof HTMLElement&&a!==document.body&&a!==$('#search-open')&&!a.closest('dialog')?a:null;}
 // The shortcut, the magnifier and the navigation sheet's row: discloses the field and puts the focus in it with its text
-// selected, remembering what had the focus. Returns false when the search is not offered.
-function searchOpen(){const s=$('#doc-search'),q=/** @type {HTMLInputElement} */($('#search-q')); if(s.hidden)return false;
-  searchFrom(document.activeElement); searchShow(); q.focus({preventScroll:true}); q.select(); return true;}
+// selected, remembering what had the focus. The short band hides its top row while a panel field is typed in (body.typing,
+// layout.js): the row comes back for the field - the focus then leaves the panel field, so the class would go anyway. Returns
+// false, the search left as it was, when the field does not take the focus: it is not offered (the changes view, no PDF), or
+// its row is out of the layout for another reason - the shortcut is then the browser's, and the search is never left open
+// without the focus in its field.
+function searchOpen(){const s=$('#doc-search'),q=/** @type {HTMLInputElement} */($('#search-q')),was=SEARCH.open,from=document.activeElement; if(s.hidden)return false;
+  searchShow(); if(!q.getClientRects().length&&BAND===LAYOUT_BAND.SHORT)document.body.classList.remove('typing');
+  q.focus({preventScroll:true});
+  if(document.activeElement!==q){if(!was)searchHide(); return false;}
+  searchFrom(from);
+  q.select(); return true;}
 // Folds the disclosed field away; the phone's sheet comes back up if the search row had taken its place.
 function searchHide(){if(!SEARCH.open)return; SEARCH.open=false; SEARCH.back=null; document.body.classList.remove('search-open'); $('#search-open').setAttribute('aria-expanded','false');
   if(SEARCH.side){SEARCH.side=false; if(BAND===LAYOUT_BAND.PHONE&&!SIDE_OPEN)setSide(true);}
@@ -421,5 +436,6 @@ $('#search-hint').textContent=IS_MAC?'⌘F':'Ctrl F';
 // The bar's room changes with its width and with its neighbours (the document links drawn, a page count growing, a font
 // arriving), and the opened field's width with its count: fitted again on the next frame, never inside the observer.
 if(window.ResizeObserver){const o=new ResizeObserver(()=>requestAnimationFrame(searchFit)); o.observe($('#doc-nav')); o.observe($('#search-box'));
-  for(const k of $('#doc-nav').children)if(k.id!=='doc-search')o.observe(k);}
+  for(const k of $('#doc-nav').children)if(k.id!=='doc-search')o.observe(k);
+  o.observe($('#status'));}   // the short band moves the status line into the bar (status.js); a new message changes its width
 document.fonts.addEventListener('loadingdone',searchFit);
