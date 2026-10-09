@@ -34,6 +34,7 @@ body.search-open #doc-search #search-box{display:grid;position:absolute;right:0;
 #doc-nav>.search-left{order:-2}
 #doc-nav>.search-kept{order:-1}
 #doc-nav>.search-tight .nt-x{display:none}   /* the status's dismiss button gives way before its words (searchCover) */
+body.search-open #doc-search.search-squeezed #search-box{min-width:0;grid-template-columns:minmax(0,1fr)}   /* the field's last give: under its least width, never over the status */
 /* Esc puts the focus on the PDF's scroller when nothing else can take it back (searchClose): it is not a stop anyone tabs to,
    and a ring round the whole PDF read as the select mode's frame. The next Tab draws the ring where the focus goes. */
 #left:focus-visible{outline:none}
@@ -93,11 +94,13 @@ body.band-phone.search-open #doc-nav{display:block;position:fixed;left:0;right:0
    on the sheet at rest, so it is drawn, pressable and spoken, and the result row never covers it. Its own rule (responsive.css,
    §상태 줄) places it on the sheet; this one, as specific, comes later. */
 body.lay-narrow.band-phone.has-status.search-open:not(.typing) #status-dock{bottom:calc(var(--search-rows,53px) + var(--kb,0px))}
-/* One surface with the line, as the sheet is at rest, and one rhythm top to bottom: the status row --space-2 under the sheet's
-   top edge, then each row --space-2 apart (status, count, field); the rows' own top edge goes, so the status row's bottom is
-   their padding's top. The status's dismiss is drawn 36px wide, so its icon stands in the column of the rows' last buttons. */
+/* One surface with the line, as the sheet is at rest. The status row is the sheet's first row: 24px under its top edge, its
+   words centred, so the space above them ((24px - cap height) / 2, 7.6px at 12px) is the --space-2 the rows keep between them
+   within half a pixel; the rows' own top edge goes, so the status row's bottom is their padding's top. The line and the rows
+   are as high as the line and the sheet's bar at rest (25 + 52 = 24 + 53px): an empty search costs the PDF no height. The
+   status's dismiss is drawn 36px wide, so its icon stands in the column of the rows' last buttons. */
 body.lay-narrow.band-phone.has-status.search-open:not(.typing) #doc-nav{border-top:0;border-radius:0;box-shadow:none}
-body.lay-narrow.band-phone.has-status.search-open:not(.typing) #status-dock{height:calc(24px + var(--space-2));padding-top:var(--space-2)}
+body.lay-narrow.band-phone.has-status.search-open:not(.typing) #status-dock{height:calc(var(--control-h-sm) + 1px)}
 body.lay-narrow.band-phone.has-status.search-open:not(.typing) #status-dock #status button.nt-x{width:var(--control-h-lg);min-width:var(--control-h-lg)}
 body.band-phone #doc-search{display:block;width:auto;height:auto;margin:0}
 body.band-phone.search-open #doc-search #search-box{position:static;grid-auto-flow:row;grid-template-columns:minmax(0,1fr) auto;gap:var(--space-2);width:auto;min-width:0;height:auto;
