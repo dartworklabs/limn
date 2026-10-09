@@ -4,47 +4,71 @@
    mouse, on the outline toggle's top and bottom; drawn at 36px on touch, 4px clear of the stripe and of the bar's line, and
    answering 44px (.hit) - and takes no height of its own. Its width is --search-w down to --search-min as the bar's room
    allows (searchFit sets it); with less room it folds to a magnifier (data-mode=icon) and opens over the bar. While it is
-   typed in it is --search-open wide, anchored to its right end, so nothing beside it moves.
+   open it is --search-open wide - more when the count needs it, so the query keeps --search-q-min - anchored to its right
+   end, so nothing beside it moves; what it lies over is taken off the bar whole (.search-covered) and the field takes its
+   place, from one bar gap after what is left on its left (--search-span, searchCover) - no blank run, no animation.
    Parts, left to right: the magnifier glyph and the input (#search-field, a <label>), the shortcut hint while empty (mouse
    only), the count and the two arrows once there is a query (#search-nav), the close button. The field's border is the one
    outline: nothing inside it has a border, and its focus ring is the field's. */
 #doc-search{--search-h:var(--control-h);display:flex;flex:none;align-items:center;position:relative;width:var(--search-w);height:var(--search-h);margin-left:auto}
 #doc-search:not([hidden])~:is(#nav-page,#nav-side){margin-left:0}   /* the bar's one flexible gap is before the search */
 #search-open{display:none;color:var(--muted-foreground)}
-#search-open[aria-expanded=true]{background:var(--accent);color:var(--foreground)}
+body.search-open #search-open{visibility:hidden}   /* the open field stands in its place: on touch its 44px box showed above and below the 36px field */
 #doc-search[data-mode=icon]{width:auto}
 #doc-search[data-mode=icon] #search-open{display:inline-flex}
 #doc-search[data-mode=icon] #search-box{display:none}
-#search-box{display:flex;align-items:center;width:100%;height:100%;border:1px solid var(--input);border-radius:var(--radius);background:var(--field);color:var(--foreground)}
-body.search-open #doc-search #search-box{display:flex;position:absolute;right:0;top:0;z-index:2;width:max(100%,min(var(--search-open),var(--search-cap,100vw)))}
+/* The box is a one-row grid: the field takes what the hint, the count with its arrows and the close button leave. */
+#search-box{display:grid;grid-auto-flow:column;grid-template-columns:minmax(0,1fr);grid-auto-columns:auto;align-items:center;width:100%;height:100%;
+  border:1px solid var(--input);border-radius:var(--radius);background:var(--field);color:var(--foreground)}
+/* Open, the field's column is never under the query's minimum plus the glyph and the field's padding (16 + 8 + 8 + 8), and the
+   box is never under what its columns need: a long count widens the box to the left instead of squeezing the query. */
+body.search-open #doc-search #search-box{display:grid;position:absolute;right:0;top:0;z-index:2;width:var(--search-span,max(100%,min(var(--search-open),var(--search-cap,100vw))));min-width:min-content;
+  grid-template-columns:minmax(calc(var(--search-q-min) + var(--space-4) + 3 * var(--space-2)),1fr)}
 #search-box:has(#search-q:focus-visible){outline:2px solid var(--ring);outline-offset:1px}
-#search-field{display:flex;flex:1;align-items:center;gap:var(--space-2);min-width:0;height:100%;padding:0 var(--space-2);cursor:text}
+/* A neighbour the open field lies over (searchCover): not drawn, no press, no focus - and still in its place, so the bar
+   does not move. Nothing of it is left beside the field: no cut word, no underline, no separator. */
+#doc-nav>.search-covered{visibility:hidden}
+/* The status line is never taken off (the short band holds it in this row, status.js): what stays on the field's left keeps its
+   place first, then the status, then the neighbours taken off - so the status stands one gap after what is left and the field
+   one gap after the status. searchCover shortens its text (max-width) when the field needs the room. */
+#doc-nav>.search-left{order:-2}
+#doc-nav>.search-kept{order:-1}
+#doc-nav>.search-tight .nt-x{display:none}   /* the status's dismiss button gives way before its words (searchCover) */
+/* Esc puts the focus on the PDF's scroller when nothing else can take it back (searchClose): it is not a stop anyone tabs to,
+   and a ring round the whole PDF read as the select mode's frame. The next Tab draws the ring where the focus goes. */
+#left:focus-visible{outline:none}
+#search-field{display:flex;align-items:center;align-self:stretch;gap:var(--space-2);position:relative;min-width:0;padding:0 var(--space-2);cursor:text}
 #search-field .ic{color:var(--muted-foreground)}
-/* The input draws nothing but its text, and is one line box high (its height is its line height, 8px less than the field: a
-   whole number of pixels above and below it), so nothing but the line's own layout places the text. #search-probe is that
-   line laid out again where it can be measured: searchInk() reads its baseline and moves the input by --search-ink - a
-   whole number of device pixels, as a transform, since a line's text is painted on whole CSS pixels - so the capitals
-   centre on the row in any font, as the tabs' trimmed labels do. */
-#search-q,#search-probe{font-size:var(--text-base);line-height:calc(var(--search-h) - var(--space-2))}
-#search-q{flex:1;min-width:0;height:calc(var(--search-h) - var(--space-2));min-height:0;padding:0;border:0;border-radius:0;background:transparent;color:inherit;
+/* The input draws nothing but its text and is one line box high (--line-field, the fields' line), centred in the field: a
+   whole number of pixels above and below it. Its text is the row labels' size with a mouse. The row's labels stand on their
+   cap height's centre (§글자 가운데: text-box trimming), which does not reach an input's text, so the field carries the
+   reference itself - #search-ref, two trimmed lines centred in the field, one at the row labels' size and one at the field's
+   own - and searchInk() moves the input (--search-ink, a transform) so its cap height's centre is the row line's in layout;
+   painting puts both on the device grid. #search-probe is the input's line laid out where its baseline can be read. */
+#search-q,#search-probe,#search-ref-own{font-size:var(--text-sm);line-height:var(--line-field)}
+#search-q{flex:1;min-width:0;min-height:0;padding:0;border:0;border-radius:0;background:transparent;color:inherit;
   outline:none;appearance:none;-webkit-appearance:none;transform:translateY(var(--search-ink,0px))}
 #search-probe{position:absolute;left:0;top:0;visibility:hidden;pointer-events:none;white-space:nowrap}
 #search-probe i{display:inline-block;width:0;height:0}
+#search-ref{display:flex;align-items:center;position:absolute;left:0;top:0;height:100%;visibility:hidden;pointer-events:none}
+#search-ref>span{display:block;white-space:nowrap;text-box:trim-both cap alphabetic}
+#search-ref>span::before{content:'H'}
+#search-ref-row{font-size:var(--text-sm)}   /* the size of the bar's labels: the tabs', the links' */
 #search-q::-webkit-search-cancel-button{display:none}   /* [검색 닫기] clears it */
-#search-hint,#search-count{flex:none;font-size:var(--text-xs);color:var(--muted-foreground);white-space:nowrap;text-box:trim-both cap alphabetic}
+#search-hint,#search-count{font-size:var(--text-xs);color:var(--muted-foreground);white-space:nowrap;text-box:trim-both cap alphabetic}
 #search-hint{margin-right:var(--space-2)}
 #search-count{margin-right:var(--space-1);font-variant-numeric:tabular-nums}
-#search-nav{display:none;flex:none;align-items:center;height:100%}   /* its buttons take the field's height on touch */
+#search-nav{display:none;align-items:center;align-self:stretch}   /* its buttons take the field's height on touch */
 #doc-search.has-q #search-nav{display:flex}
 #doc-search.has-q #search-hint{display:none}
 #search-box button{border:0;color:var(--muted-foreground)}
 #search-close{margin-right:1px}   /* the 24px buttons stand 1px inside the 26px the border leaves, on every side */
 #doc-search[data-mode=inline]:not(.has-q) #search-close{display:none}   /* an empty field in the bar is left by clicking away */
 @media (pointer:coarse){
-  :root{--search-open:280px}   /* 16px text and three buttons at a 44px pitch: 240px left a query 30px, 280px leaves it four Hangul letters */
+  :root{--search-open:336px;--search-q-min:120px}   /* 16px text and three buttons at a 44px pitch: the query keeps seven Hangul letters */
   #doc-search{--search-h:var(--control-h-lg)}
   #search-hint{display:none}   /* a key means nothing on a touch screen */
-  #search-q,#search-probe{font-size:var(--text-xl)}   /* 16px: iOS zooms the page on a smaller field */
+  #search-q,#search-probe,#search-ref-own{font-size:var(--text-xl)}   /* 16px: iOS zooms the page on a smaller field */
   #search-q{z-index:1}   /* above the label's hit box, so a tap in the text places the caret */
   #search-box button{min-width:0;min-height:0;width:var(--control-h-lg);height:100%;padding:0}   /* drawn in the field's height, 44px apart, each answering 44px */
   #search-nav{gap:var(--space-2)}
@@ -54,26 +78,39 @@ body.search-open #doc-search #search-box{display:flex;position:absolute;right:0;
 /* The short band's magnifier is its row's 40px ghost with a 44px hit, as the outline toggle beside it. */
 body.band-short #search-open{width:var(--ctl-touch);min-width:0;height:var(--ctl-touch);min-height:0;position:relative}
 body.band-short #search-open::after{content:'';position:absolute;left:50%;top:50%;width:var(--hit);height:var(--hit);transform:translate(-50%,-50%)}
-/* ---- The phone (no nav bar): nothing at rest. The navigation sheet's first row (#ns-search) discloses the search, and while
-   it is open the nav bar is drawn as a row over the collapsed sheet's bar - the same 53px, so the PDF keeps its height: the
-   field and the close button. A query adds one row above it, 8px away so the two rows' 44px hits meet without overlapping:
-   the count and the two arrows. */
+/* ---- The phone (no nav bar): nothing at rest. The navigation sheet's head carries the row that discloses the search
+   (#ns-search) - in the sticky head, under the title, so it is on screen whenever the sheet opens: the sheet scrolls to the
+   current section as it opens, and a row in the scrolled part went out of view with it (five documents, or a section far
+   down the outline). While the search is open the nav bar is drawn as a row over the collapsed sheet's bar - the same 53px,
+   so the PDF keeps its height: the field and the close button. A query adds one row above it, 8px away so the two rows'
+   44px hits meet without overlapping: the count and the two arrows. */
 #ns-search{display:flex;justify-content:flex-start;gap:var(--space-2);width:100%;margin-bottom:var(--space-2);color:var(--muted-foreground)}
 body.band-phone #doc-nav>:not(#doc-search){display:none}
 body.band-phone.search-open #doc-nav{display:block;position:fixed;left:0;right:0;bottom:var(--kb,0px);z-index:24;height:auto;
   padding:var(--space-2) max(var(--edge),env(safe-area-inset-right)) calc(var(--space-2) + env(safe-area-inset-bottom)) max(var(--edge),env(safe-area-inset-left));
   background:var(--sidebar);border-top:1px solid var(--border-strong);border-bottom:0;border-radius:var(--radius-lg) var(--radius-lg) 0 0;box-shadow:0 -6px 24px var(--shadow-color)}
-body.band-phone.search-open #status-dock{display:none}   /* the status line would stand in the search row */
+/* The status line stays up while searching: it stands on the search rows (--search-rows, their height, searchRows) as it stands
+   on the sheet at rest, so it is drawn, pressable and spoken, and the result row never covers it. Its own rule (responsive.css,
+   §상태 줄) places it on the sheet; this one, as specific, comes later. */
+body.lay-narrow.band-phone.has-status.search-open:not(.typing) #status-dock{bottom:calc(var(--search-rows,53px) + var(--kb,0px))}
+/* One surface with the line, as the sheet is at rest, and one rhythm top to bottom: the status row --space-2 under the sheet's
+   top edge, then each row --space-2 apart (status, count, field); the rows' own top edge goes, so the status row's bottom is
+   their padding's top. The status's dismiss is drawn 36px wide, so its icon stands in the column of the rows' last buttons. */
+body.lay-narrow.band-phone.has-status.search-open:not(.typing) #doc-nav{border-top:0;border-radius:0;box-shadow:none}
+body.lay-narrow.band-phone.has-status.search-open:not(.typing) #status-dock{height:calc(24px + var(--space-2));padding-top:var(--space-2)}
+body.lay-narrow.band-phone.has-status.search-open:not(.typing) #status-dock #status button.nt-x{width:var(--control-h-lg);min-width:var(--control-h-lg)}
 body.band-phone #doc-search{display:block;width:auto;height:auto;margin:0}
-body.band-phone.search-open #doc-search #search-box{position:static;display:grid;grid-template-columns:minmax(0,1fr) auto;gap:var(--space-2);width:auto;height:auto;
+body.band-phone.search-open #doc-search #search-box{position:static;grid-auto-flow:row;grid-template-columns:minmax(0,1fr) auto;gap:var(--space-2);width:auto;min-width:0;height:auto;
   border:0;border-radius:0;background:transparent;outline:none}
-body.band-phone #search-field{height:var(--search-h);padding:0 var(--space-2);border:1px solid var(--input);border-radius:var(--radius);background:var(--field)}
+body.band-phone #search-field{align-self:auto;height:var(--search-h);padding:0 var(--space-2);border:1px solid var(--input);border-radius:var(--radius);background:var(--field)}
 body.band-phone #search-field:has(#search-q:focus-visible){outline:2px solid var(--ring);outline-offset:1px}
-body.band-phone #search-nav{order:-1;grid-column:1 / -1;height:var(--search-h);padding-left:var(--space-2)}
+body.band-phone #search-nav{order:-1;grid-column:1 / -1;align-self:auto;height:var(--search-h);padding-left:var(--space-3)}   /* the count's text on --ink, as the status's icon above it */
 body.band-phone #search-count{flex:1}
+body.band-phone #search-hint{display:none}   /* the row has the field and its close button, with a mouse too */
 body.band-phone #search-box button{height:var(--search-h)}
 body.band-phone #search-close{margin:0}
-/* ---- Hits on the page: one box a hit, in page fractions like a mark, washed over the text (multiply keeps the letters black
-   on paper); the current hit is the stronger colour with a ring, so it does not depend on colour alone. */
+/* ---- Hits on the page: one box for each line a hit lies on, in page fractions like a mark, washed over the text (multiply
+   keeps the letters black on paper); the current hit is the stronger colour with a ring, so it does not depend on colour
+   alone. */
 .search-hit{position:absolute;pointer-events:none;border-radius:0;background:color-mix(in srgb,var(--search-hit) 45%,transparent);mix-blend-mode:multiply}
 .search-hit.cur{background:color-mix(in srgb,var(--search-hit-current) 50%,transparent);outline:2px solid var(--search-hit-current)}

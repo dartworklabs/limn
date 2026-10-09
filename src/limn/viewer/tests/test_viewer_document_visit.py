@@ -29,7 +29,7 @@ class DocumentVisitActions(unittest.TestCase):
                 function $(s){return {hidden:true};}
                 function docInfo(k){return k==='other'||k==='third';}
                 function pdoc(p){return p.doc;} function dq(path,k){return path+'?doc='+k;}
-                function saveView(){} function parkDraft(){} function openDraftDoc(){} function restoreDraft(){}
+                function saveView(){} function searchLeave(){} function parkDraft(){} function openDraftDoc(){} function restoreDraft(){}
                 function cancelRepick(){} function cancelSelection(){}
                 function editDirty(){return false;} function cancelEdit(){}
                 function savePrefs(){} function setHash(){} function hideTip(){} function showDoc(){}

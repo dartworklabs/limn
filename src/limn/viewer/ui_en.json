@@ -1198,5 +1198,6 @@
  "본문에서 글자를 찾습니다 (Ctrl/⌘+F)": "Find text in the document (Ctrl/⌘+F)",
  "{m}개 중 {n}번째 · {page}쪽": "{n} of {m} · page {page}",
  "결과 없음": "No results",
+ "못 읽은 쪽 {n}": {"one": "{n} page not read", "other": "{n} pages not read"},
  "본문 검색 칸으로 갑니다. Enter 는 다음 결과, Shift+Enter 는 이전 결과, Esc 는 검색을 닫습니다. 검색 칸에서 한 번 더 누르면 브라우저의 찾기가 뜹니다": "Goes to the search field. Enter is the next result, Shift+Enter the previous one, Esc closes the search. Pressed again in the field, it opens the browser's own find"
 }
