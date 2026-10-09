@@ -1837,6 +1837,19 @@ STATUS = """() => {const s = document.querySelector('#status'), sr = s.querySele
     action: b ? {box: R(b), reached: at(b), text: b.textContent.trim()} : null, text: s.querySelector('.st-body').textContent.trim()};}"""
 # A status message with an action, as the viewer raises one (lineNote): the arrival has no control to press.
 NOTE = "lineNote('연결이 끊겼습니다 — 다시 연결하는 중입니다', NOTICE_KIND.WARN, {label: '다시 시도', fn: () => {}})"
+# The status line a manuscript newer than its PDF raises, with its action.
+STALE = "lineNote('원고 수정됨', NOTICE_KIND.WARN, {label: '재빌드', fn: () => {}})"
+# The phone's search rows and the status line over them, measured: the field's box, where the count's text and the status's
+# icon start, the icon centres of the rows' last buttons (next, close, the status's dismiss), and the rows' boxes top to
+# bottom, with the inner tops (inside their borders) of the status's dock and the rows; with the edge and ink insets in force.
+ROWS = """() => {const q = s => document.querySelector(s), R = s => {const e = q(s); if (!e || !e.getClientRects().length) return null; const r = e.getBoundingClientRect();
+    return {l: r.left, r: r.right, t: r.top, b: r.bottom, c: (r.left + r.right) / 2};};
+  const cs = getComputedStyle(document.body), px = v => parseFloat(cs.getPropertyValue(v));
+  const range = document.createRange(), count = q('#search-count'); range.selectNodeContents(count);
+  return {W: innerWidth, edge: px('--edge'), ink: px('--edge') + px('--space-3'), gap: px('--space-2'), field: R('#search-field'), count: range.getBoundingClientRect().left,
+    next: R('#search-next .ic'), close: R('#search-close .ic'), stX: R('#status .nt-x .ic'), stIcon: R('#status .st-ic'),
+    dock: R('#status-dock'), status: R('#status'), nav: R('#doc-nav'), countRow: R('#search-nav'), fieldRow: R('#search-field'),
+    dockIn: q('#status-dock').getBoundingClientRect().top + q('#status-dock').clientTop, navIn: q('#doc-nav').getBoundingClientRect().top + q('#doc-nav').clientTop};}"""
 
 
 class SearchStatusLine(FiveDocsBase):
@@ -1872,6 +1885,60 @@ class SearchStatusLine(FiveDocsBase):
                     "document.querySelector('#status [role=status]').textContent.includes('다시 연결했습니다')"
                 )
                 self.assertTrue(page.evaluate(STATUS)["shown"])
+
+    def test_the_short_bands_status_words_stay_whole_beside_the_field(self):
+        """On a landscape phone (844x390, 908x411) with '원고 수정됨 [재빌드]' up and 'tide' searched, the status's words
+        show whole - not cut to an ellipsis - its action answers a press and the outline toggle stays: the field gave way
+        first, down to its minimum query width (120px on touch), then the document links and the view switch, then the
+        status's dismiss button; the words come last."""
+        for name, dev in (("short 844x390", device(844, 390)), ("short 908x411", device(908, 411))):
+            with self.subTest(viewport=name):
+                page = self.view(dev)
+                page.evaluate(STALE)
+                settle(page)
+                self.press(page, "#search-open")
+                page.keyboard.type("tide")
+                page.wait_for_function(COUNTED, timeout=8000)
+                settle(page)
+                words = page.evaluate(
+                    "(t=>[t.textContent,t.scrollWidth-t.clientWidth])(document.querySelector('#status .st-tx'))"
+                )
+                self.assertEqual(words[0], "원고 수정됨")
+                self.assertLessEqual(words[1], 0, words)
+                st = page.evaluate(STATUS)
+                self.assertTrue(st["shown"] and st["action"]["reached"], st)
+                self.assertGreaterEqual(
+                    page.evaluate("document.querySelector('#search-q').getBoundingClientRect().width"), 120
+                )
+                g = page.evaluate(OVER_BAR)
+                self.assertLessEqual(st["box"]["r"], g["box"][0] - g["gap"] + 0.5)
+                self.assertIn("nav-toc-toggle", [k["id"] for k in g["kids"] if k["shows"]])  # the outline toggle stays
+
+    def test_the_phones_rows_share_their_edges_and_one_rhythm(self):
+        """On each phone, with and without a status line, the search open with a query: the field's box starts on
+        --edge and the count's text on --ink, as the status's icon does; the icons of each row's last button - next,
+        close and the status's dismiss - stand in one column; and top to bottom the status row, the count row and the
+        field row are --space-2 apart, the status row --space-2 under the sheet's top as the count row is when there is
+        no status line."""
+        for name, dev in PHONES.items():
+            for status in (False, True):
+                with self.subTest(viewport=name, status=status):
+                    page = self.view(dev)
+                    if status:
+                        page.evaluate(STALE)
+                        settle(page)
+                    self.search(page, "tide")
+                    m = page.evaluate(ROWS)
+                    self.assertAlmostEqual(m["field"]["l"], m["edge"], delta=0.5, msg=m)
+                    self.assertAlmostEqual(m["count"], m["ink"], delta=0.5, msg=m)
+                    self.assertAlmostEqual(m["next"]["c"], m["close"]["c"], delta=0.5, msg=m)
+                    self.assertAlmostEqual(m["countRow"]["t"] - m["navIn"], m["gap"], delta=0.5, msg=m)
+                    self.assertAlmostEqual(m["fieldRow"]["t"] - m["countRow"]["b"], m["gap"], delta=0.5, msg=m)
+                    if status:
+                        self.assertAlmostEqual(m["stIcon"]["l"], m["ink"], delta=0.5, msg=m)
+                        self.assertAlmostEqual(m["stX"]["c"], m["close"]["c"], delta=0.5, msg=m)
+                        self.assertAlmostEqual(m["status"]["t"] - m["dockIn"], m["gap"], delta=0.5, msg=m)
+                        self.assertAlmostEqual(m["countRow"]["t"] - m["status"]["b"], m["gap"], delta=0.5, msg=m)
 
     def test_the_phones_status_line_stands_above_the_search_rows(self):
         """On each phone, with a status up and the search open from the navigation sheet with a query: the status line

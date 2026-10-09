@@ -282,13 +282,13 @@ function searchFit(){const s=$('#doc-search'),nav=$('#doc-nav');
 // the field takes their place: --search-span widens it to the left, from where it ends to one bar gap after the last neighbour
 // left on its left (the bar's content edge when none is), so no blank run is left where they stood. The status line is never
 // taken off (the short band holds it in this row): it moves to stand right after what is left on the left (.search-kept, flex
-// order); when the field needs more room, the neighbours on its left are taken off too, the nearest first, while the status's
-// text alone cannot give it, and then the text is shortened - the status keeps its icon and action, drawn, pressable, spoken. The natural box is
+// order) and gives way to the field last (below) - it keeps its icon, its action and, as long as anything else can yield,
+// its words: drawn, pressable, spoken. The natural box is
 // measured first and the span set in the same task, so the field is drawn at its full span in the frame it opens and its text
 // does not move after. Nothing is covered on the phone (it has no bar) or while the field is closed.
 function searchCover(){const s=$('#doc-search'),nav=$('#doc-nav'),box=$('#search-box'),kids=/** @type {HTMLElement[]} */([...nav.children]).filter(k=>k!==s);
   if(s.style.getPropertyValue('--search-span'))s.style.removeProperty('--search-span');   // the natural box first: the span is worked out from it
-  for(const k of kids){if(k.matches('.search-covered,.search-left,.search-kept'))k.classList.remove('search-covered','search-left','search-kept'); if(k.style.maxWidth)k.style.maxWidth='';}
+  for(const k of kids){if(k.matches('.search-covered,.search-left,.search-kept,.search-tight'))k.classList.remove('search-covered','search-left','search-kept','search-tight'); if(k.style.maxWidth)k.style.maxWidth='';}
   const b=SEARCH.open&&!s.hidden&&BAND!==LAYOUT_BAND.PHONE&&box.getClientRects().length?box.getBoundingClientRect():null; if(!b)return;   // closed: nothing is measured
   const cs=getComputedStyle(nav),gap=parseFloat(cs.columnGap)||0,keep=/** @type {HTMLElement[]} */([]),off=/** @type {HTMLElement[]} */([]),left=/** @type {HTMLElement[]} */([]);
   for(const k of kids){const r=k.getBoundingClientRect(); if(!r.width)continue;
@@ -298,12 +298,18 @@ function searchCover(){const s=$('#doc-search'),nav=$('#doc-nav'),box=$('#search
   off.forEach(k=>k.classList.add('search-covered')); left.forEach(k=>k.classList.add('search-left')); keep.forEach(k=>k.classList.add('search-kept'));
   const edge=()=>[...left,...keep].reduce((e,k)=>Math.max(e,k.getBoundingClientRect().right+gap),nav.getBoundingClientRect().left+nav.clientLeft+(parseFloat(cs.paddingLeft)||0));
   let span=b.right-edge();
-  if(keep.length){const k=keep[keep.length-1],tx=k.querySelector('.st-tx'),text=()=>tx?tx.getBoundingClientRect().width:0;
-    // the status keeps its icon and action: neighbours on the left are taken off, the nearest first, while its text alone
-    // cannot give the field its room; then the text gives up what is still missing (an ellipsis)
-    while(span<b.width&&b.width-span>text()&&left.length){const m=/** @type {HTMLElement} */(left.pop()); m.classList.replace('search-left','search-covered'); span=b.right-edge();}
-    if(span<b.width){k.style.maxWidth=Math.max(0,Math.floor(k.getBoundingClientRect().width-(b.width-span)))+'px'; span=b.right-edge();}}
-  s.style.setProperty('--search-span',Math.max(b.width,span)+'px');}
+  if(!keep.length){s.style.setProperty('--search-span',Math.max(b.width,span)+'px'); return;}
+  // The status line's words are what it says; as the row narrows they give way last. First the field shrinks, down to its
+  // least width (the open box's min-content: the query keeps --search-q-min); then the neighbours left of the status are
+  // taken off, the nearest first, all but the row's first (the outline toggle); then the status's dismiss button goes (it
+  // can be dismissed once the search is closed);
+  // only then do its words shorten to an ellipsis.
+  const k=keep[keep.length-1];
+  s.style.setProperty('--search-span','0px'); const least=box.getBoundingClientRect().width;   // min-width:min-content holds it there
+  while(span<least&&left.length>1){const m=/** @type {HTMLElement} */(left.pop()); m.classList.replace('search-left','search-covered'); span=b.right-edge();}   // the first (the outline toggle) stays
+  if(span<least){k.classList.add('search-tight'); span=b.right-edge();}
+  if(span<least){k.style.maxWidth=Math.max(0,Math.floor(k.getBoundingClientRect().width-(least-span)))+'px'; span=b.right-edge();}
+  s.style.setProperty('--search-span',Math.max(least,span)+'px');}
 // The field's text on the row's ink reference (docs/handbook/viewer.md §글자 가운데): its neighbours' labels are trimmed to
 // their cap height (text-box: trim-both cap alphabetic) and centred, which an <input> cannot be - trimming does not reach its
 // text. So the field holds that reference itself: #search-ref-row is a trimmed line at the row labels' size and
