@@ -92,6 +92,7 @@ body.band-phone.search-open #doc-nav{display:block;position:fixed;left:0;right:0
    on the sheet at rest, so it is drawn, pressable and spoken, and the result row never covers it. Its own rule (responsive.css,
    §상태 줄) places it on the sheet; this one, as specific, comes later. */
 body.lay-narrow.band-phone.has-status.search-open:not(.typing) #status-dock{bottom:calc(var(--search-rows,53px) + var(--kb,0px))}
+body.lay-narrow.band-phone.has-status.search-open:not(.typing) #doc-nav{border-top-color:transparent;border-radius:0;box-shadow:none}   /* one surface with the line, as the sheet is at rest */
 body.band-phone #doc-search{display:block;width:auto;height:auto;margin:0}
 body.band-phone.search-open #doc-search #search-box{position:static;grid-auto-flow:row;grid-template-columns:minmax(0,1fr) auto;gap:var(--space-2);width:auto;min-width:0;height:auto;
   border:0;border-radius:0;background:transparent;outline:none}
