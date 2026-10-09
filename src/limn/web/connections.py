@@ -1,12 +1,24 @@
 """Bounded TCP ownership for opt-in listeners; existing unbounded listeners remain independent."""
 
 import socket
+import sys
 import threading
 from collections.abc import Callable
 from socketserver import BaseRequestHandler
 from typing import NoReturn
 
-from limn.web.connection_policy import AdmissionState, Claimed, LeaseToken, Reserved, claim, release, reserve, stop
+from limn.web.connection_policy import (
+    AdmissionState,
+    Cancelled,
+    Claimed,
+    LeaseToken,
+    Reserved,
+    Stopped,
+    claim,
+    release,
+    reserve,
+    stop,
+)
 from limn.web.handler import Server, Server6
 
 ClientAddress = tuple[str, int] | tuple[str, int, int, int]
@@ -35,6 +47,7 @@ class BoundedServer(Server):
         self._admission_lock = threading.Lock()
         self._admission = AdmissionState(max_connections, object())
         self._fatal: BaseException | None = None
+        self._fatal_reported = False
         super().__init__(server_address, handler)
 
     def process_request(
@@ -44,7 +57,7 @@ class BoundedServer(Server):
         if not isinstance(request, socket.socket):
             raise TypeError("Bounded HTTP listeners require a TCP socket")
         with self._admission_lock:
-            result = reserve(self._admission)
+            result = reserve(self._admission) if self._fatal is None else Stopped()
             if isinstance(result, Reserved):
                 self._admission = result.state
         if not isinstance(result, Reserved):
@@ -84,7 +97,7 @@ class BoundedServer(Server):
         """Claim before handler construction and retain the lease through all physical-cleanup paths."""
         try:
             with self._admission_lock:
-                result = claim(self._admission, token)
+                result = claim(self._admission, token) if self._fatal is None else Cancelled()
                 if isinstance(result, Claimed):
                     self._admission = result.state
             if not isinstance(result, Claimed):
@@ -97,7 +110,12 @@ class BoundedServer(Server):
             try:
                 self._cleanup_connection(request)
             except BaseException as cleanup_error:
-                self._record_fatal(cleanup_error)
+                try:
+                    self._fence_fatal(cleanup_error)
+                finally:
+                    if self._fatal is None:
+                        self._fatal = cleanup_error
+                    self._record_fatal(self._fatal)
             else:
                 with self._admission_lock:
                     self._admission = release(self._admission, token)
@@ -120,6 +138,13 @@ class BoundedServer(Server):
                 raise original
             raise OSError("Connection socket cleanup did not attest physical closure")
 
+    def _fence_fatal(self, original: BaseException) -> BaseException:
+        """Publish the first cause under the same lock that gates reservation and worker entry."""
+        with self._admission_lock:
+            if self._fatal is None:
+                self._fatal = original
+            return self._fatal
+
     def _record_fatal(self, original: BaseException) -> None:
         """Stop new entry atomically and publish the first failure without releasing uncertain leases."""
         with self._admission_lock:
@@ -128,24 +153,51 @@ class BoundedServer(Server):
                 self._fatal = original
 
     def _fail_start(self, original: BaseException) -> NoReturn:
-        """Stop entry and close the listener; close errors cannot replace the first fatal cause."""
-        self._record_fatal(original)
-        with self._admission_lock:
-            initiating = self._fatal
-        assert initiating is not None
+        """Fence entry even if coordination fails; all secondary effects preserve the nonzero initiating cause."""
+        initiating = original
         try:
             try:
-                self.server_close()
+                initiating = self._fence_fatal(original)
             finally:
-                if self.socket.fileno() != -1:
-                    self.socket.close()
+                # Even failed fuse coordination cannot leave the accepting shell without a fatal cause.
+                if self._fatal is None:
+                    self._fatal = original
+                initiating = self._fatal
+                try:
+                    self._record_fatal(initiating)
+                finally:
+                    try:
+                        self.server_close()
+                    finally:
+                        if self.socket.fileno() != -1:
+                            self.socket.close()
         finally:
+            try:
+                if not self._fatal_reported:
+                    self._fatal_reported = True
+                    self._report_fatal(initiating)
+            except BaseException:
+                pass
             raise FatalConnectionStart(initiating) from initiating
+
+    def _report_fatal(self, original: BaseException) -> None:
+        """Report a safe cause type on stderr because SystemExit itself suppresses uncaught tracebacks."""
+        detail = type(original).__name__
+        if isinstance(original, SystemExit) and isinstance(original.code, int):
+            detail += " (code %d)" % original.code
+        print("error: bounded connection lifecycle failed: %s" % detail, file=sys.stderr)
+
+    def serve_forever(self, poll_interval: float = 0.5) -> None:
+        """Preserve fatal escape when stdlib's parent socket cleanup replaces the dispatch exception."""
+        try:
+            super().serve_forever(poll_interval)
+        finally:
+            if self._fatal is not None:
+                self._fail_start(self._fatal)
 
     def service_actions(self) -> None:
         """Escape the accepting loop on worker-published fatal cleanup without calling self-deadlocking shutdown."""
-        with self._admission_lock:
-            original = self._fatal
+        original = self._fatal
         if original is not None:
             self._fail_start(original)
 

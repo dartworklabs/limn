@@ -80,6 +80,7 @@ from limn.viewer import (
     serve_viewer as serve_viewer,
 )
 from limn.web.app import DocumentSelector, RouteRegistry, WebApplication
+from limn.web.connections import FatalConnectionStart
 from limn.web.errors import HTTPError as HTTPError
 from limn.web.handler import Handler as WebHandler, Server, Server6
 from limn.web.routes import merge_routes
@@ -415,7 +416,8 @@ def main() -> None:
     pin store and builds, starts the watch threads and opens the server; serve until stopped, then close the
     listening socket and stop the application's watch threads, even if
     socket closure fails. A serving error retains priority over cleanup errors; secondary cleanup errors are
-    warned on stderr. The one place the process exits on a refused start: its message on stderr, status 1."""
+    warned on stderr. Explicit fatal connection failures stay nonzero even if warning output fails.
+    The one place the process exits on a refused start: its message on stderr, status 1."""
     started = start(build_arg_parser().parse_args())
     if isinstance(started, StartupRefused):
         sys.exit(started.message)
@@ -426,22 +428,26 @@ def main() -> None:
         serving_error = e
         raise
     finally:
-        cleanup_errors: list[BaseException] = []
         try:
-            started.server.server_close()
-        except BaseException as e:
-            cleanup_errors.append(e)
-        try:
-            started.runtime.stop()
-        except BaseException as e:
-            cleanup_errors.append(e)
-        if cleanup_errors:
-            if serving_error is None:
-                for error in cleanup_errors[1:]:
+            cleanup_errors: list[BaseException] = []
+            try:
+                started.server.server_close()
+            except BaseException as e:
+                cleanup_errors.append(e)
+            try:
+                started.runtime.stop()
+            except BaseException as e:
+                cleanup_errors.append(e)
+            if cleanup_errors:
+                if serving_error is None:
+                    for error in cleanup_errors[1:]:
+                        print(f"warning: server cleanup failed: {error}", file=sys.stderr)
+                    raise cleanup_errors[0]
+                for error in cleanup_errors:
                     print(f"warning: server cleanup failed: {error}", file=sys.stderr)
-                raise cleanup_errors[0]
-            for error in cleanup_errors:
-                print(f"warning: server cleanup failed: {error}", file=sys.stderr)
+        finally:
+            if isinstance(serving_error, FatalConnectionStart):
+                raise serving_error from serving_error.original
 
 
 if __name__ == "__main__":
