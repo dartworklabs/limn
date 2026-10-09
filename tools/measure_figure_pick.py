@@ -1,8 +1,10 @@
 """Compare the current figure picker with its former depth-first rule on reproducible modelled drags.
 
 Accept any limn-figure-map/1 map; never execute the producer's code or inspect its source files. The regenerated
-sample pool is separate from ADR-0015's unavailable original harness. Padding is in page fractions, independent
-of PDF dimensions or viewer zoom, so these measurements compare algorithms rather than predict user accuracy.
+sample pool is a reconstruction, separate from ADR-0015's original harness, which is tools/measure_figure_pick_d6.py
+(it models drags in screen pixels on the PDF's page sizes and reproduces ADR-0015's table). Padding here is in page
+fractions, independent of PDF dimensions or viewer zoom, so these measurements compare algorithms rather than predict
+user accuracy.
 
 Run: uv run python tools/measure_figure_pick.py MAP --seed 2090015 --per-page 150
 """
