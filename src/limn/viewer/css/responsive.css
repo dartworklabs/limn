@@ -539,9 +539,10 @@ body.mid-overlay.side-settling #right,body.mid-overlay.side-settling #grip{trans
    can't be pushed aside to view, so the right half under the panel (the end of a wrapped line, the guidance line's [원고로]) was hidden (QA 2026-09-25, 842px). */
 body.mid-overlay.side-open #revision-view{padding-right:var(--side-w,330px)}
 /* The same while composing: a pick in the right column would hide under the panel (fold QA 2026-09-26, s10) - the PDF re-fits
-   to the space left of it (or scrolls there when zoomed). */
-body.mid-overlay.side-open.composing #left{padding-right:var(--side-w,330px)}
-@media (pointer:coarse){body.mid-overlay.side-open.composing #left{--doc-end:calc(var(--side-w,330px) + var(--space-2) + var(--hit) - var(--space-1));padding-right:var(--doc-end)}}   /* clear of the 8px bar's 44px touch hit */
+   to the space left of it (or scrolls there when zoomed). And while a search has a query (body.searching, search.js): a hit
+   in the right column was shown under the panel, where no scroll could bring it out (search review 2026-10-09, 841x673). */
+body.mid-overlay.side-open:is(.composing,.searching) #left{padding-right:var(--side-w,330px)}
+@media (pointer:coarse){body.mid-overlay.side-open:is(.composing,.searching) #left{--doc-end:calc(var(--side-w,330px) + var(--space-2) + var(--hit) - var(--space-1));padding-right:var(--doc-end)}}   /* clear of the 8px bar's 44px touch hit */
 /* With no note being written nothing keeps the page out of that hit: the page lies under the overlay, and the hit's 36px band left
    of the bar, down its whole height, took the PDF there (a long press or a [선택] tap grabbed the handle, issue #127). The hit is
    then the 44px square on the bar's grab mark (::before, its middle), so the rest of the band picks and scrolls the PDF. */
