@@ -10,6 +10,8 @@ split with its neighbour, and the guide row's buttons clear of the panel handle'
 Every number is layout: a box from getBoundingClientRect, a text's baseline as the top of its first glyph's box (Range)
 plus the font's layout ascent - read on a scratch span, never by putting an element into the measured one, because a
 button of words alone stops being a block container once it has a child - and ink from the viewer's own inkMetrics().
+A number is read once the viewer has answered the PDF column's present size (laid_out): it re-fits the pages in the frame
+after its ResizeObserver reports a size, which settle() alone does not wait for.
 """
 
 import json
@@ -58,6 +60,9 @@ FIRST_FONT = """fams => {const c = document.createElement('canvas').getContext('
 #   its cap height ('H'), of the digits, of its own ink and of its Hangul letters lie under the box's centre (inkMetrics).
 #   hit(el) - how far a press still answers el from its centre to the left, right, top and bottom (elementFromPoint, to
 #   0.1px, 60px at most), so an ::after extension and a neighbour that takes part of it both count.
+# window.__colSettled(): whether the PDF column's present size has been reported by a ResizeObserver made after the viewer's
+#   own and a frame has run since. Observers are called in the order they were made, so the viewer's re-fit for that size,
+#   which it schedules for the next frame (scheduleRelayout), has run by then.
 MEASURE = """() => {
   const asc = {};
   const ascent = el => {const c = getComputedStyle(el), key = [c.fontStyle, c.fontWeight, c.fontSize, c.fontFamily].join('|');
@@ -83,7 +88,11 @@ MEASURE = """() => {
     const reach = (dx, dy) => {if (!own(cx, cy)) return 0; let lo = 0, hi = 60; if (own(cx + dx * hi, cy + dy * hi)) return hi;
       while (hi - lo > 0.1) {const m = (lo + hi) / 2; if (own(cx + dx * m, cy + dy * m)) lo = m; else hi = m;} return lo;};
     return {l: reach(-1, 0), r: reach(1, 0), t: reach(0, -1), b: reach(0, 1)};};
-  window.__m = {label, hit};}"""
+  window.__m = {label, hit};
+  const L = document.querySelector('#left'), col = {seen: null, after: false};
+  const size = () => L.getClientRects().length ? [L.clientWidth, L.clientHeight] : [0, 0];
+  new ResizeObserver(() => {col.seen = String(size()); col.after = false; requestAnimationFrame(() => {col.after = true;});}).observe(L);
+  window.__colSettled = () => col.after && col.seen === String(size());}"""
 # An outline whose numbers differ in width inside one depth (1.9 and 1.10, 1, 10 and A, an unnumbered entry), with a title
 # that wraps and printed page labels of different widths, drawn into both outline lists.
 OUTLINE = """() => {OUTLINE_ENTRIES = [
@@ -128,6 +137,16 @@ MARKS = """() => [...document.querySelectorAll('.mark button.mark-jump')].map(b 
 # The pin whose mark badge answers a press at (x, y), or null.
 PRESSED = """([x, y]) => {const n = document.elementFromPoint(x, y), b = n && n.closest('.mark button.mark-jump');
   return b ? +b.dataset.id : null;}"""
+
+
+def laid_out(page) -> None:
+    """Wait until the page has settled and the viewer has answered the PDF column's present size (MEASURE's
+    __colSettled), then settle again for what that answer started. settle() covers one frame, and the viewer re-fits the
+    pages in the frame after its ResizeObserver reports a new size: a reading taken in between saw pages fitted to the
+    column's previous size (under load, a mark badge's press measured on a column hidden a moment before)."""
+    settle(page)
+    page.wait_for_function("window.__colSettled()", polling="raf")
+    settle(page)
 
 
 def whole(v: float) -> bool:
@@ -192,11 +211,12 @@ class SizeAlignmentBase(BrowserBase):
     """BrowserBase with the hints pre-seen and the layout readings (MEASURE) installed in the page."""
 
     def view(self, device: dict, init: str = ""):
-        """Open the viewer on device and return the page once it has booted, settled and its fonts are loaded; init is a
-        script run before the viewer's own, after the saved preferences."""
+        """Open the viewer on device and return the page once it has booted, its fonts are loaded and it is laid out
+        (laid_out); init is a script run before the viewer's own, after the saved preferences."""
         page = self.open(0, init=PREFS + init, **device)
         self.assertEqual(fonts_ready(page), "loaded")
         page.evaluate(MEASURE)
+        laid_out(page)
         return page
 
 
@@ -216,7 +236,7 @@ class OutlineColumns(SizeAlignmentBase):
             page.wait_for_function(
                 "document.querySelector('#nav-sheet').open||!document.body.classList.contains('outline-collapsed')"
             )
-        settle(page)
+        laid_out(page)
         self.assertEqual(fonts_ready(page), "loaded")  # the outline's own characters have their slices
         rows: list[dict] = page.evaluate(OUTLINE_ROWS, sel)
         self.assertEqual(len(rows), 8)
@@ -312,7 +332,7 @@ class CardFixture(SizeAlignmentBase):
         page.evaluate(
             "() => {setSide(true); OPEN_ALL.concat(REVIEW_ALL).forEach(p => OPEN_CARDS.add(p.id)); drawPins();}"
         )
-        settle(page)
+        laid_out(page)
         self.assertEqual(fonts_ready(page), "loaded")
         return page
 
@@ -434,7 +454,7 @@ class MarkHitSplit(SizeAlignmentBase):
             )
         page.evaluate("loadPins()")
         page.wait_for_function("document.querySelectorAll('.mark button.mark-jump').length===2")
-        settle(page)
+        laid_out(page)
         upper, lower = page.evaluate(MARKS)
         apart = lower["y"] - upper["y"]
         self.assertAlmostEqual(apart, px, delta=0.5)
@@ -478,10 +498,11 @@ class MarkHitSplit(SizeAlignmentBase):
         neither takes the other's centre."""
         page, upper, lower, apart = self.marks_apart(PHONE, 30)
         page.evaluate("setViewMode(VIEW_MODE.REVISIONS)")
-        page.wait_for_function("document.querySelector('#left').getClientRects().length===0")
+        laid_out(page)
+        self.assertFalse(page.evaluate("document.querySelector('#left').getClientRects().length>0"))
         page.evaluate("marks()")
         page.evaluate("setViewMode(VIEW_MODE.MANUSCRIPT)")
-        settle(page)
+        laid_out(page)
         upper, lower = page.evaluate(MARKS)
         middle = (upper["y"] + lower["y"]) / 2
         self.assertEqual(page.evaluate(PRESSED, [upper["x"], upper["y"]]), upper["id"])
@@ -506,6 +527,38 @@ class MarkHitSplit(SizeAlignmentBase):
         self.assertEqual(page.evaluate(PRESSED, [round(lower["x"]), math.ceil(lower["bottom"])]), lower["id"])
 
 
+# The first page's drawn width (its style, which holds while the page is hidden), whether the PDF column is drawn, and how
+# far the column is scrolled.
+PAGE_FIT = """() => {const L = document.querySelector('#left');
+  return {drawn: L.getClientRects().length > 0, width: document.querySelector('#p1').style.width, scroll: L.scrollTop};}"""
+
+
+class ChangesViewRoundTrip(SizeAlignmentBase):
+    """The manuscript's pages across a visit to the changes view (docs/handbook/viewer.md §변경 보기). The changes view
+    hides the PDF column, and a column that is not drawn has no width to fit: fitted to it, the pages shrank to the
+    smallest width while the changes view was open, and the re-fit on the way back took the reading spot from those small
+    pages - a phone 600px into the manuscript came back 259px in, and for a frame after the return the pages were still
+    small (a mark badge's press measured then went to its neighbour)."""
+
+    def test_the_pages_keep_their_width_and_the_reading_spot(self):
+        """Phone and tablet sheet, 600px into the manuscript: while the changes view is open the first page keeps its
+        width, and back in the manuscript the width and the scroll position are what they were."""
+        for name, device in (("phone", PHONE), ("tablet sheet", TABLET)):
+            with self.subTest(device=name):
+                page = self.view(device)
+                page.evaluate("document.querySelector('#left').scrollTop = 600")
+                laid_out(page)
+                before = page.evaluate(PAGE_FIT)
+                self.assertEqual((before["drawn"], before["scroll"]), (True, 600), before)
+                page.evaluate("setViewMode(VIEW_MODE.REVISIONS)")
+                laid_out(page)
+                hidden = page.evaluate(PAGE_FIT)
+                self.assertEqual((hidden["drawn"], hidden["width"]), (False, before["width"]), hidden)
+                page.evaluate("setViewMode(VIEW_MODE.MANUSCRIPT)")
+                laid_out(page)
+                self.assertEqual(page.evaluate(PAGE_FIT), before)
+
+
 class RevisionGuideClearOfGrip(CardFixture):
     """The changes view beside the side panel on a touch tablet (docs/handbook/viewer.md §패널 폭과 시트 높이): the panel
     handle's hit, which lies on the PDF side of the handle, is only the 44px square on the handle's middle while the
@@ -518,7 +571,7 @@ class RevisionGuideClearOfGrip(CardFixture):
         page = self.view(TAB_LANDSCAPE)
         page.evaluate("showChange(%d)" % self.review)
         page.wait_for_selector("#revision-pin [data-act=confirm]")
-        settle(page)
+        laid_out(page)
         self.assertTrue(
             page.evaluate(
                 "document.body.classList.contains('side-open')&&!document.body.classList.contains('mid-overlay')"

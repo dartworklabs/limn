@@ -28,8 +28,11 @@ function innerW(){const L=$('#left'),cs=getComputedStyle(L); return L.clientWidt
 // the page off the handles' hit areas); with a mouse in wide, #left.clientWidth minus 48px (left/right margins), as always.
 function fitWidth(){return LAYOUT!==LAYOUT_MODE.WIDE||MQ_COARSE.matches?innerW():$('#left').clientWidth-48;}
 // compact always fits the screen width (unless the user pressed -/+, in which case it stays fixed for that layout). wide fits the
-// padded width up to 900px unless a width is saved.
-function autoW(){if(LAYOUT!==LAYOUT_MODE.WIDE){if(!ZOOMED)setW(innerW(),false);return;}
+// padded width up to 900px unless a width is saved. A scroller that is not drawn - the changes view hides it - has no width to
+// fit: fitted to it the pages shrank to the smallest width while the changes view was open, and the re-fit on the way back
+// took the reading spot from those small pages, so the manuscript came back somewhere else (docs/handbook/viewer.md §변경 보기).
+function autoW(){if(!$('#left').getClientRects().length)return;
+  if(LAYOUT!==LAYOUT_MODE.WIDE){if(!ZOOMED)setW(innerW(),false);return;}
   if(prefs().w!==undefined)return; const f=innerW(); setW(f<900?f:900,false);}   // innerW = width - 44 - 16 with a mouse
 // Zoom anchor: the page under screen coordinates (cx,cy) and its fraction within that page. If the point falls in the gap between pages, the vertically nearest page is used.
 // Without coordinates, the center of the PDF area is used (keyboard/button).
