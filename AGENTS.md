@@ -28,6 +28,7 @@ Limn은 LaTeX 원고 PDF에서 드래그한 영역을 `.tex` 파일·줄 범위�
 - 코딩 규칙은 팀 스킬(`code-implement`, `code-testing`, `code-security`)이 기존 코드 관례보다 우선한다.
 - 코드·주석·docstring·커밋 메시지는 영어, Handbook은 한국어. `README`와 `skill/SKILL`은 영어·한국어 두 벌을 함께 고친다.
 - 앱 이름은 Limn 하나. 실제 이메일·홈 경로·호스트 이름을 넣지 않는다 (`alice@example.com` 형식을 쓴다).
+- 뷰어의 모양이나 조작을 바꾸는 변경은 크기와 무관하게, `main`에 넣기 전에 네 기기군 PoC(전후 비교)를 소유자에게 보인다 ([workflow.md](docs/handbook/workflow.md) §화면 변경은 PoC를 먼저 보인다).
 - [architecture.md](docs/handbook/architecture.md) §멈춤 신호에 걸리면 코드를 쓰기 전에 멈추고 묻는다.
 
 ## 검증
