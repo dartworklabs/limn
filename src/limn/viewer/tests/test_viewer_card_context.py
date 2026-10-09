@@ -506,10 +506,14 @@ class FoldedCardBase(CardFixture):
     def assert_on_the_cap_centre(self, got, hangul, rows=("head", "facts")):
         """The ink reference, by layout: each of rows drew a word, every word's cap-height centre and its digits' centre
         are within 0.5px of its row's centre - and its Hangul ink centre, when hangul is true - and the head's dot, icons
-        and avatar stand on the row's centre."""
+        and avatar stand on the row's centre. The facts line's words are trimmed one by one, so their cap-height centre
+        is the line's within 0.15px in any font (docs/handbook/viewer.md §글자 가운데: 0.11px); as line boxes on one
+        baseline they stood 0.3px over it in Pretendard, inside 0.5 but not on the reference."""
         self.assertLessEqual(set(rows), {label["row"] for label in got["labels"]}, got["labels"])
         self.assertEqual(off_centre(got["labels"], hangul), [])
         self.assertLessEqual(max(abs(under) for under in got["icons"].values()), 0.5, got["icons"])
+        facts = [label for label in got["labels"] if label["row"] == "facts"]
+        self.assertEqual(off_centre(facts, False, tol=0.15), [])  # trimmed, capitals land within 0.11px in any font
 
     def assert_one_centre(self, got, prefix):
         """The measured text runs whose key starts with prefix are painted on one ink centre: every pair is within
@@ -762,6 +766,49 @@ class DesktopHeadRow(FoldedCardBase):
         for name, ring in got["rings"].items():
             with self.subTest(name):
                 self.assertGreaterEqual(min(ring["over"], ring["under"]), 2.5, ring)
+
+
+class SameNameAndEmptyNoteCards(FoldedCardBase):
+    """A card names which of two same-named people has the pin, and an empty note does not make a card taller."""
+
+    def test_the_card_names_the_login_beside_a_name_two_people_share(self):
+        """Two people named Sam Jung, a pin handed to the second: on the phone and the desktop the facts line reads
+        '담당 Sam Jung sam2@example.com', as the composer's row and line do; Bob, whose name nobody shares, is 'Bob Park'
+        alone. It read only '담당 Sam Jung'."""
+        for login in ("sam1@example.com", "sam2@example.com"):
+            ps.APP.people_directory.record(actor({"Tailscale-User-Login": login, "Tailscale-User-Name": "Sam Jung"}))
+        sam = self.seed_state("sam2@example.com", "fix", "open")
+        bob = self.seed_state("bob@example.com", "fix", "open")
+        for name in ("phone 390x844", "desktop 1440x900"):
+            with self.subTest(name):
+                page = self.show(2, VIEWPORTS[name])
+                self.assertEqual(" ".join(self.facts(page, sam)["words"].split()), "담당 Sam Jung sam2@example.com")
+                self.assertEqual(self.facts(page, bob)["words"], "담당 Bob Park")
+                self.assertIn(
+                    "sam2@example.com", self.card(page, sam).locator(".card-meta .as-chip").get_attribute("data-tip")
+                )
+
+    def test_an_empty_note_is_as_tall_as_a_one_line_note(self):
+        """'(메모 없음)' in its smaller words takes the note's line, not one pixel more: an open card with an empty note
+        is as tall as one with a one-line note on the desktop and on the phone (it was 133 against 132, and 165 against
+        164), and folded it is the default 73px."""
+        empty = self.seed_state("agent", "fix", "open", note="")
+        short = self.seed_state("agent", "fix", "open")
+        for name in ("desktop 1440x900", "phone 390x844"):
+            with self.subTest(name):
+                page = self.show(2, VIEWPORTS[name])
+                if name.startswith("phone"):
+                    folded = [page.evaluate(CARD_ROWS, pid) for pid in (empty, short)]
+                    self.assertEqual([c["card"][3] - c["card"][1] for c in folded], [DEFAULT_1, DEFAULT_1])
+                    page.evaluate("ids => {ids.forEach(id => OPEN_CARDS.add(id)); drawPins();}", [empty, short])
+                    settle(page)
+                notes = page.evaluate(
+                    "ids => ids.map(id => document.querySelector('#right .pin[data-id=\"' + id + '\"] .note').getBoundingClientRect().height)",
+                    [empty, short],
+                )
+                cards = [page.evaluate(CARD_ROWS, pid) for pid in (empty, short)]
+                self.assertEqual(notes[0], notes[1], notes)
+                self.assertEqual(cards[0]["card"][3] - cards[0]["card"][1], cards[1]["card"][3] - cards[1]["card"][1])
 
 
 class AgentIdentityCards(FoldedCardBase):

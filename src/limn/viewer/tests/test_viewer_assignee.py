@@ -172,6 +172,65 @@ class AssigneeOutcomeRule(unittest.TestCase):
         self.assertEqual((one["assignee"], one["people"]), ("sam2@example.com", ["sam2@example.com"]))
         self.assertEqual((none["assignee"], none["people"]), (AGENT, []))
 
+    def test_an_edit_moves_the_tags_after_it_and_drops_the_one_it_touched(self):
+        """mentionShift: a tag the edit overlaps or types into drops out, a tag after it moves by the edit's length, a tag
+        before it stays; of two equal '@Sam Jung's the caret says which one an edit took, unless a script set the text
+        (the caret at its end), where the smallest edit is taken. A tag that a letter now precedes stays (it is the
+        moment a new tag is typed right before it)."""
+        sam = lambda login, at: {"login": login, "at": at, "tok": "@Sam Jung"}  # noqa: E731
+        two = "@Sam Jung 먼저, 그리고 @Sam Jung 다음"
+        second = two.rindex("@Sam Jung")
+        cases = [
+            ("the first deleted", [sam("s2", 0), sam("s1", second)], two, "그리고 @Sam Jung 다음", 0, [sam("s1", 4)]),
+            (
+                "the second deleted",
+                [sam("s2", 0), sam("s1", second)],
+                two,
+                two[:second] + "다음",
+                second,
+                [sam("s2", 0)],
+            ),
+            ("typed into", [sam("s2", 0)], "@Sam Jung 봐", "@Sam Jxung 봐", 7, []),
+            (
+                "the first deleted by a script, caret at the end",
+                [sam("s2", 0), sam("s1", second)],
+                two,
+                two[14:],
+                len(two) - 14,
+                [sam("s1", 4)],
+            ),
+            ("typed after", [sam("s2", 0)], "@Sam Jung 봐", "@Sam Jung 꼭 봐", 12, [sam("s2", 0)]),
+            ("typed before", [sam("s2", 0)], "@Sam Jung 봐", "@@Sam Jung 봐", 1, [sam("s2", 1)]),
+            (
+                "two equal, the first deleted",
+                [sam("s2", 0), sam("s1", 10)],
+                "@Sam Jung @Sam Jung",
+                "@Sam Jung",
+                0,
+                [sam("s1", 0)],
+            ),
+            (
+                "two equal, the second deleted",
+                [sam("s2", 0), sam("s1", 10)],
+                "@Sam Jung @Sam Jung",
+                "@Sam Jung ",
+                10,
+                [sam("s2", 0)],
+            ),
+        ]
+        js = "\n".join(
+            [
+                extract_js_fn("mentionAfterWord"),
+                extract_js_fn("mentionCommonStart"),
+                extract_js_fn("mentionShift"),
+                "const CASES=%s;" % json.dumps([c[1:5] for c in cases], ensure_ascii=False),
+                "console.log(JSON.stringify(CASES.map(([tags,old,now,caret])=>mentionShift(tags,old,now,caret))));",
+            ]
+        )
+        for (label, *_, want), got in zip(cases, json.loads(run_node(js)), strict=True):
+            with self.subTest(label):
+                self.assertEqual(got, want)
+
     def test_the_identity_less_screen_has_no_author_to_leave_out(self):
         """me null (the local screen): a tag of anyone is a colleague's."""
         (out,) = self.outcomes([{"text": "@Alice Kim 그리고 @Bob Park", "me": None}])
@@ -214,8 +273,9 @@ class ComposerBase(BrowserBase):
             return route.fulfill(status=503, body="{}")  # the list does not arrive while a test keeps it down
         return super().route(route)
 
-    def view(self, device, n_open=0, theme="light", font=None):
-        """Open the viewer on device with the hints seen and the theme set; font replaces the interface font stack."""
+    def view(self, device, n_open=0, theme="light", font=None, lang="ko"):
+        """Open the viewer on device in lang with the hints seen and the theme set; font replaces the interface font
+        stack."""
         prefs = {"theme": theme, "coach": {"touch": 1, "mouse": 1, "sel": 1}}
         init = "try{localStorage.setItem('pinPrefs',%s);}catch(e){}" % json.dumps(json.dumps(prefs))
         if font:
@@ -223,7 +283,7 @@ class ComposerBase(BrowserBase):
                 "document.addEventListener('DOMContentLoaded',()=>"
                 "document.documentElement.style.setProperty('--font-sans',%s));" % json.dumps(font)
             )
-        return self.open(n_open, init=init, **device)
+        return self.open(n_open, lang=lang, init=init, **device)
 
     def select(self, page, device):
         """Select a region of page 1 as the device's person does - a mouse drags over it, a finger turns [선택] on and
@@ -588,9 +648,13 @@ class PickLifetime(ComposerBase):
 # separators the tops of the items in it; a pill's height (one line, so no name breaks inside).
 APPEND_LINE = """() => {const box = document.querySelector('#note-mentions'), top = e => Math.round(e.getBoundingClientRect().top);
   const kids = [...box.children], groups = kids.filter(e => e.classList.contains('m-grp'));
+  const items = [...box.querySelectorAll(':scope > :not(.m-grp), .m-grp > *')], c = document.querySelector('#composer');
   return {words: box.innerText.replace(/\\s+/g, ' ').trim(), hidden: box.hidden, groups: groups.map(g => [...g.children].map(top)),
-    seps: kids.filter(e => e.classList.contains('m-sep')).map(top), lineTops: [...new Set(kids.map(top))],
-    pills: [...box.querySelectorAll('.mention')].map(e => e.getBoundingClientRect().height)};}"""
+    seps: [...box.querySelectorAll('.m-sep')].map(top), lineTops: [...new Set(items.map(top))],
+    pills: [...box.querySelectorAll('.mention')].map(e => e.getBoundingClientRect().height),
+    names: [...box.querySelectorAll('.mention')].map(e => ({text: e.textContent, cut: e.scrollWidth > e.clientWidth + 1,
+      ellipsis: getComputedStyle(e).textOverflow})),
+    overflow: [box.scrollWidth - box.clientWidth, c.scrollWidth - c.clientWidth]};}"""
 
 
 class AppendToAnOverlappedPin(ComposerBase):
@@ -638,6 +702,71 @@ class AppendToAnOverlappedPin(ComposerBase):
                 else:
                     self.assertLessEqual(len(line["lineTops"]), 2, line)
                     self.assertEqual(line["seps"], [line["groups"][0][0]], line)  # the separator ends the first line
+
+    def test_long_names_truncate_inside_their_group_and_the_line_breaks_only_at_the_separator(self):
+        """The fixture's longest names at 320px in Korean and English, at 390px in English, in the 1024x768 panel and the
+        841x673 overlay: each group stays on one line and the line breaks only after the separator, which ends the first
+        line; a name wider than its line is cut with an ellipsis and keeps its whole text (the accessible name). It
+        broke between '따로 저장하면 담당' and the name, over three lines, and in English inside the '알림' group.
+        Nothing is wider than the composer."""
+        for person in LONG:
+            ps.APP.people_directory.record(actor(person))
+        notes = {
+            "long": "@Alexandria Montgomery-Smythe 확인",
+            "self and a long one": "@Alice Kim 확인함, @Bartholomew Fitzgerald-Jones 봐 주세요",
+            "Hangul": "@김서준 박사후연구원 2026 확인",
+        }
+        runs = [
+            ("phone 320x720", "ko"),
+            ("phone 320x720", "en"),
+            ("phone 390x844", "en"),
+            ("tablet 1024x768", "ko"),
+            ("fold inner 841x673", "ko"),
+        ]
+        add_pin({"file": str(self.main), "lo": 5, "hi": 5, "page": 1, "note": "먼저 쓴 메모"}, actor(ALICE))
+        whole = [person["Tailscale-User-Name"] for person in LONG] + ["Alice Kim"]
+        for name, lang in runs:
+            device = VIEWPORTS[name]
+            for label, note in notes.items():
+                with self.subTest(name, lang=lang, note=label):
+                    page = self.view(device, 1, lang=lang)
+                    self.compose(page, note, separate=False, device=device)
+                    line = page.evaluate(APPEND_LINE)
+                    self.assertEqual(len(line["groups"]), 2, line)
+                    self.assertEqual([len(set(tops)) for tops in line["groups"]], [1, 1], line)
+                    self.assertLessEqual(len(line["lineTops"]), 2, line)
+                    self.assertEqual(line["seps"], [line["groups"][0][0]], line)
+                    self.assertEqual(set(line["pills"]), {18}, line)
+                    self.assertEqual(line["overflow"], [0, 0], line)
+                    for pill in line["names"]:
+                        self.assertEqual(pill["ellipsis"], "ellipsis", pill)
+                        self.assertTrue(any(w in pill["text"] for w in whole), pill)
+                    page.context.close()
+
+    def test_an_append_sends_the_hints_that_tell_a_name_two_people_share(self):
+        """Two people named Sam Jung: a note appended to an overlapped pin with the second Sam picked from the @-list
+        carries that hint, so the server tells that Sam - without it a shared name tags nobody and the line's '알림'
+        would not happen."""
+        for person in (SAM1, SAM2):
+            ps.APP.people_directory.record(actor(person))
+        pid = add_pin({"file": str(self.main), "lo": 5, "hi": 5, "page": 1, "note": "먼저 쓴 메모"}, actor(ALICE))
+        pid = pid.record["id"]
+        page = self.view(DESKTOP, 1)
+        self.select(page, DESKTOP)
+        page.click("#note")
+        page.keyboard.type("@Sam")
+        page.wait_for_selector("#mention-pop:not([hidden]) button[role=option]")
+        index = page.evaluate("login => MENTION.items.findIndex(p => p.login === login)", "sam2@example.com")
+        page.click('#mention-pop button[data-i="%d"]' % index)
+        page.keyboard.type("확인 부탁")
+        self.leave(page, DESKTOP)
+        edits = []
+        page.on("request", lambda r: edits.append(r.post_data_json) if "/api/pins/%d/edit" % pid in r.url else None)
+        page.click('#c-overlap [data-act="overlap-append"]')
+        page.wait_for_function("!COMPOSE.saving&&document.querySelector('#composer').hidden")
+        settle(page)
+        self.assertEqual(edits[0].get("mentions"), ["sam2@example.com"])
+        self.assertEqual(self.events(pid), {"mention": ["sam2@example.com"]})
 
     def test_without_a_colleague_the_line_is_the_usual_one(self):
         """A note that tags only me says whom it tells as a new pin's line does ('@ 알림 Alice Kim (나 — 알림 없음)'),
@@ -737,6 +866,41 @@ class TwoPeopleWithOneName(ComposerBase):
                 body, record = self.save(page)
                 self.assertEqual((body["assignee"], record["assignee"]), ("sam2@example.com", "sam2@example.com"))
                 self.assertEqual(self.events(record["id"])["assigned"], ["sam2@example.com"])
+
+    def test_deleting_one_of_two_same_name_tags_takes_its_hint_with_it(self):
+        """sam2 tagged first and sam1 after it, then one '@Sam Jung' deleted from the text with the keyboard: the one
+        left keeps its own person - sam1 when sam2's tag went, sam2 when sam1's did - on the row, on the line and in
+        the request, whose hints name only that one. Both hints stayed while the name appeared once, so the deleted
+        tag's person was still the assignee."""
+        for deleted, kept in (("sam2@example.com", "sam1@example.com"), ("sam1@example.com", "sam2@example.com")):
+            with self.subTest(deleted=deleted):
+                page = self.view(DESKTOP)
+                self.select(page, DESKTOP)
+                self.separate(page)
+                page.click("#note")
+                self.pick_sam(page, "sam2@example.com")
+                page.keyboard.type("먼저, 그리고 ")
+                self.pick_sam(page, "sam1@example.com")
+                page.keyboard.type("다음")
+                text = page.input_value("#note")
+                second = text.rindex("@Sam Jung")
+                start, end = (
+                    (0, text.index("먼저, 그리고 ") + len("먼저, 그리고 "))
+                    if deleted.startswith("sam2")
+                    else (second, len(text))
+                )
+                page.keyboard.press("ControlOrMeta+Home")
+                for _ in range(start):
+                    page.keyboard.press("ArrowRight")
+                for _ in range(end - start):
+                    page.keyboard.press("Shift+ArrowRight")
+                page.keyboard.press("Delete")
+                self.leave(page, DESKTOP)
+                self.assertEqual(page.input_value("#note").count("@Sam Jung"), 1)
+                self.assertEqual(page.evaluate(ASSIGN_ROW), {"options": [AGENT, kept], "checked": [kept]})
+                self.assertEqual(page.locator("#note-mentions").inner_text().split(), ["담당", "Sam", "Jung", kept])
+                body, record = self.save(page)
+                self.assertEqual((body["assignee"], body["mentions"], record["assignee"]), (kept, [kept], kept))
 
 
 class PickAcrossDocuments(ComposerBase):

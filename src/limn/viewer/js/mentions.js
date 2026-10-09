@@ -1,7 +1,9 @@
 // ------------------------------------------------ @-tag autocomplete (docs/handbook/viewer.md §@태그)
 // Typing '@' in the note/edit/reply field shows known people (PEOPLE, excluding me). Picking one inserts '@name ' and
-// remembers that login on the field (ta._mentions), carried as a hint (mentions) when sending - the server re-resolves
-// it from the text (dropped if the name was deleted from the text). There is no external notification.
+// remembers that login on the field (ta._mentions) with the place of its '@name' in the text (ta._tags), carried as a hint
+// (mentions) when sending - the server re-resolves it from the text. A hint belongs to its one '@name': an edit that
+// touches that tag drops it, so of two people with one name, deleting one's tag leaves only the other's hint. There is
+// no external notification.
 const MENTION={ta:/** @type {HTMLTextAreaElement|null} */(null),start:0,items:/** @type {PersonSeen[]} */([]),sel:0};
 function mentionQuery(ta){const pos=ta.selectionStart; if(pos==null||pos!==ta.selectionEnd)return null;
   const m=/(^|[^\p{L}\p{N}._@-])@([^\s@]{0,30})$/u.exec(ta.value.slice(0,pos)); return m?{start:pos-m[2].length-1,q:m[2]}:null;}
@@ -10,8 +12,52 @@ function mentionMatches(q,people,meLogin){q=String(q||'').toLowerCase();
     const at=Math.min(...[n.indexOf(q),l.indexOf(q)].filter(i=>i>=0).concat([99]));
     const word=n.split(/\s+/).some(w=>w.startsWith(q)); return {p,rank:!q?0:at===0?0:word?1:at<99?2:9};});
   return rows.filter(r=>r.rank<9).sort((a,b)=>a.rank-b.rank||String(a.p.name).localeCompare(String(b.p.name))).slice(0,6).map(r=>r.p);}
-function mentionHints(ta){if(!ta||!ta._mentions)return []; const v=ta.value;
-  return Array.from(ta._mentions).filter(l=>v.includes('@'+peopleName(l)));}
+// The hints a send carries: the logins of the field's tags that are tags in its text now (an '@name' right after a letter
+// is none, as for the server; typing a new tag right before an old one makes one for a moment), in text order.
+/** @param {HTMLTextAreaElement|null} ta @returns {string[]} */
+function mentionHints(ta){if(!ta)return []; const v=ta.value; return [...new Set(mentionTags(ta).filter(t=>!mentionAfterWord(v,t.at)).map(t=>t.login))];}
+// The field's tags for the text it holds. When its text or its logins were set from outside (a draft, a stored pin, a
+// reply's draft) the tags are worked out again from the logins, which are in text order: each takes the next '@name' of
+// its name that no earlier one took.
+/** @param {HTMLTextAreaElement} ta @returns {MentionTag[]} */
+function mentionTags(ta){if(ta._tags&&ta._tagsFor===ta.value&&ta._tagsFrom===ta._mentions)return ta._tags;
+  ta._tags=mentionBind(Array.from(ta._mentions||[]).map(l=>({login:l,tok:'@'+peopleName(l)})),ta.value);
+  ta._tagsFor=ta.value; ta._tagsFrom=ta._mentions; return ta._tags;}
+// Each of picks ({login, tok}) bound to the first '@name' (tok) in text that a tag can start at and no earlier pick took;
+// a pick whose name is not there is dropped. Pure.
+/** @param {{login:string,tok:string}[]} picks @param {string} text @returns {MentionTag[]} */
+function mentionBind(picks,text){const taken=new Set(),out=/** @type {MentionTag[]} */([]);
+  for(const p of picks){let i=text.indexOf(p.tok);
+    while(i>=0&&(taken.has(i)||mentionAfterWord(text,i)))i=text.indexOf(p.tok,i+1);
+    if(i>=0){taken.add(i); out.push({login:p.login,at:i,tok:p.tok});}}
+  return out.sort((a,b)=>a.at-b.at);}
+// The tags of old after an edit made it now, with the caret at caret afterwards: the edit is the one span where the two
+// differ. Typing, pasting and deleting leave the caret at its end, so of two equal '@name's the one at the caret is the one
+// edited; when the caret says otherwise (a script set the text) the smallest span is taken. A tag the edit overlapped, or
+// typed into, is dropped - its person is no longer named there - and a tag after it moves by what the edit added or took
+// away. A tag whose '@name' is not where it moved to is dropped too; one that a letter now precedes stays (it is no tag
+// until that letter goes: mentionHints). Pure.
+/** @param {MentionTag[]} tags @param {string} old @param {string} now @param {number} caret @returns {MentionTag[]} */
+function mentionShift(tags,old,now,caret){const m=Math.min(old.length,now.length);
+  const span=(/** @type {number} */ tail)=>{let p=0,s=0; while(s<m&&s<tail&&old[old.length-1-s]===now[now.length-1-s])s++;
+    while(p<m-s&&old[p]===now[p])p++; return {p,s,size:old.length+now.length-2*(p+s)};};
+  const at=span(Math.max(0,now.length-caret)),free=span(Math.max(0,m-mentionCommonStart(old,now))),{p,s}=free.size<at.size?free:at;
+  const end=old.length-s,d=now.length-old.length;
+  return tags.filter(t=>end>p?!(t.at<end&&p<t.at+t.tok.length):!(t.at<p&&p<t.at+t.tok.length))
+    .map(t=>t.at>=end?{login:t.login,at:t.at+d,tok:t.tok}:t)
+    .filter(t=>now.startsWith(t.tok,t.at));}
+// How many characters old and now share from their start. Pure.
+/** @param {string} old @param {string} now @returns {number} */
+function mentionCommonStart(old,now){let p=0; const m=Math.min(old.length,now.length); while(p<m&&old[p]===now[p])p++; return p;}
+// Follows an edit of ta's text (an input event, or the note popover's text copied in): its tags move with the edit or
+// drop out, and its logins become theirs. caret is where the edit left the caret.
+/** @param {HTMLTextAreaElement} ta @param {number} [caret] */
+function mentionEdited(ta,caret){const known=ta._tags&&ta._tagsFrom===ta._mentions&&ta._tagsFor!=null;
+  const tags=known?mentionShift(/** @type {MentionTag[]} */(ta._tags),/** @type {string} */(ta._tagsFor),ta.value,caret==null?ta.selectionStart:caret):mentionTags(ta);
+  mentionKeep(ta,tags);}
+// Stores tags as ta's own for its present text, with the logins they name (in text order) as ta._mentions.
+/** @param {HTMLTextAreaElement} ta @param {MentionTag[]} tags */
+function mentionKeep(ta,tags){ta._tags=tags; ta._tagsFor=ta.value; ta._mentions=ta._tagsFrom=tags.length?new Set(tags.map(t=>t.login)):null;}
 // An '@word' still being typed (the cursor sits at its end) is never flagged as '등록된 사람이 아님' yet - the warning
 // used to appear while still picking (QA 2026-09-25). It's flagged once the cursor leaves it or the field. If the same word appears earlier too (an already-finished '@word'), it's still flagged as usual.
 function mentionBadSettled(bad,text,q){if(!q)return bad; const w=q.q, before=String(text||'').slice(0,q.start);
@@ -114,7 +160,8 @@ function renderAssignEdit(){const E=EDITOR.current; if(!E)return; const ta=editN
 // (appendTarget - the overlap notice's [덧붙이기]) the line says only what each action changes: '알림' and everyone the
 // note tags, whom appending tells, then - once a colleague is tagged - ' · 따로 저장하면 담당' and the assignee a separate
 // save sends. Appending leaves that pin's assignee as it is, so the line says nothing of it. The two are groups (.m-grp)
-// that wrap only at the separator. An edit or a reply assigns nobody and lists whom it notifies. Hidden while the text
+// that never break inside: the line breaks only after the separator, which ends the first, and a group wider than the
+// line cuts its names with an ellipsis (their whole text stays). An edit or a reply assigns nobody and lists whom it notifies. Hidden while the text
 // has no '@' word to report.
 function mentionPreview(ta){if(!ta)return; const box=ta.nextElementSibling; if(!box||!box.classList.contains('m-preview'))return;
   const r=mentionScan(ta.value,mentionHints(ta)),me=meLogin();   // the same hints the save/send carries
@@ -125,7 +172,7 @@ function mentionPreview(ta){if(!ta)return; const box=ta.nextElementSibling; if(!
   const name=l=>l===ASSIGNEE_AGENT?html`<span class="m-who">${tr('에이전트')}</span>`:html`<span class="mention">${personLabel(l)}</span>`;
   const hits=told.length?html`<span class="m-lab">${ic('at-sign')}알림</span>${told.map(l=>html`<span class="mention${l===me?' me':''}">${personLabel(l)}${l===me?' '+tr('(나 — 알림 없음)'):''}</span>`)}`:'';
   const assigns=o?html`<span class="m-lab">${tr(join?'따로 저장하면 담당':'담당')}</span>${name(/** @type {string} */(o.assignee))}`:html``;
-  const head=!o?hits:!join?html`${assigns}${hits}`:join.told.length?html`<span class="m-grp">${hits}</span><span class="m-sep">·</span><span class="m-grp">${assigns}</span>`:hits;
+  const head=!o?hits:!join?html`${assigns}${hits}`:join.told.length?html`<span class="m-grp">${hits}<span class="m-sep">·</span></span><span class="m-grp">${assigns}</span>`:hits;
   const bad=r.bad.map(w=>html`<span class="mention-bad" data-tip="등록된 사람이 아님 — 이 이름으로는 알림이 가지 않습니다. 이 뷰어를 연 테일넷 사람만 부를 수 있습니다">@${w}</span>`);
   setHtml(box,html`${head}${bad}${r.bad.length?html`<span class="m-note">등록된 사람이 아님</span>`:''}`);
   box.hidden=false;}
@@ -150,22 +197,17 @@ function mentionTop(r,g,h,top,bot){const gap=4,lim=g&&g.top>=r.bottom?Math.min(b
   if(r.top-gap-h>=top+gap)return r.top-gap-h;
   if(g&&g.bottom+gap+h<=bot)return g.bottom+gap;
   return Math.max(top+gap,Math.min(r.bottom+gap,bot-h-gap));}
-// Remembers login as a hint of ta, for a tag that starts at `at` in its text. Among the hints of people with the same
-// displayed name it takes the place its tag has among that name's tags in the text - the n-th '@name' is the n-th of them -
-// so the hints say who was tagged first (mentionResolve's byHint); the other hints keep their order.
-/** @param {HTMLTextAreaElement} ta @param {string} login @param {number} at */
-function mentionRemember(ta,login,at){const name=peopleName(login),all=Array.from(ta._mentions||[]).filter(l=>l!==login);
-  const next=all.filter(l=>peopleName(l)===name)[ta.value.slice(0,at).split('@'+name).length-1];
-  all.splice(next===undefined?all.length:all.indexOf(next),0,login); ta._mentions=new Set(all);}
-// Inserts the picked person as '@name ' at the cursor, remembers the login as a hint, and refreshes what depends on the
-// field (the preview, the assignee, the reply outcome; the note's draft).
+// Inserts the picked person as '@name ' at the cursor, remembers the login as a hint with the place of its tag (the tags
+// after it move along), and refreshes what depends on the field (the preview, the assignee, the reply outcome; the note's
+// draft).
 function mentionApply(i){const ta=MENTION.ta,p=MENTION.items[i]; if(!ta||!p)return; const pos=ta.selectionStart,ins='@'+p.name+' ';
-  ta.value=ta.value.slice(0,MENTION.start)+ins+ta.value.slice(pos); const c=MENTION.start+ins.length; ta.setSelectionRange(c,c);
-  mentionRemember(ta,p.login,MENTION.start); mentionClose(); ta.focus(); autoGrow(ta);
+  const old=ta.value,before=mentionTags(ta); ta.value=old.slice(0,MENTION.start)+ins+old.slice(pos); const c=MENTION.start+ins.length; ta.setSelectionRange(c,c);
+  const tags=mentionShift(before,old,ta.value,c).concat([{login:p.login,at:MENTION.start,tok:'@'+p.name}]).sort((a,b)=>a.at-b.at);
+  mentionKeep(ta,tags); mentionClose(); ta.focus(); autoGrow(ta);
   if(ta.id==='note'){renderAssignNew(); saveDraftSoon(); return;}   // the composer's row draws its preview line too
   mentionPreview(ta); if(ta.classList.contains('e-note'))renderAssignEdit(); else if(ta.classList.contains('r-text'))renderReplyOutcome();}
 const isMentionField=t=>!!t&&t.tagName==='TEXTAREA'&&(t.id==='note'||t.classList.contains('e-note')||t.classList.contains('r-text'));
-document.addEventListener('input',e=>{const t=/** @type {HTMLTextAreaElement} */(e.target); if(!isMentionField(t))return; mentionUpdate(t);
+document.addEventListener('input',e=>{const t=/** @type {HTMLTextAreaElement} */(e.target); if(!isMentionField(t))return; mentionEdited(t); mentionUpdate(t);
   if(t.id==='note'){renderAssignNew(); qHint($('#c-qhint'),t.value,KIND_NEW); saveDraftSoon(); return;}   // the row draws the preview line too
   mentionPreview(t);
   if(t.classList.contains('e-note')){renderAssignEdit(); if(EDITOR.current)qHint(EDITOR.current.el.querySelector('.e-qhint'),t.value,EDITOR.current.kind_req);}

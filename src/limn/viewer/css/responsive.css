@@ -377,7 +377,6 @@ body.compact .pin .sum{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orie
   margin:0 0 var(--space-1);color:var(--muted-foreground);font-size:var(--text-base);line-height:round(down,1.5em,1px);cursor:pointer}
 /* ^ a whole pixel per line (19px, not 19.5): a folded card is then a whole number of pixels tall, so every head row stands on
    whole pixels - at 19.5 every other card stood half a pixel off, where icons (drawn at whole pixels) sat 0.5px under their row's words */
-body.compact .pin .sum .dim{line-height:1}   /* '(메모 없음)' is smaller than the preview's words: with the line's own height its box pushed the line to 20px and the card to 74 */
 body.compact .pin .head{flex-wrap:nowrap;margin:-6px 0}
 /* On touch the head is the 32px row it draws - a 44px control less the 12px it shares with the card's padding and the preview -
    and its 44px controls, centred in it, reach over and under it themselves (the overlap sat on the row as a margin, whose box

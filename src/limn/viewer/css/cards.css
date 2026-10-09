@@ -29,6 +29,7 @@ button.badge-review{font-weight:600}
 :is(.loc,.pg-link,.pin .n.go,.pin-ref){text-decoration:none;text-underline-offset:3px}
 :is(.loc,.pg-link,.pin .n.go,.pin-ref):focus-visible{text-decoration:underline}
 @media (hover:hover){:is(.loc,.pg-link,.pin .n.go,.pin-ref):hover{text-decoration:underline}}
+.pin :is(.sum,.note)>.dim{line-height:1}   /* '(메모 없음)' is smaller than a note's words: with the note's line height its own box pushed the line a pixel taller (folded 20px for 19, open 23px for 22) */
 .pin .note{margin-top:var(--space-1);line-height:round(1.55em,1px);white-space:pre-wrap;word-break:break-word;cursor:text}   /* the body's 1.55 on a whole pixel (21.7 -> 22): every card under a note then starts on a whole pixel, where its head row's words and icons are painted on one line */
 /* Card header: number/range/page on the left, author/collapse on the right. Badges are a single row below the header. Actions form an equal-width grid; only [완료] is emphasized and [삭제] is in the destructive color. */
 .pin .head{flex-wrap:wrap;gap:var(--space-1) var(--space-2);min-height:var(--control-h)}
@@ -137,9 +138,13 @@ body.compact .pin:not(.open):not(.editing) .card-meta.hide-folded{position:absol
    is plain text: a pill is a tagged person. */
 .m-preview{display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-1) var(--space-2);margin-top:var(--space-2);font-size:var(--text-sm);line-height:calc(var(--line-label) + 2px)}
 .m-preview>:not(.m-grp),.m-preview .m-grp>*{align-content:center;min-height:1lh;text-box:trim-both cap alphabetic}
-/* While [덧붙이기] is on offer the line is two groups, whom appending tells and whom a separate save assigns, which wrap only
-   at the separator between them: a group moves to the next line whole, so a label never ends a line without its name. */
-.m-preview .m-grp{display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-1) var(--space-2);min-width:0}
+/* While [덧붙이기] is on offer the line is two groups, whom appending tells and whom a separate save assigns. A group never
+   breaks inside: it moves to the next line whole, after the separator that ends the first group, so a label never ends a
+   line without its name; a group wider than the line keeps its labels and cuts its names with an ellipsis, each name's
+   whole text staying its text (the accessible name). */
+.m-preview .m-grp{display:flex;align-items:center;gap:var(--space-2);min-width:0;max-width:100%}
+.m-preview .m-grp>:not(.mention){flex:none}
+.m-preview .m-grp>.mention{min-width:0;overflow:hidden;text-overflow:ellipsis}
 .m-preview .m-sep{color:var(--muted-foreground)}
 .m-preview .m-lab{color:var(--muted-foreground)}
 .m-preview .m-lab .ic{width:12px;height:12px;vertical-align:calc(.5cap - 6px);margin-right:2px}
@@ -184,7 +189,7 @@ body.compact #trash-link{display:none}   /* compact: the Trash is in [⋯], like
 #mention-pop button{display:flex;width:100%;justify-content:flex-start;gap:var(--space-2);border:0;border-radius:0;background:transparent;text-align:left;padding:var(--space-2) var(--space-3)}   /* a selected row = a full-width flat band (shadcn Command) - never a rounded box within a box (single nesting level) */
 #mention-pop button[aria-selected=true]{background:var(--accent)}
 #mention-pop .ml{color:var(--muted-foreground);font-size:var(--text-sm);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-:is(.as-seg,.m-preview) .ml{color:var(--muted-foreground);font-weight:400}   /* the login beside a name two people share (personLabel) */
+:is(.as-seg,.m-preview,.card-meta) .ml{color:var(--muted-foreground);font-weight:400}   /* the login beside a name two people share (personLabel) */
 #mention-pop .dim{padding:var(--space-2) var(--space-3)}
 .thread{display:flex;flex-direction:column;gap:var(--space-2);margin-top:var(--space-2);padding-top:var(--space-2);border-top:1px solid var(--border)}   /* a single divider - not a box */
 .thread:empty{display:none}

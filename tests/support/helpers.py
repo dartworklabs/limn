@@ -118,6 +118,8 @@ def js_thread() -> str:
                 "isQuestion",
                 "assigneeOf",
                 "assigneeWord",
+                "nameShared",
+                "personLabel",
                 "assignChip",
                 "cardMetadata",
                 "isViewer",

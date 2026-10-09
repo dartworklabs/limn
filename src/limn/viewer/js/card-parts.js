@@ -99,10 +99,11 @@ function assigneeWord(a){return !a?tr('미지정'):a===ASSIGNEE_AGENT?tr('에이
  * @param {Pin} p @param {boolean} pressable @returns {Html} */
 function assignChip(p,pressable){if(p.assignee===ASSIGNEE_AGENT)return html`<span class="cm-i as-chip sr-only">${tr('담당')} ${assigneeWord(p.assignee)}</span>`;
   if(!p.assignee)return html`<span class="cm-i as-chip"><span class="as-l">${tr('담당')} ${assigneeWord(null)}</span></span>`;
-  const me=meLogin(),mine=p.assignee===me,nm=assigneeWord(p.assignee);
+  const me=meLogin(),mine=p.assignee===me,shared=!mine&&nameShared(p.assignee),nm=assigneeWord(p.assignee)+(shared?' '+p.assignee:'');
   const canEdit=pressable&&!isViewer()&&pinState(p)===PIN_STATE.OPEN&&(isMe(p.author)||!me),tip=tl('담당: {name} — 에이전트는 이 핀을 건너뜁니다',{name:nm})+(canEdit?tr('. 누르면 [수정]에서 담당을 바꿉니다'):'');
-  return canEdit?html`<button class="cm-i badge badge-assign as-chip${mine?' me':''}" data-act="edit" data-tip="${tip}"><span class="as-l">${tr('담당')} </span><span class="as-n" translate="no">${nm}</span>${ic('pencil')}</button>`
-    :html`<span class="cm-i badge badge-assign as-chip${mine?' me':''}" data-tip="${tip}"><span class="as-l">${tr('담당')} </span><span class="as-n" translate="no">${nm}</span></span>`;}
+  const shown=shared?personLabel(p.assignee):html`${nm}`;   // a name another known person shares carries the login, as the composer's
+  return canEdit?html`<button class="cm-i badge badge-assign as-chip${mine?' me':''}" data-act="edit" data-tip="${tip}"><span class="as-l">${tr('담당')} </span><span class="as-n" translate="no">${shown}</span>${ic('pencil')}</button>`
+    :html`<span class="cm-i badge badge-assign as-chip${mine?' me':''}" data-tip="${tip}"><span class="as-l">${tr('담당')} </span><span class="as-n" translate="no">${shown}</span></span>`;}
 /** Return the card's facts line: kind, assignee and status, of which only what differs from the default is drawn.
  * The default - a fix request, for the agent, open - is in the line for screen readers (.sr-only) and takes no room,
  * so a pin with nothing to report shows no line at all (hide-folded). The line is one line of text with ' · ' between
