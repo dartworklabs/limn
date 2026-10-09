@@ -1,7 +1,9 @@
 // ------------------------------------------------ Pin list: loading pins, list sections, marks on the PDF, jumping to a pin or card
-// If the people list changes (a new person/name), the list is redrawn - the very first render can show a login instead of a name.
+// If the people list changes (a new person/name), the list is redrawn - the very first render can show a login instead of a name -
+// and so is the composer's assignee row: a draft restored at boot is read before the list arrives, when none of its tags resolves yet.
 async function loadPeople(){try{const r=(await api('/api/people',{what:'사람 목록',silent:true})).data;
-  if(Array.isArray(r.people)){const was=JSON.stringify(PEOPLE); PEOPLE=r.people; if(JSON.stringify(PEOPLE)!==was)drawPins();}}catch(e){}}
+  if(Array.isArray(r.people)){const was=JSON.stringify(PEOPLE),first=!PEOPLE_KNOWN; PEOPLE=r.people; PEOPLE_KNOWN=true;
+    const changed=JSON.stringify(PEOPLE)!==was; if(changed)drawPins(); if(changed||first)renderAssignNew();}}catch(e){}}
 // A refresh that started earlier must not replace one already applied from a newer request. A failed request claims no snapshot.
 let PINS_LOAD_SEQ=0,PINS_APPLIED_SEQ=0;
 // Classifies one server snapshot without reading viewer state or changing the page. Legacy pins with no doc belong to defaultDoc.

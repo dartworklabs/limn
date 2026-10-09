@@ -87,19 +87,34 @@ function isQuestion(p){return !!p&&p.kind_req===KIND_REQ.QUESTION;}
 /** @param {Pin} p */
 function assigneeOf(p){if(!p)return ASSIGNEE_AGENT; if(p.assignee)return p.assignee; const a=p.addressed||[]; return a.length?a[0]:ASSIGNEE_AGENT;}
 /** Render the recorded assignee once as plain metadata, without inferring a legacy default.
- * Only an open pin's author or identity-less local screen gets the existing edit action;
- * read-only viewers and other participants retain readable text. Names remain escaped.
- * @param {Pin} p @returns {Html} */
-function assignChip(p){if(!p.assignee||p.assignee===ASSIGNEE_AGENT)return html`<span class="as-chip">${tr('담당')} ${tr(p.assignee?'에이전트':'미지정')}</span>`;
+ * The agent - the default - is said to screen readers only (.sr-only); a person, me and a record without an assignee
+ * are drawn. Only an open pin's author or identity-less local screen gets the existing edit action, and only where it
+ * can be pressed (pressable: a folded card, or any card under a mouse); read-only viewers and other participants
+ * retain readable text. Names remain escaped.
+ * @param {Pin} p @param {boolean} pressable @returns {Html} */
+function assignChip(p,pressable){if(p.assignee===ASSIGNEE_AGENT)return html`<span class="cm-i as-chip sr-only">${tr('담당')} ${tr('에이전트')}</span>`;
+  if(!p.assignee)return html`<span class="cm-i as-chip">${tr('담당')} ${tr('미지정')}</span>`;
   const me=meLogin(),mine=p.assignee===me,nm=mine?tr('나'):peopleName(p.assignee);
-  const canEdit=!isViewer()&&pinState(p)===PIN_STATE.OPEN&&(isMe(p.author)||!me),tip=tl('담당: {name} — 에이전트는 이 핀을 건너뜁니다',{name:nm})+(canEdit?tr('. 누르면 [수정]에서 담당을 바꿉니다'):'');
-  return canEdit?html`<button class="badge badge-assign as-chip${mine?' me':''}" data-act="edit" data-tip="${tip}">${tr('담당')} <span class="as-n" translate="no">${nm}</span></button>`
-    :html`<span class="badge badge-assign as-chip${mine?' me':''}" data-tip="${tip}">${tr('담당')} <span class="as-n" translate="no">${nm}</span></span>`;}
-/** Return one note-level context row; native badges keep their richer expanded meaning.
- * Context duplicated by a visible kind/state badge is exposed only when the card is collapsed.
- * The caller supplies the same status facts used to build the native badges.
- * @param {Pin} p @param {string} statusLabel @param {boolean} duplicateStatus @returns {Html} */
-function cardMetadata(p,statusLabel,duplicateStatus){return html`<div class="card-meta"><span class="${isQuestion(p)?'card-meta-context':''}">${tr(isQuestion(p)?'질문':'수정 요청')} · </span>${assignChip(p)}<span class="${duplicateStatus?'card-meta-context':''}"> · ${tr(statusLabel)}</span></div>`;}
+  const canEdit=pressable&&!isViewer()&&pinState(p)===PIN_STATE.OPEN&&(isMe(p.author)||!me),tip=tl('담당: {name} — 에이전트는 이 핀을 건너뜁니다',{name:nm})+(canEdit?tr('. 누르면 [수정]에서 담당을 바꿉니다'):'');
+  return canEdit?html`<button class="cm-i badge badge-assign as-chip${mine?' me':''}" data-act="edit" data-tip="${tip}">${tr('담당')} <span class="as-n" translate="no">${nm}</span></button>`
+    :html`<span class="cm-i badge badge-assign as-chip${mine?' me':''}" data-tip="${tip}">${tr('담당')} <span class="as-n" translate="no">${nm}</span></span>`;}
+/** Return the card's facts line: kind, assignee and status, of which only what differs from the default is drawn.
+ * The default - a fix request, for the agent, open - is in the line for screen readers (.sr-only) and takes no room,
+ * so a pin with nothing to report shows no line at all (hide-folded). The line is one line of text with ' · ' between
+ * the drawn facts (CSS keeps its spaces): the kind and the status are never shortened and a long assignee name ends
+ * in an ellipsis. In an open card the question, review, claim, reopen and location badges already say the kind and
+ * the status (a drawn card-meta-context is not shown there), so the line shows the assignee alone, or nothing
+ * (hide-open). The caller supplies the same status word the native badges are built from, and whether the assignee
+ * can be a button there (assignChip).
+ * @param {Pin} p @param {string} statusLabel @param {boolean} pressable @returns {Html} */
+function cardMetadata(p,statusLabel,pressable){const question=isQuestion(p),open=statusLabel==='열림',agent=p.assignee===ASSIGNEE_AGENT;
+  const facts=[{drawn:question,part:html`<span class="cm-i card-meta-context${question?'':' sr-only'}">${tr(question?'질문':'수정 요청')}</span>`},
+    {drawn:!agent,part:assignChip(p,pressable)},
+    {drawn:!open,part:html`<span class="cm-i card-meta-context${open?' sr-only':''}">${tr(statusLabel)}</span>`}];
+  // Between two drawn facts ' · '; before any other fact a space only a screen reader meets, so the words never run together.
+  let n=0; const parts=facts.map((f,i)=>f.drawn&&n++?html`<span class="cm-sep card-meta-context"> · </span>${f.part}`
+    :i?html`<span class="sr-only"> </span>${f.part}`:f.part);
+  return html`<div class="card-meta${agent?' hide-open':''}${n?'':' hide-folded'}">${parts}</div>`;}
 // Status dot (docs/handbook/viewer.md §상태 표현): color + a readable name (aria-label/description). A badge states the same meaning in text once more.
 const ST_NAME={open:'열림',claimed:'처리 중',review:'검토 대기',lost:'위치 잃음'};
 function stDot(st){const t=tl('상태: {name}',{name:tr(ST_NAME[st])}); return html`<span class="st-dot${st===CARD_DOT.OPEN?'':' '+st}" role="img" aria-label="${t}" data-tip="${t}"></span>`;}

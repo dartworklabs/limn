@@ -1226,7 +1226,7 @@ class FrontendMobileLogic(unittest.TestCase):
             function claimLabel(){return '';} function authorTip(){return 'tip';} function who(a){return a?a.name:'';}
             function avatar(){return '';}
             let SHOW_ALL=false, DOCS=[], DOC='main', DEFAULT_DOC='main'; function docInfo(){return null;}
-            let LAYOUT='mid', REPLY=null, META=null; const THREAD_OPEN=new Set();
+            let LAYOUT='mid', REPLY=null, META=null; const THREAD_OPEN=new Set(), MQ_COARSE={matches:true};
             """,
                 extract_js_fn("rng"),
                 extract_js_fn("multiDoc"),
@@ -4284,11 +4284,12 @@ class FrontendThread(unittest.TestCase):
         self.assertIn("deferredNote(d,NOTICE_PLACE.CARD,", send)
 
     def test_compact_collapsed_card_hides_thread(self):
-        """A collapsed compact card hides its badges, quote line, author, note, actions and thread - only the head and
-        the note's preview stay."""
+        """A collapsed compact card hides its badges, quote line, author, note, actions, thread and the review access
+        sentence - only the head, the note's preview and the facts line stay."""
         css = HTML[HTML.index("<style>") : HTML.index("</style>")]
         self.assertIn(
-            "body.compact .pin:not(.open):not(.editing) :is(.tags,.quote,.au,.note,.acts,.head>.sp,.thread){display:none}",
+            "body.compact .pin:not(.open):not(.editing) "
+            ":is(.tags,.quote,.au,.note,.acts,.head>.sp,.thread,.review-access){display:none}",
             css,
         )
 
@@ -4313,7 +4314,7 @@ class FrontendReview(unittest.TestCase):
             function viaTag(){return null;} function relBadge(){return null;} function claimActive(){return false;}
             function authorTip(){return 'tip';} function who(a){return a?(a.name||a.login):'';} function avatar(){return '';}
             let SHOW_ALL=false, DOCS=[], DOC='main', DEFAULT_DOC='main', LAYOUT='wide', REPLY=null; function docInfo(){return null;}
-            const THREAD_OPEN=new Set();
+            const THREAD_OPEN=new Set(), MQ_COARSE={matches:false};
             """,
                 extract_js_fn("rng"),
                 extract_js_fn("multiDoc"),
@@ -4506,6 +4507,8 @@ class FrontendMentions(unittest.TestCase):
             self.skipTest("node not available")
 
     def run_js(self, script):
+        """Run script under node with the served mention, pin-reference and assignee functions, as Bob Park (s@...)
+        among four known people, and return what it prints as JSON."""
         js = "\n".join(
             [
                 js_esc(),
@@ -4538,7 +4541,11 @@ class FrontendMentions(unittest.TestCase):
                     "mentionScan",
                     "defaultAssignee",
                     "assignPeople",
+                    "assignOutcome",
                     "assignSeg",
+                    "segReveal",
+                    "segFade",
+                    "mentionPreview",
                     "renderAssignNew",
                     "editNote",
                     "renderAssignEdit",
@@ -4605,27 +4612,30 @@ class FrontendMentions(unittest.TestCase):
         self.assertNotIn("pin-ref", out[1])
 
     def test_scan_lists_who_gets_notified_and_unresolved_words(self):
+        """mentionScan() returns the resolved logins in first-seen order (hit) and the '@words' that name nobody
+        (bad); an email address tags nobody, and a shared first name resolves to the hinted person."""
         out = self.run_js(r"""
             console.log(JSON.stringify([mentionScan('@Bob Park 와 @홍길동 그리고 @Wendy Kim',new Set()), mentionScan('a@b.com',new Set()),
               mentionScan('@Wendy 봐',new Set(['wo@example.com']))]));""")
-        self.assertEqual(
-            out[0], {"hit": ["s@example.com", "w@example.com"], "bad": ["홍길동"], "first": "s@example.com"}
-        )
-        self.assertEqual(out[1], {"hit": [], "bad": [], "first": None})
+        self.assertEqual(out[0], {"hit": ["s@example.com", "w@example.com"], "bad": ["홍길동"]})
+        self.assertEqual(out[1], {"hit": [], "bad": []})
         self.assertEqual(out[2]["hit"][0], "wo@example.com")
 
     def test_default_assignee_rules(self):
-        # if the note starts with a resolved @-mention, that person; otherwise the first @-mention on a question pin; otherwise the agent. I (s@example.com) can't be chosen.
+        """The first resolved @-tag of a colleague anywhere in the note, else the agent - whatever the pin's kind. I
+        (s@example.com) am never chosen, an unresolved word names nobody, and the tag need not start the note (a
+        mid-sentence tag on a fix request used to leave the pin with the agent)."""
         out = self.run_js(r"""
             console.log(JSON.stringify([
-              defaultAssignee('@Wendy Kim 확인 부탁','fix',new Set()),
-              defaultAssignee('  @Wendy Kim 확인 부탁','fix',new Set()),
-              defaultAssignee('이거 콜링 작동하나 @Wendy Kim 확인 부탁','fix',new Set()),
-              defaultAssignee('이 구간이 뭔가요 @Wendy Kim','question',new Set()),
-              defaultAssignee('@Bob Park 메모','fix',new Set()),
-              defaultAssignee('@Bob Park @Wendy Kim 뭔가요','question',new Set()),
-              defaultAssignee('@홍길동 확인','fix',new Set()),
-              defaultAssignee('그냥 메모','question',new Set()),
+              defaultAssignee('@Wendy Kim 확인 부탁',new Set()),
+              defaultAssignee('  @Wendy Kim 확인 부탁',new Set()),
+              defaultAssignee('이거 콜링 작동하나 @Wendy Kim 확인 부탁',new Set()),
+              defaultAssignee('이 구간이 뭔가요 @Wendy Kim',new Set()),
+              defaultAssignee('@Bob Park 메모',new Set()),
+              defaultAssignee('@Bob Park @Wendy Kim 뭔가요',new Set()),
+              defaultAssignee('@김<b> 먼저, 그리고 @Wendy Kim',new Set()),
+              defaultAssignee('@홍길동 확인',new Set()),
+              defaultAssignee('그냥 메모',new Set()),
               assignPeople('@Bob Park @Wendy Kim 봐 주세요',new Set()),
               assignPeople('메모',new Set(),'k@example.com')]));""")
         self.assertEqual(
@@ -4633,10 +4643,11 @@ class FrontendMentions(unittest.TestCase):
             [
                 "w@example.com",
                 "w@example.com",
-                "agent",
+                "w@example.com",
                 "w@example.com",
                 "agent",
                 "w@example.com",
+                "k@example.com",
                 "agent",
                 "agent",
                 ["w@example.com"],
@@ -4650,10 +4661,10 @@ class FrontendMentions(unittest.TestCase):
         word '@Wendy' drops that hint, so the server tags nobody; the row must then offer nobody and default to the
         agent. It used to offer and default to Wendy Kim, saving a pin handed to someone its note never tagged."""
         out = self.run_js(r"""
-            const W=PEOPLE.find(p=>p.name==='Wendy Kim').login, box=()=>({hidden:true,innerHTML:'',replaceChildren(){this.innerHTML='';}});
+            const W=PEOPLE.find(p=>p.name==='Wendy Kim').login, box=()=>({hidden:true,innerHTML:'',replaceChildren(){this.innerHTML='';},querySelector(){return null;}});
             const note={value:'@Wendy 봐 주세요',_mentions:new Set([W])},cbox=box();
             function $(s){return s==='#note'?note:s==='#c-assign'?cbox:null;}
-            let KIND_NEW='fix'; const ASSIGN_NEW={v:'agent',touched:false};
+            let PEOPLE_KNOWN=true; const ASSIGN_NEW={v:'agent',touched:false};
             const ta={value:'@Wendy 봐 주세요',_mentions:new Set([W])},ebox=box();
             const EDITOR={current:{el:{querySelector:s=>s==='.e-note'?ta:s==='.e-assign'?ebox:null},assignee:'agent'},saving:false};
             renderAssignNew(); renderAssignEdit(); const edited=[ASSIGN_NEW.v,cbox.hidden,ebox.hidden];

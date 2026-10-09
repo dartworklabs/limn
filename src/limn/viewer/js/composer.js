@@ -176,9 +176,10 @@ function drawComposerQuote(d){const el=$('#c-quote'),q=shownQuote(d,META?META.ki
   if(open)delete el.dataset.tip; else el.dataset.tip=q;}
 // When a selection ends via save/cancel/append, selection mode is turned off (scrolling resumes) and the narrow sheet collapses (the body comes forward again).
 // The composer panel's pin kind (fix request / question). Reverts to fix request on save or discard (the default for the next pin).
+// The kind says what the note is, not who handles it: the assignee does not follow it (mentions.js).
 function setKind(k){KIND_NEW=k===KIND_REQ.QUESTION?KIND_REQ.QUESTION:KIND_REQ.FIX; saveDraftSoon();
   $$('#c-kind button').forEach(b=>{const on=b.dataset.kind===KIND_NEW; b.classList.toggle('on',on); b.setAttribute('aria-checked',String(on));});
-  $('#note').placeholder=KIND_NEW===KIND_REQ.QUESTION?'무엇이 궁금한지 적어 주세요':'메모: 여기를 어떻게 고칠지 (비워도 됩니다)'; renderAssignNew(); qHint($('#c-qhint'),$('#note').value,KIND_NEW);}
+  $('#note').placeholder=KIND_NEW===KIND_REQ.QUESTION?'무엇이 궁금한지 적어 주세요':'메모: 여기를 어떻게 고칠지 (비워도 됩니다)'; qHint($('#c-qhint'),$('#note').value,KIND_NEW);}
 // A note that reads like a question (docs/handbook/viewer.md §스레드와 검토 - suggesting the kind). True if it ends in ?/? or a
 // Korean interrogative ending (는가/나요/까요/인가/건가/니/냐/까). A trailing period/ellipsis/closing bracket/quote and a
 // trailing @-tag (e.g. '맞나요? @Bob Park') are ignored. Only judges - never changes the kind itself.
@@ -192,7 +193,7 @@ function qHint(box,text,kind){if(box)box.hidden=kind===KIND_REQ.QUESTION||!looks
 // Drops the current selection and its box (clearNote also empties the note, kind and assignee). No undo here -
 // discardSelection() is the user's Esc/[취소], which offers one.
 function cancelSelection(clearNote){if(REPICK)cancelRepick(); closeSelPop(); COMPOSE.current=null; PICKSEQ++; COMPOSE.picking=false; clearPendingSave(); if(COMPOSE.box){COMPOSE.box.remove();COMPOSE.box=null;} saveDraftSoon();
-  COMPOSE.dismissedOverlap=null; setBusy(false); $('#composer').hidden=true; if(clearNote){$('#note').value=''; $('#note')._mentions=null; ASSIGN_NEW.touched=false; mentionPreview($('#note')); setKind(KIND_REQ.FIX);}
+  COMPOSE.dismissedOverlap=null; setBusy(false); $('#composer').hidden=true; if(clearNote){$('#note').value=''; $('#note')._mentions=null; ASSIGN_NEW.touched=false; renderAssignNew(); setKind(KIND_REQ.FIX);}
   if(!REPICK)setSelMode(false); if(LAYOUT===LAYOUT_MODE.NARROW&&!EDITOR.current)setSide(false); applySide();}
 // What a discarded or saved selection needs to come back (restoreSelection): the pick (COMPOSE.current), its box on the page, the note with its
 // @-tag hints, the kind and the assignee choice, and the document/build the box belongs to. null when there is no selection.
@@ -206,7 +207,7 @@ function selectionSnapshot(){if(!COMPOSE.current&&!COMPOSE.picking&&$('#composer
 function restoreSelection(snap){if(!snap||COMPOSE.current||COMPOSE.picking||REPICK||!$('#composer').hidden)return false;
   const n=$('#note'); if(n.value)return false;   // a note-only draft also belongs to the current document
   n.value=snap.note; n._mentions=snap.mentions; setKind(snap.kind); Object.assign(ASSIGN_NEW,snap.assign);
-  renderAssignNew(); mentionPreview(n); autoGrow(n);
+  renderAssignNew(); autoGrow(n);
   if(!(snap.cur&&snap.doc===DOC&&META&&snap.build===META.pages_build)){lineNote('메모만 되살렸습니다 — PDF가 바뀌어 자리를 다시 골라야 합니다',NOTICE_KIND.WARN); return true;}
   if(COMPOSE.box)COMPOSE.box.remove(); COMPOSE.box=null;
   if(snap.box&&snap.page&&document.contains(snap.page)){COMPOSE.box=snap.box; snap.page.appendChild(snap.box);}

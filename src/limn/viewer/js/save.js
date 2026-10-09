@@ -58,7 +58,7 @@ async function savePin(){
   body.doc=d.doc||DOC||undefined;
   body.kind_req=KIND_NEW;
   const mh=mentionHints($('#note')); if(mh.length)body.mentions=mh;
-  renderAssignNew(); body.assignee=ASSIGN_NEW.v||ASSIGNEE_AGENT;   // a pin created by the viewer always records an assignee (otherwise a legacy pin's inference rule applies)
+  renderAssignNew(); body.assignee=ASSIGN_NEW.v||ASSIGNEE_AGENT;   // a pin created by the viewer always records an assignee (otherwise a legacy pin's inference rule applies): the outcome the preview line shows (assignOutcome)
   const snap=selectionSnapshot(),fields=composeFields();   // [되돌리기] takes the pin back and hands this selection and note back for another try
   const draft=savedDraftSnapshot();
   const question=KIND_NEW===KIND_REQ.QUESTION;
