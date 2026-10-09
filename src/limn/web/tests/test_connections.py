@@ -1,6 +1,5 @@
 """Real TCP admission holds leases through keep-alive and releases only attested physical cleanup."""
 
-import errno
 import http.client
 import socket
 import threading
@@ -11,7 +10,12 @@ import pytest
 
 from limn.web.connection_policy import admitted
 from limn.web.connections import BoundedServer, BoundedServer6, FatalConnectionStart
-from limn.web.tests.connection_support import assert_transport_closed, open_listener, running_listener
+from limn.web.tests.connection_support import (
+    assert_transport_closed,
+    open_listener,
+    running_listener,
+    skip_unavailable_ipv6_bind,
+)
 
 
 class ObservedServer(BoundedServer):
@@ -124,13 +128,7 @@ def open_bounded_listener(tmp_path):
         try:
             server = listener((host, 0), ProbeHandler, max_connections=limit)
         except OSError as error:
-            if family == socket.AF_INET6 and error.errno in (
-                errno.EAFNOSUPPORT,
-                errno.EADDRNOTAVAIL,
-                errno.EPROTONOSUPPORT,
-            ):
-                pytest.skip("IPv6 loopback bind unavailable: errno %s" % error.errno)
-            raise
+            skip_unavailable_ipv6_bind(error, family)
         try:
             with running_listener(server) as run:
                 yield server, entered, active, permit, marker
@@ -320,13 +318,7 @@ def test_pre_call_construction_failure_recovers_after_attested_close(family, cap
     try:
         server = listener((host, 0), ClosingProbe, max_connections=1)
     except OSError as error:
-        if family == socket.AF_INET6 and error.errno in (
-            errno.EAFNOSUPPORT,
-            errno.EADDRNOTAVAIL,
-            errno.EPROTONOSUPPORT,
-        ):
-            pytest.skip("IPv6 loopback bind unavailable: errno %s" % error.errno)
-        raise
+        skip_unavailable_ipv6_bind(error, family)
     try:
         with running_listener(server) as run:
             with socket.create_connection(server.server_address[:2], timeout=2) as failed:

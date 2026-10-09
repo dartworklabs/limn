@@ -7,6 +7,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from socketserver import BaseRequestHandler
+from typing import NoReturn
 
 import pytest
 
@@ -52,6 +53,17 @@ def running_listener(server: BoundedServer) -> Iterator[ListenerRun]:
         assert server.socket.fileno() == -1, "Listener socket was not physically closed"
 
 
+def skip_unavailable_ipv6_bind(error: OSError, family: int) -> NoReturn:
+    """For a caught real bind error, skip only unavailable IPv6; otherwise propagate the same error."""
+    if family == socket.AF_INET6 and error.errno in (
+        errno.EAFNOSUPPORT,
+        errno.EADDRNOTAVAIL,
+        errno.EPROTONOSUPPORT,
+    ):
+        pytest.skip("IPv6 loopback bind unavailable: errno %s" % error.errno)
+    raise error
+
+
 @contextmanager
 def open_listener(limit: int, family: int, handler: type[BaseRequestHandler]) -> Iterator[BoundedServer]:
     """Bind IPv4/IPv6 loopback port zero; skip IPv6 only for actual address-family bind errors."""
@@ -60,13 +72,7 @@ def open_listener(limit: int, family: int, handler: type[BaseRequestHandler]) ->
     try:
         server = listener((address, 0), handler, max_connections=limit)
     except OSError as error:
-        if family == socket.AF_INET6 and error.errno in (
-            errno.EAFNOSUPPORT,
-            errno.EADDRNOTAVAIL,
-            errno.EPROTONOSUPPORT,
-        ):
-            pytest.skip("IPv6 loopback bind unavailable: errno %s" % error.errno)
-        raise
+        skip_unavailable_ipv6_bind(error, family)
     with running_listener(server) as run:
         yield server
     assert not run.errors, run.errors
