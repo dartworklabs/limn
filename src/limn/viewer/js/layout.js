@@ -277,6 +277,7 @@ document.fonts.addEventListener('loadingdone',()=>{fitBarWords(); if($('#more').
 // the documents sheet used to stay open (input review 2026-09-26).
 for(const sel of ['#more','#help','#nav-sheet','#status-list'])$(sel).addEventListener('click',e=>{const d=e.currentTarget; if(e.target!==d)return; const r=d.getBoundingClientRect();
   if(e.clientX<r.left||e.clientX>r.right||e.clientY<r.top||e.clientY>r.bottom)d.close();});
-// However the navigation sheet closes, the focus goes back to the button that opens it.
-$('#nav-sheet').addEventListener('close',()=>{const b=$('#btn-pos'); if(b.getClientRects().length)b.focus({preventScroll:true});});
+// However the navigation sheet closes, the focus goes back to the button that opens it - unless it closed for the search.
+$('#nav-sheet').addEventListener('close',()=>{const b=$('#btn-pos'); if(SEARCH.open)return;   // its search row put the focus in the search field
+  if(b.getClientRects().length)b.focus({preventScroll:true});});
 

@@ -22,6 +22,7 @@ css/cards.css           # pin cards: status, links, thread, @-tags, question hin
 css/list.css            # list sections and the archive rows
 css/overlays.css        # tooltip, dialogs, the page list
 css/responsive.css      # mobile/touch, the mid and narrow layouts, reduced motion, the label chip
+css/search.css          # in-document search: the nav bar's field, its folded magnifier, the phone's row, hit boxes
 css/notices.css         # messages in context: banners, undo rows, notes and chips, the status line's messages, dots
 
 __APP_JS__
@@ -46,6 +47,7 @@ js/pdf-open.js          # PDF.js: loading, the document cache, opening the curre
 js/outline.js           # the PDF outline and the section strip
 js/page-list.js         # the page list: the page counts' popover and the navigation sheet's page rows
 js/pdf-draw.js          # PDF.js: canvases, what to draw next, rendering pages
+js/search.js            # in-document text search: reading page text, matching, the field per layout, hit boxes
 js/revision-zoom.js     # Comparison PDF geometry, rendering and input
 js/zoom.js              # PDF-area zoom input: Ctrl+wheel, pinch, keys
 js/layout.js            # layout by width, the panel's open state and slide, virtual keyboard, coach, dialogs

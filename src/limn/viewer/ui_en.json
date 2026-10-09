@@ -1164,7 +1164,7 @@
  "확대·시트 높이·테마·언어·핀 다시 읽기·알림·휴지통·재빌드·도움말": "Zoom · sheet height · theme · language · reload pins · notifications · Trash · rebuild · help",
  "확대·시트 높이·테마·언어·핀 다시 읽기·알림·휴지통·재빌드·이 도움말": "Zoom · sheet height · theme · language · reload pins · notifications · Trash · rebuild · this help",
  "본문 3/25": "Body 3/25",
- "휴대폰: 문서·원고와 변경사항·쪽 번호·목차로 갑니다": "Phone: go to a document, the manuscript or its changes, a page or a section",
+ "휴대폰: 본문 검색·문서·원고와 변경사항·쪽 번호·목차로 갑니다": "Phone: search the text, or go to a document, the manuscript or its changes, a page or a section",
  "범위": "Range",
  "L{n}까지 넓히기": "Widen to L{n}",
  "이 줄 빼기 (L{n})": "Drop this line (L{n})",
@@ -1189,5 +1189,13 @@
  "검토 대기 핀으로 갑니다": "Go to the pins awaiting review",
  "보기 권한만 있습니다 — 편집 권한이 있는 사람이 확인합니다": "This screen is read-only; a person with edit access confirms the result",
  "에이전트 권한으로 접속 중입니다 — 사람 신원으로 접속해 확인하세요": "This screen uses agent access; open as a person to confirm the result",
- "핀 #{id} 카드로 이동": "Go to pin #{id}"
+ "핀 #{id} 카드로 이동": "Go to pin #{id}",
+ "본문 검색": "Search the text",
+ "이전 결과": "Previous result",
+ "다음 결과": "Next result",
+ "검색 닫기": "Close search",
+ "본문에서 글자를 찾습니다 (Ctrl/⌘+F)": "Find text in the document (Ctrl/⌘+F)",
+ "{m}개 중 {n}번째 · {page}쪽": "{n} of {m} · page {page}",
+ "결과 없음": "No results",
+ "본문 검색 칸으로 갑니다. Enter 는 다음 결과, Shift+Enter 는 이전 결과, Esc 는 검색을 닫습니다. 검색 칸에서 한 번 더 누르면 브라우저의 찾기가 뜹니다": "Goes to the search field. Enter is the next result, Shift+Enter the previous one, Esc closes the search. Pressed again in the field, it opens the browser's own find"
 }

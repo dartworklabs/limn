@@ -17,6 +17,7 @@
   --status-review:#b197fc;--status-review-foreground:#1e1033;
   --tooltip:#09090b;--tooltip-foreground:#fafafa;
   --shadow-color:#00000088;--shadow-page:0 2px 18px var(--shadow-color);
+  --search-hit:#f2c200;--search-hit-current:#f76707;   /* a search hit's wash and the current hit's: on the page, paper in both themes, so both blocks agree */
   --mark-tile:var(--limn-ink);--mark-stroke:var(--limn-cream)}
 :root[data-theme=light]{color-scheme:light;
   --background:#e4e4e7;--foreground:#09090b;
@@ -31,6 +32,7 @@
   --status-review:#6d28d9;--status-review-foreground:#ffffff;
   --tooltip:#18181b;--tooltip-foreground:#fafafa;
   --shadow-color:#00000022;--shadow-page:0 1px 6px var(--shadow-color);
+  --search-hit:#f2c200;--search-hit-current:#f76707;
   --mark-tile:var(--limn-bone);--mark-stroke:var(--limn-ink)}
 /* Theme-independent scales: radius in 3 steps (only circular dots/avatars use 50%), text in 5 steps, spacing in
    6 steps, control heights. --edge is the compact layout's edge line (docs/handbook/viewer.md §모바일 레이아웃): the fitted page's
@@ -55,6 +57,9 @@
   --line-label:round(1.4em,2px);   /* a control label's line box: 1.4 of its text to the nearest even px, so a control's height is whole px and its label's box starts on one */
   --line-field:round(1.55em,2px);   /* a one-line text field's line box: the body's 1.55 to the nearest even px, so the field and what follows it stand on whole px */
   --row-h:48px;--row-h-touch:56px;   /* a two-line list row (the changes view's commit list): subject + author line, a touch row taller */
+  /* The nav bar's search field (search.css): ten 24px steps wide, the outline column's width; under ten 20px steps the count and
+     the three buttons leave a query no room, so it folds to its magnifier; its width while it is typed in (touch widens it). */
+  --search-w:240px;--search-min:200px;--search-open:240px;
   --pin-badge-size:22px;   /* native mark buttons retain the existing round badge geometry; touch changes this to 26px */
   --mark-hit:24px;   /* a mark badge's press area with a mouse (WCAG 2.5.8); touch changes this to --hit */
   --foot-word:16px;   /* [더보기]'s foot wordmark height (the owner's pick); its x-height reads about 1.7 times the version's */
