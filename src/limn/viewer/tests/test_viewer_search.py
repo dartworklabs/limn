@@ -60,6 +60,8 @@ PAGES = [
     ],
     [
         (72, 700, [("F1", "Evening tide. TIDE. tide")]),
+        (72, 676, [("F1", "A long breakwater")]),  # 'breakwater shelters' crosses into the next line, near a page's top
+        (72, 652, [("F1", "shelters the boats.")]),
         (72, 300, [("F1", "The last line of the fixture mentions the ebb once.")]),
     ],
 ]
@@ -750,17 +752,24 @@ class SearchFinds(SearchBase):
         self.assertEqual(len(self.current(page)["boxes"]), 1)
 
     def test_a_hit_over_two_lines_is_shown_whole(self):
-        """'first reading' lies on two lines of page 1. Scrolled so that its first line sits just above the foot of the
-        PDF area and its second line below it, searching for it scrolls until both lines show - not only the first."""
+        """'breakwater shelters' lies on two lines near the top of page 3. Scrolled so that its first line sits just above
+        the foot of the PDF area and its second line below it (checked), searching for it scrolls until both lines show
+        - not only the first."""
         page = self.view()
+        line = "y => {const g = document.getElementById('p3'), r = g.getBoundingClientRect(); return r.top + g.clientTop + (792 - y) / 792 * g.clientHeight;}"
         page.evaluate(
-            """() => {const L = document.querySelector('#left'), g = document.getElementById('p1'), a = selPopArea(), r = g.getBoundingClientRect();
-              const first = r.top + g.clientTop + (792 - 652 + 3) / 792 * g.clientHeight; L.scrollTop += first - (a.bottom - 14);}"""
+            "line => {const L = document.querySelector('#left'), a = selPopArea(), at = eval(line); L.scrollTop += at(676 - 3) - (selPopArea().bottom - 14);}",
+            line,
         )
         settle(page)
-        self.search(page, "first reading")
+        where = page.evaluate(
+            "line => {const at = eval(line); return [at(676 - 3), at(652 - 3), selPopArea().bottom];}", line
+        )
+        self.assertLess(where[0], where[2] - 8)  # the first line shows ...
+        self.assertGreater(where[1], where[2])  # ... and the second does not
+        self.search(page, "breakwater shelters")
         cur = self.current(page)
-        self.assertEqual((cur["page"], [b["shows"] for b in cur["boxes"]]), (1, [True, True]))
+        self.assertEqual((cur["page"], [b["shows"] for b in cur["boxes"]]), (3, [True, True]))
 
     def test_the_first_hit_is_the_first_one_from_the_page_on_screen(self):
         """Scrolled to page 3, 'tide' starts at its first hit there: 5/7."""
