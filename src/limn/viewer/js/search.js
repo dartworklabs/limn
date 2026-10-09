@@ -286,7 +286,7 @@ function searchClose(back){const s=$('#doc-search'),q=/** @type {HTMLInputElemen
   if(!back||!had)return;
   const next=to?(searchShown(to)?to:null):BAND===LAYOUT_BAND.PHONE?$('#btn-pos'):s.dataset.mode==='icon'?$('#search-open'):null;
   if(next)next.focus({preventScroll:true});
-  if(!next||$('#search-box').contains(document.activeElement))searchToPage();}
+  if(!next||document.activeElement!==next)searchToPage();}   // a control that would not take the focus leaves it on the page, never in the field
 // Another document or another build is on screen (vecOpen): the query, its hits and the reading of the old text end; the
 // field stays as it is.
 function searchClear(){/** @type {HTMLInputElement} */($('#search-q')).value=''; searchRun();}

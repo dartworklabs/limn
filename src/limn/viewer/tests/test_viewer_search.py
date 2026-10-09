@@ -1189,16 +1189,16 @@ class SearchAcrossDocuments(FiveDocsBase):
 
 
 # What is drawn and what answers a press across the nav bar while the field is open: the open box, every child of the bar
-# with whether it shows and whether its box meets the open box, what a press reaches along the rows 2px above and 2px
+# with whether it shows, whether its box meets the open box and where it is, what a press reaches along the rows 2px above and 2px
 # below the box (within the box's width), and the Tab order from the field.
 OVER_BAR = """() => {const q = s => document.querySelector(s), box = q('#search-box').getBoundingClientRect(), nav = q('#doc-nav');
   const shows = e => e.getClientRects().length > 0 && getComputedStyle(e).visibility !== 'hidden';
   const meets = r => r.right > box.left + 0.01 && r.left < box.right - 0.01;
   const kids = [...nav.children].filter(e => e.id !== 'doc-search' && e.getClientRects().length).map(e => {const r = e.getBoundingClientRect();
-    return {id: e.id, shows: shows(e), meets: meets(r), cut: e.scrollWidth - e.clientWidth};});
+    return {id: e.id, shows: shows(e), meets: meets(r), cut: e.scrollWidth - e.clientWidth, l: r.left, r: r.right};});
   const reach = y => {const ids = new Set(); for (let x = Math.ceil(box.left) + 1; x < box.right - 1; x += 3) {const e = document.elementFromPoint(x, y);
     ids.add(e ? (e.closest('#doc-search') ? 'search' : e.id || (e.closest('#doc-nav>*') || e).id || e.tagName) : 'none');} return [...ids];};
-  return {box: [box.left, box.top, box.right, box.bottom], nav: [nav.getBoundingClientRect().left, nav.getBoundingClientRect().right], kids,
+  return {box: [box.left, box.top, box.right, box.bottom], nav: [nav.getBoundingClientRect().left, nav.getBoundingClientRect().right], kids, gap: parseFloat(getComputedStyle(nav).columnGap),
     above: reach(box.top - 2), below: reach(box.bottom + 2), mode: q('#doc-search').dataset.mode};}"""
 # The bar's pixels in the strips above and below the open box, within its width: in each strip, how many pixels differ from
 # the commonest colour of their own row (the bar's background or its bottom line - each one colour across).
@@ -1335,6 +1335,43 @@ class SearchCrowdedBar(FiveDocsBase):
         self.assertTrue(g["links"] and g["view"])
         self.assertEqual(page.locator("#doc-links button:visible").count(), 5)
 
+    def test_what_stays_beside_the_opened_field_keeps_the_bars_gap(self):
+        """A mouse window with the field open and a query, narrowed from 1096 to 704px: at every width each neighbour
+        still drawn ends at least one bar gap left of the open field, or right of it - nothing stands cramped against
+        the field's border - and no neighbour the field meets is drawn."""
+        page = self.view(device(1096, 800, touch=False))
+        self.search(page, "tide")
+        seen = []
+        for width in range(1096, 700, -8):
+            page.set_viewport_size({"width": width, "height": 800})
+            page.wait_for_function("innerWidth===%d" % width)
+            settle(page)
+            g = page.evaluate(OVER_BAR)
+            left, right = g["box"][0], g["box"][2]
+            for kid in g["kids"]:
+                if not kid["shows"]:
+                    continue
+                self.assertFalse(kid["meets"], (width, kid))
+                self.assertTrue(
+                    kid["r"] <= left - g["gap"] + 0.01 or kid["l"] >= right + g["gap"] - 0.01, (width, kid, g["box"])
+                )
+            seen.append(sum(1 for kid in g["kids"] if not kid["shows"]))
+        self.assertTrue(any(seen), seen)  # the field lay over a neighbour at some width
+
+    def test_esc_on_the_closed_search_is_the_viewers(self):
+        """In the 760px mouse window the field is closed with Esc (the focus back on the magnifier) and the pin panel
+        opened over the page: Esc on the magnifier is the viewer's again and folds the panel away."""
+        page = self.open_folded("mouse 760x800")
+        page.keyboard.press("Escape")
+        settle(page)
+        page.click("#btn-side")
+        page.wait_for_function("document.body.classList.contains('side-open')")
+        settle(page)
+        page.focus("#search-open")
+        page.keyboard.press("Escape")
+        settle(page)
+        self.assertFalse(page.evaluate("document.body.classList.contains('side-open')"))
+
     def test_on_touch_the_folded_magnifier_and_the_opened_field_answer_44px(self):
         """On the foldable's inner screen (673x841) the magnifier is the outline toggle's 44px box and answers 44x44px;
         tapped, the field opens inside the bar, 36px high, and it, its arrows and its close button answer 44x44px."""
@@ -1354,30 +1391,35 @@ class SearchCrowdedBar(FiveDocsBase):
         self.assertEqual(page.evaluate(MISSES_44, "#search-field,#search-prev,#search-next,#search-close"), [])
 
     def test_a_hit_is_never_shown_under_the_overlay_panel(self):
-        """On the unfolded foldable (841x673) with the pin panel open over the page, 'quayside' - at each page's right
-        edge, under the panel while the page fills the screen's width - is shown in the part of the PDF the panel does
-        not cover, every one of the fourteen stepped to: its box's centre and corners are the page's, not the panel's.
-        The panel stays open, and closing the search gives the page its width back."""
-        page = self.view(CROWDED["fold inner 841x673"])
-        page.tap("#btn-side")
-        page.wait_for_function("document.body.classList.contains('side-open')")
-        settle(page)
-        wide = page.evaluate("document.getElementById('p1').getBoundingClientRect().width")
-        panel = page.evaluate("document.querySelector('#right').getBoundingClientRect().left")
-        self.assertGreater(8 + wide * 470 / 612, panel)  # where the word is drawn before the search: under the panel
-        self.search(page, "quayside")
-        self.assertEqual(self.count(page), "1/%d" % N_LONG)
-        covered = []
-        for i in range(N_LONG):
-            cur = self.current(page)
-            if cur is None or not all(b["shows"] for b in cur["boxes"]):
-                covered.append((i + 1, cur))
-            page.keyboard.press("Enter")
-            settle(page)
-        self.assertEqual(covered, [])
-        self.assertTrue(page.evaluate("document.body.classList.contains('side-open')"))
-        page.tap("#search-close")
-        page.wait_for_function("document.getElementById('p1').getBoundingClientRect().width===%r" % wide)
+        """On the unfolded foldable (841x673) and in an 841x673 mouse window, with the pin panel open over the page,
+        'quayside' - at each page's right edge, under the panel while the page fills the screen's width - is shown in
+        the part of the PDF the panel does not cover, every one of the fourteen stepped to: its box's centre and
+        corners are the page's, not the panel's. The panel stays open, and closing the search gives the page its
+        width back."""
+        for name, dev in (("touch", CROWDED["fold inner 841x673"]), ("mouse", device(841, 673, touch=False))):
+            with self.subTest(pointer=name):
+                page = self.view(dev)
+                self.press(page, "#btn-side")
+                page.wait_for_function("document.body.classList.contains('side-open')")
+                settle(page)
+                wide = page.evaluate("document.getElementById('p1').getBoundingClientRect().width")
+                panel = page.evaluate("document.querySelector('#right').getBoundingClientRect().left")
+                self.assertGreater(
+                    8 + wide * 470 / 612, panel
+                )  # where the word is drawn before the search: under the panel
+                self.search(page, "quayside")
+                self.assertEqual(self.count(page), "1/%d" % N_LONG)
+                covered = []
+                for i in range(N_LONG):
+                    cur = self.current(page)
+                    if cur is None or not all(b["shows"] for b in cur["boxes"]):
+                        covered.append((i + 1, cur))
+                    page.keyboard.press("Enter")
+                    settle(page)
+                self.assertEqual(covered, [])
+                self.assertTrue(page.evaluate("document.body.classList.contains('side-open')"))
+                self.press(page, "#search-close")
+                page.wait_for_function("document.getElementById('p1').getBoundingClientRect().width===%r" % wide)
 
 
 # The navigation sheet's search row as a finger meets it: how many px of its height answer a tap down its middle (nothing
