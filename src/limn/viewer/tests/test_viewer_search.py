@@ -1932,8 +1932,9 @@ class SearchStatusLine(FiveDocsBase):
         """Landscape phones 720x320, 844x390 and 908x411, the field open with 'tide': with the stale-manuscript line, and
         then with a long message arriving while the field is open, the status line and the field never overlap (the
         field starts one bar gap after the status), every button of the status answers a press at its centre, no
-        neighbour the field took off is drawn, and the status's words are shortened only once its dismiss button is
-        gone."""
+        neighbour the field took off is drawn (nor anything under the field), and the status's words are shortened only
+        once its dismiss button is
+        gone - and the field goes under its least width only once the words are gone too."""
         long = (
             "lineNote('핀 #12 을 다른 사람이 고쳤습니다. 다시 읽은 뒤 저장하세요', NOTICE_KIND.WARN, null, {source: 'edit'});"
             "lineNote('지금 쓰던 메모는 그대로 둡니다', NOTICE_KIND.INFO)"
@@ -1946,7 +1947,8 @@ class SearchStatusLine(FiveDocsBase):
             drawnCovered: [...nav.querySelectorAll(':scope>.search-covered')].filter(e => getComputedStyle(e).visibility !== 'hidden').map(e => e.id),
             under: [...nav.children].filter(e => e.id !== 'doc-search' && e.getClientRects().length && getComputedStyle(e).visibility !== 'hidden')
               .filter(e => {const r = e.getBoundingClientRect(); return r.width > 0 && r.right > box.left + 0.5 && r.left < box.right - 0.5;}).map(e => e.id),
-            cut: t ? t.scrollWidth - t.clientWidth : 0, dismiss: !!x && x.getClientRects().length > 0};}"""
+            cut: t ? t.scrollWidth - t.clientWidth : 0, dismiss: !!x && x.getClientRects().length > 0, words: t ? t.clientWidth : 0,
+            query: document.querySelector('#search-q').getBoundingClientRect().width};}"""
         for name, dev in (
             ("short 720x320", device(720, 320)),
             ("short 844x390", device(844, 390)),
@@ -1961,17 +1963,28 @@ class SearchStatusLine(FiveDocsBase):
                 page.keyboard.type("tide")
                 page.wait_for_function(COUNTED, timeout=8000)
                 settle(page)
-                for message in ("stale", "long"):
+                for message in ("stale", "long", "one long"):
                     if message == "long":
                         page.evaluate(long)
                         settle(page)
+                    if message == "one long":
+                        page.evaluate("for (const n of [...LINE]) endNotice(n, true)")
+                        page.evaluate(
+                            "m=>lineNote(m, NOTICE_KIND.WARN, null, {literal: true})",
+                            "핀 #12 을 다른 사람이 고쳤습니다. 다시 읽은 뒤 저장하세요 — 지금 쓰던 메모는 그대로 둡니다",
+                        )
+                        settle(page)
                     m = page.evaluate(check)
                     self.assertLessEqual(m["right"], m["left"] - m["gap"] + 0.5, (message, m))
-                    self.assertTrue(m["buttons"] and all(ok for _, ok in m["buttons"]), (message, m))
+                    self.assertTrue(all(ok for _, ok in m["buttons"]), (message, m))  # its action, '+N', dismiss
                     self.assertEqual(m["drawnCovered"], [], (message, m))
                     self.assertEqual(m["under"], [], (message, m))  # nothing drawn under the field
                     if m["cut"] > 0:
                         self.assertFalse(m["dismiss"], (message, m))
+                    if (
+                        m["query"] < 110
+                    ):  # the field well under its least width (a 118px query) only once the words are gone
+                        self.assertLessEqual(m["words"], 1, (message, m))
 
     def test_an_empty_search_costs_the_pdf_no_height_with_or_without_a_status_line(self):
         """On each phone, opening the search from the navigation sheet with nothing typed leaves the PDF its visible height

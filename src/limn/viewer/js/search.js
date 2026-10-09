@@ -314,8 +314,11 @@ function searchCover(){const s=$('#doc-search'),nav=$('#doc-nav'),box=$('#search
   s.style.setProperty('--search-span','0px'); const least=box.getBoundingClientRect().width;   // min-width:min-content holds it there
   while(span<least&&left.length>1){const m=/** @type {HTMLElement} */(left.pop()); m.classList.replace('search-left','search-covered'); span=s.getBoundingClientRect().right-edge();}   // the first (the outline toggle) stays
   if(span<least){k.classList.add('search-tight'); span=s.getBoundingClientRect().right-edge();}
-  if(span<least){const w=k.getBoundingClientRect().width,tx=k.querySelector('.st-tx'),floor=Math.ceil(w-(tx?tx.getBoundingClientRect().width:0));   // its icon and actions
-    k.style.maxWidth=Math.max(floor,Math.floor(w-(least-span)))+'px'; span=s.getBoundingClientRect().right-edge();}
+  if(span<least){const tx=k.querySelector('.st-tx'),floor=Math.ceil(k.getBoundingClientRect().width-(tx?tx.getBoundingClientRect().width:0));   // its icon and actions
+    // shortened again while the field still lacks room: a status wider than the bar at rest had pushed the search to the right,
+    // and each shortening brings it back left by as much
+    for(let n=0;n<4&&span<least;n++){const w=k.getBoundingClientRect().width; if(w<=floor+0.5)break;
+      k.style.maxWidth=Math.max(floor,Math.floor(w-(least-span)))+'px'; span=s.getBoundingClientRect().right-edge();}}
   // (The field's right end is measured again each time: a status line wider than the bar at rest pushes the search to the
   // right until it is shortened.)
   // Last, when even the status's icon and actions leave the field less than its least width, the field goes under it
@@ -442,4 +445,7 @@ $('#search-hint').textContent=IS_MAC?'⌘F':'Ctrl F';
 if(window.ResizeObserver){const o=new ResizeObserver(()=>requestAnimationFrame(searchFit)); o.observe($('#doc-nav')); o.observe($('#search-box'));
   for(const k of $('#doc-nav').children)if(k.id!=='doc-search')o.observe(k);
   o.observe($('#status'));}   // the short band moves the status line into the bar (status.js); a new message changes its width
+// ... or not: while the field holds the status to a max-width its box keeps that width whatever it says, so a new message is
+// watched as it is drawn too.
+new MutationObserver(()=>requestAnimationFrame(searchFit)).observe($('#status'),{childList:true,subtree:true,characterData:true,attributes:true,attributeFilter:['hidden']});
 document.fonts.addEventListener('loadingdone',searchFit);
