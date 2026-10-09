@@ -32,7 +32,17 @@ import helpers_figure
 from helpers import HTML, UI_EN, GatedBuild, add_pin, blank_png, extract_js_fn, ps, run_node, serve_viewer
 from helpers_access import ALICE, BOB, actor
 from helpers_authority import post_authority
-from helpers_browser import BrowserBase, booted, fonts_ready, nothing_follows, settle, watch_idle
+from helpers_browser import (
+    MISSES_44,
+    ROW_INK,
+    SEGMENTS,
+    BrowserBase,
+    booted,
+    fonts_ready,
+    nothing_follows,
+    settle,
+    watch_idle,
+)
 
 HANGUL = re.compile(r"[가-힣]")
 # boot() has finished on the ViewerBase fixture (three open pins).
@@ -1600,25 +1610,6 @@ class PhoneSheet(ViewerBase):
         self.assertEqual(page.locator("#status-list .st-row [data-act=notice-x]").count(), 5)
 
 
-# Every visible element matching the selector whose tap area is under 44px wide or high, as "name WxH(hit wxh)": from its
-# centre, the px that still answer it going left/right/up/down (each side counted to 60px), as the diagnosis measured them - the
-# touch twin of DesktopMisc's 24px probe. A hit area may sit off-centre (the sheet's tool bar reaches only downwards).
-MISSES_44 = """sel => {
-  const out = [];
-  const own = (e, x, y) => { if (x < 0 || y < 0 || x >= innerWidth || y >= innerHeight) return false;
-    const h = document.elementFromPoint(x, y); return !!h && (h === e || e.contains(h)); };
-  for (const e of document.querySelectorAll(sel)) {
-    const r = e.getBoundingClientRect(); if (!r.width || !r.height || getComputedStyle(e).visibility === 'hidden') continue;
-    if (r.top < 0 || r.bottom > innerHeight || r.left < 0 || r.right > innerWidth) continue;
-    const cx = r.left + r.width / 2, cy = r.top + r.height / 2; let l = 0, ri = 0, u = 0, d = 0;
-    if (own(e, cx, cy)) { while (l < 60 && own(e, cx - l - 1, cy)) l++; while (ri < 60 && own(e, cx + ri + 1, cy)) ri++;
-      while (u < 60 && own(e, cx, cy - u - 1)) u++; while (d < 60 && own(e, cx, cy + d + 1)) d++; }
-    const w = l + ri + 1, h = u + d + 1;
-    if (w < 44 || h < 44) out.push((e.id ? '#' + e.id : e.className) + ' ' + Math.round(r.width) + 'x' + Math.round(r.height) + '(hit ' + w + 'x' + h + ')');
-  }
-  return out; }"""
-
-
 # A mouse window in the mid layout, and a wide desktop window.
 MOUSE_MID = {"viewport": {"width": 1000, "height": 800}}
 MOUSE_WIDE = {"viewport": {"width": 1440, "height": 900}}
@@ -2571,17 +2562,6 @@ class ComposerSamePass(ViewerBase):
         self.assertEqual(page.evaluate(bg), "rgba(0, 0, 0, 0)")
 
 
-# Every visible segmented control under root, as drawn: its drawn track (a ladder's .lad-t, else the .seg itself), the track's
-# height and radius, the selected thumb's insets from the track (top, bottom) and the end segments' (left, right), the thumb's
-# radius, and its shadow's reach below it (y offset + blur, px).
-SEGMENTS = """root => [...document.querySelectorAll(root + ' .seg')].filter(s => s.getClientRects().length).map(s => {
-  const t = s.querySelector(':scope>.lad-t') || s, T = t.getBoundingClientRect(), bs = [...t.querySelectorAll(':scope>button')];
-  const on = t.querySelector(':scope>button.on') || bs[0], O = on.getBoundingClientRect(), cs = getComputedStyle(on);
-  const sh = cs.boxShadow === 'none' ? [0, 0] : cs.boxShadow.replace(/rgba?\\([^)]*\\)/, '').trim().split(/\\s+/).map(parseFloat).slice(1, 3);
-  const r1 = v => Math.round(v * 10) / 10;
-  return {id: s.id || s.className, h: r1(T.height), top: r1(O.top - T.top), bottom: r1(T.bottom - O.bottom),
-    left: r1(bs[0].getBoundingClientRect().left - T.left), right: r1(T.right - bs[bs.length - 1].getBoundingClientRect().right),
-    rTrack: parseFloat(getComputedStyle(t).borderTopLeftRadius), rThumb: parseFloat(cs.borderTopLeftRadius), reach: sh[0] + sh[1]};})"""
 # The open [더보기]'s view group, drawn: each row's control (the zoom row's buttons, else its segment track) top and bottom.
 MORE_ROWS = """() => [...document.querySelectorAll('#more .m-row .m-c, #more .m-row .seg')].filter(e => e.getClientRects().length)
   .map(e => {const r = (e.matches('.m-c') ? e.querySelector('button') : e).getBoundingClientRect(); return [r.top, r.bottom];})"""
@@ -5765,27 +5745,6 @@ ROW_BOXES = """() => {const q = s => document.querySelector(s), vis = e => !!e &
   const fills = items.filter(i => i.fill);
   return {top, bottom, safe, under: innerHeight - B.bottom, above: Math.min(...fills.map(i => i.box[1])) - top,
     below: bottom - Math.max(...fills.map(i => i.box[3])), items};}"""
-# The ink of each box in a screenshot (base64 PNG at the device pixel ratio, boxes in the shot's CSS px): the pixels that differ
-# from the box's own background - read at its left edge, at mid height in a fill, at the top corner of a ghost - each pixel row's
-# and column's coverage the strongest difference over the box's strongest; the ink's vertical centre and its left and right
-# edges, the partial rows and columns counted by their coverage. A fill is read 6px in from every edge (its rounded corners,
-# the halves' seam), a ghost 3px in from its sides, an icon's box (ix: 0) from its own edges.
-ROW_INK = """async ([b64, dpr, items]) => {const img = new Image(); img.src = 'data:image/png;base64,' + b64; await img.decode();
-  const c = document.createElement('canvas'); c.width = img.width; c.height = img.height; const x = c.getContext('2d'); x.drawImage(img, 0, 0);
-  const D = x.getImageData(0, 0, c.width, c.height).data, W = c.width, out = {};
-  const lum = (X, Y) => {const i = (Y * W + X) * 4; return 0.2126 * D[i] + 0.7152 * D[i + 1] + 0.0722 * D[i + 2];};
-  const edges = (cov, base) => {let f = -1, la = -1; cov.forEach((v, i) => {if (v > 0.12) {if (f < 0) f = i; la = i;}});
-    return f < 0 ? null : [(base + f + 1 - cov[f]) / dpr, (base + la + cov[la]) / dpr];};
-  for (const it of items) {const [l, t, r, b] = it.box, iy = it.fill ? 6 : 0, ix = it.ix ?? (it.fill ? 6 : 3);
-    const X0 = Math.round((l + ix) * dpr), X1 = Math.round((r - ix) * dpr), Y0 = Math.round((t + iy) * dpr), Y1 = Math.round((b - iy) * dpr);
-    const bg = lum(X0, it.fill ? Math.round((Y0 + Y1) / 2) : Y0);
-    let mx = 0; for (let y = Y0; y < Y1; y++) for (let xx = X0; xx < X1; xx++) mx = Math.max(mx, Math.abs(lum(xx, y) - bg));
-    const rows = [], cols = new Array(X1 - X0).fill(0);
-    for (let y = Y0; y < Y1; y++) {let m = 0; for (let xx = X0; xx < X1; xx++) {const v = Math.abs(lum(xx, y) - bg) / mx; m = Math.max(m, v);
-      cols[xx - X0] = Math.max(cols[xx - X0], v);} rows.push(m);}
-    const vy = mx < 8 ? null : edges(rows, Y0), vx = mx < 8 ? null : edges(cols, X0);
-    out[it.k] = vy && vx ? {mid: (vy[0] + vy[1]) / 2, left: vx[0], right: vx[1]} : null;}
-  return out;}"""
 
 
 class CompactRowCentre(ViewerBase):

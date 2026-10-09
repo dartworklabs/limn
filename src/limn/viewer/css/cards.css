@@ -92,14 +92,23 @@ body.compact .pin:not(.open):not(.editing) .card-meta-context{display:inline}
 @media (hover:hover){.pin .card-meta button.as-chip:hover{background:transparent;color:var(--foreground);text-decoration:underline}}
 /* Retain the shared button.badge 44px touch hit, clear of nearby thread controls. */
 @media (pointer:coarse){.pin .card-meta:has(button.as-chip){padding-block:var(--space-3)}}
+/* The assignee row (docs/handbook/viewer.md §담당): its label and the standard segmented track, which scrolls sideways inside
+   the row when the names are longer than it (.seg.lad, the range ladder's rule) - the row never grows past the composer. The
+   label's and the segments' words are trimmed to their cap height (text-box), so they share the track's middle in any font. On
+   touch the scroll box's 4px of hit padding is not a gap (as #c-levels): the track stands 8px from its neighbours. */
 .assign-row{display:flex;align-items:center;gap:var(--space-2);margin-top:var(--space-2)}
+.assign-row :is(.as-lab,.as-t){text-box:trim-both cap alphabetic}
 .assign-row .as-lab{flex:none;color:var(--muted-foreground);font-size:var(--text-sm)}
-.assign-row .as-seg{flex:1;min-width:0;margin:0}
+.assign-row .seg.as-seg{flex:1;min-width:0;margin:0}
+@media (pointer:coarse){.assign-row .seg.as-seg{margin:calc(-1 * var(--space-1)) 0}}
 .mention-bad{color:var(--muted-foreground);text-decoration:underline dotted;text-underline-offset:3px}
 .m-preview{display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-1) var(--space-2);margin-top:var(--space-2);font-size:var(--text-sm)}
-.m-preview .m-lab{display:inline-flex;align-items:center;gap:2px;color:var(--muted-foreground)}
-.m-preview .m-lab .ic{width:12px;height:12px}
+/* A label's icon stands on the baseline and moves down to centre on the label's cap height, so it shares one centre with the
+   names in any font. The agent as the assignee (.m-who) is plain text: a pill is a tagged person. */
+.m-preview .m-lab{display:inline-flex;align-items:baseline;gap:2px;color:var(--muted-foreground)}
+.m-preview .m-lab .ic{width:12px;height:12px;translate:0 calc((100% - 1cap) / 2)}
 .m-preview .m-note{color:var(--muted-foreground)}
+.m-preview .m-who{color:var(--foreground)}
 /* Question-suggestion line (.q-hint): faded text + a link-style button. No box (single nesting level). Sits below the note field, so the field never shifts while typing. */
 .q-hint{display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-1);margin-top:var(--space-1);font-size:var(--text-sm);color:var(--muted-foreground)}
 .q-hint svg{width:14px;height:14px;flex:none}

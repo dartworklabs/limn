@@ -71,8 +71,9 @@ const OPEN_CARDS=new Set();   // ids of pin cards expanded in compact
 // input field {id,mode,el} (holds onto the DOM like EDITOR.current does, and re-inserts it in place when the list redraws), THREAD_OPEN = cards with the thread fully expanded,
 // REPLY_DRAFT = a closed input field's text and selected recipient hints ('reply:12').
 let KIND_NEW=/** @type {string} */(KIND_REQ.FIX),REPLY=/** @type {ReplyBox|null} */(null);
-// @-tags (docs/handbook/viewer.md §@태그): PEOPLE = /api/people (tailnet people who opened this viewer + pin authors/actors), MENTION_ONLY = viewing only "pins that called me".
-let PEOPLE=/** @type {PersonSeen[]} */([]),MENTION_ONLY=false;
+// @-tags (docs/handbook/viewer.md §@태그): PEOPLE = /api/people (tailnet people who opened this viewer + pin authors/actors), PEOPLE_KNOWN = that list
+// has arrived (until then no tag resolves, which says nothing about the note), MENTION_ONLY = viewing only "pins that called me".
+let PEOPLE=/** @type {PersonSeen[]} */([]),PEOPLE_KNOWN=false,MENTION_ONLY=false;
 const THREAD_OPEN=new Set();
 /** Closed reply drafts keyed by pin; these snapshots stay within the current page. @type {Map<string, ReplyDraft>} */
 const REPLY_DRAFT=new Map();

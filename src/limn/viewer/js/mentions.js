@@ -21,16 +21,17 @@ function mentionClose(){MENTION.ta=null; $('#mention-pop').hidden=true;}
 // ('not a registered person'). Since text can't be colored inside a textarea, this is previewed here instead - so it's
 // known before saving whether a tag will actually become a notification. It is the server's resolve_mentions() step for
 // step (tests/viewer/test_mentions_parity.py runs one corpus through both): hit is what the server records, in first-seen order.
+/** @param {string} text @param {Set<string>} [hints] @returns {{hit:string[],bad:string[]}} */
 function mentionScan(text,hints){text=String(text||''); const toks=mentionTokens(PEOPLE);
-  const hit=[],bad=[],low=text.toLowerCase(),hs=hints||new Set(); let first=/** @type {string|null} */(null);
+  const hit=/** @type {string[]} */([]),bad=/** @type {string[]} */([]),low=text.toLowerCase(),hs=hints||new Set();
   for(let i=0;i<text.length;i++){if(text[i]!=='@'||mentionAfterWord(text,i))continue;
     const rest=low.slice(i+1); let got=/** @type {string[]|null} */(null);
     for(const x of toks){if(!rest.startsWith(x.t))continue;
       const nx=rest.charAt(x.t.length); if(/[a-z0-9]$/.test(x.t)&&/[a-z0-9_]/.test(nx))continue;
       const pick=x.lg.length===1?x.lg:x.lg.filter(l=>hs.has(l)); if(pick.length){got=pick;break;}}
-    if(got){got.forEach(l=>{if(!hit.includes(l))hit.push(l);}); if(first===null&&!text.slice(0,i).trim())first=got[0];}
+    if(got)got.forEach(l=>{if(!hit.includes(l))hit.push(l);});
     else{const w=/^[^\s@]{1,30}/.exec(text.slice(i+1)); if(w&&!bad.includes(w[0]))bad.push(w[0]);}}
-  return {hit,bad,first};}
+  return {hit,bad};}
 // The server's mention_tokens(): [{t, lg:[login...]}], longest first. The candidates of a person are the full name, the
 // login, the login before '@' and the name's first word (when it has several), lower-cased; a candidate shorter than two
 // characters (code points, as Python counts) is none. The same candidate twice for one person is one entry ('Bob' for
@@ -40,38 +41,67 @@ function mentionTokens(people){const by=new Map();
     [nm,lg,lg.split('@')[0]].concat(w.length>1?[w[0]]:[]).forEach(t=>{if([...t].length<2)return; const k=t.toLowerCase();
       if(!by.has(k))by.set(k,new Set()); by.get(k).add(lg);});});
   return [...by].map(([t,s])=>({t,lg:[...s].sort()})).sort((a,b)=>[...b.t].length-[...a.t].length);}
-// Assignee (docs/handbook/viewer.md §담당): who handles this pin. Default - if the note starts with a resolved @-tag, that
-// person; otherwise a question pin's first @-tag; otherwise the agent. I can never be picked (just as the server
-// excludes a tag mentioning me). With no @-tags, there's nothing to pick (the agent).
-function defaultAssignee(text,kind,hints){const r=mentionScan(text,hints),me=meLogin(),hit=r.hit.filter(l=>l!==me);
-  if(r.first&&r.first!==me)return r.first; if(kind===KIND_REQ.QUESTION&&hit.length)return hit[0]; return ASSIGNEE_AGENT;}
+// Assignee (docs/handbook/viewer.md §담당): who handles this pin. A new pin's default is the first colleague the note tags,
+// wherever the tag sits and whatever the pin's kind; with no colleague tagged it is the agent. A colleague is a resolved
+// @-tag that is not me (the server drops a tag of its author too), so an unresolved word, a tag taken out of the text and
+// a tag of myself assign nobody. Pure.
+/** @param {string} text @param {Set<string>} hints @returns {string} */
+function defaultAssignee(text,hints){const ppl=assignPeople(text,hints); return ppl.length?ppl[0]:ASSIGNEE_AGENT;}
+// The colleagues a note tags, in the order it first names them - whom the assignee row offers. keep (an edit card's stored
+// assignee) stays offered after its tag left the note. Pure.
+/** @param {string} text @param {Set<string>} hints @param {string} [keep] @returns {string[]} */
 function assignPeople(text,hints,keep){const me=meLogin(),out=mentionScan(text,hints).hit.filter(l=>l!==me);
   if(keep&&keep!==ASSIGNEE_AGENT&&!out.includes(keep))out.push(keep); return out;}
+// What saving a new pin with this note does: people (the colleagues it tags), assignee, fyi (the colleagues who are only
+// notified) and kept (the author's pick stands). pick is the row's state: a pick stands while it is the agent or a
+// colleague the note still tags; otherwise the default applies. The save, the row and the preview line all read this one
+// answer, so what the line says is what the request carries. Pure.
+/** @param {string} text @param {Set<string>} hints @param {{v:string,touched:boolean}} pick
+ *  @returns {{people:string[],assignee:string,fyi:string[],kept:boolean}} */
+function assignOutcome(text,hints,pick){const people=assignPeople(text,hints);
+  const kept=pick.touched&&(pick.v===ASSIGNEE_AGENT||people.includes(pick.v)),assignee=kept?pick.v:defaultAssignee(text,hints);
+  return {people,assignee,fyi:people.filter(l=>l!==assignee),kept};}
 // The assignee row (Html) for people, value pressed; empty Html without people. Each option carries act as its data-act.
+// The track scrolls sideways inside the row when it is longer (.lad, the range ladder's rule), so every name reads in full.
+// A segment's words are in .as-t, trimmed to their cap height like the row's label, so the two share one centre in any font.
+/** @param {string[]} people @param {string} value @param {string} act @returns {Html} */
 function assignSeg(people,value,act){if(!people.length)return html``;
-  const opt=(v,label,tip)=>html`<button type="button" role="radio" data-act="${act}" data-v="${v}" aria-checked="${v===value}"${v===value?html` class="on"`:''} data-tip="${tip}">${label}</button>`;
+  const opt=(v,label,tip)=>html`<button type="button" role="radio" data-act="${act}" data-v="${v}" aria-checked="${v===value}"${v===value?html` class="on"`:''} data-tip="${tip}"><span class="as-t">${label}</span></button>`;
   const agent=opt(ASSIGNEE_AGENT,tr('에이전트'),tr('에이전트가 이 핀을 처리합니다 — @태그한 사람에게는 알림만 갑니다'));
   const others=people.map(l=>opt(l,'@'+peopleName(l),tl('{name}에게 맡깁니다 — 에이전트는 이 핀을 건너뜁니다',{name:peopleName(l)})));
-  return html`<span class="as-lab">${tr('담당')}</span><div class="seg as-seg">${agent}${others}</div>`;}
-// The composer panel's assignee: before the user picks one (touched=false), the default is re-chosen every time the note changes. If the picked person disappears from the note, it falls back to the default.
-// Both assignee rows read the note with the hints the save carries (mentionHints), so they offer exactly whom the server tags.
+  return html`<span class="as-lab">${tr('담당')}</span><div class="seg lad as-seg"><div class="lad-t">${agent}${others}</div></div>`;}
+// The composer panel's assignee: the author's pick (touched) or, until there is one, the default re-chosen every time the note
+// changes. A pick whose person left the note is dropped. Both assignee rows read the note with the hints the save carries
+// (mentionHints), so they offer exactly whom the server tags.
 const ASSIGN_NEW={v:ASSIGNEE_AGENT,touched:false};
+// Draws the composer's assignee row and the preview line from the note as it is now, and settles ASSIGN_NEW on the outcome
+// (assignOutcome) - the value savePin() then sends. No row without a tagged colleague: the agent has the pin. Before the
+// people list has arrived (PEOPLE_KNOWN) nothing is settled: a draft restored at boot keeps its pick until its person can be
+// looked up (loadPeople draws the row again).
 function renderAssignNew(){const ta=$('#note'),box=$('#c-assign'); if(!ta||!box)return;
-  const hs=new Set(mentionHints(ta)),ppl=assignPeople(ta.value,hs);
-  if(!ASSIGN_NEW.touched||(ASSIGN_NEW.v!==ASSIGNEE_AGENT&&!ppl.includes(ASSIGN_NEW.v))){ASSIGN_NEW.v=defaultAssignee(ta.value,KIND_NEW,hs); ASSIGN_NEW.touched=false;}
-  if(!ppl.length){ASSIGN_NEW.v=ASSIGNEE_AGENT; box.hidden=true; box.replaceChildren(); return;}
-  setHtml(box,assignSeg(ppl,ASSIGN_NEW.v,'assign-new')); box.hidden=false;}
+  const o=assignOutcome(ta.value,new Set(mentionHints(ta)),ASSIGN_NEW); if(PEOPLE_KNOWN){ASSIGN_NEW.v=o.assignee; ASSIGN_NEW.touched=o.kept;}
+  if(o.people.length){setHtml(box,assignSeg(o.people,o.assignee,'assign-new')); box.hidden=false; segReveal(box.querySelector('.as-seg'));}
+  else{box.hidden=true; box.replaceChildren();}
+  mentionPreview(ta);}
+// The edit card's assignee row: the stored assignee stays pressed until the author changes it - a stored pin never takes the
+// new pin's default.
 function renderAssignEdit(){const E=EDITOR.current; if(!E)return; const ta=editNote(E),box=/** @type {HTMLElement} */(E.el.querySelector('.e-assign')); if(!ta||!box)return;
   const ppl=assignPeople(ta.value,new Set(mentionHints(ta)),E.assignee);
   if(!ppl.length){box.hidden=true; box.replaceChildren(); return;}
-  setHtml(box,assignSeg(ppl,E.assignee,'assign-edit')); box.hidden=false;}
+  setHtml(box,assignSeg(ppl,E.assignee,'assign-edit')); box.hidden=false; segReveal(box.querySelector('.as-seg'));}
+// The preview line under a mention field. The composer's note also says who handles the pin, first: '담당' and the assignee
+// (assignOutcome - what the save sends), then '알림' and the people who are only notified; an edit or a reply assigns nobody
+// and lists whom it notifies. Hidden while the text has no '@' word to report.
 function mentionPreview(ta){if(!ta)return; const box=ta.nextElementSibling; if(!box||!box.classList.contains('m-preview'))return;
-  const r=mentionScan(ta.value,new Set(mentionHints(ta))),me=meLogin();   // the same hints the save/send carries
+  const hs=new Set(mentionHints(ta)),r=mentionScan(ta.value,hs),me=meLogin();   // the same hints the save/send carries
   r.bad=mentionBadSettled(r.bad,ta.value,document.activeElement===ta?mentionQuery(ta):null);
   if(!r.hit.length&&!r.bad.length){box.hidden=true; box.replaceChildren(); return;}
-  const hits=r.hit.length?html`<span class="m-lab">${ic('at-sign')}알림</span>${r.hit.map(l=>html`<span class="mention${l===me?' me':''}">${peopleName(l)}${l===me?' '+tr('(나 — 알림 없음)'):''}</span>`)}`:'';
+  const o=ta.id==='note'?assignOutcome(ta.value,hs,ASSIGN_NEW):null,told=o?r.hit.filter(l=>l!==o.assignee):r.hit;
+  const who=!o?'':html`<span class="m-lab">${tr('담당')}</span>${o.assignee===ASSIGNEE_AGENT?html`<span class="m-who">${tr('에이전트')}</span>`
+    :html`<span class="mention">${peopleName(o.assignee)}</span>`}`;
+  const hits=told.length?html`<span class="m-lab">${ic('at-sign')}알림</span>${told.map(l=>html`<span class="mention${l===me?' me':''}">${peopleName(l)}${l===me?' '+tr('(나 — 알림 없음)'):''}</span>`)}`:'';
   const bad=r.bad.map(w=>html`<span class="mention-bad" data-tip="등록된 사람이 아님 — 이 이름으로는 알림이 가지 않습니다. 이 뷰어를 연 테일넷 사람만 부를 수 있습니다">@${w}</span>`);
-  setHtml(box,html`${hits}${bad}${r.bad.length?html`<span class="m-note">등록된 사람이 아님</span>`:''}`);
+  setHtml(box,html`${who}${hits}${bad}${r.bad.length?html`<span class="m-note">등록된 사람이 아님</span>`:''}`);
   box.hidden=false;}
 function mentionUpdate(ta){const q=mentionQuery(ta); if(!q){if(MENTION.ta===ta)mentionClose(); return;}
   const me=META&&META.me&&META.me.login; MENTION.ta=ta; MENTION.start=q.start; MENTION.items=mentionMatches(q.q,PEOPLE,me);
@@ -98,13 +128,15 @@ function mentionTop(r,g,h,top,bot){const gap=4,lim=g&&g.top>=r.bottom?Math.min(b
 // field (the preview, the assignee, the reply outcome; the note's draft).
 function mentionApply(i){const ta=MENTION.ta,p=MENTION.items[i]; if(!ta||!p)return; const pos=ta.selectionStart,ins='@'+p.name+' ';
   ta.value=ta.value.slice(0,MENTION.start)+ins+ta.value.slice(pos); const c=MENTION.start+ins.length; ta.setSelectionRange(c,c);
-  (ta._mentions=ta._mentions||new Set()).add(p.login); mentionClose(); ta.focus(); autoGrow(ta); mentionPreview(ta);
-  if(ta.id==='note'){renderAssignNew(); saveDraftSoon();} else if(ta.classList.contains('e-note'))renderAssignEdit(); else if(ta.classList.contains('r-text'))renderReplyOutcome();}
+  (ta._mentions=ta._mentions||new Set()).add(p.login); mentionClose(); ta.focus(); autoGrow(ta);
+  if(ta.id==='note'){renderAssignNew(); saveDraftSoon(); return;}   // the composer's row draws its preview line too
+  mentionPreview(ta); if(ta.classList.contains('e-note'))renderAssignEdit(); else if(ta.classList.contains('r-text'))renderReplyOutcome();}
 const isMentionField=t=>!!t&&t.tagName==='TEXTAREA'&&(t.id==='note'||t.classList.contains('e-note')||t.classList.contains('r-text'));
-document.addEventListener('input',e=>{const t=/** @type {HTMLTextAreaElement} */(e.target); if(isMentionField(t)){mentionUpdate(t); mentionPreview(t);
-  if(t.id==='note'){renderAssignNew(); qHint($('#c-qhint'),t.value,KIND_NEW); saveDraftSoon();}
-  else if(t.classList.contains('e-note')){renderAssignEdit(); if(EDITOR.current)qHint(EDITOR.current.el.querySelector('.e-qhint'),t.value,EDITOR.current.kind_req);}
-  else if(t.classList.contains('r-text'))renderReplyOutcome();}});
+document.addEventListener('input',e=>{const t=/** @type {HTMLTextAreaElement} */(e.target); if(!isMentionField(t))return; mentionUpdate(t);
+  if(t.id==='note'){renderAssignNew(); qHint($('#c-qhint'),t.value,KIND_NEW); saveDraftSoon(); return;}   // the row draws the preview line too
+  mentionPreview(t);
+  if(t.classList.contains('e-note')){renderAssignEdit(); if(EDITOR.current)qHint(EDITOR.current.el.querySelector('.e-qhint'),t.value,EDITOR.current.kind_req);}
+  else if(t.classList.contains('r-text'))renderReplyOutcome();});
 window.addEventListener('keydown',e=>{if(!MENTION.ta||e.target!==MENTION.ta||$('#mention-pop').hidden||e.isComposing)return;
   const n=MENTION.items.length;
   if(e.key==='ArrowDown'||e.key==='ArrowUp'){if(!n)return; e.preventDefault(); e.stopImmediatePropagation();
