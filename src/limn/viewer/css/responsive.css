@@ -139,6 +139,7 @@ body.lay-wide #more .more-top{padding-top:var(--space-2)}
   #bar1 input.n{width:84px;flex:0 0 84px;max-width:none;font-size:var(--text-xl)}   /* iOS zooms the screen when focusing an input field smaller than 16px */
   #page-pop-in{width:84px;height:var(--hit);font-size:var(--text-xl)}   /* the page list's field (overlays.css), 16px like every touch field */
   button.pl-row{height:var(--hit);padding:0 var(--space-3);font-size:var(--text-base)}   /* the page list's rows: 44px */
+  #outline-items button{min-height:var(--hit)}   /* the outline's rows: 44px at least, their lines centred (frame.css) */
   /* Text links (#N, the line range, N쪽) sit 4-8px apart, so centred 44px hit areas would overlap and the later one would take the
      earlier's half (observed: '1쪽' answered 16x38, 'L4-L5' 33x38). Each is a real --hit x --hit box instead, its text centred,
      positioned so that it stays above the line below that the compact head's -6px margin lets overlap it. */
@@ -672,14 +673,12 @@ body:not(.compact) :is(#help,#trash,#more) .ns-grab{display:none}
 #nav-sheet .ns-oh{display:flex;align-items:center;gap:var(--space-2);margin-bottom:var(--space-1)}
 #nav-sheet .ns-oh .ns-h{margin:0;flex:none}
 #ns-outline-search{flex:1;min-width:0;background:var(--field)}
-#ns-outline-items{display:flex;flex-direction:column;gap:var(--space-1)}
-#ns-outline-items button{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:var(--space-2);align-items:start;width:100%;min-height:var(--hit);text-align:left;
-  background:transparent;border:0;padding:var(--space-2) var(--space-3);font-size:var(--text-lg);color:var(--foreground)}
-#ns-outline-items button .ol-name{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;overflow-wrap:anywhere}
+/* The sheet's outline is the outline's rows (frame.css: one set of columns, one baseline), at the sheet's sizes. */
+#ns-outline-items{column-gap:var(--space-2)}
+#ns-outline-items button{min-height:var(--hit);padding:var(--space-2) var(--space-3);font-size:var(--text-lg);color:var(--foreground)}
+#ns-outline-items button .ol-name{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
 #ns-outline-items button .ol-no{color:var(--muted-foreground);font-variant-numeric:tabular-nums}
-#ns-outline-items button .ol-page{color:var(--muted-foreground);font-size:var(--text-sm);white-space:nowrap}
-#ns-outline-items button.ol-depth-1{padding-left:var(--space-5)}
-#ns-outline-items button:is(.ol-depth-2,.ol-depth-3,.ol-depth-4){padding-left:var(--space-6)}
+#ns-outline-items button .ol-page{color:var(--muted-foreground);font-size:var(--text-sm)}
 #ns-outline-items button.ol-active{background:var(--accent)}
 #ns-outline-items.outline-empty{color:var(--muted-foreground);padding:var(--space-2) var(--space-3);font-size:var(--text-sm)}
 .dm-item{display:flex;align-items:center;gap:var(--space-3);width:100%;text-align:left;padding:var(--space-3)}

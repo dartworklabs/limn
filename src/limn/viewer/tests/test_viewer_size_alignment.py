@@ -26,6 +26,7 @@ from helpers_browser import BrowserBase, fonts_ready, settle
 
 DESK = {"viewport": {"width": 1440, "height": 900}}
 PHONE = {"viewport": {"width": 390, "height": 844}, "is_mobile": True, "has_touch": True, "device_scale_factor": 2}
+TABLET = {"viewport": {"width": 768, "height": 1024}, "is_mobile": True, "has_touch": True, "device_scale_factor": 2}
 TOL = 0.5  # the audit's tolerance for an offset or a spread, in CSS px
 WHOLE = 0.01  # a length counts as a whole number of px within this
 
@@ -76,6 +77,35 @@ MEASURE = """() => {
       while (hi - lo > 0.1) {const m = (lo + hi) / 2; if (own(cx + dx * m, cy + dy * m)) lo = m; else hi = m;} return lo;};
     return {l: reach(-1, 0), r: reach(1, 0), t: reach(0, -1), b: reach(0, 1)};};
   window.__m = {label, hit};}"""
+# An outline whose numbers differ in width inside one depth (1.9 and 1.10, 1, 10 and A, an unnumbered entry), with a title
+# that wraps and printed page labels of different widths, drawn into both outline lists.
+OUTLINE = """() => {OUTLINE_ENTRIES = [
+  {title: '서론', page: 1, depth: 0, frac: 0, number: '1', pageLabel: '1'},
+  {title: 'A deliberately long subsection heading that wraps onto several lines of the outline it is drawn in',
+   page: 1, depth: 1, frac: 0.2, number: '1.9', pageLabel: '1'},
+  {title: '배경', page: 1, depth: 1, frac: 0.4, number: '1.10', pageLabel: '12'},
+  {title: 'Scope', page: 2, depth: 2, frac: 0, number: '1.10.1', pageLabel: '2'},
+  {title: '방법', page: 2, depth: 0, frac: 0.3, number: '10', pageLabel: '2'},
+  {title: 'Model', page: 2, depth: 1, frac: 0.5, number: '10.1', pageLabel: 'iv'},
+  {title: 'Appendix', page: 2, depth: 0, frac: 0.8, number: 'A', pageLabel: '2'},
+  {title: '참고 문헌', page: 2, depth: 0, frac: 0.9, number: '', pageLabel: '2'}];
+  OUTLINE_SELECTED = 0; renderOutline();}"""
+# Every row of an outline list: its depth, its box, the number's and the title's first glyph x and baseline, the page
+# label's baseline and right edge, the title's line count, and the title's cap-height centre under the row's centre.
+OUTLINE_ROWS = """sel => [...document.querySelectorAll(sel + ' button')].map(b => {const R = b.getBoundingClientRect();
+  const no = __m.label(b.querySelector('.ol-no'), b), name = __m.label(b.querySelector('.ol-name'), b);
+  const page = __m.label(b.querySelector('.ol-page'), b), range = document.createRange();
+  range.selectNodeContents(b.querySelector('.ol-name'));
+  const lines = new Set([...range.getClientRects()].map(r => Math.round(r.top))).size;
+  return {depth: +b.className.match(/ol-depth-(\\d)/)[1], top: R.top, height: R.height, lines, noX: no.x, nameX: name.x,
+    noBase: no.baseline, nameBase: name.baseline, pageBase: page.baseline,
+    pageRight: b.querySelector('.ol-page').getBoundingClientRect().right, cap: name.cap};})"""
+# The outline's three surfaces: the name, the device, the list and how it is brought on screen.
+SURFACES = (
+    ("panel", DESK, "#outline-items", None),
+    ("overlay", TABLET, "#outline-items", "#nav-toc-toggle"),
+    ("sheet", PHONE, "#ns-outline-items", "#btn-pos"),
+)
 # Card labels as drawn: for each selector's elements that draw a text (a compact card's icon buttons draw none), the label
 # reading (MEASURE) with the element's display.
 LABELS = """sels => sels.flatMap(s => [...document.querySelectorAll(s)].filter(e => e.getClientRects().length
@@ -91,6 +121,11 @@ def whole(v: float) -> bool:
     return abs(v - round(v)) <= WHOLE
 
 
+def spread(values: list[float]) -> float:
+    """The distance between the smallest and the largest of values."""
+    return max(values) - min(values)
+
+
 class SizeAlignmentBase(BrowserBase):
     """BrowserBase with the hints pre-seen and the layout readings (MEASURE) installed in the page."""
 
@@ -101,6 +136,82 @@ class SizeAlignmentBase(BrowserBase):
         self.assertEqual(fonts_ready(page), "loaded")
         page.evaluate(MEASURE)
         return page
+
+
+class OutlineColumns(SizeAlignmentBase):
+    """The outline's rows in its three surfaces - the desktop panel, the tablet's overlay list and the phone's
+    navigation sheet (docs/handbook/viewer.md §모바일 레이아웃 목차 행): one set of columns, one baseline, whole-pixel
+    heights. Each row was a grid of its own, so a title started after its own number's width; the page label was
+    top-aligned, 1-2px above the title's baseline; and a row's height came from 1.4 lines of its text."""
+
+    def rows(self, device: dict, sel: str, opener: str | None) -> list[dict]:
+        """The rows of the list sel (OUTLINE_ROWS) on device, the test outline drawn and the list brought on screen
+        with opener (the outline toggle or the phone's position button) when it needs one."""
+        page = self.view(device)
+        page.evaluate(OUTLINE)
+        if opener:
+            page.click(opener)
+            page.wait_for_function(
+                "document.querySelector('#nav-sheet').open||!document.body.classList.contains('outline-collapsed')"
+            )
+        settle(page)
+        self.assertEqual(fonts_ready(page), "loaded")  # the outline's own characters have their slices
+        rows: list[dict] = page.evaluate(OUTLINE_ROWS, sel)
+        self.assertEqual(len(rows), 8)
+        return rows
+
+    def test_numbers_and_titles_of_one_depth_share_an_edge_in_every_surface(self):
+        """1.9 and 1.10, and 1, 10, A and an unnumbered entry, start on one line per depth, and so do their titles
+        (within 0.5px); a depth's numbers stand on the title line of the depth above, and the page labels end on one
+        line. Titles of one depth were 2.8-5.2px apart."""
+        for name, device, sel, opener in SURFACES:
+            with self.subTest(surface=name):
+                rows = self.rows(device, sel, opener)
+                for depth in (0, 1):
+                    mine = [r for r in rows if r["depth"] == depth]
+                    self.assertLessEqual(spread([r["noX"] for r in mine]), TOL, mine)
+                    self.assertLessEqual(spread([r["nameX"] for r in mine]), TOL, mine)
+                title0 = next(r["nameX"] for r in rows if r["depth"] == 0)
+                title1 = next(r["nameX"] for r in rows if r["depth"] == 1)
+                self.assertAlmostEqual(next(r["noX"] for r in rows if r["depth"] == 1), title0, delta=TOL)
+                self.assertAlmostEqual(next(r["noX"] for r in rows if r["depth"] == 2), title1, delta=TOL)
+                self.assertLessEqual(spread([r["pageRight"] for r in rows]), TOL, rows)
+
+    def test_the_number_the_titles_first_line_and_the_page_label_share_a_baseline(self):
+        """In one-line and wrapped rows alike the number and the page label stand on the baseline of the title's first
+        line (within 0.5px): the smaller page label stood 1px (desktop) and 2px (the sheet) above it."""
+        for name, device, sel, opener in SURFACES:
+            with self.subTest(surface=name):
+                rows = self.rows(device, sel, opener)
+                self.assertGreaterEqual(max(r["lines"] for r in rows), 2, rows)
+                for r in rows:
+                    self.assertAlmostEqual(r["noBase"], r["nameBase"], delta=TOL, msg=r)
+                    self.assertAlmostEqual(r["pageBase"], r["nameBase"], delta=TOL, msg=r)
+
+    def test_rows_are_whole_pixels_tall_and_start_on_whole_pixels(self):
+        """Every row's height and top are whole px. With a mouse a one-line row is 24px and every row is on the 4px grid
+        (it was 24.8px, and every row after the first began between pixels); on touch a row is 44px or more."""
+        for name, device, sel, opener in SURFACES:
+            with self.subTest(surface=name):
+                rows = self.rows(device, sel, opener)
+                for r in rows:
+                    self.assertTrue(whole(r["height"]) and whole(r["top"]), r)
+                one_line = [r["height"] for r in rows if r["lines"] == 1]
+                if name == "panel":
+                    self.assertEqual({round(h) for h in one_line}, {24}, rows)
+                    self.assertTrue(all(round(r["height"]) % 4 == 0 for r in rows), rows)
+                else:
+                    self.assertTrue(all(r["height"] >= 44 - WHOLE for r in rows), rows)
+                    self.assertEqual({round(h) for h in one_line}, {44}, rows)
+
+    def test_a_row_taller_than_its_line_centres_it(self):
+        """A one-line title's cap height is on the row's middle (within 0.5px) in every surface: in the 44px touch
+        rows the line stood at the row's top, 5px over the middle."""
+        for name, device, sel, opener in SURFACES:
+            with self.subTest(surface=name):
+                for r in self.rows(device, sel, opener):
+                    if r["lines"] == 1:
+                        self.assertLessEqual(abs(r["cap"]), TOL, r)
 
 
 class CardFixture(SizeAlignmentBase):

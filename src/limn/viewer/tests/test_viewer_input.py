@@ -4483,7 +4483,9 @@ class OutlineRows(ViewerBase):
     """Outline numbers follow the first title line, with distinct row fills and bare printed-page labels."""
 
     def test_wrapped_titles_keep_numbers_at_the_top_and_adjacent_rows_apart(self):
-        """Desktop and phone outlines separate adjacent highlights without shrinking a touch row below 44px."""
+        """Desktop and phone outlines separate adjacent highlights without shrinking a touch row below 44px. The number's
+        box starts with the title's, and the smaller page label lies inside the title's first line (it shares that line's
+        baseline - OutlineColumns - so its own box starts a little under the line's top)."""
         for device, selector in ((DESK, "#outline-items"), (PHONE, "#ns-outline-items")):
             with self.subTest(selector=selector):
                 page = self.view(device, prefs={"outlineClosed": False})
@@ -4508,6 +4510,8 @@ class OutlineRows(ViewerBase):
                       const top = name => rows[0].querySelector(name).getBoundingClientRect().top;
                       const range = document.createRange(); range.selectNodeContents(rows[0].querySelector('.ol-name'));
                       return {numberTop: top('.ol-no'), titleTop: top('.ol-name'), pageTop: top('.ol-page'),
+                        pageBottom: rows[0].querySelector('.ol-page').getBoundingClientRect().bottom,
+                        line: parseFloat(getComputedStyle(rows[0].querySelector('.ol-name')).lineHeight),
                         titleLines: range.getClientRects().length, gap: next.top - first.bottom,
                         height: next.height, pages: rows.map(row => row.querySelector('.ol-page').textContent)};
                     }""",
@@ -4515,7 +4519,8 @@ class OutlineRows(ViewerBase):
                 )
                 self.assertGreaterEqual(got["titleLines"], 2, got)
                 self.assertAlmostEqual(got["numberTop"], got["titleTop"], delta=0.5, msg=got)
-                self.assertAlmostEqual(got["pageTop"], got["titleTop"], delta=0.5, msg=got)
+                self.assertGreaterEqual(got["pageTop"], got["titleTop"] - 0.5, got)
+                self.assertLessEqual(got["pageBottom"], got["titleTop"] + got["line"] + 0.5, got)
                 self.assertGreaterEqual(got["gap"], 4, got)
                 self.assertEqual(got["pages"], ["iv", "2"])
                 if selector == "#ns-outline-items":
