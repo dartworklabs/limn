@@ -107,7 +107,7 @@ body.lay-wide #more .more-top{padding-top:var(--space-2)}
 @media (hover:hover){#more .seg button:not(.on):hover{background:var(--accent)}}
 @media (pointer:coarse){
   :root{--doc-nav-h:48px;--text-xs:12px}   /* no touch text below 12px: badges, counts, avatar initials and page numbers were 11px (diagnosis P7) */
-  :root{--pin-badge-size:26px}
+  :root{--pin-badge-size:26px;--mark-hit:var(--hit)}
   button.tch{display:inline-flex}
   .hint .t-touch{display:inline}
   .hint .t-mouse{display:none}
@@ -127,7 +127,7 @@ body.lay-wide #more .more-top{padding-top:var(--space-2)}
      assignee chip's overflow:hidden) cut the ::after back to the drawn 20px (input diagnosis P6). A tappable badge (assignee
      chip/awaiting review/build error) is one: growing it via min-height:44px turned the chip into a 44px blue slab.
      The list keeps class-level specificity (:where for the Trash's id) so the handles' own placements (#grip.hit::after) win. */
-  button.badge{min-height:0;min-width:0;padding:1px var(--space-2)}
+  button.badge{min-width:0}   /* its height stays the badge's (components.css) */
   :is(.hit,button.badge,.pin .acts button,.pin .go-all,:where(#trash) .arc-acts button){position:relative;overflow:visible}
   :is(.hit,button.badge,.pin .acts button,.pin .go-all,:where(#trash) .arc-acts button)::after{content:'';position:absolute;left:50%;top:50%;width:max(100%,var(--hit));height:max(100%,var(--hit));transform:translate(-50%,-50%)}
   #bar1{flex-wrap:wrap;--tb-h:var(--control-h-touch)}
@@ -139,6 +139,7 @@ body.lay-wide #more .more-top{padding-top:var(--space-2)}
   #bar1 input.n{width:84px;flex:0 0 84px;max-width:none;font-size:var(--text-xl)}   /* iOS zooms the screen when focusing an input field smaller than 16px */
   #page-pop-in{width:84px;height:var(--hit);font-size:var(--text-xl)}   /* the page list's field (overlays.css), 16px like every touch field */
   button.pl-row{height:var(--hit);padding:0 var(--space-3);font-size:var(--text-base)}   /* the page list's rows: 44px */
+  #outline-items button{min-height:var(--hit)}   /* the outline's rows: 44px at least, their lines centred (frame.css) */
   /* Text links (#N, the line range, N쪽) sit 4-8px apart, so centred 44px hit areas would overlap and the later one would take the
      earlier's half (observed: '1쪽' answered 16x38, 'L4-L5' 33x38). Each is a real --hit x --hit box instead, its text centred,
      positioned so that it stays above the line below that the compact head's -6px margin lets overlap it. */
@@ -150,7 +151,6 @@ body.lay-wide #more .more-top{padding-top:var(--space-2)}
   .pin .go-all{min-height:var(--hit)}
   .pin .head .b-fold{position:relative}   /* above the preview line that the head's -6px margin lets overlap its bottom (it answered 44x38) */
   .mark button.mark-jump,.sel i{width:var(--pin-badge-size);height:var(--pin-badge-size);left:-28px;font-size:var(--text-base)}
-  .mark button.mark-jump::after{content:'';position:absolute;inset:-9px}
   #tip{max-width:min(300px,calc(100vw - 16px))}
   #more .m-c .btn-icon{width:var(--control-h-lg);min-width:var(--control-h-lg);height:var(--control-h-lg);min-height:0}   /* icons drawn at 36px, 8px apart: their 44px hits (.hit) meet */
   #help{padding:var(--space-4)}
@@ -176,7 +176,7 @@ body.lay-wide #more .more-top{padding-top:var(--space-2)}
   #revision-warning summary{line-height:var(--control-h-touch)}
   .arc-reply.open{display:block;padding:var(--space-2) 0}
   .th-n{min-height:var(--hit);min-width:var(--hit);justify-content:center}
-  .thread :is(button.msg-more,button.th-more){padding-left:var(--space-1);padding-right:var(--space-1)}
+  .thread :is(button.msg-more,button.th-more){padding-left:var(--space-1);padding-right:var(--space-1);text-align:left}   /* 44px wide at least: a short label stays on the posts' left edge */
   /* The panel handle and the outline handle are .hit: their 6-8px bars answer 44px (they answered 25 and 24px). The box lies on
      the PDF side of the bar - left of the panel handle, right of the outline handle - so it never takes the edge of a card or an
      outline entry; the collapsed wide rail at the screen's right edge gets the whole 44px on screen. */
@@ -190,6 +190,10 @@ body.lay-wide #more .more-top{padding-top:var(--space-2)}
   body.lay-mid.side-open:not(.mid-overlay) #left{--doc-end:calc(var(--hit) - var(--space-1));padding-right:max(var(--doc-end),env(safe-area-inset-right));
     padding-left:max(var(--doc-end),env(safe-area-inset-left))}
   body.lay-wide #left{--doc-end:calc(var(--hit) + var(--space-1));padding-right:var(--doc-end)}
+  /* The changes view has no such padding - its rows and its diff run to the handle - so there the hit is the 44px square on
+     the bar's middle, as over the overlay panel below: down the bar's whole height it took the right end of the guide row
+     ([확인] answered 28px of its width) and the diff's last 36px. */
+  body.revision-open #grip.hit::after{height:var(--hit)}
   /* A page zoomed past the fit overflows the scroller, whose own right padding is not part of its scroll extent: #doc carries
      the same --doc-end as its own padding (and gives it back as a negative margin, so a fitted page is unchanged), so scrolled
      fully right the page still ends that far from the edge. */
@@ -201,7 +205,6 @@ body.lay-wide #more .more-top{padding-top:var(--space-2)}
   :is(button.btn-sm,button.badge,button.sec-tg,button.arc-orig-t,.loc,.pg-link,.th-n,.pin .n.go){position:relative}
   :is(button.btn-sm,button.badge,button.sec-tg,button.arc-orig-t,.loc,.pg-link,.th-n,.pin .n.go)::after{content:'';position:absolute;left:50%;top:50%;
     width:max(100%,24px);height:max(100%,24px);transform:translate(-50%,-50%)}
-  .mark button.mark-jump::after{content:'';position:absolute;inset:-1px}
 }
 body.lay-narrow #grip,body.lay-mid:not(.side-open) #grip{display:none}
 /* mid: shows a grab bar in the middle of the handle (easier to find by touch) */
@@ -672,19 +675,17 @@ body:not(.compact) :is(#help,#trash,#more) .ns-grab{display:none}
 #nav-sheet .ns-oh{display:flex;align-items:center;gap:var(--space-2);margin-bottom:var(--space-1)}
 #nav-sheet .ns-oh .ns-h{margin:0;flex:none}
 #ns-outline-search{flex:1;min-width:0;background:var(--field)}
-#ns-outline-items{display:flex;flex-direction:column;gap:var(--space-1)}
-#ns-outline-items button{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:var(--space-2);align-items:start;width:100%;min-height:var(--hit);text-align:left;
-  background:transparent;border:0;padding:var(--space-2) var(--space-3);font-size:var(--text-lg);color:var(--foreground)}
-#ns-outline-items button .ol-name{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;overflow-wrap:anywhere}
+/* The sheet's outline is the outline's rows (frame.css: one set of columns, one baseline), at the sheet's sizes. */
+#ns-outline-items{column-gap:var(--space-2)}
+#ns-outline-items button{min-height:var(--hit);padding:var(--space-2) var(--space-3);font-size:var(--text-lg);color:var(--foreground)}
+#ns-outline-items button .ol-name{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
 #ns-outline-items button .ol-no{color:var(--muted-foreground);font-variant-numeric:tabular-nums}
-#ns-outline-items button .ol-page{color:var(--muted-foreground);font-size:var(--text-sm);white-space:nowrap}
-#ns-outline-items button.ol-depth-1{padding-left:var(--space-5)}
-#ns-outline-items button:is(.ol-depth-2,.ol-depth-3,.ol-depth-4){padding-left:var(--space-6)}
+#ns-outline-items button .ol-page{color:var(--muted-foreground);font-size:var(--text-sm)}
 #ns-outline-items button.ol-active{background:var(--accent)}
 #ns-outline-items.outline-empty{color:var(--muted-foreground);padding:var(--space-2) var(--space-3);font-size:var(--text-sm)}
 .dm-item{display:flex;align-items:center;gap:var(--space-3);width:100%;text-align:left;padding:var(--space-3)}
 .dm-item .tx{flex:1;min-width:0;display:flex;flex-direction:column}
-.dm-item .ph{font-size:var(--text-sm);color:var(--muted-foreground);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dm-item .ph{font-size:var(--text-sm);line-height:var(--line-label);color:var(--muted-foreground);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}   /* its own line: the row's is the name's */
 .dm-item{border-color:transparent;background:transparent}
 .dm-item.on{background:var(--accent)}
 /* One bottom sheet (docs/handbook/viewer.md §패널 정리): in compact, [더보기], the navigation sheet, help and the Trash rise from

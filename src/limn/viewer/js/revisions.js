@@ -101,13 +101,14 @@ function setRevisionFormat(format){REV.format=revisionFormatFor(format,!!REV.ove
 }
 // Shows the manuscript or the changes view: the nav bar's tabs, the navigation sheet's switch and the phone's position button
 // ([변경사항 ▾] in the changes view) follow; leaving the changes view forgets the pin it was opened for and redraws the pages.
+// The mark badges' press areas are measured again as the pages show (markHitSides: marks drawn meanwhile had no boxes).
 function setViewMode(mode){
   const revisions=mode===VIEW_MODE.REVISIONS; if(!revisions&&document.body.classList.contains('revision-open'))leaveRevisions();
   document.body.classList.toggle('revision-open',revisions);
   $('#view-manuscript').setAttribute('aria-pressed',String(!revisions));
   $('#view-revisions').setAttribute('aria-pressed',String(revisions));
   if(!revisions)REV.target=null;
-  if(revisions)loadRevisions(); else{++REV.seq;clearRevisionPdf();setRevisionOverlay(null);$('#revision-pin').hidden=true;revTargetActs();if(VEC.doc)vecSchedule(0);updateSectionStrip();}
+  if(revisions)loadRevisions(); else{++REV.seq;clearRevisionPdf();setRevisionOverlay(null);$('#revision-pin').hidden=true;revTargetActs();if(VEC.doc)vecSchedule(0);updateSectionStrip();markHitSides();}
   drawNavView(); drawPos();
 }
 // Reads the document's recent commits into the changes view. Without history (not Git, a view-only PDF, or no recent commit) the
