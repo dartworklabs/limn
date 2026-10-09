@@ -4,7 +4,7 @@
 | --- | --- |
 | **번호** | ADR-0016 |
 | **제목** | 선택형 연결 입장 상한과 불확실한 worker 시작의 실패 종료 |
-| **상태** | 제안 |
+| **상태** | 승인됨 |
 | **결정일** | 2026-10-10 |
 | **결정자** | Limn 소유자 |
 | **출처** | [승인 기록](https://github.com/dartworklabs/limn/issues/222#issuecomment-6085831493), [승인된 V2 설계](https://github.com/dartworklabs/limn/issues/222#issuecomment-6077481343), [spec](../superpowers/specs/2026-10-10-connection-admission.md) |

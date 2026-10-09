@@ -10,7 +10,7 @@
 
 **Spec:** [approved spec](../specs/2026-10-10-connection-admission.md); [ADR-0016](../../adr/0016-optional-connection-admission.md) D1–D5. The [owner approval record](https://github.com/dartworklabs/limn/issues/222#issuecomment-6085831493) approves the exact V2 design and implementation. No same-scope reapproval or method choice is pending. This plan does not claim that formal brainstorming ran during the earlier scoped research.
 
-**Execution status:** Tasks 1 and 2 have independent spec and quality approval. Task 3 implementation and declared local commands are ready for independent review. The existing final-head remote CI matrix, merge and production activation have not been completed by this worker. The final [implementation projection](../specs/2026-10-10-connection-admission.md#implementation-and-validation-projection) distinguishes the full-suite snapshot from its subsequent fixture cleanup and final focused green.
+**Execution status (2026-10-10 branch handoff):** Tasks 1–3 have independent spec and quality approval. The final whole-branch review found only the saturation tests' unnecessary refused-socket writes and the legacy dispatch fixture's overly broad diagnostic suppression. Those scoped test fixes are present; their scoped rereview and the exact final-head existing remote CI matrix remain pending. Merge and production activation have not been completed by this worker. The [implementation projection](../specs/2026-10-10-connection-admission.md#implementation-and-validation-projection) distinguishes the earlier full-suite snapshot from subsequent test-only changes.
 
 ## Global Constraints
 
@@ -24,7 +24,7 @@
 - No generic constructor parameters or interfaces solely to permit test substitution. Faults use concrete owned lifecycle adapter overrides; managed sockets, files and native thread launches remain real.
 - Keep `Server.request_queue_size = 128`, daemon request workers, the production handler timeout of 30 seconds, and runtime joins of five seconds each. None is a total process-exit SLA.
 - No global counter, persistent state, per-user/IP quota, auth change, service/manager rollout, child-process policy, graceful drain, or self-restart.
-- Do not edit historical numbered ADRs. New ADR-0016 remains `제안` during review; promote its status only at merge.
+- Do not edit historical numbered ADRs. New ADR-0016 is marked `승인됨` during this final merge-preparation handoff because the decision was explicitly approved before implementation; this status does not establish implementation or CI completion.
 
 ## Review Focus
 
@@ -388,9 +388,11 @@ uv run python tools/strict_ratchet.py
 
 CI retains `test` Linux Python 3.10/3.12 core/browser, `macos` Python 3.12 core, required Chromium/Firefox/WebKit and node, required real TeX/bwrap in `tex`, Linux/macOS `instances`, installation/package smoke in `install`, and `lint` gates. Confirm wheel omits colocated test files; the existing CI install smoke checks this. No new managed dependency is faked or new gate setting is introduced. If a full required environment cannot run locally, record it and wait for its existing CI job before calling merge-ready.
 
-- [ ] **Step 7: Finish independent branch review and documentation projection.** Root reconciles refreshed upstream without losing concurrent changes, reruns affected checks only if there is new code/drift/failure, and verifies spec-to-test coverage, physical cleanup, fatal exit cause, default-off separation and no UI/config/service rollout. Review Handbook current-state claims against actual code, including remaining gaps. Keep ADR proposal status until approved final merge. Commit the reviewed task with signed-off/CLA English message `feat: expose optional connection admission control`. Publication, merge, deployment and production activation follow the user's authorized scope separately; no worker performs them from this plan.
+- [ ] **Step 7: Finish independent branch review and documentation projection.** Root reconciles refreshed upstream without losing concurrent changes, reruns affected checks only if there is new code/drift/failure, and verifies spec-to-test coverage, physical cleanup, fatal exit cause, default-off separation and no UI/config/service rollout. Review Handbook current-state claims against actual code, including remaining gaps. Record ADR-0016 as an approved decision during the final merge-preparation handoff without treating its status as implementation or CI completion. Commit the reviewed task with signed-off/CLA English message `feat: expose optional connection admission control`. Publication, merge, deployment and production activation follow the user's authorized scope separately; no worker performs them from this plan.
 
 ## Handbook-read 결과
+
+**구현 전 기준선 (2026-10-10):** 이 절은 계획 작성 당시의 pre-implementation 관찰을 보존한다. 아래의 cap·옵션 부재와 미구현 관찰은 현재 브랜치 상태가 아니며, 현재 구현과 검증 인계는 §현재 상태 투영에 적는다.
 
 ### 현재 권위와 상태
 
@@ -428,5 +430,6 @@ CI retains `test` Linux Python 3.10/3.12 core/browser, `macos` Python 3.12 core,
 - **갱신한 Handbook role/path:** architecture / `architecture.md`; verification / `verification.md`; 일반 주제 / `operations.md`, `api.md`, `code-style-roadmap.md`.
 - **Handbook의 현재 내용:** D1–D5의 optional default, lease 수명·원자성·식별자, HTTP 전 close, start 불확실성 실패 종료, 기존 정리 비용·활성화/공정성 한계를 출처와 함께 설명한다. API 오류 JSON은 admitted HTTP 요청에 적용한다.
 - **효력 형태:** 검토 브랜치에 구현한 현실을 반영한다. merge·배포·운영 N 활성화는 별도다.
-- **로컬 증거:** 필수 Python 전체 실행은 3,697 tests·2,557 subtests 통과, 21 skips이며 instance script는 202 checks 통과다. 전체 실행 뒤 HTTP fixture의 응답 stream과 두 리스너 소유 정리만 보완했고 최종 소스의 CLI·HTTP·active-work 48 cases가 통과했다. 두 snapshot 사이 production 소스는 같다. dev locked sync와 모든 선언된 static·npm 명령도 통과했다.
-- **미확인·재개 조건:** `bwrap` 부재 9 cases, opt-in real-state 1 case, wide Hangul font 부재 11 cases는 로컬 skip이다. 로컬 Python·node·OS는 CI matrix 증거를 대신하지 않는다. root의 Task 3 독립 리뷰와 최종 HEAD의 기존 Linux/macOS·browser·real TeX/sandbox·install CI가 통과해야 merge-ready로 판단한다. ADR은 검토 동안 `제안`을 유지한다.
+- **로컬 증거:** 앞선 Task 3 snapshot의 필수 Python 전체 실행은 3,697 tests·2,557 subtests 통과, 21 skips이며 instance script는 202 checks 통과다. 전체 실행 뒤 HTTP fixture의 응답 stream과 두 리스너 소유 정리만 보완했고 이후 Task 3 snapshot의 CLI·HTTP·active-work 48 cases가 통과했다. 두 snapshot 사이 production 소스는 같다. dev locked sync와 모든 선언된 static·npm 명령도 기록된 Task 3 소스에서 통과했다. 이 전체 실행은 마지막 test fix HEAD의 전체 실행이 아니다.
+- **검수 인계 (2026-10-10):** Tasks 1–3은 각각 독립 승인됐다. 최종 whole-branch review는 초과 소켓의 불필요한 request write와 legacy dispatch fixture의 과도한 오류 진단 억제 두 test fix만 남겼다. 이 범위의 수정은 반영했으며 scoped rereview는 대기 중이다. ADR-0016의 `승인됨`은 구현 전 명시적으로 승인된 결정을 기록하며 구현·CI 완료 증거가 아니다.
+- **미확인·재개 조건:** `bwrap` 부재 9 cases, opt-in real-state 1 case, wide Hangul font 부재 11 cases는 앞선 로컬 실행의 skip이다. 로컬 Python·node·OS는 CI matrix 증거를 대신하지 않는다. 마지막 test fix의 scoped rereview와 정확한 최종 HEAD의 기존 Linux/macOS·browser·real TeX/sandbox·install CI가 통과해야 merge-ready로 판단한다.

@@ -3,6 +3,7 @@
 import http.client
 import json
 import socket
+import sys
 import threading
 import time
 from contextlib import ExitStack
@@ -101,7 +102,6 @@ def test_production_listener_saturates_and_recovers_with_idle_keepalive(http_app
         with socket.create_connection(address, timeout=2) as held:
             assert response(held, req("GET", "/api/pins", headers=ALICE))[0] == 200
             with socket.create_connection(address, timeout=2) as excess:
-                excess.sendall(req("GET", "/api/pins", headers=ALICE))
                 assert_transport_closed(excess)
             assert response(held, req("GET", "/api/pins", headers=BOB))[0] == 200
         assert recovered_request(address)[0] == 200
@@ -120,7 +120,6 @@ def test_two_production_listeners_have_independent_capacity(http_app):
         held = owned.enter_context(socket.create_connection(first.server_address[:2], timeout=2))
         assert response(held, req("GET", "/api/pins", headers=ALICE))[0] == 200
         with socket.create_connection(first.server_address[:2], timeout=2) as excess:
-            excess.sendall(req("GET", "/api/pins", headers=ALICE))
             assert_transport_closed(excess)
         with socket.create_connection(second.server_address[:2], timeout=2) as other:
             assert response(other, req("GET", "/api/pins", headers=BOB))[0] == 200
@@ -148,6 +147,7 @@ def test_omitted_cap_admits_more_than_the_opt_in_limit(http_app, bind):
 def test_default_legacy_dispatch_failure_still_continues_serving(http_app, monkeypatch):
     """An owned legacy dispatch fault remains stdlib-recoverable and a later real TCP request succeeds."""
     failed = threading.Event()
+    expected_error = RuntimeError("owned legacy worker start failure")
 
     class LegacyStartFault(Server):
         """Exercise the original listener's dispatch-error boundary without replacing threading globals."""
@@ -156,12 +156,13 @@ def test_default_legacy_dispatch_failure_still_continues_serving(http_app, monke
             """Refuse the first worker dispatch before delegating all later sockets to stdlib."""
             if not failed.is_set():
                 failed.set()
-                raise RuntimeError("owned legacy worker start failure")
+                raise expected_error
             super().process_request(request, client_address)
 
         def handle_error(self, request, client_address):
-            """Suppress only this test-owned expected failure's traceback."""
-            assert failed.is_set()
+            """Suppress the exact owned dispatch fault and preserve inherited diagnostics for other errors."""
+            if sys.exc_info()[1] is not expected_error:
+                super().handle_error(request, client_address)
 
     monkeypatch.setattr(composition, "Server", LegacyStartFault)
     http_app.environment.C = replace(http_app.environment.C, max_connections=None)
