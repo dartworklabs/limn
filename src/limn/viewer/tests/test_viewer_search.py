@@ -82,11 +82,12 @@ def long_pages(n=N_LONG):
 
 
 def search_pdf(pages=PAGES, outline=False):
-    """A PDF of `pages` (the PAGES shape) that PDF.js reads as text: F1 is the standard Helvetica, F2 an unembedded CID
+    """A PDF of `pages` (the PAGES shape; a line may carry a fourth item, the text matrix's a b c d - (0, 1, -1, 0) runs it
+    upward) that PDF.js reads as text: F1 is the standard Helvetica, F2 an unembedded CID
     font whose ToUnicode map gives each code its character, so Hangul - composed or as jamo - and combining marks come
     back from getTextContent() exactly as written here. With outline, one top-level outline entry per page, named by the
     page's first line."""
-    chars = sorted({c for page in pages for _, _, runs in page for font, text in runs if font == "F2" for c in text})
+    chars = sorted({c for page in pages for line in page for font, text in line[2] if font == "F2" for c in text})
     cid = {c: i + 1 for i, c in enumerate(chars)}
 
     def utf16(c):
@@ -133,7 +134,14 @@ def search_pdf(pages=PAGES, outline=False):
     ]
     for i, page in enumerate(pages):
         body = "\n".join(
-            "BT 1 0 0 1 %d %d Tm %s ET" % (x, y, " ".join(show(f, t) for f, t in runs)) for x, y, runs in page
+            "BT %s %d %d Tm %s ET"
+            % (
+                " ".join(map(str, line[3] if len(line) > 3 else (1, 0, 0, 1))),
+                line[0],
+                line[1],
+                " ".join(show(f, t) for f, t in line[2]),
+            )
+            for line in page
         )
         objs.append(
             (
@@ -1215,6 +1223,13 @@ EDGE = [
         (72, 284, [("F2", "기록은 여섯 분마다 적는다. 바닷")]),
         (72, 260, [("F2", "물의 높이가 달라진다.")]),
         (72, 176, [("F1", "far below the rest")]),
+        (
+            520,
+            120,
+            [("F1", "turned text ends with harbour")],
+            (0, 1, -1, 0),
+        ),  # a block set sideways, its lines running up
+        (544, 120, [("F1", "lights in its own column")], (0, 1, -1, 0)),
     ]
 ]
 # What the rule gives on EDGE, stated case by case (None: either is right - the PDF cannot tell a hyphenated word from a
@@ -1243,8 +1258,6 @@ EDGE_EXPECTED = {
     "north harbour": 0,
     "harbour tide": 0,
     "tide delta": 0,
-    "harbour lights": 1,
-    "harbourlights": 0,
     "ebb tide": 0,
     "바닷물의": 1,
     "바닷 물의": 1,
@@ -1252,6 +1265,9 @@ EDGE_EXPECTED = {
     "조류기록은": 1,
     "달라진다. far": 0,
     "달라진다.far": 0,
+    "harbour lights": 2,
+    "harbourlights": 0,
+    "rest turned": 0,
 }
 # Rough widths of the fixture's fonts at 12pt, enough for the oracle's sideways overlap: Helvetica's lower case runs about
 # half an em, F2 is one em a character.
@@ -1273,13 +1289,17 @@ def rule_hits(page, query):
         return " ".join(text.split())
 
     rows = []  # the fixture's lines on one baseline, in order: one line of the page
-    for x, y, runs in page:
+    for line in page:
+        x, y, runs = line[:3]
+        a, b, c, d = line[3] if len(line) > 3 else (1, 0, 0, 1)
+        along, across = x * a + y * b, x * c + y * d  # where it stands in its own direction (c, d: its up vector)
         text = "".join(t for _, t in runs)
-        piece = {"x0": x, "x1": x + sum(EDGE_EM[f] * len(t) for f, t in runs), "text": text}
-        if rows and rows[-1][0]["y"] == y:
-            rows[-1].append(dict(piece, y=y))
+        width = sum(EDGE_EM[f] * len(t) for f, t in runs)
+        piece = {"x0": along, "x1": along + width, "text": text, "y": across, "ang": (a, b)}
+        if rows and rows[-1][0]["y"] == across and rows[-1][0]["ang"] == (a, b):
+            rows[-1].append(piece)
         else:
-            rows.append([dict(piece, y=y)])
+            rows.append([piece])
 
     def starts(row):
         """Where the pieces after the first of a line start: a table's column starts."""
@@ -1289,27 +1309,17 @@ def rule_hits(page, query):
     for n, row in enumerate(rows):
         others = [starts(rows[m]) for m in (n - 1, n + 1) if 0 <= m < len(rows)]
         table = len(row) > 1 and any(abs(a - b) <= 1 for o in others for a in starts(row) for b in o)
-        for part in (
-            row
-            if table
-            else [{"y": row[0]["y"], "x0": row[0]["x0"], "x1": row[-1]["x1"], "text": " ".join(p["text"] for p in row)}]
-        ):
-            segs.append(
-                {
-                    "y": part["y"],
-                    "x0": part["x0"],
-                    "x1": part["x1"],
-                    "text": fold(part["text"]),
-                    "end": part["text"].rstrip()[-1:],
-                }
-            )
+        merged = dict(row[0], x1=row[-1]["x1"], text=" ".join(p["text"] for p in row))
+        for part in row if table else [merged]:
+            segs.append(dict(part, text=fold(part["text"]), end=part["text"].rstrip()[-1:]))
     steps = sorted(a["y"] - b["y"] for a, b in zip(segs, segs[1:], strict=False) if 0 < a["y"] - b["y"] <= 36)
     pitch = steps[len(steps) // 2]
     tokens = []
     for i, seg in enumerate(segs):
         if i:
             a = segs[i - 1]
-            below = 0 < a["y"] - seg["y"] <= 1.5 * pitch and seg["x0"] < a["x1"] and seg["x1"] > a["x0"]
+            same = a["ang"] == seg["ang"]
+            below = same and 0 < a["y"] - seg["y"] <= 1.5 * pitch and seg["x0"] < a["x1"] and seg["x1"] > a["x0"]
             hangul = any(unicodedata.name(c, "").startswith("HANGUL") for c in (a["text"][-1], seg["text"][0]))
             kind = (
                 "hard"
@@ -1368,8 +1378,8 @@ class SearchBreakRule(SearchBase):
         """For each case the count shown is the oracle's, and the oracle agrees with the case's stated count: Latin
         words glued across a break ('into', 'notice', 'catalog', 'format', 'harbourlights') find nothing, the same
         words with their space find one; a table's cells, its rows, the next column and a far line are not crossed;
-        hyphens and dashes and Hangul breaks are."""
-        self.assertEqual(rule_hits(EDGE[0], "harbour lights"), 1)
+        hyphens and dashes and Hangul breaks are, and a block set sideways reads in its own direction."""
+        self.assertEqual(rule_hits(EDGE[0], "harbour lights"), 2)  # the left column's and the sideways block's
         page = self.view()
         got = {}
         for query, stated in EDGE_EXPECTED.items():

@@ -33,27 +33,30 @@ function searchFold(s){const plain={'\u2018':"'",'\u2019':"'",'\u201A':"'",'\u20
 // end, a narrow column) spreads its words that far too. Each line is {t, at, parts, end, box}: its text folded (searchFold:
 // at maps into the line's unfolded text), per item with text the item's index i and where its text starts in the unfolded
 // line (from), the last character of its own text (end: a line-final hyphen is told from a dash by it), and where it stands
-// on the page in PDF units - {x0, x1, y: baseline, size: font size} - for upright horizontal text, else null. Blank lines are
-// left out. Pure.
+// in PDF units measured in its own direction - {x0, x1 along the line, y: across it, up being +, size: font size, ang: the
+// line's angle in whole degrees}, so a page set sideways (a landscape page, a turned table) reads as an upright one - or null
+// for text that is skewed, mirrored or of mixed directions. Blank lines are left out. Pure.
 /** @param {any[]} items */
 function searchLines(items){const rows=/** @type {any[][]} */([]); let row=/** @type {any[]} */([]);
-  items.forEach((it,i)=>{if(typeof it.str!=='string')return; const T=it.transform,ok=Array.isArray(T)&&T.length===6&&!T[1]&&!T[2]&&T[0]>0&&T[3]>0;
-    row.push({i,it,ok,x:ok?T[4]:0,w:Number(it.width)||0,y:ok?T[5]:0,size:ok?T[3]:0}); if(it.hasEOL){rows.push(row); row=[];}});
+  items.forEach((it,i)=>{if(typeof it.str!=='string')return; const T=Array.isArray(it.transform)&&it.transform.length===6?it.transform:[0,0,0,0,0,0];
+    const su=Math.hypot(T[0],T[1]),sv=Math.hypot(T[2],T[3]),ok=su>0&&sv>0&&T[0]*T[3]-T[1]*T[2]>0&&Math.abs(T[0]*T[2]+T[1]*T[3])<=1e-3*su*sv;
+    const ux=ok?T[0]/su:1,uy=ok?T[1]/su:0,vx=ok?T[2]/sv:0,vy=ok?T[3]/sv:1;   // the line's direction and its up
+    row.push({i,it,ok,x:T[4]*ux+T[5]*uy,w:Number(it.width)||0,y:T[4]*vx+T[5]*vy,size:sv,ang:Math.round(Math.atan2(uy,ux)*180/Math.PI)}); if(it.hasEOL){rows.push(row); row=[];}});
   if(row.length)rows.push(row);
   // the wide gaps of each row: the index of the item after the gap, where the gap starts (e) and where the next item starts (x)
   const cuts=rows.map(r=>{const out=/** @type {{k:number,e:number,x:number}[]} */([]); let last=/** @type {any} */(null);
-    r.forEach((p,k)=>{if(!p.it.str.trim())return; if(!p.ok){last=null; return;}
-      if(last&&p.x-last.e>last.size)out.push({k,e:last.e,x:p.x}); last={e:last?Math.max(last.e,p.x+p.w):p.x+p.w,size:p.size};});
+    r.forEach((p,k)=>{if(!p.it.str.trim())return; if(!p.ok||(last&&last.ang!==p.ang)){last=null; return;}
+      if(last&&p.x-last.e>last.size)out.push({k,e:last.e,x:p.x}); last={e:last?Math.max(last.e,p.x+p.w):p.x+p.w,size:p.size,ang:p.ang};});
     return out;});
   const near=(A,B)=>A.some(c=>B.some(d=>Math.abs(c.x-d.x)<=1||Math.abs(c.e-d.e)<=1));
   const lines=/** @type {any[]} */([]);
   rows.forEach((r,n)=>{const table=cuts[n].length>0&&((n>0&&near(cuts[n],cuts[n-1]))||(n+1<rows.length&&near(cuts[n],cuts[n+1])));
     const at=new Set(table?cuts[n].map(c=>c.k):[]); let raw='',parts=/** @type {{i:number,from:number}[]} */([]),g=/** @type {any} */(null);
-    const end=()=>{if(raw.trim()){const f=searchFold(raw); lines.push({t:f.t,at:f.at,parts,end:raw.trimEnd().slice(-1),box:g&&g.ok?{x0:g.x0,x1:g.x1,y:g.y,size:g.size}:null});}
+    const end=()=>{if(raw.trim()){const f=searchFold(raw); lines.push({t:f.t,at:f.at,parts,end:raw.trimEnd().slice(-1),box:g&&g.ok?{x0:g.x0,x1:g.x1,y:g.y,size:g.size,ang:g.ang}:null});}
       raw=''; parts=[]; g=null;};
     r.forEach((p,k)=>{if(at.has(k))end();   // a table's next cell
-      if(p.it.str.trim()){if(!g)g={ok:p.ok,x0:p.x,x1:p.x+p.w,y:p.y,size:p.size};
-        else{g.ok=g.ok&&p.ok; if(p.ok){g.x0=Math.min(g.x0,p.x); g.x1=Math.max(g.x1,p.x+p.w); g.size=Math.max(g.size,p.size);}}}
+      if(p.it.str.trim()){if(!g)g={ok:p.ok,x0:p.x,x1:p.x+p.w,y:p.y,size:p.size,ang:p.ang};
+        else{g.ok=g.ok&&p.ok&&p.ang===g.ang; if(g.ok){g.x0=Math.min(g.x0,p.x); g.x1=Math.max(g.x1,p.x+p.w); g.size=Math.max(g.size,p.size);}}}
       if(p.it.str){parts.push({i:p.i,from:raw.length}); raw+=p.it.str;}});
     end();});
   return lines;}
@@ -70,11 +73,11 @@ const SEARCH_CJK=/[\p{Script=Hangul}\p{Script=Han}\p{Script=Hiragana}\p{Script=K
 // The page's line pitch: the middle distance from one line's baseline to the next one's below it, over the lines up to three
 // font sizes apart (0 without such a pair). Pure.
 /** @param {any[]} lines */
-function searchPitch(lines){const d=[]; for(let i=1;i<lines.length;i++){const a=lines[i-1].box,b=lines[i].box; if(!a||!b)continue; const dy=a.y-b.y; if(dy>0&&dy<=3*a.size)d.push(dy);}
+function searchPitch(lines){const d=[]; for(let i=1;i<lines.length;i++){const a=lines[i-1].box,b=lines[i].box; if(!a||!b||a.ang!==b.ang)continue; const dy=a.y-b.y; if(dy>0&&dy<=3*a.size)d.push(dy);}
   d.sort((x,y)=>x-y); return d.length?d[d.length>>1]:0;}
 // The break between line a and the next line b of a page whose line pitch is pitch (searchPitch): a SEARCH_BREAK mark. Pure.
 /** @param {any} a @param {any} b @param {number} pitch */
-function searchJoin(a,b,pitch){const A=a.box,B=b.box; if(!A||!B)return SEARCH_BREAK.HARD;
+function searchJoin(a,b,pitch){const A=a.box,B=b.box; if(!A||!B||A.ang!==B.ang)return SEARCH_BREAK.HARD;
   const dy=A.y-B.y; if(!(dy>0)||dy>1.5*(pitch||1.2*A.size)+0.5||B.x0>=A.x1||B.x1<=A.x0)return SEARCH_BREAK.HARD;
   if(/[-‐­]/.test(a.end))return SEARCH_BREAK.HYPH;
   const x=a.t.trimEnd().slice(-1),y=b.t.trimStart().charAt(0);
