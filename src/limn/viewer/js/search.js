@@ -231,9 +231,9 @@ function searchFit(){const s=$('#doc-search'),nav=$('#doc-nav');
 // is drawn at its full span in the frame it opens and its text does not move after. Nothing is covered on the phone (it has
 // no bar) or while the field is closed.
 function searchCover(){const s=$('#doc-search'),nav=$('#doc-nav'),box=$('#search-box');
-  s.style.removeProperty('--search-span');   // the natural box first: the span is worked out from it
+  if(s.style.getPropertyValue('--search-span'))s.style.removeProperty('--search-span');   // the natural box first: the span is worked out from it
   const b=SEARCH.open&&!s.hidden&&BAND!==LAYOUT_BAND.PHONE&&box.getClientRects().length?box.getBoundingClientRect():null;
-  const cs=getComputedStyle(nav),gap=b?parseFloat(cs.columnGap)||0:0; let edge=nav.getBoundingClientRect().left+nav.clientLeft+(parseFloat(cs.paddingLeft)||0),took=false;
+  const cs=b?getComputedStyle(nav):null,gap=cs?parseFloat(cs.columnGap)||0:0; let edge=cs?nav.getBoundingClientRect().left+nav.clientLeft+(parseFloat(cs.paddingLeft)||0):0,took=false;   // closed: nothing is measured
   for(const k of nav.children){if(k===s)continue; const r=b?k.getBoundingClientRect():null,off=!!(b&&r&&r.width>0&&r.right>b.left-gap+0.5&&r.left<b.right+gap-0.5);
     k.classList.toggle('search-covered',off); took=took||off;
     if(b&&r&&!off&&r.width>0&&r.right<=b.left)edge=Math.max(edge,r.right+gap);}
