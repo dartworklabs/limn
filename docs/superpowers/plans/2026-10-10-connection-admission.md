@@ -66,6 +66,7 @@ class LeaseToken:
     owner: object
     generation: int
 
+
 @dataclass(frozen=True)
 class AdmissionState:
     limit: int
@@ -75,26 +76,32 @@ class AdmissionState:
     pending: frozenset[LeaseToken] = frozenset()
     claimed: frozenset[LeaseToken] = frozenset()
 
+
 @dataclass(frozen=True)
 class Reserved:
     state: AdmissionState
     token: LeaseToken
 
+
 @dataclass(frozen=True)
 class Full:
     pass
+
 
 @dataclass(frozen=True)
 class Stopped:
     pass
 
+
 @dataclass(frozen=True)
 class Claimed:
     state: AdmissionState
 
+
 @dataclass(frozen=True)
 class Cancelled:
     pass
+
 
 # Signatures; full implementations belong to Task 1.
 # reserve(state: AdmissionState) -> Reserved | Full | Stopped
@@ -128,6 +135,7 @@ def test_old_cleanup_cannot_release_a_new_lease():
     unchanged = release(second.state, first.token)
     assert admitted(unchanged) == 1
     assert unchanged == second.state
+
 
 @given(st.lists(st.sampled_from(("reserve", "claim", "release", "stop")), max_size=80))
 def test_generated_lifecycle_never_exceeds_capacity(events):
@@ -173,19 +181,23 @@ def reserve(state: AdmissionState) -> Reserved | Full | Stopped:
     updated = replace(state, next_generation=state.next_generation + 1, pending=state.pending | {token})
     return Reserved(updated, token)
 
+
 def claim(state: AdmissionState, token: LeaseToken) -> Claimed | Cancelled:
     """Claim only a live pending lease while admission is open."""
     if state.stopped or token not in state.pending:
         return Cancelled()
     return Claimed(replace(state, pending=state.pending - {token}, claimed=state.claimed | {token}))
 
+
 def stop(state: AdmissionState) -> AdmissionState:
     """Fence future entry while retaining pending and claimed ownership."""
     return replace(state, stopped=True)
 
+
 def release(state: AdmissionState, token: LeaseToken) -> AdmissionState:
     """Retire only the matching lease after the adapter attests physical cleanup."""
     return replace(state, pending=state.pending - {token}, claimed=state.claimed - {token})
+
 
 def admitted(state: AdmissionState) -> int:
     """Count pending and claimed live connections without tracking retired identities."""
@@ -243,13 +255,16 @@ Implement the `FatalConnectionStart` class shown in Task 2, `_record_fatal`, `_f
 ```python
 class StartedThenFailed(BoundedServer):
     """Exercise an owned failure after real native worker start."""
+
     def _start_worker(self, worker):
         """Launch the real worker before reporting startup uncertainty."""
         super()._start_worker(worker)
         raise RuntimeError("owned startup failure after native launch")
 
+
 class ZeroExitAfterStart(BoundedServer):
     """A start-boundary zero-exit interruption is still a failed instance."""
+
     def _start_worker(self, worker):
         """Launch real work, then exercise the dangerous successful-exit input."""
         super()._start_worker(worker)
@@ -263,10 +278,12 @@ Add `KeyboardInterrupt` and ordinary failure before real launch *inside the invo
 ```python
 class FatalConnectionStart(SystemExit):
     """A bounded listener cannot safely continue after uncertain worker startup."""
+
     def __init__(self, original: BaseException):
         """Retain the initiating failure and force a nonzero serving result."""
         super().__init__(1)
         self.original = original
+
 
 # process_request's actual invocation boundary:
 try:
@@ -311,6 +328,7 @@ def test_invalid_connection_cap_is_a_usage_error(raw):
         parser.parse_args(["--manuscript", ".", "--max-connections", raw])
     assert result.value.code != 0
 
+
 def test_omitted_cap_remains_explicitly_disabled():
     """Existing serve commands do not enable the new transport policy."""
     parsed = ps.build_arg_parser().parse_args(["--manuscript", "."])
@@ -321,9 +339,12 @@ def test_omitted_cap_remains_explicitly_disabled():
 
 ```python
 ap.add_argument(
-    "--max-connections", type=positive_connections, default=None, metavar="N",
+    "--max-connections",
+    type=positive_connections,
+    default=None,
+    metavar="N",
     help="Maximum admitted live connections for this listener (positive integer; omitted: unlimited). "
-         "Counts active and idle keep-alive connections; excess sockets close before HTTP parsing",
+    "Counts active and idle keep-alive connections; excess sockets close before HTTP parsing",
 )
 
 # In listen(), inside its existing OSError-to-listen_refusal boundary:
