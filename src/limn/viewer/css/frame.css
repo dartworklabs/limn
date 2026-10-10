@@ -46,17 +46,22 @@ body.lay-narrow #paper-identity{display:none}
    been, only for how it is painted: it clips the lower half of the current link's 2px bar, which reaches 1px under it, and
    Chromium draws the text of a scroll box with something to clip in a layer of its own - a clipping box (overflow:clip) drew
    one glyph pixel of the first link 1/255 off in the dark theme. The nav bar's gap before the line after it, its padding after:
-   12 and 12. */
-#doc-links{display:none;align-items:stretch;min-width:min-content;height:100%;gap:var(--space-5);overflow-x:auto;scrollbar-width:none}
+   12 and 12.
+   Each link's box reaches 2px further on both sides than its words' 2px (padding 4px), so its focus ring - drawn inside it -
+   stands 2px clear of the words; the gap between the boxes is 4px less (16, touch 4) and the row reaches 2px past its
+   neighbours' room on each side (margin -2px), so no word moves and nothing beside the row does. */
+#doc-links{display:none;align-items:stretch;min-width:min-content;height:100%;gap:var(--space-4);margin-inline:-2px;overflow-x:auto;scrollbar-width:none}
 #doc-links::-webkit-scrollbar{display:none}
 #doc-links button{flex:none}
 body.docs-multi:not(.lay-narrow) #doc-links,body.docs-multi.band-tablet-sheet #doc-links{display:flex}
-#doc-links button{position:relative;border:0;border-radius:0;background:transparent;color:var(--muted-foreground);padding:0 2px;font-size:var(--text-sm);white-space:nowrap}
+#doc-links button{position:relative;border:0;border-radius:0;background:transparent;color:var(--muted-foreground);padding:0 var(--space-1);font-size:var(--text-sm);white-space:nowrap}
 #doc-links button[aria-current=page]{color:var(--foreground);font-weight:600}
-#doc-links button[aria-current=page]::after{content:'';position:absolute;bottom:-1px;left:0;right:0;height:2px;background:var(--brand)}
+#doc-links button[aria-current=page]::after{content:'';position:absolute;bottom:-1px;left:2px;right:2px;height:2px;background:var(--brand)}   /* under the words' 2px, as before the box grew */
 #doc-links button:focus-visible{color:var(--foreground)}
 /* The row's and the view tabs' rings stand inside the button: the links fill the band and the row clips sideways, so a ring
-   outside them was cut by the row and ran past the bar's line. */
+   outside them was cut by the row and ran past the bar's line. The links' and the tabs' boxes reach 2px past their words, so
+   the ring stands 2px clear of them; [+N] keeps its own box and the 2px margins that put it where the links' wider boxes and
+   narrower gap would otherwise move it. */
 :is(#doc-links,#view-switch) button:focus-visible{outline-offset:-2px}
 @media (hover:hover){#doc-links button:hover{color:var(--foreground)}}
 #doc-links .doc-link-count{font-size:var(--text-xs);color:var(--subtle-foreground);margin-left:var(--space-1)}
@@ -66,7 +71,7 @@ body.docs-multi:not(.lay-narrow) #doc-links,body.docs-multi.band-tablet-sheet #d
    row's control height - 28px, 36px on touch with a 44px hit (.hit) - filled while its popover is open. The same button is the
    row's chooser when not even one link and [+N] fit: the current document's name in its weight and colour, shortened to an
    ellipsis (data-fit=name), or the files icon (data-fit=icon). */
-#doc-links #doc-more{display:inline-flex;align-items:center;gap:var(--space-1);align-self:center;height:var(--control-h);padding:0 var(--space-1) 0 var(--space-2);
+#doc-links #doc-more{display:inline-flex;align-items:center;gap:var(--space-1);align-self:center;height:var(--control-h);margin-inline:2px;padding:0 var(--space-1) 0 var(--space-2);
   border-radius:var(--radius)}
 #doc-links #doc-more .ic{width:16px;height:16px}
 #doc-more .dm-files{display:none}
@@ -81,9 +86,9 @@ body.docs-multi:not(.lay-narrow) #doc-links,body.docs-multi.band-tablet-sheet #d
 #view-switch{padding-left:0}
 body.docs-multi #view-switch{border-left:1px solid var(--border);padding-left:var(--space-3)}
 #view-switch{display:inline-flex;align-items:stretch;gap:var(--space-4);height:100%;flex:none}
-#view-switch button{position:relative;border:0;border-radius:0;background:transparent;color:var(--muted-foreground);padding:0 2px;font-size:var(--text-sm)}
+#view-switch button{position:relative;border:0;border-radius:0;background:transparent;color:var(--muted-foreground);padding:0 var(--space-1);margin:0 -2px;font-size:var(--text-sm)}   /* 2px past the words for the inside focus ring; the margins keep every word and gap where it was */
 #view-switch button[aria-pressed=true]{color:var(--foreground);font-weight:600}
-#view-switch button[aria-pressed=true]::after{content:'';position:absolute;bottom:-1px;left:0;right:0;height:2px;background:var(--brand)}
+#view-switch button[aria-pressed=true]::after{content:'';position:absolute;bottom:-1px;left:2px;right:2px;height:2px;background:var(--brand)}
 #outline{display:block;flex:none;width:var(--outline-width);min-width:var(--outline-width);overflow:auto;padding:var(--space-3) var(--space-2);
   background:var(--sidebar);font-size:var(--text-sm);box-shadow:inset -1px 0 0 var(--border-seam)}   /* the seam against the PDF area, drawn inside so the outline keeps its 240px and its content width */
 body.outline-collapsed #outline{display:none}

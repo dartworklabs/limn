@@ -139,6 +139,7 @@ body.lay-wide #more .more-top{padding-top:var(--space-2)}
   #bar1 input.n{width:84px;flex:0 0 84px;max-width:none;font-size:var(--text-xl)}   /* iOS zooms the screen when focusing an input field smaller than 16px */
   #page-pop-in{width:84px;height:var(--hit);font-size:var(--text-xl)}   /* the page list's field (overlays.css), 16px like every touch field */
   button.pl-row{height:var(--hit);padding:0 var(--space-3);font-size:var(--text-base)}   /* the page list's rows: 44px */
+  :is(#doc-links,#view-switch) button:not(#doc-more){min-width:calc(var(--hit) + var(--space-1))}   /* the 44px least width plus the 2px each side the boxes reach past their words (frame.css): a short word stays where it was */
   #doc-pop-in{height:var(--hit);font-size:var(--text-xl)}   /* the documents popover's filter (overlays.css), 16px like every touch field */
   #doc-pop-list{grid-template-columns:var(--space-1) 16px minmax(0,1fr) auto auto var(--space-1)}
   button.dp-row{height:var(--hit);min-width:0;padding:0;font-size:var(--text-base)}   /* its rows: 44px, inset 4 + 8px */
@@ -522,7 +523,7 @@ body:is(.band-tablet-sheet,.lay-wide) #doc-nav{position:relative;z-index:7}   /*
    height on the band: as line boxes a bold '원고' stood 1px above the band's middle. */
 :is(#doc-links,#view-switch) button{display:inline-flex;align-items:center}
 :is(#doc-links,#view-switch) button>:is(.lbl,.doc-link-count){text-box:trim-both cap alphabetic}
-body:is(.lay-mid,.band-tablet-sheet) #doc-links{gap:var(--space-2);margin-right:0;flex:0 1 auto}   /* the row's one 8px gap */
+body:is(.lay-mid,.band-tablet-sheet) #doc-links{gap:var(--space-1);flex:0 1 auto}   /* the row's one 8px gap between the words' boxes (4px between the links' wider boxes, frame.css) */
 body:is(.lay-mid,.band-tablet-sheet) #view-switch{gap:var(--space-2)}
 body.docs-multi:is(.lay-mid,.band-tablet-sheet) #view-switch{padding-left:var(--space-2)}   /* 8px each side of the line after the links; one document has neither */
 body:is(.lay-mid,.band-tablet-sheet) #doc-nav button{white-space:nowrap}
@@ -639,7 +640,8 @@ body.lay-mid:not(.band-short) #bar1 .sp{display:none}
 #status-slot #status .st-tx{flex:0 1 auto}
 #status-slot #status button{height:var(--tb-h)}
 /* short: the short text in the top row, between the view switch and the page count, its action drawn at 40px (44px hit). */
-body.band-short #doc-nav #status{flex:0 1 auto;position:relative;align-self:stretch}   /* gives way last: its words shorten only once the document row is down to its icon (docFit) */
+body.band-short #doc-nav #status{flex:none;position:relative;align-self:stretch}
+#status.st-words-off .st-tx{display:none}   /* gives way last, once the document row is down to its icon (docFit): its words whole or not at all; the icon, the action and the spoken label stay */
 @media (pointer:coarse){body.band-short #doc-nav #status button{min-height:0;height:var(--ctl-touch);position:relative;overflow:visible}
   body.band-short #doc-nav #status button::after{content:'';position:absolute;left:50%;top:50%;width:max(100%,var(--hit));height:var(--hit);transform:translate(-50%,-50%)}}
 /* The '+N' list: every state as a 44px row with its action, a modal sheet over the line (under the top row in the short band). */

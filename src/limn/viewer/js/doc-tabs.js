@@ -101,8 +101,10 @@ let DOC_FIT='';   // the row's last fit: a measure that changes nothing writes n
 // counted as they would stand: the search at its folded magnifier (the field gives way before the links, as it gives way
 // before every neighbour - searchFit takes what the row leaves), and at their whole widths the paper's name (up to its
 // max-width: the links give way before it is shortened) and the short band's status line (it gives way last). The row's
-// least width is its content's (frame.css), so below (c) the bar's shrinkable neighbours give way instead: the paper's name
-// shortens, and the short band's status line shortens its words - each only after the row is down to its icon.
+// least width is its content's (frame.css), so below (c) the bar's neighbours give way instead, each only after the row is
+// down to its icon: the paper's name shortens (it may shrink), and the short band's status line - which never shrinks, as
+// the search measures it whole - drops its words, whole or not at all: a stub of one or two letters said less than nothing
+// (its icon and action stay, and its spoken label is its own node).
 // Measured with every link shown, then each hidden or shown whole. Nothing that has the focus is hidden to be measured (a
 // hidden control loses it): the links are measured all shown, the button where it stands; a link or the button that has the
 // focus and is left out gives it to the button or the current link. When the fit changes the search is fitted again; an
@@ -110,33 +112,38 @@ let DOC_FIT='';   // the row's last fit: a measure that changes nothing writes n
 // not drawn (the phone, one document) nothing is.
 function docFit(){const row=$('#doc-links'),more=$('#doc-more'),nav=$('#doc-nav'),lbl=/** @type {HTMLElement} */(more.querySelector('.lbl')),
     tabs=/** @type {HTMLElement[]} */([...row.querySelectorAll(':scope>[data-doc]')]),px=v=>parseFloat(v)||0,had=document.activeElement;
-  let fit='';
+  let fit='',drop=false;
+  const st=$('#status'); st.classList.remove('st-words-off');   // measured with its words; dropped again below when they do not fit
   if(row.getClientRects().length&&tabs.length>1){
-    const cs=getComputedStyle(nav),rs=getComputedStyle(row),whole=(/** @type {HTMLElement} */k,/** @type {HTMLElement|null} */t)=>k.getBoundingClientRect().width+(t?Math.max(0,t.scrollWidth-t.clientWidth):0);
+    const cs=getComputedStyle(nav),rs=getComputedStyle(row);
+    // its whole width: laid out for the moment as it would stand unshrunk (up to its max-width), to the fraction of a pixel
+    const whole=(/** @type {HTMLElement} */k)=>{k.style.flex='none'; const x=k.getBoundingClientRect().width; k.style.flex=''; return x;};
     let used=0,n=0;
     for(const k of /** @type {HTMLElement[]} */([...nav.children])){if(k===row||!k.getClientRects().length)continue; const m=getComputedStyle(k); n++;
       if(k.id==='doc-search'){used+=px(getComputedStyle($('#search-open')).width); continue;}   // its margin is the bar's one flexible gap
-      if(k.id==='paper-identity')used+=Math.min(px(m.maxWidth)||Infinity,whole(k,/** @type {HTMLElement} */(k.lastElementChild)));
-      else if(k.id==='status')used+=whole(k,/** @type {HTMLElement|null} */(k.querySelector('.st-tx')));
+      if(k.id==='paper-identity'||k.id==='status')used+=whole(k);
       else used+=k.getBoundingClientRect().width;
       if(!k.matches('#nav-page,#nav-side'))used+=px(m.marginLeft)+px(m.marginRight);}   // those two stand after the flexible gap
     const room=nav.clientWidth-px(cs.paddingLeft)-px(cs.paddingRight)-px(cs.columnGap)*n-used-px(rs.marginLeft)-px(rs.marginRight);
     tabs.forEach(a=>{a.hidden=false;});
+    const ms=getComputedStyle(more),mm=px(ms.marginLeft)+px(ms.marginRight);   // the button's width counts its margins (frame.css)
     const w=tabs.map(a=>a.getBoundingClientRect().width),gap=px(rs.columnGap),seen=new Map(),was=more.hidden;
     const as=(/** @type {string} */mode,/** @type {string} */text)=>{more.dataset.fit=mode; lbl.textContent=text; more.style.maxWidth='';};
-    const width=(/** @type {string} */mode,/** @type {string} */text)=>{as(mode,text); more.hidden=false; const x=more.getBoundingClientRect().width; more.hidden=was; return x;};
+    const width=(/** @type {string} */mode,/** @type {string} */text)=>{as(mode,text); more.hidden=false; const x=more.getBoundingClientRect().width+mm; more.hidden=was; return x;};
     const moreW=N=>{if(!seen.has(N))seen.set(N,width('more','+'+N)); return seen.get(N);};
     const cur=Math.max(0,tabs.findIndex(a=>a.dataset.doc===DOC)),d=docInfo(tabs[cur].dataset.doc||'')||DOCS[cur];
     const shown=docTabsShown(w,gap,cur,room,moreW),N=tabs.length-shown.length;
     let mode='more',cap='';
     if(!shown.length){const full=width('name',d.name),chrome=width('name','');
-      mode=docChooser(room,full,chrome,px(getComputedStyle(lbl).fontSize)); if(mode==='name'&&full>room)cap=Math.floor(room)+'px';}
+      mode=docChooser(room,full,chrome,px(getComputedStyle(lbl).fontSize)); if(mode==='name'&&full>room)cap=Math.floor(room-mm)+'px';
+      drop=mode==='icon'&&nav.contains(st)&&width('icon','')>room+0.5;}   // the short band's status line gives way: all its words
     tabs.forEach((a,i)=>{a.hidden=!shown.includes(i);});
     as(mode,mode==='more'?'+'+N:mode==='name'?d.name:''); more.style.maxWidth=cap;
     if(mode==='more'){more.setAttribute('aria-label',tl('+{n} 문서 더 보기',{n:N})); more.removeAttribute('title');}
     else{more.setAttribute('aria-label',d.name+' — '+tl('문서 {n}개 중 고르기',{n:DOCS.length})); more.setAttribute('title',docTip(d));}
-    more.hidden=mode==='more'&&!N; fit=[mode,shown.map(i=>tabs[i].dataset.doc).join(),N,cap,d.name].join('|');}
+    more.hidden=mode==='more'&&!N; fit=[mode,shown.map(i=>tabs[i].dataset.doc).join(),N,cap,d.name,drop].join('|');}
   else{tabs.forEach(a=>{a.hidden=false;}); more.hidden=true;}
+  st.classList.toggle('st-words-off',drop);
   const lost=had instanceof HTMLElement&&(row.contains(had)?had.hidden:!more.hidden?false:$('#doc-pop').contains(had));
   if(more.hidden)closeDocMenu(false);
   if(lost){const to=more.hidden?tabs.find(a=>a.getAttribute('aria-current')==='page'):more; if(to)to.focus({preventScroll:true});}
@@ -149,6 +156,10 @@ function docFitSoon(){if(!DOC_FIT_FRAME)DOC_FIT_FRAME=requestAnimationFrame(()=>
 if(window.ResizeObserver){const o=new ResizeObserver(docFitSoon); o.observe($('#doc-nav')); o.observe($('#status'));
   for(const k of $$('#doc-nav>*'))if(k.id!=='doc-links')o.observe(k);}
 document.fonts.addEventListener('loadingdone',docFit);
+// The row is a scroll box only for how it is painted (frame.css): it never scrolls. The current link's bar reaches 1px under
+// it, which a browser lets keys scroll after a press in the row (the links moved up 1px) - undone at once - and which made
+// Firefox give the row a Tab stop of its own, a ring round all the links (index.html takes it out of the Tab order).
+$('#doc-links').addEventListener('scroll',e=>{const r=/** @type {HTMLElement} */(e.currentTarget); if(r.scrollTop||r.scrollLeft){r.scrollTop=0; r.scrollLeft=0;}},{passive:true});
 
 // ---- The documents popover ([+N] or the chooser, docs/handbook/viewer.md §문서 링크가 넘칠 때)
 // Every document in DOCS order, one row each: the current one's check, the name (user text) with its build state (docState),
