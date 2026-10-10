@@ -5,17 +5,18 @@
 ### Changed
 
 - **Many documents fit the nav bar whole.** When the document links do not all fit, the bar shows as many whole links
-  as it has room for, in order, always including the current document's (in the last place when it would be left
-  out), followed by a `+N` button for the N it leaves out. When not even the current link and `+N` fit, the row
-  becomes one chooser showing the current document's name (shortened with an ellipsis as needed), and below about
-  three characters of room a `files` icon; nothing in the row is cut, and the instance's name and, on a landscape
-  phone, the status line's words shorten only once the row is down to that icon. The row no longer scrolls sideways
-  or fades at its edges. The button opens a list of every document with its build state, page count and
-  Alt+number, and a filter from nine documents; it follows its button when the bar changes and is worked by mouse,
-  touch and keyboard (Tab and Shift+Tab leave it to the bar, Alt+number works from its filter; checked in Chromium
-  and Firefox), picking through the same document switch as a link. Focus rings in the row, on the view tabs and in
-  the list are drawn inside their controls. A bar whose links all fit is drawn as before (pixel-compared with
-  0.4.21 at the release viewports, light and dark), and phones keep the navigation sheet.
+  as it has room for, in order, always including the current document's (in the last place when it would be left out),
+  followed by a `+N` button for the N it leaves out. When not even the current link and `+N` fit, the row becomes one
+  chooser showing the current document's name (shortened with an ellipsis as needed), and below about three characters
+  of room a `files` icon; nothing in the row is cut, and only once the row is down to that icon does the instance's
+  name shorten or, on a landscape phone, the status line drop its words (whole or not at all; its dot and action
+  stay). The row no longer scrolls sideways or fades at its edges. The button opens a list of every document with its
+  build state, page count and Alt+number, and a filter from nine documents; the list follows the button when the bar changes
+  and is worked by mouse, touch and keyboard (Tab and Shift+Tab leave it to the bar, Alt+number works from its filter;
+  checked in Chromium and Firefox), picking through the same document switch as a link. Focus rings in the row, on the
+  view tabs and in the list are drawn inside their controls, 2px clear of their words. A bar whose links all fit is
+  drawn as before (pixel-compared with 0.4.21 at the release viewports, light and dark), and phones keep the
+  navigation sheet.
 
 ## 0.4.21 — 2026-10-10
 
