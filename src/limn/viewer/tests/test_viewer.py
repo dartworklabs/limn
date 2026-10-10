@@ -1516,12 +1516,10 @@ class FrontendPanelTidyStructure(unittest.TestCase):
                     sel,
                 )
         self.assertRegex(css_nc, r"@keyframes mid-panel-in\{from\{right:")  # the opening animation moves only via right
-        # an overflowing document-link row fades at the edge instead of showing a scrollbar
-        self.assertIn(
-            "body:is(.lay-mid,.band-tablet-sheet) #doc-links.fade-r{mask-image:", css
-        )  # the tablet sheet's nav bar too
-        self.assertIn("function docLinksFade(){", HTML)
-        self.assertIn("$('#doc-links').addEventListener('scroll',docLinksFade,{passive:true});", HTML)
+        # the document-link row never scrolls or fades: links that do not fit go into [+N] whole (docFit; the browser tests
+        # are in test_viewer_doc_overflow.py)
+        self.assertIn("gap:var(--space-5);overflow-x:clip}", css)
+        self.assertNotIn("#doc-links.fade-", css)
 
 
 # ---------------------------------------------------------------- design token guard (docs/handbook/viewer.md §디자인 토큰과 컴포넌트)
@@ -2615,6 +2613,7 @@ class FrontendFigure(unittest.TestCase):
                         extract_js_fn("docCount"),
                         extract_js_fn("isFigureKind"),
                         js_markup(),
+                        extract_js_fn("docState"),
                         extract_js_fn("docBadge"),
                         "console.log(JSON.stringify([{key:'ms',kind:'tex',view_only:false},"
                         "{key:'fig',kind:'figure',view_only:false},{key:'rv',kind:'pdf',view_only:true}].map(d=>String(docBadge(d)))));",
