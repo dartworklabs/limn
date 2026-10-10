@@ -47,7 +47,8 @@ document.addEventListener('click',e=>{const target=/** @type {HTMLElement} */(e.
     case 'xp-to':{const o=inEdit?EDITOR.current:COMPOSE.current,k=Number(a.dataset.line); if(o&&o.lo!=null&&o.hi!=null)applyRange(o,widenTo(o.lo,o.hi,k),k<o.lo?o.hi:o.lo); break;}   // the excerpt: widen to a dimmed line
     case 'xp-drop':{const o=inEdit?EDITOR.current:COMPOSE.current,k=Number(a.dataset.line); if(o&&o.lo!=null&&o.hi!=null)applyRange(o,dropLine(o.lo,o.hi,k),k===o.lo?o.hi:o.lo); break;}   // ...or drop an end line
     case 'view':jumpPin(id);break; case 'edit':openEdit(id);break;
-    case 'doc':{const inMenu=!!a.closest('#nav-sheet'); switchDoc(a.dataset.doc); if(inMenu)$('#nav-sheet').close(); break;}
+    case 'doc':{const inMenu=!!a.closest('#nav-sheet'); if(a.closest('#doc-pop'))closeDocMenu(true); switchDoc(a.dataset.doc); if(inMenu)$('#nav-sheet').close(); break;}
+    case 'doc-more':toggleDocMenu();break;   // [+N]: the documents popover (doc-tabs.js)
     // ^ inMenu is determined before calling switchDoc() - for a cached document, switchDoc finishes synchronously
     //   through drawDocTabs, and inside that it redraws the open #nav-sheet (drawDocsMenu), detaching a from the DOM.
     //   Calling a.closest() after switchDoc would return null, leaving the sheet open and blocking the next tab
@@ -117,8 +118,8 @@ document.addEventListener('keydown',e=>{
   // Document switching (multiple documents): Ctrl+PgUp/PgDn is previous/next, Alt+1...9 is that index (e.code - Option+digit on Mac produces a different character).
   // The selector uses default keyboard handling. Global shortcuts are never used inside an input field.
   if(multiDoc()&&!inField){
-    if(e.ctrlKey&&!e.altKey&&!e.metaKey&&(e.key==='PageUp'||e.key==='PageDown')){e.preventDefault(); closePageList(false); cycleDoc(e.key==='PageDown'?1:-1); return;}
-    if(e.altKey&&!e.ctrlKey&&!e.metaKey&&/^Digit[1-9]$/.test(e.code||'')){const d=DOCS[+e.code.slice(5)-1]; if(d){e.preventDefault(); closePageList(false); switchDoc(d.key);} return;}
+    if(e.ctrlKey&&!e.altKey&&!e.metaKey&&(e.key==='PageUp'||e.key==='PageDown')){e.preventDefault(); closePageList(false); closeDocMenu($('#doc-pop').contains(t)); cycleDoc(e.key==='PageDown'?1:-1); return;}
+    if(e.altKey&&!e.ctrlKey&&!e.metaKey&&/^Digit[1-9]$/.test(e.code||'')){const d=DOCS[+e.code.slice(5)-1]; if(d){e.preventDefault(); closePageList(false); closeDocMenu($('#doc-pop').contains(t)); switchDoc(d.key);} return;}
   }
   // Ctrl(Cmd)+\ opens and collapses the pin panel at every width (docs/handbook/viewer.md §패널 폭과 시트 높이) - not inside a text field.
   if((e.ctrlKey||e.metaKey)&&!e.altKey&&!inField&&(e.code==='Backslash'||e.key==='\\')){e.preventDefault(); toggleSide(); return;}
@@ -133,6 +134,7 @@ document.addEventListener('keydown',e=>{
   if(e.key==='Escape'){
     if($('#help').open||$('#more').open||$('#nav-sheet').open||$('#trash').open||$('#status-list').open)return;
     if(!$('#page-pop').hidden){e.preventDefault();closePageList(true);return;}   // the page list first: it floats over everything below
+    if(!$('#doc-pop').hidden){e.preventDefault();closeDocMenu(true);return;}   // so does the documents popover
     if(!TIP.hidden){hideTip(); if(!inField){e.preventDefault(); return;}}
     // Each Esc closes the top thing only; a handled Esc is not also a close request (the back-gesture layer's CloseWatcher).
     if(outlineOverlay()&&OUTLINE_MID_OPEN){e.preventDefault();toggleOutline();return;}

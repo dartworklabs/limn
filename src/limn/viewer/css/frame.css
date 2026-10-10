@@ -41,16 +41,24 @@ body:not(.lay-narrow) #doc-nav,body.band-tablet-sheet #doc-nav{display:flex}   /
 #paper-identity>span:last-child{overflow:hidden;text-overflow:ellipsis}
 body.lay-narrow #paper-identity{display:none}
 #doc-select-wrap{display:none;align-items:center;gap:var(--space-2);min-width:0}
-#doc-links{display:none;align-items:stretch;min-width:0;height:100%;gap:var(--space-5);overflow-x:auto}   /* the nav bar's gap before the line after it, its padding after: 12 and 12 (with a 12px margin here, 24 and 12) */
+#doc-links{display:none;align-items:stretch;min-width:0;height:100%;gap:var(--space-5);overflow-x:clip}   /* whole links only, never scrolled (docFit); the nav bar's gap before the line after it, its padding after: 12 and 12 */
 #doc-links button{flex:none}
 body.docs-multi:not(.lay-narrow) #doc-links,body.docs-multi.band-tablet-sheet #doc-links{display:flex}
 #doc-links button{position:relative;border:0;border-radius:0;background:transparent;color:var(--muted-foreground);padding:0 2px;font-size:var(--text-sm);white-space:nowrap}
 #doc-links button[aria-current=page]{color:var(--foreground);font-weight:600}
-#doc-links button[aria-current=page]::after{content:'';position:absolute;bottom:-1px;left:0;right:0;height:2px;background:var(--brand)}
+#doc-links button[aria-current=page]::after{content:'';position:absolute;bottom:0;left:0;right:0;height:1px;background:var(--brand)}   /* 1px on the row's last pixel row: the row clips sideways only, so a bar reaching below it would show there; the view tabs' bar is 2px */
 #doc-links button:focus-visible{color:var(--foreground)}
 @media (hover:hover){#doc-links button:hover{color:var(--foreground)}}
 #doc-links .doc-link-count{font-size:var(--text-xs);color:var(--subtle-foreground);margin-left:var(--space-1)}
 #doc-links button[aria-current=page] .doc-link-count{color:var(--muted-foreground)}   /* label-colored text measured 2.8 contrast in dark (QA) - the current document's underline bar already carries the label color */
+/* [+N] after the last link shown when some do not fit (docFit, docs/handbook/viewer.md §문서 링크가 넘칠 때): the links' text
+   size and colour, its "+N" trimmed to the cap height as theirs and centred on the band with the chevron; a ghost drawn at the
+   row's control height - 28px, 36px on touch with a 44px hit (.hit) - filled while its popover is open. */
+#doc-links #doc-more{display:inline-flex;align-items:center;gap:var(--space-1);align-self:center;height:var(--control-h);padding:0 var(--space-1) 0 var(--space-2);
+  border-radius:var(--radius)}
+#doc-links #doc-more .ic{width:16px;height:16px}
+#doc-links #doc-more[aria-expanded=true]{background:var(--accent);color:var(--foreground)}
+@media (hover:hover){#doc-links #doc-more:hover{background:var(--accent)}}
 #doc-select-wrap label{color:var(--muted-foreground);font-size:var(--text-sm)}
 #doc-select{max-width:230px;min-width:120px;background:var(--sidebar);border:0;font-weight:600;padding:var(--space-1) var(--space-5) var(--space-1) 2px}
 #view-switch{padding-left:0}

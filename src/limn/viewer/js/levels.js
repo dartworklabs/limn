@@ -64,7 +64,7 @@ function segReveal(seg){const on=seg&&seg.querySelector('.on'); if(!on){segFade(
 function segWholeAt(l,r,w,full,at){const end=Math.max(0,full-w),fits=r-l+2*SEG_FADE<=w;
   return Math.max(0,Math.min(end,fits?Math.max(r-w+SEG_FADE,Math.min(l-SEG_FADE,at)):l-(w-(r-l))/2));}
 // If the range ladder is longer than the panel, the overflowing edge is faded - since the scrollbar is hidden, the right-side
-// segment (after 'minipage - 43 lines') used to just get clipped with no indication there was more (QA 2026-09-24). The same idea as the document-links row (docLinksFade).
+// segment (after 'minipage - 43 lines') used to just get clipped with no indication there was more (QA 2026-09-24).
 // A control that shows its selected segment whole (data-reveal="whole") narrows each fade to the room between that segment and
 // the edge (--fade-l, --fade-r), so the fade lies on what there is more of and never on the selected segment.
 function segFade(seg){if(!seg)return; const over=seg.scrollWidth-seg.clientWidth;
