@@ -28,6 +28,7 @@ body.search-open #doc-search #search-box{display:grid;position:absolute;right:0;
 /* A neighbour the open field lies over (searchCover): not drawn, no press, no focus - and still in its place, so the bar
    does not move. Nothing of it is left beside the field: no cut word, no underline, no separator. */
 #doc-nav>.search-covered{visibility:hidden}
+#doc-nav>#doc-links.search-covered{min-width:0}   /* not drawn while covered: the bar may squeeze it, as the status line's words need the room (the row's least width is otherwise its content's) */
 /* The status line is never taken off (the short band holds it in this row, status.js): what stays on the field's left keeps its
    place first, then the status, then the neighbours taken off - so the status stands one gap after what is left and the field
    one gap after the status. searchCover shortens its text (max-width) when the field needs the room. */

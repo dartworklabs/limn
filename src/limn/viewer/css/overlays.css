@@ -39,3 +39,29 @@ button.pl-row{display:grid;grid-template-columns:44px minmax(0,1fr) 16px;justify
 .pl-row .ic{color:var(--primary)}
 button.pl-row.on{background:var(--accent);font-weight:600}
 #ns-pages{max-height:220px;padding:0 0 var(--space-2)}   /* five 44px rows, then it scrolls (opened on the current page) */
+/* The documents popover ([+N], doc-tabs.js; docs/handbook/viewer.md §문서 링크가 넘칠 때): the page list's surface, under its
+   button and left-aligned to it (placeDocMenu), at most down to 8px above the window's bottom (--dp-room), its list scrolling
+   inside. A filter field on top with nine documents or more. One row per document on four columns the rows share (subgrid):
+   the current one's check, the name (ellipsis) with its build state, the page count and the Alt+number - so the counts and the
+   keys stand on one right edge. The row's side insets are two empty end columns (a subgrid's own padding would eat into its
+   first and last columns): 0 + the 8px gap for a mouse, 4px + 8px on touch. Rows are 32px for a mouse and 44px on touch, every
+   cell trimmed to its cap height and centred. */
+#doc-pop{position:fixed;z-index:60;display:flex;flex-direction:column;width:max-content;min-width:240px;max-width:min(360px,calc(100vw - 16px));
+  max-height:var(--dp-room,480px);padding:var(--space-1);background:var(--popover);color:var(--popover-foreground);border:1px solid var(--border);
+  border-radius:var(--radius-lg);box-shadow:var(--shadow-lg);font-size:var(--text-sm);outline:none}
+#doc-pop-in{flex:none;width:100%;height:var(--control-h);margin-bottom:var(--space-1);padding:0 var(--space-2);font-size:var(--text-sm);background:var(--field)}
+#doc-pop-list{display:grid;grid-template-columns:0 16px minmax(0,1fr) auto auto 0;align-content:start;column-gap:var(--space-2);min-height:0;
+  overflow:auto;overscroll-behavior:contain}
+button.dp-row{grid-column:1/-1;display:grid;grid-template-columns:subgrid;column-gap:var(--space-2);align-items:center;height:var(--row-h-sm);padding:0;
+  border:0;border-radius:var(--radius);background:transparent;color:var(--foreground);text-align:left;font-size:var(--text-sm);white-space:nowrap}
+button.dp-row.on{background:var(--accent);font-weight:600}
+button.dp-row:focus-visible{outline-offset:-2px}   /* inside the row: the list scrolls and clips what passes its sides */
+@media (hover:hover){button.dp-row:hover{background:var(--accent)}}
+.dp-row .dp-c{grid-column:2;display:flex;align-items:center}
+.dp-row .dp-c .ic{width:16px;height:16px;color:var(--primary)}
+.dp-row .dp-n{display:flex;align-items:center;gap:var(--space-2);min-width:0}
+.dp-row .dp-t{min-width:0;overflow:hidden;text-overflow:ellipsis;text-box:trim-both cap alphabetic;padding-block:var(--space-1)}   /* the padding keeps the ink past the cap height inside the box that clips the ellipsis */
+.dp-row :is(.dp-p,.dp-k){justify-self:end;color:var(--muted-foreground);font-size:var(--text-xs);font-weight:400;font-variant-numeric:tabular-nums;text-box:trim-both cap alphabetic}
+.dp-row .spin{width:10px;height:10px}
+#doc-pop-none{margin:0;padding:var(--space-2);color:var(--muted-foreground)}
+@media (hover:none) and (pointer:coarse){#doc-pop #doc-pop-list{grid-template-columns:var(--space-1) 16px minmax(0,1fr) auto var(--space-1)}.dp-row .dp-k{display:none}}   /* a touch-only screen has no Alt key to press (#doc-pop: over the touch rule in responsive.css) */

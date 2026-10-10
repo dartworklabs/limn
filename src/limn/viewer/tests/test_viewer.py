@@ -1516,12 +1516,10 @@ class FrontendPanelTidyStructure(unittest.TestCase):
                     sel,
                 )
         self.assertRegex(css_nc, r"@keyframes mid-panel-in\{from\{right:")  # the opening animation moves only via right
-        # an overflowing document-link row fades at the edge instead of showing a scrollbar
-        self.assertIn(
-            "body:is(.lay-mid,.band-tablet-sheet) #doc-links.fade-r{mask-image:", css
-        )  # the tablet sheet's nav bar too
-        self.assertIn("function docLinksFade(){", HTML)
-        self.assertIn("$('#doc-links').addEventListener('scroll',docLinksFade,{passive:true});", HTML)
+        # the document-link row never scrolls or fades: links that do not fit go into [+N] whole (docFit; the browser tests
+        # are in test_viewer_doc_overflow.py)
+        self.assertIn("gap:var(--space-4);margin-inline:-2px;overflow-x:auto;scrollbar-width:none}", css)
+        self.assertNotIn("#doc-links.fade-", css)
 
 
 # ---------------------------------------------------------------- design token guard (docs/handbook/viewer.md §디자인 토큰과 컴포넌트)
@@ -2274,7 +2272,8 @@ class FrontendDocs(unittest.TestCase):
 
     def test_selector_views_and_outline_are_in_pdf_area(self):
         self.assertIn('<select id="doc-select" aria-label="문서 선택">', HTML)
-        self.assertIn('<div id="doc-links" role="group" aria-label="문서 선택">', HTML)
+        # no Tab stop of its own (doc-tabs.js)
+        self.assertIn('<div id="doc-links" role="group" aria-label="문서 선택" tabindex="-1">', HTML)
         self.assertIn('id="view-manuscript" data-act="view-mode"', HTML)
         self.assertIn('id="view-revisions" data-act="view-mode"', HTML)
         self.assertIn('<nav id="outline" aria-label="원고 목차">', HTML)
@@ -2284,7 +2283,7 @@ class FrontendDocs(unittest.TestCase):
         body = extract_js_fn("drawDocTabs")
         self.assertIn("box.value=DOC", body)
         self.assertIn("DOCS.map", body)
-        self.assertIn('aria-current="', body)
+        self.assertIn("setAttr(a,'aria-current',", body)  # the current document's link is marked (updated in place)
 
     def test_default_theme_is_light(self):
         self.assertIn('<html lang="ko" data-theme="light">', HTML)
@@ -2615,6 +2614,7 @@ class FrontendFigure(unittest.TestCase):
                         extract_js_fn("docCount"),
                         extract_js_fn("isFigureKind"),
                         js_markup(),
+                        extract_js_fn("docState"),
                         extract_js_fn("docBadge"),
                         "console.log(JSON.stringify([{key:'ms',kind:'tex',view_only:false},"
                         "{key:'fig',kind:'figure',view_only:false},{key:'rv',kind:'pdf',view_only:true}].map(d=>String(docBadge(d)))));",

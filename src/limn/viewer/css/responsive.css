@@ -139,6 +139,11 @@ body.lay-wide #more .more-top{padding-top:var(--space-2)}
   #bar1 input.n{width:84px;flex:0 0 84px;max-width:none;font-size:var(--text-xl)}   /* iOS zooms the screen when focusing an input field smaller than 16px */
   #page-pop-in{width:84px;height:var(--hit);font-size:var(--text-xl)}   /* the page list's field (overlays.css), 16px like every touch field */
   button.pl-row{height:var(--hit);padding:0 var(--space-3);font-size:var(--text-base)}   /* the page list's rows: 44px */
+  :is(#doc-links,#view-switch) button:not(#doc-more){min-width:calc(var(--hit) + var(--space-1))}   /* the 44px least width plus the 2px each side the boxes reach past their words (frame.css): a short word stays where it was */
+  #doc-pop-in{height:var(--hit);font-size:var(--text-xl)}   /* the documents popover's filter (overlays.css), 16px like every touch field */
+  #doc-pop-list{grid-template-columns:var(--space-1) 16px minmax(0,1fr) auto auto var(--space-1)}
+  button.dp-row{height:var(--hit);min-width:0;padding:0;font-size:var(--text-base)}   /* its rows: 44px, inset 4 + 8px */
+  #doc-links #doc-more{min-height:0;min-width:0;height:var(--control-h-lg);padding:0 var(--space-2) 0 var(--space-3)}   /* [+N] drawn at 36px, answering 44px (.hit) */
   #outline-items button{min-height:var(--hit)}   /* the outline's rows: 44px at least, their lines centred (frame.css) */
   /* Text links (#N, the line range, N쪽) sit 4-8px apart, so centred 44px hit areas would overlap and the later one would take the
      earlier's half (observed: '1쪽' answered 16x38, 'L4-L5' 33x38). Each is a real --hit x --hit box instead, its text centred,
@@ -502,8 +507,8 @@ body.lay-mid:not(.side-open) #right{position:fixed;left:auto;top:auto;right:max(
   background:transparent;border:0;box-shadow:none;z-index:20;overflow:visible;pointer-events:none}
 body.lay-mid:not(.side-open) #right>#bar2,body.lay-mid:not(.side-open) #right>#banner{pointer-events:auto;background:var(--sidebar);
   border:1px solid var(--border-strong);border-radius:var(--radius-lg);box-shadow:var(--shadow-lg)}
-/* Nav bar: fixed to the full screen width (the panel never clips it). Overflowing document links scroll horizontally within that row, with
-   the overflowing edge faded (fade-l/fade-r, docLinksFade). The current document's link is always scrolled into view. */
+/* Nav bar: fixed to the full screen width (the panel never clips it). Document links that do not fit go into [+N] whole
+   (docFit); the current document's link is always shown. */
 body.lay-mid #paper-identity{display:none}
 body.lay-mid #doc-nav{position:fixed;top:0;left:0;right:0;z-index:22;height:var(--mid-top);gap:var(--space-2);
   padding:max(env(safe-area-inset-top),var(--space-1)) max(var(--edge),env(safe-area-inset-right)) 0 max(var(--edge),env(safe-area-inset-left))}
@@ -518,11 +523,7 @@ body:is(.band-tablet-sheet,.lay-wide) #doc-nav{position:relative;z-index:7}   /*
    height on the band: as line boxes a bold '원고' stood 1px above the band's middle. */
 :is(#doc-links,#view-switch) button{display:inline-flex;align-items:center}
 :is(#doc-links,#view-switch) button>:is(.lbl,.doc-link-count){text-box:trim-both cap alphabetic}
-body:is(.lay-mid,.band-tablet-sheet) #doc-links{gap:var(--space-2);margin-right:0;flex:0 1 auto;scrollbar-width:none}   /* the row's one 8px gap */
-body:is(.lay-mid,.band-tablet-sheet) #doc-links::-webkit-scrollbar{display:none}
-body:is(.lay-mid,.band-tablet-sheet) #doc-links.fade-r{mask-image:linear-gradient(to right,var(--foreground) calc(100% - 32px),transparent)}
-body:is(.lay-mid,.band-tablet-sheet) #doc-links.fade-l{mask-image:linear-gradient(to left,var(--foreground) calc(100% - 32px),transparent)}
-body:is(.lay-mid,.band-tablet-sheet) #doc-links.fade-l.fade-r{mask-image:linear-gradient(to right,transparent,var(--foreground) 32px,var(--foreground) calc(100% - 32px),transparent)}
+body:is(.lay-mid,.band-tablet-sheet) #doc-links{gap:var(--space-1);flex:0 1 auto}   /* the row's one 8px gap between the words' boxes (4px between the links' wider boxes, frame.css) */
 body:is(.lay-mid,.band-tablet-sheet) #view-switch{gap:var(--space-2)}
 body.docs-multi:is(.lay-mid,.band-tablet-sheet) #view-switch{padding-left:var(--space-2)}   /* 8px each side of the line after the links; one document has neither */
 body:is(.lay-mid,.band-tablet-sheet) #doc-nav button{white-space:nowrap}
@@ -640,6 +641,7 @@ body.lay-mid:not(.band-short) #bar1 .sp{display:none}
 #status-slot #status button{height:var(--tb-h)}
 /* short: the short text in the top row, between the view switch and the page count, its action drawn at 40px (44px hit). */
 body.band-short #doc-nav #status{flex:none;position:relative;align-self:stretch}
+#status.st-words-off .st-tx{display:none}   /* gives way last, once the document row is down to its icon (docFit): its words whole or not at all; the icon, the action and the spoken label stay */
 @media (pointer:coarse){body.band-short #doc-nav #status button{min-height:0;height:var(--ctl-touch);position:relative;overflow:visible}
   body.band-short #doc-nav #status button::after{content:'';position:absolute;left:50%;top:50%;width:max(100%,var(--hit));height:var(--hit);transform:translate(-50%,-50%)}}
 /* The '+N' list: every state as a 44px row with its action, a modal sheet over the line (under the top row in the short band). */

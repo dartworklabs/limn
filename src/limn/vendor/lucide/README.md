@@ -31,6 +31,7 @@ Icons are drawn with the original `<svg>` attributes: `viewBox="0 0 24 24"`, `fi
 | `copy` | copy-location button |
 | `download` | [PDF 내려받기] in [More] |
 | `ellipsis` | the [More] button (every layout) |
+| `files` | the nav bar's document chooser when even one document link and [+N] do not fit (the icon-only step) |
 | `eye` | 'awaiting review' badge (whose turn it is to confirm) |
 | `image` | the status line's 'showing PNG' state (compact bands) |
 | `info` | the lead icon of an informational message (a first-visit hint, a restored draft, a conflict with nothing to do) |

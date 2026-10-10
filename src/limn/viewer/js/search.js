@@ -267,13 +267,17 @@ function searchGo(d){const n=SEARCH.hits.length; if(!n)return;
 
 // The field's place for the layout now (docs/handbook/viewer.md §본문 검색): on the phone it is the dock; elsewhere its width
 // is what the bar leaves beside its neighbours at their full width (searchWidth) - inline, or the magnifier alone - and
-// --search-cap is how far the opened field may reach to the left inside the bar.
+// --search-cap is how far the opened field may reach to the left inside the bar. A neighbour that may shrink (the paper's
+// name) counts at its whole width, laid out for the moment unshrunk (as docFit counts it): counted as the bar has squeezed
+// it, it would leave the field more room, and the field taking it would squeeze it further.
 function searchFit(){const s=$('#doc-search'),nav=$('#doc-nav');
   if(BAND===LAYOUT_BAND.PHONE){s.dataset.mode='dock'; s.style.width=''; searchInk(); searchCover(); return;}
   if(s.hidden||!nav.getClientRects().length){searchCover(); return;}
   const cs=getComputedStyle(nav),root=getComputedStyle(document.documentElement),px=v=>parseFloat(v)||0; let used=0,n=0;
   for(const k of /** @type {HTMLElement[]} */([...nav.children])){if(k===s||!k.getClientRects().length)continue; const m=getComputedStyle(k);
-    used+=(k.id==='doc-links'?Math.max(k.getBoundingClientRect().width,k.scrollWidth):k.getBoundingClientRect().width)+px(m.marginLeft)+px(m.marginRight); n++;}
+    let w=k.getBoundingClientRect().width;
+    if(k.id==='doc-links')w=Math.max(w,k.scrollWidth); else if(k.id==='paper-identity'){k.style.flex='none'; w=k.getBoundingClientRect().width; k.style.flex='';}
+    used+=w+px(m.marginLeft)+px(m.marginRight); n++;}
   const left=nav.getBoundingClientRect().left+px(cs.paddingLeft),room=nav.clientWidth-px(cs.paddingLeft)-px(cs.paddingRight)-used-px(cs.columnGap)*n;
   const w=searchWidth(room,px(root.getPropertyValue('--search-w')),px(root.getPropertyValue('--search-min')));
   s.dataset.mode=w?'inline':'icon'; s.style.width=w?w+'px':'';
@@ -287,7 +291,11 @@ function searchFit(){const s=$('#doc-search'),nav=$('#doc-nav');
 // its words: drawn, pressable, spoken. The natural box is
 // measured first and the span set in the same task, so the field is drawn at its full span in the frame it opens and its text
 // does not move after. Nothing is covered on the phone (it has no bar) or while the field is closed.
+// A neighbour's right end is its box's, less what a negative right margin lets it reach into the bar's gap (the document row
+// reaches 2px past its room so its links' focus rings stand clear of their words; frame.css): the field keeps one gap from
+// the row's room, where it always stood.
 function searchCover(){const s=$('#doc-search'),nav=$('#doc-nav'),box=$('#search-box'),kids=/** @type {HTMLElement[]} */([...nav.children]).filter(k=>k!==s);
+  const right=(/** @type {HTMLElement} */k)=>k.getBoundingClientRect().right+Math.min(0,parseFloat(getComputedStyle(k).marginRight)||0);
   if(s.style.getPropertyValue('--search-span'))s.style.removeProperty('--search-span');   // the natural box first: the span is worked out from it
   s.classList.remove('search-squeezed');
   for(const k of kids){if(k.matches('.search-covered,.search-left,.search-kept,.search-tight'))k.classList.remove('search-covered','search-left','search-kept','search-tight'); if(k.style.maxWidth)k.style.maxWidth='';}
@@ -298,11 +306,11 @@ function searchCover(){const s=$('#doc-search'),nav=$('#doc-nav'),box=$('#search
   // which would come back under the field as soon as the status is shortened.
   for(const k of kids){if(!k.getClientRects().length||!(k.compareDocumentPosition(s)&Node.DOCUMENT_POSITION_FOLLOWING))continue;
     const r=k.getBoundingClientRect();
-    if(r.width&&r.right<=b.left-gap+0.5)left.push(k);
+    if(r.width&&right(k)<=b.left-gap+0.5)left.push(k);
     else if(r.width||!(r.left>=b.right))(k.matches('[role=status],[aria-live]')||k.querySelector('[role=status],[aria-live]')?keep:off).push(k);}
   if(!off.length&&!keep.length)return;
   off.forEach(k=>k.classList.add('search-covered')); left.forEach(k=>k.classList.add('search-left')); keep.forEach(k=>k.classList.add('search-kept'));
-  const edge=()=>[...left,...keep].reduce((e,k)=>Math.max(e,k.getBoundingClientRect().right+gap),nav.getBoundingClientRect().left+nav.clientLeft+(parseFloat(cs.paddingLeft)||0));
+  const edge=()=>[...left,...keep].reduce((e,k)=>Math.max(e,right(k)+gap),nav.getBoundingClientRect().left+nav.clientLeft+(parseFloat(cs.paddingLeft)||0));
   let span=s.getBoundingClientRect().right-edge();
   if(!keep.length){s.style.setProperty('--search-span',Math.max(b.width,span)+'px'); return;}
   // The status line's words are what it says; as the row narrows they give way last. First the field shrinks, down to its
