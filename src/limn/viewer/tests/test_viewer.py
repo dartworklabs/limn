@@ -1518,7 +1518,7 @@ class FrontendPanelTidyStructure(unittest.TestCase):
         self.assertRegex(css_nc, r"@keyframes mid-panel-in\{from\{right:")  # the opening animation moves only via right
         # the document-link row never scrolls or fades: links that do not fit go into [+N] whole (docFit; the browser tests
         # are in test_viewer_doc_overflow.py)
-        self.assertIn("gap:var(--space-5);overflow-x:auto;scrollbar-width:none}", css)
+        self.assertIn("gap:var(--space-4);margin-inline:-2px;overflow-x:auto;scrollbar-width:none}", css)
         self.assertNotIn("#doc-links.fade-", css)
 
 
@@ -2272,7 +2272,8 @@ class FrontendDocs(unittest.TestCase):
 
     def test_selector_views_and_outline_are_in_pdf_area(self):
         self.assertIn('<select id="doc-select" aria-label="문서 선택">', HTML)
-        self.assertIn('<div id="doc-links" role="group" aria-label="문서 선택">', HTML)
+        # no Tab stop of its own (doc-tabs.js)
+        self.assertIn('<div id="doc-links" role="group" aria-label="문서 선택" tabindex="-1">', HTML)
         self.assertIn('id="view-manuscript" data-act="view-mode"', HTML)
         self.assertIn('id="view-revisions" data-act="view-mode"', HTML)
         self.assertIn('<nav id="outline" aria-label="원고 목차">', HTML)

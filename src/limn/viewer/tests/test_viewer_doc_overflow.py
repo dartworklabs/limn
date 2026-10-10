@@ -55,6 +55,7 @@ LONG = [
     *MANY[3:],
 ]
 FEW = [MANY[0], MANY[2], MANY[5], MANY[10]]  # four short names: every bar has room for them
+FIVE = [MANY[0], MANY[2], MANY[5], MANY[7], MANY[10]]  # five short names: the crowded 1300px desktop has room for them
 BUILD = "pages-20260926100000"
 LABEL = "조류 관측 논문 2026"  # the instance's name: wide enough that a squeezed bar would shorten it
 PDF_READY = "typeof VEC!=='undefined'&&!!VEC.doc&&!VEC.pumping&&!VEC.cur"  # the PDF on screen is open and drawn
@@ -631,44 +632,58 @@ class WithSearch(ManyDocsBase):
         self.assertEqual(self.row(page)["n"], 0)
 
 
-# A focused control's ring as drawn: its outline (style, width, offset), the box the ring's outer edge makes, and every box
+# A focused control's ring as drawn: its outline (style, width, offset), the box the ring's outer edge makes, every box
 # that clips it - each ancestor that does not let its content overflow, and the nav bar's band under the instance's 4px
-# stripe (the bar's box less its top padding) when the control is in the bar.
+# stripe (the bar's box less its top padding) when the control is in the bar - and how far the ring's inner edge stands
+# from the control's words and icons on the left and on the right (the boxes of its drawn children: its word spans and icons).
 RING = """sel => {const e = document.querySelector(sel), c = getComputedStyle(e), r = e.getBoundingClientRect(), w = parseFloat(c.outlineWidth),
     o = parseFloat(c.outlineOffset), out = o + w, box = [r.left - out, r.top - out, r.right + out, r.bottom + out], clips = [];
   for (let a = e.parentElement; a && a !== document.body; a = a.parentElement) {const s = getComputedStyle(a);
     if (s.overflowX !== 'visible' || s.overflowY !== 'visible') {const b = a.getBoundingClientRect(); clips.push([a.id || a.className, b.left, b.top, b.right, b.bottom]);}}
   const nav = e.closest('#doc-nav');
   if (nav) {const b = nav.getBoundingClientRect(); clips.push(['band', b.left, b.top + parseFloat(getComputedStyle(nav).paddingTop), b.right, b.bottom]);}
-  return {focusVisible: e.matches(':focus-visible'), outline: [c.outlineStyle, w, o], box, clips};}"""
+  const q = [...e.children].filter(k => k.getClientRects().length).map(k => k.getBoundingClientRect()).filter(b => b.width > 0);   // the boxes drawn (an ellipsis clips its words to its box)
+  const clear = q.length ? [Math.min(...q.map(b => b.left)) - (r.left - o), (r.right + o) - Math.max(...q.map(b => b.right))] : null;
+  return {focusVisible: e.matches(':focus-visible'), outline: [c.outlineStyle, w, o], box, clips, clear};}"""
 
 
 class Rings(ManyDocsBase):
     """Focus rings are whole (docs/handbook/viewer.md §문서 링크가 넘칠 때): a link's, [+N]'s and the chooser's inside the
     row and the bar's band, a popover row's inside the scrolling list."""
 
-    def assert_whole(self, page, sel):
-        """The ring of sel (focused by keyboard) is drawn - 2px, focus-visible - and lies inside every box that clips it."""
+    def assert_whole(self, page, sel, clear=False):
+        """The ring of sel (focused by keyboard) is drawn - 2px, focus-visible - and lies inside every box that clips it;
+        with clear, its inner edge stands at least 2px from the control's words on both sides."""
         g = page.evaluate(RING, sel)
         self.assertTrue(g["focusVisible"], sel)
         self.assertEqual(g["outline"][:2], ["solid", 2], sel)
+        if clear:
+            self.assertTrue(g["clear"] and min(g["clear"]) >= 2 - 0.01, (sel, g["clear"]))
         left, top, right, bottom = g["box"]
         for name, cl, ct, cr, cb in g["clips"]:
             inside = left >= cl - 0.01 and top >= ct - 0.01 and right <= cr + 0.01 and bottom <= cb + 0.01
             self.assertTrue(inside, (sel, name, g["box"], (cl, ct, cr, cb)))
 
+    SCREENS = ("desktop 1440x900", "tablet 768x1024")
+
     def test_the_rings_of_the_row_and_the_popover_are_whole(self):
         """Desktop and 768x1024: Tab from the outline toggle reaches the first link (the current one) - its ring whole
-        inside the row and the band - then on to [+N], whole too; in the popover the current row and the next one have
-        whole rings inside the list, which scrolls and clips its sides."""
-        for name in ("desktop 1440x900", "tablet 768x1024"):
+        inside the row and the band and 2px clear of its words - then [+N] and the view tab '원고', the same; in the
+        popover the current row and the next one have whole rings inside the list, which scrolls and clips its sides."""
+        for name in self.SCREENS:
             with self.subTest(viewport=name):
                 page = self.view(BARS[name], "ms")
                 page.focus("#nav-toc-toggle")
                 page.keyboard.press("Tab")
-                self.assert_whole(page, "#doc-links [data-doc=ms]")
+                self.assertEqual(
+                    page.evaluate("document.activeElement.dataset.doc"), "ms"
+                )  # the row has no Tab stop of its own
+                self.assert_whole(page, "#doc-links [data-doc=ms]", clear=True)
                 page.focus("#doc-more")  # a script focus after a key press is focus-visible
-                self.assert_whole(page, "#doc-more")
+                self.assert_whole(page, "#doc-more", clear=True)
+                page.focus("#view-manuscript")
+                self.assert_whole(page, "#view-manuscript", clear=True)
+                page.focus("#doc-more")
                 page.keyboard.press("Enter")
                 page.wait_for_function("!document.querySelector('#doc-pop').hidden")
                 # a mouse screen opens on the filter; touch starts on the row
@@ -677,6 +692,68 @@ class Rings(ManyDocsBase):
                 self.assert_whole(page, "#doc-pop-list [data-doc=ms]")
                 page.keyboard.press("ArrowDown")
                 self.assert_whole(page, "#doc-pop-list [data-doc=rr]")
+
+
+class RingsFirefox(Rings):
+    """The same rings in Firefox, on the desktop (Firefox has no mobile emulation). Firefox gives a scroll box with
+    anything to scroll a Tab stop of its own; the row is out of the Tab order, so Tab goes from the outline toggle to the
+    first link."""
+
+    BROWSER_ENGINE = "firefox"
+    SCREENS = ("desktop 1440x900",)
+
+
+# The bar as drawn, for comparing two layouts: per width, the links shown, the button's step and N, the search's mode, and
+# the instance's name - its width to the tenth of a pixel and whether it is shortened.
+LAYOUT = """() => {const q = s => document.querySelector(s), m = q('#doc-more'), id = q('#paper-identity'), t = id.lastElementChild;
+  return [[...document.querySelectorAll('#doc-links>[data-doc]')].filter(a => a.getClientRects().length).map(a => a.dataset.doc).join(),
+    m.getClientRects().length ? m.dataset.fit + ' ' + m.textContent.trim() : '', q('#doc-search').dataset.mode,
+    Math.round(id.getBoundingClientRect().width * 10) / 10, t.scrollWidth > t.clientWidth];}"""
+
+
+class CrowdedBase(ManyDocsBase):
+    """The desktop with the outline and the pin panel open: the search folds before the instance's name shortens, and the
+    layout at a width does not depend on how the window got there."""
+
+    def same_both_ways(self, doc):
+        """Narrow the window from 1440 to 1000px and widen it back, 8px a step: at every width the bar is the same both
+        ways (links, button, search, the instance's name), and the name is never shortened."""
+        page = self.view({"viewport": {"width": 1440, "height": 800}}, doc)
+        seen = {}
+        for w in list(range(1440, 999, -8)) + list(range(1000, 1441, 8)):
+            page.set_viewport_size({"width": w, "height": 800})
+            page.wait_for_function("innerWidth===%d" % w)
+            settle(page)
+            got = page.evaluate(LAYOUT)
+            self.assertFalse(got[4], (w, got))
+            self.assertEqual(seen.setdefault(w, got), got, w)
+
+
+class CrowdedDesktop(CrowdedBase):
+    """Five short names on the crowded desktop."""
+
+    DOCS = FIVE
+
+    def test_five_short_documents_at_1300_fit_as_before(self):
+        """1300x800 with the outline and the panel open, five short names, a fresh load: all five links and no button, the
+        instance's name whole, the search folded to its magnifier - as 0.4.21 drew it."""
+        page = self.view({"viewport": {"width": 1300, "height": 800}}, "ms")
+        shown, button, search, _, cut = page.evaluate(LAYOUT)
+        self.assertEqual((shown, button, search, cut), ("ms,sp,ga,db,ac", "", "icon", False))
+
+    def test_the_layout_at_a_width_is_the_same_narrowing_and_widening(self):
+        """The same bar at every width, narrowing and widening (same_both_ways)."""
+        self.same_both_ways("ms")
+
+
+class CrowdedDesktopLong(CrowdedBase):
+    """Twelve documents on the crowded desktop, a 40-character name current."""
+
+    DOCS = LONG
+
+    def test_the_layout_at_a_width_is_the_same_narrowing_and_widening(self):
+        """The long Hangul name current: the same bar at every width both ways (same_both_ways)."""
+        self.same_both_ways("rr")
 
 
 # The row's ladder (docs/handbook/viewer.md §문서 링크가 넘칠 때) - chosen per screen from the names and the room the bar
@@ -747,8 +824,9 @@ class LadderShort(LadderBase):
     """The landscape phone's one row, with and without its status line's message, at device scale factors 1 and 2."""
 
     def test_each_width_takes_its_step(self):
-        """Each short-band width and status takes the chosen step (LADDER_SHORT); with the status line's message the row
-        reaches the icon at 667px, where the status line keeps its icon and [재빌드] and shortens its words."""
+        """Each short-band width and status takes the chosen step (LADDER_SHORT); with the status line's message its
+        icon and [재빌드] stay, and its words are whole - or, at 667px where the row is down to its icon and they still do
+        not fit, not drawn at all (never a one- or two-letter stub)."""
         for (size, stale), want in LADDER_SHORT.items():
             for dpr in (1, 2):
                 with self.subTest(size=size, stale=stale, dpr=dpr):
@@ -764,6 +842,10 @@ class LadderShort(LadderBase):
                             " icon: !!s.querySelector('.st-ic') && s.querySelector('.st-ic').getClientRects().length>0}))(document.querySelector('#status'))"
                         )
                         self.assertEqual(st, {"act": True, "icon": True})
+                        words = page.evaluate(
+                            "(t=>!t.getClientRects().length?'hidden':t.scrollWidth>t.clientWidth?'cut':'whole')(document.querySelector('#status .st-tx'))"
+                        )
+                        self.assertEqual(words, "hidden" if want[0] == "icon" else "whole", (size, dpr))
 
 
 class LadderLong(LadderBase):

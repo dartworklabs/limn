@@ -5841,8 +5841,14 @@ SHORT_ROW = """() => {const q = s => document.querySelector(s), R = e => e.getBo
   const nav = q('#doc-nav'), N = R(nav), B = R(q('#bar1')), links = [...document.querySelectorAll('#doc-links button')];
   const els = [...nav.querySelectorAll(':scope>button,#doc-links button,#view-switch button,#status .st-ic,#status .st-tx,#status button'),
     ...q('#bar1').querySelectorAll('button')].filter(vis);
+  // a control's place: its box less what a negative margin lets it reach past it (the view tabs' and links' 2px each side, which
+  // hold their focus rings clear of their words - docs/handbook/viewer.md §문서 링크가 넘칠 때)
+  const place = e => {const r = R(e); if (!e.closest('#doc-links,#view-switch')) return box(r);
+    if (e.dataset.doc) return [r.left + 2, r.top, r.right - 2, r.bottom];   // a link reaches 2px past its place each side (its row's gap is 4px less)
+    const m = getComputedStyle(e), l = Math.min(0, parseFloat(m.marginLeft) || 0), g = Math.min(0, parseFloat(m.marginRight) || 0);
+    return [r.left - l, r.top, r.right + g, r.bottom];};
   const items = els.map(e => {const s = e.querySelector(':scope>svg');
-    return {k: e.id || (links.includes(e) ? 'link' + links.indexOf(e) : e.className.split(' ')[0]), box: box(R(e)),
+    return {k: e.id || (links.includes(e) ? 'link' + links.indexOf(e) : e.className.split(' ')[0]), box: place(e),
       fill: !/^(rgba\\(0, 0, 0, 0\\)|transparent)$/.test(getComputedStyle(e).backgroundColor),
       icon: s ? box(R(s)) : null, stroke: s ? s.getAttribute('stroke-width') : null};}).sort((a, b) => a.box[0] - b.box[0]);
   return {stripe: R(q('#brand-stripe')).bottom, line: N.bottom - parseFloat(getComputedStyle(nav).borderBottomWidth), heights: [N.height, B.height],

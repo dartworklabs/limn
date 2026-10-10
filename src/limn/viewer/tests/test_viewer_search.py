@@ -1511,8 +1511,9 @@ class SearchAcrossDocuments(FiveDocsBase):
 OVER_BAR = """() => {const q = s => document.querySelector(s), box = q('#search-box').getBoundingClientRect(), nav = q('#doc-nav');
   const shows = e => e.getClientRects().length > 0 && getComputedStyle(e).visibility !== 'hidden';
   const meets = r => r.right > box.left + 0.01 && r.left < box.right - 0.01;
-  const kids = [...nav.children].filter(e => e.id !== 'doc-search' && e.getClientRects().length).map(e => {const r = e.getBoundingClientRect();
-    return {id: e.id, shows: shows(e), meets: meets(r), cut: e.scrollWidth - e.clientWidth, l: r.left, r: r.right};});
+  const kids = [...nav.children].filter(e => e.id !== 'doc-search' && e.getClientRects().length).map(e => {const r = e.getBoundingClientRect(), m = getComputedStyle(e);
+    // its place: the box less what a negative margin lets it reach past it (the document row's 2px each side, for its links' rings)
+    return {id: e.id, shows: shows(e), meets: meets(r), cut: e.scrollWidth - e.clientWidth, l: r.left - Math.min(0, parseFloat(m.marginLeft) || 0), r: r.right + Math.min(0, parseFloat(m.marginRight) || 0)};});
   const reach = y => {const ids = new Set(); for (let x = Math.ceil(box.left) + 1; x < box.right - 1; x += 3) {const e = document.elementFromPoint(x, y);
     ids.add(e ? (e.closest('#doc-search') ? 'search' : e.id || (e.closest('#doc-nav>*') || e).id || e.tagName) : 'none');} return [...ids];};
   return {box: [box.left, box.top, box.right, box.bottom], nav: [nav.getBoundingClientRect().left, nav.getBoundingClientRect().right], kids, gap: parseFloat(getComputedStyle(nav).columnGap),
