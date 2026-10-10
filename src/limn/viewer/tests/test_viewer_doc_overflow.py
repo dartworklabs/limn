@@ -15,6 +15,7 @@ Run: uv run pytest -q src/limn/viewer/tests/test_viewer_doc_overflow.py
 import base64
 import json
 from pathlib import Path
+from urllib.parse import urlparse
 
 import helpers_figure
 from helpers import blank_png, extract_js_fn, minimal_pdf, ps, run_node, serve_viewer
@@ -46,6 +47,13 @@ MANY = [
     "dv=데이터 가용성 진술:dv.pdf",
 ]
 KEYS = [d.split("=")[0] for d in MANY]
+# Twelve documents, two of them with names of the server's longest (40 characters), one Hangul and one Latin.
+LONG = [
+    MANY[0],
+    "rr=심사위원 의견에 대한 상세 답변서와 수정 내역을 정리한 개정 문서 최종본:rr.pdf",
+    "sp=Supplementary information, adaptive mode:sp.pdf",
+    *MANY[3:],
+]
 FEW = [MANY[0], MANY[2], MANY[5], MANY[10]]  # four short names: every bar has room for them
 BUILD = "pages-20260926100000"
 LABEL = "조류 관측 논문 2026"  # the instance's name: wide enough that a squeezed bar would shorten it
@@ -82,7 +90,14 @@ ROW = """() => {const row = document.querySelector('#doc-links'), more = documen
   return {shown: shown.map(a => a.dataset.doc), n: more.getClientRects().length ? Number(more.textContent.trim().replace('+', '')) : 0,
     hidden: links.length - shown.length, scrolls: row.scrollWidth > row.clientWidth, drawn: row.getClientRects().length > 0,
     cut: [...shown, ...(more.getClientRects().length ? [more] : [])].filter(out).map(e => e.dataset.doc || e.id),
-    current: (row.querySelector('[aria-current=page]') || {dataset: {}}).dataset.doc};}"""
+    current: (row.querySelector('[aria-current=page]') || {dataset: {}}).dataset.doc,
+    fit: more.getClientRects().length ? more.dataset.fit : null, label: more.querySelector('.lbl').textContent,
+    labelCut: (l => l.getClientRects().length > 0 && l.scrollWidth > l.clientWidth)(more.querySelector('.lbl')),
+    name: more.getAttribute('aria-label'), width: R.width,
+    past: (() => {const N = document.querySelector('#doc-nav').getBoundingClientRect(), next = row.nextElementSibling;
+      const after = [...row.parentElement.children].filter(e => e !== row && e.getClientRects().length && (row.compareDocumentPosition(e) & 4))
+        .map(e => e.getBoundingClientRect().left).filter(x => x > R.left);
+      return {nav: R.right > N.right + 0.01, next: after.length ? R.right > Math.min(...after) + 0.01 : false};})()};}"""
 # Whether the instance's name is shortened (an ellipsis).
 NAME_CUT = "(e=>e.scrollWidth>e.clientWidth)(document.querySelector('#paper-identity>span:last-child'))"
 # The open popover: its box, the button's, the rows (key, shown, height, top, check, name, pages, key hint as drawn) and the
@@ -96,6 +111,24 @@ POP = """() => {const q = s => document.querySelector(s), B = e => {const r = e.
       top: r.getBoundingClientRect().top, check: !!r.querySelector('.dp-c .ic'), name: r.querySelector('.dp-t').textContent,
       pages: r.querySelector('.dp-p').textContent, hint: vis(r.querySelector('.dp-k')) ? r.querySelector('.dp-k').textContent : null,
       selected: r.getAttribute('aria-selected')}))};}"""
+
+
+class MetaPatch:
+    """A Playwright route whose fulfil merges patch into the JSON body the handler answered (the rest passes through)."""
+
+    def __init__(self, route, patch):
+        """Wrap route; patch is merged into the answer's top-level object."""
+        self._route, self._patch = route, patch
+
+    def __getattr__(self, name):
+        """Everything but fulfill is the route's own (forward() reads its request)."""
+        return getattr(self._route, name)
+
+    def fulfill(self, status, headers, body):
+        """Fulfil the route with the handler's JSON answer, patch merged in."""
+        data = json.loads(body)
+        data.update(self._patch)
+        self._route.fulfill(status=status, headers=headers, body=json.dumps(data))
 
 
 def put_pdf_build(doc, pages=1):
@@ -114,6 +147,13 @@ class ManyDocsBase(BrowserBase):
     """BrowserBase serving the documents of DOCS (MANY): the manuscript with a PDF build, the rest view-only PDFs."""
 
     DOCS = MANY
+    STALE = False  # when true, /api/meta says the manuscript is newer than its PDF: the status line has a message
+
+    def route(self, route):
+        """BrowserBase's routes, with GET /api/meta saying stale_build while STALE."""
+        if self.STALE and urlparse(route.request.url).path == "/api/meta":
+            return self.forward(MetaPatch(route, {"stale_build": True, "src_age_s": 120}))
+        return super().route(route)
 
     def setUp(self):
         """The documents of DOCS, each with a one-page build whose PDF the viewer opens (so the search is offered), on an
@@ -169,7 +209,7 @@ class ManyDocsBase(BrowserBase):
         self.assertEqual(faces, {"Pretendard Variable"}, "the links are drawn in %s, not the bundled font" % faces)
 
     def open_menu(self, page):
-        """Press [+N] as the screen's pointer does and wait for the popover."""
+        """Press the row's button ([+N] or the chooser) as the screen's pointer does and wait for the popover."""
         touch = page.evaluate("matchMedia('(pointer:coarse)').matches")
         (page.tap if touch else page.click)("#doc-more")
         page.wait_for_function("!document.querySelector('#doc-pop').hidden")
@@ -287,9 +327,9 @@ class ButtonLooks(ManyDocsBase):
       const ts = getComputedStyle(tab), c = e => {const b = e.getBoundingClientRect(); return b.top + b.height / 2;};
       const labels = [...document.querySelectorAll('#doc-links>[data-doc]:not([hidden]) .lbl')];
       return {h: r.height, pad: [parseFloat(cs.paddingLeft), parseFloat(cs.paddingRight)], gap: parseFloat(cs.columnGap),
-        icon: (b => [b.width, b.height])(m.querySelector('.ic').getBoundingClientRect()),
+        icon: (b => [b.width, b.height])(m.querySelector(':scope>.ic').getBoundingClientRect()),
         text: [cs.fontSize, cs.color, cs.fontWeight], tabText: [ts.fontSize, ts.color, ts.fontWeight],
-        off: labels.map(l => c(l) - c(m.querySelector('.lbl'))), icon_off: c(m.querySelector('.ic')) - c(m.querySelector('.lbl')),
+        off: labels.map(l => c(l) - c(m.querySelector('.lbl'))), icon_off: c(m.querySelector(':scope>.ic')) - c(m.querySelector('.lbl')),
         name: m.getAttribute('aria-label'), popup: [m.getAttribute('aria-haspopup'), m.getAttribute('aria-expanded'), m.getAttribute('aria-controls')]};}"""
 
     def test_the_button_stands_on_the_links_centre_at_their_size(self):
@@ -311,7 +351,7 @@ class ButtonLooks(ManyDocsBase):
                 self.assertTrue(all(v % 4 == 0 for v in g["pad"] + [g["gap"]]), g)
                 self.assertEqual(g["icon"], [16, 16])
                 n = 12 - len(SHOWN_FIRST[name])
-                self.assertEqual(g["name"], "문서 %d개 더 보기" % n)
+                self.assertEqual(g["name"], "+%d 문서 더 보기" % n)  # its visible '+N' first (label in name)
                 self.assertEqual(g["popup"], ["dialog", "false", "doc-pop"])
                 page.evaluate(MEASURE)
                 reach = page.evaluate("window.__m.hit(document.querySelector('#doc-more'))")
@@ -337,9 +377,10 @@ class ButtonLooks(ManyDocsBase):
                 self.assertTrue(all(abs(m - button) <= 1 / dpr + 0.01 for m in mids), (button, mids))
 
     def test_the_button_name_is_english_on_an_english_screen(self):
-        """In English the button's name is the message table's plural ('6 more documents')."""
+        """In English the button's name is the message table's plural with its visible '+N' ('+7 more documents')."""
         page = self.view(BARS["desktop 1440x900"], "ms", lang="en")
-        self.assertEqual(page.get_attribute("#doc-more", "aria-label"), "%d more documents" % self.row(page)["n"])
+        r = self.row(page)
+        self.assertEqual((r["label"], r["name"]), ("+%d" % r["n"], "+%d more documents" % r["n"]))
 
 
 class Popover(ManyDocsBase):
@@ -387,6 +428,88 @@ class Popover(ManyDocsBase):
         self.assertAlmostEqual(p["box"][3], 420 - 8, delta=0.01)
         self.assertTrue(page.evaluate("(l=>l.scrollHeight>l.clientHeight)(document.querySelector('#doc-pop-list'))"))
 
+    def test_a_tap_opens_it_without_focusing_the_filter(self):
+        """On 768x1024 a tap on [+N] puts the focus on the current document's row, not in the filter (no keyboard)."""
+        page = self.view(BARS["tablet 768x1024"], "dv")
+        self.assertEqual(self.open_menu(page)["focus"], "dv")
+        page.tap("#doc-pop-list [data-doc=sp]")
+        page.wait_for_function("DOC==='sp'")
+        settle(page)
+        self.assertFalse(page.evaluate(POP)["open"])
+
+    def test_a_polling_redraw_keeps_it_open_with_the_focus(self):
+        """With the focus on a row, another document starting a build redraws the documents (as the light poll does):
+        the popover stays open, the focus stays on the same document's row, and that document's row shows the spinner."""
+        page = self.view(BARS["desktop 1440x900"], "ms")
+        self.open_menu(page)
+        page.keyboard.press("ArrowDown")
+        page.keyboard.press("ArrowDown")
+        self.assertEqual(page.evaluate(POP)["focus"], "rr")
+        page.evaluate("docInfo('hl').building=true; drawDocTabs()")
+        p = page.evaluate(POP)
+        self.assertEqual((p["open"], p["focus"]), (True, "rr"))
+        self.assertTrue(page.evaluate("!!document.querySelector('#doc-pop-list [data-doc=hl] .spin')"))
+
+    def test_a_polling_redraw_keeps_the_focus_on_the_button(self):
+        """A redraw of the links leaves the focused [+N] focused."""
+        page = self.view(BARS["desktop 1440x900"], "ms")
+        page.focus("#doc-more")
+        page.evaluate("drawDocTabs()")
+        self.assertEqual(page.evaluate("document.activeElement.id"), "doc-more")
+
+    def test_it_follows_its_button(self):
+        """Open on the 1440 desktop, the window narrowed to 1300, 1100 and 1000px and the pin panel collapsed (Ctrl+\\)
+        move the button: after each the popover stands 4px under it with their left edges together (within 0.5px), or
+        against the window's right margin of 8px when it would pass it."""
+        page = self.view(BARS["desktop 1440x900"], "ms")
+        self.open_menu(page)
+        page.keyboard.press("ArrowDown")  # the focus on a row: Ctrl+\\ is not taken in the filter
+
+        def placed(where):
+            p = page.evaluate(POP)
+            vw = page.evaluate("innerWidth")
+            self.assertTrue(p["open"], where)
+            self.assertAlmostEqual(p["box"][1], round(p["button"][3]) + 4, delta=0.01, msg=where)
+            self.assertTrue(
+                abs(p["box"][0] - p["button"][0]) <= 0.5 or abs(p["box"][2] - (vw - 8)) <= 0.5,
+                (where, p["box"], p["button"]),
+            )
+
+        for w in (1300, 1100, 1000):
+            page.set_viewport_size({"width": w, "height": 900})
+            page.wait_for_function("innerWidth===%d" % w)
+            settle(page)
+            placed(w)
+        page.set_viewport_size({"width": 1440, "height": 900})
+        page.wait_for_function("innerWidth===1440")
+        settle(page)
+        page.keyboard.press("Control+Backslash")
+        page.wait_for_function("!SIDE_OPEN")
+        settle(page)
+        placed("panel collapsed")
+
+    def test_a_redraw_keeps_the_focused_node(self):
+        """A redraw by polling (another document starts a build) with the focus on a link, on [+N] or on a popover row
+        sends no focusout or focusin and leaves the very same element focused."""
+        page = self.view(BARS["desktop 1440x900"], "ms")
+        page.evaluate(
+            "window.__ev=[]; for (const t of ['focusin','focusout']) document.addEventListener(t, e=>window.__ev.push(t), true)"
+        )
+        redraw = "(()=>{const a=document.activeElement; window.__ev.length=0; const d=docInfo('hl'); d.building=!d.building; drawDocTabs(); return [document.activeElement===a, window.__ev.slice()];})()"
+        for target in ("#doc-links [data-doc=rr]", "#doc-more"):
+            page.focus(target)
+            self.assertEqual(page.evaluate(redraw), [True, []], target)
+        self.open_menu(page)
+        page.keyboard.press("ArrowDown")
+        page.keyboard.press("ArrowDown")
+        self.assertEqual(page.evaluate(POP)["focus"], "rr")
+        self.assertEqual(page.evaluate(redraw), [True, []])
+        self.assertTrue(page.evaluate(POP)["open"])
+
+
+class PopoverKeys:
+    """The popover's keyboard, the same in Chromium and Firefox (run by KeysChromium and KeysFirefox)."""
+
     def test_keys_open_filter_choose_and_give_the_focus_back(self):
         """Desktop: ↓ on the focused [+N] opens it with the focus in the filter; typing 'letter' leaves Cover letter alone;
         ↓ goes to its row and Enter opens that document and gives the focus back to [+N]. Opened again with Enter, ↓
@@ -418,47 +541,65 @@ class Popover(ManyDocsBase):
         p = page.evaluate(POP)
         self.assertEqual((p["open"], p["focus"]), (False, "doc-more"))
 
-    def test_tab_out_and_a_press_outside_shut_it(self):
-        """Tab from the current row (the list's one stop) leaves the popover and shuts it; opened again, a press on the
-        page shuts it and changes no document."""
+    def test_tab_goes_on_to_the_bars_next_stop(self):
+        """Opened from the focused [+N] (Enter: the focus in the filter), Tab goes to the current document's row, and Tab
+        again shuts the popover and puts the focus on the bar's next stop after [+N], the view tab '원고'."""
         page = self.view(BARS["desktop 1440x900"], "ms")
-        self.open_menu(page)
-        page.keyboard.press("ArrowDown")
+        page.focus("#doc-more")
+        page.keyboard.press("Enter")
+        page.wait_for_function("!document.querySelector('#doc-pop').hidden")
         page.keyboard.press("Tab")
-        self.assertFalse(page.evaluate(POP)["open"])
+        self.assertEqual(page.evaluate(POP)["focus"], "ms")
+        page.keyboard.press("Tab")
+        p = page.evaluate(POP)
+        self.assertEqual((p["open"], p["focus"], p["expanded"]), (False, "view-manuscript", "false"))
+
+    def test_shift_tab_goes_back_to_the_button(self):
+        """From a row Shift+Tab goes to the filter, and from the filter it shuts the popover with the focus on [+N]."""
+        page = self.view(BARS["desktop 1440x900"], "ms")
+        page.focus("#doc-more")
+        page.keyboard.press("Enter")
+        page.wait_for_function("!document.querySelector('#doc-pop').hidden")
+        page.keyboard.press("ArrowDown")
+        page.keyboard.press("Shift+Tab")
+        self.assertEqual(page.evaluate(POP)["focus"], "doc-pop-in")
+        page.keyboard.press("Shift+Tab")
+        p = page.evaluate(POP)
+        self.assertEqual((p["open"], p["focus"]), (False, "doc-more"))
+
+    def test_a_press_outside_shuts_it(self):
+        """A press on the page outside the popover and its button shuts it and changes no document."""
+        page = self.view(BARS["desktop 1440x900"], "ms")
         self.open_menu(page)
         page.mouse.click(600, 600)
         settle(page)
         self.assertEqual((page.evaluate(POP)["open"], page.evaluate("DOC")), (False, "ms"))
 
-    def test_a_tap_opens_it_without_focusing_the_filter(self):
-        """On 768x1024 a tap on [+N] puts the focus on the current document's row, not in the filter (no keyboard)."""
-        page = self.view(BARS["tablet 768x1024"], "dv")
-        self.assertEqual(self.open_menu(page)["focus"], "dv")
-        page.tap("#doc-pop-list [data-doc=sp]")
-        page.wait_for_function("DOC==='sp'")
-        settle(page)
-        self.assertFalse(page.evaluate(POP)["open"])
-
-    def test_a_polling_redraw_keeps_it_open_with_the_focus(self):
-        """With the focus on a row, another document starting a build redraws the documents (as the light poll does):
-        the popover stays open, the focus stays on the same document's row, and that document's row shows the spinner."""
+    def test_alt_digit_picks_from_the_filter_and_from_a_row(self):
+        """The Alt+number the popover shows works where the focus is when it opens - the filter - and on a row: Alt+3
+        from the filter opens the third document, Alt+5 from a row the fifth; each shuts the popover with the focus on
+        [+N]."""
         page = self.view(BARS["desktop 1440x900"], "ms")
-        self.open_menu(page)
-        page.keyboard.press("ArrowDown")
-        page.keyboard.press("ArrowDown")
-        self.assertEqual(page.evaluate(POP)["focus"], "rr")
-        page.evaluate("docInfo('hl').building=true; drawDocTabs()")
-        p = page.evaluate(POP)
-        self.assertEqual((p["open"], p["focus"]), (True, "rr"))
-        self.assertTrue(page.evaluate("!!document.querySelector('#doc-pop-list [data-doc=hl] .spin')"))
+        for keys, doc in ((["Alt+Digit3"], "sp"), (["ArrowDown", "Alt+Digit5"], "hl")):
+            page.focus("#doc-more")
+            page.keyboard.press("Enter")
+            page.wait_for_function("!document.querySelector('#doc-pop').hidden")
+            for key in keys:
+                page.keyboard.press(key)
+            page.wait_for_function("DOC===%s" % json.dumps(doc))
+            settle(page)
+            p = page.evaluate(POP)
+            self.assertEqual((p["open"], p["focus"]), (False, "doc-more"), keys)
 
-    def test_a_polling_redraw_keeps_the_focus_on_the_button(self):
-        """A redraw of the links leaves the focused [+N] focused."""
-        page = self.view(BARS["desktop 1440x900"], "ms")
-        page.focus("#doc-more")
-        page.evaluate("drawDocTabs()")
-        self.assertEqual(page.evaluate("document.activeElement.id"), "doc-more")
+
+class KeysChromium(PopoverKeys, ManyDocsBase):
+    """The popover's keyboard in Chromium."""
+
+
+class KeysFirefox(PopoverKeys, ManyDocsBase):
+    """The popover's keyboard in Playwright's bundled Firefox."""
+
+    BROWSER_ENGINE = "firefox"
 
 
 class WithSearch(ManyDocsBase):
@@ -490,16 +631,201 @@ class WithSearch(ManyDocsBase):
         self.assertEqual(self.row(page)["n"], 0)
 
 
+# A focused control's ring as drawn: its outline (style, width, offset), the box the ring's outer edge makes, and every box
+# that clips it - each ancestor that does not let its content overflow, and the nav bar's band under the instance's 4px
+# stripe (the bar's box less its top padding) when the control is in the bar.
+RING = """sel => {const e = document.querySelector(sel), c = getComputedStyle(e), r = e.getBoundingClientRect(), w = parseFloat(c.outlineWidth),
+    o = parseFloat(c.outlineOffset), out = o + w, box = [r.left - out, r.top - out, r.right + out, r.bottom + out], clips = [];
+  for (let a = e.parentElement; a && a !== document.body; a = a.parentElement) {const s = getComputedStyle(a);
+    if (s.overflowX !== 'visible' || s.overflowY !== 'visible') {const b = a.getBoundingClientRect(); clips.push([a.id || a.className, b.left, b.top, b.right, b.bottom]);}}
+  const nav = e.closest('#doc-nav');
+  if (nav) {const b = nav.getBoundingClientRect(); clips.push(['band', b.left, b.top + parseFloat(getComputedStyle(nav).paddingTop), b.right, b.bottom]);}
+  return {focusVisible: e.matches(':focus-visible'), outline: [c.outlineStyle, w, o], box, clips};}"""
+
+
+class Rings(ManyDocsBase):
+    """Focus rings are whole (docs/handbook/viewer.md §문서 링크가 넘칠 때): a link's, [+N]'s and the chooser's inside the
+    row and the bar's band, a popover row's inside the scrolling list."""
+
+    def assert_whole(self, page, sel):
+        """The ring of sel (focused by keyboard) is drawn - 2px, focus-visible - and lies inside every box that clips it."""
+        g = page.evaluate(RING, sel)
+        self.assertTrue(g["focusVisible"], sel)
+        self.assertEqual(g["outline"][:2], ["solid", 2], sel)
+        left, top, right, bottom = g["box"]
+        for name, cl, ct, cr, cb in g["clips"]:
+            inside = left >= cl - 0.01 and top >= ct - 0.01 and right <= cr + 0.01 and bottom <= cb + 0.01
+            self.assertTrue(inside, (sel, name, g["box"], (cl, ct, cr, cb)))
+
+    def test_the_rings_of_the_row_and_the_popover_are_whole(self):
+        """Desktop and 768x1024: Tab from the outline toggle reaches the first link (the current one) - its ring whole
+        inside the row and the band - then on to [+N], whole too; in the popover the current row and the next one have
+        whole rings inside the list, which scrolls and clips its sides."""
+        for name in ("desktop 1440x900", "tablet 768x1024"):
+            with self.subTest(viewport=name):
+                page = self.view(BARS[name], "ms")
+                page.focus("#nav-toc-toggle")
+                page.keyboard.press("Tab")
+                self.assert_whole(page, "#doc-links [data-doc=ms]")
+                page.focus("#doc-more")  # a script focus after a key press is focus-visible
+                self.assert_whole(page, "#doc-more")
+                page.keyboard.press("Enter")
+                page.wait_for_function("!document.querySelector('#doc-pop').hidden")
+                # a mouse screen opens on the filter; touch starts on the row
+                if page.evaluate("document.activeElement.id") == "doc-pop-in":
+                    page.keyboard.press("ArrowDown")
+                self.assert_whole(page, "#doc-pop-list [data-doc=ms]")
+                page.keyboard.press("ArrowDown")
+                self.assert_whole(page, "#doc-pop-list [data-doc=rr]")
+
+
+# The row's ladder (docs/handbook/viewer.md §문서 링크가 넘칠 때) - chosen per screen from the names and the room the bar
+# leaves: 'tabs' with the keys shown (and [+N] for the rest), 'name' (the chooser saying the current document's name,
+# whole or shortened to an ellipsis) or 'icon'. The short band at 844, 740 and 667px wide, with and without the stale
+# PDF's message on its status line ('원고 수정됨 [재빌드]', about 146px, in this row): beside [목차], 원고|변경사항, the
+# magnifier and the page count, '본문 원고' and [+11] need about 135px and 'Response to reviewers' 160px more; at 740px
+# with the message only the chooser fits ('본문 원고' whole), at 667px not even three em of it.
+SHORT = {"844x390": (844, 390), "740x360": (740, 360), "667x375": (667, 375)}
+LADDER_SHORT = {
+    ("844x390", False): ("tabs", ["ms", "rr"]),
+    ("844x390", True): ("tabs", ["ms"]),
+    ("740x360", False): ("tabs", ["ms"]),
+    ("740x360", True): ("name", "본문 원고"),
+    ("667x375", False): ("tabs", ["ms"]),
+    ("667x375", True): ("icon", None),
+}
+# Twelve documents with two of the longest names, the current one each of them in turn: the Hangul one is about 370px as
+# a link, the Latin one about 260px.
+LADDER_LONG = {
+    ("tablet 768x1024", "rr"): ("tabs", ["rr"]),
+    ("tablet 768x1024", "sp"): ("tabs", ["ms", "sp"]),
+    ("fold inner 673x841", "rr"): ("name", "…"),
+    ("fold inner 673x841", "sp"): ("tabs", ["sp"]),
+    ("crowded 1100x800", "rr"): ("name", "…"),
+    ("crowded 1100x800", "sp"): ("tabs", ["sp"]),
+}
+
+
+def touch(w, h, dpr):
+    """A w x h touch screen at device scale factor dpr."""
+    return {"viewport": {"width": w, "height": h}, "is_mobile": True, "has_touch": True, "device_scale_factor": dpr}
+
+
+class LadderBase(ManyDocsBase):
+    """Reads and checks one step of the ladder."""
+
+    def check_step(self, page, want, where):
+        """The row is at step want ('tabs' with the keys shown, 'name' with the label - '…' for any shortened name - or
+        'icon'), nothing in it is cut or passes the bar or its next neighbour, and its button opens the popover where it
+        is pressed. Returns the row's reading."""
+        r = self.row(page)
+        step, what = want
+        self.assertEqual(r["cut"], [], where)
+        self.assertEqual(r["past"], {"nav": False, "next": False}, where)
+        self.assertFalse(r["scrolls"], where)
+        if step == "tabs":
+            self.assertEqual((r["fit"] if r["n"] else None, r["shown"]), ("more" if r["n"] else None, what), where)
+            self.assertEqual(r["n"], 12 - len(what), where)
+        else:
+            self.assertEqual((r["fit"], r["shown"], r["current"] in KEYS), (step, [], True), where)
+            name = page.evaluate("docInfo(DOC).name")
+            self.assertTrue(r["name"].startswith(name + " — "), (where, r["name"]))  # the visible name is in the name
+            if step == "name":
+                self.assertEqual((r["label"], r["labelCut"]), (name, what == "…"), where)
+                if what != "…":
+                    self.assertEqual(r["label"], what, where)
+        hit = page.evaluate(
+            "(()=>{const m=document.querySelector('#doc-more'); if(!m.getClientRects().length) return null; const b=m.getBoundingClientRect();"
+            " const h=document.elementFromPoint(b.left+b.width/2,b.top+b.height/2); return !!h&&m.contains(h);})()"
+        )
+        if hit is not None:
+            self.assertTrue(hit, where)
+        return r
+
+
+class LadderShort(LadderBase):
+    """The landscape phone's one row, with and without its status line's message, at device scale factors 1 and 2."""
+
+    def test_each_width_takes_its_step(self):
+        """Each short-band width and status takes the chosen step (LADDER_SHORT); with the status line's message the row
+        reaches the icon at 667px, where the status line keeps its icon and [재빌드] and shortens its words."""
+        for (size, stale), want in LADDER_SHORT.items():
+            for dpr in (1, 2):
+                with self.subTest(size=size, stale=stale, dpr=dpr):
+                    self.STALE = stale
+                    page = self.view(touch(*SHORT[size], dpr), "ms")
+                    if stale:
+                        page.wait_for_function("document.querySelector('#doc-nav #status:not([hidden])')")
+                        settle(page)
+                    self.check_step(page, want, (size, stale, dpr))
+                    if stale:
+                        st = page.evaluate(
+                            "(s=>({act: !!s.querySelector('button') && s.querySelector('button').getClientRects().length>0,"
+                            " icon: !!s.querySelector('.st-ic') && s.querySelector('.st-ic').getClientRects().length>0}))(document.querySelector('#status'))"
+                        )
+                        self.assertEqual(st, {"act": True, "icon": True})
+
+
+class LadderLong(LadderBase):
+    """Names of the server's longest, Hangul and Latin, on the tablets, a foldable and the crowded desktop."""
+
+    DOCS = LONG
+
+    def test_each_screen_takes_its_step(self):
+        """With a 40-character name current each screen takes the chosen step (LADDER_LONG), at scale factors 1 and 2;
+        the crowded desktop keeps the instance's name whole."""
+        devs = {
+            "tablet 768x1024": BARS["tablet 768x1024"],
+            "fold inner 673x841": BARS["fold inner 673x841"],
+            "crowded 1100x800": CROWDED,
+        }
+        for (name, doc), want in LADDER_LONG.items():
+            for dpr in (1, 2):
+                with self.subTest(viewport=name, doc=doc, dpr=dpr):
+                    page = self.view(dict(devs[name], device_scale_factor=dpr), doc)
+                    self.check_step(page, want, (name, doc, dpr))
+                    if name.startswith("crowded"):
+                        self.assertFalse(page.evaluate(NAME_CUT))
+
+    def test_the_chooser_opens_the_popover_and_says_the_document(self):
+        """On 673x841 with the long Hangul name current, a tap on the chooser opens the popover under it (the current row
+        focused); its name is '<the document> — 문서 12개 중 고르기' and in English '... — choose from 12 documents'."""
+        page = self.view(BARS["fold inner 673x841"], "rr")
+        name = page.evaluate("docInfo('rr').name")
+        self.assertEqual(self.row(page)["name"], name + " — 문서 12개 중 고르기")
+        p = self.open_menu(page)
+        self.assertEqual((p["open"], p["focus"]), (True, "rr"))
+        self.assertAlmostEqual(p["box"][1], round(p["button"][3]) + 4, delta=0.01)
+        page = self.view(BARS["fold inner 673x841"], "rr", lang="en")
+        self.assertEqual(self.row(page)["name"], name + " — choose from 12 documents")
+
+
 def test_the_fit_rule_on_chosen_widths():
-    """docTabsShown on widths chosen by hand: all fit; the first k and [+N]; the current one in the last place; and
-    nothing but the current link when even one link and the button do not fit."""
+    """docTabsShown on widths chosen by hand: all fit; the first k and [+N]; the current one in the last place; and none
+    when not even one link and the button fit. docChooser: the name while room holds it whole or three em past the chooser's
+    own width, else the icon."""
     js = "\n".join(
         [
             extract_js_fn("docTabsShown"),
+            extract_js_fn("docChooser"),
             "const w=[50,50,50,50,50], more=n=>30;",
             "console.log(JSON.stringify([docTabsShown(w,10,0,290,more), docTabsShown(w,10,0,210,more),"
-            " docTabsShown(w,10,4,210,more), docTabsShown(w,10,2,210,more), docTabsShown(w,10,3,60,more)]));",
+            " docTabsShown(w,10,4,210,more), docTabsShown(w,10,2,210,more), docTabsShown(w,10,3,60,more),"
+            " docChooser(120,200,40,12), docChooser(76,200,40,12), docChooser(75,200,40,12), docChooser(50,50,40,12), docChooser(49,50,40,12)]));",
         ]
     )
-    # 5 links take 290; in 210 three links (170) and the button (10 + 30) fit; the fifth current replaces the third.
-    assert json.loads(run_node(js)) == [[0, 1, 2, 3, 4], [0, 1, 2], [0, 1, 4], [0, 1, 2], [3]]
+    # 5 links take 290; in 210 three links (170) and the button (10 + 30) fit; the fifth current replaces the third; in 60
+    # one link and the button (90) do not fit. A 200px name in 120: shortened (40 + 36 = 76 is the least); in 75 the icon; a
+    # 50px name fits whole in 50.
+    assert json.loads(run_node(js)) == [
+        [0, 1, 2, 3, 4],
+        [0, 1, 2],
+        [0, 1, 4],
+        [0, 1, 2],
+        [],
+        "name",
+        "name",
+        "icon",
+        "name",
+        "icon",
+    ]

@@ -1518,7 +1518,7 @@ class FrontendPanelTidyStructure(unittest.TestCase):
         self.assertRegex(css_nc, r"@keyframes mid-panel-in\{from\{right:")  # the opening animation moves only via right
         # the document-link row never scrolls or fades: links that do not fit go into [+N] whole (docFit; the browser tests
         # are in test_viewer_doc_overflow.py)
-        self.assertIn("gap:var(--space-5);overflow-x:clip}", css)
+        self.assertIn("gap:var(--space-5);overflow-x:auto;scrollbar-width:none}", css)
         self.assertNotIn("#doc-links.fade-", css)
 
 
@@ -2282,7 +2282,7 @@ class FrontendDocs(unittest.TestCase):
         body = extract_js_fn("drawDocTabs")
         self.assertIn("box.value=DOC", body)
         self.assertIn("DOCS.map", body)
-        self.assertIn('aria-current="', body)
+        self.assertIn("setAttr(a,'aria-current',", body)  # the current document's link is marked (updated in place)
 
     def test_default_theme_is_light(self):
         self.assertIn('<html lang="ko" data-theme="light">', HTML)
