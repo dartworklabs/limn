@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.4.22 — Unreleased
+
+### Changed
+
+- **Many documents fit the nav bar whole.** When the document links do not all fit, the bar shows as many whole links
+  as it has room for, in order, always including the current document's (in the last place when it would be left
+  out), followed by a `+N` button for the N it leaves out. The row no longer scrolls sideways or fades at its edges,
+  and the instance's name is no longer shortened to make room for links. The button opens a list of every document
+  with its build state, page count and Alt+number, and a filter from nine documents; it is worked by mouse, touch and
+  keyboard and picks through the same document switch as a link. A bar whose links all fit is drawn as before, and
+  phones keep the navigation sheet.
+
 ## 0.4.21 — 2026-10-10
 
 Search the text of the document on screen, assign a pin by tagging a colleague in its note, and set the viewer's
