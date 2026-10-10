@@ -189,13 +189,14 @@ ACCESS_FIELDS = frozenset(f.name for f in dataclasses.fields(AccessOptions))
 def run_config(src: Path, main: Path, state: Path, **over) -> RunConfig:
     """The run settings Base serves with (manuscript src, main file main, state folder state; port 18999, 150 dpi, a
     60-second build timeout, the default float environments, label 원고 in the first accent, no origin URL, access
-    options at their defaults, no --ui-lang), with `over` replacing settings by name - an access option's name (auth, bind, ...)
+    options at their defaults, no --ui-lang or connection cap), with `over` replacing settings by name - an access option's name (auth, bind, ...)
     replaces that field of .access."""
     base = RunConfig(
         src=src,
         main=main,
         state=state,
         port=18999,
+        max_connections=None,
         dpi=150,
         envs=tuple(ps.DEFAULT_ENVS.split(",")),
         timeout=60,

@@ -62,6 +62,12 @@ runtime/ · security/ · platform/ · web/   기능 구현을 import하지 않�
 - 예상된 거절은 결과 값으로 전달하고 기능의 HTTP 입구가 상태 코드로 바꾼다. 신원·권한 실패와 요청 크기 초과는 `HTTPError`로 처리기에서 즉시 거부한다.
 - `RuntimeResources`는 실행별 잠금·캐시·감시 스레드를 소유한다. 기능 자원의 구체 타입은 조립 지점에서 연결하므로 실행 경계가 기능을 import하지 않는다. 서버 두 벌의 상태는 서로 공유하지 않는다. 시작 도중 실패하면 그 실행에서 시작한 감시만 정리한다. 소켓 닫기가 실패해도 감시 스레드를 정리하고 최초 오류를 보존한다.
 
+선택형 TCP 입장 상한은 HTTP 전송인 `web/connection_policy.py`·`web/connections.py`가 소유한다. `runtime/args.py`·`config.py`는 양의 수치 또는 생략(`None`)만 전달하고, `server.listen()`이 기존 `Server`·`Server6` 또는 bounded listener를 고른다. 생략 경로의 admission과 thread 시작 실패 동작은 그대로다. 인증이나 기능별 quota와 분리하는 이유는 연결이 신원 판단 전에 생기고 프록시의 연결 하나에 여러 사람의 요청이 실리기 때문이다. 출처: [ADR-0016 D1–D3](../adr/0016-optional-connection-admission.md#d1-생략하면-기존-동작인-명시적-선택).
+
+bounded listener는 worker 생성 전에 리스너별 불투명 owner와 재사용하지 않는 generation의 lease를 예약한다. pending·active·idle keep-alive를 함께 세고 물리적 소켓 정리가 확인된 뒤 정확히 한 번 반환한다. 오래되거나 다른 listener의 token은 새 연결을 해제하지 못한다. 포화 소켓은 HTTP 전에 즉시 닫고 새 worker나 대기 queue를 만들지 않는다. 커널 backlog와 거부 중인 소켓은 admitted 수 밖이다. 실제 `Thread.start()` 전임을 증명한 실패만 정리 뒤 재개하며, 호출 이후 예외는 native launch 여부를 추측하지 않고 입장·pending 진입을 막고 listener를 닫는다. 이미 claimed인 worker의 lease는 자기 정리 또는 프로세스 종료까지 유지하며 부모 close로 먼저 반환하지 않는다. close·진단·coordination의 후속 오류에도 최초 원인을 보존하고 `server.main()`은 기존 runtime 정리 뒤 nonzero로 끝낸다. 출처: [ADR-0016 D2·D4](../adr/0016-optional-connection-admission.md#d2-http-전송이-소켓-수명의-lease를-소유한다).
+
+실패 종료는 불확실한 소유권에서 계속 입장하지 않는 안전성을 위해 같은 실행의 다른 요청·daemon 작업 가용성을 포기한다. runtime은 stop event를 세우고 등록 watcher를 각각 한 번 최대 5초 join한다. 렌더 executor의 interpreter exit join은 더 오래 걸릴 수 있어 전체 종료 SLA가 아니며, 새 drain·self-restart·자식 프로세스 정책·rollback을 더하지 않는다. 핀 파생 파일과 알림의 동시 완료, 중단 빌드 완료, 모든 descendant 회수는 보장하지 않는다. 기본 비활성과 주체별 비용 한도의 공백, 운영 예산 뒤 별도 활성화·옵션 제거 rollback은 [operations.md](operations.md) §선택형 연결 입장 상한이 설명한다. 출처: [ADR-0016 D5](../adr/0016-optional-connection-admission.md#d5-기존-정리-비용을-수용하고-활성화는-따로-결정한다).
+
 각 기능의 `assemble_*()`는 자신의 서비스와 HTTP 경로를 묶은 subsystem을 반환한다. `server.py`의 `ServerAssembly`는 이 결과들을 보관하는 값이며 기능 동작을 대신 수행하지 않는다. `WebApplication`에는 보안 검사, 문서 선택, 경로 등록과 방문 기록 협력자만 전달한다. 뷰어 오류 메시지와 설정도 명시적인 읽기 함수로 받는다. HTTP 처리기가 저장소나 기능 서비스 전체를 찾아 쓰는 구조를 허용하지 않는다.
 
 기능 사이에 오가는 사실은 아래와 같다. 모든 행에서 조립 지점이 공급자의 조회나 콜백을 주입하고, 소비 기능은 공급 기능을 import하지 않는다. 소비자는 공급자의 자료를 재조립하지 않고 필요한 사실을 질의한다. 쓰기·알림·동기화처럼 import 방향과 별개인 실행 연결은 조립 지점이 구체 명령이나 작은 콜백을 넘긴다. 범용 컨테이너나 이벤트 버스는 두지 않는다.

@@ -22,10 +22,10 @@ IPv4·IPv6 리스너는 바인딩한 주소를 서버 이름으로 쓰며, 듣�
 - `pdftotext`
 - `rsync` (있으면 쓴다)
 
-회귀 테스트는 포트를 열지 않고 socketpair로 돈다. 저장소 루트에서 다음처럼 실행한다.
+회귀 테스트는 처리기의 socketpair와 실제 loopback TCP·자식 프로세스를 함께 쓴다. 저장소 루트에서 다음처럼 실행한다. 검사별 도구 요구와 CI 범위는 [verification.md](verification.md)가 정한다.
 
 ```bash
-uv run python3 -m unittest discover -s tests
+uv run pytest -q -rs
 ```
 
 ## 실행 인자
@@ -36,6 +36,7 @@ uv run python3 -m unittest discover -s tests
 | --- | --- |
 | `--manuscript`, `--main`, `--doc` | 원고 루트를 지정한다. `--main`을 생략하면 `\documentclass`가 있는 최상위 `.tex`를 찾고 후보가 모호하면 멈춘다. 여러 문서는 `--doc`을 쓰며 `--main`과 함께 쓰지 않는다(§여러 문서 (`--doc`)) |
 | `--port` | 생략하면 loopback의 18300–18399에서 비어 있는 첫 포트를 고른다. 대역이 다 차거나 명시한 포트가 사용 중이면 멈춘다(§포트 충돌 회피 (강제)) |
+| `--max-connections N` | 양의 정수 N을 주면 리스너별 admitted 연결 수를 제한한다. 생략하면 기존 무제한 입장과 worker 시작 실패 처리를 유지한다. 잘못된 값은 argparse가 리스닝 전에 거부하며 기본 숫자나 별도 숫자 최대값은 없다(§선택형 연결 입장 상한) |
 | `--state-dir` | 기본은 `${XDG_DATA_HOME:-~/.local/share}/limn/serve/<slug>`이고 slug에는 원고 경로의 해시가 들어간다. 서로 다른 원고와 worktree의 상태가 섞이지 않게 한다. 상시 인스턴스의 기본 위치는 [instances.md](instances.md)가 정한다 |
 | `--build-timeout` | `latexmk`는 기본 900초 뒤 프로세스 그룹째 종료하고 빌드를 `fail`로 기록한다 |
 | `--dpi` | 기본 150이다. PDF 벡터 렌더링 전의 첫 화면과 폴백 PNG에 쓰인다([viewer.md](viewer.md) §벡터 렌더링) |
@@ -51,6 +52,18 @@ uv run python3 -m unittest discover -s tests
 `--no-origin-check`는 실제 `tailscale serve`가 예상 밖의 `Host`나 `Origin`을 넘겨 UI 요청이 전부 `403`일 때만 쓴다. MagicDNS 짧은 이름이나 `*.ts.net`이 아닌 사용자 도메인이 그런 경우다.
 
 `--git-pull`의 자동 동기화가 더러운 작업 트리, 분기, 업스트림 없음 같은 이유로 막히면 뷰어 화면에 사유를 표시한다.
+
+### 선택형 연결 입장 상한
+
+`limn serve --max-connections N`은 직접 서버 CLI에서 켜는 선택형 제어다. 운영 수요와 호스트 한도를 재지 않은 설치에 숫자를 강요하지 않도록 기본은 꺼져 있다. N은 양의 정수이며 변환할 수 없거나 0 이하인 값은 시작 전에 사용법 오류로 끝난다. `RunConfig.max_connections`는 생략을 명시적 `None`으로 전달한다. 생략하면 기존 `Server`·`Server6`를 그대로 쓴다. 인스턴스 관리자 키나 서비스 템플릿은 이 옵션을 자동 전개하지 않는다. 출처: [ADR-0016 D1](../adr/0016-optional-connection-admission.md#d1-생략하면-기존-동작인-명시적-선택).
+
+켜면 리스너가 worker 생성 전에 예약한 pending 연결, 요청을 처리하는 active 연결, 다음 요청을 기다리는 idle keep-alive 연결을 모두 센다. 소켓의 물리적 정리가 확인된 뒤에만 자리를 한 번 돌려준다. 리스너별 불투명 owner와 재사용하지 않는 generation이 다른 리스너나 오래된 정리의 잘못된 반환을 막는다. 상한에 찬 새 소켓은 HTTP를 읽거나 worker를 만들거나 기다리지 않고 즉시 EOF 또는 reset으로 닫힌다. HTTP 상태·JSON 오류·새 `reason`은 없으며 프록시가 이를 변환하거나 재시도하는 방식은 Limn의 계약이 아니다. 커널 backlog와 거부 중인 소켓은 admitted 수 밖이라 N은 전체 FD 한도가 아니다. 입장 뒤 신원·역할·본문·오류와 30초 소켓 timeout은 그대로다. 출처: [ADR-0016 D2–D3](../adr/0016-optional-connection-admission.md#d2-http-전송이-소켓-수명의-lease를-소유한다).
+
+실제 `Thread.start()` 호출 전임이 소유 경계에서 증명되고 소켓 정리가 확인된 실패만 자리를 반환하고 입장을 재개한다. 실제 호출 뒤의 모든 시작 예외나 확인할 수 없는 정리는 입장을 막고 listener를 닫으며, 기존 runtime 정리 뒤 프로세스를 0이 아닌 값으로 끝낸다. 예외 종류나 thread 이벤트만으로 native 실행이 없었다고 판단할 수 없기 때문이다. pending worker는 handler 진입을 막고 이미 claimed인 worker의 자리는 자기 정리 또는 프로세스 종료까지 보유한다. 부모가 소켓을 닫았다고 불확실한 자리를 먼저 반환하지 않는다. 후속 close·logging·coordination·정리 오류는 처음 원인을 보존한다. 출처: [ADR-0016 D4](../adr/0016-optional-connection-admission.md#d4-실제-threadstart-호출-이후의-모든-시작-예외는-실패-종료한다).
+
+이 실패 종료는 같은 프로세스의 다른 요청·daemon 빌드·비교 작업을 끊을 수 있다. 정리는 stop event와 등록 watcher별 한 번의 최대 5초 join을 유지한다. 페이지 렌더의 `ThreadPoolExecutor`는 interpreter exit에서 더 오래 기다릴 수 있고 렌더의 기존 timeout은 600초이므로 5초는 전체 종료 SLA가 아니다. 새 drain·self-restart·자식 정리 정책은 없다. 중단된 작업의 완료·rollback·알림 전달·모든 파생 파일의 동시 일관성을 보장하지 않는다. JSONL 뒤 Markdown이 낡은 경우는 기존 시작 복구가 처리한다([domain.md](domain.md) §저장소 안전성). 출처: [ADR-0016 D5](../adr/0016-optional-connection-admission.md#d5-기존-정리-비용을-수용하고-활성화는-따로-결정한다).
+
+활성화는 운영자가 호스트의 FD·thread 한도, 메모리와 다른 프로세스의 여유, 합법적 동시 수요, 프록시 동작, 되돌리기 예산을 확인한 뒤 따로 결정한다. 권장 N은 정하지 않는다. 옵션을 빼고 다시 시작하면 기존 무제한 설정으로 되돌아간다. 이 연결 제어는 기본 비활성이고 주체별 공정성이나 요청·작업 비용을 제한하지 않으므로 완전한 DoS 대책이 아니다. 남은 공백은 [code-style-roadmap.md](code-style-roadmap.md) §경계 집행과 검증의 한계, 검사 범위는 [verification.md](verification.md) §선택형 연결 입장과 실패 종료가 설명한다.
 
 ### 접근 제어 인자
 

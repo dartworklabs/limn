@@ -19,6 +19,7 @@
 | [ADR-0013](0013-confirm-binds-shown-close.md) | [확인]은 사람이 본 닫기에만 묶인다 | `POST /api/pins/{id}/confirm`이 사람이 본 닫기의 `done_at`을 선택 필드로 받아, 지금 닫기가 아니면 `409 conflict`로 거절하고 아무것도 쓰지 않는다 | 승인됨 | — | — |
 | [ADR-0014](0014-two-commit-comparison.md) | 두 커밋 비교 — 선택 필드 base와 문서 이력 창 | 변경 보기의 세 경로가 선택 `base`로 두 커밋 사이를 비교하고, 고를 수 있는 커밋을 문서 이력 최근 500개로 넓히며, 범위의 비교 PDF는 따로 센 캐시 넷까지 둔다 | 승인됨 | 명료화: [ADR-0005](0005-pin-scoped-changes.md)의 "비교는 커밋 하나" 전제 — 변경 보기는 두 커밋 사이도 비교하고 핀 단위 보기는 커밋 하나에만 남는다 | — |
 | [ADR-0015](0015-d6-measured.md) | 그림 pick 임계값 D6을 실측으로 확정한다 — cover 0.4, fill 0.5 | 실제 그림 지도(개념도 22장)에 본뜬 드래그 59,492개를 얹어 재어, D6을 `cover ≥ 0.4`, `fill ≥ 0.5`로 정한다 | 승인됨 | 명료화: [ADR-0011](0011-figure-documents.md) D6 — 잠정값 `cover ≥ 0.6`, `fill ≥ 0.5`의 실측 조정 결과 | — |
+| [ADR-0016](0016-optional-connection-admission.md) | 선택형 연결 입장 상한과 불확실한 worker 시작의 실패 종료 | 명시한 리스너만 연결 lease 상한을 집행하고 실제 Thread.start 호출 이후 시작 예외는 입장을 막고 기존 정리 뒤 실패 종료한다 | 승인됨 | — | — |
 
 ## 읽는 법
 

@@ -15,6 +15,17 @@ from limn.runtime.startup import LABEL_MAX
 from limn.security.access import AUTH_PROVIDERS
 
 
+def positive_connections(raw: str) -> int:
+    """Parse a positive connection cap; conversion failures are argparse usage errors with no numeric maximum."""
+    try:
+        value = int(raw)
+    except (ValueError, OverflowError) as error:
+        raise argparse.ArgumentTypeError("must be a positive integer") from error
+    if value <= 0:
+        raise argparse.ArgumentTypeError("must be a positive integer")
+    return value
+
+
 def serve_parser(description: str, version: str, default_envs: str) -> argparse.ArgumentParser:
     """The `limn serve` argument parser: description is the help's first line, version what --version prints,
     default_envs the --float-envs default. Defaults that come from the environment (LIMN_AGENT_TOKEN_FILE) are read
@@ -36,6 +47,14 @@ def serve_parser(description: str, version: str, default_envs: str) -> argparse.
         "If omitted, a single document (key main) built from --manuscript/--main",
     )
     ap.add_argument("--port", type=int, help="Picks a free port in 18300-18400 if omitted")
+    ap.add_argument(
+        "--max-connections",
+        type=positive_connections,
+        default=None,
+        metavar="N",
+        help="Maximum admitted live connections for this listener (positive integer; omitted: unlimited). "
+        "Counts active and idle keep-alive connections; excess sockets close before HTTP parsing",
+    )
     ap.add_argument("--state-dir", help="Location of pins and build artifacts")
     ap.add_argument("--dpi", type=int, default=150)
     ap.add_argument("--float-envs", default=default_envs)
