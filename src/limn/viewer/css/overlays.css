@@ -55,6 +55,7 @@ button.pl-row.on{background:var(--accent);font-weight:600}
 button.dp-row{grid-column:1/-1;display:grid;grid-template-columns:subgrid;column-gap:var(--space-2);align-items:center;height:var(--row-h-sm);padding:0;
   border:0;border-radius:var(--radius);background:transparent;color:var(--foreground);text-align:left;font-size:var(--text-sm);white-space:nowrap}
 button.dp-row.on{background:var(--accent);font-weight:600}
+button.dp-row:focus-visible{outline-offset:-2px}   /* inside the row: the list scrolls and clips what passes its sides */
 @media (hover:hover){button.dp-row:hover{background:var(--accent)}}
 .dp-row .dp-c{grid-column:2;display:flex;align-items:center}
 .dp-row .dp-c .ic{width:16px;height:16px;color:var(--primary)}

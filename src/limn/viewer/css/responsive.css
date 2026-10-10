@@ -639,7 +639,7 @@ body.lay-mid:not(.band-short) #bar1 .sp{display:none}
 #status-slot #status .st-tx{flex:0 1 auto}
 #status-slot #status button{height:var(--tb-h)}
 /* short: the short text in the top row, between the view switch and the page count, its action drawn at 40px (44px hit). */
-body.band-short #doc-nav #status{flex:none;position:relative;align-self:stretch}
+body.band-short #doc-nav #status{flex:0 1 auto;position:relative;align-self:stretch}   /* gives way last: its words shorten only once the document row is down to its icon (docFit) */
 @media (pointer:coarse){body.band-short #doc-nav #status button{min-height:0;height:var(--ctl-touch);position:relative;overflow:visible}
   body.band-short #doc-nav #status button::after{content:'';position:absolute;left:50%;top:50%;width:max(100%,var(--hit));height:var(--hit);transform:translate(-50%,-50%)}}
 /* The '+N' list: every state as a 44px row with its action, a modal sheet over the line (under the top row in the short band). */

@@ -41,22 +41,39 @@ body:not(.lay-narrow) #doc-nav,body.band-tablet-sheet #doc-nav{display:flex}   /
 #paper-identity>span:last-child{overflow:hidden;text-overflow:ellipsis}
 body.lay-narrow #paper-identity{display:none}
 #doc-select-wrap{display:none;align-items:center;gap:var(--space-2);min-width:0}
-#doc-links{display:none;align-items:stretch;min-width:0;height:100%;gap:var(--space-5);overflow-x:clip}   /* whole links only, never scrolled (docFit); the nav bar's gap before the line after it, its padding after: 12 and 12 */
+/* Whole links only, never squeezed (docFit): the row's least width is its content's, so below its least step the bar's
+   neighbours give way, and it never scrolls sideways. It stays a scroll box (overflow-x:auto, no scrollbar), as it has always
+   been, only for how it is painted: it clips the lower half of the current link's 2px bar, which reaches 1px under it, and
+   Chromium draws the text of a scroll box with something to clip in a layer of its own - a clipping box (overflow:clip) drew
+   one glyph pixel of the first link 1/255 off in the dark theme. The nav bar's gap before the line after it, its padding after:
+   12 and 12. */
+#doc-links{display:none;align-items:stretch;min-width:min-content;height:100%;gap:var(--space-5);overflow-x:auto;scrollbar-width:none}
+#doc-links::-webkit-scrollbar{display:none}
 #doc-links button{flex:none}
 body.docs-multi:not(.lay-narrow) #doc-links,body.docs-multi.band-tablet-sheet #doc-links{display:flex}
 #doc-links button{position:relative;border:0;border-radius:0;background:transparent;color:var(--muted-foreground);padding:0 2px;font-size:var(--text-sm);white-space:nowrap}
 #doc-links button[aria-current=page]{color:var(--foreground);font-weight:600}
-#doc-links button[aria-current=page]::after{content:'';position:absolute;bottom:0;left:0;right:0;height:1px;background:var(--brand)}   /* 1px on the row's last pixel row: the row clips sideways only, so a bar reaching below it would show there; the view tabs' bar is 2px */
+#doc-links button[aria-current=page]::after{content:'';position:absolute;bottom:-1px;left:0;right:0;height:2px;background:var(--brand)}
 #doc-links button:focus-visible{color:var(--foreground)}
+/* The row's and the view tabs' rings stand inside the button: the links fill the band and the row clips sideways, so a ring
+   outside them was cut by the row and ran past the bar's line. */
+:is(#doc-links,#view-switch) button:focus-visible{outline-offset:-2px}
 @media (hover:hover){#doc-links button:hover{color:var(--foreground)}}
 #doc-links .doc-link-count{font-size:var(--text-xs);color:var(--subtle-foreground);margin-left:var(--space-1)}
 #doc-links button[aria-current=page] .doc-link-count{color:var(--muted-foreground)}   /* label-colored text measured 2.8 contrast in dark (QA) - the current document's underline bar already carries the label color */
 /* [+N] after the last link shown when some do not fit (docFit, docs/handbook/viewer.md §문서 링크가 넘칠 때): the links' text
    size and colour, its "+N" trimmed to the cap height as theirs and centred on the band with the chevron; a ghost drawn at the
-   row's control height - 28px, 36px on touch with a 44px hit (.hit) - filled while its popover is open. */
+   row's control height - 28px, 36px on touch with a 44px hit (.hit) - filled while its popover is open. The same button is the
+   row's chooser when not even one link and [+N] fit: the current document's name in its weight and colour, shortened to an
+   ellipsis (data-fit=name), or the files icon (data-fit=icon). */
 #doc-links #doc-more{display:inline-flex;align-items:center;gap:var(--space-1);align-self:center;height:var(--control-h);padding:0 var(--space-1) 0 var(--space-2);
   border-radius:var(--radius)}
 #doc-links #doc-more .ic{width:16px;height:16px}
+#doc-more .dm-files{display:none}
+#doc-more[data-fit=icon] .dm-files{display:inline-flex}
+#doc-more[data-fit=icon] .lbl{display:none}
+#doc-links #doc-more[data-fit=name]{color:var(--foreground);font-weight:600}
+#doc-more[data-fit=name] .lbl{min-width:0;overflow:hidden;text-overflow:ellipsis;padding-block:var(--space-1)}   /* the padding keeps the ink past the cap height inside the box that clips the ellipsis */
 #doc-links #doc-more[aria-expanded=true]{background:var(--accent);color:var(--foreground)}
 @media (hover:hover){#doc-links #doc-more:hover{background:var(--accent)}}
 #doc-select-wrap label{color:var(--muted-foreground);font-size:var(--text-sm)}
