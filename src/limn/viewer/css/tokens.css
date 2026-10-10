@@ -17,6 +17,7 @@
   --status-review:#b197fc;--status-review-foreground:#1e1033;
   --tooltip:#09090b;--tooltip-foreground:#fafafa;
   --shadow-color:#00000088;--shadow-page:0 2px 18px var(--shadow-color);
+  --search-hit:#f2c200;--search-hit-current:#f76707;   /* a search hit's wash and the current hit's: on the page, paper in both themes, so both blocks agree */
   --mark-tile:var(--limn-ink);--mark-stroke:var(--limn-cream)}
 :root[data-theme=light]{color-scheme:light;
   --background:#e4e4e7;--foreground:#09090b;
@@ -31,6 +32,7 @@
   --status-review:#6d28d9;--status-review-foreground:#ffffff;
   --tooltip:#18181b;--tooltip-foreground:#fafafa;
   --shadow-color:#00000022;--shadow-page:0 1px 6px var(--shadow-color);
+  --search-hit:#f2c200;--search-hit-current:#f76707;
   --mark-tile:var(--limn-bone);--mark-stroke:var(--limn-ink)}
 /* Theme-independent scales: radius in 3 steps (only circular dots/avatars use 50%), text in 5 steps, spacing in
    6 steps, control heights. --edge is the compact layout's edge line (docs/handbook/viewer.md §모바일 레이아웃): the fitted page's
@@ -52,10 +54,18 @@
   --ic-bearing:2.67px;   /* a 16px Lucide glyph's ink starts 4/24 in (2px stroke): the optical corrections at a row's ends */
   --grabber:color-mix(in srgb,var(--foreground) 50%,transparent);
   --control-h-sm:24px;--control-h:28px;--control-h-lg:36px;--control-h-touch:44px;--hit:44px;--ctl-touch-sm:36px;--ctl-touch:40px;
+  --line-label:round(1.4em,2px);   /* a control label's line box: 1.4 of its text to the nearest even px, so a control's height is whole px and its label's box starts on one */
+  --line-field:round(1.55em,2px);   /* a one-line text field's line box: the body's 1.55 to the nearest even px, so the field and what follows it stand on whole px */
   --row-h:48px;--row-h-touch:56px;   /* a two-line list row (the changes view's commit list): subject + author line, a touch row taller */
+  /* The nav bar's search field (search.css): ten 24px steps wide, the outline column's width; under ten 20px steps it folds to
+     its magnifier; its width while it is open (touch widens it) and the least width of the query it shows then - about six
+     Hangul letters at the field's 12px (touch: seven at 16px) - which a long count widens the open field to keep. */
+  --search-w:240px;--search-min:200px;--search-open:240px;--search-q-min:80px;
   --pin-badge-size:22px;   /* native mark buttons retain the existing round badge geometry; touch changes this to 26px */
+  --mark-hit:24px;   /* a mark badge's press area with a mouse (WCAG 2.5.8); touch changes this to --hit */
   --foot-word:16px;   /* [더보기]'s foot wordmark height (the owner's pick); its x-height reads about 1.7 times the version's */
   --shadow-xs:0 1px 2px var(--shadow-color);   /* a segmented control's thumb: 3px of reach, inside the track's 4px inset */
   --shadow-sm:0 1px 4px var(--shadow-color);--shadow:0 4px 16px var(--shadow-color);--shadow-lg:0 6px 24px var(--shadow-color);
   --font-sans:"Pretendard Variable",-apple-system,BlinkMacSystemFont,"Pretendard","Noto Sans KR",sans-serif;
   --font-mono:"JetBrains Mono",ui-monospace,monospace}
+@supports not (line-height:round(1.4em,2px)){:root{--line-label:1.4;--line-field:1.55}}   /* without round(): the plain ratios; control heights still come from their tokens */

@@ -28,7 +28,7 @@ class RepickRequestLifetime(unittest.TestCase):
                 const els={'#composer':{hidden:true},'#banner':{hidden:true}};
                 function $(s){return els[s]||(els[s]={hidden:true});}
                 let busy=false,clears=0; function setBusy(on){busy=on;} function banner(){} function setSelMode(){} function setSide(){}
-                function saveView(){} function parkDraft(){} function openDraftDoc(){} function restoreDraft(){}
+                function saveView(){} function searchLeave(){} function parkDraft(){} function openDraftDoc(){} function restoreDraft(){}
                 function savePrefs(){} function setHash(){} function hideTip(){}
                 function showDoc(){} function editDirty(){return false;}
                 function docInfo(k){return k==='other';}

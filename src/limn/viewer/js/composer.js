@@ -86,14 +86,18 @@ function overlapText(rel,id){const k={equal:'열린 핀 #{id}{p} 같은 범위�
 // relationship, and reset on a fresh drag (pick) - prevents a regression where one press permanently silenced it for every later selection.
 
 function recomputeOverlap(){if(COMPOSE.current)COMPOSE.current.overlaps=overlapsFor(COMPOSE.current,PINS);}
+// The open pin the composer's note may join instead of becoming a pin: the overlap its notice offers [덧붙이기] for - or
+// null without one, and once the author chose [따로 저장] for it.
+/** @returns {{id:number,lo:number,hi:number,rel:string}|null} */
+function appendTarget(){const d=COMPOSE.current,ov=d?pickOverlap(d.overlaps):null; return ov&&COMPOSE.dismissedOverlap!==ov.id+':'+ov.rel?ov:null;}
 // Draws the overlap notice for the current selection, or hides it. On the phone sheet it is one line (diagnosis P2: three lines
 // took 72px above the note): the short relation ('#4와 같은 범위', the full sentence and the lines in its tooltip) and the two
 // actions with short names; elsewhere the sentence with the lines and the two full-named buttons.
-/** Render the current overlap choice; its append control shares the composer's in-flight submission lock. */
+/** Render the current overlap choice; its append control shares the composer's in-flight submission lock. The assignee
+ *  row and the preview line follow it (renderAssignNew): while an append is on offer they say what it does. */
 function renderOverlapBanner(){
-  const box=$('#c-overlap'); const d=COMPOSE.current;
-  const ov=d?pickOverlap(d.overlaps):null;
-  if(!ov||COMPOSE.dismissedOverlap===ov.id+':'+ov.rel){box.hidden=true;return;}
+  const box=$('#c-overlap'),ov=appendTarget();
+  if(!ov){box.hidden=true; renderAssignNew(); return;}
   box.hidden=false; box.dataset.rel=ov.rel;
   const one=LAYOUT===LAYOUT_MODE.NARROW,full=overlapText(ov.rel,ov.id)+' (L'+ov.lo+'-L'+ov.hi+')';
   box.classList.toggle('one',one);
@@ -103,6 +107,7 @@ function renderOverlapBanner(){
   setHtml(box,html`${text}\
 <button class="btn-sm btn-secondary hit" data-act="overlap-append" data-oid="${ov.id}" data-tip="${appendTip}"${COMPOSE.saving?html` disabled`:''}>${one?tr('덧붙이기'):tl('#{id} 메모에 덧붙이기',{id:ov.id})}</button>\
 <button class="btn-sm btn-secondary hit" data-act="overlap-separate" data-key="${ov.id+':'+ov.rel}" data-tip="겹쳐도 별도 핀으로 저장합니다">${one?tr('따로 저장'):'별도 핀으로 저장'}</button>`);
+  renderAssignNew();
 }
 // The overlap in a few words for the one-line notice: '#4와 같은 범위' - '#4 범위 안' - '#4를 감쌈' - '#4와 일부 겹침' (the card badges' wording).
 function overlapShort(rel,id){const k={equal:'#{id}{p} 같은 범위',inside:'#{id} 범위 안',contains:'#{id}{p} 감쌈',partial:'#{id}{p} 일부 겹침'}[rel]||'#{id}{p} 일부 겹침';
@@ -176,9 +181,10 @@ function drawComposerQuote(d){const el=$('#c-quote'),q=shownQuote(d,META?META.ki
   if(open)delete el.dataset.tip; else el.dataset.tip=q;}
 // When a selection ends via save/cancel/append, selection mode is turned off (scrolling resumes) and the narrow sheet collapses (the body comes forward again).
 // The composer panel's pin kind (fix request / question). Reverts to fix request on save or discard (the default for the next pin).
+// The kind says what the note is, not who handles it: the assignee does not follow it (mentions.js).
 function setKind(k){KIND_NEW=k===KIND_REQ.QUESTION?KIND_REQ.QUESTION:KIND_REQ.FIX; saveDraftSoon();
   $$('#c-kind button').forEach(b=>{const on=b.dataset.kind===KIND_NEW; b.classList.toggle('on',on); b.setAttribute('aria-checked',String(on));});
-  $('#note').placeholder=KIND_NEW===KIND_REQ.QUESTION?'무엇이 궁금한지 적어 주세요':'메모: 여기를 어떻게 고칠지 (비워도 됩니다)'; renderAssignNew(); qHint($('#c-qhint'),$('#note').value,KIND_NEW);}
+  $('#note').placeholder=KIND_NEW===KIND_REQ.QUESTION?'무엇이 궁금한지 적어 주세요':'메모: 여기를 어떻게 고칠지 (비워도 됩니다)'; qHint($('#c-qhint'),$('#note').value,KIND_NEW);}
 // A note that reads like a question (docs/handbook/viewer.md §스레드와 검토 - suggesting the kind). True if it ends in ?/? or a
 // Korean interrogative ending (는가/나요/까요/인가/건가/니/냐/까). A trailing period/ellipsis/closing bracket/quote and a
 // trailing @-tag (e.g. '맞나요? @Bob Park') are ignored. Only judges - never changes the kind itself.
@@ -192,7 +198,7 @@ function qHint(box,text,kind){if(box)box.hidden=kind===KIND_REQ.QUESTION||!looks
 // Drops the current selection and its box (clearNote also empties the note, kind and assignee). No undo here -
 // discardSelection() is the user's Esc/[취소], which offers one.
 function cancelSelection(clearNote){if(REPICK)cancelRepick(); closeSelPop(); COMPOSE.current=null; PICKSEQ++; COMPOSE.picking=false; clearPendingSave(); if(COMPOSE.box){COMPOSE.box.remove();COMPOSE.box=null;} saveDraftSoon();
-  COMPOSE.dismissedOverlap=null; setBusy(false); $('#composer').hidden=true; if(clearNote){$('#note').value=''; $('#note')._mentions=null; ASSIGN_NEW.touched=false; mentionPreview($('#note')); setKind(KIND_REQ.FIX);}
+  COMPOSE.dismissedOverlap=null; setBusy(false); $('#composer').hidden=true; if(clearNote){$('#note').value=''; $('#note')._mentions=null; ASSIGN_NEW.touched=false; renderAssignNew(); setKind(KIND_REQ.FIX);}
   if(!REPICK)setSelMode(false); if(LAYOUT===LAYOUT_MODE.NARROW&&!EDITOR.current)setSide(false); applySide();}
 // What a discarded or saved selection needs to come back (restoreSelection): the pick (COMPOSE.current), its box on the page, the note with its
 // @-tag hints, the kind and the assignee choice, and the document/build the box belongs to. null when there is no selection.
@@ -206,7 +212,7 @@ function selectionSnapshot(){if(!COMPOSE.current&&!COMPOSE.picking&&$('#composer
 function restoreSelection(snap){if(!snap||COMPOSE.current||COMPOSE.picking||REPICK||!$('#composer').hidden)return false;
   const n=$('#note'); if(n.value)return false;   // a note-only draft also belongs to the current document
   n.value=snap.note; n._mentions=snap.mentions; setKind(snap.kind); Object.assign(ASSIGN_NEW,snap.assign);
-  renderAssignNew(); mentionPreview(n); autoGrow(n);
+  renderAssignNew(); autoGrow(n);
   if(!(snap.cur&&snap.doc===DOC&&META&&snap.build===META.pages_build)){lineNote('메모만 되살렸습니다 — PDF가 바뀌어 자리를 다시 골라야 합니다',NOTICE_KIND.WARN); return true;}
   if(COMPOSE.box)COMPOSE.box.remove(); COMPOSE.box=null;
   if(snap.box&&snap.page&&document.contains(snap.page)){COMPOSE.box=snap.box; snap.page.appendChild(snap.box);}

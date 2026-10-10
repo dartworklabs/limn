@@ -55,6 +55,8 @@ document.addEventListener('click',e=>{const target=/** @type {HTMLElement} */(e.
     case 'nav-sheet':openNavSheet();break; case 'nav-sheet-close':$('#nav-sheet').close();break;
     case 'ns-go':navGo();break; case 'page-list':togglePageList(a);break; case 'page-go':goListedPage(Number(a.dataset.page));break;
     case 'view-mode':setViewMode(a.dataset.mode);break;
+    case 'search-open':searchOpen();break; case 'search-close':searchClose(true);break;   // the magnifier (and the phone's navigation-sheet row), [검색 닫기]
+    case 'search-prev':searchGo(-1);break; case 'search-next':searchGo(1);break;
     case 'rev-back':revBack();break;
     case 'outline':toggleOutline();break;
     case 'outline-page':if(outlineOverlay()&&OUTLINE_MID_OPEN)toggleOutline();OUTLINE_SELECTED=Number(a.dataset.index);OUTLINE_ACTIVE_PAGE=Number(a.dataset.page);OUTLINE_PINNED={index:OUTLINE_SELECTED,page:OUTLINE_ACTIVE_PAGE};renderOutline();updateSectionStrip();setViewMode('manuscript');goPage(a.dataset.page);break;

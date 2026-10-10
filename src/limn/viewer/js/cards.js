@@ -40,13 +40,21 @@ function card(p){
   if(rv)tags.unshift(html`<span class="badge badge-review" data-tip="${tr(T.review)+' · '+tl('닫은 쪽: {name}',{name:who(p.closed_by)||'?'})+' · '+(p.done_at||'')}">${ic('eye')}${reviewerLabel(p)}</span>`);
   const ro=!rv&&reopenedTurn(p);
   if(ro)tags.unshift(html`<span class="badge badge-reopen" data-tip="${tl('검토에서 되돌아온 핀 — {name} · {time}',{name:who(ro.by)||'?',time:arcTime(ro.at)})+(ro.text?' · '+tl('이유: {text}',{text:ro.text}):'')}">${ic('rotate-ccw')}다시 열림</span>`);
-  const lost=!!(p.stale||lostEl),metadata=cardMetadata(p,rv?'검토 대기':lost?'위치 잃음':claimed?'처리 중':'열림',!!(rv||lost||claimed||ro));
+  // The one status word of the facts line: what the dot says, and '다시 열림' for an open pin back from review (the dot is the open one's).
+  // The assignee is a button only under a mouse, whose 24px hit fits the line. On touch it is text, folded and open alike, and is
+  // changed through [수정]: a 44px hit has no room there - in a folded card it lay over the note's preview, where a tap means
+  // "unfold" and instead opened the editor and raised the keyboard; in an open card the note right over it and [수정] right
+  // under it open the same editor. Never a button while the card is being edited.
+  const pressable=!editing&&!MQ_COARSE.matches;
+  const lost=!!(p.stale||lostEl),metadata=cardMetadata(p,rv?'검토 대기':lost?'위치 잃음':claimed?'처리 중':ro?'다시 열림':'열림',pressable);
   // compact's head link (CSS shows it in place of #N, the line range and N쪽, diagnosis P6/U5): one 44px target that does what
   // [보기] does - the same data-act, so it also replaces the row's [보기] there.
   const page=tl('{page}쪽',{page:pinPlace(p).page});
-  const go=html`<span class="go-all" role="button" tabindex="0" data-act="view" data-tip="${T.view}">#${p.id} · ${locText(p)} · ${page}</span>`;
+  // Its words and the reply count are in .lbl: compact trims them to their cap height, so the head row's dot, words, count and
+  // chevron share one centre in any font.
+  const go=html`<span class="go-all" role="button" tabindex="0" data-act="view" data-tip="${T.view}"><span class="lbl">#${p.id} · ${locText(p)} · ${page}</span></span>`;
   const nr=replyCount(p);
-  const thn=nr?html`<span class="th-n" role="button" tabindex="0" data-act="reply-open" aria-label="${tl('답글 {n}건 — 답글 쓰기',{n:nr})}" data-tip="${tl('이 핀의 답글 {n}건 — 누르면 카드를 펴고 답글 칸을 엽니다',{n:nr})}">${ic('message-square')}${nr}</span>`:'';
+  const thn=nr?html`<span class="th-n" role="button" tabindex="0" data-act="reply-open" aria-label="${tl('답글 {n}건 — 답글 쓰기',{n:nr})}" data-tip="${tl('이 핀의 답글 {n}건 — 누르면 카드를 펴고 답글 칸을 엽니다',{n:nr})}">${ic('message-square')}<span class="lbl">${nr}</span></span>`:'';
   const dot=stDot(rv?CARD_DOT.REVIEW:p.stale||elLost(p)?CARD_DOT.LOST:claimed?CARD_DOT.CLAIMED:CARD_DOT.OPEN),unfold=open||(!rv&&editing);
   const head=html`<div class="row head">${dot}${go}<span class="n go" role="button" tabindex="0" data-act="view" data-tip="${T.n}">#${p.id}</span>${docChip(p)}\
 <span class="loc" tabindex="0" data-copy="${isRegion(p)?locCopy(p):name+' '+loc}" data-tip="${isRegion(p)?'영역이 있는 PDF 쪽. 클릭하면 복사':T.loc}">${locText(p)}</span>\

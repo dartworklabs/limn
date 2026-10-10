@@ -153,7 +153,9 @@ class SaveIntegrity(BrowserBase):
         self.assertEqual((pin["lo"], pin["hi"]), (5, 5))
 
     def test_edit_resaves_later_mention_choice_when_the_note_text_is_unchanged(self):
-        """An ambiguous autocomplete choice made during save remains dirty even when its visible text is identical."""
+        """An ambiguous autocomplete choice made during save remains dirty even when its visible text is identical. The
+        second choice replaced the text that held the first tag, so its hint went with it (docs/handbook/viewer.md §담당:
+        a hint belongs to its one '@name'): the saved hints are the second choice's alone."""
         for person in (BOB, CAROL):
             ps.APP.people_directory.record(actor({**person, "Tailscale-User-Name": "Shared Reviewer"}))
         page = self.open(1)
@@ -174,7 +176,7 @@ class SaveIntegrity(BrowserBase):
         page.wait_for_function("EDITOR.current===null&&!EDITOR.saving", timeout=8000)
         pin = find_record(ps.APP.snapshot_pins(), self.pid)
         self.assertEqual(pin["note"], submitted)
-        self.assertEqual(pin["mentions"], ["bob@example.com", "carol@example.com"])
+        self.assertEqual(pin["mentions"], ["carol@example.com"])
 
     def test_opening_an_unchanged_alias_mention_does_not_write_a_new_revision(self):
         """Persisted recipients from a typed alias do not invent an unsaved autocomplete hint on opening."""

@@ -56,7 +56,7 @@
     },
     {
       "file": "responsive.css",
-      "selector": "body.mid-overlay.side-open.composing #left",
+      "selector": "body.mid-overlay.side-open:is(.composing,.searching) #left",
       "property": "padding-right",
       "value": "330px",
       "reason": "The fallback of the panel width JS measures (--side-w) before its first measurement."

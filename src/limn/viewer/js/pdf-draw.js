@@ -2,7 +2,7 @@
 function vecClose(doc){if(!doc)return; try{doc.loadingTask.destroy();}catch(e){}}
 function vecFail(msg,err){
   VEC.failed=msg; VEC.gen++; vecCancel(); vecReleaseAll();
-  vecForget(VEC.doc); vecClose(VEC.doc); VEC.doc=null;
+  vecForget(VEC.doc); vecClose(VEC.doc); VEC.doc=null; searchOffer();   // no PDF to read: no search
   const c=$('#vec-chip'); c.hidden=false;
   c.dataset.tip=tl('PDF를 벡터로 그리지 못해 이미지(PNG)로 보입니다 — {reason}. 확대하면 흐릴 수 있습니다',{reason:tr(msg)+(err&&err.message?' ('+String(err.message).slice(0,100)+')':'')});
 }

@@ -69,15 +69,30 @@ body.outline-collapsed #outline-items,body.outline-collapsed #outline-search,bod
 #nav-toc-toggle[aria-expanded=true]{background:var(--accent);color:var(--foreground)}
 #outline-search{width:100%;margin-bottom:var(--space-2);background:var(--field);font-size:var(--text-sm)}
 #outline .outline-empty{color:var(--muted-foreground);padding:var(--space-2)}
-#outline-items{display:flex;flex-direction:column;gap:var(--space-1)}
-#outline-items button{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:var(--space-1);align-items:start;width:100%;text-align:left;
-  background:transparent;border:0;color:var(--muted-foreground);padding:var(--space-1);font-size:var(--text-sm)}
-#outline-items button .ol-name{overflow-wrap:anywhere}
+/* The outline's rows - the panel's, the overlay's and the navigation sheet's (#ns-outline-items, responsive.css) - share one
+   set of columns (docs/handbook/viewer.md §모바일 레이아웃, 목차 행): a number column per depth, the title, the page.
+   A row is a subgrid of its list, so the numbers of one depth start on one edge and their titles on the next column's - as a
+   grid of its own a row started its title after its own number's width (1.1 and 2.3 are not as wide). A depth's numbers
+   stand under the titles of the depth above; an unnumbered depth keeps 12px. The number, the title's first line and the page
+   share a baseline, and a row taller than its lines (44px on touch) centres them. */
+:is(#outline-items,#ns-outline-items){display:grid;grid-template-columns:repeat(4,minmax(var(--space-3),auto)) minmax(0,1fr) auto;gap:var(--space-1)}
+:is(#outline-items,#ns-outline-items).outline-empty{display:block}
+:is(#outline-items,#ns-outline-items) button{display:grid;grid-column:1/-1;grid-template-columns:subgrid;gap:normal;   /* its list's gap, not a button's */
+  align-items:baseline;align-content:center;text-align:left;background:transparent;border:0}
+:is(#outline-items,#ns-outline-items) .ol-no{grid-column:1}
+:is(#outline-items,#ns-outline-items) .ol-name{grid-column:2/6;overflow-wrap:anywhere}
+:is(#outline-items,#ns-outline-items) .ol-depth-1>.ol-no{grid-column:2}
+:is(#outline-items,#ns-outline-items) .ol-depth-1>.ol-name{grid-column:3/6}
+:is(#outline-items,#ns-outline-items) .ol-depth-2>.ol-no{grid-column:3}
+:is(#outline-items,#ns-outline-items) .ol-depth-2>.ol-name{grid-column:4/6}
+:is(#outline-items,#ns-outline-items) :is(.ol-depth-3,.ol-depth-4)>.ol-no{grid-column:4}
+:is(#outline-items,#ns-outline-items) :is(.ol-depth-3,.ol-depth-4)>.ol-name{grid-column:5/6}
+/* The page label is smaller than the title: its box is its own em, so on the title's baseline it stays inside the title's line
+   and adds nothing to the row's height (as a line box of the title's height it hung 0.3px under it). */
+:is(#outline-items,#ns-outline-items) .ol-page{grid-column:6;justify-self:end;white-space:nowrap;line-height:1}
+#outline-items button{min-height:var(--control-h-sm);color:var(--muted-foreground);padding:var(--space-1);font-size:var(--text-sm)}
 #outline-items button.ol-depth-0 .ol-name,#outline-items button.ol-depth-0 .ol-no{font-weight:600;color:var(--foreground)}
-#outline-items button .ol-page{color:var(--subtle-foreground);white-space:nowrap;font-size:var(--text-xs)}
-#outline-items button.ol-depth-1{padding-left:var(--space-4)}
-#outline-items button.ol-depth-2{padding-left:var(--space-5)}
-#outline-items button.ol-depth-3,#outline-items button.ol-depth-4{padding-left:var(--space-6)}
+#outline-items button .ol-page{color:var(--subtle-foreground);font-size:var(--text-xs)}
 #outline-items button.ol-active{background:var(--accent);color:var(--foreground)}
 #outline-items button:focus-visible{background:var(--accent);color:var(--foreground)}
 @media (hover:hover){#outline-items button:hover{background:var(--accent);color:var(--foreground)}}

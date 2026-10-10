@@ -16,6 +16,7 @@ page state announces (docs/handbook/verification.md §브라우저 테스트의 
 
 import json
 import os
+import re
 import shutil
 import tempfile
 import unittest
@@ -78,6 +79,126 @@ QUIET = """() => {
 }"""
 
 
+# ---------------------------------------------------------------- layout probes shared by the browser test files
+# Every visible element matching the selector whose tap area is under 44px wide or high, as "name WxH(hit wxh)": from its
+# centre, the px that still answer it going left/right/up/down (each side counted to 60px), as the diagnosis measured them - the
+# touch twin of DesktopMisc's 24px probe. A hit area may sit off-centre (the sheet's tool bar reaches only downwards).
+MISSES_44 = """sel => {
+  const out = [];
+  const own = (e, x, y) => { if (x < 0 || y < 0 || x >= innerWidth || y >= innerHeight) return false;
+    const h = document.elementFromPoint(x, y); return !!h && (h === e || e.contains(h)); };
+  for (const e of document.querySelectorAll(sel)) {
+    const r = e.getBoundingClientRect(); if (!r.width || !r.height || getComputedStyle(e).visibility === 'hidden') continue;
+    if (r.top < 0 || r.bottom > innerHeight || r.left < 0 || r.right > innerWidth) continue;
+    const cx = r.left + r.width / 2, cy = r.top + r.height / 2; let l = 0, ri = 0, u = 0, d = 0;
+    if (own(e, cx, cy)) { while (l < 60 && own(e, cx - l - 1, cy)) l++; while (ri < 60 && own(e, cx + ri + 1, cy)) ri++;
+      while (u < 60 && own(e, cx, cy - u - 1)) u++; while (d < 60 && own(e, cx, cy + d + 1)) d++; }
+    const w = l + ri + 1, h = u + d + 1;
+    if (w < 44 || h < 44) out.push((e.id ? '#' + e.id : e.className) + ' ' + Math.round(r.width) + 'x' + Math.round(r.height) + '(hit ' + w + 'x' + h + ')');
+  }
+  return out; }"""
+# The mouse twin of MISSES_44 (WCAG 2.5.8): every visible element matching the selector that does not answer a click 11.5px
+# left, right, over and under its centre, as "class text".
+MISSES_24 = """sel => [...document.querySelectorAll(sel)].filter(e => {const r = e.getBoundingClientRect();
+  if (!r.width || !r.height) return false; const cx = r.left + r.width / 2, cy = r.top + r.height / 2;
+  return ![[-11.5, 0], [11.5, 0], [0, -11.5], [0, 11.5]].every(([dx, dy]) => {const h = document.elementFromPoint(cx + dx, cy + dy);
+    return !!h && (h === e || e.contains(h));});}).map(e => e.className + ' ' + e.textContent.trim())"""
+# Every visible segmented control under root, as drawn: its drawn track (a ladder's .lad-t, else the .seg itself), the track's
+# height and radius, the selected thumb's insets from the track (top, bottom) and the end segments' (left, right), the thumb's
+# radius, and its shadow's reach below it (y offset + blur, px).
+SEGMENTS = """root => [...document.querySelectorAll(root + ' .seg')].filter(s => s.getClientRects().length).map(s => {
+  const t = s.querySelector(':scope>.lad-t') || s, T = t.getBoundingClientRect(), bs = [...t.querySelectorAll(':scope>button')];
+  const on = t.querySelector(':scope>button.on') || bs[0], O = on.getBoundingClientRect(), cs = getComputedStyle(on);
+  const sh = cs.boxShadow === 'none' ? [0, 0] : cs.boxShadow.replace(/rgba?\\([^)]*\\)/, '').trim().split(/\\s+/).map(parseFloat).slice(1, 3);
+  const r1 = v => Math.round(v * 10) / 10;
+  return {id: s.id || s.className, h: r1(T.height), top: r1(O.top - T.top), bottom: r1(T.bottom - O.bottom),
+    left: r1(bs[0].getBoundingClientRect().left - T.left), right: r1(T.right - bs[bs.length - 1].getBoundingClientRect().right),
+    rTrack: parseFloat(getComputedStyle(t).borderTopLeftRadius), rThumb: parseFloat(cs.borderTopLeftRadius), reach: sh[0] + sh[1]};})"""
+# The ink of each box in a screenshot (base64 PNG at the device pixel ratio, boxes in the shot's CSS px): the pixels that differ
+# from the box's own background - read at its left edge, at mid height in a fill, at the top corner of a ghost - each pixel row's
+# and column's coverage the strongest difference over the box's strongest; the ink's vertical centre and its left and right
+# edges, the partial rows and columns counted by their coverage. A fill is read 6px in from every edge (its rounded corners,
+# the halves' seam), a ghost 3px in from its sides, an icon's box (ix: 0) from its own edges.
+ROW_INK = """async ([b64, dpr, items]) => {const img = new Image(); img.src = 'data:image/png;base64,' + b64; await img.decode();
+  const c = document.createElement('canvas'); c.width = img.width; c.height = img.height; const x = c.getContext('2d'); x.drawImage(img, 0, 0);
+  const D = x.getImageData(0, 0, c.width, c.height).data, W = c.width, out = {};
+  const lum = (X, Y) => {const i = (Y * W + X) * 4; return 0.2126 * D[i] + 0.7152 * D[i + 1] + 0.0722 * D[i + 2];};
+  const edges = (cov, base) => {let f = -1, la = -1; cov.forEach((v, i) => {if (v > 0.12) {if (f < 0) f = i; la = i;}});
+    return f < 0 ? null : [(base + f + 1 - cov[f]) / dpr, (base + la + cov[la]) / dpr];};
+  for (const it of items) {const [l, t, r, b] = it.box, iy = it.fill ? 6 : 0, ix = it.ix ?? (it.fill ? 6 : 3);
+    const X0 = Math.round((l + ix) * dpr), X1 = Math.round((r - ix) * dpr), Y0 = Math.round((t + iy) * dpr), Y1 = Math.round((b - iy) * dpr);
+    const bg = lum(X0, it.fill ? Math.round((Y0 + Y1) / 2) : Y0);
+    let mx = 0; for (let y = Y0; y < Y1; y++) for (let xx = X0; xx < X1; xx++) mx = Math.max(mx, Math.abs(lum(xx, y) - bg));
+    const rows = [], cols = new Array(X1 - X0).fill(0);
+    for (let y = Y0; y < Y1; y++) {let m = 0; for (let xx = X0; xx < X1; xx++) {const v = Math.abs(lum(xx, y) - bg) / mx; m = Math.max(m, v);
+      cols[xx - X0] = Math.max(cols[xx - X0], v);} rows.push(m);}
+    const vy = mx < 8 ? null : edges(rows, Y0), vx = mx < 8 ? null : edges(cols, X0);
+    out[it.k] = vy && vx ? {mid: (vy[0] + vy[1]) / 2, left: vx[0], right: vx[1]} : null;}
+  return out;}"""
+
+# window.__m: layout readings that leave the measured element alone.
+#   label(el, box) - el's first text against box (default el): its first glyph's x, its baseline, and how far the centres of
+#   its cap height ('H'), of the digits, of its own ink and of its Hangul letters lie under the box's centre (inkMetrics).
+#   hit(el) - how far a press still answers el from its centre to the left, right, top and bottom (elementFromPoint, to
+#   0.1px, 60px at most), so an ::after extension and a neighbour that takes part of it both count.
+MEASURE = """() => {
+  const asc = {};
+  const ascent = el => {const c = getComputedStyle(el), key = [c.fontStyle, c.fontWeight, c.fontSize, c.fontFamily].join('|');
+    if (!(key in asc)) {const s = document.createElement('span'), k = document.createElement('span'), t = document.createTextNode('H');
+      s.style.cssText = 'position:absolute;left:-9999px;top:0;white-space:nowrap;line-height:normal';
+      for (const p of ['fontStyle', 'fontWeight', 'fontSize', 'fontFamily']) s.style[p] = c[p];
+      k.style.cssText = 'display:inline-block;width:0;height:0'; s.append(t, k); document.body.append(s);
+      const r = document.createRange(); r.selectNodeContents(t);
+      asc[key] = k.getBoundingClientRect().bottom - r.getClientRects()[0].top; s.remove();}
+    return asc[key];};
+  const first = el => {const w = document.createTreeWalker(el, NodeFilter.SHOW_TEXT); let n;
+    while ((n = w.nextNode())) {const s = n.nodeValue, i = s.search(/\\S/); if (i < 0) continue;
+      const r = document.createRange(); r.setStart(n, i); r.setEnd(n, i + 1); const box = r.getClientRects()[0];
+      if (box && box.width) return {node: n, box, text: s.trim()};}
+    return null;};
+  const label = (el, box) => {const f = first(el), p = f.node.parentElement, base = f.box.top + ascent(p);
+    const R = (box || el).getBoundingClientRect(), mid = R.top + R.height / 2, hangul = hangulOf(f.text);
+    const under = s => {const m = inkMetrics(p, s); return base + (m.d - m.a) / 2 - mid;};
+    return {text: f.text, x: f.box.left, baseline: base, cap: under('H'), digits: under('0123456789'), ink: under(f.text),
+      hangul: hangul ? under(hangul) : null, top: R.top, height: R.height};};
+  const hit = el => {const r = el.getBoundingClientRect(), cx = r.left + r.width / 2, cy = r.top + r.height / 2;
+    const own = (x, y) => {const n = document.elementFromPoint(x, y); return !!n && (n === el || el.contains(n));};
+    const reach = (dx, dy) => {if (!own(cx, cy)) return 0; let lo = 0, hi = 60; if (own(cx + dx * hi, cy + dy * hi)) return hi;
+      while (hi - lo > 0.1) {const m = (lo + hi) / 2; if (own(cx + dx * m, cy + dy * m)) lo = m; else hi = m;} return lo;};
+    return {l: reach(-1, 0), r: reach(1, 0), t: reach(0, -1), b: reach(0, 1)};};
+  window.__m = {label, hit};}"""
+# For drawn_faces(): a scratch element off the measured ones carrying text in the font of the element sel, laid out.
+FACE_SPAN = """([sel, text]) => {const c = getComputedStyle(document.querySelector(sel)), s = document.createElement('span');
+  s.id = 'face-probe'; s.textContent = text; s.style.cssText = 'position:fixed;left:0;top:0;white-space:nowrap;opacity:0;pointer-events:none';
+  for (const p of ['fontStyle', 'fontWeight', 'fontSize', 'fontFamily']) s.style[p] = c[p];
+  document.body.append(s); return s.getBoundingClientRect().width;}"""
+# The font families whose Hangul ink the handbook gives a tolerance for (docs/handbook/viewer.md §글자 가운데): the bundled
+# Pretendard and Noto Sans CJK, the stack's Korean fallback - its regional faces (KR, JP, ...) carry the same Hangul glyphs.
+# Another font's Hangul may be drawn further from its capitals than 0.5px (WenQuanYi Zen Hei: 0.6-1.0px lower), which no
+# layout can undo, so a test holds only the cap-height centre there.
+HANGUL_INK_FACES = ("Pretendard", "Noto Sans CJK")
+# Interface font stacks for a screen that draws without the bundled font, as a phone's system fonts do until Pretendard has
+# loaded: a Korean system family first, and a Latin family whose Hangul is whatever the system picks. Which face draws each
+# depends on the machine - one without Noto Sans CJK draws both stacks' Hangul in WenQuanYi Zen Hei, which Playwright's
+# dependencies bring - so a test asks drawn_faces() instead of reading the stack.
+FALLBACK_FONTS = ("'Noto Sans CJK KR','WenQuanYi Zen Hei',sans-serif", "'DejaVu Sans',sans-serif")
+
+
+# The fixed viewport list of the 2026-10-09 UX pass, at device scale factor 2: a mouse desktop (the wide layout) and touch
+# screens reaching the phone, tablet-sheet, mid-overlay and mid-side bands (docs/handbook/viewer.md §모바일 레이아웃).
+_TOUCH = {"is_mobile": True, "has_touch": True, "device_scale_factor": 2}
+VIEWPORTS: dict[str, dict] = {
+    "desktop 1440x900": {"viewport": {"width": 1440, "height": 900}, "device_scale_factor": 2},
+    "phone 390x844": dict(_TOUCH, viewport={"width": 390, "height": 844}),
+    "phone 320x720": dict(_TOUCH, viewport={"width": 320, "height": 720}),
+    "tablet 768x1024": dict(_TOUCH, viewport={"width": 768, "height": 1024}),
+    "tablet 1024x768": dict(_TOUCH, viewport={"width": 1024, "height": 768}),
+    "fold outer 344x882": dict(_TOUCH, viewport={"width": 344, "height": 882}),
+    "fold inner 673x841": dict(_TOUCH, viewport={"width": 673, "height": 841}),
+    "fold inner 841x673": dict(_TOUCH, viewport={"width": 841, "height": 673}),
+}
+
+
 def watch_idle(context):
     """Install IDLE_WATCH in every page of context, after the init scripts added so far; settle() needs it."""
     context.add_init_script(IDLE_WATCH)
@@ -99,6 +220,37 @@ def fonts_ready(page):
     document.fonts.status. A test that reads text ink from a screenshot calls it right before the shot: settle() waits for
     font loads as well, and this says where the ink depends on it."""
     return page.evaluate("document.fonts.ready.then(() => document.fonts.status)")
+
+
+def drawn_faces(page, sel, text):
+    """The font families Chromium drew text with (give letters without spaces: a space is drawn in the stack's first
+    family whatever draws the letters), in the font of the element sel - the browser's own record of the faces
+    it shaped the glyphs from (CDP CSS.getPlatformFontsForNode), which the computed font-family (a list of wishes) and
+    document.fonts (what was loaded) do not say: a family the machine lacks falls through to whatever the system picks.
+    The session is left attached: detaching it resets the pointer and touch emulation of the page under test."""
+    page.evaluate(FACE_SPAN, [sel, text])
+    cdp = page.context.new_cdp_session(page)
+    cdp.send("DOM.enable")
+    cdp.send("CSS.enable")
+    root = cdp.send("DOM.getDocument")["root"]["nodeId"]
+    node = cdp.send("DOM.querySelector", {"nodeId": root, "selector": "#face-probe"})["nodeId"]
+    fonts = cdp.send("CSS.getPlatformFontsForNode", {"nodeId": node})["fonts"]
+    page.evaluate("document.querySelector('#face-probe').remove()")
+    return {re.sub(r"\s*\([^)]*\)$", "", font["familyName"]) for font in fonts}
+
+
+def hangul_ink_holds(faces):
+    """Whether every face of faces (drawn_faces) is one whose Hangul ink the handbook gives a tolerance for
+    (HANGUL_INK_FACES); false for no face at all."""
+    return bool(faces) and all(face.startswith(HANGUL_INK_FACES) for face in faces)
+
+
+def off_centre(labels, hangul, tol=0.5):
+    """The label readings (MEASURE's label()) that are off the ink reference (docs/handbook/viewer.md §글자 가운데): the
+    cap-height centre or the digits' centre further than tol px from the box's centre - and, when hangul is true, the ink
+    centre of the label's Hangul letters."""
+    keys = ("cap", "digits", "hangul") if hangul else ("cap", "digits")
+    return [lb for lb in labels if any(lb[key] is not None and abs(lb[key]) > tol for key in keys)]
 
 
 def nothing_follows(page, ms=500):

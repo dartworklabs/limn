@@ -365,7 +365,7 @@ class PinListLoading(unittest.TestCase):
                 function $(sel){if(!nodes.has(sel))nodes.set(sel,{hidden:true,textContent:'',disabled:false}); return nodes.get(sel);}
                 function docInfo(k){return k==='b'?{key:'b'}:null;}
                 function pdoc(p){return p.doc||'a';}
-                function saveView(){} function parkDraft(){} function openDraftDoc(){} function restoreDraft(){}
+                function saveView(){} function searchLeave(){} function parkDraft(){} function openDraftDoc(){} function restoreDraft(){}
                 function cancelRepick(){} function savePrefs(){} function setHash(){}
                 function hideTip(){} function drawMeta(){} function buildDoc(){} function autoW(){}
                 function restoreView(){} function applyViewWidth(){return false;}
@@ -422,7 +422,7 @@ class PinListLoading(unittest.TestCase):
                 const document={body:{classList:{contains:()=>false}}};
                 function $(sel){return {hidden:true};}
                 function docInfo(k){return k==='b'?{key:k}:null;}
-                function saveView(){} function parkDraft(){} function openDraftDoc(){} function restoreDraft(){}
+                function saveView(){} function searchLeave(){} function parkDraft(){} function openDraftDoc(){} function restoreDraft(){}
                 function cancelRepick(){} function savePrefs(){} function setHash(){}
                 function hideTip(){} function showDoc(){} function drawMeta(){}
                 function topAnchor(){return null;} function restoreAnchor(){}

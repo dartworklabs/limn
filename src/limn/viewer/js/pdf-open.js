@@ -36,7 +36,7 @@ async function vecBoot(){
 async function vecOpen(){
   if(!VEC.lib||!META)return;
   const gen=++VEC.gen, build=META.pages_build||'', n=META.pages.length, key=vecCacheKey(DOC,build); let doc=VEC.cache.get(key);
-  vecCancel();
+  vecCancel(); searchClear();   // another document or build: its search starts empty (search.js)
   if(!doc){
     // The old document (a different document/old build) is never used for the new page DOM - PNG is shown while fetching.
     const prev=VEC.doc; VEC.doc=null; VEC.build=null; if(prev&&!vecCached(prev))vecClose(prev);
@@ -51,7 +51,7 @@ async function vecOpen(){
   }else vecCachePut(key,doc);           // promoted as most recently used
   if(gen!==VEC.gen)return;
   const old=VEC.doc; VEC.doc=doc; VEC.build=build; VEC.failed=null; VEC.tDoc=performance.now(); $('#vec-chip').hidden=true;
-  loadOutline(doc,gen);
+  loadOutline(doc,gen); searchOffer();   // its text can be searched now
   VEC.st.forEach(s=>{s.stale=true;});
   if(old&&old!==doc&&!vecCached(old))vecClose(old);
   vecSchedule(0);

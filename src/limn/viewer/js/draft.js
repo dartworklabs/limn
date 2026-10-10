@@ -51,7 +51,7 @@ function clearSavedDraft(snap){if(!snap||!snap.value||DOC===snap.doc)return;
 function parkDraft(){syncDraft(); clearTimeout(DRAFT.timer); DRAFT.timer=0; DRAFT.ready=false; DRAFT.key=null; DRAFT.origin=null;}
 // Start the next document with its own note and assignment before restoring any stored draft for it.
 function openDraftDoc(){const n=$('#note'); n.value=''; n._mentions=null; ASSIGN_NEW.v=ASSIGNEE_AGENT; ASSIGN_NEW.touched=false;
-  setKind(KIND_REQ.FIX); mentionPreview(n); autoGrow(n); restoreDraft();}
+  setKind(KIND_REQ.FIX); renderAssignNew(); autoGrow(n); restoreDraft();}
 addEventListener('pagehide',syncDraft);
 document.addEventListener('visibilitychange',()=>{if(document.hidden)syncDraft();});
 // Boot: brings back this tab's draft for the document on screen and says so on the status line with [버리기], until the next
@@ -63,7 +63,7 @@ function restoreDraft(){let rec=/** @type {any} */(null),raw=/** @type {string|n
   const how=draftRestore(rec,DOC,META&&META.pages_build); DRAFT.key=rec?k:null; DRAFT.ready=true;
   if(!how){syncDraft(); return;}
   const n=$('#note'); n.value=rec.note||''; n._mentions=rec.mentions&&rec.mentions.length?new Set(rec.mentions):null;
-  setKind(rec.kind); Object.assign(ASSIGN_NEW,rec.assign||{}); renderAssignNew(); mentionPreview(n); autoGrow(n);
+  setKind(rec.kind); Object.assign(ASSIGN_NEW,rec.assign||{}); renderAssignNew(); autoGrow(n);
   if(how==='full'){const c=rec.cur,pg=document.getElementById('p'+c.page);
     if(pg&&Array.isArray(c.frac)){const b=newBox(pg),f=c.frac; drawBox(b,f[0],f[1],f[0]+f[2],f[1]+f[3]); b.classList.add('pending'); pendingBadge(b,'새 핀'); COMPOSE.box=b;}
     COMPOSE.current=c; recomputeOverlap(); SNIP_OPEN=false; $('#c-err').hidden=true; $('#c-body').hidden=false; $('#composer').hidden=false;

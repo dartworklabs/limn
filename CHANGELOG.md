@@ -1,11 +1,21 @@
 # Changelog
 
-## 0.4.21 — Unreleased
+## 0.4.21 — 2026-10-10
 
-Preserve later edits and chosen reply recipients, rebuild changed recorded inputs, and improve figure picking and
-native viewer controls. `pins.md`, the HTTP API, stored pin records, authentication and runtime dependencies are unchanged.
+Search the text of the document on screen, assign a pin by tagging a colleague in its note, and set the viewer's
+controls on whole pixels and one ink centre. Later edits and chosen reply recipients survive pending saves, changed
+recorded inputs rebuild, and figure picking is more consistent. `pins.md`, the HTTP API, stored pin records,
+authentication and runtime dependencies are unchanged.
 
 ### Added
+
+- **In-document text search.** The nav bar has a search field for the text of the PDF on screen (⌘F / Ctrl+F, taken
+  only when the field can receive focus; Enter and Shift+Enter step through the hits, Esc closes and returns focus).
+  Hits are highlighted on the page, the current one more strongly. Case, Unicode forms, curly quotes and dashes are
+  folded; a hit may run over a line end or a hyphenated line break within one page. Lines that a table, a second
+  column or a stretched line break apart are not joined, so some such text is not found (#231). The field folds to a
+  magnifier in a crowded bar and covers its neighbours whole while open; on a phone it opens from the head of the
+  navigation sheet. IME composition is respected.
 
 - **Optional connection admission control (#222, ADR-0016).** Direct `limn serve --max-connections N` accepts a
   positive integer and counts pending, active and idle keep-alive sockets per listener through physical cleanup.
@@ -14,8 +24,26 @@ native viewer controls. `pins.md`, the HTTP API, stored pin records, authenticat
   closes the listener and exits nonzero after existing cleanup, with the accepted cost of interrupting other daemon
   work. It adds no whole-process exit SLA, graceful drain, rollback or universal child-reaping policy.
 
+### Changed
+
+- **A new pin goes to the first colleague its note tags.** The tag may stand anywhere in the note, and questions follow
+  the same rule; later colleagues are notified only. The line under the note says who is assigned and who is notified
+  (`@알림 X · 따로 저장하면 담당 X` when appending), the preview, the control and the save use one rule, and colleagues
+  with the same name show their login. The assignee control remains the override: plain text on touch, a pencil on hover
+  with a mouse.
+- **Folded cards say only what differs from the default.** A question, a colleague or yourself as assignee, and any
+  status other than open appear on one muted line; a default pin keeps its v0.4.20 height.
+- **Controls stand on whole pixels and centre their labels.** Small buttons are 24px and badges 20px; labels, badge
+  icons and pin-mark numbers are centred on the cap height of whichever font draws them. Outline rows give each depth
+  a number column and share one baseline. Note text is 22px per line and thread text 19px. A press between two close
+  pin marks goes to the nearer mark.
+
 ### Fixed
 
+- **The changes view returns to the reading position.** Leaving it no longer jumps the pages several pages away; the
+  page width is not recomputed while the page column is hidden.
+- **[확인] in the changes view is no longer covered** by the panel handle on tablets.
+- **The assignee control no longer runs past the composer at 320px**, and a restored draft keeps the assignee picked.
 - **Later input survives a pending save.** Composer, append and edit submissions retain text and metadata edited
   while their requests are pending. A stale append refuses without losing its draft, its undo is bound to the saved
   revision, and repeated create/append gestures cannot send the same submission twice.
