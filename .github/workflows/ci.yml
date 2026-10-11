@@ -129,6 +129,7 @@ jobs:
   macos-browser:
     # Native Apple shortcuts and caret navigation need a real macOS browser;
     # injected navigator.platform fixtures alone do not exercise the OS keys.
+    # The same host also catches the native shortcut hint's fallback-font ink regressions.
     runs-on: macos-latest
     env:
       LIMN_TEST_REQUIRE_BROWSER: "1"
@@ -148,12 +149,13 @@ jobs:
         run: uv sync --group dev --locked
       - name: Install native Chromium
         run: uv run playwright install chromium
-      - name: Native browser keyboard journeys
+      - name: Native browser keyboard journeys and fallback hint ink
         run: >-
           uv run pytest -q -rs -n 2 -m browser
           src/limn/viewer/tests/test_viewer_search.py::SearchKeys
           src/limn/viewer/tests/test_viewer_search.py::SearchShortcutFocus
           src/limn/viewer/tests/test_viewer_search.py::SearchScope
+          src/limn/viewer/tests/test_viewer_search.py::SearchInk::test_the_fields_text_is_on_its_neighbours_line_in_fallback_fonts
           src/limn/viewer/tests/test_viewer_doc_overflow.py::WithSearch
           src/limn/viewer/tests/test_viewer_assignee.py::TwoPeopleWithOneName
 

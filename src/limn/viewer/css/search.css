@@ -58,7 +58,9 @@ body.search-open #doc-search.search-squeezed #search-box{min-width:0;grid-templa
 #search-ref-row{font-size:var(--text-sm)}   /* the size of the bar's labels: the tabs', the links' */
 #search-q::-webkit-search-cancel-button{display:none}   /* [검색 닫기] clears it */
 #search-hint,#search-count{font-size:var(--text-xs);color:var(--muted-foreground);white-space:nowrap;text-box:trim-both cap alphabetic}
-#search-hint{margin-right:var(--space-2)}
+/* Keyboard symbols keep the system UI face independently of the manuscript controls' fallback font: cap trimming a
+   mixed-face shortcut (such as a monospace F beside a fallback command symbol) centres its box but leaves its ink high. */
+#search-hint{margin-right:var(--space-2);font-family:system-ui}
 #search-count{margin-right:var(--space-1);font-variant-numeric:tabular-nums}
 #search-nav{display:none;align-items:center;align-self:stretch}   /* its buttons take the field's height on touch */
 #doc-search.has-q #search-nav{display:flex}

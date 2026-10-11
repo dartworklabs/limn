@@ -1,5 +1,18 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- **Search shortcut hints keep one system UI font.** The fixed keyboard hint stays vertically centred when the
+  surrounding controls fall back to sans-serif or monospace; its glyph shape and width can differ from Pretendard.
+- **External-document publication keeps one PDF generation.** Rendered pages, the downloadable PDF and the source
+  fingerprint describe the same snapshot even when the source changes during rendering; the watcher recovers the
+  next completed generation.
+- **Malformed persisted input is rejected at its boundary.** An unencodable pin row does not block valid records or
+  the next locked write, malformed or unrepresentable timestamps return no usable time, and an invalid token store
+  denies bearer access while strict CLI validation continues to refuse it.
+
 ## 0.4.22 — 2026-10-10
 
 ### Changed
