@@ -27,6 +27,7 @@ from helpers_browser import (
     booted,
     drawn_faces,
     fonts_ready,
+    search_shortcut,
     settle,
     watch_idle,
 )
@@ -607,15 +608,15 @@ class WithSearch(ManyDocsBase):
     """The search field beside the row (docs/handbook/viewer.md §탐색 줄의 검색 칸)."""
 
     def test_the_search_opens_over_the_row_and_closing_puts_it_back(self):
-        """Desktop: the search is its magnifier beside the twelve documents' row. Ctrl+F opens the field (an open
-        popover shuts); Esc closes it and the row, [+N] and every link stand where they stood, the same links shown."""
+        """Desktop: the search is its magnifier beside the twelve documents' row. The native find shortcut opens
+        the field and shuts an open popover; Esc restores the row, [+N] and every link to their previous geometry."""
         page = self.view(BARS["desktop 1440x900"], "ms")
         where = "[...document.querySelectorAll('#doc-links>*')].filter(e=>e.getClientRects().length).map(e=>{const r=e.getBoundingClientRect(); return [e.id||e.dataset.doc,r.left,r.width];})"
         before, row = page.evaluate(where), self.row(page)
         self.assertEqual(page.evaluate("document.querySelector('#doc-search').dataset.mode"), "icon")
         self.open_menu(page)
         page.locator("#left").focus()
-        page.keyboard.press("Control+f")
+        search_shortcut(page)
         page.wait_for_function("document.activeElement.id==='search-q'")
         settle(page)
         self.assertFalse(page.evaluate(POP)["open"])

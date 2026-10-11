@@ -777,11 +777,16 @@ def token_hash(token: str) -> str:
 
 
 def _valid_tokens(d: object) -> list[Json]:
-    """The token entries of a parsed tokens.json that have a non-empty string id, name and hash; the rest are skipped."""
+    """Usable entries of a parsed tokens.json; a non-object envelope or non-list tokens member accepts no token.
+
+    Within a valid list, entries lacking non-empty string id, name or hash are skipped.
+    """
     rows = d.get("tokens") if isinstance(d, dict) else None
+    if not isinstance(rows, list):
+        return []
     return [
         t
-        for t in rows or []
+        for t in rows
         if isinstance(t, dict) and all(isinstance(t.get(k), str) and t[k] for k in ("id", "name", "hash"))
     ]
 

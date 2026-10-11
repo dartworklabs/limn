@@ -19,6 +19,7 @@ Run: uv run pytest -q src/limn/viewer/tests/test_viewer_search.py
 import base64
 import json
 import shutil
+import sys
 import unicodedata
 import unittest
 from pathlib import Path
@@ -27,7 +28,7 @@ from hypothesis import given, settings, strategies as st
 
 import helpers_figure
 from helpers import blank_png, extract_js_fn, minimal_pdf, ps, run_node
-from helpers_browser import MISSES_44, VIEWPORTS, BrowserBase, booted, fonts_ready, settle, watch_idle
+from helpers_browser import MISSES_44, VIEWPORTS, BrowserBase, booted, fonts_ready, search_shortcut, settle, watch_idle
 
 NBSP, SHY, FI, LSQ, RSQ, EN_DASH = chr(0xA0), chr(0xAD), chr(0xFB01), chr(0x2018), chr(0x2019), chr(0x2013)
 
@@ -891,10 +892,28 @@ class SearchKeys(SearchBase):
         """The id of the element that has the focus ('' for the body)."""
         return page.evaluate("document.activeElement===document.body?'':document.activeElement.id")
 
+    def test_native_platform_shortcut_focuses_search_and_escape_restores_focus(self):
+        """The real host platform advertises its native find key and accepts it without a platform override."""
+        page = self.view()
+        platform = page.evaluate("navigator.platform")
+        self.assertEqual("Mac" in platform, sys.platform == "darwin", platform)
+        self.watch_keys(page)
+        page.focus("#jump")
+        search_shortcut(page)
+        self.assertEqual(self.focus_id(page), "search-q")
+        self.assertEqual(page.evaluate("window.__kd.filter(k=>k[0]==='f')"), [["f", True]])
+        self.assertEqual(page.text_content("#search-hint"), "⌘F" if sys.platform == "darwin" else "Ctrl F")
+        page.keyboard.type("tide")
+        page.wait_for_function(COUNTED)
+        self.assertEqual(self.count(page), "1/7")
+        page.keyboard.press("Escape")
+        settle(page)
+        self.assertEqual((self.focus_id(page), page.input_value("#search-q")), ("jump", ""))
+
     def test_ctrl_f_focuses_the_field_and_a_second_one_is_the_browsers(self):
         """Outside Apple platforms Ctrl+F from another control focuses the field and is not the browser's; pressed
         again in the field it is left to the browser's own find. The hint names the key."""
-        page = self.view()
+        page = self.view(init="Object.defineProperty(navigator,'platform',{get:()=>'Linux x86_64'});")
         self.watch_keys(page)
         page.focus("#jump")
         page.keyboard.press("Control+f")
@@ -918,7 +937,7 @@ class SearchKeys(SearchBase):
         """Keydowns as other layouts send them: Dvorak's Ctrl+U (the physical F key) is left to the browser and its
         Ctrl+F (the physical Y key) focuses the field; with a Korean layout's IME on (the key types ㄹ) the physical F
         key focuses it."""
-        page = self.view()
+        page = self.view(init="Object.defineProperty(navigator,'platform',{get:()=>'Linux x86_64'});")
         send = "([key,code])=>{const e=new KeyboardEvent('keydown',{key,code,ctrlKey:true,bubbles:true,cancelable:true}); document.activeElement.dispatchEvent(e); return e.defaultPrevented;}"
         for key, code, taken in (("u", "KeyF", False), ("f", "KeyY", True), ("ㄹ", "KeyF", True)):
             with self.subTest(key=key, code=code):
@@ -927,12 +946,12 @@ class SearchKeys(SearchBase):
                 self.assertEqual(self.focus_id(page), "search-q" if taken else "jump")
 
     def test_under_an_open_dialog_the_shortcut_is_the_browsers(self):
-        """With the help open, Ctrl+F is not taken and the focus stays in the dialog."""
+        """With the help open, the native find shortcut is not taken and the focus stays in the dialog."""
         page = self.view()
         page.keyboard.press("?")
         page.wait_for_selector("#help[open]")
         self.watch_keys(page)
-        page.keyboard.press("Control+f")
+        search_shortcut(page)
         self.assertEqual(page.evaluate("window.__kd.filter(k=>k[0]==='f')"), [["f", False]])
         self.assertTrue(page.evaluate("document.querySelector('#help').contains(document.activeElement)"))
 
@@ -941,7 +960,7 @@ class SearchKeys(SearchBase):
         that had it."""
         page = self.view()
         page.focus("#jump")
-        page.keyboard.press("Control+f")
+        search_shortcut(page)
         page.keyboard.type("tide")
         page.wait_for_function(COUNTED)
         self.assertGreater(len(self.hits(page)), 0)
@@ -954,16 +973,16 @@ class SearchKeys(SearchBase):
         self.assertFalse(page.is_visible("#search-close"))
 
     def test_esc_returns_to_what_had_the_focus_before_this_visit_to_the_field(self):
-        """Ctrl+F from the page field and a query; the focus then moves to the outline's search field (the query stays
-        in the bar) and Ctrl+F again: Esc returns to the outline's field, not to the page field of the first visit."""
+        """Find from the page field, type a query, then focus the outline's search and invoke the native shortcut
+        again: Esc returns to the outline's field rather than the first visit's page field."""
         page = self.view()
         page.focus("#jump")
-        page.keyboard.press("Control+f")
+        search_shortcut(page)
         page.keyboard.type("tide")
         page.wait_for_function(COUNTED)
         page.click("#outline-search")
         self.assertEqual(page.input_value("#search-q"), "tide")
-        page.keyboard.press("Control+f")
+        search_shortcut(page)
         self.assertEqual(self.focus_id(page), "search-q")
         page.keyboard.press("Escape")
         self.assertEqual(self.focus_id(page), "outline-search")
@@ -996,7 +1015,7 @@ class SearchKeys(SearchBase):
         """[검색 닫기] empties the field, removes the hits and returns the focus."""
         page = self.view()
         page.focus("#jump")
-        page.keyboard.press("Control+f")
+        search_shortcut(page)
         page.keyboard.type("tide")
         page.wait_for_function(COUNTED)
         page.click("#search-close")
@@ -1035,13 +1054,13 @@ class SearchKeys(SearchBase):
         settle(page)
 
     def test_a_draft_its_selection_and_the_note_popover_survive_a_search(self):
-        """With a region picked and a note half written in the popover by the box, Ctrl+F, a query, Enter and Esc
-        leave the composer open on the same lines, the dashed box drawn, the note as typed in both fields, and put
-        the focus back in the popover's note."""
+        """With a region picked and a note half written by the box, the native find shortcut, a query, Enter and Esc
+        leave the composer on the same lines, the dashed box drawn and the note intact in both fields, with focus
+        restored to the popover's note."""
         page = self.view()
         self.drag_a_region(page)
         where = page.text_content("#c-loc")
-        page.keyboard.press("Control+f")
+        search_shortcut(page)
         page.keyboard.type("tide")
         page.wait_for_function(COUNTED)
         page.keyboard.press("Enter")
@@ -1061,7 +1080,7 @@ class SearchKeys(SearchBase):
         draft as typed - so the next Esc, from where the person was writing, is the one that cancels the selection."""
         page = self.view()
         self.drag_a_region(page)
-        page.keyboard.press("Control+f")
+        search_shortcut(page)
         page.keyboard.type("ebb")
         page.wait_for_function(COUNTED)
         settle(page)
@@ -1167,8 +1186,8 @@ class SearchShortcutFocus(SearchBase):
 
     def test_from_the_composers_note_on_a_landscape_phone_the_row_comes_back_for_the_field(self):
         """On a landscape phone (844x390, 908x411, a keyboard attached) a note is being written in the composer, so the
-        top row is hidden for typing. Ctrl+F brings the row back and puts the focus in the field: what is typed next is
-        the query, not the note; Esc closes the search and gives the focus back to the note with the draft as written."""
+        top row is hidden for typing. The native find shortcut restores the row and focuses search, so typing changes
+        the query; Esc closes search and returns focus to the note with the draft intact."""
         for name, dev in (("short 844x390", device(844, 390)), ("short 908x411", device(908, 411))):
             with self.subTest(viewport=name):
                 page = self.view(dev)
@@ -1177,7 +1196,7 @@ class SearchShortcutFocus(SearchBase):
                 page.keyboard.type("draft")
                 settle(page)
                 self.assertFalse(page.is_visible("#doc-nav"))  # hidden while the note is typed in
-                page.keyboard.press("Control+f")
+                search_shortcut(page)
                 self.assertEqual(page.evaluate("document.activeElement.id"), "search-q")
                 self.assertTrue(page.is_visible("#search-q"))
                 page.keyboard.type("tide")
@@ -1190,8 +1209,8 @@ class SearchShortcutFocus(SearchBase):
                 self.assertTrue(page.is_visible("#composer"))
 
     def test_from_the_note_popover_in_a_landscape_mouse_window_the_field_takes_the_typing(self):
-        """In an 844x390 mouse window a region is dragged and a note typed in the popover by it; Ctrl+F puts the focus in
-        the field and the typing goes there; Esc gives the focus back to the popover's note, the draft as written."""
+        """In an 844x390 mouse window a region is dragged and a note typed in its popover; the native find shortcut
+        focuses search for typing, and Esc returns focus to the popover's note with the draft intact."""
         page = self.view(device(844, 390, touch=False))
         box = page.evaluate(
             "(()=>{const r=document.getElementById('p1').getBoundingClientRect(); return [r.left+r.width*0.2,r.top+r.height*0.12,r.left+r.width*0.5,r.top+r.height*0.17];})()"
@@ -1203,7 +1222,7 @@ class SearchShortcutFocus(SearchBase):
         page.wait_for_selector("#sel-pop:not([hidden])", timeout=8000)
         page.wait_for_function("document.querySelector('#c-loc').textContent.trim()!==''", timeout=8000)
         page.keyboard.type("draft")
-        page.keyboard.press("Control+f")
+        search_shortcut(page)
         self.assertEqual(page.evaluate("document.activeElement.id"), "search-q")
         page.keyboard.type("tide")
         page.wait_for_function(COUNTED, timeout=8000)
@@ -1215,12 +1234,12 @@ class SearchShortcutFocus(SearchBase):
 
     def test_where_the_field_cannot_take_the_focus_the_shortcut_is_the_browsers(self):
         """With the field's row out of the layout (a state where no rule brings it back - here the bar is taken out by a
-        style), Ctrl+F is not intercepted - the browser's find - and the search does not open."""
+        style), the native find shortcut is not intercepted - the browser's find - and the search does not open."""
         page = self.view()
         page.add_style_tag(content="#doc-nav{display:none!important}")
         page.focus("#jump")
         page.evaluate("window.__kd=[]; addEventListener('keydown',e=>window.__kd.push([e.key,e.defaultPrevented]))")
-        page.keyboard.press("Control+f")
+        search_shortcut(page)
         self.assertEqual(page.evaluate("window.__kd.filter(k=>k[0]==='f')"), [["f", False]])
         self.assertEqual(
             page.evaluate("[document.body.classList.contains('search-open'),document.activeElement.id]"),
@@ -1249,8 +1268,8 @@ class SearchScope(SearchBase):
         self.assertEqual((self.count(page), self.said(page)), ("", ""))
 
     def test_the_changes_view_has_no_search_and_ctrl_f_is_the_browsers_there(self):
-        """Entering the changes view clears and hides the field, and Ctrl+F is left to the browser; back in the
-        manuscript the field is there again, empty, with no hit box."""
+        """Entering the changes view clears and hides search and leaves the native find shortcut to the browser;
+        back in the manuscript the field is visible and empty, with no hit box."""
         page = self.view()
         self.search(page, "tide")
         page.click("#view-revisions")
@@ -1258,7 +1277,7 @@ class SearchScope(SearchBase):
         settle(page)
         self.assertFalse(page.is_visible("#doc-search"))
         page.evaluate("window.__kd=[]; addEventListener('keydown',e=>window.__kd.push([e.key,e.defaultPrevented]))")
-        page.keyboard.press("Control+f")
+        search_shortcut(page)
         self.assertEqual(page.evaluate("window.__kd.filter(k=>k[0]==='f')"), [["f", False]])
         page.click("#view-manuscript")
         settle(page)
@@ -1268,7 +1287,7 @@ class SearchScope(SearchBase):
 
     def test_a_pdf_that_cannot_be_opened_has_no_search(self):
         """With the build's PDF unreadable the pages show as images ('PNG 보기') and there is no text to search: the
-        field is not shown and Ctrl+F is the browser's."""
+        field is not shown and the native find shortcut is the browser's."""
         (self.pages_dir / self.doc.pdf_name).write_bytes(b"%PDF-1.4\nnot a pdf\n")
         context = self.browser.new_context(**DESKTOP)
         self.addCleanup(context.close)
@@ -1281,7 +1300,7 @@ class SearchScope(SearchBase):
         settle(page)
         self.assertFalse(page.is_visible("#doc-search"))
         page.evaluate("window.__kd=[]; addEventListener('keydown',e=>window.__kd.push([e.key,e.defaultPrevented]))")
-        page.keyboard.press("Control+f")
+        search_shortcut(page)
         self.assertEqual(page.evaluate("window.__kd.filter(k=>k[0]==='f')"), [["f", False]])
 
 

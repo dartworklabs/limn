@@ -18,6 +18,7 @@ import json
 import os
 import re
 import shutil
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -220,6 +221,16 @@ def fonts_ready(page):
     document.fonts.status. A test that reads text ink from a screenshot calls it right before the shot: settle() waits for
     font loads as well, and this says where the ink depends on it."""
     return page.evaluate("document.fonts.ready.then(() => document.fonts.status)")
+
+
+def search_shortcut(page):
+    """Send the host's native find chord to the currently focused element."""
+    page.keyboard.press("Meta+f" if sys.platform == "darwin" else "Control+f")
+
+
+def caret_to_start(page):
+    """Move the focused text field's caret to its start using the browser host's native keys."""
+    page.keyboard.press("Meta+ArrowUp" if sys.platform == "darwin" else "Control+Home")
 
 
 def drawn_faces(page, sel, text):

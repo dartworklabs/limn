@@ -126,6 +126,39 @@ jobs:
       - name: Python tests
         run: uv run pytest -q -rs -n 2 -m "not browser and not tex"
 
+  macos-browser:
+    # Native Apple shortcuts and caret navigation need a real macOS browser;
+    # injected navigator.platform fixtures alone do not exercise the OS keys.
+    # The same host also catches the native shortcut hint's fallback-font ink regressions.
+    runs-on: macos-latest
+    env:
+      LIMN_TEST_REQUIRE_BROWSER: "1"
+      LIMN_TEST_REQUIRE_NODE: "1"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          version: "0.12.23"
+          python-version: "3.12"
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "22"
+      - name: Install dev dependencies
+        run: uv sync --group dev --locked
+      - name: Install native Chromium
+        run: uv run playwright install chromium
+      - name: Native browser keyboard journeys and fallback hint ink
+        run: >-
+          uv run pytest -q -rs -n 2 -m browser
+          src/limn/viewer/tests/test_viewer_search.py::SearchKeys
+          src/limn/viewer/tests/test_viewer_search.py::SearchShortcutFocus
+          src/limn/viewer/tests/test_viewer_search.py::SearchScope
+          src/limn/viewer/tests/test_viewer_search.py::SearchInk::test_the_fields_text_is_on_its_neighbours_line_in_fallback_fonts
+          src/limn/viewer/tests/test_viewer_doc_overflow.py::WithSearch
+          src/limn/viewer/tests/test_viewer_assignee.py::TwoPeopleWithOneName
+
   instances:
     # Machine-wide dependencies are replaced at the owned shell adapter; each run has its own temporary tree.
     runs-on: ${{ matrix.os }}
