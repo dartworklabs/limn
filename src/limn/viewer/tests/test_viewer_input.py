@@ -43,6 +43,7 @@ from helpers_browser import (
     settle,
     watch_idle,
 )
+from helpers_browser_font import use_test_font, wait_test_font
 
 HANGUL = re.compile(r"[가-힣]")
 # boot() has finished on the ViewerBase fixture (three open pins).
@@ -575,9 +576,10 @@ class ViewerBase(BrowserBase):
             CloseRequest(reply="고침"),
         )
 
-    def view(self, device, lang="ko", prefs=None, reduced=False, init=None, dark=False, hash_=""):
+    def view(self, device, lang="ko", prefs=None, reduced=False, init=None, dark=False, hash_="", test_font=False):
         """Open the viewer on a device preset and return the page once boot() has finished and the page has settled.
-        prefs = pinPrefs before boot (coach marks are pre-seen unless given)."""
+        prefs = pinPrefs before boot (coach marks are pre-seen unless given).
+        test_font loads the fixed Hangul face in this page before the viewer script."""
         p = {"coach": {"touch": 1, "mouse": 1, "sel": 1}}
         p.update(prefs or {})
         if dark:
@@ -594,8 +596,13 @@ class ViewerBase(BrowserBase):
         page = context.new_page()
         errors = []
         page.on("pageerror", lambda e: errors.append(str(e)))
-        page.route("**/*", self.route)
+        if test_font:
+            use_test_font(page, self.route)
+        else:
+            page.route("**/*", self.route)
         page.goto("http://viewer.test/?lang=%s%s" % (lang, hash_))
+        if test_font:
+            wait_test_font(page)
         page.wait_for_function(BOOTED, timeout=20000)
         settle(page)
         self.addCleanup(lambda: self.assertEqual(errors, []))
@@ -6305,7 +6312,7 @@ class SymmetryAudit(ViewerBase):
 # Families whose Hangul ink reaches further past the cap height and below the baseline than Pretendard's, as a phone without
 # Pretendard draws it: the owner's Android Chrome falls back to a system Korean font. WenQuanYi Zen Hei is the one
 # `playwright install --with-deps chromium` puts on CI's Ubuntu runner (fonts-wqy-zenhei); Noto Sans CJK KR is Android's.
-# The page draws in the first one installed.
+# The page draws in the first available face; the fixture supplies the pinned Noto face before boot.
 WIDE_HANGUL = ("WenQuanYi Zen Hei", "Noto Sans CJK KR")
 # Puts WIDE_HANGUL in --font-sans before the viewer lays anything out (it measures its bars as it boots).
 WIDE_HANGUL_INIT = (
@@ -6400,7 +6407,7 @@ class HangulInkInClippingBoxes(ViewerBase):
         (PIXEL_DIFF; one device row more on each side of the clip is left out, for the shot's rounding). Fails when
         forcing the clips moves the text, which would make the shots differ for another reason. Skips without a
         WIDE_HANGUL font - fails under LIMN_TEST_REQUIRE_BROWSER=1 - since under another font the clip may not show."""
-        page = self.view(device, lang=lang, init=NO_PNG_CHIP + WIDE_HANGUL_INIT)
+        page = self.view(device, lang=lang, init=NO_PNG_CHIP + WIDE_HANGUL_INIT, test_font=True)
         if page.evaluate(FIRST_FONT, list(WIDE_HANGUL)) is None:
             fonts = ", ".join(WIDE_HANGUL)
             reason = "no wide-extent Hangul font (%s): install fonts-wqy-zenhei or fonts-noto-cjk" % fonts

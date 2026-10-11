@@ -33,6 +33,7 @@ from limn.platform.files import file_in_tree, tex_lines
 
 from helpers import ApplicationFixture, blank_png, ps, run_config, serve_viewer, split_resp
 from helpers_access import ALICE, reset_access, talk_to
+from helpers_browser_font import use_test_font, wait_test_font
 
 # The timers settle() waits for: the viewer's debounces, slides and long-press timers run 0-1000ms. Longer ones are
 # lifetimes no test waits out - an undo's 6s window, a tooltip's 4s.
@@ -437,10 +438,11 @@ class BrowserBase(ChromiumTestCase):
             out["content-disposition"] = hdrs["content-disposition"]
         route.fulfill(status=code, headers=out, body=data)
 
-    def open(self, n_open, lang="ko", init=None, **device):
+    def open(self, n_open, lang="ko", init=None, test_font=False, **device):
         """Open the viewer in a new context and return the page once boot() has finished and the page has settled: the
         pin lists (open, review, done) are loaded and polling has started, with at least n_open open pins. init is an
-        optional script run before the viewer's own.
+        optional script run before the viewer's own. test_font requests the fixed
+        page-scoped Hangul face before the viewer script executes.
 
         The wait is on LIGHT_TIMER, which boot() sets only after `await loadPins()`. META and the initial
         `OPEN_ALL=[]` are both set before that await, so waiting on them alone let a test act on a review or done
@@ -453,8 +455,13 @@ class BrowserBase(ChromiumTestCase):
         page = context.new_page()
         errors = []
         page.on("pageerror", lambda e: errors.append(str(e)))
-        page.route("**/*", self.route)
+        if test_font:
+            use_test_font(page, self.route)
+        else:
+            page.route("**/*", self.route)
         page.goto("http://viewer.test/?lang=%s" % lang)
+        if test_font:
+            wait_test_font(page)
         page.wait_for_function(booted(n_open), timeout=20000)
         settle(page)
         self.addCleanup(lambda: self.assertEqual(errors, []))

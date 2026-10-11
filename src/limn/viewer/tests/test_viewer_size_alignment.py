@@ -181,10 +181,11 @@ class MarkHitRoomsLogic(unittest.TestCase):
 class SizeAlignmentBase(BrowserBase):
     """BrowserBase with the hints pre-seen and the layout readings (MEASURE) installed in the page."""
 
-    def view(self, device: dict, init: str = ""):
+    def view(self, device: dict, init: str = "", test_font: bool = False):
         """Open the viewer on device and return the page once it has booted, its fonts are loaded and it is laid out
-        (laid_out); init is a script run before the viewer's own, after the saved preferences."""
-        page = self.open(0, init=PREFS + init, **device)
+        (laid_out); init is a script run before the viewer's own, after the saved preferences.
+        test_font requests the fixed page-scoped Hangul face before the viewer script."""
+        page = self.open(0, init=PREFS + init, test_font=test_font, **device)
         self.assertEqual(fonts_ready(page), "loaded")
         page.evaluate(MEASURE)
         page.evaluate(COLUMN_SETTLED)
@@ -298,9 +299,9 @@ class CardFixture(SizeAlignmentBase):
             CloseRequest(reply="고침"),
         )
 
-    def cards(self, device: dict, init: str = ""):
-        """The viewer on device with the panel open and every card expanded (a compact layout folds them)."""
-        page = self.view(device, init)
+    def cards(self, device: dict, init: str = "", test_font: bool = False):
+        """Expand the cards on device, optionally supplying the fixed face before viewer boot."""
+        page = self.view(device, init, test_font=test_font)
         page.evaluate(
             "() => {setSide(true); OPEN_ALL.concat(REVIEW_ALL).forEach(p => OPEN_CARDS.add(p.id)); drawPins();}"
         )
@@ -387,7 +388,7 @@ class LabelInkCentre(CardFixture):
         for name, device, required in (("mouse", DESK, self.SELS), ("phone", PHONE, self.SELS[:3])):
             with self.subTest(device=name):
                 init = FALLBACK_INIT % ",".join('"%s"' % f for f in FALLBACKS)
-                page = self.cards(device, init)
+                page = self.cards(device, init, test_font=True)
                 font = page.evaluate(FIRST_FONT, list(FALLBACKS))
                 if font is None:
                     reason = "no fallback Hangul font (%s): install fonts-noto-cjk or fonts-wqy-zenhei" % ", ".join(
