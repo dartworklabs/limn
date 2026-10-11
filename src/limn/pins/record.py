@@ -65,8 +65,9 @@ def fits_record(
     valid key, so its pins are not broken); is_actor(v) tells whether v is a recorded actor ({login, name, pic?}
     strings - author and every *_by). A view-only PDF's pin (is_region_pin) is placed by pdf (absolute path), page and
     frac instead of file/lo/hi; a figure pin's `el`, when present, has its element shape
-    (limn.pins.element.is_element_record). Never raises and never changes r."""
-    if not isinstance(r, dict) or not is_int(r.get("id")):
+    (limn.pins.element.is_element_record). All strings, including unknown nested keys and values, must encode
+    as UTF-8 so the accepted row can be served and rewritten. Never raises and never changes r."""
+    if not isinstance(r, dict) or not is_int(r.get("id")) or not _utf8_strings(r):
         return False
     if r.get("doc") is not None and not (isinstance(r["doc"], str) and is_doc_key(r["doc"])):
         return False
@@ -130,6 +131,27 @@ def fits_record(
             return False
     fr = r.get("frac")
     return fr is None or (isinstance(fr, list) and len(fr) == 4 and all(is_num(x) for x in fr))
+
+
+def _utf8_strings(value: object) -> bool:
+    """Whether every string in a JSON-decoded value encodes as UTF-8, including unknown object keys.
+
+    Walk lists and objects without recursion or modifying them; lone surrogates are refused rather than repaired.
+    """
+    pending = [value]
+    while pending:
+        item = pending.pop()
+        if isinstance(item, str):
+            try:
+                item.encode("utf-8")
+            except UnicodeEncodeError:
+                return False
+        elif isinstance(item, dict):
+            pending.extend(item)
+            pending.extend(item.values())
+        elif isinstance(item, list):
+            pending.extend(item)
+    return True
 
 
 def _is_str_list(v: object) -> TypeGuard[list[str]]:

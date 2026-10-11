@@ -22,6 +22,7 @@ from typing import Any, Literal, TypeAlias
 from limn.pins.location.mapping import anchor_holds, anchor_of, anchor_offset, comment_marker, find_line
 from limn.pins.model import LineSpan, OpenPin, Pin
 from limn.pins.thread import rev_after
+from limn.platform.values import is_finite_num
 
 # One stored pin record as JSON gives it (estimation still reads the record).
 Row: TypeAlias = Mapping[str, Any]
@@ -43,16 +44,18 @@ def epoch(s: object) -> float | None:
     """A stored time -> epoch seconds, or None when s is not a readable time.
 
     Accepts 'YYYY-MM-DD HH:MM:SS' (server local time, the shape now_str writes) and ISO 8601 with an offset. A time
-    without an offset is read in this process's local time zone - it was written by this server, on this machine."""
+    without an offset is read in this process's local time zone - it was written by this server, on this machine.
+    Platform conversion bounds and non-finite results are unreadable times, returned as None."""
     if not isinstance(s, str) or not s.strip():
         return None
     try:
         dt = datetime.fromisoformat(s.strip().replace(" ", "T", 1))
-    except ValueError:
+        if dt.tzinfo is None:
+            dt = dt.astimezone()  # this value was written in server local time - read back on the same machine
+        result = dt.timestamp()
+    except (ValueError, OverflowError, OSError):
         return None
-    if dt.tzinfo is None:
-        dt = dt.astimezone()  # this value was written in server local time - read back on the same machine
-    return dt.timestamp()
+    return result if is_finite_num(result) else None
 
 
 def pin_build(r: Row) -> str | None:
