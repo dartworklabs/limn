@@ -33,7 +33,7 @@ Limn에서 "테스트가 녹색"은 합격의 필요조건이지 충분조건이
 | 검사 | 게이트 여부 | 명령 | 설정 위치 |
 | --- | --- | --- | --- |
 | §1 파이썬 테스트(§4·§5의 자동 부분 포함) | 게이트 | `uv run pytest -q -rs` | `ci.yml`의 `test`·`macos`·`tex` 작업, `pyproject.toml`의 `[tool.pytest.ini_options]` |
-| macOS 실제 브라우저 키보드 흐름·대체 글꼴 검색 힌트 잉크 | 게이트 | `uv run pytest -q -rs -n 2 -m browser src/limn/viewer/tests/test_viewer_search.py::SearchKeys src/limn/viewer/tests/test_viewer_search.py::SearchShortcutFocus src/limn/viewer/tests/test_viewer_search.py::SearchScope src/limn/viewer/tests/test_viewer_search.py::SearchInk::test_the_fields_text_is_on_its_neighbours_line_in_fallback_fonts src/limn/viewer/tests/test_viewer_doc_overflow.py::WithSearch src/limn/viewer/tests/test_viewer_assignee.py::TwoPeopleWithOneName` | `ci.yml`의 `macos-browser` 작업 |
+| macOS 실제 브라우저 키보드 흐름·대체 글꼴 잉크·테스트 글꼴 격리 | 게이트 | `uv run pytest -q -rs -n 2 -m browser src/limn/viewer/tests/test_viewer_search.py::SearchKeys src/limn/viewer/tests/test_viewer_search.py::SearchShortcutFocus src/limn/viewer/tests/test_viewer_search.py::SearchScope src/limn/viewer/tests/test_viewer_search.py::SearchInk::test_the_fields_text_is_on_its_neighbours_line_in_fallback_fonts src/limn/viewer/tests/test_viewer_doc_overflow.py::WithSearch src/limn/viewer/tests/test_viewer_assignee.py::TwoPeopleWithOneName src/limn/viewer/tests/test_viewer_input.py::HangulInkInClippingBoxes src/limn/viewer/tests/test_viewer_size_alignment.py::LabelInkCentre tests/test_browser_font.py::BrowserFontProvision` | `ci.yml`의 `macos-browser` 작업 |
 | §2 인스턴스 관리자 테스트 | 게이트 | `bash src/limn/administration/tests/test_instances.sh` | `ci.yml`의 `instances` 작업 |
 | §3 설치 스모크 | 게이트 | `uv tool install .` 뒤 설치된 명령과 패키지 내용 확인 | `ci.yml`의 `install` 작업 |
 | §8 정적 검사, §9 타입 검사, §10 기능 경계 검사 | 게이트 | §8–§10의 실행 행 | `ci.yml`의 `lint` 작업, `pyproject.toml`의 `[tool.ruff]`·`[tool.mypy]` |
@@ -56,7 +56,7 @@ Limn에서 "테스트가 녹색"은 합격의 필요조건이지 충분조건이
 | 적용 조건 | 파이썬 코드, 뷰어 파일, 에이전트 계약, 테스트를 바꿀 때. PR 전과 CI에서 항상 돈다 |
 | 실행 | `uv run pytest -q -rs` (기본 4개 worker). 빠른 일반 검사: `uv run pytest -q -rs -m "not browser and not tex"`. 병렬 옵션의 정본은 `pyproject.toml`의 `addopts` |
 | 합격 기준 | 실패나 에러가 0건이어야 한다. 수집된 테스트가 0건인 실행(pytest 종료 코드 5)은 통과가 아니라 실패다. 건너뛴 테스트(`s`)가 있으면 그 이유가 합당해야 한다(예: TeX Live가 없는 로컬 환경에서 TeX 테스트 스킵). CI는 도구 부재를 건너뜀이 아니라 실패로 바꾼다. 브라우저·TeX 작업은 `LIMN_TEST_REQUIRE_BROWSER=1`·`LIMN_TEST_REQUIRE_TEX=1`, 모든 테스트 작업은 `LIMN_TEST_REQUIRE_NODE=1`을 둔다 |
-| 보장 범위 | 단위와 통합 수준의 동작 회귀를 막는다. 브라우저 표식의 테스트는 지정된 Chromium 동작·레이아웃과 Firefox·WebKit의 핵심 핀 생성·편집·덧붙임·되돌리기 흐름을 확인한다. 실제 iOS 기기, 모든 엔진의 전체 화면과 실제 tailnet 환경은 보장하지 않는다(§5, §6) |
+| 보장 범위 | 단위와 통합 수준의 동작 회귀를 막는다. 브라우저 표식의 테스트는 지정된 Chromium 동작·레이아웃과 Firefox·WebKit의 핵심 핀 생성·편집·덧붙임·되돌리기 흐름, 세 엔진의 검색 안내 안쪽 간격(§검색 안내의 안쪽 간격)을 확인한다. 실제 iOS 기기, 모든 엔진의 전체 화면과 실제 tailnet 환경은 보장하지 않는다(§5, §6) |
 
 ### 선택형 연결 입장과 실패 종료
 
@@ -75,6 +75,22 @@ Limn에서 "테스트가 녹색"은 합격의 필요조건이지 충분조건이
 뷰어 화면의 시간 의존 동작(폴링 간격, 알림 배지 깜빡임, 날짜 포맷)을 테스트할 때는 브라우저의 시계를 얼린다(`clock.set_fixed_time()`).
 
 키보드 입력은 검사 의도를 플랫폼과 맞춘다. 명시적인 비 Apple `Ctrl+F` 계약은 플랫폼을 fixture에 선언하고, 일반 흐름은 실제 호스트의 검색 키를 보낸다. 텍스트 시작으로 이동하는 입력도 macOS의 `Command+↑`와 다른 호스트의 `Ctrl+Home`을 구분한다. 플랫폼을 선언한 검사는 키·물리 코드·IME 계약을, 실제 플랫폼 검사는 native 입력의 동작을 확인하며 서로를 대신하지 않는다. 커서 이동 뒤의 삽입·삭제 결과와 기존 잉크 허용 오차는 그대로 검증한다.
+
+### 고정된 테스트용 한글 글꼴
+
+`HangulInkInClippingBoxes`와 `LabelInkCentre`의 대체 글꼴 검사는 고정된 공식 Noto Sans CJK KR 글꼴을 테스트 페이지에 제공한다. 호스트에 적합한 넓은 한글 글꼴이 없어서 검사를 실행하지 못하는 조건을 없애기 위해서다. 기존 글꼴 우선순위는 유지하므로, WenQuanYi가 설치된 호스트에서는 해당 검사가 그 글꼴을 먼저 고를 수 있다. 모든 호스트의 잉크 치수가 같다는 보장은 아니다. [`helpers_browser_font.py`](../../tests/support/helpers_browser_font.py)가 필요한 검사에서만 글꼴을 준비하므로 `uv run pytest -q -rs`에 외부 wrapper나 영구 글꼴 설치가 필요하지 않다.
+
+공식 출처의 고정 커밋 주소와 SHA-256·바이트 수는 [`SOURCE.json`](../../tests/fixtures/browser-font/SOURCE.json)에 있고, 원본 SIL OFL 1.1은 같은 폴더의 [`LICENSE`](../../tests/fixtures/browser-font/LICENSE)에 있다. 처음에는 고정 HTTPS 주소에서 받아야 하므로 네트워크가 필요하다. macOS는 사용자 캐시의 `limn/browser-test-font`, Linux는 `XDG_CACHE_HOME` 아래의 같은 경로를 쓴다. `XDG_CACHE_HOME`이 없으면 기본 사용자 캐시를 쓰고, 격리 검사는 `LIMN_TEST_FONT_CACHE`로 별도 캐시를 지정한다. 매번 길이와 해시가 맞는 바이트만 사용하므로 글꼴 준비와 캐시 검사는 검증된 캐시가 있으면 오프라인에서도 실행한다.
+
+다운로드는 다른 주소로의 리다이렉트를 거부하고 고정 바이트 수보다 한 바이트까지만 읽는다. 응답 본문을 읽는 60초 한도를 읽기마다 확인하며 소켓의 응답 없는 대기는 15초로 제한한다. 연결·응답 헤더 단계와 진행 중인 한 번의 읽기까지 포함한 전체 실행 시간의 60초 보장은 아니다. worker끼리는 같은 글꼴 잠금 아래에서 캐시를 다시 확인하고, 검증을 마친 임시 파일만 원자적으로 게시한다. 손상된 캐시나 다운로드 실패는 원본 주소·캐시 경로·실패 이유를 담은 테스트 실패이며, 검증하지 않은 바이트를 글꼴로 제공하지 않는다.
+
+검증한 바이트는 요청한 페이지에만 `FontFace`로 싣고, 로딩이 끝난 뒤 기존 뷰어 스크립트를 실행한다. 운영체제에 등록하지 않으므로 다른 페이지나 worker의 시스템 글꼴 환경은 바뀌지 않는다. 기존 그려진 글꼴 확인, 한글·대문자 잉크와 자르기 판정, 허용 오차는 그대로 적용한다. [`test_browser_font.py`](../../tests/test_browser_font.py)는 공식 고정 원본의 검증된 바이트로 실제 빈 캐시의 게시·재사용과 손상·병렬 처리를 확인한다. 이 검사는 소스 adapter에 같은 바이트를 공급하며 매 실행마다 새 외부 다운로드를 강제하지 않는다. 실제 공식 주소의 최초 다운로드는 별도 진단 증거로 확인한다. 렌더러 검사는 화면을 그린 뒤 실제 글꼴을 읽고, 같은 컨텍스트의 새 페이지와 별도 컨텍스트에서 시스템 글꼴이 그대로인지 확인한다. 캐시 실패 검사는 일반 pytest 게이트, 검증된 원본을 사용하는 캐시와 렌더러 검사는 Linux `browser` 게이트가 소유한다. macOS `macos-browser`는 원래 두 글꼴 민감 클래스와 `BrowserFontProvision`도 실행한다.
+
+### 검색 안내의 안쪽 간격
+
+검색 안내의 오른쪽 끝은 칸의 실제 오른쪽 테두리 **안쪽**에서 8 CSS px 떨어져야 한다. 소수 배율에서는 브라우저가 테두리를 기기 픽셀에 맞추므로, 선언한 `1px`가 레이아웃에서도 정확히 1 CSS px라는 가정으로 바깥 간격을 재지 않는다. [`test_viewer_search.py`](../../src/limn/viewer/tests/test_viewer_search.py)의 `hint_inner_inset()`은 마지막 grid 칸에 크기가 0인 표식을 두어 실제 내용 끝을 찾고, 오른쪽 안쪽 여백을 더해 테두리 안쪽을 잰다. 표식을 둔 동안과 제거한 뒤에 기존 자식의 사각형과 칸의 화면 PNG 바이트가 그대로인지 확인하고, 실패해도 표식을 제거한다.
+
+`SearchBarGeometry`의 기존 안내 검사는 이 관찰값에 8px와 `0.01px` 허용 오차를 적용한다. `SearchHintInsetChromium`·`SearchHintInsetFirefox`·`SearchHintInsetWebKit`은 같은 관찰과 판정으로 DPR 1·1.25·1.5·2를 확인한다. 이 12개 조건은 기본 pytest의 `browser` 표식으로 수집되며, Linux CI의 브라우저 작업이 세 엔진을 설치해 실행하는 게이트다. native 단축키, 담은 글꼴, 밝은 테마에서의 안쪽 간격만 보장한다. 더 넓은 글꼴·테마·플랫폼 조합의 외부 실측은 정보 검사이며, 실제 Safari 앱과 실기기 증거를 대신하지 않는다.
 
 ### 불안정한 테스트
 
@@ -95,7 +111,7 @@ Limn에서 "테스트가 녹색"은 합격의 필요조건이지 충분조건이
 | `tests/contracts/` | 여러 기능의 HTTP·`pins.md` 스냅샷과 성질 검증. 그림 문서 흐름(지도 pick, 요소 핀, 다시 렌더 뒤의 계산 필드)은 `test_contract_snapshot.py`가 [`tests/data/contract_snapshot_figure.json`](../../tests/data/contract_snapshot_figure.json)과 따로 비교한다. `test_figure_rollback.py`는 이전 릴리스가 그림 핀 레코드를 읽고 바이트 그대로 되쓰는지 본다 |
 | `tests/architecture/` | 공개 표면·import 경계, Handbook 참조, 이름·개인정보 규칙, CI 액션의 커밋 고정·체크아웃 자격 증명·uv와 빌드 백엔드 버전 고정 |
 | `tests/tools/` | 테스트 식별자 이동 대조·그림 선택 비교 도구 둘(재구성한 표본, 임계값 격자를 재는 D6 측정 도구), 익명 PoC 서버의 정확한 Host 허용·자원 allowlist·API 읽기와 쓰기 거부 경계 |
-| `tests/support/`, `tests/data/` | 수집하지 않는 공용 테스트 도우미와 고정 입력·스냅샷. 그림 문서 fixture(그림 스크립트·공통 부품·요소 지도·빌드 폴더와, pick 답을 뷰어처럼 저장하는 도우미, 뷰어 테스트가 쓰는 세 문서(원고·그림·보기 전용 PDF)의 등록과 다시 렌더)는 [`tests/support/helpers_figure.py`](../../tests/support/helpers_figure.py)에 있다 |
+| `tests/support/`, `tests/data/`, `tests/fixtures/` | 수집하지 않는 공용 테스트 도우미와 고정 입력·스냅샷·테스트 글꼴 출처와 라이선스. 그림 문서 fixture(그림 스크립트·공통 부품·요소 지도·빌드 폴더와, pick 답을 뷰어처럼 저장하는 도우미, 뷰어 테스트가 쓰는 세 문서(원고·그림·보기 전용 PDF)의 등록과 다시 렌더)는 [`tests/support/helpers_figure.py`](../../tests/support/helpers_figure.py)에 있다 |
 
 pytest는 `tests`와 `src/limn`을 수집하고 `tests/support`에서 공용 도우미를 찾는다. `--import-mode=importlib`는 패키지마다 같은 테스트 파일 이름을 허용한다. 테스트용 `__init__.py`는 필요하지 않다. wheel은 모든 `tests/`를 제외하고 sdist는 검증 소스를 포함한다. mypy는 동거 테스트를 제외한 모든 프로덕션 모듈을 엄격히 검사한다.
 

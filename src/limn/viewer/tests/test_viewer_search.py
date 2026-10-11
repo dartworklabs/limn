@@ -2,7 +2,8 @@
 
 The pure parts - folding text for matching, grouping PDF.js text items into lines, joining a page's lines into the text a
 query runs over, finding across line breaks, stepping, the field's width rule and a hit's box - run under node on the
-served source. The rest runs in Chromium against the in-process server with hand-built PDFs (search_pdf): Latin in
+served source. The rest runs primarily in Chromium; the hint's inner inset also runs in Firefox and WebKit. All use
+the in-process server with hand-built PDFs (search_pdf): Latin in
 Helvetica and Hangul in a CID font that only a ToUnicode map names, so PDF.js reads real text without any TeX tool.
 Three fixtures: a three-page PDF with one case per matching rule (PAGES), a fourteen-page PDF with an outline
 (long_pages) for the phone's navigation sheet, and five documents in the nav bar (five_docs) for a crowded bar.
@@ -505,6 +506,42 @@ BAR = """() => {const q = s => document.querySelector(s), vis = e => !!e && e.ge
     out[k] = vis(q(s)) ? R(q(s)) : null;
   out.mode = q('#doc-search').dataset.mode; out.linksCut = q('#doc-links').scrollWidth - q('#doc-links').clientWidth;
   return out;}"""
+
+
+def hint_inner_inset(page):
+    """Measure the hint's CSS-pixel gap to the used inner border without changing layout or paint.
+
+    A zero-size final grid child reveals the content edge; measured right padding locates the inner border.
+    Device-pixel border snapping makes a declared border width an inaccurate substitute. Remove the probe even
+    on failure, and require every existing child rectangle and the box's screenshot bytes to remain identical.
+    """
+    assert page.locator("#search-inset-probe").count() == 0, "An earlier inset probe was not removed"
+    clip = page.locator("#search-box").bounding_box()
+    before = page.screenshot(clip=clip)
+    try:
+        geometry = page.evaluate(
+            """() => {
+              const box = document.querySelector('#search-box'), hint = document.querySelector('#search-hint');
+              const rect = e => e.getBoundingClientRect().toJSON(), children = [...box.children], before = children.map(rect);
+              const marker = document.createElement('i'); marker.id = 'search-inset-probe';
+              marker.style.cssText = 'all:initial;display:block;box-sizing:border-box;width:0;height:0;min-width:0;margin:0;padding:0;border:0;pointer-events:none';
+              box.append(marker);
+              return {before, during:children.map(rect),
+                inset:marker.getBoundingClientRect().right + parseFloat(getComputedStyle(box).paddingRight)
+                  - hint.getBoundingClientRect().right};
+            }"""
+        )
+        assert geometry["before"] == geometry["during"], "The inset probe moved an existing child"
+        assert before == page.screenshot(clip=clip), "The inset probe changed the painted box"
+    finally:
+        page.evaluate("document.querySelector('#search-inset-probe')?.remove()")
+    restored = page.evaluate(
+        "[...document.querySelector('#search-box').children].map(e=>e.getBoundingClientRect().toJSON())"
+    )
+    assert geometry["before"] == restored, "Removing the inset probe changed an existing child"
+    assert before == page.screenshot(clip=clip), "Removing the inset probe changed the painted box"
+    return geometry["inset"]
+
 
 # The vertical centre of the ink in each box of a screenshot (base64 PNG at device scale factor dpr; boxes [l, t, r, b] in
 # the shot's CSS px): the device rows holding a pixel that differs from the box's commonest luminance, the first and
@@ -2251,7 +2288,7 @@ class SearchBarGeometry(SearchBase):
         self.assertEqual(style[0], style[4])
         self.assertLess(float(style[0][:-2]), float(style[1][:-2]))
         self.assertEqual(style[2], style[3])
-        self.assertAlmostEqual(g["box"]["r"] - g["hint"]["r"], 8 + 1, delta=0.01)
+        self.assertAlmostEqual(hint_inner_inset(page), 8, delta=0.01)
         self.assertAlmostEqual(g["hint"]["m"], g["box"]["m"], delta=0.5)
         page.click("#search-q")
         self.assertTrue(page.is_visible("#search-hint"))
@@ -2297,6 +2334,29 @@ class SearchBarGeometry(SearchBase):
         _, light = self.bar(DESKTOP)
         _, dark = self.bar(DESKTOP, dark=True)
         self.assertEqual(light, dark)
+
+
+class SearchHintInsetChromium(SearchBase):
+    """The rendered inner hint spacing stays eight CSS pixels across integer and fractional device scales."""
+
+    def test_the_hint_keeps_eight_pixels_inside_its_actual_border(self):
+        """The native light-theme hint ends eight pixels inside its actual border, with an inert, restored probe."""
+        for dpr in (1, 1.25, 1.5, 2):
+            with self.subTest(dpr=dpr):
+                page = self.view(device(1440, 900, touch=False, dpr=dpr))
+                self.assertAlmostEqual(hint_inner_inset(page), 8, delta=0.01)
+
+
+class SearchHintInsetFirefox(SearchHintInsetChromium):
+    """Firefox's used inner border preserves the same strict hint-spacing contract at all four scales."""
+
+    BROWSER_ENGINE = "firefox"
+
+
+class SearchHintInsetWebKit(SearchHintInsetChromium):
+    """WebKit's fractional-scale border snapping preserves the strict eight-pixel inner hint spacing."""
+
+    BROWSER_ENGINE = "webkit"
 
 
 class SearchInk(SearchBase):

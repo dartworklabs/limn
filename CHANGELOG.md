@@ -4,6 +4,9 @@
 
 ### Fixed
 
+- **Browser diagnostics prepare their Korean test font automatically.** Font-sensitive regressions load a pinned,
+  verified Noto face only in their test pages, with an offline reusable cache. Search-hint spacing checks measure
+  eight CSS pixels from the actual inner border across Chromium, Firefox and WebKit at integer and fractional scales.
 - **Search shortcut hints keep one system UI font.** The fixed keyboard hint stays vertically centred when the
   surrounding controls fall back to sans-serif or monospace; its glyph shape and width can differ from Pretendard.
 - **External-document publication keeps one PDF generation.** Rendered pages, the downloadable PDF and the source
