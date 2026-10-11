@@ -39,6 +39,7 @@ from helpers_browser import (
     VIEWPORTS,
     BrowserBase,
     booted,
+    caret_to_start,
     drawn_faces,
     fonts_ready,
     hangul_ink_holds,
@@ -847,7 +848,7 @@ class TwoPeopleWithOneName(ComposerBase):
                     self.pick_sam(page, "sam1@example.com")
                 else:
                     self.pick_sam(page, "sam1@example.com")
-                    page.keyboard.press("ControlOrMeta+Home")
+                    caret_to_start(page)
                     self.pick_sam(page, "sam2@example.com")
                 self.leave(page, DESKTOP)
                 row = page.evaluate(ASSIGN_ROW)
@@ -890,7 +891,7 @@ class TwoPeopleWithOneName(ComposerBase):
                     if deleted.startswith("sam2")
                     else (second, len(text))
                 )
-                page.keyboard.press("ControlOrMeta+Home")
+                caret_to_start(page)
                 for _ in range(start):
                     page.keyboard.press("ArrowRight")
                 for _ in range(end - start):

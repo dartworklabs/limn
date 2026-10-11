@@ -33,6 +33,7 @@ Limn에서 "테스트가 녹색"은 합격의 필요조건이지 충분조건이
 | 검사 | 게이트 여부 | 명령 | 설정 위치 |
 | --- | --- | --- | --- |
 | §1 파이썬 테스트(§4·§5의 자동 부분 포함) | 게이트 | `uv run pytest -q -rs` | `ci.yml`의 `test`·`macos`·`tex` 작업, `pyproject.toml`의 `[tool.pytest.ini_options]` |
+| macOS 실제 브라우저 키보드 흐름 | 게이트 | `uv run pytest -q -rs -n 2 -m browser src/limn/viewer/tests/test_viewer_search.py::SearchKeys src/limn/viewer/tests/test_viewer_search.py::SearchShortcutFocus src/limn/viewer/tests/test_viewer_search.py::SearchScope src/limn/viewer/tests/test_viewer_doc_overflow.py::WithSearch src/limn/viewer/tests/test_viewer_assignee.py::TwoPeopleWithOneName` | `ci.yml`의 `macos-browser` 작업 |
 | §2 인스턴스 관리자 테스트 | 게이트 | `bash src/limn/administration/tests/test_instances.sh` | `ci.yml`의 `instances` 작업 |
 | §3 설치 스모크 | 게이트 | `uv tool install .` 뒤 설치된 명령과 패키지 내용 확인 | `ci.yml`의 `install` 작업 |
 | §8 정적 검사, §9 타입 검사, §10 기능 경계 검사 | 게이트 | §8–§10의 실행 행 | `ci.yml`의 `lint` 작업, `pyproject.toml`의 `[tool.ruff]`·`[tool.mypy]` |
@@ -43,7 +44,8 @@ Limn에서 "테스트가 녹색"은 합격의 필요조건이지 충분조건이
 
 - 수정 중에는 바뀐 동작을 직접 보는 테스트와 관련 정적 검사부터 돌린다. 전체 게이트는 완료 전 한 번 돌리고, 같은 입력으로 반복하지 않는다. 실패 원인을 고친 뒤에는 영향을 받는 게이트만 다시 돌린다.
 - pytest는 기본 4개 worker와 `loadscope`로 실행한다. 같은 클래스의 브라우저·서버 자원을 한 worker 안에 유지하고 Chromium 과다 실행을 피하기 위해 CPU 개수 대신 고정 상한을 쓴다. `-n 0`은 직렬 디버깅, `-n 2`는 메모리가 작은 환경에서 쓴다.
-- CI는 일반 테스트(core), 브라우저(browser), 실제 TeX(tex), 인스턴스 관리자(instances), 정적 검사(lint), 설치(install)를 독립 작업으로 실행한다. Linux의 일반·브라우저 검사는 Python 3.10·3.12에서 돈다. 일반 검사는 `-m "not browser and not tex"`, 브라우저는 `-m browser`, TeX는 `-m tex`로 분리한다. macOS 일반 검사는 2개 worker, 브라우저·TeX 검사도 각각 2개 worker로 실행한다. 인스턴스 셸 검사는 Linux·macOS에서 독립적으로 돈다.
+- CI는 일반 테스트(core), 브라우저(browser), 실제 TeX(tex), 인스턴스 관리자(instances), 정적 검사(lint), 설치(install)를 독립 작업으로 실행한다. Linux의 일반·브라우저 검사는 Python 3.10·3.12에서 돈다. 일반 검사는 `-m "not browser and not tex"`, 브라우저는 `-m browser`, TeX는 `-m tex`로 분리한다. macOS 일반 검사는 2개 worker로 실행한다. Linux 브라우저·TeX 검사도 각각 2개 worker로 실행한다. 인스턴스 셸 검사는 Linux·macOS에서 독립적으로 돈다.
+- macOS의 `macos-browser`는 실제 Chromium으로 검색 키·초점 반환·문서 행·동명이인 태그 삽입과 삭제를 2개 worker에서 검증한다. `LIMN_TEST_REQUIRE_BROWSER=1`·`LIMN_TEST_REQUIRE_NODE=1`로 도구 부재를 실패로 다룬다. 호스트 플랫폼을 바꾸지 않는 검색 검사는 실제 `navigator.platform`과 Python 호스트를 대조한 뒤 native 단축키·힌트·검색 결과·Esc의 초점 반환을 확인한다. 이 제한된 키보드 게이트는 macOS의 전체 화면·폴백 글꼴 실측이나 모든 브라우저 엔진의 증거를 대신하지 않는다.
 - 테스트가 끝난 뒤에는 **무엇을 돌려 몇 초 만에 통과했는지** 숫자로 보고한다(§결과를 보고하는 법).
 
 ## 1. 파이썬 테스트
@@ -71,6 +73,8 @@ Limn에서 "테스트가 녹색"은 합격의 필요조건이지 충분조건이
 브라우저가 닿는 테스트(`src/limn/viewer/tests/test_viewer_browser.py`, `src/limn/viewer/tests/test_viewer.py`의 `Frontend*` 가드)는 **임의의 시간(`sleep`, `wait_for_timeout`)을 기다리지 않는다.** 이벤트·DOM 상태·통신 완료를 가리키는 술어(`expect(...)`, `wait_for_selector`, `wait_for_function`)를 기다린다. 공용 대기 `settle()`(`tests/support/helpers_browser.py`)은 짧은 타이머·`fetch`·CSS 애니메이션과 함께 웹 글꼴 로딩(`document.fonts.status`)이 끝나기를 기다린다. 담은 글꼴의 조각은 그 글자가 처음 화면에 나올 때 받아서, 그 전에 잰 글은 폴백 글꼴의 값이기 때문이다([viewer.md](viewer.md) §글꼴). 시간으로 기다리면 빠른 머신에서는 시간을 낭비하고 느린 CI에서는 무작위로 깨진다.
 
 뷰어 화면의 시간 의존 동작(폴링 간격, 알림 배지 깜빡임, 날짜 포맷)을 테스트할 때는 브라우저의 시계를 얼린다(`clock.set_fixed_time()`).
+
+키보드 입력은 검사 의도를 플랫폼과 맞춘다. 명시적인 비 Apple `Ctrl+F` 계약은 플랫폼을 fixture에 선언하고, 일반 흐름은 실제 호스트의 검색 키를 보낸다. 텍스트 시작으로 이동하는 입력도 macOS의 `Command+↑`와 다른 호스트의 `Ctrl+Home`을 구분한다. 플랫폼을 선언한 검사는 키·물리 코드·IME 계약을, 실제 플랫폼 검사는 native 입력의 동작을 확인하며 서로를 대신하지 않는다. 커서 이동 뒤의 삽입·삭제 결과와 기존 잉크 허용 오차는 그대로 검증한다.
 
 ### 불안정한 테스트
 
