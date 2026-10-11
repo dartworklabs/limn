@@ -13,6 +13,7 @@ import threading
 import time
 from collections.abc import Callable, Mapping
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path, PurePosixPath
 from typing import Any
@@ -751,6 +752,33 @@ def _new_build_name(D: BuildDoc) -> str:
     return name
 
 
+@dataclass(frozen=True)
+class _PdfSnapshot:
+    """The fingerprint of staged bytes and the version signature of their opened source file."""
+
+    src_hash: str
+    signature: str
+
+
+def _stage_pdf(source: Path, target: Path) -> _PdfSnapshot:
+    """Copy one opened PDF into staging and hash exactly those bytes; propagate read, write or metadata errors.
+
+    The signature is taken from that open descriptor before copying, so an atomic source replacement cannot
+    make the captured PDF inherit the replacement's signature. The staged file keeps the opened source's
+    mode and timestamps; later rendering and publication use only this private copy.
+    """
+    digest = hashlib.sha256()
+    with source.open("rb") as original:
+        captured = os.fstat(original.fileno())
+        with target.open("wb") as staged:
+            for chunk in iter(lambda: original.read(1 << 20), b""):
+                staged.write(chunk)
+                digest.update(chunk)
+    target.chmod(stat.S_IMODE(captured.st_mode))
+    os.utime(target, ns=(captured.st_atime_ns, captured.st_mtime_ns))
+    return _PdfSnapshot(digest.hexdigest()[:32], stat_signature(captured))
+
+
 def render_pages(
     D: BuildDoc,
     pdf: Path,
@@ -758,16 +786,21 @@ def render_pages(
     dpi: int,
     workers: int | None = None,
     notes: Mapping[str, str] | None = None,
+    on_snapshot: Callable[[_PdfSnapshot], None] | None = None,
 ) -> Path | PagesNotRendered:
-    """Renders pages into a new directory and drops in a copy of the PDF (and extra - synctex, .aux, a figure map), and
-    notes - small text files by name (a LaTeX build's recipe.json), written into it before it is published.
+    """Stage one immutable PDF input, render its pages and publish it with companions and notes.
+
+    The PDF is copied into the hidden folder before pdfinfo and every page worker open that same copy. Extra
+    companions (SyncTeX, .aux, a figure map) and notes (small text files by name, such as recipe.json) join it
+    before publication. on_snapshot, when supplied, receives the staged fingerprint and opened-source signature.
     D's build state turns to phase render with no count, then holds the count of pages drawn (draw_pages) under
     "drawn"; state_snapshot answers it as `progress` while the build runs (completion.render_progress).
     Pages are drawn in parallel (draw_pages, at most `workers` at once, render_workers() by default) into a hidden
     folder (.<name>.part) that no client can name; only when every page and companion is in place does it get its
     pages-<build> name, in one rename. The screen keeps showing the old directory until commit_pages. Returns the new
-    directory, or why there is none: render (a page could not be drawn; detail names it) or pdf_copy (a companion
-    could not be stored) - the half-made folder is removed. A half-made folder a killed process left is cleared first."""
+    directory, or why there is none: render (a page could not be drawn; detail names it) or pdf_copy (the PDF or a
+    companion could not be stored). The half-made folder is removed even when an unexpected error propagates.
+    A half-made folder a killed process left is cleared first."""
     D.dir.mkdir(parents=True, exist_ok=True)
     for d in D.dir.iterdir():
         if d.is_dir() and PART_DIR_RE.fullmatch(d.name):
@@ -775,29 +808,39 @@ def render_pages(
     name = _new_build_name(D)
     part = D.dir / ("." + name + ".part")
     part.mkdir(parents=True)
-    build.state_update(D, phase="render", drawn=None)
-    why = draw_pages(
-        pdf, part, dpi, render_workers() if workers is None else workers, lambda c: build.state_update(D, drawn=c)
-    )
-    if why is not None:
-        shutil.rmtree(part, ignore_errors=True)
-        return PagesNotRendered("render", why)
     try:
-        shutil.copy2(pdf, part / D.pdf_name)
-        for f in extra:
-            shutil.copy2(f, part / f.name)
-        for note, text in (notes or {}).items():
-            (part / note).write_text(text, encoding="utf-8")
-    except OSError as e:
+        build.state_update(D, phase="render", drawn=None)
+        staged_pdf = part / D.pdf_name
+        try:
+            snapshot = _stage_pdf(pdf, staged_pdf)
+        except OSError as e:
+            return PagesNotRendered("pdf_copy", str(e))
+        if on_snapshot is not None:
+            on_snapshot(snapshot)
+        why = draw_pages(
+            staged_pdf,
+            part,
+            dpi,
+            render_workers() if workers is None else workers,
+            lambda c: build.state_update(D, drawn=c),
+        )
+        if why is not None:
+            return PagesNotRendered("render", why)
+        try:
+            for f in extra:
+                shutil.copy2(f, part / f.name)
+            for note, text in (notes or {}).items():
+                (part / note).write_text(text, encoding="utf-8")
+        except OSError as e:
+            return PagesNotRendered("pdf_copy", str(e))
+        newdir = D.dir / name
+        try:
+            os.rename(part, newdir)
+        except OSError as e:
+            return PagesNotRendered("render", "page folder not published: %s" % e)
+        return newdir
+    finally:
         shutil.rmtree(part, ignore_errors=True)
-        return PagesNotRendered("pdf_copy", str(e))
-    newdir = D.dir / name
-    try:
-        os.rename(part, newdir)
-    except OSError as e:
-        shutil.rmtree(part, ignore_errors=True)
-        return PagesNotRendered("render", "page folder not published: %s" % e)
-    return newdir
 
 
 def commit_pages(D: BuildDoc, newdir: Path, on_swap: Callable[[], None] | None = None) -> str:
@@ -849,18 +892,25 @@ def pdf_signature(D: BuildDoc) -> str | None:
 
 def render_pdf_doc(D: BuildDoc, cfg: BuildConfig) -> BuildOk | BuildFailed | BuildAborted:
     """The 'build' of view-only document D - renders its PDF into page images at cfg.dpi. No LaTeX, SyncTeX, or pull.
-    The PDF's signature is recorded (pdf_sig.txt) after a render, successful or not, so a PDF that fails to render is
-    retried only when the file changes, never on every poll. A missing PDF is BuildAborted pdf_missing naming it."""
+    Its fingerprint and recorded signature identify the staged input: page counting, every page renderer and the
+    published companion use that same PDF even when the source advances. The signature is recorded (pdf_sig.txt)
+    after a render, successful or not, so a failed version is retried only when the source changes. A missing PDF
+    is BuildAborted pdf_missing naming it; a staging failure is BuildFailed pdf_copy and leaves the old pages."""
     t0 = time.time()
     sig = pdf_signature(D)
     if sig is None:
         return BuildAborted("pdf_missing", str(D.main))
-    src_hash: str | None
-    try:
-        src_hash = build.doc_fingerprint(D, cfg.state)
-    except OSError:
-        src_hash = None
-    newdir = render_pages(D, D.main, [], cfg.dpi)
+    snapshot: _PdfSnapshot | None = None
+
+    def captured(value: _PdfSnapshot) -> None:
+        """Retain only facts from the PDF copy this render actually captured."""
+        nonlocal snapshot
+        snapshot = value
+
+    newdir = render_pages(D, D.main, [], cfg.dpi, on_snapshot=captured)
+    src_hash = None if snapshot is None else snapshot.src_hash
+    if snapshot is not None:
+        sig = snapshot.signature
     if isinstance(newdir, PagesNotRendered):
         failed = BuildFailed(newdir.kind, newdir.detail, None, [], round(time.time() - t0, 1), None, None, src_hash)
         # never retries the same file every 3 seconds - re-renders only when the file changes
