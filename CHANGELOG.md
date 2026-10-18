@@ -1,6 +1,9 @@
 # Changelog
 
-## Unreleased
+## 0.4.23 — 2026-10-19
+
+A fix-only release. The agent contract (`pins.md`, the HTTP API, the state directory) is unchanged, so an agent
+written against 0.4.22 needs no edit and instances keep their state as it is.
 
 ### Fixed
 
