@@ -280,7 +280,9 @@ class SearchLogic(unittest.TestCase):
         js = (
             consts("SEARCH_BREAK", "SEARCH_CJK", "SEARCH_EDGE_PT")
             + "\n"
-            + fns("searchFold", "searchEdges", "searchJoin", "searchFlow", "searchPattern", "searchFind")
+            + fns(
+                "searchFold", "searchBlocks", "searchEdges", "searchJoin", "searchFlow", "searchPattern", "searchFind"
+            )
             + (
                 "\nconst F=searchFlow(%s.map(s=>({t:searchFold(s.text).t,end:s.text.trimEnd().slice(-1),plain:s.plain,box:s.box})));"
                 "console.log(JSON.stringify(%s.map(q=>searchFind(F,searchPattern(searchFold(q).t.trim())))));"
@@ -354,16 +356,18 @@ class SearchLogic(unittest.TestCase):
     def test_only_consecutive_lines_of_a_wrapped_paragraph_are_joined(self):
         """Each pair below is a full line (it reaches the column's right edge at 500) and a line under it that would
         continue it, but for one thing - and so is not joined: the next line 2 font sizes lower (a looser pitch than one
-        line), of another font size, starting with a hanging indent of 2.5 font sizes (a list item), or above; the
-        first line short (ends at 400, a paragraph's last line), starting mid-column (a right-aligned line), or cut in
-        pieces (a table row, an \\hfill line). The control pair - 14pt lower, at the left edge - and one with a paragraph
-        indent of 1.25 font sizes are joined."""
+        line), of another font size, starting further in than a list's margin (3 font sizes: a centred line, not a
+        wrapped one), or above; the first line short (ends at 400, a paragraph's last line), starting mid-column (a
+        right-aligned line), or cut in pieces (a table row, an \\hfill line). Joined: the control pair - 14pt lower, at
+        the left edge - one with a paragraph indent of 1.25 font sizes, and a list item's second line at the margin its
+        lines stand at (a hanging indent of 2.5 font sizes, \\leftmargini), which a reader reads on from the first."""
         cases = {
             "control": ([("alpha one", 72, 500, 700), ("beta", 72, 300, 686)], 1),
             "indent": ([("alpha one", 72, 500, 700), ("beta", 87, 300, 686)], 1),
             "two sizes lower": ([("alpha one", 72, 500, 700), ("beta", 72, 300, 676)], 0),
             "another size": ([("alpha one", 72, 500, 700), ("beta", 72, 300, 686, 10)], 0),
-            "hanging indent": ([("alpha one", 72, 500, 700), ("beta", 102, 300, 686)], 0),
+            "hanging indent": ([("alpha one", 72, 500, 700), ("beta", 102, 300, 686)], 1),
+            "further in than a list's margin": ([("alpha one", 72, 500, 700), ("beta", 108, 300, 686)], 0),
             "above": ([("alpha one", 72, 500, 700), ("beta", 72, 300, 714)], 0),
             "short first": ([("alpha one", 72, 400, 700), ("beta", 72, 500, 686)], 0),
             "right-aligned": ([("alpha one", 300, 500, 700), ("beta", 72, 500, 686), ("gamma", 72, 500, 600)], 0),
@@ -375,6 +379,58 @@ class SearchLogic(unittest.TestCase):
         for name, (lines, want) in cases.items():
             with self.subTest(case=name):
                 self.assertEqual(self.counts(lines, ["one beta"])["one beta"], want)
+
+    def test_a_line_reaching_into_a_column_leaves_that_columns_joins_alone(self):
+        """A two-column page - the left column x 72-290, the right x 322-540, every line full and 15pt apart - with
+        one more line on it: a page number between the columns, one wide enough to reach into the left column or into
+        both, a full-width title, a full-width figure caption, or a line of its own wider than the left column. None of
+        them is a line of either column, so in every case a query still crosses the line break inside each column
+        ('in to' on the left, 'cat alog' on the right), and still does not cross from the left column's last line into
+        the right column's first ('harbour master': another column). The last case is a known miss, not a wish: a
+        full-width line one line pitch under the columns stands in their own block - nothing tells it from a line of
+        the paragraph - and widens the measure the joins are held to, so they go."""
+        left = [("the boats wait and we stand in", 72, 290, 700), ("to the cold water and do not", 72, 290, 685)]
+        left += [("ice the hull near the harbour", 72, 290, 670)]
+        right = [("master of the quay sees the", 322, 540, 700), ("keeper of the gauge write cat", 322, 540, 685)]
+        right += [("alog of the boats at anchor", 322, 540, 670)]
+        cases = {
+            "nothing else": (None, 1),
+            "a page number between the columns": (("12", 300, 312, 60), 1),
+            "a page number reaching into the left column": (("12", 288, 312, 60), 1),
+            "a page number reaching into both": (("12", 288, 324, 60), 1),
+            "a full-width title": (("Tidal observations", 72, 540, 740, 18), 1),
+            "a full-width figure caption": (("Figure 1 the gauge and its housing", 72, 540, 120), 1),
+            "a line wider than the left column": (("Table 1 the tide", 72, 300, 400), 1),
+            "a full-width line one pitch under the columns": (("Figure 1 the gauge", 72, 540, 655), 0),
+        }
+        for name, (extra, want) in cases.items():
+            with self.subTest(case=name):
+                lines = left + right + ([extra] if extra else [])
+                self.assertEqual(
+                    self.counts(lines, ["in to", "cat alog", "harbour master"]),
+                    {"in to": want, "cat alog": want, "harbour master": 0},
+                )
+
+    def test_a_line_cut_at_a_wide_gap_is_joined_to_nothing(self):
+        """A centred table of three cells a row: each row is one line of the page that searchLines cut into its cells
+        at the gaps between them, so none of the pieces is plain. 'Station' and 'North' are two cells of a row, not a
+        phrase, and the row below is not the row above's wrapped line: both find nothing, while a cell's own words are
+        still found. Being cut is the only thing that stands between them - each cell reaches the right edge of its own
+        block (the cells under and over it) and the cell below stands one line pitch lower at that block's left edge,
+        so with the cut forgotten 'gauge harbour' would read as a wrapped paragraph."""
+        rows = [
+            ("Station", 90, 174, 275),
+            ("North", 200, 260, 275),
+            ("Gauge", 290, 350, 275),
+            ("Harbour", 84, 168, 260),
+            ("Tide", 206, 254, 260),
+            ("Bay", 302, 338, 260),
+        ]
+        cut = [(text, x0, x1, y, 12, False) for text, x0, x1, y in rows]
+        self.assertEqual(
+            self.counts(cut, ["station north", "gauge harbour", "bay"]),
+            {"station north": 0, "gauge harbour": 0, "bay": 1},
+        )
 
     def test_find_lists_every_occurrence_without_overlap_and_reads_a_query_literally(self):
         """Occurrences are listed in reading order and never overlap; an empty query finds nothing; characters that mean
@@ -1415,7 +1471,12 @@ EDGE_EXPECTED = [
     ("tide 조류", 1, "... or a space"),
     ("ends here", 0, "'the short line ends' does not reach the column's edge: a paragraph's last line"),
     ("tables tables", 0, "the 18pt heading 'Tables' and the 12pt line under it differ in size"),
-    ("list wraps", 0, "the list item's next line starts 2.5 font sizes in: a hanging indent, not the column's edge"),
+    (
+        "list wraps",
+        1,
+        "the list item's second line stands at the margin a list's lines stand at (2.5 font sizes in,"
+        " \\leftmargini), and a reader reads the item on from its first line",
+    ),
     ("starts here", 1, "a paragraph's indented first line (1.25 font sizes) is full; the next starts at the edge"),
     ("cell harbour", 0, "a right-aligned table's rows start mid-column"),
     ("north harbour", 0, "... nor across its rows"),
@@ -1465,6 +1526,94 @@ class SearchBreakRule(SearchBase):
         self.assertGreater(upper["box"][0], 300 / 612)
         page.keyboard.press("Enter")
         self.assertEqual([h["cur"] for h in self.hits(page)], [True, True])
+
+
+def banner(x, y, text, width, size=12):
+    """A line set across both columns at `size`pt - a paper's title, the caption of a figure spanning the page - its
+    glyphs scaled sideways so that the line is `width`pt wide and stays one piece."""
+    return (x, y, [("F2", text)], (round(width / (12 * len(text)), 6), 0, 0, round(size / 12, 6)))
+
+
+# The two-column page: a [twocolumn] paper's first page. The columns are x 72-290 and x 322-540 with a 32pt gutter
+# between them, their lines full and 15pt apart (1.25 of the 12pt font: one line pitch), and across them stand an 18pt
+# title, a centred author line, the caption of a figure spanning the page, and the page number centred in the gutter.
+# None of those is a line of either column: the counts stated in COLUMNS_EXPECTED hold with them on the page.
+COLUMNS = [
+    [
+        banner(72, 744, "Tidal observations of the harbour", 468, 18),
+        (156, 716, [("F2", "by the keeper of the port")]),  # centred over both columns
+        full(72, 686, "the boats wait and we stand in", 218),
+        full(72, 671, "to the cold water and do not", 218),
+        full(72, 656, "ice the hull while the keeper", 218),
+        full(72, 641, "logs each boat of the harbour", 218),
+        full(72, 626, "and writes the day down in a", 218),
+        full(72, 611, "book by the door near harbour", 218),
+        full(322, 686, "master of the quay who keeps", 218),
+        full(322, 671, "the gauge and reads the tide", 218),
+        full(322, 656, "twice a day from the station", 218),
+        full(322, 641, "and sends the record on by the", 218),
+        full(322, 626, "evening post without any cat", 218),
+        full(322, 611, "alog of the boats at anchor", 218),
+        banner(72, 560, "Figure 1 the gauge and its housing by the door", 468),
+        (294, 60, [("F2", "12")]),  # the page number, centred in the gutter
+    ]
+]
+# What the rule gives on COLUMNS, query by query, with the reason - counted by hand from the text above, not computed.
+COLUMNS_EXPECTED = [
+    ("in to", 1, "the left column's first line ends in 'in' and its second starts 'to': one wrapped paragraph"),
+    ("into", 0, "a break between Latin letters is a word space, which the query must type"),
+    ("not ice", 1, "the left column's second and third lines, the same way"),
+    ("keeper logs", 1, "its third and fourth"),
+    ("harbour and", 1, "its fourth and fifth"),
+    ("cat alog", 1, "the right column's fifth and sixth lines: the other column wraps as well"),
+    ("catalog", 0, "a word space again"),
+    (
+        "harbour master",
+        0,
+        "the left column's last line ends 'harbour' and the right column's first starts 'master':"
+        " another column is never joined",
+    ),
+    ("harbour by", 0, "the title ends 'harbour' and the author line under it starts 'by': a title is no paragraph"),
+    ("anchor figure", 0, "the right column's last line and the figure's caption below both columns"),
+    ("door 12", 0, "the caption ends 'door' and the page number stands under it"),
+    ("its housing", 1, "the caption's own words are still found"),
+]
+
+
+class SearchTwoColumns(SearchBase):
+    """A two-column page, where a line standing across the columns - the title, the author line, a figure's caption,
+    the page number - must not tell on the columns' own joins (docs/handbook/viewer.md §본문 검색 찾는 규칙), against
+    counts stated by hand (COLUMNS_EXPECTED)."""
+
+    def setUp(self):
+        """The manuscript's build is the one-page COLUMNS fixture (the three-page build's other page images go)."""
+        super().setUp()
+        for extra in ("page-2.png", "page-3.png"):
+            (self.pages_dir / extra).unlink()
+        put_build(self.doc, build_dir(self.doc).name, search_pdf(COLUMNS), 1)
+
+    def test_the_count_of_every_case_is_the_stated_one(self):
+        """Each case of COLUMNS_EXPECTED shows its stated count: a query crosses the line breaks inside either column,
+        it does not cross from one column into the other, and the title, the author line, the caption and the page
+        number are joined to nothing."""
+        page = self.view()
+        for query, stated, why in COLUMNS_EXPECTED:
+            with self.subTest(query=query):
+                self.search(page, query)
+                self.assertEqual(int(self.count(page).split("/")[1]), stated, why)
+
+    def test_a_hit_over_a_break_in_a_column_is_drawn_on_that_column(self):
+        """'cat alog' crosses the right column's fifth line into its sixth: one hit, two boxes one pitch (15pt) apart,
+        both in the right column (x 322-540 of the 612pt page) - the first at that column's right end, the second at
+        its left edge. A hit inside a column is drawn on the column, not across the gutter."""
+        page = self.view()
+        self.search(page, "cat alog")
+        self.assertEqual(self.count(page), "1/1")
+        upper, lower = sorted(self.hits(page), key=lambda h: h["box"][1])
+        self.assertAlmostEqual(lower["box"][1] - upper["box"][1], 15 / 792, delta=0.002)
+        self.assertAlmostEqual(lower["box"][0], 322 / 612, delta=0.004)
+        self.assertGreater(upper["box"][0], 450 / 612)
+        self.assertLess(upper["box"][0] + upper["box"][2], 541 / 612)
 
 
 FIVE = [

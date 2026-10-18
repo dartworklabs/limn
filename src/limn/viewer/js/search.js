@@ -56,12 +56,14 @@ function searchLines(items){const rows=/** @type {any[][]} */([]); let row=/** @
 // How a line meets the next one in a page's flow (searchFlow), as the mark put between them. A query crosses a line's end only
 // between two consecutive lines of one wrapped paragraph, as TeX breaks a paragraph into lines; a false hit - a highlight on
 // text that does not hold the query - is worse than a missed one, so everything else is HARD and never crossed (headings,
-// centred and short lines, list items with hanging indents, table rows, \hfill lines, equations, captions, another column).
+// centred and short lines, table rows, \hfill lines, equations, captions, another column).
 // Two lines are consecutive lines of a paragraph when both are plain (searchLines), run the same way at the same font size,
-// the first reaches its column's right edge and starts at the column's left edge or a paragraph indent, and the second starts
-// at the left edge or a paragraph indent directly below - one line pitch of that font lower (1 to 1.5 font sizes). The column's
-// edges are those of the lines that overlap the line sideways (searchEdges), within SEARCH_EDGE_PT; a paragraph indent is 1 to
-// 2 font sizes in from the left edge. Between two such lines: a line that ends in a hyphen (-, U+2010 or a soft hyphen) was
+// the first reaches its column's right edge and starts at the column's left edge or an indent, and the second starts at the
+// left edge or an indent directly below - one line pitch of that font lower (1 to 1.5 font sizes). The column's edges are
+// those of the line's block (searchEdges), within SEARCH_EDGE_PT; an indent is 1 to 2.5 font sizes in from the left edge - a
+// paragraph's indented first line, or the margin a list's lines stand at (\leftmargini is 2.5em in LaTeX's standard classes,
+// so a list item's wrapped line stands 2.5 font sizes in, not at the edge). Between two such lines: a line that ends in a
+// hyphen (-, U+2010 or a soft hyphen) was
 // hyphenated - HYPH, the hyphen may be typed or left out; one that ends in a dash (an en or em dash, folded to -) runs on with
 // no space - DASH, the dash must be typed; a Hangul or CJK character on either side - CJK, the break is a space or nothing, as
 // such text breaks inside a word; else - SPACE, a word space that a query must type, as TeX never breaks a Latin word without a
@@ -69,16 +71,32 @@ function searchLines(items){const rows=/** @type {any[][]} */([]); let row=/** @
 const SEARCH_BREAK=Object.freeze({SPACE:'\n',CJK:'\u0002',HYPH:'\u0003',DASH:'\u0004',HARD:'\u0005'});
 const SEARCH_CJK=/[\p{Script=Hangul}\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}]/u;
 const SEARCH_EDGE_PT=3;   // how near a column's edge a line ends or starts to count as reaching it, in PDF points
-// The column edges of each line: the least x0 and the greatest x1 over the lines running its way that overlap it sideways
-// (itself included), or null for a line without geometry. Pure.
-/** @param {any[]} lines */
-function searchEdges(lines){return lines.map(L=>{const A=L.box; if(!A)return null; let l=A.x0,r=A.x1;
-  for(const M of lines){const B=M.box; if(B&&B.ang===A.ang&&B.x0<A.x1&&B.x1>A.x0){l=Math.min(l,B.x0); r=Math.max(r,B.x1);}}
-  return {l,r};});}
+// A page's blocks. Two lines are neighbours when they run the same way, overlap each other sideways and stand within one
+// line pitch of each other (1.5 font sizes of the larger - the pitch searchJoin allows, so every pair it could ever join
+// are neighbours); a block is a line with every line reachable from it through neighbours. A block is one column's run of
+// lines - a paragraph and the paragraphs touching it - or one column of a table; a title, a figure, a caption or a table
+// wider than the column, and a page number below the text, stand in blocks of their own, a line pitch away from the body.
+// Returns each line's block, numbered from 0 in the order the lines come, and -1 for a line without geometry. Pure.
+/** @param {any[]} lines @returns {number[]} */
+function searchBlocks(lines){const blk=/** @type {number[]} */(lines.map(L=>L.box?-2:-1)); let n=0;   // -2: in no block yet
+  lines.forEach((L,i)=>{if(blk[i]!==-2)return; const k=n++,q=[i]; blk[i]=k;
+    while(q.length){const A=lines[/** @type {number} */(q.pop())].box;
+      lines.forEach((M,j)=>{const B=M.box; if(blk[j]!==-2||!B||B.ang!==A.ang)return;
+        if(B.x0<A.x1&&B.x1>A.x0&&Math.abs(B.y-A.y)<=1.5*Math.max(A.size,B.size)+0.01){blk[j]=k; q.push(j);}});}});
+  return blk;}
+// The column edges of each line: the least x0 and the greatest x1 over its block (searchBlocks), or null for a line without
+// geometry. The measure a line is held to is its own block's, not the whole page's: one line reaching into a column - a
+// full-width title or caption, a table or figure wider than the text, a page number - no longer widens the column's edges,
+// which would leave no line in it reaching the right edge and break every join in it. Pure.
+/** @param {any[]} lines @returns {({l:number,r:number}|null)[]} */
+function searchEdges(lines){const blk=searchBlocks(lines),e=/** @type {{l:number,r:number}[]} */([]);
+  lines.forEach((L,i)=>{const k=blk[i]; if(k<0)return; const A=L.box;
+    e[k]=e[k]?{l:Math.min(e[k].l,A.x0),r:Math.max(e[k].r,A.x1)}:{l:A.x0,r:A.x1};});
+  return lines.map((L,i)=>blk[i]<0?null:e[blk[i]]);}
 // The break between line a and the next line b, with their column edges ea and eb (searchEdges): a SEARCH_BREAK mark. Pure.
 /** @param {any} a @param {any} b @param {{l:number,r:number}|null} ea @param {{l:number,r:number}|null} eb */
 function searchJoin(a,b,ea,eb){const A=a.box,B=b.box; if(!A||!B||!ea||!eb||!a.plain||!b.plain||A.ang!==B.ang||Math.abs(A.size-B.size)>0.1)return SEARCH_BREAK.HARD;
-  const dy=A.y-B.y,starts=(x,e,size)=>x-e.l<=SEARCH_EDGE_PT||(x-e.l>=size&&x-e.l<=2*size);
+  const dy=A.y-B.y,starts=(x,e,size)=>x-e.l<=SEARCH_EDGE_PT||(x-e.l>=size&&x-e.l<=2.5*size);
   if(dy<A.size-0.01||dy>1.5*A.size+0.01||ea.r-A.x1>SEARCH_EDGE_PT||!starts(A.x0,ea,A.size)||!starts(B.x0,eb,B.size))return SEARCH_BREAK.HARD;
   if(/[-\u2010\u00AD]/.test(a.end))return SEARCH_BREAK.HYPH;
   const x=a.t.trimEnd().slice(-1),y=b.t.trimStart().charAt(0);
