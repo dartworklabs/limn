@@ -4,6 +4,12 @@
 
 ### Fixed
 
+- **In-document search reads a column's wrapped lines again when something stands across the columns.** A line's
+  column edges now come from its own block — the lines that overlap it sideways within one line pitch — so a
+  full-width title, author line or figure caption, a table or figure wider than the text, or a page number reaching
+  into a column no longer widens that column and breaks every line break in it. A list item's wrapped line, standing
+  at the margin a first-level list's lines stand at, is read on from the item's first line. A query still never
+  crosses into another column, a table's cells or rows, an `\hfill` line, or a gap inside a line wider than its font.
 - **Browser diagnostics prepare their Korean test font automatically.** Font-sensitive regressions load a pinned,
   verified Noto face only in their test pages, with an offline reusable cache. Search-hint spacing checks measure
   eight CSS pixels from the actual inner border across Chromium, Firefox and WebKit at integer and fractional scales.
