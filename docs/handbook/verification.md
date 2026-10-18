@@ -179,9 +179,18 @@ CI는 uv `0.12.23`을 쓰고, 패키지 빌드는 Hatchling `1.32.4`를 요구�
 | --- | --- |
 | 측정 대상 | Handbook이 작성 표준(목록·role 배정·H1 하나·강조 상자 label·코드 언어·단순 표·내부 링크와 절 대상)을 지키고 한 장짜리 HTML로 묶이는지 |
 | 적용 조건 | `docs/handbook/`, `docs/handbook/book.json`, `tools/handbook-publish/`를 바꿀 때 |
-| 실행 | 폰트를 `.handbook/fonts/Pretendard-Regular.otf`에 둔 뒤 `uv run python tools/handbook-publish/publish.py check docs/handbook/index.md`, 이어서 `uv run python tools/handbook-publish/publish.py build docs/handbook/index.md --output .handbook/out/index.html` |
+| 실행 | 아래 §준비를 마친 뒤 `uv run python tools/handbook-publish/publish.py check docs/handbook/index.md`, 이어서 `uv run python tools/handbook-publish/publish.py build docs/handbook/index.md --output .handbook/out/index.html` |
 | 합격 기준 | 두 명령이 0으로 끝난다. 폰트 SHA-256과 Pandoc 버전은 `book.json`의 값과 정확히 같아야 한다 |
 | 보장 범위 | 형식과 링크 대상까지다. 내용이 코드와 맞는지는 보장하지 않는다. PDF 출판은 `book.json`에 고정한 Playwright·Chromium이 따로 필요하다 |
+
+### 준비
+
+출판은 개발 의존성에 없는 Pandoc과 본문 폰트를 따로 요구한다. 둘 다 `book.json`이 버전을 고정하고 `publish.py`가 실행 전에 대조하므로, 받는 자리와 판본까지 정해 두어야 같은 결과가 다시 나온다. 받은 것은 모두 `.gitignore`에 든 `.handbook/`에 두어 작업 트리를 더럽히지 않고, 머신 전역에는 설치하지 않는다. 지우려면 `.handbook/`를 지운다.
+
+- **Pandoc.** `book.json`이 고정한 판본의 공식 릴리스 자산을 받는다(`jgm/pandoc` 릴리스의 해당 태그, macOS arm64는 `pandoc-<판본>-arm64-macOS.zip`). GitHub이 그 자산에 알리는 digest와 받은 파일의 SHA-256을 맞춰 본 뒤 풀고, 나온 `bin/pandoc`을 출판 명령에만 `PATH` 앞에 붙여 쓴다. 패키지 관리자의 최신 Pandoc은 판본이 달라 `publish.py`의 정확 일치 대조를 통과하지 못한다.
+- **폰트.** `book.json`의 `font.path`가 가리키는 자리에 Pretendard Regular OTF를 둔다. 뷰어가 담은 가변 `woff2` 조각([viewer.md](viewer.md) §글꼴)이 아니라 정적 OTF이고, 판본은 [`src/limn/vendor/pretendard/README.md`](../../src/limn/vendor/pretendard/README.md)가 적은 것과 같다. 그 릴리스 묶음의 `public/static/Pretendard-Regular.otf`를 꺼내 쓴다. Pretendard 릴리스 자산에는 digest가 없으므로 무결성은 `book.json`의 SHA-256 대조가 맡는다.
+
+`check`는 작성 표준 진단이 없을 때에만 Pandoc 판본을 대조한다. 그래서 `check`가 0으로 끝난 것은 두 대조를 모두 지났다는 뜻이다. `publish.py`는 진단만 출력하므로 통과하면 아무 말도 하지 않는다. Pandoc이 `PATH`에 없으면 `Pandoc tool` 진단과 함께 3으로 끝난다.
 
 ## 8. 정적 검사
 
