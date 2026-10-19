@@ -101,6 +101,9 @@ def static_ui_strings(html):
 
 
 LIT = re.compile(r"'((?:[^'\\\n]|\\.)*)'|\"((?:[^\"\\\n]|\\.)*)\"")
+# A `name: 'text'` entry of a JS object literal. As in LIT, only the `\\.` branch takes a backslash, so each
+# character has one way to match and an unterminated quote fails at once instead of backtracking over the rest.
+ENTRY = re.compile(r"\w+:(['\"])((?:\\.|(?!\1)[^\\])*)\1")
 
 
 def first_arg(src, i):
@@ -188,11 +191,16 @@ class MessageTable(unittest.TestCase):
         in it has an English entry, so a new tooltip is never left in Korean."""
         found = re.search(r"^const T=\{(.*?)^\};$", HTML, re.S | re.M)
         assert found is not None, "core.js no longer declares `const T={...};` at line start"
-        texts = [
-            re.sub(r"\\(.)", r"\1", m.group(2)) for m in re.finditer(r"\w+:(['\"])((?:\\.|(?!\1).)*)\1", found.group(1))
-        ]
+        texts = [re.sub(r"\\(.)", r"\1", m.group(2)) for m in ENTRY.finditer(found.group(1))]
         self.assertGreater(len(texts), 20)
         self.assertEqual(sorted(t for t in texts if t not in UI_EN), [])
+
+    def test_a_table_entry_keeps_its_escapes_and_an_unclosed_entry_yields_nothing(self):
+        """ENTRY reads an escaped quote as text and the other quote style as it is. An entry whose quote never closes
+        (e, where the final quote is escaped) yields nothing: the test above then misses a tooltip, which is a
+        failure, rather than reading the escaped quote as the end of the text."""
+        body = "a:'plain', b:'it\\'s', c:\"a 'quoted' word\", d:'', e:'a\\'"
+        self.assertEqual([m.group(2) for m in ENTRY.finditer(body)], ["plain", "it\\'s", "a 'quoted' word", ""])
 
     def test_every_static_ui_string_has_a_translation(self):
         html = page_for("A-DEMO", "#2563eb")
