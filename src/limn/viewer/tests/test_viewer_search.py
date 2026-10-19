@@ -8,6 +8,10 @@ Helvetica and Hangul in a CID font that only a ToUnicode map names, so PDF.js re
 Three fixtures: a three-page PDF with one case per matching rule (PAGES), a fourteen-page PDF with an outline
 (long_pages) for the phone's navigation sheet, and five documents in the nav bar (five_docs) for a crowded bar.
 
+One group stands apart. SearchRealManuscripts builds the LaTeX of search_corpus with latexmk and reads it with the
+vendored PDF.js under node, so the geometry is TeX's own rather than placed by hand, and its answers come from the
+source sentences. It needs a TeX tool and so runs in the `tex` job (pytest -m tex).
+
 The browser tests drive the search as a person does - the shortcut, typing, Enter, the buttons - and read what a person
 sees (the count, the boxes on the page, where the focus is) or a screen reader reads (the live region, names and
 roles). Three things have no such outcome and are read from the page's own state instead, each said where it is used:
@@ -20,15 +24,19 @@ Run: uv run pytest -q src/limn/viewer/tests/test_viewer_search.py
 import base64
 import json
 import shutil
+import subprocess
 import sys
+import tempfile
 import unicodedata
 import unittest
 from pathlib import Path
 
 from hypothesis import given, settings, strategies as st
 
+from limn.viewer.tests import search_corpus
+
 import helpers_figure
-from helpers import blank_png, extract_js_fn, minimal_pdf, ps, run_node
+from helpers import blank_png, extract_js_fn, minimal_pdf, needs_tex, ps, run_node
 from helpers_browser import MISSES_44, VIEWPORTS, BrowserBase, booted, fonts_ready, search_shortcut, settle, watch_idle
 
 NBSP, SHY, FI, LSQ, RSQ, EN_DASH = chr(0xA0), chr(0xAD), chr(0xFB01), chr(0x2018), chr(0x2019), chr(0x2013)
@@ -509,6 +517,118 @@ class SearchLogic(unittest.TestCase):
         )
         self.assertEqual(got[2][0], round(72 / 612, 4))  # no font metrics: the whole item, with a default ascent
         self.assertEqual(got[2][2], round(100 / 612, 4))
+
+
+# ---------------------------------------------------------------- real two-column manuscripts, under node
+
+# The vendored PDF.js, read in node the way the page reads it in a browser. node has no DOM, so the three classes
+# the build touches while setting itself up are stood up as empty shells; text extraction never calls them.
+CORPUS_JS = """
+(async () => {
+  const { readFileSync } = require("node:fs");
+  const { pathToFileURL } = require("node:url");
+  globalThis.DOMMatrix ??= class DOMMatrix { constructor(i) { const a = Array.isArray(i) ? i : [1,0,0,1,0,0];
+    [this.a,this.b,this.c,this.d,this.e,this.f] = a; } };
+  globalThis.Path2D ??= class Path2D {};
+  globalThis.ImageData ??= class ImageData {};
+  const pdfjs = await import(pathToFileURL(%(main)s).href);
+  pdfjs.GlobalWorkerOptions.workerSrc = pathToFileURL(%(worker)s).href;
+  const doc = await pdfjs.getDocument({ data: new Uint8Array(readFileSync(%(pdf)s)), isEvalSupported: false,
+    useWasm: false, enableXfa: false, useSystemFonts: false, disableFontFace: true }).promise;
+  const pages = [];
+  for (let n = 1; n <= doc.numPages; n++) pages.push((await (await doc.getPage(n)).getTextContent()).items);
+  await doc.cleanup();
+%(fns)s
+  // How many lines the widest hit for q lies on: 0 when the query is not found at all, 1 when it sits inside one
+  // line, 2 or more when the search carried it over a line break.
+  const look = q => {
+    const re = searchPattern(searchFold(q).t);
+    let most = 0;
+    for (const items of pages) {
+      for (const h of searchFind(searchFlow(searchLines(items)), re)) most = Math.max(most, h.length);
+    }
+    return most;
+  };
+  // Is the page set in two columns? Count the lines whose box lies wholly in each half of the text area. A table
+  // cell's own left edge is not a column start, so counting lines per half is what tells the two apart.
+  const boxes = [];
+  for (const items of pages) for (const L of searchLines(items)) if (L.box) boxes.push(L.box);
+  const mid = (Math.min(...boxes.map(b => b.x0)) + Math.max(...boxes.map(b => b.x1))) / 2;
+  console.log(JSON.stringify({
+    halves: [boxes.filter(b => b.x1 <= mid).length, boxes.filter(b => b.x0 >= mid).length],
+    spans: %(spans)s.map(look),
+    absent: %(absent)s.map(look),
+  }));
+})().catch(e => { console.error(e); process.exit(1); });
+"""
+
+
+def corpus_answers(test, case):
+    """Build one corpus case with latexmk and return what the search answers for its queries, read under node."""
+    if not shutil.which("node"):
+        test.skipTest("node not available")
+    with tempfile.TemporaryDirectory() as d:
+        (Path(d) / "m.tex").write_text(case["tex"], encoding="utf-8")
+        built = subprocess.run(
+            ["latexmk", "-pdf", "-interaction=nonstopmode", "-halt-on-error", "m.tex"],
+            cwd=d,
+            capture_output=True,
+            text=True,
+            timeout=180,
+            check=False,
+        )
+        pdf = Path(d) / "m.pdf"
+        if built.returncode or not pdf.is_file():
+            test.fail("latexmk did not build %r:\n%s" % (case["name"], built.stdout[-2000:]))
+        vendor = Path(__file__).resolve().parents[2] / "vendor" / "pdfjs"
+        js = CORPUS_JS % {
+            "main": json.dumps(str(vendor / "pdf.min.mjs")),
+            "worker": json.dumps(str(vendor / "pdf.worker.min.mjs")),
+            "pdf": json.dumps(str(pdf)),
+            "fns": consts("SEARCH_BREAK", "SEARCH_CJK", "SEARCH_EDGE_PT")
+            + "\n"
+            + fns(
+                "searchFold",
+                "searchLines",
+                "searchBlocks",
+                "searchEdges",
+                "searchJoin",
+                "searchFlow",
+                "searchPattern",
+                "searchFind",
+            ),
+            "spans": json.dumps(list(case["spans"])),
+            "absent": json.dumps(list(case["absent"])),
+        }
+        return json.loads(run_node(js))
+
+
+class SearchRealManuscripts(unittest.TestCase):
+    """The search on real two-column pages: LaTeX this repository owns, built by latexmk, read by the vendored
+    PDF.js and searched by the served functions, against answers taken from the source rather than from the rules.
+
+    The other fixtures place every glyph by hand (search_pdf), which is what lets them state a count a person can
+    check. The cost is that a hand-built page holds only the shapes someone thought to place: ADR-0017 measured an
+    edge rule that such a page rated perfect and that 1,149 real papers rated 2.5 false joins to every one it
+    recovered. These cases carry the geometry TeX actually produces, so a rule that trades a missed join for a
+    false one fails here. The corpus and its expectations are search_corpus.CASES.
+    """
+
+    @needs_tex("latexmk")
+    def test_the_corpus_finds_the_sentences_its_source_wrote_and_joins_nothing_it_did_not(self):
+        """Every `spans` query is found across a line break, every `absent` query is found nowhere, and every
+        document really is set in two columns - a document that stopped being would test much less than it looks."""
+        for case in search_corpus.CASES:
+            with self.subTest(case["name"]):
+                got = corpus_answers(self, case)
+                left, right = got["halves"]
+                self.assertGreaterEqual(
+                    min(left, right), case["rows"], "not set in two columns: %d lines left, %d right" % (left, right)
+                )
+                for q, lines in zip(case["spans"], got["spans"], strict=True):
+                    self.assertGreaterEqual(lines, 2, "not found across a line break: %r (on %d line)" % (q, lines))
+                for q, lines in zip(case["absent"], got["absent"], strict=True):
+                    self.assertEqual(lines, 0, "joined text no sentence of the source holds: %r" % q)
 
 
 # ---------------------------------------------------------------- the real viewer
