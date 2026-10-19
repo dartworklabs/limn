@@ -241,10 +241,16 @@ jobs:
           version: "0.12.23"
           python-version: "3.12"
       - name: Install TeX, Poppler and bubblewrap
+        # texlive-publishers holds the publisher document classes (IEEEtran) that the search corpus
+        # (src/limn/viewer/tests/search_corpus.py) builds a real journal page with, and those classes set their text
+        # in Times, whose font definitions and Type 1 files are in the two `recommended` packages. A corpus case
+        # names the class file it needs and needs_tex_files fails the job if the file is not here, so this list and
+        # the corpus cannot drift apart silently.
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            latexmk texlive-latex-base texlive-plain-generic texlive-xetex latexdiff poppler-utils bubblewrap
+            latexmk texlive-latex-base texlive-plain-generic texlive-xetex texlive-publishers \
+            texlive-latex-recommended texlive-fonts-recommended latexdiff poppler-utils bubblewrap
       - name: Let bwrap create user namespaces
         # Ubuntu 24.04 (kernel.apparmor_restrict_unprivileged_userns=1) denies unprivileged user namespaces to any
         # program without an AppArmor profile that grants them, and bwrap then fails at its first step ("loopback:
