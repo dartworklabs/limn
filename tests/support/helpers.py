@@ -280,6 +280,29 @@ def needs_tex(*tools: str):
     return wrap
 
 
+def needs_tex_files(test: unittest.TestCase, *files: str) -> None:
+    """Hold a test (or one subtest) to a TeX installation that holds these files - a document class or style a
+    document it builds asks for, named as kpsewhich names them ("IEEEtran.cls").
+
+    kpsewhich reads the TeX tree and builds nothing, so this costs one process. A missing file skips and names
+    what is missing, unless LIMN_TEST_REQUIRE_TEX=1 (the CI `tex` job): there the TeX packages are installed on
+    purpose in ci.yml, so a missing class means that list and the test have drifted apart, and it is a failure.
+    Call it inside the test body (needs_tex decorates the method and cannot see which case is being built)."""
+    missing = [f for f in files if not kpsewhich(f)]
+    if missing:
+        if os.environ.get("LIMN_TEST_REQUIRE_TEX") == "1":
+            test.fail("%s required (LIMN_TEST_REQUIRE_TEX=1) but not installed" % ", ".join(missing))
+        test.skipTest("%s not installed" % ", ".join(missing))
+
+
+def kpsewhich(file: str) -> str:
+    """The path TeX would read `file` from, or "" when the installation does not hold it (or has no kpsewhich)."""
+    if not shutil.which("kpsewhich"):
+        return ""
+    found = subprocess.run(["kpsewhich", file], capture_output=True, text=True, check=False)
+    return found.stdout.strip()
+
+
 def run_node(js: str, tz: str = None):
     """Run js under node and return stdout. Returns None if node is missing (handled on the test side).
 

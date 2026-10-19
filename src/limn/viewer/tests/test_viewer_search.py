@@ -36,7 +36,7 @@ from hypothesis import given, settings, strategies as st
 from limn.viewer.tests import search_corpus
 
 import helpers_figure
-from helpers import blank_png, extract_js_fn, minimal_pdf, needs_tex, ps, run_node
+from helpers import blank_png, extract_js_fn, minimal_pdf, needs_tex, needs_tex_files, ps, run_node
 from helpers_browser import MISSES_44, VIEWPORTS, BrowserBase, booted, fonts_ready, search_shortcut, settle, watch_idle
 
 NBSP, SHY, FI, LSQ, RSQ, EN_DASH = chr(0xA0), chr(0xAD), chr(0xFB01), chr(0x2018), chr(0x2019), chr(0x2013)
@@ -612,14 +612,20 @@ class SearchRealManuscripts(unittest.TestCase):
     edge rule that such a page rated perfect and that 1,149 real papers rated 2.5 false joins to every one it
     recovered. These cases carry the geometry TeX actually produces, so a rule that trades a missed join for a
     false one fails here. The corpus and its expectations are search_corpus.CASES.
+
+    One case is set by a publisher's own class instead of `article`, for the column width, the page-wide front
+    matter and the line breaks a journal actually gets; it names the class file it needs, which the CI `tex` job
+    installs and a bare TeX installation may not.
     """
 
-    @needs_tex("latexmk")
+    @needs_tex("latexmk", "kpsewhich")
     def test_the_corpus_finds_the_sentences_its_source_wrote_and_joins_nothing_it_did_not(self):
         """Every `spans` query is found across a line break, every `absent` query is found nowhere, and every
         document really is set in two columns - a document that stopped being would test much less than it looks."""
         for case in search_corpus.CASES:
             with self.subTest(case["name"]):
+                if case.get("cls"):
+                    needs_tex_files(self, case["cls"])
                 got = corpus_answers(self, case)
                 left, right = got["halves"]
                 self.assertGreaterEqual(
