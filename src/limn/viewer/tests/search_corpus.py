@@ -11,14 +11,28 @@ publisher's document class names the file in `cls`, and the test skips it where 
 fails under LIMN_TEST_REQUIRE_TEX=1, which the `tex` job sets, since there it is installed on purpose).
 
 A `spans` query must be found *and* its hit must lie on more than one line. Without that second half a query TeX
-happened to fit on one line would pass while testing nothing, so each is written longer than a column holds.
-Each document is also long enough to fill both columns; `rows` keeps it that way, since a document that quietly
-stopped being set in two columns would pass a weaker corpus.
+happened to fit on one line would pass while testing nothing, so each is written longer than a column holds -
+except one, which is written to cross a hyphen TeX puts inside a word and says so where it stands.
+
+An `absent` query must be a phrase the rules could produce if they were wrong: written in the order the page is
+read in, between two things that are both still in the document. `present` holds the second half of that - the
+elements the `absent` queries are about - because a query whose text has gone from the document passes while
+testing nothing. `rows` keeps each document set in two columns on its first page.
+
+What cannot be asked for here is the limitation itself. On a page where a line wider than the column stands
+within one line pitch of body text, the shipped rule stops joining that body's lines on purpose
+(docs/handbook/viewer.md §찾는 규칙, ADR-0017). Writing that as `spans` would demand the rule change; writing it
+as `absent` would make the oracle copy the rule. So the corpus holds the geometry around that shape and leaves
+the shape's own joins out.
 """
 
-# A plain two-column body with a page-wide caption standing right under a paragraph. That is the shape ADR-0017
-# measured: the caption joins the body's block and gives it the width of both columns, so the body's own line
-# breaks stop joining. The queries below say what the source means regardless of that.
+# A plain two-column body with a float caption at the foot of a column. What it tests is the ordinary case: body
+# text in a real two-column measure joins across whatever line breaks TeX chooses, and the caption below does not
+# fuse into the paragraph above it. A `table` without a star is one column wide and `[b]` sends it to the foot of
+# the column, so the caption stands in a block of its own, a long way under the body - this document does NOT
+# hold the shape ADR-0017 measured, and no document here can hold it as a `spans` expectation: on a page where a
+# page-wide line stands within one line pitch of body text, the shipped rule loses those joins on purpose. STAMP
+# holds that geometry with the wide line kept clear of the prose, which is what lets it test an edge rule.
 BODY = r"""\documentclass[twocolumn,10pt]{article}
 \pagestyle{empty}
 % A short text block, set with a TeX primitive rather than a package, so that a few paragraphs fill the left
@@ -43,8 +57,8 @@ therefore runs on at some length about the quay, the gauge, the keeper
 and the weather, none of which matters except that the words continue.
 
 A fourth paragraph continues in the same vein so that the second column
-also carries ordinary running text above the caption, which the table
-below places across the full width of the page.
+also carries ordinary running text of its own above the float that the
+table below sends to the foot of the column.
 
 \begin{table}[b]
 \begin{tabular}{l}
@@ -52,15 +66,16 @@ below places across the full width of the page.
 \caption{The gauge and its housing by the door of the station house}
 \end{table}
 
-\noindent A closing paragraph stands under the caption so that the caption
-falls within one line pitch of body text, which is the arrangement the
-handbook records as a limitation of the block rule.
+\noindent A closing paragraph ends the running text, and the caption of
+the float stands below it with a clear run of white paper between the
+two, which is where this class puts a bottom float.
 \end{document}
 """
 
-# Shapes that must not join. A two-column nomenclature list, a page-wide table whose cells are one phrase each,
-# and ordinary prose on the same page as a positive case. Joining any cell pair would highlight a phrase that is
-# in no sentence of the source - the failure the project ranks as worse than a missed one.
+# Shapes that must not join. Page 1 holds a nomenclature list inside a column and ordinary prose, so a positive
+# case stands beside the negative ones; the page-wide table is a `table*` float and TeX puts it alone on page 2.
+# Joining any cell pair would highlight a phrase that is in no sentence of the source - the failure the project
+# ranks as worse than a missed one.
 TABLES = r"""\documentclass[twocolumn,10pt]{article}
 \pagestyle{empty}
 % A short text block, set with a TeX primitive rather than a package, so that a few paragraphs fill the left
@@ -105,12 +120,13 @@ metabolic rate & air temperature & clothing insulation \\
 \end{document}
 """
 
-# A list whose entries each take a whole line, standing next to ordinary full-width prose. This is the shape
-# that caught candidate D in ADR-0017: the block holds short entries and one full-column line, so the shipped
-# rule holds every entry to the long line's right edge and none of them reaches it. A rule that drops the wide
-# line from the measure shrinks the edge onto the longest entry, which then joins the entry below it into a
-# phrase no sentence of the source contains. Cell pairs *within* one row cannot test this - a row cut at a wide
-# gap is not plain, so no edge rule can ever join it.
+# A list whose entries each take a whole line, standing next to ordinary full-width prose. The shipped rule
+# holds every entry to the right edge the full-column lines set, and no entry reaches it, so a rule that
+# loosened the edge gate would join one entry to the next into a phrase no sentence of the source contains.
+# Candidate D, the rule ADR-0017 rejected, is not what this catches: the entries share their block with the
+# prose, so dropping the one over-wide line leaves the edge where it was (measured - STAMP is the case that
+# catches D). Cell pairs *within* one row test something else again: a row cut at a wide gap is two pieces at
+# the same height, so no join rule can put them together, and it is the cut itself they hold (see TABLES).
 LIST = r"""\documentclass[twocolumn,10pt]{article}
 \pagestyle{empty}
 % A short text block, set with a TeX primitive rather than a package, so that a few paragraphs fill the left
@@ -289,7 +305,8 @@ few lines more than the check asks for, and then the document ends.
 # A table of contents, whose entries are the one shape in this corpus that reaches both edges of the column: the
 # number at the left margin, the page number at the right, and dot leaders or white between them. The leaders are
 # a gap wider than the font, so each entry is cut into pieces that join nothing. The queries hold the heading
-# apart from the first entry and an entry's title apart from its own page number.
+# apart from the first entry, and one entry apart from the next; an entry's own title and page number are not
+# asked for, since the gap between them is the one a query does not cross by design.
 CONTENTS = r"""\documentclass[twocolumn,10pt]{article}
 \pagestyle{empty}
 % A short text block, set with a TeX primitive rather than a package, so that the contents fill the left column
@@ -317,12 +334,13 @@ also carries ordinary running text of its own.
 """
 
 
-# Each case: the document, the least number of lines each half of the text area must hold (so the page really is
-# set in two columns), queries that must be found across a line break, and queries that must find nothing. A case
-# whose document needs a class outside the base TeX install names that file in `cls`.
+# Each case: the document, the least number of lines each half of the first page's text area must hold (so that
+# page really is set in two columns), queries that must be found across a line break, queries that must find
+# nothing, and the elements those queries are about, which must still be found somewhere. A case whose document
+# needs a class outside the base TeX install names that file in `cls`.
 CASES = (
     {
-        "name": "two-column body with a page-wide caption",
+        "name": "two-column body with a float caption at the foot of a column",
         "tex": BODY,
         "rows": 8,
         "spans": (
@@ -332,9 +350,15 @@ CASES = (
             "fill the first column and spill into the second, because a document",
         ),
         "absent": (
-            # across the caption into the paragraph below it, and from the section title into the body
-            "housing by the door of the station house A closing paragraph",
+            # The order is the order the page is read in: the closing paragraph first, the float's caption after
+            # it. Held apart by the pitch (the float is a long way below) and by the short line that ends the
+            # paragraph. A query written the other way round could never match, whatever the rules did.
+            "where this class puts a bottom float. Table 1",
+            # the section title into the first body line: held by the edges, the plain flag, the pitch and the size
             "Tidal observations of the harbour The keeper of the quay",
+        ),
+        "present": (
+            "The gauge and its housing by the door",  # the caption itself: without it the query above is vacuous
         ),
     },
     {
@@ -346,13 +370,20 @@ CASES = (
             "closing paragraph is again full-column running text, a clear space",
         ),
         "absent": (
-            # consecutive entries of the list, each a whole line of its own
+            # Consecutive entries of the list, each a whole line of its own. These four are the edge-rule test of
+            # this corpus: the only thing between them is that no entry reaches the block's right edge, which the
+            # wide line below set. They are what catches the rule ADR-0017 rejected.
             "single stage with",
             "with thermal conductivity",
             "thermal conductivity expansion valve",
             "expansion valve heat exchanger",
-            # the last entry into the wide line below it
+            # The last entry into the wide line below it. The stamp is \footnotesize, so the size gate holds this
+            # pair as well as the edges - it is a weaker test of the edge rule than the four above.
             "heat exchanger Authorized licensed use limited",
+        ),
+        "present": (
+            "Authorized licensed use limited",  # the wide line that sets the block's edge
+            "thermal conductivity",  # the entries
         ),
     },
     {
@@ -361,17 +392,26 @@ CASES = (
         "rows": 8,
         "spans": (
             "list below gives one symbol to a line, which is how a nomenclature",
-            "ordinary running text at the full width of the column",
+            "ordinary running text at the full width of the column, so the block holds",
         ),
         "absent": (
-            # consecutive entries of the list: each is a whole line, so only the edge rule stands between them
+            # Consecutive entries of the list: each is a whole line, and the edges are what stands between them -
+            # loosen the edge gate and all five join. Candidate D, the rule ADR-0017 rejected, does NOT join
+            # them: the entries share a block with the full-column prose above, so dropping the one over-wide
+            # line does not shrink the edge onto the longest entry. STAMP is the case that catches D.
             "single stage with",
             "with thermal conductivity",
             "thermal conductivity watt per metre kelvin",
             "watt per metre kelvin expansion valve",
             "expansion valve heat exchanger",
-            # the last entry into the paragraph that follows it
+            # The last entry into the paragraph that follows it. `tabular` is a box inside the paragraph, so that
+            # paragraph's first line sits beside the list and above its last entry: the pitch gate's lower bound
+            # holds this pair, not the edges.
             "heat exchanger The paragraph after the list",
+        ),
+        "present": (
+            "watt per metre kelvin",  # the entries the queries above are about
+            "The paragraph after the list",
         ),
     },
     {
@@ -382,18 +422,27 @@ CASES = (
         "spans": (
             # the 9pt abstract, the body text under the drop cap, and the filler that fills the columns
             "sends the record on by the evening post, because the trust wants",
-            "all the seasons since then, through storms that took the roof",
-            # a line this class's column width makes TeX end with a hyphen ("is in-" / "spected")
+            "never once replaced it in all the seasons since then, through storms",
+            # A line this class's column width makes TeX end with a hyphen ("is in-" / "spected"). This one is
+            # shorter than the column holds on purpose: what it has to cross is the hyphen, not the line's end.
             "instrumentation of the station is inspected every spring",
             "the columns of this page fill to the bottom the way a journal page",
         ),
         "absent": (
-            # the title into the author line below it, and the abstract and the index terms into their neighbours
+            # The class's front matter against its neighbours. Each of these is held by more than the edges, which
+            # is worth knowing when reading what this case proves: the title into the author line by the pitch
+            # (23.3pt against a 23.9pt title) and the size, the abstract into the index terms by the pitch, the
+            # index terms into the section title by the pitch and the size.
             "beside the station house Alice Keeper",
             "washed down for the winter. Index Terms",
             "station house, tide. I. Introduction",
-            # a paragraph's short last line into the first line of the paragraph after it
+            # A paragraph's short last line into the first line of the paragraph after it - this one the edges
+            # hold on their own, and it is what this case contributes to the edge-rule side.
             "to the foot of the second column. A paragraph of ordinary",
+        ),
+        "present": (
+            "Index Terms",  # the front matter the queries above are about
+            "Alice Keeper",
         ),
     },
     {
@@ -405,9 +454,19 @@ CASES = (
             "carries on about the ledger and the gauge so that the column holds",
         ),
         "absent": (
-            "the record of the winter. h =",  # a paragraph's last line into the formula standing below it
+            # A paragraph's last line into the formula standing below it. Three things hold this pair: the row of
+            # the formula is cut at the gap before its number and so is not plain, the paragraph's last line is
+            # short of the block's right edge, and the gap down to the formula is wider than the pitch allows.
+            # Take any two away and it still does not join, which is what makes it a weak test of any one of them.
+            "the record of the winter. h =",
             "lines of its own below the formula. w =",
-            "rather than one. A third paragraph gives",  # the left column's last line into the right column's first
+            # The left column's last line into the right column's first. The right column's first line is near the
+            # top of the page, so this pair is held by the pitch gate's lower bound: the next line is above.
+            "rather than one. A third paragraph gives",
+        ),
+        "present": (
+            "h = a",  # the formulas themselves
+            "w = pq",
         ),
     },
     {
@@ -419,11 +478,17 @@ CASES = (
             "the same gauge, which the keeper has read since the year the station",
         ),
         "absent": (
-            "Contents 1 Tidal observations of the harbour",  # the heading into the first entry
-            # one entry into the next: the page number of the first and then the number and title of the second.
-            # An entry's own title and page number are not asked for - the leaders between them are a gap wider
-            # than the font, and a query does not cross such a gap, which the handbook records as a limitation.
+            # The heading into the first entry (held by the plain flag, the pitch and the size), and one entry
+            # into the next: the page number of the first, then the number and title of the second (the plain flag
+            # and the pitch). An entry's own title and page number are not asked for - the leaders between them
+            # are a gap wider than the font, and not carrying a query over such a gap is a limitation the
+            # handbook records, not something to require.
+            "Contents 1 Tidal observations of the harbour",
             "1 2 The weather of the inner basin",
+        ),
+        "present": (
+            "Contents",  # the contents themselves, and an entry the query above reads
+            "The weather of the inner basin",
         ),
     },
     {
@@ -435,14 +500,28 @@ CASES = (
             "fills the rest of the first column and spills into the second",
         ),
         "absent": (
-            "single stage with",  # two cells of one row
-            "with thermal conductivity",  # across a row end
+            # Two cells of ONE row. No change to the join rules can make these match - the pitch gate's lower
+            # bound needs the next line below, and two pieces of one row are at the same height. What they test
+            # is the other rule: searchLines cuts a row at a gap wider than the font, and if that cut ever went
+            # away the two cells would be one line and the phrase would be found inside it. They are the only
+            # thing in this corpus that notices, and issue #231 left that cut in on purpose.
+            "single stage with",
             "expansion valve heat exchanger",
-            "watt per metre kelvin expansion valve",
             "operating point power optimization",
             "power optimization hot water tank",
             "metabolic rate air temperature",
+            # Across a row end - a cell of one row into a cell of the next. These are the join side: the edges
+            # and the plain flag hold them.
+            "with thermal conductivity",
+            "watt per metre kelvin expansion valve",
             "hot water tank metabolic rate",
+        ),
+        "present": (
+            # The page-wide table is a float and lands on a page of its own. Without these the eight queries
+            # above would all pass on a document that had quietly stopped setting the table at all.
+            "operating point",
+            "metabolic rate",
+            "single stage",
         ),
     },
 )

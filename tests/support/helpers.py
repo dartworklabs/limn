@@ -288,7 +288,9 @@ def needs_tex_files(test: unittest.TestCase, *files: str) -> None:
     what is missing, unless LIMN_TEST_REQUIRE_TEX=1 (the CI `tex` job): there the TeX packages are installed on
     purpose in ci.yml, so a missing class means that list and the test have drifted apart, and it is a failure.
     Call it inside the test body (needs_tex decorates the method and cannot see which case is being built)."""
-    missing = [f for f in files if not kpsewhich(f)]
+    # Without kpsewhich nothing can be looked up, and saying "the class is not installed" would be blaming the
+    # wrong thing: TeX is what is missing.
+    missing = ["kpsewhich"] if not shutil.which("kpsewhich") else [f for f in files if not kpsewhich(f)]
     if missing:
         if os.environ.get("LIMN_TEST_REQUIRE_TEX") == "1":
             test.fail("%s required (LIMN_TEST_REQUIRE_TEX=1) but not installed" % ", ".join(missing))
