@@ -18,7 +18,6 @@ button:disabled{opacity:.65;cursor:not-allowed}
 /* Touch press feedback: with no hover, a pressed control is washed with the text colour for the press only - over whatever fill
    it has, and gone on release, so nothing stays behind as a hover would (docs/handbook/viewer.md §뜻과 모양). */
 @media not all and (hover:hover){button:active:not(:disabled){box-shadow:inset 0 0 0 100vmax color-mix(in srgb,var(--foreground) 8%,transparent)}}
-button[data-pending]{cursor:progress;background:color-mix(in srgb,var(--primary) 70%,var(--background));border-color:transparent}   /* [핀 저장]'s "saving" - looks pressed-and-waiting */
 button.btn-default{background:var(--primary);color:var(--primary-foreground);border-color:var(--primary);font-weight:600}
 @media (hover:hover){button.btn-default:hover{background:color-mix(in srgb,var(--primary) 88%,var(--background));color:var(--primary-foreground)}}
 button.btn-secondary{background:var(--secondary);color:var(--secondary-foreground);border-color:transparent}
@@ -28,6 +27,9 @@ button.btn-ghost{background:transparent;border-color:transparent}
 /* soft: a light accent (a tint of the primary color). Only for the card's [완료] - set by the author 2026-09-23 (light blue). The secondary token is used by count badges, so it's left untouched */
 button.btn-soft{background:color-mix(in srgb,var(--primary) 14%,transparent);color:var(--primary);border-color:transparent}
 @media (hover:hover){button.btn-soft:hover{background:color-mix(in srgb,var(--primary) 14%,transparent);color:var(--primary);border-color:color-mix(in srgb,var(--primary) 45%,transparent)}}   /* darkening the background further drops light-mode text contrast below 4.5 - shown via a border instead */
+/* [핀 저장]'s "saving" - looks pressed-and-waiting. After the variants: it carries the same specificity as
+   `button.btn-default`, and that rule is the one it has to win over ([핀 저장] is the panel's default action). */
+button[data-pending]{cursor:progress;background:color-mix(in srgb,var(--primary) 70%,var(--background));border-color:transparent}
 button.btn-destructive{background:color-mix(in srgb,var(--destructive) 10%,transparent);color:var(--destructive);border-color:transparent}
 @media (hover:hover){button.btn-destructive:hover{background:color-mix(in srgb,var(--destructive) 18%,transparent);color:var(--destructive)}}
 /* The small button is --control-h-sm tall by its token, not by its text (12px x 1.4 + padding made 22.8px), and its label's
