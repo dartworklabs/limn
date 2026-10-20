@@ -549,15 +549,22 @@ CORPUS_JS = """
     }
     return most;
   };
-  // Is the page set in two columns? Count the lines whose box lies wholly in each half of the text area. A table
-  // cell's own left edge is not a column start, so counting lines per half is what tells the two apart.
-  const boxes = [];
-  for (const items of pages) for (const L of searchLines(items)) if (L.box) boxes.push(L.box);
-  const mid = (Math.min(...boxes.map(b => b.x0)) + Math.max(...boxes.map(b => b.x1))) / 2;
+  // Is each page set in two columns? Count, on that page alone, the lines whose box lies wholly in each half of
+  // that page's own text area. One count over the pages pooled together would let one page's left column and
+  // another page's right column stand in for a two-column page, and a page holding nothing but a float would
+  // pull the middle across. What this cannot do is tell a wide table from two columns - that is the column
+  // inference ADR-0017 leaves open - so it catches a page that stopped being set in two columns, no more.
+  const halves = pages.map(items => {
+    const boxes = searchLines(items).map(L => L.box).filter(Boolean);
+    if (!boxes.length) return [0, 0];
+    const mid = (Math.min(...boxes.map(b => b.x0)) + Math.max(...boxes.map(b => b.x1))) / 2;
+    return [boxes.filter(b => b.x1 <= mid).length, boxes.filter(b => b.x0 >= mid).length];
+  });
   console.log(JSON.stringify({
-    halves: [boxes.filter(b => b.x1 <= mid).length, boxes.filter(b => b.x0 >= mid).length],
+    halves,
     spans: %(spans)s.map(look),
     absent: %(absent)s.map(look),
+    present: %(present)s.map(look),
   }));
 })().catch(e => { console.error(e); process.exit(1); });
 """
@@ -599,6 +606,7 @@ def corpus_answers(test, case):
             ),
             "spans": json.dumps(list(case["spans"])),
             "absent": json.dumps(list(case["absent"])),
+            "present": json.dumps(list(case["present"])),
         }
         return json.loads(run_node(js))
 
@@ -620,17 +628,27 @@ class SearchRealManuscripts(unittest.TestCase):
 
     @needs_tex("latexmk", "kpsewhich")
     def test_the_corpus_finds_the_sentences_its_source_wrote_and_joins_nothing_it_did_not(self):
-        """Every `spans` query is found across a line break, every `absent` query is found nowhere, and every
-        document really is set in two columns - a document that stopped being would test much less than it looks."""
+        """Every `spans` query is found across a line break, every `absent` query is found nowhere, every element
+        those queries are about is still in the document, and its first page is set in two columns.
+
+        The last two are what keeps the first two honest. A document whose float or list quietly stopped being
+        set would satisfy every `absent` query by holding none of the text, and a page that stopped being set in
+        two columns would test the search on a geometry nobody meant to test."""
         for case in search_corpus.CASES:
             with self.subTest(case["name"]):
                 if case.get("cls"):
                     needs_tex_files(self, case["cls"])
                 got = corpus_answers(self, case)
-                left, right = got["halves"]
+                left, right = got["halves"][0]
                 self.assertGreaterEqual(
-                    min(left, right), case["rows"], "not set in two columns: %d lines left, %d right" % (left, right)
+                    min(left, right),
+                    case["rows"],
+                    "page 1 is not set in two columns: %d lines left, %d right" % (left, right),
                 )
+                for q, lines in zip(case["present"], got["present"], strict=True):
+                    self.assertGreaterEqual(
+                        lines, 1, "the document no longer holds %r, so queries about it are vacuous" % q
+                    )
                 for q, lines in zip(case["spans"], got["spans"], strict=True):
                     self.assertGreaterEqual(lines, 2, "not found across a line break: %r (on %d line)" % (q, lines))
                 for q, lines in zip(case["absent"], got["absent"], strict=True):
