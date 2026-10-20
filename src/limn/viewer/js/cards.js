@@ -58,7 +58,7 @@ function card(p){
   const dot=stDot(rv?CARD_DOT.REVIEW:p.stale||elLost(p)?CARD_DOT.LOST:claimed?CARD_DOT.CLAIMED:CARD_DOT.OPEN),unfold=open||(!rv&&editing);
   const head=html`<div class="row head">${dot}${go}<span class="n go" role="button" tabindex="0" data-act="view" data-tip="${T.n}">#${p.id}</span>${docChip(p)}\
 <span class="loc" tabindex="0" data-copy="${isRegion(p)?locCopy(p):name+' '+loc}" data-tip="${isRegion(p)?'영역이 있는 PDF 쪽. 클릭하면 복사':T.loc}">${locText(p)}</span>\
-<span class="pg-link" tabindex="0" data-act="view" data-tip="클릭하면 그 쪽으로 이동">${page}</span>\
+<span class="pg-link" role="button" tabindex="0" data-act="view" data-tip="클릭하면 그 쪽으로 이동">${page}</span>\
 <span class="sp"></span><span class="h-meta">${thn}${au}</span>\
 <button class="btn-icon btn-sm btn-ghost cmp b-fold" data-act="card-toggle" aria-expanded="${unfold}" aria-label="${open?'카드 접기':'카드 펼치기'}">${ic(unfold?'chevron-down':'chevron-right')}</button></div>\
 ${sum}<div class="tags">${tags}</div>`;

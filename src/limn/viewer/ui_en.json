@@ -1106,6 +1106,7 @@
  "휴지통 {n}": "Trash ({n})",
  "휴지통 닫기 (Esc)": "Close the Trash (Esc)",
  "휴지통에서 같은 번호로 되살립니다": "Restore it from the Trash under the same number",
+ "휴지통에서 봅니다": "See it in the Trash",
  "휴지통에서 영구 삭제합니다(소유자만). 그 자리에 6초 동안 남는 [되돌리기]로 취소할 수 있고, 그 줄이 사라지면 지웁니다": "Deletes it from the Trash for good (owner only). [Undo] stays in its place for 6 seconds and cancels it; it is deleted when that row goes away",
  "휴지통이 비어 있습니다": "The Trash is empty",
  "#{id}{p} 감쌈": "Encloses #{id}",

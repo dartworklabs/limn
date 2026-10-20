@@ -90,13 +90,15 @@ button.tg[aria-pressed=true]{border-color:var(--border-strong)}
   font:inherit;color:var(--foreground);-webkit-user-select:text;user-select:text}
 .xp-row .ln{color:var(--muted-foreground);font-variant-numeric:tabular-nums;min-width:3ch;text-align:right}
 .xp-row .tx{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:4;overflow:hidden;white-space:pre-wrap;overflow-wrap:anywhere}
-.xp-row.on{background:color-mix(in srgb,var(--primary) 12%,var(--code));box-shadow:inset 3px 0 0 var(--primary)}   /* the band */
+/* The band marking the chosen range: a tint, no edge line. The list's first and last rows carry the list's own
+   rounded corners, and an accent line down one side of a rounded box is not a shape this project draws. */
+.xp-row.on{background:color-mix(in srgb,var(--primary) 20%,var(--code))}   /* the band */
 .xp-row.ctx .tx{-webkit-line-clamp:2;color:var(--muted-foreground)}   /* a dimmed neighbour */
 .xp-row.ctx .ln{opacity:.7}
 button.xp-row{cursor:pointer;min-width:0;justify-content:stretch}
 @media (hover:hover){button.xp-row:hover{background:var(--accent)}}
 .xp-fold{padding:var(--space-1) var(--space-2) var(--space-1) calc(var(--space-2) + 3ch + var(--space-2));color:var(--muted-foreground);
-  background:color-mix(in srgb,var(--primary) 12%,var(--code));box-shadow:inset 3px 0 0 var(--primary)}
+  background:color-mix(in srgb,var(--primary) 20%,var(--code))}   /* inside the band, so the same tint and no line */
 .xp-chip{justify-self:center;display:flex;align-items:center;justify-content:center;width:var(--chip);height:var(--chip);
   margin-top:calc((1.5em - var(--chip)) / 2);border-radius:50%;padding:0;border:0}
 .xp-chip .ic{width:16px;height:16px}
