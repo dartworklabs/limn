@@ -29,10 +29,16 @@ Scope and approval: [suggested-edit pins](../specs/2026-10-24-suggested-edit-pin
 - [x] Step 1: Composer: a `[제안 수정]` toggle for LaTeX line selections ≤ 80 lines; a monospace editor prefilled from `snippet&text=1`; follows range changes until edited, then `범위가 바뀌었습니다 · [원문 다시 불러오기]`; sends `suggest`; handles `409 suggest_base_changed` without losing the draft; undo restores it.
 - [x] Step 2: Card: `제안 수정` badge with state; line diff of `base` → `text` collapsed past five lines. Edit card: edit or remove the suggestion.
 - [x] Step 3: `viewer.md` rules and viewer tests; existing guards stay green; typecheck and strict ratchet pass.
-- [ ] Step 4: PoC: before/after renders at the four device groups (1440×900; 390×844, 320×720; 768×1024, 1024×768; 344×882, 673×841, 841×673) with measured sizes, and a live loopback instance of each build exposed to the owner through the tailnet. Expected: the owner sees it before merge. Commit point: viewer commit.
+- [x] Step 4: PoC: before/after renders at the four device groups (1440×900; 390×844, 320×720; 768×1024, 1024×768; 344×882, 673×841, 841×673) with measured sizes, and a live loopback instance of each build exposed to the owner through the tailnet. Expected: the owner sees it before merge. Commit point: viewer commit.
 
 ## Task 5: Verification and integration
 
-- [ ] Step 1: All gates in AGENTS.md §검증. Expected: green, with real skips reported.
-- [ ] Step 2: Push, open the PR (replacing the design-only draft or extending it), wait for CI. Expected: the PR body states the PoC shown and the owner's choice.
-- [ ] Step 3: After the owner has seen the PoC: set ADR-0020 to `승인됨`, merge. Expected: no release, version tag or instance update.
+- [x] Step 1: All gates in AGENTS.md §검증. Expected: green, with real skips reported.
+- [x] Step 2: Push, open the PR (replacing the design-only draft or extending it), wait for CI. Expected: the PR body states the PoC shown and the owner's choice.
+- [x] Step 3: After the owner has seen the PoC: set ADR-0020 to `승인됨`, merge. Expected: no release, version tag or instance update.
+
+## PoC review record
+
+- Shown: before/after composites and measurements at all eight sizes of the four device groups (emulated Chromium, DPR 2; kept outside the repository), and this branch's build live on the tailnet over the real backbone document.
+- Owner: asked whether the 1:2 `[취소] [핀 저장]` split on phones was intended (it is the existing rule in viewer.md §패널 정리, unchanged by this work), then replied **“머지하고 후속 진행해”** (merge and continue with the follow-ups).
+- Left for follow-up, not fixed here: on phones with the keyboard up and the suggestion editor focused the location line scrolls off; on a tablet sheet at its 45% rest height the editor needs a short scroll above the save row.

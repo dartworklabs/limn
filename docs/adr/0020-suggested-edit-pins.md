@@ -4,7 +4,7 @@
 | --- | --- |
 | **번호** | ADR-0020 |
 | **제목** | 제안 수정 핀 — 핀이 교체 문안을 담고, Limn은 여전히 원고를 쓰지 않는다 |
-| **상태** | 제안 |
+| **상태** | 승인됨 |
 | **결정일** | 2026-10-24 |
 | **결정자** | Limn 소유자 |
 | **출처** | [spec](../superpowers/specs/2026-10-24-suggested-edit-pins.md), [설계 PR](https://github.com/dartworklabs/limn/pull/253) |
