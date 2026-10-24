@@ -1,8 +1,8 @@
 # Changelog
 
-## Unreleased
+## 0.4.24 — 2026-10-24
 
-Suggested-edit pins (ADR-0020, proposed). The agent contract only grows: an agent written against
+Suggested-edit pins (ADR-0020). The agent contract only grows: an agent written against
 0.4.23 keeps working, and a 0.4.23 server reads and rewrites the new field unchanged, so rolling back loses nothing.
 
 ### Added
