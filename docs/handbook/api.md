@@ -50,8 +50,8 @@ HTTP 전송 입장을 통과한 API 오류 응답은 `{"error": "<한국어 메�
 | 인증·입장·역할 | `401`·`403` | `unauthenticated`·`loopback_agent_off`(루프백 에이전트를 끈 인스턴스에 헤더 없는 로컬 요청)·`headerless`·`bad_bearer`·`bad_token`·`not_member`·`not_allowed`·`viewer_only`·`owner_only`·`confirm_by_human` |
 | 경로 | `404` | `not_found`(없는 경로·vendor 파일), `pdf_build_gone`(`?build=` 나 `/pages/<빌드>/` 의 빌드가 없음, pick 의 옛 빌드), `pdf_missing`(`?build=` 없이 지금 빌드의 PDF 가 없음) |
 | 문서 | `400`·`404` | `bad_doc`·`doc_mismatch`·`unknown_doc`·`no_source_lines`(보기 전용 문서나 영역 핀에 줄을 보냄)·`view_only_no_rebuild` |
-| 핀 | `404`·`409` | `pin_not_found`·`not_in_trash`·`pin_exists`, `409` 코드 `done`·`conflict`·`open`·`full`·`claimed` |
-| 핀 입력 | `400` | `not_integer`·`not_number`·`too_small`·`bad_note`·`note_too_long`·`bad_note_append`·`note_append_empty`·`note_append_too_long`·`bad_reply`·`reply_too_long`·`bad_ref`·`ref_too_long`·`bad_changes`·`too_many_changes`·`change_outside_manuscript`·`bad_pin`·`bad_assignee`·`unknown_assignee`·`bad_kind_req`·`bad_kind`·`bad_via`·`bad_scope`·`bad_el`·`bad_quote`·`bad_loc`·`bad_mentions`·`bad_event_cursor`·`bad_reopen`·`bad_review`·`text_required`·`bad_text`·`text_too_long`·`text_empty`·`base_rev_required`·`bad_done_at`·`nothing_to_change`·`unknown_fields`·`confirm_required` |
+| 핀 | `404`·`409` | `pin_not_found`·`not_in_trash`·`pin_exists`, `409` 코드 `done`·`conflict`·`open`·`full`·`claimed`, 제안 수정의 원문 대조 `suggest_base_changed`(`409`, 본문에 `current`) |
+| 핀 입력 | `400` | `not_integer`·`not_number`·`too_small`·`bad_note`·`note_too_long`·`bad_note_append`·`note_append_empty`·`note_append_too_long`·`bad_reply`·`reply_too_long`·`bad_ref`·`ref_too_long`·`bad_changes`·`too_many_changes`·`change_outside_manuscript`·`bad_pin`·`bad_assignee`·`unknown_assignee`·`bad_kind_req`·`bad_kind`·`bad_via`·`bad_scope`·`bad_el`·`bad_suggest`·`suggest_unsupported`·`suggest_too_long`·`suggest_noop`·`bad_quote`·`bad_loc`·`bad_mentions`·`bad_event_cursor`·`bad_reopen`·`bad_review`·`text_required`·`bad_text`·`text_too_long`·`text_empty`·`base_rev_required`·`bad_done_at`·`nothing_to_change`·`unknown_fields`·`confirm_required` |
 | 위치 | `400` | `bad_file`·`file_outside_manuscript`·`file_not_found`·`range_outside_file`·`pin_outside_manuscript`·`bad_page`·`page_out_of_range`·`bad_frac`·`frac_outside_page`·`bad_pdf_build` |
 | pick(`200`) | `200` | `pdf_build_gone`·`generated_file`·`synctex_outside`·`source_unreadable`·`no_source_here` |
 | 변경 보기 | `400`·`404`·`422`·`503` | `bad_commit`·`bad_limit`·`pin_with_base`·`no_history`·`commit_not_recent`·`base_too_old`·`diff_unreadable`·`not_in_repo`·`pin_not_in_doc`·`revision_not_ready`·`revision_pdf_missing`·`base_after_head`·`no_merge_base` |
@@ -296,11 +296,11 @@ curl -s -H "Authorization: Bearer $(cat ~/.config/limn/<인스턴스>.token)" ht
 
 | 메서드 | 경로 | 설명 |
 | --- | --- | --- |
-| `GET` | `/api/pins` | 열린 핀 목록(JSON). 레코드마다 `rev`, `rel`(§겹친 핀과 덧붙이기), `est`(불리언, [build-sync.md](build-sync.md) §위치 추정 (`est`)), `state`(§검토 대기)가 채워진다. `rel`·`est`·`state` 는 계산 필드라 저장하지 않는다. `el` 이 있는 그림 핀에는 `mark`·`mark_page`·`el_sync` 도 붙는다(§그림 문서의 pick·핀). 저장된 숫자에 NaN·Infinity 가 있으면 응답에서 `null` 이다. `frac`·`el.frac` 은 필드 전체가 그렇다(§핀 레코드 스키마). `?all=1` 이면 닫힌 핀까지 준다. 이 경로는 줄 맞춤(sync) 쓰기를 한다 |
+| `GET` | `/api/pins` | 열린 핀 목록(JSON). 레코드마다 `rev`, `rel`(§겹친 핀과 덧붙이기), `est`(불리언, [build-sync.md](build-sync.md) §위치 추정 (`est`)), `state`(§검토 대기)가 채워진다. `rel`·`est`·`state` 는 계산 필드라 저장하지 않는다. `el` 이 있는 그림 핀에는 `mark`·`mark_page`·`el_sync` 도 붙는다(§그림 문서의 pick·핀). 제안 수정이 있는 핀에는 맨 끝에 `suggest_state` 가 붙는다(§제안 수정 (`suggest`)). 저장된 숫자에 NaN·Infinity 가 있으면 응답에서 `null` 이다. `frac`·`el.frac` 은 필드 전체가 그렇다(§핀 레코드 스키마). `?all=1` 이면 닫힌 핀까지 준다. 이 경로는 줄 맞춤(sync) 쓰기를 한다 |
 | `GET` | `/api/pins/{id}` | 핀 한 건 `{pin}`. `GET /api/pins?all=1` 의 한 항목과 같은 모양이다(스레드 전부와 계산 필드 포함). 없으면 `404` |
 | `GET` | `/api/pins/dropped` | 휴지통 → `{dropped: [...]}`. 잠금 아래 원본과 휴지통을 함께 읽고, `dropped_at` 순으로 유효한 휴지통 항목만 낸다(쓰기 부작용 없음). 살아 있는 원본과 번호가 겹치거나 30일(`TRASH_DAYS`)이 지난 항목은 싣지 않는다(§휴지통). 계산 필드는 `expires_ts`(지워질 시각, epoch 초, 0.2.2+) 하나다. 뷰어의 휴지통이 이것을 쓴다. 열린 목록에서 사라진 핀이 완료인지 삭제인지 가르는 알림도 이것을 쓴다([build-sync.md](build-sync.md) §자동 동기화 (가벼운 meta 폴링)) |
 | `GET` | `/pins.md` | 원격 에이전트 진입점. `<state_dir>/pins.md` 와 같은 내용을 `text/markdown; charset=utf-8` 로 낸다. `GET /api/pins` 와 같은 sync 경로를 탄 뒤 렌더한다. 안내 줄의 base URL만 요청 `Host` 에 맞춘다. `Host` 가 `*.ts.net` 이면 `https://<Host 그대로>`, `--public-host` 이름이면 `https://<이름>[:<포트>]`, 루프백이면 기존 `http://127.0.0.1:<port>` 다. 디스크의 `<state_dir>/pins.md` 는 항상 루프백 base다. Host·Origin 검사는 다른 `GET` 과 같다 — §원격 에이전트 진입점 (`GET /pins.md`) |
-| `GET` | `/api/snippet?file=&lo=&hi=` | 원문 줄 스니펫(80줄 캡). `&levels=1` 이면 그 범위를 기준으로 한 범위 사다리도 준다(그림 문서에 대한 요청이면 `raw` 단계 하나. §그림 문서의 pick·핀). 원고 트리 밖(점으로 시작하는 이름 아래와 원고 안에 둔 상태 폴더 포함, §요청 형식과 경계)이거나 범위가 틀리면 `400`. 보기 전용 문서면 `400` |
+| `GET` | `/api/snippet?file=&lo=&hi=` | 원문 줄 스니펫(80줄 캡). `&levels=1` 이면 그 범위를 기준으로 한 범위 사다리도 준다(그림 문서에 대한 요청이면 `raw` 단계 하나. §그림 문서의 pick·핀). `&text=1` 이면 범위가 80줄 이하일 때 번호 없는 원문 `text` 를 끝에 더한다. 제안 수정의 `base` 로 보낼 글이다(§제안 수정 (`suggest`)). 원고 트리 밖(점으로 시작하는 이름 아래와 원고 안에 둔 상태 폴더 포함, §요청 형식과 경계)이거나 범위가 틀리면 `400`. 보기 전용 문서면 `400` |
 | `GET` | `/api/overlaps?file=&lo=&hi=` | 그 범위(저장 전 선택)와 열린 핀의 겹침 `{overlaps}`. 뷰어는 쓰지 않고(§겹친 핀과 덧붙이기), 에이전트 호환용으로 남긴다 |
 
 ### 핀 만들기와 상태 바꾸기
@@ -308,7 +308,7 @@ curl -s -H "Authorization: Bearer $(cat ~/.config/limn/<인스턴스>.token)" ht
 | 메서드 | 경로 | 설명 |
 | --- | --- | --- |
 | `POST` | `/api/pick` | 드래그 좌표를 원문 위치로 되짚는다. 입력은 `page`, `x0`, `y0`, `x1`, `y1` 이다. 선택 `frac` 은 쪽 대비 비율 숫자 4개 목록 `[x, y, w, h]` 이고, 다른 모양이면 `400`. 선택 `pdf_build` 는 드래그할 때 화면의 빌드 id이며, 그 빌드의 PDF로 되짚는다. 그 빌드가 이미 지워졌으면 `200 {error, pdf_build_gone:true}`, 모양이 틀리면 `400`. 응답은 `{file, name, lo, hi, raw_lo, raw_hi, kind, via, score, warn, snippet, frac, levels, default_level, n_lines, quote, overlaps, pdf_build}`. `quote` 는 선택 영역 글자를 공백 정규화해 160자까지 자른 것이다(넘으면 159자 + `…`, 보기 전용 PDF 의 영역 글자와 같은 길이). 뷰어가 이 글자를 한 줄로 보이고 툴팁과 펼침에 전부 보이므로 그 줄의 가장 넓은 폭보다 길게 둔다([viewer.md](viewer.md) §패널 정리). `overlaps` 는 같은 파일의 열린 핀과의 겹침이다(§겹친 핀과 덧붙이기). 입력 오류는 `400`, 되짚기 실패는 `200 {error}`. `levels`·`via`·`score` 의 뜻은 [domain.md](domain.md) §범위 사다리와 §역변환이 두 경로인 이유. 그림 문서의 답은 §그림 문서의 pick·핀 |
-| `POST` | `/api/pin` | 새 핀 추가 → `{id}`. 저장 필드 화이트리스트는 `file, name, page, lo, hi, raw_lo, raw_hi, kind, via, score, frac, note, scope, quote, pdf_build, el`. `el` 은 그림 문서에서만 저장한다(§그림 문서의 pick·핀). 선택으로 `kind_req`(§스레드 (답글)), `mentions`(힌트), `assignee`(담당, §@태그·사람·이벤트)를 받는다. `pdf_build` 를 안 보내면(에이전트 `curl`) 지금 빌드로 찍는다 |
+| `POST` | `/api/pin` | 새 핀 추가 → `{id}`. 저장 필드 화이트리스트는 `file, name, page, lo, hi, raw_lo, raw_hi, kind, via, score, frac, note, scope, quote, pdf_build, el, suggest`. `el` 은 그림 문서에서만 저장한다(§그림 문서의 pick·핀). `suggest` 는 LaTeX 문서의 줄 핀만 받고, 저장하기 전에 원문과 대조한다(§제안 수정 (`suggest`)). 선택으로 `kind_req`(§스레드 (답글)), `mentions`(힌트), `assignee`(담당, §@태그·사람·이벤트)를 받는다. `pdf_build` 를 안 보내면(에이전트 `curl`) 지금 빌드로 찍는다 |
 | `POST` | `/api/pins/{id}/edit` | 제자리 수정 — §핀 수정 (`/api/pins/{id}/edit`) |
 | `POST` | `/api/pins/{id}/close` | 핀 한 건을 닫는다(`done: true`, `closed_by`). 에이전트가 닫으면 검토 대기(`review: true`), 사람이 닫으면 완료다 — §검토 대기. 선택 본문 `{"reply", "ref", "changes", "review"}` — §닫을 때 사유 남기기. 레코드는 남는다. `<state_dir>/pins.md` 에서는 열린 표에서 빠지고 머리줄 건수로만 남는다(§pins.md 형식). 응답은 `{ok, pin, state}`. 그 id가 없으면 `200 {"ok": false, "pin": null}` 이다(reopen도 같다). **이미 닫힌 핀을 다시 닫으면 `{ok: true, pin}` 을 그대로 돌려주고 아무 필드도 바꾸지 않는다.** `rev` 도 그대로다(규칙은 [domain.md](domain.md) §전이에 딸린 규칙) |
 | `POST` | `/api/pins/{id}/reopen` | 닫은 핀을 되돌린다(`reopened_by`). `close_reply`·`close_ref`·`changes`·`review`·`confirmed_*` 가 있었으면 지운다. 다시 닫을 때 새로 남기기 위해서다. 선택 본문 `{"reason"}` 은 스레드에 남는다 → `{ok, pin, state}`. 뷰어에는 [다시 열기] 버튼이 없고 사람의 답글이 규칙으로 다시 연다(§스레드 (답글)). 이 경로는 에이전트와 뷰어의 [완료] 되돌리기가 쓴다 |
@@ -439,16 +439,83 @@ latexdiff는 본문 글과, 자기가 아는 글 명령(`\textbf`·`\section`·`
 - **위치를 통째로 바꿀 때는 `loc` 을 보낸다.** 모양은 `loc: {file, page, lo, hi, raw_lo, raw_hi, kind, via, score, frac, scope, pdf_build, el}` 이고, 이것을 "위치 다시 잡기"라 부른다. 필수는 `file`·`lo`·`hi` 다. `loc` 에 없는 `page`·`frac` 은 기존 값을 둔다. `kind` 가 없으면 `lines` 가 되고, 나머지 위치 필드는 지워진다. id, 메모, 작성자는 그대로다. `el` 은 위치 필드다. 그림 문서에서만 받고(다른 문서에서는 모르는 필드처럼 버린다), 다른 위치 필드처럼 `loc` 에 없으면 핀의 `el` 이 지워진다. `lo`·`hi` 만 고치는 편집은 `el` 을 둔다. 영역 핀과 줄 핀은 위치 다시 잡기로 서로 바뀌지 않는다(§그림 문서의 pick·핀).
 - **`pdf_build` 는 `loc` 에 `frac` 이 있을 때만 바뀐다.** 이때 값은 `loc` 에 담긴 `pdf_build` 다. 뷰어는 여기에 pick 응답 값을 넣는다. 둘 다 없으면 지금 빌드다. 메모, `note_append`, `lo`·`hi` 만 고치는 편집은 `pdf_build` 를 건드리지 않는다.
 - **범위가 바뀌면 `anchor` 를 새로 뜨고 `stale`·`sync` 를 지운다.** 위치를 잃은(`stale`) 핀도 이 경로로 고친다.
-- **닫힌 핀은 메모만 고칠 수 있다.** 범위나 위치를 보내면 `409 {"error":"done"}` 이다.
+- **닫힌 핀은 메모만 고칠 수 있다.** 범위나 위치, 제안 수정(`suggest`)을 보내면 `409 {"error":"done"}` 이다.
+- **`suggest` 는 제안 수정을 넣고, 갈고, 지운다.** `{base, text}` 는 넣거나 갈고 `null` 은 지운다. 이 키가 없는 편집은 범위·위치를 고쳐도 저장된 제안을 그대로 둔다. 규칙과 거절은 §제안 수정 (`suggest`)에 있다.
 - 성공하면 `edited_at`·`edited_by` 가 기록되고 `rev` 가 1 오른다.
 
 ### 메모 덧붙이기 (`note_append`)
 
-`note_append` 는 `base_rev` 없이도 받는다. 겹친 핀에 "덧붙이기"를 할 때마다 최신 `rev` 를 먼저 조회하지 않아도 되게 하려는 것이다(§겹친 핀과 덧붙이기). 서버는 `note += "\n(추가 HH:MM) " + note_append` 로 붙인다.
+`note_append` 는 `base_rev` 없이도 받는다. 같은 본문에 `suggest` 가 있으면 `base_rev` 가 필요하다. 겹친 핀에 "덧붙이기"를 할 때마다 최신 `rev` 를 먼저 조회하지 않아도 되게 하려는 것이다(§겹친 핀과 덧붙이기). 서버는 `note += "\n(추가 HH:MM) " + note_append` 로 붙인다.
 
 - 빈 문자열이나 공백만 있으면 `400` 이다. 조각 하나는 2000자 이하여야 한다.
 - 합친 길이가 메모 상한(`NOTE_MAX`, 4000자)을 넘으면 `400` 이고 아무것도 바뀌지 않는다. 조각이 2000자 이하여도 기존 메모와 합치면 넘을 수 있다.
 - 되돌리려면 응답의 `pin.rev` 를 `base_rev` 로 삼아 `{"note": <이전 note>}` 를 다시 보낸다.
+
+## 제안 수정 (`suggest`)
+
+제안 수정은 작성자가 핀의 줄 범위를 바꿀 글을 직접 써 둔 것이다. 에이전트는 메모를 읽고 문장을 새로 짓지 않고, 그 글을 그 줄 범위에 글자 그대로 넣는다. Limn은 원고를 쓰지 않는다. 넣는 일은 평소처럼 에이전트의 편집·커밋·PR·닫기다. 출처: [ADR-0020 D1–D4](../adr/0020-suggested-edit-pins.md#결정).
+
+```json
+"suggest": {"base": "원래 줄들\n두 번째 줄", "text": "고친 줄들\n두 번째 줄"}
+```
+
+| 필드 | 뜻 |
+| --- | --- |
+| `suggest.base` | 작성자가 본 원문이다. 핀의 `lo..hi` 줄을 `\n` 으로 이었고 끝에 줄바꿈이 없다 |
+| `suggest.text` | 그 줄들을 바꿀 글이고 모양이 같다. 빈 문자열이면 그 줄들을 지운다 |
+
+### 받는 핀과 한도
+
+- **LaTeX 문서(`kind:"tex"`)의 줄 핀만 받는다.** 보기 전용 PDF 문서의 핀, 그림 문서의 핀, 영역 핀은 `400 suggest_unsupported` 다. 그림 스크립트에는 공통 부품과 다시 렌더하는 규칙이 따로 있다. 다른 문서의 `el` 처럼 조용히 버리지 않는다. 버리면 작성자는 자기 글이 저장되지 않은 것을 모른다.
+- **줄 범위는 80줄(`SUGGEST_LINES_MAX`) 이하, `base`·`text` 는 각각 16,000자(`SUGGEST_MAX`) 이하다.** 80줄은 스니펫 상한과 같다. 넘으면 `400 suggest_too_long` 이고, 문장에 그 수와 상한이 있다. 범위를 먼저 보고 `base`, `text` 순으로 본다.
+- **`text` 가 `base` 와 같으면 `400 suggest_noop` 이다.**
+- **모양이 틀리면 `400 bad_suggest` 다.** 객체가 아니거나, `base`·`text` 가 빠졌거나, 다른 키가 있거나, 값이 문자열이 아닌 경우다. `POST /api/pin` 의 `null` 은 보내지 않은 것과 같다.
+- 두 글의 `\r` 은 모두 지우고 비교·저장한다. 그 밖의 글자는 보낸 그대로 저장한다.
+- 메모와 함께 둘 수 있다. 메모에는 왜 바꾸는지를 적는다.
+
+### 쓸 때의 원문 대조
+
+`POST /api/pin` 과 `/edit` 은 저장하기 전에 `base` 가 지금 파일의 그 줄과 같은지 본다. `/edit` 은 같은 요청이 범위를 바꾸면(`lo`·`hi`, `loc`) 바뀐 범위로 본다. 다르면 아무것도 쓰지 않고 `409` 로 답한다. 작성자가 본 적 없는 글 위에 제안이 저장되지 않게 하려는 것이다. 출처: [ADR-0020 D2](../adr/0020-suggested-edit-pins.md#결정).
+
+```json
+{"error": "제안 수정의 base 가 지금 원문과 다릅니다 — 그사이 그 줄들이 바뀌었습니다. current 의 지금 글을 보고 다시 쓰세요.", "reason": "suggest_base_changed", "current": "<지금 그 줄들의 글>"}
+```
+
+- `current` 는 `base` 와 같은 방식(`\n` 으로 잇고 `\r` 은 없다)으로 읽은 지금 글이다. 파일이 비었거나 읽히지 않으면 빈 문자열이다.
+- `/edit` 의 이 `409` 에는 다른 편집 `409` 처럼 최신 `pin` 도 붙는다.
+- 제안 자체의 거절(`suggest_unsupported`·`suggest_too_long`·`suggest_noop`)이 이 대조보다 먼저다. `/edit` 에서는 `done`·`conflict`·메모·범위의 거절이 그보다도 먼저다. 모양 검사(`bad_suggest`)는 본문의 다른 필드 검사와 함께 가장 먼저 한다.
+- 핀의 파일이 원고 트리 밖이면 대조할 수 없으므로 `400 pin_outside_manuscript` 다.
+- 새 핀의 대조는 anchor 를 뜨는 것과 같은 원문 사본으로 한다. 거절된 새 핀은 번호도 받지 않는다.
+
+### 편집
+
+- `{base, text}` 는 제안을 넣거나 간다. 바뀐 제안은 레코드에서 옛 제안의 자리에 쓴다. `null` 은 지운다.
+- `base_rev` 는 여기서도 필수다. `note_append` 와 함께 보내도 그렇다.
+- 닫힌 핀은 제안을 넣지도 지우지도 못한다(`409 done`). 메모 수준의 편집만 받는다.
+- `suggest` 키가 없는 편집은 저장된 제안을 그대로 둔다. 범위만 고치면(`lo`·`hi`, `loc`) 제안은 남고 상태가 `changed` 가 된다. 작성자의 글을 조용히 잃지 않기 위해서다.
+
+### 읽을 때 계산하는 상태 (`suggest_state`)
+
+제안이 있는 핀의 응답에는 그 제안을 지금 넣어도 되는지가 붙는다. 저장하지 않는다. 그래서 상태가 바뀌어도 그 때문에 레코드를 쓰거나 `rev` 를 올리지 않는다. 출처: [ADR-0020 D2·D4](../adr/0020-suggested-edit-pins.md#결정).
+
+| `suggest_state` | 언제 | 에이전트 |
+| --- | --- | --- |
+| `ready` | 줄 맞춤 뒤 지금의 `lo..hi` 줄(`\r` 은 빼고)이 `base` 와 같다 | `text` 를 그 줄 범위에 글자 그대로 넣는다 |
+| `changed` | 다르다. 누가 그 문단을 고쳤거나 범위를 고쳤다 | 넣지 않는다. 답글로 알리고 핀을 열어 둔다 |
+| `unknown` | 핀이 `stale` 이거나, 파일을 찾거나 읽지 못하거나, 범위가 파일 밖이거나, 원고 트리 밖이다 | 넣지 않는다. 답글로 알리고 보고한다 |
+
+- `GET /api/pins`, `GET /api/pins/{id}`, 변경 요청 응답의 `pin` 에 붙는다. 늘 맨 끝 필드다. 휴지통 목록에는 없다.
+- 닫힌 핀은 줄 맞춤을 하지 않으므로 저장된 범위를 그대로 비교한다. 제안을 넣고 닫은 핀은 보통 `changed` 다.
+- 레코드에 `suggest_state` 가 적혀 있어도 응답은 그 값을 쓰지 않고 계산한 값을 쓴다.
+
+### 원문 그대로 받기와 pins.md
+
+- `GET /api/snippet?file=&lo=&hi=&text=1` 은 범위가 80줄 이하일 때 번호 없는 원문 `text` 를 응답 끝에 더한다. `\n` 으로 잇고 `\r` 은 없으므로 그대로 `base` 로 보낼 수 있다. 80줄을 넘으면 `text` 가 없다. 다른 필드는 `text=1` 이 없을 때와 같다.
+- `pins.md` 의 번호 칸 표시와 `## 제안 문안` 절은 §제안 문안에 있다. 정확한 글자의 정본은 JSON, 곧 `GET /api/pins/{id}` 의 `suggest.text` 다. 표 칸은 `|` 와 줄바꿈을 바꿔 쓰므로 정확한 글을 담지 못한다. 출처: [ADR-0020 D3](../adr/0020-suggested-edit-pins.md#결정).
+
+### 되돌리기
+
+`suggest` 를 모르는 0.4.x 서버는 이 필드를 유효한 모르는 필드로 읽고 되쓴다. 그래서 되돌려도 제안을 잃지 않는다. `tests/contracts/test_suggest_rollback.py` 가 v0.4.23 에서 이를 확인한다. 그 서버의 응답에는 `suggest_state` 가 없고, 범위를 고쳐도 제안이 남는다.
 
 ## 닫을 때 사유 남기기
 
@@ -663,7 +730,7 @@ curl -s -H "Authorization: Bearer $LIMN_TOKEN" https://<기기>.<tailnet>.ts.net
 원격 에이전트도 토큰을 붙인다(§인증). 토큰을 붙이면 어디서 붙든 에이전트로 기록되고, 닫기가 검토 대기로 간다. 토큰 없이 테일넷 주소로 오면 `tailscale serve` 가 그 기기의 테일넷 사용자 신원을 붙인다. 사람 계정으로 로그인한 기기라면 그 사람의 신원이 붙고, 이때는 닫을 때 본문에 `"review": true` 를 넣어야 한다(§검토 대기). **태그 장치**(서버, CI 러너)에는 신원이 없어서, 토큰 없는 요청은 `403` 이다(§인증). 그러니 원격 에이전트는 토큰을 쓰는 것이 기본이다.
 
 - `GET /api/pins` 와 같은 sync 경로(`snapshot_pins()`)를 탄 뒤 렌더한다. 그래서 줄 번호가 최신이다.
-- 바뀌는 것은 close 예시의 base URL뿐이다. `Host` 가 `*.ts.net` 이면 포트까지 `Host` 그대로 쓴 `https://<Host>` 다. `--public-host` 로 준 이름이면 `https://<이름>` 이고, 설정한 포트가 443이 아니면 `:<포트>` 가 붙는다. 루프백이면 `http://127.0.0.1:<port>` 다.
+- 바뀌는 것은 close 예시의 base URL뿐이다. 다른 안내 줄과 `## 제안 문안` 절의 정본 안내도 같은 base URL을 쓴다. `Host` 가 `*.ts.net` 이면 포트까지 `Host` 그대로 쓴 `https://<Host>` 다. `--public-host` 로 준 이름이면 `https://<이름>` 이고, 설정한 포트가 443이 아니면 `:<포트>` 가 붙는다. 루프백이면 `http://127.0.0.1:<port>` 다.
 - 원격일 때는 안내 문단에 `원격: curl -s <base>/pins.md` 한 줄이 더 붙는다. 루프백에는 없다. 루프백 쪽은 이미 그 파일을 직접 읽고 있기 때문이다.
 - 원격일 때는 인증 안내 줄에 토큰 파일 구절(§pins.md 안내 줄)이 붙지 않는다. 그 파일은 서버 머신에만 있다.
 - 디스크의 `<state_dir>/pins.md` 는 이 요청과 무관하게 항상 루프백 base로 쓴다. 다른 세션이 그 파일을 직접 읽어도 안내가 바뀌지 않는다.
@@ -928,6 +995,7 @@ curl -s -X POST http://127.0.0.1:<port>/api/pins/3/unclaim
 | `scope` | `raw\|para\|env\|env2\|env3\|lines`, 그림 핀은 `el\|el2\|…\|el8\|fig`. 저장할 때 고른 범위 사다리 단계다 |
 | `via` | 범위를 찾은 방법 `synctex\|text\|map`. `map` 은 그림 문서의 요소 지도다 |
 | `el` | 그림 핀만 가진다. 가리킨 요소 `{id, path, label?, part?, impl?: {file, lo, hi}, frac?}`(§그림 문서의 pick·핀)다. 모양이 틀리면 그 줄은 깨진 줄이다. 모양이 틀린 경우는 객체가 아니거나, `id` 가 없거나 문자열이 아니거나 빈 문자열이거나, `path` 가 문자열 목록이 아니거나, `label`·`part` 가 문자열이 아니거나, `impl` 이 `{file: 문자열, lo: 정수, hi: 정수}` 가 아니거나, `frac` 이 숫자 4개가 아닌 때다. 이 필드를 모르는 이전 서버(0.3.5, 0.3.7, 0.3.8에서 확인된다)는 모르는 필드로 지나치고, 되쓸 때 그대로 둔다 |
+| `suggest` | LaTeX 문서의 줄 핀만 가진다. 제안 수정 `{base, text}`(§제안 수정 (`suggest`))이고 두 값은 `\r` 이 없는 문자열이다. 모양이 틀리면 그 줄은 깨진 줄이다. 모양이 틀린 경우는 객체가 아니거나, `base`·`text` 가 문자열이 아닌 때다. 그 안의 이 버전이 모르는 키는 그대로 둔다. 이 필드를 모르는 0.4.x 서버는 모르는 필드로 지나치고, 되쓸 때 그대로 둔다 |
 | `quote` | 선택. 호출자가 붙인 짧은 인용이다. 뷰어는 pick 의 `quote`(드래그한 PDF 글자)를 넣는다. 160자에서 자른다. `GET /api/pins` 는 저장값 그대로 돌려주고, pins.md 의 `«…»` 는 60자다(§메모 칸의 덧붙임) |
 | `pdf_build` | `frac` 을 찍은 빌드 id(쪽 디렉토리 이름). 없으면 옛 핀이다. 옛 필드명 `frac_build` 도 같은 뜻으로 읽는다([build-sync.md](build-sync.md) §위치 추정 (`est`)) |
 | `anchor` | `{head, tail, head_off, tail_off}`. 줄 맞춤의 기준이다. `*_off` 가 없는 옛 앵커는 0으로 본다([domain.md](domain.md) §줄 번호 재동기화) |
@@ -946,7 +1014,7 @@ curl -s -X POST http://127.0.0.1:<port>/api/pins/3/unclaim
 | `confirmed_by` / `confirmed_at` | 검토 대기를 확인한 사람과 시각 |
 | `claimed_by` / `claimed_at` / `claim_ts` / `claim_until` / `eta_ts` | 처리 중 표시(§처리 중 표시 (claim)). `claimed_by` 는 작성자 귀속과 같은 `{login,name}` 형식이고, `claimed_at` 은 시작 시각 문자열이다. `claim_ts`(시작), `claim_until`(잠금 자동 해제), `eta_ts`(예상 완료)는 epoch 초다. `claim_until` 이 지난 값이면 없는 것으로 본다. `close`·`drop`·`unclaim` 이 모두 지운다 |
 
-`snippet`, `warn`, `levels`, `default_level`, `rel`, `rel_path`, `overlaps`, `est`, `state`, `addressed`, `mark`, `mark_page`, `el_sync` 는 응답에만 있고 저장하지 않는다(§겹친 핀과 덧붙이기, [build-sync.md](build-sync.md) §위치 추정 (`est`)). `rel_path`(0.3.2+)는 §핀 파일의 위치로 찾은 원고 폴더 기준 상대 경로이고, 옛 레코드에도 계산해서 싣는다. 찾지 못하면 없다. `rel`(겹침 관계)과는 다른 필드다.
+`snippet`, `warn`, `levels`, `default_level`, `rel`, `rel_path`, `overlaps`, `est`, `state`, `addressed`, `mark`, `mark_page`, `el_sync`, `suggest_state` 는 응답에만 있고 저장하지 않는다(§겹친 핀과 덧붙이기, [build-sync.md](build-sync.md) §위치 추정 (`est`)). `rel_path`(0.3.2+)는 §핀 파일의 위치로 찾은 원고 폴더 기준 상대 경로이고, 옛 레코드에도 계산해서 싣는다. 찾지 못하면 없다. `rel`(겹침 관계)과는 다른 필드다.
 
 **응답에는 NaN·Infinity 가 없다.** 저장된 숫자에 NaN·Infinity·float 로 담을 수 없는 큰 정수(손으로 고친 줄이나 옛 줄에 생길 수 있다)가 있으면, 모든 핀 응답이 그 숫자를 `null` 로 준다. `GET /api/pins`, `GET /api/pins/{id}`, 휴지통 목록, 변경 요청의 응답 `pin`, 그리고 `409 claimed` 의 `claim_until`·`eta_ts` 가 모두 그렇다. `frac` 과 `el.frac` 은 원소 하나라도 그러면 필드 전체가 `null` 이다. 유한한 원소로 상자를 맞추면 지어낸 위치에 표시가 그려지기 때문이다. 그 밖의 숫자는(`synced_at`·`score`·`claim_until`·`claim_ts`·`eta_ts`, 그리고 `anchor`·`thread`·모르는 필드 안의 숫자) 하나씩 `null` 이다. 저장된 줄은 고치지 않는다.
 
@@ -973,6 +1041,7 @@ curl -s -X POST http://127.0.0.1:<port>/api/pins/3/unclaim
 
 - 작성자 열은 없다. 작성자는 `GET /api/pins` 와 뷰어 카드에서 본다. 닫힌 핀도 마찬가지다.
 - 스니펫은 일부러 넣지 않는다. 줄 범위만 있으면 에이전트가 원본을 `Read` 로 직접 읽는 편이 항상 더 싸고 정확하다. 스니펫은 그 시점의 스냅샷이라 원본과 어긋날 수 있다.
+- 열린 핀에 제안 수정이 있으면 표 뒤에 `## 제안 문안` 절이 온다. 그 글은 원문 스니펫이 아니라 작성자가 쓴 교체 문안이다(§제안 문안).
 
 > **주의**
 >
@@ -1013,8 +1082,13 @@ curl -s -X POST http://127.0.0.1:<port>/api/pins/3/unclaim
 | `수정됨` | 저장한 뒤 메모나 범위를 수정했다(`edited_at` 있음) | — |
 | `위치 잃음` | 위치를 잃었다(`stale`) | 방금 그 범위를 직접 고친 직후라면 이미 반영됐을 수 있다. 원문을 확인하고 닫아도 된다. 무조건 사용자에게 보고할 필요는 없다. 단 방금 자기가 만든 변경이 원인일 때에 한한다 |
 | `요소 잃음` | 그림 핀의 요소가 지금 그림의 지도에 없다(`el_sync` 가 `lost`) | 추측해 닫지 않고 보고한다 |
+| `제안 수정` | 작성자가 바꿀 글을 직접 썼고(§제안 수정 (`suggest`)), 지금 줄이 그 원문과 같다(`suggest_state` 가 `ready`) | 메모를 다시 쓰지 말고 `## 제안 문안` 절의 글(정본은 `GET /api/pins/N` 의 `suggest.text`)을 위치 칸의 줄 범위에 글자 그대로 넣는다 |
+| `제안 수정(원문 바뀜)` | 지금 줄이 그 원문과 다르다(`changed`) | 넣지 않는다. 답글로 알리고 핀을 열어 둔다 |
+| `제안 수정(확인 불가)` | 원문과 대조할 수 없다(`unknown`: 위치 잃음, 파일을 찾거나 읽지 못함) | 넣지 않는다. 답글로 알리고 보고한다 |
 
-표시 범례 줄은 열린 핀에 표시가 하나라도 있을 때만 실린다. 모양은 `표시: '#N 범위 안'·'#N과 같은 범위' = … · '#N과 일부 겹침' = … · '처리 중(이름, 약 N분)' = … · '수정됨' = … · '위치 잃음' = … · «…» = …` 다. 범례의 `«…»` 는 줄 안에서 가리킨 부분의 렌더 글자다. 그림 핀에서 `«…»` 는 요소 이름이고, `요소 잃음` 에는 범례 항목이 없다. 둘은 그림 핀 안내 문단이 설명한다(§그림 핀의 행).
+제안 수정 표시는 다른 표시를 모두 쓴 뒤 맨 끝에 붙는다.
+
+표시 범례 줄은 열린 핀에 표시가 하나라도 있을 때만 실린다. 모양은 `표시: '#N 범위 안'·'#N과 같은 범위' = … · '#N과 일부 겹침' = … · '처리 중(이름, 약 N분)' = … · '수정됨' = … · '위치 잃음' = … · «…» = …` 다. 범례의 `«…»` 는 줄 안에서 가리킨 부분의 렌더 글자다. 그림 핀에서 `«…»` 는 요소 이름이고, `요소 잃음` 에는 범례 항목이 없다. 둘은 그림 핀 안내 문단이 설명한다(§그림 핀의 행). 열린 핀에 제안 수정 표시가 있을 때만 범례 끝에 `'제안 수정' = 작성자가 바꿀 글을 직접 썼다, 아래 '## 제안 문안' 의 글을 위치 칸의 줄 범위에 그대로 넣는다('(원문 바뀜)'·'(확인 불가)' 가 붙으면 넣지 말고 답글로 알린다)` 항목이 하나 더 붙는다.
 
 ### 질문·다시 열림·사람에게 물은 핀
 
@@ -1087,6 +1161,38 @@ curl -s -X POST http://127.0.0.1:<port>/api/pins/3/unclaim
   파일은 위치 칸처럼 `--manuscript` 기준 경로다. 경로는 글자로만 이어 붙이고 파일을 열지 않는다. 손으로 고친 `pins.jsonl` 이 `..`·절대 경로·점 폴더를 작업 목록에 올리지 못하게 하려는 것이다.
 - 요소를 잃은 핀(`el_sync` 가 `lost`)은 번호 칸에 `요소 잃음` 이 붙는다. 기준은 그 문서의 지금 화면 빌드의 지도다. 디스크의 `<state_dir>/pins.md` 는 핀을 쓸 때, 서버를 띄울 때, 그림 가져오기가 새 빌드를 화면에 올릴 때 다시 써서 이 기준을 따라간다. `GET /pins.md` 는 요청마다 렌더한다.
 - 그림 핀이 열려 있으면 안내 문단 끝에 그림 핀 안내가 붙는다. 지금 `el` 이 있는 열린 핀이나 그림 문서의 열린 영역 핀이 있을 때다. 안내는 다음을 알린다. `«요소 이름»` 이 앞에 붙은 핀의 위치 칸은 그 요소를 그린 코드 줄이니 그 줄을 고칠 것. `공통 부품: 파일:줄` 은 여러 그림이 함께 쓰는 정의라서, 요청이 공통 모양에 관한 것이면 한 그림만 덮어쓰지 말고 사람에게 물을 것. 닫기 전에 그림 저장소에서 그림을 다시 렌더할 것(그림 문서에는 `/api/rebuild` 가 없다). `요소 잃음` 은 추측해 닫지 말고 보고할 것. 위치 칸이 쪽·영역뿐인 그림 핀은 코드 줄이 없으니, 고칠 곳은 LaTeX 문서가 아니라 그림 저장소에서 쪽·영역·요소 이름·메모로 그 요소를 그린 곳(스크립트나 디자인 파일)을 찾을 것. 못 찾으면 닫지 말고 사람에게 묻거나 보고한다. 요소가 디자인 도구에서 왔으면 고치지 말고 보고할 것. 이 안내 문장은 계약이다. 범례는 이 안내를 대신하지 않는다(§번호 칸의 표시).
+
+### 제안 문안
+
+열린 핀(검토 대기와 닫힌 핀은 빼고)에 제안 수정이 하나라도 있으면 번호 칸 표시와 범례 항목(§번호 칸의 표시) 말고도 아래 셋이 더해진다. 그런 핀이 없으면 `pins.md` 는 바이트까지 그대로다. 출처: [ADR-0020 D3](../adr/0020-suggested-edit-pins.md#결정).
+
+- **메모 칸.** 제안 수정이 있고 메모가 비어 있으면(공백만 있어도) 메모 칸이 `(제안 문안만)` 이다.
+- **안내 문단.** 안내 문단 끝에 이 계약 구절이 ` · ` 로 이어 붙는다. 안내 문단 뒤의 claim·인증·답글 안내 줄은 그대로다.
+
+  ```text
+  제안 수정 핀은 메모를 다시 쓰지 말고 `suggest.text` 를 위치 칸의 줄 범위에 글자 그대로 넣는다 · `원문 바뀜`·`확인 불가` 면 넣지 말고 답글로 알린다
+  ```
+
+- **`## 제안 문안` 절.** 열린 표들 뒤, `## 검토 대기` 소절 앞에 온다. 그런 핀마다 번호 순으로 블록 하나를 싣는다.
+
+````text
+## 제안 문안
+
+정확한 바이트의 정본은 GET <base>/api/pins/N 의 suggest.text 다. 아래 블록은 같은 글이다.
+
+### #7 · main.tex L120-L123 · 바꿀 준비됨
+```
+고친 줄들
+두 번째 줄
+```
+````
+
+- 소제목은 `### #<번호> · <위치> · <상태>` 다. 위치는 위치 칸과 같은 경로 규칙으로 쓴 `<경로> L<lo>-L<hi>` 이고, 여러 문서 모양이면 검토 대기 표처럼 앞에 `` `<문서 키>` · `` 가 붙는다.
+- 상태 말은 `ready` 면 `바꿀 준비됨`, `changed` 면 `원문 바뀜 — 넣지 않는다`, `unknown` 이면 `확인 불가 — 넣지 않는다` 다.
+- 글은 백틱 울타리 블록에 줄마다 그대로 싣는다. 울타리는 글 안의 가장 긴 백틱 연속보다 하나 길고 적어도 세 개다. 그래서 글 안의 어느 줄도 블록을 일찍 닫지 못하고, 이스케이프 없이 같은 글이 담긴다.
+- `text` 가 비었으면 블록 대신 `(이 줄 범위를 지운다)` 한 줄이다.
+- `<base>` 는 안내 줄과 같은 규칙이다. 디스크의 파일은 루프백, `GET /pins.md` 는 요청 `Host` 에 맞춘 base다(§원격 에이전트 진입점 (`GET /pins.md`)).
+- 블록은 정본이 아니다. 정확한 바이트는 `GET /api/pins/{id}` 의 `suggest.text` 로 읽는다.
 
 ### 이스케이프
 

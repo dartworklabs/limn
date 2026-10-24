@@ -1,5 +1,28 @@
 # Changelog
 
+## Unreleased
+
+Suggested-edit pins on the server (ADR-0020, proposed). The agent contract only grows: an agent written against
+0.4.23 keeps working, and a 0.4.23 server reads and rewrites the new field unchanged, so rolling back loses nothing.
+The viewer does not create or show suggestions yet.
+
+### Added
+
+- **Suggested-edit pins.** A LaTeX line pin may carry `suggest: {base, text}`, the lines the author saw and the exact
+  text that replaces them (`""` deletes them). `POST /api/pin` and `POST /api/pins/{id}/edit` take it; edit replaces it
+  or removes it with `null`, still needs `base_rev`, and a range edit without it keeps it. Limn checks `base` against
+  the file before writing and answers `409 suggest_base_changed` with the lines' `current` text instead of saving a
+  suggestion against text the author never saw; other refusals are `bad_suggest`, `suggest_unsupported` (view-only,
+  figure and region pins), `suggest_too_long` (over 80 lines or 16,000 characters) and `suggest_noop`. Limn still
+  never writes the manuscript: the agent applies the text verbatim through its usual pull request and close.
+- **`suggest_state`.** Pin responses with a suggestion end with `ready`, `changed` or `unknown`, computed on every read
+  from the lines as they are now and never stored.
+- **`GET /api/snippet?…&text=1`** adds the range's exact unnumbered lines when it spans at most 80 lines.
+- **`pins.md`**: the number-cell marker `제안 수정` (with `(원문 바뀜)` or `(확인 불가)`), `(제안 문안만)` for a pin
+  without a memo, a `## 제안 문안` section with each text in a fence one backtick longer than its longest backtick run,
+  a guidance clause and a legend entry - all only while an open pin carries a suggestion. Without one the file is
+  byte-identical to 0.4.23's.
+
 ## 0.4.23 — 2026-10-19
 
 A fix-only release. The agent contract (`pins.md`, the HTTP API, the state directory) is unchanged, so an agent

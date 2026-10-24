@@ -38,7 +38,7 @@ catalog_schema: 1
 <!-- handbook-filemap:start -->
 | 경로 패턴 | 책임 | 수정 trigger | 갱신 주체 |
 | --- | --- | --- | --- |
-| `src/limn/pins/**` | 핀 값·전이·레코드·저장·문맥·멘션·변경 범위와 여섯 동작. 순수 판단과 I/O는 같은 기능 안에서 의존 방향으로 구별한다. 빌드가 선택한 요소 사실의 pick 응답과 원고 사다리 단계(`location/figure.py`), 그림 핀의 요소 필드 모양(`element.py`), 읽을 때 계산하는 `mark`·`el_sync`(`listing/projection.py`), pins.md의 그림 핀 행(`listing/render.py`), 파일 종류별 주석 줄(`location/mapping.py`의 `comment_marker`)을 포함한다 | 상태·전이·위치·쓰기·알림·pins.md 변경 | domain.md, api.md, build-sync.md, architecture.md |
+| `src/limn/pins/**` | 핀 값·전이·레코드·저장·문맥·멘션·변경 범위와 여섯 동작. 순수 판단과 I/O는 같은 기능 안에서 의존 방향으로 구별한다. 빌드가 선택한 요소 사실의 pick 응답과 원고 사다리 단계(`location/figure.py`), 그림 핀의 요소 필드 모양(`element.py`), 읽을 때 계산하는 `mark`·`el_sync`(`listing/projection.py`), pins.md의 그림 핀 행(`listing/render.py`), 제안 수정의 필드 모양과 상태(`suggestion.py`)와 그 판단(`editing/rules.py`)·`suggest_state`(`listing/projection.py`)·`## 제안 문안` 절(`listing/render.py`), 파일 종류별 주석 줄(`location/mapping.py`의 `comment_marker`)을 포함한다 | 상태·전이·위치·쓰기·알림·pins.md 변경 | domain.md, api.md, build-sync.md, architecture.md |
 | `src/limn/builds/**` | 빌드 결과·산출물·원고 지문·이력·DocumentFacts·컴파일·PDF 감시·그림 지도 파싱/가져오기와 요청 응답. 소비자별 완성 질의(`queries.py`·`contracts.py`), 지도 사본의 실행별 파싱 캐시(`artifacts.py`의 `BuildMapCache`)와 요소 고르기·사다리·따라가기 규칙(`figure_map.py`)을 포함한다 | 빌드 상태·파일 선택·실행·실패 문구 변경 | build-sync.md, api.md, architecture.md |
 | `src/limn/collaboration/**` | 평탄한 참여자 사실의 병합·후보 조회·방문 연결, `Notice`의 수신자 필터·직렬화·이벤트 파일·멘션 알림·폴링 | 사람 조회·이벤트 순서·기록·알림 변경 | api.md, viewer.md, architecture.md |
 | `src/limn/documents/**` | 문서 탭·meta·목차 조회와 순수 목차 파서 | 문서 응답·폴링·목차 변경 | api.md, viewer.md, build-sync.md |

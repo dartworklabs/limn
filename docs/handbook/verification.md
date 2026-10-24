@@ -108,7 +108,7 @@ Limn에서 "테스트가 녹색"은 합격의 필요조건이지 충분조건이
 | --- | --- |
 | `src/limn/*/tests/`, `src/limn/pins/*/tests/` | 소유 기능과 경계의 값·규칙·입력·저장·HTTP·실행·뷰어 동작. `viewer/tests/test_viewer_role_keyboard.py`는 실제 서버와 저장소에서 사람·에이전트·viewer의 검토 조작 및 거절, PDF 마크 버튼의 Tab·Enter·Space 이동을 본다 |
 | `src/limn/administration/tests/test_instances.sh` | 인스턴스 셸 명령·실행 인자·유닛 생성·업데이트 |
-| `tests/contracts/` | 여러 기능의 HTTP·`pins.md` 스냅샷과 성질 검증. 그림 문서 흐름(지도 pick, 요소 핀, 다시 렌더 뒤의 계산 필드)은 `test_contract_snapshot.py`가 [`tests/data/contract_snapshot_figure.json`](../../tests/data/contract_snapshot_figure.json)과 따로 비교한다. `test_figure_rollback.py`는 이전 릴리스가 그림 핀 레코드를 읽고 바이트 그대로 되쓰는지 본다 |
+| `tests/contracts/` | 여러 기능의 HTTP·`pins.md` 스냅샷과 성질 검증. 그림 문서 흐름(지도 pick, 요소 핀, 다시 렌더 뒤의 계산 필드)은 `test_contract_snapshot.py`가 [`tests/data/contract_snapshot_figure.json`](../../tests/data/contract_snapshot_figure.json)과 따로 비교한다. `test_figure_rollback.py`는 이전 릴리스가 그림 핀 레코드를, `test_suggest_rollback.py`는 제안 수정 레코드를 읽고 바이트 그대로 되쓰는지 본다 |
 | `tests/architecture/` | 공개 표면·import 경계, Handbook 참조, 이름·개인정보 규칙, CI 액션의 커밋 고정·체크아웃 자격 증명·uv와 빌드 백엔드 버전 고정 |
 | `tests/tools/` | 테스트 식별자 이동 대조·그림 선택 비교 도구 둘(재구성한 표본, 임계값 격자를 재는 D6 측정 도구), 익명 PoC 서버의 정확한 Host 허용·자원 allowlist·API 읽기와 쓰기 거부 경계 |
 | `tests/support/`, `tests/data/`, `tests/fixtures/` | 수집하지 않는 공용 테스트 도우미와 고정 입력·스냅샷·테스트 글꼴 출처와 라이선스. 그림 문서 fixture(그림 스크립트·공통 부품·요소 지도·빌드 폴더와, pick 답을 뷰어처럼 저장하는 도우미, 뷰어 테스트가 쓰는 세 문서(원고·그림·보기 전용 PDF)의 등록과 다시 렌더)는 [`tests/support/helpers_figure.py`](../../tests/support/helpers_figure.py)에 있다 |
@@ -145,7 +145,7 @@ CI는 uv `0.12.23`을 쓰고, 패키지 빌드는 Hatchling `1.32.4`를 요구�
 | --- | --- |
 | 측정 대상 | 에이전트가 읽는 파일과 API의 하위 호환: `pins.md` 형식(열 순서, 상태 표시어, 한국어 머리말), HTTP API 응답 스키마, 핀 레코드 필드, 오류 응답 형식 |
 | 적용 조건 | `pins.md` 렌더링, API 경로·응답, 핀 레코드 구조를 바꿀 때 |
-| 실행 | 자동: `tests/contracts/test_contract_snapshot.py`(원고 흐름과 그림 문서 흐름), `src/limn/pins/tests/test_model.py`, `tests/contracts/test_figure_rollback.py`(이전 릴리스 v0.3.5·v0.3.7·v0.3.8이 그림 핀 레코드를 읽고 바이트 그대로 되쓰는지. 그 태그가 없는 얕은 클론은 그 릴리스만 건너뛰고, CI는 전체 이력을 받아 모두 돈다). 수동: [api.md](api.md)와 [SKILL.ko.md](../../skill/SKILL.ko.md)의 설명이 일치하는지 대조 |
+| 실행 | 자동: `tests/contracts/test_contract_snapshot.py`(원고 흐름과 그림 문서 흐름), `src/limn/pins/tests/test_model.py`, `tests/contracts/test_figure_rollback.py`(이전 릴리스 v0.3.5·v0.3.7·v0.3.8이 그림 핀 레코드를 읽고 바이트 그대로 되쓰는지. 그 태그가 없는 얕은 클론은 그 릴리스만 건너뛰고, CI는 전체 이력을 받아 모두 돈다), `tests/contracts/test_suggest_rollback.py`(이전 릴리스 v0.4.23이 제안 수정 레코드를 읽고 바이트 그대로 되쓰는지. 태그가 없으면 같은 규칙으로 건너뛴다). 수동: [api.md](api.md)와 [SKILL.ko.md](../../skill/SKILL.ko.md)의 설명이 일치하는지 대조 |
 | 합격 기준 | 스냅샷 테스트 통과, 스키마에 필수 필드가 빠지지 않음, 기존 필드의 의미가 바뀌지 않음 |
 | 보장 범위 | 기존 에이전트가 새 버전의 Limn과 통신할 때 깨지지 않음을 보장한다. 에이전트 자체의 버그는 보장하지 않는다 |
 
