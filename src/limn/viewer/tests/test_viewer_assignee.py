@@ -945,7 +945,8 @@ LONG = [
     {"Tailscale-User-Login": "seojun@example.com", "Tailscale-User-Name": "김서준 박사후연구원 2026"},
 ]
 LONG_NOTE = "@Alexandria Montgomery-Smythe 와 @Bartholomew Fitzgerald-Jones 그리고 @김서준 박사후연구원 2026 확인"
-# The composer's stacked blocks from the note to the kind, as drawn (CSS px): each block's box, the assignee track's box,
+# The composer's stacked blocks from the note to the kind row (the kind and its [제안 수정] switch), as drawn (CSS px): each
+# block's box, the assignee track's box,
 # whether anything is wider than its container, and - for the ink measure - the boxes of the preview line's items (a label's
 # icon and its word apart) and of the assignee row's label and each segment's name (without its '@', whose tail hangs under
 # the baseline), every text read by its own range; a segment under the scroll box's 32px edge fade is left out.
@@ -961,7 +962,7 @@ COMPOSER_ROWS = """() => {const q = s => document.querySelector(s), R = e => {co
   [...track.querySelectorAll('button')].forEach((b, i) => {const t = b.querySelector('.as-t') || b, name = t.textContent.trim(), r = text(t, name.startsWith('@') ? 1 : 0);
     const lo = S[0] + (seg.classList.contains('fade-l') ? 32 : 0), hi = S[2] - (seg.classList.contains('fade-r') ? 32 : 0);
     if (r[0] >= lo && r[2] <= hi) ink.push({k: 'assign' + i + ':' + name, box: r, ix: 0});});
-  return {note: R(q('#note')), preview: R(q('#note-mentions')), assign: R(q('#c-assign')), seg: S, track: R(track), kind: R(q('#c-kind')),
+  return {note: R(q('#note')), preview: R(q('#note-mentions')), assign: R(q('#c-assign')), seg: S, track: R(track), kind: R(q('#c-kind-row')),
     composer: R(q('#composer')), overflow: {page: wide(document.documentElement), panel: wide(q('#right')), composer: wide(q('#composer')), seg: wide(seg)},
     ink};}"""
 # The two rows' words against the ink reference (MEASURE's label(), docs/handbook/viewer.md §글자 가운데): each item of the

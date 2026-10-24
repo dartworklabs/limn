@@ -10,6 +10,12 @@ ASSIGNEE_AGENT = "agent"
 
 # A pin's note, in characters: the limit a new or replaced note must fit, and a note_append merged into it.
 NOTE_MAX = 4000
+# A suggested edit (limn.pins.suggestion, docs/adr/0020-suggested-edit-pins.md D1): its base and its text may each hold
+# this many characters - room for the longest range below, well under the 1 MiB request body ...
+SUGGEST_MAX = 16_000
+# ... and the range it replaces may span this many lines: the snippet cap (limn.pins.location.mapping.snippet), so
+# the lines an author rewrites are lines the viewer can show whole. GET /api/snippet's exact text has the same cap.
+SUGGEST_LINES_MAX = 80
 # scope: which rung of the range ladder a line pin was placed at - limn.pins.location.mapping.compute_levels (raw drag,
 # paragraph, the innermost environment and up to two outer ones, or plain lines), or on a figure document
 # limn.builds.figure_map.ladder_scopes (the element and up to seven ancestors, el..el8, and the whole figure, fig).

@@ -31,20 +31,21 @@ body.lay-narrow #revision-source,body.lay-narrow #revision-pdf,body.lay-narrow #
 #revision-note{color:var(--muted-foreground);font-size:var(--text-xs);padding:var(--space-1) var(--space-4);background:var(--sidebar)}
 #revision-file-row{display:flex;align-items:center;gap:var(--space-2);margin-bottom:var(--space-2);padding:var(--space-2) var(--space-3) 0;font-size:var(--text-sm)}
 #revision-file-row select{max-width:min(100%,500px);background:var(--sidebar)}
+/* The source diff's lines - and a card's suggested edit's (.sg-diff, suggest.css) in the same look, always wrapped. */
 #revision-other,#revision-diff{white-space:pre;max-height:none;overflow:auto;margin:0;padding:0;background:var(--sidebar);font-size:var(--text-sm);line-height:1.7}
-#revision-other .rd-line,#revision-diff .rd-line{display:block;width:max-content;min-width:100%;min-height:1.7em}
-#revision-other .rd-no,#revision-diff .rd-no{display:inline-block;width:54px;padding:0 var(--space-2);margin-right:var(--space-2);
+.sg-diff .rd-line,#revision-other .rd-line,#revision-diff .rd-line{display:block;width:max-content;min-width:100%;min-height:1.7em}
+.sg-diff .rd-no,#revision-other .rd-no,#revision-diff .rd-no{display:inline-block;width:54px;padding:0 var(--space-2);margin-right:var(--space-2);
   text-align:right;color:var(--subtle-foreground);border-right:1px solid var(--border);user-select:none}
-#revision-other .rd-code,#revision-diff .rd-code{white-space:pre;padding-right:var(--space-3)}
-#revision-other.wrap .rd-line,#revision-diff.wrap .rd-line{display:flex;width:auto}
-#revision-other.wrap .rd-no,#revision-diff.wrap .rd-no{flex:none}
-#revision-other.wrap .rd-code,#revision-diff.wrap .rd-code{flex:1;min-width:0;white-space:pre-wrap;overflow-wrap:anywhere}
+.sg-diff .rd-code,#revision-other .rd-code,#revision-diff .rd-code{white-space:pre;padding-right:var(--space-3)}
+.sg-diff .rd-line,#revision-other.wrap .rd-line,#revision-diff.wrap .rd-line{display:flex;width:auto}
+.sg-diff .rd-no,#revision-other.wrap .rd-no,#revision-diff.wrap .rd-no{flex:none}
+.sg-diff .rd-code,#revision-other.wrap .rd-code,#revision-diff.wrap .rd-code{flex:1;min-width:0;white-space:pre-wrap;overflow-wrap:anywhere}
 #revision-other .rd-file,#revision-diff .rd-file{background:var(--muted);font-weight:600}
 #revision-other .rd-meta,#revision-diff .rd-meta{color:var(--muted-foreground)}
 #revision-other .rd-hunk,#revision-diff .rd-hunk{background:color-mix(in srgb,var(--primary) 8%,var(--sidebar));color:var(--primary)}
-#revision-other .rd-add,#revision-diff .rd-add{background:color-mix(in srgb,var(--success) 9%,var(--sidebar));
+.sg-diff .rd-add,#revision-other .rd-add,#revision-diff .rd-add{background:color-mix(in srgb,var(--success) 9%,var(--sidebar));
   color:color-mix(in srgb,var(--success) 75%,var(--foreground))}
-#revision-other .rd-del,#revision-diff .rd-del{background:color-mix(in srgb,var(--destructive) 8%,var(--sidebar));
+.sg-diff .rd-del,#revision-other .rd-del,#revision-diff .rd-del{background:color-mix(in srgb,var(--destructive) 8%,var(--sidebar));
   color:color-mix(in srgb,var(--destructive) 75%,var(--foreground))}
 #revision-controls{display:flex;align-items:center;gap:var(--space-2);flex-wrap:wrap;padding:var(--space-1) var(--space-4);background:var(--sidebar);border-bottom:1px solid var(--border-seam)}
 #revision-controls button[aria-pressed=true]{background:var(--accent);color:var(--foreground)}

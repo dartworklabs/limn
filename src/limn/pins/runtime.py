@@ -14,7 +14,7 @@ from limn.pins.editing.http import EditingRequests
 from limn.pins.editing.service import EditScope, PinEditing
 from limn.pins.lifecycle.service import PinLifecycle
 from limn.pins.listing.markdown import PinMarkdown
-from limn.pins.listing.projection import pin_state, public_record as view_public_record
+from limn.pins.listing.projection import pin_state, public_record as view_public_record, suggest_view
 from limn.pins.listing.service import PinListing
 from limn.pins.location.lookup import (
     Locator as locate_Locator,
@@ -37,7 +37,9 @@ from limn.pins.needs import BuildAnswers, FollowElement
 from limn.pins.notice import PinNotice
 from limn.pins.record import Broken, parse_record as record_parse_record, parse_trashed as record_parse_trashed
 from limn.pins.store import PinFiles, PinStore, Row
+from limn.pins.suggestion import suggestion_of
 from limn.pins.trash.service import PinTrash
+from limn.platform.files import tex_lines
 from limn.runtime import documents
 from limn.runtime.config import RunConfig
 from limn.runtime.documents import DOC_KEY_RE, Doc
@@ -223,7 +225,17 @@ class PinCommands:
     def public(self, r: Record) -> Json:
         """A record as the API returns it (limn.pins.listing.projection.public_record), placed where pin_location() finds its file under
         the manuscript root now: `file` the absolute path on this machine, `rel_path` relative to the root (ADR-0006).
-        Never changes r."""
+        A pin with a suggested edit also gets its `suggest_state` (limn.pins.listing.projection.suggest_view): only
+        then is its file read, through the checked handle the location gives. Never changes r."""
+        loc = self.pin_location(r, self.C.src, self.C.state)
+        place = None if loc is None else (str(loc.path), loc.rel)
+        if suggestion_of(r.get("suggest")) is None:
+            return view_public_record(r, place)
+        return view_public_record(r, place, suggest_view(r, None if loc is None else tex_lines(loc.source)))
+
+    def public_trashed(self, r: Record) -> Json:
+        """A Trash entry as GET /api/pins/dropped returns it: public_record placed like public(), without the computed
+        pin fields - a dropped pin's suggestion state is not answered. Never changes r."""
         loc = self.pin_location(r, self.C.src, self.C.state)
         return view_public_record(r, None if loc is None else (str(loc.path), loc.rel))
 

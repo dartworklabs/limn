@@ -8,6 +8,7 @@ is addressed to, its current thread round) - arrives as values in PinsMdInput, b
 """
 
 import math
+import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
@@ -20,6 +21,7 @@ from limn.pins.element import (
 )
 from limn.pins.location.mapping import flat, truncate_quote
 from limn.pins.model import OpenPin, Record, ReviewPin, ThreadEntry, is_region_pin, state_of
+from limn.pins.suggestion import SuggestState, suggestion_of
 from limn.pins.thread import claim_holds
 from limn.platform.values import is_int, is_num
 from limn.security.guidance import token_file_curl
@@ -64,7 +66,9 @@ class PinFacts:
     thread posts of the current round, oldest first. el_sync: a figure pin's element on its document's current map
     ('ok' | 'moved' | 'lost'), None for another pin or when the map does not load. impl_scope: the folder of the pin's
     document relative to --manuscript ("" for the manuscript root), None when that document is not served - the
-    renderer joins it with the element's stored shared-part file (shared_part_path) and decides what may be shown."""
+    renderer joins it with the element's stored shared-part file (shared_part_path) and decides what may be shown.
+    suggest_state: an open pin's suggested edit measured against its lines now (projection.suggest_view:
+    'ready' | 'changed' | 'unknown'), None for a pin without one."""
 
     doc_key: str
     location: str
@@ -76,6 +80,7 @@ class PinFacts:
     round: tuple[ThreadEntry, ...]
     el_sync: str | None = None
     impl_scope: str | None = None
+    suggest_state: SuggestState | None = None
 
 
 @dataclass(frozen=True)
@@ -295,6 +300,82 @@ FIGURE_GUIDANCE = (
 )
 
 
+# A suggested edit in pins.md (docs/adr/0020-suggested-edit-pins.md D3): the number-cell marker by the suggestion's
+# state, the memo cell of a pin whose author wrote the text alone, and the `## 제안 문안` section's heading suffix and
+# line for a text that deletes the range. JSON (GET /api/pins/N's suggest.text) is the authority on the exact bytes.
+SUGGEST_MARKS: dict[SuggestState, str] = {
+    "ready": "제안 수정",
+    "changed": "제안 수정(원문 바뀜)",
+    "unknown": "제안 수정(확인 불가)",
+}
+SUGGEST_ONLY_NOTE = "(제안 문안만)"
+SUGGEST_HEADINGS: dict[SuggestState, str] = {
+    "ready": "바꿀 준비됨",
+    "changed": "원문 바뀜 — 넣지 않는다",
+    "unknown": "확인 불가 — 넣지 않는다",
+}
+SUGGEST_DELETES = "(이 줄 범위를 지운다)"
+# The guidance clause while an open pin carries a suggestion, and its legend entry while the marker shows.
+SUGGEST_GUIDANCE = (
+    " · 제안 수정 핀은 메모를 다시 쓰지 말고 `suggest.text` 를 위치 칸의 줄 범위에 글자 그대로 넣는다 · "
+    "`원문 바뀜`·`확인 불가` 면 넣지 말고 답글로 알린다"
+)
+SUGGEST_LEGEND = (
+    " · '제안 수정' = 작성자가 바꿀 글을 직접 썼다, 아래 '## 제안 문안' 의 글을 위치 칸의 줄 범위에 그대로 넣는다"
+    "('(원문 바뀜)'·'(확인 불가)' 가 붙으면 넣지 말고 답글로 알린다)"
+)
+
+
+def suggest_marker(r: Record, facts: PinFacts) -> str:
+    """The number-cell marker of a pin's suggested edit - '제안 수정', or with '(원문 바뀜)' / '(확인 불가)' when its
+    lines no longer read as its base or cannot be compared - and "" for a pin without one. A state the edge did not
+    give counts as unknown, so a suggestion is never shown as ready unchecked."""
+    if suggestion_of(r.get("suggest")) is None:
+        return ""
+    return SUGGEST_MARKS[facts.suggest_state or "unknown"]
+
+
+def code_fence(text: str) -> str:
+    """The backtick fence that holds text verbatim in a Markdown code block: one backtick longer than the longest run
+    of backticks in text, and at least three - no line of text can then close the block early."""
+    longest = max((len(run) for run in re.findall("`+", text)), default=0)
+    return "`" * max(3, longest + 1)
+
+
+def suggestions_md(rows: Sequence[Record], facts: Mapping[int, PinFacts], base: str, sectioned: bool) -> list[str]:
+    """The `## 제안 문안` section: one block per open pin in rows that carries a suggested edit, by id - a heading
+    '### #<id> · <location> · <state>' (the location as the location column has it, after the document key in a
+    sectioned sheet, like the review table), then the text in a code fence long enough to hold it (code_fence), or
+    SUGGEST_DELETES for an empty text. The text's lines are written as they are: the block is the same text as
+    GET <base>/api/pins/N's suggest.text, which the section names as the authority. [] when no such pin is open."""
+    picked = [(r, suggestion_of(r.get("suggest"))) for r in sorted(rows, key=lambda x: x["id"])]
+    shown = [(r, s) for r, s in picked if s is not None]
+    if not shown:
+        return []
+    out = [
+        "",
+        "## 제안 문안",
+        "",
+        "정확한 바이트의 정본은 GET %s/api/pins/N 의 suggest.text 다. 아래 블록은 같은 글이다." % base,
+    ]
+    for r, suggestion in shown:
+        f = facts[r["id"]]
+        where = (
+            md_cell(region_text_of(r))
+            if is_region_pin(r)
+            else "%s L%s-L%s" % (md_cell(f.location), md_cell(r.get("lo")), md_cell(r.get("hi")))
+        )
+        if sectioned:
+            where = "`%s` · %s" % (md_cell(f.doc_key), where)
+        out += ["", "### #%s · %s · %s" % (r["id"], where, SUGGEST_HEADINGS[f.suggest_state or "unknown"])]
+        if not suggestion.text:
+            out.append(SUGGEST_DELETES)
+            continue
+        fence = code_fence(suggestion.text)
+        out += [fence, *suggestion.text.split("\n"), fence]
+    return out
+
+
 def element_quote(r: Record) -> str:
     """A figure pin's element name in front of its note, «label» - always, with no length condition, when the pin has
     a well-formed el with a label; "" otherwise (docs/handbook/api.md §그림 핀의 행)."""
@@ -417,7 +498,12 @@ def pins_md_text(page: PinsMdInput) -> str:
     A figure pin (with an el) shows its element's «label» before the note, its shared part after it and 요소 잃음
     when the element is lost; while any figure pin is open - one with an el, or a region pin on a figure document -
     the guidance gains FIGURE_GUIDANCE, and those region pins do not count as view-only ones. A figure document's
-    section title ends with — 그림(요소 지도) (a view-only PDF's keeps — 보기 전용 PDF(줄 번호 없음))."""
+    section title ends with — 그림(요소 지도) (a view-only PDF's keeps — 보기 전용 PDF(줄 번호 없음)).
+
+    A pin with a suggested edit (docs/adr/0020-suggested-edit-pins.md D3) gets its marker last in the number cell
+    (suggest_marker) and SUGGEST_ONLY_NOTE for an empty memo; while any open pin carries one the guidance gains
+    SUGGEST_GUIDANCE, the legend SUGGEST_LEGEND, and the `## 제안 문안` section (suggestions_md) follows the open
+    tables, before the review section. Without such a pin every byte is as before."""
     rows, facts = page.rows, page.facts
     loopback_base = "http://127.0.0.1:%d" % page.port
     is_remote = page.base is not None and page.base != loopback_base
@@ -438,6 +524,7 @@ def pins_md_text(page: PinsMdInput) -> str:
     any_symbol = False
     people = page.people
     n_human = 0
+    n_suggest = 0
     for r in openn:
         f = facts[r["id"]]
         syms = []
@@ -463,10 +550,16 @@ def pins_md_text(page: PinsMdInput) -> str:
             syms.append("위치 잃음")
         if f.el_sync == "lost":  # a figure pin whose element the current map no longer has (FIGURE_GUIDANCE)
             syms.append("요소 잃음")
+        suggested = suggest_marker(r, f)
+        if suggested:  # a suggested edit: the exact text is in the 제안 문안 section (SUGGEST_GUIDANCE)
+            syms.append(suggested)
+            n_suggest += 1
         if syms:
             any_symbol = True
         idcol = md_cell(" · ".join(["%s" % r.get("id")] + syms))
         note = md_cell(r.get("note") or "", newline=" ⏎ ")
+        if suggested and not (r.get("note") or "").strip():
+            note = SUGGEST_ONLY_NOTE
         part = shared_part_md(r, f)
         if part:
             note = (note + " ⏎ " if note else "") + part
@@ -572,18 +665,21 @@ def pins_md_text(page: PinsMdInput) -> str:
         )
     if n_figure:
         guidance += FIGURE_GUIDANCE
+    if n_suggest:
+        guidance += SUGGEST_GUIDANCE
     out.append(guidance)
     out.append(claim_guidance(base))
     out.append(token_guidance_line(None if is_remote else page.token_file))
     out.append(REPLY_GUIDANCE)
     if any_symbol:
-        out.append(LEGEND)
+        out.append(LEGEND + (SUGGEST_LEGEND if n_suggest else ""))
     header = ["| # | 쪽 | 위치 | 범위 | 메모 |", "|---|---|---|---|---|"]
+    suggestions = suggestions_md(openn, facts, base, sectioned)
     if not sectioned:
         rows_render = rows_by_doc.get(known[0], [])
         out += [""] + header
         out += rows_render if rows_render else ["| — | — | 열린 핀 없음 | | |"]
-        return "\n".join(out + review_md(reviewn, facts, sectioned)) + "\n"
+        return "\n".join(out + suggestions + review_md(reviewn, facts, sectioned)) + "\n"
     shown = 0
     for d in docs:
         rs = rows_by_doc.get(d.key)
@@ -610,4 +706,4 @@ def pins_md_text(page: PinsMdInput) -> str:
         )
     if not shown:
         out += ["", "열린 핀 없음"]
-    return "\n".join(out + review_md(reviewn, facts, sectioned)) + "\n"
+    return "\n".join(out + suggestions + review_md(reviewn, facts, sectioned)) + "\n"

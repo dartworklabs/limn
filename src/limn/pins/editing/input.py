@@ -3,9 +3,18 @@
 from collections.abc import Collection
 from dataclasses import dataclass, replace
 
-from limn.pins.editing.fields import parse_assignee, parse_kind_req, parse_note, parse_scope
+from limn.pins.editing.fields import parse_assignee, parse_kind_req, parse_note, parse_scope, parse_suggest
 from limn.pins.editing.location import parse_loc, parse_region
-from limn.pins.editing.rules import AddRequest, EditRequest, LinePlace, Place, RegionPlace
+from limn.pins.editing.rules import (
+    AddRequest,
+    EditRequest,
+    LinePlace,
+    Place,
+    RegionPlace,
+    RemoveSuggestion,
+    SuggestChange,
+)
+from limn.pins.suggestion import Suggestion
 from limn.web.errors import InputRejected
 from limn.web.parse import DocumentFacts, Json, int_field, parse_mention_hints
 
@@ -36,8 +45,10 @@ def parse_add(d: Json, known: Collection[str], facts: DocumentFacts) -> AddReque
     field refused, in the contract's order: the location first - a region (parse_region, which refuses
     file/lo/hi/scope) on a view-only document, and on a figure document when the body names no file, lo or hi (an
     element drawn without code, docs/handbook/api.md §그림 문서의 pick·핀); lines (parse_loc, which reads the
-    named file) otherwise. A figure document's place keeps the body's el (parse_el). Then note, kind_req, mention hints
-    and assignee (known: the logins supplied by EditingRequests)."""
+    named file) otherwise. A figure document's place keeps the body's el (parse_el). Then note, kind_req, mention hints,
+    assignee (known: the logins supplied by EditingRequests) and suggest - its shape alone (parse_suggest; null is
+    absent). Whether this pin may carry the suggestion is decided against the document and the file before it is
+    written (limn.pins.editing.rules.decide_new_suggestion)."""
     place: Place
     if facts.view_only or (facts.has_element_map and all(d.get(k) is None for k in ("file", "lo", "hi"))):
         region = parse_region({k: d[k] for k in REGION_FIELDS + ("file", "lo", "hi", "scope") if k in d}, facts)
@@ -62,7 +73,13 @@ def parse_add(d: Json, known: Collection[str], facts: DocumentFacts) -> AddReque
     assignee = parse_assignee(d.get("assignee"), known)
     if isinstance(assignee, InputRejected):
         return assignee
-    return AddRequest(place, note, kind_req, assignee, tuple(hints))
+    suggest: Suggestion | None = None
+    if d.get("suggest") is not None:
+        sent = parse_suggest(d["suggest"])
+        if isinstance(sent, InputRejected):
+            return sent
+        suggest = sent
+    return AddRequest(place, note, kind_req, assignee, tuple(hints), suggest)
 
 
 @dataclass(frozen=True)
@@ -78,8 +95,10 @@ def parse_edit(d: Json, known: Collection[str]) -> EditBody | InputRejected:
     """A POST /api/pins/{id}/edit body -> its checked fields, or the first one refused, in the contract's order.
 
     note (null is the empty note), note_append (a non-blank string of at most 2000 characters), loc (an object),
-    lo/hi (integers), scope, kind, kind_req, mention hints and assignee (known: the logins from EditingRequests).
-    base_rev is required unless the edit is a note_append, and something must be changed.
+    lo/hi (integers), scope, kind, kind_req, mention hints, assignee (known: the logins from EditingRequests) and
+    suggest - sent as {base, text} it sets or replaces the pin's suggestion (parse_suggest), sent as null it removes
+    it, absent it leaves it. base_rev is required unless the edit is a note_append without a suggest, and something
+    must be changed.
     """
     note: str | None = None
     if "note" in d:
@@ -120,8 +139,17 @@ def parse_edit(d: Json, known: Collection[str]) -> EditBody | InputRejected:
     assignee = parse_assignee(d.get("assignee"), known)
     if isinstance(assignee, InputRejected):
         return assignee
+    suggest: SuggestChange | None = None
+    if "suggest" in d:
+        if d["suggest"] is None:
+            suggest = RemoveSuggestion()
+        else:
+            sent = parse_suggest(d["suggest"])
+            if isinstance(sent, InputRejected):
+                return sent
+            suggest = sent
     base_given = "base_rev" in d
-    if not base_given and note_append is None:
+    if not base_given and (note_append is None or suggest is not None):
         return InputRejected("base_rev 가 필요합니다(카드를 열 때 받은 rev).", "base_rev_required")
     base = int_field(d["base_rev"], "base_rev") if base_given else None
     if isinstance(base, InputRejected):
@@ -135,12 +163,14 @@ def parse_edit(d: Json, known: Collection[str]) -> EditBody | InputRejected:
         or note_append is not None
         or kind_req is not None
         or assignee is not None
+        or suggest is not None
     ):
         return InputRejected(
             "바꿀 필드가 없습니다(note, lo, hi, scope, loc, note_append, kind_req, assignee).", "nothing_to_change"
         )
     return EditBody(
-        loc, EditRequest(base, note, note_append, None, lo, hi, scope, kind, kind_req, assignee, tuple(hints))
+        loc,
+        EditRequest(base, note, note_append, None, lo, hi, scope, kind, kind_req, assignee, tuple(hints), suggest),
     )
 
 

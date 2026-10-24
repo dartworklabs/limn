@@ -1,4 +1,4 @@
-"""Validate note, kind, scope, and assignee fields of pin creation and editing.
+"""Validate note, kind, scope, assignee and suggested-edit fields of pin creation and editing.
 
 These pure parsers return the validated value or the exact request rejection. Both
 the editing body and editing location parser use them without importing each other.
@@ -8,7 +8,15 @@ from collections.abc import Collection
 
 from limn.pins.editing.values import ASSIGNEE_AGENT, LOCAL_LOGIN, NOTE_MAX, SCOPES, Scope, is_scope
 from limn.pins.model import KIND_REQS, KindReq, is_kind_req
+from limn.pins.suggestion import Suggestion, without_cr
 from limn.web.errors import InputRejected
+
+# The one refusal of a suggestion's shape (400 bad_suggest). The limits, the pin and the file are decided after it, by
+# the editing rules (limn.pins.editing.rules.decide_new_suggestion, decide_edit).
+SUGGEST_REFUSAL = (
+    "suggest 는 문자열 base·text 두 칸만 가진 객체여야 합니다"
+    "(base = 지금 그 줄 범위의 글, text = 그 줄들을 바꿀 글, 줄은 \\n 으로 잇는다)."
+)
 
 
 def parse_note(v: object) -> str | InputRejected:
@@ -58,3 +66,16 @@ def parse_assignee(v: object, known: Collection[str]) -> str | None | InputRejec
             "unknown_assignee",
         )
     return v
+
+
+def parse_suggest(v: object) -> Suggestion | InputRejected:
+    """A suggested edit as a request sends it: an object with exactly the string fields base and text -> a Suggestion
+    with every carriage return removed from both (line terminators are compared without it); anything else - not an
+    object, a missing or extra key, a value that is not a string - is 400 bad_suggest. The caller decides what an
+    absent or null value means. Duplicate keys never get here: the request parser refuses them (400 bad_json)."""
+    if not isinstance(v, dict) or set(v) != {"base", "text"}:
+        return InputRejected(SUGGEST_REFUSAL, "bad_suggest")
+    base, text = v["base"], v["text"]
+    if not (isinstance(base, str) and isinstance(text, str)):
+        return InputRejected(SUGGEST_REFUSAL, "bad_suggest")
+    return Suggestion(without_cr(base), without_cr(text))

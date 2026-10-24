@@ -6,12 +6,21 @@ All external facts arrive as values; records preserve their field insertion orde
 from collections.abc import Sequence
 from dataclasses import dataclass
 from posixpath import isabs
-from typing import Any, TypeAlias
+from typing import Any, Literal, TypeAlias
 
-from limn.pins.editing.values import ASSIGNEE_AGENT, NOTE_MAX, PDF_QUOTE_MAX, Scope, is_scope
+from limn.pins.editing.values import (
+    ASSIGNEE_AGENT,
+    NOTE_MAX,
+    PDF_QUOTE_MAX,
+    SUGGEST_LINES_MAX,
+    SUGGEST_MAX,
+    Scope,
+    is_scope,
+)
 from limn.pins.element import element_of
 from limn.pins.location.mapping import VIAS
 from limn.pins.model import Actor, DonePin, KindReq, LineSpan, OpenPin, Pin, Record, ReviewPin, is_kind_req
+from limn.pins.suggestion import Suggestion, lines_text
 from limn.pins.thread import PinT, author, rev_after, signature, thread_message, with_entry
 from limn.platform.values import is_finite_num, is_int
 
@@ -229,12 +238,22 @@ Place: TypeAlias = LinePlace | RegionPlace
 
 
 @dataclass(frozen=True)
+class RemoveSuggestion:
+    """An edit's `suggest: null`: the pin's stored suggestion goes (an edit without a suggest key keeps it)."""
+
+
+# What an edit does to a pin's suggested edit: set or replace it with a Suggestion, or remove it.
+SuggestChange: TypeAlias = Suggestion | RemoveSuggestion
+
+
+@dataclass(frozen=True)
 class EditRequest:
     """A validated edit: each field is None when the request did not send it (hints are empty then).
 
     note is the replacement note ("" for a JSON null); note_append is text to add under the note. place re-places the
     pin; lo/hi move a line pin's range without re-placing it. kind_req and assignee are note-level and may change on
-    a closed pin. base_rev is the rev the editor loaded; only a note_append may leave it out.
+    a closed pin. suggest sets, replaces or removes the pin's suggested edit (docs/adr/0020-suggested-edit-pins.md) and
+    is not note-level. base_rev is the rev the editor loaded; only a note_append without a suggest may leave it out.
     """
 
     base_rev: int | None = None
@@ -248,9 +267,12 @@ class EditRequest:
     kind_req: KindReq | None = None
     assignee: str | None = None
     hints: tuple[str, ...] = ()
+    suggest: SuggestChange | None = None
 
     def __post_init__(self) -> None:
         """Reject locally invalid edit fields even when a caller bypasses the HTTP parser."""
+        if self.suggest is not None and not isinstance(self.suggest, (Suggestion, RemoveSuggestion)):
+            raise ValueError("suggest must set or remove a suggested edit")
         if self.base_rev is not None and not is_int(self.base_rev):
             raise ValueError("base_rev must be an integer")
         if self.note is not None and (not isinstance(self.note, str) or len(self.note) > NOTE_MAX):
@@ -288,10 +310,16 @@ class EditRequest:
         """Does the edit move the range by lo/hi alone? Then the new lines must fit the pin's file, which the shell counts."""
         return self.place is None and (self.lo is not None or self.hi is not None)
 
+    def sets_suggestion(self) -> bool:
+        """Does the edit set or replace a suggested edit? Then its base is checked against the lines it will replace,
+        which the shell reads (SuggestFacts)."""
+        return isinstance(self.suggest, Suggestion)
+
 
 @dataclass(frozen=True)
 class ClosedPinReshaped:
-    """A closed pin keeps where it points: only its note and note-level fields may change. The pin goes into the 409 body."""
+    """A closed pin keeps where it points and what it suggests: only its note and note-level fields may change. The
+    pin goes into the 409 body."""
 
     pin: ReviewPin | DonePin
 
@@ -325,7 +353,68 @@ class RangeOutsideFile:
     hi: int
 
 
-EditRefusal: TypeAlias = ClosedPinReshaped | StaleEdit | NoteTooLong | PinOutsideTree | RangeOutsideFile
+@dataclass(frozen=True)
+class SuggestUnsupported:
+    """Only a line pin of a LaTeX document takes a suggested edit: a view-only PDF's or a figure document's pin, and a
+    region pin, do not (docs/adr/0020-suggested-edit-pins.md D1)."""
+
+
+@dataclass(frozen=True)
+class SuggestRangeTooLong:
+    """The lines a suggestion would replace are more than `limit` (SUGGEST_LINES_MAX): the range spans `lines` lines."""
+
+    lines: int
+    limit: int
+
+
+@dataclass(frozen=True)
+class SuggestTextTooLong:
+    """The suggestion's `field` (base or text) holds `length` characters, more than `limit` (SUGGEST_MAX)."""
+
+    field: Literal["base", "text"]
+    length: int
+    limit: int
+
+
+@dataclass(frozen=True)
+class SuggestNoop:
+    """The suggestion's text is its base: it would change nothing."""
+
+
+@dataclass(frozen=True)
+class SuggestBaseChanged:
+    """A new pin's suggestion was written against other text: the lines it would replace read `current` now (as
+    limn.pins.suggestion.lines_text reads them, "" when they cannot be read). Nothing is written."""
+
+    current: str
+
+
+@dataclass(frozen=True)
+class EditBaseChanged:
+    """An edit's suggestion was written against other text: the lines it would replace - the range after this edit's
+    own range change - read `current` now. pin is the pin as it stands (the 409 carries it, as a stale edit's does)."""
+
+    pin: Pin
+    current: str
+
+
+# A suggestion's own refusals, before its base is compared with the file: the pin cannot take one, or it breaks a limit.
+SuggestRefusal: TypeAlias = SuggestUnsupported | SuggestRangeTooLong | SuggestTextTooLong | SuggestNoop
+# Why POST /api/pin is refused although its body parsed: its suggestion is (the location and fields parsed already).
+AddRefusal: TypeAlias = SuggestRefusal | SuggestBaseChanged
+EditRefusal: TypeAlias = (
+    ClosedPinReshaped | StaleEdit | NoteTooLong | PinOutsideTree | RangeOutsideFile | SuggestRefusal | EditBaseChanged
+)
+
+
+@dataclass(frozen=True)
+class SuggestFacts:
+    """What the shell read for an edit that sets a suggestion: whether the pin's document is a LaTeX document
+    (limn.runtime.documents.Doc.builds_from_source), and the current lines of the file the pin will point at after
+    the edit - None when that file is outside the manuscript tree (a region pin's has no file at all)."""
+
+    latex: bool
+    lines: tuple[str, ...] | None
 
 
 @dataclass(frozen=True)
@@ -334,7 +423,8 @@ class PinEdited:
 
     note is None when the edit leaves the note alone (a note_append arrives here merged). lines is the lo/hi an edit
     without place writes; range_changed says whether the pin's lines moved (always for a line re-placement), which is
-    when the shell re-reads the file for a new anchor.
+    when the shell re-reads the file for a new anchor. suggest is the suggestion it sets (its base checked against the
+    file) or removes, None when it leaves the stored one as it is.
     """
 
     by: Actor
@@ -347,6 +437,7 @@ class PinEdited:
     kind: str | None
     kind_req: KindReq | None
     assignee: str | None
+    suggest: SuggestChange | None = None
 
     def span(self) -> tuple[int, int] | None:
         """The lines to re-anchor: the pin's new range when it changed, else None."""
@@ -384,18 +475,28 @@ def file_after(record: Record, request: EditRequest) -> Record:
 
 
 def decide_edit(
-    pin: Pin, request: EditRequest, by: Actor, at: str, clock: str, line_count: int | None, note_max: int
+    pin: Pin,
+    request: EditRequest,
+    by: Actor,
+    at: str,
+    clock: str,
+    line_count: int | None,
+    note_max: int,
+    suggest_facts: SuggestFacts | None = None,
 ) -> PinEdited | EditRefusal:
     """What an edit does to this pin, or why it is refused - checked in this order, before anything changes.
 
-    A closed pin refuses a reshaping edit; a base_rev other than the pin's rev is stale; a note_append is merged
-    under the note (or under the note this request replaces it with) after a "(추가 HH:MM)" stamp - clock is HH:MM -
-    and refused if the result exceeds note_max. A lo/hi edit needs line_count, the line count of the pin's file
-    (None when the file is outside the manuscript tree), and a pin placed on lines (core.place a LineSpan): the range
-    must lie in 1..max(line_count, 1). The range counts as changed when it differs from the stored one or the pin had
-    lost its place (core.stale).
+    A closed pin refuses a reshaping edit and any suggestion change; a base_rev other than the pin's rev is stale; a
+    note_append is merged under the note (or under the note this request replaces it with) after a "(추가 HH:MM)"
+    stamp - clock is HH:MM - and refused if the result exceeds note_max. A lo/hi edit needs line_count, the line count
+    of the pin's file (None when the file is outside the manuscript tree), and a pin placed on lines (core.place a
+    LineSpan): the range must lie in 1..max(line_count, 1). The range counts as changed when it differs from the
+    stored one or the pin had lost its place (core.stale). Last, a suggestion the edit sets needs suggest_facts (the
+    shell reads them only then; without them this raises, a caller's defect): it is checked on the range the pin will
+    span after this edit (check_suggestion), refused when that file is outside the tree, and its base must be what
+    those lines read now (EditBaseChanged otherwise). Removing a suggestion is always accepted on an open pin.
     """
-    if request.reshapes() and isinstance(pin, (ReviewPin, DonePin)):
+    if (request.reshapes() or request.suggest is not None) and isinstance(pin, (ReviewPin, DonePin)):
         return ClosedPinReshaped(pin)
     if request.base_rev is not None and (pin.core.rev or 0) != request.base_rev:
         return StaleEdit(pin)
@@ -416,9 +517,81 @@ def decide_edit(
             return RangeOutsideFile(line_count, lo, hi)
         changed = (lo, hi) != (span.lo, span.hi) or bool(pin.core.stale)
         lines = (lo, hi)
+    if isinstance(request.suggest, Suggestion):
+        if suggest_facts is None:
+            raise ValueError("an edit that sets a suggestion is decided with the facts the shell read (SuggestFacts)")
+        after = _span_after(pin, request.place, lines)
+        refused = check_suggestion(request.suggest, after, suggest_facts.latex)
+        if refused is not None:
+            return refused
+        assert after is not None  # check_suggestion refuses a pin without lines
+        if suggest_facts.lines is None:
+            return PinOutsideTree()
+        current = lines_text(suggest_facts.lines, *after)
+        if current != request.suggest.base:
+            return EditBaseChanged(pin, current or "")
     return PinEdited(
-        by, at, note, request.place, lines, changed, request.scope, request.kind, request.kind_req, request.assignee
+        by,
+        at,
+        note,
+        request.place,
+        lines,
+        changed,
+        request.scope,
+        request.kind,
+        request.kind_req,
+        request.assignee,
+        request.suggest,
     )
+
+
+def _span_after(pin: Pin, place: Place | None, lines: tuple[int, int] | None) -> tuple[int, int] | None:
+    """The lines lo..hi a pin spans once an edit applies: a line re-placement's, the edit's new lo/hi (lines), else the
+    pin's own - None for a region pin or a region re-placement, which have no lines."""
+    if isinstance(place, LinePlace):
+        return place.lo, place.hi
+    if isinstance(place, RegionPlace):
+        return None
+    if lines is not None:
+        return lines
+    span = pin.core.place
+    return (span.lo, span.hi) if isinstance(span, LineSpan) else None
+
+
+def check_suggestion(suggestion: Suggestion, span: tuple[int, int] | None, latex: bool) -> SuggestRefusal | None:
+    """A suggestion's own rules on the lines it replaces, span (lo, hi), or None when they hold - in this order: only a
+    line pin (span not None) of a LaTeX document (latex) takes one; the range spans at most SUGGEST_LINES_MAX lines;
+    base, then text, holds at most SUGGEST_MAX characters; text differs from base. Whether base is what the lines read
+    now is the caller's next step, since it needs the file (docs/adr/0020-suggested-edit-pins.md D1, D2)."""
+    if not latex or span is None:
+        return SuggestUnsupported()
+    lo, hi = span
+    if hi - lo + 1 > SUGGEST_LINES_MAX:
+        return SuggestRangeTooLong(hi - lo + 1, SUGGEST_LINES_MAX)
+    texts: tuple[tuple[Literal["base", "text"], str], ...] = (("base", suggestion.base), ("text", suggestion.text))
+    for field, value in texts:
+        if len(value) > SUGGEST_MAX:
+            return SuggestTextTooLong(field, len(value), SUGGEST_MAX)
+    if suggestion.text == suggestion.base:
+        return SuggestNoop()
+    return None
+
+
+def decide_new_suggestion(
+    suggestion: Suggestion, place: Place, latex: bool, lines: Sequence[str]
+) -> Suggestion | AddRefusal:
+    """A new pin's suggestion, accepted, or why the pin is refused: check_suggestion on the place's lines (a region
+    place has none), then its base must be what those lines of the file read now - lines, the snapshot the shell also
+    anchors the pin with (SuggestBaseChanged with what they read otherwise). latex says the document is a LaTeX one."""
+    span = (place.lo, place.hi) if isinstance(place, LinePlace) else None
+    refused = check_suggestion(suggestion, span, latex)
+    if refused is not None:
+        return refused
+    assert span is not None  # check_suggestion refuses a place without lines
+    current = lines_text(lines, *span)
+    if current != suggestion.base:
+        return SuggestBaseChanged(current or "")
+    return suggestion
 
 
 def evolve_edit(
@@ -440,7 +613,8 @@ def evolve_edit(
     (file, file_rel), and - given only when the range changed and the file is located - the new anchor and synced_at,
     which also clear stale/sync. Last come the note, kind_req, the note's @-tags (mentions, None when the note is
     untouched), a changed assignee with an ev=assign thread entry naming them (assignee_name is the person's display
-    name), edited_at/by, and rev.
+    name), the suggestion the edit sets (`suggest`, replacing a stored one in its place) or removes, edited_at/by, and
+    rev. No re-placement touches `suggest`: a range edit without one keeps the stored suggestion, byte for byte.
     """
     record = dict(pin.record)
     place = event.place
@@ -493,6 +667,10 @@ def evolve_edit(
         record["thread"] = with_entry(
             pin.core.thread, thread_message(pin.core.thread, author(event.by), event.at, text, ev="assign")
         )
+    if isinstance(event.suggest, Suggestion):
+        record["suggest"] = event.suggest.to_record()
+    elif isinstance(event.suggest, RemoveSuggestion):
+        record.pop("suggest", None)
     record["edited_at"] = event.at
     record["edited_by"] = signature(event.by)
     record["rev"] = rev_after(pin.core.rev)
@@ -506,16 +684,22 @@ def assignment_text(assignee: str, name: str | None) -> str:
 
 @dataclass(frozen=True)
 class AddRequest:
-    """A validated new pin: where it is, its note, and the optional kind_req, assignee and @-tag hints."""
+    """A validated new pin: where it is, its note, and the optional kind_req, assignee, @-tag hints and suggested edit.
+
+    suggest has its shape checked only; whether this pin may carry it, and whether its base is what the lines read,
+    is decided against the document and the file (decide_new_suggestion) before the pin is written."""
 
     place: Place
     note: str
     kind_req: KindReq | None = None
     assignee: str | None = None
     hints: tuple[str, ...] = ()
+    suggest: Suggestion | None = None
 
     def __post_init__(self) -> None:
         """Keep an internally constructed add's place and local fields in the same shapes as parsed input."""
+        if self.suggest is not None and not isinstance(self.suggest, Suggestion):
+            raise ValueError("suggest must be a suggested edit")
         if not isinstance(self.place, (LinePlace, RegionPlace)):
             raise ValueError("place must be a pin location")
         if not isinstance(self.note, str) or len(self.note) > NOTE_MAX:
@@ -544,7 +728,8 @@ def new_line_pin(
 
     The location comes first (kind defaults to "lines"), then note, at, id (pid, allocated by the shell), author (the
     request's actor as given), kind_req, the note's @-tags, assignee, the anchor and synced_at the shell captured,
-    pdf_build (the one the viewer sent, else the current build), doc, rev 0, and last where the file is now (ADR-0006).
+    pdf_build (the one the viewer sent, else the current build), doc, rev 0, where the file is now (ADR-0006), and
+    last the request's suggestion when it has one - the shell has accepted it (decide_new_suggestion) by then.
     """
     record = dict(place.fields)
     record.setdefault("kind", "lines")
@@ -561,6 +746,8 @@ def new_line_pin(
     record["rev"] = 0
     if where is not None:
         record["file"], record["file_rel"] = where.path, where.rel
+    if request.suggest is not None:
+        record["suggest"] = request.suggest.to_record()
     return OpenPin.from_record(record)
 
 
@@ -575,7 +762,10 @@ def new_region_pin(
     doc: str,
 ) -> OpenPin:
     """A new view-only PDF pin's record: the region, note, at, id, author, kind_req, pdf_build, doc, rev 0, then the
-    note's @-tags and the assignee - the order this kind of pin has always been written in. No lines, no anchor."""
+    note's @-tags and the assignee - the order this kind of pin has always been written in. No lines, no anchor, and
+    no suggestion: a request carrying one is a caller's defect (decide_new_suggestion refuses it first) and raises."""
+    if request.suggest is not None:
+        raise ValueError("a region pin takes no suggested edit")
     record = dict(place.fields)
     record.update(note=request.note, at=at, id=pid, author=dict(author_record))
     if request.kind_req:

@@ -32,6 +32,12 @@ SNAPSHOTS = [
     for name in ("contract_snapshot.json", "contract_snapshot_figure.json")
 ]
 JSON_TYPES = {str: "string", int: "number", float: "number", bool: "boolean"}
+# Pin fields the recorded flows never show (no flow writes a suggested edit) that DeclaredSuggestionShapes takes from the real
+# handler's answers instead, each with what it is.
+PIN_FROM_HANDLER = {
+    "suggest": "a LaTeX line pin's suggested edit {base, text} (docs/handbook/api.md §제안 수정 (`suggest`))",
+    "suggest_state": "whether that suggestion still fits its lines, computed on every read",
+}
 # The server tables a declared but unrecorded field may come from, per interface.
 SERVER_FIELDS = {
     "Pin": set().union(
@@ -123,7 +129,8 @@ class DeclaredPinShapes(unittest.TestCase):
         for name, seen in (("Pin", seen_pin), ("ThreadEntry", seen_entry)):
             with self.subTest(interface=name):
                 unseen = set(self.shapes[name]) - seen
-                self.assertEqual(sorted(unseen - SERVER_FIELDS[name]), [])
+                handler = set(PIN_FROM_HANDLER) if name == "Pin" else set()
+                self.assertEqual(sorted(unseen - SERVER_FIELDS[name] - handler), [])
 
     def test_the_check_catches_each_kind_of_drift(self):
         """A field the declaration lacks, a value of another type, and a nested object's unknown field all fail."""
@@ -161,6 +168,49 @@ def sync_records() -> list[dict]:
         sync_rules.unexpected("2026-09-26 10:00:00"),
         *[sync_rules.after_pull(o, "2026-09-26 10:00:00") for o in outcomes],
     ], [sync_rules.pull_record(o) for o in outcomes]
+
+
+class DeclaredSuggestionShapes(AccessBase):
+    """api.d.ts declares a suggested-edit pin as the real handler answers it: created with a suggestion, listed, read
+    one by one, and after its lines changed (suggest_state "changed") - the fields PIN_FROM_HANDLER explains."""
+
+    def answers(self) -> list[tuple[str, dict]]:
+        """(where, pin) for every pin answer of the flow: POST /api/pin with the lines' exact text as base (GET
+        /api/snippet?text=1), GET /api/pins, GET /api/pins/<id>, an edit's answer, and GET /api/pins/<id> once the file's
+        lines changed."""
+        code, snip = self.call("GET", "/api/snippet?file=main.tex&lo=4&hi=5&text=1")
+        self.assertEqual(code, 200, snip)
+        body = {"file": str(self.main), "lo": 4, "hi": 5, "page": 1, "note": ""}
+        code, made = self.call("POST", "/api/pin", {**body, "suggest": {"base": snip["text"], "text": "Rewritten."}})
+        self.assertEqual(code, 200, made)
+        out = []
+        code, pins = self.call("GET", "/api/pins")
+        out += [("list", p) for p in pins]
+        code, one = self.call("GET", "/api/pins/%d" % made["id"])
+        out.append(("one", one["pin"]))
+        code, edited = self.call(
+            "POST", "/api/pins/%d/edit" % made["id"], {"note": "why", "base_rev": one["pin"]["rev"]}
+        )
+        self.assertEqual(code, 200, edited)
+        out.append(("edit", edited["pin"]))
+        self.main.write_text(self.main.read_text(encoding="utf-8").replace("line two.", "line 2."), encoding="utf-8")
+        code, changed = self.call("GET", "/api/pins/%d" % made["id"])
+        out.append(("changed", changed["pin"]))
+        return out
+
+    def test_every_answered_suggestion_field_is_declared_with_its_type(self):
+        """No pin answer of the flow has an undeclared field or a value of another JSON type than declared."""
+        shapes = interfaces(API_TYPES.read_text(encoding="utf-8"))
+        found = [
+            m for where, p in self.answers() for m in mismatches(p, "Pin", shapes, "%s: pin #%s" % (where, p["id"]))
+        ]
+        self.assertEqual(found, [])
+
+    def test_the_handler_answers_each_field_it_explains(self):
+        """Every field PIN_FROM_HANDLER explains is in the flow's answers, and its state reads changed once the lines did."""
+        got = self.answers()
+        self.assertTrue(set(PIN_FROM_HANDLER) <= {k for _, p in got for k in p}, got)
+        self.assertEqual([p.get("suggest_state") for w, p in got if w in ("one", "changed")], ["ready", "changed"])
 
 
 class DeclaredViewShapes(AccessBase):

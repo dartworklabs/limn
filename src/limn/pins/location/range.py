@@ -5,7 +5,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from limn.pins.editing.values import SUGGEST_LINES_MAX
 from limn.pins.location.mapping import compute_levels, snippet
+from limn.pins.suggestion import lines_text
 from limn.platform.values import is_int
 
 
@@ -40,10 +42,14 @@ def overlaps_api(rng: SourceRange, overlaps: Callable[[str, int, int], list[dict
     return {"overlaps": overlaps(str(rng.file), rng.lo, rng.hi)}
 
 
-def snippet_api(rng: SourceRange, levels: bool, envs: Sequence[str], source_ladder: bool = True) -> dict[str, Any]:
+def snippet_api(
+    rng: SourceRange, levels: bool, envs: Sequence[str], source_ladder: bool = True, text: bool = False
+) -> dict[str, Any]:
     """GET /api/snippet: the source lines lo..hi of a manuscript file (a range parsed by location.input.parse_snippet),
     and with levels the range ladder around them - compute_levels' for the float environments envs when the document's
-    ladder comes from its text (source_ladder), else raw_ladder's."""
+    ladder comes from its text (source_ladder), else raw_ladder's. With text (?text=1), and only for a range of at most
+    SUGGEST_LINES_MAX lines, `text` comes last: the exact lines unnumbered, joined with "\n", carriage returns
+    removed - what a suggested edit's base must be (limn.pins.suggestion.lines_text). Every other field is the same."""
     f, lines, lo, hi = rng.file, rng.lines, rng.lo, rng.hi
     out: dict[str, Any] = {
         "file": str(f),
@@ -58,6 +64,9 @@ def snippet_api(rng: SourceRange, levels: bool, envs: Sequence[str], source_ladd
         lad = compute_levels(lines, lo, hi, envs) if source_ladder else raw_ladder(lines, lo, hi)
         out["levels"] = lad["levels"]
         out["default_level"] = lad["default_level"]
+    exact = lines_text(lines, lo, hi) if text and hi - lo + 1 <= SUGGEST_LINES_MAX else None
+    if exact is not None:
+        out["text"] = exact
     return out
 
 

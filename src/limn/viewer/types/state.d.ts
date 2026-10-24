@@ -26,6 +26,25 @@ interface EditCard {
   page: number;
   quote: string;
   kind_req: string;
+  sg: SuggestDraft;
+}
+
+// A suggested edit being written (suggest.js; the composer's SG, an edit card's sg): whether its editor is on, the text it
+// holds, the text it was filled from (base, null before the first fill) and the lines that base is (file, lo, hi), the
+// suggestion the pin had when its edit card opened (had), the current text a 409 answered with and the lines it is
+// (current), the lines being read now ('file:lo-hi', reading) and the last read that failed: its lines, whether it was
+// a fill and why (fail).
+interface SuggestDraft {
+  on: boolean;
+  text: string;
+  base: string | null;
+  file: string | null;
+  lo: number;
+  hi: number;
+  had: PinSuggest | null;
+  current: { text: string; file: string | null; lo: number; hi: number } | null;
+  reading: string;
+  fail: { key: string; fill: boolean; why: string } | null;
 }
 
 // The composer's selection (composer.js COMPOSE.current): the pick's answer plus what the composer chose on it - the

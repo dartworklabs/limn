@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any, Protocol
 
 from limn.pins.element import element_of
-from limn.pins.listing.projection import element_marks
+from limn.pins.listing.projection import element_marks, suggest_view
 from limn.pins.listing.render import (
     DocHeading,
     PinFacts,
@@ -20,6 +20,7 @@ from limn.pins.location.lookup import PinLocation, doc_scope
 from limn.pins.mentions import addressed_to, fyi_mentions_to, thread_round
 from limn.pins.model import DonePin, OpenPin, Pin, Record, is_region_pin, state_of
 from limn.pins.needs import BuildAnswers, FollowElement
+from limn.pins.suggestion import SuggestState, suggestion_of
 from limn.pins.thread import pin_reopened_in_round
 from limn.platform.files import tex_lines
 from limn.platform.values import is_int
@@ -90,9 +91,12 @@ class PinMarkdown:
         the run's map cache, as GET /api/pins does), and its shared part is given the document's folder to be
         placed under as text.
 
+        An open pin with a suggested edit is measured against its lines now (suggest_view), so its marker and its
+        `## 제안 문안` block say whether the text may go in.
+
         Reads files (people.json, the build stamps, whether the token file exists, the source file of each open
-        one-line pin that carries a quote - each file read at most once per call - and each figure document's
-        current map) but writes nothing."""
+        one-line pin that carries a quote and of each open pin that carries a suggestion - each file read at most
+        once per call - and each figure document's current map) but writes nothing."""
         rows = [pin.record for pin in pins]
         rel = self.deps.overlaps_by_id(pins)
         by_id = {r["id"]: r for r in rows}
@@ -117,6 +121,7 @@ class PinMarkdown:
                 round=tuple(thread_round(pin.core.thread)),
                 el_sync=el_sync,
                 impl_scope=impl_scope,
+                suggest_state=self._suggest_state(pin, sources),
             )
         docs = tuple(
             DocHeading(
@@ -166,6 +171,20 @@ class PinMarkdown:
         if el.impl is None or doc is None or not doc.has_element_map:
             return sync, None
         return sync, doc_scope(doc, self.deps.C.src)
+
+    def _suggest_state(self, pin: Pin, sources: dict[Path, list[str]]) -> SuggestState | None:
+        """An open pin's suggested edit measured against its lines now (limn.pins.listing.projection.suggest_view),
+        reading its file through the checked handle at most once per render (sources) and never outside the tree;
+        None for a pin without one, and for one awaiting review - pins.md does not list its suggestion."""
+        r = pin.record
+        if state_of(r) is not OpenPin or suggestion_of(r.get("suggest")) is None:
+            return None
+        loc = self.deps.pin_location(r, self.deps.C.src, self.deps.C.state)
+        if loc is None:
+            return suggest_view(r, None)
+        if loc.path not in sources:
+            sources[loc.path] = tex_lines(loc.source)
+        return suggest_view(r, sources[loc.path])
 
     def _location_and_line_len(self, pin: Pin, sources: dict[Path, list[str]]) -> tuple[str, int | None]:
         """The pin's current display path and quoted line length, reading each source path at most once."""

@@ -25,7 +25,7 @@ function card(p){
   // Header line: number/line-range/page on the left, author/collapse on the right. Badges (.tags) drop to one line below the header.
   // compact accordion: the collapsed header and note preview (.sum) retain the note-level metadata; clicking expands badges/note/buttons (CSS).
   // In wide, .sum and the collapse button are hidden and the card is always expanded. Actions form an equal-width grid; only [완료] is emphasized, [삭제] is the destructive color.
-  const first=String(p.note||'').split('\n')[0].trim(),noNote=html`<span class="dim">${tr('(메모 없음)')}</span>`;
+  const first=String(p.note||'').split('\n')[0].trim(),noNote=html`<span class="dim">${tr(p.suggest?'(제안 문안만)':'(메모 없음)')}</span>`;   // a suggestion alone says what to do
   // Collapsed card's (compact) note preview: up to two lines on its own line below the header. It used to only get the
   // leftover width after the number/location inside the header's single line, clipping to '[C...', and an awaiting-review
   // card's prefixed '내 확인 차례 · ' ate even more of that width (QA 2026-09-24). Review status is conveyed by the dot color.
@@ -35,6 +35,7 @@ function card(p){
   if(isQuestion(p))tags.unshift(html`<span class="badge badge-question" data-tip="${T.question}">${ic('circle-question-mark')}질문</span>`);
   const adr=p.assignee?null:addressedTag(p); if(adr)tags.push(adr);   // a recorded assignee already appears in the note-level metadata
   const fyi=fyiTag(p); if(fyi)tags.push(fyi);   // a fix pin's FYI @-tags - this line once sat after the comment above and never executed (QA 2026-09-24)
+  const sgb=suggestBadge(p,closedCard); if(sgb)tags.push(sgb);   // a suggested edit, and why not to apply it (suggest.js)
   const rv=pinState(p)===PIN_STATE.REVIEW;
   const quote=cardQuote(p);   // the dragged PDF text, one line above the note (issue #185)
   if(rv)tags.unshift(html`<span class="badge badge-review" data-tip="${tr(T.review)+' · '+tl('닫은 쪽: {name}',{name:who(p.closed_by)||'?'})+' · '+(p.done_at||'')}">${ic('eye')}${reviewerLabel(p)}</span>`);
@@ -63,14 +64,14 @@ function card(p){
 <button class="btn-icon btn-sm btn-ghost cmp b-fold" data-act="card-toggle" aria-expanded="${unfold}" aria-label="${open?'카드 접기':'카드 펼치기'}">${ic(unfold?'chevron-down':'chevron-right')}</button></div>\
 ${sum}<div class="tags">${tags}</div>`;
   if(rv)return html`<div class="pin card review${open?' open':''}" data-id="${p.id}" data-doc="${pdoc(p)}">${head}\
-${quote}<div class="note" translate="no">${p.note?fmtText(p.note,p.mentions):noNote}</div>${metadata}${threadHtml(p,LAYOUT===LAYOUT_MODE.WIDE)}\
+${quote}<div class="note" translate="no">${p.note?fmtText(p.note,p.mentions):noNote}</div>${suggestView(p)}${metadata}${threadHtml(p,LAYOUT===LAYOUT_MODE.WIDE)}\
 <div class="acts"><button class="btn-sm b-change" data-act="change" data-tip="${T.change}">변경 보기</button>\
 <button class="btn-sm b-reply" data-act="reply-open" data-tip="${T.reply}">답글</button>\
 ${canConfirmReview()?html`<button class="btn-sm b-confirm${isMe(p.author)?' btn-soft':''}" data-act="confirm" data-tip="${T.confirm}">확인</button>`:''}</div>\
 ${canConfirmReview()?'':html`<div class="dim review-access">${confirmAccessText()}</div>`}</div>`;
   const body=editing?html`<div class="edit-slot"></div>${metadata}`
     :html`${quote}<div class="note" translate="no" data-act="edit" data-tip="${tr('클릭하면 메모와 범위를 고칩니다')}">${p.note?fmtText(p.note,p.mentions):noNote}</div>\
-${metadata}${threadHtml(p,LAYOUT===LAYOUT_MODE.WIDE)}<div class="acts">${cardActs(claimed,LAYOUT!==LAYOUT_MODE.WIDE)}</div>`;
+${suggestView(p)}${metadata}${threadHtml(p,LAYOUT===LAYOUT_MODE.WIDE)}<div class="acts">${cardActs(claimed,LAYOUT!==LAYOUT_MODE.WIDE)}</div>`;
   return html`<div class="pin card${p.stale||elLost(p)?' st':''}${claimed?' claimed':''}${editing?' editing':''}${open?' open':''}" data-id="${p.id}" data-doc="${pdoc(p)}">${head}${body}</div>`;
 }
 // An open card's action row, in the order it is seen so that Tab follows it. wide: [보기] [수정] [답글] ([풀기]) [삭제] [완료], by name.
@@ -124,9 +125,9 @@ function doneCard(p){
   // expanded while replying so the box is visible.
   const replying=REPLY&&REPLY.id===p.id;
   const th=threadOf(p),tn=th.length>1||(th.length>0&&!th[0].ev),to=!!((tn&&ARC_OPEN.has('t:'+p.id))||replying);
-  const origT=p.note?html`<button class="arc-orig-t" data-act="arc-toggle" data-key="o:${p.id}" aria-expanded="${oo}" data-tip="핀을 남길 때 쓴 메모를 펼치고 접습니다">원래 요청</button>`:'';
+  const origT=p.note||p.suggest?html`<button class="arc-orig-t" data-act="arc-toggle" data-key="o:${p.id}" aria-expanded="${oo}" data-tip="핀을 남길 때 쓴 메모를 펼치고 접습니다">원래 요청</button>`:'';
   const threadT=tn?html`<button class="arc-orig-t" data-act="arc-toggle" data-key="t:${p.id}" aria-expanded="${to}" data-tip="답글과 닫기·다시 열기 이력을 펼치고 접습니다">${tl('스레드 {n}',{n:th.length})}</button>`:'';
-  const orig=p.note&&oo?html`<div class="arc-orig" translate="no"><b>${tr('원래 요청')}</b>${fmtText(p.note,p.mentions)}</div>`:'';
+  const orig=(p.note||p.suggest)&&oo?html`<div class="arc-orig" translate="no"><b>${tr('원래 요청')}</b>${p.note?fmtText(p.note,p.mentions):''}${suggestView(p)}</div>`:'';   // with its suggested edit, read-only
   const thread=to?html`<div class="arc-thread"><div class="thread">${th.map((m,i)=>msgHtml(m,p.id+':'+i))}${replying?html`<div class="reply-slot"></div>`:''}</div></div>`:'';
   return html`<div class="arc-row done" data-id="${p.id}" data-doc="${pdoc(p)}" data-tip="${authorTip(p)}">\
 <div class="arc-l1">${ic('check')}<span class="n" data-tip="완료한 핀 번호">#${p.id}</span>${docChip(p)}${arcLoc(p)}${ref}\

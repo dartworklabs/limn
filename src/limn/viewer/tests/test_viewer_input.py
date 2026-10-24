@@ -2445,12 +2445,13 @@ class ComposerSamePass(ViewerBase):
         settle(page)
 
     def test_the_phone_order_puts_the_kind_by_the_note_and_the_range_block_last(self):
-        """411x908 with the overlap notice: location, the dragged text's line, note, kind, overlap, then the range block -
-        caption, ladder, line buttons, source and its foot - so what changes the range sits with the source it changes."""
+        """411x908 with the overlap notice: location, the dragged text's line, note, the kind row (the kind and the
+        [제안 수정] switch), overlap, then the range block - caption, ladder, line buttons, source and its foot - so what
+        changes the range sits with the source it changes."""
         page = self.view(phone(411, 908))
         self.compose(page)
         top = [b[0] for b in page.evaluate(COMPOSER_BLOCKS, "#composer")]
-        self.assertEqual(top, ["c-loc-row", "c-quote", "note", "c-kind", "c-overlap", "c-range"], top)
+        self.assertEqual(top, ["c-loc-row", "c-quote", "note", "c-kind-row", "c-overlap", "c-range"], top)
         inner = [b[0] for b in page.evaluate(COMPOSER_BLOCKS, "#c-range")]
         self.assertEqual(inner, ["c-cap", "c-levels", "c-xp", "snip-foot"], inner)
 
@@ -2462,8 +2463,8 @@ class ComposerSamePass(ViewerBase):
         band changes - and a hidden #c-body (a failed pick) hides the range block after it too."""
         tab = """() => {const c = document.querySelector('#composer'), a = document.activeElement; if (!c.contains(a)) return null;
           const r = a.getBoundingClientRect();
-          return [['.c-loc-row', '#c-kind', '#c-overlap', '#c-range'].find(s => a.closest(s)) || '#note', r.top + r.height / 2 - c.getBoundingClientRect().top];}"""
-        phone_order = [".c-loc-row", "#note", "#c-kind", "#c-overlap", "#c-range"]
+          return [['.c-loc-row', '#c-kind-row', '#c-overlap', '#c-range'].find(s => a.closest(s)) || '#note', r.top + r.height / 2 - c.getBoundingClientRect().top];}"""
+        phone_order = [".c-loc-row", "#note", "#c-kind-row", "#c-overlap", "#c-range"]
         for device, touch, order in (
             (phone(411, 908), True, phone_order),
             (MOUSE_MID, False, phone_order),
@@ -2485,7 +2486,7 @@ class ComposerSamePass(ViewerBase):
                     seen.append(got)
                 blocks = [b for i, (b, _) in enumerate(seen) if i == 0 or seen[i - 1][0] != b]
                 self.assertEqual(blocks, [b for b in order if b in blocks], seen)
-                self.assertTrue({".c-loc-row", "#note", "#c-kind", "#c-range"} <= set(blocks), seen)
+                self.assertTrue({".c-loc-row", "#note", "#c-kind-row", "#c-range"} <= set(blocks), seen)
                 ys = [y for _, y in seen]
                 self.assertTrue(all(b >= a - 4 for a, b in zip(ys, ys[1:], strict=False)), seen)
         page = self.view(phone(411, 908))
@@ -5473,14 +5474,14 @@ class MidComposerOrder(ViewerBase):
 
     def test_every_compact_band_puts_the_note_second_and_the_range_block_last(self):
         """880x790 (overlay), 1180x820 (side panel, touch) and 1000x800 (a mouse window): location, the dragged text's line,
-        note, kind, overlap, range block, each one 8px step from the next."""
+        note, the kind row (the kind and the [제안 수정] switch), overlap, range block, each one 8px step from the next."""
         for device in (touch_device(880, 790), touch_device(1180, 820), MOUSE_MID):
             with self.subTest(width=device["viewport"]["width"]):
                 page = self.view(device)
                 self.compose(page)
                 b = page.evaluate(COMPOSER_BLOCKS, "#composer")
                 self.assertEqual(
-                    [x[0] for x in b], ["c-loc-row", "c-quote", "note", "c-kind", "c-overlap", "c-range"], b
+                    [x[0] for x in b], ["c-loc-row", "c-quote", "note", "c-kind-row", "c-overlap", "c-range"], b
                 )
                 self.assertEqual({round(n[1] - p[2]) for p, n in zip(b, b[1:], strict=False)}, {8}, b)
 
@@ -6083,7 +6084,7 @@ DESK_LINES = """() => {const q = s => document.querySelector(s), vis = e => !!e 
   const bar = [...q('#bar1').querySelectorAll('button,input')].filter(vis).sort((a, b) => a.getBoundingClientRect().left - b.getBoundingClientRect().left);
   box('barFirst', bar[0]); text('barFirstText', bar[0]); box('barLast', bar[bar.length - 1]);
   text('metaText', q('#meta-txt')); box('metaMe', q('#me')); box('metaChip', q('#rv-chip'));
-  text('loc', q('#c-loc')); box('copy', q('#c-copy')); box('note', q('#note')); box('kind', q('#c-kind')); text('cap', q('#c-cap'));
+  text('loc', q('#c-loc')); box('copy', q('#c-copy')); box('note', q('#note')); box('kind', q('#c-kind')); box('kindEnd', q('#c-sg-tg')); text('cap', q('#c-cap'));
   const ca = [...document.querySelectorAll('#c-actions button')].filter(vis); if (ca.length) {box('saveFirst', ca[0]); box('saveLast', ca[ca.length - 1]);}
   box('chevron', q('#sec-open .sec-tg svg')); const tools = [...document.querySelectorAll('#sec-open .sec-head button:not(.sec-tg)')].filter(vis);
   if (tools.length) {box('tool', tools[tools.length - 1]); text('toolText', tools[tools.length - 1]);}
@@ -6108,6 +6109,7 @@ class DesktopGrid(ViewerBase):
         "copy",
         "note",
         "kind",
+        "kindEnd",
         "cap",
         "saveFirst",
         "saveLast",
@@ -6127,7 +6129,8 @@ class DesktopGrid(ViewerBase):
     def test_boxes_start_on_the_box_line_and_unboxed_text_on_the_text_line(self):
         """1440x900 and 1400x850 with a mouse, Korean and English: the tool row's first and last controls, the meta's text and
         person, the composer's location row, note, kind, range caption and save row, the section head's last tool and a
-        card start 12px in from the panel's inner edge and the controls end 12px in from its right edge (the tool row was 8);
+        card start 12px in from the panel's inner edge and the controls end 12px in from its right edge (the tool row was 8;
+        the kind row ends in its [제안 수정] switch);
         the tool row's first label, the section chevron and a card's dot and note start 25px in (13, 13, 25 and 25 before),
         and the last section tool's label ends 25px in (21). The meta's review chip ends 12px in when it stands at the row's
         end and starts 12px in when it wraps to the row's start; the person starts 12px in when it starts its line."""
@@ -6140,7 +6143,7 @@ class DesktopGrid(ViewerBase):
                         k: got[k][0]
                         for k in ("barFirst", "metaText", "loc", "note", "kind", "cap", "saveFirst", "card")
                     }
-                    right = {k: got[k][1] for k in ("barLast", "copy", "note", "kind", "saveLast", "tool", "card")}
+                    right = {k: got[k][1] for k in ("barLast", "copy", "note", "kindEnd", "saveLast", "tool", "card")}
                     wrapped = got["metaChip"][0] == got["metaText"][0]  # wrapped to the row's start, or at its end
                     (left if wrapped else right)["metaChip"] = got["metaChip"][0 if wrapped else 1]
                     if not wrapped:  # the person starts the next line (after a wrapped chip it follows it)

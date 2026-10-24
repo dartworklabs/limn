@@ -43,6 +43,8 @@ document.addEventListener('click',e=>{const target=/** @type {HTMLElement} */(e.
     case 'copy-cur':if(COMPOSE.current)copyText(COMPOSE.current.name+' L'+COMPOSE.current.lo+'-L'+COMPOSE.current.hi,a);break;
     case 'expand':SNIP_OPEN=!SNIP_OPEN;renderComposer();break;
     case 'quote':toggleQuote(a);break;   // the dragged PDF text's line: open in full, or fold back to one line
+    case 'sg-toggle':case 'sg-reload':case 'sg-rebase':suggestAct(a,String(a.dataset.act));break;   // a suggested edit's switch and line (suggest.js)
+    case 'sg-fold':{const k=a.dataset.key; if(!k)break; if(SG_OPEN.has(k))SG_OPEN.delete(k); else SG_OPEN.add(k); drawPins(); break;}   // a card's suggestion diff
     case 'level':{const o=inEdit?EDITOR.current:COMPOSE.current; if(!o)break; useLevel(o,a.dataset.level); if(!inEdit)recomputeOverlap(); inEdit?renderEdit():renderComposer(); break;}
     case 'xp-to':{const o=inEdit?EDITOR.current:COMPOSE.current,k=Number(a.dataset.line); if(o&&o.lo!=null&&o.hi!=null)applyRange(o,widenTo(o.lo,o.hi,k),k<o.lo?o.hi:o.lo); break;}   // the excerpt: widen to a dimmed line
     case 'xp-drop':{const o=inEdit?EDITOR.current:COMPOSE.current,k=Number(a.dataset.line); if(o&&o.lo!=null&&o.hi!=null)applyRange(o,dropLine(o.lo,o.hi,k),k===o.lo?o.hi:o.lo); break;}   // ...or drop an end line
@@ -124,8 +126,8 @@ document.addEventListener('keydown',e=>{
   // Ctrl(Cmd)+\ opens and collapses the pin panel at every width (docs/handbook/viewer.md §패널 폭과 시트 높이) - not inside a text field.
   if((e.ctrlKey||e.metaKey)&&!e.altKey&&!inField&&(e.code==='Backslash'||e.key==='\\')){e.preventDefault(); toggleSide(); return;}
   if(e.key==='Enter'&&(e.metaKey||e.ctrlKey)){
-    if(t&&(t.id==='note'||(t.closest&&t.closest('#sel-pop'))||(t.closest&&t.closest('#composer')&&!$('#composer').hidden&&!inField))){e.preventDefault(); if(!viewerBlocked())savePin();}
-    else if(t&&t.classList&&t.classList.contains('e-note')){e.preventDefault();saveEdit();}
+    if(t&&(t.id==='note'||t.id==='c-sg-text'||(t.closest&&t.closest('#sel-pop'))||(t.closest&&t.closest('#composer')&&!$('#composer').hidden&&!inField))){e.preventDefault(); if(!viewerBlocked())savePin();}
+    else if(t&&t.classList&&(t.classList.contains('e-note')||t.classList.contains('e-sg-text'))){e.preventDefault();saveEdit();}
     else if(t&&t.classList&&t.classList.contains('r-text')){e.preventDefault();sendReply();}
     return;}
   if(e.key==='Enter'&&t&&t.dataset&&t.dataset.copy!==undefined&&!inField){copyText(t.dataset.copy,t);return;}

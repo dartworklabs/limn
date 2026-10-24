@@ -150,6 +150,8 @@ class VisitLocalContinuations(unittest.TestCase):
                 function undoNote(place,msg,act){undo=act.fn;return null;}function settleChip(){}
                 function loadPins(){loads++;return Promise.resolve();}
                 function api(){return new Promise(resolve=>{finish=resolve;});}
+                const SG={on:false,text:'',base:null}; let META=null;   // no suggested edit (suggest.js)
+                function suggestOff(){return null;} function suggestForSave(){return null;} function suggestPending(){return false;}
                 """,
                 scenario,
             ]
@@ -248,6 +250,7 @@ class VisitLocalContinuations(unittest.TestCase):
                 function undoNote(){said++;return null;}function settleChip(){}function tl(s){return s;}function tr(s){return s;}
                 function loadPins(){loads++;return Promise.resolve();}
                 function undoAppend(){} function mentionHints(){return [];}
+                const SG={on:false,text:'',base:null}; function suggestPending(){return false;}   // no suggested edit (suggest.js)
                 (async()=>{
                   const old=appendToPin(7,'new');COMPOSE.current={doc:'a',newSelection:true};
                   COMPOSE.box={remove(){removed++;}};
@@ -326,9 +329,11 @@ class VisitLocalContinuations(unittest.TestCase):
                 extract_js_fn("saveEdit"),
                 """
                 let DOC='a',SWITCHSEQ=1;
-                const first={id:1,base_rev:1,lo:1,hi:1,orig:{note:'old',lo:1,hi:1},el:{querySelector(){return {value:'changed'};}}};
+                const first={id:1,base_rev:1,lo:1,hi:1,orig:{note:'old',lo:1,hi:1},sg:{on:false,text:'',base:null,had:null},el:{querySelector(){return {value:'changed'};}}};
                 const EDITOR={current:first,saving:false};let finish,loads=0,said=0;
                 function viewerBlocked(){return false;}
+                function suggestForEdit(){return undefined;} function suggestOff(){return null;} function editDocKind(){return undefined;}
+                function suggestOfPin(){return {on:false,text:'',base:null,had:null};}   // no suggested edit (suggest.js)
                 function mentionHints(){return [];}function quietNote(){said++;}function bannerNote(){said++;}function tl(s){return s;}
                 function loadPins(){loads++;return Promise.resolve();}
                 function api(){return new Promise(resolve=>{finish=resolve;});}
@@ -356,9 +361,11 @@ class VisitLocalContinuations(unittest.TestCase):
                 extract_js_fn("saveEdit"),
                 """
                 let DOC='a',SWITCHSEQ=1;
-                const first={id:1,base_rev:1,lo:1,hi:1,orig:{note:'old',lo:1,hi:1},el:{querySelector(){return {value:'changed'};}}};
+                const first={id:1,base_rev:1,lo:1,hi:1,orig:{note:'old',lo:1,hi:1},sg:{on:false,text:'',base:null,had:null},el:{querySelector(){return {value:'changed'};}}};
                 const EDITOR={current:first,saving:false};let finish,loads=0,snips=0,said=0;
                 function viewerBlocked(){return false;}
+                function suggestForEdit(){return undefined;} function suggestOff(){return null;} function editDocKind(){return undefined;}
+                function suggestOfPin(){return {on:false,text:'',base:null,had:null};}   // no suggested edit (suggest.js)
                 function mentionHints(){return [];}function quietNote(){said++;}function bannerNote(){said++;}
                 function loadPins(){loads++;return Promise.resolve();}
                 function assigneeOf(){return 'agent';}function editSnip(){snips++;}
@@ -384,9 +391,11 @@ class VisitLocalContinuations(unittest.TestCase):
                 extract_js_fn("saveEdit"),
                 """
                 let DOC='a',SWITCHSEQ=1;
-                const card={id:1,base_rev:1,lo:1,hi:1,orig:{note:'old',lo:1,hi:1},el:{querySelector(){return {value:'changed'};}}};
+                const card={id:1,base_rev:1,lo:1,hi:1,orig:{note:'old',lo:1,hi:1},sg:{on:false,text:'',base:null,had:null},el:{querySelector(){return {value:'changed'};}}};
                 const EDITOR={current:card,saving:false};let finish,loads=0,said=0;
                 function viewerBlocked(){return false;}
+                function suggestForEdit(){return undefined;} function suggestOff(){return null;} function editDocKind(){return undefined;}
+                function suggestOfPin(){return {on:false,text:'',base:null,had:null};}   // no suggested edit (suggest.js)
                 function mentionHints(){return [];}function quietNote(){said++;}function bannerNote(){said++;}function tl(s){return s;}
                 function loadPins(){loads++;return Promise.resolve();}
                 function api(){return new Promise(resolve=>{finish=resolve;});}

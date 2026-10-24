@@ -1,0 +1,54 @@
+/* ---------------- Suggested edits (docs/handbook/viewer.md §제안 수정, suggest.js): the kind row's [제안 수정] switch, the editor
+   with its one line, and a card's line diff of base -> text in the changes view's source-diff look (revisions.css .rd-line).
+   The composer's kind row holds the kind's segmented control and, at its end, the switch - or, where a selection can carry no
+   suggestion, the short reason in its place; a row too narrow for both (English in a 348px panel) wraps the switch under the
+   control, one 8px step down and still at the row's end. */
+.kind-row{display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-2)}
+.kind-row>.seg{flex:1 1 auto}
+.kind-row>.sg-tg{margin-left:auto}
+/* The switch is a ghost button: no border of its own (the composer's one border is its text fields'), a small track and knob
+   before its label, the label naming the suggestion. It is drawn at the segments' 28px on every pointer and, on touch,
+   answers 44px from the hit utility (.hit) - so the row stays the control's 36px. At the row's end its label stands on the
+   text line: the ghost's transparent 1px border and 12px right padding. Its label is trimmed to its cap height, so the
+   words, the track and the segments' labels share the row's middle. */
+button.sg-tg{flex:none;height:var(--control-h);min-height:0;padding:0 var(--space-3) 0 var(--space-2);gap:var(--space-2);
+  font-size:var(--text-sm);color:var(--muted-foreground)}
+.sg-tg .lbl{text-box:trim-both cap alphabetic;white-space:nowrap}
+.sg-sw{flex:none;width:28px;height:16px;border-radius:var(--radius-lg);box-sizing:border-box;border:1px solid var(--border-strong);
+  background:radial-gradient(circle 6px at 7px 50%,var(--muted-foreground) 96%,transparent) var(--muted)}
+button.sg-tg[aria-checked=true]{color:var(--foreground)}
+.sg-tg[aria-checked=true] .sg-sw{border-color:var(--primary);background:radial-gradient(circle 6px at 19px 50%,var(--primary-foreground) 96%,transparent) var(--primary)}
+@media (pointer:coarse){button.sg-tg{min-width:0;font-size:var(--text-base)}}
+/* The reason in the switch's place: muted words that take what the row leaves and wrap within it, two 18px lines at most in the
+   control's 36px. */
+.sg-why{flex:1 1 0;min-width:8em;font-size:var(--text-sm);line-height:18px;color:var(--muted-foreground)}
+/* The editor: the replacement text in the source's monospace, wrapped as the source is, grown to its text up to twelve lines
+   (suggestGrow) and then scrolled; 16px on touch, as every text field (no iOS zoom on focus). Read-only until its first fill.
+   Its line - what a save will do, or what is wrong, with at most one action - and, after a 409, the current source's diff
+   against it follow, one 8px step apart. */
+#c-sg,.e-sg{display:flex;flex-direction:column;gap:var(--space-2)}
+.sg-text{display:block;min-height:0;font-family:var(--font-mono);font-size:var(--text-sm);line-height:1.5;overflow-wrap:anywhere;resize:vertical}
+@media (pointer:coarse){.sg-text{font-size:var(--text-xl)}}
+.sg-text[readonly]{color:var(--muted-foreground)}
+.sg-note{margin:0}
+/* The line's one action is a link-style button (the question hint's look): on touch it answers 44px (.hit); with a mouse it is
+   drawn on the 18px line and answers 24px from a centred box, as the small controls do (WCAG 2.5.8). */
+@media (pointer:fine){.sg-note button{position:relative}
+  .sg-note button::after{content:'';position:absolute;left:50%;top:50%;width:max(100%,24px);height:max(100%,24px);transform:translate(-50%,-50%)}}
+/* The edit card's switch has a row of its own after the note's helpers, its track on the card's text edge: the ghost's left
+   padding and 1px border pulled out. */
+.e-sg-row{display:flex;align-items:center;margin-top:var(--space-2)}
+.e-sg-row button.sg-tg{margin-left:calc(-1 * var(--space-2) - 1px)}
+.e-sg-row:has(.sg-why:not([hidden])){min-height:var(--control-h)}
+.e-sg,.e-sg-ro{margin-top:var(--space-2)}
+/* A card's suggestion, after its note: the diff on the source's surface, its lines always wrapped (never sideways), each with
+   its number and its '+', '-' or ' ' mark; past five rows its middle folds to '… N줄' with [제안 펼치기] under it. */
+.pin .sg-view{margin-top:var(--space-2)}
+.sg-diff{border-radius:var(--radius);overflow:hidden;background:var(--code);font-family:var(--font-mono);font-size:var(--text-sm);line-height:1.7}
+.sg-diff .rd-no{width:auto;min-width:4ch}
+.sg-diff .rd-fold .rd-code{color:var(--muted-foreground)}
+.sg-foot{display:flex;justify-content:flex-end;margin-top:var(--space-1)}
+.sg-foot button{color:var(--muted-foreground);white-space:nowrap}
+/* A folded compact card hides the diff as it hides the badges and the note; a viewer, who cannot pin, has no kind row and no editor. */
+body.compact .pin:not(.open):not(.editing) .sg-view{display:none}
+body.role-viewer :is(#c-kind-row,#c-sg){display:none!important}
