@@ -4,7 +4,7 @@
 
 The owner asked for a way to write the exact replacement text while pinning, instead of describing the change in a memo and waiting for an agent to reword it: “좋아 그렇게 가자 기능 개발해줘”. That answer chose the *suggested edit* option over direct source editing, after being told that direct editing would break the read-only manuscript invariant and pull branch, commit, push and PR handling into the server.
 
-**This document is not yet approved.** It changes the agent contract (`pins.md`, HTTP fields) and the stored pin record, which [workflow.md](../../handbook/workflow.md) §기본 경로 puts under the HARD-GATE: implementation starts only after the owner explicitly approves this design. The viewer change also needs the four-device-group PoC before it reaches `main` ([workflow.md](../../handbook/workflow.md) §화면 변경은 PoC를 먼저 보인다).
+**Owner approval.** After reading this design and its three open questions, the owner replied **“승인. 림 수정도 실시”** (approve; carry out the Limn change). That approves the design, the ADR-0020 record, and the defaults proposed for the open questions: the `pins.md` strings as written, `SUGGEST_MAX` 16,000 characters, and the 80-line range cap. It authorizes implementation, Handbook and skill updates, and a pull request. The viewer part still needs the four-device-group PoC shown to the owner before it reaches `main` ([workflow.md](../../handbook/workflow.md) §화면 변경은 PoC를 먼저 보인다); the approval does not cover a release, a version tag, or updating running instances.
 
 The superpowers brainstorming delegation is unavailable in this session; the design below was written directly against the current Handbook and code.
 
@@ -132,6 +132,4 @@ This design adds to the agent contract and the stored record, so [workflow.md](.
 
 ## Open questions for the owner
 
-1. Approve this design (HARD-GATE) and the ADR-0020 record?
-2. The `pins.md` strings above (`제안 수정`, `원문 바뀜`, `확인 불가`, `(제안 문안만)`, `## 제안 문안`) become contract. Keep these words?
-3. `SUGGEST_MAX` 16,000 characters and the 80-line range cap: acceptable?
+Answered by the approval above: the design and ADR-0020 are approved, the `pins.md` strings stay as written, and the limits are `SUGGEST_MAX` = 16,000 characters and 80 lines.
