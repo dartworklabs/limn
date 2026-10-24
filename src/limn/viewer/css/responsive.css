@@ -323,6 +323,16 @@ body.compact #composer{max-height:none;overflow:visible}
   body.compact.composing #right{scroll-padding-bottom:calc(var(--hit) + var(--space-5) + env(safe-area-inset-bottom))}
   body.lay-narrow.composing #right{scroll-padding-top:calc(var(--stick-top,0px) + var(--space-2))}
 }
+/* While a composer text field has focus on a touch sheet (the keyboard up), its location line sticks under the tool bar, as a list
+   section's header does, and a field scrolled into view stays clear of the line too (--loc-h, its height, layout.js). The note
+   is right under the line, but the suggestion editor sits under the note and the kind row: with the keyboard up a 320x720 sheet
+   has about 210px between the tool bar and the save row, and the line down to even a two-line editor takes 260px or more, so
+   scrolling the editor into view pushed the line off, and there centring the note pushed half of it under the tool bar. Stuck,
+   the line stays above either field. */
+@media (pointer:coarse){
+  body.lay-narrow #composer:has(:is(#note,#c-sg-text):focus) .c-loc-row{position:sticky;top:var(--stick-top,0px);z-index:2;background:var(--sidebar)}
+  body.lay-narrow.composing #right:has(:is(#note,#c-sg-text):focus){scroll-padding-top:calc(var(--stick-top,0px) + var(--loc-h,0px) + var(--space-2))}
+}
 /* The composer (docs/handbook/viewer.md §패널 정리) on every layout: the location line, then the note with its helpers, its kind
    (what the note is), the overlap notice, and last the range block (#c-range: caption, ladder, the range excerpt and its foot),
    so what changes the range sits with the source it changes. The markup is in that order, so Tab follows the screen, and a
