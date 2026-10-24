@@ -2,9 +2,8 @@
 
 ## Unreleased
 
-Suggested-edit pins on the server (ADR-0020, proposed). The agent contract only grows: an agent written against
+Suggested-edit pins (ADR-0020, proposed). The agent contract only grows: an agent written against
 0.4.23 keeps working, and a 0.4.23 server reads and rewrites the new field unchanged, so rolling back loses nothing.
-The viewer does not create or show suggestions yet.
 
 ### Added
 
@@ -22,6 +21,14 @@ The viewer does not create or show suggestions yet.
   without a memo, a `## 제안 문안` section with each text in a fence one backtick longer than its longest backtick run,
   a guidance clause and a legend entry - all only while an open pin carries a suggestion. Without one the file is
   byte-identical to 0.4.23's.
+- **Suggested edits in the viewer.** The composer's kind row ends in a `[제안 수정]` switch for a LaTeX line selection of
+  at most 80 lines (elsewhere a short reason stands in its place). It opens a monospace editor filled with the range's
+  exact lines; until edited the text follows range changes, after that a line offers `[원문 다시 불러오기]`. A save
+  sends `suggest` only when the text was edited, a memo is then optional, and a `409 suggest_base_changed` keeps the
+  draft, shows the current lines against it and offers `[지금 원문으로 맞추기]`. Undo and the tab's draft bring the
+  suggestion back with the memo. Cards show a `제안 수정` badge (`원문 바뀜` / `확인 불가` from `suggest_state`) and a
+  line diff of base → text in the source-diff look, folded past five rows; the edit card edits the suggestion or
+  removes it by switching it off, and a closed pin shows it read-only.
 
 ## 0.4.23 — 2026-10-19
 

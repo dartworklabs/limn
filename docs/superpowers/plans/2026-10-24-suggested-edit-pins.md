@@ -26,9 +26,9 @@ Scope and approval: [suggested-edit pins](../specs/2026-10-24-suggested-edit-pin
 
 ## Task 4: Viewer and PoC
 
-- [ ] Step 1: Composer: a `[제안 수정]` toggle for LaTeX line selections ≤ 80 lines; a monospace editor prefilled from `snippet&text=1`; follows range changes until edited, then `범위가 바뀌었습니다 · [원문 다시 불러오기]`; sends `suggest`; handles `409 suggest_base_changed` without losing the draft; undo restores it.
-- [ ] Step 2: Card: `제안 수정` badge with state; line diff of `base` → `text` collapsed past five lines. Edit card: edit or remove the suggestion.
-- [ ] Step 3: `viewer.md` rules and viewer tests; existing guards stay green; typecheck and strict ratchet pass.
+- [x] Step 1: Composer: a `[제안 수정]` toggle for LaTeX line selections ≤ 80 lines; a monospace editor prefilled from `snippet&text=1`; follows range changes until edited, then `범위가 바뀌었습니다 · [원문 다시 불러오기]`; sends `suggest`; handles `409 suggest_base_changed` without losing the draft; undo restores it.
+- [x] Step 2: Card: `제안 수정` badge with state; line diff of `base` → `text` collapsed past five lines. Edit card: edit or remove the suggestion.
+- [x] Step 3: `viewer.md` rules and viewer tests; existing guards stay green; typecheck and strict ratchet pass.
 - [ ] Step 4: PoC: before/after renders at the four device groups (1440×900; 390×844, 320×720; 768×1024, 1024×768; 344×882, 673×841, 841×673) with measured sizes, and a live loopback instance of each build exposed to the owner through the tailnet. Expected: the owner sees it before merge. Commit point: viewer commit.
 
 ## Task 5: Verification and integration

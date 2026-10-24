@@ -138,6 +138,7 @@ class FrontendLogic(unittest.TestCase):
             const $=s=>box;
             const COMPOSE={current:null,dismissedOverlap:null}; let PINS=[{id:5,file:'/m.tex',lo:405,hi:406}];
             const esc=s=>String(s); function renderAssignNew(){}   // the row and the line that follow the notice
+            function suggestPending(){return false;}   // no suggested edit is being written (suggest.js)
             """,
                 js_markup(),
                 extract_js_fn("selRel"),
@@ -1235,6 +1236,7 @@ class FrontendMobileLogic(unittest.TestCase):
             function avatar(){return '';}
             let SHOW_ALL=false, DOCS=[], DOC='main', DEFAULT_DOC='main'; function docInfo(){return null;}
             let LAYOUT='mid', REPLY=null, META=null; const THREAD_OPEN=new Set(), MQ_COARSE={matches:true};
+            function suggestBadge(){return null;} function suggestView(){return null;}   // these pins carry no suggested edit (suggest.js)
             """,
                 extract_js_fn("rng"),
                 extract_js_fn("multiDoc"),
@@ -3408,6 +3410,7 @@ class FrontendArchive(unittest.TestCase):
                 extract_js_fn("locCopy"),
                 extract_js_fn("docChip"),
                 "const ARC_OPEN=new Set(); let LAYOUT='wide', REPLY=null, META=null; const THREAD_OPEN=new Set(); function avatar(){return '';}",
+                "function suggestView(){return null;}",  # these pins carry no suggested edit (suggest.js)
                 extract_js_fn("arcTime"),
                 extract_js_fn("arcLoc"),
                 extract_js_fn("arcLine"),
@@ -3756,6 +3759,8 @@ class FrontendSaveWhilePicking(unittest.TestCase):
             async function refreshDoc(){} function setSide(){} function setSelMode(){} function dropPin(){}
             function endTopic(){} function undoNote(){return null;} function settleChip(){} function endNotice(){} const BANNERS=new Map();
             function closeSelPop(){} function drawSelPop(){} function selPopOpen(){return false;}   // the note popover by the box (sel-popover.js)
+            const SG={on:false,text:'',base:null}; let META=null; function suggestClear(){} function suggestPending(){return false;}
+            function suggestOff(){return null;} function suggestForSave(){return null;}   // no suggested edit (suggest.js)
             const apiCalls=[]; let pickResolve=null, pickReject=null, pinResolve=null;
             function api(url){apiCalls.push(url);
               if(url==='/api/pick')return new Promise((res,rej)=>{pickResolve=res;pickReject=rej;});
@@ -4325,6 +4330,7 @@ class FrontendReview(unittest.TestCase):
             function authorTip(){return 'tip';} function who(a){return a?(a.name||a.login):'';} function avatar(){return '';}
             let SHOW_ALL=false, DOCS=[], DOC='main', DEFAULT_DOC='main', LAYOUT='wide', REPLY=null; function docInfo(){return null;}
             const THREAD_OPEN=new Set(), MQ_COARSE={matches:false};
+            function suggestBadge(){return null;} function suggestView(){return null;}   // these pins carry no suggested edit (suggest.js)
             """,
                 extract_js_fn("rng"),
                 extract_js_fn("multiDoc"),

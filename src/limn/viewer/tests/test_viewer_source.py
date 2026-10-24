@@ -22,7 +22,7 @@ from typing import get_args
 
 from limn.builds import artifacts as build, figure_map
 from limn.collaboration import events
-from limn.pins import model
+from limn.pins import model, suggestion
 from limn.pins.editing import values as edit
 from limn.pins.listing.projection import pin_state
 from limn.pins.location import mapping, position
@@ -312,6 +312,7 @@ SERVER_SETS = {
     "VIA": lambda: set(get_args(mapping.Via)),
     "DOC_KIND": lambda: set(get_args(documents.DocKind)),
     "EL_SYNC": lambda: set(get_args(figure_map.ElSync)),
+    "SUGGEST_STATE": lambda: set(get_args(suggestion.SuggestState)),
     "LOCAL_LOGIN": lambda: {access.LOCAL_LOGIN},
     "ASSIGNEE_AGENT": lambda: {edit.ASSIGNEE_AGENT},
 }
@@ -321,6 +322,7 @@ VIEWER_SETS = {
     "LAYOUT_BAND",
     "BAND_STEP",
     "CARD_DOT",
+    "SUGGEST_OFF",
     "DIFF_FORMAT",
     "OVERLAY_SIDE",
     "RANGE_MODE",

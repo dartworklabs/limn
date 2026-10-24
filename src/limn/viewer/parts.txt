@@ -19,6 +19,7 @@ css/side-panel.css      # the pin panel's handle, collapse and slide, and the to
 css/components.css      # buttons, icons, badges, fields; pages, marks and the selection box; the panel's boxes
 css/composer.css        # the composer: location line, range ladder, source, note, action row
 css/cards.css           # pin cards: status, links, thread, @-tags, question hint, Trash, @-list, reply outcome
+css/suggest.css         # suggested edits: the kind row's switch, the editor and its line, a card's line diff
 css/list.css            # list sections and the archive rows
 css/overlays.css        # tooltip, dialogs, the page list
 css/responsive.css      # mobile/touch, the mid and narrow layouts, reduced motion, the label chip
@@ -56,6 +57,7 @@ js/selection.js         # drag and quick selection on the PDF, double-tap zoom
 js/levels.js            # the range ladder, line nudges, source snippets, the location-confidence badge
 js/excerpt.js           # the range excerpt: the band of selected lines between dimmed neighbours, tapped to widen or narrow
 js/figure.js            # figure documents: the chosen element's box and path
+js/suggest.js           # suggested edits: the draft, its switch and editor (composer, edit card), a card's badge and line diff
 js/composer.js          # pick() and the composer: overlap banner, kind, question hint, discard and restore
 js/draft.js             # the composer draft kept per tab (sessionStorage)
 js/save.js              # saving a pin, appending to one, the queued save

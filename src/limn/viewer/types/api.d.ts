@@ -47,6 +47,13 @@ interface PinChange {
   hi: number;
 }
 
+// A LaTeX line pin's suggested edit (`suggest`, docs/handbook/api.md §제안 수정 (`suggest`)): base, the lines lo..hi the
+// author saw, and text, what replaces them - each joined with "\n", no trailing newline; an empty text deletes the lines.
+interface PinSuggest {
+  base: string;
+  text: string;
+}
+
 // Another open pin this one overlaps (`rel`), and how.
 interface PinRelation {
   id: number;
@@ -119,6 +126,8 @@ interface Pin {
   restored_at?: string;
   restored_by?: Person;
   thread?: ThreadEntry[];
+  suggest?: PinSuggest;
+  suggest_state?: string;
 }
 
 // The person this request is answered for (meta and /api/people `me`), with the role the server gives them.

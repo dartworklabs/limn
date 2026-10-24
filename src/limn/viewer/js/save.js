@@ -21,9 +21,11 @@ async function appendToPin(id,text){
       {pin:id,pending:true,label:tr('덧붙임')});
     await loadPins(); settleChip(chip);
   }catch(e){}finally{COMPOSE.saving=false; syncComposeSaveButtons();}}
-/** Keep all create and append controls in step with their shared request lifetime; editable fields remain available. */
+/** Keep all create and append controls in step with their shared request lifetime; editable fields remain available. An append
+ * also waits while a suggested edit is written (it is saved with a new pin only, renderOverlapBanner). */
 function syncComposeSaveButtons(){document.querySelectorAll('#btn-save,[data-act="overlap-append"],[data-act="pop-save"]').forEach(b=>{
-  /** @type {HTMLButtonElement} */(b).disabled=COMPOSE.saving;});}
+  /** @type {HTMLButtonElement} */(b).disabled=COMPOSE.saving;});
+  if(suggestPending())document.querySelectorAll('[data-act="overlap-append"]').forEach(b=>{/** @type {HTMLButtonElement} */(b).disabled=true;});}
 // Undo of an append: the note goes back to what it was before (base_rev = the append's revision). Silent - the card shows it.
 // Resolves with whether it went back (its chip waits for it, noticeAct).
 /** @param {number} id @param {string} note @param {number} rev @returns {Promise<boolean>} */
@@ -47,7 +49,9 @@ function clearPendingSave(){if(!COMPOSE.pendingSave)return; COMPOSE.pendingSave=
 // for NOTICE_MS, visible with the phone's sheet folded; its [되돌리기] drops the pin again and - only once that delete went
 // through - reopens the composer with the same selection and note. A failed undo keeps the pin and no composer (a second
 // save would duplicate it); its failure's [다시 시도] runs the whole undo again. Failed save: a banner over the save row,
-// whose button then reads [다시 저장] (api's save flag).
+// whose button then reads [다시 저장] (api's save flag). A suggested edit goes along (suggestForSave); when its base no longer
+// reads as the lines (409 suggest_base_changed) nothing is saved, the draft stays, the editor shows the current text against it
+// and the failure's banner offers [지금 원문으로 맞추기].
 /** Save the submitted selection once, preserving any later edits as a draft and offering undo for the created pin. */
 async function savePin(){
   if(COMPOSE.saving)return;
@@ -65,10 +69,12 @@ async function savePin(){
   // up yet is not sent. A pin created by the viewer always records an assignee (otherwise a legacy pin's inference applies).
   const out=assignOutcome(composeAsk(SAVE_MODE.NEW)); body.kind_req=out.kind; body.assignee=out.assignee;
   const mh=mentionHints($('#note')); if(mh.length)body.mentions=mh;
+  const sg=isRegion(d)?null:suggestForSave(SG,suggestOff(d,META?META.kind:undefined)); if(sg)body.suggest=sg;
   const snap=selectionSnapshot(),fields=composeFields();   // [되돌리기] takes the pin back and hands this selection and note back for another try
   const draft=savedDraftSnapshot();
   const question=out.kind===KIND_REQ.QUESTION;
-  try{const {data}=await api('/api/pin',{method:'POST',body,what:'핀 저장',where:NOTICE_HOST.COMPOSER,save:true});
+  try{const {status,data}=await api('/api/pin',{method:'POST',body,what:'핀 저장',where:NOTICE_HOST.COMPOSER,save:true,expect:sg?[409]:[]});
+    if(status===409){suggestSaveRefused(d,data); return;}
     const id=data.id,failed=BANNERS.get(NOTICE_HOST.COMPOSER);
     if(failed&&failed.save)endNotice(failed,false);   // this save went through: its earlier failure is over
     const cleared=composeOwns(d,box,visit,fields),restored=restoredDraftOwns(draft);
@@ -85,3 +91,15 @@ async function savePin(){
     await loadPins(); settleChip(chip);
   }catch(e){} finally{COMPOSE.saving=false; syncComposeSaveButtons();}
 }
+// A new pin's save the server answered 409 while it carried a suggested edit: nothing was saved and the draft stays. When the
+// suggestion's base no longer reads as the selection's lines (suggest_base_changed), the editor shows the lines' current text
+// against the draft and the banner over the save row offers [지금 원문으로 맞추기] (the draft keeps its text and takes that text as
+// its base); any other 409 is said as the failure it is. Either way the save row reads [다시 저장].
+/** @param {Selection} d @param {any} data */
+function suggestSaveRefused(d,data){const source='POST /api/pin',head=tl('{what} 실패',{what:tr('핀 저장')});
+  if(!(data&&data.reason==='suggest_base_changed')){bannerNote(NOTICE_HOST.COMPOSER,head+' — '+(errText(data)||'HTTP 409'),NOTICE_KIND.ERR,null,{save:true,source}); return;}
+  if(COMPOSE.current===d){SG.current={text:String(data.current||''),file:d.file||null,lo:/** @type {number} */(d.lo),hi:/** @type {number} */(d.hi)}; renderSuggest(d);}
+  bannerNote(NOTICE_HOST.COMPOSER,head+' — '+tr('그사이 그 줄들의 원문이 바뀌었습니다'),NOTICE_KIND.ERR,
+    {label:'지금 원문으로 맞추기',tip:'쓰던 글은 그대로 두고, 이 제안이 바꿀 원문을 지금 그 줄들의 글로 바꿉니다. 그다음 다시 저장합니다',
+      fn:()=>{const c=COMPOSE.current; if(!c)return; suggestRebase(SG,c,()=>COMPOSE.current===c,()=>{if(COMPOSE.current!==c)return; renderSuggest(c); renderOverlapBanner(); saveDraftSoon();});}},
+    {save:true,source});}
