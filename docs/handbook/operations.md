@@ -151,14 +151,16 @@ uv run pytest -q -rs
 Limn 은 디자인 도구의 코멘트를 읽지 않는다. 공저자가 Figma 에 코멘트를 남기는 팀이면, 그림 저장소의 도구가 Figma REST API 로 코멘트를 읽어 그림 요소로 바꾼다. 이때 Figma 개인 토큰이 필요하다.
 
 1. Figma 에서 계정 메뉴(왼쪽 위) → Settings → Security → Personal access tokens → Generate new token.
-2. 이름과 만료를 정하고 권한은 **Comments: Read** 하나만 켠다.
+2. 이름과 만료를 정하고 권한을 켠다. **Comments: Read·Write**(코멘트 읽기와, 고친 뒤 답글)와 **File content: Read**(코멘트를 그림 프레임에 놓기)다. 나머지는 쓰지 않는다.
 3. 토큰은 만든 직후 한 번만 보인다. 사람이 그 도구를 돌리는 머신에 직접 저장한다. 채팅이나 저장소에 붙여 넣지 않는다.
 
    ```bash
    mkdir -p ~/.config/figma && read -rs -p 'Figma token: ' t && printf '%s' "$t" > ~/.config/figma/token && chmod 600 ~/.config/figma/token && unset t
    ```
 
-4. 만료되면 같은 방법으로 새로 만든다. 권한을 넓히지 않는다.
+4. 만료되면 같은 방법으로 새로 만든다. 위 권한보다 넓히지 않는다.
+
+Figma API 로는 코멘트를 해결 처리할 수 없다. 에이전트는 고친 뒤 답글만 달고, 해결 표시는 사람이 누른다. 프레임 자체를 고치는 일은 이 토큰을 쓰지 않는다.
 
 토큰은 Limn 의 접근 토큰(`limn token`)과 별개다. Limn 서버는 이 토큰을 받지도 쓰지도 않는다.
 
