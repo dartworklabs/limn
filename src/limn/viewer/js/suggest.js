@@ -185,11 +185,12 @@ function drawSuggest(sg,o,off,els,isEdit,state){const shown=!off||(off===SUGGEST
 function composerSuggestEls(){return {tg:$('#c-sg-tg'),why:$('#c-sg-why'),box:$('#c-sg'),ta:/** @type {HTMLTextAreaElement} */($('#c-sg-text')),line:$('#c-sg-note'),cur:$('#c-sg-cur')};}
 // Draws the composer's suggestion for selection d (renderComposer and renderRegionComposer call it on every draw) and keeps an
 // unedited draft on d's lines. A read's answer redraws it, the overlap notice ([덧붙이기] waits on an edited suggestion) and the
-// stored draft.
+// stored draft. The tablet sheet's height follows the editor as it opens, fills, grows and closes (applySheet, tabletLift).
 /** @param {Selection} d */
 function renderSuggest(d){const off=suggestOff(d,META?META.kind:undefined),owns=()=>COMPOSE.current===d;
   const redraw=()=>{if(!owns())return; renderSuggest(d); renderOverlapBanner(); saveDraftSoon();};
-  drawSuggest(SG,d,off,composerSuggestEls(),false,undefined); suggestFollow(SG,d,off,owns,redraw);}
+  drawSuggest(SG,d,off,composerSuggestEls(),false,undefined); suggestFollow(SG,d,off,owns,redraw);
+  if(BAND===LAYOUT_BAND.TABLET_SHEET)applySheet();}
 // Whether the composer's draft is a suggestion a save would send, so its note may not join an overlapped pin instead
 // ([덧붙이기] appends a note; the suggestion belongs to this selection's lines).
 function suggestPending(){return SG.on&&suggestEdited(SG);}

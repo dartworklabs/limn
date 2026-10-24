@@ -126,6 +126,11 @@ function stickTop(){let t=0; const b=$('#bar1');
 // links end where it begins - exactly there: rounded up, the nav bar ended up to a pixel short and the PDF showed through.
 function barWidth(){document.documentElement.style.setProperty('--bar1-w',$('#bar1').getBoundingClientRect().width+'px');}
 if(window.ResizeObserver)new ResizeObserver(()=>{stickTop(); barWidth();}).observe($('#bar1'),{box:'border-box'});   // padding-only changes (the collapsed sheet) count
+// The composer's location line height (--loc-h): on a touch sheet the line sticks under the tool bar while a composer text field
+// has focus, and the scroller's scroll padding keeps a field scrolled into view below it (responsive.css). A long file name wraps
+// the line past its 44px, so it is measured; 0 while the composer is hidden.
+if(window.ResizeObserver){const row=$('#composer .c-loc-row');
+  new ResizeObserver(()=>{document.documentElement.style.setProperty('--loc-h',row.offsetHeight+'px');}).observe(row,{box:'border-box'});}
 let RELAY=0,BAND_T=0;
 // Re-fits on the next frame after a resize, a pointer change or a panel/keyboard change - unless the band input is waiting to
 // settle (bandSettle), in which case the band and the page width stay as they are until it does.
@@ -184,8 +189,9 @@ document.addEventListener('focusin',syncTyping);
 // After the focus has moved on: the typing class, and a band held while a text field had focus gets its turn (settleBand).
 document.addEventListener('focusout',()=>setTimeout(()=>{syncTyping(); if(bandStale())scheduleRelayout();},0));
 // Scrolls a panel text field that has focus back into view after a re-fit; the scroller's scroll-padding keeps it clear of the save row
-// and, on a sheet, of the tool bar stuck above. On the tablet sheet the composer's location line comes to the top first, so it stays
-// above the note.
+// and, on a sheet, of the tool bar stuck above - and of the composer's location line, which sticks under the tool bar while the note
+// or the suggestion editor has focus (responsive.css), so the line stays above either. On the tablet sheet the location line comes
+// to the top first, so the note shows under it.
 function keepFieldInView(){const f=panelField(); if(!f||!MQ_COARSE.matches)return;   // touch only: a mouse window scrolls as it always did
   if(f===$('#note')&&BAND===LAYOUT_BAND.TABLET_SHEET)$('#composer .c-loc-row').scrollIntoView({block:'start'}); f.scrollIntoView({block:'nearest'});}
 

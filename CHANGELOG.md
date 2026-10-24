@@ -30,6 +30,18 @@ Suggested-edit pins (ADR-0020, proposed). The agent contract only grows: an agen
   line diff of base → text in the source-diff look, folded past five rows; the edit card edits the suggestion or
   removes it by switching it off, and a closed pin shows it read-only.
 
+### Fixed
+
+- **The composer's location line stays above the field you type in on phone and tablet sheets.** While the note or
+  the suggestion editor has focus on a touch sheet, the location line sticks under the tool bar, as a list section's
+  header does, and a field scrolled into view stays below it. With the keyboard up, focusing the suggestion editor
+  scrolled the line off (0 of 44 px on every phone and tablet-sheet size), and at 320×720 centring the note hid half
+  of it (23 of 44 px).
+- **The tablet sheet makes room for an open suggestion editor.** With `[제안 수정]` on, the 45% sheet rises just
+  enough for the editor to end one 8 px step above the save row, at most 60% as for the keyboard; the lift follows the
+  editor as it grows, is never saved, and ends when the switch goes off or the composer is saved or cancelled. The
+  editor used to run under the save row (107 of 114 px shown at 768×1024, 25 of 114 px at 673×841).
+
 ## 0.4.23 — 2026-10-19
 
 A fix-only release. The agent contract (`pins.md`, the HTTP API, the state directory) is unchanged, so an agent
