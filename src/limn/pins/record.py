@@ -29,6 +29,7 @@ from typing import TypeGuard
 from limn.pins.element import is_element_record
 from limn.pins.model import THREAD_EVENTS, Pin, TrashedPin, is_kind_req, is_region_pin, parse_pin
 from limn.pins.revision import valid_changes
+from limn.pins.suggestion import is_suggest_record
 from limn.platform.values import is_int, is_num
 
 
@@ -65,7 +66,8 @@ def fits_record(
     valid key, so its pins are not broken); is_actor(v) tells whether v is a recorded actor ({login, name, pic?}
     strings - author and every *_by). A view-only PDF's pin (is_region_pin) is placed by pdf (absolute path), page and
     frac instead of file/lo/hi; a figure pin's `el`, when present, has its element shape
-    (limn.pins.element.is_element_record). All strings, including unknown nested keys and values, must encode
+    (limn.pins.element.is_element_record), and a suggested edit's `suggest` its {base, text} shape
+    (limn.pins.suggestion.is_suggest_record). All strings, including unknown nested keys and values, must encode
     as UTF-8 so the accepted row can be served and rewritten. Never raises and never changes r."""
     if not isinstance(r, dict) or not is_int(r.get("id")) or not _utf8_strings(r):
         return False
@@ -98,6 +100,9 @@ def fits_record(
         return False
     # A figure pin's element (limn.pins.element): optional, but a malformed one breaks the line like any other field.
     if r.get("el") is not None and not is_element_record(r["el"]):
+        return False
+    # A suggested edit (limn.pins.suggestion): optional too, and a malformed one breaks the line the same way.
+    if r.get("suggest") is not None and not is_suggest_record(r["suggest"]):
         return False
     # The new fields (kind_req/thread/mentions/review) are all optional. The viewer renders them as-is, so a malformed shape is treated as a broken line.
     if r.get("kind_req") is not None and not is_kind_req(r["kind_req"]):

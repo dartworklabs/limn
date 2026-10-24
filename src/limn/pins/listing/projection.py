@@ -4,8 +4,10 @@ GET /api/pins returns each stored record plus fields computed on every read and 
 the pin's state type), `rel` (its overlaps with other open line pins), `est` (whether its mark is only an estimate on
 the PDF on screen), `doc`, `addressed` and `fyi` (who it is handed to or tags for reference), and for a claim written
 before claim_ts existed the claim's start epoch - and, for a figure pin with an element, `mark`, `mark_page` and
-`el_sync` on its document's current map (docs/handbook/api.md §그림 문서의 pick·핀). GET /api/pins/dropped returns the Trash
-with `expires_ts`. Both answers are the agent contract: field names, order and values must not change.
+`el_sync` on its document's current map (docs/handbook/api.md §그림 문서의 pick·핀). A pin with a suggested edit
+also gets `suggest_state` (suggest_view), last, here and in every change response's `pin` (public_record).
+GET /api/pins/dropped returns the Trash with `expires_ts`. Both answers are the agent contract: field names, order
+and values must not change.
 
 Everything here is pure. What only the instance knows arrives as arguments: how a record is shown (the composition
 root's public(): public_record() with where the pin's file is on this machine now), which document a pin belongs to,
@@ -23,6 +25,7 @@ from limn.pins.location.position import EstContext, epoch, pin_est
 from limn.pins.mentions import addressed_to, fyi_mentions_to
 from limn.pins.model import OpenPin, StateName, TrashedPin, parse_pin, state_of
 from limn.pins.needs import FollowElement
+from limn.pins.suggestion import SuggestState, lines_text, suggest_state, suggestion_of
 from limn.pins.thread import claim_holds
 from limn.platform.values import is_finite_num, is_int, is_num, wire_value
 
@@ -47,9 +50,11 @@ def pin_state(r: Row) -> StateName:
     return state_of(r).state
 
 
-def public_record(r: Row, place: tuple[str, str] | None) -> Json:
+def public_record(r: Row, place: tuple[str, str] | None, suggest: SuggestState | None = None) -> Json:
     """A record as the API returns it (docs/handbook/api.md §핀 파일의 위치, ADR-0006): a copy with rev defaulted to 0
-    (a missing or non-integer rev) and without the stored `file_rel` and any stored `rel_path`. place is where the
+    (a missing or non-integer rev) and without the stored `file_rel` and any stored `rel_path` or `suggest_state`
+    (both are this server's answers, never a value a hand edit or another version left behind). suggest is the
+    suggestion's state the edge computed (suggest_view), appended last as `suggest_state` when given. place is where the
     composition root finds a line pin's file under the manuscript root now - (absolute path, path relative to the
     root) - and becomes `file` and `rel_path`; with None (a region pin, or a file it cannot locate) the stored file
     stays and there is no rel_path. rel_path is always this server's answer, never a value an older version left
@@ -63,6 +68,7 @@ def public_record(r: Row, place: tuple[str, str] | None) -> Json:
     out["rev"] = out["rev"] if is_int(out.get("rev")) else 0
     out.pop("file_rel", None)
     out.pop("rel_path", None)
+    out.pop("suggest_state", None)
     if place is not None:
         out["file"], out["rel_path"] = place
     if "frac" in out:
@@ -70,7 +76,23 @@ def public_record(r: Row, place: tuple[str, str] | None) -> Json:
     el = out.get("el")
     if isinstance(el, dict) and "frac" in el:
         out["el"] = {**el, "frac": _wire_frac(el["frac"])}
-    return {k: wire_value(v) for k, v in out.items()}
+    shown = {k: wire_value(v) for k, v in out.items()}
+    if suggest is not None:
+        shown["suggest_state"] = suggest
+    return shown
+
+
+def suggest_view(r: Row, lines: Sequence[str] | None) -> SuggestState | None:
+    """The `suggest_state` of record r (docs/adr/0020-suggested-edit-pins.md D2): None when r carries no well-formed
+    suggestion (limn.pins.suggestion.suggestion_of); else whether its lines lo..hi of lines - the current lines of
+    r's file as the edge read them, after the store's re-sync, or None when that file is not located - still read as
+    its base (limn.pins.suggestion.suggest_state; a stale pin is "unknown"). Never stored; never changes r."""
+    suggestion = suggestion_of(r.get("suggest"))
+    if suggestion is None:
+        return None
+    lo, hi = r.get("lo"), r.get("hi")
+    current = lines_text(lines, lo, hi) if lines is not None and is_int(lo) and is_int(hi) else None
+    return suggest_state(suggestion, current, r.get("stale") is True)
 
 
 def _wire_frac(frac: object) -> object:
@@ -123,7 +145,8 @@ def pin_view(
     that order, then - for a figure pin with an element on fmap, its document's current map - mark, mark_page and
     el_sync (element_marks). A claim that holds at epoch now but was written before claim_ts existed also gets
     claim_ts, its start epoch read from claimed_at (the viewer's "since 20:02 (23 min in)"); none when claimed_at is
-    not a readable time. Never changes r or shown."""
+    not a readable time. A suggest_state that shown carries (public_record) moves to the very end, so it is the last
+    field here as in a change response's pin. Never changes r or shown."""
     pin = parse_pin(r)
     rec = dict(shown, rel=rel, est=est, doc=doc, state=pin.state, addressed=addressed_to(pin), fyi=fyi_mentions_to(pin))
     rec.update(element_marks(r, fmap))
@@ -131,6 +154,8 @@ def pin_view(
         ts = epoch(r.get("claimed_at"))
         if ts is not None:
             rec["claim_ts"] = ts
+    if "suggest_state" in rec:
+        rec["suggest_state"] = rec.pop("suggest_state")
     return rec
 
 

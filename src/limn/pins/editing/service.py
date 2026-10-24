@@ -10,6 +10,7 @@ from dataclasses import dataclass
 
 from limn.pins.context import Event, PinContext, load_pin, typed_actor
 from limn.pins.editing.rules import (
+    AddRefusal,
     AddRequest,
     Anchoring,
     EditRefusal,
@@ -18,7 +19,9 @@ from limn.pins.editing.rules import (
     Located,
     PinEdited,
     RegionPlace,
+    SuggestFacts,
     decide_edit,
+    decide_new_suggestion,
     evolve_edit,
     file_after,
     new_line_pin,
@@ -29,6 +32,7 @@ from limn.pins.location.lookup import PinLocation
 from limn.pins.location.mapping import anchor_of, comment_marker
 from limn.pins.model import DonePin, OpenPin, Pin, PinNotFound, Record, Region, ReviewPin
 from limn.pins.store import pin_index
+from limn.pins.suggestion import Suggestion
 from limn.platform.files import tex_lines
 from limn.runtime.documents import Doc, doc_by_key, document_authority_target
 from limn.security.access import PostAuthority, require_authority
@@ -39,17 +43,26 @@ def located(loc: PinLocation | None) -> Located | None:
     return None if loc is None else Located(str(loc.path), loc.rel)
 
 
-def add_pin(ctx: PinContext, D: Doc, request: AddRequest, actor: PostAuthority) -> OpenPin:
+def add_pin(ctx: PinContext, D: Doc, request: AddRequest, actor: PostAuthority) -> OpenPin | AddRefusal:
     """Saves a new pin in document D from a parsed POST /api/pin body (limn.pins.editing.input.parse_add) -> the new open pin. A
     LaTeX document gets a line pin with its anchor (which skips the comment lines of the file's kind,
     comment_marker), the author and - since 0.3.2 (ADR-0006) - file_rel next to the absolute file; a view-only
     document gets a region pin, and so does a figure document for a region pick (a drag that found no lines). Queues
-    mention/assigned notices and emits them after the write."""
+    mention/assigned notices and emits them after the write.
+
+    A request with a suggested edit is decided first (limn.pins.editing.rules.decide_new_suggestion): only a line pin
+    of a LaTeX document (D.builds_from_source) takes one, within its limits, and its base must be what the pin's lines
+    read in the same snapshot the anchor is taken from. A refusal is returned and nothing is written - no id is
+    allocated and no transaction runs."""
     require_authority(actor, ctx.authority_scope, "add", document_authority_target(D))
     place = request.place
     # Manuscript text is read before taking the pin lock, as it was for line pins before this shared transaction.
     location = ctx.locate({"file": place.file}) if isinstance(place, LinePlace) else None
     lines, mtime = location.source.snapshot() if location is not None else ([], 0.0)
+    if request.suggest is not None:
+        decided = decide_new_suggestion(request.suggest, place, D.builds_from_source, lines)
+        if not isinstance(decided, Suggestion):
+            return decided
     evs: list[Event | None] = []
 
     def fn(pins: list[Pin]) -> tuple[OpenPin, bool]:
@@ -89,7 +102,7 @@ def add_pin(ctx: PinContext, D: Doc, request: AddRequest, actor: PostAuthority) 
 
 
 def edit_pin(
-    ctx: PinContext, pid: int, request: EditRequest, actor: PostAuthority, region: bool = False
+    ctx: PinContext, pid: int, request: EditRequest, actor: PostAuthority, region: bool = False, latex: bool = False
 ) -> OpenPin | ReviewPin | DonePin | EditRefusal | PinNotFound:
     """Edits pin pid's note, range, location and note-level fields in place; id/at/done never change.
 
@@ -102,7 +115,9 @@ def edit_pin(
     overwritten with stale lo/hi), a merged note_append must fit NOTE_MAX, lo/hi must fit the file. Refusals write
     nothing of their own. An accepted edit gets a new anchor when its range changed (which skips the comment lines of
     the file's kind, comment_marker), the note's @-tags, edited_at/by and rev (evolve_edit); mention/assigned notices
-    are emitted after the write.
+    are emitted after the write. An edit that sets a suggested edit also has the pin's file read under the lock - the
+    file the pin will point at - so its base is compared with the lines it replaces after this edit; latex says the
+    pin's document is a LaTeX one (Doc.builds_from_source), the only kind whose line pins take a suggestion.
     """
     require_authority(actor, ctx.authority_scope, "edit", pid)
     clock = ctx.hm() if request.note_append is not None else ""
@@ -117,8 +132,11 @@ def edit_pin(
         i, pin = found
         # ADR-0006: an edit records where the file is now
         where = None if region else ctx.locate(file_after(pin.record, request))
-        count = len(tex_lines(where.source)) if where is not None and request.sets_lines() else None
-        event = decide_edit(pin, request, typed_actor(actor), ctx.now(), clock, count, NOTE_MAX)
+        reads = request.sets_lines() or request.sets_suggestion()  # one read serves both checks
+        source = tex_lines(where.source) if where is not None and reads else None
+        count = len(source) if source is not None and request.sets_lines() else None
+        facts = SuggestFacts(latex, None if source is None else tuple(source)) if request.sets_suggestion() else None
+        event = decide_edit(pin, request, typed_actor(actor), ctx.now(), clock, count, NOTE_MAX, facts)
         if not isinstance(event, PinEdited):
             return event, False
         span = event.span()
@@ -197,16 +215,16 @@ class PinEditing:
 
     context: Callable[[], PinContext]
 
-    def add_pin(self, D: Doc, request: AddRequest, actor: PostAuthority) -> OpenPin:
-        """Create one pin and emit notices after its transaction."""
+    def add_pin(self, D: Doc, request: AddRequest, actor: PostAuthority) -> OpenPin | AddRefusal:
+        """Create one pin and emit notices after its transaction, or return why its suggested edit is refused."""
         ctx = self.context()
         require_authority(actor, ctx.authority_scope, "add", document_authority_target(D))
         return add_pin(ctx, D, request, actor)
 
     def edit_pin(
-        self, pid: int, request: EditRequest, actor: PostAuthority, region: bool = False
+        self, pid: int, request: EditRequest, actor: PostAuthority, region: bool = False, latex: bool = False
     ) -> OpenPin | ReviewPin | DonePin | EditRefusal | PinNotFound:
-        """Edit one pin under the store lock and emit accepted notices."""
+        """Edit one pin under the store lock and emit accepted notices; latex: the pin's document is a LaTeX one."""
         ctx = self.context()
         require_authority(actor, ctx.authority_scope, "edit", pid)
-        return edit_pin(ctx, pid, request, actor, region)
+        return edit_pin(ctx, pid, request, actor, region, latex)

@@ -27,7 +27,11 @@ class ListingDeps(Protocol):
         ...
 
     def public(self, record: Record) -> Json:
-        """One record with its current file path exposed to the API."""
+        """One record with its current file path exposed to the API, and its suggestion's state when it has one."""
+        ...
+
+    def public_trashed(self, record: Record) -> Json:
+        """One Trash entry's record with its current file path exposed to the API: no computed pin field."""
         ...
 
     def overlaps_by_id(self, pins: Sequence[Pin]) -> dict[int, list[Json]]:
@@ -87,6 +91,6 @@ class PinListing:
         visible = without_live_shadows(entries, pins)
         return view.dropped_payload(
             unexpired(visible, self.trash_days, time.time() if now is None else now),
-            self.deps.public,
+            self.deps.public_trashed,
             lambda entry: expires_ts(entry, self.trash_days),
         )
