@@ -4,6 +4,8 @@ The composer's [제안 수정] switch and its editor, what a save sends and the 
 undo, a card's badge and line diff, and the edit card that changes or removes a suggestion.
 
 - ``SuggestLogic`` runs the pure decisions of suggest.js under node.
+- ``SuggestFit`` holds the editor's fit on the touch sheets: the location line above the focused field with the keyboard
+  up, and the tablet sheet's lift for an open editor (never saved, ended by switching off, saving or cancelling).
 - The browser classes drive the real viewer against the in-process server (helpers_browser.BrowserBase; /api/pick is
   answered from the manuscript). The manuscript's line 5 sits in a two-line paragraph (lines 4-5) inside a 94-line quote
   environment, so a pick offers the dragged line, the paragraph (its default) and an environment of more than 80 lines.
@@ -699,7 +701,8 @@ class SuggestGeometry(SuggestBase):
                 self.assertEqual(page.evaluate(MISSES_44 if touch else MISSES_24, "#c-sg-note button"), [])
 
     def test_the_kind_row_and_the_editor_keep_the_component_rules_on_every_band(self):
-        """Each band of BANDS in Korean, the editor open on an edited text."""
+        """Each band of BANDS in Korean, the editor open on an edited text and the focus left (the composer at rest: while
+        a field has focus a sheet's location line sticks under the tool bar, out of the blocks' flow - SuggestFit)."""
         for name, device in BANDS.items():
             with self.subTest(band=name):
                 page = self.view(device)
@@ -707,6 +710,8 @@ class SuggestGeometry(SuggestBase):
                 self.compose(page, "touch" if touch else "mouse")
                 self.switch_on(page)
                 page.fill("#c-sg-text", NEW + " " + "word " * 40)
+                settle(page)
+                page.evaluate("document.activeElement.blur()")
                 settle(page)
                 g = page.evaluate(GEOMETRY)
                 self.assertTrue(g["oneRow"], g)
@@ -719,3 +724,120 @@ class SuggestGeometry(SuggestBase):
                 self.assertEqual(g["borders"], ["note", "c-sg-text"], g)
                 misses = page.evaluate(MISSES_44 if touch else MISSES_24, "#c-sg-tg")
                 self.assertEqual(misses, [], g)
+
+
+# A soft keyboard (Chrome on Android, interactive-widget=resizes-content): the layout is this many px shorter.
+KEYBOARD = 300
+# Five lines for the editor (five rows on every sheet): the paragraph rewritten and three lines added.
+FIVE = NEW + "\n" + "\n".join("An added line %d." % i for i in (3, 4, 5))
+TOUCH = {"is_mobile": True, "has_touch": True}
+# The composer on a sheet: how much of the location line, the note and the editor is on screen and on top (the rows of each
+# one's centre column that hit it, and its height), the room between the editor's bottom and the save row's top, the sheet's
+# height, the save row's bottom and the layout height.
+FIT = """() => {const q = s => document.querySelector(s), R = s => q(s).getBoundingClientRect();
+  const shown = s => {const e = q(s), r = e.getBoundingClientRect(), x = r.left + r.width / 2; let n = 0;
+    for (let y = Math.max(0, Math.ceil(r.top)); y < Math.min(innerHeight, r.bottom); y++) {const t = document.elementFromPoint(x, y); if (t && (t === e || e.contains(t))) n++;}
+    return [n, Math.ceil(r.bottom) - Math.ceil(r.top)];};
+  return {loc: shown('#c-loc'), note: shown('#note'), editor: shown('#c-sg-text'), clear: R('#c-actions').top - R('#c-sg-text').bottom,
+    locAbove: R('#c-loc').bottom <= R('#c-sg-text').top, sheet: R('#right').height, save: R('#c-actions').bottom, vh: innerHeight};}"""
+# The keyboard goes down and the sheet back to its top, with nothing focused.
+REST = "()=>{document.activeElement&&document.activeElement.blur(); document.querySelector('#right').scrollTop=0;}"
+
+
+class SuggestFit(SuggestBase):
+    """The composer's editor on the touch sheets (docs/handbook/viewer.md §패널 정리 작성 패널의 순서, §패널 폭과 시트 높이):
+    with the keyboard up and the editor focused the location line stays on screen above it, as above the note, and the
+    tablet sheet rises - just enough, at most 60%, never saved - for an open editor to sit above the save row."""
+
+    def touch_view(self, w, h, n_open=0):
+        """The viewer on a w x h touch screen, a pick made with a finger and the editor open on FIVE, the focus left and the
+        sheet at its top."""
+        page = self.view(dict(TOUCH, viewport={"width": w, "height": h}), n_open=n_open)
+        self.compose(page, "touch")
+        self.switch_on(page)
+        page.fill("#c-sg-text", FIVE)
+        settle(page)  # the focus's scroll into view runs first
+        page.evaluate(REST)
+        settle(page)
+        return page
+
+    def test_with_the_keyboard_up_the_location_line_stays_above_the_focused_editor(self):
+        """Phones (390x844, 320x720, the folded 344x882) and tablet sheets (768x1024, the unfolded 673x841), the editor open
+        on five lines: with the editor focused and the keyboard up the location line and the editor are whole on screen,
+        the line above the editor, and the save row ends on the keyboard's top. The editor sits under the note and the kind
+        row, and its scroll into view pushed the line off (0 of 44px). With the note focused instead, the line and the note
+        stay whole as before."""
+        for w, h in ((390, 844), (320, 720), (344, 882), (768, 1024), (673, 841)):
+            page = self.touch_view(w, h)
+            for field in ("#c-sg-text", "#note"):
+                with self.subTest(w=w, h=h, field=field):
+                    page.evaluate("document.activeElement&&document.activeElement.blur()")
+                    page.set_viewport_size({"width": w, "height": h})
+                    settle(page)
+                    # each field starts from the sheet's top, the keyboard down, as right after the pick
+                    page.evaluate(REST)
+                    settle(page)
+                    page.focus(field)
+                    page.set_viewport_size({"width": w, "height": h - KEYBOARD})
+                    settle(page)
+                    f = page.evaluate(FIT)
+                    self.assertEqual(f["loc"][0], f["loc"][1], f)
+                    shown = f["editor"] if field == "#c-sg-text" else f["note"]
+                    self.assertEqual(shown[0], shown[1], f)
+                    self.assertTrue(f["locAbove"], f)
+                    self.assertAlmostEqual(f["save"], h - KEYBOARD, delta=1)
+
+    def test_the_tablet_sheet_rises_for_the_open_editor_and_forgets_it(self):
+        """768x1024 and 673x841 (tablet sheets), the keyboard down, the sheet at its top: at the stored 45% the five-line
+        editor ran under the save row. Switched on, the sheet rises just enough for the editor to end at most one 8px step
+        above the save row, never past 60%, and nothing is saved; switched off, the sheet is back at 45%."""
+        for w, h in ((768, 1024), (673, 841)):
+            with self.subTest(w=w, h=h):
+                page = self.touch_view(w, h)
+                f = page.evaluate(FIT)
+                self.assertEqual(f["editor"][0], f["editor"][1], f)
+                self.assertTrue(0 <= f["clear"] <= 9, f)
+                self.assertGreater(f["sheet"], 0.45 * h + 1, f)
+                self.assertLessEqual(f["sheet"], 0.6 * h + 1, f)
+                self.assertAlmostEqual(f["save"], h, delta=1)
+                self.assertNotIn("sheetFTab", page.evaluate("prefs()"))
+                page.click("#c-sg-tg")
+                settle(page)
+                self.assertAlmostEqual(page.evaluate(FIT)["sheet"], 0.45 * h, delta=1)
+
+    def test_a_two_line_editor_that_fits_leaves_the_sheet_at_its_height(self):
+        """768x1024: the paragraph's two lines fit above the save row at 45%, so the sheet stays there (it rises only as
+        far as the editor needs)."""
+        page = self.view(dict(TOUCH, viewport={"width": 768, "height": 1024}))
+        self.compose(page, "touch")
+        self.switch_on(page)
+        page.evaluate(REST)
+        settle(page)
+        f = page.evaluate(FIT)
+        self.assertEqual(f["editor"][0], f["editor"][1], f)
+        self.assertAlmostEqual(f["sheet"], 0.45 * 1024, delta=1)
+
+    def test_a_cancel_or_a_save_brings_back_the_stored_height(self):
+        """673x841 with a stored 50% and an edit card open (so a cancel leaves the sheet open): the lift ends with the
+        composer - after [취소] and after [핀 저장] the sheet is at the stored 50% - and the stored height stays 50%."""
+        self.add(note="열린 핀", lo=40, hi=40)
+        page = self.view(dict(TOUCH, viewport={"width": 673, "height": 841}), n_open=1)
+        page.evaluate("()=>{savePrefs({sheetFTab:0.5}); setSide(true); openEdit(OPEN_ALL[0].id);}")
+        page.wait_for_function("EDITOR.current&&EDITOR.current.levels.length>0")
+        page.evaluate(REST)
+        settle(page)
+        for press in ("#btn-cancel", "#btn-save"):
+            with self.subTest(press=press):
+                self.compose(page, "touch")
+                self.switch_on(page)
+                page.fill("#c-sg-text", FIVE)
+                page.evaluate(REST)
+                settle(page)
+                self.assertGreater(page.evaluate(FIT)["sheet"], 0.5 * 841 + 1)
+                page.click(press)
+                settle(page)
+                page.evaluate("setSide(true)")
+                settle(page)
+                self.assertTrue(page.evaluate("$('#composer').hidden"))
+                self.assertAlmostEqual(page.locator("#right").bounding_box()["height"], 0.5 * 841, delta=1)
+                self.assertEqual(page.evaluate("prefs().sheetFTab"), 0.5)

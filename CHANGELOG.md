@@ -35,6 +35,18 @@ pin is made through the HTTP API and the viewer shows it as an ordinary pin.
   wins, one target at a time with a recheck right before pushing, and a `대상: <대상 ID>` line when closing.
 - The viewer's English mode has texts for the six new reasons.
 
+### Fixed
+
+- **The composer's location line stays above the field you type in on phone and tablet sheets.** While the note or
+  the suggestion editor has focus on a touch sheet, the location line sticks under the tool bar, as a list section's
+  header does, and a field scrolled into view stays below it. With the keyboard up, focusing the suggestion editor
+  scrolled the line off (0 of 44 px on every phone and tablet-sheet size), and at 320×720 centring the note hid half
+  of it (23 of 44 px).
+- **The tablet sheet makes room for an open suggestion editor.** With `[제안 수정]` on, the 45% sheet rises just
+  enough for the editor to end one 8 px step above the save row, at most 60% as for the keyboard; the lift follows the
+  editor as it grows, is never saved, and ends when the switch goes off or the composer is saved or cancelled. The
+  editor used to run under the save row (107 of 114 px shown at 768×1024, 25 of 114 px at 673×841).
+
 ## 0.4.25 — 2026-10-25
 
 The note popover by the selection box offers the @-list. The agent contract (`pins.md` and the HTTP API) is unchanged.
