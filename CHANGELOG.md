@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.4.25 — 2026-10-25
+
+The note popover by the selection box offers the @-list. The agent contract (`pins.md` and the HTTP API) is unchanged.
+
+### Fixed
+
+- **@-tags in the note popover.** Typing `@` in the small note popover that a mouse drag opens by the selection box
+  now opens the same people list as the panel's note: the same matching, arrow keys, Enter or Tab to pick, Esc to close,
+  and a mouse pick. A pick inserts `@name ` and records the hint on the composer's note, so the preview line, the
+  assignee row, the draft and a save from the popover (`[저장]`, Ctrl/Cmd+Enter) carry it. Before, the popover's field
+  was not a mention field: `@` showed nothing and no tag was sent. The list never covers the popover's
+  `[자세히 →]`/`[저장]` row and, in a short window, fits beside it and scrolls.
+- The @-list follows the caret when it moves while the list is open, and a pick in the panel's note shows in an open
+  note popover.
+
 ## 0.4.24 — 2026-10-24
 
 Suggested-edit pins (ADR-0020). The agent contract only grows: an agent written against
