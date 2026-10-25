@@ -2,9 +2,12 @@
 // Typing '@' in the note/edit/reply field shows known people (PEOPLE, excluding me). Picking one inserts '@name ' and
 // remembers that login on the field (ta._mentions) with the place of its '@name' in the text (ta._tags), carried as a hint
 // (mentions) when sending - the server re-resolves it from the text. A hint belongs to its one '@name': an edit that
-// touches that tag drops it, so of two people with one name, deleting one's tag leaves only the other's hint. There is
-// no external notification.
-const MENTION={ta:/** @type {HTMLTextAreaElement|null} */(null),start:0,items:/** @type {PersonSeen[]} */([]),sel:0};
+// touches that tag drops it, so of two people with one name, deleting one's tag leaves only the other's hint. A field that
+// mirrors another's text (the note popover's field mirrors the composer's note, sel-popover.js) offers the same list, and
+// its tags are kept on the field it mirrors, which sends them (mentionModel). There is no external notification.
+// The open @-list: its field, the '@word' it was drawn for (where its '@' is, q the letters after it), its people and the
+// highlighted row.
+const MENTION={ta:/** @type {HTMLTextAreaElement|null} */(null),start:0,q:'',items:/** @type {PersonSeen[]} */([]),sel:0};
 function mentionQuery(ta){const pos=ta.selectionStart; if(pos==null||pos!==ta.selectionEnd)return null;
   const m=/(^|[^\p{L}\p{N}._@-])@([^\s@]{0,30})$/u.exec(ta.value.slice(0,pos)); return m?{start:pos-m[2].length-1,q:m[2]}:null;}
 function mentionMatches(q,people,meLogin){q=String(q||'').toLowerCase();
@@ -58,6 +61,16 @@ function mentionEdited(ta,caret){const known=ta._tags&&ta._tagsFrom===ta._mentio
 // Stores tags as ta's own for its present text, with the logins they name (in text order) as ta._mentions.
 /** @param {HTMLTextAreaElement} ta @param {MentionTag[]} tags */
 function mentionKeep(ta,tags){ta._tags=tags; ta._tagsFor=ta.value; ta._mentions=ta._tagsFrom=tags.length?new Set(tags.map(t=>t.login)):null;}
+// The field that keeps ta's tags and sends them: the field ta mirrors (ta._mirrorOf, whose text ta's own listener keeps equal
+// to ta's), else ta itself.
+/** @param {HTMLTextAreaElement} ta @returns {HTMLTextAreaElement} */
+function mentionModel(ta){return ta._mirrorOf||ta;}
+// Shows m's text in each field that mirrors it. A mirror's own listeners copy only what is typed in m (an input event), and
+// a pick writes m's text from code.
+/** @param {HTMLTextAreaElement} m */
+function mentionMirror(m){document.querySelectorAll('textarea').forEach(f=>{if(f._mirrorOf===m&&f.value!==m.value)f.value=m.value;});}
+// Whether the caret of the open list's field still ends the '@word' the list was drawn for.
+function mentionCurrent(){const ta=MENTION.ta,q=ta&&mentionQuery(ta); return !!q&&q.start===MENTION.start&&q.q===MENTION.q;}
 // An '@word' still being typed (the cursor sits at its end) is never flagged as '등록된 사람이 아님' yet - the warning
 // used to appear while still picking (QA 2026-09-25). It's flagged once the cursor leaves it or the field. If the same word appears earlier too (an already-finished '@word'), it's still flagged as usual.
 function mentionBadSettled(bad,text,q){if(!q)return bad; const w=q.q, before=String(text||'').slice(0,q.start);
@@ -165,7 +178,8 @@ function renderAssignEdit(){const E=EDITOR.current; if(!E)return; const ta=editN
 // has no '@' word to report.
 function mentionPreview(ta){if(!ta)return; const box=ta.nextElementSibling; if(!box||!box.classList.contains('m-preview'))return;
   const r=mentionScan(ta.value,mentionHints(ta)),me=meLogin();   // the same hints the save/send carries
-  r.bad=mentionBadSettled(r.bad,ta.value,document.activeElement===ta?mentionQuery(ta):null);
+  const f=/** @type {HTMLTextAreaElement|null} */(document.activeElement);   // ta, or a field that mirrors it, being typed in
+  r.bad=mentionBadSettled(r.bad,ta.value,f&&mentionModel(f)===ta?mentionQuery(f):null);
   if(!r.hit.length&&!r.bad.length){box.hidden=true; box.replaceChildren(); return;}
   const o=ta.id==='note'?assignOutcome(composeAsk(SAVE_MODE.NEW)):null,join=o&&appendTarget()?assignOutcome(composeAsk(SAVE_MODE.APPEND)):null;
   const told=o&&!join?r.hit.filter(l=>l!==o.assignee):r.hit;
@@ -177,37 +191,68 @@ function mentionPreview(ta){if(!ta)return; const box=ta.nextElementSibling; if(!
   setHtml(box,html`${head}${bad}${r.bad.length?html`<span class="m-note">등록된 사람이 아님</span>`:''}`);
   box.hidden=false;}
 function mentionUpdate(ta){const q=mentionQuery(ta); if(!q){if(MENTION.ta===ta)mentionClose(); return;}
-  const me=META&&META.me&&META.me.login; MENTION.ta=ta; MENTION.start=q.start; MENTION.items=mentionMatches(q.q,PEOPLE,me);
+  const me=META&&META.me&&META.me.login; MENTION.ta=ta; MENTION.start=q.start; MENTION.q=q.q; MENTION.items=mentionMatches(q.q,PEOPLE,me);
   MENTION.sel=Math.min(MENTION.sel,Math.max(0,MENTION.items.length-1));
   const pop=$('#mention-pop');
   const none=(q.q?tl("'{q}' 와 맞는 사람이 없습니다",{q:q.q}):tr('부를 수 있는 사람이 없습니다'))+' — '+tr('이 뷰어를 연 테일넷 사람만 부를 수 있습니다');
   setHtml(pop,MENTION.items.length?html`${MENTION.items.map((p,i)=>html`<button type="button" role="option" aria-selected="${i===MENTION.sel}" data-act="mention-pick" data-i="${i}">\
 ${avatar(p)}<span>${p.name}</span><span class="ml">${p.login}</span></button>`)}`:html`<div class="dim">${none}</div>`);
-  pop.hidden=false; const r=ta.getBoundingClientRect(),h=pop.offsetHeight,w=pop.offsetWidth,vv=window.visualViewport;
-  const g=mentionGuard(ta); pop.style.top=mentionTop(r,g?g.getBoundingClientRect():null,h,vv?vv.offsetTop:0,vv?vv.offsetTop+vv.height:innerHeight)+'px';
-  pop.style.left=Math.max(4,Math.min(r.left,innerWidth-w-4))+'px';}
-// The action row of that input field that the @-list must never cover: reply/reopen [취소][보내기], edit [저장], composer panel [취소][핀 저장].
-function mentionGuard(ta){const box=ta.closest('.reply-box,.edit'); return box?box.querySelector('.r-acts,.e-acts'):ta.id==='note'?$('#c-actions'):null;}
+  pop.hidden=false; mentionPlace();}
+// Puts the open @-list by its field (mentionTop; the note popover's field: mentionRoom, which may cut the list, keeping its
+// highlighted row in view), inside the window's width. Also run when the field moves under the list (the note popover
+// follows its box: placeSelPop).
+function mentionPlace(){const ta=MENTION.ta,pop=$('#mention-pop'); if(!ta||pop.hidden)return; const was=pop.scrollTop; pop.style.maxHeight='';
+  const r=ta.getBoundingClientRect(),h=pop.offsetHeight,w=pop.offsetWidth,vv=window.visualViewport,g=mentionGuard(ta);
+  const gr=g?g.getBoundingClientRect():null,top=vv?vv.offsetTop:0,bot=vv?vv.offsetTop+vv.height:innerHeight;
+  const at=ta.closest('#sel-pop')?mentionRoom(r,gr,h,top,bot):{top:mentionTop(r,gr,h,top,bot),max:null};
+  pop.style.top=at.top+'px'; pop.style.left=Math.max(4,Math.min(r.left,innerWidth-w-4))+'px';
+  if(at.max==null)return; pop.style.maxHeight=at.max+'px';
+  const s=/** @type {HTMLElement|null} */(pop.querySelector('[aria-selected=true]'));
+  pop.scrollTop=s?Math.min(s.offsetTop,Math.max(was,s.offsetTop+s.offsetHeight-pop.clientHeight)):was;}
+// The action row of that input field that the @-list must never cover: reply/reopen [취소][보내기], edit [저장], the note
+// popover by the box [자세히 →][저장], composer panel [취소][핀 저장].
+function mentionGuard(ta){const box=ta.closest('.reply-box,.edit,#sel-pop'); return box?box.querySelector('.r-acts,.e-acts,.sp-acts'):ta.id==='note'?$('#c-actions'):null;}
 // The @-list's top (docs/handbook/viewer.md §@태그). A spot that never covers the action row (guard) is chosen in this order -
 // (1) right below the input field (if it fits above the action row) (2) above the input field (3) below the action row
-// (4) if nothing fits, below the input field (the old spot). A reply field has [취소][보내기] right below it, so (1)
-// never fits and (2) is used instead (the list used to cover both buttons, QA 2026-09-25).
+// (4) if nothing fits, below the input field (the old spot; the note popover's field takes mentionRoom instead). A reply
+// field has [취소][보내기] right below it, so (1) never fits and (2) is used instead (the list used to cover both buttons,
+// QA 2026-09-25).
 function mentionTop(r,g,h,top,bot){const gap=4,lim=g&&g.top>=r.bottom?Math.min(bot,g.top):bot;
   if(r.bottom+gap+h<=lim)return r.bottom+gap;
   if(r.top-gap-h>=top+gap)return r.top-gap-h;
   if(g&&g.bottom+gap+h<=bot)return g.bottom+gap;
   return Math.max(top+gap,Math.min(r.bottom+gap,bot-h-gap));}
+// The @-list's spot by the note popover's field, whose action row g ([자세히 →][저장]) it never covers: mentionTop's spot
+// when one of (1)-(3) holds all h px of the list (max null). Otherwise (a short window) not mentionTop's (4), which covers
+// the field and that row, but the roomiest of (1)-(3), the list cut to its room (max px; the list scrolls). Pure.
+/** @param {{top:number,bottom:number}} r @param {{top:number,bottom:number}|null} g @param {number} h @param {number} top
+ *  @param {number} bot @returns {{top:number,max:number|null}} */
+function mentionRoom(r,g,h,top,bot){const gap=4,lim=g&&g.top>=r.bottom?Math.min(bot,g.top):bot;
+  // Each spot's room, and its edge: the list's top there, or (up) its bottom.
+  const spots=[{room:lim-r.bottom-gap,edge:r.bottom+gap,up:false},{room:r.top-gap-(top+gap),edge:r.top-gap,up:true}];
+  if(g)spots.push({room:bot-g.bottom-gap,edge:g.bottom+gap,up:false});
+  const whole=spots.find(s=>s.room>=h);
+  if(whole)return {top:whole.up?whole.edge-h:whole.edge,max:null};
+  const s=spots.reduce((a,b)=>b.room>a.room?b:a),n=Math.max(0,Math.floor(s.room));
+  return {top:s.up?s.edge-n:s.edge,max:n};}
 // Inserts the picked person as '@name ' at the cursor, remembers the login as a hint with the place of its tag (the tags
-// after it move along), and refreshes what depends on the field (the preview, the assignee, the reply outcome; the note's
-// draft).
-function mentionApply(i){const ta=MENTION.ta,p=MENTION.items[i]; if(!ta||!p)return; const pos=ta.selectionStart,ins='@'+p.name+' ';
-  const old=ta.value,before=mentionTags(ta); ta.value=old.slice(0,MENTION.start)+ins+old.slice(pos); const c=MENTION.start+ins.length; ta.setSelectionRange(c,c);
+// after it move along) on the field's model (mentionModel: a mirror field's text goes to the field it mirrors, which keeps
+// the tags), shows the text in the fields that mirror the model, and refreshes what depends on the model (the preview, the
+// assignee, the reply outcome; the note's draft). When the caret no longer ends the '@word' the list was drawn for (it
+// moved, and no keyup or click has redrawn the list yet), nothing is inserted - the name would land where the caret went,
+// spliced into the text - and the list follows the caret instead.
+function mentionApply(i){const ta=MENTION.ta,p=MENTION.items[i]; if(!ta||!p)return; if(!mentionCurrent()){mentionUpdate(ta); return;}
+  const m=mentionModel(ta),pos=ta.selectionStart,ins='@'+p.name+' ';
+  const old=ta.value,before=mentionTags(m); ta.value=old.slice(0,MENTION.start)+ins+old.slice(pos); const c=MENTION.start+ins.length; ta.setSelectionRange(c,c);
+  if(m!==ta)m.value=ta.value; mentionMirror(m);
   const tags=mentionShift(before,old,ta.value,c).concat([{login:p.login,at:MENTION.start,tok:'@'+p.name}]).sort((a,b)=>a.at-b.at);
-  mentionKeep(ta,tags); mentionClose(); ta.focus(); autoGrow(ta);
-  if(ta.id==='note'){renderAssignNew(); saveDraftSoon(); return;}   // the composer's row draws its preview line too
-  mentionPreview(ta); if(ta.classList.contains('e-note'))renderAssignEdit(); else if(ta.classList.contains('r-text'))renderReplyOutcome();}
-const isMentionField=t=>!!t&&t.tagName==='TEXTAREA'&&(t.id==='note'||t.classList.contains('e-note')||t.classList.contains('r-text'));
-document.addEventListener('input',e=>{const t=/** @type {HTMLTextAreaElement} */(e.target); if(!isMentionField(t))return; mentionEdited(t); mentionUpdate(t);
+  mentionKeep(m,tags); mentionClose(); ta.focus(); autoGrow(m);
+  if(m.id==='note'){renderAssignNew(); saveDraftSoon(); return;}   // the composer's row draws its preview line too
+  mentionPreview(m); if(m.classList.contains('e-note'))renderAssignEdit(); else if(m.classList.contains('r-text'))renderReplyOutcome();}
+const isMentionField=t=>!!t&&t.tagName==='TEXTAREA'&&(t.id==='note'||t.classList.contains('e-note')||t.classList.contains('r-text')||!!t._mirrorOf);
+// A mirror field's own listener has copied its text and the edit into its model (sel-popover.js); here it only gets the list.
+document.addEventListener('input',e=>{const t=/** @type {HTMLTextAreaElement} */(e.target); if(!isMentionField(t))return; if(mentionModel(t)!==t){mentionUpdate(t); return;}
+  mentionEdited(t); mentionUpdate(t);
   if(t.id==='note'){renderAssignNew(); qHint($('#c-qhint'),t.value,KIND_NEW); saveDraftSoon(); return;}   // the row draws the preview line too
   mentionPreview(t);
   if(t.classList.contains('e-note')){renderAssignEdit(); if(EDITOR.current)qHint(EDITOR.current.el.querySelector('.e-qhint'),t.value,EDITOR.current.kind_req);}
@@ -218,8 +263,12 @@ window.addEventListener('keydown',e=>{if(!MENTION.ta||e.target!==MENTION.ta||$('
     MENTION.sel=(MENTION.sel+(e.key==='ArrowDown'?1:n-1))%n; mentionUpdate(MENTION.ta);}
   else if((e.key==='Enter'&&!e.metaKey&&!e.ctrlKey)||e.key==='Tab'){if(!n)return; e.preventDefault(); e.stopImmediatePropagation(); mentionApply(MENTION.sel);}
   else if(e.key==='Escape'){e.preventDefault(); e.stopImmediatePropagation(); mentionClose();}},true);
-// When the cursor leaves the '@word' being typed (arrow key/click/leaving the field), the preview redraws and warns at that point.
-['keyup','click','focusout'].forEach(t=>document.addEventListener(t,e=>{if(isMentionField(e.target))setTimeout(()=>mentionPreview(e.target),0);}));
+// When the cursor leaves the '@word' being typed (arrow key/click/leaving the field), the preview redraws and warns at that point
+// (a mirror field's: its model's preview), and an open list follows the caret: it is drawn again for the '@word' the caret
+// now ends, or closes when there is none.
+['keyup','click','focusout'].forEach(t=>document.addEventListener(t,e=>{const f=/** @type {HTMLTextAreaElement} */(e.target); if(!isMentionField(f))return;
+  if(t!=='focusout'&&MENTION.ta===f&&!mentionCurrent())mentionUpdate(f);
+  setTimeout(()=>mentionPreview(mentionModel(f)),0);}));
 document.addEventListener('focusout',e=>{if(e.target===MENTION.ta)setTimeout(()=>{if(document.activeElement!==MENTION.ta)mentionClose();},150);});
 $('#mention-pop').addEventListener('pointerdown',e=>e.preventDefault());
 
