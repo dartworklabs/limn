@@ -10,7 +10,8 @@ picks keep the composer alone.
 
 Typing '@' in its field offers the @-list of the composer's note (docs/handbook/viewer.md §@태그), beside the field and
 clear of its action row; a pick writes '@name ' there and keeps the hint on the composer's note, the one model of that
-text, so the panel's preview line and assignee row and a save from the popover carry it.
+text, so the panel's preview line and assignee row and a save from the popover carry it, and a pick in the panel's note
+shows in the popover's field.
 
 - ``PopoverLogic`` runs the pure placement (popPlace) under node.
 - ``SelectionPopover`` drives the real viewer in Chromium.
@@ -355,8 +356,8 @@ class PopoverMentions(PopoverDrag, BrowserBase):
     """The @-list in the popover's field as Alice, with Bob and Carol known: '@' there offers the people the composer's
     note offers, with the same keys and clicks, beside the field and never over [자세히 →]/[저장] or off the window; a
     pick writes '@name ' in the field and keeps its hint on the composer's note, so the panel's line, row and draft
-    follow and a save from the popover sends it. The composer in the panel keeps its own list. Every POST /api/pin
-    body is recorded as it left the viewer."""
+    follow and a save from the popover sends it, and a pick in the panel's note shows in the field at once. The
+    composer in the panel keeps its own list. Every POST /api/pin body is recorded as it left the viewer."""
 
     WHO = ALICE
 
@@ -550,6 +551,34 @@ class PopoverMentions(PopoverDrag, BrowserBase):
         settle(page)
         m = page.evaluate(MENTIONS)
         self.assertEqual((m["note"], m["field"], m["hints"]), ("먼저 @Bob Par", "먼저 @Bob Par", []))
+
+    def test_a_pick_in_the_panel_shows_in_the_open_popover(self):
+        """The popover open, 'x ' typed in it, then Bob picked with Enter in the panel's note: the popover's field shows
+        the note's text at once, as typing in the panel does (it used to keep 'x @Bo' until it took the focus). Words
+        typed on in the popover keep his hint and tag on the note, and [저장] sends them."""
+        page = self.popover()
+        page.keyboard.type("x ")
+        page.click("#note")
+        page.keyboard.press("End")
+        self.assertTrue(self.typed(page, "@Bo")["inNote"])
+        page.keyboard.press("Enter")
+        settle(page)
+        m = page.evaluate(MENTIONS)
+        self.assertIsNotNone(page.evaluate(GEOMETRY)["pop"])
+        self.assertEqual(
+            (m["field"], m["note"], m["hints"], m["tags"]), ("x @Bob Park ", "x @Bob Park ", [B], [[B, 2]])
+        )
+        page.click("#sel-pop textarea")
+        page.keyboard.press("End")
+        page.keyboard.type("봐 주세요")
+        settle(page)
+        m = page.evaluate(MENTIONS)
+        text = "x @Bob Park 봐 주세요"
+        self.assertEqual((m["field"], m["note"], m["hints"], m["tags"]), (text, text, [B], [[B, 2]]))
+        page.click("#sel-pop [data-act=pop-save]")
+        page.wait_for_selector(".mark .nt-chip", timeout=8000)
+        settle(page)
+        self.assertEqual((self.sent[-1]["note"], self.sent[-1].get("mentions")), (text, [B]))
 
     def test_the_composer_in_the_panel_keeps_its_own_list(self):
         """[자세히 →] hands the note to the panel: '@' there opens the list by the panel's note, clear of [취소][핀 저장];

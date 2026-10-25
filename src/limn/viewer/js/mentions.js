@@ -63,6 +63,10 @@ function mentionKeep(ta,tags){ta._tags=tags; ta._tagsFor=ta.value; ta._mentions=
 // to ta's), else ta itself.
 /** @param {HTMLTextAreaElement} ta @returns {HTMLTextAreaElement} */
 function mentionModel(ta){return ta._mirrorOf||ta;}
+// Shows m's text in each field that mirrors it. A mirror's own listeners copy only what is typed in m (an input event), and
+// a pick writes m's text from code.
+/** @param {HTMLTextAreaElement} m */
+function mentionMirror(m){document.querySelectorAll('textarea').forEach(f=>{if(f._mirrorOf===m&&f.value!==m.value)f.value=m.value;});}
 // An '@word' still being typed (the cursor sits at its end) is never flagged as '등록된 사람이 아님' yet - the warning
 // used to appear while still picking (QA 2026-09-25). It's flagged once the cursor leaves it or the field. If the same word appears earlier too (an already-finished '@word'), it's still flagged as usual.
 function mentionBadSettled(bad,text,q){if(!q)return bad; const w=q.q, before=String(text||'').slice(0,q.start);
@@ -210,10 +214,11 @@ function mentionTop(r,g,h,top,bot){const gap=4,lim=g&&g.top>=r.bottom?Math.min(b
   return Math.max(top+gap,Math.min(r.bottom+gap,bot-h-gap));}
 // Inserts the picked person as '@name ' at the cursor, remembers the login as a hint with the place of its tag (the tags
 // after it move along) on the field's model (mentionModel: a mirror field's text goes to the field it mirrors, which keeps
-// the tags), and refreshes what depends on the model (the preview, the assignee, the reply outcome; the note's draft).
+// the tags), shows the text in the fields that mirror the model, and refreshes what depends on the model (the preview, the
+// assignee, the reply outcome; the note's draft).
 function mentionApply(i){const ta=MENTION.ta,p=MENTION.items[i]; if(!ta||!p)return; const m=mentionModel(ta),pos=ta.selectionStart,ins='@'+p.name+' ';
   const old=ta.value,before=mentionTags(m); ta.value=old.slice(0,MENTION.start)+ins+old.slice(pos); const c=MENTION.start+ins.length; ta.setSelectionRange(c,c);
-  if(m!==ta)m.value=ta.value;
+  if(m!==ta)m.value=ta.value; mentionMirror(m);
   const tags=mentionShift(before,old,ta.value,c).concat([{login:p.login,at:MENTION.start,tok:'@'+p.name}]).sort((a,b)=>a.at-b.at);
   mentionKeep(m,tags); mentionClose(); ta.focus(); autoGrow(m);
   if(m.id==='note'){renderAssignNew(); saveDraftSoon(); return;}   // the composer's row draws its preview line too
