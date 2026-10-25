@@ -11,7 +11,8 @@ picks keep the composer alone.
 Typing '@' in its field offers the @-list of the composer's note (docs/handbook/viewer.md §@태그), beside the field and
 clear of its action row; a pick writes '@name ' there and keeps the hint on the composer's note, the one model of that
 text, so the panel's preview line and assignee row and a save from the popover carry it, and a pick in the panel's note
-shows in the popover's field.
+shows in the popover's field. The list follows the caret: off the '@word' it was drawn for, it closes and Enter picks
+nothing.
 
 - ``PopoverLogic`` runs the pure placement (popPlace) under node.
 - ``SelectionPopover`` drives the real viewer in Chromium.
@@ -356,8 +357,9 @@ class PopoverMentions(PopoverDrag, BrowserBase):
     """The @-list in the popover's field as Alice, with Bob and Carol known: '@' there offers the people the composer's
     note offers, with the same keys and clicks, beside the field and never over [자세히 →]/[저장] or off the window; a
     pick writes '@name ' in the field and keeps its hint on the composer's note, so the panel's line, row and draft
-    follow and a save from the popover sends it, and a pick in the panel's note shows in the field at once. The
-    composer in the panel keeps its own list. Every POST /api/pin body is recorded as it left the viewer."""
+    follow and a save from the popover sends it, and a pick in the panel's note shows in the field at once. The list
+    follows the caret in either field. The composer in the panel keeps its own list. Every POST /api/pin body is
+    recorded as it left the viewer."""
 
     WHO = ALICE
 
@@ -579,6 +581,41 @@ class PopoverMentions(PopoverDrag, BrowserBase):
         page.wait_for_selector(".mark .nt-chip", timeout=8000)
         settle(page)
         self.assertEqual((self.sent[-1]["note"], self.sent[-1].get("mentions")), (text, [B]))
+
+    def test_the_list_follows_the_caret(self):
+        """In the popover's field and in the panel's note. 'Read @ol' offers Carol; ArrowLeft into the word draws the list
+        again for the letters before the caret ('o': Bob and Carol). Moved off the word, the list closes and Enter adds a
+        line - the list used to stay, and Enter spliced the name in where the caret went ('Read @Carol Lee  @ol'). A
+        caret set from code (no key or click to redraw the list) makes Enter pick nothing: the list follows the caret."""
+        for where in ("popover", "panel"):
+            with self.subTest(where=where):
+                page = self.popover()
+                if where == "panel":
+                    page.click("#sel-pop [data-act=pop-more]")
+                    settle(page)
+                key = "field" if where == "popover" else "note"
+                self.assertEqual(self.typed(page, "Read @ol")["logins"], [C])
+                page.keyboard.press("ArrowLeft")
+                settle(page)
+                self.assertEqual(page.evaluate(MENTIONS)["logins"], [B, C])
+                for _ in range(3):
+                    page.keyboard.press("ArrowLeft")
+                settle(page)
+                self.assertIsNone(page.evaluate(MENTIONS)["list"])
+                page.keyboard.press("Enter")
+                settle(page)
+                m = page.evaluate(MENTIONS)
+                self.assertEqual((m[key], m["hints"]), ("Read\n @ol", []))
+                page.keyboard.press("End")
+                page.keyboard.press("Backspace")
+                page.keyboard.press("Backspace")
+                self.assertEqual(self.typed(page, "Bo")["logins"], [B])
+                page.evaluate("() => document.activeElement.setSelectionRange(4, 4)")
+                page.keyboard.press("Enter")
+                settle(page)
+                m = page.evaluate(MENTIONS)
+                self.assertIsNone(m["list"])
+                self.assertEqual((m[key], m["hints"]), ("Read\n @Bo", []))
 
     def test_the_composer_in_the_panel_keeps_its_own_list(self):
         """[자세히 →] hands the note to the panel: '@' there opens the list by the panel's note, clear of [취소][핀 저장];
