@@ -4829,6 +4829,7 @@ MENTION_PREVIEW_FNS = (
     "mentionTokens",
     "meLogin",
     "mentionQuery",
+    "mentionModel",
     "mentionHints",
     "mentionBadSettled",
     "mentionBind",

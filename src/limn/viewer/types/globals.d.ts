@@ -21,8 +21,9 @@ declare class CloseWatcher {
 }
 
 // Fields the viewer keeps on its own elements: a card's flash timers (list.js), a note field's @-tags picked from the @-list
-// (mentions.js: the logins, and each one's place in the text with the text and the logins it was worked out for), a copy
-// control's own content and timer while it says '복사됨' (api.js copiedMark).
+// (mentions.js: the logins, and each one's place in the text with the text and the logins it was worked out for), the field
+// whose text a field mirrors and which keeps its @-tags (sel-popover.js: the note popover's field mirrors the composer's
+// note; mentions.js mentionModel), a copy control's own content and timer while it says '복사됨' (api.js copiedMark).
 interface HTMLElement {
   _curT?: ReturnType<typeof setTimeout>;
   _flT?: ReturnType<typeof setTimeout>;
@@ -30,6 +31,7 @@ interface HTMLElement {
   _tags?: MentionTag[];
   _tagsFor?: string;
   _tagsFrom?: Set<string> | null;
+  _mirrorOf?: HTMLTextAreaElement;
   _copied?: ChildNode[];
   _copiedT?: ReturnType<typeof setTimeout>;
 }

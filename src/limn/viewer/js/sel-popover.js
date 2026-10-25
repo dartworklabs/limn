@@ -2,10 +2,12 @@
 // With a mouse on the desktop and mid layouts, a drag that ends opens a small popover under the dashed box: the location, a note
 // field, [자세히 →] and [저장], so the note can be written where the eye already is. The field is the composer's note - one
 // value, edited from either place - and [저장] and Ctrl/⌘+Enter take savePin(), the composer's own path, so the saved chip
-// with its undo and every rule of §알림 자리 hold unchanged. [자세히 →] hands over to the composer in the panel, which keeps
-// the kind, the range and the overlap. Esc and a short click off the box cancel the selection as before; a press on the
-// popover is a press inside the box (pressOutsideSelection). Touch and the phone keep the composer alone (it is a sheet).
+// with its undo and every rule of §알림 자리 hold unchanged. '@' in the field offers the composer's @-list by the field; a
+// pick's tag is kept on the composer's note (mentions.js mentionModel). [자세히 →] hands over to the composer in the panel,
+// which keeps the kind, the range and the overlap. Esc and a short click off the box cancel the selection as before; a press
+// on the popover is a press inside the box (pressOutsideSelection). Touch and the phone keep the composer alone (it is a sheet).
 const SEL_POP=$('#sel-pop'),SEL_POP_FIELD=/** @type {HTMLTextAreaElement} */(SEL_POP.querySelector('textarea')),SEL_POP_GAP=8;
+SEL_POP_FIELD._mirrorOf=/** @type {HTMLTextAreaElement} */($('#note'));   // its @-tags are the note's, which saves them
 // The box the popover belongs to; null while it is closed.
 let SEL_POP_BOX=/** @type {HTMLElement|null} */(null);
 // Where a w x h popover goes for a box in the free area (rectangles {left, top, right, bottom}), gap px from the box and from
@@ -32,7 +34,7 @@ function selPopWanted(){return LAYOUT!==LAYOUT_MODE.NARROW&&LAST_PTR==='mouse'&&
 /** @param {HTMLElement} box */
 function openSelPop(box){if(!selPopWanted())return; SEL_POP_BOX=box; SEL_POP_FIELD.value=$('#note').value;
   drawSelPop(); if(!SEL_POP.hidden)SEL_POP_FIELD.focus({preventScroll:true});}
-function closeSelPop(){SEL_POP_BOX=null; SEL_POP.hidden=true;}
+function closeSelPop(){SEL_POP_BOX=null; SEL_POP.hidden=true; if(MENTION.ta===SEL_POP_FIELD)mentionClose();}
 function selPopOpen(){return !SEL_POP.hidden;}
 // Draws the popover from the selection: the location (or '찾는 중' while the pick runs), the note's placeholder, its place. It
 // closes when its box is no longer the selection's, the composer closed, the pick failed or the layout became the phone's.
@@ -41,10 +43,12 @@ function drawSelPop(){const d=COMPOSE.current;
   const loc=SEL_POP.querySelector('.sp-loc');
   loc.textContent=!d?tr('찾는 중'):isRegion(d)?tl('쪽 {page} 영역',{page:d.page}):d.name+' '+rng(/** @type {number} */(d.lo),/** @type {number} */(d.hi));
   SEL_POP_FIELD.placeholder=$('#note').placeholder; SEL_POP.hidden=false; placeSelPop();}
-// Puts the popover by its box in the free area (popPlace); hidden while the box is scrolled out of it.
+// Puts the popover by its box in the free area (popPlace); hidden while the box is scrolled out of it. An @-list open on its
+// field goes with it, and closes while it is hidden.
 function placeSelPop(){if(SEL_POP.hidden||!SEL_POP_BOX)return; if(!selPopWanted()){closeSelPop(); return;}
   const p=popPlace(SEL_POP_BOX.getBoundingClientRect(),selPopArea(),SEL_POP.offsetWidth,SEL_POP.offsetHeight,SEL_POP_GAP);
-  SEL_POP.style.left=p.left+'px'; SEL_POP.style.top=p.top+'px'; SEL_POP.dataset.side=p.side; SEL_POP.style.visibility=p.shown?'':'hidden';}
+  SEL_POP.style.left=p.left+'px'; SEL_POP.style.top=p.top+'px'; SEL_POP.dataset.side=p.side; SEL_POP.style.visibility=p.shown?'':'hidden';
+  if(MENTION.ta===SEL_POP_FIELD){if(p.shown)mentionPlace(); else mentionClose();}}
 // One note: what is typed here is the composer's note (its @-tag preview, assignee row, question hint and draft follow), and
 // what is typed in the composer shows here.
 SEL_POP_FIELD.addEventListener('input',()=>{const n=/** @type {HTMLTextAreaElement} */($('#note')); n.value=SEL_POP_FIELD.value; mentionEdited(n,SEL_POP_FIELD.selectionStart); autoGrow(n);
