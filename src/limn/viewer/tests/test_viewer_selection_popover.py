@@ -9,12 +9,12 @@ stays in the part of the PDF area nothing covers (never over the select mode's b
 picks keep the composer alone.
 
 Typing '@' in its field offers the @-list of the composer's note (docs/handbook/viewer.md §@태그), beside the field and
-clear of its action row; a pick writes '@name ' there and keeps the hint on the composer's note, the one model of that
-text, so the panel's preview line and assignee row and a save from the popover carry it, and a pick in the panel's note
-shows in the popover's field. The list follows the caret: off the '@word' it was drawn for, it closes and Enter picks
-nothing.
+clear of its action row (in a short window cut to the room it has, and scrolling); a pick writes '@name ' there and
+keeps the hint on the composer's note, the one model of that text, so the panel's preview line and assignee row and a
+save from the popover carry it, and a pick in the panel's note shows in the popover's field. The list follows the
+caret: off the '@word' it was drawn for, it closes and Enter picks nothing.
 
-- ``PopoverLogic`` runs the pure placement (popPlace) under node.
+- ``PopoverLogic`` runs the pure placement (popPlace, and mentionRoom for the @-list by the field) under node.
 - ``SelectionPopover`` drives the real viewer in Chromium.
 - ``PopoverMentions`` drives the @-list in the popover's field and in the panel's note in Chromium.
 
@@ -59,7 +59,8 @@ def overlaps(a, b):
 
 
 class PopoverLogic(unittest.TestCase):
-    """popPlace puts the popover below the box, above it when below has no room, and keeps it in the free area."""
+    """popPlace puts the popover below the box, above it when below has no room, and keeps it in the free area;
+    mentionRoom puts the @-list by its field clear of the field and its action row, cut when no spot holds it whole."""
 
     def setUp(self):
         """The placement runs the served function under node."""
@@ -106,6 +107,47 @@ class PopoverLogic(unittest.TestCase):
         """Scrolled off the free area (above it or below it), the box has no popover to anchor."""
         self.assertFalse(self.place([100, -200, 300, -10], [0, 50, 1000, 800])["shown"])
         self.assertFalse(self.place([100, 810, 300, 900], [0, 0, 1000, 800])["shown"])
+
+    def test_a_list_too_tall_for_every_spot_is_cut_to_the_roomiest(self):
+        """A 400px window, the field at 180-240 and [자세히 →][저장] at 248-272, a 226px list: no spot holds it, and
+        mentionTop's last resort (170) would cover the field and the whole row. The list goes above the field instead,
+        cut to the 172px there. With the field near the top of a 380px window it goes below the row, cut to the 224px
+        left; a list that fits takes mentionTop's spot, uncut."""
+        js = "\n".join(
+            [
+                extract_js_fn("mentionRoom"),
+                "const R=(t,b)=>({top:t,bottom:b});",
+                "console.log(JSON.stringify([mentionRoom(R(180,240),R(248,272),226,0,400),"
+                "mentionRoom(R(60,120),R(128,152),226,0,380),mentionRoom(R(300,360),R(368,396),48,0,800)]));",
+            ]
+        )
+        self.assertEqual(
+            json.loads(run_node(js)),
+            [{"top": 4, "max": 172}, {"top": 156, "max": 224}, {"top": 248, "max": None}],
+        )
+
+    def test_the_list_is_mentiontops_when_it_fits_and_never_covers_the_field_or_the_row(self):
+        """Over a grid of field places, list heights and window heights: when a spot holds the whole list, mentionRoom
+        gives mentionTop's top, uncut; when none does, the cut list lies in the window, off the field and off its action
+        row, and takes the most room any spot has."""
+        js = "\n".join(
+            [
+                extract_js_fn("mentionTop"),
+                extract_js_fn("mentionRoom"),
+                r"""
+            const bad=[];
+            for(const bot of [300,400,520,850])for(let ft=8;ft<bot-100;ft+=13)for(const h of [40,120,226,240]){
+              const r={top:ft,bottom:ft+56},g={top:ft+64,bottom:ft+88}; if(g.bottom>bot)continue;
+              const got=mentionRoom(r,g,h,0,bot);
+              const rooms=[g.top-r.bottom-4,r.top-8,bot-g.bottom-4],most=Math.floor(Math.max(...rooms));
+              if(got.max===null){if(got.top!==mentionTop(r,g,h,0,bot))bad.push(['top',bot,ft,h,got]);continue;}
+              const end=got.top+got.max;
+              if(Math.max(...rooms)>=h||got.max!==Math.max(0,most))bad.push(['room',bot,ft,h,got]);
+              if(got.top<0||end>bot||(got.top<r.bottom&&r.top<end)||(got.top<g.bottom&&g.top<end))bad.push(['covers',bot,ft,h,got]);}
+            console.log(JSON.stringify(bad));""",
+            ]
+        )
+        self.assertEqual(json.loads(run_node(js)), [])
 
 
 class PopoverDrag:
@@ -522,6 +564,45 @@ class PopoverMentions(PopoverDrag, BrowserBase):
         settle(page)
         self.assertIsNone(page.evaluate(GEOMETRY)["pop"])
         self.assertIsNone(page.evaluate(MENTIONS)["list"])
+
+    def test_in_a_short_window_the_list_is_cut_beside_the_action_row_and_scrolls(self):
+        """A window 420px tall, the popover near the area's top: no spot by the field holds six rows, so the list takes
+        the roomiest one, cut to it - off the field and [자세히 →]/[저장], inside the window - and scrolls. It used to
+        drop over the field and the whole action row. ArrowUp to the last row scrolls that row into view, the wheel
+        scrolls the list, and Enter picks the row."""
+        for person in CREW:
+            ps.APP.people_directory.record(actor(person))
+        page = self.open(0, viewport={"width": 1400, "height": 420})
+        page.evaluate("document.querySelector('#left').scrollTop=0")
+        settle(page)
+        self.drag_on(page, 0.3, 0.02, 0.39, 0.04)
+        m = self.typed(page, "@")
+        six = m["logins"]
+        self.assertEqual(len(six), 6)
+        for what in ("acts", "fieldBox"):
+            self.assertFalse(overlaps(m["list"], m[what]), (what, m))
+        self.assertTrue(inside(m["list"], m["view"]), m)
+        rows = """() => {const p = document.querySelector('#mention-pop'), s = p.querySelector('[aria-selected=true]');
+          const r = e => {const b = e.getBoundingClientRect(); return {left: b.left, top: b.top, right: b.right, bottom: b.bottom};};
+          return {cut: p.scrollHeight > p.clientHeight, list: r(p), row: r(s), name: MENTION.items[MENTION.sel].name};}"""
+        s = page.evaluate(rows)
+        self.assertTrue(s["cut"], s)
+        page.keyboard.press("ArrowUp")
+        settle(page)
+        s = page.evaluate(rows)
+        self.assertGreaterEqual(s["row"]["top"], s["list"]["top"] - 0.5, s)  # the scroll is whole pixels
+        self.assertLessEqual(s["row"]["bottom"], s["list"]["bottom"] + 0.5, s)
+        page.mouse.move((s["list"]["left"] + s["list"]["right"]) / 2, (s["list"]["top"] + s["list"]["bottom"]) / 2)
+        page.mouse.wheel(0, -40)
+        page.wait_for_function(
+            "t => document.querySelector('#mention-pop').scrollTop < t",
+            arg=page.evaluate("document.querySelector('#mention-pop').scrollTop"),
+            timeout=5000,
+        )
+        page.keyboard.press("Enter")
+        settle(page)
+        m = page.evaluate(MENTIONS)
+        self.assertEqual((m["field"], m["hints"]), ("@%s " % s["name"], [six[-1]]))
 
     def test_the_list_closes_with_the_popover(self):
         """The window narrowed to the phone's width with the list open: the popover closes (the sheet's composer has the

@@ -198,24 +198,43 @@ function mentionUpdate(ta){const q=mentionQuery(ta); if(!q){if(MENTION.ta===ta)m
   setHtml(pop,MENTION.items.length?html`${MENTION.items.map((p,i)=>html`<button type="button" role="option" aria-selected="${i===MENTION.sel}" data-act="mention-pick" data-i="${i}">\
 ${avatar(p)}<span>${p.name}</span><span class="ml">${p.login}</span></button>`)}`:html`<div class="dim">${none}</div>`);
   pop.hidden=false; mentionPlace();}
-// Puts the open @-list by its field (mentionTop), inside the window's width. Also run when the field moves under the list (the
-// note popover follows its box: placeSelPop).
-function mentionPlace(){const ta=MENTION.ta,pop=$('#mention-pop'); if(!ta||pop.hidden)return;
-  const r=ta.getBoundingClientRect(),h=pop.offsetHeight,w=pop.offsetWidth,vv=window.visualViewport;
-  const g=mentionGuard(ta); pop.style.top=mentionTop(r,g?g.getBoundingClientRect():null,h,vv?vv.offsetTop:0,vv?vv.offsetTop+vv.height:innerHeight)+'px';
-  pop.style.left=Math.max(4,Math.min(r.left,innerWidth-w-4))+'px';}
+// Puts the open @-list by its field (mentionTop; the note popover's field: mentionRoom, which may cut the list, keeping its
+// highlighted row in view), inside the window's width. Also run when the field moves under the list (the note popover
+// follows its box: placeSelPop).
+function mentionPlace(){const ta=MENTION.ta,pop=$('#mention-pop'); if(!ta||pop.hidden)return; const was=pop.scrollTop; pop.style.maxHeight='';
+  const r=ta.getBoundingClientRect(),h=pop.offsetHeight,w=pop.offsetWidth,vv=window.visualViewport,g=mentionGuard(ta);
+  const gr=g?g.getBoundingClientRect():null,top=vv?vv.offsetTop:0,bot=vv?vv.offsetTop+vv.height:innerHeight;
+  const at=ta.closest('#sel-pop')?mentionRoom(r,gr,h,top,bot):{top:mentionTop(r,gr,h,top,bot),max:null};
+  pop.style.top=at.top+'px'; pop.style.left=Math.max(4,Math.min(r.left,innerWidth-w-4))+'px';
+  if(at.max==null)return; pop.style.maxHeight=at.max+'px';
+  const s=/** @type {HTMLElement|null} */(pop.querySelector('[aria-selected=true]'));
+  pop.scrollTop=s?Math.min(s.offsetTop,Math.max(was,s.offsetTop+s.offsetHeight-pop.clientHeight)):was;}
 // The action row of that input field that the @-list must never cover: reply/reopen [취소][보내기], edit [저장], the note
 // popover by the box [자세히 →][저장], composer panel [취소][핀 저장].
 function mentionGuard(ta){const box=ta.closest('.reply-box,.edit,#sel-pop'); return box?box.querySelector('.r-acts,.e-acts,.sp-acts'):ta.id==='note'?$('#c-actions'):null;}
 // The @-list's top (docs/handbook/viewer.md §@태그). A spot that never covers the action row (guard) is chosen in this order -
 // (1) right below the input field (if it fits above the action row) (2) above the input field (3) below the action row
-// (4) if nothing fits, below the input field (the old spot). A reply field has [취소][보내기] right below it, so (1)
-// never fits and (2) is used instead (the list used to cover both buttons, QA 2026-09-25).
+// (4) if nothing fits, below the input field (the old spot; the note popover's field takes mentionRoom instead). A reply
+// field has [취소][보내기] right below it, so (1) never fits and (2) is used instead (the list used to cover both buttons,
+// QA 2026-09-25).
 function mentionTop(r,g,h,top,bot){const gap=4,lim=g&&g.top>=r.bottom?Math.min(bot,g.top):bot;
   if(r.bottom+gap+h<=lim)return r.bottom+gap;
   if(r.top-gap-h>=top+gap)return r.top-gap-h;
   if(g&&g.bottom+gap+h<=bot)return g.bottom+gap;
   return Math.max(top+gap,Math.min(r.bottom+gap,bot-h-gap));}
+// The @-list's spot by the note popover's field, whose action row g ([자세히 →][저장]) it never covers: mentionTop's spot
+// when one of (1)-(3) holds all h px of the list (max null). Otherwise (a short window) not mentionTop's (4), which covers
+// the field and that row, but the roomiest of (1)-(3), the list cut to its room (max px; the list scrolls). Pure.
+/** @param {{top:number,bottom:number}} r @param {{top:number,bottom:number}|null} g @param {number} h @param {number} top
+ *  @param {number} bot @returns {{top:number,max:number|null}} */
+function mentionRoom(r,g,h,top,bot){const gap=4,lim=g&&g.top>=r.bottom?Math.min(bot,g.top):bot;
+  // Each spot's room, and its edge: the list's top there, or (up) its bottom.
+  const spots=[{room:lim-r.bottom-gap,edge:r.bottom+gap,up:false},{room:r.top-gap-(top+gap),edge:r.top-gap,up:true}];
+  if(g)spots.push({room:bot-g.bottom-gap,edge:g.bottom+gap,up:false});
+  const whole=spots.find(s=>s.room>=h);
+  if(whole)return {top:whole.up?whole.edge-h:whole.edge,max:null};
+  const s=spots.reduce((a,b)=>b.room>a.room?b:a),n=Math.max(0,Math.floor(s.room));
+  return {top:s.up?s.edge-n:s.edge,max:n};}
 // Inserts the picked person as '@name ' at the cursor, remembers the login as a hint with the place of its tag (the tags
 // after it move along) on the field's model (mentionModel: a mirror field's text goes to the field it mirrors, which keeps
 // the tags), shows the text in the fields that mirror the model, and refreshes what depends on the model (the preview, the
