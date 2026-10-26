@@ -106,8 +106,9 @@ def parse_edit(d: Json, known: Collection[str]) -> EditBody | InputRejected:
     note (null is the empty note), note_append (a non-blank string of at most 2000 characters), loc (an object),
     lo/hi (integers), scope, kind, kind_req, mention hints, assignee (known: the logins from EditingRequests) and
     suggest - sent as {base, text} it sets or replaces the pin's suggestion (parse_suggest), sent as null it removes
-    it, absent it leaves it. base_rev is required unless the edit is a note_append without a suggest, and something
-    must be changed.
+    it, absent it leaves it. A `verdict` key, with any value, is recorded as sent: no edit sets a verdict, and the
+    editing rules refuse it (limn.pins.editing.rules.decide_edit, verdict_fixed) once the pin is known. base_rev is
+    required unless the edit is a note_append without a suggest, and something must be changed - a sent verdict counts.
     """
     note: str | None = None
     if "note" in d:
@@ -164,6 +165,7 @@ def parse_edit(d: Json, known: Collection[str]) -> EditBody | InputRejected:
     if isinstance(base, InputRejected):
         return base
     moves = loc is not None or lo is not None or hi is not None
+    verdict_sent = "verdict" in d
     if not (
         note is not None
         or moves
@@ -173,13 +175,16 @@ def parse_edit(d: Json, known: Collection[str]) -> EditBody | InputRejected:
         or kind_req is not None
         or assignee is not None
         or suggest is not None
+        or verdict_sent
     ):
         return InputRejected(
             "바꿀 필드가 없습니다(note, lo, hi, scope, loc, note_append, kind_req, assignee).", "nothing_to_change"
         )
     return EditBody(
         loc,
-        EditRequest(base, note, note_append, None, lo, hi, scope, kind, kind_req, assignee, tuple(hints), suggest),
+        EditRequest(
+            base, note, note_append, None, lo, hi, scope, kind, kind_req, assignee, tuple(hints), suggest, verdict_sent
+        ),
     )
 
 

@@ -22,6 +22,7 @@ from limn.pins.editing.rules import (
     SuggestUnsupported,
     VerdictByAgent,
     VerdictConflict,
+    VerdictFixed,
     VerdictRefusal,
     VerdictUnknown,
     VerdictUnsupported,
@@ -47,6 +48,7 @@ VERDICT_HUMAN = "판정은 사람이 정합니다 — 에이전트는 판정 핀
 VERDICT_UNSUPPORTED = "이 문서에는 판정 낱말이 없습니다."
 VERDICT_UNKNOWN = "이 문서의 판정 낱말이 아닙니다."
 VERDICT_CONFLICT = "판정 핀은 질문·제안 수정과 함께 쓰지 않습니다."
+VERDICT_FIXED = "판정 핀은 판정과 대상을 바꾸지 않습니다 — 새 판정 핀을 찍거나 이 핀을 지웁니다."
 
 
 @dataclass(frozen=True)
@@ -142,6 +144,8 @@ def edit_answer(
             return {"ok": True, "pin": show(record)}
         case PinNotFound(pid=pid):
             raise HTTPError(404, "핀 #%d 이 없습니다." % pid, reason="pin_not_found")
+        case VerdictFixed():
+            raise HTTPError(400, VERDICT_FIXED, reason="verdict_fixed")
         case ClosedPinReshaped(pin=ReviewPin(record=record) | DonePin(record=record)):
             raise HTTPError(409, "done", pin=show(record), detail="닫힌 핀은 메모만 고칠 수 있습니다.", reason="done")
         case StaleEdit(pin=OpenPin(record=record) | ReviewPin(record=record) | DonePin(record=record)):

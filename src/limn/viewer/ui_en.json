@@ -271,6 +271,7 @@
  "reason:unsafe_cache": "The comparison cache path is not valid.",
  "reason:unsafe_snapshot": "The copy has a path that isn't allowed (a symlink, a submodule or a path outside).",
  "reason:verdict_conflict": "A verdict pin can't also be a question or a suggested edit.",
+ "reason:verdict_fixed": "A verdict pin keeps its verdict and target. Place a new verdict pin or delete this one.",
  "reason:verdict_human": "Verdicts are given by people. Agents don't create verdict pins.",
  "reason:verdict_unknown": "That isn't one of this document's verdict words.",
  "reason:verdict_unsupported": "This document has no verdict words.",

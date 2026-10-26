@@ -29,6 +29,7 @@ PURE_IMPORTS = {
     "limn.pins.needs",  # the slice's own Protocols for the injected build facts; itself checked below
     "limn.pins.element",  # a figure pin's el shape; pure (src/limn/pins/tests/test_element.py)
     "limn.pins.suggestion",  # a suggested edit's shape and state; pure, and itself checked below
+    "limn.pins.verdict",  # a stored verdict and a pin's whole-page target; pure, and itself checked below
     "limn.pins.model",
     "limn.pins.thread",
     "limn.pins.location.position",
@@ -90,6 +91,7 @@ class Purity(unittest.TestCase):
                     "listing/projection.py",
                     "editing/values.py",
                     "suggestion.py",
+                    "verdict.py",
                 )
             ),
             PINS_DIR.parent / "pins/claims/rules.py",

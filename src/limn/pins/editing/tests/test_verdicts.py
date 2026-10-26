@@ -1,9 +1,12 @@
-"""Verdict pins through pin creation (docs/superpowers/specs/2026-10-26-verdict-pins.md §HTTP API, §보안과 기록).
+"""Verdict pins through pin creation and editing (docs/superpowers/specs/2026-10-26-verdict-pins.md §HTTP API,
+§보안과 기록, D3).
 
 First the pure decision on a new pin's verdict (decide_new_verdict: who may make one, the document's words, the word
 asked for, a question or a suggestion beside it - in that order) and the record it writes, then POST /api/pin over a
 real server and state folder: what is stored and answered, that every refusal writes nothing and allocates no pin
-number, that the words are read at the moment of the request, and the authorization matrix of the roles.
+number, that the words are read at the moment of the request, and the authorization matrix of the roles. Then the
+edit rule: a verdict pin's edit changes its note-level fields only (decide_edit, verdict_fixed), checked on the pin
+as the edit would leave it, and line matching still moves a verdict pin.
 
 Run: uv run pytest -q src/limn/pins/editing/tests/test_verdicts.py
 """
@@ -13,26 +16,35 @@ import unittest
 
 from limn.documents.verdicts import verdicts_path
 from limn.pins.editing.fields import parse_verdict
+from limn.pins.editing.input import parse_edit
 from limn.pins.editing.rules import (
     AddRequest,
     Anchoring,
+    ClosedPinReshaped,
+    EditRequest,
     LinePlace,
     NonStringVerdict,
+    PinEdited,
     RegionPlace,
+    RemoveSuggestion,
     VerdictByAgent,
     VerdictConflict,
     VerdictFacts,
+    VerdictFixed,
     VerdictUnknown,
     VerdictUnsupported,
+    decide_edit,
     decide_new_verdict,
     new_line_pin,
     new_region_pin,
 )
+from limn.pins.model import DonePin, OpenPin
 from limn.pins.suggestion import Suggestion
+from limn.web.errors import InputRejected
 
 from helpers import ps, set_config
 from helpers_access import ALICE, BOB, CAROL, DAVE, AccessBase, token_create
-from helpers_pin_rules import AT
+from helpers_pin_rules import ALICE_PERSON, AT
 
 WORDS = {
     "format": "limn-verdicts/1",
@@ -277,3 +289,147 @@ class AuthorMatrix(VerdictHttpBase):
             with self.subTest(who=who):
                 code, d = self.call("POST", "/api/pin", self.body(note="n"), **who)
                 self.assertEqual(code, 200, d)
+
+
+def verdict_pin(**extra):
+    """An open verdict pin (채택) on main.tex lines 4-5 at rev 2, with whatever extra stored fields are given."""
+    record = {"id": 3, "file": "/ms/main.tex", "lo": 4, "hi": 5, "note": "", "rev": 2, "verdict": "채택", **extra}
+    return OpenPin.from_record(record)
+
+
+def decide(pin, request):
+    """decide_edit by Alice at AT with clock 10:00, the pin's file holding 20 lines and the note limit of 4000."""
+    return decide_edit(pin, request, ALICE_PERSON, AT, "10:00", 20, 4000, None)
+
+
+# Each edit field a verdict pin may not take (D3), as a request that sends only it.
+TARGET_FIELDS = {
+    "verdict": EditRequest(base_rev=2, verdict_sent=True),
+    "loc": EditRequest(
+        base_rev=2,
+        place=LinePlace(
+            {"file": "/ms/main.tex", "name": "main.tex", "lo": 8, "hi": 9, "page": 1}, frozenset({"file", "lo", "hi"})
+        ),
+    ),
+    "lo": EditRequest(base_rev=2, lo=3),
+    "hi": EditRequest(base_rev=2, hi=6),
+    "scope": EditRequest(base_rev=2, scope="para"),
+    "kind": EditRequest(base_rev=2, kind="lines"),
+    "kind_req": EditRequest(base_rev=2, kind_req="fix"),
+    "suggest": EditRequest(base_rev=2, suggest=Suggestion("a", "b")),
+    "suggest null": EditRequest(base_rev=2, suggest=RemoveSuggestion()),
+}
+# The note-level fields a verdict pin's edit may change.
+NOTE_FIELDS = {
+    "note": EditRequest(base_rev=2, note="이 그림만"),
+    "note_append": EditRequest(note_append="덧붙임"),
+    "assignee": EditRequest(base_rev=2, assignee="agent"),
+    "mention hints": EditRequest(base_rev=2, note="@bob", hints=("bob@example.com",)),
+}
+
+
+class EditRule(unittest.TestCase):
+    """decide_edit on a verdict pin, and on a pin an edit would give a verdict."""
+
+    def test_every_field_that_fixes_a_verdict_pin_is_refused(self):
+        """The verdict, a re-placement, lo, hi, scope, kind, kind_req and a suggestion set or removed are each
+        VerdictFixed on its own - even kind_req fix, which the pin already is."""
+        for name, request in TARGET_FIELDS.items():
+            with self.subTest(field=name):
+                self.assertEqual(decide(verdict_pin(), request), VerdictFixed())
+
+    def test_note_level_fields_are_edited_as_on_any_pin(self):
+        """The note, an appended note, the assignee and @-tag hints change a verdict pin as they change any pin."""
+        for name, request in NOTE_FIELDS.items():
+            with self.subTest(field=name):
+                self.assertIsInstance(decide(verdict_pin(), request), PinEdited)
+
+    def test_sending_a_verdict_to_a_pin_without_one_is_refused(self):
+        """The pin the edit would leave is a verdict pin, so the verdict it sends is refused like any change of one."""
+        plain = OpenPin.from_record({"id": 3, "file": "/ms/main.tex", "lo": 4, "hi": 5, "note": "n", "rev": 2})
+        self.assertEqual(decide(plain, EditRequest(base_rev=2, verdict_sent=True)), VerdictFixed())
+        self.assertIsInstance(decide(plain, TARGET_FIELDS["loc"]), PinEdited)
+
+    def test_a_stored_value_that_is_no_verdict_leaves_an_ordinary_pin(self):
+        """A stored verdict that is not a key-shaped string is not promoted: the pin is edited like any other."""
+        for stored in (7, "", "a|b", "x" * 17, None, ["채택"]):
+            with self.subTest(stored=stored):
+                self.assertIsInstance(decide(verdict_pin(verdict=stored), TARGET_FIELDS["loc"]), PinEdited)
+
+    def test_the_rule_comes_before_the_closed_and_stale_checks(self):
+        """A closed verdict pin's re-placement and a stale one are VerdictFixed; its note still changes."""
+        done = DonePin.from_record({**verdict_pin().record, "done": True})
+        self.assertEqual(decide(done, TARGET_FIELDS["loc"]), VerdictFixed())
+        self.assertIsInstance(decide(done, NOTE_FIELDS["note"]), PinEdited)
+        plain_done = DonePin.from_record({"id": 3, "file": "/ms/main.tex", "lo": 4, "hi": 5, "rev": 2, "done": True})
+        self.assertIsInstance(decide(plain_done, TARGET_FIELDS["loc"]), ClosedPinReshaped)
+        self.assertEqual(decide(verdict_pin(), EditRequest(base_rev=9, lo=3)), VerdictFixed())
+
+
+class EditBody(unittest.TestCase):
+    """parse_edit records a sent verdict, with any value, as something the edit asks to change."""
+
+    def test_a_verdict_key_counts_as_a_change_whatever_its_value(self):
+        """{verdict, base_rev} is not nothing_to_change; null counts too. Without the key the flag is off."""
+        for value in ("채택", None, 3):
+            with self.subTest(value=value):
+                body = parse_edit({"verdict": value, "base_rev": 0}, ())
+                self.assertNotIsInstance(body, InputRejected)
+                self.assertTrue(body.request.verdict_sent)
+        self.assertFalse(parse_edit({"note": "n", "base_rev": 0}, ()).request.verdict_sent)
+
+
+FIXED = {
+    "error": "판정 핀은 판정과 대상을 바꾸지 않습니다 — 새 판정 핀을 찍거나 이 핀을 지웁니다.",
+    "reason": "verdict_fixed",
+}
+
+
+class EditOverHttp(VerdictHttpBase):
+    """POST /api/pins/{id}/edit on verdict pins through the handler; a refusal writes nothing."""
+
+    def setUp(self):
+        """A verdict pin by Bob on main.tex lines 4-5."""
+        super().setUp()
+        code, d = self.call("POST", "/api/pin", self.body(verdict="보류"), headers=BOB)
+        self.assertEqual(code, 200, d)
+        self.pid = d["id"]
+
+    def edit(self, body, **who):
+        """POST the edit of the verdict pin with the pin's current rev."""
+        return self.call("POST", "/api/pins/%d/edit" % self.pid, {**body, "base_rev": self.pin(self.pid)["rev"]}, **who)
+
+    def test_a_person_and_an_agent_edit_the_note(self):
+        """Bob replaces the note, an agent appends to it; the verdict stays."""
+        code, d = self.edit({"note": "이 그림만"}, headers=BOB)
+        self.assertEqual(code, 200, d)
+        code, d = self.edit({"note_append": "확인함"}, token=self.token)
+        self.assertEqual(code, 200, d)
+        self.assertEqual(self.pin(self.pid)["verdict"], "보류")
+        self.assertIn("확인함", self.pin(self.pid)["note"])
+
+    def test_moving_or_retyping_a_verdict_pin_is_refused_for_everyone(self):
+        """A re-placement, a range, kind_req or a new verdict is 400 verdict_fixed for a person and an agent alike."""
+        loc = {"file": str(self.main), "lo": 8, "hi": 9, "page": 1}
+        for body in ({"loc": loc}, {"lo": 8, "hi": 9}, {"kind_req": "question"}, {"verdict": "채택"}):
+            for who in (dict(headers=BOB), dict(token=self.token)):
+                with self.subTest(body=body, who=who):
+                    before = self.stored_bytes()
+                    self.assertEqual(self.edit(body, **who), (400, FIXED))
+                    self.assertEqual(self.stored_bytes(), before)
+
+    def test_a_verdict_sent_to_an_ordinary_pin_is_refused(self):
+        """An edit cannot turn a pin into a verdict pin."""
+        code, d = self.call("POST", "/api/pin", self.body(note="n"), headers=BOB)
+        before = self.stored_bytes()
+        got = self.call("POST", "/api/pins/%d/edit" % d["id"], {"verdict": "채택", "base_rev": 0}, headers=BOB)
+        self.assertEqual(got, (400, FIXED))
+        self.assertEqual(self.stored_bytes(), before)
+
+    def test_line_matching_moves_a_verdict_pin(self):
+        """Lines inserted above a verdict pin move it as they move any pin: re-sync is not an edit."""
+        text = self.main.read_text(encoding="utf-8")
+        self.main.write_text("% one\n% two\n" + text, encoding="utf-8")
+        moved = self.pin(self.pid)
+        self.assertEqual((moved["lo"], moved["hi"]), (6, 7))
+        self.assertEqual(moved["verdict"], "보류")

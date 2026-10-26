@@ -22,6 +22,7 @@ from limn.pins.location.mapping import VIAS
 from limn.pins.model import Actor, DonePin, KindReq, LineSpan, OpenPin, Pin, Record, ReviewPin, is_kind_req
 from limn.pins.suggestion import Suggestion, lines_text
 from limn.pins.thread import PinT, author, rev_after, signature, thread_message, with_entry
+from limn.pins.verdict import verdict_of
 from limn.platform.values import is_finite_num, is_int
 
 # A line re-placement replaces these fields as a whole; unnamed fields are dropped (a figure pin's el too).
@@ -254,6 +255,7 @@ class EditRequest:
     pin; lo/hi move a line pin's range without re-placing it. kind_req and assignee are note-level and may change on
     a closed pin. suggest sets, replaces or removes the pin's suggested edit (docs/adr/0020-suggested-edit-pins.md) and
     is not note-level. base_rev is the rev the editor loaded; only a note_append without a suggest may leave it out.
+    verdict_sent says the body named `verdict` at all (any value, null too): no edit sets or changes a verdict.
     """
 
     base_rev: int | None = None
@@ -268,11 +270,14 @@ class EditRequest:
     assignee: str | None = None
     hints: tuple[str, ...] = ()
     suggest: SuggestChange | None = None
+    verdict_sent: bool = False
 
     def __post_init__(self) -> None:
         """Reject locally invalid edit fields even when a caller bypasses the HTTP parser."""
         if self.suggest is not None and not isinstance(self.suggest, (Suggestion, RemoveSuggestion)):
             raise ValueError("suggest must set or remove a suggested edit")
+        if not isinstance(self.verdict_sent, bool):
+            raise ValueError("verdict_sent must be a boolean")
         if self.base_rev is not None and not is_int(self.base_rev):
             raise ValueError("base_rev must be an integer")
         if self.note is not None and (not isinstance(self.note, str) or len(self.note) > NOTE_MAX):
@@ -306,6 +311,12 @@ class EditRequest:
             or self.kind is not None
         )
 
+    def moves_verdict(self) -> bool:
+        """Does the edit change what a verdict pin fixed when it was made - its verdict, where it points (place, lines,
+        scope, kind), what it asks (kind_req) or its suggested edit? A verdict pin refuses that (VerdictFixed); its
+        note, note_append, assignee and @-tag hints remain editable."""
+        return self.verdict_sent or self.reshapes() or self.kind_req is not None or self.suggest is not None
+
     def sets_lines(self) -> bool:
         """Does the edit move the range by lo/hi alone? Then the new lines must fit the pin's file, which the shell counts."""
         return self.place is None and (self.lo is not None or self.hi is not None)
@@ -322,6 +333,13 @@ class ClosedPinReshaped:
     pin goes into the 409 body."""
 
     pin: ReviewPin | DonePin
+
+
+@dataclass(frozen=True)
+class VerdictFixed:
+    """The edit would change what a verdict pin fixed when it was made - its verdict, its place, range, scope, kind,
+    kind_req or suggestion - or would give a pin a verdict (400 verdict_fixed). A person places a new verdict pin, or
+    drops this one, instead."""
 
 
 @dataclass(frozen=True)
@@ -445,7 +463,14 @@ SuggestRefusal: TypeAlias = SuggestUnsupported | SuggestRangeTooLong | SuggestTe
 # parsed already).
 AddRefusal: TypeAlias = SuggestRefusal | SuggestBaseChanged | VerdictRefusal
 EditRefusal: TypeAlias = (
-    ClosedPinReshaped | StaleEdit | NoteTooLong | PinOutsideTree | RangeOutsideFile | SuggestRefusal | EditBaseChanged
+    VerdictFixed
+    | ClosedPinReshaped
+    | StaleEdit
+    | NoteTooLong
+    | PinOutsideTree
+    | RangeOutsideFile
+    | SuggestRefusal
+    | EditBaseChanged
 )
 
 
@@ -528,9 +553,11 @@ def decide_edit(
 ) -> PinEdited | EditRefusal:
     """What an edit does to this pin, or why it is refused - checked in this order, before anything changes.
 
-    A closed pin refuses a reshaping edit and any suggestion change; a base_rev other than the pin's rev is stale; a
-    note_append is merged under the note (or under the note this request replaces it with) after a "(추가 HH:MM)"
-    stamp - clock is HH:MM - and refused if the result exceeds note_max. A lo/hi edit needs line_count, the line count
+    First the pin as the edit would leave it: if it would be a verdict pin - it carries a verdict now (verdict_of) or
+    the edit sends one - the edit may not change what it fixed (EditRequest.moves_verdict; a sent verdict always
+    does): VerdictFixed. Then a closed pin refuses a reshaping edit and any suggestion change; a base_rev other than
+    the pin's rev is stale; a note_append is merged under the note (or under the note this request replaces it with)
+    after a "(추가 HH:MM)" stamp - clock is HH:MM - and refused if the result exceeds note_max. A lo/hi edit needs line_count, the line count
     of the pin's file (None when the file is outside the manuscript tree), and a pin placed on lines (core.place a
     LineSpan): the range must lie in 1..max(line_count, 1). The range counts as changed when it differs from the
     stored one or the pin had lost its place (core.stale). Last, a suggestion the edit sets needs suggest_facts (the
@@ -538,6 +565,9 @@ def decide_edit(
     span after this edit (check_suggestion), refused when that file is outside the tree, and its base must be what
     those lines read now (EditBaseChanged otherwise). Removing a suggestion is always accepted on an open pin.
     """
+    verdict_pin_after = verdict_of(pin.record) is not None or request.verdict_sent
+    if verdict_pin_after and request.moves_verdict():
+        return VerdictFixed()
     if (request.reshapes() or request.suggest is not None) and isinstance(pin, (ReviewPin, DonePin)):
         return ClosedPinReshaped(pin)
     if request.base_rev is not None and (pin.core.rev or 0) != request.base_rev:
