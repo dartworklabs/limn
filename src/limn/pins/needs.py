@@ -216,7 +216,7 @@ FollowElement: TypeAlias = Callable[[str, int, ElementFrac], FollowedElement]
 
 
 class BuildAnswers(Protocol):
-    """The six questions pins asks the owner of builds. Each answers a completed fact; none hands out a map, a
+    """The seven questions pins asks the owner of builds. Each answers a completed fact; none hands out a map, a
     history entry or a marker path, and none writes."""
 
     @property
@@ -249,4 +249,11 @@ class BuildAnswers(Protocol):
     @property
     def document_facts(self) -> Callable[[Doc, Path, Path, int], DocumentFacts]:
         """The request-parsing facts of a document, given the manuscript root, the state folder and the dpi."""
+        ...
+
+    @property
+    def page_root(self) -> Callable[[Doc, str, int, str], bool]:
+        """Whether an element id is the root - the figure - of a page on a build's map, given the figure document,
+        the build's name, the page (1-based) and the id; False when that build's map cannot say so (none, unreadable,
+        no such page). What a whole-figure verdict pin is checked against."""
         ...

@@ -444,8 +444,15 @@ class VerdictConflict:
     one request to act on its target, and mixing in a question or a replacement text makes it two."""
 
 
+@dataclass(frozen=True)
+class VerdictPageTarget:
+    """A figure document's verdict pin names the whole figure of its page (el.path == [el.id]), but the map of the
+    build it was made on does not show that element as the root of that page, or cannot be read (400
+    verdict_page_target). The request's el is the request's own word; '(쪽 전체)' in pins.md must be true."""
+
+
 # Why a new pin's verdict is refused, in the order decide_new_verdict checks them.
-VerdictRefusal: TypeAlias = VerdictByAgent | VerdictUnsupported | VerdictUnknown | VerdictConflict
+VerdictRefusal: TypeAlias = VerdictByAgent | VerdictUnsupported | VerdictUnknown | VerdictConflict | VerdictPageTarget
 
 
 @dataclass(frozen=True)
@@ -793,19 +800,23 @@ class AddRequest:
 @dataclass(frozen=True)
 class VerdictFacts:
     """What the shell read for a new pin that asks for a verdict, inside its store transaction: whether the request's
-    principal may make one (limn.security.access.Principal.authors_verdicts) and the keys the pin's document declares
-    now (limn.pins.needs.VerdictKeys - () without a usable word file)."""
+    principal may make one (limn.security.access.Principal.authors_verdicts), the keys the pin's document declares
+    now (limn.pins.needs.VerdictKeys - () without a usable word file), and whether its page target holds: False only
+    when the pin names a figure document page's whole figure (el.path == [el.id]) that the map of the pin's build does
+    not confirm as that page's root (limn.pins.needs.BuildAnswers.page_root). Every other pin's target holds."""
 
     author: bool
     keys: tuple[str, ...]
+    page_target_holds: bool = True
 
 
 def decide_new_verdict(asked: AskedVerdict, request: AddRequest, facts: VerdictFacts) -> str | VerdictRefusal:
     """The verdict a new pin stores - the key asked for, as the word file declares it - or why the pin is refused,
     checked in this order: an agent may not make one (VerdictByAgent); the document must declare words
-    (VerdictUnsupported); the verdict must be a string that is one of them (VerdictUnknown, with the keys); and the
-    pin may not be a question or carry a suggested edit (VerdictConflict). A request with a suggestion therefore always
-    gets a refusal here, so its suggestion is never decided or written."""
+    (VerdictUnsupported); the verdict must be a string that is one of them (VerdictUnknown, with the keys); the pin
+    may not be a question or carry a suggested edit (VerdictConflict); and a whole figure it names must be its page's
+    root on its build's map (VerdictPageTarget). A request with a suggestion therefore always gets a refusal here, so
+    its suggestion is never decided or written."""
     if not facts.author:
         return VerdictByAgent()
     if not facts.keys:
@@ -814,6 +825,8 @@ def decide_new_verdict(asked: AskedVerdict, request: AddRequest, facts: VerdictF
         return VerdictUnknown(facts.keys)
     if request.kind_req == "question" or request.suggest is not None:
         return VerdictConflict()
+    if not facts.page_target_holds:
+        return VerdictPageTarget()
     return asked
 
 

@@ -36,6 +36,7 @@ from limn.pins.location.mapping import anchor_of, comment_marker
 from limn.pins.model import DonePin, OpenPin, Pin, PinNotFound, Record, Region, ReviewPin
 from limn.pins.store import pin_index
 from limn.pins.suggestion import Suggestion
+from limn.pins.verdict import whole_figure
 from limn.platform.files import tex_lines
 from limn.runtime.documents import Doc, doc_by_key, document_authority_target
 from limn.security.access import PostAuthority, require_authority
@@ -59,10 +60,12 @@ def add_pin(ctx: PinContext, D: Doc, request: AddRequest, actor: PostAuthority) 
     allocated and no transaction runs.
 
     A request with a verdict is decided inside the transaction, before an id is allocated, against the keys D declares
-    at that moment (ctx.verdict_keys) and whether the principal may make one (Principal.authors_verdicts):
-    limn.pins.editing.rules.decide_new_verdict. Its suggestion, if it sent one, is never decided - the verdict
-    decision refuses every such request - so the verdict's refusals come in their own order. A refusal writes
-    nothing of its own (a re-sync of the stored pins may still be written, as for any transaction)."""
+    at that moment (ctx.verdict_keys), whether the principal may make one (Principal.authors_verdicts) and - for a
+    figure document's pin that names its page's whole figure (el.path == [el.id]) - whether the map of the pin's build
+    (the pdf_build it sent, else the build on screen) has that element as the root of the pin's page
+    (ctx.builds.page_root): limn.pins.editing.rules.decide_new_verdict. Its suggestion, if it sent one, is never
+    decided - the verdict decision refuses every such request - so the verdict's refusals come in their own order. A
+    refusal writes nothing of its own (a re-sync of the stored pins may still be written, as for any transaction)."""
     require_authority(actor, ctx.authority_scope, "add", document_authority_target(D))
     place = request.place
     # Manuscript text is read before taking the pin lock, as it was for line pins before this shared transaction.
@@ -80,7 +83,8 @@ def add_pin(ctx: PinContext, D: Doc, request: AddRequest, actor: PostAuthority) 
         notices in the same transaction."""
         verdict = None
         if request.verdict is not None:
-            judged = decide_new_verdict(request.verdict, request, VerdictFacts(author, ctx.verdict_keys(D)))
+            facts = VerdictFacts(author, ctx.verdict_keys(D), _page_target_holds(ctx, D, place))
+            judged = decide_new_verdict(request.verdict, request, facts)
             if not isinstance(judged, str):
                 return judged, False
             verdict = judged
@@ -119,6 +123,19 @@ def add_pin(ctx: PinContext, D: Doc, request: AddRequest, actor: PostAuthority) 
         out = ctx.store.transact(fn)[1]
         ctx.emit_events(evs)
     return out
+
+
+def _page_target_holds(ctx: PinContext, D: Doc, place: LinePlace | RegionPlace) -> bool:
+    """Whether a new pin's page target holds (limn.pins.editing.rules.VerdictFacts.page_target_holds): False only for
+    a figure document's pin whose el names its page's whole figure (limn.pins.verdict.whole_figure) when the map of
+    the pin's build - the pdf_build the request sent, else the build on screen - does not have that element as the
+    root of the pin's page. Asks the build owner (ctx.builds.page_root) only then; reads no file itself."""
+    fields = place.fields
+    figure = whole_figure(fields) if D.has_element_map else None
+    if figure is None:
+        return True
+    build = fields.get("pdf_build") or ctx.builds.heading(D).build
+    return ctx.builds.page_root(D, build, fields["page"], figure)
 
 
 def edit_pin(

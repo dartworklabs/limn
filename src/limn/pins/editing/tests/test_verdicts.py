@@ -4,8 +4,8 @@
 First the pure decision on a new pin's verdict (decide_new_verdict: who may make one, the document's words, the word
 asked for, a question or a suggestion beside it - in that order) and the record it writes, then POST /api/pin over a
 real server and state folder: what is stored and answered, that every refusal writes nothing and allocates no pin
-number, that the words are read at the moment of the request, and the authorization matrix of the roles. Then the
-edit rule: a verdict pin's edit changes its note-level fields only (decide_edit, verdict_fixed), checked on the pin
+number, that the words are read at the moment of the request, the authorization matrix of the roles, and the root
+check of a whole-figure verdict against its build's map (verdict_page_target). Then the edit rule: a verdict pin's edit changes its note-level fields only (decide_edit, verdict_fixed), checked on the pin
 as the edit would leave it, and line matching still moves a verdict pin.
 
 Run: uv run pytest -q src/limn/pins/editing/tests/test_verdicts.py
@@ -31,6 +31,7 @@ from limn.pins.editing.rules import (
     VerdictConflict,
     VerdictFacts,
     VerdictFixed,
+    VerdictPageTarget,
     VerdictUnknown,
     VerdictUnsupported,
     decide_edit,
@@ -40,10 +41,12 @@ from limn.pins.editing.rules import (
 )
 from limn.pins.model import DonePin, OpenPin
 from limn.pins.suggestion import Suggestion
+from limn.runtime.documents import Doc
 from limn.web.errors import InputRejected
 
 from helpers import ps, set_config
 from helpers_access import ALICE, BOB, CAROL, DAVE, AccessBase, token_create
+from helpers_figure import BUILD1, BUILD2, SCRIPT, figure_doc, viewer_map, write_build
 from helpers_pin_rules import ALICE_PERSON, AT
 
 WORDS = {
@@ -105,6 +108,15 @@ class DecideNewVerdict(unittest.TestCase):
         self.assertEqual(decide_new_verdict("x", question, VerdictFacts(True, ())), VerdictUnsupported())
         self.assertEqual(decide_new_verdict("x", question, HUMAN), VerdictUnknown(KEYS))
         self.assertEqual(decide_new_verdict("채택", question, HUMAN), VerdictConflict())
+
+    def test_an_unconfirmed_whole_figure_is_refused_last(self):
+        """A whole figure the map does not confirm is VerdictPageTarget - after every other check."""
+        unconfirmed = VerdictFacts(True, KEYS, page_target_holds=False)
+        self.assertEqual(decide_new_verdict("채택", AddRequest(LINE, ""), unconfirmed), VerdictPageTarget())
+        self.assertEqual(decide_new_verdict("x", AddRequest(LINE, ""), unconfirmed), VerdictUnknown(KEYS))
+        self.assertEqual(
+            decide_new_verdict("채택", AddRequest(LINE, "", kind_req="question"), unconfirmed), VerdictConflict()
+        )
 
     def test_a_request_with_a_suggestion_is_always_refused(self):
         """Whatever the facts, a verdict asked for beside a suggestion never gets a key to store, so the suggestion
@@ -174,6 +186,10 @@ HUMAN_ONLY = {"error": "판정은 사람이 정합니다 — 에이전트는 판
 UNSUPPORTED = {"error": "이 문서에는 판정 낱말이 없습니다.", "reason": "verdict_unsupported"}
 UNKNOWN = {"error": "이 문서의 판정 낱말이 아닙니다.", "reason": "verdict_unknown", "choices": list(KEYS)}
 CONFLICT = {"error": "판정 핀은 질문·제안 수정과 함께 쓰지 않습니다.", "reason": "verdict_conflict"}
+PAGE_TARGET = {
+    "error": "그 쪽의 그림을 확인하지 못했습니다 — 그림 위를 끌어 고른 뒤 판정합니다.",
+    "reason": "verdict_page_target",
+}
 
 
 class CreateOverHttp(VerdictHttpBase):
@@ -289,6 +305,82 @@ class AuthorMatrix(VerdictHttpBase):
             with self.subTest(who=who):
                 code, d = self.call("POST", "/api/pin", self.body(note="n"), **who)
                 self.assertEqual(code, 200, d)
+
+
+class RootCheck(VerdictHttpBase):
+    """A figure document's verdict pin that names its page's whole figure (el.path == [el.id]) is checked against the
+    map of its build (pdf_build, else the build on screen): the figure must be that page's root."""
+
+    def setUp(self):
+        """LaTeX document ms and figure document fig, fig with the word file; build BUILD2 (no map) and then BUILD1
+        (the two-page viewer_map(): figure B2 on page 1, B3 on page 2) on screen."""
+        super().setUp()
+        self.fig = figure_doc(self.src, ps.APP.C.paths)
+        ps.APP.set_docs([Doc("ms", "본문", "tex", self.src, self.main, paths=ps.APP.C.paths), self.fig])
+        self.addCleanup(ps.APP.set_docs, None)
+        write_build(self.fig, BUILD2, None)
+        write_build(self.fig, BUILD1, viewer_map(), pages=2)
+        verdicts_path(self.fig).write_text(json.dumps(WORDS, ensure_ascii=False), encoding="utf-8")
+
+    def line(self, el, page=1, **extra):
+        """A verdict pin body on the drawing script's lines 12-140 at the figure rung, naming el."""
+        body = {"doc": "fig", "file": SCRIPT, "lo": 12, "hi": 140, "page": page, "scope": "fig", "el": el}
+        return {"verdict": "채택", "note": "", "pdf_build": BUILD1, **body, **extra}
+
+    def region(self, el, page=1, **extra):
+        """A verdict region pin body over the whole page, naming el."""
+        return {
+            "doc": "fig",
+            "page": page,
+            "frac": [0, 0, 1, 1],
+            "el": el,
+            "verdict": "채택",
+            "pdf_build": BUILD1,
+            **extra,
+        }
+
+    def test_the_figure_of_the_page_is_confirmed(self):
+        """B2 on page 1 and B3 on page 2 of BUILD1 are their pages' roots: stored, as a line pin and as a region pin,
+        with or without pdf_build (the build on screen is BUILD1)."""
+        bodies = (
+            self.line({"id": "B2", "path": ["B2"]}),
+            self.line({"id": "B2", "path": ["B2"]}, pdf_build=None),
+            self.region({"id": "B3", "path": ["B3"]}, page=2),
+        )
+        for body in bodies:
+            with self.subTest(body=body):
+                code, d = self.call("POST", "/api/pin", body, headers=BOB)
+                self.assertEqual(code, 200, d)
+                self.assertEqual(self.pin(d["id"])["verdict"], "채택")
+
+    def test_an_element_that_is_not_the_root_of_that_page_is_refused(self):
+        """A panel claiming to be a whole figure, the figure of another page, and a figure on a build without a map are
+        verdict_page_target, and nothing is written."""
+        for body in (
+            self.line({"id": "B2/calendar", "path": ["B2/calendar"]}),
+            self.line({"id": "B3", "path": ["B3"]}),
+            self.region({"id": "B2", "path": ["B2"]}, page=2),
+            self.line({"id": "B2", "path": ["B2"]}, pdf_build=BUILD2),
+        ):
+            with self.subTest(body=body):
+                self.refused(400, PAGE_TARGET, body, headers=BOB)
+
+    def test_only_a_verdict_on_a_whole_figure_is_checked(self):
+        """A verdict on a panel (its path holds its ancestors) is not a page target; a pin without a verdict is never
+        checked - both are stored as before."""
+        panel = {"id": "B2/calendar", "path": ["B2", "B2/calendar"]}
+        not_root = {"id": "B3", "path": ["B3"]}
+        for body in (self.line(panel), self.line(not_root, verdict=None)):
+            with self.subTest(body=body):
+                code, d = self.call("POST", "/api/pin", body, headers=BOB)
+                self.assertEqual(code, 200, d)
+
+    def test_the_root_check_comes_after_every_other_refusal(self):
+        """An agent, an unknown word and a question are told so before an unconfirmed figure is."""
+        not_root = {"id": "B3", "path": ["B3"]}
+        self.refused(403, HUMAN_ONLY, self.line(not_root), token=self.token)
+        self.refused(400, UNKNOWN, self.line(not_root, verdict="x"), headers=BOB)
+        self.refused(400, CONFLICT, self.line(not_root, kind_req="question"), headers=BOB)
 
 
 def verdict_pin(**extra):
