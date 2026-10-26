@@ -51,10 +51,11 @@ from helpers_access import ALICE, BOB, CAROL, DAVE, AccessBase, token_create
 from helpers_figure import BUILD1, BUILD2, SCRIPT, figure_doc, viewer_map, write_build
 from helpers_pin_rules import ALICE_PERSON, AT
 
+# The word file the HTTP tests write: 채택's button reads 본문으로, a label - what a pin stores is always the key.
 WORDS = {
     "format": "limn-verdicts/1",
     "page": True,
-    "verdicts": [{"key": "채택"}, {"key": "보류"}, {"key": "삭제", "confirm": True}],
+    "verdicts": [{"key": "채택", "label": "본문으로"}, {"key": "보류"}, {"key": "삭제", "confirm": True}],
 }
 KEYS = ("채택", "보류", "삭제")
 LINE = LinePlace(
@@ -198,8 +199,8 @@ class CreateOverHttp(VerdictHttpBase):
     """POST /api/pin with a verdict, by people allowed to make one."""
 
     def test_a_person_makes_a_verdict_pin_and_every_read_shows_it_as_stored(self):
-        """Bob's verdict pin is stored with the key last; GET /api/pins and /api/pins/N carry it as stored, with no
-        computed field."""
+        """Bob's verdict pin is stored with the key last - 채택, not its label 본문으로; GET /api/pins and /api/pins/N
+        carry it as stored, with no computed field."""
         code, d = self.call("POST", "/api/pin", self.body(verdict="채택"), headers=BOB)
         self.assertEqual(code, 200, d)
         stored = self.pin(d["id"])
@@ -236,8 +237,9 @@ class CreateOverHttp(VerdictHttpBase):
         self.refused(400, UNSUPPORTED, self.body(verdict="채택"), headers=BOB)
 
     def test_a_word_the_document_does_not_declare_is_refused_with_its_choices(self):
-        """A misspelt word, a label instead of a key, or a non-string is verdict_unknown with the keys in file order."""
-        for verdict in ("채텍", "", 3, ["채택"]):
+        """A misspelt word, a label instead of a key (본문으로, the button name of 채택), or a non-string is
+        verdict_unknown with the keys - never a label - in file order, and nothing is written."""
+        for verdict in ("채텍", "본문으로", "", 3, ["채택"]):
             with self.subTest(verdict=verdict):
                 self.refused(400, UNKNOWN, self.body(verdict=verdict), headers=BOB)
 
