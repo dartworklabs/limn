@@ -5,7 +5,8 @@ First the pure decision on a new pin's verdict (decide_new_verdict: who may make
 asked for, a question or a suggestion beside it - in that order) and the record it writes, then POST /api/pin over a
 real server and state folder: what is stored and answered, that every refusal writes nothing and allocates no pin
 number, that the words are read at the moment of the request, the authorization matrix of the roles, and the root
-check of a whole-figure verdict against its build's map (verdict_page_target). Then the edit rule: a verdict pin's edit changes its note-level fields only (decide_edit, verdict_fixed), checked on the pin
+check of a whole-figure verdict against its build's map (verdict_page_target) - the build the pin stores, even when
+another is published meanwhile (over a real store, with a build owner that changes its answer). Then the edit rule: a verdict pin's edit changes its note-level fields only (decide_edit, verdict_fixed), checked on the pin
 as the edit would leave it, and line matching still moves a verdict pin.
 
 Run: uv run pytest -q src/limn/pins/editing/tests/test_verdicts.py
@@ -13,8 +14,10 @@ Run: uv run pytest -q src/limn/pins/editing/tests/test_verdicts.py
 
 import json
 import unittest
+from dataclasses import dataclass, replace
 
 from limn.documents.verdicts import verdicts_path
+from limn.pins.editing import service as add_edit
 from limn.pins.editing.fields import parse_verdict
 from limn.pins.editing.input import parse_edit, parse_edit_place
 from limn.pins.editing.rules import (
@@ -47,9 +50,11 @@ from limn.runtime.documents import Doc
 from limn.web.errors import InputRejected
 
 from helpers import MINI_PDF, ps, set_config
-from helpers_access import ALICE, BOB, CAROL, DAVE, AccessBase, token_create
+from helpers_access import ALICE, BOB, BOB_ACTOR, CAROL, DAVE, AccessBase, token_create
+from helpers_authority import post_authority
 from helpers_figure import BUILD1, BUILD2, SCRIPT, figure_doc, viewer_map, write_build
 from helpers_pin_rules import ALICE_PERSON, AT
+from helpers_pin_service import ServiceBase
 
 # The word file the HTTP tests write: 채택's button reads 본문으로, a label - what a pin stores is always the key.
 WORDS = {
@@ -385,6 +390,59 @@ class RootCheck(VerdictHttpBase):
         self.refused(403, HUMAN_ONLY, self.line(not_root), token=self.token)
         self.refused(400, UNKNOWN, self.line(not_root, verdict="x"), headers=BOB)
         self.refused(400, CONFLICT, self.line(not_root, kind_req="question"), headers=BOB)
+
+
+@dataclass(frozen=True)
+class OnScreen:
+    """The build a fake build owner shows on screen (limn.pins.needs.HeadingStamps): its name, no stamps."""
+
+    build: str
+    head: str | None = None
+    built_at: str | None = None
+
+
+class RootCheckedOnTheStoredBuild(ServiceBase):
+    """add_pin for a whole-figure verdict pin that sends no pdf_build checks the root on the build it stores, even
+    when the build owner publishes another build while the pin is being made."""
+
+    def test_a_build_published_meanwhile_is_not_stored_unchecked(self):
+        """The build owner shows BUILD1, whose map has B2 as page 1's root, at its first answer and BUILD2, which has
+        no map, at every later one. The pin is made, and the pdf_build it stores is a build its figure was confirmed
+        on - never BUILD2."""
+        shown = iter([BUILD1])
+        confirmed: list[str] = []
+
+        def heading(doc):
+            """BUILD1 the first time it is asked, BUILD2 from then on."""
+            return OnScreen(next(shown, BUILD2))
+
+        def page_root(doc, build, page, element):
+            """Only BUILD1's map has B2 as page 1's root; every build confirmed is recorded."""
+            holds = (build, page, element) == (BUILD1, 1, "B2")
+            if holds:
+                confirmed.append(build)
+            return holds
+
+        builds = replace(self.ctx.builds, heading=heading, page_root=page_root)
+        self.ctx = self.context(builds=builds, verdict_keys=lambda doc: KEYS)
+        fig = Doc("fig", "그림", "figure", self.ms, self.ms / "figures.limnmap.json", paths=self.doc.paths)
+        place = RegionPlace(
+            {
+                "pdf": str(self.ms / "figures.pdf"),
+                "name": "figures.pdf",
+                "kind": "region",
+                "page": 1,
+                "frac": [0, 0, 1, 1],
+                "el": {"id": "B2", "path": ["B2"]},
+            }
+        )
+        made = add_edit.add_pin(
+            self.ctx, fig, AddRequest(place, "", verdict="채택"), post_authority(self.ctx.store, BOB_ACTOR, "add", fig)
+        )
+        self.assertIsInstance(made, OpenPin)
+        stored = self.pin(made.core.id)
+        self.assertEqual(stored["verdict"], "채택")
+        self.assertIn(stored["pdf_build"], confirmed)
 
 
 def verdict_pin(**extra):
