@@ -1,11 +1,11 @@
-"""A document's verdict word file (limn-verdicts/1): its parse, where it is and how a run reads it
-(docs/superpowers/specs/2026-10-26-verdict-pins.md §판정 낱말 파일).
+"""A document's verdict word file (limn-verdicts/1): its parse, where it is, how a run reads it, and what /api/docs and
+/api/meta report about it (docs/superpowers/specs/2026-10-26-verdict-pins.md §판정 낱말 파일, §HTTP API).
 
 The parse is pure and total, so it is checked on its own: every rule of the format, the size checked before
 decoding, repeated names refused, unknown names ignored - and, generated, that any bytes give words or a reason
 code and that a well-formed file reads back as written. The reader is checked on real files in a temporary
 manuscript tree: a missing file, an unusable one (a link out of the tree, a folder, an unreadable file, a broken
-or too large one) and one warning per broken version.
+or too large one) and one warning per broken version. The HTTP answers are checked through the real handler.
 
 Run: uv run pytest -q src/limn/documents/tests/test_verdicts.py
 """
@@ -31,6 +31,10 @@ from limn.documents.verdicts import (
     verdicts_path,
 )
 from limn.runtime.documents import Doc, RunPaths
+
+from helpers import MINI_PDF, ps
+from helpers_access import ALICE, AccessBase
+from helpers_figure import figure_doc
 
 EXAMPLE = {
     "format": "limn-verdicts/1",
@@ -360,3 +364,79 @@ class Reader(unittest.TestCase):
         self.assertEqual(self.reader.read(self.doc), VerdictsUnusable("unreadable"))
         self.assertEqual(self.reader.read(self.doc), VerdictsUnusable("unreadable"))
         self.assertEqual(len(self.warnings), 1)
+
+
+class DocsAndMeta(AccessBase):
+    """GET /api/docs and GET /api/meta through the real handler: verdicts, verdicts_error, and where they are absent."""
+
+    def setUp(self):
+        """AccessBase's one LaTeX document (main) plus figure document fig and view-only PDF rv, each with a word file
+        that asks for page verdicts."""
+        super().setUp()
+        (self.src / "rv").mkdir()
+        (self.src / "rv" / "review.pdf").write_bytes(MINI_PDF)
+        self.fig = figure_doc(self.src, ps.APP.C.paths)
+        self.rv = Doc("rv", "답변", "pdf", self.src / "rv", self.src / "rv" / "review.pdf", paths=ps.APP.C.paths)
+        self.ms = Doc("ms", "본문", "tex", self.src, self.main, paths=ps.APP.C.paths)
+        ps.APP.set_docs([self.ms, self.fig, self.rv])
+        self.addCleanup(ps.APP.set_docs, None)
+        for doc in (self.ms, self.fig, self.rv):
+            verdicts_path(doc).write_bytes(raw(EXAMPLE))
+
+    def choices(self):
+        """The example's choices as the API answers them."""
+        return [
+            {"key": "채택", "label": "채택", "confirm": False},
+            {"key": "보류", "label": "보류", "confirm": False},
+            {"key": "삭제", "label": "삭제", "confirm": True},
+        ]
+
+    def test_docs_entries_end_with_their_verdicts_and_page_follows_the_kind(self):
+        """Each /api/docs entry ends with verdicts after n_open; page is false for the LaTeX document (D6) and true for
+        the figure document and the view-only PDF, whose files ask for it."""
+        code, d = self.call("GET", "/api/docs", headers=ALICE)
+        self.assertEqual(code, 200, d)
+        by_key = {e["key"]: e for e in d["docs"]}
+        for key, page in (("ms", False), ("fig", True), ("rv", True)):
+            with self.subTest(doc=key):
+                entry = by_key[key]
+                self.assertEqual(list(entry)[-2:], ["n_open", "verdicts"])
+                self.assertEqual(entry["verdicts"], {"page": page, "choices": self.choices()})
+
+    def test_full_meta_ends_with_the_documents_verdicts_and_the_light_poll_has_none(self):
+        """The full meta carries the asked document's verdicts after its pin counts (the event cursor still comes last);
+        the light poll and every docs copy carry none."""
+        code, full = self.call("GET", "/api/meta?doc=fig", headers=ALICE)
+        self.assertEqual(code, 200, full)
+        self.assertEqual(list(full)[-3:], ["n_review", "verdicts", "ev_seq"])
+        self.assertEqual(full["verdicts"], {"page": True, "choices": self.choices()})
+        self.assertTrue(all("verdicts" not in e and "verdicts_error" not in e for e in full["docs"]))
+        code, light = self.call("GET", "/api/meta?doc=fig&light=1", headers=ALICE)
+        self.assertEqual(code, 200, light)
+        self.assertNotIn("verdicts", light)
+        self.assertTrue(all("verdicts" not in e and "verdicts_error" not in e for e in light["docs"]))
+
+    def test_an_unusable_file_is_reported_by_its_reason_and_a_missing_one_not_at_all(self):
+        """A broken file gives verdicts_error instead of verdicts; a document without one gives neither."""
+        verdicts_path(self.fig).write_bytes(b"[]")
+        verdicts_path(self.rv).unlink()
+        _, d = self.call("GET", "/api/docs", headers=ALICE)
+        by_key = {e["key"]: e for e in d["docs"]}
+        self.assertEqual(by_key["fig"]["verdicts_error"], "invalid")
+        self.assertNotIn("verdicts", by_key["fig"])
+        self.assertNotIn("verdicts", by_key["rv"])
+        self.assertNotIn("verdicts_error", by_key["rv"])
+        _, meta = self.call("GET", "/api/meta?doc=fig", headers=ALICE)
+        self.assertEqual(meta["verdicts_error"], "invalid")
+        _, meta = self.call("GET", "/api/meta?doc=rv", headers=ALICE)
+        self.assertNotIn("verdicts", meta)
+        self.assertNotIn("verdicts_error", meta)
+
+    def test_a_document_without_a_word_file_answers_as_before(self):
+        """With no word file anywhere, /api/docs entries and the full meta end with the keys they ended with before."""
+        for doc in (self.ms, self.fig, self.rv):
+            verdicts_path(doc).unlink()
+        _, d = self.call("GET", "/api/docs", headers=ALICE)
+        self.assertTrue(all(list(e)[-1] == "n_open" for e in d["docs"]))
+        _, meta = self.call("GET", "/api/meta?doc=ms", headers=ALICE)
+        self.assertEqual(list(meta)[-4:], ["n_open", "n_done", "n_review", "ev_seq"])
