@@ -47,11 +47,11 @@ HTTP 전송 입장을 통과한 API 오류 응답은 `{"error": "<한국어 메�
 | 묶음 | 상태 | 코드 |
 | --- | --- | --- |
 | 요청 경계 | `400`·`403`·`413`·`415` | `transfer_encoding`·`bad_content_length`·`body_truncated`·`body_too_large`·`bad_content_type`·`bad_json`·`bad_query`·`duplicate_header`·`bad_host`·`bad_origin`·`invalid_authority` |
-| 인증·입장·역할 | `401`·`403` | `unauthenticated`·`loopback_agent_off`(루프백 에이전트를 끈 인스턴스에 헤더 없는 로컬 요청)·`headerless`·`bad_bearer`·`bad_token`·`not_member`·`not_allowed`·`viewer_only`·`owner_only`·`confirm_by_human` |
+| 인증·입장·역할 | `401`·`403` | `unauthenticated`·`loopback_agent_off`(루프백 에이전트를 끈 인스턴스에 헤더 없는 로컬 요청)·`headerless`·`bad_bearer`·`bad_token`·`not_member`·`not_allowed`·`viewer_only`·`owner_only`·`confirm_by_human`·`verdict_human`(에이전트가 판정 핀을 만듦) |
 | 경로 | `404` | `not_found`(없는 경로·vendor 파일), `pdf_build_gone`(`?build=` 나 `/pages/<빌드>/` 의 빌드가 없음, pick 의 옛 빌드), `pdf_missing`(`?build=` 없이 지금 빌드의 PDF 가 없음) |
 | 문서 | `400`·`404` | `bad_doc`·`doc_mismatch`·`unknown_doc`·`no_source_lines`(보기 전용 문서나 영역 핀에 줄을 보냄)·`view_only_no_rebuild` |
 | 핀 | `404`·`409` | `pin_not_found`·`not_in_trash`·`pin_exists`, `409` 코드 `done`·`conflict`·`open`·`full`·`claimed`, 제안 수정의 원문 대조 `suggest_base_changed`(`409`, 본문에 `current`) |
-| 핀 입력 | `400` | `not_integer`·`not_number`·`too_small`·`bad_note`·`note_too_long`·`bad_note_append`·`note_append_empty`·`note_append_too_long`·`bad_reply`·`reply_too_long`·`bad_ref`·`ref_too_long`·`bad_changes`·`too_many_changes`·`change_outside_manuscript`·`bad_pin`·`bad_assignee`·`unknown_assignee`·`bad_kind_req`·`bad_kind`·`bad_via`·`bad_scope`·`bad_el`·`bad_suggest`·`suggest_unsupported`·`suggest_too_long`·`suggest_noop`·`bad_quote`·`bad_loc`·`bad_mentions`·`bad_event_cursor`·`bad_reopen`·`bad_review`·`text_required`·`bad_text`·`text_too_long`·`text_empty`·`base_rev_required`·`bad_done_at`·`nothing_to_change`·`unknown_fields`·`confirm_required` |
+| 핀 입력 | `400` | `not_integer`·`not_number`·`too_small`·`bad_note`·`note_too_long`·`bad_note_append`·`note_append_empty`·`note_append_too_long`·`bad_reply`·`reply_too_long`·`bad_ref`·`ref_too_long`·`bad_changes`·`too_many_changes`·`change_outside_manuscript`·`bad_pin`·`bad_assignee`·`unknown_assignee`·`bad_kind_req`·`bad_kind`·`bad_via`·`bad_scope`·`bad_el`·`bad_suggest`·`suggest_unsupported`·`suggest_too_long`·`suggest_noop`·`verdict_unsupported`·`verdict_unknown`(본문에 `choices`)·`verdict_conflict`·`verdict_page_target`·`verdict_fixed`·`bad_quote`·`bad_loc`·`bad_mentions`·`bad_event_cursor`·`bad_reopen`·`bad_review`·`text_required`·`bad_text`·`text_too_long`·`text_empty`·`base_rev_required`·`bad_done_at`·`nothing_to_change`·`unknown_fields`·`confirm_required` |
 | 위치 | `400` | `bad_file`·`file_outside_manuscript`·`file_not_found`·`range_outside_file`·`pin_outside_manuscript`·`bad_page`·`page_out_of_range`·`bad_frac`·`frac_outside_page`·`bad_pdf_build` |
 | pick(`200`) | `200` | `pdf_build_gone`·`generated_file`·`synctex_outside`·`source_unreadable`·`no_source_here` |
 | 변경 보기 | `400`·`404`·`422`·`503` | `bad_commit`·`bad_limit`·`pin_with_base`·`no_history`·`commit_not_recent`·`base_too_old`·`diff_unreadable`·`not_in_repo`·`pin_not_in_doc`·`revision_not_ready`·`revision_pdf_missing`·`base_after_head`·`no_merge_base` |
@@ -129,7 +129,7 @@ curl -s -H "Authorization: Bearer $(cat ~/.config/limn/<인스턴스>.token)" ht
 | 역할 | 누가 이 역할인가 | 허용되는 POST |
 | --- | --- | --- |
 | `viewer` | `role` 이 `viewer` 인 사람, `role` 값을 알 수 없는 사람, 그리고 `people.json` 을 쓸 수 없는 동안 헤더로 들어온 모든 사람 | `/api/pick`, `/api/revision-build` 만(상태를 바꾸지 않는 계산). 그 밖은 모두 `403` |
-| `agent` | 모든 토큰, 헤더 없는 루프백 에이전트, `role` 이 `agent` 인 사람 | `/api/pins/{id}/confirm`, `/api/clear`, `/api/pins/{id}/purge` 를 뺀 전부. 셋은 `403` 이다. 본문에 `review` 없이 닫으면 검토 대기로 가고, 답글은 규칙으로 핀을 다시 열지 않는다(§스레드 (답글)) |
+| `agent` | 모든 토큰, 헤더 없는 루프백 에이전트, `role` 이 `agent` 인 사람 | `/api/pins/{id}/confirm`, `/api/clear`, `/api/pins/{id}/purge` 를 뺀 전부. 셋은 `403` 이다. 판정 핀(`verdict` 를 단 `POST /api/pin`)도 만들지 못한다(`403 verdict_human`). 본문에 `review` 없이 닫으면 검토 대기로 가고, 답글은 규칙으로 핀을 다시 열지 않는다(§스레드 (답글)) |
 | `editor` | `role` 이 없거나 `editor` 인 사람 | `/api/clear` 와 `/api/pins/{id}/purge` 를 뺀 전부(`403`) |
 | `owner` | `role` 이 `owner` 인 사람, `local` 방식의 루프백 소유자 | 전부 |
 
@@ -137,6 +137,7 @@ curl -s -H "Authorization: Bearer $(cat ~/.config/limn/<인스턴스>.token)" ht
 - 알 수 없는 `role` 값을 `viewer` 로 보는 것은 일부러다. 오타 난 역할이 전권이 되지 않고 가장 좁은 권한으로 닫힌다.
 - **`people.json` 을 쓸 수 없으면 닫힌다(fail closed).** 파일은 있는데 읽을 수 없거나(권한), UTF-8 JSON이 아니거나(잘림, 빈 파일, 깨진 JSON), `{"people": [...]}` 모양이 아니면, 그동안 헤더로 들어온 사람은 명단에 있든 없든 모두 `viewer` 이고 `--members-only` 는 `people.json` 으로는 아무도 들이지 않는다. 서버는 그 파일을 다시 쓰지 않고(§사람 목록) stderr에 경고를 한 번 남긴다. 파일이 없을 때(아무도 적히지 않은 새 인스턴스)는 모두 `editor` 다. 전에 읽은 역할을 계속 쓰지 않는 것은 답이 프로세스의 이력에 따라 달라지기 때문이다(재시작하면 바뀐다). 같은 원리로 `tokens.json` 을 못 읽으면 토큰을 하나도 받지 않는다. 토큰과 `local` 방식의 소유자는 이 파일을 읽지 않으므로 그대로다. 파일을 고치면(내용이든 권한이든) 재시작 없이 다음 요청부터 원래 역할이 돌아온다.
 - 역할은 `limn member role` 로 바꾸고, 재시작 없이 다음 요청부터 적용된다. 서버가 사람 항목을 다시 쓸 때도 `role` 은 그대로 둔다.
+- 판정 핀은 `editor`·`owner` 인 사람만 만든다(§판정 핀 (`verdict`)). 역할만이 아니라 사람인지도 본다. 그래서 `role` 이 `agent` 인 사람과 토큰·헤더 없는 루프백 에이전트는 `403 verdict_human` 이고, `local` 방식의 루프백 소유자는 사람이라 만든다. 판단은 `Principal.authors_verdicts` 다.
 - 소유자만 부를 수 있는 HTTP 경로는 둘이다. `POST /api/clear`(0.2.1+, `OWNER_POSTS`)는 모든 핀을 한꺼번에 지우는 유일한 경로라서 확인 본문도 요구한다. `POST /api/pins/{id}/purge`(0.2.2+, `OWNER_POST_RE`)는 휴지통의 핀 하나를 영구 삭제한다(§엔드포인트). 나머지 소유자 동작(멤버, 토큰, 설정)은 CLI와 파일 수준이다(`limn member`, `limn token`).
 
 `/api/meta` 와 `/api/people` 의 `me`, 그리고 `/api/people` 의 각 항목에 `role` 필드가 덧붙는다. `people.json` 에 없는 사람(예: 옛 핀의 작성자)은 `editor` 로 나온다. `people.json` 을 쓸 수 없는 동안은 모두 `viewer` 로 나온다.
@@ -213,10 +214,10 @@ curl -s -H "Authorization: Bearer $(cat ~/.config/limn/<인스턴스>.token)" ht
 | 메서드 | 경로 | 설명 |
 | --- | --- | --- |
 | `GET` | `/api/version` | `{"name":"limn","version":<문자열>}`. `limn serve --version` 과 같은 값이다. 지금 인스턴스가 어느 설치 버전으로 도는지 확인할 때 쓴다. 쓰기 없음 |
-| `GET` | `/api/meta` | `pages`(쪽 목록), `built_at`, `head`(원고 커밋), `main`(최상위 `.tex` 이름. 보기 전용 PDF는 그 PDF 파일 이름, 그림 문서는 지도 파일 이름), `label`·`accent`·`repo`(이 인스턴스의 이름표·강조색·git origin URL, [operations.md](operations.md) §여러 논문 인스턴스를 동시에 띄울 때), `n_open`·`n_review`·`n_done`(§검토 대기), `pins_md`·`state_dir`(절대경로), `me`(지금 요청자와 그 `role` — §인증), `building`(재빌드 진행 중), `stale_build`(이 PDF 를 만든 뒤 원고 `.tex` 가 바뀌었는가), `src_mtime`·`build_src_mtime`·`src_age_s`·`pins_rev`([build-sync.md](build-sync.md) §자동 동기화 (가벼운 meta 폴링)), `pages_build`(지금 화면의 빌드 id, `pages.cur` 값), `build_seq`(끝난 빌드 수)·`last_build:{state,errors,finished_at,seq}`·`build:{state,phase,started_at}`([build-sync.md](build-sync.md) §비동기 재빌드), `doc`·`doc_name`·`kind`·`view_only`·`multi`(§문서 매개변수), `ev_seq`(§브라우저 알림 커서). 여러 문서면 `docs`(`/api/docs` 항목에서 `n_open` 을 뺀 것)와 `src_sig` 가 붙는다(라이트 포함). `src_sig` 는 문서마다의 `src_mtime` 을 이은 문자열이다. 그래서 뷰어는 다른 문서의 원고가 바뀌어도 목록을 다시 읽는다. 전체 meta는 요청한 사람을 기록한다(§@태그·사람·이벤트) |
-| `GET` | `/api/meta?light=1` | 위와 같되 `n_open`·`n_review`·`n_done` 이 없고 **쓰기를 하지 않는다**(`snapshot_pins()` 의 sync 쓰기를 하지 않는다). 폴링 전용이다. [build-sync.md](build-sync.md) §자동 동기화 (가벼운 meta 폴링) |
+| `GET` | `/api/meta` | `pages`(쪽 목록), `built_at`, `head`(원고 커밋), `main`(최상위 `.tex` 이름. 보기 전용 PDF는 그 PDF 파일 이름, 그림 문서는 지도 파일 이름), `label`·`accent`·`repo`(이 인스턴스의 이름표·강조색·git origin URL, [operations.md](operations.md) §여러 논문 인스턴스를 동시에 띄울 때), `n_open`·`n_review`·`n_done`(§검토 대기), `pins_md`·`state_dir`(절대경로), `me`(지금 요청자와 그 `role` — §인증), `building`(재빌드 진행 중), `stale_build`(이 PDF 를 만든 뒤 원고 `.tex` 가 바뀌었는가), `src_mtime`·`build_src_mtime`·`src_age_s`·`pins_rev`([build-sync.md](build-sync.md) §자동 동기화 (가벼운 meta 폴링)), `pages_build`(지금 화면의 빌드 id, `pages.cur` 값), `build_seq`(끝난 빌드 수)·`last_build:{state,errors,finished_at,seq}`·`build:{state,phase,started_at}`([build-sync.md](build-sync.md) §비동기 재빌드), `doc`·`doc_name`·`kind`·`view_only`·`multi`(§문서 매개변수), 그 문서의 판정 낱말 `verdicts` 또는 `verdicts_error`(핀 수 뒤, 낱말 파일이 있을 때만, §판정 낱말 파일 (`limn-verdicts/1`)), `ev_seq`(§브라우저 알림 커서). 여러 문서면 `docs`(`/api/docs` 항목에서 `n_open`·`verdicts`·`verdicts_error` 를 뺀 것)와 `src_sig` 가 붙는다(라이트 포함). `src_sig` 는 문서마다의 `src_mtime` 을 이은 문자열이다. 그래서 뷰어는 다른 문서의 원고가 바뀌어도 목록을 다시 읽는다. 전체 meta는 요청한 사람을 기록한다(§@태그·사람·이벤트) |
+| `GET` | `/api/meta?light=1` | 위와 같되 `n_open`·`n_review`·`n_done` 과 `verdicts`·`verdicts_error` 가 없고 **쓰기를 하지 않는다**(`snapshot_pins()` 의 sync 쓰기를 하지 않는다). 폴링 전용이다. [build-sync.md](build-sync.md) §자동 동기화 (가벼운 meta 폴링) |
 | `GET` | `/api/meta?ev=<seq>` | 라이트와 함께 쓸 수 있다. 요청자에게 온 새 이벤트를 `events` 로 싣는다 — §브라우저 알림 커서 |
-| `GET` | `/api/docs` | 문서 목록 `{docs:[{key,name,kind:"tex"\|"pdf"\|"figure",view_only,path,main,n_open,stale_build,building,build:{state,phase},build_seq,last_state,pages_build,n_pages,src_mtime}], default, multi, other_open}`. 핀은 읽기만 한다(sync 쓰기 없음). `other_open` 은 지금 설정에 없는 문서 키의 열린 핀 수다. `view_only` 는 그 문서의 핀이 쪽·영역뿐인가, 곧 줄 핀을 받지 못하는가를 나타내는 문서의 능력이다. 보기 전용 PDF에서만 `true` 이고, 그림 문서(§그림 요소 지도 (`limn-figure-map/1`))는 줄 핀을 받으므로 `false` 다. 그림 문서의 pick 이 줄을 주지 못해 돌려주는 영역 답의 `view_only: true` 는 그 답이 영역뿐이고 코드 줄이 없다는 뜻이며, 문서의 능력이 아니다(§그림 문서의 pick·핀). `path` 는 `--manuscript` 기준 메인 파일 경로이고 `main` 은 그 파일 이름이다. 그림 문서에서는 둘 다 지도 파일(`.limnmap.json`)을 가리킨다 |
+| `GET` | `/api/docs` | 문서 목록 `{docs:[{key,name,kind:"tex"\|"pdf"\|"figure",view_only,path,main,stale_build,src_mtime,building,build:{state,phase},build_seq,last_state,pages_build,n_pages,n_open,verdicts?,verdicts_error?}], default, multi, other_open}`. 핀은 읽기만 한다(sync 쓰기 없음). `other_open` 은 지금 설정에 없는 문서 키의 열린 핀 수다. `view_only` 는 그 문서의 핀이 쪽·영역뿐인가, 곧 줄 핀을 받지 못하는가를 나타내는 문서의 능력이다. 보기 전용 PDF에서만 `true` 이고, 그림 문서(§그림 요소 지도 (`limn-figure-map/1`))는 줄 핀을 받으므로 `false` 다. 그림 문서의 pick 이 줄을 주지 못해 돌려주는 영역 답의 `view_only: true` 는 그 답이 영역뿐이고 코드 줄이 없다는 뜻이며, 문서의 능력이 아니다(§그림 문서의 pick·핀). `path` 는 `--manuscript` 기준 메인 파일 경로이고 `main` 은 그 파일 이름이다. 그림 문서에서는 둘 다 지도 파일(`.limnmap.json`)을 가리킨다. 항목 끝의 `verdicts`(`{page, choices:[{key,label,confirm}]}`)나 `verdicts_error`(`unreadable`·`too_large`·`invalid`)는 그 문서 옆에 판정 낱말 파일이 있을 때만 붙는다(§판정 낱말 파일 (`limn-verdicts/1`)) |
 | `GET` | `/api/people` | @태그 후보 `{people:[{login,name,pic?,last_seen?,role}], me}` — §@태그·사람·이벤트. `role` 과 `me.role` 은 §인증. 쓰기 없음 |
 
 ### 화면·PDF·정적 파일
@@ -308,7 +309,7 @@ curl -s -H "Authorization: Bearer $(cat ~/.config/limn/<인스턴스>.token)" ht
 | 메서드 | 경로 | 설명 |
 | --- | --- | --- |
 | `POST` | `/api/pick` | 드래그 좌표를 원문 위치로 되짚는다. 입력은 `page`, `x0`, `y0`, `x1`, `y1` 이다. 선택 `frac` 은 쪽 대비 비율 숫자 4개 목록 `[x, y, w, h]` 이고, 다른 모양이면 `400`. 선택 `pdf_build` 는 드래그할 때 화면의 빌드 id이며, 그 빌드의 PDF로 되짚는다. 그 빌드가 이미 지워졌으면 `200 {error, pdf_build_gone:true}`, 모양이 틀리면 `400`. 응답은 `{file, name, lo, hi, raw_lo, raw_hi, kind, via, score, warn, snippet, frac, levels, default_level, n_lines, quote, overlaps, pdf_build}`. `quote` 는 선택 영역 글자를 공백 정규화해 160자까지 자른 것이다(넘으면 159자 + `…`, 보기 전용 PDF 의 영역 글자와 같은 길이). 뷰어가 이 글자를 한 줄로 보이고 툴팁과 펼침에 전부 보이므로 그 줄의 가장 넓은 폭보다 길게 둔다([viewer.md](viewer.md) §패널 정리). `overlaps` 는 같은 파일의 열린 핀과의 겹침이다(§겹친 핀과 덧붙이기). 입력 오류는 `400`, 되짚기 실패는 `200 {error}`. `levels`·`via`·`score` 의 뜻은 [domain.md](domain.md) §범위 사다리와 §역변환이 두 경로인 이유. 그림 문서의 답은 §그림 문서의 pick·핀 |
-| `POST` | `/api/pin` | 새 핀 추가 → `{id}`. 저장 필드 화이트리스트는 `file, name, page, lo, hi, raw_lo, raw_hi, kind, via, score, frac, note, scope, quote, pdf_build, el, suggest`. `el` 은 그림 문서에서만 저장한다(§그림 문서의 pick·핀). `suggest` 는 LaTeX 문서의 줄 핀만 받고, 저장하기 전에 원문과 대조한다(§제안 수정 (`suggest`)). 선택으로 `kind_req`(§스레드 (답글)), `mentions`(힌트), `assignee`(담당, §@태그·사람·이벤트)를 받는다. `pdf_build` 를 안 보내면(에이전트 `curl`) 지금 빌드로 찍는다 |
+| `POST` | `/api/pin` | 새 핀 추가 → `{id}`. 저장 필드 화이트리스트는 `file, name, page, lo, hi, raw_lo, raw_hi, kind, via, score, frac, note, scope, quote, pdf_build, el, suggest, verdict`. `el` 은 그림 문서에서만 저장한다(§그림 문서의 pick·핀). `suggest` 는 LaTeX 문서의 줄 핀만 받고, 저장하기 전에 원문과 대조한다(§제안 수정 (`suggest`)). `verdict` 는 그 문서가 선언한 판정 낱말 하나이고, 사람만 보낸다(§판정 핀 (`verdict`)). 선택으로 `kind_req`(§스레드 (답글)), `mentions`(힌트), `assignee`(담당, §@태그·사람·이벤트)를 받는다. `pdf_build` 를 안 보내면(에이전트 `curl`) 지금 빌드로 찍는다 |
 | `POST` | `/api/pins/{id}/edit` | 제자리 수정 — §핀 수정 (`/api/pins/{id}/edit`) |
 | `POST` | `/api/pins/{id}/close` | 핀 한 건을 닫는다(`done: true`, `closed_by`). 에이전트가 닫으면 검토 대기(`review: true`), 사람이 닫으면 완료다 — §검토 대기. 선택 본문 `{"reply", "ref", "changes", "review"}` — §닫을 때 사유 남기기. 레코드는 남는다. `<state_dir>/pins.md` 에서는 열린 표에서 빠지고 머리줄 건수로만 남는다(§pins.md 형식). 응답은 `{ok, pin, state}`. 그 id가 없으면 `200 {"ok": false, "pin": null}` 이다(reopen도 같다). **이미 닫힌 핀을 다시 닫으면 `{ok: true, pin}` 을 그대로 돌려주고 아무 필드도 바꾸지 않는다.** `rev` 도 그대로다(규칙은 [domain.md](domain.md) §전이에 딸린 규칙) |
 | `POST` | `/api/pins/{id}/reopen` | 닫은 핀을 되돌린다(`reopened_by`). `close_reply`·`close_ref`·`changes`·`review`·`confirmed_*` 가 있었으면 지운다. 다시 닫을 때 새로 남기기 위해서다. 선택 본문 `{"reason"}` 은 스레드에 남는다 → `{ok, pin, state}`. 뷰어에는 [다시 열기] 버튼이 없고 사람의 답글이 규칙으로 다시 연다(§스레드 (답글)). 이 경로는 에이전트와 뷰어의 [완료] 되돌리기가 쓴다 |
@@ -440,6 +441,7 @@ latexdiff는 본문 글과, 자기가 아는 글 명령(`\textbf`·`\section`·`
 - **`pdf_build` 는 `loc` 에 `frac` 이 있을 때만 바뀐다.** 이때 값은 `loc` 에 담긴 `pdf_build` 다. 뷰어는 여기에 pick 응답 값을 넣는다. 둘 다 없으면 지금 빌드다. 메모, `note_append`, `lo`·`hi` 만 고치는 편집은 `pdf_build` 를 건드리지 않는다.
 - **범위가 바뀌면 `anchor` 를 새로 뜨고 `stale`·`sync` 를 지운다.** 위치를 잃은(`stale`) 핀도 이 경로로 고친다.
 - **닫힌 핀은 메모만 고칠 수 있다.** 범위나 위치, 제안 수정(`suggest`)을 보내면 `409 {"error":"done"}` 이다.
+- **판정 핀은 판정과 대상을 바꾸지 않는다.** 판정 핀이거나 본문에 `verdict` 키가 있으면(값이 `null` 이어도) `verdict`·`loc`·`lo`·`hi`·`scope`·`kind`·`kind_req`·`suggest` 가운데 하나만 있어도 `400 verdict_fixed` 이고 아무것도 쓰지 않는다. 메모·`note_append`·`assignee`·멘션 힌트는 그대로 고친다. 이 검사는 `done`·`conflict` 보다 먼저다(§판정 핀 (`verdict`)).
 - **`suggest` 는 제안 수정을 넣고, 갈고, 지운다.** `{base, text}` 는 넣거나 갈고 `null` 은 지운다. 이 키가 없는 편집은 범위·위치를 고쳐도 저장된 제안을 그대로 둔다. 규칙과 거절은 §제안 수정 (`suggest`)에 있다.
 - 성공하면 `edited_at`·`edited_by` 가 기록되고 `rev` 가 1 오른다.
 
@@ -516,6 +518,78 @@ latexdiff는 본문 글과, 자기가 아는 글 명령(`\textbf`·`\section`·`
 ### 되돌리기
 
 `suggest` 를 모르는 0.4.x 서버는 이 필드를 유효한 모르는 필드로 읽고 되쓴다. 그래서 되돌려도 제안을 잃지 않는다. `tests/contracts/test_suggest_rollback.py` 가 v0.4.23 에서 이를 확인한다. 그 서버의 응답에는 `suggest_state` 가 없고, 범위를 고쳐도 제안이 남는다.
+
+## 판정 핀 (`verdict`)
+
+판정 핀은 사람이 그 문서의 판정 낱말 하나를 골라 찍은 핀이다. 무엇을 실행할지(그림을 본문으로 옮기기, 후보로 두기, 지우기 같은)는 그 문서 저장소의 규칙이고, 실행은 그 저장소의 에이전트가 평소처럼 편집·커밋·PR·닫기로 한다. Limn은 낱말의 뜻을 모르고 판정을 실행하지 않는다. 판정은 새 레코드 종류나 상태가 아니라 핀의 선택 필드 하나라서 처리 중·닫기·검토 대기·답글은 다른 핀과 같다. 낱말을 선언하는 파일은 §판정 낱말 파일 (`limn-verdicts/1`)에, 규칙과 그 이유는 [domain.md](domain.md) §판정 핀에 있다. 출처: [ADR-0021 D1–D7](../adr/0021-verdict-pins.md#결정).
+
+```json
+{"id": 41, "doc": "fig", "file": "<절대경로>/src/B2.py", "lo": 12, "hi": 140, "scope": "fig", "page": 3,
+ "el": {"id": "B2", "path": ["B2"]}, "note": "", "verdict": "채택"}
+```
+
+- `verdict` 는 만든 때의 낱말 `key` 를 그대로 담는다. 버튼 이름(`label`)은 저장하지 않는다. 레코드의 마지막 필드로 쓴다.
+- 낱말 파일에서 그 `key` 가 빠지거나 파일이 사라져도 핀의 판정은 그대로다.
+- 서버는 메모를 해석하지 않는다. 메모 첫 낱말로 판정을 적는 저장소 관례의 옛 핀에는 `verdict` 가 없다. 두 꼴을 함께 다루는 절차는 [SKILL.ko.md](../../skill/SKILL.ko.md) §판정 핀에 있다.
+
+### 만들기와 거절
+
+`POST /api/pin` 의 `verdict` 는 낱말 `key` 문자열이다. 키가 없거나 `null` 이면 평범한 핀이다. 판정은 문서 종류와 무관하게 받는다. LaTeX 문서와 그림 문서의 줄 핀, 보기 전용 PDF와 그림 문서의 영역 핀이 모두 판정 핀이 될 수 있다.
+
+요청은 이 순서로 본다. 앞에서 걸리면 뒤는 보지 않는다.
+
+1. 역할 검사. `viewer` 는 `403 viewer_only` 다(§검사 순서).
+2. 본문의 필드 검사. 다른 필드의 `400`(`bad_note`·`bad_loc`·`bad_el`·`bad_suggest` 등)이 판정 거절보다 먼저다.
+3. 저장 트랜잭션 안에서, 핀 번호를 받기 전에 그때의 낱말로 아래 다섯을 위에서부터 본다. 거절된 핀은 번호를 받지 않는다.
+
+| 경우 | 응답 |
+| --- | --- |
+| 에이전트(토큰, 헤더 없는 루프백, `agent` 역할) | `403 {"error": "판정은 사람이 정합니다 — 에이전트는 판정 핀을 만들지 않습니다.", "reason": "verdict_human"}` |
+| 그 문서에 쓸 수 있는 낱말 파일이 없다 | `400 {"error": "이 문서에는 판정 낱말이 없습니다.", "reason": "verdict_unsupported"}` |
+| 문자열이 아니거나 낱말에 없다 | `400 {"error": "이 문서의 판정 낱말이 아닙니다.", "reason": "verdict_unknown", "choices": ["채택", "보류", "삭제"]}` |
+| `kind_req: "question"` 이나 `suggest` 와 함께 | `400 {"error": "판정 핀은 질문·제안 수정과 함께 쓰지 않습니다.", "reason": "verdict_conflict"}` |
+| 그림 문서에서 `el.path` 가 `[el.id]` 인데, 핀의 빌드 지도에서 그 id가 핀의 `page` 쪽의 뿌리가 아니거나 지도를 읽지 못한다 | `400 {"error": "그 쪽의 그림을 확인하지 못했습니다 — 그림 위를 끌어 고른 뒤 판정합니다.", "reason": "verdict_page_target"}` |
+
+- `choices` 는 그 문서가 지금 선언한 `key` 를 파일 순서대로 담는다.
+- 판정 핀은 수정 요청(`kind_req: "fix"`, 보내지 않으면 기본값)이다. 질문이나 제안 수정과 섞으면 할 일이 두 갈래가 된다.
+- `suggest` 를 함께 보낸 요청에는 제안을 받을지의 판단(`suggest_*` 거절과 원문 대조)을 하지 않는다. 모양 검사(`bad_suggest`)는 2에서 하고, 그 뒤의 답은 늘 판정 거절이다.
+- 판정 핀은 사람만 만든다. 판정은 사람의 결정이고, 에이전트가 판정을 만들어 스스로 실행하면 확인(confirm)을 사람만 하는 것과 같은 이유로 기록의 뜻이 사라진다. 판단은 `Principal.authors_verdicts`(§역할)다.
+
+### 쪽 전체 대상
+
+`pins.md` 의 `(쪽 전체)` 와 에이전트의 대상 풀기는 저장된 위치에서 계산한다. 저장하지 않고 응답 필드도 없다.
+
+| 문서 | 쪽 전체 대상인 핀 | 대상 |
+| --- | --- | --- |
+| 그림 문서 | `el.path` 가 `[el.id]` 인 핀(줄 핀이든 영역 핀이든) | 그 쪽의 그림. 그림 id는 `el.id` 다 |
+| 보기 전용 PDF | `frac` 의 네 값이 `[0, 0, 1, 1]` 과 각각 `1e-6` 안인 영역 핀 | 그 쪽. `page`·`pdf_build` 가 증거다 |
+| LaTeX 문서 | 없다 | — |
+
+그림 문서의 쪽 전체 판정은 만들 때 서버가 확인한다. 핀이 보낸 `pdf_build`(없으면 지금 화면 빌드)의 지도 사본에서 `el.id` 가 핀의 `page` 쪽의 뿌리 요소여야 한다. `el` 은 요청이 보낸 값이라, 확인해야 `(쪽 전체)` 를 믿을 수 있다. 지도는 실행별 파싱 캐시로 읽고, 지도가 가리키는 다른 파일은 열지 않는다. 판정이 없는 핀에는 이 확인을 하지 않는다. LaTeX 문서의 쪽은 항목 하나가 아니다(목록 쪽, 빈 절, 절 머리, 다른 그림을 가리키는 줄이 섞인다). 그래서 LaTeX 핀의 판정 대상은 사람이 고른 줄이다.
+
+### 판정 핀의 편집
+
+- 판정 핀의 판정과 대상은 만들 때 고정된다(§핀 수정 (`/api/pins/{id}/edit`)). 검사는 편집이 남길 핀에 대해 한다. 판정 핀이거나 본문에 `verdict` 키가 있으면(값이 무엇이든), `verdict`·`loc`·`lo`·`hi`·`scope`·`kind`·`kind_req`·`suggest` 가운데 하나라도 있는 편집은 아래 응답이고 아무것도 쓰지 않는다.
+
+  ```json
+  {"error": "판정 핀은 판정과 대상을 바꾸지 않습니다 — 새 판정 핀을 찍거나 이 핀을 지웁니다.", "reason": "verdict_fixed"}
+  ```
+
+- 순서는 본문 검사(`base_rev_required`·`bad_loc` 등) → `verdict_fixed` → `409 done`·`409 conflict` → 나머지 편집 거절이다.
+- 메모·`note_append`·`assignee`·멘션 힌트는 판정 핀에서도 평소처럼 고친다. 닫힌 판정 핀도 메모 수준은 고친다.
+- 자동 줄 맞춤(anchor)은 편집이 아니다. 판정 핀도 다른 줄 핀처럼 따라간다.
+- 대상이나 판정이 다르면 사람이 새 판정 핀을 찍는다. 에이전트도 핀을 편집할 수 있으므로, 막지 않으면 사람의 판정이 다른 대상이나 질문·제안으로 바뀔 수 있다.
+- 닫기·다시 열기·답글·claim·삭제·되살리기는 바뀌지 않는다. 삭제는 요청 철회일 뿐 이미 시작했거나 끝난 실행을 되돌리지 않는다. 실행된 판정을 바꾸려면 새 판정을 찍는다.
+
+### 판정 핀 읽기
+
+- `GET /api/pins`, `GET /api/pins/{id}`, 변경 응답의 `pin` 은 저장된 `verdict` 를 그대로 싣는다. 계산 필드는 없다.
+- 저장된 값이 문자열이 아니거나 `key` 규칙(유니코드 글자·숫자·`-`·`_` 1–16자, 파이썬 `[\w-]`)에 맞지 않으면 판정으로 치지 않는다. 그 값은 레코드와 응답에 저장된 그대로 남고, 그 줄은 깨진 줄이 아니며, `pins.md` 에 판정 표시가 붙지 않는다.
+- 한 대상의 지금 판정은 그 대상으로 풀리는 판정 핀(닫힌 것도, `GET /api/pins?all=1`) 가운데 번호가 가장 큰 핀이다. 서버는 이것을 계산하지 않는다. "같은 대상"은 그 저장소가 위치를 항목으로 푸는 규칙에 달려 있기 때문이다([domain.md](domain.md) §판정 핀).
+
+### 판정 핀과 이전 릴리스
+
+`verdict` 를 모르는 0.4.x 서버는 이 필드를 유효한 모르는 필드로 읽고 되쓴다. 그래서 되돌려도 판정을 잃지 않는다. `tests/contracts/test_verdict_rollback.py` 가 v0.4.25 에서 이를 확인한다. 그 서버에는 `verdict_human`·`verdict_fixed` 거절과 `pins.md` 의 판정 표시가 없고, 판정 핀의 위치도 고칠 수 있다. 되돌린 동안에는 새 판정을 그 저장소의 첫 낱말 관례로 찍고 판정 핀의 위치를 고치지 않는다.
 
 ## 닫을 때 사유 남기기
 
@@ -950,6 +1024,70 @@ curl -s -X POST http://127.0.0.1:<port>/api/pins/3/unclaim
 
 **쓰는 순서.** 생산자는 PDF를 먼저 쓰고, 지도는 마지막에 원자적으로 바꾼다(임시 파일에 쓰고 이름 바꾸기). 순서가 달라도 `pdf_sha256` 이 맞을 때만 가져오므로, 어긋난 짝이 화면에 오르지는 않는다.
 
+## 판정 낱말 파일 (`limn-verdicts/1`)
+
+판정 낱말 파일은 그 문서의 저장소가 쓰고 Limn이 읽는 생산자 계약이다. 사람이 핀에 고를 수 있는 판정 낱말(§판정 핀 (`verdict`))을 문서마다 선언한다. 낱말의 뜻(무엇을 실행하나)은 그 저장소의 에이전트 규칙에 있으므로, 낱말과 규칙을 같은 커밋에서 고칠 수 있게 파일을 문서 옆에 둔다. 인스턴스 설정 키나 서버 인자는 없다. 형식은 더하기만 한다. 이 판이 모르는 키는 무시하고, 뜻을 바꾸는 변경은 `format` 의 판 번호를 올린다. 출처: [ADR-0021 D2](../adr/0021-verdict-pins.md#결정).
+
+**자리.** 등록한 문서의 메인 파일에서 종류 접미사(`.tex`·`.pdf`·`.limnmap.json`)를 떼고 `.limnverdicts.json` 을 붙인 파일이다. `::` 가 있으면 그 뒤의 경로가 메인 파일이다. 단일 문서 인스턴스도 같다.
+
+| 문서 경로 | 낱말 파일 |
+| --- | --- |
+| `paper::sub/main.tex` | `paper/sub/main.limnverdicts.json` |
+| `figures/out/figures.limnmap.json` | `figures/out/figures.limnverdicts.json` |
+| `submission/manuscript.pdf` | `submission/manuscript.limnverdicts.json` |
+
+```json
+{
+  "format": "limn-verdicts/1",
+  "page": true,
+  "verdicts": [
+    {"key": "채택"},
+    {"key": "보류"},
+    {"key": "삭제", "confirm": true}
+  ]
+}
+```
+
+| 필드 | 규칙 |
+| --- | --- |
+| `format` | 필수. 정확히 `limn-verdicts/1` |
+| `page` | 선택 불리언, 기본 `false`. 그림 문서와 보기 전용 PDF에서 쪽 전체 판정을 받겠다는 뜻이다. LaTeX 문서에서는 무시한다 |
+| `verdicts` | 필수. 1–5개, 이 순서로 고를 수 있다 |
+| `verdicts[].key` | 필수. 1–16자, 유니코드 글자·숫자·`-`·`_` 만(파이썬 `[\w-]`). 목록 안에서 유일하다. 레코드·API·`pins.md` 에 이 글자 그대로 간다. 그래서 `|`·공백·줄바꿈이 없다 |
+| `verdicts[].label` | 선택. 버튼 이름, 1–12자. 제어·서식 문자(유니코드 범주 `Cc`·`Cf`·`Cs`, 양방향 덮어쓰기 포함)와 줄·문단 구분 문자(`Zl`·`Zp`)는 받지 않는다. 없으면 `key` 이고, 그때는 16자까지 된다 |
+| `verdicts[].confirm` | 선택 불리언, 기본 `false`. 두 번 눌러야 고르는 낱말이다 |
+| 그 밖의 키 | 맨 위에서도 항목 안에서도 무시한다. 다음 판을 위한 자리다 |
+| 같은 객체 안의 같은 이름 키 | 거절한다. 파이썬 `json` 은 뒤의 값으로 조용히 덮으므로 검토한 사람이 본 낱말과 서버가 읽은 낱말이 달라질 수 있다 |
+| 파일 | UTF-8 JSON(바이트 순서 표시 없음), 4,096바이트 이하. `NaN`·`Infinity` 는 JSON이 아니다 |
+
+**읽기.** 낱말 파일은 그 문서 저장소에 커밋할 수 있는 누구나 고칠 수 있으므로 믿지 않는 입력이다. 서버는 다음을 지킨다.
+
+- 원고와 같은 검사된 핸들(`file_in_tree` 가 발급한 `ManuscriptFile`)로만 연다. 심볼릭 링크를 푼 경로도 원고 트리 안이어야 하고(점으로 시작하는 이름 아래와 원고 안에 둔 상태 폴더 아래가 아닌 곳), 연 뒤의 링크 교체는 거부한다. 원시 경로를 열지 않는다.
+- 연 서술자의 크기를 먼저 보고, 한도를 넘으면 한 바이트도 읽지 않는다. 읽을 때도 한도 + 1바이트까지만 읽으므로 읽는 동안 커진 파일도 거기서 멈춘다.
+- 파일 서명(`mtime_ns`·크기·inode)이 바뀔 때만 다시 읽고 파싱한다. 고친 파일은 재시작 없이 다음 읽기부터 쓴다. 파싱은 순수해서 어떤 바이트든 낱말이나 아래 이유 코드 하나가 되고 예외를 내지 않는다.
+- 파일에는 경로나 URL 필드가 없어 다른 파일로 이어지는 길이 없다. 파일을 고쳐도 이미 저장된 판정은 바뀌지 않는다.
+- 이 파일은 원고 확장자가 아니라 빌드 지문과 `src_mtime` 에 들지 않는다. 고쳐도 재빌드나 원고 수정 표시가 생기지 않는다.
+
+**응답.** 파일이 없으면 그 문서에는 판정이 없고 아무 필드도 붙지 않는다. 있고 쓸 수 있으면 `/api/docs` 의 문서 항목 끝(`n_open` 뒤)과 전체 `GET /api/meta`(핀 수 뒤)에 아래가 붙는다.
+
+```json
+"verdicts": {"page": true, "choices": [{"key": "채택", "label": "채택", "confirm": false}, {"key": "보류", "label": "보류", "confirm": false}, {"key": "삭제", "label": "삭제", "confirm": true}]}
+```
+
+- `page` 는 파일의 `page` 이면서 그 문서가 그림 문서나 보기 전용 PDF일 때만 `true` 다. LaTeX 문서는 늘 `false` 다. 쪽 전체 대상이 위치에서 결정적으로 나오는 문서만이라서다(§쪽 전체 대상).
+- `label` 은 파일에 없으면 `key` 다. 파일의 글자 그대로이므로, 화면에 넣을 때는 HTML이 아니라 글자로 넣는다.
+- `?light=1` 과 두 meta의 `docs` 사본에는 싣지 않는다. 클라이언트는 문서를 열거나 바꿀 때 전체 meta나 `/api/docs` 로 낱말을 읽는다.
+
+파일이 있는데 쓸 수 없으면 판정이 없는 것으로 다루고, 같은 자리에 `verdicts` 대신 `verdicts_error` 가 붙는다. 서버 로그(stderr)에는 쓸 수 없는 판마다 한 번 `warning: verdict words of document <키> are not used (<이유>): <원고 폴더 기준 경로>` 가 남는다. 같은 판이 계속 깨져 있으면 다시 남기지 않는다.
+
+| `verdicts_error` | 언제 |
+| --- | --- |
+| `unreadable` | 원고 트리 밖이나 점 폴더로 이어지는 링크, 끊긴 링크, 폴더, 읽기 권한 없음 |
+| `too_large` | 4,096바이트를 넘는다. 읽는 동안 넘게 커진 경우도 같다 |
+| `invalid` | 위 규칙 가운데 하나라도 어긴다. UTF-8이 아니거나 바이트 순서 표시로 시작하는 파일도 여기다 |
+
+`POST /api/pin` 의 판정은 저장 트랜잭션 안에서 그때 읽은 낱말과 대조한다. 그래서 파일을 고친 직후의 판정도 고친 낱말로 판단한다.
+
 ## 휴지통
 
 삭제(`/drop`)한 핀은 휴지통에 30일(`TRASH_DAYS`) 동안 머문다(0.2.2+). 저장은 `pins.dropped.jsonl` 이고 레코드는 핀 레코드에 `dropped_at`·`dropped_by` 를 더한 모양이다.
@@ -996,6 +1134,7 @@ curl -s -X POST http://127.0.0.1:<port>/api/pins/3/unclaim
 | `via` | 범위를 찾은 방법 `synctex\|text\|map`. `map` 은 그림 문서의 요소 지도다 |
 | `el` | 그림 핀만 가진다. 가리킨 요소 `{id, path, label?, part?, impl?: {file, lo, hi}, frac?}`(§그림 문서의 pick·핀)다. 모양이 틀리면 그 줄은 깨진 줄이다. 모양이 틀린 경우는 객체가 아니거나, `id` 가 없거나 문자열이 아니거나 빈 문자열이거나, `path` 가 문자열 목록이 아니거나, `label`·`part` 가 문자열이 아니거나, `impl` 이 `{file: 문자열, lo: 정수, hi: 정수}` 가 아니거나, `frac` 이 숫자 4개가 아닌 때다. 이 필드를 모르는 이전 서버(0.3.5, 0.3.7, 0.3.8에서 확인된다)는 모르는 필드로 지나치고, 되쓸 때 그대로 둔다 |
 | `suggest` | LaTeX 문서의 줄 핀만 가진다. 제안 수정 `{base, text}`(§제안 수정 (`suggest`))이고 두 값은 `\r` 이 없는 문자열이다. 모양이 틀리면 그 줄은 깨진 줄이다. 모양이 틀린 경우는 객체가 아니거나, `base`·`text` 가 문자열이 아닌 때다. 그 안의 이 버전이 모르는 키는 그대로 둔다. 이 필드를 모르는 0.4.x 서버는 모르는 필드로 지나치고, 되쓸 때 그대로 둔다 |
+| `verdict` | 판정 핀만 가진다. 만든 때의 판정 낱말 `key` 문자열이다(§판정 핀 (`verdict`)). 문자열이 아니거나 `key` 규칙에 맞지 않는 값은 판정으로 치지 않고 저장된 그대로 두며, 그 줄은 깨진 줄이 아니다. 이 필드를 모르는 0.4.x 서버는 모르는 필드로 지나치고, 되쓸 때 그대로 둔다 |
 | `quote` | 선택. 호출자가 붙인 짧은 인용이다. 뷰어는 pick 의 `quote`(드래그한 PDF 글자)를 넣는다. 160자에서 자른다. `GET /api/pins` 는 저장값 그대로 돌려주고, pins.md 의 `«…»` 는 60자다(§메모 칸의 덧붙임) |
 | `pdf_build` | `frac` 을 찍은 빌드 id(쪽 디렉토리 이름). 없으면 옛 핀이다. 옛 필드명 `frac_build` 도 같은 뜻으로 읽는다([build-sync.md](build-sync.md) §위치 추정 (`est`)) |
 | `anchor` | `{head, tail, head_off, tail_off}`. 줄 맞춤의 기준이다. `*_off` 가 없는 옛 앵커는 0으로 본다([domain.md](domain.md) §줄 번호 재동기화) |
@@ -1085,10 +1224,12 @@ curl -s -X POST http://127.0.0.1:<port>/api/pins/3/unclaim
 | `제안 수정` | 작성자가 바꿀 글을 직접 썼고(§제안 수정 (`suggest`)), 지금 줄이 그 원문과 같다(`suggest_state` 가 `ready`) | 메모를 다시 쓰지 말고 `## 제안 문안` 절의 글(정본은 `GET /api/pins/N` 의 `suggest.text`)을 위치 칸의 줄 범위에 글자 그대로 넣는다 |
 | `제안 수정(원문 바뀜)` | 지금 줄이 그 원문과 다르다(`changed`) | 넣지 않는다. 답글로 알리고 핀을 열어 둔다 |
 | `제안 수정(확인 불가)` | 원문과 대조할 수 없다(`unknown`: 위치 잃음, 파일을 찾거나 읽지 못함) | 넣지 않는다. 답글로 알리고 보고한다 |
+| `판정 <낱말>` | 작성자가 그 문서의 판정 낱말 하나를 골랐다(§판정 핀 (`verdict`)). `<낱말>` 은 저장된 `key` 그대로다 | 그 문서 저장소의 규칙대로 처리한다. 순서와 하나씩 처리하는 규칙은 안내 구절(§판정 핀의 행)과 SKILL을 따른다 |
+| `판정 <낱말>(쪽 전체)` | 그 판정이 쪽 전체 대상, 곧 그림 문서의 그 쪽 그림이나 보기 전용 PDF의 그 쪽에 대한 것이다(§쪽 전체 대상) | 위와 같다. 대상은 그 그림(`el.id`)이나 그 쪽이다 |
 
-제안 수정 표시는 다른 표시를 모두 쓴 뒤 맨 끝에 붙는다.
+제안 수정 표시는 다른 표시를 모두 쓴 뒤 맨 끝에 붙는다. 판정 표시는 거꾸로 번호 바로 뒤, 다른 표시보다 앞에 붙는다. 무엇을 하는 핀인지가 어떻게 다룰지보다 먼저 읽히게 하려는 것이다. 예: `41 · 판정 채택(쪽 전체) · 처리 중(에이전트 B, 약 10분)`.
 
-표시 범례 줄은 열린 핀에 표시가 하나라도 있을 때만 실린다. 모양은 `표시: '#N 범위 안'·'#N과 같은 범위' = … · '#N과 일부 겹침' = … · '처리 중(이름, 약 N분)' = … · '수정됨' = … · '위치 잃음' = … · «…» = …` 다. 범례의 `«…»` 는 줄 안에서 가리킨 부분의 렌더 글자다. 그림 핀에서 `«…»` 는 요소 이름이고, `요소 잃음` 에는 범례 항목이 없다. 둘은 그림 핀 안내 문단이 설명한다(§그림 핀의 행). 열린 핀에 제안 수정 표시가 있을 때만 범례 끝에 `'제안 수정' = 작성자가 바꿀 글을 직접 썼다, 아래 '## 제안 문안' 의 글을 위치 칸의 줄 범위에 그대로 넣는다('(원문 바뀜)'·'(확인 불가)' 가 붙으면 넣지 말고 답글로 알린다)` 항목이 하나 더 붙는다.
+표시 범례 줄은 열린 핀에 표시가 하나라도 있을 때만 실린다. 모양은 `표시: '#N 범위 안'·'#N과 같은 범위' = … · '#N과 일부 겹침' = … · '처리 중(이름, 약 N분)' = … · '수정됨' = … · '위치 잃음' = … · «…» = …` 다. 범례의 `«…»` 는 줄 안에서 가리킨 부분의 렌더 글자다. 그림 핀에서 `«…»` 는 요소 이름이고, `요소 잃음` 에는 범례 항목이 없다. 둘은 그림 핀 안내 문단이 설명한다(§그림 핀의 행). 열린 핀에 제안 수정 표시가 있을 때만 범례 끝에 `'제안 수정' = 작성자가 바꿀 글을 직접 썼다, 아래 '## 제안 문안' 의 글을 위치 칸의 줄 범위에 그대로 넣는다('(원문 바뀜)'·'(확인 불가)' 가 붙으면 넣지 말고 답글로 알린다)` 항목이 하나 더 붙는다. 열린 핀에 판정 표시가 있을 때만 범례 맨 끝(제안 수정 항목이 있으면 그 뒤)에 판정 항목이 붙는다(§판정 핀의 행).
 
 ### 질문·다시 열림·사람에게 물은 핀
 
@@ -1161,6 +1302,28 @@ curl -s -X POST http://127.0.0.1:<port>/api/pins/3/unclaim
   파일은 위치 칸처럼 `--manuscript` 기준 경로다. 경로는 글자로만 이어 붙이고 파일을 열지 않는다. 손으로 고친 `pins.jsonl` 이 `..`·절대 경로·점 폴더를 작업 목록에 올리지 못하게 하려는 것이다.
 - 요소를 잃은 핀(`el_sync` 가 `lost`)은 번호 칸에 `요소 잃음` 이 붙는다. 기준은 그 문서의 지금 화면 빌드의 지도다. 디스크의 `<state_dir>/pins.md` 는 핀을 쓸 때, 서버를 띄울 때, 그림 가져오기가 새 빌드를 화면에 올릴 때 다시 써서 이 기준을 따라간다. `GET /pins.md` 는 요청마다 렌더한다.
 - 그림 핀이 열려 있으면 안내 문단 끝에 그림 핀 안내가 붙는다. 지금 `el` 이 있는 열린 핀이나 그림 문서의 열린 영역 핀이 있을 때다. 안내는 다음을 알린다. `«요소 이름»` 이 앞에 붙은 핀의 위치 칸은 그 요소를 그린 코드 줄이니 그 줄을 고칠 것. `공통 부품: 파일:줄` 은 여러 그림이 함께 쓰는 정의라서, 요청이 공통 모양에 관한 것이면 한 그림만 덮어쓰지 말고 사람에게 물을 것. 닫기 전에 그림 저장소에서 그림을 다시 렌더할 것(그림 문서에는 `/api/rebuild` 가 없다). `요소 잃음` 은 추측해 닫지 말고 보고할 것. 위치 칸이 쪽·영역뿐인 그림 핀은 코드 줄이 없으니, 고칠 곳은 LaTeX 문서가 아니라 그림 저장소에서 쪽·영역·요소 이름·메모로 그 요소를 그린 곳(스크립트나 디자인 파일)을 찾을 것. 못 찾으면 닫지 말고 사람에게 묻거나 보고한다. 요소가 디자인 도구에서 왔으면 고치지 말고 보고할 것. 이 안내 문장은 계약이다. 범례는 이 안내를 대신하지 않는다(§번호 칸의 표시).
+
+### 판정 핀의 행
+
+열린 핀(검토 대기와 닫힌 핀은 빼고)에 판정 핀(§판정 핀 (`verdict`))이 하나라도 있으면 번호 칸 표시(§번호 칸의 표시) 말고도 아래가 더해진다. 그런 핀이 없으면 `pins.md` 는 바이트까지 그대로다. 출처: [ADR-0021 D7](../adr/0021-verdict-pins.md#결정).
+
+- **번호 칸.** 번호 바로 뒤에 `판정 <key>`, 쪽 전체 대상이면 `판정 <key>(쪽 전체)` 가 온다. `(쪽 전체)` 는 핀의 문서가 지금 설정에 있을 때만 붙는다. 여러 문서 모양이면 모든 문서 소절에서 같다.
+- **메모 칸.** 판정 핀의 메모가 비어 있으면(공백만 있어도) 메모 칸이 `(판정만)` 이다. 손으로 고친 레코드에 판정과 제안 수정이 함께 있어도 `(판정만)` 이다.
+- **안내 문단.** 안내 문단 끝(그림 핀·제안 수정 구절이 있으면 그 뒤)에 이 계약 구절이 ` · ` 로 이어 붙는다. `<base>` 는 안내 줄과 같은 규칙이다(§원격 에이전트 진입점 (`GET /pins.md`)).
+
+  ```text
+  판정 핀(번호 칸 '판정 X', 그리고 그 저장소가 첫 낱말 규칙을 쓰면 메모 첫 낱말이 판정 낱말인 옛 핀)은 그 문서 저장소의 규칙대로 처리한다 · 두 꼴이 함께 있으면 '판정 X'가 앞선다 · 한 대상의 판정은 그 대상으로 풀리는 판정 핀(닫힌 것도, GET <base>/api/pins?all=1) 가운데 번호가 가장 큰 핀이다 · 그보다 작은 열린 판정 핀은 실행하지 않고 '#N 판정이 앞섭니다' 답글을 남기고 닫는다 · 사람 담당·남이 처리 중인 판정 핀은 순서에는 넣되 잡거나 닫지 않고, 그 대상은 기다린다 · 같은 대상의 나머지 열린 판정 핀을 잡고 시작하고, 내보내기 직전에 다시 확인한다 · 닫을 때 답 첫 줄에 '대상: <대상 ID>' 를 적는다 · 대상을 풀 수 없는 더 큰 번호의 판정 핀이 있으면 그 대상은 실행하지 않고 답글로 묻는다
+  ```
+
+- **범례.** 표시 범례 줄 맨 끝에 이 항목이 ` · ` 로 이어 붙는다.
+
+  ```text
+  '판정 X' = 작성자가 버튼으로 고른 판정이다(메모 첫 낱말보다 앞선다) · '(쪽 전체)' = 그 쪽의 그림(그림 문서) 또는 그 쪽(보기 전용 PDF)에 대한 판정
+  ```
+
+- **검토 대기 표.** 판정 표시를 싣지 않는다. 제안 수정처럼, 에이전트가 처리하지 않는 핀이고 판정은 API가 핀마다 답한다.
+
+안내 구절과 범례는 계약이라 번역하지 않는다. 구절이 판정 핀이 열려 있을 때만 붙는 것은 판정을 쓰지 않는 인스턴스의 `pins.md` 를 늘리지 않으려는 것이다.
 
 ### 제안 문안
 
