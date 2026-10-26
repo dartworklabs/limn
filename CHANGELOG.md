@@ -1,5 +1,40 @@
 # Changelog
 
+## Unreleased
+
+Verdict pins on the server (ADR-0021, proposed). The agent contract only grows: an agent written against 0.4.25
+keeps working, and a 0.4.25 server reads and rewrites the new field unchanged, so rolling back loses nothing. The
+viewer part (one-press verdict buttons in the composer and per page) follows in a later change; until then a verdict
+pin is made through the HTTP API and the viewer shows it as an ordinary pin.
+
+### Added
+
+- **Verdict word files.** A document may declare one to five verdict words in `<name>.limnverdicts.json` next to its
+  main file (format `limn-verdicts/1`: each word a `key`, an optional `label` and `confirm`, and an optional `page`
+  for the file). Limn reads it through the checked manuscript handle, never more than 4,097 bytes, and again only when
+  the file changes. The file is untrusted input: a repeated name, a bad key or label, more than 4,096 bytes or anything
+  else off the format makes it unusable, and the server log says so once per version. There is no setting key, and the
+  file is not a LaTeX source, so editing it neither rebuilds nor marks the manuscript as changed.
+- **`verdicts` on `GET /api/docs` and the full `GET /api/meta`** (`{page, choices: [{key, label, confirm}]}`), or
+  `verdicts_error` (`unreadable`, `too_large`, `invalid`) when the file cannot be used. `page` is true only for figure
+  documents and view-only PDFs. The light poll and the `docs` copies inside meta carry neither.
+- **`verdict` on `POST /api/pin`.** A person with the editor or owner role may give a new pin one of its document's
+  keys; it is stored as written and returned as stored. Refusals, checked inside the pin transaction in this order:
+  `403 verdict_human` (any agent), `400 verdict_unsupported` (no usable word file), `400 verdict_unknown` (with the
+  document's `choices`), `400 verdict_conflict` (with a question or a suggested edit) and `400 verdict_page_target` (a
+  whole figure that the map of its build does not confirm as the root of that page).
+- **A verdict pin keeps its verdict and target.** `POST /api/pins/{id}/edit` with `verdict`, `loc`, `lo`, `hi`,
+  `scope`, `kind`, `kind_req` or `suggest` on a verdict pin, or with `verdict` on any pin, answers
+  `400 verdict_fixed` and writes nothing. The note, `note_append`, the assignee and mention hints still change, and
+  line realignment still moves the pin.
+- **`pins.md`**: `판정 <key>` right after the number (`판정 <key>(쪽 전체)` for a whole figure or a whole view-only PDF
+  page), `(판정만)` for a verdict pin without a memo, a legend entry and a guidance clause on ordering verdicts by pin
+  number - all only while an open verdict pin is listed. Without one the file is byte-identical to 0.4.25's.
+- **The agent procedure for verdict pins** in both skill files: the two forms (a JSON `verdict` and a repository's
+  first-word pins), resolving a pin to the repository's target ID, the highest pin number over the whole history
+  wins, one target at a time with a recheck right before pushing, and a `대상: <대상 ID>` line when closing.
+- The viewer's English mode has texts for the six new reasons.
+
 ## 0.4.25 — 2026-10-25
 
 The note popover by the selection box offers the @-list. The agent contract (`pins.md` and the HTTP API) is unchanged.
