@@ -13,7 +13,7 @@ from typing import Any, NamedTuple, Protocol, TypeAlias
 from limn.pins.location.lookup import PinLocation
 from limn.pins.mentions import NoteTags
 from limn.pins.model import Actor, Agent, EventType, Person, Pin, PinNotFound
-from limn.pins.needs import BuildAnswers
+from limn.pins.needs import BuildAnswers, VerdictKeys
 from limn.pins.store import PinStore, pin_index
 from limn.security.access import AuthorityScope, Role, is_agent_actor
 from limn.security.audit import AuditAction
@@ -68,7 +68,8 @@ class PinContext:
     builds is the build owner's query bundle of this run: required, because whoever assembles the context injects the
     one the composition root wired and no pin module makes its own. watches_files and refresh_files answer for a pin
     record's document: whether its files are watched, and the effect that pulls and imports them before a close
-    awaiting review is written - called outside the lock.
+    awaiting review is written - called outside the lock. verdict_keys answers the verdict words a document declares
+    now, which a new verdict pin is checked against inside its transaction.
     """
 
     store: PinStore
@@ -94,6 +95,9 @@ class PinContext:
     # awaiting review is written (lifecycle.rules.refreshes_before_close). By default nothing is watched.
     watches_files: Callable[[Mapping[str, Any]], bool] = lambda record: False
     refresh_files: Callable[[Mapping[str, Any]], object] = lambda record: None
+    # The verdict keys a document declares now (limn.pins.needs.VerdictKeys), read inside a new pin's transaction. By
+    # default no document declares any, so every verdict pin is refused.
+    verdict_keys: VerdictKeys = lambda doc: ()
 
     @property
     def authority_scope(self) -> AuthorityScope:

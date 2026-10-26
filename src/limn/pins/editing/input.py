@@ -3,7 +3,14 @@
 from collections.abc import Collection
 from dataclasses import dataclass, replace
 
-from limn.pins.editing.fields import parse_assignee, parse_kind_req, parse_note, parse_scope, parse_suggest
+from limn.pins.editing.fields import (
+    parse_assignee,
+    parse_kind_req,
+    parse_note,
+    parse_scope,
+    parse_suggest,
+    parse_verdict,
+)
 from limn.pins.editing.location import parse_loc, parse_region
 from limn.pins.editing.rules import (
     AddRequest,
@@ -48,7 +55,9 @@ def parse_add(d: Json, known: Collection[str], facts: DocumentFacts) -> AddReque
     named file) otherwise. A figure document's place keeps the body's el (parse_el). Then note, kind_req, mention hints,
     assignee (known: the logins supplied by EditingRequests) and suggest - its shape alone (parse_suggest; null is
     absent). Whether this pin may carry the suggestion is decided against the document and the file before it is
-    written (limn.pins.editing.rules.decide_new_suggestion)."""
+    written (limn.pins.editing.rules.decide_new_suggestion). Last the verdict, taken as sent (parse_verdict; null is
+    absent) - it refuses nothing here, since its refusals come after the role check in their own order, inside the
+    store transaction (limn.pins.editing.rules.decide_new_verdict)."""
     place: Place
     if facts.view_only or (facts.has_element_map and all(d.get(k) is None for k in ("file", "lo", "hi"))):
         region = parse_region({k: d[k] for k in REGION_FIELDS + ("file", "lo", "hi", "scope") if k in d}, facts)
@@ -79,7 +88,7 @@ def parse_add(d: Json, known: Collection[str], facts: DocumentFacts) -> AddReque
         if isinstance(sent, InputRejected):
             return sent
         suggest = sent
-    return AddRequest(place, note, kind_req, assignee, tuple(hints), suggest)
+    return AddRequest(place, note, kind_req, assignee, tuple(hints), suggest, parse_verdict(d.get("verdict")))
 
 
 @dataclass(frozen=True)

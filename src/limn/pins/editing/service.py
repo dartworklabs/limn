@@ -20,8 +20,11 @@ from limn.pins.editing.rules import (
     PinEdited,
     RegionPlace,
     SuggestFacts,
+    VerdictFacts,
+    VerdictRefusal,
     decide_edit,
     decide_new_suggestion,
+    decide_new_verdict,
     evolve_edit,
     file_after,
     new_line_pin,
@@ -53,20 +56,34 @@ def add_pin(ctx: PinContext, D: Doc, request: AddRequest, actor: PostAuthority) 
     A request with a suggested edit is decided first (limn.pins.editing.rules.decide_new_suggestion): only a line pin
     of a LaTeX document (D.builds_from_source) takes one, within its limits, and its base must be what the pin's lines
     read in the same snapshot the anchor is taken from. A refusal is returned and nothing is written - no id is
-    allocated and no transaction runs."""
+    allocated and no transaction runs.
+
+    A request with a verdict is decided inside the transaction, before an id is allocated, against the keys D declares
+    at that moment (ctx.verdict_keys) and whether the principal may make one (Principal.authors_verdicts):
+    limn.pins.editing.rules.decide_new_verdict. Its suggestion, if it sent one, is never decided - the verdict
+    decision refuses every such request - so the verdict's refusals come in their own order. A refusal writes
+    nothing of its own (a re-sync of the stored pins may still be written, as for any transaction)."""
     require_authority(actor, ctx.authority_scope, "add", document_authority_target(D))
     place = request.place
     # Manuscript text is read before taking the pin lock, as it was for line pins before this shared transaction.
     location = ctx.locate({"file": place.file}) if isinstance(place, LinePlace) else None
     lines, mtime = location.source.snapshot() if location is not None else ([], 0.0)
-    if request.suggest is not None:
+    if request.suggest is not None and request.verdict is None:
         decided = decide_new_suggestion(request.suggest, place, D.builds_from_source, lines)
         if not isinstance(decided, Suggestion):
             return decided
+    author = actor.principal.authors_verdicts()
     evs: list[Event | None] = []
 
-    def fn(pins: list[Pin]) -> tuple[OpenPin, bool]:
-        """Allocate one id, build either location kind, and queue notices in the same transaction."""
+    def fn(pins: list[Pin]) -> tuple[OpenPin | VerdictRefusal, bool]:
+        """Decide the verdict, if one was asked for, then allocate one id, build either location kind, and queue
+        notices in the same transaction."""
+        verdict = None
+        if request.verdict is not None:
+            judged = decide_new_verdict(request.verdict, request, VerdictFacts(author, ctx.verdict_keys(D)))
+            if not isinstance(judged, str):
+                return judged, False
+            verdict = judged
         at = ctx.now()
         pid = ctx.store.next_id(pins)
         tags = ctx.note_tags(request.note, "", pins, request.hints, actor, pid)
@@ -86,9 +103,12 @@ def add_pin(ctx: PinContext, D: Doc, request: AddRequest, actor: PostAuthority) 
                     ctx.builds.heading(D).build,
                     D.key,
                     located(ctx.locate({"file": place.file})),
+                    verdict,
                 )
             case RegionPlace():
-                pin = new_region_pin(place, request, pid, at, actor, tags.mentions, ctx.builds.heading(D).build, D.key)
+                pin = new_region_pin(
+                    place, request, pid, at, actor, tags.mentions, ctx.builds.heading(D).build, D.key, verdict
+                )
         pins.append(pin)
         evs.append(ctx.make_event("mention", pin.record, actor, tags.notify, text=request.note))
         if request.assignee is not None and request.assignee != ASSIGNEE_AGENT:

@@ -222,6 +222,7 @@ def assemble_application(config: RunConfig, runtime: RunResources) -> ServerAsse
     sync: SyncSubsystem
     collaboration: CollaborationSubsystem
     security: SecurityApplication
+    documents_subsystem: DocumentsSubsystem
     builds = assemble_builds(
         settings,
         lambda: sync.service.repo_pull(),
@@ -243,6 +244,7 @@ def assemble_application(config: RunConfig, runtime: RunResources) -> ServerAsse
         audit=lambda action, by, details: security.http_audit(action, by, details),
         now=timestamp,
         remote_base_for=lambda host: access.remote_base_for(host, settings().access.public_hosts, settings().port),
+        verdict_keys=lambda doc: documents_subsystem.verdict_keys(doc),
         refresh_watched=lambda key: sync.service.refresh_watched(key),
     )
     collaboration = assemble_collaboration(

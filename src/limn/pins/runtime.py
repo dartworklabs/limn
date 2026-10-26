@@ -33,7 +33,7 @@ from limn.pins.location.service import PinLocationService
 from limn.pins.location.source import TokenCache
 from limn.pins.mentions import note_tags as pin_note_tags
 from limn.pins.model import EventType, Pin, Record, TrashedPin
-from limn.pins.needs import BuildAnswers, FollowElement
+from limn.pins.needs import BuildAnswers, FollowElement, VerdictKeys
 from limn.pins.notice import PinNotice
 from limn.pins.record import Broken, parse_record as record_parse_record, parse_trashed as record_parse_trashed
 from limn.pins.store import PinFiles, PinStore, Row
@@ -71,6 +71,9 @@ class PinCommands:
     # The composition root's effect that brings a watched document's files up to date (pull, then import) by its key,
     # run before a close awaiting review is written; by default nothing.
     refresh_watched: Callable[[str], object] = lambda key: None
+    # The verdict keys a document declares now (limn.pins.needs.VerdictKeys), the document owner's answer the
+    # composition root wires; by default no document declares any.
+    verdict_keys: VerdictKeys = lambda doc: ()
     pin_lifecycle: PinLifecycle = field(init=False)
     pin_claims: PinClaims = field(init=False)
     pin_trash: PinTrash = field(init=False)
@@ -337,6 +340,7 @@ class PinCommands:
             builds=self.build_view,
             watches_files=self.watches_files,
             refresh_files=self.refresh_files,
+            verdict_keys=self.verdict_keys,
         )
 
     def render_pins_md(self, pins: Sequence[Pin]) -> None:

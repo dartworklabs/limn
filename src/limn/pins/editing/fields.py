@@ -1,4 +1,4 @@
-"""Validate note, kind, scope, assignee and suggested-edit fields of pin creation and editing.
+"""Validate note, kind, scope, assignee, suggested-edit and verdict fields of pin creation and editing.
 
 These pure parsers return the validated value or the exact request rejection. Both
 the editing body and editing location parser use them without importing each other.
@@ -6,6 +6,7 @@ the editing body and editing location parser use them without importing each oth
 
 from collections.abc import Collection
 
+from limn.pins.editing.rules import AskedVerdict, NonStringVerdict
 from limn.pins.editing.values import ASSIGNEE_AGENT, LOCAL_LOGIN, NOTE_MAX, SCOPES, Scope, is_scope
 from limn.pins.model import KIND_REQS, KindReq, is_kind_req
 from limn.pins.suggestion import Suggestion, without_cr
@@ -79,3 +80,13 @@ def parse_suggest(v: object) -> Suggestion | InputRejected:
     if not (isinstance(base, str) and isinstance(text, str)):
         return InputRejected(SUGGEST_REFUSAL, "bad_suggest")
     return Suggestion(without_cr(base), without_cr(text))
+
+
+def parse_verdict(v: object) -> AskedVerdict | None:
+    """A new pin's verdict as its body sent it: None when absent or null (no verdict pin), the string as sent, or
+    NonStringVerdict for any other value. Nothing is refused here: whether the principal may make a verdict pin and
+    whether the document declares that word are decided inside the store transaction, in the contract's order
+    (limn.pins.editing.rules.decide_new_verdict), where a non-string is verdict_unknown."""
+    if v is None:
+        return None
+    return v if isinstance(v, str) else NonStringVerdict()

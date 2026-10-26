@@ -20,6 +20,11 @@ from limn.pins.editing.rules import (
     SuggestRefusal,
     SuggestTextTooLong,
     SuggestUnsupported,
+    VerdictByAgent,
+    VerdictConflict,
+    VerdictRefusal,
+    VerdictUnknown,
+    VerdictUnsupported,
 )
 from limn.pins.editing.service import PinEditing
 from limn.pins.model import DonePin, OpenPin, PinNotFound, Record, ReviewPin
@@ -36,6 +41,12 @@ Body: TypeAlias = dict[str, object]
 SUGGEST_BASE_CHANGED = (
     "제안 수정의 base 가 지금 원문과 다릅니다 — 그사이 그 줄들이 바뀌었습니다. current 의 지금 글을 보고 다시 쓰세요."
 )
+# The refusals of a new pin's verdict (docs/superpowers/specs/2026-10-26-verdict-pins.md §HTTP API): agent contract
+# strings, never reworded.
+VERDICT_HUMAN = "판정은 사람이 정합니다 — 에이전트는 판정 핀을 만들지 않습니다."
+VERDICT_UNSUPPORTED = "이 문서에는 판정 낱말이 없습니다."
+VERDICT_UNKNOWN = "이 문서의 판정 낱말이 아닙니다."
+VERDICT_CONFLICT = "판정 핀은 질문·제안 수정과 함께 쓰지 않습니다."
 
 
 @dataclass(frozen=True)
@@ -70,7 +81,8 @@ def edit(app: EditingRequests, pid: int, actor: PostAuthority, body: dict[str, A
 
 def add_answer(result: OpenPin | AddRefusal) -> Body:
     """POST /api/pin: the new pin's id, or the refusal of its suggested edit - 400 for the suggestion's own rules
-    (suggest_refused), 409 suggest_base_changed with `current` when its lines no longer read as its base."""
+    (suggest_refused), 409 suggest_base_changed with `current` when its lines no longer read as its base - or of its
+    verdict (verdict_refused)."""
     match result:
         case OpenPin(core=core):
             return {"id": core.id}
@@ -78,6 +90,23 @@ def add_answer(result: OpenPin | AddRefusal) -> Body:
             raise HTTPError(409, SUGGEST_BASE_CHANGED, reason="suggest_base_changed", current=current)
         case SuggestUnsupported() | SuggestRangeTooLong() | SuggestTextTooLong() | SuggestNoop():
             suggest_refused(result)
+        case VerdictByAgent() | VerdictUnsupported() | VerdictUnknown() | VerdictConflict():
+            verdict_refused(result)
+
+
+def verdict_refused(result: VerdictRefusal) -> NoReturn:
+    """The refusal of a new pin's verdict: 403 verdict_human for an agent, 400 verdict_unsupported for a document
+    without usable words, 400 verdict_unknown with the document's keys as `choices`, 400 verdict_conflict for a
+    question or a suggested edit."""
+    match result:
+        case VerdictByAgent():
+            raise HTTPError(403, VERDICT_HUMAN, reason="verdict_human")
+        case VerdictUnsupported():
+            raise HTTPError(400, VERDICT_UNSUPPORTED, reason="verdict_unsupported")
+        case VerdictUnknown(choices=choices):
+            raise HTTPError(400, VERDICT_UNKNOWN, reason="verdict_unknown", choices=list(choices))
+        case VerdictConflict():
+            raise HTTPError(400, VERDICT_CONFLICT, reason="verdict_conflict")
 
 
 def suggest_refused(result: SuggestRefusal) -> NoReturn:

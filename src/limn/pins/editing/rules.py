@@ -390,6 +390,47 @@ class SuggestBaseChanged:
 
 
 @dataclass(frozen=True)
+class NonStringVerdict:
+    """A POST /api/pin body's verdict that is not a string (a JSON null is no verdict at all). It names no word, so it
+    is refused as verdict_unknown in its turn (decide_new_verdict), after the checks that come before that one."""
+
+
+# A new pin's verdict as its body sent it: the string, which decide_new_verdict checks against the document's keys,
+# or a value that is not one.
+AskedVerdict: TypeAlias = str | NonStringVerdict
+
+
+@dataclass(frozen=True)
+class VerdictByAgent:
+    """An agent asked for a verdict pin (403 verdict_human): a verdict is a person's decision, as a confirmation is.
+    A token, the headerless loopback agent and a person with the agent role are agents here."""
+
+
+@dataclass(frozen=True)
+class VerdictUnsupported:
+    """The pin's document declares no verdict words it can use now (400 verdict_unsupported): no word file, or one
+    that cannot be used."""
+
+
+@dataclass(frozen=True)
+class VerdictUnknown:
+    """The verdict asked for is not one of the document's words (400 verdict_unknown); choices are the keys it
+    declares now, in its word file's order, which the refusal lists."""
+
+    choices: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class VerdictConflict:
+    """A verdict pin asked to be a question, or to carry a suggested edit, too (400 verdict_conflict): a verdict is
+    one request to act on its target, and mixing in a question or a replacement text makes it two."""
+
+
+# Why a new pin's verdict is refused, in the order decide_new_verdict checks them.
+VerdictRefusal: TypeAlias = VerdictByAgent | VerdictUnsupported | VerdictUnknown | VerdictConflict
+
+
+@dataclass(frozen=True)
 class EditBaseChanged:
     """An edit's suggestion was written against other text: the lines it would replace - the range after this edit's
     own range change - read `current` now. pin is the pin as it stands (the 409 carries it, as a stale edit's does)."""
@@ -400,8 +441,9 @@ class EditBaseChanged:
 
 # A suggestion's own refusals, before its base is compared with the file: the pin cannot take one, or it breaks a limit.
 SuggestRefusal: TypeAlias = SuggestUnsupported | SuggestRangeTooLong | SuggestTextTooLong | SuggestNoop
-# Why POST /api/pin is refused although its body parsed: its suggestion is (the location and fields parsed already).
-AddRefusal: TypeAlias = SuggestRefusal | SuggestBaseChanged
+# Why POST /api/pin is refused although its body parsed: its suggestion or its verdict is (the location and fields
+# parsed already).
+AddRefusal: TypeAlias = SuggestRefusal | SuggestBaseChanged | VerdictRefusal
 EditRefusal: TypeAlias = (
     ClosedPinReshaped | StaleEdit | NoteTooLong | PinOutsideTree | RangeOutsideFile | SuggestRefusal | EditBaseChanged
 )
@@ -684,10 +726,13 @@ def assignment_text(assignee: str, name: str | None) -> str:
 
 @dataclass(frozen=True)
 class AddRequest:
-    """A validated new pin: where it is, its note, and the optional kind_req, assignee, @-tag hints and suggested edit.
+    """A validated new pin: where it is, its note, and the optional kind_req, assignee, @-tag hints, suggested edit and
+    verdict.
 
     suggest has its shape checked only; whether this pin may carry it, and whether its base is what the lines read,
-    is decided against the document and the file (decide_new_suggestion) before the pin is written."""
+    is decided against the document and the file (decide_new_suggestion) before the pin is written. verdict is the
+    one the body asked for, as sent: who may make a verdict pin and whether the document declares that word are
+    decided inside the store transaction (decide_new_verdict)."""
 
     place: Place
     note: str
@@ -695,11 +740,14 @@ class AddRequest:
     assignee: str | None = None
     hints: tuple[str, ...] = ()
     suggest: Suggestion | None = None
+    verdict: AskedVerdict | None = None
 
     def __post_init__(self) -> None:
         """Keep an internally constructed add's place and local fields in the same shapes as parsed input."""
         if self.suggest is not None and not isinstance(self.suggest, Suggestion):
             raise ValueError("suggest must be a suggested edit")
+        if self.verdict is not None and not isinstance(self.verdict, (str, NonStringVerdict)):
+            raise ValueError("verdict must be the string sent or NonStringVerdict")
         if not isinstance(self.place, (LinePlace, RegionPlace)):
             raise ValueError("place must be a pin location")
         if not isinstance(self.note, str) or len(self.note) > NOTE_MAX:
@@ -710,6 +758,33 @@ class AddRequest:
             raise ValueError("assignee must be a nonempty string")
         if not isinstance(self.hints, tuple) or not all(isinstance(hint, str) for hint in self.hints):
             raise ValueError("hints must be login strings")
+
+
+@dataclass(frozen=True)
+class VerdictFacts:
+    """What the shell read for a new pin that asks for a verdict, inside its store transaction: whether the request's
+    principal may make one (limn.security.access.Principal.authors_verdicts) and the keys the pin's document declares
+    now (limn.pins.needs.VerdictKeys - () without a usable word file)."""
+
+    author: bool
+    keys: tuple[str, ...]
+
+
+def decide_new_verdict(asked: AskedVerdict, request: AddRequest, facts: VerdictFacts) -> str | VerdictRefusal:
+    """The verdict a new pin stores - the key asked for, as the word file declares it - or why the pin is refused,
+    checked in this order: an agent may not make one (VerdictByAgent); the document must declare words
+    (VerdictUnsupported); the verdict must be a string that is one of them (VerdictUnknown, with the keys); and the
+    pin may not be a question or carry a suggested edit (VerdictConflict). A request with a suggestion therefore always
+    gets a refusal here, so its suggestion is never decided or written."""
+    if not facts.author:
+        return VerdictByAgent()
+    if not facts.keys:
+        return VerdictUnsupported()
+    if not isinstance(asked, str) or asked not in facts.keys:
+        return VerdictUnknown(facts.keys)
+    if request.kind_req == "question" or request.suggest is not None:
+        return VerdictConflict()
+    return asked
 
 
 def new_line_pin(
@@ -723,13 +798,15 @@ def new_line_pin(
     pdf_build: str,
     doc: str,
     where: Located | None,
+    verdict: str | None = None,
 ) -> OpenPin:
     """A new line pin's record, fields in the order the store has always written them.
 
     The location comes first (kind defaults to "lines"), then note, at, id (pid, allocated by the shell), author (the
     request's actor as given), kind_req, the note's @-tags, assignee, the anchor and synced_at the shell captured,
-    pdf_build (the one the viewer sent, else the current build), doc, rev 0, where the file is now (ADR-0006), and
-    last the request's suggestion when it has one - the shell has accepted it (decide_new_suggestion) by then.
+    pdf_build (the one the viewer sent, else the current build), doc, rev 0, where the file is now (ADR-0006), the
+    request's suggestion when it has one - the shell has accepted it (decide_new_suggestion) by then - and last the
+    verdict decide_new_verdict accepted, when there is one (never with a suggestion).
     """
     record = dict(place.fields)
     record.setdefault("kind", "lines")
@@ -748,6 +825,8 @@ def new_line_pin(
         record["file"], record["file_rel"] = where.path, where.rel
     if request.suggest is not None:
         record["suggest"] = request.suggest.to_record()
+    if verdict is not None:
+        record["verdict"] = verdict
     return OpenPin.from_record(record)
 
 
@@ -760,10 +839,12 @@ def new_region_pin(
     mentions: Sequence[str],
     pdf_build: str,
     doc: str,
+    verdict: str | None = None,
 ) -> OpenPin:
     """A new view-only PDF pin's record: the region, note, at, id, author, kind_req, pdf_build, doc, rev 0, then the
-    note's @-tags and the assignee - the order this kind of pin has always been written in. No lines, no anchor, and
-    no suggestion: a request carrying one is a caller's defect (decide_new_suggestion refuses it first) and raises."""
+    note's @-tags and the assignee - the order this kind of pin has always been written in - and last the verdict
+    decide_new_verdict accepted, when there is one. No lines, no anchor, and no suggestion: a request carrying one is
+    a caller's defect (decide_new_suggestion refuses it first) and raises."""
     if request.suggest is not None:
         raise ValueError("a region pin takes no suggested edit")
     record = dict(place.fields)
@@ -776,6 +857,8 @@ def new_region_pin(
     _set_mentions(record, mentions)
     if request.assignee is not None:
         record["assignee"] = request.assignee
+    if verdict is not None:
+        record["verdict"] = verdict
     return OpenPin.from_record(record)
 
 
