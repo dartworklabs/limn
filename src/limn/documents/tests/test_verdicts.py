@@ -5,8 +5,9 @@ The parse is pure and total, so it is checked on its own: every rule of the form
 decoding, repeated names refused, unknown names ignored - and, generated, that any bytes give words or a reason
 code and that a well-formed file reads back as written. The reader is checked on real files in a temporary
 manuscript tree: a missing file, an unusable one (a link out of the tree, a folder, an unreadable file, a broken
-or too large one) and one warning per broken version, also when two threads read it at once. The HTTP answers are
-checked through the real handler.
+or too large one) and one warning per broken version, also when two threads read it at once; a word file that hangs
+stalls no other document's read, and a late read never replaces a newer version. The HTTP answers are checked through
+the real handler.
 
 Run: uv run pytest -q src/limn/documents/tests/test_verdicts.py
 """
@@ -19,6 +20,7 @@ import tempfile
 import threading
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from hypothesis import given, strategies as st
 
@@ -35,6 +37,7 @@ from limn.documents.verdicts import (
     verdict_fields,
     verdicts_path,
 )
+from limn.platform.files import ManuscriptFile
 from limn.runtime.documents import Doc, RunPaths
 
 from helpers import MINI_PDF, ps
@@ -424,6 +427,144 @@ class Reader(unittest.TestCase):
         self.assertEqual(self.reader.read(self.doc), VerdictsUnusable("unreadable"))
         self.assertEqual(self.reader.read(self.doc), VerdictsUnusable("unreadable"))
         self.assertEqual(len(self.warnings), 1)
+
+
+# How long a stalled file waits at most, and how long another document's read may take while it does: bounds that
+# only a failing run reaches.
+STALL_LIMIT = 10.0
+ANSWER_LIMIT = 2.0
+
+
+class StalledFile(ManuscriptFile):
+    """A checked word file on a file system that hangs: every look at it - its stat and its read - waits until the
+    test sets `release`, after setting `entered`. Made only by stalled() from a file file_in_tree checked."""
+
+    def metadata(self):
+        """Hang until released, then stat the file as the checked file does."""
+        self.entered.set()
+        self.release.wait(STALL_LIMIT)
+        return super().metadata()
+
+    def read_bounded(self, limit):
+        """Hang until released, then read the file as the checked file does."""
+        self.entered.set()
+        self.release.wait(STALL_LIMIT)
+        return super().read_bounded(limit)
+
+
+class LateFile(ManuscriptFile):
+    """A checked word file whose read is slow to come back: it reads the bytes there now, sets `entered`, and returns
+    them only once the test sets `release`. Its stat is not delayed. Made only by stalled()."""
+
+    def read_bounded(self, limit):
+        """Read the file as the checked file does, then hang until released before answering."""
+        got = super().read_bounded(limit)
+        self.entered.set()
+        self.release.wait(STALL_LIMIT)
+        return got
+
+
+def stalled(
+    checked: ManuscriptFile, entered: threading.Event, release: threading.Event, kind: type = StalledFile
+) -> ManuscriptFile:
+    """checked as a kind (StalledFile or LateFile): the same path and scope, with the two events it signals and
+    waits on."""
+    out = object.__new__(kind)
+    for name in ("path", "_resolved", "root", "state"):
+        object.__setattr__(out, name, getattr(checked, name))
+    object.__setattr__(out, "entered", entered)
+    object.__setattr__(out, "release", release)
+    return out
+
+
+class StalledRead(unittest.TestCase):
+    """A read of one document's word file that hangs (a slow or blocked file system) holds nothing another
+    document's read needs: document B is answered - from the entry the reader holds, and afresh - while document A's
+    read waits on its file. Only A's file hangs: the reader's own file_in_tree hands out a StalledFile (or, when a
+    test asks, a LateFile) for it, once."""
+
+    def setUp(self):
+        """Documents a and b over one manuscript tree, each with the example word file, and file_in_tree replaced
+        in the reader's module by one that makes the first look at a's word file hang until self.release is set
+        (cleanup sets it); self.kind says how it hangs."""
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        root = Path(tmp.name).resolve()
+        src = root / "ms"
+        src.mkdir()
+        (root / "state").mkdir()
+        paths = RunPaths(src, src / "a.tex", root / "state")
+        self.a = Doc("a", "A", "tex", src, src / "a.tex", paths=paths)
+        self.b = Doc("b", "B", "tex", src, src / "b.tex", paths=paths)
+        for doc in (self.a, self.b):
+            doc.main.write_text("\\documentclass{article}\n", encoding="utf-8")
+            verdicts_path(doc).write_bytes(raw(EXAMPLE))
+        self.entered, self.release = threading.Event(), threading.Event()
+        self.addCleanup(self.release.set)
+        self.kind: type = StalledFile
+        real = verdicts_module.file_in_tree
+        hanging = [str(verdicts_path(self.a))]
+
+        def file_in_tree(p, root, state):
+            """The real check; the first time a's word file is asked for, it comes back as a self.kind."""
+            checked = real(p, root, state)
+            if p in hanging and isinstance(checked, ManuscriptFile):
+                hanging.clear()
+                return stalled(checked, self.entered, self.release, self.kind)
+            return checked
+
+        patcher = mock.patch.object(verdicts_module, "file_in_tree", file_in_tree)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def b_while_a_hangs(self, reader: VerdictFiles) -> object:
+        """Start a read of a on reader and wait until it hangs on a's file; then read b on another thread and return
+        its answer, failing when b has no answer within ANSWER_LIMIT. a is let go afterwards and must read its words."""
+        a_answer: list[object] = []
+        a_thread = threading.Thread(target=lambda: a_answer.append(reader.read(self.a)))
+        a_thread.start()
+        self.assertTrue(self.entered.wait(STALL_LIMIT), "a's read never reached its file")
+        b_answer: list[object] = []
+        b_thread = threading.Thread(target=lambda: b_answer.append(reader.read(self.b)))
+        b_thread.start()
+        b_thread.join(ANSWER_LIMIT)
+        stuck = b_thread.is_alive()
+        self.release.set()
+        a_thread.join(STALL_LIMIT)
+        b_thread.join(STALL_LIMIT)
+        self.assertFalse(stuck, "b's read waited for a's hanging file")
+        self.assertEqual([words.keys for words in a_answer], [("채택", "보류", "삭제")])
+        return b_answer[0]
+
+    def test_a_document_already_read_is_answered_while_another_hangs(self):
+        """b's words, held from an earlier read, come back while a's read hangs."""
+        reader = VerdictFiles(lambda message: None)
+        self.assertEqual(reader.read(self.b).keys, ("채택", "보류", "삭제"))
+        self.assertEqual(self.b_while_a_hangs(reader).keys, ("채택", "보류", "삭제"))
+
+    def test_a_document_read_for_the_first_time_is_answered_while_another_hangs(self):
+        """b's word file, never read before, is read and answered while a's read hangs."""
+        reader = VerdictFiles(lambda message: None)
+        self.assertEqual(self.b_while_a_hangs(reader).keys, ("채택", "보류", "삭제"))
+
+    def test_a_read_that_ends_on_an_older_version_leaves_the_newer_one(self):
+        """a's read takes the broken version there and is slow to come back; meanwhile the file is fixed and read
+        again, which keeps its words. The late read answers what it read, but it neither replaces the newer entry
+        nor warns about a version already gone - nothing is logged."""
+        self.kind = LateFile
+        verdicts_path(self.a).write_bytes(b"{")
+        warnings: list[str] = []
+        reader = VerdictFiles(warnings.append)
+        late: list[object] = []
+        thread = threading.Thread(target=lambda: late.append(reader.read(self.a)))
+        thread.start()
+        self.assertTrue(self.entered.wait(STALL_LIMIT), "a's read never reached its file")
+        verdicts_path(self.a).write_bytes(raw(EXAMPLE))
+        self.assertEqual(reader.read(self.a).keys, ("채택", "보류", "삭제"))
+        self.release.set()
+        thread.join(STALL_LIMIT)
+        self.assertEqual(late, [VerdictsUnusable("invalid")])
+        self.assertEqual(warnings, [])
 
 
 class DocsAndMeta(AccessBase):

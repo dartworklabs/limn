@@ -248,10 +248,12 @@ class VerdictFiles:
     a read and a parse happen when a file appears, changes or goes away, not on every poll. Each new unusable version
     is reported once through warn (the server log by default) - a file that stays broken is not reported again,
     and one broken again after a fix is. The parse is pure (parse_verdicts), so a warm reader answers what a cold
-    one does. Request threads share it: the version check, the read and parse of a new version and its entry happen
-    under one lock, so of two threads that ask for the same new version at once one reads it and the other is
-    answered from its entry, and a broken version is reported once. The lock is held for a stat and a read of at most
-    VERDICTS_MAX_BYTES + 1 bytes of a checked file, never for the warning."""
+    one does. Request threads share it, and every document's reads share its one lock, so no file is touched under
+    it: the stat, the read and the parse happen outside, and the lock only looks an entry up and publishes a new one.
+    Two threads that read the same new version at once both read it, but only the first to publish keeps its entry
+    and warns; the other is answered from that entry. A thread that finds another version published since it looked
+    leaves that entry and does not warn - its answer is returned, and the next read publishes what the file is then.
+    So a file that hangs stalls only the reads of its own document."""
 
     warn: Callable[[str], None] = _stderr
     _entries: dict[str, tuple[Version, VerdictAnswer]] = field(default_factory=dict)
@@ -260,17 +262,24 @@ class VerdictFiles:
     def read(self, doc: Doc) -> VerdictAnswer:
         """Document doc's word file now: VerdictWords, VerdictsUnusable or NoVerdictFile. Reads at most
         VERDICTS_MAX_BYTES + 1 bytes of it, through the checked handle only, and only for a version not seen before;
-        the thread that reads an unusable version is the one that warns."""
+        the thread that publishes an unusable version is the one that warns, after the lock is released."""
         path = verdicts_path(doc)
-        checked = file_in_tree(str(path), doc.paths.src, doc.paths.state)
+        key = str(path)
+        checked = file_in_tree(key, doc.paths.src, doc.paths.state)
+        version = self._version(path, checked)
         with self._lock:
-            version = self._version(path, checked)
-            held = self._entries.get(str(path))
+            seen = self._entries.get(key)
+        if seen is not None and seen[0] == version:
+            return seen[1]
+        version, answer = self._load(path, checked, version)
+        with self._lock:
+            held = self._entries.get(key)
             if held is not None and held[0] == version:
-                return held[1]
-            version, answer = self._load(path, checked, version)
-            self._entries[str(path)] = (version, answer)
-        if isinstance(answer, VerdictsUnusable):  # a version not seen before: a held one returned above
+                return held[1]  # another thread published this version meanwhile, and warned for it
+            if held is not seen:
+                return answer  # another thread published another version meanwhile: its entry stays
+            self._entries[key] = (version, answer)
+        if isinstance(answer, VerdictsUnusable):  # this thread published a version not seen before
             self.warn(
                 "warning: verdict words of document %s are not used (%s): %s"
                 % (doc.key, answer.reason, _shown(doc, path))
