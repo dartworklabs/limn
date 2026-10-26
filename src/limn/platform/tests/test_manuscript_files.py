@@ -161,3 +161,81 @@ def test_only_checked_factory_constructs_capabilities():
                 assert not any(isinstance(arg, ast.Name) and arg.id == "ManuscriptFile" for arg in node.args), (
                     f"{path}:{node.lineno}: do not bypass checked construction"
                 )
+
+
+def test_bounded_read_returns_a_small_file_with_its_signature(tmp_path):
+    """A file of at most the limit is read whole, with the mtime_ns, size and inode of the file it came from."""
+    from limn.platform.files import BoundedBytes, FileSignature
+
+    source = tmp_path / "words.json"
+    source.write_bytes(b"x" * 16)
+    checked = file_in_tree(str(source), tmp_path, tmp_path / "state")
+    found = source.stat()
+    assert checked.read_bounded(16) == BoundedBytes(b"x" * 16, FileSignature.of(found))
+    assert checked.read_bounded(16).signature == FileSignature(found.st_mtime_ns, 16, found.st_ino)
+
+
+def test_bounded_read_refuses_a_file_larger_than_the_limit_without_reading_it(tmp_path, monkeypatch):
+    """A file whose size is over the limit is OverLimit from its size alone: no byte of it is read."""
+    from limn.platform import files
+
+    source = tmp_path / "words.json"
+    source.write_bytes(b"x" * 17)
+    checked = file_in_tree(str(source), tmp_path, tmp_path / "state")
+    reads = []
+    original_read = files.os.read
+    monkeypatch.setattr(files.os, "read", lambda fd, n: reads.append(n) or original_read(fd, n))
+    assert isinstance(checked.read_bounded(16), files.OverLimit)
+    assert reads == []
+
+
+def test_bounded_read_stops_one_byte_past_the_limit_when_the_file_grows(tmp_path, monkeypatch):
+    """A file that grows after its size was looked at is OverLimit, and at most limit + 1 bytes are read of it."""
+    from limn.platform import files
+
+    source = tmp_path / "words.json"
+    source.write_bytes(b"x" * 16)
+    checked = file_in_tree(str(source), tmp_path, tmp_path / "state")
+    original_read = files.os.read
+    got = []
+
+    def grow_then_read(fd, n):
+        """Append to the real file right before the first read, as a writer racing the reader would."""
+        if not got:
+            with open(source, "ab") as fh:
+                fh.write(b"y" * 100_000)
+        chunk = original_read(fd, n)
+        got.append(len(chunk))
+        return chunk
+
+    monkeypatch.setattr(files.os, "read", grow_then_read)
+    assert isinstance(checked.read_bounded(16), files.OverLimit)
+    assert sum(got) == 17
+
+
+@pytest.mark.parametrize("limit", [-1, 1.5, True, "16"])
+def test_bounded_read_refuses_a_limit_that_is_not_a_count(tmp_path, limit):
+    """A negative, fractional, boolean or textual limit is a caller's defect, not a read."""
+    source = tmp_path / "words.json"
+    source.write_bytes(b"{}")
+    checked = file_in_tree(str(source), tmp_path, tmp_path / "state")
+    with pytest.raises(ValueError):
+        checked.read_bounded(limit)
+
+
+def test_bounded_read_refuses_a_file_replaced_by_a_link(tmp_path):
+    """A checked file later replaced by a link to an outside file reads nothing (ReadRefused), like a snapshot."""
+    from limn.platform.files import ReadRefused
+
+    root = tmp_path / "manuscript"
+    root.mkdir()
+    source = root / "words.json"
+    source.write_bytes(b"{}")
+    secret = tmp_path / "secret"
+    secret.write_bytes(b"secret")
+    checked = file_in_tree(str(source), root, tmp_path / "state")
+    source.unlink()
+    source.symlink_to(secret)
+    assert checked.read_bounded(4096) == ReadRefused()
+    source.unlink()
+    assert checked.read_bounded(4096) == ReadRefused()

@@ -11,8 +11,9 @@ file_in_tree applies it to a path a request or SyncTeX names: the request
 parsers (limn.web.parse) turn its refusals into 400 answers, the selection resolver (server.pick) into its own
 message. A close's recorded changes (limn.web.parse) and a stored pin path (limn.pins.location.lookup) are judged by tree_part too.
 
-tex_lines is how every line number is counted when a manuscript file is read; vendor_file is the name guard of the
-bundled library files the viewer loads (PDF.js, the Pretendard font).
+tex_lines is how every line number is counted when a manuscript file is read; ManuscriptFile.read_bounded reads a
+small producer file (a document's verdict words) without ever holding more than its limit; vendor_file is the name
+guard of the bundled library files the viewer loads (PDF.js, the Pretendard font).
 """
 
 from __future__ import annotations
@@ -214,6 +215,72 @@ class ManuscriptFile:
                 return os.fstat(descriptor)
         except (OSError, ValueError):
             return None
+
+    def read_bounded(self, limit: int) -> BoundedBytes | OverLimit | ReadRefused:
+        """The file's bytes when it holds at most `limit` of them, read from one checked no-follow descriptor.
+
+        The descriptor's size is looked at first: a file larger than limit is OverLimit without a byte read. Otherwise
+        at most limit + 1 bytes are read, so a file that grows while it is read is OverLimit too and never costs more
+        than that. Both answers carry the signature of the descriptor they came from. ReadRefused when the walk, the
+        open or a read fails (the file was removed or replaced by a link, is not a regular file, cannot be read).
+        A limit that is not a non-negative integer is the caller's defect (ValueError)."""
+        if isinstance(limit, bool) or not isinstance(limit, int) or limit < 0:
+            raise ValueError("a bounded read needs a non-negative byte limit")
+        try:
+            with self._descriptor() as descriptor:
+                found = os.fstat(descriptor)
+                signature = FileSignature.of(found)
+                if found.st_size > limit:
+                    return OverLimit(signature)
+                chunks: list[bytes] = []
+                held = 0
+                while held <= limit:
+                    chunk = os.read(descriptor, limit + 1 - held)
+                    if not chunk:
+                        break
+                    chunks.append(chunk)
+                    held += len(chunk)
+                if held > limit:
+                    return OverLimit(signature)
+                return BoundedBytes(b"".join(chunks), signature)
+        except (OSError, ValueError):
+            return ReadRefused()
+
+
+@dataclass(frozen=True)
+class FileSignature:
+    """What tells one version of a checked file from another: its mtime in nanoseconds, its size and its inode, as the
+    descriptor it was read from reported them. A file written again by atomic replacement gets a new inode, so two
+    writes in one timestamp tick with the same size still differ."""
+
+    mtime_ns: int
+    size: int
+    inode: int
+
+    @classmethod
+    def of(cls, found: os.stat_result) -> FileSignature:
+        """The signature a stat result reports."""
+        return cls(found.st_mtime_ns, found.st_size, found.st_ino)
+
+
+@dataclass(frozen=True)
+class BoundedBytes:
+    """A bounded read's bytes - at most the limit asked for - and the signature of the descriptor they came from."""
+
+    data: bytes
+    signature: FileSignature
+
+
+@dataclass(frozen=True)
+class OverLimit:
+    """The file holds more bytes than the limit asked for: its size said so, or it grew past it while being read."""
+
+    signature: FileSignature
+
+
+@dataclass(frozen=True)
+class ReadRefused:
+    """A bounded read got no bytes: the file was removed, replaced by a link, is not a regular file or cannot be read."""
 
 
 def tex_lines(file: ManuscriptFile) -> list[str]:
