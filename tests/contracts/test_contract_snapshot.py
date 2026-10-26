@@ -5,7 +5,8 @@ ref and changes, a confirm, a reopen, an edit, the Trash and back, and the refus
 agent, a stale edit, a claim on a closed pin, a missing pin) - runs through the real handler with the clock, the time
 zone and the paths pinned. Every answer (status and body), pins.md after every write, and at the end GET /pins.md,
 GET /api/pins, GET /api/pins/<id> and GET /api/pins/dropped are compared with tests/data/contract_snapshot.json
-(docs/handbook/verification.md §4), so a refactor that changes any of these bytes fails here.
+(docs/handbook/verification.md §4), so a refactor that changes any of these bytes fails here. The figure flow and the
+verdict flow are recorded apart, in tests/data/contract_snapshot_figure.json and tests/data/verdict_snapshot.json.
 
 Paths are written as <ROOT> (the temporary folder), the clock is 2026-09-26 10:00:00 +09:00 whatever the machine's
 zone. A deliberate contract change (docs/handbook/api.md, approved first) re-records the snapshot:
@@ -23,6 +24,7 @@ from pathlib import Path
 from unittest import mock
 
 from limn.builds import engine as build_engine
+from limn.documents.verdicts import verdicts_path
 from limn.pins.listing import markdown as listing_markdown
 from limn.pins.location import source as pick_source
 from limn.runtime.documents import Doc
@@ -30,7 +32,17 @@ from limn.security import people as limn_people
 
 from helpers import ps
 from helpers_access import ALICE, BOB, AccessBase
-from helpers_figure import AUGUST_BOX, BUILD1, BUILD2, JULY_BOX, SCRIPT, b2_map, figure_doc, write_build
+from helpers_figure import (
+    AUGUST_BOX,
+    BUILD1,
+    BUILD2,
+    JULY_BOX,
+    SCRIPT,
+    b2_map,
+    figure_doc,
+    viewer_docs,
+    write_build,
+)
 
 SNAPSHOT = Path(__file__).resolve().parents[2] / "tests" / "data" / "contract_snapshot.json"
 T0 = 1790384400.0  # 2026-09-26 10:00:00 +09:00
@@ -287,6 +299,141 @@ class FigureContractSnapshot(SnapshotBase):
         self.step("figure: re-rendered, GET /api/pins", "GET", "/api/pins")
         self.step("figure: re-rendered, GET /pins.md", "GET", "/pins.md")
         self.assert_recorded(FIGURE_SNAPSHOT)
+
+
+VERDICT_SNAPSHOT = Path(__file__).resolve().parents[2] / "tests" / "data" / "verdict_snapshot.json"
+# The word files of the verdict flow: the LaTeX document's (page is ignored there), the figure document's with labels.
+MS_WORDS = {
+    "format": "limn-verdicts/1",
+    "page": True,
+    "verdicts": [{"key": "채택"}, {"key": "보류"}, {"key": "삭제", "confirm": True}],
+}
+FIG_WORDS = {
+    "format": "limn-verdicts/1",
+    "page": True,
+    "verdicts": [{"key": "채택", "label": "본문으로"}, {"key": "보류", "label": "후보로"}],
+}
+
+
+class VerdictContractSnapshot(SnapshotBase):
+    """The verdict flow, recorded in tests/data/verdict_snapshot.json (docs/superpowers/specs/2026-10-26-verdict-pins.md):
+    three documents - LaTeX ms, figure fig (two pages on BUILD1) and view-only PDF rv - of which ms and fig declare
+    verdict words; the document list with them; verdict pins by people on each kind (rv once it has words), whole
+    figure and whole page included; every creation refusal in turn; a claim; the edit rule; an agent's close; then
+    pins.md, the pin lists and one pin. Every file's mtime is T0, so the document list does not depend on when the
+    test ran. The two older flows never meet a word file, and their snapshots stay byte for byte as they were."""
+
+    def setUp(self):
+        """The pinned clocks; the three documents with BUILD1 on screen; word files for ms and fig; every manuscript
+        file's mtime T0."""
+        super().setUp()
+        self.ms, self.fig, self.rv = viewer_docs(ps.APP, self.src)
+        self.addCleanup(ps.APP.set_docs, None)
+        for doc, words in ((self.ms, MS_WORDS), (self.fig, FIG_WORDS)):
+            verdicts_path(doc).write_text(json.dumps(words, ensure_ascii=False), encoding="utf-8")
+        for path in self.src.rglob("*"):
+            os.utime(path, (T0, T0), follow_symlinks=False)
+
+    def test_the_verdict_flow_answers_as_recorded(self):
+        """Every answer and pins.md along the verdict flow equal the recorded snapshot."""
+        main = str(self.main)
+        root = {"id": "B2", "path": ["B2"]}
+        figure = {"doc": "fig", "file": SCRIPT, "lo": 12, "hi": 140, "page": 1, "scope": "fig", "pdf_build": BUILD1}
+        self.step("verdicts: GET /api/docs", "GET", "/api/docs", headers=ALICE)
+        a = self.step(
+            "verdicts: person picks 채택 for lines, no memo",
+            "POST",
+            "/api/pin",
+            {"doc": "ms", "file": main, "lo": 4, "hi": 5, "page": 1, "verdict": "채택"},
+            ALICE,
+        )["id"]
+        b = self.step(
+            "verdicts: person picks 보류 for the whole figure",
+            "POST",
+            "/api/pin",
+            dict(figure, el=root, verdict="보류", note="다음 판에서 다시 본다"),
+            BOB,
+        )["id"]
+        self.step(
+            "verdicts: the view-only PDF has no words",
+            "POST",
+            "/api/pin",
+            {"doc": "rv", "page": 2, "frac": [0, 0, 1, 1], "pdf_build": BUILD1, "verdict": "삭제"},
+            ALICE,
+        )
+        verdicts_path(self.rv).write_text(json.dumps(MS_WORDS, ensure_ascii=False), encoding="utf-8")
+        c = self.step(
+            "verdicts: person picks 삭제 for the whole PDF page",
+            "POST",
+            "/api/pin",
+            {"doc": "rv", "page": 2, "frac": [0, 0, 1, 1], "pdf_build": BUILD1, "verdict": "삭제"},
+            ALICE,
+        )["id"]
+        self.step(
+            "verdicts: agent may not make one",
+            "POST",
+            "/api/pin",
+            {"doc": "ms", "file": main, "lo": 8, "hi": 8, "page": 1, "verdict": "채택"},
+        )
+        self.step(
+            "verdicts: a word the document does not declare",
+            "POST",
+            "/api/pin",
+            {"doc": "fig", "file": SCRIPT, "lo": 12, "hi": 140, "page": 1, "el": root, "verdict": "삭제"},
+            BOB,
+        )
+        self.step(
+            "verdicts: a question with a verdict",
+            "POST",
+            "/api/pin",
+            {"doc": "ms", "file": main, "lo": 8, "hi": 8, "page": 1, "verdict": "보류", "kind_req": "question"},
+            BOB,
+        )
+        self.step(
+            "verdicts: a figure that is not the page's root",
+            "POST",
+            "/api/pin",
+            dict(figure, el={"id": "B3", "path": ["B3"]}, verdict="채택"),
+            BOB,
+        )
+        self.step("verdicts: agent claims the figure verdict", "POST", "/api/pins/%d/claim" % b, {"eta_min": 10})
+        self.step(
+            "verdicts: agent may not move a verdict pin",
+            "POST",
+            "/api/pins/%d/edit" % b,
+            {"lo": 80, "hi": 97, "base_rev": 0},
+        )
+        self.step(
+            "verdicts: agent rewrites its memo",
+            "POST",
+            "/api/pins/%d/edit" % b,
+            {"note": "후보 절의 3번째", "base_rev": self.pin(b)["rev"]},
+        )
+        d = self.step(
+            "verdicts: person adds an ordinary pin",
+            "POST",
+            "/api/pin",
+            {"doc": "ms", "file": main, "lo": 12, "hi": 16, "page": 1, "note": "표 제목"},
+            ALICE,
+        )["id"]
+        self.step(
+            "verdicts: an edit may not give a pin a verdict",
+            "POST",
+            "/api/pins/%d/edit" % d,
+            {"verdict": "채택", "base_rev": 0},
+            ALICE,
+        )
+        self.step(
+            "verdicts: agent closes the lines verdict",
+            "POST",
+            "/api/pins/%d/close" % a,
+            {"reply": "대상: intro-1\n본문에 넣었습니다", "ref": "PR #3 (abc1234)"},
+        )
+        self.step("verdicts: GET /pins.md", "GET", "/pins.md")
+        self.step("verdicts: GET /api/pins", "GET", "/api/pins")
+        self.step("verdicts: GET /api/pins?all=1", "GET", "/api/pins?all=1")
+        self.step("verdicts: GET /api/pins/<c>", "GET", "/api/pins/%d" % c)
+        self.assert_recorded(VERDICT_SNAPSHOT)
 
 
 if __name__ == "__main__":
