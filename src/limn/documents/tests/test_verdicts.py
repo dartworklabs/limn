@@ -10,6 +10,7 @@ or too large one) and one warning per broken version. The HTTP answers are check
 Run: uv run pytest -q src/limn/documents/tests/test_verdicts.py
 """
 
+import ast
 import json
 import os
 import tempfile
@@ -19,6 +20,7 @@ from pathlib import Path
 from hypothesis import given, strategies as st
 
 from limn.builds import artifacts as build_artifacts
+from limn.documents import verdicts as verdicts_module
 from limn.documents.verdicts import (
     VERDICTS_MAX_BYTES,
     NoVerdictFile,
@@ -216,6 +218,25 @@ class ParseProperties(unittest.TestCase):
             return
         want = tuple(VerdictChoice(key, label or key, bool(confirm)) for key, label, confirm in items)
         self.assertEqual(parse_verdicts(data), VerdictWords(bool(page), want))
+
+
+class ReadsOnlyThroughTheCheckedFile(unittest.TestCase):
+    """The word-file module opens nothing itself: every byte it reads comes through ManuscriptFile.read_bounded."""
+
+    RAW_READS = {"open", "read_text", "read_bytes", "read", "fdopen", "readlines"}
+
+    def test_the_module_calls_no_raw_read(self):
+        """No call to open(), os.open/os.read/os.fdopen or Path.read_text/read_bytes appears in documents/verdicts.py;
+        the only read is the checked handle's read_bounded."""
+        source = Path(verdicts_module.__file__).read_text(encoding="utf-8")
+        calls = [node for node in ast.walk(ast.parse(source)) if isinstance(node, ast.Call)]
+        names = {
+            node.func.id if isinstance(node.func, ast.Name) else node.func.attr
+            for node in calls
+            if isinstance(node.func, (ast.Name, ast.Attribute))
+        }
+        self.assertEqual(sorted(names & self.RAW_READS), [])
+        self.assertIn("read_bounded", names)
 
 
 class WordFilePlace(unittest.TestCase):
@@ -431,6 +452,15 @@ class DocsAndMeta(AccessBase):
         _, meta = self.call("GET", "/api/meta?doc=rv", headers=ALICE)
         self.assertNotIn("verdicts", meta)
         self.assertNotIn("verdicts_error", meta)
+
+    def test_a_label_is_answered_as_the_text_the_file_holds(self):
+        """A label holding markup reaches the API as plain text, character for character; the viewer shows it as
+        text (its textContent), never as markup."""
+        words = {"format": "limn-verdicts/1", "verdicts": [{"key": "a", "label": "<script>"}]}
+        verdicts_path(self.ms).write_text(json.dumps(words), encoding="utf-8")
+        _, d = self.call("GET", "/api/docs", headers=ALICE)
+        entry = next(e for e in d["docs"] if e["key"] == "ms")
+        self.assertEqual(entry["verdicts"]["choices"], [{"key": "a", "label": "<script>", "confirm": False}])
 
     def test_a_document_without_a_word_file_answers_as_before(self):
         """With no word file anywhere, /api/docs entries and the full meta end with the keys they ended with before."""
