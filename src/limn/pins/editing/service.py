@@ -36,7 +36,7 @@ from limn.pins.location.mapping import anchor_of, comment_marker
 from limn.pins.model import DonePin, OpenPin, Pin, PinNotFound, Record, Region, ReviewPin
 from limn.pins.store import pin_index
 from limn.pins.suggestion import Suggestion
-from limn.pins.verdict import whole_figure
+from limn.pins.verdict import verdict_of, whole_figure
 from limn.platform.files import tex_lines
 from limn.runtime.documents import Doc, doc_by_key, document_authority_target
 from limn.security.access import PostAuthority, require_authority
@@ -144,8 +144,8 @@ def edit_pin(
     """Edits pin pid's note, range, location and note-level fields in place; id/at/done never change.
 
     request is the parsed body with its loc already placed against the pin's own document (limn.pins.editing.input.parse_edit
-    and parse_edit_place, with region and the document from EditScope); region says the pin is a region pin - a
-    view-only document's, or a figure document's region pick - whose file is never located. The 'HH:MM' an appended note
+    and parse_edit_place, with the EditTarget from EditScope - a verdict pin's loc is left unread); region says the
+    pin is a region pin - a view-only document's, or a figure document's region pick - whose file is never located. The 'HH:MM' an appended note
     is stamped with is read before the lock. Under the pin lock the shell reads where the pin's file will be and - for a
     lo/hi edit - its line count, and limn.pins.editing.rules.decide_edit() refuses or accepts: a closed pin cannot be
     reshaped, a stale base_rev is a conflict (so a pin the agent closed, or one line matching moved, is never silently
@@ -228,22 +228,39 @@ def _with_edit(
 
 
 @dataclass(frozen=True)
+class EditTarget:
+    """What an edit's location is parsed against, read before the pin lock (EditScope): whether the pin is a region
+    pin (a view-only document's, or a figure document's region pick - it has no lines), whether it carries a verdict
+    (limn.pins.verdict.verdict_of - then no loc is read, limn.pins.editing.input.parse_edit_place) and the document
+    it belongs to. A verdict never leaves a pin, and the editing rules check the pin again under the lock."""
+
+    region: bool
+    verdict: bool
+    document: Doc
+
+
+@dataclass(frozen=True)
 class EditScope:
-    """Read a pin's region kind and owning document before parsing an edit's location."""
+    """Read a pin's region kind, verdict and owning document before parsing an edit's location."""
 
     read_pins: Callable[[], tuple[list[Pin], list[int]]]
     docs: Callable[[], Sequence[Doc]]
     pin_doc_key: Callable[[Record], str]
 
-    def __call__(self, pid: int) -> tuple[bool, Doc]:
-        """Return the pin's region flag and document, falling back to the first document for an unknown id."""
+    def __call__(self, pid: int) -> EditTarget:
+        """The pin's EditTarget. An id that is not among the live pins reads as a line pin without a verdict in the
+        first document; the pin transaction answers a pin that is still missing as not found."""
         pins, _ = self.read_pins()
         docs = self.docs()
         i = pin_index(pins, pid)
         if i is None:
-            return False, docs[0]
+            return EditTarget(False, False, docs[0])
         pin = pins[i]
-        return isinstance(pin.core.place, Region), doc_by_key(docs, self.pin_doc_key(pin.record)) or docs[0]
+        return EditTarget(
+            isinstance(pin.core.place, Region),
+            verdict_of(pin.record) is not None,
+            doc_by_key(docs, self.pin_doc_key(pin.record)) or docs[0],
+        )
 
 
 @dataclass(frozen=True)

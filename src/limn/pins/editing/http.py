@@ -28,7 +28,7 @@ from limn.pins.editing.rules import (
     VerdictUnknown,
     VerdictUnsupported,
 )
-from limn.pins.editing.service import PinEditing
+from limn.pins.editing.service import EditTarget, PinEditing
 from limn.pins.model import DonePin, OpenPin, PinNotFound, Record, ReviewPin
 from limn.runtime.documents import Doc
 from limn.security.access import PostAuthority
@@ -60,7 +60,7 @@ class EditingRequests:
     pin_editing: PinEditing
     known_people: Callable[[], Collection[str]]
     document_facts: Callable[[Doc], DocumentFacts]
-    edit_scope: Callable[[int], tuple[bool, Doc]]
+    edit_scope: Callable[[int], EditTarget]
     public: Callable[[Record], dict[str, Any]]
 
     def assignee_people(self, body: dict[str, Any]) -> Collection[str]:
@@ -75,12 +75,15 @@ def add(app: EditingRequests, document: Doc, actor: PostAuthority, body: dict[st
 
 
 def edit(app: EditingRequests, pid: int, actor: PostAuthority, body: dict[str, Any]) -> Body:
-    """Check edit fields before loading the pin's document, then validate its location."""
+    """Check edit fields before loading the pin's document, then validate its location against that document - or,
+    for a verdict pin, leave it unread for the editing rules to refuse (verdict_fixed)."""
     parsed = accepted(editing_input.parse_edit(body, app.assignee_people(body)))
-    region, document = app.edit_scope(pid)
-    place = accepted(editing_input.parse_edit_place(parsed, region, app.document_facts(document)))
+    target = app.edit_scope(pid)
+    facts = app.document_facts(target.document)
+    place = accepted(editing_input.parse_edit_place(parsed, target.region, facts, verdict=target.verdict))
     request = replace(parsed.request, place=place)
-    return edit_answer(app.pin_editing.edit_pin(pid, request, actor, region, document.builds_from_source), app.public)
+    result = app.pin_editing.edit_pin(pid, request, actor, target.region, target.document.builds_from_source)
+    return edit_answer(result, app.public)
 
 
 def add_answer(result: OpenPin | AddRefusal) -> Body:

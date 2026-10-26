@@ -49,7 +49,7 @@ HTTP 전송 입장을 통과한 API 오류 응답은 `{"error": "<한국어 메�
 | 요청 경계 | `400`·`403`·`413`·`415` | `transfer_encoding`·`bad_content_length`·`body_truncated`·`body_too_large`·`bad_content_type`·`bad_json`·`bad_query`·`duplicate_header`·`bad_host`·`bad_origin`·`invalid_authority` |
 | 인증·입장·역할 | `401`·`403` | `unauthenticated`·`loopback_agent_off`(루프백 에이전트를 끈 인스턴스에 헤더 없는 로컬 요청)·`headerless`·`bad_bearer`·`bad_token`·`not_member`·`not_allowed`·`viewer_only`·`owner_only`·`confirm_by_human`·`verdict_human`(에이전트가 판정 핀을 만듦) |
 | 경로 | `404` | `not_found`(없는 경로·vendor 파일), `pdf_build_gone`(`?build=` 나 `/pages/<빌드>/` 의 빌드가 없음, pick 의 옛 빌드), `pdf_missing`(`?build=` 없이 지금 빌드의 PDF 가 없음) |
-| 문서 | `400`·`404` | `bad_doc`·`doc_mismatch`·`unknown_doc`·`no_source_lines`(보기 전용 문서나 영역 핀에 줄을 보냄)·`view_only_no_rebuild` |
+| 문서 | `400`·`404` | `bad_doc`·`doc_mismatch`·`unknown_doc`·`no_source_lines`(보기 전용 문서나 영역 핀에 줄을 보냄. 판정 핀의 편집이면 `verdict_fixed`)·`view_only_no_rebuild` |
 | 핀 | `404`·`409` | `pin_not_found`·`not_in_trash`·`pin_exists`, `409` 코드 `done`·`conflict`·`open`·`full`·`claimed`, 제안 수정의 원문 대조 `suggest_base_changed`(`409`, 본문에 `current`) |
 | 핀 입력 | `400` | `not_integer`·`not_number`·`too_small`·`bad_note`·`note_too_long`·`bad_note_append`·`note_append_empty`·`note_append_too_long`·`bad_reply`·`reply_too_long`·`bad_ref`·`ref_too_long`·`bad_changes`·`too_many_changes`·`change_outside_manuscript`·`bad_pin`·`bad_assignee`·`unknown_assignee`·`bad_kind_req`·`bad_kind`·`bad_via`·`bad_scope`·`bad_el`·`bad_suggest`·`suggest_unsupported`·`suggest_too_long`·`suggest_noop`·`verdict_unsupported`·`verdict_unknown`(본문에 `choices`)·`verdict_conflict`·`verdict_page_target`·`verdict_fixed`·`bad_quote`·`bad_loc`·`bad_mentions`·`bad_event_cursor`·`bad_reopen`·`bad_review`·`text_required`·`bad_text`·`text_too_long`·`text_empty`·`base_rev_required`·`bad_done_at`·`nothing_to_change`·`unknown_fields`·`confirm_required` |
 | 위치 | `400` | `bad_file`·`file_outside_manuscript`·`file_not_found`·`range_outside_file`·`pin_outside_manuscript`·`bad_page`·`page_out_of_range`·`bad_frac`·`frac_outside_page`·`bad_pdf_build` |
@@ -441,7 +441,7 @@ latexdiff는 본문 글과, 자기가 아는 글 명령(`\textbf`·`\section`·`
 - **`pdf_build` 는 `loc` 에 `frac` 이 있을 때만 바뀐다.** 이때 값은 `loc` 에 담긴 `pdf_build` 다. 뷰어는 여기에 pick 응답 값을 넣는다. 둘 다 없으면 지금 빌드다. 메모, `note_append`, `lo`·`hi` 만 고치는 편집은 `pdf_build` 를 건드리지 않는다.
 - **범위가 바뀌면 `anchor` 를 새로 뜨고 `stale`·`sync` 를 지운다.** 위치를 잃은(`stale`) 핀도 이 경로로 고친다.
 - **닫힌 핀은 메모만 고칠 수 있다.** 범위나 위치, 제안 수정(`suggest`)을 보내면 `409 {"error":"done"}` 이다.
-- **판정 핀은 판정과 대상을 바꾸지 않는다.** 판정 핀이거나 본문에 `verdict` 키가 있으면(값이 `null` 이어도) `verdict`·`loc`·`lo`·`hi`·`scope`·`kind`·`kind_req`·`suggest` 가운데 하나만 있어도 `400 verdict_fixed` 이고 아무것도 쓰지 않는다. 메모·`note_append`·`assignee`·멘션 힌트는 그대로 고친다. 이 검사는 `done`·`conflict` 보다 먼저다(§판정 핀 (`verdict`)).
+- **판정 핀은 판정과 대상을 바꾸지 않는다.** 판정 핀이거나 본문에 `verdict` 키가 있으면(값이 `null` 이어도) `verdict`·`loc`·`lo`·`hi`·`scope`·`kind`·`kind_req`·`suggest` 가운데 하나만 있어도 `400 verdict_fixed` 이고 아무것도 쓰지 않는다. 영역 핀(보기 전용 PDF의 핀, 그림 문서의 영역 pick)이어도 같다. `no_source_lines` 가 아니다. 메모·`note_append`·`assignee`·멘션 힌트는 그대로 고친다. 이 검사는 `done`·`conflict` 보다 먼저다(§판정 핀 (`verdict`)).
 - **`suggest` 는 제안 수정을 넣고, 갈고, 지운다.** `{base, text}` 는 넣거나 갈고 `null` 은 지운다. 이 키가 없는 편집은 범위·위치를 고쳐도 저장된 제안을 그대로 둔다. 규칙과 거절은 §제안 수정 (`suggest`)에 있다.
 - 성공하면 `edited_at`·`edited_by` 가 기록되고 `rev` 가 1 오른다.
 
@@ -575,7 +575,7 @@ latexdiff는 본문 글과, 자기가 아는 글 명령(`\textbf`·`\section`·`
   {"error": "판정 핀은 판정과 대상을 바꾸지 않습니다 — 새 판정 핀을 찍거나 이 핀을 지웁니다.", "reason": "verdict_fixed"}
   ```
 
-- 순서는 본문 검사(`base_rev_required`·`bad_loc` 등) → `verdict_fixed` → `409 done`·`409 conflict` → 나머지 편집 거절이다.
+- 순서는 본문 검사(`base_rev_required`·`bad_loc` 등) → `verdict_fixed` → `409 done`·`409 conflict` → 나머지 편집 거절이다. 본문 검사는 필드의 모양만 본다(`loc` 이 객체인지, `lo`·`hi` 가 정수인지 등). 판정 핀에서는 핀이 가리키는 곳을 검사하지 않는다. `loc` 의 내용을 읽지 않고(이름 붙은 파일도 열지 않는다), 영역 핀의 줄 필드 거절(`no_source_lines`)도 하지 않는다. 위치 거절이나 `no_source_lines` 가 먼저 오면, 그 문구가 판정 핀에서 하지 못하는 위치 다시 잡기를 권하게 된다.
 - 메모·`note_append`·`assignee`·멘션 힌트는 판정 핀에서도 평소처럼 고친다. 닫힌 판정 핀도 메모 수준은 고친다.
 - 자동 줄 맞춤(anchor)은 편집이 아니다. 판정 핀도 다른 줄 핀처럼 따라간다.
 - 대상이나 판정이 다르면 사람이 새 판정 핀을 찍는다. 에이전트도 핀을 편집할 수 있으므로, 막지 않으면 사람의 판정이 다른 대상이나 질문·제안으로 바뀔 수 있다.

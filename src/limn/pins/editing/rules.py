@@ -239,6 +239,14 @@ Place: TypeAlias = LinePlace | RegionPlace
 
 
 @dataclass(frozen=True)
+class UnreadLoc:
+    """An edit's `loc` sent for a verdict pin and left unread (limn.pins.editing.input.parse_edit_place): a verdict
+    pin keeps its place, so decide_edit refuses the edit (VerdictFixed) whatever the loc says, and reading it first
+    would answer with the location's own refusal - or open the file it names - instead. It carries nothing: no place
+    is ever made from it."""
+
+
+@dataclass(frozen=True)
 class RemoveSuggestion:
     """An edit's `suggest: null`: the pin's stored suggestion goes (an edit without a suggest key keeps it)."""
 
@@ -252,16 +260,17 @@ class EditRequest:
     """A validated edit: each field is None when the request did not send it (hints are empty then).
 
     note is the replacement note ("" for a JSON null); note_append is text to add under the note. place re-places the
-    pin; lo/hi move a line pin's range without re-placing it. kind_req and assignee are note-level and may change on
-    a closed pin. suggest sets, replaces or removes the pin's suggested edit (docs/adr/0020-suggested-edit-pins.md) and
-    is not note-level. base_rev is the rev the editor loaded; only a note_append without a suggest may leave it out.
-    verdict_sent says the body named `verdict` at all (any value, null too): no edit sets or changes a verdict.
+    pin - UnreadLoc when the body sent a loc for a verdict pin, which no edit re-places; lo/hi move a line pin's range
+    without re-placing it. kind_req and assignee are note-level and may change on a closed pin. suggest sets, replaces
+    or removes the pin's suggested edit (docs/adr/0020-suggested-edit-pins.md) and is not note-level. base_rev is the
+    rev the editor loaded; only a note_append without a suggest may leave it out. verdict_sent says the body named
+    `verdict` at all (any value, null too): no edit sets or changes a verdict.
     """
 
     base_rev: int | None = None
     note: str | None = None
     note_append: str | None = None
-    place: Place | None = None
+    place: Place | UnreadLoc | None = None
     lo: int | None = None
     hi: int | None = None
     scope: Scope | None = None
@@ -286,8 +295,8 @@ class EditRequest:
             not isinstance(self.note_append, str) or not self.note_append.strip() or len(self.note_append) > 2000
         ):
             raise ValueError("note_append must be a short nonblank string")
-        if self.place is not None and not isinstance(self.place, (LinePlace, RegionPlace)):
-            raise ValueError("place must be a pin location")
+        if self.place is not None and not isinstance(self.place, (LinePlace, RegionPlace, UnreadLoc)):
+            raise ValueError("place must be a pin location or an unread loc")
         if any(value is not None and not is_int(value) for value in (self.lo, self.hi)):
             raise ValueError("lo and hi must be integers")
         if self.scope is not None and not is_scope(self.scope):
@@ -302,7 +311,8 @@ class EditRequest:
             raise ValueError("hints must be login strings")
 
     def reshapes(self) -> bool:
-        """Does the edit change where the pin points or what it spans (place, lines, scope, kind)? A closed pin refuses that."""
+        """Does the edit change where the pin points or what it spans (place - a loc, read or not - lines, scope,
+        kind)? A closed pin refuses that, and so does a verdict pin (moves_verdict)."""
         return (
             self.place is not None
             or self.lo is not None
@@ -562,8 +572,10 @@ def decide_edit(
 
     First the pin as the edit would leave it: if it would be a verdict pin - it carries a verdict now (verdict_of) or
     the edit sends one - the edit may not change what it fixed (EditRequest.moves_verdict; a sent verdict always
-    does): VerdictFixed. Then a closed pin refuses a reshaping edit and any suggestion change; a base_rev other than
-    the pin's rev is stale; a note_append is merged under the note (or under the note this request replaces it with)
+    does, and so does a loc, read or not): VerdictFixed. An unread loc (UnreadLoc) is sent only for a pin that carried
+    a verdict when the request was read, and a verdict never leaves a pin; were this pin to have none, it is not the
+    pin the request was read against: StaleEdit. Then a closed pin refuses a reshaping edit and any suggestion
+    change; a base_rev other than the pin's rev is stale; a note_append is merged under the note (or under the note this request replaces it with)
     after a "(추가 HH:MM)" stamp - clock is HH:MM - and refused if the result exceeds note_max. A lo/hi edit needs line_count, the line count
     of the pin's file (None when the file is outside the manuscript tree), and a pin placed on lines (core.place a
     LineSpan): the range must lie in 1..max(line_count, 1). The range counts as changed when it differs from the
@@ -575,6 +587,9 @@ def decide_edit(
     verdict_pin_after = verdict_of(pin.record) is not None or request.verdict_sent
     if verdict_pin_after and request.moves_verdict():
         return VerdictFixed()
+    place = request.place
+    if isinstance(place, UnreadLoc):
+        return StaleEdit(pin)
     if (request.reshapes() or request.suggest is not None) and isinstance(pin, (ReviewPin, DonePin)):
         return ClosedPinReshaped(pin)
     if request.base_rev is not None and (pin.core.rev or 0) != request.base_rev:
@@ -585,7 +600,7 @@ def decide_edit(
         note = base + ("\n" if base else "") + "(추가 %s) " % clock + request.note_append
         if len(note) > note_max:
             return NoteTooLong(len(note), note_max)
-    lines, changed = None, isinstance(request.place, LinePlace)
+    lines, changed = None, isinstance(place, LinePlace)
     if request.sets_lines():
         span = pin.core.place
         if line_count is None or not isinstance(span, LineSpan):
@@ -599,7 +614,7 @@ def decide_edit(
     if isinstance(request.suggest, Suggestion):
         if suggest_facts is None:
             raise ValueError("an edit that sets a suggestion is decided with the facts the shell read (SuggestFacts)")
-        after = _span_after(pin, request.place, lines)
+        after = _span_after(pin, place, lines)
         refused = check_suggestion(request.suggest, after, suggest_facts.latex)
         if refused is not None:
             return refused
@@ -613,7 +628,7 @@ def decide_edit(
         by,
         at,
         note,
-        request.place,
+        place,
         lines,
         changed,
         request.scope,

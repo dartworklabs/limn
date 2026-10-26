@@ -674,20 +674,22 @@ class Locations(Tree):
         screen unless it names one, and a loc without frac drops pdf_build."""
         body = editing_input.parse_edit({"lo": 1, "loc": {"page": 99}, "base_rev": 0}, ())
         self.assertEqual(
-            editing_input.parse_edit_place(body, True, self.facts),
+            editing_input.parse_edit_place(body, True, self.facts, verdict=False),
             InputRejected(editing_input.REGION_EDIT_REFUSAL, "no_source_lines"),
         )
         body = editing_input.parse_edit(
             {"loc": {"file": "main.tex", "lo": 1, "hi": 2, "frac": [0, 0, 1, 1]}, "base_rev": 0}, ()
         )
-        self.assertEqual(editing_input.parse_edit_place(body, False, self.facts).fields["pdf_build"], "pages")
+        self.assertEqual(
+            editing_input.parse_edit_place(body, False, self.facts, verdict=False).fields["pdf_build"], "pages"
+        )
         body = editing_input.parse_edit(
             {"loc": {"file": "main.tex", "lo": 1, "hi": 2, "pdf_build": "pages"}, "base_rev": 0}, ()
         )
-        self.assertNotIn("pdf_build", editing_input.parse_edit_place(body, False, self.facts).fields)
+        self.assertNotIn("pdf_build", editing_input.parse_edit_place(body, False, self.facts, verdict=False).fields)
         self.assertIsNone(
             editing_input.parse_edit_place(
-                editing_input.parse_edit({"note": "x", "base_rev": 0}, ()), False, self.facts
+                editing_input.parse_edit({"note": "x", "base_rev": 0}, ()), False, self.facts, verdict=False
             )
         )
 
@@ -696,7 +698,7 @@ class Locations(Tree):
         body = editing_input.parse_edit(
             {"loc": {"file": "main.tex", "lo": 1, "hi": 2, "frac": None}, "base_rev": 0}, ()
         )
-        place = editing_input.parse_edit_place(body, False, self.facts)
+        place = editing_input.parse_edit_place(body, False, self.facts, verdict=False)
         self.assertIsInstance(place, LinePlace)
         self.assertNotIn("frac", place.fields)
         self.assertNotIn("frac", place.named)
@@ -716,7 +718,7 @@ class Locations(Tree):
         def after(loc: dict) -> dict:
             """Apply a parsed re-placement to the same pin, retaining record field order for comparison."""
             edit = editing_input.parse_edit({"loc": loc, "base_rev": 0}, ())
-            replacement = editing_input.parse_edit_place(edit, False, self.facts)
+            replacement = editing_input.parse_edit_place(edit, False, self.facts, verdict=False)
             event = PinEdited(Agent("local", "Local"), "now", None, replacement, None, True, None, None, None, None)
             return evolve_edit(OpenPin.from_record(record), event, None, None, None, None).record
 

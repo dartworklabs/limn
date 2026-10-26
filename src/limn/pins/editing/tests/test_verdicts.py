@@ -16,7 +16,7 @@ import unittest
 
 from limn.documents.verdicts import verdicts_path
 from limn.pins.editing.fields import parse_verdict
-from limn.pins.editing.input import parse_edit
+from limn.pins.editing.input import parse_edit, parse_edit_place
 from limn.pins.editing.rules import (
     AddRequest,
     Anchoring,
@@ -27,6 +27,8 @@ from limn.pins.editing.rules import (
     PinEdited,
     RegionPlace,
     RemoveSuggestion,
+    StaleEdit,
+    UnreadLoc,
     VerdictByAgent,
     VerdictConflict,
     VerdictFacts,
@@ -44,7 +46,7 @@ from limn.pins.suggestion import Suggestion
 from limn.runtime.documents import Doc
 from limn.web.errors import InputRejected
 
-from helpers import ps, set_config
+from helpers import MINI_PDF, ps, set_config
 from helpers_access import ALICE, BOB, CAROL, DAVE, AccessBase, token_create
 from helpers_figure import BUILD1, BUILD2, SCRIPT, figure_doc, viewer_map, write_build
 from helpers_pin_rules import ALICE_PERSON, AT
@@ -403,6 +405,7 @@ TARGET_FIELDS = {
             {"file": "/ms/main.tex", "name": "main.tex", "lo": 8, "hi": 9, "page": 1}, frozenset({"file", "lo", "hi"})
         ),
     ),
+    "unread loc": EditRequest(base_rev=2, place=UnreadLoc()),
     "lo": EditRequest(base_rev=2, lo=3),
     "hi": EditRequest(base_rev=2, hi=6),
     "scope": EditRequest(base_rev=2, scope="para"),
@@ -457,6 +460,15 @@ class EditRule(unittest.TestCase):
         self.assertIsInstance(decide(plain_done, TARGET_FIELDS["loc"]), ClosedPinReshaped)
         self.assertEqual(decide(verdict_pin(), EditRequest(base_rev=9, lo=3)), VerdictFixed())
 
+    def test_an_unread_loc_on_a_pin_without_a_verdict_is_stale(self):
+        """A loc is left unread only for a pin that carried a verdict; a pin without one is not the pin the request was
+        read against, so the edit is a conflict and nothing of it applies - even on a closed pin."""
+        plain = OpenPin.from_record({"id": 3, "file": "/ms/main.tex", "lo": 4, "hi": 5, "note": "n", "rev": 2})
+        done = DonePin.from_record({**plain.record, "done": True})
+        for pin in (plain, done):
+            with self.subTest(pin=type(pin).__name__):
+                self.assertEqual(decide(pin, TARGET_FIELDS["unread loc"]), StaleEdit(pin))
+
 
 class EditBody(unittest.TestCase):
     """parse_edit records a sent verdict, with any value, as something the edit asks to change."""
@@ -469,6 +481,34 @@ class EditBody(unittest.TestCase):
                 self.assertNotIsInstance(body, InputRejected)
                 self.assertTrue(body.request.verdict_sent)
         self.assertFalse(parse_edit({"note": "n", "base_rev": 0}, ()).request.verdict_sent)
+
+
+# The document facts of an edit on a verdict pin: none are needed, since nothing of where the pin points is read.
+NO_FACTS = None
+
+
+class EditPlace(unittest.TestCase):
+    """parse_edit_place on a verdict pin - one that carries a verdict, or whose edit sends one: where the pin points is
+    not read or refused here, so the editing rules see every target field the body sent."""
+
+    def test_a_loc_is_left_unread_and_lines_are_not_refused_on_a_region_pin(self):
+        """On a region or a line pin, a loc naming a file that is not there comes back as UnreadLoc and lo/scope/kind
+        stay in the request; without a loc there is no place."""
+        sent = {"lo": 1, "scope": "para", "kind": "x", "base_rev": 0}
+        for region in (True, False):
+            for loc in ({"file": "missing.tex", "lo": 1, "hi": 2}, {"page": 99}):
+                with self.subTest(region=region, loc=loc):
+                    body = parse_edit({**sent, "loc": loc}, ())
+                    self.assertEqual(parse_edit_place(body, region, NO_FACTS, verdict=True), UnreadLoc())
+                    self.assertEqual((body.request.lo, body.request.scope, body.request.kind), (1, "para", "x"))
+            with self.subTest(region=region, loc=None):
+                self.assertIsNone(parse_edit_place(parse_edit(sent, ()), region, NO_FACTS, verdict=True))
+
+    def test_a_body_that_sends_a_verdict_counts_as_a_verdict_pins(self):
+        """An ordinary region pin's edit that sends a verdict is not refused for its lines here: the pin it would leave
+        is a verdict pin, which the editing rules refuse as verdict_fixed."""
+        body = parse_edit({"verdict": "채택", "lo": 1, "loc": {"page": 99}, "base_rev": 0}, ())
+        self.assertEqual(parse_edit_place(body, True, NO_FACTS, verdict=False), UnreadLoc())
 
 
 FIXED = {
@@ -518,6 +558,15 @@ class EditOverHttp(VerdictHttpBase):
         self.assertEqual(got, (400, FIXED))
         self.assertEqual(self.stored_bytes(), before)
 
+    def test_a_re_placement_is_refused_before_its_location_is_read(self):
+        """A loc naming a file that is not there, or outside the manuscript, is verdict_fixed, not the location's own
+        refusal: a verdict pin's loc is never read."""
+        for loc in ({"file": "missing.tex", "lo": 1, "hi": 2}, {"file": "/elsewhere/x.tex", "lo": 1, "hi": 2}):
+            with self.subTest(loc=loc):
+                before = self.stored_bytes()
+                self.assertEqual(self.edit({"loc": loc}, headers=BOB), (400, FIXED))
+                self.assertEqual(self.stored_bytes(), before)
+
     def test_line_matching_moves_a_verdict_pin(self):
         """Lines inserted above a verdict pin move it as they move any pin: re-sync is not an edit."""
         text = self.main.read_text(encoding="utf-8")
@@ -525,3 +574,92 @@ class EditOverHttp(VerdictHttpBase):
         moved = self.pin(self.pid)
         self.assertEqual((moved["lo"], moved["hi"]), (6, 7))
         self.assertEqual(moved["verdict"], "보류")
+
+
+# Each edit a region pin answers no_source_lines for (lines, a range level or a kind), and re-placements - a valid one,
+# one off the page and one naming lines - as bodies sent to a region verdict pin.
+REGION_TARGET_EDITS = (
+    {"lo": 1, "hi": 2},
+    {"lo": 1},
+    {"hi": 2},
+    {"scope": "para"},
+    {"kind": "x"},
+    {"loc": {"page": 1, "frac": [0, 0, 0.5, 0.5]}},
+    {"loc": {"page": 99, "frac": [0, 0, 1, 1]}},
+    {"loc": {"file": "main.tex", "lo": 1, "hi": 2}},
+)
+
+
+class RegionEditOverHttp(VerdictHttpBase):
+    """POST /api/pins/{id}/edit on region verdict pins - a whole page of a view-only PDF and a whole figure picked as a
+    region on a figure document: every field a verdict pin may not take is verdict_fixed, as on a line verdict pin, and
+    not the region pin's own refusal of lines (no_source_lines), whose sentence points at a loc edit."""
+
+    def setUp(self):
+        """Documents ms (LaTeX), fig (figure, BUILD1 on screen) and rv (view-only PDF on BUILD1), fig and rv with the
+        word file; a whole-page verdict pin on rv and a whole-figure region verdict pin on fig, both by Bob."""
+        super().setUp()
+        (self.src / "rv").mkdir()
+        (self.src / "rv" / "review.pdf").write_bytes(MINI_PDF)
+        self.fig = figure_doc(self.src, ps.APP.C.paths)
+        self.rv = Doc("rv", "답변", "pdf", self.src / "rv", self.src / "rv" / "review.pdf", paths=ps.APP.C.paths)
+        ps.APP.set_docs([Doc("ms", "본문", "tex", self.src, self.main, paths=ps.APP.C.paths), self.fig, self.rv])
+        self.addCleanup(ps.APP.set_docs, None)
+        write_build(self.fig, BUILD1, viewer_map(), pages=2)
+        write_build(self.rv, BUILD1, None, pages=3)
+        for doc in (self.fig, self.rv):
+            verdicts_path(doc).write_text(json.dumps(WORDS, ensure_ascii=False), encoding="utf-8")
+        self.pdf_page = self.made(
+            {"doc": "rv", "page": 1, "frac": [0, 0, 1, 1], "pdf_build": BUILD1, "verdict": "채택"}
+        )
+        figure = {"id": "B2", "path": ["B2"]}
+        self.figure = self.made(
+            {"doc": "fig", "page": 1, "frac": [0, 0, 1, 1], "el": figure, "pdf_build": BUILD1, "verdict": "보류"}
+        )
+
+    def made(self, body):
+        """POST body as editor Bob; the new region pin's id."""
+        code, d = self.call("POST", "/api/pin", body, headers=BOB)
+        self.assertEqual(code, 200, d)
+        self.assertEqual(self.pin(d["id"])["kind"], "region")
+        return d["id"]
+
+    def edit(self, pid, body, **who):
+        """POST the edit of pin pid with its current rev."""
+        return self.call("POST", "/api/pins/%d/edit" % pid, {**body, "base_rev": self.pin(pid)["rev"]}, **who)
+
+    def test_lines_scope_kind_and_re_placements_are_verdict_fixed(self):
+        """lo, hi, scope, kind and every loc - valid, off the page or naming lines - are 400 verdict_fixed for a
+        person and an agent alike, on both pins, and nothing is written."""
+        for pid in (self.pdf_page, self.figure):
+            for body in REGION_TARGET_EDITS:
+                for who in (dict(headers=BOB), dict(token=self.token)):
+                    with self.subTest(pid=pid, body=body, who=who):
+                        before = self.stored_bytes()
+                        self.assertEqual(self.edit(pid, body, **who), (400, FIXED))
+                        self.assertEqual(self.stored_bytes(), before)
+
+    def test_the_note_still_changes(self):
+        """Note-level edits go through on a region verdict pin; its verdict and place stay."""
+        for pid in (self.pdf_page, self.figure):
+            with self.subTest(pid=pid):
+                before = self.pin(pid)
+                code, d = self.edit(pid, {"note": "이 쪽만"}, headers=BOB)
+                self.assertEqual(code, 200, d)
+                after = self.pin(pid)
+                self.assertEqual(after["note"], "이 쪽만")
+                self.assertEqual(
+                    {k: after.get(k) for k in ("verdict", "page", "frac", "el")},
+                    {k: before.get(k) for k in ("verdict", "page", "frac", "el")},
+                )
+
+    def test_an_ordinary_region_pin_keeps_its_refusal_of_lines_unless_the_edit_sends_a_verdict(self):
+        """A region pin without a verdict still answers lo with no_source_lines; the same edit with a verdict is
+        verdict_fixed, since the pin it would leave is a verdict pin."""
+        code, d = self.call("POST", "/api/pin", {"doc": "rv", "page": 2, "frac": [0.1, 0.1, 0.2, 0.2]}, headers=BOB)
+        self.assertEqual(code, 200, d)
+        code, got = self.edit(d["id"], {"lo": 1}, headers=BOB)
+        self.assertEqual((code, got["reason"]), (400, "no_source_lines"))
+        before = self.stored_bytes()
+        self.assertEqual(self.edit(d["id"], {"lo": 1, "verdict": "채택"}, headers=BOB), (400, FIXED))
+        self.assertEqual(self.stored_bytes(), before)

@@ -20,6 +20,7 @@ from limn.pins.editing.rules import (
     RegionPlace,
     RemoveSuggestion,
     SuggestChange,
+    UnreadLoc,
 )
 from limn.pins.suggestion import Suggestion
 from limn.web.errors import InputRejected
@@ -94,7 +95,7 @@ def parse_add(d: Json, known: Collection[str], facts: DocumentFacts) -> AddReque
 @dataclass(frozen=True)
 class EditBody:
     """An edit body with every field checked except loc, which is checked against the pin's own document once the
-    pin is known (parse_edit_place). request.place is still None."""
+    pin is known - or left unread for a verdict pin (parse_edit_place). request.place is still None."""
 
     loc: Json | None
     request: EditRequest
@@ -188,15 +189,23 @@ def parse_edit(d: Json, known: Collection[str]) -> EditBody | InputRejected:
     )
 
 
-def parse_edit_place(body: EditBody, region: bool, facts: DocumentFacts) -> Place | None | InputRejected:
+def parse_edit_place(
+    body: EditBody, region: bool, facts: DocumentFacts, *, verdict: bool
+) -> Place | UnreadLoc | None | InputRejected:
     """An edit's re-placement checked against the pin's own document (facts), or None when the edit sends no loc.
 
-    A region pin (a view-only PDF's, or a figure element drawn without code) refuses lo/hi/scope/kind first. Then loc is
-    parsed like a new pin's location (parse_region for a region pin, parse_loc for a line pin), a figure document's el
-    included (parse_el): the re-placement carries the el it names, or none, and so drops the old one. pdf_build records
-    which build frac's coordinates belong to, so a loc that re-places frac takes the one sent or the build on screen,
-    and a loc without frac cannot change it."""
+    verdict says the stored pin carries a verdict (limn.pins.editing.service.EditTarget); a body that sends one counts
+    too. Such a pin keeps its place, so nothing of where it points is checked here: a loc comes back unread
+    (UnreadLoc), and lo/hi/scope/kind stay in the request, for the editing rules to refuse the edit as verdict_fixed
+    (limn.pins.editing.rules.decide_edit) - not with the location's own refusal, and without opening the file a loc
+    names. Otherwise a region pin (a view-only PDF's, or a figure element drawn without code) refuses lo/hi/scope/kind
+    first. Then loc is parsed like a new pin's location (parse_region for a region pin, parse_loc for a line pin), a
+    figure document's el included (parse_el): the re-placement carries the el it names, or none, and so drops the old
+    one. pdf_build records which build frac's coordinates belong to, so a loc that re-places frac takes the one sent or
+    the build on screen, and a loc without frac cannot change it."""
     request = body.request
+    if verdict or request.verdict_sent:
+        return None if body.loc is None else UnreadLoc()
     if region and (
         request.lo is not None or request.hi is not None or request.scope is not None or request.kind is not None
     ):
