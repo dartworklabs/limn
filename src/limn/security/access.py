@@ -475,7 +475,8 @@ class Principal(NamedTuple):
     """Who a request is, as identify() decided: what pins record, the role that decides what it may change, and how
     it was identified (admit() treats a header-vouched person differently from a token or the local owner). Besides
     check_role's route rule, the principal answers the role questions a handler asks about an action (is_human,
-    review_on_close) and about a failure (sees_error_detail), so no role comparison lives outside this module."""
+    authors_verdicts, review_on_close) and about a failure (sees_error_detail), so no role comparison lives outside
+    this module."""
 
     actor: Json  # {login, name, pic?} - what pins record
     role: Role
@@ -485,6 +486,12 @@ class Principal(NamedTuple):
         """Does a person act, as a reply counts it (a person's reply may reopen a closed pin)? Not for an agent actor
         (is_agent_actor), and not for a person whose people.json role is agent either."""
         return not is_agent_actor(self.actor) and self.role != "agent"
+
+    def authors_verdicts(self) -> bool:
+        """May this principal make a verdict pin? Only a person whose role is editor or owner: a verdict is a person's
+        decision, like a confirmation. Never an agent actor (a token, the headerless loopback agent) nor a person with
+        the agent role; a viewer, refused every pin by check_role first, is no author either."""
+        return self.is_human() and self.role in ("editor", "owner")
 
     def review_on_close(self, asked: bool | None) -> bool | None:
         """The review flag of this principal's close: what the request asked (asked, from `review`), else True for a

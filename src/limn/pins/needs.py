@@ -1,9 +1,10 @@
-"""What pin placement and pin views need from the owner of builds, declared by this slice.
+"""What pin placement and pin views need from the owners of builds and of documents, declared by this slice.
 
 No module of limn.pins imports another feature. The composition root (server.py) passes the build owner's query
-bundle to assemble_pins(), and the type checker proves there that the bundle and every value it answers have the
-members named here. Only the members pins reads are declared, and every one is read-only: pins consumes these facts
-and never rebuilds, stores or writes back the supplier's value. No element map, build history or marker file crosses.
+bundle and the document owner's verdict lookup to assemble_pins(), and the type checker proves there that they and
+every value they answer have the members named here. Only the members pins reads are declared, and every one is
+read-only: pins consumes these facts and never rebuilds, stores or writes back the supplier's value. No element map,
+build history, marker file or word file crosses.
 """
 
 from __future__ import annotations
@@ -22,6 +23,11 @@ if TYPE_CHECKING:
 
 # Lines lo..hi (1-based, inclusive) of a file named relative to the figure document's folder: (file, lo, hi).
 SourceSpan: TypeAlias = tuple[str, int, int]
+
+# The verdict keys a document declares now, in its word file's order, or () when it has no usable word file - what a
+# new pin's verdict is checked against, inside its store transaction. The owner of documents reads and parses the word
+# file (limn.documents.verdicts); pins sees only the keys.
+VerdictKeys: TypeAlias = Callable[[Doc], tuple[str, ...]]
 
 
 class BuildOnScreen(Protocol):
@@ -210,7 +216,7 @@ FollowElement: TypeAlias = Callable[[str, int, ElementFrac], FollowedElement]
 
 
 class BuildAnswers(Protocol):
-    """The six questions pins asks the owner of builds. Each answers a completed fact; none hands out a map, a
+    """The seven questions pins asks the owner of builds. Each answers a completed fact; none hands out a map, a
     history entry or a marker path, and none writes."""
 
     @property
@@ -243,4 +249,11 @@ class BuildAnswers(Protocol):
     @property
     def document_facts(self) -> Callable[[Doc, Path, Path, int], DocumentFacts]:
         """The request-parsing facts of a document, given the manuscript root, the state folder and the dpi."""
+        ...
+
+    @property
+    def page_root(self) -> Callable[[Doc, str, int, str], bool]:
+        """Whether an element id is the root - the figure - of a page on a build's map, given the figure document,
+        the build's name, the page (1-based) and the id; False when that build's map cannot say so (none, unreadable,
+        no such page). What a whole-figure verdict pin is checked against."""
         ...

@@ -140,6 +140,7 @@ uv run pytest -q -rs
 | `x/figures.limnmap.json` | 그림 문서. 그림 저장소가 낸 PDF와 요소 지도를 가져온다. 재빌드가 없고, 두 파일이 바뀌고 서로 맞으면(3초마다 확인) 쪽을 다시 그린다. 핀은 그 그림을 그린 코드의 줄 핀이다(코드 줄이 없는 요소는 쪽·영역 핀) |
 | `root::sub/figures.limnmap.json` | 그림 문서. 문서 폴더(지도 속 코드 경로의 기준)가 `root/`다. 그림 세트가 LaTeX 문서의 빌드 루트 안에 있을 때 그 LaTeX 문서의 `src_mtime` 에서 빠지는 범위도 이 폴더다([build-sync.md](build-sync.md) §원고 변화 감지) |
 | 개수 | 12개까지. Alt+1…9는 앞의 아홉 개에 대응한다 |
+| 판정 낱말 | 문서 옆의 `<이름>.limnverdicts.json`(메인 파일의 `.tex`·`.pdf`·`.limnmap.json` 을 바꾼 이름, 예: `x/main.tex` → `x/main.limnverdicts.json`)이 그 문서의 판정 낱말이다. 단일 문서도 같다. 인자나 설정 키는 없고, 그 저장소가 파일을 커밋하며, 고친 파일은 재시작 없이 다음 읽기부터 쓴다. 형식은 [api.md](api.md) §판정 낱말 파일 (`limn-verdicts/1`) |
 | `--doc` 없음 | `--manuscript`·`--main`의 문서 하나(키 `main`)를 띄운다. 상태 폴더는 아래 '상태 파일 배치' 절의 단일 문서 배치다 |
 | 기동 빌드 | 여러 문서면 문서마다 백그라운드로 빌드하고 서버는 바로 뜬다. 한 문서가 실패해도 기동은 계속되고, 그 탭이 오류 패널을 보여 준다. `--no-build`는 쪽이 이미 있는 문서만 건너뛴다 |
 | `--git-pull` | 저장소 단위로 한 번 돈다. 두 문서를 동시에 재빌드해도 fetch·merge는 한 번이고, 다른 쪽은 그 결과(`pull.shared: true`)를 쓴다 |

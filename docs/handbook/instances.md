@@ -194,6 +194,8 @@ limn add paper2 --manuscript ~/papers/paper2        # 같은 결과를 설정에
 
 단일 문서(`MAIN`) 인스턴스에 `limn doc add`를 하면 본문이 첫 항목 `main=본문:<MAIN>`으로 옮겨지고 설정이 `DOCS`로 바뀐다. 키 `main`은 옛 상태 배치를 그대로 쓰므로 빌드 이력과 옛 핀이 이어진다. 서버 쪽 계약은 [operations.md](operations.md) §여러 문서 (`--doc`)에 있다.
 
+문서의 판정 낱말은 설정 키가 아니라 그 문서 옆의 파일 `<이름>.limnverdicts.json` 이다(`x/main.tex` → `x/main.limnverdicts.json`). 그 원고 저장소가 커밋하고, `limn` 명령은 이 파일을 읽거나 쓰지 않는다. 규칙은 [operations.md](operations.md) §여러 문서 (`--doc`)와 [api.md](api.md) §판정 낱말 파일 (`limn-verdicts/1`)에 있다.
+
 `limn doc add`와 `limn doc remove`는 `--restart`를 주면 유닛을 재시작하고 HTTP 200을 기다린다. 주지 않으면 재시작 방법(`limn stop <이름> && limn start <이름>` 또는 `--restart`)만 알려 준다.
 
 ## 동시 실행

@@ -36,6 +36,7 @@ on the same private network pin too, and every pin records who left it.
 - Figure documents: a figure set drawn by code (one PDF page per figure plus a `limn-figure-map/1` element map) opens as a tab; a drag names the element and the script lines that drew it, and the pin's mark follows the element when the figure is rendered again
 - Rebuilds on demand or when the upstream branch moves (`--git-pull`)
 - Threads, questions, @mentions, assignees, review before done, a diff view per pin
+- Verdict pins: a document may declare up to five verdict words next to it (`<name>.limnverdicts.json`, say accept / hold / delete); a person's pin carries one as `verdict`, fixed once made, and the repository's agent carries it out by that repository's own rules
 - One [Reply] on a closed pin: a person's reply sends it back to the agent (a line under the box says so first; undo after sending), and a 30-day Trash for deleted pins
 - One long-running **instance** per manuscript as a systemd user unit, exposed with `tailscale serve`
 

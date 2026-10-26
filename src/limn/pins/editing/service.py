@@ -20,8 +20,11 @@ from limn.pins.editing.rules import (
     PinEdited,
     RegionPlace,
     SuggestFacts,
+    VerdictFacts,
+    VerdictRefusal,
     decide_edit,
     decide_new_suggestion,
+    decide_new_verdict,
     evolve_edit,
     file_after,
     new_line_pin,
@@ -33,6 +36,7 @@ from limn.pins.location.mapping import anchor_of, comment_marker
 from limn.pins.model import DonePin, OpenPin, Pin, PinNotFound, Record, Region, ReviewPin
 from limn.pins.store import pin_index
 from limn.pins.suggestion import Suggestion
+from limn.pins.verdict import verdict_of, whole_figure
 from limn.platform.files import tex_lines
 from limn.runtime.documents import Doc, doc_by_key, document_authority_target
 from limn.security.access import PostAuthority, require_authority
@@ -53,20 +57,41 @@ def add_pin(ctx: PinContext, D: Doc, request: AddRequest, actor: PostAuthority) 
     A request with a suggested edit is decided first (limn.pins.editing.rules.decide_new_suggestion): only a line pin
     of a LaTeX document (D.builds_from_source) takes one, within its limits, and its base must be what the pin's lines
     read in the same snapshot the anchor is taken from. A refusal is returned and nothing is written - no id is
-    allocated and no transaction runs."""
+    allocated and no transaction runs.
+
+    A request with a verdict is decided inside the transaction, before an id is allocated, against the keys D declares
+    at that moment (ctx.verdict_keys), whether the principal may make one (Principal.authors_verdicts) and - for a
+    figure document's pin that names its page's whole figure (el.path == [el.id]) - whether the map of the pin's build
+    (the pdf_build it sent, else the build on screen, read once in the transaction so the pin records the build that
+    was checked) has that element as the root of the pin's page (ctx.builds.page_root):
+    limn.pins.editing.rules.decide_new_verdict. Its suggestion, if it sent one, is never
+    decided - the verdict decision refuses every such request - so the verdict's refusals come in their own order. A
+    refusal writes nothing of its own (a re-sync of the stored pins may still be written, as for any transaction)."""
     require_authority(actor, ctx.authority_scope, "add", document_authority_target(D))
     place = request.place
     # Manuscript text is read before taking the pin lock, as it was for line pins before this shared transaction.
     location = ctx.locate({"file": place.file}) if isinstance(place, LinePlace) else None
     lines, mtime = location.source.snapshot() if location is not None else ([], 0.0)
-    if request.suggest is not None:
+    if request.suggest is not None and request.verdict is None:
         decided = decide_new_suggestion(request.suggest, place, D.builds_from_source, lines)
         if not isinstance(decided, Suggestion):
             return decided
+    author = actor.principal.authors_verdicts()
     evs: list[Event | None] = []
 
-    def fn(pins: list[Pin]) -> tuple[OpenPin, bool]:
-        """Allocate one id, build either location kind, and queue notices in the same transaction."""
+    def fn(pins: list[Pin]) -> tuple[OpenPin | VerdictRefusal, bool]:
+        """Decide the verdict, if one was asked for, then allocate one id, build either location kind, and queue
+        notices in the same transaction. The build on screen is read once: a pin without pdf_build records the
+        build its whole figure was checked on, not one published in between."""
+        # The viewer echoes pdf_build from pick; an agent request without it uses the current build.
+        on_screen = ctx.builds.heading(D).build
+        verdict = None
+        if request.verdict is not None:
+            facts = VerdictFacts(author, ctx.verdict_keys(D), _page_target_holds(ctx, D, place, on_screen))
+            judged = decide_new_verdict(request.verdict, request, facts)
+            if not isinstance(judged, str):
+                return judged, False
+            verdict = judged
         at = ctx.now()
         pid = ctx.store.next_id(pins)
         tags = ctx.note_tags(request.note, "", pins, request.hints, actor, pid)
@@ -74,7 +99,6 @@ def add_pin(ctx: PinContext, D: Doc, request: AddRequest, actor: PostAuthority) 
             case LinePlace():
                 assert lines is not None  # read before the lock for every LinePlace
                 anchoring = Anchoring(anchor_of(lines, place.lo, place.hi, comment_marker(place.file)), mtime)
-                # The viewer echoes pdf_build from pick; an agent request without it uses the current build.
                 pin = new_line_pin(
                     place,
                     request,
@@ -83,12 +107,13 @@ def add_pin(ctx: PinContext, D: Doc, request: AddRequest, actor: PostAuthority) 
                     actor,
                     tags.mentions,
                     anchoring,
-                    ctx.builds.heading(D).build,
+                    on_screen,
                     D.key,
                     located(ctx.locate({"file": place.file})),
+                    verdict,
                 )
             case RegionPlace():
-                pin = new_region_pin(place, request, pid, at, actor, tags.mentions, ctx.builds.heading(D).build, D.key)
+                pin = new_region_pin(place, request, pid, at, actor, tags.mentions, on_screen, D.key, verdict)
         pins.append(pin)
         evs.append(ctx.make_event("mention", pin.record, actor, tags.notify, text=request.note))
         if request.assignee is not None and request.assignee != ASSIGNEE_AGENT:
@@ -101,14 +126,28 @@ def add_pin(ctx: PinContext, D: Doc, request: AddRequest, actor: PostAuthority) 
     return out
 
 
+def _page_target_holds(ctx: PinContext, D: Doc, place: LinePlace | RegionPlace, on_screen: str) -> bool:
+    """Whether a new pin's page target holds (limn.pins.editing.rules.VerdictFacts.page_target_holds): False only for
+    a figure document's pin whose el names its page's whole figure (limn.pins.verdict.whole_figure) when the map of
+    the pin's build - the pdf_build the request sent, else on_screen, the build on screen as the caller read it for
+    the record too - does not have that element as the root of the pin's page. Asks the build owner
+    (ctx.builds.page_root) only then; reads no file itself."""
+    fields = place.fields
+    figure = whole_figure(fields) if D.has_element_map else None
+    if figure is None:
+        return True
+    build = fields.get("pdf_build") or on_screen
+    return ctx.builds.page_root(D, build, fields["page"], figure)
+
+
 def edit_pin(
     ctx: PinContext, pid: int, request: EditRequest, actor: PostAuthority, region: bool = False, latex: bool = False
 ) -> OpenPin | ReviewPin | DonePin | EditRefusal | PinNotFound:
     """Edits pin pid's note, range, location and note-level fields in place; id/at/done never change.
 
     request is the parsed body with its loc already placed against the pin's own document (limn.pins.editing.input.parse_edit
-    and parse_edit_place, with region and the document from EditScope); region says the pin is a region pin - a
-    view-only document's, or a figure document's region pick - whose file is never located. The 'HH:MM' an appended note
+    and parse_edit_place, with the EditTarget from EditScope - a verdict pin's loc is left unread); region says the
+    pin is a region pin - a view-only document's, or a figure document's region pick - whose file is never located. The 'HH:MM' an appended note
     is stamped with is read before the lock. Under the pin lock the shell reads where the pin's file will be and - for a
     lo/hi edit - its line count, and limn.pins.editing.rules.decide_edit() refuses or accepts: a closed pin cannot be
     reshaped, a stale base_rev is a conflict (so a pin the agent closed, or one line matching moved, is never silently
@@ -191,22 +230,39 @@ def _with_edit(
 
 
 @dataclass(frozen=True)
+class EditTarget:
+    """What an edit's location is parsed against, read before the pin lock (EditScope): whether the pin is a region
+    pin (a view-only document's, or a figure document's region pick - it has no lines), whether it carries a verdict
+    (limn.pins.verdict.verdict_of - then no loc is read, limn.pins.editing.input.parse_edit_place) and the document
+    it belongs to. A verdict never leaves a pin, and the editing rules check the pin again under the lock."""
+
+    region: bool
+    verdict: bool
+    document: Doc
+
+
+@dataclass(frozen=True)
 class EditScope:
-    """Read a pin's region kind and owning document before parsing an edit's location."""
+    """Read a pin's region kind, verdict and owning document before parsing an edit's location."""
 
     read_pins: Callable[[], tuple[list[Pin], list[int]]]
     docs: Callable[[], Sequence[Doc]]
     pin_doc_key: Callable[[Record], str]
 
-    def __call__(self, pid: int) -> tuple[bool, Doc]:
-        """Return the pin's region flag and document, falling back to the first document for an unknown id."""
+    def __call__(self, pid: int) -> EditTarget:
+        """The pin's EditTarget. An id that is not among the live pins reads as a line pin without a verdict in the
+        first document; the pin transaction answers a pin that is still missing as not found."""
         pins, _ = self.read_pins()
         docs = self.docs()
         i = pin_index(pins, pid)
         if i is None:
-            return False, docs[0]
+            return EditTarget(False, False, docs[0])
         pin = pins[i]
-        return isinstance(pin.core.place, Region), doc_by_key(docs, self.pin_doc_key(pin.record)) or docs[0]
+        return EditTarget(
+            isinstance(pin.core.place, Region),
+            verdict_of(pin.record) is not None,
+            doc_by_key(docs, self.pin_doc_key(pin.record)) or docs[0],
+        )
 
 
 @dataclass(frozen=True)

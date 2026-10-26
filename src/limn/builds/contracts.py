@@ -130,7 +130,8 @@ class RevisionBuildQueries:
 
 @dataclass(frozen=True)
 class PinBuildQueries:
-    """Completed publication, source-equivalence and element answers for pin placement."""
+    """Completed publication, source-equivalence and element answers for pin placement. page_root answers whether an
+    element id is the root (the figure) of a page on a named build's map."""
 
     publication: Callable[[Doc, str, Path], Publication]
     position: Callable[[Doc], PositionHistory]
@@ -138,3 +139,4 @@ class PinBuildQueries:
     selection: Callable[[Doc, str, int, Frac], ElementSelection | SelectionUnavailable]
     elements: Callable[[Doc], ElementFollower | None]
     document_facts: Callable[[Doc, Path, Path, int], DocumentFacts]
+    page_root: Callable[[Doc, str, int, str], bool]

@@ -218,6 +218,17 @@ class BuildQueries:
         fmap = self.maps().get(doc, build) if doc.has_element_map else None
         return select_element(fmap if isinstance(fmap, FigureMap) else None, page, frac)
 
+    def page_root(self, doc: Doc, build: str, page: int, element: str) -> bool:
+        """Whether element is the root - the figure - of page `page` (1-based) on the map build `build` of figure
+        document doc published. False for a document without an element map, a build name that names no page
+        directory, a build without a loadable map, and a map without that page: an unconfirmed root is never taken
+        for one. Reads the map copy through the run's cache, and no file the map names."""
+        if not doc.has_element_map:
+            return False
+        fmap = self.maps().get(doc, build)
+        found = fmap.page(page) if isinstance(fmap, FigureMap) else None
+        return found is not None and found.root().id == element
+
     def elements(self, doc: Doc) -> ElementFollower | None:
         """Snapshot one current map privately, or no lookup for a non-figure/invalid build."""
         if not doc.has_element_map:
@@ -268,7 +279,13 @@ class BuildQueries:
     def pins(self) -> PinBuildQueries:
         """Bind only the pin consumer's completed queries."""
         return PinBuildQueries(
-            self.publication, self.position, self.heading, self.selection, self.elements, self.document_facts
+            self.publication,
+            self.position,
+            self.heading,
+            self.selection,
+            self.elements,
+            self.document_facts,
+            self.page_root,
         )
 
     def document_facts(self, doc: Doc, root: Path, state: Path, dpi: int) -> DocumentFacts:

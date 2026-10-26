@@ -15,7 +15,7 @@ from limn.pins.revision import RevisionPin, revision_pin as project_revision_pin
 if TYPE_CHECKING:
     from limn.pins.editing.http import EditingRequests
     from limn.pins.location.source import TokenCache
-    from limn.pins.needs import BuildAnswers
+    from limn.pins.needs import BuildAnswers, VerdictKeys
     from limn.pins.notice import PinNotice
     from limn.pins.runtime import PinCommands
     from limn.runtime.config import RunConfig
@@ -165,12 +165,14 @@ def assemble_pins(
     audit: Callable[[AuditAction, Json, Json], bool],
     now: Callable[[], str],
     remote_base_for: Callable[[str], str],
+    verdict_keys: VerdictKeys,
     refresh_watched: Callable[[str], object] = lambda key: None,
 ) -> PinSubsystem:
     """Assemble pin reads, transactions, routes and startup using explicit deferred collaborators. refresh_watched brings the
     files of a watched document (by key) up to date - the sync capability's pull and the builds' import, wired by the
     composition root - and runs before an agent's close of one of its pins is written
-    (docs/handbook/api.md §닫을 때 사유 남기기)."""
+    (docs/handbook/api.md §닫을 때 사유 남기기). verdict_keys answers the verdict words a document declares now - the
+    document capability's answer, wired by the composition root - which a new verdict pin is checked against."""
     from limn.pins.location.lookup import locate_file
     from limn.pins.runtime import PinCommands
 
@@ -187,6 +189,7 @@ def assemble_pins(
         audit,
         now,
         refresh_watched,
+        verdict_keys,
     )
 
     def locate(value: Record | str, document: Any) -> Path | None:

@@ -27,6 +27,7 @@ Terms are defined once here and used with exactly this meaning below.
 | **view-only document** | A PDF served without sources (e.g. reviewer comments). Its pins have a page and region, but no line numbers. |
 | **figure document** | A figure drawn by code, served as one PDF page per figure with an element map from the figure repository (`kind: "figure"` in `GET /api/docs`). Its pins are line pins on the drawing script and name the element (`el`). |
 | **suggested edit** | A pin's exact replacement text for its lines (`suggest: {base, text}`), marked `제안 수정` ("suggested edit"). Only a LaTeX line pin carries one. Apply it verbatim, and only when `suggest_state` is `ready`. |
+| **verdict pin** | A pin a person made by picking one of its document's verdict words (`verdict`, e.g. `채택`), marked `판정 <낱말>` ("verdict <word>") first in the number cell. The words and what they mean belong to the document's repository; Limn never carries a verdict out. Only people make one, and its verdict and place never change. |
 
 ## When to use, when not
 
@@ -70,6 +71,7 @@ Send an API token with every request. Where the token comes from depends on wher
 - Do not edit the manuscript for a question pin unless the question implies an edit.
 - Do not process pins from a different repository: if the `pins.md` repo header does not match `git remote get-url origin`, stop and report.
 - Do not call `/api/clear` (it is owner-only and refuses agents with `403`).
+- Never create a verdict pin (`verdict` on `POST /api/pin` answers an agent `403 verdict_human`), and never change a verdict pin's verdict or place (`/edit` answers `400 verdict_fixed`). A verdict is a person's decision.
 
 ### Processing pins
 
@@ -105,6 +107,7 @@ Send an API token with every request. Where the token comes from depends on wher
    - On `409 claimed`, skip the pin.
    - If you run late, claim again with the same identity and a new estimate (an extension). Otherwise the viewer shows `예상보다 늦어짐 (+5분)` ("later than expected (+5 min)").
    - The lock releases itself after `ttl_min` (default: twice the estimate, clamped to 30–120 minutes). It is a safety net; do not use it in place of an estimate.
+   - Verdict pins are the exception: claim every verdict pin of one target that you may take before you start (§Verdict pins, step 5).
 5. **Edit.** `Read` `L<lo>-L<hi>` to see the context and edit as the note asks. If an earlier edit may have shifted lines, fetch the realigned values from `GET <base>/api/pins`.
    - **Keep track of the lines you change for each pin** (since v0.3): step 6 sends them as `changes`, so a reviewer's [변경 보기] (view changes) shows each pin only its own change even when one commit or PR fixes many pins. Committing each pin separately also helps, but it is not required; the PR may be squash-merged as usual.
 6. **Close.** A pin closed by an agent does not become done; it goes to **awaiting review**. When a human clicks [확인] (confirm) in the viewer it is done. When a human writes what is wrong in [답글] (reply), that reply becomes the reason for reopening and the pin returns to the open table (`다시 열림`). A reply that @tags a person is a conversation between people: the state stays, and you still do not process pins awaiting review.
@@ -137,6 +140,17 @@ A pin whose number cell shows `제안 수정` ("suggested edit") carries the exa
 5. **Commit and close as usual** (steps 5–6): through the normal PR flow, then close with `changes` covering the new lines (for a deletion, the line just before or after the removed range).
 6. **On `"changed"` or `"unknown"`, do not apply it.** Reply on the pin with what you found (`POST <base>/api/pins/<id>/reply`), leave it open and report it. Do not close it, and do not rewrite the suggestion yourself.
 
+### Verdict pins
+
+A pin whose number cell starts with `판정 <낱말>` ("verdict <word>") is one a person made by picking one of its document's verdict words ([api.md](../docs/handbook/api.md) §판정 핀 (`verdict`)). With `판정 <낱말>(쪽 전체)` ("whole page") the target is the whole page: on a figure document the figure of that page, on a view-only PDF the page itself. `(판정만)` ("verdict only") in the note cell means there is no note. The authority is `verdict` (the word's `key`) in `GET <base>/api/pins/<id>`; a document's words are its entry's `verdicts.choices[].key` in `GET <base>/api/docs`.
+
+1. **A verdict pin takes one of two forms.** (a) A pin with a JSON `verdict`. (b) If the document's repository uses a first-word rule: a pin without `verdict` whose note's first word is one of that document's verdict words (an older verdict pin). When one pin has both, `verdict` wins; if the note's first word differs from it, say so in a reply. Ordering (step 4) and one at a time (step 5) count both forms together.
+2. **What a verdict carries out is the document repository's rule.** Limn does not know what a word means.
+3. **Resolve the target.** Name a target by the **target ID** its repository defines: a value unique in the repository that does not change across renders and builds; the repository's rules say how to get it (for example, on a figure document the figure id `el.path[0]`, in a LaTeX catalog the item id). A figure pin's figure id is `el.path[0]` (`el.id` is the picked element and may not be the figure). For a whole-page target it is that figure (`el.id`) or that page. A LaTeX pin's lines, which a person picked, are resolved to an item by the repository's rules. If a pin does not resolve to exactly one target, do not guess: ask in a reply and leave it open. If a PDF page target is `est` (the PDF changed), do not guess.
+4. **Order.** From `GET <base>/api/pins?all=1`, collect every verdict pin that resolves to the same target (first-word verdict pins too). A closed pin's target comes from the `대상: <target ID>` ("target: …") line of its close reply; without that line (a pin a person closed, an older pin), resolve it from the stored evidence: `el.path[0]` for a figure pin, the stored `file`, `lo`, `hi` and `anchor` for a line pin, `page` and `pdf_build` for a PDF pin. If a verdict pin numbered higher than this one may concern the same target and cannot be resolved, do not carry out anything for that target: ask in a reply on the pin you meant to carry out, and do not close it. If the highest-numbered pin is open, carry out that one only; if it is closed, carry out nothing. Close each lower-numbered open verdict pin with the reply `#N 판정이 앞섭니다` ("verdict #N comes first"), except the person-assigned and in-progress pins of step 5.
+5. **One at a time.** Among the open verdict pins of one target, a pin assigned to a person (`→ @이름`) or in progress by someone else (`처리 중(…)`) counts in the ordering only: do not claim it and do not close it. If there is such a pin, stop work on that target and leave one reply saying why it waits, on one verdict pin of that target you may take (if there is none you may take, no reply). Otherwise claim every open verdict pin of the target before you start. This is the one exception to step 4's "claim only that pin" of Processing pins: a claim guards a pin, not its target. If the target already matches the verdict before you act, change nothing and close with a reply. Right before you push a commit or merge a pull request, redo step 4; if a higher-numbered verdict pin appeared, or the pin you were carrying out was deleted, do not push: start over.
+6. **Close.** Close with `changes` and `ref` as usual, and make the first line of `reply` `대상: <target ID>`. Never create a verdict pin (`403 verdict_human`), and never change a verdict pin's verdict or place (`400 verdict_fixed`).
+
 ### Markers in the number column
 
 After the number, the number cell carries short plain-word markers joined by ` · ` (they replaced the older symbols; see [api.md](../docs/handbook/api.md) §pins.md 형식). Example: `7 · #6 범위 안 · 처리 중(에이전트 B, 약 10분)`. The markers are Korean literals; match them verbatim.
@@ -153,6 +167,8 @@ After the number, the number cell carries short plain-word markers joined by ` �
 | `제안 수정` | The author wrote the exact replacement text ("suggested edit"), and the lines still read as its base | Replace lines `lo..hi` with `suggest.text` verbatim (§Suggested-edit pins) |
 | `제안 수정(원문 바뀜)` | The lines no longer read as the suggestion's base ("source changed") | Do not apply it; reply and leave the pin open |
 | `제안 수정(확인 불가)` | The suggestion cannot be checked against the source ("cannot verify": the place is lost or the file cannot be read) | Do not apply it; reply and leave the pin open |
+| `판정 <낱말>` | A person picked one of the document's verdict words ("verdict <word>"); always right after the number. Without a note the note cell reads `(판정만)` | Carry it out by the document repository's rules (§Verdict pins) |
+| `판정 <낱말>(쪽 전체)` | The verdict's target is the whole page ("whole page": a figure document's figure on that page, or a view-only PDF's page) | As above; the target is that figure (`el.id`) or that page |
 | `«…»` | Quote of the rendered text (≤60 chars, `…` if truncated); on a figure pin, the element's name | Use only as a search hint; never as `Edit`'s `old_string` |
 | `[<작성자>]` | Author name in front of the note, when there are two or more authors | Not an assignment rule; for reports and `reply` only |
 | `질문` | A question pin, not a place to edit | Answer with a reply and close (edit the manuscript only if the question implies it) |
@@ -216,10 +232,10 @@ Send each JSON key, query parameter and singleton security header once. Duplicat
 | `GET /api/pins/{id}` | One pin with its whole thread (`pins.md` carries at most 3 thread entries), and a suggested edit's `suggest` with its `suggest_state` |
 | `POST /api/pins/{id}/confirm` | Awaiting review → done (**humans only**; 403 without an identity header) |
 | `POST /api/pins/{id}/reopen` | Reopen (clears the old `reply`, `ref` and `changes`). Optional `{"reason"}` stays in the thread |
-| `POST /api/pins/{id}/edit` | Edit note or range (`base_rev` required), or `note_append`. `suggest: {base, text}` sets a suggested edit on a LaTeX line pin, `null` removes it |
+| `POST /api/pins/{id}/edit` | Edit note or range (`base_rev` required), or `note_append`. `suggest: {base, text}` sets a suggested edit on a LaTeX line pin, `null` removes it. A verdict pin takes note-level edits only (anything else is `400 verdict_fixed`) |
 | `POST /api/pins/{id}/drop` | Move a pin to the Trash. `/restore` brings it back within 30 days (permanent `/purge` is owner-only) |
 | `POST /api/rebuild?async=1` | Rebuild a LaTeX document's PDF (`kind: "tex"` only; figure and view-only documents answer `400`); progress at `GET /api/build`. With several documents add `&doc=<key>` to both. A manuscript identical to the build on screen ends at once as `ok` with `unchanged: true`; add `&force=1` to rebuild from scratch (after changing a file only a shell-escape program reads) |
-| `GET /api/docs` | Document list (key, name, kind `tex`/`pdf`/`figure`, open pin count, build state) |
+| `GET /api/docs` | Document list (key, name, kind `tex`/`pdf`/`figure`, open pin count, build state). A document with verdict words adds `verdicts` (`verdicts_error` when its word file cannot be used) |
 | `GET /api/meta?light=1` | Read-only state (`stale_build`, …). `&ev=<seq>` returns events addressed to you (for browser notifications) |
 
 ## Reference files

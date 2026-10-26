@@ -478,7 +478,8 @@ class ClosedValues(unittest.TestCase):
 
 
 class PrincipalQuestions(unittest.TestCase):
-    """Principal.is_human and Principal.review_on_close: the two role questions the handler asks about an action."""
+    """Principal.is_human, Principal.authors_verdicts and Principal.review_on_close: the role questions the handler
+    asks about an action."""
 
     CASES = {
         "person": Principal({"login": "bob@example.com", "name": "Bob"}, "editor", "header"),
@@ -501,6 +502,23 @@ class PrincipalQuestions(unittest.TestCase):
                 "token": False,
                 "loopback agent": False,
                 "local owner named local": False,
+            },
+        )
+
+    def test_only_an_editor_or_owner_person_authors_a_verdict(self):
+        """A verdict pin is made by a person whose role is editor or owner: never the agent role, a token, the
+        loopback agent or an actor with the agent's login - and never a viewer, which check_role refuses first."""
+        cases = {**self.CASES, "viewer": Principal({"login": "carol@example.com", "name": "Carol"}, "viewer", "header")}
+        self.assertEqual(
+            {name: p.authors_verdicts() for name, p in cases.items()},
+            {
+                "person": True,
+                "owner": True,
+                "agent-role person": False,
+                "token": False,
+                "loopback agent": False,
+                "local owner named local": False,
+                "viewer": False,
             },
         )
 

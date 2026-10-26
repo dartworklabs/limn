@@ -7,9 +7,9 @@ import pytest
 
 from limn.builds.artifacts import BuildMapCache
 from limn.builds.queries import BuildQueries, _same_source, position_basis
-from limn.runtime.documents import RunPaths
+from limn.runtime.documents import Doc, RunPaths
 
-from helpers_figure import BUILD1, BUILD2, JULY, b2_map, figure_doc, write_build
+from helpers_figure import BUILD1, BUILD2, JULY, b2_map, figure_doc, viewer_map, write_build
 
 
 def queries():
@@ -44,6 +44,26 @@ def test_a_selected_element_names_each_element_on_its_path(tmp_path):
     selected = queries().selection(doc, BUILD1, 1, JULY)
     assert selected.chosen.names == ("", "CalendarStrip", "7월")
     assert [el.names for _, el in selected.ladder] == [("", "CalendarStrip", "7월"), ("", "CalendarStrip"), ("",)]
+
+
+def test_page_root_is_true_only_for_the_figure_of_that_page_on_that_build(tmp_path):
+    """page_root answers whether an id is the root of a page on the named build's map: the figure of page 1 is, a
+    panel or the figure of page 2 is not; an unknown page, a build without a map, a build name that names no page
+    directory and a document without an element map all answer False."""
+    paths = RunPaths(tmp_path / "paper", tmp_path / "paper" / "main.tex", tmp_path / "state")
+    doc = figure_doc(tmp_path / "paper", paths)
+    write_build(doc, BUILD1, viewer_map())
+    write_build(doc, BUILD2, None)
+    ask = queries().page_root
+    assert ask(doc, BUILD1, 1, "B2") is True
+    assert ask(doc, BUILD1, 2, "B3") is True
+    assert ask(doc, BUILD1, 1, "B2/calendar") is False
+    assert ask(doc, BUILD1, 1, "B3") is False
+    assert ask(doc, BUILD1, 3, "B2") is False
+    assert ask(doc, BUILD2, 1, "B2") is False
+    assert ask(doc, "../" + BUILD1, 1, "B2") is False
+    latex = Doc("ms", "본문", "tex", tmp_path / "paper", tmp_path / "paper" / "main.tex", paths=paths)
+    assert ask(latex, BUILD1, 1, "B2") is False
 
 
 def test_missing_markers_are_interpreted_by_owner(tmp_path):
