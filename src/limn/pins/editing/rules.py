@@ -254,6 +254,10 @@ class RemoveSuggestion:
 # What an edit does to a pin's suggested edit: set or replace it with a Suggestion, or remove it.
 SuggestChange: TypeAlias = Suggestion | RemoveSuggestion
 
+# The edit fields that fix a verdict pin's target and that read as absent when sent as null (EditRequest.sent_null).
+# The other two such fields keep a null of their own: suggest null removes a suggestion and verdict null is sent.
+NULLABLE_TARGETS = frozenset({"loc", "lo", "hi", "scope", "kind", "kind_req"})
+
 
 @dataclass(frozen=True)
 class EditRequest:
@@ -264,7 +268,9 @@ class EditRequest:
     without re-placing it. kind_req and assignee are note-level and may change on a closed pin. suggest sets, replaces
     or removes the pin's suggested edit (docs/adr/0020-suggested-edit-pins.md) and is not note-level. base_rev is the
     rev the editor loaded; only a note_append without a suggest may leave it out. verdict_sent says the body named
-    `verdict` at all (any value, null too): no edit sets or changes a verdict.
+    `verdict` at all (any value, null too): no edit sets or changes a verdict. sent_null names the target fields
+    (NULLABLE_TARGETS) the body sent as null: their values above are None, as if absent - which they are on a pin
+    without a verdict - but a verdict pin refuses them as it refuses a value (moves_verdict).
     """
 
     base_rev: int | None = None
@@ -280,6 +286,7 @@ class EditRequest:
     hints: tuple[str, ...] = ()
     suggest: SuggestChange | None = None
     verdict_sent: bool = False
+    sent_null: frozenset[str] = frozenset()
 
     def __post_init__(self) -> None:
         """Reject locally invalid edit fields even when a caller bypasses the HTTP parser."""
@@ -287,6 +294,18 @@ class EditRequest:
             raise ValueError("suggest must set or remove a suggested edit")
         if not isinstance(self.verdict_sent, bool):
             raise ValueError("verdict_sent must be a boolean")
+        if not isinstance(self.sent_null, frozenset) or not self.sent_null <= NULLABLE_TARGETS:
+            raise ValueError("sent_null names target fields")
+        values: dict[str, object] = {
+            "loc": self.place,
+            "lo": self.lo,
+            "hi": self.hi,
+            "scope": self.scope,
+            "kind": self.kind,
+            "kind_req": self.kind_req,
+        }
+        if any(values[name] is not None for name in self.sent_null):
+            raise ValueError("a field sent as null carries no value")
         if self.base_rev is not None and not is_int(self.base_rev):
             raise ValueError("base_rev must be an integer")
         if self.note is not None and (not isinstance(self.note, str) or len(self.note) > NOTE_MAX):
@@ -323,9 +342,15 @@ class EditRequest:
 
     def moves_verdict(self) -> bool:
         """Does the edit change what a verdict pin fixed when it was made - its verdict, where it points (place, lines,
-        scope, kind), what it asks (kind_req) or its suggested edit? A verdict pin refuses that (VerdictFixed); its
-        note, note_append, assignee and @-tag hints remain editable."""
-        return self.verdict_sent or self.reshapes() or self.kind_req is not None or self.suggest is not None
+        scope, kind), what it asks (kind_req) or its suggested edit - or name one of those fields as null (sent_null)?
+        A verdict pin refuses that (VerdictFixed); its note, note_append, assignee and @-tag hints remain editable."""
+        return (
+            self.verdict_sent
+            or bool(self.sent_null)
+            or self.reshapes()
+            or self.kind_req is not None
+            or self.suggest is not None
+        )
 
     def sets_lines(self) -> bool:
         """Does the edit move the range by lo/hi alone? Then the new lines must fit the pin's file, which the shell counts."""
@@ -572,9 +597,9 @@ def decide_edit(
 
     First the pin as the edit would leave it: if it would be a verdict pin - it carries a verdict now (verdict_of) or
     the edit sends one - the edit may not change what it fixed (EditRequest.moves_verdict; a sent verdict always
-    does, and so does a loc, read or not): VerdictFixed. An unread loc (UnreadLoc) is sent only for a pin that carried
-    a verdict when the request was read, and a verdict never leaves a pin; were this pin to have none, it is not the
-    pin the request was read against: StaleEdit. Then a closed pin refuses a reshaping edit and any suggestion
+    does, and so does a loc, read or not, and a target field sent as null): VerdictFixed. An unread loc (UnreadLoc)
+    is sent only for a pin that carried a verdict when the request was read, and a verdict never leaves a pin; were
+    this pin to have none, it is not the pin the request was read against: StaleEdit. Then a closed pin refuses a reshaping edit and any suggestion
     change; a base_rev other than the pin's rev is stale; a note_append is merged under the note (or under the note this request replaces it with)
     after a "(추가 HH:MM)" stamp - clock is HH:MM - and refused if the result exceeds note_max. A lo/hi edit needs line_count, the line count
     of the pin's file (None when the file is outside the manuscript tree), and a pin placed on lines (core.place a

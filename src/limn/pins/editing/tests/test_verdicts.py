@@ -473,6 +473,10 @@ TARGET_FIELDS = {
     "kind_req": EditRequest(base_rev=2, kind_req="fix"),
     "suggest": EditRequest(base_rev=2, suggest=Suggestion("a", "b")),
     "suggest null": EditRequest(base_rev=2, suggest=RemoveSuggestion()),
+    **{
+        name + " null": EditRequest(base_rev=2, note="n", sent_null=frozenset({name}))
+        for name in ("loc", "lo", "hi", "scope", "kind", "kind_req")
+    },
 }
 # The note-level fields a verdict pin's edit may change.
 NOTE_FIELDS = {
@@ -498,6 +502,12 @@ class EditRule(unittest.TestCase):
         for name, request in NOTE_FIELDS.items():
             with self.subTest(field=name):
                 self.assertIsInstance(decide(verdict_pin(), request), PinEdited)
+
+    def test_a_pin_without_a_verdict_reads_a_field_sent_as_null_as_absent(self):
+        """On an ordinary pin the note beside target fields sent as null is edited, and nothing else changes."""
+        plain = OpenPin.from_record({"id": 3, "file": "/ms/main.tex", "lo": 4, "hi": 5, "note": "n", "rev": 2})
+        nulls = EditRequest(base_rev=2, note="m", sent_null=frozenset({"loc", "lo", "hi", "scope", "kind", "kind_req"}))
+        self.assertEqual(decide(plain, nulls), decide(plain, EditRequest(base_rev=2, note="m")))
 
     def test_sending_a_verdict_to_a_pin_without_one_is_refused(self):
         """The pin the edit would leave is a verdict pin, so the verdict it sends is refused like any change of one."""
@@ -542,9 +552,31 @@ class EditBody(unittest.TestCase):
                 self.assertTrue(body.request.verdict_sent)
         self.assertFalse(parse_edit({"note": "n", "base_rev": 0}, ()).request.verdict_sent)
 
+    def test_a_target_field_sent_as_null_is_kept_by_name(self):
+        """loc, lo, hi, scope, kind and kind_req sent as null have no value but are named in sent_null - alone too,
+        since only the pin decides whether that changes anything. A value is not named there, nor is a suggest or
+        verdict null, which keep their own meaning."""
+        for name in ("loc", "lo", "hi", "scope", "kind", "kind_req"):
+            with self.subTest(field=name):
+                body = parse_edit({name: None, "base_rev": 0}, ())
+                self.assertNotIsInstance(body, InputRejected)
+                self.assertEqual(body.request.sent_null, frozenset({name}))
+                self.assertEqual(body.request, EditRequest(base_rev=0, sent_null=frozenset({name})))
+        sent = parse_edit({"lo": 3, "suggest": None, "verdict": None, "base_rev": 0}, ())
+        self.assertEqual(sent.request.sent_null, frozenset())
+
+    def test_a_field_sent_as_null_cannot_also_carry_a_value(self):
+        """An EditRequest naming lo as null while holding a lo, or naming a field that is not a target, is a defect."""
+        for bad in (dict(lo=3, sent_null=frozenset({"lo"})), dict(sent_null=frozenset({"note"}))):
+            with self.subTest(bad=bad), self.assertRaises(ValueError):
+                EditRequest(base_rev=0, **bad)
+
 
 # The document facts of an edit on a verdict pin: none are needed, since nothing of where the pin points is read.
 NO_FACTS = None
+NOTHING_TO_CHANGE_REFUSAL = InputRejected(
+    "바꿀 필드가 없습니다(note, lo, hi, scope, loc, note_append, kind_req, assignee).", "nothing_to_change"
+)
 
 
 class EditPlace(unittest.TestCase):
@@ -564,6 +596,15 @@ class EditPlace(unittest.TestCase):
             with self.subTest(region=region, loc=None):
                 self.assertIsNone(parse_edit_place(parse_edit(sent, ()), region, NO_FACTS, verdict=True))
 
+    def test_an_edit_of_nulls_alone_is_nothing_to_change_on_an_ordinary_pin_only(self):
+        """A body naming only a target field as null changes nothing on an ordinary pin, line or region: refused as
+        an empty edit. A verdict pin gets no place back, for the editing rules to refuse as verdict_fixed."""
+        body = parse_edit({"lo": None, "base_rev": 0}, ())
+        for region in (True, False):
+            with self.subTest(region=region):
+                self.assertEqual(parse_edit_place(body, region, NO_FACTS, verdict=False), NOTHING_TO_CHANGE_REFUSAL)
+                self.assertIsNone(parse_edit_place(body, region, NO_FACTS, verdict=True))
+
     def test_a_body_that_sends_a_verdict_counts_as_a_verdict_pins(self):
         """An ordinary region pin's edit that sends a verdict is not refused for its lines here: the pin it would leave
         is a verdict pin, which the editing rules refuse as verdict_fixed."""
@@ -575,6 +616,13 @@ FIXED = {
     "error": "판정 핀은 판정과 대상을 바꾸지 않습니다 — 새 판정 핀을 찍거나 이 핀을 지웁니다.",
     "reason": "verdict_fixed",
 }
+NOTHING_TO_CHANGE = {
+    "error": "바꿀 필드가 없습니다(note, lo, hi, scope, loc, note_append, kind_req, assignee).",
+    "reason": "nothing_to_change",
+}
+# Every edit field a verdict pin may not take (D3), by its body name: present with any value - null too - it is
+# verdict_fixed on a verdict pin.
+NULL_TARGETS = frozenset({"verdict", "loc", "lo", "hi", "scope", "kind", "kind_req", "suggest"})
 
 
 class EditOverHttp(VerdictHttpBase):
@@ -609,6 +657,35 @@ class EditOverHttp(VerdictHttpBase):
                     before = self.stored_bytes()
                     self.assertEqual(self.edit(body, **who), (400, FIXED))
                     self.assertEqual(self.stored_bytes(), before)
+
+    def test_a_target_field_sent_as_null_is_refused(self):
+        """Each field a verdict pin may not take, sent as null - beside a note or alone - is 400 verdict_fixed and
+        writes nothing: null names the field as much as a value does, so the note beside it is not written either."""
+        for name in NULL_TARGETS:
+            for beside in ({"note": "changed"}, {}):
+                with self.subTest(field=name, beside=beside):
+                    before = self.stored_bytes()
+                    self.assertEqual(self.edit({**beside, name: None}, headers=BOB), (400, FIXED))
+                    self.assertEqual(self.stored_bytes(), before)
+
+    def test_an_ordinary_pin_takes_a_null_target_field_as_absent(self):
+        """On a pin without a verdict a null target field changes nothing, as it always has: beside a note the note is
+        written, alone the edit is nothing_to_change. suggest null removes a suggestion and verdict null is refused,
+        so neither is one of these."""
+        code, d = self.call("POST", "/api/pin", self.body(note="n"), headers=BOB)
+        self.assertEqual(code, 200, d)
+        pid = d["id"]
+        for name in NULL_TARGETS - {"suggest", "verdict"}:
+            with self.subTest(field=name):
+                rev = self.pin(pid)["rev"]
+                body = {"note": "changed " + name, name: None, "base_rev": rev}
+                code, got = self.call("POST", "/api/pins/%d/edit" % pid, body, headers=BOB)
+                self.assertEqual(code, 200, got)
+                self.assertEqual((self.pin(pid)["note"], self.pin(pid)["rev"]), ("changed " + name, rev + 1))
+                before = self.stored_bytes()
+                got = self.call("POST", "/api/pins/%d/edit" % pid, {name: None, "base_rev": rev + 1}, headers=BOB)
+                self.assertEqual(got, (400, NOTHING_TO_CHANGE))
+                self.assertEqual(self.stored_bytes(), before)
 
     def test_a_verdict_sent_to_an_ordinary_pin_is_refused(self):
         """An edit cannot turn a pin into a verdict pin."""

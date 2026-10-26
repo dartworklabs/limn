@@ -441,7 +441,7 @@ latexdiff는 본문 글과, 자기가 아는 글 명령(`\textbf`·`\section`·`
 - **`pdf_build` 는 `loc` 에 `frac` 이 있을 때만 바뀐다.** 이때 값은 `loc` 에 담긴 `pdf_build` 다. 뷰어는 여기에 pick 응답 값을 넣는다. 둘 다 없으면 지금 빌드다. 메모, `note_append`, `lo`·`hi` 만 고치는 편집은 `pdf_build` 를 건드리지 않는다.
 - **범위가 바뀌면 `anchor` 를 새로 뜨고 `stale`·`sync` 를 지운다.** 위치를 잃은(`stale`) 핀도 이 경로로 고친다.
 - **닫힌 핀은 메모만 고칠 수 있다.** 범위나 위치, 제안 수정(`suggest`)을 보내면 `409 {"error":"done"}` 이다.
-- **판정 핀은 판정과 대상을 바꾸지 않는다.** 판정 핀이거나 본문에 `verdict` 키가 있으면(값이 `null` 이어도) `verdict`·`loc`·`lo`·`hi`·`scope`·`kind`·`kind_req`·`suggest` 가운데 하나만 있어도 `400 verdict_fixed` 이고 아무것도 쓰지 않는다. 영역 핀(보기 전용 PDF의 핀, 그림 문서의 영역 pick)이어도 같다. `no_source_lines` 가 아니다. 메모·`note_append`·`assignee`·멘션 힌트는 그대로 고친다. 이 검사는 `done`·`conflict` 보다 먼저다(§판정 핀 (`verdict`)).
+- **판정 핀은 판정과 대상을 바꾸지 않는다.** 판정 핀이거나 본문에 `verdict` 키가 있으면(값이 `null` 이어도) `verdict`·`loc`·`lo`·`hi`·`scope`·`kind`·`kind_req`·`suggest` 가운데 하나만 있어도 `400 verdict_fixed` 이고 아무것도 쓰지 않는다. 이 필드들은 값이 `null` 이어도 있는 것이다. 판정이 없는 핀에서는 `null` 인 `loc`·`lo`·`hi`·`scope`·`kind`·`kind_req` 가 보내지 않은 것과 같고, 그것만 보낸 편집은 `nothing_to_change` 다. 영역 핀(보기 전용 PDF의 핀, 그림 문서의 영역 pick)이어도 같다. `no_source_lines` 가 아니다. 메모·`note_append`·`assignee`·멘션 힌트는 그대로 고친다. 이 검사는 `done`·`conflict` 보다 먼저다(§판정 핀 (`verdict`)).
 - **`suggest` 는 제안 수정을 넣고, 갈고, 지운다.** `{base, text}` 는 넣거나 갈고 `null` 은 지운다. 이 키가 없는 편집은 범위·위치를 고쳐도 저장된 제안을 그대로 둔다. 규칙과 거절은 §제안 수정 (`suggest`)에 있다.
 - 성공하면 `edited_at`·`edited_by` 가 기록되고 `rev` 가 1 오른다.
 
@@ -569,7 +569,7 @@ latexdiff는 본문 글과, 자기가 아는 글 명령(`\textbf`·`\section`·`
 
 ### 판정 핀의 편집
 
-- 판정 핀의 판정과 대상은 만들 때 고정된다(§핀 수정 (`/api/pins/{id}/edit`)). 검사는 편집이 남길 핀에 대해 한다. 판정 핀이거나 본문에 `verdict` 키가 있으면(값이 무엇이든), `verdict`·`loc`·`lo`·`hi`·`scope`·`kind`·`kind_req`·`suggest` 가운데 하나라도 있는 편집은 아래 응답이고 아무것도 쓰지 않는다.
+- 판정 핀의 판정과 대상은 만들 때 고정된다(§핀 수정 (`/api/pins/{id}/edit`)). 검사는 편집이 남길 핀에 대해 한다. 판정 핀이거나 본문에 `verdict` 키가 있으면(값이 무엇이든), `verdict`·`loc`·`lo`·`hi`·`scope`·`kind`·`kind_req`·`suggest` 가운데 하나라도 있는 편집은 아래 응답이고 아무것도 쓰지 않는다. 값이 `null` 인 필드도 있는 것으로 센다. 그렇지 않으면 메모와 함께 보낸 `"lo": null` 이 거절되지 않고 판정 핀의 메모를 고친다.
 
   ```json
   {"error": "판정 핀은 판정과 대상을 바꾸지 않습니다 — 새 판정 핀을 찍거나 이 핀을 지웁니다.", "reason": "verdict_fixed"}
