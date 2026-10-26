@@ -23,7 +23,7 @@ catalog_schema: 1
 |  | [domain.md](domain.md) | 핀 용어, 상태와 전이, 역변환·범위 사다리·그림 문서의 요소 pick·anchor 재동기화·읽을 때 계산하는 요소 위치, 저장소 안전성, 작성자 귀속, 여러 문서 서버 규칙(보기 전용 PDF·그림 문서), 알려진 제약 | 핀 규칙이나 위치 계산을 고치기 전 / 상태·전이·위치 규칙·한도가 바뀔 때 |
 |  | [viewer.md](viewer.md) | 뷰어 조작 요약, 레이아웃, 패널, 상태 표시, 협업 UI, 디자인 토큰·컴포넌트, 벡터 렌더링·확대, 화면 쪽 제약 | 뷰어 HTML·CSS·JS를 고치기 전 / 화면 규칙이나 가드 테스트가 바뀔 때 |
 |  | [build-sync.md](build-sync.md) | 동기·비동기 재빌드, git pull, 자동 동기화 폴링, 위치 추정 est, 응답 다이어트, 보기 전용 PDF 감시, 그림 문서 가져오기 | 빌드·동기화·추정 코드를 고치기 전 / 빌드 상태나 폴링 규칙이 바뀔 때 |
-|  | [api.md](api.md) | 에이전트 계약: HTTP API 전체, 요청 경계, 핀 레코드 스키마, pins.md 형식, 그림 문서의 pick·핀, 그림 요소 지도 형식 | 에이전트 연동을 만들거나 요청 처리를 고치기 전 / 경로·필드·상태·pins.md 형식이 바뀔 때 |
+|  | [api.md](api.md) | 에이전트 계약: HTTP API 전체, 요청 경계, 핀 레코드 스키마, pins.md 형식, 그림 문서의 pick·핀, 그림 요소 지도 형식, 판정 핀과 판정 낱말 파일 형식 | 에이전트 연동을 만들거나 요청 처리를 고치기 전 / 경로·필드·상태·pins.md 형식이 바뀔 때 |
 |  | [operations.md](operations.md) | 서버 하나 실행: 요구 환경, 실행 인자, 포트, 보안 제약, tailscale serve, systemd, 상태 파일 | 서버를 띄우거나 운영 문제를 볼 때 / 실행 인자·상태 파일·보안 제약이 바뀔 때 |
 |  | [instances.md](instances.md) | 원고별 인스턴스 관리자: limn 명령, 설정 키, 문서 탭, 업데이트·되돌리기, 포트, 환경 변수 | 인스턴스를 추가·업데이트·제거할 때 / limn 명령·설정 키·유닛 템플릿이 바뀔 때 |
 | verification | [verification.md](verification.md) | 게이트별 측정 대상·적용 조건·실행·합격 기준·보장 범위, 없는 게이트 | PR 전과 리뷰할 때 / 테스트·CI 단계·합격 기준이 바뀔 때 |
@@ -38,17 +38,17 @@ catalog_schema: 1
 <!-- handbook-filemap:start -->
 | 경로 패턴 | 책임 | 수정 trigger | 갱신 주체 |
 | --- | --- | --- | --- |
-| `src/limn/pins/**` | 핀 값·전이·레코드·저장·문맥·멘션·변경 범위와 여섯 동작. 순수 판단과 I/O는 같은 기능 안에서 의존 방향으로 구별한다. 빌드가 선택한 요소 사실의 pick 응답과 원고 사다리 단계(`location/figure.py`), 그림 핀의 요소 필드 모양(`element.py`), 읽을 때 계산하는 `mark`·`el_sync`(`listing/projection.py`), pins.md의 그림 핀 행(`listing/render.py`), 제안 수정의 필드 모양과 상태(`suggestion.py`)와 그 판단(`editing/rules.py`)·`suggest_state`(`listing/projection.py`)·`## 제안 문안` 절(`listing/render.py`), 파일 종류별 주석 줄(`location/mapping.py`의 `comment_marker`)을 포함한다 | 상태·전이·위치·쓰기·알림·pins.md 변경 | domain.md, api.md, build-sync.md, architecture.md |
+| `src/limn/pins/**` | 핀 값·전이·레코드·저장·문맥·멘션·변경 범위와 여섯 동작. 순수 판단과 I/O는 같은 기능 안에서 의존 방향으로 구별한다. 빌드가 선택한 요소 사실의 pick 응답과 원고 사다리 단계(`location/figure.py`), 그림 핀의 요소 필드 모양(`element.py`), 읽을 때 계산하는 `mark`·`el_sync`(`listing/projection.py`), pins.md의 그림 핀 행(`listing/render.py`), 제안 수정의 필드 모양과 상태(`suggestion.py`)와 그 판단(`editing/rules.py`)·`suggest_state`(`listing/projection.py`)·`## 제안 문안` 절(`listing/render.py`), 판정 필드를 읽는 규칙과 쪽 전체 대상(`verdict.py`)·판정 핀 만들기와 편집의 판단(`editing/rules.py`)·pins.md의 판정 표시(`listing/render.py`), 파일 종류별 주석 줄(`location/mapping.py`의 `comment_marker`)을 포함한다 | 상태·전이·위치·쓰기·알림·pins.md 변경 | domain.md, api.md, build-sync.md, architecture.md |
 | `src/limn/builds/**` | 빌드 결과·산출물·원고 지문·이력·DocumentFacts·컴파일·PDF 감시·그림 지도 파싱/가져오기와 요청 응답. 소비자별 완성 질의(`queries.py`·`contracts.py`), 지도 사본의 실행별 파싱 캐시(`artifacts.py`의 `BuildMapCache`)와 요소 고르기·사다리·따라가기 규칙(`figure_map.py`)을 포함한다 | 빌드 상태·파일 선택·실행·실패 문구 변경 | build-sync.md, api.md, architecture.md |
 | `src/limn/collaboration/**` | 평탄한 참여자 사실의 병합·후보 조회·방문 연결, `Notice`의 수신자 필터·직렬화·이벤트 파일·멘션 알림·폴링 | 사람 조회·이벤트 순서·기록·알림 변경 | api.md, viewer.md, architecture.md |
-| `src/limn/documents/**` | 문서 탭·meta·목차 조회와 순수 목차 파서 | 문서 응답·폴링·목차 변경 | api.md, viewer.md, build-sync.md |
+| `src/limn/documents/**` | 문서 탭·meta·목차 조회와 순수 목차 파서, 문서 옆 판정 낱말 파일의 자리·검사된 제한 읽기·순수 파서와 docs·meta의 `verdicts` 필드(`verdicts.py`) | 문서 응답·폴링·목차·판정 낱말 형식 변경 | api.md, domain.md, viewer.md, build-sync.md |
 | `src/limn/revisions/**` | Git 이력(그림 문서는 빌드가 답한 파일 목록의 범위)·핀 닫힘 참조 해석·변경 후보 선택·diff 파싱·핀 범위 귀속·격리 비교 PDF·캐시·실패 응답 | 비교 실행·범위·응답·캐시 변경 | api.md, architecture.md |
 | `src/limn/sync/**` | 원격 main 감시·pull 순서·빌드 소유자가 답한 발행 커밋에 따른 재빌드 선택·정착 판단 | 동기화 거절·감시·재빌드 변경 | build-sync.md, api.md |
 | `src/limn/administration/**` | 토큰·멤버·문서 인자·이관·인스턴스 셸·systemd 템플릿 | 명령·설정 키·유닛·업데이트 흐름 변경 | instances.md, operations.md, api.md |
 | `src/limn/viewer/**` | HTML·CSS·JS·번역·마크·브랜드 파일·조립·화면 제공 경로 | 화면 동작·조각 순서·번역·캐시 정책 변경 | viewer.md, api.md, verification.md |
 | `src/limn/runtime/**` | 시작·설정·실행별 문서·잠금·캐시·감시 수명·고정 상태 경로 | 실행 수명·설정·문서 경로 변경 | architecture.md, operations.md, domain.md |
 | `src/limn/security/**` | 신원·Host/Origin·역할·권한 발급·사람 사실·감사·인증 안내 | 신뢰·권한·사람 기록·감사 변경 | architecture.md, api.md, operations.md, SECURITY.md |
-| `src/limn/platform/**` | 원고 핸들·원자적 쓰기·파일 잠금·Git 프로세스·숫자와 텍스트 장치 | 파일 접근·프로세스 인자/환경·JSON 값 판정 변경 | domain.md, build-sync.md, architecture.md |
+| `src/limn/platform/**` | 원고 핸들(크기를 제한한 읽기 `read_bounded` 포함)·원자적 쓰기·파일 잠금·Git 프로세스·숫자와 텍스트 장치 | 파일 접근·프로세스 인자/환경·JSON 값 판정 변경 | domain.md, build-sync.md, architecture.md |
 | `src/limn/web/**` | 공통 HTTP 처리기·요청 경계 협력자·요청 파서·응답·경로 계약 | 요청 한도·디스패치·공통 오류 형식 변경 | api.md, architecture.md |
 | `src/limn/server.py`, `src/limn/cli.py`, `src/limn/__main__.py` | 실행 자원 생성·기능 조립·명령 전달 | 시작/종료 연결·기능별 조립 계약 변경 | architecture.md, operations.md, 연결된 기능 topic |
 | `src/limn/*/__init__.py` | 진입점과 다른 슬라이스의 테스트가 import하는 기능 표면, 요청한 값만 불러오는 지연 export | 진입점이 import하는 이름·테스트용 export·기능 소유권 변경 | architecture.md, code-style-roadmap.md, verification.md |
