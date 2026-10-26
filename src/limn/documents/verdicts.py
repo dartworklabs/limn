@@ -248,8 +248,10 @@ class VerdictFiles:
     a read and a parse happen when a file appears, changes or goes away, not on every poll. Each new unusable version
     is reported once through warn (the server log by default) - a file that stays broken is not reported again,
     and one broken again after a fix is. The parse is pure (parse_verdicts), so a warm reader answers what a cold
-    one does. Request threads share it: the entries are read and written under the lock; two threads that miss the
-    same version at once may both read and parse it, and both get equal answers."""
+    one does. Request threads share it: the version check, the read and parse of a new version and its entry happen
+    under one lock, so of two threads that ask for the same new version at once one reads it and the other is
+    answered from its entry, and a broken version is reported once. The lock is held for a stat and a read of at most
+    VERDICTS_MAX_BYTES + 1 bytes of a checked file, never for the warning."""
 
     warn: Callable[[str], None] = _stderr
     _entries: dict[str, tuple[Version, VerdictAnswer]] = field(default_factory=dict)
@@ -257,16 +259,16 @@ class VerdictFiles:
 
     def read(self, doc: Doc) -> VerdictAnswer:
         """Document doc's word file now: VerdictWords, VerdictsUnusable or NoVerdictFile. Reads at most
-        VERDICTS_MAX_BYTES + 1 bytes of it, through the checked handle only, and only for a version not seen before."""
+        VERDICTS_MAX_BYTES + 1 bytes of it, through the checked handle only, and only for a version not seen before;
+        the thread that reads an unusable version is the one that warns."""
         path = verdicts_path(doc)
         checked = file_in_tree(str(path), doc.paths.src, doc.paths.state)
-        version = self._version(path, checked)
         with self._lock:
+            version = self._version(path, checked)
             held = self._entries.get(str(path))
-        if held is not None and held[0] == version:
-            return held[1]
-        version, answer = self._load(path, checked, version)
-        with self._lock:
+            if held is not None and held[0] == version:
+                return held[1]
+            version, answer = self._load(path, checked, version)
             self._entries[str(path)] = (version, answer)
         if isinstance(answer, VerdictsUnusable):  # a version not seen before: a held one returned above
             self.warn(

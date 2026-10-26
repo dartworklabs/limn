@@ -1078,7 +1078,7 @@ curl -s -X POST http://127.0.0.1:<port>/api/pins/3/unclaim
 - `label` 은 파일에 없으면 `key` 다. 파일의 글자 그대로이므로, 화면에 넣을 때는 HTML이 아니라 글자로 넣는다.
 - `?light=1` 과 두 meta의 `docs` 사본에는 싣지 않는다. 클라이언트는 문서를 열거나 바꿀 때 전체 meta나 `/api/docs` 로 낱말을 읽는다.
 
-파일이 있는데 쓸 수 없으면 판정이 없는 것으로 다루고, 같은 자리에 `verdicts` 대신 `verdicts_error` 가 붙는다. 서버 로그(stderr)에는 쓸 수 없는 판마다 한 번 `warning: verdict words of document <키> are not used (<이유>): <원고 폴더 기준 경로>` 가 남는다. 같은 판이 계속 깨져 있으면 다시 남기지 않는다.
+파일이 있는데 쓸 수 없으면 판정이 없는 것으로 다루고, 같은 자리에 `verdicts` 대신 `verdicts_error` 가 붙는다. 서버 로그(stderr)에는 쓸 수 없는 판마다 한 번 `warning: verdict words of document <키> are not used (<이유>): <원고 폴더 기준 경로>` 가 남는다. 같은 판이 계속 깨져 있으면 다시 남기지 않는다. 여러 요청이 동시에 같은 판을 처음 읽어도 한 요청만 읽고 남긴다. 판 확인·읽기·기억을 한 잠금 안에서 하기 때문이다.
 
 | `verdicts_error` | 언제 |
 | --- | --- |

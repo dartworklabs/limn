@@ -5,7 +5,8 @@ The parse is pure and total, so it is checked on its own: every rule of the form
 decoding, repeated names refused, unknown names ignored - and, generated, that any bytes give words or a reason
 code and that a well-formed file reads back as written. The reader is checked on real files in a temporary
 manuscript tree: a missing file, an unusable one (a link out of the tree, a folder, an unreadable file, a broken
-or too large one) and one warning per broken version. The HTTP answers are checked through the real handler.
+or too large one) and one warning per broken version, also when two threads read it at once. The HTTP answers are
+checked through the real handler.
 
 Run: uv run pytest -q src/limn/documents/tests/test_verdicts.py
 """
@@ -13,7 +14,9 @@ Run: uv run pytest -q src/limn/documents/tests/test_verdicts.py
 import ast
 import json
 import os
+import sys
 import tempfile
+import threading
 import unittest
 from pathlib import Path
 
@@ -43,6 +46,28 @@ EXAMPLE = {
     "page": True,
     "verdicts": [{"key": "채택"}, {"key": "보류"}, {"key": "삭제", "confirm": True}],
 }
+
+
+# How many times two readers race on one broken file (Reader.test_two_readers_racing_on_one_broken_version_warn_once).
+RACE_ROUNDS = 200
+
+
+def read_together(reader: VerdictFiles, doc: Doc) -> list[object]:
+    """What two threads answer when a barrier releases them into reader.read(doc) at the same moment."""
+    barrier = threading.Barrier(2)
+    answers: list[object] = []
+
+    def read() -> None:
+        """Wait for the other thread, then read the document's word file."""
+        barrier.wait()
+        answers.append(reader.read(doc))
+
+    threads = [threading.Thread(target=read) for _ in range(2)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+    return answers
 
 
 def raw(value: object) -> bytes:
@@ -330,6 +355,20 @@ class Reader(unittest.TestCase):
         self.file.write_bytes(raw({"format": "x"}))
         self.assertEqual(self.reader.read(self.doc), VerdictsUnusable("invalid"))
         self.assertEqual(len(self.warnings), 2)
+
+    def test_two_readers_racing_on_one_broken_version_warn_once(self):
+        """Two request threads released together by a barrier read the same broken file through one fresh reader:
+        both are told invalid and exactly one warning is logged - in every one of RACE_ROUNDS rounds, with the
+        interpreter switching threads as often as it can so that the two reads interleave."""
+        self.file.write_bytes(b"{")
+        interval = sys.getswitchinterval()
+        sys.setswitchinterval(1e-6)
+        self.addCleanup(sys.setswitchinterval, interval)
+        for round_no in range(RACE_ROUNDS):
+            warnings: list[str] = []
+            answers = read_together(VerdictFiles(warnings.append), self.doc)
+            self.assertEqual(answers, [VerdictsUnusable("invalid")] * 2)
+            self.assertEqual(len(warnings), 1, "round %d: %r" % (round_no, warnings))
 
     def test_a_large_file_is_too_large(self):
         """A file over VERDICTS_MAX_BYTES is too_large, whatever it holds."""
