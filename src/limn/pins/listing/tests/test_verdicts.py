@@ -271,3 +271,19 @@ class OnDisk(AccessBase):
             self.assertEqual(self.call("POST", "/api/pins/%d/close" % pid, {})[0], 200)
         text = ps.APP.C.pins_md.read_text(encoding="utf-8")
         self.assertNotIn("판정", text)
+
+    def test_a_whole_page_target_does_not_depend_on_the_word_files_page(self):
+        """page asks a client to offer per-page verdicts and is answered as verdicts.page; it does not decide which
+        verdict pins the server takes. With page false (the default), a whole-figure verdict pin and a whole-page PDF
+        one are still made and still marked (쪽 전체), while the documents answer verdicts.page false."""
+        for doc in (self.fig, self.rv):
+            verdicts_path(doc).write_text(json.dumps(dict(WORDS, page=False), ensure_ascii=False), encoding="utf-8")
+        _, docs = self.call("GET", "/api/docs", headers=BOB)
+        pages = {d["key"]: d["verdicts"]["page"] for d in docs["docs"] if d["key"] in ("fig", "rv")}
+        self.assertEqual(pages, {"fig": False, "rv": False})
+        el = {"id": "B2", "path": ["B2"]}
+        b = self.post({"doc": "fig", "page": 1, "frac": [0, 0, 1, 1], "el": el, "verdict": "보류", "pdf_build": BUILD1})
+        c = self.post({"doc": "rv", "page": 2, "frac": [0, 0, 1, 1], "verdict": "채택", "pdf_build": BUILD1})
+        text = ps.APP.C.pins_md.read_text(encoding="utf-8")
+        self.assertTrue(table_row(text, b).startswith("| %d · 판정 보류(쪽 전체) |" % b))
+        self.assertTrue(table_row(text, c).startswith("| %d · 판정 채택(쪽 전체) |" % c))
