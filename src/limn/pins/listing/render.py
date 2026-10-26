@@ -23,6 +23,7 @@ from limn.pins.location.mapping import flat, truncate_quote
 from limn.pins.model import OpenPin, Record, ReviewPin, ThreadEntry, is_region_pin, state_of
 from limn.pins.suggestion import SuggestState, suggestion_of
 from limn.pins.thread import claim_holds
+from limn.pins.verdict import verdict_of, whole_page_target
 from limn.platform.values import is_int, is_num
 from limn.security.guidance import token_file_curl
 
@@ -335,6 +336,51 @@ def suggest_marker(r: Record, facts: PinFacts) -> str:
     return SUGGEST_MARKS[facts.suggest_state or "unknown"]
 
 
+# A verdict pin in pins.md (docs/superpowers/specs/2026-10-26-verdict-pins.md §pins.md): the number-cell marker
+# '판정 <key>' - '(쪽 전체)' added for a whole page's target - the memo cell of a pin whose author picked the verdict
+# alone, the legend entry and the guidance clause, both only while an open verdict pin is listed.
+VERDICT_MARK = "판정 "
+VERDICT_WHOLE_PAGE = "(쪽 전체)"
+VERDICT_ONLY_NOTE = "(판정만)"
+VERDICT_LEGEND = (
+    " · '판정 X' = 작성자가 버튼으로 고른 판정이다(메모 첫 낱말보다 앞선다) · "
+    "'(쪽 전체)' = 그 쪽의 그림(그림 문서) 또는 그 쪽(보기 전용 PDF)에 대한 판정"
+)
+# The guidance clause around the history link's base URL (verdict_guidance puts the base between the two).
+VERDICT_GUIDANCE_HEAD = (
+    "판정 핀(번호 칸 '판정 X', 그리고 그 저장소가 첫 낱말 규칙을 쓰면 메모 첫 낱말이 판정 낱말인 옛 핀)은 "
+    "그 문서 저장소의 규칙대로 처리한다 · 두 꼴이 함께 있으면 '판정 X'가 앞선다 · "
+    "한 대상의 판정은 그 대상으로 풀리는 판정 핀(닫힌 것도, GET "
+)
+VERDICT_GUIDANCE_TAIL = (
+    "/api/pins?all=1) 가운데 번호가 가장 큰 핀이다 · "
+    "그보다 작은 열린 판정 핀은 실행하지 않고 '#N 판정이 앞섭니다' 답글을 남기고 닫는다 · "
+    "사람 담당·남이 처리 중인 판정 핀은 순서에는 넣되 잡거나 닫지 않고, 그 대상은 기다린다 · "
+    "같은 대상의 나머지 열린 판정 핀을 잡고 시작하고, 내보내기 직전에 다시 확인한다 · "
+    "닫을 때 답 첫 줄에 '대상: <대상 ID>' 를 적는다 · "
+    "대상을 풀 수 없는 더 큰 번호의 판정 핀이 있으면 그 대상은 실행하지 않고 답글로 묻는다"
+)
+
+
+def verdict_guidance(base: str) -> str:
+    """The guidance clause while an open verdict pin is listed, its history link on base (the URL the curl examples
+    use): how the two kinds of verdict pin are told apart and ordered per target, which to act on and which to close
+    as superseded, whom to wait for, and the target line a close starts with."""
+    return " · " + VERDICT_GUIDANCE_HEAD + base + VERDICT_GUIDANCE_TAIL
+
+
+def verdict_marker(r: Record, heading: DocHeading | None) -> str:
+    """The number-cell marker of a verdict pin - '판정 <key>', with '(쪽 전체)' when the pin is about a whole page's
+    target on its document (limn.pins.verdict.whole_page_target: heading is the pin's document, None when the instance
+    does not serve it) - and "" for a pin without a verdict (a stored value that is no key counts as none). The key is
+    printed as stored: it holds no '|' or line break."""
+    verdict = verdict_of(r)
+    if verdict is None:
+        return ""
+    whole = heading is not None and whole_page_target(r, heading.has_element_map, heading.view_only)
+    return VERDICT_MARK + verdict + (VERDICT_WHOLE_PAGE if whole else "")
+
+
 def code_fence(text: str) -> str:
     """The backtick fence that holds text verbatim in a Markdown code block: one backtick longer than the longest run
     of backticks in text, and at least three - no line of text can then close the block early."""
@@ -503,7 +549,13 @@ def pins_md_text(page: PinsMdInput) -> str:
     A pin with a suggested edit (docs/adr/0020-suggested-edit-pins.md D3) gets its marker last in the number cell
     (suggest_marker) and SUGGEST_ONLY_NOTE for an empty memo; while any open pin carries one the guidance gains
     SUGGEST_GUIDANCE, the legend SUGGEST_LEGEND, and the `## 제안 문안` section (suggestions_md) follows the open
-    tables, before the review section. Without such a pin every byte is as before."""
+    tables, before the review section. Without such a pin every byte is as before.
+
+    A verdict pin (docs/superpowers/specs/2026-10-26-verdict-pins.md §pins.md) gets its marker first in the number cell,
+    right after the number (verdict_marker: '판정 <key>', '(쪽 전체)' for a whole page's target), and
+    VERDICT_ONLY_NOTE for an empty memo; while any open pin carries one the guidance gains verdict_guidance(base) and
+    the legend VERDICT_LEGEND, last. The review table shows no marker, as it shows no suggestion: agents do not work
+    those pins, and the API answers every pin's verdict. Without an open verdict pin every byte is as before."""
     rows, facts = page.rows, page.facts
     loopback_base = "http://127.0.0.1:%d" % page.port
     is_remote = page.base is not None and page.base != loopback_base
@@ -523,11 +575,18 @@ def pins_md_text(page: PinsMdInput) -> str:
     rows_by_doc: dict[str, list[str]] = {}
     any_symbol = False
     people = page.people
+    headings = {d.key: d for d in page.docs}
     n_human = 0
     n_suggest = 0
+    n_verdict = 0
     for r in openn:
         f = facts[r["id"]]
         syms = []
+        # A verdict pin's marker comes first, right after the number: what the pin is comes before how to treat it.
+        verdict = verdict_marker(r, headings.get(f.doc_key))
+        if verdict:
+            syms.append(verdict)
+            n_verdict += 1
         # Number-column priority (reopened > -> @ > question): the most urgent signal to re-check goes leftmost.
         if f.reopened:
             syms.append("다시 열림")
@@ -558,8 +617,8 @@ def pins_md_text(page: PinsMdInput) -> str:
             any_symbol = True
         idcol = md_cell(" · ".join(["%s" % r.get("id")] + syms))
         note = md_cell(r.get("note") or "", newline=" ⏎ ")
-        if suggested and not (r.get("note") or "").strip():
-            note = SUGGEST_ONLY_NOTE
+        if (suggested or verdict) and not (r.get("note") or "").strip():
+            note = VERDICT_ONLY_NOTE if verdict else SUGGEST_ONLY_NOTE
         part = shared_part_md(r, f)
         if part:
             note = (note + " ⏎ " if note else "") + part
@@ -667,12 +726,14 @@ def pins_md_text(page: PinsMdInput) -> str:
         guidance += FIGURE_GUIDANCE
     if n_suggest:
         guidance += SUGGEST_GUIDANCE
+    if n_verdict:
+        guidance += verdict_guidance(base)
     out.append(guidance)
     out.append(claim_guidance(base))
     out.append(token_guidance_line(None if is_remote else page.token_file))
     out.append(REPLY_GUIDANCE)
     if any_symbol:
-        out.append(LEGEND + (SUGGEST_LEGEND if n_suggest else ""))
+        out.append(LEGEND + (SUGGEST_LEGEND if n_suggest else "") + (VERDICT_LEGEND if n_verdict else ""))
     header = ["| # | 쪽 | 위치 | 범위 | 메모 |", "|---|---|---|---|---|"]
     suggestions = suggestions_md(openn, facts, base, sectioned)
     if not sectioned:
