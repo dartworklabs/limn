@@ -32,6 +32,15 @@ function verdictLabel(key,doc){const v=docVerdicts(doc),c=v&&v.choices.find(x=>x
 function verdictBadge(p){const k=verdictOf(p); if(!k)return null;
   return html`<span class="badge badge-verdict" data-tip="${tr('버튼으로 고른 판정입니다. 판정과 대상은 바뀌지 않고 메모만 고칠 수 있습니다')}">${tr('판정')} <span class="vd-w" translate="no">${verdictLabel(k,pdoc(p))}</span></span>`;}
 
+// A card's pin with the overlaps its card reports: a verdict pin's overlap with another verdict pin about the same page target
+// ('#4와 같은 범위' between two verdicts on one figure) is left out - the page verdict line already orders them. Its overlaps
+// with ordinary pins, and ordinary pins' own, stay. The pin itself, or a copy with the shorter rel.
+/** @param {Pin} p @returns {Pin} */
+function pvQuietRel(p){if(!verdictOf(p)||!p.rel||!p.rel.length)return p; const kind=pdoc(p)===DOC&&META?META.kind:(docInfo(pdoc(p))||{}).kind,t=pageTargetOf(p,kind);
+  if(!t)return p;
+  const same=x=>{const q=OPEN_ALL.find(o=>o.id===x.id); if(!q||!verdictOf(q)||pdoc(q)!==pdoc(p))return false; const u=pageTargetOf(q,kind); return !!u&&u.id===t.id;};
+  const rel=p.rel.filter(x=>!same(x)); return rel.length===p.rel.length?p:{...p,rel};}
+
 // ---------------- The page's whole target (domain.md §쪽 전체 대상)
 const WHOLE_PAGE=[0,0,1,1];
 // What a pin's verdict is about when it is a page's whole target, and on which page it is now: on a figure document a pin

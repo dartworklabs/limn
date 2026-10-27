@@ -3,7 +3,7 @@
  * UI words inside those regions are translated before rendering. */
 /** Render a pin's request, status and available actions; confirmation is offered only to a person with write access.
  * @param {Pin} p */
-function card(p){
+function card(p){p=pvQuietRel(p);   // no overlap badge between two verdicts about one page target (verdict.js)
   const loc='L'+p.lo+'-L'+p.hi,name=p.name||String(p.file||'').split('/').pop(),tags=[];   // loc stays in the copy format
   if(p.stale)tags.push(html`<span class="badge badge-warning" data-tip="${T.stale}">${ic('triangle-alert')}위치 잃음</span>`);
   else{const m=/^moved ([+-]\d+)$/.exec(p.sync||''); if(m)tags.push(html`<span class="badge" data-tip="${
@@ -25,11 +25,13 @@ function card(p){
   // Header line: number/line-range/page on the left, author/collapse on the right. Badges (.tags) drop to one line below the header.
   // compact accordion: the collapsed header and note preview (.sum) retain the note-level metadata; clicking expands badges/note/buttons (CSS).
   // In wide, .sum and the collapse button are hidden and the card is always expanded. Actions form an equal-width grid; only [완료] is emphasized, [삭제] is the destructive color.
-  const first=String(p.note||'').split('\n')[0].trim(),noNote=html`<span class="dim">${tr(p.suggest?'(제안 문안만)':verdictOf(p)?'(판정만)':'(메모 없음)')}</span>`;   // a suggestion or a verdict alone says what to do
+  const first=String(p.note||'').split('\n')[0].trim(),noNote=html`<span class="dim">${tr(p.suggest?'(제안 문안만)':'(메모 없음)')}</span>`;   // a suggestion alone says what to do
+  // A verdict pin without a note spends no line on it: its '판정 채택' badge says what it asks. Folded (compact), its preview is the badge.
+  const vOnly=!p.note&&!p.suggest&&!!verdictOf(p);
   // Collapsed card's (compact) note preview: up to two lines on its own line below the header. It used to only get the
   // leftover width after the number/location inside the header's single line, clipping to '[C...', and an awaiting-review
   // card's prefixed '내 확인 차례 · ' ate even more of that width (QA 2026-09-24). Review status is conveyed by the dot color.
-  const sum=html`<div class="sum" translate="no" data-act="card-toggle">${first?fmtText(first,p.mentions):noNote}</div>`;
+  const sum=html`<div class="sum" translate="no" data-act="card-toggle">${first?fmtText(first,p.mentions):vOnly?verdictBadge(p):noNote}</div>`;
   if(isRegion(p)){const fb=figRegionBadge(p.el,isFigureKind((docInfo(pdoc(p))||{}).kind));   // a figure region: element without code, or map unreadable
     tags.unshift(fb?html`<span class="badge" data-tip="${fb.tip}">${fb.t}</span>`:html`<span class="badge" data-tip="보기 전용 PDF의 핀 — 줄 번호 없이 쪽·영역과 영역 글자로 가리킵니다">보기 전용</span>`);}
   if(isQuestion(p))tags.unshift(html`<span class="badge badge-question" data-tip="${T.question}">${ic('circle-question-mark')}질문</span>`);
@@ -65,13 +67,13 @@ function card(p){
 <button class="btn-icon btn-sm btn-ghost cmp b-fold" data-act="card-toggle" aria-expanded="${unfold}" aria-label="${open?'카드 접기':'카드 펼치기'}">${ic(unfold?'chevron-down':'chevron-right')}</button></div>\
 ${sum}<div class="tags">${tags}</div>`;
   if(rv)return html`<div class="pin card review${open?' open':''}" data-id="${p.id}" data-doc="${pdoc(p)}">${head}\
-${quote}<div class="note" translate="no">${p.note?fmtText(p.note,p.mentions):noNote}</div>${suggestView(p)}${metadata}${threadHtml(p,LAYOUT===LAYOUT_MODE.WIDE)}\
+${quote}${vOnly?'':html`<div class="note" translate="no">${p.note?fmtText(p.note,p.mentions):noNote}</div>`}${suggestView(p)}${metadata}${threadHtml(p,LAYOUT===LAYOUT_MODE.WIDE)}\
 <div class="acts"><button class="btn-sm b-change" data-act="change" data-tip="${T.change}">변경 보기</button>\
 <button class="btn-sm b-reply" data-act="reply-open" data-tip="${T.reply}">답글</button>\
 ${canConfirmReview()?html`<button class="btn-sm b-confirm${isMe(p.author)?' btn-soft':''}" data-act="confirm" data-tip="${T.confirm}">확인</button>`:''}</div>\
 ${canConfirmReview()?'':html`<div class="dim review-access">${confirmAccessText()}</div>`}</div>`;
   const body=editing?html`<div class="edit-slot"></div>${metadata}`
-    :html`${quote}<div class="note" translate="no" data-act="edit" data-tip="${tr('클릭하면 메모와 범위를 고칩니다')}">${p.note?fmtText(p.note,p.mentions):noNote}</div>\
+    :html`${quote}${vOnly?'':html`<div class="note" translate="no" data-act="edit" data-tip="${tr('클릭하면 메모와 범위를 고칩니다')}">${p.note?fmtText(p.note,p.mentions):noNote}</div>`}\
 ${suggestView(p)}${metadata}${threadHtml(p,LAYOUT===LAYOUT_MODE.WIDE)}<div class="acts">${cardActs(claimed,LAYOUT!==LAYOUT_MODE.WIDE)}</div>`;
   return html`<div class="pin card${p.stale||elLost(p)?' st':''}${claimed?' claimed':''}${editing?' editing':''}${open?' open':''}" data-id="${p.id}" data-doc="${pdoc(p)}">${head}${body}</div>`;
 }

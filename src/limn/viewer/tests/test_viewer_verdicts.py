@@ -159,7 +159,7 @@ class ComposerRow(VerdictBase):
         )
         self.assertTrue(page.evaluate("document.querySelector('#composer').hidden"))
         self.assertIn("#%d 저장됨" % pin["id"], page.evaluate("document.body.textContent"))
-        self.assertEqual(page.locator('.pin[data-id="%d"] .badge-verdict' % pin["id"]).inner_text(), "판정 채택")
+        self.assertEqual(page.locator('.pin[data-id="%d"] .tags .badge-verdict' % pin["id"]).inner_text(), "판정 채택")
 
     def test_a_confirm_word_takes_two_presses_bound_to_what_it_armed_on(self):
         """삭제's first press saves nothing: it reads '삭제 확정' and a screen reader hears that the next press saves. Esc,
@@ -375,7 +375,7 @@ class PageLine(VerdictBase):
         settle(page)
         self.assertEqual(page.locator('#page-pop-list .pl-row[data-page="1"] .pl-v').inner_text(), "#%d 채택" % a)
         self.assertEqual(page.locator('#page-pop-list .pl-row[data-page="2"] .pl-v').count(), 0)
-        self.assertEqual(page.locator('.pin[data-id="%d"] .badge-verdict' % a).inner_text(), "판정 채택")
+        self.assertEqual(page.locator('.pin[data-id="%d"] .tags .badge-verdict' % a).inner_text(), "판정 채택")
         self.assertEqual(self.call("POST", "/api/pins/%d/close" % a, {}, ALICE)[0], 200)
         page.evaluate("SEC.done=true")
         self.reload(page)
@@ -603,7 +603,7 @@ class ReviewFixes(VerdictBase):
         page = self.on("ms", n_open=1)
         page.evaluate("()=>{SHOW_ALL=true; drawPins();}")
         settle(page)
-        self.assertEqual(page.locator('.pin[data-id="%d"] .badge-verdict' % made["id"]).inner_text(), "판정 받음")
+        self.assertEqual(page.locator('.pin[data-id="%d"] .tags .badge-verdict' % made["id"]).inner_text(), "판정 받음")
 
     def test_the_earlier_verdicts_link_is_underlined_only_on_hover(self):
         """'이전 판정 N건 · 새 판정이 앞섬' has the viewer's link look - no underline at rest, a solid one on hover - in the
@@ -637,3 +637,46 @@ class ReviewFixes(VerdictBase):
         self.assertTrue(page.evaluate("document.querySelector('#doc').classList.contains('pv-stack')"))
         page = self.on("fig", n_open=2)
         self.assertEqual([r["below"] for r in page.evaluate(rows)], [False, False])
+
+    def test_two_verdicts_about_one_page_target_show_no_overlap_badge(self):
+        """Two page verdicts on the figure's page 1 resolve to the same target: their cards carry no '#N와 같은 범위' (the
+        page line orders them). An ordinary pin inside the figure keeps its overlap badge with a verdict pin."""
+        page = self.on("fig")
+        a = self.press_page(page, 1, "보류")
+        b = self.press_page(page, 1, "채택")
+        self.assertTrue(
+            any(r["id"] == a for r in self.pins()[b].get("rel", []))
+        )  # the server still reports the overlap
+        badges = "id=>[...document.querySelectorAll('.pin[data-id=\"'+id+'\"] .tags .badge')].map(e=>e.textContent)"
+        for pid in (a, b):
+            self.assertFalse([t for t in page.evaluate(badges, pid) if "범위" in t or "겹침" in t], pid)
+        page.evaluate(
+            "p=>{LAST_PTR='mouse'; pick({doc:'fig',page:1,pdf_build:META.pages_build,x0:p[0]*META.pages[0].pt_w,y0:p[1]*META.pages[0].pt_h,"
+            "x1:(p[0]+p[2])*META.pages[0].pt_w,y1:(p[1]+p[3])*META.pages[0].pt_h,frac:p});}",
+            list(helpers_figure.CELL_DRAG),
+        )
+        page.wait_for_function("COMPOSE.current&&!COMPOSE.picking")
+        page.locator("#btn-save").click()
+        page.wait_for_function("OPEN_ALL.length===3")
+        settle(page)
+        (plain,) = set(self.pins()) - {a, b}
+        self.assertTrue([t for t in page.evaluate(badges, plain) if "범위 안" in t], page.evaluate(badges, plain))
+
+    def test_an_empty_memo_verdict_spends_no_line_on_it(self):
+        """A verdict pin without a note has no note line ('(판정만)' is pins.md's, not the card's) - open, awaiting review and
+        done; its '판정 채택' badge says it."""
+        page = self.on("rv")
+        a = self.press_page(page, 1, "채택")
+        card = '.pin[data-id="%d"]' % a
+        self.assertEqual(page.locator(card + " .note").count(), 0)
+        self.assertNotIn("(판정만)", page.locator(card).inner_text())
+        self.assertEqual(page.locator(card + " .tags .badge-verdict").inner_text(), "판정 채택")
+        self.assertEqual(self.call("POST", "/api/pins/%d/close" % a, {"reply": "done"}, AGENT)[0], 200)
+        page.evaluate("SEC.review=true")
+        self.reload(page)
+        self.assertEqual(page.locator("#review-pins " + card + " .note").count(), 0)
+        self.assertNotIn("(판정만)", page.locator("#review-pins " + card).inner_text())
+        self.assertEqual(self.call("POST", "/api/pins/%d/confirm" % a, {}, ALICE)[0], 200)
+        page.evaluate("SEC.done=true")
+        self.reload(page)
+        self.assertNotIn("(판정만)", page.locator('.arc-row[data-id="%d"]' % a).inner_text())
