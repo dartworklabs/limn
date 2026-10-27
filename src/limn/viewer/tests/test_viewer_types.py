@@ -2,7 +2,7 @@
 
 The viewer is type-checked with tsc (docs/handbook/viewer.md §타입 검사), but tsc only trusts the declarations; nothing
 in the browser checks them against the server. This test does. Every pin, thread entry and person in the recorded API
-answers of tests/data/contract_snapshot*.json (the agent contract, docs/handbook/verification.md §4) must have each of
+answers of tests/data/contract_snapshot*.json and verdict_snapshot.json (the agent contract, docs/handbook/verification.md §4) must have each of
 its fields declared, with a TypeScript type that fits the JSON value, so a field the server adds or retypes fails here
 until the declaration follows. A declared field those flows never show must be one the server's record tables
 (limn.pins.model) define, so the declaration cannot drift into fields that do not exist.
@@ -29,7 +29,7 @@ from helpers_access import ALICE, BOB, AccessBase
 API_TYPES = VIEWER / "types" / "api.d.ts"
 SNAPSHOTS = [
     Path(__file__).resolve().parents[4] / "tests" / "data" / name
-    for name in ("contract_snapshot.json", "contract_snapshot_figure.json")
+    for name in ("contract_snapshot.json", "contract_snapshot_figure.json", "verdict_snapshot.json")
 ]
 JSON_TYPES = {str: "string", int: "number", float: "number", bool: "boolean"}
 # Pin fields the recorded flows never show (no flow writes a suggested edit) that DeclaredSuggestionShapes takes from the real
@@ -217,8 +217,8 @@ class DeclaredViewShapes(AccessBase):
     """api.d.ts declares the document, build and people answers as the real handler gives them.
 
     Three states: one document with an open pin (and the overlaps a new range over it reports) and no build; three documents (a LaTeX file, one in a folder, a
-    view-only PDF) with page images and two people who opened the viewer; one document after a build with LaTeX
-    errors. The watch's states come from limn.sync.rules itself, since a test run has no remote to pull."""
+    view-only PDF - the first with usable verdict words, the second with an unusable word file) with page images and two
+    people who opened the viewer; one document after a build with LaTeX errors. The watch's states come from limn.sync.rules itself, since a test run has no remote to pull."""
 
     def setUp(self):
         super().setUp()
@@ -255,6 +255,10 @@ class DeclaredViewShapes(AccessBase):
         (self.src / "rr").mkdir()
         (self.src / "rr" / "rr.tex").write_text(TEX, encoding="utf-8")
         (self.src / "review.pdf").write_bytes(MINI_PDF)
+        # verdict words: the manuscript's usable (verdicts), the reply's unusable (verdicts_error), the PDF's none
+        words = '{"format": "limn-verdicts/1", "page": true, "verdicts": [{"key": "채택"}, {"key": "삭제", "confirm": true}]}'
+        (self.src / "main.limnverdicts.json").write_text(words, encoding="utf-8")
+        (self.src / "rr" / "rr.limnverdicts.json").write_text("{", encoding="utf-8")
         docs = serve_documents.make_docs(
             ["ms=본문:main.tex", "rr=답변서:rr/rr.tex", "rv=리뷰어:review.pdf"], self.src, ps.APP.C
         )
@@ -270,6 +274,7 @@ class DeclaredViewShapes(AccessBase):
         alice = {**ALICE, "Tailscale-User-Profile-Pic": "https://example.com/alice.png"}  # a tailnet photo
         self.answer("Meta", "GET", "/api/meta?doc=ms", headers=alice)
         self.answer("Meta", "GET", "/api/meta?doc=rv&light=1", headers=BOB)
+        self.answer("Meta", "GET", "/api/meta?doc=rr", headers=BOB)
         self.answer("DocsAnswer", "GET", "/api/docs")
         self.answer("PeopleAnswer", "GET", "/api/people", headers=alice)
         statuses, pulls = sync_records()
@@ -308,7 +313,7 @@ class DeclaredViewShapes(AccessBase):
             collect(body, name)
         views = ["Meta", "BuildStatus", "DocsAnswer", "PeopleAnswer", "RebuildAnswer", "SyncStatus", "PullRecord"]
         views += ["Me", "PersonSeen", "PageImage", "LatexError", "BuildProgress", "LastBuild", "DocEntry"]
-        views += ["PickOverlap"]
+        views += ["PickOverlap", "DocVerdicts", "VerdictChoice"]
         missing = sorted(
             "%s.%s" % (name, f) for name in views for f in self.shapes[name] if f not in seen.get(name, set())
         )

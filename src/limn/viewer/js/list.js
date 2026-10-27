@@ -194,11 +194,12 @@ function markHitSides(){const bs=/** @type {HTMLElement[]} */($$('.mark button.m
 // pin (pinPlace), else where it was pinned, then decides each badge's side (markBadgeSides) and puts a save's or an append's
 // undo chip back on its mark (drawChips). A pin without a usable box or page draws nothing.
 /** Draw native, named pin badge buttons at the current mark coordinates, preserving mark and undo-chip geometry. */
+// A pin a page verdict line shows (pvShows) draws no page-size box: the line under its page says it (drawPageVerdicts, first).
 function marks(){
-  $$('.mark').forEach(m=>m.remove());
+  $$('.mark').forEach(m=>m.remove()); drawPageVerdicts();
   // Awaiting-review pins are also drawn as purple marks - so the reviewer can see right there what was fixed (unrelated to an open pin's overlap/editing).
   // A figure pin is drawn where the server found its element in this build (see pinPlace), and a found element is no estimate.
-  PINS.concat(REVIEW_ALL.filter(p=>pdoc(p)===DOC)).forEach(p=>{const at=pinPlace(p),el=document.getElementById('p'+at.page); if(!el||!isFrac(at.frac))return;
+  PINS.concat(REVIEW_ALL.filter(p=>pdoc(p)===DOC)).forEach(p=>{const at=pinPlace(p),el=document.getElementById('p'+at.page); if(!el||!isFrac(at.frac))return; if(pvShows(p))return;
     const est=isEstimated(p)&&!hasMark(p),lost=p.stale||elLost(p);
     const m=document.createElement('div'); m.className='mark'+(lost?' st':'')+(est?' est':'')+(pinState(p)===PIN_STATE.REVIEW?' rv':''); m.dataset.pin=String(p.id); m.dataset.fx=String(at.frac[0]);
     Object.assign(m.style,{left:at.frac[0]*100+'%',top:at.frac[1]*100+'%',width:at.frac[2]*100+'%',height:at.frac[3]*100+'%'});
@@ -244,6 +245,7 @@ function jumpPin(id){if(viaDoc(id,jumpPin))return; const p=PINS.find(x=>x.id===i
   if(!p){const q=REVIEW_ALL.find(x=>x.id===id); if(q&&docInfo(pdoc(q))){const k=pdoc(q),opening=switchDoc(k),visit=SWITCHSEQ;
     opening.then(()=>{if(DOC===k&&visit===SWITCHSEQ)jumpPin(id);});} return;}
   if(document.body.classList.contains('revision-open'))setViewMode(VIEW_MODE.MANUSCRIPT);
+  if(jumpPv(id))return;   // a pin its page verdict line shows: the line
   if(LAYOUT===LAYOUT_MODE.NARROW)setSide(false);   // collapsed first so the sheet doesn't cover the page, then measured
   const m=/** @type {HTMLElement} */(document.querySelector('.mark[data-pin="'+id+'"]'));
   if(m){

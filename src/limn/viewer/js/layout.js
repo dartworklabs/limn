@@ -166,7 +166,7 @@ function onViewport(){const vv=window.visualViewport; if(!vv)return;
     requestAnimationFrame(()=>a.scrollIntoView({block:'center'}));}
 {const vv=window.visualViewport; if(vv){vv.addEventListener('resize',onViewport); vv.addEventListener('scroll',onViewport);}}
 document.addEventListener('focusin',e=>{const t=/** @type {HTMLElement} */(e.target);
-  if(LAYOUT!==LAYOUT_MODE.WIDE&&t&&t.tagName==='TEXTAREA'&&$('#right').contains(t))setTimeout(()=>{if(BAND===LAYOUT_BAND.TABLET_SHEET)keepFieldInView(); else t.scrollIntoView({block:'center'});},350);});
+  if(LAYOUT!==LAYOUT_MODE.WIDE&&t&&t.tagName==='TEXTAREA'&&$('#right').contains(t))setTimeout(()=>{if(BAND===LAYOUT_BAND.TABLET_SHEET)keepFieldInView(); else{t.scrollIntoView({block:'center'}); if(t===$('#note'))noteRowInView();}},350);});
 // Whether a text field has focus - a textarea, a text input or editable content - which on a touch screen means the keyboard is up.
 function typingNow(){const a=/** @type {HTMLInputElement} */(document.activeElement); if(!a||a===document.body)return false; if(a.isContentEditable||a.tagName==='TEXTAREA')return true;
   return a.tagName==='INPUT'&&!/^(checkbox|radio|button|submit|reset|range|color|file|image|hidden)$/i.test(a.type||'');}
@@ -193,7 +193,15 @@ document.addEventListener('focusout',()=>setTimeout(()=>{syncTyping(); if(bandSt
 // or the suggestion editor has focus (responsive.css), so the line stays above either. On the tablet sheet the location line comes
 // to the top first, so the note shows under it.
 function keepFieldInView(){const f=panelField(); if(!f||!MQ_COARSE.matches)return;   // touch only: a mouse window scrolls as it always did
-  if(f===$('#note')&&BAND===LAYOUT_BAND.TABLET_SHEET)$('#composer .c-loc-row').scrollIntoView({block:'start'}); f.scrollIntoView({block:'nearest'});}
+  if(f===$('#note')&&BAND===LAYOUT_BAND.TABLET_SHEET)$('#composer .c-loc-row').scrollIntoView({block:'start'}); f.scrollIntoView({block:'nearest'});
+  if(f===$('#note'))noteRowInView();}
+// The composer's verdict row (verdict.js) sits right under the note: with the note focused on a touch sheet the sheet scrolls on
+// until the row clears the save row too - only as far as the note's top stays under the location line stuck above it, so the
+// field being typed in stays whole. A row that cannot fit beside the note stays where it is.
+function noteRowInView(){const row=$('#c-verdict-row'); if(row.hidden||!row.getClientRects().length)return;
+  const save=$('#c-actions').getBoundingClientRect().top-8,top=$('#composer .c-loc-row').getBoundingClientRect().bottom+8;
+  const need=row.getBoundingClientRect().bottom-save,room=$('#note').getBoundingClientRect().top-top;
+  if(need>0&&room>0)$('#right').scrollTop+=Math.min(need,room);}
 
 // A first-visit hint (docs/handbook/viewer.md §알림 자리): shown once per device and key (pinPrefs.coach remembers it), on the
 // status line until [x] or until the person does what it says - picks ('touch', 'mouse') or opens the panel ('side').

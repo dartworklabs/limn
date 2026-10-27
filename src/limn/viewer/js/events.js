@@ -35,6 +35,8 @@ document.addEventListener('click',e=>{const target=/** @type {HTMLElement} */(e.
     case 'zoom-in':zoomVisiblePdf('in');break; case 'zoom-out':zoomVisiblePdf('out');break; case 'fit':zoomVisiblePdf('fit');break;
     case 'theme':setTheme(a.dataset.theme); break; case 'lang':switchLang(a.dataset.lang);break; case 'notify-toggle':notifyToggle();break; case 'help':openHelp();break; case 'help-close':$('#help').close();break;
     case 'save':case 'pop-save':if(!viewerBlocked())savePin();break; case 'cancel':discardSelection();break;
+    case 'verdict-save':case 'pv-save':verdictPress(a);break;   // a verdict word's button: the composer's row or a page verdict line (verdict.js)
+    case 'pv-earlier':gotoPinRef(Number(a.dataset.ref));break;
     case 'pop-more':selPopMore();break;   // the note popover by the box hands over to the composer in the panel
     case 'overlap-append':{const text=$('#note').value.trim();
       if(!text){bannerNote(NOTICE_HOST.COMPOSER,'메모를 먼저 써야 덧붙일 수 있습니다',NOTICE_KIND.WARN);break;}

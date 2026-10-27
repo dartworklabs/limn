@@ -244,3 +244,9 @@ button.th-more{align-self:flex-start;color:var(--muted-foreground)}
 .av.agent .ic{width:13px;height:13px}
 .me-tag{color:var(--muted-foreground);font-weight:400}
 .edit{margin-top:var(--space-2)}
+/* A verdict pin's badge ('판정 채택', verdict.js): the question badge's shape, the words carry the meaning - no colour of its own. */
+.badge-verdict{color:var(--foreground)}
+.badge-verdict .vd-w{font-weight:600}
+/* A verdict pin's edit card keeps its verdict and target (D3): the note and the assignee only. */
+.edit.verdict :is(.e-kind,.e-qhint,.e-sg-row,.e-sg,.e-sg-ro,.e-levels,.e-xp,.b-repick){display:none!important}
+.edit.verdict .e-acts{grid-template-columns:1fr 1fr}

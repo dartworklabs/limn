@@ -121,3 +121,20 @@ button.xp-row{cursor:pointer;min-width:0;justify-content:stretch}
 #sel-pop [data-act=pop-more]{gap:var(--space-1);margin-left:calc(-1 * var(--space-2) - 1px);color:var(--muted-foreground)}   /* its padding and 1px border */
 #sel-pop [data-act=pop-more] .ic{width:14px;height:14px}
 @media not all and (pointer:coarse){#sel-pop .sp-acts button{min-height:var(--control-h-sm)}}   /* a mouse hit of 24px; touch keeps its 44px */
+/* The composer's verdict row (#c-verdict-row, verdict.js; docs/handbook/viewer.md §패널 정리): after the note and its lines,
+   before the kind row - '판정으로 저장' and one outline button per word in file order. A confirm word is the danger colour's
+   text, and while its first press is armed it reads '<낱말> 확정' on a light danger fill; the accent stays [핀 저장]'s. The
+   buttons are one group sharing the row's room: beside the label when they fit, else on the line under it, never wrapping
+   inside. Off (a question, [제안 수정] on), the reason is a line under them. */
+.vd-row{display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-1) var(--space-2);margin-top:var(--space-2)}
+.vd-l{flex:none;color:var(--muted-foreground);font-size:var(--text-sm)}
+.vd-btns{display:flex;flex:1 1 auto;gap:var(--space-1);min-width:0}
+.vd-btns button{flex:1 1 auto;min-width:0;padding-inline:var(--space-2)}
+.vd-btns .lbl{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+button.vd-confirm{color:var(--destructive)}
+button.vd-confirm.armed{background:color-mix(in srgb,var(--destructive) 10%,transparent);border-color:var(--destructive);color:var(--destructive);font-weight:600}
+.vd-why{flex-basis:100%;font-size:var(--text-sm);line-height:18px;color:var(--muted-foreground)}
+#composer:has(#c-body.busy) #c-verdict-row button{pointer-events:none;opacity:.65}   /* the pick is still finding the selection */
+@media (pointer:coarse){.vd-l{font-size:var(--text-base)}
+  .vd-row{margin-bottom:var(--space-1)}   /* the words' 44px hits (.hit) end where the kind row's begin */
+  .vd-btns button{min-height:0;height:var(--ctl-touch-sm);padding:0 var(--space-2);font-size:var(--text-base)}}

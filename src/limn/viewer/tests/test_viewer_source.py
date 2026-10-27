@@ -338,6 +338,7 @@ VIEWER_SETS = {
     "NOTICE_LIFE",
     "NOTICE_DOT",
     "NOTICE_TOPIC",
+    "VD_WHERE",
 }
 
 
