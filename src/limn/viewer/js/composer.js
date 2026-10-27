@@ -187,7 +187,8 @@ function drawComposerQuote(d){const el=$('#c-quote'),q=shownQuote(d,META?META.ki
 // When a selection ends via save/cancel/append, selection mode is turned off (scrolling resumes) and the narrow sheet collapses (the body comes forward again).
 // The composer panel's pin kind (fix request / question). Reverts to fix request on save or discard (the default for the next pin).
 // The kind says what the note is, not who handles it: the assignee does not follow it (mentions.js).
-function setKind(k){KIND_NEW=k===KIND_REQ.QUESTION?KIND_REQ.QUESTION:KIND_REQ.FIX; saveDraftSoon();
+function setKind(k){const was=KIND_NEW; KIND_NEW=k===KIND_REQ.QUESTION?KIND_REQ.QUESTION:KIND_REQ.FIX; saveDraftSoon();
+  if(KIND_NEW!==was)COMPOSE.retryVerdict=null;   // a failed verdict save's retry is for the intent it was pressed with
   $$('#c-kind button').forEach(b=>{const on=b.dataset.kind===KIND_NEW; b.classList.toggle('on',on); b.setAttribute('aria-checked',String(on));});
   $('#note').placeholder=KIND_NEW===KIND_REQ.QUESTION?'무엇이 궁금한지 적어 주세요':'메모: 여기를 어떻게 고칠지 (비워도 됩니다)'; qHint($('#c-qhint'),$('#note').value,KIND_NEW);
   renderVerdictRow();}   // a question takes no verdict

@@ -32,14 +32,15 @@ function verdictLabel(key,doc){const v=docVerdicts(doc),c=v&&v.choices.find(x=>x
 function verdictBadge(p){const k=verdictOf(p); if(!k)return null;
   return html`<span class="badge badge-verdict" data-tip="${tr('버튼으로 고른 판정입니다. 판정과 대상은 바뀌지 않고 메모만 고칠 수 있습니다')}">${tr('판정')} <span class="vd-w" translate="no">${verdictLabel(k,pdoc(p))}</span></span>`;}
 
-// A card's pin with the overlaps its card reports: a verdict pin's overlap with another verdict pin about the same page target
-// ('#4와 같은 범위' between two verdicts on one figure) is left out - the page verdict line already orders them. Its overlaps
-// with ordinary pins, and ordinary pins' own, stay. The pin itself, or a copy with the shorter rel.
+// A card's pin with the overlaps its card reports: a verdict pin's overlap with another verdict pin is left out where the page
+// verdict line shows both - the pins of the document on screen whose words say page: true, counted on the same page's line
+// ('#4와 같은 범위' between two verdicts on one figure only repeats the order the line gives). Anywhere no line replaces it
+// (page false, no usable word file, a card of another document under [모든 문서]) the badge stays, as do a verdict pin's
+// overlaps with ordinary pins and ordinary pins' own. The pin itself, or a copy with the shorter rel.
 /** @param {Pin} p @returns {Pin} */
-function pvQuietRel(p){if(!verdictOf(p)||!p.rel||!p.rel.length)return p; const kind=pdoc(p)===DOC&&META?META.kind:(docInfo(pdoc(p))||{}).kind,t=pageTargetOf(p,kind);
-  if(!t)return p;
-  const same=x=>{const q=OPEN_ALL.find(o=>o.id===x.id); if(!q||!verdictOf(q)||pdoc(q)!==pdoc(p))return false; const u=pageTargetOf(q,kind); return !!u&&u.id===t.id;};
-  const rel=p.rel.filter(x=>!same(x)); return rel.length===p.rel.length?p:{...p,rel};}
+function pvQuietRel(p){if(!verdictOf(p)||!p.rel||!p.rel.length||(DOC&&pdoc(p)!==DOC)||!pageVerdictsOn())return p;
+  const t=pageTargetOf(p,META?META.kind:undefined),list=t?pageVerdictPins().get(t.page)||[]:[]; if(!list.some(x=>x.id===p.id))return p;
+  const rel=p.rel.filter(x=>!list.some(q=>q.id===x.id)); return rel.length===p.rel.length?p:{...p,rel};}
 
 // ---------------- The page's whole target (domain.md §쪽 전체 대상)
 const WHOLE_PAGE=[0,0,1,1];
@@ -114,7 +115,9 @@ data-key="${c.key}" data-page="${page}" aria-label="${name}" data-tip="${tip}"${
 // Gives the focus back to the button it was on after a redraw (an armed press redraws its buttons).
 /** @param {HTMLElement|null} f */
 function vdRefocus(f){if(!f||document.contains(f)||!f.dataset||!f.dataset.act)return;
-  const b=/** @type {HTMLElement|null} */(document.querySelector('[data-act="'+f.dataset.act+'"][data-key="'+CSS.escape(f.dataset.key||'')+'"][data-page="'+(f.dataset.page||'0')+'"]'));
+  const sel=f.dataset.ref?'#doc .pv [data-act="'+f.dataset.act+'"][data-ref="'+CSS.escape(f.dataset.ref)+'"]'   // a line's '#N' link or its earlier link
+    :'[data-act="'+f.dataset.act+'"][data-key="'+CSS.escape(f.dataset.key||'')+'"][data-page="'+(f.dataset.page||'0')+'"]';
+  const b=/** @type {HTMLElement|null} */(document.querySelector(sel));
   if(b)b.focus({preventScroll:true});}
 // A press on a verdict button: a confirm word arms on the first press and saves on the second while what it is bound to
 // holds; any other word saves at once - the composer's through savePin, a page line's through savePageVerdict.
@@ -178,7 +181,9 @@ const PV_BUSY=new Set();   // pages whose page verdict is being saved: their but
 async function savePageVerdict(page,key){const pg=META&&META.pages[page-1]; if(!pg||PV_BUSY.has(page))return;
   const visit=captureVisit(),kind=META.kind,f=/** @type {HTMLElement|null} */(document.activeElement);
   let back=!!f&&!!f.closest&&!!f.closest('#doc .pv')&&f.dataset.act==='pv-save'&&f.dataset.key===key;   // a keyboard press: the focus comes back
-  const moved=e=>{const t=/** @type {HTMLElement} */(e.target); if(!(t&&t.closest&&t.closest('#doc .pv')))back=false;};   // ...unless it went elsewhere meanwhile
+  // ...unless it moved meanwhile to anything but that button (another page's word, a '#N' link, the panel): a redraw that puts
+  // it back on the same word's button is no move.
+  const moved=e=>{const t=/** @type {HTMLElement} */(e.target); if(!(t&&t.dataset&&t.dataset.act==='pv-save'&&t.dataset.key===key&&t.dataset.page===String(page)))back=false;};
   document.addEventListener('focusin',moved);
   PV_BUSY.add(page); drawPageVerdicts();
   try{const d=(await api('/api/pick',{method:'POST',body:{page,x0:0,y0:0,x1:pg.pt_w,y1:pg.pt_h,frac:WHOLE_PAGE.slice(),pdf_build:META.pages_build||undefined,doc:DOC||undefined},
@@ -198,7 +203,7 @@ async function savePageVerdict(page,key){const pg=META&&META.pages[page-1]; if(!
 // while the request ran, which dropped the focus. Not when the person put the focus somewhere else meanwhile (savePageVerdict
 // watches for that) or it is on something now.
 /** @param {number} page @param {string} key */
-function pvRefocus(page,key){const a=document.activeElement; if(a&&a!==document.body&&document.contains(a)&&!(a.closest&&a.closest('#doc .pv')))return;
+function pvRefocus(page,key){const a=document.activeElement; if(a&&a!==document.body&&document.contains(a))return;
   const b=/** @type {HTMLButtonElement|null} */(document.querySelector('#doc .pv[data-page="'+page+'"] [data-act="pv-save"][data-key="'+CSS.escape(key)+'"]'));
   if(b&&!b.disabled)b.focus({preventScroll:true});}
 // One page's line: its state - '판정 없음', or the newest verdict pin about its target with its state, its number and word,

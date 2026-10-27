@@ -679,3 +679,100 @@ class ReviewFixes(VerdictBase):
         page.evaluate("SEC.done=true")
         self.reload(page)
         self.assertNotIn("(판정만)", page.locator('.arc-row[data-id="%d"]' % a).inner_text())
+
+
+class ConfirmationRoundFixes(VerdictBase):
+    """The confirmation round's fixes on #267 (each a regression test)."""
+
+    def fail_a_verdict_save(self, page, key="채택"):
+        """Open the composer, lose word key's save on the network and wait for [다시 저장]."""
+        self.open_composer(page)
+        self.fail_pin = 1
+        page.locator('#c-verdict-row button[data-key="%s"]' % key).click()
+        page.wait_for_function("document.querySelector('#btn-save').textContent.includes('다시 저장')")
+        settle(page)
+        self.assertEqual(self.pins(), {})
+
+    def retry(self, page):
+        """Press [다시 저장] and return the one pin it saved."""
+        page.locator("#btn-save").click()
+        page.wait_for_function("OPEN_ALL.length===1||REVIEW_ALL.length===1")
+        settle(page)
+        (pin,) = self.pins().values()
+        return pin
+
+    def test_a_retry_after_the_kind_became_a_question_saves_the_question(self):
+        """A verdict save fails, the author makes the selection a question and presses [다시 저장]: a question without a
+        verdict (it was saved as verdict 채택, kind_req fix)."""
+        page = self.on("ms")
+        self.fail_a_verdict_save(page)
+        page.locator('#c-kind button[data-kind="question"]').click()
+        settle(page)
+        pin = self.retry(page)
+        self.assertEqual((pin.get("verdict"), pin["kind_req"]), (None, "question"))
+
+    def test_a_retry_after_the_kind_went_to_question_and_back_is_a_plain_pin(self):
+        """Changing the kind drops the pending verdict even when it comes back to 수정 요청: [다시 저장] saves a plain fix pin."""
+        page = self.on("ms")
+        self.fail_a_verdict_save(page)
+        for kind in ("question", "fix"):
+            page.locator('#c-kind button[data-kind="%s"]' % kind).click()
+            settle(page)
+        pin = self.retry(page)
+        self.assertEqual((pin.get("verdict"), pin["kind_req"]), (None, "fix"))
+
+    def test_a_retry_after_turning_on_the_suggested_edit_has_no_verdict(self):
+        """A verdict save fails, the author turns [제안 수정] on and presses [다시 저장]: no verdict is saved."""
+        page = self.on("ms")
+        self.fail_a_verdict_save(page)
+        page.locator("#c-sg-tg").click()
+        settle(page)
+        pin = self.retry(page)
+        self.assertIsNone(pin.get("verdict"))
+
+    def test_moving_the_focus_during_a_line_save_keeps_it_where_it_went(self):
+        """Enter on page 1's word, then - while its save runs - the focus goes to page 2's button, or to the '#N' link: when
+        the save ends the focus stays there and does not jump back to page 1's button."""
+        page = self.on("fig")
+        one = '#doc .pv[data-page="1"] button[data-key="채택"]'
+        page.focus(one)
+        page.keyboard.press("Enter")
+        page.wait_for_function("OPEN_ALL.length===1")
+        settle(page)
+        for n, target in (
+            (2, '#doc .pv[data-page="2"] button[data-key="보류"]'),
+            (3, '#doc .pv[data-page="1"] .pv-ref'),
+        ):
+            with self.subTest(target=target):
+                page.focus(one)
+                self.held = []
+                page.keyboard.press("Enter")
+                page.wait_for_function("PV_BUSY.size===1")
+                page.focus(target)
+                self.release()
+                page.wait_for_function("n=>PV_BUSY.size===0&&OPEN_ALL.length===n", arg=n)
+                settle(page)
+                self.assertFalse(page.evaluate("s=>document.activeElement===document.querySelector(s)", one))
+                if n == 2:
+                    self.assertTrue(page.evaluate("s=>document.activeElement===document.querySelector(s)", target))
+
+    def test_overlap_badges_stay_where_no_page_line_orders_the_verdicts(self):
+        """Two page verdicts on the figure's page 1 keep their overlap where no page line shows them: with page false the
+        cards show '같은 범위' again, and under [모든 문서] while another document is on screen their cards keep their whole
+        rel (the card of another document never had the same-range badge, which reads the document on screen's pins - only
+        the overlaps are checked there)."""
+        page = self.on("fig")
+        a = self.press_page(page, 1, "보류")
+        b = self.press_page(page, 1, "채택")
+        texts = "()=>[...document.querySelectorAll('.pin .tags .badge')].map(e=>e.textContent).filter(t=>t.includes('같은 범위'))"
+        self.assertEqual(page.evaluate(texts), [])  # the line orders them
+        kept = "ids=>ids.map(id=>{const p=OPEN_ALL.find(x=>x.id===id); return !!p.rel&&p.rel.length>0&&pvQuietRel(p).rel.length===p.rel.length;})"
+        self.assertEqual(page.evaluate(kept, [a, b]), [False, False])
+        page = self.on("ms", n_open=2)
+        page.evaluate("()=>{SHOW_ALL=true; drawPins();}")
+        settle(page)
+        self.assertEqual(page.evaluate(kept, [a, b]), [True, True])
+        self.word_files["fig"].write_text(json.dumps({**WORDS, "page": False}, ensure_ascii=False), encoding="utf-8")
+        page = self.on("fig", n_open=2)
+        self.assertEqual(page.locator("#doc .pv").count(), 0)
+        self.assertTrue(page.evaluate(texts))
