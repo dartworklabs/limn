@@ -21,9 +21,17 @@ permissions:
 # Linux jobs name their image. `ubuntu-latest` moves to the next release on GitHub's schedule, which would change
 # the system packages under Playwright's `--with-deps`, bwrap and the shell tests without any change here. Move to a
 # newer image in its own pull request, where a failure is attributable to the image.
+#
+# A stuck job fails instead of holding a runner for GitHub's six-hour default. Each job's `timeout-minutes` is about
+# twice its usual length and never under 15 minutes, and the steps that download from the Ubuntu archive have their
+# own shorter limit, so the step that stalled is the one marked failed. Every pytest run sets `faulthandler_timeout`:
+# a test still running after 600 seconds prints the stack of every thread, which names the test and the line it is
+# waiting on, while the run carries on. The slowest browser test takes a little over two minutes on a fast machine,
+# and 600 seconds still leaves each job's limit room to print the stack before it stops the job.
 jobs:
   lint:
     runs-on: ubuntu-24.04
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -59,6 +67,7 @@ jobs:
 
   test:
     runs-on: ubuntu-24.04
+    timeout-minutes: ${{ matrix.suite.timeout }}
     strategy:
       fail-fast: false
       matrix:
@@ -67,9 +76,11 @@ jobs:
           - name: core
             markers: "not browser and not tex"
             workers: 4
+            timeout: 15
           - name: browser
             markers: "browser"
             workers: 2
+            timeout: 45
     env:
       # Browser layout tests must run here, not skip.
       LIMN_TEST_REQUIRE_BROWSER: ${{ matrix.suite.name == 'browser' && '1' || '0' }}
@@ -90,17 +101,28 @@ jobs:
           node-version: "22"
       - name: Install dev dependencies
         run: uv sync --group dev --locked
+      # `--with-deps` installs the browsers' system libraries with apt-get. The image lists a regional Azure mirror
+      # first, which has served a whole install at about 30 kB/s; use the main archive only, and give up on a stalled
+      # connection after 30 seconds rather than waiting on it. The tex job does the same before its apt-get.
+      - name: Point apt at the main Ubuntu archive
+        if: matrix.suite.name == 'browser'
+        run: |
+          printf '%s\n' 'https://archive.ubuntu.com/ubuntu/' | sudo tee /etc/apt/apt-mirrors.txt >/dev/null
+          printf '%s\n' 'Acquire::Retries "3";' 'Acquire::https::Timeout "30";' 'Acquire::http::Timeout "30";' \
+            | sudo tee /etc/apt/apt.conf.d/80-ci-timeouts >/dev/null
       - name: Install Playwright browsers
         if: matrix.suite.name == 'browser'
+        timeout-minutes: 10
         run: uv run playwright install --with-deps chromium firefox webkit
       - name: Python tests
-        run: uv run pytest -q -rs -n ${{ matrix.suite.workers }} -m "${{ matrix.suite.markers }}"
+        run: uv run pytest -q -rs -n ${{ matrix.suite.workers }} -m "${{ matrix.suite.markers }}" -o faulthandler_timeout=600
 
   macos:
     # macOS semantics for tests that need no TeX or Chromium: BSD
     # userland (stat -f, no timeout(1)), /bin/bash 3.2 as the bash limn and the tests find first, and a system
     # python3 older than requires-python (issue #12). The Linux jobs cover bash 5 and the browser tests.
     runs-on: macos-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -124,13 +146,14 @@ jobs:
           command -v timeout || echo "no timeout(1)"
           stat -f %Lp README.md
       - name: Python tests
-        run: uv run pytest -q -rs -n 2 -m "not browser and not tex"
+        run: uv run pytest -q -rs -n 2 -m "not browser and not tex" -o faulthandler_timeout=600
 
   macos-browser:
     # Native Apple shortcuts and caret navigation need a real macOS browser;
     # injected navigator.platform fixtures alone do not exercise the OS keys.
     # The same host catches fallback ink and verifies test fonts are page-scoped.
     runs-on: macos-latest
+    timeout-minutes: 20
     env:
       LIMN_TEST_REQUIRE_BROWSER: "1"
       LIMN_TEST_REQUIRE_NODE: "1"
@@ -151,7 +174,7 @@ jobs:
         run: uv run playwright install chromium
       - name: Native browser keyboard journeys and fallback ink
         run: >-
-          uv run pytest -q -rs -n 2 -m browser
+          uv run pytest -q -rs -n 2 -m browser -o faulthandler_timeout=600
           src/limn/viewer/tests/test_viewer_search.py::SearchKeys
           src/limn/viewer/tests/test_viewer_search.py::SearchShortcutFocus
           src/limn/viewer/tests/test_viewer_search.py::SearchScope
@@ -169,6 +192,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-24.04, macos-latest]
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -184,6 +208,7 @@ jobs:
 
   install:
     runs-on: ubuntu-24.04
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -230,6 +255,7 @@ jobs:
     # page renders, pick end to end, --git-pull builds and the bwrap-sandboxed comparison builds. The other jobs have no
     # TeX, so those tests skip there; here LIMN_TEST_REQUIRE_TEX=1 makes a missing tool a failure.
     runs-on: ubuntu-24.04
+    timeout-minutes: 20
     env:
       LIMN_TEST_REQUIRE_TEX: "1"
     steps:
@@ -240,7 +266,14 @@ jobs:
         with:
           version: "0.12.23"
           python-version: "3.12"
+      # The same apt settings as the browser jobs' (see the test job).
+      - name: Point apt at the main Ubuntu archive
+        run: |
+          printf '%s\n' 'https://archive.ubuntu.com/ubuntu/' | sudo tee /etc/apt/apt-mirrors.txt >/dev/null
+          printf '%s\n' 'Acquire::Retries "3";' 'Acquire::https::Timeout "30";' 'Acquire::http::Timeout "30";' \
+            | sudo tee /etc/apt/apt.conf.d/80-ci-timeouts >/dev/null
       - name: Install TeX, Poppler and bubblewrap
+        timeout-minutes: 10
         # texlive-publishers holds the publisher document classes (IEEEtran) that the search corpus
         # (src/limn/viewer/tests/search_corpus.py) builds a real journal page with. That class sets its text in
         # Times: the font definitions (ot1ptm.fd, ts1ptm.fd) come with texlive-latex-base, already here, but the
@@ -272,4 +305,4 @@ jobs:
       - name: Install dev dependencies
         run: uv sync --group dev --locked
       - name: TeX tests
-        run: uv run pytest -q -rs -n 2 -m tex
+        run: uv run pytest -q -rs -n 2 -m tex -o faulthandler_timeout=600
