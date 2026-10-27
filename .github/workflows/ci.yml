@@ -67,7 +67,8 @@ jobs:
 
   test:
     runs-on: ubuntu-24.04
-    timeout-minutes: ${{ matrix.suite.timeout }}
+    # Not a matrix value: every matrix value is part of the job's name, which branch protection requires as is.
+    timeout-minutes: ${{ matrix.suite.name == 'browser' && 45 || 15 }}
     strategy:
       fail-fast: false
       matrix:
@@ -76,11 +77,9 @@ jobs:
           - name: core
             markers: "not browser and not tex"
             workers: 4
-            timeout: 15
           - name: browser
             markers: "browser"
             workers: 2
-            timeout: 45
     env:
       # Browser layout tests must run here, not skip.
       LIMN_TEST_REQUIRE_BROWSER: ${{ matrix.suite.name == 'browser' && '1' || '0' }}
