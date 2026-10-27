@@ -2,8 +2,19 @@
 
 ## Unreleased
 
-Fixes from the review of 0.4.26's verdict buttons. The agent contract (`pins.md` and the HTTP API) is unchanged; only
-viewer strings change.
+Fixes from the reviews and the functional test of 0.4.26's verdict buttons, and one owner decision on the agent
+contract (D16): agents may not delete or restore verdict pins. That adds a refusal and nothing else; `pins.md` and every
+other answer are unchanged.
+
+### Changed (agent contract)
+
+- **Agents neither delete nor restore verdict pins** (ADR-0021 D9, spec D16). An agent's - a token's, the headerless
+  loopback agent's or an agent-role person's - `POST /api/pins/{id}/drop` of a verdict pin answers `403 {"error": "판정은
+  사람이 정합니다 — 에이전트는 판정 핀을 지우지 않습니다.", "reason": "verdict_human"}` and `POST /api/pins/{id}/restore`
+  `403` with the same reason (`… 판정 핀을 되살리지 않습니다.`); nothing is written. Deleting the newest verdict about a
+  target silently made an older one current again, so it is a verdict decision in effect, a person's as making one is
+  (D11). People keep their rights, and agents still delete and restore pins without a verdict; purge and clear were
+  already owner-only. The agent skill says so.
 
 ### Added
 
@@ -37,6 +48,26 @@ viewer strings change.
 - **A confirmed verdict deleted elsewhere during its undo window leaves the verdict order** at the next list read; the
   page line and the cards no longer name the deleted pin.
 - **Completed rows name a region's page as `2쪽 영역`**, as the cards do (`쪽 2 영역` before).
+- **A zoomed page's verdict line stays in view with a mouse.** At 1440 px with Ctrl+= the line scrolled away with
+  the page: the pages' column kept the fitted width, so the sticky line had nowhere to stick. The column is now as wide
+  as the widest page on every pointer (touch already was).
+- **A press survives a line whose words change under it.** A newer verdict by someone else, or the minute tick, while
+  the mouse was down rewrote the line and lost the press. Lines are now changed in place: the buttons, the `#N` link
+  and the earlier link stay the same elements.
+- **The focus stays during a page line's save.** The pressed button waits as `aria-disabled` instead of `disabled`, so
+  the focus is not dropped to the page and Tab goes on from it; a `#N` link whose number changes keeps the focus.
+- **The page line's `#N` link answers 44 px on touch** and is named like the card marker's link (`지금 판정 #4 카드로
+  갑니다`).
+- **The retry banner says when the verdict was dropped.** After the kind, the switch or the selection changed, the
+  banner read `판정 저장 실패` while [다시 저장] saved a plain pin; it now reads `핀 저장 실패 — 판정은 버렸습니다. 판정으로
+  저장하려면 판정 버튼을 다시 누릅니다`.
+- **A second pick turns the composer's verdict buttons off for real** (disabled, with `위치를 찾는 중입니다`), not only
+  greyed.
+- **No page-size mark for any verdict the page line accounts for**, the earlier ones included.
+- **The narrow English panel wraps the verdict words rather than cutting them** when a word is armed.
+- **Letting an armed word go by time or Esc is announced** (`삭제 확정을 풀었습니다`).
+- **The undo message after an agent's claim shows whole on the folded status line**: `처리 중이던 판정이라 이미 실행됐을
+  수 있습니다`.
 - **A press on a page verdict line is not lost to a list refresh.** Every poll redrew the line's buttons, and a redraw
   between the mouse going down and up sent the click to the line instead of the button. Lines whose text is unchanged
   are no longer rewritten.
@@ -51,6 +82,8 @@ viewer strings change.
   전`, `판정 #8 보류 · 검토 대기`, `판정 #8 보류 · 처리됨`, `판정 없음`. `#4` links to the card; the page buttons say
   `누르면 이 쪽에 새 판정 핀을 저장합니다`. The earlier-verdicts link reads `이전 판정 N건 · 새 판정으로 대체됨` (`N earlier verdicts · replaced`) and, like
   every viewer link, is underlined only on hover and keyboard focus.
+- **Page line and chip wording**: a claimed verdict names its claimer, `판정 #5 삭제 · 처리 중(Agent B) · Bob 7분 전`;
+  the save chip shows the word, `#12 저장됨 · 채택`.
 - **Composer verdict row**: the lead label is `판정 바로 저장` and each button says `누르면 지금 선택과 메모를 <낱말> 판정
   핀으로 바로 저장합니다`; the reasons for turned-off buttons point at the control: `질문에는 판정을 붙이지 않습니다 — 아래에서
   [수정 요청]을 고릅니다`, `판정을 저장하려면 [제안 수정]을 끕니다`. The row sits one 8 px step from its neighbours (the gap was
