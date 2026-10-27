@@ -851,7 +851,8 @@ class SupersededMarker(VerdictBase):
 
     def test_a_folded_card_on_a_phone_shows_it(self):
         """On a phone the cards are folded and only their preview line shows: the older verdict's preview is its badge and
-        the marker, one marker on screen, its '#N' still a link to the current card."""
+        the marker, one marker on screen, its '#N' a link to the current card that answers 44px (the preview does not clip
+        it)."""
         page = self.on("fig")
         a = self.press_page(page, 1, "보류")
         b = self.press_page(page, 1, "채택")
@@ -866,10 +867,60 @@ class SupersededMarker(VerdictBase):
             a,
         )
         self.assertEqual(got, {"folded": True, "shown": 1, "inSum": True, "badge": True, "ref": b})
+        page.evaluate("id=>document.querySelector('.pin[data-id=\"'+id+'\"]').scrollIntoView({block:'center'})", a)
+        self.assertEqual(page.evaluate(MISSES_44, '.pin[data-id="%d"] .sum .vd-old-ref' % a), [])
         page.locator('.pin[data-id="%d"] .sum .vd-old-ref' % a).click()
         page.wait_for_function(
             "id=>[...document.querySelectorAll('.pin.flash')].some(e=>e.dataset.id===String(id))", arg=b
         )
+
+    def test_a_folded_older_verdict_with_a_note_previews_its_badges(self):
+        """A superseded verdict with a note: folded, its preview is its badge and the marker (the note shows when opened);
+        the current verdict's preview is still its note."""
+        page = self.on("ms")
+        made = []
+        for key, note in (("보류", "옛 판단"), ("채택", "새 판단")):
+            self.open_composer(page)
+            page.fill("#note", note)
+            page.locator('#c-verdict-row button[data-key="%s"]' % key).click()
+            page.wait_for_function("n=>OPEN_ALL.length===n", arg=len(made) + 1)
+            settle(page)
+            (new,) = set(self.pins()) - set(made)
+            made.append(new)
+        a, b = made
+        page = self.on("ms", n_open=2, viewport={"width": 390, "height": 844}, is_mobile=True, has_touch=True)
+        page.evaluate("()=>{setSide(true); drawPins();}")
+        settle(page)
+        sums = page.evaluate(
+            """ids=>ids.map(id=>{const s=document.querySelector('.pin[data-id="'+id+'"] .sum');
+              return {text: s.textContent, marker: !!s.querySelector('.vd-old'), shown: s.getClientRects().length>0};})""",
+            [a, b],
+        )
+        word = "이" if str(b)[-1] in "013678" else "가"
+        self.assertEqual(
+            sums[0], {"text": "판정 보류이전 판정 · #%d%s 앞섬" % (b, word), "marker": True, "shown": True}
+        )
+        self.assertEqual(sums[1], {"text": "새 판단", "marker": False, "shown": True})
+
+    def test_a_done_row_with_the_marker_fits_a_phone(self):
+        """A superseded verdict's done row at 390 px: its first line wraps, [답글] stays inside the row and the panel does
+        not scroll sideways."""
+        page = self.on("rv")
+        a = self.press_page(page, 2, "보류")
+        self.assertEqual(self.call("POST", "/api/pins/%d/close" % a, {"reply": "보류 절로 옮겼습니다"}, ALICE)[0], 200)
+        self.reload(page)
+        b = self.press_page(page, 2, "채택")
+        page = self.on("rv", n_open=1, viewport={"width": 390, "height": 844}, is_mobile=True, has_touch=True)
+        page.evaluate("()=>{SEC.done=true; setSide(true); drawPins();}")
+        settle(page)
+        self.assertEqual(page.evaluate(OLD, a)["ref"], b)
+        fit = page.evaluate(
+            """id=>{const r=document.querySelector('.arc-row[data-id="'+id+'"]'), R=r.getBoundingClientRect(), p=document.querySelector('#right');
+              const k=r.querySelector('.b-reply').getBoundingClientRect();
+              return {sideways: p.scrollWidth-p.clientWidth, replyInside: k.right<=R.right+0.5&&k.left>=R.left-0.5};}""",
+            a,
+        )
+        self.assertEqual(fit, {"sideways": 0, "replyInside": True})
 
     def test_latex_verdicts_on_the_same_lines_and_the_review_and_done_rows(self):
         """Two composer verdicts on the same lines of the LaTeX manuscript: the older is marked, in its open card, then as

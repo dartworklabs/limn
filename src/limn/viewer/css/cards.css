@@ -250,8 +250,6 @@ button.th-more{align-self:flex-start;color:var(--muted-foreground)}
 /* A superseded verdict's marker ('이전 판정 · #4가 앞섬', verdict.js): a neutral badge - no colour of its own, the words carry it;
    the number is the viewer's link (.pin-ref). */
 .vd-old .vd-old-ref{font-weight:600}
-.pin .sum>.badge+.vd-old{margin-left:var(--space-1)}   /* folded: after the verdict badge */
-.pin .sum>.vd-old:first-child{margin-right:var(--space-1)}   /* folded: before the note's line */
 /* A verdict pin's edit card keeps its verdict and target (D3): the note and the assignee only. */
 .edit.verdict :is(.e-kind,.e-qhint,.e-sg-row,.e-sg,.e-sg-ro,.e-levels,.e-xp,.b-repick){display:none!important}
 .edit.verdict .e-acts{grid-template-columns:1fr 1fr}
