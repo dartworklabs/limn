@@ -2,10 +2,9 @@
 
 ## Unreleased
 
-Verdict pins on the server (ADR-0021, proposed). The agent contract only grows: an agent written against 0.4.25
-keeps working, and a 0.4.25 server reads and rewrites the new field unchanged, so rolling back loses nothing. The
-viewer part (one-press verdict buttons in the composer and per page) follows in a later change; until then a verdict
-pin is made through the HTTP API and the viewer shows it as an ordinary pin.
+Verdict pins (ADR-0021, proposed): on the server, and in the viewer as one-press buttons in the composer and per
+page. The agent contract only grows: an agent written against 0.4.25 keeps working, and a 0.4.25 server reads and
+rewrites the new field unchanged, so rolling back loses nothing.
 
 ### Added
 
@@ -35,6 +34,20 @@ pin is made through the HTTP API and the viewer shows it as an ordinary pin.
   first-word pins), resolving a pin to the repository's target ID, the highest pin number over the whole history
   wins, one target at a time with a recheck right before pushing, and a `대상: <대상 ID>` line when closing.
 - The viewer's English mode has texts for the six new reasons.
+- **Verdict buttons in the composer.** On a document with verdict words, a row `판정으로 저장 [채택] [보류] [삭제]`
+  under the note saves the selection and its note as a verdict pin in one press, with the usual `#N 저장됨
+  [되돌리기]`. The buttons are off, with the reason under them, for a question or while a suggested edit is on. A word
+  marked `confirm` (shown in the danger colour) takes two presses: the first turns it into `<word> 확정` for 4 s, bound
+  to the document, build, selection and word, and Esc, another press, a new selection or the timeout lets it go.
+- **A page verdict line on figure documents and view-only PDFs** whose word file says `"page": true`: under each page,
+  the newest verdict about that page's figure (or that page) with its state - `처리 기다리는 판정`, `처리 중`, `검토
+  대기`, `처리됨` or `판정 없음` - a link to earlier open verdicts it overrides, and a button per word that saves a
+  verdict about the whole page without touching the composer. Its pin draws no page-size mark; the card's [보기] goes
+  to the line. The page list shows `#42 채택` on such pages. (The draft PR also carries candidate B, a floating bar
+  for the page in view, behind `?pv=b` until the owner picks one.)
+- **Verdict pins on cards.** A `판정 채택` badge on open, awaiting-review and done cards; `(판정만)` for an empty
+  note. Undoing a verdict's save withdraws it without reopening the composer, and says so when an agent had already
+  claimed it. A verdict pin's edit card offers only the note and the assignee. A viewer sees the line, never a button.
 
 ### Fixed
 
