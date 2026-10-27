@@ -7,28 +7,36 @@ viewer strings change.
 
 ### Added
 
-- **Superseded verdicts say so on their cards.** A verdict pin whose target has a newer verdict carries a neutral
-  `이전 판정 · #4가 앞섬` next to its verdict badge (`Earlier verdict · superseded by #4`), on open cards, review cards
-  and completed rows; `#4` goes to the current verdict's card. A folded card's preview line becomes its verdict badge
-  and this marker, even when it has a note (shown when opened), and does not clip the link's 44 px touch area; a done
-  row's first line wraps where both badges do not fit, keeping [답글] in the panel. The current verdict comes from the same ordering as the
-  page verdict line (the highest pin number per target, deleted pins excluded). Targets are read by location only: a
-  whole page, a figure element, or the same file and lines of a LaTeX document; pins whose target cannot be read carry
-  nothing. It shows without a page line (`page: false`, LaTeX documents) and on other documents' cards under [모든
-  문서].
+- **Replaced verdicts say so on their cards.** A verdict pin whose target has a newer verdict carries a neutral
+  `이전 판정 · #4로 대체됨` next to its verdict badge (`Earlier verdict · replaced by #4`), on open cards, review cards
+  and completed rows; only `#4` is a link, to the current verdict's card. A folded card's preview line becomes its
+  verdict badge and this marker, then the words `메모 있음` (`has note`) when it has a note (shown when opened), and does
+  not clip the link's 44 px touch area. Such a completed row keeps its facts on two lines at every width: the number,
+  the verdict badge and the marker with [답글] at the end, then the page and region, reference and time. The current
+  verdict comes from the same ordering as the page verdict line (the highest pin number per target, deleted pins
+  excluded), built once per list change as an index. Targets are read by location only: a whole page, a figure element,
+  or the same file and lines of a LaTeX document when both pins are open (their lines are matched to the text now) or
+  share an anchor (saved on the same text); a closed pin whose lines may be from older text is its own target. Pins
+  whose target cannot be read carry nothing. It shows without a page line (`page: false`, LaTeX documents) and on other
+  documents' cards under [모든 문서].
 
 ### Fixed
 
 - **A retried verdict save keeps its verdict.** When a composer verdict save failed on the network, [다시 저장] saved a
-  plain pin and the author's verdict was lost. The retry now carries the verdict while the selection is the one it was
-  bound to and the composer still asks for a verdict pin (a fix request with [제안 수정] off). Changing the kind or the
-  switch drops it, so a retry never overrides a question or a suggested edit chosen after the failure.
+  plain pin and the author's verdict was lost. The retry now carries the verdict only while nothing the composer asks
+  has changed since the press and it still asks for a verdict pin (a fix request with [제안 수정] off): a new, cleared or
+  restored selection, its rung or lines, the kind or the switch each start a new intent (also when changed back), and a
+  change made while the request was still out leaves no retry at all. A retry never overrides a choice made after the
+  press.
 - **A confirmed verdict still counts while its undo is offered.** Pressing [확인] on the newest verdict awaiting review
   took it off the review list during the undo window, and the page verdict line showed the older verdict as the newest.
 - **The verdict buttons come back after a save.** A selection picked while a save was in flight kept its verdict
   buttons off after the request ended.
 - **The focus comes back after a keyboard save on a page verdict line**, to the same word's button, unless it was
   moved anywhere else meanwhile (another page's word, a `#N` link, the panel).
+- **A confirmed verdict deleted elsewhere during its undo window leaves the verdict order** at the next list read; the
+  page line and the cards no longer name the deleted pin.
+- **Completed rows name a region's page as `2쪽 영역`**, as the cards do (`쪽 2 영역` before).
 - **A press on a page verdict line is not lost to a list refresh.** Every poll redrew the line's buttons, and a redraw
   between the mouse going down and up sent the click to the line instead of the button. Lines whose text is unchanged
   are no longer rewritten.
@@ -41,7 +49,7 @@ viewer strings change.
 
 - **Page verdict line wording**, one order for every state: `판정 #4 채택 · 처리 대기`, `판정 #5 삭제 · 처리 중 · Bob 7분
   전`, `판정 #8 보류 · 검토 대기`, `판정 #8 보류 · 처리됨`, `판정 없음`. `#4` links to the card; the page buttons say
-  `누르면 이 쪽에 새 판정 핀을 저장합니다`. The earlier-verdicts link reads `이전 판정 N건 · 새 판정이 앞섬` and, like
+  `누르면 이 쪽에 새 판정 핀을 저장합니다`. The earlier-verdicts link reads `이전 판정 N건 · 새 판정으로 대체됨` (`N earlier verdicts · replaced`) and, like
   every viewer link, is underlined only on hover and keyboard focus.
 - **Composer verdict row**: the lead label is `판정 바로 저장` and each button says `누르면 지금 선택과 메모를 <낱말> 판정
   핀으로 바로 저장합니다`; the reasons for turned-off buttons point at the control: `질문에는 판정을 붙이지 않습니다 — 아래에서
