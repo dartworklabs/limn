@@ -860,17 +860,26 @@ class ConfirmationRoundFixes(VerdictBase):
 
 
 # Before a press (VerdictBase.press_page): keep the line and button pressed, and record every pointer, mouse and click event
-# the document sees from now on - its type, target, point and whether the browser made it.
+# from now on at the window's capture phase - before any of the viewer's handlers, the document's capture-phase
+# SWALLOW_CLICK (tooltip.js) among them - with its type, target, point and whether the browser made it; and whether a click
+# then reached the pressed button itself.
 PRESS_WATCH = """([line, btn]) => {const d = (e) => e ? e.tagName.toLowerCase() + (e.className && typeof e.className === 'string' ? '.' + e.className.trim().replace(/\\s+/g, '.') : '') + (e.dataset && e.dataset.key ? '[' + e.dataset.key + ']' : '') : null;
-  window.__press = {line: document.querySelector(line), btn: document.querySelector(btn), events: [], d};
+  const b = document.querySelector(btn);
+  window.__press = {line: document.querySelector(line), btn: b, events: [], windowClicks: 0, buttonClicks: 0, d};
+  if (b) b.addEventListener('click', () => {if (window.__press && window.__press.btn === b) window.__press.buttonClicks++;});
   if (!window.__pressWatch) {window.__pressWatch = true;
     for (const t of ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click'])
-      document.addEventListener(t, (e) => {const w = window.__press; if (w) w.events.push([t, w.d(e.target), Math.round(e.clientX), Math.round(e.clientY), e.isTrusted]);}, true);}}"""
-# After a press that saved nothing: what the document saw (PRESS_WATCH), where the click went and what is there now.
+      window.addEventListener(t, (e) => {const w = window.__press; if (!w) return; w.events.push([t, w.d(e.target), Math.round(e.clientX), Math.round(e.clientY), e.isTrusted]);
+        if (t === 'click' && w.btn && w.btn.contains(e.target)) w.windowClicks++;}, true);}}"""
+# After a press that saved nothing: what happened to the click (PRESS_WATCH), where it went and what is there now.
 PRESS_SEEN = """([line, btn, at]) => {const w = window.__press || {events: [], d: () => null}, b = document.querySelector(btn), r = b ? b.getBoundingClientRect() : null;
-  return {events: w.events, clickAt: at, underThere: at ? w.d(document.elementFromPoint(at[0], at[1])) : null,
+  const what = !w.windowClicks ? 'the click never reached the button (no click on it, even at the window)'
+    : !w.buttonClicks ? 'the click reached the window on the button but was stopped before it (a capture-phase handler such as SWALLOW_CLICK)'
+    : 'the click reached the button and the press saved nothing';
+  return {what, events: w.events, clickAt: at, underThere: at ? w.d(document.elementFromPoint(at[0], at[1])) : null,
     buttonNow: r ? [Math.round(r.left), Math.round(r.top), Math.round(r.width), Math.round(r.height)] : null,
     sameButton: !!b && b === w.btn, sameLine: document.querySelector(line) === w.line, pressedConnected: !!w.btn && w.btn.isConnected,
+    swallowArmed: typeof SWALLOW_CLICK !== 'undefined' && Date.now() < SWALLOW_CLICK,
     busy: PV_BUSY.size, open: OPEN_ALL.length, doc: DOC, status: (document.querySelector('#status') || {}).innerText || ''};}"""
 
 
@@ -1639,3 +1648,12 @@ class RetestFixes(VerdictBase):
         )
         self.assertGreater(got["rows"], 1, got)
         self.assertTrue(got["startsAtLeft"] and got["natural"], got)
+
+    def test_press_page_tells_a_swallowed_click_from_one_that_never_reached_the_button(self):
+        """The helper's own check: a click the viewer's SWALLOW_CLICK stops (a long touch press's tooltip window) fails with
+        'stopped before it', not 'never reached the button'."""
+        page = self.on("fig")
+        page.evaluate("SWALLOW_CLICK=Date.now()+60000")
+        with self.assertRaises(AssertionError) as caught:
+            self.press_page(page, 1, "보류")
+        self.assertIn("was stopped before it", str(caught.exception))
