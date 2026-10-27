@@ -20,7 +20,7 @@ from limn.pins.location import source as pick_source
 import helpers_figure
 from helpers import ps, split_resp
 from helpers_access import ALICE, BOB, member_add, talk_to
-from helpers_browser import MISSES_44, BrowserBase, settle
+from helpers_browser import MISSES_44, BrowserBase, booted, settle, watch_idle
 
 WORDS = {"format": "limn-verdicts/1", "verdicts": [{"key": "채택"}, {"key": "보류"}, {"key": "삭제", "confirm": True}]}
 AGENT = {"Tailscale-User-Login": "agentb@example.com", "Tailscale-User-Name": "Agent B"}
@@ -52,6 +52,7 @@ class VerdictBase(BrowserBase):
             None  # POST /api/pin routes held unanswered while not None (release with self.release())
         )
         self.held_pick: list | None = None  # POST /api/pick routes held unanswered while not None
+        self.held_list: list | None = None  # GET /api/pins (the pin list) held unanswered while not None
         patch = mock.patch.object(pick_source, "region_text", return_value="")
         patch.start()
         self.addCleanup(patch.stop)
@@ -60,6 +61,9 @@ class VerdictBase(BrowserBase):
         """A pick on the figure or the PDF goes to the handler; the manuscript's gets the computed answer. A new pin's POST
         may be lost (fail_pin) or held (held)."""
         rq = route.request
+        if urlparse(rq.url).path == "/api/pins" and rq.method == "GET" and self.held_list is not None:
+            self.held_list.append(route)
+            return None
         if urlparse(rq.url).path == "/api/pick" and self.held_pick is not None:
             self.held_pick.append(route)
             return None
@@ -1498,3 +1502,140 @@ class FunctionalUiFixes(VerdictBase):
         settle(page)
         (b,) = set(self.pins()) - {a}
         self.assertIn("#%d 저장됨 · 채택" % b, page.evaluate("document.body.innerText"))
+
+
+SIZES = (
+    ((1440, 900), {}),
+    ((390, 844), {"is_mobile": True, "has_touch": True}),
+    ((320, 720), {"is_mobile": True, "has_touch": True}),
+    ((768, 1024), {"is_mobile": True, "has_touch": True}),
+    ((1024, 768), {"is_mobile": True, "has_touch": True}),
+    ((344, 882), {"is_mobile": True, "has_touch": True}),
+    ((673, 841), {"is_mobile": True, "has_touch": True}),
+    ((841, 673), {"is_mobile": True, "has_touch": True}),
+)
+
+# The save chip's [되돌리기] on screen: whether a press at its middle lands on it, and the chip's words and box.
+CHIP_UNDO = """id=>{const c=document.querySelector('.mark[data-pin="'+id+'"] .nt-chip'); if(!c) return null;
+  const b=c.querySelector('[data-act=notice-act]'), r=b.getBoundingClientRect(), x=r.left+r.width/2, y=r.top+r.height/2, h=document.elementFromPoint(x,y);
+  const t=c.querySelector('.nt-t');
+  return {pressable: !!h&&b.contains(h), under: h?h.className||h.tagName:null, cut: t.scrollWidth>t.clientWidth+0.5, undoWhole: b.scrollWidth<=b.clientWidth+0.5};}"""
+
+
+class RetestFixes(VerdictBase):
+    """The functional re-test's findings on 5bc3c6b (each a regression test)."""
+
+    def test_the_save_chips_undo_can_be_pressed_at_every_size(self):
+        """A composer verdict save on a selection in the page's right half: at all eight sizes the chip's [되돌리기] is
+        where a press lands on it - on the unfolded foldable (841 x 673) the longer verdict chip ran under the panel laid
+        over the PDF area - and the action is never cut (the words may be)."""
+        self.PICK = {"frac": [0.55, 0.3, 0.4, 0.05]}
+        for (w, h), more in SIZES:
+            with self.subTest(size=(w, h)):
+                page = self.on("ms", n_open=len(self.pins()), viewport={"width": w, "height": h}, **more)
+                self.open_composer(page)
+                before = set(self.pins())
+                page.locator('#c-verdict-row button[data-key="채택"]').click()
+                page.wait_for_function("n=>OPEN_ALL.length===n", arg=len(before) + 1)
+                settle(page)
+                (pid,) = set(self.pins()) - before
+                page.evaluate(
+                    "id=>{const m=document.querySelector('.mark[data-pin=\"'+id+'\"]'); if(m)m.scrollIntoView({block:'center',inline:'nearest'});}",
+                    pid,
+                )
+                settle(page)
+                got = page.evaluate(CHIP_UNDO, pid)
+                self.assertIsNotNone(got, "no chip on the mark")
+                self.assertTrue(got["pressable"] and got["undoWhole"], got)
+
+    def test_the_page_line_waits_for_the_first_pin_list(self):
+        """Opening the figure document while its pin list is still on its way: the line reads '판정 읽는 중…' and its
+        buttons wait (aria-disabled; a press saves nothing), not '판정 없음' with live buttons; once the list arrives it
+        shows the page's verdict and the buttons work."""
+        page = self.on("fig")
+        a = self.press_page(page, 1, "보류")
+        context = self.browser.new_context(viewport={"width": 1400, "height": 850})
+        self.addCleanup(context.close)
+        watch_idle(context)
+        page = context.new_page()
+        page.route("**/*", self.route)
+        self.held_list = []
+        page.goto("http://viewer.test/?lang=ko#doc=fig")
+        line = '#doc .pv[data-page="1"]'
+        page.wait_for_function("s=>DOC==='fig'&&!!document.querySelector(s+' button.vd-b')", arg=line, timeout=20000)
+        self.assertEqual(page.evaluate(LINE, 1)["text"], "판정 읽는 중…")
+        self.assertEqual(
+            page.evaluate(
+                "s=>[...document.querySelectorAll(s+' button.vd-b')].map(b=>b.getAttribute('aria-disabled'))", line
+            ),
+            ["true", "true", "true"],
+        )
+        page.evaluate("s=>document.querySelector(s+' button[data-key=\"채택\"]').click()", line)
+        held, self.held_list = self.held_list, None
+        for r in held:
+            self.route(r)
+        page.wait_for_function(booted(1), timeout=20000)
+        settle(page)
+        self.assertEqual(set(self.pins()), {a})  # the press while reading saved nothing
+        self.assertEqual(page.evaluate(LINE, 1)["text"], "판정 #%d 보류 · 처리 대기" % a)
+        self.assertEqual(
+            page.evaluate(
+                "s=>[...document.querySelectorAll(s+' button.vd-b')].map(b=>b.getAttribute('aria-disabled'))", line
+            ),
+            [None, None, None],
+        )
+
+    def test_an_agent_role_is_offered_no_delete_or_restore_of_a_verdict_pin(self):
+        """A person with the agent role sees a verdict card without [삭제] (D16: the server refuses it) and an ordinary card
+        with it; in the Trash a verdict pin has no [되살리기] for them, an ordinary one does."""
+        page = self.on("fig")
+        v = self.press_page(page, 1, "보류")
+        self.open_composer(page)
+        page.fill("#note", "보통 핀")
+        page.locator("#btn-save").click()
+        page.wait_for_function("OPEN_ALL.length===2")
+        (plain,) = set(self.pins()) - {v}
+        member_add(ps.APP.C.state, "dave@example.com", "agent")
+        dave = {"Tailscale-User-Login": "dave@example.com", "Tailscale-User-Name": "Dave"}
+        with mock.patch.object(type(self), "WHO", dave):
+            page = self.on("fig", n_open=2)
+            page.evaluate("()=>{setSide(true); drawPins();}")
+            settle(page)
+            drops = page.evaluate(
+                "ids=>ids.map(id=>!!document.querySelector('.pin[data-id=\"'+id+'\"] [data-act=drop]'))", [v, plain]
+            )
+            self.assertEqual(drops, [False, True])
+        for pid in (v, plain):
+            self.assertEqual(self.call("POST", "/api/pins/%d/drop" % pid, {}, ALICE)[0], 200)
+        with mock.patch.object(type(self), "WHO", dave):
+            page = self.on("fig")
+            page.evaluate(
+                "()=>{const t=document.querySelector('#trash'); if(t&&!t.open)t.open=true; if(typeof drawTrash==='function')drawTrash();}"
+            )
+            page.wait_for_function("n=>document.querySelectorAll('#trash .arc-row').length>=n", arg=2, timeout=10000)
+            restores = page.evaluate(
+                "ids=>ids.map(id=>!!document.querySelector('#trash .arc-row[data-id=\"'+id+'\"] [data-act=restore]'))",
+                [v, plain],
+            )
+            self.assertEqual(restores, [False, True])
+
+    def test_a_lone_wrapped_word_keeps_its_own_width(self):
+        """English, five words, the panel at its least width, 삭제 armed: the group wraps and a word alone on the second
+        row keeps its own width at the row's start - not stretched across it."""
+        five = [{"key": "채택"}, {"key": "보류"}, {"key": "삭제", "confirm": True}, {"key": "수정"}, {"key": "이동"}]
+        self.word_files["ms"].write_text(
+            json.dumps({**WORDS, "verdicts": five, "page": False}, ensure_ascii=False), encoding="utf-8"
+        )
+        page = self.on("ms", lang="en", viewport={"width": 1440, "height": 900})
+        page.evaluate("setSideWidth(0)")
+        self.open_composer(page)
+        page.locator('#c-verdict-row button[data-key="삭제"]').click()
+        settle(page)
+        got = page.evaluate(
+            """()=>{const g=document.querySelector('#c-verdict-row .vd-btns'), G=g.getBoundingClientRect(), bs=[...g.children];
+              const rows=new Map(); bs.forEach(b=>{const t=Math.round(b.getBoundingClientRect().top); rows.set(t,(rows.get(t)||[]).concat([b]));});
+              const last=[...rows.values()].pop(), b=last[0].getBoundingClientRect(), l=last[0].querySelector('.lbl');
+              return {rows: rows.size, lastCount: last.length, startsAtLeft: Math.abs(b.left-G.left)<=1, natural: b.width<=l.scrollWidth+2*12+4, groupWidth: Math.round(G.width), width: Math.round(b.width)};}"""
+        )
+        self.assertGreater(got["rows"], 1, got)
+        self.assertTrue(got["startsAtLeft"] and got["natural"], got)

@@ -48,8 +48,8 @@ async function loadPins(){const seq=++PINS_LOAD_SEQ; let d;
   if(seq<PINS_APPLIED_SEQ)return false;
   loadPeople();
   // All-document lists drive notices; only the current document's open and done pins drive its marks and rows.
+  PINS_APPLIED_SEQ=seq;   // before the redraw it makes: a page verdict line stops reading '판정 읽는 중…' with this list (pvLineHtml)
   applyPinLists(d,dropped,derivePinLists(d,DOC,DEFAULT_DOC,CONFIRMING));
-  PINS_APPLIED_SEQ=seq;
   return true;
 }
 // The list drawn in the sidebar: the current document by default, everything if 'all documents'. A pin being edited is kept even from another document (so the draft text doesn't disappear).

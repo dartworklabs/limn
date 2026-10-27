@@ -55,6 +55,8 @@
   pointer-events:auto;cursor:default}
 .mark>.nt-chip .nt-ic{height:16px}
 .mark>.nt-chip .nt-ti{font-weight:600}
+/* Where its room is narrow (chipInRoom sets max-width) the words give way, never [되돌리기]. */
+:is(.mark,.pv)>.nt-chip .nt-t{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 @media (pointer:coarse){.mark>.nt-chip{height:var(--ctl-touch);padding:0 var(--space-1) 0 var(--space-3)}
   .mark>.nt-chip .nt-acts button{height:calc(var(--ctl-touch) - 2 * var(--space-1))}}
 /* A page verdict's save (verdict.js): the same chip over its line's right end, as over a mark. */

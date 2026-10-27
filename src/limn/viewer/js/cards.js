@@ -77,18 +77,19 @@ ${canConfirmReview()?html`<button class="btn-sm b-confirm${isMe(p.author)?' btn-
 ${canConfirmReview()?'':html`<div class="dim review-access">${confirmAccessText()}</div>`}</div>`;
   const body=editing?html`<div class="edit-slot"></div>${metadata}`
     :html`${quote}${vOnly?'':html`<div class="note" translate="no" data-act="edit" data-tip="${tr('클릭하면 메모와 범위를 고칩니다')}">${p.note?fmtText(p.note,p.mentions):noNote}</div>`}\
-${suggestView(p)}${metadata}${threadHtml(p,LAYOUT===LAYOUT_MODE.WIDE)}<div class="acts">${cardActs(claimed,LAYOUT!==LAYOUT_MODE.WIDE)}</div>`;
+${suggestView(p)}${metadata}${threadHtml(p,LAYOUT===LAYOUT_MODE.WIDE)}<div class="acts">${cardActs(claimed,LAYOUT!==LAYOUT_MODE.WIDE,!(verdictOf(p)&&isAgentRole()))}</div>`;
   return html`<div class="pin card${p.stale||elLost(p)?' st':''}${claimed?' claimed':''}${editing?' editing':''}${open?' open':''}" data-id="${p.id}" data-doc="${pdoc(p)}">${head}${body}</div>`;
 }
 // An open card's action row, in the order it is seen so that Tab follows it. wide: [보기] [수정] [답글] ([풀기]) [삭제] [완료], by name.
 // compact (narrow and mid, any pointer): [삭제] [수정] ([풀기]) ...... [답글] [완료] - [보기] is the head's '#N · L… · N쪽' link, and
 // [수정][풀기][삭제] show only their icon (the name stays in aria-label and the tooltip); CSS picks icon or name per layout.
-function cardActs(claimed,compact){
+// canDrop false (an agent's verdict card, D16) leaves [삭제] out.
+function cardActs(claimed,compact,canDrop=true){
   const b={view:html`<button class="btn-sm b-view" data-act="view" data-tip="${T.view}">보기</button>`,
     edit:html`<button class="btn-sm b-edit" data-act="edit" aria-label="수정" data-tip="${T.edit}">${ic('pencil')}<span class="lbl">수정</span></button>`,
     reply:html`<button class="btn-sm b-reply" data-act="reply-open" data-tip="${T.reply}">답글</button>`,
     unclaim:claimed?html`<button class="btn-sm b-unclaim" data-act="unclaim" aria-label="풀기" data-tip="처리 중 표시를 풉니다(에이전트가 멈췄거나 잘못 잡은 경우)">${ic('lock-open')}<span class="lbl">풀기</span></button>`:'',
-    drop:html`<button class="btn-sm btn-destructive b-drop" data-act="drop" aria-label="삭제" data-tip="${T.drop}">${ic('trash-2')}<span class="lbl">삭제</span></button>`,
+    drop:canDrop?html`<button class="btn-sm btn-destructive b-drop" data-act="drop" aria-label="삭제" data-tip="${T.drop}">${ic('trash-2')}<span class="lbl">삭제</span></button>`:'',
     close:html`<button class="btn-sm btn-soft b-close" data-act="close" data-tip="${T.close}">완료</button>`};
   return html`${(compact?['drop','edit','unclaim','reply','close']:['view','edit','reply','unclaim','drop','close']).map(k=>b[k])}`;}
 // Archive row (docs/handbook/viewer.md §보관함): a closed/dropped pin is a flat, borderless, backgroundless row with faded text, not a card.
@@ -160,7 +161,8 @@ function droppedCard(p){
   const left=trashDaysLeft(p.dropped_at,null,p.expires_ts),by=who(p.dropped_by)||tr('기록 전');
   const leftT=left!=null?html`<span class="arc-sep" aria-hidden="true">·</span><span class="arc-t trash-left" data-tip="${tl('{n}일이 지나면 저절로 지워집니다',{n:TRASH_DAYS})}">${tl('{n}일 뒤 지워짐',{n:left})}</span>`:'';
   // a viewer reads the Trash but is offered no state change (the server answers 403 anyway) - not rendered, not only hidden
-  const restore=isViewer()?'':html`<button class="btn-sm btn-secondary arc-b b-restore" data-act="restore" data-tip="${T.restore}">되살리기</button>`;
+  // ...and an agent is not offered a verdict pin's (D16: 403 verdict_human)
+  const restore=isViewer()||(verdictOf(p)&&isAgentRole())?'':html`<button class="btn-sm btn-secondary arc-b b-restore" data-act="restore" data-tip="${T.restore}">되살리기</button>`;
   const purge=isOwner()?html`<button class="btn-sm arc-b btn-destructive b-purge" data-act="purge" data-tip="${T.purge}">영구 삭제</button>`:'';
   return html`<div class="arc-row dropped" data-id="${p.id}" data-doc="${pdoc(p)}" data-tip="${authorTip(p)}">\
 <div class="arc-l1">${ic('trash-2')}<span class="n" data-tip="삭제한 핀 번호">#${p.id}</span>${docChip(p)}${arcLoc(p)}\

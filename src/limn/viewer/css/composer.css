@@ -132,7 +132,8 @@ button.xp-row{cursor:pointer;min-width:0;justify-content:stretch}
 .vd-btns{display:flex;flex-wrap:wrap;flex:1 1 auto;gap:var(--space-1);min-width:0}
 .vd-btns button{flex:1 0 auto;padding-inline:var(--space-2)}
 .vd-btns .lbl{white-space:nowrap}
-.vd-btns button[aria-disabled=true]{opacity:.65;cursor:not-allowed}   /* a page line's buttons while its page's save runs: they keep the focus */
+.vd-btns button[aria-disabled=true]{opacity:.65;cursor:not-allowed}
+.vd-btns.wrapped button{flex-grow:0}   /* wrapped: each word at its own width, from the start (vdWrapFit) */   /* a page line's buttons while its page's save runs: they keep the focus */
 button.vd-confirm{color:var(--destructive)}
 button.vd-confirm.armed{background:color-mix(in srgb,var(--destructive) 10%,transparent);border-color:var(--destructive);color:var(--destructive);font-weight:600}
 .vd-why{flex-basis:100%;font-size:var(--text-sm);line-height:18px;color:var(--muted-foreground)}

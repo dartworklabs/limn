@@ -1261,6 +1261,7 @@
  "판정": "Verdict",
  "처리됨": "Handled",
  "판정 없음": "No verdict",
+ "판정 읽는 중…": "Reading verdicts…",
  "판정 저장": "Saving the verdict",
  "{page}쪽 영역": "p. {page}, region",
  "{page}쪽 판정": "Verdict for p. {page}",

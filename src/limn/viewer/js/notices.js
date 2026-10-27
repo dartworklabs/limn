@@ -332,11 +332,22 @@ function drawOffers(focus){NOTICES.forEach(n=>{
 function drawChips(){NOTICES.forEach(n=>{if(n.place!==NOTICE_PLACE.CHIP)return;
   const k=/** @type {HTMLElement|null} */(document.querySelector('.mark[data-pin="'+n.pin+'"]')||document.querySelector('#doc .pv[data-pin="'+n.pin+'"]'));   // a page verdict line shows its pin instead of a mark
   if(!k){if(!n.pending)offerToLine(n); return;}
-  const f=noticeFocus(),e=noticeEl(n,'nt-chip'); if(e.parentNode!==k)k.appendChild(e); e.style.left='';
-  const pg=k.closest('.pg'); if(pg){const pr=pg.getBoundingClientRect(),cr=e.getBoundingClientRect(),over=cr.right-(pr.right-4);   // stays on its page
-    if(over>0)e.style.left=Math.round(-Math.min(over,cr.left-pr.left-4))+'px';}
-  noticeRefocus(f);});
+  const f=noticeFocus(),e=noticeEl(n,'nt-chip'); if(e.parentNode!==k)k.appendChild(e); e.style.left=''; e.style.right=''; e.style.maxWidth='';
+  chipInRoom(e,k); noticeRefocus(f);});
   chipsClearOfBar();}
+// Keeps a chip where it can be pressed: inside its page (a page verdict line's chip, inside its line), inside what the PDF area
+// shows, and clear of a panel laid over the PDF area (the unfolded foldable's overlay panel while composing). Where the room
+// is narrower than the chip its words give way (ellipsis, .nt-t) - never its [되돌리기] - then it moves left until it fits.
+/** @param {HTMLElement} e @param {HTMLElement} k */
+function chipInRoom(e,k){const L=$('#left'),R=$('#right'),box=(k.closest('.pg')||k).getBoundingClientRect(),lr=L.getBoundingClientRect();
+  let right=Math.min(box.right,lr.left+L.clientWidth)-4; const left=Math.max(box.left,lr.left)+4,cr0=e.getBoundingClientRect();
+  if(R&&R.getClientRects().length){const rr=R.getBoundingClientRect();   // a panel beside or over the PDF area (not a bottom sheet)
+    if(rr.left>lr.left+40&&rr.top<cr0.bottom&&cr0.top<rr.bottom)right=Math.min(right,rr.left-4);}
+  if(right-left<=0)return;
+  if(cr0.width>right-left)e.style.maxWidth=Math.floor(right-left)+'px';
+  const cr=e.getBoundingClientRect(),over=cr.right-right,under=left-cr.left;
+  if(over>0)e.style.left=Math.round(e.offsetLeft-Math.min(over,cr.left-left))+'px';
+  else if(under>0)e.style.left=Math.round(e.offsetLeft+under)+'px';}
 // Whether two boxes (left, top, right, bottom) overlap by more than a touching edge. Pure.
 /** @param {{left:number,top:number,right:number,bottom:number}} a @param {{left:number,top:number,right:number,bottom:number}} b */
 function boxesMeet(a,b){return a.left<b.right&&b.left<a.right&&a.top<b.bottom&&b.top<a.bottom;}
