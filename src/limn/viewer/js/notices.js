@@ -330,7 +330,7 @@ function drawOffers(focus){NOTICES.forEach(n=>{
 // document, a failed reload) moves to the status line - unless it waits for its first reload (pending) - and so does one
 // that would sit under the select mode's bar (chipsClearOfBar).
 function drawChips(){NOTICES.forEach(n=>{if(n.place!==NOTICE_PLACE.CHIP)return;
-  const k=/** @type {HTMLElement|null} */(document.querySelector('.mark[data-pin="'+n.pin+'"]')||document.querySelector('#doc .pv[data-pin="'+n.pin+'"],#pv-bar[data-pin="'+n.pin+'"]'));   // a page verdict line shows its pin instead of a mark
+  const k=/** @type {HTMLElement|null} */(document.querySelector('.mark[data-pin="'+n.pin+'"]')||document.querySelector('#doc .pv[data-pin="'+n.pin+'"]'));   // a page verdict line shows its pin instead of a mark
   if(!k){if(!n.pending)offerToLine(n); return;}
   const f=noticeFocus(),e=noticeEl(n,'nt-chip'); if(e.parentNode!==k)k.appendChild(e); e.style.left='';
   const pg=k.closest('.pg'); if(pg){const pr=pg.getBoundingClientRect(),cr=e.getBoundingClientRect(),over=cr.right-(pr.right-4);   // stays on its page

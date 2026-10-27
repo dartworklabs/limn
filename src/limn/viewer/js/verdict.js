@@ -6,9 +6,6 @@
 // verdict about the page's whole target and never touches the composer. The words are the manuscript's: they are drawn as
 // text, translate="no", and the names around them are put in the screen's language here.
 
-// TEMPORARY (PoC, removed before merge): where the page verdict line goes. ?pv=b draws candidate B, the bar for the page in
-// view over the PDF area's bottom; anything else candidate A, a line under each page.
-const PV_AT=new URLSearchParams(location.search).get('pv')==='b'?PV_PLACE.BAR:PV_PLACE.LINE;
 const VD_ARM_MS=4000;   // how long a confirm word's first press waits for its second (D9)
 // The verdict words of the document on screen: the full meta's (it is read with the document), else its /api/docs entry's;
 // null without usable words.
@@ -181,56 +178,47 @@ async function savePageVerdict(page,key){const pg=META&&META.pages[page-1]; if(!
 // One page's line: its state - '판정 없음', or the newest verdict pin about its target with its state, its number and word,
 // and who made it and when if that was someone else - the earlier open verdicts as a link ('앞선 판정 N건(처리하지 않음)'),
 // and, for a person who may make one, a button per word. No pressed look: a verdict is a request until it is handled.
-/** @param {number} page @param {Pin[]|undefined} list @param {DocVerdicts} v @param {boolean} bar */
-function pvLineHtml(page,list,v,bar){const cur=list&&list[0],earlier=list?list.slice(1).filter(p=>pinState(p)===PIN_STATE.OPEN):[];
+/** @param {number} page @param {Pin[]|undefined} list @param {DocVerdicts} v */
+function pvLineHtml(page,list,v){const cur=list&&list[0],earlier=list?list.slice(1).filter(p=>pinState(p)===PIN_STATE.OPEN):[];
   const k=cur&&verdictOf(cur),other=!!cur&&!!cur.author&&!isMe(cur.author);
-  const head=bar?html`<span class="pv-pg">${tl('{page}쪽',{page})}</span><span class="pv-sep" aria-hidden="true">·</span>`:'';
   const text=cur&&k?html`<span class="pv-s">${pvStateWord(cur)}</span><span class="pv-sep" aria-hidden="true">·</span><span class="pv-n">#${cur.id} <span class="vd-w" translate="no">${verdictLabel(k)}</span></span>\
 ${other?html`<span class="pv-sep" aria-hidden="true">·</span><span class="pv-au" translate="no">${who(cur.author)}</span> ${relSpan(cur.at,'pv-at','')}`:''}`
     :html`<span class="pv-s pv-none">${tr('판정 없음')}</span>`;
   const early=earlier.length?html`<button type="button" class="btn-ghost btn-sm pv-early hit" data-act="pv-earlier" data-ref="${earlier[0].id}" \
 data-tip="${tr('이 쪽의 더 새 판정이 앞서므로 실행하지 않는 열린 판정 핀입니다. 누르면 그 카드로 갑니다')}">${tl('앞선 판정 {n}건(처리하지 않음)',{n:earlier.length})}</button>`:'';
   const busy=PV_BUSY.has(page),btns=canVerdict()?html`<span class="vd-btns">${v.choices.map(c=>vdButton(c,VD_WHERE.PAGE,page,tl('{page}쪽',{page}),busy))}</span>`:'';
-  return html`<span class="pv-t">${head}${text}${early}</span>${btns}`;}
-// Draws one line (an A line or the B bar) for page `page`.
-/** @param {HTMLElement} el @param {number} page @param {Pin[]|undefined} list @param {DocVerdicts} v @param {boolean} bar */
-function fillPv(el,page,list,v,bar){el.dataset.page=String(page); const cur=list&&list[0];
+  return html`<span class="pv-t">${text}${early}</span>${btns}`;}
+// Draws page `page`'s line.
+/** @param {HTMLElement} el @param {number} page @param {Pin[]|undefined} list @param {DocVerdicts} v */
+function fillPv(el,page,list,v){el.dataset.page=String(page); const cur=list&&list[0];
   if(cur){el.dataset.pin=String(cur.id); PV_SHOWN.add(cur.id);} else delete el.dataset.pin;
   el.setAttribute('role','group'); el.setAttribute('aria-label',tl('{page}쪽 판정',{page}));
   const chip=el.querySelector(':scope>.nt-chip');   // a save's undo chip (drawChips) stays on its line; drawChips moves it if it is another pin's
-  setHtml(el,pvLineHtml(page,list,v,bar)); if(chip)el.appendChild(chip);}
-// The width of each A line: the page's (W), never past what the PDF area shows - a zoomed page scrolls sideways under a
+  setHtml(el,pvLineHtml(page,list,v)); if(chip)el.appendChild(chip);}
+// The width of each line: the page's (W), never past what the PDF area shows - a zoomed page scrolls sideways under a
 // line that stays in view (sticky) and keeps its size.
 function sizePv(){const w=Math.round(Math.min(W,innerW()))+'px'; $$('#doc .pv').forEach(e=>{e.style.width=w;});}
-// Draws the page verdict lines after the pages, the pin lists or the build change - under every page (A) or, for the page in
-// view, the bar over the PDF area's bottom (B). Without page verdicts every line goes and the marks draw every pin as before.
-function drawPageVerdicts(){const v=pageVerdictsOn(),bar=$('#pv-bar'),f=/** @type {HTMLElement|null} */(document.activeElement);
-  const had=!!f&&!!f.closest&&!!f.closest('.pv,#pv-bar');
+// Draws the page verdict line under every page after the pages, the pin lists or the build change. Without page verdicts
+// every line goes and the marks draw every pin as before.
+function drawPageVerdicts(){const v=pageVerdictsOn(),f=/** @type {HTMLElement|null} */(document.activeElement);
+  const had=!!f&&!!f.closest&&!!f.closest('.pv');
   if(VD_ARM&&VD_ARM.where===VD_WHERE.PAGE&&(!v||!vdArmStill(VD_ARM)))disarmVerdict(false);
   PV_SHOWN=new Set();
-  if(!v||!META){$$('#doc .pv').forEach(e=>e.remove()); bar.hidden=true; bar.replaceChildren(); return;}
+  if(!v||!META){$$('#doc .pv').forEach(e=>e.remove()); return;}
   const map=pageVerdictPins();
-  if(PV_AT===PV_PLACE.BAR){$$('#doc .pv').forEach(e=>e.remove()); bar.hidden=false;
-    map.forEach(list=>{if(list.length)PV_SHOWN.add(list[0].id);});   // the bar shows one page at a time; every page's newest is its line's
-    fillPv(bar,OUTLINE_ACTIVE_PAGE||1,map.get(OUTLINE_ACTIVE_PAGE||1),v,true);}
-  else{bar.hidden=true; bar.replaceChildren();
-    $$('#doc .pg').forEach(pg=>{const page=+pg.dataset.page; let line=/** @type {HTMLElement|null} */(pg.nextElementSibling);
-      if(!line||!line.classList.contains('pv')){line=document.createElement('div'); line.className='pv'; pg.after(line);}
-      fillPv(line,page,map.get(page),v,false);});
-    sizePv();}
+  $$('#doc .pg').forEach(pg=>{const page=+pg.dataset.page; let line=/** @type {HTMLElement|null} */(pg.nextElementSibling);
+    if(!line||!line.classList.contains('pv')){line=document.createElement('div'); line.className='pv'; pg.after(line);}
+    fillPv(line,page,map.get(page),v);});
+  sizePv();
   if(had)vdRefocus(f);}
-// The page in view changed (updateSectionStrip): the B bar follows it.
-/** @param {number} page */
-function pvPageSeen(page){const bar=$('#pv-bar'); if(PV_AT===PV_PLACE.BAR&&!bar.hidden&&bar.dataset.page!==String(page))drawPageVerdicts();}
 // Whether pin p's page verdict line shows it, so its page-size mark is not drawn (marks).
 /** @param {Pin} p */
 function pvShows(p){return PV_SHOWN.has(p.id);}
-// A card's [보기] for a pin a line shows: the line comes into view and flashes (B: its page, then the bar). Returns whether it did.
+// A card's [보기] for a pin a line shows: the line comes into view and flashes. Returns whether it did.
 /** @param {number} id */
 function jumpPv(id){if(!PV_SHOWN.has(id))return false; const p=PINS.find(x=>x.id===id)||REVIEW_ALL.find(x=>x.id===id)||DONE.find(x=>x.id===id);
   const t=p&&pageTargetOf(p,META?META.kind:undefined); if(!t)return false;
   if(LAYOUT===LAYOUT_MODE.NARROW)setSide(false);
   const flash=el=>{el.classList.remove('flash'); void el.offsetWidth; el.classList.add('flash'); clearTimeout(el._flT); el._flT=setTimeout(()=>el.classList.remove('flash'),1200);};
-  if(PV_AT===PV_PLACE.BAR){goPage(t.page); requestAnimationFrame(()=>{OUTLINE_ACTIVE_PAGE=t.page; drawPageVerdicts(); flash($('#pv-bar'));}); return true;}
   const line=/** @type {HTMLElement|null} */(document.querySelector('#doc .pv[data-page="'+t.page+'"]')); if(!line)return false;
   line.scrollIntoView({behavior:SMOOTH,block:'center'}); flash(line); return true;}

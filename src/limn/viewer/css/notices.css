@@ -58,13 +58,13 @@
 @media (pointer:coarse){.mark>.nt-chip{height:var(--ctl-touch);padding:0 var(--space-1) 0 var(--space-3)}
   .mark>.nt-chip .nt-acts button{height:calc(var(--ctl-touch) - 2 * var(--space-1))}}
 /* A page verdict's save (verdict.js): the same chip over its line's right end, as over a mark. */
-:is(.pv,#pv-bar)>.nt-chip{position:absolute;right:0;bottom:calc(100% + var(--space-1));z-index:4;box-sizing:border-box;height:calc(var(--control-h-sm) + 2 * var(--space-1));
+.pv>.nt-chip{position:absolute;right:0;bottom:calc(100% + var(--space-1));z-index:4;box-sizing:border-box;height:calc(var(--control-h-sm) + 2 * var(--space-1));
   width:max-content;max-width:min(320px,80vw);padding:0 var(--space-1) 0 var(--space-2);gap:var(--space-1);border-radius:var(--radius-lg);background:var(--popover);
   color:var(--popover-foreground);border:1px solid color-mix(in srgb,var(--success) 45%,var(--border));box-shadow:var(--shadow-sm);font-size:var(--text-sm);line-height:16px;white-space:nowrap}
-:is(.pv,#pv-bar)>.nt-chip .nt-ic{height:16px}
-:is(.pv,#pv-bar)>.nt-chip .nt-ti{font-weight:600}
-@media (pointer:coarse){:is(.pv,#pv-bar)>.nt-chip{height:var(--ctl-touch);padding:0 var(--space-1) 0 var(--space-3)}
-  :is(.pv,#pv-bar)>.nt-chip .nt-acts button{height:calc(var(--ctl-touch) - 2 * var(--space-1))}}
+.pv>.nt-chip .nt-ic{height:16px}
+.pv>.nt-chip .nt-ti{font-weight:600}
+@media (pointer:coarse){.pv>.nt-chip{height:var(--ctl-touch);padding:0 var(--space-1) 0 var(--space-3)}
+  .pv>.nt-chip .nt-acts button{height:calc(var(--ctl-touch) - 2 * var(--space-1))}}
 
 /* The status line's messages (statusList): its icon by kind, its action as the line's other actions, [x] square. */
 #status button.nt-act{background:var(--secondary);color:var(--secondary-foreground);border-color:transparent}

@@ -36,15 +36,17 @@ rewrites the new field unchanged, so rolling back loses nothing.
 - The viewer's English mode has texts for the six new reasons.
 - **Verdict buttons in the composer.** On a document with verdict words, a row `판정으로 저장 [채택] [보류] [삭제]`
   under the note saves the selection and its note as a verdict pin in one press, with the usual `#N 저장됨
-  [되돌리기]`. The buttons are off, with the reason under them, for a question or while a suggested edit is on. A word
-  marked `confirm` (shown in the danger colour) takes two presses: the first turns it into `<word> 확정` for 4 s, bound
-  to the document, build, selection and word, and Esc, another press, a new selection or the timeout lets it go.
+  [되돌리기]`; with the note focused on a touch sheet the row stays on screen above the keyboard. The buttons are off,
+  with the reason under them, for a question, while a suggested edit is on and while the location is still being
+  found (a press then does nothing; it does not queue as [핀 저장] does). A word marked `confirm` (shown in the
+  danger colour) takes two presses: the first turns it into `<word> 확정` for 4 s, bound to the document, build,
+  selection and word, and Esc, another press, a new selection or the timeout lets it go.
 - **A page verdict line on figure documents and view-only PDFs** whose word file says `"page": true`: under each page,
   the newest verdict about that page's figure (or that page) with its state - `처리 기다리는 판정`, `처리 중`, `검토
   대기`, `처리됨` or `판정 없음` - a link to earlier open verdicts it overrides, and a button per word that saves a
   verdict about the whole page without touching the composer. Its pin draws no page-size mark; the card's [보기] goes
-  to the line. The page list shows `#42 채택` on such pages. (The draft PR also carries candidate B, a floating bar
-  for the page in view, behind `?pv=b` until the owner picks one.)
+  to the line. The page list shows `#42 채택` on such pages. The owner picked this place - a line under each page -
+  over a floating bar for the page in view after the four-device PoC on 2026-10-27.
 - **Verdict pins on cards.** A `판정 채택` badge on open, awaiting-review and done cards; `(판정만)` for an empty
   note. Undoing a verdict's save withdraws it without reopening the composer, and says so when an agent had already
   claimed it. A verdict pin's edit card offers only the note and the assignee. A viewer sees the line, never a button.

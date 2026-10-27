@@ -79,7 +79,6 @@ function updateSectionStrip(){
   if(OUTLINE_PINNED&&OUTLINE_PINNED.page===page)sel=OUTLINE_PINNED.index;
   else{OUTLINE_PINNED=null; sel=outlineIndexAt(OUTLINE_ENTRIES,page,frac);}
   if(sel!==OUTLINE_SELECTED||page!==OUTLINE_ACTIVE_PAGE){OUTLINE_ACTIVE_PAGE=page;OUTLINE_SELECTED=sel;renderOutline();}
-  pvPageSeen(page);   // the page verdict bar (B) follows the page in view
   const x=OUTLINE_ENTRIES[OUTLINE_SELECTED];$('#section-current').textContent=x?(x.number?x.number+'  ':'')+x.title:tr('원고');
   const n=META&&META.pages?META.pages.length:0,pg=tl('{page} / {n}쪽',{page,n}); $('#section-page-t').textContent=pg; $('#nav-page').textContent=pg;
   const name=tl('쪽 번호로 이동 · {page} / {n}쪽',{page,n}); $('#section-page').setAttribute('aria-label',name); $('#nav-page').setAttribute('aria-label',name); drawPos();

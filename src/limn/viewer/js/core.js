@@ -51,7 +51,6 @@ const NOTICE_HOST=Object.freeze({COMPOSER:'composer',LIST:'list',REVIEW:'review'
 const NOTICE_LIFE=Object.freeze({STICKY:'sticky',CLICK:'click',TIMER:'timer'});   // how long a message stays (armNotice)
 const NOTICE_DOT=Object.freeze({SIDE:'side',RV:'rv'});   // the chip a background message marks, [핀 N] or [검토 M]; also the body class dot-<value>
 const NOTICE_TOPIC=Object.freeze({PICK:'pick',SIDE:'side'});   // what a first-visit hint asks for (endTopic): a selection, the panel opened
-const PV_PLACE=Object.freeze({LINE:'line',BAR:'bar'});   // TEMPORARY (PoC, removed before merge): the page verdict line under each page (A) or the current page's bar over the PDF area's bottom (B)
 const VD_WHERE=Object.freeze({COMPOSER:'composer',PAGE:'page'});   // where a verdict button is (verdict.js): the composer's verdict row or a page verdict line
 // Each band's layout mode (docs/handbook/viewer.md §모바일 레이아웃): the sheet (narrow), the panel between the nav bar and the
 // action row (mid) or the desktop (wide). Code that only asks which of the three reads LAYOUT; code that differs per band reads BAND.
