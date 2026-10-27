@@ -128,6 +128,7 @@ interface Pin {
   thread?: ThreadEntry[];
   suggest?: PinSuggest;
   suggest_state?: string;
+  verdict?: string;
 }
 
 // The person this request is answered for (meta and /api/people `me`), with the role the server gives them.
@@ -220,6 +221,21 @@ interface LastBuild {
   pull?: PullRecord | null;
 }
 
+// One verdict word a document declares (`verdicts.choices`, docs/handbook/api.md §판정 낱말 파일): the key a pin stores,
+// the button's name and whether it takes two presses.
+interface VerdictChoice {
+  key: string;
+  label: string;
+  confirm: boolean;
+}
+
+// A document's verdict words (GET /api/docs and the full GET /api/meta `verdicts`): page is whether its pages get a page
+// verdict line (a figure document or a view-only PDF whose word file says so; never a LaTeX document).
+interface DocVerdicts {
+  page: boolean;
+  choices: VerdictChoice[];
+}
+
 // One document of the run (GET /api/docs `docs`, meta `docs` when there are several).
 interface DocEntry {
   key: string;
@@ -237,6 +253,8 @@ interface DocEntry {
   pages_build: string;
   n_pages: number;
   n_open: number;
+  verdicts?: DocVerdicts;
+  verdicts_error?: string;
 }
 
 // GET /api/docs.
@@ -279,6 +297,8 @@ interface Meta {
   n_open?: number;
   n_done?: number;
   n_review?: number;
+  verdicts?: DocVerdicts;
+  verdicts_error?: string;
   docs?: DocEntry[];
   src_sig?: string;
 }
