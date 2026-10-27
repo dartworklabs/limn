@@ -839,11 +839,12 @@ class AddRequest:
 
 @dataclass(frozen=True)
 class VerdictFacts:
-    """What the shell read for a new pin that asks for a verdict, inside its store transaction: whether the request's
-    principal may make one (limn.security.access.Principal.authors_verdicts), the keys the pin's document declares
-    now (limn.pins.needs.VerdictKeys - () without a usable word file), and whether its page target holds: False only
-    when the pin names a figure document page's whole figure (el.path == [el.id]) that the map of the pin's build does
-    not confirm as that page's root (limn.pins.needs.BuildAnswers.page_root). Every other pin's target holds."""
+    """What the shell read for a new pin that asks for a verdict, just before its store transaction takes the pin lock:
+    whether the request's principal may make one (limn.security.access.Principal.authors_verdicts), the keys the pin's
+    document declares then (limn.pins.needs.VerdictKeys - () without a usable word file), and whether its page target
+    holds: False only when the pin names a figure document page's whole figure (el.path == [el.id]) that the map of
+    the pin's build does not confirm as that page's root (limn.pins.needs.BuildAnswers.page_root). Every other pin's
+    target holds."""
 
     author: bool
     keys: tuple[str, ...]

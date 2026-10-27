@@ -19,10 +19,11 @@ pin is made through the HTTP API and the viewer shows it as an ordinary pin.
   `verdicts_error` (`unreadable`, `too_large`, `invalid`) when the file cannot be used. `page` is true only for figure
   documents and view-only PDFs. The light poll and the `docs` copies inside meta carry neither.
 - **`verdict` on `POST /api/pin`.** A person with the editor or owner role may give a new pin one of its document's
-  keys; it is stored as written and returned as stored. Refusals, checked inside the pin transaction in this order:
-  `403 verdict_human` (any agent), `400 verdict_unsupported` (no usable word file), `400 verdict_unknown` (with the
-  document's `choices`), `400 verdict_conflict` (with a question or a suggested edit) and `400 verdict_page_target` (a
-  whole figure that the map of its build does not confirm as the root of that page).
+  keys; it is stored as written and returned as stored. Refusals, checked inside the pin transaction against the
+  words and map read just before it takes the pin lock (so a stalled word file holds up no other pin operation), in
+  this order: `403 verdict_human` (any agent), `400 verdict_unsupported` (no usable word file), `400 verdict_unknown`
+  (with the document's `choices`), `400 verdict_conflict` (with a question or a suggested edit) and
+  `400 verdict_page_target` (a whole figure that the map of its build does not confirm as the root of that page).
 - **A verdict pin keeps its verdict and target.** `POST /api/pins/{id}/edit` with `verdict`, `loc`, `lo`, `hi`,
   `scope`, `kind`, `kind_req` or `suggest` on a verdict pin, or with `verdict` on any pin, answers
   `400 verdict_fixed` and writes nothing. The note, `note_append`, the assignee and mention hints still change, and
