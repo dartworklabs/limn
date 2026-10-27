@@ -608,21 +608,20 @@ class ReviewFixes(VerdictBase):
     def test_the_earlier_verdicts_link_is_underlined_only_on_hover(self):
         """'이전 판정 N건 · 새 판정이 앞섬' has the viewer's link look - no underline at rest, a solid one on hover - in the
         light and the dark theme."""
-        dark = "try{localStorage.setItem('pinPrefs',JSON.stringify({theme:'dark'}));}catch(e){}"
-        for init in (None, dark):
-            with self.subTest(theme="dark" if init else "light"):
-                page = self.open(0, init=init)
-                page.evaluate("k=>switchDoc(k)", "fig")
-                page.wait_for_function("DOC==='fig'&&document.querySelector('#doc .pv')")
+        page = self.on("fig")
+        self.press_page(page, 1, "보류")
+        self.press_page(page, 1, "채택")
+        link = "#doc .pv .pv-early"
+        deco = "s=>getComputedStyle(document.querySelector(s)).textDecorationLine"
+        for theme in ("light", "dark"):
+            with self.subTest(theme=theme):
+                page.evaluate("t=>setTheme(t)", theme)
+                page.mouse.move(1, 1)
                 settle(page)
-                self.press_page(page, 1, "보류")
-                self.press_page(page, 1, "채택")
-                deco = "()=>getComputedStyle(document.querySelector('#doc .pv .pv-early')).textDecorationLine"
-                self.assertEqual(page.evaluate(deco), "none")
-                page.hover("#doc .pv .pv-early")
-                self.assertEqual(page.evaluate(deco), "underline")
-                for p in self.pins():
-                    self.call("POST", "/api/pins/%d/drop" % p)
+                self.assertEqual(page.evaluate("document.documentElement.dataset.theme"), theme)
+                self.assertEqual(page.evaluate(deco, link), "none")
+                page.hover(link)
+                self.assertEqual(page.evaluate(deco, link), "underline")
 
     def test_on_a_phone_every_line_puts_its_buttons_on_a_row_of_their_own(self):
         """390x844: a line too long for one row (an earlier verdict) puts its buttons on the next row, at its start, and so
