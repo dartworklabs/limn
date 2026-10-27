@@ -106,12 +106,32 @@ class VerdictBase(BrowserBase):
         return page
 
     def press_page(self, page, n, key):
-        """Press word key on page n's line and wait until the new pin is on the list; its id."""
+        """Press word key on page n's line and wait until the new pin is on the list; its id. A press that never reached
+        the button (the page moved under the pointer between Playwright's hit test and its click - seen on loaded CI
+        runners) is pressed once more; any other press that saves nothing fails with what the page said."""
+        from playwright.sync_api import (
+            TimeoutError as PlaywrightTimeout,
+        )  # as helpers_browser: only where a browser runs
+
         before = set(self.pins())
-        page.locator('#doc .pv[data-page="%d"] button[data-key="%s"]' % (n, key)).click()
-        page.wait_for_function(
-            "n=>OPEN_ALL.length>=n", arg=len([p for p in self.pins().values() if p.get("state") == "open"]) + 1
+        want = len([p for p in self.pins().values() if p.get("state") == "open"]) + 1
+        btn = '#doc .pv[data-page="%d"] button[data-key="%s"]' % (n, key)
+        page.evaluate(
+            """s=>{window.__pvHits=0; if(!window.__pvWatch){window.__pvWatch=true;
+              document.addEventListener('click',e=>{if(e.target.closest&&e.target.closest('#doc .pv [data-act="pv-save"]'))window.__pvHits++;},true);}}""",
+            btn,
         )
+        for attempt in (1, 2):
+            page.locator(btn).click()
+            try:
+                page.wait_for_function("n=>OPEN_ALL.length>=n", arg=want, timeout=10000)
+                break
+            except PlaywrightTimeout:
+                said = page.evaluate(
+                    "()=>({hits: window.__pvHits, busy: PV_BUSY.size, status: document.querySelector('#status').innerText, open: OPEN_ALL.length})"
+                )
+                if said["hits"] or attempt == 2 or set(self.pins()) - before:
+                    self.fail("the press on %s saved nothing: %s" % (btn, said))
         settle(page)
         (new,) = set(self.pins()) - before
         return new
