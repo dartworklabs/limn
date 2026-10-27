@@ -1,8 +1,9 @@
 # Changelog
 
-## Unreleased
+## 0.4.28 — 2026-10-28
 
-Fixes from the functional re-test of 0.4.27's verdict buttons. The agent contract is unchanged.
+Fixes from the functional re-test of 0.4.27's verdict buttons and its review. Viewer only: the agent contract and
+`pins.md` are unchanged, and rolling back to 0.4.27 loses nothing.
 
 ### Fixed
 
