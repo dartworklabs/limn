@@ -9,13 +9,14 @@ viewer strings change.
 
 - **A retried verdict save keeps its verdict.** When a composer verdict save failed on the network, [다시 저장] saved a
   plain pin and the author's verdict was lost. The retry now carries the verdict while the selection is the one it was
-  bound to; a changed selection is a plain save.
+  bound to and the composer still asks for a verdict pin (a fix request with [제안 수정] off). Changing the kind or the
+  switch drops it, so a retry never overrides a question or a suggested edit chosen after the failure.
 - **A confirmed verdict still counts while its undo is offered.** Pressing [확인] on the newest verdict awaiting review
   took it off the review list during the undo window, and the page verdict line showed the older verdict as the newest.
 - **The verdict buttons come back after a save.** A selection picked while a save was in flight kept its verdict
   buttons off after the request ended.
 - **The focus comes back after a keyboard save on a page verdict line**, to the same word's button, unless it was
-  moved elsewhere meanwhile.
+  moved anywhere else meanwhile (another page's word, a `#N` link, the panel).
 - **A card of another document names its own word** under [모든 문서] (the label came from the document on screen).
 - **The location line, the note and the verdict row all show with the keyboard up at 841×673** (the line went 20 px
   under the nav bar): on touch panels the location line now sticks at the panel's top while the note or the suggestion
@@ -35,7 +36,9 @@ viewer strings change.
   page's line puts its buttons on a row of their own, at its start.
 - **Cards**: a verdict pin without a note no longer spends a line on `(판정만)` (its `판정 X` badge says it; a folded
   card's preview is the badge; `pins.md` keeps `(판정만)`), and two verdict pins about the same page target no longer
-  carry overlap badges such as `#4와 같은 범위` (the page line orders them). Overlap badges with ordinary pins stay.
+  carry overlap badges such as `#4와 같은 범위` where the page line shows them both (it orders them); with `page: false`,
+  without a word file or on another document's card under [모든 문서] the badge stays. Overlap badges with ordinary
+  pins stay.
 
 ## 0.4.26 — 2026-10-27
 
