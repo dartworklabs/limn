@@ -1,10 +1,11 @@
 # Changelog
 
-## Unreleased
+## 0.4.26 — 2026-10-27
 
-Verdict pins (ADR-0021, proposed): on the server, and in the viewer as one-press buttons in the composer and per
-page. The agent contract only grows: an agent written against 0.4.25 keeps working, and a 0.4.25 server reads and
-rewrites the new field unchanged, so rolling back loses nothing.
+Verdict pins (ADR-0021): on the server, and in the viewer as one-press buttons in the composer and under each page
+of figure documents and view-only PDFs. A project opts in per document with a `<name>.limnverdicts.json` word file;
+without one nothing changes. The agent contract only grows: an agent written against 0.4.25 keeps working, and a
+0.4.25 server reads and rewrites the new field unchanged, so rolling back loses nothing.
 
 ### Added
 
