@@ -1,5 +1,39 @@
 # Changelog
 
+## Unreleased
+
+Fixes from the review of 0.4.26's verdict buttons. The agent contract (`pins.md` and the HTTP API) is unchanged; only
+viewer strings change.
+
+### Fixed
+
+- **A retried verdict save keeps its verdict.** When a composer verdict save failed on the network, [다시 저장] saved a
+  plain pin and the author's verdict was lost. The retry now carries the verdict while the selection is the one it was
+  bound to; a changed selection is a plain save.
+- **A confirmed verdict still counts while its undo is offered.** Pressing [확인] on the newest verdict awaiting review
+  took it off the review list during the undo window, and the page verdict line showed the older verdict as the newest.
+- **The verdict buttons come back after a save.** A selection picked while a save was in flight kept its verdict
+  buttons off after the request ended.
+- **The focus comes back after a keyboard save on a page verdict line**, to the same word's button, unless it was
+  moved elsewhere meanwhile.
+- **A card of another document names its own word** under [모든 문서] (the label came from the document on screen).
+- **The location line, the note and the verdict row all show with the keyboard up at 841×673** (the line went 20 px
+  under the nav bar): on touch panels the location line now sticks at the panel's top while the note or the suggestion
+  editor has focus, as it already did on the sheets.
+
+### Changed
+
+- **Page verdict line wording**, one order for every state: `판정 #4 채택 · 처리 대기`, `판정 #5 삭제 · 처리 중 · Bob 7분
+  전`, `판정 #8 보류 · 검토 대기`, `판정 #8 보류 · 처리됨`, `판정 없음`. `#4` links to the card; the page buttons say
+  `누르면 이 쪽에 새 판정 핀을 저장합니다`. The earlier-verdicts link reads `이전 판정 N건 · 새 판정이 앞섬` and, like
+  every viewer link, is underlined only on hover and keyboard focus.
+- **Composer verdict row**: the lead label is `판정 바로 저장` and each button says `누르면 지금 선택과 메모를 <낱말> 판정
+  핀으로 바로 저장합니다`; the reasons for turned-off buttons point at the control: `질문에는 판정을 붙이지 않습니다 — 아래에서
+  [수정 요청]을 고릅니다`, `판정을 저장하려면 [제안 수정]을 끕니다`. The row sits one 8 px step from its neighbours (the gap was
+  doubled), drawn 36 px on touch.
+- **Narrow widths**: when any page's line cannot hold its words and buttons on one row (phones, a folded cover), every
+  page's line puts its buttons on a row of their own, at its start.
+
 ## 0.4.26 — 2026-10-27
 
 Verdict pins (ADR-0021): on the server, and in the viewer as one-press buttons in the composer and under each page
