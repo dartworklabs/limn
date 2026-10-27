@@ -6,13 +6,16 @@ asked for, a question or a suggestion beside it - in that order) and the record 
 real server and state folder: what is stored and answered, that every refusal writes nothing and allocates no pin
 number, that the words are read at the moment of the request, the authorization matrix of the roles, and the root
 check of a whole-figure verdict against its build's map (verdict_page_target) - the build the pin stores, even when
-another is published meanwhile (over a real store, with a build owner that changes its answer). Then the edit rule: a verdict pin's edit changes its note-level fields only (decide_edit, verdict_fixed), checked on the pin
-as the edit would leave it, and line matching still moves a verdict pin.
+another is published meanwhile (over a real store, with a build owner that changes its answer), and that a
+verdict's reads - the word file and the root check - are made before the pin lock, so one that stalls holds up no
+other pin operation. Then the edit rule: a verdict pin's edit changes its note-level fields only (decide_edit,
+verdict_fixed), checked on the pin as the edit would leave it, and line matching still moves a verdict pin.
 
 Run: uv run pytest -q src/limn/pins/editing/tests/test_verdicts.py
 """
 
 import json
+import threading
 import unittest
 from dataclasses import dataclass, replace
 
@@ -50,7 +53,7 @@ from limn.runtime.documents import Doc
 from limn.web.errors import InputRejected
 
 from helpers import MINI_PDF, ps, set_config
-from helpers_access import ALICE, BOB, BOB_ACTOR, CAROL, DAVE, AccessBase, token_create
+from helpers_access import ALICE, ALICE_ACTOR, BOB, BOB_ACTOR, CAROL, DAVE, AccessBase, token_create
 from helpers_authority import post_authority
 from helpers_figure import BUILD1, BUILD2, SCRIPT, figure_doc, viewer_map, write_build
 from helpers_pin_rules import ALICE_PERSON, AT
@@ -443,6 +446,158 @@ class RootCheckedOnTheStoredBuild(ServiceBase):
         stored = self.pin(made.core.id)
         self.assertEqual(stored["verdict"], "채택")
         self.assertIn(stored["pdf_build"], confirmed)
+
+
+# How long a pin operation that should not wait for the pin lock may take, and how long a stalled read waits before it
+# gives up - bounds that keep a regression from hanging the suite.
+PROMPT = 5.0
+STALL = 30.0
+
+
+class ReadsOutsideThePinLock(ServiceBase):
+    """add_pin reads a verdict's facts - the document's word file (ctx.verdict_keys) and a whole figure's root on its
+    build's map (ctx.builds.page_root) - before taking the pin lock. While one of those reads stalls for document A's
+    new verdict pin, a pin operation on document B and another one on A run to the end, and the stalled creation is
+    then decided against what it read."""
+
+    def setUp(self):
+        """Documents A (self.doc, main.tex) and B (other.tex in the same manuscript folder), an ordinary pin on A to
+        edit, and the events a stalled read waits on and announces."""
+        super().setUp()
+        (self.ms / "other.tex").write_text("uno\ndos\n", encoding="utf-8")
+        self.other = Doc("other", "Other", "tex", self.ms, self.ms / "other.tex", paths=self.doc.paths)
+        self.on_a = self.add()
+        self.entered = threading.Event()
+        self.release = threading.Event()
+        self.addCleanup(self.release.set)  # a failing run must not leave the stalled read waiting
+
+    def stall(self, answer):
+        """Announce that the read has started, wait until the test releases it (at most STALL seconds), then answer."""
+        self.entered.set()
+        self.release.wait(STALL)
+        return answer
+
+    def line(self, doc, file, **extra):
+        """A new line pin request on lines 1-2 of file in doc."""
+        place = LinePlace(
+            {"file": str(file), "name": file.name, "lo": 1, "hi": 2, "page": 1}, frozenset({"file", "lo", "hi", "page"})
+        )
+        return AddRequest(place, "", **extra)
+
+    def start(self, call):
+        """Run call() on a daemon thread; the thread and the list its answer (or exception) lands in."""
+        out = []
+
+        def run():
+            """Keep call's answer, or the exception it raised, for the test thread."""
+            try:
+                out.append(call())
+            except BaseException as error:  # noqa: BLE001 - handed back to the test thread
+                out.append(error)
+
+        thread = threading.Thread(target=run, daemon=True)
+        thread.start()
+        return thread, out
+
+    def finishes(self, call):
+        """call()'s answer, which must come within PROMPT seconds - it does not wait for the pin lock."""
+        thread, out = self.start(call)
+        thread.join(PROMPT)
+        self.assertFalse(thread.is_alive(), "the pin operation waited for the pin lock behind a stalled read")
+        self.assertNotIsInstance(out[0], BaseException)
+        return out[0]
+
+    def others_finish_while_stalled(self, D, request):
+        """Start D's new verdict pin from request; once its read stalls, add a pin on B and edit A's pin, each to the
+        end, with the creation still waiting; then release the read -> the creation's answer."""
+        creating, made = self.start(
+            lambda: add_edit.add_pin(self.ctx, D, request, post_authority(self.ctx.store, BOB_ACTOR, "add", D))
+        )
+        self.addCleanup(creating.join, STALL)
+        self.addCleanup(self.release.set)  # runs first: a failing run releases the read, then joins
+        self.assertTrue(self.entered.wait(PROMPT), "the verdict read did not start")
+        added = self.finishes(
+            lambda: add_edit.add_pin(
+                self.ctx,
+                self.other,
+                self.line(self.other, self.other.main),
+                post_authority(self.ctx.store, ALICE_ACTOR, "add", self.other),
+            )
+        )
+        edited = self.finishes(
+            lambda: add_edit.edit_pin(
+                self.ctx,
+                self.on_a,
+                EditRequest(base_rev=0, note="m"),
+                post_authority(self.ctx.store, ALICE_ACTOR, "edit", self.on_a),
+            )
+        )
+        self.assertIsInstance(added, OpenPin)
+        self.assertIsInstance(edited, OpenPin)
+        self.assertEqual(self.pin(self.on_a)["note"], "m")
+        self.assertTrue(creating.is_alive())
+        self.release.set()
+        creating.join(PROMPT)
+        self.assertFalse(creating.is_alive())
+        return made[0]
+
+    def test_a_stalled_word_file_holds_up_no_other_pin_operation(self):
+        """A's word file read stalls: B's new pin and the edit of A's pin are made meanwhile, and A's verdict pin is
+        then stored with the word it read, numbered after them."""
+        self.ctx = self.context(verdict_keys=lambda doc: self.stall(KEYS) if doc.key == self.doc.key else ())
+        made = self.others_finish_while_stalled(self.doc, self.line(self.doc, self.tex, verdict="채택"))
+        self.assertIsInstance(made, OpenPin)
+        self.assertEqual(self.pin(made.core.id)["verdict"], "채택")
+        self.assertEqual(made.core.id, self.on_a + 2)
+
+    def test_a_stalled_word_file_still_refuses_in_order(self):
+        """A stalled read that ends with no words, or with words lacking the one asked for, is refused as before -
+        verdict_unsupported, then verdict_unknown with the keys - and writes nothing."""
+        for keys, want in (((), VerdictUnsupported()), (KEYS, VerdictUnknown(KEYS))):
+            with self.subTest(keys=keys):
+                self.entered.clear()
+                self.release.clear()
+                self.ctx = self.context(verdict_keys=lambda doc, keys=keys: self.stall(keys))
+                creating, made = self.start(
+                    lambda: add_edit.add_pin(
+                        self.ctx,
+                        self.doc,
+                        self.line(self.doc, self.tex, verdict="재검토"),
+                        post_authority(self.ctx.store, BOB_ACTOR, "add", self.doc),
+                    )
+                )
+                self.assertTrue(self.entered.wait(PROMPT))
+                before = self.pins_bytes()
+                self.release.set()
+                creating.join(PROMPT)
+                self.assertEqual(made, [want])
+                self.assertEqual(self.pins_bytes(), before)
+
+    def test_a_stalled_root_check_holds_up_no_other_pin_operation(self):
+        """A figure document's whole-figure verdict pin without pdf_build: the root check on its build's map stalls,
+        B's new pin and the edit of A's pin are made meanwhile, and the verdict pin is then stored on the build its
+        figure was checked on."""
+        fig = Doc("fig", "그림", "figure", self.ms, self.ms / "figures.limnmap.json", paths=self.doc.paths)
+        builds = replace(
+            self.ctx.builds,
+            heading=lambda doc: OnScreen(BUILD1),
+            page_root=lambda doc, build, page, element: self.stall((build, page, element) == (BUILD1, 1, "B2")),
+        )
+        self.ctx = self.context(builds=builds, verdict_keys=lambda doc: KEYS)
+        place = RegionPlace(
+            {
+                "pdf": str(self.ms / "figures.pdf"),
+                "name": "figures.pdf",
+                "kind": "region",
+                "page": 1,
+                "frac": [0, 0, 1, 1],
+                "el": {"id": "B2", "path": ["B2"]},
+            }
+        )
+        made = self.others_finish_while_stalled(fig, AddRequest(place, "", verdict="채택"))
+        self.assertIsInstance(made, OpenPin)
+        stored = self.pin(made.core.id)
+        self.assertEqual((stored["verdict"], stored["pdf_build"]), ("채택", BUILD1))
 
 
 def verdict_pin(**extra):

@@ -13,6 +13,7 @@ from limn.pins.editing.rules import (
     AddRefusal,
     AddRequest,
     Anchoring,
+    AskedVerdict,
     EditRefusal,
     EditRequest,
     LinePlace,
@@ -59,14 +60,16 @@ def add_pin(ctx: PinContext, D: Doc, request: AddRequest, actor: PostAuthority) 
     read in the same snapshot the anchor is taken from. A refusal is returned and nothing is written - no id is
     allocated and no transaction runs.
 
-    A request with a verdict is decided inside the transaction, before an id is allocated, against the keys D declares
-    at that moment (ctx.verdict_keys), whether the principal may make one (Principal.authors_verdicts) and - for a
-    figure document's pin that names its page's whole figure (el.path == [el.id]) - whether the map of the pin's build
-    (the pdf_build it sent, else the build on screen, read once in the transaction so the pin records the build that
-    was checked) has that element as the root of the pin's page (ctx.builds.page_root):
-    limn.pins.editing.rules.decide_new_verdict. Its suggestion, if it sent one, is never
-    decided - the verdict decision refuses every such request - so the verdict's refusals come in their own order. A
-    refusal writes nothing of its own (a re-sync of the stored pins may still be written, as for any transaction)."""
+    A request with a verdict is decided inside the transaction, before an id is allocated
+    (limn.pins.editing.rules.decide_new_verdict), against facts read just before the pin lock is taken (_read_verdict):
+    the keys D declares then (ctx.verdict_keys), whether the principal may make one (Principal.authors_verdicts) and -
+    for a figure document's pin that names its page's whole figure (el.path == [el.id]) - whether the map of the pin's
+    build (the pdf_build it sent, else the build on screen, read once and recorded, so the pin records the build that
+    was checked) has that element as the root of the pin's page (ctx.builds.page_root). Reading them outside the lock
+    keeps a word file or map copy that stalls from holding up every other pin operation. Its suggestion, if it sent
+    one, is never decided - the verdict decision refuses every such request - so the verdict's refusals come in their
+    own order. A refusal writes nothing of its own (a re-sync of the stored pins may still be written, as for any
+    transaction)."""
     require_authority(actor, ctx.authority_scope, "add", document_authority_target(D))
     place = request.place
     # Manuscript text is read before taking the pin lock, as it was for line pins before this shared transaction.
@@ -77,18 +80,22 @@ def add_pin(ctx: PinContext, D: Doc, request: AddRequest, actor: PostAuthority) 
         if not isinstance(decided, Suggestion):
             return decided
     author = actor.principal.authors_verdicts()
+    # A verdict's facts are read before taking the pin lock, so a word file or map copy that stalls holds up only
+    # this request.
+    reads = None if request.verdict is None else _read_verdict(ctx, D, place, request.verdict, author)
     evs: list[Event | None] = []
 
     def fn(pins: list[Pin]) -> tuple[OpenPin | VerdictRefusal, bool]:
         """Decide the verdict, if one was asked for, then allocate one id, build either location kind, and queue
         notices in the same transaction. The build on screen is read once: a pin without pdf_build records the
-        build its whole figure was checked on, not one published in between."""
+        build its whole figure was checked on (read with that check, before the lock), not one published in
+        between."""
         # The viewer echoes pdf_build from pick; an agent request without it uses the current build.
-        on_screen = ctx.builds.heading(D).build
+        checked_on = None if reads is None else reads.on_screen
+        on_screen = ctx.builds.heading(D).build if checked_on is None else checked_on
         verdict = None
-        if request.verdict is not None:
-            facts = VerdictFacts(author, ctx.verdict_keys(D), _page_target_holds(ctx, D, place, on_screen))
-            judged = decide_new_verdict(request.verdict, request, facts)
+        if reads is not None:
+            judged = decide_new_verdict(reads.asked, request, reads.facts)
             if not isinstance(judged, str):
                 return judged, False
             verdict = judged
@@ -126,18 +133,42 @@ def add_pin(ctx: PinContext, D: Doc, request: AddRequest, actor: PostAuthority) 
     return out
 
 
-def _page_target_holds(ctx: PinContext, D: Doc, place: LinePlace | RegionPlace, on_screen: str) -> bool:
-    """Whether a new pin's page target holds (limn.pins.editing.rules.VerdictFacts.page_target_holds): False only for
-    a figure document's pin whose el names its page's whole figure (limn.pins.verdict.whole_figure) when the map of
-    the pin's build - the pdf_build the request sent, else on_screen, the build on screen as the caller read it for
-    the record too - does not have that element as the root of the pin's page. Asks the build owner
-    (ctx.builds.page_root) only then; reads no file itself."""
+@dataclass(frozen=True)
+class _VerdictReads:
+    """What a new pin that asks for a verdict reads before the pin lock (_read_verdict): the verdict asked for, the
+    facts decide_new_verdict checks it against inside the transaction, and the build on screen when the root check
+    read it - for a whole-figure pin that sent no pdf_build, so the pin records the build its figure was checked on.
+    on_screen is None when the check read no build on screen; the transaction then reads it itself."""
+
+    asked: AskedVerdict
+    facts: VerdictFacts
+    on_screen: str | None
+
+
+def _read_verdict(
+    ctx: PinContext, D: Doc, place: LinePlace | RegionPlace, asked: AskedVerdict, author: bool
+) -> _VerdictReads:
+    """Read, before the pin lock is taken, what deciding a new pin's verdict needs
+    (limn.pins.editing.rules.VerdictFacts): the keys D declares now (ctx.verdict_keys - the document owner's bounded
+    read and parse of its word file) and whether the pin's page target holds. That is False only for a figure
+    document's pin whose el names its page's whole figure (limn.pins.verdict.whole_figure) when the map of the pin's
+    build - the pdf_build the request sent, else the build on screen, read here once - does not have that element as
+    the root of the pin's page; only then is the build owner asked (ctx.builds.page_root, a stat of the map copy and
+    its parse on a cache miss). Both facts are those of a moment just before the lock, not inside it. A build's map
+    copy is written once, when the build is imported, so the root answer for the build the pin records is the same
+    inside the lock; a word file changed in between is read by the next request. Reads no file itself."""
+    keys = ctx.verdict_keys(D)
     fields = place.fields
     figure = whole_figure(fields) if D.has_element_map else None
     if figure is None:
-        return True
-    build = fields.get("pdf_build") or on_screen
-    return ctx.builds.page_root(D, build, fields["page"], figure)
+        return _VerdictReads(asked, VerdictFacts(author, keys), None)
+    sent = fields.get("pdf_build")
+    if sent:
+        holds = ctx.builds.page_root(D, sent, fields["page"], figure)
+        return _VerdictReads(asked, VerdictFacts(author, keys, holds), None)
+    on_screen = ctx.builds.heading(D).build
+    holds = ctx.builds.page_root(D, on_screen, fields["page"], figure)
+    return _VerdictReads(asked, VerdictFacts(author, keys, holds), on_screen)
 
 
 def edit_pin(

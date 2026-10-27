@@ -24,9 +24,9 @@ if TYPE_CHECKING:
 # Lines lo..hi (1-based, inclusive) of a file named relative to the figure document's folder: (file, lo, hi).
 SourceSpan: TypeAlias = tuple[str, int, int]
 
-# The verdict keys a document declares now, in its word file's order, or () when it has no usable word file - what a
-# new pin's verdict is checked against, inside its store transaction. The owner of documents reads and parses the word
-# file (limn.documents.verdicts); pins sees only the keys.
+# The verdict keys a document declares now, in its word file's order, or () when it has no usable word file - read
+# just before a new pin's store transaction takes the pin lock, and what its verdict is checked against inside it. The
+# owner of documents reads and parses the word file (limn.documents.verdicts); pins sees only the keys.
 VerdictKeys: TypeAlias = Callable[[Doc], tuple[str, ...]]
 
 

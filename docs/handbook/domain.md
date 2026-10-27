@@ -303,7 +303,7 @@ LaTeX 문서의 줄 핀만 제안을 가진다. 그림 스크립트의 줄에는
 
 판정 핀은 `editor`·`owner` 인 사람만 만든다. 에이전트(토큰, 헤더 없는 루프백, `agent` 역할인 사람)는 `403 verdict_human` 이다. 판단은 확인(confirm)과 같다. 판정은 사람의 결정이고, 에이전트가 판정을 만들어 스스로 실행하면 검토 대기를 사람만 확인하는 것과 같은 이유로 기록의 뜻이 사라진다. 판정 핀은 수정 요청이라 질문이나 제안 수정과 함께 쓰지 않는다(`400 verdict_conflict`). 섞으면 할 일이 두 갈래가 된다. 누가 만들 수 있는지는 [`security/access.py`](../../src/limn/security/access.py)의 `Principal.authors_verdicts` 가 답하고, 역할 비교는 그 모듈 밖에 없다.
 
-새 판정은 저장 트랜잭션 안에서, 핀 번호를 받기 전에 그 순간 문서가 선언한 낱말과 대조한다. 그래서 낱말 파일을 고친 직후에도 고친 낱말로 판단하고, 거절된 핀은 번호를 받지 않는다.
+새 판정은 저장 트랜잭션 안에서, 핀 번호를 받기 전에 문서가 선언한 낱말과 대조한다. 낱말은 요청마다 핀 잠금을 잡기 직전에 읽는다. 그래서 낱말 파일을 고친 직후에도 고친 낱말로 판단하고, 거절된 핀은 번호를 받지 않는다. 낱말 파일과 쪽 전체 그림의 지도를 잠금 안에서 읽지 않는 까닭은 잠금을 모든 핀 쓰기가 함께 쓰기 때문이다. 그 안에서 읽으면 한 문서의 파일이 멈출 때 다른 문서의 핀 작업까지 함께 멈춘다. 그래서 대조에 쓰는 낱말은 잠금 안의 순간이 아니라 잠금 직전의 것이다.
 
 ### 순서 — 번호가 큰 판정이 앞선다
 
@@ -336,7 +336,7 @@ LaTeX 문서의 줄 핀만 제안을 가진다. 그림 스크립트의 줄에는
 
 판정 대상은 이 밖에는 사람이 고른 위치다. LaTeX 문서의 판정은 사람이 고른 줄을 대상으로 하고, 그 줄을 항목으로 푸는 것은 그 저장소의 규칙이다.
 
-실행 정본은 [`limn/pins/verdict.py`](../../src/limn/pins/verdict.py)의 `verdict_of`·`whole_figure`·`whole_page_target`(순수 계산), [`pins/editing/rules.py`](../../src/limn/pins/editing/rules.py)의 `decide_new_verdict`·`decide_edit`(받을지 판단), [`pins/editing/service.py`](../../src/limn/pins/editing/service.py)의 `add_pin`(트랜잭션 안에서 낱말과 뿌리 확인), [`pins/listing/render.py`](../../src/limn/pins/listing/render.py)의 `verdict_marker`·`verdict_guidance`(`pins.md` 표시)다. 낱말 파일의 읽기와 파싱은 문서 조회 기능의 [`documents/verdicts.py`](../../src/limn/documents/verdicts.py)가 하고, 핀은 조립 지점이 넘기는 `key` 목록만 받는다. 뿌리 확인은 빌드 기능의 `page_root` 가 답한다.
+실행 정본은 [`limn/pins/verdict.py`](../../src/limn/pins/verdict.py)의 `verdict_of`·`whole_figure`·`whole_page_target`(순수 계산), [`pins/editing/rules.py`](../../src/limn/pins/editing/rules.py)의 `decide_new_verdict`·`decide_edit`(받을지 판단), [`pins/editing/service.py`](../../src/limn/pins/editing/service.py)의 `add_pin`(잠금 직전에 낱말과 뿌리를 읽고 트랜잭션 안에서 판단), [`pins/listing/render.py`](../../src/limn/pins/listing/render.py)의 `verdict_marker`·`verdict_guidance`(`pins.md` 표시)다. 낱말 파일의 읽기와 파싱은 문서 조회 기능의 [`documents/verdicts.py`](../../src/limn/documents/verdicts.py)가 하고, 핀은 조립 지점이 넘기는 `key` 목록만 받는다. 뿌리 확인은 빌드 기능의 `page_root` 가 답한다.
 
 ## 저장소 안전성
 

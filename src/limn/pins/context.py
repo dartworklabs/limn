@@ -69,7 +69,7 @@ class PinContext:
     one the composition root wired and no pin module makes its own. watches_files and refresh_files answer for a pin
     record's document: whether its files are watched, and the effect that pulls and imports them before a close
     awaiting review is written - called outside the lock. verdict_keys answers the verdict words a document declares
-    now, which a new verdict pin is checked against inside its transaction.
+    now - called outside the lock, just before a new verdict pin's transaction, which checks the pin against them.
     """
 
     store: PinStore
@@ -95,8 +95,8 @@ class PinContext:
     # awaiting review is written (lifecycle.rules.refreshes_before_close). By default nothing is watched.
     watches_files: Callable[[Mapping[str, Any]], bool] = lambda record: False
     refresh_files: Callable[[Mapping[str, Any]], object] = lambda record: None
-    # The verdict keys a document declares now (limn.pins.needs.VerdictKeys), read inside a new pin's transaction. By
-    # default no document declares any, so every verdict pin is refused.
+    # The verdict keys a document declares now (limn.pins.needs.VerdictKeys), read just before a new pin's transaction
+    # takes the pin lock. By default no document declares any, so every verdict pin is refused.
     verdict_keys: VerdictKeys = lambda doc: ()
 
     @property
