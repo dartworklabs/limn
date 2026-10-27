@@ -190,6 +190,7 @@ function composerSuggestEls(){return {tg:$('#c-sg-tg'),why:$('#c-sg-why'),box:$(
 function renderSuggest(d){const off=suggestOff(d,META?META.kind:undefined),owns=()=>COMPOSE.current===d;
   const redraw=()=>{if(!owns())return; renderSuggest(d); renderOverlapBanner(); saveDraftSoon();};
   drawSuggest(SG,d,off,composerSuggestEls(),false,undefined); suggestFollow(SG,d,off,owns,redraw);
+  renderVerdictRow();   // [제안 수정] on turns the verdict buttons off
   if(BAND===LAYOUT_BAND.TABLET_SHEET)applySheet();}
 // Whether the composer's draft is a suggestion a save would send, so its note may not join an overlapped pin instead
 // ([덧붙이기] appends a note; the suggestion belongs to this selection's lines).

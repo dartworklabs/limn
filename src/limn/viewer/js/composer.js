@@ -187,7 +187,8 @@ function drawComposerQuote(d){const el=$('#c-quote'),q=shownQuote(d,META?META.ki
 // The kind says what the note is, not who handles it: the assignee does not follow it (mentions.js).
 function setKind(k){KIND_NEW=k===KIND_REQ.QUESTION?KIND_REQ.QUESTION:KIND_REQ.FIX; saveDraftSoon();
   $$('#c-kind button').forEach(b=>{const on=b.dataset.kind===KIND_NEW; b.classList.toggle('on',on); b.setAttribute('aria-checked',String(on));});
-  $('#note').placeholder=KIND_NEW===KIND_REQ.QUESTION?'무엇이 궁금한지 적어 주세요':'메모: 여기를 어떻게 고칠지 (비워도 됩니다)'; qHint($('#c-qhint'),$('#note').value,KIND_NEW);}
+  $('#note').placeholder=KIND_NEW===KIND_REQ.QUESTION?'무엇이 궁금한지 적어 주세요':'메모: 여기를 어떻게 고칠지 (비워도 됩니다)'; qHint($('#c-qhint'),$('#note').value,KIND_NEW);
+  renderVerdictRow();}   // a question takes no verdict
 // A note that reads like a question (docs/handbook/viewer.md §스레드와 검토 - suggesting the kind). True if it ends in ?/? or a
 // Korean interrogative ending (는가/나요/까요/인가/건가/니/냐/까). A trailing period/ellipsis/closing bracket/quote and a
 // trailing @-tag (e.g. '맞나요? @Bob Park') are ignored. Only judges - never changes the kind itself.

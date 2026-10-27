@@ -26,6 +26,8 @@ body.band-phone{--sel-area:max(4px,env(safe-area-inset-top))}
 body.revision-open #sel-mode{display:none}
 body.lay-wide #sel-mode{top:var(--strip-h)}
 body.lay-narrow #sel-mode{bottom:var(--sheet-h,0px)}
+body.lay-narrow #pv-bar{bottom:calc(var(--sheet-h,0px) + var(--space-2))}   /* the page verdict bar (B) floats over the sheet's top edge */
+body.lay-narrow.has-status:not(.typing) #pv-bar{bottom:calc(var(--sheet-h,0px) + 24px + var(--space-2))}   /* ...and over the status line on it */
 body.lay-narrow.has-status:not(.typing) #sel-mode{bottom:calc(var(--sheet-h,0px) + 24px)}
 body.mid-overlay.side-open #sel-mode{right:calc(var(--side-w,330px) + 8px)}
 body.selmode #sel-mode{box-shadow:inset 0 0 0 2px var(--primary)}

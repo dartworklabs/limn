@@ -126,3 +126,22 @@ pre{background:var(--code);border:0;border-radius:var(--radius);padding:var(--sp
   line-height:1.5;max-height:44vh;font-family:var(--font-mono);tab-size:2;margin:var(--space-2) 0}
 pre.wrap{white-space:pre-wrap;overflow-wrap:anywhere}   /* a long unbreakable token (a URL, a command) breaks too */
 pre.nowrap{white-space:pre}
+/* The page verdict line (verdict.js; docs/handbook/viewer.md §쪽 판정 줄), on a figure document or a view-only PDF whose
+   word file says page: true. Candidate A: a line under each page - the page target's verdict state, the earlier open
+   verdicts' link and one button per word - the page's width up to what the PDF area shows, held in view (sticky) while a
+   zoomed page scrolls sideways; zooming changes the page, never the line. Candidate B (?pv=b, the PoC's switch): one such bar
+   for the page in view, floating over the PDF area's bottom. */
+.pv{position:sticky;left:0;right:0;display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-1) var(--space-2);
+  margin:calc(-1 * var(--space-2)) auto var(--space-4);min-height:var(--control-h);font-size:var(--text-sm);color:var(--muted-foreground);user-select:none}
+.pv-t{display:flex;flex-wrap:wrap;align-items:center;gap:0 var(--space-1);flex:1 1 auto;min-width:0}
+:is(.pv,#pv-bar) .pv-s{color:var(--foreground);font-weight:600}
+:is(.pv,#pv-bar) .pv-s.pv-none{color:var(--muted-foreground);font-weight:400}
+:is(.pv,#pv-bar) .pv-n .vd-w{color:var(--foreground);font-weight:600}
+:is(.pv,#pv-bar) .pv-pg{color:var(--foreground)}
+:is(.pv,#pv-bar) .vd-btns{flex:0 1 auto}
+:is(.pv,#pv-bar) button.pv-early{color:var(--primary);padding-inline:var(--space-1);text-decoration:underline;text-underline-offset:2px}
+.pv.flash,#pv-bar.flash{animation:pinflash 1.2s ease-in-out 1}
+#pv-bar{position:absolute;left:var(--edge);right:var(--edge);bottom:var(--space-3);z-index:6;display:flex;flex-wrap:wrap;align-items:center;
+  gap:var(--space-1) var(--space-2);max-width:640px;margin:0 auto;padding:var(--space-1) var(--space-1) var(--space-1) var(--space-3);
+  border:1px solid var(--border);border-radius:var(--radius-lg);background:var(--popover);box-shadow:var(--shadow);font-size:var(--text-sm);color:var(--muted-foreground)}
+#pv-bar[hidden],body.revision-open #pv-bar{display:none}

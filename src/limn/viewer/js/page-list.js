@@ -21,9 +21,10 @@ function pageListNamed(){const d=docInfo(DOC); return !d||buildsFromSource(d.kin
 function pageCount(){return META&&META.pages?META.pages.length:0;}
 // The rows for pages 1..n: the page on screen (cur) is the selected option, carries the check and is the list's one tab stop.
 // The section names are the manuscript's words (translate="no"); the page number is UI.
-function pageRowsHtml(n,cur){const names=pageListNamed()?pageSections(OUTLINE_ENTRIES,n):[];
-  return html`${Array.from({length:n},(_,i)=>{const p=i+1,on=p===cur;
-    return html`<button class="pl-row${on?' on':''}" role="option" aria-selected="${on}" tabindex="${on?0:-1}" data-act="page-go" data-page="${p}" data-close="1"><span class="pl-n">${tl('{page}쪽',{page:p})}</span><span class="pl-s" translate="no">${names[i]||''}</span>${on?ic('check'):''}</button>`;})}`;}
+// A page whose page verdict line shows a verdict carries it at the row's end, before the check ('#42 채택'): the verdicts at a glance.
+function pageRowsHtml(n,cur){const names=pageListNamed()?pageSections(OUTLINE_ENTRIES,n):[],pv=pageVerdictsOn()?pageVerdictPins():null;
+  return html`${Array.from({length:n},(_,i)=>{const p=i+1,on=p===cur,vp=pv&&(pv.get(p)||[])[0],vk=vp&&verdictOf(vp);
+    return html`<button class="pl-row${on?' on':''}" role="option" aria-selected="${on}" tabindex="${on?0:-1}" data-act="page-go" data-page="${p}" data-close="1"><span class="pl-n">${tl('{page}쪽',{page:p})}</span><span class="pl-s" translate="no">${names[i]||''}</span>${vp&&vk?html`<span class="pl-v">#${vp.id} <span translate="no">${verdictLabel(vk)}</span></span>`:''}${on?ic('check'):''}</button>`;})}`;}
 // Scrolls list so that its selected row sits in the middle of the list's box (as far as the list can scroll).
 function revealPageRow(list){const r=/** @type {HTMLElement|null} */(list.querySelector('[aria-selected=true]')); if(!r)return;
   list.scrollTop=r.offsetTop-(list.clientHeight-r.offsetHeight)/2;}

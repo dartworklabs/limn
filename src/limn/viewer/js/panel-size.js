@@ -100,7 +100,7 @@ function sheetLift(f,need){return Math.max(f,Math.min(SHEET_TAB_LIFT_MAX,need));
 function tabletLift(){const f=sheetF();
   if(BAND!==LAYOUT_BAND.TABLET_SHEET||SHEET_KEPT||$('#composer').hidden||!MQ_COARSE.matches)return f;
   const ed=$('#c-sg-text'),open=ed.getClientRects().length>0; if(!open&&!panelField())return f;
-  const r=$('#right'),last=open?ed:$('#note'),bottom=last.getBoundingClientRect().bottom-r.getBoundingClientRect().top+r.scrollTop;
+  const vr=$('#c-verdict-row'),r=$('#right'),last=open?ed:vr.getClientRects().length?vr:$('#note'),bottom=last.getBoundingClientRect().bottom-r.getBoundingClientRect().top+r.scrollTop;
   return sheetLift(f,(bottom+8+$('#c-actions').offsetHeight)/innerHeight);}
 // Sets and remembers the sheet height (a fraction, clamped to 30-100%) under the band's key, opens a collapsed sheet, and ends the composing lift.
 function setSheetF(f){keepSheet(); f=Math.min(1,Math.max(SHEET_MIN_F,f)); savePrefs({[sheetPref().key]:Math.round(f*1000)/1000}); applySheet(); if(!SIDE_OPEN)setSide(true); renderSizeSeg();}

@@ -46,6 +46,7 @@ placeholder="이 줄들을 바꿀 글 (비우면 이 줄들을 지웁니다)" da
     assignee:assigneeOf(p),
     doc:pdoc(p),region:isRegion(p),pinEl:p.el||null,page:pinPlace(p).page,quote:p.quote||'',kind_req:isQuestion(p)?KIND_REQ.QUESTION:KIND_REQ.FIX,sg:suggestOfPin(p)};
   if(EDITOR.current.region)el.classList.add('region');
+  if(verdictOf(p))el.classList.add('verdict');   // a verdict pin keeps its verdict and target (D3): only the note and the assignee are edited
   drawPins(); renderEdit(); ta.focus(); editSnip(true);
 }
 // Does the edit field have unsaved changes (whether it's safe to close the edit when switching documents)?

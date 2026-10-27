@@ -52,8 +52,12 @@ function clearPendingSave(){if(!COMPOSE.pendingSave)return; COMPOSE.pendingSave=
 // whose button then reads [다시 저장] (api's save flag). A suggested edit goes along (suggestForSave); when its base no longer
 // reads as the lines (409 suggest_base_changed) nothing is saved, the draft stays, the editor shows the current text against it
 // and the failure's banner offers [지금 원문으로 맞추기].
-/** Save the submitted selection once, preserving any later edits as a draft and offering undo for the created pin. */
-async function savePin(){
+// With verdict (a word of the document's, the composer's verdict row - which calls it only with a found selection: its buttons
+// are off while the pick runs) the pin is a verdict pin: a fix request with no suggestion; its undo withdraws it and does
+// not bring the composer back (verdictUndo, D10).
+/** Save the submitted selection once, preserving any later edits as a draft and offering undo for the created pin.
+ * @param {string} [verdict] */
+async function savePin(verdict){
   if(COMPOSE.saving)return;
   if(!COMPOSE.current){if(COMPOSE.picking)togglePendingSave(); return;}   // pick hasn't finished yet - queue it (toggle) or cancel the pending save
   COMPOSE.saving=true; const visit=captureVisit(); syncComposeSaveButtons();
@@ -69,7 +73,8 @@ async function savePin(){
   // up yet is not sent. A pin created by the viewer always records an assignee (otherwise a legacy pin's inference applies).
   const out=assignOutcome(composeAsk(SAVE_MODE.NEW)); body.kind_req=out.kind; body.assignee=out.assignee;
   const mh=mentionHints($('#note')); if(mh.length)body.mentions=mh;
-  const sg=isRegion(d)?null:suggestForSave(SG,suggestOff(d,META?META.kind:undefined)); if(sg)body.suggest=sg;
+  const sg=isRegion(d)||verdict?null:suggestForSave(SG,suggestOff(d,META?META.kind:undefined)); if(sg)body.suggest=sg;
+  if(verdict){body.verdict=verdict; body.kind_req=KIND_REQ.FIX;}
   const snap=selectionSnapshot(),fields=composeFields();   // [되돌리기] takes the pin back and hands this selection and note back for another try
   const draft=savedDraftSnapshot();
   const question=out.kind===KIND_REQ.QUESTION;
@@ -83,10 +88,11 @@ async function savePin(){
     else clearSavedDraft(draft);
     if(SEC_SEEN.open)SEC_SEEN.open.add(id);   // my own new pin is never 'new' on a collapsed header
     /** @type {()=>Promise<boolean>} */
-    const undo=async()=>{const ok=await dropPin(id,true,undo);
+    const undo=verdict?verdictUndo(id):async()=>{const ok=await dropPin(id,true,undo);
       if(ok&&(cleared||restored)&&DOC===visit.doc&&!COMPOSE.current&&!COMPOSE.box&&!COMPOSE.picking&&!$('#note').value)restoreSelection(snap);
       return ok;};
-    const chip=undoNote(NOTICE_PLACE.CHIP,tl(question?'질문 #{id} 저장됨 · pins.md 갱신':'핀 #{id} 저장됨 · pins.md 갱신',{id}),
+    const chip=verdict?undoNote(NOTICE_PLACE.CHIP,tl('#{id} 저장됨 · {word} 판정',{id,word:verdictLabel(verdict)}),{label:'되돌리기',wait:true,fn:undo},{pin:id,pending:true,label:tl('#{id} 저장됨',{id})})
+      :undoNote(NOTICE_PLACE.CHIP,tl(question?'질문 #{id} 저장됨 · pins.md 갱신':'핀 #{id} 저장됨 · pins.md 갱신',{id}),
       {label:'되돌리기',wait:true,fn:undo},{pin:id,pending:true,label:tr('저장됨')});
     await loadPins(); settleChip(chip);
   }catch(e){} finally{COMPOSE.saving=false; syncComposeSaveButtons();}
