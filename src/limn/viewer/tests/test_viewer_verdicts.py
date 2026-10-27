@@ -442,3 +442,23 @@ class Touch(VerdictBase):
         page.locator('#doc .pv[data-page="1"]').scroll_into_view_if_needed()
         settle(page)
         self.assertEqual(page.evaluate(MISSES_44, '#doc .pv[data-page="1"] button'), [])
+
+    def test_with_the_keyboard_up_the_row_under_the_note_stays_on_screen(self):
+        """Phones and tablet sheets, the note focused and the keyboard up (the layout 300px shorter): the location line,
+        the note and the verdict row under it are whole on screen (the tablet sheet's lift reaches the row; the sheet scrolls
+        on as far as the note stays under the location line)."""
+        shown = """sel => {const e = document.querySelector(sel), r = e.getBoundingClientRect(), x = r.left + r.width / 2; let n = 0;
+          for (let y = Math.max(0, Math.ceil(r.top)); y < Math.min(innerHeight, r.bottom); y++) {const t = document.elementFromPoint(x, y); if (t && (t === e || e.contains(t))) n++;}
+          return n === Math.ceil(r.bottom) - Math.ceil(r.top);}"""
+        for w, h in ((320, 720), (390, 844), (768, 1024), (673, 841)):
+            with self.subTest(w=w, h=h):
+                page = self.on("ms", viewport={"width": w, "height": h}, is_mobile=True, has_touch=True)
+                page.evaluate("LAST_PTR='touch'; pick({page:1,x0:10,y0:10,x1:200,y1:60})")
+                page.wait_for_function("COMPOSE.current&&!COMPOSE.picking")
+                settle(page)
+                page.focus("#note")
+                page.set_viewport_size({"width": w, "height": h - 300})
+                settle(page)
+                self.assertEqual(
+                    [page.evaluate(shown, s) for s in ("#c-loc", "#note", "#c-verdict-row")], [True, True, True]
+                )
