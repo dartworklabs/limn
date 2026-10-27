@@ -199,10 +199,12 @@ function looksQuestion(text){let t=String(text||'').trim();
 // request). Disappears once it becomes a question or the text no longer reads like one.
 function qHint(box,text,kind){if(box)box.hidden=kind===KIND_REQ.QUESTION||!looksQuestion(text);}
 // Drops the current selection and its box (clearNote also empties the note, kind and assignee). No undo here -
-// discardSelection() is the user's Esc/[취소], which offers one.
+// discardSelection() is the user's Esc/[취소], which offers one. A sheet's height is drawn again (applySheet): the tablet sheet's
+// composing lift ends with the composer, also when an open edit card keeps the sheet open.
 function cancelSelection(clearNote){if(REPICK)cancelRepick(); closeSelPop(); COMPOSE.current=null; PICKSEQ++; COMPOSE.picking=false; clearPendingSave(); if(COMPOSE.box){COMPOSE.box.remove();COMPOSE.box=null;} saveDraftSoon();
   COMPOSE.dismissedOverlap=null; setBusy(false); $('#composer').hidden=true; if(clearNote){$('#note').value=''; $('#note')._mentions=null; ASSIGN_NEW.touched=false; renderAssignNew(); setKind(KIND_REQ.FIX); suggestClear();}
-  if(!REPICK)setSelMode(false); if(LAYOUT===LAYOUT_MODE.NARROW&&!EDITOR.current)setSide(false); applySide();}
+  if(!REPICK)setSelMode(false); if(LAYOUT===LAYOUT_MODE.NARROW&&!EDITOR.current)setSide(false); applySide();
+  if(LAYOUT===LAYOUT_MODE.NARROW)applySheet();}
 // What a discarded or saved selection needs to come back (restoreSelection): the pick (COMPOSE.current), its box on the page, the note with its
 // @-tag hints, the kind, the assignee choice and the suggested edit's draft, and the document/build the box belongs to. null when there is no selection.
 function selectionSnapshot(){if(!COMPOSE.current&&!COMPOSE.picking&&$('#composer').hidden)return null; const n=$('#note');

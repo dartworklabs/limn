@@ -80,25 +80,28 @@ function sheetPref(){return BAND===LAYOUT_BAND.TABLET_SHEET?{key:'sheetFTab',def
 // While composing, the phone sheet rises to SHEET_COMPOSE_F (CSS body.sheet-up, never saved) so the note field and the location line
 // above it stay in view; the first height the user sets meanwhile (a drag, a tap, a preset, a key) wins until the composer closes.
 // The tablet sheet does not rise: at 45% the location line, the note and the save row fit and the page dragged on stays in view.
-// Only with the keyboard up, if they no longer fit, it rises as far as they need, at most SHEET_TAB_LIFT_MAX (tabletLift).
+// Only when they no longer fit - with the keyboard up, or with the suggestion editor open under the note - it rises as far as they
+// need, at most SHEET_TAB_LIFT_MAX (tabletLift).
 let SHEET_KEPT=false;
 // Marks that the user set the sheet height while composing: the lift stops and their height applies. Outside composing it does nothing.
 function keepSheet(){if($('#composer').hidden)return; SHEET_KEPT=true; document.body.classList.remove('sheet-up');}
 // The sheet height in use (a fraction, 30-100%): the band's saved one, else its default.
 function sheetF(){const s=sheetPref(),f=prefs()[s.key]; return typeof f==='number'?Math.min(1,Math.max(SHEET_MIN_F,f)):s.def;}
-// Draws the sheet height: the band's own (sheetF), or on the tablet sheet its keyboard lift (tabletLift). Never saved.
+// Draws the sheet height: the band's own (sheetF), or on the tablet sheet its composing lift (tabletLift). Never saved.
 function applySheet(){document.documentElement.style.setProperty('--sheet-f',String(tabletLift()));}
-// The tablet sheet's height for need (the fraction of the screen the location line, the note and the save row take): its own
-// height f if they fit, else just what they need, at most SHEET_TAB_LIFT_MAX; a higher chosen f stays. Pure.
+// The tablet sheet's height for need (the fraction of the screen the composer down to its note or open editor and the save row
+// take): its own height f if they fit, else just what they need, at most SHEET_TAB_LIFT_MAX; a higher chosen f stays. Pure.
 function sheetLift(f,need){return Math.max(f,Math.min(SHEET_TAB_LIFT_MAX,need));}
-// The sheet height to draw now: sheetF(), lifted (sheetLift) on the tablet sheet while composing with the keyboard up - a panel text
-// field has focus on a touch screen - and the user has not set a height meanwhile. Measures the tool bar, the location line to the
-// note's bottom, the save row and two 8px gaps against the layout height.
+// The sheet height to draw now: sheetF(), lifted (sheetLift) on the tablet sheet while composing - with the keyboard up (a panel
+// text field has focus on a touch screen) or with the suggestion editor open - and the user has not set a height meanwhile. Needs
+// the sheet's top down to the bottom of the last block that must show (the open editor, else the note), one 8px step and the
+// save row, against the layout height; measured in the sheet's scroll space, so the same at any scroll and while the location
+// line sticks.
 function tabletLift(){const f=sheetF();
-  if(BAND!==LAYOUT_BAND.TABLET_SHEET||SHEET_KEPT||$('#composer').hidden||!MQ_COARSE.matches||!panelField())return f;
-  const r=$('#right'),note=$('#note'),y=e=>e.getBoundingClientRect().top-r.getBoundingClientRect().top+r.scrollTop;
-  const need=$('#bar1').offsetHeight+y(note)+note.offsetHeight-y($('#composer .c-loc-row'))+$('#c-actions').offsetHeight+16;
-  return sheetLift(f,need/innerHeight);}
+  if(BAND!==LAYOUT_BAND.TABLET_SHEET||SHEET_KEPT||$('#composer').hidden||!MQ_COARSE.matches)return f;
+  const ed=$('#c-sg-text'),open=ed.getClientRects().length>0; if(!open&&!panelField())return f;
+  const r=$('#right'),last=open?ed:$('#note'),bottom=last.getBoundingClientRect().bottom-r.getBoundingClientRect().top+r.scrollTop;
+  return sheetLift(f,(bottom+8+$('#c-actions').offsetHeight)/innerHeight);}
 // Sets and remembers the sheet height (a fraction, clamped to 30-100%) under the band's key, opens a collapsed sheet, and ends the composing lift.
 function setSheetF(f){keepSheet(); f=Math.min(1,Math.max(SHEET_MIN_F,f)); savePrefs({[sheetPref().key]:Math.round(f*1000)/1000}); applySheet(); if(!SIDE_OPEN)setSide(true); renderSizeSeg();}
 // The next height stop above the one shown (the composing lift counts as shown); wraps to the lowest.
