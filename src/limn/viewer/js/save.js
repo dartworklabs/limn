@@ -98,7 +98,7 @@ async function savePin(verdict){
     const undo=verdict?verdictUndo(id):async()=>{const ok=await dropPin(id,true,undo);
       if(ok&&(cleared||restored)&&DOC===visit.doc&&!COMPOSE.current&&!COMPOSE.box&&!COMPOSE.picking&&!$('#note').value)restoreSelection(snap);
       return ok;};
-    const chip=verdict?undoNote(NOTICE_PLACE.CHIP,tl('#{id} 저장됨 · {word} 판정',{id,word:verdictLabel(verdict)}),{label:'되돌리기',wait:true,fn:undo},{pin:id,pending:true,label:tl('#{id} 저장됨',{id})})
+    const chip=verdict?undoNote(NOTICE_PLACE.CHIP,tl('#{id} 저장됨 · {word} 판정',{id,word:verdictLabel(verdict)}),{label:'되돌리기',wait:true,fn:undo},{pin:id,pending:true,label:tl('#{id} 저장됨 · {word}',{id,word:verdictLabel(verdict)})})
       :undoNote(NOTICE_PLACE.CHIP,tl(question?'질문 #{id} 저장됨 · pins.md 갱신':'핀 #{id} 저장됨 · pins.md 갱신',{id}),
       {label:'되돌리기',wait:true,fn:undo},{pin:id,pending:true,label:tr('저장됨')});
     await loadPins(); settleChip(chip);

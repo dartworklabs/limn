@@ -128,7 +128,7 @@ function pvStateWord(p){const st=pinState(p); if(st===PIN_STATE.REVIEW||CONFIRMI
 // ---------------- Two presses for a confirm word (D9)
 // The armed first press: the word, where (VD_WHERE) and - on a page line - the page, with the document, build and (in the
 // composer) selection it is bound to; null when nothing is armed.
-let VD_ARM=/** @type {{key:string,where:string,page:number,doc:string|null,build:string,sel:string,timer:ReturnType<typeof setTimeout>}|null} */(null);
+let VD_ARM=/** @type {{key:string,label:string,where:string,page:number,doc:string|null,build:string,sel:string,timer:ReturnType<typeof setTimeout>}|null} */(null);
 // What the composer's selection is, for the binding: its page, lines, rung, box and element.
 function vdSelKey(){const d=COMPOSE.current; return d?JSON.stringify([d.page,d.lo,d.hi,d.scope,d.frac,d.elSel&&d.elSel.id]):'';}
 // Whether the armed press is this word's button.
@@ -138,17 +138,19 @@ function vdArmedHere(key,where,page){const a=VD_ARM; return !!a&&a.key===key&&a.
 function vdArmStill(a){return a.doc===DOC&&!!META&&a.build===META.pages_build&&(a.where!==VD_WHERE.COMPOSER||a.sel===vdSelKey());}
 // Arms word key's button: it reads '<낱말> 확정' for VD_ARM_MS and a screen reader hears that the next press saves.
 function armVerdict(key,where,page,label){disarmVerdict(false);
-  VD_ARM={key,where,page,doc:DOC,build:META?META.pages_build:'',sel:where===VD_WHERE.COMPOSER?vdSelKey():'',timer:setTimeout(()=>disarmVerdict(true),VD_ARM_MS)};
+  VD_ARM={key,label,where,page,doc:DOC,build:META?META.pages_build:'',sel:where===VD_WHERE.COMPOSER?vdSelKey():'',timer:setTimeout(()=>disarmVerdict(true,true),VD_ARM_MS)};
   vdRedraw(where); announce(tl('{word} — 한 번 더 누르면 저장합니다',{word:label}));}
 // Lets an armed press go (Esc, another press, a press elsewhere, a new selection, document or build, the time running out).
-/** @param {boolean} redraw */
-function disarmVerdict(redraw){const a=VD_ARM; if(!a)return; clearTimeout(a.timer); VD_ARM=null; if(redraw)vdRedraw(a.where);}
+// When it goes by itself or by Esc (say) a screen reader hears so - '삭제 확정을 풀었습니다' replaces '한 번 더 누르면 저장합니다'.
+/** @param {boolean} redraw @param {boolean} [say] */
+function disarmVerdict(redraw,say){const a=VD_ARM; if(!a)return; clearTimeout(a.timer); VD_ARM=null; if(redraw)vdRedraw(a.where);
+  if(say)announce(tl('{word} 확정을 풀었습니다',{word:a.label}));}
 /** @param {string} where */
 function vdRedraw(where){if(where===VD_WHERE.COMPOSER)renderVerdictRow(); else drawPageVerdicts();}
 // A press anywhere but on the armed button lets it go; Esc does too, and does nothing else.
 window.addEventListener('click',e=>{if(!VD_ARM)return; const b=/** @type {HTMLElement|null} */(/** @type {HTMLElement} */(e.target).closest('[data-act="verdict-save"],[data-act="pv-save"]'));
   if(!(b&&vdArmedHere(b.dataset.key||'',vdWhereOf(b),Number(b.dataset.page)||0)))disarmVerdict(true);},true);
-window.addEventListener('keydown',e=>{if(e.key!=='Escape'||!VD_ARM)return; e.preventDefault(); e.stopImmediatePropagation(); disarmVerdict(true);},true);
+window.addEventListener('keydown',e=>{if(e.key!=='Escape'||!VD_ARM)return; e.preventDefault(); e.stopImmediatePropagation(); disarmVerdict(true,true);},true);
 /** @param {HTMLElement} b */
 function vdWhereOf(b){return b.dataset.act==='verdict-save'?VD_WHERE.COMPOSER:VD_WHERE.PAGE;}
 
@@ -157,12 +159,14 @@ function vdWhereOf(b){return b.dataset.act==='verdict-save'?VD_WHERE.COMPOSER:VD
 // in the screen's language here.
 // Its description says what a press does at once: in the composer the selection and note become that verdict's pin, on a page
 // line a new verdict pin for the page.
+// Off: a composer's button is disabled; a page line's waits for its page's save (aria-disabled, verdictPress ignores it) and
+// keeps the focus a keyboard press left on it - a disabled button would drop it to the page.
 /** @param {VerdictChoice} c @param {string} where @param {number} page @param {string} target @param {boolean} off */
-function vdButton(c,where,page,target,off){const armed=vdArmedHere(c.key,where,page);
+function vdButton(c,where,page,target,off){const armed=vdArmedHere(c.key,where,page),line=where!==VD_WHERE.COMPOSER;
   const name=armed?tl('{word} 확정 — 한 번 더 누르면 저장합니다',{word:c.label}):tl('{word} 판정으로 저장 — {target}',{word:c.label,target});
   const tip=armed?name:where===VD_WHERE.COMPOSER?tl('누르면 지금 선택과 메모를 {word} 판정 핀으로 바로 저장합니다',{word:c.label}):tr('누르면 이 쪽에 새 판정 핀을 저장합니다');
   return html`<button type="button" class="vd-b hit${c.confirm?' vd-confirm':''}${armed?' armed':''}" translate="no" data-act="${where===VD_WHERE.COMPOSER?'verdict-save':'pv-save'}" \
-data-key="${c.key}" data-page="${page}" aria-label="${name}" data-tip="${tip}"${off?html` disabled`:''}><span class="lbl">${armed?tl('{word} 확정',{word:c.label}):c.label}</span></button>`;}
+data-key="${c.key}" data-page="${page}" aria-label="${name}" data-tip="${tip}"${off?line?html` aria-disabled="true"`:html` disabled`:''}><span class="lbl">${armed?tl('{word} 확정',{word:c.label}):c.label}</span></button>`;}
 // Gives the focus back to the button it was on after a redraw (an armed press redraws its buttons).
 /** @param {HTMLElement|null} f */
 function vdRefocus(f){if(!f||document.contains(f)||!f.dataset||!f.dataset.act)return;
@@ -174,7 +178,7 @@ function vdRefocus(f){if(!f||document.contains(f)||!f.dataset||!f.dataset.act)re
 // holds; any other word saves at once - the composer's through savePin, a page line's through savePageVerdict.
 /** @param {HTMLElement} b */
 function verdictPress(b){const key=b.dataset.key||'',where=vdWhereOf(b),page=Number(b.dataset.page)||0,v=docVerdicts(),c=v&&v.choices.find(x=>x.key===key);
-  if(!c||viewerBlocked())return;
+  if(!c||b.getAttribute('aria-disabled')==='true'||viewerBlocked())return;
   if(c.confirm&&!(vdArmedHere(key,where,page)&&VD_ARM&&vdArmStill(VD_ARM))){const f=/** @type {HTMLElement|null} */(document.activeElement);
     armVerdict(key,where,page,c.label); vdRefocus(f&&f.closest&&f.closest('.vd-btns')?f:null); return;}
   disarmVerdict(false);
@@ -188,25 +192,34 @@ function selTarget(d){return isRegion(d)?tl('{page}쪽 영역',{page:d.page}):d.
 // The composer's verdict row (#c-verdict-row, after the note and its lines, before the kind row): '판정 바로 저장' and one
 // button per word in file order. Shown for a document with words to a person who may make a verdict pin; its buttons are
 // off, with the reason under them, while the kind is a question or [제안 수정] is on (a verdict pin is a fix request with
-// no suggestion) and while the selection is still being found.
+// no suggestion) and while the selection is still being found - really disabled, with the reason, also during a second pick
+// over a selection (pick redraws the row when it starts).
 function renderVerdictRow(){const row=$('#c-verdict-row'),v=docVerdicts(),d=COMPOSE.current;
+  dropStaleRetry();
   const show=!!v&&canVerdict()&&!$('#composer').hidden; row.hidden=!show;
   if(VD_ARM&&VD_ARM.where===VD_WHERE.COMPOSER&&(!show||!vdArmStill(VD_ARM)))disarmVerdict(false);
   if(!v||!show)return;
-  const why=KIND_NEW===KIND_REQ.QUESTION?tr('질문에는 판정을 붙이지 않습니다 — 아래에서 [수정 요청]을 고릅니다')
+  const why=COMPOSE.picking&&!d?tr('위치를 찾는 중입니다'):KIND_NEW===KIND_REQ.QUESTION?tr('질문에는 판정을 붙이지 않습니다 — 아래에서 [수정 요청]을 고릅니다')
     :SG.on?tr('판정을 저장하려면 [제안 수정]을 끕니다'):'';
   const f=/** @type {HTMLElement|null} */(document.activeElement),inRow=!!f&&row.contains(f);
   setHtml(row,html`<span id="c-verdict-l" class="vd-l">${tr('판정 바로 저장')}</span><span class="vd-btns">${v.choices.map(c=>vdButton(c,VD_WHERE.COMPOSER,0,d?selTarget(d):'',!!why||!d||COMPOSE.saving))}</span>\
 ${why?html`<span class="vd-why" id="c-verdict-why">${why}</span>`:''}`);
   if(why)row.setAttribute('aria-describedby','c-verdict-why'); else row.removeAttribute('aria-describedby');
   if(inRow)vdRefocus(f);}
+// A failed verdict save's retry the composer no longer asks for (COMPOSE.intent moved since its press): it goes, and the
+// failure's banner says so - [다시 저장] now saves the selection as the composer has it, without the verdict, and pressing the
+// word again saves the verdict. Run on every redraw of the verdict row, which every such change makes.
+function dropStaleRetry(){const rv=COMPOSE.retryVerdict; if(!rv||rv.gen===COMPOSE.intent)return; COMPOSE.retryVerdict=null;
+  const b=BANNERS.get(NOTICE_HOST.COMPOSER); if(!b||!b.save||$('#composer').hidden)return;
+  bannerNote(NOTICE_HOST.COMPOSER,tl('{what} 실패',{what:tr('핀 저장')})+' — '+tr('판정은 버렸습니다. 판정으로 저장하려면 판정 버튼을 다시 누릅니다'),NOTICE_KIND.ERR,null,{save:true,source:b.source});}
 // The undo of a verdict pin's save (D10): the pin goes again - a withdrawn request - and the composer does not come back. When
-// an agent claimed or closed it meanwhile it still goes, and the status line says its run may have started.
+// an agent claimed or closed it meanwhile it still goes, and the status line says its run may have started - one
+// sentence with no ' — ', so the folded line shows all of it.
 /** @param {number} id @returns {()=>Promise<boolean>} */
 function verdictUndo(id){const undo=async()=>{let was=null;
     try{was=(await api('/api/pins/'+id,{what:'핀 읽기',silent:true})).data.pin;}catch(e){}
     const ok=await dropPin(id,true,undo);
-    if(ok&&was&&(claimActive(was)||pinState(was)!==PIN_STATE.OPEN))lineNote('처리 중이던 판정입니다 — 이미 실행됐을 수 있습니다',NOTICE_KIND.WARN);
+    if(ok&&was&&(claimActive(was)||pinState(was)!==PIN_STATE.OPEN))lineNote('처리 중이던 판정이라 이미 실행됐을 수 있습니다',NOTICE_KIND.WARN);
     return ok;};
   return undo;}
 
@@ -247,7 +260,7 @@ async function savePageVerdict(page,key){const pg=META&&META.pages[page-1]; if(!
     const id=(await api('/api/pin',{method:'POST',body,what:'판정 저장',where:NOTICE_HOST.LINE})).data.id;
     if(SEC_SEEN.open)SEC_SEEN.open.add(id);   // my own new pin is never 'new' on a collapsed header
     const chip=undoNote(NOTICE_PLACE.CHIP,tl('#{id} 저장됨 · {word} 판정',{id,word:verdictLabel(key)}),{label:'되돌리기',wait:true,fn:verdictUndo(id)},
-      {pin:id,pending:true,label:tl('#{id} 저장됨',{id})});
+      {pin:id,pending:true,label:tl('#{id} 저장됨 · {word}',{id,word:verdictLabel(key)})});
     await loadPins(); settleChip(chip);
   }catch(e){} finally{document.removeEventListener('focusin',moved); PV_BUSY.delete(page); drawPageVerdicts(); if(back)pvRefocus(page,key);}}
 // Gives the focus back to word key's button on page `page`'s line after its save: the pressed button was disabled and redrawn
@@ -256,7 +269,7 @@ async function savePageVerdict(page,key){const pg=META&&META.pages[page-1]; if(!
 /** @param {number} page @param {string} key */
 function pvRefocus(page,key){const a=document.activeElement; if(a&&a!==document.body&&document.contains(a))return;
   const b=/** @type {HTMLButtonElement|null} */(document.querySelector('#doc .pv[data-page="'+page+'"] [data-act="pv-save"][data-key="'+CSS.escape(key)+'"]'));
-  if(b&&!b.disabled)b.focus({preventScroll:true});}
+  if(b&&!b.disabled&&b.getAttribute('aria-disabled')!=='true')b.focus({preventScroll:true});}
 // One page's line: its state - '판정 없음', or the newest verdict pin about its target with its state, its number and word,
 // and who made it and when if that was someone else - the earlier open verdicts as a link ('앞선 판정 N건(처리하지 않음)'),
 // and, for a person who may make one, a button per word. No pressed look: a verdict is a request until it is handled.
@@ -265,9 +278,11 @@ function pvLineHtml(page,list,v){const cur=list&&list[0],earlier=list?list.slice
   const k=cur&&verdictOf(cur),other=!!cur&&!!cur.author&&!isMe(cur.author);
   // One order for every state: '판정 #4 채택 · 처리 대기', then who made it and when if someone else did. The number is a link to
   // the card (the viewer's link style), the word is bold.
-  const text=cur&&k?html`<span class="pv-s">${tr('판정')} <span class="pin-ref pv-ref" role="link" tabindex="0" data-act="pin-ref" data-ref="${cur.id}" \
-data-tip="${tl('핀 #{id} 로 갑니다',{id:cur.id})}">#${cur.id}</span> <b class="vd-w" translate="no">${verdictLabel(k)}</b></span>\
-<span class="pv-sep" aria-hidden="true">·</span><span class="pv-st">${pvStateWord(cur)}</span>\
+  // A claimed one names who has it: '처리 중(Agent B)' - the name after it is the pin's author.
+  const S='\u0001',by=cur&&pinState(cur)===PIN_STATE.OPEN&&claimActive(cur)&&cur.claimed_by?who(cur.claimed_by):'',st=cur?pvStateWord(cur):'',sp=by?tl('처리 중({name})',{name:S}).split(S):[st];
+  const text=cur&&k?html`<span class="pv-s">${tr('판정')} <span class="pin-ref pv-ref hit" role="link" tabindex="0" data-act="pin-ref" data-ref="${cur.id}" \
+aria-label="${tl('지금 판정 #{id} 카드로 갑니다',{id:cur.id})}" data-tip="${tl('핀 #{id} 로 갑니다',{id:cur.id})}">#${cur.id}</span> <b class="vd-w" translate="no">${verdictLabel(k)}</b></span>\
+<span class="pv-sep" aria-hidden="true">·</span><span class="pv-st">${sp[0]}${by?html`<span class="pv-by" translate="no">${by}</span>${sp[1]||''}`:''}</span>\
 ${other?html`<span class="pv-sep" aria-hidden="true">·</span><span class="pv-au" translate="no">${who(cur.author)}</span> ${relSpan(cur.at,'pv-at','')}`:''}`
     :html`<span class="pv-s pv-none">${tr('판정 없음')}</span>`;
   const early=earlier.length?html`<button type="button" class="btn-ghost btn-sm pv-early hit" data-act="pv-earlier" data-ref="${earlier[0].id}" \
@@ -276,15 +291,31 @@ data-tip="${tr('이 쪽의 더 새 판정으로 대체되어 실행하지 않는
   return html`<span class="pv-t">${text}${early}</span>${btns}`;}
 // Draws page `page`'s line.
 /** @param {HTMLElement} el @param {number} page @param {Pin[]|undefined} list @param {DocVerdicts} v */
-// A line whose words are what it already shows is left alone: the list redraws on every poll and many other changes, and
-// buttons rewritten between a press's down and up would lose the press (the click lands on the line, not the button).
+// The list redraws on every poll and many other changes, so a line is never rewritten: what changed is changed in place
+// (pvMorph) - its words and links, a button's state - and every button, the '#N' link and the earlier link stay the same
+// elements. A press whose down and up straddle a redraw still lands on its button (a rewritten one sent the click to the
+// line), and the focus stays where it was, also on a '#N' whose number just changed. A line whose words are what it shows is
+// left alone. Every verdict pin the line accounts for - the current one and the earlier ones - draws no page-size mark.
 const PV_TEXT=/** @type {WeakMap<HTMLElement,string>} */(new WeakMap());   // what fillPv last wrote into each line
 function fillPv(el,page,list,v){el.dataset.page=String(page); const cur=list&&list[0];
-  if(cur){el.dataset.pin=String(cur.id); PV_SHOWN.add(cur.id);} else delete el.dataset.pin;
+  if(cur)el.dataset.pin=String(cur.id); else delete el.dataset.pin; (list||[]).forEach(p=>PV_SHOWN.add(p.id));
   el.setAttribute('role','group'); el.setAttribute('aria-label',tl('{page}쪽 판정',{page}));
-  const m=pvLineHtml(page,list,v); if(PV_TEXT.get(el)===m.text)return;
+  const m=pvLineHtml(page,list,v); if(PV_TEXT.get(el)===m.text)return; PV_TEXT.set(el,m.text);
   const chip=el.querySelector(':scope>.nt-chip');   // a save's undo chip (drawChips) stays on its line; drawChips moves it if it is another pin's
-  setHtml(el,m); PV_TEXT.set(el,m.text); if(chip)el.appendChild(chip);}
+  if(chip)chip.remove(); const next=document.createElement('div'); setHtml(next,m); pvMorphKids(el,next); if(chip)el.appendChild(chip);}
+// Makes a's children b's, keeping every node that is the same kind in the same place (pvMorph).
+/** @param {Node} a @param {Node} b */
+function pvMorphKids(a,b){const ac=[...a.childNodes],bc=[...b.childNodes];
+  bc.forEach((n,i)=>{if(i<ac.length)pvMorph(ac[i],n); else a.appendChild(n);}); ac.slice(bc.length).forEach(n=>n.remove());}
+// Makes node a read as b: the same text, or the same element (tag and data-act) with b's attributes and children; another
+// kind of node takes a's place.
+/** @param {Node} a @param {Node} b */
+function pvMorph(a,b){if(a.nodeType!==b.nodeType||a.nodeName!==b.nodeName||(a instanceof Element&&b instanceof Element&&a.getAttribute('data-act')!==b.getAttribute('data-act'))){
+    /** @type {ChildNode} */(a).replaceWith(b); return;}
+  if(!(a instanceof Element&&b instanceof Element)){if(a.nodeValue!==b.nodeValue)a.nodeValue=b.nodeValue; return;}
+  [...a.attributes].forEach(x=>{if(!b.hasAttribute(x.name))a.removeAttribute(x.name);});
+  [...b.attributes].forEach(x=>{if(a.getAttribute(x.name)!==x.value)a.setAttribute(x.name,x.value);});
+  pvMorphKids(a,b);}
 // The width of each line: the page's (W), never past what the PDF area shows - a zoomed page scrolls sideways under a
 // line that stays in view (sticky) and keeps its size. Then one rhythm for every page: when any page's line cannot hold its
 // words and its buttons on one row (a phone, a folded cover), every line puts its buttons on a row of their own, at its

@@ -129,7 +129,10 @@ pre.nowrap{white-space:pre}
 /* The page verdict line (verdict.js; docs/handbook/viewer.md §판정 핀), on a figure document or a view-only PDF whose
    word file says page: true: a line under each page - the page target's verdict state, the earlier open verdicts' link and
    one button per word - the page's width up to what the PDF area shows, held in view (sticky) while a zoomed page scrolls
-   sideways; zooming changes the page, never the line. */
+   sideways; zooming changes the page, never the line. The pages' column (#doc) is as wide as the widest page, never narrower
+   than the PDF area, so a zoomed page's line has its whole width to stick in - with a mouse too (a column kept at the
+   fitted width let the line scroll away with it). */
+#doc{width:fit-content;min-width:100%}
 .pv{position:sticky;left:0;right:0;display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-1) var(--space-2);
   margin:calc(-1 * var(--space-2)) auto var(--space-4);min-height:var(--control-h);font-size:var(--text-sm);color:var(--muted-foreground);user-select:none}
 .pv-t{display:flex;flex-wrap:wrap;align-items:center;gap:0 var(--space-1);flex:1 1 auto;min-width:0}

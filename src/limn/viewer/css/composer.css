@@ -124,13 +124,15 @@ button.xp-row{cursor:pointer;min-width:0;justify-content:stretch}
 /* The composer's verdict row (#c-verdict-row, verdict.js; docs/handbook/viewer.md §패널 정리): after the note and its lines,
    before the kind row - '판정 바로 저장' and one outline button per word in file order. A confirm word is the danger colour's
    text, and while its first press is armed it reads '<낱말> 확정' on a light danger fill; the accent stays [핀 저장]'s. The
-   buttons are one group sharing the row's room: beside the label when they fit, else on the line under it, never wrapping
-   inside. Off (a question, [제안 수정] on), the reason is a line under them that names the control which turns them on. */
+   buttons are one group sharing the row's room: beside the label when they fit, else on the line under it, and only where
+   even that line cannot hold them (the 280px panel in English with a word armed) wrapping inside - a word is never cut.
+   Off (a question, [제안 수정] on, the pick still finding the place), the reason is a line under them that names it. */
 .vd-row{display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-1) var(--space-2)}   /* the composer's 8px gap is the one step above and below it */
 .vd-l{flex:none;color:var(--muted-foreground);font-size:var(--text-sm)}
-.vd-btns{display:flex;flex:1 1 auto;gap:var(--space-1);min-width:0}
-.vd-btns button{flex:1 1 auto;min-width:0;padding-inline:var(--space-2)}
-.vd-btns .lbl{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.vd-btns{display:flex;flex-wrap:wrap;flex:1 1 auto;gap:var(--space-1);min-width:0}
+.vd-btns button{flex:1 0 auto;padding-inline:var(--space-2)}
+.vd-btns .lbl{white-space:nowrap}
+.vd-btns button[aria-disabled=true]{opacity:.65;cursor:not-allowed}   /* a page line's buttons while its page's save runs: they keep the focus */
 button.vd-confirm{color:var(--destructive)}
 button.vd-confirm.armed{background:color-mix(in srgb,var(--destructive) 10%,transparent);border-color:var(--destructive);color:var(--destructive);font-weight:600}
 .vd-why{flex-basis:100%;font-size:var(--text-sm);line-height:18px;color:var(--muted-foreground)}
