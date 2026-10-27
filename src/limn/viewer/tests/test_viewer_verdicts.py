@@ -778,8 +778,10 @@ class ConfirmationRoundFixes(VerdictBase):
         self.assertTrue(page.evaluate(texts))
 
 
-# A card's '이전 판정' marker: its text and the id its link goes to, or None.
-OLD = """id=>{const m=document.querySelector('.pin[data-id="'+id+'"] .vd-old,.arc-row[data-id="'+id+'"] .vd-old'); if(!m) return null;
+# A card's '이전 판정' marker on screen (a card has one in its tags and one in its folded preview; one shows): its text,
+# the id its link goes to and its name, or None.
+OLD = """id=>{const m=[...document.querySelectorAll('.pin[data-id="'+id+'"] .vd-old,.arc-row[data-id="'+id+'"] .vd-old')].find(e=>e.getClientRects().length);
+  if(!m) return null;
   return {text: m.textContent, ref: Number(m.querySelector('.vd-old-ref').dataset.ref), label: m.getAttribute('aria-label')};}"""
 
 
@@ -822,7 +824,7 @@ class SupersededMarker(VerdictBase):
         page = self.on("fig")
         a = self.press_page(page, 1, "보류")
         b = self.press_page(page, 1, "채택")
-        page.locator('.pin[data-id="%d"] .vd-old-ref' % a).click()
+        page.locator('.pin[data-id="%d"] .vd-old-ref:visible' % a).click()
         page.wait_for_function(
             "id=>[...document.querySelectorAll('.pin.flash')].some(e=>e.dataset.id===String(id))", arg=b
         )
@@ -846,6 +848,28 @@ class SupersededMarker(VerdictBase):
         page.evaluate("()=>{SHOW_ALL=true; drawPins();}")
         settle(page)
         self.assertEqual(page.evaluate(OLD, a)["ref"], b)
+
+    def test_a_folded_card_on_a_phone_shows_it(self):
+        """On a phone the cards are folded and only their preview line shows: the older verdict's preview is its badge and
+        the marker, one marker on screen, its '#N' still a link to the current card."""
+        page = self.on("fig")
+        a = self.press_page(page, 1, "보류")
+        b = self.press_page(page, 1, "채택")
+        page = self.on("fig", n_open=2, viewport={"width": 390, "height": 844}, is_mobile=True, has_touch=True)
+        page.evaluate("()=>{setSide(true); drawPins();}")
+        settle(page)
+        got = page.evaluate(
+            """id=>{const c=document.querySelector('.pin[data-id="'+id+'"]'), s=c.querySelector('.sum');
+              const m=[...c.querySelectorAll('.vd-old')].filter(e=>e.getClientRects().length);
+              return {folded: !c.classList.contains('open'), shown: m.length, inSum: m.length===1&&s.contains(m[0]),
+                badge: !!s.querySelector('.badge-verdict'), ref: m.length?Number(m[0].querySelector('.vd-old-ref').dataset.ref):null};}""",
+            a,
+        )
+        self.assertEqual(got, {"folded": True, "shown": 1, "inSum": True, "badge": True, "ref": b})
+        page.locator('.pin[data-id="%d"] .sum .vd-old-ref' % a).click()
+        page.wait_for_function(
+            "id=>[...document.querySelectorAll('.pin.flash')].some(e=>e.dataset.id===String(id))", arg=b
+        )
 
     def test_latex_verdicts_on_the_same_lines_and_the_review_and_done_rows(self):
         """Two composer verdicts on the same lines of the LaTeX manuscript: the older is marked, in its open card, then as

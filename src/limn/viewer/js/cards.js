@@ -31,11 +31,13 @@ function card(p){p=pvQuietRel(p);   // no overlap badge between two verdicts abo
   // Collapsed card's (compact) note preview: up to two lines on its own line below the header. It used to only get the
   // leftover width after the number/location inside the header's single line, clipping to '[C...', and an awaiting-review
   // card's prefixed '내 확인 차례 · ' ate even more of that width (QA 2026-09-24). Review status is conveyed by the dot color.
-  const sum=html`<div class="sum" translate="no" data-act="card-toggle">${first?fmtText(first,p.mentions):vOnly?verdictBadge(p):noNote}</div>`;
+  // A superseded verdict says so folded too: '이전 판정 · #4가 앞섬' after the badge, or before the note's line.
+  const vo=verdictOldMarker(p);
+  const sum=html`<div class="sum" translate="no" data-act="card-toggle">${vOnly?html`${verdictBadge(p)}${vo}`:html`${vo}${first?fmtText(first,p.mentions):noNote}`}</div>`;
   if(isRegion(p)){const fb=figRegionBadge(p.el,isFigureKind((docInfo(pdoc(p))||{}).kind));   // a figure region: element without code, or map unreadable
     tags.unshift(fb?html`<span class="badge" data-tip="${fb.tip}">${fb.t}</span>`:html`<span class="badge" data-tip="보기 전용 PDF의 핀 — 줄 번호 없이 쪽·영역과 영역 글자로 가리킵니다">보기 전용</span>`);}
   if(isQuestion(p))tags.unshift(html`<span class="badge badge-question" data-tip="${T.question}">${ic('circle-question-mark')}질문</span>`);
-  const vb=verdictBadge(p),vo=verdictOldMarker(p); if(vo)tags.unshift(vo); if(vb)tags.unshift(vb);   // '판정 채택' in the question badge's place, then '이전 판정 · #4가 앞섬'
+  const vb=verdictBadge(p); if(vo)tags.unshift(vo); if(vb)tags.unshift(vb);   // '판정 채택' in the question badge's place, then '이전 판정 · #4가 앞섬'
   const adr=p.assignee?null:addressedTag(p); if(adr)tags.push(adr);   // a recorded assignee already appears in the note-level metadata
   const fyi=fyiTag(p); if(fyi)tags.push(fyi);   // a fix pin's FYI @-tags - this line once sat after the comment above and never executed (QA 2026-09-24)
   const sgb=suggestBadge(p,closedCard); if(sgb)tags.push(sgb);   // a suggested edit, and why not to apply it (suggest.js)

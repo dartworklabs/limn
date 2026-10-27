@@ -8,8 +8,8 @@ viewer strings change.
 ### Added
 
 - **Superseded verdicts say so on their cards.** A verdict pin whose target has a newer verdict carries a neutral
-  `이전 판정 · #4가 앞섬` next to its verdict badge (`Earlier verdict · superseded by #4`), on open cards, review cards
-  and completed rows; `#4` goes to the current verdict's card. The current verdict comes from the same ordering as the
+  `이전 판정 · #4가 앞섬` next to its verdict badge (`Earlier verdict · superseded by #4`), on open cards (folded ones
+  in their preview line), review cards and completed rows; `#4` goes to the current verdict's card. The current verdict comes from the same ordering as the
   page verdict line (the highest pin number per target, deleted pins excluded). Targets are read by location only: a
   whole page, a figure element, or the same file and lines of a LaTeX document; pins whose target cannot be read carry
   nothing. It shows without a page line (`page: false`, LaTeX documents) and on other documents' cards under [모든
