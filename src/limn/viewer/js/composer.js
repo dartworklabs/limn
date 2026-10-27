@@ -1,6 +1,8 @@
 // ------------------------------------------------ composer
 // The active selection owns its PDF box, in-flight pick/save, and overlap choice for one composer visit.
-const COMPOSE={current:/** @type {Selection|null} */(null),box:/** @type {HTMLElement|null} */(null),picking:false,pendingSave:false,saving:false,dismissedOverlap:/** @type {string|null} */(null)};
+// retryVerdict: the verdict a failed save carried and the selection it was bound to, which the failure's [다시 저장] saves again.
+const COMPOSE={current:/** @type {Selection|null} */(null),box:/** @type {HTMLElement|null} */(null),picking:false,pendingSave:false,saving:false,dismissedOverlap:/** @type {string|null} */(null),
+  retryVerdict:/** @type {{key:string,sel:Selection,at:string}|null} */(null)};
 /** Capture editable composer fields by value - the suggested edit's switch, text and base among them; derived overlap and
  * snippet updates do not count as new input. */
 function composeFields(){const d=COMPOSE.current,n=$('#note');

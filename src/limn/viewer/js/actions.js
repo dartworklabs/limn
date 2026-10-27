@@ -14,6 +14,8 @@ async function closePin(id){const prev=drawnBefore($('#pins'),'.pin.card',id);
 // at; a 409 'open' means it was reopened and is still open (docs/handbook/api.md §검토 대기). Both are banners on top of the
 // review section (confirmConflict).
 const CONFIRMING=new Set();
+// The pins whose [확인] waits for its undo, by id: off the review list meanwhile, but a page verdict line still counts them (verdict.js).
+const CONFIRMING_PIN=/** @type {Map<number,Pin>} */(new Map());
 // The warning for a confirm answered 409 'conflict', chosen by the pin that 409 carries: still awaiting review means it
 // was closed again - look at the new result, then confirm; any other state (a person closed it straight to done) has
 // nothing to confirm. A body without the pin (an older server) keeps the closed-again warning.
@@ -30,7 +32,7 @@ function confirmConflict(id,pin){const kind=confirmConflictKind(pin);
   bannerNote(NOTICE_HOST.REVIEW,confirmConflictText(id,pin),kind,kind===NOTICE_KIND.WARN?{label:'변경 보기',tip:T.change,fn:()=>showChange(id)}:null);}
 function confirmPin(id){if(CONFIRMING.has(id))return; const at=REVIEW_ALL.findIndex(p=>p.id===id),pin=at<0?null:REVIEW_ALL[at];
   const prev=drawnBefore($('#review-pins'),'.pin.card',id);
-  CONFIRMING.add(id); REVIEW_ALL=REVIEW_ALL.filter(p=>p.id!==id); drawPins(); marks();
+  CONFIRMING.add(id); if(pin)CONFIRMING_PIN.set(id,pin); REVIEW_ALL=REVIEW_ALL.filter(p=>p.id!==id); drawPins(); marks();
   const d=deferred(async()=>{
       try{const {data}=await api('/api/pins/'+id+'/confirm',{method:'POST',what:'확인',where:NOTICE_HOST.REVIEW,expect:[409],keepalive:true,
           body:pin&&pin.done_at?{done_at:pin.done_at}:{}});
@@ -38,8 +40,8 @@ function confirmPin(id){if(CONFIRMING.has(id))return; const at=REVIEW_ALL.findIn
         else if(data&&data.error==='conflict')confirmConflict(id,data.pin);
         else if(!data.ok)bannerNote(NOTICE_HOST.REVIEW,tl('확인 실패 — 핀 #{id} 이 없습니다',{id}),NOTICE_KIND.ERR);
         else markMine(id);}catch(e){}
-      CONFIRMING.delete(id); await loadPins();},
-    ()=>{CONFIRMING.delete(id);
+      CONFIRMING.delete(id); CONFIRMING_PIN.delete(id); await loadPins();},
+    ()=>{CONFIRMING.delete(id); CONFIRMING_PIN.delete(id);
       if(pin&&!REVIEW_ALL.some(p=>p.id===id)){const i=Math.min(at,REVIEW_ALL.length); REVIEW_ALL=[...REVIEW_ALL.slice(0,i),pin,...REVIEW_ALL.slice(i)];}
       drawPins(); marks();});
   deferredNote(d,NOTICE_PLACE.ROW,tl('핀 #{id} 확인 · 완료로 옮겼습니다',{id}),{pin:id,sec:'review',prev});}

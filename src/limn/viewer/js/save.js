@@ -25,7 +25,8 @@ async function appendToPin(id,text){
  * also waits while a suggested edit is written (it is saved with a new pin only, renderOverlapBanner). */
 function syncComposeSaveButtons(){document.querySelectorAll('#btn-save,[data-act="overlap-append"],[data-act="pop-save"]').forEach(b=>{
   /** @type {HTMLButtonElement} */(b).disabled=COMPOSE.saving;});
-  if(suggestPending())document.querySelectorAll('[data-act="overlap-append"]').forEach(b=>{/** @type {HTMLButtonElement} */(b).disabled=true;});}
+  if(suggestPending())document.querySelectorAll('[data-act="overlap-append"]').forEach(b=>{/** @type {HTMLButtonElement} */(b).disabled=true;});
+  renderVerdictRow();}   // the verdict buttons wait for the request too, and come back when it ends - a selection picked meanwhile included
 // Undo of an append: the note goes back to what it was before (base_rev = the append's revision). Silent - the card shows it.
 // Resolves with whether it went back (its chip waits for it, noticeAct).
 /** @param {number} id @param {string} note @param {number} rev @returns {Promise<boolean>} */
@@ -62,6 +63,10 @@ async function savePin(verdict){
   if(!COMPOSE.current){if(COMPOSE.picking)togglePendingSave(); return;}   // pick hasn't finished yet - queue it (toggle) or cancel the pending save
   COMPOSE.saving=true; const visit=captureVisit(); syncComposeSaveButtons();
   const d=COMPOSE.current,box=COMPOSE.box,note=$('#note').value.trim();
+  // [다시 저장] after a verdict's failed save carries that verdict again while the selection is the one it was bound to
+  // (the same pick, page, lines, rung and box); a changed selection is a plain pin's save.
+  const rv=COMPOSE.retryVerdict,at=JSON.stringify([d.page,d.lo,d.hi,d.scope,d.frac]); COMPOSE.retryVerdict=null;
+  if(verdict===undefined&&rv&&rv.sel===d&&rv.at===at)verdict=rv.key;
   let body=/** @type {Record<string, unknown>} */({file:d.file,name:d.name,page:d.page,lo:d.lo,hi:d.hi,raw_lo:d.raw_lo,raw_hi:d.raw_hi,via:d.via,score:d.score,
     frac:d.frac,note:note,quote:d.quote,pdf_build:d.pdf_build||undefined});
   if(d.scope){body.scope=d.scope; body.kind=kindFor(d.scope,d.env);} else body.kind=d.kind;
@@ -78,7 +83,7 @@ async function savePin(verdict){
   const snap=selectionSnapshot(),fields=composeFields();   // [되돌리기] takes the pin back and hands this selection and note back for another try
   const draft=savedDraftSnapshot();
   const question=out.kind===KIND_REQ.QUESTION;
-  try{const {status,data}=await api('/api/pin',{method:'POST',body,what:'핀 저장',where:NOTICE_HOST.COMPOSER,save:true,expect:sg?[409]:[]});
+  try{const {status,data}=await api('/api/pin',{method:'POST',body,what:verdict?'판정 저장':'핀 저장',where:NOTICE_HOST.COMPOSER,save:true,expect:sg?[409]:[]});
     if(status===409){suggestSaveRefused(d,data); return;}
     const id=data.id,failed=BANNERS.get(NOTICE_HOST.COMPOSER);
     if(failed&&failed.save)endNotice(failed,false);   // this save went through: its earlier failure is over
@@ -95,7 +100,8 @@ async function savePin(verdict){
       :undoNote(NOTICE_PLACE.CHIP,tl(question?'질문 #{id} 저장됨 · pins.md 갱신':'핀 #{id} 저장됨 · pins.md 갱신',{id}),
       {label:'되돌리기',wait:true,fn:undo},{pin:id,pending:true,label:tr('저장됨')});
     await loadPins(); settleChip(chip);
-  }catch(e){} finally{COMPOSE.saving=false; syncComposeSaveButtons();}
+  }catch(e){if(verdict)COMPOSE.retryVerdict={key:verdict,sel:d,at};}   // the failure's [다시 저장] saves this verdict again
+  finally{COMPOSE.saving=false; syncComposeSaveButtons();}
 }
 // A new pin's save the server answered 409 while it carried a suggested edit: nothing was saved and the draft stays. When the
 // suggestion's base no longer reads as the selection's lines (suggest_base_changed), the editor shows the lines' current text

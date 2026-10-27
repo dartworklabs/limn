@@ -133,9 +133,18 @@ pre.nowrap{white-space:pre}
 .pv{position:sticky;left:0;right:0;display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-1) var(--space-2);
   margin:calc(-1 * var(--space-2)) auto var(--space-4);min-height:var(--control-h);font-size:var(--text-sm);color:var(--muted-foreground);user-select:none}
 .pv-t{display:flex;flex-wrap:wrap;align-items:center;gap:0 var(--space-1);flex:1 1 auto;min-width:0}
-.pv .pv-s{color:var(--foreground);font-weight:600}
-.pv .pv-s.pv-none{color:var(--muted-foreground);font-weight:400}
-.pv .pv-n .vd-w{color:var(--foreground);font-weight:600}
+/* One order for every state: '판정 #4 채택 · 처리 대기'. The number is the viewer's link (.pin-ref, cards.css), the word bold. */
+.pv .pv-s{color:var(--foreground)}
+.pv .pv-s.pv-none{color:var(--muted-foreground)}
+.pv .vd-w{color:var(--foreground);font-weight:600}
+.pv .pv-st{color:var(--foreground)}
 .pv .vd-btns{flex:0 1 auto}
-.pv button.pv-early{color:var(--primary);padding-inline:var(--space-1);text-decoration:underline;text-underline-offset:2px}
+/* The earlier verdicts' link: the viewer's link look - primary text, no underline at rest, a solid one on hover and
+   :focus-visible (cards.css §One unified link style). */
+.pv button.pv-early{color:var(--primary);padding-inline:var(--space-1);text-decoration:none;text-underline-offset:3px}
+.pv button.pv-early:focus-visible{background:transparent;text-decoration:underline}
+@media (hover:hover){.pv button.pv-early:hover{background:transparent;color:var(--primary);text-decoration:underline}}
+/* When any page's line cannot hold its words and buttons on one row, every line puts the buttons on a row of their own, at
+   its start (sizePv sets #doc.pv-stack) - one rhythm on every page. */
+#doc.pv-stack .pv .vd-btns{flex-basis:100%}
 .pv.flash{animation:pinflash 1.2s ease-in-out 1}

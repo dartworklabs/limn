@@ -195,13 +195,16 @@ document.addEventListener('focusout',()=>setTimeout(()=>{syncTyping(); if(bandSt
 function keepFieldInView(){const f=panelField(); if(!f||!MQ_COARSE.matches)return;   // touch only: a mouse window scrolls as it always did
   if(f===$('#note')&&BAND===LAYOUT_BAND.TABLET_SHEET)$('#composer .c-loc-row').scrollIntoView({block:'start'}); f.scrollIntoView({block:'nearest'});
   if(f===$('#note'))noteRowInView();}
-// The composer's verdict row (verdict.js) sits right under the note: with the note focused on a touch sheet the sheet scrolls on
-// until the row clears the save row too - only as far as the note's top stays under the location line stuck above it, so the
-// field being typed in stays whole. A row that cannot fit beside the note stays where it is.
+// The composer's verdict row (verdict.js) sits right under the note: with the note focused on a touch screen the panel scrolls
+// on until the row clears the save row too - only as far as the field being typed in stays whole under what is above it: the
+// location line stuck at the top (a compact sheet or panel), else the panel's own top with the location line itself in view.
+// A row that cannot fit beside the note stays where it is.
 function noteRowInView(){const row=$('#c-verdict-row'); if(row.hidden||!row.getClientRects().length)return;
-  const save=$('#c-actions').getBoundingClientRect().top-8,top=$('#composer .c-loc-row').getBoundingClientRect().bottom+8;
-  const need=row.getBoundingClientRect().bottom-save,room=$('#note').getBoundingClientRect().top-top;
-  if(need>0&&room>0)$('#right').scrollTop+=Math.min(need,room);}
+  const R=$('#right'),loc=$('#composer .c-loc-row'),stuck=getComputedStyle(loc).position==='sticky';
+  const save=$('#c-actions').getBoundingClientRect().top-8;
+  const top=stuck?loc.getBoundingClientRect().bottom+8:R.getBoundingClientRect().top+(parseFloat(getComputedStyle(R).scrollPaddingTop)||0);
+  const first=stuck?$('#note'):loc,need=row.getBoundingClientRect().bottom-save,room=first.getBoundingClientRect().top-top;
+  if(need>0&&room>0)R.scrollTop+=Math.min(need,room);}
 
 // A first-visit hint (docs/handbook/viewer.md §알림 자리): shown once per device and key (pinPrefs.coach remembers it), on the
 // status line until [x] or until the person does what it says - picks ('touch', 'mouse') or opens the panel ('side').

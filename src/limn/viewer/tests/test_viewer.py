@@ -3783,6 +3783,7 @@ class FrontendSaveWhilePicking(unittest.TestCase):
                 extract_js_fn("composeOwns"),
                 extract_js_fn("composeFields"),
                 extract_js_fn("syncComposeSaveButtons"),
+                "function renderVerdictRow(){}",  # no verdict words here (verdict.js)
                 extract_js_fn("savePin"),
                 extract_js_fn("cancelSelection"),
                 extract_js_fn("pick"),

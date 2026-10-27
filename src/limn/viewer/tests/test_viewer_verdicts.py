@@ -27,7 +27,9 @@ AGENT = {"Tailscale-User-Login": "agentb@example.com", "Tailscale-User-Name": "A
 CAROL_VIEWER = {"Tailscale-User-Login": "carol@example.com", "Tailscale-User-Name": "Carol Lee"}
 # The text of page n's line, its buttons' words, and whether its line is there at all.
 LINE = """n => {const l = document.querySelector('#doc .pv[data-page="' + n + '"]'); if (!l) return null;
-  return {text: l.querySelector('.pv-t').textContent, pin: l.dataset.pin || null, words: [...l.querySelectorAll('button.vd-b')].map(b => b.textContent)};}"""
+  const t = [...l.querySelector('.pv-t').childNodes].map(n => n.textContent).join(' ');
+  return {text: t.replace(/·/g, ' · ').replace(/\\s+/g, ' ').trim(), pin: l.dataset.pin || null,
+    words: [...l.querySelectorAll('button.vd-b')].map(b => b.textContent), tips: [...l.querySelectorAll('button.vd-b')].map(b => b.dataset.tip)};}"""
 
 
 class VerdictBase(BrowserBase):
@@ -45,13 +47,25 @@ class VerdictBase(BrowserBase):
         for key, path in self.word_files.items():
             path.write_text(json.dumps({**WORDS, "page": key != "ms"}, ensure_ascii=False), encoding="utf-8")
         member_add(ps.APP.C.state, AGENT["Tailscale-User-Login"], "agent")
+        self.fail_pin = 0  # how many POST /api/pin to lose on the network (route.abort)
+        self.held: list | None = (
+            None  # POST /api/pin routes held unanswered while not None (release with self.release())
+        )
         patch = mock.patch.object(pick_source, "region_text", return_value="")
         patch.start()
         self.addCleanup(patch.stop)
 
     def route(self, route):
-        """A pick on the figure or the PDF goes to the handler; the manuscript's gets the computed answer."""
+        """A pick on the figure or the PDF goes to the handler; the manuscript's gets the computed answer. A new pin's POST
+        may be lost (fail_pin) or held (held)."""
         rq = route.request
+        if urlparse(rq.url).path == "/api/pin" and rq.method == "POST":
+            if self.fail_pin:
+                self.fail_pin -= 1
+                return route.abort()
+            if self.held is not None:
+                self.held.append(route)
+                return None
         if urlparse(rq.url).path == "/api/pick" and (json.loads(rq.post_data or "{}").get("doc") in ("fig", "rv")):
             return self.forward(route)
         return super().route(route)
@@ -67,6 +81,12 @@ class VerdictBase(BrowserBase):
         raw = ("%s %s HTTP/1.1\r\n" % (method, path) + "".join("%s: %s\r\n" % kv for kv in h.items()) + "\r\n").encode()
         code, _, out = split_resp(talk_to(ps, raw + data))
         return code, json.loads(out or b"null")
+
+    def release(self):
+        """Answer every held POST /api/pin and stop holding."""
+        held, self.held = self.held or [], None
+        for r in held:
+            self.forward(r)
 
     def pins(self):
         """Every pin as GET /api/pins?all=1 answers, by id."""
@@ -102,17 +122,19 @@ class ComposerRow(VerdictBase):
     """The composer's verdict row: shown with words, saves the selection as a verdict, two presses for a confirm word."""
 
     def test_the_row_offers_the_words_in_file_order_only_where_there_are_words(self):
-        """With words the row stands after the note and before the kind row, a button per word in file order, the
-        confirm word in the danger colour; without a word file there is no row and no page line."""
+        """With words the row stands after the note and before the kind row: '판정 바로 저장' and a button per word in file
+        order, the confirm word in the danger colour, each saying that a press saves the selection and note at once; without a
+        word file there is no row and no page line."""
         page = self.on("ms")
         self.open_composer(page)
         row = page.evaluate("""()=>{const r=document.querySelector('#c-verdict-row'), kids=[...document.querySelector('#composer').children].map(e=>e.id);
           return {shown: !r.hidden && r.getClientRects().length>0, words: [...r.querySelectorAll('button')].map(b=>b.textContent),
+            lead: r.querySelector('.vd-l').textContent, tip: r.querySelector('button').dataset.tip,
             confirm: [...r.querySelectorAll('button.vd-confirm')].map(b=>b.dataset.key), order: kids.indexOf('c-verdict-row') - kids.indexOf('c-kind-row'),
             afterNote: !!(document.querySelector('#note').compareDocumentPosition(r) & Node.DOCUMENT_POSITION_FOLLOWING)};}""")
-        self.assertEqual(
-            row, {"shown": True, "words": ["채택", "보류", "삭제"], "confirm": ["삭제"], "order": -1, "afterNote": True}
-        )
+        want = {"shown": True, "words": ["채택", "보류", "삭제"], "confirm": ["삭제"], "order": -1, "afterNote": True}
+        want.update(lead="판정 바로 저장", tip="누르면 지금 선택과 메모를 채택 판정 핀으로 바로 저장합니다")
+        self.assertEqual(row, want)
         self.assertEqual(page.locator("#popover-verdict, #sel-pop .vd-b").count(), 0)  # never in the note popover
         for f in self.word_files.values():
             f.unlink()
@@ -185,7 +207,7 @@ class ComposerRow(VerdictBase):
         settle(page)
         s = page.evaluate(state)
         self.assertTrue(s["off"], s)
-        self.assertIn("질문", s["why"])
+        self.assertEqual(s["why"], "질문에는 판정을 붙이지 않습니다 — 아래에서 [수정 요청]을 고릅니다")
         page.locator('#c-kind button[data-kind="fix"]').click()
         settle(page)
         self.assertEqual(page.evaluate(state), {"off": False, "why": ""})
@@ -193,7 +215,7 @@ class ComposerRow(VerdictBase):
         settle(page)
         s = page.evaluate(state)
         self.assertTrue(s["off"], s)
-        self.assertIn("제안 수정", s["why"])
+        self.assertEqual(s["why"], "판정을 저장하려면 [제안 수정]을 끕니다")
 
     def test_the_edit_card_of_a_verdict_pin_offers_its_note_only(self):
         """A verdict pin's edit card has no kind, range, suggestion or [위치 다시 잡기]; its note is saved and the
@@ -234,7 +256,8 @@ class PageLine(VerdictBase):
         """On the figure, a selection with a note open: 채택 on page 1's line saves a verdict about the page's figure
         (el.path == [el.id]) with no note, and the selection and its note stay. The line says it, its page-size mark is not
         drawn and [보기] goes to the line; the same word again is a new pin, which the line now shows, with the earlier one
-        as '앞선 판정 1건(처리하지 않음)' and its mark drawn as before. Page 2 has none."""
+        as '이전 판정 1건 · 새 판정이 앞섬' and its mark drawn as before. Page 2 has none. The line reads '판정 #N 채택 · 처리 대기'
+        and its buttons say a press saves a new verdict pin for the page."""
         page = self.on("fig")
         page.evaluate(
             "p=>{LAST_PTR='mouse'; pick({doc:'fig',page:1,pdf_build:META.pages_build,x0:p[0]*META.pages[0].pt_w,y0:p[1]*META.pages[0].pt_h,"
@@ -256,14 +279,14 @@ class PageLine(VerdictBase):
         )
         line = page.evaluate(LINE, 1)
         self.assertEqual((line["pin"], line["words"]), (str(first), ["채택", "보류", "삭제"]))
-        self.assertIn("처리 기다리는 판정", line["text"])
-        self.assertIn("#%d 채택" % first, line["text"])
+        self.assertEqual(line["text"], "판정 #%d 채택 · 처리 대기" % first)
+        self.assertEqual(set(line["tips"]), {"누르면 이 쪽에 새 판정 핀을 저장합니다"})
         self.assertEqual(page.locator('.mark[data-pin="%d"]' % first).count(), 0)
         self.assertIn("판정 없음", page.evaluate(LINE, 2)["text"])
         second = self.press_page(page, 1, "채택")
         line = page.evaluate(LINE, 1)
         self.assertEqual(line["pin"], str(second))
-        self.assertIn("앞선 판정 1건(처리하지 않음)", line["text"])
+        self.assertEqual(line["text"], "판정 #%d 채택 · 처리 대기 이전 판정 1건 · 새 판정이 앞섬" % second)
         self.assertEqual(page.locator('.mark[data-pin="%d"]' % first).count(), 1)
         self.assertEqual(page.locator('.mark[data-pin="%d"]' % second).count(), 0)
         page.evaluate("id=>jumpPin(id)", second)
@@ -272,20 +295,21 @@ class PageLine(VerdictBase):
         )
 
     def test_the_line_says_each_state_and_the_newest_number_wins(self):
-        """On the PDF: waiting, then 처리 중 once an agent claims it, 검토 대기 once it closes it; on page 2 a newer
+        """On the PDF, in one order '판정 #N 채택 · <state>': 처리 대기, then 처리 중 once an agent claims it, 검토 대기 once it
+        closes it; the number is a link to the card. On page 2 a newer
         verdict by someone else that a person closed reads '처리됨' with its author, and the older open one stays an
         earlier verdict - closing the newest never brings the older back."""
         page = self.on("rv")
         a = self.press_page(page, 1, "채택")
-        self.assertIn(
-            "처리 기다리는 판정 · #%d 채택" % a, " ".join(page.evaluate(LINE, 1)["text"].replace("·", " · ").split())
-        )
+        self.assertEqual(page.evaluate(LINE, 1)["text"], "판정 #%d 채택 · 처리 대기" % a)
         self.assertEqual(self.call("POST", "/api/pins/%d/claim" % a, {}, AGENT)[0], 200)
         self.reload(page)
-        self.assertIn("처리 중", page.evaluate(LINE, 1)["text"])
+        self.assertEqual(page.evaluate(LINE, 1)["text"], "판정 #%d 채택 · 처리 중" % a)
         self.assertEqual(self.call("POST", "/api/pins/%d/close" % a, {"reply": "done"}, AGENT)[0], 200)
         self.reload(page)
-        self.assertIn("검토 대기", page.evaluate(LINE, 1)["text"])
+        self.assertEqual(page.evaluate(LINE, 1)["text"], "판정 #%d 채택 · 검토 대기" % a)
+        page.locator('#doc .pv[data-page="1"] .pv-ref').click()
+        page.wait_for_function("id=>document.querySelector('.pin[data-id=\"'+id+'\"].flash')", arg=a)
         older = self.press_page(page, 2, "보류")
         build = page.evaluate("META.pages_build")
         code, made = self.call(
@@ -308,8 +332,7 @@ class PageLine(VerdictBase):
         self.reload(page)
         line = page.evaluate(LINE, 2)
         self.assertEqual(line["pin"], str(made["id"]))
-        for words in ("처리됨", "#%d 채택" % made["id"], "Bob", "앞선 판정 1건(처리하지 않음)"):
-            self.assertIn(words, line["text"])
+        self.assertRegex(line["text"], r"^판정 #%d 채택 · 처리됨 · Bob .+ 이전 판정 1건 · 새 판정이 앞섬$" % made["id"])
         page.locator('#doc .pv[data-page="2"] .pv-early').click()
         page.wait_for_function("id=>document.querySelector('.pin[data-id=\"'+id+'\"].flash')", arg=older)
 
@@ -444,13 +467,14 @@ class Touch(VerdictBase):
         self.assertEqual(page.evaluate(MISSES_44, '#doc .pv[data-page="1"] button'), [])
 
     def test_with_the_keyboard_up_the_row_under_the_note_stays_on_screen(self):
-        """Phones and tablet sheets, the note focused and the keyboard up (the layout 300px shorter): the location line,
-        the note and the verdict row under it are whole on screen (the tablet sheet's lift reaches the row; the sheet scrolls
-        on as far as the note stays under the location line)."""
+        """Every touch size, the note focused and the keyboard up (the layout 300px shorter): the location line, the note
+        and the verdict row under it are whole on screen (the tablet sheet's lift reaches the row; the panel scrolls on as far
+        as the note stays under the location line, which sticks at the top of the sheet or, on the mid bands, of the panel -
+        at 841x673 it went 20px under the nav bar)."""
         shown = """sel => {const e = document.querySelector(sel), r = e.getBoundingClientRect(), x = r.left + r.width / 2; let n = 0;
           for (let y = Math.max(0, Math.ceil(r.top)); y < Math.min(innerHeight, r.bottom); y++) {const t = document.elementFromPoint(x, y); if (t && (t === e || e.contains(t))) n++;}
           return n === Math.ceil(r.bottom) - Math.ceil(r.top);}"""
-        for w, h in ((320, 720), (390, 844), (768, 1024), (673, 841)):
+        for w, h in ((320, 720), (390, 844), (344, 882), (768, 1024), (673, 841), (841, 673), (1024, 768)):
             with self.subTest(w=w, h=h):
                 page = self.on("ms", viewport={"width": w, "height": h}, is_mobile=True, has_touch=True)
                 page.evaluate("LAST_PTR='touch'; pick({page:1,x0:10,y0:10,x1:200,y1:60})")
@@ -462,3 +486,154 @@ class Touch(VerdictBase):
                 self.assertEqual(
                     [page.evaluate(shown, s) for s in ("#c-loc", "#note", "#c-verdict-row")], [True, True, True]
                 )
+
+
+class ReviewFixes(VerdictBase):
+    """The 0.4.26 review's behaviour fixes (each a regression test)."""
+
+    def test_a_retry_after_a_failed_verdict_save_keeps_the_verdict(self):
+        """A verdict save lost on the network leaves [다시 저장]; pressed with the same selection it saves that verdict - it
+        used to save a plain pin and lose the author's verdict."""
+        page = self.on("ms")
+        self.open_composer(page)
+        page.fill("#note", "keep it")
+        self.fail_pin = 1
+        page.locator('#c-verdict-row button[data-key="채택"]').click()
+        page.wait_for_function("document.querySelector('#btn-save').textContent.includes('다시 저장')")
+        settle(page)
+        self.assertEqual(self.pins(), {})
+        page.locator("#btn-save").click()
+        page.wait_for_function("OPEN_ALL.length===1")
+        settle(page)
+        (pin,) = self.pins().values()
+        self.assertEqual((pin["verdict"], pin["note"]), ("채택", "keep it"))
+
+    def test_a_retry_on_another_range_is_a_plain_save(self):
+        """The retry's verdict is bound to the selection it was pressed on: after the range changed, [다시 저장] saves a
+        plain pin of the new range."""
+        page = self.on("ms")
+        self.open_composer(page)
+        self.fail_pin = 1
+        page.locator('#c-verdict-row button[data-key="보류"]').click()
+        page.wait_for_function("document.querySelector('#btn-save').textContent.includes('다시 저장')")
+        settle(page)
+        page.locator("#c-levels button:not(.on)").first.click()
+        settle(page)
+        page.locator("#btn-save").click()
+        page.wait_for_function("OPEN_ALL.length===1")
+        (pin,) = self.pins().values()
+        self.assertNotIn("verdict", pin)
+
+    def test_a_verdict_waiting_for_its_confirmation_is_still_the_newest(self):
+        """The newest verdict awaiting review, confirmed with [확인]: during the undo window (and a list reload in it) the
+        line still shows it, not the older open one."""
+        page = self.on("rv")
+        older = self.press_page(page, 1, "보류")
+        newer = self.press_page(page, 1, "채택")
+        self.assertEqual(self.call("POST", "/api/pins/%d/close" % newer, {"reply": "done"}, AGENT)[0], 200)
+        self.reload(page)
+        page.evaluate("()=>{SEC.review=true; setSide(true); drawPins();}")
+        page.locator('#review-pins .pin[data-id="%d"] [data-act="confirm"]' % newer).click()
+        settle(page)
+        self.assertTrue(page.evaluate("id=>!REVIEW_ALL.some(p=>p.id===id)&&CONFIRMING.has(id)", newer))
+        for _ in range(2):
+            line = page.evaluate(LINE, 1)
+            self.assertEqual(line["pin"], str(newer), line)
+            self.assertNotEqual(line["pin"], str(older))
+            self.reload(page)
+
+    def test_the_verdict_buttons_come_back_when_a_save_ends_on_a_new_selection(self):
+        """A verdict save in flight turns the row off; a selection picked meanwhile is drawn off too, and when the request
+        ends its buttons are on again (only [핀 저장] used to come back)."""
+        page = self.on("ms")
+        self.open_composer(page)
+        self.held = []
+        page.locator('#c-verdict-row button[data-key="채택"]').click()
+        page.wait_for_function("COMPOSE.saving")
+        page.evaluate("pick({page:1,x0:10,y0:100,x1:200,y1:150})")
+        page.wait_for_function("COMPOSE.current&&!COMPOSE.picking&&COMPOSE.saving")
+        off = "()=>[...document.querySelectorAll('#c-verdict-row button')].map(b=>b.disabled)"
+        self.assertEqual(page.evaluate(off), [True, True, True])
+        self.release()
+        page.wait_for_function("!COMPOSE.saving")
+        settle(page)
+        self.assertEqual(page.evaluate(off), [False, False, False])
+
+    def test_a_keyboard_save_on_the_line_gives_the_focus_back(self):
+        """Enter on a page line's word saves it; the button was redrawn while the request ran, and the focus comes back to
+        it - unless the person moved it meanwhile."""
+        page = self.on("fig")
+        btn = '#doc .pv[data-page="1"] button[data-key="채택"]'
+        page.focus(btn)
+        page.keyboard.press("Enter")
+        page.wait_for_function("OPEN_ALL.length===1")
+        settle(page)
+        self.assertTrue(page.evaluate("s=>document.activeElement===document.querySelector(s)", btn))
+        self.held = []
+        page.keyboard.press("Enter")
+        page.wait_for_function("PV_BUSY.size===1")
+        page.focus(".pin .b-view")
+        self.release()
+        page.wait_for_function("PV_BUSY.size===0&&OPEN_ALL.length===2")
+        settle(page)
+        self.assertFalse(page.evaluate("!!document.activeElement.closest('#doc .pv')"))  # not taken back to the line
+
+    def test_a_card_of_another_document_names_its_own_word(self):
+        """Under [모든 문서] a verdict card of the PDF shows the PDF's label for its word, not the document on screen's."""
+        self.word_files["rv"].write_text(
+            json.dumps({**WORDS, "page": True, "verdicts": [{"key": "채택", "label": "받음"}]}, ensure_ascii=False),
+            encoding="utf-8",
+        )
+        build = self.on("rv").evaluate("META.pages_build")
+        code, made = self.call(
+            "POST",
+            "/api/pin",
+            {
+                "doc": "rv",
+                "page": 1,
+                "frac": [0, 0, 1, 1],
+                "pdf_build": build,
+                "note": "",
+                "kind_req": "fix",
+                "assignee": "agent",
+                "verdict": "채택",
+            },
+        )
+        self.assertEqual(code, 200, made)
+        page = self.on("ms", n_open=1)
+        page.evaluate("()=>{SHOW_ALL=true; drawPins();}")
+        settle(page)
+        self.assertEqual(page.locator('.pin[data-id="%d"] .badge-verdict' % made["id"]).inner_text(), "판정 받음")
+
+    def test_the_earlier_verdicts_link_is_underlined_only_on_hover(self):
+        """'이전 판정 N건 · 새 판정이 앞섬' has the viewer's link look - no underline at rest, a solid one on hover - in the
+        light and the dark theme."""
+        dark = "try{localStorage.setItem('pinPrefs',JSON.stringify({theme:'dark'}));}catch(e){}"
+        for init in (None, dark):
+            with self.subTest(theme="dark" if init else "light"):
+                page = self.open(0, init=init)
+                page.evaluate("k=>switchDoc(k)", "fig")
+                page.wait_for_function("DOC==='fig'&&document.querySelector('#doc .pv')")
+                settle(page)
+                self.press_page(page, 1, "보류")
+                self.press_page(page, 1, "채택")
+                deco = "()=>getComputedStyle(document.querySelector('#doc .pv .pv-early')).textDecorationLine"
+                self.assertEqual(page.evaluate(deco), "none")
+                page.hover("#doc .pv .pv-early")
+                self.assertEqual(page.evaluate(deco), "underline")
+                for p in self.pins():
+                    self.call("POST", "/api/pins/%d/drop" % p)
+
+    def test_on_a_phone_every_line_puts_its_buttons_on_a_row_of_their_own(self):
+        """390x844: a line too long for one row (an earlier verdict) puts its buttons on the next row, at its start, and so
+        does every other page's short line - one rhythm; the desktop keeps them at the end of the row."""
+        rows = """()=>[...document.querySelectorAll('#doc .pv')].map(l=>{const t=l.querySelector('.pv-t').getBoundingClientRect(),
+          b=l.querySelector('.vd-btns').getBoundingClientRect(),L=l.getBoundingClientRect();
+          return {below: b.top>=t.bottom-1, start: Math.abs(b.left-L.left)<=1};})"""
+        page = self.on("fig", viewport={"width": 390, "height": 844}, is_mobile=True, has_touch=True)
+        self.press_page(page, 1, "보류")
+        self.press_page(page, 1, "채택")
+        self.assertEqual(page.evaluate(rows), [{"below": True, "start": True}] * 2)
+        self.assertTrue(page.evaluate("document.querySelector('#doc').classList.contains('pv-stack')"))
+        page = self.on("fig", n_open=2)
+        self.assertEqual([r["below"] for r in page.evaluate(rows)], [False, False])
