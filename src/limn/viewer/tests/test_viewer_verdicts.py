@@ -776,3 +776,106 @@ class ConfirmationRoundFixes(VerdictBase):
         page = self.on("fig", n_open=2)
         self.assertEqual(page.locator("#doc .pv").count(), 0)
         self.assertTrue(page.evaluate(texts))
+
+
+# A card's '이전 판정' marker: its text and the id its link goes to, or None.
+OLD = """id=>{const m=document.querySelector('.pin[data-id="'+id+'"] .vd-old,.arc-row[data-id="'+id+'"] .vd-old'); if(!m) return null;
+  return {text: m.textContent, ref: Number(m.querySelector('.vd-old-ref').dataset.ref), label: m.getAttribute('aria-label')};}"""
+
+
+class SupersededMarker(VerdictBase):
+    """A verdict pin that is not the current verdict of its target says so on its card: '이전 판정 · #N가 앞섬', #N a link to
+    the current verdict's card. The order is the page line's (verdictOrder)."""
+
+    def drop_with_the_card(self, page, pid):
+        """Delete pin pid with its card's [삭제] and wait until it is gone."""
+        page.locator('.pin[data-id="%d"] [data-act="drop"]' % pid).click()
+        page.wait_for_function("id=>!OPEN_ALL.some(p=>p.id===id)", arg=pid)
+        settle(page)
+
+    def test_the_marker_follows_new_deleted_and_undone_verdicts(self):
+        """On the figure's page 1: one verdict has no marker; a newer one marks the older '이전 판정 · #N가 앞섬'; undoing the
+        newer save takes the marker away; another newer one brings it back, pointing at it; deleting that one takes it away.
+        The line and the marker name the same current verdict."""
+        page = self.on("fig")
+        a = self.press_page(page, 1, "보류")
+        self.assertIsNone(page.evaluate(OLD, a))
+        b = self.press_page(page, 1, "채택")
+        old = page.evaluate(OLD, a)
+        self.assertEqual(
+            (old["text"], old["ref"]), ("이전 판정 · #%d%s 앞섬" % (b, "이" if str(b)[-1] in "013678" else "가"), b)
+        )
+        self.assertIn("#%d" % b, old["label"])
+        self.assertIsNone(page.evaluate(OLD, b))
+        self.assertEqual(page.evaluate(LINE, 1)["pin"], str(b))  # the line's current verdict is the marker's
+        page.locator('#doc .pv[data-page="1"] .nt-chip [data-act="notice-act"]').click()  # undo b's save
+        page.wait_for_function("id=>!OPEN_ALL.some(p=>p.id===id)", arg=b)
+        settle(page)
+        self.assertIsNone(page.evaluate(OLD, a))
+        c = self.press_page(page, 1, "채택")
+        self.assertEqual(page.evaluate(OLD, a)["ref"], c)
+        self.drop_with_the_card(page, c)
+        self.assertIsNone(page.evaluate(OLD, a))
+
+    def test_the_number_goes_to_the_current_verdicts_card(self):
+        """The marker's '#N' opens and flashes the current verdict's card."""
+        page = self.on("fig")
+        a = self.press_page(page, 1, "보류")
+        b = self.press_page(page, 1, "채택")
+        page.locator('.pin[data-id="%d"] .vd-old-ref' % a).click()
+        page.wait_for_function(
+            "id=>[...document.querySelectorAll('.pin.flash')].some(e=>e.dataset.id===String(id))", arg=b
+        )
+
+    def test_without_a_page_line_the_marker_still_shows(self):
+        """page false on the figure: no line, and the older verdict's card still says it is superseded."""
+        page = self.on("fig")
+        a = self.press_page(page, 1, "보류")
+        b = self.press_page(page, 1, "채택")
+        self.word_files["fig"].write_text(json.dumps({**WORDS, "page": False}, ensure_ascii=False), encoding="utf-8")
+        page = self.on("fig", n_open=2)
+        self.assertEqual(page.locator("#doc .pv").count(), 0)
+        self.assertEqual(page.evaluate(OLD, a)["ref"], b)
+
+    def test_another_documents_cards_carry_it_under_all_documents(self):
+        """Under [모든 문서], with the LaTeX manuscript on screen, the figure's older verdict card is marked."""
+        page = self.on("fig")
+        a = self.press_page(page, 1, "보류")
+        b = self.press_page(page, 1, "채택")
+        page = self.on("ms", n_open=2)
+        page.evaluate("()=>{SHOW_ALL=true; drawPins();}")
+        settle(page)
+        self.assertEqual(page.evaluate(OLD, a)["ref"], b)
+
+    def test_latex_verdicts_on_the_same_lines_and_the_review_and_done_rows(self):
+        """Two composer verdicts on the same lines of the LaTeX manuscript: the older is marked, in its open card, then as
+        a review card and a done row; a verdict on other lines has no target in common and no marker."""
+        page = self.on("ms")
+        made = []
+        for key in ("보류", "채택"):
+            self.open_composer(page)
+            page.locator('#c-verdict-row button[data-key="%s"]' % key).click()
+            page.wait_for_function("n=>OPEN_ALL.length===n", arg=len(made) + 1)
+            settle(page)
+            (new,) = set(self.pins()) - set(made)
+            made.append(new)
+        a, b = made
+        self.assertEqual(page.evaluate(OLD, a)["ref"], b)
+        self.assertIsNone(page.evaluate(OLD, b))
+        self.assertEqual(self.call("POST", "/api/pins/%d/close" % a, {"reply": "done"}, AGENT)[0], 200)
+        page.evaluate("SEC.review=true")
+        self.reload(page)
+        self.assertEqual(page.evaluate(OLD, a)["ref"], b)  # the review card
+        self.assertEqual(self.call("POST", "/api/pins/%d/confirm" % a, {}, ALICE)[0], 200)
+        page.evaluate("SEC.done=true")
+        self.reload(page)
+        self.assertEqual(page.evaluate(OLD, a)["ref"], b)  # the done row
+        self.PICK = {"lo": 20, "hi": 21, "raw_lo": 20, "raw_hi": 21, "levels": [], "default_level": "raw"}
+        self.open_composer(page)
+        page.locator('#c-verdict-row button[data-key="채택"]').click()
+        page.wait_for_function("OPEN_ALL.length===2")
+        settle(page)
+        (c,) = set(self.pins()) - {a, b}
+        self.assertIsNone(page.evaluate(OLD, c))
+        self.assertIsNone(page.evaluate(OLD, b))
+

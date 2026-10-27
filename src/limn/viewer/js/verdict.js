@@ -54,18 +54,56 @@ function pageTargetOf(p,kind){
     return {page:pinPlace(p).page,id:el.id};}
   if(kind!==DOC_KIND.PDF||!isRegion(p)||p.est===true||!isFrac(p.frac))return null;
   const f=p.frac; return f.every((v,i)=>Math.abs(v-WHOLE_PAGE[i])<=1e-6)?{page:p.page,id:'page '+p.page}:null;}
-// The verdict pins about each page's whole target, not deleted - open, awaiting review (one whose [확인] waits for its undo
-// too: it leaves the review list at once, but it is still the newest verdict, D4) and done - newest (largest number) first,
-// by page. A page whose pins name two figures (a re-render moved one away) keeps the figure of its newest pin.
+// The kind of document doc: the meta's for the document on screen, else its /api/docs entry's.
+/** @param {string} doc @returns {string|undefined} */
+function docKindOf(doc){return (!DOC||doc===DOC)&&META?META.kind:(docInfo(doc)||{}).kind;}
+// The target a verdict pin is about, as far as its stored place says it without a project's rules: the page's whole target
+// (pageTargetOf: a figure document's page figure, a view-only PDF's whole page) - the page line's targets; else, on a figure
+// document, the element it names unless the build lost it; else, on a LaTeX document, its exact lines (file and range)
+// unless their anchor is lost. A key that two pins share only when they are about the same thing, with whether it is a whole
+// page's; null when the target cannot be resolved (a PDF region that is not its whole page, a lost element or line).
+/** @param {Pin} p @param {string|undefined} kind @returns {{key:string,whole:boolean,page:number}|null} */
+function verdictTargetOf(p,kind){const t=pageTargetOf(p,kind); if(t)return {key:'whole '+t.id,whole:true,page:t.page};
+  if(isFigureKind(kind)){const el=p.el; return el&&el.id&&!elLost(p)?{key:'element '+el.id,whole:false,page:pinPlace(p).page}:null;}
+  if(kind!==DOC_KIND.PDF&&!isRegion(p)&&p.file&&typeof p.lo==='number'&&typeof p.hi==='number'&&!p.stale)
+    return {key:'lines '+p.file+':'+p.lo+'-'+p.hi,whole:false,page:p.page};
+  return null;}
+let VO_CACHE=/** @type {{lists:unknown[],by:Map<string,Map<string,Pin[]>>}} */({lists:[],by:new Map()});
+// The verdict order of document doc (D4, docs/handbook/domain.md §순서): its verdict pins that are not deleted - open, awaiting
+// review (one whose [확인] waits for its undo too: it leaves the review list at once, but it is still a verdict) and done - by
+// resolved target (verdictTargetOf), newest (largest number) first. The first pin of a target is its current verdict; the page
+// verdict line (pageVerdictPins) and a card's '이전 판정' marker (verdictSuperseder) both read this one order, so they never
+// disagree. Kept until the lists change.
+/** @param {string} doc @returns {Map<string,Pin[]>} */
+function verdictOrder(doc){const lists=[OPEN_ALL,REVIEW_ALL,DONE_ALL,CONFIRMING_PIN.size,META&&META.kind,DOCS];
+  if(VO_CACHE.lists.length!==lists.length||VO_CACHE.lists.some((x,i)=>x!==lists[i]))VO_CACHE={lists,by:new Map()};
+  const hit=VO_CACHE.by.get(doc); if(hit)return hit;
+  const kind=docKindOf(doc),out=/** @type {Map<string,Pin[]>} */(new Map()),seen=new Set();
+  for(const p of OPEN_ALL.concat(REVIEW_ALL,DONE_ALL,[...CONFIRMING_PIN.values()])){
+    if(seen.has(p.id)||pdoc(p)!==doc||!verdictOf(p))continue; seen.add(p.id);
+    const t=verdictTargetOf(p,kind); if(!t)continue; const list=out.get(t.key)||[]; list.push(p); out.set(t.key,list);}
+  out.forEach(list=>list.sort((a,b)=>b.id-a.id));
+  VO_CACHE.by.set(doc,out); return out;}
+// The verdict pins about each page's whole target on the document on screen, in the verdict order (verdictOrder), by page. A
+// page whose pins name two figures (a re-render moved one away) keeps the figure of its newest pin.
 /** @returns {Map<number,Pin[]>} */
-function pageVerdictPins(){const kind=META?META.kind:undefined,out=/** @type {Map<number,Pin[]>} */(new Map());
-  const here=p=>!DOC||pdoc(p)===DOC;
-  const pinned=PINS.concat(REVIEW_ALL.filter(here),DONE),held=[...CONFIRMING_PIN.values()].filter(p=>here(p)&&!pinned.some(x=>x.id===p.id));
-  for(const p of pinned.concat(held)){if(!verdictOf(p))continue; const t=pageTargetOf(p,kind); if(!t)continue;
-    const list=out.get(t.page)||[]; list.push(p); out.set(t.page,list);}
-  out.forEach((list,page)=>{list.sort((a,b)=>b.id-a.id); const t=pageTargetOf(list[0],kind),id=t&&t.id;
-    out.set(page,list.filter(p=>{const u=pageTargetOf(p,kind); return !!u&&u.id===id;}));});
+function pageVerdictPins(){const out=/** @type {Map<number,Pin[]>} */(new Map()),kind=docKindOf(DOC||DEFAULT_DOC);
+  verdictOrder(DOC||DEFAULT_DOC).forEach(list=>{const t=verdictTargetOf(list[0],kind); if(!t||!t.whole)return;
+    const had=out.get(t.page); if(!had||had[0].id<list[0].id)out.set(t.page,list);});
   return out;}
+// The current verdict that supersedes verdict pin p - the newest verdict about p's target when that is not p - or null: p is
+// the current one, not a verdict pin, or its target cannot be resolved.
+/** @param {Pin} p @returns {Pin|null} */
+function verdictSuperseder(p){if(!verdictOf(p))return null; const doc=pdoc(p),t=verdictTargetOf(p,docKindOf(doc)); if(!t)return null;
+  const list=verdictOrder(doc).get(t.key); return list&&list.some(x=>x.id===p.id)&&list[0].id!==p.id?list[0]:null;}
+// A card's marker for a superseded verdict: '이전 판정 · #4가 앞섬', the number a link (the viewer's link look) to the current
+// verdict's card. Neutral: a badge with no colour of its own - the words carry it. null for a current verdict or another pin.
+/** @param {Pin} p */
+function verdictOldMarker(p){const cur=verdictSuperseder(p); if(!cur)return null; const S='\u0001',id=cur.id;
+  const parts=tl('이전 판정 · {ref}{p} 앞섬',{ref:S,p:josa(id,'이','가')}).split(S);
+  const desc=tl('같은 대상에 더 새 판정 #{id}{p} 있습니다 — 에이전트는 가장 새 판정만 실행합니다',{id,p:josa(id,'이','가')});
+  return html`<span class="badge vd-old" role="note" aria-label="${desc}" data-tip="${desc}">${parts[0]}<span class="pin-ref vd-old-ref hit" role="link" tabindex="0" \
+data-act="pin-ref" data-ref="${id}" aria-label="${tl('지금 판정 #{id} 카드로 갑니다',{id})}">#${id}</span>${parts[1]||''}</span>`;}
 // The ids of the pins a page verdict line shows now (drawPageVerdicts): their page-size mark is not drawn and their card's
 // [보기] goes to the line (marks, jumpPin).
 let PV_SHOWN=/** @type {Set<number>} */(new Set());

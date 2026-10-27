@@ -1280,5 +1280,8 @@
  "누르면 이 쪽에 새 판정 핀을 저장합니다": "Saves a new verdict pin for this page",
  "누르면 지금 선택과 메모를 {word} 판정 핀으로 바로 저장합니다": "Saves the selection and note as a {word} verdict pin now",
  "질문에는 판정을 붙이지 않습니다 — 아래에서 [수정 요청]을 고릅니다": "A question takes no verdict — choose [Edit request] below",
- "판정을 저장하려면 [제안 수정]을 끕니다": "To save a verdict, turn [Suggested edit] off"
+ "판정을 저장하려면 [제안 수정]을 끕니다": "To save a verdict, turn [Suggested edit] off",
+ "이전 판정 · {ref}{p} 앞섬": "Earlier verdict · superseded by {ref}",
+ "같은 대상에 더 새 판정 #{id}{p} 있습니다 — 에이전트는 가장 새 판정만 실행합니다": "A newer verdict #{id} is about the same target — the agent runs only the newest verdict",
+ "지금 판정 #{id} 카드로 갑니다": "Goes to the current verdict #{id}'s card"
 }

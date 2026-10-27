@@ -35,7 +35,7 @@ function card(p){p=pvQuietRel(p);   // no overlap badge between two verdicts abo
   if(isRegion(p)){const fb=figRegionBadge(p.el,isFigureKind((docInfo(pdoc(p))||{}).kind));   // a figure region: element without code, or map unreadable
     tags.unshift(fb?html`<span class="badge" data-tip="${fb.tip}">${fb.t}</span>`:html`<span class="badge" data-tip="보기 전용 PDF의 핀 — 줄 번호 없이 쪽·영역과 영역 글자로 가리킵니다">보기 전용</span>`);}
   if(isQuestion(p))tags.unshift(html`<span class="badge badge-question" data-tip="${T.question}">${ic('circle-question-mark')}질문</span>`);
-  const vb=verdictBadge(p); if(vb)tags.unshift(vb);   // '판정 채택', in the question badge's place
+  const vb=verdictBadge(p),vo=verdictOldMarker(p); if(vo)tags.unshift(vo); if(vb)tags.unshift(vb);   // '판정 채택' in the question badge's place, then '이전 판정 · #4가 앞섬'
   const adr=p.assignee?null:addressedTag(p); if(adr)tags.push(adr);   // a recorded assignee already appears in the note-level metadata
   const fyi=fyiTag(p); if(fyi)tags.push(fyi);   // a fix pin's FYI @-tags - this line once sat after the comment above and never executed (QA 2026-09-24)
   const sgb=suggestBadge(p,closedCard); if(sgb)tags.push(sgb);   // a suggested edit, and why not to apply it (suggest.js)
@@ -133,7 +133,7 @@ function doneCard(p){
   const orig=(p.note||p.suggest)&&oo?html`<div class="arc-orig" translate="no"><b>${tr('원래 요청')}</b>${p.note?fmtText(p.note,p.mentions):''}${suggestView(p)}</div>`:'';   // with its suggested edit, read-only
   const thread=to?html`<div class="arc-thread"><div class="thread">${th.map((m,i)=>msgHtml(m,p.id+':'+i))}${replying?html`<div class="reply-slot"></div>`:''}</div></div>`:'';
   return html`<div class="arc-row done" data-id="${p.id}" data-doc="${pdoc(p)}" data-tip="${authorTip(p)}">\
-<div class="arc-l1">${ic('check')}<span class="n" data-tip="완료한 핀 번호">#${p.id}</span>${docChip(p)}${verdictBadge(p)}${arcLoc(p)}${ref}\
+<div class="arc-l1">${ic('check')}<span class="n" data-tip="완료한 핀 번호">#${p.id}</span>${docChip(p)}${verdictBadge(p)}${verdictOldMarker(p)}${arcLoc(p)}${ref}\
 ${relSpan(p.done_at,'arc-t',tl('닫은 사람 {name} · 닫은 시각',{name:who(p.closed_by)||tr('기록 전')}))}<span class="sp"></span>\
 <button class="btn-sm btn-secondary arc-b b-reply" data-act="reply-open" data-tip="${T.reply}">답글</button></div>\
 <div class="arc-l2">${reply}${origT}<button class="arc-orig-t b-change" data-act="change" data-tip="${T.change}">변경 보기</button>${threadT}</div>${orig}${thread}</div>`;}

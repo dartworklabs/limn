@@ -247,6 +247,9 @@ button.th-more{align-self:flex-start;color:var(--muted-foreground)}
 /* A verdict pin's badge ('판정 채택', verdict.js): the question badge's shape, the words carry the meaning - no colour of its own. */
 .badge-verdict{color:var(--foreground)}
 .badge-verdict .vd-w{font-weight:600}
+/* A superseded verdict's marker ('이전 판정 · #4가 앞섬', verdict.js): a neutral badge - no colour of its own, the words carry it;
+   the number is the viewer's link (.pin-ref). */
+.vd-old .vd-old-ref{font-weight:600}
 /* A verdict pin's edit card keeps its verdict and target (D3): the note and the assignee only. */
 .edit.verdict :is(.e-kind,.e-qhint,.e-sg-row,.e-sg,.e-sg-ro,.e-levels,.e-xp,.b-repick){display:none!important}
 .edit.verdict .e-acts{grid-template-columns:1fr 1fr}
