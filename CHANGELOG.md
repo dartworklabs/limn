@@ -33,6 +33,9 @@ viewer strings change.
   doubled), drawn 36 px on touch.
 - **Narrow widths**: when any page's line cannot hold its words and buttons on one row (phones, a folded cover), every
   page's line puts its buttons on a row of their own, at its start.
+- **Cards**: a verdict pin without a note no longer spends a line on `(판정만)` (its `판정 X` badge says it; a folded
+  card's preview is the badge; `pins.md` keeps `(판정만)`), and two verdict pins about the same page target no longer
+  carry overlap badges such as `#4와 같은 범위` (the page line orders them). Overlap badges with ordinary pins stay.
 
 ## 0.4.26 — 2026-10-27
 
