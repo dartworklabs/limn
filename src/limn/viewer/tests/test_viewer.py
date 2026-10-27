@@ -3417,7 +3417,7 @@ class FrontendArchive(unittest.TestCase):
                 extract_js_fn("docChip"),
                 "const ARC_OPEN=new Set(); let LAYOUT='wide', REPLY=null, META=null; const THREAD_OPEN=new Set(); function avatar(){return '';}",
                 "function suggestView(){return null;}",  # these pins carry no suggested edit (suggest.js)
-                "function verdictBadge(){return null;} function verdictOldMarker(){return null;}",  # ...and no verdict (verdict.js)
+                "function verdictBadge(){return null;} function verdictOldMarker(){return null;} function verdictOf(){return null;}",  # ...and no verdict (verdict.js)
                 extract_js_fn("arcTime"),
                 extract_js_fn("arcLoc"),
                 extract_js_fn("arcLine"),
@@ -5431,6 +5431,7 @@ class ViewerFunctions2(unittest.TestCase):
                 extract_js_fn("trashDaysLeft"),
                 extract_js_fn("isOwner"),
                 extract_js_fn("isViewer"),
+                "function verdictOf(){return null;}",  # an ordinary pin (verdict.js): its [되살리기] whatever the role
                 extract_js_fn("droppedCard"),
                 r"""
             const h=String(droppedCard({id:4,file:'/m.tex',name:'m.tex',lo:2,hi:9,page:1,note:'메모',dropped_at:'2026-09-25 09:00:00',dropped_by:{name:'Bob Park'},expires_ts:Date.now()/1000+30*86400-60}));

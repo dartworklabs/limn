@@ -205,7 +205,16 @@ function renderVerdictRow(){const row=$('#c-verdict-row'),v=docVerdicts(),d=COMP
   setHtml(row,html`<span id="c-verdict-l" class="vd-l">${tr('판정 바로 저장')}</span><span class="vd-btns">${v.choices.map(c=>vdButton(c,VD_WHERE.COMPOSER,0,d?selTarget(d):'',!!why||!d||COMPOSE.saving))}</span>\
 ${why?html`<span class="vd-why" id="c-verdict-why">${why}</span>`:''}`);
   if(why)row.setAttribute('aria-describedby','c-verdict-why'); else row.removeAttribute('aria-describedby');
+  vdWrapFit(row.querySelector('.vd-btns'));
   if(inRow)vdRefocus(f);}
+// A word group that wraps (the 280px panel in English with a word armed) keeps every button at its own width, left-aligned
+// (.wrapped): stretched to share the row, a lone last word ran across the whole second row. Measured after drawing and when
+// the row's width changes; the class changes how the buttons grow, never where they wrap, so it never measures itself again.
+/** @param {Element|null} g */
+function vdWrapFit(g){if(!g)return; const tops=new Set([...g.children].map(b=>Math.round(b.getBoundingClientRect().top)));
+  g.classList.toggle('wrapped',tops.size>1);}
+if(typeof ResizeObserver!=='undefined'){const row=document.getElementById('c-verdict-row');
+  if(row)new ResizeObserver(()=>vdWrapFit(row.querySelector('.vd-btns'))).observe(row);}
 // A failed verdict save's retry the composer no longer asks for (COMPOSE.intent moved since its press): it goes, and the
 // failure's banner says so (verdictDropped). Run on every redraw of the verdict row, which every such change makes.
 function dropStaleRetry(){const rv=COMPOSE.retryVerdict; if(!rv||rv.gen===COMPOSE.intent)return; COMPOSE.retryVerdict=null; verdictDropped();}
@@ -277,6 +286,8 @@ function pvRefocus(page,key){const a=document.activeElement; if(a&&a!==document.
 // and, for a person who may make one, a button per word. No pressed look: a verdict is a request until it is handled.
 /** @param {number} page @param {Pin[]|undefined} list @param {DocVerdicts} v */
 function pvLineHtml(page,list,v){const cur=list&&list[0],earlier=list?list.slice(1).filter(p=>pinState(p)===PIN_STATE.OPEN):[];
+  // Before the first pin list is applied (PINS_APPLIED_SEQ) the line knows no verdict yet: '판정 읽는 중…', buttons waiting.
+  const loading=!PINS_APPLIED_SEQ;
   const k=cur&&verdictOf(cur),other=!!cur&&!!cur.author&&!isMe(cur.author);
   // One order for every state: '판정 #4 채택 · 처리 대기', then who made it and when if someone else did. The number is a link to
   // the card (the viewer's link style), the word is bold.
@@ -286,10 +297,10 @@ function pvLineHtml(page,list,v){const cur=list&&list[0],earlier=list?list.slice
 aria-label="${tl('지금 판정 #{id} 카드로 갑니다',{id:cur.id})}" data-tip="${tl('핀 #{id} 로 갑니다',{id:cur.id})}">#${cur.id}</span> <b class="vd-w" translate="no">${verdictLabel(k)}</b></span>\
 <span class="pv-sep" aria-hidden="true">·</span><span class="pv-st">${sp[0]}${by?html`<span class="pv-by" translate="no">${by}</span>${sp[1]||''}`:''}</span>\
 ${other?html`<span class="pv-sep" aria-hidden="true">·</span><span class="pv-au" translate="no">${who(cur.author)}</span> ${relSpan(cur.at,'pv-at','')}`:''}`
-    :html`<span class="pv-s pv-none">${tr('판정 없음')}</span>`;
+    :html`<span class="pv-s pv-none">${tr(loading?'판정 읽는 중…':'판정 없음')}</span>`;
   const early=earlier.length?html`<button type="button" class="btn-ghost btn-sm pv-early hit" data-act="pv-earlier" data-ref="${earlier[0].id}" \
 data-tip="${tr('이 쪽의 더 새 판정으로 대체되어 실행하지 않는 열린 판정 핀입니다. 누르면 그 카드로 갑니다')}">${tl('이전 판정 {n}건 · 새 판정으로 대체됨',{n:earlier.length})}</button>`:'';
-  const busy=PV_BUSY.has(page),btns=canVerdict()?html`<span class="vd-btns">${v.choices.map(c=>vdButton(c,VD_WHERE.PAGE,page,tl('{page}쪽',{page}),busy))}</span>`:'';
+  const busy=PV_BUSY.has(page)||loading,btns=canVerdict()?html`<span class="vd-btns">${v.choices.map(c=>vdButton(c,VD_WHERE.PAGE,page,tl('{page}쪽',{page}),busy))}</span>`:'';
   return html`<span class="pv-t">${text}${early}</span>${btns}`;}
 // Draws page `page`'s line.
 /** @param {HTMLElement} el @param {number} page @param {Pin[]|undefined} list @param {DocVerdicts} v */
@@ -327,7 +338,7 @@ function sizePv(){const w=Math.round(Math.min(W,innerW()))+'px',doc=$('#doc'),li
   if(!lines.length||!lines[0].getClientRects().length){if(!lines.length)doc.classList.remove('pv-stack'); return;}
   doc.classList.remove('pv-stack');
   const wraps=lines.some(l=>{const t=l.querySelector('.pv-t'),b=l.querySelector('.vd-btns'); return !!t&&!!b&&b.getBoundingClientRect().top>=t.getBoundingClientRect().bottom-1;});
-  doc.classList.toggle('pv-stack',wraps);}
+  doc.classList.toggle('pv-stack',wraps); lines.forEach(l=>vdWrapFit(l.querySelector('.vd-btns')));}
 // Draws the page verdict line under every page after the pages, the pin lists or the build change. Without page verdicts
 // every line goes and the marks draw every pin as before.
 function drawPageVerdicts(){const v=pageVerdictsOn(),f=/** @type {HTMLElement|null} */(document.activeElement);

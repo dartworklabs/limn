@@ -332,11 +332,27 @@ function drawOffers(focus){NOTICES.forEach(n=>{
 function drawChips(){NOTICES.forEach(n=>{if(n.place!==NOTICE_PLACE.CHIP)return;
   const k=/** @type {HTMLElement|null} */(document.querySelector('.mark[data-pin="'+n.pin+'"]')||document.querySelector('#doc .pv[data-pin="'+n.pin+'"]'));   // a page verdict line shows its pin instead of a mark
   if(!k){if(!n.pending)offerToLine(n); return;}
-  const f=noticeFocus(),e=noticeEl(n,'nt-chip'); if(e.parentNode!==k)k.appendChild(e); e.style.left='';
-  const pg=k.closest('.pg'); if(pg){const pr=pg.getBoundingClientRect(),cr=e.getBoundingClientRect(),over=cr.right-(pr.right-4);   // stays on its page
-    if(over>0)e.style.left=Math.round(-Math.min(over,cr.left-pr.left-4))+'px';}
-  noticeRefocus(f);});
+  const f=noticeFocus(),e=noticeEl(n,'nt-chip'); if(e.parentNode!==k)k.appendChild(e); e.style.left=''; e.style.right=''; e.style.maxWidth='';
+  chipInRoom(e,k); noticeRefocus(f);});
   chipsClearOfBar();}
+// Keeps a chip where it can be pressed: inside its page (a page verdict line's chip, inside its line), inside what the PDF area
+// shows, and clear of a panel laid over the PDF area (the unfolded foldable's overlay panel while composing). Where the room
+// is narrower than the chip its words give way (ellipsis, .nt-t) - never its [되돌리기] - then it moves left until it fits.
+/** @param {HTMLElement} e @param {HTMLElement} k */
+function chipInRoom(e,k){const L=$('#left'),R=$('#right'),box=(k.closest('.pg')||k).getBoundingClientRect(),lr=L.getBoundingClientRect();
+  let right=Math.min(box.right,lr.left+L.clientWidth)-4; const left=Math.max(box.left,lr.left)+4,cr0=e.getBoundingClientRect();
+  // A panel beside or over the PDF area - a column down its right side, not a bottom sheet (which starts at its left) -
+  // bounds the chip at every height: the chip may be scrolled up beside it after it is drawn.
+  if(R&&R.getClientRects().length){const rr=R.getBoundingClientRect(); if(rr.left>lr.left+40)right=Math.min(right,rr.left-4);}
+  // ...and so does the panel's handle (#grip), whose touch area (::after, 44px on touch) reaches into the PDF area at the
+  // panel's middle: a chip scrolled there had its [되돌리기] under the handle.
+  const G=$('#grip'); if(G&&G.getClientRects().length){const gr=G.getBoundingClientRect(),reach=Math.max(gr.width,parseFloat(getComputedStyle(G,'::after').width)||0);
+    if(gr.left>lr.left+40)right=Math.min(right,gr.right-reach-4);}
+  if(right-left<=0)return;
+  if(cr0.width>right-left)e.style.maxWidth=Math.floor(right-left)+'px';
+  const cr=e.getBoundingClientRect(),over=cr.right-right,under=left-cr.left;
+  if(over>0)e.style.left=Math.round(e.offsetLeft-Math.min(over,cr.left-left))+'px';
+  else if(under>0)e.style.left=Math.round(e.offsetLeft+under)+'px';}
 // Whether two boxes (left, top, right, bottom) overlap by more than a touching edge. Pure.
 /** @param {{left:number,top:number,right:number,bottom:number}} a @param {{left:number,top:number,right:number,bottom:number}} b */
 function boxesMeet(a,b){return a.left<b.right&&b.left<a.right&&a.top<b.bottom&&b.top<a.bottom;}
@@ -345,6 +361,13 @@ function boxesMeet(a,b){return a.left<b.right&&b.left<a.right&&a.top<b.bottom&&b
 function chipsClearOfBar(){const bar=$('#sel-bar'); if(!bar||!bar.getClientRects().length)return; const br=bar.getBoundingClientRect();
   NOTICES.forEach(n=>{if(n.place===NOTICE_PLACE.CHIP&&n.el&&n.el.getClientRects().length&&boxesMeet(n.el.getBoundingClientRect(),br))offerToLine(n);});}
 $('#left').addEventListener('scroll',chipsClearOfBar,{passive:true});
+// Places every save chip on screen again by chipInRoom's rules, from its mark's or line's place now: after a zoom (setW) and,
+// once a frame, while the PDF area scrolls either way - its place was set in px, so a zoomed page or a sideways scroll could
+// leave [되돌리기] off the PDF area or under the panel or its handle.
+function placeChips(){NOTICES.forEach(n=>{const e=n.el,k=e&&e.parentElement; if(n.place!==NOTICE_PLACE.CHIP||!e||!k||!e.isConnected)return;
+  e.style.left=''; e.style.right=''; e.style.maxWidth=''; chipInRoom(e,k);});}
+let CHIP_FRAME=0;
+$('#left').addEventListener('scroll',()=>{if(!CHIP_FRAME)CHIP_FRAME=requestAnimationFrame(()=>{CHIP_FRAME=0; placeChips();});},{passive:true});
 new MutationObserver(chipsClearOfBar).observe(document.body,{attributes:true,attributeFilter:['class']});   // body.selmode comes and goes
 // The list reload after a save or an append has run: a chip whose mark did not come goes to the status line (drawChips).
 /** @param {Notice|null} n */

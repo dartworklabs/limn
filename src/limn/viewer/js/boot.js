@@ -55,6 +55,8 @@ function updateSyncBadge(s){STATUS_SYNC=s||null; const b=$('#meta-sync'); if(!b)
   b.dataset.tip=reason?(b.textContent+' · '+reason+' · '+tr('기존 PDF가 보일 수 있습니다')):b.textContent;
 }
 function isViewer(){return !!(typeof META!=='undefined'&&META&&META.me&&META.me.role===ROLE.VIEWER);}
+// An agent identity (role agent): it neither deletes nor restores a verdict pin (D16, 403 verdict_human), so it is offered neither.
+function isAgentRole(){return !!(typeof META!=='undefined'&&META&&META.me&&META.me.role===ROLE.AGENT);}
 /** Whether this server-provided identity is a person with write access; server authorization remains authoritative. */
 function canConfirmReview(){return isHuman()&&!isViewer();}
 /** Explain why this screen cannot confirm a reviewed result, without offering a request the server will refuse. */
