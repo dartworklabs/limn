@@ -341,8 +341,9 @@ function drawChips(){NOTICES.forEach(n=>{if(n.place!==NOTICE_PLACE.CHIP)return;
 /** @param {HTMLElement} e @param {HTMLElement} k */
 function chipInRoom(e,k){const L=$('#left'),R=$('#right'),box=(k.closest('.pg')||k).getBoundingClientRect(),lr=L.getBoundingClientRect();
   let right=Math.min(box.right,lr.left+L.clientWidth)-4; const left=Math.max(box.left,lr.left)+4,cr0=e.getBoundingClientRect();
-  if(R&&R.getClientRects().length){const rr=R.getBoundingClientRect();   // a panel beside or over the PDF area (not a bottom sheet)
-    if(rr.left>lr.left+40&&rr.top<cr0.bottom&&cr0.top<rr.bottom)right=Math.min(right,rr.left-4);}
+  // A panel beside or over the PDF area - a column down its right side, not a bottom sheet (which starts at its left) -
+  // bounds the chip at every height: the chip may be scrolled up beside it after it is drawn.
+  if(R&&R.getClientRects().length){const rr=R.getBoundingClientRect(); if(rr.left>lr.left+40)right=Math.min(right,rr.left-4);}
   if(right-left<=0)return;
   if(cr0.width>right-left)e.style.maxWidth=Math.floor(right-left)+'px';
   const cr=e.getBoundingClientRect(),over=cr.right-right,under=left-cr.left;

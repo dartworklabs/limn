@@ -1535,10 +1535,11 @@ class RetestFixes(VerdictBase):
     """The functional re-test's findings on 5bc3c6b (each a regression test)."""
 
     def test_the_save_chips_undo_can_be_pressed_at_every_size(self):
-        """A composer verdict save on a selection in the page's right half: at all eight sizes the chip's [되돌리기] is
-        where a press lands on it - on the unfolded foldable (841 x 673) the longer verdict chip ran under the panel laid
-        over the PDF area - and the action is never cut (the words may be)."""
-        self.PICK = {"frac": [0.55, 0.3, 0.4, 0.05]}
+        """A composer verdict save on a selection in the lower right of the page: at all eight sizes the chip's [되돌리기],
+        scrolled into view, is where a press lands on it - on the unfolded foldable (841 x 673) the longer verdict chip ran
+        under the panel laid over the PDF area, also when it was drawn below the fold and scrolled up beside the panel -
+        and the action is never cut (the words may be)."""
+        self.PICK = {"frac": [0.55, 0.8, 0.4, 0.05]}  # low on the page: below the fold when the chip is drawn
         for (w, h), more in SIZES:
             with self.subTest(size=(w, h)):
                 page = self.on("ms", n_open=len(self.pins()), viewport={"width": w, "height": h}, **more)
@@ -1548,6 +1549,8 @@ class RetestFixes(VerdictBase):
                 page.wait_for_function("n=>OPEN_ALL.length===n", arg=len(before) + 1)
                 settle(page)
                 (pid,) = set(self.pins()) - before
+                # drawn again while the mark is below the fold (a list read redraws the chips), then scrolled up to
+                page.evaluate("()=>{document.querySelector('#left').scrollTop=0; drawChips();}")
                 page.evaluate(
                     "id=>{const m=document.querySelector('.mark[data-pin=\"'+id+'\"]'); if(m)m.scrollIntoView({block:'center',inline:'nearest'});}",
                     pid,
