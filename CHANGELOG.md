@@ -1,10 +1,11 @@
 # Changelog
 
-## Unreleased
+## 0.4.27 — 2026-10-27
 
-Fixes from the reviews and the functional test of 0.4.26's verdict buttons, and one owner decision on the agent
-contract (D16): agents may not delete or restore verdict pins. That adds a refusal and nothing else; `pins.md` and every
-other answer are unchanged.
+Fixes from the reviews and the functional test of 0.4.26's verdict buttons, a card badge for a verdict a newer one
+replaced, and one owner decision on the agent contract (D16): agents may not delete or restore verdict pins. That adds a
+refusal and nothing else; `pins.md` and every other answer are unchanged, so an agent written against 0.4.26 keeps
+working unless it deleted verdict pins, and rolling back to 0.4.26 loses nothing.
 
 ### Changed (agent contract)
 
