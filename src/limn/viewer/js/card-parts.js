@@ -19,6 +19,8 @@ function authorTip(p){let s=tl('작성: {name} · {at}',{name:p.author?who(p.aut
 // pins.md rows never disagree - since a rel entry is only {id,rel}, the range is looked up by id from PINS (all currently loaded open pins).
 // The badge wording is phrased to be self-explanatory: '#20과 같은 범위' > '#20 범위 안' > '#20과 일부 겹침'. Same-range is distinguished using p's (this pin's) lo/hi.
 function josa(n,c,v){const d=String(n).slice(-1); return d==='0'||'13678'.includes(d)?c:v;}
+// '로' or '으로' after a number read in Korean: '으로' after a final consonant other than ㄹ (영/십·백·천, 삼, 육), else '로'.
+function josaRo(n){return '036'.includes(String(n).slice(-1))?'으로':'로';}
 function relBadge(rel,p){
   if(!rel||!rel.length)return null;
   const byId=new Map(PINS.map(p=>[p.id,p]));

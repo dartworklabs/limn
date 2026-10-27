@@ -73,6 +73,6 @@ function setLines(o,lo,hi){o.lo=lo; o.hi=hi; o.scope='lines'; o.env=null;}
 function applyRange(o,r,anchor){if(!o||!r)return; const n=o.n_lines||Math.max(r[1],o.hi),lo=Math.max(1,Math.min(r[0],n)),hi=Math.max(lo,Math.min(r[1],n));
   if(lo===o.lo&&hi===o.hi)return;
   const row=()=>{const b=excerptBox(o); return b&&b.querySelector('.xp-row[data-line="'+anchor+'"]');},r0=row(),y0=r0&&r0.getBoundingClientRect().top;
-  setLines(o,lo,hi); if(o===COMPOSE.current)recomputeOverlap(); excerptRedraw(o);
+  setLines(o,lo,hi); if(o===COMPOSE.current){COMPOSE.intent++; recomputeOverlap();} excerptRedraw(o);
   const r1=row(); if(r0&&r1)$('#right').scrollTop+=r1.getBoundingClientRect().top-y0;
   refetchSnip(o,()=>excerptRedraw(o));}

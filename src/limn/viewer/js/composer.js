@@ -1,8 +1,11 @@
 // ------------------------------------------------ composer
 // The active selection owns its PDF box, in-flight pick/save, and overlap choice for one composer visit.
-// retryVerdict: the verdict a failed save carried and the selection it was bound to, which the failure's [다시 저장] saves again.
+// intent: a counter every change to what the composer asks bumps (COMPOSE.intent++) - a new, cleared or restored selection
+// (pick, cancelSelection, restoreSelection, restoreDraft), its rung or lines (the 'level' press, applyRange), the kind
+// (setKind) and the [제안 수정] switch (suggestAct). retryVerdict: the verdict a failed save carried, the selection it was bound
+// to and the intent it was pressed with; the failure's [다시 저장] saves it again only while that intent is unchanged (savePin).
 const COMPOSE={current:/** @type {Selection|null} */(null),box:/** @type {HTMLElement|null} */(null),picking:false,pendingSave:false,saving:false,dismissedOverlap:/** @type {string|null} */(null),
-  retryVerdict:/** @type {{key:string,sel:Selection,at:string}|null} */(null)};
+  intent:0,retryVerdict:/** @type {{key:string,sel:Selection,gen:number}|null} */(null)};
 /** Capture editable composer fields by value - the suggested edit's switch, text and base among them; derived overlap and
  * snippet updates do not count as new input. */
 function composeFields(){const d=COMPOSE.current,n=$('#note');
@@ -19,7 +22,7 @@ async function pick(r){
   // When a new selection (not a re-place) starts, the previous COMPOSE.current is cleared right away - so that a [핀 저장] within
   // this window (~1.1s) never silently saves the stale COMPOSE.current, and instead goes through the COMPOSE.pendingSave queue (docs/handbook/viewer.md §패널 정리) to
   // save the just-chosen new location (regression: the old location used to get saved on a re-select).
-  if(rp){banner(html`<span>되짚는 중…</span>`);} else {COMPOSE.current=null; $('#composer').hidden=false; setBusy(true); COMPOSE.picking=true; $('#c-err').hidden=true; $('#c-body').hidden=false;
+  if(rp){banner(html`<span>되짚는 중…</span>`);} else {COMPOSE.current=null; COMPOSE.intent++; $('#composer').hidden=false; setBusy(true); COMPOSE.picking=true; $('#c-err').hidden=true; $('#c-body').hidden=false;
     setSide(true); applySide();   // a collapsed panel opens for a new selection in every layout (wide included)
     if(MID_OVERLAY)relayout();    // composing in the overlay pads the PDF by the panel width (CSS): re-fit now, then reveal the box
     if(LAYOUT!==LAYOUT_MODE.WIDE){$('#right').scrollTop=0; revealBox(COMPOSE.box);}}
@@ -34,9 +37,9 @@ async function pick(r){
       if(rp&&rp.box){rp.box.remove();rp.box=null;} else if(!rp&&COMPOSE.box){COMPOSE.box.remove();COMPOSE.box=null;}}
     if(rp){bannerRepick(errText(d));return;}
     // Even a pending save is never carried out if pick fails - only the existing error panel is shown (regression: prevents a silent save failure).
-    COMPOSE.current=null; clearPendingSave(); $('#c-err').textContent=errText(d); $('#c-err').hidden=false; $('#c-body').hidden=true; drawSelPop(); return;}
+    COMPOSE.current=null; COMPOSE.intent++; clearPendingSave(); $('#c-err').textContent=errText(d); $('#c-err').hidden=false; $('#c-body').hidden=true; drawSelPop(); return;}
   if(rp){rp.cand=d; bannerCompare(); return;}
-  const sel=/** @type {Selection} */(d); COMPOSE.current=sel; sel.scope=null; sel.elSel=d.el||null; if(!isRegion(d)){useLevel(sel,d.default_level); if(!sel.scope){sel.lo=d.lo;sel.hi=d.hi;}}
+  const sel=/** @type {Selection} */(d); COMPOSE.current=sel; COMPOSE.intent++; sel.scope=null; sel.elSel=d.el||null; if(!isRegion(d)){useLevel(sel,d.default_level); if(!sel.scope){sel.lo=d.lo;sel.hi=d.hi;}}
   COMPOSE.dismissedOverlap=null;   // a freshly chosen selection - re-notified even if [별도 핀으로 저장] was pressed for a previous selection
   sel.overlaps=overlapsFor(sel,PINS);
   // If a pin the server saw as overlapping isn't in this tab's PINS (someone else just saved it), the list is re-fetched - loadPins recomputes overlap too.
@@ -188,7 +191,7 @@ function drawComposerQuote(d){const el=$('#c-quote'),q=shownQuote(d,META?META.ki
 // The composer panel's pin kind (fix request / question). Reverts to fix request on save or discard (the default for the next pin).
 // The kind says what the note is, not who handles it: the assignee does not follow it (mentions.js).
 function setKind(k){const was=KIND_NEW; KIND_NEW=k===KIND_REQ.QUESTION?KIND_REQ.QUESTION:KIND_REQ.FIX; saveDraftSoon();
-  if(KIND_NEW!==was)COMPOSE.retryVerdict=null;   // a failed verdict save's retry is for the intent it was pressed with
+  if(KIND_NEW!==was)COMPOSE.intent++;   // a failed verdict save's retry is for the intent it was pressed with
   $$('#c-kind button').forEach(b=>{const on=b.dataset.kind===KIND_NEW; b.classList.toggle('on',on); b.setAttribute('aria-checked',String(on));});
   $('#note').placeholder=KIND_NEW===KIND_REQ.QUESTION?'무엇이 궁금한지 적어 주세요':'메모: 여기를 어떻게 고칠지 (비워도 됩니다)'; qHint($('#c-qhint'),$('#note').value,KIND_NEW);
   renderVerdictRow();}   // a question takes no verdict
@@ -205,7 +208,7 @@ function qHint(box,text,kind){if(box)box.hidden=kind===KIND_REQ.QUESTION||!looks
 // Drops the current selection and its box (clearNote also empties the note, kind and assignee). No undo here -
 // discardSelection() is the user's Esc/[취소], which offers one. A sheet's height is drawn again (applySheet): the tablet sheet's
 // composing lift ends with the composer, also when an open edit card keeps the sheet open.
-function cancelSelection(clearNote){if(REPICK)cancelRepick(); closeSelPop(); COMPOSE.current=null; PICKSEQ++; COMPOSE.picking=false; clearPendingSave(); if(COMPOSE.box){COMPOSE.box.remove();COMPOSE.box=null;} saveDraftSoon();
+function cancelSelection(clearNote){if(REPICK)cancelRepick(); closeSelPop(); COMPOSE.current=null; COMPOSE.intent++; PICKSEQ++; COMPOSE.picking=false; clearPendingSave(); if(COMPOSE.box){COMPOSE.box.remove();COMPOSE.box=null;} saveDraftSoon();
   COMPOSE.dismissedOverlap=null; setBusy(false); $('#composer').hidden=true; if(clearNote){$('#note').value=''; $('#note')._mentions=null; ASSIGN_NEW.touched=false; renderAssignNew(); setKind(KIND_REQ.FIX); suggestClear();}
   if(!REPICK)setSelMode(false); if(LAYOUT===LAYOUT_MODE.NARROW&&!EDITOR.current)setSide(false); applySide();
   if(LAYOUT===LAYOUT_MODE.NARROW)applySheet();}
@@ -225,7 +228,7 @@ function restoreSelection(snap){if(!snap||COMPOSE.current||COMPOSE.picking||REPI
   if(!(snap.cur&&snap.doc===DOC&&META&&snap.build===META.pages_build)){lineNote('메모만 되살렸습니다 — PDF가 바뀌어 자리를 다시 골라야 합니다',NOTICE_KIND.WARN); return true;}
   if(COMPOSE.box)COMPOSE.box.remove(); COMPOSE.box=null;
   if(snap.box&&snap.page&&document.contains(snap.page)){COMPOSE.box=snap.box; snap.page.appendChild(snap.box);}
-  COMPOSE.current=snap.cur; recomputeOverlap(); SNIP_OPEN=false; $('#c-err').hidden=true; $('#c-body').hidden=false; $('#composer').hidden=false;
+  COMPOSE.current=snap.cur; COMPOSE.intent++; recomputeOverlap(); SNIP_OPEN=false; $('#c-err').hidden=true; $('#c-body').hidden=false; $('#composer').hidden=false;
   renderComposer(); setSide(true); applySide(); if(LAYOUT!==LAYOUT_MODE.WIDE)revealBox(COMPOSE.box); if(LAST_PTR==='mouse')n.focus({preventScroll:true});
   return true;}
 // Esc and [취소] on a selection (docs/handbook/viewer.md §패널 정리): it goes at once, and when its note had text or its suggested edit

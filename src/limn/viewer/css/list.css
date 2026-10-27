@@ -31,17 +31,18 @@ button.sec-tg{display:inline-flex;align-items:center;gap:var(--space-1);min-widt
 .arc-row.dropped .arc-l1>.ic{color:var(--status-dropped)}
 .arc-row .ic{width:14px;height:14px}
 .arc-row.done .arc-l1>.ic{color:var(--status-closed)}
-.arc-l1{display:flex;align-items:center;gap:var(--space-1);min-height:26px;white-space:nowrap}
-/* A superseded verdict's done row carries two badges ('판정 보류' '이전 판정 · #12가 앞섬', verdict.js): where the line cannot
-   hold them it wraps, rather than push [답글] out of the panel and scroll it sideways. */
+.arc-l1,.arc-l1b{display:flex;align-items:center;gap:var(--space-1);min-height:26px;white-space:nowrap}
+/* A superseded verdict's done row (cards.js doneCard): its first line is the number, '판정 보류' and '이전 판정 · #12로 대체됨'
+   with [답글] at its end, and the location, reference and time are the line under it (.arc-l1b). Where even the first line
+   cannot hold them (a long number on the narrowest phone) it wraps, [답글] still at the end, never out of the panel. */
 .arc-l1:has(>.vd-old){flex-wrap:wrap;row-gap:var(--space-1)}
-.arc-l1:has(>.vd-old)>.b-reply{margin-left:auto}   /* on whichever line it lands, at the row's end like every row's */
+.arc-l1:has(>.vd-old)>.b-reply{margin-left:auto}
 .arc-l1 .n{font-weight:700}
-.arc-l1 .loc{font-size:var(--text-sm)}
+:is(.arc-l1,.arc-l1b) .loc{font-size:var(--text-sm)}
 .arc-ref{flex:0 1 auto;min-width:0;line-height:16px;padding:0 var(--space-1);max-width:120px;overflow:hidden;text-overflow:ellipsis}
 .arc-t{flex:none;font-size:var(--text-xs);white-space:nowrap}   /* the timestamp is never truncated - it's a short relative time so it's always readable (it used to become '09-24 1...') */
-.arc-l1 .dchip,.arc-l1 .loc{min-width:0;overflow:hidden;text-overflow:ellipsis}
-.arc-l1 .loc{flex:none;overflow:visible}   /* the line range is never truncated - in a narrow panel, 'L890-L897' next to a long reference used to get clipped to 'L89' (folded-layout QA 2026-09-25). The reference shrinks first instead */
+:is(.arc-l1,.arc-l1b) :is(.dchip,.loc){min-width:0;overflow:hidden;text-overflow:ellipsis}
+:is(.arc-l1,.arc-l1b) .loc{flex:none;overflow:visible}   /* the line range is never truncated - in a narrow panel, 'L890-L897' next to a long reference used to get clipped to 'L89' (folded-layout QA 2026-09-25). The reference shrinks first instead */
 button.arc-b{flex:none;color:var(--muted-foreground)}
 @media (hover:hover){button.arc-b:hover{color:var(--foreground)}}
 .arc-l2{display:flex;align-items:baseline;gap:var(--space-2)}

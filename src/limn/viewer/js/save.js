@@ -63,11 +63,12 @@ async function savePin(verdict){
   if(!COMPOSE.current){if(COMPOSE.picking)togglePendingSave(); return;}   // pick hasn't finished yet - queue it (toggle) or cancel the pending save
   COMPOSE.saving=true; const visit=captureVisit(); syncComposeSaveButtons();
   const d=COMPOSE.current,box=COMPOSE.box,note=$('#note').value.trim();
-  // [다시 저장] after a verdict's failed save carries that verdict again while the selection is the one it was bound to
-  // (the same pick, page, lines, rung and box) and the composer still asks for a verdict pin: a fix request with [제안 수정]
-  // off. A changed selection, or a kind or switch changed meanwhile (setKind, suggestAct drop it), is a plain pin's save.
-  const rv=COMPOSE.retryVerdict,at=JSON.stringify([d.page,d.lo,d.hi,d.scope,d.frac]); COMPOSE.retryVerdict=null;
-  if(verdict===undefined&&rv&&rv.sel===d&&rv.at===at&&KIND_NEW===KIND_REQ.FIX&&!SG.on)verdict=rv.key;
+  // [다시 저장] after a verdict's failed save carries that verdict again only while nothing the composer asks has changed
+  // since that press (COMPOSE.intent: no new, cleared or restored selection, no rung or lines, kind or [제안 수정] change -
+  // also one made back to where it was) and it still asks for a verdict pin: a fix request with [제안 수정] off. Anything
+  // else is a plain pin's save. A change made while the failed request was still out leaves no retry at all (the catch).
+  const gen=COMPOSE.intent,rv=COMPOSE.retryVerdict; COMPOSE.retryVerdict=null;
+  if(verdict===undefined&&rv&&rv.gen===gen&&rv.sel===d&&KIND_NEW===KIND_REQ.FIX&&!SG.on)verdict=rv.key;
   let body=/** @type {Record<string, unknown>} */({file:d.file,name:d.name,page:d.page,lo:d.lo,hi:d.hi,raw_lo:d.raw_lo,raw_hi:d.raw_hi,via:d.via,score:d.score,
     frac:d.frac,note:note,quote:d.quote,pdf_build:d.pdf_build||undefined});
   if(d.scope){body.scope=d.scope; body.kind=kindFor(d.scope,d.env);} else body.kind=d.kind;
@@ -101,7 +102,7 @@ async function savePin(verdict){
       :undoNote(NOTICE_PLACE.CHIP,tl(question?'질문 #{id} 저장됨 · pins.md 갱신':'핀 #{id} 저장됨 · pins.md 갱신',{id}),
       {label:'되돌리기',wait:true,fn:undo},{pin:id,pending:true,label:tr('저장됨')});
     await loadPins(); settleChip(chip);
-  }catch(e){if(verdict)COMPOSE.retryVerdict={key:verdict,sel:d,at};}   // the failure's [다시 저장] saves this verdict again
+  }catch(e){if(verdict&&COMPOSE.intent===gen)COMPOSE.retryVerdict={key:verdict,sel:d,gen};}   // the failure's [다시 저장] saves this verdict again
   finally{COMPOSE.saving=false; syncComposeSaveButtons();}
 }
 // A new pin's save the server answered 409 while it carried a suggested edit: nothing was saved and the draft stays. When the

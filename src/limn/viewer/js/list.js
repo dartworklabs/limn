@@ -24,6 +24,9 @@ function applyPinLists(rows,dropped,lists){
   notePinChanges(prevOpen,rows,dropped); noteReviewChanges(prevReview,rows);
   OPEN_ALL=lists.openAll; REVIEW_ALL=lists.reviewAll; DONE_ALL=lists.doneAll; DROPPED=dropped;
   PINS=lists.openHere; DONE=lists.doneHere;
+  // A pin whose [확인] waits for its undo stays in the verdict order (verdictOrder) as this snapshot has it - still awaiting
+  // review - and leaves it once the snapshot no longer has it so (deleted from another window, reopened, confirmed elsewhere).
+  CONFIRMING_PIN.forEach((_,id)=>{const r=rows.find(x=>x.id===id); if(r&&pinState(r)===PIN_STATE.REVIEW)CONFIRMING_PIN.set(id,r); else CONFIRMING_PIN.delete(id);});
   const E=EDITOR.current; if(E&&!OPEN_ALL.some(p=>p.id===E.id)){
     if(rows.some(p=>p.id===E.id)&&(EDITOR.saving||editDirty()))SEC.open=true;
     else{lineNote(tl('편집 중이던 핀 #{id} 이 목록에서 빠졌습니다(다른 쪽에서 닫았거나 지움)',{id:E.id}),NOTICE_KIND.WARN,null,{dot:NOTICE_DOT.SIDE}); EDITOR.current=null;}}

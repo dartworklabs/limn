@@ -256,7 +256,7 @@ class PageLine(VerdictBase):
         """On the figure, a selection with a note open: 채택 on page 1's line saves a verdict about the page's figure
         (el.path == [el.id]) with no note, and the selection and its note stay. The line says it, its page-size mark is not
         drawn and [보기] goes to the line; the same word again is a new pin, which the line now shows, with the earlier one
-        as '이전 판정 1건 · 새 판정이 앞섬' and its mark drawn as before. Page 2 has none. The line reads '판정 #N 채택 · 처리 대기'
+        as '이전 판정 1건 · 새 판정으로 대체됨' and its mark drawn as before. Page 2 has none. The line reads '판정 #N 채택 · 처리 대기'
         and its buttons say a press saves a new verdict pin for the page."""
         page = self.on("fig")
         page.evaluate(
@@ -286,7 +286,7 @@ class PageLine(VerdictBase):
         second = self.press_page(page, 1, "채택")
         line = page.evaluate(LINE, 1)
         self.assertEqual(line["pin"], str(second))
-        self.assertEqual(line["text"], "판정 #%d 채택 · 처리 대기 이전 판정 1건 · 새 판정이 앞섬" % second)
+        self.assertEqual(line["text"], "판정 #%d 채택 · 처리 대기 이전 판정 1건 · 새 판정으로 대체됨" % second)
         self.assertEqual(page.locator('.mark[data-pin="%d"]' % first).count(), 1)
         self.assertEqual(page.locator('.mark[data-pin="%d"]' % second).count(), 0)
         page.evaluate("id=>jumpPin(id)", second)
@@ -332,7 +332,9 @@ class PageLine(VerdictBase):
         self.reload(page)
         line = page.evaluate(LINE, 2)
         self.assertEqual(line["pin"], str(made["id"]))
-        self.assertRegex(line["text"], r"^판정 #%d 채택 · 처리됨 · Bob .+ 이전 판정 1건 · 새 판정이 앞섬$" % made["id"])
+        self.assertRegex(
+            line["text"], r"^판정 #%d 채택 · 처리됨 · Bob .+ 이전 판정 1건 · 새 판정으로 대체됨$" % made["id"]
+        )
         page.locator('#doc .pv[data-page="2"] .pv-early').click()
         page.wait_for_function("id=>document.querySelector('.pin[data-id=\"'+id+'\"].flash')", arg=older)
 
@@ -606,7 +608,7 @@ class ReviewFixes(VerdictBase):
         self.assertEqual(page.locator('.pin[data-id="%d"] .tags .badge-verdict' % made["id"]).inner_text(), "판정 받음")
 
     def test_the_earlier_verdicts_link_is_underlined_only_on_hover(self):
-        """'이전 판정 N건 · 새 판정이 앞섬' has the viewer's link look - no underline at rest, a solid one on hover - in the
+        """'이전 판정 N건 · 새 판정으로 대체됨' has the viewer's link look - no underline at rest, a solid one on hover - in the
         light and the dark theme."""
         page = self.on("fig")
         self.press_page(page, 1, "보류")
@@ -730,6 +732,53 @@ class ConfirmationRoundFixes(VerdictBase):
         pin = self.retry(page)
         self.assertIsNone(pin.get("verdict"))
 
+    def test_a_retry_after_the_range_went_away_and_back_is_a_plain_pin(self):
+        """A verdict save fails; the author picks another rung and then the first one again, so the lines are the ones the
+        failed save had: [다시 저장] saves a plain pin. Any change of range is a new intent, also one back to where it was."""
+        page = self.on("ms")
+        self.fail_a_verdict_save(page)
+        first = page.evaluate("COMPOSE.current.scope")
+        page.locator("#c-levels button:not(.on)").first.click()
+        settle(page)
+        page.locator('#c-levels [data-level="%s"]' % first).click()
+        settle(page)
+        self.assertEqual(page.evaluate("COMPOSE.current.scope"), first)
+        pin = self.retry(page)
+        self.assertEqual((pin.get("verdict"), pin["kind_req"]), (None, "fix"))
+
+    def test_a_retry_after_the_selection_was_discarded_and_brought_back_is_a_plain_pin(self):
+        """A verdict save fails; the author writes a note, discards the selection with [취소] and brings it back with the
+        status line's [되돌리기] (the same selection object): [다시 저장] saves a plain pin with the note."""
+        page = self.on("ms")
+        self.fail_a_verdict_save(page)
+        page.fill("#note", "남길 메모")
+        page.locator("#btn-cancel").click()
+        settle(page)
+        page.locator("#status", has_text="선택 취소됨").locator("[data-act=notice-act]").click()
+        page.wait_for_function("!!COMPOSE.current&&!document.querySelector('#composer').hidden")
+        settle(page)
+        pin = self.retry(page)
+        self.assertEqual((pin.get("verdict"), pin["note"]), (None, "남길 메모"))
+
+    def test_a_kind_change_while_the_failed_save_was_out_leaves_no_retry(self):
+        """A verdict save is still out when the author makes the selection a question and then a fix request again; the
+        save then fails: no retry is left for the verdict, and [다시 저장] saves a plain pin."""
+        page = self.on("ms")
+        self.open_composer(page)
+        self.held = []
+        page.locator('#c-verdict-row button[data-key="채택"]').click()
+        page.wait_for_function("COMPOSE.saving")
+        for kind in ("question", "fix"):
+            page.evaluate("k=>setKind(k)", kind)  # what the kind row's press does (the row is busy while a save is out)
+        held, self.held = self.held, None
+        for r in held:
+            r.abort()
+        page.wait_for_function("!COMPOSE.saving&&document.querySelector('#btn-save').textContent.includes('다시 저장')")
+        settle(page)
+        self.assertEqual((self.pins(), page.evaluate("COMPOSE.retryVerdict")), ({}, None))
+        pin = self.retry(page)
+        self.assertEqual((pin.get("verdict"), pin["kind_req"]), (None, "fix"))
+
     def test_moving_the_focus_during_a_line_save_keeps_it_where_it_went(self):
         """Enter on page 1's word, then - while its save runs - the focus goes to page 2's button, or to the '#N' link: when
         the save ends the focus stays there and does not jump back to page 1's button."""
@@ -785,8 +834,18 @@ OLD = """id=>{const m=[...document.querySelectorAll('.pin[data-id="'+id+'"] .vd-
   return {text: m.textContent, ref: Number(m.querySelector('.vd-old-ref').dataset.ref), label: m.getAttribute('aria-label')};}"""
 
 
+def ro(n):
+    """'로' or '으로' after number n read in Korean (verdict.js josaRo)."""
+    return "으로" if str(n)[-1] in "036" else "로"
+
+
+def replaced(n):
+    """The marker's words for a verdict replaced by #n."""
+    return "이전 판정 · #%d%s 대체됨" % (n, ro(n))
+
+
 class SupersededMarker(VerdictBase):
-    """A verdict pin that is not the current verdict of its target says so on its card: '이전 판정 · #N가 앞섬', #N a link to
+    """A verdict pin that is not the current verdict of its target says so on its card: '이전 판정 · #N로 대체됨', #N a link to
     the current verdict's card. The order is the page line's (verdictOrder)."""
 
     def drop_with_the_card(self, page, pid):
@@ -796,7 +855,7 @@ class SupersededMarker(VerdictBase):
         settle(page)
 
     def test_the_marker_follows_new_deleted_and_undone_verdicts(self):
-        """On the figure's page 1: one verdict has no marker; a newer one marks the older '이전 판정 · #N가 앞섬'; undoing the
+        """On the figure's page 1: one verdict has no marker; a newer one marks the older '이전 판정 · #N로 대체됨'; undoing the
         newer save takes the marker away; another newer one brings it back, pointing at it; deleting that one takes it away.
         The line and the marker name the same current verdict."""
         page = self.on("fig")
@@ -804,9 +863,7 @@ class SupersededMarker(VerdictBase):
         self.assertIsNone(page.evaluate(OLD, a))
         b = self.press_page(page, 1, "채택")
         old = page.evaluate(OLD, a)
-        self.assertEqual(
-            (old["text"], old["ref"]), ("이전 판정 · #%d%s 앞섬" % (b, "이" if str(b)[-1] in "013678" else "가"), b)
-        )
+        self.assertEqual((old["text"], old["ref"]), (replaced(b), b))
         self.assertIn("#%d" % b, old["label"])
         self.assertIsNone(page.evaluate(OLD, b))
         self.assertEqual(page.evaluate(LINE, 1)["pin"], str(b))  # the line's current verdict is the marker's
@@ -863,10 +920,11 @@ class SupersededMarker(VerdictBase):
             """id=>{const c=document.querySelector('.pin[data-id="'+id+'"]'), s=c.querySelector('.sum');
               const m=[...c.querySelectorAll('.vd-old')].filter(e=>e.getClientRects().length);
               return {folded: !c.classList.contains('open'), shown: m.length, inSum: m.length===1&&s.contains(m[0]),
-                badge: !!s.querySelector('.badge-verdict'), ref: m.length?Number(m[0].querySelector('.vd-old-ref').dataset.ref):null};}""",
+                badge: !!s.querySelector('.badge-verdict'), ref: m.length?Number(m[0].querySelector('.vd-old-ref').dataset.ref):null,
+                noteCue: !!s.querySelector('.sum-has')};}""",
             a,
         )
-        self.assertEqual(got, {"folded": True, "shown": 1, "inSum": True, "badge": True, "ref": b})
+        self.assertEqual(got, {"folded": True, "shown": 1, "inSum": True, "badge": True, "ref": b, "noteCue": False})
         page.evaluate("id=>document.querySelector('.pin[data-id=\"'+id+'\"]').scrollIntoView({block:'center'})", a)
         self.assertEqual(page.evaluate(MISSES_44, '.pin[data-id="%d"] .sum .vd-old-ref' % a), [])
         page.locator('.pin[data-id="%d"] .sum .vd-old-ref' % a).click()
@@ -875,8 +933,8 @@ class SupersededMarker(VerdictBase):
         )
 
     def test_a_folded_older_verdict_with_a_note_previews_its_badges(self):
-        """A superseded verdict with a note: folded, its preview is its badge and the marker (the note shows when opened);
-        the current verdict's preview is still its note."""
+        """A superseded verdict with a note: folded, its preview is its badge, the marker and the words '메모 있음' (the note
+        shows when opened); without a note there are no such words; the current verdict's preview is still its note."""
         page = self.on("ms")
         made = []
         for key, note in (("보류", "옛 판단"), ("채택", "새 판단")):
@@ -896,31 +954,87 @@ class SupersededMarker(VerdictBase):
               return {text: s.textContent, marker: !!s.querySelector('.vd-old'), shown: s.getClientRects().length>0};})""",
             [a, b],
         )
-        word = "이" if str(b)[-1] in "013678" else "가"
-        self.assertEqual(
-            sums[0], {"text": "판정 보류이전 판정 · #%d%s 앞섬" % (b, word), "marker": True, "shown": True}
-        )
+        self.assertEqual(sums[0], {"text": "판정 보류" + replaced(b) + "메모 있음", "marker": True, "shown": True})
         self.assertEqual(sums[1], {"text": "새 판단", "marker": False, "shown": True})
 
-    def test_a_done_row_with_the_marker_fits_a_phone(self):
-        """A superseded verdict's done row at 390 px: its first line wraps, [답글] stays inside the row at its end and the
-        panel does not scroll sideways."""
+    def test_a_done_row_with_the_marker_keeps_its_facts_on_two_lines(self):
+        """A superseded verdict's done row, at 344 and 390 px (touch) and 1400 px: line 1 is the number, its verdict badge and
+        the marker with [답글] at the row's end; line 2 is '2쪽 영역' (as every card names a page) and the time; nothing
+        else wraps and the panel does not scroll sideways."""
         page = self.on("rv")
         a = self.press_page(page, 2, "보류")
         self.assertEqual(self.call("POST", "/api/pins/%d/close" % a, {"reply": "보류 절로 옮겼습니다"}, ALICE)[0], 200)
         self.reload(page)
         b = self.press_page(page, 2, "채택")
-        page = self.on("rv", n_open=1, viewport={"width": 390, "height": 844}, is_mobile=True, has_touch=True)
-        page.evaluate("()=>{SEC.done=true; setSide(true); drawPins();}")
-        settle(page)
-        self.assertEqual(page.evaluate(OLD, a)["ref"], b)
-        fit = page.evaluate(
-            """id=>{const r=document.querySelector('.arc-row[data-id="'+id+'"]'), R=r.getBoundingClientRect(), p=document.querySelector('#right');
-              const k=r.querySelector('.b-reply').getBoundingClientRect();
-              return {sideways: p.scrollWidth-p.clientWidth, replyInside: k.right<=R.right+0.5&&k.left>=R.left-0.5, atEnd: Math.abs(k.right-R.right)<=1};}""",
-            a,
+        touch = {"is_mobile": True, "has_touch": True}
+        for w, h, more in ((344, 882, touch), (390, 844, touch), (1400, 850, {})):
+            with self.subTest(width=w):
+                page = self.on("rv", n_open=1, viewport={"width": w, "height": h}, **more)
+                page.evaluate("()=>{SEC.done=true; setSide(true); drawPins();}")
+                settle(page)
+                self.assertEqual(page.evaluate(OLD, a)["ref"], b)
+                got = page.evaluate(
+                    r"""id=>{const r=document.querySelector('.arc-row[data-id="'+id+'"]'), R=r.getBoundingClientRect(), p=document.querySelector('#right');
+                      const mid=e=>{const b=e.getBoundingClientRect(); return b.top+b.height/2;}, l1=r.querySelector('.arc-l1'), l2=r.querySelector('.arc-l1b');
+                      const one=[...l1.querySelectorAll(':scope>.n,:scope>.badge-verdict,:scope>.vd-old,:scope>.b-reply')].map(mid), k=r.querySelector('.b-reply').getBoundingClientRect();
+                      return {first: [...l1.children].filter(e=>!e.classList.contains('sp')).map(e=>e.classList.contains('n')?'n':e.classList.contains('badge-verdict')?'verdict':e.classList.contains('vd-old')?'marker':e.classList.contains('b-reply')?'reply':e.tagName.toLowerCase()),
+                        oneLine: Math.max(...one)-Math.min(...one)<=1, second: l2?l2.textContent.replace(/\s+/g,' ').trim():null,
+                        below: !!l2&&l2.getBoundingClientRect().top>=l1.getBoundingClientRect().bottom-0.5,
+                        atEnd: Math.abs(k.right-R.right)<=1, sideways: p.scrollWidth-p.clientWidth};}""",
+                    a,
+                )
+                self.assertEqual(got["first"], ["svg", "n", "verdict", "marker", "reply"])
+                self.assertTrue(got["oneLine"], got)
+                self.assertTrue(got["second"].startswith("2쪽 영역"), got["second"])
+                self.assertEqual((got["below"], got["atEnd"], got["sideways"]), (True, True, 0))
+
+    def test_a_closed_latex_verdict_on_lines_that_now_hold_other_text_is_its_own_target(self):
+        """A LaTeX verdict is closed (awaiting review: the server no longer re-matches its lines), then two lines are added
+        above it, so its line numbers now hold other text, and a new verdict is saved on those numbers: the two are not
+        about the same lines - no marker on the old one, and the new one is current for nothing else."""
+        self.PICK = {"lo": 10, "hi": 12, "raw_lo": 10, "raw_hi": 12, "levels": [], "default_level": "raw"}
+        page = self.on("ms")
+        self.open_composer(page)
+        page.locator('#c-verdict-row button[data-key="보류"]').click()
+        page.wait_for_function("OPEN_ALL.length===1")
+        (a,) = self.pins()
+        self.assertEqual(self.call("POST", "/api/pins/%d/close" % a, {"reply": "done"}, AGENT)[0], 200)
+        self.main.write_text("% added\n% added\n" + self.main.read_text(encoding="utf-8"), encoding="utf-8")
+        self.reload(page)
+        self.open_composer(page)
+        page.locator('#c-verdict-row button[data-key="채택"]').click()
+        page.wait_for_function("OPEN_ALL.length===1")
+        (b,) = set(self.pins()) - {a}
+        old, new = self.pins()[a], self.pins()[b]
+        self.assertEqual((old["lo"], old["hi"]), (new["lo"], new["hi"]))  # the same numbers...
+        self.assertNotEqual(old["anchor"], new["anchor"])  # ...on other text
+        page.evaluate("SEC.review=true")
+        self.reload(page)
+        self.assertIsNone(page.evaluate(OLD, a))
+        self.assertEqual(
+            page.evaluate("ids=>ids.map(id=>verdictSuperseder({id,verdict:'x',doc:DOC||DEFAULT_DOC}))", [a, b]),
+            [None, None],
         )
-        self.assertEqual(fit, {"sideways": 0, "replyInside": True, "atEnd": True})
+
+    def test_a_confirmed_verdict_deleted_elsewhere_in_its_undo_window_leaves_the_order(self):
+        """The newest verdict awaiting review is confirmed with [확인]; during the undo window another window deletes it and
+        the list is read again: the page line and the older verdict's card go back to the older verdict - nothing names the
+        deleted pin."""
+        page = self.on("rv")
+        older = self.press_page(page, 1, "보류")
+        newer = self.press_page(page, 1, "채택")
+        self.assertEqual(self.call("POST", "/api/pins/%d/close" % newer, {"reply": "done"}, AGENT)[0], 200)
+        self.reload(page)
+        page.evaluate("()=>{SEC.review=true; setSide(true); drawPins();}")
+        self.assertEqual(page.evaluate(OLD, older)["ref"], newer)
+        page.locator('#review-pins .pin[data-id="%d"] [data-act="confirm"]' % newer).click()
+        settle(page)
+        self.assertTrue(page.evaluate("id=>CONFIRMING.has(id)", newer))
+        self.assertEqual(self.call("POST", "/api/pins/%d/drop" % newer, {}, ALICE)[0], 200)
+        self.reload(page)
+        self.assertTrue(page.evaluate("id=>CONFIRMING.has(id)", newer))  # still in its undo window
+        self.assertEqual(page.evaluate(LINE, 1)["pin"], str(older))
+        self.assertIsNone(page.evaluate(OLD, older))
 
     def test_latex_verdicts_on_the_same_lines_and_the_review_and_done_rows(self):
         """Two composer verdicts on the same lines of the LaTeX manuscript: the older is marked, in its open card, then as

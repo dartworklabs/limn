@@ -60,47 +60,60 @@ function docKindOf(doc){return (!DOC||doc===DOC)&&META?META.kind:(docInfo(doc)||
 // The target a verdict pin is about, as far as its stored place says it without a project's rules: the page's whole target
 // (pageTargetOf: a figure document's page figure, a view-only PDF's whole page) - the page line's targets; else, on a figure
 // document, the element it names unless the build lost it; else, on a LaTeX document, its exact lines (file and range)
-// unless their anchor is lost. A key that two pins share only when they are about the same thing, with whether it is a whole
-// page's; null when the target cannot be resolved (a PDF region that is not its whole page, a lost element or line).
-/** @param {Pin} p @param {string|undefined} kind @returns {{key:string,whole:boolean,page:number}|null} */
-function verdictTargetOf(p,kind){const t=pageTargetOf(p,kind); if(t)return {key:'whole '+t.id,whole:true,page:t.page};
-  if(isFigureKind(kind)){const el=p.el; return el&&el.id&&!elLost(p)?{key:'element '+el.id,whole:false,page:pinPlace(p).page}:null;}
+// unless their anchor is lost (stale). A key that pins about the same thing share, with whether it is a whole page's; null
+// when the target cannot be resolved (a PDF region that is not its whole page, a lost element or line). Lines are only a
+// candidate: the server re-matches an open pin's lines to the text now, never a closed one's, so two pins with the same key
+// are about the same lines only when both are open or both were saved on the same text (sameLines).
+/** @param {Pin} p @param {string|undefined} kind @returns {VerdictTarget|null} */
+function verdictTargetOf(p,kind){const t=pageTargetOf(p,kind); if(t)return {key:'whole '+t.id,whole:true,page:t.page,lines:null};
+  if(isFigureKind(kind)){const el=p.el; return el&&el.id&&!elLost(p)?{key:'element '+el.id,whole:false,page:pinPlace(p).page,lines:null}:null;}
   if(kind!==DOC_KIND.PDF&&!isRegion(p)&&p.file&&typeof p.lo==='number'&&typeof p.hi==='number'&&!p.stale)
-    return {key:'lines '+p.file+':'+p.lo+'-'+p.hi,whole:false,page:p.page};
+    return {key:'lines '+p.file+':'+p.lo+'-'+p.hi,whole:false,page:p.page,lines:{open:pinState(p)===PIN_STATE.OPEN,anchor:anchorKey(p)}};
   return null;}
-let VO_CACHE=/** @type {{lists:unknown[],by:Map<string,Map<string,Pin[]>>}} */({lists:[],by:new Map()});
+// A line pin's anchor - the text of its first and last lines when it was saved or last re-matched - as one string, or null.
+/** @param {Pin} p @returns {string|null} */
+function anchorKey(p){const a=p.anchor; return a&&typeof a.head==='string'&&typeof a.tail==='string'?JSON.stringify([a.head,a.tail,a.head_off,a.tail_off]):null;}
+// Whether two pins on the same file and line numbers are about the same lines: both open (their lines are matched to the text
+// now), or both saved on the same text (one anchor). A closed pin's numbers may be from an older text; without a shared
+// anchor it is only its own target - never superseded, never another pin's current verdict.
+/** @param {VerdictTarget} a @param {VerdictTarget} b */
+function sameLines(a,b){const x=a.lines,y=b.lines; return !x||!y||(x.open&&y.open)||(!!x.anchor&&x.anchor===y.anchor);}
+let VO_CACHE=/** @type {{lists:unknown[],by:Map<string,VerdictOrder>}} */({lists:[],by:new Map()});
 // The verdict order of document doc (D4, docs/handbook/domain.md §순서): its verdict pins that are not deleted - open, awaiting
-// review (one whose [확인] waits for its undo too: it leaves the review list at once, but it is still a verdict) and done - by
-// resolved target (verdictTargetOf), newest (largest number) first. The first pin of a target is its current verdict; the page
+// review (one whose [확인] waits for its undo too: it leaves the review list at once, but it is still a verdict, while the list
+// still has it - applyPinLists) and done - by resolved target (verdictTargetOf), newest (largest number) first, and for every
+// pin its current verdict: its target's newest pin (on lines, the newest that sameLines says is about the same lines). The page
 // verdict line (pageVerdictPins) and a card's '이전 판정' marker (verdictSuperseder) both read this one order, so they never
-// disagree. Kept until the lists change.
-/** @param {string} doc @returns {Map<string,Pin[]>} */
+// disagree. Built once per change of the lists (an index, not a scan per card).
+/** @param {string} doc @returns {VerdictOrder} */
 function verdictOrder(doc){const lists=[OPEN_ALL,REVIEW_ALL,DONE_ALL,CONFIRMING_PIN.size,META&&META.kind,DOCS];
   if(VO_CACHE.lists.length!==lists.length||VO_CACHE.lists.some((x,i)=>x!==lists[i]))VO_CACHE={lists,by:new Map()};
   const hit=VO_CACHE.by.get(doc); if(hit)return hit;
-  const kind=docKindOf(doc),out=/** @type {Map<string,Pin[]>} */(new Map()),seen=new Set();
+  const kind=docKindOf(doc),groups=/** @type {Map<string,{t:VerdictTarget,all:{p:Pin,t:VerdictTarget}[]}>} */(new Map()),seen=new Set();
   for(const p of OPEN_ALL.concat(REVIEW_ALL,DONE_ALL,[...CONFIRMING_PIN.values()])){
     if(seen.has(p.id)||pdoc(p)!==doc||!verdictOf(p))continue; seen.add(p.id);
-    const t=verdictTargetOf(p,kind); if(!t)continue; const list=out.get(t.key)||[]; list.push(p); out.set(t.key,list);}
-  out.forEach(list=>list.sort((a,b)=>b.id-a.id));
+    const t=verdictTargetOf(p,kind); if(!t)continue; const g=groups.get(t.key)||{t,all:[]}; g.all.push({p,t}); groups.set(t.key,g);}
+  const out=/** @type {VerdictOrder} */({groups:new Map(),cur:new Map()});
+  groups.forEach((g,key)=>{g.all.sort((a,b)=>b.p.id-a.p.id);
+    g.all.forEach(x=>{const c=x.t.lines?g.all.find(y=>y===x||sameLines(x.t,y.t)):g.all[0]; out.cur.set(x.p.id,(c||x).p);});
+    out.groups.set(key,{whole:g.t.whole,page:g.t.page,pins:g.all.map(x=>x.p)});});
   VO_CACHE.by.set(doc,out); return out;}
 // The verdict pins about each page's whole target on the document on screen, in the verdict order (verdictOrder), by page. A
 // page whose pins name two figures (a re-render moved one away) keeps the figure of its newest pin.
 /** @returns {Map<number,Pin[]>} */
-function pageVerdictPins(){const out=/** @type {Map<number,Pin[]>} */(new Map()),kind=docKindOf(DOC||DEFAULT_DOC);
-  verdictOrder(DOC||DEFAULT_DOC).forEach(list=>{const t=verdictTargetOf(list[0],kind); if(!t||!t.whole)return;
-    const had=out.get(t.page); if(!had||had[0].id<list[0].id)out.set(t.page,list);});
+function pageVerdictPins(){const out=/** @type {Map<number,Pin[]>} */(new Map());
+  verdictOrder(DOC||DEFAULT_DOC).groups.forEach(g=>{if(!g.whole)return;
+    const had=out.get(g.page); if(!had||had[0].id<g.pins[0].id)out.set(g.page,g.pins);});
   return out;}
 // The current verdict that supersedes verdict pin p - the newest verdict about p's target when that is not p - or null: p is
 // the current one, not a verdict pin, or its target cannot be resolved.
 /** @param {Pin} p @returns {Pin|null} */
-function verdictSuperseder(p){if(!verdictOf(p))return null; const doc=pdoc(p),t=verdictTargetOf(p,docKindOf(doc)); if(!t)return null;
-  const list=verdictOrder(doc).get(t.key); return list&&list.some(x=>x.id===p.id)&&list[0].id!==p.id?list[0]:null;}
-// A card's marker for a superseded verdict: '이전 판정 · #4가 앞섬', the number a link (the viewer's link look) to the current
+function verdictSuperseder(p){if(!verdictOf(p))return null; const c=verdictOrder(pdoc(p)).cur.get(p.id); return c&&c.id!==p.id?c:null;}
+// A card's marker for a superseded verdict: '이전 판정 · #4로 대체됨', the number a link (the viewer's link look) to the current
 // verdict's card. Neutral: a badge with no colour of its own - the words carry it. null for a current verdict or another pin.
 /** @param {Pin} p */
 function verdictOldMarker(p){const cur=verdictSuperseder(p); if(!cur)return null; const S='\u0001',id=cur.id;
-  const parts=tl('이전 판정 · {ref}{p} 앞섬',{ref:S,p:josa(id,'이','가')}).split(S);
+  const parts=tl('이전 판정 · {ref}{p} 대체됨',{ref:S,p:josaRo(id)}).split(S);
   const desc=tl('같은 대상에 더 새 판정 #{id}{p} 있습니다 — 에이전트는 가장 새 판정만 실행합니다',{id,p:josa(id,'이','가')});
   return html`<span class="badge vd-old" role="note" aria-label="${desc}" data-tip="${desc}">${parts[0]}<span class="pin-ref vd-old-ref hit" role="link" tabindex="0" \
 data-act="pin-ref" data-ref="${id}" aria-label="${tl('지금 판정 #{id} 카드로 갑니다',{id})}">#${id}</span>${parts[1]||''}</span>`;}
@@ -258,7 +271,7 @@ data-tip="${tl('핀 #{id} 로 갑니다',{id:cur.id})}">#${cur.id}</span> <b cla
 ${other?html`<span class="pv-sep" aria-hidden="true">·</span><span class="pv-au" translate="no">${who(cur.author)}</span> ${relSpan(cur.at,'pv-at','')}`:''}`
     :html`<span class="pv-s pv-none">${tr('판정 없음')}</span>`;
   const early=earlier.length?html`<button type="button" class="btn-ghost btn-sm pv-early hit" data-act="pv-earlier" data-ref="${earlier[0].id}" \
-data-tip="${tr('이 쪽의 더 새 판정이 앞서므로 실행하지 않는 열린 판정 핀입니다. 누르면 그 카드로 갑니다')}">${tl('이전 판정 {n}건 · 새 판정이 앞섬',{n:earlier.length})}</button>`:'';
+data-tip="${tr('이 쪽의 더 새 판정으로 대체되어 실행하지 않는 열린 판정 핀입니다. 누르면 그 카드로 갑니다')}">${tl('이전 판정 {n}건 · 새 판정으로 대체됨',{n:earlier.length})}</button>`:'';
   const busy=PV_BUSY.has(page),btns=canVerdict()?html`<span class="vd-btns">${v.choices.map(c=>vdButton(c,VD_WHERE.PAGE,page,tl('{page}쪽',{page}),busy))}</span>`:'';
   return html`<span class="pv-t">${text}${early}</span>${btns}`;}
 // Draws page `page`'s line.

@@ -520,8 +520,12 @@ class FrontendStructure(unittest.TestCase):
     def test_level_and_excerpt_lines_recount_overlap_only_for_composer(self):
         m = re.search(r"case 'level':\{(.*?)\}\s*\n", HTML)
         self.assertIsNotNone(m)
-        self.assertIn("if(!inEdit)recomputeOverlap()", m.group(1).replace(" ", ""))
-        self.assertIn("if(o===COMPOSE.current)recomputeOverlap()", extract_js_fn("applyRange"))
+        # ...and only the composer's change counts as a new intent (a failed verdict save's retry is for the old one, savePin)
+        self.assertIn("if(!inEdit){COMPOSE.intent++;recomputeOverlap();}", m.group(1).replace(" ", ""))
+        self.assertIn(
+            "if(o===COMPOSE.current){COMPOSE.intent++;recomputeOverlap();}",
+            extract_js_fn("applyRange").replace(" ", ""),
+        )
 
     def test_pdf_build_travels_drag_to_pick_to_save_and_repick(self):
         self.assertIn("pdf_build:META.pages_build", HTML)  # drag -> /api/pick
@@ -3060,8 +3064,8 @@ class FrontendFigure(unittest.TestCase):
                 "fig.pdf 쪽 2",
                 "fig.pdf 쪽 1",
                 "a.py L4-L6",
-                ["fig.pdf 쪽 2", "쪽 2 영역"],
-                ["fig.pdf 쪽 1", "쪽 1 영역"],
+                ["fig.pdf 쪽 2", "2쪽 영역"],
+                ["fig.pdf 쪽 1", "1쪽 영역"],
                 ["a.py L4-L6", "L4-L6"],
             ],
         )

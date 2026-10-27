@@ -395,9 +395,10 @@ body.compact .pin .sum{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orie
   margin:0 0 var(--space-1);color:var(--muted-foreground);font-size:var(--text-base);line-height:round(down,1.5em,1px);cursor:pointer}
 /* ^ a whole pixel per line (19px, not 19.5): a folded card is then a whole number of pixels tall, so every head row stands on
    whole pixels - at 19.5 every other card stood half a pixel off, where icons (drawn at whole pixels) sat 0.5px under their row's words */
-/* A superseded verdict's preview is its two badges ('판정 보류' '이전 판정 · #4가 앞섬', cards.js), with no text to clamp: a
+/* A superseded verdict's preview is its two badges ('판정 보류' '이전 판정 · #4로 대체됨', cards.js), with no text to clamp: a
    wrapping row that does not clip, so the '#4' link answers its 44px (.hit). The open and editing rules below still hide it. */
-body.compact .pin .sum.sum-vd{display:flex;flex-wrap:wrap;gap:var(--space-1);overflow:visible}
+body.compact .pin .sum.sum-vd{display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-1);overflow:visible}
+body.compact .pin .sum-vd .sum-has{font-size:var(--text-xs)}   /* '메모 있음': words, not a colour - the note shows when opened */
 body.compact .pin .head{flex-wrap:nowrap;margin:-6px 0}
 /* On touch the head is the 32px row it draws - a 44px control less the 12px it shares with the card's padding and the preview -
    and its 44px controls, centred in it, reach over and under it themselves (the overlap sat on the row as a margin, whose box
