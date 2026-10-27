@@ -879,3 +879,19 @@ class SupersededMarker(VerdictBase):
         self.assertIsNone(page.evaluate(OLD, c))
         self.assertIsNone(page.evaluate(OLD, b))
 
+
+class PressAcrossARedraw(VerdictBase):
+    """The pin list redraws on every poll; a page line whose words did not change keeps its buttons."""
+
+    def test_a_press_held_while_the_list_redraws_still_saves(self):
+        """The mouse goes down on a page-line word, the marks and lines redraw (a poll's answer), the mouse comes up: the
+        press saves a verdict. Buttons rewritten between down and up would send the click to the line and lose it."""
+        page = self.on("fig")
+        box = page.locator('#doc .pv[data-page="1"] button[data-key="보류"]').bounding_box()
+        page.mouse.move(box["x"] + box["width"] / 2, box["y"] + box["height"] / 2)
+        page.mouse.down()
+        page.evaluate("marks()")
+        page.mouse.up()
+        page.wait_for_function("OPEN_ALL.length===1", timeout=5000)
+        settle(page)
+        self.assertEqual([p.get("verdict") for p in self.pins().values()], ["보류"])

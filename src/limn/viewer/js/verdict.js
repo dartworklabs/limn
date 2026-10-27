@@ -263,11 +263,15 @@ data-tip="${tr('이 쪽의 더 새 판정이 앞서므로 실행하지 않는 �
   return html`<span class="pv-t">${text}${early}</span>${btns}`;}
 // Draws page `page`'s line.
 /** @param {HTMLElement} el @param {number} page @param {Pin[]|undefined} list @param {DocVerdicts} v */
+// A line whose words are what it already shows is left alone: the list redraws on every poll and many other changes, and
+// buttons rewritten between a press's down and up would lose the press (the click lands on the line, not the button).
+const PV_TEXT=/** @type {WeakMap<HTMLElement,string>} */(new WeakMap());   // what fillPv last wrote into each line
 function fillPv(el,page,list,v){el.dataset.page=String(page); const cur=list&&list[0];
   if(cur){el.dataset.pin=String(cur.id); PV_SHOWN.add(cur.id);} else delete el.dataset.pin;
   el.setAttribute('role','group'); el.setAttribute('aria-label',tl('{page}쪽 판정',{page}));
+  const m=pvLineHtml(page,list,v); if(PV_TEXT.get(el)===m.text)return;
   const chip=el.querySelector(':scope>.nt-chip');   // a save's undo chip (drawChips) stays on its line; drawChips moves it if it is another pin's
-  setHtml(el,pvLineHtml(page,list,v)); if(chip)el.appendChild(chip);}
+  setHtml(el,m); PV_TEXT.set(el,m.text); if(chip)el.appendChild(chip);}
 // The width of each line: the page's (W), never past what the PDF area shows - a zoomed page scrolls sideways under a
 // line that stays in view (sticky) and keeps its size. Then one rhythm for every page: when any page's line cannot hold its
 // words and its buttons on one row (a phone, a folded cover), every line puts its buttons on a row of their own, at its
