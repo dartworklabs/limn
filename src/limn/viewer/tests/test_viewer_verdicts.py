@@ -1207,19 +1207,25 @@ class FunctionalUiFixes(VerdictBase):
         page.wait_for_function("OPEN_ALL.length===3", timeout=8000)
 
     def test_the_line_number_link_answers_44px_and_is_named_like_the_cards(self):
-        """On touch (390 x 844, 841 x 673; Korean and English) page 1's '#N' link answers 44 x 44 px, and its name is the
-        card marker's link's: '지금 판정 #N 카드로 갑니다'."""
+        """On touch (390 x 844, 841 x 673; Korean and English) page 1's '#N' link answers 44 x 44 px - also on a long line
+        whose buttons stand on a row of their own under it (390) - and so do the buttons; its name is the card marker's
+        link's: '지금 판정 #N 카드로 갑니다'."""
         page = self.on("fig")
-        a = self.press_page(page, 1, "채택")
+        first = self.press_page(page, 1, "채택")
+        a = self.bob_again(first, "보류")  # Bob's newer verdict, claimed by an agent: a long line with an earlier link
+        self.assertEqual(self.call("POST", "/api/pins/%d/claim" % a, {}, AGENT)[0], 200)
         for (w, h), lang in (((390, 844), "ko"), ((841, 673), "ko"), ((390, 844), "en")):
             with self.subTest(size=(w, h), lang=lang):
                 page = self.on(
-                    "fig", n_open=1, lang=lang, viewport={"width": w, "height": h}, is_mobile=True, has_touch=True
+                    "fig", n_open=2, lang=lang, viewport={"width": w, "height": h}, is_mobile=True, has_touch=True
                 )
                 ref = '#doc .pv[data-page="1"] .pv-ref'
                 page.evaluate("s=>document.querySelector(s).scrollIntoView({block:'center'})", ref)
                 settle(page)
+                if w == 390:
+                    self.assertTrue(page.evaluate("document.querySelector('#doc').classList.contains('pv-stack')"))
                 self.assertEqual(page.evaluate(MISSES_44, ref), [])
+                self.assertEqual(page.evaluate(MISSES_44, '#doc .pv[data-page="1"] button.vd-b'), [])
                 name = page.evaluate("s=>document.querySelector(s).getAttribute('aria-label')", ref)
                 self.assertEqual(
                     name,

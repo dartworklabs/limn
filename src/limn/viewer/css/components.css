@@ -150,4 +150,8 @@ pre.nowrap{white-space:pre}
 /* When any page's line cannot hold its words and buttons on one row, every line puts the buttons on a row of their own, at
    its start (sizePv sets #doc.pv-stack) - one rhythm on every page. */
 #doc.pv-stack .pv .vd-btns{flex-basis:100%}
+/* On touch the words' row and the buttons' row stand 20px apart, and the earlier link wrapped under the words 16px, so
+   the '#N' link (.hit) and the targets under it each answer a whole 44px - 4px (0px) apart the buttons (the earlier link)
+   took the lower 13px of the link's. */
+@media (pointer:coarse){#doc.pv-stack .pv{row-gap:var(--space-5)} .pv .pv-t{row-gap:var(--space-4)}}
 .pv.flash{animation:pinflash 1.2s ease-in-out 1}
