@@ -19,7 +19,15 @@ from limn.pins.context import Event, Json, PinContext, load_pin, typed_actor
 from limn.pins.model import DonePin, OpenPin, Pin, PinNotFound, ReviewPin, TrashedPin, parse_pin
 from limn.pins.retention import unexpired, without_live_shadows
 from limn.pins.store import pin_index
-from limn.pins.trash.rules import AlreadyLive, NotInTrash, drop, find_trashed, restore
+from limn.pins.trash.rules import (
+    AlreadyLive,
+    NotInTrash,
+    VerdictByAgent,
+    drop,
+    find_trashed,
+    restore,
+    verdict_kept_for_people,
+)
 from limn.security.access import PostAuthority, require_authority
 
 # a long-running server also drops expired Trash entries during normal reads, at most this often
@@ -36,29 +44,34 @@ def _without(entries: Sequence[TrashedPin], pid: int) -> list[TrashedPin]:
     return [entry for entry in entries if entry.pin.core.id != pid]
 
 
-def drop_pin(ctx: PinContext, pid: int, actor: PostAuthority) -> TrashedPin | PinNotFound:
+def drop_pin(ctx: PinContext, pid: int, actor: PostAuthority) -> TrashedPin | PinNotFound | VerdictByAgent:
     """Removes a pin from pins.jsonl and moves it to the Trash (pins.dropped.jsonl). restore brings the same id back.
 
     The author is told when someone else deletes their pin (a `dropped` event, with [Restore] in the viewer). Expired
-    Trash entries are purged in the same write."""
+    Trash entries are purged in the same write. An agent's drop of a verdict pin is refused and writes nothing
+    (VerdictByAgent, D16)."""
     require_authority(actor, ctx.authority_scope, "drop", pid)
+    human = actor.principal.is_human()
     evs: list[Event | None] = []
 
-    def fn(pins: list[Pin]) -> tuple[TrashedPin | PinNotFound, bool]:
+    def fn(pins: list[Pin]) -> tuple[TrashedPin | PinNotFound | VerdictByAgent, bool]:
         """Remove pid in memory and queue its notice; the Trash write follows preparation of the live bytes."""
         found = load_pin(pins, pid)
         if isinstance(found, PinNotFound):
             return found, False
         i, pin = found
+        refused = verdict_kept_for_people(pin, human)
+        if refused is not None:
+            return refused, False
         del pins[i]
         trashed = drop(pin, typed_actor(actor), ctx.now())
         r = pin.record
         evs.append(ctx.make_event("dropped", r, actor, [(pin.core.author or {}).get("login")], text=r.get("note")))
         return trashed, True
 
-    def write_trash(result: TrashedPin | PinNotFound) -> None:
+    def write_trash(result: TrashedPin | PinNotFound | VerdictByAgent) -> None:
         """Replace the target's Trash row after live rendering succeeds but before the live file changes."""
-        if isinstance(result, PinNotFound):
+        if not isinstance(result, TrashedPin):
             return
         old, bad = ctx.store.read_dropped()
         ctx.store.write_dropped(_without(_live_trash(ctx, old), pid) + [result], bad)
@@ -71,13 +84,15 @@ def drop_pin(ctx: PinContext, pid: int, actor: PostAuthority) -> TrashedPin | Pi
 
 def restore_pin(
     ctx: PinContext, pid: int, actor: PostAuthority
-) -> OpenPin | ReviewPin | DonePin | NotInTrash | AlreadyLive:
+) -> OpenPin | ReviewPin | DonePin | NotInTrash | AlreadyLive | VerdictByAgent:
     """Writes to pins.jsonl first, then removes its Trash copy. An interrupted restore may leave both copies;
-    retry returns AlreadyLive as before and removes that shadow copy."""
+    retry returns AlreadyLive as before and removes that shadow copy. An agent's restore of a verdict pin is refused and
+    writes nothing (VerdictByAgent, D16)."""
     require_authority(actor, ctx.authority_scope, "restore", pid)
+    human = actor.principal.is_human()
     with ctx.store.lock:  # re-entrant - bundles transact and cleaning up the dropped record
-        result = ctx.store.transact(lambda pins: _restore(ctx, pins, pid, actor))[1]
-        if isinstance(result, NotInTrash):
+        result = ctx.store.transact(lambda pins: _restore(ctx, pins, pid, actor, human))[1]
+        if isinstance(result, (NotInTrash, VerdictByAgent)):
             return result
         old, bad = ctx.store.read_dropped()
         if isinstance(result, AlreadyLive):
@@ -90,16 +105,20 @@ def restore_pin(
 
 
 def _restore(
-    ctx: PinContext, pins: list[Pin], pid: int, actor: Mapping[str, Any]
-) -> tuple[OpenPin | ReviewPin | DonePin | NotInTrash | AlreadyLive, bool]:
+    ctx: PinContext, pins: list[Pin], pid: int, actor: Mapping[str, Any], human: bool
+) -> tuple[OpenPin | ReviewPin | DonePin | NotInTrash | AlreadyLive | VerdictByAgent, bool]:
     """The transact() step of restore_pin: puts the newest unexpired Trash copy of pin pid back into pins (kept in id
     order) with its file and file_rel recorded where the file is now (ADR-0006). Its lines are not re-matched here:
     the next transaction's sync does that, as for every pin. The rule is limn.pins.trash.rules.restore(); NotInTrash
-    (404) and AlreadyLive (409) leave pins unchanged."""
+    (404), VerdictByAgent (403, an agent and a verdict pin - human says whether a person asks) and AlreadyLive (409)
+    leave pins unchanged."""
     old, _ = ctx.store.read_dropped()
     trashed = find_trashed(_live_trash(ctx, old), pid)
     if isinstance(trashed, NotInTrash):
         return trashed, False
+    refused = verdict_kept_for_people(trashed.pin, human)
+    if refused is not None:
+        return refused, False
     result = restore(trashed, pin_index(pins, pid) is not None, typed_actor(actor), ctx.now())
     if isinstance(result, AlreadyLive):
         return result, False
@@ -205,13 +224,15 @@ class PinTrash:
 
     context: Callable[[], PinContext]
 
-    def drop_pin(self, pid: int, actor: PostAuthority) -> TrashedPin | PinNotFound:
+    def drop_pin(self, pid: int, actor: PostAuthority) -> TrashedPin | PinNotFound | VerdictByAgent:
         """Move one pin to the Trash under the store lock."""
         ctx = self.context()
         require_authority(actor, ctx.authority_scope, "drop", pid)
         return drop_pin(ctx, pid, actor)
 
-    def restore_pin(self, pid: int, actor: PostAuthority) -> OpenPin | ReviewPin | DonePin | NotInTrash | AlreadyLive:
+    def restore_pin(
+        self, pid: int, actor: PostAuthority
+    ) -> OpenPin | ReviewPin | DonePin | NotInTrash | AlreadyLive | VerdictByAgent:
         """Restore one Trash entry under the store lock."""
         ctx = self.context()
         require_authority(actor, ctx.authority_scope, "restore", pid)

@@ -129,7 +129,7 @@ curl -s -H "Authorization: Bearer $(cat ~/.config/limn/<인스턴스>.token)" ht
 | 역할 | 누가 이 역할인가 | 허용되는 POST |
 | --- | --- | --- |
 | `viewer` | `role` 이 `viewer` 인 사람, `role` 값을 알 수 없는 사람, 그리고 `people.json` 을 쓸 수 없는 동안 헤더로 들어온 모든 사람 | `/api/pick`, `/api/revision-build` 만(상태를 바꾸지 않는 계산). 그 밖은 모두 `403` |
-| `agent` | 모든 토큰, 헤더 없는 루프백 에이전트, `role` 이 `agent` 인 사람 | `/api/pins/{id}/confirm`, `/api/clear`, `/api/pins/{id}/purge` 를 뺀 전부. 셋은 `403` 이다. 판정 핀(`verdict` 를 단 `POST /api/pin`)도 만들지 못한다(`403 verdict_human`). 본문에 `review` 없이 닫으면 검토 대기로 가고, 답글은 규칙으로 핀을 다시 열지 않는다(§스레드 (답글)) |
+| `agent` | 모든 토큰, 헤더 없는 루프백 에이전트, `role` 이 `agent` 인 사람 | `/api/pins/{id}/confirm`, `/api/clear`, `/api/pins/{id}/purge` 를 뺀 전부. 셋은 `403` 이다. 판정 핀(`verdict` 를 단 `POST /api/pin`)도 만들지 못하고, 판정 핀을 지우거나(`/drop`) 되살리지(`/restore`) 못한다(`403 verdict_human`). 본문에 `review` 없이 닫으면 검토 대기로 가고, 답글은 규칙으로 핀을 다시 열지 않는다(§스레드 (답글)) |
 | `editor` | `role` 이 없거나 `editor` 인 사람 | `/api/clear` 와 `/api/pins/{id}/purge` 를 뺀 전부(`403`) |
 | `owner` | `role` 이 `owner` 인 사람, `local` 방식의 루프백 소유자 | 전부 |
 
@@ -315,8 +315,8 @@ curl -s -H "Authorization: Bearer $(cat ~/.config/limn/<인스턴스>.token)" ht
 | `POST` | `/api/pins/{id}/reopen` | 닫은 핀을 되돌린다(`reopened_by`). `close_reply`·`close_ref`·`changes`·`review`·`confirmed_*` 가 있었으면 지운다. 다시 닫을 때 새로 남기기 위해서다. 선택 본문 `{"reason"}` 은 스레드에 남는다 → `{ok, pin, state}`. 뷰어에는 [다시 열기] 버튼이 없고 사람의 답글이 규칙으로 다시 연다(§스레드 (답글)). 이 경로는 에이전트와 뷰어의 [완료] 되돌리기가 쓴다 |
 | `POST` | `/api/pins/{id}/confirm` | 검토 대기 → 완료. 사람만 누를 수 있다. 에이전트 역할(토큰 포함)이면 `403` 이다. 선택 본문 `{"done_at"}` 은 사람이 본 닫기다. 지금 닫기가 아니면 `409 conflict` 이다 → `{ok, pin, state}` — §검토 대기, §인증 |
 | `POST` | `/api/pins/{id}/reply` | 답글 `{"text", "mentions"?, "reopen"?}` → `{ok, pin, msg, state, reopened}`. 닫힌 핀에 사람이 단 답글은 규칙에 따라 핀을 다시 열 수 있다 — §스레드 (답글) |
-| `POST` | `/api/pins/{id}/drop` | 핀을 목록에서 빼 휴지통(`pins.dropped.jsonl`)으로 옮긴다(`dropped_by`) → `{ok}`. 없는 id면 `200 {"ok": false}`. 작성자가 아닌 쪽이 지우면 작성자에게 `dropped` 이벤트가 간다(§이벤트). 같은 쓰기에서 30일이 지난 휴지통 항목을 뺀다 |
-| `POST` | `/api/pins/{id}/restore` | 삭제한 핀을 같은 id로 되살린다. 서버를 다시 띄운 뒤에도 된다(`restored_by`). 응답은 `200 {ok, pin}`, 휴지통에 없으면(30일이 지난 항목 포함) `404`, 같은 id가 이미 있으면 `409` |
+| `POST` | `/api/pins/{id}/drop` | 핀을 목록에서 빼 휴지통(`pins.dropped.jsonl`)으로 옮긴다(`dropped_by`) → `{ok}`. 없는 id면 `200 {"ok": false}`. 작성자가 아닌 쪽이 지우면 작성자에게 `dropped` 이벤트가 간다(§이벤트). 같은 쓰기에서 30일이 지난 휴지통 항목을 뺀다. 에이전트가 판정 핀을 지우려 하면 `403 verdict_human` 이고 아무것도 쓰지 않는다(§판정 핀의 삭제와 되살리기) |
+| `POST` | `/api/pins/{id}/restore` | 삭제한 핀을 같은 id로 되살린다. 서버를 다시 띄운 뒤에도 된다(`restored_by`). 응답은 `200 {ok, pin}`, 휴지통에 없으면(30일이 지난 항목 포함) `404`, 같은 id가 이미 있으면 `409`, 에이전트가 판정 핀을 되살리려 하면 `403 verdict_human` |
 | `POST` | `/api/pins/{id}/purge` | 휴지통의 핀을 영구 삭제한다(0.2.2+). **`owner` 역할만**(그 밖은 `403`). 휴지통에 없으면(열린·닫힌 핀 포함) `404` → `{ok, purged: <id>}`. `purged` 감사 이벤트와 서버 로그, `audit.jsonl` 한 줄(§감사 기록 (`audit.jsonl`))을 남긴다. 번호는 다시 쓰이지 않는다 — §휴지통 |
 | `POST` | `/api/pins/{id}/claim` | 처리 중 표시를 걸거나, 같은 신원이면 연장한다 — §처리 중 표시 (claim). 선택 본문 `{"eta_min": 1..240, "ttl_min": 1..120}`. 정수가 아니거나 1보다 작으면 `400`, 상한을 넘으면 상한으로 깎는다. 응답은 `{ok, pin, ttl_min_applied, eta_min_applied?}`. 다른 신원이 유효한 claim을 쥐고 있으면 `409 {"error":"claimed","claimed_by":{...},"claim_until":...,"eta_ts":...}`. 닫힌 핀이면 `409 {"error":"done","pin":...}`. 없는 id면 `200 {"ok": false}` |
 | `POST` | `/api/pins/{id}/unclaim` | 처리 중 표시를 지운다. claim을 건 신원과 무관하다. claim은 잠금이 아니라 표시이기 때문이다 → `{ok, pin}`. 없는 id면 `200 {"ok": false}`. `viewer` 역할은 다른 변경처럼 `403` 이다 |
@@ -566,6 +566,19 @@ latexdiff는 본문 글과, 자기가 아는 글 명령(`\textbf`·`\section`·`
 | LaTeX 문서 | 없다 | — |
 
 그림 문서의 쪽 전체 판정은 만들 때 서버가 확인한다. 핀이 보낸 `pdf_build`(없으면 지금 화면 빌드)의 지도 사본에서 `el.id` 가 핀의 `page` 쪽의 뿌리 요소여야 한다. 이 확인은 핀 잠금을 잡기 직전에 한다. `pdf_build` 가 없으면 화면 빌드를 그때 한 번만 읽어 확인과 기록에 함께 쓰므로, 핀의 `pdf_build` 로 남는 빌드가 확인한 그 빌드다. 그사이 새 빌드가 올라와도 확인하지 않은 빌드가 저장되지 않는다. 빌드의 지도 사본은 그 빌드를 들일 때 한 번 쓰고 고치지 않으므로, 잠금 안에서 다시 확인해도 답이 같다. `el` 은 요청이 보낸 값이라, 확인해야 `(쪽 전체)` 를 믿을 수 있다. 지도는 실행별 파싱 캐시로 읽고, 지도가 가리키는 다른 파일은 열지 않는다. 판정이 없는 핀에는 이 확인을 하지 않는다. LaTeX 문서의 쪽은 항목 하나가 아니다(목록 쪽, 빈 절, 절 머리, 다른 그림을 가리키는 줄이 섞인다). 그래서 LaTeX 핀의 판정 대상은 사람이 고른 줄이다.
+
+### 판정 핀의 삭제와 되살리기
+
+에이전트(토큰, 헤더 없는 루프백, `agent` 역할)는 판정 핀을 지우지도 되살리지도 않는다. 판정 없는 핀은 지우고 되살린다. 사람(`editor`·`owner`)의 권한은 그대로다.
+
+| 요청 | 에이전트가 판정 핀에 보내면 |
+| --- | --- |
+| `POST /api/pins/{id}/drop` | `403 {"error": "판정은 사람이 정합니다 — 에이전트는 판정 핀을 지우지 않습니다.", "reason": "verdict_human"}` |
+| `POST /api/pins/{id}/restore` | `403 {"error": "판정은 사람이 정합니다 — 에이전트는 판정 핀을 되살리지 않습니다.", "reason": "verdict_human"}` |
+
+- 둘 다 아무것도 쓰지 않는다. 핀은 목록이나 휴지통에 그대로 있다. 검사는 핀 잠금 안에서 그 핀(휴지통이면 되살릴 사본)의 `verdict` 를 보고 한다.
+- 같은 대상의 가장 새 판정을 지우면 앞선 판정이 알림 없이 다시 지금 판정이 되고, 되살리기도 어느 판정이 지금인지를 바꾼다. 둘 다 사실상 판정을 내리는 일이라 판정 핀을 만드는 일(§판정 핀 (`verdict`))처럼 사람만 한다. 판단은 `Principal.is_human` 이다.
+- 영구 삭제(`/purge`)와 전체 비우기(`/api/clear`)는 이미 `owner` 만 한다(§역할).
 
 ### 판정 핀의 편집
 
@@ -1095,7 +1108,7 @@ curl -s -X POST http://127.0.0.1:<port>/api/pins/3/unclaim
 | 동작 | 규칙 |
 | --- | --- |
 | 보기 | `GET /api/pins/dropped`. 같은 잠금 아래 원본·휴지통을 읽고 살아 있는 번호의 사본과 30일 지난 항목은 싣지 않는다. 항목마다 계산 필드 `expires_ts`(지워질 시각, epoch 초)가 붙는다. 뷰어의 '며칠 뒤 지워짐'이 이것을 써서 보는 기기의 시간대와 상관없다. 읽기는 파일을 고치지 않는다 |
-| 되살리기 | `POST /api/pins/{id}/restore`. 누구나(`viewer` 제외). 30일이 지난 항목은 `404` 다 |
+| 되살리기 | `POST /api/pins/{id}/restore`. 누구나(`viewer` 제외). 30일이 지난 항목은 `404` 다. 판정 핀은 사람만 되살린다(에이전트는 `403 verdict_human`, §판정 핀의 삭제와 되살리기) |
 | 저절로 지우기 | 30일이 지난 항목과 살아 있는 핀의 그림자 사본은 서버 기동 때, 삭제·되살리기 때, 그리고 오래 떠 있는 서버를 위해 `GET /api/pins`·`GET /pins.md`(이미 줄 맞춤 쓰기를 하는 읽기)에서 성공한 정리 뒤 한 시간에 한 번(`TRASH_CHECK_EVERY_S`) 파일에서 뺀다. 실패한 정리는 다음 쓰기 동반 읽기에서 즉시 재시도한다. 라이트 폴링(`/api/meta?light=1`)과 휴지통 조회는 쓰지 않는다. 서버 로그는 만료 항목 `trash: purged N pin(s)` 와 그림자 사본 `trash: reconciled N live shadow(s)` 를 구분한다. `dropped_at` 은 `now_str` 모양(서버 현지 시각)과 ISO+오프셋을 읽고, 읽을 수 없는 항목은 나이를 모르므로 남긴다. 쓰기가 실패하면(읽기 전용 상태 디렉터리) 경고만 남기고 기동은 계속된다. 읽을 수 없는 줄은 휴지통 파일을 다시 쓸 때 `pins.dropped.jsonl.corrupt-<시각>.bak` 으로 원래 바이트를 남긴다 |
 | 영구 삭제 | `POST /api/pins/{id}/purge`. **`owner` 역할만** 한다. 휴지통에 없으면 `404` 다. `purged` 감사 이벤트와 서버 로그를 남긴다 |
 | 알림 | 작성자가 아닌 쪽이 지우면 작성자에게 `dropped` 이벤트가 간다(§이벤트 (`events.jsonl`)) |

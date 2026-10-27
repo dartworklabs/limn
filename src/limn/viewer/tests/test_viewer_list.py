@@ -58,7 +58,7 @@ class PinListLoading(unittest.TestCase):
                 extract_js_fn("loadPins"),
                 """
                 let DOC='main',DEFAULT_DOC='main',OPEN_ALL=[],REVIEW_ALL=[],DONE_ALL=[],PINS=[],DONE=[],DROPPED=[];
-                let REPLY=null,COMPOSE={current:null},PINS_LOAD_SEQ=0,PINS_APPLIED_SEQ=0; const CONFIRMING=new Set(); const EDITOR={current:null,saving:false};
+                let REPLY=null,COMPOSE={current:null},PINS_LOAD_SEQ=0,PINS_APPLIED_SEQ=0; const CONFIRMING=new Set(),CONFIRMING_PIN=new Map(); const EDITOR={current:null,saving:false};
                 const SEC_SEEN={open:null,review:null,done:null},calls=[],reads=[],said=[];
                 let firstTrash;
                 function api(url){
@@ -102,7 +102,7 @@ class PinListLoading(unittest.TestCase):
                 extract_js_fn("loadPins"),
                 """
                 let DOC='main',DEFAULT_DOC='main',OPEN_ALL=[],REVIEW_ALL=[],DONE_ALL=[],PINS=[],DONE=[],DROPPED=[];
-                let REPLY=null,COMPOSE={current:null},PINS_LOAD_SEQ=0,PINS_APPLIED_SEQ=0; const CONFIRMING=new Set(); const EDITOR={current:null,saving:false};
+                let REPLY=null,COMPOSE={current:null},PINS_LOAD_SEQ=0,PINS_APPLIED_SEQ=0; const CONFIRMING=new Set(),CONFIRMING_PIN=new Map(); const EDITOR={current:null,saving:false};
                 const SEC_SEEN={open:null,review:null,done:null},calls=[];
                 let firstPins,pinReads=0,trashReads=0,peopleReads=0;
                 function api(url){
@@ -153,7 +153,7 @@ class PinListLoading(unittest.TestCase):
                 extract_js_fn("pollLightOnce"),
                 """
                 let DOC='main',SWITCHSEQ=0,DEFAULT_DOC='main',OPEN_ALL=[{id:0}],REVIEW_ALL=[],DONE_ALL=[],PINS=OPEN_ALL,DONE=[],DROPPED=[];
-                let REPLY=null,COMPOSE={current:null},PINS_LOAD_SEQ=0,PINS_APPLIED_SEQ=0; const CONFIRMING=new Set(); const EDITOR={current:null,saving:false};
+                let REPLY=null,COMPOSE={current:null},PINS_LOAD_SEQ=0,PINS_APPLIED_SEQ=0; const CONFIRMING=new Set(),CONFIRMING_PIN=new Map(); const EDITOR={current:null,saving:false};
                 let LAST_PINS_REV='old',LAST_SRC_MTIME='old-src',POLL_FAILS=0; const BUILD={lastSeq:0,timer:null};
                 const SEC_SEEN={open:new Set(),review:new Set(),done:new Set()},drawn=[];
                 const document={hidden:false};
@@ -202,7 +202,7 @@ class PinListLoading(unittest.TestCase):
                 extract_js_fn("pollLightOnce"),
                 """
                 let DOC='main',SWITCHSEQ=0,DEFAULT_DOC='main',OPEN_ALL=[{id:1}],REVIEW_ALL=[],DONE_ALL=[],PINS=OPEN_ALL,DONE=[],DROPPED=[{id:9}];
-                let REPLY=null,COMPOSE={current:null},PINS_LOAD_SEQ=0,PINS_APPLIED_SEQ=0; const CONFIRMING=new Set(); const EDITOR={current:null,saving:false};
+                let REPLY=null,COMPOSE={current:null},PINS_LOAD_SEQ=0,PINS_APPLIED_SEQ=0; const CONFIRMING=new Set(),CONFIRMING_PIN=new Map(); const EDITOR={current:null,saving:false};
                 let LAST_PINS_REV='old',LAST_SRC_MTIME='old-src',POLL_FAILS=0; const BUILD={lastSeq:0,timer:null};
                 const SEC_SEEN={open:new Set(),review:new Set(),done:new Set()},drawn=[];
                 const document={hidden:false};let pinReads=0,trashReads=0;
@@ -259,7 +259,7 @@ class PinListLoading(unittest.TestCase):
                 extract_js_fn("pollLightOnce"),
                 """
                 let DOC=null,SWITCHSEQ=0,META=null,DEFAULT_DOC='main',OPEN_ALL=[],REVIEW_ALL=[],DONE_ALL=[],PINS=[],DONE=[],DROPPED=[];
-                let REPLY=null,COMPOSE={current:null},PINS_LOAD_SEQ=0,PINS_APPLIED_SEQ=0; const CONFIRMING=new Set(); const EDITOR={current:null,saving:false};
+                let REPLY=null,COMPOSE={current:null},PINS_LOAD_SEQ=0,PINS_APPLIED_SEQ=0; const CONFIRMING=new Set(),CONFIRMING_PIN=new Map(); const EDITOR={current:null,saving:false};
                 let LAST_PINS_REV=null,LAST_SRC_MTIME=null,POLL_FAILS=0; const BUILD={lastSeq:null,timer:null};
                 const META_BY=new Map(),VIEW_BY=new Map(),DOC_SEQ=new Map();
                 const SEC_SEEN={open:null,review:null,done:null},MQ_COARSE={matches:false};

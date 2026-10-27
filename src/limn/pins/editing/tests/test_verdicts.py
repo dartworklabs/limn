@@ -955,3 +955,69 @@ class RegionEditOverHttp(VerdictHttpBase):
         before = self.stored_bytes()
         self.assertEqual(self.edit(d["id"], {"lo": 1, "verdict": "채택"}, headers=BOB), (400, FIXED))
         self.assertEqual(self.stored_bytes(), before)
+
+
+DROP_HUMAN = {"error": "판정은 사람이 정합니다 — 에이전트는 판정 핀을 지우지 않습니다.", "reason": "verdict_human"}
+RESTORE_HUMAN = {"error": "판정은 사람이 정합니다 — 에이전트는 판정 핀을 되살리지 않습니다.", "reason": "verdict_human"}
+AGENTS = (("token", "token"), ("loopback", None), ("agent role", DAVE))
+
+
+class AgentsKeepOffVerdictPins(VerdictHttpBase):
+    """D16: an agent - a token, the headerless loopback agent, a person with the agent role - neither deletes nor restores
+    a verdict pin (403 verdict_human, nothing written): deleting the newest verdict would make an older one current again.
+    People keep their rights, and agents keep deleting and restoring pins without a verdict."""
+
+    def who(self, kind):
+        """The call's identity for one of AGENTS."""
+        name, headers = kind
+        return dict(token=self.token) if name == "token" else dict(headers=headers) if headers else {}
+
+    def both_files(self):
+        """pins.jsonl and the Trash as they are on disk now (b'' when missing)."""
+        files = (ps.APP.C.pins_jsonl, ps.APP.C.state / "pins.dropped.jsonl")
+        return tuple(f.read_bytes() if f.exists() else b"" for f in files)
+
+    def verdict_pin(self):
+        """Bob's verdict pin; its id."""
+        code, d = self.call("POST", "/api/pin", self.body(verdict="채택"), headers=BOB)
+        self.assertEqual(code, 200, d)
+        return d["id"]
+
+    def test_an_agent_cannot_delete_a_verdict_pin_and_a_person_can(self):
+        """Every agent identity gets 403 verdict_human on POST /drop and the pin stays where it was; Bob then deletes it."""
+        pid = self.verdict_pin()
+        for kind in AGENTS:
+            with self.subTest(agent=kind[0]):
+                before = self.both_files()
+                self.assertEqual(self.call("POST", "/api/pins/%d/drop" % pid, {}, **self.who(kind)), (403, DROP_HUMAN))
+                self.assertEqual(self.both_files(), before)
+                self.assertEqual(self.pin(pid)["verdict"], "채택")
+        self.assertEqual(self.call("POST", "/api/pins/%d/drop" % pid, {}, headers=BOB), (200, {"ok": True}))
+        self.assertEqual(self.call("GET", "/api/pins/%d" % pid, headers=BOB)[0], 404)
+
+    def test_an_agent_cannot_restore_a_verdict_pin_and_a_person_can(self):
+        """A verdict pin Bob deleted: every agent identity gets 403 verdict_human on POST /restore and the Trash keeps it;
+        Alice restores it."""
+        pid = self.verdict_pin()
+        self.assertEqual(self.call("POST", "/api/pins/%d/drop" % pid, {}, headers=BOB), (200, {"ok": True}))
+        for kind in AGENTS:
+            with self.subTest(agent=kind[0]):
+                before = self.both_files()
+                self.assertEqual(
+                    self.call("POST", "/api/pins/%d/restore" % pid, {}, **self.who(kind)), (403, RESTORE_HUMAN)
+                )
+                self.assertEqual(self.both_files(), before)
+        code, d = self.call("POST", "/api/pins/%d/restore" % pid, {}, headers=ALICE)
+        self.assertEqual((code, d["pin"]["verdict"]), (200, "채택"))
+
+    def test_agents_still_delete_and_restore_pins_without_a_verdict(self):
+        """The refusal is about verdict pins: each agent identity deletes and restores an ordinary pin."""
+        for kind in AGENTS:
+            with self.subTest(agent=kind[0]):
+                code, d = self.call("POST", "/api/pin", self.body(note="n"), headers=BOB)
+                self.assertEqual(code, 200, d)
+                pid = d["id"]
+                self.assertEqual(
+                    self.call("POST", "/api/pins/%d/drop" % pid, {}, **self.who(kind)), (200, {"ok": True})
+                )
+                self.assertEqual(self.call("POST", "/api/pins/%d/restore" % pid, {}, **self.who(kind))[0], 200)

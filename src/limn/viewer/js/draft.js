@@ -66,7 +66,7 @@ function restoreDraft(){let rec=/** @type {any} */(null),raw=/** @type {string|n
   setKind(rec.kind); Object.assign(ASSIGN_NEW,rec.assign||{}); if(rec.sg)Object.assign(SG,suggestCopy(rec.sg)); renderAssignNew(); autoGrow(n);
   if(how==='full'){const c=rec.cur,pg=document.getElementById('p'+c.page);
     if(pg&&Array.isArray(c.frac)){const b=newBox(pg),f=c.frac; drawBox(b,f[0],f[1],f[0]+f[2],f[1]+f[3]); b.classList.add('pending'); pendingBadge(b,'새 핀'); COMPOSE.box=b;}
-    COMPOSE.current=c; recomputeOverlap(); SNIP_OPEN=false; $('#c-err').hidden=true; $('#c-body').hidden=false; $('#composer').hidden=false;
+    COMPOSE.current=c; COMPOSE.intent++; recomputeOverlap(); SNIP_OPEN=false; $('#c-err').hidden=true; $('#c-body').hidden=false; $('#composer').hidden=false;
     renderComposer(); DRAFT.origin={key:k,value:raw,current:c}; setSide(true); applySide(); if(LAYOUT!==LAYOUT_MODE.WIDE)revealBox(COMPOSE.box);}
   lineNote(how==='full'?'작성 중이던 메모를 되살렸습니다':'작성 중이던 메모를 되살렸습니다 — PDF가 바뀌어 자리를 다시 골라야 합니다',NOTICE_KIND.INFO,
     {label:'버리기',tip:'되살린 선택과 메모를 버립니다',fn:()=>{if(!$('#composer').hidden)discardSelection(); else{cancelSelection(true); syncDraft();}}},

@@ -323,15 +323,18 @@ body.compact #composer{max-height:none;overflow:visible}
   body.compact.composing #right{scroll-padding-bottom:calc(var(--hit) + var(--space-5) + env(safe-area-inset-bottom))}
   body.lay-narrow.composing #right{scroll-padding-top:calc(var(--stick-top,0px) + var(--space-2))}
 }
-/* While a composer text field has focus on a touch sheet (the keyboard up), its location line sticks under the tool bar, as a list
-   section's header does, and a field scrolled into view stays clear of the line too (--loc-h, its height, layout.js). The note
-   is right under the line, but the suggestion editor sits under the note and the kind row: with the keyboard up a 320x720 sheet
-   has about 210px between the tool bar and the save row, and the line down to even a two-line editor takes 260px or more, so
-   scrolling the editor into view pushed the line off, and there centring the note pushed half of it under the tool bar. Stuck,
-   the line stays above either field. */
+/* While a composer text field has focus on a touch screen's sheet or side panel (the keyboard up), its location line sticks under
+   the tool bar (the panel's top on the mid bands), as a list section's header does, and a field scrolled into view stays clear
+   of the line too (--loc-h, its height, layout.js). The note is right under the line, but the suggestion editor sits under the
+   note and the kind row: with the keyboard up a 320x720 sheet has about 210px between the tool bar and the save row, and the
+   line down to even a two-line editor takes 260px or more, so scrolling the editor into view pushed the line off, and there
+   centring the note pushed half of it under the tool bar. At 841x673 the mid panel has 220px, and the line, the quote, the note
+   and the verdict row under it take 230px: the line went 12px under the nav bar. Stuck, the line stays above either field.
+   Not on the short band (a landscape phone): with the keyboard up its panel is about 200px, and a stuck line would leave the
+   note itself no room. */
 @media (pointer:coarse){
-  body.lay-narrow #composer:has(:is(#note,#c-sg-text):focus) .c-loc-row{position:sticky;top:var(--stick-top,0px);z-index:2;background:var(--sidebar)}
-  body.lay-narrow.composing #right:has(:is(#note,#c-sg-text):focus){scroll-padding-top:calc(var(--stick-top,0px) + var(--loc-h,0px) + var(--space-2))}
+  body.compact:not(.band-short) #composer:has(:is(#note,#c-sg-text):focus) .c-loc-row{position:sticky;top:var(--stick-top,0px);z-index:2;background:var(--sidebar)}
+  body.compact.composing:not(.band-short) #right:has(:is(#note,#c-sg-text):focus){scroll-padding-top:calc(var(--stick-top,0px) + var(--loc-h,0px) + var(--space-2))}
 }
 /* The composer (docs/handbook/viewer.md §패널 정리) on every layout: the location line, then the note with its helpers, its kind
    (what the note is), the overlap notice, and last the range block (#c-range: caption, ladder, the range excerpt and its foot),
@@ -392,6 +395,10 @@ body.compact .pin .sum{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orie
   margin:0 0 var(--space-1);color:var(--muted-foreground);font-size:var(--text-base);line-height:round(down,1.5em,1px);cursor:pointer}
 /* ^ a whole pixel per line (19px, not 19.5): a folded card is then a whole number of pixels tall, so every head row stands on
    whole pixels - at 19.5 every other card stood half a pixel off, where icons (drawn at whole pixels) sat 0.5px under their row's words */
+/* A superseded verdict's preview is its two badges ('판정 보류' '이전 판정 · #4로 대체됨', cards.js), with no text to clamp: a
+   wrapping row that does not clip, so the '#4' link answers its 44px (.hit). The open and editing rules below still hide it. */
+body.compact .pin .sum.sum-vd{display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-1);overflow:visible}
+body.compact .pin .sum-vd .sum-has{font-size:var(--text-xs)}   /* '메모 있음': words, not a colour - the note shows when opened */
 body.compact .pin .head{flex-wrap:nowrap;margin:-6px 0}
 /* On touch the head is the 32px row it draws - a 44px control less the 12px it shares with the card's padding and the preview -
    and its 44px controls, centred in it, reach over and under it themselves (the overlap sat on the row as a margin, whose box

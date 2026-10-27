@@ -129,6 +129,7 @@ class VisitLocalContinuations(unittest.TestCase):
                 extract_js_fn("composeOwns"),
                 extract_js_fn("composeFields"),
                 extract_js_fn("syncComposeSaveButtons"),
+                "function renderVerdictRow(){}",  # no verdict words here (verdict.js)
                 extract_js_fn("savePin"),
                 """
                 let DOC='a',SWITCHSEQ=1; const COMPOSE={current:{doc:'a',file:'a.tex',page:1,lo:1,hi:1},box:{remove(){removes++;}},saving:false,picking:false};
@@ -234,6 +235,7 @@ class VisitLocalContinuations(unittest.TestCase):
                 extract_js_fn("composeOwns"),
                 extract_js_fn("composeFields"),
                 extract_js_fn("syncComposeSaveButtons"),
+                "function renderVerdictRow(){}",  # no verdict words here (verdict.js)
                 extract_js_fn("isViewer"),
                 extract_js_fn("viewerBlocked"),
                 extract_js_fn("appendToPin"),

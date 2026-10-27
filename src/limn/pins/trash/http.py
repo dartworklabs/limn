@@ -5,7 +5,7 @@ from typing import Any, Protocol, TypeAlias
 
 from limn.pins.model import DonePin, OpenPin, PinNotFound, Record, ReviewPin, TrashedPin
 from limn.pins.trash import input as trash_input
-from limn.pins.trash.rules import AlreadyLive, NotInTrash
+from limn.pins.trash.rules import AlreadyLive, NotInTrash, VerdictByAgent
 from limn.pins.trash.service import PinTrash
 from limn.security.access import PostAuthority
 from limn.web.answers import accepted
@@ -13,6 +13,10 @@ from limn.web.errors import HTTPError
 
 Body: TypeAlias = dict[str, object]
 Show: TypeAlias = Callable[[Record], object]
+
+# D16: an agent neither deletes nor restores a verdict pin (403 verdict_human, the reason D11's refusal has).
+VERDICT_DROP_HUMAN = "판정은 사람이 정합니다 — 에이전트는 판정 핀을 지우지 않습니다."
+VERDICT_RESTORE_HUMAN = "판정은 사람이 정합니다 — 에이전트는 판정 핀을 되살리지 않습니다."
 
 
 class TrashApp(Protocol):
@@ -51,8 +55,11 @@ def clear_answer(result: Mapping[str, Any]) -> Body:
     return dict(result, ok=True)
 
 
-def restore_answer(result: OpenPin | ReviewPin | DonePin | NotInTrash | AlreadyLive, show: Show) -> Body:
-    """POST /api/pins/{id}/restore: the pin back in the list, or 404/409 with the old messages."""
+def restore_answer(
+    result: OpenPin | ReviewPin | DonePin | NotInTrash | AlreadyLive | VerdictByAgent, show: Show
+) -> Body:
+    """POST /api/pins/{id}/restore: the pin back in the list, or 404/409 with the old messages, or 403 verdict_human
+    for an agent's restore of a verdict pin (D16)."""
     match result:
         case OpenPin(record=record) | ReviewPin(record=record) | DonePin(record=record):
             return {"ok": True, "pin": show(record)}
@@ -60,15 +67,20 @@ def restore_answer(result: OpenPin | ReviewPin | DonePin | NotInTrash | AlreadyL
             raise HTTPError(404, "삭제 기록에 핀 #%d 이 없습니다." % pid, reason="not_in_trash")
         case AlreadyLive(pid=pid):
             raise HTTPError(409, "핀 #%d 이 이미 있습니다." % pid, reason="pin_exists")
+        case VerdictByAgent():
+            raise HTTPError(403, VERDICT_RESTORE_HUMAN, reason="verdict_human")
 
 
-def drop_answer(result: TrashedPin | PinNotFound) -> Body:
-    """POST /api/pins/{id}/drop: ok true when dropped, false when the id was absent."""
+def drop_answer(result: TrashedPin | PinNotFound | VerdictByAgent) -> Body:
+    """POST /api/pins/{id}/drop: ok true when dropped, false when the id was absent, 403 verdict_human for an agent's
+    drop of a verdict pin (D16)."""
     match result:
         case TrashedPin():
             return {"ok": True}
         case PinNotFound():
             return {"ok": False}
+        case VerdictByAgent():
+            raise HTTPError(403, VERDICT_DROP_HUMAN, reason="verdict_human")
 
 
 def purge_answer(result: TrashedPin | NotInTrash, pid: int) -> Body:

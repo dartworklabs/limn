@@ -224,7 +224,7 @@ function suggestOwner(el){if(el.closest('.edit')){const E=EDITOR.current; if(!E)
 // draft el belongs to.
 /** @param {HTMLElement} el @param {string} act */
 function suggestAct(el,act){const w=suggestOwner(el); if(!w)return;
-  if(act==='sg-toggle'){w.sg.on=!w.sg.on; w.sg.current=null; w.redraw(); return;}
+  if(act==='sg-toggle'){w.sg.on=!w.sg.on; w.sg.current=null; if(w.sg===SG)COMPOSE.intent++; w.redraw(); return;}   // the composer's switch ends a failed verdict save's retry
   if(act==='sg-reload'){w.sg.current=null; w.sg.fail=null; suggestRead(w.sg,w.o,true,w.owns,w.redraw); return;}
   if(act==='sg-rebase'){w.sg.fail=null; suggestRebase(w.sg,w.o,w.owns,w.redraw);}}
 // Typing in an editor: its draft takes the text; the line under it and - in the composer - the overlap notice and the tab's

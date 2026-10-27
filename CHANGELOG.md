@@ -1,5 +1,103 @@
 # Changelog
 
+## Unreleased
+
+Fixes from the reviews and the functional test of 0.4.26's verdict buttons, and one owner decision on the agent
+contract (D16): agents may not delete or restore verdict pins. That adds a refusal and nothing else; `pins.md` and every
+other answer are unchanged.
+
+### Changed (agent contract)
+
+- **Agents neither delete nor restore verdict pins** (ADR-0021 D9, spec D16). An agent's - a token's, the headerless
+  loopback agent's or an agent-role person's - `POST /api/pins/{id}/drop` of a verdict pin answers `403 {"error": "판정은
+  사람이 정합니다 — 에이전트는 판정 핀을 지우지 않습니다.", "reason": "verdict_human"}` and `POST /api/pins/{id}/restore`
+  `403` with the same reason (`… 판정 핀을 되살리지 않습니다.`); nothing is written. Deleting the newest verdict about a
+  target silently made an older one current again, so it is a verdict decision in effect, a person's as making one is
+  (D11). People keep their rights, and agents still delete and restore pins without a verdict; purge and clear were
+  already owner-only. The agent skill says so.
+
+### Added
+
+- **Replaced verdicts say so on their cards.** A verdict pin whose target has a newer verdict carries a neutral
+  `이전 판정 · #4로 대체됨` next to its verdict badge (`Earlier verdict · replaced by #4`), on open cards, review cards
+  and completed rows; only `#4` is a link, to the current verdict's card. A folded card's preview line becomes its
+  verdict badge and this marker, then the words `메모 있음` (`has note`) when it has a note (shown when opened), and does
+  not clip the link's 44 px touch area. Such a completed row keeps its facts on two lines at every width: the number,
+  the verdict badge and the marker with [답글] at the end, then the page and region, reference and time. The current
+  verdict comes from the same ordering as the page verdict line (the highest pin number per target, deleted pins
+  excluded), built once per list change as an index. Targets are read by location only: a whole page, a figure element,
+  or the same file and lines of a LaTeX document when both pins are open (their lines are matched to the text now) or
+  share an anchor (saved on the same text); a closed pin whose lines may be from older text is its own target. Pins
+  whose target cannot be read carry nothing. It shows without a page line (`page: false`, LaTeX documents) and on other
+  documents' cards under [모든 문서].
+
+### Fixed
+
+- **A retried verdict save keeps its verdict.** When a composer verdict save failed on the network, [다시 저장] saved a
+  plain pin and the author's verdict was lost. The retry now carries the verdict only while nothing the composer asks
+  has changed since the press and it still asks for a verdict pin (a fix request with [제안 수정] off): a new, cleared or
+  restored selection, its rung or lines, the kind or the switch each start a new intent (also when changed back), and a
+  change made while the request was still out leaves no retry at all. A retry never overrides a choice made after the
+  press.
+- **A confirmed verdict still counts while its undo is offered.** Pressing [확인] on the newest verdict awaiting review
+  took it off the review list during the undo window, and the page verdict line showed the older verdict as the newest.
+- **The verdict buttons come back after a save.** A selection picked while a save was in flight kept its verdict
+  buttons off after the request ended.
+- **The focus comes back after a keyboard save on a page verdict line**, to the same word's button, unless it was
+  moved anywhere else meanwhile (another page's word, a `#N` link, the panel).
+- **A confirmed verdict deleted elsewhere during its undo window leaves the verdict order** at the next list read, and
+  the confirm's [되돌리기] no longer brings it back (it restored the copy it had taken, making the deleted pin current
+  again); it says `핀 #N 은 그사이 다른 곳에서 지워졌습니다`. A pin still awaiting review comes back as the latest list has
+  it.
+- **Completed rows name a region's page as `2쪽 영역`**, as the cards do (`쪽 2 영역` before).
+- **A zoomed page's verdict line stays in view with a mouse.** At 1440 px with Ctrl+= the line scrolled away with
+  the page: the pages' column kept the fitted width, so the sticky line had nowhere to stick. The column is now as wide
+  as the widest page on every pointer (touch already was).
+- **A press survives a line whose words change under it.** A newer verdict by someone else, or the minute tick, while
+  the mouse was down rewrote the line and lost the press. Lines are now changed in place: the buttons, the `#N` link
+  and the earlier link stay the same elements.
+- **The focus stays during a page line's save.** The pressed button waits as `aria-disabled` instead of `disabled`, so
+  the focus is not dropped to the page and Tab goes on from it; a `#N` link whose number changes keeps the focus.
+- **The page line's `#N` link answers 44 px on touch** and is named like the card marker's link (`지금 판정 #4 카드로
+  갑니다`).
+- **The retry banner says when the verdict was dropped.** After the kind, the switch or the selection changed - after
+  the failure or while the request was still out - the banner read `판정 저장 실패` while [다시 저장] saved a plain pin;
+  it now reads `핀 저장 실패 — 선택했던 판정은 해제됐습니다 — 판정으로 저장하려면 판정 버튼을 다시 누릅니다`.
+- **A second pick turns the composer's verdict buttons off for real** (disabled, with `위치를 찾는 중입니다`), not only
+  greyed.
+- **No page-size mark for any verdict the page line accounts for**, the earlier ones included.
+- **The narrow English panel wraps the verdict words rather than cutting them** when a word is armed.
+- **Letting an armed word go by time or Esc is announced** (`삭제 확정을 풀었습니다`).
+- **The undo message after an agent's claim shows whole on the folded status line**: `처리 중이던 판정이라 이미 실행됐을
+  수 있습니다`.
+- **A press on a page verdict line is not lost to a list refresh.** Every poll redrew the line's buttons, and a redraw
+  between the mouse going down and up sent the click to the line instead of the button. Lines whose text is unchanged
+  are no longer rewritten.
+- **A card of another document names its own word** under [모든 문서] (the label came from the document on screen).
+- **The location line, the note and the verdict row all show with the keyboard up at 841×673** (the line went 20 px
+  under the nav bar): on touch panels the location line now sticks at the panel's top while the note or the suggestion
+  editor has focus, as it already did on the sheets.
+
+### Changed
+
+- **Page verdict line wording**, one order for every state: `판정 #4 채택 · 처리 대기`, `판정 #5 삭제 · 처리 중 · Bob 7분
+  전`, `판정 #8 보류 · 검토 대기`, `판정 #8 보류 · 처리됨`, `판정 없음`. `#4` links to the card; the page buttons say
+  `누르면 이 쪽에 새 판정 핀을 저장합니다`. The earlier-verdicts link reads `이전 판정 N건 · 새 판정으로 대체됨` (`N earlier verdicts · replaced`) and, like
+  every viewer link, is underlined only on hover and keyboard focus.
+- **Page line and chip wording**: a claimed verdict names its claimer, `판정 #5 삭제 · 처리 중(Agent B) · Bob 7분 전`;
+  the save chip shows the word, `#12 저장됨 · 채택`.
+- **Composer verdict row**: the lead label is `판정 바로 저장` and each button says `누르면 지금 선택과 메모를 <낱말> 판정
+  핀으로 바로 저장합니다`; the reasons for turned-off buttons point at the control: `질문에는 판정을 붙이지 않습니다 — 아래에서
+  [수정 요청]을 고릅니다`, `판정을 저장하려면 [제안 수정]을 끕니다`. The row sits one 8 px step from its neighbours (the gap was
+  doubled), drawn 36 px on touch.
+- **Narrow widths**: when any page's line cannot hold its words and buttons on one row (phones, a folded cover), every
+  page's line puts its buttons on a row of their own, at its start.
+- **Cards**: a verdict pin without a note no longer spends a line on `(판정만)` (its `판정 X` badge says it; a folded
+  card's preview is the badge; `pins.md` keeps `(판정만)`), and two verdict pins about the same page target no longer
+  carry overlap badges such as `#4와 같은 범위` where the page line shows them both (it orders them); with `page: false`,
+  without a word file or on another document's card under [모든 문서] the badge stays. Overlap badges with ordinary
+  pins stay.
+
 ## 0.4.26 — 2026-10-27
 
 Verdict pins (ADR-0021): on the server, and in the viewer as one-press buttons in the composer and under each page

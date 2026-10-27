@@ -47,7 +47,7 @@ document.addEventListener('click',e=>{const target=/** @type {HTMLElement} */(e.
     case 'quote':toggleQuote(a);break;   // the dragged PDF text's line: open in full, or fold back to one line
     case 'sg-toggle':case 'sg-reload':case 'sg-rebase':suggestAct(a,String(a.dataset.act));break;   // a suggested edit's switch and line (suggest.js)
     case 'sg-fold':{const k=a.dataset.key; if(!k)break; if(SG_OPEN.has(k))SG_OPEN.delete(k); else SG_OPEN.add(k); drawPins(); break;}   // a card's suggestion diff
-    case 'level':{const o=inEdit?EDITOR.current:COMPOSE.current; if(!o)break; useLevel(o,a.dataset.level); if(!inEdit)recomputeOverlap(); inEdit?renderEdit():renderComposer(); break;}
+    case 'level':{const o=inEdit?EDITOR.current:COMPOSE.current; if(!o)break; useLevel(o,a.dataset.level); if(!inEdit){COMPOSE.intent++; recomputeOverlap();} inEdit?renderEdit():renderComposer(); break;}
     case 'xp-to':{const o=inEdit?EDITOR.current:COMPOSE.current,k=Number(a.dataset.line); if(o&&o.lo!=null&&o.hi!=null)applyRange(o,widenTo(o.lo,o.hi,k),k<o.lo?o.hi:o.lo); break;}   // the excerpt: widen to a dimmed line
     case 'xp-drop':{const o=inEdit?EDITOR.current:COMPOSE.current,k=Number(a.dataset.line); if(o&&o.lo!=null&&o.hi!=null)applyRange(o,dropLine(o.lo,o.hi,k),k===o.lo?o.hi:o.lo); break;}   // ...or drop an end line
     case 'view':jumpPin(id);break; case 'edit':openEdit(id);break;

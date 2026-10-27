@@ -165,3 +165,19 @@ interface RevSeen {
   id: string;
   at: string;
 }
+
+// The target a verdict pin is about (verdict.js verdictTargetOf): a key pins about one thing share, whether it is a page's
+// whole target and its page, and for exact lines whether the pin is open (its lines matched to the text now) and its anchor.
+interface VerdictTarget {
+  key: string;
+  whole: boolean;
+  page: number;
+  lines: { open: boolean; anchor: string | null } | null;
+}
+
+// A document's verdict order (verdict.js verdictOrder): its resolved targets' pins, newest first, and every resolved pin's
+// current verdict by pin id.
+interface VerdictOrder {
+  groups: Map<string, { whole: boolean; page: number; pins: Pin[] }>;
+  cur: Map<number, Pin>;
+}

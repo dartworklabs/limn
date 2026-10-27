@@ -3,7 +3,7 @@
  * UI words inside those regions are translated before rendering. */
 /** Render a pin's request, status and available actions; confirmation is offered only to a person with write access.
  * @param {Pin} p */
-function card(p){
+function card(p){p=pvQuietRel(p);   // no overlap badge between two verdicts about one page target (verdict.js)
   const loc='L'+p.lo+'-L'+p.hi,name=p.name||String(p.file||'').split('/').pop(),tags=[];   // loc stays in the copy format
   if(p.stale)tags.push(html`<span class="badge badge-warning" data-tip="${T.stale}">${ic('triangle-alert')}위치 잃음</span>`);
   else{const m=/^moved ([+-]\d+)$/.exec(p.sync||''); if(m)tags.push(html`<span class="badge" data-tip="${
@@ -25,15 +25,20 @@ function card(p){
   // Header line: number/line-range/page on the left, author/collapse on the right. Badges (.tags) drop to one line below the header.
   // compact accordion: the collapsed header and note preview (.sum) retain the note-level metadata; clicking expands badges/note/buttons (CSS).
   // In wide, .sum and the collapse button are hidden and the card is always expanded. Actions form an equal-width grid; only [완료] is emphasized, [삭제] is the destructive color.
-  const first=String(p.note||'').split('\n')[0].trim(),noNote=html`<span class="dim">${tr(p.suggest?'(제안 문안만)':verdictOf(p)?'(판정만)':'(메모 없음)')}</span>`;   // a suggestion or a verdict alone says what to do
+  const first=String(p.note||'').split('\n')[0].trim(),noNote=html`<span class="dim">${tr(p.suggest?'(제안 문안만)':'(메모 없음)')}</span>`;   // a suggestion alone says what to do
+  // A verdict pin without a note spends no line on it: its '판정 채택' badge says what it asks. Folded (compact), its preview is the badge.
+  const vOnly=!p.note&&!p.suggest&&!!verdictOf(p);
   // Collapsed card's (compact) note preview: up to two lines on its own line below the header. It used to only get the
   // leftover width after the number/location inside the header's single line, clipping to '[C...', and an awaiting-review
   // card's prefixed '내 확인 차례 · ' ate even more of that width (QA 2026-09-24). Review status is conveyed by the dot color.
-  const sum=html`<div class="sum" translate="no" data-act="card-toggle">${first?fmtText(first,p.mentions):noNote}</div>`;
+  // A superseded verdict says so folded too: its preview is its badge and '이전 판정 · #4로 대체됨', then '메모 있음' when it has
+  // a note (shown when opened) - a row that does not clip, so the '#4' link answers its whole touch area (.sum-vd, responsive.css).
+  const vo=verdictOldMarker(p),hasNote=vo&&p.note?html`<span class="sum-has">${tr('메모 있음')}</span>`:'';
+  const sum=html`<div class="sum${vo?' sum-vd':''}" translate="no" data-act="card-toggle">${vo||vOnly?html`${verdictBadge(p)}${vo}${hasNote}`:first?fmtText(first,p.mentions):noNote}</div>`;
   if(isRegion(p)){const fb=figRegionBadge(p.el,isFigureKind((docInfo(pdoc(p))||{}).kind));   // a figure region: element without code, or map unreadable
     tags.unshift(fb?html`<span class="badge" data-tip="${fb.tip}">${fb.t}</span>`:html`<span class="badge" data-tip="보기 전용 PDF의 핀 — 줄 번호 없이 쪽·영역과 영역 글자로 가리킵니다">보기 전용</span>`);}
   if(isQuestion(p))tags.unshift(html`<span class="badge badge-question" data-tip="${T.question}">${ic('circle-question-mark')}질문</span>`);
-  const vb=verdictBadge(p); if(vb)tags.unshift(vb);   // '판정 채택', in the question badge's place
+  const vb=verdictBadge(p); if(vo)tags.unshift(vo); if(vb)tags.unshift(vb);   // '판정 채택' in the question badge's place, then '이전 판정 · #4로 대체됨'
   const adr=p.assignee?null:addressedTag(p); if(adr)tags.push(adr);   // a recorded assignee already appears in the note-level metadata
   const fyi=fyiTag(p); if(fyi)tags.push(fyi);   // a fix pin's FYI @-tags - this line once sat after the comment above and never executed (QA 2026-09-24)
   const sgb=suggestBadge(p,closedCard); if(sgb)tags.push(sgb);   // a suggested edit, and why not to apply it (suggest.js)
@@ -65,13 +70,13 @@ function card(p){
 <button class="btn-icon btn-sm btn-ghost cmp b-fold" data-act="card-toggle" aria-expanded="${unfold}" aria-label="${open?'카드 접기':'카드 펼치기'}">${ic(unfold?'chevron-down':'chevron-right')}</button></div>\
 ${sum}<div class="tags">${tags}</div>`;
   if(rv)return html`<div class="pin card review${open?' open':''}" data-id="${p.id}" data-doc="${pdoc(p)}">${head}\
-${quote}<div class="note" translate="no">${p.note?fmtText(p.note,p.mentions):noNote}</div>${suggestView(p)}${metadata}${threadHtml(p,LAYOUT===LAYOUT_MODE.WIDE)}\
+${quote}${vOnly?'':html`<div class="note" translate="no">${p.note?fmtText(p.note,p.mentions):noNote}</div>`}${suggestView(p)}${metadata}${threadHtml(p,LAYOUT===LAYOUT_MODE.WIDE)}\
 <div class="acts"><button class="btn-sm b-change" data-act="change" data-tip="${T.change}">변경 보기</button>\
 <button class="btn-sm b-reply" data-act="reply-open" data-tip="${T.reply}">답글</button>\
 ${canConfirmReview()?html`<button class="btn-sm b-confirm${isMe(p.author)?' btn-soft':''}" data-act="confirm" data-tip="${T.confirm}">확인</button>`:''}</div>\
 ${canConfirmReview()?'':html`<div class="dim review-access">${confirmAccessText()}</div>`}</div>`;
   const body=editing?html`<div class="edit-slot"></div>${metadata}`
-    :html`${quote}<div class="note" translate="no" data-act="edit" data-tip="${tr('클릭하면 메모와 범위를 고칩니다')}">${p.note?fmtText(p.note,p.mentions):noNote}</div>\
+    :html`${quote}${vOnly?'':html`<div class="note" translate="no" data-act="edit" data-tip="${tr('클릭하면 메모와 범위를 고칩니다')}">${p.note?fmtText(p.note,p.mentions):noNote}</div>`}\
 ${suggestView(p)}${metadata}${threadHtml(p,LAYOUT===LAYOUT_MODE.WIDE)}<div class="acts">${cardActs(claimed,LAYOUT!==LAYOUT_MODE.WIDE)}</div>`;
   return html`<div class="pin card${p.stale||elLost(p)?' st':''}${claimed?' claimed':''}${editing?' editing':''}${open?' open':''}" data-id="${p.id}" data-doc="${pdoc(p)}">${head}${body}</div>`;
 }
@@ -105,7 +110,7 @@ function arcTime(s){s=String(s||''); return /^\d{4}-\d\d-\d\d \d\d:\d\d/.test(s)
 // its mark is on now (pinPlace); the copy text carries the same.
 /** @param {Pin} p */
 function arcLoc(p){const name=p.name||String(p.file||p.pdf||'').split('/').pop();
-  return html`<span class="loc" tabindex="0" data-copy="${isRegion(p)?locCopy(p):name+' L'+p.lo+'-L'+p.hi}" data-tip="${T.loc}">${isRegion(p)?tl('쪽 {page} 영역',{page:pinPlace(p).page}):rng(p.lo,p.hi)}</span>`;}
+  return html`<span class="loc" tabindex="0" data-copy="${isRegion(p)?locCopy(p):name+' L'+p.lo+'-L'+p.hi}" data-tip="${T.loc}">${isRegion(p)?tl('{page}쪽 영역',{page:pinPlace(p).page}):rng(p.lo,p.hi)}</span>`;}
 // One expandable line of an archive row: text (a close reply or a deleted pin's note) is user text (translate="no"), so its
 // Korean description tip is translated here.
 function arcLine(key,text,tip,logins){const open=ARC_OPEN.has(key);
@@ -114,7 +119,10 @@ function arcLine(key,text,tip,logins){const open=ARC_OPEN.has(key);
 function allMentions(p){const out=(p.mentions||[]).slice(); threadOf(p).forEach(m=>(m.mentions||[]).forEach(l=>{if(!out.includes(l))out.push(l);})); return out;}
 // A done pin's archive row (docs/handbook/viewer.md §보관함): icon, #N, location, reference and time with [답글]; the close
 // reply as one expandable line (user text) with [원래 요청], [변경 보기] and [스레드 N]; the original request and the thread
-// when expanded (ARC_OPEN), the thread also while a reply box is open on it.
+// when expanded (ARC_OPEN), the thread also while a reply box is open on it. A superseded verdict's row has two badges, so
+// its first line is icon, #N, '판정 보류' and '이전 판정 · #12로 대체됨' (one block, .arc-head, that wraps inside itself on
+// the narrowest widths) with [답글] at its end, and the location, reference and time go on a line of their own under it
+// (.arc-l1b) - in every width, so one pin's facts never scatter.
 /** @param {Pin} p */
 function doneCard(p){
   const ref=hasRef(p.close_ref)?html`<span class="badge arc-ref" data-tip="닫을 때 남긴 참조 — 같은 값이면 같은 처리에 딸린 핀입니다">${p.close_ref}</span>`:'';
@@ -130,10 +138,11 @@ function doneCard(p){
   const threadT=tn?html`<button class="arc-orig-t" data-act="arc-toggle" data-key="t:${p.id}" aria-expanded="${to}" data-tip="답글과 닫기·다시 열기 이력을 펼치고 접습니다">${tl('스레드 {n}',{n:th.length})}</button>`:'';
   const orig=(p.note||p.suggest)&&oo?html`<div class="arc-orig" translate="no"><b>${tr('원래 요청')}</b>${p.note?fmtText(p.note,p.mentions):''}${suggestView(p)}</div>`:'';   // with its suggested edit, read-only
   const thread=to?html`<div class="arc-thread"><div class="thread">${th.map((m,i)=>msgHtml(m,p.id+':'+i))}${replying?html`<div class="reply-slot"></div>`:''}</div></div>`:'';
+  const vo=verdictOldMarker(p),n=html`${ic('check')}<span class="n" data-tip="완료한 핀 번호">#${p.id}</span>`;
+  const where=html`${docChip(p)}${!vo?verdictBadge(p):''}${arcLoc(p)}${ref}${relSpan(p.done_at,'arc-t',tl('닫은 사람 {name} · 닫은 시각',{name:who(p.closed_by)||tr('기록 전')}))}`;
+  const replyB=html`<span class="sp"></span><button class="btn-sm btn-secondary arc-b b-reply" data-act="reply-open" data-tip="${T.reply}">답글</button>`;
   return html`<div class="arc-row done" data-id="${p.id}" data-doc="${pdoc(p)}" data-tip="${authorTip(p)}">\
-<div class="arc-l1">${ic('check')}<span class="n" data-tip="완료한 핀 번호">#${p.id}</span>${docChip(p)}${verdictBadge(p)}${arcLoc(p)}${ref}\
-${relSpan(p.done_at,'arc-t',tl('닫은 사람 {name} · 닫은 시각',{name:who(p.closed_by)||tr('기록 전')}))}<span class="sp"></span>\
-<button class="btn-sm btn-secondary arc-b b-reply" data-act="reply-open" data-tip="${T.reply}">답글</button></div>\
+${vo?html`<div class="arc-l1"><span class="arc-head">${n}${verdictBadge(p)}${vo}</span>${replyB}</div><div class="arc-l1b">${where}</div>`:html`<div class="arc-l1">${n}${where}${replyB}</div>`}\
 <div class="arc-l2">${reply}${origT}<button class="arc-orig-t b-change" data-act="change" data-tip="${T.change}">변경 보기</button>${threadT}</div>${orig}${thread}</div>`;}
 // A Trash row (docs/handbook/viewer.md §휴지통): who deleted it and when, how many days are left before it is purged, [되살리기], and -
 // for the owner only - [영구 삭제] (sent after its undo row goes away, like a reply). The buttons follow the two lines in the

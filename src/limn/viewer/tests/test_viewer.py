@@ -520,8 +520,12 @@ class FrontendStructure(unittest.TestCase):
     def test_level_and_excerpt_lines_recount_overlap_only_for_composer(self):
         m = re.search(r"case 'level':\{(.*?)\}\s*\n", HTML)
         self.assertIsNotNone(m)
-        self.assertIn("if(!inEdit)recomputeOverlap()", m.group(1).replace(" ", ""))
-        self.assertIn("if(o===COMPOSE.current)recomputeOverlap()", extract_js_fn("applyRange"))
+        # ...and only the composer's change counts as a new intent (a failed verdict save's retry is for the old one, savePin)
+        self.assertIn("if(!inEdit){COMPOSE.intent++;recomputeOverlap();}", m.group(1).replace(" ", ""))
+        self.assertIn(
+            "if(o===COMPOSE.current){COMPOSE.intent++;recomputeOverlap();}",
+            extract_js_fn("applyRange").replace(" ", ""),
+        )
 
     def test_pdf_build_travels_drag_to_pick_to_save_and_repick(self):
         self.assertIn("pdf_build:META.pages_build", HTML)  # drag -> /api/pick
@@ -1237,7 +1241,7 @@ class FrontendMobileLogic(unittest.TestCase):
             let SHOW_ALL=false, DOCS=[], DOC='main', DEFAULT_DOC='main'; function docInfo(){return null;}
             let LAYOUT='mid', REPLY=null, META=null; const THREAD_OPEN=new Set(), MQ_COARSE={matches:true};
             function suggestBadge(){return null;} function suggestView(){return null;}   // these pins carry no suggested edit (suggest.js)
-            function verdictOf(){return null;} function verdictBadge(){return null;}   // ...and no verdict (verdict.js)
+            function verdictOf(){return null;} function verdictBadge(){return null;} function pvQuietRel(p){return p;} function verdictOldMarker(){return null;}   // ...and no verdict (verdict.js)
             """,
                 extract_js_fn("rng"),
                 extract_js_fn("multiDoc"),
@@ -3060,8 +3064,8 @@ class FrontendFigure(unittest.TestCase):
                 "fig.pdf 쪽 2",
                 "fig.pdf 쪽 1",
                 "a.py L4-L6",
-                ["fig.pdf 쪽 2", "쪽 2 영역"],
-                ["fig.pdf 쪽 1", "쪽 1 영역"],
+                ["fig.pdf 쪽 2", "2쪽 영역"],
+                ["fig.pdf 쪽 1", "1쪽 영역"],
                 ["a.py L4-L6", "L4-L6"],
             ],
         )
@@ -3413,7 +3417,7 @@ class FrontendArchive(unittest.TestCase):
                 extract_js_fn("docChip"),
                 "const ARC_OPEN=new Set(); let LAYOUT='wide', REPLY=null, META=null; const THREAD_OPEN=new Set(); function avatar(){return '';}",
                 "function suggestView(){return null;}",  # these pins carry no suggested edit (suggest.js)
-                "function verdictBadge(){return null;}",  # ...and no verdict (verdict.js)
+                "function verdictBadge(){return null;} function verdictOldMarker(){return null;}",  # ...and no verdict (verdict.js)
                 extract_js_fn("arcTime"),
                 extract_js_fn("arcLoc"),
                 extract_js_fn("arcLine"),
@@ -3783,6 +3787,7 @@ class FrontendSaveWhilePicking(unittest.TestCase):
                 extract_js_fn("composeOwns"),
                 extract_js_fn("composeFields"),
                 extract_js_fn("syncComposeSaveButtons"),
+                "function renderVerdictRow(){}",  # no verdict words here (verdict.js)
                 extract_js_fn("savePin"),
                 extract_js_fn("cancelSelection"),
                 extract_js_fn("pick"),
@@ -4334,7 +4339,7 @@ class FrontendReview(unittest.TestCase):
             let SHOW_ALL=false, DOCS=[], DOC='main', DEFAULT_DOC='main', LAYOUT='wide', REPLY=null; function docInfo(){return null;}
             const THREAD_OPEN=new Set(), MQ_COARSE={matches:false};
             function suggestBadge(){return null;} function suggestView(){return null;}   // these pins carry no suggested edit (suggest.js)
-            function verdictOf(){return null;} function verdictBadge(){return null;}   // ...and no verdict (verdict.js)
+            function verdictOf(){return null;} function verdictBadge(){return null;} function pvQuietRel(p){return p;} function verdictOldMarker(){return null;}   // ...and no verdict (verdict.js)
             """,
                 extract_js_fn("rng"),
                 extract_js_fn("multiDoc"),

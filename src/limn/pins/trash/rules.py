@@ -9,6 +9,7 @@ from dataclasses import dataclass
 
 from limn.pins.model import Actor, Pin, TrashedPin, parse_pin
 from limn.pins.thread import CLAIM_FIELDS, rev_after, signature
+from limn.pins.verdict import verdict_of
 
 
 @dataclass(frozen=True)
@@ -23,6 +24,22 @@ class AlreadyLive:
     """A pin with this id is live again (restored before, or never deleted); restoring would duplicate it."""
 
     pid: int
+
+
+@dataclass(frozen=True)
+class VerdictByAgent:
+    """An agent asked to delete or restore a verdict pin (403 verdict_human, D16): deleting the newest verdict about a
+    target silently makes an older one current again, and restoring one decides which is current, so either is a verdict
+    decision in effect - a person's, as making one is (D11). A token, the headerless loopback agent and a person with the
+    agent role are agents here."""
+
+    pid: int
+
+
+def verdict_kept_for_people(pin: Pin, human: bool) -> VerdictByAgent | None:
+    """The refusal of an agent's drop or restore of pin when it is a verdict pin (verdict_of reads its stored verdict),
+    else None: people keep every right they had, and an agent still deletes and restores pins without a verdict."""
+    return None if human or verdict_of(pin.record) is None else VerdictByAgent(pin.core.pid)
 
 
 def drop(pin: Pin, by: Actor, at: str) -> TrashedPin:
