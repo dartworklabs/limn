@@ -5,6 +5,16 @@
 Fixes from the review of 0.4.26's verdict buttons. The agent contract (`pins.md` and the HTTP API) is unchanged; only
 viewer strings change.
 
+### Added
+
+- **Superseded verdicts say so on their cards.** A verdict pin whose target has a newer verdict carries a neutral
+  `이전 판정 · #4가 앞섬` next to its verdict badge (`Earlier verdict · superseded by #4`), on open cards, review cards
+  and completed rows; `#4` goes to the current verdict's card. The current verdict comes from the same ordering as the
+  page verdict line (the highest pin number per target, deleted pins excluded). Targets are read by location only: a
+  whole page, a figure element, or the same file and lines of a LaTeX document; pins whose target cannot be read carry
+  nothing. It shows without a page line (`page: false`, LaTeX documents) and on other documents' cards under [모든
+  문서].
+
 ### Fixed
 
 - **A retried verdict save keeps its verdict.** When a composer verdict save failed on the network, [다시 저장] saved a
@@ -17,6 +27,9 @@ viewer strings change.
   buttons off after the request ended.
 - **The focus comes back after a keyboard save on a page verdict line**, to the same word's button, unless it was
   moved anywhere else meanwhile (another page's word, a `#N` link, the panel).
+- **A press on a page verdict line is not lost to a list refresh.** Every poll redrew the line's buttons, and a redraw
+  between the mouse going down and up sent the click to the line instead of the button. Lines whose text is unchanged
+  are no longer rewritten.
 - **A card of another document names its own word** under [모든 문서] (the label came from the document on screen).
 - **The location line, the note and the verdict row all show with the keyboard up at 841×673** (the line went 20 px
   under the nav bar): on touch panels the location line now sticks at the panel's top while the note or the suggestion
