@@ -30,13 +30,13 @@ button.sec-tg{display:inline-flex;align-items:center;gap:var(--space-1);min-widt
 .arc-row.dropped{color:var(--subtle-foreground)}
 .arc-row.dropped .arc-l1>.ic{color:var(--status-dropped)}
 .arc-row .ic{width:14px;height:14px}
-.arc-row.done .arc-l1>.ic{color:var(--status-closed)}
+.arc-row.done :is(.arc-l1,.arc-head)>.ic{color:var(--status-closed)}
 .arc-l1,.arc-l1b{display:flex;align-items:center;gap:var(--space-1);min-height:26px;white-space:nowrap}
 /* A superseded verdict's done row (cards.js doneCard): its first line is the number, '판정 보류' and '이전 판정 · #12로 대체됨'
-   with [답글] at its end, and the location, reference and time are the line under it (.arc-l1b). Where even the first line
-   cannot hold them (a long number on the narrowest phone) it wraps, [답글] still at the end, never out of the panel. */
-.arc-l1:has(>.vd-old){flex-wrap:wrap;row-gap:var(--space-1)}
-.arc-l1:has(>.vd-old)>.b-reply{margin-left:auto}
+   with [답글] at its end, and the location, reference and time are the line under it (.arc-l1b). The number and the badges
+   are one block (.arc-head) that wraps inside itself where the line cannot hold them (a ~300px panel, a 320px phone): the
+   marker goes under the verdict badge and [답글] stays at the first line's end, never on a line of its own. */
+.arc-head{display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-1);min-width:0}
 .arc-l1 .n{font-weight:700}
 :is(.arc-l1,.arc-l1b) .loc{font-size:var(--text-sm)}
 .arc-ref{flex:0 1 auto;min-width:0;line-height:16px;padding:0 var(--space-1);max-width:120px;overflow:hidden;text-overflow:ellipsis}

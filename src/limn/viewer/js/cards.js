@@ -120,8 +120,9 @@ function allMentions(p){const out=(p.mentions||[]).slice(); threadOf(p).forEach(
 // A done pin's archive row (docs/handbook/viewer.md §보관함): icon, #N, location, reference and time with [답글]; the close
 // reply as one expandable line (user text) with [원래 요청], [변경 보기] and [스레드 N]; the original request and the thread
 // when expanded (ARC_OPEN), the thread also while a reply box is open on it. A superseded verdict's row has two badges, so
-// its first line is icon, #N, '판정 보류' and '이전 판정 · #12로 대체됨' with [답글] at its end, and the location, reference
-// and time go on a line of their own under it (.arc-l1b) - in every width, so one pin's facts never scatter.
+// its first line is icon, #N, '판정 보류' and '이전 판정 · #12로 대체됨' (one block, .arc-head, that wraps inside itself on
+// the narrowest widths) with [답글] at its end, and the location, reference and time go on a line of their own under it
+// (.arc-l1b) - in every width, so one pin's facts never scatter.
 /** @param {Pin} p */
 function doneCard(p){
   const ref=hasRef(p.close_ref)?html`<span class="badge arc-ref" data-tip="닫을 때 남긴 참조 — 같은 값이면 같은 처리에 딸린 핀입니다">${p.close_ref}</span>`:'';
@@ -141,7 +142,7 @@ function doneCard(p){
   const where=html`${docChip(p)}${!vo?verdictBadge(p):''}${arcLoc(p)}${ref}${relSpan(p.done_at,'arc-t',tl('닫은 사람 {name} · 닫은 시각',{name:who(p.closed_by)||tr('기록 전')}))}`;
   const replyB=html`<span class="sp"></span><button class="btn-sm btn-secondary arc-b b-reply" data-act="reply-open" data-tip="${T.reply}">답글</button>`;
   return html`<div class="arc-row done" data-id="${p.id}" data-doc="${pdoc(p)}" data-tip="${authorTip(p)}">\
-${vo?html`<div class="arc-l1">${n}${verdictBadge(p)}${vo}${replyB}</div><div class="arc-l1b">${where}</div>`:html`<div class="arc-l1">${n}${where}${replyB}</div>`}\
+${vo?html`<div class="arc-l1"><span class="arc-head">${n}${verdictBadge(p)}${vo}</span>${replyB}</div><div class="arc-l1b">${where}</div>`:html`<div class="arc-l1">${n}${where}${replyB}</div>`}\
 <div class="arc-l2">${reply}${origT}<button class="arc-orig-t b-change" data-act="change" data-tip="${T.change}">변경 보기</button>${threadT}</div>${orig}${thread}</div>`;}
 // A Trash row (docs/handbook/viewer.md §휴지통): who deleted it and when, how many days are left before it is purged, [되살리기], and -
 // for the owner only - [영구 삭제] (sent after its undo row goes away, like a reply). The buttons follow the two lines in the

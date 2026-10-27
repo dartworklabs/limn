@@ -958,16 +958,17 @@ class SupersededMarker(VerdictBase):
         self.assertEqual(sums[1], {"text": "새 판단", "marker": False, "shown": True})
 
     def test_a_done_row_with_the_marker_keeps_its_facts_on_two_lines(self):
-        """A superseded verdict's done row, at 344 and 390 px (touch) and 1400 px: line 1 is the number, its verdict badge and
-        the marker with [답글] at the row's end; line 2 is '2쪽 영역' (as every card names a page) and the time; nothing
-        else wraps and the panel does not scroll sideways."""
+        """A superseded verdict's done row at 320, 344 and 390 px (touch), in the ~300 px panel at 841 x 673 and at 1400 px:
+        the first line is the number, its verdict badge and the marker (one block, the marker under the badge where the
+        line is short) with [답글] at the row's end beside the number - never on a line of its own; the second line is
+        '2쪽 영역' (as every card names a page) and the time, on one line; the panel does not scroll sideways."""
         page = self.on("rv")
         a = self.press_page(page, 2, "보류")
         self.assertEqual(self.call("POST", "/api/pins/%d/close" % a, {"reply": "보류 절로 옮겼습니다"}, ALICE)[0], 200)
         self.reload(page)
         b = self.press_page(page, 2, "채택")
         touch = {"is_mobile": True, "has_touch": True}
-        for w, h, more in ((344, 882, touch), (390, 844, touch), (1400, 850, {})):
+        for w, h, more in ((320, 720, touch), (344, 882, touch), (390, 844, touch), (841, 673, touch), (1400, 850, {})):
             with self.subTest(width=w):
                 page = self.on("rv", n_open=1, viewport={"width": w, "height": h}, **more)
                 page.evaluate("()=>{SEC.done=true; setSide(true); drawPins();}")
@@ -975,18 +976,28 @@ class SupersededMarker(VerdictBase):
                 self.assertEqual(page.evaluate(OLD, a)["ref"], b)
                 got = page.evaluate(
                     r"""id=>{const r=document.querySelector('.arc-row[data-id="'+id+'"]'), R=r.getBoundingClientRect(), p=document.querySelector('#right');
-                      const mid=e=>{const b=e.getBoundingClientRect(); return b.top+b.height/2;}, l1=r.querySelector('.arc-l1'), l2=r.querySelector('.arc-l1b');
-                      const one=[...l1.querySelectorAll(':scope>.n,:scope>.badge-verdict,:scope>.vd-old,:scope>.b-reply')].map(mid), k=r.querySelector('.b-reply').getBoundingClientRect();
-                      return {first: [...l1.children].filter(e=>!e.classList.contains('sp')).map(e=>e.classList.contains('n')?'n':e.classList.contains('badge-verdict')?'verdict':e.classList.contains('vd-old')?'marker':e.classList.contains('b-reply')?'reply':e.tagName.toLowerCase()),
-                        oneLine: Math.max(...one)-Math.min(...one)<=1, second: l2?l2.textContent.replace(/\s+/g,' ').trim():null,
-                        below: !!l2&&l2.getBoundingClientRect().top>=l1.getBoundingClientRect().bottom-0.5,
-                        atEnd: Math.abs(k.right-R.right)<=1, sideways: p.scrollWidth-p.clientWidth};}""",
+                      const box=s=>r.querySelector(s).getBoundingClientRect(), mid=x=>x.top+x.height/2, n=box('.n'), k=box('.b-reply'), m=box('.vd-old'), v=box('.badge-verdict');
+                      const l1=r.querySelector('.arc-l1'), l2=r.querySelector('.arc-l1b'), two=l2?[...l2.children].map(e=>mid(e.getBoundingClientRect())):[];
+                      return {head: [...r.querySelectorAll('.arc-l1 .arc-head>*')].map(e=>e.classList.contains('n')?'n':e.classList.contains('badge-verdict')?'verdict':e.classList.contains('vd-old')?'marker':e.tagName.toLowerCase()),
+                        replyBesideNumber: k.top<=mid(n)&&mid(n)<=k.bottom, markerLeftOfReply: m.right<=k.left+0.5, badgeLeftOfReply: v.right<=k.left+0.5,
+                        atEnd: Math.abs(k.right-R.right)<=1, second: l2?l2.textContent.replace(/\s+/g,' ').trim():null,
+                        secondOneLine: two.length>0&&Math.max(...two)-Math.min(...two)<=2, below: !!l2&&l2.getBoundingClientRect().top>=l1.getBoundingClientRect().bottom-0.5,
+                        sideways: p.scrollWidth-p.clientWidth};}""",
                     a,
                 )
-                self.assertEqual(got["first"], ["svg", "n", "verdict", "marker", "reply"])
-                self.assertTrue(got["oneLine"], got)
+                self.assertEqual(got["head"], ["svg", "n", "verdict", "marker"])
                 self.assertTrue(got["second"].startswith("2쪽 영역"), got["second"])
-                self.assertEqual((got["below"], got["atEnd"], got["sideways"]), (True, True, 0))
+                flags = (
+                    "replyBesideNumber",
+                    "markerLeftOfReply",
+                    "badgeLeftOfReply",
+                    "atEnd",
+                    "secondOneLine",
+                    "below",
+                )
+                self.assertEqual(
+                    {k: got[k] for k in flags + ("sideways",)}, {**{k: True for k in flags}, "sideways": 0}, got
+                )
 
     def test_a_closed_latex_verdict_on_lines_that_now_hold_other_text_is_its_own_target(self):
         """A LaTeX verdict is closed (awaiting review: the server no longer re-matches its lines), then two lines are added
