@@ -106,32 +106,26 @@ class VerdictBase(BrowserBase):
         return page
 
     def press_page(self, page, n, key):
-        """Press word key on page n's line and wait until the new pin is on the list; its id. A press that never reached
-        the button (the page moved under the pointer between Playwright's hit test and its click - seen on loaded CI
-        runners) is pressed once more; any other press that saves nothing fails with what the page said."""
+        """Press word key on page n's line once and wait until the new pin is on the list; its id. A press that saves
+        nothing fails at once with what happened: the pointer and click events the document saw and their targets, where
+        the click went, the element under that point now, whether the button and the line are still the elements that
+        were pressed, the page's save state and its status line. It is never pressed again: a press lost to the viewer
+        re-laying out or replacing what was under the pointer is the bug this would hide."""
         from playwright.sync_api import (
             TimeoutError as PlaywrightTimeout,
         )  # as helpers_browser: only where a browser runs
 
         before = set(self.pins())
         want = len([p for p in self.pins().values() if p.get("state") == "open"]) + 1
-        btn = '#doc .pv[data-page="%d"] button[data-key="%s"]' % (n, key)
-        page.evaluate(
-            """s=>{window.__pvHits=0; if(!window.__pvWatch){window.__pvWatch=true;
-              document.addEventListener('click',e=>{if(e.target.closest&&e.target.closest('#doc .pv [data-act="pv-save"]'))window.__pvHits++;},true);}}""",
-            btn,
-        )
-        for attempt in (1, 2):
-            page.locator(btn).click()
-            try:
-                page.wait_for_function("n=>OPEN_ALL.length>=n", arg=want, timeout=10000)
-                break
-            except PlaywrightTimeout:
-                said = page.evaluate(
-                    "()=>({hits: window.__pvHits, busy: PV_BUSY.size, status: document.querySelector('#status').innerText, open: OPEN_ALL.length})"
-                )
-                if said["hits"] or attempt == 2 or set(self.pins()) - before:
-                    self.fail("the press on %s saved nothing: %s" % (btn, said))
+        line, btn = '#doc .pv[data-page="%d"]' % n, '#doc .pv[data-page="%d"] button[data-key="%s"]' % (n, key)
+        page.evaluate(PRESS_WATCH, [line, btn])
+        box = page.locator(btn).bounding_box()
+        page.locator(btn).click()
+        try:
+            page.wait_for_function("n=>OPEN_ALL.length>=n", arg=want, timeout=10000)
+        except PlaywrightTimeout:
+            at = [box["x"] + box["width"] / 2, box["y"] + box["height"] / 2] if box else None
+            self.fail("the press on %s saved nothing: %s" % (btn, page.evaluate(PRESS_SEEN, [line, btn, at])))
         settle(page)
         (new,) = set(self.pins()) - before
         return new
@@ -861,6 +855,21 @@ class ConfirmationRoundFixes(VerdictBase):
         self.assertTrue(page.evaluate(texts))
 
 
+# Before a press (VerdictBase.press_page): keep the line and button pressed, and record every pointer, mouse and click event
+# the document sees from now on - its type, target, point and whether the browser made it.
+PRESS_WATCH = """([line, btn]) => {const d = (e) => e ? e.tagName.toLowerCase() + (e.className && typeof e.className === 'string' ? '.' + e.className.trim().replace(/\\s+/g, '.') : '') + (e.dataset && e.dataset.key ? '[' + e.dataset.key + ']' : '') : null;
+  window.__press = {line: document.querySelector(line), btn: document.querySelector(btn), events: [], d};
+  if (!window.__pressWatch) {window.__pressWatch = true;
+    for (const t of ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click'])
+      document.addEventListener(t, (e) => {const w = window.__press; if (w) w.events.push([t, w.d(e.target), Math.round(e.clientX), Math.round(e.clientY), e.isTrusted]);}, true);}}"""
+# After a press that saved nothing: what the document saw (PRESS_WATCH), where the click went and what is there now.
+PRESS_SEEN = """([line, btn, at]) => {const w = window.__press || {events: [], d: () => null}, b = document.querySelector(btn), r = b ? b.getBoundingClientRect() : null;
+  return {events: w.events, clickAt: at, underThere: at ? w.d(document.elementFromPoint(at[0], at[1])) : null,
+    buttonNow: r ? [Math.round(r.left), Math.round(r.top), Math.round(r.width), Math.round(r.height)] : null,
+    sameButton: !!b && b === w.btn, sameLine: document.querySelector(line) === w.line, pressedConnected: !!w.btn && w.btn.isConnected,
+    busy: PV_BUSY.size, open: OPEN_ALL.length, doc: DOC, status: (document.querySelector('#status') || {}).innerText || ''};}"""
+
+
 # A card's '이전 판정' marker on screen (a card has one in its tags and one in its folded preview; one shows): its text,
 # the id its link goes to and its name, or None.
 OLD = """id=>{const m=[...document.querySelectorAll('.pin[data-id="'+id+'"] .vd-old,.arc-row[data-id="'+id+'"] .vd-old')].find(e=>e.getClientRects().length);
@@ -1113,6 +1122,16 @@ class SupersededMarker(VerdictBase):
         settle(page)
         self.assertTrue(page.evaluate("id=>REVIEW_ALL.some(p=>p.id===id)&&!CONFIRMING.has(id)", newer))
         self.assertEqual(page.evaluate(LINE, 1)["pin"], str(newer))
+
+    def test_the_first_press_after_opening_a_document_saves(self):
+        """Opening the figure document or the PDF and pressing a page line's word at once - the first press, no retry - at
+        1440 x 900 with a mouse and at 390 x 844 on touch: the verdict is saved."""
+        for doc in ("fig", "rv"):
+            for size, more in (((1440, 900), {}), ((390, 844), {"is_mobile": True, "has_touch": True})):
+                with self.subTest(doc=doc, size=size):
+                    n = len(self.pins())
+                    page = self.on(doc, n_open=n, viewport={"width": size[0], "height": size[1]}, **more)
+                    self.press_page(page, 1, "보류")
 
     def test_a_confirmed_verdict_deleted_elsewhere_in_its_undo_window_leaves_the_order(self):
         """The newest verdict awaiting review is confirmed with [확인]; during the undo window another window deletes it and
