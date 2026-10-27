@@ -1561,6 +1561,102 @@ class RetestFixes(VerdictBase):
                 self.assertIsNotNone(got, "no chip on the mark")
                 self.assertTrue(got["pressable"] and got["undoWhole"], got)
 
+    def test_the_save_chip_follows_a_zoom_and_a_sideways_scroll(self):
+        """At 841 x 673 (touch, the panel over the PDF area) and 1440 x 900 (mouse): after a verdict save the PDF is zoomed
+        to about 2.5x and scrolled sideways to its start, middle and end, the chip brought into view each time: its
+        [되돌리기] is where a press lands - placed again after the zoom and while the PDF area scrolls, never left where the
+        fitted page had it (off the PDF area, under the panel or its handle)."""
+        self.PICK = {"frac": [0.55, 0.8, 0.4, 0.05]}
+        for (w, h), more in (((841, 673), {"is_mobile": True, "has_touch": True}), ((1440, 900), {})):
+            with self.subTest(size=(w, h)):
+                page = self.on("ms", n_open=len(self.pins()), viewport={"width": w, "height": h}, **more)
+                self.open_composer(page)
+                before = set(self.pins())
+                page.locator('#c-verdict-row button[data-key="채택"]').click()
+                page.wait_for_function("n=>OPEN_ALL.length===n", arg=len(before) + 1)
+                settle(page)
+                (pid,) = set(self.pins()) - before
+                page.evaluate("zoomTo(W*2.5)")
+                settle(page)
+                self.assertGreater(page.evaluate("W/fitWidth()"), 2.2)
+                for frac in (0, 0.5, 1):
+                    page.evaluate(
+                        """([id,f])=>{const L=document.querySelector('#left'); L.scrollLeft=(L.scrollWidth-L.clientWidth)*f;
+                          const c=document.querySelector('.mark[data-pin="'+id+'"] .nt-chip');
+                          L.scrollTop+=c.getBoundingClientRect().top-L.getBoundingClientRect().top-L.clientHeight/2;}""",
+                        [pid, frac],
+                    )
+                    settle(page)
+                    got = page.evaluate(CHIP_UNDO, pid)
+                    self.assertIsNotNone(got, "no chip on the mark")
+                    self.assertTrue(got["pressable"] and got["undoWhole"], (frac, got))
+
+    def test_the_page_line_after_a_failed_first_list_an_empty_one_and_a_switch(self):
+        """The first pin list fails: the line keeps reading '판정 읽는 중…' with its buttons waiting (never '판정 없음'), and the
+        list read again shows the page's verdict. With no pins at all the list arriving makes it '판정 없음' with live
+        buttons. A switch to the PDF before the first list arrives: its line reads too, until the list comes."""
+        page = self.on("fig")
+        a = self.press_page(page, 1, "보류")
+        waiting = "s=>[...document.querySelectorAll(s+' button.vd-b')].map(b=>b.getAttribute('aria-disabled')==='true')"
+
+        def reading(p, _line):
+            """The line's words (as LINE reads them) and whether each button waits."""
+            return {"text": p.evaluate(LINE, 1)["text"], "waiting": p.evaluate(waiting, line)}
+
+        line = '#doc .pv[data-page="1"]'
+
+        def boot(doc):
+            context = self.browser.new_context(viewport={"width": 1400, "height": 850})
+            self.addCleanup(context.close)
+            watch_idle(context)
+            p = context.new_page()
+            p.route("**/*", self.route)
+            self.held_list = []
+            p.goto("http://viewer.test/?lang=ko#doc=%s" % doc)
+            p.wait_for_function(
+                "k=>DOC===k&&!!document.querySelector('#doc .pv[data-page=\"1\"] button.vd-b')", arg=doc, timeout=20000
+            )
+            return p
+
+        with self.subTest(case="the first list fails"):
+            p = boot("fig")
+            held, self.held_list = self.held_list, None
+            for r in held:
+                r.fulfill(status=500, headers={"content-type": "application/json"}, body='{"error": "boom"}')
+            p.wait_for_function("typeof LIGHT_TIMER!=='undefined'&&LIGHT_TIMER!==null", timeout=20000)
+            settle(p)
+            self.assertEqual(reading(p, line), {"text": "판정 읽는 중…", "waiting": [True, True, True]})
+            p.evaluate("loadPins()")
+            p.wait_for_function("OPEN_ALL.length===1", timeout=10000)
+            settle(p)
+            self.assertEqual(
+                reading(p, line), {"text": "판정 #%d 보류 · 처리 대기" % a, "waiting": [False, False, False]}
+            )
+        with self.subTest(case="a switch before the first list"):
+            p = boot("fig")
+            p.evaluate("()=>{switchDoc('rv');}")
+            # the list is still held, so the page never settles: wait for the PDF's first line itself
+            p.wait_for_function(
+                "DOC==='rv'&&META&&META.doc==='rv'&&!!document.querySelector('#doc .pv[data-page=\"1\"] button.vd-b')",
+                timeout=20000,
+            )
+            self.assertEqual(reading(p, line), {"text": "판정 읽는 중…", "waiting": [True, True, True]})
+            held, self.held_list = self.held_list, None
+            for r in held:
+                self.route(r)
+            p.wait_for_function("typeof LIGHT_TIMER!=='undefined'&&LIGHT_TIMER!==null", timeout=20000)
+            settle(p)
+            self.assertEqual(reading(p, line), {"text": "판정 없음", "waiting": [False, False, False]})
+        with self.subTest(case="an empty list"):
+            self.assertEqual(self.call("POST", "/api/pins/%d/drop" % a, {}, ALICE)[0], 200)
+            p = boot("fig")
+            held, self.held_list = self.held_list, None
+            for r in held:
+                self.route(r)
+            p.wait_for_function("typeof LIGHT_TIMER!=='undefined'&&LIGHT_TIMER!==null", timeout=20000)
+            settle(p)
+            self.assertEqual(reading(p, line), {"text": "판정 없음", "waiting": [False, False, False]})
+
     def test_the_page_line_waits_for_the_first_pin_list(self):
         """Opening the figure document while its pin list is still on its way: the line reads '판정 읽는 중…' and its
         buttons wait (aria-disabled; a press saves nothing), not '판정 없음' with live buttons; once the list arrives it

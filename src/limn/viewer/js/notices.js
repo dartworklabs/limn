@@ -361,6 +361,13 @@ function boxesMeet(a,b){return a.left<b.right&&b.left<a.right&&a.top<b.bottom&&b
 function chipsClearOfBar(){const bar=$('#sel-bar'); if(!bar||!bar.getClientRects().length)return; const br=bar.getBoundingClientRect();
   NOTICES.forEach(n=>{if(n.place===NOTICE_PLACE.CHIP&&n.el&&n.el.getClientRects().length&&boxesMeet(n.el.getBoundingClientRect(),br))offerToLine(n);});}
 $('#left').addEventListener('scroll',chipsClearOfBar,{passive:true});
+// Places every save chip on screen again by chipInRoom's rules, from its mark's or line's place now: after a zoom (setW) and,
+// once a frame, while the PDF area scrolls either way - its place was set in px, so a zoomed page or a sideways scroll could
+// leave [되돌리기] off the PDF area or under the panel or its handle.
+function placeChips(){NOTICES.forEach(n=>{const e=n.el,k=e&&e.parentElement; if(n.place!==NOTICE_PLACE.CHIP||!e||!k||!e.isConnected)return;
+  e.style.left=''; e.style.right=''; e.style.maxWidth=''; chipInRoom(e,k);});}
+let CHIP_FRAME=0;
+$('#left').addEventListener('scroll',()=>{if(!CHIP_FRAME)CHIP_FRAME=requestAnimationFrame(()=>{CHIP_FRAME=0; placeChips();});},{passive:true});
 new MutationObserver(chipsClearOfBar).observe(document.body,{attributes:true,attributeFilter:['class']});   // body.selmode comes and goes
 // The list reload after a save or an append has run: a chip whose mark did not come goes to the status line (drawChips).
 /** @param {Notice|null} n */

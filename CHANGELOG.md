@@ -8,8 +8,9 @@ Fixes from the functional re-test of 0.4.27's verdict buttons. The agent contrac
 
 - **A save chip's [되돌리기] can always be pressed.** On the unfolded foldable (841×673) the longer verdict chip
   (`#12 저장됨 · 채택 [되돌리기]`) ran under the panel laid over the PDF area, so a tap landed on the panel. A chip now
-  stays inside its page, what the PDF area shows and clear of such a panel; where the room is narrow its words give
-  way (ellipsis), never [되돌리기].
+  stays inside its page, what the PDF area shows and clear of such a panel and of its handle's touch area; where the
+  room is narrow its words give way (ellipsis), never [되돌리기]. It is placed again after a zoom and while the PDF area
+  scrolls either way.
 - **The page verdict line waits for the first pin list.** Until it arrives the line reads `판정 읽는 중…` and its
   buttons wait (they said `판정 없음` and took presses - for 16 s on a throttled connection).
 - **An agent-role person is not offered what D16 refuses:** no [삭제] on a verdict card, no [되살리기] on a verdict pin
