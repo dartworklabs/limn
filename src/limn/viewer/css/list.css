@@ -35,6 +35,7 @@ button.sec-tg{display:inline-flex;align-items:center;gap:var(--space-1);min-widt
 /* A superseded verdict's done row carries two badges ('판정 보류' '이전 판정 · #12가 앞섬', verdict.js): where the line cannot
    hold them it wraps, rather than push [답글] out of the panel and scroll it sideways. */
 .arc-l1:has(>.vd-old){flex-wrap:wrap;row-gap:var(--space-1)}
+.arc-l1:has(>.vd-old)>.b-reply{margin-left:auto}   /* on whichever line it lands, at the row's end like every row's */
 .arc-l1 .n{font-weight:700}
 .arc-l1 .loc{font-size:var(--text-sm)}
 .arc-ref{flex:0 1 auto;min-width:0;line-height:16px;padding:0 var(--space-1);max-width:120px;overflow:hidden;text-overflow:ellipsis}

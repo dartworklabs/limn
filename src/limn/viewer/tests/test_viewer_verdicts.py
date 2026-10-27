@@ -903,8 +903,8 @@ class SupersededMarker(VerdictBase):
         self.assertEqual(sums[1], {"text": "새 판단", "marker": False, "shown": True})
 
     def test_a_done_row_with_the_marker_fits_a_phone(self):
-        """A superseded verdict's done row at 390 px: its first line wraps, [답글] stays inside the row and the panel does
-        not scroll sideways."""
+        """A superseded verdict's done row at 390 px: its first line wraps, [답글] stays inside the row at its end and the
+        panel does not scroll sideways."""
         page = self.on("rv")
         a = self.press_page(page, 2, "보류")
         self.assertEqual(self.call("POST", "/api/pins/%d/close" % a, {"reply": "보류 절로 옮겼습니다"}, ALICE)[0], 200)
@@ -917,10 +917,10 @@ class SupersededMarker(VerdictBase):
         fit = page.evaluate(
             """id=>{const r=document.querySelector('.arc-row[data-id="'+id+'"]'), R=r.getBoundingClientRect(), p=document.querySelector('#right');
               const k=r.querySelector('.b-reply').getBoundingClientRect();
-              return {sideways: p.scrollWidth-p.clientWidth, replyInside: k.right<=R.right+0.5&&k.left>=R.left-0.5};}""",
+              return {sideways: p.scrollWidth-p.clientWidth, replyInside: k.right<=R.right+0.5&&k.left>=R.left-0.5, atEnd: Math.abs(k.right-R.right)<=1};}""",
             a,
         )
-        self.assertEqual(fit, {"sideways": 0, "replyInside": True})
+        self.assertEqual(fit, {"sideways": 0, "replyInside": True, "atEnd": True})
 
     def test_latex_verdicts_on_the_same_lines_and_the_review_and_done_rows(self):
         """Two composer verdicts on the same lines of the LaTeX manuscript: the older is marked, in its open card, then as
