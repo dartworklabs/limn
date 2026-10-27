@@ -41,8 +41,12 @@ function confirmPin(id){if(CONFIRMING.has(id))return; const at=REVIEW_ALL.findIn
         else if(!data.ok)bannerNote(NOTICE_HOST.REVIEW,tl('확인 실패 — 핀 #{id} 이 없습니다',{id}),NOTICE_KIND.ERR);
         else markMine(id);}catch(e){}
       CONFIRMING.delete(id); CONFIRMING_PIN.delete(id); await loadPins();},
-    ()=>{CONFIRMING.delete(id); CONFIRMING_PIN.delete(id);
-      if(pin&&!REVIEW_ALL.some(p=>p.id===id)){const i=Math.min(at,REVIEW_ALL.length); REVIEW_ALL=[...REVIEW_ALL.slice(0,i),pin,...REVIEW_ALL.slice(i)];}
+    // The undo puts the pin back as the latest list has it (CONFIRMING_PIN, which applyPinLists keeps or drops): still
+    // awaiting review, it goes back where it was; gone from that list it is not brought back - the order stays as the
+    // server has it - and a pin deleted elsewhere is said so (a reopened or confirmed one is on its own list already).
+    ()=>{const now=CONFIRMING_PIN.get(id); CONFIRMING.delete(id); CONFIRMING_PIN.delete(id);
+      if(now&&!REVIEW_ALL.some(p=>p.id===id)){const i=Math.min(at,REVIEW_ALL.length); REVIEW_ALL=[...REVIEW_ALL.slice(0,i),now,...REVIEW_ALL.slice(i)];}
+      else if(pin&&!now&&![OPEN_ALL,REVIEW_ALL,DONE_ALL].some(l=>l.some(p=>p.id===id)))lineNote(tl('핀 #{id} 은 그사이 다른 곳에서 지워졌습니다',{id}),NOTICE_KIND.WARN);
       drawPins(); marks();});
   deferredNote(d,NOTICE_PLACE.ROW,tl('핀 #{id} 확인 · 완료로 옮겼습니다',{id}),{pin:id,sec:'review',prev});}
 // Undo of [완료] (its row's [되돌리기]) - the viewer has no [다시 열기] button any more; a reply reopens by the server rule.

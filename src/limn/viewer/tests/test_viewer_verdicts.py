@@ -791,7 +791,8 @@ class ConfirmationRoundFixes(VerdictBase):
 
     def test_a_kind_change_while_the_failed_save_was_out_leaves_no_retry(self):
         """A verdict save is still out when the author makes the selection a question and then a fix request again; the
-        save then fails: no retry is left for the verdict, and [다시 저장] saves a plain pin."""
+        save then fails: no retry is left for the verdict, the banner says the save failed as a pin's and the picked
+        verdict was cleared, and [다시 저장] saves a plain pin."""
         page = self.on("ms")
         self.open_composer(page)
         self.held = []
@@ -805,6 +806,10 @@ class ConfirmationRoundFixes(VerdictBase):
         page.wait_for_function("!COMPOSE.saving&&document.querySelector('#btn-save').textContent.includes('다시 저장')")
         settle(page)
         self.assertEqual((self.pins(), page.evaluate("COMPOSE.retryVerdict")), ({}, None))
+        banner = page.evaluate("document.querySelector('#c-actions .nt-banner').innerText")
+        self.assertNotIn("판정 저장 실패", banner)  # the failure says the verdict is no longer asked for
+        self.assertIn("핀 저장 실패", banner)
+        self.assertIn("선택했던 판정은 해제됐습니다", banner)
         pin = self.retry(page)
         self.assertEqual((pin.get("verdict"), pin["kind_req"]), (None, "fix"))
 
@@ -1055,6 +1060,59 @@ class SupersededMarker(VerdictBase):
             page.evaluate("ids=>ids.map(id=>verdictSuperseder({id,verdict:'x',doc:DOC||DEFAULT_DOC}))", [a, b]),
             [None, None],
         )
+
+    def test_undoing_a_confirm_of_a_pin_deleted_elsewhere_does_not_bring_it_back(self):
+        """[확인] on the newest verdict awaiting review, another window deletes that pin, the list is read again, and the
+        confirm's [되돌리기] is pressed: the deleted pin does not come back into the order - the line and the older card
+        keep the older verdict - and the status line says it was deleted elsewhere."""
+        page = self.on("rv")
+        older = self.press_page(page, 1, "보류")
+        newer = self.press_page(page, 1, "채택")
+        self.assertEqual(self.call("POST", "/api/pins/%d/close" % newer, {"reply": "done"}, AGENT)[0], 200)
+        self.reload(page)
+        page.evaluate("()=>{SEC.review=true; setSide(true); drawPins();}")
+        page.locator('#review-pins .pin[data-id="%d"] [data-act="confirm"]' % newer).click()
+        settle(page)
+        self.assertEqual(self.call("POST", "/api/pins/%d/drop" % newer, {}, ALICE)[0], 200)
+        self.reload(page)
+        page.evaluate(
+            "id=>{const n=[...document.querySelectorAll('.nt-row,.nt-chip,.nt-banner,#status')].find(e=>e.textContent.includes('핀 #'+id+' 확인'));"
+            " n.querySelector('[data-act=notice-act]').click();}",
+            newer,
+        )
+        settle(page)
+        got = page.evaluate(
+            "id=>({review: REVIEW_ALL.some(p=>p.id===id), confirming: CONFIRMING.has(id), order: [...verdictOrder(DOC).cur.keys()].includes(id)})",
+            newer,
+        )
+        self.assertEqual(got, {"review": False, "confirming": False, "order": False})
+        self.assertEqual(page.evaluate(LINE, 1)["pin"], str(older))
+        self.assertIsNone(page.evaluate(OLD, older))
+        self.assertIn(
+            "핀 #%d 은 그사이 다른 곳에서 지워졌습니다" % newer,
+            page.evaluate("document.querySelector('#status').innerText"),
+        )
+        self.assertNotIn(newer, self.pins())
+
+    def test_undoing_a_confirm_still_brings_the_pin_back_as_the_list_has_it(self):
+        """The same undo when nothing happened elsewhere: the pin goes back to the review list and is the line's verdict."""
+        page = self.on("rv")
+        self.press_page(page, 1, "보류")
+        newer = self.press_page(page, 1, "채택")
+        self.assertEqual(self.call("POST", "/api/pins/%d/close" % newer, {"reply": "done"}, AGENT)[0], 200)
+        self.reload(page)
+        page.evaluate("()=>{SEC.review=true; setSide(true); drawPins();}")
+        page.locator('#review-pins .pin[data-id="%d"] [data-act="confirm"]' % newer).click()
+        settle(page)
+        self.reload(page)
+        page.evaluate(
+            "id=>{const n=[...document.querySelectorAll('.nt-row,.nt-chip,.nt-banner,#status')].find(e=>e.textContent.includes('핀 #'+id+' 확인'));"
+            " n.querySelector('[data-act=notice-act]').click();}",
+            newer,
+        )
+        settle(page)
+        self.assertTrue(page.evaluate("id=>REVIEW_ALL.some(p=>p.id===id)&&!CONFIRMING.has(id)", newer))
+        self.assertEqual(page.evaluate(LINE, 1)["pin"], str(newer))
 
     def test_a_confirmed_verdict_deleted_elsewhere_in_its_undo_window_leaves_the_order(self):
         """The newest verdict awaiting review is confirmed with [확인]; during the undo window another window deletes it and
@@ -1312,7 +1370,7 @@ class FunctionalUiFixes(VerdictBase):
                 text = page.evaluate("document.querySelector('#c-actions .nt-banner').innerText")
                 self.assertNotIn("판정 저장 실패", text)
                 self.assertIn("핀 저장 실패", text)
-                self.assertIn("판정은 버렸습니다", text)
+                self.assertIn("선택했던 판정은 해제됐습니다 — 판정으로 저장하려면 판정 버튼을 다시 누릅니다", text)
                 page.locator("#btn-save").click()
                 page.wait_for_function("OPEN_ALL.length>=1")
                 settle(page)

@@ -207,11 +207,13 @@ ${why?html`<span class="vd-why" id="c-verdict-why">${why}</span>`:''}`);
   if(why)row.setAttribute('aria-describedby','c-verdict-why'); else row.removeAttribute('aria-describedby');
   if(inRow)vdRefocus(f);}
 // A failed verdict save's retry the composer no longer asks for (COMPOSE.intent moved since its press): it goes, and the
-// failure's banner says so - [다시 저장] now saves the selection as the composer has it, without the verdict, and pressing the
-// word again saves the verdict. Run on every redraw of the verdict row, which every such change makes.
-function dropStaleRetry(){const rv=COMPOSE.retryVerdict; if(!rv||rv.gen===COMPOSE.intent)return; COMPOSE.retryVerdict=null;
-  const b=BANNERS.get(NOTICE_HOST.COMPOSER); if(!b||!b.save||$('#composer').hidden)return;
-  bannerNote(NOTICE_HOST.COMPOSER,tl('{what} 실패',{what:tr('핀 저장')})+' — '+tr('판정은 버렸습니다. 판정으로 저장하려면 판정 버튼을 다시 누릅니다'),NOTICE_KIND.ERR,null,{save:true,source:b.source});}
+// failure's banner says so (verdictDropped). Run on every redraw of the verdict row, which every such change makes.
+function dropStaleRetry(){const rv=COMPOSE.retryVerdict; if(!rv||rv.gen===COMPOSE.intent)return; COMPOSE.retryVerdict=null; verdictDropped();}
+// The composer's failed-save banner when the verdict it was for is no longer asked for - dropped after the failure, or the
+// intent changed while the request was out (savePin): '핀 저장 실패 — 선택했던 판정은 해제됐습니다 — ...'. [다시 저장] saves the
+// selection as the composer has it, without the verdict; pressing the word again saves the verdict.
+function verdictDropped(){const b=BANNERS.get(NOTICE_HOST.COMPOSER); if(!b||!b.save||$('#composer').hidden)return;
+  bannerNote(NOTICE_HOST.COMPOSER,tl('{what} 실패',{what:tr('핀 저장')})+' — '+tr('선택했던 판정은 해제됐습니다 — 판정으로 저장하려면 판정 버튼을 다시 누릅니다'),NOTICE_KIND.ERR,null,{save:true,source:b.source});}
 // The undo of a verdict pin's save (D10): the pin goes again - a withdrawn request - and the composer does not come back. When
 // an agent claimed or closed it meanwhile it still goes, and the status line says its run may have started - one
 // sentence with no ' — ', so the folded line shows all of it.

@@ -102,7 +102,7 @@ async function savePin(verdict){
       :undoNote(NOTICE_PLACE.CHIP,tl(question?'질문 #{id} 저장됨 · pins.md 갱신':'핀 #{id} 저장됨 · pins.md 갱신',{id}),
       {label:'되돌리기',wait:true,fn:undo},{pin:id,pending:true,label:tr('저장됨')});
     await loadPins(); settleChip(chip);
-  }catch(e){if(verdict&&COMPOSE.intent===gen)COMPOSE.retryVerdict={key:verdict,sel:d,gen};}   // the failure's [다시 저장] saves this verdict again
+  }catch(e){if(verdict){if(COMPOSE.intent===gen)COMPOSE.retryVerdict={key:verdict,sel:d,gen}; else verdictDropped();}}   // [다시 저장] saves this verdict again, or the banner says it was dropped
   finally{COMPOSE.saving=false; syncComposeSaveButtons();}
 }
 // A new pin's save the server answered 409 while it carried a suggested edit: nothing was saved and the draft stays. When the
