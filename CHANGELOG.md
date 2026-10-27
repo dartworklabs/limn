@@ -45,8 +45,10 @@ other answer are unchanged.
   buttons off after the request ended.
 - **The focus comes back after a keyboard save on a page verdict line**, to the same word's button, unless it was
   moved anywhere else meanwhile (another page's word, a `#N` link, the panel).
-- **A confirmed verdict deleted elsewhere during its undo window leaves the verdict order** at the next list read; the
-  page line and the cards no longer name the deleted pin.
+- **A confirmed verdict deleted elsewhere during its undo window leaves the verdict order** at the next list read, and
+  the confirm's [되돌리기] no longer brings it back (it restored the copy it had taken, making the deleted pin current
+  again); it says `핀 #N 은 그사이 다른 곳에서 지워졌습니다`. A pin still awaiting review comes back as the latest list has
+  it.
 - **Completed rows name a region's page as `2쪽 영역`**, as the cards do (`쪽 2 영역` before).
 - **A zoomed page's verdict line stays in view with a mouse.** At 1440 px with Ctrl+= the line scrolled away with
   the page: the pages' column kept the fitted width, so the sticky line had nowhere to stick. The column is now as wide
@@ -58,9 +60,9 @@ other answer are unchanged.
   the focus is not dropped to the page and Tab goes on from it; a `#N` link whose number changes keeps the focus.
 - **The page line's `#N` link answers 44 px on touch** and is named like the card marker's link (`지금 판정 #4 카드로
   갑니다`).
-- **The retry banner says when the verdict was dropped.** After the kind, the switch or the selection changed, the
-  banner read `판정 저장 실패` while [다시 저장] saved a plain pin; it now reads `핀 저장 실패 — 판정은 버렸습니다. 판정으로
-  저장하려면 판정 버튼을 다시 누릅니다`.
+- **The retry banner says when the verdict was dropped.** After the kind, the switch or the selection changed - after
+  the failure or while the request was still out - the banner read `판정 저장 실패` while [다시 저장] saved a plain pin;
+  it now reads `핀 저장 실패 — 선택했던 판정은 해제됐습니다 — 판정으로 저장하려면 판정 버튼을 다시 누릅니다`.
 - **A second pick turns the composer's verdict buttons off for real** (disabled, with `위치를 찾는 중입니다`), not only
   greyed.
 - **No page-size mark for any verdict the page line accounts for**, the earlier ones included.
