@@ -2,8 +2,8 @@
 
 ## Unreleased
 
-Instance manager only: the agent contract and `pins.md` are unchanged. A script that took every `limn update` exit as
-success now sees status 3 when an instance did not come back.
+The agent contract and `pins.md` are unchanged. A script that took every `limn update` exit as success now sees
+status 3 when an instance did not come back.
 
 ### Fixed
 
@@ -20,6 +20,19 @@ success now sees status 3 when an instance did not come back.
   argument; it now prints the options, the exit statuses, that a ref equal to the installed version ends with
   `already vX — not reinstalling` (status 0, nothing installed or restarted, `--force` overrides, `--from` has no such
   check) and that only instances that were active before the install are restarted.
+- **A long drag from a pin badge's press area no longer ends in the badge's click** (#284). In [선택] mode a pen or
+  finger that lands in a badge's 44px press area and moves draws a box, and the click on the badge was held off for
+  400ms from the start of the drag only, so a drag that ran longer and was let go on the badge opened its card as well
+  as drawing the box. The click is held off from the release now, however long the drag ran, and the hold ends when the
+  next press begins - a finger's drag is not followed by a click, and the hold would have swallowed the next tap, on
+  another badge. A tap that does not move is still the badge's, with a mouse or a finger, in or out of [선택] mode.
+- **The zoom is kept when the figure is drawn again under the changes view** (#284). A new build with the same page
+  count and other page sizes that arrived while the changes view hid the PDF area measured that area as 0 wide and cut
+  the zoom to the limits of that width (a page viewed at 1800px came back at 816px, the printed size of a letter
+  page). The zoom now stays, the pages take their new sizes at it, and the limits apply when the PDF area shows again.
+  The reading spot is kept the same way: the page being read and how far down it is remembered when the changes view
+  opens and restored on the way back, where the scroll offset in pixels had pointed at another place once the pages
+  changed height (page 2 at 30% came back at 79%).
 
 ## 0.4.30 — 2026-10-28
 

@@ -10,12 +10,13 @@ Run: uv run pytest -q src/limn/viewer/tests/test_viewer_actual_size.py
 """
 
 import json
+import time
 import unittest
 
 import helpers_figure
 from helpers import add_pin, blank_png, extract_js_fn, ps, run_node
 from helpers_access import ALICE
-from helpers_browser import BrowserBase, settle
+from helpers_browser import BrowserBase, nothing_follows, settle
 from helpers_notices import node_or_skip
 
 PT_PX = 96 / 72
@@ -27,6 +28,30 @@ NO_COACH = "try{localStorage.setItem('pinPrefs',JSON.stringify({coach:{touch:1,m
 PAGES = """() => {const L = document.querySelector('#left'), lr = L.getBoundingClientRect();
   return [...document.querySelectorAll('#doc .pg')].map(p => {const r = p.getBoundingClientRect(),
     left = r.left - lr.left + L.scrollLeft; return {page: +p.dataset.page, w: r.width, left, mid: left + r.width / 2};});}"""
+
+
+def send_pointer(cdp, kind, phase, x, y):
+    """One event of a pen or a finger (kind), phase down, move or up, at (x, y), through the DevTools input domain. A pen
+    goes as a mouse event of pointerType pen - the browser follows its release with a click, as it does a mouse's."""
+    if kind == "pen":
+        cdp.send(
+            "Input.dispatchMouseEvent",
+            {
+                "type": {"down": "mousePressed", "move": "mouseMoved", "up": "mouseReleased"}[phase],
+                "x": x,
+                "y": y,
+                "pointerType": "pen",
+                "button": "left",
+                "buttons": 0 if phase == "up" else 1,
+                "clickCount": 1,
+            },
+        )
+    else:
+        touch = [] if phase == "up" else [{"x": x, "y": y, "id": 0}]
+        cdp.send(
+            "Input.dispatchTouchEvent",
+            {"type": {"down": "touchStart", "move": "touchMove", "up": "touchEnd"}[phase], "touchPoints": touch},
+        )
 
 
 def sized_pdf(sizes):
@@ -434,6 +459,55 @@ class ActualSize(BrowserBase):
         self.assertAlmostEqual(page.evaluate("K"), PT_PX, places=6)
         self.assertEqual([round(p["w"]) for p in page.evaluate(PAGES)], [704, 704])
 
+    def drawn_again_under_the_changes_view(self, device, width):
+        """The figure zoomed to width px and read at 30% down its second page, the changes view opened over it and the
+        figure drawn again at other sizes while it is open (same page count: a 600pt and a 528pt page, the widest grew,
+        and both much taller); then back in the manuscript."""
+        self.size_figure((1100, 700), (525, 900))
+        page = self.on("fig", **device)
+        page.evaluate("w=>zoomTo(w/528)", width)
+        k = page.evaluate("K")
+        self.assertEqual([round(p["w"]) for p in page.evaluate(PAGES)], [width, round(252 * k)])
+        page.evaluate("""() => {const L = document.querySelector('#left'), p = document.getElementById('p2').getBoundingClientRect();
+          L.scrollTop += p.top - L.getBoundingClientRect().top + 0.3 * p.height;}""")
+        spot = page.evaluate("topAnchor()")
+        self.assertEqual(spot["page"], 2)
+        self.assertAlmostEqual(spot["frac"], 0.3, delta=0.005)
+        page.evaluate("setViewMode(VIEW_MODE.REVISIONS)")
+        settle(page)
+        self.assertFalse(page.evaluate("document.querySelector('#left').getClientRects().length>0"))
+        helpers_figure.viewer_rerender(self.fig)
+        d = self.fig.dir / helpers_figure.BUILD2
+        for i, size in enumerate(((1250, 1400), (1100, 1800)), 1):
+            (d / ("page-%d.png" % i)).write_bytes(blank_png(*size))
+        page.evaluate("async()=>await refreshDoc()")
+        settle(page)
+        self.assertEqual(page.evaluate("META.pages_build"), helpers_figure.BUILD2)
+        self.assertEqual(page.evaluate("K"), k)
+        widths = page.evaluate("[...document.querySelectorAll('#doc .pg')].map(p=>parseFloat(p.style.width))")
+        self.assertEqual(widths, [round(600 * k), round(528 * k)])
+        page.evaluate("setViewMode(VIEW_MODE.MANUSCRIPT)")
+        page.wait_for_function("document.querySelector('#left').getClientRects().length>0")
+        settle(page)
+        self.assertAlmostEqual(page.evaluate("K"), k, places=9)
+        self.assertEqual([round(p["w"]) for p in page.evaluate(PAGES)], [round(600 * k), round(528 * k)])
+        back = page.evaluate("topAnchor()")
+        self.assertEqual(back["page"], 2, back)
+        self.assertAlmostEqual(back["frac"], 0.3, delta=0.005, msg=back)
+
+    def test_a_figure_drawn_again_while_the_changes_view_is_open_keeps_the_scale(self):
+        """The changes view hides the PDF column, which then has no width to fit the scale to: a build with the same
+        page count and other page sizes that arrived meanwhile took the scale down to the least the width of nothing
+        allows (a page zoomed to 1800px came back 816px at print size). The scale stays, the pages take the new sizes at
+        it, and back in the manuscript the scale is what it was - and the reading spot too: the page being read and how
+        far down it, not the pixel offset the taller pages made another place."""
+        self.drawn_again_under_the_changes_view(DESKTOP, 1800)
+
+    def test_a_figure_drawn_again_under_the_changes_view_keeps_the_scale_on_a_phone(self):
+        """The same on a phone, whose compact layout re-fits the pages when the column shows again: the zoom the person
+        chose (ZOOMED) is not fitted away, and the reading spot stays."""
+        self.drawn_again_under_the_changes_view(PHONE, 1500)
+
     def test_the_page_number_stands_outside_a_narrow_page(self):
         """On a phone the one-column page (252pt) is centred beside the two-column one's width: its page number stands
         outside it, left of its top, and covers none of the page; the full-width page keeps its number in its corner. On
@@ -484,6 +558,122 @@ class ActualSize(BrowserBase):
         touch("touchStart", [(b["x"] + b["width"] / 2, b["y"] + b["height"] / 2)])
         touch("touchEnd", [])
         page.wait_for_function("id=>!!document.querySelector('.pin.card.cur[data-id=\"'+id+'\"]')", arg=pid)
+
+    def badge_pin(self, y=0.3):
+        """A pin on the figure's narrow page 2, y down the page and drawn at the page's left edge; returns its id."""
+        script = str(self.fig.src / "src" / "B2_calendar.py")
+        return add_pin(
+            {"doc": "fig", "file": script, "lo": 1, "hi": 10, "page": 2, "frac": [0.1, y, 0.3, 0.1], "note": "n"},
+            ALICE,
+        ).record["id"]
+
+    def card_opened(self, page, pid):
+        """Whether pin pid's card is the current one in the panel."""
+        return page.evaluate("id=>!!document.querySelector('.pin.card.cur[data-id=\"'+id+'\"]')", pid)
+
+    def badge_at(self, page, pid):
+        """Where pin pid's badge on page 2 is: its centre, and a point on its press area inside the page."""
+        return page.evaluate(
+            """id => {const p = document.getElementById('p2').getBoundingClientRect(),
+              b = document.querySelector('#p2 .mark-jump[data-id="' + id + '"]').getBoundingClientRect(), y = b.top + b.height / 2;
+              const e = document.elementFromPoint(p.left + 4, y);
+              return {press: [p.left + 4, y], badge: [b.left + b.width / 2, y], on: !!(e && e.closest('.mark-jump'))};}""",
+            pid,
+        )
+
+    def long_badge_drag(self, page, kind, pid, back=False):
+        """In [선택] mode on a phone: a pen or finger (kind) presses in pin pid's badge press area, moves, holds past 500ms of
+        the page's clock - paused here, so the hold is the input's timing and not a wait for the page - and lets go on the
+        badge: at its centre, which draws a box and asks for its lines, or with back where it pressed, which draws none (a
+        box too small to be one is a click) and leaves the page as it was. Leaves the clock paused and the select mode on;
+        returns the pointer's CDP session."""
+        page.evaluate("document.getElementById('p2').scrollIntoView({block:'center'})")
+        page.evaluate("setSelMode(true)")
+        settle(page)
+        at = self.badge_at(page, pid)
+        self.assertTrue(at["on"], "the press point is not on the badge's press area: %s" % at)
+        cdp = page.context.new_cdp_session(page)
+        page.clock.install()
+        page.clock.pause_at(time.time() * 1000 + 1000)
+        send_pointer(cdp, kind, "down", *at["press"])
+        for i in range(1, 6):
+            send_pointer(cdp, kind, "move", at["press"][0] + 12 * i, at["press"][1] + 8 * i)
+        page.wait_for_function("!!document.querySelector('#p2 .sel')")
+        page.clock.run_for(500)  # the drag has outlasted the 400ms the badge's click used to be held off
+        end = tuple(at["press"] if back else at["badge"])
+        for x, y in ((at["press"][0] + 30, at["press"][1] + 20), end):
+            send_pointer(cdp, kind, "move", x, y)
+        time.sleep(
+            0.15
+        )  # the finger comes to rest: a release at speed starts a fling, and Chromium sends no tap during one
+        send_pointer(cdp, kind, "move", *end)
+        send_pointer(cdp, kind, "up", *end)
+        return cdp
+
+    def test_a_long_drag_from_a_badges_press_area_never_ends_in_the_badges_click(self):
+        """In [선택] mode a pen or a finger that lands in a badge's 44px press area draws a box once it moves, and the
+        badge's click must not follow it however long the drag lasted. The click came 400ms after the drag began and no
+        later: a stylus that held the drag past that and let go on the badge opened its card as well as drawing the box."""
+        self.size_figure((1100, 700), (525, 900))
+        pid = self.badge_pin()
+        for kind in ("pen", "touch"):
+            with self.subTest(pointer=kind):
+                page = self.on("fig", **PHONE)
+                self.long_badge_drag(page, kind, pid)
+                page.clock.run_for(1000)  # every short timer the drag left runs now, for settle()
+                nothing_follows(page, 100)  # the click a browser sends after the release, if it sends one
+                self.assertFalse(self.card_opened(page, pid), "the release clicked through to the badge")
+
+    def test_a_tap_on_another_badge_soon_after_a_badge_drag_still_opens_its_card(self):
+        """The hold on a badge's click is armed at the release of a drag from its press area, but only a pen's drag is
+        followed by a click: a finger's is not, and its hold stayed armed for 400ms and swallowed the next tap, on another
+        badge. A press that begins retires it, so a tap on the second badge 100ms and 300ms after the drag opens its card -
+        and the pen's own trailing click on the first badge is still eaten."""
+        self.size_figure((1100, 700), (525, 900))
+        first, second = self.badge_pin(0.1), self.badge_pin(0.7)
+        for kind in ("pen", "touch"):
+            for gap in (100, 300):
+                with self.subTest(pointer=kind, gap=gap):
+                    page = self.on("fig", **PHONE)
+                    cdp = self.long_badge_drag(page, kind, first, back=True)
+                    # A pen's release over the badge is followed by a click at once; it is eaten, before any tap.
+                    self.assertFalse(self.card_opened(page, first), "the release clicked through to the first badge")
+                    page.clock.run_for(gap)  # the viewer's time since the release
+                    x, y = self.badge_at(page, second)["badge"]
+                    send_pointer(cdp, kind, "down", x, y)
+                    send_pointer(cdp, kind, "up", x, y)
+                    page.clock.run_for(1000)
+                    page.wait_for_function(
+                        "id=>!!document.querySelector('.pin.card.cur[data-id=\"'+id+'\"]')", arg=second
+                    )
+
+    def test_a_tap_on_a_badge_still_opens_its_card_with_a_mouse_and_a_finger_in_or_out_of_select_mode(self):
+        """A press that does not move is the badge's: a mouse (the select mode leaves the badge to it) and a finger
+        tapping outside [선택] mode or in it open the pin's card."""
+        self.size_figure((1100, 700), (525, 900))
+        pid = self.badge_pin()
+        for pointer, device in (("mouse", DESKTOP), ("touch", PHONE)):
+            for select in (False, True):
+                with self.subTest(pointer=pointer, select=select):
+                    page = self.on("fig", **device)
+                    page.evaluate("document.getElementById('p2').scrollIntoView({block:'center'})")
+                    if select:
+                        page.evaluate("setSelMode(true)")
+                        settle(page)
+                    b = page.locator("#p2 .mark-jump").bounding_box()
+                    x, y = b["x"] + b["width"] / 2, b["y"] + b["height"] / 2
+                    self.assertFalse(self.card_opened(page, pid))
+                    if pointer == "mouse":
+                        page.mouse.click(x, y)
+                    else:
+                        cdp = page.context.new_cdp_session(page)
+                        cdp.send(
+                            "Input.dispatchTouchEvent",
+                            {"type": "touchStart", "touchPoints": [{"x": x, "y": y, "id": 0}]},
+                        )
+                        cdp.send("Input.dispatchTouchEvent", {"type": "touchEnd", "touchPoints": []})
+                    page.wait_for_function("id=>!!document.querySelector('.pin.card.cur[data-id=\"'+id+'\"]')", arg=pid)
+                    self.assertFalse(page.evaluate("!!document.querySelector('.sel')"))
 
     def test_zoomed_far_in_each_page_draws_its_visible_part_at_full_resolution(self):
         """At 500% of the fit on a DPR 2 screen both a two-column page (528pt) and a one-column one (252pt) pass the canvas

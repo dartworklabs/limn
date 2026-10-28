@@ -9,6 +9,16 @@ function topAnchor(off){const L=$('#left'),top=L.getBoundingClientRect().top+(of
 // the mode bar off its first line) is kept rather than scrolled away; a mouse window re-fits as it always did.
 function restoreAnchor(a){if(!a)return; if(a.atTop){$('#left').scrollTop=0; return;} const pg=document.getElementById('p'+a.page); if(!pg)return; const L=$('#left');
   L.scrollTop+=pg.getBoundingClientRect().top-L.getBoundingClientRect().top+a.frac*pg.getBoundingClientRect().height;}
+// The manuscript's reading spot (topAnchor) at the moment the changes view hid it, with its document, kept for the way back: while
+// it is hidden there is no spot to read, and a build that changes the pages' sizes meanwhile (refreshDoc) moves the scroll offset the
+// column keeps to another place. keepSpot() takes it as the view opens; returnToSpot() puts the column back on it when the pages
+// show again - only if the offset left it by a pixel or more, so a visit that changed nothing leaves the column exactly where it was.
+let SPOT=/** @type {{a:NonNullable<ReturnType<typeof topAnchor>>,doc:string|null}|null} */(null);
+function keepSpot(){const a=topAnchor(); SPOT=a?{a,doc:DOC}:null;}
+function returnToSpot(){const s=SPOT; SPOT=null; if(!s||s.doc!==DOC||!$('#left').getClientRects().length)return;
+  const now=topAnchor(),pg=document.getElementById('p'+s.a.page);
+  if(now&&pg&&now.page===s.a.page&&now.atTop===s.a.atTop&&Math.abs(now.frac-s.a.frac)*pg.getBoundingClientRect().height<1)return;
+  restoreAnchor(s.a);}
 // Apply a supplied meta snapshot, or fetch one for the current document. A switch away and back invalidates an
 // in-flight refresh even when the document key matches again; its old pages must not replace the new visit. A failed read
 // is said on the status line (api, NOTICE_HOST.LINE) and throws. A refresh means a new build of the document is here (a
@@ -19,9 +29,10 @@ async function refreshDoc(meta){const a=topAnchor(),k=DOC,seq=SWITCHSEQ;
   rebuildSources(k).forEach(sourceOk); META_BY.set(k,m);
   const same=META&&m.pages.length===META.pages.length; META=m; drawMeta();
   // The canvas was drawn from the old PDF - it's torn down to show the new PNG first, then redrawn once the new build's PDF is opened.
-  // A page whose paper size changed (a figure drawn again larger) takes its new width at the same scale (setK).
+  // A page whose paper size changed (a figure drawn again larger) takes its new width at the same scale (reapplyK - which leaves
+  // the scale alone while the changes view hides the PDF area).
   if(same){vecReleaseAll(); $$('.pg').forEach((pg,i)=>{const p=META.pages[i]; pg.dataset.ptw=String(p.pt_w); pg.style.aspectRatio=p.pt_w+' / '+p.pt_h; pg.querySelector('img').src=pageSrc(p);});
-    setK(K,false);}
+    reapplyK();}
   else buildDoc();
   restoreAnchor(a); vecOpen(); if(document.body.classList.contains('revision-open'))loadRevisions(); await loadPins();}
 // On ok_errors|fail, the panel itself is opened right away: it is where a failed build is said (with the pull's line,
