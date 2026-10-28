@@ -2,13 +2,14 @@
 // Browser zoom would also enlarge the sidebar and tool bar. Zoom input over the PDF area is intercepted to change only the pages' scale (K).
 // - Desktop: Ctrl(Cmd)+wheel over #left. Trackpad pinch also arrives as a wheel event with ctrlKey set, in Chrome/Firefox. Anchored to the pointer.
 // - Safari trackpad pinch: gesturestart/gesturechange (e.scale).
-// - Keyboard Ctrl(Cmd) + = / + / - / 0 -> zoom in/out/fit width (never intercepted while an input field has focus - see the key handler).
+// - Keyboard Ctrl(Cmd) + = / + / - / 0 / 1 -> zoom in/out/fit width/print size (never intercepted while an input field has focus - see the key handler).
 // - Touch: #left has touch-action:pan-x pan-y, so there's no browser pinch. K changes with the ratio of the two-finger distance, and the
 //   point under the midpoint of the two fingers follows the fingers (drag while zooming). A page in selection mode has touch-action:none, so it goes through the same path.
 function zoomKey(e){const k=e.key,c=e.code;
   if(k==='='||k==='+'||c==='Equal'||c==='NumpadAdd')return 'in';
   if(k==='-'||k==='_'||c==='Minus'||c==='NumpadSubtract')return 'out';
   if(k==='0'||c==='Digit0'||c==='Numpad0')return 'fit';
+  if(k==='1'||c==='Digit1'||c==='Numpad1')return 'actual';
   return null;}
 // The factor for one wheel tick. One mouse-wheel notch (|dy|>=50 pixels or a line unit) gets the same ZOOM_STEP as one button
 // press; a trackpad pinch's finely divided dy is composed via exp(-dy/100) - the inverse of the formula Chrome uses to turn

@@ -83,6 +83,8 @@ function zoomRestore(a,cx,cy){if(!a)return; const L=$('#left'),r=a.pg.getBoundin
   L.scrollLeft+=r.left+a.fx*r.width-(cx==null?a.cx:cx); L.scrollTop+=r.top+a.fy*r.height-(cy==null?a.cy:cy);}
 function zoomTo(k,cx,cy){const a=zoomAnchor(cx,cy); setK(k); markZoomed(); zoomRestore(a);}
 function zoom(n){zoomTo(K*Math.pow(ZOOM_STEP,n));}
+// [100%] and Ctrl/Cmd 1: the print size, around the middle of the PDF area as the zoom buttons.
+function actualSize(){zoomTo(PT_PX);}
 // Fit width (fitK): keeps the viewed page/position (anchored at the top) and resets horizontal scroll to the start.
 function fitW(){const a=topAnchor(),L=$('#left');
   setK(fitK(),LAYOUT===LAYOUT_MODE.WIDE); markZoomed(); restoreAnchor(a); L.scrollLeft=0;}

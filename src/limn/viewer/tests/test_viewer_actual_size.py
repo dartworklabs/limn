@@ -177,6 +177,78 @@ class ActualSize(BrowserBase):
         self.assertEqual({p["w"] for p in phone.evaluate(PAGES)}, {inner})
         self.assertNotIn("w", phone.evaluate("prefs()"))
 
+    def test_100_and_ctrl_1_show_the_print_size_and_each_kind_keeps_its_own(self):
+        """[100%] beside [↔] and Ctrl+1 show the pages at print size (612pt -> 816px, 100%); in an input field Ctrl+1
+        is left to the browser. The manuscript keeps its widest page's width (w), the figure its zoom against print size
+        (figZoom) - so a figure still opens at its own setting after the manuscript was zoomed, and the other way
+        round, across a reload."""
+        page = self.on("ms")
+        name = page.evaluate(
+            "[document.querySelector('#btn-actual').getAttribute('aria-label'),"
+            "document.querySelector('#btn-actual').textContent.trim()]"
+        )
+        self.assertEqual(name, ["100% · 실제 크기", "100%"])
+        page.click("#btn-actual")
+        self.assertAlmostEqual(page.evaluate("K"), PT_PX, places=6)
+        self.assertEqual({p["w"] for p in page.evaluate(PAGES)}, {816})
+        self.assertEqual(self.zoom_figure(page), "100%")
+        self.assertEqual(page.evaluate("prefs().w"), 816)
+        page.click("#btn-fit")
+        self.assertNotAlmostEqual(page.evaluate("K"), PT_PX, places=3)
+        page.evaluate("document.activeElement&&document.activeElement.blur()")
+        page.keyboard.press("Control+1")
+        self.assertAlmostEqual(page.evaluate("K"), PT_PX, places=6)
+        page.click("#btn-fit")
+        k = page.evaluate("K")
+        page.focus("#jump")
+        page.keyboard.press("Control+1")
+        self.assertEqual(page.evaluate("K"), k)
+        # The figure: [100%] keeps figZoom 1 and leaves the manuscript's w alone.
+        self.size_figure((1100, 700), (525, 900))
+        page.evaluate("async()=>await switchDoc('fig')")
+        page.wait_for_function("DOC==='fig'&&document.querySelector('#p2')")
+        page.click("#btn-zoom-in")
+        self.assertAlmostEqual(page.evaluate("prefs().figZoom"), 1.2, places=3)
+        w = page.evaluate("prefs().w")
+        page.click("#btn-actual")
+        self.assertEqual(page.evaluate("[prefs().figZoom,prefs().w]"), [1, w])
+        page.click("#btn-zoom-out")
+        page.reload()
+        page.wait_for_function("typeof LIGHT_TIMER!=='undefined'&&LIGHT_TIMER!==null&&DOC==='fig'")
+        self.assertAlmostEqual(page.evaluate("K"), PT_PX / 1.2, places=3)
+        page.evaluate("async()=>await switchDoc('ms')")
+        page.wait_for_function("DOC==='ms'&&document.querySelector('#p2')")
+        self.assertEqual({p["w"] for p in page.evaluate(PAGES)}, {w})
+
+    def test_100_is_in_the_zoom_row_of_more_on_every_band(self):
+        """[더보기]'s zoom row has [100%] before [↔] on the desktop, the unfolded foldable and the phone; on touch it answers
+        44px. On the foldable the figure's widest page (528pt, 704px) fits and it opens at 100%; on the phone it does not
+        and it opens fitted, and [100%] brings it to print size."""
+        self.size_figure((1100, 700), (525, 900))
+        for label, device, opens in (("desktop", DESKTOP, "100%"), ("fold", FOLD, "100%"), ("phone", PHONE, None)):
+            with self.subTest(band=label):
+                page = self.on("fig", **device)
+                page.click("#btn-more")
+                page.wait_for_selector("#more[open]")
+                if opens:
+                    self.assertEqual(page.inner_text("#m-zoom"), opens)
+                else:
+                    fit = page.evaluate("fitK()")
+                    self.assertAlmostEqual(page.evaluate("K"), fit, places=6)
+                    self.assertEqual(page.inner_text("#m-zoom"), "%d%%" % round(fit / PT_PX * 100))
+                row = page.evaluate("""() => {const b = document.querySelector('#m-actual'), f = document.querySelector('#more [data-act=fit]');
+                  const r = b.getBoundingClientRect(), a = getComputedStyle(b, '::after');
+                  return {order: !!(b.compareDocumentPosition(f) & Node.DOCUMENT_POSITION_FOLLOWING), w: r.width, h: r.height,
+                    hit: [parseFloat(a.width) || 0, parseFloat(a.height) || 0], label: b.getAttribute('aria-label')};}""")
+                self.assertTrue(row["order"])
+                self.assertEqual(row["label"], "100% · 실제 크기")
+                if device.get("has_touch"):
+                    self.assertGreaterEqual(min(max(row["w"], row["hit"][0]), max(row["h"], row["hit"][1])), 44)
+                page.click("#m-actual")
+                self.assertAlmostEqual(page.evaluate("K"), PT_PX, places=6)
+                self.assertEqual(page.inner_text("#m-zoom"), "100%")
+                self.assertEqual([p["w"] for p in page.evaluate(PAGES)], [704, 336])
+
     def test_each_page_keeps_its_own_line_badge_and_zoom_anchor(self):
         """On a phone the figure opens fitted: its 528pt page fills the column and its 252pt page is centred, narrower.
         Each page verdict line is as wide as its own page; a mark at a page's left edge has its badge inside on the wide

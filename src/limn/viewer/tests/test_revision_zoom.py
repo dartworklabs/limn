@@ -266,6 +266,27 @@ class RevisionZoom(BrowserBase):
         page.locator('[data-act="zoom-in"]:visible').first.click()
         self.assertEqual(page.evaluate("K"), width)
 
+    def test_pages_keep_their_sizes_on_paper_and_ctrl_1_is_this_views_100(self):
+        """The comparison's landscape pages (792pt) take the zoomed width and its portrait pages (612pt) their share of it,
+        centred - as the manuscript's pages are drawn (issue 281). Ctrl/Cmd+1 goes to this view's own 100%, its fitted
+        width, as [↔] does, and leaves the manuscript's scale alone."""
+        page = self.comparison()
+        k = page.evaluate("K")
+        boxes = page.evaluate(
+            "[...document.querySelectorAll('.revision-page')].slice(0,2).map(p=>{const r=p.getBoundingClientRect();"
+            "return [r.width,r.left+r.width/2];})"
+        )
+        (portrait, mid1), (landscape, mid2) = boxes
+        self.assertAlmostEqual(landscape, page.evaluate("RZ.fit"), delta=1)
+        self.assertAlmostEqual(portrait / landscape, 612 / 792, places=2)
+        self.assertAlmostEqual(mid1, mid2, delta=1)
+        page.click("#revision-zoom-in")
+        self.assertEqual(page.locator("#revision-zoom-value").inner_text(), "120%")
+        page.evaluate("document.activeElement&&document.activeElement.blur()")
+        page.keyboard.press("Control+1")
+        self.assertEqual(page.locator("#revision-zoom-value").inner_text(), "100%")
+        self.assertEqual(page.evaluate("K"), k)
+
     def test_invalid_pdf_releases_loading_worker(self):
         """A failed PDF parse disables zoom and releases the worker owner."""
         (self.caches[self.commits[-1]] / "revision.pdf").write_bytes(b"%PDF-1.4\nInvalid PDF\n")

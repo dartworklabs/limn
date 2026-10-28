@@ -1728,7 +1728,8 @@ class LayoutNotPointer(ViewerBase):
         desktop layout is unchanged - but for the cross-resolution pass: the tool bar ends in one [⋯] where the bell, the theme
         button and [?] were (3b), its ends and the section head's chevron moved onto the panel's box and text lines (4a: the
         tool bar 4px in on either side, the toggle and chevron 12px right), and its controls 2px down, 6px from the instance
-        stripe over the panel's top and 6px from the row's line (the symmetry audit). (The documents sheet, which only the
+        stripe over the panel's top and 6px from the row's line (the symmetry audit), and [100%] stands before [↔] (the
+        actual-size view, which moved the group's left edges). (The documents sheet, which only the
         phone opened, is the phone's navigation sheet.)
         What CSS lengths, the viewport or the page size is compared to the pixel. What a label or a wrapped note sizes is
         compared by where it starts and ends, how tall it is and its order, never by its width or by the height its text
@@ -1770,7 +1771,7 @@ DESK_DIALOG = """s => {const e = document.querySelector(s), r = e.getBoundingCli
   return {box: [R(r.x), R(r.y), R(r.width), R(r.height)], pad: [c.paddingTop, c.paddingRight, c.paddingBottom, c.paddingLeft],
     max_height: c.maxHeight, mid: R((r.top + r.bottom) / 2), below: R(innerHeight - r.bottom)};}"""
 # Tool-bar items whose width a label sets (the spacer's, the free room); the others are icon buttons of a CSS length.
-BAR_LABEL_SIZED = ("btn-rebuild", "sp", "jump")
+BAR_LABEL_SIZED = ("btn-rebuild", "sp", "jump", "btn-actual")
 # How each dialog is anchored: a centred one by its middle (its text-made height moves both edges), a bottom sheet by the gap
 # under it.
 DIALOG_ANCHOR = {"#help": "mid", "#trash": "mid"}
@@ -1819,14 +1820,16 @@ DESK_1440 = {
         ["jump", 10, 28, None],
         ["btn-zoom-out", 10, 28, 28],
         ["btn-zoom-in", 10, 28, 28],
+        ["btn-actual", 10, 28, None],
         ["btn-fit", 10, 28, 28],
         ["btn-more", 10, 28, 28],
     ],
     "bar_start": 13,
     "bar_ends": {
-        "jump": 140,
-        "btn-zoom-out": 108,
-        "btn-zoom-in": 76,
+        "jump": 187,
+        "btn-zoom-out": 155,
+        "btn-zoom-in": 123,
+        "btn-actual": 76,
         "btn-fit": 44,
         "btn-more": 12,
     },

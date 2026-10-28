@@ -1002,12 +1002,14 @@ class FrontendZoomLogic(unittest.TestCase):
             [
                 extract_js_fn("zoomKey"),
                 "const ks=[['=','Equal'],['+','Equal'],['-','Minus'],['_','Minus'],['0','Digit0'],['+','NumpadAdd'],",
-                " ['Process','Equal'],['Process','Minus'],['Process','Digit0'],['1','Digit1'],['Enter','Enter'],['a','KeyA']];",
+                " ['Process','Equal'],['Process','Minus'],['Process','Digit0'],['1','Digit1'],['1','Numpad1'],",
+                " ['Process','Digit1'],['2','Digit2'],['Enter','Enter'],['a','KeyA']];",
                 "console.log(JSON.stringify(ks.map(([key,code])=>zoomKey({key,code}))));",
             ]
         )
         self.assertEqual(
-            json.loads(run_node(js)), ["in", "in", "out", "out", "fit", "in", "in", "out", "fit", None, None, None]
+            json.loads(run_node(js)),
+            ["in", "in", "out", "out", "fit", "in", "in", "out", "fit", "actual", "actual", "actual", None, None, None],
         )
 
     def test_wheel_factor_mouse_notch_vs_trackpad_pinch(self):
