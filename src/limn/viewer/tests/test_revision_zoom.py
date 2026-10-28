@@ -266,10 +266,11 @@ class RevisionZoom(BrowserBase):
         page.locator('[data-act="zoom-in"]:visible').first.click()
         self.assertEqual(page.evaluate("K"), width)
 
-    def test_pages_keep_their_sizes_on_paper_and_ctrl_1_is_this_views_100(self):
+    def test_pages_keep_their_sizes_on_paper_and_100_is_not_offered(self):
         """The comparison's landscape pages (792pt) take the zoomed width and its portrait pages (612pt) their share of it,
-        centred - as the manuscript's pages are drawn (issue 281). Ctrl/Cmd+1 goes to this view's own 100%, its fitted
-        width, as [↔] does, and leaves the manuscript's scale alone."""
+        centred - as the manuscript's pages are drawn (issue 281). Its zoom stays against its fitted width, so the
+        manuscript's [100%] (print size) is not offered here: the tool bar's zoom button and [더보기]'s [100%] are hidden,
+        and Ctrl/Cmd 1 changes nothing."""
         page = self.comparison()
         k = page.evaluate("K")
         boxes = page.evaluate(
@@ -280,12 +281,18 @@ class RevisionZoom(BrowserBase):
         self.assertAlmostEqual(landscape, page.evaluate("RZ.fit"), delta=1)
         self.assertAlmostEqual(portrait / landscape, 612 / 792, places=2)
         self.assertAlmostEqual(mid1, mid2, delta=1)
+        self.assertFalse(page.locator("#btn-actual").is_visible())
+        page.click("#btn-more")
+        page.wait_for_selector("#more[open]")
+        self.assertFalse(page.locator("#m-actual").is_visible())
+        page.keyboard.press("Escape")
         page.click("#revision-zoom-in")
-        self.assertEqual(page.locator("#revision-zoom-value").inner_text(), "120%")
         page.evaluate("document.activeElement&&document.activeElement.blur()")
         page.keyboard.press("Control+1")
-        self.assertEqual(page.locator("#revision-zoom-value").inner_text(), "100%")
+        self.assertEqual(page.locator("#revision-zoom-value").inner_text(), "120%")
         self.assertEqual(page.evaluate("K"), k)
+        page.click("#view-manuscript")
+        self.assertTrue(page.locator("#btn-actual").is_visible())
 
     def test_invalid_pdf_releases_loading_worker(self):
         """A failed PDF parse disables zoom and releases the worker owner."""

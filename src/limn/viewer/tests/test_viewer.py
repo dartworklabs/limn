@@ -1002,14 +1002,12 @@ class FrontendZoomLogic(unittest.TestCase):
             [
                 extract_js_fn("zoomKey"),
                 "const ks=[['=','Equal'],['+','Equal'],['-','Minus'],['_','Minus'],['0','Digit0'],['+','NumpadAdd'],",
-                " ['Process','Equal'],['Process','Minus'],['Process','Digit0'],['1','Digit1'],['1','Numpad1'],",
-                " ['Process','Digit1'],['2','Digit2'],['Enter','Enter'],['a','KeyA']];",
+                " ['Process','Equal'],['Process','Minus'],['Process','Digit0'],['1','Digit1'],['Enter','Enter'],['a','KeyA']];",
                 "console.log(JSON.stringify(ks.map(([key,code])=>zoomKey({key,code}))));",
             ]
         )
         self.assertEqual(
-            json.loads(run_node(js)),
-            ["in", "in", "out", "out", "fit", "in", "in", "out", "fit", "actual", "actual", "actual", None, None, None],
+            json.loads(run_node(js)), ["in", "in", "out", "out", "fit", "in", "in", "out", "fit", None, None, None]
         )
 
     def test_wheel_factor_mouse_notch_vs_trackpad_pinch(self):
@@ -1030,18 +1028,19 @@ class FrontendZoomLogic(unittest.TestCase):
     def test_width_bounds_are_half_to_five_times_fit_and_hold_the_print_size(self):
         """wBounds(fit, actual): the widest page's width stays within half to five times the fitted width (at least
         160px), widened to hold its print size - so [100%] is in reach on a screen wide enough to fit a page more than
-        twice over, and for a page more than five times as wide as the screen."""
+        twice over, for a page more than five times as wide as the screen and for a page under 160px (72pt, 96px). The
+        limits are not rounded: a rounded one put the print size a fraction of a pixel out of reach."""
         js = "\n".join(
             [
                 "const ZOOM_MIN=0.5,ZOOM_MAX=5;",
                 extract_js_fn("wBounds"),
                 "console.log(JSON.stringify([wBounds(956,816),wBounds(370,816),wBounds(100,816),wBounds(2000,816),",
-                " wBounds(300,4000),wBounds(956,100)]));",
+                " wBounds(300,4000),wBounds(956,96),wBounds(2101,696.32)]));",
             ]
         )
         self.assertEqual(
             json.loads(run_node(js)),
-            [[478, 4780], [185, 1850], [160, 816], [816, 10000], [160, 4000], [160, 4780]],
+            [[478, 4780], [185, 1850], [160, 816], [816, 10000], [160, 4000], [96, 4780], [696.32, 10505]],
         )
 
 

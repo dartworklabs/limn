@@ -10,6 +10,12 @@ const PT_PX=96/72;
 // The widest page's width in points: fit-width fits it and the limits count it. 612 (a letter page) before there are pages,
 // only so that the arithmetic never divides by zero - nothing is drawn then.
 function ptMax(){const m=META&&META.pages?META.pages.reduce((a,p)=>Math.max(a,p.pt_w||0),0):0; return m>0?m:612;}
+// The most common page width of widths ws (points): the mode, the wider on a tie; 0 for none. A figure document opens by it
+// (openScale): its one wide outlier (a graphical abstract) scrolls sideways instead of shrinking every figure. Pure.
+function commonWidth(ws){const n=new Map(); let best=0,most=0;
+  for(const w of ws){if(!(w>0))continue; const c=(n.get(w)||0)+1; n.set(w,c); if(c>most||(c===most&&w>best)){most=c; best=w;}}
+  return best;}
+function ptCommon(){const c=META&&META.pages?commonWidth(META.pages.map(p=>p.pt_w)):0; return c>0?c:ptMax();}
 // A page box's CSS width for a page pt_w points wide at scale k: whole px, at least 1. Pure.
 function pageWidth(ptw,k){return Math.max(1,Math.round(ptw*k));}
 function buildDoc(){
@@ -18,16 +24,17 @@ function buildDoc(){
     d.dataset.ptw=String(p.pt_w); d.style.width=pageWidth(p.pt_w,K)+'px'; d.style.aspectRatio=p.pt_w+' / '+p.pt_h;
     setHtml(d,html`<span class="no">${i+1}</span><img loading="lazy" draggable="false" alt="${tl('{page}쪽',{page:i+1})}" src="${pageSrc(p)}">`);
     doc.appendChild(d);});
-  marks(); vecObserve();
+  marks(); vecObserve(); drawZoom();
 }
 // save=false is auto-fit - never saved. If a width fit for a narrow first window persisted into a wider window, the pages would look too small.
 // The scale is never saved in compact (mid/narrow) - so a width fit for a folded screen never overrides the spread/desktop setting.
 // The widest page's width stays within ZOOM_MIN-ZOOM_MAX times the fit-width (minimum 160px), widened to hold the print size so
-// [100%] is always in reach. Overflow scrolls horizontally only within the PDF area (#left).
+// [100%] is always in reach - also for a page smaller than 160px. Overflow scrolls horizontally only within the PDF area (#left).
 const ZOOM_MIN=0.5,ZOOM_MAX=5,ZOOM_STEP=1.2;
-// The widest page's width limits [lo, hi] in px, for the fitted width fit and the print-size width actual. Pure.
-function wBounds(fit,actual){const f=Math.max(160,fit),lo=Math.max(160,Math.round(Math.min(f*ZOOM_MIN,actual)));
-  return [lo,Math.max(lo,Math.round(Math.max(f*ZOOM_MAX,actual)))];}
+// The widest page's width limits [lo, hi] in px, for the fitted width fit and the print-size width actual. Not rounded: a
+// rounded limit put the print size a fraction of a pixel out of reach (522pt drawn 697px at [100%]). Pure.
+function wBounds(fit,actual){const f=Math.max(160,fit),lo=Math.min(actual,Math.max(160,f*ZOOM_MIN));
+  return [lo,Math.max(lo,f*ZOOM_MAX,actual)];}
 // The scale that fits the widest page to the PDF area (fitWidth).
 function fitK(){return fitWidth()/ptMax();}
 // Sets the scale K within wBounds and gives every page box its own width (pageWidth); saved in wide unless save is false
@@ -36,36 +43,53 @@ function fitK(){return fitWidth()/ptMax();}
 function setK(k,save){const m=ptMax(),b=wBounds(fitWidth(),m*PT_PX); K=Math.min(b[1],Math.max(b[0],k*m))/m;
   $$('.pg').forEach(e=>{e.style.width=pageWidth(+e.dataset.ptw||m,K)+'px';});
   markBadgeSides(); sizePv(); placeChips(); if(save!==false&&LAYOUT===LAYOUT_MODE.WIDE)saveK(); vecInvalidate(); drawZoom();}
-// The zoom as [더보기] shows it: scale k against the print size, in percent, rounded; 100 before a scale is known. Pure.
+// The zoom as [더보기] and the tool bar's zoom button show it: scale k against the print size, in percent, rounded; 100 before
+// a scale is known. Pure.
 function zoomPct(k){return k>0?Math.round(k/PT_PX*100):100;}
-// Writes [더보기]'s zoom figure (a live region: it is read out as it changes).
-function drawZoom(){const z=$('#m-zoom'); if(z)z.textContent=zoomPct(K)+'%';}
+// Writes the zoom figure: [더보기]'s (a live region: it is read out as it changes) and the desktop tool bar's zoom button, which
+// shows the zoom now and goes to 100% - pressed (aria-pressed) while the figure is 100%. Its name and tip say both.
+function drawZoom(){const t=zoomPct(K)+'%',z=$('#m-zoom'); if(z)z.textContent=t;
+  const b=$('#btn-actual'); if(!b)return; const v=b.querySelector('.z'); if(v)v.textContent=t;
+  b.setAttribute('aria-pressed',String(t==='100%')); b.setAttribute('aria-label',tl('실제 크기(100%)로 · 지금 {pct}',{pct:t}));
+  b.dataset.tip=tl('실제 크기(100%)로: PDF 쪽을 인쇄한 지면 크기로 봅니다 · 지금 {pct}',{pct:t});}
 // The saved scale of the document on screen (wide only), or null: a figure document keeps its zoom against the print size
 // (pinPrefs.figZoom), since print size is what a figure is checked at; any other document the widest page's width in px
 // (pinPrefs.w), as it always has - one value for every LaTeX and view-only document.
+// A browser that saved a page width before figure documents had their own setting (figFromW, kept once at the first start of
+// this release, prefs.js) gives it to them on the first figure document: the zoom at which its common page is as wide as
+// every page was then.
 function savedK(){const p=prefs();
-  if(isFigureKind(META.kind))return typeof p.figZoom==='number'&&p.figZoom>0?p.figZoom*PT_PX:null;
+  if(isFigureKind(META.kind)){if(typeof p.figZoom==='number'&&p.figZoom>0)return p.figZoom*PT_PX;
+    if(typeof p.figFromW!=='number'||!(p.figFromW>0))return null;
+    const z=Math.round(p.figFromW/ptCommon()/PT_PX*1e4)/1e4; dropPref('figFromW'); savePrefs({figZoom:z}); return z*PT_PX;}
   return typeof p.w==='number'&&p.w>0?p.w/ptMax():null;}
 function saveK(){if(isFigureKind(META.kind))savePrefs({figZoom:Math.round(K/PT_PX*1e4)/1e4}); else savePrefs({w:pageWidth(ptMax(),K)});}
-// The scale a document opens at with nothing saved, for its widest page m (points), the fitted width fit and the scroller's
-// inner width inner (px): a figure document at print size, or fitted when its widest page is wider than the PDF area; any
-// other fitted to the inner width - in wide (wide true) at most 900px. Pure.
-function openScale(fig,m,fit,inner,wide){return fig?Math.min(PT_PX,fit/m):(wide?Math.min(inner,900):inner)/m;}
-function defaultK(){return openScale(isFigureKind(META.kind),ptMax(),fitWidth(),innerW(),LAYOUT===LAYOUT_MODE.WIDE);}
+// The scale a document opens at with nothing saved, for its most common and its widest page width (points) and the fitted
+// width fit (px): a figure document at print size when its common page fits the PDF area - a wider outlier scrolls sideways -
+// else with the common page fitted; any other document with its widest page fitted - in wide (wide true) at most 900px. Pure.
+function openScale(fig,common,widest,fit,wide){return fig?Math.min(PT_PX,fit/common):(wide?Math.min(fit,900):fit)/widest;}
+function defaultK(){return openScale(isFigureKind(META.kind),ptCommon(),ptMax(),fitWidth(),LAYOUT===LAYOUT_MODE.WIDE);}
 // In compact, whether the scale on screen is one the user chose rather than the one the screen picks (defaultK): only a chosen
 // one survives a re-fit (ZOOMED). Pressing [↔] on a figure that opened at print size is a choice; landing back on it is not.
 function markZoomed(){if(LAYOUT!==LAYOUT_MODE.WIDE)ZOOMED=Math.abs(K-defaultK())>K*1e-3;}
 function innerW(){const L=$('#left'),cs=getComputedStyle(L); return L.clientWidth-parseFloat(cs.paddingLeft)-parseFloat(cs.paddingRight);}
-// Fit-width: in compact and on a wide touch screen, the scroller's inner width (innerW: its padding is the gap, which on touch keeps
-// the page off the handles' hit areas); with a mouse in wide, #left.clientWidth minus 48px (left/right margins), as always.
-function fitWidth(){return LAYOUT!==LAYOUT_MODE.WIDE||MQ_COARSE.matches?innerW():$('#left').clientWidth-48;}
+// Fit-width: the scroller's inner width in whole px (innerW: its padding is the gap, which on touch keeps the page off the
+// handles' hit areas), on every band. The mouse's #left.clientWidth minus 48px was 12px wider than the room inside its 44px
+// and 16px padding, so a fitted page scrolled sideways by 12px.
+function fitWidth(){return Math.floor(innerW());}
 // compact always takes the screen's scale (defaultK) unless the user chose another (ZOOMED). wide takes it too unless a scale
 // is saved. A scroller that is not drawn - the changes view hides it - has no width to fit: fitted to it the pages shrank to
 // the smallest width while the changes view was open, and the re-fit on the way back took the reading spot from those small
 // pages, so the manuscript came back somewhere else (docs/handbook/viewer.md §변경 보기).
+// A scale it leaves alone still meets a new column width: the badges and page numbers are placed again (markBadgeSides).
 function autoW(){if(!$('#left').getClientRects().length)return;
-  if(LAYOUT!==LAYOUT_MODE.WIDE){if(!ZOOMED)setK(defaultK(),false);return;}
-  if(savedK()!==null)return; setK(defaultK(),false);}
+  if(LAYOUT!==LAYOUT_MODE.WIDE?!ZOOMED:savedK()===null)setK(defaultK(),false); else markBadgeSides();}
+// The page number stands outside a page (.no-out) where a wider page leaves room left of it - a page centred under one at
+// least the number's width and 8px wider on each side - and in the page's corner otherwise: on the widest pages, and on every
+// page of a document whose pages are all one size, wherever the column puts them (a manuscript looks as it did).
+function pageNoSides(){const pgs=$$('#doc .pg'); if(!pgs.length||!pgs[0].getClientRects().length)return;
+  const ws=pgs.map(pg=>pg.getBoundingClientRect().width),widest=Math.max(...ws);
+  pgs.forEach((pg,i)=>{const no=/** @type {HTMLElement|null} */(pg.querySelector('.no')); if(no)pg.classList.toggle('no-out',(widest-ws[i])/2>=no.offsetWidth+8);});}
 // The scale to build a document's pages at before autoW looks again: a saved one in wide, else the screen's, else the one
 // on screen (a scroller that is not drawn has no width to take it from).
 function startK(){const s=LAYOUT===LAYOUT_MODE.WIDE?savedK():null; if(s!==null)return s;
@@ -83,7 +107,7 @@ function zoomRestore(a,cx,cy){if(!a)return; const L=$('#left'),r=a.pg.getBoundin
   L.scrollLeft+=r.left+a.fx*r.width-(cx==null?a.cx:cx); L.scrollTop+=r.top+a.fy*r.height-(cy==null?a.cy:cy);}
 function zoomTo(k,cx,cy){const a=zoomAnchor(cx,cy); setK(k); markZoomed(); zoomRestore(a);}
 function zoom(n){zoomTo(K*Math.pow(ZOOM_STEP,n));}
-// [100%] and Ctrl/Cmd 1: the print size, around the middle of the PDF area as the zoom buttons.
+// [100%]: the print size, around the middle of the PDF area as the zoom buttons.
 function actualSize(){zoomTo(PT_PX);}
 // Fit width (fitK): keeps the viewed page/position (anchored at the top) and resets horizontal scroll to the start.
 function fitW(){const a=topAnchor(),L=$('#left');

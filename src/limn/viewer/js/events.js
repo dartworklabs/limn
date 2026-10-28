@@ -6,8 +6,10 @@ $('#help').addEventListener('close',()=>{if(HELP_BACK&&HELP_BACK.focus)HELP_BACK
 
 // ------------------------------------------------ Event delegation (no inline handlers)
 /** Route shared zoom controls to the visible PDF, leaving source views unchanged. */
+// [100%] is the manuscript's print size: the comparison PDF's zoom is against its fitted width, so the changes view hides the
+// control (responsive.css) and leaves it nothing to do.
 function zoomVisiblePdf(action){
-  if(document.body.classList.contains('revision-open'))revisionZoom(action);
+  if(document.body.classList.contains('revision-open')){if(action!=='actual')revisionZoom(action);}
   else if(action==='fit')fitW();else if(action==='actual')actualSize();else zoom(action==='in'?1:-1);
 }
 // compact: a click on a collapsed card that hit nothing of its own opens the card, as its preview line and chevron do (the card's
@@ -114,8 +116,7 @@ $('#revision-file').addEventListener('change',renderRevisionFile);
 document.addEventListener('keydown',e=>{
   if(e.isComposing||e.keyCode===229)return;
   const t=/** @type {HTMLElement} */(e.target),inField=t&&(t.tagName==='TEXTAREA'||t.tagName==='INPUT'||t.tagName==='SELECT'||t.isContentEditable);
-  // Ctrl(Cmd) + = / - / 0 / 1 zooms/fits/shows at print size just the PDF page instead of the browser zoom (1 instead of the
-  // browser's first tab). Left to the browser inside an input field.
+  // Ctrl(Cmd) + = / - / 0 zooms/fits just the PDF page instead of the browser zoom. Left to the browser inside an input field.
   if((e.ctrlKey||e.metaKey)&&!e.altKey&&!inField){const z=zoomKey(e);
     if(z){if(document.body.classList.contains('revision-open')){
       if(!revisionPdfActive())return;}

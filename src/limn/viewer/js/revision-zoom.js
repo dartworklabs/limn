@@ -90,8 +90,8 @@ function revisionZoomTo(ratio,x,y,anchor){
   if(anchor){restoreRevisionAnchor(anchor,x,y);RZ.anchor=revisionAnchor();}
 }
 
-/** Apply the same button step as the manuscript, or restore fit width - which is also this view's 100% ([100%], Ctrl/Cmd 1). */
-function revisionZoom(action){revisionZoomTo(action==='fit'||action==='actual'?1:RZ.ratio*(action==='in'?ZOOM_STEP:1/ZOOM_STEP));}
+/** Apply the same button step as the manuscript, or restore fit width. */
+function revisionZoom(action){revisionZoomTo(action==='fit'?1:RZ.ratio*(action==='in'?ZOOM_STEP:1/ZOOM_STEP));}
 
 /** Obtain page geometry without allocating canvases; abandon stale PDF visits. */
 async function mountRevisionPdf(pdf,seq,k,id){

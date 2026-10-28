@@ -169,10 +169,11 @@ function markBadgeIn(fx,w,pad,reach){return fx*w+pad<reach;}
 /** @param {Element|null} pg */
 function markBadgeRoom(pg){const L=$('#left'); if(!L||!pg||!pg.getClientRects().length)return null; const r=pg.getBoundingClientRect();
   return {pad:r.left-L.getBoundingClientRect().left-L.clientLeft+L.scrollLeft,w:r.width,reach:MQ_COARSE.matches?28:24};}
-// Re-decides every drawn mark's badge side for its page's width and margin now (a zoom, a re-fit or a band change moves both),
+// Re-decides every page number's place (pageNoSides) and every drawn mark's badge side for its page's width and margin now (a
+// zoom, a re-fit or a band change moves both),
 // then how far each badge's press area reaches (markHitSides: the badges' distances follow the same width). A mark on a page
 // that is not laid out keeps its side until the page shows again.
-function markBadgeSides(){const rooms=new Map(); $$('.mark').forEach(m=>{const pg=m.parentElement;
+function markBadgeSides(){pageNoSides(); const rooms=new Map(); $$('.mark').forEach(m=>{const pg=m.parentElement;
     if(!rooms.has(pg))rooms.set(pg,markBadgeRoom(pg)); const r=rooms.get(pg); if(r)m.classList.toggle('in',markBadgeIn(+m.dataset.fx,r.w,r.pad,r.reach));});
   $$('.sel.pending').forEach(pendingBadgeSide); markHitSides();}   // the pending boxes' '+' badges follow the same rule
 // How far each mark badge's press area may reach on each side (docs/handbook/viewer.md §모바일 레이아웃): boxes are the badges'

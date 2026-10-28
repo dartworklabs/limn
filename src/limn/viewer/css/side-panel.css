@@ -75,12 +75,18 @@ body.lay-wide #btn-rebuild .ic{display:none}   /* text only on a wide screen - s
 body.lay-wide #bar1 #btn-rebuild .lbl{text-box:trim-both cap alphabetic}   /* its words' cap height on the row's middle, as the compact rows' (the symmetry audit: 0.6px high as a line box) */
 body.lay-wide #bar1 #btn-rebuild{padding:0 var(--space-3)}   /* its label on the text line; with one [⋯] for three icons the row fits the 348px panel (at 8px [?] had dropped to a second line) */
 @media (hover:hover){#btn-rebuild:not(.btn-default):hover{background:var(--accent);color:var(--foreground)}}
-/* [100%] (print size, beside [↔]): a bordered navigation control as its neighbours, its figure in tabular digits with the
-   cap height on the row's middle. A figure reads as itself where an icon for 'actual size' would not; at the small size with
-   4px sides it leaves the 348px panel's row room for the English [Rebuild PDF] and the page field. */
+/* The zoom button (before [↔]): a bordered navigation control as its neighbours that shows the zoom now (drawZoom) and goes to
+   100%, pressed while it reads 100%. Its figure is in tabular digits on a grid cell that also holds a hidden '100%', so the
+   button keeps one width from 10% to 999% and the row does not shift as the zoom changes; the cap height stands on the row's
+   middle. At the small size with 4px sides it leaves the 348px panel's row room for the English [Rebuild PDF] and the page
+   field. */
 #btn-actual{font-variant-numeric:tabular-nums}
 #bar1 #btn-actual{padding:0 var(--space-1);font-size:var(--text-sm)}
-body.lay-wide #bar1 #btn-actual .lbl{text-box:trim-both cap alphabetic}
+#btn-actual .lbl{display:inline-grid;justify-items:center}
+#btn-actual .lbl::after{content:'100%';visibility:hidden}
+#btn-actual .z,#btn-actual .lbl::after{grid-area:1/1}
+body.lay-wide #bar1 #btn-actual .z,body.lay-wide #bar1 #btn-actual .lbl::after{text-box:trim-both cap alphabetic}
+#bar1 #btn-actual[aria-pressed=true]{background:var(--accent);border-color:var(--border-strong);color:var(--foreground)}
 #bar1 .chip{height:var(--control-h-sm);display:block;line-height:var(--control-h-sm);padding:0 var(--space-2);flex:0 1 auto;min-width:40px}
 /* Safe areas in the wide layout (an iPad home-screen app or full screen, docs/handbook/viewer.md §모바일 레이아웃): the nav bar and the
    panel start below the status bar, and the composer's action row, the list's end and the floating status chips stay above the home
