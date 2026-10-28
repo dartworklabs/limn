@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+Viewer only: the agent contract and `pins.md` are unchanged.
+
+### Changed
+
+- **Small secondary text reads better in the dark theme.** The dark theme's muted text (`--muted-foreground`) is now
+  `#b3b3ba` and its subtle text (`--subtle-foreground`) `#9a9aa3`, so relative times, names, page numbers and the
+  neutral badges (`이전 판정 · #4로 대체됨`, `보기 전용`) read at 4.8:1 or more on every surface they sit on - 7.2:1 on
+  a badge (was 5.8) and 8.9:1 on a card (was 7.2); the subtle text read 4.0:1 under a commit row's hover. Foreground,
+  muted and subtle stay three distinct steps. The light theme is unchanged.
+
 ## 0.4.28 — 2026-10-28
 
 Fixes from the functional re-test of 0.4.27's verdict buttons and its review. Viewer only: the agent contract and
