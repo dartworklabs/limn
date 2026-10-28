@@ -26,7 +26,8 @@
 #   limn start <name> [--no-serve]         turns on an instance whose config already exists (after reboot, new machine, switch)
 #   limn stop <name>                       stops only the unit (config, port, serve entry stay as-is)
 #   limn update [--ref <tag|branch>] [--from <install source>] [--dry-run] [--force] [--no-restart]
-#                                          reinstalls limn (uv tool) and restarts instances that are on
+#                                          reinstalls limn (uv tool) and restarts the instances that were on; exits 3 when
+#                                          one of them did not come back (limn update --help: the shortcut and exit codes)
 #   limn list                              instance table (label, port, status, open pins, doc count, manuscript)
 #   limn status [<name>]                   detailed (includes document list)
 #   limn url [<name>]                      tailnet address
