@@ -1,9 +1,10 @@
 # Changelog
 
-## Unreleased
+## 0.4.30 — 2026-10-28
 
-Viewer only: the agent contract and `pins.md` are unchanged. A browser that goes back to an older release keeps the page
-width it saved (`pinPrefs.w`) and ignores the figure documents' new settings.
+Pages at their printed size with 100% = print size, and a section strip and outline that follow the page. Viewer only:
+the agent contract and `pins.md` are unchanged. A browser that goes back to an older release keeps the page width it
+saved (`pinPrefs.w`) and ignores the figure documents' new settings.
 
 ### Changed
 
@@ -57,6 +58,11 @@ width it saved (`pinPrefs.w`) and ignores the figure documents' new settings.
   on its page now stands 8px under the top of the PDF area, lower only so that the reading line stays on its page, and
   as far as the document scrolls. An entry for a whole page, and every entry of a figure document, still lands on the
   page's top.
+
+### Internal
+
+- **A verdict-line test no longer races the first pin list.** It released the held `GET /api/pins` as soon as the page
+  verdict line had drawn, but the line can draw before the list is asked for; it now waits for the request (#283).
 
 ## 0.4.29 — 2026-10-28
 
