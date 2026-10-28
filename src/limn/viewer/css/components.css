@@ -10,7 +10,7 @@ button{display:inline-flex;align-items:center;justify-content:center;gap:var(--s
   transition:background-color .12s,border-color .12s,color .12s}
 /* Icons (Lucide, vendor/lucide/README.md): outline icons that follow the text color. Inside a button they sit next to the text with a 4px gap. */
 .ic{width:16px;height:16px;flex:none;display:inline-block;vertical-align:-3px;pointer-events:none}
-.kh{font-weight:400;opacity:.8;font-size:var(--text-sm)}
+.kh{font-weight:400;font-size:var(--text-sm)}   /* a button's shortcut, set off by weight and size: at 80% it read 4.3:1 on a light [핀 저장] */
 /* Every hover look answers a mouse only (docs/handbook/viewer.md §뜻과 모양): on a touch screen a tap leaves :hover stuck on the
    tapped control, and a [더보기] row stayed grey after it was tapped (UX audit P4.6). */
 @media (hover:hover){button:hover{background:var(--accent);color:var(--accent-foreground)}}
