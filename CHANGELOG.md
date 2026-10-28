@@ -1,5 +1,19 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- **A long drag from a pin badge's press area no longer ends in the badge's click** (#284). In [선택] mode a pen or
+  finger that lands in a badge's 44px press area and moves draws a box, and the click on the badge was held off for
+  400ms from the start of the drag only, so a drag that ran longer and was let go on the badge opened its card as well
+  as drawing the box. The click is held off from the release now, however long the drag ran. A tap that does not move
+  is still the badge's, with a mouse or a finger, in or out of [선택] mode.
+- **The zoom is kept when the figure is drawn again under the changes view** (#284). A new build with the same page
+  count and other page sizes that arrived while the changes view hid the PDF area measured that area as 0 wide and cut
+  the zoom to the limits of that width (a page viewed at 1800px came back at 816px, the printed size of a letter
+  page). The zoom now stays, the pages take their new sizes at it, and the limits apply when the PDF area shows again.
+
 ## 0.4.30 — 2026-10-28
 
 Pages at their printed size with 100% = print size, and a section strip and outline that follow the page. Viewer only:
