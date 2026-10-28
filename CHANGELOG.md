@@ -11,11 +11,19 @@ Viewer only: the agent contract and `pins.md` are unchanged.
   by status (`본문` on pages 3, 8 and 9, then `채택`, then every `후보` from page 1) showed page 2's `D4-scale` on page 3
   and page 7's `FP5-three-decisions` on pages 8 and 9. The page now decides first: the latest page with an entry that
   starts above the reading line - this page, else the nearest earlier one. On that page the outline's order is still the
-  reading order (a two-column page), and of entries at the same spot the deepest wins, then the one listed first. An
-  outline in page order with a spot per heading, as LaTeX writes it, gets the entry it always got.
+  reading order (a two-column page), and of entries at the same spot - the same height and the same left edge, so two
+  headings at one height in the two columns are two spots - the deepest wins, then the one listed first. An outline in
+  page order with a spot per heading, as LaTeX writes it, gets the entry it always got.
 - **An entry picked in the outline stays in the section strip on its page.** The pick was let go at once, before the
   scroll it starts had reached the page, so a page with two entries showed the other one. It now holds from when the
-  page is reached until the reader leaves it.
+  page is reached until the reader leaves it. A pick that never gets there is let go: when the reader takes over (a
+  wheel, a touch, a press on the pages or the scroll bar, a scrolling key), the window changes size, another pick comes,
+  or the pages stop for 250 ms on another page - so a later visit to that page by hand names the page's own entry.
+- **A heading picked in the outline is in view at the top.** A pick scrolled to its page's top, so a heading low on the
+  page (`3.2` at 83% of page 8) lay under the window's bottom while the strip already named it. A heading with a place
+  on its page now stands 8px under the top of the PDF area, lower only so that the reading line stays on its page, and
+  as far as the document scrolls. An entry for a whole page, and every entry of a figure document, still lands on the
+  page's top.
 
 ## 0.4.29 — 2026-10-28
 
