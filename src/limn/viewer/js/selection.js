@@ -48,8 +48,7 @@ window.addEventListener('pointermove',e=>{
   if(LP&&e.pointerId===LP.id&&Math.hypot(e.clientX-LP.cx,e.clientY-LP.cy)>10)cancelLP();
   if(TAP&&e.pointerId===TAP.id&&Math.hypot(e.clientX-TAP.x,e.clientY-TAP.y)>TAP_SLOP)TAP=null;
   if(!DRAG||e.pointerId!==DRAG.id)return;
-  if(!DRAG.box){if(Math.hypot(e.clientX-DRAG.cx,e.clientY-DRAG.cy)<TAP_SLOP)return; DRAG.box=newBox(DRAG.pg);
-    if(DRAG.badge)SWALLOW_CLICK=Date.now()+400;}   // a drag from a badge is a box, never the badge's click as well
+  if(!DRAG.box){if(Math.hypot(e.clientX-DRAG.cx,e.clientY-DRAG.cy)<TAP_SLOP)return; DRAG.box=newBox(DRAG.pg);}
   const [x,y]=fracAt(DRAG.pg,e.clientX,e.clientY); drawBox(DRAG.box,DRAG.sx,DRAG.sy,x,y);});
 window.addEventListener('pointerup',e=>{
   const off=PRESS_OFF&&PRESS_OFF.id===e.pointerId?PRESS_OFF:null; PRESS_OFF=null;   // this press, if it could be a click-off
@@ -64,6 +63,7 @@ window.addEventListener('pointerup',e=>{
   if(!DRAG||e.pointerId!==DRAG.id)return;
   const D=DRAG; DRAG=null;
   if(!D.box){if(D.badge)return; quickPick(D.pg,e.clientX,e.clientY); SWALLOW_CLICK=Date.now()+400; return;}   // a tap in selection mode = quick selection (on a badge, the badge's)
+  if(D.badge)SWALLOW_CLICK=Date.now()+400;   // a drag from a badge is a box, never the badge's click as well - held off from its release, which the click follows, however long the drag ran
   const [x,y]=fracAt(D.pg,e.clientX,e.clientY);
   if(!finishRect(D.pg,D.box,D.sx,D.sy,x,y)&&off&&off.mouse)clickOffNow(off.box);});   // too small for a box: a click
 window.addEventListener('pointercancel',e=>{if(PRESS_OFF&&PRESS_OFF.id===e.pointerId)PRESS_OFF=null; if(LP&&e.pointerId===LP.id)cancelLP(); if(DRAG&&e.pointerId===DRAG.id)cancelDrag();
