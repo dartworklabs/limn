@@ -2,7 +2,31 @@
 
 ## Unreleased
 
-Viewer only: the agent contract and `pins.md` are unchanged.
+Viewer only: the agent contract and `pins.md` are unchanged. A browser that goes back to an older release keeps the page
+width it saved (`pinPrefs.w`) and ignores the figure documents' new setting.
+
+### Changed
+
+- **Pages are drawn at their sizes on paper, and 100% is the printed size** (#281). Every page was drawn at one width,
+  so in a figure document a one-column figure (252pt) was stretched to the width of a two-column one (522pt) and nobody
+  could tell how large a figure would print. A page is now its paper width times one scale for the document: the
+  one-column figure is half as wide as the two-column one, and a narrower page is centred. The zoom figure in [⋯] reads
+  against the printed size (1pt = 1/72in, the CSS inch 96px), as other PDF viewers' 100% does, where it read against
+  the fitted width. Fit-width fits the widest page. A document whose pages are all one size keeps the widths it had
+  (only its zoom figure reads differently); a manuscript with a landscape page now fits that page, and its portrait pages are narrower. The page verdict
+  lines, the mark badges' inside-or-outside rule, the save chips, the vector canvases, the two-finger and double-tap
+  zoom, the figure overlay of the changes view and the comparison PDF's pages all follow each page's own width.
+- **The zoom limits always hold the printed size.** The widest page stays within half to five times the fitted width,
+  widened where needed so that 100% can be reached on a very wide screen.
+
+### Added
+
+- **[100%] shows the pages at their printed size**: a `100%` button before [↔] in the desktop tool bar, a [100%] button
+  in [⋯]'s zoom row on every screen, and Ctrl/⌘ 1 outside text fields (in the changes view, that view's own 100%).
+- **A figure document opens at its printed size** when nothing is saved and its widest page fits the PDF area, else
+  fitted. A zoom chosen on a desktop is kept per kind of document: figure documents keep their zoom against the printed
+  size (`pinPrefs.figZoom`), LaTeX and view-only documents their page width as before - so zooming the manuscript no
+  longer decides how a figure opens.
 
 ### Fixed
 
