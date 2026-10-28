@@ -82,7 +82,7 @@ class RevisionZoom(BrowserBase):
         """Zoom stays bounded, rerenders and leaves manuscript settings alone."""
         page = self.comparison()
         self.assertEqual(page.locator("#revision-zoom").count(), 1)
-        before = page.evaluate("({w:W,prefs:{...localStorage}})")
+        before = page.evaluate("({k:K,prefs:{...localStorage}})")
         requests = []
         page.on("request", lambda request: requests.append(request.url))
         self.assertEqual(page.locator("#revision-zoom-value").inner_text(), "100%")
@@ -102,7 +102,7 @@ class RevisionZoom(BrowserBase):
                 page.click("#revision-zoom-out")
         self.assertEqual(page.locator("#revision-zoom-value").inner_text(), "50%")
         self.assertFalse(page.locator("#revision-zoom-out").is_enabled())
-        self.assertEqual(page.evaluate("({w:W,prefs:{...localStorage}})"), before)
+        self.assertEqual(page.evaluate("({k:K,prefs:{...localStorage}})"), before)
         self.assertFalse(any("revision-pdf?" in url or "revision-build?" in url for url in requests))
 
     def test_input_preservation_and_commit_reset(self):
@@ -258,13 +258,41 @@ class RevisionZoom(BrowserBase):
     def test_shared_zoom_buttons_route_to_visible_comparison(self):
         """Existing zoom actions must not change an invisible manuscript."""
         page = self.comparison()
-        width = page.evaluate("W")
+        width = page.evaluate("K")
         page.locator('[data-act="zoom-in"]:visible').first.click()
         self.assertEqual(page.locator("#revision-zoom-value").inner_text(), "120%")
-        self.assertEqual(page.evaluate("W"), width)
+        self.assertEqual(page.evaluate("K"), width)
         page.click("#revision-source-tab")
         page.locator('[data-act="zoom-in"]:visible').first.click()
-        self.assertEqual(page.evaluate("W"), width)
+        self.assertEqual(page.evaluate("K"), width)
+
+    def test_pages_keep_their_sizes_on_paper_and_100_is_not_offered(self):
+        """The comparison's landscape pages (792pt) take the zoomed width and its portrait pages (612pt) their share of it,
+        centred - as the manuscript's pages are drawn (issue 281). Its zoom stays against its fitted width, so the
+        manuscript's [100%] (print size) is not offered here: the tool bar's zoom button and [더보기]'s [100%] are hidden,
+        and Ctrl/Cmd 1 changes nothing."""
+        page = self.comparison()
+        k = page.evaluate("K")
+        boxes = page.evaluate(
+            "[...document.querySelectorAll('.revision-page')].slice(0,2).map(p=>{const r=p.getBoundingClientRect();"
+            "return [r.width,r.left+r.width/2];})"
+        )
+        (portrait, mid1), (landscape, mid2) = boxes
+        self.assertAlmostEqual(landscape, page.evaluate("RZ.fit"), delta=1)
+        self.assertAlmostEqual(portrait / landscape, 612 / 792, places=2)
+        self.assertAlmostEqual(mid1, mid2, delta=1)
+        self.assertFalse(page.locator("#btn-actual").is_visible())
+        page.click("#btn-more")
+        page.wait_for_selector("#more[open]")
+        self.assertFalse(page.locator("#m-actual").is_visible())
+        page.keyboard.press("Escape")
+        page.click("#revision-zoom-in")
+        page.evaluate("document.activeElement&&document.activeElement.blur()")
+        page.keyboard.press("Control+1")
+        self.assertEqual(page.locator("#revision-zoom-value").inner_text(), "120%")
+        self.assertEqual(page.evaluate("K"), k)
+        page.click("#view-manuscript")
+        self.assertTrue(page.locator("#btn-actual").is_visible())
 
     def test_invalid_pdf_releases_loading_worker(self):
         """A failed PDF parse disables zoom and releases the worker owner."""

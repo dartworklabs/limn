@@ -1,9 +1,9 @@
 // ------------------------------------------------ Preferences (merged save): per-device pinPrefs, list-section state, theme
 function prefs(){try{const p=JSON.parse(localStorage.getItem('pinPrefs')||'{}');return p&&typeof p==='object'?p:{};}catch(e){return {};}}
 function savePrefs(patch){try{localStorage.setItem('pinPrefs',JSON.stringify(Object.assign(prefs(),patch)));}catch(e){}}
-// The saved width and page width, and the keys of the [줄바꿈] toggles an older release stored (wrap, diffWrap) dropped: the
-// source and the diff always wrap now.
-(function(){const p=prefs(); if(p.side)$('#right').style.width=p.side+'px'; if(p.w)W=p.w;
+// The saved panel width, and the keys of the [줄바꿈] toggles an older release stored (wrap, diffWrap) dropped: the source and
+// the diff always wrap now. The saved page scale is read per document when its pages are built (savedK).
+(function(){const p=prefs(); if(p.side)$('#right').style.width=p.side+'px';
   if('wrap' in p||'diffWrap' in p){delete p.wrap; delete p.diffWrap; try{localStorage.setItem('pinPrefs',JSON.stringify(p));}catch(e){}}})();
 // List sections (docs/handbook/viewer.md §목록 구획): expanded/collapsed per section, remembered in pinPrefs.sec. Defaults: open pins and
 // awaiting review expanded, done collapsed. SEC_SEEN holds, per section, the ids known at the first load plus everything the section

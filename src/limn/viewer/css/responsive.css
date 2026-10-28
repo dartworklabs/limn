@@ -77,6 +77,9 @@ body.lay-wide #more .more-top{padding-top:var(--space-2)}
 #more .m-l small{font-size:var(--text-sm);color:var(--muted-foreground)}
 #more .m-c{display:flex;align-items:center;gap:var(--space-2);min-width:0}
 #more #m-zoom{min-width:48px;text-align:center;font-variant-numeric:tabular-nums;color:var(--foreground)}
+#more #m-actual{flex:none;font-variant-numeric:tabular-nums}   /* [100%] beside [↔]: a filled button, never read as the figure beside [−] [+] */
+body.revision-open :is(#btn-actual,#m-actual){display:none}   /* the comparison PDF's zoom is against its fitted width: no print size to go to */
+#more #m-actual .lbl{text-box:trim-both cap alphabetic}
 #more .m-row .seg{margin:0;min-width:0}
 #more .m-row .seg button{flex:1 1 0;min-width:0}
 #more #m-theme .ic{width:14px;height:14px}
@@ -158,6 +161,7 @@ body.lay-wide #more .more-top{padding-top:var(--space-2)}
   .mark button.mark-jump,.sel i{width:var(--pin-badge-size);height:var(--pin-badge-size);left:-28px;font-size:var(--text-base)}
   #tip{max-width:min(300px,calc(100vw - 16px))}
   #more .m-c .btn-icon{width:var(--control-h-lg);min-width:var(--control-h-lg);height:var(--control-h-lg);min-height:0}   /* icons drawn at 36px, 8px apart: their 44px hits (.hit) meet */
+  #more #m-actual{height:var(--control-h-lg);min-height:0}   /* drawn as tall as the icons beside it, answering 44px (.hit) */
   #help{padding:var(--space-4)}
   #help .kbd-only{display:none}   /* Ctrl, the wheel and Alt+1…9 mean nothing on a touch screen; the touch table above stays */
   #help .touch-only{display:inline}   /* the tour's first step: a long press or [선택], not a drag */

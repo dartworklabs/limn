@@ -83,6 +83,9 @@ input.n{width:58px;text-align:center}
 .pg>canvas{position:absolute;display:block;pointer-events:none}
 .pg>canvas.vb{left:0;top:0;width:100%;height:100%}
 .pg.drawn>img{visibility:hidden}
+/* The page number: in the page's top-left corner, or - where a wider page leaves room left of a page centred under it
+   (pageNoSides) - outside it, level with its top: in the corner it covered the start of a narrow figure's title. */
+.pg.no-out .no{top:0;left:auto;right:calc(100% + var(--space-2))}
 .pg .no{position:absolute;top:var(--space-2);left:var(--space-2);color:var(--muted-foreground);font-size:var(--text-xs);background:var(--card);
   padding:1px var(--space-2);border-radius:var(--radius-sm);box-shadow:var(--shadow-sm);line-height:1.5}
 .sel{position:absolute;border:2px solid var(--primary);background:color-mix(in srgb,var(--primary) 13%,transparent);pointer-events:none}

@@ -6,9 +6,11 @@ $('#help').addEventListener('close',()=>{if(HELP_BACK&&HELP_BACK.focus)HELP_BACK
 
 // ------------------------------------------------ Event delegation (no inline handlers)
 /** Route shared zoom controls to the visible PDF, leaving source views unchanged. */
+// [100%] is the manuscript's print size: the comparison PDF's zoom is against its fitted width, so the changes view hides the
+// control (responsive.css) and leaves it nothing to do.
 function zoomVisiblePdf(action){
-  if(document.body.classList.contains('revision-open'))revisionZoom(action);
-  else if(action==='fit')fitW();else zoom(action==='in'?1:-1);
+  if(document.body.classList.contains('revision-open')){if(action!=='actual')revisionZoom(action);}
+  else if(action==='fit')fitW();else if(action==='actual')actualSize();else zoom(action==='in'?1:-1);
 }
 // compact: a click on a collapsed card that hit nothing of its own opens the card, as its preview line and chevron do (the card's
 // 44px links and chips keep their own action). wide cards are always open.
@@ -32,7 +34,7 @@ document.addEventListener('click',e=>{const target=/** @type {HTMLElement} */(e.
     case 'card-toggle':if(id==null)break; if(OPEN_CARDS.has(id))OPEN_CARDS.delete(id); else OPEN_CARDS.add(id); drawPins();break;
     case 'rebuild':rebuild();break; case 'reload':loadPins();break; case 'pdf-download':downloadPdf();break;
     case 'rebuild-force':BUILD.unchanged=null; drawStatus(); rebuild(true); break;   // the status line's [그래도 빌드]: a cold build
-    case 'zoom-in':zoomVisiblePdf('in');break; case 'zoom-out':zoomVisiblePdf('out');break; case 'fit':zoomVisiblePdf('fit');break;
+    case 'zoom-in':zoomVisiblePdf('in');break; case 'zoom-out':zoomVisiblePdf('out');break; case 'fit':zoomVisiblePdf('fit');break; case 'actual':zoomVisiblePdf('actual');break;
     case 'theme':setTheme(a.dataset.theme); break; case 'lang':switchLang(a.dataset.lang);break; case 'notify-toggle':notifyToggle();break; case 'help':openHelp();break; case 'help-close':$('#help').close();break;
     case 'save':case 'pop-save':if(!viewerBlocked())savePin();break; case 'cancel':discardSelection();break;
     case 'verdict-save':case 'pv-save':verdictPress(a);break;   // a verdict word's button: the composer's row or a page verdict line (verdict.js)

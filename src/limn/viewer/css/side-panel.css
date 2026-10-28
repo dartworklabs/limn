@@ -75,6 +75,15 @@ body.lay-wide #btn-rebuild .ic{display:none}   /* text only on a wide screen - s
 body.lay-wide #bar1 #btn-rebuild .lbl{text-box:trim-both cap alphabetic}   /* its words' cap height on the row's middle, as the compact rows' (the symmetry audit: 0.6px high as a line box) */
 body.lay-wide #bar1 #btn-rebuild{padding:0 var(--space-3)}   /* its label on the text line; with one [⋯] for three icons the row fits the 348px panel (at 8px [?] had dropped to a second line) */
 @media (hover:hover){#btn-rebuild:not(.btn-default):hover{background:var(--accent);color:var(--foreground)}}
+/* The zoom button (before [↔]): a bordered navigation control as its neighbours that shows the zoom now (drawZoom) and goes to
+   100%, pressed while it reads 100%. Its width is fixed - 44px, a control height and 16px - and its figure (tabular digits,
+   12px) is centred in it: '999%' fits with room, and no font decides where the row's controls stand (a width taken from the
+   label moved them by a pixel between machines), nor does the zoom as it changes. The cap height stands on the row's middle.
+   It leaves the 348px panel's row room for the English [Rebuild PDF] and the page field. */
+#btn-actual{font-variant-numeric:tabular-nums}
+#bar1 #btn-actual{flex:none;width:calc(var(--control-h) + var(--space-4));min-width:0;padding:0;justify-content:center;font-size:var(--text-sm)}
+body.lay-wide #bar1 #btn-actual .z{text-box:trim-both cap alphabetic}
+#bar1 #btn-actual[aria-pressed=true]{background:var(--accent);border-color:var(--border-strong);color:var(--foreground)}
 #bar1 .chip{height:var(--control-h-sm);display:block;line-height:var(--control-h-sm);padding:0 var(--space-2);flex:0 1 auto;min-width:40px}
 /* Safe areas in the wide layout (an iPad home-screen app or full screen, docs/handbook/viewer.md §모바일 레이아웃): the nav bar and the
    panel start below the status bar, and the composer's action row, the list's end and the floating status chips stay above the home

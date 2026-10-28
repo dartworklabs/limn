@@ -5,7 +5,7 @@
 // handled by this code, two fingers by the app zoom - §PDF 영역 전용 확대).
 // Coordinates are computed as fractions within the page from clientX/Y and getBoundingClientRect on the same
 // basis (the layout viewport), so they stay correct even during a pinch zoom.
-let DRAG=/** @type {{pg:HTMLElement,sx:number,sy:number,id:number,mouse:boolean,cx:number,cy:number,box:HTMLElement|null}|null} */(null),
+let DRAG=/** @type {{pg:HTMLElement,sx:number,sy:number,id:number,mouse:boolean,cx:number,cy:number,box:HTMLElement|null,badge?:boolean}|null} */(null),
   LP=/** @type {{id:number,pg:HTMLElement,cx:number,cy:number,t:ReturnType<typeof setTimeout>}|null} */(null);
 const c01=v=>Math.min(1,Math.max(0,v));
 const LONGPRESS_MS=450,TAP_SLOP=8,QUICK_W=0.07,QUICK_H=0.006,QUICK_FIG=0.004;
@@ -15,8 +15,8 @@ function newBox(pg){const b=document.createElement('div'); b.className='sel'; pg
 // the box's left edge at its top, or in its top-left corner when the page margin has no room (pendingBadgeSide). The old name
 // tag sat 21px above the box, over the line above it; the name is now for screen readers only.
 function pendingBadge(box,name){setHtml(box,html`<i aria-hidden="true">${ic('plus')}</i><span class="sr-only">${tr(name)}</span>`); pendingBadgeSide(box);}
-// Decides a pending box's badge side by the mark rule (markBadgeIn) for its left edge, the page width and the margin now.
-function pendingBadgeSide(box){const r=markBadgeRoom(); box.classList.toggle('in',markBadgeIn((parseFloat(box.style.left)||0)/100,W,r.pad,r.reach));}
+// Decides a pending box's badge side by the mark rule (markBadgeIn) for its left edge, its page's width and margin now.
+function pendingBadgeSide(box){const r=markBadgeRoom(box.parentElement); if(r)box.classList.toggle('in',markBadgeIn((parseFloat(box.style.left)||0)/100,r.w,r.pad,r.reach));}
 function drawBox(box,sx,sy,x,y){Object.assign(box.style,{left:Math.min(sx,x)*100+'%',top:Math.min(sy,y)*100+'%',
   width:Math.abs(x-sx)*100+'%',height:Math.abs(y-sy)*100+'%'});}
 function cancelDrag(){if(DRAG&&DRAG.box)DRAG.box.remove(); DRAG=null;}
@@ -28,15 +28,18 @@ $('#doc').addEventListener('mousedown',e=>{if(e.button===0&&e.target.closest('.p
 // LP_PICKED = the pointer whose long-press already picked. TAP/LAST_TAP = double-tap zoom (touch, outside [선택] mode).
 let LP_PICKED=/** @type {number|null} */(null),TAP=/** @type {{id:number,x:number,y:number,t:number}|null} */(null),
   LAST_TAP=/** @type {{t:number,x:number,y:number}|null} */(null);
+// A finger in [선택] mode that lands on a pin's number badge - its 44px press area reaches over the page's text - still starts a
+// box (DRAG.badge) once it moves: on a small page the badges' areas covered much of its left edge and no drag could start
+// there. A tap stays the badge's (its click), and a mouse or a finger outside the mode leaves the badge alone as before.
 $('#doc').addEventListener('pointerdown',e=>{
-  if(e.target.closest('.mark [data-act=mark-jump]'))return;
+  const badge=e.target.closest('.mark [data-act=mark-jump]'),mouse=e.pointerType==='mouse';
+  if(badge&&(mouse||!SELMODE||!e.isPrimary))return;
   if(!e.isPrimary){cancelDrag(); cancelLP(); TAP=null; LAST_TAP=null; return;}   // a second finger = a pinch - the box being drawn is discarded
   const pg=e.target.closest('.pg'); if(!pg)return;
-  const mouse=e.pointerType==='mouse';
   if(mouse&&e.button!==0)return;
   if(mouse||SELMODE){const [sx,sy]=fracAt(pg,e.clientX,e.clientY);
-    DRAG={pg,sx,sy,id:e.pointerId,mouse,cx:e.clientX,cy:e.clientY,box:mouse?newBox(pg):null};
-    if(!mouse){try{pg.setPointerCapture(e.pointerId);}catch(_){}}
+    DRAG={pg,sx,sy,id:e.pointerId,mouse,cx:e.clientX,cy:e.clientY,box:mouse?newBox(pg):null,badge:!!badge};
+    if(!mouse&&!badge){try{pg.setPointerCapture(e.pointerId);}catch(_){}}   // a badge keeps the press until it moves: a tap is its click
     return;}
   cancelLP(); TAP={id:e.pointerId,x:e.clientX,y:e.clientY,t:performance.now()};
   LP={id:e.pointerId,pg,cx:e.clientX,cy:e.clientY,t:setTimeout(()=>{const L=LP; LP=null; if(L){LP_PICKED=L.id; quickPick(L.pg,L.cx,L.cy);}},LONGPRESS_MS)};
@@ -45,7 +48,8 @@ window.addEventListener('pointermove',e=>{
   if(LP&&e.pointerId===LP.id&&Math.hypot(e.clientX-LP.cx,e.clientY-LP.cy)>10)cancelLP();
   if(TAP&&e.pointerId===TAP.id&&Math.hypot(e.clientX-TAP.x,e.clientY-TAP.y)>TAP_SLOP)TAP=null;
   if(!DRAG||e.pointerId!==DRAG.id)return;
-  if(!DRAG.box){if(Math.hypot(e.clientX-DRAG.cx,e.clientY-DRAG.cy)<TAP_SLOP)return; DRAG.box=newBox(DRAG.pg);}
+  if(!DRAG.box){if(Math.hypot(e.clientX-DRAG.cx,e.clientY-DRAG.cy)<TAP_SLOP)return; DRAG.box=newBox(DRAG.pg);
+    if(DRAG.badge)SWALLOW_CLICK=Date.now()+400;}   // a drag from a badge is a box, never the badge's click as well
   const [x,y]=fracAt(DRAG.pg,e.clientX,e.clientY); drawBox(DRAG.box,DRAG.sx,DRAG.sy,x,y);});
 window.addEventListener('pointerup',e=>{
   const off=PRESS_OFF&&PRESS_OFF.id===e.pointerId?PRESS_OFF:null; PRESS_OFF=null;   // this press, if it could be a click-off
@@ -59,7 +63,7 @@ window.addEventListener('pointerup',e=>{
   if(off&&off.mouse&&!(DRAG&&e.pointerId===DRAG.id)&&Math.hypot(e.clientX-off.x,e.clientY-off.y)<TAP_SLOP)clickOffNow(off.box);   // a press off the pages
   if(!DRAG||e.pointerId!==DRAG.id)return;
   const D=DRAG; DRAG=null;
-  if(!D.box){quickPick(D.pg,e.clientX,e.clientY); SWALLOW_CLICK=Date.now()+400; return;}   // a tap in selection mode = quick selection
+  if(!D.box){if(D.badge)return; quickPick(D.pg,e.clientX,e.clientY); SWALLOW_CLICK=Date.now()+400; return;}   // a tap in selection mode = quick selection (on a badge, the badge's)
   const [x,y]=fracAt(D.pg,e.clientX,e.clientY);
   if(!finishRect(D.pg,D.box,D.sx,D.sy,x,y)&&off&&off.mouse)clickOffNow(off.box);});   // too small for a box: a click
 window.addEventListener('pointercancel',e=>{if(PRESS_OFF&&PRESS_OFF.id===e.pointerId)PRESS_OFF=null; if(LP&&e.pointerId===LP.id)cancelLP(); if(DRAG&&e.pointerId===DRAG.id)cancelDrag();
@@ -97,10 +101,11 @@ function clickOffSoon(box){clickOffStop(); CLICKOFF_T=setTimeout(()=>{CLICKOFF_T
 // Double-tap on the PDF (touch, outside [선택] mode - the browser's own double-tap zoom is off there): a second tap within 300ms
 // and 24px of the first. At fit width it zooms to 2x, from any other width back to fit width - both around the tapped point.
 function isDoubleTap(a,b){return !!a&&!!b&&b.t-a.t<=300&&Math.hypot(b.x-a.x,b.y-a.y)<=24;}
-// The width a double tap goes to: 2x from fit width (within 5%), fit width from any other width.
+// The scale (or width) a double tap goes to: 2x from fit width (within 5%), fit width from any other. Pure.
 function doubleTapWidth(w,fit){return Math.abs(w-fit)<=fit*0.05?fit*2:fit;}
-// Zooms around (x, y) to doubleTapWidth(); landing on fit width, compact stops counting as zoomed (it re-fits again).
-function doubleTapZoom(x,y){const fit=fitWidth(),w=doubleTapWidth(W,fit); zoomTo(w,x,y); if(w===fit&&LAYOUT!==LAYOUT_MODE.WIDE)ZOOMED=false;}
+// Zooms around (x, y) to doubleTapWidth() of the scale; landing on the screen's own scale, compact stops counting as zoomed
+// and re-fits again (markZoomed, in zoomTo).
+function doubleTapZoom(x,y){zoomTo(doubleTapWidth(K,fitK()),x,y);}
 // Quick selection: calls the existing /api/pick with a small box around the pressed point (quickBox). The server's
 // default level is used as-is - 'paragraph' in body text, 'environment' inside a figure/table, the element under the
 // point on a figure document - and then widened or narrowed via the range ladder.

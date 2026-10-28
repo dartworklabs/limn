@@ -836,7 +836,7 @@ class FrontendVector(unittest.TestCase):
         ref = self.fn("refreshDoc")
         self.assertIn("vecReleaseAll()", ref)  # canvases drawn from the old PDF are removed
         self.assertIn("vecOpen()", ref)  # reopen the PDF from the new build
-        self.assertIn("vecInvalidate()", self.fn("setW"))  # redraw when the zoom changes
+        self.assertIn("vecInvalidate()", self.fn("setK"))  # redraw when the zoom changes
 
     def test_no_text_layer(self):
         """No text-selection layer is drawn over a page - a drag there is a region selection. The page's text is read
@@ -959,7 +959,7 @@ class FrontendZoom(unittest.TestCase):
         i = HTML.index("L.addEventListener('wheel'")
         self.assertIn("{passive:false}", HTML[i : i + 300])
         self.assertIn("const L=$('#left')", HTML[i - 500 : i])  # PDF area only — sidebar wheel scrolling is left alone
-        self.assertIn("zoomTo(W*f,pt[0],pt[1])", HTML)  # anchored to the pointer
+        self.assertIn("zoomTo(K*f,pt[0],pt[1])", HTML)  # anchored to the pointer
 
     def test_safari_gesture_and_touch_pinch(self):
         for ev in ("gesturestart", "gesturechange", "gestureend", "touchstart", "touchmove", "touchend", "touchcancel"):
@@ -979,13 +979,15 @@ class FrontendZoom(unittest.TestCase):
         self.assertLess(body.index("inField="), body.index("zoomKey(e)"))
 
     def test_zoom_bounds_and_anchor(self):
+        """The scale is bounded by the fitted width and the print size of the widest page, and a zoom keeps the point
+        under the pointer (anchor taken before the scale changes, restored after)."""
         self.assertIn("const ZOOM_MIN=0.5,ZOOM_MAX=5", HTML)
-        setw = re.search(r"\nfunction setW\(w,save\)\{(.*?)\}\n", HTML, re.S).group(1)
-        self.assertIn("wBounds(fitWidth())", setw)
-        self.assertNotIn("2200", setw)
-        zt = re.search(r"\nfunction zoomTo\(w,cx,cy\)\{(.*?)\}\n", HTML, re.S).group(1)
-        self.assertLess(zt.index("zoomAnchor(cx,cy)"), zt.index("setW(w)"))
-        self.assertLess(zt.index("setW(w)"), zt.index("zoomRestore(a)"))
+        setk = re.search(r"\nfunction setK\(k,save\)\{(.*?)\}\n", HTML, re.S).group(1)
+        self.assertIn("wBounds(fitWidth(),m*PT_PX)", setk)
+        self.assertNotIn("2200", setk)
+        zt = re.search(r"\nfunction zoomTo\(k,cx,cy\)\{(.*?)\}\n", HTML, re.S).group(1)
+        self.assertLess(zt.index("zoomAnchor(cx,cy)"), zt.index("setK(k)"))
+        self.assertLess(zt.index("setK(k)"), zt.index("zoomRestore(a)"))
 
 
 class FrontendZoomLogic(unittest.TestCase):
@@ -1023,15 +1025,23 @@ class FrontendZoomLogic(unittest.TestCase):
         self.assertAlmostEqual(out[4] * out[5], 1.0, places=3)  # spreading then pinching returns to the same spot
         self.assertLess(out[6], 1.2)  # dy split into small increments never exceeds one step per event
 
-    def test_width_bounds_are_half_to_five_times_fit(self):
+    def test_width_bounds_are_half_to_five_times_fit_and_hold_the_print_size(self):
+        """wBounds(fit, actual): the widest page's width stays within half to five times the fitted width (at least
+        160px), widened to hold its print size - so [100%] is in reach on a screen wide enough to fit a page more than
+        twice over, for a page more than five times as wide as the screen and for a page under 160px (72pt, 96px). The
+        limits are not rounded: a rounded one put the print size a fraction of a pixel out of reach."""
         js = "\n".join(
             [
                 "const ZOOM_MIN=0.5,ZOOM_MAX=5;",
                 extract_js_fn("wBounds"),
-                "console.log(JSON.stringify([wBounds(956),wBounds(370),wBounds(100)]));",
+                "console.log(JSON.stringify([wBounds(956,816),wBounds(370,816),wBounds(100,816),wBounds(2000,816),",
+                " wBounds(300,4000),wBounds(956,96),wBounds(2101,696.32)]));",
             ]
         )
-        self.assertEqual(json.loads(run_node(js)), [[478, 4780], [185, 1850], [160, 800]])
+        self.assertEqual(
+            json.loads(run_node(js)),
+            [[478, 4780], [185, 1850], [160, 816], [816, 10000], [160, 4000], [96, 4780], [696.32, 10505]],
+        )
 
 
 class FrontendMobileLogic(unittest.TestCase):
@@ -3322,10 +3332,17 @@ class FrontendFigureOverlay(unittest.TestCase):
                 {
                     "page": 1,
                     "ratio": "720 / 960",
+                    "pt": 720,
                     "cur": {"name": "page-1.png", "w": 100, "h": 50},
                     "prev": {"name": "page-1.png", "w": 50, "h": 100},
                 },
-                {"page": 2, "ratio": "720 / 480", "cur": {"name": "page-2.png", "w": 100, "h": 100}, "prev": None},
+                {
+                    "page": 2,
+                    "ratio": "720 / 480",
+                    "pt": 720,
+                    "cur": {"name": "page-2.png", "w": 100, "h": 100},
+                    "prev": None,
+                },
             ],
         )
 
