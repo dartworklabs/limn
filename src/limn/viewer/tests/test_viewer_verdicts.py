@@ -1262,7 +1262,7 @@ class FunctionalUiFixes(VerdictBase):
                 for _ in range(5):
                     page.keyboard.press("Control+Equal")
                 settle(page)
-                self.assertGreater(page.evaluate("W/fitWidth()"), 2)
+                self.assertGreater(page.evaluate("K/fitK()"), 2)
                 page.evaluate(
                     """()=>{const l=document.querySelector('#doc .pv[data-page="1"]'), L=document.querySelector('#left');
                       L.scrollTop+=l.getBoundingClientRect().top-L.getBoundingClientRect().top-300;}"""
@@ -1576,9 +1576,9 @@ class RetestFixes(VerdictBase):
                 page.wait_for_function("n=>OPEN_ALL.length===n", arg=len(before) + 1)
                 settle(page)
                 (pid,) = set(self.pins()) - before
-                page.evaluate("zoomTo(W*2.5)")
+                page.evaluate("zoomTo(K*2.5)")
                 settle(page)
-                self.assertGreater(page.evaluate("W/fitWidth()"), 2.2)
+                self.assertGreater(page.evaluate("K/fitK()"), 2.2)
                 for frac in (0, 0.5, 1):
                     page.evaluate(
                         """([id,f])=>{const L=document.querySelector('#left'); L.scrollLeft=(L.scrollWidth-L.clientWidth)*f;

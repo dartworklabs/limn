@@ -61,7 +61,7 @@ body.lay-narrow #revision-source,body.lay-narrow #revision-pdf,body.lay-narrow #
 #revision-other-toggle[aria-expanded=true] .ic{transform:rotate(90deg)}
 #revision-other{border-top:1px solid var(--border)}
 .revision-pages{margin:0 auto;display:flow-root}
-.revision-page{margin:0 0 var(--space-4);background:var(--sidebar);box-shadow:var(--shadow-page)}
+.revision-page{margin:0 auto var(--space-4);background:var(--sidebar);box-shadow:var(--shadow-page)}
 .revision-page canvas{display:block;width:100%;height:100%}
 /* A figure document's overlay (docs/handbook/viewer.md §변경 보기): per page one box holding the current build's image and the
    previous build's from its top left, each at its own size (set by revisions.js), and [이전 | 지금] (#revision-side, the one
@@ -71,7 +71,9 @@ body.lay-narrow #revision-source,body.lay-narrow #revision-pdf,body.lay-narrow #
 body.lay-narrow #revision-view[data-format=overlay] #revision-head{display:none}
 #revision-side.seg{margin:0}
 #revision-overlay{flex:1;min-height:0;overflow:auto;background:var(--background);padding:var(--space-3)}
-.ov-page{position:relative;width:100%;margin:0 auto var(--space-4);overflow:hidden;background:var(--sidebar);box-shadow:var(--shadow-page)}
+/* Each overlay box is its page's share (--ov-share, of the widest page) of the widest page's width: that is the view's width,
+   or the print size (--ov-cap) when that is narrower - the scale a figure document opens at (pages.js openScale). */
+.ov-page{position:relative;width:calc(min(100%,var(--ov-cap,100%)) * var(--ov-share,1));margin:0 auto var(--space-4);overflow:hidden;background:var(--sidebar);box-shadow:var(--shadow-page)}
 .ov-page>img{position:absolute;left:0;top:0;display:block}
 #revision-overlay[data-side=cur] .ov-prev,#revision-overlay[data-side=prev] .ov-cur{visibility:hidden}
 .ov-none{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;padding:var(--space-4);

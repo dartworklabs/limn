@@ -1,6 +1,6 @@
 // ------------------------------------------------ Vector rendering (PDF.js) - docs/handbook/viewer.md §벡터 렌더링
 // Each page draws the PDF directly onto a canvas. Backing size = page CSS size x devicePixelRatio (x the browser's pinch
-// scale), and app zoom is already baked into the page CSS width (W). The page box, aspect ratio, and % coordinates stay
+// scale), and app zoom is already baked into each page's CSS width (pt_w x K). The page box, aspect ratio, and % coordinates stay
 // exactly as they were for PNG, so drag frac/marks/pdf_build never change.
 // - Only pages near the visible area (VEC_KEEP) are drawn; canvases for pages that scroll away are released (IntersectionObserver).
 // - A single canvas never exceeds VEC_PIX_CAP pixels. At zoom beyond that, the page canvas is capped and a detail canvas (.dt)

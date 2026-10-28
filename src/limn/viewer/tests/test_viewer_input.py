@@ -358,12 +358,15 @@ class NavLogic(unittest.TestCase):
         en = self.run_js(["posLabel"], "posLabel('본문',3,25,true,true,'manuscript')", lang="en")
         self.assertEqual(en, {"name": "본문", "pages": "3/25", "label": "Go to · 본문 · 3 / 25"})
 
-    def test_zoom_percent_is_the_page_width_over_the_fitted_width(self):
-        """zoomPct(W, fit): [더보기]'s zoom figure, rounded - the fitted width is 100%, one step in 120%, two 144%."""
+    def test_zoom_percent_is_the_scale_over_the_print_size(self):
+        """zoomPct(k): [더보기]'s zoom figure, rounded - the print size (96/72 px a point) is 100%, one step in 120%, two
+        144%, half 50%; 100 before a scale is known."""
         got = self.run_js(
-            ["zoomPct"], "[zoomPct(387,387),zoomPct(464,387),zoomPct(557,387),zoomPct(194,387),zoomPct(400,0)]"
+            ["zoomPct"],
+            "(globalThis.PT_PX=96/72,[zoomPct(96/72),zoomPct(96/72*1.2),zoomPct(96/72*1.44),zoomPct(96/72/2),zoomPct(1),"
+            "zoomPct(0)])",
         )
-        self.assertEqual(got, [100, 120, 144, 50, 100])
+        self.assertEqual(got, [100, 120, 144, 50, 75, 100])
 
 
 class StatusLogic(unittest.TestCase):
@@ -1418,24 +1421,25 @@ class FoldOverlay(ViewerBase):
         The page clock is paused around the taps. The viewer counts a double tap by performance.now() (second pointerup
         within 300ms of the first), and each CDP touch event is a synchronous round trip from this process: under CPU load
         the two taps used to land more than 300ms apart on the page's clock, so the second tap started a new double tap and
-        W never changed (about 1 run in 5 with 80 busy processes). The 300ms/24px window itself is GestureLogic's test;
-        this one checks the wiring - tap to zoom around the point - so it holds the page's time still and waits for W."""
+        the page width never changed (about 1 run in 5 with 80 busy processes). The 300ms/24px window itself is
+        GestureLogic's test; this one checks the wiring - tap to zoom around the point - so it holds the page's time still
+        and waits for the page width."""
         page = self.view(FOLD)
         cdp = self.cdp(page)
-        w0 = page.evaluate("W")
+        w0 = page.evaluate("pageWidth(ptMax(),K)")
         at = "(()=>{const a=zoomAnchor(300,400);return [a.pg.id,+a.fx.toFixed(3),+a.fy.toFixed(3)];})()"
         before = page.evaluate(at)
         page.clock.install()
         page.clock.pause_at(time.time() * 1000 + 1000)  # performance.now() and the long-press timer stand still
         self.tap(cdp, 300, 400)
         self.tap(cdp, 300, 400)
-        page.wait_for_function("w=>Math.abs(W-w)<=2", arg=w0 * 2, timeout=10000)
+        page.wait_for_function("w=>Math.abs(pageWidth(ptMax(),K)-w)<=2", arg=w0 * 2, timeout=10000)
         after = page.evaluate(at)
         self.assertEqual(after[0], before[0])
         self.assertAlmostEqual(after[1], before[1], delta=0.01)
         self.tap(cdp, 300, 400)
         self.tap(cdp, 300, 400)
-        page.wait_for_function("w=>Math.abs(W-w)<=2", arg=w0, timeout=10000)
+        page.wait_for_function("w=>Math.abs(pageWidth(ptMax(),K)-w)<=2", arg=w0, timeout=10000)
         self.assertFalse(page.evaluate("ZOOMED"))
 
     def test_back_gesture_closes_the_overlay_first_without_leaving(self):
@@ -3756,7 +3760,7 @@ class TouchLayoutBands(ViewerBase):
         """1024x768 touch at 300%, scrolled fully right: the right padding was not part of the scroll extent, so the page's
         edge came flush with the scroller under the handle's hit. The padding now counts."""
         page = self.view(touch_device(1024, 768))
-        page.evaluate("()=>{zoomTo(W*3); const L=document.querySelector('#left'); L.scrollLeft=L.scrollWidth;}")
+        page.evaluate("()=>{zoomTo(K*3); const L=document.querySelector('#left'); L.scrollLeft=L.scrollWidth;}")
         settle(page)
         right, hit, _, _ = self.page_clear_of_grip(page)
         self.assertLess(right, hit)
@@ -5119,12 +5123,14 @@ class BarAndSheets(ViewerBase):
 
     def test_zoom_shows_its_percentage(self):
         """[더보기]'s zoom had no feedback but the 449px of page above the sheet (P11): the figure between [−] and [+] says
-        it - 100% fitted, 144% after two steps."""
+        it, against the print size (96/72 px a point) - the fitted phone page's share of it, then 1.44 times that after two
+        steps."""
         page = self.more_view(BAR_PHONES[0])
-        self.assertEqual(page.inner_text("#m-zoom"), "100%")
+        fit = page.evaluate("fitK()/PT_PX*100")
+        self.assertEqual(page.inner_text("#m-zoom"), "%d%%" % round(fit))
         for _ in range(2):
             page.click("#more [data-act=zoom-in]")
-        page.wait_for_function("document.querySelector('#m-zoom').textContent==='144%'")
+        page.wait_for_function("t=>document.querySelector('#m-zoom').textContent===t", arg="%d%%" % round(fit * 1.44))
 
     def test_notifications_are_a_switch_with_its_reason_underneath(self):
         """The row mixed the state into its name ('Notifications: Not available on this address', P4.7): it is a switch
@@ -6952,12 +6958,12 @@ class ClickOffCancelsSelection(ViewerBase):
         page = self.view(FOLD)
         cdp = self.select(page, FOLD)
         x, y = self.blank(page)
-        w0 = page.evaluate("W")
+        w0 = page.evaluate("pageWidth(ptMax(),K)")
         page.clock.install()
         page.clock.pause_at(time.time() * 1000 + 1000)  # performance.now() and the timers stand still
         self.tap(cdp, x, y)
         self.tap(cdp, x, y)
-        page.wait_for_function("w=>Math.abs(W-w)>2", arg=w0, timeout=10000)
+        page.wait_for_function("w=>Math.abs(pageWidth(ptMax(),K)-w)>2", arg=w0, timeout=10000)
         page.clock.run_for(2000)  # every timer the two taps left runs now
         self.assertTrue(page.evaluate(HAS_SELECTION))
         x, y = self.blank(page)

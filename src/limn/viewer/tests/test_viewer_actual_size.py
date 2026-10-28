@@ -1,0 +1,274 @@
+"""Pages at their sizes on paper and the actual-size view (docs/handbook/viewer.md §PDF 영역 전용 확대, issue 281).
+
+Every page box is its own paper width times one scale for the document on screen, so a one-column figure is drawn half
+as wide as a two-column one; the zoom figure reads against the print size (100% = 96/72 px a point), [100%] and Ctrl/Cmd 1
+show the print size, and a figure document opens at it when its widest page fits. A document whose pages are all one
+size looks as it did. The checks run the real viewer against helpers_figure.viewer_docs' three documents (a LaTeX
+manuscript, a figure document and a view-only PDF), the figure's page images resized where a check needs other sizes.
+
+Run: uv run pytest -q src/limn/viewer/tests/test_viewer_actual_size.py
+"""
+
+import json
+import unittest
+
+import helpers_figure
+from helpers import add_pin, blank_png, extract_js_fn, ps, run_node
+from helpers_access import ALICE
+from helpers_browser import BrowserBase, settle
+from helpers_notices import node_or_skip
+
+PT_PX = 96 / 72
+DESKTOP = {"viewport": {"width": 1400, "height": 850}}
+FOLD = {"viewport": {"width": 841, "height": 673}, "is_mobile": True, "has_touch": True}
+PHONE = {"viewport": {"width": 390, "height": 844}, "is_mobile": True, "has_touch": True}
+NO_COACH = "try{localStorage.setItem('pinPrefs',JSON.stringify({coach:{touch:1,mouse:1,sel:1}}))}catch(e){}"
+# Every page box: its number, CSS width, left and centre in the PDF scroller's content (scroll offsets included).
+PAGES = """() => {const L = document.querySelector('#left'), lr = L.getBoundingClientRect();
+  return [...document.querySelectorAll('#doc .pg')].map(p => {const r = p.getBoundingClientRect(),
+    left = r.left - lr.left + L.scrollLeft; return {page: +p.dataset.page, w: r.width, left, mid: left + r.width / 2};});}"""
+
+
+def sized_pdf(sizes):
+    """A valid PDF whose pages have these MediaBox sizes in points, each with a filled square (pdf.js draws it)."""
+    kids = " ".join("%d 0 R" % (3 + i) for i in range(len(sizes)))
+    objects = [
+        b"<< /Type /Catalog /Pages 2 0 R >>",
+        ("<< /Type /Pages /Kids [%s] /Count %d >>" % (kids, len(sizes))).encode(),
+    ]
+    content = 3 + len(sizes)
+    for w, h in sizes:
+        objects.append(
+            ("<< /Type /Page /Parent 2 0 R /MediaBox [0 0 %d %d] /Contents %d 0 R >>" % (w, h, content)).encode()
+        )
+    objects.append(b"<< /Length 24 >>\nstream\n0 0 1 rg 20 20 80 80 re f\nendstream")
+    output, offsets = bytearray(b"%PDF-1.4\n"), []
+    for number, obj in enumerate(objects, 1):
+        offsets.append(len(output))
+        output += b"%d 0 obj\n" % number + obj + b"\nendobj\n"
+    xref = len(output)
+    output += b"xref\n0 %d\n0000000000 65535 f \n" % (len(objects) + 1)
+    output += b"".join(b"%010d 00000 n \n" % offset for offset in offsets)
+    output += b"trailer\n<< /Size %d /Root 1 0 R >>\nstartxref\n%d\n%%%%EOF\n" % (len(objects) + 1, xref)
+    return bytes(output)
+
+
+class ScaleLogic:
+    """Shared node runner for the pure scale helpers."""
+
+    def run_js(self, names, expr):
+        """Evaluate expr (JSON) with the named shipped functions and PT_PX defined."""
+        node_or_skip(self)
+        js = "\n".join(
+            ["const PT_PX=96/72;"] + [extract_js_fn(n) for n in names] + ["console.log(JSON.stringify(%s));" % expr]
+        )
+        return json.loads(run_node(js))
+
+
+class PageScaleLogic(ScaleLogic, unittest.TestCase):
+    """The pure decisions: a page's width at a scale, the scale a document opens at, and a kept view's scale."""
+
+    def test_a_page_is_its_paper_width_times_the_scale_in_whole_pixels(self):
+        """pageWidth(pt_w, k): rounded to whole px and never 0 - a one-column figure (252pt) is drawn at 336px and a
+        two-column one (522pt) at 696px at print size."""
+        got = self.run_js(
+            ["pageWidth"], "[pageWidth(522,PT_PX),pageWidth(252,PT_PX),pageWidth(612,1.5),pageWidth(0.2,1)]"
+        )
+        self.assertEqual(got, [696, 336, 918, 1])
+
+    def test_a_figure_opens_at_print_size_unless_its_widest_page_is_wider_than_the_area(self):
+        """openScale(fig, m, fit, inner, wide): a figure document at print size when its widest page (m points) fits the
+        fitted width, else fitted; any other document fitted to the inner width, at most 900px in wide - as it opened
+        before figure documents had a scale of their own."""
+        got = self.run_js(
+            ["openScale"],
+            "[openScale(true,522,800,788,true),openScale(true,664,800,788,true),openScale(true,522,366,366,false),"
+            "openScale(false,612,1272,1260,true),openScale(false,612,800,788,true),openScale(false,612,366,366,false)]",
+        )
+        self.assertEqual(
+            [round(v, 6) for v in got],
+            [round(v, 6) for v in [PT_PX, 800 / 664, 366 / 522, 900 / 612, 788 / 612, 366 / 612]],
+        )
+
+    def test_a_kept_view_gives_its_scale_or_the_width_an_older_release_kept(self):
+        """viewScale(v, m): the view's k; a view kept before scales (a page width w) over the widest page m; else 0."""
+        got = self.run_js(
+            ["viewScale"],
+            "[viewScale({k:1.25,w:900},612),viewScale({w:918},612),viewScale({w:918},0),viewScale({},612),viewScale({k:0},612)]",
+        )
+        self.assertEqual(got, [1.25, 1.5, 0, 0, 0])
+
+
+class ActualSize(BrowserBase):
+    """The real viewer: pages in proportion, the zoom figure, [100%] and Ctrl/Cmd 1, and the scale each kind opens at."""
+
+    WHO = ALICE
+
+    def setUp(self):
+        """viewer_docs' three documents; the figure's page images are 2400px (1152pt) and 1275px (612pt) wide."""
+        super().setUp()
+        self.ms, self.fig, self.rv = helpers_figure.viewer_docs(ps.APP, ps.APP.C.src)
+        self.addCleanup(ps.APP.set_docs, None)
+
+    def size_figure(self, *sizes):
+        """Give the figure's build on screen page images of these pixel sizes (150 dpi: a 1100px page is 528pt)."""
+        d = self.fig.dir / helpers_figure.BUILD1
+        for old in d.glob("page-*.png"):
+            old.unlink()
+        for i, (w, h) in enumerate(sizes, 1):
+            (d / ("page-%d.png" % i)).write_bytes(blank_png(w, h))
+
+    def on(self, doc, init=NO_COACH, **device):
+        """The viewer showing document doc, settled (a fresh context: nothing saved but the coach marks seen)."""
+        page = self.open(0, init=init, **(device or DESKTOP))
+        if doc != "ms":
+            page.evaluate("k=>switchDoc(k)", doc)
+            page.wait_for_function("k=>DOC===k&&META&&META.doc===k&&document.querySelector('#p1')", arg=doc)
+            settle(page)
+        return page
+
+    def zoom_figure(self, page):
+        """[더보기]'s zoom figure, as it reads when [더보기] opens."""
+        page.click("#btn-more")
+        page.wait_for_selector("#more[open]")
+        text = page.inner_text("#m-zoom")
+        page.keyboard.press("Escape")
+        page.wait_for_function("!document.querySelector('#more').open")
+        return text
+
+    def test_a_figure_opens_at_print_size_its_pages_in_proportion(self):
+        """A two-column figure (528pt) and a one-column one (252pt) whose widest page fits the PDF area open at print
+        size: 704px and 336px, the narrow page centred under the wide one, and [더보기] reads 100%. Nothing is saved
+        until a person zooms."""
+        self.size_figure((1100, 700), (525, 900))
+        page = self.on("fig")
+        self.assertAlmostEqual(page.evaluate("K"), PT_PX, places=6)
+        pages = page.evaluate(PAGES)
+        self.assertEqual([p["w"] for p in pages], [704, 336])
+        self.assertAlmostEqual(pages[0]["mid"], pages[1]["mid"], delta=1)
+        self.assertEqual(self.zoom_figure(page), "100%")
+        self.assertNotIn("figZoom", page.evaluate("prefs()"))
+
+    def test_a_figure_wider_than_the_pdf_area_opens_fitted(self):
+        """The fixture's 1152pt page is 1536px at print size, wider than the area: the figure opens with that page
+        fitted and its 612pt page in proportion - not stretched to the same width."""
+        page = self.on("fig")
+        fit = page.evaluate("fitWidth()")
+        self.assertAlmostEqual(page.evaluate("K"), fit / 1152, places=6)
+        pages = page.evaluate(PAGES)
+        self.assertEqual([p["w"] for p in pages], [round(fit), round(612 * fit / 1152)])
+        self.assertEqual(self.zoom_figure(page), "%d%%" % round(fit / 1152 / PT_PX * 100))
+
+    def test_a_document_of_one_page_size_looks_as_it_did(self):
+        """The manuscript's pages are all 612pt: it opens at min(inner width, 900px) on a desktop and the inner width on
+        a phone, fit-width is the fitted width, and a zoom step is 1.2 times it - the widths the single page width W
+        gave - with every page as wide as the first. The desktop keeps that width in pinPrefs.w as before."""
+        page = self.on("ms")
+        old = page.evaluate("Math.round(Math.min(innerW(),900))")
+        self.assertEqual({p["w"] for p in page.evaluate(PAGES)}, {old})
+        page.click("#btn-fit")
+        fit = page.evaluate("Math.round(fitWidth())")
+        self.assertEqual({p["w"] for p in page.evaluate(PAGES)}, {fit})
+        self.assertEqual(page.evaluate("prefs().w"), fit)
+        page.click("#btn-zoom-in")
+        self.assertEqual({p["w"] for p in page.evaluate(PAGES)}, {round(fit * 1.2)})
+        phone = self.on("ms", **PHONE)
+        inner = phone.evaluate("Math.round(innerW())")
+        self.assertEqual({p["w"] for p in phone.evaluate(PAGES)}, {inner})
+        self.assertNotIn("w", phone.evaluate("prefs()"))
+
+    def test_each_page_keeps_its_own_line_badge_and_zoom_anchor(self):
+        """On a phone the figure opens fitted: its 528pt page fills the column and its 252pt page is centred, narrower.
+        Each page verdict line is as wide as its own page; a mark at a page's left edge has its badge inside on the wide
+        page (12px margin, short of the 28px reach) and outside on the narrow one (its centring margin); a zoom on the
+        narrow page keeps the point under the fingers; and the page list's jump brings the narrow page into view when the
+        zoomed pages scroll sideways."""
+        self.size_figure((1100, 700), (525, 900))
+        (self.fig.main.parent / "figures.limnverdicts.json").write_text(
+            json.dumps(
+                {"format": "limn-verdicts/1", "verdicts": [{"key": "채택"}, {"key": "보류"}], "page": True},
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+        script = str(self.fig.src / "src" / "B2_calendar.py")
+        for n in (1, 2):
+            add_pin(
+                {
+                    "doc": "fig",
+                    "file": script,
+                    "lo": 1,
+                    "hi": 10,
+                    "page": n,
+                    "frac": [0, 0.3, 0.2, 0.1],
+                    "note": "p%d" % n,
+                },
+                ALICE,
+            )
+        page = self.on("fig", **PHONE)
+        page.wait_for_function(
+            "document.querySelectorAll('#doc .pv').length===2&&document.querySelectorAll('.mark').length===2"
+        )
+        pages = page.evaluate(PAGES)
+        self.assertEqual(pages[0]["w"], round(page.evaluate("fitWidth()")))
+        self.assertEqual(pages[1]["w"], round(252 * page.evaluate("K")))
+        self.assertAlmostEqual(pages[0]["mid"], pages[1]["mid"], delta=1)
+        lines = page.evaluate("[...document.querySelectorAll('#doc .pv')].map(l=>l.getBoundingClientRect().width)")
+        self.assertEqual([round(v) for v in lines], [round(p["w"]) for p in pages])
+        badges = page.evaluate(
+            "[...document.querySelectorAll('.mark')].map(m=>[+m.parentElement.dataset.page,m.classList.contains('in')])"
+        )
+        self.assertEqual(sorted(badges), [[1, True], [2, False]])
+        # A two-finger zoom over the narrow page keeps that spot under the fingers.
+        p2 = page.evaluate(
+            "(()=>{const r=document.getElementById('p2').getBoundingClientRect();return [r.left+r.width*0.4,r.top+r.height*0.5];})()"
+        )
+        page.evaluate("p=>document.getElementById('p2').scrollIntoView({block:'center'})", p2)
+        p2 = page.evaluate(
+            "(()=>{const r=document.getElementById('p2').getBoundingClientRect();return [r.left+r.width*0.4,r.top+r.height*0.5];})()"
+        )
+        at = "p=>{const a=zoomAnchor(p[0],p[1]);return [a.pg.id,+a.fx.toFixed(3),+a.fy.toFixed(3)];}"
+        before = page.evaluate(at, p2)
+        page.evaluate("p=>zoomTo(K*2.5,p[0],p[1])", p2)
+        after = page.evaluate(at, p2)
+        self.assertEqual(after[0], "p2")
+        self.assertAlmostEqual(after[1], before[1], delta=0.01)
+        self.assertAlmostEqual(after[2], before[2], delta=0.01)
+        lines = page.evaluate("[...document.querySelectorAll('#doc .pv')].map(l=>l.getBoundingClientRect().width)")
+        self.assertEqual([round(v) for v in lines], [round(page.evaluate("innerW()"))] * 2)
+        # Scrolled to the right end of the zoomed wide page, the jump to the narrow page brings it into view.
+        page.evaluate("()=>{const L=document.querySelector('#left');L.scrollLeft=L.scrollWidth;L.scrollTop=0;}")
+        page.evaluate("goPage(2)")
+        page.wait_for_function("""() => {const r = document.getElementById('p2').getBoundingClientRect(),
+          l = document.querySelector('#left').getBoundingClientRect(); return r.right > l.left && r.left < l.right && r.top < l.bottom;}""")
+
+    def test_each_page_is_drawn_by_pdf_js_at_its_own_width(self):
+        """With a real two-size PDF (528pt and 252pt) the vector canvas of each page is as wide as its own page box (704
+        and 336px at print size, 702 and 334 inside the light theme's 1px border) times the device pixel ratio - so the
+        narrow page is drawn as sharp as the wide one, not at the wide one's size."""
+        self.size_figure((1100, 700), (525, 900))
+        (self.fig.dir / helpers_figure.BUILD1 / self.fig.pdf_name).write_bytes(sized_pdf([(528, 336), (252, 432)]))
+        for dpr in (1, 2):
+            with self.subTest(dpr=dpr):
+                page = self.on("fig", viewport={"width": 1400, "height": 1400}, device_scale_factor=dpr)
+                page.wait_for_function("document.querySelectorAll('#doc .pg.drawn').length===2", timeout=15000)
+                got = page.evaluate(
+                    "[...document.querySelectorAll('#doc .pg')].map(p=>[p.clientWidth,p.querySelector('canvas.vb').width])"
+                )
+                self.assertEqual(got, [[702, 702 * dpr], [334, 334 * dpr]])
+
+    def test_a_figure_drawn_again_at_another_size_keeps_the_scale(self):
+        """When the figure is drawn again and its one-column page became a two-column one (252pt -> 528pt), the new build
+        swaps in at the same scale: the grown page is as wide as the other, at print size."""
+        self.size_figure((1100, 700), (525, 900))
+        page = self.on("fig")
+        self.assertEqual([round(p["w"]) for p in page.evaluate(PAGES)], [704, 336])
+        helpers_figure.viewer_rerender(self.fig)
+        d = self.fig.dir / helpers_figure.BUILD2
+        for i, size in enumerate(((1100, 700), (1100, 900)), 1):
+            (d / ("page-%d.png" % i)).write_bytes(blank_png(*size))
+        page.evaluate("async()=>await refreshDoc()")
+        settle(page)
+        self.assertEqual(page.evaluate("META.pages_build"), helpers_figure.BUILD2)
+        self.assertAlmostEqual(page.evaluate("K"), PT_PX, places=6)
+        self.assertEqual([round(p["w"]) for p in page.evaluate(PAGES)], [704, 704])

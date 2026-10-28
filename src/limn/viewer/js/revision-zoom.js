@@ -68,15 +68,17 @@ function resizeRevisionPdf(){
   layoutRevisionPdf(anchor);
 }
 
-/** Resize all page boxes before restoring the anchor; redraw at the new width. */
+/** Resize all page boxes before restoring the anchor; redraw at the new width. The widest page takes the zoomed width and
+ * every other page its own share of it, so pages keep their sizes on paper relative to each other, as the manuscript's do. */
 function layoutRevisionPdf(anchor){
   if(!revisionPdfActive())return;
   const box=$('#revision-pdf'),fit=revisionFitWidth();
   if(fit<=0)return;
   RZ.fit=fit;RZ.height=box.clientHeight;++RZ.gen;RZ.pages.forEach(dropRevisionPage);
-  const width=fit*RZ.ratio,group=box.firstElementChild;
+  const width=fit*RZ.ratio,group=box.firstElementChild,widest=Math.max(...RZ.pages.map(item=>item.base.width));
   if(group instanceof HTMLElement)group.style.width=width+'px';
-  for(const item of RZ.pages){item.el.style.width=width+'px';item.el.style.height=width*item.base.height/item.base.width+'px';}
+  for(const item of RZ.pages){const w=width*item.base.width/widest;
+    item.el.style.width=w+'px';item.el.style.height=w*item.base.height/item.base.width+'px';}
   restoreRevisionAnchor(anchor);RZ.anchor=revisionAnchor();drawRevisionZoom();scheduleRevisionPaint();
 }
 

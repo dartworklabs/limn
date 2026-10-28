@@ -62,7 +62,8 @@ function isFigureKind(kind){return kind===DOC_KIND.FIGURE;}
 function buildsFromSource(kind){return kind===DOC_KIND.TEX;}
 // META is null only until boot() reads /api/meta; nothing reads it before.
 let META=/** @type {Meta} */(/** @type {unknown} */(null)),PINS=/** @type {Pin[]} */([]),DONE=/** @type {Pin[]} */([]),DROPPED=/** @type {Pin[]} */([]),REPICK=/** @type {Repick|null} */(null),PICKSEQ=0;
-let SNIP_OPEN=false,W=900;
+// K: the scale of the document on screen, CSS px per PDF point (pages.js §page sizes); 0 until its first pages are built.
+let SNIP_OPEN=false,K=0;
 // Mobile: BAND is a LAYOUT_BAND (layoutFor of BAND_IN, the settled {w,h,coarse} - settleBand) and LAYOUT its LAYOUT_MODE (wide|mid|narrow, BAND_MODE), SIDE_OPEN is whether the panel/sheet is expanded, SELMODE is touch selection mode,
 // ZOOMED is whether the user changed the width via -/+ in compact (while true, it's never auto-fit to the screen width).
 const MQ_COARSE=matchMedia('(pointer:coarse)');

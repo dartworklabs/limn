@@ -1907,7 +1907,7 @@ class FigureDocuments(BrowserBase):
                 page = self.open_fig(viewport={"width": 1400, "height": 850}, device_scale_factor=dpr)
                 self.drag(page, helpers_figure.CELL_DRAG)
                 self.assert_box(page, "#doc .sel", 1, helpers_figure.JULY)
-                page.evaluate("zoomTo(fitWidth()*3)")
+                page.evaluate("zoomTo(fitK()*3)")
                 settle(page)
                 self.assertGreater(page.evaluate("document.getElementById('p1').clientWidth"), 2000)
                 self.assert_box(page, "#doc .sel", 1, helpers_figure.JULY)
@@ -2260,6 +2260,24 @@ class FigureOverlay(BrowserBase):
                         "#revision-side button", "bs=>bs.map(b=>parseFloat(getComputedStyle(b,'::after').height))"
                     )
                     self.assertEqual(hits, [44.0, 44.0])
+
+    def test_overlay_pages_keep_their_sizes_on_paper(self):
+        """The overlay boxes are drawn as the figure's pages are (issue 281): page 1 (1152pt) as wide as the view - its
+        print size, 1536px, would not fit - and page 2 (612pt) its share of that, centred under it, not stretched to the
+        same width."""
+        for screen, device in OVERLAY_SCREENS.items():
+            with self.subTest(screen=screen):
+                page = self.open_overlay(**device)
+                boxes = page.evaluate(
+                    """()=>{const o=document.getElementById('revision-overlay'),c=getComputedStyle(o),
+                      inner=o.clientWidth-parseFloat(c.paddingLeft)-parseFloat(c.paddingRight);
+                      return {inner,pages:[...o.querySelectorAll('.ov-page')].map(p=>{const r=p.getBoundingClientRect();
+                        return [r.width,r.left+r.width/2];})};}"""
+                )
+                (w1, mid1), (w2, mid2) = boxes["pages"]
+                self.assertAlmostEqual(w1, min(boxes["inner"], 1536), delta=1)
+                self.assertAlmostEqual(w2, w1 * 612 / 1152, delta=1)
+                self.assertAlmostEqual(mid1, mid2, delta=1)
 
     def test_a_figure_without_a_previous_build_says_so_and_offers_no_choice(self):
         """When only the build on screen is kept the pages show it alone, [이전] cannot be pressed and the status line

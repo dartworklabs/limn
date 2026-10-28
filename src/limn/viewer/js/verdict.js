@@ -329,12 +329,13 @@ function pvMorph(a,b){if(a.nodeType!==b.nodeType||a.nodeName!==b.nodeName||(a in
   [...a.attributes].forEach(x=>{if(!b.hasAttribute(x.name))a.removeAttribute(x.name);});
   [...b.attributes].forEach(x=>{if(a.getAttribute(x.name)!==x.value)a.setAttribute(x.name,x.value);});
   pvMorphKids(a,b);}
-// The width of each line: the page's (W), never past what the PDF area shows - a zoomed page scrolls sideways under a
-// line that stays in view (sticky) and keeps its size. Then one rhythm for every page: when any page's line cannot hold its
+// The width of each line: its own page's, never past what the PDF area shows - a zoomed page scrolls sideways under a
+// line that stays in view (sticky) and keeps its size; a page narrower than the widest has a line as narrow, under it. Then one rhythm for every page: when any page's line cannot hold its
 // words and its buttons on one row (a phone, a folded cover), every line puts its buttons on a row of their own, at its
 // start (#doc.pv-stack) - a short line beside a long one no longer keeps them at the end of its row. Measured only while the
 // pages are laid out (the changes view hides them).
-function sizePv(){const w=Math.round(Math.min(W,innerW()))+'px',doc=$('#doc'),lines=$$('#doc .pv'); lines.forEach(e=>{e.style.width=w;});
+function sizePv(){const room=innerW(),doc=$('#doc'),lines=$$('#doc .pv');
+  lines.forEach(e=>{const pg=document.getElementById('p'+e.dataset.page),w=pg?parseFloat(pg.style.width)||room:room; e.style.width=Math.round(Math.min(w,room))+'px';});
   if(!lines.length||!lines[0].getClientRects().length){if(!lines.length)doc.classList.remove('pv-stack'); return;}
   doc.classList.remove('pv-stack');
   const wraps=lines.some(l=>{const t=l.querySelector('.pv-t'),b=l.querySelector('.vd-btns'); return !!t&&!!b&&b.getBoundingClientRect().top>=t.getBoundingClientRect().bottom-1;});

@@ -316,15 +316,15 @@ async function showRevision(id,format,base){
 // (/pages/<build>/<file>); the two builds come with /api/revisions.
 
 /** The overlay's pages: each page of the build on screen paired with the same page of the previous build, as the box that
- * holds both ({page, ratio}) and each image's name and share of that box in percent ({name, w, h}; null when that build has
- * no such page). The box is as wide and as tall as the larger of the two, and each image keeps its own size from the top
- * left, so a figure that grew or shrank is never stretched to the other. Pure.
+ * holds both ({page, ratio, pt} - pt its width in points) and each image's name and share of that box in percent ({name, w,
+ * h}; null when that build has no such page). The box is as wide and as tall as the larger of the two, and each image keeps
+ * its own size from the top left, so a figure that grew or shrank is never stretched to the other. Pure.
  * @param {RevisionOverlay} ov */
 function overlayPages(ov){const cur=ov.pages||[],prev=ov.prev_pages||[],out=[];
   for(let i=0;i<Math.max(cur.length,prev.length);i++){const c=cur[i],p=prev[i];
     const w=Math.max(c?c.pt_w:0,p?p.pt_w:0),h=Math.max(c?c.pt_h:0,p?p.pt_h:0);
     const share=x=>x?{name:x.name,w:Math.round(x.pt_w/w*1e4)/100,h:Math.round(x.pt_h/h*1e4)/100}:null;
-    out.push({page:i+1,ratio:w+' / '+h,cur:share(c),prev:share(p)});}
+    out.push({page:i+1,ratio:w+' / '+h,pt:w,cur:share(c),prev:share(p)});}
   return out;}
 // A build as a person reads it: a page folder name pages-<YYYYmmddHHMMSS>[-<n>] as 'MM-DD HH:MM:SS', with ' (n)' for a second
 // build in the same second; any other name as it is. Pure.
@@ -340,12 +340,15 @@ function overlayStatus(ov){
 /** @param {RevisionOverlay|null} ov */
 function setRevisionOverlay(ov){REV.overlay=ov; REV.side=OVERLAY_SIDE.CUR; renderRevisionOverlay(); drawRevisionSide();}
 // Draws the overlay's pages (overlayPages) into #revision-overlay: per page a box holding the current build's image and the
-// previous build's, each at its share of the box; a build without that page has a line saying so in its place.
+// previous build's, each at its share of the box; a build without that page has a line saying so in its place. The boxes
+// keep their sizes on paper relative to each other (--ov-share) and the widest is at most its print size (--ov-cap).
 function renderRevisionOverlay(){const ov=REV.overlay,box=$('#revision-overlay'); box.replaceChildren(); if(!ov)return;
+  const pages=overlayPages(ov),widest=Math.max(1,...pages.map(pg=>pg.pt)); box.style.setProperty('--ov-cap',Math.round(widest*PT_PX)+'px');
   const side=(x,build,cls,alt,none)=>x&&build?
     html`<img class="${cls}" loading="lazy" draggable="false" alt="${alt}" src="${dq('/pages/'+encodeURIComponent(build)+'/'+encodeURIComponent(x.name))}">`:
     html`<span class="ov-none ${cls}">${none}</span>`;
-  for(const pg of overlayPages(ov)){const d=document.createElement('div'); d.className='ov-page'; d.dataset.page=String(pg.page); d.style.aspectRatio=pg.ratio;
+  for(const pg of pages){const d=document.createElement('div'); d.className='ov-page'; d.dataset.page=String(pg.page); d.style.aspectRatio=pg.ratio;
+    d.style.setProperty('--ov-share',String(pg.pt/widest));
     setHtml(d,html`${side(pg.cur,ov.build,'ov-cur',tl('지금 {page}쪽',{page:pg.page}),tr('지금 빌드에 없는 쪽'))}\
 ${side(pg.prev,ov.prev_build,'ov-prev',tl('이전 {page}쪽',{page:pg.page}),tr('이전 빌드에 없는 쪽'))}<span class="ov-no">${pg.page}</span>`);
     for(const [sel,x] of [['img.ov-cur',pg.cur],['img.ov-prev',pg.prev]]){const img=/** @type {HTMLElement|null} */(d.querySelector(sel));

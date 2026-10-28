@@ -15,8 +15,8 @@ function newBox(pg){const b=document.createElement('div'); b.className='sel'; pg
 // the box's left edge at its top, or in its top-left corner when the page margin has no room (pendingBadgeSide). The old name
 // tag sat 21px above the box, over the line above it; the name is now for screen readers only.
 function pendingBadge(box,name){setHtml(box,html`<i aria-hidden="true">${ic('plus')}</i><span class="sr-only">${tr(name)}</span>`); pendingBadgeSide(box);}
-// Decides a pending box's badge side by the mark rule (markBadgeIn) for its left edge, the page width and the margin now.
-function pendingBadgeSide(box){const r=markBadgeRoom(); box.classList.toggle('in',markBadgeIn((parseFloat(box.style.left)||0)/100,W,r.pad,r.reach));}
+// Decides a pending box's badge side by the mark rule (markBadgeIn) for its left edge, its page's width and margin now.
+function pendingBadgeSide(box){const r=markBadgeRoom(box.parentElement); if(r)box.classList.toggle('in',markBadgeIn((parseFloat(box.style.left)||0)/100,r.w,r.pad,r.reach));}
 function drawBox(box,sx,sy,x,y){Object.assign(box.style,{left:Math.min(sx,x)*100+'%',top:Math.min(sy,y)*100+'%',
   width:Math.abs(x-sx)*100+'%',height:Math.abs(y-sy)*100+'%'});}
 function cancelDrag(){if(DRAG&&DRAG.box)DRAG.box.remove(); DRAG=null;}
@@ -97,10 +97,11 @@ function clickOffSoon(box){clickOffStop(); CLICKOFF_T=setTimeout(()=>{CLICKOFF_T
 // Double-tap on the PDF (touch, outside [선택] mode - the browser's own double-tap zoom is off there): a second tap within 300ms
 // and 24px of the first. At fit width it zooms to 2x, from any other width back to fit width - both around the tapped point.
 function isDoubleTap(a,b){return !!a&&!!b&&b.t-a.t<=300&&Math.hypot(b.x-a.x,b.y-a.y)<=24;}
-// The width a double tap goes to: 2x from fit width (within 5%), fit width from any other width.
+// The scale (or width) a double tap goes to: 2x from fit width (within 5%), fit width from any other. Pure.
 function doubleTapWidth(w,fit){return Math.abs(w-fit)<=fit*0.05?fit*2:fit;}
-// Zooms around (x, y) to doubleTapWidth(); landing on fit width, compact stops counting as zoomed (it re-fits again).
-function doubleTapZoom(x,y){const fit=fitWidth(),w=doubleTapWidth(W,fit); zoomTo(w,x,y); if(w===fit&&LAYOUT!==LAYOUT_MODE.WIDE)ZOOMED=false;}
+// Zooms around (x, y) to doubleTapWidth() of the scale; landing on the screen's own scale, compact stops counting as zoomed
+// and re-fits again (markZoomed, in zoomTo).
+function doubleTapZoom(x,y){zoomTo(doubleTapWidth(K,fitK()),x,y);}
 // Quick selection: calls the existing /api/pick with a small box around the pressed point (quickBox). The server's
 // default level is used as-is - 'paragraph' in body text, 'environment' inside a figure/table, the element under the
 // point on a figure document - and then widened or narrowed via the range ladder.

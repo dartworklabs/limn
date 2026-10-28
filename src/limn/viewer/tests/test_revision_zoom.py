@@ -82,7 +82,7 @@ class RevisionZoom(BrowserBase):
         """Zoom stays bounded, rerenders and leaves manuscript settings alone."""
         page = self.comparison()
         self.assertEqual(page.locator("#revision-zoom").count(), 1)
-        before = page.evaluate("({w:W,prefs:{...localStorage}})")
+        before = page.evaluate("({k:K,prefs:{...localStorage}})")
         requests = []
         page.on("request", lambda request: requests.append(request.url))
         self.assertEqual(page.locator("#revision-zoom-value").inner_text(), "100%")
@@ -102,7 +102,7 @@ class RevisionZoom(BrowserBase):
                 page.click("#revision-zoom-out")
         self.assertEqual(page.locator("#revision-zoom-value").inner_text(), "50%")
         self.assertFalse(page.locator("#revision-zoom-out").is_enabled())
-        self.assertEqual(page.evaluate("({w:W,prefs:{...localStorage}})"), before)
+        self.assertEqual(page.evaluate("({k:K,prefs:{...localStorage}})"), before)
         self.assertFalse(any("revision-pdf?" in url or "revision-build?" in url for url in requests))
 
     def test_input_preservation_and_commit_reset(self):
@@ -258,13 +258,13 @@ class RevisionZoom(BrowserBase):
     def test_shared_zoom_buttons_route_to_visible_comparison(self):
         """Existing zoom actions must not change an invisible manuscript."""
         page = self.comparison()
-        width = page.evaluate("W")
+        width = page.evaluate("K")
         page.locator('[data-act="zoom-in"]:visible').first.click()
         self.assertEqual(page.locator("#revision-zoom-value").inner_text(), "120%")
-        self.assertEqual(page.evaluate("W"), width)
+        self.assertEqual(page.evaluate("K"), width)
         page.click("#revision-source-tab")
         page.locator('[data-act="zoom-in"]:visible').first.click()
-        self.assertEqual(page.evaluate("W"), width)
+        self.assertEqual(page.evaluate("K"), width)
 
     def test_invalid_pdf_releases_loading_worker(self):
         """A failed PDF parse disables zoom and releases the worker owner."""
