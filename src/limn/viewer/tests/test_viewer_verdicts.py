@@ -57,6 +57,20 @@ class VerdictBase(BrowserBase):
         patch.start()
         self.addCleanup(patch.stop)
 
+    def take_held_list(self, page, timeout_ms=10000):
+        """The held GET /api/pins routes, once the viewer has asked for the list at least once; stops holding.
+        The page verdict line can draw before the list is asked for, so taking the routes as soon as the line is
+        there could take none and let the real list through unheld (a CI flake: the line read the verdict, not
+        '판정 읽는 중…')."""
+        waited = 0
+        while not self.held_list:
+            if waited >= timeout_ms:
+                self.fail("the viewer never asked for the pin list")
+            page.wait_for_timeout(20)
+            waited += 20
+        held, self.held_list = self.held_list, None
+        return held
+
     def route(self, route):
         """A pick on the figure or the PDF goes to the handler; the manuscript's gets the computed answer. A new pin's POST
         may be lost (fail_pin) or held (held)."""
@@ -1620,7 +1634,7 @@ class RetestFixes(VerdictBase):
 
         with self.subTest(case="the first list fails"):
             p = boot("fig")
-            held, self.held_list = self.held_list, None
+            held = self.take_held_list(p)
             for r in held:
                 r.fulfill(status=500, headers={"content-type": "application/json"}, body='{"error": "boom"}')
             p.wait_for_function("typeof LIGHT_TIMER!=='undefined'&&LIGHT_TIMER!==null", timeout=20000)
@@ -1641,7 +1655,7 @@ class RetestFixes(VerdictBase):
                 timeout=20000,
             )
             self.assertEqual(reading(p, line), {"text": "판정 읽는 중…", "waiting": [True, True, True]})
-            held, self.held_list = self.held_list, None
+            held = self.take_held_list(p)
             for r in held:
                 self.route(r)
             p.wait_for_function("typeof LIGHT_TIMER!=='undefined'&&LIGHT_TIMER!==null", timeout=20000)
@@ -1650,7 +1664,7 @@ class RetestFixes(VerdictBase):
         with self.subTest(case="an empty list"):
             self.assertEqual(self.call("POST", "/api/pins/%d/drop" % a, {}, ALICE)[0], 200)
             p = boot("fig")
-            held, self.held_list = self.held_list, None
+            held = self.take_held_list(p)
             for r in held:
                 self.route(r)
             p.wait_for_function("typeof LIGHT_TIMER!=='undefined'&&LIGHT_TIMER!==null", timeout=20000)
@@ -1680,7 +1694,7 @@ class RetestFixes(VerdictBase):
             ["true", "true", "true"],
         )
         page.evaluate("s=>document.querySelector(s+' button[data-key=\"채택\"]').click()", line)
-        held, self.held_list = self.held_list, None
+        held = self.take_held_list(page)
         for r in held:
             self.route(r)
         page.wait_for_function(booted(1), timeout=20000)
