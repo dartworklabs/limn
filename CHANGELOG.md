@@ -5,6 +5,19 @@
 The agent contract and `pins.md` are unchanged. A script that took every `limn update` exit as success now sees
 status 3 when an instance did not come back.
 
+### Changed
+
+- **Small secondary text reads at 4.5:1 in the light theme and under a hover** (#277). The light theme's subtle text
+  (`--subtle-foreground`) is now `#63636b` (was zinc-500 `#71717a`, 3.8:1 under a commit row's hover and 4.3:1 on a
+  diff's added and removed rows): a commit's short hash reads 4.7:1 under the hover and 5.4:1 on a selected row (was
+  4.4), a diff's line numbers 5.2:1 (was 4.3). It is still a step under the muted text (1.3 times on a card). The
+  excerpt's context line numbers are no longer the muted text at 70% opacity (3.4:1 in light, 3.2:1 under a light
+  hover, 4.0:1 under a dark hover) but the subtle text, opaque: 5.4:1 in light, 4.7:1 and 4.8:1 under the hovers. The
+  shortcut in [핀 저장] (`Ctrl+Enter`) loses its 80% opacity (4.3:1 in light, 3.7:1 under the hover) and is set off by
+  weight and size. The dark theme's tokens are unchanged; only its context line numbers and that shortcut change.
+  The light theme's other colours are unchanged; the subtle token also draws [더보기]'s off switch track, a shade
+  darker.
+
 ### Fixed
 
 - **`limn update` exits 3 when a restart or its readiness check fails** (#274). After the install it restarted each
@@ -33,6 +46,16 @@ status 3 when an instance did not come back.
   The reading spot is kept the same way: the page being read and how far down it is remembered when the changes view
   opens and restored on the way back, where the scroll offset in pixels had pointed at another place once the pages
   changed height (page 2 at 30% came back at 79%).
+
+### Internal
+
+- **A contrast test that reads the page as drawn** (#277). `RenderedSecondaryContrast` opens the cards, done and
+  trash rows, notices, the composer's excerpt and the changes view's commit list and diffs on a desktop (with real
+  hovers and keyboard focus) and a phone, in both themes, composites each text's colour with the backgrounds and
+  opacities under it, and holds small text to 4.5:1. Every rule that sets text in the muted or subtle colour or sets
+  an opacity is either used by text it reads or listed with a reason (and its colour checked on the plain surfaces),
+  so a new one fails the test until classified. `FrontendColourRoles`' token pairs cover the light theme and the pin's
+  diff row too.
 
 ## 0.4.30 — 2026-10-28
 
