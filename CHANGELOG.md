@@ -1,18 +1,27 @@
 # Changelog
 
-## Unreleased
+## 0.4.29 — 2026-10-28
 
-Viewer only: the agent contract and `pins.md` are unchanged.
+Dark theme contrast for small secondary text, and a steadier CI. Viewer only: the agent contract and `pins.md` are
+unchanged, and rolling back to 0.4.28 loses nothing.
 
 ### Changed
 
 - **Small secondary text reads better in the dark theme.** The dark theme's muted text (`--muted-foreground`) is now
   `#b3b3ba` and its subtle text (`--subtle-foreground`) `#9a9aa3`, so relative times, names, page numbers and the
-  neutral badges (`이전 판정 · #4로 대체됨`, `보기 전용`) read at 4.8:1 or more on every surface they sit on at full
-  strength - 7.2:1 on a badge (was 5.8) and 8.9:1 on a card (was 7.2); the subtle text read 4.0:1 under a commit row's
-  hover. Foreground, muted and subtle stay three distinct steps. The light theme is unchanged. Still short of 4.5:1:
-  the excerpt's context line numbers, which dim the muted text to 70% (4.0:1 under a dark hover), and the light
-  theme's subtle text under a hover (3.8:1) - #277.
+  neutral badges (`이전 판정 · #4로 대체됨`, `보기 전용`) read at 4.8:1 or more on every surface they sit on at full strength -
+  7.2:1 on a badge (was 5.8) and 8.9:1 on a card (was 7.2); the subtle text read 4.0:1 under a commit row's hover.
+  Foreground, muted and subtle stay three distinct steps. The light theme is unchanged. Still short of 4.5:1: the
+  excerpt's context line numbers, which dim the muted text to 70% (4.0:1 under a dark hover), and the light theme's
+  subtle text under a hover (3.8:1) - #277.
+
+### Internal
+
+- **A rotation test no longer races the band's settle wait.**
+  `test_a_text_field_focused_during_the_settle_wait_holds_the_band` focused the note from Python after the 200 ms wait
+  had started, and on a slow CI runner the round trip outlasted the wait (one failure on main). The note now takes the
+  focus inside the page, in the task that ends the wait, just before the viewer's own check; under 40x CPU throttling
+  the old test failed 30 of 30 runs and the new one none (#275).
 
 ## 0.4.28 — 2026-10-28
 
