@@ -64,7 +64,7 @@ document.addEventListener('click',e=>{const target=/** @type {HTMLElement} */(e.
     case 'search-prev':searchGo(-1);break; case 'search-next':searchGo(1);break;
     case 'rev-back':revBack();break;
     case 'outline':toggleOutline();break;
-    case 'outline-page':if(outlineOverlay()&&OUTLINE_MID_OPEN)toggleOutline();OUTLINE_SELECTED=Number(a.dataset.index);OUTLINE_ACTIVE_PAGE=Number(a.dataset.page);OUTLINE_PINNED={index:OUTLINE_SELECTED,page:OUTLINE_ACTIVE_PAGE,reached:false};renderOutline();updateSectionStrip();setViewMode('manuscript');goPage(a.dataset.page);break;
+    case 'outline-page':if(outlineOverlay()&&OUTLINE_MID_OPEN)toggleOutline();pickOutline(Number(a.dataset.index));break;
     case 'revision':showRevision(a.dataset.commit||'');break;
     case 'revision-format':setRevisionFormat(a.dataset.format);break;
     case 'revision-side':setRevisionSide(a.dataset.side);break;

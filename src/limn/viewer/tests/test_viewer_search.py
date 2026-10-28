@@ -133,8 +133,9 @@ def search_pdf(pages=PAGES, outline=False):
     upward) that PDF.js reads as text: F1 is the standard Helvetica, F2 an unembedded CID
     font whose ToUnicode map gives each code its character, so Hangul - composed or as jamo - and combining marks come
     back from getTextContent() exactly as written here. With outline True, one top-level outline entry per page, named by the
-    page's first line; outline may instead list the top-level entries in their outline order as (title, page) pairs, each
-    pointing at the top of its page (1-based), in any page order."""
+    page's first line; outline may instead list the top-level entries in their outline order, in any page order, as
+    (title, page) - pointing at the top of its page (1-based) - or (title, page, top), top being the destination's top
+    edge in points from the page's bottom (XYZ at x 72), or None for the whole page (Fit)."""
     chars = sorted({c for page in pages for line in page for font, text in line[2] if font == "F2" for c in text})
     cid = {c: i + 1 for i, c in enumerate(chars)}
 
@@ -204,16 +205,18 @@ def search_pdf(pages=PAGES, outline=False):
     if entries:
         m = len(entries)
         objs.append(("<< /Type /Outlines /First %d 0 R /Last %d 0 R /Count %d >>" % (root + 1, root + m, m)).encode())
-        for i, (title, at) in enumerate(entries):
+        for i, (title, at, *rest) in enumerate(entries):
             links = "".join(
                 " /%s %d 0 R" % (k, root + 1 + j) for k, j in (("Prev", i - 1), ("Next", i + 1)) if 0 <= j < m
             )
             # An ASCII title as a literal string, any other as UTF-16BE with its byte order mark (PDF 1.7 §7.9.2.2).
             name = "(%s)" % title if title.isascii() else "<FEFF%s>" % title.encode("utf-16-be").hex().upper()
+            top = rest[0] if rest else 740
+            view = "/Fit" if top is None else "/XYZ 72 %s 0" % top
             objs.append(
-                (
-                    "<< /Title %s /Parent %d 0 R%s /Dest [%d 0 R /XYZ 72 740 0] >>" % (name, root, links, 6 + 2 * at)
-                ).encode("ascii")
+                ("<< /Title %s /Parent %d 0 R%s /Dest [%d 0 R %s] >>" % (name, root, links, 6 + 2 * at, view)).encode(
+                    "ascii"
+                )
             )
     out, offs = bytearray(b"%PDF-1.4\n"), []
     for i, o in enumerate(objs, 1):
@@ -837,8 +840,9 @@ class SearchBase(BrowserBase):
         self.doc = ps.APP.docs[0]
         self.pages_dir = put_build(self.doc, build_dir(self.doc).name, search_pdf(), 3)
 
-    def view(self, dev=DESKTOP, lang="ko", dark=False, init=None):
-        """The viewer on dev, booted, its PDF open and its pages drawn, settled; first-visit hints are pre-seen."""
+    def view(self, dev=DESKTOP, lang="ko", dark=False, init=None, hash_=""):
+        """The viewer on dev, booted, its PDF open and its pages drawn, settled; first-visit hints are pre-seen. hash_ is
+        the address's fragment (#doc=fig opens that document)."""
         prefs = {"coach": {"touch": 1, "mouse": 1, "sel": 1, "side": 1}, "theme": "dark" if dark else "light"}
         context = self.browser.new_context(**dev)
         self.addCleanup(context.close)
@@ -853,7 +857,7 @@ class SearchBase(BrowserBase):
         errors = []
         page.on("pageerror", lambda e: errors.append(str(e)))
         page.route("**/*", self.route)
-        page.goto("http://viewer.test/?lang=%s" % lang)
+        page.goto("http://viewer.test/?lang=%s%s" % (lang, hash_))
         page.wait_for_function(booted(0), timeout=20000)
         page.wait_for_function(PDF_READY, timeout=20000)
         settle(page)
@@ -2978,6 +2982,21 @@ SCROLL_STILL = """() => {const w = window, t = document.querySelector('#left').s
   w.__stillFrames = w.__stillTop === t ? (w.__stillFrames || 0) + 1 : 0; w.__stillTop = t; return w.__stillFrames >= 3;}"""
 
 
+# Picks entry i in the outline and, in the same task - before the smooth scroll it starts has moved the pages at all -
+# does what `how` names: the reader's wheel, a scrolling key or a press on the pages, a new window size, or a second pick
+# (entry 8); then, given `away`, puts page `away`'s top at the top of the pane at once, as the reader's own scroll does.
+PICK_AND = """([i, how, away]) => {
+  const L = document.querySelector('#left'), row = n => document.querySelector('#outline-items button[data-index="' + n + '"]');
+  row(i).click();
+  if (how === 'wheel') L.dispatchEvent(new WheelEvent('wheel', {deltaY: 120, bubbles: true}));
+  if (how === 'key') {document.activeElement.blur(); document.body.dispatchEvent(new KeyboardEvent('keydown', {key: 'PageDown', bubbles: true}));}
+  if (how === 'press') L.dispatchEvent(new PointerEvent('pointerdown', {bubbles: true}));
+  if (how === 'resize') dispatchEvent(new Event('resize'));
+  if (how === 'pick') row(8).click();
+  if (away) L.scrollTop += document.getElementById('p' + away).getBoundingClientRect().top - L.getBoundingClientRect().top;
+}"""
+
+
 class SectionStripOutlineOrder(SearchBase):
     """The section strip and the outline's highlight on a document whose outline is not in page order (issue #279): a
     figure set's outline grouped by status (STATUS_OUTLINE). The strip named the last entry in the outline's order that
@@ -3056,6 +3075,128 @@ class SectionStripOutlineOrder(SearchBase):
         self.assertEqual(page.evaluate(STRIP)[0], "[후보] C6")
         self.scroll_to(page, 5)
         self.assertEqual(page.evaluate(STRIP)[0], "[채택] A5")
+
+    def still(self, page):
+        """Wait until the pages have stopped scrolling and the viewer has answered (its pick wait included)."""
+        page.wait_for_function(SCROLL_STILL)
+        settle(page)
+
+    def test_a_pick_whose_scroll_ends_elsewhere_is_not_named_on_a_later_visit(self):
+        """[후보] A5 (page 5) picked from page 10, and before its scroll gets there the scroll ends on page 8 - the reader
+        scrolled, wheeled, pressed a key or the pages, or the window changed size - or a second pick takes the reader to
+        page 6. Coming to page 5 later by hand, the strip names the page's own entry, [채택] A5: the pick that never got
+        there is gone."""
+        page = self.outlined()
+        for how, away in (("scroll", 8), ("wheel", 8), ("key", 8), ("press", 8), ("resize", 8), ("pick", None)):
+            with self.subTest(how=how):
+                self.scroll_to(page, STATUS_PAGES)
+                page.evaluate(PICK_AND, [7, how, away])
+                self.still(page)
+                self.assertEqual(
+                    page.evaluate(STRIP),
+                    ["[후보] C6" if how == "pick" else "[본문] P2", "%d / %d쪽" % (away or 6, STATUS_PAGES)],
+                )
+                self.scroll_to(page, 5)
+                self.assertEqual(page.evaluate(STRIP)[0], "[채택] A5")
+
+    def test_the_reader_taking_over_lets_go_of_a_pick_on_its_way(self):
+        """[후보] A5 picked from page 10 and, before its scroll has moved, a wheel, a scrolling key or a press on the
+        pages: the reader has taken over, so where the scroll ends - on page 5 here, since these stand-in events do not
+        stop it - the strip names the page's own entry, [채택] A5, not the pick."""
+        page = self.outlined()
+        for how in ("wheel", "key", "press"):
+            with self.subTest(how=how):
+                self.scroll_to(page, STATUS_PAGES)
+                page.evaluate(PICK_AND, [7, how, None])
+                self.still(page)
+                self.assertEqual(page.evaluate(STRIP), ["[채택] A5", "5 / %d쪽" % STATUS_PAGES])
+
+
+# A manuscript's headings inside their pages: 'Foot of page k.' stands at 300pt (its top at 312) on each page of
+# long_pages(4), and two destinations sit low on pages 3 and 4 (90pt from the bottom); page 4 also has an entry for the whole
+# page (Fit). Every entry is (title, page, top in points from the page's bottom or None).
+INSIDE_OUTLINE = [
+    ("Section 1", 1, 740),
+    ("Foot of page 1", 1, 312),
+    ("Section 2", 2, 740),
+    ("Foot of page 2", 2, 312),
+    ("Low on page 3", 3, 90),
+    ("Page 4", 4, None),
+    ("Low on page 4", 4, 90),
+]
+# Where page n's point `top` (in points from its bottom, of 792) is on screen, how far under the top of the document's
+# pane, and the pane's height: read from the page's box, not from the viewer's own numbers.
+UNDER_TOP = """([n, top]) => {const L = document.querySelector('#left').getBoundingClientRect(), r = document.getElementById('p' + n).getBoundingClientRect();
+  return {under: r.top + (1 - top / 792) * r.height - L.top, pane: L.height};}"""
+
+
+class OutlinePickScroll(SearchBase):
+    """Where an outline pick takes the pages (docs/handbook/viewer.md §모바일 레이아웃 under 목차에서 고르기): a heading
+    with a place inside its page to just under the top of the PDF area, a whole-page entry to its page's top."""
+
+    def setUp(self):
+        """The manuscript's build is long_pages(4) with INSIDE_OUTLINE."""
+        super().setUp()
+        put_build(self.doc, build_dir(self.doc).name, search_pdf(long_pages(4), outline=INSIDE_OUTLINE), 4)
+
+    def pick(self, page, i):
+        """Click entry i in the outline and wait until its scroll is over and the viewer has answered."""
+        n = INSIDE_OUTLINE[i][1]
+        page.click('#outline-items button[data-index="%d"]' % i)
+        page.wait_for_function("document.querySelector('#section-page-t').textContent==='%d / 4쪽'" % n)
+        page.wait_for_function(SCROLL_STILL)
+        settle(page)
+
+    def test_a_heading_inside_its_page_lands_just_under_the_top(self):
+        """Picked in a jumbled order from page 4: each heading with a place on its page stands 0-16px under the top of
+        the pane - in view, at the top, not 60-90% down the page or under the pane's bottom as at the page's top - and
+        the strip names it with its page. A heading low on its page stands no lower than the reading line (a quarter of
+        the pane, at most 160px), so that the line still falls on its page; so does one the document's end keeps from
+        rising further. The whole-page entry puts its page's top at the pane's top."""
+        page = self.view()
+        page.wait_for_function("OUTLINE_ENTRIES.length===%d" % len(INSIDE_OUTLINE))
+        settle(page)
+        page.evaluate("document.getElementById('p4').scrollIntoView()")
+        settle(page)
+        for i in (4, 1, 3, 0, 6, 5, 2):
+            title, n, top = INSIDE_OUTLINE[i]
+            with self.subTest(entry=title):
+                self.pick(page, i)
+                at = page.evaluate(UNDER_TOP, [n, 792 if top is None else top])
+                if top is None:
+                    self.assertAlmostEqual(at["under"], 0, delta=1, msg=at)
+                else:
+                    self.assertGreaterEqual(at["under"], 0, at)
+                    self.assertLessEqual(at["under"], 16 if top > 90 else min(160, at["pane"] / 4), at)
+                self.assertEqual(page.evaluate(STRIP), [title, "%d / 4쪽" % n])
+
+
+class OutlinePickFigure(SearchBase):
+    """A figure document's pages are its figures: a pick lands on its page's top even when its destination sits inside
+    the page."""
+
+    def setUp(self):
+        """The manuscript, the figure document and a view-only PDF; the figure's two-page build carries an outline whose
+        destinations sit 60% down their pages."""
+        super().setUp()
+        docs = helpers_figure.viewer_docs(ps.APP, ps.APP.C.src)
+        self.addCleanup(ps.APP.set_docs, None)
+        outline = [("B2 calendar", 1, 312), ("B3 review flow", 2, 312)]
+        put_build(docs[1], helpers_figure.BUILD1, search_pdf(long_pages(2), outline=outline), 2)
+
+    def test_a_pick_lands_on_its_page_s_top(self):
+        """Each figure picked: its page's top at the pane's top, and the strip names it."""
+        page = self.view(hash_="#doc=fig")
+        page.wait_for_function("DOC==='fig'&&OUTLINE_ENTRIES.length===2")
+        settle(page)
+        for i, (title, n) in ((1, ("B3 review flow", 2)), (0, ("B2 calendar", 1))):
+            with self.subTest(entry=title):
+                page.click('#outline-items button[data-index="%d"]' % i)
+                page.wait_for_function("document.querySelector('#section-page-t').textContent==='%d / 2쪽'" % n)
+                page.wait_for_function(SCROLL_STILL)
+                settle(page)
+                self.assertAlmostEqual(page.evaluate(UNDER_TOP, [n, 792])["under"], 0, delta=1)
+                self.assertEqual(page.evaluate(STRIP)[0], title)
 
 
 if __name__ == "__main__":

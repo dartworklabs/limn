@@ -89,15 +89,41 @@ function outlineIndexAt(entries,page,frac){
   let sel=-1; for(const i of on)if(!outranked(i))sel=i;
   return sel;}
 // An entry picked in the outline: it wins on its page from when the scroll it starts gets there until the reader leaves
-// that page. Until then (on the way there) the strip follows the reading line.
-let OUTLINE_PINNED=/** @type {{page:number,index:number,reached:boolean}|null} */(null);
+// that page (`reached`); on the way there the strip follows the reading line. A pick whose scroll ends anywhere else is let
+// go before it is reached, so that a later visit to its page by hand shows that page's own entry: when the reader takes
+// over (a wheel, a touch, a press on the pages or the scroll bar, a scrolling key), when the window changes size, when
+// another pick replaces it, and when the pages have stood still for OUTLINE_PICK_SETTLE_MS short of its page.
+let OUTLINE_PINNED=/** @type {{page:number,index:number,reached:boolean}|null} */(null),OUTLINE_PICK_WAIT=0;
+const OUTLINE_PICK_SETTLE_MS=250;   // a smooth scroll moves the pages every frame; this long without a scroll, it is over
+const OUTLINE_PICK_GAP=8;   // px between the top of the free PDF area and a picked heading
+// Pick entry i of the outline: the strip and the highlight name it, and the pages scroll to it (outlinePickTop).
+function pickOutline(i){const e=OUTLINE_ENTRIES[i]; if(!e)return;
+  OUTLINE_SELECTED=i; OUTLINE_ACTIVE_PAGE=e.page; OUTLINE_PINNED={index:i,page:e.page,reached:false}; outlinePickWait();
+  renderOutline(); updateSectionStrip(); setViewMode('manuscript');
+  const top=outlinePickTop(e); if(top===null)goPage(e.page); else $('#left').scrollTo({top,behavior:SMOOTH});}
+// Where a pick scrolls the pages to, as #left's scrollTop: a heading with a place on its page (an XYZ destination below the
+// page's top) OUTLINE_PICK_GAP under the top of the free PDF area (selPopArea: under the section strip, the instance band
+// or the select mode's bar) - lower when it stands near its page's bottom, so that the reading line (readingDepth) still
+// falls on its page and the strip names it - as far as the pages scroll; null - the page's top, as goPage - for an entry
+// that names a whole page (frac 0) and for every entry of a figure document, whose pages are its figures.
+function outlinePickTop(e){const pg=document.getElementById('p'+e.page),d=docInfo(DOC);
+  if(!pg||!(e.frac>0)||(d&&isFigureKind(d.kind)))return null;
+  const L=$('#left'),r=pg.getBoundingClientRect(),y=r.top+e.frac*r.height,read=L.getBoundingClientRect().top+readingDepth(L);
+  const want=Math.max(selPopArea().top+OUTLINE_PICK_GAP,read+2-(r.bottom-y));
+  return Math.max(0,Math.min(L.scrollHeight-L.clientHeight,Math.round(L.scrollTop+y-want)));}
+// (Re)starts the wait after which a pick still on its way is over (any scroll of the pages restarts it).
+function outlinePickWait(){clearTimeout(OUTLINE_PICK_WAIT); if(OUTLINE_PINNED&&!OUTLINE_PINNED.reached)OUTLINE_PICK_WAIT=setTimeout(dropOutlinePick,OUTLINE_PICK_SETTLE_MS);}
+// Lets go of a pick that has not reached its page; one that has keeps to the end of its page.
+function dropOutlinePick(){clearTimeout(OUTLINE_PICK_WAIT); if(!OUTLINE_PINNED||OUTLINE_PINNED.reached)return; OUTLINE_PINNED=null; updateSectionStrip();}
 // The section strip under the nav bar (the section at the reading line and 'page / pages') and the outline's highlight; mid has no
 // strip, so the same page count also goes to the nav bar's right end (#nav-page) and the phone's position button (drawPos). Both
 // page counts open the page list (openPageList).
+// How far under the top of the PDF pane the reading line is: a quarter of the pane's height, at most 160px.
+function readingDepth(L){return L?Math.min(160,L.clientHeight/4):0;}
 function updateSectionStrip(){
-  const L=$('#left'),probe=L?Math.min(160,L.clientHeight/4):0,anchor=topAnchor(probe),page=anchor?anchor.page:1,frac=anchor?anchor.frac:0;
+  const L=$('#left'),anchor=topAnchor(readingDepth(L)),page=anchor?anchor.page:1,frac=anchor?anchor.frac:0;
   const pin=OUTLINE_PINNED;
-  if(pin&&pin.page===page)pin.reached=true; else if(pin&&pin.reached)OUTLINE_PINNED=null;
+  if(pin&&pin.page===page){pin.reached=true; clearTimeout(OUTLINE_PICK_WAIT);} else if(pin&&pin.reached)OUTLINE_PINNED=null;
   const sel=OUTLINE_PINNED&&OUTLINE_PINNED.page===page?OUTLINE_PINNED.index:outlineIndexAt(OUTLINE_ENTRIES,page,frac);
   if(sel!==OUTLINE_SELECTED||page!==OUTLINE_ACTIVE_PAGE){OUTLINE_ACTIVE_PAGE=page;OUTLINE_SELECTED=sel;renderOutline();}
   const x=OUTLINE_ENTRIES[OUTLINE_SELECTED];$('#section-current').textContent=x?(x.number?x.number+'  ':'')+x.title:tr('원고');
@@ -106,4 +132,12 @@ function updateSectionStrip(){
 }
 $('#outline-search').addEventListener('input',renderOutline);
 $('#ns-outline-search').addEventListener('input',renderOutline);   // the navigation sheet's search filters its list only
-$('#left').addEventListener('scroll',()=>{if(!document.body.classList.contains('revision-open'))requestAnimationFrame(updateSectionStrip);},{passive:true});
+$('#left').addEventListener('scroll',()=>{if(OUTLINE_PINNED&&!OUTLINE_PINNED.reached)outlinePickWait();
+  if(!document.body.classList.contains('revision-open'))requestAnimationFrame(updateSectionStrip);},{passive:true});
+// The reader taking over the pages lets go of a pick still on its way (dropOutlinePick); so does a new size of the window.
+for(const t of ['wheel','touchstart','pointerdown'])$('#left').addEventListener(t,dropOutlinePick,{passive:true});
+// A key scrolls the pages when nothing else has the focus, or something on the pages has it.
+const SCROLL_KEYS=new Set(['ArrowUp','ArrowDown','PageUp','PageDown','Home','End',' ']);
+addEventListener('keydown',e=>{const a=document.activeElement;
+  if(SCROLL_KEYS.has(e.key)&&(!a||a===document.body||$('#left').contains(a)))dropOutlinePick();});
+addEventListener('resize',dropOutlinePick);
