@@ -94,7 +94,7 @@ button.tg[aria-pressed=true]{border-color:var(--border-strong)}
    rounded corners, and an accent line down one side of a rounded box is not a shape this project draws. */
 .xp-row.on{background:color-mix(in srgb,var(--primary) 20%,var(--code))}   /* the band */
 .xp-row.ctx .tx{-webkit-line-clamp:2;color:var(--muted-foreground)}   /* a dimmed neighbour */
-.xp-row.ctx .ln{opacity:.7}
+.xp-row.ctx .ln{color:var(--subtle-foreground)}   /* its number one step dimmer, opaque: an opacity under the hover's --accent fell below 4.5:1 */
 button.xp-row{cursor:pointer;min-width:0;justify-content:stretch}
 @media (hover:hover){button.xp-row:hover{background:var(--accent)}}
 .xp-fold{padding:var(--space-1) var(--space-2) var(--space-1) calc(var(--space-2) + 3ch + var(--space-2));color:var(--muted-foreground);
