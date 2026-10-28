@@ -3253,6 +3253,25 @@ TWO_FRAMES = "() => new Promise(r => requestAnimationFrame(() => requestAnimatio
 # Records the body's band changes from now on in window.__bands (a MutationObserver on body's class: one entry per new band).
 COUNT_BANDS = """() => {const band = () => [...document.body.classList].find(c => c.startsWith('band-')); let last = band(); window.__bands = [];
   new MutationObserver(() => {const b = band(); if (b !== last) {window.__bands.push(b); last = b;}}).observe(document.body, {attributes: true, attributeFilter: ['class']});}"""
+# Gives the note the focus in the task that ends the band's settle wait, ahead of that timer's own check of the focus. The timer is
+# the band's own (the one BAND_T holds, still pending), and window.__settleFocus records whether the wait had not yet taken the
+# window (bandStale: the settled input is still the old size) and which element has the focus then. The focus has to come from
+# inside the page: a call from the test needs a round trip, and on a slow machine that outlasts the 200ms wait, the band has
+# changed by then and the note's focus holds nothing. It is the expiry and not the start of the wait that is hooked: a rotation
+# runs settleBand in two frames in a row, and a focus given in the first one makes the second call keep the band and clear the
+# timer, so the check at the expiry would never run.
+FOCUS_NOTE_AS_THE_SETTLE_WAIT_ENDS = """() => {
+  const set = window.setTimeout; window.__settleFocus = null;
+  window.setTimeout = function (fn, ms, ...args) {
+    const id = set.call(window, function () {
+      if (id === BAND_T && !window.__settleFocus) {
+        const unsettled = bandStale(); document.querySelector('#note').focus();
+        window.__settleFocus = {unsettled, focused: document.activeElement.id};
+      }
+      return fn.apply(this, args);
+    }, ms);
+    return id;
+  };}"""
 
 
 class TouchLayoutBands(ViewerBase):
@@ -3602,15 +3621,20 @@ class TouchLayoutBands(ViewerBase):
 
     def test_a_text_field_focused_during_the_settle_wait_holds_the_band(self):
         """768x1024 rotated with nothing focused: the band waits 200ms. The note gets the focus inside that wait (the timer
-        is pending): when the wait runs out the band still holds, and it changes once the focus leaves."""
+        is pending): when the wait runs out the band still holds, and it changes once the focus leaves. The page itself
+        gives the focus, as the wait ends (FOCUS_NOTE_AS_THE_SETTLE_WAIT_ENDS), so no machine speed decides whether it
+        came inside the wait; the test reads that the band had not settled yet then."""
         page = self.view(touch_device(768, 1024))
         self.compose(page)
         page.evaluate(COUNT_BANDS)
+        page.evaluate(FOCUS_NOTE_AS_THE_SETTLE_WAIT_ENDS)
         page.set_viewport_size({"width": 1024, "height": 768})
-        page.wait_for_function("BAND_T!==0", polling="raf")
-        page.focus("#note")
+        page.wait_for_function("window.__settleFocus !== null")
+        self.assertEqual(page.evaluate("window.__settleFocus"), {"unsettled": True, "focused": "note"})
         settle(page)
-        self.assertEqual(page.evaluate("[BAND, window.__bands]"), ["tablet-sheet", []])
+        self.assertEqual(
+            page.evaluate("[BAND, window.__bands, BAND_T, document.activeElement.id]"), ["tablet-sheet", [], 0, "note"]
+        )
         page.evaluate("document.activeElement.blur()")
         page.wait_for_function("BAND==='mid-side'")
         settle(page)
