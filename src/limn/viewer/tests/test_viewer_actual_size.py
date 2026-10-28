@@ -460,19 +460,25 @@ class ActualSize(BrowserBase):
         self.assertEqual([round(p["w"]) for p in page.evaluate(PAGES)], [704, 704])
 
     def drawn_again_under_the_changes_view(self, device, width):
-        """The figure zoomed to width px, the changes view opened over it and the figure drawn again at other sizes while
-        it is open (same page count: a 600pt page and a 528pt one, the widest grew); then back in the manuscript."""
+        """The figure zoomed to width px and read at 30% down its second page, the changes view opened over it and the
+        figure drawn again at other sizes while it is open (same page count: a 600pt and a 528pt page, the widest grew,
+        and both much taller); then back in the manuscript."""
         self.size_figure((1100, 700), (525, 900))
         page = self.on("fig", **device)
         page.evaluate("w=>zoomTo(w/528)", width)
         k = page.evaluate("K")
         self.assertEqual([round(p["w"]) for p in page.evaluate(PAGES)], [width, round(252 * k)])
+        page.evaluate("""() => {const L = document.querySelector('#left'), p = document.getElementById('p2').getBoundingClientRect();
+          L.scrollTop += p.top - L.getBoundingClientRect().top + 0.3 * p.height;}""")
+        spot = page.evaluate("topAnchor()")
+        self.assertEqual(spot["page"], 2)
+        self.assertAlmostEqual(spot["frac"], 0.3, delta=0.005)
         page.evaluate("setViewMode(VIEW_MODE.REVISIONS)")
         settle(page)
         self.assertFalse(page.evaluate("document.querySelector('#left').getClientRects().length>0"))
         helpers_figure.viewer_rerender(self.fig)
         d = self.fig.dir / helpers_figure.BUILD2
-        for i, size in enumerate(((1250, 700), (1100, 900)), 1):
+        for i, size in enumerate(((1250, 1400), (1100, 1800)), 1):
             (d / ("page-%d.png" % i)).write_bytes(blank_png(*size))
         page.evaluate("async()=>await refreshDoc()")
         settle(page)
@@ -485,17 +491,21 @@ class ActualSize(BrowserBase):
         settle(page)
         self.assertAlmostEqual(page.evaluate("K"), k, places=9)
         self.assertEqual([round(p["w"]) for p in page.evaluate(PAGES)], [round(600 * k), round(528 * k)])
+        back = page.evaluate("topAnchor()")
+        self.assertEqual(back["page"], 2, back)
+        self.assertAlmostEqual(back["frac"], 0.3, delta=0.005, msg=back)
 
     def test_a_figure_drawn_again_while_the_changes_view_is_open_keeps_the_scale(self):
         """The changes view hides the PDF column, which then has no width to fit the scale to: a build with the same
         page count and other page sizes that arrived meanwhile took the scale down to the least the width of nothing
         allows (a page zoomed to 1800px came back 816px at print size). The scale stays, the pages take the new sizes at
-        it, and back in the manuscript the scale is what it was."""
+        it, and back in the manuscript the scale is what it was - and the reading spot too: the page being read and how
+        far down it, not the pixel offset the taller pages made another place."""
         self.drawn_again_under_the_changes_view(DESKTOP, 1800)
 
     def test_a_figure_drawn_again_under_the_changes_view_keeps_the_scale_on_a_phone(self):
         """The same on a phone, whose compact layout re-fits the pages when the column shows again: the zoom the person
-        chose (ZOOMED) is not fitted away."""
+        chose (ZOOMED) is not fitted away, and the reading spot stays."""
         self.drawn_again_under_the_changes_view(PHONE, 1500)
 
     def test_the_page_number_stands_outside_a_narrow_page(self):

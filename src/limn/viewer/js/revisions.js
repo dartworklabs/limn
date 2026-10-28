@@ -104,11 +104,12 @@ function setRevisionFormat(format){REV.format=revisionFormatFor(format,!!REV.ove
 // The mark badges' press areas are measured again as the pages show (markHitSides: marks drawn meanwhile had no boxes).
 function setViewMode(mode){
   const revisions=mode===VIEW_MODE.REVISIONS; if(!revisions&&document.body.classList.contains('revision-open'))leaveRevisions();
+  if(revisions&&!document.body.classList.contains('revision-open'))keepSpot();   // the pages are still drawn: the spot the way back returns to
   document.body.classList.toggle('revision-open',revisions);
   $('#view-manuscript').setAttribute('aria-pressed',String(!revisions));
   $('#view-revisions').setAttribute('aria-pressed',String(revisions));
   if(!revisions)REV.target=null;
-  if(revisions)loadRevisions(); else{++REV.seq;clearRevisionPdf();setRevisionOverlay(null);$('#revision-pin').hidden=true;revTargetActs();boundK();if(VEC.doc)vecSchedule(0);updateSectionStrip();markHitSides();}
+  if(revisions)loadRevisions(); else{++REV.seq;clearRevisionPdf();setRevisionOverlay(null);$('#revision-pin').hidden=true;revTargetActs();boundK();returnToSpot();if(VEC.doc)vecSchedule(0);updateSectionStrip();markHitSides();}
   drawNavView(); drawPos(); searchOffer();   // the changes view has no search
 }
 // Reads the document's recent commits into the changes view. Without history (not Git, a view-only PDF, or no recent commit) the
