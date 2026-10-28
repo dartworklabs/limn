@@ -7,6 +7,8 @@ the in-process server with hand-built PDFs (search_pdf): Latin in
 Helvetica and Hangul in a CID font that only a ToUnicode map names, so PDF.js reads real text without any TeX tool.
 Three fixtures: a three-page PDF with one case per matching rule (PAGES), a fourteen-page PDF with an outline
 (long_pages) for the phone's navigation sheet, and five documents in the nav bar (five_docs) for a crowded bar.
+The section strip over an outline out of page order (SectionStripOutlineOrder, docs/handbook/viewer.md §모바일 레이아웃
+under 지금 절 표시) is here too, because its ten-page PDF (STATUS_OUTLINE) is built by the same search_pdf.
 
 One group stands apart. SearchRealManuscripts builds the LaTeX of search_corpus with latexmk and reads it with the
 vendored PDF.js under node, so the geometry is TeX's own rather than placed by hand, and its answers come from the
@@ -93,12 +95,46 @@ def long_pages(n=N_LONG):
     ]
 
 
+# A figure set's outline grouped by status, as a figure repository writes it (issue #279): the figures in the manuscript
+# first, then the adopted one, then every candidate in page order - so the outline goes back to page 1 after page 9. Page 5
+# is listed twice, as adopted and among the candidates, both at its top. Every entry is (title, page).
+STATUS_PAGES = 10
+STATUS_OUTLINE = [
+    ("[본문] FP1", 3),
+    ("[본문] P2", 8),
+    ("[본문] P4", 9),
+    ("[채택] A5", 5),
+    ("[후보] C1", 1),
+    ("[후보] D4-scale", 2),
+    ("[후보] C4", 4),
+    ("[후보] A5", 5),
+    ("[후보] C6", 6),
+    ("[후보] FP5-three-decisions", 7),
+    ("[후보] C10", 10),
+]
+# What the section strip names on each page while the reader scrolls, stated by hand: the page's own entry; on page 5, of
+# the two at the same spot, the one the outline lists first.
+STATUS_OWN = {
+    1: "[후보] C1",
+    2: "[후보] D4-scale",
+    3: "[본문] FP1",
+    4: "[후보] C4",
+    5: "[채택] A5",
+    6: "[후보] C6",
+    7: "[후보] FP5-three-decisions",
+    8: "[본문] P2",
+    9: "[본문] P4",
+    10: "[후보] C10",
+}
+
+
 def search_pdf(pages=PAGES, outline=False):
     """A PDF of `pages` (the PAGES shape; a line may carry a fourth item, the text matrix's a b c d - (0, 1, -1, 0) runs it
     upward) that PDF.js reads as text: F1 is the standard Helvetica, F2 an unembedded CID
     font whose ToUnicode map gives each code its character, so Hangul - composed or as jamo - and combining marks come
-    back from getTextContent() exactly as written here. With outline, one top-level outline entry per page, named by the
-    page's first line."""
+    back from getTextContent() exactly as written here. With outline True, one top-level outline entry per page, named by the
+    page's first line; outline may instead list the top-level entries in their outline order as (title, page) pairs, each
+    pointing at the top of its page (1-based), in any page order."""
     chars = sorted({c for page in pages for line in page for font, text in line[2] if font == "F2" for c in text})
     cid = {c: i + 1 for i, c in enumerate(chars)}
 
@@ -130,7 +166,10 @@ def search_pdf(pages=PAGES, outline=False):
     n = len(pages)
     root = 8 + 2 * n  # the outline's root object, after the pages and their contents
     kids = " ".join("%d 0 R" % (8 + 2 * i) for i in range(n))
-    catalog = "<< /Type /Catalog /Pages 2 0 R%s >>" % (" /Outlines %d 0 R" % root if outline else "")
+    if outline is True:
+        outline = [("".join(text for _, text in page[0][2]), i + 1) for i, page in enumerate(pages)]
+    entries = list(outline or [])
+    catalog = "<< /Type /Catalog /Pages 2 0 R%s >>" % (" /Outlines %d 0 R" % root if entries else "")
     objs = [
         catalog.encode(),
         ("<< /Type /Pages /Kids [%s] /Count %d >>" % (kids, n)).encode(),
@@ -162,16 +201,18 @@ def search_pdf(pages=PAGES, outline=False):
             ).encode()
         )
         objs.append(stream(body.encode("ascii")))
-    if outline:
-        objs.append(("<< /Type /Outlines /First %d 0 R /Last %d 0 R /Count %d >>" % (root + 1, root + n, n)).encode())
-        for i, page in enumerate(pages):
-            title = "".join(text for _, text in page[0][2])
+    if entries:
+        m = len(entries)
+        objs.append(("<< /Type /Outlines /First %d 0 R /Last %d 0 R /Count %d >>" % (root + 1, root + m, m)).encode())
+        for i, (title, at) in enumerate(entries):
             links = "".join(
-                " /%s %d 0 R" % (k, root + 1 + j) for k, j in (("Prev", i - 1), ("Next", i + 1)) if 0 <= j < n
+                " /%s %d 0 R" % (k, root + 1 + j) for k, j in (("Prev", i - 1), ("Next", i + 1)) if 0 <= j < m
             )
+            # An ASCII title as a literal string, any other as UTF-16BE with its byte order mark (PDF 1.7 §7.9.2.2).
+            name = "(%s)" % title if title.isascii() else "<FEFF%s>" % title.encode("utf-16-be").hex().upper()
             objs.append(
                 (
-                    "<< /Title (%s) /Parent %d 0 R%s /Dest [%d 0 R /XYZ 72 740 0] >>" % (title, root, links, 8 + 2 * i)
+                    "<< /Title %s /Parent %d 0 R%s /Dest [%d 0 R /XYZ 72 740 0] >>" % (name, root, links, 6 + 2 * at)
                 ).encode("ascii")
             )
     out, offs = bytearray(b"%PDF-1.4\n"), []
@@ -2922,6 +2963,65 @@ class SearchAccessible(SearchBase):
         english = self.view(lang="en")
         self.search(english, "tide")
         self.assertEqual(self.said(english), "1 of 7 · page 1")
+
+
+# ---------------------------------------------------------------- the section strip over an outline out of page order
+
+
+# The section strip as drawn: the section's name and the page count.
+STRIP = (
+    "[document.querySelector('#section-current').textContent, document.querySelector('#section-page-t').textContent]"
+)
+
+
+class SectionStripOutlineOrder(SearchBase):
+    """The section strip and the outline's highlight on a document whose outline is not in page order (issue #279): a
+    figure set's outline grouped by status (STATUS_OUTLINE). The strip named the last entry in the outline's order that
+    points at or before the page - page 2's candidate on page 3 - because it took the outline to be in page order."""
+
+    def setUp(self):
+        """The manuscript's build is the ten-page PDF with the status outline."""
+        super().setUp()
+        put_build(
+            self.doc,
+            build_dir(self.doc).name,
+            search_pdf(long_pages(STATUS_PAGES), outline=STATUS_OUTLINE),
+            STATUS_PAGES,
+        )
+
+    def outlined(self):
+        """The viewer on the desktop with the outline read and drawn."""
+        page = self.view()
+        page.wait_for_function("OUTLINE_ENTRIES.length===%d" % len(STATUS_OUTLINE))
+        settle(page)
+        return page
+
+    @staticmethod
+    def scroll_to(page, n, frac=0.0):
+        """Scroll the pane at once, as a wheel or the scroll bar does, so that the point frac of page n's height is at its
+        top; wait until the scroll has been answered."""
+        page.evaluate(
+            """([n, f]) => {const L = document.querySelector('#left'), p = document.getElementById('p' + n).getBoundingClientRect();
+              L.scrollTop += p.top - L.getBoundingClientRect().top + f * p.height;}""",
+            [n, frac],
+        )
+        settle(page)
+
+    def test_scrolling_names_the_entry_of_the_page_being_read(self):
+        """Scrolled to the top and to the middle of each page, down from page 1 and up from page 10, the strip names the
+        page's own entry (STATUS_OWN) - [본문] FP1 on page 3, not page 2's [후보] D4-scale; [본문] P2 on page 8 and [본문]
+        P4 on page 9, not page 7's [후보] FP5-three-decisions - and the outline highlights that entry."""
+        page = self.outlined()
+        for order in (range(1, STATUS_PAGES + 1), range(STATUS_PAGES, 0, -1)):
+            for n in order:
+                for frac in (0.0, 0.5):
+                    with self.subTest(page=n, frac=frac, down=order.start == 1):
+                        self.scroll_to(page, n, frac)
+                        self.assertEqual(page.evaluate(STRIP), [STATUS_OWN[n], "%d / %d쪽" % (n, STATUS_PAGES)])
+                        self.assertEqual(
+                            page.evaluate("document.querySelector('#outline-items .ol-active .ol-name').textContent"),
+                            STATUS_OWN[n],
+                        )
 
 
 if __name__ == "__main__":

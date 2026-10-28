@@ -63,12 +63,25 @@ function outlineList(box,q){const query=String(q||'').trim().toLowerCase();
 // the top edge in PDF points from the bottom; anything else (Fit, no top) counts as the top of the page.
 function destFrac(dest,ptH){const top=Array.isArray(dest)&&dest[1]&&dest[1].name==='XYZ'?dest[3]:null;
   if(typeof top!=='number'||!(ptH>0))return 0; return Math.min(1,Math.max(0,1-top/ptH));}
-// The outline entry the reader is in at (page, frac): the last heading that starts at or above that point. Before the
-// first heading (a title page, the top of page 1) it is the first entry - never a later heading on the same page
-// (v0.2.0 showed "1.2" at the very top of page 1, because 1, 1.1 and 1.2 all start on page 1). -1 without entries.
-function outlineIndexAt(entries,page,frac){let sel=-1;
-  for(let i=0;i<entries.length;i++){const e=entries[i]; if(e.page<page||(e.page===page&&(e.frac||0)<=frac+1e-6))sel=i;}
-  return sel<0&&entries.length?0:sel;}
+// The outline entry the reader is in at (page, frac), from the entries that start at or above that point. The outline's
+// order need not be the pages' order - a figure set's outline grouped by status lists page 3 before page 1 (issue #279) -
+// so the page decides first: the latest page any of them starts on, which is this page when a heading on it starts above
+// the reading line, else the nearest earlier page with an entry. On that page the outline's order is the reading order
+// (a two-column page lists its left column's headings first), so the last of them wins; entries that start at the same
+// spot have no reading order between them, so of those only the deepest counts, and of equally deep ones the first the
+// outline lists. An outline in page order thus gets what it always got: the last heading that starts at or above the
+// point. Before the first heading (a title page, the top of page 1) it is the first entry on the earliest page - never a
+// later heading on the same page (v0.2.0 showed "1.2" at the very top of page 1, because 1, 1.1 and 1.2 all start on
+// page 1). -1 without entries. Pure.
+function outlineIndexAt(entries,page,frac){
+  const at=e=>e.frac||0,deep=e=>e.depth||0,above=e=>e.page<page||(e.page===page&&at(e)<=frac+1e-6);
+  let top=0; for(const e of entries)if(above(e)&&e.page>top)top=e.page;
+  if(!top){let first=-1; entries.forEach((e,i)=>{if(first<0||e.page<entries[first].page)first=i;}); return first;}
+  const on=[]; entries.forEach((e,i)=>{if(e.page===top&&above(e))on.push(i);});
+  const outranked=i=>on.some(j=>{const a=entries[i],b=entries[j];
+    return j!==i&&Math.abs(at(a)-at(b))<=1e-6&&(deep(b)>deep(a)||(deep(b)===deep(a)&&j<i));});
+  let sel=-1; for(const i of on)if(!outranked(i))sel=i;
+  return sel;}
 let OUTLINE_PINNED=/** @type {{page:number,index:number}|null} */(null);   // an entry picked in the outline wins until the reader leaves its page
 // The section strip under the nav bar (the section at the reading line and 'page / pages') and the outline's highlight; mid has no
 // strip, so the same page count also goes to the nav bar's right end (#nav-page) and the phone's position button (drawPos). Both
