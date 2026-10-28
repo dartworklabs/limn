@@ -5589,11 +5589,29 @@ class SectionStrip(unittest.TestCase):
         js = "const E=%s;console.log(JSON.stringify([0.05,0.3,0.7].map(f=>E[outlineIndexAt(E,2,f)].title)))"
         self.assertEqual(self.run_js(js % json.dumps(entries)), ["1", "2.1", "2.1"])
 
+    def test_two_headings_at_one_height_in_two_columns_are_two_spots(self):
+        """A two-column page with 2.1 at the top of the left column (x 72) and 2.2 at the same height at the top of the
+        right one (x 320), both at depth 1: they are two spots, so below both the later in the outline, 2.2, is the
+        current one - as it always was - not the first at a shared spot. The same height at the same left edge, or with
+        no left edge on either (Fit), is one spot, where the first listed stands."""
+        entries = [
+            {"title": "2", "page": 2, "frac": 0.05, "x": 72, "depth": 0},
+            {"title": "2.1", "page": 2, "frac": 0.1, "x": 72, "depth": 1},
+            {"title": "2.2", "page": 2, "frac": 0.1, "x": 320, "depth": 1},
+        ]
+        same = [dict(e, x=72) for e in entries]
+        fit = [{k: v for k, v in e.items() if k != "x"} for e in entries]
+        js = "const R=E=>E[outlineIndexAt(E,2,0.5)].title;console.log(JSON.stringify([R(%s),R(%s),R(%s)]))"
+        self.assertEqual(
+            self.run_js(js % (json.dumps(entries), json.dumps(same), json.dumps(fit))), ["2.2", "2.1", "2.1"]
+        )
+
     def test_an_outline_in_page_order_gets_what_it_always_got(self):
         """Outlines in page order as LaTeX writes them - each heading at its own spot, in any order down a page (two
-        columns), and now and then a deeper heading at the very spot of the one before it - at every page and at a
-        grid of points plus every heading's own start: the strip's entry is the one the rule before issue #279 gave,
-        stated here independently - the last entry in the outline that starts at or above the point, else the first."""
+        columns, where two headings may stand at one height, one per column), and now and then a deeper heading at the
+        very spot of the one before it - at every page and at a grid of points plus every heading's own start: the
+        strip's entry is the one the rule before issue #279 gave, stated here independently - the last entry in the
+        outline that starts at or above the point, else the first."""
 
         def before(entries, page, frac):
             """The rule before issue #279."""
@@ -5608,11 +5626,12 @@ class SectionStrip(unittest.TestCase):
         for _ in range(400):
             pages, entries = rng.randint(1, 6), []
             for p in range(1, pages + 1):
-                for frac in rng.sample([k / 20 for k in range(20)], rng.randint(0, 3)):
+                spots = [(k / 20, x) for k in range(20) for x in (72.0, 320.0)]  # a height in either column
+                for frac, x in rng.sample(spots, rng.randint(0, 4)):
                     depth = rng.randint(0, 2)
-                    entries.append({"page": p, "frac": frac, "depth": depth})
+                    entries.append({"page": p, "frac": frac, "x": x, "depth": depth})
                     if rng.random() < 0.3:
-                        entries.append({"page": p, "frac": frac, "depth": depth + 1})
+                        entries.append({"page": p, "frac": frac, "x": x, "depth": depth + 1})
             probes = [
                 [p, f]
                 for p in range(1, pages + 2)

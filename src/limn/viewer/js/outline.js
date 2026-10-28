@@ -7,7 +7,7 @@ async function loadOutline(doc,gen){
       if(Array.isArray(dest)&&dest[0]!=null){
         const page=typeof dest[0]==='number'?dest[0]+1:(await doc.getPageIndex(dest[0]))+1;
         const ptH=META&&META.pages&&META.pages[page-1]?+META.pages[page-1].pt_h:0;
-        if(Number.isInteger(page)&&page>=1&&page<=doc.numPages)entries.push({title:item.title||tr('제목 없음'),page,depth,frac:destFrac(dest,ptH)});
+        if(Number.isInteger(page)&&page>=1&&page<=doc.numPages)entries.push({title:item.title||tr('제목 없음'),page,depth,frac:destFrac(dest,ptH),x:destLeft(dest)});
       }
       if(depth<4)await walk(item.items,depth+1);
     }}
@@ -63,23 +63,29 @@ function outlineList(box,q){const query=String(q||'').trim().toLowerCase();
 // the top edge in PDF points from the bottom; anything else (Fit, no top) counts as the top of the page.
 function destFrac(dest,ptH){const top=Array.isArray(dest)&&dest[1]&&dest[1].name==='XYZ'?dest[3]:null;
   if(typeof top!=='number'||!(ptH>0))return 0; return Math.min(1,Math.max(0,1-top/ptH));}
+// The left edge of an XYZ destination in PDF points, or null (Fit, no left): two headings at the same height in a page's two
+// columns are two spots, not one.
+function destLeft(dest){const left=Array.isArray(dest)&&dest[1]&&dest[1].name==='XYZ'?dest[2]:null; return typeof left==='number'?left:null;}
 // The outline entry the reader is in at (page, frac), from the entries that start at or above that point. The outline's
 // order need not be the pages' order - a figure set's outline grouped by status lists page 3 before page 1 (issue #279) -
 // so the page decides first: the latest page any of them starts on, which is this page when a heading on it starts above
 // the reading line, else the nearest earlier page with an entry. On that page the outline's order is the reading order
 // (a two-column page lists its left column's headings first), so the last of them wins; entries that start at the same
-// spot have no reading order between them, so of those only the deepest counts, and of equally deep ones the first the
-// outline lists. An outline in page order thus gets what it always got: the last heading that starts at or above the
-// point. Before the first heading (a title page, the top of page 1) it is the first entry on the earliest page - never a
-// later heading on the same page (v0.2.0 showed "1.2" at the very top of page 1, because 1, 1.1 and 1.2 all start on
-// page 1). -1 without entries. Pure.
+// spot - the same height and the same left edge (destLeft), as a group heading and its first figure at a page's top - have
+// no reading order between them, so of those only the deepest counts, and of equally deep ones the first the outline
+// lists. An outline in page order thus gets what it always got: the last heading that starts at or above the point.
+// Before the first heading (a title page, the top of page 1) it is the first entry on the earliest page - never a later
+// heading on the same page (v0.2.0 showed "1.2" at the very top of page 1, because 1, 1.1 and 1.2 all start on page 1).
+// -1 without entries. Pure.
 function outlineIndexAt(entries,page,frac){
   const at=e=>e.frac||0,deep=e=>e.depth||0,above=e=>e.page<page||(e.page===page&&at(e)<=frac+1e-6);
+  const x=e=>typeof e.x==='number'?e.x:null,sameX=(a,b)=>x(a)===null||x(b)===null?x(a)===x(b):Math.abs(x(a)-x(b))<=1e-3;
+  const same=(a,b)=>Math.abs(at(a)-at(b))<=1e-6&&sameX(a,b);
   let top=0; for(const e of entries)if(above(e)&&e.page>top)top=e.page;
   if(!top){let first=-1; entries.forEach((e,i)=>{if(first<0||e.page<entries[first].page)first=i;}); return first;}
   const on=[]; entries.forEach((e,i)=>{if(e.page===top&&above(e))on.push(i);});
   const outranked=i=>on.some(j=>{const a=entries[i],b=entries[j];
-    return j!==i&&Math.abs(at(a)-at(b))<=1e-6&&(deep(b)>deep(a)||(deep(b)===deep(a)&&j<i));});
+    return j!==i&&same(a,b)&&(deep(b)>deep(a)||(deep(b)===deep(a)&&j<i));});
   let sel=-1; for(const i of on)if(!outranked(i))sel=i;
   return sel;}
 // An entry picked in the outline: it wins on its page from when the scroll it starts gets there until the reader leaves
