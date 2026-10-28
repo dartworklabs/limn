@@ -549,11 +549,11 @@ class ActualSize(BrowserBase):
         touch("touchEnd", [])
         page.wait_for_function("id=>!!document.querySelector('.pin.card.cur[data-id=\"'+id+'\"]')", arg=pid)
 
-    def badge_pin(self):
-        """A pin on the figure's narrow page 2, drawn at the page's left edge; returns its id."""
+    def badge_pin(self, y=0.3):
+        """A pin on the figure's narrow page 2, y down the page and drawn at the page's left edge; returns its id."""
         script = str(self.fig.src / "src" / "B2_calendar.py")
         return add_pin(
-            {"doc": "fig", "file": script, "lo": 1, "hi": 10, "page": 2, "frac": [0.1, 0.3, 0.3, 0.1], "note": "n"},
+            {"doc": "fig", "file": script, "lo": 1, "hi": 10, "page": 2, "frac": [0.1, y, 0.3, 0.1], "note": "n"},
             ALICE,
         ).record["id"]
 
@@ -561,40 +561,81 @@ class ActualSize(BrowserBase):
         """Whether pin pid's card is the current one in the panel."""
         return page.evaluate("id=>!!document.querySelector('.pin.card.cur[data-id=\"'+id+'\"]')", pid)
 
+    def badge_at(self, page, pid):
+        """Where pin pid's badge on page 2 is: its centre, and a point on its press area inside the page."""
+        return page.evaluate(
+            """id => {const p = document.getElementById('p2').getBoundingClientRect(),
+              b = document.querySelector('#p2 .mark-jump[data-id="' + id + '"]').getBoundingClientRect(), y = b.top + b.height / 2;
+              const e = document.elementFromPoint(p.left + 4, y);
+              return {press: [p.left + 4, y], badge: [b.left + b.width / 2, y], on: !!(e && e.closest('.mark-jump'))};}""",
+            pid,
+        )
+
+    def long_badge_drag(self, page, kind, pid, back=False):
+        """In [선택] mode on a phone: a pen or finger (kind) presses in pin pid's badge press area, moves, holds past 500ms of
+        the page's clock - paused here, so the hold is the input's timing and not a wait for the page - and lets go on the
+        badge: at its centre, which draws a box and asks for its lines, or with back where it pressed, which draws none (a
+        box too small to be one is a click) and leaves the page as it was. Leaves the clock paused and the select mode on;
+        returns the pointer's CDP session."""
+        page.evaluate("document.getElementById('p2').scrollIntoView({block:'center'})")
+        page.evaluate("setSelMode(true)")
+        settle(page)
+        at = self.badge_at(page, pid)
+        self.assertTrue(at["on"], "the press point is not on the badge's press area: %s" % at)
+        cdp = page.context.new_cdp_session(page)
+        page.clock.install()
+        page.clock.pause_at(time.time() * 1000 + 1000)
+        send_pointer(cdp, kind, "down", *at["press"])
+        for i in range(1, 6):
+            send_pointer(cdp, kind, "move", at["press"][0] + 12 * i, at["press"][1] + 8 * i)
+        page.wait_for_function("!!document.querySelector('#p2 .sel')")
+        page.clock.run_for(500)  # the drag has outlasted the 400ms the badge's click used to be held off
+        end = tuple(at["press"] if back else at["badge"])
+        for x, y in ((at["press"][0] + 30, at["press"][1] + 20), end):
+            send_pointer(cdp, kind, "move", x, y)
+        time.sleep(
+            0.15
+        )  # the finger comes to rest: a release at speed starts a fling, and Chromium sends no tap during one
+        send_pointer(cdp, kind, "move", *end)
+        send_pointer(cdp, kind, "up", *end)
+        return cdp
+
     def test_a_long_drag_from_a_badges_press_area_never_ends_in_the_badges_click(self):
         """In [선택] mode a pen or a finger that lands in a badge's 44px press area draws a box once it moves, and the
         badge's click must not follow it however long the drag lasted. The click came 400ms after the drag began and no
-        later: a stylus that held the drag past that and let go on the badge opened its card as well as drawing the box.
-        The page clock is paused and moved on 500ms between the press and the release - the press-and-hold is the
-        input's timing, not a wait for the page."""
+        later: a stylus that held the drag past that and let go on the badge opened its card as well as drawing the box."""
         self.size_figure((1100, 700), (525, 900))
         pid = self.badge_pin()
         for kind in ("pen", "touch"):
             with self.subTest(pointer=kind):
                 page = self.on("fig", **PHONE)
-                page.evaluate("document.getElementById('p2').scrollIntoView({block:'center'})")
-                page.evaluate("setSelMode(true)")
-                settle(page)
-                at = page.evaluate("""() => {const p = document.getElementById('p2').getBoundingClientRect(),
-                  b = document.querySelector('#p2 .mark-jump').getBoundingClientRect(), y = b.top + b.height / 2;
-                  const e = document.elementFromPoint(p.left + 4, y);
-                  return {press: [p.left + 4, y], badge: [b.left + b.width / 2, y], on: !!(e && e.closest('.mark-jump'))};}""")
-                self.assertTrue(at["on"], "the press point is not on the badge's press area: %s" % at)
-                cdp = page.context.new_cdp_session(page)
-
-                page.clock.install()
-                page.clock.pause_at(time.time() * 1000 + 1000)
-                send_pointer(cdp, kind, "down", *at["press"])
-                for i in range(1, 6):
-                    send_pointer(cdp, kind, "move", at["press"][0] + 12 * i, at["press"][1] + 8 * i)
-                page.wait_for_function("!!document.querySelector('#p2 .sel')")
-                page.clock.run_for(500)  # the drag has outlasted the 400ms the badge's click used to be held off
-                for x, y in ((at["press"][0] + 30, at["press"][1] + 20), tuple(at["badge"])):
-                    send_pointer(cdp, kind, "move", x, y)
-                send_pointer(cdp, kind, "up", *at["badge"])
+                self.long_badge_drag(page, kind, pid)
                 page.clock.run_for(1000)  # every short timer the drag left runs now, for settle()
                 nothing_follows(page, 100)  # the click a browser sends after the release, if it sends one
                 self.assertFalse(self.card_opened(page, pid), "the release clicked through to the badge")
+
+    def test_a_tap_on_another_badge_soon_after_a_badge_drag_still_opens_its_card(self):
+        """The hold on a badge's click is armed at the release of a drag from its press area, but only a pen's drag is
+        followed by a click: a finger's is not, and its hold stayed armed for 400ms and swallowed the next tap, on another
+        badge. A press that begins retires it, so a tap on the second badge 100ms and 300ms after the drag opens its card -
+        and the pen's own trailing click on the first badge is still eaten."""
+        self.size_figure((1100, 700), (525, 900))
+        first, second = self.badge_pin(0.1), self.badge_pin(0.7)
+        for kind in ("pen", "touch"):
+            for gap in (100, 300):
+                with self.subTest(pointer=kind, gap=gap):
+                    page = self.on("fig", **PHONE)
+                    cdp = self.long_badge_drag(page, kind, first, back=True)
+                    # A pen's release over the badge is followed by a click at once; it is eaten, before any tap.
+                    self.assertFalse(self.card_opened(page, first), "the release clicked through to the first badge")
+                    page.clock.run_for(gap)  # the viewer's time since the release
+                    x, y = self.badge_at(page, second)["badge"]
+                    send_pointer(cdp, kind, "down", x, y)
+                    send_pointer(cdp, kind, "up", x, y)
+                    page.clock.run_for(1000)
+                    page.wait_for_function(
+                        "id=>!!document.querySelector('.pin.card.cur[data-id=\"'+id+'\"]')", arg=second
+                    )
 
     def test_a_tap_on_a_badge_still_opens_its_card_with_a_mouse_and_a_finger_in_or_out_of_select_mode(self):
         """A press that does not move is the badge's: a mouse (the select mode leaves the badge to it) and a finger

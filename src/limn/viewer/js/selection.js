@@ -28,6 +28,11 @@ $('#doc').addEventListener('mousedown',e=>{if(e.button===0&&e.target.closest('.p
 // LP_PICKED = the pointer whose long-press already picked. TAP/LAST_TAP = double-tap zoom (touch, outside [선택] mode).
 let LP_PICKED=/** @type {number|null} */(null),TAP=/** @type {{id:number,x:number,y:number,t:number}|null} */(null),
   LAST_TAP=/** @type {{t:number,x:number,y:number}|null} */(null);
+// BADGE_HOLD = the SWALLOW_CLICK a drag from a badge armed at its release (0 for none). A pen's drag is followed by a click, but a
+// finger's is not, so the hold would outlive the gesture and swallow the next tap, on another badge: the next press retires it (a
+// click always comes before the next press) - unless another hold has taken SWALLOW_CLICK over since, which is not this one's to end.
+let BADGE_HOLD=0;
+window.addEventListener('pointerdown',()=>{if(SWALLOW_CLICK===BADGE_HOLD)SWALLOW_CLICK=0; BADGE_HOLD=0;},true);
 // A finger in [선택] mode that lands on a pin's number badge - its 44px press area reaches over the page's text - still starts a
 // box (DRAG.badge) once it moves: on a small page the badges' areas covered much of its left edge and no drag could start
 // there. A tap stays the badge's (its click), and a mouse or a finger outside the mode leaves the badge alone as before.
@@ -63,7 +68,7 @@ window.addEventListener('pointerup',e=>{
   if(!DRAG||e.pointerId!==DRAG.id)return;
   const D=DRAG; DRAG=null;
   if(!D.box){if(D.badge)return; quickPick(D.pg,e.clientX,e.clientY); SWALLOW_CLICK=Date.now()+400; return;}   // a tap in selection mode = quick selection (on a badge, the badge's)
-  if(D.badge)SWALLOW_CLICK=Date.now()+400;   // a drag from a badge is a box, never the badge's click as well - held off from its release, which the click follows, however long the drag ran
+  if(D.badge)SWALLOW_CLICK=BADGE_HOLD=Date.now()+400;   // a drag from a badge is a box, never the badge's click as well - held off from its release, which the click follows, however long the drag ran
   const [x,y]=fracAt(D.pg,e.clientX,e.clientY);
   if(!finishRect(D.pg,D.box,D.sx,D.sy,x,y)&&off&&off.mouse)clickOffNow(off.box);});   // too small for a box: a click
 window.addEventListener('pointercancel',e=>{if(PRESS_OFF&&PRESS_OFF.id===e.pointerId)PRESS_OFF=null; if(LP&&e.pointerId===LP.id)cancelLP(); if(DRAG&&e.pointerId===DRAG.id)cancelDrag();
