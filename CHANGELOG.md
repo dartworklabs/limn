@@ -8,9 +8,11 @@ Viewer only: the agent contract and `pins.md` are unchanged.
 
 - **Small secondary text reads better in the dark theme.** The dark theme's muted text (`--muted-foreground`) is now
   `#b3b3ba` and its subtle text (`--subtle-foreground`) `#9a9aa3`, so relative times, names, page numbers and the
-  neutral badges (`이전 판정 · #4로 대체됨`, `보기 전용`) read at 4.8:1 or more on every surface they sit on - 7.2:1 on
-  a badge (was 5.8) and 8.9:1 on a card (was 7.2); the subtle text read 4.0:1 under a commit row's hover. Foreground,
-  muted and subtle stay three distinct steps. The light theme is unchanged.
+  neutral badges (`이전 판정 · #4로 대체됨`, `보기 전용`) read at 4.8:1 or more on every surface they sit on at full
+  strength - 7.2:1 on a badge (was 5.8) and 8.9:1 on a card (was 7.2); the subtle text read 4.0:1 under a commit row's
+  hover. Foreground, muted and subtle stay three distinct steps. The light theme is unchanged. Still short of 4.5:1:
+  the excerpt's context line numbers, which dim the muted text to 70% (4.0:1 under a dark hover), and the light
+  theme's subtle text under a hover (3.8:1) - #277.
 
 ## 0.4.28 — 2026-10-28
 
