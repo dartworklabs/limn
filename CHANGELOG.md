@@ -49,13 +49,18 @@ status 3 when an instance did not come back.
 
 ### Internal
 
-- **A contrast test that reads the page as drawn** (#277). `RenderedSecondaryContrast` opens the cards, done and
-  trash rows, notices, the composer's excerpt and the changes view's commit list and diffs on a desktop (with real
-  hovers and keyboard focus) and a phone, in both themes, composites each text's colour with the backgrounds and
-  opacities under it, and holds small text to 4.5:1. Every rule that sets text in the muted or subtle colour or sets
-  an opacity is either used by text it reads or listed with a reason (and its colour checked on the plain surfaces),
-  so a new one fails the test until classified. `FrontendColourRoles`' token pairs cover the light theme and the pin's
-  diff row too.
+- **A contrast test that reads the page as drawn** (#277). `RenderedSecondaryContrast` serves the manuscript, the
+  figure, the reviewer's PDF and six more documents, an outlined PDF and verdict words, and opens - on a desktop (real
+  hovers and keyboard focus) and a phone, plus the list on an unfolded foldable, in both themes - the cards, done and
+  trash rows, notices, the outline, the documents bar and its popover, the navigation sheet, search, the composer's
+  excerpt, verdict row and suggested edit on each kind of document, the page verdict lines and the changes view's
+  commit list and diffs. It reads text nodes, an SVG text's fill, `::before`/`::after` text and fields' values and
+  placeholders, composites each colour with the backgrounds and opacities under it, and holds small text to 4.5:1;
+  text over a gradient, an image, a mask, a filter or a blend fails unless listed. Every rule that sets text in the
+  muted or subtle colour (also through custom properties) or sets an opacity is either used by text it reads or
+  listed with a reason (and its colour, with its selector's opacity, checked on the plain surfaces), so a new one
+  fails the test until classified. `FrontendColourRoles`' token pairs cover the light theme and the pin's diff row
+  too.
 
 ## 0.4.30 — 2026-10-28
 
