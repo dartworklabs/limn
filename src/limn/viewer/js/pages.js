@@ -55,13 +55,10 @@ function drawZoom(){const t=zoomPct(K)+'%',z=$('#m-zoom'); if(z)z.textContent=t;
 // The saved scale of the document on screen (wide only), or null: a figure document keeps its zoom against the print size
 // (pinPrefs.figZoom), since print size is what a figure is checked at; any other document the widest page's width in px
 // (pinPrefs.w), as it always has - one value for every LaTeX and view-only document.
-// A browser that saved a page width before figure documents had their own setting (figFromW, kept once at the first start of
-// this release, prefs.js) gives it to them on the first figure document: the zoom at which its common page is as wide as
-// every page was then.
+// A page width saved before this release (w) was set while reading a manuscript: a figure document never takes it, and opens
+// at its own default (openScale) until a zoom is chosen on it.
 function savedK(){const p=prefs();
-  if(isFigureKind(META.kind)){if(typeof p.figZoom==='number'&&p.figZoom>0)return p.figZoom*PT_PX;
-    if(typeof p.figFromW!=='number'||!(p.figFromW>0))return null;
-    const z=Math.round(p.figFromW/ptCommon()/PT_PX*1e4)/1e4; dropPref('figFromW'); savePrefs({figZoom:z}); return z*PT_PX;}
+  if(isFigureKind(META.kind))return typeof p.figZoom==='number'&&p.figZoom>0?p.figZoom*PT_PX:null;
   return typeof p.w==='number'&&p.w>0?p.w/ptMax():null;}
 function saveK(){if(isFigureKind(META.kind))savePrefs({figZoom:Math.round(K/PT_PX*1e4)/1e4}); else savePrefs({w:pageWidth(ptMax(),K)});}
 // The scale a document opens at with nothing saved, for its most common and its widest page width (points) and the fitted

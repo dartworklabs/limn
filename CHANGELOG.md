@@ -32,8 +32,8 @@ width it saved (`pinPrefs.w`) and ignores the figure documents' new settings.
   area - a rare wider page (a graphical abstract) scrolls sideways - else with that common page fitted. A zoom chosen on
   a desktop is kept per kind of document: figure documents keep their zoom against the printed size
   (`pinPrefs.figZoom`), LaTeX and view-only documents their page width as before - so zooming the manuscript no longer
-  decides how a figure opens. A page width saved before this release carries over once to the first figure document,
-  at the zoom that keeps its common page as wide as before.
+  decides how a figure opens. A page width saved before this release was set on the manuscript: it stays the
+  manuscript's, and a figure document opens at its own default.
 - **In [선택] mode a drag that starts on a pin badge's press area over the page draws a box.** On a small page the
   badges' 44px areas covered much of its left edge and no drag could start there; a tap on a badge still opens its card.
 

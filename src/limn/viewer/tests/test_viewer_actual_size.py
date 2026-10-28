@@ -291,26 +291,23 @@ class ActualSize(BrowserBase):
         self.assertEqual([p["w"] for p in page.evaluate(PAGES)], [96, 96])
         self.assertEqual(page.evaluate("document.querySelector('#btn-actual').textContent.trim()"), "100%")
 
-    def test_a_page_width_saved_before_this_release_carries_over_to_figures_once(self):
-        """A browser that saved a 900px page width before figure documents had their own setting opens the figure with
-        its common page 900px wide (figZoom seeded once from it); the manuscript keeps its 900px. A width saved after the
-        first start of this release is the manuscript's alone: the figure opens at print size."""
+    def test_a_page_width_saved_before_this_release_is_the_manuscripts_alone(self):
+        """A browser that saved a 900px page width before figure documents had their own setting - set while reading the
+        manuscript - opens the figure at its own default (print size, its common page fitting) and saves nothing for it;
+        the manuscript keeps its 900px."""
         self.size_figure((1100, 700), (525, 900))
         legacy = "try{localStorage.setItem('pinPrefs',JSON.stringify({w:900,coach:{touch:1,mouse:1,sel:1}}))}catch(e){}"
         page = self.on(
             "fig", init="if(!sessionStorage.getItem('seeded')){sessionStorage.setItem('seeded','1');" + legacy + "}"
         )
-        self.assertEqual([p["w"] for p in page.evaluate(PAGES)], [900, round(252 * 900 / 528)])
+        self.assertAlmostEqual(page.evaluate("K"), PT_PX, places=6)
+        self.assertEqual([p["w"] for p in page.evaluate(PAGES)], [704, 336])
         prefs = page.evaluate("prefs()")
-        self.assertAlmostEqual(prefs["figZoom"], round(900 / 528 / PT_PX, 4), places=4)
-        self.assertEqual((prefs["w"], prefs.get("figSeeded"), "figFromW" in prefs), (900, 1, False))
+        self.assertEqual(prefs["w"], 900)
+        self.assertNotIn("figZoom", prefs)
         page.evaluate("async()=>await switchDoc('ms')")
         page.wait_for_function("DOC==='ms'&&document.querySelector('#p2')")
         self.assertEqual({p["w"] for p in page.evaluate(PAGES)}, {900})
-        later = "try{localStorage.setItem('pinPrefs',JSON.stringify({w:900,figSeeded:1,coach:{touch:1,mouse:1,sel:1}}))}catch(e){}"
-        fresh = self.on("fig", init=later)
-        self.assertAlmostEqual(fresh.evaluate("K"), PT_PX, places=6)
-        self.assertNotIn("figZoom", fresh.evaluate("prefs()"))
 
     def test_100_is_in_the_zoom_row_of_more_on_every_band(self):
         """[더보기]'s zoom row has [100%] before [↔] on the desktop, the unfolded foldable and the phone; on touch it answers
