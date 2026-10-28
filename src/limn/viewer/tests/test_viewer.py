@@ -13,6 +13,7 @@ Run: uv run pytest src/limn/viewer/tests/test_viewer.py
 
 import base64
 import json
+import random
 import re
 import shutil
 import unittest
@@ -5525,6 +5526,123 @@ class SectionStrip(unittest.TestCase):
             % json.dumps(entries)
         )
         self.assertEqual(self.run_js(js), [0, 1, 2, 2, 3, 4, -1])
+
+    def test_an_outline_out_of_page_order_names_the_page_s_own_entry(self):
+        """A figure set's outline grouped by status (issue #279): group headings at depth 0, each pointing at its first
+        figure's page, and the figures under them, all at the top of their pages (frac 0, a Fit destination). The
+        manuscript's figures (pages 3, 8, 9) come first, then the adopted one (5), then every candidate (1, 2, 4, 5, 6,
+        7, 10). On each page the strip names that page's figure, not the last entry the outline lists at or before the
+        page (page 2's D4-scale on page 3, page 7's FP5 on pages 8 and 9); a group heading at the same spot as its figure
+        gives way to the deeper figure; page 5's two figures, equally deep at the same spot, give the one listed first."""
+        entries = [
+            {"title": "본문", "page": 3, "depth": 0},
+            {"title": "FP1", "page": 3, "depth": 1},
+            {"title": "P2", "page": 8, "depth": 1},
+            {"title": "P4", "page": 9, "depth": 1},
+            {"title": "채택", "page": 5, "depth": 0},
+            {"title": "A5 adopted", "page": 5, "depth": 1},
+            {"title": "후보", "page": 1, "depth": 0},
+            {"title": "C1", "page": 1, "depth": 1},
+            {"title": "D4-scale", "page": 2, "depth": 1},
+            {"title": "C4", "page": 4, "depth": 1},
+            {"title": "A5 candidate", "page": 5, "depth": 1},
+            {"title": "C6", "page": 6, "depth": 1},
+            {"title": "FP5-three-decisions", "page": 7, "depth": 1},
+            {"title": "C10", "page": 10, "depth": 1},
+        ]
+        for e in entries:
+            e["frac"] = 0
+        js = "const E=%s;console.log(JSON.stringify([1,2,3,4,5,6,7,8,9,10].map(p=>E[outlineIndexAt(E,p,0.15)].title)))"
+        self.assertEqual(
+            self.run_js(js % json.dumps(entries)),
+            ["C1", "D4-scale", "FP1", "C4", "A5 adopted", "C6", "FP5-three-decisions", "P2", "P4", "C10"],
+        )
+
+    def test_the_page_comes_before_the_outline_order(self):
+        """Without an entry on the page, or with the page's only heading still below the reading line, the strip names
+        the entry on the nearest earlier page, wherever the outline lists it; before every heading it names the first
+        entry on the earliest page."""
+        entries = [
+            {"title": "late", "page": 4, "frac": 0.5},
+            {"title": "early", "page": 2, "frac": 0.2},
+            {"title": "early too", "page": 2, "frac": 0.1},
+            {"title": "middle", "page": 3, "frac": 0.3},
+        ]
+        js = (
+            "const E=%s;console.log(JSON.stringify([[2,0.05],[2,0.15],[2,0.3],[3,0.2],[3,0.4],[4,0.1],[4,0.6],[6,0]]"
+            ".map(([p,f])=>E[outlineIndexAt(E,p,f)].title)))"
+        )
+        self.assertEqual(
+            self.run_js(js % json.dumps(entries)),
+            ["early", "early too", "early too", "early too", "middle", "middle", "late", "late"],
+        )
+
+    def test_on_one_page_the_outline_order_is_the_reading_order(self):
+        """A two-column page lists its left column's headings first: section 2 starts low in the left column (0.6),
+        2.1 high in the right one (0.1). Below both starts the strip names 2.1, the later in the outline - not the
+        heading that starts lowest on the page - as it always did."""
+        entries = [
+            {"title": "1", "page": 1, "frac": 0.1, "depth": 0},
+            {"title": "2", "page": 2, "frac": 0.6, "depth": 0},
+            {"title": "2.1", "page": 2, "frac": 0.1, "depth": 1},
+        ]
+        js = "const E=%s;console.log(JSON.stringify([0.05,0.3,0.7].map(f=>E[outlineIndexAt(E,2,f)].title)))"
+        self.assertEqual(self.run_js(js % json.dumps(entries)), ["1", "2.1", "2.1"])
+
+    def test_two_headings_at_one_height_in_two_columns_are_two_spots(self):
+        """A two-column page with 2.1 at the top of the left column (x 72) and 2.2 at the same height at the top of the
+        right one (x 320), both at depth 1: they are two spots, so below both the later in the outline, 2.2, is the
+        current one - as it always was - not the first at a shared spot. The same height at the same left edge, or with
+        no left edge on either (Fit), is one spot, where the first listed stands."""
+        entries = [
+            {"title": "2", "page": 2, "frac": 0.05, "x": 72, "depth": 0},
+            {"title": "2.1", "page": 2, "frac": 0.1, "x": 72, "depth": 1},
+            {"title": "2.2", "page": 2, "frac": 0.1, "x": 320, "depth": 1},
+        ]
+        same = [dict(e, x=72) for e in entries]
+        fit = [{k: v for k, v in e.items() if k != "x"} for e in entries]
+        js = "const R=E=>E[outlineIndexAt(E,2,0.5)].title;console.log(JSON.stringify([R(%s),R(%s),R(%s)]))"
+        self.assertEqual(
+            self.run_js(js % (json.dumps(entries), json.dumps(same), json.dumps(fit))), ["2.2", "2.1", "2.1"]
+        )
+
+    def test_an_outline_in_page_order_gets_what_it_always_got(self):
+        """Outlines in page order as LaTeX writes them - each heading at its own spot, in any order down a page (two
+        columns, where two headings may stand at one height, one per column), and now and then a deeper heading at the
+        very spot of the one before it - at every page and at a grid of points plus every heading's own start: the
+        strip's entry is the one the rule before issue #279 gave, stated here independently - the last entry in the
+        outline that starts at or above the point, else the first."""
+
+        def before(entries, page, frac):
+            """The rule before issue #279."""
+            sel = -1
+            for i, e in enumerate(entries):
+                if e["page"] < page or (e["page"] == page and e["frac"] <= frac + 1e-6):
+                    sel = i
+            return 0 if sel < 0 and entries else sel
+
+        rng = random.Random(279)
+        cases, expected = [], []
+        for _ in range(400):
+            pages, entries = rng.randint(1, 6), []
+            for p in range(1, pages + 1):
+                spots = [(k / 20, x) for k in range(20) for x in (72.0, 320.0)]  # a height in either column
+                for frac, x in rng.sample(spots, rng.randint(0, 4)):
+                    depth = rng.randint(0, 2)
+                    entries.append({"page": p, "frac": frac, "x": x, "depth": depth})
+                    if rng.random() < 0.3:
+                        entries.append({"page": p, "frac": frac, "x": x, "depth": depth + 1})
+            probes = [
+                [p, f]
+                for p in range(1, pages + 2)
+                for f in sorted({k / 20 for k in range(21)} | {e["frac"] for e in entries if e["page"] == p})
+            ]
+            cases.append({"E": entries, "P": probes})
+            expected.append([before(entries, p, f) for p, f in probes])
+        js = "const C=%s;console.log(JSON.stringify(C.map(c=>c.P.map(([p,f])=>outlineIndexAt(c.E,p,f)))))"
+        got = self.run_js(js % json.dumps(cases))
+        for case, want, have in zip(cases, expected, got, strict=True):
+            self.assertEqual(have, want, case["E"])
 
     def test_dest_top_to_fraction(self):
         js = (
