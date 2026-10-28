@@ -1,5 +1,22 @@
 # Changelog
 
+## Unreleased
+
+Viewer only: the agent contract and `pins.md` are unchanged.
+
+### Fixed
+
+- **The section strip names the page's own entry when the outline is not in page order** (#279). It named the last
+  entry the outline lists at or before the page, taking the outline to be in page order; a figure set's outline grouped
+  by status (`본문` on pages 3, 8 and 9, then `채택`, then every `후보` from page 1) showed page 2's `D4-scale` on page 3
+  and page 7's `FP5-three-decisions` on pages 8 and 9. The page now decides first: the latest page with an entry that
+  starts above the reading line - this page, else the nearest earlier one. On that page the outline's order is still the
+  reading order (a two-column page), and of entries at the same spot the deepest wins, then the one listed first. An
+  outline in page order with a spot per heading, as LaTeX writes it, gets the entry it always got.
+- **An entry picked in the outline stays in the section strip on its page.** The pick was let go at once, before the
+  scroll it starts had reached the page, so a page with two entries showed the other one. It now holds from when the
+  page is reached until the reader leaves it.
+
 ## 0.4.29 — 2026-10-28
 
 Dark theme contrast for small secondary text, and a steadier CI. Viewer only: the agent contract and `pins.md` are
