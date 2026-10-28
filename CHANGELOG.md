@@ -1,9 +1,10 @@
 # Changelog
 
-## Unreleased
+## 0.4.31 — 2026-10-29
 
-The agent contract and `pins.md` are unchanged. A script that took every `limn update` exit as success now sees
-status 3 when an instance did not come back.
+Follow-ups: small secondary text at 4.5:1 in both themes, `limn update` that reports a failed restart, and two fixes to
+the actual-size view. The agent contract and `pins.md` are unchanged. A script that took every `limn update` exit as
+success now sees status 3 when an instance did not come back.
 
 ### Changed
 
