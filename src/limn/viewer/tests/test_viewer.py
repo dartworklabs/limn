@@ -2082,6 +2082,52 @@ class FrontendColourRoles(unittest.TestCase):
                 t = theme_tokens(theme)
                 self.assertGreaterEqual(contrast(css_colour(fg, t), css_colour(bg, t)), 4.5)
 
+    def test_dark_secondary_text_reads_at_4_5_to_1_on_every_surface_it_sits_on(self):
+        """The dark theme's small (11-12px) secondary text - --muted-foreground (relative times, names, neutral badges, the
+        card's fact line) and --subtle-foreground (a document's count, trash rows, diff line numbers, a commit's code) - on
+        every surface either is painted on: the panes, --muted and --secondary (badges, segmented tracks, secondary
+        buttons), the hover --accent (a commit row's hover keeps .rc-code subtle), a diff's added and removed rows, the
+        excerpt's chosen band and a painted commit row. The old subtle read 4.4 on --muted and 4.0 on --accent. Light
+        keeps its values; its subtle reads 3.8 on --accent."""
+        t = theme_tokens("dark")
+        panes = ("--background", "--field", "--code", "--card", "--sidebar", "--popover", "--muted", "--secondary")
+        surfaces = {pane: css_colour("var(%s)" % pane, t) for pane in (*panes, "--accent")}
+        diff = ".sg-diff .rd-{0},#revision-other .rd-{0},#revision-diff .rd-{0}"
+        for name, sel in (("diff add", diff.format("add")), ("diff del", diff.format("del")), ("band", ".xp-row.on")):
+            surfaces[name] = css_colour(rule_value(sel, "background"), t)
+        tint, under = css_colour(rule_value(".rc-row.in", "background"), t), surfaces["--sidebar"]  # the commit list
+        surfaces["painted commit row"] = (*(tint[i] * tint[3] + under[i] * (1 - tint[3]) for i in range(3)), 1.0)
+        for fg in ("--muted-foreground", "--subtle-foreground"):
+            for name, bg in surfaces.items():
+                with self.subTest(fg=fg, bg=name):
+                    self.assertGreaterEqual(contrast(css_colour("var(%s)" % fg, t), bg), 4.5)
+
+    def test_the_neutral_badge_reads_at_7_to_1_in_both_themes(self):
+        """A neutral .badge ('이전 판정 · #4로 대체됨', '보기 전용', the overlap badges) is 11-12px --muted-foreground on
+        --muted: 7:1 in both themes, so it reads at a glance (dark measured 5.8 before #270, light 7.0)."""
+        self.assertEqual(rule_value(".badge", "background"), "var(--muted)")
+        self.assertEqual(rule_value(".badge", "color"), "var(--muted-foreground)")
+        for theme in ("light", "dark"):
+            with self.subTest(theme=theme):
+                t = theme_tokens(theme)
+                text, fill = css_colour("var(--muted-foreground)", t), css_colour("var(--muted)", t)
+                self.assertGreaterEqual(contrast(text, fill), 7.0)
+
+    def test_foreground_muted_and_subtle_stay_three_steps_apart(self):
+        """Raising the secondary text keeps the hierarchy: on --card the foreground reads at least 1.5 times the muted
+        text's contrast and the muted text 1.25 times the subtle text's, both themes (dark 2.0 and 1.34, light 2.6 and
+        1.6)."""
+        for theme in ("light", "dark"):
+            t = theme_tokens(theme)
+            card = css_colour("var(--card)", t)
+            fg, muted, subtle = (
+                contrast(css_colour("var(--%s)" % k, t), card)
+                for k in ("foreground", "muted-foreground", "subtle-foreground")
+            )
+            with self.subTest(theme=theme):
+                self.assertGreaterEqual(fg / muted, 1.5)
+                self.assertGreaterEqual(muted / subtle, 1.25)
+
     def test_the_contrast_helper_matches_known_pairs(self):
         """Black on white is 21:1, #a1a1aa on white 2.56:1 (the old handle), and a 50% mix over white is the mix."""
         t = {"--w": "#ffffff", "--k": "#000000"}
