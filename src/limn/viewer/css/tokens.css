@@ -6,7 +6,9 @@
 :root{color-scheme:dark;
   --background:#09090b;--foreground:#fafafa;
   --sidebar:#18181b;--card:#131316;--card-foreground:#fafafa;--popover:#18181b;--popover-foreground:#fafafa;
-  --muted:#27272a;--muted-foreground:#a1a1aa;--subtle-foreground:#8b8b94;
+  --muted:#27272a;--muted-foreground:#b3b3ba;--subtle-foreground:#9a9aa3;   /* small (11-12px) secondary text: 4.5:1 and more on every
+     surface it sits on at full strength, hover --accent included (.xp-row.ctx .ln dims it to 70% and falls short, #277);
+     a neutral badge 7:1 on --muted, as in light (FrontendColourRoles) */
   --secondary:#27272a;--secondary-foreground:#fafafa;--accent:#2e2e33;--accent-foreground:#fafafa;
   --border:#27272a;--border-seam:#3f3f45;--border-strong:#52525b;--input:#3f3f46;--field:#0c0c0e;--code:#0c0c0e;--outline-bg:#3f3f4633;
   --primary:#6ea8fe;--primary-foreground:#0b1220;--ring:var(--primary);
