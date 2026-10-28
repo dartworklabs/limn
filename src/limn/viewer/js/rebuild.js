@@ -19,9 +19,10 @@ async function refreshDoc(meta){const a=topAnchor(),k=DOC,seq=SWITCHSEQ;
   rebuildSources(k).forEach(sourceOk); META_BY.set(k,m);
   const same=META&&m.pages.length===META.pages.length; META=m; drawMeta();
   // The canvas was drawn from the old PDF - it's torn down to show the new PNG first, then redrawn once the new build's PDF is opened.
-  // A page whose paper size changed (a figure drawn again larger) takes its new width at the same scale (setK).
+  // A page whose paper size changed (a figure drawn again larger) takes its new width at the same scale (reapplyK - which leaves
+  // the scale alone while the changes view hides the PDF area).
   if(same){vecReleaseAll(); $$('.pg').forEach((pg,i)=>{const p=META.pages[i]; pg.dataset.ptw=String(p.pt_w); pg.style.aspectRatio=p.pt_w+' / '+p.pt_h; pg.querySelector('img').src=pageSrc(p);});
-    setK(K,false);}
+    reapplyK();}
   else buildDoc();
   restoreAnchor(a); vecOpen(); if(document.body.classList.contains('revision-open'))loadRevisions(); await loadPins();}
 // On ok_errors|fail, the panel itself is opened right away: it is where a failed build is said (with the pull's line,

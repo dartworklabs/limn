@@ -108,7 +108,7 @@ function setViewMode(mode){
   $('#view-manuscript').setAttribute('aria-pressed',String(!revisions));
   $('#view-revisions').setAttribute('aria-pressed',String(revisions));
   if(!revisions)REV.target=null;
-  if(revisions)loadRevisions(); else{++REV.seq;clearRevisionPdf();setRevisionOverlay(null);$('#revision-pin').hidden=true;revTargetActs();if(VEC.doc)vecSchedule(0);updateSectionStrip();markHitSides();}
+  if(revisions)loadRevisions(); else{++REV.seq;clearRevisionPdf();setRevisionOverlay(null);$('#revision-pin').hidden=true;revTargetActs();boundK();if(VEC.doc)vecSchedule(0);updateSectionStrip();markHitSides();}
   drawNavView(); drawPos(); searchOffer();   // the changes view has no search
 }
 // Reads the document's recent commits into the changes view. Without history (not Git, a view-only PDF, or no recent commit) the

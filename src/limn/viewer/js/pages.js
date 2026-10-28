@@ -40,9 +40,20 @@ function fitK(){return fitWidth()/ptMax();}
 // Sets the scale K within wBounds and gives every page box its own width (pageWidth); saved in wide unless save is false
 // (saveK). The marks' badges follow the new widths (markBadgeSides), and so do the page verdict lines (sizePv), the save
 // chips (placeChips) and [더보기]'s zoom figure (drawZoom).
-function setK(k,save){const m=ptMax(),b=wBounds(fitWidth(),m*PT_PX); K=Math.min(b[1],Math.max(b[0],k*m))/m;
-  $$('.pg').forEach(e=>{e.style.width=pageWidth(+e.dataset.ptw||m,K)+'px';});
-  markBadgeSides(); sizePv(); placeChips(); if(save!==false&&LAYOUT===LAYOUT_MODE.WIDE)saveK(); vecInvalidate(); drawZoom();}
+function setK(k,save){const m=ptMax(),b=wBounds(fitWidth(),m*PT_PX); K=Math.min(b[1],Math.max(b[0],k*m))/m; K_UNBOUND=false;
+  sizePages(); markBadgeSides(); sizePv(); placeChips(); if(save!==false&&LAYOUT===LAYOUT_MODE.WIDE)saveK(); vecInvalidate(); drawZoom();}
+// Gives every page box its width at the scale K, bounded or not (setK bounds the scale first).
+function sizePages(){const m=ptMax(); $$('.pg').forEach(e=>{e.style.width=pageWidth(+e.dataset.ptw||m,K)+'px';});}
+// Whether the pages stand at a scale K that no PDF-area width has bounded since their sizes changed (reapplyK). Only the changes
+// view brings it about: it hides the PDF area, and a scroller that is not drawn measures 0 wide, so bounding the scale by that
+// width cut a 1800px page to the least it allows (816px, the print size of a letter page).
+let K_UNBOUND=false;
+// Applies K again after the pages' paper sizes changed (a new build with the same page count). A drawn PDF area bounds the
+// scale as ever (setK). A hidden one has no width to bound it by: the boxes take their new widths at K as it is, and the bounds
+// follow when the area shows again (boundK).
+function reapplyK(){if($('#left').getClientRects().length){setK(K,false); return;} sizePages(); K_UNBOUND=true;}
+// The PDF area shows again: bounds a scale reapplyK left alone by the width it has now, keeping the reading spot.
+function boundK(){if(!K_UNBOUND||!$('#left').getClientRects().length)return; const a=topAnchor(); setK(K,false); restoreAnchor(a);}
 // The zoom as [더보기] and the tool bar's zoom button show it: scale k against the print size, in percent, rounded; 100 before
 // a scale is known. Pure.
 function zoomPct(k){return k>0?Math.round(k/PT_PX*100):100;}
