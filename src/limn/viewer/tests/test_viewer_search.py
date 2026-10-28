@@ -2972,6 +2972,10 @@ class SearchAccessible(SearchBase):
 STRIP = (
     "[document.querySelector('#section-current').textContent, document.querySelector('#section-page-t').textContent]"
 )
+# True once the document's pane has kept its scroll position for three frames in a row: a smooth scroll has ended. Polled
+# on every animation frame (wait_for_function's default), so the count is of frames.
+SCROLL_STILL = """() => {const w = window, t = document.querySelector('#left').scrollTop;
+  w.__stillFrames = w.__stillTop === t ? (w.__stillFrames || 0) + 1 : 0; w.__stillTop = t; return w.__stillFrames >= 3;}"""
 
 
 class SectionStripOutlineOrder(SearchBase):
@@ -3022,6 +3026,36 @@ class SectionStripOutlineOrder(SearchBase):
                             page.evaluate("document.querySelector('#outline-items .ol-active .ol-name').textContent"),
                             STATUS_OWN[n],
                         )
+
+    def test_an_outline_click_names_the_entry_clicked_until_the_reader_leaves_its_page(self):
+        """Each entry clicked in the outline's order, from page 10: once the page has scrolled there, the strip names the
+        entry clicked - also [후보] A5, which shares page 5's top with [채택] A5 - and the outline highlights it. Leaving
+        page 5 and coming back, the strip names the page's own entry again."""
+        page = self.outlined()
+        self.scroll_to(page, STATUS_PAGES)
+        for i, (title, n) in enumerate(STATUS_OUTLINE):
+            with self.subTest(entry=title):
+                page.click('#outline-items button[data-index="%d"]' % i)
+                page.wait_for_function(
+                    "document.querySelector('#section-page-t').textContent===%s"
+                    % json.dumps("%d / %d쪽" % (n, STATUS_PAGES))
+                )
+                page.wait_for_function(SCROLL_STILL)
+                settle(page)
+                self.assertEqual(page.evaluate(STRIP), [title, "%d / %d쪽" % (n, STATUS_PAGES)])
+                self.assertEqual(
+                    page.evaluate("document.querySelector('#outline-items .ol-active').dataset.index"), str(i)
+                )
+        self.assertEqual(page.evaluate(STRIP)[0], "[후보] C10")
+        page.click('#outline-items button[data-index="7"]')  # [후보] A5
+        page.wait_for_function("document.querySelector('#section-page-t').textContent==='5 / %d쪽'" % STATUS_PAGES)
+        page.wait_for_function(SCROLL_STILL)
+        settle(page)
+        self.assertEqual(page.evaluate(STRIP)[0], "[후보] A5")
+        self.scroll_to(page, 6)
+        self.assertEqual(page.evaluate(STRIP)[0], "[후보] C6")
+        self.scroll_to(page, 5)
+        self.assertEqual(page.evaluate(STRIP)[0], "[채택] A5")
 
 
 if __name__ == "__main__":

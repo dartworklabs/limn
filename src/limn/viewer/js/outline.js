@@ -82,15 +82,17 @@ function outlineIndexAt(entries,page,frac){
     return j!==i&&Math.abs(at(a)-at(b))<=1e-6&&(deep(b)>deep(a)||(deep(b)===deep(a)&&j<i));});
   let sel=-1; for(const i of on)if(!outranked(i))sel=i;
   return sel;}
-let OUTLINE_PINNED=/** @type {{page:number,index:number}|null} */(null);   // an entry picked in the outline wins until the reader leaves its page
+// An entry picked in the outline: it wins on its page from when the scroll it starts gets there until the reader leaves
+// that page. Until then (on the way there) the strip follows the reading line.
+let OUTLINE_PINNED=/** @type {{page:number,index:number,reached:boolean}|null} */(null);
 // The section strip under the nav bar (the section at the reading line and 'page / pages') and the outline's highlight; mid has no
 // strip, so the same page count also goes to the nav bar's right end (#nav-page) and the phone's position button (drawPos). Both
 // page counts open the page list (openPageList).
 function updateSectionStrip(){
   const L=$('#left'),probe=L?Math.min(160,L.clientHeight/4):0,anchor=topAnchor(probe),page=anchor?anchor.page:1,frac=anchor?anchor.frac:0;
-  let sel;
-  if(OUTLINE_PINNED&&OUTLINE_PINNED.page===page)sel=OUTLINE_PINNED.index;
-  else{OUTLINE_PINNED=null; sel=outlineIndexAt(OUTLINE_ENTRIES,page,frac);}
+  const pin=OUTLINE_PINNED;
+  if(pin&&pin.page===page)pin.reached=true; else if(pin&&pin.reached)OUTLINE_PINNED=null;
+  const sel=OUTLINE_PINNED&&OUTLINE_PINNED.page===page?OUTLINE_PINNED.index:outlineIndexAt(OUTLINE_ENTRIES,page,frac);
   if(sel!==OUTLINE_SELECTED||page!==OUTLINE_ACTIVE_PAGE){OUTLINE_ACTIVE_PAGE=page;OUTLINE_SELECTED=sel;renderOutline();}
   const x=OUTLINE_ENTRIES[OUTLINE_SELECTED];$('#section-current').textContent=x?(x.number?x.number+'  ':'')+x.title:tr('원고');
   const n=META&&META.pages?META.pages.length:0,pg=tl('{page} / {n}쪽',{page,n}); $('#section-page-t').textContent=pg; $('#nav-page').textContent=pg;
