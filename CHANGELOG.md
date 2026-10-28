@@ -3,30 +3,39 @@
 ## Unreleased
 
 Viewer only: the agent contract and `pins.md` are unchanged. A browser that goes back to an older release keeps the page
-width it saved (`pinPrefs.w`) and ignores the figure documents' new setting.
+width it saved (`pinPrefs.w`) and ignores the figure documents' new settings.
 
 ### Changed
 
 - **Pages are drawn at their sizes on paper, and 100% is the printed size** (#281). Every page was drawn at one width,
   so in a figure document a one-column figure (252pt) was stretched to the width of a two-column one (522pt) and nobody
   could tell how large a figure would print. A page is now its paper width times one scale for the document: the
-  one-column figure is half as wide as the two-column one, and a narrower page is centred. The zoom figure in [⋯] reads
-  against the printed size (1pt = 1/72in, the CSS inch 96px), as other PDF viewers' 100% does, where it read against
-  the fitted width. Fit-width fits the widest page. A document whose pages are all one size keeps the widths it had
-  (only its zoom figure reads differently); a manuscript with a landscape page now fits that page, and its portrait pages are narrower. The page verdict
-  lines, the mark badges' inside-or-outside rule, the save chips, the vector canvases, the two-finger and double-tap
-  zoom, the figure overlay of the changes view and the comparison PDF's pages all follow each page's own width.
-- **The zoom limits always hold the printed size.** The widest page stays within half to five times the fitted width,
-  widened where needed so that 100% can be reached on a very wide screen.
+  one-column figure is half as wide as the two-column one, and a narrower page is centred with its page number outside
+  it. The zoom figure reads against the printed size (1pt = 1/72in, the CSS inch 96px), as other PDF viewers' 100% does,
+  where it read against the fitted width. Fit-width fits the widest page. A document whose pages are all one size keeps
+  the widths it had at its opening scale (only its zoom figure reads differently); a manuscript with a landscape page
+  now fits that page, and its portrait pages are narrower. The page verdict lines, the mark badges, the save chips, the
+  vector canvases, the two-finger and double-tap zoom, the figure overlay of the changes view and the comparison PDF's
+  pages all follow each page's own width.
+- **A fitted page no longer scrolls sideways.** With a mouse, fit-width was 12px wider than the room inside the PDF
+  area's padding; it is now that room, on every screen.
+- **The zoom limits always hold the printed size**, also for a page smaller than 160px, and are no longer rounded (a
+  522pt page drew 697px at 100%).
 
 ### Added
 
-- **[100%] shows the pages at their printed size**: a `100%` button before [↔] in the desktop tool bar, a [100%] button
-  in [⋯]'s zoom row on every screen, and Ctrl/⌘ 1 outside text fields (in the changes view, that view's own 100%).
-- **A figure document opens at its printed size** when nothing is saved and its widest page fits the PDF area, else
-  fitted. A zoom chosen on a desktop is kept per kind of document: figure documents keep their zoom against the printed
-  size (`pinPrefs.figZoom`), LaTeX and view-only documents their page width as before - so zooming the manuscript no
-  longer decides how a figure opens.
+- **The desktop tool bar's zoom button shows the zoom and goes to 100%**: before [↔], it reads the zoom now (`89%`),
+  and pressed it shows the pages at their printed size and reads `100%`, pressed. [⋯]'s zoom row on every screen has a
+  [100%] button. The changes view hides both: its comparison PDF's zoom is against its fitted width. There is no
+  keyboard shortcut for it - Ctrl/⌘ 1 stays the browser's first tab.
+- **A figure document opens at its printed size** when nothing is saved and its most common page width fits the PDF
+  area - a rare wider page (a graphical abstract) scrolls sideways - else with that common page fitted. A zoom chosen on
+  a desktop is kept per kind of document: figure documents keep their zoom against the printed size
+  (`pinPrefs.figZoom`), LaTeX and view-only documents their page width as before - so zooming the manuscript no longer
+  decides how a figure opens. A page width saved before this release carries over once to the first figure document,
+  at the zoom that keeps its common page as wide as before.
+- **In [선택] mode a drag that starts on a pin badge's press area over the page draws a box.** On a small page the
+  badges' 44px areas covered much of its left edge and no drag could start there; a tap on a badge still opens its card.
 
 ### Fixed
 
