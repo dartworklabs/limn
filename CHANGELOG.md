@@ -2,8 +2,24 @@
 
 ## Unreleased
 
+The agent contract and `pins.md` are unchanged. A script that took every `limn update` exit as success now sees
+status 3 when an instance did not come back.
+
 ### Fixed
 
+- **`limn update` exits 3 when a restart or its readiness check fails** (#274). After the install it restarted each
+  instance that was running and warned about a failed restart or a server that did not answer, but ended with status 0,
+  so a script or an agent that judged by the exit status called an update done while a server was down. Every instance
+  is still tried; those whose restart failed, whose unit failed after the restart, or that did not answer 200 in time
+  (`LIMN_WAIT`) are remembered, named in one line (`limn: update installed, but 2 of 3 running instance(s) did not come
+  back: paper-a (restart failed), paper-b (not responding)`) and make the command end with 3. A 401 from the check stays
+  a warning: the server answered, the check was refused for want of a usable token, as in `limn start`. Status 1 stays
+  for what happens before any restart (bad arguments, no remote tag, a failed install, an unwritable unit file); 0 for
+  `--dry-run`, `--no-restart`, no running instance and the shortcut below.
+- **`limn update --help` and the Handbook say what `limn update` does not do.** `limn update --help` was an unknown
+  argument; it now prints the options, the exit statuses, that a ref equal to the installed version ends with
+  `already vX — not reinstalling` (status 0, nothing installed or restarted, `--force` overrides, `--from` has no such
+  check) and that only instances that were active before the install are restarted.
 - **A long drag from a pin badge's press area no longer ends in the badge's click** (#284). In [선택] mode a pen or
   finger that lands in a badge's 44px press area and moves draws a box, and the click on the badge was held off for
   400ms from the start of the drag only, so a drag that ran longer and was let go on the badge opened its card as well

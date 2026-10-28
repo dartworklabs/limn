@@ -122,7 +122,7 @@ pytest는 `tests`와 `src/limn`을 수집하고 `tests/support`에서 공용 도
 
 | 항목 | 내용 |
 | --- | --- |
-| 측정 대상 | 원고별 인스턴스 관리자(`limn` 셸 스크립트와 `cli.py`): 인스턴스 생성(`add`), 실행(`run`), 시작(`start`), 중지(`stop`), 제거(`rm`), 목록(`list`), 상태(`status`), 업데이트(`update`), 되돌리기(`update --ref`), 포트 충돌 감지, 유닛 파일 생성, 환경 변수 파일 읽기/쓰기 |
+| 측정 대상 | 원고별 인스턴스 관리자(`limn` 셸 스크립트와 `cli.py`): 인스턴스 생성(`add`), 실행(`run`), 시작(`start`), 중지(`stop`), 제거(`rm`), 목록(`list`), 상태(`status`), 업데이트(`update`)와 그 종료 코드(재시작·준비 확인 실패 시 3), 되돌리기(`update --ref`), 포트 충돌 감지, 유닛 파일 생성, 환경 변수 파일 읽기/쓰기 |
 | 적용 조건 | `src/limn/administration/instances.sh`, `src/limn/cli.py`, `src/limn/administration/systemd/*`, `src/limn/administration/tests/test_instances.sh`를 바꿀 때 |
 | 실행 | `bash src/limn/administration/tests/test_instances.sh` |
 | 합격 기준 | 스크립트가 0으로 끝나고 실패 건수가 0이어야 한다 |
