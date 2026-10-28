@@ -29,7 +29,7 @@
 | `limn add <이름> --manuscript <dir> [...]` | 포트 배정, 설정 작성, 유닛 enable·start, `tailscale serve`, AGENTS.md 조각 출력까지 한 번에 한다. 옵션은 아래 '새 원고 추가' 절 |
 | `limn start <이름> [--no-serve]` | 설정이 이미 있는 인스턴스를 켠다(재부팅 뒤, 새 머신, 전환). 유닛이 꺼져 있는데 로컬 포트가 LISTEN 중이면 멈춘다 |
 | `limn stop <이름>` | 유닛만 끄고 비활성화한다. 설정·포트·serve 항목은 남는다 |
-| `limn update [--ref <tag\|branch>] [--from <설치 원본>] [--dry-run] [--force] [--no-restart]` | `limn`을 다시 설치하고 켜진 인스턴스를 재시작한다. 아래 '업데이트와 되돌리기' 절 |
+| `limn update [--ref <tag\|branch>] [--from <설치 원본>] [--dry-run] [--force] [--no-restart]` | `limn`을 다시 설치하고 켜져 있던 인스턴스를 재시작한다. 재시작이나 준비 확인이 실패한 인스턴스가 있으면 3으로 끝난다. 아래 '업데이트와 되돌리기' 절, `limn update --help` |
 | `limn list` (`ls`) | 인스턴스 표. 이름, 이름표, 로컬 포트, 테일넷 포트, 상태, 열린 핀 수, 문서 수, 원고 폴더를 보여 준다 |
 | `limn status [<이름>]` | 상세 상태. 유닛 상태·enable 여부·PID, 로컬 주소 응답 코드, 테일넷 주소와 serve 항목, 문서 목록, 상태 폴더와 열린 핀 수, 설정 파일, 로그 위치를 보여 준다 |
 | `limn url [<이름>]` | 테일넷 주소 |
@@ -253,7 +253,7 @@ limn update --from ~/src/limn  # 로컬 체크아웃(개발용)
 1. `--ref`가 없으면 원격에서 가장 높은 `v*` 태그를 읽는다.
 2. `uv tool install --force git+https://github.com/dartworklabs/limn@<ref>`를 실행한다. `LIMN_REPO`로 원본을, `LIMN_UV`로 쓸 `uv`를 바꾼다. SSH로 받으려면 `LIMN_REPO=git+ssh://git@github.com/dartworklabs/limn`을 준다.
 3. 유닛 템플릿을 다시 쓴다.
-4. 켜진 `limn@*` 인스턴스를 모두 재시작하고 HTTP 200을 기다린다.
+4. 업데이트 직전에 켜져 있던(active) `limn@*` 인스턴스를 모두 재시작하고, 인스턴스마다 HTTP 200을 기다린다. 한 인스턴스가 실패해도 나머지를 끝까지 처리한 뒤 결과를 종합한다.
 
 설치하는 동안 도는 서버는 그대로이고, 재시작할 때 새 판으로 바뀐다. **상태 폴더는 건드리지 않는다.**
 
@@ -262,11 +262,26 @@ limn update --from ~/src/limn  # 로컬 체크아웃(개발용)
 옵션 규칙은 다음과 같다.
 
 - `--ref`와 `--from`은 함께 쓰지 않는다.
-- 이미 그 태그가 설치돼 있으면 다시 설치하지 않는다. `--force`를 주면 다시 설치한다.
+- 이미 그 태그가 설치돼 있으면(`--ref`가 설치된 판과 같거나, `--ref`가 없을 때 가장 높은 태그가 설치된 판일 때) `already vX — not reinstalling`을 찍고 **설치도 재시작도 하지 않은 채 0으로 끝난다.** 이미 돌고 있는 서버는 메모리에 올린 판 그대로이므로, 앞선 `--no-restart` 업데이트나 실패한 재시작으로 옛 판에 남은 인스턴스도 이 길로는 바뀌지 않는다. `--force`를 주면 다시 설치하고 재시작한다. `--from`에는 이 검사가 없다.
+- 재시작하는 것은 업데이트 직전에 켜져 있던 인스턴스뿐이다. 꺼진 인스턴스는 꺼진 채로 두며, `limn start`로 켤 때 새 판으로 뜬다.
 - `--no-restart`를 주면 설치만 하고 인스턴스를 재시작하지 않는다.
 - 설치가 실패하면 현재 판에 머문다.
 
 되돌리기는 이전 태그를 다시 설치하는 것이다. `limn update --ref v<이전 판>`을 실행한다. 업데이트할 때마다 이 명령을 찍어 준다. 따로 두는 앱 사본은 더 없다. 설치된 태그가 곧 판이다.
+
+### 종료 코드
+
+스크립트와 에이전트가 종료 코드로 업데이트의 성패를 판단할 수 있다. 서버가 멈춘 채 0으로 끝나지 않게 하기 위해서다.
+
+| 코드 | 뜻 |
+| --- | --- |
+| 0 | 실패한 것이 없다. `already vX` 단축, `--dry-run`, `--no-restart`, 켜진 인스턴스가 없는 경우, 재시작한 인스턴스가 401을 답한 경우도 0이다 |
+| 1 | 재시작을 시작하기 전의 오류다. 잘못된 인자, 원격 태그를 읽지 못함, 설치 실패(현재 판에 머문다), 유닛 파일을 쓰지 못함이 해당한다 |
+| 3 | `limn`은 설치됐지만 켜져 있던 인스턴스 가운데 하나 이상이 돌아오지 못했다. 재시작이 실패했거나(`restart failed`), 재시작 뒤 유닛이 실패했거나(`unit failed`), `LIMN_WAIT`(기본 240초) 안에 200을 답하지 않았다(`not responding`). 설정을 읽지 못한 경우(`config unreadable`)도 같다 |
+
+3으로 끝날 때도 모든 인스턴스를 끝까지 시도하며, 마지막에 실패한 인스턴스와 이유를 한 줄로 알린다(`limn: update installed, but 2 of 3 running instance(s) did not come back: paper-a (restart failed), paper-b (not responding)`). 이어서 `limn status <이름>`과 `journalctl --user -u limn@<이름>`으로 원인을 보고, 되돌리려면 위의 `limn update --ref v<이전 판>`을 쓴다. 첫 빌드가 `LIMN_WAIT`보다 오래 걸리는 인스턴스는 서버가 정상이어도 `not responding`으로 센다.
+
+**401은 실패로 세지 않고 경고로 둔다.** 401은 포트가 답했다는 뜻이다. 재시작은 성공했고, 준비 확인이 쓸 수 있는 토큰이 없거나(토큰 파일이 없거나 쓸 수 없음) 폐기된 토큰이어서 거부당했을 뿐이다. 토큰 없는 요청을 거부하는 설정(`AGENT_LOOPBACK=0`이거나 `AUTH`가 `tailscale`이 아님)에서 생긴다. 더 기다려도 바뀌지 않으므로 `limn start`와 같이 이유와 고칠 방법(`limn token create <이름> --save` 등)을 경고로 찍고 0으로 끝낸다.
 
 ## 끄기·제거
 

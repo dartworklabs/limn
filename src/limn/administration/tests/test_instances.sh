@@ -45,11 +45,25 @@ mode_of() { stat -c %a "$1" 2> /dev/null || stat -f %Lp "$1"; }
 
 # ── stubs ─────────────────────────────────────────────────────────────────────
 mkdir -p "$T/bin"
-# systemctl: logs each call, and is-active always reports inactive.
+# systemctl: logs each call. is-active reports inactive unless the unit is in STUB_ACTIVE (or is "failed" because it was
+# in STUB_DIES_ON_RESTART when restarted); restart fails for the units in STUB_RESTART_FAIL. The unit is the last argument.
+mkdir -p "$T/stub-state"
 cat > "$T/bin/systemctl" << 'STUB'
 #!/usr/bin/env bash
 echo "systemctl $*" >> "$STUB_LOG"
-[[ " $* " == *" is-active "* ]] && { echo inactive; exit 3; }
+for u; do :; done
+case " $* " in
+    *" is-active "*)
+        [[ -e "$STUB_STATE/dead.$u" ]] && { echo failed; exit 3; }
+        for x in $STUB_ACTIVE; do [[ "$x" == "$u" ]] && { echo active; exit 0; }; done
+        echo inactive
+        exit 3
+        ;;
+    *" restart "*)
+        for x in $STUB_RESTART_FAIL; do [[ "$x" == "$u" ]] && exit 1; done
+        for x in $STUB_DIES_ON_RESTART; do [[ "$x" == "$u" ]] && : > "$STUB_STATE/dead.$u"; done
+        ;;
+esac
 exit 0
 STUB
 # ss: reports LISTEN only for ports listed in STUB_LISTEN.
@@ -94,6 +108,22 @@ exit "${STUB_UV_RC:-0}"
 STUB
 chmod +x "$T/bin/"*
 PV="$T/bin/limn"
+# curl for the readiness checks of `update` only (the update tests put it first on PATH): it answers with the code in
+# STUB_HTTP_<port> for the port of the URL (its last argument), 000 when there is none - what curl prints when nothing listens.
+mkdir -p "$T/curlstub"
+cat > "$T/curlstub/curl" << 'STUB'
+#!/usr/bin/env bash
+for u; do :; done
+p=${u#http://127.0.0.1:}
+p=${p%%/*}
+v=STUB_HTTP_$p
+c=${!v}
+c=${c:-000}
+printf '%s' "$c"
+[[ "$c" == 000 ]] && exit 7
+exit 0
+STUB
+chmod +x "$T/curlstub/curl"
 
 export PATH="$T/bin:$PATH" PY STUB_LOG="$T/calls" STUB_SERVE="$T/serve.json" STUB_LISTEN=""
 export HOME="$T/home" XDG_CONFIG_HOME="$T/home/.config" XDG_DATA_HOME="$T/home/.local/share"
@@ -110,6 +140,7 @@ cp "$LIMN_LEDGER" "$T/ledger.orig"
 echo '{"TCP":{"18006":{"HTTPS":true}},"Web":{"box.tail0000.ts.net:18006":{"Handlers":{"/":{"Proxy":"http://127.0.0.1:9999"}}}}}' > "$STUB_SERVE"
 # Someone is LISTENing on 18107 → 18007↔18107 is unusable. The first free pair is 18008↔18108.
 export STUB_LISTEN="18107"
+export STUB_STATE="$T/stub-state" STUB_ACTIVE="" STUB_RESTART_FAIL="" STUB_DIES_ON_RESTART=""
 
 ms="$T/ms/paper-x/manuscript"
 mkdir -p "$ms"
@@ -216,6 +247,85 @@ chk "update refuses --ref with --from" "! '$PV' update --ref v1 --from x >/dev/n
 STUB_UV_RC=1 "$PV" update --ref v9.9.8 --no-restart > /dev/null 2> "$T/upd.err"
 chk "a failed install stops with an error" "[[ \$? -ne 0 ]] || grep -q . '$T/upd.err'"
 chk "update never touches state dirs" "[[ \$(cat '$T/data/paper-a/pins.jsonl' 2>/dev/null || echo keep) == keep ]]"
+
+echo "── 6b. update: the exit status says whether the instances came back ──"
+# Three instances that were running before the update. run_upd runs `update --ref v9.9.9` with KEY=value stub settings and the
+# curl stub first on PATH: STUB_ACTIVE (units that were active), STUB_RESTART_FAIL, STUB_DIES_ON_RESTART, STUB_HTTP_<port>
+# (the code the readiness check gets; none set = 000 = nothing answers, which LIMN_WAIT=1 gives up on after a second).
+for u in a b c; do
+    port=$((19130 + $(printf '%d' "'$u") - 96)) # 19131, 19132, 19133
+    "$PV" add "upd-$u" --manuscript "$ms" --port "$port" --ts-port "$((port - 100))" --no-serve --no-start > /dev/null 2>&1
+done
+UA=limn@upd-a.service UB=limn@upd-b.service UC=limn@upd-c.service
+ALL="$UA $UB $UC"
+run_upd() { env PATH="$T/curlstub:$PATH" "$@" "$PV" update --ref v9.9.9; }
+restarted() { grep -c "^systemctl --user restart $1\$" "$STUB_LOG"; } # how many times the stubbed systemctl restarted a unit
+rm -f "$T"/stub-state/dead.*
+
+: > "$STUB_LOG"
+out=$(run_upd STUB_ACTIVE="$ALL" STUB_HTTP_19131=200 STUB_HTTP_19132=200 STUB_HTTP_19133=200 2>&1)
+rc=$?
+chk "update exits 0 when every running instance came back with 200" "[[ $rc -eq 0 ]] && grep -q 'upd-a restarted → 200' <<< \"\$out\" && grep -q 'upd-c restarted → 200' <<< \"\$out\" && ! grep -q 'did not come back' <<< \"\$out\""
+
+: > "$STUB_LOG"
+out=$(run_upd STUB_ACTIVE="$ALL" STUB_RESTART_FAIL="$UA" STUB_HTTP_19131=200 STUB_HTTP_19132=200 STUB_HTTP_19133=200 2>&1)
+rc=$?
+chk "a failed restart makes update exit 3" "[[ $rc -eq 3 ]]"
+chk "...after the other instances were restarted and checked" "[[ \$(restarted $UA) -eq 1 && \$(restarted $UB) -eq 1 && \$(restarted $UC) -eq 1 ]] && grep -q 'upd-b restarted → 200' <<< \"\$out\" && grep -q 'upd-c restarted → 200' <<< \"\$out\""
+chk "...and one line names the instance that failed, and why" "[[ \$(grep -c 'did not come back' <<< \"\$out\") -eq 1 ]] && grep -qF '1 of 3 running instance(s) did not come back: upd-a (restart failed)' <<< \"\$out\""
+
+: > "$STUB_LOG"
+out=$(run_upd STUB_ACTIVE="$ALL" STUB_HTTP_19131=200 STUB_HTTP_19132=200 2>&1)
+rc=$?
+chk "an instance that does not answer 200 in time makes update exit 3" "[[ $rc -eq 3 ]] && grep -qF 'upd-c (not responding)' <<< \"\$out\" && ! grep -qF 'upd-a (' <<< \"\$out\" && ! grep -qF 'upd-b (' <<< \"\$out\""
+
+: > "$STUB_LOG"
+out=$(run_upd STUB_ACTIVE="$ALL" STUB_DIES_ON_RESTART="$UB" STUB_HTTP_19131=200 STUB_HTTP_19133=200 2>&1)
+rc=$?
+chk "a unit that fails after its restart makes update exit 3, and the instances after it are still handled" "[[ $rc -eq 3 ]] && grep -qF '1 of 3 running instance(s) did not come back: upd-b (unit failed)' <<< \"\$out\" && grep -q 'upd-c restarted → 200' <<< \"\$out\""
+rm -f "$T"/stub-state/dead.*
+
+: > "$STUB_LOG"
+out=$(run_upd STUB_ACTIVE="$ALL" STUB_RESTART_FAIL="$UA" STUB_HTTP_19132=000 STUB_HTTP_19133=200 2>&1)
+rc=$?
+chk "two failures are both named in the one line" "[[ $rc -eq 3 ]] && grep -qF '2 of 3 running instance(s) did not come back: upd-a (restart failed), upd-b (not responding)' <<< \"\$out\""
+
+: > "$STUB_LOG"
+out=$(run_upd STUB_ACTIVE="$ALL" STUB_HTTP_19131=200 STUB_HTTP_19132=401 STUB_HTTP_19133=200 2>&1)
+rc=$?
+chk "a 401 from the readiness check is a warning: update exits 0" "[[ $rc -eq 0 ]] && grep -q 'upd-b restarted → 401' <<< \"\$out\" && ! grep -q 'did not come back' <<< \"\$out\""
+
+: > "$STUB_LOG"
+out=$(run_upd STUB_ACTIVE="$ALL" STUB_RESTART_FAIL="$UC" STUB_HTTP_19131=200 STUB_HTTP_19132=401 2>&1)
+rc=$?
+chk "a 401 next to a real failure is not counted in the summary" "[[ $rc -eq 3 ]] && grep -qF '1 of 3 running instance(s) did not come back: upd-c (restart failed)' <<< \"\$out\" && grep -q 'upd-b restarted → 401' <<< \"\$out\""
+
+: > "$STUB_LOG"
+out=$(run_upd STUB_ACTIVE="$UB" STUB_HTTP_19132=200 2>&1)
+rc=$?
+chk "only instances that were running before the update are restarted" "[[ $rc -eq 0 ]] && [[ \$(restarted $UB) -eq 1 && \$(restarted $UA) -eq 0 && \$(restarted $UC) -eq 0 ]]"
+
+: > "$STUB_LOG"
+out=$(env PATH="$T/curlstub:$PATH" STUB_ACTIVE="$ALL" STUB_RESTART_FAIL="$ALL" "$PV" update --ref v9.9.9 --no-restart 2>&1)
+rc=$?
+chk "--no-restart restarts nothing and exits 0" "[[ $rc -eq 0 ]] && ! grep -q ' restart ' '$STUB_LOG' && grep -q '^uv tool install' '$STUB_LOG'"
+
+: > "$STUB_LOG"
+out=$(run_upd STUB_ACTIVE="$ALL" STUB_UV_RC=1 2>&1)
+rc=$?
+chk "a failed install exits 1 and restarts nothing" "[[ $rc -eq 1 ]] && grep -q 'install failed' <<< \"\$out\" && ! grep -q ' restart ' '$STUB_LOG'"
+
+: > "$STUB_LOG"
+out=$(env PATH="$T/curlstub:$PATH" STUB_ACTIVE="$ALL" STUB_RESTART_FAIL="$ALL" "$PV" update --ref "v${ver#limn }" 2>&1)
+rc=$?
+chk "the 'already vX' shortcut exits 0 and neither installs nor restarts, even with running instances" "[[ $rc -eq 0 ]] && grep -q 'already v' <<< \"\$out\" && ! grep -q '^uv ' '$STUB_LOG' && ! grep -q ' restart ' '$STUB_LOG'"
+
+: > "$STUB_LOG"
+out=$("$PV" update --help 2>&1)
+rc=$?
+chk "update --help prints the shortcut, the restart rule and the exit codes, and does nothing" "[[ $rc -eq 0 ]] && grep -q 'already vX' <<< \"\$out\" && grep -q 'active before the install' <<< \"\$out\" && grep -q '^  3  ' <<< \"\$out\" && ! grep -q . '$STUB_LOG'"
+for u in a b c; do "$PV" remove "upd-$u" > /dev/null 2>&1; done
+chk "the update tests' instances are gone again" "[[ -z \$(ls '$T'/src/upd-*.env 2>/dev/null) ]]"
 
 echo "── 7. unit template ──"
 U="$ROOT/src/limn/administration/systemd/limn@.service"
