@@ -1801,7 +1801,7 @@ class FloatingLine(VerdictBase):
 
     def tall(self, page):
         """Page 2 drawn taller than the PDF area (150% of the print size)."""
-        page.evaluate("setK(PT_PX*1.5,false)")
+        page.evaluate("setK(PT_PX*1.5,false); ZOOMED=true")
         settle(page)
         got = page.evaluate(FLOAT, 2)
         self.assertGreater(got["page"]["bottom"] - got["page"]["top"], got["area"]["bottom"] - got["area"]["top"] + 200)
@@ -1991,7 +1991,7 @@ class Keys(VerdictBase):
         """Page 2 under the reading line: its buttons carry the keys (data-kn 1-3, aria-keyshortcuts, '단축키 N' in the
         tip, the confirm word's '(두 번)'), page 1's none. 2 saves 보류 about page 2's figure (B3)."""
         page = self.on("fig")
-        page.evaluate("setK(PT_PX*1.5,false)")
+        page.evaluate("setK(PT_PX*1.5,false); ZOOMED=true")
         self.reading(page, 2)
         keys = """n=>[...document.querySelectorAll('#doc .pv[data-page="'+n+'"] button.vd-b')].map(b=>[b.dataset.kn||null,b.getAttribute('aria-keyshortcuts'),b.dataset.tip])"""
         self.assertEqual([k[:2] for k in page.evaluate(keys, 2)], [["1", "1"], ["2", "2"], ["3", "3"]])
@@ -2009,7 +2009,7 @@ class Keys(VerdictBase):
     def test_a_confirm_word_takes_its_key_twice(self):
         """3 (삭제, a confirm word) arms the button - '삭제 확정' - and saves nothing; 3 again saves 삭제."""
         page = self.on("fig")
-        page.evaluate("setK(PT_PX*1.5,false)")
+        page.evaluate("setK(PT_PX*1.5,false); ZOOMED=true")
         self.reading(page, 2)
         page.keyboard.press("3")
         settle(page)
@@ -2029,7 +2029,7 @@ class Keys(VerdictBase):
         """1 typed into the page field, pressed with the help open, and pressed with a selection's composer open saves
         nothing; the key hints go while the composer is open."""
         page = self.on("fig")
-        page.evaluate("setK(PT_PX*1.5,false)")
+        page.evaluate("setK(PT_PX*1.5,false); ZOOMED=true")
         self.reading(page, 2)
         page.focus("#jump")
         page.keyboard.press("1")
@@ -2056,7 +2056,7 @@ class Keys(VerdictBase):
         """3 arms 삭제 on page 1; the area scrolls to page 2 and 3 comes before the next frame: nothing is saved - page 1's
         armed word is not confirmed - and the key arms page 2's 삭제."""
         page = self.on("fig")
-        page.evaluate("setK(PT_PX*1.5,false)")
+        page.evaluate("setK(PT_PX*1.5,false); ZOOMED=true")
         self.reading(page, 1)
         page.keyboard.press("3")
         settle(page)
@@ -2078,7 +2078,7 @@ class Keys(VerdictBase):
     def test_a_keys_armed_word_goes_when_the_reading_page_changes(self):
         """3 arms 삭제 on page 1; scrolling page 2 under the reading line lets it go - 3 then arms page 2, saving nothing."""
         page = self.on("fig")
-        page.evaluate("setK(PT_PX*1.5,false)")
+        page.evaluate("setK(PT_PX*1.5,false); ZOOMED=true")
         self.reading(page, 1)
         page.keyboard.press("3")
         settle(page)
@@ -2307,7 +2307,7 @@ class Reason(VerdictBase):
         """2 on the reading page: the field has the focus; '3번 패널 범례' typed there is text (no verdict key) and Enter saves
         it as the new pin's note."""
         page = self.on("fig")
-        page.evaluate("setK(PT_PX*1.5,false)")
+        page.evaluate("setK(PT_PX*1.5,false); ZOOMED=true")
         page.evaluate(SCROLL, [2, "top"])
         settle(page)
         page.keyboard.press("2")
@@ -2368,7 +2368,7 @@ class Reason(VerdictBase):
         shorter), the field and the line's words are on screen and pressable."""
         page = self.on("fig", viewport={"width": 390, "height": 844}, is_mobile=True, has_touch=True)
         page.evaluate("setSide(false)")
-        page.evaluate("setK(PT_PX*1.2,false)")
+        page.evaluate("setK(PT_PX*1.2,false); ZOOMED=true")
         page.evaluate(SCROLL, [2, "top"])
         settle(page)
         self.press_page(page, 2, "채택")
@@ -2408,7 +2408,7 @@ class Reason(VerdictBase):
         the field closes, '범례' is page 2's pin's note ('이유 저장됨 · Review flow'), the focus is on the PDF area and page 1's
         line has the keys."""
         page = self.on("fig")
-        page.evaluate("setK(PT_PX*1.5,false)")
+        page.evaluate("setK(PT_PX*1.5,false); ZOOMED=true")
         page.evaluate(SCROLL, [2, "top"])
         settle(page)
         page.keyboard.press("2")
@@ -2468,12 +2468,12 @@ class Reason(VerdictBase):
         above the keyboard."""
         page = self.on("fig", viewport={"width": 390, "height": 844}, is_mobile=True, has_touch=True)
         page.evaluate("setSide(false)")
-        page.evaluate("setK(PT_PX*1.2,false)")
-        page.evaluate(SCROLL, [2, "top"])
-        settle(page)
         page.evaluate(
             "()=>{const R=document.documentElement.style,h=document.documentElement.clientHeight; R.setProperty('--kb','300px'); R.setProperty('--vvh',(h-300)+'px');}"
         )
+        settle(page)  # the PDF area 300px shorter re-fits the pages first; the zoom chosen after it stays (ZOOMED)
+        page.evaluate("setK(PT_PX*1.2,false); ZOOMED=true")
+        settle(page)
         page.evaluate(SCROLL, [2, "mid"])
         settle(page)
         got = page.evaluate(FLOAT, 2)
@@ -2487,7 +2487,7 @@ class Reason(VerdictBase):
     def test_the_floating_edge_shows_in_the_light_theme(self):
         """The floating line's 1px separator is the strong border, not the PDF area's own grey."""
         page = self.on("fig")
-        page.evaluate("setK(PT_PX*1.5,false)")
+        page.evaluate("setK(PT_PX*1.5,false); ZOOMED=true")
         page.evaluate(SCROLL, [2, "mid"])
         settle(page)
         got = page.evaluate(
