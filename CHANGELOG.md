@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.4.32 — 2026-10-29
 
 Verdicts on figure documents (ADR-0022), and an outline and page list for long figure documents. The agent contract
 grows by addition only: `GET /api/meta`'s `pages[i]` carries a figure document's map facts, and `limn-figure-map/1` takes
