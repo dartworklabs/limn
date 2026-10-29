@@ -1,0 +1,50 @@
+/* ---------------- The page verdict line's toggle state and a verdict's reason (verdict.js pvLineHtml, verdict-reason.js;
+   docs/handbook/viewer.md §판정 핀). The line's own box, sizes and rows are components.css's. */
+
+/* The pressed word: the line's current verdict - or the word a save on the line is for - filled (aria-pressed, a toggle,
+   pvPress). The primary fill for an ordinary word, the destructive fill for a confirm word (삭제). Above the line's
+   button edge (.pv .vd-b, 0,2,0) and the armed confirm word's look. */
+.pv .vd-b[aria-pressed=true]{background:var(--primary);border-color:var(--primary);color:var(--primary-foreground);font-weight:600}
+.pv .vd-b.vd-confirm[aria-pressed=true]{background:var(--destructive);border-color:var(--destructive);color:var(--destructive-foreground)}
+@media (hover:hover){.pv .vd-b[aria-pressed=true]:hover{background:color-mix(in srgb,var(--primary) 88%,var(--foreground));color:var(--primary-foreground)}
+  .pv .vd-b.vd-confirm[aria-pressed=true]:hover{background:color-mix(in srgb,var(--destructive) 88%,var(--foreground));color:var(--destructive-foreground)}}
+/* What a save on the line is doing ('보류 저장 중…') and how long an armed confirm word waits ('4초 안에 한 번 더 누르면 저장'). */
+.pv .pv-busy{color:var(--muted-foreground)}
+.pv .pv-arm{color:var(--destructive);font-weight:600}
+
+/* The reason on the line, after the state: its saved text (a check and its first line, a button on the person's own open verdict that opens the
+   popover to change it), a kept draft ('이유 · 저장 안 됨') or [이유 추가] - text actions in the line's own look, no fill. */
+.pv :is(.pv-rn,.pv-ra){display:contents}
+.pv button.pv-note,.pv button.pv-add,.pv button.pv-draft{padding-inline:var(--space-1);font-weight:inherit;text-decoration:none;text-underline-offset:3px}
+.pv button.pv-note{color:var(--foreground);display:inline-block;align-content:center;text-align:start}   /* a block box: its long text is cut at its end (ellipsis), not on both sides */
+.pv button.pv-add{color:var(--primary)}
+.pv button.pv-draft{color:var(--warning);font-weight:600}
+.pv :is(button.pv-note,button.pv-add,button.pv-draft):focus-visible{background:transparent;text-decoration:underline}
+@media (hover:hover){.pv :is(button.pv-note,button.pv-add,button.pv-draft):hover{background:transparent;text-decoration:underline}
+  .pv button.pv-note:hover{color:var(--foreground)} .pv button.pv-add:hover{color:var(--primary)} .pv button.pv-draft:hover{color:var(--warning)}}
+.pv .pv-ok{color:var(--success)}
+/* The check before a written reason (on the line and in the popover's state): the text's size, on its centre line. */
+.pv :is(.pv-ok,.pv-pop-st) .ic{width:1em;height:1em;vertical-align:calc(.5cap - .5em);margin-right:var(--space-1)}
+
+/* The popover (.pv-pop): inside its line, laid above it - never pushing the page down or making the floating line taller -
+   from the line's start, no wider than the line or about forty Hangul letters. The field grows with its lines up to five
+   (verdict-reason.js pvReasonGrow); one row under it says whose reason it is, the draft's state ('저장 안 됨' in the warning
+   colour, '저장됨' with a check), the keys, and [지우기] [닫기] [저장]. */
+.pv>.pv-pop{position:absolute;left:0;bottom:calc(100% + var(--space-2));z-index:5;box-sizing:border-box;width:min(100%,36rem);
+  display:flex;flex-direction:column;gap:var(--space-1);padding:var(--space-2);border:1px solid var(--border-strong);border-radius:var(--radius);
+  background:var(--popover);color:var(--popover-foreground);box-shadow:var(--shadow);user-select:text;-webkit-user-select:text;cursor:auto}
+#doc .pv .pv-pop .pv-reason{flex:none;display:block;box-sizing:border-box;width:100%;min-height:var(--control-h);height:auto;max-height:9em;margin:0;
+  padding:var(--space-1) var(--space-2);resize:none;overflow-y:auto;font:inherit;font-size:var(--text-sm);line-height:var(--line-field);
+  background:var(--field);color:var(--foreground);border:1px solid var(--input);border-radius:var(--radius-sm)}
+.pv .pv-pop-f{display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-1) var(--space-2);font-size:var(--text-xs);color:var(--muted-foreground)}
+.pv .pv-pop-to{color:var(--foreground);font-weight:600}
+.pv .pv-pop-from{font-weight:400;color:var(--muted-foreground)}
+.pv .pv-pop-st.warn{color:var(--warning);font-weight:600}
+.pv .pv-pop-st.ok{color:var(--success)}
+.pv .pv-pop-h:empty,.pv .pv-pop-st:empty{display:none}
+.pv .pv-pop-acts{display:flex;gap:var(--space-1);margin-left:auto}
+.pv .pv-pop-acts button{min-height:var(--control-h-sm)}
+.pv .pv-pop-acts .pv-pop-clear{color:var(--destructive)}
+@media (pointer:coarse){#doc .pv .pv-pop .pv-reason{min-height:var(--hit);font-size:var(--text-xl)}   /* 16px: a phone does not zoom into it */
+  .pv .pv-pop-f{font-size:var(--text-sm)}
+  .pv .pv-pop-acts button{min-height:var(--ctl-touch-sm)}}

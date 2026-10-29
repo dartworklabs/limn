@@ -40,6 +40,7 @@ document.addEventListener('click',e=>{const target=/** @type {HTMLElement} */(e.
     case 'verdict-save':case 'pv-save':verdictPress(a,e.detail===0?'kb':undefined);break;   // a verdict word's button: the composer's row or a page verdict line (verdict.js)
     case 'pv-earlier':gotoPinRef(Number(a.dataset.ref));break;
     case 'pv-cancel':pvCancel(a);break;   // a page line's [판정 취소] on the person's own open verdict (verdict.js)
+    case 'pv-reason-open':case 'pv-reason-save':case 'pv-reason-clear':case 'pv-reason-close':pvReasonAct(a);break;   // a page line's reason and its popover (verdict-reason.js)
     case 'pop-more':selPopMore();break;   // the note popover by the box hands over to the composer in the panel
     case 'overlap-append':{const text=$('#note').value.trim();
       if(!text){bannerNote(NOTICE_HOST.COMPOSER,'메모를 먼저 써야 덧붙일 수 있습니다',NOTICE_KIND.WARN);break;}
