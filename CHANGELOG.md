@@ -1,5 +1,60 @@
 # Changelog
 
+## Unreleased
+
+The page verdict line's words become a toggle, and a verdict's reason is never lost without a word (an owner-requested
+UX audit of 0.4.33 on a figure document, items P1-1, P1-2, P2-3 to P2-7 and P3-13). Viewer only: the agent contract,
+`pins.md` and every route are unchanged.
+
+### Changed
+
+- **The line's words are a toggle.** The current verdict's word is pressed (`aria-pressed="true"`, filled: the primary
+  colour, a confirm word such as 삭제 the destructive colour). Pressing the pressed word takes the verdict back - the
+  same as `판정 취소`, with the status line's [되돌리기] - when it is the person's own open verdict; pressing the current
+  word never saves a second pin of that word. Someone else's verdict, or one already handled (검토 대기, 처리됨), is pressed
+  too but stays: the status line says why (`지금 판정 #4 채택 그대로 · 다른 사람의 판정은 여기서 거두지 않습니다`). Any other
+  word saves that verdict as before (a confirm word on its second press). The keys 1-5 do the same as the buttons. Right
+  after a word was taken back, the same word waits 0.8 s, so a double press takes one verdict back and does not save it
+  again. `판정 취소` on the line and [지우기] on the card stay.
+- **Presses during a save are kept.** While a save on a line is out, the line says what it saves (`· 보류 저장 중…`) with
+  that word pressed, and the buttons take presses: the last one wins and is applied when the save is done - a word that
+  is current by then does nothing. Pressing 채택, 보류, 채택 150 ms apart ends on one 채택 pin (0.4.33 made two and ended on
+  보류).
+- **The reason is written in a popover over the line.** It never pushes the plot down or makes the floating line taller.
+  A key save opens it with the focus; a click save opens nothing and the line offers `이유 추가` (on the reading line and
+  on the line of the last click save). The popover names whose reason it is (`판정 #16 보류 이유`), marks a draft
+  `저장 안 됨` and a written reason 체크 표시와 `저장됨`, says the keys, and has [닫기] and [저장] (and [지우기] for a saved
+  reason). The field grows to five lines; Enter saves, Shift+Enter is a new line.
+- **A saved reason is changed or cleared from the line.** The line shows it as a check and `<first line>`; on the person's own
+  open verdict it opens the popover with the reason. Enter writes the changed text over it (the whole note, against its
+  revision; if someone changed the note meanwhile it is not written over and the draft is kept), [지우기] clears it with
+  [되돌리기], and Enter on an empty field keeps it.
+- **Changing the verdict while typing moves the draft.** The draft goes to the new verdict - never to the one it
+  replaces - and the popover says so (`판정 #16 보류 이유 · #15 채택에서 옮김`); once written, the status line says where
+  (`이유 저장됨 · 판정 #16 보류 — <대상>`). A draft kept after a failed write moves the same way and is marked on the new
+  verdict.
+- **The keys in the reason field.** While the field is empty, 1-5 are the line's verdict keys (the line's words keep
+  their key marks) and the field stays open for the new verdict; once it holds text the digits are text and the popover
+  says `Esc 뒤 숫자로 판정 바꾸기`. A digit an input method is composing is text. A reason that starts with a digit is
+  typed after another character.
+- **Status-line messages put the result first** (P3-12, shared with the line layout work): `판정 #17 채택 취소 · 지금 판정
+  #12 보류 — <대상>` (or `· 남은 판정 없음`), `이유 저장 실패 · <까닭> — <대상>`, `판정 저장 실패 · <까닭> — <대상>`.
+
+### Fixed
+
+- **A key typed into the reason field after a key save no longer becomes the reason** (P1-1): 1, then 2 in the field,
+  then Enter saved the note `2` on 채택 and made no 보류.
+- **An unsaved reason is never lost without a word** (P1-2). Drafts are kept per pin in the tab (sessionStorage); a
+  reload brings the newest one back in its popover, and leaving the page with one asks first (beforeunload). With text,
+  Esc takes two presses: the first lets the focus go to the PDF area - the keys then change the verdict and the draft
+  follows - and says the next one drops it; on touch [닫기] does the same. [되돌리기] of `판정 취소` (or of pressing the
+  word again) and of the save chip bring the verdict back with its draft. Every failed write keeps the draft - lost on
+  the network, refused (4xx) or too long - and the line marks it `이유 · 저장 안 됨`; a reason that could only be added
+  to someone's note (2,000 characters at most) and is longer says so instead of being sent.
+- **An armed confirm word says how long it waits, and stops saying so** (P3-13). The line shows `4초 안에 한 번 더 누르면
+  저장` beside it and a screen reader hears `삭제 — 4초 안에 한 번 더 누르면 저장합니다`; when it lets go - its time, Esc or a
+  press elsewhere - that is replaced by `삭제 확정을 풀었습니다`, and after its saving press it is cleared.
+
 ## 0.4.33 — 2026-10-29
 
 Verdicts taken back where they were given, the page line's reason field in its rare orders, the outline filter, the
