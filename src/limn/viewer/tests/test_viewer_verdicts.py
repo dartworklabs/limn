@@ -5618,3 +5618,215 @@ class RcRound2(VerdictBase):
                 settle(page)
                 self.assertFalse(page.evaluate(failed))
                 self.assertEqual(self.pins()[two]["note"], text)
+
+
+class RcRound3(VerdictBase):
+    """The RC's third round: a pending verdict's failed save guards the keys typed on, a popover moved away from while its
+    verdict's save is out is written when it answers, the focus leaves the page the reading page left, a digit take-back
+    from outside the line, Tab into the pages from the section strip, and Esc on the popover's buttons."""
+
+    def take_held(self, page, timeout_ms=10000):
+        """The held POST /api/pin routes, once the save has sent one (its pick comes first); stops holding."""
+        waited = 0
+        while not self.held:
+            if waited >= timeout_ms:
+                self.fail("the save never sent its pin")
+            page.wait_for_timeout(20)
+            waited += 20
+        held, self.held = self.held, None
+        return held
+
+    def release_held(self, page):
+        """Answer the held POST /api/pin once it is sent, and stop holding."""
+        for r in self.take_held(page):
+            self.forward(r)
+
+    def fail_held(self, page):
+        """Lose the held POST /api/pin on the network once it is sent, and stop holding."""
+        held = self.take_held(page)
+        for r in held:
+            r.abort()
+
+    def wait_note(self, page, pid_note, timeout_ms=10000):
+        """Waits until the server holds one pin whose note is pid_note; that pin."""
+        waited = 0
+        while waited < timeout_ms:
+            got = [p for p in self.pins().values() if p.get("note") == pid_note]
+            if got:
+                return got[0]
+            page.wait_for_timeout(50)
+            waited += 50
+        self.fail("no pin with the note %r: %r" % (pid_note, self.pins()))
+
+    def test_a_failed_pending_save_guards_the_keys_typed_on(self):
+        """(1) 1, Enter, '이유' typed while the save is out; the save fails: the text is page 1's draft, the focus is on its
+        '초안 있음', and a 2 typed on is not a verdict key (said)."""
+        page = self.on("fig")
+        self.held = []
+        page.keyboard.press("1")
+        page.wait_for_function("PV_BUSY.size===1")
+        page.keyboard.press("Enter")
+        page.keyboard.type("이유")
+        self.fail_held(page)
+        page.wait_for_function("()=>LINE.some(n=>n.title.startsWith('판정 저장 실패 · 쓰던 이유는'))", timeout=10000)
+        settle(page)
+        self.assertEqual(page.evaluate(DRAFTS), {"fig:p1": "이유"})
+        self.assertEqual(page.evaluate(FOCUS_AT), [1, "pv-reason-open"])
+        page.keyboard.press("2")
+        settle(page)
+        self.assertEqual(self.pins(), {})
+        self.assertTrue(
+            page.evaluate("()=>LINE.some(n=>n.title.startsWith('이유 칸이 닫혀 숫자를 판정으로 받지 않았습니다'))")
+        )
+
+    def test_a_failed_pending_save_leaves_a_focus_elsewhere_where_it_is(self):
+        """(1) The same with the focus moved to the section strip's page button before the save fails: it stays there and the
+        keys are not guarded."""
+        page = self.on("fig")
+        self.held = []
+        page.keyboard.press("1")
+        page.wait_for_function("PV_BUSY.size===1")
+        page.keyboard.press("Enter")
+        page.keyboard.type("이유")
+        page.focus("#section-page")
+        self.fail_held(page)
+        page.wait_for_function("()=>PV_BUSY.size===0", timeout=10000)
+        settle(page)
+        self.assertEqual(page.evaluate("document.activeElement.id"), "section-page")
+        self.assertFalse(page.evaluate("PV_KEY_GUARD"))
+        self.assertEqual(page.evaluate(DRAFTS), {"fig:p1": "이유"})
+
+    def test_a_pending_reason_moved_away_from_is_written_when_its_save_answers(self):
+        """(2) 1, Enter, the text and Enter while the save is held; the person moves on - to page 2, or to another document -
+        before it answers: the popover closes with the text kept as page 1's draft, and once the save answers the text is
+        that verdict's note. Failing instead, the draft stays and the status line says so."""
+        for away, ok in (("page", True), ("doc", True), ("page", False)):
+            with self.subTest(away=away, ok=ok):
+                for pid in list(self.pins()):
+                    self.call("POST", "/api/pins/%d/drop" % pid, {})
+                page = self.on("fig")
+                page.evaluate("setK(PT_PX*1.5,false); ZOOMED=true")
+                settle(page)
+                page.evaluate(SCROLL, [1, "top"])
+                settle(page)
+                self.held = []
+                page.keyboard.press("1")
+                page.wait_for_function("PV_BUSY.size===1")
+                page.keyboard.press("Enter")
+                page.keyboard.type("옮긴 뒤 이유")
+                page.keyboard.press("Enter")
+                if away == "page":
+                    page.evaluate(SCROLL, [2, "top"])
+                else:
+                    page.evaluate("switchDoc('rv')")
+                    page.wait_for_function("DOC==='rv'&&META&&META.doc==='rv'")
+                page.wait_for_function(
+                    "()=>!PV_REASON&&!document.querySelector('#doc .pv-pop')"
+                )  # the save is held: no settle
+                self.assertEqual(page.evaluate("()=>document.querySelectorAll('#doc .pv-pop').length"), 0)
+                self.assertEqual(page.evaluate(DRAFTS), {"fig:p1": "옮긴 뒤 이유"})
+                if ok:
+                    self.release_held(page)
+                    pin = self.wait_note(page, "옮긴 뒤 이유")
+                    self.assertEqual((pin["verdict"], len(self.pins())), ("채택", 1))
+                    page.wait_for_function(
+                        "()=>!Object.keys(JSON.parse(sessionStorage.getItem(Object.keys(sessionStorage).find(k=>k.startsWith('limnReason:')))||'{}').d||{}).length"
+                    )
+                else:
+                    self.fail_held(page)
+                    page.wait_for_function(
+                        "()=>LINE.some(n=>n.title.startsWith('판정 저장 실패 · 쓰던 이유는'))", timeout=10000
+                    )
+                    settle(page)
+                    self.assertEqual(self.pins(), {})
+                    self.assertEqual(page.evaluate(DRAFTS), {"fig:p1": "옮긴 뒤 이유"})
+                page.context.close()
+
+    def test_the_focus_leaves_the_page_the_reading_page_left_even_in_view(self):
+        """(3) Page 1's word focused; the pages scroll just past its end, so page 2 is read while page 1's line still shows:
+        the focus goes to the PDF area, and Space - also when read before that frame - presses nothing on page 1."""
+        past = """([space])=>{const L=document.querySelector('#left'),lr=L.getBoundingClientRect(),r=document.getElementById('p2').getBoundingClientRect();
+          L.scrollTop+=r.top-lr.top-readingDepth(L)+12; const b=document.querySelector('#doc .pv[data-page="1"]').getBoundingClientRect();
+          if(space){const t=document.activeElement; for(const k of ['keydown','keyup'])t.dispatchEvent(new KeyboardEvent(k,{key:' ',code:'Space',bubbles:true,cancelable:true}));}
+          return [b.bottom>lr.top&&b.top<lr.bottom, pvReadingAt()];}"""
+        a = 0
+        for race in (False, True):
+            with self.subTest(race=race):
+                page = self.on("fig")
+                page.evaluate("setK(PT_PX*1.5,false); ZOOMED=true")
+                settle(page)
+                page.evaluate(SCROLL, [1, "top"])
+                settle(page)
+                a = a or self.press_page(page, 1, "채택")
+                page.evaluate(END_CHIPS)
+                page.evaluate(SCROLL, [1, "top"])
+                settle(page)
+                page.evaluate(
+                    """()=>document.querySelector('#doc .pv[data-page="1"] [data-key="채택"]').focus({preventScroll:true})"""
+                )
+                settle(page)
+                self.assertEqual(page.evaluate("PV_READ"), 1)
+                self.assertEqual(page.evaluate(past, [race]), [True, 2])
+                settle(page)
+                self.assertEqual(page.evaluate("document.activeElement.id"), "left")
+                page.keyboard.press(" ")
+                settle(page)
+                self.assertEqual([p["id"] for p in self.pins().values()], [a])
+                self.assertEqual(page.evaluate("()=>document.querySelectorAll('#doc .pv-pop').length"), 0)
+                page.context.close()
+
+    def test_a_digit_take_back_from_outside_the_line_puts_the_focus_on_its_undo(self):
+        """(4) 1 saves 채택; the focus moved to the section strip's page button, 1 takes it back: the focus is on the line's
+        [되돌리기], and Enter restores the verdict (not the page list)."""
+        page = self.on("fig")
+        page.keyboard.press("1")
+        page.wait_for_function("OPEN_ALL.length===1")
+        settle(page)
+        page.focus("#section-page")
+        page.keyboard.press("1")
+        page.wait_for_function("OPEN_ALL.length===0")
+        settle(page)
+        self.assertEqual(page.evaluate(FOCUS_AT), [1, "pv-undo"])
+        page.keyboard.press("Enter")
+        page.wait_for_function("OPEN_ALL.length===1")
+        self.assertTrue(page.evaluate("document.querySelector('#page-pop').hidden"))
+
+    def test_tab_from_the_section_strip_goes_to_the_reading_line(self):
+        """(5) Page 2 zoomed and read; Tab from the section strip's page button goes to page 2's line - not to page 1's,
+        which scrolled there - and the pages stay where they are."""
+        page = self.on("fig")
+        page.evaluate("setK(PT_PX*1.5,false); ZOOMED=true")
+        settle(page)
+        self.press_page(page, 1, "채택")
+        self.press_page(page, 2, "보류")
+        page.evaluate(END_CHIPS)
+        page.evaluate(SCROLL, [2, "top"])
+        settle(page)
+        page.focus("#section-page")
+        top = page.evaluate("document.querySelector('#left').scrollTop")
+        page.keyboard.press("Tab")
+        self.assertEqual(page.evaluate(FOCUS_AT)[0], 2)
+        self.assertEqual(page.evaluate("document.querySelector('#left').scrollTop"), top)
+
+    def test_esc_on_the_popovers_buttons_is_the_fields_esc(self):
+        """(6) With a draft, Esc on [접기] lets the focus out with the popover and its text kept; Esc again drops it. Without
+        one, Esc on [닫기] closes it, the focus on the line."""
+        page = self.on("fig")
+        self.press_page(page, 1, "채택")
+        page.evaluate(END_CHIPS)
+        open_reason(page, 1)
+        page.keyboard.type("버튼에서 Esc")
+        page.focus('#doc .pv[data-page="1"] [data-act="pv-reason-fold"]')
+        page.keyboard.press("Escape")
+        self.assertEqual(page.evaluate("document.activeElement.id"), "left")
+        self.assertEqual(page.evaluate(POP, 1)["value"], "버튼에서 Esc")
+        page.keyboard.press("Escape")
+        settle(page)
+        self.assertIsNone(page.evaluate(POP, 1))
+        self.assertEqual(page.evaluate(DRAFTS), {})
+        open_reason(page, 1)
+        page.focus('#doc .pv[data-page="1"] [data-act="pv-reason-close"]')
+        page.keyboard.press("Escape")
+        settle(page)
+        self.assertIsNone(page.evaluate(POP, 1))
+        self.assertEqual(page.evaluate(FOCUS_AT)[0], 1)
