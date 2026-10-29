@@ -38,6 +38,10 @@ class ListingDeps(Protocol):
         """Overlap relationships computed over all live pins."""
         ...
 
+    def superseded_by_id(self, pins: Sequence[Pin]) -> dict[int, int]:
+        """Which verdict pins a newer verdict pin supersedes, computed over all live pins."""
+        ...
+
     def pin_doc_key(self, record: Record) -> str:
         """The document that owns one pin."""
         ...
@@ -59,7 +63,8 @@ class PinListing:
     trash_days: int
 
     def pins_payload(self, pins: Sequence[Pin], allp: bool) -> list[Json]:
-        """The list with overlap, estimation and figure element positions computed over the full live set."""
+        """The list with overlap, estimation, figure element positions and verdict supersession computed over the full
+        live set."""
         rows = [pin.record for pin in pins]
         return view.pins_payload(
             rows,
@@ -70,6 +75,7 @@ class PinListing:
             self.deps._doc_est_context,
             time.time(),
             self.deps.element_follower,
+            self.deps.superseded_by_id(pins),
         )
 
     def list_payload(self, allp: bool, doc_key: str | None = None) -> list[Json]:

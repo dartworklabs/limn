@@ -89,6 +89,19 @@ class PinView(unittest.TestCase):
         self.assertEqual(list(rec)[:3], ["id", "state", "done"])
         self.assertEqual(rec["state"], "done")
 
+    def test_superseded_by_follows_fyi_and_only_a_superseded_verdict_has_it(self):
+        """ADR-0023: superseded_by is the number of the target's current verdict, right after fyi and before the figure
+        marks and the claim's start; none given, no field - not even a null."""
+        r = {"id": 4, "verdict": "보류", "page": 1, "el": EL, "claimed_by": {"login": "a"}, "claim_until": NOW + 60}
+        r["claimed_at"] = "2026-09-26 10:00:00"
+        rec = pin_view(r, shown(r), [], False, "fig", NOW, element_follower(FIG), 9)
+        names = list(rec)
+        self.assertEqual(rec["superseded_by"], 9)
+        self.assertEqual(names[names.index("fyi") + 1 :], ["superseded_by", "mark", "mark_page", "el_sync", "claim_ts"])
+        plain = pin_view(r, shown(r), [], False, "fig", NOW, element_follower(FIG))
+        self.assertNotIn("superseded_by", plain)
+        self.assertEqual(list(plain), [n for n in names if n != "superseded_by"])
+
     def test_a_holding_legacy_claim_gets_its_start_epoch(self):
         """A claim that holds at now but has no claim_ts gets claim_ts from claimed_at (local time)."""
         r = {"id": 1, "claimed_by": {"login": "a"}, "claimed_at": "2026-09-26 10:00:00", "claim_until": NOW + 60}
@@ -158,6 +171,34 @@ class PinsPayload(unittest.TestCase):
         self.rows = [r for r in self.rows if r["doc"] == "a"]
         self.payload(False)
         self.assertEqual(self.asked, ["a"])
+
+
+class SupersededPayload(unittest.TestCase):
+    """pins_payload with a supersession: each listed pin the map names gets its field, closed pins that are not listed
+    included in the map."""
+
+    def test_a_listed_pin_is_told_which_verdict_supersedes_it(self):
+        """The map is over all rows: an open pin superseded by a done one that the default list leaves out is told so,
+        and a pin the map does not name has no field."""
+        rows = [
+            {"id": 1, "doc": "a", "verdict": "채택"},
+            {"id": 2, "doc": "a", "verdict": "보류", "done": True},
+            {"id": 3, "doc": "a"},
+        ]
+        got = pins_payload(rows, False, {}, shown, lambda r: r["doc"], lambda k: CUR, NOW, superseded={1: 2})
+        self.assertEqual([r["id"] for r in got], [1, 3])
+        self.assertEqual([r.get("superseded_by") for r in got], [2, None])
+        every = pins_payload(rows, True, {}, shown, lambda r: r["doc"], lambda k: CUR, NOW, superseded={1: 2})
+        self.assertEqual([r.get("superseded_by") for r in every], [2, None, None])
+
+    def test_without_a_map_no_pin_has_the_field(self):
+        """The default (and an explicit None) is the answer as it was."""
+        rows = [{"id": 1, "doc": "a", "verdict": "채택"}]
+        base = pins_payload(rows, True, {}, shown, lambda r: r["doc"], lambda k: CUR, NOW)
+        self.assertNotIn("superseded_by", base[0])
+        self.assertEqual(
+            base, pins_payload(rows, True, {}, shown, lambda r: r["doc"], lambda k: CUR, NOW, superseded=None)
+        )
 
 
 class DroppedPayload(unittest.TestCase):

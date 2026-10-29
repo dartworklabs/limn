@@ -319,8 +319,9 @@ class VerdictContractSnapshot(SnapshotBase):
     """The verdict flow, recorded in tests/data/verdict_snapshot.json (docs/superpowers/specs/2026-10-26-verdict-pins.md):
     three documents - LaTeX ms, figure fig (two pages on BUILD1) and view-only PDF rv - of which ms and fig declare
     verdict words; the document list with them; verdict pins by people on each kind (rv once it has words), whole
-    figure and whole page included; every creation refusal in turn; a claim; the edit rule; an agent's close; then
-    pins.md, the pin lists and one pin. Every file's mtime is T0, so the document list does not depend on when the
+    figure and whole page included; every creation refusal in turn; a claim; the edit rule; an agent's close; a
+    newer verdict on a panel of the figure and a newer one on the closed pin's lines, which supersede the earlier two
+    (superseded_by, ADR-0023); then pins.md, the pin lists and one pin. Every file's mtime is T0, so the document list does not depend on when the
     test ran. The two older flows never meet a word file, and their snapshots stay byte for byte as they were."""
 
     def setUp(self):
@@ -428,6 +429,20 @@ class VerdictContractSnapshot(SnapshotBase):
             "POST",
             "/api/pins/%d/close" % a,
             {"reply": "대상: intro-1\n본문에 넣었습니다", "ref": "PR #3 (abc1234)"},
+        )
+        self.step(
+            "verdicts: person picks 채택 for a panel of the same figure",
+            "POST",
+            "/api/pin",
+            dict(figure, el={"id": "B2/calendar", "path": ["B2", "B2/calendar"]}, verdict="채택"),
+            ALICE,
+        )
+        self.step(
+            "verdicts: person picks 보류 for the same lines again",
+            "POST",
+            "/api/pin",
+            {"doc": "ms", "file": main, "lo": 4, "hi": 5, "page": 1, "verdict": "보류"},
+            BOB,
         )
         self.step("verdicts: GET /pins.md", "GET", "/pins.md")
         self.step("verdicts: GET /api/pins", "GET", "/api/pins")

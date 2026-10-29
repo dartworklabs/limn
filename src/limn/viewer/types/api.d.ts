@@ -131,6 +131,9 @@ interface Pin {
   suggest?: PinSuggest;
   suggest_state?: string;
   verdict?: string;
+  // A verdict pin a newer verdict pin about the same target supersedes: that pin's number (ADR-0023). Computed on read;
+  // the viewer's card marker still counts the order itself.
+  superseded_by?: number;
 }
 
 // The person this request is answered for (meta and /api/people `me`), with the role the server gives them.
