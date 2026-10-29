@@ -5913,6 +5913,27 @@ class RcRound4(VerdictBase):
         up = page.evaluate(walk, -1)
         self.assertEqual((up["seq"], up["back"], len(up["heights"])), ([2, 1], 0, 1), up)
 
+    def test_a_line_keeps_its_rows_whichever_page_is_read_at_every_zoom(self):
+        """1280x900 and 390x844, page widths 260-760px in 12px steps: page 1's line has the same rows and height while page 1
+        is read and while page 2 is - the identifier the reading line shows counts in the choice for every line (a line that
+        stacked only as the reading line, at a zoom near its threshold, shrank when the reading page left and moved the pages
+        under it)."""
+        for dev in ({"viewport": {"width": 1280, "height": 900}}, self.PHONE):
+            with self.subTest(dev=dev["viewport"]["width"]):
+                page = self.on("fig", **dev)
+                page.evaluate("setSide(false)")
+                bad = page.evaluate(
+                    """async()=>{const L=document.querySelector('#left'),l1=()=>document.querySelector('#doc .pv[data-page="1"]'),out=[];
+                      const frame=()=>new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
+                      const read=async n=>{const p=document.getElementById('p'+n); L.scrollTop+=p.getBoundingClientRect().top-L.getBoundingClientRect().top-(n===1?0:2);
+                        await frame(); pvStick(); await frame(); return [PV_READ,l1().classList.contains('pv-stack'),Math.round(l1().getBoundingClientRect().height)];};
+                      for(let w=260;w<=760;w+=12){setK(w/META.pages[0].pt_w,false); ZOOMED=true; await frame();
+                        const a=await read(1),b=await read(2); if(a[0]!==1||b[0]!==2)continue; if(a[1]!==b[1]||a[2]!==b[2])out.push([w,a,b]);}
+                      return out;}"""
+                )
+                self.assertEqual(bad, [])
+                page.context.close()
+
     def test_a_key_save_after_a_digit_take_back_keeps_the_focus_on_its_line(self):
         """1 saves 채택, 1 takes it back (the focus on the line's [되돌리기]), 2 saves 보류: the line no longer offers the
         take-back's [되돌리기] and the focus is on the line's way to the reason - not on nothing, where PageDown no longer
@@ -5930,6 +5951,22 @@ class RcRound4(VerdictBase):
         settle(page)
         self.assertEqual(page.evaluate(FOCUS_AT), [1, "pv-reason-open"])
         self.assertFalse(page.evaluate("!!document.querySelector('#doc .pv[data-page=\"1\"] .pv-undo')"))
+
+    def test_a_digit_on_an_open_card_editors_button_is_the_editors(self):
+        """1 saves 채택; its card's editor open with the focus on its [저장]: 2 saves nothing and leaves the focus there (it
+        took the focus to the pages and saved 보류, and the Enter after it opened nothing - the editor holds Enter)."""
+        page = self.on("fig")
+        page.keyboard.press("1")
+        page.wait_for_function("OPEN_ALL.length===1")
+        settle(page)
+        pid = page.evaluate("OPEN_ALL[0].id")
+        page.evaluate("id=>openEdit(id)", pid)
+        settle(page)
+        page.focus(".edit .b-esave")
+        page.keyboard.press("2")
+        settle(page)
+        self.assertEqual(page.evaluate("[OPEN_ALL.length, PV_BUSY.size, document.activeElement.classList.contains('b-esave')]"), [1, 0, True])
+        self.assertEqual([p["verdict"] for p in self.pins().values()], ["채택"])
 
     def test_a_digit_from_the_section_strip_then_enter_opens_the_reason(self):
         """The focus on the section strip's page button (where a press on the page list leaves it), 1 with its save held,

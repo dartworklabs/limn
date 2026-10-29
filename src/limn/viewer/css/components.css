@@ -223,9 +223,10 @@ body.lay-narrow.has-status:not(.typing,.pv-typing){--pv-inset:calc(var(--sheet-h
 /* Every other stacked line keeps that row empty (the name is hidden, not gone): the reading line's name came and went with the
    reading page, so the line a reading page left shrank by the row (131 -> 108px on a phone) and moved the page being read -
    and the scroll that made up for it ended a jump's glide and trapped a slow scroll at a page's end (verdict.js pvStick). A
-   row line has no such row: the name stands in it. pvFit takes .pv-stack away while it measures, so the empty row never
-   counts there. */
-.pv.pv-stack>.pv-fig[hidden]{display:flex!important;visibility:hidden;min-height:1lh}   /* over frame.css [hidden]; empty, it is one text line high */
+   row line has no such row: the name stands in it. pvFit measures every line as the reading line (#doc.pv-measure: the
+   hidden identifier and its separator take their room), so a line stacks or not whichever page is read. */
+#doc.pv-measure .pv>:is(.pv-fig,.pv-fig-sep)[hidden],
+.pv.pv-stack>.pv-fig[hidden]{display:flex!important;visibility:hidden;min-height:1lh}   /* over frame.css [hidden]; one text line high */
 @media (pointer:coarse){.pv.pv-stack .pv-fig{margin-bottom:calc(var(--space-1) - var(--space-5))}}
 /* While the reason is typed on a touch screen (body.pv-typing: a text field in a page line has the focus, verdict.js) the
    keyboard leaves little of the page: the line drops its figure's name and its save chip folds to its [되돌리기] - and the
@@ -239,7 +240,11 @@ body.lay-narrow.has-status:not(.typing,.pv-typing){--pv-inset:calc(var(--sheet-h
   body.pv-typing .pv>.nt-chip :is(.nt-ic,.nt-t){display:none}}
 /* The key a word answers on the line the keys act on (data-kn, verdict.js): after the word in the button's own colour, set off
    by weight and size as a button's shortcut is (.kh); a mouse screen only. */
-@media (hover:hover) and (pointer:fine){.pv .vd-b[data-kn]::after{content:attr(data-kn);margin-left:var(--space-1);font-weight:400;font-size:var(--text-xs)}}
+@media (hover:hover) and (pointer:fine){.pv .vd-b[data-kn]::after,#doc.pv-measure .pv .vd-b::after{content:attr(data-kn);margin-left:var(--space-1);font-weight:400;font-size:var(--text-xs)}
+  /* Every line is fitted as the line the keys act on (pvFit): its words with their keys - a word's key is its place */
+  #doc.pv-measure .pv .vd-b:not([data-kn]):nth-child(1)::after{content:'1'} #doc.pv-measure .pv .vd-b:not([data-kn]):nth-child(2)::after{content:'2'}
+  #doc.pv-measure .pv .vd-b:not([data-kn]):nth-child(3)::after{content:'3'} #doc.pv-measure .pv .vd-b:not([data-kn]):nth-child(4)::after{content:'4'}
+  #doc.pv-measure .pv .vd-b:not([data-kn]):nth-child(5)::after{content:'5'}}
 /* A failed save of this line, said under it (PV_ERR) as well as on the status line. */
 .pv .pv-err{flex-basis:100%;color:var(--destructive);font-size:var(--text-sm)}
 .pv-t{display:flex;flex-wrap:wrap;align-items:center;gap:0 var(--space-1);flex:1 1 auto;min-width:0}

@@ -91,13 +91,15 @@ was; the viewer still counts the verdict order itself, and a browser test holds 
   A confirm word waiting for its second press has no description box (it covered the figure's name).
 - **The page being read stays put when the reading page changes.** A stacked line (a phone) gives the reading figure's
   name a row of its own; the line above the new reading page lost that row and pulled the page up 23px under the reader's
-  eyes - a two-finger zoom over it then missed its anchor. Every other stacked line now keeps that row's place empty, so
-  no line changes its height and nothing is scrolled to make up for it (a scroll doing so ended outline and page-list
-  jumps part-way and trapped a slow phone scroll at a page's end).
+  eyes - a two-finger zoom over it then missed its anchor. Every other stacked line now keeps that row's place empty, and
+  every line is fitted as the reading line it may become (its identifier and its keys' digits counted), so no line
+  changes its rows or height with the reading page and nothing is scrolled to make up for it (a scroll doing so ended
+  outline and page-list jumps part-way and trapped a slow phone scroll at a page's end).
 - **The focus after a key save is never lost.** A new verdict saved right after a digit took one back left the focus on
   nothing (the line still offered the take-back's [되돌리기] and its [이유 추가] had stepped out); the new verdict now ends
   that offer on its line. A digit pressed with the focus on the outline, the page list, a document tab or a card brings the
   focus to the pages at once, so an Enter typed straight after it opens the reason instead of pressing that control again.
+  While a card's editor or reply is open and has the focus, digits are its own and make no verdict.
 - **A line starts where its page does.** With the panel closed at 1280 x 800 the status box at the bottom right pushed the
   line 36px left of its page; the line now ends before the box instead.
 - **Foldable in portrait (and tablets).** With the pin sheet open the line floats on the sheet's top edge instead of going

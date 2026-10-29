@@ -622,9 +622,10 @@ ${chip?'':html`data-tip="${tr('이 판정을 거둡니다. 핀은 휴지통으�
   const early=earlier.length?html`<button type="button" class="btn-ghost btn-sm pv-early hit" data-act="pv-earlier" data-ref="${earlier[0].id}" \
 ${chip?'':html`data-tip="${tr('이 쪽의 더 새 판정으로 대체되어 실행하지 않는 열린 판정 핀입니다. 누르면 그 카드로 갑니다')}"`}>${tl('이전 판정 {n}건 · 새 판정으로 대체됨',{n:earlier.length})}</button>`:'';
   // The reading page's line - the one that floats - names what it decides: '7쪽 · [후보] PL18 · …' (figureName), cut to fit.
-  // Its two spans are on every line, empty and hidden but on the reading one: the line's children keep their places when
-  // the reading page moves, so the morph (pvMorph) never takes a focused button out of the page.
-  const rd=PV_READ===page,nm=rd?pvFigParts(page):{id:'',rest:''};
+  // Its two spans are on every line, hidden but on the reading one: the line's children keep their places when the reading
+  // page moves, so the morph (pvMorph) never takes a focused button out of the page. A hidden one holds the identifier, so
+  // every line is fitted as the reading line it may become (pvFit).
+  const rd=PV_READ===page,nm=rd?pvFigParts(page):{id:pvFigParts(page).id,rest:''};
   const name=html`<span class="pv-fig" translate="no"${rd?'':html` hidden`}><span class="pv-fig-id">${nm.id}</span>${nm.rest?html`<span class="pv-fig-t">${' · '+nm.rest}</span>`:''}</span><span class="pv-sep pv-fig-sep" aria-hidden="true"${rd?'':html` hidden`}>·</span>`;
   const keys=PV_KEYS===page,target=tl('{page}쪽',{page}),held=PV_TOGGLE_HOLD.get(slot),hold=held&&held.until>Date.now()?held.key:null;
   const pr=(/** @type {string} */key)=>key!==want?PV_PRESS.NONE:nx||sv!==undefined?PV_PRESS.SAVING:cur?pvPressOf(cur):PV_PRESS.NONE;
@@ -717,8 +718,11 @@ function sizePv(){const ir=pvInsetR(),L=$('#left'),lines=$$('#doc .pv');
 // words moving between the two presses sent the second one elsewhere. The save chip is placed after (pvChipPlace).
 // Read and written in batches.
 /** @param {HTMLElement[]} lines */
-function pvFit(lines){const held=lines.map(pvRowsHeld);
+function pvFit(lines){const held=lines.map(pvRowsHeld),D=$('#doc');
   lines.forEach((l,i)=>{if(!held[i]){l.classList.toggle('pv-stack',false); l.classList.toggle('pv-tight',false);}});
+  // Every line is measured as the reading line (#doc.pv-measure shows each hidden identifier, components.css): a line that
+  // stacked only while it was read shrank when the reading page left (91 -> 32px on a 260px page) and moved the pages.
+  D.classList.add('pv-measure');
   // The figure's least width is its identifier's (--pv-fig-min): its title's own text would otherwise count in it.
   const ids=lines.map(l=>{const e=l.querySelector(':scope>.pv-fig>.pv-fig-id'); return e&&e.getClientRects().length?Math.ceil(e.getBoundingClientRect().width):0;});
   lines.forEach((l,i)=>{const v=ids[i]+'px'; if(l.style.getPropertyValue('--pv-fig-min')!==v)l.style.setProperty('--pv-fig-min',v);});
@@ -736,6 +740,7 @@ function pvFit(lines){const held=lines.map(pvRowsHeld);
   let over=lines.map((l,i)=>!held[i]&&(narrow[i]||tight(l)));
   if(LAYOUT===LAYOUT_MODE.WIDE&&over.some(o=>o)){lines.forEach((l,i)=>{if(over[i])l.classList.add('pv-tight');}); over=lines.map((l,i)=>over[i]&&(narrow[i]||tight(l)));}
   lines.forEach((l,i)=>{if(over[i])l.classList.add('pv-stack');});
+  D.classList.remove('pv-measure');
   pvChipPlace(lines);
   // A word group that wraps keeps every button at its own width (vdWrapFit), read for every line before any is written.
   const groups=lines.map(l=>l.querySelector('.vd-btns')),wrap=groups.map(g=>!!g&&new Set([...g.children].map(b=>Math.round(b.getBoundingClientRect().top))).size>1);
@@ -984,6 +989,9 @@ function verdictKey(e){if(e.defaultPrevented||e.repeat||e.isComposing||e.ctrlKey
   const t=/** @type {HTMLElement|null} */(e.target);
   if(t&&(t.tagName==='TEXTAREA'||t.tagName==='INPUT'||t.tagName==='SELECT'||t.isContentEditable))return;
   if(document.querySelector('dialog[open]')||!$('#page-pop').hidden||!$('#doc-pop').hidden||!$('#composer').hidden)return;
+  // A card's editor or reply open with the focus outside the pages (on its [저장], say): its keys, not the pages' - a digit
+  // took the focus from it, and the Enter after it then opened nothing (pvReasonEnterPages waits for the editor).
+  if((EDITOR.current||REPLY)&&!$('#left').contains(document.activeElement))return;
   const v=pageVerdictsOn(),n=+e.key,c=v&&v.choices[n-1],at=pvReadingAt(); if(!c||!at||!canVerdict())return;
   if(pvKeyGuarded(e))return;   // a reason field went from under the typing: its digits are not verdict keys
   if(pvAutoScrolling()){e.preventDefault(); pvSayGliding(); return;}   // a jump still gliding: the reading page is not yet the one asked for
