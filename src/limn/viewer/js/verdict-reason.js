@@ -49,7 +49,7 @@ function rdPut(doc,id,text,base,rev,o){const d=rdAll(),k=rdName(doc,id),mode=o&&
   if(text.trim()&&text.trim()!==base.trim())d[k]={text,base,rev:rev===undefined?-1:rev,mode,folded:!!(o&&o.folded),at:Date.now()}; else delete d[k]; rdSave(d);}
 // Keeps reason session r's text as its pin's draft (open, not folded).
 /** @param {ReasonSession} r @param {boolean} [folded] */
-function rdKeep(r,folded){rdPut(r.doc,r.id,r.text,r.base,r.rev,{mode:r.mode,folded:!!folded});}
+function rdKeep(r,folded){rdPut(r.doc,r.id||'p'+r.page,r.text,r.base,r.rev,{mode:r.mode,folded:!!folded});}   // not bound yet: the page's
 /** @param {string|null} doc @param {number|string} id */
 function rdDrop(doc,id){const d=rdAll(),k=rdName(doc,id); if(k in d){delete d[k]; rdSave(d);}}
 // Moves the draft under from (a pin or a page) to verdict pin id, as a new reason - it was never written on the other.
@@ -66,8 +66,10 @@ function rdMove(doc,from,id){const x=rdGet(doc,from); if(!x)return null; rdDrop(
 // offers [그 위에 쓰기], pvReasonReapply). from: the verdict the draft moved from (0 when it did not), said in the popover.
 // escArm: the first Esc (or [닫기]) with text was pressed - 'key' or 'btn' - and the next one drops the draft. saved: the
 // text the session has written; tried: texts whose write failed without an answer that says it did not land (it may have);
-// clearTried: a [지우기] whose answer was lost (the next one reads the note first).
-/** @typedef {{sid:number,page:number,id:number,key:string,doc:string|null,visit:any,text:string,base:string,mode:string,rev:number,conflict:{note:string,rev:number}|null,from:number,seen:boolean,listed:boolean,writing:Promise<boolean>|null,saved:string|null,tried:string[],clearTried:boolean,escArm:string}} ReasonSession */
+// clearTried: a [지우기] whose answer was lost (the next one reads the note first). id 0: the popover was opened by Enter
+// while its verdict's save was still out (pvReasonOpenPending) - the text waits for the verdict's number (pvReasonAfterSave
+// binds it), and an Enter in it meanwhile saves once it has one (saveWhenBound).
+/** @typedef {{sid:number,page:number,id:number,key:string,doc:string|null,visit:any,text:string,base:string,mode:string,rev:number,conflict:{note:string,rev:number}|null,from:number,seen:boolean,listed:boolean,writing:Promise<boolean>|null,saved:string|null,tried:string[],clearTried:boolean,escArm:string,saveWhenBound?:boolean}} ReasonSession */
 let PV_REASON=/** @type {ReasonSession|null} */(null);
 let PV_RSEQ=0;
 let PV_LAST_SAVE=0;   // the verdict pin the last save on a page line made: its line offers the way to its reason wherever it is
@@ -123,21 +125,26 @@ let PV_REFOCUS=/** @type {{page:number,sel:string}|null} */(null);
 function pvReasonAfterLines(){const w=PV_REFOCUS; if(!w)return; PV_REFOCUS=null;
   const c=/** @type {HTMLElement|null} */(document.querySelector('#doc .pv[data-page="'+w.page+'"] '+w.sel)); if(c)c.focus({preventScroll:true});}
 // Once per document in this page's life, when its first lines are drawn: the drafts kept for pins that are gone are let go,
-// and the newest one for a person's own open verdict that its line shows - and that was not folded away - is opened again
-// without the focus, as it was before the reload. The others wait on their lines ('초안 있음'). A screen reader hears how
-// many drafts came back.
+// and the others wait on their lines ('초안 있음') - none opens by itself: a popover restored on a page far from the reading
+// one opened out of sight, said only to a screen reader. The status line says how many came back, with [보기], which brings
+// the first one's line into view and puts the focus on its mark.
 const PV_RESTORED=/** @type {Set<string>} */(new Set());
 function pvReasonRestore(){const doc=DOC||''; if(PV_RESTORED.has(doc)||!META)return; PV_RESTORED.add(doc);
-  const d=rdAll(),pre=doc+':',kind=META.kind; let best=/** @type {{page:number,p:Pin,x:ReasonDraft}|null} */(null),gone=false,n=0;
+  const d=rdAll(),pre=doc+':',kind=META.kind; let gone=false; const pages=/** @type {number[]} */([]);
   for(const k of Object.keys(d)){if(!k.startsWith(pre))continue; const rest=k.slice(pre.length),x=rdRead(d[k]); if(!x)continue;
-    if(rest.startsWith('p')){n++; continue;}   // a page's draft waits on its line
+    if(rest.startsWith('p')){pages.push(Number(rest.slice(1))||0); continue;}   // a page's draft waits on its line
     const p=pvReasonPin(Number(rest));
     if(!p){delete d[k]; gone=true; continue;}
-    n++; const t=pageTargetOf(p,kind),cur=t?pvCurOf(t.page):null;
-    if(!x.folded&&t&&cur&&cur.id===p.id&&pvCanCancel(p)&&(!best||x.at>best.x.at))best={page:t.page,p,x};}
+    const t=pageTargetOf(p,kind); if(t)pages.push(t.page);}
   if(gone)rdSave(d);
-  if(best){const r=pvReasonNew(best.page,best.p.id,verdictOf(best.p)||'',best.x.text,best.x.base,best.x.rev,best.x.mode); r.listed=true; pvReasonSeeConflict(r,best.p); PV_REASON=r;}
-  if(n)announce(tl('저장 안 된 이유 초안 {n}건을 되살렸습니다',{n}));}
+  const shown=pages.filter(n=>n>0).sort((a,b)=>a-b); if(!shown.length)return; const first=shown[0];
+  lineNote(tl('저장 안 된 이유 초안 {n}건 · 줄의 [초안 있음]이 엽니다 — {target}',{n:shown.length,target:pageTargetShort(first)}),NOTICE_KIND.INFO,
+    {label:'보기',fn:()=>pvShowLine(first)},{literal:true,source:'reason-restore'});}
+// Brings page `page`'s line into view and puts the focus on its reason control ('초안 있음').
+/** @param {number} page */
+function pvShowLine(page){const l=/** @type {HTMLElement|null} */(document.querySelector('#doc .pv[data-page="'+page+'"]')); if(!l)return;
+  const blk=/** @type {HTMLElement} */(l.parentElement||l); blk.scrollIntoView({block:blk.getBoundingClientRect().height<=$('#left').clientHeight?'center':'end'});
+  requestAnimationFrame(()=>{if(!pvFocusLine(page))searchToPage();});}
 // A draft that changes a saved reason, opened again after its pin's note changed elsewhere: it knows the newer note at once.
 /** @param {ReasonSession} r @param {Pin} p */
 function pvReasonSeeConflict(r,p){const note=String(p.note||'');
@@ -156,7 +163,7 @@ function pvFocusLine(page){const l=document.querySelector('#doc .pv[data-page="'
   const c=/** @type {HTMLElement|null} */(l.querySelector('[data-act="pv-reason-open"]')||l.querySelector('.vd-b[aria-pressed="true"]')||l.querySelector('.vd-b'));
   if(!c)return false; c.focus({preventScroll:true}); return true;}
 // Moving on: the popover closes and what was typed is written as Enter would, said in one line; nothing unsaved just closes.
-function pvReasonLeave(){const r=PV_REASON; if(!r)return; pvReasonEnd(false); if(pvReasonDirty(r))pvReasonCommit(r,r.text.trim(),true);}
+function pvReasonLeave(){const r=PV_REASON; if(!r)return; pvReasonEnd(false); if(r.id&&pvReasonDirty(r))pvReasonCommit(r,r.text.trim(),true);}   // unbound: its text is the page's draft
 // Opens the popover on page `page`'s line for its current verdict - the person's own open one ([이유 추가], Enter, its saved
 // reason, its kept draft): with that draft (unfolded), else the page's draft (moved to this verdict), else the saved reason
 // to change. Another popover moves on first. A page's draft with no verdict of the person's to take it says so.
@@ -169,6 +176,20 @@ function pvReasonOpen(page,focus){const cur=pvCurOf(page); if(viewerBlocked())re
     const r=d?pvReasonNew(page,cur.id,verdictOf(cur)||'',d.text,d.base,d.rev>=0?d.rev:rev,d.mode):pvReasonNew(page,cur.id,verdictOf(cur)||'',note,note,rev);
     r.listed=true; pvReasonSeeConflict(r,cur); PV_REASON=r; if(d&&d.folded)rdKeep(r);}
   PV_KEY_GUARD=false; hideTip(); drawPageVerdicts(); if(focus)pvReasonFocus();}
+// Enter while page `page`'s save is still out (a fast typist: a key, then Enter at once): the Enter is the intent to write, so
+// the popover opens now with the focus, bound to that pending verdict (id 0) - every key after it is text in the field,
+// digits included, never a verdict key - and takes the verdict's number when the save answers (pvReasonAfterSave). A save
+// that fails leaves the text as the page's draft (pvReasonUnbound).
+/** @param {number} page */
+function pvReasonOpenPending(page){const key=PV_BUSY.get(pvSlot(page))||''; if(PV_REASON&&pvReasonOn(page)){pvReasonFocus(); return;}
+  pvReasonLeave(); const d=rdGet(DOC,'p'+page),r=pvReasonNew(page,0,key,d?d.text:'','',-1,'add'); PV_REASON=r; PV_KEY_GUARD=false; hideTip(); drawPageVerdicts(); pvReasonFocus();}
+// Page `page`'s save failed while a popover waited for its number: what was typed stays as the page's draft ('초안 있음'),
+// said in one line, and the popover closes onto its line.
+/** @param {number} page */
+function pvReasonUnbound(page){const r=PV_REASON; if(!r||r.id||r.page!==page||r.doc!==DOC)return; PV_REASON=null;
+  if(r.text.trim())rdPut(r.doc,'p'+page,r.text,'',-1,{mode:'add',folded:true});
+  if(r.text.trim())lineNote(tl('판정 저장 실패 · 쓰던 이유는 이 쪽의 초안으로 남겼습니다 — {target}',{target:pageTargetShort(page)}),NOTICE_KIND.WARN,null,{literal:true});
+  drawPageVerdicts(); if(!pvFocusLine(page))searchToPage();}
 // Puts the focus in the open field, its caret at the end.
 function pvReasonFocus(){const f=pvReasonField(); if(!f||f.disabled)return; f.focus({preventScroll:true}); const n=f.value.length; f.setSelectionRange(n,n);}
 // A save on page `page`'s line made verdict pin id (savePageVerdict) in place of verdict pin prev (the line's current one
@@ -180,8 +201,10 @@ function pvReasonFocus(){const f=pvReasonField(); if(!f||f.disabled)return; f.fo
 /** @param {number} page @param {number} id @param {string} key @param {boolean} kb @param {number} prev */
 function pvReasonAfterSave(page,id,key,kb,prev){const r=PV_REASON; PV_LAST_SAVE=id; PV_KEY_SAVE=kb?id:0;
   if(r&&pvReasonOn(page)&&!r.writing){const dirty=pvReasonDirty(r),from=r.id;
-    if(dirty){rdDrop(r.doc,from); rdPut(DOC,id,r.text,'',-1,{mode:'add'});} else r.text='';
-    Object.assign(r,{id,key,base:'',mode:'add',rev:-1,conflict:null,from:dirty?from:0,saved:null,tried:[],clearTried:false,listed:false,escArm:''}); return;}
+    if(dirty){rdDrop(r.doc,from||'p'+page); rdPut(DOC,id,r.text,'',-1,{mode:'add'});} else if(from)r.text='';   // an unbound popover keeps what is typed
+    Object.assign(r,{id,key,base:'',mode:'add',rev:-1,conflict:null,from:dirty?from:0,saved:null,tried:[],clearTried:false,listed:false,escArm:''});
+    if(r.saveWhenBound){r.saveWhenBound=false; const f=pvReasonField(); if(f)setTimeout(()=>pvReasonSave(f),0);}   // its Enter came before the number
+    return;}
   if(!(prev&&rdMove(DOC,prev,id)))rdMove(DOC,'p'+page,id);
   pvReasonLeave();}
 // [되돌리기] brought verdict pin id back (a cancel's, the save chip's): its kept draft opens again on its line, without the
@@ -261,7 +284,7 @@ async function pvReasonWrite(r,text,said){if(viewerBlocked())return false;
         if(l2){pvReasonFailed(r,text,null,l2); return false;}
         if(again)await api(url,{...o,body:again});}}
   }catch(e){pvReasonFailed(r,text,/** @type {ApiError} */(e)); return false;}
-  r.conflict=null;
+  r.conflict=null; sourceOk('POST /api/pins/'+r.id+'/edit reason');   // a failure this write answers goes (also when nothing had to be sent)
   if(said)lineNote(tl('이유 저장됨 · 판정 #{id} {word} — {target}',{id:r.id,word:verdictLabel(r.key,r.doc),target:pvReasonName(r)}),NOTICE_KIND.OK,null,{life:NOTICE_LIFE.TIMER,literal:true});   // result first: the folded line shows it
   else quietNote(tl('판정 #{id} 이유를 저장했습니다',{id:r.id}));
   if(r.doc===DOC)loadPins().catch(()=>{});
@@ -304,7 +327,8 @@ function pvReasonReapply(){const r=PV_REASON,f=pvReasonField(); if(!r||!r.confli
 // '저장 중…'); a failure leaves the text in it for another Enter.
 /** @param {HTMLTextAreaElement} f */
 async function pvReasonSave(f){const r=PV_REASON; if(!r||r.writing||f.disabled)return; r.text=f.value; const text=r.text.trim();
-  if(!text||text===r.base.trim()){rdDrop(r.doc,r.id); pvReasonEnd(true); return;}
+  if(!r.id){if(text){r.saveWhenBound=true; rdKeep(r); pvRefill(r.page);} return;}   // its verdict has no number yet: saved once it has
+  if(!text||text===r.base.trim()){rdDrop(r.doc,r.id||'p'+r.page); pvReasonEnd(true); return;}
   if(r.conflict){pvRefill(r.page); pvReasonFocus(); return;}   // the newer note is on screen: [그 위에 쓰기] or [메모 보기] first
   const w=pvReasonCommit(r,text,!!r.from); f.disabled=true; pvRefill(r.page); const ok=await w;
   if(PV_REASON!==r)return;   // closed meanwhile (moved on, the undo, another document): its one write had the text
@@ -315,10 +339,10 @@ async function pvReasonSave(f){const r=PV_REASON; if(!r||r.writing||f.disabled)r
 // next one drops it (the kept draft too).
 /** @param {string} how */
 function pvReasonEsc(how){const r=PV_REASON; if(!r)return;
-  if(!pvReasonDirty(r)){rdDrop(r.doc,r.id); pvReasonEnd(true); return;}
+  if(!pvReasonDirty(r)){rdDrop(r.doc,r.id||'p'+r.page); pvReasonEnd(true); return;}
   if(!r.escArm){r.escArm=how; if(how==='key')searchToPage(); pvRefill(r.page);
     announce(how==='key'?tr('Esc 한 번 더 누르면 이 이유를 버립니다'):tr('[닫기]를 한 번 더 누르면 이 이유를 버립니다')); return;}
-  rdDrop(r.doc,r.id); pvReasonEnd(true); announce(tl('판정 #{id} 이유를 버렸습니다',{id:r.id}));}
+  rdDrop(r.doc,r.id||'p'+r.page); pvReasonEnd(true); announce(tl('판정 #{id} 이유를 버렸습니다',{id:r.id}));}
 // [접기]: the popover folds away, nothing written - over the plot it hid what the reason is about. The draft stays kept, folded
 // (a reload leaves it folded), and the line marks it '초안 있음', which opens it again and takes the focus. Moving on writes
 // nothing: a folded draft waits for the person.
@@ -365,7 +389,7 @@ async function pvReasonUnclear(id,old){let ok=false;
 // What the popover says of its draft: '저장 중…' while it writes, '저장됨' with a check when its text is the saved reason, '저장 안 됨'
 // when it is not written yet, nothing when empty.
 /** @param {ReasonSession} r @returns {{text:string,cls:string}} */
-function pvReasonState(r){if(r.writing)return {text:tr('저장 중…'),cls:'busy'}; const t=r.text.trim(); if(!t)return {text:'',cls:''};
+function pvReasonState(r){if(r.writing||r.saveWhenBound)return {text:tr('저장 중…'),cls:'busy'}; const t=r.text.trim(); if(!t)return {text:'',cls:''};
   return t===r.saved||t===r.base.trim()?{text:tr('저장됨'),cls:'ok'}:{text:tr('저장 안 됨'),cls:'warn'};}
 // What the keys do now, under the field: with a fine pointer and the focus in it, Enter saves (and with nothing typed Esc
 // closes); after a first Esc, what the second does. With touch only the second press of [닫기] is said. The digits are not
@@ -388,20 +412,21 @@ function pvReasonHint(r,focused){const fine=matchMedia('(pointer:fine)').matches
 /** @param {number} page */
 function pvReasonPop(page){const r=pvReasonOn(page)&&canVerdict()?PV_REASON:null; if(!r)return '';
   const a=document.activeElement,focused=pvIsReasonField(a)&&a.dataset.id==='s'+r.sid,st=pvReasonState(r),hint=pvReasonHint(r,focused);
-  const word=verdictLabel(r.key),who=pvReasonEdits(r)&&r.base.trim()?tl('판정 #{id} {word} · 저장된 이유 수정',{id:r.id,word}):tl('판정 #{id} {word} 이유',{id:r.id,word});
+  const word=verdictLabel(r.key),who=!r.id?tl('{word} 판정 이유 · 판정 저장 중',{word}):pvReasonEdits(r)&&r.base.trim()?tl('판정 #{id} {word} · 저장된 이유 수정',{id:r.id,word}):tl('판정 #{id} {word} 이유',{id:r.id,word});
   const from=r.from?pvReasonPin(r.from):null,moved=r.from?tl('#{id} {word}에서 옮김',{id:r.from,word:verdictLabel(from&&verdictOf(from)||'')}):'';
   const cf=r.conflict?html`<div class="pv-pop-cf" role="alert"><span class="pv-pop-cf-t">${tr('그사이 다른 곳에서 메모가 바뀌었습니다 — 지금 메모')}</span>\
 <div class="pv-pop-cf-note" translate="no" tabindex="0">${r.conflict.note||tr('(빈 메모)')}</div><span class="pv-pop-acts">\
 <button type="button" class="btn-ghost btn-sm hit" data-act="pv-reason-see">${tr('메모 보기')}</button>\
 <button type="button" class="btn-sm hit" data-act="pv-reason-reapply" data-tip="${tr('바뀐 메모를 이 글로 바꿉니다')}">${tr('그 위에 쓰기')}</button></span></div>`:'';
-  return html`<div class="pv-pop" role="group" data-id="s${r.sid}" aria-labelledby="pv-pop-to-${r.sid}" aria-describedby="pv-pop-h-${r.sid}">${cf}\
+  const desc=hint&&!r.writing?html` aria-describedby="pv-pop-h-${r.sid}"`:'';   // never pointing at a line that says nothing (while it writes)
+  return html`<div class="pv-pop" role="group" data-id="s${r.sid}" aria-labelledby="pv-pop-to-${r.sid}"${desc}>${cf}\
 <textarea class="pv-reason" rows="1" maxlength="4000" autocomplete="off" enterkeyhint="done" data-id="s${r.sid}" data-pin="${r.id}"${r.writing?html` disabled`:''} \
-placeholder="${tr('이유 (선택)')}" aria-label="${tl('{who} (선택)',{who})}" aria-describedby="pv-pop-h-${r.sid}"></textarea>\
+placeholder="${tr('이유 (선택)')}" aria-label="${tl('{who} (선택)',{who})}"${desc}></textarea>\
 <div class="pv-pop-f"><span class="pv-pop-to" id="pv-pop-to-${r.sid}" translate="no">${who}${moved?html`<span class="pv-pop-from"> · ${moved}</span>`:''}</span>\
 <span class="pv-pop-st${st.cls?' '+st.cls:''}" aria-live="polite">${st.cls==='ok'?ic('check'):''}${st.text}</span><span class="pv-pop-h" id="pv-pop-h-${r.sid}">${hint}</span>\
 <span class="pv-pop-acts">${pvReasonEdits(r)&&r.base.trim()?html`<button type="button" class="btn-ghost btn-sm pv-pop-clear hit" data-act="pv-reason-clear" \
 data-tip="${tr('저장한 이유를 지웁니다. 상태 줄의 [되돌리기]가 되살립니다')}">${tr('지우기')}</button>`:''}\
-${pvReasonDirty(r)&&!r.writing?html`<button type="button" class="btn-ghost btn-sm hit" data-act="pv-reason-fold" data-tip="${tr('초안을 둔 채 접습니다. 줄의 [초안 있음]이 다시 엽니다')}">${tr('접기')}</button>`:''}\
+${pvReasonDirty(r)&&!r.writing&&r.id?html`<button type="button" class="btn-ghost btn-sm hit" data-act="pv-reason-fold" data-tip="${tr('초안을 둔 채 접습니다. 줄의 [초안 있음]이 다시 엽니다')}">${tr('접기')}</button>`:''}\
 <button type="button" class="btn-ghost btn-sm hit" data-act="pv-reason-close" data-tip="${tr('닫습니다. 쓰던 이유가 있으면 한 번 더 눌러야 버립니다')}">${tr('닫기')}</button>\
 <button type="button" class="btn-sm pv-pop-save hit" data-act="pv-reason-save"${r.writing||r.conflict?html` aria-disabled="true"`:''}>${tr('저장')}</button></span></div></div>`;}
 // The reason on page `page`'s line, after its state: the saved reason of its current verdict (a check and its first line,
@@ -413,7 +438,7 @@ ${pvReasonDirty(r)&&!r.writing?html`<button type="button" class="btn-ghost btn-s
 // click save's, as before. The other lines
 // keep their length. Every name holds the words the button shows. Nothing for the reason the open popover holds.
 /** @param {number} page @param {Pin|undefined} cur */
-function pvReasonInline(page,cur){const open=pvReasonOn(page)&&!!PV_REASON&&(!cur||PV_REASON.id===cur.id),pd=open?null:rdGet(DOC,'p'+page);
+function pvReasonInline(page,cur){const open=pvReasonOn(page)&&!!PV_REASON&&(!cur||PV_REASON.id===cur.id||!PV_REASON.id),pd=open?null:rdGet(DOC,'p'+page);
   const sep=html`<span class="pv-sep" aria-hidden="true">·</span>`;
   const mark=html`<span class="pv-ra">${sep}<button type="button" class="btn-ghost btn-sm pv-draft hit" data-act="pv-reason-open" \
 aria-label="${tr('초안 있음 — 저장 안 된 이유 초안, 누르면 이어 씁니다')}" data-tip="${tr('저장 안 된 이유 초안이 있습니다 — 누르면 이어 씁니다')}">${tr('초안 있음')}</button></span>`;
@@ -457,15 +482,16 @@ $('#doc').addEventListener('input',e=>{const f=e.target; if(!pvIsReasonField(f))
 $('#doc').addEventListener('keydown',e=>{const f=e.target; if(!pvIsReasonField(f)||e.isComposing||e.keyCode===229)return;
   if(e.key==='Enter'&&!e.shiftKey&&!e.ctrlKey&&!e.metaKey&&!e.altKey){e.preventDefault(); e.stopPropagation(); pvReasonSave(f); return;}
   if(e.key==='Escape'){e.preventDefault(); e.stopPropagation(); pvReasonEsc('key');}});
-// Tab inside the popover keeps to the popover and its line: past its last control the focus goes to the line's first one,
-// and Shift+Tab from its first goes to the line's last word - the DOM's next stop is the next page's line, whose focus
-// scrolled the reading page away and closed the popover, writing what was being edited.
-$('#doc').addEventListener('keydown',e=>{if(e.key!=='Tab'||e.ctrlKey||e.metaKey||e.altKey)return; const t=/** @type {HTMLElement} */(e.target),pop=t&&t.closest?t.closest('.pv-pop'):null,line=pop&&pop.closest('.pv'); if(!pop||!line)return;
+// While a popover is open, Tab and Shift+Tab keep to it and its line, from anywhere in either: past the last control (the
+// popover's) the focus goes to the line's first, and before the first (the line's) to the popover's last. The DOM's next
+// or previous stop is another page's line, whose focus scrolled the reading page away and closed the popover, writing what
+// was being edited.
+$('#doc').addEventListener('keydown',e=>{if(e.key!=='Tab'||e.ctrlKey||e.metaKey||e.altKey)return; const t=/** @type {HTMLElement} */(e.target),line=t&&t.closest?t.closest('#doc .pv'):null;
+  const pop=line&&line.querySelector(':scope>.pv-pop'); if(!line||!pop)return;
   const vis=(/** @type {Element} */x)=>x instanceof HTMLElement&&x.getClientRects().length>0&&!(/** @type {HTMLButtonElement} */(x).disabled);
-  const own=[...pop.querySelectorAll('textarea,button,[tabindex="0"]')].filter(vis),rest=[...line.querySelectorAll('a,button,[tabindex="0"]')].filter(x=>vis(x)&&!pop.contains(x));
-  if(!own.length||!rest.length)return;
-  if(!e.shiftKey&&t===own[own.length-1]){e.preventDefault(); /** @type {HTMLElement} */(rest[0]).focus({preventScroll:true});}
-  else if(e.shiftKey&&t===own[0]){e.preventDefault(); /** @type {HTMLElement} */(rest[rest.length-1]).focus({preventScroll:true});}});
+  const all=[...line.querySelectorAll('a,button,textarea,[tabindex="0"]')].filter(vis); if(all.length<2)return;
+  if(!e.shiftKey&&t===all[all.length-1]){e.preventDefault(); /** @type {HTMLElement} */(all[0]).focus({preventScroll:true});}
+  else if(e.shiftKey&&t===all[0]){e.preventDefault(); /** @type {HTMLElement} */(all[all.length-1]).focus({preventScroll:true});}});
 // The field's focus changes what it says (the keys). The popover stays open while the focus is anywhere inside it - Tab
 // from the field to its buttons included - and an empty one closes when the focus leaves it for somewhere else (a press
 // on its own buttons never closes it, even where a press does not move the focus).
@@ -487,13 +513,20 @@ document.addEventListener('keydown',pvReasonEscKey);
 // Enter on the pages - the focus on the PDF area, the page itself or nothing - opens the reading page's reason popover with
 // the focus, for the person's own open current verdict there ('Enter 이유 쓰기' on its line). A control's own Enter stays its
 // own, and so does anything on top (a dialog, a popover, the composer, an edit or a reply). Not while the pages are still
-// gliding to where a jump sends them (pvAutoScrolling): the reading page is not yet the one asked for.
+// gliding to where a jump sends them (pvAutoScrolling): the reading page is not yet the one asked for. While that page's
+// save is still out the popover opens bound to it (pvReasonOpenPending) - a key and Enter at once is one intent.
 /** @param {KeyboardEvent} e */
 function pvReasonEnterKey(e){if(e.key!=='Enter'||e.defaultPrevented||e.isComposing||e.ctrlKey||e.metaKey||e.altKey||e.shiftKey||e.repeat)return;
   const t=/** @type {HTMLElement|null} */(e.target),L=$('#left');
   if(!(t===document.body||t===L||t===$('#doc')||(!!t&&!!t.closest&&!!t.closest('#doc .pg'))))return;
-  if(document.querySelector('dialog[open]')||!$('#page-pop').hidden||!$('#doc-pop').hidden||!$('#composer').hidden||EDITOR.current||REPLY||!canVerdict())return;
-  const page=pvReadingAt(); if(!page||!pageTakesVerdict(page))return; const cur=pvCurOf(page); if(!cur||!pvCanCancel(cur))return;
+  pvReasonEnterPages(e);}
+// Enter taken as pressed on the pages (pvReasonEnterKey, or one on an off-screen line's control, pvOffPageKey): the reading
+// page's reason - its popover, or a pending one while its save is out.
+/** @param {KeyboardEvent} e */
+function pvReasonEnterPages(e){if(document.querySelector('dialog[open]')||!$('#page-pop').hidden||!$('#doc-pop').hidden||!$('#composer').hidden||EDITOR.current||REPLY||!canVerdict())return;
+  const page=pvReadingAt(); if(!page||!pageTakesVerdict(page))return;
+  if(PV_BUSY.has(pvSlot(page))){e.preventDefault(); e.stopImmediatePropagation(); pvReasonOpenPending(page); return;}   // the save is out: the Enter is the intent to write
+  const cur=pvCurOf(page); if(!cur||!pvCanCancel(cur))return;
   e.preventDefault(); e.stopImmediatePropagation(); if(pvAutoScrolling()){pvSayGliding(); return;} pvReasonOpen(page,true);}
 document.addEventListener('keydown',pvReasonEnterKey);
 // After a focused reason field went from under the person (its verdict taken back elsewhere), the keys they go on typing

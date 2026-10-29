@@ -258,7 +258,7 @@ function pvPress(c,page,how){const key=c.key,where=VD_WHERE.PAGE,armed=vdArmedHe
   const cur=(pageVerdictPins().get(page)||[])[0];
   if(cur&&verdictOf(cur)===key){const h=PV_TOGGLE_HOLD.get(pvSlot(page)); if(h&&h.key===key&&h.until>Date.now())return;
     disarmVerdict(false); hideTip();
-    if(pvCanCancel(cur)){PV_TOGGLE_HOLD.set(pvSlot(page),{key,until:Date.now()+PV_CANCEL_MS}); setTimeout(()=>drawPageVerdicts(),PV_CANCEL_MS+20); pvCancelPin(cur.id,page,false); return;}
+    if(pvCanCancel(cur)){PV_TOGGLE_HOLD.set(pvSlot(page),{key,until:Date.now()+PV_CANCEL_MS}); setTimeout(()=>drawPageVerdicts(),PV_CANCEL_MS+20); pvCancelPin(cur.id,page,!!how); return;}   // by a key: the focus goes to the line's [되돌리기]
     lineNote(tl('지금 판정 #{id} {word} 그대로 · {why} — {target}',{id:cur.id,word:c.label,target:pageTargetShort(page),
       why:pvPressOf(cur)===PV_PRESS.HANDLED?tr('처리된 판정은 카드의 [지우기]로 거둡니다'):tr('다른 사람의 판정은 여기서 거두지 않습니다')}),
       NOTICE_KIND.INFO,null,{source:'pv-press',life:NOTICE_LIFE.TIMER,literal:true});
@@ -451,7 +451,7 @@ async function savePageVerdict(page,key,kb,ctx0){const ctx=ctx0||pvSaveCtx(page)
   // Said on the status line with what it was for, result first, and under the pressed line.
   const failed=(/** @type {string} */why)=>{lineNote(tl('판정 저장 실패 · {why} — {target}',{why,target:ctx.target}),NOTICE_KIND.ERR,null,{source:'page-verdict',literal:true});
     fail(tl('{what} 실패',{what:tr('판정 저장')})+' — '+why);};
-  let saved=false; if(here())PV_ERR.delete(page);
+  let saved=false,got=0; if(here())PV_ERR.delete(page);
   // A key save (a digit, Enter or Space on a word) hands the focus to the line's way to the reason ('Enter 이유 쓰기'), so
   // Enter there opens it - on the pressed word Enter would take the verdict back - unless the person put the focus anywhere
   // else meanwhile (another page's word, a '#N' link, the panel): a redraw that puts it back on the same word's button is no move.
@@ -471,7 +471,7 @@ async function savePageVerdict(page,key,kb,ctx0){const ctx=ctx0||pvSaveCtx(page)
     try{id=(await api('/api/pin',{method:'POST',body,what:'판정 저장',silent:true})).data.id;}
     catch(e){const x=/** @type {ApiError} */(e); if(x&&x.status)throw e;   // no answer: the list says whether it landed
       await loadPins(); const got=pvLanded(ctx.doc,page,key,top,ctx.kind); if(!got)throw e; id=got.id;}
-    saved=true; sourceOk('page-verdict');
+    saved=true; got=id; sourceOk('page-verdict');
     if(SEC_SEEN.open)SEC_SEEN.open.add(id);   // my own new pin is never 'new' on a collapsed header
     const chip=undoNote(NOTICE_PLACE.CHIP,tl('#{id} {word} 판정 저장됨 · {target} — 되돌리면 판정을 거둡니다',{id,word:verdictLabel(key,ctx.doc),target:ctx.target}),{label:'되돌리기',wait:true,fn:verdictUndo(id)},
       {pin:id,pending:true,label:tl('#{id} 저장됨 · {word}',{id,word:verdictLabel(key,ctx.doc)})});
@@ -479,7 +479,12 @@ async function savePageVerdict(page,key,kb,ctx0){const ctx=ctx0||pvSaveCtx(page)
     await loadPins(); settleChip(chip); if(here())pvOnShow(page);
   }catch(e){const x=/** @type {ApiError} */(e);
     if(!saved)failed(x&&x.status?(x.data&&errText(x.data))||('HTTP '+x.status):tr('서버에 닿지 않습니다'));}
-  finally{document.removeEventListener('focusin',moved); PV_BUSY.delete(slot); drawPageVerdicts();
+  finally{document.removeEventListener('focusin',moved); PV_BUSY.delete(slot);
+    // A popover opened by Enter while this save was out: bound to it now if its Enter came after the number was known (the
+    // list still being read), else, the save failed, its text kept as the page's draft.
+    const un=here()&&PV_REASON&&!PV_REASON.id&&PV_REASON.page===page&&PV_REASON.doc===ctx.doc;
+    if(un&&saved)pvReasonAfterSave(page,got,key,!!kb,prev); else if(!saved&&here())pvReasonUnbound(page);
+    drawPageVerdicts();
     if(currentVisit(visit)&&kb&&!away){const c=/** @type {HTMLElement|null} */(document.querySelector('#doc .pv[data-page="'+page+'"] [data-act="pv-reason-open"]'));
       if(c&&saved)c.focus({preventScroll:true}); else pvRefocus(page,key);}
     const nx=PV_NEXT.get(slot); PV_NEXT.delete(slot);
@@ -569,7 +574,8 @@ async function pvCancelPin(id,page,had){const p=OPEN_ALL.find(x=>x.id===id);
   if(!ok){PV_WITHDRAWN.delete(id); if(kept&&!PV_REASON&&kept.doc===DOC&&currentVisit(kept.visit)){PV_REASON=kept; drawPageVerdicts();}}
   // A keyboard press stays on its own page: the line's [되돌리기], else its line (never the PDF area, from which Tab went to the
   // first page's line).
-  if((had||inField)&&(!document.activeElement||document.activeElement===document.body)){
+  const at=/** @type {HTMLElement|null} */(document.activeElement),lost=!at||at===document.body||at===$('#left')||!!(at.closest&&at.closest('#doc .pv[data-page="'+page+'"]'));
+  if((had||inField)&&lost){
     const u=/** @type {HTMLElement|null} */(document.querySelector('#doc .pv[data-page="'+page+'"] [data-act="pv-undo"]')); if(u)u.focus({preventScroll:true}); else if(!pvFocusLine(page))searchToPage();}
   if(ok&&claimed)lineNote('처리 중이던 판정이라 이미 실행됐을 수 있습니다',NOTICE_KIND.WARN);}
 // One page's line: its state - '판정 없음', or the newest verdict pin about its target with its state, its number and word,
@@ -654,8 +660,13 @@ function fillPv(el,page,list,v){el.dataset.page=String(page); el.classList.toggl
   const chip=el.querySelector(':scope>.nt-chip');   // a save's undo chip (drawChips) stays on its line; drawChips moves it if it is another pin's
   // While its save chip stands or its reason popover is open the line draws no descriptions: no box over either.
   const m=pvLineHtml(page,list,v,!!chip||pvReasonOn(page)); if(PV_TEXT.get(el)===m.text)return; PV_TEXT.set(el,m.text);
+  // The focused reason field keeps the focus and the caret when the line around it changes shape (its verdict's save landing
+  // while it is typed in: a morph by place can replace it), so what is typed next stays text - never a verdict key.
+  const a=document.activeElement,f=pvIsReasonField(a)&&el.contains(a)?/** @type {HTMLTextAreaElement} */(a):null,sel=f?[f.selectionStart,f.selectionEnd]:null;
   if(chip)chip.remove(); const next=document.createElement('div'); setHtml(next,m); pvMorphKids(el,next); if(chip)el.appendChild(chip);
-  el.classList.toggle('pv-pop-open',!!el.querySelector(':scope>.pv-pop')); pvReasonAfterDraw(el);}
+  el.classList.toggle('pv-pop-open',!!el.querySelector(':scope>.pv-pop')); pvReasonAfterDraw(el);
+  if(f&&sel&&!f.isConnected){const g=/** @type {HTMLTextAreaElement|null} */(el.querySelector('.pv-pop .pv-reason[data-id="'+f.dataset.id+'"]'));
+    if(g){g.focus({preventScroll:true}); g.setSelectionRange(sel[0],sel[1]);}}}
 // Makes a's children b's, keeping every node that is the same kind in the same place (pvMorph).
 /** @param {Node} a @param {Node} b */
 function pvMorphKids(a,b){const ac=[...a.childNodes],bc=[...b.childNodes];
@@ -847,7 +858,8 @@ function pvStick(){const lines=$$('#doc .pv'); if(!lines.length)return; const L=
   if(r!==PV_READ||k!==PV_KEYS){const was=[PV_READ,PV_KEYS]; PV_READ=r; PV_KEYS=k; const map=pageVerdictPins(),v=pageVerdictsOn();
     const re=/** @type {HTMLElement[]} */([]);
     if(v)new Set([...was,r,k]).forEach(n=>{const e=/** @type {HTMLElement|null} */(n?document.querySelector('#doc .pv[data-page="'+n+'"]'):null); if(e){fillPv(e,n,map.get(n),v); re.push(e);}});
-    if(re.length)pvFit(re);}   // the reading line names its figure: its row is measured again
+    if(re.length)pvFit(re);
+    pvFocusOffPage(r);}   // the reading line names its figure: its row is measured again
   lines.forEach(l=>{const pg=/** @type {HTMLElement|null} */(l.previousElementSibling); if(!pg)return; const b=l.getBoundingClientRect();
     const stuck=l.classList.contains('reading')&&b.bottom>lr.top&&b.top<lr.bottom&&b.top<pg.getBoundingClientRect().bottom+4;   // in its own place it stands 8px under the page
     l.classList.toggle('stuck',stuck); pvLean(l,pg,b,stuck,L,lr);});
@@ -890,6 +902,28 @@ function pvReadingPage(){const n=pvReadingAt(); return n&&pageTakesVerdict(n)?n:
 function pvKeysPage(r){return r&&canVerdict()&&$('#composer').hidden&&!typingNow()?r:0;}
 let PV_READ=0;   // the reading page with a line: its line floats and names its figure
 let PV_FRAME=0;
+// Whether element e shows in the PDF area now (any part of it).
+/** @param {Element} e */
+function pvInView(e){const L=$('#left'),lr=L.getBoundingClientRect(),b=e.getBoundingClientRect(); return b.bottom>lr.top&&b.top<lr.top+L.clientHeight&&b.right>lr.left&&b.left<lr.right;}
+// The reading page moved to page r while the focus stays on a control of another page's line that is now out of view (the
+// saved reason's pencil, a word): the focus goes to the PDF area, where Enter opens the reading page's reason and Tab goes to
+// its line. Left there, the next Enter or Space acted on the page out of sight - its reason opened off-screen and the text
+// meant for this page went into that page's note.
+/** @param {number} r */
+function pvFocusOffPage(r){const a=/** @type {HTMLElement|null} */(document.activeElement),l=a&&a.closest?a.closest('#doc .pv'):null;
+  if(!a||!l||Number(/** @type {HTMLElement} */(l).dataset.page)===r||(a.closest&&a.closest('.pv-pop'))||pvInView(a))return; searchToPage();}
+// Enter or Space on a control of a line that is not the reading page's and is out of view does not act there (a press read
+// before the focus moved, pvFocusOffPage): the focus goes to the PDF area, and Enter is taken as on the pages - the reading
+// page's reason (pvReasonEnterKey) - while Space is only said.
+/** @param {KeyboardEvent} e */
+function pvOffPageKey(e){if((e.key!=='Enter'&&e.key!==' ')||e.ctrlKey||e.metaKey||e.altKey||e.isComposing)return; const t=/** @type {HTMLElement|null} */(e.target);
+  const l=t&&t.closest?t.closest('#doc .pv'):null; if(!t||!l||(t.closest&&t.closest('.pv-pop'))||typingNow())return;
+  const r=pvReadingAt(); if(!r||Number(/** @type {HTMLElement} */(l).dataset.page)===r||pvInView(t))return;
+  e.preventDefault(); e.stopImmediatePropagation(); searchToPage();
+  if(e.type!=='keydown')return;
+  if(e.key==='Enter'){pvReasonEnterPages(e); return;}
+  lineNote('보이지 않는 쪽의 단추라 누르지 않았습니다 — 읽는 쪽에서 다시 누릅니다',NOTICE_KIND.INFO,null,{source:'pv-offpage',life:NOTICE_LIFE.TIMER});}
+addEventListener('keydown',pvOffPageKey,true); addEventListener('keyup',pvOffPageKey,true);   // keyup: a button's Space acts on its keyup
 function pvStickSoon(){if(!PV_FRAME)PV_FRAME=requestAnimationFrame(()=>{PV_FRAME=0; pvStick();});}
 $('#left').addEventListener('scroll',pvStickSoon,{passive:true});
 addEventListener('resize',pvStickSoon);
@@ -935,7 +969,13 @@ function pvAutoScrolling(){return PV_GLIDE&&performance.now()-PV_SCROLL_AT<(PV_S
 function pvSayGliding(){lineNote('쪽으로 가는 중이라 판정 키를 받지 않았습니다 — 멈춘 뒤 다시 누릅니다',NOTICE_KIND.INFO,null,{source:'verdict-key',life:NOTICE_LIFE.TIMER});}
 // Tab from the PDF area (where Esc, a moved-on popover or a search leaves the focus) goes to the reading page's line - its
 // first control - not to the first page's line, whose focus scrolled the document there.
-addEventListener('keydown',e=>{if(e.key!=='Tab'||e.shiftKey||e.ctrlKey||e.metaKey||e.altKey||e.defaultPrevented||document.activeElement!==$('#left'))return;
+// The focus on nothing (body) counts as on the PDF area after a press there: a press on a page leaves the focus where it was,
+// and Chromium's next Tab starts from the pressed node - which a redrawn canvas had taken away, so it started from the
+// document's first line (page 4 of 91).
+let PV_PTR_PAGES=false;
+addEventListener('pointerdown',e=>{const t=/** @type {HTMLElement|null} */(e.target); PV_PTR_PAGES=!!t&&!!t.closest&&!!t.closest('#left')&&!t.closest('#doc .pv');},true);
+document.addEventListener('focusin',e=>{const t=/** @type {HTMLElement|null} */(e.target); if(t&&t!==$('#left'))PV_PTR_PAGES=false;});
+addEventListener('keydown',e=>{const a=document.activeElement; if(e.key!=='Tab'||e.shiftKey||e.ctrlKey||e.metaKey||e.altKey||e.defaultPrevented||!(a===$('#left')||((!a||a===document.body)&&PV_PTR_PAGES)))return;
   const r=pvReadingPage(),l=r?document.querySelector('#doc .pv[data-page="'+r+'"]'):null; if(!l)return;
   const c=/** @type {HTMLElement|undefined} */([...l.querySelectorAll('a,button,[tabindex="0"]')].find(x=>x instanceof HTMLElement&&x.getClientRects().length>0&&!(/** @type {HTMLButtonElement} */(x).disabled)));
   if(c){e.preventDefault(); c.focus({preventScroll:true});}});
