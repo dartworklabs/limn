@@ -184,6 +184,10 @@ body.lay-narrow.has-status:not(.typing,.pv-typing){--pv-inset:calc(var(--sheet-h
 .pv:not(.pv-stack)>.pv-fig{flex:1 1 0;min-width:var(--pv-fig-min,0px);max-width:max-content;overflow:hidden}
 .pv.pv-tight:not(.pv-stack)>.pv-t :is(.pv-note,.pv-busy){min-width:0}   /* the wide band's last cuts before a second row (pvFit) */
 .pv.pv-tight:not(.pv-stack)>.pv-t .pv-early{min-width:2em}
+/* The extras a press puts in a row (verdict-reason.js 'Enter 이유 쓰기', verdict.js the line's [되돌리기] of a take-back) take
+   the earlier link's place there: it steps out while either is on the line and is back when it goes. Beside it, a 620px
+   line (1280 x 800, panel open) ran 7 and 25px past its row and stacked under the press. */
+.pv.pv-tight:not(.pv-stack)>.pv-t:has(>.pv-undo,.pv-kbd) .pv-early{display:none}
 .pv:not(.pv-stack)>.pv-t{flex:1000 1 0;min-width:0;max-width:max-content;flex-wrap:nowrap;overflow-x:clip;overflow-y:visible}
 .pv:not(.pv-stack)>.pv-t>*,.pv:not(.pv-stack)>.pv-t>:is(.pv-rn,.pv-ra)>*{flex:none;white-space:nowrap}
 .pv:not(.pv-stack)>.pv-t .pv-note{flex:0 100 auto;min-width:3em;max-width:none}

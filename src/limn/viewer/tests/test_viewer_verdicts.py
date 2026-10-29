@@ -2667,6 +2667,46 @@ class RcLayoutFixes(VerdictBase):
         self.assertLessEqual(got["calls"], 2)
         self.assertEqual(got["reads"], 0)
 
+    def test_what_a_press_adds_gives_way_on_a_tight_row(self):
+        """Tight rows on the wide band (a page at 1280 x 800 with the panel open is 620px): the earlier link gives its place
+        to what a press adds. A 560px line, key saves of 보류 then 채택: the state, 'Enter 이유 쓰기' (its key mark whole) and
+        [판정 취소] hold one row, the earlier link out. A 580px line, a key take-back of a third verdict, whose [되돌리기] the
+        line offers: one row, the earlier link out, and back when the offer ends. Beside the earlier link each line stacked
+        under the press (the RC's merge of its layout and logic fixes)."""
+        page = self.on("fig")
+        page.evaluate("w=>{setK(w/META.pages[1].pt_w,false); ZOOMED=true}", 560)
+        settle(page)
+        page.evaluate(SCROLL, [2, "top"])
+        settle(page)
+        row = """n=>{const l=document.querySelector('#doc .pv[data-page="'+n+'"]'),k=l.querySelector('.pv-kbd'),e=l.querySelector('.pv-early'),v=x=>!!x&&x.getClientRects().length>0;
+          return {stack:l.classList.contains('pv-stack'),h:Math.round(l.getBoundingClientRect().height),key:v(k)?k.textContent:null,
+            early:v(e),undo:v(l.querySelector('.pv-undo'))};}"""
+        for i, key in enumerate("212"):
+            page.keyboard.press(key)
+            page.wait_for_function("n=>OPEN_ALL.length>=n", arg=i + 1)
+            settle(page)
+            page.evaluate(END_CHIPS)
+            settle(page)
+            if i == 1:
+                got = page.evaluate(row, 2)
+                self.assertEqual((got["stack"], got["early"], got["key"]), (False, False, "Enter"), got)
+                self.assertLessEqual(got["h"], 40)
+            page.wait_for_timeout(900)  # the next word is another one: no toggle hold, but let the line settle
+        page.evaluate("w=>{setK(w/META.pages[1].pt_w,false); ZOOMED=true}", 580)
+        settle(page)
+        page.evaluate(SCROLL, [2, "top"])
+        settle(page)
+        page.keyboard.press("2")  # the current word (보류, the third verdict): taken back, the line offers [되돌리기]
+        page.wait_for_function("()=>!!document.querySelector('#doc .pv[data-page=\"2\"] .pv-undo')")
+        settle(page)
+        got = page.evaluate(row, 2)
+        self.assertEqual((got["stack"], got["undo"], got["early"]), (False, True, False), got)
+        self.assertLessEqual(got["h"], 40)
+        page.evaluate("()=>{NOTICES.forEach(n=>endNotice(n,false)); drawPageVerdicts();}")  # the offer ends
+        settle(page)
+        got = page.evaluate(row, 2)
+        self.assertEqual((got["stack"], got["undo"], got["early"]), (False, False, True), got)
+
 
 class Keys(VerdictBase):
     """1-5 press the words on the line of the page under the reading line: a confirm word twice; never in a text field, a

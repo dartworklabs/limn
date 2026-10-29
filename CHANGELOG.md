@@ -160,7 +160,9 @@ was; the viewer still counts the verdict order itself, and a browser test holds 
   room the undo is on the status line. It covered [이유 추가] (25 of 32 pages) and [판정 취소]; a click aimed at them under
   automation scrolled the document 583-1358px. A mouse resting on it holds it at most 4 seconds past its window (30).
 - **A line too narrow for a verdict's state stacks whatever it shows**, and a line whose confirm word waits or whose save is
-  out keeps its rows: a press no longer restacks a phone's line under the finger.
+  out keeps its rows: a press no longer restacks a phone's line under the finger. On a desktop row that is tight, the earlier link
+  steps out while a press's extra - `Enter 이유 쓰기` after a key save, the line's [되돌리기] of a take-back - is on the
+  line: beside it they ran 7 and 25px past a 620px row (1280 x 800, panel open) and stacked it.
 - **The reason popover opens below a line near the top** (under the section strip it showed one line of five) and is
   never taller than its room; **a keyboard laid over the page** (iPad Safari) no longer hides the floating line and the
   popover; on touch the floating line stands clear of the status line's [x], whose 44px took taps on the words' bottom.
