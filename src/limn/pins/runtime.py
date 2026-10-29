@@ -20,6 +20,7 @@ from limn.pins.location.lookup import (
     Locator as locate_Locator,
     PinLocation,
     est_context,
+    located_file,
     overlaps_by_id as locate_overlaps_by_id,
     overlaps_for_range as locate_overlaps_for_range,
     pin_file as locate_pin_file,
@@ -27,7 +28,7 @@ from limn.pins.location.lookup import (
     stamp_location as locate_stamp_location,
     sync_all as locate_sync_all,
 )
-from limn.pins.location.position import EstContext
+from limn.pins.location.position import EstContext, pin_est
 from limn.pins.location.resolve import PickContext
 from limn.pins.location.service import PinLocationService
 from limn.pins.location.source import TokenCache
@@ -39,6 +40,7 @@ from limn.pins.record import Broken, parse_record as record_parse_record, parse_
 from limn.pins.store import PinFiles, PinStore, Row
 from limn.pins.suggestion import suggestion_of
 from limn.pins.trash.service import PinTrash
+from limn.pins.verdict import Placement, superseded_by, whole_page_target
 from limn.platform.files import tex_lines
 from limn.runtime import documents
 from limn.runtime.config import RunConfig
@@ -252,6 +254,32 @@ class PinCommands:
         """The relationship of every pair of open line pins on the same file, each counted where pin_location() places it
         now (limn.pins.location.lookup.overlaps_by_id), never stored."""
         return locate_overlaps_by_id(pins, self.pin_locator())
+
+    def superseded_by_id(self, pins: Sequence[Pin]) -> dict[int, int]:
+        """The verdict pins of `pins` (the full live set) that a newer verdict pin about the same target supersedes,
+        {pin id: current verdict's id} (limn.pins.verdict.superseded_by, ADR-0023), never stored. Each verdict pin
+        is placed in its own document as the viewer places it: a LaTeX pin by the file pin_locator() finds for it now,
+        a view-only PDF's whole-page pin by whether its mark is only an estimate (pin_est, the document's estimation
+        facts read at most once per call); a pin of a document this instance does not serve has no target."""
+        locate = self.pin_locator()
+        contexts: dict[str, EstContext | None] = {}
+
+        def placement(pin: Pin) -> Placement | None:
+            """The pin's document, kind and the facts its kind's target reads, or None for an unserved document."""
+            key = self.pin_doc_key(pin.record)
+            doc = self.doc_by_key(key)
+            if doc is None:
+                return None
+            if doc.kind == "tex":
+                return Placement(key, doc.kind, file=located_file(pin, locate))
+            if doc.kind == "pdf" and whole_page_target(pin.record, figure_document=False, view_only_document=True):
+                if key not in contexts:
+                    contexts[key] = self._doc_est_context(key)
+                ctx = contexts[key]
+                return Placement(key, doc.kind, estimated=True if ctx is None else pin_est(pin.record, ctx))
+            return Placement(key, doc.kind)
+
+        return superseded_by(pins, placement)
 
     def overlaps_for_range(self, file: str, lo: int, hi: int) -> list[Json]:
         """The overlap relationships between a not-yet-saved range of file and that file's open pins, as re-synced now

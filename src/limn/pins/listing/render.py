@@ -69,7 +69,9 @@ class PinFacts:
     document relative to --manuscript ("" for the manuscript root), None when that document is not served - the
     renderer joins it with the element's stored shared-part file (shared_part_path) and decides what may be shown.
     suggest_state: an open pin's suggested edit measured against its lines now (projection.suggest_view:
-    'ready' | 'changed' | 'unknown'), None for a pin without one."""
+    'ready' | 'changed' | 'unknown'), None for a pin without one. superseded_by: the number of the verdict pin that is
+    this verdict pin's target's current verdict (limn.pins.verdict.superseded_by), None when it is not superseded or not
+    a verdict pin."""
 
     doc_key: str
     location: str
@@ -82,6 +84,7 @@ class PinFacts:
     el_sync: str | None = None
     impl_scope: str | None = None
     suggest_state: SuggestState | None = None
+    superseded_by: int | None = None
 
 
 @dataclass(frozen=True)
@@ -209,6 +212,12 @@ def josa(n: object, cons: str, vowel: str) -> str:
     (il/sam/yuk/chil/pal). Same rule as the viewer's josa()."""
     d = str(n)[-1:]
     return cons if d == "0" or d in "13678" else vowel
+
+
+def josa_ro(n: object) -> str:
+    """'로' or '으로' after a number read in Korean: '으로' after a final consonant other than ㄹ (yeong/ship/baek/cheon,
+    sam, yuk - the digits 0, 3, 6), else '로' ('#1로', '#2로', '#16으로'). Same rule as the viewer's josaRo()."""
+    return "으로" if str(n)[-1:] in ("0", "3", "6") else "로"
 
 
 def rel_badge(rel: Sequence[Mapping[str, Any]], by_id: Mapping[int, Record], me: Record | None = None) -> str:
@@ -346,6 +355,17 @@ VERDICT_LEGEND = (
     " · '판정 X' = 작성자가 버튼으로 고른 판정이다(메모 첫 낱말보다 앞선다) · "
     "'(쪽 전체)' = 그 쪽의 그림(그림 문서) 또는 그 쪽(보기 전용 PDF)에 대한 판정"
 )
+# A verdict pin that a newer verdict pin about the same target supersedes (limn.pins.verdict.superseded_by, ADR-0023):
+# the number-cell marker '#N로 대체됨' right after '판정 <key>' (superseded_marker), and - only while one is listed - a
+# legend entry and a guidance clause after the verdict ones, so a sheet without such a pin keeps every byte.
+VERDICT_SUPERSEDED = " 대체됨"
+VERDICT_SUPERSEDED_LEGEND = " · '#N로 대체됨' = 같은 대상에 더 새 판정 #N 이 있다(이 핀은 실행하지 않고 닫는다)"
+VERDICT_SUPERSEDED_GUIDANCE = (
+    " · '판정 X' 다음에 '#N로 대체됨'이 붙은 판정 핀은 같은 대상에 더 새 판정 #N 이 있다고 서버가 알린 핀이다 — "
+    "순서를 다시 세지 않고 실행하지 않으며 '#N 판정이 앞섭니다' 답글을 남기고 닫는다(사람 담당·남이 처리 중이면 닫지 않는다) · "
+    "이 표시가 없다고 지금 판정인 것은 아니다: 서버는 저장된 위치로 읽을 뿐이라, 저장소의 규칙으로 같은 대상인 "
+    "더 큰 번호의 판정 핀이 있으면 위 규칙대로 가린다"
+)
 # The guidance clause around the history link's base URL (verdict_guidance puts the base between the two).
 VERDICT_GUIDANCE_HEAD = (
     "판정 핀(번호 칸 '판정 X', 그리고 그 저장소가 첫 낱말 규칙을 쓰면 메모 첫 낱말이 판정 낱말인 옛 핀)은 "
@@ -379,6 +399,12 @@ def verdict_marker(r: Record, heading: DocHeading | None) -> str:
         return ""
     whole = heading is not None and whole_page_target(r, heading.has_element_map, heading.view_only)
     return VERDICT_MARK + verdict + (VERDICT_WHOLE_PAGE if whole else "")
+
+
+def superseded_marker(current: int) -> str:
+    """The number-cell marker of a superseded verdict pin - '#16으로 대체됨', current the number of the verdict pin that is
+    its target's current verdict. The particle follows the number's Korean reading (josa_ro)."""
+    return "#%d%s%s" % (current, josa_ro(current), VERDICT_SUPERSEDED)
 
 
 def code_fence(text: str) -> str:
@@ -554,8 +580,11 @@ def pins_md_text(page: PinsMdInput) -> str:
     A verdict pin (docs/superpowers/specs/2026-10-26-verdict-pins.md §pins.md) gets its marker first in the number cell,
     right after the number (verdict_marker: '판정 <key>', '(쪽 전체)' for a whole page's target), and
     VERDICT_ONLY_NOTE for an empty memo; while any open pin carries one the guidance gains verdict_guidance(base) and
-    the legend VERDICT_LEGEND, last. The review table shows no marker, as it shows no suggestion: agents do not work
-    those pins, and the API answers every pin's verdict. Without an open verdict pin every byte is as before."""
+    the legend VERDICT_LEGEND, last. One that a newer verdict pin supersedes (facts.superseded_by, ADR-0023) has
+    superseded_marker next ('판정 보류 · #16으로 대체됨'), and while any open pin has it the guidance gains
+    VERDICT_SUPERSEDED_GUIDANCE and the legend VERDICT_SUPERSEDED_LEGEND, after the verdict ones. The review table shows
+    no marker, as it shows no suggestion: agents do not work those pins, and the API answers every pin's verdict.
+    Without an open verdict pin every byte is as before, and without a superseded one as it was with only verdicts."""
     rows, facts = page.rows, page.facts
     loopback_base = "http://127.0.0.1:%d" % page.port
     is_remote = page.base is not None and page.base != loopback_base
@@ -579,6 +608,7 @@ def pins_md_text(page: PinsMdInput) -> str:
     n_human = 0
     n_suggest = 0
     n_verdict = 0
+    n_superseded = 0
     for r in openn:
         f = facts[r["id"]]
         syms = []
@@ -587,6 +617,9 @@ def pins_md_text(page: PinsMdInput) -> str:
         if verdict:
             syms.append(verdict)
             n_verdict += 1
+            if f.superseded_by is not None:  # a newer verdict pin about the same target is its current verdict
+                syms.append(superseded_marker(f.superseded_by))
+                n_superseded += 1
         # Number-column priority (reopened > -> @ > question): the most urgent signal to re-check goes leftmost.
         if f.reopened:
             syms.append("다시 열림")
@@ -728,12 +761,19 @@ def pins_md_text(page: PinsMdInput) -> str:
         guidance += SUGGEST_GUIDANCE
     if n_verdict:
         guidance += verdict_guidance(base)
+    if n_superseded:
+        guidance += VERDICT_SUPERSEDED_GUIDANCE
     out.append(guidance)
     out.append(claim_guidance(base))
     out.append(token_guidance_line(None if is_remote else page.token_file))
     out.append(REPLY_GUIDANCE)
     if any_symbol:
-        out.append(LEGEND + (SUGGEST_LEGEND if n_suggest else "") + (VERDICT_LEGEND if n_verdict else ""))
+        out.append(
+            LEGEND
+            + (SUGGEST_LEGEND if n_suggest else "")
+            + (VERDICT_LEGEND if n_verdict else "")
+            + (VERDICT_SUPERSEDED_LEGEND if n_superseded else "")
+        )
     header = ["| # | 쪽 | 위치 | 범위 | 메모 |", "|---|---|---|---|---|"]
     suggestions = suggestions_md(openn, facts, base, sectioned)
     if not sectioned:
