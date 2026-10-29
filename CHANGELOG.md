@@ -13,7 +13,10 @@ Taking a verdict back where it was given, and the page line's reason field in it
   the current verdict again (ADR-0021 D4), or `판정 없음`. The status line says `판정 #17 채택 취소됨 · <target> — 지금
   판정은 #12 보류입니다` with [되돌리기], which restores the pin. A verdict an agent had claimed still goes, with the
   save undo's warning that its run may have started. Someone else's verdict, a handled one and the agent and viewer roles
-  get no [판정 취소] (D16); a double press takes back one verdict, not two.
+  get no [판정 취소] (D16); a double press takes back one verdict, not two. It is muted destructive text, not the blue of
+  the line's links, underlined on hover and focus. A phone's floating line leaves it out (it made the line a row taller
+  over the figure); the line in its place under the page and the card still offer it. A failed cancel brings back the
+  reason being typed for that verdict, and a reason still on its way for a cancelled verdict fails quietly.
 
 ### Changed
 
@@ -32,7 +35,9 @@ Taking a verdict back where it was given, and the page line's reason field in it
   nothing and the typed reason was never saved; it is now saved as on any other move. Moving on while Enter's write was
   still out started a second write on the same revision, whose conflict retry added the reason twice; a session now
   writes once and the field waits while its write is out. A failed write on moving on lost the text; the status line now
-  keeps it (`이유 저장 실패 · <target> — <why>`) with [다시 시도] unless the server refused it.
+  keeps it (`이유 저장 실패 · <target> — <why>`) with [다시 시도] unless the server refused it. [다시 시도] writes the draft
+  as it is now (a field corrected after a failed Enter), and a write whose answer was lost is checked against the pin
+  first, so a reason the server already holds is not added again.
 
 ## 0.4.32 — 2026-10-29
 
