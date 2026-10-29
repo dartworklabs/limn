@@ -13,6 +13,7 @@ excepted because it is not among the live pins.
 Run: uv run pytest -q src/limn/pins/tests/test_verdict.py
 """
 
+import time
 import unittest
 
 from hypothesis import given, strategies as st
@@ -301,3 +302,114 @@ class LinesOfLatex(unittest.TestCase):
         """The anchor and the open state decide only between two pins about lines."""
         figure_target = order_target(figure(1), FIG_DOC)
         self.assertTrue(same_lines(figure_target, figure_target))
+
+
+def legacy(pid, word="채택", **extra):
+    """A pin of the older form on the figure B2: no `verdict` field, the first word of its memo is a verdict word."""
+    el = {"id": "B2", "path": ["B2"]}
+    return parse_pin(
+        {
+            "id": pid,
+            "file": "/ms/figs/B2.py",
+            "lo": 12,
+            "hi": 140,
+            "page": 1,
+            "el": el,
+            "doc": "fig",
+            "note": word + " 본문으로",
+            **extra,
+        }
+    )
+
+
+class FirstWordVerdicts(unittest.TestCase):
+    """A memo whose first word is a verdict word is an older verdict pin by the repository's convention. The server does not
+    read memos (ADR-0021 D1), so superseded_by names explicit verdicts only - and says so, because a repository's
+    agent counts both forms together."""
+
+    def figures(self, *pins):
+        """The supersession of pins, all on the figure document fig."""
+        return superseded_by(list(pins), lambda p: FIG_DOC)
+
+    def test_a_newer_first_word_pin_supersedes_nothing_for_the_server(self):
+        """Explicit #1 and #2 and a first-word #3: the server answers {1: 2}, though the agent's rule, which counts #3,
+        makes #3 the current verdict. #3 has no entry."""
+        self.assertEqual(self.figures(figure(1), figure(2), legacy(3)), {1: 2})
+
+    def test_an_older_first_word_pin_is_not_superseded_either(self):
+        """The server cannot say a first-word verdict was overtaken, so it has no entry, whatever follows it."""
+        self.assertEqual(self.figures(legacy(1), figure(2), figure(3)), {2: 3})
+        self.assertEqual(self.figures(legacy(1, "보류"), figure(2)), {})
+
+    def test_a_stored_value_that_is_no_key_is_no_verdict_even_with_a_verdict_word_memo(self):
+        """A `verdict` of the wrong kind does not count, and the memo is not read in its place."""
+        odd = parse_pin({**legacy(3).record, "verdict": 7})
+        self.assertEqual(self.figures(figure(1), figure(2), odd), {1: 2})
+
+
+def reference(pins, targets):
+    """What superseded_by answers, by the definition: a pin's current verdict is the newest pin of its target that is itself
+    or, on lines, about the same text - both open, or one shared anchor - found by scanning every newer pin."""
+    out = {}
+    entries = sorted(((p.core.pid, targets[p.core.pid]) for p in pins), key=lambda e: -e[0])
+    for i, (pid, a) in enumerate(entries):
+        for newer, b in entries[:i]:
+            if b.key == a.key and (
+                not a.on_lines or (a.open and b.open) or (a.anchor is not None and a.anchor == b.anchor)
+            ):
+                out[pid] = newer
+                break
+    return out
+
+
+class LargeHistories(unittest.TestCase):
+    """superseded_by reads a long history in one linear pass, and agrees with the definition on any mix."""
+
+    ANCHORS = [None] + [
+        {"head": "Head %d." % i, "tail": "Tail %d." % i, "head_off": 0, "tail_off": 0} for i in range(3)
+    ]
+
+    @given(
+        st.lists(
+            st.tuples(st.sampled_from([False, True]), st.sampled_from(range(4)), st.sampled_from([4, 8])),
+            min_size=1,
+            max_size=14,
+        )
+    )
+    def test_the_index_agrees_with_scanning_every_newer_pin(self, spec):
+        """Open or closed, with one of three anchors or none, on one of two ranges: the answer equals the scan."""
+        pins = [
+            latex(i, lo=lo, hi=lo + 1, anchor=self.ANCHORS[a], **({} if is_open else DONE))
+            for i, (is_open, a, lo) in enumerate(spec, 1)
+        ]
+        where = Placement("ms", "tex", file="/ms/main.tex")
+        targets = {p.core.pid: order_target(p, where) for p in pins}
+        self.assertEqual(superseded_by(pins, lambda p: where), reference(pins, targets))
+
+    def test_closed_lines_with_a_different_anchor_each_take_linear_time(self):
+        """20,000 closed verdicts on one range, no two on the same text (the case that made every pin scan all the
+        newer ones: 11 s before the index) answer in well under the 2 s a quadratic scan could not keep to, and so do
+        20,000 on one figure."""
+        n = 20_000
+        lines = [
+            latex(i, anchor={"head": "h%d" % i, "tail": "t%d" % i, "head_off": 0, "tail_off": 0}, **DONE)
+            for i in range(1, n + 1)
+        ]
+        figures = [figure(i) for i in range(1, n + 1)]
+        for pins, where, want in (
+            (lines, Placement("ms", "tex", file="/ms/main.tex"), 0),
+            (figures, FIG_DOC, n - 1),
+        ):
+            started = time.perf_counter()
+            got = superseded_by(pins, lambda p, where=where: where)
+            took = time.perf_counter() - started
+            self.assertEqual(len(got), want)
+            self.assertLess(took, 2.0, "%d pins took %.2f s" % (n, took))
+
+    def test_a_hand_edited_anchor_offset_never_breaks_the_index(self):
+        """An offset that is a list or an object is still comparable and hashable: two pins that store the same one are
+        about the same text, and a different one is not."""
+        odd = {"head": "H.", "tail": "T.", "head_off": [0, {"a": 1}], "tail_off": {"x": None}}
+        other = {**odd, "head_off": [0, {"a": 2}]}
+        self.assertEqual(placed([latex(1, anchor=odd, **DONE), latex(2, anchor=odd, **DONE)]), {1: 2})
+        self.assertEqual(placed([latex(1, anchor=odd, **DONE), latex(2, anchor=other, **DONE)]), {})

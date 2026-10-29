@@ -13,16 +13,17 @@ stored field - how a stored value is read back - and the place's meaning:
 - whole_page_target: whether a pin's verdict is about a whole page's target - the figure of a figure document's page
   (whole_figure), or a view-only PDF's page (a region pin whose frac is the whole page, each value within
   PAGE_EPSILON). A LaTeX pin never is.
-- superseded_by: which verdict pins are no longer their target's current verdict, and which pin is (ADR-0023). The
-  order is ADR-0021 D4's - the newest live verdict pin about a target wins - read off the stored place with the rule
-  the viewer's verdict order uses (order_target), so the page line, a card's '이전 판정' marker, GET /api/pins and
-  pins.md name the same current verdict.
+- superseded_by: which verdict pins a newer explicit verdict pin (one with a `verdict`) about the same target has
+  overtaken, and which pin that is (ADR-0023). The order is ADR-0021 D4's - the newest live verdict pin about a target
+  wins - read off the stored place with the rule the viewer's verdict order uses (order_target), so the page line, a
+  card's '이전 판정' marker, GET /api/pins and pins.md name the same pin. A memo whose first word is a verdict word is
+  not read (ADR-0021 D1): a repository that counts those too may find a newer current verdict than the one named.
 
 Pure.
 """
 
 import re
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Hashable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any, Literal, TypeAlias
 
@@ -105,7 +106,16 @@ class OrderTarget:
     key: tuple[str, str]
     on_lines: bool = False
     open: bool = False
-    anchor: tuple[object, ...] | None = None
+    anchor: tuple[Hashable, ...] | None = None
+
+    @property
+    def same_text(self) -> tuple[Hashable, ...]:
+        """The classes of text this target belongs to, which same_lines compares: for a pin about lines, "open" when it
+        is open (open pins' lines are matched to the text now) and its anchor when it has one; empty for any other
+        target, which has no classes to share and is about the same thing as any other pin of its key."""
+        if not self.on_lines:
+            return ()
+        return (("open",) if self.open else ()) + (() if self.anchor is None else (("anchor", self.anchor),))
 
 
 def figure_root(record: Mapping[str, Any]) -> str | None:
@@ -115,13 +125,21 @@ def figure_root(record: Mapping[str, Any]) -> str | None:
     return el.path[0] if el is not None and el.path and el.path[0] else None
 
 
-def anchor_key(record: Mapping[str, Any]) -> tuple[object, ...] | None:
+def _hashable(v: object) -> Hashable:
+    """v as a value that compares and hashes by what it holds: itself for a JSON scalar, its repr for a list or an
+    object (a hand-edited offset can be one; it must never make the anchor unhashable). Like the viewer's JSON
+    stringify of the anchor, two such offsets are the same only when they are written alike."""
+    return v if v is None or isinstance(v, (str, int, float)) else repr(v)
+
+
+def anchor_key(record: Mapping[str, Any]) -> tuple[Hashable, ...] | None:
     """A line pin's anchor - the text of its first and last lines when it was saved or last re-matched, with their
-    distances from lo and hi - as one comparable value, or None when it has no anchor with a head and a tail text."""
+    distances from lo and hi - as one comparable, hashable value, or None when it has no anchor with a head and a tail
+    text."""
     a = record.get("anchor")
     if not (isinstance(a, Mapping) and isinstance(a.get("head"), str) and isinstance(a.get("tail"), str)):
         return None
-    return (a["head"], a["tail"], a.get("head_off"), a.get("tail_off"))
+    return (a["head"], a["tail"], _hashable(a.get("head_off")), _hashable(a.get("tail_off")))
 
 
 def order_target(pin: Pin, placed: Placement) -> OrderTarget | None:
@@ -162,22 +180,29 @@ def same_lines(a: OrderTarget, b: OrderTarget) -> bool:
     """Are two pins on the same file and line numbers about the same text? Always for any other target. For lines:
     when both are open (their lines are matched to the text now), or both were saved on the same text (one anchor). A
     closed pin's numbers may be from an older text; without a shared anchor it is only its own target - never
-    superseded, never another pin's current verdict."""
+    superseded, never another pin's current verdict. The same rule as sharing a class of OrderTarget.same_text, which
+    superseded_by indexes."""
     if not (a.on_lines and b.on_lines):
         return True
-    return (a.open and b.open) or (a.anchor is not None and a.anchor == b.anchor)
+    return bool(set(a.same_text) & set(b.same_text))
 
 
 def superseded_by(pins: Sequence[Pin], placement_of: Callable[[Pin], Placement | None]) -> dict[int, int]:
-    """For every verdict pin that is no longer its target's current verdict, the number of the pin that is: {pin id:
-    current verdict's id} (ADR-0023).
+    """For every verdict pin that is no longer its target's current verdict, the number of the newest verdict pin
+    about the same thing: {pin id: that pin's id} (ADR-0023).
 
     pins are the live pins - open, awaiting review and done; a pin in the Trash is not among them, so a deleted
-    verdict supersedes nothing, and one restored supersedes again. Verdict pins (verdict_of) are grouped by
-    order_target, newest (largest number) first, and a pin's current verdict is the newest pin of its group that is
-    itself or about the same text (same_lines); a pin that is its own current verdict has no entry. Only verdict
-    pins are asked for their placement (placement_of: None for a pin whose document the instance does not serve),
-    so an instance without verdicts reads nothing. A pin whose target cannot be resolved has no entry."""
+    verdict supersedes nothing, and one restored supersedes again. Only pins with a `verdict` field are read: a memo
+    whose first word is a verdict word is an older verdict pin by the repository's convention and the server does not
+    read memos (ADR-0021 D1), so it neither supersedes nor is superseded here. Verdict pins are grouped by order_target
+    and a pin's current verdict is the newest pin of its group that is itself or about the same text (same_lines); a
+    pin that is its own current verdict has no entry. Only verdict pins are asked for their placement (placement_of:
+    None for a pin whose document the instance does not serve), so an instance without verdicts reads nothing. A pin
+    whose target cannot be resolved has no entry.
+
+    One pass to index each group's newest pin and, per class of text (OrderTarget.same_text), the newest pin of that
+    class, and one pass to read each pin's answer off those indexes: linear in the verdict pins, whatever their
+    number of anchors."""
     groups: dict[tuple[str, str], list[tuple[int, OrderTarget]]] = {}
     for pin in pins:
         if verdict_of(pin.record) is None:
@@ -188,9 +213,14 @@ def superseded_by(pins: Sequence[Pin], placement_of: Callable[[Pin], Placement |
             groups.setdefault(target.key, []).append((pin.core.pid, target))
     out: dict[int, int] = {}
     for group in groups.values():
-        group.sort(key=lambda entry: -entry[0])
-        for i, (pid, target) in enumerate(group):
-            current = next((newer for newer, there in group[:i] if same_lines(target, there)), None)
-            if current is not None:
+        newest = max(pid for pid, _ in group)
+        newest_of_class: dict[Hashable, int] = {}
+        for pid, target in group:
+            for c in target.same_text:
+                if newest_of_class.get(c, 0) < pid:
+                    newest_of_class[c] = pid
+        for pid, target in group:
+            current = max((newest_of_class[c] for c in target.same_text), default=pid) if target.on_lines else newest
+            if current > pid:
                 out[pid] = current
     return out

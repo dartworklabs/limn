@@ -174,20 +174,46 @@ class NumberCell(unittest.TestCase):
 class SupersededMarker(unittest.TestCase):
     """A verdict pin that a newer verdict pin supersedes says so in the number cell, right after '판정 <key>' (ADR-0023)."""
 
-    def test_the_particle_follows_the_numbers_korean_reading(self):
-        """'으로' after 영/십·백·천, 삼, 육 (the digits 0, 3, 6), '로' after the rest - the viewer's josaRo()."""
+    def test_the_particle_follows_the_last_syllable_spoken(self):
+        """'으로' after 영, 삼, 육 and after 십·백·천; at the end of a group of four digits after the unit's name: 만, 억,
+        경, 양, 간, 정, 극 take '으로', 조, 해, 자, 구, 재 take '로' (10**12, 일조, is '로' though it ends in 0)."""
         by_digit = {d: josa_ro(d) for d in range(10)}
         self.assertEqual(
             by_digit, {0: "으로", 1: "로", 2: "로", 3: "으로", 4: "로", 5: "로", 6: "으로", 7: "로", 8: "로", 9: "로"}
         )
-        for n, marker in (
-            (16, "#16으로 대체됨"),
-            (17, "#17로 대체됨"),
-            (20, "#20으로 대체됨"),
-            (43, "#43으로 대체됨"),
-            (101, "#101로 대체됨"),
-        ):
-            self.assertEqual(superseded_marker(n), marker)
+        cases = {
+            10: "으로",
+            12: "로",
+            16: "으로",
+            17: "로",
+            20: "으로",
+            100: "으로",
+            101: "로",
+            1000: "으로",
+            1010: "으로",
+            9999: "로",
+            10**4: "으로",  # 만
+            2 * 10**4: "으로",
+            10**5: "으로",  # 십만
+            12 * 10**4: "으로",
+            10**8: "으로",  # 억
+            10**9: "으로",  # 십억
+            10**12: "로",  # 조
+            3 * 10**12: "로",
+            10**13: "로",  # 십조
+            10**14: "로",  # 백조
+            10**12 + 10**4: "으로",  # 일조 일만
+            10**12 + 5: "로",  # 일조 오
+            10**16: "으로",  # 경
+            10**20: "로",  # 해
+            10**24: "로",  # 자
+            10**28: "으로",  # 양
+            10**32: "로",  # 구
+        }
+        for n, want in cases.items():
+            with self.subTest(n=n):
+                self.assertEqual(josa_ro(n), want)
+                self.assertEqual(superseded_marker(n), "#%d%s 대체됨" % (n, want))
 
     def test_the_marker_follows_the_verdict_marker_before_the_others(self):
         """'41 · 판정 보류 · #16으로 대체됨', and with a whole-page target and a claim after both."""
@@ -587,3 +613,24 @@ class SupersededOverHTTP(OnDisk):
         new_a = self.make({"doc": "rv", "page": 2, "frac": [0, 0, 1, 1], "verdict": "채택", "pdf_build": BUILD2})
         new_b = self.make({"doc": "rv", "page": 2, "frac": [0, 0, 1, 1], "verdict": "보류", "pdf_build": BUILD2})
         self.assertEqual(self.superseded(), {new_a: new_b})
+
+    def test_a_first_word_verdict_is_not_read_so_the_named_pin_may_not_be_the_current_verdict(self):
+        """Explicit #1 and #2 and a pin of the older form (no `verdict`, its memo starts with a verdict word) as #3: the
+        server never reads memos (ADR-0021 D1), so it answers {1: 2} and neither #2 nor #3 has the field, although an agent
+        that counts both forms (SKILL step 1) takes #3 as the current verdict. The named pin is the newest explicit one,
+        and pins.md marks only #1. Same on a LaTeX document's lines."""
+        first, second = self.figure("보류"), self.figure("채택")
+        old_form = self.make(
+            {"doc": "fig", "file": SCRIPT, "lo": 12, "hi": 140, "page": 1, "el": ROOT_EL, "note": "보류 옛 꼴"}
+        )
+        self.assertEqual(self.superseded(), {first: second})
+        self.assertNotIn("verdict", self.listed()[old_form])
+        text = ps.APP.C.pins_md.read_text(encoding="utf-8")
+        self.assertIn("#%d로 대체됨" % second, self.cell(first, text))
+        self.assertNotIn("대체됨", self.cell(second, text))
+        self.assertNotIn("대체됨", self.cell(old_form, text))
+        self.assertNotIn("판정", self.cell(old_form, text))
+        lines_a, lines_b = self.lines("채택"), self.lines("보류")
+        old_lines = self.make({**self.main_body, "lo": 4, "hi": 5, "note": "채택 옛 꼴"})
+        self.assertEqual(self.superseded(), {first: second, lines_a: lines_b})
+        self.assertNotIn(old_lines, self.superseded())

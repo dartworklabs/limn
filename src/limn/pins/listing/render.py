@@ -214,10 +214,25 @@ def josa(n: object, cons: str, vowel: str) -> str:
     return cons if d == "0" or d in "13678" else vowel
 
 
-def josa_ro(n: object) -> str:
-    """'로' or '으로' after a number read in Korean: '으로' after a final consonant other than ㄹ (yeong/ship/baek/cheon,
-    sam, yuk - the digits 0, 3, 6), else '로' ('#1로', '#2로', '#16으로'). Same rule as the viewer's josaRo()."""
-    return "으로" if str(n)[-1:] in ("0", "3", "6") else "로"
+# The names of the units of 10,000 in Korean (만 억 조 경 해 자 양 구 간 정 재 극 ...) by how many times 10,000 they are: the
+# ones that end in a consonant other than ㄹ, so a number whose last spoken unit is one takes '으로'.
+_UNIT_ENDS_IN_CONSONANT = frozenset({1, 2, 4, 7, 9, 10, 12})  # 만 억 경 양 간 정 극; 조 해 자 구 재 ... end in a vowel
+
+
+def josa_ro(n: int) -> str:
+    """'로' or '으로' after number n read in Korean: decided by the last syllable spoken. That is the digit's name for
+    a number that does not end in 0 (일 이 삼 사 오 육 칠 팔 구: '으로' after 삼 and 육 only, the rest end in a vowel or
+    ㄹ), 십·백·천 for one that ends in 0 inside its last group of four digits (all end in a consonant other than ㄹ:
+    '으로'), and the unit of the last non-empty group of four otherwise: 만, 억, 경 ... take '으로', 조, 해 ... '로'
+    (10**12, 일조, takes '로'). Differs from the viewer's josaRo(), which reads the last digit only, for such a number;
+    a pin number never gets there. 0 (영) takes '으로'."""
+    unit = 0
+    while n and n % 10_000 == 0:
+        n //= 10_000
+        unit += 1
+    if unit:
+        return "으로" if unit in _UNIT_ENDS_IN_CONSONANT else "로"
+    return "으로" if n % 10 in (0, 3, 6) else "로"
 
 
 def rel_badge(rel: Sequence[Mapping[str, Any]], by_id: Mapping[int, Record], me: Record | None = None) -> str:
@@ -355,16 +370,21 @@ VERDICT_LEGEND = (
     " · '판정 X' = 작성자가 버튼으로 고른 판정이다(메모 첫 낱말보다 앞선다) · "
     "'(쪽 전체)' = 그 쪽의 그림(그림 문서) 또는 그 쪽(보기 전용 PDF)에 대한 판정"
 )
-# A verdict pin that a newer verdict pin about the same target supersedes (limn.pins.verdict.superseded_by, ADR-0023):
+# A verdict pin that a newer explicit verdict pin (one with a `verdict` field) about the same target supersedes
+# (limn.pins.verdict.superseded_by, ADR-0023; the server does not read a memo's first word):
 # the number-cell marker '#N로 대체됨' right after '판정 <key>' (superseded_marker), and - only while one is listed - a
 # legend entry and a guidance clause after the verdict ones, so a sheet without such a pin keeps every byte.
 VERDICT_SUPERSEDED = " 대체됨"
-VERDICT_SUPERSEDED_LEGEND = " · '#N로 대체됨' = 같은 대상에 더 새 판정 #N 이 있다(이 핀은 실행하지 않고 닫는다)"
+VERDICT_SUPERSEDED_LEGEND = (
+    " · '#N로 대체됨' = 같은 대상에 JSON verdict 가 있는 더 새 판정 핀 #N 이 있다(이 핀은 실행하지 않는다)"
+)
 VERDICT_SUPERSEDED_GUIDANCE = (
-    " · '판정 X' 다음에 '#N로 대체됨'이 붙은 판정 핀은 같은 대상에 더 새 판정 #N 이 있다고 서버가 알린 핀이다 — "
-    "순서를 다시 세지 않고 실행하지 않으며 '#N 판정이 앞섭니다' 답글을 남기고 닫는다(사람 담당·남이 처리 중이면 닫지 않는다) · "
-    "이 표시가 없다고 지금 판정인 것은 아니다: 서버는 저장된 위치로 읽을 뿐이라, 저장소의 규칙으로 같은 대상인 "
-    "더 큰 번호의 판정 핀이 있으면 위 규칙대로 가린다"
+    " · '판정 X' 다음에 '#N로 대체됨'이 붙은 판정 핀은 같은 대상에 JSON `verdict` 가 있는 더 새 판정 핀 #N 이 있다고 "
+    "서버가 알린 핀이다 — 이 핀은 실행하지 않는다. 대상 풀기와 사람 담당·남이 처리 중인 핀 확인은 그대로 하고, "
+    "닫기 직전에 이 핀을 다시 읽어 표시가 그대로면 '#N 판정이 앞섭니다' 답글로 닫는다 · "
+    "서버는 메모 첫 낱말로 쓴 옛 판정 핀을 읽지 않으므로 #N 이 지금 판정이라는 뜻은 아니다: "
+    "어느 핀을 실행할지는 옛 판정 핀과 저장소의 규칙으로 같은 대상인 핀까지 세는 위 규칙이 가리고, "
+    "이 표시가 없다고 지금 판정인 것도 아니다"
 )
 # The guidance clause around the history link's base URL (verdict_guidance puts the base between the two).
 VERDICT_GUIDANCE_HEAD = (
@@ -402,8 +422,8 @@ def verdict_marker(r: Record, heading: DocHeading | None) -> str:
 
 
 def superseded_marker(current: int) -> str:
-    """The number-cell marker of a superseded verdict pin - '#16으로 대체됨', current the number of the verdict pin that is
-    its target's current verdict. The particle follows the number's Korean reading (josa_ro)."""
+    """The number-cell marker of a superseded verdict pin - '#16으로 대체됨', current the number of the newest explicit
+    verdict pin about its target. The particle follows the number's Korean reading (josa_ro)."""
     return "#%d%s%s" % (current, josa_ro(current), VERDICT_SUPERSEDED)
 
 

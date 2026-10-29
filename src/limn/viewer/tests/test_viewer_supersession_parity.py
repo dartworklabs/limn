@@ -96,21 +96,25 @@ class SupersessionParity(BrowserBase):
         ]
         self.assertEqual(self.call("POST", "/api/pins/%d/close" % made[2], {})[0], 200)  # a closed older verdict
         newest = self.make({**fig, "el": ROOT, "verdict": "채택"})  # and the figure's newest
+        # A pin of the older form (no `verdict`, its memo starts with a word) is no verdict pin to the viewer either.
+        old_forms = [self.make({**fig, "el": ROOT, "note": "보류 옛 꼴"}), self.make({**ms, "note": "채택 옛 꼴"})]
+        listed = len(made) + len(old_forms)  # the closed verdict is not open; the newest figure verdict is
         want = {made[0]: newest, made[1]: newest, made[2]: made[3], made[5]: made[6]}
         steps = [("every verdict made", want)]
         server = dict(self.server_order())
         self.assertEqual({i: c for i, c in server.items() if c is not None}, want)
-        page = self.open_viewer(len(made))
+        self.assertTrue(all(i not in server for i in old_forms))  # neither counts for the server nor the viewer
+        page = self.open_viewer(listed)
         self.assertEqual(page.evaluate(VIEWER_ORDER), self.server_order(), steps[0][0])
 
         # The newest figure verdict goes to the Trash: the older two are current again, in the server and in the viewer.
         self.assertEqual(self.call("POST", "/api/pins/%d/drop" % newest, {}, ALICE)[0], 200)
-        page = self.open_viewer(len(made) - 1)
+        page = self.open_viewer(listed - 1)
         self.assertEqual(page.evaluate(VIEWER_ORDER), self.server_order(), "the newest figure verdict deleted")
         self.assertEqual(dict(self.server_order())[made[0]], made[1])
 
         # Restored, it supersedes them again.
         self.assertEqual(self.call("POST", "/api/pins/%d/restore" % newest, {}, ALICE)[0], 200)
-        page = self.open_viewer(len(made))
+        page = self.open_viewer(listed)
         self.assertEqual(page.evaluate(VIEWER_ORDER), self.server_order(), "the verdict restored")
         self.assertEqual(dict(self.server_order())[made[0]], newest)
