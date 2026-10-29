@@ -24,8 +24,10 @@ is unchanged.
   on a mouse screen, and the buttons say it (`aria-keyshortcuts`, `단축키 1`); the help lists them.
 - **A reason with a verdict, in place.** A save from a page line opens a one-line `이유 (선택)` field on that line - with
   the focus after a key, waiting after a click or a tap. Enter saves the text as the pin's note (the note edit a verdict
-  pin takes); Esc, or moving on with it empty, leaves the verdict alone; the undo takes the field with the pin. The
-  reason shows on the line and the card.
+  pin takes; `pins.md` then marks the pin `수정됨`); Esc skips it; either sends the focus to the PDF area. Moving on - the
+  reading page leaving the field's page, another save, another document - saves what was typed and says so
+  (`이유 저장됨 · PL16`); an empty field just closes. The field and its text survive a rebuild; the undo takes them with
+  the pin. The reason shows on the line and the card.
 - **A verdict card names its figure** - the page's title from the map (`[후보] PL26 · …`), else `그림 <id>` - so the figure
   just put on hold is easy to find in the list.
 - **`"verdict": false` on a figure map's page** (`limn-figure-map/1`, optional, additive): that page - a list, a question
@@ -41,7 +43,7 @@ is unchanged.
   `이전 판정` marker, the page-size marks and [보기] count an older element verdict as its figure's too (newest number
   first, as before). The server's `(쪽 전체)` is unchanged.
 - **One save chip at a time.** A new save's chip moves an earlier one, with its [되돌리기], to the status line, whose
-  words name the verdict's figure.
+  title - all the folded line shows - names the verdict's figure.
 - **A failed page-line save is said under that line** as well as on the status line.
 - **A phone draws every verdict word 44px tall** (was 36px with a 44px hit).
 
