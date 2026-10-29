@@ -269,6 +269,18 @@ class Accepted(unittest.TestCase):
         self.assertIsInstance(got, FigureMap)
         self.assertEqual(got, parse(m))
 
+    def test_a_page_takes_a_verdict_unless_the_map_says_verdict_false(self):
+        """A page's optional verdict key is a hint, never a rejection: JSON false says the page takes no verdict; true,
+        absent, null or any other value (the string "false" too) leaves it taking one."""
+        for value, takes in ((False, False), (True, True), (None, True), ("false", True), (0, True)):
+            with self.subTest(value=value):
+                m = figure_map(MINI_PDF)
+                page0(m)["verdict"] = value
+                got = parse(m)
+                self.assertIsInstance(got, FigureMap)
+                self.assertIs(got.page(1).takes_verdict, takes)
+        self.assertIs(parse(figure_map(MINI_PDF)).page(1).takes_verdict, True)
+
     def test_an_element_drawn_without_code_has_no_source(self):
         """A vector graphic exported from a design tool has no code lines (ADR-0011 D7): src and impl are None."""
 

@@ -158,7 +158,7 @@ class BuildQueries:
             "n_pages": sum(1 for _ in pages.glob("page-*.png")) if pages.is_dir() else 0,
         }
         meta = {
-            "pages": artifacts.page_list(pages, dpi),
+            "pages": self.page_facts(doc, pages.name, artifacts.page_list(pages, dpi)),
             "built_at": heading.built_at if heading.built_at is not None else "?",
             "head": heading.head if heading.head is not None else "?",
             "building": brief["building"],
@@ -171,6 +171,28 @@ class BuildQueries:
             "build": {"state": b["state"], "phase": b["phase"], "started_at": b.get("started_at")},
         }
         return DocumentBuild(brief, meta)
+
+    def page_facts(self, doc: Doc, build: str, pages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """Meta's pages of build `build` with, on a figure document whose map for that build loads, what its map says of
+        each page (in map order, after name and sizes): `figure` (the root element's id), `title` when the map has one
+        and `verdict: false` when the page takes no verdict. Pages the map does not name, and every page of any other
+        document or of a map that does not load, keep {name, pt_w, pt_h}. Reads the map copy through the run's cache,
+        and no file the map names."""
+        if not doc.has_element_map:
+            return pages
+        fmap = self.maps().get(doc, build)
+        if not isinstance(fmap, FigureMap):
+            return pages
+        for n, entry in enumerate(pages, 1):
+            found = fmap.page(n)
+            if found is None:
+                continue
+            entry["figure"] = found.figure
+            if found.title is not None:
+                entry["title"] = found.title
+            if not found.takes_verdict:
+                entry["verdict"] = False
+        return pages
 
     def publication(self, doc: Doc, name: str, state: Path) -> Publication:
         """Bind pick assets and status to the requested publication, not pages.cur."""

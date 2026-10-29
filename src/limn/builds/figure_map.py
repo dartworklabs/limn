@@ -93,13 +93,16 @@ class MapElement:
 
 @dataclass(frozen=True)
 class MapPage:
-    """One page of the figure PDF: its 1-based number, the figure's id (the root element's id), an optional title, and
-    its elements with the root first and the rest in map order. The id index is built once, at construction."""
+    """One page of the figure PDF: its 1-based number, the figure's id (the root element's id), an optional title, its
+    elements with the root first and the rest in map order, and whether the page takes a verdict (False only when the
+    map says "verdict": false - a list, a question or a removed-figure page). The id index is built once, at
+    construction."""
 
     page: int
     figure: str
     title: str | None
     elements: tuple[MapElement, ...]
+    takes_verdict: bool = True
     _by_id: dict[str, MapElement] = field(init=False, repr=False, compare=False)
 
     def __post_init__(self) -> None:
@@ -268,8 +271,10 @@ def _page(v: object, where: str, numbers: set[int], ids: set[str]) -> MapPage | 
     (bad_page); figure a non-empty string and title absent or a string (bad_shape); elements a list (bad_shape) of at
     most MAP_MAX_ELEMENTS, counted before any is read (too_many_elements); each element (_element, ids unique across
     the map); exactly one root (_rooted: no_root); every parent on this page, no cycle and no element deeper than
-    MAP_MAX_DEPTH (_tree_rejection: bad_parent). figure and title are at most MAP_MAX_TEXT characters. numbers and ids collect what this page uses,
-    for the pages after it."""
+    MAP_MAX_DEPTH (_tree_rejection: bad_parent). figure and title are at most MAP_MAX_TEXT characters. An optional
+    verdict key is a hint for the viewer, never a rejection: JSON false says the page takes no verdict, and any other
+    value is as if it were absent (limn-figure-map/1 ignores what it does not know). numbers and ids collect what this
+    page uses, for the pages after it."""
     if not isinstance(v, dict):
         return MapRejected("bad_shape", "%s is not an object" % where)
     number = _int(v.get("page"))
@@ -305,7 +310,7 @@ def _page(v: object, where: str, numbers: set[int], ids: set[str]) -> MapPage | 
     broken = _tree_rejection(ordered, where)
     if broken is not None:
         return broken
-    return MapPage(number, figure, title, ordered)
+    return MapPage(number, figure, title, ordered, v.get("verdict") is not False)
 
 
 def _element(v: object, where: str, ids: set[str]) -> MapElement | MapRejected:

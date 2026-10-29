@@ -23,6 +23,7 @@ from limn.pins.location import mapping, range as ranges
 from limn.platform import files
 from limn.sync import rules as sync_rules
 
+import helpers_figure
 from helpers import MINI_PDF, TEX, VIEWER, ps
 from helpers_access import ALICE, BOB, AccessBase
 
@@ -218,7 +219,8 @@ class DeclaredViewShapes(AccessBase):
 
     Three states: one document with an open pin (and the overlaps a new range over it reports) and no build; three documents (a LaTeX file, one in a folder, a
     view-only PDF - the first with usable verdict words, the second with an unusable word file) with page images and two
-    people who opened the viewer; one document after a build with LaTeX errors. The watch's states come from limn.sync.rules itself, since a test run has no remote to pull."""
+    people who opened the viewer, then a figure document beside them whose map titles its pages and says one takes no
+    verdict; one document after a build with LaTeX errors. The watch's states come from limn.sync.rules itself, since a test run has no remote to pull."""
 
     def setUp(self):
         super().setUp()
@@ -275,6 +277,13 @@ class DeclaredViewShapes(AccessBase):
         self.answer("Meta", "GET", "/api/meta?doc=ms", headers=alice)
         self.answer("Meta", "GET", "/api/meta?doc=rv&light=1", headers=BOB)
         self.answer("Meta", "GET", "/api/meta?doc=rr", headers=BOB)
+        # a figure document whose map says page 2 takes no verdict: meta's pages carry the map's page facts
+        fmap = helpers_figure.viewer_map()
+        fmap["pages"][1]["verdict"] = False
+        fig = helpers_figure.figure_doc(self.src, ps.APP.C.paths)
+        ps.APP.set_docs([*docs, fig])
+        helpers_figure.viewer_build(fig, helpers_figure.BUILD1, fmap)
+        self.answer("Meta", "GET", "/api/meta?doc=fig", headers=BOB)
         self.answer("DocsAnswer", "GET", "/api/docs")
         self.answer("PeopleAnswer", "GET", "/api/people", headers=alice)
         statuses, pulls = sync_records()

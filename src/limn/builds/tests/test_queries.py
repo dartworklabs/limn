@@ -66,6 +66,40 @@ def test_page_root_is_true_only_for_the_figure_of_that_page_on_that_build(tmp_pa
     assert ask(latex, BUILD1, 1, "B2") is False
 
 
+def test_page_facts_add_what_the_map_says_of_each_page(tmp_path):
+    """On a figure document meta's pages carry, from the build's map, each page's figure (its root id), its title when
+    the map has one and verdict: false only when the map says the page takes no verdict - any other verdict value is
+    as if absent. A page the map does not name, a build without a loadable map and a LaTeX document keep the three
+    image keys."""
+    paths = RunPaths(tmp_path / "paper", tmp_path / "paper" / "main.tex", tmp_path / "state")
+    doc = figure_doc(tmp_path / "paper", paths)
+    fmap = viewer_map()
+    fmap["pages"][0]["verdict"] = False
+    fmap["pages"][1]["verdict"] = "false"  # not JSON false: ignored
+    write_build(doc, BUILD1, fmap)
+    write_build(doc, BUILD2, None)
+
+    def images():
+        return [{"name": "page-%d.png" % n, "pt_w": 600.0, "pt_h": 800.0} for n in (1, 2, 3)]
+
+    ask = queries().page_facts
+    assert ask(doc, BUILD1, images()) == [
+        {
+            "name": "page-1.png",
+            "pt_w": 600.0,
+            "pt_h": 800.0,
+            "figure": "B2",
+            "title": "Deployment calendar",
+            "verdict": False,
+        },
+        {"name": "page-2.png", "pt_w": 600.0, "pt_h": 800.0, "figure": "B3", "title": "Review flow"},
+        {"name": "page-3.png", "pt_w": 600.0, "pt_h": 800.0},
+    ]
+    assert ask(doc, BUILD2, images()) == images()
+    latex = Doc("ms", "본문", "tex", tmp_path / "paper", tmp_path / "paper" / "main.tex", paths=paths)
+    assert ask(latex, BUILD1, images()) == images()
+
+
 def test_missing_markers_are_interpreted_by_owner(tmp_path):
     """Absent stamps retain light-poll defaults and an empty outline."""
     doc = figure_doc(

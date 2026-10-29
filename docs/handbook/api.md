@@ -214,7 +214,7 @@ curl -s -H "Authorization: Bearer $(cat ~/.config/limn/<인스턴스>.token)" ht
 | 메서드 | 경로 | 설명 |
 | --- | --- | --- |
 | `GET` | `/api/version` | `{"name":"limn","version":<문자열>}`. `limn serve --version` 과 같은 값이다. 지금 인스턴스가 어느 설치 버전으로 도는지 확인할 때 쓴다. 쓰기 없음 |
-| `GET` | `/api/meta` | `pages`(쪽 목록), `built_at`, `head`(원고 커밋), `main`(최상위 `.tex` 이름. 보기 전용 PDF는 그 PDF 파일 이름, 그림 문서는 지도 파일 이름), `label`·`accent`·`repo`(이 인스턴스의 이름표·강조색·git origin URL, [operations.md](operations.md) §여러 논문 인스턴스를 동시에 띄울 때), `n_open`·`n_review`·`n_done`(§검토 대기), `pins_md`·`state_dir`(절대경로), `me`(지금 요청자와 그 `role` — §인증), `building`(재빌드 진행 중), `stale_build`(이 PDF 를 만든 뒤 원고 `.tex` 가 바뀌었는가), `src_mtime`·`build_src_mtime`·`src_age_s`·`pins_rev`([build-sync.md](build-sync.md) §자동 동기화 (가벼운 meta 폴링)), `pages_build`(지금 화면의 빌드 id, `pages.cur` 값), `build_seq`(끝난 빌드 수)·`last_build:{state,errors,finished_at,seq}`·`build:{state,phase,started_at}`([build-sync.md](build-sync.md) §비동기 재빌드), `doc`·`doc_name`·`kind`·`view_only`·`multi`(§문서 매개변수), 그 문서의 판정 낱말 `verdicts` 또는 `verdicts_error`(핀 수 뒤, 낱말 파일이 있을 때만, §판정 낱말 파일 (`limn-verdicts/1`)), `ev_seq`(§브라우저 알림 커서). 여러 문서면 `docs`(`/api/docs` 항목에서 `n_open`·`verdicts`·`verdicts_error` 를 뺀 것)와 `src_sig` 가 붙는다(라이트 포함). `src_sig` 는 문서마다의 `src_mtime` 을 이은 문자열이다. 그래서 뷰어는 다른 문서의 원고가 바뀌어도 목록을 다시 읽는다. 전체 meta는 요청한 사람을 기록한다(§@태그·사람·이벤트) |
+| `GET` | `/api/meta` | `pages`(쪽 목록 `{name,pt_w,pt_h}`. 그림 문서이고 그 빌드의 지도를 읽을 수 있으면 지도가 그 쪽에 대해 말하는 `figure`·`title`·`verdict` 가 이 순서로 더 붙는다 — §그림 요소 지도 (`limn-figure-map/1`)의 쪽 사실), `built_at`, `head`(원고 커밋), `main`(최상위 `.tex` 이름. 보기 전용 PDF는 그 PDF 파일 이름, 그림 문서는 지도 파일 이름), `label`·`accent`·`repo`(이 인스턴스의 이름표·강조색·git origin URL, [operations.md](operations.md) §여러 논문 인스턴스를 동시에 띄울 때), `n_open`·`n_review`·`n_done`(§검토 대기), `pins_md`·`state_dir`(절대경로), `me`(지금 요청자와 그 `role` — §인증), `building`(재빌드 진행 중), `stale_build`(이 PDF 를 만든 뒤 원고 `.tex` 가 바뀌었는가), `src_mtime`·`build_src_mtime`·`src_age_s`·`pins_rev`([build-sync.md](build-sync.md) §자동 동기화 (가벼운 meta 폴링)), `pages_build`(지금 화면의 빌드 id, `pages.cur` 값), `build_seq`(끝난 빌드 수)·`last_build:{state,errors,finished_at,seq}`·`build:{state,phase,started_at}`([build-sync.md](build-sync.md) §비동기 재빌드), `doc`·`doc_name`·`kind`·`view_only`·`multi`(§문서 매개변수), 그 문서의 판정 낱말 `verdicts` 또는 `verdicts_error`(핀 수 뒤, 낱말 파일이 있을 때만, §판정 낱말 파일 (`limn-verdicts/1`)), `ev_seq`(§브라우저 알림 커서). 여러 문서면 `docs`(`/api/docs` 항목에서 `n_open`·`verdicts`·`verdicts_error` 를 뺀 것)와 `src_sig` 가 붙는다(라이트 포함). `src_sig` 는 문서마다의 `src_mtime` 을 이은 문자열이다. 그래서 뷰어는 다른 문서의 원고가 바뀌어도 목록을 다시 읽는다. 전체 meta는 요청한 사람을 기록한다(§@태그·사람·이벤트) |
 | `GET` | `/api/meta?light=1` | 위와 같되 `n_open`·`n_review`·`n_done` 과 `verdicts`·`verdicts_error` 가 없고 **쓰기를 하지 않는다**(`snapshot_pins()` 의 sync 쓰기를 하지 않는다). 폴링 전용이다. [build-sync.md](build-sync.md) §자동 동기화 (가벼운 meta 폴링) |
 | `GET` | `/api/meta?ev=<seq>` | 라이트와 함께 쓸 수 있다. 요청자에게 온 새 이벤트를 `events` 로 싣는다 — §브라우저 알림 커서 |
 | `GET` | `/api/docs` | 문서 목록 `{docs:[{key,name,kind:"tex"\|"pdf"\|"figure",view_only,path,main,stale_build,src_mtime,building,build:{state,phase},build_seq,last_state,pages_build,n_pages,n_open,verdicts?,verdicts_error?}], default, multi, other_open}`. 핀은 읽기만 한다(sync 쓰기 없음). `other_open` 은 지금 설정에 없는 문서 키의 열린 핀 수다. `view_only` 는 그 문서의 핀이 쪽·영역뿐인가, 곧 줄 핀을 받지 못하는가를 나타내는 문서의 능력이다. 보기 전용 PDF에서만 `true` 이고, 그림 문서(§그림 요소 지도 (`limn-figure-map/1`))는 줄 핀을 받으므로 `false` 다. 그림 문서의 pick 이 줄을 주지 못해 돌려주는 영역 답의 `view_only: true` 는 그 답이 영역뿐이고 코드 줄이 없다는 뜻이며, 문서의 능력이 아니다(§그림 문서의 pick·핀). `path` 는 `--manuscript` 기준 메인 파일 경로이고 `main` 은 그 파일 이름이다. 그림 문서에서는 둘 다 지도 파일(`.limnmap.json`)을 가리킨다. 항목 끝의 `verdicts`(`{page, choices:[{key,label,confirm}]}`)나 `verdicts_error`(`unreadable`·`too_large`·`invalid`)는 그 문서 옆에 판정 낱말 파일이 있을 때만 붙는다(§판정 낱말 파일 (`limn-verdicts/1`)) |
@@ -564,6 +564,8 @@ latexdiff는 본문 글과, 자기가 아는 글 명령(`\textbf`·`\section`·`
 | 그림 문서 | `el.path` 가 `[el.id]` 인 핀(줄 핀이든 영역 핀이든) | 그 쪽의 그림. 그림 id는 `el.id` 다 |
 | 보기 전용 PDF | `frac` 의 네 값이 `[0, 0, 1, 1]` 과 각각 `1e-6` 안인 영역 핀 | 그 쪽. `page`·`pdf_build` 가 증거다 |
 | LaTeX 문서 | 없다 | — |
+
+뷰어는 그림 문서의 판정을 그 핀의 그림 `el.path[0]` 에 대한 판정으로 센다. 그림 자체에 찍은 판정이든 그 안의 요소에 찍은 옛 판정이든 같은 그림이면 쪽 판정 줄의 한 대상이고, 작성 패널의 판정은 처음부터 이 표의 쪽 전체 대상으로 저장한다([viewer.md](viewer.md) §그림 문서의 판정 대상, [ADR-0022 D1–D2](../adr/0022-figure-verdict-target.md#결정)). 서버의 `(쪽 전체)` 와 아래 확인은 그대로다.
 
 그림 문서의 쪽 전체 판정은 만들 때 서버가 확인한다. 핀이 보낸 `pdf_build`(없으면 지금 화면 빌드)의 지도 사본에서 `el.id` 가 핀의 `page` 쪽의 뿌리 요소여야 한다. 이 확인은 핀 잠금을 잡기 직전에 한다. `pdf_build` 가 없으면 화면 빌드를 그때 한 번만 읽어 확인과 기록에 함께 쓰므로, 핀의 `pdf_build` 로 남는 빌드가 확인한 그 빌드다. 그사이 새 빌드가 올라와도 확인하지 않은 빌드가 저장되지 않는다. 빌드의 지도 사본은 그 빌드를 들일 때 한 번 쓰고 고치지 않으므로, 잠금 안에서 다시 확인해도 답이 같다. `el` 은 요청이 보낸 값이라, 확인해야 `(쪽 전체)` 를 믿을 수 있다. 지도는 실행별 파싱 캐시로 읽고, 지도가 가리키는 다른 파일은 열지 않는다. 판정이 없는 핀에는 이 확인을 하지 않는다. LaTeX 문서의 쪽은 항목 하나가 아니다(목록 쪽, 빈 절, 절 머리, 다른 그림을 가리키는 줄이 섞인다). 그래서 LaTeX 핀의 판정 대상은 사람이 고른 줄이다.
 
@@ -1016,6 +1018,7 @@ curl -s -X POST http://127.0.0.1:<port>/api/pins/3/unclaim
 | `pages[].page` | 1부터 세는 쪽 번호. 지도 안에서 겹치지 않는다 |
 | `pages[].figure` | 그림 id. 그 쪽의 뿌리 요소 id와 같다. 200자 이하 |
 | `pages[].title` | 선택. 그림 제목. 200자 이하 |
+| `pages[].verdict` | 선택. JSON `false` 면 그 쪽은 판정을 받지 않는다(목록·연구 질문·지운 그림 쪽). 다른 값이나 없음은 판정을 받는다. 화면용 신호라 검사하지 않고, 서버는 그 쪽의 판정 핀도 거르지 않는다 |
 | `elements[].id` | 비어 있지 않은 문자열, 200자 이하. 지도 전체에서 유일하다. 다시 렌더해도 같은 뜻의 요소는 같은 id를 받는다 |
 | `elements[].parent` | 같은 쪽 요소의 id. 뿌리만 없다(또는 `null`). 순환이 없고, 뿌리부터 그 요소까지의 id는 둘 다 세어 64개(`MAP_MAX_DEPTH`) 이하다 |
 | `elements[].frac` | `[x, y, w, h]`. 쪽 폭·높이에 대한 비율이고 원점은 왼쪽 위다. 뿌리는 `[0, 0, 1, 1]` 이다 |
@@ -1036,6 +1039,14 @@ curl -s -X POST http://127.0.0.1:<port>/api/pins/3/unclaim
 글자 수 200자 상한은 핀이 그 이름을 저장하기 때문이다. 경로 길이·줄 번호·깊이의 상한도 같은 이유로 둔다. 받은 지도의 어느 요소든 핀에 그대로 담을 수 있어야 하기 때문이다. `pdf` 는 이 검사에서 모양만 본다. 그 PDF가 문서 폴더 밖이면 지도는 받되 가져오기가 미룬다([build-sync.md](build-sync.md) §그림 문서). `src.file` 은 이 검사에서 모양만 보고, 문서 폴더 안에서 읽을 수 있는지는 pick이 그 스크립트를 읽을 때 정한다. 문서 폴더 안이고 점으로 시작하는 이름 아래가 아니어야 하며, 심볼릭 링크는 푼 뒤에 본다. 폴더 밖으로 이어지거나 없는 스크립트는 그 스크립트가 그린 요소만 줄을 주지 못하고(pick이 영역으로 답한다), 지도 전체는 그대로 받는다. `impl.file` 은 데이터다. 핀에 저장되고 pins.md에 글자로 적힐 뿐 열리지 않으므로 모양만 본다. 그래서 같은 지도 바이트는 언제 읽어도 같은 판정이다.
 
 **쓰는 순서.** 생산자는 PDF를 먼저 쓰고, 지도는 마지막에 원자적으로 바꾼다(임시 파일에 쓰고 이름 바꾸기). 순서가 달라도 `pdf_sha256` 이 맞을 때만 가져오므로, 어긋난 짝이 화면에 오르지는 않는다.
+
+**쪽 사실.** `GET /api/meta`(라이트 폴링 포함)의 `pages[i]` 는 그 빌드의 지도에 `i + 1` 쪽이 있으면 `{name, pt_w, pt_h}` 뒤에 그 쪽의 사실을 더 싣는다. 지도를 읽지 못하는 빌드, 지도에 없는 쪽, 다른 종류의 문서는 세 키 그대로다. 지도 사본은 실행별 파싱 캐시로 읽고, 지도가 가리키는 다른 파일은 열지 않는다. 출처: [ADR-0022 D3](../adr/0022-figure-verdict-target.md#결정).
+
+| 필드 | 값 |
+| --- | --- |
+| `figure` | 그 쪽의 그림 id(뿌리 요소 id). 늘 붙는다 |
+| `title` | 지도의 `title`. 지도에 있을 때만 붙는다 |
+| `verdict` | `false`. 지도가 그 쪽에 `"verdict": false` 를 적었을 때만 붙는다. 뷰어는 그 쪽의 판정 줄과 작성 패널의 판정 낱말을 내지 않는다([viewer.md](viewer.md) §판정 핀) |
 
 ## 판정 낱말 파일 (`limn-verdicts/1`)
 
