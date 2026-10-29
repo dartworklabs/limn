@@ -161,9 +161,10 @@ def pick_warning(p: Picked) -> str:
 def _element_body(p: PickedElement) -> Body:
     """The body of a drag traced through a figure's map: the traced-selection body's keys in their contract order -
     the default rung's lines, via "map", the element's kind and name - then el and path_names, the name the map gives
-    each id of el.path (label, else part, else "") (docs/handbook/api.md §그림 문서의 pick·핀). The score is rounded
-    to two decimals like a traced selection's: full containment computes a cover a hair under 1.0. Only the body is
-    rounded - element_warning still tests the unrounded score against WEAK_SCORE."""
+    each id of el.path (label, else part, else "") (docs/handbook/api.md §그림 문서의 pick·핀), then fill (how much of
+    the element the drag covers, rounded like score) and rival (another candidate covers the drag nearly as much as the
+    element). The score is rounded to two decimals like a traced selection's: full containment computes a cover a hair
+    under 1.0. Only the body is rounded - element_warning still tests the unrounded score against WEAK_SCORE."""
     first = p.rungs[0]
     return {
         "file": str(p.file),
@@ -187,6 +188,8 @@ def _element_body(p: PickedElement) -> Body:
         "pdf_build": p.pdf_build,
         "el": p.el.to_record(),
         "path_names": list(p.path_names),
+        "fill": round(p.fill, 2),
+        "rival": p.rival,
     }
 
 

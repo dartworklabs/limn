@@ -119,10 +119,10 @@ def fits_record(
         if r.get(k) is not None and not is_int(r[k]):
             return False
     # epoch seconds - named apart from '*_at' (string timestamps)
-    for k in ("synced_at", "score", "claim_until", "claim_ts", "eta_ts"):
+    for k in ("synced_at", "score", "fill", "claim_until", "claim_ts", "eta_ts"):
         if r.get(k) is not None and not is_num(r[k]):
             return False
-    for k in ("done", "stale", "review"):
+    for k in ("done", "stale", "review", "rival"):
         if r.get(k) is not None and not isinstance(r[k], bool):
             return False
     for k in ("name", "kind", "via", "scope", "sync", "pdf_build", "frac_build", "file_rel"):

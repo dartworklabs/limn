@@ -415,7 +415,7 @@ class FigurePick(Base):
             d = pick(
                 {"doc": "fig", "page": 1, "x0": x0, "y0": y0, "x1": x1, "y1": y1, "pdf_build": BUILD1}, doc=self.fig
             )
-        self.assertEqual(list(d), LATEX_KEYS + ["el", "path_names"])
+        self.assertEqual(list(d), LATEX_KEYS + ["el", "path_names", "fill", "rival"])
         self.assertEqual(
             (d["file"], d["name"], d["lo"], d["hi"], d["raw_lo"], d["raw_hi"], d["n_lines"]),
             (str(self.script), "B2_calendar.py", 88, 95, 88, 95, 140),

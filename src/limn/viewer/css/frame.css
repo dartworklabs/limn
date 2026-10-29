@@ -98,6 +98,11 @@ body.outline-collapsed #outline-items,body.outline-collapsed #outline-search,bod
 #nav-toc-toggle{display:inline-flex;flex:none;align-self:center;padding:0;color:var(--muted-foreground)}
 #nav-toc-toggle[aria-expanded=true]{background:var(--accent);color:var(--foreground)}
 #outline-search{width:100%;margin-bottom:var(--space-2);background:var(--field);font-size:var(--text-sm)}
+/* The filter's keys, under the field while it has the focus (a mouse and keyboard's reminder; the field is described by it for a screen
+   reader whatever shows, and a touch screen has no use for it). It is under the field, above the list, so the list moves only as the field
+   is entered, never under a press. */
+#outline-hint{display:none;margin:calc(-1 * var(--space-1)) 0 var(--space-2);padding:0 var(--space-1);color:var(--muted-foreground);font-size:var(--text-xs);line-height:var(--line-label)}
+@media (pointer:fine){#outline-search:focus+#outline-hint{display:block}}
 #outline .outline-empty{color:var(--muted-foreground);padding:var(--space-2)}
 /* The outline's rows - the panel's, the overlay's and the navigation sheet's (#ns-outline-items, responsive.css) - share one
    set of columns (docs/handbook/viewer.md §모바일 레이아웃, 목차 행): a number column per depth, the title, the page.
@@ -120,6 +125,14 @@ body.outline-collapsed #outline-items,body.outline-collapsed #outline-search,bod
 /* The page label is smaller than the title: its box is its own em, so on the title's baseline it stays inside the title's line
    and adds nothing to the row's height (as a line box of the title's height it hung 0.3px under it). */
 :is(#outline-items,#ns-outline-items) .ol-page{grid-column:6;justify-self:end;white-space:nowrap;line-height:1}
+/* The group an entry of a filter's results is listed under, when another entry has its name under another group (outlineGrouped): `채택 ›`
+   on a line of its own above the row's number, name and page, starting where the name starts. */
+:is(#outline-items,#ns-outline-items) .ol-grouped>:not(.ol-grp){grid-row:2}
+:is(#outline-items,#ns-outline-items) .ol-grp{grid-column:2/-1;grid-row:1;min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;
+  color:var(--muted-foreground);font-size:var(--text-xs);font-weight:400;line-height:var(--line-label)}   /* one line, cut: a long group name must not push the names down */
+:is(#outline-items,#ns-outline-items) .ol-depth-1>.ol-grp{grid-column:3/-1}
+:is(#outline-items,#ns-outline-items) .ol-depth-2>.ol-grp{grid-column:4/-1}
+:is(#outline-items,#ns-outline-items) :is(.ol-depth-3,.ol-depth-4)>.ol-grp{grid-column:5/-1}
 /* The last line of an outline that has more entries than the viewer reads (outlineCutNote): quiet text across the rows' columns. */
 :is(#outline-items,#ns-outline-items) .ol-more{grid-column:1/-1;margin:0;padding:var(--space-2) var(--space-1);color:var(--muted-foreground);font-size:var(--text-xs);line-height:var(--line-label);word-break:keep-all;text-wrap:pretty}   /* Korean breaks between words, not inside one */
 #outline-items button{min-height:var(--control-h-sm);color:var(--muted-foreground);padding:var(--space-1);font-size:var(--text-sm)}

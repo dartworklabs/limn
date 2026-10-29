@@ -171,6 +171,17 @@ class ElementChoice(Protocol):
         ...
 
     @property
+    def fill(self) -> float:
+        """How much of the chosen element the drag covers, 0..1."""
+        ...
+
+    @property
+    def rival(self) -> bool:
+        """Whether another candidate, neither ancestor nor descendant of the chosen element, covers the drag nearly
+        as much as it does (the supplier's rule)."""
+        ...
+
+    @property
     def ladder(self) -> Sequence[tuple[str, FigureElement]]:
         """The rungs as (level name, element), nearest first: the chosen element, its ancestors, the whole figure."""
         ...

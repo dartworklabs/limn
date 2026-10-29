@@ -6,7 +6,9 @@
 function card(p){p=pvQuietRel(p);   // no overlap badge between two verdicts about one page target (verdict.js)
   const loc='L'+p.lo+'-L'+p.hi,name=p.name||String(p.file||'').split('/').pop(),tags=[];   // loc stays in the copy format
   if(p.stale)tags.push(html`<span class="badge badge-warning" data-tip="${T.stale}">${ic('triangle-alert')}위치 잃음</span>`);
-  else{const m=/^moved ([+-]\d+)$/.exec(p.sync||''); if(m)tags.push(html`<span class="badge" data-tip="${
+  // A figure pin whose element is where it was (el_sync ok) has no '줄 +N 이동': its code lines shifted, but the pin is the element, whose
+  // mark and path have not moved. A moved or lost element, and a pin with no element (no el_sync), show it.
+  else{const m=/^moved ([+-]\d+)$/.exec(p.sync||''); if(m&&p.el_sync!==EL_SYNC.OK)tags.push(html`<span class="badge" data-tip="${
     tl('원고가 고쳐져 {n}줄 밀렸고, 핀을 찍을 때 떠 둔 첫·끝 문장으로 새 위치를 다시 찾았습니다',{n:m[1].replace('+','')})}">${ic('move-vertical')}${tl('줄 {delta} 이동',{delta:m[1]})}</span>`);}
   const lostEl=elLostTag(p); if(lostEl)tags.push(lostEl);   // a figure pin whose element the re-rendered map no longer has
   const claimed=claimActive(p);

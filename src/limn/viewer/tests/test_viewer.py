@@ -1391,7 +1391,7 @@ class FrontendPanelWidthLogic(unittest.TestCase):
         )
         self.assertIsNone(got[3])
         self.assertIsNone(got[4])
-        self.assertIn("const VIA_HIDE=90,VIA_WARN=30;", HTML)
+        self.assertIn("const VIA_HIDE=90,VIA_WARN=30,VIA_SURE_SCORE=75,VIA_SURE_FILL=95;", HTML)
 
 
 class FrontendPanelTidyStructure(unittest.TestCase):
@@ -2564,10 +2564,10 @@ def js_tooltips() -> str:
 
 
 def js_via_limits() -> str:
-    """The location-confidence thresholds viaTag() reads (`const VIA_HIDE=...` in levels.js)."""
+    """The location-confidence thresholds viaTag() reads (`const VIA_HIDE=...` in levels.js) and mapSure(), which reads them."""
     found = re.search(r"^const VIA_HIDE=.*;$", HTML, re.M)
     assert found is not None, "levels.js no longer declares `const VIA_HIDE=...;` at line start"
-    return found.group(0)
+    return found.group(0) + "\n" + extract_js_fn("mapSure")
 
 
 # ---------------------------------------------------------------- figure documents (docs/handbook/viewer.md §패널 정리, §상태 표현)
@@ -2617,6 +2617,42 @@ class FrontendFigure(unittest.TestCase):
                 self.assertEqual((half["tip"], half["low"]), (half_tip, False))
                 self.assertIsNone(confident)
                 self.assertEqual((weak["tip"], weak["low"]), (weak_tip, True))
+
+    def test_a_map_pick_hides_its_badge_only_when_it_is_surely_the_element_meant(self):
+        """A map pick is hidden from 90% as every pick is, and below it only when the answer says it is sure: a share of at
+        least 75% of the drag, the drag covering at least 95% of the element (`fill`) and no rival. Each condition alone is
+        not enough (a big box chosen at 63-86% covers little of itself: the case the 61% rule hid wrongly), and a pick
+        without fill and rival - a pin saved before the answer had them - keeps 90%. A line pick never reads them."""
+        self.node()
+        js = "\n".join(
+            [
+                js_tooltips(),
+                js_via_limits(),
+                extract_js_fn("viaTag"),
+                "const shown = p => viaTag(p) !== null;"
+                "const map = (score, fill, rival) => ({via: 'map', score, fill, rival});"
+                "console.log(JSON.stringify({"
+                "score: [0.74, 0.75, 0.89, 0.9].map(s => shown(map(s, 1, false))),"
+                "fill: [0.94, 0.95, 1].map(f => shown(map(0.8, f, false))),"
+                "rival: [true, false].map(r => shown(map(0.8, 1, r))),"
+                "rival_at_90: shown(map(0.95, 0.1, true)),"
+                "no_fields: [0.8, 0.9].map(s => shown({via: 'map', score: s})),"
+                "no_rival_field: shown({via: 'map', score: 0.8, fill: 1}),"
+                "lines: ['synctex', 'text', 'newway'].map(v => shown({via: v, score: 0.8, fill: 1, rival: false}))}));",
+            ]
+        )
+        self.assertEqual(
+            json.loads(run_node(js)),
+            {
+                "score": [True, False, False, False],
+                "fill": [True, False, False],
+                "rival": [True, False],
+                "rival_at_90": False,
+                "no_fields": [True, False],
+                "no_rival_field": True,
+                "lines": [True, True, True],
+            },
+        )
 
     def test_rebuild_hides_by_document_kind_not_by_view_only(self):
         """Only a LaTeX document builds: the rebuild button and the rebuilt/redrawn wording follow META.kind and a
@@ -2807,15 +2843,15 @@ class FrontendFigure(unittest.TestCase):
             + [
                 r"""
             function pendingBadgeSide(){}   // the badge's side needs the page on screen (markBadgeRoom); not this test's
-            const nodes={'#c-path':{hidden:true,textContent:'',dataset:{}}}; const $=s=>nodes[s];
+            const nodes={'#c-path':{hidden:true,textContent:'',dataset:{},setAttribute(){},matches(){return false;}}}; const $=s=>nodes[s];
             const vals=b=>['left','top','width','height'].map(k=>parseFloat(b.style[k]));
             const cell={id:'B2/c/m07',path:['B2','B2/c','B2/c/m07'],label:'7월',frac:[0.47,0.18,0.07,0.12]};
             const levels=[{level:'el',lo:24,hi:26,label:'7월',el:cell},{level:'el2',lo:20,hi:30,label:'달력',el:{id:'B2/c',path:['B2','B2/c']}},
                           {level:'fig',lo:1,hi:40,label:'B2',el:{id:'B2',path:['B2']}}];
             const line=nodes['#c-path'],out=[];
-            const box={style:{left:'48%',top:'20%',width:'4%',height:'8%'}};
+            const hi=[],cl={toggle(c,on){hi.push([c,on]);}},box={classList:cl,style:{left:'48%',top:'20%',width:'4%',height:'8%'}};
             renderElement({levels,el:cell,elSel:cell},box); out.push([line.hidden,line.textContent,line.dataset.tip,vals(box)]);
-            const drag={style:{left:'48%',top:'20%',width:'4%',height:'8%'}};
+            const drag={classList:cl,style:{left:'48%',top:'20%',width:'4%',height:'8%'}};
             renderElement({levels,el:cell,elSel:levels[1].el},drag); out.push([line.textContent,vals(drag)]);
             renderElement({file:'/m.tex',elSel:null},drag); out.push([line.hidden,vals(drag)]);
             renderElement({levels,el:cell,elSel:cell},null); out.push(line.hidden);
@@ -2824,7 +2860,7 @@ class FrontendFigure(unittest.TestCase):
             ]
         )
         snapped, strip, none, boxless, null_frac = json.loads(run_node(js))
-        self.assertEqual(snapped[:3], [False, "B2 › 달력 › 7월 ·", "요소 B2/c/m07"])
+        self.assertEqual(snapped[:3], [False, "B2 › 달력 › 7월 ·", "요소 B2/c/m07 · 누르면 쪽에서 이 상자를 보입니다"])
         for got, want in zip(snapped[3], (47, 18, 7, 12), strict=True):
             self.assertAlmostEqual(got, want, places=6)
         self.assertEqual(strip, ["B2 › 달력 ·", [48, 20, 4, 8]])
@@ -2855,7 +2891,10 @@ class FrontendFigure(unittest.TestCase):
         """The location line has a path slot before the lines; both composer branches draw the element; a pick selects
         its element, a rung its rung's; the element code sends no request; figure.js sits between the ladder and the
         composer parts."""
-        self.assertIn('<div class="c-loc-main"><span id="c-path" hidden></span><span id="c-loc"', HTML)
+        self.assertIn(
+            '<div class="c-loc-main"><span id="c-path" class="hit" role="button" tabindex="0" data-act="el-show" hidden></span><span id="c-loc"',
+            HTML,
+        )
         for fn in ("renderComposer", "renderRegionComposer"):
             self.assertIn("renderElement(d,COMPOSE.box)", extract_js_fn(fn), fn)
         self.assertIn("sel.elSel=d.el||null;", extract_js_fn("pick"))
@@ -2959,6 +2998,31 @@ class FrontendFigure(unittest.TestCase):
             ]
         )
         self.assertEqual(json.loads(run_node(js)), [["#1 요소를 잃었습니다", "warn", "side"]])
+
+    def test_a_figure_pin_whose_element_is_in_place_gets_no_lines_moved_note(self):
+        """The list refresh says '#N 줄 +3 이동' when an open pin's lines move - not for a figure pin whose element is still where
+        it was (el_sync ok: its code lines shifted, the pin did not), and not twice for the same move."""
+        self.node()
+        js = "\n".join(
+            [
+                r"""
+            function who(a){return (a&&(a.name||a.login))||'';}
+            const SAID=[]; function lineNote(m,k,a,o){SAID.push(m);} function restorePin(){}
+            const MY_ACTIONS=new Map();""",
+                extract_js_fn("markMine"),
+                extract_js_fn("consumeMine"),
+                extract_js_fn("pinState"),
+                extract_js_fn("notePinChanges"),
+                r"""
+            const at=(id,extra)=>Object.assign({id,sync:'ok'},extra);
+            notePinChanges([at(1),at(2),at(3),at(4),at(5)],
+              [at(1,{sync:'moved +3',el_sync:'ok'}),at(2,{sync:'moved +3',el_sync:'moved'}),at(3,{sync:'moved -1'}),
+               at(4,{sync:'moved +2',el_sync:'ok'}),at(5,{sync:'ok',el_sync:'ok'})],[]);
+            notePinChanges([at(2,{sync:'moved +3',el_sync:'moved'})],[at(2,{sync:'moved +3',el_sync:'moved'})],[]);
+            console.log(JSON.stringify(SAID));""",
+            ]
+        )
+        self.assertEqual(json.loads(run_node(js)), ["#2 줄 +3 이동", "#3 줄 -1 이동"])
 
     def test_marks_and_cards_place_a_figure_pin_where_its_element_is(self):
         """marks() and the card's page link use pinPlace; a placed mark is not dashed; a lost element marks the card and

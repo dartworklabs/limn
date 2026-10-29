@@ -63,6 +63,13 @@ EXTRA_DOCS = [
 ]
 WORDS = {"format": "limn-verdicts/1", "verdicts": [{"key": "채택"}, {"key": "보류"}, {"key": "삭제", "confirm": True}]}
 OUTLINE = [("Introduction", 1), ("Methods", 1), ("Results", 2)]  # the manuscript PDF's outline: (title, page)
+# An outline in which one name is under two groups, put in the page by a script (the filter then says each result's group), and the
+# page's own outline put back after.
+GROUPED_OUTLINE = """() => {window.keptOutline = OUTLINE_ENTRIES;
+  OUTLINE_ENTRIES = [{title: 'Group A', page: 1, depth: 0, up: -1, frac: 0, number: ''}, {title: 'Results', page: 1, depth: 1, up: 0, frac: 0.2, number: ''},
+    {title: 'Group B', page: 2, depth: 0, up: -1, frac: 0, number: ''}, {title: 'Results', page: 2, depth: 1, up: 2, frac: 0.2, number: ''}];
+  renderOutline();}"""
+OWN_OUTLINE = "() => {OUTLINE_ENTRIES = window.keptOutline; renderOutline();}"
 
 
 def outline_pdf(entries, pages=2):
@@ -289,7 +296,6 @@ NOT_WALKED: dict[str, tuple[float | None, str]] = {
     "body.lay-wide.side-snap-collapse #bar1, body.side-snap-collapse :is(#bar2, #build-err, #banner, #composer, #list, "
     "#c-actions)": (INACTIVE, "the panel fading while a drag is about to collapse it"),
     # a container's default colour that no text takes: each part inside sets its own
-    "#outline-items button": (TEXT, "an outline entry's default: its title, number and page set their own colours"),
     ":is(#outline-items, #ns-outline-items) .ol-more": (
         TEXT,
         "the outline's note on entries it did not read: shown only for an outline over the cap, which the walk's has none of",
@@ -575,6 +581,13 @@ class ContrastWalk(BrowserBase):
             page.wait_for_selector("#outline-items.outline-empty")
             settle(page)
             self.look(page, "outline, no match", "#outline")
+            page.evaluate(GROUPED_OUTLINE)
+            page.fill("#outline-search", "Results")
+            page.wait_for_selector("#outline-items .ol-grp")
+            settle(page)
+            self.look(page, "outline, a name in two groups", "#outline")
+            page.evaluate(OWN_OUTLINE)
+            page.fill("#outline-search", "")
         if page.locator("#btn-pos").is_visible():
             page.click("#btn-pos")
             page.wait_for_selector("#nav-sheet[open] #ns-outline-items button")
@@ -584,6 +597,13 @@ class ContrastWalk(BrowserBase):
             page.wait_for_selector("#ns-outline-items.outline-empty")
             settle(page)
             self.look(page, "navigation sheet, no match", "#nav-sheet")
+            page.evaluate(GROUPED_OUTLINE)
+            page.fill("#ns-outline-search", "Results")
+            page.wait_for_selector("#ns-outline-items .ol-grp")
+            settle(page)
+            self.look(page, "navigation sheet, a name in two groups", "#nav-sheet")
+            page.evaluate(OWN_OUTLINE)
+            page.fill("#ns-outline-search", "")
             page.keyboard.press("Escape")
             settle(page)
         if page.locator("#doc-more").is_visible():

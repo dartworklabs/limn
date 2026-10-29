@@ -1855,6 +1855,19 @@ class FigureDocuments(BrowserBase):
         b = page.locator("#p%d" % n).bounding_box()
         return b["x"] + b["width"] * fx, b["y"] + b["height"] * fy
 
+    def drag_touch(self, page, frac):
+        """A one-finger drag across frac of page 1 in select mode, then wait for the pick."""
+        x, y, w, h = frac
+        x0, y0 = self.on_page(page, x, y)
+        x1, y1 = self.on_page(page, x + w, y + h)
+        cdp = page.context.new_cdp_session(page)
+        self.touch(cdp, "touchStart", [(x0, y0)])
+        for i in range(1, 7):
+            self.touch(cdp, "touchMove", [(x0 + (x1 - x0) * i / 6, y0 + (y1 - y0) * i / 6)])
+        self.touch(cdp, "touchEnd", [])
+        page.wait_for_function("COMPOSE.current&&!COMPOSE.picking", timeout=8000)
+        settle(page)
+
     def test_a_drag_on_the_july_cell_snaps_the_box_to_it_and_names_its_path_and_lines(self):
         """The map chose the cell: '새 핀' sits on the cell's box, the location line reads its path and code lines, and
         the ladder offers cell, strip and figure by name with the cell pressed."""
@@ -1870,6 +1883,154 @@ class FigureDocuments(BrowserBase):
             ),
             [["el", "7월", "true"], ["el2", "달력", "false"], ["fig", "B2", "false"]],
         )
+
+    # Drags over the July cell (JULY: x .47-.54, y .18-.30; its sibling August starts at x .55; the strip holding both is x .06-.94,
+    # y .18-.30) and what the pick answers for each: score (the cell's share of the drag), fill (the drag's share of the cell), rival.
+    SURE_AROUND_JULY = (0.4658, 0.1729, 0.0783, 0.1342)  # a small margin all round: score .80, fill 1.0, no rival
+    AROUND_JULY = (
+        0.46,
+        0.17,
+        0.09,
+        0.14,
+    )  # a wider margin: score .67 - the cell is sure but holds under 75% of the drag
+    WIDE_AROUND_JULY = (0.45, 0.16, 0.11, 0.16)  # a wide margin: .48
+    ACROSS_JULY_AUGUST = (
+        0.47,
+        0.18,
+        0.15,
+        0.12,
+    )  # both cells, half and half: July at .47 with the August cell as its rival
+    OUT_OF_THE_STRIP = (
+        0.1,
+        0.15,
+        0.1,
+        0.12,
+    )  # a drag hanging out of the strip's top: the strip holds .75 of it and fill is .09
+
+    def location_badge(self, page):
+        """The composer's '위치 불확실' badge as [shown, its text, whether it is the warning look] and the pick's answer."""
+        return page.evaluate(
+            """() => {const t = document.getElementById('c-tag'), c = COMPOSE.current;
+              return [!t.hidden, t.textContent, t.classList.contains('badge-warning'), [c.score, c.fill, c.rival, c.elSel && c.elSel.id]];}"""
+        )
+
+    def test_the_uncertain_badge_hides_only_for_a_pick_that_is_surely_the_element_meant(self):
+        """Real picks on the figure fixture. From 90% of the drag as always; below it only when the answer says the element is
+        sure: its share of the drag at least 75% and the drag covering at least 95% of it, and no rival (a small margin all
+        round the July cell: no badge). A wider margin (67%), a drag across two cells (the other cell is a rival) and a drag
+        hanging out of a big box (the strip holds 75% of it and covers 9% of itself: the pick the 61% rule hid wrongly) keep
+        the badge, as does a margin of 48%."""
+        page = self.open_fig()
+        for name, drag, shown, want in (
+            ("small margin", self.SURE_AROUND_JULY, False, (0.8, 1.0, False, "B2/calendar/m07")),
+            ("margin", self.AROUND_JULY, True, (0.67, 1.0, False, "B2/calendar/m07")),
+            ("wide margin", self.WIDE_AROUND_JULY, True, (0.48, 1.0, False, "B2/calendar/m07")),
+            ("across two cells", self.ACROSS_JULY_AUGUST, True, (0.47, 1.0, True, "B2/calendar/m07")),
+            ("out of the strip", self.OUT_OF_THE_STRIP, True, (0.75, 0.09, False, "B2/calendar")),
+        ):
+            with self.subTest(drag=name):
+                self.drag(page, drag)
+                got = self.location_badge(page)
+                self.assertEqual(got[0], shown, got)
+                answer = got[3]
+                self.assertEqual((answer[0], answer[1], answer[2], answer[3]), want)
+                if shown:
+                    self.assertEqual((got[1], got[2]), ("위치 불확실", False))
+                page.evaluate("discardSelection()")
+                settle(page)
+
+    def test_a_saved_pin_card_follows_the_same_rule_as_the_composer(self):
+        """The pin keeps the pick's fill and rival with its score, so its card draws the badge as the composer did: none for the
+        small margin, one for the wider margin. A pin of an older record (no fill, no rival) is judged by its score alone,
+        at 90%."""
+        page = self.open_fig()
+        shown, kept = {}, {}
+        for name, drag in (("sure", self.SURE_AROUND_JULY), ("margin", self.AROUND_JULY)):
+            pid = self.saved_pin_at(page, drag, "note " + name)
+            shown[name] = "위치 불확실" in self.text(page, '.pin[data-id="%d"] .tags' % pid)
+            rec = find_record(ps.APP.snapshot_pins(), pid)
+            kept[name] = (rec["score"], rec["fill"], rec["rival"])
+        self.assertEqual(shown, {"sure": False, "margin": True})
+        self.assertEqual(kept, {"sure": (0.8, 1.0, False), "margin": (0.67, 1.0, False)})
+        old = page.evaluate(
+            """() => {const p = OPEN_ALL.find(p => p.note === 'note sure'), d = document.createElement('div');
+              const old = Object.assign({}, p); delete old.fill; delete old.rival; setHtml(d, card(old));
+              return d.querySelector('.tags').textContent.includes('위치 불확실');}"""
+        )
+        self.assertTrue(old)
+
+    def test_a_figure_pin_whose_element_is_in_place_shows_no_lines_moved_chip(self):
+        """A figure pin's code lines can shift while its element has not moved (el_sync ok): its card shows no '줄 +3 이동'
+        chip (the passing note '#N 줄 +3 이동' is left out too, FrontendFigure's check). With the element moved (or lost), or on a pin that has no element (a manuscript's,
+        which has no el_sync), the chip is there as it was."""
+        page = self.open_fig()
+        pid = self.saved_cell_pin(page, "7월 칸 글자 키우기")
+        got = page.evaluate(
+            """id => {const base = OPEN_ALL.find(p => p.id === id), out = {};
+              for (const [name, extra] of Object.entries({ok: {sync: 'moved +3', el_sync: 'ok'}, moved: {sync: 'moved +3', el_sync: 'moved'},
+                  lost: {sync: 'moved -2', el_sync: 'lost'}, none: {sync: 'moved +3', el_sync: undefined}, still: {sync: 'ok', el_sync: 'moved'}})) {
+                const p = Object.assign({}, base, extra), d = document.createElement('div'); setHtml(d, card(p));
+                const chip = [...d.querySelectorAll('.tags .badge')].map(b => b.textContent).filter(t => /줄/.test(t));
+                out[name] = chip;}
+              return out;}""",
+            pid,
+        )
+        self.assertEqual(
+            got,
+            {"ok": [], "moved": ["줄 +3 이동"], "lost": ["줄 -2 이동"], "none": ["줄 +3 이동"], "still": []},
+        )
+
+    def test_pointing_at_the_element_path_draws_the_chosen_box_stronger_and_pressing_it_shows_the_box(self):
+        """The composer's path (`B2 › 달력 › 7월 ·`) is the way to check which element was chosen: the mouse over it or the focus
+        on it draws the pending box on the page stronger (.sel.hi), and leaving it puts it back; pressing it (a tap, on touch)
+        scrolls the box into the area when it is out of it and flashes it. It is a button with a name, a description and a
+        keyboard (Enter), and its tooltip says what pressing does. Nothing happens to a box that is gone."""
+        page = self.open_fig()
+        self.drag(page, helpers_figure.CELL_DRAG)
+        state = """() => { const b = document.querySelector('#doc .sel'), s = getComputedStyle(b), p = document.getElementById('c-path');
+          return [b.classList.contains('hi'), s.borderTopWidth, b.classList.contains('flash'), p.getAttribute('role'), p.tabIndex,
+            p.dataset.tip, p.getAttribute('aria-description')]; }"""
+        rest = page.evaluate(state)
+        self.assertEqual(rest[:5], [False, "2px", False, "button", 0])
+        self.assertEqual(
+            rest[5:],
+            ["요소 B2/calendar/m07 · 누르면 쪽에서 이 상자를 보입니다", "누르면 쪽에서 고른 요소의 상자를 보입니다"],
+        )
+        page.hover("#c-path")
+        self.assertEqual(page.evaluate(state)[:2], [True, "3px"])
+        page.mouse.move(5, 5)
+        self.assertEqual(page.evaluate(state)[:2], [False, "2px"])
+        page.focus("#c-path")
+        page.keyboard.press("Shift+Tab")
+        page.keyboard.press("Tab")
+        self.assertEqual(page.evaluate(state)[:2], [True, "3px"])
+        page.keyboard.press("Enter")
+        self.assertTrue(page.evaluate(state)[2])
+        page.evaluate("document.querySelector('#doc .sel').classList.remove('flash')")
+        page.evaluate("document.getElementById('left').scrollTop += 4000")  # the box is far out of the area now
+        page.wait_for_function(
+            "(() => { const r = document.querySelector('#doc .sel').getBoundingClientRect(); return r.bottom < 0; })()"
+        )
+        page.click("#c-path")  # the flash is read at once: it runs 1.2 s and then takes its class away
+        inside = page.evaluate(
+            """() => { const a = selPopArea(), r = document.querySelector('#doc .sel').getBoundingClientRect();
+              return [r.top >= a.top - 1 && r.bottom <= a.bottom + 1, document.querySelector('#doc .sel').classList.contains('flash')]; }"""
+        )
+        self.assertEqual(inside, [True, True])
+        page.wait_for_function("!document.querySelector('#doc .sel').classList.contains('flash')", timeout=4000)
+        page.evaluate("discardSelection()")
+        settle(page)
+        self.assertEqual(page.evaluate("[COMPOSE.box, document.querySelectorAll('#doc .sel').length]"), [None, 0])
+        page.evaluate("showElementBox(); showElementHi(true)")  # a box that is gone: nothing to do, nothing thrown
+
+    def test_tapping_the_element_path_on_a_phone_flashes_the_box(self):
+        """On touch nothing hovers: a tap on the path (its press area is 44px, the .hit utility) flashes the pending box."""
+        page = self.open_fig(**DEVICES["phone"])
+        page.evaluate("setSelMode(true)")
+        self.drag_touch(page, helpers_figure.CELL_DRAG)
+        self.assertEqual(page.evaluate("getComputedStyle(document.getElementById('c-path'), '::after').height"), "44px")
+        page.tap("#c-path")
+        self.assertTrue(page.evaluate("document.querySelector('#doc .sel').classList.contains('flash')"))
 
     def test_a_drag_on_a_cell_drawn_without_code_names_every_element_of_its_path(self):
         """The August cell has no code lines, so the pick answers a region with no rungs: the path row still names the

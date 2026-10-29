@@ -88,9 +88,19 @@ function snipText(text,open){const ls=String(text||'').split('\n');
 // figure map, or a method this page does not know, named as it came), how much of the drag it matches (the line paths: the dragged
 // words in these lines, rarer words weighing more; the map: the dragged area inside the chosen element), that it may be far off
 // (only below 30%), and what to check. Shared by the composer panel and cards.
-const VIA_HIDE=90,VIA_WARN=30;
+// A map pick also hides - below 90% - when the pick answer says nothing is in doubt (mapSure): the element's share of the drag is at
+// least VIA_SURE_SCORE, the drag covers at least VIA_SURE_FILL of the element (`fill`, the element side: a drag with a margin all round
+// a small element, which never reaches 90% of the drag), and no other element competes for the drag (`rival` false: not an ancestor or
+// descendant, a candidate within 0.1 of the score or one the drag holds nearly whole - docs/handbook/domain.md §그림 문서의 요소 pick).
+// A pick is not taken for sure on its share alone: a drag round a small element can leave it out of the candidates and choose the big
+// box behind it at 63-86%, which covers little of itself. The two limits are the lowest at which no wrong pick was hidden in the
+// measurement the PR gives (a sweep over a figure set's real map and held-out drags on two maps). A pin saved before the answer
+// had fill and rival has neither and keeps 90%.
+const VIA_HIDE=90,VIA_WARN=30,VIA_SURE_SCORE=75,VIA_SURE_FILL=95;
+/** Whether a map pick that is under VIA_HIDE is surely the element the drag meant (see above). @param {any} p @param {number} pct */
+function mapSure(p,pct){return p.via===VIA.MAP&&p.rival===false&&typeof p.fill==='number'&&pct>=VIA_SURE_SCORE&&Math.round(p.fill*100)>=VIA_SURE_FILL;}
 function viaTag(p){if(!p.via)return null; const pct=Math.round((+p.score||0)*100);
-  if(pct>=VIA_HIDE)return null; const low=pct<VIA_WARN;
+  if(pct>=VIA_HIDE||mapSure(p,pct))return null; const low=pct<VIA_WARN;
   const lines=p.via===VIA.SYNCTEX||p.via===VIA.TEXT,map=p.via===VIA.MAP;
   const how=p.via===VIA.SYNCTEX?tr(T.synctex):p.via===VIA.TEXT?tr(T.text):map?tr(T.map):tl('이 화면이 모르는 방법({via})으로 찾은 위치입니다.',{via:p.via});
   const match=lines?tl('드래그한 글자 중 {pct}%가 이 줄들에 있습니다(드문 낱말일수록 크게 셉니다).',{pct})
