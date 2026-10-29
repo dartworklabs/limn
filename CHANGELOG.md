@@ -1,5 +1,40 @@
 # Changelog
 
+## Unreleased
+
+Agents are told which verdicts were superseded (ADR-0023, proposed). The agent contract only grows: one optional pin
+field and one `pins.md` marker, nothing renamed or removed, and nothing stored - a 0.4.33 server or an older agent reads
+the same records as before. The viewer is unchanged; it still counts the order itself, and a browser test holds the two
+counts together.
+
+### Added
+
+- **`superseded_by` on a superseded verdict pin** in `GET /api/pins`, `GET /api/pins?all=1` and `GET /api/pins/{id}`.
+  A verdict pin that is no longer its target's current verdict - a newer verdict pin about the same target exists that
+  is not in the Trash - carries the number of that current verdict, right after `fyi`. With three verdicts `#41`,
+  `#42` and `#43`, `#41` and `#42` both say `43`. The field is computed on every read, never stored, and absent
+  (not `null`) on the current verdict, on a pin that is not a verdict and on a verdict whose target the server cannot
+  resolve; deleting the newer verdict takes it away and restoring it brings it back. The target is read from the
+  stored place by the viewer's own rule: a figure document's `el.path[0]` (a verdict on the figure and one on a panel
+  of it are one target, ADR-0022 D1), a view-only PDF's whole-page region by `page` (not one whose mark is only an
+  estimate, `est`), a LaTeX pin's file and lines as located now (not a `stale` pin; two pins on the same lines count
+  together only when both are open or share one `anchor`). State, author, replies and reopening do not change the
+  order. Without the field a verdict pin is not necessarily current: the server does not know a repository's own
+  target rules, so an agent still counts those from `?all=1` as before.
+- **`#N로 대체됨` in `pins.md`.** An open verdict pin that a newer verdict supersedes reads
+  `41 · 판정 보류(쪽 전체) · #43으로 대체됨` in its number cell, right after the verdict marker (`로` or `으로` by
+  the number's Korean reading). While one is open the guidance paragraph and the legend gain one clause each, after the
+  verdict ones; the review table shows no marker. A `pins.md` without a superseded verdict is byte for byte what it was.
+- **The agent skill** (`SKILL.md`, `SKILL.ko.md`): an agent closes a pin that carries `superseded_by` with `#N 판정이
+  앞섭니다` without recounting the order, after re-reading the pin just before it closes; the counting rule for pins
+  without the field is unchanged.
+
+### Tests
+
+- The verdict contract snapshot gains a newer verdict on a panel of the figure and a newer one on the closed pin's lines;
+  `test_viewer_supersession_parity.py` runs one flow of verdicts (a figure's root and panel, LaTeX lines, PDF pages, a
+  region, a deleted and restored verdict) and asserts that every `superseded_by` equals the viewer's own order.
+
 ## 0.4.33 — 2026-10-29
 
 Verdicts taken back where they were given, the page line's reason field in its rare orders, the outline filter, the
