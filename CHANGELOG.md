@@ -2,12 +2,23 @@
 
 ## Unreleased
 
-The outline filter, the figure pick's badge and the figure pin's chip, from a figure-document author's test (#295, items
-3-5), and the two follow-ups of #291 (#293). The agent contract grows by addition only: `POST /api/pick`'s answer on a
-figure map gains `fill` and `rival`, and a pin may store them with its `score`. `pins.md` and every route are unchanged.
+Verdicts taken back where they were given, the page line's reason field in its rare orders, the outline filter, the
+figure pick's badge and the figure pin's chip (#295 from a figure-document author's test, #294, #293). The agent
+contract grows by addition only: `POST /api/pick`'s answer on a figure map gains `fill` and `rival`, and a pin may store
+them with its `score`. `pins.md` and every route are unchanged.
 
 ### Added
 
+- **[판정 취소] on the page verdict line** (#295). When the line's current verdict is the person's own and still open
+  (waiting or being handled), `· 판정 취소` follows its state - also on the floating line. It sends the pin to the Trash
+  the way the card does, and the line counts again at once: the newest earlier verdict about the same figure or page is
+  the current verdict again (ADR-0021 D4), or `판정 없음`. The status line says `판정 #17 채택 취소됨 · <target> — 지금
+  판정은 #12 보류입니다` with [되돌리기], which restores the pin. A verdict an agent had claimed still goes, with the
+  save undo's warning that its run may have started. Someone else's verdict, a handled one and the agent and viewer roles
+  get no [판정 취소] (D16); a double press takes back one verdict, not two. It is muted destructive text, not the blue of
+  the line's links, underlined on hover and focus. A phone's floating line leaves it out (it made the line a row taller
+  over the figure); the line in its place under the page and the card still offer it. A failed cancel brings back the
+  reason being typed for that verdict, and a reason still on its way for a cancelled verdict fails quietly.
 - **The outline filter takes the keyboard into its results** (#295). In the filter field Enter chooses the first result
   (the focus goes to its row) and ↓ moves the focus to it without choosing; on a result ↑/↓ move one row (↑ on the
   first goes back to the field), Enter chooses and Esc goes back to the field, without also closing the overlay panel or
@@ -37,6 +48,14 @@ figure map gains `fill` and `rival`, and a pin may store them with its `score`. 
 
 ### Changed
 
+- **A verdict pin's card calls its [삭제] [지우기]** (#295). A word file may name a verdict `삭제`, and the card's
+  `판정 삭제` badge beside a [삭제] read as that verdict; its description says the earlier verdict becomes current again.
+  Ordinary cards keep [삭제]. `핀 지우기`, the name first proposed, broke onto two lines in the card's equal-width action
+  cells at the default panel width.
+- **No description box over a page line's save chip** (#295). Right after a save the pressed word's box came back over
+  the button - and over the save chip at the line's end - from the click's focus or a resting hand's slight move. While
+  a save chip stands on a line, its words now hold their descriptions back (their names and keys are still said), and
+  they come back when the chip goes.
 - **A map pick's `위치 불확실` badge is hidden below 90% too when the pick is sure** (#295). On a figure document the
   share is the chosen element's part of the drag, so a drag drawn with a margin round a legend or a label never reached
   90% and the badge stood over a pick that was right. It now hides when the share is at least 75%, the drag covers at
@@ -60,6 +79,13 @@ figure map gains `fill` and `rival`, and a pin may store them with its `score`. 
 
 ### Fixed
 
+- **The reason field in its rare orders** (#294). Going to a document with no page lines (a LaTeX manuscript) closed
+  nothing and the typed reason was never saved; it is now saved as on any other move. Moving on while Enter's write was
+  still out started a second write on the same revision, whose conflict retry added the reason twice; a session now
+  writes once and the field waits while its write is out. A failed write on moving on lost the text; the status line now
+  keeps it (`이유 저장 실패 · <target> — <why>`) with [다시 시도] unless the server refused it. [다시 시도] writes the draft
+  as it is now (a field corrected after a failed Enter), and a write whose answer was lost is checked against the pin
+  first, so a reason the server already holds is not added again.
 - **A long press held for seconds no longer goes to the page when it lets go** (#293). The truncated title of the page list
   (and any button's description) shows on a long press, and the click the release brings is swallowed - but only for 900 ms
   after the description opened, so a finger held ~1.6 s navigated on release. The swallowing is armed again at the

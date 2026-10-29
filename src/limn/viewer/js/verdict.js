@@ -189,15 +189,16 @@ function vdWhereOf(b){return b.dataset.act==='verdict-save'?VD_WHERE.COMPOSER:VD
 // keeps the focus a keyboard press left on it - a disabled button would drop it to the page.
 // kn: on the line of the page the keys act on (PV_KEYS), the word's key 1-5 - drawn after the word as a key hint (data-kn,
 // generated text on a mouse screen only, so the button's text stays the word), said in its description and as
-// aria-keyshortcuts; 0 elsewhere.
-/** @param {VerdictChoice} c @param {string} where @param {number} page @param {string} target @param {boolean} off @param {number} [kn] */
-function vdButton(c,where,page,target,off,kn){const armed=vdArmedHere(c.key,where,page),line=where!==VD_WHERE.COMPOSER;
+// aria-keyshortcuts; 0 elsewhere. quiet: drawn without its description (data-tip) - a page line whose save chip stands
+// (pvLineHtml) - so no description box comes over the chip; the name and the keys are still said.
+/** @param {VerdictChoice} c @param {string} where @param {number} page @param {string} target @param {boolean} off @param {number} [kn] @param {boolean} [quiet] */
+function vdButton(c,where,page,target,off,kn,quiet){const armed=vdArmedHere(c.key,where,page),line=where!==VD_WHERE.COMPOSER;
   const name=armed?tl('{word} 확정 — 한 번 더 누르면 저장합니다',{word:c.label}):tl('{word} 판정으로 저장 — {target}',{word:c.label,target});
   const fig=where===VD_WHERE.COMPOSER&&!!figureVerdictRoot(COMPOSE.current);
   let tip=armed?name:fig?tl('누르면 메모와 함께 이 그림 전체({target})의 {word} 판정 핀으로 바로 저장합니다',{word:c.label,target}):where===VD_WHERE.COMPOSER?tl('누르면 지금 선택과 메모를 {word} 판정 핀으로 바로 저장합니다',{word:c.label}):tr('누르면 이 쪽에 새 판정 핀을 저장합니다');
   if(kn)tip+=' · '+tl(c.confirm?'단축키 {key} (두 번)':'단축키 {key}',{key:kn});
   return html`<button type="button" class="vd-b hit${c.confirm?' vd-confirm':''}${armed?' armed':''}" translate="no" data-act="${where===VD_WHERE.COMPOSER?'verdict-save':'pv-save'}" \
-data-key="${c.key}" data-page="${page}" aria-label="${name}" data-tip="${tip}"${kn?html` data-kn="${kn}" aria-keyshortcuts="${kn}"`:''}${off?line?html` aria-disabled="true"`:html` disabled`:''}>\
+data-key="${c.key}" data-page="${page}" aria-label="${name}"${quiet?'':html` data-tip="${tip}"`}${kn?html` data-kn="${kn}" aria-keyshortcuts="${kn}"`:''}${off?line?html` aria-disabled="true"`:html` disabled`:''}>\
 <span class="lbl">${armed?tl('{word} 확정',{word:c.label}):c.label}</span></button>`;}
 // Gives the focus back to the button it was on after a redraw (an armed press redraws its buttons).
 /** @param {HTMLElement|null} f */
@@ -215,7 +216,7 @@ function verdictPress(b,how){const key=b.dataset.key||'',where=vdWhereOf(b),page
   if(!c||b.getAttribute('aria-disabled')==='true'||viewerBlocked())return;
   if(c.confirm&&!(vdArmedHere(key,where,page)&&VD_ARM&&vdArmStill(VD_ARM))){const f=/** @type {HTMLElement|null} */(document.activeElement);
     armVerdict(key,where,page,c.label,how==='key'); vdRefocus(f&&f.closest&&f.closest('.vd-btns')?f:null); return;}
-  disarmVerdict(false);
+  disarmVerdict(false); hideTip();   // the box the press's focus armed: the save chip comes over the line (pvChipWatch)
   if(where!==VD_WHERE.COMPOSER){savePageVerdict(page,key,!!how); return;}
   renderVerdictRow(); if(COMPOSE.current)savePin(key);}   // while the pick runs the row is off (composer.css): nothing is queued
 
@@ -301,7 +302,7 @@ function verdictDropped(){const b=BANNERS.get(NOTICE_HOST.COMPOSER); if(!b||!b.s
 /** @param {number} id @returns {()=>Promise<boolean>} */
 function verdictUndo(id){const undo=async()=>{let was=null;
     try{was=(await api('/api/pins/'+id,{what:'핀 읽기',silent:true})).data.pin;}catch(e){}
-    const ok=await dropPin(id,true,undo);
+    PV_WITHDRAWN.add(id); const ok=await dropPin(id,true,undo); if(!ok)PV_WITHDRAWN.delete(id);
     if(ok&&PV_REASON&&PV_REASON.id===id){PV_REASON=null; drawPageVerdicts();}   // a withdrawn verdict takes no reason
     if(ok&&was&&(claimActive(was)||pinState(was)!==PIN_STATE.OPEN))lineNote('처리 중이던 판정이라 이미 실행됐을 수 있습니다',NOTICE_KIND.WARN);
     return ok;};
@@ -331,9 +332,18 @@ const PV_ERR=/** @type {Map<number,{text:string,doc:string|null,build:string}>} 
 // back with it when the line is drawn anew (a rebuild) and follows its pin's page. Enter saves the text as the pin's note
 // (the note edit a verdict pin takes, ADR-0021 D3) and Esc lets it go; either way the focus goes to the PDF area, not to a
 // word that may be on a page out of view. Moving on - the reading page leaving the field's page after it was there, another
-// save, another document - closes it and saves what was typed as Enter would, saying so in one line ('이유 저장됨 · PL16');
-// an empty field just closes, as it does when the focus leaves it. The undo takes the field with the pin, its text unsaved.
-let PV_REASON=/** @type {{page:number,id:number,key:string,doc:string|null,visit:any,text:string,focus:boolean,seen:boolean,listed:boolean}|null} */(null);
+// save, another document, a document with no page lines - closes it and saves what was typed as Enter would, saying so in
+// one line ('이유 저장됨 · PL16'); an empty field just closes, as it does when the focus leaves it. The undo takes the field
+// with the pin, its text unsaved. A session writes once (pvReasonCommit): moving on while Enter's write is out takes no second
+// one, which on the same rev would have added the reason twice. A write that fails keeps the text: in the field while it is
+// open, and as the status line's [다시 시도] (pvReasonFailed) - which writes the session's draft as it is now - once the
+// session has closed. A write whose answer never came may have landed: the next one reads the pin first (pvReasonBody).
+// saved: the text the session has written; tried: texts whose write failed without an answer that says it did not land.
+let PV_REASON=/** @type {ReasonSession|null} */(null);
+/** @typedef {{page:number,id:number,key:string,doc:string|null,visit:any,text:string,focus:boolean,seen:boolean,listed:boolean,writing:Promise<boolean>|null,saved:string|null,tried:string[]}} ReasonSession */
+// The pins this person withdrew (the save's undo, [판정 취소]) while a reason for them may still be on its way: its failure,
+// or its finding the pin gone, is no news to them - nothing is said. A failed withdrawal or a restore takes the pin out again.
+const PV_WITHDRAWN=/** @type {Set<number>} */(new Set());
 /** @param {number} page */
 function pvReasonOn(page){const r=PV_REASON; return !!r&&r.page===page&&r.doc===DOC&&currentVisit(r.visit);}
 // The pin a reason session is for, from the lists, or undefined.
@@ -351,32 +361,87 @@ function pvReasonSync(){const r=PV_REASON; if(!r)return;
 function pvReasonEnd(pdf){const f=document.querySelector('#doc .pv-reason'),had=!!f&&document.activeElement===f; PV_REASON=null; drawPageVerdicts();
   if(pdf||had)searchToPage();}
 // Moving on: the session closes and what was typed is saved as Enter would, said in one line; an empty one just closes.
-function pvReasonLeave(){const r=PV_REASON; if(!r)return; pvReasonEnd(false); const text=r.text.trim(); if(text)pvReasonWrite(r,text,true);}
+function pvReasonLeave(){const r=PV_REASON; if(!r)return; pvReasonEnd(false); const text=r.text.trim(); if(text)pvReasonCommit(r,text,true);}
+// The one write of reason session r: text as its pin's note (pvReasonWrite). While a write is out it is that write - Enter
+// and then moving on, another save or another document before the answer start no second one - and text the session has
+// written is not written again. A failed write may be tried again. Resolves with whether the reason is written.
+/** @param {ReasonSession} r @param {string} text @param {boolean} said @returns {Promise<boolean>} */
+function pvReasonCommit(r,text,said){if(r.saved===text)return Promise.resolve(true);
+  if(!r.writing)r.writing=pvReasonWrite(r,text,said).then(ok=>{r.writing=null; if(ok)r.saved=text; return ok;});
+  return r.writing;}
+// [다시 시도] on a failed reason: the session's draft as it is now (after a failed Enter the field stays open and may have been
+// corrected) written as its one write. A field still open for it waits while it writes, and closes only when what was
+// written is what it holds.
+/** @param {ReasonSession} r */
+function pvReasonRetry(r){const text=r.text.trim(); if(!text||r.writing)return;
+  const w=pvReasonCommit(r,text,true); if(PV_REASON===r)drawPageVerdicts();
+  w.then(ok=>{if(PV_REASON!==r)return; if(ok&&r.text.trim()===text)pvReasonEnd(false); else drawPageVerdicts();});}
+// Where text sits as a reason this viewer wrote at the end of note: the whole note (written into an empty one), or after the
+// stamp a note_append puts before it ('\n(추가 12:30) <text>'); -1 when it does not. A reason is one line (the field is a
+// one-line input), so a line holding exactly it, stamped or not, is it.
+/** @param {string} note @param {string} text */
+function reasonAt(note,text){if(note===text)return 0; const i=note.length-text.length;
+  return i>0&&note.endsWith(text)&&/\(추가 \d{1,2}:\d{2}\) $/.test(note.slice(0,i))?i:-1;}
+/** @param {string} note @param {string} text */
+function reasonIn(note,text){return note.split('\n').some(l=>l===text||l.replace(/^\(추가 \d{1,2}:\d{2}\) /,'')===text);}
+// The edit that writes text into pin p's note for session r, or null when p already holds it. After a write whose answer was
+// lost (r.tried) the server may have it: when the note holds this very text it is saved already, and when it ends with an
+// earlier draft of this session that landed, the draft is replaced (a corrected reason, not a second one). Otherwise the
+// text goes into an empty note, or under the note someone wrote (note_append).
+/** @param {ReasonSession} r @param {string} text @param {Pin} p @returns {Record<string, unknown>|null} */
+function pvReasonBody(r,text,p){const note=String(p.note||'');
+  if(r.tried.length&&reasonIn(note,text))return null;
+  const old=r.tried.find(t=>t!==text&&reasonAt(note,t)>=0);
+  if(old)return {note:note.slice(0,reasonAt(note,old))+text,base_rev:p.rev};
+  return note?{note_append:text}:{note:text,base_rev:p.rev};}
 // Writes text as reason session r's pin's note: the note edit with the pin's rev (read again when the lists do not hold the
 // pin); a note someone wrote meanwhile is kept and the reason is added to it (note_append). A pin that is gone takes nothing.
-// said: it is saved on moving on, and the status line says so with the target's name. Returns whether it was written.
-/** @param {NonNullable<typeof PV_REASON>} r @param {string} text @param {boolean} said @returns {Promise<boolean>} */
+// said: it is saved on moving on, and the status line says so with the target's name. A failure is said by pvReasonFailed.
+// Returns whether it was written.
+/** @param {ReasonSession} r @param {string} text @param {boolean} said @returns {Promise<boolean>} */
 async function pvReasonWrite(r,text,said){if(viewerBlocked())return false;
-  let p=pvReasonPin(r.id); if(!p){try{p=(await api('/api/pins/'+r.id,{what:'핀 읽기',silent:true})).data.pin;}catch(e){p=undefined;}}
-  if(!p||p.dropped_at){lineNote(tl('핀 #{id} 은 그사이 다른 곳에서 지워졌습니다',{id:r.id}),NOTICE_KIND.WARN); return false;}
-  try{const body=p.note?{note_append:text}:{note:text,base_rev:p.rev};
-    const {status,data}=await api('/api/pins/'+r.id+'/edit',{method:'POST',body,what:'이유 저장',where:NOTICE_HOST.LINE,expect:[409],intent:'reason'});
-    if(status===409){const q=data&&data.pin; if(!q)return false;   // someone changed the pin meanwhile: their note stays
-      await api('/api/pins/'+r.id+'/edit',{method:'POST',body:q.note?{note_append:text}:{note:text,base_rev:q.rev},what:'이유 저장',where:NOTICE_HOST.LINE,intent:'reason'});}
-  }catch(e){return false;}   // api() said it on the status line
-  const name=r.doc===DOC?pageTargetShort(r.page):'#'+r.id;
-  if(said)lineNote(tl('이유 저장됨 · {target} — 판정 #{id}',{target:name,id:r.id}),NOTICE_KIND.OK,null,{life:NOTICE_LIFE.TIMER,literal:true});   // the target in the title: the folded line shows it
+  // After a lost answer the lists may not say whether it landed: the pin is read from the server.
+  let p=r.tried.length?undefined:pvReasonPin(r.id);
+  if(!p){try{p=(await api('/api/pins/'+r.id,{what:'핀 읽기',silent:true})).data.pin;}
+    catch(e){const x=/** @type {ApiError} */(e); if(!x||!x.status||x.status>=500){pvReasonFailed(r,text,x); return false;} p=undefined;}}
+  if(!p||p.dropped_at){if(!PV_WITHDRAWN.has(r.id))lineNote(tl('핀 #{id} 은 그사이 다른 곳에서 지워졌습니다',{id:r.id}),NOTICE_KIND.WARN); return false;}
+  const url='/api/pins/'+r.id+'/edit',o={method:'POST',intent:'reason',silent:true};   // silent: pvReasonFailed says a failure, with its target
+  try{const body=pvReasonBody(r,text,p);
+    if(body){const {status,data}=await api(url,{...o,body,expect:[409]});
+      if(status===409){const q=data&&data.pin; if(!q)return false;   // someone changed the pin meanwhile: their note stays
+        const again=pvReasonBody(r,text,q); if(again)await api(url,{...o,body:again});}}
+  }catch(e){pvReasonFailed(r,text,/** @type {ApiError} */(e)); return false;}
+  if(said)lineNote(tl('이유 저장됨 · {target} — 판정 #{id}',{target:pvReasonName(r),id:r.id}),NOTICE_KIND.OK,null,{life:NOTICE_LIFE.TIMER,literal:true});   // the target in the title: the folded line shows it
   else quietNote(tl('판정 #{id} 이유를 저장했습니다',{id:r.id}));
   if(r.doc===DOC)loadPins().catch(()=>{});
   return true;}
-// Enter: the text saved as the note and the field closed (empty text is Esc). While the request is out the field waits; a
-// failure leaves the text in it for another Enter.
+// What a reason session's verdict is about, by a short name for the status line: its page's target while its document is on
+// screen ('PL16'), else its pin's number.
+/** @param {ReasonSession} r */
+function pvReasonName(r){return r.doc===DOC?pageTargetShort(r.page):'#'+r.id;}
+// A reason that could not be written, said on the status line with its target ('이유 저장 실패 · PL16 — 서버에 닿지 않습니다') in
+// place of api()'s line, keyed by the request as api() keys it (a later answer from it clears it). The text is kept: unless
+// the server refused it (a 4xx would refuse again) the message offers [다시 시도], which writes the session's draft
+// (pvReasonRetry) - after moving on the field is gone and this is where the draft stays. Stays until [x] or its action
+// (STICKY). A write without an answer is remembered (tried): it may have landed. The reason for a pin this person has
+// withdrawn meanwhile goes quietly (PV_WITHDRAWN).
+/** @param {ReasonSession} r @param {string} text @param {ApiError|null} e */
+function pvReasonFailed(r,text,e){const st=e&&typeof e.status==='number'?e.status:0,again=!st||st>=500;
+  if(again&&!r.tried.includes(text))r.tried.push(text);
+  if(PV_WITHDRAWN.has(r.id))return;
+  const why=st?(e&&e.data&&errText(e.data))||'HTTP '+st:tr('서버에 닿지 않습니다');
+  lineNote(tl('이유 저장 실패 · {target} — {why}',{target:pvReasonName(r),why}),NOTICE_KIND.ERR,again?{label:'다시 시도',fn:()=>pvReasonRetry(r)}:null,
+    {source:'POST /api/pins/'+r.id+'/edit reason',literal:true});}
+// Enter: the text saved as the note and the field closed (empty text is Esc). While the request is out the field waits
+// (disabled, pvLineHtml draws it so); a failure leaves the text in it for another Enter.
 /** @param {HTMLInputElement} f */
-async function pvReasonSave(f){const r=PV_REASON; if(!r||f.disabled)return; const text=f.value.trim(); r.text=f.value;
+async function pvReasonSave(f){const r=PV_REASON; if(!r||r.writing||f.disabled)return; const text=f.value.trim(); r.text=f.value;
   if(!text){pvReasonEnd(true); return;}
-  f.disabled=true; const ok=await pvReasonWrite(r,text,false);
-  if(PV_REASON!==r)return;   // closed meanwhile (moved on, the undo, another document): that path took the text
-  if(ok)pvReasonEnd(true); else{f.disabled=false; f.focus({preventScroll:true});}}
+  f.disabled=true; const ok=await pvReasonCommit(r,text,false);
+  if(PV_REASON!==r)return;   // closed meanwhile (moved on, the undo, another document): its one write had the text
+  if(ok){pvReasonEnd(true); return;}
+  drawPageVerdicts(); const g=/** @type {HTMLInputElement|null} */(document.querySelector('#doc .pv-reason[data-id="'+r.id+'"]'));
+  if(g)g.focus({preventScroll:true});}
 $('#doc').addEventListener('input',e=>{const f=/** @type {HTMLInputElement} */(e.target); if(f.classList&&f.classList.contains('pv-reason')&&PV_REASON&&String(PV_REASON.id)===f.dataset.id)PV_REASON.text=f.value;});
 $('#doc').addEventListener('keydown',e=>{const f=/** @type {HTMLInputElement} */(e.target); if(!f.classList||!f.classList.contains('pv-reason')||e.isComposing)return;
   if(e.key==='Enter'){e.preventDefault(); e.stopPropagation(); pvReasonSave(f);}
@@ -384,7 +449,8 @@ $('#doc').addEventListener('keydown',e=>{const f=/** @type {HTMLInputElement} */
 $('#doc').addEventListener('focusout',e=>{const f=/** @type {HTMLInputElement} */(e.target); if(!f.classList||!f.classList.contains('pv-reason'))return;
   setTimeout(()=>{if(f.isConnected&&document.activeElement!==f&&!f.disabled&&!f.value.trim()&&PV_REASON&&String(PV_REASON.id)===f.dataset.id)pvReasonEnd(false);},0);});
 // The key marks follow the focus: off on every line while a text field has it - digits typed there are text (pvKeysPage).
-// (Another document closes the field through pvReasonSync, whose leave saves what was typed.)
+// (Another document closes the field through pvReasonSync - or drawPageVerdicts when it has no lines - whose leave saves
+// what was typed.)
 document.addEventListener('focusin',()=>pvStickSoon()); document.addEventListener('focusout',()=>pvStickSoon());
 // Saves word key as a verdict about page `page`'s whole target: a pick of the whole page on the build on screen, the body
 // pageVerdictBody makes of it, with no note, saved as a fix request for the agent. The composer's selection and draft stay as
@@ -413,7 +479,7 @@ async function savePageVerdict(page,key,kb){const pg=META&&META.pages[page-1]; i
     if(SEC_SEEN.open)SEC_SEEN.open.add(id);   // my own new pin is never 'new' on a collapsed header
     const chip=undoNote(NOTICE_PLACE.CHIP,tl('#{id} {word} 판정 저장됨 · {target} — 되돌리면 판정을 거둡니다',{id,word:verdictLabel(key),target:pageTargetShort(page)}),{label:'되돌리기',wait:true,fn:verdictUndo(id)},
       {pin:id,pending:true,label:tl('#{id} 저장됨 · {word}',{id,word:verdictLabel(key)})});
-    if(currentVisit(visit)){pvReasonLeave(); PV_REASON={page,id,key,doc:DOC,visit,text:'',focus:!!kb,seen:pvReadingPage()===page,listed:false};}   // the reason field under it (another one's text saved first)
+    if(currentVisit(visit)){pvReasonLeave(); PV_REASON={page,id,key,doc:DOC,visit,text:'',focus:!!kb,seen:pvReadingPage()===page,listed:false,writing:null,saved:null,tried:[]};}   // the reason field under it (another one's text saved first)
     await loadPins(); settleChip(chip);
   }catch(e){const x=/** @type {ApiError} */(e);   // api() said it on the status line: the pressed line says it too
     if(!saved)fail(tl('{what} 실패',{what:tr('판정 저장')})+' — '+(x&&x.data?errText(x.data)||('HTTP '+x.status):tr('서버에 닿지 않습니다')));}
@@ -427,11 +493,48 @@ async function savePageVerdict(page,key,kb){const pg=META&&META.pages[page-1]; i
 function pvRefocus(page,key){const a=document.activeElement; if(a&&a!==document.body&&document.contains(a))return;
   const b=/** @type {HTMLButtonElement|null} */(document.querySelector('#doc .pv[data-page="'+page+'"] [data-act="pv-save"][data-key="'+CSS.escape(key)+'"]'));
   if(b&&!b.disabled&&b.getAttribute('aria-disabled')!=='true')b.focus({preventScroll:true});}
+// ---------------- Taking one's verdict back (#295)
+// Whether the line offers [판정 취소] on verdict pin p, its page's current verdict: the person's own (isMe), still open - not
+// yet handled; a handled one's card still offers [지우기] - to a person who may make a verdict (no agent, D16, nor a
+// viewer). A pin whose [확인] waits for its undo is not open.
+/** @param {Pin} p */
+function pvCanCancel(p){return !!verdictOf(p)&&canVerdict()&&isMe(p.author)&&pinState(p)===PIN_STATE.OPEN&&!CONFIRMING.has(p.id);}
+const PV_CANCEL_MS=800;   // after a cancel on a page, how long that page's next [판정 취소] waits (a double press never takes two)
+const PV_CANCEL_HOLD=/** @type {Map<number,number>} */(new Map());   // page -> until when its [판정 취소] waits
+// [판정 취소] on page `page`'s line: verdict pin id goes to the Trash as the card's [지우기] sends it (dropPin) - a withdrawn
+// request - and the line shows at once what is current now: the newest earlier verdict about the same target (D4) or
+// '판정 없음'. The status line says so with [되돌리기], which restores it (restorePin); one an agent had claimed still goes,
+// and the status line says its run may have started (as the save's undo, verdictUndo). Its reason field closes with it, what
+// was typed unwritten (as the undo). A failure is said on the status line and the line shows the verdict again. The page's
+// next [판정 취소] waits PV_CANCEL_MS: the same place may now cancel the earlier verdict, which a double press must not reach.
+// A keyboard press leaves the focus on the PDF area, as Esc in the reason field does.
+/** @param {HTMLElement} b */
+async function pvCancel(b){const id=Number(b.dataset.ref),p=OPEN_ALL.find(x=>x.id===id),page=Number((b.closest('.pv')||b).getAttribute('data-page'))||0;
+  if(!p||!pvCanCancel(p)||b.getAttribute('aria-disabled')==='true'||viewerBlocked())return;
+  const key=/** @type {string} */(verdictOf(p)),claimed=claimActive(p),had=document.activeElement===b,target=pageTargetShort(page);
+  PV_CANCEL_HOLD.set(page,Date.now()+PV_CANCEL_MS); setTimeout(()=>drawPageVerdicts(),PV_CANCEL_MS+20);
+  // Its reason field leaves with the line's verdict, but the session is kept until the server answers: a failed cancel
+  // brings the verdict back and its unsent reason with it (unless a newer session took the line); a done one drops it.
+  const kept=PV_REASON&&PV_REASON.id===id?PV_REASON:null; if(kept)PV_REASON=null;
+  PV_WITHDRAWN.add(id);
+  const say=()=>{const now=(pageVerdictPins().get(page)||[])[0],nk=now&&verdictOf(now);
+    const rest=now&&nk?tl('지금 판정은 #{id} {word}입니다',{id:now.id,word:verdictLabel(nk)}):tr('남은 판정이 없습니다');
+    lineNote(tl('판정 #{id} {word} 취소됨 · {target}',{id,word:verdictLabel(key),target})+' — '+rest,NOTICE_KIND.OK,
+      {label:'되돌리기',tip:T.undo,wait:true,fn:()=>{PV_WITHDRAWN.delete(id); return restorePin(id);}},{life:NOTICE_LIFE.TIMER,undo:true,literal:true});};
+  hideTip();
+  const again=()=>{PV_CANCEL_HOLD.delete(page); drawPageVerdicts();   // [다시 시도] is a new press: no hold
+    const c=document.querySelector('#doc .pv [data-act="pv-cancel"][data-ref="'+id+'"]'); if(c)pvCancel(/** @type {HTMLElement} */(c));};
+  const ok=await dropPin(id,false,again,
+    {say,where:NOTICE_HOST.LINE,what:'판정 취소'});
+  if(!ok){PV_WITHDRAWN.delete(id); if(kept&&!PV_REASON&&kept.doc===DOC&&currentVisit(kept.visit)){kept.focus=false; PV_REASON=kept; drawPageVerdicts();}}
+  if(had&&(!document.activeElement||document.activeElement===document.body))searchToPage();
+  if(ok&&claimed)lineNote('처리 중이던 판정이라 이미 실행됐을 수 있습니다',NOTICE_KIND.WARN);}
 // One page's line: its state - '판정 없음', or the newest verdict pin about its target with its state, its number and word,
-// and who made it and when if that was someone else - the earlier open verdicts as a link ('앞선 판정 N건(처리하지 않음)'),
-// and, for a person who may make one, a button per word. No pressed look: a verdict is a request until it is handled.
-/** @param {number} page @param {Pin[]|undefined} list @param {DocVerdicts} v */
-function pvLineHtml(page,list,v){const cur=list&&list[0],earlier=list?list.slice(1).filter(p=>pinState(p)===PIN_STATE.OPEN):[];
+// and who made it and when if that was someone else - [판정 취소] on the person's own while it is open (pvCanCancel), the
+// earlier open verdicts as a link ('앞선 판정 N건(처리하지 않음)'), and, for a person who may make one, a button per word. No
+// pressed look: a verdict is a request until it is handled.
+/** @param {number} page @param {Pin[]|undefined} list @param {DocVerdicts} v @param {boolean} [chip] - the line holds a save chip */
+function pvLineHtml(page,list,v,chip){const cur=list&&list[0],earlier=list?list.slice(1).filter(p=>pinState(p)===PIN_STATE.OPEN):[];
   // Before the first pin list is applied (PINS_APPLIED_SEQ) the line knows no verdict yet: '판정 읽는 중…', buttons waiting.
   const loading=!PINS_APPLIED_SEQ;
   const k=cur&&verdictOf(cur),other=!!cur&&!!cur.author&&!isMe(cur.author);
@@ -445,6 +548,13 @@ aria-label="${tl('지금 판정 #{id} 카드로 갑니다',{id:cur.id})}" data-t
 ${other?html`<span class="pv-sep" aria-hidden="true">·</span><span class="pv-au" translate="no">${who(cur.author)}</span> ${relSpan(cur.at,'pv-at','')}`:''}\
 ${cur.note?html`<span class="pv-sep" aria-hidden="true">·</span><span class="pv-note" translate="no" data-tip="${cur.note}">${String(cur.note).split('\n')[0]}</span>`:''}`
     :html`<span class="pv-s pv-none">${tr(loading?'판정 읽는 중…':'판정 없음')}</span>`;
+  // [판정 취소]: a text action in the row (the viewer's link look, as the earlier link), after the state. It is its verdict's
+  // own element (data-id): once that verdict goes the next one's is a new one, which a keyboard focus does not carry over.
+  // It waits (aria-disabled) while the page's save is out, the first list is not in, or a cancel on this page just ran.
+  const cn=!!cur&&pvCanCancel(cur),cw=PV_BUSY.has(page)||loading||(PV_CANCEL_HOLD.get(page)||0)>Date.now();
+  const cancel=cn&&cur?html`<span class="pv-sep pv-cn" aria-hidden="true">·</span><button type="button" class="btn-ghost btn-sm pv-cancel pv-cn hit" data-act="pv-cancel" \
+data-ref="${cur.id}" data-id="${cur.id}" aria-label="${tl('내 판정 #{id} 취소',{id:cur.id})}" \
+${chip?'':html`data-tip="${tr('이 판정을 거둡니다. 핀은 휴지통으로 가고, 같은 대상에 앞선 판정이 있으면 그 판정이 다시 지금 판정이 됩니다. 상태 줄의 [되돌리기]가 되살립니다')}"`}${cw?html` aria-disabled="true"`:''}>${tr('판정 취소')}</button>`:'';
   const early=earlier.length?html`<button type="button" class="btn-ghost btn-sm pv-early hit" data-act="pv-earlier" data-ref="${earlier[0].id}" \
 data-tip="${tr('이 쪽의 더 새 판정으로 대체되어 실행하지 않는 열린 판정 핀입니다. 누르면 그 카드로 갑니다')}">${tl('이전 판정 {n}건 · 새 판정으로 대체됨',{n:earlier.length})}</button>`:'';
   // The reading page's line - the one that floats - names what it decides: '7쪽 · [후보] PL18 · …' (figureName), cut to fit.
@@ -453,15 +563,15 @@ data-tip="${tr('이 쪽의 더 새 판정으로 대체되어 실행하지 않는
   const rd=PV_READ===page,nm=rd?META&&isFigureKind(META.kind)&&META.pages[page-1]&&META.pages[page-1].figure?figureName(page,String(META.pages[page-1].figure)):tl('{page}쪽',{page}):'';
   const name=html`<span class="pv-fig" translate="no"${rd?'':html` hidden`}>${nm}</span><span class="pv-sep pv-fig-sep" aria-hidden="true"${rd?'':html` hidden`}>·</span>`;
   const busy=PV_BUSY.has(page)||loading,keys=PV_KEYS===page,target=tl('{page}쪽',{page});
-  const btns=canVerdict()?html`<span class="vd-btns">${v.choices.map((c,i)=>vdButton(c,VD_WHERE.PAGE,page,target,busy,keys?i+1:0))}</span>`:'';
+  const btns=canVerdict()?html`<span class="vd-btns">${v.choices.map((c,i)=>vdButton(c,VD_WHERE.PAGE,page,target,busy,keys?i+1:0,!!chip))}</span>`:'';
   // The line's last failed save, said where it was pressed (PV_ERR) - for the document and build on screen only.
   const e=PV_ERR.get(page),eo=!!e&&e.doc===DOC&&!!META&&e.build===(META.pages_build||'');
   const err=html`<span class="pv-err"${eo?'':html` hidden`}>${eo&&e?e.text:''}</span>`;   // always there, so the reason field after it keeps its place
   // The reason field after a save on this line (PV_REASON): one line, optional, Enter saves it as the pin's note.
   const rs=pvReasonOn(page)&&canVerdict()?/** @type {NonNullable<typeof PV_REASON>} */(PV_REASON):null;
-  const why=rs?html`<input class="pv-reason" type="text" maxlength="4000" autocomplete="off" enterkeyhint="done" data-id="${rs.id}" value="${rs.text}" \
+  const why=rs?html`<input class="pv-reason" type="text" maxlength="4000" autocomplete="off" enterkeyhint="done" data-id="${rs.id}" value="${rs.text}"${rs.writing?html` disabled`:''} \
 placeholder="${tr('이유 (선택) — Enter 저장 · Esc 건너뜀')}" aria-label="${tl('판정 #{id} 이유 (선택) — Enter 저장, Esc 건너뜀',{id:rs.id})}">`:'';
-  return html`${name}<span class="pv-t">${text}${early}</span>${btns}${err}${why}`;}
+  return html`${name}<span class="pv-t">${text}${cancel}${early}</span>${btns}${err}${why}`;}
 // Draws page `page`'s line.
 /** @param {HTMLElement} el @param {number} page @param {Pin[]|undefined} list @param {DocVerdicts} v */
 // The list redraws on every poll and many other changes, so a line is never rewritten: what changed is changed in place
@@ -473,8 +583,8 @@ const PV_TEXT=/** @type {WeakMap<HTMLElement,string>} */(new WeakMap());   // wh
 function fillPv(el,page,list,v){el.dataset.page=String(page); el.classList.toggle('reading',PV_READ===page); const cur=list&&list[0];
   if(cur)el.dataset.pin=String(cur.id); else delete el.dataset.pin; (list||[]).forEach(p=>PV_SHOWN.add(p.id));
   el.setAttribute('role','group'); el.setAttribute('aria-label',tl('{page}쪽 판정',{page}));
-  const m=pvLineHtml(page,list,v); if(PV_TEXT.get(el)===m.text)return; PV_TEXT.set(el,m.text);
   const chip=el.querySelector(':scope>.nt-chip');   // a save's undo chip (drawChips) stays on its line; drawChips moves it if it is another pin's
+  const m=pvLineHtml(page,list,v,!!chip); if(PV_TEXT.get(el)===m.text)return; PV_TEXT.set(el,m.text);
   if(chip)chip.remove(); const next=document.createElement('div'); setHtml(next,m); pvMorphKids(el,next); if(chip)el.appendChild(chip);}
 // Makes a's children b's, keeping every node that is the same kind in the same place (pvMorph).
 /** @param {Node} a @param {Node} b */
@@ -504,17 +614,33 @@ function sizePv(){const ir=pvInsetR(),room=innerW()-ir,doc=$('#doc'),lines=$$('#
   const wraps=lines.some(l=>{if(l.classList.contains('reading'))return false; const t=l.querySelector('.pv-t'),b=l.querySelector('.vd-btns');
     return !!t&&!!b&&b.getBoundingClientRect().top>=t.getBoundingClientRect().bottom-1;});
   doc.classList.toggle('pv-stack',wraps); lines.forEach(l=>vdWrapFit(l.querySelector('.vd-btns')));}
+// No description box over a line's save chip (#295). The chip ('#42 저장됨 · 채택 [되돌리기]') stands at the line's end above it,
+// where a word's box stands too: the press's own focus armed the box again (tooltip.js armTip), and a resting hand's
+// slight move brought it back after anything had hidden it. While a chip is on a line (drawChips puts it there, its
+// window takes it away) the line's words are drawn without their descriptions (vdButton quiet), so neither hover nor focus
+// has a box to show; a chip that comes closes the box that is up. Its leaving draws the descriptions back. Watched per
+// line (childList only: the chip is a child of the line).
+const PV_CHIP_WATCH=typeof MutationObserver!=='undefined'?new MutationObserver(recs=>{
+  // Whether a line now holds a chip it did not, or lost one: a chip taken out and put back on the same line (fillPv's morph)
+  // is no change; one moved to another line is a change on both.
+  const had=new Map(); recs.forEach(r=>{const k=(/** @type {NodeList} */l,v)=>[...l].forEach(n=>{if(n instanceof Element&&n.classList.contains('nt-chip')){
+      const m=had.get(r.target)||new Map(); m.set(n,(m.get(n)||0)+v); had.set(r.target,m);}}); k(r.addedNodes,1); k(r.removedNodes,-1);});
+  let came=false,went=false; had.forEach(m=>m.forEach(d=>{if(d>0)came=true; else if(d<0)went=true;}));
+  if(!came&&!went)return;
+  if(came)hideTip(); drawPageVerdicts();}):null;
 // Draws the page verdict line under every page after the pages, the pin lists or the build change. Without page verdicts
 // every line goes and the marks draw every pin as before.
 function drawPageVerdicts(){const v=pageVerdictsOn(),f=/** @type {HTMLElement|null} */(document.activeElement);
   const had=!!f&&!!f.closest&&!!f.closest('.pv');
   if(VD_ARM&&VD_ARM.where===VD_WHERE.PAGE&&(!v||!vdArmStill(VD_ARM)))disarmVerdict(false);
   PV_SHOWN=new Set();
-  if(!v||!META){$$('#doc .pv').forEach(e=>e.remove()); return;}
+  // A document with no page lines has no reason field either: a session left from the one before (or from this one before
+  // its words went) closes here, its text saved - pvReasonSync, after this, is never reached for it.
+  if(!v||!META){if(PV_REASON)pvReasonLeave(); $$('#doc .pv').forEach(e=>e.remove()); return;}
   pvReasonSync(); const map=pageVerdictPins(); PV_READ=pvReadingPage(); PV_KEYS=pvKeysPage(PV_READ);
   $$('#doc .pg').forEach(pg=>{const page=+pg.dataset.page; let line=/** @type {HTMLElement|null} */(pg.nextElementSibling);
     if(!pageTakesVerdict(page)){if(line&&line.classList.contains('pv'))line.remove(); return;}   // the map says this page takes none
-    if(!line||!line.classList.contains('pv')){line=document.createElement('div'); line.className='pv'; pg.after(line);}
+    if(!line||!line.classList.contains('pv')){line=document.createElement('div'); line.className='pv'; pg.after(line); if(PV_CHIP_WATCH)PV_CHIP_WATCH.observe(line,{childList:true});}
     fillPv(line,page,map.get(page),v);});
   sizePv(); pvStick();
   if(had)vdRefocus(f);}
@@ -554,7 +680,23 @@ function pvStick(){const lines=$$('#doc .pv'); if(!lines.length)return; const L=
   if(r!==PV_READ||k!==PV_KEYS){const was=[PV_READ,PV_KEYS]; PV_READ=r; PV_KEYS=k; const map=pageVerdictPins(),v=pageVerdictsOn();
     if(v)new Set([...was,r,k]).forEach(n=>{const e=/** @type {HTMLElement|null} */(n?document.querySelector('#doc .pv[data-page="'+n+'"]'):null); if(e)fillPv(e,n,map.get(n),v);});}
   lines.forEach(l=>{const pg=/** @type {HTMLElement|null} */(l.previousElementSibling); if(!pg)return; const b=l.getBoundingClientRect();
-    l.classList.toggle('stuck',l.classList.contains('reading')&&b.bottom>lr.top&&b.top<lr.bottom&&b.top<pg.getBoundingClientRect().bottom+4);});}   // in its own place it stands 8px under the page
+    const stuck=l.classList.contains('reading')&&b.bottom>lr.top&&b.top<lr.bottom&&b.top<pg.getBoundingClientRect().bottom+4;   // in its own place it stands 8px under the page
+    l.classList.toggle('stuck',stuck); pvLean(l,pg,b,stuck,L,lr);});}
+// A phone's floating line holds [판정 취소] back (.pv-lean, components.css): on 390px it put a row of its own on the line that
+// already floats over the figure (one verdict 105 -> 131px, with an earlier one 131 -> 191px). The in-place line and the
+// card still offer it, with its 44px. Hysteresis keeps the line from flipping at a page's end: shown, it leans once the
+// line floats; leaning, it is shown again only when the line with it (its full height, measured when it was last shown)
+// fits in its place under the page - showing it never makes the line float again. Desktop and every other band: never.
+const PV_FULL_H=/** @type {WeakMap<HTMLElement,{h:number,gap:number}>} */(new WeakMap());
+/** @param {HTMLElement} l @param {HTMLElement} pg @param {DOMRect} b @param {boolean} stuck @param {HTMLElement} L @param {DOMRect} lr */
+function pvLean(l,pg,b,stuck,L,lr){
+  if(!document.body.classList.contains('band-phone')||!l.classList.contains('reading')||!l.querySelector('.pv-cancel')){l.classList.remove('pv-lean'); return;}
+  const m=PV_FULL_H.get(l)||{h:0,gap:8},pb=pg.getBoundingClientRect().bottom; PV_FULL_H.set(l,m);
+  if(!stuck)m.gap=Math.max(0,b.top-pb);
+  if(!l.classList.contains('pv-lean')){m.h=b.height; if(stuck)l.classList.add('pv-lean'); return;}
+  // Where a floating line's bottom stands: the area's bottom less its end padding and the line's sticky inset.
+  const cs=getComputedStyle(L),limit=lr.top+L.clientHeight-parseFloat(cs.paddingBottom)-(parseFloat(getComputedStyle(l).bottom)||0);
+  if(pb+m.gap+(m.h||b.height+64)<=limit)l.classList.remove('pv-lean');}
 // What lies over the PDF area's right side, in px in from the area's content edge: a panel laid over it - the unfolded
 // foldable's overlay panel, beside which the pages run on underneath - and its handle's touch area, as for a save chip
 // (chipInRoom). 0 where the panel stands beside the area or at its bottom (a sheet). A line is never wider than the room
