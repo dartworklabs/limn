@@ -893,6 +893,7 @@ class FrontendVectorLogic(unittest.TestCase):
             function dq(u){return u;}
             function vecSchedule(){}
             function loadOutline(){}
+            function outlineForget(){}
             function searchClear(){}
             function searchOffer(){}
             function vecFail(msg){throw new Error('vecFail: '+msg);}
