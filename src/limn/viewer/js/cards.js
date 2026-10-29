@@ -77,19 +77,22 @@ ${canConfirmReview()?html`<button class="btn-sm b-confirm${isMe(p.author)?' btn-
 ${canConfirmReview()?'':html`<div class="dim review-access">${confirmAccessText()}</div>`}</div>`;
   const body=editing?html`<div class="edit-slot"></div>${metadata}`
     :html`${quote}${vOnly?'':html`<div class="note" translate="no" data-act="edit" data-tip="${tr('클릭하면 메모와 범위를 고칩니다')}">${p.note?fmtText(p.note,p.mentions):noNote}</div>`}\
-${suggestView(p)}${metadata}${threadHtml(p,LAYOUT===LAYOUT_MODE.WIDE)}<div class="acts">${cardActs(claimed,LAYOUT!==LAYOUT_MODE.WIDE,!(verdictOf(p)&&isAgentRole()))}</div>`;
+${suggestView(p)}${metadata}${threadHtml(p,LAYOUT===LAYOUT_MODE.WIDE)}<div class="acts">${cardActs(claimed,LAYOUT!==LAYOUT_MODE.WIDE,!(verdictOf(p)&&isAgentRole()),!!verdictOf(p))}</div>`;
   return html`<div class="pin card${p.stale||elLost(p)?' st':''}${claimed?' claimed':''}${editing?' editing':''}${open?' open':''}" data-id="${p.id}" data-doc="${pdoc(p)}">${head}${body}</div>`;
 }
 // An open card's action row, in the order it is seen so that Tab follows it. wide: [보기] [수정] [답글] ([풀기]) [삭제] [완료], by name.
 // compact (narrow and mid, any pointer): [삭제] [수정] ([풀기]) ...... [답글] [완료] - [보기] is the head's '#N · L… · N쪽' link, and
 // [수정][풀기][삭제] show only their icon (the name stays in aria-label and the tooltip); CSS picks icon or name per layout.
-// canDrop false (an agent's verdict card, D16) leaves [삭제] out.
-function cardActs(claimed,compact,canDrop=true){
+// canDrop false (an agent's verdict card, D16) leaves [삭제] out. On a verdict pin's card it is [지우기] (verdict): a word file
+// may name a verdict '삭제' (the figure goes), and the card's '판정 삭제' badge beside a [삭제] read as that verdict. Two or three
+// syllables like the row's other names, so it keeps one line in the row's equal cells ('핀 지우기' broke in two at 348px); its
+// description says what taking a verdict back does.
+function cardActs(claimed,compact,canDrop=true,verdict=false){const dl=verdict?'지우기':'삭제';
   const b={view:html`<button class="btn-sm b-view" data-act="view" data-tip="${T.view}">보기</button>`,
     edit:html`<button class="btn-sm b-edit" data-act="edit" aria-label="수정" data-tip="${T.edit}">${ic('pencil')}<span class="lbl">수정</span></button>`,
     reply:html`<button class="btn-sm b-reply" data-act="reply-open" data-tip="${T.reply}">답글</button>`,
     unclaim:claimed?html`<button class="btn-sm b-unclaim" data-act="unclaim" aria-label="풀기" data-tip="처리 중 표시를 풉니다(에이전트가 멈췄거나 잘못 잡은 경우)">${ic('lock-open')}<span class="lbl">풀기</span></button>`:'',
-    drop:canDrop?html`<button class="btn-sm btn-destructive b-drop" data-act="drop" aria-label="삭제" data-tip="${T.drop}">${ic('trash-2')}<span class="lbl">삭제</span></button>`:'',
+    drop:canDrop?html`<button class="btn-sm btn-destructive b-drop" data-act="drop" aria-label="${dl}" data-tip="${verdict?T.dropVerdict:T.drop}">${ic('trash-2')}<span class="lbl">${dl}</span></button>`:'',
     close:html`<button class="btn-sm btn-soft b-close" data-act="close" data-tip="${T.close}">완료</button>`};
   return html`${(compact?['drop','edit','unclaim','reply','close']:['view','edit','reply','unclaim','drop','close']).map(k=>b[k])}`;}
 // Archive row (docs/handbook/viewer.md §보관함): a closed/dropped pin is a flat, borderless, backgroundless row with faded text, not a card.

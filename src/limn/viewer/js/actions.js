@@ -54,16 +54,18 @@ function confirmPin(id){if(CONFIRMING.has(id))return; const at=REVIEW_ALL.findIn
 /** @param {number} id @returns {Promise<boolean>} */
 async function reopenPin(id){let ok=false; try{await api('/api/pins/'+id+'/reopen',{method:'POST',what:'다시 열기',where:NOTICE_HOST.LIST});
   ok=true; markMine(id); quietNote(tl('핀 #{id} 완료를 되돌렸습니다',{id}));}catch(e){} await loadPins(); return ok;}
-// [삭제] takes the pin off the list at once (no confirmation) and leaves a row in its place with [되돌리기] for NOTICE_MS; it
-// waits in the Trash. A failure puts the card back. undoSave = the save chip's [되돌리기]: silent, as the composer comes back
-// with the selection - and again = what that failure's [다시 시도] runs (the whole undo, so the composer comes back too).
-// Resolves with whether the pin was deleted.
-/** @param {number|null} id @param {boolean} undoSave @param {()=>unknown} [again] @returns {Promise<boolean>} */
-async function dropPin(id,undoSave,again){const was=OPEN_ALL,applied=PINS_APPLIED_SEQ,prev=drawnBefore($('#pins'),'.pin.card',id); let ok=false;
+// [삭제] (a verdict pin's card: [지우기]) takes the pin off the list at once (no confirmation) and leaves a row in its place
+// with [되돌리기] for NOTICE_MS; it waits in the Trash. A failure puts the card back. undoSave = the save chip's [되돌리기]:
+// silent, as the composer comes back with the selection - and again = what that failure's [다시 시도] runs (the whole undo, so
+// the composer comes back too). o.say: the caller says the drop and offers its undo where it was pressed (a page line's
+// [판정 취소], verdict.js pvCancel), o.where is where a failure is said and o.what what it names. Resolves with whether the pin was deleted.
+/** @param {number|null} id @param {boolean} undoSave @param {()=>unknown} [again] @param {{say?:()=>void,where?:string,what?:string}} [o] @returns {Promise<boolean>} */
+async function dropPin(id,undoSave,again,o){const was=OPEN_ALL,applied=PINS_APPLIED_SEQ,prev=drawnBefore($('#pins'),'.pin.card',id); let ok=false;
   OPEN_ALL=OPEN_ALL.filter(p=>p.id!==id); PINS=PINS.filter(p=>p.id!==id); if(EDITOR.current&&EDITOR.current.id===id)EDITOR.current=null; drawPins(); marks();
-  try{await api('/api/pins/'+id+'/drop',{method:'POST',what:'삭제',where:NOTICE_HOST.LIST,retry:again||(()=>{dropPin(id,undoSave);})});
+  try{await api('/api/pins/'+id+'/drop',{method:'POST',what:o&&o.what||'삭제',where:o&&o.where||NOTICE_HOST.LIST,retry:again||(()=>{dropPin(id,undoSave,undefined,o);})});
     ok=true; markMine(id);
     if(undoSave)quietNote(tl('핀 #{id} 저장을 되돌렸습니다',{id}));
+    else if(o&&o.say)o.say();
     else undoNote(NOTICE_PLACE.ROW,tl('핀 #{id} 삭제됨 · 휴지통에 30일 보관',{id}),{label:'되돌리기',wait:true,fn:()=>restorePin(id)},{pin:id,sec:'open',prev});}
   catch(e){if(PINS_APPLIED_SEQ===applied){const old=was.find(p=>p.id===id);
       if(old&&!OPEN_ALL.some(p=>p.id===id)){const next=was.slice(was.indexOf(old)+1).find(p=>OPEN_ALL.some(x=>x.id===p.id));

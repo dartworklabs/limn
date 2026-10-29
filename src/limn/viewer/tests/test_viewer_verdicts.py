@@ -19,16 +19,20 @@ from limn.pins.location import source as pick_source
 
 import helpers_figure
 from helpers import ps, split_resp
-from helpers_access import ALICE, BOB, member_add, talk_to
-from helpers_browser import MISSES_44, BrowserBase, booted, settle, watch_idle
+from helpers_access import ALICE, BOB, member_add, member_set_role, talk_to
+from helpers_browser import MISSES_44, BrowserBase, booted, nothing_follows, settle, watch_idle
 
 WORDS = {"format": "limn-verdicts/1", "verdicts": [{"key": "채택"}, {"key": "보류"}, {"key": "삭제", "confirm": True}]}
 AGENT = {"Tailscale-User-Login": "agentb@example.com", "Tailscale-User-Name": "Agent B"}
 CAROL_VIEWER = {"Tailscale-User-Login": "carol@example.com", "Tailscale-User-Name": "Carol Lee"}
-# The text of page n's line, its buttons' words, and whether its line is there at all.
+# Ends every save chip on the pages now, as its window would (a line's words hold their descriptions back while one stands).
+END_CHIPS = "()=>NOTICES.forEach(n=>{if(n.place==='chip')endNotice(n,false);})"
+# The text of page n's line (its state, without [판정 취소] and the dot before it), its buttons' words, the [판정 취소] it offers
+# (the pin it takes back, or null), and whether its line is there at all.
 LINE = """n => {const l = document.querySelector('#doc .pv[data-page="' + n + '"]'); if (!l) return null;
-  const t = [...l.querySelector('.pv-t').childNodes].map(n => n.textContent).join(' ');
-  return {text: t.replace(/·/g, ' · ').replace(/\\s+/g, ' ').trim(), pin: l.dataset.pin || null,
+  const t = [...l.querySelector('.pv-t').childNodes].filter(n => !(n.classList && n.classList.contains('pv-cn'))).map(n => n.textContent).join(' ');
+  const c = l.querySelector('button.pv-cancel');
+  return {text: t.replace(/·/g, ' · ').replace(/\\s+/g, ' ').trim(), pin: l.dataset.pin || null, cancel: c ? Number(c.dataset.ref) : null,
     words: [...l.querySelectorAll('button.vd-b')].map(b => b.textContent), tips: [...l.querySelectorAll('button.vd-b')].map(b => b.dataset.tip)};}"""
 
 
@@ -314,6 +318,10 @@ class PageLine(VerdictBase):
             ),
             ["draft", True, sel],
         )
+        page.evaluate(
+            END_CHIPS
+        )  # while its save chip stands the line's words hold their descriptions back (TipAfterSave)
+        settle(page)
         line = page.evaluate(LINE, 1)
         self.assertEqual((line["pin"], line["words"]), (str(first), ["채택", "보류", "삭제"]))
         self.assertEqual(line["text"], "판정 #%d 채택 · 처리 대기" % first)
@@ -2532,3 +2540,380 @@ class ReasonAgentRole(VerdictBase):
         settle(page)
         self.assertIsNone(page.evaluate(REASON, 1))
         self.assertEqual(len(self.pins()), 1)
+
+
+def verdict_as(case, who, page_n, key, doc="fig"):
+    """A verdict pin on figure page page_n's whole figure, made by who through the API (the page line's pick and body);
+    its id."""
+    meta = case.call("GET", "/api/meta?doc=%s" % doc)[1]
+    pg = meta["pages"][page_n - 1]
+    pick = {"doc": doc, "page": page_n, "x0": 0, "y0": 0, "x1": pg["pt_w"], "y1": pg["pt_h"], "frac": [0, 0, 1, 1]}
+    code, d = case.call("POST", "/api/pick", {**pick, "pdf_build": meta["pages_build"]}, who)
+    case.assertEqual(code, 200, d)
+    body = {k: d[k] for k in helpers_figure.SAVE_LINE if d.get(k) is not None}
+    body.update(scope=d["default_level"], doc=doc, note="", kind_req="fix", assignee="agent", verdict=key)
+    code, made = case.call("POST", "/api/pin", body, who)
+    case.assertEqual(code, 200, made)
+    return made["id"]
+
+
+CANCEL = '#doc .pv[data-page="%d"] button.pv-cancel'
+STATUS = """()=>LINE.map(n=>({title:n.title,desc:n.desc,act:n.act?n.act.label:null,kind:n.kind}))"""
+
+
+class Cancel(VerdictBase):
+    """[판정 취소] on the page line (#295): a person's own open verdict is taken back where it was pressed, the line shows the
+    earlier verdict as current at once (ADR-0021 D4), and the status line's [되돌리기] brings it back. Only one's own, open;
+    a double press takes back one."""
+
+    def setUp(self):
+        super().setUp()
+        self.held_drop: list | None = None  # POST /api/pins/N/drop routes held unanswered while not None
+
+    def route(self, route):
+        rq = route.request
+        if rq.method == "POST" and urlparse(rq.url).path.endswith("/drop") and self.held_drop is not None:
+            self.held_drop.append(route)
+            return None
+        return super().route(route)
+
+    def test_cancel_brings_the_earlier_verdict_back_at_once_and_the_undo_restores_it(self):
+        """보류 then 채택 on page 1: the line offers [판정 취소] on #채택. Pressed, the line reads the 보류 as current before the
+        server answers, with its own [판정 취소]; the pin is in the Trash; the status line says '판정 #b 채택 취소됨 ·
+        Deployment calendar — 지금 판정은 #a 보류입니다' with [되돌리기], which brings #b back as the current verdict."""
+        page = self.on("fig")
+        a = self.press_page(page, 1, "보류")
+        b = self.press_page(page, 1, "채택")
+        line = page.evaluate(LINE, 1)
+        self.assertEqual((line["pin"], line["cancel"]), (str(b), b))
+        self.assertTrue(line["text"].startswith("판정 #%d 채택 · 처리 대기" % b), line)
+        self.held_drop = []
+        page.locator(CANCEL % 1).click()
+        page.wait_for_function(
+            "id=>document.querySelector('#doc .pv[data-page=\"1\"]').dataset.pin===String(id)", arg=a
+        )
+        line = page.evaluate(LINE, 1)
+        self.assertEqual((line["text"], line["cancel"]), ("판정 #%d 보류 · 처리 대기" % a, a))
+        page.wait_for_function("()=>document.querySelector('#doc .pv[data-page=\"1\"] .pv-cancel')")
+        held, self.held_drop = self.held_drop, None
+        self.assertEqual(len(held), 1)
+        for r in held:
+            self.forward(r)
+        settle(page)
+        self.assertEqual(set(self.pins()), {a})
+        _, trash = self.call("GET", "/api/pins/dropped")
+        self.assertIn(b, [p["id"] for p in trash["dropped"]])
+        self.assertIn(
+            {
+                "title": "판정 #%d 채택 취소됨 · Deployment calendar" % b,
+                "desc": "지금 판정은 #%d 보류입니다" % a,
+                "act": "되돌리기",
+                "kind": "ok",
+            },
+            page.evaluate(STATUS),
+        )
+        page.locator("#status [data-act=notice-act]").filter(has_text="되돌리기").click()
+        page.wait_for_function("id=>OPEN_ALL.some(p=>p.id===id)", arg=b)
+        settle(page)
+        line = page.evaluate(LINE, 1)
+        self.assertEqual((line["pin"], line["cancel"]), (str(b), b))
+        self.assertEqual(set(self.pins()), {a, b})
+
+    def test_the_last_verdict_cancelled_leaves_no_verdict_and_says_so(self):
+        """One verdict on page 2, taken back: the line reads '판정 없음' and the status line says no verdict is left."""
+        page = self.on("fig")
+        a = self.press_page(page, 2, "채택")
+        page.locator(CANCEL % 2).click()
+        page.wait_for_function("id=>!OPEN_ALL.some(p=>p.id===id)", arg=a)
+        settle(page)
+        line = page.evaluate(LINE, 2)
+        self.assertEqual((line["text"], line["cancel"], line["pin"]), ("판정 없음", None, None))
+        self.assertTrue(
+            page.evaluate(
+                "id=>LINE.some(n=>n.title==='판정 #'+id+' 채택 취소됨 · Review flow'&&n.desc==='남은 판정이 없습니다')",
+                a,
+            )
+        )
+
+    def test_only_ones_own_open_verdict_offers_it(self):
+        """Bob's newer verdict on page 1: no [판정 취소]. On page 2 Alice's own verdict claimed by an agent still offers it,
+        and taking it back says its run may have started; one the agent has closed (검토 대기) offers none."""
+        page = self.on("fig")
+        self.press_page(page, 1, "보류")
+        verdict_as(self, BOB, 1, "채택")
+        self.reload(page)
+        self.assertEqual(page.evaluate(LINE, 1)["cancel"], None)
+        c = self.press_page(page, 2, "채택")
+        self.assertEqual(self.call("POST", "/api/pins/%d/claim" % c, {}, AGENT)[0], 200)
+        self.reload(page)
+        self.assertEqual(page.evaluate(LINE, 2)["cancel"], c)
+        page.locator(CANCEL % 2).click()
+        page.wait_for_function("id=>!OPEN_ALL.some(p=>p.id===id)", arg=c)
+        settle(page)
+        self.assertTrue(page.evaluate("LINE.some(n=>n.title==='처리 중이던 판정이라 이미 실행됐을 수 있습니다')"))
+        d = self.press_page(page, 2, "보류")
+        self.assertEqual(self.call("POST", "/api/pins/%d/close" % d, {"reply": "done"}, AGENT)[0], 200)
+        self.reload(page)
+        line = page.evaluate(LINE, 2)
+        self.assertEqual((line["text"], line["cancel"]), ("판정 #%d 보류 · 검토 대기" % d, None))
+
+    def test_a_double_press_takes_back_one_verdict(self):
+        """Two of Alice's verdicts on page 1 and a double click on [판정 취소]: only the newer goes; the earlier one's
+        [판정 취소], now under the pointer, waits out the second click and takes it back only when pressed again."""
+        page = self.on("fig")
+        a = self.press_page(page, 1, "보류")
+        b = self.press_page(page, 1, "채택")
+        page.locator(CANCEL % 1).dblclick()
+        settle(page)
+        self.assertEqual(set(self.pins()), {a})
+        line = page.evaluate(LINE, 1)
+        self.assertEqual((line["pin"], line["cancel"]), (str(a), a))
+        self.assertIsNone(page.locator(CANCEL % 1).get_attribute("aria-disabled"))
+        page.locator(CANCEL % 1).click()
+        page.wait_for_function("id=>!OPEN_ALL.some(p=>p.id===id)", arg=a)
+        settle(page)
+        self.assertEqual(self.pins(), {})
+        self.assertEqual(page.evaluate(LINE, 1)["text"], "판정 없음")
+        self.assertNotIn(b, self.pins())
+
+    def test_a_failed_cancel_puts_the_verdict_back_on_the_line(self):
+        """The drop lost on the network: the line shows the verdict again, the status line says '판정 취소 실패' with
+        [다시 시도], which takes it back."""
+        page = self.on("fig")
+        a = self.press_page(page, 1, "채택")
+        page.route("**/api/pins/%d/drop" % a, lambda r: r.abort())
+        page.locator(CANCEL % 1).click()
+        page.wait_for_function("()=>LINE.some(n=>n.title==='판정 취소 실패')")
+        settle(page)
+        line = page.evaluate(LINE, 1)
+        self.assertEqual((line["pin"], line["cancel"]), (str(a), a))
+        page.unroute("**/api/pins/%d/drop" % a)
+        page.locator("#status [data-act=notice-act]").filter(has_text="다시 시도").click()
+        page.wait_for_function("id=>!OPEN_ALL.some(p=>p.id===id)", arg=a)
+        settle(page)
+        self.assertEqual(self.pins(), {})
+
+    def test_the_card_of_a_verdict_calls_its_delete_지우기(self):
+        """A verdict pin's card names its [삭제] '지우기' - the word file's '삭제' is a verdict - with a description that says
+        the earlier verdict comes back; an ordinary card keeps [삭제]. In the wide panel the name keeps one line in its cell;
+        in the compact one the icon carries it (the name in aria-label)."""
+        page = self.on("fig")
+        v = self.press_page(page, 1, "보류")
+        self.open_composer(page)
+        page.fill("#note", "보통 핀")
+        page.locator("#btn-save").click()
+        page.wait_for_function("OPEN_ALL.length===2")
+        settle(page)
+        (plain,) = set(self.pins()) - {v}
+        drop = """id=>{const b=document.querySelector('.pin[data-id="'+id+'"] [data-act=drop]'), l=b.querySelector('.lbl'), r=l.getBoundingClientRect();
+          return {label:l.textContent, name:b.getAttribute('aria-label'), tip:b.dataset.tip, fits:b.scrollWidth<=b.clientWidth+0.5,
+            one:r.height<parseFloat(getComputedStyle(l).lineHeight)*1.5, shown:getComputedStyle(l).display!=='none'};}"""
+        got = page.evaluate(drop, v)
+        self.assertEqual(
+            (got["label"], got["name"], got["shown"], got["fits"], got["one"]), ("지우기", "지우기", True, True, True)
+        )
+        self.assertIn("앞선 판정이 있으면 그 판정이 다시 지금 판정이 됩니다", got["tip"])
+        self.assertEqual(page.evaluate(drop, plain)["label"], "삭제")
+        phone = self.on("fig", n_open=2, viewport={"width": 390, "height": 844}, is_mobile=True, has_touch=True)
+        phone.evaluate("id=>{setSide(true); OPEN_CARDS.add(id); drawPins();}", v)
+        settle(phone)
+        got = phone.evaluate(drop, v)
+        self.assertEqual((got["name"], got["shown"]), ("지우기", False))
+
+
+class CancelAgentRole(VerdictBase):
+    """A person whose role is now agent has no [판정 취소], even on a verdict they made before (D16: the server refuses an
+    agent's drop of a verdict pin)."""
+
+    def test_the_agent_role_is_offered_no_cancel_on_its_own_old_verdict(self):
+        page = self.on("fig")
+        a = self.press_page(page, 1, "채택")
+        self.assertEqual(page.evaluate(LINE, 1)["cancel"], a)
+        member_set_role(ps.APP.C.state, ALICE["Tailscale-User-Login"], "agent")
+        page = self.on("fig", n_open=1)
+        line = page.evaluate(LINE, 1)
+        self.assertEqual((line["pin"], line["cancel"], line["words"]), (str(a), None, []))
+        self.assertEqual(page.evaluate("document.querySelectorAll('#doc .pv-cancel').length"), 0)
+
+
+class TipAfterSave(VerdictBase):
+    """No description box over a line's save chip (#295): while the chip stands the line's words hold their descriptions
+    back, so neither the press's own focus, a resting hand's slight move nor anything that hides the box meanwhile brings
+    one over the chip; the descriptions come back with the chip's leaving."""
+
+    def test_no_box_over_the_save_chip_and_the_descriptions_come_back_after_it(self):
+        page = self.on("fig")
+        btn = '#doc .pv[data-page="1"] button[data-key="채택"]'
+        page.hover(btn)
+        page.wait_for_function("()=>!document.querySelector('#tip').hidden")  # the box shows on hover before the press
+        self.press_page(page, 1, "채택")
+        nothing_follows(page, 500)  # the click's focus armed the box for 300ms
+        self.assertTrue(page.evaluate("document.querySelector('#tip').hidden"))
+        self.assertTrue(page.evaluate(ON_TOP, '#doc .pv[data-page="1"]>.nt-chip [data-act="notice-act"]'))
+        self.assertEqual(page.evaluate(LINE, 1)["tips"], [None, None, None])
+        box = page.locator(btn).bounding_box()
+        page.mouse.move(
+            box["x"] + box["width"] / 2 + 3, box["y"] + box["height"] / 2 + 1
+        )  # a rest on the button moves a little
+        nothing_follows(page, 500)
+        self.assertTrue(page.evaluate("document.querySelector('#tip').hidden"))
+        # Whatever hides the box meanwhile (a scroll anywhere, a redraw) does not let the next small move bring it back,
+        # nor does a move to the next word, whose box would stand over the chip too.
+        page.evaluate("()=>{document.querySelector('#left').dispatchEvent(new Event('scroll')); drawPageVerdicts();}")
+        page.mouse.move(box["x"] + 6, box["y"] + box["height"] / 2)
+        page.hover('#doc .pv[data-page="1"] button[data-key="보류"]')
+        nothing_follows(page, 500)
+        self.assertTrue(page.evaluate("document.querySelector('#tip').hidden"))
+        page.evaluate(END_CHIPS)
+        settle(page)
+        self.assertTrue(
+            all(t and t.startswith("누르면 이 쪽에 새 판정 핀을 저장합니다") for t in page.evaluate(LINE, 1)["tips"])
+        )
+        page.mouse.move(box["x"] - 200, box["y"] - 200)
+        page.hover(btn)
+        page.wait_for_function("()=>!document.querySelector('#tip').hidden")
+
+
+class ReasonRaces(VerdictBase):
+    """The reason field's rare orders (#294): a document with no page lines, moving on while Enter's write is out, and a
+    write that fails on moving on."""
+
+    def setUp(self):
+        super().setUp()
+        self.edits: list = []  # every POST /api/pins/N/edit body the viewer sent
+        self.held_edit: list | None = None  # those held unanswered while not None
+        self.lose_edit = 0  # how many to lose on the network
+        self.refuse_edit = 0  # how many to answer 400
+
+    def route(self, route):
+        rq = route.request
+        path = urlparse(rq.url).path
+        if rq.method == "POST" and path.startswith("/api/pins/") and path.endswith("/edit"):
+            self.edits.append(json.loads(rq.post_data or "{}"))
+            if self.lose_edit:
+                self.lose_edit -= 1
+                return route.abort()
+            if self.refuse_edit:
+                self.refuse_edit -= 1
+                return route.fulfill(
+                    status=400, headers={"content-type": "application/json"}, body='{"error": "안 됩니다"}'
+                )
+            if self.held_edit is not None:
+                self.held_edit.append(route)
+                return None
+        return super().route(route)
+
+    def note(self, pid):
+        return self.pins()[pid]["note"]
+
+    def typed(self, page, n, text):
+        """The page's verdict saved by a click on 채택 and text typed into its reason field; the pin's id."""
+        pid = self.press_page(page, n, "채택")
+        page.click('#doc .pv[data-page="%d"] .pv-reason' % n)
+        page.keyboard.type(text)
+        return pid
+
+    def test_a_document_without_page_lines_closes_the_field_and_keeps_its_text(self):
+        """'원고로 간다' typed (no Enter), then the LaTeX manuscript, which has no page lines: the text is the pin's note,
+        said on the status line, and coming back the field is gone."""
+        page = self.on("fig")
+        pid = self.typed(page, 1, "원고로 간다")
+        page.evaluate("k=>switchDoc(k)", "ms")
+        page.wait_for_function("DOC==='ms'&&META&&META.doc==='ms'")
+        settle(page)
+        self.assertEqual(self.note(pid), "원고로 간다")
+        self.assertIsNone(page.evaluate("PV_REASON"))
+        self.assertTrue(page.evaluate("id=>LINE.some(n=>n.title==='이유 저장됨 · #'+id)", pid))
+        page.evaluate("k=>switchDoc(k)", "fig")
+        page.wait_for_function("DOC==='fig'&&META&&META.doc==='fig'&&document.querySelector('#p1')")
+        settle(page)
+        self.assertIsNone(page.evaluate(REASON, 1))
+
+    def test_moving_on_while_enter_is_out_writes_the_reason_once(self):
+        """Enter, and before its answer the person moves on - another document, another verdict on the line, the reading
+        page leaving: one edit is sent, and the note is the reason once."""
+        for case in ("another document", "another verdict", "another page"):
+            with self.subTest(case=case):
+                self.edits = []
+                page = self.on("fig")
+                if case == "another page":
+                    page.evaluate("setK(PT_PX*1.5,false); ZOOMED=true")
+                    page.evaluate(SCROLL, [2, "top"])
+                    settle(page)
+                n = 2 if case == "another page" else 1
+                pid = self.typed(page, n, "한 번만")
+                self.held_edit = []
+                page.keyboard.press("Enter")
+                page.wait_for_function(
+                    "()=>window.__limnIdle&&document.querySelector('#doc .pv-reason')&&document.querySelector('#doc .pv-reason').disabled"
+                )
+                if case == "another document":
+                    page.evaluate("k=>switchDoc(k)", "rv")
+                    page.wait_for_function("DOC==='rv'&&META&&META.doc==='rv'")
+                elif case == "another verdict":
+                    page.locator('#doc .pv[data-page="1"] button[data-key="보류"]').click()
+                    page.wait_for_function("id=>OPEN_ALL.some(p=>p.id>id)", arg=pid, timeout=10000)
+                else:
+                    page.evaluate(SCROLL, [1, "top"])
+                    page.wait_for_function("()=>PV_REASON===null")
+                page.wait_for_timeout(200)  # anything the move-on would send has been sent (held)
+                held, self.held_edit = self.held_edit, None
+                self.assertEqual(len(held), 1, self.edits)
+                for r in held:
+                    self.forward(r)
+                settle(page)
+                self.assertEqual(len(self.edits), 1, self.edits)
+                self.assertEqual(self.note(pid), "한 번만")
+                for p in list(self.pins()):
+                    self.call("POST", "/api/pins/%d/drop" % p, {})
+
+    def test_a_failed_save_on_moving_on_keeps_the_text_for_a_retry(self):
+        """The edit lost on the network as the person moves on (another document): the note stays empty, and the status
+        line says '이유 저장 실패 · #N — 서버에 닿지 않습니다' with [다시 시도]; pressed with the network back, the reason is the
+        note and the status line says it was saved. A refusal (400) says so without [다시 시도]."""
+        page = self.on("fig")
+        pid = self.typed(page, 1, "다시 보낼 이유")
+        self.lose_edit = 1
+        page.evaluate("k=>switchDoc(k)", "ms")
+        page.wait_for_function("DOC==='ms'&&META&&META.doc==='ms'")
+        settle(page)
+        self.assertEqual(self.note(pid), "")
+        self.assertIn(
+            {"title": "이유 저장 실패 · #%d" % pid, "desc": "서버에 닿지 않습니다", "act": "다시 시도", "kind": "err"},
+            page.evaluate(STATUS),
+        )
+        page.locator("#status [data-act=notice-act]").filter(has_text="다시 시도").click()
+        page.wait_for_function("id=>LINE.some(n=>n.title==='이유 저장됨 · #'+id)", arg=pid)
+        settle(page)
+        self.assertEqual(self.note(pid), "다시 보낼 이유")
+        self.assertFalse(page.evaluate("LINE.some(n=>n.title.startsWith('이유 저장 실패'))"))
+        page.evaluate("k=>switchDoc(k)", "fig")
+        page.wait_for_function("DOC==='fig'&&META&&META.doc==='fig'&&document.querySelector('#p1')")
+        settle(page)
+        other = self.typed(page, 2, "거절될 이유")
+        self.refuse_edit = 1
+        page.evaluate("k=>switchDoc(k)", "ms")
+        page.wait_for_function("DOC==='ms'&&META&&META.doc==='ms'")
+        settle(page)
+        self.assertIn(
+            {"title": "이유 저장 실패 · #%d" % other, "desc": "안 됩니다", "act": None, "kind": "err"},
+            page.evaluate(STATUS),
+        )
+
+    def test_a_failed_enter_keeps_the_text_in_the_field(self):
+        """Enter lost on the network: the field is open again with the text and the focus, the status line says the
+        failure; Enter again saves it once."""
+        page = self.on("fig")
+        pid = self.typed(page, 1, "엔터 실패")
+        self.lose_edit = 1
+        page.keyboard.press("Enter")
+        page.wait_for_function("()=>LINE.some(n=>n.title.startsWith('이유 저장 실패'))")
+        settle(page)
+        got = page.evaluate(REASON, 1)
+        self.assertEqual((got["value"], got["focused"]), ("엔터 실패", True))
+        self.assertFalse(page.evaluate("document.querySelector('#doc .pv-reason').disabled"))
+        page.keyboard.press("Enter")
+        page.wait_for_function("id=>OPEN_ALL.some(p=>p.id===id&&p.note)", arg=pid)
+        settle(page)
+        self.assertEqual(self.note(pid), "엔터 실패")
+        self.assertIsNone(page.evaluate(REASON, 1))
