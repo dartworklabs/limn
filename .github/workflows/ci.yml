@@ -114,7 +114,7 @@ jobs:
         timeout-minutes: 10
         run: uv run playwright install --with-deps chromium firefox webkit
       - name: Python tests
-        run: uv run pytest -q -rs -n 1 -k DebugCIChipRoom src/limn/viewer/tests/test_viewer_verdicts.py -o faulthandler_timeout=600
+        run: uv run pytest -q -rs -n 1 -k "DebugCIChipRoom or ChipFontWait or test_only_the_newest_save_chip_shows or test_the_floating_line_is_under_save_chips_and_over_marks or hover_holds or save_chip_never_covers" src/limn/viewer/tests/test_viewer_verdicts.py -o faulthandler_timeout=600
 
   macos:
     # macOS semantics for tests that need no TeX or Chromium: BSD
