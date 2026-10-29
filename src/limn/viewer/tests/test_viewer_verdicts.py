@@ -2225,7 +2225,9 @@ class LineLayout(VerdictBase):
             .filter(e=>{const r=b(e); return r.left<cb.right+4&&r.right>cb.left-4&&r.top<cb.bottom&&r.bottom>cb.top;}).map(e=>e.className.toString());
           return {chip:true,covers:hit,short:l.classList.contains('pv-chip-short'),words:v(c.querySelector('.nt-t')),undo:v(c.querySelector('[data-act="notice-act"]'))};}"""
         seen = set()
-        for w in [0] + list(range(1400, 280, -2)):  # every 2px: a folded chip 8px wider than measured covered the identifier at 744-760px only
+        for w in [0] + list(
+            range(1400, 280, -2)
+        ):  # every 2px: a folded chip 8px wider than measured covered the identifier at 744-760px only
             got = page.evaluate(geom, w)
             if got["chip"]:
                 self.assertEqual(got["covers"], [], (w, got))
@@ -5872,7 +5874,9 @@ class RcRound4(VerdictBase):
         page.evaluate("pvStick()")
         settle(page)
         self.assertEqual(page.evaluate("PV_READ"), 1)
-        self.assertTrue(page.evaluate("document.querySelector('#doc .pv[data-page=\"1\"]').classList.contains('pv-stack')"))
+        self.assertTrue(
+            page.evaluate("document.querySelector('#doc .pv[data-page=\"1\"]').classList.contains('pv-stack')")
+        )
 
     def test_a_jump_glides_to_its_page_on_a_phone(self):
         """390x844: a smooth jump to page 2 crosses the reading line's change from page 1 to page 2 on the way and ends with
@@ -5965,7 +5969,10 @@ class RcRound4(VerdictBase):
         page.focus(".edit .b-esave")
         page.keyboard.press("2")
         settle(page)
-        self.assertEqual(page.evaluate("[OPEN_ALL.length, PV_BUSY.size, document.activeElement.classList.contains('b-esave')]"), [1, 0, True])
+        self.assertEqual(
+            page.evaluate("[OPEN_ALL.length, PV_BUSY.size, document.activeElement.classList.contains('b-esave')]"),
+            [1, 0, True],
+        )
         self.assertEqual([p["verdict"] for p in self.pins().values()], ["채택"])
 
     def test_a_digit_from_the_section_strip_then_enter_opens_the_reason(self):
@@ -5987,6 +5994,7 @@ class RcRound4(VerdictBase):
         settle(page)
         self.assertEqual([(p["verdict"], p["note"]) for p in self.pins().values()], [("채택", "패널 값")])
 
+
 class ChipFontWait(VerdictBase):
     """A save chip with no room on its line while a web font loads waits unseen instead of sending its undo to the status
     line for good: on CI under load a fresh state's new characters were drawn in a fallback face while their Pretendard
@@ -5999,7 +6007,9 @@ class ChipFontWait(VerdictBase):
         page = self.on("fig")
         page.evaluate("setK(PT_PX*2,false); ZOOMED=true")
         settle(page)
-        page.evaluate("()=>{window.__fs='loaded'; Object.defineProperty(document.fonts,'status',{get:()=>window.__fs,configurable:true});}")
+        page.evaluate(
+            "()=>{window.__fs='loaded'; Object.defineProperty(document.fonts,'status',{get:()=>window.__fs,configurable:true});}"
+        )
         self.press_page(page, 2, "보류")
         self.assertEqual(page.evaluate(self.STATE, None), [True, False, False])
         w = page.evaluate(
@@ -6012,7 +6022,9 @@ class ChipFontWait(VerdictBase):
 
     def test_a_chip_with_no_room_waits_for_the_fonts_and_is_placed_when_they_load(self):
         page = self.saved_then_squeezed()
-        page.evaluate("()=>{window.__fs='loaded'; document.fonts.dispatchEvent(new Event('loadingdone'));}")  # sizePv: the line's width again
+        page.evaluate(
+            "()=>{window.__fs='loaded'; document.fonts.dispatchEvent(new Event('loadingdone'));}"
+        )  # sizePv: the line's width again
         page.wait_for_timeout(100)
         self.assertEqual(page.evaluate(self.STATE, None), [True, False, False])
 
