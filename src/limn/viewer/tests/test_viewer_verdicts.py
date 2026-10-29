@@ -6037,7 +6037,12 @@ class DebugCIChipRoom(VerdictBase):
         page.evaluate("setK(PT_PX*2,false); ZOOMED=true")
         settle(page)
         self.press_page(page, 1, "채택")
+        page.evaluate("""d=>{window.__away=[]; const dump=new Function('return ('+d+')')(); const ca=window.chipAway;
+          window.chipAway=function(c){const l=c.parentElement,n=l&&l.dataset?Number(l.dataset.page):0; const ch=c.getBoundingClientRect(),t=c.querySelector('.nt-t'),i=c.querySelector('.nt-ic');
+            window.__away.push({n,busy:[...PV_BUSY.entries()],held:n?pvRowsHeld(l):null,chipW:Math.round(ch.width),textW:t?Math.round(t.getBoundingClientRect().width):-1,icW:i?Math.round(i.getBoundingClientRect().width):-1,
+              gap:getComputedStyle(c).columnGap,txt:c.textContent,stack:new Error().stack.split('\\n').slice(1,6).join(' | '),dump:n?dump(n):null}); return ca.apply(this,arguments);};}""", self.DUMP)
         self.press_page(page, 2, "보류")
+        out.append(page.evaluate("window.__away"))
         out.append(page.evaluate(self.DUMP, 2))
         page.wait_for_timeout(1500)
         out.append(page.evaluate(self.DUMP, 2))
