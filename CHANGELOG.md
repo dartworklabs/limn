@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.4.33 — 2026-10-29
 
 Verdicts taken back where they were given, the page line's reason field in its rare orders, the outline filter, the
 figure pick's badge and the figure pin's chip (#295 from a figure-document author's test, #294, #293). The agent
