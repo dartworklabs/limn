@@ -2103,7 +2103,13 @@ class LineLayout(VerdictBase):
             )
         )
         self.assertAlmostEqual(got["words"][-1]["right"], got["line"]["right"], delta=1)
-        self.assertEqual(page.evaluate("[...document.querySelectorAll('#doc .pv.pv-stack')].length"), 0)
+        # no other line stacks for this one's sake: a stacked line is one narrower than a verdict's state beside its words
+        self.assertEqual(
+            page.evaluate(
+                """()=>[...document.querySelectorAll('#doc .pv.pv-stack')].filter(l=>l.getBoundingClientRect().width>=l.querySelector('.vd-btns').getBoundingClientRect().width+pvStateNeed(l)+24).length"""
+            ),
+            0,
+        )
 
     def test_mouse_targets_answer_32px_8px_apart_and_the_confirm_word_stands_apart(self):
         """With a mouse the words, [판정 취소] and the earlier link are 32px tall and the '#N' link answers 32 x 32 px (they
@@ -2732,6 +2738,138 @@ class RcLayoutFixes(VerdictBase):
             {k: got[k] for k in ("stack", "add", "undo")}, {"stack": False, "add": True, "undo": False}, got
         )
         self.assertLessEqual(got["h"], 40)
+
+
+# A control's touch area along its left edge, middle and right edge: how tall a column through each answers it (elementFromPoint,
+# 40px over and under its box searched), [left, middle, right].
+EDGE_HITS = """sel=>{const e=document.querySelector(sel); if(!e||!e.getClientRects().length)return null; const b=e.getBoundingClientRect();
+  return [b.left+1,b.left+b.width/2,b.right-1].map(x=>{let top=null,bot=null; for(let y=Math.floor(b.top)-40;y<=Math.ceil(b.bottom)+40;y++){const h=document.elementFromPoint(x,y);
+    if(h&&(h===e||e.contains(h))){if(top===null)top=y; bot=y;}} return top===null?0:bot-top+1;});}"""
+# Page n's words, as their centres.
+WORDS_AT = """n=>[...document.querySelectorAll('#doc .pv[data-page="'+n+'"] .vd-b')].map(b=>{const r=b.getBoundingClientRect(); return [Math.round(r.left+r.width/2),Math.round(r.top+r.height/2)];})"""
+
+
+class RcLayoutFixes2(VerdictBase):
+    """The RC retest's layout findings: touch areas along both edges, a line's first save moving no word (a phone's line in
+    its place, a narrow desktop line), a sheet's banner clear of the tool bar."""
+
+    def test_touch_areas_answer_44px_along_both_edges(self):
+        """Phone and fold portrait, the status line up with a save's [되돌리기] and the floating line over it: a column
+        through the left edge, the middle and the right edge of [되돌리기], [x] and the line's '#N' each answers 44px and more
+        ([x]'s centred area took the right 6px of [되돌리기], and the 1px borders answered only the box)."""
+        for word, device in (
+            ("보류", {"viewport": {"width": 390, "height": 844}, "is_mobile": True, "has_touch": True}),
+            ("채택", FOLD_PORTRAIT),
+        ):
+            with self.subTest(device=device["viewport"]):
+                page = self.on("fig", **device)
+                page.evaluate("setSide(false)")
+                settle(page)
+                page.evaluate("setK(PT_PX*1.5,false); ZOOMED=true")
+                settle(page)
+                page.evaluate(SCROLL, [2, "top"])
+                settle(page)
+                self.press_page(page, 2, word)
+                page.evaluate(
+                    "()=>NOTICES.forEach(n=>{if(n.place==='chip')offerToLine(n);})"
+                )  # the undo on the status line
+                settle(page)
+                for sel in (
+                    "#status-dock #status button.nt-act",
+                    "#status-dock #status button.nt-x",
+                    '#doc .pv[data-page="2"] .pv-ref',
+                ):
+                    got = page.evaluate(EDGE_HITS, sel)
+                    self.assertTrue(got and min(got) >= 44, (sel, got))
+
+    def test_a_first_save_moves_no_word_of_a_phones_line_in_its_place(self):
+        """390x844, page 1's line in its place under the page: its state's row is as tall from the start as a text action
+        makes it, so the first verdict's [이유 추가] and [판정 취소] do not push the words down (they dropped 25px)."""
+        page = self.on("fig", viewport={"width": 390, "height": 844}, is_mobile=True, has_touch=True)
+        page.evaluate("setSide(false)")
+        settle(page)
+        page.evaluate(
+            """()=>{const A=document.querySelector('#left'),l=document.querySelector('#doc .pv[data-page="1"]'),ar=A.getBoundingClientRect(); A.scrollTop+=l.getBoundingClientRect().top-(ar.top+ar.height*0.3);}"""
+        )
+        settle(page)
+        self.assertFalse(
+            page.evaluate("""document.querySelector('#doc .pv[data-page="1"]').classList.contains('stuck')""")
+        )
+        before = page.evaluate(WORDS_AT, 1)
+        self.press_page(page, 1, "보류")
+        after = page.evaluate(WORDS_AT, 1)
+        self.assertEqual([y for _, y in after], [y for _, y in before])
+
+    def test_a_narrow_desktop_line_is_stacked_before_its_first_save(self):
+        """A mouse, the pages at a small zoom: a line narrower than the state a press brings beside its words is stacked
+        while it still says '판정 없음', so the first save leaves every word where it was (it went from one row to three under
+        the press, 91px, the words 59px down and 100-330px left)."""
+        page = self.on("fig")
+        for zoom in (
+            0.9,
+            0.8,
+            0.7,
+            0.6,
+            0.5,
+            0.45,
+            0.4,
+            0.35,
+        ):  # the largest zoom at which page 2's line is narrower than that state
+            page.evaluate("z=>{setK(PT_PX*z,false); ZOOMED=true}", zoom)
+            settle(page)
+            if page.evaluate(
+                """()=>document.querySelector('#doc .pv[data-page="2"]').classList.contains('pv-stack')"""
+            ):
+                break
+        page.evaluate(  # page 2 under the reading line, well inside it: its line names its figure before and after the press
+            """()=>{const A=document.querySelector('#left'),ar=A.getBoundingClientRect(),p=document.getElementById('p2').getBoundingClientRect(); A.scrollTop+=p.top+p.height/2-(ar.top+readingDepth(A));}"""
+        )
+        settle(page)
+        need = page.evaluate(
+            """()=>{const l=document.querySelector('#doc .pv[data-page="2"]'); return {w:l.getBoundingClientRect().width,stack:l.classList.contains('pv-stack'),need:pvStateNeed(l)};}"""
+        )
+        self.assertGreater(need["need"], 150, need)
+        self.assertTrue(need["stack"], need)
+        before = page.evaluate(WORDS_AT, 2)
+        top = page.evaluate("document.querySelector('#left').scrollTop")
+        page.mouse.click(*before[0])  # where the person's mouse is: no scroll before the press
+        page.wait_for_function("()=>OPEN_ALL.length===1")
+        page.evaluate(END_CHIPS)
+        settle(page)
+        self.assertEqual(page.evaluate("document.querySelector('#left').scrollTop"), top)
+        after = page.evaluate(WORDS_AT, 2)
+        self.assertEqual(page.evaluate("PV_READ"), 2)
+        self.assertEqual([y for _, y in after], [y for _, y in before])
+        for (bx, _), (ax, _) in zip(before, after, strict=True):
+            self.assertLessEqual(abs(ax - bx), 16)  # the pressed word's check may widen it a little
+
+    def test_a_sheets_banner_is_scrolled_clear_of_the_tool_bar(self):
+        """390x844, the sheet open and its list scrolled: a banner put on top of the list is scrolled into view under the
+        sheet's stuck tool bar, its first line readable (it stood under the bar, '핀 #1 메모를 저장하지 않았습니다' hidden)."""
+        page = self.on("fig", n_open=0, viewport={"width": 390, "height": 844}, is_mobile=True, has_touch=True)
+        for k in range(10):
+            page.evaluate(
+                "k=>{LAST_PTR='touch'; pick({doc:'fig',page:1,pdf_build:META.pages_build,x0:20,y0:20+k*8,x1:200,y1:26+k*8,frac:[0.05,0.05+k*0.02,0.4,0.015]});}",
+                k,
+            )
+            page.wait_for_function("COMPOSE.current&&!COMPOSE.picking")
+            page.fill("#note", "목록을 길게 %d" % k)
+            page.evaluate("savePin()")
+            page.wait_for_function("!COMPOSE.saving&&$('#composer').hidden")
+        page.evaluate("setSide(true)")
+        settle(page)
+        page.evaluate("()=>{const r=document.querySelector('#right'); r.scrollTop=r.scrollHeight;}")
+        settle(page)
+        self.assertGreater(page.evaluate("document.querySelector('#right').scrollTop"), 40)
+        page.evaluate(
+            "()=>bannerNote(NOTICE_HOST.LIST,'핀 #1 메모를 저장하지 않았습니다 · 그사이 다른 곳에서 메모가 바뀌었습니다 — 지금 메모: 에이전트가 덧붙인 메모',NOTICE_KIND.WARN,{label:'내 메모로 덮어쓰기',fn:()=>{}})"
+        )
+        settle(page)
+        got = page.evaluate(
+            """()=>{const n=document.querySelector('#list>.nt-banner'),r=n.getBoundingClientRect(),bar=document.querySelector('#bar1').getBoundingClientRect(),h=document.elementFromPoint(r.left+r.width/2,r.top+4);
+              return {below:r.top>=bar.bottom,top:!!h&&n.contains(h)};}"""
+        )
+        self.assertEqual(got, {"below": True, "top": True})
 
 
 class Keys(VerdictBase):

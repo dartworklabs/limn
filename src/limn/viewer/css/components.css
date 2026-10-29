@@ -278,7 +278,11 @@ body.lay-narrow.has-status:not(.typing,.pv-typing){--pv-inset:calc(var(--sheet-h
 body.band-phone .pv.pv-lean .pv-cn{display:none}
 /* A stacked line puts its state on a row of its own and its buttons on the next, at its start, filling the row - or sharing
    it with a save chip at its end (notices.css). */
-.pv.pv-stack>.pv-t{flex-basis:100%}
+.pv.pv-stack>.pv-t{flex-basis:100%;min-height:var(--pv-ctl)}
+/* The state's row is as tall from the start as a text action makes it ([이유 추가], [판정 취소]: 32px with a mouse, 44px on
+   touch): a line in its place grows downward, and a phone's first verdict moved its words 25px down under the finger. */
+@media (pointer:coarse){.pv.pv-stack>.pv-t{min-height:var(--hit)}
+  .pv{min-height:var(--hit)}}   /* a row too: the words (36px) sat 4px higher before a press brought a 44px text action */
 .pv.pv-stack>.vd-btns{flex:1 1 auto}
 /* On touch the words' row and the buttons' row stand 20px apart, and the earlier link wrapped under the words 16px, so
    the '#N' link (.hit) and the targets under it each answer a whole 44px - 4px (0px) apart the buttons (the earlier link)

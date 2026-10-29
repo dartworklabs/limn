@@ -709,19 +709,34 @@ function pvFit(lines){const held=lines.map(pvRowsHeld);
   const tight=(/** @type {HTMLElement} */l)=>{const t=l.querySelector(':scope>.pv-t'),g=l.querySelector(':scope>.vd-btns'); if(!t)return false;
     const tr=t.getBoundingClientRect(); return [...t.querySelectorAll(':scope>*,:scope>*>*')].some(c=>c.getClientRects().length>0&&c.getBoundingClientRect().right>tr.right+1)
       ||(!!g&&g.getClientRects().length>0&&g.getBoundingClientRect().top>=tr.bottom-1);};
-  // A line too narrow for a verdict's state beside its words stacks whatever it shows now: a press that turned '판정 없음' into
-  // '판정 #26 보류 · 처리 대기 · 이유 추가 · 판정 취소' stacked it then and moved every word under the finger (a phone, a page at
-  // a small zoom). PV_STATE_EM is about that state's width in the line's text.
-  const narrow=(/** @type {HTMLElement} */l)=>{const g=l.querySelector(':scope>.vd-btns'),f=l.querySelector(':scope>.pv-fig>.pv-fig-id'); if(!g||!g.getClientRects().length)return false;
-    const em=parseFloat(getComputedStyle(l).fontSize)||12; return l.getBoundingClientRect().width<g.getBoundingClientRect().width+(f&&f.getClientRects().length?f.getBoundingClientRect().width+8:0)+PV_STATE_EM*em+16;};
-  let over=lines.map((l,i)=>!held[i]&&(narrow(l)||tight(l)));
-  if(LAYOUT===LAYOUT_MODE.WIDE&&over.some(o=>o)){lines.forEach((l,i)=>{if(over[i])l.classList.add('pv-tight');}); over=lines.map((l,i)=>over[i]&&tight(l));}
+  // A line too narrow for the state a press brings beside its words stacks whatever it shows now: a press that turned '판정 없음'
+  // into '판정 #26 보류 · 처리 대기 · 이유 추가 · 판정 취소' stacked it then and moved every word under the finger (a phone, a page at
+  // a small zoom: 3 rows, 91px, the words 59px down). That state's width is measured, not guessed (pvStateNeed).
+  const need=lines.length?pvStateNeed(lines[0]):0;
+  const narrow=lines.map((l,i)=>{if(held[i])return false; const g=l.querySelector(':scope>.vd-btns'),f=l.querySelector(':scope>.pv-fig>.pv-fig-id'); if(!g||!g.getClientRects().length)return false;
+    return l.getBoundingClientRect().width<g.getBoundingClientRect().width+(f&&f.getClientRects().length?f.getBoundingClientRect().width+8:0)+need+24;});
+  let over=lines.map((l,i)=>!held[i]&&(narrow[i]||tight(l)));
+  if(LAYOUT===LAYOUT_MODE.WIDE&&over.some(o=>o)){lines.forEach((l,i)=>{if(over[i])l.classList.add('pv-tight');}); over=lines.map((l,i)=>over[i]&&(narrow[i]||tight(l)));}
   lines.forEach((l,i)=>{if(over[i])l.classList.add('pv-stack');});
   pvChipPlace(lines);
   // A word group that wraps keeps every button at its own width (vdWrapFit), read for every line before any is written.
   const groups=lines.map(l=>l.querySelector('.vd-btns')),wrap=groups.map(g=>!!g&&new Set([...g.children].map(b=>Math.round(b.getBoundingClientRect().top))).size>1);
   groups.forEach((g,i)=>{if(g)g.classList.toggle('wrapped',wrap[i]);});}
-const PV_STATE_EM=24;   // the room an own verdict's state takes on the line (pvFit), in the line's em
+// The width the state of a person's fresh verdict takes on a line in a row - '판정 #000 <the longest word> · 처리 대기 ·
+// 이유 추가 · 판정 취소' - drawn once in a hidden line like line l (its text size, the screen's language and pointer) and kept
+// until those change. A line narrower than it beside its words and identifier is stacked before any press (pvFit).
+let PV_NEED={key:'',w:0};
+/** @param {HTMLElement} l */
+function pvStateNeed(l){const v=pageVerdictsOn(); if(!v)return 0;
+  const word=v.choices.map(c=>c.label).reduce((a,b)=>b.length>a.length?b:a,''),key=[getComputedStyle(l).fontSize,tr('판정'),word,MQ_COARSE.matches].join('|');
+  if(PV_NEED.key===key)return PV_NEED.w;
+  const probe=document.createElement('div'); probe.className='pv'; probe.setAttribute('aria-hidden','true');
+  probe.style.cssText='position:absolute;left:0;top:0;width:max-content;visibility:hidden;pointer-events:none';
+  setHtml(probe,html`<span class="pv-t"><span class="pv-s">${tr('판정')} <span class="pin-ref pv-ref hit">#000</span> <b class="vd-w">${word}</b></span><span class="pv-sep">·</span>\
+<span class="pv-st">${tr('처리 대기')}</span><span class="pv-ra"><span class="pv-sep">·</span><button type="button" class="btn-ghost btn-sm pv-add hit" tabindex="-1">${tr('이유 추가')}</button></span>\
+<span class="pv-sep pv-cn">·</span><button type="button" class="btn-ghost btn-sm pv-cancel pv-cn hit" tabindex="-1">${tr('판정 취소')}</button></span>`);
+  $('#doc').appendChild(probe); const w=Math.ceil(/** @type {HTMLElement} */(probe.firstElementChild).getBoundingClientRect().width); probe.remove();
+  PV_NEED={key,w}; return w;}
 // Whether line l keeps the rows it has now: its confirm word waits for the second press, or its save is out.
 /** @param {HTMLElement} l */
 function pvRowsHeld(l){const p=Number(l.dataset.page)||0; return (!!VD_ARM&&VD_ARM.where===VD_WHERE.PAGE&&VD_ARM.page===p)||PV_BUSY.has(pvSlot(p));}
