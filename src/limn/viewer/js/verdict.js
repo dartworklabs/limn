@@ -778,8 +778,8 @@ function pvRowsHeld(l){const p=Number(l.dataset.page)||0; return (!!VD_ARM&&VD_A
 // flow the chip added a row on a phone (131 -> 251px) and moved the words under a waiting finger, and laid over them it
 // took presses meant for [이유 추가] and [판정 취소]. --pv-chip-r and --pv-chip-y place it from the line's right edge and top.
 /** @param {HTMLElement[]} lines */
-const PV_CHIP_FONT_MS=3000;   // how long a chip with no room waits for the web fonts before its undo goes to the status line
-const PV_CHIP_FONT_T=/** @type {WeakMap<HTMLElement,number>} */(new WeakMap());
+const PV_CHIP_WAIT_MS=3000;   // how long a chip with no room waits for its line to settle before its undo goes to the status line
+const PV_CHIP_WAIT_T=/** @type {WeakMap<HTMLElement,number>} */(new WeakMap());
 function pvChipPlace(lines){const chips=lines.map(l=>/** @type {HTMLElement|null} */(l.querySelector(':scope>.nt-chip')));
   lines.forEach((l,i)=>{if(chips[i]){l.classList.toggle('pv-chip-short',false); l.classList.toggle('pv-chip-bare',false);} else l.classList.remove('pv-chip-wait');});
   const got=lines.map((l,i)=>{const c=chips[i]; if(!c)return null;
@@ -802,14 +802,17 @@ function pvChipPlace(lines){const chips=lines.map(l=>/** @type {HTMLElement|null
     if(id&&ft&&shown(ft)){const ir=R(id); rooms.push(room((ir.top+ir.bottom)/2,ir.right+8,stack?lr.right:R(ft).right));}
     for(let k=0;k<3;k++)for(const r of rooms)if(sizes[k]<=r.z-r.a)return {r:Math.round(lr.right-r.z),y:Math.round(r.y-lr.top),short:k>0,bare:k>1};   // its words where any room holds them
     return {away:true};});
-  // Going to the status line is for good (chipAway), so it is never decided while a web font loads: a fresh state's new
-  // characters fetch their Pretendard slice and are drawn meanwhile in a fallback face, wider, and a chip that fits once
-  // they swap went away (CI under load: three browser tests lost their chip). It waits unseen (.pv-chip-wait) until the
-  // fonts are loaded - pvFontsChanged fits every line again - or PV_CHIP_FONT_MS have passed since it first had no room.
+  // Going to the status line is for good (chipAway), so it is never decided on a line that is about to change: while its
+  // save is out or a confirm word waits (pvRowsHeld - the chip comes before the save's end, and the line then shows the
+  // new verdict and still '· 보류 저장 중…': on CI 69px of room for a 72px chip that had 146px a moment later, and three
+  // browser tests lost their chip), or while a web font loads (a fresh state's new characters are drawn in a fallback face
+  // until their Pretendard slice arrives). It waits unseen (.pv-chip-wait) and is placed when the line settles - the save's
+  // end redraws the lines (drawPageVerdicts), the fonts' load fits them (pvFontsChanged) - or goes once PV_CHIP_WAIT_MS
+  // have passed since it first had no room.
   lines.forEach((l,i)=>{const g=got[i],c=chips[i]; if(!g||!c)return;
     if(g.away){const t0=Number(c.dataset.noRoom)||Date.now(); c.dataset.noRoom=String(t0);
-      if(document.fonts&&document.fonts.status==='loading'&&Date.now()-t0<PV_CHIP_FONT_MS){l.classList.add('pv-chip-wait');
-        clearTimeout(PV_CHIP_FONT_T.get(c)); PV_CHIP_FONT_T.set(c,setTimeout(()=>{if(c.isConnected&&c.parentElement===l)pvFit([l]);},PV_CHIP_FONT_MS+20)); return;}
+      if((pvRowsHeld(l)||(document.fonts&&document.fonts.status==='loading'))&&Date.now()-t0<PV_CHIP_WAIT_MS){l.classList.add('pv-chip-wait');
+        clearTimeout(PV_CHIP_WAIT_T.get(c)); PV_CHIP_WAIT_T.set(c,setTimeout(()=>{if(c.isConnected&&c.parentElement===l)pvFit([l]);},PV_CHIP_WAIT_MS+20)); return;}
       l.classList.remove('pv-chip-wait'); chipAway(c); return;}
     delete c.dataset.noRoom; l.classList.remove('pv-chip-wait');
     l.style.setProperty('--pv-chip-r',g.r+'px'); l.style.setProperty('--pv-chip-y',g.y+'px');
