@@ -121,6 +121,26 @@ was; the viewer still counts the verdict order itself, and a browser test holds 
   저장` beside it and a screen reader hears `삭제 — 4초 안에 한 번 더 누르면 저장합니다`; when it lets go - its time, Esc or a
   press elsewhere - that is replaced by `삭제 확정을 풀었습니다`, and after its saving press it is cleared.
 
+- **The popover's buttons take the first tap with the keyboard up** (RC review). A tap on [저장], [접기] or [지우기] took the
+  focus out of the field, the status line came back and a phone's line stacked again, so the button moved 24-85px between
+  the touch and its click and the first tap fell on the popover. The fold the field makes holds until that click has run.
+- **The save chip never moves the line or covers a control.** It is laid over the line, out of its flow - on a phone it
+  added a row (131 -> 251px) and a tap on the old 삭제 spot undid the save - in room nothing takes: before the words, after
+  the state's last row, or over the figure's title after its identifier; it folds to [되돌리기], and where even that has no
+  room the undo is on the status line. It covered [이유 추가] (25 of 32 pages) and [판정 취소]; a click aimed at them under
+  automation scrolled the document 583-1358px. A mouse resting on it holds it at most 4 seconds past its window (30).
+- **A line too narrow for a verdict's state stacks whatever it shows**, and a line whose confirm word waits or whose save is
+  out keeps its rows: a press no longer restacks a phone's line under the finger.
+- **The reason popover opens below a line near the top** (under the section strip it showed one line of five) and is
+  never taller than its room; **a keyboard laid over the page** (iPad Safari) no longer hides the floating line and the
+  popover; on touch the floating line stands clear of the status line's [x], whose 44px took taps on the words' bottom.
+- **Contrast and spacing.** The armed `삭제 확정` and `4초 안에 한 번 더 누르면 저장` read 6.3 and 5.8:1 in the light theme (3.6,
+  4.2); the wait is said in full while armed (the reason, the earlier link, [이유 추가] and [판정 취소] give way); the reason
+  field's edge reads 4.4:1 (1.5); a long reason is cut before its pencil; [판정 취소] stands 16px from the reason's button and
+  the popover's [지우기] 16px from [닫기] with a divider.
+- **No layout read per scroll for chips.** The select bar's check runs once a frame and reads nothing while no chip is up
+  (seconds of long tasks over a first scroll through a hundred pins).
+
 ### Internal
 
 - The verdict contract snapshot gains a newer verdict on a panel of the figure and a newer one on the closed pin's lines;
