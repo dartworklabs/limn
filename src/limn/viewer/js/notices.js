@@ -12,6 +12,7 @@
 // Every message is a Notice in NOTICES, numbered n; its buttons carry data-act="notice-act"/"notice-x" and data-n.
 const NOTICE_MS=6000;   // the undo window: a deferred send goes when it ends (deferred()), and a save's chip stays as long
 const NOTICE_HOLD_MAX=30000;   // a hold (a mouse on it, the '+N' list open) stretches a window by at most this: a send always goes
+const PV_CHIP_HOLD_MAX=4000;   // ...and a page verdict line's save chip by at most this: a mouse resting by the words kept it up for 30s
 const LINE_MAX=5;       // the status line keeps five messages besides its undos (lineCap); its '+N' lists the rest
 const NOTICES=/** @type {Map<number,Notice>} */(new Map());
 const LINE=/** @type {Notice[]} */([]);                         // the status line's messages, newest first
@@ -182,7 +183,8 @@ function drawOffer(n){if(n.place===NOTICE_PLACE.CHIP)drawChips(); else if(n.plac
 // the press listener below, [x] or their action.
 /** @param {Notice} n */
 function armNotice(n){if(n.life!==NOTICE_LIFE.TIMER)return; clearTimeout(n.timer); n.timer=undefined; n.held=false; if(n.busy)return;
-  const left=n.at+NOTICE_MS+NOTICE_HOLD_MAX-Date.now(); n.held=noticeHeld(n);
+  const line=n.place===NOTICE_PLACE.CHIP&&!!n.el&&!!n.el.parentElement&&n.el.parentElement.classList.contains('pv');
+  const left=n.at+NOTICE_MS+(line?PV_CHIP_HOLD_MAX:NOTICE_HOLD_MAX)-Date.now(); n.held=noticeHeld(n);
   n.timer=setTimeout(()=>endNotice(n,false),Math.max(0,n.held?left:Math.min(NOTICE_MS,left)));}
 // Whether message n's window is held now: one on the status line while the line is (lineHeld); one drawn in place while a
 // mouse is on its element - still in the page and under the pointer, so no hold outlives what was hovered.
@@ -363,16 +365,21 @@ function chipInRoom(e,k){if(k.classList.contains('pv'))return;
 function boxesMeet(a,b){return a.left<b.right&&b.left<a.right&&a.top<b.bottom&&b.top<a.bottom;}
 // A chip never sits under the select mode's bar (#sel-bar, over the top of the PDF area while the mode is on): one whose box
 // meets the bar's - the mode turned on, or the page scrolled the mark up under it - takes its undo to the status line.
-function chipsClearOfBar(){const bar=$('#sel-bar'); if(!bar||!bar.getClientRects().length)return; const br=bar.getBoundingClientRect();
+// Nothing is read while no chip is up, and while the area scrolls only once a frame (with placeChips): read on every scroll
+// event it forced a layout each time - seconds of long tasks over a first scroll through a list of a hundred pins.
+function chipsClearOfBar(){let any=false; NOTICES.forEach(n=>{if(n.place===NOTICE_PLACE.CHIP&&n.el)any=true;}); if(!any)return;
+  const bar=$('#sel-bar'); if(!bar||!bar.getClientRects().length)return; const br=bar.getBoundingClientRect();
   NOTICES.forEach(n=>{if(n.place===NOTICE_PLACE.CHIP&&n.el&&n.el.getClientRects().length&&boxesMeet(n.el.getBoundingClientRect(),br))offerToLine(n);});}
-$('#left').addEventListener('scroll',chipsClearOfBar,{passive:true});
+// A page verdict line's chip with no room to stand in (verdict.js pvChipPlace) takes its undo to the status line.
+/** @param {HTMLElement} e */
+function chipAway(e){NOTICES.forEach(n=>{if(n.el===e&&n.place===NOTICE_PLACE.CHIP)offerToLine(n);});}
 // Places every save chip on screen again by chipInRoom's rules, from its mark's or line's place now: after a zoom (setW) and,
 // once a frame, while the PDF area scrolls either way - its place was set in px, so a zoomed page or a sideways scroll could
 // leave [되돌리기] off the PDF area or under the panel or its handle.
-function placeChips(){NOTICES.forEach(n=>{const e=n.el,k=e&&e.parentElement; if(n.place!==NOTICE_PLACE.CHIP||!e||!k||!e.isConnected)return;
+function placeChips(){NOTICES.forEach(n=>{const e=n.el,k=e&&e.parentElement; if(n.place!==NOTICE_PLACE.CHIP||!e||!k||!e.isConnected||k.classList.contains('pv'))return;
   e.style.left=''; e.style.right=''; e.style.maxWidth=''; chipInRoom(e,k);});}
 let CHIP_FRAME=0;
-$('#left').addEventListener('scroll',()=>{if(!CHIP_FRAME)CHIP_FRAME=requestAnimationFrame(()=>{CHIP_FRAME=0; placeChips();});},{passive:true});
+$('#left').addEventListener('scroll',()=>{if(!CHIP_FRAME)CHIP_FRAME=requestAnimationFrame(()=>{CHIP_FRAME=0; placeChips(); chipsClearOfBar();});},{passive:true});
 new MutationObserver(chipsClearOfBar).observe(document.body,{attributes:true,attributeFilter:['class']});   // body.selmode comes and goes
 // The list reload after a save or an append has run: a chip whose mark did not come goes to the status line (drawChips).
 /** @param {Notice|null} n */
