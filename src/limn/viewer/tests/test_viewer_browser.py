@@ -1871,6 +1871,72 @@ class FigureDocuments(BrowserBase):
             [["el", "7월", "true"], ["el2", "달력", "false"], ["fig", "B2", "false"]],
         )
 
+    # Drags over the July cell (JULY: x .47-.54, y .18-.30; its sibling August starts at x .55) and the share of each the cell holds.
+    AROUND_JULY = (0.46, 0.17, 0.09, 0.14)  # a margin all round: the cell is 67% of the drag
+    WIDE_AROUND_JULY = (0.45, 0.16, 0.11, 0.16)  # a wide margin: 48%
+    LOOSE_AROUND_JULY = (0.455, 0.165, 0.1, 0.15)  # 56%, just under the 60% a rival cannot reach
+    ACROSS_JULY_AUGUST = (0.47, 0.18, 0.15, 0.12)  # both cells, half and half: July (the first of two equals) at 47%
+
+    def location_badge(self, page):
+        """The composer's '위치 불확실' badge as [shown, its text, whether it is the warning look] and the pick's score."""
+        return page.evaluate(
+            """() => {const t = document.getElementById('c-tag');
+              return [!t.hidden, t.textContent, t.classList.contains('badge-warning'), COMPOSE.current.score];}"""
+        )
+
+    def test_a_drag_with_a_margin_around_the_right_cell_has_no_uncertain_badge_but_a_drag_across_two_cells_has(self):
+        """The pick's share is the cell's part of the drag, so a drag with a margin around the right cell never reached 90%.
+        Where the cell holds more than 60% of the drag no other element can hold the 40% the picker asks of a rival, so the
+        badge is not shown (67%); under that it is (56%, 48%, and 47% for a drag across two cells), as before; the
+        thresholds are 90% for a pick that is not a map's."""
+        page = self.open_fig()
+        for name, drag, shown, score in (
+            ("margin", self.AROUND_JULY, False, 0.67),
+            ("loose", self.LOOSE_AROUND_JULY, True, 0.56),
+            ("wide", self.WIDE_AROUND_JULY, True, 0.48),
+            ("across", self.ACROSS_JULY_AUGUST, True, 0.47),
+        ):
+            with self.subTest(drag=name):
+                self.drag(page, drag)
+                got = self.location_badge(page)
+                self.assertEqual((got[0], got[3]), (shown, score))
+                self.assertEqual(self.text(page, "#c-path"), "B2 › 달력 › 7월 ·")
+                if shown:
+                    self.assertEqual((got[1], got[2]), ("위치 불확실", False))
+                page.evaluate("discardSelection()")
+                settle(page)
+
+    def test_a_saved_pin_card_follows_the_same_rule_as_the_composer(self):
+        """The card of a pin saved from a drag with a margin has no '위치 불확실' (its stored score is 0.67); the card of one
+        saved from a wide margin has it, as the composer did."""
+        page = self.open_fig()
+        shown = {}
+        for name, drag in (("margin", self.AROUND_JULY), ("wide", self.WIDE_AROUND_JULY)):
+            pid = self.saved_pin_at(page, drag, "note " + name)
+            shown[name] = "위치 불확실" in self.text(page, '.pin[data-id="%d"] .tags' % pid)
+        self.assertEqual(shown, {"margin": False, "wide": True})
+
+    def test_a_figure_pin_whose_element_is_in_place_shows_no_lines_moved_chip(self):
+        """A figure pin's code lines can shift while its element has not moved (el_sync ok): its card shows no '줄 +3 이동'
+        chip (the passing note '#N 줄 +3 이동' is left out too, FrontendFigure's check). With the element moved (or lost), or on a pin that has no element (a manuscript's,
+        which has no el_sync), the chip is there as it was."""
+        page = self.open_fig()
+        pid = self.saved_cell_pin(page, "7월 칸 글자 키우기")
+        got = page.evaluate(
+            """id => {const base = OPEN_ALL.find(p => p.id === id), out = {};
+              for (const [name, extra] of Object.entries({ok: {sync: 'moved +3', el_sync: 'ok'}, moved: {sync: 'moved +3', el_sync: 'moved'},
+                  lost: {sync: 'moved -2', el_sync: 'lost'}, none: {sync: 'moved +3', el_sync: undefined}, still: {sync: 'ok', el_sync: 'moved'}})) {
+                const p = Object.assign({}, base, extra), d = document.createElement('div'); setHtml(d, card(p));
+                const chip = [...d.querySelectorAll('.tags .badge')].map(b => b.textContent).filter(t => /줄/.test(t));
+                out[name] = chip;}
+              return out;}""",
+            pid,
+        )
+        self.assertEqual(
+            got,
+            {"ok": [], "moved": ["줄 +3 이동"], "lost": ["줄 -2 이동"], "none": ["줄 +3 이동"], "still": []},
+        )
+
     def test_a_drag_on_a_cell_drawn_without_code_names_every_element_of_its_path(self):
         """The August cell has no code lines, so the pick answers a region with no rungs: the path row still names the
         strip by the map's name ('달력'), not by its id."""

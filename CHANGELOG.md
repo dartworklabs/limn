@@ -1,5 +1,53 @@
 # Changelog
 
+## Unreleased
+
+The outline filter, the figure pick's badge and the figure pin's chip, from a figure-document author's test (#295, items
+3-5), and the two follow-ups of #291 (#293). The agent contract and `pins.md` are unchanged.
+
+### Added
+
+- **The outline filter takes the keyboard into its results** (#295). In the filter field Enter chooses the first result
+  (the focus goes to its row) and ↓ moves the focus to it without choosing; on a result ↑/↓ move one row (↑ on the
+  first goes back to the field), Enter chooses and Esc goes back to the field, without also closing the overlay panel or
+  the phone's navigation sheet that Esc closes from the field. The panel's field and the sheet's field each work on
+  their own list. A key an input method is composing with (Korean typing commits a syllable with Enter) or one pressed
+  with Ctrl, Alt, Cmd or Shift is left alone, and with nothing found Enter and ↓ stay the field's.
+- **A filter result says its group when another group has the same name** (#295). The results are a flat list, so a
+  figure listed under `채택` and again under the manuscript figure that holds it was two identical rows. They now read
+  `채택 › PL64` and `본문 그림 3 › PL64` (the group in front of the name, in the quieter text colour, and in the row's
+  description). Only a number and title that two groups share are named, and only in a filter's results (the whole
+  outline is indented by group already); a row reads the same whatever else is typed.
+
+### Changed
+
+- **A map pick's `위치 불확실` badge is hidden from 61%, not 90%** (#295). On a figure document the share is the chosen
+  element's part of the drag, so a drag drawn with a margin round a legend or a label never reached 90% and the badge
+  stood over a pick that was right. An element holding more than 60% of the drag leaves under the 40% a rival must hold
+  to be a candidate (`COVER_MIN`), so from 61% (the first share over 60% at two decimals) there is nothing to doubt. A
+  line pick (SyncTeX, text) keeps 90%. The element's own share of the drag and any rival beside it are not read: a
+  saved pin keeps no drag box, and a rival is known only to the server (see the PR). The help's row and the English
+  text say the new limit.
+- **A figure pin whose element is where it was shows no `줄 +N 이동` chip** (#295). Its code lines can shift (a script
+  edit above the element) while `el_sync` is `ok`: the pin follows the element, its mark and path have not moved, and
+  the chip told of nothing. The card and the passing note `#N 줄 +N 이동` both leave it out; a pin whose element moved
+  or is lost, and a manuscript pin, show it as before.
+- **The section lookup (`outlineIndexAt`) stays under 1 ms for entries at one height with their left edges apart**
+  (#293). Entries that share a height and differ only in their left edge, 2,000 on one page, were still compared in all
+  pairs (about 11-15 ms a call). The winners of each spot are now put in two lists, by height and by left edge, and
+  each is compared only with those in its height window and left-edge window (the shorter one walked), so this and the
+  other distributions measured (one height with edges apart, in clumps, or crowded within 1e-3; one edge with heights
+  apart; distinct spots; one spot; forty to a spot; fifty pages) are all under 1 ms. The answer is the 0.4.30 rule's, checked
+  against the pairwise rule on random outlines.
+
+### Fixed
+
+- **A long press held for seconds no longer goes to the page when it lets go** (#293). The truncated title of the page list
+  (and any button's description) shows on a long press, and the click the release brings is swallowed - but only for 900 ms
+  after the description opened, so a finger held ~1.6 s navigated on release. The swallowing is armed again at the
+  release of the press that opened the description, however long it was held; the next press drops one that was never
+  used, so a cancelled press cannot swallow the next tap.
+
 ## 0.4.32 — 2026-10-29
 
 Verdicts on figure documents (ADR-0022), and an outline and page list for long figure documents. The agent contract

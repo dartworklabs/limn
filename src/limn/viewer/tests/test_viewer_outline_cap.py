@@ -70,6 +70,30 @@ class OutlineLogic(unittest.TestCase):
             ],
         )
 
+    def test_a_filter_names_the_group_of_an_entry_another_group_also_has(self):
+        """outlineGrouped(entries): the entries under a group whose number and title another entry has under another group -
+        a figure under its status and under the manuscript figure that holds it - and no others: a name said once, twice under
+        one group, or at the top has no group to say; a different number or a different spelling of a title (case, width,
+        spaces) is judged by what it is. outlineGroupName: the group's number and title."""
+        got = self.run_js(
+            ["outlineGrouped", "outlineGroupName"],
+            "(()=>{OUTLINE_GROUPED={for:null,set:new Set()};"
+            "const E=[{title:'채택',up:-1},{title:'PL64 · 달력',up:0},{title:'PL65',up:0},{title:'본문 그림',up:-1},"
+            "{title:'pl64  · 달력',up:3},{title:'PL65',up:0},{title:'PL66',up:3},{title:'PL66',up:3},"
+            "{title:'PL64 · 달력',up:-1},{title:'Results',number:'3.1',up:3},{title:'Results',number:'4.2',up:0}];"
+            "const a=outlineGrouped(E),again=outlineGrouped(E);"
+            "return {set:[...a],memo:a===again,fresh:outlineGrouped(E.slice())!==a,"
+            "name:[outlineGroupName({number:'2',title:'Methods'}),outlineGroupName({title:'채택'}),outlineGroupName(undefined)],"
+            "bare:[...outlineGrouped([{title:'A'},{title:'A'}])]};})()",
+        )
+        # 1 and 4 are the same figure under two groups; 8 is the same name again at the top (nothing to say there); 5 is under
+        # the same group as 2's name 'PL65'; 6 and 7 are one name twice under one group.
+        self.assertEqual(got["set"], [1, 4])
+        self.assertTrue(got["memo"])
+        self.assertTrue(got["fresh"])
+        self.assertEqual(got["name"], ["2 Methods", "채택", ""])
+        self.assertEqual(got["bare"], [])
+
     REFERENCE = """function referenceIndexAt(entries,page,frac){
       const at=e=>e.frac||0,deep=e=>e.depth||0,above=e=>e.page<page||(e.page===page&&at(e)<=frac+1e-6);
       const x=e=>typeof e.x==='number'?e.x:null,sameX=(a,b)=>x(a)===null||x(b)===null?x(a)===x(b):Math.abs(x(a)-x(b))<=1e-3;
@@ -106,9 +130,37 @@ class OutlineLogic(unittest.TestCase):
         self.assertEqual(got["bad"], [])
         self.assertEqual(got["n"], 24000)
 
+    def test_the_lookup_gives_the_pairwise_answer_for_crowded_heights_and_edges(self):
+        """The same check where the entries of a page crowd onto few heights with many left edges - apart, inside the 1e-3
+        window of one another, exactly equal, and absent - so that the windows the lookup walks (by height, by edge) have
+        several members, in either list, and the shorter one is not always the same."""
+        got = self.run_js(
+            ["outlineIndexAt"],
+            "(()=>{"
+            + self.REFERENCE
+            + """
+            let seed = 987654; const rnd = () => (seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648;
+            const pick = a => a[Math.floor(rnd() * a.length)];
+            const FR = [0.2, 0.2 + 4e-7, 0.2 + 9e-7, 0.2 + 1.5e-6, 0.6], XS = [null, 40, 40.0004, 40.0009, 40.0016, 41, 42.5, 200, 200.0006];
+            let bad = [], n = 0, deepest = 0;
+            for (let c = 0; c < 3000; c++) {
+              const entries = Array.from({length: 2 + Math.floor(rnd() * 60)}, () => ({page: 1 + Math.floor(rnd() * 2), depth: Math.floor(rnd() * 4),
+                frac: pick(FR), x: pick(XS)}));
+              for (let q = 0; q < 5; q++) {const page = 1 + Math.floor(rnd() * 3), frac = pick([0.1, 0.2, 0.2 + 1e-6, 0.5, 0.95]);
+                n++; const a = outlineIndexAt(entries, page, frac), b = referenceIndexAt(entries, page, frac);
+                deepest = Math.max(deepest, a);
+                if (a !== b && bad.length < 3) bad.push({entries, page, frac, a, b});}}
+            return {n, bad, found: deepest > 0};})()""",
+        )
+        self.assertEqual(got["bad"], [])
+        self.assertEqual(got["n"], 15000)
+        self.assertTrue(got["found"])
+
     def test_the_lookup_stays_fast_where_many_entries_share_a_page(self):
         """The cost of one lookup at 2,000 entries: all distinct spots on one page (the pairwise rule took ~26 ms), all at one
-        spot, forty to a spot, and fifty pages of forty. Each under 5 ms (measured under 1) and equal to the old answer."""
+        spot, forty to a spot, fifty pages of forty, and - what the first fix left at ~15 ms - all at one height with left edges
+        apart, in clumps within 1e-3 and (the crowded case) every edge within 1e-3 of the next; also all at one edge with the
+        heights apart. Each under 5 ms (measured under 1) and equal to the old answer."""
         got = self.run_js(
             ["outlineIndexAt"],
             "(()=>{"
@@ -120,6 +172,10 @@ class OutlineLogic(unittest.TestCase):
               one_spot: [mk(i => ({page: 1, depth: i % 5, frac: 0.3, x: null})), 1, 0.9],
               forty_a_spot: [mk(i => ({page: 1, depth: i % 4, frac: Math.floor(i / 40) / 50, x: i % 3 ? null : 12})), 1, 0.99],
               fifty_pages: [mk(i => ({page: 1 + Math.floor(i / 40), depth: i % 3, frac: (i % 40) / 41, x: null})), 30, 0.7],
+              one_height_edges_apart: [mk(i => ({page: 1, depth: i % 4, frac: 0.3, x: i * 0.25})), 1, 0.9],
+              one_height_edge_clumps: [mk(i => ({page: 1, depth: i % 4, frac: 0.3, x: 10 + (i % 50) * 0.0004 + Math.floor(i / 50) * 5})), 1, 0.9],
+              one_height_edges_crowded: [mk(i => ({page: 1, depth: i % 4, frac: 0.3, x: 10 + i * 1e-7})), 1, 0.9],
+              one_edge_heights_apart: [mk(i => ({page: 1, depth: i % 4, frac: i / 2001, x: 72})), 1, 0.99],
             };
             const out = {};
             for (const [k, [E, page, frac]] of Object.entries(cases)) {
@@ -170,8 +226,8 @@ LISTS = """() => Object.fromEntries(['#outline-items', '#ns-outline-items'].map(
     notes: box.querySelectorAll('.ol-more').length, focusable: box.querySelectorAll('.ol-more button,.ol-more [tabindex]').length}];}))"""
 
 
-class LongOutline(BrowserBase):
-    """The outline of a PDF with more entries than the viewer reads: the first ones whole, the rest counted and said."""
+class OutlineBase(BrowserBase):
+    """The viewer over helpers_figure.viewer_docs' three documents, with the outline of the document on screen given by a test."""
 
     WHO = ALICE
 
@@ -196,6 +252,10 @@ class LongOutline(BrowserBase):
         got = page.evaluate(LOAD_TREE, [tree, pages])
         settle(page)
         return got
+
+
+class LongOutline(OutlineBase):
+    """The outline of a PDF with more entries than the viewer reads: the first ones whole, the rest counted and said."""
 
     def test_an_outline_within_the_cap_is_whole_and_has_no_note(self):
         """170 entries (a figure document of ninety pages), 1500 and exactly the cap are all drawn - in the outline panel
@@ -448,6 +508,178 @@ def grouped_titles(n):
     return [node[0] for node in flatten(grouped_tree(n, 2))]
 
 
+# A figure set's outline as the map of a paper's figures gives it: each figure under its status and again under the manuscript
+# figure that holds it. Entries (in outline order): 0 채택, 1 PL64, 2 PL65, 3 후보, 4 PL70, 5 본문 그림 3, 6 PL64 (again), 7 PL71.
+GROUPED = [
+    ("채택", 0, [("PL64 · 달력", 0, []), ("PL65 · 지도", 1, [])]),
+    ("후보", 1, [("PL70 · 표", 1, [])]),
+    ("본문 그림 3", 0, [("PL64 · 달력", 0, []), ("PL71 · 분포", 1, [])]),
+]
+# What a list shows as its rows: the text of each, whether a group stands in front of the name, and the row's description.
+ROWS_OF = """s => [...document.querySelectorAll(s + ' button[data-act="outline-page"]')].map(b => ({
+  text: b.querySelector('.ol-name').textContent, group: (b.querySelector('.ol-grp') || {}).textContent || null, title: b.title,
+  index: +b.dataset.index}))"""
+# The entry the outline chose (null until one is picked: the section strip names the entry at the reading line meanwhile) and
+# where the keyboard is - the focused element's id, or 'row<index>' for a result.
+KEYS_STATE = """() => ({pinned: OUTLINE_PINNED ? OUTLINE_PINNED.index : null,
+  focus: document.activeElement.id || ('row' + document.activeElement.dataset.index)})"""
+
+
+class OutlineFilter(OutlineBase):
+    """The outline's filter (docs/handbook/viewer.md §모바일 레이아웃): a name that two groups share says its group in the results, and
+    Enter and the arrow keys take the keyboard from the field into the results and back."""
+
+    def figures(self, lang="ko", **device):
+        """The figure document on screen with GROUPED as its outline."""
+        page = self.on("fig", lang=lang, **device)
+        self.assertEqual(self.load(page, GROUPED), [8, 0])
+        return page
+
+    def test_a_name_in_two_groups_says_its_group_in_the_results_only(self):
+        """Typing PL64 finds the figure twice, as `채택 › PL64 · 달력` and `본문 그림 3 › PL64 · 달력` (the group in a quieter
+        run in front of the name, and in the row's description); PL65, which one group has, reads as it is; a row reads the same
+        whatever else is typed (PL6 finds the three); with nothing typed the list is the outline and says no group."""
+        page = self.figures()
+        self.assertEqual(page.evaluate("document.querySelectorAll('#outline-items .ol-grp').length"), 0)
+        page.fill("#outline-search", "PL64")
+        rows = page.evaluate(ROWS_OF, "#outline-items")
+        self.assertEqual(
+            [(r["text"], r["group"], r["title"], r["index"]) for r in rows],
+            [
+                ("채택 › PL64 · 달력", "채택 › ", "채택 › PL64 · 달력", 1),
+                ("본문 그림 3 › PL64 · 달력", "본문 그림 3 › ", "본문 그림 3 › PL64 · 달력", 6),
+            ],
+        )
+        page.fill("#outline-search", "PL6")
+        self.assertEqual(
+            [(r["text"], r["group"]) for r in page.evaluate(ROWS_OF, "#outline-items")],
+            [("채택 › PL64 · 달력", "채택 › "), ("PL65 · 지도", None), ("본문 그림 3 › PL64 · 달력", "본문 그림 3 › ")],
+        )
+        page.fill("#outline-search", "PL65")
+        self.assertEqual(page.evaluate(ROWS_OF, "#outline-items")[0]["group"], None)
+        page.fill("#outline-search", "")
+        self.assertEqual(page.evaluate("document.querySelectorAll('#outline-items .ol-grp').length"), 0)
+        self.assertEqual(page.evaluate("document.querySelectorAll('#outline-items button').length"), 8)
+        # the group's quieter run is the muted ink, and not bold in a bold top-level row
+        page.fill("#outline-search", "PL64")
+        look = page.evaluate(
+            """() => { const g = document.querySelector('#outline-items .ol-grp'), n = g.parentElement;
+              return [getComputedStyle(g).color !== getComputedStyle(n).color, getComputedStyle(g).fontWeight]; }"""
+        )
+        self.assertEqual(look, [True, "400"])
+
+    def test_the_sheets_list_says_the_group_too(self):
+        """The phone's navigation sheet has its own filter and the same rule; each field filters its own list."""
+        page = self.figures(**PHONE)
+        page.click("#btn-pos")
+        page.wait_for_function("document.querySelector('#nav-sheet').open")
+        page.fill("#ns-outline-search", "PL64")
+        self.assertEqual(
+            [r["text"] for r in page.evaluate(ROWS_OF, "#ns-outline-items")],
+            ["채택 › PL64 · 달력", "본문 그림 3 › PL64 · 달력"],
+        )
+        self.assertEqual(page.evaluate("document.querySelectorAll('#outline-items .ol-grp').length"), 0)
+
+    def test_enter_chooses_the_first_result_and_the_arrows_walk_the_results(self):
+        """In the field, ↓ moves the focus to the first result without choosing it; ↑ on the first goes back to the field and
+        Esc from any result does; ↓/↑ move one result; Enter on a result chooses it (a button); Enter in the field chooses the
+        first result and the focus follows it. A filter that finds nothing leaves the keys to the field."""
+        page = self.figures()
+        field = "#outline-search"
+        page.fill(field, "PL6")
+        page.focus(field)
+        page.keyboard.press("ArrowDown")
+        self.assertEqual(page.evaluate(KEYS_STATE), {"pinned": None, "focus": "row1"})
+        page.keyboard.press("ArrowDown")
+        page.keyboard.press("ArrowDown")
+        self.assertEqual(page.evaluate(KEYS_STATE)["focus"], "row6")
+        page.keyboard.press("ArrowDown")
+        self.assertEqual(page.evaluate(KEYS_STATE)["focus"], "row6")  # the last result: nowhere further
+        page.keyboard.press("ArrowUp")
+        self.assertEqual(page.evaluate(KEYS_STATE)["focus"], "row2")
+        page.keyboard.press("Enter")
+        self.assertEqual(page.evaluate(KEYS_STATE), {"pinned": 2, "focus": "row2"})
+        page.keyboard.press("ArrowUp")
+        page.keyboard.press("ArrowUp")
+        self.assertEqual(page.evaluate(KEYS_STATE)["focus"], "outline-search")
+        page.keyboard.press("ArrowDown")
+        page.keyboard.press("Escape")
+        self.assertEqual(page.evaluate(KEYS_STATE)["focus"], "outline-search")
+        self.assertEqual(page.input_value(field), "PL6")
+        self.assertTrue(page.is_visible("#outline"))
+        page.keyboard.press("Enter")
+        self.assertEqual(page.evaluate(KEYS_STATE), {"pinned": 1, "focus": "row1"})
+        page.fill(field, "no such figure")
+        page.focus(field)
+        for key in ("ArrowDown", "Enter"):
+            page.keyboard.press(key)
+        self.assertEqual(page.evaluate(KEYS_STATE)["focus"], "outline-search")
+        self.assertEqual(page.evaluate("OUTLINE_PINNED.index"), 1)
+
+    def test_a_key_that_an_input_method_or_a_modifier_owns_is_not_ours(self):
+        """Korean typing commits its last syllable with Enter (isComposing), and Ctrl+Enter or Shift+↓ are not the filter's:
+        none of them chooses or moves."""
+        page = self.figures()
+        page.fill("#outline-search", "PL64")
+        page.focus("#outline-search")
+        sent = page.evaluate(
+            """() => { const f = document.querySelector('#outline-search'), out = [];
+              for (const init of [{key: 'Enter', isComposing: true}, {key: 'ArrowDown', isComposing: true}, {key: 'Enter', keyCode: 229},
+                  {key: 'Enter', ctrlKey: true}, {key: 'ArrowDown', shiftKey: true}]) {
+                const e = new KeyboardEvent('keydown', Object.assign({bubbles: true, cancelable: true}, init));
+                f.dispatchEvent(e); out.push(e.defaultPrevented); }
+              return out; }"""
+        )
+        self.assertEqual(sent, [False] * 5)
+        self.assertEqual(page.evaluate(KEYS_STATE), {"pinned": None, "focus": "outline-search"})
+
+    def test_the_sheets_keys_keep_the_sheet_open_until_a_result_is_chosen(self):
+        """In the phone's navigation sheet Esc from a result goes back to the field and does not close the sheet (Esc in the
+        field does close it, as before); choosing a result with Enter - from the field or on the row - goes there and closes it."""
+        page = self.figures(**PHONE)
+        field = "#ns-outline-search"
+        page.click("#btn-pos")
+        page.wait_for_function("document.querySelector('#nav-sheet').open")
+        page.fill(field, "PL6")
+        page.focus(field)
+        page.keyboard.press("ArrowDown")
+        self.assertEqual(page.evaluate("document.activeElement.dataset.index"), "1")
+        page.keyboard.press("Escape")
+        settle(page)
+        self.assertTrue(page.evaluate("document.querySelector('#nav-sheet').open"))
+        self.assertEqual(page.evaluate("document.activeElement.id"), "ns-outline-search")
+        page.keyboard.press("ArrowDown")
+        page.keyboard.press("ArrowDown")
+        page.keyboard.press("Enter")
+        page.wait_for_function("!document.querySelector('#nav-sheet').open")
+        self.assertEqual(page.evaluate("OUTLINE_PINNED.index"), 2)
+        page.click("#btn-pos")
+        page.wait_for_function("document.querySelector('#nav-sheet').open")
+        page.focus(field)
+        page.keyboard.press("Enter")
+        page.wait_for_function("!document.querySelector('#nav-sheet').open")
+        self.assertEqual(page.evaluate("OUTLINE_PINNED.index"), 1)
+
+    def test_the_overlay_outline_keeps_to_its_keys(self):
+        """Where the outline is an overlay (701-900px), Esc from a result goes back to the field and the overlay stays;
+        Esc in the field closes it as before; Enter in the field chooses and the overlay closes."""
+        page = self.figures(viewport={"width": 800, "height": 900})
+        page.click("#nav-toc-toggle")
+        page.wait_for_function("OUTLINE_MID_OPEN")
+        page.fill("#outline-search", "PL6")
+        page.focus("#outline-search")
+        page.keyboard.press("ArrowDown")
+        page.keyboard.press("Escape")
+        self.assertEqual(page.evaluate("[document.activeElement.id, OUTLINE_MID_OPEN]"), ["outline-search", True])
+        page.keyboard.press("Escape")
+        self.assertFalse(page.evaluate("OUTLINE_MID_OPEN"))
+        page.click("#nav-toc-toggle")
+        page.wait_for_function("OUTLINE_MID_OPEN")
+        page.focus("#outline-search")
+        page.keyboard.press("Enter")
+        self.assertEqual(page.evaluate("[OUTLINE_PINNED.index, OUTLINE_MID_OPEN]"), [1, False])
+
+
 class FigurePageList(BrowserBase):
     """A figure document's page list: each page's title, else its outline entry, else the number; a manuscript's and a
     view-only PDF's lists are what they were."""
@@ -649,6 +881,32 @@ class FigurePageList(BrowserBase):
                 nothing_follows(page)
                 self.assertTrue(page.is_visible(box), "the long press went to the page")
                 self.assertIsNone(page.get_attribute("%s .pl-row[data-page='2']" % box, "data-tip"))
+                page.tap("%s .pl-row[data-page='2']" % box)
+                page.wait_for_function("OUTLINE_ACTIVE_PAGE === 2 || topAnchor().page === 2", timeout=8000)
+
+    def test_a_long_press_held_for_seconds_does_not_go_to_the_page_when_it_lets_go(self):
+        """The click that ends a long press is swallowed for the press that opened the description, however long it was held:
+        the window that was set when the box opened (900 ms) was over for a finger held ~1.6 s, and its release went to the
+        page. A press that is let go at once after the box opens, one held 1.6 s and one held ~3 s all stay on the list; the
+        next tap on a row goes - the swallowing does not outlive the press's own click."""
+        long = "[후보] PL99 · " + "아주 긴 그림 제목 " * 12
+        self.TITLES = {"fig": {1: long, 2: "짧은 제목"}}
+        for name, device in (("fold", FOLD), ("phone", PHONE)):
+            with self.subTest(band=name):
+                page = self.on("fig", **device)
+                box = self.open_list(page, device)
+                row = "%s .pl-row[data-page='%d']" % (box, 1)
+                cdp = page.context.new_cdp_session(page)
+                b = page.locator(row).bounding_box()
+                point = {"x": b["x"] + b["width"] / 2, "y": b["y"] + b["height"] / 2, "id": 0}
+                for held_ms in (0, 1100, 2500):  # past the moment the box opens (500 ms)
+                    cdp.send("Input.dispatchTouchEvent", {"type": "touchStart", "touchPoints": [point]})
+                    page.wait_for_function("!document.querySelector('#tip').hidden", timeout=8000)
+                    page.wait_for_timeout(held_ms)
+                    cdp.send("Input.dispatchTouchEvent", {"type": "touchEnd", "touchPoints": []})
+                    nothing_follows(page)
+                    self.assertTrue(page.is_visible(box), "a press held %d ms past the box went to the page" % held_ms)
+                    self.assertEqual(page.evaluate("topAnchor().page"), 1)
                 page.tap("%s .pl-row[data-page='2']" % box)
                 page.wait_for_function("OUTLINE_ACTIVE_PAGE === 2 || topAnchor().page === 2", timeout=8000)
 

@@ -494,7 +494,7 @@
  "되짚는 중…": "Retracing…",
  "두 경로가 다른 곳을 가리킵니다(L{a} / L{b}). 확인이 필요합니다.": "The two methods point to different places (L{a} / L{b}). Check which is right.",
  "드래그": "drag",
- "드래그한 글자가 찾은 줄 범위에 90%보다 적게 들어 있을 때 붙는 배지입니다(90% 이상이면 배지가 없습니다). 30% 미만이면 노란색. 설명에 찾은 방법(좌표·글자)과 일치율이 있습니다 — 원문 칸에서 고칠 곳이 그 줄들에 있는지 확인하세요": "A badge shown when less than 90% of the dragged text falls within the located line range (no badge at 90% or above). Below 30%, it turns yellow. The description shows the method used (coordinates or text) and the match rate — check the source pane to confirm the spot to fix is in those lines",
+ "드래그한 글자가 찾은 줄 범위에 90%보다 적게 들어 있을 때 붙는 배지입니다(90% 이상이면 배지가 없습니다). 그림 문서는 드래그한 영역 중 고른 요소 안에 든 몫으로 재며, 61% 이상이면 배지가 없습니다(요소가 드래그의 60%를 넘게 차지하면 다른 요소가 경쟁할 수 없습니다). 30% 미만이면 노란색. 설명에 찾은 방법(좌표·글자·그림 지도)과 일치율이 있습니다 — 원문 칸에서 고칠 곳이 그 줄들에 있는지 확인하세요": "A badge shown when less than 90% of the dragged text falls within the located line range (no badge at 90% or above). On a figure document it is measured as the share of the dragged area that lies inside the chosen element, with no badge at 61% or above (an element holding more than 60% of the drag leaves no room for a rival). Below 30%, it turns yellow. The description shows the method used (coordinates, text or figure map) and the match rate — check the source pane to confirm the spot to fix is in those lines",
  "드래그한 글자를 원문에서 직접 찾아 정한 위치입니다. 표나 기호표처럼 좌표로 찾기 어려운 곳에 쓰는 방법입니다.": "Found by searching the source for the dragged text. It is used where coordinates struggle, such as tables and symbol lists.",
  "드래그한 자리를 감싸는 문단 전체입니다(앞뒤 % 주석 줄은 뺍니다)": "The whole paragraph containing the dragged spot (surrounding % comment lines excluded)",
  "드래그한 줄": "Dragged lines",

@@ -1391,7 +1391,7 @@ class FrontendPanelWidthLogic(unittest.TestCase):
         )
         self.assertIsNone(got[3])
         self.assertIsNone(got[4])
-        self.assertIn("const VIA_HIDE=90,VIA_WARN=30;", HTML)
+        self.assertIn("const VIA_HIDE=90,VIA_WARN=30,VIA_HIDE_MAP=61;", HTML)
 
 
 class FrontendPanelTidyStructure(unittest.TestCase):
@@ -2618,6 +2618,31 @@ class FrontendFigure(unittest.TestCase):
                 self.assertIsNone(confident)
                 self.assertEqual((weak["tip"], weak["low"]), (weak_tip, True))
 
+    def test_a_map_pick_hides_its_badge_at_61_percent_and_a_line_pick_still_at_90(self):
+        """The badge's hide threshold follows how the place was found. A map pick's share is the element's part of the drag, and
+        one that holds more than 60% leaves less than the 40% the picker asks of a rival: 61% (the first share over 60% once
+        rounded to two decimals) and up shows no badge, 60% does. A line pick (SyncTeX, text) and a method the page does not
+        know keep 90%."""
+        self.node()
+        js = "\n".join(
+            [
+                js_tooltips(),
+                js_via_limits(),
+                extract_js_fn("viaTag"),
+                "const shown = (via, score) => viaTag({via, score}) !== null;"
+                "console.log(JSON.stringify(['map', 'synctex', 'text', 'newway'].map(via => [60, 61, 89, 90].map(pct => shown(via, pct / 100)))));",
+            ]
+        )
+        self.assertEqual(
+            json.loads(run_node(js)),
+            [
+                [True, False, False, False],
+                [True, True, True, False],
+                [True, True, True, False],
+                [True, True, True, False],
+            ],
+        )
+
     def test_rebuild_hides_by_document_kind_not_by_view_only(self):
         """Only a LaTeX document builds: the rebuild button and the rebuilt/redrawn wording follow META.kind and a
         document's kind, never view_only (a figure document is view_only:false and still has no rebuild)."""
@@ -2959,6 +2984,31 @@ class FrontendFigure(unittest.TestCase):
             ]
         )
         self.assertEqual(json.loads(run_node(js)), [["#1 요소를 잃었습니다", "warn", "side"]])
+
+    def test_a_figure_pin_whose_element_is_in_place_gets_no_lines_moved_note(self):
+        """The list refresh says '#N 줄 +3 이동' when an open pin's lines move - not for a figure pin whose element is still where
+        it was (el_sync ok: its code lines shifted, the pin did not), and not twice for the same move."""
+        self.node()
+        js = "\n".join(
+            [
+                r"""
+            function who(a){return (a&&(a.name||a.login))||'';}
+            const SAID=[]; function lineNote(m,k,a,o){SAID.push(m);} function restorePin(){}
+            const MY_ACTIONS=new Map();""",
+                extract_js_fn("markMine"),
+                extract_js_fn("consumeMine"),
+                extract_js_fn("pinState"),
+                extract_js_fn("notePinChanges"),
+                r"""
+            const at=(id,extra)=>Object.assign({id,sync:'ok'},extra);
+            notePinChanges([at(1),at(2),at(3),at(4),at(5)],
+              [at(1,{sync:'moved +3',el_sync:'ok'}),at(2,{sync:'moved +3',el_sync:'moved'}),at(3,{sync:'moved -1'}),
+               at(4,{sync:'moved +2',el_sync:'ok'}),at(5,{sync:'ok',el_sync:'ok'})],[]);
+            notePinChanges([at(2,{sync:'moved +3',el_sync:'moved'})],[at(2,{sync:'moved +3',el_sync:'moved'})],[]);
+            console.log(JSON.stringify(SAID));""",
+            ]
+        )
+        self.assertEqual(json.loads(run_node(js)), ["#2 줄 +3 이동", "#3 줄 -1 이동"])
 
     def test_marks_and_cards_place_a_figure_pin_where_its_element_is(self):
         """marks() and the card's page link use pinPlace; a placed mark is not dashed; a lost element marks the card and

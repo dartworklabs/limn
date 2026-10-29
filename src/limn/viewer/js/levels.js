@@ -88,9 +88,15 @@ function snipText(text,open){const ls=String(text||'').split('\n');
 // figure map, or a method this page does not know, named as it came), how much of the drag it matches (the line paths: the dragged
 // words in these lines, rarer words weighing more; the map: the dragged area inside the chosen element), that it may be far off
 // (only below 30%), and what to check. Shared by the composer panel and cards.
-const VIA_HIDE=90,VIA_WARN=30;
+// A map pick hides at VIA_HIDE_MAP instead: its share is the element's cover of the drag (|drag ∩ element| / |drag|), so a drag
+// drawn generously around the right element (a legend, a label) never reaches 90%. The picker only weighs an element holding at
+// least 40% of the drag (COVER_MIN, docs/handbook/domain.md §그림 문서의 요소 pick); one holding more than 60% leaves under 40% to
+// anything else, so no other element beside it can be a rival and the pick is not in doubt. The share arrives rounded to two
+// decimals, so 61% is the first that is surely over 60%. Only the cover is known here (a saved pin keeps no drag box, so the
+// element's own share of the drag cannot be read back): nothing under 60% is hidden, since a second element could still hold it.
+const VIA_HIDE=90,VIA_WARN=30,VIA_HIDE_MAP=61;
 function viaTag(p){if(!p.via)return null; const pct=Math.round((+p.score||0)*100);
-  if(pct>=VIA_HIDE)return null; const low=pct<VIA_WARN;
+  if(pct>=(p.via===VIA.MAP?VIA_HIDE_MAP:VIA_HIDE))return null; const low=pct<VIA_WARN;
   const lines=p.via===VIA.SYNCTEX||p.via===VIA.TEXT,map=p.via===VIA.MAP;
   const how=p.via===VIA.SYNCTEX?tr(T.synctex):p.via===VIA.TEXT?tr(T.text):map?tr(T.map):tl('이 화면이 모르는 방법({via})으로 찾은 위치입니다.',{via:p.via});
   const match=lines?tl('드래그한 글자 중 {pct}%가 이 줄들에 있습니다(드문 낱말일수록 크게 셉니다).',{pct})

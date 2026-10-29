@@ -23,9 +23,10 @@ async function loadOutline(doc,gen){
         const page=typeof dest[0]==='number'?dest[0]+1:(await doc.getPageIndex(dest[0]))+1;
         const ptH=META&&META.pages&&META.pages[page-1]?+META.pages[page-1].pt_h:0;
         if(!(Number.isInteger(page)&&page>=1&&page<=doc.numPages))return null;
-        return {title:item.title||tr('제목 없음'),page,depth:0,frac:destFrac(dest,ptH),x:destLeft(dest)};
+        return {title:item.title||tr('제목 없음'),page,depth:0,up:-1,frac:destFrac(dest,ptH),x:destLeft(dest)};
       }catch(e){return null;}}
-    async function walk(rows,depth){
+    // up: the index in entries of the nearest entry above these rows (-1 at the top, or when every row above has no entry of its own)
+    async function walk(rows,depth,up){
       for(let i=0;i<rows.length;i+=OUTLINE_BATCH){
         if(stale())return;   // between batches: a document left behind does not go on asking the worker
         if(entries.length>=OUTLINE_MAX_ENTRIES){for(let j=i;j<rows.length;j++)cut+=outlineCount(rows[j]); return;}
@@ -33,13 +34,13 @@ async function loadOutline(doc,gen){
         if(stale())return;
         for(let j=0;j<batch.length;j++){
           if(entries.length>=OUTLINE_MAX_ENTRIES){cut+=outlineCount(batch[j]); continue;}
-          if(got[j])entries.push(Object.assign(got[j],{depth}));
-          if(depth<OUTLINE_MAX_DEPTH){await walk(batch[j].items,depth+1); if(stale())return;}
+          const at=entries.length; if(got[j])entries.push(Object.assign(got[j],{depth,up}));
+          if(depth<OUTLINE_MAX_DEPTH){await walk(batch[j].items,depth+1,got[j]?at:up); if(stale())return;}
           else for(const c of batch[j].items||[])cut+=outlineCount(c);
         }
       }
     }
-    await walk(items||[],0);
+    await walk(items||[],0,-1);
   }catch(e){entries=[];cut=0;}
   if(stale())return;
   if(entries.length){
@@ -84,6 +85,8 @@ function renderOutline(){outlineList($('#outline-items'),$('#outline-search').va
   outlineList($('#ns-outline-items'),$('#ns-outline-search').value); $('#ns-outline').hidden=!(OUTLINE_ENTRIES.length||OUTLINE_CUT);}
 /** Draw one filtered outline with bare printed-page labels and the current section marked, and - when the PDF has more entries
  * than were read (OUTLINE_CUT) - the note on the unread ones as its last line, under a filter's results too (outlineCutNote).
+ * Under a filter an entry whose name another entry has under another group says its group first (outlineGrouped): the results
+ * are a flat list, and `채택 › PL64` and `본문 그림 › PL64` are two places.
  * Entries keep manuscript wording unchanged; empty-state sentences remain translatable UI text.
  */
 function outlineList(box,q){const query=String(q||'').trim().toLowerCase();
@@ -94,10 +97,25 @@ function outlineList(box,q){const query=String(q||'').trim().toLowerCase();
   if(!rows.length){box.className='outline-empty';
     if(note)setHtml(box,html`${tr('찾은 장·절이 없습니다.')}${note}`); else box.textContent='찾은 장·절이 없습니다.'; return;}
   box.className='';
+  const grouped=query?outlineGrouped(OUTLINE_ENTRIES):null;
   setHtml(box,html`${rows.map(i=>{const x=OUTLINE_ENTRIES[i],on=i===OUTLINE_SELECTED;
-    const page=x.pageLabel||String(x.page);
-    return html`<button translate="no" class="ol-depth-${Math.min(x.depth,4)}${on?' ol-active':''}" data-act="outline-page" data-index="${i}" data-page="${x.page}" data-close="1" aria-current="${on?'location':'false'}" title="${x.title}"><span class="ol-no">${x.number||'·'}</span><span class="ol-name">${x.title}</span><span class="ol-page">${page}</span></button>`;})}${note}`);
+    const page=x.pageLabel||String(x.page),grp=grouped&&grouped.has(i)?outlineGroupName(OUTLINE_ENTRIES[x.up]):'';
+    return html`<button translate="no" class="ol-depth-${Math.min(x.depth,4)}${on?' ol-active':''}" data-act="outline-page" data-index="${i}" data-page="${x.page}" data-close="1" aria-current="${on?'location':'false'}" title="${grp?grp+' › '+x.title:x.title}"><span class="ol-no">${x.number||'·'}</span><span class="ol-name">${grp?html`<span class="ol-grp">${grp} › </span>`:''}${x.title}</span><span class="ol-page">${page}</span></button>`;})}${note}`);
 }
+// The name of an outline entry as a group: its number and title.
+function outlineGroupName(e){return e?(e.number?e.number+' ':'')+e.title:'';}
+// The indices of the entries that a filter's flat results must say the group of: those under a group (up >= 0) whose number and
+// title another entry has too under another group - a figure listed under its status and under the manuscript figure that holds
+// it. Entries that differ in number or title tell themselves apart, and a title said twice under one group, or at the top, has no
+// group to say. Over all the entries, not the rows found, so a row reads the same whatever is typed. Memoised on the entries.
+let OUTLINE_GROUPED=/** @type {{for:object[]|null,set:Set<number>}} */({for:null,set:new Set()});
+function outlineGrouped(entries){if(OUTLINE_GROUPED.for===entries)return OUTLINE_GROUPED.set;
+  const norm=s=>String(s||'').normalize('NFKC').replace(/\s+/g,' ').trim().toLowerCase();   // as mergeOutlineLabels reads a title
+  const under=new Map(),several=new Set(),set=/** @type {Set<number>} */(new Set());
+  entries.forEach(e=>{const key=norm((e.number||'')+' '+e.title),up=typeof e.up==='number'?e.up:-1;
+    if(!under.has(key))under.set(key,up); else if(under.get(key)!==up)several.add(key);});
+  entries.forEach((e,i)=>{if(typeof e.up==='number'&&e.up>=0&&several.has(norm((e.number||'')+' '+e.title)))set.add(i);});
+  OUTLINE_GROUPED={for:entries,set}; return set;}
 // The outline's last line when the PDF has entries that were not read (OUTLINE_CUT): how many, and what the viewer reads at most.
 // Under a filter it says the unread entries were not searched (it does not say they are not there). Quiet text, not a row: it names no place. Html, or '' with no cut.
 function outlineCutNote(filtered){if(!OUTLINE_CUT)return '';
@@ -138,20 +156,30 @@ function outlineIndexAt(entries,page,frac){
   // Of the entries on that page above the point only the last that nothing at its spot outranks counts. An entry is outranked by one at
   // the same spot (the same height within 1e-6 and the same left edge) that is deeper, or as deep and listed earlier. Comparing every
   // pair cost a figure document's page with hundreds of distinct entries tens of ms a scroll frame, so: at an exactly equal spot the
-  // winner (deepest, the first of them) outranks the rest, and only the winners - sorted by height, a spot's neighbours within 1e-6 side
-  // by side - are compared with one another. A winner outranked by a loser of a neighbouring spot is outranked by that spot's winner too
-  // (it is as deep and as early or better), so the answer is the one the pairwise rule gives.
+  // winner (deepest, the first of them) outranks the rest, and only the winners are compared with one another - and each only with
+  // the winners that could share its spot. Those are found in two lists, the winners sorted by height and those with a left edge
+  // sorted by it (a finite one): a spot's rivals lie in its height window (+-1e-6) and, if it has a left edge, in its edge window (+-1e-3) too, so
+  // the shorter window is walked and the other test made on its members. A page of entries at one height and spread along it (a
+  // window of one in the edge list), or at one edge and spread down it (a window of one in the height list), is walked in linear
+  // time; only winners crowded into one such box (more distinct spots than there are in a 1e-6 x 1e-3 box of a real page) cost a
+  // walk of the box each. A winner outranked by a loser of a neighbouring spot is outranked by that spot's winner too (it is as
+  // deep and as early or better), so the answer is the one the pairwise rule gives.
   const win=new Map();
   entries.forEach((e,i)=>{if(e.page!==top||!above(e))return; const key=at(e)+'|'+(x(e)===null?'-':x(e)),j=win.get(key);
     if(j===undefined||deep(e)>deep(entries[j]))win.set(key,i);});
-  const reps=[...win.values()].sort((a,b)=>at(entries[a])-at(entries[b])||a-b);
+  const reps=[...win.values()].sort((a,b)=>b-a);   // the last listed first: the first of them nothing outranks is the answer
+  const byAt=reps.slice().sort((a,b)=>at(entries[a])-at(entries[b])||a-b),byX=reps.filter(i=>Number.isFinite(x(entries[i]))).sort((a,b)=>x(entries[a])-x(entries[b])||a-b);
+  // [from, to) in list (sorted by key) for the members whose key lies within eps of v, a little wider to be safe from the rounding of
+  // a difference; each is tested exactly below.
+  const near=(list,key,v,eps)=>{const lower=t=>{let l=0,h=list.length; while(l<h){const m=(l+h)>>1; if(key(entries[list[m]])<t)l=m+1; else h=m;} return l;};
+    return [lower(v-eps*1.001),lower(v+eps*1.001)];};
   const beats=(j,i)=>deep(entries[j])>deep(entries[i])||(deep(entries[j])===deep(entries[i])&&j<i);
-  let sel=-1;
-  for(let k=0;k<reps.length;k++){const i=reps[k],a=entries[i]; let out=false;
-    for(let m=k-1;m>=0&&!out;m--){const b=entries[reps[m]]; if(at(a)-at(b)>1e-6)break; out=sameX(a,b)&&beats(reps[m],i);}
-    for(let m=k+1;m<reps.length&&!out;m++){const b=entries[reps[m]]; if(at(b)-at(a)>1e-6)break; out=sameX(a,b)&&beats(reps[m],i);}
-    if(!out&&i>sel)sel=i;}
-  return sel;}
+  const outranked=i=>{const a=entries[i]; let list=byAt,[lo,hi]=near(byAt,at,at(a),1e-6);
+    if(Number.isFinite(x(a))){const [l,h]=near(byX,x,x(a),1e-3); if(h-l<hi-lo){list=byX;lo=l;hi=h;}}
+    for(let m=lo;m<hi;m++){const j=list[m]; if(j!==i&&Math.abs(at(a)-at(entries[j]))<=1e-6&&sameX(a,entries[j])&&beats(j,i))return true;}
+    return false;};
+  for(const i of reps)if(!outranked(i))return i;
+  return -1;}   // (the loop always returns: the winner of the deepest, first spot is outranked by nothing)
 // An entry picked in the outline: it wins on its page from when the scroll it starts gets there until the reader leaves
 // that page (`reached`); on the way there the strip follows the reading line. A pick whose scroll ends anywhere else is let
 // go before it is reached, so that a later visit to its page by hand shows that page's own entry: when the reader takes
@@ -196,6 +224,25 @@ function updateSectionStrip(){
 }
 $('#outline-search').addEventListener('input',()=>outlineList($('#outline-items'),$('#outline-search').value));
 $('#ns-outline-search').addEventListener('input',()=>outlineList($('#ns-outline-items'),$('#ns-outline-search').value));   // each search filters its own list only
+// The filter's keys (docs/handbook/viewer.md §모바일 레이아웃), the same in the panel and in the phone sheet, each with its own field and
+// list. In the field, Enter chooses the first result and moves the focus onto it, and ↓ moves the focus onto it without choosing.
+// On a result, ↑/↓ move between the results (↑ on the first goes back to the field), Enter chooses (the row is a button), and Esc
+// goes back to the field - and is not also taken by what Esc closes (the overlay panel, the navigation sheet). An Enter or an
+// arrow that an input method is composing with (Korean typing commits its last syllable with Enter) is the method's, not ours.
+/** @param {HTMLElement} box @returns {HTMLElement[]} the result rows (the unread-entries note is not one) */
+function outlineRows(box){return /** @type {HTMLElement[]} */([...box.querySelectorAll('button[data-act="outline-page"]')]);}
+/** @param {HTMLElement} field @param {HTMLElement} box */
+function outlineKeys(field,box){
+  const mine=(/** @type {KeyboardEvent} */e)=>!(e.isComposing||e.keyCode===229||e.ctrlKey||e.metaKey||e.altKey||e.shiftKey);
+  field.addEventListener('keydown',e=>{if(!mine(e)||(e.key!=='Enter'&&e.key!=='ArrowDown'))return;
+    const first=outlineRows(box)[0]; if(!first)return;   // nothing found: the key is the field's own
+    e.preventDefault(); first.focus(); if(e.key==='Enter')first.click();});   // the focus first: choosing in the sheet closes it and gives the focus back to where it was
+  box.addEventListener('keydown',e=>{const row=/** @type {HTMLElement|null} */(e.target&&/** @type {HTMLElement} */(e.target).closest?/** @type {HTMLElement} */(e.target).closest('button[data-act="outline-page"]'):null);
+    if(!row||!mine(e))return; const rows=outlineRows(box),at=rows.indexOf(row);
+    if(e.key==='Escape'){e.preventDefault(); e.stopPropagation(); field.focus();}
+    else if(e.key==='ArrowDown'){e.preventDefault(); if(rows[at+1])rows[at+1].focus();}
+    else if(e.key==='ArrowUp'){e.preventDefault(); if(at>0)rows[at-1].focus(); else field.focus();}});}
+outlineKeys($('#outline-search'),$('#outline-items')); outlineKeys($('#ns-outline-search'),$('#ns-outline-items'));
 $('#left').addEventListener('scroll',()=>{if(OUTLINE_PINNED&&!OUTLINE_PINNED.reached)outlinePickWait();
   if(!document.body.classList.contains('revision-open'))requestAnimationFrame(updateSectionStrip);},{passive:true});
 // The reader taking over the pages lets go of a pick still on its way (dropOutlinePick); so does a new size of the window.
