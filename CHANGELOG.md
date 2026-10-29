@@ -3,7 +3,8 @@
 ## Unreleased
 
 The outline filter, the figure pick's badge and the figure pin's chip, from a figure-document author's test (#295, items
-3-5), and the two follow-ups of #291 (#293). The agent contract and `pins.md` are unchanged.
+3-5), and the two follow-ups of #291 (#293). The agent contract grows by addition only: `POST /api/pick`'s answer on a
+figure map gains `fill` and `rival`, and a pin may store them with its `score`. `pins.md` and every route are unchanged.
 
 ### Added
 
@@ -12,22 +13,39 @@ The outline filter, the figure pick's badge and the figure pin's chip, from a fi
   first goes back to the field), Enter chooses and Esc goes back to the field, without also closing the overlay panel or
   the phone's navigation sheet that Esc closes from the field. The panel's field and the sheet's field each work on
   their own list. A key an input method is composing with (Korean typing commits a syllable with Enter) or one pressed
-  with Ctrl, Alt, Cmd or Shift is left alone, and with nothing found Enter and ↓ stay the field's.
+  with Ctrl, Alt, Cmd or Shift is left alone, and with nothing found Enter and ↓ stay the field's. Enter in an empty
+  field does nothing (it would have chosen the first entry of the whole list); ↓ there still goes to the list. A key
+  that moves the focus makes the keyboard the input the focus ring answers, so the ring shows on the row after a click
+  in the field and a few letters.
+- **The filter says its keys and how many it found.** The field is described by one line (`↓ 결과로 · Enter 첫 결과 ·
+  Esc 찾기 칸으로`, `aria-describedby`), shown under the panel's field while it has the focus with a mouse and read, not
+  shown, on touch and in the sheet; a polite status after each keystroke says the number of results or that there are
+  none (nothing for an empty field).
 - **A filter result says its group when another group has the same name** (#295). The results are a flat list, so a
-  figure listed under `채택` and again under the manuscript figure that holds it was two identical rows. They now read
-  `채택 › PL64` and `본문 그림 3 › PL64` (the group in front of the name, in the quieter text colour, and in the row's
-  description). Only a number and title that two groups share are named, and only in a filter's results (the whole
-  outline is indented by group already); a row reads the same whatever else is typed.
+  figure listed under `채택` and again under the manuscript figure that holds it was two identical rows. Each now has
+  its group on a line of its own above the row (`채택 ›`, small and muted, one line cut with an ellipsis, the whole in the
+  row's description). Only a number and title that two groups share are named, and only in a filter's results; a row
+  reads the same whatever else is typed.
+- **The composer's element path shows the chosen element's box.** Pointing at the path (`B2 › 달력 › 7월 ·`) with the
+  mouse or the focus draws the pending box on the page stronger; pressing it (a tap on touch) brings the box into view
+  if it is out of it and flashes it. It was already the box snapped to the element; the path is now the way to check it.
+- **`POST /api/pick` answers `fill` and `rival` for a figure map pick** (0.4.33+, additive). `fill` is the share of the
+  element the drag covers (the element side; `score` is the share of the drag the element holds). `rival` is true when
+  another element that is neither the winner's ancestor nor its descendant competes: a candidate within 0.1 of its
+  `score`, or an element the drag covers 90% of. A pin stores them with its `score` (`POST /api/pin`, a `loc`), and a
+  range edit forgets them with it.
 
 ### Changed
 
-- **A map pick's `위치 불확실` badge is hidden from 61%, not 90%** (#295). On a figure document the share is the chosen
-  element's part of the drag, so a drag drawn with a margin round a legend or a label never reached 90% and the badge
-  stood over a pick that was right. An element holding more than 60% of the drag leaves under the 40% a rival must hold
-  to be a candidate (`COVER_MIN`), so from 61% (the first share over 60% at two decimals) there is nothing to doubt. A
-  line pick (SyncTeX, text) keeps 90%. The element's own share of the drag and any rival beside it are not read: a
-  saved pin keeps no drag box, and a rival is known only to the server (see the PR). The help's row and the English
-  text say the new limit.
+- **A map pick's `위치 불확실` badge is hidden below 90% too when the pick is sure** (#295). On a figure document the
+  share is the chosen element's part of the drag, so a drag drawn with a margin round a legend or a label never reached
+  90% and the badge stood over a pick that was right. It now hides when the share is at least 75%, the drag covers at
+  least 95% of the element (`fill`) and nothing rivals it; any other pick keeps the badge up to 90% (the card and the
+  composer agree, a pin saved before `fill` and `rival` keeps 90%). Measured on a real figure set's map (a sweep of
+  12,435 drags at margins 0-100% round each element, 20 recorded drags, and 15,764 held-out drags on that map and on a
+  concept figure map) the rule hides 784 right picks and no wrong one in the range under 90% (a plain 61% rule hid 3,687
+  right and 5,886 wrong picks there: a drag round a small element can leave it out of the candidates and choose the big
+  box behind it at 63-86%).
 - **A figure pin whose element is where it was shows no `줄 +N 이동` chip** (#295). Its code lines can shift (a script
   edit above the element) while `el_sync` is `ok`: the pin follows the element, its mark and path have not moved, and
   the chip told of nothing. The card and the passing note `#N 줄 +N 이동` both leave it out; a pin whose element moved
@@ -45,8 +63,9 @@ The outline filter, the figure pick's badge and the figure pin's chip, from a fi
 - **A long press held for seconds no longer goes to the page when it lets go** (#293). The truncated title of the page list
   (and any button's description) shows on a long press, and the click the release brings is swallowed - but only for 900 ms
   after the description opened, so a finger held ~1.6 s navigated on release. The swallowing is armed again at the
-  release of the press that opened the description, however long it was held; the next press drops one that was never
-  used, so a cancelled press cannot swallow the next tap.
+  release of the press that opened the description, however long it was held. The hold belongs to that press: when the
+  browser cancels it (no click follows) or the next press starts, it is let go, so a cancelled press cannot swallow the
+  next tap.
 
 ## 0.4.32 — 2026-10-29
 

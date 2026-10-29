@@ -85,8 +85,9 @@ function renderOutline(){outlineList($('#outline-items'),$('#outline-search').va
   outlineList($('#ns-outline-items'),$('#ns-outline-search').value); $('#ns-outline').hidden=!(OUTLINE_ENTRIES.length||OUTLINE_CUT);}
 /** Draw one filtered outline with bare printed-page labels and the current section marked, and - when the PDF has more entries
  * than were read (OUTLINE_CUT) - the note on the unread ones as its last line, under a filter's results too (outlineCutNote).
- * Under a filter an entry whose name another entry has under another group says its group first (outlineGrouped): the results
- * are a flat list, and `채택 › PL64` and `본문 그림 › PL64` are two places.
+ * Under a filter an entry whose name another entry has under another group says its group first (outlineGrouped), on a line of its
+ * own above the row, small, muted and cut to one line: the results are a flat list, and `채택 › PL64` and `본문 그림 › PL64` are two
+ * places, and a long group name must not push the names down.
  * Entries keep manuscript wording unchanged; empty-state sentences remain translatable UI text.
  */
 function outlineList(box,q){const query=String(q||'').trim().toLowerCase();
@@ -100,7 +101,7 @@ function outlineList(box,q){const query=String(q||'').trim().toLowerCase();
   const grouped=query?outlineGrouped(OUTLINE_ENTRIES):null;
   setHtml(box,html`${rows.map(i=>{const x=OUTLINE_ENTRIES[i],on=i===OUTLINE_SELECTED;
     const page=x.pageLabel||String(x.page),grp=grouped&&grouped.has(i)?outlineGroupName(OUTLINE_ENTRIES[x.up]):'';
-    return html`<button translate="no" class="ol-depth-${Math.min(x.depth,4)}${on?' ol-active':''}" data-act="outline-page" data-index="${i}" data-page="${x.page}" data-close="1" aria-current="${on?'location':'false'}" title="${grp?grp+' › '+x.title:x.title}"><span class="ol-no">${x.number||'·'}</span><span class="ol-name">${grp?html`<span class="ol-grp">${grp} › </span>`:''}${x.title}</span><span class="ol-page">${page}</span></button>`;})}${note}`);
+    return html`<button translate="no" class="ol-depth-${Math.min(x.depth,4)}${on?' ol-active':''}${grp?' ol-grouped':''}" data-act="outline-page" data-index="${i}" data-page="${x.page}" data-close="1" aria-current="${on?'location':'false'}" title="${grp?grp+' › '+x.title:x.title}">${grp?html`<span class="ol-grp">${grp} ›</span>`:''}<span class="ol-no">${x.number||'·'}</span><span class="ol-name">${x.title}</span><span class="ol-page">${page}</span></button>`;})}${note}`);
 }
 // The name of an outline entry as a group: its number and title.
 function outlineGroupName(e){return e?(e.number?e.number+' ':'')+e.title:'';}
@@ -222,27 +223,35 @@ function updateSectionStrip(){
   const n=META&&META.pages?META.pages.length:0,pg=tl('{page} / {n}쪽',{page,n}); $('#section-page-t').textContent=pg; $('#nav-page').textContent=pg;
   const name=tl('쪽 번호로 이동 · {page} / {n}쪽',{page,n}); $('#section-page').setAttribute('aria-label',name); $('#nav-page').setAttribute('aria-label',name); drawPos();
 }
-$('#outline-search').addEventListener('input',()=>outlineList($('#outline-items'),$('#outline-search').value));
-$('#ns-outline-search').addEventListener('input',()=>outlineList($('#ns-outline-items'),$('#ns-outline-search').value));   // each search filters its own list only
-// The filter's keys (docs/handbook/viewer.md §모바일 레이아웃), the same in the panel and in the phone sheet, each with its own field and
-// list. In the field, Enter chooses the first result and moves the focus onto it, and ↓ moves the focus onto it without choosing.
-// On a result, ↑/↓ move between the results (↑ on the first goes back to the field), Enter chooses (the row is a button), and Esc
-// goes back to the field - and is not also taken by what Esc closes (the overlay panel, the navigation sheet). An Enter or an
-// arrow that an input method is composing with (Korean typing commits its last syllable with Enter) is the method's, not ours.
+// The filter's keys (docs/handbook/viewer.md §모바일 레이아웃), the same in the panel and in the phone sheet, each with its own field,
+// list and announcement. In the field, Enter chooses the first result and moves the focus onto it - not while nothing is typed: an
+// empty filter lists every entry, and Enter must not pick the first of them - and ↓ moves the focus onto it without choosing. On a
+// result, ↑/↓ move between the results (↑ on the first goes back to the field), Enter chooses (the row is a button), and Esc goes
+// back to the field - and is not also taken by what Esc closes (the overlay panel, the navigation sheet). An Enter or an arrow that
+// an input method is composing with (Korean typing commits its last syllable with Enter) is the method's, not ours. A key that
+// moves the focus here makes the keyboard the input the focus ring answers (html[data-input], tooltip.js): a field is clicked
+// with the mouse and typed in, and the first ↓ must show where the focus went.
 /** @param {HTMLElement} box @returns {HTMLElement[]} the result rows (the unread-entries note is not one) */
 function outlineRows(box){return /** @type {HTMLElement[]} */([...box.querySelectorAll('button[data-act="outline-page"]')]);}
-/** @param {HTMLElement} field @param {HTMLElement} box */
-function outlineKeys(field,box){
-  const mine=(/** @type {KeyboardEvent} */e)=>!(e.isComposing||e.keyCode===229||e.ctrlKey||e.metaKey||e.altKey||e.shiftKey);
+/** @param {HTMLElement} field @param {HTMLElement} box @param {HTMLElement} sr */
+function outlineFilter(field,box,sr){
+  const fieldEl=/** @type {HTMLInputElement} */(field),keyed=()=>{document.documentElement.dataset.input='key';},
+    mine=(/** @type {KeyboardEvent} */e)=>!(e.isComposing||e.keyCode===229||e.ctrlKey||e.metaKey||e.altKey||e.shiftKey);
+  field.addEventListener('input',()=>{outlineList(box,fieldEl.value); outlineSay(box,fieldEl.value,sr);});
   field.addEventListener('keydown',e=>{if(!mine(e)||(e.key!=='Enter'&&e.key!=='ArrowDown'))return;
+    if(e.key==='Enter'&&!fieldEl.value.trim())return;   // nothing typed: the whole outline is listed, and none of it was asked for
     const first=outlineRows(box)[0]; if(!first)return;   // nothing found: the key is the field's own
-    e.preventDefault(); first.focus(); if(e.key==='Enter')first.click();});   // the focus first: choosing in the sheet closes it and gives the focus back to where it was
+    e.preventDefault(); keyed(); first.focus(); if(e.key==='Enter')first.click();});   // the focus first: choosing in the sheet closes it and gives the focus back to where it was
   box.addEventListener('keydown',e=>{const row=/** @type {HTMLElement|null} */(e.target&&/** @type {HTMLElement} */(e.target).closest?/** @type {HTMLElement} */(e.target).closest('button[data-act="outline-page"]'):null);
     if(!row||!mine(e))return; const rows=outlineRows(box),at=rows.indexOf(row);
-    if(e.key==='Escape'){e.preventDefault(); e.stopPropagation(); field.focus();}
-    else if(e.key==='ArrowDown'){e.preventDefault(); if(rows[at+1])rows[at+1].focus();}
-    else if(e.key==='ArrowUp'){e.preventDefault(); if(at>0)rows[at-1].focus(); else field.focus();}});}
-outlineKeys($('#outline-search'),$('#outline-items')); outlineKeys($('#ns-outline-search'),$('#ns-outline-items'));
+    if(e.key==='Escape'){e.preventDefault(); e.stopPropagation(); keyed(); field.focus();}
+    else if(e.key==='ArrowDown'){e.preventDefault(); keyed(); if(rows[at+1])rows[at+1].focus();}
+    else if(e.key==='ArrowUp'){e.preventDefault(); keyed(); if(at>0)rows[at-1].focus(); else field.focus();}});}
+// What a screen reader is told after each keystroke of a filter (a polite status): how many results, or that there are none; nothing
+// while the field is empty. The unread-entries note is not a result.
+/** @param {HTMLElement} box @param {string} q @param {HTMLElement} sr */
+function outlineSay(box,q,sr){const n=outlineRows(box).length; sr.textContent=!String(q||'').trim()?'':n?tl('결과 {n}개',{n}):tr('찾은 장·절이 없습니다.');}
+outlineFilter($('#outline-search'),$('#outline-items'),$('#outline-sr')); outlineFilter($('#ns-outline-search'),$('#ns-outline-items'),$('#ns-outline-sr'));   // each filter works on its own list only
 $('#left').addEventListener('scroll',()=>{if(OUTLINE_PINNED&&!OUTLINE_PINNED.reached)outlinePickWait();
   if(!document.body.classList.contains('revision-open'))requestAnimationFrame(updateSectionStrip);},{passive:true});
 // The reader taking over the pages lets go of a pick still on its way (dropOutlinePick); so does a new size of the window.

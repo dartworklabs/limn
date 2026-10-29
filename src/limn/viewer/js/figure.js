@@ -28,8 +28,22 @@ function snapBox(box,el){if(!box||!el||!isFrac(el.frac))return; const f=el.frac;
 // The element part of the composer for selection o and its pending box: the path line '#c-path' (hidden when the pick
 // found no element - a manuscript, a view-only PDF, a figure whose map is unreadable) and the snapped box.
 function renderElement(o,box){const line=$('#c-path'),el=o.elSel; line.hidden=!el;
-  if(el){line.textContent=elPathText(o)+' ·'; line.dataset.tip=tl('요소 {id}',{id:el.id});}
-  snapBox(box,el);}
+  if(el){line.textContent=elPathText(o)+' ·'; line.dataset.tip=tl('요소 {id} · 누르면 쪽에서 이 상자를 보입니다',{id:el.id});
+    line.setAttribute('aria-description',tr('누르면 쪽에서 고른 요소의 상자를 보입니다'));}
+  snapBox(box,el); if(box)box.classList.toggle('hi',!!el&&line.matches(':hover,:focus-visible'));}
+// The path in the composer is also the way to check which element was chosen: the pending box on the page is drawn on it (snapBox), and
+// pointing at the path - the mouse over it, the focus on it - draws that box stronger (.sel.hi); pressing it (a tap on touch, where
+// nothing hovers) brings the box into view if it is out of it and flashes it (.sel.flash), as [보기] does a pin's mark. Quiet: the
+// path stays the muted label it was and answers only to a pointer that comes to it.
+/** @param {boolean} on */
+function showElementHi(on){const b=COMPOSE.box; if(b&&b.isConnected)b.classList.toggle('hi',on);}
+for(const [ev,on] of /** @type {[string,boolean][]} */([['mouseenter',true],['focus',true],['mouseleave',false],['blur',false]]))
+  $('#c-path').addEventListener(ev,()=>showElementHi(on));
+function showElementBox(){const b=COMPOSE.box; if(!b||!b.isConnected)return;
+  const a=selPopArea(),r=b.getBoundingClientRect();
+  if(r.top<a.top||r.bottom>a.bottom)$('#left').scrollTop+=r.top-(a.top+(a.bottom-a.top)*0.3);
+  b.classList.remove('flash'); void b.offsetWidth; b.classList.add('flash');
+  b.addEventListener('animationend',()=>b.classList.remove('flash'),{once:true});}
 // The page badge of a region on a figure document (composer and card): '코드 없는 요소' when the map chose an element
 // it has no code lines for, '영역' when the map could not be read; null off figure documents without an element - the
 // caller keeps its view-only wording.

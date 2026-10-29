@@ -54,6 +54,7 @@ document.addEventListener('click',e=>{const target=/** @type {HTMLElement} */(e.
     case 'xp-drop':{const o=inEdit?EDITOR.current:COMPOSE.current,k=Number(a.dataset.line); if(o&&o.lo!=null&&o.hi!=null)applyRange(o,dropLine(o.lo,o.hi,k),k===o.lo?o.hi:o.lo); break;}   // ...or drop an end line
     case 'view':jumpPin(id);break; case 'edit':openEdit(id);break;
     case 'doc':{const inMenu=!!a.closest('#nav-sheet'); if(a.closest('#doc-pop'))closeDocMenu(true); switchDoc(a.dataset.doc); if(inMenu)$('#nav-sheet').close(); break;}
+    case 'el-show':showElementBox();break;   // the composer's element path: show the chosen element's box on the page (figure.js)
     case 'doc-more':toggleDocMenu();break;   // [+N]: the documents popover (doc-tabs.js)
     // ^ inMenu is determined before calling switchDoc() - for a cached document, switchDoc finishes synchronously
     //   through drawDocTabs, and inside that it redraws the open #nav-sheet (drawDocsMenu), detaching a from the DOM.

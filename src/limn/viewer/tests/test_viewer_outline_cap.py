@@ -536,9 +536,9 @@ class OutlineFilter(OutlineBase):
         return page
 
     def test_a_name_in_two_groups_says_its_group_in_the_results_only(self):
-        """Typing PL64 finds the figure twice, as `채택 › PL64 · 달력` and `본문 그림 3 › PL64 · 달력` (the group in a quieter
-        run in front of the name, and in the row's description); PL65, which one group has, reads as it is; a row reads the same
-        whatever else is typed (PL6 finds the three); with nothing typed the list is the outline and says no group."""
+        """Typing PL64 finds the figure twice, as `채택 ›` over `PL64 · 달력` and `본문 그림 3 ›` over `PL64 · 달력` (the group on a
+        line of its own above the row, and in the row's description); PL65, which one group has, reads as it is; a row reads the
+        same whatever else is typed (PL6 finds the three); with nothing typed the list is the outline and says no group."""
         page = self.figures()
         self.assertEqual(page.evaluate("document.querySelectorAll('#outline-items .ol-grp').length"), 0)
         page.fill("#outline-search", "PL64")
@@ -546,27 +546,73 @@ class OutlineFilter(OutlineBase):
         self.assertEqual(
             [(r["text"], r["group"], r["title"], r["index"]) for r in rows],
             [
-                ("채택 › PL64 · 달력", "채택 › ", "채택 › PL64 · 달력", 1),
-                ("본문 그림 3 › PL64 · 달력", "본문 그림 3 › ", "본문 그림 3 › PL64 · 달력", 6),
+                ("PL64 · 달력", "채택 ›", "채택 › PL64 · 달력", 1),
+                ("PL64 · 달력", "본문 그림 3 ›", "본문 그림 3 › PL64 · 달력", 6),
             ],
         )
         page.fill("#outline-search", "PL6")
         self.assertEqual(
             [(r["text"], r["group"]) for r in page.evaluate(ROWS_OF, "#outline-items")],
-            [("채택 › PL64 · 달력", "채택 › "), ("PL65 · 지도", None), ("본문 그림 3 › PL64 · 달력", "본문 그림 3 › ")],
+            [("PL64 · 달력", "채택 ›"), ("PL65 · 지도", None), ("PL64 · 달력", "본문 그림 3 ›")],
         )
         page.fill("#outline-search", "PL65")
         self.assertEqual(page.evaluate(ROWS_OF, "#outline-items")[0]["group"], None)
         page.fill("#outline-search", "")
         self.assertEqual(page.evaluate("document.querySelectorAll('#outline-items .ol-grp').length"), 0)
         self.assertEqual(page.evaluate("document.querySelectorAll('#outline-items button').length"), 8)
-        # the group's quieter run is the muted ink, and not bold in a bold top-level row
+        # the group is small muted text, not bold, and sits above the number and the name
         page.fill("#outline-search", "PL64")
         look = page.evaluate(
-            """() => { const g = document.querySelector('#outline-items .ol-grp'), n = g.parentElement;
-              return [getComputedStyle(g).color !== getComputedStyle(n).color, getComputedStyle(g).fontWeight]; }"""
+            """() => { const b = document.querySelector('#outline-items .ol-grouped'), g = b.querySelector('.ol-grp'), n = b.querySelector('.ol-name'),
+              gs = getComputedStyle(g), ns = getComputedStyle(n);
+              return [gs.color !== ns.color, gs.fontWeight, parseFloat(gs.fontSize) < parseFloat(ns.fontSize),
+                g.getBoundingClientRect().bottom <= n.getBoundingClientRect().top + 1]; }"""
         )
-        self.assertEqual(look, [True, "400"])
+        self.assertEqual(look, [True, "400", True, True])
+
+    def test_a_long_group_name_is_one_line_cut_and_never_makes_the_list_wider_or_the_row_taller(self):
+        """A group named by a whole figure title (the figure document's `Fig. 3 · PL1 · … — 대안 4장`) takes the one line it has
+        - 12px in the panel, with an ellipsis, the whole name in the row's description - on the panel (240px), the phone's
+        sheet and the foldable; the list does not scroll sideways and the row is the name's lines plus that one line."""
+        long = "Fig. 3 · PL1 · " + "아주 긴 그림 제목 " * 8 + "— 대안 4장"
+        tree = [(long, 0, [("PL64 · 달력", 0, [])]), ("risk", 1, [("PL64 · 달력", 1, [])])]
+        for name, device in (("desktop", DESKTOP), ("phone", PHONE), ("fold", FOLD)):
+            with self.subTest(band=name):
+                page = self.on("fig", **device)
+                self.assertEqual(self.load(page, tree), [4, 0])
+                box, field = (
+                    ("#ns-outline-items", "#ns-outline-search")
+                    if device is PHONE
+                    else ("#outline-items", "#outline-search")
+                )
+                if device is PHONE:
+                    page.click("#btn-pos")
+                    page.wait_for_function("document.querySelector('#nav-sheet').open")
+                elif not page.is_visible(field):  # the foldable's outline is an overlay
+                    page.click("#nav-toc-toggle")
+                    page.wait_for_selector(field, state="visible")
+                page.fill(field, "PL64")
+                got = page.evaluate(
+                    """s => { const box = document.querySelector(s), g = [...box.querySelectorAll('.ol-grp')],
+                      n = box.querySelector('.ol-name'), lh = parseFloat(getComputedStyle(g[0]).lineHeight);
+                      return {n: g.length, h: g.map(x => Math.round(x.getBoundingClientRect().height) - Math.round(lh)),
+                        ellipsis: getComputedStyle(g[0]).textOverflow, cut: g[0].scrollWidth > g[0].clientWidth,
+                        title: box.querySelector('.ol-grouped').title.startsWith('Fig. 3 · PL1 · '), sideways: box.scrollWidth > box.clientWidth + 1,
+                        within: g.every(x => x.getBoundingClientRect().right <= box.getBoundingClientRect().right + 1)}; }""",
+                    box,
+                )
+                self.assertEqual(
+                    got,
+                    {
+                        "n": 2,
+                        "h": [0, 0],
+                        "ellipsis": "ellipsis",
+                        "cut": True,
+                        "title": True,
+                        "sideways": False,
+                        "within": True,
+                    },
+                )
 
     def test_the_sheets_list_says_the_group_too(self):
         """The phone's navigation sheet has its own filter and the same rule; each field filters its own list."""
@@ -576,7 +622,11 @@ class OutlineFilter(OutlineBase):
         page.fill("#ns-outline-search", "PL64")
         self.assertEqual(
             [r["text"] for r in page.evaluate(ROWS_OF, "#ns-outline-items")],
-            ["채택 › PL64 · 달력", "본문 그림 3 › PL64 · 달력"],
+            ["PL64 · 달력", "PL64 · 달력"],
+        )
+        self.assertEqual(
+            page.evaluate("[...document.querySelectorAll('#ns-outline-items .ol-grp')].map(g => g.textContent)"),
+            ["채택 ›", "본문 그림 3 ›"],
         )
         self.assertEqual(page.evaluate("document.querySelectorAll('#outline-items .ol-grp').length"), 0)
 
@@ -615,6 +665,96 @@ class OutlineFilter(OutlineBase):
             page.keyboard.press(key)
         self.assertEqual(page.evaluate(KEYS_STATE)["focus"], "outline-search")
         self.assertEqual(page.evaluate("OUTLINE_PINNED.index"), 1)
+
+    def test_enter_in_an_empty_filter_chooses_nothing_and_the_arrow_still_goes_to_the_list(self):
+        """With nothing typed (or only spaces) the filter lists every entry and Enter in the field does nothing - it used to go
+        to the first of them; ↓ still moves the focus to the first entry without choosing it. Typing then Enter chooses."""
+        page = self.figures()
+        field = "#outline-search"
+        page.focus(field)
+        for typed in ("", "   "):
+            page.fill(field, typed)
+            page.keyboard.press("Enter")
+            self.assertEqual(page.evaluate(KEYS_STATE), {"pinned": None, "focus": "outline-search"}, repr(typed))
+        page.keyboard.press("ArrowDown")
+        self.assertEqual(page.evaluate(KEYS_STATE), {"pinned": None, "focus": "row0"})
+        page.focus(field)
+        page.fill(field, "PL65")
+        page.keyboard.press("Enter")
+        self.assertEqual(page.evaluate(KEYS_STATE), {"pinned": 2, "focus": "row2"})
+        sheet = self.figures(**PHONE)
+        sheet.click("#btn-pos")
+        sheet.wait_for_function("document.querySelector('#nav-sheet').open")
+        sheet.focus("#ns-outline-search")
+        sheet.keyboard.press("Enter")
+        self.assertTrue(sheet.evaluate("document.querySelector('#nav-sheet').open && OUTLINE_PINNED === null"))
+
+    def test_a_key_that_leaves_a_clicked_field_shows_the_focus_ring_on_the_result(self):
+        """The field is clicked with the mouse, which makes the pointer the input the ring answers (html[data-input]); the first
+        ↓ - and an Enter that chooses - moves the focus to a result, and from then on the keyboard is the input, so the ring is
+        drawn on that row. A press on a row afterwards makes it the pointer again."""
+        page = self.figures()
+        ring = """() => { const a = document.activeElement, s = getComputedStyle(a);
+          return [document.documentElement.dataset.input, a.matches(':focus-visible'), s.outlineStyle !== 'none' && parseFloat(s.outlineWidth) > 0]; }"""
+        page.click("#outline-search")
+        page.keyboard.type("PL6")
+        self.assertEqual(page.evaluate("document.documentElement.dataset.input"), "pointer")
+        page.keyboard.press("ArrowDown")
+        self.assertEqual(page.evaluate("document.activeElement.dataset.index"), "1")
+        self.assertEqual(page.evaluate(ring), ["key", True, True])
+        page.keyboard.press("Escape")
+        page.mouse.click(1, 1)  # a press elsewhere: the pointer again
+        self.assertEqual(page.evaluate("document.documentElement.dataset.input"), "pointer")
+        page.click("#outline-search")
+        page.keyboard.press("Enter")
+        self.assertEqual(page.evaluate("[document.activeElement.dataset.index, OUTLINE_PINNED.index]"), ["1", 1])
+        self.assertEqual(page.evaluate(ring), ["key", True, True])
+
+    def test_the_filter_is_described_by_its_keys_and_announces_how_many_it_found(self):
+        """The field is described by one line of its keys (aria-describedby) - shown under it while it has the focus with a mouse,
+        never on a touch screen, where it is still read - and a polite status says the number of results as it is typed, that there
+        are none, and nothing for an empty field. The phone sheet's field has its own pair. In English too."""
+        for lang, hint, found, none in (
+            ("ko", "↓ 결과로 · Enter 첫 결과 · Esc 찾기 칸으로", "결과 3개", "찾은 장·절이 없습니다."),
+            (
+                "en",
+                "↓ to the results · Enter for the first · Esc back to the field",
+                "3 results",
+                "No chapters or sections found.",
+            ),
+        ):
+            with self.subTest(lang=lang):
+                page = self.on("fig", lang=lang)
+                self.assertEqual(self.load(page, GROUPED), [8, 0])
+                info = """() => { const f = document.querySelector('#outline-search'), h = document.getElementById(f.getAttribute('aria-describedby')),
+                  sr = document.getElementById('outline-sr');
+                  return {hint: h.textContent, shown: getComputedStyle(h).display !== 'none', live: [sr.getAttribute('role'), sr.getAttribute('aria-live')], said: sr.textContent}; }"""
+                self.assertEqual(
+                    page.evaluate(info), {"hint": hint, "shown": False, "live": ["status", "polite"], "said": ""}
+                )
+                page.focus("#outline-search")
+                self.assertTrue(page.evaluate(info)["shown"])
+                page.fill("#outline-search", "PL6")
+                self.assertEqual(page.evaluate(info)["said"], found)
+                page.fill("#outline-search", "no such figure")
+                self.assertEqual(page.evaluate(info)["said"], none)
+                page.fill("#outline-search", "")
+                self.assertEqual(page.evaluate(info)["said"], "")
+                page.keyboard.press(
+                    "ArrowDown"
+                )  # an empty field's list takes the focus: the hint goes with the field's focus
+                self.assertFalse(page.evaluate(info)["shown"])
+        phone = self.figures(**PHONE)
+        phone.click("#btn-pos")
+        phone.wait_for_function("document.querySelector('#nav-sheet').open")
+        phone.focus("#ns-outline-search")
+        sheet = """() => { const f = document.querySelector('#ns-outline-search'), h = document.getElementById(f.getAttribute('aria-describedby'));
+          return [h.textContent, getComputedStyle(h).position, document.getElementById('ns-outline-sr').textContent]; }"""
+        self.assertEqual(phone.evaluate(sheet), ["↓ 결과로 · Enter 첫 결과 · Esc 찾기 칸으로", "absolute", ""])
+        phone.fill("#ns-outline-search", "PL64")
+        self.assertEqual(phone.evaluate(sheet)[2], "결과 2개")
+        self.assertEqual(phone.evaluate("document.getElementById('outline-sr').textContent"), "")
+        self.assertFalse(phone.evaluate("getComputedStyle(document.getElementById('outline-hint')).display !== 'none'"))
 
     def test_a_key_that_an_input_method_or_a_modifier_owns_is_not_ours(self):
         """Korean typing commits its last syllable with Enter (isComposing), and Ctrl+Enter or Shift+↓ are not the filter's:
@@ -907,6 +1047,28 @@ class FigurePageList(BrowserBase):
                     nothing_follows(page)
                     self.assertTrue(page.is_visible(box), "a press held %d ms past the box went to the page" % held_ms)
                     self.assertEqual(page.evaluate("topAnchor().page"), 1)
+                page.tap("%s .pl-row[data-page='2']" % box)
+                page.wait_for_function("OUTLINE_ACTIVE_PAGE === 2 || topAnchor().page === 2", timeout=8000)
+
+    def test_a_cancelled_long_press_does_not_swallow_the_next_tap(self):
+        """The description a long press opens arms the click swallowing; when the browser takes the touch away (a pointercancel)
+        no click follows and the hold must go with it: a tap on another row at once - inside the 900 ms the hold was armed for -
+        still goes to its page. The same press let go in the ordinary way does swallow its own click."""
+        long = "[후보] PL99 · " + "아주 긴 그림 제목 " * 12
+        self.TITLES = {"fig": {1: long, 2: "짧은 제목"}}
+        for name, device in (("fold", FOLD), ("phone", PHONE)):
+            with self.subTest(band=name):
+                page = self.on("fig", **device)
+                box = self.open_list(page, device)
+                row = "%s .pl-row[data-page='%d']" % (box, 1)
+                cdp = page.context.new_cdp_session(page)
+                b = page.locator(row).bounding_box()
+                point = {"x": b["x"] + b["width"] / 2, "y": b["y"] + b["height"] / 2, "id": 0}
+                cdp.send("Input.dispatchTouchEvent", {"type": "touchStart", "touchPoints": [point]})
+                page.wait_for_function("!document.querySelector('#tip').hidden", timeout=8000)
+                self.assertTrue(page.evaluate("SWALLOW_CLICK > Date.now() && SWALLOW_CLICK === TIP_HOLD"))
+                cdp.send("Input.dispatchTouchEvent", {"type": "touchCancel", "touchPoints": []})
+                page.wait_for_function("SWALLOW_CLICK === 0 && TIP_HOLD === 0", timeout=3000)
                 page.tap("%s .pl-row[data-page='2']" % box)
                 page.wait_for_function("OUTLINE_ACTIVE_PAGE === 2 || topAnchor().page === 2", timeout=8000)
 

@@ -287,7 +287,7 @@ class EvolveEdit(unittest.TestCase):
 
     def test_moved_lines_forget_matching_and_take_the_new_anchor(self):
         """A moved range drops via/score; the shell's anchor and synced_at replace the old ones and clear stale/sync."""
-        pin = OpenPin.from_record(line_record(stale=True, sync="lost"))
+        pin = OpenPin.from_record(line_record(stale=True, sync="lost", fill=0.97, rival=False))
         out = evolve_edit(
             pin,
             edited(lines=(4, 7), range_changed=True),
@@ -300,8 +300,17 @@ class EvolveEdit(unittest.TestCase):
             (out["lo"], out["hi"], out["anchor"], out["synced_at"], out["file_rel"]),
             (4, 7, {"head": "y"}, 9.5, "main.tex"),
         )
-        for gone in ("via", "score", "stale", "sync"):
+        for gone in ("via", "score", "fill", "rival", "stale", "sync"):
             self.assertNotIn(gone, out)
+
+    def test_a_place_checks_fill_and_rival(self):
+        """A line place with a fill that is not a finite number, or a rival that is not a boolean, is refused as a place."""
+        valid = {"file": "/ms/main.tex", "name": "main.tex", "lo": 2, "hi": 3, "page": 1, "via": "map"}
+        place = LinePlace({**valid, "score": 0.8, "fill": 0.97, "rival": False}, frozenset())
+        self.assertEqual((place.fields["fill"], place.fields["rival"]), (0.97, False))
+        for bad in ({"fill": float("nan")}, {"fill": "x"}, {"rival": 1}, {"rival": "no"}):
+            with self.subTest(bad=bad), self.assertRaises(ValueError):
+                LinePlace({**valid, **bad}, frozenset())
 
     def test_unmoved_lines_keep_matching_fields(self):
         """Writing the same lo/hi keeps via/score: the range is still the matching result."""
