@@ -342,7 +342,8 @@ class FrontendLogic(unittest.TestCase):
         self.assertEqual(closed[0]["msg"], "#3 이 완료되었습니다")
         self.assertEqual(closed[0]["kind"], "ok")
         self.assertEqual(len(dropped), 1)
-        self.assertEqual(dropped[0]["msg"], "#2를 Bob이 삭제함")   # the particles follow the number's and the name's sound
+        # the particles follow the number's and the name's sound
+        self.assertEqual(dropped[0]["msg"], "#2를 Bob이 삭제함")
         self.assertEqual(dropped[0]["kind"], "warn")
         self.assertTrue(dropped[0]["hasAction"])  # the [되살리기] (restore) action is attached
 
