@@ -603,13 +603,16 @@ class ReviewFixes(VerdictBase):
         self.assertEqual(page.evaluate(off), [False, False, False])
 
     def test_a_keyboard_save_on_the_line_gives_the_focus_back(self):
-        """Enter on a page line's word saves it; the button was redrawn while the request ran, and the focus comes back to
-        it - unless the person moved it meanwhile."""
+        """Enter on a page line's word saves it; the button was redrawn while the request ran, and the focus goes on to the
+        line's reason field - Esc there gives it back to the button - unless the person moved it meanwhile."""
         page = self.on("fig")
         btn = '#doc .pv[data-page="1"] button[data-key="채택"]'
         page.focus(btn)
         page.keyboard.press("Enter")
         page.wait_for_function("OPEN_ALL.length===1")
+        settle(page)
+        self.assertTrue(page.evaluate("()=>document.activeElement.classList.contains('pv-reason')"))
+        page.keyboard.press("Escape")
         settle(page)
         self.assertTrue(page.evaluate("s=>document.activeElement===document.querySelector(s)", btn))
         self.held = []
@@ -1896,8 +1899,8 @@ class FloatingLine(VerdictBase):
         self.assertTrue(page.evaluate(FLOAT, 2)["stuck"])
 
     def test_on_a_phone_it_floats_over_the_sheet_bar_and_not_over_an_open_sheet(self):
-        """390x844 touch: the floating line stands 8px above what covers the PDF area's bottom - the sheet's bar, and the
-        status line over it when one shows; with the sheet open it does not float."""
+        """390x844 touch: the floating line stands 4px above what covers the PDF area's bottom (a compact screen keeps
+        its plot) - the sheet's bar, and the status line over it when one shows; with the sheet open it does not float."""
         page = self.on("fig", viewport={"width": 390, "height": 844}, is_mobile=True, has_touch=True)
         page.evaluate("setSide(false)")
         self.tall(page)
@@ -1907,7 +1910,7 @@ class FloatingLine(VerdictBase):
               return Math.min(...tops);}"""
         )
         self.assertTrue(got["stuck"], got)
-        self.assertAlmostEqual(got["line"]["bottom"], cover - 8, delta=1)
+        self.assertAlmostEqual(got["line"]["bottom"], cover - 4, delta=1)
         self.assertTrue(page.evaluate(ON_TOP, '#doc .pv[data-page="2"] button[data-key="채택"]'))
         page.evaluate("setSide(true)")
         settle(page)
@@ -1928,6 +1931,45 @@ class FloatingLine(VerdictBase):
         self.assertIn("mid-overlay", got["body"])
         self.assertLessEqual(got["right"], got["panel"] - 4 + 0.5, got)
         self.assertEqual(page.evaluate(MISSES_44, '#doc .pv[data-page="2"] button'), [])
+        self.assertTrue(page.evaluate(FLOAT, 2)["stuck"])
+
+    def test_only_the_reading_pages_line_floats_and_names_its_figure(self):
+        """Page 1 under the reading line and page 2's top already in view: page 2's line stays in its place (below the
+        area) - only page 1's line is the reading one, naming '1쪽 · Deployment calendar'. With page 2 under the reading
+        line its line floats, names '2쪽 · Review flow' and carries the keys; page 1's goes back to its place, unnamed."""
+        page = self.on("fig")
+        self.tall(page)
+        page.evaluate(
+            """()=>{const L=document.querySelector('#left'), r=document.getElementById('p1').getBoundingClientRect();
+              L.scrollTop += r.bottom - (L.getBoundingClientRect().top + L.clientHeight * 0.6);}"""
+        )
+        settle(page)
+        state = """n=>{const l=document.querySelector('#doc .pv[data-page="'+n+'"]'), f=l.querySelector('.pv-fig');
+          return {reading: l.classList.contains('reading'), stuck: l.classList.contains('stuck'), name: f&&!f.hidden?f.textContent:null,
+            keys: [...l.querySelectorAll('button[data-kn]')].length};}"""
+        two = page.evaluate(FLOAT, 2)
+        self.assertLess(two["page"]["top"], two["area"]["bottom"] - 100)  # page 2's top is in view
+        self.assertEqual(page.evaluate(state, 2), {"reading": False, "stuck": False, "name": None, "keys": 0})
+        self.assertGreater(two["line"]["top"], two["area"]["bottom"])  # its line in its place, under page 2
+        self.assertEqual(
+            page.evaluate(state, 1), {"reading": True, "stuck": False, "name": "1쪽 · Deployment calendar", "keys": 3}
+        )
+        self.at(page, "top")
+        self.assertEqual(
+            page.evaluate(state, 2), {"reading": True, "stuck": True, "name": "2쪽 · Review flow", "keys": 3}
+        )
+        self.assertEqual(page.evaluate(state, 1), {"reading": False, "stuck": False, "name": None, "keys": 0})
+
+    def test_focusing_a_floating_word_does_not_scroll(self):
+        """A floating line's button taking the focus (Tab, or focus() as here) leaves the PDF area where it was and the
+        line floating."""
+        page = self.on("fig")
+        self.tall(page)
+        self.assertTrue(self.at(page, "mid")["stuck"])
+        top = page.evaluate("document.querySelector('#left').scrollTop")
+        page.evaluate("""document.querySelector('#doc .pv[data-page="2"] button[data-key="채택"]').focus()""")
+        settle(page)
+        self.assertEqual(page.evaluate("document.querySelector('#left').scrollTop"), top)
         self.assertTrue(page.evaluate(FLOAT, 2)["stuck"])
 
 
@@ -2009,6 +2051,42 @@ class Keys(VerdictBase):
         settle(page)
         self.assertEqual(self.count(), 0)
 
+    def test_a_key_right_after_a_scroll_acts_on_the_new_reading_page(self):
+        """3 arms 삭제 on page 1; the area scrolls to page 2 and 3 comes before the next frame: nothing is saved - page 1's
+        armed word is not confirmed - and the key arms page 2's 삭제."""
+        page = self.on("fig")
+        page.evaluate("setK(PT_PX*1.5,false)")
+        self.reading(page, 1)
+        page.keyboard.press("3")
+        settle(page)
+        self.assertEqual(page.evaluate("VD_ARM&&VD_ARM.page"), 1)
+        got = page.evaluate(
+            """([s])=>{const L=document.querySelector('#left'), lr=L.getBoundingClientRect(), r=document.getElementById('p2').getBoundingClientRect();
+              L.scrollTop += r.top - lr.top;   // no frame runs before the key
+              const keysWere = PV_KEYS;
+              document.body.dispatchEvent(new KeyboardEvent('keydown',{key:'3',bubbles:true,cancelable:true}));
+              return {armed: VD_ARM&&VD_ARM.page, keysWere};}""",
+            [0],
+        )
+        self.assertEqual(got, {"armed": 2, "keysWere": 1})
+        settle(page)
+        self.assertEqual(self.count(), 0)
+        label = """n=>document.querySelector('#doc .pv[data-page="'+n+'"] button[data-key="삭제"] .lbl').textContent"""
+        self.assertEqual([page.evaluate(label, 1), page.evaluate(label, 2)], ["삭제", "삭제 확정"])
+
+    def test_a_keys_armed_word_goes_when_the_reading_page_changes(self):
+        """3 arms 삭제 on page 1; scrolling page 2 under the reading line lets it go - 3 then arms page 2, saving nothing."""
+        page = self.on("fig")
+        page.evaluate("setK(PT_PX*1.5,false)")
+        self.reading(page, 1)
+        page.keyboard.press("3")
+        settle(page)
+        self.reading(page, 2)
+        self.assertIsNone(page.evaluate("VD_ARM"))
+        page.keyboard.press("3")
+        settle(page)
+        self.assertEqual((self.count(), page.evaluate("VD_ARM&&VD_ARM.page")), (0, 2))
+
 
 class FigureTarget(VerdictBase):
     """On a figure document a verdict is about the figure, el.path[0] (ADR-0022): the composer saves it so and the page line
@@ -2045,7 +2123,7 @@ class FigureTarget(VerdictBase):
 
     def test_the_composers_verdict_on_an_element_is_the_figures(self):
         """The July cell picked with a note, 채택 in the composer: the pin is about the figure - el.path ['B2'] - with the
-        note, and page 1's line shows it. The row's lead says the verdict is the whole figure's."""
+        note, and page 1's line shows it. The row's lead names the figure ('· Deployment calendar 전체')."""
         page = self.on("fig")
         page.evaluate(
             "p=>{LAST_PTR='mouse'; pick({doc:'fig',page:1,pdf_build:META.pages_build,x0:p[0]*META.pages[0].pt_w,y0:p[1]*META.pages[0].pt_h,"
@@ -2054,8 +2132,10 @@ class FigureTarget(VerdictBase):
         )
         page.wait_for_function("COMPOSE.current&&!COMPOSE.picking")
         self.assertEqual(page.evaluate("COMPOSE.current.elSel.path.length"), 3)
+        # the lead names the figure whose verdict it is - the page's, whatever element of it is selected
         self.assertEqual(
-            page.evaluate("document.querySelector('#c-verdict-l').textContent"), "판정 바로 저장 · 그림 전체"
+            page.evaluate("document.querySelector('#c-verdict-l').textContent"),
+            "판정 바로 저장 · Deployment calendar 전체",
         )
         page.fill("#note", "the July cell is off")
         page.locator('#c-verdict-row button[data-key="채택"]').click()
@@ -2103,7 +2183,7 @@ class LineDetails(VerdictBase):
 
     def test_only_the_newest_save_chip_shows(self):
         """채택 on page 1's line, then 보류 on page 2's: one chip on the pages, on page 2's line; page 1's undo went to the
-        status line, still offered."""
+        status line, still offered, and names the figure ('#N 저장됨 · 채택 판정 · Deployment calendar')."""
         page = self.on("fig")
         one = self.press_page(page, 1, "채택")
         self.press_page(page, 2, "보류")
@@ -2111,6 +2191,13 @@ class LineDetails(VerdictBase):
             page.evaluate("[...document.querySelectorAll('#doc .nt-chip')].map(c=>c.parentElement.dataset.page)"), ["2"]
         )
         self.assertTrue(page.evaluate("id=>LINE.some(n=>n.undo&&!!n.act&&n.title.includes('#'+id))", one))
+        # ...naming the figure the verdict is about
+        self.assertTrue(
+            page.evaluate(
+                "id=>LINE.some(n=>n.title.includes('#'+id)&&noticeText(n).endsWith('채택 판정 · Deployment calendar'))",
+                one,
+            )
+        )
 
     def test_a_failed_save_is_said_under_the_line_that_was_pressed(self):
         """The network loses page 1's save: its line says '판정 저장 실패 — …' under its buttons, page 2's says nothing;
@@ -2118,18 +2205,19 @@ class LineDetails(VerdictBase):
         page = self.on("fig")
         self.fail_pin = 1
         page.locator('#doc .pv[data-page="1"] button[data-key="채택"]').click()
-        page.wait_for_selector('#doc .pv[data-page="1"] .pv-err')
+        page.wait_for_selector('#doc .pv[data-page="1"] .pv-err:not([hidden])')
         settle(page)
         self.assertTrue(
-            page.evaluate("""()=>document.querySelector('#doc .pv[data-page="1"] .pv-err').textContent""").startswith(
-                "판정 저장 실패 — "
-            )
+            page.evaluate(
+                """()=>document.querySelector('#doc .pv[data-page="1"] .pv-err:not([hidden])').textContent"""
+            ).startswith("판정 저장 실패 — ")
         )
         self.assertEqual(
-            page.evaluate("""()=>document.querySelectorAll('#doc .pv[data-page="2"] .pv-err').length"""), 0
+            page.evaluate("""()=>document.querySelectorAll('#doc .pv[data-page="2"] .pv-err:not([hidden])').length"""),
+            0,
         )
         self.press_page(page, 1, "채택")
-        self.assertEqual(page.evaluate("""()=>document.querySelectorAll('#doc .pv .pv-err').length"""), 0)
+        self.assertEqual(page.evaluate("""()=>document.querySelectorAll('#doc .pv .pv-err:not([hidden])').length"""), 0)
 
     def test_a_phones_verdict_words_are_44px_tall(self):
         """390x844: every word on a page line and in the composer's row is drawn 44px tall."""
@@ -2145,7 +2233,8 @@ class LineDetails(VerdictBase):
 
     def test_a_page_the_map_says_takes_no_verdict_has_no_line_and_no_composer_words(self):
         """The map marks page 2 "verdict": false: meta says so, page 2 has no line while page 1 keeps its, a selection on
-        page 2 offers no verdict words (one on page 1 does), and the keys do nothing there."""
+        page 2 offers no verdict words (one on page 1 does), and a key there saves nothing and says '이 쪽은 판정을 받지
+        않습니다' on the status line."""
         fmap = helpers_figure.viewer_map()
         fmap["pages"][1]["verdict"] = False
         helpers_figure.viewer_build(self.fig, helpers_figure.BUILD2, fmap)
@@ -2177,3 +2266,150 @@ class LineDetails(VerdictBase):
         page.keyboard.press("1")
         settle(page)
         self.assertEqual(self.pins(), {})
+        self.assertTrue(page.evaluate("LINE.some(n=>n.title==='이 쪽은 판정을 받지 않습니다')"))
+
+
+REASON = """n=>{const f=document.querySelector('#doc .pv[data-page="'+n+'"] .pv-reason');
+  return f?{focused: document.activeElement===f, value: f.value, placeholder: f.placeholder}:null;}"""
+
+
+class Reason(VerdictBase):
+    """A reason with a verdict, in place: after a page-line save one optional line of text on that line; Enter saves it as
+    the pin's note, Esc or moving on leaves the verdict alone."""
+
+    def note(self, pid):
+        return self.pins()[pid]["note"]
+
+    def test_after_a_click_the_field_waits_and_enter_saves_the_reason(self):
+        """A click on 채택: the pin is saved at once (note ''), the line offers '이유 (선택)…' without taking the focus;
+        typed into and Enter, the text is the pin's note, shown on the line and on its card; the field goes."""
+        page = self.on("fig")
+        pid = self.press_page(page, 1, "채택")
+        self.assertEqual(self.note(pid), "")
+        got = page.evaluate(REASON, 1)
+        self.assertEqual((got["focused"], got["placeholder"]), (False, "이유 (선택) — Enter 저장 · Esc 건너뜀"))
+        page.click('#doc .pv[data-page="1"] .pv-reason')
+        page.keyboard.type("축 이름이 길다")
+        page.keyboard.press("Enter")
+        page.wait_for_function("id=>OPEN_ALL.some(p=>p.id===id&&p.note)", arg=pid)
+        settle(page)
+        self.assertEqual(self.note(pid), "축 이름이 길다")
+        self.assertIsNone(page.evaluate(REASON, 1))
+        self.assertEqual(
+            page.evaluate("""()=>document.querySelector('#doc .pv[data-page="1"] .pv-note').textContent"""),
+            "축 이름이 길다",
+        )
+        self.assertIn(
+            "축 이름이 길다",
+            page.evaluate("id=>document.querySelector('#list .pin.card[data-id=\"'+id+'\"] .note').textContent", pid),
+        )
+
+    def test_after_a_key_the_field_has_the_focus_and_digits_typed_are_text(self):
+        """2 on the reading page: the field has the focus; '3번 패널 범례' typed there is text (no verdict key) and Enter saves
+        it as the new pin's note."""
+        page = self.on("fig")
+        page.evaluate("setK(PT_PX*1.5,false)")
+        page.evaluate(SCROLL, [2, "top"])
+        settle(page)
+        page.keyboard.press("2")
+        page.wait_for_function("OPEN_ALL.length>=1")
+        settle(page)
+        self.assertTrue(page.evaluate(REASON, 2)["focused"])
+        page.keyboard.type("3번 패널 범례")
+        page.keyboard.press("Enter")
+        page.wait_for_function("OPEN_ALL.some(p=>p.note)")
+        settle(page)
+        (pin,) = self.pins().values()
+        self.assertEqual((pin["verdict"], pin["note"]), ("보류", "3번 패널 범례"))
+
+    def test_esc_skips_the_reason(self):
+        """1 then Esc: the field goes, the focus is back on 채택, the pin has no note."""
+        page = self.on("fig")
+        page.keyboard.press("1")
+        page.wait_for_function("OPEN_ALL.length>=1")
+        settle(page)
+        self.assertTrue(page.evaluate(REASON, 1)["focused"])
+        page.keyboard.press("Escape")
+        settle(page)
+        self.assertIsNone(page.evaluate(REASON, 1))
+        self.assertEqual(page.evaluate("document.activeElement.dataset.key"), "채택")
+        (pin,) = self.pins().values()
+        self.assertEqual(pin["note"], "")
+
+    def test_a_confirm_word_offers_the_field_after_its_second_press(self):
+        """3 arms 삭제 - no field yet; 3 again saves, and the field has the focus."""
+        page = self.on("fig")
+        page.keyboard.press("3")
+        settle(page)
+        self.assertIsNone(page.evaluate(REASON, 1))
+        page.keyboard.press("3")
+        page.wait_for_function("OPEN_ALL.length>=1")
+        settle(page)
+        self.assertTrue(page.evaluate(REASON, 1)["focused"])
+
+    def test_the_undo_takes_the_field_with_the_pin(self):
+        """채택 clicked, a reason typed but not saved, then the chip's [되돌리기]: the pin is withdrawn and the field goes with
+        it - nothing is written to the dropped pin."""
+        page = self.on("fig")
+        pid = self.press_page(page, 1, "채택")
+        page.click('#doc .pv[data-page="1"] .pv-reason')
+        page.keyboard.type("나중에")
+        page.locator('#doc .pv[data-page="1"]>.nt-chip [data-act="notice-act"]').click()
+        page.wait_for_function("id=>!OPEN_ALL.some(p=>p.id===id)", arg=pid)
+        settle(page)
+        self.assertIsNone(page.evaluate(REASON, 1))
+        self.assertNotIn(pid, self.pins())
+        _, trash = self.call("GET", "/api/pins/dropped")
+        self.assertEqual([p.get("note") for p in trash["dropped"] if p["id"] == pid], [""])
+
+    def test_on_a_phone_the_field_waits_for_a_tap_and_stays_above_the_keyboard(self):
+        """390x844: a tap on 채택 does not raise the keyboard (the field waits); tapped and the keyboard up (the layout 300px
+        shorter), the field and the line's words are on screen and pressable."""
+        page = self.on("fig", viewport={"width": 390, "height": 844}, is_mobile=True, has_touch=True)
+        page.evaluate("setSide(false)")
+        page.evaluate("setK(PT_PX*1.2,false)")
+        page.evaluate(SCROLL, [2, "top"])
+        settle(page)
+        self.press_page(page, 2, "채택")
+        self.assertFalse(page.evaluate(REASON, 2)["focused"])
+        page.tap('#doc .pv[data-page="2"] .pv-reason')
+        page.set_viewport_size({"width": 390, "height": 544})
+        settle(page)
+        self.assertTrue(page.evaluate(REASON, 2)["focused"])
+        self.assertTrue(page.evaluate(ON_TOP, '#doc .pv[data-page="2"] .pv-reason'))
+        self.assertTrue(page.evaluate(ON_TOP, '#doc .pv[data-page="2"] button[data-key="보류"]'))
+
+
+class ReasonAgentRole(VerdictBase):
+    """A person with the agent role makes no verdict, so no reason field either."""
+
+    WHO = AGENT
+
+    def test_the_agent_role_has_no_words_and_no_reason_field(self):
+        """Alice's verdict on page 1: the agent-role person reads it on the line, with no word and no reason field."""
+        meta = self.call("GET", "/api/meta?doc=fig")[1]
+        w, h = meta["pages"][0]["pt_w"], meta["pages"][0]["pt_h"]
+        code, d = self.call(
+            "POST",
+            "/api/pick",
+            {
+                "doc": "fig",
+                "page": 1,
+                "x0": 0,
+                "y0": 0,
+                "x1": w,
+                "y1": h,
+                "frac": [0, 0, 1, 1],
+                "pdf_build": meta["pages_build"],
+            },
+        )
+        body = {k: d[k] for k in helpers_figure.SAVE_LINE if d.get(k) is not None}
+        body.update(scope=d["default_level"], doc="fig", note="", verdict="채택")
+        self.assertEqual(self.call("POST", "/api/pin", body)[0], 200)
+        page = self.on("fig", n_open=1)
+        self.assertEqual(page.evaluate(LINE, 1)["words"], [])
+        self.assertIsNone(page.evaluate(REASON, 1))
+        page.keyboard.press("1")
+        settle(page)
+        self.assertIsNone(page.evaluate(REASON, 1))
+        self.assertEqual(len(self.pins()), 1)

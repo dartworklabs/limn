@@ -1303,5 +1303,12 @@
  "단축키 {key}": "Key {key}",
  "단축키 {key} (두 번)": "Key {key} (twice)",
  "그림 {id}": "Figure {id}",
- "판정 대상 그림 · {id}": "Figure this verdict is about · {id}"
+ "판정 대상 그림 · {id}": "Figure this verdict is about · {id}",
+ "{name} 전체": "whole {name}",
+ "#{id} 저장됨 · {word} 판정 · {target}": "#{id} saved · verdict {word} · {target}",
+ "이 쪽은 판정을 받지 않습니다": "This page takes no verdict",
+ "이유 (선택) — Enter 저장 · Esc 건너뜀": "Reason (optional) — Enter saves · Esc skips",
+ "판정 #{id} 이유 (선택) — Enter 저장, Esc 건너뜀": "Reason for verdict #{id} (optional) — Enter saves, Esc skips",
+ "이유 저장": "Saving the reason",
+ "판정 #{id} 이유를 저장했습니다": "Saved the reason for verdict #{id}"
 }

@@ -291,7 +291,6 @@ NOT_WALKED: dict[str, tuple[float | None, str]] = {
     # a container's default colour that no text takes: each part inside sets its own
     "#outline-items button": (TEXT, "an outline entry's default: its title, number and page set their own colours"),
     "#section-strip": (TEXT, "the section strip's default: its section and page set their own colours"),
-    ".pv": (TEXT, "a page verdict line's default: its parts set their own colours"),
     ".msg.ev": (TEXT, "a state record's default: its head sets its own colour, and the walk's records carry no note"),
     # text in a state the walk's fixture does not reach
     "#doc-select-wrap label": (TEXT, "the documents select's label: no rule shows #doc-select-wrap in any band"),

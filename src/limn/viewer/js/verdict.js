@@ -152,7 +152,7 @@ function pvStateWord(p){const st=pinState(p); if(st===PIN_STATE.REVIEW||CONFIRMI
 // ---------------- Two presses for a confirm word (D9)
 // The armed first press: the word, where (VD_WHERE) and - on a page line - the page, with the document, build and (in the
 // composer) selection it is bound to; null when nothing is armed.
-let VD_ARM=/** @type {{key:string,label:string,where:string,page:number,doc:string|null,build:string,sel:string,timer:ReturnType<typeof setTimeout>}|null} */(null);
+let VD_ARM=/** @type {{key:string,label:string,where:string,page:number,doc:string|null,build:string,sel:string,kbd:boolean,timer:ReturnType<typeof setTimeout>}|null} */(null);
 // What the composer's selection is, for the binding: its page, lines, rung, box and element.
 function vdSelKey(){const d=COMPOSE.current; return d?JSON.stringify([d.page,d.lo,d.hi,d.scope,d.frac,d.elSel&&d.elSel.id]):'';}
 // Whether the armed press is this word's button.
@@ -160,9 +160,11 @@ function vdSelKey(){const d=COMPOSE.current; return d?JSON.stringify([d.page,d.l
 function vdArmedHere(key,where,page){const a=VD_ARM; return !!a&&a.key===key&&a.where===where&&(where===VD_WHERE.COMPOSER||a.page===page);}
 // Whether an armed press still holds: the same document, build and (in the composer) selection.
 function vdArmStill(a){return a.doc===DOC&&!!META&&a.build===META.pages_build&&(a.where!==VD_WHERE.COMPOSER||a.sel===vdSelKey());}
-// Arms word key's button: it reads '<낱말> 확정' for VD_ARM_MS and a screen reader hears that the next press saves.
-function armVerdict(key,where,page,label){disarmVerdict(false);
-  VD_ARM={key,label,where,page,doc:DOC,build:META?META.pages_build:'',sel:where===VD_WHERE.COMPOSER?vdSelKey():'',timer:setTimeout(()=>disarmVerdict(true,true),VD_ARM_MS)};
+// Arms word key's button: it reads '<낱말> 확정' for VD_ARM_MS and a screen reader hears that the next press saves. kbd: armed
+// by a key (verdictKey), which also lets it go when the reading page changes (pvStick).
+/** @param {string} key @param {string} where @param {number} page @param {string} label @param {boolean} [kbd] */
+function armVerdict(key,where,page,label,kbd){disarmVerdict(false);
+  VD_ARM={key,label,where,page,doc:DOC,build:META?META.pages_build:'',sel:where===VD_WHERE.COMPOSER?vdSelKey():'',kbd:!!kbd,timer:setTimeout(()=>disarmVerdict(true,true),VD_ARM_MS)};
   vdRedraw(where); announce(tl('{word} — 한 번 더 누르면 저장합니다',{word:label}));}
 // Lets an armed press go (Esc, another press, a press elsewhere, a new selection, document or build, the time running out).
 // When it goes by itself or by Esc (say) a screen reader hears so - '삭제 확정을 풀었습니다' replaces '한 번 더 누르면 저장합니다'.
@@ -205,14 +207,16 @@ function vdRefocus(f){if(!f||document.contains(f)||!f.dataset||!f.dataset.act)re
   const b=/** @type {HTMLElement|null} */(document.querySelector(sel));
   if(b)b.focus({preventScroll:true});}
 // A press on a verdict button: a confirm word arms on the first press and saves on the second while what it is bound to
-// holds; any other word saves at once - the composer's through savePin, a page line's through savePageVerdict.
-/** @param {HTMLElement} b */
-function verdictPress(b){const key=b.dataset.key||'',where=vdWhereOf(b),page=Number(b.dataset.page)||0,v=docVerdicts(),c=v&&v.choices.find(x=>x.key===key);
+// holds; any other word saves at once - the composer's through savePin, a page line's through savePageVerdict. how: 'key'
+// for a digit key (verdictKey), 'kb' for a click the keyboard made (Enter or Space on the button); a page line's save from
+// either puts the focus in its reason field.
+/** @param {HTMLElement} b @param {string} [how] */
+function verdictPress(b,how){const key=b.dataset.key||'',where=vdWhereOf(b),page=Number(b.dataset.page)||0,v=docVerdicts(),c=v&&v.choices.find(x=>x.key===key);
   if(!c||b.getAttribute('aria-disabled')==='true'||viewerBlocked())return;
   if(c.confirm&&!(vdArmedHere(key,where,page)&&VD_ARM&&vdArmStill(VD_ARM))){const f=/** @type {HTMLElement|null} */(document.activeElement);
-    armVerdict(key,where,page,c.label); vdRefocus(f&&f.closest&&f.closest('.vd-btns')?f:null); return;}
+    armVerdict(key,where,page,c.label,how==='key'); vdRefocus(f&&f.closest&&f.closest('.vd-btns')?f:null); return;}
   disarmVerdict(false);
-  if(where!==VD_WHERE.COMPOSER){savePageVerdict(page,key); return;}
+  if(where!==VD_WHERE.COMPOSER){savePageVerdict(page,key,!!how); return;}
   renderVerdictRow(); if(COMPOSE.current)savePin(key);}   // while the pick runs the row is off (composer.css): nothing is queued
 
 // ---------------- The composer's verdict row
@@ -226,6 +230,15 @@ function selTarget(d){const fr=figureVerdictRoot(d); if(fr)return figureName(d.p
 /** @param {number} page @param {string} root */
 function figureName(page,root){const pg=META&&Array.isArray(META.pages)?META.pages[page-1]:null,t=pg&&pg.figure===root&&pg.title?pg.title:'';
   return tl('{page}쪽',{page})+' · '+(t||tl('그림 {id}',{id:root}));}
+// A figure's short name: its map title ('[후보] PL26 · …') while page `page` still shows it, else its id. For the composer's
+// lead, the floating line and the status line's undo, which say which figure a verdict is for before and after the press.
+/** @param {number} page @param {string} root */
+function figureShort(page,root){const pg=META&&Array.isArray(META.pages)?META.pages[page-1]:null; return pg&&pg.figure===root&&pg.title?pg.title:root;}
+// What page `page`'s verdict is about, by a short name: on a figure document its figure (figureShort of the map's figure),
+// else the page ('7쪽').
+/** @param {number} page */
+function pageTargetShort(page){const pg=META&&Array.isArray(META.pages)?META.pages[page-1]:null;
+  return META&&isFigureKind(META.kind)&&pg&&typeof pg.figure==='string'?figureShort(page,pg.figure):tl('{page}쪽',{page});}
 // The figure a figure document's selection d is about - the root of its element's path - or null: not a figure document,
 // or a pick without an element (a map it could not read).
 /** @param {Selection|null} d @returns {string|null} */
@@ -256,8 +269,11 @@ function renderVerdictRow(){const row=$('#c-verdict-row'),v=docVerdicts(),d=COMP
   const why=COMPOSE.picking&&!d?tr('위치를 찾는 중입니다'):KIND_NEW===KIND_REQ.QUESTION?tr('질문에는 판정을 붙이지 않습니다 — 아래에서 [수정 요청]을 고릅니다')
     :SG.on?tr('판정을 저장하려면 [제안 수정]을 끕니다'):'';
   const f=/** @type {HTMLElement|null} */(document.activeElement),inRow=!!f&&row.contains(f);
-  // On a figure document the lead says the verdict is the figure's - the whole page - whatever element is selected.
-  const fig=isFigureKind(docKindOf((d&&d.doc)||DOC||''))&&(!d||!!figureVerdictRoot(d)),scope=fig?html`<span class="vd-scope"> · ${tr('그림 전체')}</span>`:'';
+  // On a figure document the lead says whose verdict it is - the selected element's figure, by name ('· PL35 … 전체') -
+  // whatever element is selected: a panel that shows another figure is still this page's figure's verdict.
+  const fr=d?figureVerdictRoot(d):null,S='\u0001',sp=tl('{name} 전체',{name:S}).split(S);
+  const scope=fr&&d?html`<span class="vd-scope"> · ${sp[0]}<span class="vd-fig" translate="no">${figureShort(d.page,fr)}</span>${sp[1]||''}</span>`
+    :isFigureKind(docKindOf((d&&d.doc)||DOC||''))&&!d?html`<span class="vd-scope"> · ${tr('그림 전체')}</span>`:'';
   setHtml(row,html`<span id="c-verdict-l" class="vd-l">${tr('판정 바로 저장')}${scope}</span><span class="vd-btns">${v.choices.map(c=>vdButton(c,VD_WHERE.COMPOSER,0,d?selTarget(d):'',!!why||!d||COMPOSE.saving))}</span>\
 ${why?html`<span class="vd-why" id="c-verdict-why">${why}</span>`:''}`);
   if(why)row.setAttribute('aria-describedby','c-verdict-why'); else row.removeAttribute('aria-describedby');
@@ -286,6 +302,7 @@ function verdictDropped(){const b=BANNERS.get(NOTICE_HOST.COMPOSER); if(!b||!b.s
 function verdictUndo(id){const undo=async()=>{let was=null;
     try{was=(await api('/api/pins/'+id,{what:'핀 읽기',silent:true})).data.pin;}catch(e){}
     const ok=await dropPin(id,true,undo);
+    if(ok&&PV_REASON&&PV_REASON.id===id){PV_REASON=null; drawPageVerdicts();}   // a withdrawn verdict takes no reason
     if(ok&&was&&(claimActive(was)||pinState(was)!==PIN_STATE.OPEN))lineNote('처리 중이던 판정이라 이미 실행됐을 수 있습니다',NOTICE_KIND.WARN);
     return ok;};
   return undo;}
@@ -307,19 +324,53 @@ const PV_BUSY=new Set();   // pages whose page verdict is being saved: their but
 // A page line's last failed save, by page: said on the line that was pressed (pvLineHtml) as well as on the status line, until
 // the next press on that line or another document or build. The document and build it was for come with it.
 const PV_ERR=/** @type {Map<number,{text:string,doc:string|null,build:string}>} */(new Map());
+// A reason with a verdict, in place: after a save on a page line, that line offers one optional line of text - '이유 (선택)' -
+// for the new pin (the fast save and its undo stay as they are). It has the focus when the press came from the keyboard (a
+// digit key, or Enter or Space on the button); after a click it waits to be pressed, never raising a phone's keyboard by
+// itself. Enter saves the text as the pin's note (pvReasonSave: the note edit a verdict pin takes, ADR-0021 D3); Esc, or
+// moving on with it empty (the focus leaving it, the reading page changing, another save, the undo), lets it go and the pin
+// stays a verdict alone. One field at a time, bound to its pin, document and build.
+let PV_REASON=/** @type {{page:number,id:number,key:string,doc:string|null,build:string,focus:boolean}|null} */(null);
+/** @param {number} page */
+function pvReasonOn(page){const r=PV_REASON; return !!r&&r.page===page&&r.doc===DOC&&!!META&&r.build===(META.pages_build||'');}
+// Lets the reason field go; back gives the focus back to the word that was pressed.
+/** @param {boolean} back */
+function pvReasonEnd(back){const r=PV_REASON; if(!r)return; PV_REASON=null; drawPageVerdicts(); if(back)pvRefocus(r.page,r.key);}
+// Saves the field's text as its pin's note: the note edit (base_rev from the list, read again when the list does not hold
+// it). A pin that is gone (undone, deleted elsewhere) takes nothing; a note someone wrote meanwhile is kept and the reason
+// is added to it (note_append). Empty text is Esc.
+/** @param {HTMLInputElement} f */
+async function pvReasonSave(f){const r=PV_REASON,text=f.value.trim(); if(!r)return; if(!text){pvReasonEnd(true); return;}
+  if(viewerBlocked())return;
+  const find=()=>OPEN_ALL.concat(REVIEW_ALL,DONE_ALL).find(p=>p.id===r.id);
+  let p=find(); if(!p){try{p=(await api('/api/pins/'+r.id,{what:'핀 읽기',silent:true})).data.pin;}catch(e){p=undefined;}}
+  if(!p||p.dropped_at){pvReasonEnd(true); lineNote(tl('핀 #{id} 은 그사이 다른 곳에서 지워졌습니다',{id:r.id}),NOTICE_KIND.WARN); return;}
+  f.disabled=true;
+  try{const body=p.note?{note_append:text}:{note:text,base_rev:p.rev};
+    const {status,data}=await api('/api/pins/'+r.id+'/edit',{method:'POST',body,what:'이유 저장',where:NOTICE_HOST.LINE,expect:[409],intent:'reason'});
+    if(status===409){const q=data&&data.pin; if(!q)throw new Error('conflict');   // someone changed the pin meanwhile: their note stays
+      await api('/api/pins/'+r.id+'/edit',{method:'POST',body:q.note?{note_append:text}:{note:text,base_rev:q.rev},what:'이유 저장',where:NOTICE_HOST.LINE,intent:'reason'});}
+    if(PV_REASON===r)PV_REASON=null; quietNote(tl('판정 #{id} 이유를 저장했습니다',{id:r.id})); await loadPins(); pvRefocus(r.page,r.key);
+  }catch(e){f.disabled=false;}}   // api() said it on the status line; the text stays in the field for another Enter
+$('#doc').addEventListener('keydown',e=>{const f=/** @type {HTMLInputElement} */(e.target); if(!f.classList||!f.classList.contains('pv-reason')||e.isComposing)return;
+  if(e.key==='Enter'){e.preventDefault(); e.stopPropagation(); pvReasonSave(f);}
+  else if(e.key==='Escape'){e.preventDefault(); e.stopPropagation(); pvReasonEnd(true);}});
+$('#doc').addEventListener('focusout',e=>{const f=/** @type {HTMLInputElement} */(e.target); if(!f.classList||!f.classList.contains('pv-reason'))return;
+  setTimeout(()=>{if(document.activeElement!==f&&!f.disabled&&!f.value.trim()&&PV_REASON&&String(PV_REASON.id)===f.dataset.id)pvReasonEnd(false);},0);});
 // Saves word key as a verdict about page `page`'s whole target: a pick of the whole page on the build on screen, the body
 // pageVerdictBody makes of it, with no note, saved as a fix request for the agent. The composer's selection and draft stay as
 // they are. Every press makes a new pin (the same word twice is two pins - the agent runs one, D4 and D5). Saved: '#42 저장됨
 // [되돌리기]' on the line for NOTICE_MS; a refusal or a failure is said on the status line and under the pressed line.
-/** @param {number} page @param {string} key */
-async function savePageVerdict(page,key){const pg=META&&META.pages[page-1]; if(!pg||PV_BUSY.has(page))return;
+/** @param {number} page @param {string} key @param {boolean} [kb] - pressed from the keyboard: the reason field takes the focus */
+async function savePageVerdict(page,key,kb){const pg=META&&META.pages[page-1]; if(!pg||PV_BUSY.has(page))return;
   const visit=captureVisit(),kind=META.kind,f=/** @type {HTMLElement|null} */(document.activeElement);
   const build=META.pages_build||'',fail=(/** @type {string} */text)=>{if(currentVisit(visit))PV_ERR.set(page,{text,doc:DOC,build});};
   let saved=false; PV_ERR.delete(page);
   let back=!!f&&!!f.closest&&!!f.closest('#doc .pv')&&f.dataset.act==='pv-save'&&f.dataset.key===key;   // a keyboard press: the focus comes back
   // ...unless it moved meanwhile to anything but that button (another page's word, a '#N' link, the panel): a redraw that puts
   // it back on the same word's button is no move.
-  const moved=e=>{const t=/** @type {HTMLElement} */(e.target); if(!(t&&t.dataset&&t.dataset.act==='pv-save'&&t.dataset.key===key&&t.dataset.page===String(page)))back=false;};
+  let away=false;   // the person put the focus anywhere else meanwhile: neither the button nor the reason field takes it back
+  const moved=e=>{const t=/** @type {HTMLElement} */(e.target); if(!(t&&t.dataset&&t.dataset.act==='pv-save'&&t.dataset.key===key&&t.dataset.page===String(page))){back=false; away=true;}};
   document.addEventListener('focusin',moved);
   PV_BUSY.add(page); drawPageVerdicts();
   try{const d=(await api('/api/pick',{method:'POST',body:{page,x0:0,y0:0,x1:pg.pt_w,y1:pg.pt_h,frac:WHOLE_PAGE.slice(),pdf_build:META.pages_build||undefined,doc:DOC||undefined},
@@ -331,12 +382,15 @@ async function savePageVerdict(page,key){const pg=META&&META.pages[page-1]; if(!
     Object.assign(body,{note:'',doc:DOC||undefined,kind_req:KIND_REQ.FIX,assignee:ASSIGNEE_AGENT,verdict:key});
     const id=(await api('/api/pin',{method:'POST',body,what:'판정 저장',where:NOTICE_HOST.LINE})).data.id; saved=true;
     if(SEC_SEEN.open)SEC_SEEN.open.add(id);   // my own new pin is never 'new' on a collapsed header
-    const chip=undoNote(NOTICE_PLACE.CHIP,tl('#{id} 저장됨 · {word} 판정',{id,word:verdictLabel(key)}),{label:'되돌리기',wait:true,fn:verdictUndo(id)},
+    const chip=undoNote(NOTICE_PLACE.CHIP,tl('#{id} 저장됨 · {word} 판정 · {target}',{id,word:verdictLabel(key),target:pageTargetShort(page)}),{label:'되돌리기',wait:true,fn:verdictUndo(id)},
       {pin:id,pending:true,label:tl('#{id} 저장됨 · {word}',{id,word:verdictLabel(key)})});
+    if(currentVisit(visit))PV_REASON={page,id,key,doc:DOC,build:META?META.pages_build||'':'',focus:!!kb};   // the reason field under it
     await loadPins(); settleChip(chip);
   }catch(e){const x=/** @type {ApiError} */(e);   // api() said it on the status line: the pressed line says it too
     if(!saved)fail(tl('{what} 실패',{what:tr('판정 저장')})+' — '+(x&&x.data?errText(x.data)||('HTTP '+x.status):tr('서버에 닿지 않습니다')));}
-  finally{document.removeEventListener('focusin',moved); PV_BUSY.delete(page); drawPageVerdicts(); if(back)pvRefocus(page,key);}}
+  finally{document.removeEventListener('focusin',moved); PV_BUSY.delete(page); drawPageVerdicts();
+    const rs=PV_REASON,r=rs&&rs.page===page&&rs.focus?/** @type {HTMLInputElement|null} */(document.querySelector('#doc .pv[data-page="'+page+'"] .pv-reason')):null;
+    if(rs&&r&&!away){rs.focus=false; r.focus({preventScroll:true});} else if(back)pvRefocus(page,key);}}
 // Gives the focus back to word key's button on page `page`'s line after its save: the pressed button was disabled and redrawn
 // while the request ran, which dropped the focus. Not when the person put the focus somewhere else meanwhile (savePageVerdict
 // watches for that) or it is on something now.
@@ -359,15 +413,26 @@ function pvLineHtml(page,list,v){const cur=list&&list[0],earlier=list?list.slice
   const text=cur&&k?html`<span class="pv-s">${tr('판정')} <span class="pin-ref pv-ref hit" role="link" tabindex="0" data-act="pin-ref" data-ref="${cur.id}" \
 aria-label="${tl('지금 판정 #{id} 카드로 갑니다',{id:cur.id})}" data-tip="${tl('핀 #{id} 로 갑니다',{id:cur.id})}">#${cur.id}</span> <b class="vd-w" translate="no">${verdictLabel(k)}</b></span>\
 <span class="pv-sep" aria-hidden="true">·</span><span class="pv-st">${sp[0]}${by?html`<span class="pv-by" translate="no">${by}</span>${sp[1]||''}`:''}</span>\
-${other?html`<span class="pv-sep" aria-hidden="true">·</span><span class="pv-au" translate="no">${who(cur.author)}</span> ${relSpan(cur.at,'pv-at','')}`:''}`
+${other?html`<span class="pv-sep" aria-hidden="true">·</span><span class="pv-au" translate="no">${who(cur.author)}</span> ${relSpan(cur.at,'pv-at','')}`:''}\
+${cur.note?html`<span class="pv-sep" aria-hidden="true">·</span><span class="pv-note" translate="no" data-tip="${cur.note}">${String(cur.note).split('\n')[0]}</span>`:''}`
     :html`<span class="pv-s pv-none">${tr(loading?'판정 읽는 중…':'판정 없음')}</span>`;
   const early=earlier.length?html`<button type="button" class="btn-ghost btn-sm pv-early hit" data-act="pv-earlier" data-ref="${earlier[0].id}" \
 data-tip="${tr('이 쪽의 더 새 판정으로 대체되어 실행하지 않는 열린 판정 핀입니다. 누르면 그 카드로 갑니다')}">${tl('이전 판정 {n}건 · 새 판정으로 대체됨',{n:earlier.length})}</button>`:'';
+  // The reading page's line - the one that floats - names what it decides: '7쪽 · [후보] PL18 · …' (figureName), cut to fit.
+  // Its two spans are on every line, empty and hidden but on the reading one: the line's children keep their places when
+  // the reading page moves, so the morph (pvMorph) never takes a focused button out of the page.
+  const rd=PV_READ===page,nm=rd?META&&isFigureKind(META.kind)&&META.pages[page-1]&&META.pages[page-1].figure?figureName(page,String(META.pages[page-1].figure)):tl('{page}쪽',{page}):'';
+  const name=html`<span class="pv-fig" translate="no"${rd?'':html` hidden`}>${nm}</span><span class="pv-sep pv-fig-sep" aria-hidden="true"${rd?'':html` hidden`}>·</span>`;
   const busy=PV_BUSY.has(page)||loading,keys=PV_KEYS===page,target=tl('{page}쪽',{page});
   const btns=canVerdict()?html`<span class="vd-btns">${v.choices.map((c,i)=>vdButton(c,VD_WHERE.PAGE,page,target,busy,keys?i+1:0))}</span>`:'';
   // The line's last failed save, said where it was pressed (PV_ERR) - for the document and build on screen only.
-  const e=PV_ERR.get(page),err=e&&e.doc===DOC&&!!META&&e.build===(META.pages_build||'')?html`<span class="pv-err">${e.text}</span>`:'';
-  return html`<span class="pv-t">${text}${early}</span>${btns}${err}`;}
+  const e=PV_ERR.get(page),eo=!!e&&e.doc===DOC&&!!META&&e.build===(META.pages_build||'');
+  const err=html`<span class="pv-err"${eo?'':html` hidden`}>${eo&&e?e.text:''}</span>`;   // always there, so the reason field after it keeps its place
+  // The reason field after a save on this line (PV_REASON): one line, optional, Enter saves it as the pin's note.
+  const rs=pvReasonOn(page)&&canVerdict()?/** @type {NonNullable<typeof PV_REASON>} */(PV_REASON):null;
+  const why=rs?html`<input class="pv-reason" type="text" maxlength="4000" autocomplete="off" enterkeyhint="done" data-id="${rs.id}" \
+placeholder="${tr('이유 (선택) — Enter 저장 · Esc 건너뜀')}" aria-label="${tl('판정 #{id} 이유 (선택) — Enter 저장, Esc 건너뜀',{id:rs.id})}">`:'';
+  return html`${name}<span class="pv-t">${text}${early}</span>${btns}${err}${why}`;}
 // Draws page `page`'s line.
 /** @param {HTMLElement} el @param {number} page @param {Pin[]|undefined} list @param {DocVerdicts} v */
 // The list redraws on every poll and many other changes, so a line is never rewritten: what changed is changed in place
@@ -376,7 +441,7 @@ data-tip="${tr('이 쪽의 더 새 판정으로 대체되어 실행하지 않는
 // line), and the focus stays where it was, also on a '#N' whose number just changed. A line whose words are what it shows is
 // left alone. Every verdict pin the line accounts for - the current one and the earlier ones - draws no page-size mark.
 const PV_TEXT=/** @type {WeakMap<HTMLElement,string>} */(new WeakMap());   // what fillPv last wrote into each line
-function fillPv(el,page,list,v){el.dataset.page=String(page); const cur=list&&list[0];
+function fillPv(el,page,list,v){el.dataset.page=String(page); el.classList.toggle('reading',PV_READ===page); const cur=list&&list[0];
   if(cur)el.dataset.pin=String(cur.id); else delete el.dataset.pin; (list||[]).forEach(p=>PV_SHOWN.add(p.id));
   el.setAttribute('role','group'); el.setAttribute('aria-label',tl('{page}쪽 판정',{page}));
   const m=pvLineHtml(page,list,v); if(PV_TEXT.get(el)===m.text)return; PV_TEXT.set(el,m.text);
@@ -405,9 +470,10 @@ function sizePv(){const ir=pvInsetR(),room=innerW()-ir,doc=$('#doc'),lines=$$('#
   lines.forEach(e=>{const pg=document.getElementById('p'+e.dataset.page),w=pg?parseFloat(pg.style.width)||room:room; e.style.width=Math.round(Math.min(w,room))+'px';});
   if(!lines.length||!lines[0].getClientRects().length){if(!lines.length)doc.classList.remove('pv-stack'); return;}
   doc.classList.remove('pv-stack');
-  const wraps=lines.some(l=>{const t=l.querySelector('.pv-t'),b=l.querySelector('.vd-btns'); return !!t&&!!b&&b.getBoundingClientRect().top>=t.getBoundingClientRect().bottom-1;});
-  doc.classList.toggle('pv-stack',wraps); lines.forEach(l=>vdWrapFit(l.querySelector('.vd-btns')));
-  $('#left').style.setProperty('--pv-h',Math.round(lines[0].getBoundingClientRect().height)+'px');}   // the room a floating line takes (scroll-padding)
+  // The reading line's figure name (pv-fig) comes and goes as the reading page moves: it never decides the rhythm.
+  const wraps=lines.some(l=>{if(l.classList.contains('reading'))return false; const t=l.querySelector('.pv-t'),b=l.querySelector('.vd-btns');
+    return !!t&&!!b&&b.getBoundingClientRect().top>=t.getBoundingClientRect().bottom-1;});
+  doc.classList.toggle('pv-stack',wraps); lines.forEach(l=>vdWrapFit(l.querySelector('.vd-btns')));}
 // Draws the page verdict line under every page after the pages, the pin lists or the build change. Without page verdicts
 // every line goes and the marks draw every pin as before.
 function drawPageVerdicts(){const v=pageVerdictsOn(),f=/** @type {HTMLElement|null} */(document.activeElement);
@@ -415,7 +481,7 @@ function drawPageVerdicts(){const v=pageVerdictsOn(),f=/** @type {HTMLElement|nu
   if(VD_ARM&&VD_ARM.where===VD_WHERE.PAGE&&(!v||!vdArmStill(VD_ARM)))disarmVerdict(false);
   PV_SHOWN=new Set();
   if(!v||!META){$$('#doc .pv').forEach(e=>e.remove()); return;}
-  const map=pageVerdictPins(); PV_KEYS=pvKeysPage();
+  const map=pageVerdictPins(); PV_READ=pvReadingPage(); PV_KEYS=pvKeysPage(PV_READ);
   $$('#doc .pg').forEach(pg=>{const page=+pg.dataset.page; let line=/** @type {HTMLElement|null} */(pg.nextElementSibling);
     if(!pageTakesVerdict(page)){if(line&&line.classList.contains('pv'))line.remove(); return;}   // the map says this page takes none
     if(!line||!line.classList.contains('pv')){line=document.createElement('div'); line.className='pv'; pg.after(line);}
@@ -438,19 +504,27 @@ function jumpPv(id){if(!PV_SHOWN.has(id))return false; const p=PINS.find(x=>x.id
   block.scrollIntoView({behavior:SMOOTH,block:block.getBoundingClientRect().height<=L.clientHeight?'center':'start'}); flash(line); return true;}
 
 // ---------------- The line that floats, and the keys (docs/handbook/viewer.md §판정 핀)
-// Each page's line is sticky to the PDF area's bottom within its page's block (.pgw, pages.js buildDoc): while its page is
-// in view and its own place is below the area, it floats there over the page (.stuck: an edge that sets it off the page);
-// at the page's end it settles under it. It does not float while a selection is being written (the composer has its own
-// verdict row, and the line would cover the selection - or on a phone the sheet) nor over an open phone sheet (CSS).
-// pvStick marks the floating lines and finds the page the keys act on; run once a frame while the PDF area scrolls.
+// Only the reading page's line floats: the page under the reading line, the one the section strip names and the keys act
+// on (PV_READ). Its line (.reading) is sticky to the PDF area's bottom within its page's block (.pgw, pages.js buildDoc):
+// while its own place is below the area it floats there over the page (.stuck: an edge that sets it off the page), and it
+// names the figure it decides; at the page's end it settles under it. Every other line stays in its place - a next page's
+// line floating as soon as that page's top edge came in showed a second '판정 없음' for a figure not yet in view, and put
+// another figure's buttons under a resting mouse or thumb. It does not float while a selection is being written (the
+// composer has its own verdict row, and the line would cover the selection - or on a phone the sheet) nor over an open
+// phone sheet (CSS). pvStick follows the reading page and marks the floating line; run once a frame while the area scrolls.
 function pvStick(){const lines=$$('#doc .pv'); if(!lines.length)return; const L=$('#left'),lr=L.getBoundingClientRect();
   if(!lr.height)return;
   const pad=getComputedStyle(L).paddingBottom; if(L.style.getPropertyValue('--pv-pad-b')!==pad)L.style.setProperty('--pv-pad-b',pad);   // the end padding a sticky line keeps clear of (components.css)
   if(pvInsetR()!==PV_INSET_R)sizePv();   // a panel came over the area, went, or changed its width
-  lines.forEach(l=>{const pg=/** @type {HTMLElement|null} */(l.previousElementSibling); if(!pg)return; const r=l.getBoundingClientRect();
-    l.classList.toggle('stuck',r.bottom>lr.top&&r.top<lr.bottom&&r.top<pg.getBoundingClientRect().bottom+4);});   // in its own place it stands 8px under the page
-  const k=pvKeysPage(); if(k!==PV_KEYS){const was=PV_KEYS; PV_KEYS=k; const map=pageVerdictPins(),v=pageVerdictsOn();
-    if(v)[was,k].forEach(n=>{const e=/** @type {HTMLElement|null} */(document.querySelector('#doc .pv[data-page="'+n+'"]')); if(e)fillPv(e,n,map.get(n),v);});}}
+  const r=pvReadingPage(),k=pvKeysPage(r);
+  if(PV_REASON&&PV_REASON.page!==r){const f=/** @type {HTMLInputElement|null} */(document.querySelector('#doc .pv-reason'));   // moving on, with nothing typed
+    if(!f||(document.activeElement!==f&&!f.value.trim()))PV_REASON=null;}
+  // A key's armed confirm word belongs to the page it was read on: another reading page lets it go.
+  if(VD_ARM&&VD_ARM.kbd&&VD_ARM.where===VD_WHERE.PAGE&&VD_ARM.page!==r)disarmVerdict(false,true);
+  if(r!==PV_READ||k!==PV_KEYS){const was=[PV_READ,PV_KEYS]; PV_READ=r; PV_KEYS=k; const map=pageVerdictPins(),v=pageVerdictsOn();
+    if(v)new Set([...was,r,k]).forEach(n=>{const e=/** @type {HTMLElement|null} */(n?document.querySelector('#doc .pv[data-page="'+n+'"]'):null); if(e)fillPv(e,n,map.get(n),v);});}
+  lines.forEach(l=>{const pg=/** @type {HTMLElement|null} */(l.previousElementSibling); if(!pg)return; const b=l.getBoundingClientRect();
+    l.classList.toggle('stuck',l.classList.contains('reading')&&b.bottom>lr.top&&b.top<lr.bottom&&b.top<pg.getBoundingClientRect().bottom+4);});}   // in its own place it stands 8px under the page
 // What lies over the PDF area's right side, in px in from the area's content edge: a panel laid over it - the unfolded
 // foldable's overlay panel, beside which the pages run on underneath - and its handle's touch area, as for a save chip
 // (chipInRoom). 0 where the panel stands beside the area or at its bottom (a sheet). A line is never wider than the room
@@ -462,28 +536,37 @@ function pvInsetR(){const L=$('#left'),R=$('#right'),G=$('#grip'); if(!L.getClie
   if(G&&G.getClientRects().length){const gr=G.getBoundingClientRect(),reach=Math.max(gr.width,parseFloat(getComputedStyle(G,'::after').width)||0);
     if(gr.left>lr.left+40)right=Math.min(right,gr.right-reach-4);}
   return Math.max(0,Math.round(edge-right));}
-// The page the keys 1-5 act on: the page under the reading line (the one the section strip and the page count name,
-// readingDepth under the PDF area's top) when it has a line and this screen may make a verdict; else 0.
-function pvKeysPage(){if(!pageVerdictsOn()||!canVerdict()||!$('#composer').hidden||!$('#left').getClientRects().length)return 0;
-  const a=topAnchor(readingDepth($('#left'))); return a&&pageTakesVerdict(a.page)?a.page:0;}
+// The page under the reading line - the one the section strip and the page count name, readingDepth under the PDF area's
+// top - while the pages are shown and the document has page lines; 0 otherwise. Read from the layout as it is now.
+function pvReadingAt(){if(!pageVerdictsOn()||document.body.classList.contains('revision-open')||!$('#left').getClientRects().length)return 0;
+  const a=topAnchor(readingDepth($('#left'))); return a?a.page:0;}
+// The reading page when it has a line (pageTakesVerdict), else 0: its line floats and names its figure (PV_READ).
+function pvReadingPage(){const n=pvReadingAt(); return n&&pageTakesVerdict(n)?n:0;}
+// The page the keys 1-5 act on: reading page r while this screen may make a verdict and no selection is being written.
+/** @param {number} r */
+function pvKeysPage(r){return r&&canVerdict()&&$('#composer').hidden?r:0;}
+let PV_READ=0;   // the reading page with a line: its line floats and names its figure
 let PV_FRAME=0;
 function pvStickSoon(){if(!PV_FRAME)PV_FRAME=requestAnimationFrame(()=>{PV_FRAME=0; pvStick();});}
 $('#left').addEventListener('scroll',pvStickSoon,{passive:true});
 addEventListener('resize',pvStickSoon);
 new MutationObserver(pvStickSoon).observe(document.body,{attributes:true,attributeFilter:['class']});   // composing, the sheet, the band
 if(typeof ResizeObserver!=='undefined'){const R=document.getElementById('right'); if(R)new ResizeObserver(pvStickSoon).observe(R);}   // the panel's width
-// The keys: 1-5 press the document's verdict words in file order on the line of the page under the reading line (PV_KEYS),
-// as a press on that button does - a confirm word arms on the first press and saves on the second while its page, document
-// and build hold (verdictPress). Not in a text field, not while a dialog or a popover is open, not while a selection is being
+// The keys: 1-5 press the document's verdict words in file order on the line of the page under the reading line, as a press
+// on that button does - a confirm word arms on the first press and saves on the second while its page, document and build
+// hold (verdictPress). The page is read from the layout at the key, not from the last frame: a key right after a scroll
+// across a page's end would otherwise go to the page before - and confirm its armed word. A confirm word armed for another
+// page is let go first. Not in a text field, not while a dialog or a popover is open, not while a selection is being
 // written (the composer is open) or the changes view is shown, not with Ctrl, Alt or Meta (Alt+digit switches documents).
-// The button and its line say the key (vdButton kn).
+// On a page that takes no verdict a key says so on the status line, once. The button and its line say the key (vdButton kn).
 /** @param {KeyboardEvent} e */
 function verdictKey(e){if(e.defaultPrevented||e.repeat||e.isComposing||e.ctrlKey||e.metaKey||e.altKey||!/^[1-5]$/.test(e.key))return;
   const t=/** @type {HTMLElement|null} */(e.target);
   if(t&&(t.tagName==='TEXTAREA'||t.tagName==='INPUT'||t.tagName==='SELECT'||t.isContentEditable))return;
   if(document.querySelector('dialog[open]')||!$('#page-pop').hidden||!$('#doc-pop').hidden||!$('#composer').hidden)return;
-  if(document.body.classList.contains('revision-open'))return;
-  const v=pageVerdictsOn(),n=+e.key,c=v&&v.choices[n-1],page=PV_KEYS||pvKeysPage(); if(!c||!page)return;
-  const b=/** @type {HTMLElement|null} */(document.querySelector('#doc .pv[data-page="'+page+'"] button[data-act="pv-save"][data-key="'+CSS.escape(c.key)+'"]'));
-  if(!b)return; e.preventDefault(); verdictPress(b);}
+  const v=pageVerdictsOn(),n=+e.key,c=v&&v.choices[n-1],at=pvReadingAt(); if(!c||!at||!canVerdict())return;
+  if(!pageTakesVerdict(at)){e.preventDefault(); lineNote('이 쪽은 판정을 받지 않습니다',NOTICE_KIND.INFO,null,{source:'verdict-key',life:NOTICE_LIFE.TIMER}); return;}
+  if(VD_ARM&&VD_ARM.kbd&&VD_ARM.where===VD_WHERE.PAGE&&VD_ARM.page!==at)disarmVerdict(true,true);
+  const b=/** @type {HTMLElement|null} */(document.querySelector('#doc .pv[data-page="'+at+'"] button[data-act="pv-save"][data-key="'+CSS.escape(c.key)+'"]'));
+  if(!b)return; e.preventDefault(); verdictPress(b,'key');}
 addEventListener('keydown',verdictKey);
