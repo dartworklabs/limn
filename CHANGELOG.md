@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.4.34 — 2026-10-30
 
 The page verdict line from an owner-requested UX review of 0.4.33 on a figure document (`pl`), and agents told which
 verdicts were superseded. On the line its words become a toggle, a verdict's reason is never lost without a word, and the
