@@ -765,7 +765,7 @@ function pvStateNeed(l){const v=pageVerdictsOn(); if(!v)return 0;
 // when the fonts are ready after boot. Kept from the fallback face, a width near the stacking threshold let the first save
 // still move the words.
 function pvFontsChanged(){PV_NEED={key:'',w:0}; if($$('#doc .pv').length)sizePv();}
-if(document.fonts){document.fonts.addEventListener('loadingdone',pvFontsChanged); document.fonts.ready.then(pvFontsChanged);}
+if(document.fonts){document.fonts.addEventListener('loadingdone',pvFontsChanged); document.fonts.addEventListener('loadingerror',pvFontsChanged); document.fonts.ready.then(pvFontsChanged);}
 // Whether line l keeps the rows it has now: its confirm word waits for the second press, or its save is out.
 /** @param {HTMLElement} l */
 function pvRowsHeld(l){const p=Number(l.dataset.page)||0; return (!!VD_ARM&&VD_ARM.where===VD_WHERE.PAGE&&VD_ARM.page===p)||PV_BUSY.has(pvSlot(p));}
@@ -778,8 +778,10 @@ function pvRowsHeld(l){const p=Number(l.dataset.page)||0; return (!!VD_ARM&&VD_A
 // flow the chip added a row on a phone (131 -> 251px) and moved the words under a waiting finger, and laid over them it
 // took presses meant for [이유 추가] and [판정 취소]. --pv-chip-r and --pv-chip-y place it from the line's right edge and top.
 /** @param {HTMLElement[]} lines */
+const PV_CHIP_FONT_MS=3000;   // how long a chip with no room waits for the web fonts before its undo goes to the status line
+const PV_CHIP_FONT_T=/** @type {WeakMap<HTMLElement,number>} */(new WeakMap());
 function pvChipPlace(lines){const chips=lines.map(l=>/** @type {HTMLElement|null} */(l.querySelector(':scope>.nt-chip')));
-  lines.forEach((l,i)=>{if(chips[i]){l.classList.toggle('pv-chip-short',false); l.classList.toggle('pv-chip-bare',false);}});
+  lines.forEach((l,i)=>{if(chips[i]){l.classList.toggle('pv-chip-short',false); l.classList.toggle('pv-chip-bare',false);} else l.classList.remove('pv-chip-wait');});
   const got=lines.map((l,i)=>{const c=chips[i]; if(!c)return null;
     const lr=l.getBoundingClientRect(),R=(/** @type {Element} */e)=>e.getBoundingClientRect(),shown=(/** @type {Element} */e)=>e.getClientRects().length>0;
     const words=[...l.querySelectorAll(':scope>.vd-btns>*')].filter(shown).map(R);
@@ -800,8 +802,16 @@ function pvChipPlace(lines){const chips=lines.map(l=>/** @type {HTMLElement|null
     if(id&&ft&&shown(ft)){const ir=R(id); rooms.push(room((ir.top+ir.bottom)/2,ir.right+8,stack?lr.right:R(ft).right));}
     for(let k=0;k<3;k++)for(const r of rooms)if(sizes[k]<=r.z-r.a)return {r:Math.round(lr.right-r.z),y:Math.round(r.y-lr.top),short:k>0,bare:k>1};   // its words where any room holds them
     return {away:true};});
+  // Going to the status line is for good (chipAway), so it is never decided while a web font loads: a fresh state's new
+  // characters fetch their Pretendard slice and are drawn meanwhile in a fallback face, wider, and a chip that fits once
+  // they swap went away (CI under load: three browser tests lost their chip). It waits unseen (.pv-chip-wait) until the
+  // fonts are loaded - pvFontsChanged fits every line again - or PV_CHIP_FONT_MS have passed since it first had no room.
   lines.forEach((l,i)=>{const g=got[i],c=chips[i]; if(!g||!c)return;
-    if(g.away){chipAway(c); return;}
+    if(g.away){const t0=Number(c.dataset.noRoom)||Date.now(); c.dataset.noRoom=String(t0);
+      if(document.fonts&&document.fonts.status==='loading'&&Date.now()-t0<PV_CHIP_FONT_MS){l.classList.add('pv-chip-wait');
+        clearTimeout(PV_CHIP_FONT_T.get(c)); PV_CHIP_FONT_T.set(c,setTimeout(()=>{if(c.isConnected&&c.parentElement===l)pvFit([l]);},PV_CHIP_FONT_MS+20)); return;}
+      l.classList.remove('pv-chip-wait'); chipAway(c); return;}
+    delete c.dataset.noRoom; l.classList.remove('pv-chip-wait');
     l.style.setProperty('--pv-chip-r',g.r+'px'); l.style.setProperty('--pv-chip-y',g.y+'px');
     l.classList.toggle('pv-chip-short',!!g.short); l.classList.toggle('pv-chip-bare',!!g.bare);});}
 // The reason popover's side (pvPopPlace): above its line, as drawn - unless the room above inside what the PDF area shows

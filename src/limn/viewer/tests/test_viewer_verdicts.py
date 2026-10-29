@@ -5987,3 +5987,36 @@ class RcRound4(VerdictBase):
         settle(page)
         self.assertEqual([(p["verdict"], p["note"]) for p in self.pins().values()], [("채택", "패널 값")])
 
+class ChipFontWait(VerdictBase):
+    """A save chip with no room on its line while a web font loads waits unseen instead of sending its undo to the status
+    line for good: on CI under load a fresh state's new characters were drawn in a fallback face while their Pretendard
+    slice loaded, and three browser tests lost the chip that fits once the face swaps."""
+
+    STATE = """s=>{const l=document.querySelector('#doc .pv[data-page="2"]'); return [!!l.querySelector(':scope>.nt-chip'),
+      l.classList.contains('pv-chip-wait'), LINE.some(n=>n.undo&&!!n.act)];}"""
+
+    def saved_then_squeezed(self):
+        page = self.on("fig")
+        page.evaluate("setK(PT_PX*2,false); ZOOMED=true")
+        settle(page)
+        page.evaluate("()=>{window.__fs='loaded'; Object.defineProperty(document.fonts,'status',{get:()=>window.__fs,configurable:true});}")
+        self.press_page(page, 2, "보류")
+        self.assertEqual(page.evaluate(self.STATE, None), [True, False, False])
+        w = page.evaluate(
+            """()=>{window.__fs='loading'; const l=document.querySelector('#doc .pv[data-page="2"]');
+              for(let w=400;w>=100;w-=10){l.style.width=w+'px'; pvFit([l]); if(l.classList.contains('pv-chip-wait'))return w;} return 0;}"""
+        )
+        self.assertGreater(w, 0)
+        self.assertEqual(page.evaluate(self.STATE, None), [True, True, False])  # no room, fonts loading: waits unseen
+        return page
+
+    def test_a_chip_with_no_room_waits_for_the_fonts_and_is_placed_when_they_load(self):
+        page = self.saved_then_squeezed()
+        page.evaluate("()=>{window.__fs='loaded'; document.fonts.dispatchEvent(new Event('loadingdone'));}")  # sizePv: the line's width again
+        page.wait_for_timeout(100)
+        self.assertEqual(page.evaluate(self.STATE, None), [True, False, False])
+
+    def test_a_chip_whose_fonts_never_load_goes_to_the_status_line_after_3_seconds(self):
+        page = self.saved_then_squeezed()
+        page.wait_for_timeout(3300)
+        self.assertEqual(page.evaluate(self.STATE, None), [False, False, True])
