@@ -1,5 +1,39 @@
 # Changelog
 
+## Unreleased
+
+Taking a verdict back where it was given, and the page line's reason field in its rare orders. The agent contract,
+`pins.md` and every route are unchanged.
+
+### Added
+
+- **[판정 취소] on the page verdict line** (#295). When the line's current verdict is the person's own and still open
+  (waiting or being handled), `· 판정 취소` follows its state - also on the floating line. It sends the pin to the Trash
+  the way the card does, and the line counts again at once: the newest earlier verdict about the same figure or page is
+  the current verdict again (ADR-0021 D4), or `판정 없음`. The status line says `판정 #17 채택 취소됨 · <target> — 지금
+  판정은 #12 보류입니다` with [되돌리기], which restores the pin. A verdict an agent had claimed still goes, with the
+  save undo's warning that its run may have started. Someone else's verdict, a handled one and the agent and viewer roles
+  get no [판정 취소] (D16); a double press takes back one verdict, not two.
+
+### Changed
+
+- **A verdict pin's card calls its [삭제] [지우기]** (#295). A word file may name a verdict `삭제`, and the card's
+  `판정 삭제` badge beside a [삭제] read as that verdict; its description says the earlier verdict becomes current again.
+  Ordinary cards keep [삭제]. `핀 지우기`, the name first proposed, broke onto two lines in the card's equal-width action
+  cells at the default panel width.
+- **No description box over a page line's save chip** (#295). Right after a save the pressed word's box came back over
+  the button - and over the save chip at the line's end - from the click's focus or a resting hand's slight move. While
+  a save chip stands on a line, its words now hold their descriptions back (their names and keys are still said), and
+  they come back when the chip goes.
+
+### Fixed
+
+- **The reason field in its rare orders** (#294). Going to a document with no page lines (a LaTeX manuscript) closed
+  nothing and the typed reason was never saved; it is now saved as on any other move. Moving on while Enter's write was
+  still out started a second write on the same revision, whose conflict retry added the reason twice; a session now
+  writes once and the field waits while its write is out. A failed write on moving on lost the text; the status line now
+  keeps it (`이유 저장 실패 · <target> — <why>`) with [다시 시도] unless the server refused it.
+
 ## 0.4.32 — 2026-10-29
 
 Verdicts on figure documents (ADR-0022), and an outline and page list for long figure documents. The agent contract
