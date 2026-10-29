@@ -171,13 +171,14 @@ body.lay-narrow{--pv-inset:var(--sheet-h,0px)}
 body.lay-narrow.has-status:not(.typing,.pv-typing){--pv-inset:calc(var(--sheet-h,0px) + 24px)}
 /* One row or stacked, decided per line (sizePv sets .pv-stack on a line whose words and buttons cannot share one row). A
    row (most lines, and every line on a wide screen) keeps its buttons on the row's end and gives way from the start: the
-   figure's name (.pv-fig) is cut first - to 10em ('7쪽 · [후보] PL18 · …'; --pv-fig-w, its whole width, set by pvFit, keeps a
-   shorter name from standing wider) - and grows last; then the reason (.pv-note) and the earlier verdicts' link (.pv-early)
-   shrink, cut to fit; the state's own words, [판정 취소] and the buttons never do. The failure line and the reason field
+   figure's title (.pv-fig-t) is cut first, down to the identifier before it ('7쪽 · PL18', .pv-fig-id, never cut), and
+   grows last; then the reason (.pv-note) and the earlier verdicts' link (.pv-early) shrink, cut to fit; the state's own
+   words, [판정 취소] and the buttons never do. The failure line and the reason field
    are rows of their own under it (a save chip's place: notices.css). What
    gives way is clipped across only (overflow-x: clip): the '#N' link's and the earlier link's areas reach over and under. */
-.pv:not(.pv-stack)>.pv-fig{flex:1 1 0;min-width:min(10em,var(--pv-fig-w,10em));max-width:max-content}
-.pv.pv-tight:not(.pv-stack)>.pv-fig{min-width:min(3em,var(--pv-fig-w,3em))}   /* the wide band's last cut before a second row (pvFit) */
+.pv:not(.pv-stack)>.pv-fig{flex:1 1 0;min-width:var(--pv-fig-min,0px);max-width:max-content;overflow:hidden}
+.pv.pv-tight:not(.pv-stack)>.pv-t>.pv-note{min-width:0}   /* the wide band's last cuts before a second row (pvFit) */
+.pv.pv-tight:not(.pv-stack)>.pv-t>.pv-early{min-width:2em}
 .pv:not(.pv-stack)>.pv-t{flex:1000 1 0;min-width:0;max-width:max-content;flex-wrap:nowrap;overflow-x:clip;overflow-y:visible}
 .pv:not(.pv-stack)>.pv-t>*{flex:none;white-space:nowrap}
 .pv:not(.pv-stack)>.pv-t>.pv-note{flex:0 100 auto;min-width:3em;max-width:none}
@@ -186,9 +187,12 @@ body.lay-narrow.has-status:not(.typing,.pv-typing){--pv-inset:calc(var(--sheet-h
 .pv:not(.pv-stack)>.vd-btns{flex:none}
 .pv>.vd-btns{order:2}
 .pv>:is(.pv-err,.pv-reason){order:4}
-/* The floating line names the figure its words decide ('7쪽 · [후보] PL18 · …', verdict.js pvLineHtml), cut to fit, before
-   its state; and a verdict's reason (its note's first line) ends the state, cut to fit too. */
-.pv .pv-fig{flex:0 1 auto;min-width:0;max-width:min(45%,28em);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--foreground);font-weight:600}
+/* The floating line names the figure its words decide before its state: its identifier ('7쪽 · PL18', never cut) and its
+   title ('[후보] 다섯 쌍의 …', cut to fit) - verdict.js pvFigParts; on a row its least width is that identifier's
+   (--pv-fig-min, pvFit). A verdict's reason (its note's first line) ends the state, cut to fit too. */
+.pv .pv-fig{display:flex;flex:0 1 auto;max-width:min(45%,28em);white-space:nowrap;color:var(--foreground);font-weight:600}
+.pv .pv-fig-id{flex:none}
+.pv .pv-fig-t{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:pre}
 .pv .pv-note{min-width:0;max-width:min(40%,24em);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--foreground)}
 /* The reason field after a save on this line (PV_REASON): a row of its own under the words, the field's own text selectable
    inside the line that is not. */

@@ -9,16 +9,17 @@ the line on a foldable's open sheet. The agent contract, `pins.md` and every rou
 
 - **The page verdict line stays one row on a desktop, and stacking is decided per line.** One line with an earlier
   verdict or a reason used to put every page's buttons on a row of their own - at 1440 x 900 each line grew to 79-88px
-  over the plot. Now each line is one row unless its own state and buttons cannot share it: the figure's name gives way
-  first (cut to 10em, on a desktop to 3em before a second row), then the reason and the earlier verdicts' link, cut to
-  fit; the state, [판정 취소] and the buttons never shrink. At 1440 the floating line is 32px.
+  over the plot. Now each line is one row unless its own state and buttons cannot share it: the figure's title gives way
+  first, down to a short identifier that is never cut (`6쪽 · PL17`, the code heading the map title), then the reason and
+  the earlier verdicts' link, cut to fit; the state, [판정 취소] and the buttons never shrink. At 1440 the floating line is
+  32px.
 - **Targets a mouse can hit.** The words, [판정 취소] and the earlier link are 32px tall and the `#N` link answers
   32 x 32px (they were 28, 24 and 14px); the words stand 8px apart and the confirm word (`삭제`) 16px with a divider - on
   a foldable its 44px touch area no longer meets its neighbour's. The words' outline reads 3:1 and more on the button and
   the line's ground in both themes (it was 1.5:1).
-- **The save chip stands in the line**, over the end of the state just left of the words, never over the figure's name
-  or the plot; the line does not move for it. A confirm word waiting for its second press has no description box (it
-  covered the figure's name).
+- **The save chip stands in the line**, just left of the words, never over the plot, the figure's identifier or the
+  current verdict and its state: where its words would reach them it folds to [되돌리기]. The line does not move for it.
+  A confirm word waiting for its second press has no description box (it covered the figure's name).
 - **A line starts where its page does.** With the panel closed at 1280 x 800 the status box at the bottom right pushed the
   line 36px left of its page; the line now ends before the box instead.
 - **Foldable in portrait (and tablets).** With the pin sheet open the line floats on the sheet's top edge instead of going

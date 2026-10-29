@@ -458,7 +458,9 @@ document.addEventListener('focusin',()=>pvStickSoon()); document.addEventListene
 // body.pv-typing while a text field in a page line has the focus (the reason): on a touch screen the keyboard is up, and the
 // line drops its figure's name, its save chip folds to [되돌리기] and the status line over the sheet steps aside
 // (components.css, responsive.css) - line, field, chip and sheet took the whole 55% the keyboard left on a foldable. That
-// line's row is measured again.
+// line's row is measured again. Read on every focus move and after every drawing of the lines (drawPageVerdicts): a rebuild
+// or a pin deleted elsewhere takes the focused field out of the page, and Chromium sends no focusout for that - the class
+// stayed and hid the status line.
 function pvTypingSync(){const a=/** @type {HTMLElement|null} */(document.activeElement),l=a&&a.closest?/** @type {HTMLElement|null} */(a.closest('#doc .pv')):null;
   const on=!!l&&typingNow(),b=document.body; if(b.classList.contains('pv-typing')===on)return; b.classList.toggle('pv-typing',on);
   const r=l||/** @type {HTMLElement|null} */(document.querySelector('#doc .pv.reading')); if(r)pvFit([r]);}
@@ -497,6 +499,17 @@ async function savePageVerdict(page,key,kb){const pg=META&&META.pages[page-1]; i
   finally{document.removeEventListener('focusin',moved); PV_BUSY.delete(page); drawPageVerdicts();
     const rs=PV_REASON,r=rs&&rs.page===page&&rs.focus?/** @type {HTMLInputElement|null} */(document.querySelector('#doc .pv[data-page="'+page+'"] .pv-reason')):null;
     if(rs&&r&&!away){rs.focus=false; r.focus({preventScroll:true});} else if(back)pvRefocus(page,key);}}
+// The reading line's name for page `page`, in two parts: a short identifier that is never cut - the page and the figure's code,
+// '6쪽 · PL17' (the map title's head before its first ' · ', a leading tag such as '[후보]' moved to the rest; else the figure
+// id) - and the rest of the title, cut first ('[후보] 다섯 비교 쌍의 월별 효과 — …'). Next to the buttons a cut down to '6쪽 · …'
+// no longer said which figure a press decides. A view-only PDF's page is its page alone.
+/** @param {number} page @returns {{id:string,rest:string}} */
+function pvFigParts(page){const pg=META&&Array.isArray(META.pages)?META.pages[page-1]:null,at=tl('{page}쪽',{page});
+  if(!META||!isFigureKind(META.kind)||!pg||typeof pg.figure!=='string')return {id:at,rest:''};
+  const t=pg.title?String(pg.title):''; if(!t)return {id:at+' · '+pg.figure,rest:''};
+  const i=t.indexOf(' · '),head=i>0?t.slice(0,i):'',m=/^(\[[^\]]*\])\s*(\S.*)$/.exec(head);
+  if(!head)return {id:at,rest:t};
+  return m?{id:at+' · '+m[2],rest:m[1]+' '+t.slice(i+3)}:{id:at+' · '+head,rest:t.slice(i+3)};}
 // Gives the focus back to word key's button on page `page`'s line after its save: the pressed button was disabled and redrawn
 // while the request ran, which dropped the focus. Not when the person put the focus somewhere else meanwhile (savePageVerdict
 // watches for that) or it is on something now.
@@ -571,8 +584,8 @@ data-tip="${tr('이 쪽의 더 새 판정으로 대체되어 실행하지 않는
   // The reading page's line - the one that floats - names what it decides: '7쪽 · [후보] PL18 · …' (figureName), cut to fit.
   // Its two spans are on every line, empty and hidden but on the reading one: the line's children keep their places when
   // the reading page moves, so the morph (pvMorph) never takes a focused button out of the page.
-  const rd=PV_READ===page,nm=rd?META&&isFigureKind(META.kind)&&META.pages[page-1]&&META.pages[page-1].figure?figureName(page,String(META.pages[page-1].figure)):tl('{page}쪽',{page}):'';
-  const name=html`<span class="pv-fig" translate="no"${rd?'':html` hidden`}>${nm}</span><span class="pv-sep pv-fig-sep" aria-hidden="true"${rd?'':html` hidden`}>·</span>`;
+  const rd=PV_READ===page,nm=rd?pvFigParts(page):{id:'',rest:''};
+  const name=html`<span class="pv-fig" translate="no"${rd?'':html` hidden`}><span class="pv-fig-id">${nm.id}</span>${nm.rest?html`<span class="pv-fig-t">${' · '+nm.rest}</span>`:''}</span><span class="pv-sep pv-fig-sep" aria-hidden="true"${rd?'':html` hidden`}>·</span>`;
   const busy=PV_BUSY.has(page)||loading,keys=PV_KEYS===page,target=tl('{page}쪽',{page});
   const btns=canVerdict()?html`<span class="vd-btns">${v.choices.map((c,i)=>vdButton(c,VD_WHERE.PAGE,page,target,busy,keys?i+1:0,!!chip))}</span>`:'';
   // The line's last failed save, said where it was pressed (PV_ERR) - for the document and build on screen only.
@@ -631,31 +644,41 @@ function sizePv(){const ir=pvInsetR(),L=$('#left'),lines=$$('#doc .pv');
     e.style.width=Math.round(w)+'px'; e.style.marginLeft=ml;});
   pvFit(lines);}
 // One row or stacked, decided per line (.pv-stack; P2-7 of the 0.4.33 review: one line with an earlier verdict or a reason
-// stacked every line of the document, 88px over the plot at 1440). Each line is laid out as one row - the figure's name cut
-// first, to 10em, then the reason and the earlier link (components.css) - and stacks only when its state's own words,
-// [판정 취소] and its buttons still cannot share the row: the state runs past its share, or the buttons went to a row of
-// their own (a narrow page). On the wide band a line that does not fit first cuts the figure's name to 3em (.pv-tight,
-// '6쪽 · …'): a desktop keeps one row, a second row covered the plot. The figure's name is measured first (--pv-fig-w): a
-// name shorter than the cut keeps its own width. A row's save chip stands over the state, just left of the buttons, on
-// their middle and clear of the figure's name (--pv-btns-w, --pv-btns-mid, --pv-lead-w): it takes no room of its own, so it
-// never stacks a line for its 6 seconds. Read and written in batches.
+// stacked every line of the document, 88px over the plot at 1440). Each line is laid out as one row - the figure's title cut
+// first, down to its identifier ('6쪽 · PL17', pvFigParts; --pv-fig-min), then the reason and the earlier link
+// (components.css) - and
+// stacks only when its state's own words, [판정 취소] and its buttons still cannot share the row: the state runs past its
+// share, or the buttons went to a row of their own (a narrow page). On the wide band a line that does not fit first lets
+// the reason and the earlier link go further (.pv-tight): a desktop keeps one row, a second row covered the plot.
+// A row's save chip stands over the state's end, just left of the buttons and on their middle (--pv-btns-w,
+// --pv-btns-mid): it takes no room of its own, so it never stacks a line for its 6 seconds. It may lie over the reason, the
+// text actions and the earlier link, never over the identifier or the current verdict and its state: where its words would
+// reach them it folds to its icon and [되돌리기] (.pv-chip-short), and where even that would, to [되돌리기] alone
+// (.pv-chip-bare). Read and written in batches.
 /** @param {HTMLElement[]} lines */
-function pvFit(lines){lines.forEach(l=>l.classList.remove('pv-stack','pv-tight'));
-  const figs=lines.map(l=>/** @type {HTMLElement|null} */(l.querySelector(':scope>.pv-fig'))),fw=figs.map(f=>f&&f.getClientRects().length?f.scrollWidth:0);
-  figs.forEach((f,i)=>{if(f&&fw[i])f.style.setProperty('--pv-fig-w',Math.ceil(fw[i])+'px');});
+function pvFit(lines){lines.forEach(l=>l.classList.remove('pv-stack','pv-tight','pv-chip-short','pv-chip-bare'));
+  // The figure's least width is its identifier's (--pv-fig-min): its title's own text would otherwise count in it.
+  const ids=lines.map(l=>{const e=l.querySelector(':scope>.pv-fig>.pv-fig-id'); return e&&e.getClientRects().length?Math.ceil(e.getBoundingClientRect().width):0;});
+  lines.forEach((l,i)=>l.style.setProperty('--pv-fig-min',ids[i]+'px'));
   // Whether line l's row does not hold: the state runs past its share, or the buttons went to a row of their own.
   const tight=(/** @type {HTMLElement} */l)=>{const t=l.querySelector(':scope>.pv-t'),g=l.querySelector(':scope>.vd-btns'); if(!t)return false;
     const tr=t.getBoundingClientRect(); return [...t.children].some(c=>c.getClientRects().length>0&&c.getBoundingClientRect().right>tr.right+1)
       ||(!!g&&g.getClientRects().length>0&&g.getBoundingClientRect().top>=tr.bottom-1);};
   let over=lines.map(tight);
-  if(LAYOUT===LAYOUT_MODE.WIDE&&over.some((o,i)=>o&&!!figs[i]&&fw[i]>0)){
-    lines.forEach((l,i)=>{if(over[i]&&figs[i]&&fw[i])l.classList.add('pv-tight');});
-    over=lines.map((l,i)=>over[i]&&tight(l));}
+  if(LAYOUT===LAYOUT_MODE.WIDE&&over.some(o=>o)){lines.forEach((l,i)=>{if(over[i])l.classList.add('pv-tight');}); over=lines.map((l,i)=>over[i]&&tight(l));}
   lines.forEach((l,i)=>{if(over[i])l.classList.add('pv-stack');});
-  const got=lines.map((l,i)=>{const t=l.querySelector(':scope>.pv-t'),g=l.querySelector(':scope>.vd-btns'),f=figs[i]; if(!t)return {bw:0,mid:0,lead:0};
+  const got=lines.map((l,i)=>{const t=l.querySelector(':scope>.pv-t'),g=l.querySelector(':scope>.vd-btns'),c=/** @type {HTMLElement|null} */(l.querySelector(':scope>.nt-chip'));
+    if(!t)return {bw:0,mid:0,room:-1,cw:0,words:0,icon:0};
     const lr=l.getBoundingClientRect(),gr=g&&g.getClientRects().length?g.getBoundingClientRect():null;
-    return {bw:gr?Math.ceil(gr.width):0,mid:gr?Math.round(gr.top+gr.height/2-lr.top):0,lead:f&&f.getClientRects().length?Math.round(t.getBoundingClientRect().left-lr.left):0};});
-  lines.forEach((l,i)=>{const g=got[i]; l.style.setProperty('--pv-btns-w',g.bw+'px'); l.style.setProperty('--pv-btns-mid',g.mid+'px'); l.style.setProperty('--pv-lead-w',g.lead+'px');});
+    // The room a row's chip has: from the end of what it must not cover - the figure's identifier, the current verdict and its
+    // state ('판정 #4 채택 · 처리 대기', who and when) - to the buttons, less a gap on each side.
+    let room=-1,cw=0; if(c&&gr&&!over[i]){const keep=[...l.querySelectorAll(':scope>.pv-fig>.pv-fig-id,:scope>.pv-t>:is(.pv-s,.pv-st,.pv-au,.pv-at)')]
+        .filter(e=>e.getClientRects().length>0).reduce((r,e)=>Math.max(r,e.getBoundingClientRect().right),lr.left);
+      room=Math.floor(gr.left-keep-16); cw=Math.ceil(c.getBoundingClientRect().width);}
+    const w=(/** @type {string} */q)=>{const e=c&&c.querySelector(q); return e&&e.getClientRects().length?e.getBoundingClientRect().width+8:0;};   // a part and its 8px gap
+    return {bw:gr?Math.ceil(gr.width):0,mid:gr?Math.round(gr.top+gr.height/2-lr.top):0,room,cw,words:w('.nt-t'),icon:w('.nt-ic')};});
+  lines.forEach((l,i)=>{const g=got[i]; l.style.setProperty('--pv-btns-w',g.bw+'px'); l.style.setProperty('--pv-btns-mid',g.mid+'px');
+    if(g.room>=0&&g.cw>g.room){l.classList.add('pv-chip-short'); if(g.cw-g.words>g.room)l.classList.add('pv-chip-bare');}});
   // A word group that wraps keeps every button at its own width (vdWrapFit), read for every line before any is written.
   const groups=lines.map(l=>l.querySelector('.vd-btns')),wrap=groups.map(g=>!!g&&new Set([...g.children].map(b=>Math.round(b.getBoundingClientRect().top))).size>1);
   groups.forEach((g,i)=>{if(g)g.classList.toggle('wrapped',wrap[i]);});}
@@ -681,14 +704,15 @@ function drawPageVerdicts(){const v=pageVerdictsOn(),f=/** @type {HTMLElement|nu
   PV_SHOWN=new Set();
   // A document with no page lines has no reason field either: a session left from the one before (or from this one before
   // its words went) closes here, its text saved - pvReasonSync, after this, is never reached for it.
-  if(!v||!META){if(PV_REASON)pvReasonLeave(); $$('#doc .pv').forEach(e=>e.remove()); return;}
+  if(!v||!META){if(PV_REASON)pvReasonLeave(); $$('#doc .pv').forEach(e=>e.remove()); pvTypingSync(); return;}
   pvReasonSync(); const map=pageVerdictPins(); PV_READ=pvReadingPage(); PV_KEYS=pvKeysPage(PV_READ);
   $$('#doc .pg').forEach(pg=>{const page=+pg.dataset.page; let line=/** @type {HTMLElement|null} */(pg.nextElementSibling);
     if(!pageTakesVerdict(page)){if(line&&line.classList.contains('pv'))line.remove(); return;}   // the map says this page takes none
     if(!line||!line.classList.contains('pv')){line=document.createElement('div'); line.className='pv'; pg.after(line); if(PV_CHIP_WATCH)PV_CHIP_WATCH.observe(line,{childList:true});}
     fillPv(line,page,map.get(page),v);});
   sizePv(); pvStick();
-  if(had)vdRefocus(f);}
+  if(had)vdRefocus(f);
+  pvTypingSync();}   // a redraw or a rebuild can take the focused reason field away without a focusout
 // Whether pin p's page verdict line shows it, so its page-size mark is not drawn (marks).
 /** @param {Pin} p */
 function pvShows(p){return PV_SHOWN.has(p.id);}

@@ -2069,7 +2069,12 @@ class LineLayout(VerdictBase):
         self.assertLessEqual(got["line"]["height"], 40)
         self.assertIsNotNone(got["early"])
         self.assertIsNotNone(got["cancel"])
-        self.assertGreater(got["fig"]["width"], 30)  # the name is cut, not gone
+        self.assertTrue(  # the title is cut, its identifier ('1쪽') is not
+            page.evaluate(
+                """()=>{const f=document.querySelector('#doc .pv[data-page="1"] .pv-fig'),i=f.querySelector('.pv-fig-id');
+                  return i.getBoundingClientRect().width>0&&f.getBoundingClientRect().width>=i.getBoundingClientRect().width-0.5;}"""
+            )
+        )
         self.assertAlmostEqual(got["words"][-1]["right"], got["line"]["right"], delta=1)
         self.assertEqual(page.evaluate("[...document.querySelectorAll('#doc .pv.pv-stack')].length"), 0)
 
@@ -2141,6 +2146,64 @@ class LineLayout(VerdictBase):
         self.assertAlmostEqual(got["line"]["right"], got["page"]["right"] - 40, delta=1.5)
         self.assertTrue(page.evaluate(ON_TOP, '#doc .pv[data-page="1"] button[data-key="삭제"]'))
         page.evaluate("()=>{pvInsetR=window.__ir; sizePv();}")
+
+    def test_the_figure_keeps_its_identifier_and_its_title_gives_way(self):
+        """The reading line names its figure by an identifier that is never cut - the page and the code that heads the map
+        title ('1쪽 · PL17', a leading tag such as '[후보]' moved to the title), else the figure id - and the rest of the
+        title, cut first: next to the buttons '6쪽 · …' no longer said which figure a press decides (review of #302)."""
+        page = self.on("fig")
+        parts = """t=>{const was=META.pages[0].title; META.pages[0].title=t; const p=pvFigParts(1); META.pages[0].title=was; return [p.id,p.rest];}"""
+        fig = page.evaluate("META.pages[0].figure")
+        self.assertEqual(
+            page.evaluate(parts, "[후보] PL17 · 다섯 비교 쌍의 월별 효과"),
+            ["1쪽 · PL17", "[후보] 다섯 비교 쌍의 월별 효과"],
+        )
+        self.assertEqual(page.evaluate(parts, "PL5 · 비교"), ["1쪽 · PL5", "비교"])
+        self.assertEqual(page.evaluate(parts, "Deployment calendar"), ["1쪽", "Deployment calendar"])
+        self.assertEqual(page.evaluate(parts, ""), ["1쪽 · " + fig, ""])
+        self.press_page(page, 1, "보류")
+        self.press_page(page, 1, "채택")
+        page.evaluate(END_CHIPS)
+        page.evaluate(
+            """()=>{META.pages[0].title='[후보] PL17 · 다섯 비교 쌍의 월별 효과 — 쌍마다 한 칸 그리고 아주 긴 설명이 이어진다';
+              PV_REASON=null; drawPageVerdicts(); const l=document.querySelector('#doc .pv[data-page="1"]'); l.style.width='520px'; pvFit([l]);}"""
+        )
+        got = page.evaluate(
+            """()=>{const l=document.querySelector('#doc .pv[data-page="1"]'),id=l.querySelector('.pv-fig-id'),t=l.querySelector('.pv-fig-t'),s=l.querySelector('.pv-t');
+              return {stack:l.classList.contains('pv-stack'),id:id.textContent,idWhole:id.scrollWidth<=id.clientWidth+1&&id.getBoundingClientRect().right<=s.getBoundingClientRect().left,
+                cut:t.scrollWidth>t.clientWidth+1};}"""
+        )
+        self.assertEqual(got, {"stack": False, "id": "1쪽 · PL17", "idWhole": True, "cut": True})
+
+    def test_the_save_chip_never_covers_the_current_verdict(self):
+        """A row's save chip stands just left of the buttons over the state's end; where its words would reach the figure's
+        identifier or the current verdict and its state it folds to [되돌리기] (with its icon while that fits) and still
+        covers none of them (review of #302: the opaque chip hid the current verdict for 6 seconds)."""
+        page = self.on("fig")
+        self.press_page(page, 1, "보류")
+        self.press_page(page, 1, "채택")
+        geom = """w=>{const l=document.querySelector('#doc .pv[data-page="1"]'); if(w){l.style.width=w+'px'; pvFit([l]);}
+          const c=l.querySelector(':scope>.nt-chip'),b=e=>e.getBoundingClientRect(),v=e=>!!e&&e.getClientRects().length>0;
+          const keep=[...l.querySelectorAll('.pv-fig-id,.pv-t>.pv-s,.pv-t>.pv-st')].filter(v).reduce((r,e)=>Math.max(r,b(e).right),0);
+          return {short:l.classList.contains('pv-chip-short'),words:v(c.querySelector('.nt-t')),undo:v(c.querySelector('[data-act="notice-act"]')),
+            clear:b(c).left>=keep,beside:Math.round(l.querySelector('.vd-b').getBoundingClientRect().left-b(c).right),stack:l.classList.contains('pv-stack')};}"""
+        wide = page.evaluate(geom, 0)
+        self.assertEqual(
+            (wide["short"], wide["words"], wide["undo"], wide["clear"], wide["beside"]), (False, True, True, True, 8)
+        )
+        # narrower and narrower rows: the chip never reaches the state; where its words would, it folds
+        folded = None
+        for w in range(560, 300, -20):
+            got = page.evaluate(geom, w)
+            if got["stack"]:
+                break
+            self.assertTrue(got["clear"], (w, got))
+            if got["short"]:
+                folded = got
+                break
+        self.assertIsNotNone(folded)
+        self.assertEqual((folded["words"], folded["undo"]), (False, True))
+        self.assertTrue(page.evaluate(ON_TOP, '#doc .pv[data-page="1"]>.nt-chip [data-act="notice-act"]'))
 
     def test_no_description_box_while_a_confirm_word_waits(self):
         """A confirm word's first press: the armed word ('삭제 확정') draws no description and the box that was up goes - it
@@ -2215,6 +2278,33 @@ class FoldablePortrait(VerdictBase):
         settle(page)
         got = page.evaluate(shown)
         self.assertEqual((got["typing"], got["name"]), (False, True))
+
+    def test_a_reason_field_taken_away_while_typed_in_lets_the_fold_go(self):
+        """The pin is deleted elsewhere while its reason is typed: the next list takes the field out of the page with no
+        focus event of its own (Chromium sends no focusout for a removed element), and the line and the status line come
+        back - body.pv-typing is read again after every drawing of the lines (review of #302)."""
+        page = self.on("fig", **FOLD_PORTRAIT)
+        page.evaluate("setSide(false)")
+        self.tall(page)
+        page.evaluate("lineNote('a message on the status line',NOTICE_KIND.INFO)")
+        new = self.press_page(page, 2, "보류")
+        page.evaluate(END_CHIPS)
+        page.locator('#doc .pv[data-page="2"] .pv-reason').tap()
+        page.keyboard.type("곧 사라질 이유")
+        settle(page)
+        self.assertTrue(page.evaluate("document.body.classList.contains('pv-typing')"))
+        # whatever this browser sends when a focused element leaves the page, nothing reaches the viewer's own listeners: the
+        # drawing of the lines alone has to let the fold go
+        page.evaluate("window.addEventListener('focusout',e=>e.stopImmediatePropagation(),true)")
+        self.assertEqual(self.call("POST", "/api/pins/%d/drop" % new, {})[0], 200)
+        page.evaluate("loadPins()")
+        page.wait_for_function("()=>!document.querySelector('#doc .pv .pv-reason')")
+        settle(page)
+        got = page.evaluate(
+            """()=>({typing:document.body.classList.contains('pv-typing'),dock:document.querySelector('#status-dock').getClientRects().length>0,
+              name:document.querySelector('#doc .pv[data-page="2"] .pv-fig').getClientRects().length>0})"""
+        )
+        self.assertEqual(got, {"typing": False, "dock": True, "name": True})
 
     def test_a_folded_verdict_card_shows_its_badge_and_figure_before_its_reason(self):
         """The sheet's folded card of a verdict with a reason leads with '판정 채택' and the figure's name, the reason on a
