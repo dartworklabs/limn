@@ -135,7 +135,7 @@ function drawStatus(){const box=$('#status'),sr=box.querySelector('.st-sr'),body
   tx.textContent=BAND===LAYOUT_BAND.SHORT?short[0]+short[1]:long[0]+long[1];   // the short band's one row always takes the short text
   if(tx.scrollWidth>tx.clientWidth)tx.textContent=short[0]+short[1];
   const said=top.notice?top.notice.alert:top.kind===STATUS_KIND.FAILED||top.kind===STATUS_KIND.ERRORS||top.kind===STATUS_KIND.OFFLINE;
-  const say=said?'':long[0]; if(sr.textContent!==say)sr.textContent=say;
+  const say=said||top.notice&&top.notice.quiet?'':long[0]; if(sr.textContent!==say)sr.textContent=say;   // a quiet one (a moved undo) was said when it came
   refocusStatus(f);
   const bar=box.querySelector('.st-bar'); if(!bar)return; const {done,total}=top.progress||{},pct=top.progress?Math.round(done/total*100):null;
   bar.classList.toggle('indet',pct===null); bar.querySelector('i').style.width=pct===null?'':pct+'%';

@@ -239,14 +239,24 @@ function jumpToCard(id){if(secOpenFor(id))drawPins();
   el._curT=setTimeout(()=>el.classList.remove('cur','flash'),1200);
 }
 // A '#12' link in text: expands and scrolls to that pin's card/archive row, then flashes it. If it's on another document, '모든 문서' is turned on.
-function gotoPinRef(id){const p=findAnyPin(id); if(!p){if(DROPPED.some(x=>x.id===id))openTrash(id); return;}
+/** @param {number} id @param {boolean} [focus] - by keyboard: the focus goes to the card (its number) */
+function gotoPinRef(id,focus){const p=findAnyPin(id); if(!p){if(DROPPED.some(x=>x.id===id))openTrash(id); return;}
   const st=pinState(p);
   if(multiDoc()&&DOC&&pdoc(p)!==DOC)SHOW_ALL=true;
   if(st===PIN_STATE.DONE)SEC.done=true; else{OPEN_CARDS.add(id); SEC[st===PIN_STATE.REVIEW?'review':'open']=true;} savePrefs({sec:SEC});
   setSide(true); drawPins();
   requestAnimationFrame(()=>{const el=/** @type {HTMLElement} */(document.querySelector('.pin[data-id="'+id+'"],.arc-row[data-id="'+id+'"]')); if(!el)return;
     el.scrollIntoView({behavior:SMOOTH,block:'nearest'}); el.classList.remove('flash'); void el.offsetWidth; el.classList.add('flash');
-    clearTimeout(el._flT); el._flT=setTimeout(()=>el.classList.remove('flash'),1200);});}
+    clearTimeout(el._flT); el._flT=setTimeout(()=>el.classList.remove('flash'),1200);
+    if(focus)focusCard(id);});}
+// The pin id beside the card that holds control a - the next card in its section, else the one before - or null: where the
+// focus goes when that card leaves by a keyboard press ([삭제], [지우기]).
+/** @param {HTMLElement} a @returns {number|null} */
+function cardNeighbour(a){const c=a.closest('.pin.card'); if(!c)return null; let n=c.nextElementSibling; while(n&&!n.matches('.pin.card'))n=n.nextElementSibling;
+  let b=c.previousElementSibling; while(b&&!b.matches('.pin.card'))b=b.previousElementSibling; const t=/** @type {HTMLElement|null} */(n||b); return t?Number(t.dataset.id):null;}
+// Puts the focus on pin id's card - its number (a button) - when it is drawn.
+/** @param {number} id */
+function focusCard(id){const n=/** @type {HTMLElement|null} */(document.querySelector('.pin[data-id="'+id+'"] .n.go,.arc-row[data-id="'+id+'"] .n')); if(n)n.focus({preventScroll:true});}
 // Scrolls the mark of pin id into view and flashes it (switching to the pin's document first); a pin whose mark is not drawn
 // scrolls to the page the mark would be on.
 function jumpPin(id){if(viaDoc(id,jumpPin))return; const p=PINS.find(x=>x.id===id)||REVIEW_ALL.find(x=>x.id===id&&pdoc(x)===DOC);

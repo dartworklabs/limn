@@ -214,7 +214,7 @@ function vdButton(c,where,page,target,off,kn,quiet,pr){const armed=vdArmedHere(c
     :pr===PV_PRESS.HANDLED?tr('지금 판정입니다 · 처리된 판정이라 카드의 [지우기]로 거둡니다'):pr===PV_PRESS.SAVING?tr('이 판정을 저장하는 중입니다'):tr('누르면 이 쪽의 판정으로 저장합니다 · 다시 누르면 거둡니다');
   if(kn)tip+=' · '+tl(c.confirm?'단축키 {key} (두 번)':'단축키 {key}',{key:kn});
   return html`<button type="button" class="vd-b hit${c.confirm?' vd-confirm':''}${armed?' armed':''}" translate="no" data-act="${where===VD_WHERE.COMPOSER?'verdict-save':'pv-save'}" \
-data-key="${c.key}" data-page="${page}" aria-label="${name}"${line?html` aria-pressed="${on?'true':'false'}"`:''}${on?html` aria-describedby="pv-on-${page}"`:''}\
+data-key="${c.key}" data-page="${page}" aria-label="${name}"${line?html` aria-pressed="${on?'true':'false'}"`:''}${on&&pr!==PV_PRESS.SAVING?html` aria-describedby="pv-on-${page}"`:''}\
 ${quiet||(armed&&line)?'':html` data-tip="${tip}"`}${kn?html` data-kn="${kn}" aria-keyshortcuts="${kn}"`:''}${off?line?html` aria-disabled="true"`:html` disabled`:''}>\
 ${on?ic('check'):''}<span class="lbl">${armed?tl('{word} 확정',{word:c.label}):c.label}</span></button>`;}
 // A page line's word state (vdButton pr): not pressed, or pressed as the person's own open verdict (a press takes it back),
@@ -356,12 +356,12 @@ function verdictDropped(){const b=BANNERS.get(NOTICE_HOST.COMPOSER); if(!b||!b.s
 // quiet as before - pressing the word again is the same.
 function verdictUndo(id){const undo=async()=>{let was=null;
     try{was=(await api('/api/pins/'+id,{what:'핀 읽기',silent:true})).data.pin;}catch(e){}
-    const r=PV_REASON&&PV_REASON.id===id?PV_REASON:null; if(r&&pvReasonDirty(r))rdPut(r.doc,id,r.text,r.base);
+    const r=PV_REASON&&PV_REASON.id===id?PV_REASON:null; if(r&&pvReasonDirty(r))rdPut(r.doc,id,r.text,r.base,r.rev,{mode:r.mode});
     PV_WITHDRAWN.add(id); const ok=await dropPin(id,true,undo); if(!ok)PV_WITHDRAWN.delete(id);
     if(ok&&PV_REASON&&PV_REASON.id===id){PV_REASON=null; drawPageVerdicts();}   // a withdrawn verdict takes no reason
     const d=ok?rdGet(DOC,id):null,k=was&&verdictOf(was),t=was?pageTargetOf(was,META?META.kind:undefined):null;
     if(d&&k)lineNote(tl('판정 #{id} {word} 저장 되돌림 · 쓰던 이유 보관 — {target}',{id,word:verdictLabel(k),target:t?pageTargetShort(t.page):'#'+id}),NOTICE_KIND.OK,
-      {label:'되돌리기',tip:T.undo,wait:true,fn:async()=>{PV_WITHDRAWN.delete(id); const back=await restorePin(id); if(back)pvReasonRevive(id); return back;}},
+      {label:'되돌리기',tip:T.undo,wait:true,fn:async()=>{PV_WITHDRAWN.delete(id); const back=await restorePin(id); if(back)pvAfterRestore(id); return back;}},
       {life:NOTICE_LIFE.TIMER,undo:true,literal:true});
     if(ok&&was&&(claimActive(was)||pinState(was)!==PIN_STATE.OPEN))lineNote('처리 중이던 판정이라 이미 실행됐을 수 있습니다',NOTICE_KIND.WARN);
     return ok;};
@@ -393,8 +393,8 @@ const PV_TOGGLE_HOLD=/** @type {Map<string,{key:string,until:number}>} */(new Ma
 // the next press on that line or another document or build. The document and build it was for come with it.
 const PV_ERR=/** @type {Map<number,{text:string,doc:string|null,build:string}>} */(new Map());
 // The reason after a page line's save - its popover, drafts kept per pin, its writes - is verdict-reason.js (PV_REASON).
-// The key marks follow the focus: off on every line while a text field has it - digits typed there are text - but for an
-// empty reason field, whose line keeps them (pvKeysPage). (Another document closes the popover through pvReasonSync - or
+// The key marks follow the focus: off on every line while a text field has it - digits typed there are text, the reason
+// field's included (pvKeysPage). (Another document closes the popover through pvReasonSync - or
 // drawPageVerdicts when it has no lines - whose leave saves what was typed.)
 document.addEventListener('focusin',()=>pvStickSoon()); document.addEventListener('focusout',()=>pvStickSoon());
 // body.pv-typing while a text field in a page line has the focus (the reason): on a touch screen the keyboard is up, and the
@@ -407,50 +407,75 @@ function pvTypingSync(){const a=/** @type {HTMLElement|null} */(document.activeE
   const on=!!l&&typingNow(),b=document.body; if(b.classList.contains('pv-typing')===on)return; b.classList.toggle('pv-typing',on);
   const r=l||/** @type {HTMLElement|null} */(document.querySelector('#doc .pv.reading')); if(r)pvFit([r]);}
 document.addEventListener('focusin',pvTypingSync); document.addEventListener('focusout',()=>setTimeout(pvTypingSync,0));
-// Saves word key as a verdict about page `page`'s whole target: a pick of the whole page on the build on screen, the body
-// pageVerdictBody makes of it, with no note, saved as a fix request for the agent. The composer's selection and draft stay as
-// they are. The word becomes the page's current verdict - a new pin (the agent runs the newest, D4 and D5); pressing the
-// current word takes it back instead (pvPress). Saved: '#42 저장됨 [되돌리기]' on the line for NOTICE_MS; a refusal or a
-// failure is said on the status line, result first ('판정 저장 실패 · <까닭> — <대상>'), and under the pressed line. While it
-// is out the line says what it saves ('보류 저장 중…') and presses wait in PV_NEXT; the last of them is applied after it.
-/** @param {number} page @param {string} key @param {boolean} [kb] - pressed from the keyboard: the reason popover takes the focus */
-async function savePageVerdict(page,key,kb){const pg=META&&META.pages[page-1],slot=pvSlot(page); if(!pg||PV_BUSY.has(slot))return;
-  const visit=captureVisit(),kind=META.kind,f=/** @type {HTMLElement|null} */(document.activeElement);
-  const build=META.pages_build||'',fail=(/** @type {string} */text)=>{if(currentVisit(visit))PV_ERR.set(page,{text,doc:DOC,build});};
+// What a press on page `page` of the document on screen saves against: its document, kind, build and page size and its
+// target's name, with the visit it was made in. A save runs on these - not on the document on screen when it runs - so a
+// press made before switching documents is saved, and one queued meanwhile is too (pvPress, savePageVerdict). null when the
+// page is not there.
+/** @param {number} page @returns {{doc:string|null,kind:string|undefined,build:string,w:number,h:number,target:string,visit:any}|null} */
+function pvSaveCtx(page){const pg=META&&META.pages[page-1]; if(!META||!pg)return null;
+  return {doc:DOC,kind:META.kind,build:META.pages_build||'',w:pg.pt_w,h:pg.pt_h,target:pageTargetShort(page),visit:captureVisit()};}
+// The current verdict of page `page` on document doc - one not on screen too: the verdict order holds every document's.
+/** @param {string|null} doc @param {number} page @returns {Pin|null} */
+function pvCurOn(doc,page){if(doc===DOC||(!doc&&!DOC))return (pageVerdictPins().get(page)||[])[0]||null; let best=/** @type {Pin|null} */(null);
+  verdictOrder(doc||DEFAULT_DOC).groups.forEach(g=>{if(g.whole&&g.page===page&&(!best||best.id<g.pins[0].id))best=g.pins[0];}); return best;}
+// The largest pin number the lists hold: a verdict whose answer was lost is looked for above it (pvLanded).
+function pvTopId(){return OPEN_ALL.concat(REVIEW_ALL,DONE_ALL).reduce((m,p)=>Math.max(m,p.id),0);}
+// A verdict pin this person saved with word key about page `page` of document doc since pin number top - a save whose
+// answer was lost may have landed: it is read again before the press is called a failure, or pressed again (a duplicate).
+/** @param {string|null} doc @param {number} page @param {string} key @param {number} top @param {string|undefined} kind @returns {Pin|null} */
+function pvLanded(doc,page,key,top,kind){return OPEN_ALL.find(p=>p.id>top&&pdoc(p)===(doc||DEFAULT_DOC)&&verdictOf(p)===key&&isMe(p.author)&&(()=>{const t=pageTargetOf(p,kind); return !!t&&t.page===page;})())||null;}
+// Saves word key as a verdict about page `page`'s whole target: a pick of the whole page on the build it was pressed on, the
+// body pageVerdictBody makes of it, with no note, saved as a fix request for the agent. The composer's selection and draft
+// stay as they are. The word becomes the page's current verdict - a new pin (the agent runs the newest, D4 and D5); pressing
+// the current word takes it back instead (pvPress). It runs on its press's context (pvSaveCtx): leaving the document while
+// it runs does not drop it - it completes, and its undo is offered on the status line. Saved: '#42 저장됨 [되돌리기]' on the
+// line for NOTICE_MS. An answer lost on the network is checked against the list before anything is said (pvLanded): a
+// verdict that landed is a save, not a failure a second press would duplicate. A refusal or a failure is said on the status
+// line, result first ('판정 저장 실패 · <까닭> — <대상>'), and under the pressed line. While it is out the line says what it
+// saves ('보류 저장 중…') and presses wait in PV_NEXT; the last of them is applied after it - also after a switch away and
+// back, on the document it was pressed on - unless that word is the page's verdict by then. No save opens the reason
+// popover: the line offers [이유 추가], and 'Enter 이유 쓰기' while the keys act on it.
+/** @param {number} page @param {string} key @param {boolean} [kb] - pressed from the keyboard: the focus goes to the line's way to the reason @param {ReturnType<typeof pvSaveCtx>} [ctx0] */
+async function savePageVerdict(page,key,kb,ctx0){const ctx=ctx0||pvSaveCtx(page); if(!ctx)return; const slot=pvSlot(page,ctx.doc); if(PV_BUSY.has(slot))return;
+  const visit=ctx.visit,here=()=>DOC===ctx.doc;
+  const fail=(/** @type {string} */text)=>{if(here())PV_ERR.set(page,{text,doc:ctx.doc,build:ctx.build});};
   // Said on the status line with what it was for, result first, and under the pressed line.
-  const failed=(/** @type {string} */why)=>{lineNote(tl('판정 저장 실패 · {why} — {target}',{why,target:pageTargetShort(page)}),NOTICE_KIND.ERR,null,{source:'page-verdict',literal:true});
+  const failed=(/** @type {string} */why)=>{lineNote(tl('판정 저장 실패 · {why} — {target}',{why,target:ctx.target}),NOTICE_KIND.ERR,null,{source:'page-verdict',literal:true});
     fail(tl('{what} 실패',{what:tr('판정 저장')})+' — '+why);};
-  let saved=false; PV_ERR.delete(page);
-  let back=!!f&&!!f.closest&&!!f.closest('#doc .pv')&&f.dataset.act==='pv-save'&&f.dataset.key===key;   // a keyboard press: the focus comes back
-  // ...unless it moved meanwhile to anything but that button (another page's word, a '#N' link, the panel): a redraw that puts
-  // it back on the same word's button is no move.
-  let away=false;   // the person put the focus anywhere else meanwhile: neither the button nor the reason field takes it back
+  let saved=false; if(here())PV_ERR.delete(page);
+  // A key save (a digit, Enter or Space on a word) hands the focus to the line's way to the reason ('Enter 이유 쓰기'), so
+  // Enter there opens it - on the pressed word Enter would take the verdict back - unless the person put the focus anywhere
+  // else meanwhile (another page's word, a '#N' link, the panel): a redraw that puts it back on the same word's button is no move.
+  let away=false;
   const moved=e=>{const t=/** @type {HTMLElement} */(e.target);
-    if(!(t&&t.dataset&&((t.dataset.act==='pv-save'&&t.dataset.key===key&&t.dataset.page===String(page))||pvIsReasonField(t)))){back=false; away=true;}};
+    if(!(t&&t.dataset&&t.dataset.act==='pv-save'&&t.dataset.key===key&&t.dataset.page===String(page)))away=true;};
   document.addEventListener('focusin',moved);
-  const before=(pageVerdictPins().get(page)||[])[0],prev=before?before.id:0;   // the verdict a save replaces: a draft kept for it moves on
+  const before=pvCurOn(ctx.doc,page),prev=before?before.id:0,top=pvTopId();   // the verdict a save replaces: a draft kept for it moves on
   PV_BUSY.set(slot,key); drawPageVerdicts();
-  try{const d=(await api('/api/pick',{method:'POST',body:{page,x0:0,y0:0,x1:pg.pt_w,y1:pg.pt_h,frac:WHOLE_PAGE.slice(),pdf_build:META.pages_build||undefined,doc:DOC||undefined},
+  try{const d=(await api('/api/pick',{method:'POST',body:{page,x0:0,y0:0,x1:ctx.w,y1:ctx.h,frac:WHOLE_PAGE.slice(),pdf_build:ctx.build||undefined,doc:ctx.doc||undefined},
       what:'판정 저장',silent:true})).data;
-    if(!currentVisit(visit))return;
-    if(d.error){failed(errText(d)); if(d.pdf_build_gone)refreshDoc().catch(()=>{}); return;}
-    const body=pageVerdictBody(d,kind);
+    if(d.error){failed(errText(d)); if(d.pdf_build_gone&&here())refreshDoc().catch(()=>{}); return;}
+    const body=pageVerdictBody(d,ctx.kind);
     if(!body){lineNote('이 그림은 쪽 판정을 받지 못합니다 — 그림 위를 끌어 고른 뒤 판정합니다',NOTICE_KIND.WARN,null,{source:'page-verdict'}); fail(tr('이 그림은 쪽 판정을 받지 못합니다 — 그림 위를 끌어 고른 뒤 판정합니다')); return;}
-    Object.assign(body,{note:'',doc:DOC||undefined,kind_req:KIND_REQ.FIX,assignee:ASSIGNEE_AGENT,verdict:key});
-    const id=(await api('/api/pin',{method:'POST',body,what:'판정 저장',silent:true})).data.id; saved=true;
-    sourceOk('page-verdict');
+    Object.assign(body,{note:'',doc:ctx.doc||undefined,kind_req:KIND_REQ.FIX,assignee:ASSIGNEE_AGENT,verdict:key});
+    let id=0;
+    try{id=(await api('/api/pin',{method:'POST',body,what:'판정 저장',silent:true})).data.id;}
+    catch(e){const x=/** @type {ApiError} */(e); if(x&&x.status)throw e;   // no answer: the list says whether it landed
+      await loadPins(); const got=pvLanded(ctx.doc,page,key,top,ctx.kind); if(!got)throw e; id=got.id;}
+    saved=true; sourceOk('page-verdict');
     if(SEC_SEEN.open)SEC_SEEN.open.add(id);   // my own new pin is never 'new' on a collapsed header
-    const chip=undoNote(NOTICE_PLACE.CHIP,tl('#{id} {word} 판정 저장됨 · {target} — 되돌리면 판정을 거둡니다',{id,word:verdictLabel(key),target:pageTargetShort(page)}),{label:'되돌리기',wait:true,fn:verdictUndo(id)},
-      {pin:id,pending:true,label:tl('#{id} 저장됨 · {word}',{id,word:verdictLabel(key)})});
-    if(currentVisit(visit))pvReasonAfterSave(page,id,key,!!kb,prev);   // the reason popover: a draft on this line moves to the new verdict
-    await loadPins(); settleChip(chip); if(currentVisit(visit))pvOnShow(page);
+    const chip=undoNote(NOTICE_PLACE.CHIP,tl('#{id} {word} 판정 저장됨 · {target} — 되돌리면 판정을 거둡니다',{id,word:verdictLabel(key,ctx.doc),target:ctx.target}),{label:'되돌리기',wait:true,fn:verdictUndo(id)},
+      {pin:id,pending:true,label:tl('#{id} 저장됨 · {word}',{id,word:verdictLabel(key,ctx.doc)})});
+    if(here())pvReasonAfterSave(page,id,key,!!kb,prev);   // the reason popover: a draft on this line moves to the new verdict
+    await loadPins(); settleChip(chip); if(here())pvOnShow(page);
   }catch(e){const x=/** @type {ApiError} */(e);
-    if(!saved&&currentVisit(visit))failed(x&&x.status?(x.data&&errText(x.data))||('HTTP '+x.status):tr('서버에 닿지 않습니다'));}
+    if(!saved)failed(x&&x.status?(x.data&&errText(x.data))||('HTTP '+x.status):tr('서버에 닿지 않습니다'));}
   finally{document.removeEventListener('focusin',moved); PV_BUSY.delete(slot); drawPageVerdicts();
-    if(currentVisit(visit)&&!pvReasonFocusAfter(page,away)&&back)pvRefocus(page,key);
+    if(currentVisit(visit)&&kb&&!away){const c=/** @type {HTMLElement|null} */(document.querySelector('#doc .pv[data-page="'+page+'"] [data-act="pv-reason-open"]'));
+      if(c&&saved)c.focus({preventScroll:true}); else pvRefocus(page,key);}
     const nx=PV_NEXT.get(slot); PV_NEXT.delete(slot);
-    if(nx&&currentVisit(visit)){const cur=(pageVerdictPins().get(page)||[])[0];
-      if(!(cur&&verdictOf(cur)===nx.key))savePageVerdict(page,nx.key,!!nx.how);}}}
+    if(nx){const cur=pvCurOn(ctx.doc,page);   // the last press made meanwhile, on the document it was made on
+      if(!(cur&&verdictOf(cur)===nx.key)){const fresh=here()?pvSaveCtx(page):null; savePageVerdict(page,nx.key,!!nx.how,fresh||ctx);}}}}
 // The reading line's name for page `page`, in two parts: a short identifier that is never cut - the page and the figure's code,
 // '6쪽 · PL17' (the map title's head before its first ' · ', a leading tag such as '[후보]' moved to the rest; else the figure
 // id) - and the rest of the title, cut first ('[후보] 다섯 비교 쌍의 월별 효과 — …'). Next to the buttons a cut down to '6쪽 · …'
@@ -477,6 +502,22 @@ function pvRefocus(page,key){const a=document.activeElement; if(a&&a!==document.
 function pvCanCancel(p){return !!verdictOf(p)&&canVerdict()&&isMe(p.author)&&pinState(p)===PIN_STATE.OPEN&&!CONFIRMING.has(p.id);}
 const PV_CANCEL_MS=800;   // after a cancel on a page, how long that page's next [판정 취소] waits (a double press never takes two)
 const PV_CANCEL_HOLD=/** @type {Map<string,number>} */(new Map());   // line (pvSlot) -> until when its [판정 취소] waits
+// A verdict a [되돌리기] brought back (a take-back's, the save chip's): when it is its line's current verdict again its kept reason
+// draft opens (pvReasonRevive); when a newer verdict came meanwhile - someone else's - it is restored but superseded, the
+// status line says so ('판정 #21 채택 되살림 · 지금 판정은 Bob의 #34 보류 — <대상>') and no popover opens over that line.
+/** @param {number} id */
+function pvAfterRestore(id){const p=findAnyPin(id),t=p?pageTargetOf(p,META?META.kind:undefined):null,cur=t?(pageVerdictPins().get(t.page)||[])[0]:null;
+  if(p&&t&&cur&&cur.id!==id){const ck=verdictOf(cur)||'',k=verdictOf(p)||'';
+    lineNote(tl('판정 #{id} {word} 되살림 · 지금 판정은 {owner} #{cur} {now} — {target}',{id,word:verdictLabel(k),owner:isMe(cur.author)?tr('내'):tl('{name}의',{name:who(cur.author)}),
+      cur:cur.id,now:verdictLabel(ck),target:pageTargetShort(t.page)}),NOTICE_KIND.INFO,null,{literal:true,life:NOTICE_LIFE.TIMER}); return;}
+  pvReasonRevive(id);}
+// The take-backs whose [되돌리기] the line offers too, by line (pvSlot): the pin and its status-line message - the offer lasts
+// as long as that message (its window, or its action).
+const PV_LINE_UNDO=/** @type {Map<string,{id:number,n:number}>} */(new Map());
+// The line's [되돌리기]: the status line's action runs (noticeAct), as if pressed there.
+/** @param {HTMLElement} a */
+function pvLineUndo(a){const line=a.closest('.pv'),page=Number(line&&line.getAttribute('data-page'))||0,u=PV_LINE_UNDO.get(pvSlot(page)); if(!u)return;
+  PV_LINE_UNDO.delete(pvSlot(page)); if(NOTICES.has(u.n))noticeAct(u.n); drawPageVerdicts(); pvFocusLine(page);}
 // [판정 취소] on page `page`'s line - or its pressed word pressed again (pvPress): verdict pin id goes to the Trash as the
 // card's [지우기] sends it (dropPin) - a withdrawn request - and the line shows at once what is current now: the newest
 // earlier verdict about the same target (D4) or '판정 없음'. The status line says so result first ('판정 #17 채택 취소 · 지금
@@ -498,19 +539,25 @@ async function pvCancelPin(id,page,had){const p=OPEN_ALL.find(x=>x.id===id);
   // Its reason popover leaves with the line's verdict, but the session is kept until the server answers: a failed cancel
   // brings the verdict back and its unsent reason with it (unless a newer session took the line); a done one drops it -
   // its draft stays kept (rdPut) for the [되돌리기].
-  const kept=PV_REASON&&PV_REASON.id===id?PV_REASON:null; if(kept){PV_REASON=null; if(pvReasonDirty(kept))rdPut(kept.doc,id,kept.text,kept.base);}
+  const kept=PV_REASON&&PV_REASON.id===id?PV_REASON:null; if(kept){PV_REASON=null; if(pvReasonDirty(kept))rdPut(kept.doc,id,kept.text,kept.base,kept.rev,{mode:kept.mode});}
   PV_WITHDRAWN.add(id);
+  // The take-back is said on the status line with its [되돌리기], which the line itself also offers for as long (PV_LINE_UNDO):
+  // the status line is far away by Tab.
   const say=()=>{const now=(pageVerdictPins().get(page)||[])[0],nk=now&&verdictOf(now);
     const rest=now&&nk?tl('지금 판정 #{id} {word}',{id:now.id,word:verdictLabel(nk)}):tr('남은 판정 없음');
-    lineNote(tl('판정 #{id} {word} 취소 · {rest} — {target}',{id,word:verdictLabel(key),rest,target}),NOTICE_KIND.OK,
-      {label:'되돌리기',tip:T.undo,wait:true,fn:async()=>{PV_WITHDRAWN.delete(id); const ok=await restorePin(id); if(ok)pvReasonRevive(id); return ok;}},
-      {life:NOTICE_LIFE.TIMER,undo:true,literal:true});};
+    const n=lineNote(tl('판정 #{id} {word} 취소 · {rest} — {target}',{id,word:verdictLabel(key),rest,target}),NOTICE_KIND.OK,
+      {label:'되돌리기',tip:T.undo,wait:true,fn:async()=>{PV_WITHDRAWN.delete(id); const ok=await restorePin(id); if(ok)pvAfterRestore(id); return ok;}},
+      {life:NOTICE_LIFE.TIMER,undo:true,literal:true});
+    if(n){PV_LINE_UNDO.set(pvSlot(page),{id,n:n.n}); drawPageVerdicts(); setTimeout(()=>drawPageVerdicts(),NOTICE_MS+NOTICE_HOLD_MAX+50);}};
   hideTip();
   const again=()=>{PV_CANCEL_HOLD.delete(pvSlot(page)); drawPageVerdicts(); pvCancelPin(id,page,false);};   // [다시 시도] is a new press: no hold
   const ok=await dropPin(id,false,again,
     {say,where:NOTICE_HOST.LINE,what:'판정 취소'});
-  if(!ok){PV_WITHDRAWN.delete(id); if(kept&&!PV_REASON&&kept.doc===DOC&&currentVisit(kept.visit)){kept.focus=false; PV_REASON=kept; drawPageVerdicts();}}
-  if((had||inField)&&(!document.activeElement||document.activeElement===document.body))searchToPage();
+  if(!ok){PV_WITHDRAWN.delete(id); if(kept&&!PV_REASON&&kept.doc===DOC&&currentVisit(kept.visit)){PV_REASON=kept; drawPageVerdicts();}}
+  // A keyboard press stays on its own page: the line's [되돌리기], else its line (never the PDF area, from which Tab went to the
+  // first page's line).
+  if((had||inField)&&(!document.activeElement||document.activeElement===document.body)){
+    const u=/** @type {HTMLElement|null} */(document.querySelector('#doc .pv[data-page="'+page+'"] [data-act="pv-undo"]')); if(u)u.focus({preventScroll:true}); else if(!pvFocusLine(page))searchToPage();}
   if(ok&&claimed)lineNote('처리 중이던 판정이라 이미 실행됐을 수 있습니다',NOTICE_KIND.WARN);}
 // One page's line: its state - '판정 없음', or the newest verdict pin about its target with its state, its number and word,
 // and who made it and when if that was someone else - its reason (pvReasonInline: a check and its first line, a kept draft, [이유 추가]),
@@ -532,7 +579,7 @@ aria-label="${tl('지금 판정 #{id} 카드로 갑니다',{id:cur.id})}" data-t
 <span class="pv-sep" aria-hidden="true">·</span><span class="pv-st">${sp[0]}${by?html`<span class="pv-by" translate="no">${by}</span>${sp[1]||''}`:''}</span>\
 ${other?html`<span class="pv-sep" aria-hidden="true">·</span><span class="pv-au" translate="no">${who(cur.author)}</span> ${relSpan(cur.at,'pv-at','')}`:''}\
 ${pvReasonInline(page,cur)}`
-    :html`<span class="pv-s pv-none">${tr(loading?'판정 읽는 중…':'판정 없음')}</span>`;
+    :html`<span class="pv-s pv-none">${tr(loading?'판정 읽는 중…':'판정 없음')}</span>${loading?'':pvReasonInline(page,undefined)}`;
   // A save on the line that is out: what it saves - or the last word pressed meanwhile, which comes after it.
   const slot=pvSlot(page),nx=PV_NEXT.get(slot),sv=PV_BUSY.get(slot),want=nx?nx.key:sv!==undefined?sv:k||null;
   const saving=sv!==undefined?html`<span class="pv-busy" role="status"><span class="pv-sep" aria-hidden="true">·</span> ${tl('{word} 저장 중…',{word:verdictLabel(want||sv)})}</span>`:'';
@@ -544,7 +591,7 @@ ${pvReasonInline(page,cur)}`
   // It waits (aria-disabled) while the page's save is out, the first list is not in, or a cancel on this page just ran.
   const cn=!!cur&&pvCanCancel(cur),cw=PV_BUSY.has(slot)||loading||(PV_CANCEL_HOLD.get(slot)||0)>Date.now();
   const cancel=cn&&cur?html`<span class="pv-sep pv-cn" aria-hidden="true">·</span><button type="button" class="btn-ghost btn-sm pv-cancel pv-cn hit" data-act="pv-cancel" \
-data-ref="${cur.id}" data-id="${cur.id}" aria-label="${tl('내 판정 #{id} 취소',{id:cur.id})}" \
+data-ref="${cur.id}" data-id="${cur.id}" aria-label="${tl('판정 취소 — 내 판정 #{id}',{id:cur.id})}" \
 ${chip?'':html`data-tip="${tr('이 판정을 거둡니다. 핀은 휴지통으로 가고, 같은 대상에 앞선 판정이 있으면 그 판정이 다시 지금 판정이 됩니다. 상태 줄의 [되돌리기]가 되살립니다')}"`}${cw?html` aria-disabled="true"`:''}>${tr('판정 취소')}</button>`:'';
   const early=earlier.length?html`<button type="button" class="btn-ghost btn-sm pv-early hit" data-act="pv-earlier" data-ref="${earlier[0].id}" \
 ${chip?'':html`data-tip="${tr('이 쪽의 더 새 판정으로 대체되어 실행하지 않는 열린 판정 핀입니다. 누르면 그 카드로 갑니다')}"`}>${tl('이전 판정 {n}건 · 새 판정으로 대체됨',{n:earlier.length})}</button>`:'';
@@ -559,7 +606,11 @@ ${chip?'':html`data-tip="${tr('이 쪽의 더 새 판정으로 대체되어 실�
   // The line's last failed save, said where it was pressed (PV_ERR) - for the document and build on screen only.
   const e=PV_ERR.get(page),eo=!!e&&e.doc===DOC&&!!META&&e.build===(META.pages_build||'');
   const err=html`<span class="pv-err"${eo?'':html` hidden`}>${eo&&e?e.text:''}</span>`;   // always there, so the reason field after it keeps its place
-  return html`${name}<span class="pv-t">${text}${saving}${armSay}${cancel}${early}</span>${btns}${err}${pvOnHint(page,v,want,nx||sv!==undefined?PV_PRESS.SAVING:cur?pvPressOf(cur):PV_PRESS.NONE)}${pvReasonPop(page)}`;}
+  // A take-back of this line's, while its status-line [되돌리기] lasts: the line offers it too (PV_LINE_UNDO).
+  const lu=PV_LINE_UNDO.get(slot),undo=lu&&NOTICES.has(lu.n)&&canVerdict()?html`<span class="pv-sep pv-un" aria-hidden="true">·</span><button type="button" class="btn-ghost btn-sm pv-undo pv-un hit" \
+data-act="pv-undo" data-id="u${lu.id}" aria-label="${tl('되돌리기 — 거둔 판정 #{id}',{id:lu.id})}">${tr('되돌리기')}</button>`:'';
+  if(lu&&!undo)PV_LINE_UNDO.delete(slot);
+  return html`${name}<span class="pv-t">${text}${saving}${armSay}${cancel}${undo}${early}</span>${btns}${err}${pvOnHint(page,v,want,nx||sv!==undefined?PV_PRESS.SAVING:cur?pvPressOf(cur):PV_PRESS.NONE)}${pvReasonPop(page)}`;}
 // The pressed word's context (P2-3: taking a verdict back by pressing its word again must be found without a hover - a
 // line holding a save chip or a popover draws no descriptions, and touch has none): one short sentence, the pressed word's
 // description for assistive technology (aria-describedby="pv-on-<page>") and shown over the word group - never in the
@@ -695,6 +746,7 @@ function drawPageVerdicts(){const v=pageVerdictsOn(),f=/** @type {HTMLElement|nu
     fillPv(line,page,map.get(page),v);});
   sizePv(); pvStick();
   if(had)vdRefocus(f);
+  pvReasonAfterLines();   // a reason field that went from under the focus hands it to its line
   pvTypingSync();}   // a redraw or a rebuild can take the focused reason field away without a focusout
 // Whether pin p's page verdict line shows it, so its page-size mark is not drawn (marks).
 /** @param {Pin} p */
@@ -771,10 +823,7 @@ function pvReadingPage(){const n=pvReadingAt(); return n&&pageTakesVerdict(n)?n:
 // The page the keys 1-5 act on: reading page r while this screen may make a verdict, no selection is being written and no
 // text field has the focus (its digits are text).
 /** @param {number} r */
-function pvKeysPage(r){const rs=PV_REASON,f=document.activeElement;
-  // In an empty reason field the digits are the verdict keys of its line (verdict-reason.js): its line carries them.
-  if(rs&&pvIsReasonField(f)&&f.dataset.id==='s'+rs.sid&&!f.value.trim()&&canVerdict()&&$('#composer').hidden)return rs.page;
-  return r&&canVerdict()&&$('#composer').hidden&&!typingNow()?r:0;}
+function pvKeysPage(r){return r&&canVerdict()&&$('#composer').hidden&&!typingNow()?r:0;}
 let PV_READ=0;   // the reading page with a line: its line floats and names its figure
 let PV_FRAME=0;
 function pvStickSoon(){if(!PV_FRAME)PV_FRAME=requestAnimationFrame(()=>{PV_FRAME=0; pvStick();});}
@@ -795,8 +844,32 @@ function verdictKey(e){if(e.defaultPrevented||e.repeat||e.isComposing||e.ctrlKey
   if(t&&(t.tagName==='TEXTAREA'||t.tagName==='INPUT'||t.tagName==='SELECT'||t.isContentEditable))return;
   if(document.querySelector('dialog[open]')||!$('#page-pop').hidden||!$('#doc-pop').hidden||!$('#composer').hidden)return;
   const v=pageVerdictsOn(),n=+e.key,c=v&&v.choices[n-1],at=pvReadingAt(); if(!c||!at||!canVerdict())return;
+  if(pvKeyGuarded(e))return;   // a reason field went from under the typing: its digits are not verdict keys
+  if(pvAutoScrolling()){e.preventDefault(); pvSayGliding(); return;}   // a jump still gliding: the reading page is not yet the one asked for
   if(!pageTakesVerdict(at)){e.preventDefault(); lineNote('이 쪽은 판정을 받지 않습니다',NOTICE_KIND.INFO,null,{source:'verdict-key',life:NOTICE_LIFE.TIMER}); return;}
   if(VD_ARM&&VD_ARM.kbd&&VD_ARM.where===VD_WHERE.PAGE&&VD_ARM.page!==at)disarmVerdict(true,true);
   const b=/** @type {HTMLElement|null} */(document.querySelector('#doc .pv[data-page="'+at+'"] button[data-act="pv-save"][data-key="'+CSS.escape(c.key)+'"]'));
   if(!b)return; e.preventDefault(); verdictPress(b,'key');}
 addEventListener('keydown',verdictKey);
+// Whether the pages are gliding where a jump sent them (the outline, the page list, a card's [보기]): the PDF area is scrolling
+// - from a scroll event to its scrollend (where the browser has none, 160ms after the last scroll) - and no wheel, touch,
+// press or scrolling key of the person's came in the 500ms before it began. While it glides the page under the reading line
+// is one it passes, not the one asked for: a verdict key or Enter then would act on a page scrolled past (an outline jump
+// to page 64 saved 보류 on page 12). A scroll the person makes goes on acting at once; an instant jump ends at once.
+let PV_SCROLL_AT=0,PV_SCROLL_HAND=0,PV_GLIDE=false;
+const PV_HAND=()=>{PV_SCROLL_HAND=performance.now(); PV_GLIDE=false;};   // the person takes the pages over
+for(const t of ['wheel','touchstart','touchmove','pointerdown'])$('#left').addEventListener(t,PV_HAND,{passive:true,capture:true});
+$('#left').addEventListener('pointermove',e=>{if(e.buttons)PV_HAND();},{passive:true,capture:true});   // a scroll bar dragged
+addEventListener('keydown',e=>{if(SCROLL_KEYS.has(e.key))PV_HAND();},true);
+const PV_SCROLLEND='onscrollend' in window;
+$('#left').addEventListener('scroll',()=>{const t=performance.now(); if(t-PV_SCROLL_AT>200)PV_GLIDE=t-PV_SCROLL_HAND>500; PV_SCROLL_AT=t;},{passive:true});   // a new run of scrolling decides
+$('#left').addEventListener('scrollend',()=>{PV_GLIDE=false;});
+function pvAutoScrolling(){return PV_GLIDE&&performance.now()-PV_SCROLL_AT<(PV_SCROLLEND?1000:160);}
+// Said once while the pages glide: the key was not taken, press it again once they rest.
+function pvSayGliding(){lineNote('쪽으로 가는 중이라 판정 키를 받지 않았습니다 — 멈춘 뒤 다시 누릅니다',NOTICE_KIND.INFO,null,{source:'verdict-key',life:NOTICE_LIFE.TIMER});}
+// Tab from the PDF area (where Esc, a moved-on popover or a search leaves the focus) goes to the reading page's line - its
+// first control - not to the first page's line, whose focus scrolled the document there.
+addEventListener('keydown',e=>{if(e.key!=='Tab'||e.shiftKey||e.ctrlKey||e.metaKey||e.altKey||e.defaultPrevented||document.activeElement!==$('#left'))return;
+  const r=pvReadingPage(),l=r?document.querySelector('#doc .pv[data-page="'+r+'"]'):null; if(!l)return;
+  const c=/** @type {HTMLElement|undefined} */([...l.querySelectorAll('a,button,[tabindex="0"]')].find(x=>x instanceof HTMLElement&&x.getClientRects().length>0&&!(/** @type {HTMLButtonElement} */(x).disabled)));
+  if(c){e.preventDefault(); c.focus({preventScroll:true});}});

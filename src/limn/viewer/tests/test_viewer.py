@@ -305,7 +305,7 @@ class FrontendLogic(unittest.TestCase):
         self.assertEqual(out["after"], [False, False])  # after 1.2s: the highlight clears (static box-shadow bug fixed)
 
     def test_pin_changes_tell_a_dropped_pin_from_a_closed_one(self):
-        """A pin gone from the list and from every snapshot was dropped ('#2 을 Bob 가 삭제함', a warning with
+        """A pin gone from the list and from every snapshot was dropped ('#2를 Bob이 삭제함', a warning with
         [되살리기]); one still in the snapshot as done was completed ('#3 이 완료되었습니다') - each a status-line message."""
         # §A: the old implementation reported every pin that disappeared from the open list as "done" —
         # even a pin a coauthor dropped showed up on the author's screen as '#N 이 완료되었습니다' (observed).
@@ -322,6 +322,8 @@ class FrontendLogic(unittest.TestCase):
                 extract_js_fn("markMine"),
                 extract_js_fn("consumeMine"),
                 extract_js_fn("pinState"),
+                extract_js_fn("josa"),
+                extract_js_fn("josaName"),
                 extract_js_fn("notePinChanges"),
                 r"""
             const prev=[{id:1},{id:2},{id:3}];
@@ -340,7 +342,7 @@ class FrontendLogic(unittest.TestCase):
         self.assertEqual(closed[0]["msg"], "#3 이 완료되었습니다")
         self.assertEqual(closed[0]["kind"], "ok")
         self.assertEqual(len(dropped), 1)
-        self.assertEqual(dropped[0]["msg"], "#2 을 Bob 가 삭제함")
+        self.assertEqual(dropped[0]["msg"], "#2를 Bob이 삭제함")   # the particles follow the number's and the name's sound
         self.assertEqual(dropped[0]["kind"], "warn")
         self.assertTrue(dropped[0]["hasAction"])  # the [되살리기] (restore) action is attached
 
@@ -358,6 +360,8 @@ class FrontendLogic(unittest.TestCase):
                 extract_js_fn("markMine"),
                 extract_js_fn("consumeMine"),
                 extract_js_fn("pinState"),
+                extract_js_fn("josa"),
+                extract_js_fn("josaName"),
                 extract_js_fn("notePinChanges"),
                 r"""
             notePinChanges([{id:9}],[],[{id:9,dropped_by:{login:'x'}}]);
@@ -382,6 +386,8 @@ class FrontendLogic(unittest.TestCase):
                 extract_js_fn("markMine"),
                 extract_js_fn("consumeMine"),
                 extract_js_fn("pinState"),
+                extract_js_fn("josa"),
+                extract_js_fn("josaName"),
                 extract_js_fn("notePinChanges"),
                 r"""
             notePinChanges([{id:5}],[],[]);   // dropped 목록에도 없음(폴링 경합) — 그래도 삭제로는 알린다
@@ -391,7 +397,7 @@ class FrontendLogic(unittest.TestCase):
         )
         out = json.loads(run_node(js))
         self.assertEqual(len(out), 1)
-        self.assertIn("#5 을", out[0])
+        self.assertIn("#5를", out[0])
         self.assertIn("삭제함", out[0])
 
     def test_pin_changes_skip_this_tabs_own_action_but_not_others(self):
@@ -410,6 +416,8 @@ class FrontendLogic(unittest.TestCase):
                 extract_js_fn("markMine"),
                 extract_js_fn("consumeMine"),
                 extract_js_fn("pinState"),
+                extract_js_fn("josa"),
+                extract_js_fn("josaName"),
                 extract_js_fn("notePinChanges"),
                 r"""
             markMine(1); markMine(2);   // 이 탭이 방금 #1 을 완료, #2 를 삭제했다
@@ -2991,6 +2999,8 @@ class FrontendFigure(unittest.TestCase):
                 extract_js_fn("markMine"),
                 extract_js_fn("consumeMine"),
                 extract_js_fn("pinState"),
+                extract_js_fn("josa"),
+                extract_js_fn("josaName"),
                 extract_js_fn("notePinChanges"),
                 r"""
             notePinChanges([{id:1,el_sync:'ok'},{id:2,el_sync:'lost'},{id:3}],[{id:1,el_sync:'lost'},{id:2,el_sync:'lost'},{id:3,el_sync:'moved'}],[]);
@@ -3012,6 +3022,8 @@ class FrontendFigure(unittest.TestCase):
                 extract_js_fn("markMine"),
                 extract_js_fn("consumeMine"),
                 extract_js_fn("pinState"),
+                extract_js_fn("josa"),
+                extract_js_fn("josaName"),
                 extract_js_fn("notePinChanges"),
                 r"""
             const at=(id,extra)=>Object.assign({id,sync:'ok'},extra);
@@ -3893,6 +3905,7 @@ class FrontendSaveWhilePicking(unittest.TestCase):
             let LAYOUT='wide', LAST_PTR='mouse', SNIP_OPEN=false, PINS=[], DOC=undefined, SWITCHSEQ=0; const EDITOR={current:null,saving:false};
             let KIND_NEW='fix'; function setKind(k){KIND_NEW=k==='question'?'question':'fix';} function mentionHints(){return [];}
             const ASSIGN_NEW={v:'agent',touched:false}; function renderAssignNew(){} function mentionPreview(){}
+            function pvTopId(){return 0;}   // the mark a lost save's answer is looked for above (verdict.js)
             function composeAsk(mode){return {mode};} function assignOutcome(){return {kind:KIND_NEW,assignee:ASSIGN_NEW.v};}
             function setBusy(){} function renderComposer(){} function overlapsFor(){return [];} function applySide(){}
             function selectionSnapshot(){return null;} function restoreSelection(){} let MID_OVERLAY=false; function relayout(){}
@@ -4531,6 +4544,8 @@ class FrontendReview(unittest.TestCase):
                 extract_js_fn("markMine"),
                 extract_js_fn("consumeMine"),
                 extract_js_fn("pinState"),
+                extract_js_fn("josa"),
+                extract_js_fn("josaName"),
                 extract_js_fn("notePinChanges"),
                 extract_js_fn("pinState"),
                 extract_js_fn("noteReviewChanges"),

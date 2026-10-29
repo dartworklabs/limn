@@ -94,6 +94,9 @@ function cancelEdit(){EDITOR.current=null; drawPins();}
 async function saveEdit(){const E=EDITOR.current; if(!E||EDITOR.saving||viewerBlocked())return;
   const note=editNote(E).value, body={base_rev:E.base_rev};
   if(note!==E.orig.note||JSON.stringify(mentionHints(editNote(E)))!==JSON.stringify(E.orig.mentions||[]))body.note=note;
+  // A rival edit changed the note since the card opened (theirs, shown in the banner): the card's note is not saved over it
+  // until the person chooses [내 메모로 덮어쓰기] - a second [저장] used to write over an agent's addition unseen.
+  if(body.note!==undefined&&E.theirs!=null&&!E.overwrite&&E.theirs!==note){editTheirs(E); return;}
   if(E.kind_req&&E.kind_req!==E.orig.kind_req)body.kind_req=E.kind_req;
   if(E.assignee&&E.assignee!==E.orig.assignee)body.assignee=E.assignee;
   if(body.note!==undefined){const mh=mentionHints(editNote(E)); if(mh.length)body.mentions=mh;}
@@ -111,18 +114,27 @@ async function saveEdit(){const E=EDITOR.current; if(!E||EDITOR.saving||viewerBl
         if(editorOwns(E)){const p=data.pin; E.base_rev=p.rev; E.lo=p.lo; E.hi=p.hi; E.scope=p.scope||null; E.file=p.file; E.pinEl=p.el||null;
           E.orig={lo:p.lo,hi:p.hi,scope:p.scope||null,note:p.note||'',mentions:(p.mentions||[]).filter(l=>(p.note||'').includes('@'+peopleName(l))),kind_req:isQuestion(p)?KIND_REQ.QUESTION:KIND_REQ.FIX,assignee:assigneeOf(p)}; editSnip(true);}
         await loadPins(); return;}
-      const p=data.pin; bannerNote(NOTICE_HOST.LIST,'다른 쪽(에이전트나 자동 줄 맞춤)이 이 핀을 먼저 바꿨습니다 — 최신 위치를 불러왔습니다',NOTICE_KIND.WARN);
+      const p=data.pin,theirs=String(p.note||''),changed=theirs!==E.orig.note&&body.note!==undefined;
+      if(changed&&editorOwns(E)){E.theirs=theirs; E.overwrite=false;}
+      if(changed)editTheirs(E); else bannerNote(NOTICE_HOST.LIST,'다른 쪽(에이전트나 자동 줄 맞춤)이 이 핀을 먼저 바꿨습니다 — 최신 위치를 불러왔습니다',NOTICE_KIND.WARN);
       if(editorOwns(E)){const keep=suggestForEdit(E.sg,suggestOff(E,editDocKind(E)))!==undefined;   // a suggestion being changed is kept; else the stored one is taken
         E.base_rev=p.rev; E.lo=p.lo; E.hi=p.hi; E.scope=p.scope||null; E.file=p.file; E.pinEl=p.el||null;
         if(keep)E.sg.had=p.suggest?{base:p.suggest.base,text:p.suggest.text}:null; else E.sg=suggestOfPin(p);
         E.orig={lo:p.lo,hi:p.hi,scope:p.scope||null,note:p.note||'',mentions:(p.mentions||[]).filter(l=>(p.note||'').includes('@'+peopleName(l))),kind_req:E.orig.kind_req,assignee:assigneeOf(p)}; editSnip(true);}
       await loadPins(); return;}
-    if(editorOwns(E)){if(editFields(E)===fields)EDITOR.current=null;
+    if(editorOwns(E)){E.theirs=null; E.overwrite=false; if(editFields(E)===fields)EDITOR.current=null;
       else{const p=data.pin; E.base_rev=p.rev; E.orig={lo:p.lo,hi:p.hi,scope:p.scope||null,note:p.note||'',mentions:hints.slice(),kind_req:isQuestion(p)?KIND_REQ.QUESTION:KIND_REQ.FIX,assignee:assigneeOf(p)};
         E.sg.had=p.suggest?{base:p.suggest.base,text:p.suggest.text}:null;}}
     quietNote(tl('핀 #{id} 수정됨',{id:E.id})); await loadPins();
   }catch(e){} finally{EDITOR.saving=false; syncEditSaveButton();}
 }
+// A rival edit wrote another note while card E was open (E.theirs): the banner shows that note whole and offers
+// [내 메모로 덮어쓰기]; the card keeps the person's text, and [저장] alone does not write over theirs.
+/** @param {EditCard} E */
+function editTheirs(E){const theirs=E.theirs==null?'':E.theirs;
+  bannerNote(NOTICE_HOST.LIST,tl('핀 #{id} 메모를 저장하지 않았습니다 · 그사이 다른 곳에서 메모가 바뀌었습니다',{id:E.id})+' — '+tl('지금 메모: {note}',{note:theirs||tr('(빈 메모)')}),NOTICE_KIND.WARN,
+    {label:'내 메모로 덮어쓰기',tip:'지금 메모를 읽은 뒤, 카드의 메모로 바꿉니다',fn:()=>{if(!editorOwns(E))return; E.overwrite=true; saveEdit();}},
+    {source:'POST /api/pins/'+E.id+'/edit edit',literal:true});}
 // An edit the server answered 409 suggest_base_changed: nothing was saved and card E keeps its draft. The editor shows the lines'
 // current text against the draft and the list's banner offers [지금 원문으로 맞추기] (the draft keeps its text and takes that text as
 // its base); then [저장] again.

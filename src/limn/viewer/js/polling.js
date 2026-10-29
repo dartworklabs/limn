@@ -104,7 +104,8 @@ function notePinChanges(prev,d,dropped){
   if(reviewed.length)lineNote(tl('#{ids} 이 검토 대기로 넘어왔습니다 — 결과를 보고 [확인]하세요',{ids:reviewed.join(', #'),n:reviewed.length}),NOTICE_KIND.OK,
     {label:'보기',tip:'검토 대기 핀으로 갑니다',fn:gotoReview},{keys:reviewed.map(i=>EVENT_TYPE.REVIEW_REQUESTED+':'+i),dot:NOTICE_DOT.RV});
   droppedIds.forEach(id=>{const rec=dropById.get(id),nm=rec?who(rec.dropped_by):'';
-    lineNote(tl('#{id} 을 {name} 가 삭제함',{id,name:nm||tr('다른 세션')}),NOTICE_KIND.WARN,{label:'되살리기',wait:true,fn:()=>restorePin(id)},
+    const name=nm||tr('다른 세션');
+    lineNote(tl('#{id}{o} {name}{p} 삭제함',{id,o:josa(id,'을','를'),name,p:josaName(name,'이','가')}),NOTICE_KIND.WARN,{label:'되살리기',wait:true,fn:()=>restorePin(id)},
       {keys:[EVENT_TYPE.DROPPED+':'+id],dot:NOTICE_DOT.SIDE,literal:true});});   // tl() spoke the UI language; the name is as written
   (d||[]).filter(p=>pinState(p)===PIN_STATE.OPEN).forEach(p=>{const was=byId.get(p.id); if(!was)return;
     if(!was.stale&&p.stale){lineNote(tl('#{id} 위치를 잃었습니다',{id:p.id}),NOTICE_KIND.WARN,null,{dot:NOTICE_DOT.SIDE});return;}

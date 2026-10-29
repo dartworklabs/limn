@@ -69,7 +69,7 @@ function makeNotice(o){const [title,desc]=msgSplit(o.msg);
   const n=/** @type {Notice} */({n:++NOTICE_SEQ,place:o.place||NOTICE_PLACE.LINE,host:o.host||'',pin:o.pin==null?null:o.pin,sec:o.sec||'',
     prev:o.prev==null?null:o.prev,kind:o.kind||NOTICE_KIND.OK,title,desc,label:o.label||'',act:o.act||null,literal:!!o.literal,keys:o.keys||[],
     rank:o.rank||1,at:Date.now(),life:o.life||NOTICE_LIFE.STICKY,dot:o.dot||'',topic:o.topic||'',save:!!o.save,pending:!!o.pending,away:false,
-    alert:!!o.alert,busy:false,source:o.source||'',undo:!!o.undo,hover:false,held:false,timer:undefined,gone:o.gone||null,el:null});
+    alert:!!o.alert,busy:false,source:o.source||'',undo:!!o.undo,quiet:!!o.quiet,hover:false,held:false,timer:undefined,gone:o.gone||null,el:null});
   NOTICES.set(n.n,n); return n;}
 
 // Reads text out politely (#sr-news: a silent success, an undo drawn where it happened, an info banner) or assertively
@@ -101,7 +101,7 @@ function lineNote(msg,kind,act,o){o=o||{}; const keys=o.keys||[],rank=o.rank||1,
   LINE.unshift(n); lineCap();
   if(n.dot)document.body.classList.add('dot-'+n.dot);
   drawStatus(); armNotice(n);
-  if(n.alert)announce(noticeText(n),true); else if(STATUS_TOP!==n.n)announce(noticeText(n));
+  if(n.alert)announce(noticeText(n),true); else if(STATUS_TOP!==n.n&&!n.quiet)announce(noticeText(n));
   return n;}
 // The line's cap (rule 2): it keeps LINE_MAX messages besides its undos. Past that the oldest piece of information leaves,
 // then the oldest error - never the newest message, and never an undo, which leaves only by its window, its [되돌리기] or
@@ -384,7 +384,7 @@ function settleChip(n){if(!n||!NOTICES.has(n.n)||n.place!==NOTICE_PLACE.CHIP)ret
 function offerToLine(n){if(n.busy)return; const act=n.act,gone=n.gone; n.gone=null; endNotice(n,true); if(!act)return;
   // Its title and description stay as they were split: joined back with ' · ' a title that holds one ('#6 채택 판정 저장됨 · PL16')
   // was cut at it on the line.
-  const m=lineNote(n.desc?n.title+' — '+n.desc:n.title,NOTICE_KIND.OK,act,{life:n.life,gone,literal:true,undo:true});
+  const m=lineNote(n.desc?n.title+' — '+n.desc:n.title,NOTICE_KIND.OK,act,{life:n.life,gone,literal:true,undo:true,quiet:true});   // said when it came: not again as it moves
   DEFERRED.forEach(d=>{if(d.note===n)d.note=m;});}   // an early send takes the moved undo away
 
 // Trash rows: an undo in the place of the row it took away (after the row drawn before it, or first). drawTrash calls this.

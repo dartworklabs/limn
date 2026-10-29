@@ -250,7 +250,8 @@ function outlineFilter(field,box,sr){
 // What a screen reader is told after each keystroke of a filter (a polite status): how many results, or that there are none; nothing
 // while the field is empty. The unread-entries note is not a result.
 /** @param {HTMLElement} box @param {string} q @param {HTMLElement} sr */
-function outlineSay(box,q,sr){const n=outlineRows(box).length; sr.textContent=!String(q||'').trim()?'':n?tl('결과 {n}개',{n}):tr('찾은 장·절이 없습니다.');}
+function outlineSay(box,q,sr){const n=outlineRows(box).length,t=!String(q||'').trim()?'':n?tl('결과 {n}개',{n}):tr('찾은 장·절이 없습니다.');
+  if(sr.textContent!==t)sr.textContent=t;}   // the same words again are not set again: a live region read '없습니다' at every keystroke
 outlineFilter($('#outline-search'),$('#outline-items'),$('#outline-sr')); outlineFilter($('#ns-outline-search'),$('#ns-outline-items'),$('#ns-outline-sr'));   // each filter works on its own list only
 $('#left').addEventListener('scroll',()=>{if(OUTLINE_PINNED&&!OUTLINE_PINNED.reached)outlinePickWait();
   if(!document.body.classList.contains('revision-open'))requestAnimationFrame(updateSectionStrip);},{passive:true});
