@@ -190,7 +190,9 @@ function vdWhereOf(b){return b.dataset.act==='verdict-save'?VD_WHERE.COMPOSER:VD
 // kn: on the line of the page the keys act on (PV_KEYS), the word's key 1-5 - drawn after the word as a key hint (data-kn,
 // generated text on a mouse screen only, so the button's text stays the word), said in its description and as
 // aria-keyshortcuts; 0 elsewhere. quiet: drawn without its description (data-tip) - a page line whose save chip stands
-// (pvLineHtml) - so no description box comes over the chip; the name and the keys are still said.
+// (pvLineHtml) - so no description box comes over the chip; the name and the keys are still said. A page line's armed word
+// ('삭제 확정') has no description either: its box covered the line's figure name while the word waited for its second press,
+// and the button already reads what the box said (its name and the announcement say the rest).
 /** @param {VerdictChoice} c @param {string} where @param {number} page @param {string} target @param {boolean} off @param {number} [kn] @param {boolean} [quiet] */
 function vdButton(c,where,page,target,off,kn,quiet){const armed=vdArmedHere(c.key,where,page),line=where!==VD_WHERE.COMPOSER;
   const name=armed?tl('{word} 확정 — 한 번 더 누르면 저장합니다',{word:c.label}):tl('{word} 판정으로 저장 — {target}',{word:c.label,target});
@@ -198,7 +200,7 @@ function vdButton(c,where,page,target,off,kn,quiet){const armed=vdArmedHere(c.ke
   let tip=armed?name:fig?tl('누르면 메모와 함께 이 그림 전체({target})의 {word} 판정 핀으로 바로 저장합니다',{word:c.label,target}):where===VD_WHERE.COMPOSER?tl('누르면 지금 선택과 메모를 {word} 판정 핀으로 바로 저장합니다',{word:c.label}):tr('누르면 이 쪽에 새 판정 핀을 저장합니다');
   if(kn)tip+=' · '+tl(c.confirm?'단축키 {key} (두 번)':'단축키 {key}',{key:kn});
   return html`<button type="button" class="vd-b hit${c.confirm?' vd-confirm':''}${armed?' armed':''}" translate="no" data-act="${where===VD_WHERE.COMPOSER?'verdict-save':'pv-save'}" \
-data-key="${c.key}" data-page="${page}" aria-label="${name}"${quiet?'':html` data-tip="${tip}"`}${kn?html` data-kn="${kn}" aria-keyshortcuts="${kn}"`:''}${off?line?html` aria-disabled="true"`:html` disabled`:''}>\
+data-key="${c.key}" data-page="${page}" aria-label="${name}"${quiet||(armed&&line)?'':html` data-tip="${tip}"`}${kn?html` data-kn="${kn}" aria-keyshortcuts="${kn}"`:''}${off?line?html` aria-disabled="true"`:html` disabled`:''}>\
 <span class="lbl">${armed?tl('{word} 확정',{word:c.label}):c.label}</span></button>`;}
 // Gives the focus back to the button it was on after a redraw (an armed press redraws its buttons).
 /** @param {HTMLElement|null} f */
@@ -215,6 +217,7 @@ function vdRefocus(f){if(!f||document.contains(f)||!f.dataset||!f.dataset.act)re
 function verdictPress(b,how){const key=b.dataset.key||'',where=vdWhereOf(b),page=Number(b.dataset.page)||0,v=docVerdicts(),c=v&&v.choices.find(x=>x.key===key);
   if(!c||b.getAttribute('aria-disabled')==='true'||viewerBlocked())return;
   if(c.confirm&&!(vdArmedHere(key,where,page)&&VD_ARM&&vdArmStill(VD_ARM))){const f=/** @type {HTMLElement|null} */(document.activeElement);
+    if(where!==VD_WHERE.COMPOSER)hideTip();   // the armed word draws no description (vdButton): the box up now goes too
     armVerdict(key,where,page,c.label,how==='key'); vdRefocus(f&&f.closest&&f.closest('.vd-btns')?f:null); return;}
   disarmVerdict(false); hideTip();   // the box the press's focus armed: the save chip comes over the line (pvChipWatch)
   if(where!==VD_WHERE.COMPOSER){savePageVerdict(page,key,!!how); return;}
@@ -452,6 +455,14 @@ $('#doc').addEventListener('focusout',e=>{const f=/** @type {HTMLInputElement} *
 // (Another document closes the field through pvReasonSync - or drawPageVerdicts when it has no lines - whose leave saves
 // what was typed.)
 document.addEventListener('focusin',()=>pvStickSoon()); document.addEventListener('focusout',()=>pvStickSoon());
+// body.pv-typing while a text field in a page line has the focus (the reason): on a touch screen the keyboard is up, and the
+// line drops its figure's name, its save chip folds to [되돌리기] and the status line over the sheet steps aside
+// (components.css, responsive.css) - line, field, chip and sheet took the whole 55% the keyboard left on a foldable. That
+// line's row is measured again.
+function pvTypingSync(){const a=/** @type {HTMLElement|null} */(document.activeElement),l=a&&a.closest?/** @type {HTMLElement|null} */(a.closest('#doc .pv')):null;
+  const on=!!l&&typingNow(),b=document.body; if(b.classList.contains('pv-typing')===on)return; b.classList.toggle('pv-typing',on);
+  const r=l||/** @type {HTMLElement|null} */(document.querySelector('#doc .pv.reading')); if(r)pvFit([r]);}
+document.addEventListener('focusin',pvTypingSync); document.addEventListener('focusout',()=>setTimeout(pvTypingSync,0));
 // Saves word key as a verdict about page `page`'s whole target: a pick of the whole page on the build on screen, the body
 // pageVerdictBody makes of it, with no note, saved as a fix request for the agent. The composer's selection and draft stay as
 // they are. Every press makes a new pin (the same word twice is two pins - the agent runs one, D4 and D5). Saved: '#42 저장됨
@@ -600,20 +611,54 @@ function pvMorph(a,b){if(a.nodeType!==b.nodeType||a.nodeName!==b.nodeName||(a in
   [...a.attributes].forEach(x=>{if(!b.hasAttribute(x.name))a.removeAttribute(x.name);});
   [...b.attributes].forEach(x=>{if(a.getAttribute(x.name)!==x.value)a.setAttribute(x.name,x.value);});
   pvMorphKids(a,b);}
-// The width of each line: its own page's, never past what the PDF area shows - a zoomed page scrolls sideways under a
-// line that stays in view (sticky) and keeps its size; a page narrower than the widest has a line as narrow, under it. Then one rhythm for every page: when any page's line cannot hold its
-// words and its buttons on one row (a phone, a folded cover), every line puts its buttons on a row of their own, at its
-// start (#doc.pv-stack) - a short line beside a long one no longer keeps them at the end of its row. Measured only while the
-// pages are laid out (the changes view hides them).
-function sizePv(){const ir=pvInsetR(),room=innerW()-ir,doc=$('#doc'),lines=$$('#doc .pv');
-  $('#left').style.setProperty('--pv-inset-r',ir+'px'); PV_INSET_R=ir;
-  lines.forEach(e=>{const pg=document.getElementById('p'+e.dataset.page),w=pg?parseFloat(pg.style.width)||room:room; e.style.width=Math.round(Math.min(w,room))+'px';});
-  if(!lines.length||!lines[0].getClientRects().length){if(!lines.length)doc.classList.remove('pv-stack'); return;}
-  doc.classList.remove('pv-stack');
-  // The reading line's figure name (pv-fig) comes and goes as the reading page moves: it never decides the rhythm.
-  const wraps=lines.some(l=>{if(l.classList.contains('reading'))return false; const t=l.querySelector('.pv-t'),b=l.querySelector('.vd-btns');
-    return !!t&&!!b&&b.getBoundingClientRect().top>=t.getBoundingClientRect().bottom-1;});
-  doc.classList.toggle('pv-stack',wraps); lines.forEach(l=>vdWrapFit(l.querySelector('.vd-btns')));}
+// The width of each line and whether it is one row or stacked - per line. A line is its own page's width, never past what the
+// PDF area shows; a page narrower than the widest has a line as narrow, under it. Where the pages are fitted (no sideways
+// scroll) a line also ends before what lies over the area's right side (pvInsetR: an overlay panel, the closed panel's
+// status box) and still starts where its page does: centred with the room cut on one side, the sticky line was pushed past
+// the page's left edge (1280 x 800 with the panel closed: 36px). A zoomed page's line keeps the room the area shows and
+// stays in view as the page scrolls sideways (sticky). Then each line on its own (pvFit). Measured only while the pages are
+// laid out (the changes view hides them); read and written in batches.
+const PV_MIN_W=320;   // a cut line narrower than this keeps its page's width and lets the sticky edge push it instead
+function sizePv(){const ir=pvInsetR(),L=$('#left'),lines=$$('#doc .pv');
+  L.style.setProperty('--pv-inset-r',ir+'px'); PV_INSET_R=ir; $('#doc').classList.remove('pv-stack');
+  if(!lines.length||!lines[0].getClientRects().length)return;
+  const room=innerW()-ir,lr=L.getBoundingClientRect(),fitted=L.scrollWidth<=L.clientWidth+1;
+  const end=lr.left+L.clientLeft+L.clientWidth-parseFloat(getComputedStyle(L).paddingRight)-ir;   // the room's right edge on screen
+  const at=lines.map(e=>{const pg=document.getElementById('p'+e.dataset.page),blk=e.parentElement; if(!pg||!blk)return null;
+    const p=pg.getBoundingClientRect(); return {w:parseFloat(pg.style.width)||p.width,left:p.left,off:p.left-blk.getBoundingClientRect().left};});
+  lines.forEach((e,i)=>{const a=at[i]; let w=a?Math.min(a.w,room):room,ml='';
+    if(a&&fitted&&end-a.left<w&&end-a.left>=PV_MIN_W){w=end-a.left; ml=Math.round(a.off)+'px';}
+    e.style.width=Math.round(w)+'px'; e.style.marginLeft=ml;});
+  pvFit(lines);}
+// One row or stacked, decided per line (.pv-stack; P2-7 of the 0.4.33 review: one line with an earlier verdict or a reason
+// stacked every line of the document, 88px over the plot at 1440). Each line is laid out as one row - the figure's name cut
+// first, to 10em, then the reason and the earlier link (components.css) - and stacks only when its state's own words,
+// [판정 취소] and its buttons still cannot share the row: the state runs past its share, or the buttons went to a row of
+// their own (a narrow page). On the wide band a line that does not fit first cuts the figure's name to 3em (.pv-tight,
+// '6쪽 · …'): a desktop keeps one row, a second row covered the plot. The figure's name is measured first (--pv-fig-w): a
+// name shorter than the cut keeps its own width. A row's save chip stands over the state, just left of the buttons, on
+// their middle and clear of the figure's name (--pv-btns-w, --pv-btns-mid, --pv-lead-w): it takes no room of its own, so it
+// never stacks a line for its 6 seconds. Read and written in batches.
+/** @param {HTMLElement[]} lines */
+function pvFit(lines){lines.forEach(l=>l.classList.remove('pv-stack','pv-tight'));
+  const figs=lines.map(l=>/** @type {HTMLElement|null} */(l.querySelector(':scope>.pv-fig'))),fw=figs.map(f=>f&&f.getClientRects().length?f.scrollWidth:0);
+  figs.forEach((f,i)=>{if(f&&fw[i])f.style.setProperty('--pv-fig-w',Math.ceil(fw[i])+'px');});
+  // Whether line l's row does not hold: the state runs past its share, or the buttons went to a row of their own.
+  const tight=(/** @type {HTMLElement} */l)=>{const t=l.querySelector(':scope>.pv-t'),g=l.querySelector(':scope>.vd-btns'); if(!t)return false;
+    const tr=t.getBoundingClientRect(); return [...t.children].some(c=>c.getClientRects().length>0&&c.getBoundingClientRect().right>tr.right+1)
+      ||(!!g&&g.getClientRects().length>0&&g.getBoundingClientRect().top>=tr.bottom-1);};
+  let over=lines.map(tight);
+  if(LAYOUT===LAYOUT_MODE.WIDE&&over.some((o,i)=>o&&!!figs[i]&&fw[i]>0)){
+    lines.forEach((l,i)=>{if(over[i]&&figs[i]&&fw[i])l.classList.add('pv-tight');});
+    over=lines.map((l,i)=>over[i]&&tight(l));}
+  lines.forEach((l,i)=>{if(over[i])l.classList.add('pv-stack');});
+  const got=lines.map((l,i)=>{const t=l.querySelector(':scope>.pv-t'),g=l.querySelector(':scope>.vd-btns'),f=figs[i]; if(!t)return {bw:0,mid:0,lead:0};
+    const lr=l.getBoundingClientRect(),gr=g&&g.getClientRects().length?g.getBoundingClientRect():null;
+    return {bw:gr?Math.ceil(gr.width):0,mid:gr?Math.round(gr.top+gr.height/2-lr.top):0,lead:f&&f.getClientRects().length?Math.round(t.getBoundingClientRect().left-lr.left):0};});
+  lines.forEach((l,i)=>{const g=got[i]; l.style.setProperty('--pv-btns-w',g.bw+'px'); l.style.setProperty('--pv-btns-mid',g.mid+'px'); l.style.setProperty('--pv-lead-w',g.lead+'px');});
+  // A word group that wraps keeps every button at its own width (vdWrapFit), read for every line before any is written.
+  const groups=lines.map(l=>l.querySelector('.vd-btns')),wrap=groups.map(g=>!!g&&new Set([...g.children].map(b=>Math.round(b.getBoundingClientRect().top))).size>1);
+  groups.forEach((g,i)=>{if(g)g.classList.toggle('wrapped',wrap[i]);});}
 // No description box over a line's save chip (#295). The chip ('#42 저장됨 · 채택 [되돌리기]') stands at the line's end above it,
 // where a word's box stands too: the press's own focus armed the box again (tooltip.js armTip), and a resting hand's
 // slight move brought it back after anything had hidden it. While a chip is on a line (drawChips puts it there, its
@@ -678,7 +723,9 @@ function pvStick(){const lines=$$('#doc .pv'); if(!lines.length)return; const L=
   // A key's armed confirm word belongs to the page it was read on: another reading page lets it go.
   if(VD_ARM&&VD_ARM.kbd&&VD_ARM.where===VD_WHERE.PAGE&&VD_ARM.page!==r)disarmVerdict(false,true);
   if(r!==PV_READ||k!==PV_KEYS){const was=[PV_READ,PV_KEYS]; PV_READ=r; PV_KEYS=k; const map=pageVerdictPins(),v=pageVerdictsOn();
-    if(v)new Set([...was,r,k]).forEach(n=>{const e=/** @type {HTMLElement|null} */(n?document.querySelector('#doc .pv[data-page="'+n+'"]'):null); if(e)fillPv(e,n,map.get(n),v);});}
+    const re=/** @type {HTMLElement[]} */([]);
+    if(v)new Set([...was,r,k]).forEach(n=>{const e=/** @type {HTMLElement|null} */(n?document.querySelector('#doc .pv[data-page="'+n+'"]'):null); if(e){fillPv(e,n,map.get(n),v); re.push(e);}});
+    if(re.length)pvFit(re);}   // the reading line names its figure: its row is measured again
   lines.forEach(l=>{const pg=/** @type {HTMLElement|null} */(l.previousElementSibling); if(!pg)return; const b=l.getBoundingClientRect();
     const stuck=l.classList.contains('reading')&&b.bottom>lr.top&&b.top<lr.bottom&&b.top<pg.getBoundingClientRect().bottom+4;   // in its own place it stands 8px under the page
     l.classList.toggle('stuck',stuck); pvLean(l,pg,b,stuck,L,lr);});}

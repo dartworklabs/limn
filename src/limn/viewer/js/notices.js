@@ -338,11 +338,13 @@ function drawChips(){NOTICES.forEach(n=>{if(n.place!==NOTICE_PLACE.CHIP)return;
   const f=noticeFocus(),e=noticeEl(n,'nt-chip'); if(e.parentNode!==k)k.appendChild(e); e.style.left=''; e.style.right=''; e.style.maxWidth='';
   chipInRoom(e,k); noticeRefocus(f);});
   chipsClearOfBar();}
-// Keeps a chip where it can be pressed: inside its page (a page verdict line's chip, inside its line), inside what the PDF area
-// shows, and clear of a panel laid over the PDF area (the unfolded foldable's overlay panel while composing). Where the room
-// is narrower than the chip its words give way (ellipsis, .nt-t) - never its [되돌리기] - then it moves left until it fits.
+// Keeps a chip where it can be pressed: inside its page, inside what the PDF area shows, and clear of a panel laid over the
+// PDF area (the unfolded foldable's overlay panel while composing). Where the room is narrower than the chip its words give
+// way (ellipsis, .nt-t) - never its [되돌리기] - then it moves left until it fits. A page verdict line's chip stands in the
+// line's row (notices.css), which already keeps out of all of that (sizePv): nothing to move.
 /** @param {HTMLElement} e @param {HTMLElement} k */
-function chipInRoom(e,k){const L=$('#left'),R=$('#right'),box=(k.closest('.pg')||k).getBoundingClientRect(),lr=L.getBoundingClientRect();
+function chipInRoom(e,k){if(k.classList.contains('pv'))return;
+  const L=$('#left'),R=$('#right'),box=(k.closest('.pg')||k).getBoundingClientRect(),lr=L.getBoundingClientRect();
   let right=Math.min(box.right,lr.left+L.clientWidth)-4; const left=Math.max(box.left,lr.left)+4,cr0=e.getBoundingClientRect();
   // A panel beside or over the PDF area - a column down its right side, not a bottom sheet (which starts at its left) -
   // bounds the chip at every height: the chip may be scrolled up beside it after it is drawn.

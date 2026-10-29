@@ -26,7 +26,7 @@ body.band-phone{--sel-area:max(4px,env(safe-area-inset-top))}
 body.revision-open #sel-mode{display:none}
 body.lay-wide #sel-mode{top:var(--strip-h)}
 body.lay-narrow #sel-mode{bottom:var(--sheet-h,0px)}
-body.lay-narrow.has-status:not(.typing) #sel-mode{bottom:calc(var(--sheet-h,0px) + 24px)}
+body.lay-narrow.has-status:not(.typing,.pv-typing) #sel-mode{bottom:calc(var(--sheet-h,0px) + 24px)}
 body.mid-overlay.side-open #sel-mode{right:calc(var(--side-w,330px) + 8px)}
 body.selmode #sel-mode{box-shadow:inset 0 0 0 2px var(--primary)}
 #sel-bar{display:none;position:absolute;top:var(--space-2);left:var(--edge);right:var(--edge);width:fit-content;margin:0 auto;padding:var(--space-1);
@@ -399,10 +399,12 @@ body.compact .pin .sum{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orie
   margin:0 0 var(--space-1);color:var(--muted-foreground);font-size:var(--text-base);line-height:round(down,1.5em,1px);cursor:pointer}
 /* ^ a whole pixel per line (19px, not 19.5): a folded card is then a whole number of pixels tall, so every head row stands on
    whole pixels - at 19.5 every other card stood half a pixel off, where icons (drawn at whole pixels) sat 0.5px under their row's words */
-/* A superseded verdict's preview is its two badges ('판정 보류' '이전 판정 · #4로 대체됨', cards.js), with no text to clamp: a
-   wrapping row that does not clip, so the '#4' link answers its 44px (.hit). The open and editing rules below still hide it. */
+/* A verdict's preview leads with its badge and its figure ('판정 채택' '[후보] PL26 · …', cards.js) - a superseded one's with
+   '이전 판정 · #4로 대체됨' too - and its reason under them, one line: a wrapping row that does not clip, so the '#4' link
+   answers its 44px (.hit). The open and editing rules below still hide it. */
 body.compact .pin .sum.sum-vd{display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-1);overflow:visible}
 body.compact .pin .sum-vd .sum-has{font-size:var(--text-xs)}   /* '메모 있음': words, not a colour - the note shows when opened */
+body.compact .pin .sum-vd .sum-note{flex:1 1 100%;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}   /* a verdict's reason under its badge and figure: one line */
 body.compact .pin .head{flex-wrap:nowrap;margin:-6px 0}
 /* On touch the head is the 32px row it draws - a 44px control less the 12px it shares with the card's padding and the preview -
    and its 44px controls, centred in it, reach over and under it themselves (the overlap sat on the row as a margin, whose box
@@ -626,10 +628,10 @@ body.band-tablet-sheet #right>*{width:100%;max-width:640px;margin-left:auto;marg
    edge. It is outside the sheet because the sheet is a scroll box that clips what reaches past it: the action is drawn at 24px
    and its 44px hit reaches 20px up over the PDF, never down into the bar's hits. It steps aside while a panel field has focus. */
 #status-dock,#status-slot{display:none}
-body.lay-narrow.has-status:not(.typing) #status-dock{display:block;position:fixed;left:0;right:0;bottom:calc(var(--sheet-h,0px) + var(--kb,0px));z-index:21;
+body.lay-narrow.has-status:not(.typing,.pv-typing) #status-dock{display:block;position:fixed;left:0;right:0;bottom:calc(var(--sheet-h,0px) + var(--kb,0px));z-index:21;
   height:24px;padding:0 max(var(--edge),env(safe-area-inset-right)) 0 max(var(--edge),env(safe-area-inset-left));background:var(--sidebar);
   border-top:1px solid var(--border-strong);border-radius:var(--radius-lg) var(--radius-lg) 0 0;box-shadow:0 -6px 24px var(--shadow-color);clip-path:inset(-40px -40px 0 -40px)}
-body.lay-narrow.has-status:not(.typing) #right{border-top-color:transparent;border-radius:0}
+body.lay-narrow.has-status:not(.typing,.pv-typing) #right{border-top-color:transparent;border-radius:0}
 #status{display:flex;align-items:center;gap:var(--space-2);min-width:0;font-size:var(--text-sm);line-height:1.4;color:var(--muted-foreground);white-space:nowrap}
 #status-dock #status{height:100%;max-width:calc(640px - 2 * var(--edge));margin:0 auto;padding-left:var(--space-3)}   /* the bar's cells: the 640 column less its edges */
 #status .st-body{display:contents}   /* drawn again whenever the item changes; the spoken label (.st-sr) beside it stays */

@@ -33,10 +33,14 @@ function card(p){p=pvQuietRel(p);   // no overlap badge between two verdicts abo
   // Collapsed card's (compact) note preview: up to two lines on its own line below the header. It used to only get the
   // leftover width after the number/location inside the header's single line, clipping to '[C...', and an awaiting-review
   // card's prefixed '내 확인 차례 · ' ate even more of that width (QA 2026-09-24). Review status is conveyed by the dot color.
-  // A superseded verdict says so folded too: its preview is its badge and '이전 판정 · #4로 대체됨', then '메모 있음' when it has
-  // a note (shown when opened) - a row that does not clip, so the '#4' link answers its whole touch area (.sum-vd, responsive.css).
-  const vo=verdictOldMarker(p),vt=verdictTarget(p),hasNote=vo&&p.note?html`<span class="sum-has">${tr('메모 있음')}</span>`:'';
-  const sum=html`<div class="sum${vo?' sum-vd':''}" translate="no" data-act="card-toggle">${vo||vOnly?html`${verdictBadge(p)}${vo}${vt}${hasNote}`:first?fmtText(first,p.mentions):noNote}</div>`;
+  // A verdict pin's preview always leads with what it is: its badge ('판정 채택') and the figure it is about - a reason in its note
+  // took the whole preview, and the folded card no longer said which verdict or which figure (P2-9 of the 0.4.33 review). The
+  // reason follows on a line of its own, cut to one line (.sum-note). A superseded verdict says so folded too: its badge,
+  // '이전 판정 · #4로 대체됨', then '메모 있음' when it has a note (shown when opened). A row that does not clip, so the '#4'
+  // link answers its whole touch area (.sum-vd, responsive.css).
+  const vo=verdictOldMarker(p),vt=verdictTarget(p),vk=!!verdictOf(p),hasNote=vo&&p.note?html`<span class="sum-has">${tr('메모 있음')}</span>`:'';
+  const why=vk&&!vo&&!vOnly&&first?html`<span class="sum-note">${fmtText(first,p.mentions)}</span>`:'';
+  const sum=html`<div class="sum${vk?' sum-vd':''}" translate="no" data-act="card-toggle">${vk?html`${verdictBadge(p)}${vo}${vt}${hasNote}${why}`:first?fmtText(first,p.mentions):noNote}</div>`;
   if(isRegion(p)){const fb=figRegionBadge(p.el,isFigureKind((docInfo(pdoc(p))||{}).kind));   // a figure region: element without code, or map unreadable
     tags.unshift(fb?html`<span class="badge" data-tip="${fb.tip}">${fb.t}</span>`:html`<span class="badge" data-tip="보기 전용 PDF의 핀 — 줄 번호 없이 쪽·영역과 영역 글자로 가리킵니다">보기 전용</span>`);}
   if(isQuestion(p))tags.unshift(html`<span class="badge badge-question" data-tip="${T.question}">${ic('circle-question-mark')}질문</span>`);

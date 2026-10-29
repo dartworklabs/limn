@@ -59,10 +59,16 @@
 :is(.mark,.pv)>.nt-chip .nt-t{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 @media (pointer:coarse){.mark>.nt-chip{height:var(--ctl-touch);padding:0 var(--space-1) 0 var(--space-3)}
   .mark>.nt-chip .nt-acts button{height:calc(var(--ctl-touch) - 2 * var(--space-1))}}
-/* A page verdict's save (verdict.js): the same chip over its line's right end, as over a mark. */
-.pv>.nt-chip{position:absolute;right:0;bottom:calc(100% + var(--space-1));z-index:4;box-sizing:border-box;height:calc(var(--control-h-sm) + 2 * var(--space-1));
-  width:max-content;max-width:min(320px,80vw);padding:0 var(--space-1) 0 var(--space-2);gap:var(--space-1);border-radius:var(--radius-lg);background:var(--popover);
+/* A page verdict's save (verdict.js): the same chip inside its line - over the line it lay on the figure's name and on the
+   plot above. On a row it stands over the state's end, just left of the words, on their middle and clear of the figure's
+   name (verdict.js pvFit measures --pv-btns-w, --pv-btns-mid and --pv-lead-w), so it moves nothing for its 6 seconds; on a
+   stacked line it ends the buttons' row (or takes the next one). Its words give way before [되돌리기]. */
+.pv>.nt-chip{flex:0 1 auto;min-width:0;box-sizing:border-box;height:calc(var(--control-h-sm) + 2 * var(--space-1));
+  width:max-content;max-width:min(320px,100%);padding:0 var(--space-1) 0 var(--space-2);gap:var(--space-1);border-radius:var(--radius-lg);background:var(--popover);
   color:var(--popover-foreground);border:1px solid color-mix(in srgb,var(--success) 45%,var(--border));box-shadow:var(--shadow-sm);font-size:var(--text-sm);line-height:16px;white-space:nowrap}
+.pv:not(.pv-stack)>.nt-chip{position:absolute;top:var(--pv-btns-mid,50%);right:calc(var(--pv-btns-w,0px) + var(--space-2));z-index:1;transform:translateY(-50%);
+  max-width:min(320px,calc(100% - var(--pv-btns-w,0px) - var(--space-2) - var(--pv-lead-w,0px)))}
+.pv.pv-stack>.nt-chip{order:3;margin-left:auto}
 .pv>.nt-chip .nt-ic{height:16px}
 .pv>.nt-chip .nt-ti{font-weight:600}
 @media (pointer:coarse){.pv>.nt-chip{height:var(--ctl-touch);padding:0 var(--space-1) 0 var(--space-3)}

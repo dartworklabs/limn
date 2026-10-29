@@ -142,13 +142,15 @@ pre.nowrap{white-space:pre}
    line, which the keys act on) is sticky to the PDF area's bottom within its block: it floats there while its own place is
    below the area and settles 8px under the page at its end; every other line stays in its place. A sticky box keeps clear
    of its scroller's padding, and the PDF area's end padding (60vh, room to scroll the last page up) is no part of what
-   shows: --pv-pad-b, measured by pvStick, takes it back. --pv-inset is what covers the PDF area's bottom (the phone's sheet
-   bar and the status line over it); the line floats --pv-gap above it. Above the page's marks, under a save chip on a mark
-   (z-index 4) and every panel, sheet and bar; --pv-inset-r keeps it left of a panel laid over the area (sizePv makes it
-   no wider than that room). */
+   shows: --pv-pad-b, measured by pvStick, takes it back. --pv-inset is what covers the PDF area's bottom (the sheet's bar or
+   the open sheet, and the status line over it); the line floats --pv-gap above it. Above the page's marks, under a save
+   chip on a mark (z-index 4) and every panel, sheet and bar; --pv-inset-r keeps it left of what lies over the area's right
+   side - a panel laid over it, the closed panel's status box (sizePv makes it no wider than the room right of its page's
+   left edge, so it starts where its page does). A mouse's words, [판정 취소] and the '#N' link answer 32px (--pv-ctl,
+   --control-h-md) and stand 8px apart, so the row is 32px and never a target row of 24-28px. */
 .pv{position:sticky;left:0;right:var(--pv-inset-r,0px);z-index:3;display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-1) var(--space-2);
-  margin:calc(-1 * var(--space-2)) auto var(--space-4);min-height:var(--control-h);font-size:var(--text-sm);color:var(--muted-foreground);user-select:none;
-  --pv-ring:var(--space-2);--pv-gap:var(--space-2);--pv-blur:8px}
+  margin:calc(-1 * var(--space-2)) auto var(--space-4);min-height:var(--pv-ctl);font-size:var(--text-sm);color:var(--muted-foreground);user-select:none;
+  --pv-ctl:var(--control-h-md);--pv-ring:var(--space-2);--pv-gap:var(--space-2);--pv-blur:8px}
 .pv.reading{bottom:calc(var(--pv-inset,0px) + var(--pv-gap) - var(--pv-pad-b,0px))}
 /* Floating over its page (.stuck, verdict.js pvStick): the PDF area's own background carried --pv-ring past the line on every
    side by a spread shadow (the line's box and the place of its words do not move), a 1px separator on its top edge (the
@@ -158,12 +160,32 @@ pre.nowrap{white-space:pre}
 .pv.stuck{background:var(--background);box-shadow:0 0 0 var(--pv-ring) var(--background),0 -1px 0 var(--pv-ring) var(--border-strong),0 -2px var(--pv-blur) var(--pv-ring) var(--shadow-color)}
 body.compact .pv{--pv-ring:var(--space-1);--pv-gap:var(--space-1);--pv-blur:4px}
 /* Not floating while a selection is being written - the composer has its own verdict row, and on a phone or a foldable the
-   line would sit on the selection or the sheet - nor over an open phone or tablet sheet. */
-body:is(.composing,.lay-narrow.side-open) .pv.reading{bottom:auto}
+   line would sit on the selection or the sheet - nor over a phone's open sheet, which leaves too little of the page. Over a
+   larger touch screen's open sheet (the folded-open foldable in portrait, a tablet) it floats on the sheet's top edge: the
+   sheet covers the lower half, and a line under it could not be pressed at all. */
+body:is(.composing,.band-phone.lay-narrow.side-open) .pv.reading{bottom:auto}
 /* Measured from the PDF area's own bottom: where the keyboard is measured (--kb, a browser that does not resize the layout
-   for it) the page's height already gives it up, and the sheet and the bars ride on it - adding --kb here counted it twice. */
+   for it) the page's height already gives it up, and the sheet and the bars ride on it - adding --kb here counted it twice.
+   --sheet-h is the sheet's height, folded to its bar or open (status.js). */
 body.lay-narrow{--pv-inset:var(--sheet-h,0px)}
-body.lay-narrow.has-status:not(.typing){--pv-inset:calc(var(--sheet-h,0px) + 24px)}
+body.lay-narrow.has-status:not(.typing,.pv-typing){--pv-inset:calc(var(--sheet-h,0px) + 24px)}
+/* One row or stacked, decided per line (sizePv sets .pv-stack on a line whose words and buttons cannot share one row). A
+   row (most lines, and every line on a wide screen) keeps its buttons on the row's end and gives way from the start: the
+   figure's name (.pv-fig) is cut first - to 10em ('7쪽 · [후보] PL18 · …'; --pv-fig-w, its whole width, set by pvFit, keeps a
+   shorter name from standing wider) - and grows last; then the reason (.pv-note) and the earlier verdicts' link (.pv-early)
+   shrink, cut to fit; the state's own words, [판정 취소] and the buttons never do. The failure line and the reason field
+   are rows of their own under it (a save chip's place: notices.css). What
+   gives way is clipped across only (overflow-x: clip): the '#N' link's and the earlier link's areas reach over and under. */
+.pv:not(.pv-stack)>.pv-fig{flex:1 1 0;min-width:min(10em,var(--pv-fig-w,10em));max-width:max-content}
+.pv.pv-tight:not(.pv-stack)>.pv-fig{min-width:min(3em,var(--pv-fig-w,3em))}   /* the wide band's last cut before a second row (pvFit) */
+.pv:not(.pv-stack)>.pv-t{flex:1000 1 0;min-width:0;max-width:max-content;flex-wrap:nowrap;overflow-x:clip;overflow-y:visible}
+.pv:not(.pv-stack)>.pv-t>*{flex:none;white-space:nowrap}
+.pv:not(.pv-stack)>.pv-t>.pv-note{flex:0 100 auto;min-width:3em;max-width:none}
+.pv:not(.pv-stack)>.pv-t>.pv-early{flex:0 10 auto;min-width:5em;overflow-x:clip;overflow-y:visible;text-overflow:ellipsis}
+.pv:not(.pv-stack)>.pv-t{margin-right:auto}
+.pv:not(.pv-stack)>.vd-btns{flex:none}
+.pv>.vd-btns{order:2}
+.pv>:is(.pv-err,.pv-reason){order:4}
 /* The floating line names the figure its words decide ('7쪽 · [후보] PL18 · …', verdict.js pvLineHtml), cut to fit, before
    its state; and a verdict's reason (its note's first line) ends the state, cut to fit too. */
 .pv .pv-fig{flex:0 1 auto;min-width:0;max-width:min(45%,28em);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--foreground);font-weight:600}
@@ -172,13 +194,18 @@ body.lay-narrow.has-status:not(.typing){--pv-inset:calc(var(--sheet-h,0px) + 24p
    inside the line that is not. */
 .pv .pv-reason{flex:1 1 100%;min-width:0;height:var(--control-h);padding-block:0;font-size:var(--text-sm);user-select:text;-webkit-user-select:text}
 @media (pointer:coarse){.pv .pv-reason{height:var(--hit);font-size:var(--text-xl)}}   /* 16px: a phone does not zoom into it */
-/* Where the buttons stand on a row of their own (#doc.pv-stack: a phone, a folded cover), the figure's name does too, close
+/* Where the buttons stand on a row of their own (.pv-stack: a phone, a folded cover), the figure's name does too, close
    over the state (4px; the touch rows' 20px is for the '#N' link's 44px hit and the buttons under it), and the reason field
    8px under the buttons - the floating line is as short as its 44px targets allow. */
-#doc.pv-stack .pv .pv-fig{flex-basis:100%;max-width:100%}
-#doc.pv-stack .pv .pv-fig-sep{display:none}
-@media (pointer:coarse){#doc.pv-stack .pv .pv-fig{margin-bottom:calc(var(--space-1) - var(--space-5))}
-  #doc.pv-stack .pv .pv-reason{margin-top:calc(var(--space-2) - var(--space-5))}}
+.pv.pv-stack .pv-fig{flex-basis:100%;max-width:100%}
+.pv.pv-stack .pv-fig-sep{display:none}
+@media (pointer:coarse){.pv.pv-stack .pv-fig{margin-bottom:calc(var(--space-1) - var(--space-5))}
+  .pv.pv-stack .pv-reason{margin-top:calc(var(--space-2) - var(--space-5))}}
+/* While the reason is typed on a touch screen (body.pv-typing: a text field in a page line has the focus, verdict.js) the
+   keyboard leaves little of the page: the line drops its figure's name and its save chip folds to its [되돌리기] - and the
+   status line over the sheet steps aside as it does for a panel field (responsive.css) - so the plot keeps what is left. */
+@media (pointer:coarse){body.pv-typing .pv.reading>:is(.pv-fig,.pv-fig-sep){display:none}
+  body.pv-typing .pv>.nt-chip :is(.nt-ic,.nt-t){display:none}}
 /* The key a word answers on the line the keys act on (data-kn, verdict.js): after the word in the button's own colour, set off
    by weight and size as a button's shortcut is (.kh); a mouse screen only. */
 @media (hover:hover) and (pointer:fine){.pv .vd-b[data-kn]::after{content:attr(data-kn);margin-left:var(--space-1);font-weight:400;font-size:var(--text-xs)}}
@@ -191,6 +218,22 @@ body.lay-narrow.has-status:not(.typing){--pv-inset:calc(var(--sheet-h,0px) + 24p
 .pv .vd-w{color:var(--foreground);font-weight:600}
 .pv .pv-st{color:var(--foreground)}
 .pv .vd-btns{flex:0 1 auto}
+/* The line's words: 8px apart; a mouse's are --pv-ctl tall. Their outline is drawn at 3:1 and more against the button's
+   fill and the line's ground in both themes (--pv-edge: 55% of the text colour; the --input border read 1.5:1 on white). A
+   confirm word (삭제) stands apart from the others - 16px and a divider in the middle of the gap - so a press meant for its
+   neighbour never lands on it, and on touch their 44px areas never meet. */
+.pv .vd-btns{gap:var(--space-2);--pv-edge:color-mix(in srgb,var(--foreground) 55%,transparent)}
+.pv .vd-b{position:relative;border-color:var(--pv-edge)}
+.pv .vd-b.vd-confirm{border-color:color-mix(in srgb,var(--destructive) 70%,var(--pv-edge))}
+.pv .vd-b.vd-confirm.armed{border-color:var(--destructive)}
+.pv .vd-b.vd-confirm:not(:first-child){margin-left:var(--space-2)}
+.pv .vd-b.vd-confirm:not(:first-child)::before{content:'';position:absolute;top:var(--space-1);bottom:var(--space-1);left:calc(-1 * var(--space-2) - 1px);width:1px;background:var(--border-strong);pointer-events:none}
+@media not all and (pointer:coarse){.pv .vd-btns button{height:var(--pv-ctl);min-height:var(--pv-ctl)}}
+/* The '#N' link and the text actions answer --pv-ctl with a mouse, as the words do: a 14px link and a 24px [판정 취소] were
+   hard to hit on a floating line. The link's area is its ::after (no box of its own: it is a word in the state). */
+@media not all and (pointer:coarse){.pv .pv-ref{position:relative}
+  .pv .pv-ref::after{content:'';position:absolute;left:50%;top:50%;width:max(100%,var(--pv-ctl));height:var(--pv-ctl);transform:translate(-50%,-50%)}
+  .pv button:is(.pv-cancel,.pv-early){min-height:var(--pv-ctl)}}
 /* The earlier verdicts' link: the viewer's link look - primary text, no underline at rest, a solid one on hover and
    :focus-visible (cards.css §One unified link style). */
 .pv button.pv-early{color:var(--primary);padding-inline:var(--space-1);text-decoration:none;text-underline-offset:3px}
@@ -204,11 +247,12 @@ body.lay-narrow.has-status:not(.typing){--pv-inset:calc(var(--sheet-h,0px) + 24p
 .pv button.pv-cancel:focus-visible{background:transparent;text-decoration:underline}
 @media (hover:hover){.pv button.pv-cancel:hover{background:transparent;color:var(--pv-cancel-fg);text-decoration:underline}}
 body.band-phone .pv.pv-lean .pv-cn{display:none}
-/* When any page's line cannot hold its words and buttons on one row, every line puts the buttons on a row of their own, at
-   its start (sizePv sets #doc.pv-stack) - one rhythm on every page. */
-#doc.pv-stack .pv .vd-btns{flex-basis:100%}
+/* A stacked line puts its state on a row of its own and its buttons on the next, at its start, filling the row - or sharing
+   it with a save chip at its end (notices.css). */
+.pv.pv-stack>.pv-t{flex-basis:100%}
+.pv.pv-stack>.vd-btns{flex:1 1 auto}
 /* On touch the words' row and the buttons' row stand 20px apart, and the earlier link wrapped under the words 16px, so
    the '#N' link (.hit) and the targets under it each answer a whole 44px - 4px (0px) apart the buttons (the earlier link)
    took the lower 13px of the link's. */
-@media (pointer:coarse){#doc.pv-stack .pv{row-gap:var(--space-5)} .pv .pv-t{row-gap:var(--space-4)}}
+@media (pointer:coarse){.pv.pv-stack{row-gap:var(--space-5)} .pv .pv-t{row-gap:var(--space-4)}}
 .pv.flash{animation:pinflash 1.2s ease-in-out 1}
