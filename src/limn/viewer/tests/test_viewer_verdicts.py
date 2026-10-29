@@ -4246,8 +4246,10 @@ class ReasonDrafts(VerdictBase):
         self.assertEqual(self.pins()[pid]["note"], "")
 
     def test_a_reload_asks_first_and_brings_the_draft_back(self):
-        """A draft typed, then a reload: the browser asks first (beforeunload); after it the line's popover holds the
-        draft, marked '저장 안 됨', and Enter saves it."""
+        """A draft typed, then a reload: the browser asks first (beforeunload); after it no popover opens by itself (one
+        restored far from the reading page opened out of sight) - the line marks the draft '초안 있음' and the status line
+        says so with [보기], which puts the focus on that mark; Enter there opens the popover with the draft, marked
+        '저장 안 됨', and Enter saves it."""
         page = self.on("fig")
         dialogs = []
         page.on("dialog", lambda d: (dialogs.append(d.type), d.accept()))
@@ -4256,10 +4258,16 @@ class ReasonDrafts(VerdictBase):
         page.wait_for_function(booted(1), timeout=20000)
         self.back_to_fig(page)
         self.assertEqual(dialogs, ["beforeunload"])
+        self.assertIsNone(page.evaluate(POP, 1))
+        self.assertTrue(
+            page.evaluate("()=>LINE.some(n=>n.title==='저장 안 된 이유 초안 1건 · 줄의 [초안 있음]이 엽니다')")
+        )
+        page.locator("#status [data-act=notice-act]").filter(has_text="보기").click()
+        page.wait_for_function("()=>document.activeElement&&document.activeElement.classList.contains('pv-draft')")
+        page.keyboard.press("Enter")
+        page.wait_for_selector('#doc .pv[data-page="1"] .pv-pop .pv-reason')
         got = page.evaluate(POP, 1)
-        self.assertEqual(got["value"], "새로 읽어도 남는 이유")
-        self.assertEqual(got["state"], "저장 안 됨")
-        page.click('#doc .pv[data-page="1"] .pv-reason')
+        self.assertEqual((got["value"], got["state"], got["focused"]), ("새로 읽어도 남는 이유", "저장 안 됨", True))
         page.keyboard.press("Enter")
         page.wait_for_function("id=>OPEN_ALL.some(p=>p.id===id&&p.note)", arg=pid)
         settle(page)
@@ -5016,8 +5024,8 @@ class RcFixes(VerdictBase):
         settle(page)
         self.assertIsNone(page.evaluate(POP, 1))
         self.assertEqual(page.locator('#doc .pv[data-page="1"] button.pv-draft').inner_text(), "초안 있음")
-        self.assertIn(
-            "저장 안 된 이유 초안 1건을 되살렸습니다", page.evaluate("document.querySelector('#sr-news').textContent")
+        self.assertTrue(
+            page.evaluate("()=>LINE.some(n=>n.title==='저장 안 된 이유 초안 1건 · 줄의 [초안 있음]이 엽니다')")
         )
         page.evaluate("setK(PT_PX*1.5,false); ZOOMED=true")
         page.evaluate(SCROLL, [2, "top"])
@@ -5251,3 +5259,314 @@ class RcFixes(VerdictBase):
             "id=>{const a=document.activeElement; return !!a&&!!a.closest&&!!a.closest('.pin[data-id=\"'+id+'\"]');}",
             arg=a,
         )
+
+
+# The network's latency: every request the page makes to /api/ waits `ms` before it goes (the fast typist's 150ms server).
+SLOW_API = """ms=>{const f=window.fetch; window.fetch=function(u,o){const p=typeof u==='string'?u:u.url;
+  if(/\\/api\\//.test(p))return new Promise(r=>setTimeout(r,ms)).then(()=>f.call(this,u,o)); return f.call(this,u,o);};}"""
+
+
+class RcRound2(VerdictBase):
+    """The RC's second test round: a fast typist's key and Enter while the save is out, focus left on a page scrolled out
+    of view, Tab from the pages after a press, a key take-back's focus, Shift+Tab around the popover, no description
+    while writing, and a retried reason's failure that goes."""
+
+    def setUp(self):
+        super().setUp()
+        self.swallow: set = set()  # request kinds ('edit') whose next answer is lost after the server wrote
+        self.held_edit: list | None = None  # POST /api/pins/N/edit held unanswered while not None
+
+    def route(self, route):
+        rq = route.request
+        path = urlparse(rq.url).path
+        if rq.method == "POST" and path.endswith("/edit") and "edit" in self.swallow:
+            self.swallow.discard("edit")
+            self.forward(_Swallowed(route))
+            return route.abort()
+        if rq.method == "POST" and path.endswith("/edit") and self.held_edit is not None:
+            self.held_edit.append(route)
+            return None
+        return super().route(route)
+
+    def drop_all(self):
+        for pid in list(self.pins()):
+            self.call("POST", "/api/pins/%d/drop" % pid, {})
+
+    def test_a_key_then_enter_while_the_save_is_out_writes_the_text_on_that_verdict(self):
+        """(P1-A, the testers' matrix) No latency and 150ms on every request; 1, Enter 30-600ms later, the text typed 50ms a
+        key and Enter: one 채택 verdict whose note is the text - an Enter while the save was out opened the popover bound to
+        that verdict, a save landing while it was typed in kept its focus, and no digit typed after Enter was a verdict key."""
+        for lat in (0, 150):
+            for gap in (30, 80, 150, 300, 600):
+                for text in ("값이 튐", "12월 값이 튐"):
+                    with self.subTest(lat=lat, gap=gap, text=text):
+                        self.drop_all()
+                        page = self.on("fig")
+                        page.evaluate(SLOW_API, lat)
+                        page.keyboard.press("1")
+                        page.wait_for_timeout(gap)
+                        page.keyboard.press("Enter")
+                        page.keyboard.type(text, delay=50)
+                        page.keyboard.press("Enter")
+                        page.wait_for_function("t=>OPEN_ALL.some(p=>p.note===t)", arg=text, timeout=10000)
+                        settle(page)
+                        self.assertEqual([(p["verdict"], p["note"]) for p in self.pins().values()], [("채택", text)])
+                        page.context.close()
+
+    def test_a_held_save_keeps_the_text_and_a_failed_one_leaves_it_as_the_pages_draft(self):
+        """(P1-A) 1 with its save held, Enter, '3번 패널' typed: the popover waits for the verdict's number with the text;
+        released, it is that verdict's draft. A save that fails meanwhile leaves the text as the page's draft."""
+        page = self.on("fig")
+        self.held = []
+        page.keyboard.press("1")
+        page.wait_for_function("PV_BUSY.size===1")
+        page.keyboard.press("Enter")
+        page.keyboard.type("3번 패널")
+        self.assertEqual(page.evaluate(POP, 1)["value"], "3번 패널")
+        self.assertEqual(page.evaluate(POP, 1)["to"], "채택 판정 이유 · 판정 저장 중")
+        self.release()
+        page.wait_for_function("OPEN_ALL.length===1")
+        settle(page)
+        (pid,) = self.pins()
+        self.assertEqual(page.evaluate(DRAFTS), {"fig:%d" % pid: "3번 패널"})
+        self.assertEqual((page.evaluate(POP, 1)["value"], page.evaluate(POP, 1)["focused"]), ("3번 패널", True))
+        page.keyboard.press("Escape")
+        page.keyboard.press("Escape")
+        settle(page)
+        self.drop_all()
+        self.reload(page)
+        self.fail_pin = 1
+        page.locator(WORD % (1, "보류")).focus()
+        page.keyboard.press("Escape")
+        page.evaluate("searchToPage()")
+        page.keyboard.press("2")
+        page.keyboard.press("Enter")
+        page.keyboard.type("실패해도 남는 이유")
+        page.wait_for_function("()=>LINE.some(n=>n.title.startsWith('판정 저장 실패'))", timeout=10000)
+        settle(page)
+        self.assertEqual(page.evaluate(DRAFTS).get("fig:p1"), "실패해도 남는 이유")
+
+    def test_focus_on_a_page_scrolled_out_of_view_goes_to_the_pages(self):
+        """(P1-B) A reason saved on page 1 leaves the focus on its pencil; the pages scroll to page 2 (tall, zoomed): the
+        focus goes to the PDF area, and Enter opens page 2's reason - typed text goes to page 2, page 1's note stays."""
+        page = self.on("fig")
+        page.evaluate("setK(PT_PX*1.5,false); ZOOMED=true")
+        settle(page)
+        a = self.press_page(page, 1, "채택")
+        b = self.press_page(page, 2, "보류")
+        page.evaluate(SCROLL, [1, "top"])
+        settle(page)
+        open_reason(page, 1)
+        page.keyboard.type("1쪽 이유")
+        page.keyboard.press("Enter")
+        page.wait_for_function("id=>OPEN_ALL.some(p=>p.id===id&&p.note)", arg=a)
+        settle(page)
+        self.assertEqual(page.evaluate(FOCUS_AT), [1, "pv-reason-open"])
+        page.evaluate(SCROLL, [2, "top"])
+        settle(page)
+        self.assertEqual(page.evaluate("document.activeElement.id"), "left")
+        page.keyboard.press("Enter")
+        page.wait_for_selector('#doc .pv[data-page="2"] .pv-pop .pv-reason')
+        page.keyboard.type("2쪽 이유")
+        page.keyboard.press("Enter")
+        page.wait_for_function("id=>OPEN_ALL.some(p=>p.id===id&&p.note)", arg=b)
+        settle(page)
+        self.assertEqual((self.pins()[a]["note"], self.pins()[b]["note"]), ("1쪽 이유", "2쪽 이유"))
+
+    def test_enter_on_an_off_screen_lines_control_before_the_focus_moved_acts_on_the_reading_page(self):
+        """(P1-B, the race) The focus on page 1's pencil, the pages scrolled to page 2 and Enter at once (before a frame):
+        page 1's reason does not open off-screen - page 2's does."""
+        page = self.on("fig")
+        page.evaluate("setK(PT_PX*1.5,false); ZOOMED=true")
+        settle(page)
+        a = self.press_page(page, 1, "채택")
+        self.press_page(page, 2, "보류")
+        page.evaluate(SCROLL, [1, "top"])
+        settle(page)
+        open_reason(page, 1)
+        page.keyboard.type("원래 이유")
+        page.keyboard.press("Enter")
+        page.wait_for_function("id=>OPEN_ALL.some(p=>p.id===id&&p.note)", arg=a)
+        settle(page)
+        page.evaluate(
+            """([n])=>{const L=document.querySelector('#left'),lr=L.getBoundingClientRect(),r=document.getElementById('p'+n).getBoundingClientRect(); L.scrollTop+=r.top-lr.top;
+              document.activeElement.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true,cancelable:true}));}""",
+            [2],
+        )
+        settle(page)
+        self.assertIsNone(page.evaluate(POP, 1))
+        self.assertIsNotNone(page.evaluate(POP, 2))
+        self.assertEqual(self.pins()[a]["note"], "원래 이유")
+
+    def test_after_wheeling_away_a_key_and_enter_write_on_the_reading_page(self):
+        """(P1-B, the testers' V1 and V2) Page 1's reason saved with the mouse leaves the focus on its pencil; the wheel takes
+        the pages to page 2. Enter there opens no popover off-screen (page 2 has no verdict); 1 then Enter 30ms later saves
+        채택 on page 2 and writes the text typed next as its reason - page 1's note stays."""
+        page = self.on("fig")
+        page.evaluate("setK(PT_PX*1.5,false); ZOOMED=true")
+        settle(page)
+        page.evaluate(SCROLL, [1, "top"])
+        settle(page)
+        a = self.press_page(page, 1, "채택")
+        page.locator('#doc .pv[data-page="1"] [data-act="pv-reason-open"]').click()
+        page.keyboard.type("원래 이유 (A쪽)")
+        page.locator('#doc .pv[data-page="1"] [data-act="pv-reason-save"]').click()
+        page.wait_for_function("id=>OPEN_ALL.some(p=>p.id===id&&p.note)", arg=a)
+        settle(page)
+        page.locator('#doc .pv[data-page="1"] .pv-note').focus()
+        box = page.locator("#left").bounding_box()
+        page.mouse.move(box["x"] + box["width"] / 2, box["y"] + box["height"] / 2)
+        for _ in range(80):
+            if page.evaluate("pvReadingAt()") == 2:
+                break
+            page.mouse.wheel(0, 300)
+            page.wait_for_timeout(60)
+        settle(page)
+        self.assertEqual(page.evaluate("document.activeElement.id"), "left")
+        page.keyboard.press("Enter")
+        settle(page)
+        self.assertEqual(page.evaluate("()=>document.querySelectorAll('#doc .pv-pop').length"), 0)
+        page.keyboard.press("1")
+        page.wait_for_timeout(30)
+        page.keyboard.press("Enter")
+        page.keyboard.type("B쪽에 쓰려던 이유", delay=40)
+        page.keyboard.press("Enter")
+        page.wait_for_function("()=>OPEN_ALL.some(p=>p.note==='B쪽에 쓰려던 이유')", timeout=10000)
+        settle(page)
+        got = {p["id"]: (p["verdict"], p["note"]) for p in self.pins().values()}
+        self.assertEqual(got.pop(a), ("채택", "원래 이유 (A쪽)"))
+        self.assertEqual(list(got.values()), [("채택", "B쪽에 쓰려던 이유")])
+
+    def test_tab_from_the_pages_goes_to_the_reading_line(self):
+        """(1) Page 2 zoomed and read; a press on the page, a press on the margin beside it and the focus sent off a line
+        scrolled away each leave the focus on the PDF area or on nothing: Tab goes to page 2's line, without scrolling."""
+        page = self.on("fig")
+        page.evaluate("setK(PT_PX*1.5,false); ZOOMED=true")
+        settle(page)
+        self.press_page(page, 1, "채택")
+        self.press_page(page, 2, "보류")
+        page.evaluate(END_CHIPS)
+
+        def at_two():
+            page.evaluate(SCROLL, [2, "top"])
+            settle(page)
+            page.evaluate("document.activeElement&&document.activeElement.blur()")
+            return page.locator("#p2").bounding_box()
+
+        def press_page():
+            box = at_two()
+            page.mouse.click(box["x"] + 20, box["y"] + 60)
+
+        def press_margin():
+            box, left = at_two(), page.locator("#left").bounding_box()
+            page.mouse.click((left["x"] + box["x"]) / 2, box["y"] + 60)
+
+        def scrolled_away():
+            page.evaluate(SCROLL, [1, "top"])
+            settle(page)
+            page.locator('#doc .pv[data-page="1"] [data-key="채택"]').focus()
+            page.evaluate(SCROLL, [2, "top"])
+
+        for name, enter in (
+            ("page", press_page),
+            ("margin", press_margin),
+            ("away", scrolled_away),
+        ):
+            with self.subTest(entry=name):
+                enter()
+                settle(page)
+                top = page.evaluate("document.querySelector('#left').scrollTop")
+                self.assertIn(
+                    page.evaluate("document.activeElement.id||document.activeElement.tagName"), ("BODY", "left")
+                )
+                page.keyboard.press("Tab")
+                self.assertEqual(page.evaluate(FOCUS_AT)[0], 2)
+                self.assertEqual(page.evaluate("document.querySelector('#left').scrollTop"), top)
+
+    def test_a_key_take_back_leaves_the_focus_on_the_lines_undo(self):
+        """(3) 1 saves 채택; 1 again takes it back - the focus is on the line's [되돌리기], and Enter there restores it."""
+        page = self.on("fig")
+        page.keyboard.press("1")
+        page.wait_for_function("OPEN_ALL.length===1")
+        settle(page)
+        page.keyboard.press("1")
+        page.wait_for_function("OPEN_ALL.length===0")
+        settle(page)
+        self.assertEqual(page.evaluate(FOCUS_AT), [1, "pv-undo"])
+        page.keyboard.press("Enter")
+        page.wait_for_function("OPEN_ALL.length===1")
+
+    def test_a_cards_delete_by_keyboard_keeps_the_focus_on_its_neighbour_after_the_list_is_read(self):
+        """(4) A verdict card's [지우기] by keyboard: the focus is on the other card's number, also after the list is read
+        again."""
+        page = self.on("fig")
+        a = self.press_page(page, 1, "채택")
+        b = self.press_page(page, 2, "보류")
+        page.evaluate(END_CHIPS)
+        settle(page)
+        page.focus('.pin.card[data-id="%d"] [data-act="drop"]' % a)
+        page.keyboard.press("Enter")
+        page.wait_for_function("id=>!OPEN_ALL.some(p=>p.id===id)", arg=a)
+        settle(page)
+        self.reload(page)
+        self.assertEqual(
+            page.evaluate("()=>{const p=document.activeElement.closest('.pin'); return p?Number(p.dataset.id):null;}"),
+            b,
+        )
+
+    def test_shift_tab_keeps_to_the_line_and_its_popover(self):
+        """(5) The popover open on page 2 (read): Shift+Tab from the line's first control goes to the popover's last, not
+        the previous page; the popover stays with its draft."""
+        page = self.on("fig")
+        page.evaluate("setK(PT_PX*1.5,false); ZOOMED=true")
+        settle(page)
+        self.press_page(page, 2, "보류")
+        page.evaluate(SCROLL, [2, "top"])
+        settle(page)
+        page.evaluate(END_CHIPS)
+        open_reason(page, 2)
+        page.keyboard.type("뒤로 탭")
+        page.focus('#doc .pv[data-page="2"] .pv-ref')
+        page.keyboard.press("Shift+Tab")
+        self.assertEqual(page.evaluate(FOCUS_AT), [2, "pv-reason-save"])
+        self.assertEqual(page.evaluate(POP, 2)["value"], "뒤로 탭")
+
+    def test_no_description_while_writing_and_a_retried_reason_clears_its_failure(self):
+        """(6) While a reason is written (its write held) its field and group point at no description. (7) A reason whose
+        answer was lost, added and then edited: [다시 시도] finds it written - its failure goes, none is left beside the
+        success."""
+        page = self.on("fig")
+        pid = self.press_page(page, 1, "채택")
+        open_reason(page, 1)
+        page.keyboard.type("쓰는 중")
+        self.held_edit = []
+        page.keyboard.press("Enter")
+        page.wait_for_function("()=>PV_REASON&&!!PV_REASON.writing")
+        described = "()=>[...document.querySelectorAll('#doc .pv-pop,#doc .pv-pop .pv-reason')].map(e=>e.getAttribute('aria-describedby'))"
+        self.assertEqual(page.evaluate(described), [None, None])
+        held, self.held_edit = self.held_edit, None
+        for r in held:
+            self.forward(r)
+        page.wait_for_function("id=>OPEN_ALL.some(p=>p.id===id&&p.note==='쓰는 중')", arg=pid)
+        settle(page)
+        failed = "()=>LINE.some(n=>n.title.startsWith('이유 저장 실패'))"
+        two = self.press_page(page, 2, "보류")
+        page.evaluate(END_CHIPS)
+        for text, opener in (("잃은 답", None), ("고친 답", '#doc .pv[data-page="2"] .pv-note')):
+            with self.subTest(text=text):
+                if opener:
+                    page.locator(opener).click()
+                else:
+                    open_reason(page, 2)
+                field = page.locator('#doc .pv[data-page="2"] .pv-reason')
+                field.fill(text)
+                self.swallow.add("edit")
+                field.press("Enter")
+                page.wait_for_function(failed)
+                settle(page)
+                self.assertEqual(self.pins()[two]["note"], text)
+                page.locator("#status [data-act=notice-act]").filter(has_text="다시 시도").click()
+                page.wait_for_function("()=>!document.querySelector('#doc .pv-pop')")
+                settle(page)
+                self.assertFalse(page.evaluate(failed))
+                self.assertEqual(self.pins()[two]["note"], text)

@@ -115,7 +115,22 @@ was; the viewer still counts the verdict order itself, and a browser test holds 
   scrolled ~39,000 px; Tab from the PDF area now goes to the reading page's line; Tab past the popover's last control
   comes back to its line instead of the next page's (which moved the reading page and closed the popover). A take-back
   by keyboard leaves the focus on the line's own [되돌리기], which the line offers while the status line does. Enter on a
-  line's `#N` moves the focus to its card; a card deleted by keyboard hands it to its neighbour.
+  line's `#N` moves the focus to its card; a card deleted by keyboard hands it to its neighbour (a verdict card too), and
+  a redrawn list (the list read after it, a poll) gives a card control's focus back to the same control. Tab after a
+  press on a page or its margin goes to the reading page's line too; Shift+Tab from a line's first control while its
+  popover is open goes to the popover's last instead of the page before. A take-back by a digit key leaves the focus on
+  the line's [되돌리기].
+- **Enter after a key save always opens the reason** (RC retest, P1-A). Pressed while the save was still out - a fast
+  typist's 1 then Enter - it was ignored, and the digits typed next (`12월 값이 튐`) saved other verdicts. It now opens
+  the popover for the verdict being saved (`채택 판정 이유 · 판정 저장 중`) with the focus in the field, binds it when the
+  save lands - keeping the focus and caret while the line changes shape around it - and writes an Enter pressed before
+  that as soon as it is bound. A save that fails keeps the text as the page's draft and says so.
+- **Keys never act on a page scrolled out of view** (RC retest, P1-B). A focus left on another page's line control (the
+  saved reason's pencil) when the reading page changes goes to the PDF area, and Enter or Space read on such a control
+  before it moved does not act there: Enter goes to the reading page's reason, Space is only said. The wheel to the next
+  page then Enter no longer opened the page before's reason off-screen and appended the text to its note.
+- **While a reason is written** its field and group no longer point at an empty description, and a [다시 시도] that finds
+  a lost answer written clears the earlier `이유 저장 실패` notice, for an added and a changed reason alike.
 - **No verdict key acts on a page a jump is gliding past.** While the pages scroll where the outline, the page list or
   a card sent them, 1-5 and Enter are not taken (the status line says so) until the scroll ends.
 - **A press queued during a save is never dropped.** A save runs on the document, build and page it was pressed on:
@@ -141,7 +156,8 @@ was; the viewer still counts the verdict order itself, and a browser test holds 
   announced; names hold their visible words (`초안 있음 — …`, `판정 취소 — …`); no `aria-describedby` points at nothing
   and no inert [접기] shows while a reason is being written. A name's particle follows its sound (`Bob이`, `Alice가`).
 - **An unsaved reason is never lost without a word** (P1-2). Drafts are kept per pin in the tab (sessionStorage); a
-  reload brings the newest one back in its popover, and leaving the page with one asks first (beforeunload). With text,
+  reload opens none by itself - each waits on its line as `초안 있음`, and the status line says how many with [보기], which
+  brings the first one's line into view with the focus on it - and leaving the page with one asks first (beforeunload). With text,
   Esc takes two presses: the first only lets the focus out of the field while the popover stays open with its text - the
   keys then change the verdict and the draft follows - and says the next one drops it; the second drops it. On touch
   [닫기] does the same. Once the popover closes - Esc, Enter, [닫기], [접기] - the focus stays on that page's line: its reason

@@ -124,7 +124,7 @@ function drawPins(){dropStaleReview();
   const rta=REPLY&&replyNote(REPLY),rfocus=rta&&document.activeElement===rta?[rta.selectionStart,rta.selectionEnd]:null;
   // The edit card's note or suggested-edit field keeps its focus and selection the same way.
   const ef=EDITOR.current&&document.activeElement&&EDITOR.current.el.contains(document.activeElement)&&document.activeElement.matches('.e-note,.e-sg-text')?/** @type {HTMLTextAreaElement} */(document.activeElement):null;
-  const eta=ef,efocus=eta?[eta.selectionStart,eta.selectionEnd]:null;
+  const eta=ef,efocus=eta?[eta.selectionStart,eta.selectionEnd]:null,cfocus=cardFocusKeep();
   secHead('open',tr(MENTION_ONLY?'나를 부른 열린 핀':SHOW_ALL&&multiDoc()?'모든 문서의 열린 핀':'열린 핀'),SHOWN.map(p=>p.id),OPEN_ALL.map(p=>p.id));
   const ab=$('#all-docs'); ab.setAttribute('aria-pressed',String(SHOW_ALL)); setHtml(ab,html`${SHOW_ALL?ic('check'):''}${tr('모든 문서')}`);
   $('#side-n').textContent=PINS.length; applySide();
@@ -148,9 +148,22 @@ function drawPins(){dropStaleReview();
   if($('#trash').open)drawTrash();
   if(REPLY){const slot=document.querySelector('#list .reply-slot'); if(slot)slot.replaceWith(REPLY.el); renderReplyOutcome();   // the pin may have changed state meanwhile
     if(rfocus&&rta&&document.contains(rta)){rta.focus(); try{rta.setSelectionRange(rfocus[0],rfocus[1]);}catch(e){}}}
-  drawOffers(nfocus); drawBanners();
+  drawOffers(nfocus); drawBanners(); cardFocusBack(cfocus);
   if(REV.target)revTargetActs();
 }
+// A focus on a card's control (its number, a button) goes back to the same control of the same card once the lists are drawn
+// again (a poll, someone's change, the list read after a [지우기] whose focus went to the card beside): drawn anew, it fell
+// to the page and the next Tab started over. Text fields keep theirs above; a card gone leaves the focus where it fell, and a
+// focus that is somewhere again (a notice's, drawOffers) stays there.
+/** @returns {{el:HTMLElement,id:string,act:string,i:number}|null} */
+function cardFocusKeep(){const a=/** @type {HTMLElement|null} */(document.activeElement),c=a&&a.closest?/** @type {HTMLElement|null} */(a.closest('#list .pin[data-id]')):null;
+  const act=a&&a.dataset?a.dataset.act||'':''; if(!a||!c||!act||a.matches('textarea,input'))return null;
+  return {el:a,id:c.dataset.id||'',act,i:[...c.querySelectorAll('[data-act="'+CSS.escape(act)+'"]')].indexOf(a)};}
+/** @param {{el:HTMLElement,id:string,act:string,i:number}|null} k */
+function cardFocusBack(k){const a=document.activeElement; if(!k||(a&&a!==document.body))return;
+  if(document.contains(k.el)){k.el.focus({preventScroll:true}); return;}   // the edit card or the reply, put back in its slot
+  const c=document.querySelector('#list .pin[data-id="'+CSS.escape(k.id)+'"]'),same=c?c.querySelectorAll('[data-act="'+CSS.escape(k.act)+'"]'):null;
+  const b=/** @type {HTMLElement|null} */(same&&(same[Math.max(0,k.i)]||same[0])); if(b)b.focus({preventScroll:true});}
 // Location estimation (.est, dashed) is judged by the server and carried as est in /api/pins (pin_est - comparing the
 // manuscript fingerprint of the build the pin was placed on with the current build). Back when the viewer judged this by
 // wall clock, it was wrong across the board with browser timezone, a note-only edited_at, and a pin placed on a stale

@@ -1379,7 +1379,6 @@
  "되돌리기 — 거둔 판정 #{id}": "Undo — the verdict #{id} taken back",
  "이유 쓰기": "write a reason",
  "이유를 붙일 내 판정이 없습니다 · 판정을 누르면 이 초안이 그 판정으로 갑니다 — {target}": "No verdict of yours to take the reason · press a verdict and this draft goes to it — {target}",
- "저장 안 된 이유 초안 {n}건을 되살렸습니다": {"one": "Brought back {n} unsaved reason draft", "other": "Brought back {n} unsaved reason drafts"},
  "지금 메모: {note}": "the note now: {note}",
  "초안 있음 — 저장 안 된 이유 초안, 누르면 이어 씁니다": "Draft — an unsaved reason draft; press to go on writing it",
  "판정 #{id} {word} 되살림 · 지금 판정은 {owner} #{cur} {now} — {target}": "Verdict #{id} {word} restored · the current verdict is {owner} #{cur} {now} — {target}",
@@ -1389,5 +1388,9 @@
  "이유 칸이 닫혀 숫자를 판정으로 받지 않았습니다 — Esc를 누르거나 쪽을 누른 뒤 다시 누릅니다": "The reason field closed, so the digit was not taken as a verdict — press Esc or the page, then press it again",
  "쪽으로 가는 중이라 판정 키를 받지 않았습니다 — 멈춘 뒤 다시 누릅니다": "The pages are still moving, so the verdict key was not taken — press it again once they stop",
  "내 메모로 덮어쓰기": "Overwrite with my note",
- "지금 메모를 읽은 뒤, 카드의 메모로 바꿉니다": "After reading the note now, replaces it with the card's note"
+ "지금 메모를 읽은 뒤, 카드의 메모로 바꿉니다": "After reading the note now, replaces it with the card's note",
+ "{word} 판정 이유 · 판정 저장 중": "Reason for the {word} verdict · the verdict is being saved",
+ "저장 안 된 이유 초안 {n}건 · 줄의 [초안 있음]이 엽니다 — {target}": {"one": "{n} unsaved reason draft · [Draft] on its line opens it — {target}", "other": "{n} unsaved reason drafts · [Draft] on their lines opens them — {target}"},
+ "판정 저장 실패 · 쓰던 이유는 이 쪽의 초안으로 남겼습니다 — {target}": "Verdict not saved · the reason you were typing is kept as this page's draft — {target}",
+ "보이지 않는 쪽의 단추라 누르지 않았습니다 — 읽는 쪽에서 다시 누릅니다": "That button is on a page out of view, so it was not pressed — press it again on the page you are reading"
 }
